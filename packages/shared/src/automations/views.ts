@@ -4,6 +4,7 @@ import type {
   Automation,
   AutomationSource,
   ClientProjectLink,
+  DataField,
   RunStatus,
   RunLogEntry,
   Condition,
@@ -70,6 +71,12 @@ export interface AutomationRunDetail extends AutomationRunRow {
     manage: boolean;
     approve: boolean;
     chooseProject: boolean;
+    /**
+     * F4: «Remember for <client>» accanto a «scegli il progetto» — chi decide
+     * ha `integrations.manage` (calcolato dal server; senza, il server dà
+     * 403). Assente da un server più vecchio: la casella non si mostra.
+     */
+    rememberClient?: boolean;
   };
   /** L'esecuzione che l'ha avviata e quelle avviate da lei, se chi guarda le vede. */
   parent: { id: string; code: string } | null;
@@ -90,6 +97,48 @@ export interface AutomationRunDetail extends AutomationRunRow {
 
 export interface AutomationSourceView extends AutomationSource {
   permissions: { manage: boolean };
+  /**
+   * Area 7, F4 (F4-1 = a): l'automazione accesa o in pausa che parte da
+   * questa sorgente. `null`: nessuna, o una che chi guarda non vede (R-G5:
+   * allora `usedByHidden` è vero). Assente da un server più vecchio.
+   */
+  usedBy?: { code: string; name: string } | null;
+  usedByHidden?: boolean;
+}
+
+/**
+ * Un webhook appena creato o rigenerato (F4): l'INDIRIZZO intero, col segreto,
+ * esce solo qui — poi il server ne tiene l'hash e non lo ridà più.
+ */
+export interface WebhookSourceCreated {
+  source: AutomationSourceView;
+  address: string;
+}
+
+/** Un evento recente di una sorgente (F4-5, F4-6: solo a chi ha `integrations.manage`). */
+export interface AutomationSourceEvent {
+  id: string;
+  receivedAt: string;
+  status: "accepted" | "duplicate" | "rejected";
+  /** Per un rifiutato: `json` (non è un oggetto JSON) o `<campo>: <tipo atteso>`. */
+  reason: string | null;
+  /** Il corpo com'è arrivato (null se non era JSON). */
+  payload: unknown;
+}
+
+/** «Replace example» di un webhook, prima di confermare (F4, come il prototipo). */
+export interface WebhookExamplePreview {
+  /** Il JSON non è valido: il messaggio del parser. */
+  error: string | null;
+  fields: DataField[];
+  /** I campi di oggi che il nuovo esempio non ha e che un'automazione usa ([A 8]). */
+  missing: { key: string; label: string; usedBy: string[] }[];
+}
+
+/** «From recent events»: un cliente arrivato da un'esecuzione ferma su «scegli il progetto», senza riga in tabella. */
+export interface ClientSuggestion {
+  clientKey: string;
+  clientName: string;
 }
 
 /** Una riga della tabella cliente → progetto: un progetto che chi guarda non vede resta senza id. */
@@ -124,6 +173,8 @@ export interface AutomationDecision {
   automationVisible: boolean;
   /** «Scegli il progetto»: il cliente letto dall'evento, se c'è. */
   clientName: string;
+  /** F4: «Remember for <client>» si può offrire (chi decide ha `integrations.manage`). Assente: no. */
+  rememberClient?: boolean;
   /** L'anteprima condivisa del passo da approvare (vedi `AutomationRunDetail.pendingEffect`). */
   effect: SimulationEffectPreview | null;
 }

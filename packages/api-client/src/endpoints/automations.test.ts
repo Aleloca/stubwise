@@ -80,3 +80,59 @@ describe("client.automations", () => {
   });
 });
 
+
+describe("area 7, F4: generali, tetto, sorgenti e tabella", () => {
+  it("le generali: projectId null e il filtro general; il tetto nel patch; remember nella scelta del progetto", async () => {
+    const { c, fetchImpl } = client({ items: [] });
+    await c.automations.list({ general: true });
+    expect(call(fetchImpl).url).toBe("https://x.test/api/automations?general=true");
+    await c.automations.create({ name: "G", projectId: null });
+    expect(call(fetchImpl, 1)).toMatchObject({ url: "https://x.test/api/automations", method: "POST", body: { name: "G", projectId: null } });
+    await c.automations.patch("AUT-1", { webhookPerMinute: 30, webhookPerDay: null });
+    expect(call(fetchImpl, 2)).toMatchObject({ url: "https://x.test/api/automations/AUT-1", method: "PATCH", body: { webhookPerMinute: 30, webhookPerDay: null } });
+    await c.automations.chooseProject("AUT-1", 3, { expectedPath: "0", projectId: "p1", remember: true });
+    expect(call(fetchImpl, 3)).toMatchObject({ url: "https://x.test/api/automations/AUT-1/runs/3/project", body: { remember: true } });
+  });
+
+  it("le sorgenti: elenco, crea, rinomina, rigenera, esempio (anteprima e conferma), campo (chiave codificata), eventi", async () => {
+    const { c, fetchImpl } = client({});
+    await c.automationSources.list();
+    await c.automationSources.createWebhook({ name: "Ordini" });
+    await c.automationSources.rename("s1", { name: "Ordini 2" });
+    await c.automationSources.regenerate("s1");
+    await c.automationSources.previewExample("s1", "{}");
+    await c.automationSources.setExample("s1", "{}");
+    await c.automationSources.updateField("s1", "prodotti.nome", { type: "text" });
+    await c.automationSources.events("s1");
+    expect(fetchImpl.mock.calls.map((_, i) => `${call(fetchImpl, i).method} ${call(fetchImpl, i).url.replace("https://x.test", "")}`)).toEqual([
+      "GET /api/automation-sources",
+      "POST /api/automation-sources",
+      "PATCH /api/automation-sources/s1",
+      "POST /api/automation-sources/s1/regenerate",
+      "POST /api/automation-sources/s1/example/preview",
+      "PUT /api/automation-sources/s1/example",
+      "PATCH /api/automation-sources/s1/fields/prodotti.nome",
+      "GET /api/automation-sources/s1/events",
+    ]);
+    expect(call(fetchImpl, 5).body).toEqual({ json: "{}" });
+  });
+
+  it("la tabella cliente → progetto: elenco, suggerimenti, scrivi e togli (la chiave codificata nel percorso)", async () => {
+    const { c, fetchImpl } = client({});
+    await c.clientLinks.list();
+    await c.clientLinks.suggestions();
+    await c.clientLinks.put("acme.it", { clientName: "Acme", projectId: "p1" });
+    await c.clientLinks.remove("a b/c");
+    expect(call(fetchImpl, 2)).toMatchObject({ url: "https://x.test/api/client-links/acme.it", method: "PUT", body: { clientName: "Acme", projectId: "p1" } });
+    expect(call(fetchImpl, 3)).toMatchObject({ url: "https://x.test/api/client-links/a%20b%2Fc", method: "DELETE" });
+    expect(call(fetchImpl, 1).url).toBe("https://x.test/api/client-links/suggestions");
+  });
+
+  it("una risposta di un server di prima, SENZA i campi della F4 (webhookLimits, usedBy, rememberClient), è ancora del tipo giusto", async () => {
+    const old = { items: [{ id: "s1", kind: "webhook", name: "W", status: "connected", connectedById: "u", sampleEvents: [], fields: [], permissions: { manage: true } }] };
+    const { c } = client(old);
+    const { items } = await c.automationSources.list();
+    expect(items[0]!.usedBy ?? null).toBeNull();
+    expect(items[0]!.usedByHidden === true).toBe(false);
+  });
+});

@@ -7,10 +7,10 @@ import {
   mailOutgoing,
   type Db,
 } from "@stubwise/db";
-import { automationEventFields as eventFields, projectPermissionsOfUser } from "@stubwise/notifications";
+import { automationEventFields as eventFields, automationOwnerInScope, projectPermissionsOfUser } from "@stubwise/notifications";
 import { wakeTaskWaits } from "./waits.js";
 import { chainAllows, evaluate, initialState, lookup, render, type AutomationFlow } from "@stubwise/shared";
-import { and, asc, desc, eq, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 
 /**
  * IL CONSUMATORE DEGLI EVENTI (area 7, fetta 1): dall'outbox
@@ -18,9 +18,14 @@ import { and, asc, desc, eq, inArray, isNotNull, lte, sql } from "drizzle-orm";
  * esecuzioni. Le regole (`docs/invariants/automations.md`, e `startsOn` /
  * `chainAllows` del prototipo, `data/automations/sources.ts`):
  *
- * - parte un'automazione del PROGETTO dell'evento, `active`, con un
- *   proprietario che vede il progetto, la cui versione pubblicata ascolta
- *   quell'evento e il cui filtro d'inizio vale sui campi dell'evento;
+ * - parte un'automazione del PROGETTO dell'evento, o una GENERALE (F4),
+ *   `active`, con un proprietario che vede il progetto (e, per una generale,
+ *   ha ancora `automations.general.manage`), la cui versione pubblicata
+ *   ascolta quell'evento e il cui filtro d'inizio vale sui campi dell'evento;
+ * - l'evento di una SORGENTE (`source_event`, F4: il webhook in arrivo) fa
+ *   partire l'automazione accesa che ne parte (una sola, F4-1 = a), coi campi
+ *   già controllati e proiettati dal server: è il solo percorso che non ha né
+ *   progetto né casella, e non è mai una catena (viene da fuori);
  * - NIENTE RECUPERO RETROATTIVO: l'evento nato prima di `active_since` non
  *   la avvia (accenderla, o riaccenderla, non riprende gli eventi vecchi);
  * - la CATENA: un evento scritto da un'esecuzione (`origin_run_id`) non
@@ -108,14 +113,16 @@ export async function consumeAutomationEvents(deps: ConsumerDeps): Promise<numbe
 async function startRunsFor(tx: Tx, row: EventRow, log: (msg: string) => void): Promise<number> {
   // Un evento della posta (0170, F2) non ha progetto né riga: ha il suo percorso (`mail_received`, S8).
   if (row.kind === "mail_received") return startMailRunsFor(tx, row, log);
+  if (row.kind === "source_event") return startSourceRunsFor(tx, row, log);
   if (row.projectId === null || row.objectId === null) return 0;
-  const event = { ...row, projectId: row.projectId, objectId: row.objectId, kind: row.kind as Exclude<EventRow["kind"], "mail_received"> };
+  const event = { ...row, projectId: row.projectId, objectId: row.objectId, kind: row.kind as Exclude<EventRow["kind"], "mail_received" | "source_event"> };
   const candidates = await tx
     .select({ automation: automations })
     .from(automations)
     .where(
       and(
-        eq(automations.projectId, event.projectId),
+        // F4: anche le generali ascoltano gli eventi di ogni progetto che il proprietario vede.
+        or(eq(automations.projectId, event.projectId), isNull(automations.projectId)),
         eq(automations.status, "active"),
         isNotNull(automations.ownerId),
         isNotNull(automations.activeSince),
@@ -141,6 +148,7 @@ async function startRunsFor(tx: Tx, row: EventRow, log: (msg: string) => void): 
         const trigger = flow.trigger;
         if (trigger.kind !== "stubwise" || trigger.event !== event.kind) return false;
         if (!(await projectPermissionsOfUser(sp, a.ownerId!, event.projectId))) return false;
+        if (a.projectId === null && !(await automationOwnerInScope(sp, a.ownerId!, null))) return false;
         if (event.originRunId && !chainAllows(ancestors, a.id)) return false;
         fields ??= await eventFields(sp, event);
         if (trigger.filter && !evaluate(trigger.filter, (key) => lookup(fields!, key))) return false;
@@ -190,7 +198,7 @@ async function startMailRunsFor(tx: Tx, row: EventRow, log: (msg: string) => voi
         const flow = version.flow as AutomationFlow;
         const trigger = flow.trigger;
         if (trigger.kind !== "stubwise" || trigger.event !== "mail_received") return false;
-        if (!(await projectPermissionsOfUser(sp, a.ownerId!, a.projectId))) return false;
+        if (!(await automationOwnerInScope(sp, a.ownerId!, a.projectId))) return false;
         if (payload.threadId) {
           const [pingPong] = await sp
             .select({ id: mailOutgoing.id })
@@ -211,6 +219,52 @@ async function startMailRunsFor(tx: Tx, row: EventRow, log: (msg: string) => voi
   return started;
 }
 
+/**
+ * L'evento di una sorgente (F4, il webhook in arrivo): l'automazione accesa
+ * la cui versione pubblicata parte da quella sorgente. I campi sono già la
+ * proiezione sui campi dichiarati (`checkEventFields` nel server): restano
+ * NON fidati (li ha scritti chiunque abbia l'indirizzo), e `taint.ts` li
+ * tinge come campi di un inizio `source`.
+ */
+async function startSourceRunsFor(tx: Tx, row: EventRow, log: (msg: string) => void): Promise<number> {
+  if (!row.sourceId) return 0;
+  const fields = ((row.payload ?? {}) as { event?: Record<string, unknown> }).event ?? {};
+  const candidates = await tx
+    .select({ automation: automations })
+    .from(automations)
+    .where(
+      and(
+        eq(automations.status, "active"),
+        isNotNull(automations.ownerId),
+        isNotNull(automations.activeSince),
+        lte(automations.activeSince, row.createdAt),
+        sql`exists (
+          select 1 from ${automationVersions} v
+          where v.automation_id = ${automations.id} and v.published_at is not null
+            and v.flow->'trigger'->>'kind' = 'source' and v.flow->'trigger'->>'sourceId' = ${row.sourceId}
+        )`,
+      ),
+    )
+    .orderBy(asc(automations.code));
+  let started = 0;
+  for (const { automation: a } of candidates) {
+    try {
+      const ok = await tx.transaction(async (sp) => {
+        const version = await publishedVersion(sp, a.id);
+        if (!version) return false;
+        const flow = version.flow as AutomationFlow;
+        if (flow.trigger.kind !== "source" || flow.trigger.sourceId !== row.sourceId) return false;
+        if (!(await automationOwnerInScope(sp, a.ownerId!, a.projectId))) return false;
+        return createRun(sp, a, version.n, flow, fields, row, null);
+      });
+      if (ok) started += 1;
+    } catch (err) {
+      log(`[automations] sorgente ${row.sourceId}, automazione ${a.code}: avvio saltato (${err instanceof Error ? err.message : String(err)})`);
+    }
+  }
+  return started;
+}
+
 /** La versione con cui partono le esecuzioni nuove: l'ultima pubblicata. */
 async function publishedVersion(tx: Tx, automationId: string) {
   const [v] = await tx
@@ -222,8 +276,8 @@ async function publishedVersion(tx: Tx, automationId: string) {
   return v ?? null;
 }
 
-/** L'esecuzione d'origine e le sue antenate (`parent_run_id`), dalla più vicina. */
-async function ancestorsOf(tx: Tx, runId: string): Promise<{ automationId: string }[]> {
+/** L'esecuzione d'origine e le sue antenate (`parent_run_id`), dalla più vicina (la usa anche «avvia un'altra»). */
+export async function ancestorsOf(tx: Tx, runId: string): Promise<{ automationId: string }[]> {
   const rows = await tx.execute<{ automation_id: string }>(sql`
     with recursive chain(id, automation_id, parent_run_id, depth) as (
       select id, automation_id, parent_run_id, 0 from ${automationRuns} where id = ${runId}
@@ -266,12 +320,12 @@ async function createRun(
     title,
     status: "running",
     event: fields,
-    // Un evento scritto da un'esecuzione fa nascere una figlia (la catena).
-    origin: event.originRunId ? "automation" : "stubwise",
+    // Un evento scritto da un'esecuzione fa nascere una figlia (la catena); quello di una sorgente viene da fuori.
+    origin: event.originRunId ? "automation" : event.kind === "source_event" ? "source" : "stubwise",
     parentRunId,
     // C1 (review F2): la casella dell'esecuzione — quella dell'email per «email in arrivo», altrimenti quella dell'automazione.
     mailboxAccountId: event.accountId ?? a.mailboxAccountId,
-    projectIds: [a.projectId],
+    projectIds: a.projectId ? [a.projectId] : [],
     startedAt: sql`clock_timestamp()`,
     dueAt: sql`now()`,
   });

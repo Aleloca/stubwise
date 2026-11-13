@@ -8,9 +8,10 @@ import {
   type AutomationFlow,
   type MyAutomationRun,
 } from "@stubwise/shared";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
-import { canManage, seen, sees, type Viewer } from "./model.js";
+import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { canManage, managesGeneral, seen, seesAutomation, type Viewer } from "./model.js";
 import { decidersOf, pendingEffectOf, runCode, runRowOf } from "./runs.js";
+import { canManageIntegrations } from "./sources.js";
 
 /**
  * LE LETTURE PERSONALI delle Automations (area 7, fetta 1; la specifica è
@@ -27,12 +28,15 @@ const OPEN = ["running", "waiting_approval", "waiting_project", "suspended"] as 
 
 async function candidates(db: Db, viewer: Viewer, statuses: readonly string[]) {
   const visible = await seen(db, viewer);
-  if (visible !== "all" && visible.size === 0) return { visible, rows: [] };
+  const generals = managesGeneral(viewer);
+  if (visible !== "all" && visible.size === 0 && !generals) return { visible, rows: [] };
+  // Le generali (F4) solo a chi le vede (R-G5).
+  const projectScope = visible === "all" ? isNotNull(automations.projectId) : visible.size > 0 ? inArray(automations.projectId, [...visible]) : sql`false`;
   const rows = await db
     .select({ run: automationRuns, automation: automations })
     .from(automationRuns)
     .innerJoin(automations, eq(automations.id, automationRuns.automationId))
-    .where(and(visible === "all" ? undefined : inArray(automations.projectId, [...visible]), inArray(automationRuns.status, statuses as never)))
+    .where(and(generals ? or(projectScope, isNull(automations.projectId)) : projectScope, inArray(automationRuns.status, statuses as never)))
     .orderBy(desc(automationRuns.startedAt))
     .limit(500);
   return { visible, rows };
@@ -48,10 +52,23 @@ const MAX_ITEMS = 200;
  * stessa regola di `approvalProjectOf`: `pending.preview.progetto` se c'è,
  * altrimenti il progetto dell'automazione. Senza le esecuzioni con una
  * decisione già in coda: il passo è deciso, l'esecutore la applica al giro.
+ *
+ * F4: una generale ferma su «scegli il progetto» non ha un progetto
+ * d'approvazione (lo sta scegliendo): la decide il proprietario, che la
+ * trova anche senza vedere alcun progetto.
  */
 async function waitingCandidates(db: Db, viewer: Viewer) {
   const visible = await seen(db, viewer);
-  if (visible !== "all" && visible.size === 0) return { visible, rows: [] };
+  const ownerOfUnplaced = and(sql`coalesce(${automationRuns.pending}->'preview'->>'progetto', ${automations.projectId}::text) is null`, eq(automations.ownerId, viewer.id));
+  if (visible !== "all" && visible.size === 0) {
+    const rows = await db
+      .select({ run: automationRuns, automation: automations })
+      .from(automationRuns)
+      .innerJoin(automations, eq(automations.id, automationRuns.automationId))
+      .where(and(inArray(automationRuns.status, [...WAITING]), ownerOfUnplaced, sql`not exists (select 1 from ${automationRunInputs} i where i.run_id = ${automationRuns.id} and i.consumed_at is null)`))
+      .orderBy(desc(automationRuns.startedAt));
+    return { visible, rows };
+  }
   const approvalProject = sql`coalesce(${automationRuns.pending}->'preview'->>'progetto', ${automations.projectId}::text)`;
   const rows = await db
     .select({ run: automationRuns, automation: automations })
@@ -60,7 +77,7 @@ async function waitingCandidates(db: Db, viewer: Viewer) {
     .where(
       and(
         inArray(automationRuns.status, [...WAITING]),
-        visible === "all" ? undefined : sql`${approvalProject} in (${sql.join([...visible].map((id) => sql`${id}`), sql`, `)})`,
+        visible === "all" ? undefined : or(sql`${approvalProject} in (${sql.join([...visible].map((id) => sql`${id}`), sql`, `)})`, ownerOfUnplaced),
         sql`not exists (select 1 from ${automationRunInputs} i where i.run_id = ${automationRuns.id} and i.consumed_at is null)`,
       ),
     )
@@ -98,8 +115,10 @@ export async function listMyApprovals(db: Db, viewer: Viewer): Promise<Automatio
       round: pending.round ?? 0,
       automationCode: a.code,
       n: run.n,
-      automationVisible: sees(visible, a.projectId),
+      automationVisible: seesAutomation(visible, viewer, a),
       clientName: typeof cliente === "string" ? cliente : "",
+      // F4: «Remember for <client>» solo a chi gestisce le integrazioni (calcolato qui, il client lo legge).
+      rememberClient: run.status === "waiting_project" && canManageIntegrations(viewer),
       effect: v ? await pendingEffectOf(db, visible, run, a, await runRowOf(db, viewer, run, a, visible), v.flow as AutomationFlow) : null,
     });
   }
@@ -118,11 +137,12 @@ export async function listMyRuns(db: Db, viewer: Viewer, opts: { withLog?: boole
   const manageable = new Map<string, boolean>();
   const out: MyAutomationRun[] = [];
   for (const { run, automation: a } of rows) {
-    if (!manageable.has(a.projectId)) manageable.set(a.projectId, await canManage(db, viewer, a.projectId));
+    const scopeKey = a.projectId ?? "general";
+    if (!manageable.has(scopeKey)) manageable.set(scopeKey, await canManage(db, viewer, a.projectId));
     const deciders = await decidersOf(db, run, a);
     const concern = deciders.includes(viewer.id)
       ? ("waiting_me" as const)
-      : run.status === "failed" && manageable.get(a.projectId)
+      : run.status === "failed" && manageable.get(scopeKey)
         ? ("failed" as const)
         : run.status !== "failed" && a.ownerId === viewer.id
           ? ("owner" as const)

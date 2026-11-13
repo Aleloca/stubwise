@@ -19,3 +19,4 @@ export * from "./email.js";
 export * from "./schedule.js";
 export * from "./taint.js";
 export * from "./runRules.js";
+export * from "./sourceFields.js";

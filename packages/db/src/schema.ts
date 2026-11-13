@@ -6464,11 +6464,15 @@ export const automationRunStatus = pgEnum("automation_run_status", ["running", "
 /** Da dove è partita (`AutomationRun.origin` di `@stubwise/shared`): un evento di Stubwise, a mano, o un'altra esecuzione. */
 export const automationRunOrigin = pgEnum("automation_run_origin", ["manual", "source", "stubwise", "schedule", "automation"]);
 /** `mail_received` (0170, F2): lo scrive il poller Google, non un trigger (C-F2-0). */
-export const automationEventKind = pgEnum("automation_event_kind", ["task_created", "task_closed", "request_created", "request_converted", "milestone_reached", "mail_received"]);
-/** `email` (0170, F2): `object_id` è la riga `mail_outgoing`. */
-export const automationEffectKind = pgEnum("automation_effect_kind", ["task", "milestone", "request", "notification", "email"]);
+export const automationEventKind = pgEnum("automation_event_kind", ["task_created", "task_closed", "request_created", "request_converted", "milestone_reached", "mail_received", "source_event"]);
+/** `email` (0170, F2): `object_id` è la riga `mail_outgoing`. `run` (0174, F4): l'esecuzione figlia di «avvia un'altra». */
+export const automationEffectKind = pgEnum("automation_effect_kind", ["task", "milestone", "request", "notification", "email", "run"]);
 
-/** Un'automazione di progetto: codice unico `<PRJ>-A<seq>`, la versione pubblicata e (al più) una bozza. */
+/**
+ * Un'automazione: di progetto (codice `<PRJ>-A<seq>`) o GENERALE (`project_id`
+ * null, codice `AUT-<n>` dalla sequenza `automation_general_code_seq`, 0174),
+ * la versione pubblicata e (al più) una bozza.
+ */
 export const automations = pgTable(
   "automations",
   {
@@ -6477,9 +6481,8 @@ export const automations = pgTable(
     seq: integer("seq").notNull(),
     name: text("name").notNull(),
     description: text("description").notNull().default(""),
-    projectId: uuid("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+    /** Null per una generale (0174, F4): agisce nel progetto che il passo dice. */
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
     /** Chi ne risponde: i suoi permessi valgono a ogni effetto. Null finché una bozza non si accende. */
     ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
     status: automationStatus("status").notNull().default("draft"),
@@ -6495,8 +6498,12 @@ export const automations = pgTable(
     mailboxAccountId: uuid("mailbox_account_id").references(() => googleAccounts.id, { onDelete: "set null" }),
     /** Ascolta la posta della sua casella («email in arrivo»), scritto alla pubblicazione (0172, review F2 I2). */
     listensMail: boolean("listens_mail").notNull().default(false),
+    /** Il tetto del webhook in arrivo, scelto da chi gestisce l'automazione (0174, F4-2 = c): null = il default. */
+    webhookPerMinute: integer("webhook_per_minute"),
+    webhookPerDay: integer("webhook_per_day"),
   },
   (table) => [
+    check("automations_webhook_caps_chk", sql`(${table.webhookPerMinute} IS NULL OR ${table.webhookPerMinute} > 0) AND (${table.webhookPerDay} IS NULL OR ${table.webhookPerDay} > 0)`),
     index("automations_listens_mail_idx").on(table.mailboxAccountId).where(sql`${table.listensMail} AND ${table.status} = 'active'`),
     uniqueIndex("automations_code_idx").on(table.code),
     uniqueIndex("automations_project_seq_idx").on(table.projectId, table.seq),
@@ -6573,6 +6580,14 @@ export const automationRuns = pgTable(
      * posta. Ripubblicare con un'altra casella non sposta le esecuzioni partite.
      */
     mailboxAccountId: uuid("mailbox_account_id").references(() => googleAccounts.id, { onDelete: "set null" }),
+    /**
+     * R-J13 lungo la catena (0174, F4): la casella della posta che l'EVENTO di
+     * questa esecuzione porta — per una figlia di «avvia un'altra», quella
+     * d'origine della catena. Se c'è, la posta la legge solo il proprietario di
+     * QUELLA casella, anche se la figlia è di un altro. Da `mailbox_account_id`
+     * invece l'esecuzione manda.
+     */
+    mailOriginAccountId: uuid("mail_origin_account_id").references(() => googleAccounts.id, { onDelete: "set null" }),
   },
   (table) => [
     uniqueIndex("automation_runs_n_idx").on(table.automationId, table.n),
@@ -6678,7 +6693,9 @@ export const automationEvents = pgTable(
     accountId: uuid("account_id").references(() => googleAccounts.id, { onDelete: "cascade" }),
     /** Null per un evento della posta: un messaggio rifiutato dall'ammissione non ha una riga. */
     objectId: uuid("object_id"),
-    /** La deduplica di un evento senza riga (`mail:<accountId>:<gmailMessageId>`). */
+    /** La sorgente di un evento `source_event` (0174, F4): né progetto né casella. */
+    sourceId: uuid("source_id").references((): AnyPgColumn => automationSources.id, { onDelete: "cascade" }),
+    /** La deduplica di un evento senza riga (`mail:<accountId>:<gmailMessageId>`, `src:<sourceId>:<chiave>`). */
     dedupeKey: text("dedupe_key"),
     payload: jsonb("payload").notNull().default({}),
     originRunId: uuid("origin_run_id"),
@@ -6689,6 +6706,83 @@ export const automationEvents = pgTable(
   (table) => [
     index("automation_events_pending_idx").on(table.createdAt).where(sql`${table.consumedAt} IS NULL`),
     uniqueIndex("automation_events_dedupe_idx").on(table.dedupeKey).where(sql`${table.dedupeKey} IS NOT NULL`),
-    check("automation_events_project_or_account_chk", sql`${table.projectId} IS NOT NULL OR ${table.accountId} IS NOT NULL`),
+    check("automation_events_project_or_account_chk", sql`${table.projectId} IS NOT NULL OR ${table.accountId} IS NOT NULL OR ${table.sourceId} IS NOT NULL`),
   ],
+);
+
+/**
+ * Le sorgenti delle automazioni (0174, F4): per ora solo il webhook in arrivo.
+ * Il segreto dell'indirizzo è salvato come hash (sha256 esadecimale): esce in
+ * chiaro solo dalla creazione e dalla rigenerazione. `fields` sono i
+ * `DataField` derivati dall'esempio (`deriveFields` di shared), con etichetta
+ * e tipo modificabili.
+ */
+export const automationSources = pgTable(
+  "automation_sources",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: text("kind").$type<"webhook">().notNull(),
+    name: text("name").notNull(),
+    secretHash: text("secret_hash").notNull(),
+    example: jsonb("example"),
+    fields: jsonb("fields").notNull().default([]),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    regeneratedBy: uuid("regenerated_by").references(() => users.id, { onDelete: "set null" }),
+    regeneratedAt: timestamp("regenerated_at", { withTimezone: true }),
+  },
+  (table) => [uniqueIndex("automation_sources_secret_idx").on(table.secretHash), check("automation_sources_kind_chk", sql`${table.kind} = 'webhook'`)],
+);
+
+/** Gli eventi recenti di una sorgente (0174, F4-5/F4-6): li legge solo `integrations.manage`; gli ultimi 100. */
+export const automationSourceEvents = pgTable(
+  "automation_source_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => automationSources.id, { onDelete: "cascade" }),
+    status: text("status").$type<"accepted" | "duplicate" | "rejected">().notNull(),
+    reason: text("reason"),
+    payload: jsonb("payload"),
+    /** L'evento dell'outbox (per un accettato). */
+    eventId: uuid("event_id"),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  },
+  (table) => [
+    index("automation_source_events_source_idx").on(table.sourceId, table.receivedAt.desc()),
+    check("automation_source_events_status_chk", sql`${table.status} IN ('accepted', 'duplicate', 'rejected')`),
+  ],
+);
+
+/** Il tetto del webhook per finestra (0174, D3): contatori atomici (`INSERT … ON CONFLICT … RETURNING`). */
+export const automationSourceHits = pgTable(
+  "automation_source_hits",
+  {
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => automationSources.id, { onDelete: "cascade" }),
+    window: text("window").$type<"minute" | "day">().notNull(),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+    count: integer("count").notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ name: "automation_source_hits_pk", columns: [table.sourceId, table.window, table.windowStart] }),
+    check("automation_source_hits_window_chk", sql`${table.window} IN ('minute', 'day')`),
+  ],
+);
+
+/** La tabella cliente → progetto (0174, F4): la chiave è `clientKeyOf` di shared (trim + lower, un CHECK lo tiene). */
+export const clientProjectLinks = pgTable(
+  "client_project_links",
+  {
+    clientKey: text("client_key").primaryKey(),
+    clientName: text("client_name").notNull(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    addedBy: uuid("added_by").references(() => users.id, { onDelete: "set null" }),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [check("client_project_links_key_chk", sql`${table.clientKey} <> '' AND ${table.clientKey} = lower(btrim(${table.clientKey}))`)],
 );

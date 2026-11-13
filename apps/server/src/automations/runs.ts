@@ -28,8 +28,9 @@ import {
   type RunLogEntry,
   type RunStatus,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
-import { AutomationError, canManage, flowFor, forbidden, notFound, seen, sees, visibleAutomation, type AutomationRecord, type Viewer } from "./model.js";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import { canManageIntegrations, writeClientLink } from "./sources.js";
+import { AutomationError, sourcesFor, canManage, flowFor, forbidden, GENERAL_PERMISSION, managesGeneral, notFound, seen, sees, seesAutomation, visibleAutomation, type AutomationRecord, type Viewer } from "./model.js";
 
 /**
  * LE ESECUZIONI nel server (area 7, fetta 1; la specifica è
@@ -147,14 +148,17 @@ export async function runRowOf(db: Db, viewer: Viewer, r: RunRecord, a: Automati
   // C1 (review F2): la posta di un'esecuzione la legge il proprietario della SUA
   // casella (ripubblicare con un'altra casella non la passa a un altro); senza
   // casella, il proprietario dell'automazione.
-  const [box] = r.mailboxAccountId ? await db.select({ userId: googleAccounts.userId }).from(googleAccounts).where(eq(googleAccounts.id, r.mailboxAccountId)) : [];
-  const mailOwner = r.mailboxAccountId ? (box?.userId ?? null) : a.ownerId;
+  // F4, R-J13 lungo la catena: una figlia di «avvia un'altra» porta la posta della casella d'ORIGINE:
+  // la legge solo il proprietario di quella, anche se la figlia è di un altro.
+  const mailBox = r.mailOriginAccountId ?? r.mailboxAccountId;
+  const [box] = mailBox ? await db.select({ userId: googleAccounts.userId }).from(googleAccounts).where(eq(googleAccounts.id, mailBox)) : [];
+  const mailOwner = mailBox ? (box?.userId ?? null) : a.ownerId;
   if (viewer.id !== mailOwner) hideReplies(run, opts.decider !== true);
   // R-J13 (area 7, F2, la regola di `viewRun` del prototipo): di un'esecuzione
   // partita da un'email solo il proprietario vede mittente, oggetto e testo.
   // Gli altri leggono l'evento vuoto con `mailHidden`, il titolo col solo nome
   // e le righe senza dati (nessuna eco dell'email); chi decide vede
-  // l'anteprima del passo. (La catena, con «avvia un'altra», arriva in F4.)
+  // l'anteprima del passo. Lungo la catena («avvia un'altra», F4) vale la casella d'origine.
   // F3, C-F3-7 e review F3 I3: ciò che Claude ha ricavato da un dato tinto (di
   // fuori: la risposta di un cliente, un'email, una richiesta dal supporto) lo
   // legge solo il proprietario della posta, admin compresi. Per gli altri: la
@@ -164,8 +168,8 @@ export async function runRowOf(db: Db, viewer: Viewer, r: RunRecord, a: Automati
   if (viewer.id !== mailOwner && run.log.some((e) => e.kind === "claude")) {
     const flow = await flowOfRun(db, r);
     if (flow) {
-      // Le sorgenti esterne arrivano con la F4: fino ad allora non ce ne sono (registro).
-      const tainted = taintedKeys(flow, []);
+      // F4: i campi di una sorgente (il webhook in arrivo) sono tinti come gli altri dati di fuori.
+      const tainted = taintedKeys(flow, await sourcesFor(db, flow));
       const isTainted = (k: string) => tainted.has(k) || [...tainted].some((t) => k.startsWith(`${t}.`));
       const claudeSteps = new Map<string, Extract<Step, { kind: "claude" }>>();
       visitSteps(flow.steps, (st) => {
@@ -242,7 +246,7 @@ export async function visibleRun(db: Db, viewer: Viewer, code: string, n: number
   const [r] = await db.select().from(automationRuns).where(and(eq(automationRuns.automationId, a.id), eq(automationRuns.n, n)));
   if (!r) throw notFound();
   const deciders = await decidersOf(db, r, a);
-  if (!sees(await seen(db, viewer), a.projectId) && !deciders.includes(viewer.id)) throw notFound();
+  if (!seesAutomation(await seen(db, viewer), viewer, a) && !deciders.includes(viewer.id)) throw notFound();
   return { run: r, automation: a, deciders };
 }
 
@@ -251,9 +255,9 @@ export async function getRun(db: Db, viewer: Viewer, code: string, n: number): P
   const visible = await seen(db, viewer);
   const row = await runRowOf(db, viewer, run, automation, visible, { decider: deciders.includes(viewer.id) });
   const flow = (await flowOfRun(db, run)) ?? { trigger: { kind: "manual" as const }, steps: [], titleTemplate: "" };
-  const seesAutomation = sees(visible, automation.projectId);
-  const manage = seesAutomation && (await canManage(db, viewer, automation.projectId));
-  const [parent] = run.parentRunId && seesAutomation ? await db.select().from(automationRuns).where(eq(automationRuns.id, run.parentRunId)) : [];
+  const seesIt = seesAutomation(visible, viewer, automation);
+  const manage = seesIt && (await canManage(db, viewer, automation.projectId));
+  const [parent] = run.parentRunId && seesIt ? await db.select().from(automationRuns).where(eq(automationRuns.id, run.parentRunId)) : [];
   const parentAutomation = parent ? (await db.select().from(automations).where(eq(automations.id, parent.automationId)))[0] : undefined;
   const children = await db
     .select({ id: automationRuns.id, n: automationRuns.n, status: automationRuns.status, code: automations.code, projectId: automations.projectId })
@@ -269,9 +273,10 @@ export async function getRun(db: Db, viewer: Viewer, code: string, n: number): P
       manage,
       approve: run.status === "waiting_approval" && deciders.includes(viewer.id),
       chooseProject: run.status === "waiting_project" && deciders.includes(viewer.id),
+      rememberClient: run.status === "waiting_project" && deciders.includes(viewer.id) && canManageIntegrations(viewer),
     },
-    parent: parent && parentAutomation && sees(visible, parentAutomation.projectId) ? { id: parent.id, code: runCode(parentAutomation, parent.n) } : null,
-    children: children.filter((c) => sees(visible, c.projectId)).map((c) => ({ id: c.id, code: `${c.code} #${c.n}`, status: c.status })),
+    parent: parent && parentAutomation && seesAutomation(visible, viewer, parentAutomation) ? { id: parent.id, code: runCode(parentAutomation, parent.n) } : null,
+    children: children.filter((c) => seesAutomation(visible, viewer, c)).map((c) => ({ id: c.id, code: `${c.code} #${c.n}`, status: c.status })),
     pendingEffect: await pendingEffectOf(db, visible, run, automation, row, flow),
     // Un input di chi guarda in coda, non ancora applicato dal worker (review del renderer, I2).
     inputQueued:
@@ -292,8 +297,12 @@ export async function listRuns(
   q: { automation?: string; project?: string; status?: RunStatus; cursor?: string; limit?: number; log?: "none" },
 ): Promise<{ items: AutomationRunRow[]; nextCursor: string | null }> {
   const visible = await seen(db, viewer);
-  if (visible !== "all" && visible.size === 0) return { items: [], nextCursor: null };
+  const generals = managesGeneral(viewer);
+  if (visible !== "all" && visible.size === 0 && !generals) return { items: [], nextCursor: null };
   const limit = Math.min(q.limit ?? 50, 200);
+  // Le esecuzioni delle generali solo a chi le vede (R-G5), filtrate nella WHERE.
+  const projectScope = visible === "all" ? isNotNull(automations.projectId) : visible.size > 0 ? inArray(automations.projectId, [...visible]) : sql`false`;
+  const scope = generals ? or(projectScope, isNull(automations.projectId)) : projectScope;
   const [cAt, cId] = q.cursor ? q.cursor.split("|") : [];
   const rows = await db
     .select({ run: automationRuns, automation: automations })
@@ -301,7 +310,7 @@ export async function listRuns(
     .innerJoin(automations, eq(automations.id, automationRuns.automationId))
     .where(
       and(
-        visible === "all" ? undefined : inArray(automations.projectId, [...visible]),
+        scope,
         q.automation ? eq(automations.code, q.automation.toUpperCase()) : undefined,
         q.project ? eq(automations.projectId, q.project) : undefined,
         q.status ? eq(automationRuns.status, q.status as never) : undefined,
@@ -379,9 +388,26 @@ export async function rejectRun(db: Db, viewer: Viewer, code: string, n: number,
   await decide(db, viewer, code, n, "waiting_approval", { path: body.expectedPath, round: body.expectedRound }, async () => ({ kind: "rejected", path: body.expectedPath, byId: viewer.id }));
 }
 
-export async function chooseRunProject(db: Db, viewer: Viewer, code: string, n: number, body: { projectId: string; expectedPath: string; expectedRound?: number }): Promise<void> {
-  await decide(db, viewer, code, n, "waiting_project", { path: body.expectedPath, round: body.expectedRound }, async (tx) => {
+/**
+ * «Scegli il progetto» (il proprietario), fra quelli che vede. Con `remember`
+ * (F4, shape [A 26]) la scelta entra anche nella tabella cliente → progetto,
+ * a nome di chi sceglie, nella STESSA transazione: senza `integrations.manage`
+ * è 403 e non si sceglie niente (decisione di 46, la regola del prototipo: un
+ * progetto non si sceglie in silenzio lasciando credere che la tabella sia
+ * stata scritta). La chiave è quella del `pending` (`clientKeyOf` la
+ * normalizza), il nome quello del cliente se c'è, altrimenti la chiave.
+ */
+export async function chooseRunProject(db: Db, viewer: Viewer, code: string, n: number, body: { projectId: string; expectedPath: string; expectedRound?: number; remember?: boolean }): Promise<void> {
+  await decide(db, viewer, code, n, "waiting_project", { path: body.expectedPath, round: body.expectedRound }, async (tx, run) => {
     if (!sees(await seen(tx, viewer), body.projectId)) throw notFound();
+    if (body.remember) {
+      if (!canManageIntegrations(viewer)) throw new AutomationError(403, "forbidden", "You need integrations.manage to remember the client");
+      const preview = (pendingOf(run)?.preview ?? {}) as { clientKey?: unknown; clientName?: unknown };
+      const key = typeof preview.clientKey === "string" ? preview.clientKey : "";
+      const name = typeof preview.clientName === "string" && preview.clientName.trim() ? preview.clientName : key;
+      if (!key.trim()) throw new AutomationError(409, "client", "This run has no client to remember");
+      await writeClientLink(tx, viewer, key, { clientName: name, projectId: body.projectId });
+    }
     return { kind: "project_chosen", projectId: body.projectId, byId: viewer.id };
   });
 }
@@ -389,7 +415,7 @@ export async function chooseRunProject(db: Db, viewer: Viewer, code: string, n: 
 /** Annulla, Riprova, Salta: chi gestisce l'automazione; l'esecutore li applica. */
 export async function controlRun(db: Db, viewer: Viewer, code: string, n: number, op: "cancel" | "retry" | "skip"): Promise<void> {
   const a = await visibleAutomation(db, viewer, code);
-  if (!(await canManage(db, viewer, a.projectId))) throw forbidden();
+  if (!(await canManage(db, viewer, a.projectId))) throw forbidden(a.projectId === null ? GENERAL_PERMISSION : undefined);
   const [run] = await db.select().from(automationRuns).where(and(eq(automationRuns.automationId, a.id), eq(automationRuns.n, n)));
   if (!run) throw notFound();
   if (op === "cancel" && TERMINAL.has(run.status)) throw new AutomationError(409, "finished", "The run has already finished");
@@ -449,7 +475,7 @@ export async function pendingEffectOf(
     case "createTask": {
       const eff = effectOf();
       if (!eff) return null;
-      const world = await loadPlanWorld(db, { ownerId: owner, projectIds: [a.projectId, ...(projectId ? [projectId] : [])] });
+      const world = await loadPlanWorld(db, { ownerId: owner, projectIds: [a.projectId, projectId].filter((p): p is string => !!p) });
       const plan = planTask(world, eff, automation, owner, now);
       if (!plan.ok) return null;
       const { assignee } = plan.plan;
@@ -472,7 +498,7 @@ export async function pendingEffectOf(
     case "createMilestone": {
       const eff = effectOf();
       if (!eff) return null;
-      const world = await loadPlanWorld(db, { ownerId: owner, projectIds: [a.projectId, ...(projectId ? [projectId] : [])] });
+      const world = await loadPlanWorld(db, { ownerId: owner, projectIds: [a.projectId, projectId].filter((p): p is string => !!p) });
       const plan = planMilestone(world, eff, automation, owner, now);
       if (!plan.ok) return null;
       return { kind: "milestone", ...where, project: await projectFor(db, visible, projectId), name: str(preview.nome), dueDate: plan.plan.dueDate, dueInDays: step.dueInDays };

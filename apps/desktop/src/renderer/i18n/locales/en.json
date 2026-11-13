@@ -11717,6 +11717,12 @@
       "manage": {
         "label": "manage automations",
         "hint": "Create, change and pause automations at this level."
+      },
+      "general": {
+        "manage": {
+          "label": "manage general automations",
+          "hint": "Create, change and pause the general automations (without a project), and decide their runs."
+        }
       }
     },
     "servers": {

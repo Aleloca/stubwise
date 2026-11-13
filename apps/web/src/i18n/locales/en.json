@@ -3530,7 +3530,10 @@
         "history": "See who opened the Drive's files"
       },
       "automations": {
-        "manage": "Manage the project's automations and decide their runs"
+        "manage": "Manage the project's automations and decide their runs",
+        "general": {
+          "manage": "Manage the general automations (without a project) and decide their runs"
+        }
       }
     }
   },

@@ -281,6 +281,26 @@ export interface Automation {
    * creata a mano.
    */
   createdVia?: "claude";
+  /**
+   * Area 7, F4 (F4-2 = c): il tetto del webhook in arrivo, scelto da chi
+   * gestisce l'automazione. Assente da un server più vecchio o nel prototipo.
+   */
+  webhookLimits?: AutomationWebhookLimits;
+}
+
+/**
+ * Il tetto di frequenza del webhook di un'automazione (F4-2 = c, D3):
+ * `perMinute`/`perDay` sono la scelta (null = il default); `effective` è
+ * ciò che vale davvero, mai oltre il massimo d'istanza.
+ */
+export interface AutomationWebhookLimits {
+  perMinute: number | null;
+  perDay: number | null;
+  defaultPerMinute: number;
+  defaultPerDay: number;
+  maxPerMinute: number;
+  maxPerDay: number;
+  effective: { perMinute: number; perDay: number };
 }
 
 export type RunStatus =

@@ -1,5 +1,5 @@
 import { automationRuns, automations, automationScheduleFires, automationVersions, type Db } from "@stubwise/db";
-import { projectPermissionsOfUser } from "@stubwise/notifications";
+import { automationOwnerInScope } from "@stubwise/notifications";
 import { initialState, localDate, render, scheduleDue, type AutomationFlow } from "@stubwise/shared";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { MAX_ACTIVE_RUNS } from "./consumer.js";
@@ -65,7 +65,7 @@ async function fireOne(db: Db, a: typeof automations.$inferSelect, v: { n: numbe
       await tx.select({ id: automations.id }).from(automations).where(eq(automations.id, a.id)).for("update");
       const [still] = await tx.select({ status: automations.status, ownerId: automations.ownerId }).from(automations).where(eq(automations.id, a.id));
       if (still?.status !== "active" || !still.ownerId) return false;
-      if (!(await projectPermissionsOfUser(tx, still.ownerId, a.projectId))) return false;
+      if (!(await automationOwnerInScope(tx, still.ownerId, a.projectId))) return false;
       const [c] = await tx
         .select({
           open: sql<number>`count(*) filter (where ${inArray(automationRuns.status, [...OPEN] as never)})::int`,
@@ -88,7 +88,7 @@ async function fireOne(db: Db, a: typeof automations.$inferSelect, v: { n: numbe
           event,
           origin: "schedule",
           mailboxAccountId: a.mailboxAccountId,
-          projectIds: [a.projectId],
+          projectIds: a.projectId ? [a.projectId] : [],
           dueAt: sql`now()`,
         })
         .returning({ id: automationRuns.id });

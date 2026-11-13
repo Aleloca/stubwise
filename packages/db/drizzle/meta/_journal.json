@@ -1205,6 +1205,13 @@
       "when": 1799366400000,
       "tag": "0173_automation_step",
       "breakpoints": true
+    },
+    {
+      "idx": 174,
+      "version": "7",
+      "when": 1799452800000,
+      "tag": "0174_automation_sources",
+      "breakpoints": true
     }
   ]
 }

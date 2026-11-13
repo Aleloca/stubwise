@@ -279,3 +279,43 @@ motore condiviso (`packages/shared/src/automations/`).
   una riga di Claude su un dato tinto perde `reason` e i campi di testo
   (`reasonHidden`, C-F3-7), oltre a R-J13 e R-J16.
 
+
+## Le generali, il webhook in arrivo e la catena (F4, 13 nov 2026)
+
+- **Una generale è nascosta = inesistente** a chi non ha
+  `automations.general.manage` d'istanza (la chiave è distinta da
+  `automations.manage`, che resta di progetto: il catalogo vieta una chiave a
+  due livelli). La regola sta in `seesAutomation`/`canManage`
+  (`apps/server/src/automations/model.ts`) e la usano elenco, dettaglio,
+  esecuzioni, «Da decidere», inbox, ricerca. Una generale ascolta gli eventi
+  di Stubwise di ogni progetto che il proprietario vede, e OGNI effetto
+  ricontrolla il permesso d'istanza del proprietario (`generalLost` →
+  `permission_lost` → pausa, D5). Nella sezione di un progetto le sue
+  esecuzioni aperte arrivano a ogni membro solo con codice e stato.
+- **Il webhook è una porta pubblica.** Il segreto si salva come sha256 ed
+  esce in chiaro solo da creazione e rigenerazione; rigenerare invalida
+  subito il vecchio. Il tetto (scelto per automazione da chi la gestisce,
+  F4-2 = c) non supera MAI il massimo d'istanza
+  (`AUTOMATION_WEBHOOK_MAX_PER_*`), e si conta in Postgres
+  (`automation_source_hits`), non in memoria. Il corpo è controllato coi
+  campi della sorgente (`checkEventFields` di shared, la stessa regola della
+  prova e del prototipo) e nell'outbox entra solo la PROIEZIONE sui campi
+  dichiarati: le chiavi in più non arrivano ai passi. I campi restano non
+  fidati (`taint.ts`, F3-1). 404, 413 e 429 non scrivono righe.
+- **Il cliente sceglie solo fra le righe della tabella.** La chiave è
+  `clientKeyOf` di shared (trim + minuscole) in scrittura E in ricerca (un
+  CHECK la tiene così nel DB). Una riga verso un progetto che il
+  proprietario non vede vale come fuori tabella (R-G5). «Remember for
+  <client>» scrive la tabella solo con `integrations.manage`: senza, 403 e
+  non si sceglie niente.
+- **«Avvia un'altra» passa da `planStartAutomation` di shared**, a ogni
+  effetto: esiste e il proprietario la vede, la può gestire (R-J21), è
+  accesa, non è nella catena, la catena non è a `CHAIN_MAX`. La figlia
+  riceve l'evento della madre e porta `parent_run_id`; un passo rifatto non
+  crea una seconda figlia (effetto `run`).
+- **R-J13 lungo la catena**: una figlia di un'esecuzione partita da
+  un'email porta la casella d'ORIGINE in `mail_origin_account_id`, e la posta
+  la legge solo il proprietario di quella casella, anche se la figlia è di
+  un altro. Non si unifica con `mailbox_account_id`: quella è la casella da
+  cui l'esecuzione MANDA (C1 della F2), questa quella di cui l'evento PORTA
+  la posta.

@@ -571,7 +571,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   serve solo alle automazioni generali. Come il prototipo
   (`apps/desktop/src/renderer/data/access/seed.ts`), al solo preset Admin
   (che da noi è `instance.full_admin`, quindi già implicito), con la regola
-  dei preset; in F1 c'è solo il permesso di progetto (Project Lead).
+  dei preset; in F1 c'è solo il permesso di progetto (Project Lead). La
+  chiave VERA è `automations.general.manage` *(O, 46, 13 nov 2026)*: stesso
+  significato, chiave distinta perché il catalogo di shared vieta una chiave
+  a due livelli (`automations.manage` resta di progetto). Nel prototipo la
+  sposta 94 con R3 della F4.
 - F1, le operazioni di massa e la GUC *(S)*: ogni migrazione o job di
   manutenzione futuro che crea o chiude task, richieste o traguardi apre con
   `set_config('stubwise.automation_events', 'off', true)`
@@ -613,6 +617,20 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   passo di Claude si ferma solo per il budget mensile; `queue_paused`
   (`aiHoldOf` del prototipo) arriva con l'area 9b, quando il backend avrà la
   pausa della coda.
+- Il piano della F4 (`docs/plans/2026-11-13-integrazione-area7-fetta4-plan.md`,
+  13 nov 2026, le automazioni generali e il webhook in arrivo). F4-1 = a
+  *(M)*: un webhook per automazione. F4-2 = c *(M)*, NON la consigliata: il
+  tetto di frequenza lo sceglie chi gestisce l'automazione
+  (`automations.manage` sull'automazione, non `integrations.manage`),
+  default 60 al minuto e 5 000 al giorno; sopra c'è un massimo d'istanza non
+  superabile *(O, 46: il maintainer non ne ha parlato)*, env del server,
+  600 al minuto e 50 000 al giorno *(O, 46)*. F4-3…F4-6 = a *(O, 46)*: corpo
+  al più 256 KB; i due modelli Audin fuori finché non c'è il connettore;
+  tipi sbagliati rifiutati (422) e mostrati; eventi recenti solo a chi ha
+  `integrations.manage`. Rimandati da lì: i connettori Audin e HubSpot
+  (Q2 *(M)*: eventi nativi, OAuth o chiave, dopo questa area; fino ad
+  allora si collegano col webhook in arrivo), i webhook in uscita (area 9),
+  le azioni di Claude sulle automazioni (area 10).
 
 - F3, il costo di un passo della prova *(S, 72, 13 nov 2026)*: la risposta di
   `POST …/test/claude` non ha `costUsd`, perché il `ChatLlm` del server non

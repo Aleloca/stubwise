@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import {
   automationEffects,
   automationRuns,
+  automations,
+  automationVersions,
+  users,
   backlogItems,
+  clientProjectLinks,
   createMilestone,
   createRequestItem,
   createTicket,
@@ -11,10 +15,18 @@ import {
   projects,
   type Db,
 } from "@stubwise/db";
-import { automationMailboxOf, loadPlanWorld, milestoneNameTaken, publishNotification } from "@stubwise/notifications";
+import { automationMailboxOf, automationOwnerInScope, loadPlanWorld, milestoneNameTaken, projectPermissionsOfUser, publishNotification } from "@stubwise/notifications";
 import {
+  clientKeyOf,
   failed,
+  initialState,
+  planStartAutomation,
+  render,
+  runLimitFailure,
+  type AutomationFlow,
+  type StartTarget,
   MAIL_OUTGOING_CHANNEL,
+  PROJECT_NOT_FOUND,
   planEmail,
   planMilestone,
   planNotify,
@@ -26,7 +38,8 @@ import {
   type EffectOutcome,
   type EffectRequest,
 } from "@stubwise/shared";
-import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { ancestorsOf } from "./consumer.js";
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
@@ -90,6 +103,10 @@ const notAvailable = (): EffectOutcome =>
 const noOwner = (): EffectOutcome =>
   failed("permission_lost", { code: "noOwner" }, "Permesso perso: l'automazione non ha un proprietario.");
 
+/** F4: il proprietario di una generale non ha più `automations.general.manage` (ricontrollato a ogni effetto). */
+const generalLost = (): EffectOutcome =>
+  failed("permission_lost", { code: "generalLost" }, "Permesso perso: il proprietario non gestisce più le automazioni generali.");
+
 /** Le persone e i reparti che un'azione nomina (il mondo li carica). */
 function namedIn(eff: ActionEffect): { personIds: string[]; departmentIds: string[] } {
   const personIds: string[] = [];
@@ -107,11 +124,127 @@ async function projectCode(tx: Tx, projectId: string): Promise<string> {
   return p?.code ?? "";
 }
 
+/**
+ * Il progetto «del cliente» (F4, S5): la riga della tabella cliente → progetto
+ * con la chiave normalizzata (`clientKeyOf`, la stessa della scrittura).
+ * Fuori tabella, o un progetto che il PROPRIETARIO non vede (R-G5: vale come
+ * non trovato), il motore si ferma su «scegli il progetto» (`waiting_project`).
+ * Il cliente arriva dall'evento (può essere un campo non fidato di un
+ * webhook): sceglie solo FRA le righe della tabella, che cura chi gestisce le
+ * integrazioni, mai un progetto qualunque.
+ */
+async function resolveClientProject(eff: Extract<EffectRequest, { kind: "resolve_project" }>, env: EffectEnv): Promise<EffectOutcome> {
+  const owner = env.automation.ownerId;
+  if (!owner) return noOwner();
+  const notFound: EffectOutcome = { input: { kind: "effect_result", ok: false, error: PROJECT_NOT_FOUND } };
+  const key = clientKeyOf(eff.clientKey);
+  if (!key) return notFound;
+  const [link] = await env.db.select({ projectId: clientProjectLinks.projectId }).from(clientProjectLinks).where(eq(clientProjectLinks.clientKey, key));
+  if (!link || !(await projectPermissionsOfUser(env.db, owner, link.projectId))) return notFound;
+  return { input: { kind: "project_chosen", projectId: link.projectId }, projectId: link.projectId };
+}
+
+/** Il tetto delle esecuzioni non finite di un'automazione (lo stesso del consumatore). */
+const MAX_OPEN_CHILD_RUNS = 100;
+const OPEN_RUN_STATUSES = ["running", "waiting_approval", "waiting_project", "suspended"] as const;
+
+/**
+ * «Avvia un'altra automazione» (F4, S6; `startAutomation` del prototipo).
+ * Coi permessi del PROPRIETARIO di chi avvia, ricontrollati a ogni effetto
+ * (`planStartAutomation` di shared): l'altra esiste e lui la vede, la può
+ * gestire (R-J21), è accesa, non è già nella catena (niente cicli) e la catena
+ * non è a `CHAIN_MAX`. La figlia riceve l'EVENTO della madre (come nel
+ * prototipo), nasce `running` (la muove l'esecutore) e porta la catena
+ * (`parent_run_id`). R-J13 lungo la catena: se l'evento viene da un'email, la
+ * figlia porta la casella d'ORIGINE (`mail_origin_account_id`), e la posta
+ * la legge solo il proprietario di quella — anche se la figlia è di un altro.
+ * Un passo rifatto non crea una seconda figlia (`automation_effects`, `run`).
+ */
+async function executeStart(eff: ActionEffect, env: EffectEnv): Promise<EffectOutcome> {
+  const owner = env.automation.ownerId;
+  if (!owner) return noOwner();
+  const key = effectKey(env.runId, eff.path);
+  return env.db.transaction(async (tx) => {
+    const [prev] = await tx.select().from(automationEffects).where(eq(automationEffects.idempotencyKey, key));
+    if (prev) return { input: { kind: "effect_result" as const, ok: true, codes: await codesOf(tx, prev.kind, prev.objectId) } };
+    const targetId = (eff.args as { automationId?: unknown }).automationId;
+    const [target] =
+      typeof targetId === "string" && /^[0-9a-f-]{36}$/i.test(targetId) ? await tx.select().from(automations).where(eq(automations.id, targetId)).for("update") : [];
+    let facts: StartTarget | null = null;
+    if (target) {
+      const perms = target.projectId ? await projectPermissionsOfUser(tx, owner, target.projectId) : null;
+      const general = target.projectId === null && (await automationOwnerInScope(tx, owner, null));
+      facts = {
+        id: target.id,
+        name: target.name,
+        status: target.status,
+        visibleToOwner: target.projectId === null ? general : perms !== null,
+        manageableByOwner: target.projectId === null ? general : perms?.has("automations.manage") === true,
+      };
+    }
+    const chain = (await ancestorsOf(tx, env.runId)).map((r) => r.automationId);
+    const [ownerRow] = await tx.select({ name: users.displayName, email: users.email }).from(users).where(eq(users.id, owner));
+    const p = planStartAutomation(facts, ownerRow?.name ?? ownerRow?.email ?? "", chain);
+    if (!p.ok) return p.outcome;
+    const t = target!;
+    const [version] = await tx
+      .select({ n: automationVersions.n, flow: automationVersions.flow })
+      .from(automationVersions)
+      .where(and(eq(automationVersions.automationId, t.id), sql`${automationVersions.publishedAt} is not null`))
+      .orderBy(desc(automationVersions.n))
+      .limit(1);
+    if (!version) return failed("automation_not_active", { code: "automationNotActive", params: { name: t.name } }, `«${t.name}» non è attiva: non è partita.`);
+    const [counts] = await tx
+      .select({
+        open: sql<number>`count(*) filter (where ${inArray(automationRuns.status, [...OPEN_RUN_STATUSES])})::int`,
+        last: sql<number>`coalesce(max(${automationRuns.n}), 0)::int`,
+      })
+      .from(automationRuns)
+      .where(eq(automationRuns.automationId, t.id));
+    if ((counts?.open ?? 0) >= MAX_OPEN_CHILD_RUNS) return runLimitFailure(t.name);
+    const [parent] = await tx
+      .select({ event: automationRuns.event, mailboxAccountId: automationRuns.mailboxAccountId, mailOriginAccountId: automationRuns.mailOriginAccountId })
+      .from(automationRuns)
+      .where(eq(automationRuns.id, env.runId));
+    const event = (parent?.event ?? {}) as Record<string, unknown>;
+    // La posta d'origine: quella che la madre portava già, o la sua casella se l'evento della madre è un'email.
+    const mailOrigin = parent?.mailOriginAccountId ?? ("email" in event ? (parent?.mailboxAccountId ?? null) : null);
+    const flow = version.flow as AutomationFlow;
+    const titled = initialState(flow, env.now);
+    titled.event = event;
+    const n = (counts?.last ?? 0) + 1;
+    const [child] = await tx
+      .insert(automationRuns)
+      .values({
+        automationId: t.id,
+        n,
+        version: version.n,
+        title: render(titled, flow.titleTemplate).trim() || t.name,
+        status: "running",
+        event,
+        origin: "automation",
+        parentRunId: env.runId,
+        startedBy: owner,
+        mailboxAccountId: t.mailboxAccountId,
+        mailOriginAccountId: mailOrigin,
+        projectIds: t.projectId ? [t.projectId] : [],
+        startedAt: sql`clock_timestamp()`,
+        dueAt: sql`now()`,
+      })
+      .returning({ id: automationRuns.id });
+    await tx.insert(automationEffects).values({ runId: env.runId, path: eff.path, round: ROUND, idempotencyKey: key, kind: "run", objectId: child!.id });
+    return done([`${t.code} #${n}`]);
+  });
+}
+
 /** Esegue un effetto a nome del proprietario e restituisce l'input da rimettere nel motore. */
 export async function executeEffect(eff: EffectRequest, env: EffectEnv): Promise<EffectOutcome | EffectPending> {
-  if (eff.kind === "claude" || eff.kind === "resolve_project") return notAvailable();
-  if (eff.kind === "startAutomation") return notAvailable();
+  if (eff.kind === "claude") return notAvailable();
+  // F4: una generale agisce solo finché il proprietario ha il permesso d'istanza (prima di ogni effetto, email compresa).
+  if (env.automation.projectId === null && env.automation.ownerId && !(await automationOwnerInScope(env.db, env.automation.ownerId, null))) return generalLost();
+  if (eff.kind === "resolve_project") return resolveClientProject(eff, env);
   if (eff.kind === "sendEmail") return executeEmail(eff, env);
+  if (eff.kind === "startAutomation") return executeStart(eff, env);
   const owner = env.automation.ownerId;
   if (!owner) return noOwner();
   const key = effectKey(env.runId, eff.path);
@@ -183,7 +316,7 @@ export async function executeEffect(eff: EffectRequest, env: EffectEnv): Promise
             tx,
             {
               kind: "automation.notify",
-              projectId: p.plan.projectId ?? env.automation.projectId ?? "",
+              projectId: p.plan.projectId ?? env.automation.projectId ?? null,
               automationId: env.automation.id,
               automationCode: env.automation.code,
               automationName: env.automation.name,
@@ -327,6 +460,10 @@ async function codesOf(tx: Tx, kind: string, objectId: string | null): Promise<s
   }
   if (kind === "task") {
     const rows = await tx.execute<{ code: string }>(sql`select p.code || '-' || t.number as code from tickets t join projects p on p.id = t.project_id where t.id = ${objectId}`);
+    return [...rows].map((r) => r.code);
+  }
+  if (kind === "run") {
+    const rows = await tx.execute<{ code: string }>(sql`select a.code || ' #' || r.n as code from automation_runs r join automations a on a.id = r.automation_id where r.id = ${objectId}`);
     return [...rows].map((r) => r.code);
   }
   return [objectId];
