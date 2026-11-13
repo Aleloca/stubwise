@@ -307,7 +307,262 @@ codice. Oggi il server le applica alla lettera:
 
 ## Lato renderer
 
-(94)
+> Di stubwise-94. Per ogni voce: le pagine e i componenti del prototipo
+> (`apps/desktop/src/renderer/`, percorsi da lì), cosa c'è oggi nella build
+> app, e cosa serve al renderer — distinguendo ciò che si può integrare sulle
+> rotte che il server ha già da ciò che aspetta le lacune del lato server.
+> La specifica è il prototipo (shape in
+> `apps/desktop/.impeccable/shape/{releases,support,alerts,servers,server-access,server-task,claude-drafts}.md`);
+> web e mobile non sono un riferimento.
+
+### Lo stato di partenza, uguale per tutte le voci
+
+- **Nessun adattatore dell'area 8 nella build app.** I quattro namespace del
+  livello dati del prototipo — `releases`, `support`, `servers`, `alerts`
+  (`data/api.ts`) — sono stub `notIntegratedNamespace` in
+  `data/backend/real/stubs.generated.ts`. Le funzioni da coprire, per
+  namespace:
+  - `releases` (19 più 4 di simulazione): `listOpenPrs`, `listReleaseQueue`,
+    `listReleases`, `getRelease`, `listMyReleases`, `searchReleases`,
+    `listEnvironments`, `getRepositorySettings`, `mergePr`, `fixRelease`,
+    `explainRelease`, `requestPrCorrection`, `setPrAnalysisOnly`,
+    `setPrReleaseNotes`, `setReleasePipeline`, `setRepoPrMode`, CRUD degli
+    ambienti;
+  - `support` (15 più 3): conversazioni (elenco, dettaglio, ricerca, in
+    attesa), `customerPreview`, `myRequestStatus`, `replyToCustomer`,
+    `draftReply`, `emailDraftFor`, `followConversation`, `openRequestFrom`,
+    CRUD dei widget;
+  - `servers` (18 più 5): elenchi, dettaglio, metriche, comandi
+    d'installazione e rimozione, CRUD di server e controlli, soglie, chiave
+    dell'agente, i quattro dell'accesso SSH, `getServerTaskInfo`,
+    `startServerFix`, `serverHref`;
+  - `alerts` (5): `subscriptionRows`, `setSubscription`, `copySubscriptions`,
+    `muteProject`, `muteFromNotification`.
+- **I cancelli ci sono già.** Le letture si spengono da sole:
+  - le funzioni `releases`, `support`, `servers`, `alerts` in
+    `data/queries/{releases,support,servers,alerts}.ts` (`featureIntegrated`)
+    non sono in `INTEGRATED` (`data/integration.ts`);
+  - le sezioni di progetto `releases`, `support`, `servers` restano «in
+    arrivo» (il router le monta, `ComingSoon` le copre);
+  - i blocchi Home `releases` e `waitingCustomers` si spengono dalla loro
+    area (`pages/home/blocks/registry.ts`, `ofArea`).
+
+  Una fetta accende le sue voci lì, come le aree prima.
+- **Moduli di progetto.** La build app dà a ogni progetto `releases`,
+  `support`, `servers` di default (`EXISTING_MODULES` in
+  `data/backend/real/projects.ts`, quando il server non manda `modules`). Le
+  pagine si accendono quindi per tutti i progetti insieme, non per modulo.
+- **Le parti «solo prototipo».** Ogni namespace ha le sue funzioni di
+  simulazione: `simulateRunOutcome`, `simulateSeenOnServer`,
+  `simulateAuthorPush`, `advancePrWork`, `simulateCustomerMessage`,
+  `simulateCustomerLeaves`, `simulateTriageDone`, `simulateServerAlert`,
+  `simulateServerRecovery`, `simulateSshUnreachable`,
+  `simulateSshVerifyOutcome`, `simulateFixCheck`. Le usano i pannelli
+  `pages/servers/SimulatePanel.tsx` e i bottoni di prova di `ReleaseDetail`,
+  `PrActions`, `ConversationDetail` e `SshAccessPanel`. Nella build app non
+  hanno senso (R-2).
+
+### 1. Home: il blocco «Rilasci» (e l'extra di `resolveHome` per `release.merge`)
+
+- **Prototipo**: `pages/home/blocks/ReleasesBlock.tsx` su `useMyReleases`
+  (`listMyReleases` → `{failed, ready}`). Nel catalogo di chi ha
+  `release.merge`.
+- **Build app**: spento con l'area. La Home a blocchi è integrata (area 2,
+  fetta 3), e un blocco si aggiunge con un adattatore del suo dato.
+- **Serve al renderer**:
+  - l'adattatore di `listMyReleases`: `ready` dalla coda vera
+    (`GET /api/release-queue`); `failed` aspetta lo stato dopo il merge
+    (voce 3 del server);
+  - l'extra della Home: `resolveHome` riceve `["releases"]` dal server
+    (`meHome`).
+
+  Mezzo blocco (solo `ready`) è possibile prima dei rilasci veri (R-3).
+
+### 2. Home: il blocco «Clienti in attesa»
+
+- **Prototipo**: `pages/home/blocks/WaitingCustomersBlock.tsx` su
+  `useWaitingCustomers`; solo dal catalogo, `warning` dopo 24 h.
+- **Build app**: spento con l'area.
+- **Serve al renderer**: l'adattatore di `listWaitingCustomers`, che aspetta
+  lo stato «il cliente aspetta noi» e `support.reply` (voce 2 del server).
+  Niente da fare prima.
+
+### 3. Rilasci: la coda, la pagina di Release, il merge
+
+- **Prototipo**: `pages/releases/`.
+  - `ReleasesPage` ha due elenchi:
+    - le PR aperte (`PrList`, `PrRow`, `PrPanel`, `PrActions`,
+      `NeedsAttention`);
+    - i rilasci (`ReleaseList`).
+  - `ReleaseDetail` (`/p/$code/releases/$release`), con `RunLog` (il log
+    della run di CI per `repos.view`) e `FixDialog` («Fai sistemare a
+    Claude», «Spiega»).
+  - `MergeConfirm`: il merge in due passi.
+  - Il contatore e il punto «aspetta» nella colonna del progetto
+    (`layout/ProjectColumn.tsx`, `useOpenPrs`, `useReleases`).
+  - Le impostazioni del repository (`pages/settings/RepositorySettings.tsx`:
+    il ramo di rilascio, la pipeline, la modalità delle PR dei colleghi).
+- **Build app**: spenta (`releases` non integrata); la sezione «Repositories»
+  delle impostazioni di progetto è anch'essa «in arrivo».
+- **Si può integrare sulle rotte di oggi**:
+  - l'elenco delle PR aperte e il loro stato di merge: `listReleaseQueue` e
+    in parte `listOpenPrs` da `GET /api/release-queue` (`origin`,
+    `reviewVerdict`, `checks`, `risk`, `deployedOn`, `reviewStale`);
+  - `mergePr` su `POST /api/tickets/:id/repositories/:repositoryId/release`.
+    Gli errori sono già quelli di `MergeError` del prototipo, più
+    `merge_failed` (502) da dire in parole;
+  - `requestPrCorrection` sulla correzione post-PR esistente («Chiedi
+    modifiche»).
+- **Aspetta il server**:
+  - `listReleases`, `getRelease`, `searchReleases`, lo stato del rilascio e
+    `RunLog` (le run di CI);
+  - `fixRelease`, `explainRelease`;
+  - le impostazioni `setReleasePipeline` e `setRepoPrMode` (le colonne del
+    repository).
+- **Note per i test**: il merge resta un'azione di una persona (NEVER per
+  Claude) e la coda filtra per `release.merge`. I test di pagina della build
+  app lo verificano negativamente, come `release.test.ts` sul server: 403 e
+  nessuna richiesta di merge partita.
+
+### 4. Adozione delle PR
+
+- **Prototipo**: nessun «Adopt». «Solo analisi» per PR in `PrActions` e
+  `NeedsAttention` (`setPrAnalysisOnly`, `prs.adopt`); la modalità per
+  repository in `RepositorySettings` (`setRepoPrMode`).
+- **Build app**: spenta con la sezione.
+- **Serve al renderer**: niente finché non cambia l'invariante del server
+  (lato server, «Prima del codice»). Nel frattempo il renderer NON porta
+  l'adozione esplicita del server, che il prototipo ha tolto (anti-obiettivo
+  di `shape/releases.md`): una PR esterna si mostra, ma non si adotta né si
+  analizza (R-3).
+
+### 5. Note di rilascio
+
+- **Prototipo**: `pages/releases/ReleaseNotesField.tsx` sulla PR
+  (`setPrReleaseNotes`, `canEditReleaseNotes`), fermate nel rilascio al
+  merge; nei Docs la scheda «Release notes» è `DocReleases` (`router.tsx`,
+  `docReleasesRoute`).
+- **Build app**: i Docs sono integrati (area 5). La scheda delle note mostra
+  le pagine notturne `releases` che il server già scrive; quella per PR è
+  spenta con la sezione.
+- **Serve al renderer**: il campo e la bozza di Claude per PR aspettano il
+  server (voce 5).
+
+### 6. Ambienti
+
+- **Prototipo**: `pages/releases/Environments.tsx` (CRUD, un server per
+  repository, «= AUD-V6»); gli ambienti servono anche a `NewServerDialog` e a
+  `ReleaseDetail`.
+- **Build app**: spenti con la sezione.
+- **Si può integrare sulle rotte di oggi**: elenco e CRUD sulle rotte
+  `…/environments`, con `environments.manage`.
+- **Il punto da decidere**: il server ha UN server per ambiente; il
+  prototipo ne ha uno per repository (R-L2). Vedi R-4.
+- «= AUD-V6» aspetta i rilasci.
+
+### 7. Avvisi e iscrizioni
+
+- **Prototipo**:
+  - `pages/preferences/NotificationsSection.tsx`, `GroupMenu.tsx` e
+    `useAlertActions.ts`: il registro delle iscrizioni, coi canali «app» e
+    «telefono» per tipo, stati on|off|suspended|mandatory, «copia da»;
+  - la scorciatoia «Mute» dalla colonna del progetto
+    (`layout/ProjectAlerts.tsx`);
+  - `muteFromNotification` (nessun consumatore in pagina oggi);
+  - il catalogo dei tipi in `domain/alerts/catalog.ts`, più quelli di
+    `data/servers/alertTypes.ts`;
+  - `domain/alerts/recipients.ts`, i destinatari calcolati.
+- **Build app**: le notifiche sono integrate (inbox, `notifications`).
+  `data/backend/real/notifications.ts` mappa ogni card del server e non
+  lancia su un kind ignoto, quindi una card `monitor.alert` o
+  `request.created` di oggi si vede già, col suo link. Le iscrizioni sono
+  spente (`alerts`).
+- **Serve al renderer**: tutto aspetta le iscrizioni del server (voce 7, S-4).
+  Una cosa che il renderer può fare prima: il catalogo dei tipi deve
+  coincidere con quello del server. Va in `@stubwise/shared`, con un test di
+  parità come quello dei permessi, e non resta scritto due volte (R-5).
+
+### 8. Support: conversazioni, risposte, origine di una richiesta, «View conversation»
+
+- **Prototipo**: `pages/support/`.
+  - `SupportPage` con l'elenco e il dettaglio della conversazione
+    (`ConversationList`, `ConversationDetail`, `Messages`, `CustomerPreview`).
+  - `ReplyComposer`, con l'Undo di 5 s (`replyStore.ts`) e la bozza di
+    Claude.
+  - `RequestBlock` («apri una richiesta»).
+  - `Widgets` e `WidgetPanel`, l'amministrazione dei widget dentro Support
+    (con `widgetSnippet.ts`).
+  - `RequestOrigin`, in `pages/requests/RequestDetail.tsx`: la conversazione
+    d'origine in sola lettura.
+  - La route `/p/$code/support/$conversation`.
+- **Build app**: spento (`support`). Le Requests sono integrate (area 2,
+  fetta 4), e `RequestOrigin` dentro il loro dettaglio è spento con la sua
+  area.
+- **Si può integrare sulle rotte di oggi**:
+  - i widget (`/api/projects/:projectId/widgets`, `widget.manage`), con
+    `widgetSnippet` che compone lo snippet dall'origine vera dell'istanza;
+  - la LETTURA delle conversazioni
+    (`GET /api/projects/:projectId/widget/conversations`,
+    `…/:conversationId/messages`), come elenco in sola lettura senza stati;
+  - «View conversation» di una task del widget (S-9): un blocco in sola
+    lettura sopra `?ticketId=`, con lo stesso componente di `RequestOrigin`.
+- **Aspetta il server**: la risposta di una persona (`replyToCustomer`, Undo
+  compreso), gli stati e la Home «Clienti in attesa», `followConversation`,
+  `draftReply`, `emailDraftFor`, `openRequestFrom` (richiesta legata alla
+  conversazione), il canale `mcp`.
+
+### 9. Servers e accesso SSH
+
+- **Prototipo**:
+  - `pages/servers/`: `ServersPage`, `ServerList`, `ServerDetail` con
+    `NowBox`, `MetricsCharts`/`Chart`, `ServicesTable`, `DisksPanel`,
+    `ChecksPanel`, `ThresholdsPanel`, `ServerSettings`, `AgentKeyPanel`,
+    `InstallCommand`, `NewServerDialog`, l'accesso SSH (`SshAccessPanel`,
+    `SshAccessRows`, `SshAccessDialogs`, `SshSteps`, `VerifyResult`) e
+    `SimulatePanel` (solo prototipo);
+  - l'Amministrazione (`pages/admin/instance/ServersAdminPage.tsx`,
+    `/admin/servers/$server`);
+  - la sezione della task legata a un server (`pages/task/ServerSection.tsx`:
+    `getServerTaskInfo`, `startServerFix`);
+  - il punto rosso o giallo nella colonna del progetto.
+- **Build app**: spenti (`servers`), Amministrazione compresa.
+- **Si può integrare sulle rotte di oggi**, quasi tutto il monitor:
+  - `listAllServers`, `listProjectServers`, `getServer`,
+    `getServerMetrics` da `/api/servers` e dai rollup;
+  - CRUD di server e controlli (`serverCheckRoutes`), soglie;
+  - `regenerateAgentKey` (la chiave in chiaro una volta: lo stesso schema
+    «mostrato una volta» del segreto del webhook della F4 dell'area 7);
+  - `getInstallCommand`/`getRemovalCommand` dall'immagine dell'agente.
+- **Aspetta il server**: tutto l'SSH (i quattro dell'accesso), l'analisi
+  automatica (le task `bug` con sorgente `server` e la diagnosi),
+  `startServerFix` e la sezione della task, e la visibilità dagli ambienti
+  (R-L2). Oggi un server si vede da `server_projects`, e il renderer userebbe
+  quello finché non cambia (R-4).
+
+### 10. Azioni di Claude dell'area 8
+
+- **Prototipo**:
+  - `setSubscription` nel catalogo (`data/claude/catalog.ts`);
+  - le bozze `supportReplyDraft` e `releaseNotesDraft` (`data/claude/drafts.ts`,
+    il campo `supportReply` del contesto; in pagina `useSupportClaudeDraft` di
+    `ReplyComposer`);
+  - `explainRelease`/`fixRelease` in `FixDialog`;
+  - i suggerimenti relativi.
+- **Build app**: le azioni di Claude e la chat sono integrate (area 3). Le
+  voci dell'area 8 non ci sono, perché non esistono i loro dati.
+- **Serve al renderer**: ogni azione arriva con la sua voce (7, 8, 5, 3) e
+  col suo adattatore nel catalogo condiviso. Il merge resta NEVER anche nella
+  palette (`palette/commands.ts`) e nei suggerimenti.
+
+### 11. La Chat: l'evento `release_page`
+
+- **Prototipo**: la scheda in `pages/chat/SystemCard.tsx` (link alla pagina
+  di Release); `publishReleasePage` solo da seme e test.
+- **Build app**: la Chat è integrata e mostra le schede degli eventi che il
+  server manda. `release_page` non ha produttore, e quindi non compare.
+- **Serve al renderer**: il link della scheda va dove S-6 decide (il rilascio
+  `<PRJ>-V<n>` → `/p/$code/releases/$release`). Con la consigliata non
+  cambia niente nel componente: serve un test che parsi l'evento vero.
 
 ## Domande di prodotto
 
@@ -383,4 +638,48 @@ S-10. **L'analisi automatica di un server spende AI senza un umano davanti**
 
 ### Del renderer (R-n)
 
-(94)
+Ognuna con la consigliata per prima.
+
+R-1. **Cosa si accende per primo, rispetto alle fette di S-1.** (a) Dentro
+   ogni fetta, prima le pagine che stanno sulle rotte di oggi: il monitor dei
+   server (elenchi, dettaglio, metriche, controlli, soglie, chiave
+   dell'agente, Amministrazione), i widget di Support, le PR aperte e il
+   merge, gli ambienti. Poi le stesse pagine si allargano quando arriva il
+   loro pezzo di server. Per ognuna un flag sotto `releases`/`support`/
+   `servers` (es. `servers-monitor`, `servers-ssh`), così una sezione non è
+   tutta o niente. *(consigliata: le prime fette portano valore senza
+   aspettare il pezzo più lungo di ciascuna)* (b) Una sezione si accende solo
+   quando il server ha tutta la sua parte.
+
+R-2. **I pannelli e i bottoni «solo prototipo»** (`SimulatePanel`,
+   «Simulate run outcome», «Simulate a customer message», «Simulate SSH
+   outcome»…) nella build app: (a) non ci sono, come «Pass time» e «Simulate
+   an event» delle automazioni; lo fissa un test per pagina
+   (`check-no-seed` guarda solo i dati del seme, non i pannelli).
+   *(consigliata)* (b) Restano come strumenti per gli
+   admin.
+
+R-3. **La sezione Releases prima che esista il rilascio come oggetto.**
+   (a) Si accende l'elenco delle PR aperte, con «Merge» in due passi e
+   «Request changes». L'elenco dei rilasci e il loro dettaglio restano «in
+   arrivo», e la Home «Rilasci» mostra solo le PR pronte. «Solo analisi» e la
+   modalità per repository aspettano l'invariante nuovo (voce 4); l'adozione
+   esplicita del server non entra nel renderer. *(consigliata: il merge è
+   l'azione che conta, e c'è già tutto)* (b) La sezione intera solo coi
+   rilasci veri.
+
+R-4. **Server per ambiente o per repository, nel frattempo** (R-L2 del
+   prototipo; il server ha uno `server_id` per ambiente): (a) gli ambienti e
+   la visibilità dei server si integrano quando il server ha i server per
+   repository. Fino ad allora il renderer non mostra gli ambienti, e la
+   visibilità dei server resta quella di `server_projects`, detta come tale
+   nella parità. *(consigliata: niente forma ridotta da rifare)* (b) Subito,
+   col server dell'ambiente mostrato per tutte le repository del progetto.
+
+R-5. **Il catalogo dei tipi di avviso, in un posto solo.** (a) Si sposta in
+   `@stubwise/shared` (oggi `domain/alerts/catalog.ts` e
+   `data/servers/alertTypes.ts`): tipi, gruppi, permessi e obbligatori. Ci
+   leggono il renderer e il server, con un test di parità sui
+   `notification_kind`. *(consigliata: è la stessa ragione di
+   `calendar-grid.ts` e dei permessi condivisi)* (b) Il server ne tiene una
+   copia sua.
