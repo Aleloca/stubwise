@@ -390,6 +390,27 @@ describe("la prova con Claude vero (F3, le rotte di 72)", () => {
     });
   });
 
+  it("un 404 della stima: automazione sparita (not_found) o server senza la F3 (not_available)", async () => {
+    const routes = (automationGone: boolean) => ({
+      ...base({ body: { outcome: "si", reason: "x", truncated: [] } }),
+      "POST /api/automations/AUD-A1/test/estimate": { status: 404, body: { code: "not_found", message: "x" } },
+      "GET /api/automations/AUD-A1": automationGone
+        ? { status: 404, body: { code: "not_found", message: "x" } }
+        : { body: { automation: serverRow(7), configErrors: [], liveErrors: [], runs: [] } },
+    });
+    for (const [gone, code] of [
+      [true, "not_found"],
+      [false, "not_available"],
+    ] as const) {
+      installFakeServer(routes(gone));
+      forgetAutomationRefs();
+      await getSessionPerson();
+      await automations.listAutomations();
+      const id = await automations.startSimulation(A_ID, "draft", {});
+      expect((await automations.simulationStep(id, { kind: "run" })).interrupted).toBe(code);
+    }
+  });
+
   it("una risposta fuori forma (422) fa fallire il passo col codice del motore; il budget finito (409) ferma la prova", async () => {
     installFakeServer(
       base({
@@ -404,7 +425,7 @@ describe("la prova con Claude vero (F3, le rotte di 72)", () => {
     installFakeServer(base({ status: 409, body: { code: "budget", message: "budget" } }));
     forgetAutomationRefs();
     id = await start();
-    await expect(automations.simulationStep(id, { kind: "run" })).rejects.toThrow(/^invalid: budget$/);
+    expect((await automations.simulationStep(id, { kind: "run" })).interrupted).toBe("budget");
   });
 });
 

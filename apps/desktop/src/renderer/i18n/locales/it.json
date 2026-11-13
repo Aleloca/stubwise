@@ -7229,6 +7229,7 @@
       "other": "qualcosa è andato storto",
       "permission_lost": "permesso perso",
       "mailbox_expired": "il collegamento della casella è scaduto",
+      "claude_invalid": "la risposta di Claude non si è potuta leggere",
       "mailbox_scope": "la casella non ha il permesso d'invio",
       "token_expired": "il collegamento della casella è scaduto",
       "google_scope_missing": "la casella va ricollegata",
@@ -7282,6 +7283,8 @@
       "mailboxExpired_would": "La casella del proprietario ({{owner}}) è scaduta: l'email non partirebbe finché non si ricollega.",
       "mailboxScope": "La casella del proprietario ({{owner}}) non ha il permesso d'invio: va ricollegata prima di riprovare.",
       "mailboxScope_would": "La casella del proprietario ({{owner}}) non ha il permesso d'invio: l'email non partirebbe finché non viene ricollegata.",
+      "claudeInvalid": "La risposta di Claude non si è potuta leggere: il passo è fallito. Riprovalo per chiedere di nuovo.",
+      "claudeInvalid_would": "La risposta di Claude non si è potuta leggere: il passo fallirebbe.",
       "emailFailed": "L'email non è partita: {{error}}.",
       "invalidAddress": "«{{to}}» non è un indirizzo email.",
       "addressNotFound": "L'indirizzo «{{to}}» non esiste: l'email è tornata indietro.",
@@ -8424,7 +8427,8 @@
         "errors": {
           "budget": "Il budget AI mensile è finito: Claude non può rispondere in questa prova finché non viene alzato o finisce il mese.",
           "claude_invalid": "La risposta di Claude non si è potuta leggere: riprova la prova.",
-          "not_available": "I passi di Claude non sono ancora disponibili su questo server."
+          "not_available": "I passi di Claude non sono ancora disponibili su questo server.",
+          "not_found": "Questa automazione non c'è più, o non la vedi."
         },
         "noProjects": "Non vedi nessun progetto che il proprietario potrebbe scegliere, quindi la prova non può andare avanti da qui. Un'esecuzione vera aspetterebbe che il proprietario ne scelga uno.",
         "connectMailbox": "Collega una casella prima di accenderla",

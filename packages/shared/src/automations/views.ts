@@ -369,6 +369,12 @@ export interface SimulationView {
  * stimabile»). Facoltativo: assente o `null` = niente da confermare.
    */
   costToConfirm?: { claudeSteps: number; estimateUsd: number | null; model: string } | null;
+  /**
+   * F3: la prova si è fermata per un errore di una rotta di Claude (es.
+   * `budget`), tenendo i passi già fatti; la pagina lo dice. Facoltativo:
+   * assente o `null` = nessuna interruzione.
+   */
+  interrupted?: string | null;
   error: string | null;
   cursor: string | null;
   /** L'«adesso» della prova (va avanti con «Avanti»). */

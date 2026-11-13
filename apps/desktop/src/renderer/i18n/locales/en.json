@@ -7229,6 +7229,7 @@
       "other": "something went wrong",
       "permission_lost": "permission lost",
       "mailbox_expired": "the mailbox connection expired",
+      "claude_invalid": "Claude's answer couldn't be read",
       "mailbox_scope": "the mailbox can't send email",
       "token_expired": "the mailbox connection expired",
       "google_scope_missing": "the mailbox needs to be reconnected",
@@ -7282,6 +7283,8 @@
       "mailboxExpired_would": "The owner's mailbox ({{owner}}) has expired: the email wouldn't be sent until it's reconnected.",
       "mailboxScope": "The owner's mailbox ({{owner}}) can't send email: reconnect it before retrying.",
       "mailboxScope_would": "The owner's mailbox ({{owner}}) can't send email: the email wouldn't be sent until it's reconnected.",
+      "claudeInvalid": "Claude's answer couldn't be read: the step failed. Retry it to ask again.",
+      "claudeInvalid_would": "Claude's answer couldn't be read: the step would fail.",
       "emailFailed": "The email wasn't sent: {{error}}.",
       "invalidAddress": "“{{to}}” isn't an email address.",
       "addressNotFound": "The address “{{to}}” doesn't exist: the email bounced.",
@@ -8424,7 +8427,8 @@
         "errors": {
           "budget": "The monthly AI budget is used up: Claude can't answer in this test until it's raised or the month ends.",
           "claude_invalid": "Claude's answer couldn't be read: try the test again.",
-          "not_available": "Claude steps aren't available on this server yet."
+          "not_available": "Claude steps aren't available on this server yet.",
+          "not_found": "This automation isn't there any more, or you can't see it."
         },
         "noProjects": "You can't see any project the owner could choose, so the test can't go on from here. A real run would wait for the owner to choose one.",
         "connectMailbox": "Connect a mailbox before you turn it on",
