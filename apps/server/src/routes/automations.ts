@@ -173,7 +173,7 @@ export async function automationRoutes(instance: FastifyInstance): Promise<void>
   );
   app.post(
     "/automations/:code/test/claude",
-    { config: { access: ACCESS }, schema: { params: codeParams, body: z.object({ version: testVersion, path: z.string().min(1).max(200), vars: z.record(z.string(), z.unknown()).default({}) }) } },
+    { config: { access: ACCESS }, schema: { params: codeParams, body: z.object({ version: testVersion, rev: z.number().int().nullable().optional(), path: z.string().min(1).max(200), vars: z.record(z.string(), z.unknown()).default({}) }) } },
     async (request, reply) => handle(reply, () => runTestClaude(app.db, app.chatLlm, me(request), request.params.code, request.body)),
   );
   app.post(

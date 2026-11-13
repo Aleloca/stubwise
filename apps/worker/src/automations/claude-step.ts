@@ -5,7 +5,9 @@ import type { Db } from "@stubwise/db";
 import { aiBudgetState } from "@stubwise/notifications";
 import { buildClaudePrompt, parseClaudeAnswer, untrustedText, type Step } from "@stubwise/shared";
 import { NATIVE_TOOLS } from "../agent/native-tools.js";
-import type { AgentRunner, UsageTag } from "../agent/runner.js";
+import type { AgentRunner, AgentRunResult, UsageTag } from "../agent/runner.js";
+import type { ResolvedProvider } from "../providers/chain.js";
+import { isQuotaWait, limitTextOfRun, runWithProviders, type SelectDeps } from "../providers/select.js";
 import { textFromRun } from "../agent/text.js";
 
 type ClaudeStep = Extract<Step, { kind: "claude" }>;
@@ -43,12 +45,20 @@ export type ClaudeStepOutcome =
   | { kind: "invalid"; reason: string }
   /** Il budget del mese è finito: nessuna chiamata. */
   | { kind: "budget" }
-  /** Il provider non ha risposto (limite, rete, uscita non zero): si riprova. */
-  | { kind: "provider_error"; reason: string };
+  /**
+   * Il provider non ha risposto: si riprova (con un tetto, nell'esecutore).
+   * Solo un CODICE (review F3, M12): il testo grezzo dell'errore può contenere
+   * segreti o dettagli dell'account, e non va nella motivazione visibile.
+   */
+  | { kind: "provider_error"; code: ProviderErrorCode };
+
+export type ProviderErrorCode = "limited" | "quota_wait" | "unavailable" | "no_answer" | "error";
 
 export interface ClaudeStepDeps {
   db: Db;
   runner: AgentRunner;
+  /** La scelta degli account (review F3, I1): assente solo nei test e nel golden. */
+  select?: SelectDeps;
   /** Solo nei test. */
   monthlyCostUsdFn?: (db: Db) => Promise<number>;
 }
@@ -60,33 +70,48 @@ export interface ClaudeStepDeps {
  */
 export async function callClaudeModel(
   runner: AgentRunner,
-  input: { step: ClaudeStep; inputs: Record<string, unknown>; usage: UsageTag; model?: string },
-): Promise<ClaudeStepOutcome & { raw?: string }> {
+  input: { step: ClaudeStep; inputs: Record<string, unknown>; usage: UsageTag; model?: string; select?: SelectDeps },
+): Promise<ClaudeStepOutcome & { raw?: string; usage?: AgentRunResult["usage"] }> {
   const { prompt, truncated } = buildClaudePrompt(input.step, input.inputs);
   const cwd = await mkdtemp(join(tmpdir(), "stubwise-automation-step-"));
   try {
     let text: string | null;
     let raw = "";
-    try {
-      const result = await runner.run({
+    let usage: AgentRunResult["usage"];
+    const attempt = (provider: ResolvedProvider | undefined) =>
+      runner.run({
         cwd,
         prompt,
         usage: input.usage,
         ...(input.model ? { model: input.model } : {}),
+        ...(provider !== undefined ? { provider } : {}),
         builtinTools: NATIVE_TOOLS.text,
         permissionMode: "default",
         maxTurns: 1,
         timeoutMs: 120_000,
       });
+    try {
+      let result: AgentRunResult;
+      if (input.select) {
+        // Review F3, I1: la scelta degli account del worker (`docs/invariants/providers.md`):
+        // preferiti, esclusivi, al limite, la soglia dello sfondo. Un passo di un'automazione è SFONDO.
+        const out = await runWithProviders(input.select, { projectId: input.usage.projectId, workClass: "background" }, attempt, limitTextOfRun);
+        if (out.kind === "legacy_limited") return { kind: "provider_error", code: "limited" };
+        if (out.kind === "unavailable") return { kind: "provider_error", code: isQuotaWait(out.reason) ? "quota_wait" : "unavailable" };
+        result = out.value;
+      } else {
+        result = await attempt(undefined);
+      }
       raw = result.output;
+      usage = result.usage;
       text = textFromRun(result);
-    } catch (err) {
-      return { kind: "provider_error", reason: err instanceof Error ? err.message : String(err) };
+    } catch {
+      return { kind: "provider_error", code: "error" };
     }
-    if (text === null) return { kind: "provider_error", reason: "Nessuna risposta dal modello.", raw };
+    if (text === null) return { kind: "provider_error", code: "no_answer", raw };
     const answer = parseClaudeAnswer(text);
     if (!answer) return { kind: "invalid", reason: "La risposta di Claude non è un oggetto JSON.", raw };
-    return { kind: "result", ...(answer.outcome !== undefined ? { outcome: answer.outcome } : {}), ...(answer.fields !== undefined ? { fields: answer.fields } : {}), reason: answer.reason, truncated, raw };
+    return { kind: "result", ...(answer.outcome !== undefined ? { outcome: answer.outcome } : {}), ...(answer.fields !== undefined ? { fields: answer.fields } : {}), reason: answer.reason, truncated, raw, ...(usage ? { usage } : {}) };
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
@@ -97,11 +122,13 @@ export async function runClaudeStep(
   input: { step: ClaudeStep; inputs: Record<string, unknown>; projectId: string | null; automationId: string; automationRunId: string | null },
 ): Promise<ClaudeStepOutcome> {
   if ((await aiBudgetState(deps.db, deps.monthlyCostUsdFn)).exhausted) return { kind: "budget" };
-  const { raw: _raw, ...out } = await callClaudeModel(deps.runner, {
+  const { raw: _raw, usage: _usage, ...out } = await callClaudeModel(deps.runner, {
     step: input.step,
     inputs: input.inputs,
+    ...(deps.select ? { select: deps.select } : {}),
     usage: { operation: "automation_step", projectId: input.projectId, automationId: input.automationId, ...(input.automationRunId ? { automationRunId: input.automationRunId } : {}) },
   });
   void _raw;
+  void _usage;
   return out;
 }

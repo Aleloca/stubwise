@@ -99,14 +99,18 @@ describe("il passo di Claude", () => {
     expect(await reload(b.run.id)).toMatchObject({ status: "failed", error: "claude_invalid" });
   });
 
-  it("una ripresa dopo il commit NON richiama il modello", async () => {
-    const wait: Step = { id: "w", kind: "createTask", title: "Dopo", description: "", assignee: null, dueInDays: null, project: { mode: "own" }, milestoneRef: null, approval: { mode: "ask", who: { owner: true } } };
-    const { run } = await runOf([claude({ branches: {} }), wait]);
+  it("una ripresa dopo il commit NON richiama il modello (review F3, I5: una ripresa vera, da un'attesa scaduta, col registro di Claude già salvato)", async () => {
+    const after: Step = { id: "dopo", kind: "createTask", title: "Dopo {{voce}}", description: "", assignee: null, dueInDays: null, project: { mode: "own" }, milestoneRef: null, approval: auto };
+    const { run } = await runOf([claude({ branches: {} }), { id: "w", kind: "wait", for: { days: 1 } }, after]);
     const { runner, calls } = fakeRunner(['{"outcome":"normale","reason":"ok"}']);
-    await executeDueRuns({ db: t.db, runner });
-    expect((await reload(run.id)).status).toBe("waiting_approval");
-    await due(run.id);
-    await executeDueRuns({ db: t.db, runner });
+    const now = new Date();
+    await executeDueRuns({ db: t.db, runner, now: () => now });
+    expect((await reload(run.id)).status).toBe("waiting_event");
+    expect(calls).toHaveLength(1);
+    // Scaduta l'attesa: il motore riparte dal registro (restoreState), fa il passo dopo e finisce.
+    await executeDueRuns({ db: t.db, runner, now: () => new Date(now.getTime() + 2 * 86_400_000) });
+    expect((await reload(run.id)).status).toBe("done");
+    expect(await t.db.select().from(tickets).where(eq(tickets.automationRunId, run.id))).toHaveLength(1);
     expect(calls).toHaveLength(1);
   });
 
@@ -169,3 +173,64 @@ describe("il budget prima di OGNI passo (D1, test NEGATIVO)", () => {
     expect((await logOf(run.id)).filter((e) => e.kind === "claude" && e.outcome === "ok")).toHaveLength(3);
   });
 });
+
+describe("review F3: gli account e gli errori del provider", () => {
+  const provider = { id: "p-1", kind: "api_key" as const, secret: "s" };
+  const select = (seen: { workClass?: string }[]) => ({
+    db: t.db,
+    encryptionKey: Buffer.alloc(32),
+    backgroundWeeklyThreshold: 0.8,
+    selectProvidersFn: async (_d: unknown, input: { workClass: string }) => {
+      seen.push(input);
+      return { candidates: [provider], legacyAuth: false, emptyReason: null };
+    },
+  });
+
+  it("I1: il passo passa dalla scelta degli account (`runWithProviders`), come lavoro di SFONDO, e usa l'account scelto", async () => {
+    const { run } = await runOf([claude({ branches: {} })]);
+    const seen: { workClass?: string }[] = [];
+    const { runner, calls } = fakeRunner(['{"outcome":"normale","reason":"ok"}']);
+    await executeDueRuns({ db: t.db, runner, select: select(seen) as never });
+    expect(seen).toEqual([expect.objectContaining({ workClass: "background", projectId })]);
+    expect(calls[0]!.provider).toEqual(provider);
+    expect((await reload(run.id)).status).toBe("done");
+  });
+
+  it("I2 e M12: un errore del provider si riprova con un tetto (8), poi fallisce `provider_error` e il proprietario lo sa; la riga dice un codice, mai il testo grezzo", async () => {
+    const { run } = await runOf([claude({ branches: {} })]);
+    const { runner, calls } = fakeRunner([new Error("401 invalid x-api-key sk-ant-SEGRETO")]);
+    for (let i = 0; i < 10; i++) {
+      await due(run.id);
+      await executeDueRuns({ db: t.db, runner });
+    }
+    expect(calls).toHaveLength(8);
+    expect(await reload(run.id)).toMatchObject({ status: "failed", error: "provider_error" });
+    const log = await logOf(run.id);
+    expect(JSON.stringify(log)).not.toContain("SEGRETO");
+    expect(log.filter((e) => e.why && (e.why as { code: string }).code === "providerError")).toHaveLength(7);
+    const cards = (await t.db.select().from(notifications).where(eq(notifications.userId, ownerId))).filter((n) => n.kind === "automation.failed");
+    expect(cards).toHaveLength(1);
+  });
+});
+
+describe("review F3, M7: un'esecuzione non tiene l'esecutore", () => {
+  it("al più 3 passi di Claude per giro: un «per ogni» di 5 ne fa 3, lascia l'esecuzione dovuta e finisce al giro dopo; la lease si rinnova a ogni passo", async () => {
+    const loop: Step = { id: "f", kind: "forEach", list: "avvio.voci", as: "voce", steps: [claude({ id: "c", inputs: ["voce"], branches: {} })] };
+    const { run } = await runOf([loop], { avvio: { voci: ["a", "b", "c", "d", "e"] } });
+    const renewals: Date[] = [];
+    const { runner, calls } = fakeRunner(['{"outcome":"normale","reason":"ok"}'], async () => {
+      const [r] = await t.db.select({ claimedAt: automationRuns.claimedAt }).from(automationRuns).where(eq(automationRuns.id, run.id));
+      if (r?.claimedAt) renewals.push(r.claimedAt);
+    });
+    await executeDueRuns({ db: t.db, runner });
+    expect(calls).toHaveLength(3);
+    const mid = await reload(run.id);
+    expect(mid.status).toBe("running");
+    expect(mid.dueAt!.getTime()).toBeLessThanOrEqual(Date.now());
+    expect(new Set(renewals.map((d) => d.getTime())).size).toBeGreaterThan(1);
+    await executeDueRuns({ db: t.db, runner });
+    expect(calls).toHaveLength(5);
+    expect((await reload(run.id)).status).toBe("done");
+  });
+});
+
