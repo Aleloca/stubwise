@@ -23,7 +23,7 @@ export async function listOpenPulls(db: Db, encryptionKey: Buffer, viewer: Pick<
   if (!perms) throw new ReleaseError(404, "not_found", "Not found");
   const items = await listReleaseQueue(db, encryptionKey, [projectId]);
   if (items.length === 0) return [];
-  const [project] = await db.select({ cap: projects.prCorrectionMaxRounds }).from(projects).where(eq(projects.id, projectId));
+  const [project] = await db.select({ cap: projects.prCorrectionMaxRounds, code: projects.code }).from(projects).where(eq(projects.id, projectId));
   const repoIds = [...new Set(items.map((i) => i.repositoryId))];
   // Tutte le righe di review delle PR (poche per PR): l'ultima, l'ultima
   // completata e il «Solo analisi», che vale su QUALUNQUE riga della PR
@@ -116,7 +116,10 @@ export async function listOpenPulls(db: Db, encryptionKey: Buffer, viewer: Pick<
     const issues =
       completed?.verdict === "request_changes" ? [{ title: completed.summary ?? "", file: null }] : [];
     const fromFork = colleague ? (completed?.fromFork ?? review?.fromFork ?? null) : false;
-    const prState = prStateOf({
+    // Review spenta e nessuna analisi: niente da aspettare, ma nemmeno
+    // «senza problemi» — non è stata guardata ((O) di 46).
+    const notAnalyzed = !reviewOn && rows.length === 0;
+    const computed = prStateOf({
       origin: i.origin,
       branch: i.branch,
       baseBranch: review?.targetBranch ?? "",
@@ -133,7 +136,7 @@ export async function listOpenPulls(db: Db, encryptionKey: Buffer, viewer: Pick<
         ? { sha: review.headSha, status: "running", issues: [] }
         : completed
           ? { sha: completed.headSha, status: "done", issues }
-          : !reviewOn && rows.length === 0
+          : notAnalyzed
             ? { sha: i.headSha ?? "", status: "done", issues: [] }
             : null,
       corrections: correctionInputs,
@@ -141,6 +144,11 @@ export async function listOpenPulls(db: Db, encryptionKey: Buffer, viewer: Pick<
       repoMode: repo?.colleaguePrs ?? "analyze_only",
       prAnalysisOnly: flagged !== undefined,
     });
+    // «Senza problemi» / «corretta» su una PR mai analizzata sarebbe falso: è «non analizzata».
+    const prState =
+      notAnalyzed && (computed.state === "clean" || computed.state === "corrected")
+        ? { ...computed, state: "analysis_off" as const }
+        : computed;
     const checksStatus =
       i.checks.status === "success" || i.checks.status === "no_checks"
         ? "passing"
@@ -150,6 +158,8 @@ export async function listOpenPulls(db: Db, encryptionKey: Buffer, viewer: Pick<
             ? "pending"
             : "unreadable";
     return {
+      projectId,
+      ...(project ? { projectCode: project.code } : {}),
       origin: i.origin,
       ticketId: i.ticketId,
       ticketNumber: i.ticketNumber,

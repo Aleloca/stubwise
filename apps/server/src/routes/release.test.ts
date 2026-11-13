@@ -1505,8 +1505,11 @@ describe("area 8, F1, S10: la Home «Rilasci»", () => {
     const mine = await meReleases(lead.headers);
     expect(mine.failed.map((r) => r.code)).toEqual([open.code]);
     expect(mine.failed.map((r) => r.code)).not.toContain(repaired.code);
-    // La review automatica è spenta: la PR verde di Stubwise è pronta (niente analisi da aspettare).
+    // La review automatica è spenta: la PR verde di Stubwise è pronta (niente analisi da aspettare),
+    // ma «non analizzata», mai «senza problemi» ((O) di 46).
     expect(mine.ready.map((p) => p.prUrl)).toEqual([PR_URL]);
+    expect((mine.ready[0] as unknown as { prState: { state: string } }).prState.state).toBe("analysis_off");
+    expect(mine.ready[0]).toMatchObject({ projectId, projectCode: expect.any(String) });
     expect(await meReleases(dev.headers)).toEqual({ failed: [], ready: [] });
   });
 
