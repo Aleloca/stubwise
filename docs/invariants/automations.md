@@ -67,6 +67,37 @@ motore condiviso (`packages/shared/src/automations/`).
 - Gli eventi consumati si marcano `consumed_at`; un evento senza automazioni
   che lo ascoltano si consuma lo stesso.
 
+## L'esecutore (`apps/worker/src/automations/executor.ts`)
+
+- **Il server non fa mai avanzare il motore.** Approvazioni, rifiuti, il
+  progetto scelto, «Riprova», «Salta», la riaccensione entrano come righe di
+  `automation_run_inputs`; le consuma l'esecutore, in ordine, uno alla volta.
+- Lo stato vero è la riga `automation_runs` più il suo registro: a ogni giro
+  il motore lo riprende con `restoreState`, come il prototipo. Un LEASE per
+  esecuzione (`claimed_at`, 60′, `SKIP LOCKED`); un worker morto la libera
+  alla scadenza, un riavvio non perde niente.
+- **Gli effetti** (`effects.ts`) sono l'UNICO punto che scrive per
+  un'automazione, con le scritture di oggi (`createTicket`, `createMilestone`,
+  `createRequestItem` di `@stubwise/db`, le stesse delle persone; e
+  `publishNotification`), a nome del proprietario. I piani sono quelli
+  condivisi (`plans.ts` di `@stubwise/shared`, gli stessi della prova), col
+  mondo (`world.ts`) letto dal DB prima di ogni effetto: i permessi del
+  proprietario si ricontrollano a OGNI effetto.
+- **Idempotenza**: un effetto per passo e giro (`automation_effects`, chiave
+  `<run>:<path>:<round>`), scritto nella transazione della scrittura. Un passo
+  rifatto ritrova l'effetto e risponde come la prima volta. Nella fetta 1 il
+  giro è sempre 0 (`repeatUntil` è della F2: chi lo porta deve dare al giro
+  il suo numero, o un passo ripetuto non scriverebbe più).
+- La transazione di un effetto imposta `stubwise.automation_run_id`: gli
+  eventi che genera portano l'esecuzione, e la catena si ferma da lì.
+- **Pausa**: mai con un effetto in volo; si sospende al confine del passo. Il
+  passo appena deciso (approvato, progetto scelto) si esegue lo stesso.
+- **Chi approva** si risolve ORA (R-J8): la persona indicata, chi ha il ruolo
+  nel progetto (la chiave del preset, o l'id di un ruolo fatto a mano), il
+  proprietario di adesso — e solo chi vede il progetto. Nessuno → l'esecuzione
+  fallisce con `no_approver` e il proprietario riceve `automation.failed`
+  (R-J11).
+
 ## Le card d'inbox
 
 - I quattro `notification_kind` (`automation.approval`, `automation.failed`,

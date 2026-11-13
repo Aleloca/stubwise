@@ -50,3 +50,12 @@ export { recordDecision, type DecisionSource, type RecordDecisionParams } from "
 // esattamente lo stesso digest per lo stesso testo.
 export { planDigest } from "./plan-digest.js";
 export { CANCEL_REQUEST_CLEARED } from "./ai-job-cancel.js";
+export { createTicket, ProjectNotFoundError, type CreateTicketInput, type Ticket } from "./ticket-create.js";
+export {
+  createMilestone,
+  type CreateMilestoneError,
+  type CreateMilestoneInput,
+  type CreateMilestoneResult,
+  type MilestoneRow,
+} from "./milestone-create.js";
+export { createRequestItem, type CreateRequestItemInput } from "./request-create.js";

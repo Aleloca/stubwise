@@ -15,7 +15,7 @@ export interface AutomationsPollerDeps {
   intervalSeconds: number;
   signal: AbortSignal;
   log?: (msg: string) => void;
-  /** Il passo dell'esecutore (aggiunto col Task 3); assente = solo il consumatore. */
+  /** Il passo dell'esecutore (`executeDueRuns`); assente = solo il consumatore. */
   execute?: () => Promise<unknown>;
 }
 

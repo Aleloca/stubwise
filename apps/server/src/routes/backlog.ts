@@ -34,6 +34,7 @@ import {
   backlogItems,
   backlogItemTickets,
   backlogJobs,
+  createRequestItem,
   projects,
   tickets,
   users,
@@ -747,21 +748,9 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(projects.id, projectId));
       if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
 
-      const itemId = await app.db.transaction(async (tx) => {
-        const [item] = await tx
-          .insert(backlogItems)
-          .values({ projectId, title, document: design, source: "manual" })
-          .returning({ id: backlogItems.id });
-        await tx
-          .insert(backlogJobs)
-          .values({ projectId, kind: "estimate", payload: { itemId: item!.id } });
-        // Stessa API, stessa regola: chi crea dal design è un richiedente.
-        await tx
-          .insert(backlogItemRequesters)
-          .values({ itemId: item!.id, userId: request.user!.id })
-          .onConflictDoNothing();
-        return item!.id;
-      });
+      // Uno scrittore solo (`@stubwise/db`), lo stesso dell'esecutore delle
+      // automazioni: la voce, il job di stima e chi la chiede come richiedente.
+      const itemId = await createRequestItem(app.db, { projectId, title, document: design, requesterId: request.user!.id });
 
       return reply.code(201).send({ itemId, url: `${app.publicUrl}/backlog/${itemId}` });
     },
