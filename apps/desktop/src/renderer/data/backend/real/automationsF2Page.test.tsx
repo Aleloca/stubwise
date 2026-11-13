@@ -215,6 +215,29 @@ describe("accendere e pubblicare con la casella (F2, R3)", () => {
     );
   });
 
+  it("la casella già scelta dal proprietario (io) è quella preselezionata, e si manda quella", async () => {
+    const B_ID = "88888888-8888-4888-8888-888888888882";
+    const chosen = () => ({ ...row(), mailbox: "b@audin.test", mailboxAccountId: B_ID });
+    install({
+      "GET /api/automations": { body: { items: [chosen()] } },
+      "GET /api/automations/AUD-A1": {
+        body: { automation: chosen(), configErrors: [], liveErrors: [], runs: [] },
+      },
+      "GET /api/me/google/accounts": {
+        body: [account(), account({ id: B_ID, email: "b@audin.test" })],
+      },
+      "POST /api/automations/AUD-A1/publish": { body: published },
+    });
+    const dialog = await openPublish();
+    expect(await within(dialog).findByRole("radio", { name: "b@audin.test" })).toBeChecked();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Publish" }));
+    await waitFor(() =>
+      expect(
+        seen.find((r) => r.method === "POST" && r.path === "/api/automations/AUD-A1/publish")?.body,
+      ).toEqual({ expectedRev: 6, mailboxAccountId: B_ID }),
+    );
+  });
+
   it("senza una casella utilizzabile il dialogo lo dice e non pubblica", async () => {
     install({
       "GET /api/me/google/accounts": {

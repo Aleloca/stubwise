@@ -329,6 +329,25 @@ describe("la prova nella build app", () => {
     }
   });
 
+  it("la casella scelta che non c'è più: il motivo la nomina, come nel prototipo (chi prova è il proprietario)", async () => {
+    const email = {
+      id: "e1",
+      kind: "sendEmail",
+      to: "cliente@example.com",
+      subject: "x",
+      body: "y",
+      attachRefs: [],
+      approval: { mode: "auto" },
+    } as unknown as Step;
+    const ctx = context([email], { ownerMailbox: { ok: false, reason: "chosen_gone" } });
+    Object.assign(ctx.automation, { mailbox: "vecchia@audin.test", ownerId: ME });
+    const s = createRealSimulation(fakeApi(ctx).api);
+    const id = await s.startSimulation("a-1", "draft", {});
+    const v = await s.simulationStep(id, { kind: "run" });
+    expect(v.status).toBe("failed");
+    expect(JSON.stringify(v.log)).toContain("vecchia@audin.test");
+  });
+
   it("gli errori di configurazione del server: la prova non parte", async () => {
     const { api } = fakeApi(
       context([task()], { configErrors: [{ path: "0", code: "not_available", message: "x" }] }),
