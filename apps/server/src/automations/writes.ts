@@ -243,10 +243,13 @@ export async function deleteDraft(db: Db, viewer: Viewer, code: string, opts: { 
   else await db.delete(automationVersions).where(eq(automationVersions.id, last.id));
 }
 
-/** Gli errori di un flusso a schermo non ancora salvato, visti dal proprietario che avrebbe (sola lettura). */
+/**
+ * Gli errori di un flusso a schermo non ancora salvato, visti dal proprietario
+ * che avrebbe: chi chiama, perché pubblicandolo lo diventa (review F1, I3).
+ */
 export async function checkFlow(db: Db, viewer: Viewer, code: string, flow: AutomationFlow) {
   const a = await managedAutomation(db, viewer, code);
-  return { issues: await configErrorsOf(db, a, flow, a.ownerId ?? viewer.id) };
+  return { issues: await configErrorsOf(db, a, flow, viewer.id) };
 }
 
 /** «Avvia ora»: un'esecuzione col dato dell'inizio a mano, che l'esecutore muove al prossimo giro. */

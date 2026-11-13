@@ -370,6 +370,29 @@ describe("la prova: gli esempi e il contesto", () => {
     expect((await call(lead.headers, "GET", `/automations/${manual.code}/examples?version=1`)).json()).toMatchObject({ items: [{ label: today, event: { avvio: { data: today } } }] });
   });
 
+  it("review F1, I3: per una versione non pubblicata il proprietario che avrebbe è chi prova (pubblicando lo diventa), e un progetto che non vede non dice niente del proprietario attuale", async () => {
+    const { p, lead } = await setup();
+    const other = await person();
+    await addMember(app, p.id, other.id, "project_lead");
+    const q = await project();
+    await addMember(app, q.id, lead.id, "project_lead");
+    // `lead` pubblica e resta proprietario; `other` scrive una bozza che crea in Q, chiedendo al proprietario.
+    const a = await created(lead, p.id, flowOf([createTask()]));
+    expect((await call(lead.headers, "POST", `/automations/${a.code}/publish`, {})).statusCode).toBe(200);
+    const flow = flowOf([createTask({ project: { mode: "fixed", projectId: q.id }, approval: { mode: "ask", who: { owner: true } } })]);
+    expect((await call(other.headers, "PUT", `/automations/${a.code}/draft`, { flow, expectedRev: null })).statusCode).toBe(200);
+    const ctx = ((await call(other.headers, "GET", `/automations/${a.code}/examples?version=draft`)).json() as { context: { ownerId: string; projects: { id: string; seenBy: string[]; ownerCan: Record<string, boolean>; gone: boolean }[] } }).context;
+    expect(ctx.ownerId).toBe(other.id);
+    expect(ctx.projects.find((x) => x.id === q.id)).toMatchObject({ seenBy: [], gone: false, ownerCan: { createTask: false, createMilestone: false, createRequest: false } });
+    // /check dice ciò che direbbe la pubblicazione di `other`: in Q il proprietario (lui) non c'è, quindi nessuno approva.
+    const check = (await call(other.headers, "POST", `/automations/${a.code}/check`, { flow })).json() as { issues: { code: string }[] };
+    const publish = await call(other.headers, "POST", `/automations/${a.code}/publish`, {});
+    expect(publish.statusCode).toBe(409);
+    expect(check.issues.length).toBeGreaterThan(0);
+    expect(publish.json()).toMatchObject({ code: "config" });
+    expect(check.issues.map((i) => i.code).sort()).toEqual(((publish.json() as { issues: { code: string }[] }).issues.map((i) => i.code)).sort());
+  });
+
   it("il contesto: il proprietario che avrebbe (chi prova, per una bozza mai accesa), chi vede, cosa può creare, chi ha i ruoli; un progetto fisso che chi prova non vede resta muto (R-G5)", async () => {
     const { p, lead, dev } = await setup();
     const hidden = await project();
