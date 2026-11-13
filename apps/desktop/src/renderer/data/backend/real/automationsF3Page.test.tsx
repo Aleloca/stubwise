@@ -18,7 +18,8 @@ import {
 // alle richieste esatte: «Run to next stop» si FERMA al primo passo di Claude
 // col costo stimato (una sola stima, nessuna chiamata a Claude, nessun giro
 // che riparte da solo), e dopo «Test with Claude» chiede la risposta al
-// server. Qui `automations-f3` è acceso; nella build app resta spento.
+// server. `automations-f3` è acceso nella build app; il mock lo tiene acceso
+// qui a prescindere.
 vi.mock("@backend/api", async () => await import("./index"));
 vi.mock("../../integration", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../integration")>();

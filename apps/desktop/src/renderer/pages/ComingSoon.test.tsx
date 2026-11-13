@@ -437,6 +437,27 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
+  // Area 7, F3: i passi di Claude accesi (`automations-f3`); «avvia un'altra»
+  // e le sorgenti restano della F4.
+  it("il costruttore offre il passo di Claude; «avvia un'altra» resta «Coming soon»", async () => {
+    signedInAs("p-laura");
+    renderRoute("/automations/STW-A1/edit");
+    const tree = await screen.findByRole("tree");
+    const first = tree.querySelector<HTMLElement>("[data-step-path]")!;
+    first.focus();
+    await userEvent.keyboard("a");
+    const menu = await screen.findByRole("dialog", { name: "Add a step" });
+    expect(within(menu).getByRole("option", { name: /Claude reads and decides/ })).not.toHaveAttribute(
+      "aria-disabled",
+    );
+    expect(within(menu).getByRole("option", { name: /Start another automation/ })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
   it("aprire il Calendario legge solo ciò che è integrato", async () => {
     renderRoute("/calendar");
     await waitFor(() => expect(calls).toContain("calendar.listEvents"));

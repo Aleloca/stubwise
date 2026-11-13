@@ -59,6 +59,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Area 7, fetta 2: email e attese (passo «Manda email», attese, «ripeti
     // finché», inizi a orario ed «email in arrivo»), con la casella vera.
     "automations-f2",
+    // Area 7, fetta 3: i passi di Claude (la prova con Claude vero dal server,
+    // col costo da confermare; il budget mensile prima di ogni passo).
+    "automations-f3",
     "notifications",
     "search",
     "task-detail",
@@ -271,9 +274,8 @@ export function integrationTargetOf(
 
 /**
  * I passi e gli inizi delle Automations che questa build offre (area 7, per
- * fette): nella build app quelli della fetta 2 (funzione `automations-f2`;
- * senza, la fetta 1; della 3 con `automations-f3`, spenta finché il suo
- * server non c'è), nel prototipo
+ * fette): nella build app quelli della fetta 3 (funzione `automations-f3`;
+ * senza, la 2 con `automations-f2`, o la 1), nel prototipo
  * tutti (`undefined`). La leggono il costruttore («Coming soon») e la validazione
  * (`not_available`), così non possono dire due cose diverse.
  */
