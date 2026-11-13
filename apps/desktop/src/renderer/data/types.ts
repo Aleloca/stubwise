@@ -864,7 +864,8 @@ export interface MeetingSummary {
   doc: MeetingTranscript["doc"];
   summary: string | null;
   transcript: string | null;
-  email: { threadId: string; sourceId: string; at: string } | null;
+  /** `threadId` null: la conversazione non si apre (build app, senza la casella). */
+  email: { threadId: string | null; sourceId: string; at: string } | null;
   /** Build app (F5): il link al Doc di Gemini («Open the transcript» apre Google Docs). */
   docUrl?: string | null;
   /** Build app (F5a): perché il Doc non si legge, o si legge solo in parte (`too_long`). */

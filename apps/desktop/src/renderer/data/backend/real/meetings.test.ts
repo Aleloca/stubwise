@@ -37,7 +37,7 @@ describe("F5: il riassunto di una riunione", () => {
           doc: "ready",
           summary: "Si è deciso di anticipare il rilascio.",
           docUrl: "https://docs.google.com/document/d/abc",
-          email: { threadId: `${ACC}_t-9`, messageId: M1, at: "2026-11-11T16:40:00.000Z" },
+          email: { threadId: "t-9", accountId: ACC, messageId: M1, at: "2026-11-11T16:40:00.000Z" },
         },
       },
     });
@@ -319,5 +319,35 @@ describe("F5a: il riassunto dice il motivo del Doc, e apre solo Google Docs", ()
   it("un link che non è di Google Docs non si apre", async () => {
     installFakeServer(summary({ docUrl: "https://evil.test/document/d/x" }));
     expect((await m.getMeetingByNote!(NOTE))?.docUrl).toBeNull();
+  });
+});
+
+// Review F5a (2): il link «dall'email» del riassunto usa la chiave dell'app
+// (casella + thread); senza la casella (un server di prima) niente link, ma
+// l'email resta per le proposte aperte.
+describe("F5a: l'email di Gemini del riassunto", () => {
+  const NOTE = "99999999-4444-4444-8444-444444444444";
+  const withEmail = (email: Record<string, unknown>) => ({
+    [`GET /api/me/meetings/${NOTE}`]: {
+      body: { noteId: NOTE, eventId: null, docTitle: "N", doc: "ready", summary: "S", docUrl: null, email },
+    },
+  });
+
+  it("con la casella: la chiave dell'app", async () => {
+    installFakeServer(withEmail({ threadId: "t-9", accountId: ACC, messageId: M1, at: "2026-11-11T16:40:00.000Z" }));
+    expect((await m.getMeetingByNote!(NOTE))?.email).toEqual({
+      threadId: `${ACC}_t-9`,
+      sourceId: M1,
+      at: "2026-11-11T16:40:00.000Z",
+    });
+  });
+
+  it("senza la casella: nessun link (threadId null), la fonte delle proposte resta", async () => {
+    installFakeServer(withEmail({ threadId: "t-9", messageId: M1, at: "2026-11-11T16:40:00.000Z" }));
+    expect((await m.getMeetingByNote!(NOTE))?.email).toEqual({
+      threadId: null,
+      sourceId: M1,
+      at: "2026-11-11T16:40:00.000Z",
+    });
   });
 });

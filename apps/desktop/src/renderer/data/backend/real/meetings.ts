@@ -3,6 +3,7 @@ import type * as Fake from "../../api";
 import type { MeetingDocReason, MeetingNote, MeetingSummary, MeetingTask } from "../../types";
 import { googleDocUrl } from "../../googleDoc";
 import { appClient } from "./client";
+import { threadKey } from "./mailKeys";
 
 // Le riunioni registrate nella build app (area 6, F5a), sopra i metodi di
 // `client.calendar` di 72 (`eventSummary`, `eventTasks`, `meeting`,
@@ -49,8 +50,14 @@ function summaryView(s: ServerSummary | null): MeetingSummary | null {
     // Solo un link di Google Docs (review F5a, 5), come sul messaggio.
     docUrl: googleDocUrl(s.docUrl),
     // L'email di Gemini, se chi guarda la vede: `sourceId` è il messaggio, come per le proposte.
+    // La conversazione con la chiave dell'app (casella + thread, review F5a, 2):
+    // senza la casella (un server di prima) niente link, e la fonte resta.
     email: s.email
-      ? { threadId: s.email.threadId, sourceId: s.email.messageId, at: s.email.at }
+      ? {
+          threadId: s.email.accountId ? threadKey(s.email.accountId, s.email.threadId) : null,
+          sourceId: s.email.messageId,
+          at: s.email.at,
+        }
       : null,
   };
 };

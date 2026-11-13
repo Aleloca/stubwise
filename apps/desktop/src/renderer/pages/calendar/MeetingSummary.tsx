@@ -154,7 +154,7 @@ function SummaryBody({ summary: s }: { summary: Summary }) {
             {t("calendar.summary.openTranscript")}
           </button>
         )}
-        {s.email && (
+        {s.email?.threadId && (
           <Link
             to="/mail/$threadId"
             params={{ threadId: s.email.threadId }}
