@@ -243,6 +243,20 @@ describe("Non disponibile e collegamento scaduto", () => {
 });
 
 describe("Add from Google Drive", () => {
+  // Review F5b (6): il server può non dare il proprietario (una Drive condivisa)
+  // né la data: si salta la parte che manca, e il dialogo non cade.
+  it("un file senza proprietario né data: la riga c'è, senza «·» e senza data vuota", async () => {
+    for (const f of state.googleFiles) Object.assign(f, { owner: "", modifiedAt: "" });
+    await openDrive("/p/MKX/drive", "p-giulia");
+    await screen.findByRole("grid");
+    await userEvent.click(screen.getByRole("button", { name: "Add from Google Drive" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add from Google Drive to MKX" });
+    const list = within(dialog).getByRole("listbox", { name: "Your Google Drive files" });
+    const options = await within(list).findAllByRole("option");
+    const free = options.find((o) => o.getAttribute("aria-disabled") !== "true")!;
+    expect(free.textContent).not.toMatch(/·|Modified/);
+  });
+
   it("selezione multipla, già nel progetto disattivati, «Add 2 files»", async () => {
     await openDrive("/p/MKX/drive", "p-giulia");
     await screen.findByRole("grid");

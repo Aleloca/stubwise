@@ -5906,7 +5906,8 @@
       "cancel": "Annulla",
       "added_one": "{{count}} file aggiunto a {{code}}",
       "added_other": "{{count}} file aggiunti a {{code}}",
-      "meta": "{{owner}} · Modificato {{date}}"
+      "meta": "{{owner}} · Modificato {{date}}",
+      "modified": "Modificato {{date}}"
     },
     "connect": {
       "first": "Prima collega il tuo account Google",
