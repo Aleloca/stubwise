@@ -209,8 +209,23 @@ describe("le esecuzioni e le decisioni", () => {
     expect((await inputsOf(run.id)).map((i) => i.input)).toEqual([{ kind: "approved", path: "0", byId: lead.id }]);
     // L'esecuzione resta com'è: la muove il worker.
     expect((await db.select().from(automationRuns).where(eq(automationRuns.id, run.id)))[0]!.status).toBe("waiting_approval");
-    // Una seconda decisione sullo stesso passo, prima che il worker applichi la prima: stale.
-    expect((await call(lead.headers, "POST", `/automations/${a.code}/runs/1/reject`, { expectedPath: "0" })).json()).toMatchObject({ code: "stale" });
+    // Una seconda decisione della stessa persona sullo stesso passo, prima che il worker applichi la prima: `pending` (review del renderer).
+    expect((await call(lead.headers, "POST", `/automations/${a.code}/runs/1/reject`, { expectedPath: "0" })).json()).toMatchObject({ code: "pending" });
+  });
+
+  it("review F1, M4: la decisione di un ALTRO già in coda → stale; una sospensione in coda → suspended; due approvazioni insieme → una sola in coda", async () => {
+    const { a, run, lead, p } = await waitingRun({ projectRole: "project_lead" });
+    const second = await person();
+    await addMember(app, p.id, second.id, "project_lead");
+    const both = await Promise.all([lead, second].map((who) => call(who.headers, "POST", `/automations/${a.code}/runs/1/approve`, { expectedPath: "0" })));
+    expect(both.map((r) => r.statusCode).sort()).toEqual([204, 409]);
+    expect(await inputsOf(run.id)).toHaveLength(1);
+    const winner = (await inputsOf(run.id))[0]!.byId;
+    const loser = winner === lead.id ? second : lead;
+    expect((await call(loser.headers, "POST", `/automations/${a.code}/runs/1/approve`, { expectedPath: "0" })).json()).toMatchObject({ code: "stale" });
+    await db.delete(automationRunInputs).where(eq(automationRunInputs.runId, run.id));
+    await db.insert(automationRunInputs).values({ runId: run.id, input: { control: "suspend", byId: lead.id }, byId: lead.id });
+    expect((await call(second.headers, "POST", `/automations/${a.code}/runs/1/approve`, { expectedPath: "0" })).json()).toMatchObject({ code: "suspended" });
   });
 
   it("un ex approvatore (non ha più il ruolo) → 403; sospesa → 409 suspended; chi non la vede → 404", async () => {

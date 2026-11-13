@@ -210,46 +210,71 @@ export async function listRuns(
 
 const stale = () => new AutomationError(409, "stale", "The run is no longer waiting on that step");
 
-/** Una decisione vale per il passo che aspetta, da chi decide ADESSO. */
-async function decision(db: Db, viewer: Viewer, code: string, n: number, status: "waiting_approval" | "waiting_project", expected: { path: string; round?: number }) {
-  const found = await visibleRun(db, viewer, code, n);
-  const { run, deciders } = found;
-  if (run.status === "suspended") throw new AutomationError(409, "suspended", "The automation is paused");
-  if (run.status !== status) throw stale();
-  if (cursorOf(run).path !== expected.path || (pendingOf(run)?.round ?? 0) !== (expected.round ?? 0)) throw stale();
-  // Un input già in coda per questo passo (un altro ha appena deciso): la seconda decisione non cade.
-  const [queued] = await db.select({ id: automationRunInputs.id }).from(automationRunInputs).where(and(eq(automationRunInputs.runId, run.id), sql`${automationRunInputs.consumedAt} is null`)).limit(1);
-  if (queued) throw stale();
-  if (!deciders.includes(viewer.id)) throw forbidden("to be an approver of this step");
-  return found;
+/**
+ * Una decisione vale per il passo che aspetta, da chi decide ADESSO. Gira in
+ * una transazione con la run bloccata (review F1, M4): due decisioni insieme
+ * si mettono in fila, e la seconda trova in coda la prima. Un input già in
+ * coda dice perché la decisione non cade: una sospensione → `suspended`, una
+ * decisione propria → `pending` (il passo è deciso, l'esecutore la applica),
+ * quella di un altro → `stale`.
+ */
+async function decide(
+  db: Db,
+  viewer: Viewer,
+  code: string,
+  n: number,
+  status: "waiting_approval" | "waiting_project",
+  expected: { path: string; round?: number },
+  write: (tx: Db, run: RunRecord) => Promise<Record<string, unknown>>,
+): Promise<void> {
+  await db.transaction(async (raw) => {
+    const tx = raw as unknown as Db;
+    const [a] = await tx.select({ id: automations.id }).from(automations).where(eq(automations.code, code.toUpperCase()));
+    if (a) await tx.select({ id: automationRuns.id }).from(automationRuns).where(and(eq(automationRuns.automationId, a.id), eq(automationRuns.n, n))).for("update");
+    const { run, deciders } = await visibleRun(tx, viewer, code, n);
+    if (run.status === "suspended") throw new AutomationError(409, "suspended", "The automation is paused");
+    const [queued] = await tx
+      .select({ byId: automationRunInputs.byId, input: automationRunInputs.input })
+      .from(automationRunInputs)
+      .where(and(eq(automationRunInputs.runId, run.id), sql`${automationRunInputs.consumedAt} is null`))
+      .orderBy(asc(automationRunInputs.createdAt))
+      .limit(1);
+    if (queued) {
+      if ((queued.input as { control?: unknown } | null)?.control === "suspend") throw new AutomationError(409, "suspended", "The automation is paused");
+      if (queued.byId === viewer.id) throw new AutomationError(409, "pending", "Your decision is already being applied");
+      throw stale();
+    }
+    if (run.status !== status) throw stale();
+    if (cursorOf(run).path !== expected.path || (pendingOf(run)?.round ?? 0) !== (expected.round ?? 0)) throw stale();
+    if (!deciders.includes(viewer.id)) throw forbidden("to be an approver of this step");
+    const input = await write(tx, run);
+    await tx.insert(automationRunInputs).values({ runId: run.id, input, byId: viewer.id });
+  });
 }
 
 export async function approveRun(db: Db, viewer: Viewer, code: string, n: number, body: { expectedPath: string; expectedRound?: number; edited?: Record<string, string> }): Promise<void> {
-  const { run } = await decision(db, viewer, code, n, "waiting_approval", { path: body.expectedPath, round: body.expectedRound });
-  if (body.edited) {
-    const flow = await flowOfRun(db, run);
-    try {
-      checkEdited(flow ? stepAt(flow.steps, body.expectedPath)?.kind : undefined, body.edited);
-    } catch {
-      throw new AutomationError(400, "edited", "Those fields can't be edited on this step");
+  await decide(db, viewer, code, n, "waiting_approval", { path: body.expectedPath, round: body.expectedRound }, async (tx, run) => {
+    if (body.edited) {
+      const flow = await flowOfRun(tx, run);
+      try {
+        checkEdited(flow ? stepAt(flow.steps, body.expectedPath)?.kind : undefined, body.edited);
+      } catch {
+        throw new AutomationError(400, "edited", "Those fields can't be edited on this step");
+      }
     }
-  }
-  await db.insert(automationRunInputs).values({
-    runId: run.id,
-    input: { kind: "approved", path: body.expectedPath, byId: viewer.id, ...(body.edited ? { edited: body.edited } : {}) },
-    byId: viewer.id,
+    return { kind: "approved", path: body.expectedPath, byId: viewer.id, ...(body.edited ? { edited: body.edited } : {}) };
   });
 }
 
 export async function rejectRun(db: Db, viewer: Viewer, code: string, n: number, body: { expectedPath: string; expectedRound?: number }): Promise<void> {
-  const { run } = await decision(db, viewer, code, n, "waiting_approval", { path: body.expectedPath, round: body.expectedRound });
-  await db.insert(automationRunInputs).values({ runId: run.id, input: { kind: "rejected", path: body.expectedPath, byId: viewer.id }, byId: viewer.id });
+  await decide(db, viewer, code, n, "waiting_approval", { path: body.expectedPath, round: body.expectedRound }, async () => ({ kind: "rejected", path: body.expectedPath, byId: viewer.id }));
 }
 
 export async function chooseRunProject(db: Db, viewer: Viewer, code: string, n: number, body: { projectId: string; expectedPath: string; expectedRound?: number }): Promise<void> {
-  const { run } = await decision(db, viewer, code, n, "waiting_project", { path: body.expectedPath, round: body.expectedRound });
-  if (!sees(await seen(db, viewer), body.projectId)) throw notFound();
-  await db.insert(automationRunInputs).values({ runId: run.id, input: { kind: "project_chosen", projectId: body.projectId, byId: viewer.id }, byId: viewer.id });
+  await decide(db, viewer, code, n, "waiting_project", { path: body.expectedPath, round: body.expectedRound }, async (tx) => {
+    if (!sees(await seen(tx, viewer), body.projectId)) throw notFound();
+    return { kind: "project_chosen", projectId: body.projectId, byId: viewer.id };
+  });
 }
 
 /** Annulla, Riprova, Salta: chi gestisce l'automazione; l'esecutore li applica. */
