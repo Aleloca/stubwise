@@ -51,3 +51,13 @@ describe("i «Simula» dei rilasci fuori dalla build app (area 8, R-2)", () => {
     expect(screen.queryByRole("region", { name: "Prototype only" })).toBeNull();
   });
 });
+
+describe("il log di una run nella build app (area 8, P-1 = a)", () => {
+  it("niente log nell'app: la riga dice che è sul provider, accanto al link", async () => {
+    renderRoute("/p/AUD/releases/AUD-V3", "p-laura");
+    await screen.findByRole("region", { name: "Now" });
+    expect(screen.queryByRole("region", { name: /^Log of / })).toBeNull();
+    expect(screen.getByText(/The full log is on GitHub: open the run there\./)).toBeInTheDocument();
+    expect(screen.queryByText("This run has no log.")).toBeNull();
+  });
+});

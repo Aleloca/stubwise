@@ -251,7 +251,12 @@ function RunItem({ run, projectCode }: { run: RunView; projectCode: string }) {
               <strong className="font-semibold">{run.failedStep}</strong>
             </p>
           )}
-          {run.log !== null ? (
+          {isAppBuild() ? (
+            // P-1 = a (46): il log delle run non si legge nell'app, si apre sul provider.
+            <p className="text-sm text-ink-muted">
+              {t("releases.log.onProvider", { platform: platformOf(run.url) })}
+            </p>
+          ) : run.log !== null ? (
             <RunLog runName={run.name} log={run.log} url={run.url} />
           ) : run.logHidden ? (
             <p className="text-sm text-ink-muted">

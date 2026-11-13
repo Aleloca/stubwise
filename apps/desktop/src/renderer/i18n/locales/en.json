@@ -8996,6 +8996,7 @@
       "copied": "Log copied",
       "copyError": "Couldn't copy the log.",
       "hidden": "The log is visible to people who can see {{code}}'s code.",
+      "onProvider": "The full log is on {{platform}}: open the run there.",
       "none": "This run has no log."
     },
     "environments": {
