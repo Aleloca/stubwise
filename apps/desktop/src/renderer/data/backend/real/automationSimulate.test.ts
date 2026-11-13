@@ -36,7 +36,11 @@ const notify: Step = {
   approval: { mode: "auto" },
 } as Step;
 
-function context(steps: Step[], over: Partial<SimulationContext> = {}, trigger?: unknown): SimulationContext {
+function context(
+  steps: Step[],
+  over: Partial<SimulationContext> = {},
+  trigger?: unknown,
+): SimulationContext {
   const flow = {
     trigger: trigger ?? { kind: "stubwise", event: "task_created" },
     steps,
@@ -51,7 +55,16 @@ function context(steps: Step[], over: Partial<SimulationContext> = {}, trigger?:
     ownerId: null,
     status: "draft",
     versions: [
-      { n: 1, flow, publishedAt: null, publishedById: null, savedAt: "", savedById: ME, rev: 7, testedRev: null },
+      {
+        n: 1,
+        flow,
+        publishedAt: null,
+        publishedById: null,
+        savedAt: "",
+        savedById: ME,
+        rev: 7,
+        testedRev: null,
+      },
     ],
   } as unknown as Automation;
   return {
@@ -62,8 +75,22 @@ function context(steps: Step[], over: Partial<SimulationContext> = {}, trigger?:
     ownerId: ME,
     configErrors: [],
     people: [
-      { id: "ada", name: "Ada", departmentIds: ["dev"], isClaude: false, deactivated: false, defaultDepartmentId: "dev" },
-      { id: "bob", name: "Bob", departmentIds: ["dev"], isClaude: false, deactivated: false, defaultDepartmentId: "dev" },
+      {
+        id: "ada",
+        name: "Ada",
+        departmentIds: ["dev"],
+        isClaude: false,
+        deactivated: false,
+        defaultDepartmentId: "dev",
+      },
+      {
+        id: "bob",
+        name: "Bob",
+        departmentIds: ["dev"],
+        isClaude: false,
+        deactivated: false,
+        defaultDepartmentId: "dev",
+      },
     ],
     projects: [
       {
@@ -89,7 +116,9 @@ function fakeApi(ctx: SimulationContext) {
     examples: async (automationId, version): Promise<SimulationExamplesView> => {
       calls.push(`GET examples ${automationId} ${version}`);
       return {
-        items: [{ label: "AUD-12 Titolo", code: "AUD-12", at: null, event: { task: { titolo: "AUD" } } }],
+        items: [
+          { label: "AUD-12 Titolo", code: "AUD-12", at: null, event: { task: { titolo: "AUD" } } },
+        ],
         context: structuredClone(ctx),
       };
     },
@@ -111,12 +140,16 @@ describe("la prova nella build app", () => {
     expect(v.preview.tasks).toEqual([
       expect.objectContaining({ title: "Kick-off AUD", assigneeId: "bob", dueDate: "2026-11-16" }),
     ]);
-    expect(v.preview.notifications).toEqual([expect.objectContaining({ personId: "ada", text: "Fatto" })]);
+    expect(v.preview.notifications).toEqual([
+      expect.objectContaining({ personId: "ada", text: "Fatto" }),
+    ]);
     expect(calls).toEqual(["GET examples a-1 draft", "POST tested a-1 1 7"]);
   });
 
   it("un passo «chiede a» si ferma e dice l'approvatore vero (quello del server)", async () => {
-    const { api, calls } = fakeApi(context([task({ mode: "ask", who: { projectRole: "Project Lead" } })]));
+    const { api, calls } = fakeApi(
+      context([task({ mode: "ask", who: { projectRole: "Project Lead" } })]),
+    );
     const s = createRealSimulation(api);
     const id = await s.startSimulation("a-1", "draft", { task: { titolo: "x" } });
     const v = await s.getSimulation(id);
@@ -155,7 +188,9 @@ describe("la prova nella build app", () => {
       context([task()], { configErrors: [{ path: "0", code: "not_available", message: "x" }] }),
     );
     const s = createRealSimulation(api);
-    await expect(s.startSimulation("a-1", "draft", {})).rejects.toBeInstanceOf(SimulationConfigError);
+    await expect(s.startSimulation("a-1", "draft", {})).rejects.toBeInstanceOf(
+      SimulationConfigError,
+    );
   });
 
   it("una prova buttata non c'è più", async () => {

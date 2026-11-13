@@ -3936,11 +3936,15 @@ export function useProjectAutomations(projectId: string | null) {
 }
 
 /** «Created by automation…» su una task o un traguardo creati da un'esecuzione. */
-export function useAutomationOrigin(ref: AutomationRef | null | undefined, createdCode: string) {
+export function useAutomationOrigin(
+  ref: AutomationRef | null | undefined,
+  createdCode: string,
+  kind: "task" | "milestone",
+) {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: queryKeys.automationOrigin(me, ref?.automationId ?? "", ref?.runId ?? "", createdCode),
-    queryFn: () => api.automations.automationOrigin(ref!, createdCode),
+    queryFn: () => api.automations.automationOrigin(ref!, createdCode, kind),
     enabled: !!ref,
   });
 }

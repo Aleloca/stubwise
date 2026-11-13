@@ -34,7 +34,14 @@ function fakeApi(over: Partial<DecisionApi> = {}) {
   const api: DecisionApi = {
     myRuns: async () => {
       calls.push("GET my runs");
-      return [{ id: "run-1", code: "AUD-A1 #3", automationCode: "AUD-A1", n: 3 } as unknown as MyAutomationRun];
+      return [
+        {
+          id: "run-1",
+          code: "AUD-A1 #3",
+          automationCode: "AUD-A1",
+          n: 3,
+        } as unknown as MyAutomationRun,
+      ];
     },
     myApprovals: async () => {
       calls.push("GET my approvals");
@@ -42,7 +49,13 @@ function fakeApi(over: Partial<DecisionApi> = {}) {
     },
     run: async (code, n) => {
       calls.push(`GET run ${code} ${n}`);
-      return { id: "run-1", automationCode: code, n, cursor: "2", round: 0 } as unknown as AutomationRunDetail;
+      return {
+        id: "run-1",
+        automationCode: code,
+        n,
+        cursor: "2",
+        round: 0,
+      } as unknown as AutomationRunDetail;
     },
     approve: async (code, n, body) => {
       calls.push(`POST approve ${code} ${n} ${JSON.stringify(body)}`);
@@ -80,7 +93,9 @@ describe("«Da decidere» e il blocco «Automations» sulle rotte vere", () => {
     const d = createRealDecisions(api);
     await d.listMyApprovals();
     await d.approve("run-1", { oggetto: "x" }, { expectedPath: "5" });
-    expect(calls.at(-1)).toBe(`POST approve AUD-A1 3 {"expectedPath":"5","expectedRound":0,"edited":{"oggetto":"x"}}`);
+    expect(calls.at(-1)).toBe(
+      `POST approve AUD-A1 3 {"expectedPath":"5","expectedRound":0,"edited":{"oggetto":"x"}}`,
+    );
   });
 
   it("una decisione stantia (409 stale): `invalid: not_waiting`, che la pagina sa dire («già deciso da …»)", async () => {
@@ -91,7 +106,9 @@ describe("«Da decidere» e il blocco «Automations» sulle rotte vere", () => {
     });
     const d = createRealDecisions(api);
     await d.listMyApprovals();
-    await expect(d.approve("run-1", undefined, { expectedPath: "1" })).rejects.toThrow("invalid: not_waiting");
+    await expect(d.approve("run-1", undefined, { expectedPath: "1" })).rejects.toThrow(
+      "invalid: not_waiting",
+    );
   });
 
   it("un ex approvatore (403) e un'esecuzione sospesa: gli errori del prototipo", async () => {
@@ -105,7 +122,9 @@ describe("«Da decidere» e il blocco «Automations» sulle rotte vere", () => {
     });
     const d = createRealDecisions(api);
     await d.listMyApprovals();
-    await expect(d.approve("run-1", undefined, { expectedPath: "1" })).rejects.toThrow(/^forbidden$/);
+    await expect(d.approve("run-1", undefined, { expectedPath: "1" })).rejects.toThrow(
+      /^forbidden$/,
+    );
     await expect(d.reject("run-1", { expectedPath: "1" })).rejects.toThrow("invalid: suspended");
   });
 
@@ -118,6 +137,8 @@ describe("«Da decidere» e il blocco «Automations» sulle rotte vere", () => {
     const d = createRealDecisions(api);
     await d.listMyRuns();
     expect(await d.getRun("run-1")).toBeNull();
-    await expect(d.approve("run-x", undefined, { expectedPath: "1" })).rejects.toThrow(/^not_found$/);
+    await expect(d.approve("run-x", undefined, { expectedPath: "1" })).rejects.toThrow(
+      /^not_found$/,
+    );
   });
 });

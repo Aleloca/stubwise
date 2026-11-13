@@ -293,6 +293,8 @@ describe("bozza e versioni", () => {
       /Roberta Fontana changed this draft on Oct 26 11:58, after you opened it/,
     );
     expect(savedFlow("AUT-1").titleTemplate).toBe("Di Roberta");
+    // Niente si butta: finché non si ricarica, la modifica non salvata resta a schermo.
+    expect(numbers()).toHaveLength(12);
     await userEvent.click(screen.getByRole("button", { name: "Reload" }));
     await waitFor(() => expect(numbers()).toHaveLength(11));
     expect(screen.queryByRole("alert")).toBeNull();

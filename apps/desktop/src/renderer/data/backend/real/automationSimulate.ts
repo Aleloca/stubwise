@@ -44,7 +44,11 @@ export function contextWorld(ctx: SimulationContext, now: () => string): SimWorl
     const p = projects.get(projectId);
     return !!p && !p.gone && p.seenBy.includes(personId);
   };
-  const check = (owner: string, projectId: string, can: keyof SimulationContext["projects"][number]["ownerCan"]) => {
+  const check = (
+    owner: string,
+    projectId: string,
+    can: keyof SimulationContext["projects"][number]["ownerCan"],
+  ) => {
     const p = projects.get(projectId);
     if (!p || p.gone) throw new Error("not_found");
     if (owner !== ctx.ownerId || !p.seenBy.includes(owner) || !p.ownerCan[can])
@@ -122,7 +126,8 @@ export function createRealSimulation(api: SimulationApi) {
       event: Record<string, unknown>,
     ): Promise<string> {
       const me = api.me();
-      const ctx = contexts.get(key(automationId, version)) ?? (await load(automationId, version)).context;
+      const ctx =
+        contexts.get(key(automationId, version)) ?? (await load(automationId, version)).context;
       const v = ctx.automation.versions.find((x) => x.n === ctx.version);
       if (!v) throw notFound();
       const run = createSimulator(contextWorld(ctx, () => api.now()));
