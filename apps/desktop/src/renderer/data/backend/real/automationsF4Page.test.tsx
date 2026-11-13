@@ -425,3 +425,43 @@ describe("il tetto del webhook nelle impostazioni dell'automazione (F4-2 = c, R4
     expect(about.textContent).not.toContain("Webhook limit");
   });
 });
+
+describe("un webhook per automazione (F4-1 = a, R6)", () => {
+  it("pubblicare su un webhook che un'altra usa: il server dice 409 source_in_use, la pagina lo dice", async () => {
+    const HOOK_FLOW = {
+      trigger: {
+        kind: "source",
+        sourceId: "99999999-9999-4999-8999-999999999991",
+        event: "webhook",
+      },
+      steps: [],
+      titleTemplate: "Avvio",
+    };
+    const withHook = () => ({
+      ...row(),
+      versions: [
+        { ...version(1, 3, true), flow: HOOK_FLOW },
+        { ...version(2, 6, false), flow: HOOK_FLOW },
+      ],
+    });
+    install({
+      "GET /api/automations": { body: { items: [withHook()] } },
+      "GET /api/automations/AUD-A1": {
+        body: { automation: withHook(), configErrors: [], liveErrors: [], runs: [] },
+      },
+      "POST /api/automations/AUD-A1/publish": {
+        status: 409,
+        body: { code: "source_in_use", message: "Another automation already uses this webhook" },
+      },
+    });
+    renderRoute("/automations/AUD-A1");
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Publish v2" }, { timeout: 3000 }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Publish version 2 of AUD-A1?" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Publish" }));
+    expect(
+      await screen.findByText(/another automation already uses this webhook/i),
+    ).toBeInTheDocument();
+  });
+});

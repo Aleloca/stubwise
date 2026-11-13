@@ -7236,6 +7236,8 @@
       "onMailboxReadScope_publish": "Couldn't publish {{code}}: your mailbox doesn't give Stubwise permission to read your mail. Reconnect it in Mail.",
       "onConfig": "Couldn't turn on {{code}}: it has problems to fix first.",
       "onConfig_publish": "Couldn't publish {{code}}: it has problems to fix first.",
+      "onSourceInUse": "Couldn't turn on {{code}}: another automation already uses this webhook. Give it a webhook of its own.",
+      "onSourceInUse_publish": "Couldn't publish {{code}}: another automation already uses this webhook. Give it a webhook of its own.",
       "publishedPaused": "Version {{n}} of {{code}} published · it stays paused",
       "approvedChanges": "Approved with changes · {{code}} goes on"
     },

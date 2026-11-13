@@ -7236,6 +7236,8 @@
       "onMailboxReadScope_publish": "Non è stato possibile pubblicare {{code}}: la tua casella non dà a Stubwise il permesso di leggere la posta. Ricollegala nella Posta.",
       "onConfig": "Non è stato possibile accendere {{code}}: prima vanno risolti i suoi problemi.",
       "onConfig_publish": "Non è stato possibile pubblicare {{code}}: prima vanno risolti i suoi problemi.",
+      "onSourceInUse": "Non è stato possibile accendere {{code}}: un'altra automazione usa già questo webhook. Dagliene uno suo.",
+      "onSourceInUse_publish": "Non è stato possibile pubblicare {{code}}: un'altra automazione usa già questo webhook. Dagliene uno suo.",
       "publishedPaused": "Versione {{n}} di {{code}} pubblicata · resta in pausa",
       "approvedChanges": "Approvato con le modifiche · {{code}} prosegue"
     },
