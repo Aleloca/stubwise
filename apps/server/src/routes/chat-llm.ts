@@ -45,8 +45,10 @@ export interface ChatLlmInput {
 
 /** Operazione e progetto di una generazione della chat (vedi {@link ChatLlmInput.usage}). */
 export interface ChatUsage {
-  operation: "chat" | "backlog_merge" | "mail_draft";
+  operation: "chat" | "backlog_merge" | "mail_draft" | "automation_step";
   projectId: string | null;
+  /** Area 7, F3: la prova di un passo di Claude, attribuita all'automazione (owner `automation_id`, senza run). */
+  automationId?: string;
   /**
    * Il modello quando `ai_model_settings` non ha una riga per l'operazione;
    * assente = il default della chat. La bozza di Claude nella Posta usa
@@ -170,7 +172,7 @@ async function resolveApiKey(
  * prossima risposta, senza riavvii. Un valore fuori catalogo (riga vecchia,
  * catalogo cambiato in un deploy successivo) si ignora con una riga di log.
  */
-async function resolveChatModel(
+export async function resolveChatModel(
   db: Db,
   operation: ChatUsage["operation"],
   fallback: string,
@@ -236,6 +238,7 @@ export function createAnthropicChatLlm(options: CreateAnthropicChatLlmOptions): 
           return cost === null ? null : cost.toFixed(6);
         })(),
         requestedByUserId: args.usage.userId ?? null,
+        ...(args.usage.automationId ? { automationId: args.usage.automationId } : {}),
       });
     } catch (err) {
       logger?.warn({ err, operation: args.usage.operation }, "chat: consumi non registrati");
