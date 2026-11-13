@@ -92,7 +92,10 @@ export async function consumeAutomationEvents(deps: ConsumerDeps): Promise<numbe
 }
 
 /** Le esecuzioni che l'evento fa nascere. */
-async function startRunsFor(tx: Tx, event: EventRow, log: (msg: string) => void): Promise<number> {
+async function startRunsFor(tx: Tx, row: EventRow, log: (msg: string) => void): Promise<number> {
+  // Un evento della posta (0170, F2) non ha progetto né riga: ha il suo percorso (`mail_received`, S8).
+  if (row.projectId === null || row.objectId === null) return 0;
+  const event = { ...row, projectId: row.projectId, objectId: row.objectId, kind: row.kind as Exclude<EventRow["kind"], "mail_received"> };
   const candidates = await tx
     .select({ automation: automations })
     .from(automations)

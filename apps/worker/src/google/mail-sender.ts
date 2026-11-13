@@ -91,6 +91,8 @@ export async function sendDueMail(deps: MailSenderDeps): Promise<{ sent: number;
         clientSecret: credentials.clientSecret,
         refreshToken: credentials.refreshToken,
       });
+      // Una riga senza bozza è di un'esecuzione (area 7, F2, C-F2-1): il suo invio arriva con l'esecutore dell'email.
+      if (!row.gmailDraftId) throw new SendRefused("invalid_message");
       const sent = await client.sendDraft({ accessToken: tokens.accessToken, id: row.gmailDraftId });
       // Gmail HA MANDATO: da qui un errore non è mai un invio fallito. Si
       // ritenta la scrittura; se non riesce, `sent_unrecorded` (review F3,

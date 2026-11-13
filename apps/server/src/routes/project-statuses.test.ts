@@ -157,7 +157,7 @@ describe("stati del progetto", () => {
     const [tb] = await testDb.db.select({ e: tickets.status }).from(tickets).where(eq(tickets.id, b.ticketId));
     expect(["done", "closed"]).toContain(tb!.e);
     const events = await testDb.db.select().from(automationEvents);
-    expect(events.filter((e) => e.kind === "task_closed" && [a.ticketId, b.ticketId].includes(e.objectId))).toEqual([]);
+    expect(events.filter((e) => e.kind === "task_closed" && e.objectId !== null && [a.ticketId, b.ticketId].includes(e.objectId))).toEqual([]);
   });
 
   it("rinominare uno stato non tocca l'enum né updated_at delle task", async () => {
