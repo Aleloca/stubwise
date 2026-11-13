@@ -52,6 +52,7 @@ const ALL: IntegrationTarget[] = [
       "mail-proposal-edit",
       "mail-contributors",
       "mail-claude-draft",
+      "automations",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -67,6 +68,10 @@ describe("isIntegrated", () => {
     vi.stubEnv("VITE_STUBWISE_BUILD", "app");
     expect(ALL.filter(isIntegrated).map(key).sort()).toEqual(
       [
+        // Area 7, fetta 1: le Automations.
+        "destination:automations",
+        "projectSection:automations",
+        "feature:automations",
         "destination:projects",
         "projectSection:tasks",
         "projectSettings:statuses",

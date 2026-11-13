@@ -364,6 +364,41 @@ const INTEGRATED_CALLS = new Set([
   "mail.getMeetingByNote",
   "mail.tasksOfNote",
   "calendar.getMeetingPrep",
+  // Area 7, F1: le Automations sul client vero (`data/backend/real/automationsLive.ts`).
+  // Sources, tabella cliente → progetto e automazioni generali restano fuori (F4).
+  "automations.activate",
+  "automations.approve",
+  "automations.automationOrigin",
+  "automations.cancelRun",
+  "automations.checkDraft",
+  "automations.chooseProject",
+  "automations.createAutomation",
+  "automations.deleteDraft",
+  "automations.duplicateAutomation",
+  "automations.endSimulation",
+  "automations.getAutomation",
+  "automations.getProjectAutomations",
+  "automations.getRun",
+  "automations.getSimulation",
+  "automations.listAutomations",
+  "automations.listMyApprovals",
+  "automations.listMyRuns",
+  "automations.listRuns",
+  "automations.listSimulationExamples",
+  "automations.onAutomationsSettled",
+  "automations.pause",
+  "automations.publish",
+  "automations.reject",
+  "automations.renameAutomation",
+  "automations.reset",
+  "automations.retryStep",
+  "automations.saveDraft",
+  "automations.searchAutomations",
+  "automations.simulationStep",
+  "automations.skipStep",
+  "automations.startManual",
+  "automations.startSimulation",
+  "automations.whenAutomationsIdle",
 ]);
 
 const outside = () => [...new Set(calls)].filter((c) => !INTEGRATED_CALLS.has(c));
@@ -386,6 +421,17 @@ describe("aree non integrate nella build app", () => {
     renderRoute("/mail");
     await waitFor(() => expect(calls).toContain("mail.listMailThreads"));
     await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 7, F1: le Automations sono accese (R8); l'elenco e il dettaglio
+  // leggono dal server, senza «Coming soon».
+  it("aprire le Automations legge solo ciò che è integrato", async () => {
+    renderRoute("/automations");
+    expect(await screen.findByRole("heading", { level: 1, name: "Automations" })).toBeInTheDocument();
+    await waitFor(() => expect(calls).toContain("automations.listAutomations"));
+    await settle();
+    expect(screen.queryByText("Coming soon")).toBeNull();
     expect(outside()).toEqual([]);
   });
 
@@ -466,7 +512,7 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("il binario non legge i segnali delle aree future (Posta, Automations); la Chat sì, dalla fetta 1", async () => {
+  it("il binario non legge i segnali delle aree future; la Chat sì, dalla fetta 1", async () => {
     renderRoute("/projects");
     expect(await screen.findByRole("navigation", { name: "Main navigation" })).toBeInTheDocument();
     await settle();
@@ -654,9 +700,10 @@ describe("le superfici della fetta 2 nella build app", () => {
   });
 });
 
-/** I blocchi delle aree non integrate (posta e calendario, automazioni, rilasci, assistenza). */
-// «Upcoming» (gli appuntamenti) è acceso dall'area 6, fetta 1; «Important email» dalla fetta 2.
-const FUTURE_BLOCKS = /^(Automations|Releases|Customers waiting)/;
+/** I blocchi delle aree non integrate (rilasci, assistenza). */
+// «Upcoming» (gli appuntamenti) è acceso dall'area 6, fetta 1; «Important email» dalla fetta 2;
+// «Automations» dall'area 7, fetta 1.
+const FUTURE_BLOCKS = /^(Releases|Customers waiting)/;
 
 describe("le superfici della fetta 3 nella build app", () => {
   it("dopo il login si atterra sulla Home a blocchi", async () => {
@@ -720,7 +767,7 @@ describe("le superfici della fetta 3 nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("«Da decidere» legge Claude (dalla 3b), le domande della Chat (area 4, fetta 2) e le proposte della Posta (area 6, fetta 1), non le automazioni, e non resta in caricamento", async () => {
+  it("«Da decidere» legge Claude (dalla 3b), le domande della Chat (area 4, fetta 2) le proposte della Posta (area 6, fetta 1) e le approvazioni delle automazioni (area 7, F1), e non resta in caricamento", async () => {
     renderRoute("/home");
     const decide = await screen.findByRole("region", { name: /^Decide/ });
     await waitFor(() => expect(decide.querySelector("[data-skeleton], [aria-busy='true']")).toBeNull());
@@ -728,6 +775,7 @@ describe("le superfici della fetta 3 nella build app", () => {
     expect(outside()).toEqual([]);
     expect(calls).toContain("listClaudeDecisions");
     expect(calls).toContain("mail.listMailDecisions");
+    expect(calls).toContain("automations.listMyApprovals");
   });
 
   it("i filtri salvati: tutti i filtri e la pagina di un filtro", async () => {

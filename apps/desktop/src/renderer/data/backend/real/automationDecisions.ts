@@ -51,13 +51,14 @@ export function createRealDecisions(
 ) {
   return {
     async listMyRuns(): Promise<MyAutomationRun[]> {
-      const { items: runs } = await inPrototypeWords(() => api.myRuns());
+      // Un server senza le rotte dell'area 7 (404) non ha niente da far decidere.
+      const { items: runs } = (await orNull(() => api.myRuns())) ?? { items: [] };
       for (const r of runs) refs.rememberRun(r);
       return runs;
     },
 
     async listMyApprovals(): Promise<AutomationDecision[]> {
-      const { items } = await inPrototypeWords(() => api.myApprovals());
+      const { items } = (await orNull(() => api.myApprovals())) ?? { items: [] };
       for (const d of items)
         refs.rememberRun({
           id: d.runId,

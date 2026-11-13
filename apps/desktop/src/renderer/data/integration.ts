@@ -40,14 +40,17 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   // Area 4, fetta 1: la Chat fra persone (`chat`, destinazione e sezione di progetto).
   // Area 5, fetta 2: il Drive (`drive`, destinazione, sezione e feature).
   // Area 6, fetta 1: il Calendario in lettura (`calendar`) e la Posta (`mail`).
-  destination: new Set(["home", "projects", "planning", "filters", "claude", "chat", "drive", "calendar", "mail"]),
+  // Area 7, fetta 1: le Automations (`automations`, destinazione, sezione e feature).
+  destination: new Set(["home", "projects", "planning", "filters", "claude", "chat", "drive", "calendar", "mail", "automations"]),
   // Area 5, fetta 1: i Docs del progetto (`docs`, sezione e feature).
-  projectSection: new Set(["overview", "tasks", "requests", "planning", "chat", "docs", "drive"]),
+  projectSection: new Set(["overview", "tasks", "requests", "planning", "chat", "docs", "drive", "automations"]),
   // Stati e soglie del progetto.
   projectSettings: new Set(["statuses"]),
   admin: new Set(["departments"]),
   taskView: new Set(["list", "board", "timeline"]),
   feature: new Set([
+    // Area 7, fetta 1: le Automations (Home, «Da decidere», ⌘K, righe d'origine).
+    "automations",
     "notifications",
     "search",
     "task-detail",

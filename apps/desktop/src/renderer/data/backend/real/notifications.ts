@@ -1,5 +1,6 @@
 import type { InboxItem, SnoozeUntil } from "@stubwise/shared";
 import type * as Fake from "../../api";
+import { isIntegrated } from "../../integration";
 import type { AppNotification } from "../../types";
 import { daysFromToday } from "./clock";
 import { appClient } from "./client";
@@ -122,6 +123,31 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
         ? `#/chat/${chat.channelId}?thread=${chat.threadRootId}&message=${chat.messageId}`
         : `#/chat/${chat.channelId}?message=${chat.messageId}`,
       chatMessageId: chat.messageId,
+      ...viaClaudeOf(item, ctx),
+    };
+  }
+  // Area 7, F1: una card di un'automazione apre l'esecuzione (o l'automazione),
+  // dai campi derivati a lettura (`item.automation`); solo a destinazione
+  // accesa, o porterebbe a «in arrivo». Gli indirizzi sono quelli di `routes.ts`.
+  const automation = (item as Partial<InboxItem>).automation;
+  if (automation && isIntegrated({ kind: "destination", name: "automations" })) {
+    const n = automation.runCode ? /#(\d+)$/.exec(automation.runCode)?.[1] : undefined;
+    return {
+      id: item.id,
+      kind: item.kind,
+      projectId: item.projectId,
+      objectCode: n ? automation.runCode! : automation.automationCode,
+      departmentId: null,
+      recipientIds: [],
+      title: item.text,
+      body: item.summary ?? "",
+      createdAt: item.createdAt,
+      read: item.readAt !== null,
+      archived: item.status === "handled",
+      snoozedUntil: item.status === "snoozed" ? item.snoozedUntil : null,
+      link: n
+        ? `#/automations/${automation.automationCode}/runs/${n}`
+        : `#/automations/${automation.automationCode}`,
       ...viaClaudeOf(item, ctx),
     };
   }
