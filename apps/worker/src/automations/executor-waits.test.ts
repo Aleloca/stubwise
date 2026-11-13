@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  automationEffects,
   automationRunInputs,
   automationRunLog,
   automationRuns,
@@ -19,6 +20,7 @@ import type { AutomationFlow, Step } from "@stubwise/shared";
 import { asc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { consumeAutomationEvents } from "./consumer.js";
+import { effectKey, executeEffect } from "./effects.js";
 import { executeDueRuns } from "./executor.js";
 import { wakeReplyWaits } from "./waits.js";
 
@@ -170,3 +172,29 @@ describe("le attese", () => {
     expect(done.vars).toMatchObject({ "risposta.testo": "Risposta in pausa" });
   });
 });
+
+describe("«ripeti finché» (S6)", () => {
+  const never = { left: { ref: "avvio.data" }, op: "is" as const, right: { value: "mai" } };
+  it("al più 10 giri, poi l'uscita `onLimit`; ogni giro ha la sua chiave, e un giro rifatto non rifà l'effetto", async () => {
+    const body: Step = { ...createTask, id: "giro", title: "Giro" };
+    const limit: Step = { ...createTask, id: "limite", title: "Limite" };
+    const { automation, run } = await runOf([{ id: "r", kind: "repeatUntil", until: never, max: 10, steps: [body], onLimit: [limit] }]);
+    await exec();
+    expect((await reload(run.id)).status).toBe("done");
+    const made = await t.db.select().from(tickets).where(eq(tickets.automationRunId, run.id));
+    expect(made.filter((x) => x.title === "Giro")).toHaveLength(10);
+    expect(made.filter((x) => x.title === "Limite")).toHaveLength(1);
+    const keys = (await t.db.select().from(automationEffects).where(eq(automationEffects.runId, run.id))).map((e) => e.path);
+    expect(new Set(keys).size).toBe(11);
+    // Un giro rifatto (riavvio a metà): la stessa chiave, nessuna task in più.
+    const third = keys.find((k) => k.includes("[2]"))!;
+    const again = await executeEffect(
+      { kind: "createTask", stepId: "giro", path: third, args: { title: "Giro", description: "", assignee: null, dueInDays: null, milestoneCode: null }, projectTarget: { mode: "own" } },
+      { db: t.db, runId: run.id, runNumber: 1, automation: { id: automation.id, code: automation.code, name: automation.name, projectId, ownerId }, now: new Date().toISOString() },
+    );
+    expect("input" in again && again.input).toMatchObject({ kind: "effect_result", ok: true });
+    expect(await t.db.select().from(tickets).where(eq(tickets.automationRunId, run.id))).toHaveLength(11);
+    expect(await t.db.select().from(automationEffects).where(eq(automationEffects.idempotencyKey, effectKey(run.id, third)))).toHaveLength(1);
+  });
+});
+
