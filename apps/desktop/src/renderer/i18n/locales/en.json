@@ -8030,7 +8030,8 @@
         "person": "A person",
         "role": "A role in the project",
         "owner": "The owner (whoever turned it on)",
-        "clientCheck": "For the client's project, whether they can see it is checked when the run gets here."
+        "clientCheck": "For the client's project, whether they can see it is checked when the run gets here.",
+        "untrusted": "Claude picks who this goes to from something that came from outside, so someone approves it first."
       },
       "claude": {
         "rule": "Claude only picks one of these outcomes and fills these fields. It never acts on its own: actions are the steps you add.",

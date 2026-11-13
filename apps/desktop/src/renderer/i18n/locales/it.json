@@ -8030,7 +8030,8 @@
         "person": "Una persona",
         "role": "Un ruolo nel progetto",
         "owner": "Il proprietario (chi l'ha accesa)",
-        "clientCheck": "Per il progetto del cliente, se lo vede si controlla quando l'esecuzione arriva qui."
+        "clientCheck": "Per il progetto del cliente, se lo vede si controlla quando l'esecuzione arriva qui.",
+        "untrusted": "Claude sceglie a chi va con un dato arrivato da fuori: per questo qualcuno lo approva prima."
       },
       "claude": {
         "rule": "Claude sceglie solo una di queste uscite e compila questi campi. Non agisce mai da solo: le azioni sono i passi che aggiungi tu.",
