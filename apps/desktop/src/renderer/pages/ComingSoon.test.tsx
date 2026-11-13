@@ -417,6 +417,8 @@ const INTEGRATED_CALLS = new Set([
   "releases.getRepositorySettings",
   "releases.setRepoPrMode",
   "releases.setReleasePipeline",
+  // Area 8, F1 (`releases-explain`): «Spiega» apre una conversazione col contesto del rilascio.
+  "releases.explainRelease",
   // Area 7, F4 (accesa): sorgenti webhook, tabella cliente → progetto, tetto del
   // webhook (`data/backend/real/automationSources.ts`, `automations.ts`).
   "automations.listSources",

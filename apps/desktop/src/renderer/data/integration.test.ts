@@ -68,6 +68,7 @@ const ALL: IntegrationTarget[] = [
       "releases-prs",
       "releases",
       "releases-repo-settings",
+      "releases-explain",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -98,6 +99,7 @@ describe("isIntegrated", () => {
         "feature:releases-prs",
         "feature:releases",
         "feature:releases-repo-settings",
+        "feature:releases-explain",
         "destination:projects",
         "projectSection:tasks",
         "projectSettings:statuses",

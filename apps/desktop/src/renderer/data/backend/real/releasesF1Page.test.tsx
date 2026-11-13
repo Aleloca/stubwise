@@ -23,7 +23,10 @@ vi.mock("@backend/access", async () => await import("./accessFacts"));
 vi.mock("../../integration", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../integration")>();
   const on = (name: string) =>
-    name === "releases-prs" || name === "releases" || name === "releases-repo-settings";
+    name === "releases-prs" ||
+    name === "releases" ||
+    name === "releases-repo-settings" ||
+    name === "releases-explain";
   return {
     ...actual,
     isIntegrated: (t: Parameters<typeof actual.isIntegrated>[0]) =>
@@ -205,8 +208,6 @@ describe("i rilasci nella build app (area 8, F1, releases)", () => {
     renderRoute("/p/AUD/releases/AUD-V3");
     const now = await screen.findByRole("region", { name: "Now" }, { timeout: 3000 });
     await waitFor(() => expect(now.textContent).toContain("Run migrations"));
-    // «Spiega» è spento finché il server non ha il contesto del rilascio.
-    expect(screen.queryByRole("button", { name: "Ask Claude to explain" })).toBeNull();
     await userEvent.click(within(now).getByRole("button", { name: "Fix it with Claude" }));
     const dialog = await screen.findByRole("dialog", { name: "Fix AUD-V3 with Claude" });
     await userEvent.type(within(dialog).getByRole("textbox"), "Guarda la 0042");
@@ -315,5 +316,42 @@ describe("i rilasci nella build app (area 8, F1, releases)", () => {
     expect(seen.filter((r) => r.method !== "GET").map((r) => `${r.method} ${r.path}`)).toEqual([
       "PATCH /api/repositories/audin-app",
     ]);
+  });
+
+  it("«Spiega»: una conversazione con Claude col contesto del rilascio, e la domanda", async () => {
+    const CONV = "66666666-6666-4666-8666-666666666666";
+    install({
+      routes: {
+        "GET /api/releases/AUD-V3": { body: failedDetail() },
+        "GET /api/claude/conversations": { body: { items: [], nextCursor: null } },
+        "POST /api/claude/conversations": {
+          status: 201,
+          body: {
+            id: CONV,
+            title: "",
+            context: { kind: "release", id: "AUD-V3" },
+            createdAt: "2026-11-14T09:00:00.000Z",
+            updatedAt: "2026-11-14T09:00:00.000Z",
+            state: "idle",
+          },
+        },
+        [`POST /api/agent-sessions/${CONV}/messages`]: { status: 204 },
+      },
+    });
+    renderRoute("/p/AUD/releases/AUD-V3");
+    const now = await screen.findByRole("region", { name: "Now" }, { timeout: 3000 });
+    await userEvent.click(
+      await within(now).findByRole("button", { name: "Ask Claude to explain" }),
+    );
+    await waitFor(() =>
+      expect(
+        seen.find((r) => r.method === "POST" && r.path === "/api/claude/conversations")?.body,
+      ).toEqual({
+        context: { kind: "release", id: "AUD-V3" },
+      }),
+    );
+    await waitFor(() =>
+      expect(seen.some((r) => r.method === "POST" && r.path.includes(CONV))).toBe(true),
+    );
   });
 });

@@ -1,7 +1,7 @@
 import { ApiError } from "@stubwise/api-client";
 import { describe, expect, it } from "vitest";
 import type { ReleaseDetail, ReleaseRow } from "@stubwise/shared";
-import { createRealReleases, type ReleasesApi } from "./releases";
+import { createRealExplain, createRealReleases, type ReleasesApi } from "./releases";
 
 // Area 8, F1: i rilasci sulle rotte vere, con le firme del prototipo
 // (`data/releases/reads.ts`, `writes.ts`). Lo stato e i permessi li calcola il
@@ -151,5 +151,22 @@ describe("i rilasci della build app (area 8, F1)", () => {
     await expect(releases(409, "not_failed").fixRelease("AUD-V3")).rejects.toThrow(
       "invalid: not_failed",
     );
+  });
+});
+
+describe("«Spiega» un rilascio (area 8, F1, releases-explain)", () => {
+  it("una conversazione nuova col contesto del rilascio; la mia aperta sullo stesso rilascio si riusa", async () => {
+    const created: unknown[] = [];
+    const explain = createRealExplain({
+      mine: async () => [
+        { id: "c-old", context: { kind: "release", id: "AUD-V2" } },
+        { id: "c-other", context: { kind: "task", id: "AUD-12" } },
+      ],
+      create: async (context) => (created.push(context), { id: "c-new" }),
+    });
+    expect(await explain.explainRelease("AUD-V3")).toMatchObject({ id: "c-new", reused: false });
+    expect(created).toEqual([{ kind: "release", id: "AUD-V3" }]);
+    expect(await explain.explainRelease("AUD-V2")).toMatchObject({ id: "c-old", reused: true });
+    expect(created).toHaveLength(1);
   });
 });

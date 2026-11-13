@@ -75,12 +75,13 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // repository (`releases-repo-settings`) restano «in arrivo».
     "releases-prs",
     // I rilasci: elenco e dettaglio (stato derivato, run col link al
-    // provider), «Fai sistemare a Claude», la Home «Rilasci». «Spiega»
-    // (`releases-explain`) resta spento finché Claude non sa leggere un rilascio.
+    // provider), «Fai sistemare a Claude», la Home «Rilasci».
     "releases",
     // Le impostazioni di rilascio del repository (PR dei colleghi, pipeline,
     // ramo), nella sezione «Repositories» ridotta (decisione di 46).
     "releases-repo-settings",
+    // «Spiega» un rilascio: Claude lo legge col tool `read_release` (verde col golden di 72).
+    "releases-explain",
     "notifications",
     "search",
     "task-detail",

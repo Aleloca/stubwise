@@ -3,7 +3,7 @@ import { appClient } from "./client";
 import { projectCodes } from "./claude";
 import { createRealPrs } from "./releasePrs";
 import { createRealRepoSettings } from "./releaseRepos";
-import { createRealReleases } from "./releases";
+import { createRealExplain, createRealReleases } from "./releases";
 
 // I rilasci e le PR della build app sul client vero (area 8, F1): gli
 // adattatori di `releases.ts` e `releasePrs.ts` sopra `client.releases`
@@ -58,6 +58,16 @@ const repoSettings = createRealRepoSettings({
   },
 });
 
+// «Spiega»: una conversazione con Claude col contesto del rilascio (il tool `read_release` di 72).
+const explain = createRealExplain({
+  mine: async () =>
+    (await appClient().claude.conversations.list()).items.map((c) => ({
+      id: c.id,
+      context: c.context,
+    })),
+  create: (context) => appClient().claude.conversations.create({ context }),
+});
+
 export const liveReleases: Partial<typeof Fake.releases> = {
   // `releases-prs`: le PR aperte, la coda, il merge, le correzioni, «Solo analisi», le note.
   listOpenPrs: prs.listOpenPrs,
@@ -70,6 +80,8 @@ export const liveReleases: Partial<typeof Fake.releases> = {
   listReleases: releases.listReleases,
   getRelease: releases.getRelease,
   fixRelease: releases.fixRelease,
+  // `releases-explain`.
+  explainRelease: explain.explainRelease,
   listMyReleases: prs.listMyReleases,
   // `releases-repo-settings`: il ramo di rilascio, la pipeline, le PR dei colleghi.
   getRepositorySettings: repoSettings.getRepositorySettings,

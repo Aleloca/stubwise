@@ -1,4 +1,5 @@
 import type { ReleaseDetail, ReleaseRow, ReleaseStatus } from "@stubwise/shared";
+import type { Conversation } from "../../model";
 import type { FixResult, ReleaseView } from "../../releases";
 import { inPrototypeWords, orNull } from "./automationRefs";
 
@@ -135,6 +136,32 @@ export function createRealReleases(
         existing: res.existing ?? false,
         noteAdded: res.noteAdded ?? false,
       } as FixResult;
+    },
+  };
+}
+
+/** Le conversazioni con Claude che «Spiega» usa (sul client vero: `client.claude.conversations`). */
+export interface ExplainApi {
+  /** Le mie conversazioni aperte (non archiviate), col loro contesto. */
+  mine(): Promise<{ id: string; context: { kind: string; id: string } | null }[]>;
+  create(context: { kind: "release"; id: string }): Promise<{ id: string }>;
+}
+
+/**
+ * «Spiega» (area 8, F1, `releases-explain`): una conversazione libera con
+ * Claude col contesto del rilascio (`{kind: "release", id: <codice>}`, che
+ * Claude legge col tool `read_release` di 72), o la mia già aperta sullo
+ * stesso rilascio, come il prototipo. La domanda la manda la pagina.
+ */
+export function createRealExplain(api: ExplainApi) {
+  return {
+    async explainRelease(code: string): Promise<Conversation & { reused: boolean }> {
+      const open = (await inPrototypeWords(() => api.mine())).find(
+        (c) => c.context?.kind === "release" && c.context.id === code,
+      );
+      if (open) return { id: open.id, reused: true } as Conversation & { reused: boolean };
+      const created = await inPrototypeWords(() => api.create({ kind: "release", id: code }));
+      return { id: created.id, reused: false } as Conversation & { reused: boolean };
     },
   };
 }
