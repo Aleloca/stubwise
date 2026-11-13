@@ -15,6 +15,8 @@ export type TriggerKey =
 export interface AutomationAvailability {
   steps: readonly Step["kind"][];
   triggers: readonly TriggerKey[];
+  /** Gli allegati di un'email (da campi file); assente = ammessi. */
+  emailAttachments?: boolean;
 }
 
 /**
@@ -32,6 +34,17 @@ export const AUTOMATION_F1_AVAILABILITY: AutomationAvailability = {
     "stubwise:request_converted",
     "stubwise:milestone_reached",
   ],
+};
+
+/**
+ * La fetta 2: in più l'email (dalla casella del proprietario, senza allegati:
+ * F2-5 = a), le attese, il «ripeti finché», gli inizi a orario e «email in
+ * arrivo». Claude (F3), «avvia un'automazione» e le sorgenti (F4) restano fuori.
+ */
+export const AUTOMATION_F2_AVAILABILITY: AutomationAvailability = {
+  steps: [...AUTOMATION_F1_AVAILABILITY.steps, "sendEmail", "wait", "repeatUntil"],
+  triggers: [...AUTOMATION_F1_AVAILABILITY.triggers, "schedule", "stubwise:mail_received"],
+  emailAttachments: false,
 };
 
 /** La chiave di disponibilità di un inizio. */
