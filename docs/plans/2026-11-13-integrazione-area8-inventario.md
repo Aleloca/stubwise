@@ -178,7 +178,10 @@ codice. Oggi il server le applica alla lettera:
   ambiente (`project_env_files`, `repos.manage`), di cui solo `test` entra in
   un worktree.
 - **Lacune**:
-  - un server per ambiente, non per repository (R-L2);
+  - un server per ambiente, non per repository (R-L2): serve una tabella
+    nuova (ambiente × repository → server) al posto di
+    `project_environments.server_id`. È il prerequisito sia degli ambienti
+    del renderer (R-4) sia della visibilità dei server (voce 9);
   - «una sola produzione per progetto»: il server limita solo `test` a una;
   - «= AUD-V6» richiede i rilasci (voce 3).
 
@@ -599,7 +602,9 @@ S-4. **Le iscrizioni agli avvisi e le notifiche di oggi.** (a) Il catalogo
    restano sul routing di oggi finché un'area non li porta nel catalogo, e le
    preferenze per canale di oggi restano. *(consigliata: nessuna card di
    oggi cambia destinatari di colpo)* (b) Tutto il routing passa subito
-   dalle iscrizioni.
+   dalle iscrizioni. Vedi R-5: il catalogo dei tipi va in `@stubwise/shared`, con un test di
+   parità sui `notification_kind`, così server e renderer calcolano gli stessi
+   destinatari.
 
 S-5. **La risposta di una persona arriva al cliente.** (a) Nel widget, che
    legge i messaggi nuovi della conversazione (un polling leggero o lo
