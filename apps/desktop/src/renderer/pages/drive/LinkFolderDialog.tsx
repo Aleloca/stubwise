@@ -242,14 +242,20 @@ function FolderPicker({
         {entries.map((entry, i) => {
           const disabled = entry.kind === "folder" && entry.folder.alreadyLinked;
           const selected = entry.kind === "folder" && entry.folder.googleFolderId === chosen?.googleFolderId;
+          // Build app (F5b): Google non dà né il percorso né il conteggio senza una
+          // chiamata per cartella; quello che manca non si scrive.
+          const files =
+            entry.kind === "folder" && entry.folder.fileCount !== null
+              ? t("drive.link.files", { count: entry.folder.fileCount })
+              : "";
           const meta =
             entry.kind === "dir"
               ? t("drive.link.folders", { count: entry.folders })
               : entry.folder.alreadyLinked
                 ? t("drive.link.already")
                 : needle
-                  ? `${entry.folder.path.join(" › ")} · ${t("drive.link.files", { count: entry.folder.fileCount })}`
-                  : t("drive.link.files", { count: entry.folder.fileCount });
+                  ? [entry.folder.path.join(" › "), files].filter((x) => x !== "").join(" · ")
+                  : files;
           return (
             <div
               key={entry.kind === "dir" ? `dir:${entry.name}` : entry.folder.googleFolderId}

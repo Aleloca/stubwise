@@ -127,10 +127,19 @@ export function useDriveOpeners() {
   );
   const google = useCallback(
     (file: Pick<DriveFileRow, "id">) => {
+      // Build app (F5b): si apre davvero su Google (`recordOpen`); un fallimento lo dice
+      // un avviso. Nel prototipo nessun browser si apre, e lo dice.
+      if (real) {
+        mutate(
+          { fileId: file.id, via: "google" },
+          { onError: () => toast.error(t("drive.google.failed")) },
+        );
+        return;
+      }
       mutate({ fileId: file.id, via: "google" });
       toast.show(t("drive.google.opened"));
     },
-    [mutate, toast, t],
+    [mutate, toast, t, real],
   );
   const download = useCallback(
     (file: Pick<DriveFileRow, "id" | "name">) => {

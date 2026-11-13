@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { setAppClientForTests } from "./client";
+import { appClient, setAppClientForTests } from "./client";
 import { drive } from "./drive";
 import { installFakeServer, ME_ID, PROJECT_ID, serverProject } from "./fakeServer";
 
@@ -303,8 +303,34 @@ describe("il Drive nella build app: eliminare e aprire", () => {
     expect(open).toHaveBeenCalledWith(`/api/drive/files/${FILE_ID}/preview`, "_blank", "noopener");
   });
 
-  it("«Apri in Google Drive» non c'è (area 6)", async () => {
-    await expect(drive.recordOpen(FILE_ID, "google")).rejects.toThrow();
+  // F5b (72): `GET /api/drive/files/:id/open` conta l'apertura e rimanda a Google.
+  it("«Apri in Google Drive» sul web: la rotta `open` in una scheda nuova (conta l'apertura)", async () => {
+    const open = vi.fn(() => ({}) as Window);
+    vi.stubGlobal("open", open);
+    expect(await drive.recordOpen(FILE_ID, "google")).toEqual({ counted: true });
+    expect(open).toHaveBeenCalledWith(`/api/drive/files/${FILE_ID}/open`, "_blank", "noopener");
+  });
+
+  // Sul desktop la sessione sta nel main: la rotta non si apre da fuori. Si apre
+  // il file su Google (i permessi li applica Google), e l'apertura non si conta.
+  it("«Apri in Google Drive» sul desktop: il file su Google, senza contare", async () => {
+    const open = vi.fn(() => ({}) as Window);
+    vi.stubGlobal("open", open);
+    installFakeServer({
+      [`GET /api/drive/files/${FILE_ID}`]: {
+        body: serverRow({
+          source: "google",
+          mime: "application/vnd.google-apps.document",
+          sizeBytes: null,
+          googleFileId: "g-1",
+        }),
+      },
+    });
+    // Il client nasce prima del ponte del main: le richieste vanno al server finto.
+    appClient();
+    (window as { stubwise?: unknown }).stubwise = { api: { download: vi.fn() } };
+    expect(await drive.recordOpen(FILE_ID, "google")).toEqual({ counted: false });
+    expect(open).toHaveBeenCalledWith("https://docs.google.com/document/d/g-1/edit", "_blank", "noopener");
   });
 });
 

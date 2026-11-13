@@ -2225,7 +2225,8 @@ export interface GoogleFolderChoice {
   googleFolderId: string;
   name: string;
   path: string[];
-  fileCount: number;
+  /** Build app (F5b): Google non lo dà senza una chiamata per cartella, `null`. */
+  fileCount: number | null;
   alreadyLinked: boolean;
 }
 

@@ -4,6 +4,7 @@ import {
   DRIVE_FILE_TYPES,
   driveUploadResultSchema,
   DRIVE_FILE_MAX_BYTES,
+  googleOpenUrl,
   type DriveFileRow as ServerDriveFileRow,
 } from "@stubwise/shared";
 import type * as Fake from "../../api";
@@ -69,17 +70,10 @@ function contentOf(status: ServerDriveFileRow["contentStatus"] | string | null):
 }
 
 /** Una riga del server nella forma del prototipo: un caricato, col suo contenuto (F3). */
-/** I campi di un riferimento a Google Drive (F5, bozza del piano), con i default per un server di prima. */
-type GoogleFields = {
-  googleFileId?: string | null;
-  googleOwner?: string | null;
-  folderLinkId?: string | null;
-  hidden?: boolean;
-  unavailable?: DriveFileRow["unavailable"];
-};
 
 function rowOf(raw: ServerDriveFileRow, codes: Map<string, string> | null): DriveFileRow {
-  const r = raw as ServerDriveFileRow & GoogleFields;
+  // F5b: i campi di un riferimento a Google stanno nello schema (72), coi default.
+  const r = raw as ServerDriveFileRow & { unavailable?: string | null };
   const google = r.source === "google";
   return {
     id: r.id,
@@ -94,8 +88,9 @@ function rowOf(raw: ServerDriveFileRow, codes: Map<string, string> | null): Driv
     sizeBytes: r.sizeBytes,
     addedById: r.addedById ?? "",
     addedAt: r.addedAt,
-    modifiedAt: r.addedAt,
-    folderLinkId: r.folderLinkId ?? null,
+    // Un riferimento Google ha la data di Google; un caricato quella del caricamento.
+    modifiedAt: r.modifiedAt ?? r.addedAt,
+    folderLinkId: r.folder?.id ?? null,
     googleFileId: r.googleFileId ?? null,
     googleOwner: r.googleOwner ?? null,
     hidden: r.hidden === true,
@@ -115,8 +110,14 @@ function rowOf(raw: ServerDriveFileRow, codes: Map<string, string> | null): Driv
     opens90d: r.opens90d,
     lastOpenedAt: r.lastOpenedAt,
     summaryLine: r.summaryLine,
-    folder: null,
-    hiddenBy: null,
+    folder: r.folder
+      ? {
+          id: r.folder.id,
+          name: r.folder.name,
+          status: r.folder.status === "expired" ? "expired" : "ok",
+        }
+      : null,
+    hiddenBy: r.hiddenBy ? { personId: r.hiddenBy.personId ?? "", at: r.hiddenBy.at } : null,
     // `retry` lo calcola il server (`drive.manage` su `no_text` o `error`);
     // la pagina offre «Retry» solo su `error`, come il prototipo (decisione C(a)).
     permissions: r.permissions,
@@ -263,8 +264,22 @@ const deleteDriveFile: Drive["deleteDriveFile"] = async (id) => {
  * iframe. `counted` non si sa (lo decide il server): vero se si è aperto.
  */
 const recordOpen: Drive["recordOpen"] = async (fileId, via) => {
-  if (via === "google") throw new Error("invalid: google");
   const client = appClient();
+  if (via === "google") {
+    // F5b: sul web la rotta `open` conta l'apertura e rimanda a Google. Sul
+    // desktop la sessione sta nel main e quella rotta non si apre da fuori: si
+    // apre il file su Google (i permessi li applica lui), senza contarlo.
+    if (!window.stubwise?.api) {
+      window.open(client.drive.openGooglePath(fileId), "_blank", "noopener");
+      return { counted: true };
+    }
+    const file = await client.drive.get(fileId).catch((error: unknown) => {
+      throw error instanceof ApiError && error.status === 404 ? new Error("not_found") : error;
+    });
+    if (!file.googleFileId) throw new Error("not_found");
+    window.open(googleOpenUrl(file.mime, file.googleFileId), "_blank", "noopener");
+    return { counted: false };
+  }
   if (via === "preview" && !window.stubwise?.api?.download) {
     // Con `noopener` `window.open` dà sempre null: non dice se s'è aperta.
     window.open(client.drive.previewPath(fileId), "_blank", "noopener");
