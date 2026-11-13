@@ -275,3 +275,21 @@ describe("F5a: la riunione per nota", () => {
     expect(await m.tasksOfNote!(NOTE)).toBeNull();
   });
 });
+
+// Il cablaggio: le funzioni delle riunioni sono nei namespace VERI della
+// build app (senza, una chiamata è uno stub «non integrato»: ComingSoon non lo
+// vede, perché registra l'API del prototipo).
+describe("F5a: le riunioni nei namespace della build app", () => {
+  it("mail.getMeetingSummary / getMeetingByNote / tasksBornFrom / tasksOfNote e calendar.getMeetingPrep", async () => {
+    const { mail } = await import("./mail");
+    const { calendar } = await import("./calendar");
+    const { NotIntegratedError } = await import("./notIntegrated");
+    for (const fn of ["getMeetingSummary", "getMeetingByNote", "tasksBornFrom", "tasksOfNote"] as const)
+      expect(mail[fn]).toBe(meetingFunctions[fn]);
+    // La scheda si compone nel client (O, 46): `meetingPrep.ts` legge da
+    // `calendar` e `mail`, quindi è agganciata con un rinvio. Non è lo stub.
+    installFakeServer({});
+    const out = await calendar.getMeetingPrep(EV).catch((e: unknown) => e);
+    expect(out).not.toBeInstanceOf(NotIntegratedError);
+  });
+});

@@ -1,5 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
-import { meetingOfMessage } from "./meetings";
+import { meetingFunctions, meetingOfMessage } from "./meetings";
 import type { MailThreadQuery } from "@stubwise/api-client";
 import type { MailThreadDetail as ServerThread, MailThreadItem, MailThreadMessage } from "@stubwise/shared";
 import type * as Fake from "../../api";
@@ -365,6 +365,8 @@ export const mailFunctions: Partial<Mail> = {
   ...mailDraftFunctions,
   ...mailSendFunctions,
   ...mailClaudeDraftFunctions,
+  // F5a: le riunioni registrate (riassunto e task, per evento e per nota).
+  ...meetingFunctions,
   listMailboxes,
   setProposalsEnabled,
   syncMailbox,

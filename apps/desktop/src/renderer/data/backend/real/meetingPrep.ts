@@ -134,9 +134,8 @@ export async function composeMeetingPrep(
 }
 
 /**
- * La scheda con le letture VERE della build app. Non ancora agganciata al
- * namespace del calendario: con `hasPrep` falso (fino al server della F5)
- * nessuna pagina la chiede.
+ * La scheda con le letture VERE della build app, agganciata al namespace del
+ * calendario (F5a) con un rinvio; la chiede una pagina solo con `hasPrep`.
  */
 export const getMeetingPrep: Api["calendar"]["getMeetingPrep"] = async (eventId) => {
   const window = calendar.calendarWindow();
