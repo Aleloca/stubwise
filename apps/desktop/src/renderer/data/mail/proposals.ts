@@ -147,7 +147,13 @@ function viewOf(me: string, p: MailProposal): MailProposalView {
   // Di una riunione l'estratto è il riassunto: a chi non c'era (una
   // proposta passata) restano solo le azioni (R-I24).
   const recipient = isProposalRecipient(me, p);
-  if (p.source === "transcript" && !recipient) proposal.excerpt = "";
+  // E, come il server della F5a (fix di review di 72), l'estratto lo legge solo
+  // chi ha una SUA copia dell'email di Gemini: un invitato senza l'email decide
+  // la proposta (decisione M, Q1) ma non legge l'estratto.
+  const ownCopy = state.mailMessages.some(
+    (m) => m.messageId === p.sourceId && canSeeMessage(me, m),
+  );
+  if (p.source === "transcript" && (!recipient || !ownCopy)) proposal.excerpt = "";
   const canConfirm = canConfirmNow(me, p);
   const shared = recipient || p.source === "calendar" ? sharersOf(p) : [];
   return {
