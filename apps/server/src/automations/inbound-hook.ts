@@ -26,8 +26,9 @@ import { effectiveWebhookLimits } from "./webhook-limits.js";
  *   esecuzione (`dedupe_key = src:<sourceId>:<chiave>`).
  *
  * 404, 413 e 429 non si registrano negli eventi recenti: un'inondazione non
- * deve riempire l'elenco né scrivere righe. Gli eventi recenti si tengono
- * fino a {@link RECENT_EVENTS_KEPT} per sorgente.
+ * deve riempire l'elenco. (Un 429 aggiorna però il contatore della finestra,
+ * `automation_source_hits`: è il conteggio stesso.) Gli eventi recenti si
+ * tengono fino a {@link RECENT_EVENTS_KEPT} per sorgente.
  */
 
 export const RECENT_EVENTS_KEPT = 100;
@@ -41,7 +42,11 @@ export type InboundOutcome =
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
-/** L'automazione (accesa o in pausa) che parte dalla sorgente: il suo tetto. Nessuna = i default. */
+/**
+ * L'automazione (accesa o in pausa) che parte dalla sorgente nella sua ULTIMA
+ * versione pubblicata (review F4: come `usersOf` e `sourceFree`; una versione
+ * vecchia che la nominava non conta): il suo tetto. Nessuna = i default.
+ */
 async function capsOf(tx: Tx, sourceId: string) {
   const [a] = await tx
     .select({ webhookPerMinute: automations.webhookPerMinute, webhookPerDay: automations.webhookPerDay })
@@ -53,9 +58,9 @@ async function capsOf(tx: Tx, sourceId: string) {
         sql`${automationVersions.publishedAt} is not null`,
         sql`${automationVersions.flow}->'trigger'->>'kind' = 'source'`,
         sql`${automationVersions.flow}->'trigger'->>'sourceId' = ${sourceId}`,
+        sql`${automationVersions.n} = (select max(v2.n) from automation_versions v2 where v2.automation_id = ${automations.id} and v2.published_at is not null)`,
       ),
     )
-    .orderBy(desc(automationVersions.n))
     .limit(1);
   return effectiveWebhookLimits(a ?? { webhookPerMinute: null, webhookPerDay: null });
 }
@@ -87,16 +92,21 @@ export async function receiveWebhook(db: Db, input: { secret: string; body: stri
   // Un segreto assurdo non tocca nemmeno il DB per il tetto: 404 come uno sconosciuto.
   if (input.secret.length < 10 || input.secret.length > 200) return { status: 404 };
   const hash = hashWebhookSecret(input.secret);
-  return db.transaction(async (tx) => {
+  // Review F4: il tetto si conta in una transazione A SÉ, prima del parse: un
+  // errore dopo (un 500) non annulla il conteggio, e una richiesta conta sempre.
+  const gate = await db.transaction(async (tx) => {
     const [source] = await tx.select().from(automationSources).where(eq(automationSources.secretHash, hash));
     if (!source) return { status: 404 } as const;
-
     const caps = await capsOf(tx, source.id);
     if ((await hit(tx, source.id, "minute")) > caps.perMinute) return { status: 429, window: "minute" } as const;
     if ((await hit(tx, source.id, "day")) > caps.perDay) return { status: 429, window: "day" } as const;
     // I contatori di ieri non servono più.
     await tx.delete(automationSourceHits).where(and(eq(automationSourceHits.sourceId, source.id), lt(automationSourceHits.windowStart, sql`now() - interval '2 days'`)));
-
+    return { status: "ok" as const, source };
+  });
+  if (gate.status !== "ok") return gate;
+  const source = gate.source;
+  return db.transaction(async (tx) => {
     const record = async (status: "accepted" | "duplicate" | "rejected", reason: string | null, payload: unknown, eventId: string | null) => {
       await tx.insert(automationSourceEvents).values({ sourceId: source.id, status, reason, payload: payload as never, eventId });
       const keep = tx

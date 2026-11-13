@@ -1,4 +1,4 @@
-import { visitSteps } from "./fields.js";
+import { triggerFields, visitSteps } from "./fields.js";
 import { STUBWISE_TRIGGER_FIELDS, WAIT_REPLY_FIELDS } from "./triggerFields.js";
 import type { AutomationFlow, AutomationSource, Condition, Step } from "./types.js";
 
@@ -15,9 +15,35 @@ import type { AutomationFlow, AutomationSource, Condition, Step } from "./types.
 
 const keysOf = (fields: readonly { key: string }[]) => fields.map((f) => f.key);
 
+/**
+ * Review F4: `eventUntrusted` — l'evento di QUESTA esecuzione viene da fuori
+ * per intero, qualunque sia l'inizio del flusso: è la figlia di «avvia
+ * un'altra» quando la madre partiva da una sorgente, da un'email o da una
+ * richiesta dal supporto (riceve il suo evento). Allora ogni campo
+ * dell'inizio è un ingresso da fuori. Lo decide l'esecuzione (la colonna
+ * `automation_runs.event_untrusted`), non il flusso.
+ */
+export interface TaintOptions {
+  eventUntrusted?: boolean;
+}
+
+/**
+ * L'inizio del flusso porta dati di fuori? (sorgente, email in arrivo, una
+ * richiesta che può venire dal supporto salvo il filtro che la esclude). Lo
+ * eredita la figlia di «avvia un'altra» (`eventUntrusted`).
+ */
+export function eventIsUntrusted(flow: AutomationFlow): boolean {
+  const t = flow.trigger;
+  if (t.kind === "source") return true;
+  if (t.kind !== "stubwise") return false;
+  if (t.event === "mail_received") return true;
+  return (t.event === "request_created" || t.event === "request_converted") && !excludesSupport(t.filter);
+}
+
 /** I campi che arrivano da fuori, prima di ogni passo di Claude. */
-function untrustedBase(flow: AutomationFlow, sources: AutomationSource[]): Set<string> {
+function untrustedBase(flow: AutomationFlow, sources: AutomationSource[], opts: TaintOptions = {}): Set<string> {
   const base = new Set<string>(keysOf(WAIT_REPLY_FIELDS));
+  if (opts.eventUntrusted) for (const k of keysOf(triggerFields(flow, sources))) base.add(k);
   const t = flow.trigger;
   if (t.kind === "stubwise" && t.event === "mail_received")
     for (const k of keysOf(STUBWISE_TRIGGER_FIELDS.mail_received)) base.add(k);
@@ -47,8 +73,8 @@ const isTainted = (keys: ReadonlySet<string>, key: string) =>
   keys.has(key) || [...keys].some((k) => key.startsWith(`${k}.`));
 
 /** Tutti i campi tinti del flusso: gli ingressi da fuori e ciò che ne ricavano Claude e i «per ogni». */
-export function taintedKeys(flow: AutomationFlow, sources: AutomationSource[]): Set<string> {
-  return taint(flow, sources).all;
+export function taintedKeys(flow: AutomationFlow, sources: AutomationSource[], opts: TaintOptions = {}): Set<string> {
+  return taint(flow, sources, opts).all;
 }
 
 /**
@@ -57,8 +83,8 @@ export function taintedKeys(flow: AutomationFlow, sources: AutomationSource[]): 
  * un suo elenco). F3-1 riguarda i campi di CLAUDE: rispondere al mittente o
  * scrivere al cliente di un evento è un dato dell'evento, già della F2.
  */
-function taint(flow: AutomationFlow, sources: AutomationSource[]) {
-  const keys = untrustedBase(flow, sources);
+function taint(flow: AutomationFlow, sources: AutomationSource[], opts: TaintOptions = {}) {
+  const keys = untrustedBase(flow, sources, opts);
   const derived = new Set<string>();
   // Fino al punto fisso: un passo di Claude può leggere ciò che un altro ricava.
   for (let changed = true; changed; ) {
@@ -121,8 +147,9 @@ function picksWithTainted(step: Step, keys: ReadonlySet<string>): boolean {
 export function untrustedTargets(
   flow: AutomationFlow,
   sources: AutomationSource[],
+  opts: TaintOptions = {},
 ): { stepId: string; path: string; approved: boolean }[] {
-  const keys = taint(flow, sources).derived;
+  const keys = taint(flow, sources, opts).derived;
   const out: { stepId: string; path: string; approved: boolean }[] = [];
   visitSteps(flow.steps, (step, path) => {
     if (picksWithTainted(step, keys))
@@ -143,9 +170,10 @@ export function untrustedTargets(
 export function forceApprovalForUntrusted(
   flow: AutomationFlow,
   sources: AutomationSource[],
+  opts: TaintOptions = {},
 ): AutomationFlow {
   const toForce = new Set(
-    untrustedTargets(flow, sources)
+    untrustedTargets(flow, sources, opts)
       .filter((t) => !t.approved)
       .map((t) => t.stepId),
   );

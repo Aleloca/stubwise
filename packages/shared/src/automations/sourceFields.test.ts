@@ -6,6 +6,7 @@ import {
   clientKeyOf,
   deriveFields,
   fieldKeys,
+  hasForbiddenKey,
   labelFromKey,
   mergeFields,
 } from "./sourceFields.js";
@@ -151,5 +152,32 @@ describe("checkEventFields", () => {
       key,
       expected,
     });
+  });
+});
+
+describe("review F4, I2: nessun inquinamento del prototipo dal corpo pubblico", () => {
+  const evil = JSON.parse('{"__proto__":{"polluted":"si"},"constructor":{"prototype":{"polluted2":"si"}},"ok":"x"}') as Record<string, unknown>;
+
+  it("deriveFields salta __proto__, constructor e prototype", () => {
+    const keys = fieldKeys(deriveFields(evil));
+    expect(keys).toEqual(["ok"]);
+  });
+
+  it("checkEventFields non scrive mai su Object.prototype, anche con un campo dichiarato su __proto__", () => {
+    const fields: DataField[] = [
+      { key: "__proto__.polluted", label: "x", type: "text" },
+      { key: "constructor.prototype.polluted2", label: "y", type: "text" },
+      { key: "ok", label: "Ok", type: "text" },
+    ];
+    const out = checkEventFields(evil, fields);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect(({} as Record<string, unknown>).polluted2).toBeUndefined();
+    expect(out).toEqual({ ok: true, event: { ok: "x" } });
+  });
+
+  it("hasForbiddenKey trova una chiave proibita a qualunque profondità, anche dentro un elenco", () => {
+    expect(hasForbiddenKey(evil)).toBe(true);
+    expect(hasForbiddenKey(JSON.parse('{"a":[{"b":{"__proto__":{}}}]}'))).toBe(true);
+    expect(hasForbiddenKey({ a: [{ b: 1 }] })).toBe(false);
   });
 });

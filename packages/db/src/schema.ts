@@ -6588,6 +6588,15 @@ export const automationRuns = pgTable(
      * invece l'esecuzione manda.
      */
     mailOriginAccountId: uuid("mail_origin_account_id").references(() => googleAccounts.id, { onDelete: "set null" }),
+    /**
+     * Review F4: l'EVENTO di questa esecuzione viene da fuori per intero,
+     * qualunque sia l'inizio del suo flusso — la figlia di «avvia un'altra»
+     * di una madre partita da una sorgente, da un'email o da una richiesta
+     * dal supporto (o che lo era a sua volta). La tinta (`taint.ts`,
+     * `eventUntrusted`) tratta ogni campo dell'inizio come non fidato, e
+     * l'esecutore forza l'approvazione sulle destinazioni che ne derivano.
+     */
+    eventUntrusted: boolean("event_untrusted").notNull().default(false),
   },
   (table) => [
     uniqueIndex("automation_runs_n_idx").on(table.automationId, table.n),

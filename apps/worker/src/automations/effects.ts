@@ -18,6 +18,7 @@ import {
 import { automationMailboxOf, automationOwnerInScope, loadPlanWorld, milestoneNameTaken, projectPermissionsOfUser, publishNotification } from "@stubwise/notifications";
 import {
   clientKeyOf,
+  eventIsUntrusted,
   failed,
   initialState,
   planStartAutomation,
@@ -39,7 +40,7 @@ import {
   type EffectRequest,
 } from "@stubwise/shared";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
-import { ancestorsOf } from "./consumer.js";
+import { ancestorsOf, MAX_ACTIVE_RUNS } from "./consumer.js";
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
@@ -144,8 +145,6 @@ async function resolveClientProject(eff: Extract<EffectRequest, { kind: "resolve
   return { input: { kind: "project_chosen", projectId: link.projectId }, projectId: link.projectId };
 }
 
-/** Il tetto delle esecuzioni non finite di un'automazione (lo stesso del consumatore). */
-const MAX_OPEN_CHILD_RUNS = 100;
 const OPEN_RUN_STATUSES = ["running", "waiting_approval", "waiting_project", "suspended"] as const;
 
 /**
@@ -201,14 +200,27 @@ async function executeStart(eff: ActionEffect, env: EffectEnv): Promise<EffectOu
       })
       .from(automationRuns)
       .where(eq(automationRuns.automationId, t.id));
-    if ((counts?.open ?? 0) >= MAX_OPEN_CHILD_RUNS) return runLimitFailure(t.name);
+    // Il tetto delle esecuzioni non finite: lo stesso del consumatore (review F4, minore).
+    if ((counts?.open ?? 0) >= MAX_ACTIVE_RUNS) return runLimitFailure(t.name);
     const [parent] = await tx
-      .select({ event: automationRuns.event, mailboxAccountId: automationRuns.mailboxAccountId, mailOriginAccountId: automationRuns.mailOriginAccountId })
+      .select({
+        event: automationRuns.event,
+        mailboxAccountId: automationRuns.mailboxAccountId,
+        mailOriginAccountId: automationRuns.mailOriginAccountId,
+        eventUntrusted: automationRuns.eventUntrusted,
+        parentFlow: automationVersions.flow,
+      })
       .from(automationRuns)
+      .innerJoin(automationVersions, and(eq(automationVersions.automationId, automationRuns.automationId), eq(automationVersions.n, automationRuns.version)))
       .where(eq(automationRuns.id, env.runId));
     const event = (parent?.event ?? {}) as Record<string, unknown>;
-    // La posta d'origine: quella che la madre portava già, o la sua casella se l'evento della madre è un'email.
-    const mailOrigin = parent?.mailOriginAccountId ?? ("email" in event ? (parent?.mailboxAccountId ?? null) : null);
+    const parentFlow = parent?.parentFlow as AutomationFlow | undefined;
+    // Review F4: dall'INIZIO della madre, non dalla forma dell'evento (un webhook può avere un campo `email`).
+    // La posta d'origine: quella che la madre portava già, o la sua casella se la madre partiva da un'email.
+    const parentFromMail = parentFlow?.trigger.kind === "stubwise" && parentFlow.trigger.event === "mail_received";
+    const mailOrigin = parent?.mailOriginAccountId ?? (parentFromMail ? (parent?.mailboxAccountId ?? null) : null);
+    // L'evento della figlia è non fidato per intero se lo era quello della madre (sorgente, email, supporto, o a sua volta figlia).
+    const eventUntrusted = parent?.eventUntrusted === true || (parentFlow !== undefined && eventIsUntrusted(parentFlow));
     const flow = version.flow as AutomationFlow;
     const titled = initialState(flow, env.now);
     titled.event = event;
@@ -227,6 +239,7 @@ async function executeStart(eff: ActionEffect, env: EffectEnv): Promise<EffectOu
         startedBy: owner,
         mailboxAccountId: t.mailboxAccountId,
         mailOriginAccountId: mailOrigin,
+        eventUntrusted,
         projectIds: t.projectId ? [t.projectId] : [],
         startedAt: sql`clock_timestamp()`,
         dueAt: sql`now()`,

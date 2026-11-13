@@ -198,6 +198,20 @@ describe("un webhook per automazione (F4-1 = a)", () => {
     expect(taken.json()).toMatchObject({ code: "source_in_use" });
   });
 
+  it("review F4, I3: due pubblicazioni INSIEME sulla stessa sorgente: ne passa una sola (anche accendendo)", async () => {
+    const p = await project();
+    const lead = await person();
+    await addMember(app, p.id, lead.id, "project_lead");
+    for (const op of ["publish", "activate"] as const) {
+      const [source] = await db.insert(automationSources).values({ kind: "webhook", name: "Ordini", secretHash: randomUUID().replace(/-/g, ""), fields: [] }).returning();
+      const flow = flowOf([createTask({ mode: "own" })], { kind: "source", sourceId: source!.id, event: "webhook" });
+      const codes: string[] = [];
+      for (let i = 0; i < 4; i++) codes.push(((await call(lead.headers, "POST", "/automations", { name: `X${i}`, projectId: p.id, flow })).json() as { code: string }).code);
+      const results = await Promise.all(codes.map((c) => call(lead.headers, "POST", `/automations/${c}/${op}`, {})));
+      expect(results.map((r) => r.statusCode).sort()).toEqual([200, 409, 409, 409]);
+    }
+  });
+
   it("una sorgente che non esiste è un errore di configurazione", async () => {
     const p = await project();
     const lead = await person();
@@ -240,5 +254,17 @@ describe("R-J13 lungo la catena (S6)", () => {
     expect(seen.json()).toMatchObject({ mailHidden: true });
     const owner = await call(mailOwner.headers, "GET", `/automations/${child!.code}/runs/1`);
     expect(owner.json()).toMatchObject({ event: { email: { testo: "segreto" } } });
+  });
+});
+
+describe("review F4: «Da decidere» per una generale senza progetto", () => {
+  it("un approvatore nominato (non il proprietario) trova il passo che aspetta lui, anche senza vedere progetti", async () => {
+    const manager = await generalManager();
+    const approver = await person();
+    const a = await general(manager, flowOf([{ id: "n1", kind: "notify", who: { personId: approver.id }, text: "x", approval: { mode: "ask", who: { personId: approver.id } } } as unknown as Step]));
+    await db.update(automations).set({ ownerId: manager.id, status: "active" }).where(eq(automations.id, a.id));
+    await db.insert(automationRuns).values({ automationId: a.id, n: 1, version: 1, title: "R", origin: "manual", status: "waiting_approval", cursor: { path: "0" }, pending: { approverIds: [approver.id], preview: {}, path: "0", round: 0 }, projectIds: [] });
+    const items = ((await call(approver.headers, "GET", "/me/automation-approvals")).json() as { items: { automationCode: string }[] }).items;
+    expect(items.map((i) => i.automationCode)).toContain(a.code);
   });
 });

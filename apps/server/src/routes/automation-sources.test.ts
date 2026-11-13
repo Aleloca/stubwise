@@ -161,6 +161,32 @@ describe("il webhook in arrivo (S3)", () => {
     expect((await recentOf(w.id)).map((r) => r.status).sort()).toEqual(["accepted", "duplicate"]);
   });
 
+  it("review F4, I2: un corpo con __proto__ non scrive su Object.prototype del server, e un esempio con __proto__ si rifiuta", async () => {
+    const w = await webhook();
+    const res = await deliver(w.secret, '{"ordine":"A","__proto__":{"inquinato":"si"},"constructor":{"prototype":{"inquinato2":"si"}}}');
+    expect(res.statusCode).toBe(202);
+    expect(({} as Record<string, unknown>).inquinato).toBeUndefined();
+    expect(({} as Record<string, unknown>).inquinato2).toBeUndefined();
+    const bad = '{"ordine":"A","__proto__":{"x":1}}';
+    expect((await call(admin, "PUT", `/automation-sources/${w.id}/example`, { json: bad })).statusCode).toBe(400);
+    expect(((await call(admin, "POST", `/automation-sources/${w.id}/example/preview`, { json: bad })).json() as { error: string }).error).toBe("forbidden_key");
+  });
+
+  it("review F4: il tetto di un'automazione la cui ULTIMA versione pubblicata non parte più dalla sorgente non conta", async () => {
+    const w = await webhook();
+    const a = await automationOn(w.id, { webhookPerMinute: 1 });
+    await db.insert(automationVersions).values({ automationId: a.id, n: 2, flow: { trigger: { kind: "manual" }, steps: [], titleTemplate: "R" }, publishedAt: new Date() });
+    for (let i = 0; i < 3; i++) expect((await deliver(w.secret, JSON.stringify({ ordine: `A-${i}` }))).statusCode).toBe(202);
+  });
+
+  it("review F4: una Idempotency-Key oltre 200 caratteri deduplica lo stesso (troncata), invece di essere scartata", async () => {
+    const w = await webhook();
+    const key = "k".repeat(300);
+    expect((await deliver(w.secret, JSON.stringify({ ordine: "A" }), { "idempotency-key": key })).json()).toEqual({ accepted: true, duplicate: false });
+    expect((await deliver(w.secret, JSON.stringify({ ordine: "A" }), { "idempotency-key": key })).json()).toEqual({ accepted: true, duplicate: true });
+    expect(await eventsOf(w.id)).toHaveLength(1);
+  });
+
   it("un JSON annidato molto profondo non fa esplodere niente: si proietta sui campi e basta", async () => {
     const w = await webhook();
     let deep: Record<string, unknown> = { x: 1 };
@@ -242,6 +268,11 @@ describe("la tabella cliente → progetto (S4)", () => {
     const [role] = await db.insert(roles).values({ name: `Integrazioni ${randomUUID().slice(0, 6)}`, scope: "instance", permissions: ["integrations.manage"] }).returning({ id: roles.id });
     await db.update(users).set({ instanceRoleId: role!.id }).where(eq(users.id, integrator.id));
     expect((await call(integrator.headers, "PUT", "/client-links/y.it", { clientName: "Y", projectId: hidden.id })).statusCode).toBe(404);
+    // Review F4 (O, 46): una riga che punta a un progetto che chi gestisce le integrazioni NON vede non si reindirizza né si toglie.
+    await addMember(app, p.id, integrator.id, "developer");
+    expect((await call(integrator.headers, "PUT", "/client-links/rossi.it", { clientName: "Rossi", projectId: p.id })).statusCode).toBe(404);
+    expect((await call(integrator.headers, "DELETE", "/client-links/rossi.it")).statusCode).toBe(404);
+    expect((await db.select().from(clientProjectLinks).where(eq(clientProjectLinks.clientKey, "rossi.it")))[0]).toMatchObject({ projectId: hidden.id });
 
     expect((await call(admin, "DELETE", `/client-links/${encodeURIComponent("ACME.it")}`)).statusCode).toBe(204);
     expect(await db.select().from(clientProjectLinks).where(eq(clientProjectLinks.clientKey, "acme.it"))).toEqual([]);

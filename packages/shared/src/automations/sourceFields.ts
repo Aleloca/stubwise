@@ -19,6 +19,22 @@ export const FIELDS_MAX_DEPTH = 8;
 /** Numero massimo di campi (contando quelli dentro gli elenchi). */
 export const FIELDS_MAX = 200;
 
+/**
+ * Le chiavi che non diventano MAI un campo né un percorso (review F4, I2): il
+ * corpo di un webhook è pubblico, e `{"__proto__": {…}}` in un JSON parsato è
+ * una proprietà propria che, seguita come percorso, scriverebbe su
+ * `Object.prototype` dell'intero processo.
+ */
+const FORBIDDEN_KEYS: ReadonlySet<string> = new Set(["__proto__", "constructor", "prototype"]);
+const forbiddenPath = (path: readonly string[]) => path.some((p) => FORBIDDEN_KEYS.has(p));
+
+/** Un valore (oggetto o elenco, a qualunque profondità) contiene una chiave proibita? */
+export function hasForbiddenKey(value: unknown, depth = 0): boolean {
+  if (depth > 64 || value === null || typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.some((v) => hasForbiddenKey(v, depth + 1));
+  return Object.keys(value).some((k) => FORBIDDEN_KEYS.has(k) || hasForbiddenKey((value as Record<string, unknown>)[k], depth + 1));
+}
+
 /** `customer.email` → «Customer email»; `importoTotale` → «Importo totale». */
 export function labelFromKey(key: string): string {
   const words = key
@@ -60,6 +76,7 @@ function derive(
   const out: DataField[] = [];
   for (const [k, v] of Object.entries(obj)) {
     if (budget.left <= 0) break;
+    if (FORBIDDEN_KEYS.has(k)) continue;
     const key = prefix ? `${prefix}.${k}` : k;
     if (isObject(v)) {
       if (depth < FIELDS_MAX_DEPTH) out.push(...derive(v, key, depth + 1, budget));
@@ -136,18 +153,20 @@ function lookup(obj: Record<string, unknown>, path: string[]): Found {
   for (const p of path) {
     if (cur === null || cur === undefined) return { state: "absent" };
     if (!isObject(cur)) return { state: "bad_shape" };
-    cur = Object.prototype.hasOwnProperty.call(cur, p) ? cur[p] : undefined;
+    cur = Object.hasOwn(cur, p) ? cur[p] : undefined;
   }
   return cur === null || cur === undefined ? { state: "absent" } : { state: "value", value: cur };
 }
 
+/** Scrive solo su proprietà PROPRIE e mai su una chiave proibita (chi chiama le ha già scartate). */
 function put(target: Record<string, unknown>, path: string[], value: unknown): void {
+  if (forbiddenPath(path)) return;
   let cur = target;
   for (const p of path.slice(0, -1)) {
-    if (!isObject(cur[p])) cur[p] = {};
+    if (!Object.hasOwn(cur, p) || !isObject(cur[p])) Object.defineProperty(cur, p, { value: {}, enumerable: true, writable: true, configurable: true });
     cur = cur[p] as Record<string, unknown>;
   }
-  cur[path.at(-1)!] = value;
+  Object.defineProperty(cur, path.at(-1)!, { value, enumerable: true, writable: true, configurable: true });
 }
 
 /** Controlla un evento contro i campi della sorgente e ne restituisce la proiezione. */
@@ -159,6 +178,8 @@ function project(payload: Record<string, unknown>, fields: DataField[], prefix: 
   const event: Record<string, unknown> = {};
   for (const f of fields) {
     const path = f.key.split(".");
+    // Un campo su una chiave proibita non si legge né si scrive (review F4, I2).
+    if (forbiddenPath(path)) continue;
     const found = lookup(payload, path);
     if (found.state === "absent") continue;
     if (found.state === "bad_shape" || !fits(f.type, found.value))
