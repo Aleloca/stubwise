@@ -71,10 +71,11 @@ export function createAutomationEndpoints(request: ApiRequest) {
     patch(code: string, meta: AutomationMeta): Promise<Automation> {
       return request("PATCH", base(code), meta);
     },
-    publish(code: string, opts: { expectedRev?: number | null } = {}): Promise<Automation> {
+    /** `mailboxAccountId` (area 7, F2): la casella da cui partono le email; serve solo se il flusso ne manda. */
+    publish(code: string, opts: { expectedRev?: number | null; mailboxAccountId?: string } = {}): Promise<Automation> {
       return request("POST", `${base(code)}/publish`, opts);
     },
-    activate(code: string, opts: { expectedRev?: number | null } = {}): Promise<Automation> {
+    activate(code: string, opts: { expectedRev?: number | null; mailboxAccountId?: string } = {}): Promise<Automation> {
       return request("POST", `${base(code)}/activate`, opts);
     },
     pause(code: string): Promise<Automation> {

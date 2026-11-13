@@ -6413,7 +6413,8 @@ export const mailOutgoing = pgTable(
     userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     accountId: uuid("account_id").notNull().references(() => googleAccounts.id, { onDelete: "cascade" }),
     draftId: uuid("draft_id").references(() => mailDrafts.id, { onDelete: "set null" }),
-    gmailDraftId: text("gmail_draft_id").notNull(),
+    /** Null per un'email d'automazione (0170, C-F2-1): la manda senza bozza. */
+    gmailDraftId: text("gmail_draft_id"),
     threadId: text("thread_id"),
     sendAt: timestamp("send_at", { withTimezone: true }).notNull(),
     state: text("state").$type<"queued" | "sending" | "sent" | "failed" | "cancelled">().notNull().default("queued"),
@@ -6428,8 +6429,12 @@ export const mailOutgoing = pgTable(
     gmailThreadId: text("gmail_thread_id"),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** L'esecuzione che l'ha chiesta (area 7, F2): null = una persona con Invia. FK in 0170. */
+    automationRunId: uuid("automation_run_id"),
   },
   (table) => [
+    index("mail_outgoing_automation_thread_idx").on(table.accountId, table.gmailThreadId).where(sql`${table.automationRunId} IS NOT NULL`),
+    check("mail_outgoing_draft_or_run_chk", sql`${table.gmailDraftId} IS NOT NULL OR ${table.automationRunId} IS NOT NULL`),
     index("mail_outgoing_due_idx").on(table.sendAt).where(sql`state = 'queued'`),
     index("mail_outgoing_user_id_idx").on(table.userId),
     index("mail_outgoing_rfc_message_id_idx").on(table.accountId, table.rfcMessageId),
@@ -6444,12 +6449,16 @@ export const mailOutgoing = pgTable(
 // ---------------------------------------------------------------------------
 
 export const automationStatus = pgEnum("automation_status", ["draft", "active", "paused"]);
-export const automationPausedReason = pgEnum("automation_paused_reason", ["manual", "owner_lost_permission"]);
-export const automationRunStatus = pgEnum("automation_run_status", ["running", "waiting_approval", "waiting_project", "suspended", "done", "failed", "cancelled"]);
+/** `mailbox_lost` (0170, F2): la casella del proprietario non è più utilizzabile a metà esecuzione (F2-4). */
+export const automationPausedReason = pgEnum("automation_paused_reason", ["manual", "owner_lost_permission", "mailbox_lost"]);
+/** `waiting_event` (0170, F2): un `wait` (tempo, risposta, task chiusa). */
+export const automationRunStatus = pgEnum("automation_run_status", ["running", "waiting_approval", "waiting_project", "suspended", "done", "failed", "cancelled", "waiting_event"]);
 /** Da dove è partita (`AutomationRun.origin` di `@stubwise/shared`): un evento di Stubwise, a mano, o un'altra esecuzione. */
 export const automationRunOrigin = pgEnum("automation_run_origin", ["manual", "source", "stubwise", "schedule", "automation"]);
-export const automationEventKind = pgEnum("automation_event_kind", ["task_created", "task_closed", "request_created", "request_converted", "milestone_reached"]);
-export const automationEffectKind = pgEnum("automation_effect_kind", ["task", "milestone", "request", "notification"]);
+/** `mail_received` (0170, F2): lo scrive il poller Google, non un trigger (C-F2-0). */
+export const automationEventKind = pgEnum("automation_event_kind", ["task_created", "task_closed", "request_created", "request_converted", "milestone_reached", "mail_received"]);
+/** `email` (0170, F2): `object_id` è la riga `mail_outgoing`. */
+export const automationEffectKind = pgEnum("automation_effect_kind", ["task", "milestone", "request", "notification", "email"]);
 
 /** Un'automazione di progetto: codice unico `<PRJ>-A<seq>`, la versione pubblicata e (al più) una bozza. */
 export const automations = pgTable(
@@ -6474,6 +6483,8 @@ export const automations = pgTable(
     createdVia: text("created_via").$type<"claude">(),
     /** Da quando è accesa: il consumatore ignora gli eventi nati prima (niente recupero retroattivo). */
     activeSince: timestamp("active_since", { withTimezone: true }),
+    /** La casella scelta all'accensione, del proprietario di adesso (R-J15, 0170). */
+    mailboxAccountId: uuid("mailbox_account_id").references(() => googleAccounts.id, { onDelete: "set null" }),
   },
   (table) => [
     uniqueIndex("automations_code_idx").on(table.code),
@@ -6541,10 +6552,17 @@ export const automationRuns = pgTable(
     dueAt: timestamp("due_at", { withTimezone: true }).defaultNow(),
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
     claimedBy: text("claimed_by"),
+    /** Un `wait` della risposta: `<accountId>:<gmailThreadId>` della conversazione (0170, C-F2-4). */
+    waitingThread: text("waiting_thread"),
+    /** Un `wait` della task chiusa: la task del flusso (0170, C-F2-4). */
+    waitingTicketId: uuid("waiting_ticket_id").references(() => tickets.id, { onDelete: "set null" }),
   },
   (table) => [
     uniqueIndex("automation_runs_n_idx").on(table.automationId, table.n),
-    index("automation_runs_due_idx").on(table.dueAt).where(sql`${table.status} = 'running'`),
+    // Pieno dalla 0170: serve anche alle attese a tempo (`waiting_event`).
+    index("automation_runs_due_idx").on(table.dueAt),
+    index("automation_runs_waiting_thread_idx").on(table.waitingThread).where(sql`${table.waitingThread} IS NOT NULL`),
+    index("automation_runs_waiting_ticket_idx").on(table.waitingTicketId).where(sql`${table.waitingTicketId} IS NOT NULL`),
     index("automation_runs_parent_idx").on(table.parentRunId).where(sql`${table.parentRunId} IS NOT NULL`),
   ],
 );
@@ -6613,6 +6631,20 @@ export const automationEffects = pgTable(
   (table) => [uniqueIndex("automation_effects_key_idx").on(table.idempotencyKey)],
 );
 
+/** L'idempotenza degli inizi a orario (area 7, F2, 0170): una riga per automazione e giorno locale (Europe/Rome). */
+export const automationScheduleFires = pgTable(
+  "automation_schedule_fires",
+  {
+    automationId: uuid("automation_id")
+      .notNull()
+      .references(() => automations.id, { onDelete: "cascade" }),
+    localDate: date("local_date", { mode: "string" }).notNull(),
+    runId: uuid("run_id").references(() => automationRuns.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ name: "automation_schedule_fires_pk", columns: [table.automationId, table.localDate] })],
+);
+
 /**
  * L'outbox degli eventi (Q6, C1): la scrivono SOLO i trigger della 0169,
  * nella transazione della scrittura. `txid` ordina gli eventi di una stessa
@@ -6623,15 +6655,23 @@ export const automationEvents = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     kind: automationEventKind("kind").notNull(),
-    projectId: uuid("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
-    objectId: uuid("object_id").notNull(),
+    /** Null per un evento della posta (0170): ascoltano le automazioni della casella. */
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    /** La casella di un evento della posta (`mail_received`, 0170, C-F2-0). */
+    accountId: uuid("account_id").references(() => googleAccounts.id, { onDelete: "cascade" }),
+    /** Null per un evento della posta: un messaggio rifiutato dall'ammissione non ha una riga. */
+    objectId: uuid("object_id"),
+    /** La deduplica di un evento senza riga (`mail:<accountId>:<gmailMessageId>`). */
+    dedupeKey: text("dedupe_key"),
     payload: jsonb("payload").notNull().default({}),
     originRunId: uuid("origin_run_id"),
     txid: bigint("txid", { mode: "number" }).notNull().default(sql`txid_current()`),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
   },
-  (table) => [index("automation_events_pending_idx").on(table.createdAt).where(sql`${table.consumedAt} IS NULL`)],
+  (table) => [
+    index("automation_events_pending_idx").on(table.createdAt).where(sql`${table.consumedAt} IS NULL`),
+    uniqueIndex("automation_events_dedupe_idx").on(table.dedupeKey).where(sql`${table.dedupeKey} IS NOT NULL`),
+    check("automation_events_project_or_account_chk", sql`${table.projectId} IS NOT NULL OR ${table.accountId} IS NOT NULL`),
+  ],
 );

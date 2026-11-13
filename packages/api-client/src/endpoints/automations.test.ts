@@ -31,7 +31,8 @@ describe("client.automations", () => {
     expect(call(fetchImpl)).toMatchObject({ url: "https://x.test/api/automations/AUD-A1/draft", method: "PUT", body: { flow, expectedRev: 3 } });
     await c.automations.publish("AUD-A1", { expectedRev: 3 });
     expect(call(fetchImpl, 1)).toMatchObject({ url: "https://x.test/api/automations/AUD-A1/publish", method: "POST", body: { expectedRev: 3 } });
-    await c.automations.activate("AUD-A1");
+    await c.automations.activate("AUD-A1", { mailboxAccountId: "box-1" });
+    expect(call(fetchImpl, 2)).toMatchObject({ url: "https://x.test/api/automations/AUD-A1/activate", method: "POST", body: { mailboxAccountId: "box-1" } });
     await c.automations.pause("AUD-A1");
     expect(call(fetchImpl, 3)).toMatchObject({ url: "https://x.test/api/automations/AUD-A1/pause", method: "POST" });
     await c.automations.duplicate("AUD-A1", { name: "Copia", version: 1 });

@@ -138,11 +138,12 @@ export async function automationRoutes(instance: FastifyInstance): Promise<void>
       }),
   );
 
-  const revBody = z.object({ expectedRev: z.number().int().nullable().optional() }).default({});
-  app.post("/automations/:code/publish", { config: { access: ACCESS }, schema: { params: codeParams, body: revBody } }, async (request, reply) =>
+  // Area 7, F2: la casella scelta accendendo o pubblicando (obbligatoria solo se il flusso manda email).
+  const publishBody = z.object({ expectedRev: z.number().int().nullable().optional(), mailboxAccountId: z.uuid().optional() }).default({});
+  app.post("/automations/:code/publish", { config: { access: ACCESS }, schema: { params: codeParams, body: publishBody } }, async (request, reply) =>
     handle(reply, () => publishAutomation(app.db, me(request), request.params.code, request.body ?? {})),
   );
-  app.post("/automations/:code/activate", { config: { access: ACCESS }, schema: { params: codeParams, body: revBody } }, async (request, reply) =>
+  app.post("/automations/:code/activate", { config: { access: ACCESS }, schema: { params: codeParams, body: publishBody } }, async (request, reply) =>
     handle(reply, () => activateAutomation(app.db, me(request), request.params.code, request.body ?? {})),
   );
   app.post("/automations/:code/pause", { config: { access: ACCESS }, schema: { params: codeParams } }, async (request, reply) =>

@@ -124,9 +124,9 @@ describe("executeDueRuns", () => {
     const { automation, run } = await runOf([task()]);
     const eff = { kind: "createTask" as const, stepId: "x", path: "0", args: { title: "Una", description: "", assignee: null, dueInDays: null, milestoneCode: null }, projectTarget: { mode: "own" as const } };
     const env = { db: t.db, runId: run.id, runNumber: 1, automation: { id: automation.id, code: automation.code, name: automation.name, projectId, ownerId }, now: new Date().toISOString() };
-    const first = await executeEffect(eff, env);
-    const second = await executeEffect(eff, env);
-    expect(second.input).toEqual({ kind: "effect_result", ok: true, codes: (first.input as { codes: string[] }).codes });
+    const first = (await executeEffect(eff, env)) as { input: { codes: string[] } };
+    const second = (await executeEffect(eff, env)) as { input: unknown };
+    expect(second.input).toEqual({ kind: "effect_result", ok: true, codes: first.input.codes });
     expect(await ticketsOfRun(run.id)).toHaveLength(1);
     expect(await t.db.select().from(automationEffects).where(eq(automationEffects.idempotencyKey, effectKey(run.id, "0")))).toHaveLength(1);
   });

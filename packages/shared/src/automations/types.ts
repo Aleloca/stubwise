@@ -258,11 +258,23 @@ export interface Automation {
   pausedById?: string | null;
   pausedAt?: string | null;
   /**
+   * Perché è in pausa (build app): a mano, il proprietario ha perso il permesso
+   * (D5), la sua casella non è più utilizzabile (area 7, F2-4). Assente da un
+   * server più vecchio o nel prototipo.
+   */
+  pausedReason?: "manual" | "owner_lost_permission" | "mailbox_lost" | null;
+  /**
    * La casella da cui partono le email, scelta da chi l'ha accesa o
    * pubblicata fra le sue collegate (shape automations.md [A 12]). Assente:
    * la casella del proprietario.
    */
   mailbox?: string | null;
+  /**
+   * L'id della casella di `mailbox` (area 7, F2, la build app): quella che
+   * `POST …/publish` e `…/activate` ricevono come `mailboxAccountId`. Assente
+   * da un server più vecchio o nel prototipo.
+   */
+  mailboxAccountId?: string | null;
   /**
    * Area 10b: creata da Claude per conto di `createdById` (il riquadro). Resta
    * per sempre, anche dopo l'accensione (maintainer, shape [AU 8]). Assente:

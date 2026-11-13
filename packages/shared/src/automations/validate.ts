@@ -89,6 +89,12 @@ export function validateFlow(flow: AutomationFlow, ctx: ValidateContext): FlowIs
     visitSteps(flow.steps, (step, path) => {
       if (!steps.includes(step.kind))
         add(path, "not_available", "Questo passo non è ancora disponibile.");
+      else if (
+        step.kind === "sendEmail" &&
+        ctx.available?.emailAttachments === false &&
+        step.attachRefs.length > 0
+      )
+        add(path, "not_available", "Gli allegati non sono ancora disponibili.");
     });
   }
 

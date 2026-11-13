@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildMimeMessage, createDraft, deleteDraft, encodeRaw, getDraft, getSendAsSignature, sendDraft, updateDraft } from "./gmail-compose.js";
+import { buildMimeMessage, createDraft, deleteDraft, encodeRaw, getDraft, getSendAsSignature, sendDraft, sendMessage, updateDraft } from "./gmail-compose.js";
 import { fakeFetch, jsonResponse } from "./test-support.js";
 
 /**
@@ -103,6 +103,17 @@ describe("le bozze di Gmail", () => {
     expect(await sendDraft({ accessToken: "at", id: "d1" }, { fetchImpl: impl })).toEqual({ messageId: "m9", threadId: "t9" });
     expect(calls[0]!.url).toBe("https://gmail.googleapis.com/gmail/v1/users/me/drafts/send");
     expect(JSON.parse(calls[0]!.body!)).toEqual({ id: "d1" });
+  });
+
+  it("area 7, F2: manda un messaggio senza bozza (POST messages/send col raw e il thread)", async () => {
+    const { impl, calls } = fakeFetch([jsonResponse({ id: "m7", threadId: "t7", labelIds: ["SENT"] }), jsonResponse({ id: "m8", threadId: "m8" })]);
+    expect(await sendMessage({ accessToken: "at", raw: "UkFX", threadId: "t7" }, { fetchImpl: impl })).toEqual({ messageId: "m7", threadId: "t7" });
+    expect(calls[0]!.url).toBe("https://gmail.googleapis.com/gmail/v1/users/me/messages/send");
+    expect(calls[0]!.method).toBe("POST");
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ raw: "UkFX", threadId: "t7" });
+    // Senza thread: una conversazione nuova.
+    await sendMessage({ accessToken: "at", raw: "UkFX" }, { fetchImpl: impl });
+    expect(JSON.parse(calls[1]!.body!)).toEqual({ raw: "UkFX" });
   });
 
   it("una bozza che non c'è più: GoogleApiError 404", async () => {

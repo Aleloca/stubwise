@@ -7,12 +7,14 @@ import {
   projects,
   type Db,
 } from "@stubwise/db";
+import { automationMailboxOf } from "@stubwise/notifications";
 import { initialState, projectOf, render, triggerFields, visitSteps, type Automation, type AutomationFlow, type AutomationMeta } from "@stubwise/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { projectPermissionsFor } from "../auth/access.js";
 import {
   AutomationError,
   automationOf,
+  mailboxAddresses,
   configErrorsOf,
   forbidden,
   keepHiddenProjects,
@@ -56,7 +58,39 @@ const invalid = (code: string, message: string, extra: Record<string, unknown> =
 const badInput = (code: string, message: string) => new AutomationError(400, code, message);
 
 async function shapeOf(db: Db | Tx, viewer: Viewer, a: AutomationRecord): Promise<Automation> {
-  return automationOf(a, await versionsOf(db, a.id), await seen(db, viewer));
+  return automationOf(a, await versionsOf(db, a.id), await seen(db, viewer), await mailboxAddresses(db, [a]));
+}
+
+/** Il flusso usa una casella: manda email, o ascolta la posta («email in arrivo», S8). */
+const sendsEmail = (flow: AutomationFlow): boolean => {
+  if (flow.trigger.kind === "stubwise" && flow.trigger.event === "mail_received") return true;
+  let found = false;
+  visitSteps(flow.steps, (s) => {
+    if (s.kind === "sendEmail") found = true;
+  });
+  return found;
+};
+
+/**
+ * La casella con cui chi accende o pubblica manderà le email (area 7, F2, S2;
+ * R-J15). Solo se il flusso ha un `sendEmail`: allora è quella indicata, o —
+ * se chi chiama è già il proprietario — quella che c'era. Deve essere di chi
+ * chiama (una casella di un altro risponde come una che non esiste, R-G5),
+ * attiva e con lo scope d'invio: la regola è `automationMailboxOf`, la stessa
+ * dell'esecutore. Ritorna l'id da salvare (null se il flusso non manda email).
+ */
+async function mailboxForPublish(db: Db | Tx, viewer: Viewer, a: AutomationRecord, flow: AutomationFlow, requested: string | undefined): Promise<string | null> {
+  if (!sendsEmail(flow)) return null;
+  const id = requested ?? (a.ownerId === viewer.id ? a.mailboxAccountId : null);
+  if (!id) throw invalid("mailbox_required", "Choose the mailbox the automation sends from or listens to");
+  const box = await automationMailboxOf(db, viewer.id, id);
+  if (box.ok) return box.accountId;
+  if (box.reason === "chosen_gone") {
+    if (requested) throw notFound();
+    throw invalid("mailbox_required", "Choose the mailbox the emails are sent from");
+  }
+  if (box.reason === "no_scope") throw invalid("mailbox_scope", "The mailbox can't send email", { missingScopes: box.missingScopes ?? [] });
+  throw invalid("mailbox_expired", "The mailbox is disconnected or expired");
 }
 
 const emptyFlow = (name: string): AutomationFlow => ({ trigger: { kind: "manual" }, steps: [], titleTemplate: name });
@@ -174,7 +208,7 @@ const checkRev = (rev: number | null, expectedRev: number | null | undefined) =>
 };
 
 /** «Pubblica»: la bozza diventa la versione con cui partono le esecuzioni nuove; chi pubblica è il proprietario. */
-export async function publishAutomation(db: Db, viewer: Viewer, code: string, opts: { expectedRev?: number | null }): Promise<Automation> {
+export async function publishAutomation(db: Db, viewer: Viewer, code: string, opts: { expectedRev?: number | null; mailboxAccountId?: string }): Promise<Automation> {
   const a0 = await managedAutomation(db, viewer, code);
   // Review F1, M5: la bozza si rilegge e si valida SOTTO il lock
   // dell'automazione (lo stesso di `saveDraft`), e si pubblica quella: un
@@ -186,10 +220,11 @@ export async function publishAutomation(db: Db, viewer: Viewer, code: string, op
     checkRev(draft.rev, opts.expectedRev);
     await failOnConfig(tx, viewer, a!, draft.flow as AutomationFlow);
     await ownerChecks(tx, viewer, a!, draft.flow as AutomationFlow);
+    const mailboxAccountId = await mailboxForPublish(tx, viewer, a!, draft.flow as AutomationFlow, opts.mailboxAccountId);
     await tx.update(automationVersions).set({ publishedAt: sql`now()`, publishedBy: viewer.id }).where(eq(automationVersions.id, draft.id));
     await tx
       .update(automations)
-      .set({ ownerId: viewer.id, ...(a!.status === "draft" ? { status: "active" as const, activeSince: sql`now()` } : {}) })
+      .set({ ownerId: viewer.id, mailboxAccountId, ...(a!.status === "draft" ? { status: "active" as const, activeSince: sql`now()` } : {}) })
       .where(eq(automations.id, a!.id));
   });
   const [after] = await db.select().from(automations).where(eq(automations.id, a0.id));
@@ -197,7 +232,7 @@ export async function publishAutomation(db: Db, viewer: Viewer, code: string, op
 }
 
 /** «Accendi»: una bozza mai accesa si pubblica; una in pausa torna attiva e le sospese riprendono. */
-export async function activateAutomation(db: Db, viewer: Viewer, code: string, opts: { expectedRev?: number | null }): Promise<Automation> {
+export async function activateAutomation(db: Db, viewer: Viewer, code: string, opts: { expectedRev?: number | null; mailboxAccountId?: string }): Promise<Automation> {
   const a = await managedAutomation(db, viewer, code);
   if (a.status === "active") return shapeOf(db, viewer, a);
   if (a.status === "draft") return publishAutomation(db, viewer, code, opts);
@@ -205,10 +240,11 @@ export async function activateAutomation(db: Db, viewer: Viewer, code: string, o
   if (!live) throw invalid("config", "Nothing is published", { issues: [] });
   await failOnConfig(db, viewer, a, live.flow as AutomationFlow);
   await ownerChecks(db, viewer, a, live.flow as AutomationFlow);
+  const mailboxAccountId = await mailboxForPublish(db, viewer, a, live.flow as AutomationFlow, opts.mailboxAccountId);
   await db.transaction(async (tx) => {
     await tx
       .update(automations)
-      .set({ ownerId: viewer.id, status: "active", pausedBy: null, pausedAt: null, pausedReason: null, activeSince: sql`now()` })
+      .set({ ownerId: viewer.id, mailboxAccountId, status: "active", pausedBy: null, pausedAt: null, pausedReason: null, activeSince: sql`now()` })
       .where(eq(automations.id, a.id));
     const suspended = await tx.select({ id: automationRuns.id }).from(automationRuns).where(and(eq(automationRuns.automationId, a.id), eq(automationRuns.status, "suspended")));
     if (suspended.length > 0) await tx.insert(automationRunInputs).values(suspended.map((r) => ({ runId: r.id, input: { control: "resume", byId: viewer.id }, byId: viewer.id })));

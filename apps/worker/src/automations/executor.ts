@@ -5,6 +5,8 @@ import {
   automationRuns,
   automations,
   automationVersions,
+  googleAccounts,
+  mailOutgoing,
   type Db,
 } from "@stubwise/db";
 import { approversFor as resolveApprovers, publishNotification } from "@stubwise/notifications";
@@ -28,7 +30,8 @@ import {
   type RunStatus,
 } from "@stubwise/shared";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { executeEffect } from "./effects.js";
+import { executeEffect, releaseFailedEmail, type EffectEnv } from "./effects.js";
+import { waitingTargets } from "./waits.js";
 
 /**
  * L'ESECUTORE delle esecuzioni (area 7, fetta 1; la specifica è
@@ -81,7 +84,19 @@ interface SavedCursor {
   projects?: Record<string, string>;
   waitingUntil?: string | null;
   suspendedFrom?: RunStatus | null;
+  /**
+   * Un'email in volo (area 7, F2, S3): il passo ha scritto l'invio e aspetta
+   * il mittente. Finché c'è, il giro non riesegue il passo (che chiederebbe di
+   * nuovo un'approvazione già data): legge l'esito e lo rimette nel motore.
+   */
+  inFlight?: { path: string; preview: Record<string, unknown> } | null;
 }
+
+/** Ogni quanto si ripassa su un'email in volo (il mittente gira ogni 2 s). */
+export const EMAIL_POLL_MS = 5_000;
+
+/** I fallimenti della casella (area 7, F2-4 = a): il passo fallisce e l'automazione va in pausa. */
+const MAILBOX_LOST: ReadonlySet<string> = new Set(["mailbox_missing", "mailbox_expired", "mailbox_scope"]);
 
 export interface ExecutorDeps {
   db: Db;
@@ -142,8 +157,12 @@ async function claimRuns(deps: ExecutorDeps, now: Date, token: string): Promise<
       .where(
         sql`(${automationRuns.claimedAt} is null or ${automationRuns.claimedAt} < ${leaseStart}::timestamptz)
           and (
-            (${automationRuns.status} = 'running' and ${automationRuns.dueAt} <= ${now.toISOString()}::timestamptz)
-            or exists (select 1 from ${automationRunInputs} i where i.run_id = ${automationRuns.id} and i.consumed_at is null)
+            (${automationRuns.status} in ('running', 'waiting_event') and ${automationRuns.dueAt} <= ${now.toISOString()}::timestamptz)
+            or exists (
+              select 1 from ${automationRunInputs} i where i.run_id = ${automationRuns.id} and i.consumed_at is null
+                -- Una sospesa si muove solo per un controllo (riprendi, annulla): gli altri input aspettano la ripresa.
+                and (${automationRuns.status} <> 'suspended' or i.input ? 'control')
+            )
           )`,
       )
       .orderBy(asc(automationRuns.dueAt))
@@ -195,10 +214,19 @@ async function processRun(deps: ExecutorDeps, runId: string, token: string): Pro
   const queue: { input: EngineInput | ControlInput; rowId: string | null }[] = [];
   if (turn.log.length === 0 && run.status === "running") queue.push({ input: { kind: "start", event: (run.event ?? {}) as Record<string, unknown> }, rowId: null });
   for (const row of inputs) queue.push({ input: row.input as EngineInput | ControlInput, rowId: row.id });
-  if (queue.length === 0 && run.status === "running") queue.push({ input: { kind: "time", now: turn.now }, rowId: null });
+  const inFlight = cursorOf(run).inFlight;
+  if (queue.length === 0 && run.status === "running" && inFlight) {
+    await settleInFlight(turn, inFlight);
+    return;
+  }
+  // Un'esecuzione in corsa, o un'attesa giunta alla scadenza (S5): il tempo la muove.
+  if (queue.length === 0 && (run.status === "running" || run.status === "waiting_event")) queue.push({ input: { kind: "time", now: turn.now }, rowId: null });
 
   for (const item of queue) {
     await renewClaim(db, run.id, token);
+    // Un input del motore (una risposta, una task chiusa, una decisione) arrivato
+    // mentre l'esecuzione è sospesa RESTA in coda: vale alla ripresa (F2-6 = a).
+    if (turn.run.status === "suspended" && !("control" in item.input)) continue;
     try {
       if (!acceptableEdit(turn, item.input)) deps.log?.(`[automations] esecuzione ${run.id}: correzioni non ammesse (edited) scartate`);
       else if ("control" in item.input) await control(turn, item.input);
@@ -292,13 +320,17 @@ async function control(turn: Turn, input: ControlInput): Promise<void> {
     case "cancel": {
       if (TERMINAL.has(status)) return;
       await note(turn, { outcome: "cancelled", byId: input.byId, reason: "Esecuzione annullata.", why: { code: "cancelledBy" } });
-      await setRun(turn, { status: "cancelled", error: "cancelled", pending: null, endedAt: new Date() });
+      await setRun(turn, { status: "cancelled", error: "cancelled", pending: null, endedAt: new Date(), cursor: { ...cursorOf(turn.run), inFlight: null } });
+      // Un'email ancora in coda non parte più (una già in invio non si ferma: è nelle mani di Gmail).
+      await turn.deps.db.update(mailOutgoing).set({ state: "cancelled" }).where(and(eq(mailOutgoing.automationRunId, turn.run.id), eq(mailOutgoing.state, "queued")));
       return;
     }
     case "retry":
     case "skip": {
       if (status !== "failed" || cursorOf(turn.run).path === null) return;
       const skip = input.control === "skip";
+      // Riprova un'email fallita: il gesto toglie la chiave dell'invio fallito, così ne parte uno nuovo.
+      if (!skip) await releaseFailedEmail(turn.deps.db, turn.run.id, cursorOf(turn.run).path!);
       await note(turn, { outcome: skip ? "skipped" : "retried", byId: input.byId, reason: skip ? "Passo saltato." : "Riprova chiesta." });
       await setRun(turn, { status: "running", error: null, endedAt: null });
       await drive(turn, { kind: "time", now: turn.now }, skip ? skipTop : undefined);
@@ -322,6 +354,40 @@ async function control(turn: Turn, input: ControlInput): Promise<void> {
 }
 
 /** «Salta»: il passo al cursore è saltato, si riparte da quello dopo. */
+/** L'ambiente di un effetto: l'esecuzione, l'automazione e la casella scelta all'accensione. */
+async function effectEnv(turn: Turn): Promise<EffectEnv> {
+  const accountId = turn.automation.mailboxAccountId;
+  const [box] = accountId ? await turn.deps.db.select({ email: googleAccounts.email }).from(googleAccounts).where(eq(googleAccounts.id, accountId)) : [];
+  return {
+    db: turn.deps.db,
+    runId: turn.run.id,
+    runNumber: turn.run.n,
+    automation: { id: turn.automation.id, code: turn.automation.code, name: turn.automation.name, projectId: turn.automation.projectId, ownerId: turn.automation.ownerId },
+    now: turn.now,
+    mailbox: { accountId, address: box?.email ?? null },
+  };
+}
+
+/**
+ * Un'email in volo: l'esito del mittente, se c'è, rientra nel motore sul passo
+ * che lo aspettava (senza rieseguirlo: `skipTop` e `awaiting` rimessi come
+ * quando l'effetto era partito); altrimenti si ripassa più tardi.
+ */
+async function settleInFlight(turn: Turn, inFlight: NonNullable<SavedCursor["inFlight"]>): Promise<void> {
+  const out = await executeEffect({ kind: "sendEmail", stepId: "", path: inFlight.path, args: {} }, await effectEnv(turn));
+  if ("pending" in out) {
+    await setRun(turn, { dueAt: new Date(Date.parse(turn.now) + EMAIL_POLL_MS) });
+    return;
+  }
+  await drive(turn, out.input, (st) => {
+    skipTop(st);
+    st.status = "running";
+    st.awaiting = { kind: "effect", path: inFlight.path, preview: structuredClone(inFlight.preview) };
+    // Il motore l'aveva contata partendo; il registro la conta solo da `ok`.
+    st.emailsSent += 1;
+  });
+}
+
 function skipTop(st: EngineState): void {
   const top = st.stack.at(-1);
   if (top?.t === "list") top.i += 1;
@@ -340,13 +406,13 @@ async function drive(turn: Turn, input: EngineInput, prepare?: (st: EngineState)
     const finishing = decided !== null && eff.path === decided;
     const [fresh] = await turn.deps.db.select({ status: automations.status }).from(automations).where(eq(automations.id, turn.automation.id));
     if (fresh?.status !== "active" && !finishing) return suspend(turn);
-    const out = await executeEffect(eff, {
-      db: turn.deps.db,
-      runId: turn.run.id,
-      runNumber: turn.run.n,
-      automation: { id: turn.automation.id, code: turn.automation.code, name: turn.automation.name, projectId: turn.automation.projectId, ownerId: turn.automation.ownerId },
-      now: turn.now,
-    });
+    const out = await executeEffect(eff, await effectEnv(turn));
+    if ("pending" in out) {
+      // L'email è scritta e aspetta il mittente: il passo resta in volo, si ripassa fra poco.
+      const preview = r.state.awaiting?.kind === "effect" ? r.state.awaiting.preview : {};
+      await setRun(turn, { cursor: { ...cursorOf(turn.run), inFlight: { path: eff.path, preview: structuredClone(preview) } }, dueAt: new Date(Date.parse(turn.now) + EMAIL_POLL_MS) });
+      return;
+    }
     if (out.projectId && !turn.run.projectIds.includes(out.projectId)) turn.run.projectIds = [...turn.run.projectIds, out.projectId];
     r = advance(r.state, out.input);
     await commit(turn, r);
@@ -391,11 +457,18 @@ async function commitIn(turn: Turn, r: EngineStep): Promise<void> {
   const terminal = TERMINAL.has(st.status);
   const projectIds = [...new Set([...turn.run.projectIds, ...Object.values(st.projects)])];
   const cursor: SavedCursor = { path: st.cursor, loops: st.loops, projects: st.projects, waitingUntil: st.waitingUntil };
+  // S5: un `wait` scade a `due_at` e dice cosa aspetta (C-F2-4); fuori da un'attesa le colonne si svuotano.
+  const aw = st.awaiting;
+  const waitStep = st.status === "waiting_event" && aw?.kind === "wait" ? stepAt(turn.flow.steps, aw.path) : null;
+  const waiting =
+    waitStep?.kind === "wait" && aw?.kind === "wait"
+      ? { ...(await waitingTargets(db, turn.run.id, waitStep)), dueAt: new Date(aw.until) }
+      : { waitingThread: null, waitingTicketId: null };
   const [updated] = await db
     .update(automationRuns)
     .set({
-      // `waiting_event` nasce con le attese della F2: nella fetta 1 nessun passo lo produce.
       status: st.status as RunRow["status"],
+      ...waiting,
       cursor,
       vars: st.vars,
       error: st.error,
@@ -416,13 +489,15 @@ async function commitIn(turn: Turn, r: EngineStep): Promise<void> {
     // D5: il proprietario non può più farlo → l'automazione va in pausa da
     // sola, e lui lo sa. Le altre esecuzioni si sospendono al loro confine.
     if (st.error === "permission_lost") await pauseForLostPermission(turn);
+    // F2-4 = a: la casella del proprietario non è più utilizzabile → in pausa, come D5.
+    if (st.error && MAILBOX_LOST.has(st.error)) await pauseForLostPermission(turn, "mailbox_lost");
   }
 }
 
-async function pauseForLostPermission(turn: Turn): Promise<void> {
+async function pauseForLostPermission(turn: Turn, reason: "owner_lost_permission" | "mailbox_lost" = "owner_lost_permission"): Promise<void> {
   const paused = await turn.deps.db
     .update(automations)
-    .set({ status: "paused", pausedReason: "owner_lost_permission", pausedBy: null, pausedAt: sql`now()`, activeSince: null })
+    .set({ status: "paused", pausedReason: reason, pausedBy: null, pausedAt: sql`now()`, activeSince: null })
     .where(and(eq(automations.id, turn.automation.id), eq(automations.status, "active")))
     .returning({ id: automations.id });
   if (paused.length > 0) await notifyOwner(turn, "automation.paused");

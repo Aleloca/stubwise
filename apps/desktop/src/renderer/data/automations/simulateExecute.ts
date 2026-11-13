@@ -4,7 +4,7 @@ import {
   type Sim,
   type SimWorld,
 } from "../../domain/automations/simCore";
-import { lower } from "../mail/compose";
+import { sameConversation } from "@stubwise/shared";
 import { now, state, visibleProjectIds } from "../store";
 import type { Automation } from "../types";
 import { fakeClaude } from "./claudeFake";
@@ -50,7 +50,7 @@ function previewEmail(
   if (p.plan.bounced) return { ok: false, outcome: bouncedFailure(p.plan.to) };
   // Come `threadFor` dell'esecutore vero: le email allo stesso indirizzo
   // stanno in UNA conversazione, quella aperta dalla prima.
-  const first = sim.preview.emails.find((e) => lower(e.to) === lower(p.plan.to));
+  const first = sameConversation(sim.preview.emails, p.plan.to);
   return {
     ok: true,
     preview: {

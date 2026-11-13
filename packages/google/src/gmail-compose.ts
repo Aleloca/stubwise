@@ -243,6 +243,24 @@ export async function sendDraft(
   return { messageId: raw.id, threadId: raw.threadId };
 }
 
+/**
+ * Manda un messaggio SENZA bozza (`users.messages.send`, area 7, F2, C-F2-1):
+ * l'email di un passo di un'automazione, che nessuno scrive né corregge in
+ * Gmail. Basta `gmail.modify`. `threadId`: la conversazione in cui rispondere.
+ */
+export async function sendMessage(
+  input: { accessToken: string; raw: string; threadId?: string | null },
+  options: GoogleClientOptions = {},
+): Promise<{ messageId: string; threadId: string }> {
+  const api = "gmail.messages.send";
+  const payload = await requestGoogle(
+    { api, url: `${GMAIL_API_BASE}/messages/send`, method: "POST", accessToken: input.accessToken, json: { raw: input.raw, ...(input.threadId ? { threadId: input.threadId } : {}) } },
+    options,
+  );
+  const raw = parseGoogleJson(api, sentSchema, payload);
+  return { messageId: raw.id, threadId: raw.threadId };
+}
+
 const sendAsSchema = z.object({ sendAsEmail: z.string().optional(), signature: z.string().optional().nullable() });
 
 /**

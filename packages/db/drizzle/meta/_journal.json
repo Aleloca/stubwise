@@ -1184,6 +1184,13 @@
       "when": 1799020800000,
       "tag": "0169_automations",
       "breakpoints": true
+    },
+    {
+      "idx": 170,
+      "version": "7",
+      "when": 1799107200000,
+      "tag": "0170_automations_email_waits",
+      "breakpoints": true
     }
   ]
 }

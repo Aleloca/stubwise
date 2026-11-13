@@ -1,5 +1,6 @@
 import type { Db } from "@stubwise/db";
 import { consumeAutomationEvents } from "./consumer.js";
+import { fireSchedules } from "./schedules.js";
 
 /**
  * Il poller delle AUTOMATIONS (area 7, fetta 1): a ogni giro il consumatore
@@ -28,6 +29,12 @@ export async function pollAutomationsOnce(deps: Omit<AutomationsPollerDeps, "int
     }
   } catch (err) {
     log(`[automations] consumo degli eventi non riuscito: ${String(err)}`);
+  }
+  try {
+    // Gli inizi a orario (F2, S7): una volta per automazione e giorno, per vincolo.
+    await fireSchedules(deps.db, new Date(), log);
+  } catch (err) {
+    log(`[automations] inizi a orario non riusciti: ${String(err)}`);
   }
   if (!deps.execute) return;
   try {

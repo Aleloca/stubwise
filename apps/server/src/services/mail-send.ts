@@ -26,6 +26,8 @@ export const MAIL_UNDO_SECONDS = 10;
 
 export type SendError =
   | { error: "not_found" }
+  /** Area 7, F2 (C-F2-1): un'email d'automazione la riprova solo il passo, mai la Posta. */
+  | { error: "automation_email" }
   | { error: "too_late" }
   | { error: "not_failed" }
   // Gmail l'ha mandata ma la riga non è stata registrata (review F3, punto 2):
@@ -182,6 +184,10 @@ export async function undoSend(db: Db, userId: string, id: string): Promise<Rest
   const out = await db.transaction(async (tx): Promise<SendError | { draftId: string | null; unsaved?: { draft: MailDraft; attachmentNames: string[] } }> => {
     const [row] = await tx.select().from(mailOutgoing).where(and(eq(mailOutgoing.id, id), eq(mailOutgoing.userId, userId))).for("update");
     if (!row) return { error: "not_found" as const };
+    // Area 7, F2 (C-F2-1): un'email di un'automazione non ha una bozza da
+    // rimettere né un «Annulla» della persona: la riprova solo il passo, o due
+    // strade potrebbero rimandarla.
+    if (row.automationRunId) return { error: "automation_email" as const };
     // Sotto il lock basta lo STATO: il worker reclama solo righe `queued`
     // (review F3, punto 4 — l'orologio del server non decide, uno sfasato
     // darebbe `too_late` dentro la finestra mostrata).
@@ -207,6 +213,10 @@ export async function retrySend(db: Db, userId: string, id: string): Promise<Mai
   return db.transaction(async (tx) => {
     const [row] = await tx.select().from(mailOutgoing).where(and(eq(mailOutgoing.id, id), eq(mailOutgoing.userId, userId))).for("update");
     if (!row) return { error: "not_found" as const };
+    // Area 7, F2 (C-F2-1): un'email di un'automazione non ha una bozza da
+    // rimettere né un «Annulla» della persona: la riprova solo il passo, o due
+    // strade potrebbero rimandarla.
+    if (row.automationRunId) return { error: "automation_email" as const };
     if (row.state !== "failed") return { error: "not_failed" as const };
     if (row.error === "sent_unrecorded") return { error: "sent_unrecorded" as const };
     // I controlli di Invia, di nuovo: nel frattempo un file del Drive può non
@@ -231,6 +241,10 @@ export async function discardFailedSend(db: Db, userId: string, id: string): Pro
   const out = await db.transaction(async (tx): Promise<SendError | { draftId: string | null; unsaved?: { draft: MailDraft; attachmentNames: string[] } }> => {
     const [row] = await tx.select().from(mailOutgoing).where(and(eq(mailOutgoing.id, id), eq(mailOutgoing.userId, userId))).for("update");
     if (!row) return { error: "not_found" as const };
+    // Area 7, F2 (C-F2-1): un'email di un'automazione non ha una bozza da
+    // rimettere né un «Annulla» della persona: la riprova solo il passo, o due
+    // strade potrebbero rimandarla.
+    if (row.automationRunId) return { error: "automation_email" as const };
     if (row.state !== "failed") return { error: "not_failed" as const };
     if (row.error === "sent_unrecorded") return { error: "sent_unrecorded" as const };
     await tx.update(mailOutgoing).set({ state: "cancelled" }).where(eq(mailOutgoing.id, id));

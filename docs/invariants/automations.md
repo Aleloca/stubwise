@@ -171,3 +171,59 @@ motore condiviso (`packages/shared/src/automations/`).
 - Le righe create da un'esecuzione portano `automation_run_id` (task,
   traguardi, voci di backlog; `ON DELETE SET NULL`): l'origine si DERIVA a
   lettura da lì, mai un nome di automazione scritto nella riga.
+
+## L'inizio «email in arrivo» (F2, decisioni del maintainer del 13 nov 2026)
+
+- **Tutte le email ricevute** dalla casella scelta all'accensione fanno
+  partire l'inizio, anche quelle che il cancello dell'ammissione rifiuta;
+  non quelle MANDATE dalla casella. Si pubblica dal poller Google, prima
+  dell'ammissione (un trigger su `email_messages` perderebbe i rifiutati),
+  e solo se la casella ha un'automazione accesa con quell'inizio.
+- **Mai il botta e risposta**: un messaggio ricevuto in una conversazione
+  in cui l'automazione stessa ha mandato un'email (una riga `mail_outgoing`
+  con un suo `automation_run_id`, stessa casella, stesso `gmail_thread_id`)
+  NON fa partire quell'automazione: sveglia solo le sue attese su quella
+  conversazione. Senza questa regola un risponditore automatico o un
+  rimbalzo la farebbero ripartire all'infinito, perché un evento della
+  posta non ha origine e la catena non lo vede. Piano della F2, C-F2-5.
+
+## L'email di un passo (F2)
+
+- **L'eccezione dichiarata al mittente della Posta.** Fino all'area 7 il
+  worker mandava un'email SOLO perché una persona aveva premuto Invia. Dalla
+  F2 (Q4 = b) un'automazione accesa da una persona manda email da sola: il
+  consenso è l'accensione (la casella scelta lì, `mailbox_account_id`) più
+  l'approvazione del passo, se c'è. **Una riga di `mail_outgoing` nasce
+  dall'Invia di una persona (con la sua bozza) O da un passo di
+  un'automazione accesa da lei, dalla sua casella (senza bozza, con
+  `automation_run_id`); nessun altro percorso automatico ne scrive.** Lo
+  verifica l'elenco chiuso di `packages/db/src/mail-outgoing-writers.test.ts`
+  (chi inserisce, chi cambia lo stato): un file nuovo lì è un modo nuovo di
+  mandare posta, e va deciso.
+- **La chiave è nella transazione del cursore.** L'esecutore scrive la riga
+  (`queued`, `send_at` adesso: nessun «Annulla» dei 10 secondi, F2-2) e
+  l'effetto `email` con la chiave `<run>:<path>:0` insieme. Il mittente la
+  manda senza bozza (`users.messages.send`); il passo aspetta l'esito
+  (`inFlight` nel cursore). `sent` → ok col messaggio nel registro;
+  `failed` (anche `interrupted`) → il passo fallisce, e NESSUNO la rimanda
+  da solo: solo «Riprova» del passo, che toglie la chiave dell'invio fallito.
+  La Posta non annulla, riprova né elimina una riga d'automazione (409
+  `automation_email`).
+- **Sempre e solo dalla casella del proprietario** (`automationMailboxOf`,
+  la stessa regola per l'accensione, la prova e l'esecutore): una casella
+  non più sua, disabilitata o senza `gmail.modify` fa fallire il passo
+  (`mailbox_*`) e mette l'automazione in pausa (`mailbox_lost`, F2-4 = a).
+- **Il tetto**: 20 email per esecuzione, contate sulla CATENA intera; la
+  stessa conversazione per le email allo stesso indirizzo nella stessa
+  esecuzione.
+- **Le attese** (`waiting_event`): la scadenza è `due_at`; la risposta la
+  sveglia SOLO un messaggio ricevuto nella stessa conversazione e nella
+  stessa casella (`waiting_thread`), la task chiusa SOLO quella creata dal
+  passo nella stessa esecuzione (`waiting_ticket_id`). Un input arrivato in
+  pausa resta in coda e vale alla ripresa (F2-6 = a). Il testo della
+  risposta lo vede solo il proprietario (`hideReplies`, R-J16); di
+  un'esecuzione partita da un'email, mittente, oggetto e testo pure (R-J13).
+- **Gli inizi a orario** scattano una volta per automazione e giorno locale
+  (Europe/Rome) per il vincolo di `automation_schedule_fires`, e non
+  recuperano i giorni persi.
+

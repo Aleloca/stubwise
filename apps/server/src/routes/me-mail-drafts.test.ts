@@ -334,6 +334,24 @@ describe("Invia, Annulla, Riprova, Elimina (D6: il server trattiene 10 s)", () =
     expect(await db.select().from(mailDrafts).where(eq(mailDrafts.id, draftId))).toEqual([]);
   });
 
+  it("area 7, F2 (C-F2-1): un'email d'automazione non si annulla, riprova né elimina dalla Posta (409 automation_email): la riprova solo il passo", async () => {
+    const s = await scenario();
+    const { automationRuns, automations, mailOutgoing } = await import("@stubwise/db");
+    const { eq } = await import("drizzle-orm");
+    const [project] = await db.insert(projects).values({ name: "P", slug: `p-${randomUUID()}`, ingestionKey: randomUUID() }).returning();
+    const [a] = await db.insert(automations).values({ code: `Q${randomUUID().slice(0, 5)}-A1`, seq: 1, name: "A", projectId: project!.id }).returning();
+    const [run] = await db.insert(automationRuns).values({ automationId: a!.id, n: 1, version: 1, title: "R", origin: "manual" }).returning();
+    const [row] = await db.insert(mailOutgoing).values({ userId: s.me.id, accountId: s.box.id, automationRunId: run!.id, sendAt: new Date(Date.now() + 60_000), subject: "x", body: "y" }).returning();
+    expect((await post(s.me.headers, `/api/me/mail/outgoing/${row!.id}/undo`)).json()).toMatchObject({ code: "automation_email" });
+    await db.update(mailOutgoing).set({ state: "failed", error: "quota" }).where(eq(mailOutgoing.id, row!.id));
+    for (const op of ["retry", "discard"]) {
+      const res = await post(s.me.headers, `/api/me/mail/outgoing/${row!.id}/${op}`);
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toMatchObject({ code: "automation_email" });
+    }
+    expect((await db.select().from(mailOutgoing).where(eq(mailOutgoing.id, row!.id)))[0]).toMatchObject({ state: "failed", error: "quota" });
+  });
+
   it("Riprova ed Elimina valgono SOLO su un invio fallito; Elimina riporta la bozza", async () => {
     const { me, draftId } = await savedDraft();
     const sent = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string };
