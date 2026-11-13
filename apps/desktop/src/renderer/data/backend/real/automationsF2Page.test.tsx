@@ -201,3 +201,83 @@ describe("accendere e pubblicare con la casella (F2, R3)", () => {
     expect(await screen.findByText(/can't send email/)).toBeInTheDocument();
   });
 });
+
+describe("le esecuzioni con email (F2, R4)", () => {
+  it("approvare un'email con «Edit»: il server riceve solo i campi cambiati in `edited`", async () => {
+    const RUN_ID = "77777777-7777-4777-8777-777777777775";
+    install({
+      "GET /api/me/google/accounts": { body: [account()] },
+      "GET /api/automations/AUD-A1/runs/5": {
+        body: {
+          id: RUN_ID,
+          automationId: A_ID,
+          n: 5,
+          version: 2,
+          title: "Benvenuto",
+          status: "waiting_approval",
+          event: {},
+          vars: {},
+          cursor: "0",
+          round: 0,
+          waitingUntil: null,
+          pending: {
+            approverIds: [ME_ID],
+            preview: { to: "cliente@example.com", subject: "Benvenuto", body: "Ciao" },
+          },
+          // Il registro dice il passo in attesa (come lo scrive l'esecutore).
+          log: [
+            {
+              at: "2026-11-13T09:00:00.000Z",
+              stepId: "e1",
+              path: "0",
+              kind: "sendEmail",
+              outcome: "waiting",
+              input: { to: "cliente@example.com", subject: "Benvenuto", body: "Ciao" },
+              output: {},
+              reason: null,
+              byId: null,
+              effects: [],
+            },
+          ],
+          startedAt: "2026-11-13T09:00:00.000Z",
+          endedAt: null,
+          error: null,
+          projectIds: [PROJECT_ID],
+          code: "AUD-A1 #5",
+          automationCode: "AUD-A1",
+          automationName: "Avvio progetto",
+          automationProjectId: PROJECT_ID,
+          flow: {
+            ...FLOW,
+            steps: [{ ...FLOW.steps[0], approval: { mode: "ask", who: { personId: ME_ID } } }],
+          },
+          deciders: [ME_ID],
+          ownerId: ME_ID,
+          permissions: { manage: true, approve: true, chooseProject: false },
+          parent: null,
+          children: [],
+          pendingEffect: null,
+        },
+      },
+      "POST /api/automations/AUD-A1/runs/5/approve": { status: 204 },
+    });
+    renderRoute("/automations/AUD-A1/runs/5");
+    await userEvent.click(await screen.findByRole("button", { name: "Edit" }, { timeout: 3000 }));
+    const subject = await screen.findByRole("textbox", { name: "Subject" });
+    await userEvent.clear(subject);
+    await userEvent.type(subject, "Benvenuto in Audin");
+    await userEvent.click(screen.getByRole("button", { name: "Approve with changes" }));
+    // Parte allo scadere dell'«Undo» (5 s).
+    await waitFor(
+      () =>
+        expect(seen.find((r) => r.path === "/api/automations/AUD-A1/runs/5/approve")?.body).toEqual(
+          {
+            expectedPath: "0",
+            expectedRound: 0,
+            edited: { subject: "Benvenuto in Audin" },
+          },
+        ),
+      { timeout: 9000 },
+    );
+  }, 15_000);
+});
