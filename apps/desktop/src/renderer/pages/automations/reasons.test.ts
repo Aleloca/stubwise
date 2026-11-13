@@ -11,20 +11,29 @@ import { reasonWords } from "./format";
 
 const ROOT = join(__dirname, "../..");
 const SOURCES = ["data/automations", "domain/automations", "data/seed/automations"];
+/** I piani e le regole delle esecuzioni, spostati in shared perché li usi anche il worker. */
+const SHARED_FILES = ["plans.ts", "runRules.ts"].map((f) =>
+  join(ROOT, "../../../../packages/shared/src/automations", f),
+);
 
 /** I codici delle motivazioni scritti dal livello dati e dal motore. */
 function emittedCodes(): Set<string> {
   const codes = new Set<string>();
-  for (const dir of SOURCES) {
-    for (const f of readdirSync(join(ROOT, dir))) {
-      if (!f.endsWith(".ts") || f.endsWith(".test.ts")) continue;
-      const src = readFileSync(join(ROOT, dir, f), "utf8");
-      // `{ code: "…" }` e `code: x ? "…" : "…"`; `limit` è un codice dei problemi del flusso.
-      for (const m of src.matchAll(
-        /code: (?:[\w.]+ \? )?"([a-z][a-zA-Z]+)"(?: : "([a-z][a-zA-Z]+)")?/g,
-      )) {
-        for (const c of [m[1], m[2]]) if (c && c !== "limit") codes.add(c);
-      }
+  const files = [
+    ...SOURCES.flatMap((dir) =>
+      readdirSync(join(ROOT, dir))
+        .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+        .map((f) => join(ROOT, dir, f)),
+    ),
+    ...SHARED_FILES,
+  ];
+  for (const file of files) {
+    const src = readFileSync(file, "utf8");
+    // `{ code: "…" }` e `code: x ? "…" : "…"`; `limit` è un codice dei problemi del flusso.
+    for (const m of src.matchAll(
+      /code: (?:[\w.]+ \? )?"([a-z][a-zA-Z]+)"(?: : "([a-z][a-zA-Z]+)")?/g,
+    )) {
+      for (const c of [m[1], m[2]]) if (c && c !== "limit") codes.add(c);
     }
   }
   return codes;
