@@ -141,6 +141,12 @@ function Row({
                 words={{ names: ctx.names, labels: ctx.labels, numberOf: () => undefined }}
                 outcomes={step?.kind === "claude" ? step.outcomes : []}
               />
+              {/* F3: la motivazione cita un'email che chi guarda non vede (il server la toglie). */}
+              {entry.reasonHidden && (
+                <p data-reason-hidden className="pt-1 text-xs text-ink-muted">
+                  {t("automations.log.reasonHidden")}
+                </p>
+              )}
             </div>
           )}
           {entry.kind === "claude" && entry.outcome === "failed" && entry.why && (

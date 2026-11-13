@@ -12,18 +12,22 @@ export function CostConfirm({
   busy,
   onConfirm,
 }: {
-  cost: { claudeSteps: number; estimateUsd: number; model: string };
+  /** `estimateUsd: null`: un modello senza tariffa nota, il costo non si stima. */
+  cost: { claudeSteps: number; estimateUsd: number | null; model: string };
   busy: boolean;
   onConfirm: () => void;
 }) {
   const { t, i18n } = useTranslation();
   const titleId = useId();
-  const usd = new Intl.NumberFormat(i18n.language, {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: cost.estimateUsd < 0.01 ? 4 : 2,
-  }).format(cost.estimateUsd);
+  const usd =
+    cost.estimateUsd === null
+      ? null
+      : new Intl.NumberFormat(i18n.language, {
+          style: "currency",
+          currency: "USD",
+          minimumFractionDigits: 2,
+          maximumFractionDigits: cost.estimateUsd < 0.01 ? 4 : 2,
+        }).format(cost.estimateUsd);
   return (
     <section
       aria-labelledby={titleId}
@@ -34,7 +38,9 @@ export function CostConfirm({
         {t("automations.test.cost.title")}
       </h2>
       <p className="text-sm text-ink-muted">
-        {t("automations.test.cost.body", { count: cost.claudeSteps, usd })}
+        {usd === null
+          ? t("automations.test.cost.bodyUnknown", { count: cost.claudeSteps })
+          : t("automations.test.cost.body", { count: cost.claudeSteps, usd })}
       </p>
       <button
         type="button"

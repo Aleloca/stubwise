@@ -7523,6 +7523,7 @@
       "replyFrom": "Reply from {{sender}} received on {{date}}",
       "replyReceivedOn": "Reply received on {{date}}",
       "replyInMailbox": "The reply is in {{owner}}'s mailbox",
+      "reasonHidden": "Claude's reasoning quotes an email you can't see: it stays with the mailbox owner.",
       "hiddenRun": "Started an automation you can't see"
     },
     "notVisible": {
@@ -8177,6 +8178,8 @@
         "title": "Claude in this test",
         "body_one": "This test asks Claude once: about {{usd}} from the instance's monthly AI budget.",
         "body_other": "This test asks Claude {{count}} times: about {{usd}} from the instance's monthly AI budget.",
+        "bodyUnknown_one": "This test asks Claude once, from the instance's monthly AI budget: the cost can't be estimated for this model.",
+        "bodyUnknown_other": "This test asks Claude {{count}} times, from the instance's monthly AI budget: the cost can't be estimated for this model.",
         "confirm": "Test with Claude"
       },
       "title": "Test: {{name}}",
@@ -8418,6 +8421,11 @@
         "pickProjectNone": "Choose a project",
         "useProject": "Use this project in the test",
         "error": "The test couldn't go on. Try again.",
+        "errors": {
+          "budget": "The monthly AI budget is used up: Claude can't answer in this test until it's raised or the month ends.",
+          "claude_invalid": "Claude's answer couldn't be read: try the test again.",
+          "not_available": "Claude steps aren't available on this server yet."
+        },
         "noProjects": "You can't see any project the owner could choose, so the test can't go on from here. A real run would wait for the owner to choose one.",
         "connectMailbox": "Connect a mailbox before you turn it on",
         "seeWhereItStops": "See where it stops"

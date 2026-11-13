@@ -382,8 +382,10 @@ function Test({ detail, adoptSimId }: { detail: AutomationDetail; adoptSimId: st
                 <CostConfirm
                   cost={costToConfirm}
                   busy={confirmCost.isPending || busy}
+                  // Confermato, la prova va avanti fino alla prossima fermata, coi passi
+                  // di Claude chiesti al server (la vista di prima è ancora ferma).
                   onConfirm={() =>
-                    confirmCost.mutate(sim!.id, { onSuccess: () => void runToStop() })
+                    confirmCost.mutate(sim!.id, { onSuccess: () => void send({ kind: "run" }) })
                   }
                 />
               )}

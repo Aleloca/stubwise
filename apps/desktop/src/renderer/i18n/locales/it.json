@@ -7523,6 +7523,7 @@
       "replyFrom": "Risposta da {{sender}} ricevuta il {{date}}",
       "replyReceivedOn": "Risposta ricevuta il {{date}}",
       "replyInMailbox": "La risposta è nella casella di {{owner}}",
+      "reasonHidden": "La motivazione di Claude cita un'email che non vedi: resta al proprietario della casella.",
       "hiddenRun": "Ha avviato un'automazione che non vedi"
     },
     "notVisible": {
@@ -8177,6 +8178,8 @@
         "title": "Claude in questa prova",
         "body_one": "Questa prova chiede a Claude una volta: circa {{usd}} dal budget AI mensile dell'istanza.",
         "body_other": "Questa prova chiede a Claude {{count}} volte: circa {{usd}} dal budget AI mensile dell'istanza.",
+        "bodyUnknown_one": "Questa prova chiede a Claude una volta, dal budget AI mensile dell'istanza: per questo modello il costo non si può stimare.",
+        "bodyUnknown_other": "Questa prova chiede a Claude {{count}} volte, dal budget AI mensile dell'istanza: per questo modello il costo non si può stimare.",
         "confirm": "Prova con Claude"
       },
       "title": "Prova: {{name}}",
@@ -8418,6 +8421,11 @@
         "pickProjectNone": "Scegli un progetto",
         "useProject": "Usa questo progetto nella prova",
         "error": "La prova non è potuta andare avanti. Riprova.",
+        "errors": {
+          "budget": "Il budget AI mensile è finito: Claude non può rispondere in questa prova finché non viene alzato o finisce il mese.",
+          "claude_invalid": "La risposta di Claude non si è potuta leggere: riprova la prova.",
+          "not_available": "I passi di Claude non sono ancora disponibili su questo server."
+        },
         "noProjects": "Non vedi nessun progetto che il proprietario potrebbe scegliere, quindi la prova non può andare avanti da qui. Un'esecuzione vera aspetterebbe che il proprietario ne scelga uno.",
         "connectMailbox": "Collega una casella prima di accenderla",
         "seeWhereItStops": "Vedi dove si ferma"
