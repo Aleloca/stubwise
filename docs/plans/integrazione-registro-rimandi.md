@@ -366,6 +366,18 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   né fusione; gli eventi consumati potati dopo 30 giorni; nel web vecchio e
   nel mobile la task di un'automazione è una task normale con l'origine
   «Automation», senza link.
+- Il piano della F2 (`docs/plans/2026-11-13-integrazione-area7-fetta2-plan.md`,
+  13 nov 2026). F2-1 = b *(M)*, non la consigliata: «email in arrivo» parte
+  su tutte le email della casella collegata, anche quelle che la Posta tiene
+  fuori; il loro contenuto entra come non fidato, e il filtro dell'inizio è
+  l'unica difesa contro il volume. F2-2 = a *(M)*: l'email di
+  un'automazione parte subito, senza i 10 secondi. F2-6 = a *(M)*: una
+  risposta arrivata in pausa si tiene. F2-3, F2-4, F2-5 = a *(O, 46)*.
+  L'eccezione «il worker manda un'email senza un gesto» *(O, 46)*,
+  dichiarata perché discende da Q4 = b, con l'elenco chiuso degli scrittori
+  di `mail_outgoing` verificato da un test. Rimandati: i rimbalzi (il
+  registro dell'esecuzione non sa di un indirizzo inesistente) e gli
+  allegati delle email (F3/F4).
 
 ## Area 8 — Rilasci, ambienti, avvisi, Support, Servers
 

@@ -1,6 +1,7 @@
 # Area 7, fetta 2 — email e attese
 
-> BOZZA di stubwise-94 (13 nov 2026), su richiesta di stubwise-46, nella
+> Piano di stubwise-94 (13 nov 2026), su richiesta di stubwise-46, con le
+> risposte F2-1…F2-6 (vedi «Le risposte alle domande»), nella
 > forma del piano della F1 (`2026-11-12-integrazione-area7-fetta1-plan.md`,
 > con le «Correzioni di 72»). I task del SERVER sono scritti come interfacce
 > e test: l'implementazione e le scelte interne restano a 72. I task del
@@ -38,7 +39,7 @@ avvisi. Dopo questa fetta, come nel prototipo:
 Restano alle fette dopo: i passi di Claude (F3); le automazioni generali,
 la tabella cliente → progetto, le sorgenti e il webhook in arrivo, «avvia
 un'altra automazione» (F4). Gli allegati di un'email vengono da campi file,
-che nella F2 nessun passo produce: vedi la domanda F2-5.
+che nella F2 nessun passo produce (F2-5 = a).
 
 ## Decisioni già prese
 
@@ -63,12 +64,24 @@ Dal design e dalla F1. Qui solo quelle che toccano la F2:
   proprietario.
 - **`mailbox_owner`** (`docs/invariants/mail-calendar.md`): nessuna
   automazione legge la posta di un altro, e gli admin non fanno eccezione.
+- **F2-1 = b** *(M)*: «email in arrivo» parte su TUTTE le email della
+  casella collegata, anche quelle che la Posta tiene fuori. Il contenuto di
+  quelle email entra nell'automazione come NON fidato (vedi «L'inizio
+  “email in arrivo”»).
+- **F2-2 = a** *(M)*: l'email di un'automazione parte subito, senza i 10
+  secondi per annullare.
+- **F2-6 = a** *(M)*: una risposta arrivata durante la pausa si tiene.
+- **F2-3 = a, F2-4 = a, F2-5 = a** *(O, 46)*, con la consigliata.
+- **L'eccezione «il worker manda un'email senza un gesto»** *(O, 46)*: va
+  bene come eccezione dichiarata, perché discende da Q4 = b *(M)*, con
+  l'elenco chiuso degli scrittori di `mail_outgoing` verificato da un test
+  (S9).
 
 ## Perimetro della F2
 
 | Dentro | Fuori (fetta) |
 |---|---|
-| Passo `sendEmail` (A, Oggetto, Corpo coi campi; casella del proprietario; auto o «chiede a» con le correzioni) | Allegati da campi file (F3/F4, domanda F2-5) |
+| Passo `sendEmail` (A, Oggetto, Corpo coi campi; casella del proprietario; auto o «chiede a» con le correzioni) | Allegati da campi file (F3/F4, F2-5 = a) |
 | `wait` per tempo, per risposta (`replyTo`, `maxDays`), per task chiusa (`taskClosed`, `maxDays`) | — |
 | `repeatUntil` (≤ 10, `onLimit`) | — |
 | Inizi `schedule` (DAILY, WEEKLY con BYDAY, MONTHLY con BYMONTHDAY; BYHOUR) | — |
@@ -131,8 +144,8 @@ più `sendEmail`, `wait`, `repeatUntil`, `schedule`,
   6 (`ownerChecks`, come nel prototipo). A metà di un'esecuzione, una casella
   scaduta, scollegata o senza scope fa fallire il passo (`mailbox_lost`,
   riprovabile) e mette l'automazione in pausa, come D5 per il permesso perso
-  (domanda F2-4).
-- **L'eccezione all'invariante del mittente.** Oggi
+  (F2-4 = a).
+- **L'eccezione all'invariante del mittente** (approvata, *O* di 46). Oggi
   `mail-sender.ts` dice che il worker manda un'email SOLO perché una persona
   ha premuto Invia. Con Q4 = b un'automazione accesa da una persona manda
   email da sola: il consenso è l'accensione (la casella scelta lì) più
@@ -162,7 +175,7 @@ più `sendEmail`, `wait`, `repeatUntil`, `schedule`,
   passo nella stessa esecuzione.
 - **Pausa**: un'esecuzione in attesa si sospende subito (F1). Una risposta
   arrivata durante la pausa non si perde: la riprende chi riaccende
-  (domanda F2-6).
+  (F2-6 = a *(M)*).
 
 ## Gli inizi a orario
 
@@ -187,11 +200,26 @@ più `sendEmail`, `wait`, `repeatUntil`, `schedule`,
   possiede quella casella (`mailbox_owner`). Payload: `email.mittente`,
   `email.oggetto`, `email.testo` (i campi di `triggerFields.ts`). L'evento
   lo vede solo il proprietario, lungo la catena (R-J13).
-- Quali messaggi: quelli che il poller già ingerisce e ammette (domanda
-  F2-1). Il filtro dell'inizio fa il resto.
-- Il punto di pubblicazione: la F1 ha i trigger del DB (C1). Per la posta il
-  trigger andrebbe su `mail_messages` `AFTER INSERT` con la casella; a scelta
-  di 72, ma nell'elenco chiuso degli scrittori.
+- Quali messaggi (F2-1 = b *(M)*): TUTTI quelli che arrivano nella casella
+  collegata, anche quelli che la Posta tiene fuori (newsletter, liste,
+  notifiche: non ammessi dalla dottrina dell'intake). Il filtro dell'inizio
+  è l'UNICA difesa contro il volume: il costruttore lo dice accanto
+  all'inizio, e un inizio senza filtro parte a ogni email.
+- **Il contenuto non è fidato.** Mittente, oggetto e testo di un'email
+  qualunque li scrive chiunque. Nella F2 entrano nei campi come DATI (il
+  testo di una task, di un avviso, di un'email), mai come istruzioni; dalla
+  F3 un passo di Claude li riceve marcati come non fidati, e la stessa
+  regola vale per `risposta.testo`. È un'eccezione dichiarata alla dottrina
+  dell'intake (`docs/invariants/mail-calendar.md`, «La classificazione dei
+  segnali email…»), che resta vera per la Posta: la Posta continua a non
+  mostrare né proporre ciò che tiene fuori.
+- Il punto di pubblicazione: la F1 ha i trigger del DB (C1). Un messaggio
+  tenuto fuori oggi non diventa una riga di `mail_messages`, quindi un
+  trigger `AFTER INSERT` lì non lo vede: l'evento va pubblicato dal poller
+  Google per ogni messaggio della casella che ha un'automazione attiva con
+  questo inizio, ammesso o no, senza che la Posta lo mostri. Il come
+  (ingerire senza ammettere, o pubblicare senza conservare) è di 72, ma
+  dentro `mailbox_owner` e nell'elenco chiuso degli scrittori.
 
 ## La prova (nel client, come la F1)
 
@@ -236,7 +264,7 @@ transazione del cursore, e la consiglio.
 
 **C-F2-2. L'invio senza i 10 secondi.** Il trattenimento di 10 s esiste
 perché chi preme Invia possa annullare. Per un'automazione non c'è nessuno
-che annulla: `send_at` = adesso (domanda F2-2).
+che annulla: `send_at` = adesso (F2-2 = a *(M)*).
 
 ## Task del SERVER (interfacce e test; l'implementazione è di 72)
 
@@ -261,7 +289,7 @@ S3. **L'esecutore dell'email**: `planEmail` dal motore condiviso;
    nemmeno dopo un riavvio; Approva con `edited` manda il testo corretto,
    con il prima e il dopo nel registro.
 
-S4. **La casella persa a metà**: `mailbox_lost` + la pausa (secondo F2-4).
+S4. **La casella persa a metà**: `mailbox_lost` + la pausa (F2-4 = a).
    *Test*: casella scollegata fra due passi → il passo dell'email fallisce,
    l'automazione va in pausa, `automation.paused` a chi gestisce.
 
@@ -283,9 +311,11 @@ S7. **Gli inizi a orario**: il tick, `automation_schedule_fires`, la regola
    legale; un'automazione in pausa non scatta, e riaccesa non recupera.
 
 S8. **L'inizio «email in arrivo»**: dal poller Google, solo le caselle del
-   proprietario. *Test* NEGATIVI: un messaggio nella casella di un altro non
-   fa partire l'automazione, anche se il proprietario è admin; l'evento non
-   compare nelle letture di chi non è il proprietario (R-J13).
+   proprietario, su ogni messaggio (F2-1 = b). *Test*: un messaggio che la
+   Posta tiene fuori fa partire l'automazione e NON compare nella Posta né
+   nelle sue proposte. *Test* NEGATIVI: un messaggio nella casella di un
+   altro non fa partire l'automazione, anche se il proprietario è admin;
+   l'evento non compare nelle letture di chi non è il proprietario (R-J13).
 
 S9. **L'elenco chiuso degli scrittori di `mail_outgoing`** e l'eccezione
    all'invariante (`docs/invariants/automations.md`, docblock del
@@ -360,6 +390,18 @@ R7. **Parità** (`apps/desktop/docs/integration-area7-f2.md`) e registro.
 
 ## Review Focus
 
+- **Il volume di «email in arrivo»** (F2-1 = b): newsletter, liste e
+  notifiche fanno partire l'automazione come ogni altra email; il filtro
+  dell'inizio è l'unica difesa. Una casella con migliaia di messaggi al
+  giorno non deve produrre migliaia di email in uscita (la catena e il tetto
+  di 20 per esecuzione valgono), né rallentare il poller della Posta.
+- **Il contenuto non fidato**: il testo di un'email qualunque entra nei
+  campi come dato, mai come istruzione; nessun campo dell'email arrivata
+  sceglie la casella, il destinatario fuori dal flusso o il progetto senza
+  passare dalle regole del passo.
+- **La Posta non cambia**: ciò che la Posta tiene fuori resta fuori dalla
+  Posta e dalle sue proposte, anche se ha fatto partire un'automazione.
+
 - **Un'automazione impazzita** (D2): un evento che si autoalimenta (una task
   creata che fa ripartire la stessa automazione, che manda un'email) si
   ferma alla catena; migliaia di eventi in ingresso non producono MAI due
@@ -374,7 +416,28 @@ R7. **Parità** (`apps/desktop/docs/integration-area7-f2.md`) e registro.
   cambio dell'ora legale.
 - La casella persa a metà non manda niente da un'altra casella.
 
-## Domande per il maintainer
+## Domande per il maintainer (risposte: vedi «Le risposte alle domande»)
+
+### Le risposte alle domande (13 nov 2026)
+
+- **F2-1 = b** *(M)*, NON la consigliata: un'automazione può partire su
+  TUTTE le email della casella collegata, anche quelle che la Posta tiene
+  fuori. Il contenuto di quelle email entra nell'automazione come NON
+  fidato; il volume e il filtro di partenza come unica difesa stanno nel
+  Review Focus.
+- **F2-2 = a** *(M)*: l'email di un'automazione parte subito.
+- **F2-3 = a** *(O, 46)*: il passo è `ok` quando Gmail l'ha mandata; i
+  rimbalzi al registro dei rimandi.
+- **F2-4 = a** *(O, 46)*: la casella persa a metà fa fallire il passo
+  (`mailbox_lost`) e mette l'automazione in pausa.
+- **F2-5 = a** *(O, 46)*: niente allegati nella F2 (`not_available`).
+- **F2-6 = a** *(M)*: una risposta arrivata durante la pausa si tiene.
+- **L'eccezione «il worker manda un'email senza un gesto»** *(O, 46)*:
+  dichiarata, perché discende da Q4 = b *(M)*, con l'elenco chiuso degli
+  scrittori di `mail_outgoing` verificato da un test (S9).
+- **C-F2-1 e C-F2-2** le valuta 72 quando prende il piano.
+
+### Le opzioni poste
 
 Ognuna con la consigliata per prima.
 
@@ -422,5 +485,7 @@ F2-6. **Una risposta del cliente arrivata mentre l'automazione è in
 - La paginazione col cursore degli elenchi (`/api/automation-runs` e gli
   altri della F1): l'adattatore della build app legge oggi la prima pagina.
   Da completare quando un elenco reale supera la pagina.
-- I rimbalzi, se F2-3 = a.
-- Gli allegati, se F2-5 = a.
+- I rimbalzi (F2-3 = a): il registro dell'esecuzione non sa di un
+  indirizzo inesistente.
+- Gli allegati (F2-5 = a): con la F3 (i campi di Claude) o la F4 (le
+  sorgenti).
