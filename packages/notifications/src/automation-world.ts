@@ -1,12 +1,14 @@
 import { departmentMembers, milestones, projectMembers, projects, roles, users, type Db } from "@stubwise/db";
-import { projectPermissionsByProject, userIsFullAdmin } from "@stubwise/notifications";
-import type { PlanPerson, PlanWorld } from "@stubwise/shared";
+import type { ApprovalWho, PlanPerson, PlanWorld } from "@stubwise/shared";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { projectPermissionsByProject, userIsFullAdmin } from "./project-access.js";
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 /**
- * IL MONDO DEI PIANI letto dal DB (area 7, fetta 1): i piani delle azioni
+ * IL MONDO DEI PIANI letto dal DB (area 7, fetta 1). Sta qui, e non nel
+ * worker, perché lo usano anche le rotte del server (gli errori di
+ * configurazione, chi approva, la prova): una regola sola. I piani delle azioni
  * (`plans.ts` di `@stubwise/shared`, gli stessi della prova e del prototipo)
  * leggono un `PlanWorld` SINCRONO; qui se ne carica un'istantanea prima di
  * ogni effetto, per i progetti e le persone che l'effetto nomina. Le regole
@@ -148,4 +150,27 @@ export async function loadPlanWorld(db: Db | Tx, scope: WorldScope): Promise<Pla
 export async function milestoneNameTaken(db: Db | Tx, projectId: string, name: string): Promise<boolean> {
   const [m] = await db.select({ id: milestones.id }).from(milestones).where(and(eq(milestones.projectId, projectId), eq(milestones.name, name)));
   return m !== undefined;
+}
+
+/**
+ * Chi può approvare adesso, per `who` nel progetto del passo (R-J8, la regola
+ * del prototipo `approversFor`): la persona indicata, chi ha il ruolo nel
+ * progetto o il proprietario di ADESSO — e solo chi vede il progetto.
+ * `projectId` null (non noto prima dell'evento): nessun controllo sul
+ * progetto. La usano l'esecutore (worker) e le rotte (server).
+ */
+export async function approversFor(
+  db: Db | Tx,
+  automation: { ownerId: string | null },
+  who: ApprovalWho,
+  projectId: string | null,
+): Promise<string[]> {
+  const owner = automation.ownerId;
+  const personIds = "personId" in who && who.personId ? [who.personId] : [];
+  const world = await loadPlanWorld(db, { ownerId: owner ?? "", projectIds: projectId ? [projectId] : [], personIds: owner ? [owner, ...personIds] : personIds });
+  let ids: string[];
+  if ("owner" in who) ids = owner ? [owner] : [];
+  else if ("personId" in who) ids = personIds;
+  else ids = projectId ? world.holdersOfRole(projectId, who.projectRole) : [];
+  return ids.filter((id) => !world.isDeactivated(id) && (projectId === null || world.canSeeProject(id, projectId)));
 }

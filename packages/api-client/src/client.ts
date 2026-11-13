@@ -18,6 +18,7 @@ import { createRequestsEndpoints } from "./endpoints/requests.js";
 import { createMeEndpoints } from "./endpoints/me.js";
 import { createChatEndpoints } from "./endpoints/chat.js";
 import { createDriveEndpoints } from "./endpoints/drive.js";
+import { createAutomationEndpoints } from "./endpoints/automations.js";
 import { createGoogleEndpoints } from "./endpoints/google.js";
 import { createClaudeEndpoints } from "./endpoints/claude.js";
 import { createMilestonesEndpoints } from "./endpoints/milestones.js";
@@ -161,6 +162,7 @@ export function createEndpoints(request: ApiRequest) {
     chat: createChatEndpoints(request),
     // Area 5: il Drive dei progetti.
     drive: createDriveEndpoints(request),
+    automations: createAutomationEndpoints(request),
     google: createGoogleEndpoints(request),
   };
 }

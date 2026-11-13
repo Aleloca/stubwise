@@ -78,6 +78,7 @@ import { releaseRoutes } from "./routes/release.js";
 import { agentSessionRoutes } from "./routes/agent-sessions.js";
 import { chatRoutes } from "./routes/chat.js";
 import { driveRoutes } from "./routes/drive.js";
+import { automationRoutes } from "./routes/automations.js";
 import { purgeDeletedDriveObjects } from "./drive/service.js";
 import { runStorageHygiene } from "./storage/hygiene.js";
 import { purgeStorageOrphans } from "./storage/orphans.js";
@@ -700,6 +701,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Area 4, Chat fra persone (fetta 1).
   void app.register(chatRoutes, { prefix: "/api/chat" });
   void app.register(driveRoutes, { prefix: "/api" });
+  // Area 7: le Automations di progetto.
+  void app.register(automationRoutes, { prefix: "/api" });
   // Chat con Claude, fetta 1: le conversazioni libere (private dell'autore).
   void app.register(claudeConversationRoutes, { prefix: "/api/claude/conversations" });
   void app.register(claudeActionRoutes, { prefix: "/api/claude" });

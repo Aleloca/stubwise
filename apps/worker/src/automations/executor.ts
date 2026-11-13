@@ -6,7 +6,7 @@ import {
   automationVersions,
   type Db,
 } from "@stubwise/db";
-import { publishNotification } from "@stubwise/notifications";
+import { approversFor as resolveApprovers, publishNotification } from "@stubwise/notifications";
 import {
   advance,
   approvalProjectOf,
@@ -27,7 +27,6 @@ import {
 } from "@stubwise/shared";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { executeEffect } from "./effects.js";
-import { loadPlanWorld } from "./world.js";
 
 /**
  * L'ESECUTORE delle esecuzioni (area 7, fetta 1; la specifica è
@@ -383,17 +382,9 @@ async function pendingOf(turn: Turn, st: EngineState): Promise<{ approverIds: st
   return null;
 }
 
-/** La persona indicata, chi ha il ruolo nel progetto o il proprietario di ADESSO — solo chi vede il progetto. */
-export async function approversFor(turn: Pick<Turn, "deps" | "automation">, who: ApprovalWho, projectId: string | null): Promise<string[]> {
-  const owner = turn.automation.ownerId;
-  const personIds = "personId" in who && who.personId ? [who.personId] : [];
-  const world = await loadPlanWorld(turn.deps.db, { ownerId: owner ?? "", projectIds: projectId ? [projectId] : [], personIds: owner ? [owner, ...personIds] : personIds });
-  let ids: string[];
-  if ("owner" in who) ids = owner ? [owner] : [];
-  else if ("personId" in who) ids = personIds;
-  else ids = projectId ? world.holdersOfRole(projectId, who.projectRole) : [];
-  return ids.filter((id) => !world.isDeactivated(id) && (projectId === null || world.canSeeProject(id, projectId)));
-}
+/** Chi approva adesso (R-J8): la regola è una, in `@stubwise/notifications`. */
+const approversFor = (turn: Pick<Turn, "deps" | "automation">, who: ApprovalWho, projectId: string | null) =>
+  resolveApprovers(turn.deps.db, turn.automation, who, projectId);
 
 /** Sospende al confine del passo (pausa): riaccendendo torna allo stato di prima. */
 async function suspend(turn: Turn): Promise<void> {

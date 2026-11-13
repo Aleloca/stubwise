@@ -8,7 +8,7 @@ import {
   projects,
   type Db,
 } from "@stubwise/db";
-import { publishNotification } from "@stubwise/notifications";
+import { loadPlanWorld, milestoneNameTaken, publishNotification } from "@stubwise/notifications";
 import {
   failed,
   planMilestone,
@@ -21,7 +21,6 @@ import {
   type EffectRequest,
 } from "@stubwise/shared";
 import { and, eq, sql } from "drizzle-orm";
-import { loadPlanWorld, milestoneNameTaken } from "./world.js";
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 

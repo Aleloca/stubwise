@@ -87,6 +87,7 @@ export {
   userIsFullAdmin,
   type CardAnchor,
 } from "./project-access.js";
+export { approversFor, loadPlanWorld, milestoneNameTaken, type WorldScope } from "./automation-world.js";
 
 // --- segnali di progetto condivisi (Fase 4) ---
 //
