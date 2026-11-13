@@ -1,5 +1,10 @@
 # Area 7, fetta 2 — email e attese
 
+> ⚠️ **SUPERATO.** Il piano che vale è quello su `feat/area7-f2`
+> (stesso percorso), preso da stubwise-72 con le sue correzioni (C-F2-0…
+> C-F2-5) e le risposte del maintainer, portate lì il 13 nov 2026
+> (a6854e8f). Questa copia resta solo come storia della bozza.
+
 > Piano di stubwise-94 (13 nov 2026), su richiesta di stubwise-46, con le
 > risposte F2-1…F2-6 (vedi «Le risposte alle domande»), nella
 > forma del piano della F1 (`2026-11-12-integrazione-area7-fetta1-plan.md`,
