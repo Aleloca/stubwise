@@ -6,8 +6,11 @@
 // un codice invisibile, eliminato, inesistente o di un altro progetto non dà
 // righe (R-G5, I2 dell'area 10b).
 
-/** Un codice di task in un messaggio di commit (`ACQ-12`, mai `ACQ-R3`). */
-const TASK_CODE = /\b[A-Z]{2,4}-\d+\b/g;
+/**
+ * Un codice di task in un messaggio di commit (`ACQ-12`, mai `ACQ-R3`): il
+ * codice del progetto come lo ammette il server (`^[A-Z][A-Z0-9]{1,5}$`).
+ */
+const TASK_CODE = /\b[A-Z][A-Z0-9]{1,5}-\d+\b/g;
 
 /** I codici da cercare, nell'ordine: la task della PR, poi quelli citati dai commit; senza doppioni. */
 export function citedTaskCodes(
