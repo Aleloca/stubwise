@@ -96,7 +96,14 @@ interface SavedCursor {
 export const EMAIL_POLL_MS = 5_000;
 
 /** I fallimenti della casella (area 7, F2-4 = a): il passo fallisce e l'automazione va in pausa. */
-const MAILBOX_LOST: ReadonlySet<string> = new Set(["mailbox_missing", "mailbox_expired", "mailbox_scope"]);
+const MAILBOX_LOST: ReadonlySet<string> = new Set([
+  "mailbox_missing",
+  "mailbox_expired",
+  "mailbox_scope",
+  // Review F2, M3: gli stessi motivi detti dal mittente all'invio (casella disabilitata, credenziali illeggibili).
+  "account_disabled",
+  "account_unavailable",
+]);
 
 export interface ExecutorDeps {
   db: Db;

@@ -241,5 +241,15 @@ describe("la casella persa a metà (S4, F2-4 = a)", () => {
     expect(await mailOf(run.id)).toEqual([]);
     expect((await reload(run.id)).error).toBe("mailbox_missing");
   });
+
+  it("review F2, M3: un invio rifiutato perché la casella è disabilitata o non leggibile (`account_disabled`) mette in pausa SUBITO", async () => {
+    const { automation, run } = await runOf([email()]);
+    await exec();
+    const [row] = await mailOf(run.id);
+    await settle(row!.id, "failed", { error: "account_disabled" });
+    await tick(run.id);
+    expect(await reload(run.id)).toMatchObject({ status: "failed", error: "account_disabled" });
+    expect((await t.db.select().from(automations).where(eq(automations.id, automation.id)))[0]).toMatchObject({ status: "paused", pausedReason: "mailbox_lost" });
+  });
 });
 
