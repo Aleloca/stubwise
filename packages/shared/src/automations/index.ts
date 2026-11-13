@@ -15,4 +15,5 @@ export * from "./availability.js";
 export * from "./views.js";
 export * from "./plans.js";
 export * from "./email.js";
+export * from "./schedule.js";
 export * from "./runRules.js";
