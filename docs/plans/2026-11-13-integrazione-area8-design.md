@@ -536,30 +536,48 @@ preset). Nessuna chiave a due livelli (il test del catalogo).
     (`ServerSettings`, `InstallCommand`).
   - La sezione Servers dice versione dell'agente e opzione accesa, come le
     dichiara l'ingest.
-  - Nessun testo della UI promette «sola lettura» per il socket di Docker:
-    un socket montato `:ro` dà comunque l'API completa (Q4). Il prototipo
-    non lo promette; la frase di oggi è del web. La frase del prototipo
-    sull'analisi («Claude is looking into it with read-only access») resta
-    vera solo se l'analisi legge ciò che l'agente riporta e le letture
-    dell'insieme chiuso: si ricontrolla con la risposta a Q2.
-  - La correzione da task (`pages/task/ServerSection.tsx`:
-    `getServerTaskInfo`, `startServerFix`) mostra il piano col suo insieme
-    chiuso di azioni, l'approvazione di chi ha `plans.approve` prima di ogni
+  - Q4 = a: nessun testo della UI promette «sola lettura» per il socket di
+    Docker (un socket montato `:ro` dà comunque l'API completa). Il
+    prototipo non lo promette; la frase di oggi è del web, e la corregge chi
+    tocca il web. Il comando d'installazione dice cosa accende l'opzione
+    «operazioni»: i soli comandi firmati dell'elenco chiuso.
+  - Q2 = a: con l'opzione accesa l'analisi chiede da sola le azioni di
+    LETTURA (righe del log, stato di un container), senza approvazione e
+    registrate nella sessione. La frase del prototipo «Claude is looking into
+    it with read-only access» resta vera. Senza l'opzione, l'analisi legge
+    metriche, servizi e controlli, e la sessione lo dice.
+  - Q1 = a: la correzione da task (`pages/task/ServerSection.tsx`:
+    `getServerTaskInfo`, `startServerFix`) mostra il piano con le sole azioni
+    dell'elenco chiuso (nessun campo per un comando libero), l'approvazione di chi ha `plans.approve` prima di ogni
     comando, l'esito di ogni azione (uscita troncata, contenuto non fidato) e
     lo Stop.
-  - Gli accessi SSH del prototipo (`SshAccessPanel`, `SshAccessRows`,
-    `SshAccessDialogs`, `SshSteps`, `VerifyResult`) restano fuori dalla
-    build app se Q3 = a (I1: non si mostrano), e restano nel prototipo
-    finché la shape non cambia.
-  - La parità della F4b dice che la specifica (il prototipo, «tre passi»
-    SSH) e l'app divergono per decisione del maintainer.
-- **Flag**: `servers-monitor` (F4a), `servers-operations` (F4b).
+  - Q3 = b: l'accesso SSH resta, di SOLA LETTURA, per l'analisi, gestito da
+    chi ha `servers.ssh.manage` (Admin). Gli accessi del prototipo
+    (`SshAccessPanel`, `SshAccessRows`, `SshAccessDialogs`, `SshSteps`,
+    `VerifyResult`; `linkSshAccess`, `verifySshAccess`,
+    `regenerateSshAccess`, `revokeSshAccess`) si integrano limitati alla
+    coppia di LETTURA (`stubwise-read`):
+    - la coppia di correzione (`stubwise-fix`, col sudo) e i suoi passi non
+      si mostrano nella build app (I1);
+    - la verifica dice ancora se l'utente di lettura è nel gruppo `sudo` o
+      `docker` (`ssh.outcome.readWritesHint`), perché un utente di lettura
+      con il socket non è di lettura;
+    - la privata non esce dal server (I2 vale per la pubblica e per il
+      comando, che si mostrano; la privata non arriva mai al client).
+  - La parità della F4b dice che la specifica (il prototipo: due coppie,
+    correzione via SSH) e l'app divergono per decisione del maintainer:
+    correzione attraverso l'agente, SSH solo in lettura.
+- **Flag**: `servers-monitor` (F4a); con la F4b `servers-ssh-read` (gli
+  accessi in sola lettura) e `servers-operations` (l'agente), accendibili
+  separatamente.
 - **Test**:
   - un server di un progetto invisibile risponde come inesistente;
   - la chiave dell'agente non è nella cache delle mutazioni e si dimentica
     al cambio di persona;
   - nessun «Simulate» nella build app;
   - senza `servers-operations` nessun bottone di correzione;
+  - nessuna traccia della coppia `stubwise-fix` nella build app, e la
+    privata di un accesso non compare in nessuna risposta né cache;
   - nessun comando senza un'approvazione registrata, e lo Stop ferma.
 
 ### Azioni di Claude e palette
