@@ -17,8 +17,8 @@ import {
 // Le Automations della F2 nella build app (area 7, F2, R3): accendere e
 // pubblicare un flusso che manda email chiedono la casella da cui partono,
 // fra quelle vere di chi accende (`GET /api/me/google/accounts`), e il
-// server riceve il suo id. Qui `automations-f2` è acceso; nella build app
-// resta spento finché il maintainer non dice di accenderlo.
+// server riceve il suo id. `automations-f2` è acceso nella build app; il
+// mock lo tiene acceso qui a prescindere.
 vi.mock("@backend/api", async () => await import("./index"));
 vi.mock("../../integration", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../integration")>();
@@ -163,6 +163,45 @@ async function openPublish() {
 describe("accendere e pubblicare con la casella (F2, R3)", () => {
   it("la casella si sceglie fra le mie, e il server riceve il suo id", async () => {
     install({
+      "GET /api/me/google/accounts": { body: [account()] },
+      "POST /api/automations/AUD-A1/publish": { body: published },
+    });
+    const dialog = await openPublish();
+    expect(await within(dialog).findByRole("radio", { name: "ada@audin.test" })).toBeChecked();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Publish" }));
+    await waitFor(() =>
+      expect(
+        seen.find((r) => r.method === "POST" && r.path === "/api/automations/AUD-A1/publish")?.body,
+      ).toEqual({ expectedRev: 6, mailboxAccountId: ACCOUNT_ID }),
+    );
+  });
+
+  it("«email in arrivo» chiede la casella anche senza email da mandare: è quella che ascolta", async () => {
+    const listening = {
+      trigger: { kind: "stubwise", event: "mail_received" },
+      steps: [
+        {
+          id: "n1",
+          kind: "notify",
+          who: { personId: ME_ID },
+          text: "È arrivata un'email",
+          approval: { mode: "auto" },
+        },
+      ],
+      titleTemplate: "Posta",
+    };
+    const withFlow = () => ({
+      ...row(),
+      versions: [
+        { ...version(1, 3, true), flow: listening },
+        { ...version(2, 6, false), flow: listening },
+      ],
+    });
+    install({
+      "GET /api/automations": { body: { items: [withFlow()] } },
+      "GET /api/automations/AUD-A1": {
+        body: { automation: withFlow(), configErrors: [], liveErrors: [], runs: [] },
+      },
       "GET /api/me/google/accounts": { body: [account()] },
       "POST /api/automations/AUD-A1/publish": { body: published },
     });
@@ -388,5 +427,27 @@ describe("il registro di un'esecuzione con email e attese (F2, R4, le forme del 
     expect(
       await screen.findAllByText(/the mailbox connection expired/i, {}, { timeout: 3000 }),
     ).not.toHaveLength(0);
+  });
+});
+
+describe("il motivo della pausa automatica (F2)", () => {
+  it("una casella del proprietario non più utilizzabile lo dice accanto allo stato", async () => {
+    const paused = () => ({ ...row(), status: "paused", pausedReason: "mailbox_lost" });
+    install({
+      "GET /api/automations": { body: { items: [paused()] } },
+      "GET /api/automations/AUD-A1": {
+        body: { automation: paused(), configErrors: [], liveErrors: [], runs: [] },
+      },
+    });
+    renderRoute("/automations/AUD-A1");
+    const line = await waitFor(
+      () => {
+        const el = document.querySelector("[data-status-line]");
+        expect(el).not.toBeNull();
+        return el!;
+      },
+      { timeout: 3000 },
+    );
+    expect(line).toHaveTextContent("the owner's mailbox can't be used any more");
   });
 });

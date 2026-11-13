@@ -106,7 +106,10 @@ export function TurnOnDialog({
   const errors = resuming ? detail.liveErrors : detail.configErrors;
   const { fixed, fromClient } = fixedProjects(flow, a.projectId);
   const blocked = fixed.filter((f) => !perms.canCreate(f.kind, f.projectId));
-  const needsMailbox = sendsEmail(flow);
+  // La casella serve per mandare e per ascoltare: «email in arrivo» la vuole
+  // anche senza email da mandare (è quella che ascolta; il server lo chiede).
+  const needsMailbox =
+    sendsEmail(flow) || (flow.trigger.kind === "stubwise" && flow.trigger.event === "mail_received");
   // Solo le caselle collegate: una scaduta non spedisce.
   const boxes = (mailboxes ?? []).filter((b) => !b.expired);
   const chosen = from ?? boxes[0]?.email ?? null;
