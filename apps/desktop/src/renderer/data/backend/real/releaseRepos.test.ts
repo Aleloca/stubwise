@@ -77,4 +77,27 @@ describe("le impostazioni di rilascio dei repository (area 8, F1)", () => {
     );
     expect(calls.some((c) => c.startsWith("PATCH"))).toBe(false);
   });
+
+  it("il ramo si manda solo se cambia; tornare al default è null (review F1, m3)", async () => {
+    const { api, calls } = fakeApi();
+    const settings = createRealRepoSettings(api);
+    await settings.getRepositorySettings("p1");
+    // Il ramo mostrato è il default (`main`, null sul server): salvare solo la pipeline non lo fissa.
+    await settings.setReleasePipeline("r1", { mode: "auto" }, "main");
+    expect(calls.at(-1)).toBe('PATCH audin-app {"releasePipeline":{"mode":"auto"}}');
+    await settings.setReleasePipeline("r1", { mode: "auto" }, "release");
+    expect(calls.at(-1)).toBe(
+      'PATCH audin-app {"releasePipeline":{"mode":"auto"},"releaseBranch":"release"}',
+    );
+  });
+
+  it("da un ramo scelto, tornare al default manda null", async () => {
+    const { api, calls } = fakeApi({ list: async () => [repo({ releaseBranch: "release" })] });
+    const settings = createRealRepoSettings(api);
+    await settings.getRepositorySettings("p1");
+    await settings.setReleasePipeline("r1", { mode: "auto" }, "main");
+    expect(calls.at(-1)).toBe(
+      'PATCH audin-app {"releasePipeline":{"mode":"auto"},"releaseBranch":null}',
+    );
+  });
 });

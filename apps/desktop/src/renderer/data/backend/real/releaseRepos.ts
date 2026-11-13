@@ -53,13 +53,15 @@ function fullNameOf(r: RepoRow): string {
 }
 
 export function createRealRepoSettings(api: RepoSettingsApi) {
-  // Le pagine vanno per id del repository, la PATCH per slug.
-  const slugs = new Map<string, string>();
-  const slugOf = (repositoryId: string) => {
-    const slug = slugs.get(repositoryId);
-    if (!slug) throw new Error("not_found");
-    return slug;
+  // Le pagine vanno per id del repository, la PATCH per slug; il ramo scelto
+  // (null = il default) per non fissarlo a ogni salvataggio (review F1, m3).
+  const byId = new Map<string, { slug: string; branch: string | null; defaultBranch: string }>();
+  const known = (repositoryId: string) => {
+    const r = byId.get(repositoryId);
+    if (!r) throw new Error("not_found");
+    return r;
   };
+  const slugOf = (repositoryId: string) => known(repositoryId).slug;
 
   return {
     async getRepositorySettings(projectId: string): Promise<RepositorySettings | null> {
@@ -67,7 +69,7 @@ export function createRealRepoSettings(api: RepoSettingsApi) {
       return {
         canManage,
         repositories: repos.map((r) => {
-          slugs.set(r.id, r.slug);
+          byId.set(r.id, { slug: r.slug, branch: r.releaseBranch, defaultBranch: r.defaultBranch });
           const pipeline: NonNullable<Repository["releasePipeline"]> =
             r.releasePipeline.mode === "named"
               ? { mode: "named", names: r.releasePipeline.names ?? [] }
@@ -105,9 +107,18 @@ export function createRealRepoSettings(api: RepoSettingsApi) {
         pipeline.mode === "named"
           ? { mode: "named" as const, names: [...pipeline.names] }
           : { mode: "auto" as const };
+      const r = known(repositoryId);
+      const next = branch.trim();
+      const current = r.branch ?? r.defaultBranch;
+      // Il ramo solo se cambia; tornare al default è null (il server segue il default).
+      const releaseBranch = next === current ? undefined : next === r.defaultBranch ? null : next;
       await inPrototypeWords(() =>
-        api.update(slugOf(repositoryId), { releasePipeline, releaseBranch: branch.trim() }),
+        api.update(r.slug, {
+          releasePipeline,
+          ...(releaseBranch !== undefined ? { releaseBranch } : {}),
+        }),
       );
+      if (releaseBranch !== undefined) r.branch = releaseBranch;
     },
   };
 }
