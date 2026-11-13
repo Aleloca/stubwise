@@ -86,7 +86,13 @@ export function createRealAutomations(
   };
   const onRun = async (runId: string, call: (code: string, n: number) => Promise<void>) => {
     const r = refs.run(runId);
-    await inPrototypeWords(() => call(r.code, r.n));
+    try {
+      await inPrototypeWords(() => call(r.code, r.n));
+    } catch (error) {
+      // Già in coda un input di chi chiama (409 `pending`): aspetta il worker anche lui.
+      if (error instanceof Error && error.message === "invalid: pending") decisions.markRun(runId);
+      throw error;
+    }
     decisions.markRun(runId);
   };
 

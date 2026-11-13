@@ -35,7 +35,11 @@ export interface DecisionApi {
   ): Promise<void>;
 }
 
-/** Una decisione: un passo che non è più quello in attesa (`stale`) è `invalid: not_waiting`. */
+/**
+ * Una decisione: un passo che non è più quello in attesa (`stale`) è
+ * `invalid: not_waiting`; la PROPRIA decisione già in coda (`pending`) resta
+ * `invalid: pending` (la pagina dice «in corso», non «già deciso da qualcuno»).
+ */
 async function decide(call: () => Promise<void>): Promise<void> {
   try {
     await inPrototypeWords(call);
@@ -82,6 +86,17 @@ export function createRealDecisions(
   const markRun = (runId: string) => {
     const s = refs.run(runId);
     settle.mark(runId, { status: s.status, cursor: s.path, round: s.round });
+  };
+
+  /** Mandata (o già in coda, `pending`): l'esecuzione aspetta il worker. */
+  const decideOn = async (runId: string, call: () => Promise<void>) => {
+    try {
+      await decide(call);
+    } catch (error) {
+      if (error instanceof Error && error.message === "invalid: pending") markRun(runId);
+      throw error;
+    }
+    markRun(runId);
   };
 
   return {
@@ -143,23 +158,21 @@ export function createRealDecisions(
     ): Promise<void> {
       const s = refs.run(runId);
       const expectedRound = refs.roundFor(runId, opts.expectedPath);
-      await decide(() =>
+      await decideOn(runId, () =>
         api.approve(s.code, s.n, {
           expectedPath: opts.expectedPath,
           expectedRound,
           ...(edited ? { edited } : {}),
         }),
       );
-      markRun(runId);
     },
 
     async reject(runId: string, opts: { expectedPath: string }): Promise<void> {
       const s = refs.run(runId);
       const expectedRound = refs.roundFor(runId, opts.expectedPath);
-      await decide(() =>
+      await decideOn(runId, () =>
         api.reject(s.code, s.n, { expectedPath: opts.expectedPath, expectedRound }),
       );
-      markRun(runId);
     },
   };
 }
