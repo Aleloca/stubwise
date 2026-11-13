@@ -580,7 +580,42 @@ describe("le letture personali e la card d'inbox", () => {
     expect(mine.log[0]).toMatchObject({ reason: "Il cliente dice in sostanza che firma", output: { sintesi: "Il cliente parafrasato firma" } });
     expect(mine.log[0]!.reasonHidden).toBeUndefined();
     const theirs = (await call(other.headers, "GET", `/automations/${a.code}/runs/1`)).json() as Detail;
-    expect(theirs.log[0]).toMatchObject({ reason: null, reasonHidden: true, output: { uscita: "si", sintesi: "" } });
+    expect(theirs.log[0]).toMatchObject({ reason: null, reasonHidden: true });
+    expect(theirs.log[0]!.output).toEqual({ uscita: "si" });
+  });
+
+  it("review F3, I3: l'uscita di Claude su un dato tinto non trapela da `vars`, dalle righe dopo, dal titolo né da un'uscita rifiutata", async () => {
+    const { p, lead } = await setup();
+    const other = await person();
+    await addMember(app, p.id, other.id, "project_lead");
+    const flow: AutomationFlow = {
+      trigger: { kind: "manual" },
+      steps: [
+        { id: "c", kind: "claude", instruction: "Riassumi.", inputs: ["risposta.testo"], outcomes: ["si", "no"], fields: [{ key: "sintesi", label: "Sintesi", type: "text" }, { key: "contatti", label: "Contatti", type: "list" }, { key: "chi", label: "Chi", type: "email" }], branches: {} },
+        createTask({ title: "Seguire: {{sintesi}}" }),
+      ],
+      titleTemplate: "Run {{sintesi}}",
+    };
+    const a = await created(lead, p.id, flow);
+    await db.update(automationVersions).set({ publishedAt: new Date(), publishedBy: lead.id }).where(eq(automationVersions.automationId, a.id));
+    await db.update(automations).set({ ownerId: lead.id, status: "active" }).where(eq(automations.id, a.id));
+    const [run] = await db
+      .insert(automationRuns)
+      .values({ automationId: a.id, n: 1, version: 1, title: "Run Il cliente parafrasato firma", origin: "manual", status: "done", vars: { sintesi: "Il cliente parafrasato firma", contatti: ["segreto@cliente.it"], chi: "capo@cliente.it" } })
+      .returning();
+    await db.insert(automationRunLog).values([
+      { runId: run!.id, seq: 1, stepId: "c", path: "0", kind: "claude", outcome: "ok", output: { uscita: "si", sintesi: "Il cliente parafrasato firma", contatti: ["segreto@cliente.it"], chi: "capo@cliente.it" }, reason: "x" },
+      { runId: run!.id, seq: 2, stepId: "t", path: "1", kind: "createTask", outcome: "ok", input: { titolo: "Seguire: Il cliente parafrasato firma" } },
+    ]);
+    const [failedRun] = await db.insert(automationRuns).values({ automationId: a.id, n: 2, version: 1, title: "R2", origin: "manual", status: "failed", error: "unknown_outcome" }).returning();
+    await db.insert(automationRunLog).values({ runId: failedRun!.id, seq: 1, stepId: "c", path: "0", kind: "claude", outcome: "failed", output: { uscita: "il-cliente-dice-firmo" }, reason: "x", why: { code: "unknownOutcome", params: { outcome: "il-cliente-dice-firmo" } } });
+    const leaks = ["parafrasato", "segreto@cliente.it", "capo@cliente.it", "il-cliente-dice-firmo"];
+    const mine = JSON.stringify([(await call(lead.headers, "GET", `/automations/${a.code}/runs/1`)).json(), (await call(lead.headers, "GET", `/automations/${a.code}/runs/2`)).json()]);
+    for (const l of leaks) expect(mine).toContain(l);
+    for (const url of [`/automations/${a.code}/runs/1`, `/automations/${a.code}/runs/2`, `/automation-runs?automation=${a.code}`]) {
+      const theirs = JSON.stringify((await call(other.headers, "GET", url)).json());
+      for (const l of leaks) expect(theirs, `${url}: ${l}`).not.toContain(l);
+    }
   });
 
   it("la card automation.approval: derivata a lettura — aspetta me finché il passo aspetta; deciso, lo dice; chi non la vede: objectGone", async () => {

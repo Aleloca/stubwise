@@ -35,6 +35,7 @@ import { executeEffect, releaseFailedEmail, type EffectEnv } from "./effects.js"
 import { waitingTargets } from "./waits.js";
 import { runClaudeStep } from "./claude-step.js";
 import type { AgentRunner } from "../agent/runner.js";
+import type { SelectDeps } from "../providers/select.js";
 
 /**
  * L'ESECUTORE delle esecuzioni (area 7, fetta 1; la specifica è
@@ -127,7 +128,12 @@ export interface ExecutorDeps {
   runner?: AgentRunner;
   /** Solo nei test: la spesa del mese per il controllo del budget. */
   monthlyCostUsdFn?: (db: Db) => Promise<number>;
+  /** La scelta degli account del worker per i passi di Claude (review F3, I1). */
+  select?: SelectDeps;
 }
+
+/** Il tetto dei tentativi su un errore del provider (review F3, I2): poi il passo fallisce. */
+export const PROVIDER_MAX_ATTEMPTS = 8;
 
 /** Un giro: le esecuzioni dovute, una alla volta. Ritorna quante ne ha mosse. */
 export async function executeDueRuns(deps: ExecutorDeps): Promise<number> {
@@ -209,7 +215,19 @@ interface Turn {
   flow: AutomationFlow;
   log: RunLogEntry[];
   now: string;
+  /** Il gettone della presa: la lease si rinnova durante un giro lungo (review F3, M7). */
+  token?: string;
+  /** Le chiamate a Claude fatte in questo giro (tetto `CLAUDE_CALLS_PER_TURN`). */
+  claudeCalls?: number;
 }
+
+/**
+ * Al più tante chiamate a Claude per esecuzione e giro (review F3, M7): una
+ * chiamata può durare fino a 120 s, e un «per ogni» di passi di Claude
+ * terrebbe l'esecutore per tutte le automazioni. Raggiunto il tetto
+ * l'esecuzione resta dovuta e riprende al giro dopo, dalle altre in poi.
+ */
+export const CLAUDE_CALLS_PER_TURN = 3;
 
 async function processRun(deps: ExecutorDeps, runId: string, token: string): Promise<void> {
   const db = deps.db;
@@ -228,6 +246,8 @@ async function processRun(deps: ExecutorDeps, runId: string, token: string): Pro
     flow: version.flow as AutomationFlow,
     log: await loadLog(db, run.id),
     now: (deps.now?.() ?? new Date()).toISOString(),
+    token,
+    claudeCalls: 0,
   };
 
   const inputs = await db
@@ -432,7 +452,7 @@ async function claudeStep(turn: Turn, eff: Extract<EngineStep["effects"][number]
     return null;
   }
   const out = await runClaudeStep(
-    { db: turn.deps.db, runner: turn.deps.runner, ...(turn.deps.monthlyCostUsdFn ? { monthlyCostUsdFn: turn.deps.monthlyCostUsdFn } : {}) },
+    { db: turn.deps.db, runner: turn.deps.runner, ...(turn.deps.monthlyCostUsdFn ? { monthlyCostUsdFn: turn.deps.monthlyCostUsdFn } : {}), ...(turn.deps.select ? { select: turn.deps.select } : {}) },
     { step: eff.step, inputs: eff.vars, projectId: turn.automation.projectId, automationId: turn.automation.id, automationRunId: turn.run.id },
   );
   if (out.kind === "budget" || out.kind === "provider_error") {
@@ -452,27 +472,34 @@ async function claudeStep(turn: Turn, eff: Extract<EngineStep["effects"][number]
  * si riprova fra 15′ (il passo si riesegue da capo, budget compreso). La prima
  * volta, una riga nel registro e — per il budget — l'avviso al proprietario.
  */
-async function waitForAi(turn: Turn, out: { kind: "budget" } | { kind: "provider_error"; reason: string }): Promise<void> {
+async function waitForAi(turn: Turn, out: { kind: "budget" } | { kind: "provider_error"; code: string }): Promise<void> {
   const c = cursorOf(turn.run);
-  // «La prima volta» dal registro: il cursore si riscrive a ogni giro (il passo
-  // riparte da capo), l'ultima riga di attesa sullo stesso passo no.
-  const code = out.kind === "budget" ? "monthlyBudget" : "providerError";
-  const last = turn.log.at(-1);
-  const first = !(last && last.outcome === "waiting" && last.path === c.path && last.why?.code === code);
-  await setRun(turn, {
-    cursor: { ...c, aiWaiting: out.kind === "budget" ? { reason: "monthly_budget" } : null, providerError: out.kind === "provider_error" ? out.reason : null },
-    dueAt: new Date(Date.parse(turn.now) + AI_RETRY_MS),
-  });
-  if (!first) return;
   if (out.kind === "budget") {
+    // «La prima volta» dal registro: il cursore si riscrive a ogni giro, l'ultima riga d'attesa sullo stesso passo no.
+    const last = turn.log.at(-1);
+    const first = !(last && last.outcome === "waiting" && last.path === c.path && last.why?.code === "monthlyBudget");
+    await setRun(turn, { cursor: { ...c, aiWaiting: { reason: "monthly_budget" }, providerError: null }, dueAt: new Date(Date.parse(turn.now) + AI_RETRY_MS) });
+    if (!first) return;
     await note(turn, { outcome: "waiting", reason: "Budget mensile dell'istanza esaurito: il passo di Claude riparte da solo quando torna.", why: { code: "monthlyBudget" } });
     const owner = turn.automation.ownerId;
     if (owner) {
       await publishNotification(turn.deps.db, { ...eventOf(turn, "automation.notify"), message: "Budget mensile esaurito: l'esecuzione è ferma al passo di Claude e riparte da sola." }, { projectId: turn.automation.projectId, accountUserId: owner });
     }
-  } else {
-    await note(turn, { outcome: "waiting", reason: `Claude non ha risposto (${out.reason}): si riprova fra 15 minuti.`, why: { code: "providerError" } });
+    return;
   }
+  // Review F3, I2: i tentativi consecutivi su questo passo, dal registro (una riga per tentativo).
+  let attempts = 1;
+  for (let i = turn.log.length - 1; i >= 0; i--) {
+    const e = turn.log[i]!;
+    if (e.path !== c.path || e.why?.code !== "providerError") break;
+    attempts += 1;
+  }
+  if (attempts >= PROVIDER_MAX_ATTEMPTS) {
+    await failWith(turn, "provider_error", `Claude non ha risposto dopo ${attempts} tentativi (${out.code}).`, { code: "providerFailed", params: { code: out.code, attempts } });
+    return;
+  }
+  await setRun(turn, { cursor: { ...c, aiWaiting: null, providerError: out.code }, dueAt: new Date(Date.parse(turn.now) + AI_RETRY_MS * 2 ** (attempts - 1)) });
+  await note(turn, { outcome: "waiting", reason: `Claude non ha risposto (${out.code}): tentativo ${attempts} di ${PROVIDER_MAX_ATTEMPTS}, si riprova.`, why: { code: "providerError", params: { code: out.code, attempt: attempts } } });
 }
 
 function skipTop(st: EngineState): void {
@@ -493,10 +520,17 @@ async function drive(turn: Turn, input: EngineInput, prepare?: (st: EngineState)
     const finishing = decided !== null && eff.path === decided;
     const [fresh] = await turn.deps.db.select({ status: automations.status }).from(automations).where(eq(automations.id, turn.automation.id));
     if (fresh?.status !== "active" && !finishing) return suspend(turn);
+    if (turn.token) await renewClaim(turn.deps.db, turn.run.id, turn.token);
     if (eff.kind === "claude") {
+      if ((turn.claudeCalls ?? 0) >= CLAUDE_CALLS_PER_TURN) {
+        // Il tetto del giro: l'esecuzione resta dovuta e riparte da qui al giro dopo.
+        await setRun(turn, { dueAt: new Date(Date.parse(turn.now)) });
+        return;
+      }
       // F3: il passo di Claude non è un effetto. Il suo risultato rientra nel motore
       // e si scrive col cursore (`commit`); una ripresa dopo il commit non lo richiama.
       const claude = await claudeStep(turn, eff);
+      turn.claudeCalls = (turn.claudeCalls ?? 0) + 1;
       if (!claude) return;
       r = advance(r.state, claude);
       await commit(turn, r);

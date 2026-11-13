@@ -4,7 +4,10 @@
 -- L'operazione `automation_step` (testo + CHECK, mai un enum: nessun vincolo
 -- di batch) e l'owner della riga di consumo: `automation_id` per un passo e
 -- per una prova, `automation_run_id` solo per un passo di un'esecuzione (NULL
--- = una prova). Al più un owner, come prima.
+-- = una prova). Al più un owner, come prima. Nessun CHECK «la run solo con
+-- l'automazione»: le due FK vanno a NULL in momenti diversi durante una
+-- cascata (eliminare un progetto lo farebbe fallire, review F3 M11), e le
+-- righe di consumo non si cancellano mai (sono la spesa del mese).
 ALTER TABLE "agent_runs" DROP CONSTRAINT "agent_runs_operation_chk";
 --> statement-breakpoint
 ALTER TABLE "agent_runs" ADD CONSTRAINT "agent_runs_operation_chk" CHECK (operation in ('triage', 'fix_plan', 'fix_execute', 'pr_review', 'summary', 'backlog_intake', 'backlog_refine', 'commit_summary', 'release_notes', 'docs_nightly', 'docs_generation', 'drive_summary', 'daily_report', 'weekly_brief', 'mail_classify', 'mail_draft', 'meeting_summary', 'automation_step', 'chat', 'claude_chat', 'backlog_merge', 'plugin_smoke', 'credential_test', 'usage_probe'));
@@ -24,7 +27,5 @@ ALTER TABLE "agent_runs" ADD CONSTRAINT "agent_runs_automation_run_id_automation
 ALTER TABLE "agent_runs" DROP CONSTRAINT "agent_runs_owner_check";
 --> statement-breakpoint
 ALTER TABLE "agent_runs" ADD CONSTRAINT "agent_runs_owner_check" CHECK (num_nonnulls(job_id, pr_review_id, email_message_id, automation_id) <= 1);
---> statement-breakpoint
-ALTER TABLE "agent_runs" ADD CONSTRAINT "agent_runs_automation_run_chk" CHECK (automation_run_id is null or automation_id is not null);
 --> statement-breakpoint
 CREATE INDEX "agent_runs_automation_idx" ON "agent_runs" USING btree ("automation_id") WHERE "automation_id" IS NOT NULL;

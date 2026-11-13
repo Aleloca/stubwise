@@ -486,6 +486,12 @@ export interface AutomationTestEstimate {
   /** `null`: il modello non ha una tariffa nota (mai uno zero inventato). */
   estimateUsd: number | null;
   model: string;
+  /**
+   * Un «per ogni» su un elenco che l'esempio non ha (lo decide Claude) è stato
+   * contato col MASSIMO dei giri (50): la stima è un tetto, non il previsto.
+   * Assente da un server più vecchio.
+   */
+  upperBound?: boolean;
 }
 
 /** `POST /api/automations/:code/test/claude` (area 7, F3, D4): il risultato di un passo di Claude della prova. */

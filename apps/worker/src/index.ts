@@ -804,7 +804,7 @@ startFolderSyncPoller({
 startAutomationsPoller({
   db,
   // F3: i passi di Claude passano dal runner che traccia (modello di `automation_step`, consumi in `agent_runs`).
-  execute: () => executeDueRuns({ db, runner, log: (m) => console.error(`[stubwise-worker] ${m}`) }),
+  execute: () => executeDueRuns({ db, runner, select, log: (m) => console.error(`[stubwise-worker] ${m}`) }),
   log: (m) => console.error(`[stubwise-worker] ${m}`),
   intervalSeconds: config.automationsPollSeconds,
   signal: controller.signal,

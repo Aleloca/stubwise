@@ -1,6 +1,6 @@
 import { visitSteps } from "./fields.js";
 import { STUBWISE_TRIGGER_FIELDS, WAIT_REPLY_FIELDS } from "./triggerFields.js";
-import type { AutomationFlow, AutomationSource, Step } from "./types.js";
+import type { AutomationFlow, AutomationSource, Condition, Step } from "./types.js";
 
 // I campi «tinti» (area 7, F3, F3-1 = a *(M)*): ciò che arriva da fuori lo
 // scrive chiunque — un'email arrivata (F2-1: anche quelle che la Posta tiene
@@ -21,9 +21,25 @@ function untrustedBase(flow: AutomationFlow, sources: AutomationSource[]): Set<s
   const t = flow.trigger;
   if (t.kind === "stubwise" && t.event === "mail_received")
     for (const k of keysOf(STUBWISE_TRIGGER_FIELDS.mail_received)) base.add(k);
+  // Review F3, I4 *(O, 46)*: una richiesta può venire dal widget di supporto
+  // (`richiesta.dal_supporto`): allora titolo e descrizione li ha scritti un
+  // cliente. La tinta si calcola sul flusso, prima dell'evento: è tinta salvo
+  // un filtro dell'inizio che escluda le richieste dal supporto.
+  if (t.kind === "stubwise" && (t.event === "request_created" || t.event === "request_converted") && !excludesSupport(t.filter))
+    for (const k of ["richiesta.titolo", "richiesta.descrizione"]) base.add(k);
   if (t.kind === "source")
     for (const k of keysOf(sources.find((s) => s.id === t.sourceId)?.fields ?? [])) base.add(k);
   return base;
+}
+
+/** Il filtro dell'inizio esclude le richieste dal supporto (`richiesta.dal_supporto` è falso, in un «tutte»)? */
+function excludesSupport(filter: Condition | undefined): boolean {
+  if (!filter) return false;
+  const leaf = (c: Condition) =>
+    c.left !== undefined && "ref" in c.left && c.left.ref === "richiesta.dal_supporto" &&
+    ((c.op === "is" && c.right !== undefined && "value" in c.right && c.right.value === false) ||
+      (c.op === "is_not" && c.right !== undefined && "value" in c.right && c.right.value === true));
+  return leaf(filter) || (filter.all ?? []).some(excludesSupport);
 }
 
 /** Una chiave è tinta se lo è lei o un suo prefisso (`cliente` → `cliente.email`). */
@@ -59,6 +75,12 @@ function taint(flow: AutomationFlow, sources: AutomationSource[]) {
       if (step.kind === "forEach" && isTainted(derived, step.list) && !derived.has(step.as)) {
         keys.add(step.as);
         derived.add(step.as);
+        changed = true;
+      }
+      // Review F3, M6: su un elenco GREZZO non fidato l'elemento è tinto (per chi
+      // legge: R-J16, `reasonHidden`), ma non è deciso da Claude (F3-1 non scatta).
+      if (step.kind === "forEach" && isTainted(keys, step.list) && !keys.has(step.as)) {
+        keys.add(step.as);
         changed = true;
       }
     });

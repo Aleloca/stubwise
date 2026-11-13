@@ -1566,8 +1566,6 @@ export const agentRuns = pgTable(
       "agent_runs_owner_check",
       sql`num_nonnulls(job_id, pr_review_id, email_message_id, automation_id) <= 1`,
     ),
-    // Area 7, F3 (0173): la run di un'esecuzione solo insieme all'automazione (NULL = una prova).
-    check("agent_runs_automation_run_chk", sql`automation_run_id is null or automation_id is not null`),
     index("agent_runs_automation_idx").on(table.automationId).where(sql`${table.automationId} IS NOT NULL`),
     // I lettori per ticket si aspettano una fase sulle righe di un job.
     check("agent_runs_job_phase_check", sql`job_id is null or phase is not null`),
