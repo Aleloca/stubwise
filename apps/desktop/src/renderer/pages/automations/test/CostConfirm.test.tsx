@@ -37,4 +37,18 @@ describe("la conferma del costo della prova", () => {
     );
     expect(screen.getByRole("button", { name: "Test with Claude" })).toBeDisabled();
   });
+
+  it("un modello senza tariffa: il costo non si stima, ma si conferma lo stesso", () => {
+    render(
+      <CostConfirm
+        cost={{ claudeSteps: 2, estimateUsd: null, model: "x" }}
+        busy={false}
+        onConfirm={() => {}}
+      />,
+    );
+    const region = screen.getByRole("region", { name: "Claude in this test" });
+    expect(region).toHaveTextContent("asks Claude 2 times");
+    expect(region).toHaveTextContent("the cost can't be estimated");
+    expect(region).not.toHaveTextContent("$");
+  });
 });

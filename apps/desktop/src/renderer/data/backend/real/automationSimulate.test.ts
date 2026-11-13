@@ -346,13 +346,13 @@ describe("la prova nella build app", () => {
     const s = createRealSimulation({
       ...api,
       claude: {
-        estimate: async (automationId, version) => {
-          calls.push(`GET estimate ${automationId} ${version}`);
+        estimate: async (automationId, version, event) => {
+          calls.push(`GET estimate ${automationId} ${version} ${JSON.stringify(event)}`);
           return { claudeSteps: 2, estimateUsd: 0.04, model: "sonnet" };
         },
         run: async (automationId, body) => {
           runs.push({ automationId, ...body });
-          return { outcome: "firmato", reason: "C'è la firma" };
+          return { outcome: "firmato", reason: "C'è la firma", truncated: runs.length === 1 ? ["task.titolo"] : [] };
         },
       },
     });
@@ -371,7 +371,13 @@ describe("la prova nella build app", () => {
       { automationId: "a-1", version: 1, path: "0", vars: expect.any(Object) },
       { automationId: "a-1", version: 1, path: "1", vars: expect.any(Object) },
     ]);
-    expect(calls.filter((c) => c.startsWith("GET estimate"))).toHaveLength(1);
+    // La stima porta l'evento dell'esempio; una sola per la prova.
+    expect(calls.filter((c) => c.startsWith("GET estimate"))).toEqual([
+      `GET estimate a-1 draft {"task":{"titolo":"AUD-1"}}`,
+    ]);
+    // Un input tagliato si dice in testa alla motivazione, come nell'esecuzione vera.
+    expect(v.preview.claude[0]!.reason).toMatch(/^\[Input tagliati a 20 000 caratteri: task\.titolo\] /);
+    expect(v.preview.claude[1]!.reason).toBe("C'è la firma");
   });
 
   it("senza la rotta di Claude (un server della F2) un passo di Claude non è disponibile", async () => {

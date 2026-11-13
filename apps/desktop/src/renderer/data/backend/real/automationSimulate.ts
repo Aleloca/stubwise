@@ -39,14 +39,17 @@ export interface SimulationApi {
    * mai il modello). Assente (un server della F2): Claude non è disponibile.
    */
   claude?: {
+    /** Gratuita: il prompt vero sull'evento dell'esempio. `estimateUsd` null = modello senza tariffa. */
     estimate(
       automationId: string,
       version: number | "draft",
-    ): Promise<{ claudeSteps: number; estimateUsd: number; model: string }>;
+      event: Record<string, unknown>,
+    ): Promise<{ claudeSteps: number; estimateUsd: number | null; model: string }>;
+    /** La risposta di Claude per il passo; `truncated`: gli input tagliati a 20 000 caratteri. */
     run(
       automationId: string,
       body: { version: number; path: string; vars: Record<string, unknown> },
-    ): Promise<ClaudeResult>;
+    ): Promise<ClaudeResult & { truncated?: string[] }>;
   };
 }
 
@@ -180,7 +183,8 @@ interface Trial {
   version: number | "draft";
   /** F3: le risposte di Claude, il costo stimato e se chi prova l'ha confermato (una volta). */
   answers: Map<string, ClaudeResult>;
-  cost: { claudeSteps: number; estimateUsd: number; model: string } | null;
+  event: Record<string, unknown>;
+  cost: { claudeSteps: number; estimateUsd: number | null; model: string } | null;
   confirmed: boolean;
   waitingCost: boolean;
 }
@@ -245,6 +249,7 @@ export function createRealSimulation(api: SimulationApi) {
         a: { ...ctx.automation, ownerId: ctx.ownerId },
         version,
         answers,
+        event,
         cost: null,
         confirmed: false,
         waitingCost: false,
@@ -266,16 +271,21 @@ export function createRealSimulation(api: SimulationApi) {
           if (!(error instanceof ClaudePending) || !api.claude) throw error;
           // Il primo passo di Claude: il costo stimato, da confermare una volta (D4, F3-3 = a).
           if (!t.confirmed) {
-            t.cost ??= await api.claude.estimate(t.ctx.automation.id, t.version);
+            t.cost ??= await api.claude.estimate(t.ctx.automation.id, t.version, t.event);
             t.waitingCost = true;
             break;
           }
           const path = t.sim.pending?.path ?? "";
           const vars = t.sim.pending?.kind === "claude" ? t.sim.pending.vars : {};
-          t.answers.set(
-            error.key,
-            await api.claude.run(t.ctx.automation.id, { version: t.ctx.version, path, vars }),
-          );
+          const { truncated = [], ...answer } = await api.claude.run(t.ctx.automation.id, {
+            version: t.ctx.version,
+            path,
+            vars,
+          });
+          // Come l'esecuzione vera: gli input tagliati si dicono in testa alla motivazione.
+          if (truncated.length > 0)
+            answer.reason = `[Input tagliati a 20 000 caratteri: ${truncated.join(", ")}] ${answer.reason}`;
+          t.answers.set(error.key, answer);
         }
       }
       await markIfDone(t, wasDone);

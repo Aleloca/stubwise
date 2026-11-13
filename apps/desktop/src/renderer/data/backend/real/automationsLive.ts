@@ -1,7 +1,7 @@
 import { ApiError, type StubwiseClient } from "@stubwise/api-client";
-import type { AutomationSearchResult } from "@stubwise/shared";
+import type { AutomationSearchResult, ClaudeResult } from "@stubwise/shared";
 import { isIntegrated } from "../../integration";
-import { createAutomationRefs, inPrototypeWords } from "./automationRefs";
+import { asPrototypeError, createAutomationRefs, inPrototypeWords } from "./automationRefs";
 import { createRealAutomations, type AutomationsApi } from "./automations";
 import { SimulationConfigError } from "../../../domain/automations/simCore";
 import { createRealSimulation } from "./automationSimulate";
@@ -45,7 +45,46 @@ const simulation = createRealSimulation({
       throw error;
     }
   },
+  // F3: i passi di Claude della prova sul server (le rotte di 72, non ancora nel client).
+  claude: {
+    estimate: (automationId, version, event) =>
+      claudeRoute(() =>
+        appClient().request<{ claudeSteps: number; estimateUsd: number | null; model: string }>(
+          "POST",
+          `/api/automations/${encodeURIComponent(refs.automation(automationId).code)}/test/estimate`,
+          { version, event },
+        ),
+      ),
+    async run(automationId, body) {
+      const path = `/api/automations/${encodeURIComponent(refs.automation(automationId).code)}/test/claude`;
+      try {
+        return await appClient().request<ClaudeResult & { truncated?: string[] }>("POST", path, body);
+      } catch (error) {
+        // Una risposta fuori forma: la si passa al motore, che fallisce il passo coi suoi
+        // codici (come l'esecuzione vera); una non JSON è `claude_invalid`.
+        if (error instanceof ApiError && error.status === 422 && error.code === "claude_invalid") {
+          const result = (error.details as { result?: Record<string, unknown> } | undefined)?.result;
+          if (result && !("raw" in result))
+            return { reason: "", ...result } as ClaudeResult & { truncated?: string[] };
+          throw new Error("invalid: claude_invalid");
+        }
+        return claudeRoute(() => Promise.reject(error));
+      }
+    },
+  },
 });
+
+/** Le parole della prova per le rotte di Claude: budget finito, un server senza la F3, il resto. */
+async function claudeRoute<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 409 && error.code === "budget")
+      throw new Error("invalid: budget");
+    if (error instanceof ApiError && error.status === 404) throw new Error("invalid: not_available");
+    throw asPrototypeError(error);
+  }
+}
 
 const { reset: resetSimulations, forgetContext, ...simulationFunctions } = simulation;
 

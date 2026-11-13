@@ -325,6 +325,89 @@ describe("la prova dopo una modifica (review, minore)", () => {
   });
 });
 
+describe("la prova con Claude vero (F3, le rotte di 72)", () => {
+  const claudeFlow = {
+    trigger: { kind: "manual" },
+    titleTemplate: "Prova",
+    steps: [
+      {
+        id: "c1",
+        kind: "claude",
+        instruction: "Firmato?",
+        inputs: ["avvio.data"],
+        outcomes: ["si", "no"],
+        fields: [],
+        branches: { si: [], no: [] },
+      },
+    ],
+  };
+  const context = {
+    automation: {
+      ...serverAutomation(7),
+      versions: [{ ...serverAutomation(7).versions[0], flow: claudeFlow }],
+    },
+    version: 1,
+    draft: true,
+    rev: 7,
+    ownerId: ME_ID,
+    configErrors: [],
+    people: [{ id: ME_ID, name: "Ada", departmentIds: [], deactivated: false }],
+    projects: [],
+  };
+  const base = (claude: { status?: number; body?: unknown }) => ({
+    "GET /api/auth/me": { body: me() },
+    "GET /api/automations": { body: { items: [serverRow(7)] } },
+    "GET /api/automations/AUD-A1/examples": { body: { items: [], context } },
+    "POST /api/automations/AUD-A1/test/estimate": {
+      body: { claudeSteps: 1, estimateUsd: 0.01, model: "claude-sonnet" },
+    },
+    "POST /api/automations/AUD-A1/test/claude": claude,
+    "POST /api/automations/AUD-A1/tested": { status: 204 },
+  });
+  const start = async () => {
+    await getSessionPerson();
+    await automations.listAutomations();
+    const id = await automations.startSimulation(A_ID, "draft", { avvio: { data: "2026-11-13" } });
+    const first = await automations.simulationStep(id, { kind: "run" });
+    expect(first.costToConfirm).toEqual({ claudeSteps: 1, estimateUsd: 0.01, model: "claude-sonnet" });
+    await automations.confirmSimulationCost(id);
+    return id;
+  };
+
+  it("stima e risposta dalle rotte vere, coi corpi esatti", async () => {
+    const { seen } = installFakeServer(base({ body: { outcome: "si", reason: "Firmato", truncated: [] } }));
+    const id = await start();
+    const v = await automations.simulationStep(id, { kind: "run" });
+    expect(v.status).toBe("done");
+    expect(seen.find((r) => r.path.endsWith("/test/estimate"))!.body).toEqual({
+      version: "draft",
+      event: { avvio: { data: "2026-11-13" } },
+    });
+    expect(seen.find((r) => r.path.endsWith("/test/claude"))!.body).toEqual({
+      version: 1,
+      path: "0",
+      vars: expect.objectContaining({ "avvio.data": "2026-11-13" }),
+    });
+  });
+
+  it("una risposta fuori forma (422) fa fallire il passo col codice del motore; il budget finito (409) ferma la prova", async () => {
+    installFakeServer(
+      base({
+        status: 422,
+        body: { code: "claude_invalid", message: "x", error: "unknown_outcome", result: { outcome: "forse", reason: "boh" } },
+      }),
+    );
+    let id = await start();
+    const v = await automations.simulationStep(id, { kind: "run" });
+    expect(v.status).toBe("failed");
+    expect(v.error).toBe("unknown_outcome");
+    installFakeServer(base({ status: 409, body: { code: "budget", message: "budget" } }));
+    forgetAutomationRefs();
+    id = await start();
+    await expect(automations.simulationStep(id, { kind: "run" })).rejects.toThrow(/^invalid: budget$/);
+  });
+});
+
 describe("al cambio di persona", () => {
   it("codici e revisioni letti dalla persona di prima non valgono per la nuova", async () => {
     let who = me();

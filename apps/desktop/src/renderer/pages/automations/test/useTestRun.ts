@@ -202,8 +202,15 @@ export function useTestRun({
       const fresh = after.preview.claude.slice(claudeBefore);
       for (const c of fresh) await streamClaude(c.path, c.reason);
       return after;
-    } catch {
-      toast.error(t("automations.test.stop.error"));
+    } catch (error) {
+      // I passi di Claude della prova (F3): il budget finito, una risposta non
+      // leggibile, un server senza la F3 hanno parole loro.
+      const code = error instanceof Error ? error.message.replace(/^invalid: /, "") : "";
+      toast.error(
+        t(`automations.test.stop.errors.${code}`, {
+          defaultValue: t("automations.test.stop.error"),
+        }),
+      );
       return null;
     }
   };
@@ -233,7 +240,8 @@ export function useTestRun({
       const id = simRef.current;
       const same = () => mounted.current && simRef.current === id;
       let cur: SimulationView | null = sim;
-      while (cur && cur.status === "running" && cur.current && same()) {
+      // Ferma al costo da confermare (F3): il giro non riparte da solo.
+      while (cur && cur.status === "running" && cur.current && !cur.costToConfirm && same()) {
         cur = await sendOnce({ kind: "next" });
         if (cur && cur.status === "running" && cur.current)
           await new Promise((r) => window.setTimeout(r, PACE_MS));
