@@ -5,6 +5,7 @@
 // tipata `typeof Fake.<nome>` con un `import type`, così il finto non entra
 // mai nel bundle.
 import type * as Fake from "../../api";
+import { liveAutomations } from "./automationsLive";
 import { adminDepartments } from "./departments";
 import { partialNamespace } from "./notIntegrated";
 import { chatFunctions } from "./chat";
@@ -43,6 +44,11 @@ export { drive } from "./drive";
 export { mail } from "./mail";
 // Il Calendario (area 6, fetta 1): in lettura, e le serie (`calendar.ts`).
 export { calendar } from "./calendar";
+/** Le Automations di progetto (area 7, F1): `automationsLive.ts`; la destinazione resta spenta finché c'è il flag. */
+export const automations: typeof Fake.automations = partialNamespace<typeof Fake.automations>(
+  "automations",
+  liveAutomations,
+);
 export const chat: typeof Fake.chat = partialNamespace<typeof Fake.chat>("chat", {
   ...chatFunctions,
   channelStream,
