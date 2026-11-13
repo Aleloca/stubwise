@@ -5,6 +5,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { buildApp } from "../app.js";
 import {
   aiJobs,
+  instanceSettings,
+  releaseCiRuns,
   encrypt,
   environmentServers,
   gitAccounts,
@@ -1458,11 +1460,66 @@ describe("area 8, F1, S9: le note di rilascio di una PR", () => {
     const put = await app.inject({ method: "PUT", url: s.url, headers: dev.headers, payload: { body: "Nuovo checkout." } });
     expect(put.statusCode).toBe(200);
     expect(put.json()).toMatchObject({ body: "Nuovo checkout.", updatedById: dev.id, canEdit: true });
+    // E l'elenco delle PR le porta già (niente GET per PR).
+    const pulls = (await app.inject({ method: "GET", url: `/api/projects/${s.projectId}/pulls`, headers: dev.headers })).json() as { items: { releaseNotes: string | null }[] };
+    expect(pulls.items[0]!.releaseNotes).toBe("Nuovo checkout.");
     const viewer = await user(s.projectId, "viewer");
     expect((await app.inject({ method: "PUT", url: s.url, headers: viewer.headers, payload: { body: "x" } })).statusCode).toBe(403);
     expect((await app.inject({ method: "GET", url: s.url, headers: viewer.headers })).json()).toMatchObject({ body: "Nuovo checkout." });
     const outsider = await createUserWithPat(app, `out-${randomUUID().slice(0, 6)}@acme.com`);
     expect((await app.inject({ method: "GET", url: s.url, headers: outsider.headers })).statusCode).toBe(404);
     expect((await app.inject({ method: "GET", url: `/api/repositories/${s.repositoryId}/pulls/999/release-notes`, headers: dev.headers })).json()).toMatchObject({ code: "pr_not_found" });
+  });
+});
+
+describe("area 8, F1, S10: la Home «Rilasci»", () => {
+  let seq = 0;
+  async function failedRelease(projectId: string, repositoryId: string, opts: { fixTicketId?: string } = {}) {
+    seq++;
+    const [rel] = await testDb.db
+      .insert(releases)
+      .values({ code: `R${randomUUID().slice(0, 5).toUpperCase()}-V${seq}`, seq, projectId, repositoryId, prNumber: 100 + seq, prUrl: "u", title: "Checkout", mergeSha: String(seq).padStart(40, "c"), mergedAt: new Date(Date.now() - 60_000), viaStubwise: true, fixTicketId: opts.fixTicketId ?? null })
+      .returning();
+    await testDb.db.insert(releaseCiRuns).values({ releaseId: rel!.id, providerRunId: "1", name: "test", status: "failed", startedAt: new Date(), endedAt: new Date() });
+    return rel!;
+  }
+  const meReleases = async (headers: Record<string, string>) => (await app.inject({ method: "GET", url: "/api/me/releases", headers })).json() as { failed: { code: string }[]; ready: { prUrl: string }[] };
+  const blocksOf = async (headers: Record<string, string>) => ((await app.inject({ method: "GET", url: "/api/me/home", headers })).json() as { blocks: { kind: string }[] }).blocks.map((b) => b.kind);
+
+  it("chi ha release.merge: il blocco nella Home, i falliti (finché la riparazione è aperta) e le PR pronte; un Developer no", async () => {
+    const { projectId, repositoryId } = await seedOpenPr();
+    vi.stubGlobal("fetch", greenFetch());
+    await testDb.db.update(repositories).set({ ciProvider: "github_actions" }).where(eq(repositories.id, repositoryId));
+    const lead = await createUserWithPat(app, `lead-${randomUUID().slice(0, 6)}@acme.com`);
+    await addMember(app, projectId, lead.id, "project_lead");
+    const dev = await createUserWithPat(app, `dev-${randomUUID().slice(0, 6)}@acme.com`);
+    await addMember(app, projectId, dev.id, "developer");
+
+    const open = await failedRelease(projectId, repositoryId);
+    const { ticketId: closedFix } = await seedTicket(testDb.db, { projectId, repositoryId, number: 50 });
+    await testDb.db.update(tickets).set({ status: "done" }).where(eq(tickets.id, closedFix));
+    const repaired = await failedRelease(projectId, repositoryId, { fixTicketId: closedFix });
+
+    expect(await blocksOf(lead.headers)).toContain("releases");
+    expect(await blocksOf(dev.headers)).not.toContain("releases");
+    const mine = await meReleases(lead.headers);
+    expect(mine.failed.map((r) => r.code)).toEqual([open.code]);
+    expect(mine.failed.map((r) => r.code)).not.toContain(repaired.code);
+    // La review automatica è spenta: la PR verde di Stubwise è pronta (niente analisi da aspettare).
+    expect(mine.ready.map((p) => p.prUrl)).toEqual([PR_URL]);
+    expect(await meReleases(dev.headers)).toEqual({ failed: [], ready: [] });
+  });
+
+  it("con la review accesa e nessuna analisi, la PR non è ancora pronta", async () => {
+    const { projectId } = await seedOpenPr();
+    vi.stubGlobal("fetch", greenFetch());
+    await testDb.db.update(instanceSettings).set({ prReviewEnabled: true }).where(eq(instanceSettings.id, 1));
+    try {
+      const lead = await createUserWithPat(app, `lead-${randomUUID().slice(0, 6)}@acme.com`);
+      await addMember(app, projectId, lead.id, "project_lead");
+      expect((await meReleases(lead.headers)).ready).toEqual([]);
+    } finally {
+      await testDb.db.update(instanceSettings).set({ prReviewEnabled: false }).where(eq(instanceSettings.id, 1));
+    }
   });
 });

@@ -1,4 +1,4 @@
-import { aiJobs, prCorrections, prReviews, projectEnvironments, projects, repositories, type Db } from "@stubwise/db";
+import { aiJobs, instanceSettings, prCorrections, prReleaseNotes, prReviews, projectEnvironments, projects, repositories, type Db } from "@stubwise/db";
 import { cancelOpenCorrections } from "@stubwise/notifications";
 import { isReadyForRelease, prStateOf, stubwiseTicketNumber, type OpenPull, type PrCorrectionInput } from "@stubwise/shared";
 import { and, desc, eq, inArray, ne } from "drizzle-orm";
@@ -82,7 +82,17 @@ export async function listOpenPulls(db: Db, encryptionKey: Buffer, viewer: Pick<
         .where(and(eq(projectEnvironments.projectId, projectId), eq(projectEnvironments.kind, "staging")))
     ).map((e) => e.name),
   );
+  // La review automatica spenta: una PR senza analisi non resta «in analisi»
+  // per sempre (non c'è niente da aspettare), vale come analizzata senza
+  // problemi sulla head di adesso. Con la review accesa si aspetta.
+  const [settings] = await db.select({ on: instanceSettings.prReviewEnabled }).from(instanceSettings).where(eq(instanceSettings.id, 1));
+  const reviewOn = settings?.on === true;
+  const notesRows = await db
+    .select({ repositoryId: prReleaseNotes.repositoryId, prNumber: prReleaseNotes.prNumber, body: prReleaseNotes.body })
+    .from(prReleaseNotes)
+    .where(inArray(prReleaseNotes.repositoryId, repoIds));
   const key = (r: string, n: number | null) => `${r}:${n}`;
+  const notesOf = new Map(notesRows.map((r) => [key(r.repositoryId, r.prNumber), r.body]));
   const rowsOf = (r: string, n: number | null) => reviewRows.filter((x) => key(x.repositoryId, x.prNumber) === key(r, n));
   const editReleaseNotes = perms.has("release.merge") || perms.has("tickets.edit");
   return items.map((i) => {
@@ -123,7 +133,9 @@ export async function listOpenPulls(db: Db, encryptionKey: Buffer, viewer: Pick<
         ? { sha: review.headSha, status: "running", issues: [] }
         : completed
           ? { sha: completed.headSha, status: "done", issues }
-          : null,
+          : !reviewOn && rows.length === 0
+            ? { sha: i.headSha ?? "", status: "done", issues: [] }
+            : null,
       corrections: correctionInputs,
       cap: project?.cap ?? 0,
       repoMode: repo?.colleaguePrs ?? "analyze_only",
@@ -157,7 +169,7 @@ export async function listOpenPulls(db: Db, encryptionKey: Buffer, viewer: Pick<
       cap: project?.cap ?? 0,
       analysisOnly: flagged ? { byId: flagged.analysisOnlyBy, at: (flagged.analysisOnlyAt ?? new Date(0)).toISOString() } : null,
       prState,
-      ready: isReadyForRelease({ state: "open", checks: checksStatus, mergeable: null, analysis: completed ? { issues } : null }, prState),
+      ready: isReadyForRelease({ state: "open", checks: checksStatus, mergeable: null, analysis: { issues: completed ? issues : [] } }, prState),
       fromFork,
       mergeable: null,
       colleaguePrs: repo?.colleaguePrs ?? "analyze_only",
@@ -175,6 +187,7 @@ export async function listOpenPulls(db: Db, encryptionKey: Buffer, viewer: Pick<
         };
       }),
       onStaging: i.deployedOn.some((name) => stagingNames.has(name)),
+      releaseNotes: notesOf.get(key(i.repositoryId, i.prNumber)) ?? null,
       ...(repo ? { repositoryFullName: repo.repoUrl.replace(/\.git$/, "").replace(/\/+$/, "").split("/").slice(-2).join("/") } : {}),
       permissions: {
         analysisOnly: colleague && perms.has("prs.adopt"),

@@ -150,6 +150,8 @@ export interface OpenPull {
   onStaging?: boolean;
   /** `owner/repo` del repository, come nelle righe dei rilasci. */
   repositoryFullName?: string;
+  /** Le note di rilascio salvate della PR (`pr_release_notes`); null se nessuno le ha scritte. La bozza è in `…/release-notes`. */
+  releaseNotes?: string | null;
   permissions: {
     /** Mettere o togliere «Solo analisi» (una PR di un collega, `prs.adopt`). */
     analysisOnly: boolean;
@@ -176,4 +178,16 @@ export interface PrReleaseNotes {
   draft: { text: string; sources: string[] };
   commitsRead: boolean;
   canEdit: boolean;
+}
+
+/**
+ * Il blocco «Rilasci» della Home (area 8, F1, S10), di chi ha `release.merge`
+ * in qualche progetto: i rilasci FALLITI dei suoi progetti finché la loro
+ * task di riparazione non si chiude (uno in riparazione resta), dal più
+ * recente; poi le PR PRONTE per il rilascio (`ready`). Nella F2 «falliti che
+ * mi riguardano» si allarga agli iscritti all'avviso (catalogo).
+ */
+export interface MyReleases {
+  failed: ReleaseRow[];
+  ready: OpenPull[];
 }

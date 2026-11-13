@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { myReleases } from "../services/my-releases.js";
 import { apiError } from "../errors.js";
 import {
   blockError,
@@ -43,6 +44,11 @@ export async function homeRoutes(fastify: FastifyInstance): Promise<void> {
       schema: { response: { 200: meHomeViewSchema, ...authErrorResponses } },
     },
     async (request) => meHome(app.db, request.user!),
+  );
+
+  // Area 8, F1, S10: il blocco «Rilasci» della Home (vuoto per chi non ha `release.merge`).
+  app.get("/me/releases", { config: { access: { kind: "user" } } }, async (request) =>
+    myReleases(app.db, app.encryptionKey, request.user!),
   );
 
   app.put(
