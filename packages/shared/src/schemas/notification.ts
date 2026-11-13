@@ -69,6 +69,14 @@ export const notificationKindSchema = z.enum([
   // Area 8, fetta 1 (0175): un rilascio fallito (le run di CI del commit di
   // merge), a chi ha `release.merge` nel progetto. Il link porta al rilascio.
   "release.failed",
+  // Area 8, fetta 2 (0177): i tipi del catalogo degli avvisi (iscrizioni per
+  // progetto). I destinatari li decide il catalogo, mai Slack (M3).
+  "release.merged",
+  "release.succeeded",
+  "pr.opened",
+  "pr.analysis_issues",
+  "pr.corrected",
+  "docs.release_note",
 ]);
 
 /**

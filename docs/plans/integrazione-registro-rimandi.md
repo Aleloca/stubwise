@@ -708,6 +708,17 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     una chiamata al provider per PR. Non c'è un ripiego economico (la
     prontezza vuole i controlli letti dal provider); da rivedere se pesa.
 
+- F2 (avvisi e iscrizioni), due decisioni *(ruling di 72 approvati da 46, O,
+  14 nov 2026)*:
+  - Le iscrizioni sono lo stato di ADESSO (`alert_subscriptions`, upsert;
+    nessuna riga = il default del catalogo). La tabella della storia
+    `alert_subscription_changes` della bozza **non si fa**: sul server la card
+    nasce alla pubblicazione, nessuna lettura chiede il passato. Se un domani
+    servisse un registro delle modifiche, si aggiunge accanto.
+  - Un `monitor.*` di un server senza un solo progetto (nessun `projectId`)
+    resta sul routing di oggi (`monitor.manage`): le iscrizioni sono per
+    progetto. Test nella F2.
+
 - Blocchi della Home «Rilasci» (anche l'extra di `resolveHome` per
   `release.merge`) e «Clienti in attesa».
 - Origine di una richiesta da Support; «View conversation» delle task del widget.

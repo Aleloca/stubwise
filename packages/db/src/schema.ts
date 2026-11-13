@@ -1804,6 +1804,13 @@ export const notificationKind = pgEnum("notification_kind", [
   // Area 8, fetta 1 (0175, DA SOLO): un rilascio fallito (le run di CI del
   // commit di merge), a chi ha fatto il merge e a chi ha `release.merge`.
   "release.failed",
+  // Area 8, fetta 2 (0177).
+  "release.merged",
+  "release.succeeded",
+  "pr.opened",
+  "pr.analysis_issues",
+  "pr.corrected",
+  "docs.release_note",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),
@@ -6901,6 +6908,34 @@ export const releaseCiRuns = pgTable(
   (table) => [
     uniqueIndex("release_ci_runs_release_run_idx").on(table.releaseId, table.providerRunId),
     check("release_ci_runs_status_chk", sql`${table.status} IN ('running', 'success', 'failed')`),
+  ],
+);
+
+/**
+ * Area 8, F2 (0177): le iscrizioni agli avvisi del catalogo, per persona,
+ * progetto e tipo. Lo stato di ADESSO (upsert); nessuna riga = il default del
+ * catalogo (`@stubwise/shared`) dai permessi di adesso. `app` = la card in
+ * inbox, `phone` = il push (M-2 = b: per i tipi del catalogo sostituisce
+ * `users.notify_push`).
+ */
+export const alertSubscriptions = pgTable(
+  "alert_subscriptions",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    alertType: text("alert_type").notNull(),
+    app: boolean("app").notNull(),
+    phone: boolean("phone").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "alert_subscriptions_pk", columns: [table.userId, table.projectId, table.alertType] }),
+    index("alert_subscriptions_project_type_idx").on(table.projectId, table.alertType),
+    check("alert_subscriptions_type_chk", sql`${table.alertType} ~ '^[a-z]+(\\.[a-z_]+)+$'`),
   ],
 );
 

@@ -136,6 +136,13 @@ const TOGGLE_FOR_KIND: Record<NotificationKind, keyof NotificationSettingsRow> =
   "automation.paused": "notifyGoogleProposal",
   // Area 8, F1: riusa l'interruttore dei job falliti (è lo stesso tipo di avviso: «qualcosa è andato storto»).
   "release.failed": "notifyJobFailed",
+  // Area 8, F2: mai consultati — i tipi del catalogo non vanno sul webhook (M3, `shouldSendWebhook`).
+  "release.merged": "notifyJobFailed",
+  "release.succeeded": "notifyJobFailed",
+  "pr.opened": "notifyJobFailed",
+  "pr.analysis_issues": "notifyJobFailed",
+  "pr.corrected": "notifyJobFailed",
+  "docs.release_note": "notifyJobFailed",
 };
 
 /** Una transazione drizzle aperta su `Db` (il `tx` di `db.transaction`). */

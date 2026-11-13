@@ -1345,6 +1345,12 @@ describe("sampleEvents", () => {
       "monitor.alert",
       "monitor.recovered",
       "release.failed",
+      "release.merged",
+      "release.succeeded",
+      "pr.opened",
+      "pr.analysis_issues",
+      "pr.corrected",
+      "docs.release_note",
       "job.awaiting_input",
       "project.pulse",
       "project.brief",
@@ -1370,7 +1376,16 @@ describe("sampleEvents", () => {
         expect(event.docsUrl.startsWith("https://app.example.com/docs/")).toBe(true);
       } else if (event.kind === "monitor.alert" || event.kind === "monitor.recovered") {
         expect(event.url.startsWith("https://app.example.com/monitor/")).toBe(true);
-      } else if (event.kind === "release.failed") {
+      } else if (
+        event.kind === "release.failed" ||
+        event.kind === "release.merged" ||
+        event.kind === "release.succeeded" ||
+        event.kind === "pr.opened" ||
+        event.kind === "pr.analysis_issues" ||
+        event.kind === "pr.corrected" ||
+        event.kind === "docs.release_note"
+      ) {
+        // Area 8: la pagina nell'app (rilascio, pannello della PR, Docs).
         expect(event.url.startsWith("https://app.example.com/app/")).toBe(true);
       } else if (
         event.kind === "project.pulse" ||
