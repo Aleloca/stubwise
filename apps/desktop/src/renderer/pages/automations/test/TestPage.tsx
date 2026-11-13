@@ -7,6 +7,7 @@ import {
   useAutomations,
   useAutomationSources,
   useSessionPersonId,
+  useConfirmAutomationSimulationCost,
 } from "../../../data/queries";
 import type { AutomationDetail, SimulationView } from "../../../data/types";
 import { useViewer } from "../../../data/viewing";
@@ -19,6 +20,7 @@ import { fieldLabels, isUntested } from "../format";
 import { NotVisible, useNames } from "../shared";
 import { numbersById, stepNumbers } from "../numbering";
 import { Blocked } from "./Blocked";
+import { CostConfirm } from "./CostConfirm";
 import { flowPathOf, TestContext, type TestState } from "./context";
 import { ExampleDialog } from "./ExampleDialog";
 import { defaultRound, indexLog } from "./marks";
@@ -160,7 +162,11 @@ function Test({ detail, adoptSimId }: { detail: AutomationDetail; adoptSimId: st
   const knownIssues = draft ? detail.configErrors : detail.liveErrors;
   const blockedBy = configIssues ?? (knownIssues.length > 0 ? knownIssues : null);
 
-  const canStep = !!sim && sim.status === "running" && !!sim.current && !busy && stream === null;
+  const confirmCost = useConfirmAutomationSimulationCost();
+  // F3 (D4): al primo passo di Claude la prova aspetta la conferma del costo.
+  const costToConfirm = sim?.costToConfirm ?? null;
+  const canStep =
+    !!sim && sim.status === "running" && !!sim.current && !busy && stream === null && !costToConfirm;
   const finished = sim !== null && TERMINAL.has(sim.status);
   const stopped = sim?.status.startsWith("waiting_") ?? false;
 
@@ -371,6 +377,15 @@ function Test({ detail, adoptSimId }: { detail: AutomationDetail; adoptSimId: st
                 >
                   {t("automations.test.example.title")}
                 </button>
+              )}
+              {costToConfirm && (
+                <CostConfirm
+                  cost={costToConfirm}
+                  busy={confirmCost.isPending || busy}
+                  onConfirm={() =>
+                    confirmCost.mutate(sim!.id, { onSuccess: () => void runToStop() })
+                  }
+                />
               )}
               <TestFlow treeRef={treeRef} />
               <Summary />

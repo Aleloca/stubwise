@@ -8167,6 +8167,12 @@
       }
     },
     "test": {
+      "cost": {
+        "title": "Claude in questa prova",
+        "body_one": "Questa prova chiede a Claude una volta: circa {{usd}} dal budget AI mensile dell'istanza.",
+        "body_other": "Questa prova chiede a Claude {{count}} volte: circa {{usd}} dal budget AI mensile dell'istanza.",
+        "confirm": "Prova con Claude"
+      },
       "title": "Prova: {{name}}",
       "back": "Torna a modificare",
       "band": {

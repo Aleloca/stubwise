@@ -4344,6 +4344,16 @@ export function useAutomationSimulationStep() {
   });
 }
 
+/** F3 (D4): chi prova conferma il costo dei passi di Claude, una volta per la prova. */
+export function useConfirmAutomationSimulationCost() {
+  const me = useSessionPersonId();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.automations.confirmSimulationCost(id),
+    onSuccess: (sim) => client.setQueryData(queryKeys.automationSimulation(me, sim.id), sim),
+  });
+}
+
 /** Butta la prova (uscendo, o ricominciando). */
 export function useEndAutomationSimulation() {
   const me = useSessionPersonId();

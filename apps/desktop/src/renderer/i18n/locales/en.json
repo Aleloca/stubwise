@@ -8167,6 +8167,12 @@
       }
     },
     "test": {
+      "cost": {
+        "title": "Claude in this test",
+        "body_one": "This test asks Claude once: about {{usd}} from the instance's monthly AI budget.",
+        "body_other": "This test asks Claude {{count}} times: about {{usd}} from the instance's monthly AI budget.",
+        "confirm": "Test with Claude"
+      },
       "title": "Test: {{name}}",
       "back": "Back to editing",
       "band": {

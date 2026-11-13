@@ -362,6 +362,12 @@ export interface SimulationView {
    * Facoltativo: assente = una prova fatta a mano.
    */
   claudeExample?: { code: string | null; title: string | null; written: boolean };
+  /**
+   * Area 7, F3 (D4, F3-3 = a): la prova è arrivata al primo passo di Claude e
+   * aspetta che chi prova confermi il costo stimato, una volta per tutta la
+   * prova. Facoltativo: assente o `null` = niente da confermare.
+   */
+  costToConfirm?: { claudeSteps: number; estimateUsd: number; model: string } | null;
   error: string | null;
   cursor: string | null;
   /** L'«adesso» della prova (va avanti con «Avanti»). */

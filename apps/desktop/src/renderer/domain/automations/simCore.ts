@@ -347,8 +347,11 @@ export function createSimulator(w: SimWorld) {
     // Ferma (attesa, approvazione, progetto): il motore non chiede effetti.
     const eff = sim.pending;
     if (!eff) throw invalid("stopped");
+    // Prima l'esecuzione, poi via dal sospeso: un aggancio che non ha ancora
+    // la risposta (Claude nella build app, F3) lascia l'effetto dov'era.
+    const input = execute(sim, a, eff);
     sim.pending = null;
-    apply(sim, a, advance(sim.engine, execute(sim, a, eff)));
+    apply(sim, a, advance(sim.engine, input));
   }
 
   /** I progetti che si possono scegliere: quelli che vedono il proprietario e chi prova (R-G5). */
