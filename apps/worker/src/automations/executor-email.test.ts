@@ -127,6 +127,21 @@ describe("l'email di un passo", () => {
     expect((await reload(run.id)).status).toBe("running");
   });
 
+  it("review F2, I1: «Riprova» su un'email che Gmail ha GIÀ mandato (`sent_unrecorded`) non la rimanda: la chiave resta e il registro lo dice", async () => {
+    const { run } = await runOf([email()]);
+    await exec();
+    const [row] = await mailOf(run.id);
+    await settle(row!.id, "failed", { error: "sent_unrecorded" });
+    await tick(run.id);
+    expect(await reload(run.id)).toMatchObject({ status: "failed", error: "sent_unrecorded" });
+    await t.db.insert(automationRunInputs).values({ runId: run.id, input: { control: "retry", byId: ownerId }, byId: ownerId });
+    await exec();
+    expect(await mailOf(run.id)).toHaveLength(1);
+    expect((await reload(run.id)).status).toBe("failed");
+    const last = (await logOf(run.id)).at(-1)!;
+    expect(last.why).toMatchObject({ code: "emailAlreadySent" });
+  });
+
   it("un invio interrotto (il worker morto a metà) è un fallimento, mai rimandato", async () => {
     const { run } = await runOf([email()]);
     await exec();

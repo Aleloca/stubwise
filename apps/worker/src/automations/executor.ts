@@ -330,7 +330,15 @@ async function control(turn: Turn, input: ControlInput): Promise<void> {
       if (status !== "failed" || cursorOf(turn.run).path === null) return;
       const skip = input.control === "skip";
       // Riprova un'email fallita: il gesto toglie la chiave dell'invio fallito, così ne parte uno nuovo.
-      if (!skip) await releaseFailedEmail(turn.deps.db, turn.run.id, cursorOf(turn.run).path!);
+      if (!skip && (await releaseFailedEmail(turn.deps.db, turn.run.id, cursorOf(turn.run).path!)) === "already_sent") {
+        await note(turn, {
+          outcome: "failed",
+          byId: input.byId,
+          reason: "L'email risulta già mandata da Gmail: non si rimanda. Controlla Gmail, poi salta il passo.",
+          why: { code: "emailAlreadySent" },
+        });
+        return;
+      }
       await note(turn, { outcome: skip ? "skipped" : "retried", byId: input.byId, reason: skip ? "Passo saltato." : "Riprova chiesta." });
       await setRun(turn, { status: "running", error: null, endedAt: null });
       await drive(turn, { kind: "time", now: turn.now }, skip ? skipTop : undefined);
