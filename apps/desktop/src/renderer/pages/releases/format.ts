@@ -70,7 +70,12 @@ export function prStateWord(pr: OpenPrView, t: TFunction): string {
 
 /** Il rischio in parola, se c'è un'analisi che si mostra. */
 export function riskWord(pr: OpenPrView, t: TFunction): string | null {
-  if (!pr.analysis || pr.prState.state === "analysis_off" || pr.prState.state === "analyzing") {
+  if (
+    !pr.analysis ||
+    pr.analysis.risk === null ||
+    pr.prState.state === "analysis_off" ||
+    pr.prState.state === "analyzing"
+  ) {
     return null;
   }
   return t(`releases.risk.${pr.analysis.risk}`);
@@ -84,7 +89,8 @@ export function notReadyReason(pr: OpenPrView, t: TFunction): string | null {
   if (pr.checks === "failing") return t("releases.reason.checksFailing");
   if (pr.checks === "pending") return t("releases.reason.checksRunning");
   if (pr.checks === "unreadable") return t("releases.reason.checksUnreadable");
-  if (!pr.mergeable) return t("releases.reason.conflicts", { branch: pr.baseBranch });
+  // `null` = non letto: non è un conflitto (lo dirà il merge).
+  if (pr.mergeable === false) return t("releases.reason.conflicts", { branch: pr.baseBranch });
   return null;
 }
 

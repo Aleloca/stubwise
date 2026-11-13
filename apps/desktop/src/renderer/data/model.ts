@@ -3180,7 +3180,8 @@ export interface PrAnalysis {
   sha: string;
   status: "running" | "done";
   summary: string;
-  risk: "low" | "medium" | "high";
+  /** `null`: il rischio non c'è (nella build app, una PR esterna: lo calcola solo la pipeline di Stubwise). */
+  risk: "low" | "medium" | "high" | null;
   issues: { title: string; file: string | null }[];
   at: string;
 }
@@ -3224,7 +3225,8 @@ export interface OpenPullRequest extends PrRef {
   /** Solo colleghi: per quelle di Stubwise valgono le sessioni della task. */
   corrections: PrAutoCorrection[];
   checks: "passing" | "failing" | "pending" | "unreadable";
-  mergeable: boolean;
+  /** `null`: non letto (nella build app il server non lo chiede al provider); il merge lo dirà. */
+  mergeable: boolean | null;
   /** Area 10b: i commit della PR, dal più vecchio; assente = non letti. */
   commits?: { sha: string; message: string }[];
   /**
