@@ -492,6 +492,30 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - «Aggiungi da Google Drive» del prototipo è un elenco piatto con la
     ricerca, senza navigare le cartelle (R-H3, `ossatura-follow-ups.md`).
 
+- F5a, il renderer delle riunioni *(13 nov 2026)*:
+  - **Q-A = a** *(O, 46)*: la proposta di una riunione per un invitato
+    SENZA l'email di Gemini (decisione M, Q1) non porta a una conversazione
+    che non ha. Il link diventa «Open the meeting»: l'evento se ce l'ha,
+    altrimenti il riassunto per nota in un pannello, con le task
+    (`GET /api/me/meetings/:noteId` e `/tasks`). Chi ha cosa lo calcola il
+    server (`meetingOrigin.threadId`/`accountId`/`eventId` di chi guarda,
+    null se non li ha), il client non lo deduce. Nel prototipo la nota è
+    l'email di Gemini (`messageId` della trascrizione), e un invitato è
+    destinatario delle proposte della riunione anche senza l'email
+    (`isProposalRecipient`);
+  - **Q-B = 1** *(O, 46)*: il codice del Drive Google (riferimenti, cartelle,
+    allegati come link, la voce `drive` del cassetto) resta sul branch della
+    F5a dietro il flag `google` spento; la F5b lo accende. ComingSoon lo
+    copre: una chiamata del Drive Google col flag spento fa fallire i test del
+    Drive e del cassetto (provato con una mutazione);
+  - rimandi *(S)*: il riassunto nel dettaglio dell'evento non dice
+    `too_long` (la forma `MeetingSummary` di 72 non porta `docReason`, il
+    messaggio sì); nel pannello per nota le richieste nate non hanno il link
+    al progetto (`projectCode: null`: l'origine non porta il codice); le
+    task di tipo `request` non escono ancora dal server (le richieste nate
+    da una riunione sono job d'intake, risolverle nella voce di backlog è un
+    rimando di 72).
+
 ## Area 7 — Automazioni
 
 - Blocco della Home delle automazioni.
