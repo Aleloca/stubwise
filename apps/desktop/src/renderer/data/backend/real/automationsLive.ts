@@ -1,4 +1,6 @@
 import { ApiError, type StubwiseClient } from "@stubwise/api-client";
+import type { AutomationSearchResult } from "@stubwise/shared";
+import { isIntegrated } from "../../integration";
 import { createAutomationRefs, inPrototypeWords } from "./automationRefs";
 import { createRealAutomations, type AutomationsApi } from "./automations";
 import { createRealSimulation } from "./automationSimulate";
@@ -44,7 +46,24 @@ const simulation = createRealSimulation({
 
 const { reset: resetSimulations, ...simulationFunctions } = simulation;
 
+/**
+ * ⌘K: il gruppo `automations` di `GET /api/search` (filtrato dal server). A
+ * destinazione spenta non si cerca: un risultato porterebbe a «in arrivo».
+ */
+async function searchAutomations(q: string): Promise<AutomationSearchResult[]> {
+  const needle = q.trim();
+  if (!needle || !isIntegrated({ kind: "destination", name: "automations" })) return [];
+  const results = await inPrototypeWords(() =>
+    appClient().search.global(needle, undefined, { citable: true }),
+  );
+  // `readerSchema` apre gli enum: un tipo che questo client non conosce non si mostra.
+  return (results.automations?.items ?? []).filter(
+    (h): h is AutomationSearchResult => h.kind === "automation" || h.kind === "run",
+  );
+}
+
 export const liveAutomations = {
+  searchAutomations,
   ...createRealAutomations(liveApi, refs),
   ...simulationFunctions,
 };

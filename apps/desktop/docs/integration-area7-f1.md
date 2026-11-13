@@ -26,7 +26,8 @@ finché il server dell'area 7 non c'è. Gli adattatori (livello dati, prova,
 | «New automation» coi due modelli | solo da zero (P2 = a): niente modelli nel dialogo, nel menu e nel vuoto | `AutomationsF1.test.tsx` | fatto |
 | «Pass time» e «Simulate reply» nell'esecuzione | solo nel prototipo | `AutomationsF1.test.tsx` | fatto |
 | Il livello dati: elenco, dettaglio, check della bozza, creazione da zero, salvataggio con `expectedRev`, rinomina, pubblica/accendi/pausa/duplica/elimina col rev letto, esecuzioni, Run now, annulla/riprova/salta, scegli il progetto, sezione del progetto, riga d'origine (R2) | `data/backend/real/automations.ts`, per codice dalle letture (`automationRefs.ts`). Il 409 `stale` sulla bozza è `invalid: stale`: il costruttore offre «Reload» e la modifica resta a schermo. Un 409 `config` è `invalid: config`: gli errori la pagina li legge dal dettaglio, come nel prototipo. I codici e le revisioni letti si dimenticano al cambio di persona | `real/automations.test.ts`, `real/automationsLive.test.ts`, `builder/Builder.test.tsx` | cablato. Una riga d'origine con 404 (oggetto non più visibile, o non creato da un'automazione) è `visible: false` |
-| Le pagine fino alla richiesta esatta, ⌘K (R4) | sopra `client.automations`, a flag acceso | `automationsPage.test.tsx` (da scrivere) | da fare |
+| ⌘K: automazioni ed esecuzioni | il gruppo `automations` di `GET /api/search` (filtrato dal server); a destinazione spenta non si cerca, e un server senza il gruppo non dà risultati | `real/automationsSearch.test.ts` | fatto |
+| Le pagine fino alla richiesta esatta (R4) | sopra `client.automations`, a flag acceso | `automationsPage.test.tsx` (da scrivere) | da fare |
 | Le forme | le letture in `@stubwise/shared` (`automations/views.ts`), forme confermate da 72; `round?` facoltativo su `AutomationDecision`/`AutomationRunRow` (assente = 0) | — | fatto |
 
 ### Differenze dichiarate
