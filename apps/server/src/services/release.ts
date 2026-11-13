@@ -547,6 +547,7 @@ export async function listReleaseQueue(
         // (letta dal vivo, la stessa lettura dei check): un'informazione, il
         // merge non cambia.
         reviewStale: isReviewStale(review?.verdict, review?.headSha, checks.headSha),
+        headSha: checks.headSha ?? null,
       };
     }),
   );
@@ -608,6 +609,7 @@ export async function listReleaseQueue(
           riskReason: null,
           deployedOn: deployedOnFor(project.id, checks.headSha),
           reviewStale: isReviewStale(candidate.verdict, candidate.headSha, checks.headSha),
+          headSha: checks.headSha ?? null,
         };
       }),
     )

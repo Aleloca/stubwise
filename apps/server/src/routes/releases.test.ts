@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { projects, releaseCiRuns, releases, repositories, tickets, type Db } from "@stubwise/db";
+import { aiJobs, comments, projects, releaseCiRuns, releases, repositories, tickets, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
@@ -29,7 +29,7 @@ afterAll(async () => {
 });
 
 const person = () => createUserWithSession(app, `u-${randomUUID().slice(0, 8)}@acme.com`);
-const call = (h: { cookie: string }, method: "GET" | "POST", url: string) => app.inject({ method, url: `/api${url}`, headers: h });
+const call = (h: { cookie: string }, method: "GET" | "POST", url: string, payload?: object) => app.inject({ method, url: `/api${url}`, headers: h, ...(payload ? { payload } : {}) });
 
 async function setup(runStatus: "running" | "success" | "failed" = "failed") {
   const { projectId, repositoryId } = await seedRepository(db);
@@ -62,26 +62,53 @@ describe("i rilasci", () => {
     expect((await call(s.outsider.headers, "GET", `/releases/${s.release.code}`)).statusCode).toBe(404);
   });
 
-  it("«Fai sistemare a Claude»: una task bug col passo fallito, una sola (la seconda 409); il dettaglio la mostra", async () => {
+  it("«Fai sistemare a Claude»: una task bug col passo fallito e la nota; un altro clic restituisce la stessa (existing) e la nota diventa un commento; il dettaglio la mostra aperta", async () => {
     const s = await setup("failed");
-    const res = await call(s.lead.headers, "POST", `/releases/${s.release.code}/fix`);
+    const res = await call(s.lead.headers, "POST", `/releases/${s.release.code}/fix`, { note: "Guarda il test del carrello" });
     expect(res.statusCode).toBe(201);
-    const { taskId } = res.json() as { taskId: string };
-    const [task] = await db.select().from(tickets).where(eq(tickets.id, taskId));
+    const first = res.json() as { taskId: string; existing: boolean; noteAdded: boolean; started: boolean };
+    expect(first).toMatchObject({ existing: false, noteAdded: true, started: false });
+    const [task] = await db.select().from(tickets).where(eq(tickets.id, first.taskId));
     expect(task).toMatchObject({ type: "bug", projectId: s.projectId });
     expect(task!.body).toContain("3 test rossi");
-    expect((await call(s.lead.headers, "POST", `/releases/${s.release.code}/fix`)).statusCode).toBe(409);
-    const detail = (await call(s.lead.headers, "GET", `/releases/${s.release.code}`)).json() as { fixTask: { id: string } | null; permissions: { fix: boolean } };
-    expect(detail.fixTask?.id).toBe(taskId);
+    expect(task!.body).toContain("Guarda il test del carrello");
+    const again = await call(s.lead.headers, "POST", `/releases/${s.release.code}/fix`, { note: "Anche il checkout" });
+    expect(again.statusCode).toBe(200);
+    expect(again.json()).toMatchObject({ taskId: first.taskId, existing: true, noteAdded: true });
+    expect((await db.select().from(comments).where(eq(comments.ticketId, first.taskId))).map((c) => c.body)).toContain("Anche il checkout");
+    expect((await db.select().from(tickets).where(eq(tickets.projectId, s.projectId))).length).toBe(1);
+    const detail = (await call(s.lead.headers, "GET", `/releases/${s.release.code}`)).json() as { fixTask: { id: string; open: boolean } | null; permissions: { fix: boolean } };
+    expect(detail.fixTask).toMatchObject({ id: first.taskId, open: true });
     expect(detail.permissions.fix).toBe(false);
+  });
+
+  it("chiusa la task di riparazione, il rilascio ancora fallito ne fa nascere una nuova", async () => {
+    const s = await setup("failed");
+    const first = (await call(s.lead.headers, "POST", `/releases/${s.release.code}/fix`, {})).json() as { taskId: string };
+    await db.update(tickets).set({ closedAt: new Date() }).where(eq(tickets.id, first.taskId));
+    const second = await call(s.lead.headers, "POST", `/releases/${s.release.code}/fix`, {});
+    expect(second.statusCode).toBe(201);
+    expect((second.json() as { taskId: string }).taskId).not.toBe(first.taskId);
+  });
+
+  it("start: con runs.start Claude parte sulla task (un job), e la riga dice permissions.startFix; waitsOnViewer per chi ha fatto il merge", async () => {
+    const s = await setup("failed");
+    await db.update(releases).set({ mergedBy: s.lead.id }).where(eq(releases.id, s.release.id));
+    const [row] = ((await call(s.lead.headers, "GET", `/projects/${s.projectId}/releases`)).json() as { items: { permissions: { fix: boolean; startFix: boolean }; waitsOnViewer: boolean }[] }).items;
+    expect(row).toMatchObject({ permissions: { fix: true, startFix: true }, waitsOnViewer: true });
+    const out = (await call(s.lead.headers, "POST", `/releases/${s.release.code}/fix`, { start: true })).json() as { taskId: string; started: boolean };
+    expect(out.started).toBe(true);
+    expect(await db.select().from(aiJobs).where(eq(aiJobs.ticketId, out.taskId))).toHaveLength(1);
+    const [after] = ((await call(s.lead.headers, "GET", `/projects/${s.projectId}/releases`)).json() as { items: { waitsOnViewer: boolean }[] }).items;
+    expect(after!.waitsOnViewer).toBe(false);
   });
 
   it("un rilascio non fallito non si fa sistemare (409); senza tickets.create 403 e nessuna task", async () => {
     const ok = await setup("success");
-    expect((await call(ok.lead.headers, "POST", `/releases/${ok.release.code}/fix`)).statusCode).toBe(409);
+    expect((await call(ok.lead.headers, "POST", `/releases/${ok.release.code}/fix`, {})).statusCode).toBe(409);
     const s = await setup("failed");
     const before = (await db.select().from(tickets).where(eq(tickets.projectId, s.projectId))).length;
-    expect((await call(s.viewer.headers, "POST", `/releases/${s.release.code}/fix`)).statusCode).toBe(403);
+    expect((await call(s.viewer.headers, "POST", `/releases/${s.release.code}/fix`, {})).statusCode).toBe(403);
     expect((await db.select().from(tickets).where(eq(tickets.projectId, s.projectId))).length).toBe(before);
     expect(((await call(s.viewer.headers, "GET", `/releases/${s.release.code}`)).json() as { permissions: { fix: boolean } }).permissions.fix).toBe(false);
   });
