@@ -66,7 +66,7 @@ export async function consumeAutomationEvents(deps: ConsumerDeps): Promise<numbe
       .limit(EVENT_BATCH)
       .for("update", { skipLocked: true });
     for (const event of batch) {
-      const started = await startRunsFor(tx, event);
+      const started = await startRunsFor(tx, event, log);
       if (started > 0) log(`[automations] evento ${event.kind} ${event.objectId}: ${started} esecuzioni`);
     }
     if (batch.length > 0) {
@@ -81,7 +81,7 @@ export async function consumeAutomationEvents(deps: ConsumerDeps): Promise<numbe
 }
 
 /** Le esecuzioni che l'evento fa nascere. */
-async function startRunsFor(tx: Tx, event: EventRow): Promise<number> {
+async function startRunsFor(tx: Tx, event: EventRow, log: (msg: string) => void): Promise<number> {
   const candidates = await tx
     .select({ automation: automations })
     .from(automations)
@@ -97,19 +97,31 @@ async function startRunsFor(tx: Tx, event: EventRow): Promise<number> {
     .orderBy(asc(automations.code));
   if (candidates.length === 0) return 0;
   const ancestors = event.originRunId ? await ancestorsOf(tx, event.originRunId) : [];
+  // L'esecuzione d'origine può essere sparita (il suo progetto eliminato prima
+  // del consumo): `origin_run_id` non ha FK, `parent_run_id` sì.
+  const parentRunId = ancestors.length > 0 ? event.originRunId : null;
   let fields: Record<string, unknown> | null = null;
   let started = 0;
   for (const { automation: a } of candidates) {
-    const version = await publishedVersion(tx, a.id);
-    if (!version) continue;
-    const flow = version.flow as AutomationFlow;
-    const trigger = flow.trigger;
-    if (trigger.kind !== "stubwise" || trigger.event !== event.kind) continue;
-    if (!(await projectPermissionsOfUser(tx, a.ownerId!, event.projectId))) continue;
-    if (event.originRunId && !chainAllows(ancestors, a.id)) continue;
-    fields ??= await eventFields(tx, event);
-    if (trigger.filter && !evaluate(trigger.filter, (key) => lookup(fields!, key))) continue;
-    if (await createRun(tx, a, version.n, flow, fields, event)) started += 1;
+    // Un savepoint per automazione (review F1, I2): un avvio che lancia non
+    // annulla il lotto e non lo fa rileggere per sempre; si salta, col log.
+    try {
+      const ok = await tx.transaction(async (sp) => {
+        const version = await publishedVersion(sp, a.id);
+        if (!version) return false;
+        const flow = version.flow as AutomationFlow;
+        const trigger = flow.trigger;
+        if (trigger.kind !== "stubwise" || trigger.event !== event.kind) return false;
+        if (!(await projectPermissionsOfUser(sp, a.ownerId!, event.projectId))) return false;
+        if (event.originRunId && !chainAllows(ancestors, a.id)) return false;
+        fields ??= await eventFields(sp, event);
+        if (trigger.filter && !evaluate(trigger.filter, (key) => lookup(fields!, key))) return false;
+        return createRun(sp, a, version.n, flow, fields, event, parentRunId);
+      });
+      if (ok) started += 1;
+    } catch (err) {
+      log(`[automations] evento ${event.kind} ${event.objectId}, automazione ${a.code}: avvio saltato (${err instanceof Error ? err.message : String(err)})`);
+    }
   }
   return started;
 }
@@ -148,6 +160,7 @@ async function createRun(
   flow: AutomationFlow,
   fields: Record<string, unknown>,
   event: EventRow,
+  parentRunId: string | null,
 ): Promise<boolean> {
   await tx.select({ id: automations.id }).from(automations).where(eq(automations.id, a.id)).for("update");
   const [counts] = await tx
@@ -170,7 +183,7 @@ async function createRun(
     event: fields,
     // Un evento scritto da un'esecuzione fa nascere una figlia (la catena).
     origin: event.originRunId ? "automation" : "stubwise",
-    parentRunId: event.originRunId,
+    parentRunId,
     projectIds: [a.projectId],
     startedAt: sql`clock_timestamp()`,
     dueAt: sql`now()`,
