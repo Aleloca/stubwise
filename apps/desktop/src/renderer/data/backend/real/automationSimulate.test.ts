@@ -281,7 +281,12 @@ describe("la prova nella build app", () => {
     const v = await s.simulationStep(id, { kind: "run" });
     expect(v.status).toBe("done");
     expect(v.preview.emails).toEqual([
-      expect.objectContaining({ stepId: "e1", from: "ada@audin.test", to: "cliente@example.com", sameConversationAs: null }),
+      expect.objectContaining({
+        stepId: "e1",
+        from: "ada@audin.test",
+        to: "cliente@example.com",
+        sameConversationAs: null,
+      }),
       expect.objectContaining({ stepId: "e2", sameConversationAs: { stepId: "e1", path: "0" } }),
     ]);
     // Non manda niente: solo gli esempi e la prova segnata.
@@ -364,7 +369,11 @@ describe("la prova nella build app", () => {
         },
         run: async (automationId, body) => {
           runs.push({ automationId, ...body });
-          return { outcome: "firmato", reason: "C'è la firma", truncated: runs.length === 1 ? ["task.titolo"] : [] };
+          return {
+            outcome: "firmato",
+            reason: "C'è la firma",
+            truncated: runs.length === 1 ? ["task.titolo"] : [],
+          };
         },
       },
     });
@@ -388,11 +397,16 @@ describe("la prova nella build app", () => {
       `GET estimate a-1 draft {"task":{"titolo":"AUD-1"}}`,
     ]);
     // Un input tagliato si dice in testa alla motivazione, come nell'esecuzione vera.
-    expect(v.preview.claude[0]!.reason).toMatch(/^\[Input tagliati a 20 000 caratteri: task\.titolo\] /);
+    expect(v.preview.claude[0]!.reason).toMatch(
+      /^\[Input tagliati a 20 000 caratteri: task\.titolo\] /,
+    );
     expect(v.preview.claude[1]!.reason).toBe("C'è la firma");
   });
 
-  const claudeTrial = (steps: Step[], run: (body: { path: string }) => Promise<{ outcome?: string; reason: string }>) => {
+  const claudeTrial = (
+    steps: Step[],
+    run: (body: { path: string }) => Promise<{ outcome?: string; reason: string }>,
+  ) => {
     const ctx = context(steps);
     const { api } = fakeApi(ctx);
     const calls: string[] = [];
@@ -409,7 +423,15 @@ describe("la prova nella build app", () => {
     return { s, calls };
   };
   const ask = (id: string) =>
-    ({ id, kind: "claude", instruction: "x", inputs: [], outcomes: ["si", "no"], fields: [], branches: {} }) as unknown as Step;
+    ({
+      id,
+      kind: "claude",
+      instruction: "x",
+      inputs: [],
+      outcomes: ["si", "no"],
+      fields: [],
+      branches: {},
+    }) as unknown as Step;
   const confirmed = async (s: ReturnType<typeof createRealSimulation>) => {
     const id = await s.startSimulation("a-1", "draft", {});
     await s.simulationStep(id, { kind: "run" });
@@ -425,7 +447,11 @@ describe("la prova nella build app", () => {
     const v = await s.simulationStep(id, { kind: "run" });
     expect(v.status).toBe("failed");
     expect(v.error).toBe("claude_invalid");
-    expect(v.log.at(-1)).toMatchObject({ kind: "claude", outcome: "failed", why: { code: "claudeInvalid" } });
+    expect(v.log.at(-1)).toMatchObject({
+      kind: "claude",
+      outcome: "failed",
+      why: { code: "claudeInvalid" },
+    });
     expect(calls).toEqual(["0"]);
   });
 
@@ -509,5 +535,164 @@ describe("la prova nella build app", () => {
     const id = await s.startSimulation("a-1", "draft", {});
     await s.endSimulation(id);
     expect(await s.getSimulation(id)).toBeNull();
+  });
+});
+
+describe("la prova con una sorgente (F4, R5)", () => {
+  const HOOK = { kind: "source", sourceId: "wh", event: "webhook" };
+  const fromClient = (): Step =>
+    ({
+      ...task(),
+      assignee: { projectRole: "Project Lead" },
+      project: { mode: "from_client", clientRef: "cliente.nome" },
+    }) as Step;
+  const ROSSI = {
+    id: "prj-2",
+    code: "ROS",
+    name: "Rossi",
+    gone: false,
+    seenBy: ["ada"],
+    ownerCan: { createTask: true, createMilestone: true, createRequest: true },
+    roleHolders: { "Project Lead": ["carla"] },
+    departmentMembers: {},
+  };
+  const CARLA = {
+    id: "carla",
+    name: "Carla",
+    departmentIds: [],
+    isClaude: false,
+    deactivated: false,
+    defaultDepartmentId: null,
+  };
+  const withClient = (ctx: SimulationContext, answer: { project: unknown; people: unknown[] }) => {
+    const { api, calls } = fakeApi(ctx);
+    api.clientProject = async (automationId, version, client) => {
+      calls.push(`GET client-project ${automationId} ${version} ${client}`);
+      return structuredClone(answer) as never;
+    };
+    return { api, calls };
+  };
+  const EVENT = { cliente: { nome: "Rossi Srl" } };
+
+  it("il progetto dal cliente: una GET per chiave, il progetto e le persone che porta entrano nella prova", async () => {
+    const { api, calls } = withClient(context([fromClient(), fromClient()], {}, HOOK), {
+      project: ROSSI,
+      people: [CARLA],
+    });
+    const s = createRealSimulation(api);
+    await s.listSimulationExamples("a-1", "draft");
+    const id = await s.startSimulation("a-1", "draft", EVENT);
+    const v = await s.simulationStep(id, { kind: "run" });
+    expect(v.status).toBe("done");
+    expect(v.preview.tasks).toEqual([
+      expect.objectContaining({
+        assigneeId: "carla",
+        project: expect.objectContaining({ id: "prj-2", code: "ROS" }),
+      }),
+      expect.objectContaining({ assigneeId: "carla" }),
+    ]);
+    // Una sola GET per lo stesso cliente, e niente che scriva la tabella.
+    expect(calls).toEqual([
+      "GET examples a-1 draft",
+      "GET client-project a-1 draft Rossi Srl",
+      "POST tested a-1 1 7",
+    ]);
+  });
+
+  it("un cliente che si cerca a metà (dopo un'approvazione): la GET, poi la prova riprende da lì", async () => {
+    const ask = { ...notify, approval: { mode: "ask", who: { owner: true } } } as Step;
+    const { api, calls } = withClient(context([ask, fromClient()], {}, HOOK), {
+      project: ROSSI,
+      people: [CARLA],
+    });
+    const s = createRealSimulation(api);
+    await s.listSimulationExamples("a-1", "draft");
+    const id = await s.startSimulation("a-1", "draft", EVENT);
+    expect((await s.getSimulation(id))?.status).toBe("waiting_approval");
+    expect(calls.some((c) => c.startsWith("GET client-project"))).toBe(false);
+    const after = await s.simulationStep(id, { kind: "approved", path: "0", byId: ME });
+    const v = after.status === "done" ? after : await s.simulationStep(id, { kind: "run" });
+    expect(v.status).toBe("done");
+    expect(v.preview.tasks).toEqual([expect.objectContaining({ assigneeId: "carla" })]);
+    expect(calls.filter((c) => c.startsWith("GET client-project"))).toHaveLength(1);
+  });
+
+  it("un cliente fuori tabella: la prova chiede il progetto, e sceglierlo non scrive niente", async () => {
+    const { api, calls } = withClient(context([fromClient()], {}, HOOK), {
+      project: null,
+      people: [],
+    });
+    const s = createRealSimulation(api);
+    await s.listSimulationExamples("a-1", "draft");
+    const id = await s.startSimulation("a-1", "draft", EVENT);
+    // Il cliente si cerca già all'inizio: la prova aspetta subito il progetto.
+    expect((await s.getSimulation(id))?.status).toBe("waiting_project");
+    const v = await s.simulationStep(id, { kind: "project_chosen", projectId: PRJ });
+    const done = v.status === "done" ? v : await s.simulationStep(id, { kind: "run" });
+    expect(done.status).toBe("done");
+    expect(calls.filter((c) => !c.startsWith("GET ") && !c.startsWith("POST tested"))).toEqual([]);
+  });
+
+  it("senza la rotta (un server di prima) il progetto dal cliente non è disponibile", async () => {
+    const { api } = fakeApi(context([fromClient()], {}, HOOK));
+    const s = createRealSimulation(api);
+    await s.listSimulationExamples("a-1", "draft");
+    // Il cliente si cerca già all'inizio (non è un passo): la prova non parte.
+    await expect(s.startSimulation("a-1", "draft", EVENT)).rejects.toThrow(/not_available/);
+  });
+});
+
+describe("«avvia un'altra» nella prova (F4, R6)", () => {
+  const start = (automationId = "a-2"): Step =>
+    ({ id: "s1", kind: "startAutomation", automationId, approval: { mode: "auto" } }) as Step;
+  const target = (over: Record<string, unknown> = {}) => ({
+    id: "a-2",
+    code: "AUD-A2",
+    name: "Fatturazione",
+    status: "active",
+    visibleToOwner: true,
+    manageableByOwner: true,
+    ...over,
+  });
+
+  it("con l'automazione nel contesto: l'anteprima dice quale partirebbe", async () => {
+    const { api } = fakeApi(context([start()], { automations: [target()] } as never));
+    const s = createRealSimulation(api);
+    await s.listSimulationExamples("a-1", "draft");
+    const id = await s.startSimulation("a-1", "draft", {});
+    const v = await s.simulationStep(id, { kind: "run" });
+    expect(v.status).toBe("done");
+    expect(v.preview.starts).toEqual([
+      expect.objectContaining({ automationId: "a-2", code: "AUD-A2", name: "Fatturazione" }),
+    ]);
+  });
+
+  it("spenta, o che il proprietario non può gestire: fallisce con le regole dell'esecutore", async () => {
+    for (const [over, code] of [
+      [{ status: "paused" }, "automationNotActive"],
+      [{ manageableByOwner: false }, "cantManage"],
+      [{ visibleToOwner: false }, "automationNotFound"],
+    ] as const) {
+      const { api } = fakeApi(context([start()], { automations: [target(over)] } as never));
+      const s = createRealSimulation(api);
+      await s.listSimulationExamples("a-1", "draft");
+      const id = await s.startSimulation("a-1", "draft", {});
+      const v = await s.simulationStep(id, { kind: "run" });
+      expect(v.status, code).toBe("failed");
+      expect(v.log.at(-1)?.why?.code, code).toBe(code);
+    }
+  });
+
+  it("nessuna catena: avviare sé stessa è un ciclo", async () => {
+    const { api } = fakeApi(
+      context([start("a-1")], {
+        automations: [target({ id: "a-1", code: "AUD-A1", name: "Avvio" })],
+      } as never),
+    );
+    const s = createRealSimulation(api);
+    await s.listSimulationExamples("a-1", "draft");
+    const id = await s.startSimulation("a-1", "draft", {});
+    const v = await s.simulationStep(id, { kind: "run" });
+    expect(v.log.at(-1)?.why?.code).toBe("automationCycle");
   });
 });

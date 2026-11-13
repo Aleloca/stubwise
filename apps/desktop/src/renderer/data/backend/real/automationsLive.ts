@@ -37,6 +37,14 @@ const simulation = createRealSimulation({
     inPrototypeWords(() =>
       appClient().automations.examples(refs.automation(automationId).code, version),
     ),
+  // F4 (R5 = a): la risoluzione del cliente dell'esempio, per chiave (mai la tabella).
+  clientProject: (automationId, version, client) =>
+    inPrototypeWords(() =>
+      appClient().automations.testClientProject(refs.automation(automationId).code, {
+        version,
+        client,
+      }),
+    ),
   async markTested(automationId, body) {
     try {
       await appClient().automations.markTested(refs.automation(automationId).code, body);
