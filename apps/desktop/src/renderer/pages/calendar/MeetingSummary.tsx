@@ -35,6 +35,7 @@ export function MeetingSummary({
   eventId,
   noteId,
   projectCode,
+  onOpenTask,
 }: {
   /** L'evento (il dettaglio del Calendario)… */
   eventId?: string;
@@ -42,6 +43,8 @@ export function MeetingSummary({
   noteId?: string;
   /** Il codice del progetto dell'evento, se chi guarda lo vede (link delle richieste). */
   projectCode: string | null;
+  /** Prima di aprire una task nata (il pannello per nota si chiude). */
+  onOpenTask?: () => void;
 }) {
   const { t } = useTranslation();
   const byNote = noteId !== undefined;
@@ -95,6 +98,7 @@ export function MeetingSummary({
             tasks={tasks}
             projectCode={projectCode}
             eventId={eventId ?? ""}
+            onOpen={onOpenTask}
             label={t("calendar.summary.tasksTitle")}
             empty={
               s?.doc === "unreachable" ? t("calendar.prep.noTasksYet") : t("calendar.prep.noTasks")

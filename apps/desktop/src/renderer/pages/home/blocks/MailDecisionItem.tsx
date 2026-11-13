@@ -195,7 +195,11 @@ function OpenMeeting({
       </button>
       {open && (
         <Dialog title={origin.title} onClose={() => setOpen(false)} width={560}>
-          <MeetingSummary noteId={origin.noteId} projectCode={null} />
+          <MeetingSummary
+            noteId={origin.noteId}
+            projectCode={null}
+            onOpenTask={() => setOpen(false)}
+          />
         </Dialog>
       )}
     </>

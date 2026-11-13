@@ -101,6 +101,7 @@ export function MeetingTaskList({
   eventId,
   empty,
   label,
+  onOpen,
 }: {
   tasks: MeetingTask[];
   /** Il progetto delle richieste nate (il loro link); `null` se chi guarda non lo vede. */
@@ -109,6 +110,8 @@ export function MeetingTaskList({
   eventId: string;
   empty: string | null;
   label: string;
+  /** Prima di aprire una task o una richiesta (il pannello per nota si chiude, review F5a, 10). */
+  onOpen?: () => void;
 }) {
   const { t } = useTranslation();
   const [all, setAll] = useState(false);
@@ -121,7 +124,13 @@ export function MeetingTaskList({
     <>
       <ul aria-label={label} className="flex flex-col">
         {shown.map((task) => (
-          <MeetingTaskRow key={task.id} task={task} projectCode={projectCode} eventId={eventId} />
+          <MeetingTaskRow
+            key={task.id}
+            task={task}
+            projectCode={projectCode}
+            eventId={eventId}
+            onOpen={onOpen}
+          />
         ))}
       </ul>
       {hidden > 0 && (
@@ -142,10 +151,12 @@ function MeetingTaskRow({
   task,
   projectCode,
   eventId,
+  onOpen,
 }: {
   task: MeetingTask;
   projectCode: string | null;
   eventId: string;
+  onOpen?: () => void;
 }) {
   const openTask = useOpenTaskFromEvent(eventId);
   const name = (
@@ -166,7 +177,14 @@ function MeetingTaskRow({
     >
       <DeptStrip departmentId={task.departmentId} />
       {task.kind === "task" ? (
-        <button type="button" onClick={() => openTask(task.code)} className={open}>
+        <button
+          type="button"
+          onClick={() => {
+            onOpen?.();
+            openTask(task.code);
+          }}
+          className={open}
+        >
           {name}
         </button>
       ) : projectCode === null ? (
@@ -176,6 +194,7 @@ function MeetingTaskRow({
           to="/p/$code/$section"
           params={{ code: projectCode, section: "requests" }}
           search={{ request: task.id } as never}
+          onClick={() => onOpen?.()}
           className={open}
         >
           {name}

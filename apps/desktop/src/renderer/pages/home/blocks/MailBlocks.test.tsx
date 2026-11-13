@@ -590,4 +590,28 @@ describe("Decide: la proposta di una riunione per chi non ha l'email", () => {
     expect(within(panel).getByRole("heading", { name: "Tasks from this meeting" })).toBeInTheDocument();
     expect(pathname(router)).toBe("/home");
   });
+
+  it("aprire una task nata dal pannello chiude il pannello prima di andare alla task (review F5a, 10)", async () => {
+    setSessionPersonId("p-giulia");
+    const out = await api.mail.confirmMailProposal(MEETING_PROPOSAL, { actionIndexes: [0] });
+    if (out.status !== "confirmed") throw new Error("not confirmed");
+    const code = out.resultCodes[0]!;
+    lauraWithoutEmail();
+    const e = state.calendarEvents.find((x) => x.id === EV_AUD_REVIEW_YESTERDAY)!;
+    const shift = 90 * 86_400_000;
+    e.startsAt = new Date(Date.parse(e.startsAt) - shift).toISOString();
+    e.endsAt = new Date(Date.parse(e.endsAt) - shift).toISOString();
+    // La proposta è confermata: un'altra aperta della stessa riunione porta la card in «Decide».
+    const p = state.mailProposals.find((x) => x.id === MEETING_PROPOSAL)!;
+    state.mailProposals.push({ ...p, id: "mp-aud-weekly-review-2", status: "open" });
+    const router = renderRoute("/home", "p-laura");
+    const item = await mailItem("mp-aud-weekly-review-2");
+    await userEvent.click(within(item).getByRole("button", { name: "Open the meeting" }));
+    const subject = state.mailMessages.find((x) => x.id === MAIL_CASES.transcript)!.subject;
+    const panel = await screen.findByRole("dialog", { name: subject });
+    await userEvent.click(await within(panel).findByRole("button", { name: new RegExp(code) }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: subject })).toBeNull());
+    // La task si apre nel pannello di dettaglio della pagina (`?task=`), col dialogo già chiuso.
+    await waitFor(() => expect(searchOf(router).task).toBe(code));
+  });
 });
