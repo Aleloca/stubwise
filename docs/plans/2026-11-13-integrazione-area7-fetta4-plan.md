@@ -184,7 +184,10 @@ S2. **Le generali**: creare, modificare, accendere con `projectId: null`;
 
 S3. **Il webhook in arrivo**: la rotta pubblica, il segreto come hash, il
    tetto, il controllo del corpo coi campi della sorgente, l'outbox.
+   Il tetto scelto per automazione (al minuto e al giorno, default 60 e
+   5 000) e il massimo d'istanza che nessuna scelta supera (F4-2).
    *Test*: corpo sbagliato → 422 e nessuna esecuzione; oltre il tetto → 429;
+   un tetto scelto sopra il massimo d'istanza vale il massimo;
    rigenerato → il vecchio indirizzo dà 404; due consegne con la stessa
    `dedupe_key` → una sola esecuzione.
 
@@ -230,8 +233,12 @@ R3. **Le generali nella build app**: la voce «General» della colonna, la
 R4. **Sources e tabella**: le pagine del prototipo sulle rotte vere (solo
    webhook; Audin e HubSpot «Coming soon»), il segreto mostrato una volta
    alla creazione e alla rigenerazione (copia, poi non più), gli eventi
-   recenti coi rifiutati e il motivo. *Test*: la pagina fino alla richiesta
-   esatta; il segreto non è più leggibile dopo aver chiuso il dialogo.
+   recenti coi rifiutati e il motivo; il tetto di frequenza
+   dell'automazione (al minuto e al giorno, col default e il massimo
+   d'istanza detto accanto, F4-2 = c). *Test*: la pagina fino alla richiesta
+   esatta; il segreto non è più leggibile dopo aver chiuso il dialogo; un
+   tetto oltre il massimo non si salva (o vale il massimo, come dice il
+   server).
 
 R5. **La prova con una sorgente**: l'esempio della sorgente (o uno scritto),
    la risoluzione del progetto e «scegli il progetto» nella prova senza
