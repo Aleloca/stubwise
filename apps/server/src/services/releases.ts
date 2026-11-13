@@ -1,5 +1,5 @@
 import { comments, createTicket, prReleaseNotes, prReviews, projects, releaseCiRuns, releaseCodeSeqs, releases, repositories, servers, ticketRepositories, tickets, type Db } from "@stubwise/db";
-import { aiBudgetState, productionForStatus, releaseProductionOf } from "@stubwise/notifications";
+import { aiBudgetState, productionForStatus, publishNotification, releaseProductionOf } from "@stubwise/notifications";
 import {
   releaseStatusOf,
   sameCommit,
@@ -48,6 +48,8 @@ export interface RecordReleaseInput {
   mergedBy: string | null;
   mergedGitName: string | null;
   viaStubwise: boolean;
+  /** Area 8, F2: la radice pubblica dell'istanza, per il link della card `release.merged` (assente = senza link). */
+  publicUrl?: string | null;
 }
 
 export type RecordReleaseResult = { recorded: true; releaseId: string; code: string; created: boolean } | { recorded: false; reason: "not_release_branch" | "repository_gone" };
@@ -104,7 +106,26 @@ export async function recordRelease(db: Db, input: RecordReleaseInput): Promise<
       })
       .onConflictDoNothing()
       .returning({ id: releases.id });
-    if (row) return { recorded: true, releaseId: row.id, code, created: true } as const;
+    if (row) {
+      // Area 8, F2 (S4): `release.merged`, UNA volta per rilascio — solo per uno
+      // NUOVO, nella stessa transazione (le riconsegne e il merge da Stubwise
+      // della stessa PR trovano quello esistente e non avvisano di nuovo).
+      // `publishNotification` gira in un savepoint e non lancia mai.
+      const base = (input.publicUrl ?? "").replace(/\/+$/, "");
+      await publishNotification(
+        tx,
+        {
+          kind: "release.merged",
+          projectId: repo.projectId,
+          releaseId: row.id,
+          releaseCode: code,
+          title: input.title,
+          url: base ? `${base}/app/#/p/${repo.projectCode}/releases/${code}` : "",
+        },
+        { projectId: repo.projectId },
+      );
+      return { recorded: true, releaseId: row.id, code, created: true } as const;
+    }
     // Una corsa persa fra il controllo e l'insert: l'altra strada l'ha creato, si uniscono i fatti.
     const raced = await findExisting(tx, input);
     if (!raced) throw new Error("release conflict without a row");

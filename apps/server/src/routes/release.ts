@@ -116,6 +116,7 @@ export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
         ticketId: request.params.id,
         repositoryId: request.params.repositoryId,
         actor: { id: request.user!.id, permissions: request.access!.permissions },
+        publicUrl: app.publicUrl ?? null,
       });
       if (result.ok) return { merged: true as const, sha: result.sha, releaseCode: result.releaseCode ?? null };
 
