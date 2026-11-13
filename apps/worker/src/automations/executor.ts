@@ -341,7 +341,33 @@ async function drive(turn: Turn, input: EngineInput, prepare?: (st: EngineState)
 }
 
 /** Scrive nel record l'esito di un passo del motore, e gli avvisi che ne nascono. */
+/**
+ * Un passo del motore si scrive in UNA transazione (review F1, M1): le righe
+ * del registro, la run e gli avvisi (agli approvatori, al proprietario, la
+ * pausa D5). Un guasto o un worker morto a metà non lascia righe del registro
+ * senza la run, né un'attesa scritta senza i suoi avvisi. (Un avviso che
+ * `publishNotification` non riesce a scrivere resta fail-open, per scelta di
+ * quel modulo: non fa fallire chi scrive.)
+ */
 async function commit(turn: Turn, r: EngineStep): Promise<void> {
+  const outer = turn.deps;
+  const logLength = turn.log.length;
+  const runBefore = turn.run;
+  try {
+    await outer.db.transaction(async (tx) => {
+      turn.deps = { ...outer, db: tx as unknown as Db };
+      await commitIn(turn, r);
+    });
+  } catch (err) {
+    turn.log.length = logLength;
+    turn.run = runBefore;
+    throw err;
+  } finally {
+    turn.deps = outer;
+  }
+}
+
+async function commitIn(turn: Turn, r: EngineStep): Promise<void> {
   const db = turn.deps.db;
   const st = r.state;
   const before = turn.run.status;

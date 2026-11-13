@@ -20,7 +20,7 @@ import {
 } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { AutomationFlow, Step } from "@stubwise/shared";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { effectKey, executeEffect } from "./effects.js";
 import { executeDueRuns, releaseClaim, RUN_LEASE_MS } from "./executor.js";
@@ -163,6 +163,25 @@ describe("executeDueRuns", () => {
     await exec();
     expect((await reload(run.id)).status).toBe("done");
     expect((await ticketsOfRun(run.id))[0]!.title).toBe("Corretto");
+  });
+
+  it("review F1, M1: il registro, la run e gli avvisi di un passo si scrivono INSIEME; un guasto a metà non lascia righe del registro senza la run", async () => {
+    const { run } = await runOf([task({ approval: { mode: "ask", who: { owner: true } } })]);
+    // Il guasto DOPO la riga del registro: l'aggiornamento della run che entra in attesa.
+    await t.db.execute(sql`create or replace function stubwise_test_boom() returns trigger as $$ begin if new.status = 'waiting_approval' then raise exception 'boom'; end if; return new; end $$ language plpgsql`);
+    await t.db.execute(sql`create trigger stubwise_test_boom before update on automation_runs for each row execute function stubwise_test_boom()`);
+    try {
+      await exec();
+    } finally {
+      await t.db.execute(sql`drop trigger stubwise_test_boom on automation_runs`);
+    }
+    // Niente di quel passo è rimasto: né la riga «in attesa», né l'avviso.
+    expect((await logOf(run.id)).filter((e) => e.outcome === "waiting")).toEqual([]);
+    expect(await cardsOf(ownerId, "automation.approval")).toEqual([]);
+    // L'esecuzione è fallita per intero, col suo errore e la sua riga: lo stato e il registro dicono la stessa cosa.
+    const after = await reload(run.id);
+    expect(after).toMatchObject({ status: "failed", error: "internal_error" });
+    expect((await logOf(run.id)).map((e) => e.seq)).toEqual((await logOf(run.id)).map((_, i) => i + 1));
   });
 
   it("R-J11: un ruolo che nessuno ha nel progetto → fallisce con no_approver, e il proprietario lo sa", async () => {
