@@ -258,4 +258,42 @@ describe("il livello dati delle Automations sulle rotte vere", () => {
       `GET origin {"milestone":"m-1"}`,
     ]);
   });
+
+  it("un server senza l'area 7 (404 sull'elenco): nessuna automazione, non un errore (review, minore)", async () => {
+    const { api } = fakeApi({
+      list: async () => {
+        throw new ApiError(404, "not_found", "not_found");
+      },
+    });
+    expect(await createRealAutomations(api).listAutomations()).toEqual([]);
+  });
+
+  it("dalla sezione del progetto si arriva alle esecuzioni e alle esecuzioni di un'automazione (review, minore)", async () => {
+    const { api, calls } = fakeApi({
+      projectAutomations: async () => ({
+        show: true,
+        canCreate: true,
+        automations: [row()],
+        runs: [
+          {
+            id: "run-9",
+            n: 9,
+            code: "AUD-A1 #9",
+            title: "x",
+            status: "running",
+            startedAt: "",
+            automationCode: "AUD-A1",
+            automationName: "Avvio",
+            linkable: true,
+          },
+        ],
+        general: [],
+      }),
+    });
+    const r = createRealAutomations(api);
+    await r.getProjectAutomations("prj-1");
+    await r.listRuns({ automationId: "a-1" });
+    await r.cancelRun("run-9");
+    expect(calls).toEqual([`GET runs {"automation":"AUD-A1"}`, "POST AUD-A1/runs/9/cancel"]);
+  });
 });

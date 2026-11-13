@@ -1,6 +1,7 @@
 import type * as Fake from "../../api";
 import type { SearchResult } from "../../types";
 import { appClient } from "./client";
+import { citableSearch } from "./globalSearch";
 
 // La ricerca di ⌘K nella build app (integrazione area 2, fetta 1): solo
 // progetti e task (le aree non integrate non si cercano né si linkano). Le
@@ -13,7 +14,7 @@ export const search: typeof Fake.search = async (q) => {
   const client = appClient();
   const [hits, rows] = await Promise.all([
     // `citable`: niente note di rilascio nel gruppo Docs (area 5, fetta 1).
-    client.search.global(needle, undefined, { citable: true }),
+    citableSearch(needle),
     client.projects.list() as unknown as Promise<{ id: string; name: string; slug: string; code?: string }[]>,
   ]);
   const codeOf = new Map(rows.map((p) => [p.id, p.code ?? p.slug.toUpperCase()]));

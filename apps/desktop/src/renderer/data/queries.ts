@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as api from "@backend/api";
 import { isAppBuild } from "./build";
 import { automationAvailability, featureIntegrated } from "./integration";
+import { useDebounced } from "../lib/useDebounced";
 import type { ChangeFilter } from "./changelog/types";
 import type { MailDraftRequest } from "../domain/claude/intents/mailDraft";
 import { resolveHome } from "../domain/home";
@@ -326,6 +327,8 @@ export const queryKeys = {
     ["as", personId, "automations", "runs", filter] as const,
   automationRun: (personId: string, id: string) =>
     ["as", personId, "automations", "run", id] as const,
+  automationRunByCode: (personId: string, code: string, n: number) =>
+    ["as", personId, "automations", "runByCode", code, n] as const,
   automationSources: (personId: string) => ["as", personId, "automations", "sources"] as const,
   clientLinks: (personId: string) => ["as", personId, "automations", "clientLinks"] as const,
   clientSuggestions: (personId: string) =>
@@ -3857,12 +3860,31 @@ export function useAutomation(id: string | null) {
   });
 }
 
+/**
+ * Ogni quanto si rilegge un elenco di esecuzioni con qualcosa in corso. Nella
+ * build app l'elenco senza automazione (50 esecuzioni coi registri) ogni 5 s;
+ * quello di un'automazione, e il prototipo, ogni secondo.
+ */
+export function automationRunsRefreshMs(filter: AutomationRunFilter = {}): number {
+  return isAppBuild() && !filter?.automationId ? 5000 : AUTOMATION_REFRESH_MS;
+}
+
 export function useAutomationRuns(filter: AutomationRunFilter = {}) {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: queryKeys.automationRuns(me, filter),
     queryFn: () => api.automations.listRuns(filter),
-    refetchInterval: (query) => (runningIn(query.state.data) ? AUTOMATION_REFRESH_MS : false),
+    refetchInterval: (query) =>
+      runningIn(query.state.data) ? automationRunsRefreshMs(filter) : false,
+  });
+}
+
+/** L'id di un'esecuzione dal suo indirizzo (codice e numero). */
+export function useAutomationRunByCode(code: string, n: number) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.automationRunByCode(me, code, n),
+    queryFn: () => api.automations.findRun(code, n),
   });
 }
 
@@ -3873,8 +3895,11 @@ export function useAutomationRun(id: string | null) {
     queryKey: queryKeys.automationRun(me, id ?? ""),
     queryFn: () => api.automations.getRun(id!),
     enabled: id !== null,
+    // Anche mentre un input è in coda sul worker (build app): la pagina vede quando lo applica.
     refetchInterval: (query) =>
-      query.state.data?.status === "running" ? AUTOMATION_REFRESH_MS : false,
+      query.state.data?.status === "running" || query.state.data?.inputQueued
+        ? AUTOMATION_REFRESH_MS
+        : false,
   });
 }
 
@@ -4050,9 +4075,19 @@ export function useRenameAutomation() {
   );
 }
 
+/** La pausa nello scrivere dopo cui si chiedono gli errori della bozza. */
+const DRAFT_CHECK_DELAY_MS = 500;
+
+/**
+ * Salvare la bozza tocca solo l'automazione (non task, posta, notifiche, né
+ * esecuzioni): si rilegge il suo dettaglio, una volta. Il costruttore salva
+ * da solo a ogni pausa, e ogni salvataggio ricaricava tutte le aree.
+ */
 export function useSaveAutomationDraft() {
-  return useAutomationWrite(
-    ({
+  const client = useQueryClient();
+  const me = useSessionPersonId();
+  return useMutation({
+    mutationFn: ({
       id,
       flow,
       meta,
@@ -4064,7 +4099,9 @@ export function useSaveAutomationDraft() {
       /** Il `rev` della bozza letta (shape builder [A 12]); assente = nessun controllo. */
       expected?: number | null;
     }) => api.automations.saveDraft(id, flow, meta, { expected }),
-  );
+    onSettled: (_data, _error, vars) =>
+      client.invalidateQueries({ queryKey: queryKeys.automation(me, vars.id) }),
+  });
 }
 
 /**
@@ -4072,8 +4109,10 @@ export function useSaveAutomationDraft() {
  * si salva da sola): chiave sul flusso stesso, così cambiano col flusso e
  * restano quelli di prima finché arrivano i nuovi.
  */
-export function useAutomationDraftIssues(id: string | null, flow: AutomationFlow | null) {
+export function useAutomationDraftIssues(id: string | null, current: AutomationFlow | null) {
   const me = useSessionPersonId();
+  // Nella build app è un `POST …/check`: dopo una pausa nello scrivere, non a ogni tasto.
+  const flow = useDebounced(current, DRAFT_CHECK_DELAY_MS);
   return useQuery({
     queryKey: ["as", me, "automations", "draftIssues", id ?? "", flow] as const,
     // Col flusso a cui si riferiscono: i percorsi degli errori valgono per quello.

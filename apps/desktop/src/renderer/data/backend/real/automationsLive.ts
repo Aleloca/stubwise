@@ -6,6 +6,7 @@ import { createRealAutomations, type AutomationsApi } from "./automations";
 import { SimulationConfigError } from "../../../domain/automations/simCore";
 import { createRealSimulation } from "./automationSimulate";
 import { appClient, session } from "./client";
+import { citableSearch } from "./globalSearch";
 import { now } from "./runtime";
 
 // Le Automations della build app sul client vero (area 7, F1): gli
@@ -45,7 +46,7 @@ const simulation = createRealSimulation({
   },
 });
 
-const { reset: resetSimulations, ...simulationFunctions } = simulation;
+const { reset: resetSimulations, forgetContext, ...simulationFunctions } = simulation;
 
 /**
  * ⌘K: il gruppo `automations` di `GET /api/search` (filtrato dal server). A
@@ -54,36 +55,43 @@ const { reset: resetSimulations, ...simulationFunctions } = simulation;
 async function searchAutomations(q: string): Promise<AutomationSearchResult[]> {
   const needle = q.trim();
   if (!needle || !isIntegrated({ kind: "destination", name: "automations" })) return [];
-  const results = await inPrototypeWords(() =>
-    appClient().search.global(needle, undefined, { citable: true }),
-  );
+  // La stessa risposta delle task di ⌘K (`globalSearch.ts`): una ricerca per tasto.
+  const results = await inPrototypeWords(() => citableSearch(needle));
   // `readerSchema` apre gli enum: un tipo che questo client non conosce non si mostra.
   return (results.automations?.items ?? []).filter(
     (h): h is AutomationSearchResult => h.kind === "automation" || h.kind === "run",
   );
 }
 
-/** Dopo una scrittura, la rilettura che vede ciò che il worker ha applicato nel frattempo. */
-const SETTLE_MS = 1000;
+const real = createRealAutomations(liveApi, refs);
+const { saveDraft: saveDraftOnly, ...realFunctions } = real;
+
+/** Salvare la bozza cambia il flusso: la prova dopo rilegge il contesto. */
+const saveDraft: typeof saveDraftOnly = async (id, ...rest) => {
+  const saved = await saveDraftOnly(id, ...rest);
+  forgetContext(id);
+  return saved;
+};
 
 export const liveAutomations = {
   searchAutomations,
   // Le esecuzioni le muove il worker, e il client non riceve eventi: nessun
   // avviso da qui (le pagine rileggono quando si rimontano o dopo una
-  // scrittura). Dopo una scrittura, «idle» è una rilettura dopo un attimo.
+  // scrittura). Dopo una scrittura, «idle» aspetta che il worker abbia
+  // applicato gli input in coda (`automationSettle.ts`), al più 10 s.
   onAutomationsSettled: (fn: () => void): (() => void) => {
     void fn;
     return () => {};
   },
-  whenAutomationsIdle: (): Promise<void> =>
-    new Promise((resolve) => setTimeout(resolve, SETTLE_MS)),
   SimulationConfigError,
-  ...createRealAutomations(liveApi, refs),
+  ...realFunctions,
+  saveDraft,
   ...simulationFunctions,
 };
 
 /** Al cambio di sessione: codici, revisioni e prove erano della persona di prima. */
 export function forgetAutomationRefs(): void {
   refs.clear();
+  real.forgetQueuedInputs();
   resetSimulations();
 }

@@ -7255,6 +7255,8 @@
       "cantManage": "Permesso perso: il proprietario ({{owner}}) non può gestire «{{name}}».",
       "cantManage_would": "Il proprietario ({{owner}}) non può gestire «{{name}}»: non partirebbe.",
       "invalidInput": "Dati non validi per il passo ({{message}}).",
+      "milestoneExists": "Un traguardo «{{name}}» esiste già nel progetto.",
+      "milestoneExists_would": "Un traguardo «{{name}}» esiste già nel progetto: il passo fallirebbe.",
       "emailLimitChain": "Limite raggiunto: al massimo {{max}} email per esecuzione, contando le automazioni avviate da questa.",
       "emailLimitChain_would": "Limite raggiunto: al massimo {{max}} email per esecuzione, contando le automazioni avviate da questa. L'email non partirebbe.",
       "mailboxGone": "La casella scelta per l'automazione ({{mailbox}}) non è più collegata a {{owner}}: l'email non è partita.",
@@ -8486,6 +8488,7 @@
       "whichProjectNoClient": "In quale progetto deve lavorare questa esecuzione?",
       "alreadyDecided": "Ha già deciso {{name}}",
       "alreadyDecidedSomeone": "Qualcuno ha già deciso questo passo",
+      "applying": "La decisione è in corso…",
       "answering": "La tua risposta parte fra pochi secondi. Puoi annullarla dal messaggio qui sotto.",
       "attachmentsReadOnly": "Gli allegati restano così: {{names}}",
       "suspended": "{{code}} è in pausa: non è stato deciso niente. Si potrà decidere quando verrà riaccesa."

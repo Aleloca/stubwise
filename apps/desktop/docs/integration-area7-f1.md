@@ -28,9 +28,30 @@ sezione di progetto e funzione; via di 46 del 13 nov 2026, R8). Gli adattatori (
 | Il livello dati: elenco, dettaglio, check della bozza, creazione da zero, salvataggio con `expectedRev`, rinomina, pubblica/accendi/pausa/duplica/elimina col rev letto, esecuzioni, Run now, annulla/riprova/salta, scegli il progetto, sezione del progetto, riga d'origine (R2) | `data/backend/real/automations.ts`, per codice dalle letture (`automationRefs.ts`). Il 409 `stale` sulla bozza è `invalid: stale`: il costruttore offre «Reload» e la modifica resta a schermo. Un 409 `config` è `invalid: config`: gli errori la pagina li legge dal dettaglio, come nel prototipo. I codici e le revisioni letti si dimenticano al cambio di persona | `real/automations.test.ts`, `real/automationsLive.test.ts`, `builder/Builder.test.tsx` | cablato. La riga d'origine di una task si chiede solo se il server dice che l'ha creata un'automazione (`source`) e la destinazione è accesa: allora un 404 è «non la vedi» (`visible: false`). Per i traguardi lo stesso, con `automationCreated === true` (facoltativo: assente = no) |
 | Le card `automation.*` dell'inbox | aprono l'esecuzione (`#/automations/<code>/runs/<n>`) o l'automazione, dai campi derivati a lettura (`item.automation`); a destinazione spenta niente link, un'automazione sparita è `objectGone`. `waitingOnYou` e `decided` non hanno una superficie nel prototipo: per ora non si mostrano | `real/automationsGated.test.ts` | fatto |
 | ⌘K: automazioni ed esecuzioni | il gruppo `automations` di `GET /api/search` (filtrato dal server); a destinazione spenta non si cerca, e un server senza il gruppo non dà risultati | `real/automationsGated.test.ts` | fatto |
-| Le pagine fino alla richiesta esatta (R4) | sopra `client.automations`, a flag acceso (nel test: destinazione, sezione e funzione `automations`). Le esecuzioni le muove il worker e il client non ne riceve eventi: `onAutomationsSettled` non avvisa, e dopo una scrittura «idle» è una rilettura dopo 1 s | `real/automationsPage.test.tsx` (elenco; pubblica dal dettaglio fino a `POST …/publish` con `expectedRev`), `real/automationsLive.test.ts` | fatto |
+| Le pagine fino alla richiesta esatta (R4) | sopra `client.automations`, a flag acceso (nel test: destinazione, sezione e funzione `automations`). Le esecuzioni le muove il worker e il client non ne riceve eventi: `onAutomationsSettled` non avvisa; dopo una decisione, un annulla, un riprova o un salta «idle» rilegge l'esecuzione ogni secondo finché il worker l'ha applicato, al più 10 s (`automationSettle.ts`), e nel frattempo il dettaglio dice «La decisione è in corso…» | `real/automationsPage.test.tsx` (elenco; pubblica dal dettaglio fino a `POST …/publish` con `expectedRev`), `real/automationsLive.test.ts` | fatto |
 | Le Automations accese nella build app (R8) | `automations` in `INTEGRATED` (`data/integration.ts`): destinazione, sezione di progetto e funzione (Home, «Da decidere», ⌘K, righe d'origine). Le sorgenti non si chiedono: senza l'inizio `source` (nella build app dalla F4) la loro lettura è vuota, così costruttore e prova non restano in caricamento. Un server senza le rotte dell'area 7 (404 su `/api/me/automation-*`) non ha niente da far decidere: la Home resta in piedi | `ComingSoon.test.tsx` («aprire le Automations legge solo ciò che è integrato», «Da decidere»), `data/integration.test.ts`, `real/automationsPage.test.tsx` (il costruttore senza sorgenti), `real/automationDecisions.test.ts` (il 404) | fatto |
 | Le forme | le letture in `@stubwise/shared` (`automations/views.ts`), forme confermate da 72; `round?` facoltativo su `AutomationDecision`/`AutomationRunRow` (assente = 0) | — | fatto |
+
+### La review del renderer (13 nov 2026)
+
+Nessun critico; i quattro importanti e i sei minori corretti su
+`feat/area7-f1-engine`, ognuno con un test rosso prima:
+
+- I1: un'esecuzione si apre per codice e numero
+  (`GET /api/automations/:code/runs/:n`, `findRun`), anche fuori dalla prima
+  pagina degli elenchi.
+- I2: gli input in coda sul worker (`automationSettle.ts`, `inputQueued`,
+  il 409 `pending` detto come «in corso»); il server esclude da «Da
+  decidere» le esecuzioni con un input non consumato (72,
+  `feat/area7-f1-fix`).
+- I3: `POST …/check` dopo 500 ms di pausa; il salvataggio della bozza
+  rilegge solo il dettaglio.
+- I4: la prova rifiuta titoli e nomi vuoti come il worker. I nomi dei
+  traguardi già usati, dal contesto di `/examples`: in arrivo da 72.
+- Minori: il contesto della prova dopo un salvataggio, una sola ricerca per
+  tasto in ⌘K, l'elenco intero delle esecuzioni ogni 5 s, il conteggio di
+  «Needs attention», l'elenco in 404, la sezione del progetto che ricorda
+  automazioni ed esecuzioni.
 
 ### Differenze dichiarate
 

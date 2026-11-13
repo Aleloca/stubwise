@@ -54,6 +54,11 @@ export function contextWorld(ctx: SimulationContext, now: () => string): SimWorl
     if (owner !== ctx.ownerId || !p.seenBy.includes(owner) || !p.ownerCan[can])
       throw new Error("forbidden");
   };
+  // Le stesse parole del mondo del worker (`loadPlanWorld`): una prova non
+  // passa dove l'esecuzione vera fallirebbe.
+  const notBlank = (what: string, value: string) => {
+    if (value.trim() === "") throw new Error(`${what} vuoto`);
+  };
   return {
     person: (id) => people.get(id),
     isDeactivated: (id) => people.get(id)?.deactivated ?? false,
@@ -62,10 +67,24 @@ export function contextWorld(ctx: SimulationContext, now: () => string): SimWorl
       projectId === null ? [] : (projects.get(projectId)?.departmentMembers[departmentId] ?? []),
     canSeeProject: sees,
     projectGone: (projectId) => projects.get(projectId)?.gone ?? true,
-    checkNewTask: (owner, input) => check(owner, input.projectId, "createTask"),
-    checkNewMilestone: (owner, projectId) => check(owner, projectId, "createMilestone"),
-    checkNewRequest: (owner, input) => check(owner, input.projectId, "createRequest"),
+    checkNewTask: (owner, input) => {
+      check(owner, input.projectId, "createTask");
+      notBlank("titolo", input.title);
+    },
+    checkNewMilestone: (owner, projectId, input) => {
+      check(owner, projectId, "createMilestone");
+      notBlank("nome", input.name);
+    },
+    checkNewRequest: (owner, input) => {
+      check(owner, input.projectId, "createRequest");
+      notBlank("titolo", input.title);
+    },
     defaultDepartmentOf: (id) => people.get(id)?.defaultDepartmentId ?? null,
+    // I nomi che il progetto ha già (`milestoneNames`, assente da un server più vecchio).
+    milestoneNameTaken: (projectId, name) =>
+      (
+        projects.get(projectId) as { milestoneNames?: string[] } | undefined
+      )?.milestoneNames?.includes(name) ?? false,
     now,
     project: (id) => {
       const p = projects.get(id);
@@ -159,6 +178,11 @@ export function createRealSimulation(api: SimulationApi) {
     },
 
     /** Al cambio di sessione le prove si buttano. */
+    /** Dopo un salvataggio: il contesto letto era del flusso di prima. */
+    forgetContext(automationId: string): void {
+      for (const k of [...contexts.keys()]) if (k.startsWith(`${automationId}:`)) contexts.delete(k);
+    },
+
     reset(): void {
       trials.clear();
       contexts.clear();

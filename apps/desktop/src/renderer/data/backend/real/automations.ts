@@ -11,7 +11,7 @@ import type {
   RunStatus,
 } from "@stubwise/shared";
 import type { AutomationRef } from "../../model";
-import { createRealDecisions, type DecisionApi } from "./automationDecisions";
+import { createRealDecisions, type SettleClock, type DecisionApi } from "./automationDecisions";
 import {
   createAutomationRefs,
   inPrototypeWords,
@@ -74,8 +74,9 @@ export interface AutomationsApi extends DecisionApi {
 export function createRealAutomations(
   api: AutomationsApi,
   refs: AutomationRefs = createAutomationRefs(),
+  clock?: SettleClock,
 ) {
-  const decisions = createRealDecisions(api, refs);
+  const decisions = createRealDecisions(api, refs, clock);
   const code = (id: string) => refs.automation(id).code;
   /** Una scrittura che risponde con l'automazione: se ne ricorda la revisione nuova. */
   const written = async (call: () => Promise<Automation>): Promise<Automation> => {
@@ -85,7 +86,14 @@ export function createRealAutomations(
   };
   const onRun = async (runId: string, call: (code: string, n: number) => Promise<void>) => {
     const r = refs.run(runId);
-    await inPrototypeWords(() => call(r.code, r.n));
+    try {
+      await inPrototypeWords(() => call(r.code, r.n));
+    } catch (error) {
+      // Già in coda un input di chi chiama (409 `pending`): aspetta il worker anche lui.
+      if (error instanceof Error && error.message === "invalid: pending") decisions.markRun(runId);
+      throw error;
+    }
+    decisions.markRun(runId);
   };
 
   return {
@@ -94,9 +102,10 @@ export function createRealAutomations(
     async listAutomations(
       filter: { projectId?: string; status?: Automation["status"]; ownerId?: string } = {},
     ): Promise<AutomationRow[]> {
-      const { items } = await inPrototypeWords(() =>
+      // Un server senza le rotte dell'area 7 (404): nessuna automazione, lo stato vuoto.
+      const { items } = (await orNull(() =>
         api.list({ project: filter.projectId, status: filter.status, owner: filter.ownerId }),
-      );
+      )) ?? { items: [] };
       for (const a of items) refs.rememberAutomation(a);
       return items;
     },
@@ -190,7 +199,11 @@ export function createRealAutomations(
     },
 
     async getProjectAutomations(projectId: string): Promise<ProjectAutomationsView | null> {
-      return orNull(() => api.projectAutomations(projectId));
+      const view = await orNull(() => api.projectAutomations(projectId));
+      // Da qui si apre un'automazione o un'esecuzione senza essere passati dagli elenchi.
+      for (const a of view?.automations ?? []) refs.rememberAutomation(a);
+      for (const r of view?.runs ?? []) refs.rememberRun(r);
+      return view;
     },
 
     async automationOrigin(

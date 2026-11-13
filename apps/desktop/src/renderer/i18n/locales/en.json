@@ -7255,6 +7255,8 @@
       "cantManage": "Permission lost: the owner ({{owner}}) can't manage “{{name}}”.",
       "cantManage_would": "The owner ({{owner}}) can't manage “{{name}}”: it wouldn't start.",
       "invalidInput": "The step's data isn't valid ({{message}}).",
+      "milestoneExists": "A milestone “{{name}}” already exists in the project.",
+      "milestoneExists_would": "A milestone “{{name}}” already exists in the project: the step would fail.",
       "emailLimitChain": "Limit reached: at most {{max}} emails per run, counting the automations this one started.",
       "emailLimitChain_would": "Limit reached: at most {{max}} emails per run, counting the automations this one starts. The email wouldn't be sent.",
       "mailboxGone": "The mailbox chosen for the automation ({{mailbox}}) is no longer connected to {{owner}}: the email wasn't sent.",
@@ -8486,6 +8488,7 @@
       "whichProjectNoClient": "Which project should this run work in?",
       "alreadyDecided": "Already decided by {{name}}",
       "alreadyDecidedSomeone": "Someone already decided this step",
+      "applying": "Your decision is being applied…",
       "answering": "Your answer goes out in a few seconds. You can undo it from the message below.",
       "attachmentsReadOnly": "Attachments stay as they are: {{names}}",
       "suspended": "{{code}} is paused: nothing was decided. It can be decided once it's turned on again."
