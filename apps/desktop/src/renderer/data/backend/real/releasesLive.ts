@@ -2,6 +2,7 @@ import type * as Fake from "../../api";
 import { appClient } from "./client";
 import { projectCodes } from "./claude";
 import { createRealPrs } from "./releasePrs";
+import { createRealRepoSettings } from "./releaseRepos";
 import { createRealReleases } from "./releases";
 
 // I rilasci e le PR della build app sul client vero (area 8, F1): gli
@@ -44,6 +45,19 @@ const prs = createRealPrs(
   (row) => releases.fromRow(row),
 );
 
+const repoSettings = createRealRepoSettings({
+  list: (projectId) => appClient().repositories.list(projectId),
+  update: (slug, patch) => appClient().repositories.updateReleaseSettings(slug, patch),
+  // `repos.manage` di chi guarda: i permessi che il server calcola (`/api/auth/me`).
+  canManage: async (projectId) => {
+    const me = await appClient().auth.me();
+    return (
+      me.instancePermissions.includes("instance.full_admin") ||
+      (me.projectPermissions[projectId] ?? []).includes("repos.manage" as never)
+    );
+  },
+});
+
 export const liveReleases: Partial<typeof Fake.releases> = {
   // `releases-prs`: le PR aperte, la coda, il merge, le correzioni, «Solo analisi», le note.
   listOpenPrs: prs.listOpenPrs,
@@ -57,6 +71,10 @@ export const liveReleases: Partial<typeof Fake.releases> = {
   getRelease: releases.getRelease,
   fixRelease: releases.fixRelease,
   listMyReleases: prs.listMyReleases,
+  // `releases-repo-settings`: il ramo di rilascio, la pipeline, le PR dei colleghi.
+  getRepositorySettings: repoSettings.getRepositorySettings,
+  setRepoPrMode: repoSettings.setRepoPrMode,
+  setReleasePipeline: repoSettings.setReleasePipeline,
 };
 
 /** La bozza delle note della PR per il riquadro di Claude (calcolata dal server). */
