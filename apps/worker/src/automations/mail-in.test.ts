@@ -67,7 +67,7 @@ async function listening(over: { owner?: string; box?: string; steps?: Step[]; f
   const flow: AutomationFlow = { trigger: over.filter ?? { kind: "stubwise", event: "mail_received" }, steps: over.steps ?? [task], titleTemplate: "Email da {{email.mittente}}" };
   const [a] = await t.db
     .insert(automations)
-    .values({ code: `I${n}-A${n}`, seq: n, name: `In ${n}`, projectId, ownerId: over.owner ?? ownerId, status: "active", activeSince: new Date(Date.now() - 60_000), mailboxAccountId: over.box ?? mailbox })
+    .values({ code: `I${n}-A${n}`, seq: n, name: `In ${n}`, projectId, ownerId: over.owner ?? ownerId, status: "active", activeSince: new Date(Date.now() - 60_000), mailboxAccountId: over.box ?? mailbox, listensMail: (over.filter ?? { kind: "stubwise", event: "mail_received" }).kind === "stubwise" })
     .returning();
   await t.db.insert(automationVersions).values({ automationId: a!.id, n: 1, flow, publishedAt: new Date(Date.now() - 60_000), publishedBy: ownerId });
   return a!;
@@ -100,6 +100,17 @@ describe("«email in arrivo»", () => {
     expect(created).toMatchObject({ title: "Da cliente@b.it: Preventivo" });
     const [event] = await t.db.select().from(automationEvents).where(eq(automationEvents.accountId, mailbox));
     expect((event!.payload as { email: { testo: string } }).email.testo).toBe("");
+  });
+
+  it("review F2, I2: una casella con un'automazione che manda SOLTANTO (non ascolta): zero download e zero eventi", async () => {
+    await listening({ filter: { kind: "manual" } });
+    let reads = 0;
+    await automationMailIn(t.db, message(), async () => {
+      reads++;
+      return "x";
+    });
+    expect(reads).toBe(0);
+    expect(await t.db.select().from(automationEvents).where(eq(automationEvents.accountId, mailbox))).toEqual([]);
   });
 
   it("lo stesso messaggio riletto (la history due volte) non la fa ripartire", async () => {
@@ -150,7 +161,7 @@ describe("«email in arrivo»", () => {
     // Un'esecuzione di A ha mandato un'email nella conversazione th-ping e ne aspetta la risposta.
     const [run] = await t.db
       .insert(automationRuns)
-      .values({ automationId: a.id, n: 50, version: 1, title: "Ping", origin: "stubwise", status: "waiting_event", waitingThread: `${mailbox}:th-ping`, cursor: { path: "1", waitingUntil: new Date(Date.now() + 86_400_000).toISOString() } })
+      .values({ automationId: a.id, n: 50, version: 1, title: "Ping", origin: "stubwise", status: "waiting_event", mailboxAccountId: mailbox, waitingThread: `${mailbox}:th-ping`, cursor: { path: "1", waitingUntil: new Date(Date.now() + 86_400_000).toISOString() } })
       .returning();
     await t.db.update(automationVersions).set({ flow: { trigger: { kind: "stubwise", event: "mail_received" }, steps: [{ id: "m", kind: "sendEmail", to: "x@b.it", subject: "s", body: "b", attachRefs: [], approval: { mode: "auto" } }, { id: "w", kind: "wait", for: { replyTo: "m", maxDays: 3 } }], titleTemplate: "t" } }).where(eq(automationVersions.automationId, a.id));
     await t.db.insert(mailOutgoing).values({ userId: ownerId, accountId: mailbox, automationRunId: run!.id, sendAt: new Date(), state: "sent", gmailThreadId: "th-ping", subject: "s", body: "b" });
@@ -166,4 +177,18 @@ describe("«email in arrivo»", () => {
     await consumeAutomationEvents({ db: t.db });
     expect(await runsOf(a.id)).toHaveLength(2);
   });
+
+  it("review F2, C1: passata a un altro proprietario (e alla sua casella), una risposta nella casella di A non sveglia più l'esecuzione", async () => {
+    const a = await listening();
+    const [run] = await t.db
+      .insert(automationRuns)
+      .values({ automationId: a.id, n: 70, version: 1, title: "R", origin: "stubwise", status: "waiting_event", mailboxAccountId: mailbox, waitingThread: `${mailbox}:th-c1`, cursor: { path: "1", waitingUntil: new Date(Date.now() + 86_400_000).toISOString() } })
+      .returning();
+    await t.db.update(automationVersions).set({ flow: { trigger: { kind: "stubwise", event: "mail_received" }, steps: [{ id: "m", kind: "sendEmail", to: "x@b.it", subject: "s", body: "b", attachRefs: [], approval: { mode: "auto" } }, { id: "w", kind: "wait", for: { replyTo: "m", maxDays: 3 } }], titleTemplate: "t" } }).where(eq(automationVersions.automationId, a.id));
+    const b = await person();
+    await t.db.update(automations).set({ ownerId: b, mailboxAccountId: await boxOf(b) }).where(eq(automations.id, a.id));
+    await automationMailIn(t.db, message({ threadId: "th-c1" }), async () => "Risposta per A");
+    expect(await t.db.select().from(automationRunInputs).where(eq(automationRunInputs.runId, run!.id))).toEqual([]);
+  });
 });
+

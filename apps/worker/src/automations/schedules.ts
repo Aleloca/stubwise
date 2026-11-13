@@ -68,6 +68,7 @@ export async function fireSchedules(db: Db, now: Date, log: (msg: string) => voi
           status: "running",
           event,
           origin: "schedule",
+          mailboxAccountId: a.mailboxAccountId,
           projectIds: [a.projectId],
           dueAt: sql`now()`,
         })

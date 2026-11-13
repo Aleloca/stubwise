@@ -1,4 +1,4 @@
-import { automationEffects, automationRunInputs, automationRunLog, automationRuns, automationVersions, mailOutgoing, type Db } from "@stubwise/db";
+import { automationEffects, automationRunInputs, automationRunLog, automationRuns, automations, automationVersions, googleAccounts, mailOutgoing, type Db } from "@stubwise/db";
 import { stepAt, type AutomationFlow, type Step } from "@stubwise/shared";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { effectKey } from "./effects.js";
@@ -76,10 +76,17 @@ const WAITING = sql`(${automationRuns.status} = 'waiting_event' or (${automation
  * risposta su `<accountId>:<threadId>`. Ritorna quante.
  */
 export async function wakeReplyWaits(db: Db | Tx, mail: { accountId: string; threadId: string; text: string }): Promise<number> {
-  const runs = await (db as Db)
-    .select()
-    .from(automationRuns)
-    .where(and(eq(automationRuns.waitingThread, `${mail.accountId}:${mail.threadId}`), WAITING));
+  // C1 (review F2): solo le esecuzioni di QUESTA casella, e solo se l'automazione
+  // è ancora del proprietario della casella (passata a un altro, la posta di
+  // prima non la sveglia più: non deve arrivare a lui).
+  const runs = (
+    await (db as Db)
+      .select({ run: automationRuns })
+      .from(automationRuns)
+      .innerJoin(automations, eq(automations.id, automationRuns.automationId))
+      .innerJoin(googleAccounts, eq(googleAccounts.id, mail.accountId))
+      .where(and(eq(automationRuns.waitingThread, `${mail.accountId}:${mail.threadId}`), eq(automationRuns.mailboxAccountId, mail.accountId), eq(automations.ownerId, googleAccounts.userId), WAITING))
+  ).map((r) => r.run);
   let woken = 0;
   for (const run of runs) {
     const step = await waitStepOf(db, run);

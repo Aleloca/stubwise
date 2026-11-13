@@ -6485,8 +6485,11 @@ export const automations = pgTable(
     activeSince: timestamp("active_since", { withTimezone: true }),
     /** La casella scelta all'accensione, del proprietario di adesso (R-J15, 0170). */
     mailboxAccountId: uuid("mailbox_account_id").references(() => googleAccounts.id, { onDelete: "set null" }),
+    /** Ascolta la posta della sua casella («email in arrivo»), scritto alla pubblicazione (0172, review F2 I2). */
+    listensMail: boolean("listens_mail").notNull().default(false),
   },
   (table) => [
+    index("automations_listens_mail_idx").on(table.mailboxAccountId).where(sql`${table.listensMail} AND ${table.status} = 'active'`),
     uniqueIndex("automations_code_idx").on(table.code),
     uniqueIndex("automations_project_seq_idx").on(table.projectId, table.seq),
     check("automations_created_via_chk", sql`${table.createdVia} IS NULL OR ${table.createdVia} = 'claude'`),
@@ -6556,6 +6559,12 @@ export const automationRuns = pgTable(
     waitingThread: text("waiting_thread"),
     /** Un `wait` della task chiusa: la task del flusso (0170, C-F2-4). */
     waitingTicketId: uuid("waiting_ticket_id").references(() => tickets.id, { onDelete: "set null" }),
+    /**
+     * La casella di QUESTA esecuzione (0172, review F2 C1): da quella manda, su
+     * quella si sveglia, e solo il proprietario di quella casella ne legge la
+     * posta. Ripubblicare con un'altra casella non sposta le esecuzioni partite.
+     */
+    mailboxAccountId: uuid("mailbox_account_id").references(() => googleAccounts.id, { onDelete: "set null" }),
   },
   (table) => [
     uniqueIndex("automation_runs_n_idx").on(table.automationId, table.n),

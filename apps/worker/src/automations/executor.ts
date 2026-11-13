@@ -356,7 +356,8 @@ async function control(turn: Turn, input: ControlInput): Promise<void> {
 /** «Salta»: il passo al cursore è saltato, si riparte da quello dopo. */
 /** L'ambiente di un effetto: l'esecuzione, l'automazione e la casella scelta all'accensione. */
 async function effectEnv(turn: Turn): Promise<EffectEnv> {
-  const accountId = turn.automation.mailboxAccountId;
+  // C1 (review F2): la casella dell'ESECUZIONE, non quella che l'automazione ha adesso.
+  const accountId = turn.run.mailboxAccountId ?? turn.automation.mailboxAccountId;
   const [box] = accountId ? await turn.deps.db.select({ email: googleAccounts.email }).from(googleAccounts).where(eq(googleAccounts.id, accountId)) : [];
   return {
     db: turn.deps.db,

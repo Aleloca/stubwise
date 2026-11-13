@@ -505,7 +505,7 @@ describe("sincronizzazione Gmail", () => {
     // Poi un'automazione del proprietario che ascolta la casella.
     const [a] = await db
       .insert(automations)
-      .values({ code: "ACM-A1", seq: 1, name: "In", projectId, ownerId: account.userId, status: "active", activeSince: new Date(Date.now() - 60_000), mailboxAccountId: account.id })
+      .values({ code: "ACM-A1", seq: 1, name: "In", projectId, ownerId: account.userId, status: "active", activeSince: new Date(Date.now() - 60_000), mailboxAccountId: account.id, listensMail: true })
       .returning();
     await db.insert(automationVersions).values({ automationId: a!.id, n: 1, flow: { trigger: { kind: "stubwise", event: "mail_received" }, steps: [], titleTemplate: "t" }, publishedAt: new Date(), publishedBy: account.userId });
     await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1005" }).where(eq(googleAccounts.id, account.id));

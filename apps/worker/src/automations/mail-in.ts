@@ -34,12 +34,12 @@ export async function automationMailIn(db: Db, mail: IncomingMail, loadText: () 
   const [listener] = await db
     .select({ id: automations.id })
     .from(automations)
-    .where(and(eq(automations.status, "active"), eq(automations.mailboxAccountId, mail.accountId)))
+    .where(and(eq(automations.status, "active"), eq(automations.listensMail, true), eq(automations.mailboxAccountId, mail.accountId)))
     .limit(1);
   const [waiter] = await db
     .select({ id: automationRuns.id })
     .from(automationRuns)
-    .where(eq(automationRuns.waitingThread, `${mail.accountId}:${mail.threadId}`))
+    .where(and(eq(automationRuns.waitingThread, `${mail.accountId}:${mail.threadId}`), eq(automationRuns.mailboxAccountId, mail.accountId)))
     .limit(1);
   if (!listener && !waiter) return;
   const text = (await loadText()).slice(0, MAIL_TEXT_MAX);

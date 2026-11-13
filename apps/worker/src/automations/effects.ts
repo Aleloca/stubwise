@@ -268,7 +268,7 @@ async function executeEmail(eff: ActionEffect, env: EffectEnv): Promise<EffectOu
     const earlier = await tx
       .select({ to: mailOutgoing.toAddresses, threadId: mailOutgoing.gmailThreadId })
       .from(mailOutgoing)
-      .where(and(eq(mailOutgoing.automationRunId, env.runId), eq(mailOutgoing.state, "sent")))
+      .where(and(eq(mailOutgoing.automationRunId, env.runId), eq(mailOutgoing.accountId, box.accountId), eq(mailOutgoing.state, "sent")))
       .orderBy(mailOutgoing.createdAt);
     const thread = sameConversation(
       earlier.map((e) => ({ to: e.to[0]?.email ?? "", threadId: e.threadId })),
