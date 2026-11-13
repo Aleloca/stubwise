@@ -1,3 +1,4 @@
+import { explainIntegrated } from "../../data/queries/releases";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -61,14 +62,16 @@ function ReleaseCase({ release }: { release: ReleaseView }) {
         </p>
       </div>
       <span className="flex items-center gap-2">
-        <button
-          type="button"
-          className={smallSecondary}
-          disabled={explain.pending}
-          onClick={() => void explain.run(release)}
-        >
-          {t("releases.explain.button")}
-        </button>
+        {explainIntegrated() && (
+          <button
+            type="button"
+            className={smallSecondary}
+            disabled={explain.pending}
+            onClick={() => void explain.run(release)}
+          >
+            {t("releases.explain.button")}
+          </button>
+        )}
         {release.canFix ? (
           <button type="button" className={smallPrimary} onClick={() => setFixing(true)}>
             {t("releases.fix.button")}

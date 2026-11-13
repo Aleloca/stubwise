@@ -45,6 +45,20 @@ const ENVIRONMENT_AREAS = [
  */
 const fixReleaseAreas = () => [...RELEASE_AREAS, ...RUN_AREAS];
 
+/**
+ * Le parti dell'area accese nella build app (area 8, F1, R-1): le PR aperte
+ * e la coda con `releases-prs` (o con l'area intera), i rilasci con
+ * `releases`, gli ambienti con `environments`, le impostazioni del
+ * repository con `releases-repo-settings`. Nel prototipo tutte.
+ */
+export const prsIntegrated = () =>
+  featureIntegrated("releases-prs") || featureIntegrated("releases");
+export const releasesIntegrated = () => featureIntegrated("releases");
+export const environmentsIntegrated = () => featureIntegrated("environments");
+export const repoSettingsIntegrated = () => featureIntegrated("releases-repo-settings");
+/** «Spiega»: solo quando Claude sa leggere un rilascio (il tool `read_release` di 72). */
+export const explainIntegrated = () => featureIntegrated("releases-explain");
+
 /** Le PR aperte del progetto, di Stubwise e dei colleghi. */
 export function useOpenPrs(projectId: string | undefined) {
   const me = useSessionPersonId();
@@ -52,7 +66,7 @@ export function useOpenPrs(projectId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.openPrs(me, projectId ?? ""),
     queryFn: () => api.releases.listOpenPrs(projectId!),
-    enabled: !!projectId && featureIntegrated("releases"),
+    enabled: !!projectId && prsIntegrated(),
   });
 }
 
@@ -63,7 +77,7 @@ export function useReleaseQueue(projectId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.releaseQueue(me, projectId ?? ""),
     queryFn: () => api.releases.listReleaseQueue(projectId!),
-    enabled: !!projectId,
+    enabled: !!projectId && prsIntegrated(),
   });
 }
 
@@ -72,7 +86,7 @@ export function useReleases(projectId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.releases(me, projectId ?? ""),
     queryFn: () => api.releases.listReleases(projectId!),
-    enabled: !!projectId && featureIntegrated("releases"),
+    enabled: !!projectId && releasesIntegrated(),
   });
 }
 
@@ -82,7 +96,7 @@ export function useRelease(code: string | undefined) {
   return useQuery({
     queryKey: queryKeys.release(me, code ?? ""),
     queryFn: () => api.releases.getRelease(code!),
-    enabled: !!code,
+    enabled: !!code && releasesIntegrated(),
   });
 }
 
@@ -91,7 +105,7 @@ export function useEnvironments(projectId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.environments(me, projectId ?? ""),
     queryFn: () => api.releases.listEnvironments(projectId!),
-    enabled: !!projectId,
+    enabled: !!projectId && environmentsIntegrated(),
   });
 }
 
@@ -101,7 +115,8 @@ export function useReleaseSearch(q: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.releaseSearch(me, q),
     queryFn: () => api.releases.searchReleases(q),
-    enabled: enabled && q.trim().length >= MIN_QUERY,
+    // La ricerca dei rilasci nella build app ha il suo cancello (review F1, m5).
+    enabled: enabled && q.trim().length >= MIN_QUERY && featureIntegrated("releases-search"),
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
   });
@@ -114,6 +129,7 @@ export function useMyReleases() {
   return useQuery({
     queryKey: queryKeys.myReleases(me),
     queryFn: () => api.releases.listMyReleases(),
+    enabled: prsIntegrated(),
   });
 }
 
@@ -122,7 +138,7 @@ export function useRepositorySettings(projectId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.repositorySettings(me, projectId ?? ""),
     queryFn: () => api.releases.getRepositorySettings(projectId!),
-    enabled: !!projectId,
+    enabled: !!projectId && repoSettingsIntegrated(),
   });
 }
 

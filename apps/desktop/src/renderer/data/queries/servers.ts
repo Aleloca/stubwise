@@ -79,7 +79,8 @@ export function useServerSearch(q: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.serverSearch(me, q),
     queryFn: () => api.servers.searchServers(q),
-    enabled: enabled && q.trim().length >= MIN_QUERY,
+    // Solo dove l'area è integrata (review area 8 F1, m5).
+    enabled: enabled && q.trim().length >= MIN_QUERY && featureIntegrated("servers"),
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
   });

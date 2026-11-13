@@ -6,6 +6,7 @@
 // mai nel bundle.
 import type * as Fake from "../../api";
 import { liveAutomations } from "./automationsLive";
+import { liveReleases } from "./releasesLive";
 import { adminDepartments } from "./departments";
 import { partialNamespace } from "./notIntegrated";
 import { chatFunctions } from "./chat";
@@ -48,6 +49,11 @@ export { calendar } from "./calendar";
 export const automations: typeof Fake.automations = partialNamespace<typeof Fake.automations>(
   "automations",
   liveAutomations,
+);
+/** I rilasci e le PR (area 8, F1): `releasesLive.ts`; le parti accese le dicono le funzioni `releases-prs` e `releases`. */
+export const releases: typeof Fake.releases = partialNamespace<typeof Fake.releases>(
+  "releases",
+  liveReleases,
 );
 export const chat: typeof Fake.chat = partialNamespace<typeof Fake.chat>("chat", {
   ...chatFunctions,

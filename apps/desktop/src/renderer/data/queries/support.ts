@@ -1,6 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "@backend/api";
+import { featureIntegrated } from "../integration";
 import { getSessionPersonId } from "../session";
 import { streamText } from "@backend/runtime";
 import { MIN_QUERY } from "../../pages/chat/search";
@@ -86,7 +87,8 @@ export function useSupportSearch(q: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.supportSearch(me, q),
     queryFn: () => api.support.searchSupport(q),
-    enabled: enabled && q.trim().length >= MIN_QUERY,
+    // Solo dove l'area è integrata (review area 8 F1, m5).
+    enabled: enabled && q.trim().length >= MIN_QUERY && featureIntegrated("support"),
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
   });

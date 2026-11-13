@@ -1,4 +1,6 @@
+import { environmentsIntegrated, explainIntegrated } from "../../data/queries/releases";
 import { Link } from "@tanstack/react-router";
+import { isAppBuild } from "../../data/build";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -88,15 +90,18 @@ function NowBox({ release }: { release: ReleaseView }) {
               {t("releases.fix.button")}
             </button>
           )}
-          <button
-            type="button"
-            className={smallSecondary}
-            disabled={explain.pending}
-            onClick={() => void explain.run(release)}
-          >
-            {t("releases.explain.button")}
-          </button>
-          {run && (
+          {/* «Spiega»: solo dove Claude sa leggere il rilascio (`releases-explain`). */}
+          {explainIntegrated() && (
+            <button
+              type="button"
+              className={smallSecondary}
+              disabled={explain.pending}
+              onClick={() => void explain.run(release)}
+            >
+              {t("releases.explain.button")}
+            </button>
+          )}
+          {run?.url && (
             <a href={run.url} target="_blank" rel="noreferrer" className={`${linkClass} ml-1`}>
               {t("releases.now.openRun", { platform: platformOf(run.url) })}
               <ExternalGlyph />
@@ -106,14 +111,17 @@ function NowBox({ release }: { release: ReleaseView }) {
       )}
       {s.kind === "failed" && fixTask && (
         <div>
-          <button
-            type="button"
-            className={smallSecondary}
-            disabled={explain.pending}
-            onClick={() => void explain.run(release)}
-          >
-            {t("releases.explain.button")}
-          </button>
+          {/* «Spiega»: solo dove Claude sa leggere il rilascio (`releases-explain`). */}
+          {explainIntegrated() && (
+            <button
+              type="button"
+              className={smallSecondary}
+              disabled={explain.pending}
+              onClick={() => void explain.run(release)}
+            >
+              {t("releases.explain.button")}
+            </button>
+          )}
         </div>
       )}
       {s.kind === "failed" && !release.canFix && !fixTask && (
@@ -124,6 +132,7 @@ function NowBox({ release }: { release: ReleaseView }) {
       )}
       {s.kind === "failed" && <p className="text-xs text-ink-muted">{t("releases.boundary")}</p>}
       {s.kind === "unavailable" &&
+        environmentsIntegrated() &&
         (environments?.canManage ? (
           <Link
             to="/p/$code/$section"
@@ -149,7 +158,13 @@ function NowBox({ release }: { release: ReleaseView }) {
   );
 }
 
+/** I «Simula» del rilascio: solo nel prototipo (area 8, R-2); nella build app niente. */
 function Simulate({ release }: { release: ReleaseView }) {
+  if (isAppBuild()) return null;
+  return <SimulateBox release={release} />;
+}
+
+function SimulateBox({ release }: { release: ReleaseView }) {
   const { t } = useTranslation();
   const outcome = useSimulateRunOutcome();
   const seen = useSimulateSeenOnServer();
@@ -231,10 +246,12 @@ function RunItem({ run, projectCode }: { run: RunView; projectCode: string }) {
           <span className="text-sm text-ink-muted">{t(`releases.run.status.${run.status}`)}</span>
           <span className="num ml-auto text-sm text-ink-muted">{duration(run, t)}</span>
         </button>
-        <a href={run.url} target="_blank" rel="noreferrer" className={`${linkClass} shrink-0 pr-2`}>
-          {t("releases.openOn", { platform: platformOf(run.url) })}
-          <ExternalGlyph />
-        </a>
+        {run.url && (
+          <a href={run.url} target="_blank" rel="noreferrer" className={`${linkClass} shrink-0 pr-2`}>
+            {t("releases.openOn", { platform: platformOf(run.url) })}
+            <ExternalGlyph />
+          </a>
+        )}
       </div>
       {open && (
         <div className="run-open flex flex-col gap-3 pb-4 pl-9">
@@ -244,7 +261,12 @@ function RunItem({ run, projectCode }: { run: RunView; projectCode: string }) {
               <strong className="font-semibold">{run.failedStep}</strong>
             </p>
           )}
-          {run.log !== null ? (
+          {isAppBuild() ? (
+            // P-1 = a (46): il log delle run non si legge nell'app, si apre sul provider.
+            <p className="text-sm text-ink-muted">
+              {t("releases.log.onProvider", { platform: platformOf(run.url) })}
+            </p>
+          ) : run.log !== null ? (
             <RunLog runName={run.name} log={run.log} url={run.url} />
           ) : run.logHidden ? (
             <p className="text-sm text-ink-muted">

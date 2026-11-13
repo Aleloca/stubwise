@@ -400,6 +400,27 @@ const INTEGRATED_CALLS = new Set([
   "automations.startManual",
   "automations.startSimulation",
   "automations.whenAutomationsIdle",
+  // Area 5: la ricerca nei Docs del progetto (`data/backend/real/docs.ts`), che la palette usa.
+  "docs.searchDocs",
+  // Area 8, F1 (`releases-prs`): le PR aperte, la coda e le loro scritture
+  // (`data/backend/real/releasesLive.ts`).
+  "releases.listOpenPrs",
+  "releases.listReleaseQueue",
+  "releases.mergePr",
+  "releases.requestPrCorrection",
+  "releases.setPrAnalysisOnly",
+  "releases.setPrReleaseNotes",
+  // Area 8, F1 (`releases`): i rilasci, «Fai sistemare a Claude», la Home «Rilasci».
+  "releases.listReleases",
+  "releases.getRelease",
+  "releases.fixRelease",
+  "releases.listMyReleases",
+  // Area 8, F1 (`releases-repo-settings`): la sezione «Repositories» ridotta.
+  "releases.getRepositorySettings",
+  "releases.setRepoPrMode",
+  "releases.setReleasePipeline",
+  // Area 8, F1 (`releases-explain`): «Spiega» apre una conversazione col contesto del rilascio.
+  "releases.explainRelease",
   // Area 7, F4 (accesa): sorgenti webhook, tabella cliente → progetto, tetto del
   // webhook (`data/backend/real/automationSources.ts`, `automations.ts`).
   "automations.listSources",
@@ -566,10 +587,53 @@ describe("aree non integrate nella build app", () => {
   });
 
   it("una sezione di progetto non integrata mostra «Coming soon»", async () => {
-    // Dall'area 5 (fetta 2) anche il Drive è integrato: le Release non ancora.
-    renderRoute("/p/AUD/releases");
+    // Dall'area 8 (fetta 1) le Release sono accese con le sole PR: Support non ancora.
+    renderRoute("/p/AUD/support");
     expect(await screen.findByText("Coming soon")).toBeInTheDocument();
     await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  // Review area 8 F1, m5: le ricerche della palette delle aree non integrate non partono.
+  it("cercare nella palette legge solo chiamate integrate (rilasci, Support, Servers spenti)", async () => {
+    const user = userEvent.setup();
+    renderRoute("/home");
+    await screen.findByRole("region", { name: /^My tasks/ });
+    await user.keyboard("{Control>}k{/Control}");
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByRole("combobox"), "AUD");
+    await new Promise((r) => setTimeout(r, 400));
+    await settle();
+    expect(calls).not.toContain("releases.searchReleases");
+    expect(calls).not.toContain("support.searchSupport");
+    expect(calls).not.toContain("servers.searchServers");
+    // Nemmeno la doc di prodotto (area 11, spenta) parte.
+    expect(calls).not.toContain("productDocs.searchProductPages");
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 8, F1 (46): «Repositories» ridotta, senza «nuovo repository» né l'editor dell'area 9.
+  it("aprire Repositories legge solo chiamate integrate, senza «Add repository»", async () => {
+    // Laura vede il codice di AUD (`repos.view`): la sezione è sua.
+    signedInAs("p-laura");
+    renderRoute("/p/AUD/settings/repositories");
+    await waitFor(() => expect(calls).toContain("releases.getRepositorySettings"));
+    await settle();
+    expect(screen.queryByRole("button", { name: /Add repository/ })).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 8, F1 (`releases-prs` e `releases`): PR, coda e rilasci dal server; ambienti «in arrivo».
+  it("aprire Releases legge solo chiamate integrate", async () => {
+    renderRoute("/p/AUD/releases");
+    expect(await screen.findByRole("region", { name: "Pull requests" })).toBeInTheDocument();
+    await waitFor(() => expect(calls).toContain("releases.listOpenPrs"));
+    await waitFor(() => expect(calls).toContain("releases.listReleaseQueue"));
+    await settle();
+    await waitFor(() => expect(calls).toContain("releases.listReleases"));
+    expect(
+      within(screen.getByRole("region", { name: "Environments" })).getByText("Coming soon"),
+    ).toBeInTheDocument();
     expect(outside()).toEqual([]);
   });
 
@@ -749,7 +813,8 @@ describe("le superfici della fetta 2 nella build app", () => {
 /** I blocchi delle aree non integrate (rilasci, assistenza). */
 // «Upcoming» (gli appuntamenti) è acceso dall'area 6, fetta 1; «Important email» dalla fetta 2;
 // «Automations» dall'area 7, fetta 1.
-const FUTURE_BLOCKS = /^(Releases|Customers waiting)/;
+// Dall'area 8 (fetta 1) «Releases» è integrato: resta futuro «Customers waiting».
+const FUTURE_BLOCKS = /^Customers waiting/;
 
 describe("le superfici della fetta 3 nella build app", () => {
   it("dopo il login si atterra sulla Home a blocchi", async () => {
@@ -769,8 +834,8 @@ describe("le superfici della fetta 3 nella build app", () => {
     expect(router.state.location.search).not.toHaveProperty("view");
   });
 
-  it("i blocchi delle aree non integrate non si mostrano e non leggono nulla, nemmeno l'extra «Releases»", async () => {
-    // Laura può rilasciare e non ha personalizzato la Home: nel prototipo vede «Releases».
+  it("i blocchi delle aree non integrate non si mostrano e non leggono nulla («Releases» sì, dall'area 8)", async () => {
+    // Laura può rilasciare e non ha personalizzato la Home: vede «Releases» (integrato), legge solo chiamate integrate.
     signedInAs("p-laura");
     renderRoute("/home");
     expect(await screen.findByRole("region", { name: /^My week/ })).toBeInTheDocument();

@@ -8847,6 +8847,7 @@
       "correctedNoSha": "Claude pushed a fix · analysing again",
       "discarded": "{{name}} pushed new commits first · analysing the new head",
       "capped": "Claude stopped after {{cap}} corrections",
+      "notAnalyzed": "Not analyzed: automatic review is off",
       "analysisOff": "Analysis is off for {{repo}}",
       "onStaging": "on staging"
     },
@@ -8878,6 +8879,7 @@
         "merge_forbidden": "The git account saved for {{code}} can't merge this pull request.",
         "not_found": "This pull request wasn't found.",
         "forbidden": "You can't release in {{code}} any more.",
+        "merge_failed": "The merge failed on the provider: nothing was merged. Try again in a moment.",
         "generic": "Couldn't merge. Try again in a moment."
       }
     },
@@ -8950,6 +8952,7 @@
       "waits": "The task will wait for someone who can start Claude in {{code}}.",
       "planGate": "Claude will write a plan first; someone who can approve plans in {{code}} approves it.",
       "created": "{{task}} created",
+      "createdStarted": "{{task}} created: Claude started on it",
       "error": "Couldn't create the task for {{code}}.",
       "noPermission": "Someone who can create tasks in {{code}} can ask Claude to fix it.",
       "discard": "Discard your note?",
@@ -8998,6 +9001,7 @@
       "copied": "Log copied",
       "copyError": "Couldn't copy the log.",
       "hidden": "The log is visible to people who can see {{code}}'s code.",
+      "onProvider": "The full log is on {{platform}}: open the run there.",
       "none": "This run has no log."
     },
     "environments": {
@@ -9085,7 +9089,11 @@
         "in_flight": "Claude is already working on a correction.",
         "not_fixable": "Claude can't push to this branch.",
         "analysis_only": "This pull request is set to analysis only.",
-        "monthly_budget": "Claude didn't start: the monthly AI budget is used up."
+        "monthly_budget": "Claude didn't start: the monthly AI budget is used up.",
+        "pr_not_found": "Stubwise is still analyzing this pull request: try again in a moment.",
+        "adopted_pr_admin_only": "Only an admin can ask for changes on this pull request.",
+        "not_stubwise_pr": "Stubwise can't correct this pull request.",
+        "adopted_branch_protected": "This pull request's branch is protected: Claude can't push to it."
       },
       "stubwiseCorrections": "Claude makes the change in a new session of {{task}}.",
       "openSession": "Open",

@@ -65,6 +65,10 @@ const ALL: IntegrationTarget[] = [
       "automations-f2",
       "automations-f3",
       "automations-f4",
+      "releases-prs",
+      "releases",
+      "releases-repo-settings",
+      "releases-explain",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -90,9 +94,17 @@ describe("isIntegrated", () => {
         "feature:automations-f3",
         // Area 7, fetta 4: generali, sorgenti webhook, «avvia un'altra».
         "feature:automations-f4",
+        // Area 8, fetta 1: le PR aperte (la sezione Releases, senza rilasci né ambienti).
+        "projectSection:releases",
+        "feature:releases-prs",
+        "feature:releases",
+        "feature:releases-repo-settings",
+        "feature:releases-explain",
         "destination:projects",
         "projectSection:tasks",
         "projectSettings:statuses",
+        // Area 8, fetta 1: «Repositories» ridotta al blocco «Releases».
+        "projectSettings:repositories",
         "admin:departments",
         "taskView:list",
         "taskView:board",
