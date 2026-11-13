@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { triggerKey } from "@stubwise/shared";
+import { triggerKey, SCHEDULE_DEFAULT_HOUR } from "@stubwise/shared";
 import { automationAvailability } from "../../../data/integration";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -309,7 +309,7 @@ function ScheduleSection({ rule }: { rule: string }) {
     rule.split(";").map((p) => p.split("=") as [string, string]),
   ) as Record<string, string | undefined>;
   const freq = parts.FREQ ?? "WEEKLY";
-  const hour = Number(parts.BYHOUR ?? 9);
+  const hour = Number(parts.BYHOUR ?? SCHEDULE_DEFAULT_HOUR);
   const minute = Number(parts.BYMINUTE ?? 0);
   const write = (next: Record<string, string | number | undefined>) => {
     const p: Record<string, string | number | undefined> = {

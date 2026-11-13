@@ -61,6 +61,7 @@ import {
   type Command,
   type CommandContext,
 } from "./commands";
+import { useDebounced } from "../lib/useDebounced";
 
 /** Quanti risultati per gruppo: la palette si scorre a colpo d'occhio, non si sfoglia. */
 export const GROUP_LIMIT = 5;
@@ -159,15 +160,6 @@ const KIND_GROUP: Record<SearchResult["kind"], GroupId> = {
   request: "requests",
   person: "people",
 };
-
-function useDebounced<T>(value: T, ms: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const id = window.setTimeout(() => setDebounced(value), ms);
-    return () => window.clearTimeout(id);
-  }, [value, ms]);
-  return debounced;
-}
 
 const EnterIcon = () => (
   <svg

@@ -141,7 +141,7 @@ describe("le Automations della build app sul client vero", () => {
     expect((await automations.listMyApprovals()).map((d) => d.runId)).toEqual([RUN_ID]);
     await automations.approve(RUN_ID, undefined, { expectedPath: "1" });
     expect(seen.map((r) => r.path)).toEqual([
-      "/api/me/automation-runs",
+      "/api/me/automation-runs?log=none",
       "/api/me/automation-approvals",
       "/api/automations/AUD-A1/runs/3/approve",
     ]);
@@ -208,6 +208,120 @@ describe("le Automations della build app sul client vero", () => {
       "POST /api/automations/AUD-A1/tested",
     ]);
     expect(seen.at(-1)!.body).toEqual({ version: 1, rev: 7 });
+  });
+});
+
+describe("gli input che il worker applica dopo (review I2)", () => {
+  const detail = (over: Record<string, unknown> = {}) => ({
+    ...serverRun({ status: "waiting_approval", cursor: "0", round: 2 }),
+    version: 1,
+    title: "Avvio",
+    event: {},
+    vars: {},
+    waitingUntil: null,
+    pending: { approverIds: [ME_ID], preview: {} },
+    log: [],
+    startedAt: "2026-11-13T09:00:00.000Z",
+    endedAt: null,
+    error: null,
+    projectIds: [PROJECT_ID],
+    flow: FLOW,
+    deciders: [ME_ID],
+    ownerId: ME_ID,
+    permissions: { manage: true, approve: true, chooseProject: false },
+    parent: null,
+    children: [],
+    pendingEffect: null,
+    ...over,
+  });
+
+  it("dopo Approva, finché il worker non l'applica: fuori da «Da decidere», «in coda» nel dettaglio; poi si rilegge", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      let applied = false;
+      installFakeServer({
+        "GET /api/me/automation-approvals": {
+          body: { items: [{ runId: RUN_ID, automationCode: "AUD-A1", n: 3, cursor: "0", round: 2 }] },
+        },
+        "GET /api/automations/AUD-A1/runs/3": () => ({
+          body: applied ? detail({ status: "running", cursor: "1", pending: null }) : detail(),
+        }),
+        "POST /api/automations/AUD-A1/runs/3/approve": { status: 204 },
+      });
+      expect(await automations.listMyApprovals()).toHaveLength(1);
+      expect((await automations.getRun(RUN_ID))?.permissions.approve).toBe(true);
+      await automations.approve(RUN_ID, undefined, { expectedPath: "0" });
+      // Il server non l'ha ancora applicato: la voce non torna, e non si decide due volte.
+      expect(await automations.listMyApprovals()).toEqual([]);
+      const queued = await automations.getRun(RUN_ID);
+      expect(queued?.inputQueued).toBe(true);
+      expect(queued?.permissions.approve).toBe(false);
+      let idle = false;
+      void automations.whenAutomationsIdle().then(() => (idle = true));
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(idle).toBe(false);
+      applied = true;
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(idle).toBe(true);
+      expect((await automations.getRun(RUN_ID))?.inputQueued).toBeFalsy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("annulla, riprova e salta aspettano anche loro; un worker fermo non blocca oltre i 10 s", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      installFakeServer({
+        "GET /api/automation-runs": {
+          body: { items: [serverRun({ status: "failed", cursor: "1" })], nextCursor: null },
+        },
+        "GET /api/automations/AUD-A1/runs/3": {
+          body: detail({ status: "failed", cursor: "1", pending: null }),
+        },
+        "POST /api/automations/AUD-A1/runs/3/retry": { status: 204 },
+      });
+      await automations.listRuns();
+      await automations.retryStep(RUN_ID);
+      expect((await automations.getRun(RUN_ID))?.inputQueued).toBe(true);
+      let idle = false;
+      void automations.whenAutomationsIdle().then(() => (idle = true));
+      await vi.advanceTimersByTimeAsync(9000);
+      expect(idle).toBe(false);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(idle).toBe(true);
+      expect((await automations.getRun(RUN_ID))?.inputQueued).toBeFalsy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("la prova dopo una modifica (review, minore)", () => {
+  it("salvare la bozza butta il contesto della prova: la prova dopo gira sul flusso nuovo", async () => {
+    const context = {
+      automation: serverAutomation(7),
+      version: 1,
+      draft: true,
+      rev: 7,
+      ownerId: ME_ID,
+      configErrors: [],
+      people: [{ id: ME_ID, name: "Ada", departmentIds: [], deactivated: false }],
+      projects: [],
+    };
+    const { seen } = installFakeServer({
+      "GET /api/auth/me": { body: me() },
+      "GET /api/automations": { body: { items: [serverRow(7)] } },
+      "GET /api/automations/AUD-A1/examples": { body: { items: [], context } },
+      "PUT /api/automations/AUD-A1/draft": { body: serverAutomation(8) },
+      "POST /api/automations/AUD-A1/tested": { status: 204 },
+    });
+    await getSessionPerson();
+    await automations.listAutomations();
+    await automations.listSimulationExamples(A_ID, "draft");
+    await automations.saveDraft(A_ID, FLOW as never);
+    await automations.startSimulation(A_ID, "draft", {});
+    expect(seen.filter((r) => r.path.includes("/examples"))).toHaveLength(2);
   });
 });
 

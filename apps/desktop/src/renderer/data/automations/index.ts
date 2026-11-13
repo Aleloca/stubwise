@@ -9,6 +9,7 @@ import "./sources";
 export {
   canManageAutomations,
   checkDraft,
+  findRun,
   getAutomation,
   getRun,
   listAutomations,

@@ -42,6 +42,11 @@ export interface PlanWorld {
   ): void;
   checkNewRequest(owner: string, input: { projectId: string; title: string }): void;
   defaultDepartmentOf(personId: string): string | null;
+  /**
+   * Il progetto ha già un traguardo con questo nome (confronto esatto, come
+   * `milestoneNameTaken` dell'esecutore). Assente = nessun nome noto.
+   */
+  milestoneNameTaken?(projectId: string, name: string): boolean;
 }
 
 export const personName = (w: PlanWorld, id: string | null) =>
@@ -257,6 +262,16 @@ export function planMilestone(
     w.checkNewMilestone(owner, projectId, { name: plan.name, dueDate: plan.dueDate });
   } catch (error) {
     return refuse(asFailure(w, error, owner));
+  }
+  // Il nome è unico per progetto: «esiste già» è un dato non valido, come nell'esecutore.
+  if (w.milestoneNameTaken?.(projectId, plan.name)) {
+    return refuse(
+      failed(
+        "invalid_input",
+        { code: "milestoneExists", params: { name: plan.name } },
+        `Un traguardo «${plan.name}» esiste già nel progetto.`,
+      ),
+    );
   }
   return { ok: true, plan };
 }

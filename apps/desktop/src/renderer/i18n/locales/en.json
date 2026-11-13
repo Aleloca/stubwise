@@ -7091,7 +7091,11 @@
       "statusDraftBy": "never turned on · created by {{who}} on {{date}}",
       "duplicateVersion": "Duplicate this version",
       "statusPausedBy_zero": "paused by {{who}} on {{date}}",
-      "statusPaused_zero": "owner {{owner}}"
+      "statusPaused_zero": "owner {{owner}}",
+      "pausedReason": {
+        "mailbox_lost": "the owner's mailbox can't be used any more",
+        "owner_lost_permission": "the owner lost a permission it needs"
+      }
     },
     "version": {
       "short": "v{{n}}",
@@ -7205,6 +7209,8 @@
       "onMailboxMissing_publish": "Couldn't publish {{code}}: connect a mailbox in Mail first.",
       "onMailboxExpired": "Couldn't turn on {{code}}: your mailbox connection expired. Reconnect it in Mail.",
       "onMailboxExpired_publish": "Couldn't publish {{code}}: your mailbox connection expired. Reconnect it in Mail.",
+      "onMailboxScope": "Couldn't turn on {{code}}: your mailbox can't send email. Reconnect it in Mail.",
+      "onMailboxScope_publish": "Couldn't publish {{code}}: your mailbox can't send email. Reconnect it in Mail.",
       "onConfig": "Couldn't turn on {{code}}: it has problems to fix first.",
       "onConfig_publish": "Couldn't publish {{code}}: it has problems to fix first.",
       "publishedPaused": "Version {{n}} of {{code}} published · it stays paused",
@@ -7220,6 +7226,12 @@
       "other": "something went wrong",
       "permission_lost": "permission lost",
       "mailbox_expired": "the mailbox connection expired",
+      "mailbox_scope": "the mailbox can't send email",
+      "token_expired": "the mailbox connection expired",
+      "google_scope_missing": "the mailbox needs to be reconnected",
+      "quota": "Gmail's sending limit was reached",
+      "invalid_message": "Gmail refused the message",
+      "interrupted": "sending was interrupted",
       "mailbox_missing": "no mailbox connected",
       "no_approver": "nobody can approve it",
       "address_not_found": "the address doesn't exist",
@@ -7255,6 +7267,8 @@
       "cantManage": "Permission lost: the owner ({{owner}}) can't manage “{{name}}”.",
       "cantManage_would": "The owner ({{owner}}) can't manage “{{name}}”: it wouldn't start.",
       "invalidInput": "The step's data isn't valid ({{message}}).",
+      "milestoneExists": "A milestone “{{name}}” already exists in the project.",
+      "milestoneExists_would": "A milestone “{{name}}” already exists in the project: the step would fail.",
       "emailLimitChain": "Limit reached: at most {{max}} emails per run, counting the automations this one started.",
       "emailLimitChain_would": "Limit reached: at most {{max}} emails per run, counting the automations this one starts. The email wouldn't be sent.",
       "mailboxGone": "The mailbox chosen for the automation ({{mailbox}}) is no longer connected to {{owner}}: the email wasn't sent.",
@@ -7265,6 +7279,7 @@
       "mailboxExpired_would": "The owner's mailbox ({{owner}}) has expired: the email wouldn't be sent until it's reconnected.",
       "mailboxScope": "The owner's mailbox ({{owner}}) can't send email: reconnect it before retrying.",
       "mailboxScope_would": "The owner's mailbox ({{owner}}) can't send email: the email wouldn't be sent until it's reconnected.",
+      "emailFailed": "The email wasn't sent: {{error}}.",
       "invalidAddress": "“{{to}}” isn't an email address.",
       "addressNotFound": "The address “{{to}}” doesn't exist: the email bounced.",
       "addressNotFound_would": "The address “{{to}}” doesn't exist: the email would bounce.",
@@ -8488,6 +8503,7 @@
       "whichProjectNoClient": "Which project should this run work in?",
       "alreadyDecided": "Already decided by {{name}}",
       "alreadyDecidedSomeone": "Someone already decided this step",
+      "applying": "Your decision is being applied…",
       "answering": "Your answer goes out in a few seconds. You can undo it from the message below.",
       "attachmentsReadOnly": "Attachments stay as they are: {{names}}",
       "suspended": "{{code}} is paused: nothing was decided. It can be decided once it's turned on again."

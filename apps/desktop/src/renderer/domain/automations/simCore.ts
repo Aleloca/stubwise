@@ -124,11 +124,12 @@ export interface SimWorld extends PlanWorld {
   canSeeAutomation(personId: string, automationId: string): boolean;
   configErrors(a: Automation, flow: AutomationVersion["flow"], ownerId: string): FlowIssue[];
   /** Solo il prototipo: i passi fuori dalla fetta 1. */
+  /** Ognuno c'è dove la build offre il suo passo (nella build app, dalla F2, l'email). */
   outside?: {
-    claude(step: Extract<EffectRequest, { kind: "claude" }>["step"], vars: Record<string, unknown>, ownerId: string): ClaudeResult;
-    resolveProject(eff: Extract<EffectRequest, { kind: "resolve_project" }>, ownerId: string): EffectOutcome;
-    previewEmail(sim: Sim, a: Automation, eff: ActionEffect, where: { stepId: string; path: string }): Previewed;
-    previewStart(sim: Sim, a: Automation, eff: ActionEffect, where: { stepId: string; path: string }): Previewed;
+    claude?(step: Extract<EffectRequest, { kind: "claude" }>["step"], vars: Record<string, unknown>, ownerId: string): ClaudeResult;
+    resolveProject?(eff: Extract<EffectRequest, { kind: "resolve_project" }>, ownerId: string): EffectOutcome;
+    previewEmail?(sim: Sim, a: Automation, eff: ActionEffect, where: { stepId: string; path: string }): Previewed;
+    previewStart?(sim: Sim, a: Automation, eff: ActionEffect, where: { stepId: string; path: string }): Previewed;
   };
 }
 
@@ -233,23 +234,27 @@ export function createSimulator(w: SimWorld) {
         return { ok: true, preview: first!, ...(more.length > 0 ? { more } : {}) };
       }
       case "sendEmail":
-        return outsideOf("sendEmail").previewEmail(sim, a, eff, where);
+        return outsideOf("previewEmail", "sendEmail")(sim, a, eff, where);
       case "startAutomation":
-        return outsideOf("startAutomation").previewStart(sim, a, eff, where);
+        return outsideOf("previewStart", "startAutomation")(sim, a, eff, where);
     }
     throw invalid("step");
   }
 
   /** Un passo fuori dalla fetta 1: c'è solo dove il mondo lo offre (il prototipo). */
-  function outsideOf(kind: string): NonNullable<SimWorld["outside"]> {
-    if (!w.outside) throw invalid(`not_available: ${kind}`);
-    return w.outside;
+  function outsideOf<K extends keyof NonNullable<SimWorld["outside"]>>(
+    hook: K,
+    kind: string,
+  ): NonNullable<NonNullable<SimWorld["outside"]>[K]> {
+    const fn = w.outside?.[hook];
+    if (!fn) throw invalid(`not_available: ${kind}`);
+    return fn as NonNullable<NonNullable<SimWorld["outside"]>[K]>;
   }
 
   /** Esegue un effetto per finta: un'anteprima al posto della scrittura, e l'input per il motore. */
   function execute(sim: Sim, a: Automation, eff: EffectRequest): EngineInput {
     if (eff.kind === "claude") {
-      const r = outsideOf("claude").claude(eff.step, eff.vars, sim.ownerId);
+      const r = outsideOf("claude", "claude")(eff.step, eff.vars, sim.ownerId);
       sim.preview.claude.push({
         stepId: eff.stepId,
         path: eff.path,
@@ -260,7 +265,7 @@ export function createSimulator(w: SimWorld) {
       });
       return r;
     }
-    if (eff.kind === "resolve_project") return outsideOf("resolve_project").resolveProject(eff, sim.ownerId).input;
+    if (eff.kind === "resolve_project") return outsideOf("resolveProject", "resolve_project")(eff, sim.ownerId).input;
     const r = previewOf(sim, a, eff, sim.engine.now);
     if (!r.ok) return r.outcome.input;
     // Il motore lega i traguardi alle task per «codice»: nella prova un riferimento interno.
@@ -308,7 +313,7 @@ export function createSimulator(w: SimWorld) {
     if (sim.pending?.kind === "resolve_project") {
       const eff = sim.pending;
       sim.pending = null;
-      return apply(sim, a, advance(sim.engine, outsideOf("resolve_project").resolveProject(eff, sim.ownerId).input));
+      return apply(sim, a, advance(sim.engine, outsideOf("resolveProject", "resolve_project")(eff, sim.ownerId).input));
     }
     failIfNoApprover(sim, a);
   }

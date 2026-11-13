@@ -236,7 +236,7 @@ describe("il livello dati delle Automations sulle rotte vere", () => {
     await r.chooseProject("run-2", "prj-9", { expectedPath: "0" });
     expect(calls.slice(1)).toEqual([
       `POST AUD-A1/runs {"event":{"avvio":{"data":"2026-11-13"}}}`,
-      `GET runs {"automation":"AUD-A1","status":"failed"}`,
+      `GET runs {"automation":"AUD-A1","status":"failed","log":"none"}`,
       "POST AUD-A1/runs/3/cancel",
       "POST AUD-A1/runs/2/retry",
       "POST AUD-A1/runs/2/skip",
@@ -257,5 +257,63 @@ describe("il livello dati delle Automations sulle rotte vere", () => {
       `GET origin {"task":"AUD-12"}`,
       `GET origin {"milestone":"m-1"}`,
     ]);
+  });
+
+  it("un server senza l'area 7 (404 sull'elenco): nessuna automazione, non un errore (review, minore)", async () => {
+    const { api } = fakeApi({
+      list: async () => {
+        throw new ApiError(404, "not_found", "not_found");
+      },
+    });
+    expect(await createRealAutomations(api).listAutomations()).toEqual([]);
+  });
+
+  it("dalla sezione del progetto si arriva alle esecuzioni e alle esecuzioni di un'automazione (review, minore)", async () => {
+    const { api, calls } = fakeApi({
+      projectAutomations: async () => ({
+        show: true,
+        canCreate: true,
+        automations: [row()],
+        runs: [
+          {
+            id: "run-9",
+            n: 9,
+            code: "AUD-A1 #9",
+            title: "x",
+            status: "running",
+            startedAt: "",
+            automationCode: "AUD-A1",
+            automationName: "Avvio",
+            linkable: true,
+          },
+        ],
+        general: [],
+      }),
+    });
+    const r = createRealAutomations(api);
+    await r.getProjectAutomations("prj-1");
+    await r.listRuns({ automationId: "a-1" });
+    await r.cancelRun("run-9");
+    expect(calls).toEqual([`GET runs {"automation":"AUD-A1","log":"none"}`, "POST AUD-A1/runs/9/cancel"]);
+  });
+
+  it("accendere con la casella (F2): l'indirizzo scelto diventa l'id; una casella non più mia o richiesta dal server è `mailbox_missing`", async () => {
+    const bodies: unknown[] = [];
+    const { api } = fakeApi({
+      activate: async (_code, body) => (bodies.push(body), automation(4)),
+      publish: async () => {
+        throw new ApiError(409, "mailbox_required", "mailbox_required");
+      },
+    });
+    const r = createRealAutomations(api, undefined, undefined, async () => [
+      { id: "acc-1", email: "Ada@Audin.test" },
+    ]);
+    await r.listAutomations();
+    await r.activate("a-1", { mailbox: "ada@audin.test" });
+    expect(bodies).toEqual([{ expectedRev: 4, mailboxAccountId: "acc-1" }]);
+    await expect(r.activate("a-1", { mailbox: "altra@audin.test" })).rejects.toThrow(
+      /^invalid: mailbox_missing$/,
+    );
+    await expect(r.publish("a-1")).rejects.toThrow(/^invalid: mailbox_missing$/);
   });
 });
