@@ -99,7 +99,7 @@ export function describe(
       const to = pick("to", render(st, step.to));
       const subject = pick("subject", render(st, step.subject));
       const body = pick("body", render(st, step.body));
-      const attachments = step.attachRefs.map((r) => resolve(st, r));
+      const attachments = (step.attachRefs ?? []).map((r) => resolve(st, r));
       return {
         preview: {
           to,

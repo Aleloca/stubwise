@@ -303,7 +303,7 @@ function checkStep(step: Step, path: string, scope: Scope, ctx: ValidateContext,
         add,
       );
       for (const text of [step.to, step.subject, step.body]) checkRefs(text, scope, path, add);
-      for (const ref of step.attachRefs) {
+      for (const ref of step.attachRefs ?? []) {
         const f = scope.fields.get(ref);
         if (!f) add(path, "unknown_ref", `L'allegato «${ref}» non è disponibile.`);
         else if (f.type !== "file") add(path, "type_mismatch", `«${f.label}» non è un file.`);
