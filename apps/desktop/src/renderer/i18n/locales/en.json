@@ -8878,6 +8878,7 @@
         "merge_forbidden": "The git account saved for {{code}} can't merge this pull request.",
         "not_found": "This pull request wasn't found.",
         "forbidden": "You can't release in {{code}} any more.",
+        "merge_failed": "The merge failed on the provider: nothing was merged. Try again in a moment.",
         "generic": "Couldn't merge. Try again in a moment."
       }
     },

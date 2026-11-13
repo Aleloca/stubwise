@@ -1,0 +1,231 @@
+import { ApiError } from "@stubwise/api-client";
+import type { OpenPrState, OpenPull, ReleaseQueueItem } from "@stubwise/shared";
+import type { PrAutoCorrection } from "../../model";
+import type {
+  CorrectionRequestResult,
+  MergeError,
+  MergeResult,
+  OpenPrView,
+  QueueItem,
+  ReleaseView,
+} from "../../releases";
+import { asPrototypeError, orNull } from "./automationRefs";
+
+// Le PR aperte della build app (area 8, F1, `releases-prs`) sopra le rotte
+// vere, con le firme del prototipo (`data/releases/reads.ts`, `writes.ts`).
+// Stato (`prStateOf`), prontezza (`isReadyForRelease`) e permessi li
+// calcola il server: il client li legge, non li deduce. Ciò che il server non
+// legge non si inventa: niente rischio per una PR esterna, niente autore
+// esterno, `mergeable` non letto (`null`, mai «conflitti»).
+
+/** Le rotte (sul client vero: `client.releases` e `client.tickets`, S12). */
+export interface PrsApi {
+  pulls(projectId: string): Promise<{ items: OpenPull[] }>;
+  /** La coda di rilascio di chi ha `release.merge` (403 o vuota per gli altri). */
+  queue(): Promise<{ items: ReleaseQueueItem[] }>;
+  merge(
+    ticketId: string,
+    repositoryId: string,
+  ): Promise<{ merged: true; sha: string; releaseCode?: string | null }>;
+  requestCorrection(
+    ticketId: string,
+    repositoryId: string,
+    body: { note?: string },
+  ): Promise<{ correctionId: string }>;
+  analysisOnly(
+    repositoryId: string,
+    prNumber: number,
+    on: boolean,
+  ): Promise<{ analysisOnly: { byId: string | null; at: string } | null }>;
+}
+
+/** I campi che il server aggiunge dopo (facoltativi): l'elenco delle correzioni, «on staging», `owner/repo`. */
+type PullExtras = {
+  corrections: OpenPull["corrections"] | PrAutoCorrection[];
+  onStaging?: boolean;
+  repositoryFullName?: string;
+};
+
+const CHECKS: Record<string, OpenPrView["checks"]> = {
+  success: "passing",
+  // Nessun controllo configurato: niente che fallisca (la regola della coda).
+  no_checks: "passing",
+  failure: "failing",
+  pending: "pending",
+};
+
+const ANALYZING: OpenPrState = { state: "analyzing", autoRound: 0, canAutoCorrect: false };
+
+const MERGE_ERRORS: ReadonlySet<string> = new Set<MergeError>([
+  "forbidden",
+  "not_found",
+  "already_closed",
+  "checks_failed",
+  "checks_unreadable",
+  "not_mergeable",
+  "merge_forbidden",
+  "merge_failed",
+]);
+
+const CORRECTION_ERRORS: Record<string, Exclude<CorrectionRequestResult, { ok: true }>["error"]> = {
+  correction_in_flight: "in_flight",
+  job_in_flight: "in_flight",
+  pr_not_open: "already_closed",
+  colleague_analysis_only: "analysis_only",
+  needs_maintainer: "needs_maintainer",
+  not_fixable: "not_fixable",
+  monthly_budget: "monthly_budget",
+};
+
+interface PrRef {
+  projectId: string;
+  ticketId: string;
+  repositoryId: string;
+  prNumber: number;
+}
+
+export function createRealPrs(
+  api: PrsApi,
+  projectCodeOf: (projectId: string) => Promise<string>,
+  /** Il rilascio nato dal merge, per il suo codice (`getRelease` dei rilasci). */
+  releaseByCode: (code: string) => Promise<ReleaseView | null>,
+) {
+  // Le pagine vanno per id della PR; le rotte per ticket, repository e numero.
+  const refs = new Map<string, PrRef>();
+
+  function viewOf(projectId: string, projectCode: string, p: OpenPull & PullExtras): OpenPrView {
+    const prNumber = p.prNumber ?? 0;
+    const id = `${p.repositoryId}#${prNumber}`;
+    refs.set(id, { projectId, ticketId: p.ticketId, repositoryId: p.repositoryId, prNumber });
+    const stubwise = p.origin === "stubwise";
+    const headSha = p.headSha ?? "";
+    return {
+      id,
+      projectId,
+      repositoryId: p.repositoryId,
+      repo: p.repositoryFullName ?? p.repositoryName,
+      number: prNumber,
+      title: p.ticketTitle,
+      // Le PR di Stubwise le scrive Claude; per un'esterna il server non ha l'autore.
+      authorId: null,
+      authorName: stubwise ? "Claude" : "",
+      origin: stubwise ? "stubwise" : "colleague",
+      taskId: stubwise ? p.ticketId : null,
+      branch: p.branch,
+      baseBranch: p.baseBranch ?? "",
+      headSha,
+      fromFork: p.fromFork ?? false,
+      branchProtected: false,
+      analysisOnly: p.analysisOnly
+        ? { byId: p.analysisOnly.byId ?? "", at: p.analysisOnly.at }
+        : null,
+      analysis:
+        p.analysis.verdict === null
+          ? null
+          : {
+              // Una review su un'altra testa: l'analisi è vecchia (R-K9).
+              sha: p.analysis.stale ? "" : headSha,
+              status: "done",
+              summary: p.analysis.summary ?? "",
+              risk: null,
+              issues: p.issues ?? [],
+              at: p.createdAt,
+            },
+      corrections: Array.isArray(p.corrections) ? p.corrections : [],
+      checks: CHECKS[p.checks.status] ?? "unreadable",
+      mergeable: p.mergeable ?? null,
+      state: "open",
+      openedAt: p.createdAt,
+      prState: p.prState ?? ANALYZING,
+      cap: p.cap,
+      taskCode: stubwise ? `${projectCode}-${p.ticketNumber}` : null,
+      actions: {
+        analysisOnly: p.permissions.analysisOnly,
+        requestCorrection: p.permissions.requestCorrection,
+      },
+      canEditReleaseNotes: p.permissions.editReleaseNotes,
+      onStaging: p.onStaging ?? false,
+    };
+  }
+
+  async function list(projectId: string): Promise<{ view: OpenPrView; ready: boolean }[]> {
+    const page = await orNull(() => api.pulls(projectId));
+    if (!page) return [];
+    const code = await projectCodeOf(projectId);
+    return page.items.map((p) => ({ view: viewOf(projectId, code, p), ready: p.ready ?? false }));
+  }
+
+  const ref = (prId: string): PrRef => {
+    const r = refs.get(prId);
+    if (!r) throw new Error("not_found");
+    return r;
+  };
+
+  return {
+    async listOpenPrs(projectId: string): Promise<OpenPrView[]> {
+      return (await list(projectId)).map((p) => p.view);
+    },
+
+    /** Le pronte per il server (`ready`); `canMerge` = la PR è nella coda di chi guarda. */
+    async listReleaseQueue(projectId: string): Promise<QueueItem[]> {
+      const prs = await list(projectId);
+      let queue: ReleaseQueueItem[] = [];
+      try {
+        queue = (await api.queue()).items;
+      } catch (error) {
+        if (!(error instanceof ApiError && (error.status === 403 || error.status === 404)))
+          throw error;
+      }
+      const mergeable = new Set(queue.map((q) => `${q.repositoryId}#${q.prNumber ?? 0}`));
+      return prs
+        .filter((p) => p.ready)
+        .map(({ view }) => ({ ...view, canMerge: mergeable.has(view.id) }));
+    },
+
+    async mergePr(prId: string): Promise<MergeResult> {
+      const r = ref(prId);
+      try {
+        const res = await api.merge(r.ticketId, r.repositoryId);
+        return { ok: true, release: res.releaseCode ? await releaseByCode(res.releaseCode) : null };
+      } catch (error) {
+        const code = error instanceof ApiError ? error.code : undefined;
+        if (error instanceof ApiError && error.status === 403)
+          return { ok: false, error: "forbidden" };
+        if (error instanceof ApiError && error.status === 404)
+          return { ok: false, error: "not_found" };
+        if (code && MERGE_ERRORS.has(code)) return { ok: false, error: code as MergeError };
+        throw asPrototypeError(error);
+      }
+    },
+
+    async requestPrCorrection(prId: string, text: string): Promise<CorrectionRequestResult> {
+      const r = ref(prId);
+      try {
+        await api.requestCorrection(
+          r.ticketId,
+          r.repositoryId,
+          text.trim() ? { note: text.trim() } : {},
+        );
+        // La correzione la segue la sessione della task; la riga la rilegge l'elenco.
+        return { ok: true, correction: null, sessionId: null };
+      } catch (error) {
+        const mapped =
+          error instanceof ApiError && error.code ? CORRECTION_ERRORS[error.code] : undefined;
+        if (mapped) return { ok: false, error: mapped };
+        throw asPrototypeError(error);
+      }
+    },
+
+    async setPrAnalysisOnly(prId: string, on: boolean): Promise<OpenPrView> {
+      const r = ref(prId);
+      try {
+        await api.analysisOnly(r.repositoryId, r.prNumber, on);
+      } catch (error) {
+        throw asPrototypeError(error);
+      }
+      const fresh = (await list(r.projectId)).find((p) => p.view.id === prId);
+      if (!fresh) throw new Error("not_found");
+      return fresh.view;
+    },
+  };
+}

@@ -89,7 +89,9 @@ export type MergeError =
   | "checks_failed"
   | "checks_unreadable"
   | "not_mergeable"
-  | "merge_forbidden";
+  | "merge_forbidden"
+  /** Build app: il provider ha rifiutato il merge per un guasto (502). */
+  | "merge_failed";
 
 /**
  * `release`: il rilascio nato dal merge; `null` se la PR non era sul ramo

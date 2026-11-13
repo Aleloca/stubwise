@@ -8878,6 +8878,7 @@
         "merge_forbidden": "L'account git salvato per {{code}} non può mergiare questa PR.",
         "not_found": "Questa PR non è stata trovata.",
         "forbidden": "Non puoi più rilasciare in {{code}}.",
+        "merge_failed": "Il merge non è riuscito sul provider: non è stato unito niente. Riprova tra poco.",
         "generic": "Non è stato possibile mergiare. Riprova fra poco."
       }
     },
