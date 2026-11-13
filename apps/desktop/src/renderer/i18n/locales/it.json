@@ -7584,6 +7584,7 @@
       "fields": "Campi",
       "fieldsHint": "I campi sono ciò che le automazioni possono usare di questo webhook.",
       "address": "Indirizzo",
+      "addressHidden": "L'indirizzo è nascosto: si vede solo quando nasce. Generane uno nuovo per vederlo di nuovo.",
       "postHint": "Manda una POST con un corpo JSON a questo indirizzo.",
       "example": "Esempio",
       "recent": "Eventi recenti",

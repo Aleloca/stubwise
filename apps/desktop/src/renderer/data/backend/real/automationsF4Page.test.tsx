@@ -185,3 +185,54 @@ describe("le automazioni generali (F4, R3)", () => {
     expect(within(dialog).queryByRole("option", { name: /Across projects/ })).toBeNull();
   });
 });
+
+describe("le sorgenti nella build app (F4, R4)", () => {
+  const SOURCE_ID = "99999999-9999-4999-8999-999999999991";
+  const source = {
+    id: SOURCE_ID,
+    kind: "webhook",
+    name: "Ordini",
+    status: "connected",
+    connectedById: ME_ID,
+    connectedAt: "2026-11-13T09:00:00.000Z",
+    sampleEvents: [],
+    fields: [],
+    permissions: { manage: true },
+    usedBy: null,
+  };
+
+  it("l'indirizzo col segreto si vede alla creazione; riaperta la sorgente, non più", async () => {
+    instance.permissions = ["integrations.manage"];
+    let created = false;
+    install({
+      "GET /api/automation-sources": () => ({ body: { items: created ? [source] : [] } }),
+      "POST /api/automation-sources": () => {
+        created = true;
+        return { body: { source, address: "https://stubwise.test/webhooks/in/SEGRETO123" } };
+      },
+      "GET /api/client-links": { body: { items: [] } },
+      [`GET /api/automation-sources/${SOURCE_ID}/events`]: { body: { items: [] } },
+    });
+    renderRoute("/automations/sources");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Connect/ }, { timeout: 3000 }),
+    );
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Incoming webhook" }));
+    const dialog = await screen.findByRole("dialog", { name: "New incoming webhook" });
+    await userEvent.type(within(dialog).getByRole("textbox"), "Ordini");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+    await waitFor(() =>
+      expect(document.querySelector("[data-webhook-address]")?.getAttribute("title")).toBe(
+        "https://stubwise.test/webhooks/in/SEGRETO123",
+      ),
+    );
+    // Chiusa e riaperta (la riga fa da interruttore): il segreto non c'è più.
+    const sourceRow = () =>
+      document.querySelector<HTMLElement>(`[data-source-row="${SOURCE_ID}"]`)!;
+    await userEvent.click(sourceRow());
+    await waitFor(() => expect(document.querySelector("[data-webhook-address]")).toBeNull());
+    await userEvent.click(sourceRow());
+    await waitFor(() => expect(screen.getAllByText(/address is hidden/).length).toBeGreaterThan(0));
+    expect(document.body.textContent).not.toContain("SEGRETO123");
+  });
+});

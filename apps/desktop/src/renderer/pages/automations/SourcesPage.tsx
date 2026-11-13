@@ -277,7 +277,10 @@ export function SourcesPage() {
             <h2 id="connected-sources" className="text-xl font-semibold text-ink">
               {t("automations.sources.connected")}
             </h2>
-            <span className="ml-auto">{list.length > 0 && <ConnectMenu sources={list} />}</span>
+            <span className="ml-auto">
+              {/* Anche a elenco vuoto: nella build app il primo webhook nasce da qui. */}
+              {sources.data !== undefined && <ConnectMenu sources={list} />}
+            </span>
           </div>
           {sources.isError ? (
             <div role="alert" className="flex items-center gap-3 border-t border-rule py-3">

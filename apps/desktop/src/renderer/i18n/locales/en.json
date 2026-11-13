@@ -7584,6 +7584,7 @@
       "fields": "Fields",
       "fieldsHint": "Fields are what automations can use from this webhook.",
       "address": "Address",
+      "addressHidden": "The address is hidden: it's shown only when it's created. Generate a new one to see it again.",
       "postHint": "Send a POST with a JSON body to this address.",
       "example": "Example",
       "recent": "Recent events",

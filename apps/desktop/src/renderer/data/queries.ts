@@ -1,3 +1,4 @@
+import { revealAddress } from "./automations/revealedAddress";
 import {
   keepPreviousData,
   QueryClient,
@@ -4205,7 +4206,12 @@ export function useAdvanceAutomationTime() {
 // --- sorgenti curate (webhook in arrivo) ----------------------------------------------------
 
 export function useCreateWebhookSource() {
-  return useAutomationWrite((name: string) => api.automations.createWebhookSource(name));
+  return useAutomationWrite(async (name: string) => {
+    const source = await api.automations.createWebhookSource(name);
+    // Il segreto si vede ora, nel pannello che si apre, poi non più (F4-1).
+    if (source.address) revealAddress(source.id, source.address);
+    return source;
+  });
 }
 
 export function useRenameSource() {
@@ -4215,7 +4221,11 @@ export function useRenameSource() {
 }
 
 export function useRegenerateWebhookAddress() {
-  return useAutomationWrite((id: string) => api.automations.regenerateWebhookAddress(id));
+  return useAutomationWrite(async (id: string) => {
+    const address = await api.automations.regenerateWebhookAddress(id);
+    revealAddress(id, address);
+    return address;
+  });
 }
 
 /** «Replace example», prima di confermare: una lettura, non scrive niente. */

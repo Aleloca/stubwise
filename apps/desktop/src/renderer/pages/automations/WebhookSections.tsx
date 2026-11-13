@@ -18,6 +18,7 @@ import { useToast } from "../../tasks-ui/Toast";
 import { MenuButton, primaryButton, quietButton, secondaryButton } from "../tasks/controls";
 import { MoreGlyph, WarningGlyph } from "./glyphs";
 import { PrototypeBox } from "./shared";
+import { forgetRevealedAddress, peekRevealedAddress } from "../../data/automations/revealedAddress";
 import { useSimulate } from "./sourceHelpers";
 
 // Le sezioni di un webhook in arrivo nel pannello (shape automation-sources.md
@@ -51,29 +52,40 @@ export function AddressSection({ source }: { source: AutomationSourceView }) {
   const toast = useToast();
   const regenerate = useRegenerateWebhookAddress();
   const [confirming, setConfirming] = useState(false);
-  const address = source.address ?? "";
+  // Nella build app l'elenco non ha l'indirizzo: c'è solo appena creato o rigenerato.
+  const [revealed, setRevealed] = useState(() => peekRevealedAddress(source.id));
+  useEffect(() => () => forgetRevealedAddress(source.id), [source.id]);
+  const address = source.address ?? revealed ?? "";
   // L'indirizzo con l'ellissi a metà: resta leggibile l'inizio e la fine.
   const shown = address.length > 44 ? `${address.slice(0, 30)}…${address.slice(-10)}` : address;
   return (
     <Section title={t("automations.sources.address")}>
       <div className="flex items-center gap-1">
-        <code
-          data-webhook-address
-          title={address}
-          className="min-w-0 flex-1 truncate text-sm text-ink"
-        >
-          {shown}
-        </code>
-        <button
-          type="button"
-          className={`${secondaryButton} h-7`}
-          onClick={() => {
-            void navigator.clipboard?.writeText(address).catch(() => {});
-            toast.show(t("automations.toast.addressCopied"));
-          }}
-        >
-          {t("automations.sources.copy")}
-        </button>
+        {address ? (
+          <>
+            <code
+              data-webhook-address
+              title={address}
+              className="min-w-0 flex-1 truncate text-sm text-ink"
+            >
+              {shown}
+            </code>
+            <button
+              type="button"
+              className={`${secondaryButton} h-7`}
+              onClick={() => {
+                void navigator.clipboard?.writeText(address).catch(() => {});
+                toast.show(t("automations.toast.addressCopied"));
+              }}
+            >
+              {t("automations.sources.copy")}
+            </button>
+          </>
+        ) : (
+          <p className="min-w-0 flex-1 text-sm text-ink-muted">
+            {t("automations.sources.addressHidden")}
+          </p>
+        )}
         {source.permissions.manage && (
           <MenuButton
             menuLabel={t("automations.sources.addressMenu")}
@@ -122,7 +134,8 @@ export function AddressSection({ source }: { source: AutomationSourceView }) {
                 disabled={regenerate.isPending}
                 onClick={() =>
                   regenerate.mutate(source.id, {
-                    onSuccess: () => {
+                    onSuccess: (fresh) => {
+                      setRevealed(fresh);
                       setConfirming(false);
                       toast.show(t("automations.toast.addressRegenerated"));
                     },
