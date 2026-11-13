@@ -150,6 +150,8 @@ export interface OpenPull {
   onStaging?: boolean;
   /** `owner/repo` del repository, come nelle righe dei rilasci. */
   repositoryFullName?: string;
+  /** Le note di rilascio salvate della PR (`pr_release_notes`); null se nessuno le ha scritte. La bozza è in `…/release-notes`. */
+  releaseNotes?: string | null;
   permissions: {
     /** Mettere o togliere «Solo analisi» (una PR di un collega, `prs.adopt`). */
     analysisOnly: boolean;

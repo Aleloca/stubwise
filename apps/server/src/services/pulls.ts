@@ -1,4 +1,4 @@
-import { aiJobs, instanceSettings, prCorrections, prReviews, projectEnvironments, projects, repositories, type Db } from "@stubwise/db";
+import { aiJobs, instanceSettings, prCorrections, prReleaseNotes, prReviews, projectEnvironments, projects, repositories, type Db } from "@stubwise/db";
 import { cancelOpenCorrections } from "@stubwise/notifications";
 import { isReadyForRelease, prStateOf, stubwiseTicketNumber, type OpenPull, type PrCorrectionInput } from "@stubwise/shared";
 import { and, desc, eq, inArray, ne } from "drizzle-orm";
@@ -87,7 +87,12 @@ export async function listOpenPulls(db: Db, encryptionKey: Buffer, viewer: Pick<
   // problemi sulla head di adesso. Con la review accesa si aspetta.
   const [settings] = await db.select({ on: instanceSettings.prReviewEnabled }).from(instanceSettings).where(eq(instanceSettings.id, 1));
   const reviewOn = settings?.on === true;
+  const notesRows = await db
+    .select({ repositoryId: prReleaseNotes.repositoryId, prNumber: prReleaseNotes.prNumber, body: prReleaseNotes.body })
+    .from(prReleaseNotes)
+    .where(inArray(prReleaseNotes.repositoryId, repoIds));
   const key = (r: string, n: number | null) => `${r}:${n}`;
+  const notesOf = new Map(notesRows.map((r) => [key(r.repositoryId, r.prNumber), r.body]));
   const rowsOf = (r: string, n: number | null) => reviewRows.filter((x) => key(x.repositoryId, x.prNumber) === key(r, n));
   const editReleaseNotes = perms.has("release.merge") || perms.has("tickets.edit");
   return items.map((i) => {
@@ -182,6 +187,7 @@ export async function listOpenPulls(db: Db, encryptionKey: Buffer, viewer: Pick<
         };
       }),
       onStaging: i.deployedOn.some((name) => stagingNames.has(name)),
+      releaseNotes: notesOf.get(key(i.repositoryId, i.prNumber)) ?? null,
       ...(repo ? { repositoryFullName: repo.repoUrl.replace(/\.git$/, "").replace(/\/+$/, "").split("/").slice(-2).join("/") } : {}),
       permissions: {
         analysisOnly: colleague && perms.has("prs.adopt"),

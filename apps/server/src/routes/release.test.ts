@@ -1460,6 +1460,9 @@ describe("area 8, F1, S9: le note di rilascio di una PR", () => {
     const put = await app.inject({ method: "PUT", url: s.url, headers: dev.headers, payload: { body: "Nuovo checkout." } });
     expect(put.statusCode).toBe(200);
     expect(put.json()).toMatchObject({ body: "Nuovo checkout.", updatedById: dev.id, canEdit: true });
+    // E l'elenco delle PR le porta già (niente GET per PR).
+    const pulls = (await app.inject({ method: "GET", url: `/api/projects/${s.projectId}/pulls`, headers: dev.headers })).json() as { items: { releaseNotes: string | null }[] };
+    expect(pulls.items[0]!.releaseNotes).toBe("Nuovo checkout.");
     const viewer = await user(s.projectId, "viewer");
     expect((await app.inject({ method: "PUT", url: s.url, headers: viewer.headers, payload: { body: "x" } })).statusCode).toBe(403);
     expect((await app.inject({ method: "GET", url: s.url, headers: viewer.headers })).json()).toMatchObject({ body: "Nuovo checkout." });
