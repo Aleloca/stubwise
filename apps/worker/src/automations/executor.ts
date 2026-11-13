@@ -31,6 +31,7 @@ import {
 } from "@stubwise/shared";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { executeEffect, releaseFailedEmail, type EffectEnv } from "./effects.js";
+import { waitingTargets } from "./waits.js";
 
 /**
  * L'ESECUTORE delle esecuzioni (area 7, fetta 1; la specifica è
@@ -156,8 +157,12 @@ async function claimRuns(deps: ExecutorDeps, now: Date, token: string): Promise<
       .where(
         sql`(${automationRuns.claimedAt} is null or ${automationRuns.claimedAt} < ${leaseStart}::timestamptz)
           and (
-            (${automationRuns.status} = 'running' and ${automationRuns.dueAt} <= ${now.toISOString()}::timestamptz)
-            or exists (select 1 from ${automationRunInputs} i where i.run_id = ${automationRuns.id} and i.consumed_at is null)
+            (${automationRuns.status} in ('running', 'waiting_event') and ${automationRuns.dueAt} <= ${now.toISOString()}::timestamptz)
+            or exists (
+              select 1 from ${automationRunInputs} i where i.run_id = ${automationRuns.id} and i.consumed_at is null
+                -- Una sospesa si muove solo per un controllo (riprendi, annulla): gli altri input aspettano la ripresa.
+                and (${automationRuns.status} <> 'suspended' or i.input ? 'control')
+            )
           )`,
       )
       .orderBy(asc(automationRuns.dueAt))
@@ -214,10 +219,14 @@ async function processRun(deps: ExecutorDeps, runId: string, token: string): Pro
     await settleInFlight(turn, inFlight);
     return;
   }
-  if (queue.length === 0 && run.status === "running") queue.push({ input: { kind: "time", now: turn.now }, rowId: null });
+  // Un'esecuzione in corsa, o un'attesa giunta alla scadenza (S5): il tempo la muove.
+  if (queue.length === 0 && (run.status === "running" || run.status === "waiting_event")) queue.push({ input: { kind: "time", now: turn.now }, rowId: null });
 
   for (const item of queue) {
     await renewClaim(db, run.id, token);
+    // Un input del motore (una risposta, una task chiusa, una decisione) arrivato
+    // mentre l'esecuzione è sospesa RESTA in coda: vale alla ripresa (F2-6 = a).
+    if (turn.run.status === "suspended" && !("control" in item.input)) continue;
     try {
       if (!acceptableEdit(turn, item.input)) deps.log?.(`[automations] esecuzione ${run.id}: correzioni non ammesse (edited) scartate`);
       else if ("control" in item.input) await control(turn, item.input);
@@ -448,11 +457,18 @@ async function commitIn(turn: Turn, r: EngineStep): Promise<void> {
   const terminal = TERMINAL.has(st.status);
   const projectIds = [...new Set([...turn.run.projectIds, ...Object.values(st.projects)])];
   const cursor: SavedCursor = { path: st.cursor, loops: st.loops, projects: st.projects, waitingUntil: st.waitingUntil };
+  // S5: un `wait` scade a `due_at` e dice cosa aspetta (C-F2-4); fuori da un'attesa le colonne si svuotano.
+  const aw = st.awaiting;
+  const waitStep = st.status === "waiting_event" && aw?.kind === "wait" ? stepAt(turn.flow.steps, aw.path) : null;
+  const waiting =
+    waitStep?.kind === "wait" && aw?.kind === "wait"
+      ? { ...(await waitingTargets(db, turn.run.id, waitStep)), dueAt: new Date(aw.until) }
+      : { waitingThread: null, waitingTicketId: null };
   const [updated] = await db
     .update(automationRuns)
     .set({
-      // `waiting_event` nasce con le attese della F2: nella fetta 1 nessun passo lo produce.
       status: st.status as RunRow["status"],
+      ...waiting,
       cursor,
       vars: st.vars,
       error: st.error,
