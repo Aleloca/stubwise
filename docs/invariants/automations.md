@@ -98,13 +98,40 @@ motore condiviso (`packages/shared/src/automations/`).
   fallisce con `no_approver` e il proprietario riceve `automation.failed`
   (R-J11).
 
+## Le rotte del server (`apps/server/src/automations/`)
+
+- Leggere vuole il progetto dell'automazione (membro, o full admin);
+  scrivere vuole `automations.manage` lì. Nascosto e inesistente rispondono
+  uguale: 404. Un'esecuzione la vede anche chi deve decidere su di lei ADESSO.
+- La bozza si salva con `expectedRev`: un'altra persona l'ha cambiata dopo →
+  409 `stale` col rev attuale (niente fusione silenziosa).
+- Pubblicare e accendere: zero errori di configurazione (`configErrorsOf`,
+  con la disponibilità della fetta 1: un passo fuori fetta è `not_available`
+  e non si pubblica), i permessi del NUOVO proprietario dove il flusso crea;
+  chi pubblica o accende diventa il proprietario, e `active_since` dice da
+  quando l'automazione ascolta.
+- Una decisione vale per il passo che aspetta (`expectedPath`,
+  `expectedRound`): un altro passo, un altro giro o una decisione già in coda
+  → 409 `stale`; un'esecuzione sospesa → 409 `suspended`. Chi decide si
+  risolve ora.
+- R-G5 nei flussi (un progetto fisso che chi guarda non vede resta senza id,
+  e salvando si riprende dalla versione di prima), R-J12 nel registro.
+- La prova (`/examples`) usa gli stessi campi dell'inizio del consumatore
+  (`automationEventFields`) e gli stessi piani dell'esecutore: fallisce dove
+  fallirebbe la vera. Il contesto non nomina nessuno di un progetto che chi
+  prova non vede.
+
 ## Le card d'inbox
 
 - I quattro `notification_kind` (`automation.approval`, `automation.failed`,
   `automation.notify`, `automation.paused`) sono `account_owner`: UNA persona
   per pubblicazione, scelta dal motore. Stato, approvatori, anteprima e link
   si DERIVANO dall'esecuzione a lettura (la regola delle card d'inbox, in
-  CLAUDE.md), mai dal jsonb dell'evento.
+  CLAUDE.md), mai dal jsonb dell'evento: il campo `automation` della card
+  (`automationCardsFor`, `apps/server/src/services/inbox.ts`) dice se
+  l'esecuzione aspetta ancora chi legge (chi decide si risolve ORA) e se
+  qualcuno ha già deciso. Nel jsonb restano solo gli id e il passo che
+  aspettava alla pubblicazione (`path`).
 - ⚠️ Esistendone righe, scendere d'immagine sul server NON è sicuro (500 su
   `/api/inbox`): la voce del deploy-log dice come pulire prima.
 

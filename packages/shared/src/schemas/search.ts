@@ -177,6 +177,21 @@ function group<T extends z.ZodTypeAny>(item: T) {
  * ognuno con i suoi item e `hasMore`. In scope Docs solo `docs` è ristretto al
  * repository; gli altri gruppi restano globali.
  */
+/**
+ * Area 7, fetta 1 (⌘K): un'automazione (per codice o nome) o un'esecuzione
+ * (per codice o titolo) che chi cerca vede. La forma è
+ * `AutomationSearchResult` di `@stubwise/shared/automations`; `route` è
+ * l'indirizzo dell'app nuova (`#/automations/<code>[/runs/<n>]`).
+ */
+export const searchAutomationHitSchema = z.object({
+  kind: z.enum(["automation", "run"]),
+  id: z.uuid(),
+  code: z.string(),
+  label: z.string(),
+  route: z.string(),
+  status: z.string(),
+});
+
 export const searchResultsSchema = z.object({
   tickets: group(searchTicketHitSchema),
   projects: group(searchProjectHitSchema),
@@ -194,6 +209,8 @@ export const searchResultsSchema = z.object({
    * il campo apposta.
    */
   mail: group(searchMailHitSchema).default({ items: [], hasMore: false }),
+  /** Area 7: le automazioni e le esecuzioni. Additivo (default vuoto), come `mail`. */
+  automations: group(searchAutomationHitSchema).default({ items: [], hasMore: false }),
 });
 export type SearchResults = z.infer<typeof searchResultsSchema>;
 

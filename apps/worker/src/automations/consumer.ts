@@ -3,18 +3,11 @@ import {
   automationRuns,
   automations,
   automationVersions,
-  backlogItemRequesters,
-  backlogItems,
-  backlogItemTickets,
-  milestones,
-  projects,
-  projectStatuses,
-  tickets,
   type Db,
 } from "@stubwise/db";
-import { projectPermissionsOfUser } from "@stubwise/notifications";
+import { automationEventFields as eventFields, projectPermissionsOfUser } from "@stubwise/notifications";
 import { chainAllows, evaluate, initialState, lookup, render, type AutomationFlow } from "@stubwise/shared";
-import { and, asc, desc, eq, inArray, isNotNull, lte, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, lte, sql } from "drizzle-orm";
 
 /**
  * IL CONSUMATORE DEGLI EVENTI (area 7, fetta 1): dall'outbox
@@ -183,82 +176,4 @@ async function createRun(
     dueAt: sql`now()`,
   });
   return true;
-}
-
-// --- i campi dell'inizio (`triggerFields.ts`) ---------------------------------------
-
-async function projectCodeOf(tx: Tx, projectId: string): Promise<string> {
-  const [p] = await tx.select({ code: projects.code }).from(projects).where(eq(projects.id, projectId));
-  return p?.code ?? "";
-}
-
-async function taskFields(tx: Tx, ticketId: string, code: string, snapshot: Record<string, unknown>) {
-  const [t] = await tx
-    .select({ number: tickets.number, title: tickets.title, assigneeId: tickets.assigneeId, status: projectStatuses.name })
-    .from(tickets)
-    .leftJoin(projectStatuses, eq(projectStatuses.id, tickets.statusId))
-    .where(eq(tickets.id, ticketId));
-  const number = t?.number ?? (snapshot.number as number | undefined) ?? null;
-  return {
-    codice: number === null ? "" : `${code}-${number}`,
-    titolo: t?.title ?? (snapshot.title as string | undefined) ?? "",
-    progetto: code,
-    incaricato: t?.assigneeId ?? (snapshot.assigneeId as string | null | undefined) ?? "",
-    stato: t?.status ?? "",
-  };
-}
-
-async function requestFields(tx: Tx, itemId: string, code: string, snapshot: Record<string, unknown>) {
-  const [r] = await tx
-    .select({ number: backlogItems.number, title: backlogItems.title, document: backlogItems.document, urgency: backlogItems.urgency })
-    .from(backlogItems)
-    .where(eq(backlogItems.id, itemId));
-  const [requester] = await tx
-    .select({ userId: backlogItemRequesters.userId })
-    .from(backlogItemRequesters)
-    .where(eq(backlogItemRequesters.itemId, itemId))
-    .orderBy(asc(backlogItemRequesters.requestedAt), asc(backlogItemRequesters.userId))
-    .limit(1);
-  // «Dal supporto»: la voce nasce da una task del widget del customer service.
-  const [support] = await tx
-    .select({ id: tickets.id })
-    .from(backlogItemTickets)
-    .innerJoin(tickets, eq(tickets.id, backlogItemTickets.ticketId))
-    .where(and(eq(backlogItemTickets.itemId, itemId), notInArray(backlogItemTickets.role, ["converted_to"]), eq(tickets.source, "widget")))
-    .limit(1);
-  const number = r?.number ?? (snapshot.number as number | undefined) ?? null;
-  return {
-    codice: number === null ? "" : `${code}-R${number}`,
-    titolo: r?.title ?? (snapshot.title as string | undefined) ?? "",
-    descrizione: r?.document ?? "",
-    progetto: code,
-    richiedente: requester?.userId ?? "",
-    urgenza: r?.urgency ?? (snapshot.urgency as string | null | undefined) ?? "",
-    dal_supporto: support !== undefined,
-  };
-}
-
-/** I campi dell'inizio di un evento, dalle righe vere al consumo. */
-export async function eventFields(tx: Tx | Db, event: EventRow): Promise<Record<string, unknown>> {
-  const t = tx as Tx;
-  const snapshot = (event.payload ?? {}) as Record<string, unknown>;
-  const code = await projectCodeOf(t, event.projectId);
-  switch (event.kind) {
-    case "task_created":
-    case "task_closed":
-      return { task: await taskFields(t, event.objectId, code, snapshot) };
-    case "request_created":
-      return { richiesta: await requestFields(t, event.objectId, code, snapshot) };
-    case "request_converted": {
-      const ticketId = typeof snapshot.ticketId === "string" ? snapshot.ticketId : null;
-      return {
-        richiesta: await requestFields(t, event.objectId, code, snapshot),
-        ...(ticketId ? { task: await taskFields(t, ticketId, code, {}) } : {}),
-      };
-    }
-    case "milestone_reached": {
-      const [m] = await t.select({ name: milestones.name }).from(milestones).where(eq(milestones.id, event.objectId));
-      return { traguardo: { nome: m?.name ?? (snapshot.name as string | undefined) ?? "", progetto: code } };
-    }
-  }
 }

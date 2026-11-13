@@ -7,8 +7,11 @@ import type {
   AutomationRunDetail,
   AutomationRunRow,
   AutomationDecision,
+  AutomationOrigin,
   FlowIssue,
   MyAutomationRun,
+  ProjectAutomationsView,
+  SimulationExamplesView,
   RunStatus,
 } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
@@ -85,6 +88,10 @@ export function createAutomationEndpoints(request: ApiRequest) {
     check(code: string, flow: AutomationFlow): Promise<{ issues: FlowIssue[] }> {
       return request("POST", `${base(code)}/check`, { flow });
     },
+    /** La prova: gli esempi veri e il contesto (chi gestisce l'automazione). */
+    examples(code: string, version: number | "draft"): Promise<SimulationExamplesView> {
+      return request("GET", `${base(code)}/examples${toQuery({ version })}`);
+    },
     /** R-J19: la revisione provata fino in fondo (409 `stale` se è cambiata). */
     markTested(code: string, input: { version: number; rev: number | null }): Promise<void> {
       return request("POST", `${base(code)}/tested`, input);
@@ -120,6 +127,15 @@ export function createAutomationEndpoints(request: ApiRequest) {
     /** «Da decidere»: le esecuzioni ferme che aspettano chi chiama, adesso. */
     myApprovals(): Promise<{ items: AutomationDecision[] }> {
       return request("GET", "/api/me/automation-approvals");
+    },
+    /** La sezione «Automations» di un progetto (404 se non lo si vede). */
+    projectAutomations(projectId: string): Promise<ProjectAutomationsView> {
+      return request("GET", `/api/projects/${seg(projectId)}/automations`);
+    },
+    /** «Created by automation …» su una task (codice) o un traguardo (id); 404 se non l'ha creata un'automazione. */
+    origin(ref: { task: string } | { milestone: string }): Promise<AutomationOrigin> {
+      const q = typeof ref === "object" && ref !== null && "task" in ref ? { task: ref.task } : { milestone: (ref as { milestone?: string } | null)?.milestone };
+      return request("GET", `/api/automation-origin${toQuery(q)}`);
     },
     /** Il blocco Home: aspetta me, fallite che gestisco, mie non finite. */
     myRuns(): Promise<{ items: MyAutomationRun[] }> {

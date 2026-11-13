@@ -88,6 +88,7 @@ export {
   type CardAnchor,
 } from "./project-access.js";
 export { approversFor, loadPlanWorld, milestoneNameTaken, type WorldScope } from "./automation-world.js";
+export { automationEventFields, type AutomationEventRef } from "./automation-event-fields.js";
 
 // --- segnali di progetto condivisi (Fase 4) ---
 //

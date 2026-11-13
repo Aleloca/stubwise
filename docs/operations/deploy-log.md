@@ -4194,14 +4194,21 @@ deploy o di un rollback che la tocca.
   `docs/plans/2026-11-12-integrazione-area7-fetta1-plan.md`, regole in
   `docs/invariants/automations.md`. Migrazione **0169** (dopo la 0167 della
   F5b e la 0168 del suo fix: si deploya DOPO di loro): le tabelle
-  `automations`, `automation_code_seqs`, `automation_versions`,
-  `automation_runs`, `automation_run_log`, `automation_effects`,
-  `automation_events`; `automation_run_id` su `tickets`, `milestones`,
+  `automations` (con `active_since`), `automation_code_seqs`,
+  `automation_versions`, `automation_runs`, `automation_run_inputs` (la coda
+  degli input che il server scrive e il worker applica), `automation_run_log`,
+  `automation_effects`, `automation_events`; `automation_run_id` su `tickets`, `milestones`,
   `backlog_items`; `ticket_source` `automation`; i `notification_kind`
   `automation.approval`, `automation.failed`, `automation.notify`,
   `automation.paused`; il permesso `automations.manage` al preset Project
   Lead; i TRIGGER che scrivono gli eventi. Ordine: **server** (healthy, 0169
   applicata), poi **worker**, poi **caddy**.
+
+  **Env nuova (worker)**: `AUTOMATIONS_POLL_SECONDS` (default 5; 0 = spento:
+  gli eventi restano in coda e le esecuzioni ferme, nessuna perdita). Il
+  poller gira fuori dal serializer per-progetto; un riavvio del worker NON
+  perde lavoro delle automazioni (lease di 60′ sulle esecuzioni, effetti
+  idempotenti), quindi non serve aspettare che siano ferme.
 
   **Da sapere subito**: dai trigger in poi ogni task, richiesta, conversione
   e traguardo chiuso lascia una riga in `automation_events`, anche senza

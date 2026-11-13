@@ -10,7 +10,7 @@ import {
 } from "@stubwise/shared";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { canManage, seen, sees, type Viewer } from "./model.js";
-import { decidersOf, runCode, runRowOf } from "./runs.js";
+import { decidersOf, pendingEffectOf, runCode, runRowOf } from "./runs.js";
 
 /**
  * LE LETTURE PERSONALI delle Automations (area 7, fetta 1; la specifica è
@@ -69,8 +69,7 @@ export async function listMyApprovals(db: Db, viewer: Viewer): Promise<Automatio
       n: run.n,
       automationVisible: sees(visible, a.projectId),
       clientName: typeof cliente === "string" ? cliente : "",
-      // L'anteprima condivisa del passo arriva con le letture della prova.
-      effect: null,
+      effect: v ? await pendingEffectOf(db, visible, run, a, await runRowOf(db, viewer, run, a, visible), v.flow as AutomationFlow) : null,
     });
   }
   return out.sort((x, y) => x.since.localeCompare(y.since) || x.code.localeCompare(y.code));

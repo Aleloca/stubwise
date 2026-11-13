@@ -12,6 +12,8 @@ import type { Db } from "@stubwise/db";
 import { inProjects, projectIdsWithPermission, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import {
+  automationRuns,
+  automations,
   comments,
   docPages,
   emailMessages,
@@ -431,7 +433,30 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
       }
       const docItems = await withDocCodes(app.db, docHits);
 
+      // --- Area 7: le automazioni (codice o nome) e le esecuzioni (codice o titolo) dei progetti visibili.
+      const automationScope = inProjects(automations.projectId, visible);
+      const [automationRows, runRows] = await Promise.all([
+        app.db
+          .select({ id: automations.id, code: automations.code, name: automations.name, status: automations.status })
+          .from(automations)
+          .where(and(automationScope, or(ilike(automations.name, likePattern), ilike(automations.code, likePattern))))
+          .orderBy(sql`lower(${automations.name})`)
+          .limit(PER_GROUP + 1),
+        app.db
+          .select({ id: automationRuns.id, n: automationRuns.n, title: automationRuns.title, status: automationRuns.status, code: automations.code })
+          .from(automationRuns)
+          .innerJoin(automations, eq(automations.id, automationRuns.automationId))
+          .where(and(automationScope, or(ilike(automationRuns.title, likePattern), ilike(sql`${automations.code} || ' #' || ${automationRuns.n}`, likePattern))))
+          .orderBy(desc(automationRuns.startedAt))
+          .limit(PER_GROUP + 1),
+      ]);
+      const automationHits = [
+        ...automationRows.map((a) => ({ kind: "automation" as const, id: a.id, code: a.code, label: a.name, route: `#/automations/${a.code}`, status: a.status })),
+        ...runRows.map((r) => ({ kind: "run" as const, id: r.id, code: `${r.code} #${r.n}`, label: r.title, route: `#/automations/${r.code}/runs/${r.n}`, status: r.status })),
+      ];
+
       return {
+        automations: { items: automationHits.slice(0, PER_GROUP), hasMore: automationRows.length > PER_GROUP || runRows.length > PER_GROUP || automationHits.length > PER_GROUP },
         tickets: {
           items: ticketRows.slice(0, PER_GROUP).map((r) => ({
             id: r.id,
