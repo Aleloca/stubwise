@@ -28,7 +28,6 @@ function reads(over: Partial<PrepReads> = {}): PrepReads {
     now: NOW,
     today: "2026-11-12",
     getEvent: vi.fn(async () => ev("next", "2026-11-13T09:00:00.000Z")),
-    listProjects: vi.fn(async () => [{ id: PRJ, memberIds: [ME] }] as never),
     projectPulse: vi.fn(async () => ({ open: { active: 2 } }) as never),
     listMailThreads: vi.fn(
       async () => Array.from({ length: 7 }, (_, i) => ({ threadId: `t${i}` })) as never,
@@ -159,7 +158,7 @@ describe("la scheda di preparazione composta nel client", () => {
     expect(
       await composeMeetingPrep(
         "x",
-        reads({ listProjects: vi.fn(async () => [{ id: PRJ, memberIds: ["altri"] }] as never) }),
+        reads(),
       ),
     ).not.toBeNull();
   });
@@ -171,5 +170,45 @@ describe("la scheda di preparazione composta nel client", () => {
         reads({ getEvent: vi.fn(async () => Promise.reject(new Error("not_found"))) }),
       ),
     ).rejects.toThrow("not_found");
+  });
+});
+
+// Review F5a (9): la scheda vera non rilegge i progetti (lo dice `hasPrep`)
+// e chiede la posta del progetto al SERVER, non filtrando una pagina qui.
+describe("la scheda vera: le letture", () => {
+  it("nessuna lettura dei progetti; la posta col filtro di progetto del server", async () => {
+    const { setAppClientForTests, session } = await import("./client");
+    const { installFakeServer, ME_ID, PROJECT_ID } = await import("./fakeServer");
+    const { calendar } = await import("./calendar");
+    const EV = "eeeeeeee-9999-4999-8999-999999999999";
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    setAppClientForTests(null);
+    session.personId = ME_ID;
+    try {
+      const startsAt = new Date(Date.now() + 86_400_000).toISOString();
+      const { seen } = installFakeServer({
+        [`GET /api/me/calendar/events/${EV}`]: {
+          body: {
+            id: EV, accountId: "aaaaaaaa-1111-4111-8111-111111111111", accountEmail: "ada@acme.test",
+            recurringEventId: null, projectId: PROJECT_ID, projectName: "Audin", title: "Review",
+            organizer: "ada@acme.test", attendees: [], startsAt,
+            endsAt: new Date(Date.parse(startsAt) + 3_600_000).toISOString(), allDay: false,
+            status: "new", outcome: null, error: null, url: null, eventUrl: null, reproposable: false,
+            descriptionHtml: null, descriptionText: null, location: null, hangoutLink: null,
+            conferenceEntryPoints: [], reminders: [], remindersUseDefault: true, recurrence: [],
+            hasPrep: true,
+          },
+        },
+      });
+      await calendar.getMeetingPrep(EV).catch(() => null);
+      await vi.waitFor(() => expect(seen.some((r) => r.path.startsWith("/api/me/mail/threads"))).toBe(true));
+      const threads = seen.find((r) => r.path.startsWith("/api/me/mail/threads"))!;
+      expect(new URLSearchParams(threads.path.split("?")[1]).get("project")).toBe(PROJECT_ID);
+      expect(seen.some((r) => r.method === "GET" && /^\/api\/projects(\?|$)/.test(r.path))).toBe(false);
+    } finally {
+      session.personId = null;
+      setAppClientForTests(null);
+      vi.unstubAllEnvs();
+    }
   });
 });

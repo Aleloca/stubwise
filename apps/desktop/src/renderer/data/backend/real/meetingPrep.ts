@@ -6,7 +6,6 @@ import { today } from "./clock";
 import { mail } from "./mail";
 import { getMeetingSummary, meetingTasksOf } from "./meetings";
 import { projectPulse } from "./overview";
-import { listProjects } from "./projects";
 import { listMilestones, listProjectStatuses } from "./statuses";
 import { listStalled, listTasks } from "./tasks";
 import type {
@@ -40,7 +39,6 @@ export interface PrepReads {
   now: string;
   today: string;
   getEvent: (id: string) => Promise<CalendarEventView>;
-  listProjects: () => Promise<{ id: string; memberIds: string[] }[]>;
   projectPulse: Api["projectPulse"];
   listMailThreads: (filters: { projectId: string }) => ReturnType<Api["mail"]["listMailThreads"]>;
   listTasks: (criteria: { projectIds: string[] }) => Promise<Task[]>;
@@ -67,9 +65,9 @@ export async function composeMeetingPrep(
   // ridecide l'appartenenza né l'orario, o un admin vedrebbe il segno e una
   // scheda vuota.
   if (!e.hasPrep || e.projectId === null) return null;
+  // Il progetto non si rilegge (review F5a, 9): `hasPrep` dice già che chi
+  // guarda lo vede, e la posta la filtra il server per progetto.
   const projectId = e.projectId;
-  const project = (await r.listProjects()).find((p) => p.id === projectId);
-  if (!project) return null;
 
   const [pulse, mail, tasks, stalled, milestones, statuses, events] = await Promise.all([
     r.projectPulse(projectId),
@@ -149,7 +147,6 @@ export const getMeetingPrep: Api["calendar"]["getMeetingPrep"] = async (eventId)
     now,
     today: today(),
     getEvent: (id) => calendar.getEvent(id),
-    listProjects,
     projectPulse,
     listMailThreads: (filters) => mail.listMailThreads(filters),
     listTasks: (criteria) => listTasks(criteria),
