@@ -321,8 +321,10 @@ preset). Nessuna chiave a due livelli (il test del catalogo).
   sospende l'iscrizione senza riscrivere righe; un tipo obbligatorio non si
   spegne; nessuna card di oggi cambia destinatari di colpo (S-4); il
   catalogo e i `notification_kind` restano allineati (test di parità).
-- **F3**: una risposta parte solo con «Send to customer» e l'Undo funziona
-  davvero (nessun invio prima dello scadere); l'email parte solo dalla
+- **F3**: una risposta parte solo con «Send to customer»; l'Undo di 5 s è
+  SOLO della UI (`replyStore.ts` del prototipo: la risposta va al server allo
+  scadere), quindi nessuna rotta di annullamento e nessuna risposta
+  arrivata al server prima dello scadere; l'email parte solo dalla
   casella di chi risponde, coi suoi scope; il testo del cliente è non fidato
   nella bozza di Claude; una conversazione la vede solo chi vede il progetto;
   il widget riceve solo i messaggi della sua conversazione.
