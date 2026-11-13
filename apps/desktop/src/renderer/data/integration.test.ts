@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ADMIN_SECTIONS, APP_ROUTES, PROJECT_SECTIONS, PROJECT_SETTINGS_SECTIONS } from "./routes";
-import { AUTOMATION_F1_AVAILABILITY } from "@stubwise/shared";
+import { AUTOMATION_F2_AVAILABILITY } from "@stubwise/shared";
 import {
   CHAT_LATER_FEATURES,
   automationAvailability,
@@ -81,6 +81,8 @@ describe("isIntegrated", () => {
         "destination:automations",
         "projectSection:automations",
         "feature:automations",
+        // Area 7, fetta 2: email e attese.
+        "feature:automations-f2",
         "destination:projects",
         "projectSection:tasks",
         "projectSettings:statuses",
@@ -182,10 +184,10 @@ describe("isIntegrated", () => {
     expect(landingSearch()).toEqual({});
   });
 
-  it("le Automations della build app restano nel perimetro della F1 finché `automations-f2` è spenta", () => {
+  it("le Automations della build app hanno il perimetro della F2 (`automations-f2` accesa)", () => {
     expect(automationAvailability()).toBeUndefined();
     vi.stubEnv("VITE_STUBWISE_BUILD", "app");
-    expect(isIntegrated({ kind: "feature", name: "automations-f2" })).toBe(false);
-    expect(automationAvailability()).toBe(AUTOMATION_F1_AVAILABILITY);
+    expect(isIntegrated({ kind: "feature", name: "automations-f2" })).toBe(true);
+    expect(automationAvailability()).toBe(AUTOMATION_F2_AVAILABILITY);
   });
 });

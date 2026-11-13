@@ -320,6 +320,19 @@ describe("area 7, F2, S2: accendere e pubblicare con la casella", () => {
     expect(seenByA).toContain("Segreto");
   });
 
+  it("review renderer F2: chi ascolta soltanto chiede la LETTURA, non l'invio; senza lettura il codice è `mailbox_read_scope`; chi manda vuole l'invio", async () => {
+    const { p, lead } = await setup();
+    const listenOnly: AutomationFlow = { trigger: { kind: "stubwise", event: "mail_received" }, steps: [createTask()], titleTemplate: "t" };
+    const readOnly = await mailbox(lead.id, { scopes: ["https://www.googleapis.com/auth/gmail.readonly"] });
+    const a = await created(lead, p.id, listenOnly);
+    expect((await call(lead.headers, "POST", `/automations/${a.code}/publish`, { mailboxAccountId: readOnly.id })).statusCode).toBe(200);
+    const b = await created(lead, p.id, listenOnly);
+    const none = await call(lead.headers, "POST", `/automations/${b.code}/publish`, { mailboxAccountId: (await mailbox(lead.id, { scopes: [] })).id });
+    expect(none.json()).toMatchObject({ code: "mailbox_read_scope" });
+    const c = await created(lead, p.id, { ...listenOnly, steps: [sendEmail] });
+    expect((await call(lead.headers, "POST", `/automations/${c.code}/publish`, { mailboxAccountId: readOnly.id })).json()).toMatchObject({ code: "mailbox_scope" });
+  });
+
   it("un flusso senza email non chiede la casella; il proprietario che ripubblica tiene la sua; chi riaccende ne sceglie una sua", async () => {
     const { p, lead } = await setup();
     const plain = await created(lead, p.id, flowOf([createTask()]));

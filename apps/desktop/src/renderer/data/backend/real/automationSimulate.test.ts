@@ -183,6 +183,152 @@ describe("la prova nella build app", () => {
     expect(calls).toEqual(["GET examples a-1 draft"]);
   });
 
+  it("un titolo o un nome vuoto fa fallire la prova come il worker (review I4), e non segna provato", async () => {
+    const blankTask = { ...task(), title: "{{task.titolo}}" } as Step;
+    const blankMilestone = {
+      id: "m1",
+      kind: "createMilestone",
+      name: "  ",
+      dueInDays: null,
+      project: { mode: "own" },
+      approval: { mode: "auto" },
+    } as unknown as Step;
+    const blankRequest = {
+      id: "r1",
+      kind: "createRequest",
+      title: "",
+      description: "",
+      project: { mode: "own" },
+      approval: { mode: "auto" },
+    } as unknown as Step;
+    for (const step of [blankTask, blankMilestone, blankRequest]) {
+      const { api, calls } = fakeApi(context([step]));
+      const s = createRealSimulation(api);
+      const id = await s.startSimulation("a-1", "draft", { task: { titolo: "   " } });
+      const v = await s.simulationStep(id, { kind: "run" });
+      expect(v.status).toBe("failed");
+      expect(calls).toEqual(["GET examples a-1 draft"]);
+    }
+  });
+
+  it("dopo un salvataggio della bozza la prova rilegge il contesto (review, minore)", async () => {
+    const { api, calls } = fakeApi(context([task()]));
+    const s = createRealSimulation(api);
+    await s.listSimulationExamples("a-1", "draft");
+    s.forgetContext("a-1");
+    await s.startSimulation("a-1", "draft", {});
+    expect(calls).toEqual(["GET examples a-1 draft", "GET examples a-1 draft"]);
+  });
+
+  it("un traguardo col nome di uno che il progetto ha già: fallisce come il worker (`milestoneExists`), confronto esatto", async () => {
+    const milestone = (name: string) =>
+      ({
+        id: "m1",
+        kind: "createMilestone",
+        name,
+        dueInDays: null,
+        project: { mode: "own" },
+        approval: { mode: "auto" },
+      }) as unknown as Step;
+    const withNames = (step: Step) => {
+      const ctx = context([step]);
+      (ctx.projects[0] as { milestoneNames?: string[] }).milestoneNames = ["Kick-off"];
+      return ctx;
+    };
+    const run = async (ctx: SimulationContext) => {
+      const s = createRealSimulation(fakeApi(ctx).api);
+      const id = await s.startSimulation("a-1", "draft", {});
+      return s.simulationStep(id, { kind: "run" });
+    };
+    const taken = await run(withNames(milestone("Kick-off")));
+    expect(taken.status).toBe("failed");
+    expect(JSON.stringify(taken)).toContain("milestoneExists");
+    // Come `milestoneNameTaken` (eq): un nome diverso anche solo nelle maiuscole passa.
+    expect((await run(withNames(milestone("kick-off")))).status).toBe("done");
+    // Un server senza il campo: nessun nome noto.
+    expect((await run(context([milestone("Kick-off")]))).status).toBe("done");
+  });
+
+  it("un'email nella prova (F2, R5): dalla casella del contesto, la seconda allo stesso indirizzo nella stessa conversazione", async () => {
+    const email = (id: string, to: string) =>
+      ({
+        id,
+        kind: "sendEmail",
+        to,
+        subject: "Benvenuto",
+        body: "Ciao",
+        attachRefs: [],
+        approval: { mode: "auto" },
+      }) as unknown as Step;
+    const ctx = context([email("e1", "cliente@example.com"), email("e2", "Cliente@Example.com")], {
+      ownerMailbox: { ok: true, address: "ada@audin.test" },
+    });
+    const { api, calls } = fakeApi(ctx);
+    const s = createRealSimulation(api);
+    const id = await s.startSimulation("a-1", "draft", {});
+    const v = await s.simulationStep(id, { kind: "run" });
+    expect(v.status).toBe("done");
+    expect(v.preview.emails).toEqual([
+      expect.objectContaining({ stepId: "e1", from: "ada@audin.test", to: "cliente@example.com", sameConversationAs: null }),
+      expect.objectContaining({ stepId: "e2", sameConversationAs: { stepId: "e1", path: "0" } }),
+    ]);
+    // Non manda niente: solo gli esempi e la prova segnata.
+    expect(calls).toEqual(["GET examples a-1 draft", "POST tested a-1 1 7"]);
+  });
+
+  it("l'attesa della risposta nella prova: si ferma, la risposta scritta la sveglia (F2, R5)", async () => {
+    const steps = [
+      {
+        id: "e1",
+        kind: "sendEmail",
+        to: "cliente@example.com",
+        subject: "Documenti",
+        body: "Ci mandi i documenti?",
+        attachRefs: [],
+        approval: { mode: "auto" },
+      },
+      { id: "w1", kind: "wait", for: { replyTo: "e1", maxDays: 3 } },
+      notify,
+    ] as unknown as Step[];
+    const ctx = context(steps, { ownerMailbox: { ok: true, address: "ada@audin.test" } });
+    const { api, calls } = fakeApi(ctx);
+    const s = createRealSimulation(api);
+    const id = await s.startSimulation("a-1", "draft", {});
+    let v = await s.simulationStep(id, { kind: "run" });
+    expect(v.waiting).toMatchObject({ kind: "event", wait: { replyTo: "e1" } });
+    v = await s.simulationStep(id, {
+      kind: "event",
+      payload: { kind: "reply", to: "e1", text: "Eccoli" },
+    });
+    v = await s.simulationStep(id, { kind: "run" });
+    expect(v.status).toBe("done");
+    expect(v.preview.notifications).toHaveLength(1);
+    expect(calls).toEqual(["GET examples a-1 draft", "POST tested a-1 1 7"]);
+  });
+
+  it("senza una casella utilizzabile l'email fallisce come nell'esecuzione vera", async () => {
+    const email = {
+      id: "e1",
+      kind: "sendEmail",
+      to: "cliente@example.com",
+      subject: "x",
+      body: "y",
+      attachRefs: [],
+      approval: { mode: "auto" },
+    } as unknown as Step;
+    for (const [ownerMailbox, code] of [
+      [{ ok: false, reason: "expired" }, "mailboxExpired"],
+      [undefined, "noMailbox"],
+    ] as const) {
+      const ctx = context([email], ownerMailbox ? { ownerMailbox } : {});
+      const s = createRealSimulation(fakeApi(ctx).api);
+      const id = await s.startSimulation("a-1", "draft", {});
+      const v = await s.simulationStep(id, { kind: "run" });
+      expect(v.status).toBe("failed");
+      expect(JSON.stringify(v)).toContain(code);
+    }
+  });
+
   it("gli errori di configurazione del server: la prova non parte", async () => {
     const { api } = fakeApi(
       context([task()], { configErrors: [{ path: "0", code: "not_available", message: "x" }] }),

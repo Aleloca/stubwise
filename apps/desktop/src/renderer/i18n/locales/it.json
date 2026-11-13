@@ -7091,7 +7091,11 @@
       "statusDraftBy": "mai accesa · creata da {{who}} il {{date}}",
       "duplicateVersion": "Duplica questa versione",
       "statusPausedBy_zero": "messa in pausa da {{who}} il {{date}}",
-      "statusPaused_zero": "proprietario {{owner}}"
+      "statusPaused_zero": "proprietario {{owner}}",
+      "pausedReason": {
+        "mailbox_lost": "la casella del proprietario non è più utilizzabile",
+        "owner_lost_permission": "il proprietario ha perso un permesso che serve"
+      }
     },
     "version": {
       "short": "v{{n}}",
@@ -7205,6 +7209,8 @@
       "onMailboxMissing_publish": "Non è stato possibile pubblicare {{code}}: prima collega una casella nella Posta.",
       "onMailboxExpired": "Non è stato possibile accendere {{code}}: il collegamento della tua casella è scaduto. Ricollegala nella Posta.",
       "onMailboxExpired_publish": "Non è stato possibile pubblicare {{code}}: il collegamento della tua casella è scaduto. Ricollegala nella Posta.",
+      "onMailboxScope": "Non è stato possibile accendere {{code}}: la tua casella non ha il permesso d'invio. Ricollegala nella Posta.",
+      "onMailboxScope_publish": "Non è stato possibile pubblicare {{code}}: la tua casella non ha il permesso d'invio. Ricollegala nella Posta.",
       "onConfig": "Non è stato possibile accendere {{code}}: prima vanno risolti i suoi problemi.",
       "onConfig_publish": "Non è stato possibile pubblicare {{code}}: prima vanno risolti i suoi problemi.",
       "publishedPaused": "Versione {{n}} di {{code}} pubblicata · resta in pausa",
@@ -7220,6 +7226,12 @@
       "other": "qualcosa è andato storto",
       "permission_lost": "permesso perso",
       "mailbox_expired": "il collegamento della casella è scaduto",
+      "mailbox_scope": "la casella non ha il permesso d'invio",
+      "token_expired": "il collegamento della casella è scaduto",
+      "google_scope_missing": "la casella va ricollegata",
+      "quota": "è stato raggiunto il limite d'invio di Gmail",
+      "invalid_message": "Gmail ha rifiutato il messaggio",
+      "interrupted": "l'invio è stato interrotto",
       "mailbox_missing": "nessuna casella collegata",
       "no_approver": "nessuno può approvarlo",
       "address_not_found": "l'indirizzo non esiste",
@@ -7255,6 +7267,8 @@
       "cantManage": "Permesso perso: il proprietario ({{owner}}) non può gestire «{{name}}».",
       "cantManage_would": "Il proprietario ({{owner}}) non può gestire «{{name}}»: non partirebbe.",
       "invalidInput": "Dati non validi per il passo ({{message}}).",
+      "milestoneExists": "Un traguardo «{{name}}» esiste già nel progetto.",
+      "milestoneExists_would": "Un traguardo «{{name}}» esiste già nel progetto: il passo fallirebbe.",
       "emailLimitChain": "Limite raggiunto: al massimo {{max}} email per esecuzione, contando le automazioni avviate da questa.",
       "emailLimitChain_would": "Limite raggiunto: al massimo {{max}} email per esecuzione, contando le automazioni avviate da questa. L'email non partirebbe.",
       "mailboxGone": "La casella scelta per l'automazione ({{mailbox}}) non è più collegata a {{owner}}: l'email non è partita.",
@@ -7265,6 +7279,7 @@
       "mailboxExpired_would": "La casella del proprietario ({{owner}}) è scaduta: l'email non partirebbe finché non si ricollega.",
       "mailboxScope": "La casella del proprietario ({{owner}}) non ha il permesso d'invio: va ricollegata prima di riprovare.",
       "mailboxScope_would": "La casella del proprietario ({{owner}}) non ha il permesso d'invio: l'email non partirebbe finché non viene ricollegata.",
+      "emailFailed": "L'email non è partita: {{error}}.",
       "invalidAddress": "«{{to}}» non è un indirizzo email.",
       "addressNotFound": "L'indirizzo «{{to}}» non esiste: l'email è tornata indietro.",
       "addressNotFound_would": "L'indirizzo «{{to}}» non esiste: l'email tornerebbe indietro.",
@@ -8488,6 +8503,7 @@
       "whichProjectNoClient": "In quale progetto deve lavorare questa esecuzione?",
       "alreadyDecided": "Ha già deciso {{name}}",
       "alreadyDecidedSomeone": "Qualcuno ha già deciso questo passo",
+      "applying": "La decisione è in corso…",
       "answering": "La tua risposta parte fra pochi secondi. Puoi annullarla dal messaggio qui sotto.",
       "attachmentsReadOnly": "Gli allegati restano così: {{names}}",
       "suspended": "{{code}} è in pausa: non è stato deciso niente. Si potrà decidere quando verrà riaccesa."

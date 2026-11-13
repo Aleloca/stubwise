@@ -124,6 +124,9 @@ function useDeferredDecision(runId: string, code: string) {
             return void raced();
           case "suspended":
             return toast.error(t("automations.decide.suspended", { code }));
+          // La propria decisione è già in coda sul worker (build app).
+          case "pending":
+            return void toast.show(t("automations.decide.applying"));
           default:
             return toast.error(t("automations.toast.decisionError", { code }));
         }

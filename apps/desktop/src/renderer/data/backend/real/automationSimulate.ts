@@ -1,4 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
+import { planEmail, sameConversation } from "@stubwise/shared";
 import type {
   Automation,
   SimulationContext,
@@ -54,7 +55,12 @@ export function contextWorld(ctx: SimulationContext, now: () => string): SimWorl
     if (owner !== ctx.ownerId || !p.seenBy.includes(owner) || !p.ownerCan[can])
       throw new Error("forbidden");
   };
-  return {
+  // Le stesse parole del mondo del worker (`loadPlanWorld`): una prova non
+  // passa dove l'esecuzione vera fallirebbe.
+  const notBlank = (what: string, value: string) => {
+    if (value.trim() === "") throw new Error(`${what} vuoto`);
+  };
+  const world: SimWorld = {
     person: (id) => people.get(id),
     isDeactivated: (id) => people.get(id)?.deactivated ?? false,
     holdersOfRole: (projectId, role) => projects.get(projectId)?.roleHolders[role] ?? [],
@@ -62,10 +68,22 @@ export function contextWorld(ctx: SimulationContext, now: () => string): SimWorl
       projectId === null ? [] : (projects.get(projectId)?.departmentMembers[departmentId] ?? []),
     canSeeProject: sees,
     projectGone: (projectId) => projects.get(projectId)?.gone ?? true,
-    checkNewTask: (owner, input) => check(owner, input.projectId, "createTask"),
-    checkNewMilestone: (owner, projectId) => check(owner, projectId, "createMilestone"),
-    checkNewRequest: (owner, input) => check(owner, input.projectId, "createRequest"),
+    checkNewTask: (owner, input) => {
+      check(owner, input.projectId, "createTask");
+      notBlank("titolo", input.title);
+    },
+    checkNewMilestone: (owner, projectId, input) => {
+      check(owner, projectId, "createMilestone");
+      notBlank("nome", input.name);
+    },
+    checkNewRequest: (owner, input) => {
+      check(owner, input.projectId, "createRequest");
+      notBlank("titolo", input.title);
+    },
     defaultDepartmentOf: (id) => people.get(id)?.defaultDepartmentId ?? null,
+    // I nomi che il progetto ha già (`milestoneNames`, assente da un server più vecchio).
+    milestoneNameTaken: (projectId, name) =>
+      projects.get(projectId)?.milestoneNames?.includes(name) ?? false,
     now,
     project: (id) => {
       const p = projects.get(id);
@@ -77,7 +95,36 @@ export function contextWorld(ctx: SimulationContext, now: () => string): SimWorl
     canSeeAutomation: (_personId, automationId) => automationId === ctx.automation.id,
     // Gli errori li calcola il server per questa versione e questo proprietario.
     configErrors: () => ctx.configErrors,
+    // F2 (R5): l'email, coi controlli del motore condiviso e la casella che
+    // il server ha risolto per il proprietario (`ownerMailbox`; assente = nessuna).
+    outside: {
+      previewEmail(sim, _a, eff, where) {
+        const p = planEmail(
+          { ...world, ownerMailbox: () => ctx.ownerMailbox ?? { ok: false, reason: "none" } },
+          eff,
+          sim.ownerId,
+          sim.preview.emails.length,
+          null,
+        );
+        if (!p.ok) return p;
+        const first = sameConversation(sim.preview.emails, p.plan.to);
+        return {
+          ok: true,
+          preview: {
+            kind: "email",
+            ...where,
+            from: p.plan.from,
+            to: p.plan.to,
+            subject: p.plan.subject,
+            body: p.plan.body,
+            attachments: [],
+            sameConversationAs: first ? { stepId: first.stepId, path: first.path } : null,
+          },
+        };
+      },
+    },
   };
+  return world;
 }
 
 interface Trial {
@@ -159,6 +206,11 @@ export function createRealSimulation(api: SimulationApi) {
     },
 
     /** Al cambio di sessione le prove si buttano. */
+    /** Dopo un salvataggio: il contesto letto era del flusso di prima. */
+    forgetContext(automationId: string): void {
+      for (const k of [...contexts.keys()]) if (k.startsWith(`${automationId}:`)) contexts.delete(k);
+    },
+
     reset(): void {
       trials.clear();
       contexts.clear();

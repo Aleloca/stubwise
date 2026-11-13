@@ -102,6 +102,12 @@ describe("la disponibilità della F2: email e attese", () => {
     expect(f2(flow({ trigger: { kind: "source", sourceId: "s", event: "webhook" } }))).toEqual(["trigger"]);
   });
 
+  it("un'email senza `attachRefs` (un flusso scritto da API o MCP) non fa saltare la validazione", () => {
+    const bare = { ...sendEmail("s1") } as Record<string, unknown>;
+    delete bare.attachRefs;
+    expect(f2(flow({ steps: [bare as unknown as Step] }))).toEqual([]);
+  });
+
   it("un'email con allegati è fuori (F2-5 = a); senza, no", () => {
     const withFile = { ...sendEmail("s1"), attachRefs: ["contratto"] } as Step;
     expect(f2(flow({ steps: [withFile, sendEmail("s2")] }))).toEqual(["0"]);

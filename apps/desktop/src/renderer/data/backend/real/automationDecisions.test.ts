@@ -131,6 +131,20 @@ describe("«Da decidere» e il blocco «Automations» sulle rotte vere", () => {
     );
   });
 
+  it("la propria decisione già in coda (409 pending): `invalid: pending`, mai «già deciso da qualcuno»; e non si ripropone", async () => {
+    const { api } = fakeApi({
+      approve: async () => {
+        throw new ApiError(409, "pending", "pending");
+      },
+    });
+    const d = createRealDecisions(api);
+    await d.listMyApprovals();
+    await expect(d.approve("run-1", undefined, { expectedPath: "1" })).rejects.toThrow(
+      /^invalid: pending$/,
+    );
+    expect(await d.listMyApprovals()).toEqual([]);
+  });
+
   it("un ex approvatore (403) e un'esecuzione sospesa: gli errori del prototipo", async () => {
     const { api } = fakeApi({
       approve: async () => {
