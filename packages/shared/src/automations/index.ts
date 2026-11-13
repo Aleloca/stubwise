@@ -12,3 +12,4 @@ export * from "./restore.js";
 export * from "./preview.js";
 export * from "./claudeStep.js";
 export * from "./availability.js";
+export * from "./views.js";
