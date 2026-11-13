@@ -48,8 +48,14 @@ export interface AutomationsApi extends DecisionApi {
     body: { flow: AutomationFlow; expectedRev: number | null } & AutomationMeta,
   ): Promise<Automation>;
   patch(code: string, body: AutomationMeta): Promise<Automation>;
-  publish(code: string, body: { expectedRev: number | null }): Promise<Automation>;
-  activate(code: string, body: { expectedRev: number | null }): Promise<Automation>;
+  publish(
+    code: string,
+    body: { expectedRev: number | null; mailboxAccountId?: string },
+  ): Promise<Automation>;
+  activate(
+    code: string,
+    body: { expectedRev: number | null; mailboxAccountId?: string },
+  ): Promise<Automation>;
   pause(code: string): Promise<Automation>;
   duplicate(code: string, body: { version?: number; name: string }): Promise<Automation>;
   deleteDraft(code: string, body: { expectedRev: number | null }): Promise<void>;
@@ -76,6 +82,8 @@ export function createRealAutomations(
   api: AutomationsApi,
   refs: AutomationRefs = createAutomationRefs(),
   clock?: SettleClock,
+  /** Le caselle di chi accende (F2): la pagina sceglie per indirizzo, il server per id. */
+  mailboxAccounts: () => Promise<readonly { id: string; email: string }[]> = async () => [],
 ) {
   const decisions = createRealDecisions(api, refs, clock);
   const code = (id: string) => refs.automation(id).code;
@@ -84,6 +92,25 @@ export function createRealAutomations(
     const a = await inPrototypeWords(call);
     refs.rememberAutomation(a);
     return a;
+  };
+  /** La casella scelta per indirizzo → il suo id; una che non è più mia è `mailbox_missing`. */
+  const accountOf = async (mailbox: string | undefined) => {
+    if (mailbox === undefined) return {};
+    const found = (await mailboxAccounts()).find(
+      (a) => a.email.toLowerCase() === mailbox.toLowerCase(),
+    );
+    if (!found) throw new Error("invalid: mailbox_missing");
+    return { mailboxAccountId: found.id };
+  };
+  /** Accendere o pubblicare: `mailbox_required` del server è `mailbox_missing` del prototipo. */
+  const turnedOn = async (call: () => Promise<Automation>) => {
+    try {
+      return await written(call);
+    } catch (error) {
+      if (error instanceof Error && error.message === "invalid: mailbox_required")
+        throw new Error("invalid: mailbox_missing");
+      throw error;
+    }
   };
   const onRun = async (runId: string, call: (code: string, n: number) => Promise<void>) => {
     const r = refs.run(runId);
@@ -150,10 +177,18 @@ export function createRealAutomations(
 
     renameAutomation: (id: string, meta: AutomationMeta) =>
       written(() => api.patch(code(id), meta)),
-    publish: (id: string) =>
-      written(() => api.publish(code(id), { expectedRev: refs.automation(id).rev })),
-    activate: (id: string) =>
-      written(() => api.activate(code(id), { expectedRev: refs.automation(id).rev })),
+    publish: async (id: string, opts: { mailbox?: string } = {}) => {
+      const mailboxAccountId = await accountOf(opts.mailbox);
+      return turnedOn(() =>
+        api.publish(code(id), { expectedRev: refs.automation(id).rev, ...mailboxAccountId }),
+      );
+    },
+    activate: async (id: string, opts: { mailbox?: string } = {}) => {
+      const mailboxAccountId = await accountOf(opts.mailbox);
+      return turnedOn(() =>
+        api.activate(code(id), { expectedRev: refs.automation(id).rev, ...mailboxAccountId }),
+      );
+    },
     pause: (id: string) => written(() => api.pause(code(id))),
     duplicateAutomation: (id: string, opts: { version?: number; name: string }) =>
       written(() => api.duplicate(code(id), opts)),

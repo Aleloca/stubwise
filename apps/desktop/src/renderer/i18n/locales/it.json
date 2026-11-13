@@ -7205,6 +7205,8 @@
       "onMailboxMissing_publish": "Non è stato possibile pubblicare {{code}}: prima collega una casella nella Posta.",
       "onMailboxExpired": "Non è stato possibile accendere {{code}}: il collegamento della tua casella è scaduto. Ricollegala nella Posta.",
       "onMailboxExpired_publish": "Non è stato possibile pubblicare {{code}}: il collegamento della tua casella è scaduto. Ricollegala nella Posta.",
+      "onMailboxScope": "Non è stato possibile accendere {{code}}: la tua casella non ha il permesso d'invio. Ricollegala nella Posta.",
+      "onMailboxScope_publish": "Non è stato possibile pubblicare {{code}}: la tua casella non ha il permesso d'invio. Ricollegala nella Posta.",
       "onConfig": "Non è stato possibile accendere {{code}}: prima vanno risolti i suoi problemi.",
       "onConfig_publish": "Non è stato possibile pubblicare {{code}}: prima vanno risolti i suoi problemi.",
       "publishedPaused": "Versione {{n}} di {{code}} pubblicata · resta in pausa",

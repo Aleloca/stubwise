@@ -59,6 +59,7 @@ const ON_ERRORS: Record<string, string> = {
   "invalid: permission": "automations.toast.onPermission",
   "invalid: mailbox_missing": "automations.toast.onMailboxMissing",
   "invalid: mailbox_expired": "automations.toast.onMailboxExpired",
+  "invalid: mailbox_scope": "automations.toast.onMailboxScope",
   "invalid: config": "automations.toast.onConfig",
 };
 
