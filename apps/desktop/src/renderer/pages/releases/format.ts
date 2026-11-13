@@ -162,6 +162,9 @@ export function nowSentence(r: ReleaseView, t: TFunction, language: string): str
       return t("releases.now.notInProduction");
     case "in_production":
       return t("releases.now.inProduction", { time: s.since ? clock(s.since, language) : "" });
+    case "unknown":
+      // Le run non si sono potute leggere (area 8, F1): nessuna affermazione.
+      return t("releases.now.unknown");
     case "unavailable":
       return t(`releases.now.unavailable.${s.reason ?? "no_production_env"}`, {
         code: r.projectCode,
