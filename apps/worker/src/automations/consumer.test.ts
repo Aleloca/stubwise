@@ -18,7 +18,7 @@ import { firstStatusOf, seedRepository, startTestDb, type TestDb } from "@stubwi
 import type { AutomationFlow } from "@stubwise/shared";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { consumeAutomationEvents, MAX_ACTIVE_RUNS } from "./consumer.js";
+import { consumeAutomationEvents, CONSUMER_LOCK_KEY, MAX_ACTIVE_RUNS } from "./consumer.js";
 
 /**
  * Il CONSUMATORE degli eventi (area 7, F1): dall'outbox che scrivono i
@@ -189,6 +189,34 @@ describe("consumeAutomationEvents", () => {
     expect(await runsOf(fourth.id)).toEqual([]);
   });
 
+  it("review F1, I2: un'esecuzione d'origine sparita non blocca il consumo (la figlia nasce senza `parent_run_id`)", async () => {
+    const a = await automation(flowOn("task_created"));
+    const task = await newTask("Orfana");
+    const ghost = randomUUID();
+    await t.db.update(automationEvents).set({ originRunId: ghost }).where(eq(automationEvents.objectId, task.id));
+    const good = await newTask("Buona");
+    const lines: string[] = [];
+    await consumeAutomationEvents({ db: t.db, log: (m) => lines.push(m) });
+    const runs = await runsOf(a.id);
+    expect(runs.map((r) => (r.event as { task: { titolo: string } }).task.titolo).sort()).toEqual(["Buona", "Orfana"]);
+    expect(runs.find((r) => (r.event as { task: { titolo: string } }).task.titolo === "Orfana")).toMatchObject({ parentRunId: null, origin: "automation" });
+    expect(await pendingEvents()).toEqual([]);
+    void good;
+  });
+
+  it("review F1, I2: un evento che fa lanciare l'avvio di un'automazione non blocca le altre né gli eventi dopo; si consuma, con una riga nel log", async () => {
+    const broken = await automation({ ...flowOn("task_created"), trigger: { kind: "stubwise", event: "task_created", filter: { all: 5 } } } as unknown as AutomationFlow);
+    const fine = await automation(flowOn("task_created"));
+    await newTask("Uno");
+    await newTask("Due");
+    const lines: string[] = [];
+    await consumeAutomationEvents({ db: t.db, log: (m) => lines.push(m) });
+    expect(await runsOf(broken.id)).toEqual([]);
+    expect((await runsOf(fine.id)).length).toBe(2);
+    expect(await pendingEvents()).toEqual([]);
+    expect(lines.filter((l) => l.includes(broken.code))).toHaveLength(2);
+  });
+
   it(`al più ${MAX_ACTIVE_RUNS} esecuzioni aperte per automazione: oltre, l'evento non avvia`, async () => {
     const a = await automation(flowOn("task_created"));
     await t.db.insert(automationRuns).values(Array.from({ length: MAX_ACTIVE_RUNS }, (_, i) => ({ automationId: a.id, n: i + 1, version: 1, title: "aperta", origin: "stubwise" as const, status: "waiting_approval" as const })));
@@ -202,5 +230,28 @@ describe("consumeAutomationEvents", () => {
     await newTask();
     await Promise.all([consumeAutomationEvents({ db: t.db }), consumeAutomationEvents({ db: t.db })]);
     expect(await runsOf(a.id)).toHaveLength(1);
+  });
+
+  it("review F1, M3: un consumatore alla volta, quindi gli eventi di una stessa transazione non si dividono fra due giri concorrenti", async () => {
+    await automation(flowOn("task_created"));
+    // Tre task nella STESSA transazione: tre eventi con la stessa txid.
+    await t.db.transaction(async (tx) => {
+      for (const title of ["A", "B", "C"]) await tx.insert(tickets).values({ projectId, number: ticketNumber++, title, type: "task", priority: "medium", source: "manual" });
+    });
+    // Il primo consumatore tiene il suo turno aperto: il secondo non prende niente, nemmeno gli eventi oltre il lotto.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let held!: () => void;
+    const holding = new Promise<void>((r) => (held = r));
+    const first = t.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(${CONSUMER_LOCK_KEY})`);
+      held();
+      await gate;
+    });
+    await holding;
+    expect(await consumeAutomationEvents({ db: t.db })).toBe(0);
+    release();
+    await first;
+    expect(await consumeAutomationEvents({ db: t.db })).toBe(3);
   });
 });

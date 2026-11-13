@@ -179,8 +179,8 @@ export async function automationRoutes(instance: FastifyInstance): Promise<void>
     handle(reply, async () => ({ items: await listMyApprovals(app.db, me(request)) })),
   );
   // Il blocco Home: aspetta me, fallite che gestisco, mie non finite.
-  app.get("/me/automation-runs", { config: { access: ACCESS } }, async (request, reply) =>
-    handle(reply, async () => ({ items: await listMyRuns(app.db, me(request)) })),
+  app.get("/me/automation-runs", { config: { access: ACCESS }, schema: { querystring: z.object({ log: z.literal("none").optional() }) } }, async (request, reply) =>
+    handle(reply, async () => ({ items: await listMyRuns(app.db, me(request), { withLog: request.query.log !== "none" }) })),
   );
 
   // La sezione del progetto e la riga d'origine (R-G5: nascosto = inesistente).
@@ -199,7 +199,8 @@ export async function automationRoutes(instance: FastifyInstance): Promise<void>
     "/automation-runs",
     {
       config: { access: ACCESS },
-      schema: { querystring: z.object({ automation: z.string().max(40).optional(), project: z.uuid().optional(), status: runStatusSchema.optional(), cursor: z.string().max(200).optional() }) },
+      // `log=none`: righe senza registro (vuoto), per l'elenco letto spesso; il registro lo dà il dettaglio.
+      schema: { querystring: z.object({ automation: z.string().max(40).optional(), project: z.uuid().optional(), status: runStatusSchema.optional(), cursor: z.string().max(200).optional(), log: z.literal("none").optional() }) },
     },
     async (request, reply) => handle(reply, () => listRuns(app.db, me(request), request.query)),
   );

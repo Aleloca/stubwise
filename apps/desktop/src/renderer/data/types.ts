@@ -43,7 +43,6 @@ export type { ActionClass, ClassReason, ClaudeBusyReason, ExecutedFailure } from
  * (`servers.operate`: nessun preset, solo concessioni persona × progetto).
  */
 export type LocalProjectPermission =
-  | "automations.manage"
   | "support.reply"
   | "servers.operate";
 

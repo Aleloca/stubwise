@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   automationRunInputs,
   automationRunLog,
@@ -60,7 +61,12 @@ import { executeEffect } from "./effects.js";
  *   (`owner_lost_permission`, `automation.paused` al proprietario).
  */
 
-export const RUN_LEASE_MS = 60 * 60_000;
+/**
+ * La lease di una presa (review F1, M2): breve, perché nella F1 nessun passo
+ * dura (niente Claude), e un worker morto non lascia le esecuzioni ferme per
+ * un'ora. Si rinnova a ogni input trattato (`renewClaim`).
+ */
+export const RUN_LEASE_MS = 5 * 60_000;
 export const RUN_BATCH = 10;
 
 const TERMINAL: ReadonlySet<RunStatus> = new Set(["done", "failed", "cancelled"]);
@@ -87,20 +93,47 @@ export interface ExecutorDeps {
 /** Un giro: le esecuzioni dovute, una alla volta. Ritorna quante ne ha mosse. */
 export async function executeDueRuns(deps: ExecutorDeps): Promise<number> {
   const now = deps.now?.() ?? new Date();
-  const ids = await claimRuns(deps, now);
+  // Un gettone per presa: due worker (o due giri) non si scambiano mai il rilascio.
+  const token = `${deps.workerId ?? "worker"}:${randomUUID()}`;
+  const ids = await claimRuns(deps, now, token);
   for (const id of ids) {
     try {
-      await processRun(deps, id);
+      await processRun(deps, id, token);
     } catch (err) {
       deps.log?.(`[automations] esecuzione ${id}: ${String(err)}`);
     } finally {
-      await deps.db.update(automationRuns).set({ claimedAt: null, claimedBy: null }).where(eq(automationRuns.id, id));
+      await releaseClaim(deps.db, id, token);
     }
   }
+  await pruneConsumedInputs(deps.db);
   return ids.length;
 }
 
-async function claimRuns(deps: ExecutorDeps, now: Date): Promise<string[]> {
+/**
+ * La ritenzione della coda degli input (review F1, M6): un input consumato
+ * serve solo per diagnosi (la decisione vera è nel registro della run, con chi
+ * e quando), e dopo 7 giorni si toglie, come gli eventi consumati. Il registro
+ * (`automation_run_log`) vive con la sua esecuzione e se ne va con lei.
+ */
+export const INPUT_RETENTION_DAYS = 7;
+
+export async function pruneConsumedInputs(db: Db): Promise<void> {
+  await db
+    .delete(automationRunInputs)
+    .where(sql`${automationRunInputs.consumedAt} is not null and ${automationRunInputs.consumedAt} < now() - make_interval(days => ${INPUT_RETENTION_DAYS})`);
+}
+
+/** Rilascia la presa, solo se è ancora quella di `token` (un altro worker può averla ripresa a lease scaduta). */
+export async function releaseClaim(db: Db, runId: string, token: string): Promise<void> {
+  await db.update(automationRuns).set({ claimedAt: null, claimedBy: null }).where(and(eq(automationRuns.id, runId), eq(automationRuns.claimedBy, token)));
+}
+
+/** Rinnova la lease della propria presa (fra un input e l'altro). */
+async function renewClaim(db: Db, runId: string, token: string): Promise<void> {
+  await db.update(automationRuns).set({ claimedAt: sql`now()` }).where(and(eq(automationRuns.id, runId), eq(automationRuns.claimedBy, token)));
+}
+
+async function claimRuns(deps: ExecutorDeps, now: Date, token: string): Promise<string[]> {
   const leaseStart = new Date(now.getTime() - RUN_LEASE_MS).toISOString();
   return deps.db.transaction(async (tx) => {
     const rows = await tx
@@ -119,7 +152,7 @@ async function claimRuns(deps: ExecutorDeps, now: Date): Promise<string[]> {
     if (rows.length === 0) return [];
     await tx
       .update(automationRuns)
-      .set({ claimedAt: now, claimedBy: deps.workerId ?? "worker" })
+      .set({ claimedAt: now, claimedBy: token })
       .where(inArray(automationRuns.id, rows.map((r) => r.id)));
     return rows.map((r) => r.id);
   });
@@ -135,7 +168,7 @@ interface Turn {
   now: string;
 }
 
-async function processRun(deps: ExecutorDeps, runId: string): Promise<void> {
+async function processRun(deps: ExecutorDeps, runId: string, token: string): Promise<void> {
   const db = deps.db;
   const [run] = await db.select().from(automationRuns).where(eq(automationRuns.id, runId));
   if (!run) return;
@@ -165,6 +198,7 @@ async function processRun(deps: ExecutorDeps, runId: string): Promise<void> {
   if (queue.length === 0 && run.status === "running") queue.push({ input: { kind: "time", now: turn.now }, rowId: null });
 
   for (const item of queue) {
+    await renewClaim(db, run.id, token);
     try {
       if (!acceptableEdit(turn, item.input)) deps.log?.(`[automations] esecuzione ${run.id}: correzioni non ammesse (edited) scartate`);
       else if ("control" in item.input) await control(turn, item.input);
@@ -322,7 +356,33 @@ async function drive(turn: Turn, input: EngineInput, prepare?: (st: EngineState)
 }
 
 /** Scrive nel record l'esito di un passo del motore, e gli avvisi che ne nascono. */
+/**
+ * Un passo del motore si scrive in UNA transazione (review F1, M1): le righe
+ * del registro, la run e gli avvisi (agli approvatori, al proprietario, la
+ * pausa D5). Un guasto o un worker morto a metà non lascia righe del registro
+ * senza la run, né un'attesa scritta senza i suoi avvisi. (Un avviso che
+ * `publishNotification` non riesce a scrivere resta fail-open, per scelta di
+ * quel modulo: non fa fallire chi scrive.)
+ */
 async function commit(turn: Turn, r: EngineStep): Promise<void> {
+  const outer = turn.deps;
+  const logLength = turn.log.length;
+  const runBefore = turn.run;
+  try {
+    await outer.db.transaction(async (tx) => {
+      turn.deps = { ...outer, db: tx as unknown as Db };
+      await commitIn(turn, r);
+    });
+  } catch (err) {
+    turn.log.length = logLength;
+    turn.run = runBefore;
+    throw err;
+  } finally {
+    turn.deps = outer;
+  }
+}
+
+async function commitIn(turn: Turn, r: EngineStep): Promise<void> {
   const db = turn.deps.db;
   const st = r.state;
   const before = turn.run.status;

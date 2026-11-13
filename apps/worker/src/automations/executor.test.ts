@@ -9,6 +9,7 @@ import {
   automationVersions,
   backlogItemRequesters,
   backlogItems,
+  backlogJobs,
   milestones,
   notifications,
   projectMembers,
@@ -19,10 +20,10 @@ import {
 } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { AutomationFlow, Step } from "@stubwise/shared";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { effectKey, executeEffect } from "./effects.js";
-import { executeDueRuns, RUN_LEASE_MS } from "./executor.js";
+import { executeDueRuns, INPUT_RETENTION_DAYS, pruneConsumedInputs, releaseClaim, RUN_LEASE_MS } from "./executor.js";
 
 /**
  * L'ESECUTORE (area 7, F1): le esecuzioni dovute avanzano col motore puro, gli
@@ -164,6 +165,25 @@ describe("executeDueRuns", () => {
     expect((await ticketsOfRun(run.id))[0]!.title).toBe("Corretto");
   });
 
+  it("review F1, M1: il registro, la run e gli avvisi di un passo si scrivono INSIEME; un guasto a metà non lascia righe del registro senza la run", async () => {
+    const { run } = await runOf([task({ approval: { mode: "ask", who: { owner: true } } })]);
+    // Il guasto DOPO la riga del registro: l'aggiornamento della run che entra in attesa.
+    await t.db.execute(sql`create or replace function stubwise_test_boom() returns trigger as $$ begin if new.status = 'waiting_approval' then raise exception 'boom'; end if; return new; end $$ language plpgsql`);
+    await t.db.execute(sql`create trigger stubwise_test_boom before update on automation_runs for each row execute function stubwise_test_boom()`);
+    try {
+      await exec();
+    } finally {
+      await t.db.execute(sql`drop trigger stubwise_test_boom on automation_runs`);
+    }
+    // Niente di quel passo è rimasto: né la riga «in attesa», né l'avviso.
+    expect((await logOf(run.id)).filter((e) => e.outcome === "waiting")).toEqual([]);
+    expect(await cardsOf(ownerId, "automation.approval")).toEqual([]);
+    // L'esecuzione è fallita per intero, col suo errore e la sua riga: lo stato e il registro dicono la stessa cosa.
+    const after = await reload(run.id);
+    expect(after).toMatchObject({ status: "failed", error: "internal_error" });
+    expect((await logOf(run.id)).map((e) => e.seq)).toEqual((await logOf(run.id)).map((_, i) => i + 1));
+  });
+
   it("R-J11: un ruolo che nessuno ha nel progetto → fallisce con no_approver, e il proprietario lo sa", async () => {
     const { run } = await runOf([task({ approval: { mode: "ask", who: { projectRole: "viewer" } } })]);
     await exec();
@@ -228,6 +248,8 @@ describe("executeDueRuns", () => {
     const [item] = await t.db.select().from(backlogItems).where(eq(backlogItems.automationRunId, run.id));
     expect(item).toMatchObject({ title: "Serve il contratto", document: "Per Rossi" });
     expect(await t.db.select().from(backlogItemRequesters).where(eq(backlogItemRequesters.itemId, item!.id))).toEqual([expect.objectContaining({ userId: ownerId })]);
+    // P3 = a: una richiesta creata da un'automazione non avvia lavoro AI (nessun job di stima).
+    expect((await t.db.select().from(backlogJobs)).filter((j) => (j.payload as { itemId?: string }).itemId === item!.id)).toEqual([]);
     const cards = await cardsOf(otherId, "automation.notify");
     expect(cards).toHaveLength(1);
     expect(cards[0]!.event).toMatchObject({ message: "Pronto Rossi", runId: run.id });
@@ -254,6 +276,31 @@ describe("executeDueRuns", () => {
     expect(await ticketsOfRun(run.id)).toEqual([]);
     await executeDueRuns({ db: t.db, now: () => new Date(now.getTime() + RUN_LEASE_MS + 1000) });
     expect(await ticketsOfRun(run.id)).toHaveLength(1);
+  });
+
+  it("review F1, M2: la lease è breve (al più 5′), e un worker rilascia solo la presa che è sua", async () => {
+    expect(RUN_LEASE_MS).toBeLessThanOrEqual(5 * 60_000);
+    const { run } = await runOf([task()]);
+    // Un altro worker l'ha ripresa (la mia lease era scaduta): il mio rilascio non la tocca.
+    await t.db.update(automationRuns).set({ claimedAt: new Date(), claimedBy: "altro:1" }).where(eq(automationRuns.id, run.id));
+    await releaseClaim(t.db, run.id, "mio:1");
+    expect(await reload(run.id)).toMatchObject({ claimedBy: "altro:1" });
+    await releaseClaim(t.db, run.id, "altro:1");
+    expect(await reload(run.id)).toMatchObject({ claimedBy: null, claimedAt: null });
+    // Due giri di fila senza `workerId`: prese con gettoni diversi, mai lo stesso nome per tutti.
+    await executeDueRuns({ db: t.db });
+    expect((await reload(run.id)).claimedBy).toBeNull();
+  });
+
+  it("review F1, M6: gli input consumati da più di 7 giorni si tolgono; quelli recenti o non consumati restano", async () => {
+    const { run } = await runOf([task({ approval: { mode: "ask", who: { owner: true } } })]);
+    const old = new Date(Date.now() - (INPUT_RETENTION_DAYS + 1) * 86_400_000);
+    const [gone] = await t.db.insert(automationRunInputs).values({ runId: run.id, input: { control: "skip", byId: ownerId }, byId: ownerId, consumedAt: old }).returning();
+    const [recent] = await t.db.insert(automationRunInputs).values({ runId: run.id, input: { control: "skip", byId: ownerId }, byId: ownerId, consumedAt: new Date() }).returning();
+    await pruneConsumedInputs(t.db);
+    const ids = (await t.db.select().from(automationRunInputs).where(eq(automationRunInputs.runId, run.id))).map((r) => r.id);
+    expect(ids).toContain(recent!.id);
+    expect(ids).not.toContain(gone!.id);
   });
 
   describe("gli input di controllo dalla coda (il server non muove il motore)", () => {
