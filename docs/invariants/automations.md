@@ -246,3 +246,36 @@ motore condiviso (`packages/shared/src/automations/`).
   (Europe/Rome) per il vincolo di `automation_schedule_fires`, e non
   recuperano i giorni persi.
 
+## I passi di Claude (F3) e l'eccezione Q8
+
+- **L'unica eccezione all'invariante delle serie (Q8 = a *(M)*).**
+  Un'automazione PUÒ avviare un passo di Claude senza un umano (da un
+  evento, a orario, da un'email). Alle condizioni, tutte in
+  `apps/worker/src/automations/claude-step.ts`: il passo non esegue azioni
+  (nessuno strumento, nessun MCP, un turno; le azioni sono i passi del
+  flusso coi permessi del proprietario); il budget mensile si controlla
+  prima di OGNI passo (D1, `aiBudgetState`, anche dentro un «per ogni» e a
+  metà di un'esecuzione partita col budget); ogni passo passa dal runner che
+  traccia con `automation_step`; l'input di fuori è non fidato e delimitato.
+  Nessun altro percorso automatico (serie del calendario, pulse, brief, giro
+  notturno) prende questa eccezione: lo controllano
+  `apps/worker/src/automations/q8-exception.test.ts` (il passo lo importa
+  solo l'esecutore; `calendar-auto.ts` non nomina esecutori di agenti) e
+  `decisions-never-ai.test.ts` (il registro decisioni resta fuori).
+- **Il budget in un posto** (`aiBudgetState`, `@stubwise/notifications`):
+  esaurito, il passo non chiama il modello e l'esecuzione resta `running`
+  con `aiWaiting: monthly_budget`, ripassa ogni 15′ e riparte dal passo; un
+  errore del provider aspetta allo stesso modo. Solo una risposta arrivata e
+  fuori forma fa fallire (`unknown_outcome`/`bad_field`/`too_many` del
+  motore, `claude_invalid` se non è JSON); mai un ramo.
+- **Il risultato si salva prima del ramo**, col cursore: una ripresa dopo il
+  commit non richiama il modello (un crash prima del commit sì: costo
+  accettato).
+- **La prova** (`POST …/test/claude`) la lancia solo chi gestisce, rifà il
+  budget, usa lo STESSO prompt (`buildClaudePrompt` di shared) e scrive solo
+  la riga dei consumi (owner `automation_id`, senza run). La stima
+  (`…/test/estimate`) è gratuita.
+- **Chi legge la motivazione**: per chi non è il proprietario della posta,
+  una riga di Claude su un dato tinto perde `reason` e i campi di testo
+  (`reasonHidden`, C-F3-7), oltre a R-J13 e R-J16.
+
