@@ -325,6 +325,8 @@ export async function linkFolder(
     linkedAt: now(),
     status: "ok",
     expiredAt: null,
+    // Il collegamento è la prima sincronizzazione.
+    lastSyncedAt: now(),
   };
   state.folderLinks.push(link);
   const added = state.googleFiles
@@ -386,6 +388,8 @@ export async function syncFolder(linkId: string): Promise<FolderLinkView> {
     }
   }
   if (touched.length > 0) track(advanceContent(touched));
+  // QB1 = b *(M)*: la cartella dice quando si è aggiornata (a mano o la notte).
+  link.lastSyncedAt = now();
   return linkView(link);
 }
 

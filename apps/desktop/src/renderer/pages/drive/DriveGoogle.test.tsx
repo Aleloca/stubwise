@@ -7,7 +7,7 @@ import { disconnectGoogle, whenDriveIdle } from "../../data/drive/writes";
 import { PEOPLE } from "../../data/seed/people";
 import { PROJECTS } from "../../data/seed/projects";
 import { setSessionPersonId } from "../../data/session";
-import { state, visibleProjectIds } from "../../data/store";
+import { now, state, visibleProjectIds } from "../../data/store";
 import { ViewerProvider, resetViewerGrants, revokeProjectPermission } from "../../data/viewer";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { setMatchMedia } from "../../test/setup";
@@ -496,5 +496,29 @@ describe("Fix round 1", () => {
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "Add from Google Drive to MKX" })).toBeNull(),
     );
+  });
+});
+
+// QB1 = b *(M, 13 nov 2026)*: una sincronizzazione al giorno da sola, oltre a
+// «Sync now»; la cartella dice quando si è aggiornata, e la scaduta lo dice
+// al posto dell'ora (con «Reconnect» nella fascia di chi gestisce).
+describe("La cartella dice quando si è aggiornata", () => {
+  const folderRow = (id: string) => document.querySelector<HTMLElement>(`[data-drive-folder="${id}"]`);
+
+  it("una cartella aggiornata: «synced …»; dopo «Sync now», adesso", async () => {
+    const link = state.folderLinks.find((l) => l.id === "fl-aud-cliente")!;
+    link.lastSyncedAt = new Date(Date.parse(now()) - 3 * 3_600_000).toISOString();
+    await openDrive("/p/AUD/drive");
+    await waitFor(() => expect(folderRow("fl-aud-cliente")).toHaveTextContent(/synced 3 hr\. ago/));
+    await userEvent.click(screen.getByRole("button", { name: "Actions for AUD – Cliente" }));
+    await userEvent.click(within(await screen.findByRole("menu")).getByRole("menuitem", { name: "Sync now" }));
+    await act(whenDriveIdle);
+    await waitFor(() => expect(folderRow("fl-aud-cliente")).toHaveTextContent(/synced this minute/));
+  });
+
+  it("una scaduta non dice «synced»: dice da quando non si aggiorna", async () => {
+    await openDrive("/p/STW/drive", "p-giulia");
+    await waitFor(() => expect(folderRow("fl-stw-brand")).toHaveTextContent(/Not updating since/));
+    expect(folderRow("fl-stw-brand")).not.toHaveTextContent(/synced/);
   });
 });

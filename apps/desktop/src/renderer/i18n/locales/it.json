@@ -5705,6 +5705,7 @@
       "folderOpened": "«{{name}}» aperta in Google Drive. Nel prototipo non si apre nessun browser.",
       "unlink": "Scollega la cartella…",
       "notUpdating": "Non si aggiorna dal {{date}}",
+      "lastSynced": "sincronizzata {{when}}",
       "failed": "Non è riuscito. Non è cambiato nulla."
     },
     "content": {

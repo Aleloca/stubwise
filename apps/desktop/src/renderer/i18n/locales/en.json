@@ -5705,6 +5705,7 @@
       "folderOpened": "Opened “{{name}}” in Google Drive. In the prototype no browser opens.",
       "unlink": "Unlink folder…",
       "notUpdating": "Not updating since {{date}}",
+      "lastSynced": "synced {{when}}",
       "failed": "Couldn't do that. Nothing changed."
     },
     "content": {

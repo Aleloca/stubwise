@@ -2075,6 +2075,11 @@ export interface FolderLink {
   status: "ok" | "expired";
   /** Quando ha smesso di aggiornarsi (`expired`), altrimenti `null`. */
   expiredAt: string | null;
+  /**
+   * L'ultima sincronizzazione riuscita con Google (al collegamento, «Sync
+   * now» o quella di ogni giorno, QB1 = b *(M)*); `null` se non ce n'è stata.
+   */
+  lastSyncedAt: string | null;
 }
 
 /**

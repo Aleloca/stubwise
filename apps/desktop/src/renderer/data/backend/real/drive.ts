@@ -99,7 +99,14 @@ function rowOf(raw: ServerDriveFileRow, codes: Map<string, string> | null): Driv
     googleFileId: r.googleFileId ?? null,
     googleOwner: r.googleOwner ?? null,
     hidden: r.hidden === true,
-    unavailable: r.unavailable ?? null,
+    // Un motivo che il client non conosce lascia il file NON disponibile (fail-closed):
+    // mai «si apre» per un valore nuovo del server.
+    unavailable:
+      r.unavailable === null || r.unavailable === undefined
+        ? null
+        : r.unavailable === "deleted"
+          ? "deleted"
+          : "access_lost",
     content: contentOf(r.contentStatus),
     // Nell'elenco il server dà solo la prima frase; il riassunto intero sta nel dettaglio.
     summary: r.summaryLine,

@@ -239,3 +239,44 @@ describe("F5: le cartelle che ho collegato io (il cassetto, scollegando)", () =>
     expect(await g.listMyFolderLinks!()).toEqual([]);
   });
 });
+
+// Le scelte di 72 per la F5b (db43e0c2): B4 «scaduta» e «accesso perso» li
+// DERIVA il server a lettura; QB1 = b *(M)*: una sincronizzazione al giorno
+// da sola, oltre a «Sync now», e la cartella dice quando si è aggiornata.
+describe("F5b: le cartelle collegate come le dice il server", () => {
+  it("l'ultima sincronizzazione, e lo stato derivato (scaduta, accesso perso)", async () => {
+    installFakeServer({
+      [`GET /api/projects/${PROJECT_ID}/drive/google/links`]: {
+        body: [
+          link({ lastSyncedAt: "2026-11-13T02:00:00.000Z" }),
+          link({ id: "l-2", status: "expired", expiredAt: "2026-11-10T09:00:00.000Z", accessLost: true, lastSyncedAt: null }),
+        ],
+      },
+    });
+    const [ok, expired] = await g.listFolderLinks!(PROJECT_ID);
+    expect(ok).toMatchObject({ status: "ok", lastSyncedAt: "2026-11-13T02:00:00.000Z", accessLost: false });
+    expect(expired).toMatchObject({ status: "expired", accessLost: true, lastSyncedAt: null });
+  });
+
+  it("un server di prima (senza i campi nuovi): i default, mai «scaduta» per sbaglio", async () => {
+    const old: Record<string, unknown> = link();
+    for (const k of ["lastSyncedAt", "accessLost", "expiredAt", "fileCount"]) delete old[k];
+    installFakeServer({ [`GET /api/projects/${PROJECT_ID}/drive/google/links`]: { body: [old] } });
+    expect(await g.listFolderLinks!(PROJECT_ID)).toEqual([
+      expect.objectContaining({ status: "ok", accessLost: false, expiredAt: null, fileCount: 0, lastSyncedAt: null }),
+    ]);
+  });
+
+  it("dopo «Sync now» la cartella torna con la sua ora", async () => {
+    installFakeServer({
+      [`POST /api/drive/google/folders/${LINK}/sync`]: { body: link({ lastSyncedAt: "2026-11-13T10:00:00.000Z" }) },
+    });
+    expect((await g.syncFolder!(LINK)).lastSyncedAt).toBe("2026-11-13T10:00:00.000Z");
+  });
+
+  it("un file con un motivo che il client non conosce resta NON disponibile (fail-closed)", async () => {
+    const { googleRowOf } = await import("./drive");
+    const row = googleRowOf({ ...googleRow(), unavailable: "quarantined" } as never);
+    expect(row.unavailable).toBe("access_lost");
+  });
+});

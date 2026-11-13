@@ -27,6 +27,29 @@ const projectPath = (projectId: string) =>
 const filePath = (id: string) => `/api/drive/files/${encodeURIComponent(id)}`;
 const folderPath = (id: string) => `/api/drive/google/folders/${encodeURIComponent(id)}`;
 
+/**
+ * Una cartella collegata come la dice il server (le scelte di 72 per la F5b):
+ * «scaduta» e «accesso perso» li DERIVA lui a lettura (B4), l'ultima
+ * sincronizzazione è di QB1 = b. Un server di prima non li manda: i default
+ * non dicono mai «scaduta» per sbaglio.
+ */
+export function folderLinkOf(raw: unknown): FolderLinkView {
+  const l = raw as Partial<FolderLinkView> & { status?: string };
+  return {
+    id: l.id ?? "",
+    projectId: l.projectId ?? "",
+    name: l.name ?? "",
+    googleFolderId: l.googleFolderId ?? "",
+    linkedById: l.linkedById ?? "",
+    linkedAt: l.linkedAt ?? "",
+    status: l.status === "expired" ? "expired" : "ok",
+    expiredAt: l.expiredAt ?? null,
+    lastSyncedAt: l.lastSyncedAt ?? null,
+    fileCount: l.fileCount ?? 0,
+    accessLost: l.accessLost === true,
+  };
+}
+
 /** I rifiuti del server nelle parole del prototipo. */
 const ERRORS: Readonly<Record<string, string>> = {
   already_in_project: "already_in_project",
@@ -81,11 +104,11 @@ const listGoogleFolders: Drive["listGoogleFolders"] = async (projectId) =>
 
 /** Le cartelle che ho collegato io, in tutti i progetti (il cassetto, scollegando l'account). */
 const listMyFolderLinks: Drive["listMyFolderLinks"] = async () =>
-  listOrEmpty<FolderLinkView>("/api/drive/google/links");
+  (await listOrEmpty<unknown>("/api/drive/google/links")).map(folderLinkOf);
 
 /** Le cartelle collegate al progetto. */
 const listFolderLinks: Drive["listFolderLinks"] = async (projectId) =>
-  listOrEmpty<FolderLinkView>(`${projectPath(projectId)}/links`);
+  (await listOrEmpty<unknown>(`${projectPath(projectId)}/links`)).map(folderLinkOf);
 
 const addGoogleFile: Drive["addGoogleFile"] = async (projectId, googleFileId) =>
   call(async () =>
@@ -99,13 +122,13 @@ const linkFolder: Drive["linkFolder"] = async (projectId, googleFolderId) =>
     async () =>
       (await appClient().request("POST", `${projectPath(projectId)}/folders`, {
         googleFolderId,
-      })) as FolderLinkView,
-  );
+      })) as unknown,
+  ).then(folderLinkOf);
 
 const syncFolder: Drive["syncFolder"] = async (linkId) =>
   call(
-    async () => (await appClient().request("POST", `${folderPath(linkId)}/sync`)) as FolderLinkView,
-  );
+    async () => (await appClient().request("POST", `${folderPath(linkId)}/sync`)) as unknown,
+  ).then(folderLinkOf);
 
 const unlinkFolder: Drive["unlinkFolder"] = async (linkId) =>
   call(async () => {
