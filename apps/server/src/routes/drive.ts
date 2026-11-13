@@ -30,6 +30,7 @@ import {
   saveAttachmentToDrive,
   uploadDriveFile,
 } from "../drive/service.js";
+import { removeGoogleFile } from "../drive/google.js";
 
 /**
  * Il Drive dei progetti, i file CARICATI (area 5, fetta 2; invariante
@@ -42,7 +43,7 @@ import {
 const ACCESS = { kind: "user" } as const;
 const idParams = z.object({ id: z.uuid() });
 const projectParams = z.object({ projectId: z.uuid() });
-const errors = { ...authErrorResponses, 400: errorSchema, 403: errorSchema, 404: errorSchema };
+const errors = { ...authErrorResponses, 400: errorSchema, 403: errorSchema, 404: errorSchema, 409: errorSchema };
 /** Quanto vive l'URL firmato di un download o di un'anteprima. */
 const SIGNED_URL_TTL_SECONDS = 300;
 
@@ -143,7 +144,7 @@ export async function driveRoutes(instance: FastifyInstance): Promise<void> {
   // «Riprova» (F3.4): rimette in coda l'estrazione di un file `no_text` o `error`.
   app.post(
     "/drive/files/:id/retry",
-    { config: { access: ACCESS }, schema: { params: idParams, response: { 200: driveFileRowSchema, 409: errorSchema, ...errors } } },
+    { config: { access: ACCESS }, schema: { params: idParams, response: { 200: driveFileRowSchema, ...errors } } },
     async (request, reply) => handle(reply, () => retryDriveFile(app.db, request.user!, request.params.id)),
   );
 
@@ -158,6 +159,13 @@ export async function driveRoutes(instance: FastifyInstance): Promise<void> {
     { config: { access: ACCESS }, schema: { params: idParams, response: { 204: z.null(), ...errors } } },
     async (request, reply) =>
       handle(reply, async () => {
+        // F5b: un riferimento Google non si elimina, si TOGLIE (`removeGoogleFile`): su Google non cambia nulla.
+        try {
+          await removeGoogleFile(app.db, request.user!, request.params.id);
+          return reply.code(204).send(null);
+        } catch (error) {
+          if (!(error instanceof DriveError && error.code === "not_a_google_file")) throw error;
+        }
         const gone = await deleteDriveFile(app.db, request.user!, request.params.id);
         // L'oggetto si toglie DOPO la lapide; se lo storage è giù lo ritenta
         // la pulizia oraria (`purgeDeletedDriveObjects`).
@@ -183,7 +191,7 @@ export async function driveRoutes(instance: FastifyInstance): Promise<void> {
       if (!storage) return apiError(reply, 400, "storage_not_configured", "Object storage is not configured");
       const file = await openDriveFile(app.db, request.user!, request.params.id, "download");
       if (!file) return apiError(reply, 404, "not_found", "Not found");
-      return reply.redirect(await storage.getSignedDownloadUrl(file.storageKey, file.name, SIGNED_URL_TTL_SECONDS), 302);
+      return reply.redirect(await storage.getSignedDownloadUrl(file.storageKey!, file.name, SIGNED_URL_TTL_SECONDS), 302);
     },
   );
 
@@ -204,7 +212,7 @@ export async function driveRoutes(instance: FastifyInstance): Promise<void> {
       const crossOrigin = storageOrigin !== null && storageOrigin !== originOf(app.publicUrl);
       const inline = crossOrigin ? inlineContentTypeFor(file.mime) : null;
       return reply.redirect(
-        await storage.getSignedDownloadUrl(file.storageKey, file.name, SIGNED_URL_TTL_SECONDS, inline ? { inlineContentType: inline } : undefined),
+        await storage.getSignedDownloadUrl(file.storageKey!, file.name, SIGNED_URL_TTL_SECONDS, inline ? { inlineContentType: inline } : undefined),
         302,
       );
     },

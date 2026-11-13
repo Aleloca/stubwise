@@ -4188,3 +4188,29 @@ deploy o di un rollback che la tocca.
   = 'unreachable' group by 1;` (`not_verified` alto = l'email di Gemini ha
   una forma che la verifica non riconosce: da guardare prima di allentarla).
 
+- **«Integrazione area 6, fetta 5b: Google Drive nel Drive dei progetti» (13
+  nov 2026)**: branch `feat/area6-f5b` (sopra `feat/area6-f5-fix`), le
+  scelte nel piano della F5 («F5b — le scelte di 72»). Migrazione **0167**:
+  `drive_folder_links` (col lease e la richiesta di sincronizzazione); su
+  `drive_files` `source` `google`, `google_file_id`, `google_owner`,
+  `google_account_id`, `folder_link_id`, `hidden`, `modified_at`,
+  `unavailable`, `storage_key`/`size_bytes` nullable coi CHECK, il nome unico
+  solo per i caricati; `drive_opens.via` `google`. Nessuna env nuova: la
+  sincronizzazione delle cartelle gira sull'intervallo del job del contenuto
+  (`DRIVE_CONTENT_POLL_SECONDS`). Ordine: **server** (healthy, 0167
+  applicata), poi **worker**, poi **caddy**.
+
+  **Lo scope**: `drive.readonly` è già nel riconsenso unico (D1/D9); senza,
+  il picker risponde `google_scope_missing` col `missing`.
+
+  **Rollback**: il server scende **insieme** al caddy. ⚠️ Un server vecchio
+  legge `storage_key` come obbligatorio: prima di scendere si tolgono i
+  riferimenti (`select count(*) from drive_files where source = 'google';`
+  poi, a server e worker fermi, `update drive_files set deleted_at = now()
+  where source = 'google' and deleted_at is null;` — restano come lapidi, il
+  download di una lapide è già 404) e la pulizia oraria ignora le chiavi
+  nulle solo da questa versione: scendendo, `purgeDeletedDriveObjects` vecchio
+  inciamperebbe su una `storage_key` nulla, quindi va anche `update
+  drive_files set storage_purged = true where source = 'google';`. Il worker
+  vecchio ignora `drive_folder_links`. La 0167 non si annulla.
+

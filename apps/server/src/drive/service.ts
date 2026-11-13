@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { pipeline, Transform, type Readable } from "node:stream";
-import { chatChannels, driveContentJobs, driveFileChunks, driveFiles, driveOpens, projects, type Db } from "@stubwise/db";
+import { chatChannels, driveContentJobs, driveFileChunks, driveFiles, driveFolderLinks, driveOpens, googleAccounts, projects, type Db } from "@stubwise/db";
+import { alias } from "drizzle-orm/pg-core";
 import type { EmbeddingClient } from "@stubwise/embeddings";
 import {
   chatAttachmentAllowed,
@@ -77,6 +78,19 @@ export async function assertCanUploadDrive(db: Db, viewer: Viewer, projectId: st
   if (!perms?.has("drive.upload")) throw new DriveError(403, "forbidden", "You can't upload to this project's Drive");
 }
 
+export const DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+
+/** La casella di chi ha collegato una cartella (B4: «scaduta» si deriva da lei). */
+const linkAccount = alias(googleAccounts, "link_account");
+
+/**
+ * Una cartella è SCADUTA (area 6, F5b, B4) se la casella di chi l'ha
+ * collegata non c'è più, è disattivata o non ha `drive.readonly`: si DERIVA
+ * a lettura, e ricollegata torna da sola. Vale anche per i suoi file
+ * (`access_lost`).
+ */
+export const linkExpiredSql = sql<boolean>`(${linkAccount.id} is null or ${linkAccount.disabledAt} is not null or not (${DRIVE_READONLY_SCOPE} = any(${linkAccount.scopes})))`;
+
 /** Le righe con le aperture (90 giorni, l'ultima) in UNA query, sui file vivi. */
 function selectRows(db: Db) {
   return db
@@ -85,20 +99,35 @@ function selectRows(db: Db) {
       projectCode: projects.code,
       opens90d: sql<number>`(select count(*)::int from ${driveOpens} o where o.file_id = ${driveFiles.id} and o.at > now() - interval '90 days')`,
       lastOpenedAt: sql<string | null>`(select to_char(max(o.at) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') from ${driveOpens} o where o.file_id = ${driveFiles.id})`,
+      // F5b: la cartella da cui viene il file, e se è scaduta (derivato).
+      folderId: driveFolderLinks.id,
+      folderName: driveFolderLinks.name,
+      folderExpired: sql<boolean | null>`case when ${driveFolderLinks.id} is null then null else ${linkExpiredSql} end`,
     })
     .from(driveFiles)
-    .innerJoin(projects, eq(projects.id, driveFiles.projectId));
+    .innerJoin(projects, eq(projects.id, driveFiles.projectId))
+    .leftJoin(driveFolderLinks, eq(driveFolderLinks.id, driveFiles.folderLinkId))
+    .leftJoin(linkAccount, eq(linkAccount.id, driveFolderLinks.accountId));
 }
-type Selected = { file: Row; projectCode: string; opens90d: number; lastOpenedAt: string | null };
+type Selected = { file: Row; projectCode: string; opens90d: number; lastOpenedAt: string | null; folderId: string | null; folderName: string | null; folderExpired: boolean | null };
+
+/** Il file non si apre: sparito da Google (scritto) o la cartella non legge più (derivato). */
+function unavailableOf(r: Selected): "deleted" | "access_lost" | null {
+  if (r.file.unavailable === "deleted") return "deleted";
+  return r.folderExpired === true ? "access_lost" : null;
+}
 
 function toRow(r: Selected, viewer: Viewer, permsOf: (projectId: string) => readonly string[]): DriveFileRow {
   const f = r.file;
+  const manage = permsOf(f.projectId).includes("drive.manage");
+  const mine = f.addedBy === viewer.id;
+  const unavailable = unavailableOf(r);
   return {
     id: f.id,
     code: driveCode(r.projectCode, f.number),
     projectId: f.projectId,
     projectCode: r.projectCode,
-    source: "upload",
+    source: f.source,
     name: f.name,
     mime: f.mime,
     type: f.type,
@@ -112,13 +141,22 @@ function toRow(r: Selected, viewer: Viewer, permsOf: (projectId: string) => read
     contentReason: f.contentReason,
     contentOcr: f.contentOcr,
     snippet: null,
+    // Le regole del prototipo (`data/drive/reads.ts`, `drivePermissions`).
     permissions: {
-      delete: f.addedBy === viewer.id || permsOf(f.projectId).includes("drive.manage"),
-      remove: false,
-      hide: false,
+      delete: f.source === "upload" && (mine || manage),
+      // «Togli» un riferimento: chi l'ha aggiunto o `drive.manage`; un file di cartella disponibile si nasconde (`use_hide`).
+      remove: f.source === "google" && (mine || manage) && (f.folderLinkId === null || unavailable !== null),
+      hide: manage && f.folderLinkId !== null,
       // «Riprova» (F3.4): con `drive.manage`, su un file senza testo o in errore.
-      retry: permsOf(f.projectId).includes("drive.manage") && (f.contentStatus === "no_text" || f.contentStatus === "error"),
+      retry: manage && (f.contentStatus === "no_text" || f.contentStatus === "error"),
     },
+    googleFileId: f.googleFileId,
+    googleOwner: f.googleOwner,
+    modifiedAt: (f.modifiedAt ?? f.addedAt).toISOString(),
+    folder: r.folderId ? { id: r.folderId, name: r.folderName ?? "", status: r.folderExpired ? "expired" : "ok" } : null,
+    hidden: f.hidden,
+    hiddenBy: f.hidden && f.hiddenAt ? { personId: f.hiddenBy, at: f.hiddenAt.toISOString() } : null,
+    unavailable,
   };
 }
 
@@ -190,6 +228,9 @@ export async function listDriveFiles(
     projectId ? eq(driveFiles.projectId, projectId) : undefined,
     query.type ? eq(driveFiles.type, query.type) : undefined,
     query.addedById ? eq(driveFiles.addedBy, query.addedById) : undefined,
+    query.source ? eq(driveFiles.source, query.source) : undefined,
+    // F5b: i nascosti stanno fuori; `hidden=true` li elenca, ma solo nei progetti in cui chi guarda ha `drive.manage`.
+    query.hidden ? and(eq(driveFiles.hidden, true), inArray(driveFiles.projectId, await manageableProjects(db, viewer))) : eq(driveFiles.hidden, false),
   ];
 
   const tsq = q ? sql`plainto_tsquery('simple', ${q})` : null;
@@ -263,14 +304,25 @@ export async function listDriveFiles(
   });
 }
 
-/** Un file vivo che chi guarda vede, o null. */
+/** I progetti in cui chi guarda ha `drive.manage` (i nascosti si vedono solo lì). */
+async function manageableProjects(db: Db, viewer: Viewer): Promise<string[]> {
+  const map = await projectPermissionsMap(db, viewer);
+  const ids = Object.entries(map).filter(([, perms]) => perms.includes("drive.manage")).map(([id]) => id);
+  return ids.length > 0 ? ids : ["00000000-0000-0000-0000-000000000000"];
+}
+
+/** Un file vivo che chi guarda vede, o null. Un NASCOSTO solo con `drive.manage` (F5b). */
 async function visibleFile(db: Db, viewer: Viewer, id: string): Promise<Selected | null> {
   const [r] = await selectRows(db).where(and(eq(driveFiles.id, id), isNull(driveFiles.deletedAt)));
   if (!r || !(await sees(db, viewer, r.file.projectId))) return null;
+  if (r.file.hidden && !(await projectPermissionsFor(db, viewer, r.file.projectId))?.has("drive.manage")) return null;
   return r;
 }
 
 /** Il dettaglio: le aperture totali e la storia, solo con `drive.history`. */
+export { visibleFile as visibleDriveFile, toRow as driveRowOf, permsLookup as drivePermsLookup };
+export type { Selected as DriveSelected };
+
 export async function getDriveFile(db: Db, viewer: Viewer, id: string): Promise<DriveFileDetail> {
   const r = await visibleFile(db, viewer, id);
   if (!r) throw notFound();
@@ -298,11 +350,12 @@ export async function getDriveFileContent(db: Db, viewer: Viewer, code: string):
   const condition = codeCondition(code);
   if (!condition) return null;
   const [r] = await db
-    .select({ id: driveFiles.id, projectId: driveFiles.projectId, number: driveFiles.number, projectCode: projects.code, name: driveFiles.name, type: driveFiles.type, contentStatus: driveFiles.contentStatus, contentReason: driveFiles.contentReason, summary: driveFiles.summary, truncated: driveFiles.contentTruncated, text: sql<string | null>`left(${driveFiles.contentText}, ${DRIVE_CLAUDE_TEXT_MAX + 1})` })
+    .select({ id: driveFiles.id, projectId: driveFiles.projectId, number: driveFiles.number, projectCode: projects.code, name: driveFiles.name, type: driveFiles.type, contentStatus: driveFiles.contentStatus, contentReason: driveFiles.contentReason, summary: driveFiles.summary, truncated: driveFiles.contentTruncated, hidden: driveFiles.hidden, text: sql<string | null>`left(${driveFiles.contentText}, ${DRIVE_CLAUDE_TEXT_MAX + 1})` })
     .from(driveFiles)
     .innerJoin(projects, eq(projects.id, driveFiles.projectId))
     .where(and(condition, isNull(driveFiles.deletedAt)));
   if (!r || !(await sees(db, viewer, r.projectId))) return null;
+  if (r.hidden && !(await projectPermissionsFor(db, viewer, r.projectId))?.has("drive.manage")) return null;
   const text = r.text ?? "";
   return {
     id: r.id,
@@ -515,6 +568,8 @@ export async function saveAttachmentToDrive(
 export async function deleteDriveFile(db: Db, viewer: Viewer, id: string): Promise<{ id: string; storageKey: string }> {
   const r = await visibleFile(db, viewer, id);
   if (!r) throw notFound();
+  // F5b: un riferimento Google non si elimina (non è nostro): si toglie (`DELETE` sulla rotta lo smista a `removeGoogleFile`).
+  if (r.file.source !== "upload" || !r.file.storageKey) throw new DriveError(400, "not_an_upload", "Only an uploaded file can be deleted");
   const perms = await projectPermissionsFor(db, viewer, r.file.projectId);
   if (r.file.addedBy !== viewer.id && !perms?.has("drive.manage")) throw new DriveError(403, "forbidden", "Only who added it, or who manages the Drive");
   // La lapide porta via il CONTENUTO (F3.1) nella stessa transazione: il
@@ -528,8 +583,8 @@ export async function deleteDriveFile(db: Db, viewer: Viewer, id: string): Promi
     if (row) await tx.delete(driveFileChunks).where(eq(driveFileChunks.fileId, id));
     return row;
   });
-  if (!gone) throw notFound();
-  return gone;
+  if (!gone || !gone.storageKey) throw notFound();
+  return { id: gone.id, storageKey: gone.storageKey };
 }
 
 /**
@@ -568,13 +623,13 @@ export async function purgeDeletedDriveObjects(db: Db, storage: ObjectStorage | 
   const rows = await db
     .select({ id: driveFiles.id, storageKey: driveFiles.storageKey })
     .from(driveFiles)
-    .where(and(isNotNull(driveFiles.deletedAt), eq(driveFiles.storagePurged, false)))
+    .where(and(isNotNull(driveFiles.deletedAt), eq(driveFiles.storagePurged, false), isNotNull(driveFiles.storageKey)))
     .orderBy(asc(driveFiles.deletedAt))
     .limit(limit);
   let purged = 0;
   for (const row of rows) {
     try {
-      await storage.deleteObject(row.storageKey);
+      await storage.deleteObject(row.storageKey!);
     } catch (error) {
       log(`[drive] oggetto ${row.storageKey} non tolto dallo storage, riprovo al giro dopo: ${String(error)}`);
       continue;
@@ -589,9 +644,12 @@ export async function purgeDeletedDriveObjects(db: Db, storage: ObjectStorage | 
  * Un'apertura (anteprima o download) di chi guarda: conta UNA volta ogni 30
  * minuti per persona e file. Restituisce il file, o null (404).
  */
-export async function openDriveFile(db: Db, viewer: Viewer, id: string, via: "preview" | "download"): Promise<Row | null> {
+export async function openDriveFile(db: Db, viewer: Viewer, id: string, via: "preview" | "download" | "google"): Promise<Row | null> {
   const r = await visibleFile(db, viewer, id);
   if (!r) return null;
+  // F5b: un riferimento si apre SU Google (`via: google`), un caricato dallo storage; uno non disponibile non si apre.
+  if ((via === "google") !== (r.file.source === "google")) throw new DriveError(400, via === "google" ? "not_a_google_file" : "google_file", "Open this file the way its source allows");
+  if (unavailableOf(r)) throw new DriveError(409, "unavailable", "This file is not available");
   // Un advisory lock per (file, persona) (review della fetta 2): due aperture
   // insieme non vedono entrambe «nessuna apertura recente» e ne contano una.
   await db.transaction(async (tx) => {

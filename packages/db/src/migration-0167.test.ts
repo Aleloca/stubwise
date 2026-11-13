@@ -50,7 +50,7 @@ describe("migrazione 0167", () => {
   it("una cartella collegata una volta per progetto; `unavailable` ammette solo deleted; l'apertura via google", async () => {
     const { userId, projectId, accountId } = await seed();
     const [link] = await t.db.insert(driveFolderLinks).values({ projectId, googleFolderId: "f1", name: "Cliente", linkedBy: userId, accountId }).returning();
-    expect(link!.syncedAt).toBeNull();
+    expect(link).toMatchObject({ syncedAt: null, syncRequestedAt: null, leaseUntil: null, syncError: null });
     await expect(t.db.insert(driveFolderLinks).values({ projectId, googleFolderId: "f1", name: "Cliente", linkedBy: userId, accountId })).rejects.toThrow();
     const [ref] = await t.db.insert(driveFiles).values({ projectId, number: 1, source: "google", name: "Doc", mime: "x", type: "document", googleFileId: "g9", folderLinkId: link!.id }).returning();
     await expect(t.db.execute(sql`update drive_files set unavailable = 'access_lost' where id = ${ref!.id}`)).rejects.toThrow();

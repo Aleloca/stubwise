@@ -283,6 +283,13 @@
   titolo allarga chi vede la riunione. Il testo del Doc è NON FIDATO (fra
   delimitatori, senza strumenti) e non si salva; il riassunto è NARRATIVA,
   mai nel registro decisioni.
+- **Un file di Google in un'email è un LINK, mai un allegato (area 6, F5b,
+  B6).** Un riferimento del Drive con `source: google` entra in una bozza
+  come `as: "link"`: fuori dai 10 file e dai 25 MB (bozza e invio), una riga
+  «nome: link» in fondo al corpo, nessuna parte MIME; il link è
+  `googleOpenUrl` (`@stubwise/shared`) e chi lo riceve lo apre coi permessi
+  che Google gli dà. A ogni salvataggio il file deve essere ancora vivo e nel
+  progetto di chi scrive, come una copia.
 - **«Aggiorna ora» non ha un percorso a parte (area 6, F1.2).** La rotta porta
   `next_sync_at` a adesso e fa un `pg_notify` (`google_sync_request`) nella
   stessa transazione; il worker si sveglia e il claim di sempre (`SKIP

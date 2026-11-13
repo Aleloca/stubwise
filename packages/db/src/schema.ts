@@ -6137,7 +6137,14 @@ export const driveFolderLinks = pgTable(
     linkedBy: uuid("linked_by").references(() => users.id, { onDelete: "set null" }),
     accountId: uuid("account_id").references(() => googleAccounts.id, { onDelete: "set null" }),
     linkedAt: timestamp("linked_at", { withTimezone: true }).notNull().defaultNow(),
+    /** L'ultima sincronizzazione RIUSCITA (al collegamento, «Sincronizza ora» o quella del giorno: QB1 = b). */
     syncedAt: timestamp("synced_at", { withTimezone: true }),
+    /** Una sincronizzazione chiesta (collegamento, «Sincronizza ora»): il worker la serve al prossimo giro. */
+    syncRequestedAt: timestamp("sync_requested_at", { withTimezone: true }),
+    /** Il lease del worker: due giri non sincronizzano la stessa cartella insieme. */
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    /** Il motivo dell'ultima sincronizzazione fallita (per i log; non esce verso i client). */
+    syncError: text("sync_error"),
   },
   (table) => [uniqueIndex("drive_folder_links_project_folder_idx").on(table.projectId, table.googleFolderId)],
 );

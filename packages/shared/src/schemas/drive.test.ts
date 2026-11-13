@@ -87,3 +87,10 @@ describe("il contenuto dei file (area 5, fetta 3)", () => {
   });
 });
 
+
+describe("F5b: i tipi dei file nativi di Google", () => {
+  it("Doc, Foglio e Presentazione di Google hanno il loro tipo", async () => {
+    const { driveFileTypeOf } = await import("./drive.js");
+    expect(["application/vnd.google-apps.document", "application/vnd.google-apps.spreadsheet", "application/vnd.google-apps.presentation"].map(driveFileTypeOf)).toEqual(["document", "sheet", "slides"]);
+  });
+});

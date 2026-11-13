@@ -45,6 +45,8 @@ export { recordTicketStatusChange } from "./ticket-events.js";
 // brief. ⚠️ Non chiama e non deve mai chiamare un agente: il registro non è mai
 // scritto dall'AI (vedi il docblock di `recordDecision`).
 export { recordDecision, type DecisionSource, type RecordDecisionParams } from "./decisions.js";
+// Area 6, F5b: i riferimenti a Google Drive (server e worker).
+export { insertDriveReference, tombstoneDriveFiles, type DriveReferenceInput } from "./drive-references.js";
 // Digest del piano (fase 7, pre-approvazione): vive qui perché server (il
 // gate di avvio e la rotta di pre-approvazione) e worker devono confrontare
 // esattamente lo stesso digest per lo stesso testo.

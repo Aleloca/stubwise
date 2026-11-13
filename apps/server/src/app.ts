@@ -78,6 +78,8 @@ import { releaseRoutes } from "./routes/release.js";
 import { agentSessionRoutes } from "./routes/agent-sessions.js";
 import { chatRoutes } from "./routes/chat.js";
 import { driveRoutes } from "./routes/drive.js";
+import { driveGoogleRoutes } from "./routes/drive-google.js";
+import type { DriveGoogleClient } from "./drive/google.js";
 import { purgeDeletedDriveObjects } from "./drive/service.js";
 import { runStorageHygiene } from "./storage/hygiene.js";
 import { purgeStorageOrphans } from "./storage/orphans.js";
@@ -297,6 +299,8 @@ export interface BuildAppOptions {
   mailComposeClient?: MailComposeClient;
   /** Area 6, F4: il client delle scritture di Calendar, iniettabile nei test. */
   calendarWriteClient?: CalendarWriteClient;
+  /** Area 6, F5b: il client di Drive (picker, cartelle), iniettabile nei test. */
+  driveGoogleClient?: DriveGoogleClient;
   /** Area 6, F2: la classificazione nuova è accesa (`MAIL_CLASSIFY_V2`). Default false. */
   mailClassifyV2?: boolean;
   /**
@@ -699,6 +703,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(agentSessionRoutes, { prefix: "/api/agent-sessions" });
   // Area 4, Chat fra persone (fetta 1).
   void app.register(chatRoutes, { prefix: "/api/chat" });
+  // Area 6, F5b: Google Drive nel Drive dei progetti (le parti letterali prima di `/drive/files/:id`).
+  void app.register(driveGoogleRoutes, { prefix: "/api", ...(opts.driveGoogleClient ? { client: opts.driveGoogleClient } : {}) });
   void app.register(driveRoutes, { prefix: "/api" });
   // Chat con Claude, fetta 1: le conversazioni libere (private dell'autore).
   void app.register(claudeConversationRoutes, { prefix: "/api/claude/conversations" });

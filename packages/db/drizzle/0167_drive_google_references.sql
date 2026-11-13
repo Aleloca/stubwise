@@ -9,7 +9,10 @@ CREATE TABLE "drive_folder_links" (
 	"linked_by" uuid,
 	"account_id" uuid,
 	"linked_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"synced_at" timestamp with time zone
+	"synced_at" timestamp with time zone,
+	"sync_requested_at" timestamp with time zone,
+	"lease_until" timestamp with time zone,
+	"sync_error" text
 );
 --> statement-breakpoint
 ALTER TABLE "drive_folder_links" ADD CONSTRAINT "drive_folder_links_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;
