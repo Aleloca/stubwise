@@ -13,6 +13,7 @@ import { appClient, session } from "./client";
 import { NotIntegratedError, partialNamespace } from "./notIntegrated";
 import { forgetCommentTickets } from "./taskDetail";
 import { forgetAutomationRefs } from "./automationsLive";
+import { forgetRevealedAddresses } from "../../revealedAddress";
 import { forgetStreams } from "./claudeStream";
 import { forgetFilterCaches } from "./filters";
 import { forgetHomeCaches } from "./home";
@@ -68,8 +69,9 @@ function forgetClientCaches(): void {
   forgetDocsCaches();
   forgetTaskCodes();
   forgetCommentTickets();
-  // Le Automations (area 7): codici e revisioni letti.
+  // Le Automations (area 7): codici e revisioni letti, e il segreto di un webhook appena visto.
   forgetAutomationRefs();
+  forgetRevealedAddresses();
   // Il Calendario (F4): etag visti e salvataggi in corso o non riusciti.
   forgetCalendarWrites();
   forgetHomeCaches();

@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AUTOMATION_F4_AVAILABILITY } from "@stubwise/shared";
-import { renderRoute } from "../../../test/renderRoute";
+import { lastQueryClient, renderRoute } from "../../../test/renderRoute";
 import { forgetAutomationRefs } from "./automationsLive";
 import { setAppClientForTests } from "./client";
 import {
@@ -226,6 +226,15 @@ describe("le sorgenti nella build app (F4, R4)", () => {
         "https://stubwise.test/webhooks/in/SEGRETO123",
       ),
     );
+    // Non resta nemmeno nella cache delle mutazioni (review F4, I2).
+    expect(
+      JSON.stringify(
+        lastQueryClient()
+          .getMutationCache()
+          .getAll()
+          .map((m) => m.state.data),
+      ),
+    ).not.toContain("SEGRETO123");
     // Chiusa e riaperta (la riga fa da interruttore): il segreto non c'è più.
     const sourceRow = () =>
       document.querySelector<HTMLElement>(`[data-source-row="${SOURCE_ID}"]`)!;

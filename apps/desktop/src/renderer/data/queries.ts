@@ -1,4 +1,4 @@
-import { revealAddress } from "./automations/revealedAddress";
+import { revealAddress } from "./revealedAddress";
 import {
   keepPreviousData,
   QueryClient,
@@ -4225,9 +4225,10 @@ export function useAdvanceAutomationTime() {
 
 export function useCreateWebhookSource() {
   return useAutomationWrite(async (name: string) => {
-    const source = await api.automations.createWebhookSource(name);
-    // Il segreto si vede ora, nel pannello che si apre, poi non più (F4-1).
-    if (source.address) revealAddress(source.id, source.address);
+    const { address, ...source } = await api.automations.createWebhookSource(name);
+    // Il segreto si vede ora, nel pannello che si apre, poi non più (F4-1):
+    // fuori dal risultato, che la cache delle mutazioni terrebbe (review F4, I2).
+    if (address) revealAddress(source.id, address);
     return source;
   });
 }
@@ -4240,9 +4241,7 @@ export function useRenameSource() {
 
 export function useRegenerateWebhookAddress() {
   return useAutomationWrite(async (id: string) => {
-    const address = await api.automations.regenerateWebhookAddress(id);
-    revealAddress(id, address);
-    return address;
+    revealAddress(id, await api.automations.regenerateWebhookAddress(id));
   });
 }
 

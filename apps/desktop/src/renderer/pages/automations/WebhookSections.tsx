@@ -18,7 +18,7 @@ import { useToast } from "../../tasks-ui/Toast";
 import { MenuButton, primaryButton, quietButton, secondaryButton } from "../tasks/controls";
 import { MoreGlyph, WarningGlyph } from "./glyphs";
 import { PrototypeBox } from "./shared";
-import { forgetRevealedAddress, peekRevealedAddress } from "../../data/automations/revealedAddress";
+import { forgetRevealedAddress, peekRevealedAddress } from "../../data/revealedAddress";
 import { useSimulate } from "./sourceHelpers";
 
 // Le sezioni di un webhook in arrivo nel pannello (shape automation-sources.md
@@ -134,8 +134,8 @@ export function AddressSection({ source }: { source: AutomationSourceView }) {
                 disabled={regenerate.isPending}
                 onClick={() =>
                   regenerate.mutate(source.id, {
-                    onSuccess: (fresh) => {
-                      setRevealed(fresh);
+                    onSuccess: () => {
+                      setRevealed(peekRevealedAddress(source.id));
                       setConfirming(false);
                       toast.show(t("automations.toast.addressRegenerated"));
                     },
