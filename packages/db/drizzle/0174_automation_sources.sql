@@ -97,3 +97,7 @@ ALTER TABLE "automation_events" ADD CONSTRAINT "automation_events_project_or_acc
 ALTER TABLE "automation_runs" ADD COLUMN "mail_origin_account_id" uuid;
 --> statement-breakpoint
 ALTER TABLE "automation_runs" ADD CONSTRAINT "automation_runs_mail_origin_account_id_google_accounts_id_fk" FOREIGN KEY ("mail_origin_account_id") REFERENCES "public"."google_accounts"("id") ON DELETE set null ON UPDATE no action;
+--> statement-breakpoint
+-- Review F4: l'evento dell'esecuzione viene da fuori per intero (la figlia di «avvia un'altra» di una madre
+-- partita da una sorgente, un'email o una richiesta dal supporto): la tinta lo tratta come tale.
+ALTER TABLE "automation_runs" ADD COLUMN "event_untrusted" boolean DEFAULT false NOT NULL;

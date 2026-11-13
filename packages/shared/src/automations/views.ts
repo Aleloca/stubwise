@@ -534,6 +534,37 @@ export interface SimulationContext {
    * un server più vecchio.
    */
   ownerMailbox?: OwnerMailbox;
+  /**
+   * F4: le automazioni che i passi «avvia un'altra» della versione provata
+   * nominano, come le vede il PROPRIETARIO che avrebbe (la forma di
+   * `StartTarget`, così `planStartAutomation` gira anche nella prova); codice e
+   * nome solo se chi prova la vede (R-G5). Assente da un server più vecchio.
+   */
+  automations?: SimulationStartTarget[];
+}
+
+/** Un'automazione nominata da «avvia un'altra», nel contesto della prova (F4). */
+export interface SimulationStartTarget {
+  id: string;
+  /** Vuoti se chi prova non la vede. */
+  code: string;
+  name: string;
+  status: Automation["status"];
+  visibleToOwner: boolean;
+  manageableByOwner: boolean;
+}
+
+/**
+ * `GET /api/automations/:code/test/client-project?version=&client=` (F4): il
+ * progetto in cui il cliente dell'esempio porterebbe il passo, con la regola
+ * dell'esecuzione (`clientKeyOf`, la riga della tabella, un progetto che il
+ * proprietario vede), nella forma del contesto. `null` = fuori tabella (la
+ * prova si ferma su «scegli il progetto»). Mai la tabella intera. `people`: le
+ * persone che il progetto aggiunge al contesto.
+ */
+export interface SimulationClientProject {
+  project: SimulationContextProject | null;
+  people: SimulationPerson[];
 }
 
 /** `GET /api/automations/:code/examples?version=`: gli esempi e il contesto della prova. */

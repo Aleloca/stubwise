@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { forceApprovalForUntrusted, taintedKeys, untrustedTargets } from "./taint.js";
+import { eventIsUntrusted, forceApprovalForUntrusted, taintedKeys, untrustedTargets } from "./taint.js";
 import type { Approval, AutomationFlow, AutomationSource, Step } from "./types.js";
 import { validateFlow } from "./validate.js";
 
@@ -170,3 +170,29 @@ describe("review F3 (72): le richieste dal supporto e i «per ogni» su un elenc
   });
 });
 
+
+describe("review F4: la tinta lungo «avvia un'altra» (l'evento della figlia non fidato per intero)", () => {
+  // La figlia parte a mano (o da Stubwise) ma riceve l'evento della madre, che veniva da fuori.
+  const child = flow(taskCreated, [claude("c", ["task.titolo"], ["chi"]), email("e", "{{chi}}")]);
+
+  it("senza il segno, i campi dell'inizio sono fidati: niente da forzare", () => {
+    expect(untrustedTargets(child, [])).toEqual([]);
+  });
+
+  it("con eventUntrusted, ogni campo dell'inizio è tinto: ciò che Claude ne ricava, usato come destinazione, chiede l'approvazione", () => {
+    expect(taintedKeys(child, [], { eventUntrusted: true }).has("task.titolo")).toBe(true);
+    expect(untrustedTargets(child, [], { eventUntrusted: true })).toEqual([{ stepId: "e", path: "1", approved: false }]);
+    const forced = forceApprovalForUntrusted(child, [], { eventUntrusted: true });
+    expect((forced.steps[1] as { approval: Approval }).approval).toEqual({ mode: "ask", who: { owner: true } });
+  });
+
+  it("eventIsUntrusted: un inizio da sorgente, da email o da richiesta (salvo il filtro che esclude il supporto) porta dati di fuori; uno da task no", () => {
+    expect(eventIsUntrusted(flow({ kind: "source", sourceId: "s", event: "webhook" }, []))).toBe(true);
+    expect(eventIsUntrusted(flow(mail, []))).toBe(true);
+    expect(eventIsUntrusted(flow({ kind: "stubwise", event: "request_created" }, []))).toBe(true);
+    const onlyInternal = { kind: "stubwise", event: "request_created", filter: { left: { ref: "richiesta.dal_supporto" }, op: "is", right: { value: false } } } as AutomationFlow["trigger"];
+    expect(eventIsUntrusted(flow(onlyInternal, []))).toBe(false);
+    expect(eventIsUntrusted(flow(taskCreated, []))).toBe(false);
+    expect(eventIsUntrusted(flow({ kind: "manual" }, []))).toBe(false);
+  });
+});

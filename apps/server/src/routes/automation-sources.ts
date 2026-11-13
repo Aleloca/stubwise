@@ -133,8 +133,10 @@ export async function automationHookRoutes(instance: FastifyInstance, opts: { ra
       config: { access: { kind: "public" }, rateLimit: opts.rateLimit ?? { max: 1200, timeWindow: "1 minute" } },
     },
     async (request, reply) => {
+      // Review F4: una chiave lunga si TRONCA (come fa il servizio), non si scarta: scartarla farebbe
+      // dei ritentativi esecuzioni doppie.
       const header = request.headers["idempotency-key"];
-      const idempotencyKey = typeof header === "string" && header.length <= IDEMPOTENCY_KEY_MAX ? header : undefined;
+      const idempotencyKey = typeof header === "string" && header.trim() ? header.trim().slice(0, IDEMPOTENCY_KEY_MAX) : undefined;
       const out = await receiveWebhook(instance.db, { secret: request.params.secret, body: typeof request.body === "string" ? request.body : "", idempotencyKey });
       switch (out.status) {
         case 202:

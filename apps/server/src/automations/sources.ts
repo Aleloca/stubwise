@@ -4,6 +4,7 @@ import {
   clientKeyOf,
   deriveFields,
   fieldKeys,
+  hasForbiddenKey,
   mergeFields,
   visitSteps,
   type AutomationFlow,
@@ -150,6 +151,8 @@ function parseExample(json: string): { ok: true; value: Record<string, unknown> 
     return { ok: false, error: (e as Error).message };
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) return { ok: false, error: "object" };
+  // Review F4, I2: `__proto__`, `constructor`, `prototype` non diventano mai campi.
+  if (hasForbiddenKey(value)) return { ok: false, error: "forbidden_key" };
   return { ok: true, value: value as Record<string, unknown> };
 }
 
@@ -280,8 +283,13 @@ export async function writeClientLink(db: Db | Parameters<Parameters<Db["transac
   const clientKey = clientKeyOf(rawKey);
   const clientName = input.clientName.trim();
   if (!clientKey || clientKey.length > 200 || !clientName) throw badInput("client", "Client key and name are required");
+  const visible = await seen(db as Db, viewer);
   const [project] = await (db as Db).select({ id: projects.id }).from(projects).where(eq(projects.id, input.projectId));
-  if (!project || !sees(await seen(db as Db, viewer), input.projectId)) throw notFound();
+  if (!project || !sees(visible, input.projectId)) throw notFound();
+  // Review F4 *(O, 46)*: una riga che punta a un progetto che chi scrive NON vede non si tocca (né si
+  // reindirizza): risponde 404, come se non esistesse.
+  const [existing] = await (db as Db).select({ projectId: clientProjectLinks.projectId }).from(clientProjectLinks).where(eq(clientProjectLinks.clientKey, clientKey));
+  if (existing && !sees(visible, existing.projectId)) throw notFound();
   const [row] = await (db as Db)
     .insert(clientProjectLinks)
     .values({ clientKey, clientName, projectId: input.projectId, addedBy: viewer.id })
@@ -292,8 +300,11 @@ export async function writeClientLink(db: Db | Parameters<Parameters<Db["transac
 
 export async function removeClientLink(db: Db, viewer: Viewer, rawKey: string): Promise<void> {
   if (!canManageIntegrations(viewer)) throw forbiddenIntegrations();
-  const removed = await db.delete(clientProjectLinks).where(eq(clientProjectLinks.clientKey, clientKeyOf(rawKey))).returning({ key: clientProjectLinks.clientKey });
-  if (removed.length === 0) throw notFound();
+  const key = clientKeyOf(rawKey);
+  const [existing] = await db.select({ projectId: clientProjectLinks.projectId }).from(clientProjectLinks).where(eq(clientProjectLinks.clientKey, key));
+  // Review F4 *(O, 46)*: una riga verso un progetto che chi la toglie non vede risponde 404, come se non esistesse.
+  if (!existing || !sees(await seen(db, viewer), existing.projectId)) throw notFound();
+  await db.delete(clientProjectLinks).where(eq(clientProjectLinks.clientKey, key));
 }
 
 /**

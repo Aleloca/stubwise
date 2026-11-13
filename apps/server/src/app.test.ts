@@ -104,6 +104,13 @@ describe("redactRequestUrl", () => {
     expect(redactRequestUrl("/health?foo=bar")).toBe("/health?foo=bar");
   });
 
+  it("oscura il segreto del webhook in arrivo delle automazioni (area 7, F4, review CRITICO 1)", () => {
+    expect(redactRequestUrl("/webhooks/in/whk_SEGRETO-abc_123")).toBe("/webhooks/in/[redacted]");
+    expect(redactRequestUrl("/webhooks/in/whk_SEGRETO?x=1")).toBe("/webhooks/in/[redacted]?x=1");
+    // Quella dei provider git porta lo slug del progetto, non un segreto.
+    expect(redactRequestUrl("/webhooks/git/sito")).toBe("/webhooks/git/sito");
+  });
+
   it("continua a redigere il callback OAuth Google", () => {
     const redacted = redactRequestUrl("/api/me/google/callback?code=SEGRETO&state=s");
     expect(redacted).not.toContain("SEGRETO");
@@ -132,6 +139,16 @@ describe("buildApp — log della richiesta al callback OAuth Google", () => {
     expect(logged).not.toContain("SEGRETO");
     expect(logged).not.toContain("code=");
     expect(logged).not.toContain("state=");
+  });
+
+  it("una consegna al webhook in arrivo non scrive MAI il segreto nel log, nemmeno sulla riga di un errore", async () => {
+    const { app, lines } = capturingApp();
+    // Senza DB il servizio fallisce: copre la riga «incoming request» e quella del 500.
+    const res = await app.inject({ method: "POST", url: "/webhooks/in/whk_SEGRETOWEBHOOK1234567890", headers: { "content-type": "application/json" }, payload: "{}" });
+    expect(res.statusCode).toBeGreaterThanOrEqual(400);
+    const logged = lines.join("\n");
+    expect(logged).toContain("/webhooks/in/[redacted]");
+    expect(logged).not.toContain("SEGRETOWEBHOOK");
   });
 
   it("una richiesta su un'altra rotta continua a loggare la query per intero", async () => {

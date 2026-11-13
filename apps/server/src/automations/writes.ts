@@ -1,5 +1,6 @@
 import {
   automationCodeSeqs,
+  automationSources,
   automationRunInputs,
   automationRuns,
   automations,
@@ -259,6 +260,9 @@ async function failOnConfig(db: Db | Tx, viewer: Viewer, a: AutomationRecord, fl
 async function sourceFree(db: Db | Tx, a: AutomationRecord, flow: AutomationFlow): Promise<void> {
   if (flow.trigger.kind !== "source") return;
   const sourceId = flow.trigger.sourceId;
+  // Review F4, I3: due pubblicazioni insieme si mettono in fila sulla riga della
+  // sorgente (chi chiama è in una transazione), così la seconda vede la prima.
+  if (/^[0-9a-f-]{36}$/i.test(sourceId)) await (db as Db).select({ id: automationSources.id }).from(automationSources).where(eq(automationSources.id, sourceId)).for("update");
   const [taken] = await (db as Db)
     .select({ id: automations.id })
     .from(automations)
@@ -314,10 +318,11 @@ export async function activateAutomation(db: Db, viewer: Viewer, code: string, o
   const live = await publishedVersion(db, a.id);
   if (!live) throw invalid("config", "Nothing is published", { issues: [] });
   await failOnConfig(db, viewer, a, live.flow as AutomationFlow);
-  await sourceFree(db, a, live.flow as AutomationFlow);
   await ownerChecks(db, viewer, a, live.flow as AutomationFlow);
   const mailboxAccountId = await mailboxForPublish(db, viewer, a, live.flow as AutomationFlow, opts.mailboxAccountId);
   await db.transaction(async (tx) => {
+    // Review F4, I3: il controllo «un webhook per automazione» sotto il lock della sorgente, nella transazione che accende.
+    await sourceFree(tx, a, live.flow as AutomationFlow);
     await tx
       .update(automations)
       .set({ ownerId: viewer.id, mailboxAccountId, listensMail: listensMail(live.flow as AutomationFlow), status: "active", pausedBy: null, pausedAt: null, pausedReason: null, activeSince: sql`now()` })

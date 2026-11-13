@@ -205,11 +205,13 @@ export function redactGoogleOauthCallbackUrl(url: string): string {
 
 /**
  * Rotte che portano un segreto NEL PATH (21 ott 2026): il token del link di
- * reset della password (che vale l'account per 24 ore) e quello di un invito
- * (revoca). Il segmento dopo il prefisso diventa `[redacted]`; il resto
- * dell'URL, query compresa, resta com'è.
+ * reset della password (che vale l'account per 24 ore), quello di un invito
+ * (revoca) e (area 7, F4) il segreto del webhook in arrivo delle automazioni,
+ * che chiunque lo legga può usare per scrivere eventi. Il segmento dopo il
+ * prefisso diventa `[redacted]`; il resto dell'URL, query compresa, resta
+ * com'è.
  */
-const PATH_TOKEN_PREFIXES = ["/api/auth/password-reset/", "/api/auth/invites/"];
+const PATH_TOKEN_PREFIXES = ["/api/auth/password-reset/", "/api/auth/invites/", "/webhooks/in/"];
 
 /**
  * L'URL come finisce nel log della richiesta: token nel path oscurati e

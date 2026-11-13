@@ -20,6 +20,7 @@ import type {
   AutomationTestEstimate,
   MyAutomationRun,
   ProjectAutomationsView,
+  SimulationClientProject,
   SimulationExamplesView,
   RunStatus,
 } from "@stubwise/shared";
@@ -111,6 +112,14 @@ export function createAutomationEndpoints(request: ApiRequest) {
     /** La prova: gli esempi veri e il contesto (chi gestisce l'automazione). */
     examples(code: string, version: number | "draft"): Promise<SimulationExamplesView> {
       return request("GET", `${base(code)}/examples${toQuery({ version })}`);
+    },
+    /**
+     * F4: il progetto del cliente di un esempio, per la prova (la regola
+     * dell'esecuzione, per il proprietario che la versione avrebbe; `null` =
+     * fuori tabella). Mai la tabella intera.
+     */
+    testClientProject(code: string, input: { version: number | "draft"; client: string }): Promise<SimulationClientProject> {
+      return request("GET", `${base(code)}/test/client-project${toQuery({ version: input.version, client: input.client })}`);
     },
     /** R-J19: la revisione provata fino in fondo (409 `stale` se è cambiata). */
     markTested(code: string, input: { version: number; rev: number | null }): Promise<void> {

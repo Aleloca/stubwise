@@ -301,11 +301,21 @@ motore condiviso (`packages/shared/src/automations/`).
   campi della sorgente (`checkEventFields` di shared, la stessa regola della
   prova e del prototipo) e nell'outbox entra solo la PROIEZIONE sui campi
   dichiarati: le chiavi in più non arrivano ai passi. I campi restano non
-  fidati (`taint.ts`, F3-1). 404, 413 e 429 non scrivono righe.
+  fidati (`taint.ts`, F3-1). 404, 413 e 429 non scrivono negli eventi
+  recenti (un 429 aggiorna solo il contatore della sua finestra, che si
+  conta in una transazione a sé prima del parse, così un errore dopo non lo
+  annulla). Le chiavi `__proto__`, `constructor`, `prototype` non diventano
+  MAI campi né percorsi (`sourceFields.ts`), e un esempio che le contiene si
+  rifiuta: il corpo è pubblico, e seguirle scriverebbe su `Object.prototype`
+  del processo. Il segreto è redatto nei log delle richieste
+  (`PATH_TOKEN_PREFIXES` in `app.ts`). «Un webhook per automazione» si
+  controlla sotto il lock della riga della sorgente.
 - **Il cliente sceglie solo fra le righe della tabella.** La chiave è
   `clientKeyOf` di shared (trim + minuscole) in scrittura E in ricerca (un
   CHECK la tiene così nel DB). Una riga verso un progetto che il
-  proprietario non vede vale come fuori tabella (R-G5). «Remember for
+  proprietario non vede vale come fuori tabella (R-G5), e chi gestisce le
+  integrazioni non tocca (né reindirizza, né toglie) una riga verso un
+  progetto che non vede: 404. «Remember for
   <client>» scrive la tabella solo con `integrations.manage`: senza, 403 e
   non si sceglie niente.
 - **«Avvia un'altra» passa da `planStartAutomation` di shared**, a ogni
@@ -319,3 +329,11 @@ motore condiviso (`packages/shared/src/automations/`).
   un altro. Non si unifica con `mailbox_account_id`: quella è la casella da
   cui l'esecuzione MANDA (C1 della F2), questa quella di cui l'evento PORTA
   la posta.
+- **La tinta segue l'evento lungo la catena**: la figlia di una madre il cui
+  inizio porta dati di fuori (sorgente, email, richiesta dal supporto) — o
+  che era a sua volta non fidata — nasce con `event_untrusted`. Ogni campo
+  del suo inizio è allora un ingresso da fuori (`TaintOptions.eventUntrusted`):
+  l'esecutore gira col flusso di `forceApprovalForUntrusted` e la vista
+  nasconde ciò che Claude ne ricava. Origine della posta e segno si decidono
+  dall'INIZIO della madre, mai dalla forma dell'evento (un webhook può avere
+  un campo `email`).
