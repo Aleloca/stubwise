@@ -16,4 +16,5 @@ export * from "./views.js";
 export * from "./plans.js";
 export * from "./email.js";
 export * from "./schedule.js";
+export * from "./taint.js";
 export * from "./runRules.js";

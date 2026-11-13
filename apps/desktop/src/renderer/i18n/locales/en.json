@@ -7064,7 +7064,8 @@
       "source_disconnected": "The source it starts from isn't connected",
       "limit": "It goes over one of the safety limits",
       "department_cant_see": "Nobody in the department it notifies can see the project",
-      "not_available": "This isn't available in this app yet"
+      "not_available": "This isn't available in this app yet",
+      "untrusted_target": "Claude picks who this goes to from something that came from outside: it must ask for approval"
     },
     "detail": {
       "more": "More",
@@ -7915,7 +7916,8 @@
         "selfStart": "Would start itself again",
         "department_cant_see": "Nobody in the department sees the project",
         "departmentCantSee": "Nobody in {{name}} sees {{code}}",
-        "not_available": "Coming soon"
+        "not_available": "Coming soon",
+        "untrusted_target": "Asks first: Claude picks who"
       },
       "problem": {
         "unavailable": "{{label}} isn't available here",
