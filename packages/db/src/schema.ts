@@ -839,7 +839,21 @@ export const repositories = pgTable("repositories", {
   // `@stubwise/shared`.
   protectedBranches: text("protected_branches").array().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Area 8, F1 (0175): il ramo su cui si rilascia (il merge); null = il ramo di default. */
+  releaseBranch: text("release_branch"),
+  /** Quali run di CI fanno lo stato del rilascio: tutte, o solo quelle coi nomi dati. */
+  releasePipeline: jsonb("release_pipeline").$type<{ mode: "auto" } | { mode: "named"; names: string[] }>().notNull().default({ mode: "auto" }),
+  /** Da dove si leggono le run; null = nessuna pipeline (lo stato lo dice l'ambiente di produzione). */
+  ciProvider: text("ci_provider").$type<"github_actions" | "bitbucket_pipelines">(),
+  /**
+   * Le PR dei colleghi (invariante «Le PR dei colleghi», 13 nov 2026):
+   * `analyze_and_fix` (la prima correzione parte da sola, salvo «Solo
+   * analisi»), `analyze_only`, `off`. Default `analyze_only` (P-2 = a).
+   */
+  colleaguePrs: text("colleague_prs").$type<"analyze_and_fix" | "analyze_only" | "off">().notNull().default("analyze_only"),
 }, (table) => [
+  check("repositories_ci_provider_chk", sql`${table.ciProvider} IS NULL OR ${table.ciProvider} IN ('github_actions', 'bitbucket_pipelines')`),
+  check("repositories_colleague_prs_chk", sql`${table.colleaguePrs} IN ('analyze_and_fix', 'analyze_only', 'off')`),
   // Il revisore non è MAI l'account principale (ciclo di correzione): la rotta
   // lo controlla e riverifica nel WHERE del PATCH, il vincolo chiude ogni altra
   // strada (corse fra due admin, UPDATE fuori dalla rotta). NULL = nessun
@@ -1787,6 +1801,9 @@ export const notificationKind = pgEnum("notification_kind", [
   "automation.failed",
   "automation.notify",
   "automation.paused",
+  // Area 8, fetta 1 (0175, DA SOLO): un rilascio fallito (le run di CI del
+  // commit di merge), a chi ha fatto il merge e a chi ha `release.merge`.
+  "release.failed",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),
@@ -2066,6 +2083,8 @@ export const projectEnvironments = pgTable(
       "project_environments_kind_chk",
       sql`kind in ('test', 'staging', 'production')`,
     ),
+    // Area 8, F1 (0175), [R 12]: una sola produzione per progetto.
+    uniqueIndex("project_environments_one_production_idx").on(table.projectId).where(sql`${table.kind} = 'production'`),
   ],
 );
 
@@ -2317,6 +2336,10 @@ export const prReviews = pgTable(
     /** Copiato da `pr_review_jobs.from_fork` al claim (0085); null = non si sa. */
     fromFork: boolean("from_fork"),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
+    /** Area 8, F1 (0175): «Solo analisi» su questa PR (chi ha `prs.adopt`): nessuna correzione parte da sola. */
+    analysisOnly: boolean("analysis_only").notNull().default(false),
+    analysisOnlyBy: uuid("analysis_only_by").references(() => users.id, { onDelete: "set null" }),
+    analysisOnlyAt: timestamp("analysis_only_at", { withTimezone: true }),
   },
   (table) => [
     // Lookup del ticket riusabile per le re-review della stessa PR.
@@ -6794,4 +6817,120 @@ export const clientProjectLinks = pgTable(
     addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [check("client_project_links_key_chk", sql`${table.clientKey} <> '' AND ${table.clientKey} = lower(btrim(${table.clientKey}))`)],
+);
+
+/**
+ * I RILASCI (area 8, fetta 1, 0175): un rilascio = un merge di una PR sul
+ * ramo di rilascio del repository, da Stubwise (`via_stubwise`) o da fuori
+ * (S-3 = a). Codice `<PRJ>-V<n>` (`release_code_seqs`, mai riusato). Lo STATO
+ * non si salva: si deriva dalle run di CI (`release_ci_runs`) o, senza
+ * pipeline, dal commit che l'agente riporta in produzione
+ * (`seen_in_production_at`). Un `(repository_id, merge_sha)` = un rilascio
+ * (riconsegne del webhook, corsa col merge da Stubwise).
+ */
+export const releases = pgTable(
+  "releases",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    code: text("code").notNull(),
+    seq: integer("seq").notNull(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    prNumber: integer("pr_number"),
+    prUrl: text("pr_url").notNull(),
+    title: text("title").notNull(),
+    mergeSha: text("merge_sha").notNull(),
+    mergedAt: timestamp("merged_at", { withTimezone: true }).notNull(),
+    /** La persona che ha fatto il merge, se collegata; null = fuori da Stubwise e non collegata. */
+    mergedBy: uuid("merged_by").references(() => users.id, { onDelete: "set null" }),
+    mergedGitName: text("merged_git_name"),
+    viaStubwise: boolean("via_stubwise").notNull(),
+    /** Le note della PR fermate al merge. */
+    releaseNotes: text("release_notes"),
+    seenInProductionAt: timestamp("seen_in_production_at", { withTimezone: true }),
+    /** Le run sono tutte concluse (o il poller ha smesso): il poller non lo rilegge più. */
+    runsSettledAt: timestamp("runs_settled_at", { withTimezone: true }),
+    /** La task di «Fai sistemare a Claude», se c'è. */
+    fixTicketId: uuid("fix_ticket_id").references(() => tickets.id, { onDelete: "set null" }),
+    /** L'avviso `release.failed` è partito (una volta sola). */
+    failedNotifiedAt: timestamp("failed_notified_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("releases_code_idx").on(table.code),
+    uniqueIndex("releases_project_seq_idx").on(table.projectId, table.seq),
+    uniqueIndex("releases_repository_merge_idx").on(table.repositoryId, table.mergeSha),
+    index("releases_project_merged_idx").on(table.projectId, table.mergedAt.desc()),
+  ],
+);
+
+/** La sequenza dei codici dei rilasci per progetto: un codice non torna mai. */
+export const releaseCodeSeqs = pgTable("release_code_seqs", {
+  projectId: uuid("project_id")
+    .primaryKey()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  next: integer("next").notNull().default(1),
+});
+
+/** Le run di CI del commit di merge, lette dal provider (S-2 = a). */
+export const releaseCiRuns = pgTable(
+  "release_ci_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    releaseId: uuid("release_id")
+      .notNull()
+      .references(() => releases.id, { onDelete: "cascade" }),
+    providerRunId: text("provider_run_id").notNull(),
+    name: text("name").notNull(),
+    status: text("status").$type<"running" | "success" | "failed">().notNull(),
+    url: text("url"),
+    failedStep: text("failed_step"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("release_ci_runs_release_run_idx").on(table.releaseId, table.providerRunId),
+    check("release_ci_runs_status_chk", sql`${table.status} IN ('running', 'success', 'failed')`),
+  ],
+);
+
+/** Le note di rilascio di una PR (fermate in `releases.release_notes` al merge). */
+export const prReleaseNotes = pgTable(
+  "pr_release_notes",
+  {
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    prNumber: integer("pr_number").notNull(),
+    body: text("body").notNull(),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ name: "pr_release_notes_pk", columns: [table.repositoryId, table.prNumber] })],
+);
+
+/**
+ * R-L2 (area 8, F1, 0175): su quale server gira una repository in un
+ * ambiente — repository diverse dello stesso progetto su server diversi. Al
+ * posto di `project_environments.server_id`, che resta inerte per il rollback.
+ */
+export const environmentServers = pgTable(
+  "environment_servers",
+  {
+    environmentId: uuid("environment_id")
+      .notNull()
+      .references(() => projectEnvironments.id, { onDelete: "cascade" }),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+  },
+  (table) => [primaryKey({ name: "environment_servers_pk", columns: [table.environmentId, table.repositoryId] }), index("environment_servers_server_idx").on(table.serverId)],
 );
