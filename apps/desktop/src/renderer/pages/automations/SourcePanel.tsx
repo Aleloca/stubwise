@@ -103,6 +103,22 @@ type RecentItem =
   | { at: string; run: AutomationRunRow }
   | { at: string; event: AutomationSourceEvent };
 
+/**
+ * L'etichetta di un campo per la sua chiave intera, anche dentro un elenco
+ * (`ordine.righe.nome` → «Rows › Name», review F4, m6): le chiavi di `of`
+ * sono relative all'elemento.
+ */
+function fieldLabelOf(fields: readonly DataField[], key: string): string | null {
+  for (const f of fields) {
+    if (f.key === key) return f.label;
+    if (f.of && key.startsWith(`${f.key}.`)) {
+      const inner = fieldLabelOf(f.of, key.slice(f.key.length + 1));
+      if (inner) return `${f.label} › ${inner}`;
+    }
+  }
+  return null;
+}
+
 /** Un evento che non ha fatto partire niente, in parole: il motivo del rifiuto col nome del campo. */
 function eventWords(e: AutomationSourceEvent, source: AutomationSourceView, t: TFunction): string {
   if (e.status === "duplicate") return t("automations.sources.eventDuplicate");
@@ -110,9 +126,9 @@ function eventWords(e: AutomationSourceEvent, source: AutomationSourceView, t: T
   // `<campo>: <tipo atteso>`: il campo con l'etichetta della sorgente, il tipo in parole.
   const m = e.reason ? /^(.+): ([a-z]+)$/.exec(e.reason) : null;
   if (m) {
-    const [, key, type] = m;
+    const [, key = "", type = ""] = m;
     return t("automations.sources.eventRejectedType", {
-      field: source.fields.find((f) => f.key === key)?.label ?? key,
+      field: fieldLabelOf(source.fields, key) ?? key,
       type: t(`automations.fieldType.${type}`, { defaultValue: type }),
     });
   }

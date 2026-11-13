@@ -249,7 +249,16 @@ describe("le sorgenti nella build app (F4, R4)", () => {
     instance.permissions = ["integrations.manage"];
     const withFields = {
       ...source,
-      fields: [{ key: "importo", label: "Amount", type: "number" }],
+      fields: [
+        { key: "importo", label: "Amount", type: "number" },
+        // Un elenco: il motivo di un suo campo ha la chiave intera (review F4, m6).
+        {
+          key: "ordine.righe",
+          label: "Rows",
+          type: "list",
+          of: [{ key: "nome", label: "Name", type: "text" }],
+        },
+      ],
     };
     install({
       "GET /api/automation-sources": { body: { items: [withFields] } },
@@ -257,6 +266,13 @@ describe("le sorgenti nella build app (F4, R4)", () => {
       [`GET /api/automation-sources/${SOURCE_ID}/events`]: {
         body: {
           items: [
+            {
+              id: "e4",
+              receivedAt: "2026-11-13T10:30:00.000Z",
+              status: "rejected",
+              reason: "ordine.righe.nome: text",
+              payload: {},
+            },
             {
               id: "e3",
               receivedAt: "2026-11-13T10:00:00.000Z",
@@ -284,13 +300,14 @@ describe("le sorgenti nella build app (F4, R4)", () => {
     });
     renderRoute(`/automations/sources?source=${SOURCE_ID}`);
     const list = await screen.findByRole("list", { name: "Recent events" }, { timeout: 3000 });
-    await waitFor(() => expect(within(list).getAllByRole("listitem")).toHaveLength(3));
+    await waitFor(() => expect(within(list).getAllByRole("listitem")).toHaveLength(4));
     const rows = within(list)
       .getAllByRole("listitem")
       .map((li) => li.textContent);
-    expect(rows[0]).toContain("Rejected: Amount — expected number");
-    expect(rows[1]).toContain("Rejected: the body isn't a JSON object");
-    expect(rows[2]).toContain("Duplicate: already received, nothing started");
+    expect(rows[0]).toContain("Rejected: Rows › Name — expected text");
+    expect(rows[1]).toContain("Rejected: Amount — expected number");
+    expect(rows[2]).toContain("Rejected: the body isn't a JSON object");
+    expect(rows[3]).toContain("Duplicate: already received, nothing started");
   });
 });
 
