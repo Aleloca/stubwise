@@ -140,3 +140,21 @@ export interface OpenPull {
     editReleaseNotes: boolean;
   };
 }
+
+/**
+ * Le note di rilascio di una PR (area 8, F1, S9): il testo salvato (null se
+ * nessuno l'ha scritto), la bozza CALCOLATA (una riga per task, dalla task
+ * della PR e dai commit che citano un codice; nessun modello) e se chi guarda
+ * le può scrivere. `commitsRead: false` = i commit non si sono potuti leggere
+ * dal provider: la bozza viene dalla sola task della PR.
+ */
+export interface PrReleaseNotes {
+  repositoryId: string;
+  prNumber: number;
+  body: string | null;
+  updatedById: string | null;
+  updatedAt: string | null;
+  draft: { text: string; sources: string[] };
+  commitsRead: boolean;
+  canEdit: boolean;
+}

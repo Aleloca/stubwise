@@ -146,6 +146,7 @@ function makeProvider() {
     listRepositories: vi.fn<GitProvider["listRepositories"]>(async () => []),
     listBranches: vi.fn<GitProvider["listBranches"]>(async () => ({ branches: [BRANCH], defaultBranch: "main" })),
     getCommitRuns: vi.fn<GitProvider["getCommitRuns"]>(async () => ({ status: "ok", runs: [] })),
+    getPullRequestCommits: vi.fn<GitProvider["getPullRequestCommits"]>(async () => ({ status: "ok", messages: [] })),
   } satisfies GitProvider;
   return provider;
 }

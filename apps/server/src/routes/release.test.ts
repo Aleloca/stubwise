@@ -9,6 +9,7 @@ import {
   gitAccounts,
   prCorrections,
   prReviews,
+  projects,
   projectEnvironments,
   releases,
   repositories,
@@ -1353,5 +1354,72 @@ describe("area 8, F1, S5b: le PR aperte del progetto, a chi lo vede", () => {
     await addMember(app, projectId, viewer.id, "viewer");
     const [pull] = ((await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls`, headers: viewer.headers })).json() as { items: Record<string, unknown>[] }).items;
     expect(pull).toMatchObject({ permissions: { analysisOnly: false, requestCorrection: false, editReleaseNotes: false } });
+  });
+});
+
+describe("area 8, F1, S9: le note di rilascio di una PR", () => {
+  let n = 0;
+  async function setup() {
+    const pr = await seedOpenPr();
+    const code = `Q${String.fromCharCode(65 + (n % 26))}${String.fromCharCode(65 + Math.floor(n / 26) % 26)}`;
+    n++;
+    await testDb.db.update(projects).set({ code }).where(eq(projects.id, pr.projectId));
+    await testDb.db.update(ticketRepositories).set({ prNumber: 42 }).where(eq(ticketRepositories.id, pr.trId));
+    const [own] = await testDb.db.select({ number: tickets.number }).from(tickets).where(eq(tickets.id, pr.ticketId));
+    const { ticketId: otherId } = await seedTicket(testDb.db, { projectId: pr.projectId, repositoryId: pr.repositoryId, number: 2 });
+    const [other] = await testDb.db.update(tickets).set({ title: "Pagamenti" }).where(eq(tickets.id, otherId)).returning({ number: tickets.number });
+    await testDb.db.update(tickets).set({ title: "Checkout" }).where(eq(tickets.id, pr.ticketId));
+    const commits = [`${code}-${other!.number}: pagamenti`, "fix ZZZ-1 di un altro progetto", `${code}-9999 inesistente`];
+    const fetchCommits = (ok = true) =>
+      vi.fn((input: string | URL) =>
+        Promise.resolve(
+          String(input) === "https://api.github.com/repos/acme/demo-shop/pulls/42/commits?per_page=100" && ok
+            ? new Response(JSON.stringify(commits.map((message) => ({ commit: { message } }))), { status: 200 })
+            : new Response("", { status: 500 }),
+        ),
+      );
+    const url = `/api/repositories/${pr.repositoryId}/pulls/42/release-notes`;
+    return { ...pr, code, own: own!.number, other: other!.number, fetchCommits, url };
+  }
+  const user = async (projectId: string, preset: string) => {
+    const u = await createUserWithPat(app, `${preset}-${randomUUID().slice(0, 6)}@acme.com`);
+    await addMember(app, projectId, u.id, preset);
+    return u;
+  };
+
+  it("la bozza: la task della PR e quelle citate dai commit, SOLO del progetto e solo se esistono; nessun testo salvato", async () => {
+    const s = await setup();
+    vi.stubGlobal("fetch", s.fetchCommits());
+    const viewer = await user(s.projectId, "viewer");
+    const res = await app.inject({ method: "GET", url: s.url, headers: viewer.headers });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      body: null,
+      commitsRead: true,
+      canEdit: false,
+      draft: { text: `- ${s.code}-${s.own}: Checkout\n- ${s.code}-${s.other}: Pagamenti`, sources: [`${s.code}-${s.own}`, `${s.code}-${s.other}`] },
+    });
+  });
+
+  it("i commit illeggibili: la bozza dalla sola task della PR, e lo dice", async () => {
+    const s = await setup();
+    vi.stubGlobal("fetch", s.fetchCommits(false));
+    const viewer = await user(s.projectId, "viewer");
+    expect((await app.inject({ method: "GET", url: s.url, headers: viewer.headers })).json()).toMatchObject({ commitsRead: false, draft: { sources: [`${s.code}-${s.own}`] } });
+  });
+
+  it("scrivere: chi ha tickets.edit sì (e il testo si rilegge); un Viewer 403 e niente scritto; chi non vede il progetto 404; una PR ignota 404", async () => {
+    const s = await setup();
+    vi.stubGlobal("fetch", s.fetchCommits());
+    const dev = await user(s.projectId, "developer");
+    const put = await app.inject({ method: "PUT", url: s.url, headers: dev.headers, payload: { body: "Nuovo checkout." } });
+    expect(put.statusCode).toBe(200);
+    expect(put.json()).toMatchObject({ body: "Nuovo checkout.", updatedById: dev.id, canEdit: true });
+    const viewer = await user(s.projectId, "viewer");
+    expect((await app.inject({ method: "PUT", url: s.url, headers: viewer.headers, payload: { body: "x" } })).statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: s.url, headers: viewer.headers })).json()).toMatchObject({ body: "Nuovo checkout." });
+    const outsider = await createUserWithPat(app, `out-${randomUUID().slice(0, 6)}@acme.com`);
+    expect((await app.inject({ method: "GET", url: s.url, headers: outsider.headers })).statusCode).toBe(404);
+    expect((await app.inject({ method: "GET", url: `/api/repositories/${s.repositoryId}/pulls/999/release-notes`, headers: dev.headers })).json()).toMatchObject({ code: "pr_not_found" });
   });
 });

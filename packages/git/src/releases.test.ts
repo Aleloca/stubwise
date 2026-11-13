@@ -116,3 +116,24 @@ describe("Bitbucket: il merge e le run di un commit", () => {
     expect(await new BitbucketProvider({ fetchImpl: vi.fn().mockResolvedValueOnce(json({}, 401)) }).getCommitRuns(bb, "a")).toEqual({ status: "unknown" });
   });
 });
+
+describe("area 8, F1, S9: i messaggi dei commit di una PR (per la bozza delle note)", () => {
+  it("GitHub: i messaggi, dal più vecchio; un errore è `unknown`", async () => {
+    const fetchImpl = vi.fn(async (url: string | URL) => {
+      expect(String(url)).toBe("https://api.github.com/repos/octo/repo/pulls/9/commits?per_page=100");
+      return json([{ commit: { message: "ACQ-1: login" } }, { commit: { message: "fix ACQ-2" } }, { commit: {} }]);
+    });
+    expect(await new GitHubProvider().getPullRequestCommits(gh, 9, { fetchImpl })).toEqual({ status: "ok", messages: ["ACQ-1: login", "fix ACQ-2"] });
+    expect(await new GitHubProvider().getPullRequestCommits(gh, 9, { fetchImpl: async () => json({}, 500) })).toEqual({ status: "unknown" });
+    expect(await new GitHubProvider().getPullRequestCommits(gh, 9, { fetchImpl: async () => json({ not: "a list" }) })).toEqual({ status: "unknown" });
+  });
+
+  it("Bitbucket: i messaggi, dal più vecchio (l'API li dà dal più nuovo); un errore è `unknown`", async () => {
+    const fetchImpl = vi.fn(async (url: string | URL) => {
+      expect(String(url)).toBe("https://api.bitbucket.org/2.0/repositories/ws/repo/pullrequests/9/commits?pagelen=100");
+      return json({ values: [{ message: "fix ACQ-2" }, { message: "ACQ-1: login" }] });
+    });
+    expect(await new BitbucketProvider().getPullRequestCommits(bb, 9, { fetchImpl })).toEqual({ status: "ok", messages: ["ACQ-1: login", "fix ACQ-2"] });
+    expect(await new BitbucketProvider().getPullRequestCommits(bb, 9, { fetchImpl: async () => json({}, 404) })).toEqual({ status: "unknown" });
+  });
+});

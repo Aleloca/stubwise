@@ -34,6 +34,7 @@ import {
   type ProjectGitConfig,
   type CommitRun,
   type CommitRuns,
+  type PullRequestCommits,
   type PullRequestChecks,
   type PullRequestFinalState,
   type PullRequestInfo,
@@ -375,6 +376,25 @@ export class BitbucketProvider implements GitProvider {
           };
         });
       return { status: "ok", runs };
+    } catch {
+      return { status: "unknown" };
+    }
+  }
+
+  /** I messaggi dei commit della PR, dal più vecchio (Bitbucket li dà dal più nuovo). `unknown` su un errore. */
+  async getPullRequestCommits(p: ProjectGitConfig, prNumber: number, opts: { fetchImpl?: FetchLike } = {}): Promise<PullRequestCommits> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    try {
+      const { owner, repo } = parseRepoUrl(p.repoUrl);
+      const response = await fetchImpl(`${API_BASE}/repositories/${owner}/${repo}/pullrequests/${prNumber}/commits?pagelen=100`, {
+        method: "GET",
+        headers: { Authorization: this.getAuthHeader(p) },
+      });
+      await ensureOkResponse(response, "Bitbucket");
+      const data = (await readJsonResponse(response, "Bitbucket")) as { values?: { message?: unknown }[] };
+      if (!Array.isArray(data.values)) return { status: "unknown" };
+      const messages = data.values.flatMap((c) => (typeof c.message === "string" ? [c.message] : [])).reverse();
+      return { status: "ok", messages };
     } catch {
       return { status: "unknown" };
     }

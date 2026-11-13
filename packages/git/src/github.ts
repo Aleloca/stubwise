@@ -34,6 +34,7 @@ import {
   type ProjectGitConfig,
   type CommitRun,
   type CommitRuns,
+  type PullRequestCommits,
   type PullRequestChecks,
   type PullRequestFinalState,
   type PullRequestInfo,
@@ -363,6 +364,25 @@ export class GitHubProvider implements GitProvider {
         };
       });
       return { status: "ok", runs };
+    } catch {
+      return { status: "unknown" };
+    }
+  }
+
+  /** I messaggi dei commit della PR, dal più vecchio (GitHub li dà già così). `unknown` su un errore. */
+  async getPullRequestCommits(p: ProjectGitConfig, prNumber: number, opts: { fetchImpl?: FetchLike } = {}): Promise<PullRequestCommits> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    try {
+      const { owner, repo } = parseRepoUrl(p.repoUrl);
+      const response = await fetchImpl(`${API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}/commits?per_page=100`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${p.credentials.token}`, Accept: "application/vnd.github+json" },
+      });
+      await ensureOkResponse(response, "GitHub");
+      const data = (await readJsonResponse(response, "GitHub")) as { commit?: { message?: unknown } }[] | unknown;
+      if (!Array.isArray(data)) return { status: "unknown" };
+      const messages = (data as { commit?: { message?: unknown } }[]).flatMap((c) => (typeof c.commit?.message === "string" ? [c.commit.message] : []));
+      return { status: "ok", messages };
     } catch {
       return { status: "unknown" };
     }
