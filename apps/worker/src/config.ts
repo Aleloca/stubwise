@@ -483,6 +483,18 @@ const envSchema = z.object({
       .max(60, "deve essere un intero tra 0 e 60 in minuti (es. 1; 0 = disabilitato)")
       .default(1),
   ),
+  // Area 8, F1: intervallo in secondi del poller dei RILASCI (le run di CI del
+  // commit di merge e il commit in produzione, `releases/poller.ts`). Legge
+  // soltanto. 0 = disabilitato. Default 60".
+  RELEASE_POLL_SECONDS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero tra 0 e 3600 in secondi (es. 60; 0 = disabilitato)" })
+      .int("deve essere un intero tra 0 e 3600 in secondi (es. 60; 0 = disabilitato)")
+      .min(0, "deve essere un intero tra 0 e 3600 in secondi (es. 60; 0 = disabilitato)")
+      .max(3600, "deve essere un intero tra 0 e 3600 in secondi (es. 60; 0 = disabilitato)")
+      .default(60),
+  ),
   // Intervallo in minuti del poller del daily activity report (task separato
   // dal loop dei job): raccoglie i commit del giorno per progetto e genera lo
   // "standup notturno". È BEST-EFFORT e non tocca i timeout dei job.
@@ -1169,6 +1181,8 @@ export interface WorkerConfig {
   /** Intervallo in minuti del poller di valutazione alert del monitoraggio
    * (default 1; 0 = disabilitato). */
   monitorAlertIntervalMinutes: number;
+  /** Area 8, F1: intervallo in secondi del poller dei rilasci (default 60; 0 = disabilitato). */
+  releasePollSeconds: number;
   /** Intervallo in minuti del poller del daily activity report (default 15;
    * 0 = disabilitato). */
   dailyReportPollMinutes: number;
@@ -1444,6 +1458,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     limitResumeCooldownMs: parsed.LIMIT_RESUME_API_KEY_COOLDOWN_MINUTES * 60_000,
     monitorRollupIntervalMinutes: parsed.MONITOR_ROLLUP_INTERVAL_MINUTES,
     monitorAlertIntervalMinutes: parsed.MONITOR_ALERT_INTERVAL_MINUTES,
+    releasePollSeconds: parsed.RELEASE_POLL_SECONDS,
     dailyReportPollMinutes: parsed.DAILY_REPORT_POLL_MINUTES,
     dailyReportMaxAuthorsPerProject: parsed.DAILY_REPORT_MAX_AUTHORS_PER_PROJECT,
     dailyReportRetentionDays: parsed.DAILY_REPORT_RETENTION_DAYS,

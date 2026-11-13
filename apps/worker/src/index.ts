@@ -41,6 +41,7 @@ import { createDriveReaderCache, loadDriveS3Config } from "./drive/storage-read.
 import { createHandler, createProjectSerializer } from "./handler.js";
 import { createCancelRegistry, startCancelWatch } from "./pipeline/cancel.js";
 import { startMonitorAlertPoller } from "./monitor/alerts.js";
+import { startReleasePoller } from "./releases/poller.js";
 import { PUSH_RELAY_TIMEOUT_MS, startDeliveriesPoller } from "./notify/deliveries-poller.js";
 import { startPluginPoller } from "./plugins/poller.js";
 import { startMonitorRollupPoller } from "./monitor/rollup.js";
@@ -858,6 +859,17 @@ startMonitorAlertPoller({
   db,
   publicUrl: config.publicUrl,
   intervalMinutes: config.monitorAlertIntervalMinutes,
+  signal: controller.signal,
+});
+
+// Area 8, F1: il poller dei RILASCI — le run di CI del commit di merge e il
+// commit in produzione, per lo stato derivato; `release.failed` al primo
+// fallimento. Legge soltanto (nessuna pipeline, nessun deploy). Best-effort.
+startReleasePoller({
+  db,
+  encryptionKey: config.encryptionKey,
+  publicUrl: config.publicUrl,
+  intervalSeconds: config.releasePollSeconds,
   signal: controller.signal,
 });
 
