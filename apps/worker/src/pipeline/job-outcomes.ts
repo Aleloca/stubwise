@@ -1,7 +1,7 @@
 import { aiJobs, automationRules, comments, instanceSettings, projects, tickets as ticketsTable, users, type Db, type tickets } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
 import { eq } from "drizzle-orm";
-import { publishNotification } from "@stubwise/notifications";
+import { monthlyBudgetLimitUsd, publishNotification } from "@stubwise/notifications";
 import type { AgentRunCancelledError, AgentRunner } from "../agent/runner.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { appendLog, getJobLog, holdJob, writeFailureSummary, type ParkResult } from "../queue.js";
@@ -198,13 +198,8 @@ export type BudgetCheck =
  * converte. Condiviso con i turni di refinement (`backlog/refine/turn.ts`).
  */
 export async function loadMonthlyBudgetUsd(db: Db): Promise<number | null> {
-  const [settings] = await db
-    .select({ monthlyBudgetUsd: instanceSettings.monthlyBudgetUsd })
-    .from(instanceSettings)
-    .where(eq(instanceSettings.id, 1));
-  return settings?.monthlyBudgetUsd != null && settings.monthlyBudgetUsd !== ""
-    ? Number(settings.monthlyBudgetUsd)
-    : null;
+  // Area 7, F3 (C-F3-1): la lettura sta in UN posto, `@stubwise/notifications`.
+  return monthlyBudgetLimitUsd(db);
 }
 
 /**

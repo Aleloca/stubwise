@@ -1,3 +1,4 @@
+import { monthlyBudgetLimitUsd } from "@stubwise/notifications";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -2009,13 +2010,8 @@ export async function threadClassifiedRecently(db: Db, threadId: string, minutes
  * tetto configurato. I numeric di Postgres arrivano come stringa.
  */
 export async function loadMonthlyBudgetUsd(db: Db): Promise<number | null> {
-  const [row] = await db
-    .select({ monthlyBudgetUsd: instanceSettings.monthlyBudgetUsd })
-    .from(instanceSettings)
-    .where(eq(instanceSettings.id, 1));
-  return row?.monthlyBudgetUsd != null && row.monthlyBudgetUsd !== ""
-    ? Number(row.monthlyBudgetUsd)
-    : null;
+  // Area 7, F3 (C-F3-1): la lettura sta in UN posto, `@stubwise/notifications`.
+  return monthlyBudgetLimitUsd(db);
 }
 
 /**

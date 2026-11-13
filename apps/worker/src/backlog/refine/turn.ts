@@ -15,6 +15,7 @@ import {
   correctionManualTrigger,
   decryptGitCredentials,
   projectPermissionsOfUser,
+  aiBudgetState,
 } from "@stubwise/notifications";
 import { AGENT_SESSION_EVENTS_CHANNEL, type AgentInputReason, type AgentInputStatus } from "@stubwise/shared";
 import { mergeDisallowedTools, scopedReadTools, sensitiveReadDenyRules } from "../../agent/read-scope.js";
@@ -22,7 +23,6 @@ import { AgentRunCancelledError, type AgentRunOptions, type AgentRunResult, type
 import type { MirrorManager, ProjectWorktreeRepo } from "../../git/mirrors.js";
 import { GRAPHIFY_AGENT_ALLOWED_TOOLS, renderGraphHint, resolveRepoGraphJson } from "../../graph/agent-hint.js";
 import type { ProjectSerializer } from "../../handler.js";
-import { loadMonthlyBudgetUsd } from "../../pipeline/job-outcomes.js";
 import { openRunPlugins } from "../../plugins/materialize-run.js";
 import type { ResolvedProvider } from "../../providers/chain.js";
 import { isLimitError } from "../../providers/limit.js";
@@ -243,9 +243,7 @@ export async function echoed(db: Db, sessionId: string, inputId: string): Promis
 
 /** Budget mensile sforato (stessa lettura di `checkBudgetsBeforeRun`). */
 async function overBudget(deps: RefineTurnDeps): Promise<boolean> {
-  const limit = await loadMonthlyBudgetUsd(deps.db);
-  if (limit === null) return false;
-  return (await (deps.monthlyCostUsdFn ?? monthlyCostUsd)(deps.db)) >= limit;
+  return (await aiBudgetState(deps.db, deps.monthlyCostUsdFn ?? monthlyCostUsd)).exhausted;
 }
 
 /**
