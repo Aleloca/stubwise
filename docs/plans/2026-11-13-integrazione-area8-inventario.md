@@ -602,6 +602,11 @@ Dal maintainer *(M)*, via stubwise-46, e dall'orchestratrice *(O)*:
   smettono quando passano al catalogo); **M1 rivisto**: le operazioni di
   correzione passano dall'AGENTE di monitoraggio, non dall'SSH — S-8 (chiave
   SSH) è superata, e le domande che ne vengono (Q1–Q4) sono nel design.
+- **Sulla F4b** *(M)*: Q1 = a (insieme chiuso di azioni sull'API di Docker),
+  Q2 = a (le letture per l'analisi senza approvazione, con l'opzione
+  accesa), **Q3 = b** (un accesso SSH di SOLA LETTURA per l'analisi, con
+  `servers.ssh.manage` all'Admin; S-8 = a torna valida per la sua chiave),
+  Q4 = a (un container solo; testo «sola lettura» corretto subito).
 
 ### Le righe delle due invarianti (da applicare all'unione della fetta che le tocca)
 
@@ -628,7 +633,10 @@ sostituire il paragrafo con:
 >   della task. Una correzione che «rilascia» è un piano da rifiutare: il
 >   prompt lo dice, il gate lo controlla. Chi collega la correzione a un
 >   rilascio, o aggiunge un'altra azione sull'ambiente, rompe questa frase,
->   non solo il codice: è un cambio di prodotto.
+>   non solo il codice: è un cambio di prodotto. **Via SSH solo letture**
+>   (Q3 = b): un accesso separato di sola lettura per l'analisi, con un utente
+>   senza privilegi e senza il socket di Docker, un elenco chiuso di letture
+>   e uscite non fidate; mai una scrittura via SSH.
 
 e, in «I due divieti dell'operatore», punto 2, la frase «mai un deploy, mai
 un'esecuzione di ambiente (vedi l'invariante dedicata più sotto)» diventa «mai

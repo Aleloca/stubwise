@@ -48,7 +48,7 @@ Il dettaglio per voce è nell'inventario (lato server). In breve:
 | Releases: PR aperte (di Stubwise e dei colleghi) con l'analisi, la coda, il merge in due passi, il rilascio `<PRJ>-V<n>` e il suo stato letto dalle run di CI o dal commit in produzione, il rilascio fallito con «Spiega» e «Fai sistemare a Claude», le note per PR, gli ambienti per repository | Lanciare un rilascio: nessun Deploy, nessun «Riprova la pipeline» *(maintainer)* |
 | Gli avvisi: catalogo dei tipi, iscrizioni per progetto, destinatari calcolati a lettura, Preferenze → Notifiche, la scorciatoia dal progetto | Slack *(maintainer: in dismissione)*; i webhook in uscita e le impostazioni d'istanza delle notifiche (area 9) |
 | Support: conversazioni del widget e del server MCP, stati, la risposta di una persona (widget ed email), «segui», la richiesta aperta da una conversazione, «View conversation» su richieste e task, la bozza di Claude | Rispondere in automatico *(maintainer: Claude prepara solo bozze)*; chiudere, assegnare, etichettare ([A 7]) |
-| Servers: il monitor nell'app, l'analisi automatica all'avviso, la correzione da task attraverso l'agente di monitoraggio | La vista complessiva dei server (area 9); l'SSH (vedi Q3) |
+| Servers: il monitor nell'app, l'accesso SSH di SOLA LETTURA per l'analisi (Q3 = b), l'analisi automatica all'avviso, la correzione da task attraverso l'agente di monitoraggio | La vista complessiva dei server (area 9); qualunque scrittura via SSH |
 | Azioni di Claude: iscrizioni agli avvisi, bozza di risposta, bozza delle note della PR | Il merge (NEVER), la correzione di un server avviata da Claude (R-L9) |
 | L'evento `release_page` della Chat (la pagina è il rilascio, S-6) | |
 
@@ -69,8 +69,10 @@ Tutte nell'inventario, sezione «Decisioni». Le portanti:
 - S-1 *(O)*: quattro fette con le operazioni sui server per ultime. S-2: le run di CI con
   l'account git del repository. S-4: catalogo in shared (R-5). S-6: la
   pagina di Release è il rilascio. S-7: i preset della tabella del design.
-  S-8 (chiave SSH) è superata da M1 rivisto: niente chiavi SSH; la chiave
-  che firma i comandi la tiene il server (vedi sotto). S-9: «View conversation» anche sulle task. R-1…R-5 = a.
+  S-8 = a *(O, poi confermata dal maintainer con Q3 = b)*: la chiave SSH
+  (solo di LETTURA) la genera il server, la privata cifrata a riposo e usata
+  solo dal worker, il client vede la pubblica. La chiave che firma i comandi
+  dell'agente la tiene il server (vedi sotto). S-9: «View conversation» anche sulle task. R-1…R-5 = a.
 
 ## Le due invarianti riscritte e la loro fetta
 
@@ -82,9 +84,11 @@ PRIMO piano della fetta che le tocca, prima del suo codice:
    sola azione sull'ambiente, la correzione di un server»**: fetta **F4**
    (Servers), nel piano della F4b (le operazioni attraverso l'agente). Fino
    ad allora vale il testo di oggi alla lettera: nessun codice dell'area
-   esegue niente su un server. Nella riga dell'inventario, «con l'accesso
-   SSH di correzione» diventa «attraverso l'agente di monitoraggio, con un
-   comando firmato dal server per ogni passo approvato».
+   esegue niente su un server. Le righe dell'inventario dicono già
+   «attraverso l'agente di monitoraggio, con un comando firmato dal server per
+   ogni passo approvato», e in più (Q3 = b) «via SSH solo un elenco chiuso di
+   LETTURE, con un utente senza privilegi e senza il socket di Docker; mai una
+   scrittura via SSH».
 2. **«Adottare una PR aperta da altri» → «Le PR dei colleghi»**: fetta
    **F1** (Rilasci). Fino ad allora l'adozione esplicita resta com'è, e il
    renderer non la mostra (R-3).
@@ -180,6 +184,11 @@ Ogni fetta si usa da sola, ha il suo piano, la sua review, la sua parità.
   La chiave che firma i comandi: Ed25519 d'istanza, generata dal server al
   primo bisogno, la privata cifrata a riposo (come le credenziali), la
   pubblica mostrata nel comando d'installazione.
+- F4b, l'SSH di lettura (Q3 = b): `server_ssh_access` (`server_id`, solo
+  `kind` `read`, `public_key`, `private_key_encrypted` — mai in una
+  risposta, la decifra solo il worker —, `status`, `verified_at`,
+  `last_used_at`, `revoked_at`, l'esito della verifica: utente senza sudo né
+  `docker`).
 
 ## Il motore nel worker
 
@@ -273,10 +282,21 @@ garantisca. È il punto da cui parte la domanda Q4.
    uno: il comando lo autorizza solo la firma; un agente compromesso vuol dire
    un host già compromesso, e le sue uscite restano non fidate. Le righe
    dell'invariante 1 dicono «attraverso l'agente» al posto di «via SSH».
-5. **Cosa resta all'SSH**: consigliato **niente in quest'area** — l'analisi
-   legge ciò che l'agente riporta (e le letture dell'insieme chiuso), la
-   correzione passa dall'agente; gli accessi SSH, se servono per letture più
-   profonde, vanno nel registro come voce a sé. È la domanda Q3.
+5. **Cosa resta all'SSH** (Q3 = b *(M)*): un accesso di **SOLA LETTURA** per
+   l'analisi, separato dall'agente, collegato da chi ha `servers.ssh.manage`
+   (istanza, all'Admin). La chiave la genera il server (S-8 = a): la privata
+   cifrata a riposo, usata solo dal worker, mai in una risposta, un log o un
+   prompt; il client vede la pubblica e il comando che crea l'utente.
+   L'utente `stubwise-read` è **senza privilegi e SENZA il socket di Docker**
+   (né sudo né il gruppo `docker`: la verifica lo controlla e rifiuta un
+   utente che li ha); log e stato dei container arrivano dall'agente (le
+   letture dell'insieme chiuso, Q2). Via SSH gira solo un **elenco chiuso di
+   letture** dichiarate (processi, disco, memoria, log di sistema leggibili
+   senza privilegi, rete), coi parametri validati e mai una stringa composta
+   da un'uscita; le uscite tornano troncate, delimitate e NON fidate. **Mai
+   una scrittura via SSH**: l'unica azione sull'ambiente resta quella
+   dell'agente, con il piano approvato. Le rotte: collega, verifica,
+   rigenera, revoca della sola coppia di lettura.
 
 ## Permessi (S-7)
 
@@ -284,6 +304,7 @@ garantisca. È il punto da cui parte la domanda Q4.
 |---|---|---|---|
 | `support.reply` (nuovo) | progetto | Rispondere ai clienti, vedere le bozze di Claude | Project Lead, Developer, Legacy Member |
 | `servers.operate` (nuovo) | progetto | Avviare la correzione di un server da una task | nessun preset di progetto (persona per persona); implicito per il full admin |
+| `servers.ssh.manage` (nuovo, Q3 = b) | istanza | Collegare, verificare, rigenerare, revocare l'accesso SSH di sola lettura | Admin (implicito per il full admin) |
 | `release.merge`, `prs.adopt`, `repos.manage`, `repos.view`, `environments.manage`, `widget.manage`, `monitor.view`, `monitor.manage`, `plans.approve` | invariati | (il loro uso nell'area nell'inventario) | invariati |
 
 La migrazione segue la regola dei preset di `docs/invariants/permissions.md`
@@ -346,7 +367,11 @@ preset). Nessuna chiave a due livelli (il test del catalogo).
     (mai scaricata dal server); un'uscita falsificata da un agente
     compromesso resta contenuto non fidato;
   - **la chiave che firma solo nel server**: la privata non è in nessuna
-    risposta, log, prompt o sessione;
+    risposta, log, prompt o sessione; lo stesso per la chiave SSH di lettura,
+    che usa solo il worker;
+  - **l'SSH solo legge**: un elenco chiuso di letture, un utente senza sudo
+    né socket di Docker (la verifica lo rifiuta altrimenti), nessuna stringa
+    di comando composta da un'uscita, mai una scrittura;
   - **comandi e uscite come contenuto non fidato**: l'uscita entra nel
     prompt delimitata (come gli input dei passi di Claude), può contenere
     istruzioni ostili o segreti del server, e non decide da sola il comando
@@ -603,45 +628,18 @@ non si integrano finché una pagina non li usa.
 - **M1 rivisto** *(M)*: le operazioni passano dall'agente di monitoraggio,
   non dall'SSH (la sezione dedicata). Ne vengono le domande qui sotto.
 
-### Le domande che restano
+### Le risposte alle domande della F4b (13 nov 2026)
 
-Q1. **Cosa può fare l'agente su un comando approvato.**
-- (a) *(consigliata)* Un insieme CHIUSO di azioni dichiarate sull'API di
-  Docker (riavvia, ferma, avvia un container; libera spazio: immagini non
-  usate, cache di build, container fermi; le letture: righe del log, stato
-  di un container), coi parametri validati; niente `exec`, niente pull o
-  ricreazione d'immagine.
-- (b) Comandi liberi (via `exec` in un container o un container d'aiuto
-  privilegiato): copre ogni caso, ma un comando libero approvato può fare
-  qualunque cosa sull'host, deploy compreso.
-- (c) L'insieme chiuso, più i comandi liberi solo per chi ha anche
-  `monitor.manage`.
+- **Q1 = a** *(M)*: un insieme CHIUSO di azioni sull'API di Docker; niente
+  `exec`, pull né ricreazione.
+- **Q2 = a** *(M)*: con l'opzione accesa, l'analisi automatica chiede le sole
+  LETTURE senza approvazione (firmate, una volta sola, registrate); tutto ciò
+  che cambia vuole il piano.
+- **Q3 = b** *(M)*, NON la consigliata: un accesso SSH di SOLA LETTURA per
+  l'analisi, separato dall'agente, con `servers.ssh.manage` all'Admin; la
+  chiave come S-8 = a; un utente senza il socket di Docker; un elenco chiuso
+  di letture, uscite non fidate e delimitate; mai una scrittura via SSH.
+- **Q4 = a** *(M)*: un container solo; il testo «sola lettura» della UI
+  corretto subito (`fix/agent-socket-wording`, voce nel deploy-log).
 
-Q2. **Le letture per l'analisi automatica** (righe del log, stato di un
-container): l'analisi parte da sola (S-10) e non ha un piano approvato.
-- (a) *(consigliata)* Con l'opzione «operazioni» accesa, l'analisi può
-  chiedere le sole azioni di LETTURA senza approvazione (firmate, una volta
-  sola, registrate nella sessione); le azioni che cambiano qualcosa vogliono
-  sempre il piano approvato. Senza l'opzione, l'analisi legge solo metriche,
-  servizi e controlli.
-- (b) Anche le letture vogliono un piano approvato: l'analisi automatica usa
-  solo metriche, servizi e controlli.
-- (c) Le letture con un'opzione d'installazione a sé, separata dalle
-  operazioni.
-
-Q3. **L'SSH.**
-- (a) *(consigliata)* Niente SSH in quest'area: niente accessi, niente
-  `servers.ssh.manage`; l'SSH per letture più profonde va nel registro.
-- (b) Un accesso SSH di sola lettura per l'analisi, separato dall'agente
-  (con `servers.ssh.manage` d'istanza all'Admin).
-
-Q4. **Il socket di Docker**, che montato `:ro` dà comunque l'API completa
-(anche all'agente di oggi).
-- (a) *(consigliata)* L'agente resta un solo container: con le operazioni
-  spente il suo codice usa solo le letture (come oggi), con l'opzione accesa
-  esegue solo comandi firmati; si corregge SUBITO il testo della UI che dice
-  «sola lettura» per il socket, e la nota di rilascio lo spiega.
-- (b) Un proxy del socket accanto all'agente (un container che lascia
-  passare solo le chiamate di lettura, e quelle dell'insieme chiuso solo con
-  l'opzione accesa): una garanzia anche se l'agente avesse un difetto, al
-  costo di due container da installare.
+Il design non ha più domande aperte per il maintainer.
