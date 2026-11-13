@@ -296,4 +296,24 @@ describe("il livello dati delle Automations sulle rotte vere", () => {
     await r.cancelRun("run-9");
     expect(calls).toEqual([`GET runs {"automation":"AUD-A1","log":"none"}`, "POST AUD-A1/runs/9/cancel"]);
   });
+
+  it("accendere con la casella (F2): l'indirizzo scelto diventa l'id; una casella non più mia o richiesta dal server è `mailbox_missing`", async () => {
+    const bodies: unknown[] = [];
+    const { api } = fakeApi({
+      activate: async (_code, body) => (bodies.push(body), automation(4)),
+      publish: async () => {
+        throw new ApiError(409, "mailbox_required", "mailbox_required");
+      },
+    });
+    const r = createRealAutomations(api, undefined, undefined, async () => [
+      { id: "acc-1", email: "Ada@Audin.test" },
+    ]);
+    await r.listAutomations();
+    await r.activate("a-1", { mailbox: "ada@audin.test" });
+    expect(bodies).toEqual([{ expectedRev: 4, mailboxAccountId: "acc-1" }]);
+    await expect(r.activate("a-1", { mailbox: "altra@audin.test" })).rejects.toThrow(
+      /^invalid: mailbox_missing$/,
+    );
+    await expect(r.publish("a-1")).rejects.toThrow(/^invalid: mailbox_missing$/);
+  });
 });

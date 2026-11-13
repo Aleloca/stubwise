@@ -7,6 +7,7 @@ import { SimulationConfigError } from "../../../domain/automations/simCore";
 import { createRealSimulation } from "./automationSimulate";
 import { appClient, session } from "./client";
 import { citableSearch } from "./globalSearch";
+import { myAccounts } from "./google";
 import { now } from "./runtime";
 
 // Le Automations della build app sul client vero (area 7, F1): gli
@@ -63,7 +64,7 @@ async function searchAutomations(q: string): Promise<AutomationSearchResult[]> {
   );
 }
 
-const real = createRealAutomations(liveApi, refs);
+const real = createRealAutomations(liveApi, refs, undefined, () => myAccounts());
 const { saveDraft: saveDraftOnly, ...realFunctions } = real;
 
 /** Salvare la bozza cambia il flusso: la prova dopo rilegge il contesto. */
