@@ -115,7 +115,13 @@ type ServerMeetingNote = {
   visible?: boolean;
   summary?: string | null;
   docUrl?: string | null;
-  event?: MeetingNote["event"];
+  event?: {
+    id: string;
+    title?: string | null;
+    startsAt: string;
+    endsAt?: string | null;
+    people?: number;
+  } | null;
 };
 
 const DOC_REASONS: ReadonlySet<string> = new Set([
@@ -151,7 +157,17 @@ export function meetingOfMessage(m: { kind?: string; meeting?: ServerMeetingNote
       summary: visible ? (n.summary ?? null) : null,
       transcript: null,
       docUrl: visible ? googleDocUrl(n.docUrl) : null,
-      event: n.event ?? null,
+      // Titolo e fine che il server può dare null (review F5a, 7): il titolo
+      // del Doc, e un evento che finisce quando comincia.
+      event: n.event
+        ? {
+            id: n.event.id,
+            title: n.event.title ?? n.docTitle ?? "",
+            startsAt: n.event.startsAt,
+            endsAt: n.event.endsAt ?? n.event.startsAt,
+            people: n.event.people ?? 0,
+          }
+        : null,
     },
   };
 }

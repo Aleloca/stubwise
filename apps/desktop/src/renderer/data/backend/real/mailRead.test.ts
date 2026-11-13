@@ -412,3 +412,45 @@ describe("i miei invii nella conversazione (F3)", () => {
   });
 });
 
+
+// Review F5a (4, 7): una risposta VERA di `thread()` passa dal parse
+// dell'api-client con l'email di Gemini; i campi dell'evento che il server
+// può dare null hanno un default.
+describe("F5a: l'email di Gemini dalla risposta vera della conversazione", () => {
+  const NOTE = "99999999-5555-4555-8555-555555555555";
+  const EVENT = "eeeeeeee-5555-4555-8555-555555555555";
+
+  it("kind transcript e la riunione arrivano al messaggio; titolo e fine dell'evento null hanno un default", async () => {
+    installFakeServer({
+      ...common,
+      "GET /api/me/mail/threads/t-1": {
+        body: detail({
+          messages: [
+            message({
+              kind: "transcript",
+              meeting: {
+                noteId: NOTE,
+                docTitle: "Notes: Review",
+                doc: "ready",
+                docReason: null,
+                visible: true,
+                summary: "Si parte lunedì.",
+                docUrl: "https://docs.google.com/document/d/abc",
+                event: { id: EVENT, title: null, startsAt: "2026-11-11T16:00:00.000Z", endsAt: null, people: 3 },
+              },
+            }),
+          ],
+        }),
+      },
+    });
+    const [m] = (await mail.getMailThread(`${ACC}_t-1`)).messages;
+    expect(m!.kind).toBe("transcript");
+    expect(m!.meeting).toMatchObject({
+      noteId: NOTE,
+      visible: true,
+      summary: "Si parte lunedì.",
+      docUrl: "https://docs.google.com/document/d/abc",
+      event: { id: EVENT, title: "Notes: Review", startsAt: "2026-11-11T16:00:00.000Z", endsAt: "2026-11-11T16:00:00.000Z", people: 3 },
+    });
+  });
+});
