@@ -11721,8 +11721,8 @@
       },
       "general": {
         "manage": {
-          "label": "Gestire le automazioni generali",
-          "hint": "Creare, modificare, accendere e mettere in pausa le automazioni fra i progetti, e le loro esecuzioni."
+          "label": "gestire le automazioni generali",
+          "hint": "Creare, modificare e mettere in pausa le automazioni generali (senza progetto) e decidere le loro esecuzioni."
         }
       }
     },

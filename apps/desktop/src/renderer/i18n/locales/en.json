@@ -11721,8 +11721,8 @@
       },
       "general": {
         "manage": {
-          "label": "Manage general automations",
-          "hint": "Create, change, turn on and pause the automations that work across projects, and their runs."
+          "label": "manage general automations",
+          "hint": "Create, change and pause the general automations (without a project), and decide their runs."
         }
       }
     },
