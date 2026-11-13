@@ -1539,6 +1539,13 @@ export const agentRuns = pgTable(
      * delle bozze; null per i run del worker.
      */
     requestedByUserId: uuid("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    /**
+     * Area 7, F3 (0171): l'owner di un passo di Claude di un'automazione o di
+     * una sua prova; `automationRunId` c'è solo per un passo di un'esecuzione
+     * (NULL = una prova). FK definite nella migrazione.
+     */
+    automationId: uuid("automation_id"),
+    automationRunId: uuid("automation_run_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -1557,8 +1564,11 @@ export const agentRuns = pgTable(
     // L'invariante è garantita dal DB, non solo dal codice.
     check(
       "agent_runs_owner_check",
-      sql`num_nonnulls(job_id, pr_review_id, email_message_id) <= 1`,
+      sql`num_nonnulls(job_id, pr_review_id, email_message_id, automation_id) <= 1`,
     ),
+    // Area 7, F3 (0171): la run di un'esecuzione solo insieme all'automazione (NULL = una prova).
+    check("agent_runs_automation_run_chk", sql`automation_run_id is null or automation_id is not null`),
+    index("agent_runs_automation_idx").on(table.automationId).where(sql`${table.automationId} IS NOT NULL`),
     // I lettori per ticket si aspettano una fase sulle righe di un job.
     check("agent_runs_job_phase_check", sql`job_id is null or phase is not null`),
     check(

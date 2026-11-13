@@ -67,6 +67,8 @@ export async function recordUsage(
         jobId: tag.jobId ?? null,
         prReviewId: tag.prReviewId ?? null,
         emailMessageId: tag.emailMessageId ?? null,
+        automationId: tag.automationId ?? null,
+        automationRunId: tag.automationRunId ?? null,
         operation: tag.operation,
         phase: tag.phase ?? null,
         projectId: tag.projectId,

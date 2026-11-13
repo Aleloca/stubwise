@@ -410,8 +410,12 @@ describe("modelli per operazione", () => {
     // 17 con `claude_chat` (la conversazione libera con Claude, chat fetta 1); 18 con
     // `drive_summary` (i riassunti dei file del Drive, F3 dell'area 5, gruppo docs);
     // 19 con `mail_draft` (la bozza di Claude per la Posta, F3 dell'area 6, gruppo mail);
-    // 20 con `meeting_summary` (riassunto e proposte di una riunione registrata, F5a, gruppo mail).
-    expect(rows).toHaveLength(20);
+    // 20 con `meeting_summary` (riassunto e proposte di una riunione registrata, F5a, gruppo mail);
+    // 21 con `automation_step` (un passo di Claude di un'automazione, area 7 F3, gruppo automations).
+    expect(rows).toHaveLength(21);
+    expect(rows.find((r) => r.operation === "automation_step")).toMatchObject({ group: "automations" });
+    expect(en.usage.operations.automation_step).toBe("Automation steps");
+    expect(it_.usage.operations.automation_step).toBe("Passi delle automazioni");
     expect(rows.find((r) => r.operation === "meeting_summary")).toMatchObject({ group: "mail" });
     expect(en.usage.operations.meeting_summary).toBe("Recorded meeting summaries");
     expect(it_.usage.operations.meeting_summary).toBe("Riassunti delle riunioni registrate");

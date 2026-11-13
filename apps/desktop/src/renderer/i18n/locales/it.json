@@ -10797,6 +10797,7 @@
           "docs": "Docs",
           "reports": "Report",
           "mail": "Posta",
+          "automations": "Automazioni",
           "chat": "Chat"
         },
         "source": {
@@ -12273,6 +12274,7 @@
       "mail_classify": "Classificazione della posta",
       "mail_draft": "Bozze delle email di Claude",
       "meeting_summary": "Riassunti delle riunioni registrate",
+      "automation_step": "Passi delle automazioni",
       "chat": "Conversazioni con Claude",
       "claude_chat": "Conversazioni private con Claude",
       "backlog_merge": "Unione dei documenti del backlog",
