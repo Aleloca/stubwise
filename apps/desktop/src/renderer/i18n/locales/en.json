@@ -7131,6 +7131,7 @@
       "perDayValue": "{{n}} a day",
       "webhookLimitCapped": "{{chosen}} is above the instance maximum: {{applies}} applies.",
       "webhookLimitHint": "Empty = the default ({{defaultPerMinute}} a minute, {{defaultPerDay}} a day). The instance maximum is {{maxPerMinute}} a minute and {{maxPerDay}} a day.",
+      "webhookLimitTooHigh": "Use whole numbers from 1: at most {{perMinute}} a minute and {{perDay}} a day.",
       "webhookLimitError": "The limit wasn't saved. Try again.",
       "limits": "At most {{emails}} emails per run · {{rounds}} rounds per “For each” · {{runs}} runs at a time."
     },

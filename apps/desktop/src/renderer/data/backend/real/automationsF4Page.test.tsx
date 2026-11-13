@@ -417,6 +417,25 @@ describe("il tetto del webhook nelle impostazioni dell'automazione (F4-2 = c, R4
     expect(within(about).queryByRole("button", { name: "Change the webhook limit" })).toBeNull();
   });
 
+  it("oltre il limite che il server accetta (1 000 000 al minuto) non si salva, e la riga lo dice (review F4, m5)", async () => {
+    const current = hooked(limits(null, 60));
+    install({
+      "GET /api/automations": { body: { items: [current] } },
+      "GET /api/automations/AUD-A1": {
+        body: { automation: current, configErrors: [], liveErrors: [], runs: [] },
+      },
+    });
+    renderRoute("/automations/AUD-A1");
+    const about = await screen.findByRole("region", { name: "About" }, { timeout: 3000 });
+    await userEvent.click(
+      await within(about).findByRole("button", { name: "Change the webhook limit" }),
+    );
+    await userEvent.type(within(about).getByRole("spinbutton", { name: "A minute" }), "1000001");
+    expect(within(about).getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(within(about).getByText(/at most 1,000,000 a minute/i)).toBeTruthy();
+    expect(seen.some((r) => r.method === "PATCH")).toBe(false);
+  });
+
   it("senza webhook all'inizio la riga non c'è", async () => {
     install({
       "GET /api/automations/AUD-A1": {

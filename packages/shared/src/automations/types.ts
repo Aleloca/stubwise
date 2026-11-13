@@ -293,6 +293,13 @@ export interface Automation {
  * `perMinute`/`perDay` sono la scelta (null = il default); `effective` è
  * ciò che vale davvero, mai oltre il massimo d'istanza.
  */
+/**
+ * Il valore più alto che `PATCH /api/automations/:code` accetta per il tetto
+ * del webhook (oltre: 400). Il massimo d'istanza, più basso, vale comunque;
+ * questo è il limite di ciò che si può SCRIVERE, uguale per server e client.
+ */
+export const WEBHOOK_LIMIT_CEILING = { perMinute: 1_000_000, perDay: 100_000_000 } as const;
+
 export interface AutomationWebhookLimits {
   perMinute: number | null;
   perDay: number | null;

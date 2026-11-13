@@ -7131,6 +7131,7 @@
       "perDayValue": "{{n}} al giorno",
       "webhookLimitCapped": "{{chosen}} supera il massimo dell'istanza: vale {{applies}}.",
       "webhookLimitHint": "Vuoto = il predefinito ({{defaultPerMinute}} al minuto, {{defaultPerDay}} al giorno). Il massimo dell'istanza è {{maxPerMinute}} al minuto e {{maxPerDay}} al giorno.",
+      "webhookLimitTooHigh": "Usa numeri interi da 1: al massimo {{perMinute}} al minuto e {{perDay}} al giorno.",
       "webhookLimitError": "Il tetto non è stato salvato. Riprova.",
       "limits": "Al massimo {{emails}} email per esecuzione · {{rounds}} giri per «Per ogni» · {{runs}} esecuzioni alla volta."
     },

@@ -9,7 +9,7 @@ import {
   useSetWebhookLimits,
 } from "../../data/queries";
 import type { AutomationDetail as Detail, AutomationFlow } from "../../data/types";
-import { AUTOMATION_LIMITS, stepAt } from "@stubwise/shared";
+import { AUTOMATION_LIMITS, stepAt, WEBHOOK_LIMIT_CEILING } from "@stubwise/shared";
 import { BlockSection, queryState } from "../home/blocks/BlockSection";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { primaryButton, quietButton, secondaryButton } from "../tasks/controls";
@@ -332,7 +332,12 @@ function WebhookLimitRow({ detail }: { detail: Detail }) {
   if (!l || trigger?.kind !== "source" || trigger.event !== "webhook") return null;
   const n = (v: number) => v.toLocaleString(i18n.language);
   const chosen = (v: string) => (v.trim() === "" ? null : Math.max(1, Math.floor(Number(v))));
-  const valid = [perMinute, perDay].every((v) => v.trim() === "" || Number(v) >= 1);
+  // Oltre il limite che il server accetta non si manda niente (review F4, m5).
+  const within = (v: string, ceiling: number) =>
+    v.trim() === "" || (Number(v) >= 1 && Number(v) <= ceiling);
+  const minuteOk = within(perMinute, WEBHOOK_LIMIT_CEILING.perMinute);
+  const dayOk = within(perDay, WEBHOOK_LIMIT_CEILING.perDay);
+  const valid = minuteOk && dayOk;
   const capped =
     (l.perMinute !== null && l.perMinute > l.effective.perMinute) ||
     (l.perDay !== null && l.perDay > l.effective.perDay);
@@ -410,6 +415,7 @@ function WebhookLimitRow({ detail }: { detail: Detail }) {
                   id={minuteId}
                   type="number"
                   min={1}
+                  max={WEBHOOK_LIMIT_CEILING.perMinute}
                   inputMode="numeric"
                   placeholder={String(l.defaultPerMinute)}
                   className={`${inputClass} h-8 w-32`}
@@ -423,6 +429,7 @@ function WebhookLimitRow({ detail }: { detail: Detail }) {
                   id={dayId}
                   type="number"
                   min={1}
+                  max={WEBHOOK_LIMIT_CEILING.perDay}
                   inputMode="numeric"
                   placeholder={String(l.defaultPerDay)}
                   className={`${inputClass} h-8 w-32`}
@@ -441,6 +448,14 @@ function WebhookLimitRow({ detail }: { detail: Detail }) {
                 {t("automations.actions.cancel")}
               </button>
             </span>
+            {!valid && (
+              <span role="alert" className="text-sm text-critical">
+                {t("automations.about.webhookLimitTooHigh", {
+                  perMinute: n(WEBHOOK_LIMIT_CEILING.perMinute),
+                  perDay: n(WEBHOOK_LIMIT_CEILING.perDay),
+                })}
+              </span>
+            )}
             <span className="text-xs text-ink-muted">
               {t("automations.about.webhookLimitHint", {
                 defaultPerMinute: n(l.defaultPerMinute),
