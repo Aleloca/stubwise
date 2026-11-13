@@ -238,6 +238,44 @@ describe("accendere e pubblicare con la casella (F2, R3)", () => {
     );
   });
 
+  it("una casella senza il permesso di leggere la posta (flusso che ascolta): parole sue", async () => {
+    const listening = {
+      trigger: { kind: "stubwise", event: "mail_received" },
+      steps: [
+        {
+          id: "n1",
+          kind: "notify",
+          who: { personId: ME_ID },
+          text: "x",
+          approval: { mode: "auto" },
+        },
+      ],
+      titleTemplate: "Posta",
+    };
+    const withFlow = () => ({
+      ...row(),
+      versions: [
+        { ...version(1, 3, true), flow: listening },
+        { ...version(2, 6, false), flow: listening },
+      ],
+    });
+    install({
+      "GET /api/automations": { body: { items: [withFlow()] } },
+      "GET /api/automations/AUD-A1": {
+        body: { automation: withFlow(), configErrors: [], liveErrors: [], runs: [] },
+      },
+      "GET /api/me/google/accounts": { body: [account()] },
+      "POST /api/automations/AUD-A1/publish": {
+        status: 409,
+        body: { code: "mailbox_read_scope", message: "mailbox_read_scope" },
+      },
+    });
+    const dialog = await openPublish();
+    await within(dialog).findByRole("radio", { name: "ada@audin.test" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Publish" }));
+    expect(await screen.findByText(/permission to read your mail/)).toBeInTheDocument();
+  });
+
   it("senza una casella utilizzabile il dialogo lo dice e non pubblica", async () => {
     install({
       "GET /api/me/google/accounts": {
