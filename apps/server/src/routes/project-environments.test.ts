@@ -444,7 +444,8 @@ describe("ambienti per repository (area 8, F1, R-L2)", () => {
     expect(upd.json().servers).toEqual([{ repositoryId: r2, serverId: b }]);
     // E la GET dice lo stesso.
     const list = await app.inject({ method: "GET", url: `/api/projects/${pid}/environments`, headers: { cookie: adminCookie } });
-    expect(list.json().find((e: { id: string }) => e.id === res.json().id).servers).toEqual([{ repositoryId: r2, serverId: b }]);
+    const listed = list.json().find((e: { id: string }) => e.id === res.json().id).servers as { repositoryId: string; serverId: string }[];
+    expect(listed.map(({ repositoryId, serverId }) => ({ repositoryId, serverId }))).toEqual([{ repositoryId: r2, serverId: b }]);
   });
 
   it("una repository di un altro progetto: 400 bad_servers, e niente scritto", async () => {
@@ -454,6 +455,37 @@ describe("ambienti per repository (area 8, F1, R-L2)", () => {
     expect(res.statusCode).toBe(400);
     expect(res.json()).toMatchObject({ code: "bad_servers" });
     expect(await testDb.db.select().from(projectEnvironments).where(eq(projectEnvironments.projectId, pid))).toEqual([]);
+  });
+
+  it("area 8, F1: per repository il nome del server, il commit riportato (quello di un rilascio della repository, se c'è) e il codice del rilascio; per ambiente canManage e onlyHere", async () => {
+    const { releases, serverMetrics } = await import("@stubwise/db");
+    const { projectId: pid, repositoryId: r1 } = await seedRepository(testDb.db);
+    const r2 = await seedRepositoryInProject(testDb.db, pid);
+    const mine = await newServer("solo-qui");
+    const shared = await newServer("condiviso");
+    const res = await post(pid, { name: "production", kind: "production", servers: [{ repositoryId: r1, serverId: mine }, { repositoryId: r2, serverId: shared }] });
+    expect(res.statusCode).toBe(201);
+    // Il server condiviso lo usa anche un altro progetto.
+    const { projectId: other } = await seedRepository(testDb.db);
+    expect((await post(other, { name: "production", kind: "production", serverId: shared })).statusCode).toBe(201);
+    // Su `mine` gira il commit di un rilascio di r1; su `shared` un commit qualunque, ma col nome dell'ambiente.
+    const sha = "d".repeat(40);
+    await testDb.db.insert(releases).values({ code: `ENV${crypto.randomUUID().slice(0, 3).toUpperCase()}-V1`, seq: 1, projectId: pid, repositoryId: r1, prNumber: 1, prUrl: "u", title: "t", mergeSha: sha, mergedAt: new Date(), viaStubwise: true });
+    const sample = (serverId: string, services: object[]) =>
+      testDb.db.insert(serverMetrics).values({ serverId, ts: new Date("2026-11-13T10:00:00Z"), cpuPct: 1, load1m: 0, memUsedBytes: 1, memTotalBytes: 2, swapUsedBytes: 0, diskUsedBytes: 0, diskTotalBytes: 1, netRxBytes: 0, netTxBytes: 0, disks: [], services } as never);
+    await sample(mine, [{ source: "docker", name: "web", state: "running", cpuPct: 0, memBytes: 0, restarts: null, image: "x", commitSha: sha.slice(0, 12) }]);
+    await sample(shared, [{ source: "docker", name: "production", state: "running", cpuPct: 0, memBytes: 0, restarts: null, image: "y", commitSha: "e".repeat(12) }]);
+
+    const list = await app.inject({ method: "GET", url: `/api/projects/${pid}/environments`, headers: { cookie: adminCookie } });
+    const env = (list.json() as Record<string, unknown>[]).find((e) => e["id"] === res.json().id) as { servers: Record<string, unknown>[]; canManage: boolean; onlyHere: string[] };
+    const row = (repositoryId: string) => env.servers.find((x) => x["repositoryId"] === repositoryId);
+    expect(row(r1)).toMatchObject({ serverId: mine, serverName: expect.stringMatching(/^solo-qui-/), reportedSha: sha.slice(0, 12), reportedAt: "2026-11-13T10:00:00.000Z", releaseCode: expect.stringMatching(/-V1$/) });
+    expect(row(r2)).toMatchObject({ serverId: shared, reportedSha: "e".repeat(12), releaseCode: null });
+    expect(env.canManage).toBe(true);
+    expect(env.onlyHere).toEqual([mine]);
+    // Un member senza environments.manage: lo vede, ma non lo gestisce.
+    const asMember = await app.inject({ method: "GET", url: `/api/projects/${pid}/environments`, headers: { cookie: memberCookie } });
+    expect((asMember.json() as { id: string; canManage: boolean }[]).find((e) => e.id === res.json().id)!.canManage).toBe(false);
   });
 
   it("una seconda produzione nello stesso progetto: 409 production_environment_exists", async () => {

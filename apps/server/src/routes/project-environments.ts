@@ -1,12 +1,13 @@
-import { environmentServers, projectEnvironments, repositories, servers } from "@stubwise/db";
+import { environmentServers, projectEnvironments, releases, repositories, serverMetrics, servers } from "@stubwise/db";
 import {
   createEnvironmentSchema,
   patchEnvironmentSchema,
   projectEnvironmentSchema,
+  sameCommit,
   type DiscoveredService,
   type ProjectEnvironment,
 } from "@stubwise/shared";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -121,6 +122,76 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
     return "ok";
   }
 
+  /**
+   * I campi in più dell'ELENCO (area 8, F1): per ogni riga repository→server
+   * il nome del server, il commit riportato e il rilascio; per il progetto i
+   * server che nessun altro progetto usa (R-L7).
+   */
+  async function listExtras(
+    projectId: string,
+    rows: EnvironmentRow[],
+    byEnv: Map<string, { repositoryId: string; serverId: string }[]>,
+  ): Promise<{ servers: Map<string, ProjectEnvironment["servers"]>; onlyHere: Set<string> }> {
+    const pairs = rows.flatMap((r) => (byEnv.get(r.id) ?? []).map((s) => ({ env: r, ...s })));
+    const serverIds = [...new Set(pairs.map((p) => p.serverId))];
+    if (serverIds.length === 0) return { servers: new Map(), onlyHere: new Set() };
+    const names = new Map((await app.db.select({ id: servers.id, name: servers.name }).from(servers).where(inArray(servers.id, serverIds))).map((s) => [s.id, s.name]));
+    const samples = new Map(
+      (
+        await app.db
+          .selectDistinctOn([serverMetrics.serverId], { serverId: serverMetrics.serverId, ts: serverMetrics.ts, services: serverMetrics.services })
+          .from(serverMetrics)
+          .where(inArray(serverMetrics.serverId, serverIds))
+          .orderBy(serverMetrics.serverId, desc(serverMetrics.ts))
+      ).map((s) => [s.serverId, s]),
+    );
+    const repoIds = [...new Set(pairs.map((p) => p.repositoryId))];
+    const recent = await app.db
+      .select({ repositoryId: releases.repositoryId, code: releases.code, mergeSha: releases.mergeSha })
+      .from(releases)
+      .where(inArray(releases.repositoryId, repoIds))
+      .orderBy(desc(releases.mergedAt))
+      .limit(500);
+    const out = new Map<string, ProjectEnvironment["servers"]>();
+    for (const p of pairs) {
+      const sample = samples.get(p.serverId);
+      const shas = (sample?.services ?? []).flatMap((s) => (s.commitSha ? [{ name: s.name, sha: s.commitSha }] : []));
+      let reportedSha: string | null = null;
+      let releaseCode: string | null = null;
+      for (const rel of recent) {
+        if (rel.repositoryId !== p.repositoryId) continue;
+        const hit = shas.find((s) => sameCommit(s.sha, rel.mergeSha));
+        if (hit) {
+          reportedSha = hit.sha;
+          releaseCode = rel.code;
+          break;
+        }
+      }
+      reportedSha ??= shas.find((s) => s.name === p.env.name)?.sha ?? null;
+      const list = out.get(p.env.id) ?? [];
+      list.push({
+        repositoryId: p.repositoryId,
+        serverId: p.serverId,
+        ...(names.has(p.serverId) ? { serverName: names.get(p.serverId)! } : {}),
+        reportedSha,
+        reportedAt: sample ? sample.ts.toISOString() : null,
+        releaseCode,
+      });
+      out.set(p.env.id, list);
+    }
+    // R-L7: i server che nessun ambiente di un ALTRO progetto usa.
+    const usedElsewhere = new Set(
+      (
+        await app.db
+          .selectDistinct({ serverId: environmentServers.serverId })
+          .from(environmentServers)
+          .innerJoin(projectEnvironments, eq(projectEnvironments.id, environmentServers.environmentId))
+          .where(and(inArray(environmentServers.serverId, serverIds), ne(projectEnvironments.projectId, projectId)))
+      ).map((r) => r.serverId),
+    );
+    return { servers: out, onlyHere: new Set(serverIds.filter((id) => !usedElsewhere.has(id))) };
+  }
+
   async function findEnvironment(projectId: string, environmentId: string): Promise<EnvironmentRow | undefined> {
     const [row] = await app.db
       .select()
@@ -152,7 +223,13 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
       const serverIds = [...new Set(rows.flatMap((r) => (r.serverId ? [r.serverId] : [])))];
       const servicesByServer = await loadLatestServicesByServer(app.db, serverIds);
       const byEnv = await serversOf(rows.map((r) => r.id));
-      return rows.map((row) => toPublic(row, servicesByServer, byEnv.get(row.id) ?? []));
+      const extras = await listExtras(projectId, rows, byEnv);
+      const canManage = request.access?.permissions.has("environments.manage") === true;
+      return rows.map((row) => ({
+        ...toPublic(row, servicesByServer, extras.servers.get(row.id) ?? byEnv.get(row.id) ?? []),
+        canManage,
+        onlyHere: (byEnv.get(row.id) ?? []).map((s) => s.serverId).filter((id, i, all) => extras.onlyHere.has(id) && all.indexOf(id) === i),
+      }));
     },
   );
 

@@ -37,7 +37,32 @@ export const projectEnvironmentSchema = z.object({
    * questo ambiente (repository diverse su server diversi). `.default([])`:
    * un server più vecchio non lo manda (e lì vale `serverId` per tutte).
    */
-  servers: z.array(z.object({ repositoryId: z.uuid(), serverId: z.uuid() })).default([]),
+  servers: z
+    .array(
+      z.object({
+        repositoryId: z.uuid(),
+        serverId: z.uuid(),
+        // Area 8, F1 (facoltativi, solo nell'elenco): il nome del server, il
+        // commit che l'agente riporta per QUESTA repository e quando, e il
+        // rilascio di quel commit (`= AUD-V6`), se è di un rilascio della
+        // repository. Il commit è quello di un servizio del server che
+        // combacia con un rilascio della repository (`sameCommit`); senza,
+        // quello del servizio col nome dell'ambiente (la convenzione di
+        // `runningCommitSha`), e nessun codice.
+        serverName: z.string().optional(),
+        reportedSha: z.string().nullable().optional(),
+        reportedAt: z.iso.datetime().nullable().optional(),
+        releaseCode: z.string().nullable().optional(),
+      }),
+    )
+    .default([]),
+  /** Area 8, F1: chi guarda ha `environments.manage` nel progetto (calcolato dal server). */
+  canManage: z.boolean().optional(),
+  /**
+   * Area 8, F1 (R-L7): i server di questo ambiente che NESSUN altro progetto
+   * usa — togliendone l'ultima riga il server resta orfano.
+   */
+  onlyHere: z.array(z.uuid()).optional(),
 });
 export type ProjectEnvironment = z.infer<typeof projectEnvironmentSchema>;
 
