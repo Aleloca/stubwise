@@ -2512,8 +2512,12 @@ describe("seed: Automations (area 7)", () => {
     // Le task di AUT-1 #1: senza incaricato, del reparto indicato, nel traguardo creato.
     const done = run(AUTOMATION_CASES.runs.done);
     const milestoneCode = done.log.find((e) => e.kind === "createMilestone")!.effects[0]!.code;
+    // Il registro dice il nome di allora; il traguardo è stato rinominato dopo (`created.ts`).
+    expect(done.log.find((e) => e.kind === "createMilestone")!.input).toMatchObject({
+      nome: "Attivazione CRM – Cantina Bellavista Srl",
+    });
     expect(MILESTONES.find((m) => m.id === milestoneCode)!.name).toBe(
-      "Attivazione CRM – Cantina Bellavista Srl",
+      "Attivazione CRM – Cantina Bellavista",
     );
     const departments: Record<string, string> = {
       "nc-task-dev": "dep-development",

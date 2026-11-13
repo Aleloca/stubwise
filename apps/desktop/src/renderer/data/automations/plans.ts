@@ -52,6 +52,9 @@ export const storeWorld: PlanWorld = {
   checkNewMilestone: (owner, projectId, input) => checkNewMilestone(owner, projectId, input),
   checkNewRequest: (owner, input) => checkNewRequest(owner, input),
   defaultDepartmentOf: (personId) => defaultDepartmentOf(personId),
+  // Il nome di un traguardo è unico per progetto (come l'esecutore: confronto esatto).
+  milestoneNameTaken: (projectId, name) =>
+    state.milestones.some((m) => m.projectId === projectId && m.name === name),
 };
 
 export type {
