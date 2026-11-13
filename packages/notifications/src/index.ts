@@ -329,3 +329,4 @@ export {
 export { resolveRecipientUserIds } from "./mail-recipients.js";
 export { canSeeMeeting, meetingAudienceEmails, meetingViewerIds } from "./meeting-visibility.js";
 export { productionForStatus, releaseProductionOf, type ReleaseProduction } from "./release-production.js";
+export { catalogRecipients, type CatalogRecipients, type CatalogRecipientsContext } from "./alert-recipients.js";
