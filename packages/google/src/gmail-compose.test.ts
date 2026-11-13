@@ -105,6 +105,13 @@ describe("le bozze di Gmail", () => {
     expect(JSON.parse(calls[0]!.body!)).toEqual({ id: "d1" });
   });
 
+  it("area 7, F2, C2: intestazioni in più su UNA riga (niente iniezione), es. Auto-Submitted", () => {
+    const mime = buildMimeMessage({ from: { email: "a@b.it" }, to: [{ email: "c@d.it" }], cc: [], subject: "s", body: "b", extraHeaders: { "Auto-Submitted": "auto-generated", "X-Stubwise-Automation": "run\r\nBcc: evil@x.y" } });
+    expect(mime).toContain("Auto-Submitted: auto-generated\r\n");
+    expect(mime).toMatch(/X-Stubwise-Automation: run ?Bcc: evil@x\.y/);
+    expect(mime).not.toMatch(/\r\nBcc:/);
+  });
+
   it("area 7, F2: manda un messaggio senza bozza (POST messages/send col raw e il thread)", async () => {
     const { impl, calls } = fakeFetch([jsonResponse({ id: "m7", threadId: "t7", labelIds: ["SENT"] }), jsonResponse({ id: "m8", threadId: "m8" })]);
     expect(await sendMessage({ accessToken: "at", raw: "UkFX", threadId: "t7" }, { fetchImpl: impl })).toEqual({ messageId: "m7", threadId: "t7" });

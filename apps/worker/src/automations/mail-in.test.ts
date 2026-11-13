@@ -21,7 +21,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { consumeAutomationEvents } from "./consumer.js";
 import { executeDueRuns } from "./executor.js";
 import { pauseDeafListeners } from "./deaf-listeners.js";
-import { automationMailIn } from "./mail-in.js";
+import { automationMailIn, isAutomatedMail } from "./mail-in.js";
 
 /**
  * L'INIZIO «EMAIL IN ARRIVO» (area 7, F2, S8; C-F2-0, C-F2-5): TUTTE le email
@@ -75,12 +75,13 @@ async function listening(over: { owner?: string; box?: string; steps?: Step[]; f
   return a!;
 }
 
-const message = (over: Partial<{ accountId: string; gmailMessageId: string; threadId: string; from: string; subject: string }> = {}) => ({
+const message = (over: Partial<{ accountId: string; gmailMessageId: string; threadId: string; from: string; subject: string; automated: boolean }> = {}) => ({
   accountId: mailbox,
   gmailMessageId: `gm-${randomUUID().slice(0, 8)}`,
   threadId: `th-${randomUUID().slice(0, 8)}`,
   from: "cliente@b.it",
   subject: "Preventivo",
+  automated: false,
   ...over,
 });
 const runsOf = (id: string) => t.db.select().from(automationRuns).where(eq(automationRuns.automationId, id));
@@ -214,6 +215,37 @@ describe("«email in arrivo»", () => {
     expect((await t.db.select().from(automations).where(eq(automations.id, a.id)))[0]).toMatchObject({ status: "paused", pausedReason: "mailbox_lost", mailboxAccountId: null });
     const cards = (await t.db.select().from(notifications).where(eq(notifications.userId, ownerId))).filter((n) => n.kind === "automation.paused");
     expect(cards).toHaveLength(1);
+  });
+
+  it("review F2, C2 *(M)*: due automazioni su due caselle che si rispondono si fermano al primo giro (le nostre email sono marcate, e una marcata non fa partire niente)", async () => {
+    const other = await person();
+    const boxB = await boxOf(other);
+    const b = await listening({ owner: other, box: boxB });
+    // L'email della prima automazione arriva nella casella della seconda: porta Auto-Submitted.
+    const headers = { "auto-submitted": "auto-generated", from: "olga@acme.com" };
+    expect(isAutomatedMail(headers)).toBe(true);
+    await automationMailIn(t.db, message({ accountId: boxB, automated: isAutomatedMail(headers) }), async () => "x");
+    await consumeAutomationEvents({ db: t.db });
+    expect(await runsOf(b.id)).toEqual([]);
+  });
+
+  it("review F2, C2: un rimbalzo da mailer-daemon (o postmaster) non fa partire niente, ma SVEGLIA l'attesa della risposta nella conversazione giusta", async () => {
+    const a = await listening();
+    expect(isAutomatedMail({ from: "Mail Delivery Subsystem <MAILER-DAEMON@googlemail.com>" })).toBe(true);
+    expect(isAutomatedMail({ from: "postmaster@b.it" })).toBe(true);
+    expect(isAutomatedMail({ from: "cliente@b.it", "auto-submitted": "no" })).toBe(false);
+    expect(isAutomatedMail({ from: "news@b.it", precedence: "bulk", "list-id": "<x.b.it>" })).toBe(false);
+    const [run] = await t.db
+      .insert(automationRuns)
+      .values({ automationId: a.id, n: 90, version: 1, title: "R", origin: "stubwise", status: "waiting_event", mailboxAccountId: mailbox, waitingThread: `${mailbox}:th-bounce`, cursor: { path: "1", waitingUntil: new Date(Date.now() + 86_400_000).toISOString() } })
+      .returning();
+    await t.db.update(automationVersions).set({ flow: { trigger: { kind: "stubwise", event: "mail_received" }, steps: [{ id: "m", kind: "sendEmail", to: "x@b.it", subject: "s", body: "b", attachRefs: [], approval: { mode: "auto" } }, { id: "w", kind: "wait", for: { replyTo: "m", maxDays: 3 } }], titleTemplate: "t" } }).where(eq(automationVersions.automationId, a.id));
+    await automationMailIn(t.db, message({ threadId: "th-bounce", from: "mailer-daemon@googlemail.com", automated: true }), async () => "Address not found");
+    await automationMailIn(t.db, message({ from: "mailer-daemon@googlemail.com", automated: true }), async () => "Address not found");
+    await consumeAutomationEvents({ db: t.db });
+    expect((await runsOf(a.id)).map((r) => r.n)).toEqual([90]);
+    expect(await t.db.select().from(automationEvents).where(eq(automationEvents.accountId, mailbox))).toEqual([]);
+    expect(await t.db.select().from(automationRunInputs).where(eq(automationRunInputs.runId, run!.id))).toHaveLength(1);
   });
 });
 

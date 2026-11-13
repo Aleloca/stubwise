@@ -586,6 +586,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   automazione crescono piano, ma un'automazione accesa da anni ne accumula.
   Da decidere quando servirà (es. finite da più di un anno, tenendo il
   registro delle task e delle richieste create, che già lo nominano).
+- F2, le email automatiche *(M, review F2 C2, 13 nov 2026)*: le email delle
+  automazioni portano `Auto-Submitted: auto-generated`; un'email in arrivo
+  automatica (`Auto-Submitted` diverso da `no`, mailer-daemon, postmaster)
+  non fa partire automazioni ma sveglia le attese. Nessun filtro su
+  `Precedence`/`List-Id`, nessun tetto giornaliero: se un caso nuovo di giro
+  si presentasse (un risponditore che non marca), si riparte da qui.
 - F2, «email in arrivo» *(M, 13 nov 2026)*: TUTTE le email ricevute
   (F2-1), tranne le risposte in una conversazione in cui la stessa
   automazione ha mandato un'email: svegliano solo le sue attese (C-F2-5 del

@@ -186,6 +186,16 @@ motore condiviso (`packages/shared/src/automations/`).
   conversazione. Senza questa regola un risponditore automatico o un
   rimbalzo la farebbero ripartire all'infinito, perché un evento della
   posta non ha origine e la catena non lo vede. Piano della F2, C-F2-5.
+- **Le nostre email sono marcate, e una marcata non fa partire niente**
+  (review F2, C2, decisione del maintainer *(M)*, 13 nov 2026). Ogni email
+  di un'automazione porta `Auto-Submitted: auto-generated` (RFC 3834) e
+  `X-Stubwise-Automation: <run>`. Un'email in arrivo con `Auto-Submitted`
+  diverso da `no`, o da mailer-daemon/postmaster (i rimbalzi), NON fa
+  partire automazioni (`isAutomatedMail`), ma sveglia le attese della
+  risposta nella sua conversazione. È ciò che ferma due automazioni su due
+  caselle che si rispondono: si fermano al primo giro. Le email delle
+  persone partono tutte (F2-1): nessun filtro su `Precedence: bulk` o
+  `List-Id`, e nessun tetto giornaliero (D2).
 
 ## L'email di un passo (F2)
 

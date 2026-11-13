@@ -17,7 +17,7 @@ import {
   users,
   type Db,
 } from "@stubwise/db";
-import { automationMailIn } from "../automations/mail-in.js";
+import { automationMailIn, isAutomatedMail } from "../automations/mail-in.js";
 import { recognizeGeminiNotes } from "./gemini.js";
 import { processMeetingNotes, type DriveReadClient } from "./meetings.js";
 import {
@@ -1093,7 +1093,7 @@ async function syncGmail(
     try {
       await automationMailIn(
         deps.db,
-        { accountId: account.id, gmailMessageId: id, threadId: metadata.threadId, from: normalizeAddress(metadata.headers["from"]), subject: metadata.headers["subject"] ?? "" },
+        { accountId: account.id, gmailMessageId: id, threadId: metadata.threadId, from: normalizeAddress(metadata.headers["from"]), subject: metadata.headers["subject"] ?? "", automated: isAutomatedMail(metadata.headers) },
         async () => {
           const full = await gmail.getMessageFull({ accessToken: ctx.accessToken, id });
           return full.payload ? extractText(full.payload) : "";

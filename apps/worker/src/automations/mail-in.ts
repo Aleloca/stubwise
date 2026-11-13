@@ -28,6 +28,27 @@ export interface IncomingMail {
   threadId: string;
   from: string;
   subject: string;
+  /** Un'email automatica (`isAutomatedMail`): sveglia le attese, non fa partire automazioni (C2). */
+  automated: boolean;
+}
+
+/**
+ * Un'email AUTOMATICA (review F2, C2, decisione del maintainer *(M)*):
+ * `Auto-Submitted` diverso da `no` (RFC 3834 — le nostre email lo portano,
+ * `auto-generated`), oppure da mailer-daemon/postmaster (i rimbalzi). Non fa
+ * partire automazioni (niente botta e risposta fra due automazioni, nostre o
+ * di chi riceve), ma sveglia le attese della risposta nella sua conversazione.
+ * Niente filtro su `Precedence: bulk` o `List-Id`: le email delle persone
+ * partono tutte (F2-1), e non c'è un tetto giornaliero (D2).
+ * `headers`: le intestazioni con il nome in minuscolo (come le dà il client Gmail).
+ */
+export function isAutomatedMail(headers: Readonly<Record<string, string | undefined>>): boolean {
+  const auto = headers["auto-submitted"]?.trim().toLowerCase();
+  if (auto && auto !== "no" && !auto.startsWith("no;") && !auto.startsWith("no ")) return true;
+  const from = (headers["from"] ?? "").toLowerCase();
+  const address = /<([^>]+)>/.exec(from)?.[1] ?? from;
+  const local = address.trim().split("@")[0] ?? "";
+  return local === "mailer-daemon" || local === "postmaster";
 }
 
 export async function automationMailIn(db: Db, mail: IncomingMail, loadText: () => Promise<string>): Promise<void> {
@@ -41,10 +62,12 @@ export async function automationMailIn(db: Db, mail: IncomingMail, loadText: () 
     .from(automationRuns)
     .where(and(eq(automationRuns.waitingThread, `${mail.accountId}:${mail.threadId}`), eq(automationRuns.mailboxAccountId, mail.accountId)))
     .limit(1);
-  if (!listener && !waiter) return;
+  // C2: un'email automatica non fa partire automazioni (sveglia solo le attese).
+  const starts = !!listener && !mail.automated;
+  if (!starts && !waiter) return;
   const text = (await loadText()).slice(0, MAIL_TEXT_MAX);
   if (waiter) await wakeReplyWaits(db, { accountId: mail.accountId, threadId: mail.threadId, text, gmailMessageId: mail.gmailMessageId });
-  if (!listener) return;
+  if (!starts) return;
   await db
     .insert(automationEvents)
     .values({
