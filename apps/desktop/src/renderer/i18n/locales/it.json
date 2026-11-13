@@ -7091,7 +7091,11 @@
       "statusDraftBy": "mai accesa · creata da {{who}} il {{date}}",
       "duplicateVersion": "Duplica questa versione",
       "statusPausedBy_zero": "messa in pausa da {{who}} il {{date}}",
-      "statusPaused_zero": "proprietario {{owner}}"
+      "statusPaused_zero": "proprietario {{owner}}",
+      "pausedReason": {
+        "mailbox_lost": "la casella del proprietario non è più utilizzabile",
+        "owner_lost_permission": "il proprietario ha perso un permesso che serve"
+      }
     },
     "version": {
       "short": "v{{n}}",
