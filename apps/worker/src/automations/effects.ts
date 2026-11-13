@@ -151,7 +151,7 @@ export async function executeEffect(eff: EffectRequest, env: EffectEnv): Promise
       case "createRequest": {
         const p = planRequest(world, eff, automation, owner);
         if (!p.ok) return p.outcome;
-        const itemId = await createRequestItem(tx, { projectId: p.plan.projectId, title: p.plan.title, document: p.plan.description, requesterId: owner, automationRunId: env.runId });
+        const itemId = await createRequestItem(tx, { projectId: p.plan.projectId, title: p.plan.title, document: p.plan.description, requesterId: owner, automationRunId: env.runId, estimate: false });
         await record("request", itemId);
         return done(await codesOf(tx, "request", itemId), p.plan.projectId);
       }

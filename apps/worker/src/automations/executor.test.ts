@@ -9,6 +9,7 @@ import {
   automationVersions,
   backlogItemRequesters,
   backlogItems,
+  backlogJobs,
   milestones,
   notifications,
   projectMembers,
@@ -228,6 +229,8 @@ describe("executeDueRuns", () => {
     const [item] = await t.db.select().from(backlogItems).where(eq(backlogItems.automationRunId, run.id));
     expect(item).toMatchObject({ title: "Serve il contratto", document: "Per Rossi" });
     expect(await t.db.select().from(backlogItemRequesters).where(eq(backlogItemRequesters.itemId, item!.id))).toEqual([expect.objectContaining({ userId: ownerId })]);
+    // P3 = a: una richiesta creata da un'automazione non avvia lavoro AI (nessun job di stima).
+    expect((await t.db.select().from(backlogJobs)).filter((j) => (j.payload as { itemId?: string }).itemId === item!.id)).toEqual([]);
     const cards = await cardsOf(otherId, "automation.notify");
     expect(cards).toHaveLength(1);
     expect(cards[0]!.event).toMatchObject({ message: "Pronto Rossi", runId: run.id });
