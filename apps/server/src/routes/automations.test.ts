@@ -308,6 +308,24 @@ describe("le letture personali e la card d'inbox", () => {
     expect((await call(dev.headers, "GET", "/me/automation-runs")).json()).toEqual({ items: [] });
   });
 
+  it("review F1, I5 e renderer: «Da decidere» filtra sul progetto dell'APPROVAZIONE (un destinatario fisso che vede solo quello la trova); una decisione già in coda la toglie", async () => {
+    const { p, lead } = await setup();
+    const q = await project();
+    await addMember(app, q.id, lead.id, "project_lead");
+    const approver = await person();
+    await addMember(app, q.id, approver.id, "developer");
+    const a = await created(lead, p.id, flowOf([createTask({ project: { mode: "fixed", projectId: q.id }, approval: { mode: "ask", who: { personId: approver.id } } })]));
+    expect((await call(lead.headers, "POST", `/automations/${a.code}/publish`, {})).statusCode).toBe(200);
+    const [run] = await db
+      .insert(automationRuns)
+      .values({ automationId: a.id, n: 1, version: 1, title: "Altrove", origin: "manual", status: "waiting_approval", cursor: { path: "0" }, pending: { approverIds: [approver.id], preview: { titolo: "X", progetto: q.id }, path: "0", round: 0 } })
+      .returning();
+    const list = async () => ((await call(approver.headers, "GET", "/me/automation-approvals")).json() as { items: { code: string; projectId: string | null }[] }).items;
+    expect(await list()).toEqual([expect.objectContaining({ code: `${a.code} #1`, projectId: q.id })]);
+    await db.insert(automationRunInputs).values({ runId: run!.id, input: { kind: "approved", path: "0", byId: approver.id }, byId: approver.id });
+    expect(await list()).toEqual([]);
+  });
+
   it("la card automation.approval: derivata a lettura — aspetta me finché il passo aspetta; deciso, lo dice; chi non la vede: objectGone", async () => {
     const { a, run, lead, p } = await waiting();
     const second = await person();
