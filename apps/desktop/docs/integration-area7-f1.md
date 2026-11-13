@@ -8,10 +8,9 @@ fetta 1. Piano: `docs/plans/2026-11-12-integrazione-area7-fetta1-plan.md`
 stubwise-72 (`feat/area7-f1`); qui il renderer (`feat/area7-f1-engine`).
 
 ⚠️ **Bozza.** La destinazione `automations` resta SPENTA nella build app
-finché il server dell'area 7 non c'è. Gli adattatori della prova e di «Da
-decidere» prendono le rotte iniettate. Manca ancora il cablaggio sui metodi
-di `client.automations`, e manca R2, il livello dati delle letture e delle
-scritture. Le righe «da cablare» sotto lo dicono.
+finché il server dell'area 7 non c'è. Gli adattatori (livello dati, prova,
+«Da decidere») prendono le rotte iniettate: manca il cablaggio sui metodi di
+`client.automations`. Le righe «da cablare» sotto lo dicono.
 
 ## Renderer (stubwise-94)
 
@@ -26,7 +25,8 @@ scritture. Le righe «da cablare» sotto lo dicono.
 | Sources, webhook, tabella cliente → progetto | non ci sono (F4); le funzioni restano stub | `AutomationsF1.test.tsx`, `ComingSoon.test.tsx` | fatto |
 | «New automation» coi due modelli | solo da zero (P2 = a): niente modelli nel dialogo, nel menu e nel vuoto | `AutomationsF1.test.tsx` | fatto |
 | «Pass time» e «Simulate reply» nell'esecuzione | solo nel prototipo | `AutomationsF1.test.tsx` | fatto |
-| Elenco, viste, dettaglio, costruttore, salvataggio automatico (409 `stale`), Run now, esecuzione col registro, progetto, riga d'origine, ⌘K (R2, R4) | sopra `client.automations` | `automationsPage.test.tsx` (da scrivere) | da fare |
+| Il livello dati: elenco, dettaglio, check della bozza, creazione da zero, salvataggio con `expectedRev`, rinomina, pubblica/accendi/pausa/duplica/elimina col rev letto, esecuzioni, Run now, annulla/riprova/salta, scegli il progetto, sezione del progetto, riga d'origine (R2) | `data/backend/real/automations.ts`, per codice dalle letture (`automationRefs.ts`). Il 409 `stale` sulla bozza è `invalid: stale`: il costruttore offre «Reload» e la modifica resta a schermo | `real/automations.test.ts`, `builder/Builder.test.tsx` | da cablare |
+| Le pagine fino alla richiesta esatta, ⌘K (R4) | sopra `client.automations`, a flag acceso | `automationsPage.test.tsx` (da scrivere) | da fare |
 | Le forme | le letture in `@stubwise/shared` (`automations/views.ts`), forme confermate da 72; `round?` facoltativo su `AutomationDecision`/`AutomationRunRow` (assente = 0) | — | fatto |
 
 ### Differenze dichiarate
@@ -40,4 +40,4 @@ scritture. Le righe «da cablare» sotto lo dicono.
 
 3b077823, 968acbe0 (task 0) · ee84e161 (R6) · 7d9fe134 (R5) · ee9047d7
 (le forme) · a5864b67, 86d0c883, bf5fc869, ec1d3095 (R3) · 457e63ec,
-5b1fbf40 (R7) · 9f7acbdf (R4, prima parte).
+5b1fbf40 (R7) · 9f7acbdf (R4, prima parte) · 1954b346 (R2).
