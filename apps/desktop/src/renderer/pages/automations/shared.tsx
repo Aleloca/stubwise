@@ -1,3 +1,4 @@
+import { automationAvailability } from "../../data/integration";
 import { Link } from "@tanstack/react-router";
 import { useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -54,19 +55,25 @@ const CREATE_PERMISSION = {
 /**
  * Cosa può fare chi guarda, dai permessi calcolati: creare automazioni (in
  * almeno un progetto o d'istanza), le generali (d'istanza), le sorgenti.
+ * Nella build app, finché c'è solo la fetta 1 (area 7), niente generali,
+ * sorgenti e tabella cliente (F4) né modelli (P2 = a).
  */
 export function useAutomationPerms() {
   const { viewer } = useViewer();
   const instance = can(viewer, "automations.manage");
+  const f1 = automationAvailability() !== undefined;
   return {
-    instance,
+    /** Le automazioni generali (fra i progetti): il permesso d'istanza, fuori dalla fetta 1. */
+    instance: instance && !f1,
+    /** I modelli di «New automation»: fuori dalla fetta 1. */
+    templates: !f1,
     anywhere:
       instance ||
       Object.values(viewer.projectPermissions).some((p) =>
         (p as readonly string[]).includes("automations.manage"),
       ),
     inProject: (projectId: string) => can(viewer, "automations.manage", projectId),
-    integrations: can(viewer, "integrations.manage"),
+    integrations: can(viewer, "integrations.manage") && !f1,
     createTasks: (projectId: string) => can(viewer, "tickets.create", projectId),
     /** Il permesso che serve per creare ciò che crea un passo (come `activate`/`publish`). */
     canCreate: (kind: "createTask" | "createMilestone" | "createRequest", projectId: string) =>

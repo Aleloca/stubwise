@@ -1,3 +1,4 @@
+import { automationAvailability } from "../../data/integration";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -134,7 +135,9 @@ export function RunDetail({ runId, entry }: { runId: string; entry?: string }) {
       onError: () => toast.error(t("automations.toast.decisionError", { code: run.code })),
     });
   // Anche ferma per un blocco d'istanza ([EF 6]): «Pass time» c'è e dice che non la muove.
+  // Solo nel prototipo: nella build app il tempo non si fa passare.
   const passTime =
+    automationAvailability() === undefined &&
     run.permissions.manage &&
     (run.status === "waiting_event" || run.status === "waiting_approval" || !!run.aiWaiting);
 
