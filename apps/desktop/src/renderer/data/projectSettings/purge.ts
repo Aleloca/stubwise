@@ -1,4 +1,4 @@
-import { visitSteps } from "../../domain/automations/fields";
+import { visitSteps } from "@stubwise/shared";
 import { forgetSecret } from "../admin/secrets";
 import { writeAccess } from "../access/index";
 import type { Project } from "../model";

@@ -3,9 +3,9 @@ import {
   initialState,
   type EngineInput,
   type EngineStep,
-} from "../../domain/automations/engine";
-import { stepAt } from "../../domain/automations/fields";
-import type { FlowIssue } from "../../domain/automations/validate";
+} from "@stubwise/shared";
+import { stepAt } from "@stubwise/shared";
+import type { FlowIssue } from "@stubwise/shared";
 import { onBeforePersonaChange } from "../session";
 import { copy, gate, now, onStoreReset } from "../store";
 import { visiblePeopleFor } from "../access/whoCan";

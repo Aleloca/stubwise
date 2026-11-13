@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { availableFields } from "../../../domain/automations/fields";
+import { availableFields } from "@stubwise/shared";
 import { usePeople, useProjects } from "../../../data/queries";
 import type { Approval, ProjectTarget, Step } from "../../../data/types";
 import { useAutomationPerms } from "../shared";

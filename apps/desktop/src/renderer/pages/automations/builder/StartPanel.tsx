@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { triggerFields } from "../../../domain/automations/fields";
+import { triggerFields } from "@stubwise/shared";
 import type { AutomationTrigger, DataField } from "../../../data/types";
 import { Dialog } from "../../../tasks-ui/Dialog";
 import { primaryButton, secondaryButton } from "../../tasks/controls";

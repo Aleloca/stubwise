@@ -1,6 +1,6 @@
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
-import { availableFields } from "../../../domain/automations/fields";
+import { availableFields } from "@stubwise/shared";
 import type { Condition, DataField, Operand } from "../../../data/types";
 import { useBuilder } from "./context";
 import { tokenLabel } from "./DataText";

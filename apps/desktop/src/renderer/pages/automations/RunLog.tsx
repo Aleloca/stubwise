@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { childLists } from "../../domain/automations/fields";
+import { childLists } from "@stubwise/shared";
 import type { RunLogEntry, Step } from "../../data/types";
 import { quietButton } from "../tasks/controls";
 import { typing } from "../tasks/useTaskKeys";

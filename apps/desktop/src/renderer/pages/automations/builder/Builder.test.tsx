@@ -1,7 +1,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { visitSteps } from "../../../domain/automations/fields";
+import { visitSteps } from "@stubwise/shared";
 import { automations as automationsApi, failNext, resetApi, setLatency } from "../../../data/api";
 import { templateFlow } from "../../../data/automations/templates";
 import { state } from "../../../data/store";

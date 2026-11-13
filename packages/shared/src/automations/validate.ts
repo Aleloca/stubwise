@@ -7,7 +7,7 @@ import type {
   FieldType,
   ProjectTarget,
   Step,
-} from "../../data/types";
+} from "./types.js";
 import {
   AUTOMATION_LIMITS,
   ancestorsAt,
@@ -16,7 +16,7 @@ import {
   triggerFields,
   visitSteps,
   type Scope,
-} from "./fields";
+} from "./fields.js";
 
 // La validazione di un flusso: pura, la usano il costruttore (errori sul
 // passo), la pubblicazione (un flusso con errori non si accende) e la prova.
@@ -38,7 +38,9 @@ export interface FlowIssue {
   message: string;
 }
 
-export type ApprovalWho = Extract<Approval, { mode: "ask" }>["who"];
+// Uno solo per tutto il motore (era scritto uguale qui e in `preview.ts`).
+export type { ApprovalWho } from "./preview.js";
+import type { ApprovalWho } from "./preview.js";
 
 export interface ValidateContext {
   sources: AutomationSource[];

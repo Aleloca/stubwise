@@ -1,6 +1,6 @@
-import type { EngineInput, ResolvedTarget } from "../../domain/automations/engine";
-import { stepAt } from "../../domain/automations/fields";
-import { describe, projectOf, show, type ActionStep } from "../../domain/automations/preview";
+import type { EngineInput, ResolvedTarget } from "@stubwise/shared";
+import { stepAt } from "@stubwise/shared";
+import { describe, projectOf, show, type ActionStep } from "@stubwise/shared";
 import { copy, state, visibleProjectIds } from "../store";
 import type { Automation, SimulationProject, SimulationView, SimulationWaiting } from "../types";
 import type { ActionEffect } from "./plans";

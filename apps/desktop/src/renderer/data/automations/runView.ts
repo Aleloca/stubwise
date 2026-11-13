@@ -1,4 +1,4 @@
-import { visitSteps } from "../../domain/automations/fields";
+import { visitSteps } from "@stubwise/shared";
 import { copy, state, visibleProjectIds } from "../store";
 import type { AutomationRun, ReasonCode, RunLogEntry } from "../types";
 import { budgetReached } from "../instance/blocks";

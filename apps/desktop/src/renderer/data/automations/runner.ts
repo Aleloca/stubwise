@@ -4,9 +4,9 @@ import {
   type EngineInput,
   type EngineState,
   type EngineStep,
-} from "../../domain/automations/engine";
-import { render } from "../../domain/automations/preview";
-import { restoreState } from "../../domain/automations/restore";
+} from "@stubwise/shared";
+import { render } from "@stubwise/shared";
+import { restoreState } from "@stubwise/shared";
 import { aiBlockFor } from "../instance/blocks";
 import { dropHeld, heldJobs, holdJob } from "../instance/queue";
 import { runHref } from "../routes";

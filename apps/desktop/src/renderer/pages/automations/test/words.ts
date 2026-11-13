@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import { show } from "../../../domain/automations/preview";
+import { show } from "@stubwise/shared";
 import type { SimulationView, Step } from "../../../data/types";
 import type { TestState } from "./context";
 import { entriesUnder, lastEntry, type Mark } from "./marks";

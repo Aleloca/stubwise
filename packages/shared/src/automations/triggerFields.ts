@@ -1,4 +1,4 @@
-import type { AutomationTrigger, DataField } from "../../data/types";
+import type { AutomationTrigger, DataField } from "./types.js";
 
 // I dati che portano gli inizi interni (eventi di Stubwise, data, a mano) e
 // quelli che un'attesa di risposta scrive: li usa `availableFields` (Task 2).

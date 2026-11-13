@@ -4,8 +4,8 @@ import {
   joinPath,
   stepAt,
   visitSteps,
-} from "../../../domain/automations/fields";
-import { MAX_NESTING, templateRefs } from "../../../domain/automations/validate";
+} from "@stubwise/shared";
+import { MAX_NESTING, templateRefs } from "@stubwise/shared";
 import type { AutomationFlow, AutomationSource, Condition, Step } from "../../../data/types";
 
 // Le operazioni del costruttore sull'albero dei passi (shape builder §4–§6):

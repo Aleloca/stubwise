@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { evaluate, lookup } from "../../domain/automations/conditions";
+import { evaluate, lookup } from "@stubwise/shared";
 import { automations, claude, createConversation, resetApi, setLatency } from "../api";
 import { pickTrialExamples } from "../automations/examples";
 import { trialAs } from "../automations/simulate";

@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import { triggerFields, visitSteps } from "../../domain/automations/fields";
+import { triggerFields, visitSteps } from "@stubwise/shared";
 import { now } from "../../data/dates";
 import {
   useActivateAutomation,

@@ -1,6 +1,6 @@
-import type { Approval, PersonTarget, ProjectTarget, Step } from "../../data/types";
-import { lookup } from "./conditions";
-import type { EngineState, ResolvedTarget } from "./engine";
+import type { Approval, PersonTarget, ProjectTarget, Step } from "./types.js";
+import { lookup } from "./conditions.js";
+import type { EngineState, ResolvedTarget } from "./engine.js";
 
 // I dati e i testi del motore: come si legge una chiave in un punto
 // dell'esecuzione, come si compila un modello, cosa vede chi approva e cosa

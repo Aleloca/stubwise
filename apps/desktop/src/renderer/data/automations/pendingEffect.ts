@@ -1,6 +1,6 @@
-import type { ResolvedTarget } from "../../domain/automations/engine";
-import { describe, projectOf, type ActionStep } from "../../domain/automations/preview";
-import { restoreState } from "../../domain/automations/restore";
+import type { ResolvedTarget } from "@stubwise/shared";
+import { describe, projectOf, type ActionStep } from "@stubwise/shared";
+import { restoreState } from "@stubwise/shared";
 import { state, visibleProjectIds } from "../store";
 import type { AutomationRun, SimulationEffectPreview, SimulationProject } from "../types";
 import { planMilestone, planTask, type ActionEffect } from "./plans";

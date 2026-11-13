@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Condition } from "../../data/model";
-import { conditionRefs, evaluate, lookup } from "./conditions";
+import type { Condition } from "./types.js";
+import { conditionRefs, evaluate, lookup } from "./conditions.js";
 
 const VARS = {
   "risposta.arrivata": true,

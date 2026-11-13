@@ -2,9 +2,9 @@ import {
   PROJECT_NOT_FOUND,
   type EffectRequest,
   type EngineInput,
-} from "../../domain/automations/engine";
-import { AUTOMATION_LIMITS } from "../../domain/automations/fields";
-import { show } from "../../domain/automations/preview";
+} from "@stubwise/shared";
+import { AUTOMATION_LIMITS } from "@stubwise/shared";
+import { show } from "@stubwise/shared";
 import {
   checkNewMilestone,
   checkNewRequest,

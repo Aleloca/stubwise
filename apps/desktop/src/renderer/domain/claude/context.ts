@@ -1,4 +1,4 @@
-import type { FlowIssue } from "../automations/validate";
+import type { FlowIssue } from "@stubwise/shared";
 import type {
   ActionClass,
   ArchiveCandidates,

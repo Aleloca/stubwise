@@ -1,4 +1,4 @@
-import { lookup, evaluate } from "../../domain/automations/conditions";
+import { lookup, evaluate } from "@stubwise/shared";
 import {
   copy,
   onAutomationSignal,

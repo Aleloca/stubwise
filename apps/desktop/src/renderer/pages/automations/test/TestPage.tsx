@@ -1,7 +1,7 @@
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { stepAt } from "../../../domain/automations/fields";
+import { stepAt } from "@stubwise/shared";
 import {
   useAutomation,
   useAutomations,

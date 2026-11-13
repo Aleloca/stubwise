@@ -1,6 +1,6 @@
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
-import { AUTOMATION_LIMITS, availableFields, scopeAt } from "../../../domain/automations/fields";
+import { AUTOMATION_LIMITS, availableFields, scopeAt } from "@stubwise/shared";
 import { ConditionEditor } from "./ConditionEditor";
 import { useBuilder } from "./context";
 import { Field, Note, Section, Segmented, selectClass, smallInput } from "./controls";

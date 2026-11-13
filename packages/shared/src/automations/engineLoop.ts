@@ -1,8 +1,8 @@
-import type { Step } from "../../data/types";
-import { conditionRefs, evaluate } from "./conditions";
-import type { EffectRequest, EngineState, LogRow, ResolvedTarget } from "./engine";
-import { AUTOMATION_LIMITS, joinPath, listAt, repeatCap, stepAt } from "./fields";
-import { approverReason, describe, projectOf, resolve, show, type ActionStep } from "./preview";
+import type { Step } from "./types.js";
+import { conditionRefs, evaluate } from "./conditions.js";
+import type { EffectRequest, EngineState, LogRow, ResolvedTarget } from "./engine.js";
+import { AUTOMATION_LIMITS, joinPath, listAt, repeatCap, stepAt } from "./fields.js";
+import { approverReason, describe, projectOf, resolve, show, type ActionStep } from "./preview.js";
 
 // Il ciclo del motore (vedi `engine.ts`): entrare in un passo, eseguire
 // finché si può. Gli input stanno in `engineInputs.ts`.

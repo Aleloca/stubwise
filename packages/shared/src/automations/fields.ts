@@ -1,5 +1,5 @@
-import type { AutomationFlow, AutomationSource, DataField, Step } from "../../data/types";
-import { START_FIELDS, STUBWISE_TRIGGER_FIELDS, WAIT_REPLY_FIELDS } from "./triggerFields";
+import type { AutomationFlow, AutomationSource, DataField, Step } from "./types.js";
+import { START_FIELDS, STUBWISE_TRIGGER_FIELDS, WAIT_REPLY_FIELDS } from "./triggerFields.js";
 
 // I percorsi (grammatica R-J5 in `model.ts`) e i dati visibili in un punto
 // del flusso: li usano la validazione, il costruttore e il motore.

@@ -4,7 +4,7 @@ import { AUTOMATION_CASES, AUTOMATION_RUNS } from "../seed/automations";
 import { BELLAVISTA_REPLY } from "../seed/automations/mail";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
-import { visitSteps } from "../../domain/automations/fields";
+import { visitSteps } from "@stubwise/shared";
 import { grantInstancePermission, resetViewerGrants, revokeProjectPermission } from "../viewer";
 
 /** Il passo su cui si decide (`expectedPath`, obbligatorio): quello che l'esecuzione aspetta adesso. */

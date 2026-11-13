@@ -1,4 +1,4 @@
-import { stepAt } from "../../domain/automations/fields";
+import { stepAt } from "@stubwise/shared";
 import type { AutomationFlow, RunLogEntry, Step } from "../../data/types";
 
 // Il registro di un'esecuzione come albero (shape automations.md §6, «Log»):

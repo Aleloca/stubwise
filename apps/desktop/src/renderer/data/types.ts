@@ -1,5 +1,5 @@
 import type { InstancePermission, ProjectPermission } from "@stubwise/shared";
-import type { FlowIssue } from "../domain/automations/validate";
+import type { FlowIssue } from "@stubwise/shared";
 import type { Stall } from "../domain/stalled";
 import type {
   AiBlock,

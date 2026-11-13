@@ -1,4 +1,4 @@
-import type { Condition, Operand } from "../../data/types";
+import type { Condition, Operand } from "./types.js";
 
 // Le condizioni di un flusso: gruppi `all`/`any` e confronti semplici, niente
 // espressioni libere. Pure: i dati arrivano da fuori.

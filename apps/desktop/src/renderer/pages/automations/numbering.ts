@@ -1,4 +1,4 @@
-import { visitSteps } from "../../domain/automations/fields";
+import { visitSteps } from "@stubwise/shared";
 import type { Step } from "../../data/types";
 
 // R-J17: i passi si numerano 1…N nell'ordine di lettura su tutto l'albero

@@ -2,7 +2,7 @@ import {
   type EffectRequest,
   type EngineInput,
   type EngineState,
-} from "../../domain/automations/engine";
+} from "@stubwise/shared";
 import { lower } from "../mail/compose";
 import { copy, state } from "../store";
 import type {

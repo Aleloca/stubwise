@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
-import { stepAt, visitSteps } from "../../../domain/automations/fields";
+import { stepAt, visitSteps } from "@stubwise/shared";
 import type { AutomationFlow, AutomationSourceView, Step } from "../../../data/types";
 import { useToast } from "../../../tasks-ui/Toast";
 import type { BuilderState } from "./context";

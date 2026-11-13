@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { visitSteps } from "../../domain/automations/fields";
+import { visitSteps } from "@stubwise/shared";
 import { automations, resetApi, setLatency } from "../api";
 import { AUTOMATION_CASES } from "../seed/automations";
 import { setSessionPersonId } from "../session";

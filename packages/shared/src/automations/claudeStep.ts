@@ -1,5 +1,5 @@
-import type { DataField, FieldType, Step } from "../../data/types";
-import { AUTOMATION_LIMITS } from "./fields";
+import type { DataField, FieldType, Step } from "./types.js";
+import { AUTOMATION_LIMITS } from "./fields.js";
 
 // Regola 2 dell'anti-obiettivo: un passo di Claude restituisce solo una delle
 // uscite dichiarate e/o i campi dichiarati, col loro tipo. Tutto il resto è

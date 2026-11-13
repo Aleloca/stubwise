@@ -1,5 +1,5 @@
-import { visitSteps } from "../../domain/automations/fields";
-import { projectOf } from "../../domain/automations/preview";
+import { visitSteps } from "@stubwise/shared";
+import { projectOf } from "@stubwise/shared";
 import { currentVia } from "../claude/via";
 import { copy, noteWrite, now, state, visibleProjectIds } from "../store";
 import type { Automation, AutomationFlow, AutomationMeta, Project } from "../types";

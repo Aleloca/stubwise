@@ -1,8 +1,8 @@
 import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { lookup } from "../../../domain/automations/conditions";
-import { triggerFields } from "../../../domain/automations/fields";
-import { show } from "../../../domain/automations/preview";
+import { lookup } from "@stubwise/shared";
+import { triggerFields } from "@stubwise/shared";
+import { show } from "@stubwise/shared";
 import { useAutomationSimulationExamples, usePeople } from "../../../data/queries";
 import type {
   AutomationFlow,

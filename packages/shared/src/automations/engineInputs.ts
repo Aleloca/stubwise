@@ -1,15 +1,15 @@
-import type { ReasonCode } from "../../data/types";
-import { checkClaudeResult } from "./claudeStep";
+import type { ReasonCode } from "./types.js";
+import { checkClaudeResult } from "./claudeStep.js";
 import {
   PROJECT_NOT_FOUND,
   type ClaudeStep,
   type EngineInput,
   type EngineState,
   type WaitStep,
-} from "./engine";
-import { EFFECT_KIND, fail, proceedAction, reached, row, type Ctx } from "./engineLoop";
-import { AUTOMATION_LIMITS, joinPath, stepAt } from "./fields";
-import type { ActionStep } from "./preview";
+} from "./engine.js";
+import { EFFECT_KIND, fail, proceedAction, reached, row, type Ctx } from "./engineLoop.js";
+import { AUTOMATION_LIMITS, joinPath, stepAt } from "./fields.js";
+import type { ActionStep } from "./preview.js";
 
 // Gli input del motore (vedi `engine.ts`): cosa fa ognuno, nello stato in cui
 // arriva. Un input che lo stato non aspetta è ignorato.

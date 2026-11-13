@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
-import { stepAt } from "../../../domain/automations/fields";
-import type { FlowIssue } from "../../../domain/automations/validate";
+import { stepAt } from "@stubwise/shared";
+import type { FlowIssue } from "@stubwise/shared";
 import type {
   AutomationFlow,
   AutomationRow,

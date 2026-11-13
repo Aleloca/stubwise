@@ -4,7 +4,7 @@ import type { StallReason } from "../domain/stalled";
 import { stallOf } from "../domain/stalled";
 import { TEMPLATE_MODULES } from "../domain/templates";
 import { compareWeeks } from "../domain/weeks";
-import { validateFlow } from "../domain/automations/validate";
+import { validateFlow } from "@stubwise/shared";
 import { chat, resetApi, setLatency } from "./api";
 import { setSessionPersonId } from "./session";
 import { ACTIVITY } from "./seed/activity";

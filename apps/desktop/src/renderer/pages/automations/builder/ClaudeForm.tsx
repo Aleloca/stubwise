@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { availableFields, branchOf } from "../../../domain/automations/fields";
+import { availableFields, branchOf } from "@stubwise/shared";
 import type { DataField, Step } from "../../../data/types";
 import { Dialog } from "../../../tasks-ui/Dialog";
 import { dangerSolidButton, secondaryButton } from "../../tasks/controls";

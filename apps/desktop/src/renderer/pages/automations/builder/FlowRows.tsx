@@ -8,7 +8,7 @@ import {
   childLists,
   joinPath,
   triggerFields,
-} from "../../../domain/automations/fields";
+} from "@stubwise/shared";
 import type { Step } from "../../../data/types";
 import { stepSentence, startWords } from "../format";
 import { ApprovalGlyph, CriticalGlyph, Disclosure, StepGlyph, WarningGlyph } from "../glyphs";

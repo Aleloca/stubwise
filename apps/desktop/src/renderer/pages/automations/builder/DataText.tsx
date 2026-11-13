@@ -14,8 +14,8 @@ import {
   childLists,
   scopeAt,
   triggerFields,
-} from "../../../domain/automations/fields";
-import { WAIT_REPLY_FIELDS } from "../../../domain/automations/triggerFields";
+} from "@stubwise/shared";
+import { WAIT_REPLY_FIELDS } from "@stubwise/shared";
 import type { AutomationFlow, DataField } from "../../../data/types";
 import { CriticalGlyph } from "../glyphs";
 import { useBuilder } from "./context";

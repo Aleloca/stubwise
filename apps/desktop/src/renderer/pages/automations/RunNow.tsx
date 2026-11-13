@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { type Ref } from "react";
 import { useTranslation } from "react-i18next";
-import { stepAt } from "../../domain/automations/fields";
+import { stepAt } from "@stubwise/shared";
 import { usePauserName } from "../../components/InstanceBlock";
 import { WhoCanLink } from "../../components/WhoCanLink";
 import { useMailThreadOfMessage } from "../../data/queries";

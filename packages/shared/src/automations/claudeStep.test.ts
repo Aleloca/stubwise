@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Step } from "../../data/model";
-import { checkClaudeResult } from "./claudeStep";
+import type { Step } from "./types.js";
+import { checkClaudeResult } from "./claudeStep.js";
 
 type ClaudeStep = Extract<Step, { kind: "claude" }>;
 

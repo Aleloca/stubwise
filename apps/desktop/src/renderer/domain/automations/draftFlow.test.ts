@@ -4,7 +4,7 @@ import "../../i18n";
 import { AUTOMATION_SOURCES } from "../../data/seed/automations";
 import type { Step } from "../../data/types";
 import { draftFlow, type FlowSpec } from "./draftFlow";
-import { validateFlow } from "./validate";
+import { validateFlow } from "@stubwise/shared";
 
 // La bozza di Claude dalla frase di S1 (area 10b, Task 5): solo i blocchi
 // del motore, il filtro sull'inizio (D3), i passi «Parte da solo» e l'email

@@ -1,8 +1,8 @@
 import { useBlocker, useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { stepAt } from "../../../domain/automations/fields";
-import type { FlowIssue } from "../../../domain/automations/validate";
+import { stepAt } from "@stubwise/shared";
+import type { FlowIssue } from "@stubwise/shared";
 import {
   useAutomation,
   useAutomationDraftIssues,

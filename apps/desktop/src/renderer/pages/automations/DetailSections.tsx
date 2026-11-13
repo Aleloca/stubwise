@@ -8,7 +8,7 @@ import {
   useMailboxes,
 } from "../../data/queries";
 import type { AutomationDetail as Detail, AutomationFlow } from "../../data/types";
-import { AUTOMATION_LIMITS, stepAt } from "../../domain/automations/fields";
+import { AUTOMATION_LIMITS, stepAt } from "@stubwise/shared";
 import { BlockSection, queryState } from "../home/blocks/BlockSection";
 import { quietButton } from "../tasks/controls";
 import { FlowSummary } from "./FlowSummary";

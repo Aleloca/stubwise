@@ -1,6 +1,6 @@
-import { visitSteps } from "../../domain/automations/fields";
-import { projectOf } from "../../domain/automations/preview";
-import { validateFlow, type FlowIssue } from "../../domain/automations/validate";
+import { visitSteps } from "@stubwise/shared";
+import { projectOf } from "@stubwise/shared";
+import { validateFlow, type FlowIssue } from "@stubwise/shared";
 import { fold } from "../../domain/textSearch";
 import { automationHref, runHref } from "../routes";
 import { copy, gate, state, visibleProjectIds } from "../store";

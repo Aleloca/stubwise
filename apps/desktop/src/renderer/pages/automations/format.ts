@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import { availableFields, stepAt, visitSteps } from "../../domain/automations/fields";
+import { availableFields, stepAt, visitSteps } from "@stubwise/shared";
 import type {
   AutomationFlow,
   AutomationRunRow,

@@ -1,4 +1,4 @@
-import type { EngineState } from "../../domain/automations/engine";
+import type { EngineState } from "@stubwise/shared";
 import { now, state, visibleProjectIds } from "../store";
 import type { AutomationRun } from "../types";
 import { forbidden, invalid, notFound, writer } from "../writer";

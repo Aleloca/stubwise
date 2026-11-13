@@ -1,7 +1,7 @@
-import type { AutomationFlow, AutomationRun, Step } from "../../data/types";
-import { initialState, type EngineState, type ResolvedTarget } from "./engine";
-import { joinPath, repeatCap, stepAt } from "./fields";
-import { describe, projectOf, resolve, show } from "./preview";
+import type { AutomationFlow, AutomationRun, Step } from "./types.js";
+import { initialState, type EngineState, type ResolvedTarget } from "./engine.js";
+import { joinPath, repeatCap, stepAt } from "./fields.js";
+import { describe, projectOf, resolve, show } from "./preview.js";
 
 type SavedRun = Pick<
   AutomationRun,

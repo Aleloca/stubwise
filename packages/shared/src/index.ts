@@ -75,3 +75,4 @@ export * from "./schemas/chat.js";
 export * from "./schemas/people-activity.js";
 export * from "./schemas/overview.js";
 export * from "./session-end.js";
+export * from "./automations/index.js";

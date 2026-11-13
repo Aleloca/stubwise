@@ -1,5 +1,5 @@
-import type { ApprovalWho } from "../../domain/automations/preview";
-import { stepAt, visitSteps } from "../../domain/automations/fields";
+import type { ApprovalWho } from "@stubwise/shared";
+import { stepAt, visitSteps } from "@stubwise/shared";
 import { PEOPLE } from "../seed/people";
 import { copy, state, visibleProjectIds } from "../store";
 import type { Automation, AutomationFlow, AutomationRun, ProjectTarget, Step } from "../types";

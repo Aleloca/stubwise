@@ -1,6 +1,6 @@
-import { evaluate, lookup } from "../../domain/automations/conditions";
-import { triggerFields } from "../../domain/automations/fields";
-import { show } from "../../domain/automations/preview";
+import { evaluate, lookup } from "@stubwise/shared";
+import { triggerFields } from "@stubwise/shared";
+import { show } from "@stubwise/shared";
 import { gate, now, state, visibleProjectIds, type AutomationSignal } from "../store";
 import type { AutomationFlow, Condition, SimulationExample, Utterance } from "../types";
 import { forbidden, invalid, notFound } from "../writer";

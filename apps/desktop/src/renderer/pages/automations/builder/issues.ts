@@ -1,6 +1,6 @@
 import type { TFunction } from "i18next";
-import { availableFields, childLists, scopeAt, stepAt } from "../../../domain/automations/fields";
-import { MAX_NESTING, type FlowIssue } from "../../../domain/automations/validate";
+import { availableFields, childLists, scopeAt, stepAt } from "@stubwise/shared";
+import { MAX_NESTING, type FlowIssue } from "@stubwise/shared";
 import type {
   AutomationFlow,
   AutomationSource,

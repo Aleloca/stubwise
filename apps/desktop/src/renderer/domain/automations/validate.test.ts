@@ -7,7 +7,7 @@ import type {
   Step,
 } from "../../data/model";
 import { AUTOMATION_SOURCES, AUTOMATIONS } from "../../data/seed/automations";
-import { validateFlow, type FlowIssue, type ValidateContext } from "./validate";
+import { validateFlow, type FlowIssue, type ValidateContext } from "@stubwise/shared";
 
 const CTX: ValidateContext = {
   sources: AUTOMATION_SOURCES,

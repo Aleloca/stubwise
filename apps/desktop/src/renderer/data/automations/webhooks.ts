@@ -1,7 +1,7 @@
 import { copy, gate, now, state } from "../store";
 import type { AutomationSource, DataField, FieldType, WebhookExamplePreview } from "../types";
 import { forbidden, invalid, notFound, writer } from "../writer";
-import { visitSteps } from "../../domain/automations/fields";
+import { visitSteps } from "@stubwise/shared";
 import { viewRun } from "./runView";
 import { publishedVersion } from "./runner";
 import { canManageIntegrations, canSeeAutomation, canSeeRun } from "./visibility";

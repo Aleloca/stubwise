@@ -1,7 +1,7 @@
-import type { AutomationFlow, ReasonCode, RunLogEntry, RunStatus, Step } from "../../data/types";
-import { handle } from "./engineInputs";
-import { run, type Ctx } from "./engineLoop";
-import type { ActionStep, ApprovalWho } from "./preview";
+import type { AutomationFlow, ReasonCode, RunLogEntry, RunStatus, Step } from "./types.js";
+import { handle } from "./engineInputs.js";
+import { run, type Ctx } from "./engineLoop.js";
+import type { ActionStep, ApprovalWho } from "./preview.js";
 
 // Il motore delle automazioni: puro. `advance` prende lo stato e un input
 // (l'evento d'inizio, un'approvazione, il tempo che passa, l'esito di un
