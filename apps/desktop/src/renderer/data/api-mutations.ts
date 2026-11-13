@@ -1231,6 +1231,10 @@ export function convertRequestAs(
   request.taskIds = [...request.taskIds, task.id];
   request.status = "converted";
   wrote("request", request.id, me);
+  // Q5 = a *(M)*: «richiesta convertita» E «task creata» (prima la conversione
+  // non segnalava niente: `addTask` non è `createTaskAs`).
+  signalAutomations({ kind: "request_converted", requestId: id, taskId: task.id });
+  signalAutomations({ kind: "task_created", taskId: task.id });
   // Una task nata assegnata, come da `createTaskAs` (area 10a).
   publishAssigned(me, task);
   return task;

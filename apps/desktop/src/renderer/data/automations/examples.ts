@@ -85,6 +85,20 @@ function stubwiseSignals(me: string, flow: AutomationFlow) {
         code: r.code,
         at: r.createdAt,
       }));
+    case "request_converted":
+      // Le richieste convertite, con la loro prima task.
+      return state.requests
+        .filter((r) => r.status === "converted" && r.taskIds.length > 0)
+        .map((r) => ({
+          signal: {
+            kind: "request_converted",
+            requestId: r.id,
+            taskId: r.taskIds[0]!,
+          } as AutomationSignal,
+          label: r.title,
+          code: r.code,
+          at: r.createdAt,
+        }));
     case "milestone_reached":
       return state.milestones
         .filter((m) => m.closed)

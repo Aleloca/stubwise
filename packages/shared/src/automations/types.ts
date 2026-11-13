@@ -64,6 +64,8 @@ export type AutomationTrigger =
         | "task_created"
         | "task_closed"
         | "request_created"
+        /** Q5 = a *(M)*: una richiesta diventata task (la task vale anche come «creata»). */
+        | "request_converted"
         | "milestone_reached"
         | "mail_received";
       filter?: Condition;

@@ -6921,6 +6921,7 @@
         "task_created": "Quando si crea una task",
         "task_closed": "Quando si chiude una task",
         "request_created": "Quando arriva una richiesta",
+        "request_converted": "Quando una richiesta diventa una task",
         "milestone_reached": "Quando si raggiunge un traguardo",
         "mail_received": "Quando arriva un'email nella casella del proprietario"
       },
@@ -7634,6 +7635,7 @@
         "task_created": "da una task nuova",
         "task_closed": "da una task chiusa",
         "request_created": "da una richiesta nuova",
+        "request_converted": "da una richiesta convertita",
         "milestone_reached": "da un traguardo raggiunto",
         "mail_received": "da un'email nella casella del proprietario"
       },
@@ -8092,6 +8094,7 @@
           "task_created": "Si crea una task",
           "task_closed": "Si chiude una task",
           "request_created": "Si crea una richiesta",
+          "request_converted": "Una richiesta diventa una task",
           "milestone_reached": "Si raggiunge un traguardo",
           "mail_received": "Arriva un'email nella tua casella"
         },

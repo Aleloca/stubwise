@@ -6,7 +6,14 @@ import {
   visibleProjectIds,
   type AutomationSignal,
 } from "../store";
-import type { Automation, AutomationTrigger, Condition, FilterCheck, Task } from "../types";
+import type {
+  Automation,
+  AutomationTrigger,
+  Condition,
+  FilterCheck,
+  ProjectRequest,
+  Task,
+} from "../types";
 import { ancestorsOf, currentOrigin } from "./effects";
 import { enqueue, publishedVersion, startRun } from "./runner";
 import { runById, stepOfRun } from "./visibility";
@@ -62,6 +69,19 @@ export function taskHappening(
   };
 }
 
+/** I dati di una richiesta che ne leggono le automazioni (creata o convertita). */
+function requestPayload(r: ProjectRequest): Record<string, unknown> {
+  return {
+    codice: r.code,
+    titolo: r.title,
+    descrizione: r.description,
+    progetto: projectCode(r.projectId),
+    richiedente: r.requesterIds[0] ?? "",
+    urgenza: r.urgency,
+    dal_supporto: r.origin?.kind === "support",
+  };
+}
+
 /** Gli eventi di un segnale, coi dati che ne leggono le automazioni (anche gli esempi della prova). */
 export function happenings(signal: AutomationSignal): Happening[] {
   switch (signal.kind) {
@@ -74,20 +94,20 @@ export function happenings(signal: AutomationSignal): Happening[] {
     case "request_created": {
       const r = state.requests.find((x) => x.id === signal.requestId);
       if (!r) return [];
+      return [{ event: "request_created", projectId: r.projectId, payload: { richiesta: requestPayload(r) } }];
+    }
+    case "request_converted": {
+      // Q5 = a: i dati della richiesta e della task nata dalla conversione.
+      const r = state.requests.find((x) => x.id === signal.requestId);
+      const t = state.tasksById.get(signal.taskId);
+      if (!r || !t) return [];
       return [
         {
-          event: "request_created",
+          event: "request_converted",
           projectId: r.projectId,
           payload: {
-            richiesta: {
-              codice: r.code,
-              titolo: r.title,
-              descrizione: r.description,
-              progetto: projectCode(r.projectId),
-              richiedente: r.requesterIds[0] ?? "",
-              urgenza: r.urgency,
-              dal_supporto: r.origin?.kind === "support",
-            },
+            richiesta: requestPayload(r),
+            ...taskHappening("task_created", t).payload,
           },
         },
       ];

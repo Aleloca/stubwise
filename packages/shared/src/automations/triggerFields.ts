@@ -14,20 +14,24 @@ const TASK_FIELDS: DataField[] = [
   { key: "task.stato", label: "Stato", type: "text" },
 ];
 
+const REQUEST_FIELDS: DataField[] = [
+  { key: "richiesta.codice", label: "Codice della richiesta", type: "text" },
+  { key: "richiesta.titolo", label: "Titolo della richiesta", type: "text" },
+  { key: "richiesta.descrizione", label: "Descrizione", type: "text" },
+  { key: "richiesta.progetto", label: "Progetto", type: "text" },
+  { key: "richiesta.richiedente", label: "Richiedente", type: "person" },
+  // Area 10b: «urgente e dal supporto» è una condizione su un dato, non un giudizio.
+  // L'urgenza è `"low" | "medium" | "high"`: il menu dei tre valori è del costruttore.
+  { key: "richiesta.urgenza", label: "Urgenza", type: "text" },
+  { key: "richiesta.dal_supporto", label: "Dal supporto", type: "boolean" },
+];
+
 export const STUBWISE_TRIGGER_FIELDS: Record<StubwiseEvent, DataField[]> = {
   task_created: TASK_FIELDS,
   task_closed: TASK_FIELDS,
-  request_created: [
-    { key: "richiesta.codice", label: "Codice della richiesta", type: "text" },
-    { key: "richiesta.titolo", label: "Titolo della richiesta", type: "text" },
-    { key: "richiesta.descrizione", label: "Descrizione", type: "text" },
-    { key: "richiesta.progetto", label: "Progetto", type: "text" },
-    { key: "richiesta.richiedente", label: "Richiedente", type: "person" },
-    // Area 10b: «urgente e dal supporto» è una condizione su un dato, non un giudizio.
-    // L'urgenza è `"low" | "medium" | "high"`: il menu dei tre valori è del costruttore.
-    { key: "richiesta.urgenza", label: "Urgenza", type: "text" },
-    { key: "richiesta.dal_supporto", label: "Dal supporto", type: "boolean" },
-  ],
+  request_created: REQUEST_FIELDS,
+  // Q5 = a: la richiesta convertita e la task nata dalla conversione.
+  request_converted: [...REQUEST_FIELDS, ...TASK_FIELDS],
   milestone_reached: [
     { key: "traguardo.nome", label: "Traguardo", type: "text" },
     { key: "traguardo.progetto", label: "Progetto", type: "text" },

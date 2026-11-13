@@ -1049,3 +1049,15 @@ async function openList() {
   await screen.findByRole("heading", { level: 1, name: "Automations" });
   return router;
 }
+
+// Q5 = a *(M)*, R6 del piano della F1: «richiesta convertita» fra gli inizi di Stubwise.
+describe("l'inizio «richiesta convertita»", () => {
+  it("c'è fra gli inizi di Stubwise, e sceglierlo cambia l'inizio", async () => {
+    await open("/automations/STW-A1/edit", LAURA);
+    const option = await screen.findByRole("radio", { name: /A request is converted/ });
+    await userEvent.click(option);
+    await waitFor(() => expect(row("trigger")).toHaveTextContent("When a request is converted"));
+    await settle();
+    expect(savedFlow("STW-A1").trigger).toMatchObject({ kind: "stubwise", event: "request_converted" });
+  });
+});

@@ -1605,6 +1605,8 @@ export function emptyStore(): void {
 export type AutomationSignal =
   | { kind: "task_created" | "task_closed"; taskId: string }
   | { kind: "request_created"; requestId: string }
+  /** Q5 = a: una richiesta convertita, con la task nata (che segnala anche `task_created`). */
+  | { kind: "request_converted"; requestId: string; taskId: string }
   | { kind: "milestone_reached"; milestoneId: string }
   | { kind: "mail_received"; messageIds: string[] };
 

@@ -6921,6 +6921,7 @@
         "task_created": "When a task is created",
         "task_closed": "When a task is closed",
         "request_created": "When a request arrives",
+        "request_converted": "When a request is converted",
         "milestone_reached": "When a milestone is reached",
         "mail_received": "When an email arrives in the owner's mailbox"
       },
@@ -7634,6 +7635,7 @@
         "task_created": "by a new task",
         "task_closed": "by a closed task",
         "request_created": "by a new request",
+        "request_converted": "by a converted request",
         "milestone_reached": "by a milestone reached",
         "mail_received": "by an email in the owner's mailbox"
       },
@@ -8092,6 +8094,7 @@
           "task_created": "A task is created",
           "task_closed": "A task is closed",
           "request_created": "A request is created",
+          "request_converted": "A request is converted",
           "milestone_reached": "A milestone is reached",
           "mail_received": "An email arrives in your mailbox"
         },

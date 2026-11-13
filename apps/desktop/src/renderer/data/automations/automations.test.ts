@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   automations,
   createMilestone,
+  convertRequest,
   createRequest,
   createTask,
   failNext,
@@ -1384,6 +1385,32 @@ describe("Automations: revisione del Task 3", () => {
     expect(runsOf(onMilestone).map((r) => [r.title, r.status])).toEqual([
       ["Traguardo Rilascio 3", "done"],
     ]);
+  });
+
+  // Q5 = a *(M, 12 nov 2026)* e R6 del piano della F1: convertire una richiesta
+  // fa partire «richiesta convertita» E «task creata» (la task convertita vale
+  // come creata). Prima il prototipo non segnalava né l'una né l'altra.
+  it("convertire una richiesta: «richiesta convertita» (coi dati della richiesta e della task) e «task creata»", async () => {
+    as("p-laura");
+    const onConverted = await make(AUD, {
+      trigger: { kind: "stubwise", event: "request_converted" },
+      steps: [task("c")],
+      titleTemplate: "Convertita {{richiesta.codice}} → {{task.codice}}",
+    });
+    const onTask = await make(AUD, {
+      trigger: { kind: "stubwise", event: "task_created" },
+      steps: [task("n")],
+      titleTemplate: "Nuova {{task.codice}}",
+    });
+    const request = await createRequest({ projectId: AUD, title: "Esportazione in CSV" });
+    await idle();
+    const before = runsOf(onTask).length;
+    const born = await convertRequest(request.id, { title: "Esportazione in CSV" });
+    await idle();
+    expect(runsOf(onConverted).map((r) => [r.title, r.status])).toEqual([
+      [`Convertita ${request.code} → ${born.code}`, "done"],
+    ]);
+    expect(runsOf(onTask).slice(before).map((r) => r.title)).toContain(`Nuova ${born.code}`);
   });
 
   it("permesso perso anche su «Crea richiesta» e «Crea traguardo»", async () => {

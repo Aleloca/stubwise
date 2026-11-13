@@ -27,6 +27,8 @@ const STUBWISE: Stubwise[] = [
   "task_created",
   "task_closed",
   "request_created",
+  // Q5 = a *(M)*: la richiesta diventata task (la task vale anche come «creata»).
+  "request_converted",
   "milestone_reached",
   "mail_received",
 ];

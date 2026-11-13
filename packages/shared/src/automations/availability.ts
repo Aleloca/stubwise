@@ -10,7 +10,7 @@ export type TriggerKey =
   | "manual"
   | "schedule"
   | "source"
-  | `stubwise:${Extract<AutomationTrigger, { kind: "stubwise" }>["event"] | "request_converted"}`;
+  | `stubwise:${Extract<AutomationTrigger, { kind: "stubwise" }>["event"]}`;
 
 export interface AutomationAvailability {
   steps: readonly Step["kind"][];
