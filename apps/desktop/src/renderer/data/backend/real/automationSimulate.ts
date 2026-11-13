@@ -1,5 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
-import { planEmail, sameConversation } from "@stubwise/shared";
+import { planEmail, sameConversation, truncationNote } from "@stubwise/shared";
 import type {
   Automation,
   SimulationContext,
@@ -282,9 +282,8 @@ export function createRealSimulation(api: SimulationApi) {
             path,
             vars,
           });
-          // Come l'esecuzione vera: gli input tagliati si dicono in testa alla motivazione.
-          if (truncated.length > 0)
-            answer.reason = `[Input tagliati a 20 000 caratteri: ${truncated.join(", ")}] ${answer.reason}`;
+          // Come l'esecuzione vera, con la stessa funzione: gli input tagliati in testa alla motivazione.
+          answer.reason = `${truncationNote(truncated)}${answer.reason}`;
           t.answers.set(error.key, answer);
         }
       }
