@@ -60,6 +60,8 @@ const ON_ERRORS: Record<string, string> = {
   "invalid: mailbox_missing": "automations.toast.onMailboxMissing",
   "invalid: mailbox_expired": "automations.toast.onMailboxExpired",
   "invalid: mailbox_scope": "automations.toast.onMailboxScope",
+  // Un flusso che ascolta soltanto: la casella non dà nemmeno la lettura (72, F2-fix).
+  "invalid: mailbox_read_scope": "automations.toast.onMailboxReadScope",
   "invalid: config": "automations.toast.onConfig",
 };
 
