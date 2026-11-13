@@ -408,6 +408,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
           mergedBy: null,
           mergedGitName: event.mergedByLogin ?? null,
           viaStubwise: false,
+          publicUrl: instance.publicUrl ?? null,
         }).catch((err: unknown) => request.log.warn({ err, prNumber: event.prNumber }, "registrazione del rilascio fallita"));
       }
 

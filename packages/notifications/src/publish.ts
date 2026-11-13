@@ -1,4 +1,5 @@
 import {
+  alertSubscriptions,
   aiJobs,
   decisionRequests,
   deviceTokens,
@@ -9,7 +10,9 @@ import {
   tickets,
   users,
 } from "@stubwise/db";
+import { alertTypeOf, isLiveAlertType, type AlertType, type MandatoryReason } from "@stubwise/shared";
 import { and, eq, exists, inArray, isNotNull, isNull } from "drizzle-orm";
+import { catalogRecipients } from "./alert-recipients.js";
 import { loadSettings, shouldSendWebhook, type DbOrTx } from "./dispatch.js";
 import type { NotificationEvent } from "./format.js";
 import { projectViewerIds, userIdsWithPermission } from "./project-access.js";
@@ -38,6 +41,12 @@ import {
 
 /** Ancore verso l'entità di origine, note al chiamante. */
 export interface PublishOpts {
+  /**
+   * Area 8, F2: i destinatari OBBLIGATORI di un avviso del catalogo, risolti
+   * dal produttore (chi ha fatto il merge, l'autore della PR o della task…),
+   * coi loro motivi. Contano solo i motivi che il tipo prevede.
+   */
+  mandatory?: { userId: string; reason: MandatoryReason }[];
   /** Progetto dell'evento: instrada verso chi lo segue. */
   projectId?: string;
   /** Ticket dell'evento: instrada verso l'assegnatario. */
@@ -140,12 +149,20 @@ export async function publishNotification(
       // `projectId` sfuggirebbe sia al filtro dei membri qui sia a quello a
       // lettura (`inbox-visibility.ts`, che legge la colonna).
       const projectId = opts.projectId ?? (await projectOfTicket(inner, opts.ticketId)) ?? null;
-      const ctx = await resolveRoutingContext(inner, event, opts, projectId);
       // L'utente di sistema «Claude» (area 3, fetta 3e) non riceve MAI una
       // notifica, da nessuna audience (né inbox, né push, né Slack): un punto
       // solo, qui, invece di una regola in ogni audience.
       const agentIds = await agentUserIds(inner);
-      const recipients = recipientsFor(event, ctx).filter((id) => !agentIds.has(id));
+      // Area 8, F2 (S2): un avviso del CATALOGO, vivo e con un progetto, ha i
+      // destinatari del catalogo (iscrizioni, obbligatori, default); niente
+      // Slack né webhook (M3); il push segue il Telefono del tipo, non
+      // l'interruttore `push` della persona (M-2 = b). Tutto il resto (anche un
+      // `monitor.*` senza progetto) resta sul routing di oggi (S-4).
+      const alertType = projectId !== null && isLiveAlertType(event.kind) ? alertTypeOf(event.kind) : undefined;
+      const catalog = alertType && projectId !== null ? await resolveCatalog(inner, alertType, projectId, opts) : null;
+      const recipients = (catalog ? catalog.app : recipientsFor(event, await resolveRoutingContext(inner, event, opts, projectId))).filter(
+        (id) => !agentIds.has(id),
+      );
 
       const settings = await loadSettings(inner);
       // `shouldSendWebhook` è l'UNICO punto in cui vive il gating del webhook,
@@ -154,7 +171,7 @@ export async function publishNotification(
       // kind come `google.proposal` questo è sempre `false`, qualunque sia il
       // toggle o la config del webhook d'istanza, quindi il push in
       // `deliveries` più sotto non scatta mai per quel kind.
-      const withWebhook = shouldSendWebhook(settings, event.kind);
+      const withWebhook = catalog === null && shouldSendWebhook(settings, event.kind);
       if (recipients.length === 0 && !withWebhook) return { published: 0, notificationIds: [] };
 
       // Le colonne jsonb sono tipizzate `Record<string, unknown>` perché `db`
@@ -175,7 +192,10 @@ export async function publishNotification(
                   ticketId: opts.ticketId ?? null,
                   jobId: opts.jobId ?? null,
                   kind: event.kind,
-                  event: payload,
+                  // Area 8, F2: chi la riceve da OBBLIGATORIO lo porta scritto
+                  // sulla SUA card (un fatto vero solo adesso): la lettura non
+                  // gliela nasconde se non può iscriversi, e il «mute» la rifiuta.
+                  event: catalog?.mandatory.has(userId) ? { ...payload, alertMandatory: catalog.mandatory.get(userId) } : payload,
                   status: "open" as const,
                 })),
               )
@@ -188,8 +208,13 @@ export async function publishNotification(
       // `skipped` resta del poller, per ciò che si scopre solo al momento
       // dell'invio (il bot Slack non configurato).
       const mandatory = MANDATORY_KINDS.has(event.kind);
-      const slackReady = await slackRecipients(inner, recipients, mandatory);
-      const pushReady = await pushRecipients(inner, recipients, mandatory);
+      const slackReady = catalog ? new Set<string>() : await slackRecipients(inner, recipients, mandatory);
+      // Catalogo: il push a chi ha il Telefono acceso (e un device attivo), a
+      // prescindere da `notify_push` — `pushRecipients(…, true)` salta la
+      // preferenza e tiene il device.
+      const pushReady = catalog
+        ? await pushRecipients(inner, recipients.filter((id) => catalog.phone.has(id)), true)
+        : await pushRecipients(inner, recipients, mandatory);
       /**
        * Una riga per destinatario raggiungibile, sul canale dato.
        *
@@ -239,6 +264,40 @@ export async function publishNotification(
     console.warn(`[notify] publish di ${event.kind} fallita, nessuna riga scritta:`, error);
     return { published: 0, notificationIds: [] };
   }
+}
+
+/**
+ * Il contesto di un avviso del catalogo (area 8, F2, S2), letto ADESSO: chi
+ * vede il progetto, i permessi che il tipo guarda, le iscrizioni scritte.
+ */
+async function resolveCatalog(
+  db: DbOrTx,
+  type: AlertType,
+  projectId: string,
+  opts: PublishOpts,
+): Promise<{ app: string[]; phone: Set<string>; mandatory: Map<string, MandatoryReason> }> {
+  const members = await projectViewerIds(db, projectId);
+  const fullAdmins = new Set(await userIdsWithPermission(db, null, projectId));
+  const rule = type.appDefaultOn ?? type.defaultOn;
+  const perms = [
+    ...(type.subscribe.perm !== "member" ? [type.subscribe.perm] : []),
+    ...(typeof rule === "object" ? [rule.perm] : []),
+  ];
+  const holders = new Map<string, Set<string>>();
+  for (const perm of new Set(perms)) {
+    holders.set(perm, new Set(await userIdsWithPermission(db, perm as Parameters<typeof userIdsWithPermission>[1], projectId)));
+  }
+  const rows = await db
+    .select({ userId: alertSubscriptions.userId, app: alertSubscriptions.app, phone: alertSubscriptions.phone })
+    .from(alertSubscriptions)
+    .where(and(eq(alertSubscriptions.projectId, projectId), eq(alertSubscriptions.alertType, type.type)));
+  return catalogRecipients(type, {
+    members,
+    fullAdmins,
+    holds: (userId, perm) => fullAdmins.has(userId) || (holders.get(perm)?.has(userId) ?? false),
+    subscriptions: new Map(rows.map((r) => [r.userId, { app: r.app, phone: r.phone }])),
+    mandatory: opts.mandatory ?? [],
+  });
 }
 
 /**
