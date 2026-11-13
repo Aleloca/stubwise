@@ -87,5 +87,13 @@ describe("fireSchedules", () => {
     expect(await runsOf(fine.id)).toHaveLength(1);
     expect(lines.some((l) => l.includes(broken.code))).toBe(true);
   });
+
+  it("review renderer F2: «ogni giorno alle 9:30» non parte alle 9:00 (BYMINUTE), e la chiave del giorno non blocca quello giusto", async () => {
+    const a = await scheduled("FREQ=DAILY;BYHOUR=9;BYMINUTE=30");
+    await fireSchedules(t.db, new Date("2026-11-21T08:10:00Z")); // 09:10 a Roma
+    expect(await runsOf(a.id)).toHaveLength(0);
+    await fireSchedules(t.db, new Date("2026-11-21T08:31:00Z")); // 09:31 a Roma
+    expect(await runsOf(a.id)).toHaveLength(1);
+  });
 });
 
