@@ -4462,7 +4462,10 @@ deploy o di un rollback che la tocca.
   `colleague_prs` (default **`analyze_only`**, P-2 = a); su `pr_reviews`
   `analysis_only` (e chi/quando); l'indice unico «una sola produzione per
   progetto»; il `notification_kind` `release.failed`; il trigger della Chat
-  `releases_chat_release_page`. ⚠️ **Prima del deploy** (sola lettura):
+  `releases_chat_release_page`. Più la **0176** (review della F1, nello stesso
+  rilascio, dopo la 0175): `releases.ci_unreadable_at` (l'ultima lettura delle
+  run è fallita: il server dice «non leggibile») e `releases.last_polled_at`
+  (il turno del poller). ⚠️ **Prima del deploy** (sola lettura):
   `select project_id, count(*) from project_environments where kind =
   'production' group by 1 having count(*) > 1;` deve essere vuota, altrimenti
   la 0175 si FERMA con un errore che lo dice (e il server non parte): si
@@ -4513,6 +4516,9 @@ deploy o di un rollback che la tocca.
      adoption_released_at is null;` (le adozioni fatte da una persona
      restano; risalendo, la review successiva di ciascuna PR non le
      ricollega: un'adozione rilasciata non si riscrive, si riadotta a mano).
+     ⚠️ Il filtro prende anche le adozioni di una persona poi ELIMINATA
+     (`adopted_by_user_id` è `ON DELETE SET NULL`): anche quelle vengono
+     rilasciate, ed è il verso prudente.
   2. **Il `notification_kind` nuovo** rende NON sicuro scendere sul server
      finché ne esistono righe (500 su `/api/inbox`): `select count(*) from
      notifications where kind = 'release.failed';`, e se ce ne sono `delete

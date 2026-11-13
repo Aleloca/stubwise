@@ -317,7 +317,12 @@
   un revisore qualunque, e farebbe pushare sul ramo di chi ha scelto «solo
   analisi»), e vale solo con «analisi e correzioni» (e sulle PR di Stubwise,
   come prima) — (O) di 46, 13 nov 2026; test negativo in
-  `webhooks.corrections.test.ts`. «Solo analisi» sulla singola PR ferma
+  `webhooks.corrections.test.ts`. L'ECCEZIONE è l'adozione esplicita (la rotta
+  dei client vecchi, `adopted_by_user_id` valorizzato): vale «analisi e
+  correzioni» su quella PR, quindi con «solo analisi» sul repository partono
+  anche il giro automatico e il «Request changes» della piattaforma — l'ha
+  scelto una persona, ed è ciò che l'adozione faceva prima ((O) di 46, review
+  della F1, 14 nov 2026; test in `pr-correction-cycle.test.ts`). «Solo analisi» sulla singola PR ferma
   tutto, anche «Chiedi modifiche», e una correzione in volo si ferma prima
   del push; «spento» non analizza né corregge. La regola sta in UN posto,
   `colleagueCorrectionAllowed` (@stubwise/shared), applicata da

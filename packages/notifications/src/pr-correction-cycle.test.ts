@@ -1963,6 +1963,11 @@ describe("area 8, F1, S8: le PR dei colleghi senza adozione — il cancello dell
     expect(await enqueueCorrection(db, { ...pr, trigger: "review" })).toMatchObject({ ok: true });
   });
 
+  it("review F1 ((O) di 46): adottata da una PERSONA + «solo analisi» sul repository: anche il «Request changes» della piattaforma parte; senza adozione esplicita no", async () => {
+    expect(await enqueueCorrection(db, { ...(await colleague("analyze_only", { explicit: true })), trigger: "provider" })).toMatchObject({ ok: true });
+    await refused(await colleague("analyze_only"), "provider");
+  });
+
   it("le PR di Stubwise non guardano l'impostazione dei colleghi", async () => {
     const pr = await seedPr();
     await db.update(repositories).set({ colleaguePrs: "off" }).where(eq(repositories.id, pr.repositoryId));

@@ -270,7 +270,6 @@ export function projectToolResult(tool: ChatReadToolName, json: unknown): unknow
       prNumber: r["prNumber"],
       prUrl: r["prUrl"],
       mergedAt: r["mergedAt"],
-      mergedGitName: r["mergedGitName"],
       viaStubwise: r["viaStubwise"],
       relatedTaskCode: r["relatedTaskCode"],
       fixTask: r["fixTask"],
@@ -279,6 +278,8 @@ export function projectToolResult(tool: ChatReadToolName, json: unknown): unknow
       untrusted_content: {
         note: UNTRUSTED_RELEASE_NOTE,
         title: r["title"],
+        // Il login sulla piattaforma di chi ha fatto il merge: lo sceglie lui (review F1).
+        mergedGitName: r["mergedGitName"],
         releaseNotes: r["releaseNotes"],
         runs: runs.map((run) => ({ name: run["name"], status: run["status"], failedStep: run["failedStep"], url: run["url"], startedAt: run["startedAt"], endedAt: run["endedAt"] })),
       },

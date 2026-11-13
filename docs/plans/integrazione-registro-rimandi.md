@@ -699,6 +699,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   analizzata»). Con la review accesa una PR senza analisi resta «in
   analisi» e non è pronta.
 
+- F1, review del server, due rimandi *(O, 46, 14 nov 2026)*:
+  - Una run di CI **rilanciata** dopo che il rilascio si è sistemato come
+    `failed` non si vede: il poller non riguarda i rilasci sistemati (la
+    run rilanciata e verde lascerebbe il rilascio «fallito»).
+  - `GET /api/me/releases` legge le PR aperte con `listOpenPulls` per OGNI
+    progetto in cui chi guarda ha `release.merge` — per un full admin, tutti:
+    una chiamata al provider per PR. Non c'è un ripiego economico (la
+    prontezza vuole i controlli letti dal provider); da rivedere se pesa.
+
 - Blocchi della Home «Rilasci» (anche l'extra di `resolveHome` per
   `release.merge`) e «Clienti in attesa».
 - Origine di una richiesta da Support; «View conversation» delle task del widget.

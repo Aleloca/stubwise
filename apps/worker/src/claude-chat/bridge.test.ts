@@ -247,7 +247,8 @@ describe("area 8, F1: `read_release` — i fatti del rilascio, e il testo scritt
     expect(body.ok).toBe(true);
     const result = JSON.parse(body.text) as Record<string, unknown> & { untrusted_content: { note: string; title: string; releaseNotes: string; runs: Record<string, unknown>[] } };
     expect(result).toMatchObject({ code: "AUD-V7", status: { kind: "failed" }, prNumber: 41, relatedTaskCode: "AUD-12", repositoryFullName: "acme/web" });
-    for (const k of ["title", "releaseNotes", "runs", "permissions", "id"]) expect(result).not.toHaveProperty(k);
+    for (const k of ["title", "releaseNotes", "runs", "permissions", "id", "mergedGitName"]) expect(result).not.toHaveProperty(k);
+    expect(result.untrusted_content).toMatchObject({ mergedGitName: "marta" });
     expect(result.untrusted_content.note).toBe(UNTRUSTED_RELEASE_NOTE);
     expect(result.untrusted_content).toMatchObject({ title: "Checkout nuovo", releaseNotes: "- AUD-12: Checkout" });
     expect(result.untrusted_content.runs).toEqual([{ name: "test", status: "failed", failedStep: hostile, url: "https://ci/1", startedAt: "2026-11-13T10:01:00.000Z", endedAt: "2026-11-13T10:05:00.000Z" }]);
