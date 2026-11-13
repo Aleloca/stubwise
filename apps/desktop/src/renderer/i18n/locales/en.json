@@ -7255,6 +7255,8 @@
       "cantManage": "Permission lost: the owner ({{owner}}) can't manage “{{name}}”.",
       "cantManage_would": "The owner ({{owner}}) can't manage “{{name}}”: it wouldn't start.",
       "invalidInput": "The step's data isn't valid ({{message}}).",
+      "milestoneExists": "A milestone “{{name}}” already exists in the project.",
+      "milestoneExists_would": "A milestone “{{name}}” already exists in the project: the step would fail.",
       "emailLimitChain": "Limit reached: at most {{max}} emails per run, counting the automations this one started.",
       "emailLimitChain_would": "Limit reached: at most {{max}} emails per run, counting the automations this one starts. The email wouldn't be sent.",
       "mailboxGone": "The mailbox chosen for the automation ({{mailbox}}) is no longer connected to {{owner}}: the email wasn't sent.",

@@ -220,6 +220,35 @@ describe("la prova nella build app", () => {
     expect(calls).toEqual(["GET examples a-1 draft", "GET examples a-1 draft"]);
   });
 
+  it("un traguardo col nome di uno che il progetto ha già: fallisce come il worker (`milestoneExists`), confronto esatto", async () => {
+    const milestone = (name: string) =>
+      ({
+        id: "m1",
+        kind: "createMilestone",
+        name,
+        dueInDays: null,
+        project: { mode: "own" },
+        approval: { mode: "auto" },
+      }) as unknown as Step;
+    const withNames = (step: Step) => {
+      const ctx = context([step]);
+      (ctx.projects[0] as { milestoneNames?: string[] }).milestoneNames = ["Kick-off"];
+      return ctx;
+    };
+    const run = async (ctx: SimulationContext) => {
+      const s = createRealSimulation(fakeApi(ctx).api);
+      const id = await s.startSimulation("a-1", "draft", {});
+      return s.simulationStep(id, { kind: "run" });
+    };
+    const taken = await run(withNames(milestone("Kick-off")));
+    expect(taken.status).toBe("failed");
+    expect(JSON.stringify(taken)).toContain("milestoneExists");
+    // Come `milestoneNameTaken` (eq): un nome diverso anche solo nelle maiuscole passa.
+    expect((await run(withNames(milestone("kick-off")))).status).toBe("done");
+    // Un server senza il campo: nessun nome noto.
+    expect((await run(context([milestone("Kick-off")]))).status).toBe("done");
+  });
+
   it("gli errori di configurazione del server: la prova non parte", async () => {
     const { api } = fakeApi(
       context([task()], { configErrors: [{ path: "0", code: "not_available", message: "x" }] }),
