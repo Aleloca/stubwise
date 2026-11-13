@@ -96,7 +96,14 @@ interface SavedCursor {
 export const EMAIL_POLL_MS = 5_000;
 
 /** I fallimenti della casella (area 7, F2-4 = a): il passo fallisce e l'automazione va in pausa. */
-const MAILBOX_LOST: ReadonlySet<string> = new Set(["mailbox_missing", "mailbox_expired", "mailbox_scope"]);
+const MAILBOX_LOST: ReadonlySet<string> = new Set([
+  "mailbox_missing",
+  "mailbox_expired",
+  "mailbox_scope",
+  // Review F2, M3: gli stessi motivi detti dal mittente all'invio (casella disabilitata, credenziali illeggibili).
+  "account_disabled",
+  "account_unavailable",
+]);
 
 export interface ExecutorDeps {
   db: Db;
@@ -330,7 +337,15 @@ async function control(turn: Turn, input: ControlInput): Promise<void> {
       if (status !== "failed" || cursorOf(turn.run).path === null) return;
       const skip = input.control === "skip";
       // Riprova un'email fallita: il gesto toglie la chiave dell'invio fallito, così ne parte uno nuovo.
-      if (!skip) await releaseFailedEmail(turn.deps.db, turn.run.id, cursorOf(turn.run).path!);
+      if (!skip && (await releaseFailedEmail(turn.deps.db, turn.run.id, cursorOf(turn.run).path!)) === "already_sent") {
+        await note(turn, {
+          outcome: "failed",
+          byId: input.byId,
+          reason: "L'email risulta già mandata da Gmail: non si rimanda. Controlla Gmail, poi salta il passo.",
+          why: { code: "emailAlreadySent" },
+        });
+        return;
+      }
       await note(turn, { outcome: skip ? "skipped" : "retried", byId: input.byId, reason: skip ? "Passo saltato." : "Riprova chiesta." });
       await setRun(turn, { status: "running", error: null, endedAt: null });
       await drive(turn, { kind: "time", now: turn.now }, skip ? skipTop : undefined);
@@ -356,7 +371,8 @@ async function control(turn: Turn, input: ControlInput): Promise<void> {
 /** «Salta»: il passo al cursore è saltato, si riparte da quello dopo. */
 /** L'ambiente di un effetto: l'esecuzione, l'automazione e la casella scelta all'accensione. */
 async function effectEnv(turn: Turn): Promise<EffectEnv> {
-  const accountId = turn.automation.mailboxAccountId;
+  // C1 (review F2): la casella dell'ESECUZIONE, non quella che l'automazione ha adesso.
+  const accountId = turn.run.mailboxAccountId ?? turn.automation.mailboxAccountId;
   const [box] = accountId ? await turn.deps.db.select({ email: googleAccounts.email }).from(googleAccounts).where(eq(googleAccounts.id, accountId)) : [];
   return {
     db: turn.deps.db,

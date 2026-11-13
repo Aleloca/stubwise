@@ -127,6 +127,21 @@ describe("l'email di un passo", () => {
     expect((await reload(run.id)).status).toBe("running");
   });
 
+  it("review F2, I1: «Riprova» su un'email che Gmail ha GIÀ mandato (`sent_unrecorded`) non la rimanda: la chiave resta e il registro lo dice", async () => {
+    const { run } = await runOf([email()]);
+    await exec();
+    const [row] = await mailOf(run.id);
+    await settle(row!.id, "failed", { error: "sent_unrecorded" });
+    await tick(run.id);
+    expect(await reload(run.id)).toMatchObject({ status: "failed", error: "sent_unrecorded" });
+    await t.db.insert(automationRunInputs).values({ runId: run.id, input: { control: "retry", byId: ownerId }, byId: ownerId });
+    await exec();
+    expect(await mailOf(run.id)).toHaveLength(1);
+    expect((await reload(run.id)).status).toBe("failed");
+    const last = (await logOf(run.id)).at(-1)!;
+    expect(last.why).toMatchObject({ code: "emailAlreadySent" });
+  });
+
   it("un invio interrotto (il worker morto a metà) è un fallimento, mai rimandato", async () => {
     const { run } = await runOf([email()]);
     await exec();
@@ -214,4 +229,27 @@ describe("la casella persa a metà (S4, F2-4 = a)", () => {
     await exec();
     expect(await reload(second.run.id)).toMatchObject({ status: "failed", error: "mailbox_scope" });
   });
+
+  it("review F2, C1: un'esecuzione manda solo dalla SUA casella; passata l'automazione a un altro proprietario, il passo fallisce invece di mandare dalla casella nuova", async () => {
+    const { automation, run } = await runOf([email()]);
+    await t.db.update(automationRuns).set({ mailboxAccountId: accountId }).where(eq(automationRuns.id, run.id));
+    const other = (await t.db.insert(users).values({ email: `${randomUUID()}@x.it`, passwordHash: "x", role: "member" }).returning())[0]!.id;
+    const [ws] = await t.db.insert(googleWorkspaces).values({ name: "W2", domains: ["acme.com"], clientId: "c", clientSecretEncrypted: "s" }).returning();
+    const otherBox = (await t.db.insert(googleAccounts).values({ userId: other, workspaceId: ws!.id, email: `b-${randomUUID().slice(0, 5)}@acme.com`, googleSub: randomUUID(), refreshTokenEncrypted: "r", scopes: [GMAIL_MODIFY] }).returning())[0]!.id;
+    await t.db.update(automations).set({ ownerId: other, mailboxAccountId: otherBox }).where(eq(automations.id, automation.id));
+    await exec();
+    expect(await mailOf(run.id)).toEqual([]);
+    expect((await reload(run.id)).error).toBe("mailbox_missing");
+  });
+
+  it("review F2, M3: un invio rifiutato perché la casella è disabilitata o non leggibile (`account_disabled`) mette in pausa SUBITO", async () => {
+    const { automation, run } = await runOf([email()]);
+    await exec();
+    const [row] = await mailOf(run.id);
+    await settle(row!.id, "failed", { error: "account_disabled" });
+    await tick(run.id);
+    expect(await reload(run.id)).toMatchObject({ status: "failed", error: "account_disabled" });
+    expect((await t.db.select().from(automations).where(eq(automations.id, automation.id)))[0]).toMatchObject({ status: "paused", pausedReason: "mailbox_lost" });
+  });
 });
+

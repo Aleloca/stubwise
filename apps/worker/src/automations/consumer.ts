@@ -173,6 +173,7 @@ async function startMailRunsFor(tx: Tx, row: EventRow, log: (msg: string) => voi
     .where(
       and(
         eq(automations.mailboxAccountId, row.accountId),
+        eq(automations.listensMail, true),
         eq(automations.status, "active"),
         eq(automations.ownerId, account.userId),
         isNotNull(automations.activeSince),
@@ -268,6 +269,8 @@ async function createRun(
     // Un evento scritto da un'esecuzione fa nascere una figlia (la catena).
     origin: event.originRunId ? "automation" : "stubwise",
     parentRunId,
+    // C1 (review F2): la casella dell'esecuzione — quella dell'email per «email in arrivo», altrimenti quella dell'automazione.
+    mailboxAccountId: event.accountId ?? a.mailboxAccountId,
     projectIds: [a.projectId],
     startedAt: sql`clock_timestamp()`,
     dueAt: sql`now()`,

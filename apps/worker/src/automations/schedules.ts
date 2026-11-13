@@ -1,7 +1,7 @@
 import { automationRuns, automations, automationScheduleFires, automationVersions, type Db } from "@stubwise/db";
 import { projectPermissionsOfUser } from "@stubwise/notifications";
 import { initialState, localDate, render, scheduleDue, type AutomationFlow } from "@stubwise/shared";
-import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { MAX_ACTIVE_RUNS } from "./consumer.js";
 
 /**
@@ -26,20 +26,39 @@ const OPEN = ["running", "waiting_approval", "waiting_project", "suspended", "wa
 export async function fireSchedules(db: Db, now: Date, log: (msg: string) => void = () => {}): Promise<number> {
   const at = now.toISOString();
   const today = localDate(at, SCHEDULE_TIME_ZONE);
-  const active = await db
-    .select()
+  // Review F2, M2: solo le accese con l'ultima versione pubblicata a orario, in una query.
+  const rows = await db
+    .select({ a: automations, n: automationVersions.n, flow: automationVersions.flow })
     .from(automations)
-    .where(and(eq(automations.status, "active"), isNotNull(automations.ownerId)));
+    .innerJoin(
+      automationVersions,
+      and(
+        eq(automationVersions.automationId, automations.id),
+        isNotNull(automationVersions.publishedAt),
+        sql`${automationVersions.n} = (select max(v2.n) from automation_versions v2 where v2.automation_id = ${automations.id} and v2.published_at is not null)`,
+      ),
+    )
+    .where(and(eq(automations.status, "active"), isNotNull(automations.ownerId), sql`${automationVersions.flow}->'trigger'->>'kind' = 'schedule'`));
   let fired = 0;
-  for (const a of active) {
-    const [v] = await db
-      .select({ n: automationVersions.n, flow: automationVersions.flow })
-      .from(automationVersions)
-      .where(and(eq(automationVersions.automationId, a.id), isNotNull(automationVersions.publishedAt)))
-      .orderBy(desc(automationVersions.n))
-      .limit(1);
-    const flow = v?.flow as AutomationFlow | undefined;
-    if (!v || !flow || flow.trigger.kind !== "schedule" || !scheduleDue(flow.trigger.rule, at, SCHEDULE_TIME_ZONE)) continue;
+  for (const { a, n, flow: raw } of rows) {
+    // Una per volta: un'automazione che lancia si logga e non ferma le altre.
+    try {
+      const flow = raw as AutomationFlow;
+      const v = { n };
+      if (flow.trigger.kind !== "schedule" || !scheduleDue(flow.trigger.rule, at, SCHEDULE_TIME_ZONE)) continue;
+      if (await fireOne(db, a, v, flow, at, today)) {
+        fired += 1;
+        log(`[automations] ${a.code}: inizio a orario del ${today}`);
+      }
+    } catch (err) {
+      log(`[automations] ${a.code}: inizio a orario non riuscito (${err instanceof Error ? err.message : String(err)})`);
+    }
+  }
+  return fired;
+}
+
+async function fireOne(db: Db, a: typeof automations.$inferSelect, v: { n: number }, flow: AutomationFlow, at: string, today: string): Promise<boolean> {
+  {
     const started = await db.transaction(async (tx) => {
       const [fire] = await tx.insert(automationScheduleFires).values({ automationId: a.id, localDate: today }).onConflictDoNothing().returning();
       if (!fire) return false;
@@ -68,6 +87,7 @@ export async function fireSchedules(db: Db, now: Date, log: (msg: string) => voi
           status: "running",
           event,
           origin: "schedule",
+          mailboxAccountId: a.mailboxAccountId,
           projectIds: [a.projectId],
           dueAt: sql`now()`,
         })
@@ -75,10 +95,6 @@ export async function fireSchedules(db: Db, now: Date, log: (msg: string) => voi
       await tx.update(automationScheduleFires).set({ runId: run!.id }).where(and(eq(automationScheduleFires.automationId, a.id), eq(automationScheduleFires.localDate, today)));
       return true;
     });
-    if (started) {
-      fired += 1;
-      log(`[automations] ${a.code}: inizio a orario del ${today}`);
-    }
+    return started;
   }
-  return fired;
 }

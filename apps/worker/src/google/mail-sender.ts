@@ -147,6 +147,9 @@ async function automationMime(db: Db, row: typeof mailOutgoing.$inferSelect, fro
     body: row.body,
     ...(row.rfcMessageId ? { messageId: row.rfcMessageId } : {}),
     ...(previous?.rfc ? { inReplyTo: previous.rfc, references: [previous.rfc] } : {}),
+    // C2 (decisione del maintainer): le nostre email sono marcate (RFC 3834). Un'altra
+    // automazione — nostra o di chi riceve — non deve rispondere a una risposta automatica.
+    extraHeaders: { "Auto-Submitted": "auto-generated", ...(row.automationRunId ? { "X-Stubwise-Automation": row.automationRunId } : {}) },
   });
 }
 

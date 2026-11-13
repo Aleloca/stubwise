@@ -244,7 +244,8 @@ describe("area 7, F2, S2: accendere e pubblicare con la casella", () => {
     const ok = await publish({ mailboxAccountId: box.id });
     expect(ok.statusCode).toBe(200);
     expect(ok.json()).toMatchObject({ status: "active", mailbox: box.email, mailboxAccountId: box.id });
-    expect(await row(a.id)).toMatchObject({ ownerId: lead.id, mailboxAccountId: box.id });
+    // Review F2, I2: manda soltanto, quindi non ascolta la posta.
+    expect(await row(a.id)).toMatchObject({ ownerId: lead.id, mailboxAccountId: box.id, listensMail: false });
   });
 
   it("il contesto della prova dice la casella del proprietario che avrebbe (o perché non c'è); lo scope d'invio è quello della Posta", async () => {
@@ -273,6 +274,7 @@ describe("area 7, F2, S2: accendere e pubblicare con la casella", () => {
     // Un altro lead che prova la stessa bozza: sarebbe lui il proprietario, e la posta di `lead` non la vede.
     expect(await items(other, "draft")).toEqual([]);
     expect((await call(lead.headers, "POST", `/automations/${a.code}/publish`, { mailboxAccountId: box.id })).statusCode).toBe(200);
+    expect((await db.select().from(automations).where(eq(automations.id, a.id)))[0]!.listensMail).toBe(true);
     // Pubblicata: il proprietario è `lead`; chi prova la versione 1 senza esserlo non vede gli esempi.
     expect(await items(lead, "1")).toHaveLength(1);
     expect(await items(other, "1")).toEqual([]);
@@ -297,6 +299,25 @@ describe("area 7, F2, S2: accendere e pubblicare con la casella", () => {
       expect(JSON.stringify(theirs)).not.toContain(leak);
       expect(JSON.stringify((await call(other.headers, "GET", `/automation-runs?automation=${a.code}`)).json())).not.toContain(leak);
     }
+  });
+
+  it("review F2, C1: un altro gestore che ripubblica NON vede la posta del vecchio proprietario sulle esecuzioni partite dalla sua casella", async () => {
+    const { p, lead } = await setup();
+    const other = await person();
+    await addMember(app, p.id, other.id, "project_lead");
+    const boxA = await mailbox(lead.id);
+    const flow: AutomationFlow = { trigger: { kind: "stubwise", event: "mail_received" }, steps: [createTask()], titleTemplate: "t" };
+    const a = await created(lead, p.id, flow);
+    expect((await call(lead.headers, "POST", `/automations/${a.code}/publish`, { mailboxAccountId: boxA.id })).statusCode).toBe(200);
+    await db.insert(automationRuns).values({ automationId: a.id, n: 1, version: 1, title: "Email: Riservato", origin: "stubwise", status: "done", mailboxAccountId: boxA.id, event: { email: { mittente: "c@b.it", oggetto: "Riservato", testo: "Segreto" } }, vars: { "risposta.testo": "Risposta segreta" } });
+    // B ripubblica con la sua casella: diventa proprietario dell'automazione, ma la posta della run è di A.
+    const boxB = await mailbox(other.id);
+    expect((await call(other.headers, "PUT", `/automations/${a.code}/draft`, { flow, expectedRev: null })).statusCode).toBe(200);
+    expect((await call(other.headers, "POST", `/automations/${a.code}/publish`, { mailboxAccountId: boxB.id })).statusCode).toBe(200);
+    const seenByB = JSON.stringify((await call(other.headers, "GET", `/automations/${a.code}/runs/1`)).json());
+    for (const leak of ["Riservato", "Segreto", "Risposta segreta", "c@b.it"]) expect(seenByB).not.toContain(leak);
+    const seenByA = JSON.stringify((await call(lead.headers, "GET", `/automations/${a.code}/runs/1`)).json());
+    expect(seenByA).toContain("Segreto");
   });
 
   it("un flusso senza email non chiede la casella; il proprietario che ripubblica tiene la sua; chi riaccende ne sceglie una sua", async () => {
