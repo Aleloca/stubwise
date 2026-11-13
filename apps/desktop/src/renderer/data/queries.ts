@@ -326,6 +326,8 @@ export const queryKeys = {
     ["as", personId, "automations", "runs", filter] as const,
   automationRun: (personId: string, id: string) =>
     ["as", personId, "automations", "run", id] as const,
+  automationRunByCode: (personId: string, code: string, n: number) =>
+    ["as", personId, "automations", "runByCode", code, n] as const,
   automationSources: (personId: string) => ["as", personId, "automations", "sources"] as const,
   clientLinks: (personId: string) => ["as", personId, "automations", "clientLinks"] as const,
   clientSuggestions: (personId: string) =>
@@ -3867,6 +3869,15 @@ export function useAutomationRuns(filter: AutomationRunFilter = {}) {
 }
 
 /** Un'esecuzione col registro; invisibile o inesistente → `null`. */
+/** L'id di un'esecuzione dal suo indirizzo (codice e numero). */
+export function useAutomationRunByCode(code: string, n: number) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.automationRunByCode(me, code, n),
+    queryFn: () => api.automations.findRun(code, n),
+  });
+}
+
 export function useAutomationRun(id: string | null) {
   const me = useSessionPersonId();
   return useQuery({

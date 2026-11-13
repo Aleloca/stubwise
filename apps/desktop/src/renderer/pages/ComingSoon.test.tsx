@@ -379,6 +379,7 @@ const INTEGRATED_CALLS = new Set([
   "automations.getAutomation",
   "automations.getProjectAutomations",
   "automations.getRun",
+  "automations.findRun",
   "automations.getSimulation",
   "automations.listAutomations",
   "automations.listMyApprovals",

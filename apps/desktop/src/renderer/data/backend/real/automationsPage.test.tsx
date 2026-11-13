@@ -150,6 +150,46 @@ describe("le Automations nella build app", () => {
     expect(seen.some((r) => r.path.includes("source"))).toBe(false);
   });
 
+  it("un'esecuzione vecchia (fuori dalla prima pagina) si apre per codice e numero", async () => {
+    const RUN_ID = "77777777-7777-4777-8777-777777777779";
+    install({
+      "GET /api/automations/AUD-A1/runs/3": {
+        body: {
+          id: RUN_ID,
+          automationId: A_ID,
+          n: 3,
+          version: 1,
+          title: "Avvio vecchio",
+          status: "done",
+          event: {},
+          vars: {},
+          cursor: null,
+          waitingUntil: null,
+          pending: null,
+          log: [],
+          startedAt: "2026-10-01T09:00:00.000Z",
+          endedAt: "2026-10-01T09:01:00.000Z",
+          error: null,
+          projectIds: [PROJECT_ID],
+          code: "AUD-A1 #3",
+          automationCode: "AUD-A1",
+          automationName: "Avvio progetto",
+          automationProjectId: PROJECT_ID,
+          flow: FLOW,
+          deciders: [],
+          ownerId: ME_ID,
+          permissions: { manage: true, approve: false, chooseProject: false },
+          parent: null,
+          children: [],
+          pendingEffect: null,
+        },
+      },
+    });
+    renderRoute("/automations/AUD-A1/runs/3");
+    expect(await screen.findByText("Avvio vecchio", {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.queryByText(/can't see|not visible/i)).toBeNull();
+  });
+
   it("pubblicare la bozza dal dettaglio: POST …/publish col rev letto", async () => {
     install({
       "POST /api/automations/AUD-A1/publish": {

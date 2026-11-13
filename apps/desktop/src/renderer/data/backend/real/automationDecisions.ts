@@ -70,6 +70,14 @@ export function createRealDecisions(
       return items;
     },
 
+    /** Per codice e numero, anche fuori dalla prima pagina degli elenchi; `null` se non la vedo. */
+    async findRun(automationCode: string, n: number): Promise<string | null> {
+      const run = await orNull(() => api.run(automationCode, n));
+      if (!run) return null;
+      refs.rememberRun(run);
+      return run.id;
+    },
+
     /** L'esecuzione riletta (chi ha deciso prima); `null` se non si vede più. */
     async getRun(runId: string): Promise<AutomationRunDetail | null> {
       if (!refs.knowsRun(runId)) return null;

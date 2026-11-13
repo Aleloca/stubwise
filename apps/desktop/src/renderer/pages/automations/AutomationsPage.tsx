@@ -1,7 +1,7 @@
 import { useSearch } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useAutomationRuns, useAutomations } from "../../data/queries";
+import { useAutomationRunByCode, useAutomationRuns, useAutomations } from "../../data/queries";
 import { useViewer } from "../../data/viewing";
 import { MenuGroup, itemClass } from "../../tasks-ui/Menu";
 import { PageError } from "../../tasks-ui/PageStates";
@@ -163,16 +163,16 @@ export function AutomationRoutePage({ code }: { code: string }) {
 
 function RunByCode({ code, n, entry }: { code: string; n: string; entry?: string }) {
   const { t } = useTranslation();
-  // Le esecuzioni che vedo (anche quelle che devo decidere senza vedere l'automazione).
-  const runs = useAutomationRuns();
-  if (runs.isError)
+  // Per codice e numero, anche un'esecuzione vecchia (fuori dalla prima pagina
+  // degli elenchi) e una da decidere senza vedere l'automazione.
+  const found = useAutomationRunByCode(code, Number(n));
+  if (found.isError)
     return (
-      <PageError message={t("automations.errors.loadRun")} onRetry={() => void runs.refetch()} />
+      <PageError message={t("automations.errors.loadRun")} onRetry={() => void found.refetch()} />
     );
-  if (runs.data === undefined) return <DetailSkeleton />;
-  const run = runs.data.find((r) => r.automationCode === code && String(r.n) === n);
-  if (!run) return <NotVisible what="run" />;
-  return <RunDetail key={run.id} runId={run.id} entry={entry} />;
+  if (found.data === undefined) return <DetailSkeleton />;
+  if (found.data === null) return <NotVisible what="run" />;
+  return <RunDetail key={found.data} runId={found.data} entry={entry} />;
 }
 
 /** `#/automations/<CODE>/runs/<n>` */
