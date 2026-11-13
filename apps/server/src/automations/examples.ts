@@ -1,8 +1,12 @@
-import { backlogItems, backlogItemTickets, emailMessages, milestones, projectMembers, projects, roles, tickets, type Db } from "@stubwise/db";
-import { automationEventFields, automationMailboxOf, loadPlanWorld, projectPermissionsByProject, type AutomationEventRef } from "@stubwise/notifications";
+import { automations, backlogItems, backlogItemTickets, clientProjectLinks, emailMessages, milestones, projectMembers, projects, roles, tickets, type Db } from "@stubwise/db";
+import { automationEventFields, automationMailboxOf, automationOwnerInScope, loadPlanWorld, projectPermissionsByProject, projectPermissionsOfUser, type AutomationEventRef } from "@stubwise/notifications";
 import {
   checkEventFields,
+  clientKeyOf,
   evaluate,
+  visitSteps,
+  type SimulationClientProject,
+  type SimulationStartTarget,
   lookup,
   type AutomationFlow,
   type OwnerMailbox,
@@ -13,7 +17,7 @@ import {
   type SimulationPerson,
 } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
-import { AutomationError, automationOf, configErrorsOf, mailboxAddresses, managedAutomation, namedBy, seen, sees, sourcesFor, versionsOf, type Viewer } from "./model.js";
+import { AutomationError, automationOf, configErrorsOf, mailboxAddresses, managedAutomation, namedBy, seen, sees, seesAutomation, sourcesFor, versionsOf, type Viewer } from "./model.js";
 
 /**
  * GLI ESEMPI E IL CONTESTO DELLA PROVA (area 7, fetta 1; la specifica è
@@ -146,19 +150,23 @@ async function examplesOf(db: Db, scope: ExampleScope, flow: AutomationFlow, mai
   return out;
 }
 
-export async function simulationExamples(db: Db, viewer: Viewer, code: string, version: number | "draft"): Promise<SimulationExamplesView> {
-  const a = await managedAutomation(db, viewer, code);
-  const versions = await versionsOf(db, a.id);
-  const last = versions.at(-1)!;
-  const v = version === "draft" ? (last.publishedAt === null ? last : undefined) : versions.find((x) => x.n === version);
-  if (!v) throw new AutomationError(400, version === "draft" ? "no_draft" : "version", "Unknown version");
-  const flow = v.flow as AutomationFlow;
-  const draft = v.publishedAt === null;
-  // Review F1, I3: una versione non pubblicata la pubblicherebbe chi prova, che
-  // pubblicando ne diventa il proprietario: è lui il proprietario che avrebbe.
-  const ownerId = draft ? viewer.id : (a.ownerId ?? viewer.id);
+/**
+ * Le persone e i progetti del contesto della prova, per chi prova e per il
+ * proprietario che la versione avrebbe (R-G5: un progetto che chi prova non
+ * vede non dice niente). `extraProjectIds`: progetti in più da descrivere con
+ * le stesse regole (F4: quello che il cliente di un esempio risolve).
+ */
+async function contextParts(
+  db: Db,
+  viewer: Viewer,
+  a: { projectId: string | null },
+  flow: AutomationFlow,
+  ownerId: string,
+  extraProjectIds: string[] = [],
+): Promise<{ people: SimulationPerson[]; projects: SimulationContextProject[] }> {
   const visible = await seen(db, viewer);
-  const scope = namedBy(flow, a.projectId);
+  const named = namedBy(flow, a.projectId);
+  const scope = { ...named, projectIds: [...new Set([...named.projectIds, ...extraProjectIds])] };
   const world = await loadPlanWorld(db, { ownerId, ...scope, personIds: [ownerId, viewer.id, ...scope.personIds] });
 
   // Le persone che chi prova incontra: i membri dei progetti toccati che vede, i nominati che vede, sé e il proprietario.
@@ -216,9 +224,26 @@ export async function simulationExamples(db: Db, viewer: Viewer, code: string, v
     };
   });
 
+  return { people, projects: contextProjects };
+}
+
+export async function simulationExamples(db: Db, viewer: Viewer, code: string, version: number | "draft"): Promise<SimulationExamplesView> {
+  const a = await managedAutomation(db, viewer, code);
+  const versions = await versionsOf(db, a.id);
+  const last = versions.at(-1)!;
+  const v = version === "draft" ? (last.publishedAt === null ? last : undefined) : versions.find((x) => x.n === version);
+  if (!v) throw new AutomationError(400, version === "draft" ? "no_draft" : "version", "Unknown version");
+  const flow = v.flow as AutomationFlow;
+  const draft = v.publishedAt === null;
+  // Review F1, I3: una versione non pubblicata la pubblicherebbe chi prova, che
+  // pubblicando ne diventa il proprietario: è lui il proprietario che avrebbe.
+  const ownerId = draft ? viewer.id : (a.ownerId ?? viewer.id);
+  const visible = await seen(db, viewer);
+  const { people, projects: contextProjects } = await contextParts(db, viewer, a, flow, ownerId);
   // La casella che il proprietario che avrebbe userebbe (F2): quella scelta se è lui, altrimenti la sua prima utilizzabile.
   const box = await automationMailboxOf(db, ownerId, ownerId === a.ownerId ? a.mailboxAccountId : null);
   const ownerMailbox: OwnerMailbox = box.ok ? { ok: true, address: box.address } : { ok: false, reason: box.reason === "no_read_scope" ? "no_scope" : box.reason };
+  const startTargets = await startTargetsOf(db, viewer, flow, ownerId);
   const context: SimulationContext = {
     automation: automationOf(a, versions, visible, await mailboxAddresses(db, [a])),
     version: v.n,
@@ -229,8 +254,61 @@ export async function simulationExamples(db: Db, viewer: Viewer, code: string, v
     people,
     projects: contextProjects,
     ownerMailbox,
+    automations: startTargets,
   };
   // La posta solo del proprietario che avrebbe, e solo se è chi prova (R-J13).
   const exampleScope: ExampleScope = a.projectId ? { projectId: a.projectId } : { visible };
   return { items: await examplesOf(db, exampleScope, flow, ownerId === viewer.id && box.ok ? box.accountId : null), context };
+}
+
+/**
+ * F4: le automazioni nominate dai passi «avvia un'altra», come le vede il
+ * proprietario che la versione avrebbe (la regola di `executeStart` nel
+ * worker: una generale con il permesso d'istanza, una di progetto con
+ * `automations.manage` lì); codice e nome solo se chi prova la vede.
+ */
+async function startTargetsOf(db: Db, viewer: Viewer, flow: AutomationFlow, ownerId: string): Promise<SimulationStartTarget[]> {
+  const ids = new Set<string>();
+  visitSteps(flow.steps, (st) => {
+    if (st.kind === "startAutomation" && /^[0-9a-f-]{36}$/i.test(st.automationId)) ids.add(st.automationId);
+  });
+  if (ids.size === 0) return [];
+  const rows = await db.select().from(automations).where(inArray(automations.id, [...ids]));
+  const ownerGeneral = await automationOwnerInScope(db, ownerId, null);
+  const ownerPerms = await projectPermissionsByProject(db, ownerId, rows.flatMap((r) => (r.projectId ? [r.projectId] : [])));
+  const visible = await seen(db, viewer);
+  return rows.map((r) => {
+    const perms = r.projectId ? ownerPerms.get(r.projectId) : null;
+    const shown = seesAutomation(visible, viewer, r);
+    return {
+      id: r.id,
+      code: shown ? r.code : "",
+      name: shown ? r.name : "",
+      status: r.status,
+      visibleToOwner: r.projectId === null ? ownerGeneral : perms !== null && perms !== undefined,
+      manageableByOwner: r.projectId === null ? ownerGeneral : perms?.has("automations.manage") === true,
+    };
+  });
+}
+
+/**
+ * F4, la prova (decisione di 46): il progetto del cliente di un esempio, con
+ * la regola del worker (`resolveClientProject`): `clientKeyOf`, la riga della
+ * tabella, un progetto che il PROPRIETARIO che la versione avrebbe vede;
+ * altrimenti `null`. Solo chi può provare (chi gestisce l'automazione), mai la
+ * tabella intera: rivela solo la risoluzione di quel cliente, come farebbe
+ * l'esecuzione.
+ */
+export async function testClientProject(db: Db, viewer: Viewer, code: string, input: { version: number | "draft"; client: string }): Promise<SimulationClientProject> {
+  const a = await managedAutomation(db, viewer, code);
+  const versions = await versionsOf(db, a.id);
+  const last = versions.at(-1)!;
+  const v = input.version === "draft" ? (last.publishedAt === null ? last : undefined) : versions.find((x) => x.n === input.version);
+  if (!v) throw new AutomationError(400, input.version === "draft" ? "no_draft" : "version", "Unknown version");
+  const ownerId = v.publishedAt === null ? viewer.id : (a.ownerId ?? viewer.id);
+  const key = clientKeyOf(input.client);
+  const [link] = key ? await db.select({ projectId: clientProjectLinks.projectId }).from(clientProjectLinks).where(eq(clientProjectLinks.clientKey, key)) : [];
+  if (!link || !(await projectPermissionsOfUser(db, ownerId, link.projectId))) return { project: null, people: [] };
+  const parts = await contextParts(db, viewer, a, v.flow as AutomationFlow, ownerId, [link.projectId]);
+  return { project: parts.projects.find((p) => p.id === link.projectId) ?? null, people: parts.people };
 }

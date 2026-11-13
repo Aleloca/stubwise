@@ -4,6 +4,7 @@ import {
   automationRunLog,
   automationRuns,
   automations,
+  automationSources,
   automationVersions,
   googleAccounts,
   mailOutgoing,
@@ -14,6 +15,7 @@ import {
   advance,
   approvalProjectOf,
   checkEdited,
+  forceApprovalForUntrusted,
   initialState,
   NO_APPROVER_REASON,
   NO_APPROVER_WHY,
@@ -23,6 +25,7 @@ import {
   type ApprovalWho,
   type Automation,
   type AutomationFlow,
+  type DataField,
   type EngineInput,
   type EngineState,
   type EngineStep,
@@ -229,6 +232,29 @@ interface Turn {
  */
 export const CLAUDE_CALLS_PER_TURN = 3;
 
+/**
+ * Il flusso con cui gira l'esecuzione (review F4): per una figlia di «avvia
+ * un'altra» il cui evento viene da fuori (`event_untrusted`), le destinazioni
+ * che Claude ricava dai campi dell'inizio chiedono l'approvazione, come se
+ * l'inizio fosse quello della madre (F3-1). Il flusso salvato non cambia.
+ */
+export async function effectiveFlow(db: Db, run: Pick<RunRow, "eventUntrusted">, flow: AutomationFlow): Promise<AutomationFlow> {
+  if (!run.eventUntrusted) return flow;
+  const sources =
+    flow.trigger.kind === "source" && /^[0-9a-f-]{36}$/i.test(flow.trigger.sourceId)
+      ? (await db.select().from(automationSources).where(eq(automationSources.id, flow.trigger.sourceId))).map((r) => ({
+          id: r.id,
+          kind: r.kind,
+          name: r.name,
+          status: "connected" as const,
+          connectedById: r.createdBy ?? "",
+          sampleEvents: [],
+          fields: (r.fields ?? []) as DataField[],
+        }))
+      : [];
+  return forceApprovalForUntrusted(flow, sources, { eventUntrusted: true });
+}
+
 async function processRun(deps: ExecutorDeps, runId: string, token: string): Promise<void> {
   const db = deps.db;
   const [run] = await db.select().from(automationRuns).where(eq(automationRuns.id, runId));
@@ -243,7 +269,7 @@ async function processRun(deps: ExecutorDeps, runId: string, token: string): Pro
     deps,
     run,
     automation,
-    flow: version.flow as AutomationFlow,
+    flow: await effectiveFlow(db, run, version.flow as AutomationFlow),
     log: await loadLog(db, run.id),
     now: (deps.now?.() ?? new Date()).toISOString(),
     token,

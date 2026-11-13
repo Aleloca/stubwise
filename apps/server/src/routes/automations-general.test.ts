@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { automationRuns, automations, automationSources, automationVersions, googleAccounts, googleWorkspaces, roles, users, type Db } from "@stubwise/db";
+import { automationRuns, automations, automationSources, automationVersions, clientProjectLinks, googleAccounts, googleWorkspaces, roles, users, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import type { AutomationFlow, Step } from "@stubwise/shared";
@@ -198,6 +198,20 @@ describe("un webhook per automazione (F4-1 = a)", () => {
     expect(taken.json()).toMatchObject({ code: "source_in_use" });
   });
 
+  it("review F4, I3: due pubblicazioni INSIEME sulla stessa sorgente: ne passa una sola (anche accendendo)", async () => {
+    const p = await project();
+    const lead = await person();
+    await addMember(app, p.id, lead.id, "project_lead");
+    for (const op of ["publish", "activate"] as const) {
+      const [source] = await db.insert(automationSources).values({ kind: "webhook", name: "Ordini", secretHash: randomUUID().replace(/-/g, ""), fields: [] }).returning();
+      const flow = flowOf([createTask({ mode: "own" })], { kind: "source", sourceId: source!.id, event: "webhook" });
+      const codes: string[] = [];
+      for (let i = 0; i < 4; i++) codes.push(((await call(lead.headers, "POST", "/automations", { name: `X${i}`, projectId: p.id, flow })).json() as { code: string }).code);
+      const results = await Promise.all(codes.map((c) => call(lead.headers, "POST", `/automations/${c}/${op}`, {})));
+      expect(results.map((r) => r.statusCode).sort()).toEqual([200, 409, 409, 409]);
+    }
+  });
+
   it("una sorgente che non esiste è un errore di configurazione", async () => {
     const p = await project();
     const lead = await person();
@@ -240,5 +254,64 @@ describe("R-J13 lungo la catena (S6)", () => {
     expect(seen.json()).toMatchObject({ mailHidden: true });
     const owner = await call(mailOwner.headers, "GET", `/automations/${child!.code}/runs/1`);
     expect(owner.json()).toMatchObject({ event: { email: { testo: "segreto" } } });
+  });
+});
+
+describe("review F4: «Da decidere» per una generale senza progetto", () => {
+  it("un approvatore nominato (non il proprietario) trova il passo che aspetta lui, anche senza vedere progetti", async () => {
+    const manager = await generalManager();
+    const approver = await person();
+    const a = await general(manager, flowOf([{ id: "n1", kind: "notify", who: { personId: approver.id }, text: "x", approval: { mode: "ask", who: { personId: approver.id } } } as unknown as Step]));
+    await db.update(automations).set({ ownerId: manager.id, status: "active" }).where(eq(automations.id, a.id));
+    await db.insert(automationRuns).values({ automationId: a.id, n: 1, version: 1, title: "R", origin: "manual", status: "waiting_approval", cursor: { path: "0" }, pending: { approverIds: [approver.id], preview: {}, path: "0", round: 0 }, projectIds: [] });
+    const items = ((await call(approver.headers, "GET", "/me/automation-approvals")).json() as { items: { automationCode: string }[] }).items;
+    expect(items.map((i) => i.automationCode)).toContain(a.code);
+  });
+});
+
+describe("F4, la prova (46): il progetto del cliente e le automazioni di «avvia un'altra»", () => {
+  it("test/client-project risolve per il proprietario con la regola del worker; null fuori tabella o verso un progetto che non vede; 403 a chi non può provare; mai la tabella", async () => {
+    const p = await project();
+    const hidden = await project();
+    const lead = await person();
+    const dev = await person();
+    await addMember(app, p.id, lead.id, "project_lead");
+    await addMember(app, p.id, dev.id, "developer");
+    const key = `acme-${randomUUID().slice(0, 6)}.it`;
+    const other = `altro-${randomUUID().slice(0, 6)}.it`;
+    await db.insert(clientProjectLinks).values([
+      { clientKey: key, clientName: "Acme", projectId: p.id },
+      { clientKey: other, clientName: "Altro", projectId: p.id },
+      { clientKey: `nascosto-${key}`, clientName: "N", projectId: hidden.id },
+    ]);
+    const a = (await call(lead.headers, "POST", "/automations", { name: "A", projectId: p.id })).json() as { code: string };
+    const ask = (who: { cookie: string }, client: string) => call(who, "GET", `/automations/${a.code}/test/client-project?version=draft&client=${encodeURIComponent(client)}`);
+    const found = await ask(lead.headers, ` ${key.toUpperCase()} `);
+    expect(found.statusCode).toBe(200);
+    expect(found.json()).toMatchObject({ project: { id: p.id, code: p.code } });
+    expect(JSON.stringify(found.json())).not.toContain(other);
+    expect((await ask(lead.headers, "sconosciuto.it")).json()).toEqual({ project: null, people: [] });
+    expect((await ask(lead.headers, `nascosto-${key}`)).json()).toEqual({ project: null, people: [] });
+    expect((await ask(dev.headers, key)).statusCode).toBe(403);
+  });
+
+  it("il contesto degli esempi elenca le automazioni nominate da «avvia un'altra», come le vede il proprietario; codice e nome solo se chi prova la vede", async () => {
+    const p = await project();
+    const hidden = await project();
+    const lead = await person();
+    await addMember(app, p.id, lead.id, "project_lead");
+    const b = (await call(lead.headers, "POST", "/automations", { name: "B", projectId: p.id })).json() as { id: string; code: string };
+    const seq = Math.floor(Math.random() * 1e6);
+    const [c] = await db.insert(automations).values({ code: `${hidden.code}-A${seq}`, seq, name: "C segreta", projectId: hidden.id, status: "active" }).returning();
+    const start = (id: string): Step => ({ id: `s-${id.slice(0, 4)}`, kind: "startAutomation", automationId: id, approval: { mode: "auto" } }) as Step;
+    const a = (await call(lead.headers, "POST", "/automations", { name: "A", projectId: p.id, flow: flowOf([start(b.id), start(c!.id)]) })).json() as { code: string };
+    const view = (await call(lead.headers, "GET", `/automations/${a.code}/examples?version=draft`)).json() as { context: { automations: unknown[] } };
+    expect(view.context.automations).toEqual(
+      expect.arrayContaining([
+        { id: b.id, code: b.code, name: "B", status: "draft", visibleToOwner: true, manageableByOwner: true },
+        { id: c!.id, code: "", name: "", status: "active", visibleToOwner: false, manageableByOwner: false },
+      ]),
+    );
+    expect(JSON.stringify(view)).not.toContain("C segreta");
   });
 });

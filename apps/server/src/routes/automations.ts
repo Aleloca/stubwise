@@ -17,7 +17,7 @@ import {
 import { approveRun, chooseRunProject, controlRun, getRun, listRuns, rejectRun, runRowOf } from "../automations/runs.js";
 import { listMyApprovals, listMyRuns } from "../automations/me.js";
 import { automationOrigin, projectAutomations } from "../automations/entry.js";
-import { simulationExamples } from "../automations/examples.js";
+import { simulationExamples, testClientProject } from "../automations/examples.js";
 import { estimateTest, runTestClaude } from "../automations/test-claude.js";
 import {
   activateAutomation,
@@ -189,6 +189,15 @@ export async function automationRoutes(instance: FastifyInstance): Promise<void>
     "/automations/:code/test/claude",
     { config: { access: ACCESS }, schema: { params: codeParams, body: z.object({ version: testVersion, rev: z.number().int().nullable().optional(), path: z.string().min(1).max(200), vars: z.record(z.string(), z.unknown()).default({}) }) } },
     async (request, reply) => handle(reply, () => runTestClaude(app.db, app.chatLlm, me(request), request.params.code, request.body)),
+  );
+  // F4 (46): il progetto del cliente di un esempio, per la prova (mai la tabella intera).
+  app.get(
+    "/automations/:code/test/client-project",
+    {
+      config: { access: ACCESS },
+      schema: { params: codeParams, querystring: z.object({ version: z.union([z.literal("draft"), z.coerce.number().int().positive()]), client: z.string().min(1).max(200) }) },
+    },
+    async (request, reply) => handle(reply, () => testClientProject(app.db, me(request), request.params.code, request.query)),
   );
   app.post(
     "/automations/:code/tested",

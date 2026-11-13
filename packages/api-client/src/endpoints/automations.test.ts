@@ -94,6 +94,12 @@ describe("area 7, F4: generali, tetto, sorgenti e tabella", () => {
     expect(call(fetchImpl, 3)).toMatchObject({ url: "https://x.test/api/automations/AUT-1/runs/3/project", body: { remember: true } });
   });
 
+  it("la prova: il progetto del cliente di un esempio (GET, versione e cliente nella query)", async () => {
+    const { c, fetchImpl } = client({ project: null, people: [] });
+    await c.automations.testClientProject("AUT-1", { version: "draft", client: "Acme.it" });
+    expect(call(fetchImpl)).toMatchObject({ url: "https://x.test/api/automations/AUT-1/test/client-project?version=draft&client=Acme.it", method: "GET" });
+  });
+
   it("le sorgenti: elenco, crea, rinomina, rigenera, esempio (anteprima e conferma), campo (chiave codificata), eventi", async () => {
     const { c, fetchImpl } = client({});
     await c.automationSources.list();

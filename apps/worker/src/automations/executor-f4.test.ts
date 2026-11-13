@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { automationEffects, automationRuns, automations, automationVersions, clientProjectLinks, googleAccounts, googleWorkspaces, notifications, projectMembers, projects, roles, tickets, users } from "@stubwise/db";
+import { automationEffects, automationRuns, automationSources, automations, automationVersions, clientProjectLinks, googleAccounts, googleWorkspaces, notifications, projectMembers, projects, roles, tickets, users } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { AutomationFlow, Step } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { executeDueRuns } from "./executor.js";
+import { effectiveFlow, executeDueRuns } from "./executor.js";
 
 /**
  * L'esecutore nella F4 (area 7): una GENERALE agisce nel progetto che il
@@ -207,10 +207,12 @@ describe("«avvia un'altra automazione» (S6)", () => {
     const box = (await t.db.insert(googleAccounts).values({ userId: ownerId, workspaceId: ws!.id, email: `o-${randomUUID().slice(0, 5)}@acme.com`, googleSub: randomUUID(), refreshTokenEncrypted: "r", scopes: [] }).returning())[0]!.id;
     const b = await auto([]);
     const a = await auto([start(b.id)]);
+    // La madre parte da «email in arrivo» (la regola guarda l'INIZIO della madre, review F4).
+    await t.db.update(automationVersions).set({ flow: { trigger: { kind: "stubwise", event: "mail_received" }, steps: [start(b.id)], titleTemplate: "R" } }).where(eq(automationVersions.automationId, a.id));
     const run = await runOf(a, { event: { email: { mittente: "cliente@x.it", oggetto: "Ordine", testo: "riservato" } }, mailboxAccountId: box });
     await executeDueRuns({ db: t.db });
     const [child] = await childrenOf(run.id);
-    expect(child).toMatchObject({ mailOriginAccountId: box, mailboxAccountId: null });
+    expect(child).toMatchObject({ mailOriginAccountId: box, mailboxAccountId: null, eventUntrusted: true });
     // …e il nipote la eredita.
     const c = await auto([]);
     await t.db.update(automationVersions).set({ flow: { trigger: { kind: "manual" }, steps: [start(c.id)], titleTemplate: "R" } }).where(eq(automationVersions.automationId, b.id));
@@ -218,5 +220,50 @@ describe("«avvia un'altra automazione» (S6)", () => {
     await executeDueRuns({ db: t.db });
     const [grandchild] = await childrenOf(again!.id);
     expect(grandchild).toMatchObject({ mailOriginAccountId: box });
+  });
+});
+
+describe("review F4: la tinta e la posta lungo la catena seguono l'INIZIO della madre", () => {
+  const start = (automationId: string): Step => ({ id: `s${seq++}`, kind: "startAutomation", automationId, approval: { mode: "auto" } }) as Step;
+  async function autoWith(trigger: AutomationFlow["trigger"], steps: Step[]) {
+    const n = 11000 + seq++;
+    const [a] = await t.db.insert(automations).values({ code: `${code}-A${n}`, seq: n, name: `Auto ${n}`, projectId, ownerId, status: "active", activeSince: new Date() }).returning();
+    await t.db.insert(automationVersions).values({ automationId: a!.id, n: 1, flow: { trigger, steps, titleTemplate: "R" }, publishedAt: new Date(), publishedBy: ownerId });
+    return a!;
+  }
+  const childOf = async (runId: string) => (await t.db.select().from(automationRuns).where(eq(automationRuns.parentRunId, runId)))[0]!;
+
+  it("madre da una sorgente (con un campo `email` nell'evento): la figlia ha l'evento non fidato e NESSUNA casella d'origine", async () => {
+    const [src] = await t.db.insert(automationSources).values({ kind: "webhook", name: "W", secretHash: randomUUID().replace(/-/g, ""), fields: [{ key: "email", label: "Email", type: "email" }] }).returning();
+    const b = await autoWith({ kind: "manual" }, []);
+    const a = await autoWith({ kind: "source", sourceId: src!.id, event: "webhook" }, [start(b.id)]);
+    const [run] = await t.db.insert(automationRuns).values({ automationId: a.id, n: 1, version: 1, title: "R", origin: "source", event: { email: "x@y.it" }, projectIds: [projectId] }).returning();
+    await executeDueRuns({ db: t.db });
+    expect(await childOf(run!.id)).toMatchObject({ eventUntrusted: true, mailOriginAccountId: null });
+  });
+
+  it("madre da un avvio a mano: la figlia ha l'evento fidato; da una figlia non fidata, la nipote resta non fidata", async () => {
+    const c = await autoWith({ kind: "manual" }, []);
+    const b = await autoWith({ kind: "manual" }, [start(c.id)]);
+    const a = await autoWith({ kind: "manual" }, [start(b.id)]);
+    const [run] = await t.db.insert(automationRuns).values({ automationId: a.id, n: 1, version: 1, title: "R", origin: "manual", event: {}, projectIds: [projectId] }).returning();
+    await executeDueRuns({ db: t.db });
+    expect(await childOf(run!.id)).toMatchObject({ eventUntrusted: false });
+    const [tainted] = await t.db.insert(automationRuns).values({ automationId: b.id, n: 99, version: 1, title: "R", origin: "automation", event: {}, eventUntrusted: true, projectIds: [projectId] }).returning();
+    await executeDueRuns({ db: t.db });
+    expect(await childOf(tainted!.id)).toMatchObject({ eventUntrusted: true });
+  });
+
+  it("il flusso effettivo di un'esecuzione non fidata chiede l'approvazione sulla destinazione che Claude ricava dall'inizio", async () => {
+    const flow: AutomationFlow = {
+      trigger: { kind: "stubwise", event: "task_created" },
+      steps: [
+        { id: "c", kind: "claude", instruction: "x", inputs: ["task.titolo"], outcomes: [], fields: [{ key: "chi", label: "Chi", type: "email" }], branches: {} } as unknown as Step,
+        { id: "e", kind: "sendEmail", to: "{{chi}}", subject: "s", body: "b", attachRefs: [], approval: { mode: "auto" } } as Step,
+      ],
+      titleTemplate: "R",
+    };
+    expect(((await effectiveFlow(t.db, { eventUntrusted: false }, flow)).steps[1] as { approval: unknown }).approval).toEqual({ mode: "auto" });
+    expect(((await effectiveFlow(t.db, { eventUntrusted: true }, flow)).steps[1] as { approval: unknown }).approval).toEqual({ mode: "ask", who: { owner: true } });
   });
 });

@@ -169,7 +169,8 @@ export async function runRowOf(db: Db, viewer: Viewer, r: RunRecord, a: Automati
     const flow = await flowOfRun(db, r);
     if (flow) {
       // F4: i campi di una sorgente (il webhook in arrivo) sono tinti come gli altri dati di fuori.
-      const tainted = taintedKeys(flow, await sourcesFor(db, flow));
+      // Review F4: per una figlia il cui evento viene da fuori (`event_untrusted`), ogni campo dell'inizio è tinto.
+      const tainted = taintedKeys(flow, await sourcesFor(db, flow), { eventUntrusted: r.eventUntrusted });
       const isTainted = (k: string) => tainted.has(k) || [...tainted].some((t) => k.startsWith(`${t}.`));
       const claudeSteps = new Map<string, Extract<Step, { kind: "claude" }>>();
       visitSteps(flow.steps, (st) => {

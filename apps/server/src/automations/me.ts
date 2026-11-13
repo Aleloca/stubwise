@@ -59,7 +59,12 @@ const MAX_ITEMS = 200;
  */
 async function waitingCandidates(db: Db, viewer: Viewer) {
   const visible = await seen(db, viewer);
-  const ownerOfUnplaced = and(sql`coalesce(${automationRuns.pending}->'preview'->>'progetto', ${automations.projectId}::text) is null`, eq(automations.ownerId, viewer.id));
+  // Review F4: senza progetto d'approvazione (una generale), la decide chi la aspetta adesso — il
+  // proprietario per «scegli il progetto», un approvatore nominato per un passo — anche senza vedere progetti.
+  const ownerOfUnplaced = and(
+    sql`coalesce(${automationRuns.pending}->'preview'->>'progetto', ${automations.projectId}::text) is null`,
+    or(eq(automations.ownerId, viewer.id), sql`coalesce(${automationRuns.pending}->'approverIds', '[]'::jsonb) ? ${viewer.id}`),
+  );
   if (visible !== "all" && visible.size === 0) {
     const rows = await db
       .select({ run: automationRuns, automation: automations })
