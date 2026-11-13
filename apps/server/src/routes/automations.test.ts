@@ -252,6 +252,31 @@ describe("le esecuzioni e le decisioni", () => {
     expect(row).toMatchObject({ startedBy: lead.id });
   });
 
+  it("review F1, I4: «Run now» con un evento a mano: solo i campi dell'inizio, valori semplici e un tetto; per un inizio non manuale chi avvia passa i controlli di chi pubblica", async () => {
+    const { p, lead } = await setup();
+    const other = await person();
+    await addMember(app, p.id, other.id, "project_lead");
+    const q = await project();
+    await addMember(app, q.id, lead.id, "project_lead");
+    const flow: AutomationFlow = { trigger: { kind: "stubwise", event: "task_created" }, steps: [createTask({ project: { mode: "fixed", projectId: q.id } })], titleTemplate: "Per {{task.titolo}}" };
+    const a = await created(lead, p.id, flow);
+    expect((await call(lead.headers, "POST", `/automations/${a.code}/publish`, {})).statusCode).toBe(200);
+    const runs = async () => (await db.select().from(automationRuns).where(eq(automationRuns.automationId, a.id))).length;
+    // Chi non può creare dove il flusso crea non inietta dati in un'esecuzione a nome del proprietario.
+    const denied = await call(other.headers, "POST", `/automations/${a.code}/runs`, { event: { task: { titolo: "Iniettata" } } });
+    expect(denied.statusCode).toBe(409);
+    expect(denied.json()).toMatchObject({ code: "permission" });
+    // Un campo che l'inizio non ha, un valore non semplice, un testo troppo lungo → 400.
+    for (const event of [{ task: { titolo: "x", segreto: "y" } }, { task: { titolo: { nested: true } } }, { task: { titolo: "x".repeat(20_000) } }, { altro: 1 }]) {
+      expect((await call(lead.headers, "POST", `/automations/${a.code}/runs`, { event })).statusCode).toBe(400);
+    }
+    expect(await runs()).toBe(0);
+    // Il proprietario, coi campi dell'inizio: parte.
+    const ok = await call(lead.headers, "POST", `/automations/${a.code}/runs`, { event: { task: { titolo: "Contratto", codice: "X-1" } } });
+    expect(ok.statusCode).toBe(201);
+    expect(await runs()).toBe(1);
+  });
+
   it("/tested: segna la revisione provata; una revisione vecchia → 409 stale", async () => {
     const { p, lead } = await setup();
     const a = await created(lead, p.id, flowOf([createTask()]));
