@@ -4445,3 +4445,83 @@ deploy o di un rollback che la tocca.
   richiesta; l'agente si comporta come prima, cambia solo ciò che la pagina
   promette. **ORDINE**: solo **`caddy`** (web e guida). Nessuna migrazione, nessuna
   env. **Rollback**: il caddy di prima rimette il testo vecchio; nient'altro.
+- **«Integrazione area 8, fetta 1: i rilasci» (13 nov 2026)**: branch
+  `feat/area8-f1` (da `feat/integrazione-area7`, con `feat/integrazione-area8`
+  unito: il Task 0, l'invariante «Le PR dei colleghi» riscritta), piano
+  `docs/plans/2026-11-13-integrazione-area8-fetta1-plan.md`, regole in
+  `docs/invariants/pr-corrections.md` («Le PR dei colleghi»). Il merge resta
+  l'unica azione di rilascio: Stubwise LEGGE le run di CI e il commit in
+  produzione, non lancia pipeline né deploy.
+
+  Migrazione **0175**: le tabelle `releases` (un rilascio = il merge di una
+  PR sul ramo di rilascio, codice `<PRJ>-V<n>`), `release_code_seqs`,
+  `release_ci_runs`, `pr_release_notes`, `environment_servers` (il server
+  di un ambiente è PER REPOSITORY, R-L2: la migrazione ricopia i dati di oggi,
+  una riga per ogni repository del progetto di un ambiente con `server_id`);
+  su `repositories` `release_branch`, `release_pipeline`, `ci_provider`,
+  `colleague_prs` (default **`analyze_only`**, P-2 = a); su `pr_reviews`
+  `analysis_only` (e chi/quando); l'indice unico «una sola produzione per
+  progetto»; il `notification_kind` `release.failed`; il trigger della Chat
+  `releases_chat_release_page`. ⚠️ **Prima del deploy** (sola lettura):
+  `select project_id, count(*) from project_environments where kind =
+  'production' group by 1 having count(*) > 1;` deve essere vuota, altrimenti
+  la 0175 si FERMA con un errore che lo dice (e il server non parte): si
+  tiene una sola produzione per progetto (le altre diventano `staging`) e si
+  rideploya.
+
+  **ORDINE**: **server** (healthy, 0175 applicata), poi **worker**, poi
+  **caddy**. **Env nuova (worker)**: `RELEASE_POLL_SECONDS` (default 60; 0 =
+  spento: i rilasci nascono lo stesso dal merge, ma restano senza run di CI e
+  «non ancora in produzione» non si aggiorna). Un riavvio del worker non perde
+  lavoro dei rilasci (il giro rilegge dal DB).
+
+  **Da sapere subito**:
+  - **Le PR dei colleghi non si adottano più.** Alla fine della review di una
+    PR che Stubwise non ha aperto, il worker scrive da solo la riga
+    `ticket_repositories` del suo ticket `review` (`adopted_by_user_id`
+    null: l'ha scritta il sistema), se il ramo lo permette (verificato dal
+    provider: mai un fork, un protetto, il default, il ramo di rilascio, il
+    target, un `stubwise/…`). Se una correzione PARTE lo decide
+    `colleague_prs`: col default `analyze_only` nessuna correzione parte da
+    sola sui rami dei colleghi il giorno del deploy, e nemmeno dal «Request
+    changes» della piattaforma; solo «Chiedi modifiche» in Stubwise (chi ha
+    `prs.adopt`). Per accendere le correzioni automatiche su un repository:
+    «analisi e correzioni» nelle impostazioni (chi ha `repos.manage`).
+    Controllo, sola lettura: `select colleague_prs, count(*) from
+    repositories group by 1;`.
+  - **Le run di CI si leggono col token dell'account git del repository**
+    (S-2 = a): GitHub `check-runs` del commit (permesso «Checks: read»),
+    Bitbucket gli status del commit (`repository:read`); la bozza delle note
+    legge i commit della PR («Pull requests: read» / `pullrequest:read`). Un
+    token senza quei permessi dà run «non leggibili»: il rilascio non dice
+    MAI «riuscito», resta «stato non disponibile». «Validate» dell'account
+    git NON controlla ancora questi permessi (limite noto della F1).
+  - Il provider della CI va scelto per repository (`ci_provider`, null
+    all'inizio): senza, lo stato viene solo dal commit che l'agente di
+    monitoraggio riporta sul server di produzione della repository.
+  - Un ambiente creato o modificato dopo il deploy coi server per repository
+    scrive `environment_servers`; `project_environments.server_id` resta
+    scritto solo dalla forma di prima (`serverId`).
+
+  **Rollback** (il server scende **insieme** al caddy; la 0175 non si
+  annulla, un server vecchio ignora le tabelle e le colonne nuove):
+  1. ⚠️ **Le PR dei colleghi collegate dal sistema**: un server e un worker
+     vecchi le leggerebbero come ADOTTATE (correzioni automatiche senza il
+     cancello di `colleague_prs`). PRIMA di scendere, worker compreso:
+     `update ticket_repositories set adoption_released_at = now() where
+     adopted_at is not null and adopted_by_user_id is null and
+     adoption_released_at is null;` (le adozioni fatte da una persona
+     restano; risalendo, la review successiva di ciascuna PR non le
+     ricollega: un'adozione rilasciata non si riscrive, si riadotta a mano).
+  2. **Il `notification_kind` nuovo** rende NON sicuro scendere sul server
+     finché ne esistono righe (500 su `/api/inbox`): `select count(*) from
+     notifications where kind = 'release.failed';`, e se ce ne sono `delete
+     from notifications where kind = 'release.failed';`.
+  3. **Gli ambienti per repository**: un server vecchio legge solo
+     `project_environments.server_id`. Se dopo il deploy qualcuno ha messo
+     server diversi per repository, il vecchio vede quello della forma di
+     prima (o nessuno): «già su staging?» può dire «non risulta» finché non
+     si risale. Nessuna azione obbligatoria.
+  4. Il trigger della Chat non dà fastidio a un server vecchio (scrive
+     eventi `release_page` che sa già leggere senza oggetto); i rilasci
+     restano nel DB e riappaiono risalendo.
