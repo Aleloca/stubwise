@@ -571,7 +571,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   serve solo alle automazioni generali. Come il prototipo
   (`apps/desktop/src/renderer/data/access/seed.ts`), al solo preset Admin
   (che da noi è `instance.full_admin`, quindi già implicito), con la regola
-  dei preset; in F1 c'è solo il permesso di progetto (Project Lead).
+  dei preset; in F1 c'è solo il permesso di progetto (Project Lead). La
+  chiave VERA è `automations.general.manage` *(O, 46, 13 nov 2026)*: stesso
+  significato, chiave distinta perché il catalogo di shared vieta una chiave
+  a due livelli (`automations.manage` resta di progetto). Nel prototipo la
+  sposta 94 con R3 della F4.
 - F1, le operazioni di massa e la GUC *(S)*: ogni migrazione o job di
   manutenzione futuro che crea o chiude task, richieste o traguardi apre con
   `set_config('stubwise.automation_events', 'off', true)`

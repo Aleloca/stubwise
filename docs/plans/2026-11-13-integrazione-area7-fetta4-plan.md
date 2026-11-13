@@ -49,7 +49,10 @@ Nella F3 l'inizio `source` e il passo `startAutomation` sono «Coming soon» e
   `automations.manage` d'istanza serve solo alle generali e sta al solo
   preset Admin (da noi `instance.full_admin`, quindi già implicito), con la
   regola dei preset; `integrations.manage` (esistente) per le sorgenti e la
-  tabella.
+  tabella. **La chiave è `automations.general.manage`** *(O, 46, 13 nov)*:
+  il catalogo di shared vieta la stessa chiave a due livelli, e
+  `automations.manage` resta di progetto. Dove questo piano dice
+  «`automations.manage` d'istanza» si legge `automations.general.manage`.
 - **D2** *(M)*: nessun limite in più sulle quantità; la difesa resta
   l'idempotenza e la profondità della catena (3).
 - **P2 = a** *(O, F1)*: i due modelli del prototipo tornano «quando sono
