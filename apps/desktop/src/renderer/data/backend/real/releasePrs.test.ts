@@ -80,6 +80,13 @@ function fakeApi(over: Partial<PrsApi> = {}) {
         canEdit: true,
       }
     ),
+    myReleases: async () => (
+      calls.push("GET me/releases"),
+      {
+        failed: [{ code: "AUD-V3" } as never],
+        ready: [pull({ projectId: "p1" } as never), pull({ prNumber: 300 })],
+      }
+    ),
     analysisOnly: async (repositoryId, prNumber, on) => (
       calls.push(`${on ? "POST" : "DELETE"} ${repositoryId}/${prNumber}/analysis-only`),
       { analysisOnly: on ? { byId: "ada", at: "2026-11-13T10:00:00.000Z" } : null }
@@ -299,5 +306,16 @@ describe("le PR aperte della build app (area 8, F1)", () => {
     );
     const [p] = await readOnly.listOpenPrs("p1");
     expect(await readOnly.releaseNotesDraft(p!.id)).toBeNull();
+  });
+
+  it("la Home «Rilasci»: i falliti come rilasci, le pronte con canMerge e il loro progetto; una senza progetto si salta", async () => {
+    const { api } = fakeApi();
+    const fromRow = async (row: { code: string }) =>
+      ({ code: row.code, projectCode: "AUD" }) as never;
+    const mine = await createRealPrs(api, codeOf, release, fromRow).listMyReleases();
+    expect(mine.failed).toEqual([{ code: "AUD-V3", projectCode: "AUD" }]);
+    expect(mine.ready.map((q) => [q.number, q.projectId, q.canMerge, q.taskCode])).toEqual([
+      [246, "p1", true, "AUD-12"],
+    ]);
   });
 });

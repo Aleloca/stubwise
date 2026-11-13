@@ -1,9 +1,17 @@
 import { ApiError } from "@stubwise/api-client";
-import type { OpenPrState, OpenPull, PrReleaseNotes, ReleaseQueueItem } from "@stubwise/shared";
+import type {
+  MyReleases as ServerMyReleases,
+  OpenPrState,
+  OpenPull,
+  PrReleaseNotes,
+  ReleaseQueueItem,
+  ReleaseRow,
+} from "@stubwise/shared";
 import type { PrAutoCorrection } from "../../model";
 import type {
   CorrectionRequestResult,
   MergeError,
+  MyReleases,
   MergeResult,
   OpenPrView,
   QueueItem,
@@ -32,6 +40,8 @@ export interface PrsApi {
     repositoryId: string,
     body: { note?: string },
   ): Promise<{ correctionId: string }>;
+  /** La Home «Rilasci» (`GET /api/me/releases`). */
+  myReleases(): Promise<ServerMyReleases>;
   releaseNotes(repositoryId: string, prNumber: number): Promise<PrReleaseNotes>;
   putReleaseNotes(repositoryId: string, prNumber: number, body: string): Promise<PrReleaseNotes>;
   analysisOnly(
@@ -84,6 +94,10 @@ export function createRealPrs(
   projectCodeOf: (projectId: string) => Promise<string>,
   /** Il rilascio nato dal merge, per il suo codice (`getRelease` dei rilasci). */
   releaseByCode: (code: string) => Promise<ReleaseView | null>,
+  /** Una riga di rilascio nella forma del prototipo (`fromRow` dei rilasci). */
+  releaseFromRow: (row: ReleaseRow) => Promise<ReleaseView> = async () => {
+    throw new Error("not_found");
+  },
 ) {
   // Le pagine vanno per id della PR; le rotte per ticket, repository e numero.
   const refs = new Map<string, PrRef>();
@@ -176,6 +190,24 @@ export function createRealPrs(
   };
 
   return {
+    /**
+     * La Home «Rilasci»: i rilasci falliti che mi riguardano e le PR pronte
+     * dei progetti dove ho `release.merge` (quindi `canMerge`). Una PR senza
+     * `projectId` (un server di prima) si salta: senza progetto non ha link.
+     */
+    async listMyReleases(): Promise<MyReleases> {
+      const mine = await orNull(() => api.myReleases());
+      if (!mine) return { failed: [], ready: [] };
+      const failed = await Promise.all(mine.failed.map((row) => releaseFromRow(row)));
+      const ready: QueueItem[] = [];
+      for (const p of mine.ready as (OpenPull & { projectId?: string })[]) {
+        if (!p.projectId) continue;
+        const view = viewOf(p.projectId, await projectCodeOf(p.projectId), p);
+        ready.push({ ...view, canMerge: true });
+      }
+      return { failed, ready };
+    },
+
     async listOpenPrs(projectId: string): Promise<OpenPrView[]> {
       return (await list(projectId)).map((p) => p.view);
     },

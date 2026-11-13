@@ -113,6 +113,11 @@ export function createRealReleases(
       return page.items.map((r) => viewOf(r, code));
     },
 
+    /** Una riga dell'elenco nella forma del prototipo (la Home «Rilasci»). */
+    async fromRow(row: ReleaseRow): Promise<ReleaseView> {
+      return viewOf(row, await projectCodeOf(row.projectId));
+    },
+
     async getRelease(code: string): Promise<ReleaseView | null> {
       const d = await orNull(() => api.get(code));
       return d ? viewOf(d, await projectCodeOf(d.projectId)) : null;
