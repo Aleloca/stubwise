@@ -264,6 +264,12 @@ export interface Automation {
    */
   mailbox?: string | null;
   /**
+   * L'id della casella di `mailbox` (area 7, F2, la build app): quella che
+   * `POST …/publish` e `…/activate` ricevono come `mailboxAccountId`. Assente
+   * da un server più vecchio o nel prototipo.
+   */
+  mailboxAccountId?: string | null;
+  /**
    * Area 10b: creata da Claude per conto di `createdById` (il riquadro). Resta
    * per sempre, anche dopo l'accensione (maintainer, shape [AU 8]). Assente:
    * creata a mano.

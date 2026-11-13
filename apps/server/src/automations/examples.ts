@@ -1,11 +1,12 @@
 import { backlogItems, backlogItemTickets, milestones, projectMembers, projects, roles, tickets, type Db } from "@stubwise/db";
-import { automationEventFields, loadPlanWorld, projectPermissionsByProject, type AutomationEventRef } from "@stubwise/notifications";
+import { automationEventFields, automationMailboxOf, loadPlanWorld, projectPermissionsByProject, type AutomationEventRef } from "@stubwise/notifications";
 import {
   evaluate,
   lookup,
   projectOf,
   visitSteps,
   type AutomationFlow,
+  type OwnerMailbox,
   type SimulationContext,
   type SimulationContextProject,
   type SimulationExample,
@@ -13,7 +14,7 @@ import {
   type SimulationPerson,
 } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
-import { AutomationError, automationOf, configErrorsOf, managedAutomation, seen, sees, versionsOf, type Viewer } from "./model.js";
+import { AutomationError, automationOf, configErrorsOf, mailboxAddresses, managedAutomation, seen, sees, versionsOf, type Viewer } from "./model.js";
 
 /**
  * GLI ESEMPI E IL CONTESTO DELLA PROVA (area 7, fetta 1; la specifica è
@@ -193,8 +194,11 @@ export async function simulationExamples(db: Db, viewer: Viewer, code: string, v
     };
   });
 
+  // La casella che il proprietario che avrebbe userebbe (F2): quella scelta se è lui, altrimenti la sua prima utilizzabile.
+  const box = await automationMailboxOf(db, ownerId, ownerId === a.ownerId ? a.mailboxAccountId : null);
+  const ownerMailbox: OwnerMailbox = box.ok ? { ok: true, address: box.address } : { ok: false, reason: box.reason };
   const context: SimulationContext = {
-    automation: automationOf(a, versions, visible),
+    automation: automationOf(a, versions, visible, await mailboxAddresses(db, [a])),
     version: v.n,
     draft,
     rev: v.rev,
@@ -202,6 +206,7 @@ export async function simulationExamples(db: Db, viewer: Viewer, code: string, v
     configErrors: await configErrorsOf(db, a, flow, ownerId),
     people,
     projects: contextProjects,
+    ownerMailbox,
   };
   return { items: await examplesOf(db, a.projectId, flow), context };
 }

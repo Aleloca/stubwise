@@ -2,11 +2,12 @@ import {
   automationRuns,
   automations,
   automationVersions,
+  googleAccounts,
   type Db,
 } from "@stubwise/db";
 import { loadPlanWorld } from "@stubwise/notifications";
 import {
-  AUTOMATION_F1_AVAILABILITY,
+  AUTOMATION_F2_AVAILABILITY,
   projectOf,
   validateFlow,
   visitSteps,
@@ -103,7 +104,16 @@ function versionOf(v: VersionRecord): AutomationVersion {
 }
 
 /** L'automazione nella forma condivisa, coi flussi come li legge chi guarda (R-G5). */
-export function automationOf(a: AutomationRecord, versions: VersionRecord[], visible: "all" | ReadonlySet<string>): Automation {
+/** Gli indirizzi delle caselle scelte, per id (area 7, F2): una query per pagina. */
+export async function mailboxAddresses(db: Db | Tx, rows: Pick<AutomationRecord, "mailboxAccountId">[]): Promise<Map<string, string>> {
+  const ids = [...new Set(rows.map((r) => r.mailboxAccountId).filter((id): id is string => id !== null))];
+  if (ids.length === 0) return new Map();
+  const found = await (db as Db).select({ id: googleAccounts.id, email: googleAccounts.email }).from(googleAccounts).where(inArray(googleAccounts.id, ids));
+  return new Map(found.map((r) => [r.id, r.email]));
+}
+
+export function automationOf(a: AutomationRecord, versions: VersionRecord[], visible: "all" | ReadonlySet<string>, addresses?: ReadonlyMap<string, string>): Automation {
+  const mailbox = a.mailboxAccountId ? (addresses?.get(a.mailboxAccountId) ?? null) : null;
   return {
     id: a.id,
     code: a.code,
@@ -118,6 +128,9 @@ export function automationOf(a: AutomationRecord, versions: VersionRecord[], vis
     pausedById: a.pausedBy,
     pausedAt: iso(a.pausedAt),
     ...(a.createdVia === "claude" ? { createdVia: "claude" as const } : {}),
+    // Area 7, F2: la casella scelta all'accensione (l'indirizzo, come nel prototipo, e il suo id).
+    mailbox,
+    mailboxAccountId: mailbox ? a.mailboxAccountId : null,
   };
 }
 
@@ -184,7 +197,7 @@ function approversIn(world: PlanWorld, ownerId: string, who: ApprovalWho, projec
 /**
  * Gli errori di configurazione di un flusso, visti da `ownerId` (per una
  * bozza mai accesa, chi la accenderebbe): `validateFlow` con la disponibilità
- * della fetta 1, più R-J11 per un approvatore per persona.
+ * della fetta 2 (email e attese; Claude e le generali ancora fuori), più R-J11 per un approvatore per persona.
  */
 export async function configErrorsOf(db: Db | Tx, a: Pick<AutomationRecord, "projectId">, flow: AutomationFlow, ownerId: string): Promise<FlowIssue[]> {
   const scope = namedBy(flow, a.projectId);
@@ -194,7 +207,7 @@ export async function configErrorsOf(db: Db | Tx, a: Pick<AutomationRecord, "pro
     projectId: a.projectId,
     canApprove: (who, projectId) => approversIn(world, ownerId, who, projectId ?? a.projectId).length > 0,
     departmentSees: (departmentId, projectId) => world.departmentRecipients(departmentId, projectId).length > 0,
-    available: AUTOMATION_F1_AVAILABILITY,
+    available: AUTOMATION_F2_AVAILABILITY,
   });
   visitSteps(flow.steps, (step, path) => {
     if (!("approval" in step) || step.approval.mode !== "ask") return;
@@ -231,6 +244,7 @@ export async function automationRows(db: Db, viewer: Viewer, records: Automation
   const countOf = new Map(counts.map((c) => [c.automationId, c]));
   const manageable = new Map<string, boolean>();
   const out: AutomationRow[] = [];
+  const addresses = await mailboxAddresses(db, records);
   for (const a of records) {
     const mine = versions.filter((v) => v.automationId === a.id);
     const latest = mine.at(-1);
@@ -239,7 +253,7 @@ export async function automationRows(db: Db, viewer: Viewer, records: Automation
     const owner = a.ownerId ?? viewer.id;
     const c = countOf.get(a.id);
     out.push({
-      ...automationOf(a, mine, visible),
+      ...automationOf(a, mine, visible, addresses),
       permissions: { manage: manageable.get(a.projectId)! },
       openRuns: c?.open ?? 0,
       waitingRuns: c?.waiting ?? 0,

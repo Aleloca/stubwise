@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { automationRunInputs, automationRunLog, automationRuns, automations, automationVersions, milestones, projectMembers as projectMembersTable, projects, tickets, type Db } from "@stubwise/db";
+import { automationRunInputs, automationRunLog, automationRuns, automations, automationVersions, googleAccounts, googleWorkspaces, milestones, projectMembers as projectMembersTable, projects, tickets, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { addDepartmentMember, seedDepartment, startTestDb } from "@stubwise/db/testing";
+import { GMAIL_MODIFY_SCOPE } from "@stubwise/google";
+import { MAIL_SEND_SCOPE } from "@stubwise/notifications";
 import type { AutomationFlow, Step } from "@stubwise/shared";
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -138,9 +140,9 @@ describe("i codici e la bozza", () => {
 });
 
 describe("pubblicare e accendere", () => {
-  it("con un errore di configurazione (un passo fuori dalla fetta 1) → 409 config con gli issues, e niente cambia", async () => {
+  it("con un errore di configurazione (un passo fuori dalla fetta, i passi di Claude) → 409 config con gli issues, e niente cambia", async () => {
     const { p, lead } = await setup();
-    const email: Step = { id: "e1", kind: "sendEmail", to: "a@b.it", subject: "x", body: "y", attachRefs: [], approval: auto };
+    const email: Step = { id: "c1", kind: "claude", instruction: "x", inputs: [], outcomes: ["ok"], fields: [], branches: {} };
     const a = await created(lead, p.id, flowOf([email]));
     const res = await call(lead.headers, "POST", `/automations/${a.code}/publish`, {});
     expect(res.statusCode).toBe(409);
@@ -155,7 +157,7 @@ describe("pubblicare e accendere", () => {
   it("review F1, M5: un salvataggio concorrente non fa pubblicare un flusso non validato (la pubblicazione rilegge la bozza sotto il lock)", async () => {
     const { p, lead } = await setup();
     const a = await created(lead, p.id, flowOf([createTask()]));
-    const email: Step = { id: "e1", kind: "sendEmail", to: "a@b.it", subject: "x", body: "y", attachRefs: [], approval: auto };
+    const email: Step = { id: "c1", kind: "claude", instruction: "x", inputs: [], outcomes: ["ok"], fields: [], branches: {} };
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
     let locked!: () => void;
@@ -208,6 +210,75 @@ describe("pubblicare e accendere", () => {
     expect(back.json()).toMatchObject({ status: "active", ownerId: lead.id });
     const inputs = (await db.select().from(automationRunInputs).where(eq(automationRunInputs.runId, waiting!.id))).map((i) => i.input);
     expect(inputs).toContainEqual({ control: "resume", byId: lead.id });
+  });
+});
+
+describe("area 7, F2, S2: accendere e pubblicare con la casella", () => {
+  const GMAIL_MODIFY = "https://www.googleapis.com/auth/gmail.modify";
+  async function mailbox(userId: string, over: { scopes?: string[]; disabled?: boolean } = {}) {
+    const [ws] = await db.insert(googleWorkspaces).values({ name: "W", domains: ["acme.com"], clientId: "c", clientSecretEncrypted: "s" }).returning();
+    const [acc] = await db
+      .insert(googleAccounts)
+      .values({ userId, workspaceId: ws!.id, email: `box-${randomUUID().slice(0, 6)}@acme.com`, googleSub: randomUUID(), refreshTokenEncrypted: "r", scopes: over.scopes ?? [GMAIL_MODIFY], ...(over.disabled ? { disabledAt: new Date(), disabledReason: "invalid_grant" as const } : {}) })
+      .returning();
+    return acc!;
+  }
+  const sendEmail: Step = { id: "e1", kind: "sendEmail", to: "cliente@b.it", subject: "Ciao", body: "Testo", attachRefs: [], approval: auto };
+  const row = async (id: string) => (await db.select().from(automations).where(eq(automations.id, id)))[0]!;
+
+  it("un flusso che manda email vuole una casella di chi pubblica: mancante, d'un altro, scaduta, senza scope → rifiuto e niente salvato; la sua → accesa con quella", async () => {
+    const { p, lead } = await setup();
+    const stranger = await person();
+    const a = await created(lead, p.id, flowOf([sendEmail]));
+    const publish = (body: object) => call(lead.headers, "POST", `/automations/${a.code}/publish`, body);
+    expect((await publish({})).json()).toMatchObject({ code: "mailbox_required" });
+    // La casella di un altro risponde come una che non esiste (R-G5).
+    expect((await publish({ mailboxAccountId: (await mailbox(stranger.id)).id })).statusCode).toBe(404);
+    expect((await publish({ mailboxAccountId: randomUUID() })).statusCode).toBe(404);
+    expect((await publish({ mailboxAccountId: (await mailbox(lead.id, { disabled: true })).id })).json()).toMatchObject({ code: "mailbox_expired" });
+    const noScope = await publish({ mailboxAccountId: (await mailbox(lead.id, { scopes: [] })).id });
+    expect(noScope.statusCode).toBe(409);
+    expect(noScope.json()).toMatchObject({ code: "mailbox_scope", missingScopes: expect.arrayContaining([GMAIL_MODIFY]) });
+    expect(await row(a.id)).toMatchObject({ status: "draft", ownerId: null, mailboxAccountId: null });
+    const box = await mailbox(lead.id);
+    const ok = await publish({ mailboxAccountId: box.id });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toMatchObject({ status: "active", mailbox: box.email, mailboxAccountId: box.id });
+    expect(await row(a.id)).toMatchObject({ ownerId: lead.id, mailboxAccountId: box.id });
+  });
+
+  it("il contesto della prova dice la casella del proprietario che avrebbe (o perché non c'è); lo scope d'invio è quello della Posta", async () => {
+    expect(MAIL_SEND_SCOPE).toBe(GMAIL_MODIFY_SCOPE);
+    const { p, lead } = await setup();
+    const a = await created(lead, p.id, flowOf([sendEmail]));
+    const ctx = async () => ((await call(lead.headers, "GET", `/automations/${a.code}/examples?version=draft`)).json() as { context: { ownerMailbox: unknown } }).context.ownerMailbox;
+    expect(await ctx()).toEqual({ ok: false, reason: "none" });
+    await mailbox(lead.id, { scopes: [] });
+    expect(await ctx()).toEqual({ ok: false, reason: "no_scope" });
+    const box = await mailbox(lead.id);
+    expect(await ctx()).toEqual({ ok: true, address: box.email });
+  });
+
+  it("un flusso senza email non chiede la casella; il proprietario che ripubblica tiene la sua; chi riaccende ne sceglie una sua", async () => {
+    const { p, lead } = await setup();
+    const plain = await created(lead, p.id, flowOf([createTask()]));
+    const res = await call(lead.headers, "POST", `/automations/${plain.code}/publish`, {});
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ mailbox: null, mailboxAccountId: null });
+    const box = await mailbox(lead.id);
+    const a = await created(lead, p.id, flowOf([sendEmail]));
+    expect((await call(lead.headers, "POST", `/automations/${a.code}/publish`, { mailboxAccountId: box.id })).statusCode).toBe(200);
+    expect((await call(lead.headers, "PUT", `/automations/${a.code}/draft`, { flow: flowOf([sendEmail, createTask()]), expectedRev: null })).statusCode).toBe(200);
+    // Lo stesso proprietario, senza indicarla: resta la sua.
+    expect((await call(lead.headers, "POST", `/automations/${a.code}/publish`, {})).json()).toMatchObject({ mailboxAccountId: box.id });
+    // Un altro lead la mette in pausa e la riaccende: diventa proprietario, e la casella dev'essere sua.
+    const other = await person();
+    await addMember(app, p.id, other.id, "project_lead");
+    expect((await call(other.headers, "POST", `/automations/${a.code}/pause`, {})).statusCode).toBe(200);
+    expect((await call(other.headers, "POST", `/automations/${a.code}/activate`, {})).json()).toMatchObject({ code: "mailbox_required" });
+    expect((await call(other.headers, "POST", `/automations/${a.code}/activate`, { mailboxAccountId: box.id })).statusCode).toBe(404);
+    const mine = await mailbox(other.id);
+    expect((await call(other.headers, "POST", `/automations/${a.code}/activate`, { mailboxAccountId: mine.id })).json()).toMatchObject({ status: "active", ownerId: other.id, mailbox: mine.email, mailboxAccountId: mine.id });
   });
 });
 

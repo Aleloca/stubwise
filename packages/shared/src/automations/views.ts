@@ -11,6 +11,7 @@ import type {
   ReasonCode,
   Step,
 } from "./types.js";
+import type { OwnerMailbox } from "./email.js";
 import type { FlowIssue } from "./validate.js";
 
 // Le letture delle Automations come le vede chi guarda (area 7): la riga
@@ -455,6 +456,14 @@ export interface SimulationContext {
   configErrors: FlowIssue[];
   people: SimulationPerson[];
   projects: SimulationContextProject[];
+  /**
+   * La casella da cui la versione provata manderebbe le email, per il
+   * proprietario che avrebbe (area 7, F2): quella scelta all'accensione se è
+   * lui, altrimenti la sua prima utilizzabile; o il motivo per cui non c'è.
+   * È ciò che `EmailWorld.ownerMailbox` della prova restituisce. Assente da
+   * un server più vecchio.
+   */
+  ownerMailbox?: OwnerMailbox;
 }
 
 /** `GET /api/automations/:code/examples?version=`: gli esempi e il contesto della prova. */
