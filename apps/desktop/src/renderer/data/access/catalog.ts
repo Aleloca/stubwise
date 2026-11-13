@@ -33,8 +33,9 @@ export const BOTH_LEVELS: ReadonlySet<string> = new Set<string>(["automations.ma
  * (`planning.others` è nel registro condiviso dall'integrazione area 2,
  * fetta 2: del Project Lead e implicito per il full admin.) I canali della Chat (area 4) sono nel registro condiviso dalla fetta 1
  * dell'integrazione, il Drive (area 5: `drive.upload`, `drive.manage`,
- * `drive.history`) dalla fetta 2. Le
- * automazioni del progetto (area 7) le gestisce il Project Lead. Ai clienti di
+ * `drive.history`) dalla fetta 2, `automations.manage` di progetto (area 7,
+ * del Project Lead) dalla fetta 1 dell'area 7: qui resterebbe due volte
+ * nel ruolo. Ai clienti di
  * Support (area 8a) risponde chi lavora al progetto: Project Lead, Developer e
  * Legacy Member, non il Contributor né il Viewer. `servers.operate` (area 8b)
  * non è di nessun preset: si dà persona per persona (`SEED_PROJECT_GRANTS`).
@@ -42,7 +43,7 @@ export const BOTH_LEVELS: ReadonlySet<string> = new Set<string>(["automations.ma
 export const LOCAL_PROJECT_PERMISSIONS: Readonly<
   Record<string, readonly LocalProjectPermission[]>
 > = {
-  project_lead: ["automations.manage", "support.reply"],
+  project_lead: ["support.reply"],
   developer: ["support.reply"],
   legacy_member: ["support.reply"],
 };

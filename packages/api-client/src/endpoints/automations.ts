@@ -31,6 +31,8 @@ export interface AutomationRunListOptions {
   project?: string;
   status?: RunStatus;
   cursor?: string;
+  /** `none`: righe senza registro (`log: []`), per un elenco letto spesso; il registro lo dà `run`. */
+  log?: "none";
 }
 
 /** La decisione su un passo in attesa: vale solo per quel passo e quel giro (R-J8). */
@@ -101,7 +103,7 @@ export function createAutomationEndpoints(request: ApiRequest) {
       return request("POST", `${base(code)}/runs`, input);
     },
     runs(opts: AutomationRunListOptions = {}): Promise<{ items: AutomationRunRow[]; nextCursor: string | null }> {
-      return request("GET", `/api/automation-runs${toQuery({ automation: opts.automation, project: opts.project, status: opts.status, cursor: opts.cursor })}`);
+      return request("GET", `/api/automation-runs${toQuery({ automation: opts.automation, project: opts.project, status: opts.status, cursor: opts.cursor, log: opts.log })}`);
     },
     run(code: string, n: number): Promise<AutomationRunDetail> {
       return request("GET", run(code, n));
@@ -138,8 +140,8 @@ export function createAutomationEndpoints(request: ApiRequest) {
       return request("GET", `/api/automation-origin${toQuery(q)}`);
     },
     /** Il blocco Home: aspetta me, fallite che gestisco, mie non finite. */
-    myRuns(): Promise<{ items: MyAutomationRun[] }> {
-      return request("GET", "/api/me/automation-runs");
+    myRuns(opts: { log?: "none" } = {}): Promise<{ items: MyAutomationRun[] }> {
+      return request("GET", `/api/me/automation-runs${toQuery({ log: opts.log })}`);
     },
   };
 }

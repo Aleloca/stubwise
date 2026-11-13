@@ -9861,7 +9861,8 @@
       "credentials": "Credentials",
       "prototype": "Prototype",
       "chat": "Chat",
-      "drive": "Drive"
+      "drive": "Drive",
+      "automations": "Automations"
     },
     "page": {
       "intro": "Find out who can do something in a project, or what someone can do — and why. You only see the projects and people you can see.",

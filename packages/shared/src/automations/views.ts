@@ -429,6 +429,12 @@ export interface SimulationContextProject {
   roleHolders: Record<string, string[]>;
   /** I membri di ogni reparto che vedono il progetto. */
   departmentMembers: Record<string, string[]>;
+  /**
+   * I nomi dei traguardi che il progetto ha già (il nome è unico per
+   * progetto: `milestoneNameTaken`, confronto esatto). Vuoto per un progetto
+   * che chi prova non vede. Assente da un server più vecchio = nessuno noto.
+   */
+  milestoneNames?: string[];
 }
 
 /**

@@ -152,6 +152,31 @@ describe("pubblicare e accendere", () => {
     expect((check.json() as { issues: { code: string }[] }).issues.map((i) => i.code)).toContain("not_available");
   });
 
+  it("review F1, M5: un salvataggio concorrente non fa pubblicare un flusso non validato (la pubblicazione rilegge la bozza sotto il lock)", async () => {
+    const { p, lead } = await setup();
+    const a = await created(lead, p.id, flowOf([createTask()]));
+    const email: Step = { id: "e1", kind: "sendEmail", to: "a@b.it", subject: "x", body: "y", attachRefs: [], approval: auto };
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let locked!: () => void;
+    const holding = new Promise<void>((r) => (locked = r));
+    // Un salvataggio che tiene il lock dell'automazione e scrive un flusso non valido.
+    const saver = db.transaction(async (tx) => {
+      await tx.select({ id: automations.id }).from(automations).where(eq(automations.id, a.id)).for("update");
+      locked();
+      await gate;
+      await tx.update(automationVersions).set({ flow: flowOf([email]), rev: 2 }).where(eq(automationVersions.automationId, a.id));
+    });
+    await holding;
+    const publishing = call(lead.headers, "POST", `/automations/${a.code}/publish`, {});
+    await new Promise((r) => setTimeout(r, 300));
+    release();
+    await saver;
+    const res = await publishing;
+    expect(res.statusCode).toBe(409);
+    expect((await db.select().from(automationVersions).where(eq(automationVersions.automationId, a.id)))[0]!.publishedAt).toBeNull();
+  });
+
   it("chi pubblica diventa il proprietario, e da lì ascolta (active_since); senza il permesso di creare dove il flusso crea → 409 permission", async () => {
     const { p, lead } = await setup();
     const q = await project();
@@ -209,8 +234,27 @@ describe("le esecuzioni e le decisioni", () => {
     expect((await inputsOf(run.id)).map((i) => i.input)).toEqual([{ kind: "approved", path: "0", byId: lead.id }]);
     // L'esecuzione resta com'è: la muove il worker.
     expect((await db.select().from(automationRuns).where(eq(automationRuns.id, run.id)))[0]!.status).toBe("waiting_approval");
-    // Una seconda decisione sullo stesso passo, prima che il worker applichi la prima: stale.
-    expect((await call(lead.headers, "POST", `/automations/${a.code}/runs/1/reject`, { expectedPath: "0" })).json()).toMatchObject({ code: "stale" });
+    // Una seconda decisione della stessa persona sullo stesso passo, prima che il worker applichi la prima: `pending` (review del renderer).
+    expect((await call(lead.headers, "POST", `/automations/${a.code}/runs/1/reject`, { expectedPath: "0" })).json()).toMatchObject({ code: "pending" });
+  });
+
+  it("review F1, M4: la decisione di un ALTRO già in coda → stale; una sospensione in coda → suspended; due approvazioni insieme → una sola in coda", async () => {
+    const { a, run, lead, p } = await waitingRun({ projectRole: "project_lead" });
+    const second = await person();
+    await addMember(app, p.id, second.id, "project_lead");
+    const both = await Promise.all([lead, second].map((who) => call(who.headers, "POST", `/automations/${a.code}/runs/1/approve`, { expectedPath: "0" })));
+    expect(both.map((r) => r.statusCode).sort()).toEqual([204, 409]);
+    expect(await inputsOf(run.id)).toHaveLength(1);
+    const winner = (await inputsOf(run.id))[0]!.byId;
+    const loser = winner === lead.id ? second : lead;
+    // Il dettaglio dice a chi ha deciso che la sua decisione è in coda; all'altro no.
+    const winnerHeaders = winner === lead.id ? lead.headers : second.headers;
+    expect((await call(winnerHeaders, "GET", `/automations/${a.code}/runs/1`)).json()).toMatchObject({ inputQueued: true });
+    expect((await call(loser.headers, "GET", `/automations/${a.code}/runs/1`)).json()).toMatchObject({ inputQueued: false });
+    expect((await call(loser.headers, "POST", `/automations/${a.code}/runs/1/approve`, { expectedPath: "0" })).json()).toMatchObject({ code: "stale" });
+    await db.delete(automationRunInputs).where(eq(automationRunInputs.runId, run.id));
+    await db.insert(automationRunInputs).values({ runId: run.id, input: { control: "suspend", byId: lead.id }, byId: lead.id });
+    expect((await call(second.headers, "POST", `/automations/${a.code}/runs/1/approve`, { expectedPath: "0" })).json()).toMatchObject({ code: "suspended" });
   });
 
   it("un ex approvatore (non ha più il ruolo) → 403; sospesa → 409 suspended; chi non la vede → 404", async () => {
@@ -252,6 +296,31 @@ describe("le esecuzioni e le decisioni", () => {
     expect(row).toMatchObject({ startedBy: lead.id });
   });
 
+  it("review F1, I4: «Run now» con un evento a mano: solo i campi dell'inizio, valori semplici e un tetto; per un inizio non manuale chi avvia passa i controlli di chi pubblica", async () => {
+    const { p, lead } = await setup();
+    const other = await person();
+    await addMember(app, p.id, other.id, "project_lead");
+    const q = await project();
+    await addMember(app, q.id, lead.id, "project_lead");
+    const flow: AutomationFlow = { trigger: { kind: "stubwise", event: "task_created" }, steps: [createTask({ project: { mode: "fixed", projectId: q.id } })], titleTemplate: "Per {{task.titolo}}" };
+    const a = await created(lead, p.id, flow);
+    expect((await call(lead.headers, "POST", `/automations/${a.code}/publish`, {})).statusCode).toBe(200);
+    const runs = async () => (await db.select().from(automationRuns).where(eq(automationRuns.automationId, a.id))).length;
+    // Chi non può creare dove il flusso crea non inietta dati in un'esecuzione a nome del proprietario.
+    const denied = await call(other.headers, "POST", `/automations/${a.code}/runs`, { event: { task: { titolo: "Iniettata" } } });
+    expect(denied.statusCode).toBe(409);
+    expect(denied.json()).toMatchObject({ code: "permission" });
+    // Un campo che l'inizio non ha, un valore non semplice, un testo troppo lungo → 400.
+    for (const event of [{ task: { titolo: "x", segreto: "y" } }, { task: { titolo: { nested: true } } }, { task: { titolo: "x".repeat(20_000) } }, { altro: 1 }]) {
+      expect((await call(lead.headers, "POST", `/automations/${a.code}/runs`, { event })).statusCode).toBe(400);
+    }
+    expect(await runs()).toBe(0);
+    // Il proprietario, coi campi dell'inizio: parte.
+    const ok = await call(lead.headers, "POST", `/automations/${a.code}/runs`, { event: { task: { titolo: "Contratto", codice: "X-1" } } });
+    expect(ok.statusCode).toBe(201);
+    expect(await runs()).toBe(1);
+  });
+
   it("/tested: segna la revisione provata; una revisione vecchia → 409 stale", async () => {
     const { p, lead } = await setup();
     const a = await created(lead, p.id, flowOf([createTask()]));
@@ -281,6 +350,35 @@ describe("le letture personali e la card d'inbox", () => {
     const home = (await call(lead.headers, "GET", "/me/automation-runs")).json() as { items: { code: string; concern: string }[] };
     expect(home.items).toEqual([expect.objectContaining({ code: `${a.code} #1`, concern: "waiting_me" })]);
     expect((await call(dev.headers, "GET", "/me/automation-runs")).json()).toEqual({ items: [] });
+  });
+
+  it("review F1, I5 e renderer: «Da decidere» filtra sul progetto dell'APPROVAZIONE (un destinatario fisso che vede solo quello la trova); una decisione già in coda la toglie", async () => {
+    const { p, lead } = await setup();
+    const q = await project();
+    await addMember(app, q.id, lead.id, "project_lead");
+    const approver = await person();
+    await addMember(app, q.id, approver.id, "developer");
+    const a = await created(lead, p.id, flowOf([createTask({ project: { mode: "fixed", projectId: q.id }, approval: { mode: "ask", who: { personId: approver.id } } })]));
+    expect((await call(lead.headers, "POST", `/automations/${a.code}/publish`, {})).statusCode).toBe(200);
+    const [run] = await db
+      .insert(automationRuns)
+      .values({ automationId: a.id, n: 1, version: 1, title: "Altrove", origin: "manual", status: "waiting_approval", cursor: { path: "0" }, pending: { approverIds: [approver.id], preview: { titolo: "X", progetto: q.id }, path: "0", round: 0 } })
+      .returning();
+    const list = async () => ((await call(approver.headers, "GET", "/me/automation-approvals")).json() as { items: { code: string; projectId: string | null }[] }).items;
+    expect(await list()).toEqual([expect.objectContaining({ code: `${a.code} #1`, projectId: q.id })]);
+    await db.insert(automationRunInputs).values({ runId: run!.id, input: { kind: "approved", path: "0", byId: approver.id }, byId: approver.id });
+    expect(await list()).toEqual([]);
+  });
+
+  it("review del renderer, I3: `log=none` dà gli elenchi senza registro; il dettaglio lo ha sempre", async () => {
+    const { a, run, lead } = await waiting();
+    await db.insert(automationRunLog).values({ runId: run.id, seq: 1, stepId: "s1", path: "0", kind: "createTask", outcome: "waiting", reason: "In attesa" });
+    const logs = (body: unknown) => ((body as { items: { log: unknown[] }[] }).items).map((r) => r.log.length);
+    expect(logs((await call(lead.headers, "GET", `/automation-runs?automation=${a.code}`)).json())).toEqual([1]);
+    expect(logs((await call(lead.headers, "GET", `/automation-runs?automation=${a.code}&log=none`)).json())).toEqual([0]);
+    expect(logs((await call(lead.headers, "GET", "/me/automation-runs")).json())).toEqual([1]);
+    expect(logs((await call(lead.headers, "GET", "/me/automation-runs?log=none")).json())).toEqual([0]);
+    expect(((await call(lead.headers, "GET", `/automations/${a.code}/runs/1`)).json() as { log: unknown[] }).log).toHaveLength(1);
   });
 
   it("la card automation.approval: derivata a lettura — aspetta me finché il passo aspetta; deciso, lo dice; chi non la vede: objectGone", async () => {
@@ -370,6 +468,29 @@ describe("la prova: gli esempi e il contesto", () => {
     expect((await call(lead.headers, "GET", `/automations/${manual.code}/examples?version=1`)).json()).toMatchObject({ items: [{ label: today, event: { avvio: { data: today } } }] });
   });
 
+  it("review F1, I3: per una versione non pubblicata il proprietario che avrebbe è chi prova (pubblicando lo diventa), e un progetto che non vede non dice niente del proprietario attuale", async () => {
+    const { p, lead } = await setup();
+    const other = await person();
+    await addMember(app, p.id, other.id, "project_lead");
+    const q = await project();
+    await addMember(app, q.id, lead.id, "project_lead");
+    // `lead` pubblica e resta proprietario; `other` scrive una bozza che crea in Q, chiedendo al proprietario.
+    const a = await created(lead, p.id, flowOf([createTask()]));
+    expect((await call(lead.headers, "POST", `/automations/${a.code}/publish`, {})).statusCode).toBe(200);
+    const flow = flowOf([createTask({ project: { mode: "fixed", projectId: q.id }, approval: { mode: "ask", who: { owner: true } } })]);
+    expect((await call(other.headers, "PUT", `/automations/${a.code}/draft`, { flow, expectedRev: null })).statusCode).toBe(200);
+    const ctx = ((await call(other.headers, "GET", `/automations/${a.code}/examples?version=draft`)).json() as { context: { ownerId: string; projects: { id: string; seenBy: string[]; ownerCan: Record<string, boolean>; gone: boolean }[] } }).context;
+    expect(ctx.ownerId).toBe(other.id);
+    expect(ctx.projects.find((x) => x.id === q.id)).toMatchObject({ seenBy: [], gone: false, ownerCan: { createTask: false, createMilestone: false, createRequest: false } });
+    // /check dice ciò che direbbe la pubblicazione di `other`: in Q il proprietario (lui) non c'è, quindi nessuno approva.
+    const check = (await call(other.headers, "POST", `/automations/${a.code}/check`, { flow })).json() as { issues: { code: string }[] };
+    const publish = await call(other.headers, "POST", `/automations/${a.code}/publish`, {});
+    expect(publish.statusCode).toBe(409);
+    expect(check.issues.length).toBeGreaterThan(0);
+    expect(publish.json()).toMatchObject({ code: "config" });
+    expect(check.issues.map((i) => i.code).sort()).toEqual(((publish.json() as { issues: { code: string }[] }).issues.map((i) => i.code)).sort());
+  });
+
   it("il contesto: il proprietario che avrebbe (chi prova, per una bozza mai accesa), chi vede, cosa può creare, chi ha i ruoli; un progetto fisso che chi prova non vede resta muto (R-G5)", async () => {
     const { p, lead, dev } = await setup();
     const hidden = await project();
@@ -380,6 +501,7 @@ describe("la prova: gli esempi e il contesto", () => {
     await addDepartmentMember(db, dept.id, stranger.id);
     const tell: Step = { id: "n1", kind: "notify", who: { departmentId: dept.id }, text: "x", approval: auto };
     const a = await created(lead, p.id, flowOf([createTask({ approval: { mode: "ask", who: { projectRole: "developer" } } }), createTask({ project: { mode: "fixed", projectId: hidden.id } }), tell]));
+    await db.insert(milestones).values([{ projectId: p.id, name: "Kickoff" }, { projectId: hidden.id, name: "Segreto" }]);
     const ctx = ((await call(lead.headers, "GET", `/automations/${a.code}/examples?version=draft`)).json() as { context: Record<string, unknown> }).context as {
       ownerId: string;
       draft: boolean;
@@ -394,6 +516,9 @@ describe("la prova: gli esempi e il contesto", () => {
     expect(own.roleHolders.developer).toEqual([dev.id]);
     const other = ctx.projects.find((x) => x.id === hidden.id)!;
     expect(other).toMatchObject({ code: "", name: "", seenBy: [], roleHolders: {}, departmentMembers: {}, ownerCan: { createTask: false } });
+    // Review del renderer: i nomi dei traguardi già usati, solo dove chi prova vede.
+    expect((own as unknown as { milestoneNames: string[] }).milestoneNames).toEqual(["Kickoff"]);
+    expect((other as unknown as { milestoneNames: string[] }).milestoneNames).toEqual([]);
     expect(ctx.people.map((x) => x.id)).not.toContain(stranger.id);
     expect(other.roleHolders).toEqual({});
     expect((other as unknown as { departmentMembers: unknown }).departmentMembers).toEqual({});

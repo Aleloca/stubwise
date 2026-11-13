@@ -61,3 +61,22 @@ describe("nessuna scrittura aggira i trigger degli eventi delle Automations", ()
     expect(BYPASS.test("alter table t enable trigger x")).toBe(false);
   });
 });
+
+/**
+ * Gli SCRITTORI DI MASSA noti (review F1, I1): ognuno apre la sua transazione
+ * con la GUC che spegne la pubblicazione, o ogni task toccata diventerebbe un
+ * evento. Chi aggiunge un'operazione di massa su task, richieste o traguardi
+ * la aggiunge qui (oltre a metterci la GUC).
+ */
+const MASS_WRITERS = [
+  // Togliere uno stato e traslocarne le task; cambiare la famiglia di uno stato.
+  "apps/server/src/routes/project-statuses.ts",
+];
+
+describe("gli scrittori di massa spengono la pubblicazione degli eventi", () => {
+  it.each(MASS_WRITERS)("%s apre con `set_config('stubwise.automation_events', 'off', true)`", (file) => {
+    const text = readFileSync(join(ROOT, file), "utf8");
+    expect(text).toMatch(/set_config\('stubwise\.automation_events', 'off', true\)/);
+  });
+});
+
