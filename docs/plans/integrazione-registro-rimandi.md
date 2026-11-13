@@ -613,6 +613,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   passo di Claude si ferma solo per il budget mensile; `queue_paused`
   (`aiHoldOf` del prototipo) arriva con l'area 9b, quando il backend avrà la
   pausa della coda.
+- La bozza del piano della F4 (`docs/plans/2026-11-13-integrazione-area7-fetta4-plan.md`,
+  13 nov 2026, le automazioni generali e il webhook in arrivo), con le
+  domande F4-1…F4-6 aperte. Rimandati da lì: i connettori Audin e HubSpot
+  (Q2 *(M)*: eventi nativi, OAuth o chiave, dopo questa area; fino ad
+  allora si collegano col webhook in arrivo), i webhook in uscita (area 9),
+  le azioni di Claude sulle automazioni (area 10).
 
 ## Area 8 — Rilasci, ambienti, avvisi, Support, Servers
 
