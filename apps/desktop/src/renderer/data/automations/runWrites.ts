@@ -1,3 +1,5 @@
+import { checkEdited } from "../../domain/automations/runRules";
+export { checkEdited };
 import type { EngineState } from "@stubwise/shared";
 import { now, state, visibleProjectIds } from "../store";
 import type { AutomationRun } from "../types";
@@ -41,22 +43,7 @@ export async function startManual(id: string, event?: Record<string, unknown>): 
 
 // --- decisioni sulle esecuzioni ------------------------------------------------------
 
-/** Le correzioni ammesse prima di approvare, per tipo di passo: solo testi dell'anteprima. */
-const EDITABLE: Partial<Record<string, string[]>> = {
-  createTask: ["titolo", "descrizione"],
-  createMilestone: ["nome"],
-  createRequest: ["titolo", "descrizione"],
-  sendEmail: ["to", "subject", "body"],
-  notify: ["testo"],
-};
 
-/** Le correzioni di un'approvazione, per il tipo del passo: `invalid: edited` se non ammesse (anche nella prova). */
-export function checkEdited(kind: string | undefined, edited: Record<string, string>): void {
-  const allowed = EDITABLE[kind ?? ""] ?? [];
-  for (const [k, v] of Object.entries(edited)) {
-    if (!allowed.includes(k) || typeof v !== "string") throw invalid("edited");
-  }
-}
 
 /**
  * Chi decide su un'esecuzione ferma: deve vederla, e deve essere fra chi

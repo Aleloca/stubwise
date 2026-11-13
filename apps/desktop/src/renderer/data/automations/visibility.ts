@@ -1,3 +1,5 @@
+import { approvalProjectOf } from "../../domain/automations/runRules";
+export { approvalProjectOf };
 import type { ApprovalWho } from "@stubwise/shared";
 import { stepAt, visitSteps } from "@stubwise/shared";
 import { PEOPLE } from "../seed/people";
@@ -110,10 +112,6 @@ export function pendingProjectOf(run: AutomationRun, a: Automation): string | nu
   return approvalProjectOf(run.pending?.preview ?? {}, a);
 }
 
-/** Il progetto di un passo da approvare, dalla sua anteprima: quello risolto, o quello dell'automazione. */
-export function approvalProjectOf(preview: Record<string, unknown>, a: Automation): string | null {
-  return typeof preview.progetto === "string" ? preview.progetto : a.projectId;
-}
 
 /**
  * Chi decide adesso su un'esecuzione ferma: per un'approvazione chi può
