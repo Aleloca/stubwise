@@ -448,6 +448,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 6, fetta 5a: le riunioni registrate» (13 nov 2026), con la sua «review del server» (da rilasciare INSIEME)
   - «Integrazione area 6, fetta 5b: Google Drive nel Drive dei progetti» (13 nov 2026)
   - «Integrazione area 7, fetta 1: le Automations di progetto» (13 nov 2026)
+  - «Integrazione area 7, fetta 2: email e attese» (13 nov 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -596,6 +597,7 @@ una voce ti riguarda.
   - Il consumatore ignora gli eventi nati prima dell'accensione (`active_since`); la catena si ferma a 3 (`chainAllows`).
   - Il server non fa mai avanzare il motore: le decisioni passano dalla coda degli input; gli effetti stanno solo in `effects.ts`, idempotenti per passo e giro, coi permessi del proprietario ricontrollati prima di ogni effetto.
   - Le card `automation.*` si derivano a lettura; chi approva si risolve ADESSO, fra chi vede il progetto.
+  - Eccezione dichiarata (F2): il worker manda email SENZA un gesto solo per le automazioni (elenco chiuso degli scrittori di `mail_outgoing`, test sul sorgente); la posta di una run la vede solo il proprietario della SUA casella; le email delle automazioni portano `Auto-Submitted`, e la posta automatica in arrivo non avvia automazioni (sveglia solo le attese).
   - Eccezione dichiarata (Q8): un'automazione può far lavorare Claude a orario o da un'email, dentro il budget mensile; «Crea richiesta» non avvia la stima.
 - **Docs → `docs/invariants/docs.md`** (11 nov 2026, area 5):
   - Il riferimento stabile a una pagina è il CODICE (`doc_page_codes`, per repository e slug), mai `doc_pages.id`, che le rigenerazioni cambiano.
