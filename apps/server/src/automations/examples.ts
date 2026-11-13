@@ -12,7 +12,7 @@ import {
   type SimulationExamplesView,
   type SimulationPerson,
 } from "@stubwise/shared";
-import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { AutomationError, automationOf, configErrorsOf, managedAutomation, seen, sees, versionsOf, type Viewer } from "./model.js";
 
 /**
@@ -157,6 +157,10 @@ export async function simulationExamples(db: Db, viewer: Viewer, code: string, v
 
   const projectRows = scope.projectIds.length ? await db.select({ id: projects.id, code: projects.code, name: projects.name }).from(projects).where(inArray(projects.id, scope.projectIds)) : [];
   const ownerPerms = await projectPermissionsByProject(db, ownerId, scope.projectIds);
+  // I nomi dei traguardi già usati (review del renderer): solo nei progetti che chi prova vede.
+  const usedNames = visibleProjects.length
+    ? await db.select({ projectId: milestones.projectId, name: milestones.name }).from(milestones).where(inArray(milestones.projectId, visibleProjects)).orderBy(asc(milestones.name))
+    : [];
   const contextProjects: SimulationContextProject[] = scope.projectIds.map((pid) => {
     const row = projectRows.find((r) => r.id === pid);
     const viewerSees = sees(visible, pid);
@@ -185,6 +189,7 @@ export async function simulationExamples(db: Db, viewer: Viewer, code: string, v
       },
       roleHolders,
       departmentMembers,
+      milestoneNames: viewerSees ? usedNames.filter((m) => m.projectId === pid).map((m) => m.name) : [],
     };
   });
 

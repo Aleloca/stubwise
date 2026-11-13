@@ -490,6 +490,7 @@ describe("la prova: gli esempi e il contesto", () => {
     await addDepartmentMember(db, dept.id, stranger.id);
     const tell: Step = { id: "n1", kind: "notify", who: { departmentId: dept.id }, text: "x", approval: auto };
     const a = await created(lead, p.id, flowOf([createTask({ approval: { mode: "ask", who: { projectRole: "developer" } } }), createTask({ project: { mode: "fixed", projectId: hidden.id } }), tell]));
+    await db.insert(milestones).values([{ projectId: p.id, name: "Kickoff" }, { projectId: hidden.id, name: "Segreto" }]);
     const ctx = ((await call(lead.headers, "GET", `/automations/${a.code}/examples?version=draft`)).json() as { context: Record<string, unknown> }).context as {
       ownerId: string;
       draft: boolean;
@@ -504,6 +505,9 @@ describe("la prova: gli esempi e il contesto", () => {
     expect(own.roleHolders.developer).toEqual([dev.id]);
     const other = ctx.projects.find((x) => x.id === hidden.id)!;
     expect(other).toMatchObject({ code: "", name: "", seenBy: [], roleHolders: {}, departmentMembers: {}, ownerCan: { createTask: false } });
+    // Review del renderer: i nomi dei traguardi già usati, solo dove chi prova vede.
+    expect((own as unknown as { milestoneNames: string[] }).milestoneNames).toEqual(["Kickoff"]);
+    expect((other as unknown as { milestoneNames: string[] }).milestoneNames).toEqual([]);
     expect(ctx.people.map((x) => x.id)).not.toContain(stranger.id);
     expect(other.roleHolders).toEqual({});
     expect((other as unknown as { departmentMembers: unknown }).departmentMembers).toEqual({});
