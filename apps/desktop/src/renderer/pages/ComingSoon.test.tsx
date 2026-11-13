@@ -400,6 +400,14 @@ const INTEGRATED_CALLS = new Set([
   "automations.startManual",
   "automations.startSimulation",
   "automations.whenAutomationsIdle",
+  // Area 8, F1 (`releases-prs`): le PR aperte, la coda e le loro scritture
+  // (`data/backend/real/releasesLive.ts`).
+  "releases.listOpenPrs",
+  "releases.listReleaseQueue",
+  "releases.mergePr",
+  "releases.requestPrCorrection",
+  "releases.setPrAnalysisOnly",
+  "releases.setPrReleaseNotes",
   // Area 7, F4 (accesa): sorgenti webhook, tabella cliente → progetto, tetto del
   // webhook (`data/backend/real/automationSources.ts`, `automations.ts`).
   "automations.listSources",
@@ -566,10 +574,24 @@ describe("aree non integrate nella build app", () => {
   });
 
   it("una sezione di progetto non integrata mostra «Coming soon»", async () => {
-    // Dall'area 5 (fetta 2) anche il Drive è integrato: le Release non ancora.
-    renderRoute("/p/AUD/releases");
+    // Dall'area 8 (fetta 1) le Release sono accese con le sole PR: Support non ancora.
+    renderRoute("/p/AUD/support");
     expect(await screen.findByText("Coming soon")).toBeInTheDocument();
     await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 8, F1 (`releases-prs`): le PR e la coda dal server; rilasci e ambienti «in arrivo».
+  it("aprire Releases legge solo chiamate integrate", async () => {
+    renderRoute("/p/AUD/releases");
+    expect(await screen.findByRole("region", { name: "Pull requests" })).toBeInTheDocument();
+    await waitFor(() => expect(calls).toContain("releases.listOpenPrs"));
+    await waitFor(() => expect(calls).toContain("releases.listReleaseQueue"));
+    await settle();
+    expect(within(screen.getByRole("region", { name: "Releases" })).getByText("Coming soon")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("region", { name: "Environments" })).getByText("Coming soon"),
+    ).toBeInTheDocument();
     expect(outside()).toEqual([]);
   });
 

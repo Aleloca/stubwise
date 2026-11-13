@@ -49,7 +49,8 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   // Area 7, fetta 1: le Automations (`automations`, destinazione, sezione e feature).
   destination: new Set(["home", "projects", "planning", "filters", "claude", "chat", "drive", "calendar", "mail", "automations"]),
   // Area 5, fetta 1: i Docs del progetto (`docs`, sezione e feature).
-  projectSection: new Set(["overview", "tasks", "requests", "planning", "chat", "docs", "drive", "automations"]),
+  // Area 8, fetta 1: la sezione Releases con le sole PR aperte (`releases-prs`).
+  projectSection: new Set(["overview", "tasks", "requests", "planning", "chat", "docs", "drive", "automations", "releases"]),
   // Stati e soglie del progetto.
   projectSettings: new Set(["statuses"]),
   admin: new Set(["departments"]),
@@ -67,6 +68,11 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // → progetto e il tetto del webhook, «avvia un'altra» (via di 46 dopo la
     // review del renderer della F4, 13 nov 2026).
     "automations-f4",
+    // Area 8, fetta 1 (R-1 = a): le PR aperte, la coda, il merge in due passi,
+    // «Chiedi modifiche», «Solo analisi» e le note della PR. I rilasci
+    // (`releases`), gli ambienti (`environments`) e le impostazioni del
+    // repository (`releases-repo-settings`) restano «in arrivo».
+    "releases-prs",
     "notifications",
     "search",
     "task-detail",

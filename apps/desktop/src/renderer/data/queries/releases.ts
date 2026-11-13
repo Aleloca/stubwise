@@ -45,6 +45,18 @@ const ENVIRONMENT_AREAS = [
  */
 const fixReleaseAreas = () => [...RELEASE_AREAS, ...RUN_AREAS];
 
+/**
+ * Le parti dell'area accese nella build app (area 8, F1, R-1): le PR aperte
+ * e la coda con `releases-prs` (o con l'area intera), i rilasci con
+ * `releases`, gli ambienti con `environments`, le impostazioni del
+ * repository con `releases-repo-settings`. Nel prototipo tutte.
+ */
+export const prsIntegrated = () =>
+  featureIntegrated("releases-prs") || featureIntegrated("releases");
+export const releasesIntegrated = () => featureIntegrated("releases");
+export const environmentsIntegrated = () => featureIntegrated("environments");
+export const repoSettingsIntegrated = () => featureIntegrated("releases-repo-settings");
+
 /** Le PR aperte del progetto, di Stubwise e dei colleghi. */
 export function useOpenPrs(projectId: string | undefined) {
   const me = useSessionPersonId();
@@ -52,7 +64,7 @@ export function useOpenPrs(projectId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.openPrs(me, projectId ?? ""),
     queryFn: () => api.releases.listOpenPrs(projectId!),
-    enabled: !!projectId && featureIntegrated("releases"),
+    enabled: !!projectId && prsIntegrated(),
   });
 }
 
@@ -63,7 +75,7 @@ export function useReleaseQueue(projectId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.releaseQueue(me, projectId ?? ""),
     queryFn: () => api.releases.listReleaseQueue(projectId!),
-    enabled: !!projectId,
+    enabled: !!projectId && prsIntegrated(),
   });
 }
 
@@ -72,7 +84,7 @@ export function useReleases(projectId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.releases(me, projectId ?? ""),
     queryFn: () => api.releases.listReleases(projectId!),
-    enabled: !!projectId && featureIntegrated("releases"),
+    enabled: !!projectId && releasesIntegrated(),
   });
 }
 
@@ -82,7 +94,7 @@ export function useRelease(code: string | undefined) {
   return useQuery({
     queryKey: queryKeys.release(me, code ?? ""),
     queryFn: () => api.releases.getRelease(code!),
-    enabled: !!code,
+    enabled: !!code && releasesIntegrated(),
   });
 }
 
@@ -91,7 +103,7 @@ export function useEnvironments(projectId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.environments(me, projectId ?? ""),
     queryFn: () => api.releases.listEnvironments(projectId!),
-    enabled: !!projectId,
+    enabled: !!projectId && environmentsIntegrated(),
   });
 }
 
@@ -114,6 +126,7 @@ export function useMyReleases() {
   return useQuery({
     queryKey: queryKeys.myReleases(me),
     queryFn: () => api.releases.listMyReleases(),
+    enabled: prsIntegrated(),
   });
 }
 
@@ -122,7 +135,7 @@ export function useRepositorySettings(projectId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.repositorySettings(me, projectId ?? ""),
     queryFn: () => api.releases.getRepositorySettings(projectId!),
-    enabled: !!projectId,
+    enabled: !!projectId && repoSettingsIntegrated(),
   });
 }
 
