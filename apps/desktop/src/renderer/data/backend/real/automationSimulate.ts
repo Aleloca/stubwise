@@ -173,6 +173,11 @@ export function createRealSimulation(api: SimulationApi) {
     },
 
     /** Al cambio di sessione le prove si buttano. */
+    /** Dopo un salvataggio: il contesto letto era del flusso di prima. */
+    forgetContext(automationId: string): void {
+      for (const k of [...contexts.keys()]) if (k.startsWith(`${automationId}:`)) contexts.delete(k);
+    },
+
     reset(): void {
       trials.clear();
       contexts.clear();

@@ -211,6 +211,15 @@ describe("la prova nella build app", () => {
     }
   });
 
+  it("dopo un salvataggio della bozza la prova rilegge il contesto (review, minore)", async () => {
+    const { api, calls } = fakeApi(context([task()]));
+    const s = createRealSimulation(api);
+    await s.listSimulationExamples("a-1", "draft");
+    s.forgetContext("a-1");
+    await s.startSimulation("a-1", "draft", {});
+    expect(calls).toEqual(["GET examples a-1 draft", "GET examples a-1 draft"]);
+  });
+
   it("gli errori di configurazione del server: la prova non parte", async () => {
     const { api } = fakeApi(
       context([task()], { configErrors: [{ path: "0", code: "not_available", message: "x" }] }),

@@ -6,6 +6,7 @@ import { createRealAutomations, type AutomationsApi } from "./automations";
 import { SimulationConfigError } from "../../../domain/automations/simCore";
 import { createRealSimulation } from "./automationSimulate";
 import { appClient, session } from "./client";
+import { citableSearch } from "./globalSearch";
 import { now } from "./runtime";
 
 // Le Automations della build app sul client vero (area 7, F1): gli
@@ -45,7 +46,7 @@ const simulation = createRealSimulation({
   },
 });
 
-const { reset: resetSimulations, ...simulationFunctions } = simulation;
+const { reset: resetSimulations, forgetContext, ...simulationFunctions } = simulation;
 
 /**
  * ⌘K: il gruppo `automations` di `GET /api/search` (filtrato dal server). A
@@ -54,9 +55,8 @@ const { reset: resetSimulations, ...simulationFunctions } = simulation;
 async function searchAutomations(q: string): Promise<AutomationSearchResult[]> {
   const needle = q.trim();
   if (!needle || !isIntegrated({ kind: "destination", name: "automations" })) return [];
-  const results = await inPrototypeWords(() =>
-    appClient().search.global(needle, undefined, { citable: true }),
-  );
+  // La stessa risposta delle task di ⌘K (`globalSearch.ts`): una ricerca per tasto.
+  const results = await inPrototypeWords(() => citableSearch(needle));
   // `readerSchema` apre gli enum: un tipo che questo client non conosce non si mostra.
   return (results.automations?.items ?? []).filter(
     (h): h is AutomationSearchResult => h.kind === "automation" || h.kind === "run",
@@ -64,6 +64,14 @@ async function searchAutomations(q: string): Promise<AutomationSearchResult[]> {
 }
 
 const real = createRealAutomations(liveApi, refs);
+const { saveDraft: saveDraftOnly, ...realFunctions } = real;
+
+/** Salvare la bozza cambia il flusso: la prova dopo rilegge il contesto. */
+const saveDraft: typeof saveDraftOnly = async (id, ...rest) => {
+  const saved = await saveDraftOnly(id, ...rest);
+  forgetContext(id);
+  return saved;
+};
 
 export const liveAutomations = {
   searchAutomations,
@@ -76,7 +84,8 @@ export const liveAutomations = {
     return () => {};
   },
   SimulationConfigError,
-  ...real,
+  ...realFunctions,
+  saveDraft,
   ...simulationFunctions,
 };
 

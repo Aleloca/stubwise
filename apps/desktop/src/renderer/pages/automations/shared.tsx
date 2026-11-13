@@ -109,7 +109,8 @@ export function useAttention() {
       automationIds,
       runIds,
       waitingMe: mine,
-      count: automationIds.size + runIds.size,
+      // Anche le approvazioni la cui esecuzione non è nella prima pagina dell'elenco.
+      count: automationIds.size + new Set([...runIds, ...mine]).size,
       ready: automations.data !== undefined && runs.data !== undefined,
     };
   }, [automations.data, runs.data, approvals.data]);

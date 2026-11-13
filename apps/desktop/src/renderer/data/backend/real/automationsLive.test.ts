@@ -297,6 +297,34 @@ describe("gli input che il worker applica dopo (review I2)", () => {
   });
 });
 
+describe("la prova dopo una modifica (review, minore)", () => {
+  it("salvare la bozza butta il contesto della prova: la prova dopo gira sul flusso nuovo", async () => {
+    const context = {
+      automation: serverAutomation(7),
+      version: 1,
+      draft: true,
+      rev: 7,
+      ownerId: ME_ID,
+      configErrors: [],
+      people: [{ id: ME_ID, name: "Ada", departmentIds: [], deactivated: false }],
+      projects: [],
+    };
+    const { seen } = installFakeServer({
+      "GET /api/auth/me": { body: me() },
+      "GET /api/automations": { body: { items: [serverRow(7)] } },
+      "GET /api/automations/AUD-A1/examples": { body: { items: [], context } },
+      "PUT /api/automations/AUD-A1/draft": { body: serverAutomation(8) },
+      "POST /api/automations/AUD-A1/tested": { status: 204 },
+    });
+    await getSessionPerson();
+    await automations.listAutomations();
+    await automations.listSimulationExamples(A_ID, "draft");
+    await automations.saveDraft(A_ID, FLOW as never);
+    await automations.startSimulation(A_ID, "draft", {});
+    expect(seen.filter((r) => r.path.includes("/examples"))).toHaveLength(2);
+  });
+});
+
 describe("al cambio di persona", () => {
   it("codici e revisioni letti dalla persona di prima non valgono per la nuova", async () => {
     let who = me();

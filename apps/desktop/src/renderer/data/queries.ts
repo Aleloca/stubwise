@@ -3860,16 +3860,25 @@ export function useAutomation(id: string | null) {
   });
 }
 
+/**
+ * Ogni quanto si rilegge un elenco di esecuzioni con qualcosa in corso. Nella
+ * build app l'elenco senza automazione (50 esecuzioni coi registri) ogni 5 s;
+ * quello di un'automazione, e il prototipo, ogni secondo.
+ */
+export function automationRunsRefreshMs(filter: AutomationRunFilter = {}): number {
+  return isAppBuild() && !filter?.automationId ? 5000 : AUTOMATION_REFRESH_MS;
+}
+
 export function useAutomationRuns(filter: AutomationRunFilter = {}) {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: queryKeys.automationRuns(me, filter),
     queryFn: () => api.automations.listRuns(filter),
-    refetchInterval: (query) => (runningIn(query.state.data) ? AUTOMATION_REFRESH_MS : false),
+    refetchInterval: (query) =>
+      runningIn(query.state.data) ? automationRunsRefreshMs(filter) : false,
   });
 }
 
-/** Un'esecuzione col registro; invisibile o inesistente → `null`. */
 /** L'id di un'esecuzione dal suo indirizzo (codice e numero). */
 export function useAutomationRunByCode(code: string, n: number) {
   const me = useSessionPersonId();
@@ -3879,6 +3888,7 @@ export function useAutomationRunByCode(code: string, n: number) {
   });
 }
 
+/** Un'esecuzione col registro; invisibile o inesistente → `null`. */
 export function useAutomationRun(id: string | null) {
   const me = useSessionPersonId();
   return useQuery({

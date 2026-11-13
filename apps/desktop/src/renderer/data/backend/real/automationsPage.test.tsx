@@ -265,6 +265,39 @@ describe("le Automations nella build app", () => {
     expect(after.filter((r) => r.method === "GET" && r.path === "/api/automations/AUD-A1")).toHaveLength(1);
   });
 
+  it("«Needs attention» conta anche un'approvazione la cui esecuzione non è nella prima pagina (review, minore)", async () => {
+    install({
+      "GET /api/me/automation-approvals": {
+        body: {
+          items: [
+            {
+              kind: "approval",
+              runId: OLD_RUN_ID,
+              code: "AUD-A1 #2",
+              title: "Vecchia",
+              automationId: A_ID,
+              automationName: "Avvio progetto",
+              projectId: PROJECT_ID,
+              stepKind: "notify",
+              preview: {},
+              since: "2026-10-01T09:00:00.000Z",
+              cursor: "0",
+              round: 0,
+              automationCode: "AUD-A1",
+              n: 2,
+              automationVisible: true,
+              clientName: "",
+              effect: null,
+            },
+          ],
+        },
+      },
+    });
+    renderRoute("/automations");
+    const link = await screen.findByRole("link", { name: /Needs attention/ }, { timeout: 3000 });
+    await waitFor(() => expect(link).toHaveTextContent("1"));
+  });
+
   it("pubblicare la bozza dal dettaglio: POST …/publish col rev letto", async () => {
     install({
       "POST /api/automations/AUD-A1/publish": {

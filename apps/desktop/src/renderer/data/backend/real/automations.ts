@@ -102,9 +102,10 @@ export function createRealAutomations(
     async listAutomations(
       filter: { projectId?: string; status?: Automation["status"]; ownerId?: string } = {},
     ): Promise<AutomationRow[]> {
-      const { items } = await inPrototypeWords(() =>
+      // Un server senza le rotte dell'area 7 (404): nessuna automazione, lo stato vuoto.
+      const { items } = (await orNull(() =>
         api.list({ project: filter.projectId, status: filter.status, owner: filter.ownerId }),
-      );
+      )) ?? { items: [] };
       for (const a of items) refs.rememberAutomation(a);
       return items;
     },
@@ -198,7 +199,11 @@ export function createRealAutomations(
     },
 
     async getProjectAutomations(projectId: string): Promise<ProjectAutomationsView | null> {
-      return orNull(() => api.projectAutomations(projectId));
+      const view = await orNull(() => api.projectAutomations(projectId));
+      // Da qui si apre un'automazione o un'esecuzione senza essere passati dagli elenchi.
+      for (const a of view?.automations ?? []) refs.rememberAutomation(a);
+      for (const r of view?.runs ?? []) refs.rememberRun(r);
+      return view;
     },
 
     async automationOrigin(
