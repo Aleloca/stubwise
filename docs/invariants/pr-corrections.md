@@ -310,7 +310,18 @@
   prima del push: mai un fork (né uno non verificabile), mai un branch
   `stubwise/…`, il branch di default, il target della PR o un branch
   protetto (`isProtectedBranch`, anche diventato protetto a correzione in
-  corso); il push è SEMPRE in avanti (mai `--force`, mai rebase). «Chiedi
+  corso); il push è SEMPRE in avanti (mai `--force`, mai rebase). Con «solo
+  analisi» sul repository l'unica richiesta che fa partire una correzione su
+  una PR di un collega è «Chiedi modifiche» in Stubwise da chi ha
+  `prs.adopt`: il «Request changes» della piattaforma NON basta (lo può fare
+  un revisore qualunque, e farebbe pushare sul ramo di chi ha scelto «solo
+  analisi»), e vale solo con «analisi e correzioni» (e sulle PR di Stubwise,
+  come prima) — (O) di 46, 13 nov 2026; test negativo in
+  `webhooks.corrections.test.ts`. «Solo analisi» sulla singola PR ferma
+  tutto, anche «Chiedi modifiche», e una correzione in volo si ferma prima
+  del push; «spento» non analizza né corregge. La regola sta in UN posto,
+  `colleagueCorrectionAllowed` (@stubwise/shared), applicata da
+  `enqueueCorrection`, dalla ripresa e dal worker prima del push. «Chiedi
   modifiche» e la ripresa di una correzione ferma su una PR di un collega
   vogliono `prs.adopt` (`correctionActionAllowed`); il ciclo automatico, il
   tetto e il budget sono quelli delle PR di Stubwise. (Sostituisce la voce

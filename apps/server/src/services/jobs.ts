@@ -36,6 +36,7 @@ import {
 import { t } from "@stubwise/i18n";
 import {
   canResumeCorrection,
+  colleagueCorrectionPermitted,
   correctionActionAllowed,
   correctionManualTrigger,
   IN_FLIGHT_JOB_STATUSES,
@@ -120,7 +121,10 @@ export type StartRunResult =
   // La ripresa di una correzione ferma su una PR ADOTTATA il cui branch è nel
   // frattempo diventato PROTETTO (7 ott 2026, `isAdoptedBranchProtected`):
   // ripartirebbe solo per fallire nel worker. Niente scritto.
-  | { ok: false; error: "adopted_branch_protected" };
+  | { ok: false; error: "adopted_branch_protected" }
+  // La ripresa di una correzione ferma su una PR di un collega con «Solo
+  // analisi» o il repository «spento» (area 8, F1, S8). Niente scritto.
+  | { ok: false; error: "colleague_analysis_only" };
 
 export interface StartRunInput {
   ticketId: string;
@@ -340,7 +344,10 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
           branch: ticketRepositories.branch,
           adoptedAt: ticketRepositories.adoptedAt,
           adoptionReleasedAt: ticketRepositories.adoptionReleasedAt,
+          adoptedByUserId: ticketRepositories.adoptedByUserId,
           protectedBranches: repositories.protectedBranches,
+          repositoryId: prCorrections.repositoryId,
+          prNumber: prCorrections.prNumber,
         })
         .from(prCorrections)
         .innerJoin(
@@ -359,6 +366,14 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
       }
       if (adoption && !correctionActionAllowed(actor.permissions, adoption)) {
         return { ok: false, error: "needs_maintainer" };
+      }
+      // Le PR dei colleghi (area 8, F1, S8): una ripresa è una richiesta in
+      // Stubwise; «spento» o «Solo analisi» sulla PR la fermano.
+      if (
+        adoption &&
+        !(await colleagueCorrectionPermitted(tx, { ...adoption, ticketNumber: ticket.number, trigger: "stubwise" }))
+      ) {
+        return { ok: false, error: "colleague_analysis_only" };
       }
       const forced = await tx
         .update(aiJobs)

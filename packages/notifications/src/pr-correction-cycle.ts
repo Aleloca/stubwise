@@ -11,8 +11,10 @@ import {
   type Db,
 } from "@stubwise/db";
 import {
+  colleagueCorrectionAllowed,
   isAdoptedBranchProtected,
   isCorrectablePr,
+  stubwiseTicketNumber,
   prNumberFromUrl,
   type AiJobStatus,
   type HeldReason,
@@ -154,7 +156,9 @@ export type EnqueueCorrectionResult =
         | "pr_not_open"
         | "pr_not_correctable"
         | "adopted_branch_protected"
-        | "forbidden";
+        | "forbidden"
+        /** Area 8, F1, S8: l'impostazione delle PR dei colleghi non la lascia partire. */
+        | "colleague_analysis_only";
     };
 
 /**
@@ -180,7 +184,7 @@ async function prStillCorrectable(
   pr: PrRef,
   actorPermissions: ActorPermissions | null | undefined,
   trigger: PrCorrectionTrigger,
-): Promise<"ok" | "pr_not_open" | "pr_not_correctable" | "adopted_branch_protected" | "forbidden"> {
+): Promise<"ok" | "pr_not_open" | "pr_not_correctable" | "adopted_branch_protected" | "forbidden" | "colleague_analysis_only"> {
   const [row] = await tx
     .select({
       prState: ticketRepositories.prState,
@@ -189,6 +193,7 @@ async function prStillCorrectable(
       branch: ticketRepositories.branch,
       adoptedAt: ticketRepositories.adoptedAt,
       adoptionReleasedAt: ticketRepositories.adoptionReleasedAt,
+      adoptedByUserId: ticketRepositories.adoptedByUserId,
       ticketNumber: tickets.number,
       protectedBranches: repositories.protectedBranches,
     })
@@ -206,7 +211,53 @@ async function prStillCorrectable(
   // (`correctionActionAllowed`). Solo il trigger `stubwise` ha un ruolo; il
   // ciclo automatico e la piattaforma restano invariati.
   if (trigger === "stubwise" && !correctionActionAllowed(actorPermissions, row)) return "forbidden";
+  // Le PR dei colleghi (area 8, F1, S8): l'impostazione del repository e il
+  // «Solo analisi» della PR, sotto lo stesso lock.
+  if (!(await colleagueCorrectionPermitted(tx, { ...row, ...pr, trigger }))) return "colleague_analysis_only";
   return "ok";
+}
+
+/** Il trigger di una correzione come lo legge {@link colleagueCorrectionAllowed}. */
+function gateTrigger(trigger: PrCorrectionTrigger): "automatic" | "provider" | "requested" {
+  return trigger === "review" ? "automatic" : trigger === "provider" ? "provider" : "requested";
+}
+
+/**
+ * Area 8, F1, S8 (invariante «Le PR dei colleghi»): l'impostazione lascia
+ * partire (o proseguire fino al push) una correzione su questa PR? Una PR di
+ * Stubwise (il branch del ticket) non la guarda mai. Per quella di un collega
+ * legge `colleague_prs` del repository e il «Solo analisi» della PR (su
+ * qualunque riga `pr_reviews` della PR), e passa da
+ * {@link colleagueCorrectionAllowed}. La usano `enqueueCorrection` e il
+ * worker prima del push.
+ */
+export async function colleagueCorrectionPermitted(
+  db: DbOrTx,
+  input: {
+    repositoryId: string;
+    prNumber: number;
+    ticketNumber: number;
+    branch: string;
+    adoptedByUserId: string | null;
+    trigger: PrCorrectionTrigger;
+  },
+): Promise<boolean> {
+  if (stubwiseTicketNumber(input.branch) === input.ticketNumber) return true;
+  const [repo] = await db
+    .select({ mode: repositories.colleaguePrs })
+    .from(repositories)
+    .where(eq(repositories.id, input.repositoryId));
+  if (!repo) return false;
+  const [flag] = await db
+    .select({ on: sql<boolean>`coalesce(bool_or(${prReviews.analysisOnly}), false)` })
+    .from(prReviews)
+    .where(and(eq(prReviews.repositoryId, input.repositoryId), eq(prReviews.prNumber, input.prNumber)));
+  return colleagueCorrectionAllowed({
+    mode: repo.mode,
+    prAnalysisOnly: flag?.on === true,
+    explicitlyAdopted: input.adoptedByUserId !== null,
+    trigger: gateTrigger(input.trigger),
+  });
 }
 
 /** La `queued` e la `pending` della PR (al più una ciascuna, per indice unico). */

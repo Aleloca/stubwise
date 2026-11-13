@@ -1640,6 +1640,9 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             "This PR's branch is protected on this repository: Stubwise does not push to it",
           );
         }
+        if (result.error === "colleague_analysis_only") {
+          return apiError(reply, 409, "colleague_analysis_only", "This colleague's PR is set to analysis only: Stubwise does not correct it");
+        }
         if (result.error === "review_ticket_not_runnable") {
           return apiError(
             reply,
