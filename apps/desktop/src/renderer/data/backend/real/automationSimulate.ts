@@ -147,7 +147,9 @@ export function contextWorld(
           eff,
           sim.ownerId,
           sim.preview.emails.length,
-          null,
+          // La casella scelta vale per il proprietario di adesso (come il prototipo):
+          // nomina quella che non c'è più; la risoluzione l'ha già fatta il server.
+          sim.ownerId === ctx.automation.ownerId ? (ctx.automation.mailbox ?? null) : null,
         );
         if (!p.ok) return p;
         const first = sameConversation(sim.preview.emails, p.plan.to);

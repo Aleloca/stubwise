@@ -3,6 +3,8 @@ import {
   automationRuns,
   automations,
   automationVersions,
+  googleAccounts,
+  mailOutgoing,
   type Db,
 } from "@stubwise/db";
 import { automationEventFields as eventFields, projectPermissionsOfUser } from "@stubwise/notifications";
@@ -88,6 +90,11 @@ export async function consumeAutomationEvents(deps: ConsumerDeps): Promise<numbe
     }
     if (batch.length > 0) {
       await tx.update(automationEvents).set({ consumedAt: sql`now()` }).where(inArray(automationEvents.id, batch.map((e) => e.id)));
+      // Il testo di un'email resta solo nelle esecuzioni partite (il registro, del proprietario): l'evento lo perde.
+      await tx.execute(sql`
+        update ${automationEvents} set "payload" = jsonb_set("payload", '{email,testo}', '""'::jsonb)
+        where "kind" = 'mail_received' and "id" in (${sql.join(batch.map((e) => sql`${e.id}`), sql`, `)})
+      `);
     }
     return batch.length;
   });
@@ -100,6 +107,7 @@ export async function consumeAutomationEvents(deps: ConsumerDeps): Promise<numbe
 /** Le esecuzioni che l'evento fa nascere. */
 async function startRunsFor(tx: Tx, row: EventRow, log: (msg: string) => void): Promise<number> {
   // Un evento della posta (0170, F2) non ha progetto né riga: ha il suo percorso (`mail_received`, S8).
+  if (row.kind === "mail_received") return startMailRunsFor(tx, row, log);
   if (row.projectId === null || row.objectId === null) return 0;
   const event = { ...row, projectId: row.projectId, objectId: row.objectId, kind: row.kind as Exclude<EventRow["kind"], "mail_received"> };
   const candidates = await tx
@@ -141,6 +149,62 @@ async function startRunsFor(tx: Tx, row: EventRow, log: (msg: string) => void): 
       if (ok) started += 1;
     } catch (err) {
       log(`[automations] evento ${event.kind} ${event.objectId}, automazione ${a.code}: avvio saltato (${err instanceof Error ? err.message : String(err)})`);
+    }
+  }
+  return started;
+}
+
+/**
+ * «Email in arrivo» (area 7, F2, S8): le automazioni accese che ascoltano la
+ * CASELLA dell'evento, solo se ne sono il proprietario (`mailbox_owner`: un
+ * admin non legge la posta di un altro, R-J13). Mai una risposta nella
+ * conversazione in cui la stessa automazione ha mandato un'email (C-F2-5, il
+ * botta e risposta: quella sveglia solo le sue attese, `mail-in.ts`).
+ */
+async function startMailRunsFor(tx: Tx, row: EventRow, log: (msg: string) => void): Promise<number> {
+  if (!row.accountId) return 0;
+  const [account] = await tx.select({ userId: googleAccounts.userId }).from(googleAccounts).where(eq(googleAccounts.id, row.accountId));
+  if (!account) return 0;
+  const payload = (row.payload ?? {}) as { email?: Record<string, unknown>; threadId?: string };
+  const fields = { email: payload.email ?? {} };
+  const candidates = await tx
+    .select({ automation: automations })
+    .from(automations)
+    .where(
+      and(
+        eq(automations.mailboxAccountId, row.accountId),
+        eq(automations.status, "active"),
+        eq(automations.ownerId, account.userId),
+        isNotNull(automations.activeSince),
+        lte(automations.activeSince, row.createdAt),
+      ),
+    )
+    .orderBy(asc(automations.code));
+  let started = 0;
+  for (const { automation: a } of candidates) {
+    try {
+      const ok = await tx.transaction(async (sp) => {
+        const version = await publishedVersion(sp, a.id);
+        if (!version) return false;
+        const flow = version.flow as AutomationFlow;
+        const trigger = flow.trigger;
+        if (trigger.kind !== "stubwise" || trigger.event !== "mail_received") return false;
+        if (!(await projectPermissionsOfUser(sp, a.ownerId!, a.projectId))) return false;
+        if (payload.threadId) {
+          const [pingPong] = await sp
+            .select({ id: mailOutgoing.id })
+            .from(mailOutgoing)
+            .innerJoin(automationRuns, eq(automationRuns.id, mailOutgoing.automationRunId))
+            .where(and(eq(mailOutgoing.accountId, row.accountId!), eq(mailOutgoing.gmailThreadId, payload.threadId), eq(automationRuns.automationId, a.id)))
+            .limit(1);
+          if (pingPong) return false;
+        }
+        if (trigger.filter && !evaluate(trigger.filter, (key) => lookup(fields, key))) return false;
+        return createRun(sp, a, version.n, flow, fields, row, null);
+      });
+      if (ok) started += 1;
+    } catch (err) {
+      log(`[automations] email ${row.dedupeKey ?? row.id}, automazione ${a.code}: avvio saltato (${err instanceof Error ? err.message : String(err)})`);
     }
   }
   return started;

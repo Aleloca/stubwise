@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { automationRunInputs, automationRunLog, automationRuns, automations, automationVersions, googleAccounts, googleWorkspaces, milestones, projectMembers as projectMembersTable, projects, tickets, type Db } from "@stubwise/db";
+import { automationRunInputs, automationRunLog, automationRuns, automations, automationVersions, emailMessages, googleAccounts, googleWorkspaces, milestones, projectMembers as projectMembersTable, projects, tickets, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { addDepartmentMember, seedDepartment, startTestDb } from "@stubwise/db/testing";
 import { GMAIL_MODIFY_SCOPE } from "@stubwise/google";
@@ -257,6 +257,46 @@ describe("area 7, F2, S2: accendere e pubblicare con la casella", () => {
     expect(await ctx()).toEqual({ ok: false, reason: "no_scope" });
     const box = await mailbox(lead.id);
     expect(await ctx()).toEqual({ ok: true, address: box.email });
+  });
+
+  it("S8: «email in arrivo» vuole la casella (la ascolta) anche senza mandare email; gli esempi sono la SUA posta solo per chi ne sarebbe il proprietario (R-J13)", async () => {
+    const { p, lead } = await setup();
+    const other = await person();
+    await addMember(app, p.id, other.id, "project_lead");
+    const flow: AutomationFlow = { trigger: { kind: "stubwise", event: "mail_received" }, steps: [createTask()], titleTemplate: "t" };
+    const a = await created(lead, p.id, flow);
+    expect((await call(lead.headers, "POST", `/automations/${a.code}/publish`, {})).json()).toMatchObject({ code: "mailbox_required" });
+    const box = await mailbox(lead.id);
+    await db.insert(emailMessages).values({ accountId: box.id, gmailMessageId: `gm-${randomUUID()}`, threadId: "th", fromAddress: "cliente@b.it", subject: "Preventivo", receivedAt: new Date(), textExcerpt: "Vorrei un preventivo" });
+    const items = async (who: { headers: { cookie: string } }, version: string) => ((await call(who.headers, "GET", `/automations/${a.code}/examples?version=${version}`)).json() as { items: { event: unknown }[] }).items;
+    expect(await items(lead, "draft")).toEqual([expect.objectContaining({ event: { email: { mittente: "cliente@b.it", oggetto: "Preventivo", testo: "Vorrei un preventivo" } } })]);
+    // Un altro lead che prova la stessa bozza: sarebbe lui il proprietario, e la posta di `lead` non la vede.
+    expect(await items(other, "draft")).toEqual([]);
+    expect((await call(lead.headers, "POST", `/automations/${a.code}/publish`, { mailboxAccountId: box.id })).statusCode).toBe(200);
+    // Pubblicata: il proprietario è `lead`; chi prova la versione 1 senza esserlo non vede gli esempi.
+    expect(await items(lead, "1")).toHaveLength(1);
+    expect(await items(other, "1")).toEqual([]);
+  });
+
+  it("S8, R-J13: di un'esecuzione partita da un'email solo il proprietario vede mittente, oggetto e testo; gli altri leggono `mailHidden` e il titolo col solo nome", async () => {
+    const { p, lead } = await setup();
+    const other = await person();
+    await addMember(app, p.id, other.id, "project_lead");
+    const a = await created(lead, p.id, flowOf([createTask()]));
+    expect((await call(lead.headers, "POST", `/automations/${a.code}/publish`, {})).statusCode).toBe(200);
+    const [run] = await db
+      .insert(automationRuns)
+      .values({ automationId: a.id, n: 1, version: 1, title: "Email: Preventivo riservato", origin: "stubwise", status: "done", event: { email: { mittente: "cliente@b.it", oggetto: "Preventivo riservato", testo: "Segreto" } } })
+      .returning();
+    await db.insert(automationRunLog).values({ runId: run!.id, seq: 1, stepId: "t", path: "0", kind: "createTask", outcome: "ok", input: { titolo: "Rispondere: Preventivo riservato" } });
+    const mine = (await call(lead.headers, "GET", `/automations/${a.code}/runs/1`)).json() as { event: unknown; title: string };
+    expect(mine).toMatchObject({ title: "Email: Preventivo riservato", event: { email: { oggetto: "Preventivo riservato" } } });
+    const theirs = (await call(other.headers, "GET", `/automations/${a.code}/runs/1`)).json() as { event: unknown; title: string; mailHidden: boolean };
+    expect(theirs).toMatchObject({ event: { email: { mittente: "", oggetto: "", testo: "" } }, mailHidden: true, title: "Onboarding" });
+    for (const leak of ["Preventivo riservato", "cliente@b.it", "Segreto"]) {
+      expect(JSON.stringify(theirs)).not.toContain(leak);
+      expect(JSON.stringify((await call(other.headers, "GET", `/automation-runs?automation=${a.code}`)).json())).not.toContain(leak);
+    }
   });
 
   it("un flusso senza email non chiede la casella; il proprietario che ripubblica tiene la sua; chi riaccende ne sceglie una sua", async () => {

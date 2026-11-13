@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import { availableFields, stepAt, visitSteps } from "@stubwise/shared";
+import { availableFields, stepAt, visitSteps, SCHEDULE_DEFAULT_HOUR } from "@stubwise/shared";
 import type {
   AutomationFlow,
   AutomationRunRow,
@@ -48,7 +48,7 @@ export function scheduleWords(rule: string, t: TFunction, language: string): str
   const parts = Object.fromEntries(
     rule.split(";").map((p) => p.split("=") as [string, string]),
   ) as Record<string, string | undefined>;
-  const time = `${Number(parts.BYHOUR ?? 9)}:${String(Number(parts.BYMINUTE ?? 0)).padStart(2, "0")}`;
+  const time = `${Number(parts.BYHOUR ?? SCHEDULE_DEFAULT_HOUR)}:${String(Number(parts.BYMINUTE ?? 0)).padStart(2, "0")}`;
   if (parts.FREQ === "DAILY") return t("automations.trigger.daily", { time });
   if (parts.FREQ === "WEEKLY" && parts.BYDAY) {
     const day = weekday(parts.BYDAY.split(",")[0]!, language);

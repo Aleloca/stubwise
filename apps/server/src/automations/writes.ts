@@ -61,7 +61,9 @@ async function shapeOf(db: Db | Tx, viewer: Viewer, a: AutomationRecord): Promis
   return automationOf(a, await versionsOf(db, a.id), await seen(db, viewer), await mailboxAddresses(db, [a]));
 }
 
+/** Il flusso usa una casella: manda email, o ascolta la posta («email in arrivo», S8). */
 const sendsEmail = (flow: AutomationFlow): boolean => {
+  if (flow.trigger.kind === "stubwise" && flow.trigger.event === "mail_received") return true;
   let found = false;
   visitSteps(flow.steps, (s) => {
     if (s.kind === "sendEmail") found = true;
@@ -80,7 +82,7 @@ const sendsEmail = (flow: AutomationFlow): boolean => {
 async function mailboxForPublish(db: Db | Tx, viewer: Viewer, a: AutomationRecord, flow: AutomationFlow, requested: string | undefined): Promise<string | null> {
   if (!sendsEmail(flow)) return null;
   const id = requested ?? (a.ownerId === viewer.id ? a.mailboxAccountId : null);
-  if (!id) throw invalid("mailbox_required", "Choose the mailbox the emails are sent from");
+  if (!id) throw invalid("mailbox_required", "Choose the mailbox the automation sends from or listens to");
   const box = await automationMailboxOf(db, viewer.id, id);
   if (box.ok) return box.accountId;
   if (box.reason === "chosen_gone") {

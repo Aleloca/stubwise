@@ -1,6 +1,9 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   aiJobs,
+  automationEvents,
+  automations,
+  automationVersions,
   backlogItems,
   backlogJobs,
   calendarEvents,
@@ -490,6 +493,35 @@ describe("sincronizzazione Gmail", () => {
     // Nessun `full:m1`: è il pre-filtro che ha risparmiato la chiamata.
     expect(gmail.calls).toEqual(["refresh", "history", "metadata:m1"]);
     expect(await db.select().from(emailMessages)).toEqual([]);
+  });
+
+  it("area 7, F2 (F2-1 = tutte): un messaggio RIFIUTATO dall'ammissione entra nelle automazioni della casella; uno mandato dalla casella no; senza automazioni nessun download in più", async () => {
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    // Prima, nessuna automazione: il pre-filtro risparmia il download come sempre.
+    const quiet = fakeGmail({ history: { addedMessageIds: ["m0"], historyId: "1005" }, messages: { m0: message({ id: "m0", from: "news@spam.example" }) } });
+    await pollGoogleOnce(deps(account, quiet));
+    expect(quiet.calls).toEqual(["refresh", "history", "metadata:m0"]);
+    // Poi un'automazione del proprietario che ascolta la casella.
+    const [a] = await db
+      .insert(automations)
+      .values({ code: "ACM-A1", seq: 1, name: "In", projectId, ownerId: account.userId, status: "active", activeSince: new Date(Date.now() - 60_000), mailboxAccountId: account.id })
+      .returning();
+    await db.insert(automationVersions).values({ automationId: a!.id, n: 1, flow: { trigger: { kind: "stubwise", event: "mail_received" }, steps: [], titleTemplate: "t" }, publishedAt: new Date(), publishedBy: account.userId });
+    await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1005" }).where(eq(googleAccounts.id, account.id));
+    const [fresh] = await db.select().from(googleAccounts).where(eq(googleAccounts.id, account.id));
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1", "m2"], historyId: "1010" },
+      messages: { m1: message({ id: "m1", from: "news@spam.example", subject: "Offerta" }), m2: message({ id: "m2", from: `Operatore <${MAILBOX}>`, to: "cliente@acme.com" }) },
+    });
+    await pollGoogleOnce(deps(fresh!, gmail));
+    // m1 è fuori perimetro (nessuna riga), ma la sua email arriva all'automazione.
+    expect(await db.select().from(emailMessages)).toEqual([]);
+    const events = await db.select().from(automationEvents).where(eq(automationEvents.accountId, account.id));
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ kind: "mail_received", dedupeKey: `mail:${account.id}:m1`, payload: { email: { mittente: "news@spam.example", oggetto: "Offerta" } } });
+    expect(gmail.calls).toContain("full:m1");
+    expect(gmail.calls).not.toContain("full:m2");
   });
 
   it("in perimetro: scrive la riga col progetto risolto e il testo capato", async () => {

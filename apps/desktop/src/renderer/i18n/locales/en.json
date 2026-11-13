@@ -7092,7 +7092,11 @@
       "statusDraftBy": "never turned on · created by {{who}} on {{date}}",
       "duplicateVersion": "Duplicate this version",
       "statusPausedBy_zero": "paused by {{who}} on {{date}}",
-      "statusPaused_zero": "owner {{owner}}"
+      "statusPaused_zero": "owner {{owner}}",
+      "pausedReason": {
+        "mailbox_lost": "the owner's mailbox can't be used any more",
+        "owner_lost_permission": "the owner lost a permission it needs"
+      }
     },
     "version": {
       "short": "v{{n}}",

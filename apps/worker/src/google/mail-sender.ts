@@ -9,7 +9,11 @@ import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
  *
  * Il worker manda un'email SOLO perché una persona ha premuto Invia: la riga
  * `mail_outgoing` (scritta dalla rotta, con chi e quando) è il gesto, e il
- * worker la esegue a `send_at`. Regole:
+ * worker la esegue a `send_at`. L'UNICA eccezione, dichiarata (area 7, F2,
+ * Q4 = b): il passo «Manda email» di un'automazione accesa da una persona,
+ * dalla sua casella — una riga senza bozza, con `automation_run_id`, che si
+ * manda col MIME composto qui (`docs/invariants/automations.md`, l'elenco
+ * chiuso in `packages/db/src/mail-outgoing-writers.test.ts`). Regole:
  * - il claim è un UPDATE `queued → sending` con `FOR UPDATE SKIP LOCKED`:
  *   una riga la manda UN giro, e un Annulla all'ultimo istante (che blocca la
  *   stessa riga e ricontrolla) la porta via prima o non la trova più `queued`;

@@ -43,6 +43,11 @@ function StatusLine({ a }: { a: AutomationRow }) {
     <p data-status-line className="flex flex-wrap items-center gap-x-1.5 text-md text-ink-muted">
       <AutomationStatusWord status={a.status} />
       <span>· {text}</span>
+      {/* La pausa automatica dice perché (D5, F2): dal server, `pausedReason`. */}
+      {a.status === "paused" &&
+        (a.pausedReason === "mailbox_lost" || a.pausedReason === "owner_lost_permission") && (
+          <span data-paused-reason>· {t(`automations.detail.pausedReason.${a.pausedReason}`)}</span>
+        )}
       {a.status !== "draft" && a.hasDraft && (
         <span className="num text-xs">
           · {t("automations.row.draftOf", { n: a.versions.at(-1)!.n })}

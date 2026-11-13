@@ -56,6 +56,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   feature: new Set([
     // Area 7, fetta 1: le Automations (Home, «Da decidere», ⌘K, righe d'origine).
     "automations",
+    // Area 7, fetta 2: email e attese (passo «Manda email», attese, «ripeti
+    // finché», inizi a orario ed «email in arrivo»), con la casella vera.
+    "automations-f2",
     "notifications",
     "search",
     "task-detail",
@@ -268,9 +271,9 @@ export function integrationTargetOf(
 
 /**
  * I passi e gli inizi delle Automations che questa build offre (area 7, per
- * fette): nella build app quelli della fetta 1 (della 2 con la funzione
- * `automations-f2`, della 3 con `automations-f3`, spente finché i loro server
- * non ci sono), nel prototipo
+ * fette): nella build app quelli della fetta 2 (funzione `automations-f2`;
+ * senza, la fetta 1; della 3 con `automations-f3`, spenta finché il suo
+ * server non c'è), nel prototipo
  * tutti (`undefined`). La leggono il costruttore («Coming soon») e la validazione
  * (`not_available`), così non possono dire due cose diverse.
  */
