@@ -154,6 +154,9 @@ export const ALERT_TYPES: readonly AlertType[] = [
  */
 export const LIVE_ALERT_TYPES: readonly string[] = [
   "release.failed",
+  // Area 8, F2, S4 (72): i produttori ci sono (alla nascita e alla riuscita del rilascio).
+  "release.merged",
+  "release.succeeded",
   "monitor.alert",
   "monitor.recovered",
 ];

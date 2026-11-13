@@ -6865,6 +6865,8 @@ export const releases = pgTable(
     fixTicketId: uuid("fix_ticket_id").references(() => tickets.id, { onDelete: "set null" }),
     /** L'avviso `release.failed` è partito (una volta sola). */
     failedNotifiedAt: timestamp("failed_notified_at", { withTimezone: true }),
+    /** Area 8, F2 (0178): `release.succeeded` già avvisato (una volta sola). */
+    succeededNotifiedAt: timestamp("succeeded_notified_at", { withTimezone: true }),
     /** Review F1 (0176): l'ultima lettura delle run di CI è fallita (null = letta, o mai provata). */
     ciUnreadableAt: timestamp("ci_unreadable_at", { withTimezone: true }),
     /** Review F1 (0176): quando il poller l'ha guardato l'ultima volta (il turno: i meno recenti prima). */

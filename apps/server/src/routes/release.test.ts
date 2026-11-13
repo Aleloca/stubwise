@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { buildApp } from "../app.js";
 import {
   aiJobs,
+  alertSubscriptions,
   notifications,
   projectMembers,
   roles,
@@ -1583,14 +1584,18 @@ describe("area 8, F1, S10: la Home «Rilasci»", () => {
 
 describe("area 8, F2, S4: `release.merged`, una volta per rilascio", () => {
   it("il merge da Stubwise crea la card col link al rilascio; la stessa PR registrata di nuovo (il webhook) non ne crea una seconda", async () => {
-    const { ticketId, repositoryId } = await seedOpenPr();
+    const { ticketId, repositoryId, projectId } = await seedOpenPr();
+    // `release.merged` è spento di partenza (catalogo): un membro iscritto.
+    const sub = await createUserWithPat(app, `sub-${randomUUID().slice(0, 6)}@acme.com`);
+    await addMember(app, projectId, sub.id, "viewer");
+    await testDb.db.insert(alertSubscriptions).values({ userId: sub.id, projectId, alertType: "release.merged", app: true, phone: false });
     vi.stubGlobal("fetch", greenFetch());
     const res = await release(ticketId, repositoryId, adminCookie);
     const code = (res.json() as { releaseCode: string }).releaseCode;
     const cards = async () =>
       (await testDb.db.select().from(notifications).where(eq(notifications.kind, "release.merged"))).filter((n) => (n.event as { releaseCode?: string }).releaseCode === code);
     const first = await cards();
-    expect(first.length).toBeGreaterThan(0);
+    expect(first.map((n) => n.userId)).toEqual([sub.id]);
     expect(first[0]!.event).toMatchObject({ releaseCode: code, url: expect.stringMatching(new RegExp(`/app/#/p/[A-Z0-9]+/releases/${code}$`)) });
     const { recordRelease } = await import("../services/releases.js");
     const [rel] = await testDb.db.select().from(releases).where(eq(releases.code, code));

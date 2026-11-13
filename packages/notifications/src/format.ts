@@ -334,7 +334,11 @@ interface PrEventBase {
   prUrl: string;
   /** Il titolo della PR (scritto da chi l'ha aperta). */
   title: string;
-  /** Il pannello della PR nell'app. */
+  /**
+   * Il pannello della PR nell'app: `/app/#/p/<PRJ>/releases?pr=<repositoryId>%23<n>`
+   * (l'id della vista della PR è `repositoryId#numero`, univoco anche con più
+   * repository; `#` codificato perché sta dentro l'hash — richiesta di 94).
+   */
   url: string;
 }
 /** Una PR è stata aperta su un repository collegato (≠ `job.pr_opened`, la PR di un fix di Stubwise). */
@@ -2153,9 +2157,9 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
     },
     { kind: "release.merged", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", releaseId: "5e3b1a2c-3333-4444-8555-666677778888", releaseCode: "NEG-V12", title: "Pagamenti: nuovo checkout", url: `${base}/app/#/p/NEG/releases/NEG-V12` },
     { kind: "release.succeeded", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", releaseId: "5e3b1a2c-3333-4444-8555-666677778888", releaseCode: "NEG-V12", title: "Pagamenti: nuovo checkout", url: `${base}/app/#/p/NEG/releases/NEG-V12` },
-    { kind: "pr.opened", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", prNumber: 88, prUrl: "https://github.com/acme/negozio-web/pull/88", title: "Filtri per taglia", url: `${base}/app/#/p/NEG/releases?pr=88` },
-    { kind: "pr.analysis_issues", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", prNumber: 88, prUrl: "https://github.com/acme/negozio-web/pull/88", title: "Filtri per taglia", url: `${base}/app/#/p/NEG/releases?pr=88` },
-    { kind: "pr.corrected", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", prNumber: 88, prUrl: "https://github.com/acme/negozio-web/pull/88", title: "Filtri per taglia", url: `${base}/app/#/p/NEG/releases?pr=88` },
+    { kind: "pr.opened", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", prNumber: 88, prUrl: "https://github.com/acme/negozio-web/pull/88", title: "Filtri per taglia", url: `${base}/app/#/p/NEG/releases?pr=7b2c9d1e-4444-4555-8666-777788889999%2388` },
+    { kind: "pr.analysis_issues", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", prNumber: 88, prUrl: "https://github.com/acme/negozio-web/pull/88", title: "Filtri per taglia", url: `${base}/app/#/p/NEG/releases?pr=7b2c9d1e-4444-4555-8666-777788889999%2388` },
+    { kind: "pr.corrected", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", prNumber: 88, prUrl: "https://github.com/acme/negozio-web/pull/88", title: "Filtri per taglia", url: `${base}/app/#/p/NEG/releases?pr=7b2c9d1e-4444-4555-8666-777788889999%2388` },
     { kind: "docs.release_note", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", title: "Note del 13 novembre", url: `${base}/app/#/p/NEG/docs` },
     {
       kind: "job.awaiting_input",

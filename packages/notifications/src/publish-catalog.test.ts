@@ -152,11 +152,15 @@ describe("avvisi del catalogo alla pubblicazione (area 8, F2)", () => {
     expect(last.filter((n) => n.userId === s.admin).every((n) => (n.event as { alertMandatory?: string }).alertMandatory === undefined)).toBe(true);
   });
 
-  it("un tipo non ancora vivo (non in LIVE_ALERT_TYPES) resta sul routing di oggi", async () => {
+  it("un tipo non ancora vivo (non in LIVE_ALERT_TYPES) resta sul routing di oggi; uno vivo spento di partenza va a chi si è iscritto", async () => {
     const s = await scenario();
+    await db.insert(alertSubscriptions).values({ userId: s.viewer, projectId: s.projectId, alertType: "pr.opened", app: true, phone: false });
+    await publishNotification(db, { kind: "pr.opened", projectId: s.projectId, repositoryName: "web", prNumber: 3, prUrl: "u", title: "x", url: "u" }, { projectId: s.projectId });
+    expect(await cardsOf("pr.opened")).not.toContain(s.viewer);
+    // `release.merged` è vivo e spento di partenza: solo chi si iscrive.
     await db.insert(alertSubscriptions).values({ userId: s.viewer, projectId: s.projectId, alertType: "release.merged", app: true, phone: false });
     await publishNotification(db, { kind: "release.merged", projectId: s.projectId, releaseId: randomUUID(), releaseCode: "ACQ-V2", title: "x", url: "u" }, { projectId: s.projectId });
-    expect(await cardsOf("release.merged")).not.toContain(s.viewer);
+    expect(await cardsOf("release.merged")).toEqual([s.viewer]);
   });
 
   it("la revoca a lettura: chi perde `subscribe.perm` (repos.view) non vede la card, la rivede se torna; chi l'ha avuta da obbligatorio la vede", async () => {
