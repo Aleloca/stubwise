@@ -28,6 +28,7 @@ import {
 } from "@stubwise/db";
 import { STUBWISE_BRANCH_RE, prNumberFromUrl } from "@stubwise/shared";
 import { getContentLanguage } from "../settings.js";
+import { recordRelease } from "../services/releases.js";
 import { apiError } from "../errors.js";
 import {
   createDeliveryDedupe,
@@ -390,6 +391,25 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
       const event = provider.parseWebhook(headers, request.body);
       // Non è un merge di PR che ci interessa: ignorato (204), niente da fare.
       if (!event) return reply.code(204).send();
+
+      // Area 8, F1: un merge sul ramo di rilascio è un RILASCIO, anche fatto
+      // fuori da Stubwise (S-3 = a). Idempotente col merge da Stubwise e con
+      // le riconsegne (`recordRelease`); best-effort: non ferma la chiusura
+      // del ticket qui sotto.
+      if (event.kind === "merged" && event.targetBranch && event.mergeSha) {
+        await recordRelease(instance.db, {
+          repositoryId: context.repositoryId,
+          targetBranch: event.targetBranch,
+          prNumber: event.prNumber,
+          prUrl: event.prUrl,
+          title: event.title ?? event.branch,
+          mergeSha: event.mergeSha,
+          mergedAt: event.mergedAt && !Number.isNaN(Date.parse(event.mergedAt)) ? new Date(event.mergedAt) : new Date(),
+          mergedBy: null,
+          mergedGitName: event.mergedByLogin ?? null,
+          viaStubwise: false,
+        }).catch((err: unknown) => request.log.warn({ err, prNumber: event.prNumber }, "registrazione del rilascio fallita"));
+      }
 
       // Ticket delle correzioni ANNULLATE su questa PR (lo dice
       // `cancelOpenCorrections`): solo lì il job che bloccava le `pending` di

@@ -45,6 +45,10 @@ CREATE UNIQUE INDEX "releases_project_seq_idx" ON "releases" USING btree ("proje
 -- Una riconsegna del webhook, o il merge da Stubwise e il webhook della stessa PR, non creano un secondo rilascio.
 CREATE UNIQUE INDEX "releases_repository_merge_idx" ON "releases" USING btree ("repository_id", "merge_sha");
 --> statement-breakpoint
+-- Una PR si mergia una volta sola: la deduplica fra il merge da Stubwise e il webhook anche quando
+-- un provider dà il commit di merge abbreviato (Bitbucket) e l'altra strada intero.
+CREATE UNIQUE INDEX "releases_repository_pr_idx" ON "releases" USING btree ("repository_id", "pr_number") WHERE "pr_number" IS NOT NULL;
+--> statement-breakpoint
 CREATE INDEX "releases_project_merged_idx" ON "releases" USING btree ("project_id", "merged_at" DESC);
 --> statement-breakpoint
 -- La sequenza dei codici per progetto (`<PRJ>-V<n>`): un codice non torna mai.

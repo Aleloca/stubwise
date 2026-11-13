@@ -6864,6 +6864,7 @@ export const releases = pgTable(
     uniqueIndex("releases_code_idx").on(table.code),
     uniqueIndex("releases_project_seq_idx").on(table.projectId, table.seq),
     uniqueIndex("releases_repository_merge_idx").on(table.repositoryId, table.mergeSha),
+    uniqueIndex("releases_repository_pr_idx").on(table.repositoryId, table.prNumber).where(sql`${table.prNumber} IS NOT NULL`),
     index("releases_project_merged_idx").on(table.projectId, table.mergedAt.desc()),
   ],
 );

@@ -17,6 +17,7 @@ import {
   prReviewJobs,
   prReviews,
   projects,
+  releases,
   repositories,
   ticketEvents,
   ticketRepositories,
@@ -580,6 +581,33 @@ describe("POST /webhooks/git/:projectSlug", () => {
     const cmts = await ticketComments(ticketId);
     expect(cmts).toHaveLength(1);
     expect(cmts[0]!.authorType).toBe("system");
+  });
+
+  it("area 8, F1: un merge esterno sul ramo di rilascio crea UN rilascio (via_stubwise falso, il nome git); la riconsegna no; un merge su un altro ramo nemmeno", async () => {
+    const project = await createProject({
+      name: "Webhook Rilasci",
+      provider: "github",
+      repoUrl: "https://github.com/acme/webhook-rilasci",
+      credentials: { username: "acme-bot", token: "tok" },
+    });
+    const [repo] = await testDb.db.select().from(repositories).where(eq(repositories.slug, project.slug));
+    const send = async (base: string, number: number) => {
+      const body = JSON.stringify({
+        action: "closed",
+        pull_request: { number, merged: true, head: { ref: "feature" }, base: { ref: base }, html_url: `https://github.com/acme/webhook-rilasci/pull/${number}`, merge_commit_sha: `${"b".repeat(39)}${number}`, title: "Nuovo login", merged_by: { login: "marta" } },
+      });
+      return app.inject({
+        method: "POST",
+        url: `/webhooks/git/${project.slug}`,
+        headers: { "content-type": "application/json", "x-github-event": "pull_request", "x-hub-signature-256": sign(project.webhookSecret, body) },
+        payload: body,
+      });
+    };
+    expect((await send(repo!.defaultBranch, 11)).statusCode).toBe(204);
+    expect((await send(repo!.defaultBranch, 11)).statusCode).toBe(204);
+    expect((await send("develop", 12)).statusCode).toBe(204);
+    const rows = await testDb.db.select().from(releases).where(eq(releases.repositoryId, repo!.id));
+    expect(rows).toEqual([expect.objectContaining({ prNumber: 11, viaStubwise: false, mergedGitName: "marta", title: "Nuovo login", mergedBy: null })]);
   });
 
   it("firma non valida → 401, ticket intatto", async () => {
