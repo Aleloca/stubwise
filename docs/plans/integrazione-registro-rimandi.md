@@ -364,6 +364,22 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - F4, «tutta la serie» e l'etag *(S, review F4 punto 11)*: l'`If-Match` è
   l'etag del padre appena riletto; l'etag del client protegge solo la data
   trascinata.
+- F5a, «Task da questa riunione» senza le RICHIESTE *(S)*: una proposta
+  confermata come richiesta lascia un job dell'intake (`results.kind =
+  request`, id del job), non la voce di backlog; risolverla (e mostrare le
+  task di una richiesta convertita) vuole il legame job → voce. Oggi escono
+  solo le task.
+- F5a, le email di Gemini di PRIMA del deploy *(S)*: il riconoscimento è
+  all'ingestione, quindi non diventano riunioni; un recupero vorrebbe
+  rileggere le intestazioni da Gmail.
+- F5a, il badge delle proposte nell'ELENCO delle conversazioni *(S)*:
+  `me-mail.ts` conta le condivise `mail_recipients` per thread; quelle di una
+  riunione compaiono aprendo la conversazione (filtro per messaggio e
+  thread) e in «Da decidere», non nel conteggio della riga.
+- F5a, con la classificazione di PRIMA *(S)*: il riconoscimento c'è anche
+  senza `MAIL_CLASSIFY_V2`, ma dopo l'ammissione (un'email di Gemini
+  respinta non entra), e la fase delle riunioni gira solo con la
+  classificazione nuova.
 - F4, il nome di un invitato di Stubwise *(S)*: `users` non ha un nome,
   quindi l'invito a una persona di Stubwise parte col solo indirizzo (il nome
   lo mette Google dal suo elenco, se c'è).

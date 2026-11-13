@@ -13,7 +13,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
-import { permissionForMailAction, projectPermissionsOfUser, projectViewerIds } from "@stubwise/notifications";
+import { canSeeMeeting, permissionForMailAction, projectPermissionsOfUser, projectViewerIds } from "@stubwise/notifications";
 import { ticketPrioritySchema, ticketStatusSchema, type MailProposal, type ProjectPermission, type TicketPriority, type TicketStatus } from "@stubwise/shared";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { SessionUser } from "../auth/session.js";
@@ -97,10 +97,17 @@ async function loadDecidable(db: Db, viewer: Viewer, id: string) {
     .leftJoin(emailProposalRecipients, and(eq(emailProposalRecipients.proposalId, emailProposals.id), eq(emailProposalRecipients.userId, viewer.id)))
     .innerJoin(emailMessages, eq(emailMessages.id, emailProposals.emailMessageId))
     .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
-    .where(and(eq(emailProposals.id, id), eq(emailProposals.audience, "mail_recipients")));
+    .where(and(eq(emailProposals.id, id), inArray(emailProposals.audience, ["mail_recipients", "meeting_invitees"])));
   if (!row) return null;
   const permissions = await proposalPermissionsOf(db, viewer.id, row.proposal);
   if (!permissions) return null;
+  // F5a (Q1): una proposta di riunione la decide chi vede la riunione ADESSO —
+  // anche senza aver ricevuto l'email —, la prima decisione chiude per tutti.
+  // Un invitato tolto da Google non è più fra loro (salvo una passata a lui).
+  const meetingGone =
+    row.proposal.audience === "meeting_invitees" &&
+    !(row.proposal.meetingNoteId && (await canSeeMeeting(db, row.proposal.meetingNoteId, viewer.id)));
+  if (meetingGone && !(row.proposal.handedAt && coversAll(row.proposal, permissions))) return null;
   // Non destinatario: solo una proposta PASSATA, e solo a chi ha il permesso
   // di OGNI sua azione nel progetto (il prototipo).
   if (!row.recipient && !(row.proposal.handedAt && coversAll(row.proposal, permissions))) return null;
@@ -444,7 +451,9 @@ export async function reassignMailProposal(db: Db, viewer: Viewer, id: string, t
         emailMessageId: proposal.emailMessageId,
         projectId: targetProjectId,
         rfcMessageId: proposal.rfcMessageId,
-        audience: "mail_recipients",
+        // F5a: una proposta di riunione spostata resta della sua riunione.
+        audience: proposal.audience,
+        meetingNoteId: proposal.meetingNoteId,
         status: "classified",
         classification: { version: 2, summary: stored.summary ?? "", actions, movedFrom: proposal.projectId, movedBy: viewer.id },
       })

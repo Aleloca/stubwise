@@ -5,6 +5,8 @@ import {
   calendarSeriesWriteResultSchema,
   calendarWriteResultSchema,
   calendarFreeBusySchema,
+  meetingSummarySchema,
+  meetingTasksSchema,
 } from "@stubwise/shared";
 import type {
   CalendarEventItem,
@@ -19,6 +21,8 @@ import type {
   CalendarWriteResult,
   CalendarWriteScope,
   CalendarFreeBusy,
+  MeetingSummary,
+  MeetingTasks,
   MailItemStatus,
   Reader,
 } from "@stubwise/shared";
@@ -219,6 +223,28 @@ export function createCalendarEndpoints(request: ApiRequest) {
      */
     freeBusy(input: { personIds: string[]; from: string; to: string }): Promise<Reader<CalendarFreeBusy>> {
       return request("GET", `/api/me/calendar/freebusy${toQuery({ personIds: input.personIds.join(","), from: input.from, to: input.to })}`, undefined, calendarFreeBusySchema);
+    },
+
+    // --- Area 6, F5a: le riunioni registrate ------------------------------
+
+    /** Il riassunto della riunione di questo evento; 404 `not_found` a chi non c'era (anche a un admin). */
+    eventSummary(id: string): Promise<Reader<MeetingSummary>> {
+      return request("GET", `/api/me/calendar/events/${seg(id)}/summary`, undefined, meetingSummarySchema);
+    },
+
+    /** «Task da questa riunione»: `null` a chi non è membro del progetto dell'evento. */
+    eventTasks(id: string): Promise<Reader<MeetingTasks>> {
+      return request("GET", `/api/me/calendar/events/${seg(id)}/tasks`, undefined, meetingTasksSchema);
+    },
+
+    /** Il riassunto per un invitato SENZA l'evento nel suo calendario (dal messaggio o dalla proposta). */
+    meeting(noteId: string): Promise<Reader<MeetingSummary>> {
+      return request("GET", `/api/me/meetings/${seg(noteId)}`, undefined, meetingSummarySchema);
+    },
+
+    /** «Task da questa riunione» per id: 404 a chi non è fra gli invitati, `null` a chi non è membro del progetto. */
+    meetingTasks(noteId: string): Promise<Reader<MeetingTasks>> {
+      return request("GET", `/api/me/meetings/${seg(noteId)}/tasks`, undefined, meetingTasksSchema);
     },
   };
 }

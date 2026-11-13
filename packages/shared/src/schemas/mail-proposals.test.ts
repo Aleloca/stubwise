@@ -86,3 +86,17 @@ describe("la proposta condivisa (F2)", () => {
     expect(readerSchema(mailProposalListSchema).parse({ items: [PROPOSAL] }).items).toHaveLength(1);
   });
 });
+
+describe("F5a: le risposte SENZA i campi delle riunioni restano parsabili coi default", () => {
+  it("un messaggio di prima è un'email senza riunione; una proposta di prima non ha meetingOrigin", () => {
+    const message = readerSchema(mailThreadMessageSchema).parse({ id: "11111111-1111-4111-8111-111111111111", from: "a@x.it", receivedAt: "2026-11-13T09:00:00.000Z" });
+    expect(message).toMatchObject({ kind: "email", meeting: null });
+    const proposal = readerSchema(mailProposalSchema).parse({ id: "11111111-1111-4111-8111-111111111111", projectId: "22222222-2222-4222-8222-222222222222", status: "open", createdAt: "2026-11-13T09:00:00.000Z" });
+    expect(proposal).toMatchObject({ kind: "email", meetingOrigin: null });
+  });
+
+  it("un kind di proposta sconosciuto si apre, non rompe la lista", () => {
+    const proposal = readerSchema(mailProposalSchema).parse({ id: "11111111-1111-4111-8111-111111111111", projectId: "22222222-2222-4222-8222-222222222222", status: "open", createdAt: "2026-11-13T09:00:00.000Z", kind: "futuro" });
+    expect(proposal.kind).toBe(UNKNOWN);
+  });
+});

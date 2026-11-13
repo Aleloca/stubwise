@@ -11,6 +11,7 @@ import {
   notifications,
   projects,
   type Db,
+  meetingNotes,
 } from "@stubwise/db";
 import {
   extractRawBody,
@@ -53,8 +54,10 @@ import {
   type MailThreadDetail,
   type MailThreadProposalOutcome,
   type MailThreadReproposal,
+  type MeetingNote,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
+import { meetingNoteView } from "../services/meetings.js";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -278,6 +281,8 @@ async function outgoingMessages(db: Db, userId: string, accountId: string, accou
         outgoingId: outgoing.id,
       },
       classification: { state: "off" as const, projectIds: [], importance: null, dueDate: null, uncertainProjectIds: [] },
+      kind: "email" as const,
+      meeting: null,
     }));
 }
 
@@ -1072,6 +1077,9 @@ export async function meMailRoutes(
         // Servono al solo ramo «smistamento» di `reproposals` più sotto.
         status: emailMessages.status,
         outcome: emailMessages.outcome,
+        // Area 6, F5a: l'email degli appunti di Gemini e la sua riunione.
+        kind: emailMessages.kind,
+        rfcMessageId: emailMessages.rfcMessageId,
       })
       .from(emailMessages)
       .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
@@ -1168,6 +1176,19 @@ export async function meMailRoutes(
       outcomesByMessage.set(row.emailMessageId, outcomes);
     }
 
+    // Area 6, F5a: la riunione di ogni email di Gemini, come la vede CHI
+    // GUARDA (`meetingNoteView`: a chi non c'era, `visible` falso e niente
+    // contenuto — un'email inoltrata non apre la riunione).
+    const meetings = new Map<string, MeetingNote | null>();
+    for (const row of rows.filter((r) => r.kind === "transcript")) {
+      const [note] = await app.db
+        .select({ id: meetingNotes.id })
+        .from(meetingNotes)
+        .where(row.rfcMessageId ? or(eq(meetingNotes.rfcMessageId, row.rfcMessageId), eq(meetingNotes.sourceMessageId, row.id)) : eq(meetingNotes.sourceMessageId, row.id))
+        .limit(1);
+      meetings.set(row.id, note ? await meetingNoteView(app.db, input.userId, note.id) : null);
+    }
+
     const last = rows[rows.length - 1]!;
     // Area 6, F3: gli invii di chi guarda in questa conversazione, subito nel
     // thread (solo suoi), finché il messaggio vero non è ingerito.
@@ -1202,6 +1223,8 @@ export async function meMailRoutes(
           dueDate: row.classificationState === "done" ? row.dueDate : null,
           uncertainProjectIds: row.classificationState === "done" ? onlySeen(row.uncertainProjectIds) : [],
         },
+        kind: row.kind,
+        meeting: meetings.get(row.id) ?? null,
       })), ...outgoing],
     };
   }

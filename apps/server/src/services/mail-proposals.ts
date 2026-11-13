@@ -9,12 +9,13 @@ import {
   type Db,
 } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
-import { permissionForMailAction, projectPermissionsOfUser, projectViewerIds } from "@stubwise/notifications";
+import { canSeeMeeting, permissionForMailAction, projectPermissionsOfUser, projectViewerIds } from "@stubwise/notifications";
 import type { Language, MailProposal, MailProposalAction, MailProposalStatus, ProjectPermission } from "@stubwise/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { coversAll } from "./mail-proposals-decide.js";
 import { listCalendarProposals } from "./mail-proposals-calendar.js";
 import { legacyRows, legacyView } from "./mail-proposals-legacy.js";
+import { meetingOriginFor } from "./meetings.js";
 
 /**
  * LE PROPOSTE CONDIVISE DELLA POSTA, IN LETTURA (area 6, fetta 2, D4).
@@ -84,7 +85,8 @@ export async function listMailProposals(
   lang: Language,
 ): Promise<MailProposal[]> {
   const conditions = [
-    eq(emailProposals.audience, "mail_recipients"),
+    // F5a: anche le proposte di una riunione registrata (le stesse regole, i destinatari sono gli invitati).
+    inArray(emailProposals.audience, ["mail_recipients", "meeting_invitees"]),
     // Destinatario, o una proposta PASSATA (chi ha i permessi di ogni azione
     // nel progetto la vede: il controllo vero è riga per riga, sotto).
     sql`(${emailProposalRecipients.userId} is not null or ${emailProposals.handedAt} is not null)`,
@@ -92,22 +94,29 @@ export async function listMailProposals(
   if (filter.id) conditions.push(eq(emailProposals.id, filter.id));
   if (filter.messageId) {
     // Il messaggio deve essere nella casella di chi guarda; da lì la chiave.
+    // F5a: sotto l'email di Gemini, anche le proposte della SUA riunione.
     conditions.push(
-      sql`${emailProposals.rfcMessageId} = (
+      sql`(${emailProposals.rfcMessageId} = (
         select coalesce(m.rfc_message_id, 'gmail:' || m.account_id || ':' || m.gmail_message_id)
         from ${emailMessages} m join ${googleAccounts} a on a.id = m.account_id
         where m.id = ${filter.messageId} and a.user_id = ${viewer.id}
-      )`,
+      ) or ${emailProposals.meetingNoteId} in (
+        select n.id from meeting_notes n join ${emailMessages} m on m.rfc_message_id = n.rfc_message_id join ${googleAccounts} a on a.id = m.account_id
+        where m.id = ${filter.messageId} and a.user_id = ${viewer.id}
+      ))`,
     );
   }
   if (filter.thread) {
     // I messaggi di quella conversazione, nella casella di chi guarda; da lì le chiavi.
     conditions.push(
-      sql`${emailProposals.rfcMessageId} in (
+      sql`(${emailProposals.rfcMessageId} in (
         select coalesce(m.rfc_message_id, 'gmail:' || m.account_id || ':' || m.gmail_message_id)
         from ${emailMessages} m join ${googleAccounts} a on a.id = m.account_id
         where m.thread_id = ${filter.thread.threadId} and m.account_id = ${filter.thread.accountId} and a.user_id = ${viewer.id}
-      )`,
+      ) or ${emailProposals.meetingNoteId} in (
+        select n.id from meeting_notes n join ${emailMessages} m on m.rfc_message_id = n.rfc_message_id join ${googleAccounts} a on a.id = m.account_id
+        where m.thread_id = ${filter.thread.threadId} and m.account_id = ${filter.thread.accountId} and a.user_id = ${viewer.id}
+      ))`,
     );
   }
   const rows = await db
@@ -129,7 +138,10 @@ export async function listMailProposals(
     // Un non destinatario vede solo una proposta passata di cui può decidere
     // OGNI azione (la stessa regola di `mail-proposals-decide.ts`).
     if (!recipient && !coversAll(proposal, permissions)) continue;
-    const view = await buildView(db, viewer, proposal, excerpt, permissions, lang);
+    // F5a: una proposta di riunione la vede solo chi vede la riunione ADESSO
+    // (un invitato tolto da Google non è più fra loro), salvo una passata.
+    if (proposal.audience === "meeting_invitees" && recipient && !proposal.handedAt && !(proposal.meetingNoteId && (await canSeeMeeting(db, proposal.meetingNoteId, viewer.id)))) continue;
+    const view = await buildView(db, viewer, proposal, recipient ? excerpt : "", permissions, lang);
     if (filter.status && view.status !== filter.status) continue;
     out.push(view);
   }
@@ -230,11 +242,15 @@ async function buildView(
     )
     .limit(1);
 
+  // F5a: una proposta di riunione dice da QUALE riunione viene; il messaggio è
+  // la MIA copia dell'email di Gemini, se l'ho (mai la copia di un altro).
+  const meeting = proposal.audience === "meeting_invitees" && proposal.meetingNoteId ? await meetingOriginFor(db, viewer.id, proposal.meetingNoteId) : null;
   return {
     id: proposal.id,
-    kind: "email",
+    kind: meeting ? "meeting" : "email",
     calendarOrigin: null,
-    messageId: own?.id ?? proposal.emailMessageId,
+    meetingOrigin: meeting?.origin ?? null,
+    messageId: meeting ? meeting.ownMessageId : (own?.id ?? proposal.emailMessageId),
     // Un «Quale progetto?» sta sotto un progetto che chi guarda vede.
     projectId: choose?.[0] ?? proposal.projectId,
     status,

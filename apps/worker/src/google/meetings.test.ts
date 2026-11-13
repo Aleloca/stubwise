@@ -231,3 +231,11 @@ describe("le proposte della riunione e la classificazione", () => {
     expect(recipients.map((r) => r.userId)).not.toContain(forwarded.id);
   });
 });
+
+describe("il riassunto non entra MAI nel registro decisioni", () => {
+  it("il modulo che genera riassunto e proposte non nomina il registro (è narrativa, non fatto)", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./meetings.ts", import.meta.url), "utf8");
+    for (const marker of ["projectDecisions", "recordDecision", "insertDecision", "project_decisions"]) expect(source).not.toContain(marker);
+  });
+});

@@ -41,6 +41,7 @@ import { gitIdentityRoutes } from "./routes/git-identity-routes.js";
 import { googleWorkspaceRoutes } from "./routes/google-workspaces.js";
 import { meGoogleRoutes } from "./routes/me-google.js";
 import { meCalendarRoutes } from "./routes/me-calendar.js";
+import { meMeetingsRoutes } from "./routes/me-meetings.js";
 import { meMailDraftsRoutes, meMailOutgoingRoutes, meMailRecipientsRoutes } from "./routes/me-mail-drafts.js";
 import { meMailProposalsRoutes } from "./routes/me-mail-proposals.js";
 import { realMailComposeClient, type MailComposeClient } from "./services/mail-drafts.js";
@@ -921,6 +922,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     prefix: "/api/me/mail",
     ...(opts.mailGoogleClient ? { googleClient: opts.mailGoogleClient } : {}),
   });
+  void app.register(meMeetingsRoutes, { prefix: "/api/me/meetings" });
   void app.register(meCalendarRoutes, { prefix: "/api/me/calendar", ...(opts.calendarWriteClient ? { client: opts.calendarWriteClient } : {}) });
 
   app.get("/health", { config: { access: { kind: "public" } } }, async () => ({ status: "ok" }));

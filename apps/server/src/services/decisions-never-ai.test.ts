@@ -354,6 +354,10 @@ describe("il registro decisioni non è mai scritto dall'AI — sul sorgente", ()
     // il turno è del worker.
     "../chat/claude.ts",
     "../chat/service.ts",
+    // Area 6, F5a: le riunioni registrate in lettura. Il riassunto è
+    // NARRATIVA (lo genera il worker, `apps/worker/src/google/meetings.ts`,
+    // che a sua volta non tocca il registro: lo verifica `meetings.test.ts`).
+    "./meetings.ts",
   ];
 
   it.each(MODULES)("%s non nomina nessun esecutore di agenti", async (relative) => {
