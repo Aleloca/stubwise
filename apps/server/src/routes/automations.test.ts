@@ -222,6 +222,10 @@ describe("le esecuzioni e le decisioni", () => {
     expect(await inputsOf(run.id)).toHaveLength(1);
     const winner = (await inputsOf(run.id))[0]!.byId;
     const loser = winner === lead.id ? second : lead;
+    // Il dettaglio dice a chi ha deciso che la sua decisione è in coda; all'altro no.
+    const winnerHeaders = winner === lead.id ? lead.headers : second.headers;
+    expect((await call(winnerHeaders, "GET", `/automations/${a.code}/runs/1`)).json()).toMatchObject({ inputQueued: true });
+    expect((await call(loser.headers, "GET", `/automations/${a.code}/runs/1`)).json()).toMatchObject({ inputQueued: false });
     expect((await call(loser.headers, "POST", `/automations/${a.code}/runs/1/approve`, { expectedPath: "0" })).json()).toMatchObject({ code: "stale" });
     await db.delete(automationRunInputs).where(eq(automationRunInputs.runId, run.id));
     await db.insert(automationRunInputs).values({ runId: run.id, input: { control: "suspend", byId: lead.id }, byId: lead.id });

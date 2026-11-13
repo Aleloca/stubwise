@@ -173,6 +173,15 @@ export async function getRun(db: Db, viewer: Viewer, code: string, n: number): P
     parent: parent && parentAutomation && sees(visible, parentAutomation.projectId) ? { id: parent.id, code: runCode(parentAutomation, parent.n) } : null,
     children: children.filter((c) => sees(visible, c.projectId)).map((c) => ({ id: c.id, code: `${c.code} #${c.n}`, status: c.status })),
     pendingEffect: await pendingEffectOf(db, visible, run, automation, row, flow),
+    // Un input di chi guarda in coda, non ancora applicato dal worker (review del renderer, I2).
+    inputQueued:
+      (
+        await db
+          .select({ id: automationRunInputs.id })
+          .from(automationRunInputs)
+          .where(and(eq(automationRunInputs.runId, run.id), eq(automationRunInputs.byId, viewer.id), sql`${automationRunInputs.consumedAt} is null`))
+          .limit(1)
+      ).length > 0,
   };
 }
 
