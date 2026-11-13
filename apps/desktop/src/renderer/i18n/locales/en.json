@@ -8887,7 +8887,8 @@
       "failed": "Failed",
       "not_in_production": "Not in production yet",
       "in_production": "In production",
-      "unavailable": "Status unavailable"
+      "unavailable": "Status unavailable",
+      "unknown": "Status unknown"
     },
     "list": {
       "outsideBy": "{{name}} outside Stubwise",
@@ -8922,6 +8923,7 @@
         "no_server": "The production environment has no server linked",
         "no_server_for_repository": "{{repo}} has no server in the production environment"
       },
+      "unknown": "The CI runs couldn't be read: the status isn't known for now.",
       "noPipeline": "No pipeline run started within 30 minutes of the merge, so Stubwise follows the production server instead.",
       "fixingIn": "Claude is fixing it in {{task}}",
       "openTask": "Open {{task}}",
