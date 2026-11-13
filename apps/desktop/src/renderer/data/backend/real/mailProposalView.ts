@@ -61,9 +61,12 @@ function calendarOriginOf(
  * apre `kind` e il campo nuovo.
  */
 type MeetingOrigin = {
+  /** F5a (72): la riunione; tutto il resto è di CHI GUARDA. */
+  noteId?: string;
   eventId: string | null;
-  accountId?: string;
-  threadId: string;
+  accountId?: string | null;
+  /** La MIA copia dell'email di Gemini; null all'invitato che non l'ha (Q-A = a). */
+  threadId: string | null;
   title?: string | null;
   at: string;
 };
@@ -71,9 +74,11 @@ function meetingOriginOf(o: MeetingOrigin | null | undefined): MailProposalView[
   if (!o) return null;
   return {
     kind: "meeting",
+    ...(o.noteId ? { noteId: o.noteId } : {}),
     eventId: o.eventId ?? null,
     // La conversazione dell'email di Gemini, come chiave dell'app (casella + thread).
-    threadId: o.accountId ? threadKey(o.accountId, o.threadId) : o.threadId,
+    threadId:
+      o.threadId === null ? null : o.accountId ? threadKey(o.accountId, o.threadId) : o.threadId,
     title: o.title ?? "",
     at: o.at,
   };

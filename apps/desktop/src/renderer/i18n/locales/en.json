@@ -1583,6 +1583,7 @@
         "fromCalendar": "From your calendar · {{title}}",
         "openEmail": "Open email",
         "openEvent": "Open event",
+        "openMeeting": "Open the meeting",
         "confirmed": "Confirmed for {{code}}",
         "ignored": "Proposal for {{code}} ignored",
         "handed": "Passed to {{code}}",

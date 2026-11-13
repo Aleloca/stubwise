@@ -57,6 +57,7 @@ export function summaryFor(me: string, eventId: string): MeetingSummary | null {
     docTitle: t.docTitle,
     doc: t.doc,
     ...content(t),
+    ...(t.docUrl ? { docUrl: t.docUrl } : {}),
     email:
       m && canSeeMessage(me, m) ? { threadId: m.threadId, sourceId: m.messageId, at: m.at } : null,
   };
@@ -216,4 +217,38 @@ export async function tasksBornFrom(eventId: string): Promise<MeetingTask[] | nu
   const e = state.calendarEvents.find((x) => x.id === eventId);
   if (!e || e.projectId === null || !isProjectMember(me, e.projectId)) return null;
   return bornFrom(me, eventId);
+}
+
+/**
+ * La riunione per nota (F5a, Q-A = a): lo stesso riassunto di
+ * `getMeetingSummary`, per un invitato che ci arriva da una proposta senza
+ * avere l'email di Gemini né, magari, l'evento. `null` a chi non c'era, senza
+ * dire se esiste. La nota del prototipo è l'email di Gemini (`messageId`).
+ */
+export async function getMeetingByNote(noteId: string): Promise<MeetingSummary | null> {
+  const me = await gate("mail.getMeetingByNote");
+  const t = state.meetingTranscripts.find((x) => x.messageId === noteId);
+  if (!t || !canSeeTranscript(me, t)) return null;
+  const e = t.eventId ? state.calendarEvents.find((x) => x.id === t.eventId) : undefined;
+  const m = messageOf(t);
+  return {
+    noteId,
+    eventId: e && canReadEvent(me, e) ? e.id : null,
+    docTitle: t.docTitle,
+    doc: t.doc,
+    ...content(t),
+    ...(t.docUrl ? { docUrl: t.docUrl } : {}),
+    email:
+      m && canSeeMessage(me, m) ? { threadId: m.threadId, sourceId: m.messageId, at: m.at } : null,
+  };
+}
+
+/** «Tasks from this meeting» per nota: le stesse regole di `tasksBornFrom` (R-I21). */
+export async function tasksOfNote(noteId: string): Promise<MeetingTask[] | null> {
+  const me = await gate("mail.tasksOfNote");
+  const t = state.meetingTranscripts.find((x) => x.messageId === noteId);
+  if (!t || !canSeeTranscript(me, t) || !t.eventId) return null;
+  const e = state.calendarEvents.find((x) => x.id === t.eventId);
+  if (!e || e.projectId === null || !isProjectMember(me, e.projectId)) return null;
+  return bornFrom(me, t.eventId);
 }

@@ -853,7 +853,13 @@ export interface ChatMessageInput {
  * `doc` lo dice. `email` è l'email di Gemini, solo se chi guarda la vede.
  */
 export interface MeetingSummary {
-  eventId: string;
+  /**
+   * L'evento di CHI GUARDA; `null` per un invitato che non ce l'ha nel suo
+   * calendario e arriva alla riunione per nota (Q-A = a).
+   */
+  eventId: string | null;
+  /** La riunione (F5a): `getMeetingByNote`, «Open the meeting». */
+  noteId?: string;
   docTitle: string;
   doc: MeetingTranscript["doc"];
   summary: string | null;

@@ -1,10 +1,14 @@
 import { eventDayKey } from "@stubwise/shared";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useDecideMailProposalNow, usePeople, useProjects } from "../../../data/queries";
 import { TASK_CODE_RE } from "../../../data/routes";
 import type { MailProposalOrigin, MailProposalView } from "../../../data/types";
+import { Dialog } from "../../../tasks-ui/Dialog";
 import { useToast } from "../../../tasks-ui/Toast";
+import { meetingNotes } from "../../calendar/calendarWrites";
+import { MeetingSummary } from "../../calendar/MeetingSummary";
 import { dayLabel } from "../../mail/format";
 import { MailProposalCard, type MailDecisionKind } from "../../mail/MailProposalCard";
 import { deferAnswer } from "../pendingAnswers";
@@ -148,11 +152,52 @@ function OriginLine({ origin }: { origin: MailProposalOrigin }) {
         >
           {t("home.decide.mail.openEvent")}
         </Link>
-      ) : (
+      ) : origin.threadId !== null ? (
         <Link to="/mail/$threadId" params={{ threadId: origin.threadId }} className={linkClass}>
           {t("home.decide.mail.openEmail")}
         </Link>
-      )}
+      ) : origin.kind === "meeting" ? (
+        <OpenMeeting origin={origin} className={linkClass} />
+      ) : null}
     </div>
+  );
+}
+
+/**
+ * Un invitato senza l'email di Gemini (decisione M, Q1): niente
+ * conversazione, ma la riunione (Q-A = a, 13 nov 2026) — l'evento se ce l'ha,
+ * altrimenti il riassunto per nota in un pannello. Il server dice chi ha cosa
+ * (`threadId`, `eventId` di CHI GUARDA): qui non si deduce.
+ */
+function OpenMeeting({
+  origin,
+  className,
+}: {
+  origin: Extract<MailProposalOrigin, { kind: "meeting" }>;
+  className: string;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const label = t("home.decide.mail.openMeeting");
+  // Le riunioni registrate nella build app: col flag `meeting-notes` (F5a).
+  if (!meetingNotes()) return null;
+  if (origin.eventId)
+    return (
+      <Link to="/calendar" search={{ event: origin.eventId } as never} className={className}>
+        {label}
+      </Link>
+    );
+  if (!origin.noteId) return null;
+  return (
+    <>
+      <button type="button" className={className} onClick={() => setOpen(true)}>
+        {label}
+      </button>
+      {open && (
+        <Dialog title={origin.title} onClose={() => setOpen(false)} width={560}>
+          <MeetingSummary noteId={origin.noteId} projectCode={null} />
+        </Dialog>
+      )}
+    </>
   );
 }

@@ -215,3 +215,63 @@ describe("F5a: la riunione registrata sul messaggio", () => {
     expect(r.meeting?.docUrl).toBeNull();
   });
 });
+
+// Q-A = a (13 nov 2026) sulle forme di 72: l'invitato senza l'email di Gemini
+// (e magari senza l'evento) apre la riunione per nota.
+describe("F5a: la riunione per nota", () => {
+  const NOTE = "99999999-1111-4111-8111-111111111111";
+
+  it("il riassunto: lo stesso dell'evento, con `noteId` e l'evento di CHI GUARDA (qui nessuno)", async () => {
+    const { seen } = installFakeServer({
+      [`GET /api/me/meetings/${NOTE}`]: {
+        body: {
+          noteId: NOTE,
+          eventId: null,
+          docTitle: "Weekly review – Notes by Gemini",
+          doc: "ready",
+          summary: "Si parte lunedì.",
+          docUrl: "https://docs.google.com/document/d/abc",
+          email: null,
+        },
+      },
+    });
+    expect(await m.getMeetingByNote!(NOTE)).toEqual({
+      noteId: NOTE,
+      eventId: null,
+      docTitle: "Weekly review – Notes by Gemini",
+      doc: "ready",
+      summary: "Si parte lunedì.",
+      transcript: null,
+      docUrl: "https://docs.google.com/document/d/abc",
+      email: null,
+    });
+    // Mai una conversazione: l'invitato non ce l'ha.
+    expect(seen.some((r) => r.path.includes("/mail/"))).toBe(false);
+  });
+
+  it("a chi non c'era (404): niente", async () => {
+    installFakeServer({
+      [`GET /api/me/meetings/${NOTE}`]: { status: 404, body: { code: "not_found", message: "x" } },
+    });
+    expect(await m.getMeetingByNote!(NOTE)).toBeNull();
+  });
+
+  it("le task per nota: come quelle dell'evento; null a chi non è membro", async () => {
+    const task = {
+      kind: "task",
+      id: T1,
+      code: "AUD-12",
+      title: "Export",
+      status: "open",
+      inProgress: true,
+      dueDate: null,
+      departmentId: "dep-1",
+    };
+    installFakeServer({
+      [`GET /api/me/meetings/${NOTE}/tasks`]: { body: { tasks: [task], proposedTasks: 1 } },
+    });
+    expect(await m.tasksOfNote!(NOTE)).toEqual([task]);
+    installFakeServer({ [`GET /api/me/meetings/${NOTE}/tasks`]: { body: null } });
+    expect(await m.tasksOfNote!(NOTE)).toBeNull();
+  });
+});

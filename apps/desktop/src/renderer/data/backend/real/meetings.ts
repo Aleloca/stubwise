@@ -14,7 +14,9 @@ import { appClient } from "./client";
 
 type Mail = typeof Fake.mail;
 type ServerSummary = {
-  eventId: string;
+  /** `/api/me/meetings/:noteId` (F5a): la riunione; l'evento è quello di chi guarda, o null. */
+  noteId?: string;
+  eventId: string | null;
   docTitle: string | null;
   doc: MeetingSummary["doc"] | null;
   summary: string | null;
@@ -34,14 +36,35 @@ async function orNull<T>(read: () => Promise<T>): Promise<T | null> {
   }
 }
 
-export const getMeetingSummary: Mail["getMeetingSummary"] = async (eventId) => {
-  const s = await orNull(
-    () =>
-      appClient().request("GET", `${eventPath(eventId)}/summary`) as Promise<ServerSummary | null>,
+export const getMeetingSummary: Mail["getMeetingSummary"] = async (eventId) =>
+  summaryView(
+    await orNull(
+      () =>
+        appClient().request("GET", `${eventPath(eventId)}/summary`) as Promise<ServerSummary | null>,
+    ),
   );
+
+/**
+ * La riunione per nota (F5a, Q-A = a): lo stesso riassunto, per l'invitato
+ * che ci arriva senza l'email di Gemini o senza l'evento (`eventId` è quello
+ * di chi guarda, o null). 404 a chi non c'era.
+ */
+const getMeetingByNote: Mail["getMeetingByNote"] = async (noteId) =>
+  summaryView(
+    await orNull(
+      () =>
+        appClient().request(
+          "GET",
+          `/api/me/meetings/${encodeURIComponent(noteId)}`,
+        ) as Promise<ServerSummary | null>,
+    ),
+  );
+
+function summaryView(s: ServerSummary | null): MeetingSummary | null {
   if (!s) return null;
   return {
-    eventId: s.eventId,
+    ...(s.noteId ? { noteId: s.noteId } : {}),
+    eventId: s.eventId ?? null,
     docTitle: s.docTitle ?? "",
     doc: s.doc ?? "unreachable",
     summary: s.summary ?? null,
@@ -61,9 +84,15 @@ export const getMeetingSummary: Mail["getMeetingSummary"] = async (eventId) => {
 export async function meetingTasksOf(
   eventId: string,
 ): Promise<{ tasks: MeetingTask[]; proposedTasks: number } | null> {
+  return tasksAt(`${eventPath(eventId)}/tasks`);
+}
+
+async function tasksAt(
+  path: string,
+): Promise<{ tasks: MeetingTask[]; proposedTasks: number } | null> {
   const out = await orNull(
     () =>
-      appClient().request("GET", `${eventPath(eventId)}/tasks`) as Promise<{
+      appClient().request("GET", path) as Promise<{
         tasks?: MeetingTask[];
         proposedTasks?: number;
       } | null>,
@@ -88,9 +117,15 @@ export async function meetingTasksOf(
 const tasksBornFrom: Mail["tasksBornFrom"] = async (eventId) =>
   (await meetingTasksOf(eventId))?.tasks ?? null;
 
+/** Le task per nota (F5a): le stesse regole (R-I21), per l'invitato senza l'evento. */
+const tasksOfNote: Mail["tasksOfNote"] = async (noteId) =>
+  (await tasksAt(`/api/me/meetings/${encodeURIComponent(noteId)}/tasks`))?.tasks ?? null;
+
 export const meetingFunctions: Partial<Mail> = {
   getMeetingSummary,
+  getMeetingByNote,
   tasksBornFrom,
+  tasksOfNote,
 };
 
 type ServerMeetingNote = {

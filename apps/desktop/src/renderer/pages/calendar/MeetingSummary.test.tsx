@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { calendar, mail, resetApi, setLatency } from "../../data/api";
 import { daysFromToday } from "../../data/seed/dates";
 import { EV_AUD_REVIEW_YESTERDAY } from "../../data/seed/mail";
@@ -236,5 +236,21 @@ describe("Riassunto della riunione — errori", () => {
     expect(
       await within(await within(panel).findByRole("region", { name: "Meeting summary" })).findByText(SUMMARY),
     ).toBeInTheDocument();
+  });
+});
+
+describe("Riassunto della riunione — il Google Doc (F5a)", () => {
+  it("con il link del Doc, «Open the transcript» apre Google Docs", async () => {
+    const notes = state.meetingTranscripts.find((t) => t.eventId === EV_AUD_REVIEW_YESTERDAY)!;
+    notes.docUrl = "https://docs.google.com/document/d/abc";
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    try {
+      const { panel } = await openReview();
+      const summary = await within(panel).findByRole("region", { name: "Meeting summary" });
+      await userEvent.click(within(summary).getByRole("button", { name: "Open the transcript" }));
+      expect(open).toHaveBeenCalledWith("https://docs.google.com/document/d/abc", "_blank", "noopener");
+    } finally {
+      open.mockRestore();
+    }
   });
 });

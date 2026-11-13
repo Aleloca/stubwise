@@ -2597,7 +2597,19 @@ export interface MailProposalView {
 /** L'origine di una proposta della posta, come la vede chi guarda. */
 export type MailProposalOrigin =
   | { kind: "email"; threadId: string; from: string; subject: string }
-  | { kind: "meeting"; eventId: string | null; threadId: string; title: string; at: string }
+  | {
+      kind: "meeting";
+      eventId: string | null;
+      /**
+       * La conversazione della MIA copia dell'email di Gemini; `null` per un
+       * invitato che non l'ha ricevuta (decisione M, Q1): per lui c'è la
+       * riunione (`noteId`, Q-A = a).
+       */
+      threadId: string | null;
+      noteId?: string;
+      title: string;
+      at: string;
+    }
   | { kind: "calendar"; eventId: string; title: string; startsAt: string; allDay: boolean };
 
 /** Una bozza, per persona e conversazione (`threadId: null` = email nuova). */

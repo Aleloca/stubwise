@@ -328,3 +328,32 @@ describe('F5: le proposte di una riunione registrata (`kind: "meeting"`)', () =>
     });
   });
 });
+
+describe("F5a: l'origine della riunione per chi guarda (forme di 72, Q-A = a)", () => {
+  const NOTE = "99999999-1111-4111-8111-111111111111";
+  const withOrigin = (meetingOrigin: Record<string, unknown>) =>
+    ({ ...proposal({ origin: null }), kind: "meeting", meetingOrigin }) as never;
+
+  it("chi ha l'email: la sua conversazione e la riunione", () => {
+    expect(
+      proposalViewOf(
+        withOrigin({ noteId: NOTE, eventId: null, accountId: ACC, threadId: "t-9", title: "Review", at: "2026-11-11T16:30:00.000Z" }),
+      ).origin,
+    ).toEqual({
+      kind: "meeting",
+      noteId: NOTE,
+      eventId: null,
+      threadId: `${ACC}_t-9`,
+      title: "Review",
+      at: "2026-11-11T16:30:00.000Z",
+    });
+  });
+
+  it("l'invitato senza copia: nessuna conversazione (`threadId` null), resta la riunione", () => {
+    expect(
+      proposalViewOf(
+        withOrigin({ noteId: NOTE, eventId: null, accountId: null, threadId: null, title: "Review", at: "2026-11-11T16:30:00.000Z" }),
+      ).origin,
+    ).toMatchObject({ kind: "meeting", noteId: NOTE, threadId: null });
+  });
+});

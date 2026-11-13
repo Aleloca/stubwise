@@ -205,3 +205,64 @@ describe("Riunioni registrate: le note nella conversazione della Posta", () => {
     expect(thread.messages.every((m) => m.meeting === undefined)).toBe(true);
   });
 });
+
+// Decisione M e Q1 (12 nov 2026), Q-A = a (13 nov 2026): un invitato SENZA
+// l'email di Gemini vede e decide le proposte della riunione; l'origine non
+// ha una conversazione per lui (`threadId: null`) ma la riunione (`noteId`),
+// che si apre col riassunto per nota.
+describe("Riunioni registrate: l'invitato senza l'email di Gemini", () => {
+  /** Laura resta invitata e membro di AUD, ma non riceve l'email. */
+  function lauraWithoutEmail() {
+    const m = message(MAIL_CASES.transcript);
+    m.to = m.to.filter((a) => a.personId !== "p-laura");
+    m.cc = (m.cc ?? []).filter((a) => a.personId !== "p-laura");
+    m.mailboxPersonIds = m.mailboxPersonIds.filter((id) => id !== "p-laura");
+    if (m.from.personId === "p-laura") throw new Error("seed: Laura è il mittente");
+  }
+
+  it("vede la proposta, con l'estratto, e l'origine è la riunione senza conversazione", async () => {
+    lauraWithoutEmail();
+    as("p-laura");
+    const v = (await mail.listMailDecisions()).find((x) => x.proposal.id === REVIEW)!;
+    expect(v.proposal.excerpt).not.toBe("");
+    expect(v.origin).toMatchObject({
+      kind: "meeting",
+      noteId: MAIL_CASES.transcript,
+      eventId: EV_AUD_REVIEW_YESTERDAY,
+      threadId: null,
+    });
+  });
+
+  it("chi ha l'email ha la sua conversazione e la stessa riunione", async () => {
+    as("p-giulia");
+    const v = (await mail.listMailDecisions()).find((x) => x.proposal.id === REVIEW)!;
+    expect(v.origin).toMatchObject({
+      kind: "meeting",
+      noteId: MAIL_CASES.transcript,
+      threadId: message(MAIL_CASES.transcript).threadId,
+    });
+  });
+
+  it("il riassunto per nota: per l'invitato sì (senza email), per chi non c'era no", async () => {
+    lauraWithoutEmail();
+    as("p-laura");
+    expect(await mail.getMeetingByNote(MAIL_CASES.transcript)).toMatchObject({
+      noteId: MAIL_CASES.transcript,
+      eventId: EV_AUD_REVIEW_YESTERDAY,
+      docTitle: AUD_NOTES().docTitle,
+      email: null,
+    });
+    const e = event(EV_AUD_REVIEW_YESTERDAY);
+    e.attendees = e.attendees.filter((a) => a.personId !== "p-laura");
+    expect(await mail.getMeetingByNote(MAIL_CASES.transcript)).toBeNull();
+    expect(await mail.getMeetingByNote("mm-nope")).toBeNull();
+  });
+
+  it("le task per nota: come quelle dell'evento, solo ai membri", async () => {
+    const born = await confirmReview();
+    lauraWithoutEmail();
+    as("p-laura");
+    const tasks = await mail.tasksOfNote(MAIL_CASES.transcript);
+    expect(tasks?.map((t) => t.code).sort()).toEqual([...born].sort());
+  });
+});
