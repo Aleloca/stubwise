@@ -1,4 +1,5 @@
 import { triggerKey, type AutomationAvailability } from "./availability.js";
+import { untrustedTargets } from "./taint.js";
 import type {
   Approval,
   AutomationFlow,
@@ -33,7 +34,9 @@ export type FlowIssueCode =
   | "source_disconnected"
   | "limit"
   /** Un passo o un inizio che questa build non offre ancora (area 7, per fette). */
-  | "not_available";
+  | "not_available"
+  /** Sceglie a chi o dove con un campo tinto senza chiedere l'approvazione (F3-1 = a). */
+  | "untrusted_target";
 
 export interface FlowIssue {
   path: string;
@@ -97,6 +100,11 @@ export function validateFlow(flow: AutomationFlow, ctx: ValidateContext): FlowIs
         add(path, "not_available", "Gli allegati non sono ancora disponibili.");
     });
   }
+
+  // --- i campi tinti usati come destinazione (F3-1 = a) -----------------------
+  for (const t of untrustedTargets(flow, ctx.sources))
+    if (!t.approved)
+      add(t.path, "untrusted_target", "Sceglie a chi va con un dato che arriva da fuori: deve chiedere l'approvazione.");
 
   // --- l'inizio e il titolo ---------------------------------------------------
   const t = flow.trigger;

@@ -329,6 +329,85 @@ describe("la prova nella build app", () => {
     }
   });
 
+  it("un passo di Claude (F3): la prova si ferma col costo stimato, confermato una volta chiama il server e prende il ramo", async () => {
+    const claudeStep = {
+      id: "c1",
+      kind: "claude",
+      instruction: "Il contratto è firmato?",
+      inputs: ["task.titolo"],
+      outcomes: ["firmato", "no"],
+      fields: [],
+      branches: { firmato: [notify], no: [] },
+    } as unknown as Step;
+    const second = { ...claudeStep, id: "c2", branches: {} } as unknown as Step;
+    const ctx = context([claudeStep, second]);
+    const { api, calls } = fakeApi(ctx);
+    const runs: unknown[] = [];
+    const s = createRealSimulation({
+      ...api,
+      claude: {
+        estimate: async (automationId, version) => {
+          calls.push(`GET estimate ${automationId} ${version}`);
+          return { claudeSteps: 2, estimateUsd: 0.04, model: "sonnet" };
+        },
+        run: async (automationId, body) => {
+          runs.push({ automationId, ...body });
+          return { outcome: "firmato", reason: "C'è la firma" };
+        },
+      },
+    });
+    const id = await s.startSimulation("a-1", "draft", { task: { titolo: "AUD-1" } });
+    let v = await s.simulationStep(id, { kind: "run" });
+    expect(v.costToConfirm).toEqual({ claudeSteps: 2, estimateUsd: 0.04, model: "sonnet" });
+    expect(runs).toEqual([]);
+    v = await s.confirmSimulationCost(id);
+    expect(v.costToConfirm).toBeNull();
+    v = await s.simulationStep(id, { kind: "run" });
+    expect(v.status).toBe("done");
+    expect(v.preview.claude.map((c) => c.outcome)).toEqual(["firmato", "firmato"]);
+    expect(v.preview.notifications).toHaveLength(1);
+    // Una conferma vale per tutta la prova: due passi, una stima.
+    expect(runs).toEqual([
+      { automationId: "a-1", version: 1, path: "0", vars: expect.any(Object) },
+      { automationId: "a-1", version: 1, path: "1", vars: expect.any(Object) },
+    ]);
+    expect(calls.filter((c) => c.startsWith("GET estimate"))).toHaveLength(1);
+  });
+
+  it("senza la rotta di Claude (un server della F2) un passo di Claude non è disponibile", async () => {
+    const claudeStep = {
+      id: "c1",
+      kind: "claude",
+      instruction: "x",
+      inputs: [],
+      outcomes: [],
+      fields: [],
+      branches: {},
+    } as unknown as Step;
+    const s = createRealSimulation(fakeApi(context([claudeStep])).api);
+    const id = await s.startSimulation("a-1", "draft", {});
+    await expect(s.simulationStep(id, { kind: "run" })).rejects.toThrow(/not_available/);
+  });
+
+  it("la casella scelta che non c'è più: il motivo la nomina, come nel prototipo (chi prova è il proprietario)", async () => {
+    const email = {
+      id: "e1",
+      kind: "sendEmail",
+      to: "cliente@example.com",
+      subject: "x",
+      body: "y",
+      attachRefs: [],
+      approval: { mode: "auto" },
+    } as unknown as Step;
+    const ctx = context([email], { ownerMailbox: { ok: false, reason: "chosen_gone" } });
+    Object.assign(ctx.automation, { mailbox: "vecchia@audin.test", ownerId: ME });
+    const s = createRealSimulation(fakeApi(ctx).api);
+    const id = await s.startSimulation("a-1", "draft", {});
+    const v = await s.simulationStep(id, { kind: "run" });
+    expect(v.status).toBe("failed");
+    expect(JSON.stringify(v.log)).toContain("vecchia@audin.test");
+  });
+
   it("gli errori di configurazione del server: la prova non parte", async () => {
     const { api } = fakeApi(
       context([task()], { configErrors: [{ path: "0", code: "not_available", message: "x" }] }),
