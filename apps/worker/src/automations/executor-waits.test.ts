@@ -68,7 +68,7 @@ async function runOf(steps: Step[]) {
     .values({ code: `W${n}-A${n}`, seq: n, name: `Auto ${n}`, projectId, ownerId, status: "active", activeSince: new Date(), mailboxAccountId: accountId })
     .returning();
   await t.db.insert(automationVersions).values({ automationId: a!.id, n: 1, flow, publishedAt: new Date(), publishedBy: ownerId });
-  const [run] = await t.db.insert(automationRuns).values({ automationId: a!.id, n: 1, version: 1, title: "Run", origin: "manual", event: {}, projectIds: [projectId] }).returning();
+  const [run] = await t.db.insert(automationRuns).values({ automationId: a!.id, n: 1, version: 1, title: "Run", origin: "manual", event: {}, projectIds: [projectId], mailboxAccountId: accountId }).returning();
   return { automation: a!, run: run! };
 }
 

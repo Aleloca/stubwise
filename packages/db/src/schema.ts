@@ -1540,7 +1540,7 @@ export const agentRuns = pgTable(
      */
     requestedByUserId: uuid("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
     /**
-     * Area 7, F3 (0171): l'owner di un passo di Claude di un'automazione o di
+     * Area 7, F3 (0173): l'owner di un passo di Claude di un'automazione o di
      * una sua prova; `automationRunId` c'è solo per un passo di un'esecuzione
      * (NULL = una prova). FK definite nella migrazione.
      */
@@ -1566,7 +1566,7 @@ export const agentRuns = pgTable(
       "agent_runs_owner_check",
       sql`num_nonnulls(job_id, pr_review_id, email_message_id, automation_id) <= 1`,
     ),
-    // Area 7, F3 (0171): la run di un'esecuzione solo insieme all'automazione (NULL = una prova).
+    // Area 7, F3 (0173): la run di un'esecuzione solo insieme all'automazione (NULL = una prova).
     check("agent_runs_automation_run_chk", sql`automation_run_id is null or automation_id is not null`),
     index("agent_runs_automation_idx").on(table.automationId).where(sql`${table.automationId} IS NOT NULL`),
     // I lettori per ticket si aspettano una fase sulle righe di un job.
@@ -6495,8 +6495,11 @@ export const automations = pgTable(
     activeSince: timestamp("active_since", { withTimezone: true }),
     /** La casella scelta all'accensione, del proprietario di adesso (R-J15, 0170). */
     mailboxAccountId: uuid("mailbox_account_id").references(() => googleAccounts.id, { onDelete: "set null" }),
+    /** Ascolta la posta della sua casella («email in arrivo»), scritto alla pubblicazione (0172, review F2 I2). */
+    listensMail: boolean("listens_mail").notNull().default(false),
   },
   (table) => [
+    index("automations_listens_mail_idx").on(table.mailboxAccountId).where(sql`${table.listensMail} AND ${table.status} = 'active'`),
     uniqueIndex("automations_code_idx").on(table.code),
     uniqueIndex("automations_project_seq_idx").on(table.projectId, table.seq),
     check("automations_created_via_chk", sql`${table.createdVia} IS NULL OR ${table.createdVia} = 'claude'`),
@@ -6566,6 +6569,12 @@ export const automationRuns = pgTable(
     waitingThread: text("waiting_thread"),
     /** Un `wait` della task chiusa: la task del flusso (0170, C-F2-4). */
     waitingTicketId: uuid("waiting_ticket_id").references(() => tickets.id, { onDelete: "set null" }),
+    /**
+     * La casella di QUESTA esecuzione (0172, review F2 C1): da quella manda, su
+     * quella si sveglia, e solo il proprietario di quella casella ne legge la
+     * posta. Ripubblicare con un'altra casella non sposta le esecuzioni partite.
+     */
+    mailboxAccountId: uuid("mailbox_account_id").references(() => googleAccounts.id, { onDelete: "set null" }),
   },
   (table) => [
     uniqueIndex("automation_runs_n_idx").on(table.automationId, table.n),

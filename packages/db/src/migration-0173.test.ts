@@ -4,7 +4,7 @@ import { agentRuns, automationRuns, automations } from "./schema.js";
 import { expectSqlState, seedRepository, startTestDb, type TestDb } from "./testing.js";
 
 /**
- * Migrazione 0171 (13 nov 2026, area 7, fetta 3): l'operazione AI
+ * Migrazione 0173 (13 nov 2026, area 7, fetta 3): l'operazione AI
  * `automation_step` e l'owner `automation_id` (con `automation_run_id`, NULL per
  * una prova) di `agent_runs`. Il CHECK «al più un owner» resta vero.
  */
@@ -17,7 +17,7 @@ afterAll(async () => {
   await t?.stop();
 });
 
-describe("migrazione 0171", () => {
+describe("migrazione 0173", () => {
   it("un passo (automazione + esecuzione) e una prova (solo automazione) si registrano; la run senza automazione no; due owner no", async () => {
     const { projectId } = await seedRepository(t.db);
     const [a] = await t.db.insert(automations).values({ code: `C${randomUUID().slice(0, 5)}-A1`, seq: 1, name: "A", projectId }).returning();

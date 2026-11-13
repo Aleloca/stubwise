@@ -89,6 +89,9 @@ describe("sendDueMail", () => {
     expect(mime).toContain(`From: ${account.email}`);
     expect(mime).toContain("To: cliente@b.it");
     expect(mime).toContain("Message-ID: <a1@stubwise>");
+    // C2 (decisione del maintainer): le nostre email sono marcate (RFC 3834).
+    expect(mime).toContain("Auto-Submitted: auto-generated");
+    expect(mime).toMatch(/X-Stubwise-Automation: [0-9a-f-]{36}/);
     expect(mime).not.toContain("In-Reply-To");
     expect(raws[0]!.threadId).toBeNull();
     const firstSent = await reload(first!.id);

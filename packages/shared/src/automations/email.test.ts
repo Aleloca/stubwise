@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { EffectRequest } from "./engine.js";
-import { planEmail, sameConversation, type EmailWorld, type OwnerMailbox } from "./email.js";
+import { EMAIL_ADDRESS, planEmail, sameConversation, type EmailWorld, type OwnerMailbox } from "./email.js";
 import { AUTOMATION_LIMITS } from "./fields.js";
 
 // Area 7, F2 (R2): il piano di «Manda email» nel motore condiviso, perché
@@ -124,3 +124,11 @@ describe("la stessa conversazione", () => {
     expect(sameConversation(sent, "nuovo@example.com")).toBeUndefined();
   });
 });
+
+describe("review F2, M4: un indirizzo è UNO", () => {
+  it("niente separatori né parti di un'intestazione: un «To» preso dal testo non diventa due destinatari", () => {
+    for (const bad of ["a,evil@x.y", "a@b.it,evil@x.y", "a@b.it;c@d.it", "<a@b.it>", '"a"@b.it', "a(b)@c.it", "a@[1.2.3.4]", "a b@c.it", "a@b"]) expect(EMAIL_ADDRESS.test(bad), bad).toBe(false);
+    for (const good of ["cliente@b.it", "nome.cognome+tag@dominio.example.com", "o'brien@b.ie", "a_b-c@d-e.it"]) expect(EMAIL_ADDRESS.test(good), good).toBe(true);
+  });
+});
+

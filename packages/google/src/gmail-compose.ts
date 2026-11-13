@@ -36,6 +36,11 @@ export interface MimeInput {
   /** Un Message-ID nostro (review F3, punto 6): il poller riconosce così l'email mandata da Stubwise. */
   messageId?: string | null;
   attachments?: readonly MimeAttachment[];
+  /**
+   * Intestazioni in più (area 7, F2, C2): `Auto-Submitted` sulle email delle
+   * automazioni. Nome e valore su UNA riga: nessuna può aprirne un'altra.
+   */
+  extraHeaders?: Readonly<Record<string, string>>;
 }
 
 /** Toglie CR e LF: un'intestazione non può aprirne un'altra (nessuna iniezione). */
@@ -126,6 +131,7 @@ export function buildMimeMessage(input: MimeInput): string {
     ...(input.messageId ? [`Message-ID: ${oneLine(input.messageId)}`] : []),
     ...(input.inReplyTo ? [`In-Reply-To: ${oneLine(input.inReplyTo)}`] : []),
     ...(input.references && input.references.length > 0 ? [`References: ${input.references.map(oneLine).join(" ")}`] : []),
+    ...Object.entries(input.extraHeaders ?? {}).map(([name, value]) => `${oneLine(name).replace(/[^A-Za-z0-9-]/g, "")}: ${oneLine(value)}`),
   ];
   const textPart = [
     'Content-Type: text/plain; charset="UTF-8"',

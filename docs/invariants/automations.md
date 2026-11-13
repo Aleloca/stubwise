@@ -186,6 +186,16 @@ motore condiviso (`packages/shared/src/automations/`).
   conversazione. Senza questa regola un risponditore automatico o un
   rimbalzo la farebbero ripartire all'infinito, perché un evento della
   posta non ha origine e la catena non lo vede. Piano della F2, C-F2-5.
+- **Le nostre email sono marcate, e una marcata non fa partire niente**
+  (review F2, C2, decisione del maintainer *(M)*, 13 nov 2026). Ogni email
+  di un'automazione porta `Auto-Submitted: auto-generated` (RFC 3834) e
+  `X-Stubwise-Automation: <run>`. Un'email in arrivo con `Auto-Submitted`
+  diverso da `no`, o da mailer-daemon/postmaster (i rimbalzi), NON fa
+  partire automazioni (`isAutomatedMail`), ma sveglia le attese della
+  risposta nella sua conversazione. È ciò che ferma due automazioni su due
+  caselle che si rispondono: si fermano al primo giro. Le email delle
+  persone partono tutte (F2-1): nessun filtro su `Precedence: bulk` o
+  `List-Id`, e nessun tetto giornaliero (D2).
 
 ## L'email di un passo (F2)
 
@@ -209,6 +219,15 @@ motore condiviso (`packages/shared/src/automations/`).
   da solo: solo «Riprova» del passo, che toglie la chiave dell'invio fallito.
   La Posta non annulla, riprova né elimina una riga d'automazione (409
   `automation_email`).
+- **La posta di un'esecuzione è della SUA casella** (review F2, C1):
+  `automation_runs.mailbox_account_id`, scritta quando la run nasce. Da
+  quella manda, su quella si sveglia (e solo se l'automazione è ancora del
+  proprietario della casella), e il contenuto della posta (R-J13, R-J16) lo
+  legge il proprietario di QUELLA casella (`google_accounts.user_id`), non
+  chi possiede l'automazione adesso: ripubblicare con un'altra casella non
+  passa a un altro la posta di prima. `automations.listens_mail` dice se
+  l'automazione ascolta la posta: una che manda soltanto non fa leggere
+  niente.
 - **Sempre e solo dalla casella del proprietario** (`automationMailboxOf`,
   la stessa regola per l'accensione, la prova e l'esecutore): una casella
   non più sua, disabilitata o senza `gmail.modify` fa fallire il passo

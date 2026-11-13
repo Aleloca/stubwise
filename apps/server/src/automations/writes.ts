@@ -61,6 +61,9 @@ async function shapeOf(db: Db | Tx, viewer: Viewer, a: AutomationRecord): Promis
   return automationOf(a, await versionsOf(db, a.id), await seen(db, viewer), await mailboxAddresses(db, [a]));
 }
 
+/** Ascolta la posta della sua casella («email in arrivo»): scritto alla pubblicazione (review F2, I2). */
+const listensMail = (flow: AutomationFlow): boolean => flow.trigger.kind === "stubwise" && flow.trigger.event === "mail_received";
+
 /** Il flusso usa una casella: manda email, o ascolta la posta («email in arrivo», S8). */
 const sendsEmail = (flow: AutomationFlow): boolean => {
   if (flow.trigger.kind === "stubwise" && flow.trigger.event === "mail_received") return true;
@@ -224,7 +227,7 @@ export async function publishAutomation(db: Db, viewer: Viewer, code: string, op
     await tx.update(automationVersions).set({ publishedAt: sql`now()`, publishedBy: viewer.id }).where(eq(automationVersions.id, draft.id));
     await tx
       .update(automations)
-      .set({ ownerId: viewer.id, mailboxAccountId, ...(a!.status === "draft" ? { status: "active" as const, activeSince: sql`now()` } : {}) })
+      .set({ ownerId: viewer.id, mailboxAccountId, listensMail: listensMail(draft.flow as AutomationFlow), ...(a!.status === "draft" ? { status: "active" as const, activeSince: sql`now()` } : {}) })
       .where(eq(automations.id, a!.id));
   });
   const [after] = await db.select().from(automations).where(eq(automations.id, a0.id));
@@ -244,7 +247,7 @@ export async function activateAutomation(db: Db, viewer: Viewer, code: string, o
   await db.transaction(async (tx) => {
     await tx
       .update(automations)
-      .set({ ownerId: viewer.id, mailboxAccountId, status: "active", pausedBy: null, pausedAt: null, pausedReason: null, activeSince: sql`now()` })
+      .set({ ownerId: viewer.id, mailboxAccountId, listensMail: listensMail(live.flow as AutomationFlow), status: "active", pausedBy: null, pausedAt: null, pausedReason: null, activeSince: sql`now()` })
       .where(eq(automations.id, a.id));
     const suspended = await tx.select({ id: automationRuns.id }).from(automationRuns).where(and(eq(automationRuns.automationId, a.id), eq(automationRuns.status, "suspended")));
     if (suspended.length > 0) await tx.insert(automationRunInputs).values(suspended.map((r) => ({ runId: r.id, input: { control: "resume", byId: viewer.id }, byId: viewer.id })));
@@ -357,6 +360,7 @@ export async function startManualRun(db: Db, viewer: Viewer, code: string, input
         event,
         origin: "manual",
         startedBy: viewer.id,
+        mailboxAccountId: a.mailboxAccountId,
         projectIds: [a.projectId],
         dueAt: sql`now()`,
       })

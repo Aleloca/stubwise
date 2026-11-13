@@ -268,7 +268,7 @@ async function executeEmail(eff: ActionEffect, env: EffectEnv): Promise<EffectOu
     const earlier = await tx
       .select({ to: mailOutgoing.toAddresses, threadId: mailOutgoing.gmailThreadId })
       .from(mailOutgoing)
-      .where(and(eq(mailOutgoing.automationRunId, env.runId), eq(mailOutgoing.state, "sent")))
+      .where(and(eq(mailOutgoing.automationRunId, env.runId), eq(mailOutgoing.accountId, box.accountId), eq(mailOutgoing.state, "sent")))
       .orderBy(mailOutgoing.createdAt);
     const thread = sameConversation(
       earlier.map((e) => ({ to: e.to[0]?.email ?? "", threadId: e.threadId })),
@@ -300,14 +300,18 @@ async function executeEmail(eff: ActionEffect, env: EffectEnv): Promise<EffectOu
  * chiave dell'invio fallito o annullato, così il passo rifatto ne scrive uno
  * nuovo. Un'email in coda, in invio o partita non si tocca.
  */
-export async function releaseFailedEmail(db: Db, runId: string, path: string): Promise<void> {
+export async function releaseFailedEmail(db: Db, runId: string, path: string): Promise<"released" | "already_sent" | "none"> {
   const key = effectKey(runId, path);
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     const [prev] = await tx.select().from(automationEffects).where(and(eq(automationEffects.idempotencyKey, key), eq(automationEffects.kind, "email")));
-    if (!prev?.objectId) return;
-    const [row] = await tx.select({ state: mailOutgoing.state }).from(mailOutgoing).where(eq(mailOutgoing.id, prev.objectId));
-    if (row && row.state !== "failed" && row.state !== "cancelled") return;
+    if (!prev?.objectId) return "none" as const;
+    const [row] = await tx.select({ state: mailOutgoing.state, error: mailOutgoing.error }).from(mailOutgoing).where(eq(mailOutgoing.id, prev.objectId));
+    // Review F2, I1: Gmail l'ha GIÀ mandata (la scrittura di `sent` è fallita): la
+    // chiave resta, o «Riprova» manderebbe un doppione. Si guarda Gmail e si salta.
+    if (row?.state === "failed" && row.error === "sent_unrecorded") return "already_sent" as const;
+    if (row && row.state !== "failed" && row.state !== "cancelled") return "none" as const;
     await tx.delete(automationEffects).where(eq(automationEffects.id, prev.id));
+    return "released" as const;
   });
 }
 

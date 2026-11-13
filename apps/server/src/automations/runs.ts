@@ -1,4 +1,4 @@
-import { automationRunInputs, automationRunLog, automationRuns, automations, automationVersions, projects, type Db } from "@stubwise/db";
+import { automationRunInputs, automationRunLog, automationRuns, automations, automationVersions, googleAccounts, projects, type Db } from "@stubwise/db";
 import { approversFor, loadPlanWorld } from "@stubwise/notifications";
 import {
   approvalProjectOf,
@@ -139,13 +139,18 @@ export async function runRowOf(db: Db, viewer: Viewer, r: RunRecord, a: Automati
   };
   if (pending && typeof pending.preview.progetto === "string" && v !== "all") hideProject(run.pending!.preview, v);
   // R-J16 (area 7, F2): il testo della risposta del cliente lo vede solo il proprietario; chi decide ne vede l'anteprima intera (R-J14).
-  if (viewer.id !== a.ownerId) hideReplies(run, opts.decider !== true);
+  // C1 (review F2): la posta di un'esecuzione la legge il proprietario della SUA
+  // casella (ripubblicare con un'altra casella non la passa a un altro); senza
+  // casella, il proprietario dell'automazione.
+  const [box] = r.mailboxAccountId ? await db.select({ userId: googleAccounts.userId }).from(googleAccounts).where(eq(googleAccounts.id, r.mailboxAccountId)) : [];
+  const mailOwner = r.mailboxAccountId ? (box?.userId ?? null) : a.ownerId;
+  if (viewer.id !== mailOwner) hideReplies(run, opts.decider !== true);
   // R-J13 (area 7, F2, la regola di `viewRun` del prototipo): di un'esecuzione
   // partita da un'email solo il proprietario vede mittente, oggetto e testo.
   // Gli altri leggono l'evento vuoto con `mailHidden`, il titolo col solo nome
   // e le righe senza dati (nessuna eco dell'email); chi decide vede
   // l'anteprima del passo. (La catena, con «avvia un'altra», arriva in F4.)
-  if (viewer.id !== a.ownerId && run.event && typeof run.event === "object" && "email" in run.event) {
+  if (viewer.id !== mailOwner && run.event && typeof run.event === "object" && "email" in run.event) {
     const hidden = { email: { mittente: "", oggetto: "", testo: "" } };
     run.event = hidden;
     run.title = a.name;
