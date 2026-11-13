@@ -1,6 +1,7 @@
 import type { ProjectStatusView } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { Milestone, ProjectStatus } from "../../types";
+import { isIntegrated } from "../../integration";
 import { appClient } from "./client";
 import { listProjects } from "./projects";
 
@@ -56,6 +57,8 @@ export function toMilestone(m: {
   description: string | null;
   dueDate: string | null;
   status: string;
+  /** Area 7, F1: creato da un'automazione (facoltativo: assente = no). */
+  automationCreated?: boolean;
 }): Milestone {
   return {
     id: m.id,
@@ -64,5 +67,10 @@ export function toMilestone(m: {
     description: m.description ?? "",
     dueDate: m.dueDate ? m.dueDate.slice(0, 10) : null,
     closed: m.status === "closed",
+    // La riga «Created by automation …» la risolve il server; qui solo il
+    // segno, e solo a destinazione accesa (come per le task).
+    ...(m.automationCreated === true && isIntegrated({ kind: "destination", name: "automations" })
+      ? { automationRef: { automationId: "", runId: "" } }
+      : {}),
   };
 }

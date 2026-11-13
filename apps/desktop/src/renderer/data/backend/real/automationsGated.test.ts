@@ -3,6 +3,7 @@ import { automations } from ".";
 import { setAppClientForTests } from "./client";
 import { installFakeServer, PROJECT_ID, serverProject, serverTask } from "./fakeServer";
 import { listNotifications } from "./notifications";
+import { toMilestone } from "./statuses";
 import { getTaskByCode } from "./tasks";
 
 // Ciò che delle Automations compare FUORI dalla loro destinazione nella build
@@ -159,5 +160,28 @@ describe("le card `automation.*` dell'inbox", () => {
     const [a, gone] = await listNotifications();
     expect(a!.link).toBe("");
     expect(gone).toMatchObject({ objectGone: true, link: "" });
+  });
+});
+
+describe("la riga d'origine di un traguardo creato da un'automazione", () => {
+  const m = (over: Record<string, unknown> = {}) => ({
+    id: "m-1",
+    projectId: PROJECT_ID,
+    name: "Kick-off",
+    description: null,
+    dueDate: null,
+    status: "open",
+    ...over,
+  });
+
+  it("a destinazione accesa: solo con `automationCreated: true` (assente = no)", () => {
+    flag.on = true;
+    expect(toMilestone(m({ automationCreated: true })).automationRef).toBeDefined();
+    expect(toMilestone(m({ automationCreated: false })).automationRef).toBeUndefined();
+    expect(toMilestone(m()).automationRef).toBeUndefined();
+  });
+
+  it("a destinazione spenta nessuna riga", () => {
+    expect(toMilestone(m({ automationCreated: true })).automationRef).toBeUndefined();
   });
 });
