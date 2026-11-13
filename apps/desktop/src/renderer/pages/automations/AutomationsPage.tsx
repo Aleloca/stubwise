@@ -26,56 +26,64 @@ type Search = ListSearch & { view?: string; automation?: string; mine?: string; 
 /** «New automation ▾»: vuota, o da uno dei due modelli. */
 export function NewAutomationButton({ projectId }: { projectId?: string } = {}) {
   const { t } = useTranslation();
+  const perms = useAutomationPerms();
   const [open, setOpen] = useState<AutomationTemplate | "blank" | null>(null);
   return (
     <>
-      <MenuButton
-        menuLabel={t("automations.actions.new")}
-        align="right"
-        className={primaryButton}
-        label={
-          <>
-            {t("automations.actions.new")}
-            <Chevron />
-          </>
-        }
-      >
-        {(close) => (
-          <>
-            <MenuGroup>
-              <button
-                type="button"
-                role="menuitem"
-                tabIndex={-1}
-                className={itemClass}
-                onClick={() => {
-                  close();
-                  setOpen("blank");
-                }}
-              >
-                {t("automations.create.blank")}
-              </button>
-            </MenuGroup>
-            <MenuGroup label={t("automations.templates.menu")}>
-              {(["newContract", "askClient"] as const).map((k) => (
+      {/* Senza modelli (fetta 1 nella build app) è un bottone solo. */}
+      {!perms.templates ? (
+        <button type="button" className={primaryButton} onClick={() => setOpen("blank")}>
+          {t("automations.actions.new")}
+        </button>
+      ) : (
+        <MenuButton
+          menuLabel={t("automations.actions.new")}
+          align="right"
+          className={primaryButton}
+          label={
+            <>
+              {t("automations.actions.new")}
+              <Chevron />
+            </>
+          }
+        >
+          {(close) => (
+            <>
+              <MenuGroup>
                 <button
-                  key={k}
                   type="button"
                   role="menuitem"
                   tabIndex={-1}
                   className={itemClass}
                   onClick={() => {
                     close();
-                    setOpen(k);
+                    setOpen("blank");
                   }}
                 >
-                  {t(`automations.templates.${k}.title`)}
+                  {t("automations.create.blank")}
                 </button>
-              ))}
-            </MenuGroup>
-          </>
-        )}
-      </MenuButton>
+              </MenuGroup>
+              <MenuGroup label={t("automations.templates.menu")}>
+                {(["newContract", "askClient"] as const).map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    role="menuitem"
+                    tabIndex={-1}
+                    className={itemClass}
+                    onClick={() => {
+                      close();
+                      setOpen(k);
+                    }}
+                  >
+                    {t(`automations.templates.${k}.title`)}
+                  </button>
+                ))}
+              </MenuGroup>
+            </>
+          )}
+        </MenuButton>
+      )}
       {open && (
         <CreateAutomationDialog
           template={open === "blank" ? undefined : open}

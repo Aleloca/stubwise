@@ -263,7 +263,25 @@ export function AutomationRow({ a, names }: { a: Row; names: Names }) {
 /** I due modelli del vuoto (shape [A 7]). */
 export function Templates({ projectId }: { projectId?: string | null }) {
   const { t } = useTranslation();
+  const perms = useAutomationPerms();
   const [template, setTemplate] = useState<AutomationTemplate | "blank" | null>(null);
+  // Senza modelli (fetta 1 nella build app): solo «New automation», vuota.
+  if (!perms.templates) {
+    return (
+      <div className="flex flex-col gap-1">
+        <button
+          type="button"
+          className={`${secondaryButton} self-start`}
+          onClick={() => setTemplate("blank")}
+        >
+          {t("automations.actions.new")}
+        </button>
+        {template && (
+          <CreateAutomationDialog projectId={projectId} onClose={() => setTemplate(null)} />
+        )}
+      </div>
+    );
+  }
   return (
     <div className="flex max-w-[720px] flex-col gap-1 pr-8">
       <p className="heading-group pb-1.5">{t("automations.templates.heading")}</p>

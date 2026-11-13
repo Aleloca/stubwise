@@ -43,6 +43,8 @@ export interface AutomationRunRow extends AutomationRun {
   automationName: string;
   /** Il progetto dell'automazione (null = generale). */
   automationProjectId: string | null;
+  /** Il giro del passo in attesa (`cursor`), per `expectedRound`. Assente = 0. */
+  round?: number;
 }
 
 export interface AutomationDetail {
@@ -103,6 +105,11 @@ export interface AutomationDecision {
   since: string;
   /** Il passo che aspetta (R-J5): la decisione vale solo per lui. */
   cursor: string;
+  /**
+   * Il giro del passo che aspetta (dentro «ripeti finché», dalla F2): con
+   * `cursor` è il passo su cui si decide (`expectedRound`). Assente = 0.
+   */
+  round?: number;
   /** Il codice dell'automazione e il numero dell'esecuzione («AUD-A1», 12). */
   automationCode: string;
   n: number;
@@ -383,4 +390,63 @@ export interface SimulationView {
     starts: SimulationStartPreview[];
     claude: SimulationClaudePreview[];
   };
+}
+
+// --- la prova nel client (F1, P1 = a) -------------------------------------------------
+
+/**
+ * Una persona come la legge la prova: chi un passo può nominare o
+ * raggiungere, fra quelle che chi prova vede.
+ */
+export interface SimulationPerson {
+  id: string;
+  name: string;
+  departmentIds: string[];
+  isClaude: boolean;
+  deactivated: boolean;
+  /** Il reparto in cui una sua richiesta finirebbe (`null`: nessuno). */
+  defaultDepartmentId: string | null;
+}
+
+/** Un progetto che i passi della versione provata toccano (il proprio e i fissi). */
+export interface SimulationContextProject {
+  id: string;
+  code: string;
+  name: string;
+  /** Archiviato o eliminato: per nessuno. */
+  gone: boolean;
+  /** Chi lo vede, fra le persone del contesto (chi prova e il proprietario compresi). */
+  seenBy: string[];
+  /** I permessi del proprietario nel progetto, calcolati dal server. */
+  ownerCan: { createTask: boolean; createMilestone: boolean; createRequest: boolean };
+  /** Chi ha il ruolo (per nome), in ordine alfabetico: le stesse regole degli approvatori veri. */
+  roleHolders: Record<string, string[]>;
+  /** I membri di ogni reparto che vedono il progetto. */
+  departmentMembers: Record<string, string[]>;
+}
+
+/**
+ * I fatti che i piani della prova leggono, risolti dal server per chi prova
+ * e per il proprietario che la versione avrebbe: il client non deduce né
+ * chi approva né chi può fare cosa.
+ */
+export interface SimulationContext {
+  /** L'automazione, con la versione provata fra le sue. */
+  automation: Automation;
+  version: number;
+  draft: boolean;
+  /** La revisione provata (R-J19): `POST …/tested` la rimanda. */
+  rev: number | null;
+  /** Chi sarebbe il proprietario: chi prova per una bozza, altrimenti quello di adesso. */
+  ownerId: string;
+  /** `configErrorsOf` per questa versione e questo proprietario (anche `not_available`). */
+  configErrors: FlowIssue[];
+  people: SimulationPerson[];
+  projects: SimulationContextProject[];
+}
+
+/** `GET /api/automations/:code/examples?version=`: gli esempi e il contesto della prova. */
+export interface SimulationExamplesView {
+  items: SimulationExample[];
+  context: SimulationContext;
 }
