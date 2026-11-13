@@ -1,5 +1,12 @@
 # Area 7, fetta 4 — le automazioni generali e il webhook in arrivo
 
+> ⚠️ **SUPERATO.** Il piano che vale è quello su `feat/area7-f4` (stesso
+> percorso), preso da stubwise-72 con le sue correzioni (C-F4-1, C-F4-2) e le
+> risposte del maintainer. In particolare il tetto di frequenza del webhook
+> NON sta nella pagina Sources: sta nelle impostazioni dell'automazione, e
+> lo cambia chi ha `automations.manage` su di lei (conferma di 46). Questa
+> copia resta solo come storia della bozza.
+
 > Piano di stubwise-94 (13 nov 2026), su richiesta di stubwise-46, con le
 > risposte F4-1…F4-6 (vedi «Le risposte alle domande»), nella
 > forma dei piani della F1, della F2 e della F3. I task del SERVER sono
