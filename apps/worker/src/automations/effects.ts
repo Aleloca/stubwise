@@ -1,26 +1,32 @@
+import { randomUUID } from "node:crypto";
 import {
   automationEffects,
+  automationRuns,
   backlogItems,
   createMilestone,
   createRequestItem,
   createTicket,
+  mailOutgoing,
   milestones,
   projects,
   type Db,
 } from "@stubwise/db";
-import { loadPlanWorld, milestoneNameTaken, publishNotification } from "@stubwise/notifications";
+import { automationMailboxOf, loadPlanWorld, milestoneNameTaken, publishNotification } from "@stubwise/notifications";
 import {
   failed,
+  MAIL_OUTGOING_CHANNEL,
+  planEmail,
   planMilestone,
   planNotify,
   planRequest,
   planTask,
+  sameConversation,
   type ActionEffect,
   type Automation,
   type EffectOutcome,
   type EffectRequest,
 } from "@stubwise/shared";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
@@ -55,6 +61,17 @@ export interface EffectEnv {
   automation: Pick<Automation, "id" | "code" | "name" | "projectId" | "ownerId">;
   /** L'«adesso» dell'esecuzione (ISO). */
   now: string;
+  /** La casella scelta all'accensione (area 7, F2): l'id, e l'indirizzo per le frasi. */
+  mailbox?: { accountId: string | null; address: string | null };
+}
+
+/**
+ * Un'email in volo (area 7, F2): l'invio trattenuto è scritto, il mittente
+ * della Posta non l'ha ancora mandato. L'esecutore riprova più tardi; il
+ * passo non si riesegue (`inFlight` nel cursore).
+ */
+export interface EffectPending {
+  pending: true;
 }
 
 /** Il giro di un passo: la fetta 1 non ripete i passi (`repeatUntil` è della F2). */
@@ -91,9 +108,10 @@ async function projectCode(tx: Tx, projectId: string): Promise<string> {
 }
 
 /** Esegue un effetto a nome del proprietario e restituisce l'input da rimettere nel motore. */
-export async function executeEffect(eff: EffectRequest, env: EffectEnv): Promise<EffectOutcome> {
+export async function executeEffect(eff: EffectRequest, env: EffectEnv): Promise<EffectOutcome | EffectPending> {
   if (eff.kind === "claude" || eff.kind === "resolve_project") return notAvailable();
-  if (eff.kind === "sendEmail" || eff.kind === "startAutomation") return notAvailable();
+  if (eff.kind === "startAutomation") return notAvailable();
+  if (eff.kind === "sendEmail") return executeEmail(eff, env);
   const owner = env.automation.ownerId;
   if (!owner) return noOwner();
   const key = effectKey(env.runId, eff.path);
@@ -187,6 +205,112 @@ export async function executeEffect(eff: EffectRequest, env: EffectEnv): Promise
 }
 
 /** Il codice di ciò che un effetto ha creato, come lo scrive il registro. */
+/** Le esecuzioni della catena di `runId`: lei e le sue antenate (`parent_run_id`). */
+async function chainOf(tx: Tx, runId: string): Promise<string[]> {
+  const rows = await tx.execute<{ id: string }>(sql`
+    with recursive chain(id, parent_run_id, depth) as (
+      select id, parent_run_id, 0 from ${automationRuns} where id = ${runId}
+      union all
+      select r.id, r.parent_run_id, c.depth + 1 from ${automationRuns} r join chain c on r.id = c.parent_run_id where c.depth < 16
+    )
+    select id from chain
+  `);
+  return [...rows].map((r) => r.id);
+}
+
+/**
+ * L'esito di un'email già scritta (la chiave c'è): partita → ok col messaggio;
+ * fallita → il codice del mittente, che NESSUNO ritenta da solo; in coda o in
+ * invio → ancora in volo.
+ */
+async function emailResult(tx: Tx, objectId: string | null): Promise<EffectOutcome | EffectPending> {
+  const [row] = objectId ? await tx.select().from(mailOutgoing).where(eq(mailOutgoing.id, objectId)) : [];
+  if (!row) return failed("email_gone", { code: "emailGone" }, "L'invio dell'email non si trova più.");
+  if (row.state === "sent") return done(row.gmailMessageId ? [row.gmailMessageId] : []);
+  if (row.state === "failed") {
+    const code = row.error ?? "other";
+    return failed(code, { code: "emailFailed", params: { error: code } }, `L'email non è partita (${code}). Si rimanda solo con «Riprova».`);
+  }
+  if (row.state === "cancelled") return failed("cancelled", { code: "emailCancelled" }, "L'invio dell'email è stato annullato.");
+  return { pending: true };
+}
+
+/**
+ * «Manda email» (area 7, F2, S3; C-F2-1): il piano condiviso (`planEmail`: il
+ * tetto sulla catena, la casella, l'indirizzo), poi NELLA STESSA transazione
+ * l'invio trattenuto della Posta — senza bozza, dalla casella scelta, `send_at`
+ * adesso (C-F2-2), nella conversazione della prima email allo stesso
+ * indirizzo — e l'effetto con la sua chiave. Il mittente della Posta lo manda;
+ * il passo aspetta l'esito (`emailResult`).
+ */
+async function executeEmail(eff: ActionEffect, env: EffectEnv): Promise<EffectOutcome | EffectPending> {
+  const owner = env.automation.ownerId;
+  if (!owner) return noOwner();
+  const key = effectKey(env.runId, eff.path);
+  return env.db.transaction(async (tx) => {
+    const [prev] = await tx.select().from(automationEffects).where(eq(automationEffects.idempotencyKey, key));
+    if (prev) return emailResult(tx, prev.objectId);
+    const chain = await chainOf(tx, env.runId);
+    const [sentRow] = await tx
+      .select({ n: sql<number>`count(*)::int` })
+      .from(mailOutgoing)
+      .where(and(inArray(mailOutgoing.automationRunId, chain), ne(mailOutgoing.state, "cancelled")));
+    const chosen = env.mailbox?.accountId ?? null;
+    const box = await automationMailboxOf(tx, owner, chosen);
+    const world = {
+      ...(await loadPlanWorld(tx, { ownerId: owner, projectIds: env.automation.projectId ? [env.automation.projectId] : [], personIds: [], departmentIds: [] })),
+      ownerMailbox: () => (box.ok ? { ok: true as const, address: box.address } : { ok: false as const, reason: box.reason }),
+    };
+    const p = planEmail(world, eff, owner, sentRow?.n ?? 0, env.mailbox?.address ?? null);
+    if (!p.ok) return p.outcome;
+    if (!box.ok) return failed("mailbox_missing", { code: "noMailbox" }, "Nessuna casella: l'email non è partita.");
+    // La stessa conversazione: la prima email di QUESTA esecuzione allo stesso indirizzo.
+    const earlier = await tx
+      .select({ to: mailOutgoing.toAddresses, threadId: mailOutgoing.gmailThreadId })
+      .from(mailOutgoing)
+      .where(and(eq(mailOutgoing.automationRunId, env.runId), eq(mailOutgoing.state, "sent")))
+      .orderBy(mailOutgoing.createdAt);
+    const thread = sameConversation(
+      earlier.map((e) => ({ to: e.to[0]?.email ?? "", threadId: e.threadId })),
+      p.plan.to,
+    );
+    const domain = box.address.split("@")[1] ?? "stubwise";
+    const [row] = await tx
+      .insert(mailOutgoing)
+      .values({
+        userId: owner,
+        accountId: box.accountId,
+        automationRunId: env.runId,
+        sendAt: sql`now()`,
+        toAddresses: [{ email: p.plan.to, name: null }],
+        subject: p.plan.subject,
+        body: p.plan.body,
+        gmailThreadId: thread?.threadId ?? null,
+        rfcMessageId: `<automation-${randomUUID()}@${domain}>`,
+      })
+      .returning({ id: mailOutgoing.id });
+    await tx.insert(automationEffects).values({ runId: env.runId, path: eff.path, round: ROUND, idempotencyKey: key, kind: "email", objectId: row!.id });
+    await tx.execute(sql`select pg_notify(${MAIL_OUTGOING_CHANNEL}, ${JSON.stringify({ outgoingId: row!.id })})`);
+    return { pending: true as const };
+  });
+}
+
+/**
+ * «Riprova» di un'email fallita (il gesto, mai il motore da solo): toglie la
+ * chiave dell'invio fallito o annullato, così il passo rifatto ne scrive uno
+ * nuovo. Un'email in coda, in invio o partita non si tocca.
+ */
+export async function releaseFailedEmail(db: Db, runId: string, path: string): Promise<void> {
+  const key = effectKey(runId, path);
+  await db.transaction(async (tx) => {
+    const [prev] = await tx.select().from(automationEffects).where(and(eq(automationEffects.idempotencyKey, key), eq(automationEffects.kind, "email")));
+    if (!prev?.objectId) return;
+    const [row] = await tx.select({ state: mailOutgoing.state }).from(mailOutgoing).where(eq(mailOutgoing.id, prev.objectId));
+    if (row && row.state !== "failed" && row.state !== "cancelled") return;
+    await tx.delete(automationEffects).where(eq(automationEffects.id, prev.id));
+  });
+}
+
 async function codesOf(tx: Tx, kind: string, objectId: string | null): Promise<string[]> {
   if (!objectId) return [];
   if (kind === "request") {
