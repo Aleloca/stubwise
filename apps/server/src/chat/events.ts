@@ -1,8 +1,9 @@
-import { backlogItems, chatMessages, milestones, projectBriefs, projects, repositories, ticketRepositories, tickets, type Db } from "@stubwise/db";
+import { backlogItems, chatMessages, milestones, projectBriefs, projects, releases, repositories, ticketRepositories, tickets, type Db } from "@stubwise/db";
 import type { ChatEventView } from "@stubwise/shared";
 import { eq, inArray, sql } from "drizzle-orm";
 import type { ChatViewer } from "./access.js";
 import { citeablesFor } from "./citations.js";
+import { releaseStatusById } from "../services/releases.js";
 
 type MessageRow = typeof chatMessages.$inferSelect;
 
@@ -19,7 +20,9 @@ type MessageRow = typeof chatMessages.$inferSelect;
  * - il periodo di un brief e il nome di un traguardo solo a chi vede il
  *   progetto;
  * - un oggetto che non c'è più: `object` null, la scheda dice solo il tipo.
- * `release_page` non ha ancora una fonte (area 8): resta senza oggetto.
+ * - `release_page` (area 8, F1, S11): il rilascio, come un traguardo — codice
+ *   e titolo solo a chi vede il progetto, e lo stato derivato a lettura
+ *   (`releaseStatusById`, la regola delle pagine dei rilasci).
  */
 export async function eventViews(db: Db, viewer: ChatViewer, rows: readonly MessageRow[]): Promise<Map<string, ChatEventView>> {
   const out = new Map<string, ChatEventView>();
@@ -31,6 +34,7 @@ export async function eventViews(db: Db, viewer: ChatViewer, rows: readonly Mess
   const requestIds = idsOf("request");
   const milestoneIds = idsOf("milestone");
   const briefIds = idsOf("brief");
+  const releaseIds = idsOf("release");
 
   const taskRows =
     taskIds.length > 0
@@ -64,6 +68,10 @@ export async function eventViews(db: Db, viewer: ChatViewer, rows: readonly Mess
           .from(projectBriefs)
           .where(inArray(projectBriefs.id, briefIds))
       : [];
+  const releaseRows =
+    releaseIds.length > 0
+      ? await db.select({ id: releases.id, projectId: releases.projectId, code: releases.code, title: releases.title }).from(releases).where(inArray(releases.id, releaseIds))
+      : [];
   const prIds = [...new Set(evented.flatMap((r) => (r.eventPrId ? [r.eventPrId] : [])))];
   const prRows =
     prIds.length > 0
@@ -78,7 +86,7 @@ export async function eventViews(db: Db, viewer: ChatViewer, rows: readonly Mess
   const seen = await citeablesFor(db, viewer, [
     ...taskRows.map((r) => ({ kind: "task" as const, id: r.id })),
     ...requestRows.map((r) => ({ kind: "request" as const, id: r.id })),
-    ...[...new Set([...milestoneRows, ...briefRows].map((r) => r.projectId))].map((id) => ({ kind: "project" as const, id })),
+    ...[...new Set([...milestoneRows, ...briefRows, ...releaseRows].map((r) => r.projectId))].map((id) => ({ kind: "project" as const, id })),
   ]);
   const sees = (kind: "task" | "request" | "project", id: string) => seen.has(`${kind}:${id}`);
 
@@ -101,6 +109,12 @@ export async function eventViews(db: Db, viewer: ChatViewer, rows: readonly Mess
     // Il periodo solo a chi vede il progetto (review della fetta 4), come il nome di un traguardo.
     objects.set(`brief:${r.id}`, { label: visible ? `${r.start}/${r.end}` : "", title: null, visible, projectId: r.projectId });
   }
+  const statusOfRelease = new Map<string, ChatEventView["releaseStatus"]>();
+  for (const r of releaseRows) {
+    const visible = sees("project", r.projectId);
+    objects.set(`release:${r.id}`, { label: visible ? r.code : "", title: visible ? r.title : null, visible, projectId: r.projectId });
+    if (visible) statusOfRelease.set(r.id, (await releaseStatusById(db, r.id))?.kind ?? null);
+  }
   const prOf = new Map(prRows.map((p) => [p.id, p]));
 
   for (const r of evented) {
@@ -114,6 +128,7 @@ export async function eventViews(db: Db, viewer: ChatViewer, rows: readonly Mess
       ref: { kind: r.eventRefKind!, id: r.eventRefId! },
       object,
       pr: showPr && r.eventRefKind === "task" && object?.visible ? { number: r.eventPrNumber, url: r.eventPrUrl, repository: repo?.repository ?? "" } : null,
+      releaseStatus: r.eventRefKind === "release" ? (statusOfRelease.get(r.eventRefId!) ?? null) : null,
     });
   }
   return out;

@@ -240,6 +240,19 @@ export async function listProjectReleases(db: Db, viewer: Viewer, projectId: str
   return out;
 }
 
+/**
+ * Lo stato derivato di un rilascio, senza permessi (chi chiama ha già deciso
+ * che chi guarda vede il progetto): la stessa regola delle pagine. Per la
+ * scheda `release_page` della Chat (area 8, F1, S11).
+ */
+export async function releaseStatusById(db: Db, releaseId: string, now = new Date()): Promise<ReleaseRow["status"] | null> {
+  const [release] = await db.select().from(releases).where(eq(releases.id, releaseId));
+  if (!release) return null;
+  const [repo] = await db.select({ ciProvider: repositories.ciProvider, releasePipeline: repositories.releasePipeline }).from(repositories).where(eq(repositories.id, release.repositoryId));
+  const runs = await db.select().from(releaseCiRuns).where(eq(releaseCiRuns.releaseId, release.id));
+  return statusOf(db, release, repo ?? { ciProvider: null, releasePipeline: null }, runs, now);
+}
+
 async function visibleRelease(db: Db, viewer: Viewer, code: string): Promise<ReleaseRecord> {
   const [r] = await db.select().from(releases).where(eq(releases.code, code.toUpperCase()));
   if (!r || !(await sees(db, viewer, r.projectId))) throw notFound();
