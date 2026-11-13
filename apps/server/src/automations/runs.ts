@@ -161,6 +161,7 @@ export async function runRowOf(db: Db, viewer: Viewer, r: RunRecord, a: Automati
   if (viewer.id !== mailOwner && run.log.some((e) => e.kind === "claude")) {
     const flow = await flowOfRun(db, r);
     if (flow) {
+      // Le sorgenti esterne arrivano con la F4: fino ad allora non ce ne sono (registro).
       const tainted = taintedKeys(flow, []);
       const isTainted = (k: string) => tainted.has(k) || [...tainted].some((t) => k.startsWith(`${t}.`));
       const claudeSteps = new Map<string, Extract<Step, { kind: "claude" }>>();

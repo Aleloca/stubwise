@@ -74,6 +74,13 @@ Dal design e dalle fette prima. Qui solo quelle che toccano la F3:
   comunque attraverso i dati grezzi: è ciò che rende tinto un campo di
   Claude. Regola in `packages/shared/src/automations/taint.ts`
   (`untrustedTargets`, usata da `validateFlow`): il server la applica uguale.
+- **Le richieste dal supporto sono tinte** *(O, 46, review F3 I4)*: con
+  `request_created` e `request_converted`, titolo e descrizione di una
+  richiesta possono venire dal widget di supporto (`richiesta.dal_supporto`),
+  quindi sono tinti, salvo un filtro dell'inizio che escluda le richieste
+  dal supporto (la tinta si calcola sul flusso, prima dell'evento). In
+  `taint.ts`; l'elemento di un «per ogni» su un elenco grezzo non fidato è
+  tinto per chi legge, ma non forza l'approvazione (non è deciso da Claude).
 - **F3-2 = a** *(M)*: Sonnet è il modello di default di `automation_step`.
 - **F3-3 = a, F3-4 = a, F3-5 = a** *(O, 46)*, con la consigliata: la
   conferma del costo una volta all'inizio della prova; un risultato fuori

@@ -621,6 +621,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   run); se la pagina della prova vorrà il costo per passo, il `ChatLlm` deve
   restituire i token a fine stream.
 
+- F3, le richieste dal supporto *(O, 46, review F3 I4, 13 nov 2026)*: titolo
+  e descrizione di una richiesta sono tinti per `request_created` e
+  `request_converted` (possono venire dal widget di supporto), salvo un
+  filtro dell'inizio che escluda `richiesta.dal_supporto`. Le sorgenti
+  esterne (F4) entreranno nella stessa regola (`taintedKeys(flow, sources)`:
+  oggi il server passa `[]` perché le sorgenti non esistono ancora).
+
 ## Area 8 — Rilasci, ambienti, avvisi, Support, Servers
 
 - Blocchi della Home «Rilasci» (anche l'extra di `resolveHome` per
