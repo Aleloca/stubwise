@@ -7211,6 +7211,8 @@
       "onMailboxExpired_publish": "Couldn't publish {{code}}: your mailbox connection expired. Reconnect it in Mail.",
       "onMailboxScope": "Couldn't turn on {{code}}: your mailbox can't send email. Reconnect it in Mail.",
       "onMailboxScope_publish": "Couldn't publish {{code}}: your mailbox can't send email. Reconnect it in Mail.",
+      "onMailboxReadScope": "Couldn't turn on {{code}}: your mailbox doesn't give Stubwise permission to read your mail. Reconnect it in Mail.",
+      "onMailboxReadScope_publish": "Couldn't publish {{code}}: your mailbox doesn't give Stubwise permission to read your mail. Reconnect it in Mail.",
       "onConfig": "Couldn't turn on {{code}}: it has problems to fix first.",
       "onConfig_publish": "Couldn't publish {{code}}: it has problems to fix first.",
       "publishedPaused": "Version {{n}} of {{code}} published · it stays paused",
