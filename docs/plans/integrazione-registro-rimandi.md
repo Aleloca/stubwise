@@ -692,6 +692,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     ha spinto in parallelo) non si deriva: in `/pulls` compare come «fermata»
     (`prStateOf` lo leggerebbe, manca un esito distinto del job).
 
+- F1, S10, ruling di 72 approvato con una precisazione *(O, 46, 13 nov
+  2026)*: con la review automatica dell'istanza SPENTA una PR senza analisi
+  può essere «pronta» (non c'è un'analisi da aspettare), ma non dice mai
+  «analizzata, senza problemi»: `prState.state = analysis_off` («non
+  analizzata»). Con la review accesa una PR senza analisi resta «in
+  analisi» e non è pronta.
+
 - Blocchi della Home «Rilasci» (anche l'extra di `resolveHome` per
   `release.merge`) e «Clienti in attesa».
 - Origine di una richiesta da Support; «View conversation» delle task del widget.

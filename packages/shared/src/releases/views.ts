@@ -88,6 +88,9 @@ export interface ReleaseFixResult {
  * `canMerge` restano della coda (`/api/release-queue`, `release.merge`).
  */
 export interface OpenPull {
+  /** Il progetto della PR (serve dove le PR di più progetti stanno insieme, come la Home). */
+  projectId?: string;
+  projectCode?: string;
   origin: "stubwise" | "external";
   ticketId: string;
   ticketNumber: number;
@@ -117,6 +120,7 @@ export interface OpenPull {
    * server) e se è pronta per il rilascio (`isReadyForRelease`; `mergeable`
    * non letto non blocca). Facoltativi: un server di prima non li manda.
    */
+  /** `analysis_off` anche quando la review automatica dell'istanza è spenta e la PR non ha analisi: «non analizzata», non «senza problemi» ((O) di 46); può essere `ready`. */
   prState?: OpenPrState;
   ready?: boolean;
   /** La PR viene da un fork (null = il provider non lo dice). */
