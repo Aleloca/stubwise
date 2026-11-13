@@ -102,7 +102,7 @@ function fakeApi(over: Partial<AutomationsApi> = {}) {
       throw new ApiError(404, "not_found", "not_found");
     },
     origin: async (q) => (log(`GET origin ${JSON.stringify(q)}`), { visible: false }),
-    myRuns: async () => [],
+    myRuns: async () => ({ items: [] }),
     myApprovals: async () => ({ items: [] }),
     run: async (code, n) => ({ ...runRow(n), automationCode: code }) as never,
     approve: async () => {},
