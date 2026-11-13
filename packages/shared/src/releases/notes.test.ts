@@ -18,6 +18,16 @@ describe("citedTaskCodes", () => {
   });
 });
 
+describe("i codici dei progetti come li ammette il server (`^[A-Z][A-Z0-9]{1,5}$`)", () => {
+  it("anche di 5–6 caratteri o con cifre; mai un codice di richiesta (`-R3`)", () => {
+    expect(citedTaskCodes("STUBW1-4", ["fix ACQ2-9 e LONGER-12", "ACME-R3 e X-1"])).toEqual([
+      "STUBW1-4",
+      "ACQ2-9",
+      "LONGER-12",
+    ]);
+  });
+});
+
 describe("releaseNotesDraft", () => {
   it("una riga per task trovata, nell'ordine; un codice senza task non dà righe", () => {
     const draft = releaseNotesDraft({
