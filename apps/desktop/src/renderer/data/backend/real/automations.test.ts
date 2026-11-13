@@ -66,8 +66,8 @@ function fakeApi(over: Partial<AutomationsApi> = {}) {
       log(`GET ${code}`),
       { automation: row(), configErrors: [], liveErrors: [], runs: [] } as AutomationDetail
     ),
-    check: async (code, body) => (
-      log(`POST ${code}/check ${body.flow.titleTemplate}`),
+    check: async (code, flow) => (
+      log(`POST ${code}/check ${flow.titleTemplate}`),
       { issues: [] }
     ),
     create: async (body) => (
@@ -102,7 +102,7 @@ function fakeApi(over: Partial<AutomationsApi> = {}) {
       throw new ApiError(404, "not_found", "not_found");
     },
     origin: async (q) => (log(`GET origin ${JSON.stringify(q)}`), { visible: false }),
-    myRuns: async () => [],
+    myRuns: async () => ({ items: [] }),
     myApprovals: async () => ({ items: [] }),
     run: async (code, n) => ({ ...runRow(n), automationCode: code }) as never,
     approve: async () => {},
@@ -200,6 +200,11 @@ describe("il livello dati delle Automations sulle rotte vere", () => {
     await expect(
       r.createAutomation({ name: "Da modello", projectId: "prj-1", template: "newContract" }),
     ).rejects.toThrow(/^invalid: not_available$/);
+    // Le automazioni generali sono della F4: niente richiesta.
+    await expect(r.createAutomation({ name: "Generale", projectId: null })).rejects.toThrow(
+      /^invalid: not_available$/,
+    );
+    expect(calls).toHaveLength(2);
   });
 
   it("rinomina, pausa, duplica, elimina la bozza col rev", async () => {

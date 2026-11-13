@@ -40,8 +40,9 @@ export interface AutomationsApi extends DecisionApi {
   }): Promise<{ items: AutomationRow[] }>;
   get(code: string): Promise<AutomationDetail>;
   /** Gli errori di configurazione di un flusso non ancora salvato (non scrive). */
-  check(code: string, body: { flow: AutomationFlow }): Promise<{ issues: FlowIssue[] }>;
-  create(body: { name: string; projectId: string | null }): Promise<Automation>;
+  check(code: string, flow: AutomationFlow): Promise<{ issues: FlowIssue[] }>;
+  /** Solo di progetto nella fetta 1: le generali sono della F4. */
+  create(body: { name: string; projectId: string }): Promise<Automation>;
   saveDraft(
     code: string,
     body: { flow: AutomationFlow; expectedRev: number | null } & AutomationMeta,
@@ -56,7 +57,7 @@ export interface AutomationsApi extends DecisionApi {
     automation?: string;
     project?: string;
     status?: RunStatus;
-  }): Promise<{ items: AutomationRunRow[] }>;
+  }): Promise<{ items: AutomationRunRow[]; nextCursor?: string | null }>;
   startRun(code: string, body: { event?: Record<string, unknown> }): Promise<AutomationRunRow>;
   cancelRun(code: string, n: number): Promise<void>;
   retryStep(code: string, n: number): Promise<void>;
@@ -111,7 +112,7 @@ export function createRealAutomations(
     },
 
     async checkDraft(id: string, flow: AutomationFlow): Promise<FlowIssue[]> {
-      return (await inPrototypeWords(() => api.check(code(id), { flow }))).issues;
+      return (await inPrototypeWords(() => api.check(code(id), flow))).issues;
     },
 
     async createAutomation(input: {
@@ -121,8 +122,10 @@ export function createRealAutomations(
       language?: string;
     }): Promise<Automation> {
       // P2 = a: nella fetta 1 solo da zero.
-      if (input.template) throw new Error("invalid: not_available");
-      return written(() => api.create({ name: input.name, projectId: input.projectId }));
+      // Le automazioni generali sono della F4.
+      if (input.template || input.projectId === null) throw new Error("invalid: not_available");
+      const projectId = input.projectId;
+      return written(() => api.create({ name: input.name, projectId }));
     },
 
     async saveDraft(

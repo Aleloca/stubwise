@@ -34,14 +34,16 @@ function fakeApi(over: Partial<DecisionApi> = {}) {
   const api: DecisionApi = {
     myRuns: async () => {
       calls.push("GET my runs");
-      return [
-        {
-          id: "run-1",
-          code: "AUD-A1 #3",
-          automationCode: "AUD-A1",
-          n: 3,
-        } as unknown as MyAutomationRun,
-      ];
+      return {
+        items: [
+          {
+            id: "run-1",
+            code: "AUD-A1 #3",
+            automationCode: "AUD-A1",
+            n: 3,
+          } as unknown as MyAutomationRun,
+        ],
+      };
     },
     myApprovals: async () => {
       calls.push("GET my approvals");

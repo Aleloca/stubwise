@@ -19,7 +19,7 @@ import {
 
 /** Le rotte che servono (sul client vero: `client.automations`). */
 export interface DecisionApi {
-  myRuns(): Promise<MyAutomationRun[]>;
+  myRuns(): Promise<{ items: MyAutomationRun[] }>;
   myApprovals(): Promise<{ items: AutomationDecision[] }>;
   run(code: string, n: number): Promise<AutomationRunDetail>;
   approve(
@@ -51,7 +51,7 @@ export function createRealDecisions(
 ) {
   return {
     async listMyRuns(): Promise<MyAutomationRun[]> {
-      const runs = await inPrototypeWords(() => api.myRuns());
+      const { items: runs } = await inPrototypeWords(() => api.myRuns());
       for (const r of runs) refs.rememberRun(r);
       return runs;
     },
