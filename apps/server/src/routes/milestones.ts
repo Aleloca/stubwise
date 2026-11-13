@@ -60,6 +60,7 @@ function toPublicMilestone(row: MilestoneRow): z.infer<typeof milestoneSchema> {
     status: row.status,
     closedAt: row.closedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
+    automationCreated: row.automationRunId !== null,
   };
 }
 

@@ -45,3 +45,11 @@ describe("la ricerca: il gruppo delle Automations", () => {
     expect(searchResultsSchema.parse({ tickets: empty, projects: empty, repositories: empty, docs: empty }).automations).toEqual(empty);
   });
 });
+
+describe("i traguardi: automationCreated", () => {
+  it("un traguardo di un server di prima, SENZA il campo, si legge (e non dice di chiedere l'origine)", async () => {
+    const { milestoneSchema } = await import("./milestone.js");
+    const m = milestoneSchema.parse({ id: ID, projectId: ID, name: "v1", description: null, dueDate: null, status: "open", closedAt: null, createdAt: "2026-11-13T10:00:00.000Z" });
+    expect(m.automationCreated === true).toBe(false);
+  });
+});
