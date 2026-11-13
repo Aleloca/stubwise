@@ -32,6 +32,8 @@ import {
   type PrComment,
   type PrReviewVerdict,
   type ProjectGitConfig,
+  type CommitRun,
+  type CommitRuns,
   type PullRequestChecks,
   type PullRequestFinalState,
   type PullRequestInfo,
@@ -334,6 +336,47 @@ export class BitbucketProvider implements GitProvider {
         ...(headSha !== undefined ? { headSha } : {}),
         ...(headRef !== undefined ? { headRef } : {}),
       };
+    }
+  }
+
+  /**
+   * Area 8, F1: le run di CI di un commit (gli status di build del commit,
+   * dove Bitbucket Pipelines e le altre CI scrivono). Lo status della review
+   * di Stubwise non è una run (la stessa esclusione di `getPullRequestChecks`).
+   * Mai lancia: rete, 401, corpo malformato → `unknown`.
+   */
+  async getCommitRuns(p: ProjectGitConfig, sha: string, opts: { fetchImpl?: FetchLike } = {}): Promise<CommitRuns> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    try {
+      const { owner, repo } = parseRepoUrl(p.repoUrl);
+      const response = await fetchImpl(`${API_BASE}/repositories/${owner}/${repo}/commit/${sha}/statuses?pagelen=100`, {
+        method: "GET",
+        headers: { Authorization: this.getAuthHeader(p) },
+      });
+      await ensureOkResponse(response, "Bitbucket");
+      const data = (await readJsonResponse(response, "Bitbucket")) as {
+        values?: { key?: unknown; name?: unknown; state?: unknown; url?: unknown; description?: unknown; created_on?: unknown; updated_on?: unknown }[];
+      };
+      if (!Array.isArray(data.values)) return { status: "unknown" };
+      const str = (v: unknown) => (typeof v === "string" && v.length > 0 ? v : null);
+      const runs: CommitRun[] = data.values
+        .filter((v) => v.key !== STUBWISE_REVIEW_STATUS_KEY)
+        .map((v, i) => {
+          const outcome = bitbucketCheckStatus(v.state);
+          const status = outcome === "pending" ? "running" : outcome === "success" ? "success" : "failed";
+          return {
+            id: str(v.key) ?? `status-${i}`,
+            name: str(v.name) ?? str(v.key) ?? "check",
+            status,
+            url: str(v.url),
+            failedStep: status === "failed" ? str(v.description) : null,
+            startedAt: str(v.created_on),
+            endedAt: status === "running" ? null : str(v.updated_on),
+          };
+        });
+      return { status: "ok", runs };
+    } catch {
+      return { status: "unknown" };
     }
   }
 
@@ -685,7 +728,12 @@ export class BitbucketProvider implements GitProvider {
     if (typeof pullrequest !== "object" || pullrequest === null) return null;
     const pr = pullrequest as {
       id?: unknown;
+      title?: unknown;
       source?: { branch?: { name?: unknown } };
+      destination?: { branch?: { name?: unknown } };
+      merge_commit?: { hash?: unknown } | null;
+      closed_by?: unknown;
+      updated_on?: unknown;
       links?: { html?: { href?: unknown } };
     };
     const branch = pr.source?.branch?.name;
@@ -694,7 +742,21 @@ export class BitbucketProvider implements GitProvider {
     // Id mancante o malformato: l'evento di chiusura resta valido (serve alla
     // chiusura del ticket via branch), solo il cleanup review lo salta.
     const prNumber = typeof pr.id === "number" ? pr.id : null;
-    return { kind, provider: "bitbucket", branch, prUrl, prNumber };
+    // Area 8, F1: i campi del rilascio, solo per un merge e solo se ci sono.
+    // L'hash del merge di Bitbucket è abbreviato: il rilascio lo confronta con `sameCommit`.
+    const str = (v: unknown) => (typeof v === "string" && v.length > 0 ? v : undefined);
+    const closer = bitbucketAccount(pr.closed_by);
+    const release =
+      kind === "merged"
+        ? {
+            ...(str(pr.destination?.branch?.name) ? { targetBranch: str(pr.destination?.branch?.name)! } : {}),
+            ...(str(pr.merge_commit?.hash) ? { mergeSha: str(pr.merge_commit?.hash)! } : {}),
+            ...(str(pr.title) ? { title: str(pr.title)! } : {}),
+            ...(closer ? { mergedByLogin: closer.login } : {}),
+            ...(str(pr.updated_on) ? { mergedAt: str(pr.updated_on)! } : {}),
+          }
+        : {};
+    return { kind, provider: "bitbucket", branch, prUrl, prNumber, ...release };
   }
 
   /**

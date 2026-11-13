@@ -1704,6 +1704,7 @@
       "requestCreated": "New request",
       "docsLimitPaused": "Docs paused",
       "monitorAlert": "Alert",
+      "releaseFailed": "Release failed",
       "monitorRecovered": "Recovered",
       "awaitingInput": "Question to answer",
       "pulse": "Proposal",

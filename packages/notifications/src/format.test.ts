@@ -1344,6 +1344,7 @@ describe("sampleEvents", () => {
       "docs.nightly_attention",
       "monitor.alert",
       "monitor.recovered",
+      "release.failed",
       "job.awaiting_input",
       "project.pulse",
       "project.brief",
@@ -1369,6 +1370,8 @@ describe("sampleEvents", () => {
         expect(event.docsUrl.startsWith("https://app.example.com/docs/")).toBe(true);
       } else if (event.kind === "monitor.alert" || event.kind === "monitor.recovered") {
         expect(event.url.startsWith("https://app.example.com/monitor/")).toBe(true);
+      } else if (event.kind === "release.failed") {
+        expect(event.url.startsWith("https://app.example.com/app/")).toBe(true);
       } else if (
         event.kind === "project.pulse" ||
         event.kind === "project.brief" ||

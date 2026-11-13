@@ -237,6 +237,7 @@ export const en: Catalog = {
   // server. `{condition}` è l'etichetta localizzata della condizione (vedi
   // notify.monitorCondition.*), `{detail}` la descrizione già leggibile.
   "notify.monitorAlert": "Server alert on {serverName} ({condition}): {detail}. {link}",
+  "notify.releaseFailed": "Release {code} failed: {title}. {link}",
   "notify.monitorRecovered": "{serverName} recovered ({condition}): {detail}. {link}",
   // Pulse proattivo: evento SENZA ticket ancorato al PROGETTO, il {link} porta
   // al suo backlog. I titoli delle proposte NON stanno nella frase — sono le
@@ -477,6 +478,7 @@ export const en: Catalog = {
   "push.title.docs.nightly_attention": "Nightly Docs need attention",
   "push.title.request.created": "New request from a collaborator",
   "push.title.monitor.alert": "Server alert",
+  "push.title.release.failed": "A release failed",
   "push.title.monitor.recovered": "Server recovered",
   "push.title.job.awaiting_input": "A question is waiting for you",
   // L'unico titolo con un segnaposto: il pulse arriva a progetto fermo, e
@@ -926,6 +928,7 @@ export const it: Catalog = {
   "notify.requestCreatedMerged":
     "{email} ha chiesto su {project}: {title} — unita a una richiesta simile già aperta. {link}",
   "notify.monitorAlert": "Alert sul server {serverName} ({condition}): {detail}. {link}",
+  "notify.releaseFailed": "Il rilascio {code} è fallito: {title}. {link}",
   "notify.monitorRecovered": "{serverName} tornato su ({condition}): {detail}. {link}",
   "notify.pulse":
     "Nessun lavoro in corso su {project} (giorni di fermo: {idleDays}): ci sono proposte nel backlog. {link}",
@@ -1088,6 +1091,7 @@ export const it: Catalog = {
   "push.title.docs.nightly_attention": "Giro notturno Docs: serve attenzione",
   "push.title.request.created": "Nuova richiesta da un collaboratore",
   "push.title.monitor.alert": "Allarme su un server",
+  "push.title.release.failed": "Un rilascio è fallito",
   "push.title.monitor.recovered": "Server tornato su",
   "push.title.job.awaiting_input": "Una domanda ti aspetta",
   "push.title.project.pulse": "Da dove ripartire su {project}",
