@@ -112,7 +112,13 @@ export function TurnOnDialog({
     sendsEmail(flow) || (flow.trigger.kind === "stubwise" && flow.trigger.event === "mail_received");
   // Solo le caselle collegate: una scaduta non spedisce.
   const boxes = (mailboxes ?? []).filter((b) => !b.expired);
-  const chosen = from ?? boxes[0]?.email ?? null;
+  // La casella che il proprietario aveva scelto, se il proprietario sono io ed
+  // è ancora fra le mie; altrimenti la prima.
+  const kept =
+    a.ownerId === me && a.mailbox
+      ? boxes.find((b) => b.email.toLowerCase() === a.mailbox!.toLowerCase())?.email
+      : undefined;
+  const chosen = from ?? kept ?? boxes[0]?.email ?? null;
   const suspended = detail.runs.filter((r) => r.status === "suspended").length;
   const ok = errors.length === 0 && blocked.length === 0 && (!needsMailbox || boxes.length > 0);
   const title = publishing

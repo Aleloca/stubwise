@@ -102,12 +102,17 @@ export function createRealAutomations(
     if (!found) throw new Error("invalid: mailbox_missing");
     return { mailboxAccountId: found.id };
   };
-  /** Accendere o pubblicare: `mailbox_required` del server è `mailbox_missing` del prototipo. */
-  const turnedOn = async (call: () => Promise<Automation>) => {
+  /**
+   * Accendere o pubblicare: `mailbox_required` del server è `mailbox_missing`
+   * del prototipo; con una casella mandata, anche un 404 lo è (scollegata fra
+   * l'elenco e l'invio: il server risponde come per una che non esiste).
+   */
+  const turnedOn = async (call: () => Promise<Automation>, sentMailbox: boolean) => {
     try {
       return await written(call);
     } catch (error) {
-      if (error instanceof Error && error.message === "invalid: mailbox_required")
+      const msg = error instanceof Error ? error.message : "";
+      if (msg === "invalid: mailbox_required" || (sentMailbox && msg === "not_found"))
         throw new Error("invalid: mailbox_missing");
       throw error;
     }
@@ -179,14 +184,17 @@ export function createRealAutomations(
       written(() => api.patch(code(id), meta)),
     publish: async (id: string, opts: { mailbox?: string } = {}) => {
       const mailboxAccountId = await accountOf(opts.mailbox);
-      return turnedOn(() =>
-        api.publish(code(id), { expectedRev: refs.automation(id).rev, ...mailboxAccountId }),
+      return turnedOn(
+        () => api.publish(code(id), { expectedRev: refs.automation(id).rev, ...mailboxAccountId }),
+        opts.mailbox !== undefined,
       );
     },
     activate: async (id: string, opts: { mailbox?: string } = {}) => {
       const mailboxAccountId = await accountOf(opts.mailbox);
-      return turnedOn(() =>
-        api.activate(code(id), { expectedRev: refs.automation(id).rev, ...mailboxAccountId }),
+      return turnedOn(
+        () =>
+          api.activate(code(id), { expectedRev: refs.automation(id).rev, ...mailboxAccountId }),
+        opts.mailbox !== undefined,
       );
     },
     pause: (id: string) => written(() => api.pause(code(id))),

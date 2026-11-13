@@ -316,4 +316,20 @@ describe("il livello dati delle Automations sulle rotte vere", () => {
     );
     await expect(r.publish("a-1")).rejects.toThrow(/^invalid: mailbox_missing$/);
   });
+
+  it("una casella scollegata fra l'elenco e l'invio (404 del server) è `mailbox_missing`; senza casella resta not_found", async () => {
+    const gone = async (): Promise<never> => {
+      throw new ApiError(404, "not_found", "not_found");
+    };
+    const { api } = fakeApi({ activate: gone, publish: gone });
+    const r = createRealAutomations(api, undefined, undefined, async () => [
+      { id: "acc-1", email: "ada@audin.test" },
+    ]);
+    await r.listAutomations();
+    await expect(r.activate("a-1", { mailbox: "ada@audin.test" })).rejects.toThrow(
+      /^invalid: mailbox_missing$/,
+    );
+    await expect(r.publish("a-1")).rejects.toThrow(/^not_found$/);
+  });
 });
+
