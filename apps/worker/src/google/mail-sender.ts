@@ -1,8 +1,8 @@
 import { googleAccounts, mailDrafts, mailOutgoing, type Db } from "@stubwise/db";
-import { GoogleApiError, refreshAccessToken, sendDraft } from "@stubwise/google";
+import { buildMimeMessage, encodeRaw, GoogleApiError, refreshAccessToken, sendDraft, sendMessage } from "@stubwise/google";
 import { loadGoogleAccountCredentials, type GoogleAccountCredentials } from "@stubwise/google/credentials";
 import { MAIL_OUTGOING_CHANNEL } from "@stubwise/shared";
-import { eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 
 /**
  * L'INVIO DELLA POSTA ALLO SCADERE DEI 10 SECONDI (area 6, fetta 3, D6).
@@ -23,6 +23,8 @@ import { eq, sql } from "drizzle-orm";
 export interface MailSenderClient {
   refreshAccessToken: typeof refreshAccessToken;
   sendDraft: typeof sendDraft;
+  /** Area 7, F2: l'email di un'esecuzione, senza bozza. */
+  sendMessage: typeof sendMessage;
 }
 
 export interface MailSenderDeps {
@@ -34,7 +36,7 @@ export interface MailSenderDeps {
   batch?: number;
 }
 
-const realClient: MailSenderClient = { refreshAccessToken, sendDraft };
+const realClient: MailSenderClient = { refreshAccessToken, sendDraft, sendMessage };
 
 /** Il codice d'errore che la persona può leggere (`delivery.error`). */
 export function sendErrorCode(err: unknown): string {
@@ -82,7 +84,7 @@ export async function sendDueMail(deps: MailSenderDeps): Promise<{ sent: number;
   }
   for (const row of claimed) {
     try {
-      const [account] = await deps.db.select({ disabledAt: googleAccounts.disabledAt }).from(googleAccounts).where(eq(googleAccounts.id, row.accountId));
+      const [account] = await deps.db.select({ disabledAt: googleAccounts.disabledAt, email: googleAccounts.email }).from(googleAccounts).where(eq(googleAccounts.id, row.accountId));
       if (!account || account.disabledAt) throw new SendRefused("account_disabled");
       const credentials = await load(deps.db, deps.encryptionKey, row.accountId);
       if (!credentials) throw new SendRefused("account_unavailable");
@@ -91,9 +93,9 @@ export async function sendDueMail(deps: MailSenderDeps): Promise<{ sent: number;
         clientSecret: credentials.clientSecret,
         refreshToken: credentials.refreshToken,
       });
-      // Una riga senza bozza è di un'esecuzione (area 7, F2, C-F2-1): il suo invio arriva con l'esecutore dell'email.
-      if (!row.gmailDraftId) throw new SendRefused("invalid_message");
-      const sent = await client.sendDraft({ accessToken: tokens.accessToken, id: row.gmailDraftId });
+      const sent = row.gmailDraftId
+        ? await client.sendDraft({ accessToken: tokens.accessToken, id: row.gmailDraftId })
+        : await client.sendMessage({ accessToken: tokens.accessToken, raw: encodeRaw(await automationMime(deps.db, row, account.email)), threadId: row.gmailThreadId });
       // Gmail HA MANDATO: da qui un errore non è mai un invio fallito. Si
       // ritenta la scrittura; se non riesce, `sent_unrecorded` (review F3,
       // punto 2) — un `failed`/`other` farebbe premere Elimina o Riprova e
@@ -116,6 +118,33 @@ export async function sendDueMail(deps: MailSenderDeps): Promise<{ sent: number;
 }
 
 class SendRefused extends Error {}
+
+/**
+ * Il MIME di un'email d'automazione (area 7, F2, C-F2-1): nessuno l'ha scritta
+ * in Gmail, quindi non c'è una bozza da mandare. Dalla casella, col
+ * Message-ID scelto dall'esecutore (`rfc_message_id`: il poller riconosce così
+ * la copia mandata), e nella stessa conversazione in risposta all'ultima
+ * email già partita di quel thread.
+ */
+async function automationMime(db: Db, row: typeof mailOutgoing.$inferSelect, from: string): Promise<string> {
+  const [previous] = row.gmailThreadId
+    ? await db
+        .select({ rfc: mailOutgoing.rfcMessageId })
+        .from(mailOutgoing)
+        .where(and(eq(mailOutgoing.accountId, row.accountId), eq(mailOutgoing.gmailThreadId, row.gmailThreadId), eq(mailOutgoing.state, "sent"), isNotNull(mailOutgoing.rfcMessageId)))
+        .orderBy(desc(mailOutgoing.sentAt))
+        .limit(1)
+    : [];
+  return buildMimeMessage({
+    from: { email: from, name: null },
+    to: row.toAddresses,
+    cc: row.ccAddresses,
+    subject: row.subject,
+    body: row.body,
+    ...(row.rfcMessageId ? { messageId: row.rfcMessageId } : {}),
+    ...(previous?.rfc ? { inReplyTo: previous.rfc, references: [previous.rfc] } : {}),
+  });
+}
 
 /** Quante volte si ritenta la scrittura di `sent` dopo un invio riuscito. */
 export const RECORD_SENT_ATTEMPTS = 3;

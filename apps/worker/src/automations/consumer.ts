@@ -6,6 +6,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import { automationEventFields as eventFields, projectPermissionsOfUser } from "@stubwise/notifications";
+import { wakeTaskWaits } from "./waits.js";
 import { chainAllows, evaluate, initialState, lookup, render, type AutomationFlow } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, isNotNull, lte, sql } from "drizzle-orm";
 
@@ -77,6 +78,11 @@ export async function consumeAutomationEvents(deps: ConsumerDeps): Promise<numbe
       .limit(EVENT_BATCH)
       .for("update", { skipLocked: true });
     for (const event of batch) {
+      // S5: una task chiusa sveglia le attese che la aspettano (un passo `wait` taskClosed della stessa esecuzione).
+      if (event.kind === "task_closed" && event.objectId) {
+        const woken = await wakeTaskWaits(tx, event.objectId);
+        if (woken > 0) log(`[automations] task ${event.objectId} chiusa: ${woken} attese svegliate`);
+      }
       const started = await startRunsFor(tx, event, log);
       if (started > 0) log(`[automations] evento ${event.kind} ${event.objectId}: ${started} esecuzioni`);
     }

@@ -452,6 +452,26 @@ describe("le letture personali e la card d'inbox", () => {
     expect(((await call(lead.headers, "GET", `/automations/${a.code}/runs/1`)).json() as { log: unknown[] }).log).toHaveLength(1);
   });
 
+  it("area 7, F2, R-J16: il testo della risposta del cliente lo vede solo il proprietario; per gli altri è vuoto e la riga lo dice", async () => {
+    const { a, run, lead, p } = await waiting();
+    const other = await person();
+    await addMember(app, p.id, other.id, "project_lead");
+    await db.update(automationRuns).set({ vars: { "risposta.arrivata": true, "risposta.testo": "Firmo domani" } }).where(eq(automationRuns.id, run.id));
+    await db.insert(automationRunLog).values([
+      { runId: run.id, seq: 1, stepId: "w", path: "0", kind: "wait", outcome: "ok", output: { "risposta.arrivata": true, "risposta.testo": "Firmo domani" } },
+      { runId: run.id, seq: 2, stepId: "t", path: "1", kind: "createTask", outcome: "ok", input: { titolo: "Dopo: Firmo domani" } },
+    ]);
+    type Detail = { vars: Record<string, unknown>; log: { output: Record<string, unknown>; input: Record<string, unknown>; replyHidden?: boolean }[] };
+    const mine = (await call(lead.headers, "GET", `/automations/${a.code}/runs/1`)).json() as Detail;
+    expect(mine.vars["risposta.testo"]).toBe("Firmo domani");
+    expect(mine.log.some((e) => e.replyHidden)).toBe(false);
+    const theirs = (await call(other.headers, "GET", `/automations/${a.code}/runs/1`)).json() as Detail;
+    expect(theirs.vars).toMatchObject({ "risposta.arrivata": true, "risposta.testo": "" });
+    expect(theirs.log[0]).toMatchObject({ output: { "risposta.testo": "" }, replyHidden: true });
+    expect(theirs.log[1]).toMatchObject({ input: { titolo: "" }, replyHidden: true });
+    expect(JSON.stringify((await call(other.headers, "GET", `/automation-runs?automation=${a.code}`)).json())).not.toContain("Firmo domani");
+  });
+
   it("la card automation.approval: derivata a lettura — aspetta me finché il passo aspetta; deciso, lo dice; chi non la vede: objectGone", async () => {
     const { a, run, lead, p } = await waiting();
     const second = await person();
