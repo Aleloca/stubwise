@@ -650,6 +650,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Trasversali
 
+- **Gli `idx` del journal di drizzle sono sfasati da 0158 in poi** *(S,
+  72, 13 nov 2026)*: in `packages/db/drizzle/meta/_journal.json` manca la
+  voce di indice 157 (la 0157 dell'area 6, F3b, rinumerata), quindi da
+  `0158_mail_attachment_orphans` ogni voce ha `idx` = posizione + 1. Il
+  migratore non ordina per `idx` (legge le voci nell'ordine e i `when`
+  crescenti), quindi oggi non rompe niente; visto unendo l'area 6 nella F1
+  dell'area 7. Da riallineare in un rilascio a sé, mai insieme a una
+  migrazione nuova, controllando che `drizzle-kit` non lo usi.
+
 - **`apps/server/src/slack/routes.test.ts` da stabilizzare** *(O, 46, 13 nov
   2026)*: instabile già da prima della F5a. Tre test di `block_actions`
   dell'inbox (`inbox:answer:all`, e «firma non valida → 401») falliscono a
