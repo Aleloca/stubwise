@@ -105,7 +105,22 @@ export async function executeDueRuns(deps: ExecutorDeps): Promise<number> {
       await releaseClaim(deps.db, id, token);
     }
   }
+  await pruneConsumedInputs(deps.db);
   return ids.length;
+}
+
+/**
+ * La ritenzione della coda degli input (review F1, M6): un input consumato
+ * serve solo per diagnosi (la decisione vera è nel registro della run, con chi
+ * e quando), e dopo 7 giorni si toglie, come gli eventi consumati. Il registro
+ * (`automation_run_log`) vive con la sua esecuzione e se ne va con lei.
+ */
+export const INPUT_RETENTION_DAYS = 7;
+
+export async function pruneConsumedInputs(db: Db): Promise<void> {
+  await db
+    .delete(automationRunInputs)
+    .where(sql`${automationRunInputs.consumedAt} is not null and ${automationRunInputs.consumedAt} < now() - make_interval(days => ${INPUT_RETENTION_DAYS})`);
 }
 
 /** Rilascia la presa, solo se è ancora quella di `token` (un altro worker può averla ripresa a lease scaduta). */

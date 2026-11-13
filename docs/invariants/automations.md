@@ -89,7 +89,9 @@ motore condiviso (`packages/shared/src/automations/`).
   il motore lo riprende con `restoreState`, come il prototipo. Un LEASE per
   esecuzione (`claimed_at`, 5′ rinnovati a ogni input, `SKIP LOCKED`, la
   presa con un gettone che solo chi l'ha presa rilascia); un worker morto la
-  libera alla scadenza, un riavvio non perde niente. Coi passi di Claude
+  libera alla scadenza, un riavvio non perde niente. Gli input consumati si
+  tolgono dopo 7 giorni (`pruneConsumedInputs`); il registro resta con la
+  sua esecuzione. Coi passi di Claude
   (F3) la lease va ripensata: un passo lungo deve rinnovarla.
 - **Gli effetti** (`effects.ts`) sono l'UNICO punto che scrive per
   un'automazione, con le scritture di oggi (`createTicket`, `createMilestone`,

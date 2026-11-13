@@ -23,7 +23,7 @@ import type { AutomationFlow, Step } from "@stubwise/shared";
 import { asc, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { effectKey, executeEffect } from "./effects.js";
-import { executeDueRuns, releaseClaim, RUN_LEASE_MS } from "./executor.js";
+import { executeDueRuns, INPUT_RETENTION_DAYS, pruneConsumedInputs, releaseClaim, RUN_LEASE_MS } from "./executor.js";
 
 /**
  * L'ESECUTORE (area 7, F1): le esecuzioni dovute avanzano col motore puro, gli
@@ -290,6 +290,17 @@ describe("executeDueRuns", () => {
     // Due giri di fila senza `workerId`: prese con gettoni diversi, mai lo stesso nome per tutti.
     await executeDueRuns({ db: t.db });
     expect((await reload(run.id)).claimedBy).toBeNull();
+  });
+
+  it("review F1, M6: gli input consumati da più di 7 giorni si tolgono; quelli recenti o non consumati restano", async () => {
+    const { run } = await runOf([task({ approval: { mode: "ask", who: { owner: true } } })]);
+    const old = new Date(Date.now() - (INPUT_RETENTION_DAYS + 1) * 86_400_000);
+    const [gone] = await t.db.insert(automationRunInputs).values({ runId: run.id, input: { control: "skip", byId: ownerId }, byId: ownerId, consumedAt: old }).returning();
+    const [recent] = await t.db.insert(automationRunInputs).values({ runId: run.id, input: { control: "skip", byId: ownerId }, byId: ownerId, consumedAt: new Date() }).returning();
+    await pruneConsumedInputs(t.db);
+    const ids = (await t.db.select().from(automationRunInputs).where(eq(automationRunInputs.runId, run.id))).map((r) => r.id);
+    expect(ids).toContain(recent!.id);
+    expect(ids).not.toContain(gone!.id);
   });
 
   describe("gli input di controllo dalla coda (il server non muove il motore)", () => {
