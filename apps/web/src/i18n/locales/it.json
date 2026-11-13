@@ -3530,7 +3530,10 @@
         "history": "Vedere chi ha aperto i file del Drive"
       },
       "automations": {
-        "manage": "Gestire le automazioni del progetto e decidere le loro esecuzioni"
+        "manage": "Gestire le automazioni del progetto e decidere le loro esecuzioni",
+        "general": {
+          "manage": "Gestire le automazioni generali (senza progetto) e decidere le loro esecuzioni"
+        }
       }
     }
   },
