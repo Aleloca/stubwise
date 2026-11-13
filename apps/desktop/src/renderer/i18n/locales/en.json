@@ -9088,7 +9088,11 @@
         "in_flight": "Claude is already working on a correction.",
         "not_fixable": "Claude can't push to this branch.",
         "analysis_only": "This pull request is set to analysis only.",
-        "monthly_budget": "Claude didn't start: the monthly AI budget is used up."
+        "monthly_budget": "Claude didn't start: the monthly AI budget is used up.",
+        "pr_not_found": "Stubwise is still analyzing this pull request: try again in a moment.",
+        "adopted_pr_admin_only": "Only an admin can ask for changes on this pull request.",
+        "not_stubwise_pr": "Stubwise can't correct this pull request.",
+        "adopted_branch_protected": "This pull request's branch is protected: Claude can't push to it."
       },
       "stubwiseCorrections": "Claude makes the change in a new session of {{task}}.",
       "openSession": "Open",

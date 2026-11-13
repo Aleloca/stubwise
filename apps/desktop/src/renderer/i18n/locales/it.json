@@ -9088,7 +9088,11 @@
         "in_flight": "Claude sta già lavorando a una correzione.",
         "not_fixable": "Claude non può spingere su questo ramo.",
         "analysis_only": "Questa PR è su solo analisi.",
-        "monthly_budget": "Claude non è partito: il budget AI del mese è esaurito."
+        "monthly_budget": "Claude non è partito: il budget AI del mese è esaurito.",
+        "pr_not_found": "Stubwise sta ancora analizzando questa pull request: riprova tra poco.",
+        "adopted_pr_admin_only": "Solo un admin può chiedere modifiche su questa pull request.",
+        "not_stubwise_pr": "Stubwise non può correggere questa pull request.",
+        "adopted_branch_protected": "Il ramo di questa pull request è protetto: Claude non può spingerci."
       },
       "stubwiseCorrections": "Claude fa la modifica in una nuova sessione di {{task}}.",
       "openSession": "Apri",

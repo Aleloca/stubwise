@@ -330,7 +330,15 @@ export type CorrectionRequestResult =
         | "not_fixable"
         | "analysis_only"
         /** Area 9b: il budget AI del mese è esaurito, Claude non parte. */
-        | "monthly_budget";
+        | "monthly_budget"
+        /** Build app (review F1, I2): la PR di un collega è ancora in analisi. */
+        | "pr_not_found"
+        /** Build app: una PR adottata la corregge solo un admin. */
+        | "adopted_pr_admin_only"
+        /** Build app: non è una PR che Stubwise può correggere. */
+        | "not_stubwise_pr"
+        /** Build app: il ramo della PR adottata è protetto. */
+        | "adopted_branch_protected";
     };
 
 /**

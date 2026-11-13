@@ -252,6 +252,11 @@ describe("le PR aperte della build app (area 8, F1)", () => {
       ["correction_in_flight", "in_flight"],
       ["pr_not_open", "already_closed"],
       ["colleague_analysis_only", "analysis_only"],
+      // Review F1, I2: i codici di una PR di un collega, con le loro parole.
+      ["pr_not_found", "pr_not_found"],
+      ["adopted_pr_admin_only", "adopted_pr_admin_only"],
+      ["not_stubwise_pr", "not_stubwise_pr"],
+      ["adopted_branch_protected", "adopted_branch_protected"],
     ] as const) {
       const failing = createRealPrs(
         fakeApi({
