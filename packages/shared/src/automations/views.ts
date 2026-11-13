@@ -477,3 +477,22 @@ export interface SimulationExamplesView {
   items: SimulationExample[];
   context: SimulationContext;
 }
+
+/** `POST /api/automations/:code/test/estimate` (area 7, F3, C-F3-2): la stima gratuita della prova. */
+export interface AutomationTestEstimate {
+  /** I passi di Claude raggiungibili, coi giri dei «per ogni» dell'esempio. */
+  claudeSteps: number;
+  /** `null`: il modello non ha una tariffa nota (mai uno zero inventato). */
+  estimateUsd: number | null;
+  model: string;
+}
+
+/** `POST /api/automations/:code/test/claude` (area 7, F3, D4): il risultato di un passo di Claude della prova. */
+export interface AutomationTestClaudeResult {
+  outcome?: string;
+  fields?: Record<string, unknown>;
+  reason: string;
+  /** Gli input tagliati a 20 000 caratteri (F3-5). */
+  truncated?: string[];
+}
+

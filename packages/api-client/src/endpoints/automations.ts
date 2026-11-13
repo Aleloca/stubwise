@@ -9,6 +9,8 @@ import type {
   AutomationDecision,
   AutomationOrigin,
   FlowIssue,
+  AutomationTestClaudeResult,
+  AutomationTestEstimate,
   MyAutomationRun,
   ProjectAutomationsView,
   SimulationExamplesView,
@@ -141,6 +143,14 @@ export function createAutomationEndpoints(request: ApiRequest) {
       return request("GET", `/api/automation-origin${toQuery(q)}`);
     },
     /** Il blocco Home: aspetta me, fallite che gestisco, mie non finite. */
+    /** Area 7, F3: la stima gratuita di una prova con passi di Claude (l'evento dell'esempio scelto). */
+    testEstimate(code: string, input: { version: number | "draft"; event: Record<string, unknown> }): Promise<AutomationTestEstimate> {
+      return request("POST", `${base(code)}/test/estimate`, input);
+    },
+    /** Area 7, F3: un passo di Claude della prova, sul server (409 `budget`, 422 `claude_invalid`). */
+    testClaude(code: string, input: { version: number | "draft"; path: string; vars: Record<string, unknown> }): Promise<AutomationTestClaudeResult> {
+      return request("POST", `${base(code)}/test/claude`, input);
+    },
     myRuns(opts: { log?: "none" } = {}): Promise<{ items: MyAutomationRun[] }> {
       return request("GET", `/api/me/automation-runs${toQuery({ log: opts.log })}`);
     },
