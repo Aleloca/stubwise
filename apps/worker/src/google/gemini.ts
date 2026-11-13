@@ -34,7 +34,7 @@ function gmailVerdictPasses(message: GmailMessage): boolean {
 }
 
 /** Il titolo della riunione dall'oggetto («Notes: “Titolo”»), per l'aggancio di ripiego all'evento. */
-function meetingTitleOf(subject: string | undefined): string | null {
+export function meetingTitleOf(subject: string | undefined): string | null {
   if (!subject) return null;
   const quoted = /[“"']([^”"']+)[”"']/.exec(subject);
   const title = (quoted ? quoted[1]! : subject.replace(/^[^:]*:\s*/, "")).trim();

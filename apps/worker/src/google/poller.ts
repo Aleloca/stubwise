@@ -3,6 +3,7 @@ import {
   calendarSeries as calendarSeriesTable,
   calendarSeriesRecurrence,
   emailMessages,
+  meetingNotes,
   emailProposals,
   emailRejections,
   googleAccounts,
@@ -16,6 +17,8 @@ import {
   users,
   type Db,
 } from "@stubwise/db";
+import { recognizeGeminiNotes } from "./gemini.js";
+import { processMeetingNotes, type DriveReadClient } from "./meetings.js";
 import {
   extractText,
   getMessageFull,
@@ -256,6 +259,10 @@ export interface GooglePollerDeps {
   gmail?: GmailClient;
   /** Client Calendar iniettabile nei test. Default: rete vera. */
   calendar?: CalendarClient;
+  /** Area 6, F5a: il client di Drive (sola lettura) per il Doc di Gemini. Default: rete vera. */
+  drive?: DriveReadClient;
+  /** Area 6, F5a: il modello del riassunto delle riunioni; omesso = quello risolto dal TrackingAgentRunner. */
+  meetingModel?: string;
   /**
    * Lingua dei contenuti dell'istanza: la fase 3 la usa per il nome della
    * milestone proposta. Assente = letta una volta per casella dalle
@@ -1095,10 +1102,13 @@ async function syncGmail(
       ? { projectId: null, candidateProjectIds: [], scopeProjectIds: [] }
       : matchRoutes(messageToRouting(full, text), ctx.routes);
 
+    // F5a (C1): l'email degli appunti di Gemini, riconosciuta solo con
+    // mittente, esito di Gmail e link al Doc (`gemini.ts`).
+    const gemini = recognizeGeminiNotes(full);
     const inserted = await deps.db
       .insert(emailMessages)
-      .values(
-        buildEmailMessageInsert({
+      .values({
+        ...buildEmailMessageInsert({
           accountId: account.id,
           message: full,
           text,
@@ -1107,12 +1117,21 @@ async function syncGmail(
           scopeProjectIds: resolved.scopeProjectIds,
           now: now(),
         }),
-      )
+        kind: gemini ? "transcript" : "email",
+      })
       // L'unique `(account_id, gmail_message_id)` è l'idempotenza del poller:
       // rileggere la stessa history due volte non duplica niente.
       .onConflictDoNothing()
-      .returning({ id: emailMessages.id });
+      .returning({ id: emailMessages.id, rfcMessageId: emailMessages.rfcMessageId });
     if (inserted.length > 0) ingested += 1;
+    if (gemini && inserted[0]) {
+      // Una riunione per Doc: la stessa email in un'altra casella non ne crea
+      // una seconda, e il Doc lo legge la casella della PRIMA copia.
+      await deps.db
+        .insert(meetingNotes)
+        .values({ docFileId: gemini.docFileId, sourceMessageId: inserted[0].id, rfcMessageId: inserted[0].rfcMessageId })
+        .onConflictDoNothing();
+    }
     await forgetRejections(deps, account, [id]);
 
     // IL THREAD INTERO («la posta si legge per conversazione» §2, Task 8).
@@ -1562,6 +1581,8 @@ async function syncCalendar(
       icalUid: event.iCalUID,
       visibility: event.visibility,
       organizerSelf: event.organizerSelf,
+      // F5a: gli allegati (dove Gemini attacca il Doc degli appunti).
+      attachments: event.attachments,
     };
 
     const existing = byEventId.get(event.id);
@@ -2550,6 +2571,30 @@ async function runAccountTick(
   // proposte in inbox. Dopo i cursori: non parla con Google, e un suo guasto
   // non deve poter costare una risincronizzazione.
   let proposed = account.proposalsEnabled ? await runProposePhase(deps, account) : 0;
+  // Area 6, F5a: le riunioni registrate di questa casella (il Doc di Gemini
+  // letto con QUESTA casella, il riassunto e le proposte della riunione).
+  // Dopo il calendario (gli allegati degli eventi sono freschi), prima della
+  // pubblicazione (le proposte nate qui escono nello stesso giro). Con la
+  // classificazione nuova e le proposte accese, come la classificazione.
+  if (account.proposalsEnabled && deps.classifyV2 && deps.runner) {
+    try {
+      await processMeetingNotes({
+        db: deps.db,
+        runner: deps.runner,
+        select: deps.select,
+        account: { id: account.id, email: account.email, scopes: account.scopes },
+        accessToken: ctx.accessToken,
+        ...(deps.drive ? { drive: deps.drive } : {}),
+        ...(deps.lang ? { lang: deps.lang } : {}),
+        ...(deps.meetingModel !== undefined ? { model: deps.meetingModel } : {}),
+        ...(deps.now ? { now: deps.now } : {}),
+        ...(deps.logger ? { logger: deps.logger } : {}),
+        ...(deps.signal ? { signal: deps.signal } : {}),
+      });
+    } catch (err) {
+      (deps.logger ?? defaultLogger).error(`google: riunioni registrate di ${account.email}: ${errText(err)}`);
+    }
+  }
   // Area 6, F2: le proposte CONDIVISE nate dalla posta di questa casella, una
   // card per destinatario membro (D4). Le crea solo la classificazione nuova,
   // che ha già rispettato l'interruttore di questa casella.
