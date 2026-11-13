@@ -165,6 +165,7 @@ import {
   OPT_IN_SCENARIOS,
   SCENARIO_NAMES,
   selectScenarios,
+  needsPlugins,
   type ScenarioName,
   skillCallsFrom,
   chatChecks,
@@ -234,11 +235,13 @@ interface Args {
 function printUsage(): void {
   console.error(
     [
-      "Uso: pnpm --filter @stubwise/worker golden -- --plugin <dir> [opzioni]",
+      "Uso: pnpm --filter @stubwise/worker golden -- [--plugin <dir>] [opzioni]",
       "",
       "  --plugin <dir>      directory di UN plugin da caricare (ripetibile, nell'ordine).",
       "                      Tipicamente la dir materializzata: /plugins/<slug>/<sha>.",
       "                      Il plugin base di Stubwise è sempre caricato per primo.",
+      "                      Facoltativo se gli scenari scelti non caricano plugin",
+      "                      (automation-step, mail-classify-v2).",
       "  --scenario <nome>   solo questo scenario (ripetibile). Default: tutti tranne gli opt-in.",
       `                      Nomi: ${SCENARIO_NAMES.join(", ")}.`,
       `                      Opt-in (solo se nominati): ${OPT_IN_SCENARIOS.join(", ")}.`,
@@ -303,10 +306,12 @@ function parseArgs(argv: string[]): Args {
     }
   }
 
-  if (plugins.length === 0) fail("Serve almeno un --plugin <dir>");
+  const selected = selectScenarios(scenarios);
+  // `--plugin` serve solo se uno degli scenari scelti carica plugin (non `automation-step`, `mail-classify-v2`).
+  if (plugins.length === 0 && needsPlugins(selected)) fail("Serve almeno un --plugin <dir> (tranne per gli scenari senza plugin: automation-step, mail-classify-v2)");
   return {
     plugins,
-    scenarios: selectScenarios(scenarios),
+    scenarios: selected,
     model,
     keep,
     claude,

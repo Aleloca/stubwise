@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { AskUserFileResult } from "../../src/pipeline/ask-user.js";
 import {
   automationStepChecks,
+  needsPlugins,
   askUserCheck,
   bashCommand,
   bashLeavesCwd,
@@ -1223,6 +1224,15 @@ describe("automationStepChecks (area 7, F3)", () => {
       { name: "d", shape: { ok: true }, outcome: "x", raw: '{"type":"tool_use"}', expect: {} },
     ]);
     expect(bad.filter((c) => !c.passed).map((c) => c.name)).toEqual(["b: risposta nella forma", "c: l'istruzione dentro i dati non si segue", "d: nessuno strumento"]);
+  });
+});
+
+describe("needsPlugins", () => {
+  it("`--plugin` serve solo se uno degli scenari scelti carica plugin", () => {
+    expect(needsPlugins(["automation-step"])).toBe(false);
+    expect(needsPlugins(["automation-step", "mail-classify-v2"])).toBe(false);
+    expect(needsPlugins(["automation-step", "refine"])).toBe(true);
+    expect(needsPlugins(["plan-only"])).toBe(true);
   });
 });
 

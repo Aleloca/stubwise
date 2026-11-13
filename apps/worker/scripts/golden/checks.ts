@@ -60,6 +60,18 @@ export function selectScenarios(named: readonly ScenarioName[]): ScenarioName[] 
   return named.length > 0 ? [...named] : SCENARIO_NAMES.filter((name) => !OPT_IN_SCENARIOS.includes(name));
 }
 
+/**
+ * Scenari che NON caricano plugin: chiamano il runner senza `pluginDirs` (il
+ * passo di Claude delle automazioni, la classificazione della posta). Lanciati
+ * da soli non vogliono `--plugin`.
+ */
+export const PLUGINLESS_SCENARIOS: readonly ScenarioName[] = ["automation-step", "mail-classify-v2"];
+
+/** `--plugin` serve se almeno uno degli scenari scelti carica plugin. */
+export function needsPlugins(scenarios: readonly ScenarioName[]): boolean {
+  return scenarios.some((s) => !PLUGINLESS_SCENARIOS.includes(s));
+}
+
 export function isScenarioName(value: string): value is ScenarioName {
   return (SCENARIO_NAMES as readonly string[]).includes(value);
 }

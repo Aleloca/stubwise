@@ -94,7 +94,11 @@ il modello vero.
 pnpm --filter @stubwise/worker golden -- --plugin /tmp/superpowers
 ```
 
-Opzioni: `--plugin <dir>` (ripetibile, nell'ordine di caricamento),
+Opzioni: `--plugin <dir>` (ripetibile, nell'ordine di caricamento;
+facoltativo se gli scenari scelti non caricano plugin — oggi
+`automation-step` e `mail-classify-v2`, che chiamano il runner senza
+`pluginDirs`: `pnpm --filter @stubwise/worker golden -- --scenario
+automation-step --claude <path> --model sonnet`),
 `--scenario <nome>` (ripetibile; default tutti tranne gli **opt-in**, oggi
 solo `refine-read-bash`, che gira solo se nominato), `--model <nome>`
 (default `sonnet`), `--claude <path>` (binario del CLI, default `claude` nel
