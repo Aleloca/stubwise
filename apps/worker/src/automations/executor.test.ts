@@ -146,6 +146,24 @@ describe("executeDueRuns", () => {
     expect((await t.db.select().from(automationRunInputs).where(eq(automationRunInputs.runId, run.id)))[0]!.consumedAt).toBeInstanceOf(Date);
   });
 
+  it("difesa in profondità: correzioni non ammesse scritte direttamente nella coda non arrivano al motore; l'esecuzione resta in attesa e una correzione valida passa", async () => {
+    const { run } = await runOf([task({ approval: { mode: "ask", who: { owner: true } } })]);
+    await exec();
+    expect((await reload(run.id)).status).toBe("waiting_approval");
+    await t.db.insert(automationRunInputs).values({ runId: run.id, input: { kind: "approved", path: "0", byId: ownerId, edited: { progetto: "altro" } }, byId: ownerId });
+    await t.db.insert(automationRunInputs).values({ runId: run.id, input: { kind: "approved", path: "0", byId: ownerId, edited: { titolo: 42 } }, byId: ownerId });
+    const lines: string[] = [];
+    await executeDueRuns({ db: t.db, log: (m) => lines.push(m) });
+    expect((await reload(run.id)).status).toBe("waiting_approval");
+    expect(await ticketsOfRun(run.id)).toEqual([]);
+    expect(lines.filter((l) => l.includes("edited"))).toHaveLength(2);
+    expect((await t.db.select().from(automationRunInputs).where(eq(automationRunInputs.runId, run.id))).every((r) => r.consumedAt instanceof Date)).toBe(true);
+    await t.db.insert(automationRunInputs).values({ runId: run.id, input: { kind: "approved", path: "0", byId: ownerId, edited: { titolo: "Corretto" } }, byId: ownerId });
+    await exec();
+    expect((await reload(run.id)).status).toBe("done");
+    expect((await ticketsOfRun(run.id))[0]!.title).toBe("Corretto");
+  });
+
   it("R-J11: un ruolo che nessuno ha nel progetto → fallisce con no_approver, e il proprietario lo sa", async () => {
     const { run } = await runOf([task({ approval: { mode: "ask", who: { projectRole: "viewer" } } })]);
     await exec();
