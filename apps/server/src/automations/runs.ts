@@ -155,9 +155,12 @@ export async function runRowOf(db: Db, viewer: Viewer, r: RunRecord, a: Automati
   // Gli altri leggono l'evento vuoto con `mailHidden`, il titolo col solo nome
   // e le righe senza dati (nessuna eco dell'email); chi decide vede
   // l'anteprima del passo. (La catena, con «avvia un'altra», arriva in F4.)
-  // F3, C-F3-7: una riga di Claude che leggeva un dato tinto (di fuori: la
-  // risposta di un cliente, un'email) perde motivazione e campi di testo per chi
-  // non è il proprietario della posta, admin compresi.
+  // F3, C-F3-7 e review F3 I3: ciò che Claude ha ricavato da un dato tinto (di
+  // fuori: la risposta di un cliente, un'email, una richiesta dal supporto) lo
+  // legge solo il proprietario della posta, admin compresi. Per gli altri: la
+  // motivazione e i campi della riga di Claude, le stesse chiavi in `vars`, ogni
+  // eco dei loro valori nelle righe dopo, nel titolo e nell'anteprima, e
+  // l'uscita rifiutata di un `unknown_outcome`.
   if (viewer.id !== mailOwner && run.log.some((e) => e.kind === "claude")) {
     const flow = await flowOfRun(db, r);
     if (flow) {
@@ -168,12 +171,47 @@ export async function runRowOf(db: Db, viewer: Viewer, r: RunRecord, a: Automati
       visitSteps(flow.steps, (st) => {
         if (st.kind === "claude") claudeSteps.set(st.id, st);
       });
+      const hiddenKeys = new Set<string>();
+      const secrets = new Set<string>();
+      const collect = (v: unknown) => {
+        if (typeof v === "string" && v.trim().length >= 3) secrets.add(v);
+        else if (Array.isArray(v)) v.forEach(collect);
+        else if (v && typeof v === "object") Object.values(v).forEach(collect);
+      };
       for (const e of run.log) {
         const st = e.kind === "claude" ? claudeSteps.get(e.stepId) : undefined;
         if (!st || !st.inputs.some(isTainted)) continue;
+        for (const f of st.fields) {
+          hiddenKeys.add(f.key);
+          collect(e.output[f.key]);
+          collect(run.vars[f.key]);
+        }
+        if (typeof e.output.uscita === "string" && !st.outcomes.includes(e.output.uscita)) collect(e.output.uscita);
+        if (typeof e.why?.params?.outcome === "string") collect(e.why.params.outcome);
         e.reason = null;
-        for (const f of st.fields) if (f.type === "text" && typeof e.output[f.key] === "string") e.output[f.key] = "";
+        e.output = Object.fromEntries(Object.entries(e.output).filter(([k]) => k === "uscita" && typeof e.output.uscita === "string" && st.outcomes.includes(e.output.uscita)));
+        if (e.why) e.why = { code: e.why.code };
         e.reasonHidden = true;
+      }
+      if (hiddenKeys.size > 0 || secrets.size > 0) {
+        const blank = (v: unknown) => (Array.isArray(v) ? [] : typeof v === "string" ? "" : null);
+        for (const k of hiddenKeys) if (k in run.vars) run.vars[k] = blank(run.vars[k]);
+        const echoes = (text: string) => [...secrets].some((x) => text.includes(x));
+        const scrub = (o: unknown): boolean => {
+          if (!o || typeof o !== "object") return false;
+          let hit = false;
+          for (const [k, v] of Object.entries(o as Record<string, unknown>)) {
+            if (typeof v === "string" && echoes(v)) {
+              (o as Record<string, unknown>)[k] = "";
+              hit = true;
+            } else if (v && typeof v === "object" && scrub(v)) hit = true;
+          }
+          return hit;
+        };
+        for (const e of run.log) if (scrub(e.input) || scrub(e.output)) e.reasonHidden = true;
+        scrub(run.vars);
+        if (run.title && echoes(run.title)) run.title = a.name;
+        if (run.pending && opts.decider !== true) scrub(run.pending.preview);
       }
     }
   }
