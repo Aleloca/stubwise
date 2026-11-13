@@ -314,7 +314,8 @@ clienti), e per quanto.
   di oggi).
 
 M3. **I DM Slack per i tipi che entrano nel catalogo** (Slack è in
-dismissione, *(maintainer)*).
+dismissione, *(maintainer)*). Oggi il DM Slack è un interruttore per
+PERSONA (`users.notify_slack_dm`), non per tipo d'avviso.
 - (a) *(consigliata)* I tipi nuovi dell'area 8 non vanno su Slack; quelli
   di oggi che passano al catalogo (`monitor.*`) smettono di andarci quando
   passano, e la nota di rilascio lo dice.
