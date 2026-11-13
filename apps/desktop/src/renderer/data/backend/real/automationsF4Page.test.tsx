@@ -284,3 +284,53 @@ describe("le sorgenti nella build app (F4, R4)", () => {
     expect(rows[2]).toContain("Duplicate: already received, nothing started");
   });
 });
+
+describe("«Remember for <client>» lo decide il server (F4, R4)", () => {
+  const waiting = (rememberClient: boolean | undefined) => ({
+    id: "77777777-7777-4777-8777-777777777779",
+    automationId: A_ID,
+    n: 9,
+    version: 2,
+    title: "Avvio",
+    status: "waiting_project",
+    cursor: "0",
+    event: { cliente: { nome: "Rossi Srl" } },
+    vars: {},
+    waitingUntil: null,
+    pending: null,
+    startedAt: "2026-11-13T09:00:00.000Z",
+    endedAt: null,
+    error: null,
+    projectIds: [],
+    code: "AUD-A1 #9",
+    automationCode: "AUD-A1",
+    automationName: "Avvio progetto",
+    automationProjectId: null,
+    flow: FLOW,
+    deciders: [ME_ID],
+    ownerId: ME_ID,
+    permissions: {
+      manage: true,
+      approve: false,
+      chooseProject: true,
+      ...(rememberClient === undefined ? {} : { rememberClient }),
+    },
+    parent: null,
+    children: [],
+    pendingEffect: null,
+    log: [],
+  });
+
+  it.each([
+    ["false", false, false],
+    ["assente (server più vecchio)", undefined, false],
+    ["true", true, true],
+  ])("con rememberClient %s la casella %s", async (_label, flag, shown) => {
+    // Chi guarda ha integrations.manage: non basta, decide il server.
+    instance.permissions = ["integrations.manage"];
+    install({ "GET /api/automations/AUD-A1/runs/9": { body: waiting(flag) } });
+    renderRoute("/automations/AUD-A1/runs/9");
+    await screen.findByRole("button", { name: "Choose" }, { timeout: 3000 });
+    expect(screen.queryByRole("checkbox", { name: "Remember for Rossi Srl" }) !== null).toBe(shown);
+  });
+});

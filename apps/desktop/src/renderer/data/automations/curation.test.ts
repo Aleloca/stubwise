@@ -212,6 +212,19 @@ describe("«Remember for <cliente>» nella scelta del progetto", () => {
     });
     expect(link.addedAt).toBeTruthy();
   });
+
+  it("la casella si offre (`rememberClient`) a chi decide solo con `integrations.manage`, come il server", async () => {
+    auto(A.newContract).ownerId = "p-matteo";
+    as("p-matteo");
+    const mine = (await automations.listMyApprovals()).find((d) => d.runId === R.waitingProject);
+    expect(mine?.rememberClient).toBe(false);
+    expect((await automations.getRun(R.waitingProject))?.permissions.rememberClient).toBe(false);
+    auto(A.newContract).ownerId = "p-roberta";
+    as("p-roberta");
+    const hers = (await automations.listMyApprovals()).find((d) => d.runId === R.waitingProject);
+    expect(hers?.rememberClient).toBe(true);
+    expect((await automations.getRun(R.waitingProject))?.permissions.rememberClient).toBe(true);
+  });
 });
 
 describe("il tempo a ore («+1 hour»)", () => {

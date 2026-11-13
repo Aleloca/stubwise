@@ -195,6 +195,7 @@ export function NowBox({
                 cursor={run.cursor ?? ""}
                 code={run.code}
                 client={client}
+                canRemember={run.permissions.rememberClient === true}
                 onDone={onDone}
               />
             )

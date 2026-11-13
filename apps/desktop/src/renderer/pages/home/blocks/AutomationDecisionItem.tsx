@@ -81,6 +81,7 @@ export function AutomationDecisionItem({ decision }: { decision: AutomationDecis
             cursor={d.cursor}
             code={d.code}
             client={d.clientName}
+            canRemember={d.rememberClient === true}
             label={t("automations.decide.project")}
           />
         ) : (
