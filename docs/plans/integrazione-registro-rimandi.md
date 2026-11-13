@@ -524,9 +524,9 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     F5a dietro il flag `google` spento; la F5b lo accende. ComingSoon lo
     copre: una chiamata del Drive Google col flag spento fa fallire i test del
     Drive e del cassetto (provato con una mutazione);
-  - rimandi *(S)*: il riassunto nel dettaglio dell'evento non dice
-    `too_long` (la forma `MeetingSummary` di 72 non porta `docReason`, il
-    messaggio sì); nel pannello per nota le richieste nate non hanno il link
+  - rimandi *(S)*: ~~il riassunto nel dettaglio dell'evento non dice
+    `too_long`~~ (chiuso il 13 nov 2026: `docReason` su `MeetingSummary`,
+    review F5a); nel pannello per nota le richieste nate non hanno il link
     al progetto (`projectCode: null`: l'origine non porta il codice); le
     task di tipo `request` non escono ancora dal server (le richieste nate
     da una riunione sono job d'intake, risolverle nella voce di backlog è un
