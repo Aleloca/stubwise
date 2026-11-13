@@ -131,12 +131,15 @@ Nella F3 l'inizio `source` e il passo `startAutomation` sono «Coming soon» e
 
 - I campi di un inizio `source` sono tinti (già in `taint.ts`).
 - **Un «per ogni» su un elenco GREZZO tinto** (un elenco del payload del
-  webhook) deve tingere i suoi elementi, così un passo di Claude che legge un
-  elemento ha i campi tinti. Oggi `taint.ts` tinge l'elemento solo se
-  l'elenco viene da Claude (`derived`): l'elemento di un elenco grezzo va in
-  `all` (tinto, ma grezzo: una destinazione presa direttamente da lì resta
-  permessa, come ogni campo grezzo). Task R2; se 72 l'ha già corretto nel suo
-  fix, R2 è la verifica.
+  webhook) tinge i suoi elementi per chi li legge (un passo di Claude che
+  legge un elemento ha i campi tinti), ma una destinazione presa direttamente
+  dall'elemento grezzo resta permessa: non l'ha decisa Claude. È nel fix
+  della F3 di 72 (M6, d7844b18 su `feat/area7-f3-fix`); nella F4 R2 lo
+  verifica coi campi di una sorgente.
+- **Le richieste** (I4 del fix della F3, *(O)* di 46): con gli inizi
+  `request_created` e `request_converted` titolo e descrizione della
+  richiesta sono tinti (possono venire dal widget di supporto), salvo un
+  filtro dell'inizio che escluda `richiesta.dal_supporto`.
 
 ## Le rotte (aggiunte alla F3)
 
@@ -196,10 +199,11 @@ R1. **La disponibilità della F4**: `AUTOMATION_F4_AVAILABILITY` = la F3 più
    `automations-f4`, spenta. *Test*: `BuilderPerimeter.test.tsx` col
    perimetro della F4; Audin e HubSpot restano «Coming soon».
 
-R2. **La tinta di un «per ogni» su un elenco grezzo** (vedi sopra), in
-   `taint.ts`. *Test*: un passo di Claude che legge l'elemento di un elenco
-   del webhook ha i campi tinti; una destinazione presa dall'elemento grezzo
-   resta permessa; una presa da Claude chiede l'approvazione.
+R2. **La verifica della tinta con le sorgenti** (la regola è già in
+   `taint.ts` dal fix della F3): *Test* coi campi di una sorgente webhook:
+   un passo di Claude che legge l'elemento di un elenco del payload ha i
+   campi tinti; una destinazione presa dall'elemento grezzo resta permessa;
+   una presa da Claude chiede l'approvazione.
 
 R3. **Le generali nella build app**: la voce «General» della colonna, la
    creazione con «General (all projects)» (`projectId: null`), i perimetri
