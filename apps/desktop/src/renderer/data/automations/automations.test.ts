@@ -1293,6 +1293,46 @@ describe("Automations: revisione del Task 3", () => {
     for (const text of leaks) expect(JSON.stringify(listed)).not.toContain(text);
   });
 
+  it("la tinta lungo la catena (review F4, I4): la figlia di una madre da email chiede l'approvazione per una destinazione decisa da Claude", async () => {
+    as("p-laura");
+    const child = await make(
+      AUD,
+      {
+        trigger: { kind: "stubwise", event: "task_created" },
+        steps: [
+          {
+            id: "c",
+            kind: "claude",
+            instruction: "Chi la segue?",
+            inputs: ["task.titolo"],
+            outcomes: [],
+            fields: [{ key: "claude.chi", label: "Chi", type: "person" }],
+            branches: {},
+          } as unknown as Step,
+          { id: "n", kind: "notify", who: { personRef: "claude.chi" }, text: "Seguila", approval: AUTO } as Step,
+        ],
+        titleTemplate: "Figlia",
+      },
+      "Figlia",
+    );
+    await make(AUD, {
+      trigger: { kind: "stubwise", event: "mail_received" },
+      steps: [{ id: "s", kind: "startAutomation", automationId: child, approval: AUTO }],
+      titleTemplate: "Email: {{email.oggetto}}",
+    });
+    const mine = state.mailMessages.find(
+      (m) => m.mailboxPersonIds.includes("p-laura") && m.subject.length > 8,
+    )!;
+    signalAutomations({ kind: "mail_received", messageIds: [mine.id] });
+    await idle();
+    const kid = lastRunOf(child);
+    expect(kid.parentRunId).toBeTruthy();
+    // Il flusso salvato dice «auto», ma l'evento viene da fuori: come il worker, si chiede.
+    // (Qui chi approva poi non c'è, e il passo fallisce `no_approver`: conta che abbia chiesto.)
+    expect(kid.eventUntrusted).toBe(true);
+    expect(kid.log.find((e) => e.path === "1")).toMatchObject({ kind: "notify", outcome: "waiting" });
+  });
+
   it("un errore inatteso nel runner: l'esecuzione fallisce `internal_error`, non resta in corso", async () => {
     as("p-matteo");
     // Un registro rovinato: la ripresa non trova il passo del cursore.
