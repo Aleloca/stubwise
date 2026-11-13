@@ -78,3 +78,4 @@ export * from "./session-end.js";
 export * from "./automations/index.js";
 // Area 8, F1: lo stato derivato di un rilascio e la bozza delle note di una PR.
 export * from "./releases/index.js";
+export * from "./chat-tool-routes.js";

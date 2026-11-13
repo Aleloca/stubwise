@@ -4,6 +4,7 @@ import type { AskUserFileResult } from "../../src/pipeline/ask-user.js";
 import {
   automationStepChecks,
   needsPlugins,
+  chatToolsMissingFromDist,
   askUserCheck,
   bashCommand,
   bashLeavesCwd,
@@ -1238,6 +1239,21 @@ describe("needsPlugins", () => {
     expect(needsPlugins(["automation-step", "mail-classify-v2"])).toBe(false);
     expect(needsPlugins(["automation-step", "refine"])).toBe(true);
     expect(needsPlugins(["plan-only"])).toBe(true);
+    // La chat con Claude non carica plugin (13 nov 2026): `--plugin` non serve, nemmeno con gli scenari nuovi.
+    expect(needsPlugins(["chat-read", "chat-release-read", "chat-release-hostile", "chat-mention-ask"])).toBe(false);
+    expect(needsPlugins(["chat-read", "refine"])).toBe(true);
   });
 });
 
+
+describe("chatToolsMissingFromDist (13 nov 2026)", () => {
+  const allowed = ["mcp__stubwise_chat__read_task", "mcp__stubwise_chat__read_release", "mcp__stubwise_chat__propose_action"];
+  it("un dist che registra tutti i tool permessi: niente manca", () => {
+    const src = 'register("read_task", "…"); register("read_release", "…"); server.registerTool("propose_action", {})';
+    expect(chatToolsMissingFromDist(src, allowed)).toEqual([]);
+  });
+  it("un dist più vecchio del tool nuovo: lo nomina, e il golden si ferma", () => {
+    const stale = 'register("read_task", "…"); server.registerTool("propose_action", {})';
+    expect(chatToolsMissingFromDist(stale, allowed)).toEqual(["read_release"]);
+  });
+});
