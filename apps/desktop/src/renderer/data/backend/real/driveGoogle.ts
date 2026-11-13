@@ -30,7 +30,7 @@ type Drive = typeof Fake.drive;
  */
 export function folderLinkOf(raw: unknown): FolderLinkView {
   const l = raw as Partial<FolderLinkView> & { status?: string };
-  return {
+  const view: FolderLinkView = {
     id: l.id ?? "",
     projectId: l.projectId ?? "",
     name: l.name ?? "",
@@ -43,7 +43,35 @@ export function folderLinkOf(raw: unknown): FolderLinkView {
     fileCount: l.fileCount ?? 0,
     accessLost: l.accessLost === true,
   };
+  return { ...view, syncing: stillSyncing(view) };
 }
+
+/**
+ * Review F5b (4): collegare e «Sync now» li fa il worker, dopo. Si ricorda
+ * quando è stata chiesta la sincronizzazione di ogni cartella (per client), e
+ * la cartella è «in sincronizzazione» finché il server non dice un
+ * `lastSyncedAt` più nuovo; oltre il tetto si smette di aspettare.
+ */
+export const SYNC_WAIT_MS = 120_000;
+const syncRequests = new WeakMap<object, Map<string, number>>();
+function requestsOf(): Map<string, number> {
+  const client = appClient();
+  let map = syncRequests.get(client);
+  if (!map) syncRequests.set(client, (map = new Map()));
+  return map;
+}
+function stillSyncing(l: FolderLinkView): boolean {
+  const map = requestsOf();
+  const at = map.get(l.id);
+  if (at === undefined) return false;
+  const done = l.lastSyncedAt !== null && Date.parse(l.lastSyncedAt) >= at;
+  if (done || Date.now() - at > SYNC_WAIT_MS || l.status === "expired") {
+    map.delete(l.id);
+    return false;
+  }
+  return true;
+}
+const requestSync = (linkId: string) => requestsOf().set(linkId, Date.now());
 
 /** I rifiuti del server nelle parole del prototipo. */
 const ERRORS: Readonly<Record<string, string>> = {
@@ -159,10 +187,17 @@ const addGoogleFile: Drive["addGoogleFile"] = async (projectId, googleFileId) =>
   call(async () => googleRowOf(await appClient().drive.addGoogleFile(projectId, googleFileId)));
 
 const linkFolder: Drive["linkFolder"] = async (projectId, googleFolderId) =>
-  call(async () => folderLinkOf(await appClient().drive.linkFolder(projectId, googleFolderId)));
+  call(async () => {
+    const raw = await appClient().drive.linkFolder(projectId, googleFolderId);
+    requestSync(raw.id);
+    return folderLinkOf(raw);
+  });
 
 const syncFolder: Drive["syncFolder"] = async (linkId) =>
-  call(async () => folderLinkOf(await appClient().drive.syncFolder(linkId)));
+  call(async () => {
+    requestSync(linkId);
+    return folderLinkOf(await appClient().drive.syncFolder(linkId));
+  });
 
 const unlinkFolder: Drive["unlinkFolder"] = async (linkId) =>
   call(() => appClient().drive.unlinkFolder(linkId));

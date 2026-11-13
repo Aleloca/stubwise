@@ -183,7 +183,12 @@ function FolderPicker({
       {
         onSuccess: (view) => {
           onClose();
-          toast.show(t("drive.link.linked", { name: view.name, count: view.fileCount }));
+          toast.show(
+            // Build app: i file li legge il worker, dopo (review F5b, 4).
+            view.syncing
+              ? t("drive.link.requested", { name: view.name })
+              : t("drive.link.linked", { name: view.name, count: view.fileCount }),
+          );
         },
       },
     );

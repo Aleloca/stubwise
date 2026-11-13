@@ -2212,6 +2212,11 @@ export interface DriveSearchResult {
 
 /** Una cartella collegata con quanti file porta nel progetto (non nascosti). */
 export interface FolderLinkView extends FolderLink {
+  /**
+   * Build app (F5b, review 4): una sincronizzazione chiesta da qui (collegando o
+   * con «Sync now») che il server non ha ancora fatto (la fa il worker).
+   */
+  syncing?: boolean;
   fileCount: number;
   /**
    * I suoi file sono non disponibili per accesso perso: l'account di chi

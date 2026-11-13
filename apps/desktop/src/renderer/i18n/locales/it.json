@@ -5706,6 +5706,8 @@
       "unlink": "Scollega la cartella…",
       "notUpdating": "Non si aggiorna dal {{date}}",
       "lastSynced": "sincronizzata {{when}}",
+      "syncing": "in sincronizzazione…",
+      "syncRequested": "Sincronizzo «{{name}}»…",
       "failed": "Non è riuscito. Non è cambiato nulla."
     },
     "content": {
@@ -5883,6 +5885,7 @@
       "warning_other": "Tutti i membri di {{code}} ({{count}} persone) potranno leggere ogni file di «{{folder}}» e delle sue sottocartelle, anche chi su Google non può aprirla. Stubwise la legge con il tuo account, {{email}}.",
       "pick": "Scegli una cartella. Prima di collegarla, qui leggi chi potrà vederne il contenuto.",
       "daily": "Stubwise ricontrolla la cartella ogni giorno; Sincronizza ora la aggiorna subito.",
+      "requested": "Collegata «{{name}}»: i suoi file arrivano fra poco.",
       "keys": "↑↓ per spostarti · Invio apre una cartella · ⌫ torna su",
       "cancel": "Annulla",
       "confirm": "Collega la cartella",

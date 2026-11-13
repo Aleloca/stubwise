@@ -292,3 +292,34 @@ describe("F5b: le cartelle collegate come le dice il server", () => {
     expect(row.unavailable).toBe("access_lost");
   });
 });
+
+// Review F5b (4): sul server collegare e «Sync now» sono ASINCRONI (li fa il
+// worker): la cartella è «in sincronizzazione» finché `lastSyncedAt` non
+// supera l'ora della richiesta, con un tetto.
+describe("F5b: la sincronizzazione chiesta e non ancora fatta", () => {
+  const LINKS = `GET /api/projects/${PROJECT_ID}/drive/google/links`;
+  it("dopo «Sync now» la cartella è in sincronizzazione finché il server non dice un'ora più nuova", async () => {
+    const old = "2026-11-13T02:00:00.000Z";
+    let synced = old;
+    installFakeServer({
+      [`POST /api/drive/google/folders/${LINK}/sync`]: { body: link({ lastSyncedAt: old }) },
+      [LINKS]: () => ({ body: { items: [link({ lastSyncedAt: synced })] } }),
+    });
+    expect((await g.syncFolder!(LINK)).syncing).toBe(true);
+    expect((await g.listFolderLinks!(PROJECT_ID))[0]!.syncing).toBe(true);
+    synced = new Date(Date.now() + 1000).toISOString();
+    expect((await g.listFolderLinks!(PROJECT_ID))[0]!.syncing).toBe(false);
+  });
+
+  it("appena collegata, senza ancora una sincronizzazione: in sincronizzazione", async () => {
+    installFakeServer({
+      [`POST /api/projects/${PROJECT_ID}/drive/google/folders`]: { body: link({ lastSyncedAt: null, fileCount: 0 }) },
+    });
+    expect((await g.linkFolder!(PROJECT_ID, "gf-1")).syncing).toBe(true);
+  });
+
+  it("una cartella mai chiesta da qui non è in sincronizzazione", async () => {
+    installFakeServer({ [LINKS]: { body: { items: [link({ lastSyncedAt: null })] } } });
+    expect((await g.listFolderLinks!(PROJECT_ID))[0]!.syncing).toBe(false);
+  });
+});

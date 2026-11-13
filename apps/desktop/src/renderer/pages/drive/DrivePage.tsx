@@ -151,12 +151,13 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
   const base: DriveFilters = project ? { projectId: project.id, sort: filters.sort } : { sort: filters.sort };
   const enabled = global ? !!projects : !!project;
   // Si rilegge l'elenco che si guarda, non le query di contorno; col dettaglio aperto si rilegge il dettaglio.
-  const filesQuery = useDriveFiles(filters, { enabled, poll: !search.file });
+  const folders = useFolderLinks(project?.id ?? "").data ?? [];
+  const syncing = folders.some((l) => l.syncing);
+  const filesQuery = useDriveFiles(filters, { enabled, poll: !search.file, syncing });
   const allQuery = useDriveFiles(base, { enabled });
-  // Google (area 6): cartelle, riferimenti, nascosti. Nella build app non c'è ancora.
+  // Google (area 6, F5b): cartelle, riferimenti, nascosti.
   const google = featureIntegrated("google");
   const hiddenQuery = useDriveFiles({ ...base, hidden: true }, { enabled: enabled && canManage && google });
-  const folders = useFolderLinks(project?.id ?? "").data ?? [];
   const rows = enabled ? filesQuery.data : undefined;
   const { projectId: fProject, type: fType, source: fSource, addedById: fAdded } = filters;
   const scope = useMemo<DriveSearchScope>(
@@ -334,7 +335,10 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
                     toast.show(
                       view.status === "expired"
                         ? t("drive.google.syncExpired", { name: view.name })
-                        : t("drive.google.synced", { name: view.name }),
+                        : // Build app: la sincronizzazione la fa il worker, dopo (review F5b, 4).
+                          view.syncing
+                          ? t("drive.google.syncRequested", { name: view.name })
+                          : t("drive.google.synced", { name: view.name }),
                     ),
                   onError: () => toast.error(t("drive.google.failed")),
                 }),

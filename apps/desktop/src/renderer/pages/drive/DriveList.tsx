@@ -208,7 +208,11 @@ export function DriveList({
       }
       g.rows.push(row);
     }
-    return { groups: [...byFolder.values()].filter((g) => g.rows.length > 0), loose: looseRows };
+    // Una cartella che si sincronizza resta visibile anche senza file (review F5b, 4).
+    return {
+      groups: [...byFolder.values()].filter((g) => g.rows.length > 0 || g.link?.syncing),
+      loose: looseRows,
+    };
   }, [global, rows, folders]);
 
   /** Le righe che si vedono, nell'ordine dello schermo: J/K e l'anteprima scorrono queste. */
@@ -407,7 +411,12 @@ export function DriveList({
                   </span>
                 )}
                 {/* Aggiornata: quando (QB1 = b, anche la sincronizzazione di ogni giorno). */}
-                {g.link?.status === "ok" && g.link.lastSyncedAt && (
+                {g.link?.syncing && (
+                  <span role="status" className="num ml-2 shrink-0 text-xs text-ink-faint">
+                    · {t("drive.google.syncing")}
+                  </span>
+                )}
+                {g.link?.status === "ok" && !g.link.syncing && g.link.lastSyncedAt && (
                   <span className="num ml-2 shrink-0 text-xs text-ink-faint">
                     · {t("drive.google.lastSynced", {
                       when: whenSynced(g.link.lastSyncedAt, i18n.language),
