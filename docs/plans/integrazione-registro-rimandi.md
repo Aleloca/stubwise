@@ -611,6 +611,16 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Trasversali
 
+- **`apps/server/src/slack/routes.test.ts` da stabilizzare** *(O, 46, 13 nov
+  2026)*: instabile già da prima della F5a. Tre test di `block_actions`
+  dell'inbox (`inbox:answer:all`, e «firma non valida → 401») falliscono a
+  intermittenza: la spia di `postResponse` riceve la risposta asincrona
+  («Notification not found.») di un test PRECEDENTE. Un giro rosso su quattro
+  da solo, e nel giro completo del server il 13 nov 2026; poi verde.
+- Due test a tempo del worker sotto carico *(S, 13 nov 2026)*:
+  `graph/poller.test.ts` («non sovrappone i tick») e `pipeline/fix.test.ts`
+  (l'heartbeat durante un run lento) cadono nel giro completo con la macchina
+  carica, verdi da soli.
 - **Ritiro del web vecchio** e passaggio di `/app` alla radice (decisione aperta
   del design della fetta 1); con il ritiro: togliere `tickets.status` enum,
   `saved_views`, `/api/projects/pulse` se nessuno lo legge più.

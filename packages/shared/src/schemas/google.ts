@@ -737,7 +737,16 @@ export const meetingSummarySchema = z.object({
   summary: z.string().nullable().default(null),
   docUrl: z.string().nullable().default(null),
   /** La mia copia dell'email di Gemini, se l'ho ricevuta. */
-  email: z.object({ threadId: z.string(), messageId: z.uuid(), at: z.iso.datetime() }).nullable().default(null),
+  email: z
+    .object({
+      threadId: z.string(),
+      /** La casella di chi guarda (la chiave del thread nell'app è `accountId_threadId`); un server di prima non lo manda. */
+      accountId: z.uuid().nullable().default(null),
+      messageId: z.uuid(),
+      at: z.iso.datetime(),
+    })
+    .nullable()
+    .default(null),
 });
 export type MeetingSummary = z.infer<typeof meetingSummarySchema>;
 

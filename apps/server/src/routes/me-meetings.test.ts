@@ -90,7 +90,7 @@ describe("il riassunto di una riunione", () => {
   it("dall'evento del proprio calendario: /calendar/events/:id/summary con l'evento e la propria copia dell'email", async () => {
     const s = await scenario();
     const res = await get(s.ada.headers, `/api/me/calendar/events/${s.adaRow.id}/summary`);
-    expect(res.json()).toMatchObject({ eventId: s.adaRow.id, email: { threadId: s.adaCopy.threadId, messageId: s.adaCopy.id } });
+    expect(res.json()).toMatchObject({ eventId: s.adaRow.id, email: { threadId: s.adaCopy.threadId, accountId: s.ada.accountId, messageId: s.adaCopy.id } });
   });
 
   it("un invitato TOLTO da Google non legge più (il giro dopo del poller)", async () => {
