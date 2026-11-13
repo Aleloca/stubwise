@@ -89,6 +89,8 @@ describe("isIntegrated", () => {
         "projectSection:overview",
         "projectSection:requests",
         "feature:calendar-write",
+        // Area 6, F5b: Google Drive nel Drive dei progetti.
+        "feature:google",
         // Area 6, F5a: le riunioni registrate.
         "feature:meeting-notes",
         "feature:portfolio",

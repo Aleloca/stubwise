@@ -539,6 +539,43 @@ describe("gli allegati di una bozza: nel MIME a ogni salvataggio, dal disco o da
     expect(row).toMatchObject({ driveFileId: file.id, storageKey: null });
   });
 
+  it("F5b (B6): un file di GOOGLE entra come LINK — una riga nel corpo, nessun allegato MIME, fuori dai 10 file", async () => {
+    const { me, draftId } = await draftOf();
+    const [project] = await db.insert(projects).values({ name: "Audin", slug: `audin-${randomUUID().slice(0, 6)}`, ingestionKey: randomUUID() }).returning();
+    await addMember(app, project!.id, me.id, "viewer");
+    const [ref] = await db.insert(driveFiles).values({ projectId: project!.id, number: 1, source: "google", name: "Roadmap", mime: "application/vnd.google-apps.document", type: "document", googleFileId: "g1" }).returning();
+    // Già 10 allegati veri: il link entra lo stesso.
+    for (let i = 0; i < 10; i++) await db.insert(mailDraftAttachments).values({ draftId, name: `f${i}.txt`, sizeBytes: 1, mimeType: "text/plain", storageKey: `mail/${draftId}/f${i}` });
+    for (let i = 0; i < 10; i++) objects.set(`mail/${draftId}/f${i}`, Buffer.from("x"));
+    const res = await attachDrive(me.headers, draftId, ref!.id);
+    expect(res.statusCode).toBe(200);
+    const row = (await db.select().from(mailDraftAttachments)).find((a) => a.driveFileId === ref!.id);
+    expect(row).toMatchObject({ as: "link", sizeBytes: 0 });
+    const mime = lastMime();
+    expect(mime).not.toContain('filename="Roadmap"');
+    const text = mime.split("\r\n\r\n").slice(1).map((part) => { try { return Buffer.from(part.split("\r\n--")[0]!.replace(/\r\n/g, ""), "base64").toString("utf8"); } catch { return ""; } }).join("\n");
+    expect(text).toContain("Roadmap: https://docs.google.com/document/d/g1/edit");
+  });
+
+  it("NEGATIVO (review della F5b): un riferimento NASCOSTO (senza drive.manage) o NON DISPONIBILE non si allega, e Gmail non si tocca", async () => {
+    const { me, draftId } = await draftOf();
+    const [project] = await db.insert(projects).values({ name: "Audin", slug: `audin-${randomUUID().slice(0, 6)}`, ingestionKey: randomUUID() }).returning();
+    await addMember(app, project!.id, me.id, "viewer");
+    const [hidden] = await db.insert(driveFiles).values({ projectId: project!.id, number: 1, source: "google", name: "Nascosto", mime: "application/vnd.google-apps.document", type: "document", googleFileId: "gh", hidden: true }).returning();
+    const [gone] = await db.insert(driveFiles).values({ projectId: project!.id, number: 2, source: "google", name: "Sparito", mime: "application/vnd.google-apps.document", type: "document", googleFileId: "gd", unavailable: "deleted" }).returning();
+    calls.length = 0;
+    for (const f of [hidden!, gone!]) {
+      const res = await attachDrive(me.headers, draftId, f.id);
+      expect(res.statusCode).toBe(409);
+      expect((res.json() as { code: string }).code).toBe("attachment_unavailable");
+    }
+    expect(calls).toEqual([]);
+    expect(await db.select().from(mailDraftAttachments)).toEqual([]);
+    // Con drive.manage il nascosto sì (lo vede).
+    await addMember(app, project!.id, me.id, "project_lead");
+    expect((await attachDrive(me.headers, draftId, hidden!.id)).statusCode).toBe(200);
+  });
+
   it("NEGATIVO: un file del Drive di un progetto che NON vedo (o eliminato) è 409 attachment_unavailable, e Gmail non si tocca", async () => {
     const { me, draftId } = await draftOf();
     const foreign = await driveFile(null);

@@ -4,11 +4,11 @@
 // la difesa vale per la build app e per il web.
 
 const GOOGLE_DOC = /^https:\/\/docs\.google\.com\/document\/d\/[A-Za-z0-9_-]+(?:[/?#].*)?$/;
-const GOOGLE_OPENABLE = /^https:\/\/(?:mail|docs)\.google\.com\//;
+const GOOGLE_OPENABLE = /^https:\/\/(?:mail|docs|drive)\.google\.com\//;
 
 /** Il link se è un Google Doc, altrimenti `null`. */
 export const googleDocUrl = (url: string | null | undefined): string | null =>
   url && GOOGLE_DOC.test(url) ? url : null;
 
-/** Un indirizzo di Gmail o di Google Docs. */
+/** Un indirizzo di Gmail, di Google Docs o di Google Drive. */
 export const isOpenableOnGoogle = (url: string): boolean => GOOGLE_OPENABLE.test(url);

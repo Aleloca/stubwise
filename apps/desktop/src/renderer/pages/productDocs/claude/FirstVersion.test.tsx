@@ -291,11 +291,29 @@ describe("l'avanzamento", () => {
   it("l'annuncio dice ogni pagina scritta, e la fine", async () => {
     setStreamLatency(20);
     await openIndex();
-    act(() => void startFirstVersionAs(LAURA, VRD, [TEXT]));
-    const live = () => document.querySelector("[data-first-version-announce]")!;
-    await waitFor(() => expect(live().textContent).toBe(`${VRD_FIRST_VERSION[0]!.title} written`));
-    await act(() => whenFirstVersionIdle());
-    await waitFor(() => expect(live().textContent).toBe("Claude wrote the first version"));
+    // Il tempo dello stream lo muove il test: con l'orologio vero, sotto
+    // carico, la seconda pagina arrivava prima che l'annuncio della prima si
+    // potesse leggere (e `waitFor` aspettava uno stato già passato).
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      act(() => void startFirstVersionAs(LAURA, VRD, [TEXT]));
+      const live = () => document.querySelector("[data-first-version-announce]")!;
+      while (productFirstVersionOf(LAURA, VRD)!.pagesDone < 1)
+        await act(() => vi.advanceTimersByTimeAsync(20));
+      // Mezza pausa: la pagina si rilegge (le query notificano con un
+      // timer a 0), la pagina dopo no.
+      await act(() => vi.advanceTimersByTimeAsync(10));
+      expect(productFirstVersionOf(LAURA, VRD)!.pagesDone).toBe(1);
+      expect(live().textContent).toBe(`${VRD_FIRST_VERSION[0]!.title} written`);
+      await act(async () => {
+        const idle = whenFirstVersionIdle();
+        await vi.runAllTimersAsync();
+        await idle;
+      });
+      expect(live().textContent).toBe("Claude wrote the first version");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("Sara vede l'avanzamento lanciato da Laura, senza la riga per lanciarla", async () => {

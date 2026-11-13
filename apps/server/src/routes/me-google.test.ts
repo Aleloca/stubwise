@@ -1,5 +1,5 @@
-import { randomBytes } from "node:crypto";
-import { decrypt, googleAccounts, googleWorkspaces, oauthStates } from "@stubwise/db";
+import { randomBytes, randomUUID } from "node:crypto";
+import { decrypt, driveFiles, driveFolderLinks, googleAccounts, googleWorkspaces, oauthStates, projects } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
@@ -611,6 +611,25 @@ describe("GET /api/me/google/callback — successo", () => {
     expect(rows[0]!.syncAttempts).toBe(0);
     expect(decrypt(rows[0]!.refreshTokenEncrypted, ENCRYPTION_KEY)).toBe("1//refresh-token-nuovo");
     expect(rows[0]!.proposalsEnabled).toBe(false);
+  });
+
+  it("area 6, F5b (review, punto 5): scollegata e RICOLLEGATA la stessa casella, cartelle e riferimenti Drive tornano alla riga nuova", async () => {
+    const workspaceId = await createWorkspace();
+    await callback(await stateFor(workspaceId));
+    const [first] = await accountRows();
+    const [p] = await testDb.db.insert(projects).values({ name: "P", slug: `p-${randomUUID()}`, ingestionKey: randomUUID() }).returning();
+    const [link] = await testDb.db.insert(driveFolderLinks).values({ projectId: p!.id, googleFolderId: "f1", name: "Cliente", linkedBy: memberId, accountId: first!.id }).returning();
+    const [ref] = await testDb.db.insert(driveFiles).values({ projectId: p!.id, number: 1, source: "google", name: "Doc", mime: "application/vnd.google-apps.document", type: "document", googleFileId: "g1", googleAccountId: first!.id, folderLinkId: link!.id, addedBy: memberId }).returning();
+    // Scollegare cancella la riga: la FK mette a NULL gli id.
+    await testDb.db.delete(googleAccounts).where(eq(googleAccounts.id, first!.id));
+    expect((await testDb.db.select().from(driveFolderLinks).where(eq(driveFolderLinks.id, link!.id)))[0]!.accountId).toBeNull();
+    expect(outcomeOf(await callback(await stateFor(workspaceId)))).toBe("ok");
+    const [again] = await accountRows();
+    expect(again!.id).not.toBe(first!.id);
+    expect((await testDb.db.select().from(driveFolderLinks).where(eq(driveFolderLinks.id, link!.id)))[0]!.accountId).toBe(again!.id);
+    expect((await testDb.db.select().from(driveFiles).where(eq(driveFiles.id, ref!.id)))[0]!.googleAccountId).toBe(again!.id);
+    await testDb.db.delete(driveFiles).where(eq(driveFiles.projectId, p!.id));
+    await testDb.db.delete(projects).where(eq(projects.id, p!.id));
   });
 
   it("loadGoogleAccountCredentials rimette insieme token e credenziali dell'app OAuth", async () => {

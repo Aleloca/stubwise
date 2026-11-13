@@ -2761,26 +2761,34 @@ describe("seed: server (area 8b)", () => {
       expect(points).toEqual(metricsOf(s.code));
       expect(ms(NOW) - ms(points[0]!.ts)).toBeGreaterThan(89 * 86400_000);
       expect(points.at(-1)!.ts <= NOW).toBe(true);
-      // Gli ultimi 7 giorni sono a passo di 30 s, prima a 15 minuti.
+      // Gli ultimi 7 giorni sono a passo di 30 s, prima a 15 minuti. Gli
+      // stessi controlli di sempre, su ~28 000 campioni per server: le
+      // violazioni si raccolgono e si confrontano con `[]` UNA volta
+      // (un `expect` per campione costava secondi, e sotto carico il timeout).
       const fine = points.filter((p) => ms(p.ts) >= ms(NOW) - 7 * 86400_000);
-      for (let i = 1; i < fine.length; i++) {
-        if (s.code !== "SRV-3") expect(ms(fine[i]!.ts) - ms(fine[i - 1]!.ts)).toBe(30_000);
-      }
       const coarse = points.slice(0, points.length - fine.length);
       expect(coarse.length).toBeGreaterThan(7_000);
-      for (let i = 1; i < coarse.length; i++) {
-        if (s.code !== "SRV-3") expect(ms(coarse[i]!.ts) - ms(coarse[i - 1]!.ts)).toBe(900_000);
+      const steps = (list: typeof points, step: number) =>
+        list.slice(1).flatMap((p, i) => {
+          const gap = ms(p.ts) - ms(list[i]!.ts);
+          return gap === step ? [] : [`${s.code} ${p.ts}: ${gap}`];
+        });
+      if (s.code !== "SRV-3") {
+        expect(steps(fine, 30_000)).toEqual([]);
+        expect(steps(coarse, 900_000)).toEqual([]);
       }
+      const bad: string[] = [];
       let previous = 0;
       for (const p of points) {
-        expect((ms(p.ts) - previous) % 30_000).toBe(0);
-        expect(ms(p.ts)).toBeGreaterThan(previous);
-        previous = ms(p.ts);
+        const t = ms(p.ts);
+        if ((t - previous) % 30_000 !== 0) bad.push(`${s.code} ${p.ts}: fuori dal passo`);
+        if (!(t > previous)) bad.push(`${s.code} ${p.ts}: non crescente`);
+        previous = t;
         for (const v of [p.cpuPct, p.memPct, p.diskPct]) {
-          expect(v).toBeGreaterThanOrEqual(0);
-          expect(v).toBeLessThanOrEqual(100);
+          if (!(v >= 0 && v <= 100)) bad.push(`${s.code} ${p.ts}: ${v} fuori da 0–100`);
         }
       }
+      expect(bad).toEqual([]);
     }
     // Senza buchi sono 28 128 campioni (20 160 a 30 s + 7 968 a 15 min); SRV-3 tace durante il suo episodio.
     expect(SERVER_METRICS.get("SRV-1")).toHaveLength(28_128);

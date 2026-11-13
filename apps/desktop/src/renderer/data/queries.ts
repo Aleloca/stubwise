@@ -2793,15 +2793,27 @@ const reading = (rows: readonly Pick<DriveFileRow, "content">[] | null | undefin
  * la colonna né le query di contorno della pagina: altrimenti le richieste
  * si moltiplicano per il numero di query aperte.
  */
-export function useDriveFiles(filters: DriveFilters, { enabled = true, poll = false } = {}) {
+export function useDriveFiles(
+  filters: DriveFilters,
+  { enabled = true, poll = false, syncing = false } = {},
+) {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: queryKeys.driveFiles(me, filters),
     queryFn: () => api.drive.listDriveFiles(filters),
     enabled,
-    refetchInterval: (query) => (poll ? drivePollInterval(query.queryHash, reading(query.state.data)) : false),
+    refetchInterval: (query) =>
+      // Una cartella che si sincronizza porta file nuovi: si rilegge (review F5b, 4).
+      syncing
+        ? FOLDER_SYNC_POLL_MS
+        : poll
+          ? drivePollInterval(query.queryHash, reading(query.state.data))
+          : false,
   });
 }
+
+/** Ogni quanto si rileggono cartelle e file mentre una cartella si sincronizza. */
+export const FOLDER_SYNC_POLL_MS = 3000;
 
 /** Il dettaglio di un file (non conta un'apertura); `null` se non c'è per chi guarda. */
 export function useDriveFile(id: string | null) {
@@ -2821,6 +2833,9 @@ export function useFolderLinks(projectId: string) {
     queryFn: () => api.drive.listFolderLinks(projectId),
     // Le cartelle collegate sono di Google (area 6).
     enabled: featureIntegrated("google"),
+    // Review F5b (4): mentre una cartella si sincronizza (lo fa il worker), si rilegge.
+    refetchInterval: (query) =>
+      (query.state.data ?? []).some((l) => l.syncing) ? FOLDER_SYNC_POLL_MS : false,
   });
 }
 

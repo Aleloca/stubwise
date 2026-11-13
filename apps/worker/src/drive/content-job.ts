@@ -3,6 +3,7 @@ import { pipeline } from "node:stream/promises";
 import { chunkMarkdown, DOC_CHUNK_OVERLAP_WORDS, DOC_CHUNK_TARGET_TOKENS } from "@stubwise/docs-engine";
 import { driveContentJobs, driveFileChunks, driveFiles, type Db } from "@stubwise/db";
 import type { EmbeddingClient } from "@stubwise/embeddings";
+import { GOOGLE_EXPORT_MIME } from "@stubwise/google";
 import { driveContentKindOf } from "@stubwise/shared";
 import { and, eq, gte, isNull, lt, sql } from "drizzle-orm";
 import type { AgentRunner } from "../agent/runner.js";
@@ -10,6 +11,7 @@ import { runAgentTextRaw, textFromRun } from "../agent/text.js";
 import { limitTextOfRun, runWithProviders, type SelectDeps } from "../providers/select.js";
 import type { Exec } from "./extract/exec.js";
 import { extractContent, type ExtractResult } from "./extract/extract.js";
+import type { GoogleDriveSource } from "./google-source.js";
 import { DriveObjectMissing, DriveObjectTooLarge, type DriveObjectReader } from "./storage-read.js";
 
 /**
@@ -54,6 +56,8 @@ export interface DriveContentDeps {
   log: (m: string) => void;
   tmpRoot?: string;
   signal?: AbortSignal;
+  /** Area 6, F5b: la sorgente dei riferimenti Google (assente = non si leggono). */
+  google?: GoogleDriveSource;
 }
 
 type Job = typeof driveContentJobs.$inferSelect;
@@ -200,26 +204,55 @@ async function embed(deps: DriveContentDeps, text: string): Promise<{ content: s
 export async function processDriveContentJob(deps: DriveContentDeps, job: Job): Promise<void> {
   const { db } = deps;
   const [file] = await db
-    .select({ id: driveFiles.id, projectId: driveFiles.projectId, name: driveFiles.name, mime: driveFiles.mime, sizeBytes: driveFiles.sizeBytes, storageKey: driveFiles.storageKey, deletedAt: driveFiles.deletedAt })
+    .select({ id: driveFiles.id, projectId: driveFiles.projectId, name: driveFiles.name, mime: driveFiles.mime, sizeBytes: driveFiles.sizeBytes, storageKey: driveFiles.storageKey, deletedAt: driveFiles.deletedAt, source: driveFiles.source, googleFileId: driveFiles.googleFileId, googleAccountId: driveFiles.googleAccountId, folderLinkId: driveFiles.folderLinkId, unavailable: driveFiles.unavailable })
     .from(driveFiles)
     .where(eq(driveFiles.id, job.fileId));
   if (!file || file.deletedAt) return;
-  const alive = and(eq(driveFiles.id, file.id), isNull(driveFiles.deletedAt));
-  if (driveContentKindOf(file.mime) === null) {
+  // Vivo E disponibile (review della F5b, punto 2): un riferimento che la
+  // sincronizzazione segna `deleted` mentre lo si legge non riprende testo,
+  // riassunto e frammenti (B2).
+  const alive = and(eq(driveFiles.id, file.id), isNull(driveFiles.deletedAt), isNull(driveFiles.unavailable));
+  // F5b: un riferimento Google si legge col SUO tipo esportato (un Doc → testo).
+  const google = file.source === "google";
+  const mime = google ? (GOOGLE_EXPORT_MIME[file.mime] ?? file.mime) : file.mime;
+  if (google && file.unavailable) {
+    // Non si legge, ma non resta `pending`: senza testo è in errore.
+    await db.update(driveFiles).set({ contentStatus: sql`case when ${driveFiles.contentText} is null then 'error' else 'ready' end`, contentReason: null, contentUpdatedAt: sql`now()` }).where(and(eq(driveFiles.id, file.id), isNull(driveFiles.deletedAt)));
+    return;
+  }
+  if (driveContentKindOf(mime) === null) {
     await db.update(driveFiles).set({ contentStatus: "unsupported", contentReason: null, contentUpdatedAt: sql`now()` }).where(alive);
     return;
   }
   await db.update(driveFiles).set({ contentStatus: "processing", contentReason: null }).where(alive);
-  const reader = await deps.reader();
-  if (!reader) throw new Error("storage non configurato");
+  let source: (dest: string) => Promise<void>;
+  let extractMime = mime;
+  if (google) {
+    if (!deps.google || !file.googleFileId) throw new Error("lettura da Google non configurata");
+    const opened = await deps.google({ googleFileId: file.googleFileId, mime: file.mime, googleAccountId: file.googleAccountId, folderLinkId: file.folderLinkId });
+    if ("gone" in opened) {
+      // La casella di chi l'ha aggiunto non legge più: il contenuto di prima resta, uno mai letto è in errore.
+      await db.update(driveFiles).set({ contentStatus: sql`case when ${driveFiles.contentText} is null then 'error' else 'ready' end`, contentUpdatedAt: sql`now()` }).where(alive);
+      return;
+    }
+    extractMime = opened.mime;
+    source = async (dest) => pipeline(opened.stream, createWriteStream(dest));
+  } else {
+    const reader = await deps.reader();
+    if (!reader) throw new Error("storage non configurato");
+    if (!file.storageKey || file.sizeBytes === null) throw new Error("caricato senza oggetto");
+    const key = file.storageKey;
+    const size = file.sizeBytes;
+    source = async (dest) => pipeline(await reader.getObjectStream(key, { maxBytes: size + READ_MARGIN_BYTES }), createWriteStream(dest));
+  }
 
   let result: ExtractResult;
   try {
     result = await extractContent(
       {
         jobId: job.id,
-        mime: file.mime,
-        source: async (dest) => pipeline(await reader.getObjectStream(file.storageKey, { maxBytes: file.sizeBytes + READ_MARGIN_BYTES }), createWriteStream(dest)),
+        mime: extractMime,
+        source,
       },
       { exec: deps.exec, ...(deps.tmpRoot ? { tmpRoot: deps.tmpRoot } : {}) },
     );

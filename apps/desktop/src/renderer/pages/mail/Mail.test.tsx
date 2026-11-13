@@ -669,6 +669,13 @@ describe("Posta — allineamento, analisi, stati", () => {
       expect(block).not.toHaveTextContent(/may have been moved/);
     });
 
+    it("il Doc non verificato come quello della riunione (not_verified, review F5a): lo dice", async () => {
+      Object.assign(transcript(), { doc: "unreachable", docReason: "not_verified" });
+      const block = await meetingBlock();
+      expect(block).toHaveTextContent("Stubwise couldn't verify this is the document of this meeting, so it didn't read it.");
+      expect(block).not.toHaveTextContent(/may have been moved/);
+    });
+
     it("il Doc eliminato: lo dice", async () => {
       Object.assign(transcript(), { doc: "unreachable", docReason: "deleted" });
       expect(await meetingBlock()).toHaveTextContent("The transcript was deleted from Google Drive.");
