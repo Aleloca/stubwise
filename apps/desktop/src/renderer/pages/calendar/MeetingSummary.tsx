@@ -15,6 +15,7 @@ import { queryState } from "../home/blocks/BlockSection";
 import { dayLabel } from "../mail/format";
 import { MailProposalCard } from "../mail/MailProposalCard";
 import { openOnGoogle } from "../mail/mailFeatures";
+import { isAppBuild } from "../../data/build";
 import { GeneratedTag } from "../overview/BriefCard";
 import { MeetingTaskList, SheetSection } from "./meetingParts";
 import { TranscriptUnreachable } from "./MeetingPrep";
@@ -131,6 +132,9 @@ function SummaryBody({ summary: s }: { summary: Summary }) {
       {s.doc === "ready" && s.summary && (
         <p className="max-w-[65ch] text-sm whitespace-pre-line text-ink">{s.summary}</p>
       )}
+      {s.doc === "ready" && s.docReason === "too_long" && (
+        <p className="text-sm text-ink-muted">{t("mail.meeting.tooLong")}</p>
+      )}
       {s.doc === "reading" && (
         <p role="status" className="text-sm text-ink-muted">
           {t("calendar.summary.reading")}
@@ -138,11 +142,12 @@ function SummaryBody({ summary: s }: { summary: Summary }) {
       )}
       {s.doc === "unreachable" && (
         <div className="-mx-4">
-          <TranscriptUnreachable />
+          <TranscriptUnreachable reason={s.docReason ?? null} docUrl={s.docUrl ?? null} />
         </div>
       )}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-        {s.doc === "ready" && (
+        {/* Nella build app solo col link del Doc (review F5a, 8): l'avviso è del prototipo. */}
+        {s.doc === "ready" && (!isAppBuild() || s.docUrl) && (
           <button
             type="button"
             onClick={() =>

@@ -380,3 +380,48 @@ describe("F5a: la scheda di preparazione nella build app", () => {
     expect(within(panel).queryByRole("region", { name: "Prepare" })).toBeNull();
   });
 });
+
+// Review F5a (6, 8): il riassunto nel dettaglio di un evento passato dice il
+// motivo del Doc, e nella build app «Open the transcript» c'è solo col link.
+describe("F5a: il riassunto nel dettaglio di un evento passato", () => {
+  const NOTE = "99999999-7777-4777-8777-777777777777";
+  function withSummary(over: Record<string, unknown>) {
+    seen = installFakeServerWith({
+      [`GET /api/me/calendar/events/${PAST}/summary`]: {
+        body: { noteId: NOTE, eventId: PAST, docTitle: "Notes", doc: "ready", docReason: null, summary: "Si parte lunedì.", docUrl: null, email: null, ...over },
+      },
+      [`GET /api/me/calendar/events/${PAST}/tasks`]: { body: null },
+    });
+  }
+  async function summary() {
+    renderRoute(`/calendar?event=${PAST}`);
+    const panel = await eventPanel();
+    return within(panel).findByRole("region", { name: "Meeting summary" });
+  }
+
+  it("troppo lungo: il riassunto dice che copre solo la prima parte", async () => {
+    withSummary({ docReason: "too_long", docUrl: "https://docs.google.com/document/d/abc" });
+    const s = await summary();
+    expect(await within(s).findByText("Si parte lunedì.")).toBeInTheDocument();
+    expect(s).toHaveTextContent("The transcript is long: the summary covers only its first part.");
+    expect(within(s).getByRole("button", { name: "Open the transcript" })).toBeInTheDocument();
+  });
+
+  it("pronto ma senza il link del Doc: niente «Open the transcript» (nessun avviso del prototipo)", async () => {
+    withSummary({});
+    const s = await summary();
+    expect(await within(s).findByText("Si parte lunedì.")).toBeInTheDocument();
+    expect(within(s).queryByRole("button", { name: "Open the transcript" })).toBeNull();
+  });
+
+  it("senza il permesso di Drive: lo dice", async () => {
+    withSummary({ doc: "unreachable", docReason: "scope_missing", summary: null });
+    const s = await summary();
+    await waitFor(() =>
+      expect(s).toHaveTextContent(
+        "Stubwise isn't allowed to read Google Drive yet: reconnect your Google account to open the transcript.",
+      ),
+    );
+    expect(within(s).queryByRole("button", { name: "Open in Google Docs" })).toBeNull();
+  });
+});

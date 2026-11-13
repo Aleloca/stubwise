@@ -12,6 +12,7 @@ import { relativeDay, whenLabel, whenWithTime } from "./format";
 import { AlertGlyph, MoreGlyph, VideoGlyph } from "./glyphs";
 import { UntrustedHtmlFrame } from "./UntrustedHtmlFrame";
 import { openInGmail, openOnGoogle } from "./mailFeatures";
+import { isAppBuild } from "../../data/build";
 
 // Un messaggio della conversazione (shape mail.md §3, §5): espanso — chi,
 // a chi, il testo pulito (l'originale HTML a richiesta, A9), il testo
@@ -185,16 +186,19 @@ function MeetingBlock({ message }: { message: MailMessageView }) {
           {note.docReason === "too_long" && (
             <p className="text-sm text-ink-muted">{t("mail.meeting.tooLong")}</p>
           )}
-          <button
-            type="button"
-            onClick={() =>
-              // Nella build app apre il Google Doc (F5a); nel prototipo lo dice.
-              note.docUrl ? openOnGoogle(note.docUrl) : toast.show(t("mail.meeting.transcriptNotice"))
-            }
-            className="self-start rounded-sm text-sm font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
-          >
-            {t("mail.meeting.open")}
-          </button>
+          {/* Nella build app solo col link del Doc (review F5a, 8): l'avviso è del prototipo. */}
+          {(!isAppBuild() || note.docUrl) && (
+            <button
+              type="button"
+              onClick={() =>
+                // Nella build app apre il Google Doc (F5a); nel prototipo lo dice.
+                note.docUrl ? openOnGoogle(note.docUrl) : toast.show(t("mail.meeting.transcriptNotice"))
+              }
+              className="self-start rounded-sm text-sm font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+            >
+              {t("mail.meeting.open")}
+            </button>
+          )}
         </>
       )}
     </div>
