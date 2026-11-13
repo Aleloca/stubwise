@@ -11,6 +11,7 @@ import {
 import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { canManage, managesGeneral, seen, seesAutomation, type Viewer } from "./model.js";
 import { decidersOf, pendingEffectOf, runCode, runRowOf } from "./runs.js";
+import { canManageIntegrations } from "./sources.js";
 
 /**
  * LE LETTURE PERSONALI delle Automations (area 7, fetta 1; la specifica è
@@ -116,6 +117,8 @@ export async function listMyApprovals(db: Db, viewer: Viewer): Promise<Automatio
       n: run.n,
       automationVisible: seesAutomation(visible, viewer, a),
       clientName: typeof cliente === "string" ? cliente : "",
+      // F4: «Remember for <client>» solo a chi gestisce le integrazioni (calcolato qui, il client lo legge).
+      rememberClient: run.status === "waiting_project" && canManageIntegrations(viewer),
       effect: v ? await pendingEffectOf(db, visible, run, a, await runRowOf(db, viewer, run, a, visible), v.flow as AutomationFlow) : null,
     });
   }

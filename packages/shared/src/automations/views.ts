@@ -71,6 +71,12 @@ export interface AutomationRunDetail extends AutomationRunRow {
     manage: boolean;
     approve: boolean;
     chooseProject: boolean;
+    /**
+     * F4: «Remember for <client>» accanto a «scegli il progetto» — chi decide
+     * ha `integrations.manage` (calcolato dal server; senza, il server dà
+     * 403). Assente da un server più vecchio: la casella non si mostra.
+     */
+    rememberClient?: boolean;
   };
   /** L'esecuzione che l'ha avviata e quelle avviate da lei, se chi guarda le vede. */
   parent: { id: string; code: string } | null;
@@ -167,6 +173,8 @@ export interface AutomationDecision {
   automationVisible: boolean;
   /** «Scegli il progetto»: il cliente letto dall'evento, se c'è. */
   clientName: string;
+  /** F4: «Remember for <client>» si può offrire (chi decide ha `integrations.manage`). Assente: no. */
+  rememberClient?: boolean;
   /** L'anteprima condivisa del passo da approvare (vedi `AutomationRunDetail.pendingEffect`). */
   effect: SimulationEffectPreview | null;
 }

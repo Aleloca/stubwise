@@ -29,6 +29,7 @@ import {
   type RunStatus,
 } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import { canManageIntegrations, writeClientLink } from "./sources.js";
 import { AutomationError, canManage, flowFor, forbidden, GENERAL_PERMISSION, managesGeneral, notFound, seen, sees, seesAutomation, visibleAutomation, type AutomationRecord, type Viewer } from "./model.js";
 
 /**
@@ -269,6 +270,7 @@ export async function getRun(db: Db, viewer: Viewer, code: string, n: number): P
       manage,
       approve: run.status === "waiting_approval" && deciders.includes(viewer.id),
       chooseProject: run.status === "waiting_project" && deciders.includes(viewer.id),
+      rememberClient: run.status === "waiting_project" && deciders.includes(viewer.id) && canManageIntegrations(viewer),
     },
     parent: parent && parentAutomation && seesAutomation(visible, viewer, parentAutomation) ? { id: parent.id, code: runCode(parentAutomation, parent.n) } : null,
     children: children.filter((c) => seesAutomation(visible, viewer, c)).map((c) => ({ id: c.id, code: `${c.code} #${c.n}`, status: c.status })),
@@ -383,9 +385,26 @@ export async function rejectRun(db: Db, viewer: Viewer, code: string, n: number,
   await decide(db, viewer, code, n, "waiting_approval", { path: body.expectedPath, round: body.expectedRound }, async () => ({ kind: "rejected", path: body.expectedPath, byId: viewer.id }));
 }
 
-export async function chooseRunProject(db: Db, viewer: Viewer, code: string, n: number, body: { projectId: string; expectedPath: string; expectedRound?: number }): Promise<void> {
-  await decide(db, viewer, code, n, "waiting_project", { path: body.expectedPath, round: body.expectedRound }, async (tx) => {
+/**
+ * «Scegli il progetto» (il proprietario), fra quelli che vede. Con `remember`
+ * (F4, shape [A 26]) la scelta entra anche nella tabella cliente → progetto,
+ * a nome di chi sceglie, nella STESSA transazione: senza `integrations.manage`
+ * è 403 e non si sceglie niente (decisione di 46, la regola del prototipo: un
+ * progetto non si sceglie in silenzio lasciando credere che la tabella sia
+ * stata scritta). La chiave è quella del `pending` (`clientKeyOf` la
+ * normalizza), il nome quello del cliente se c'è, altrimenti la chiave.
+ */
+export async function chooseRunProject(db: Db, viewer: Viewer, code: string, n: number, body: { projectId: string; expectedPath: string; expectedRound?: number; remember?: boolean }): Promise<void> {
+  await decide(db, viewer, code, n, "waiting_project", { path: body.expectedPath, round: body.expectedRound }, async (tx, run) => {
     if (!sees(await seen(tx, viewer), body.projectId)) throw notFound();
+    if (body.remember) {
+      if (!canManageIntegrations(viewer)) throw new AutomationError(403, "forbidden", "You need integrations.manage to remember the client");
+      const preview = (pendingOf(run)?.preview ?? {}) as { clientKey?: unknown; clientName?: unknown };
+      const key = typeof preview.clientKey === "string" ? preview.clientKey : "";
+      const name = typeof preview.clientName === "string" && preview.clientName.trim() ? preview.clientName : key;
+      if (!key.trim()) throw new AutomationError(409, "client", "This run has no client to remember");
+      await writeClientLink(tx, viewer, key, { clientName: name, projectId: body.projectId });
+    }
     return { kind: "project_chosen", projectId: body.projectId, byId: viewer.id };
   });
 }

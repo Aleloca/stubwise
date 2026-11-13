@@ -129,7 +129,7 @@ Nella F3 l'inizio `source` e il passo `startAutomation` sono «Coming soon» e
   dell'evento (`clientRef` del passo) → la tabella; fuori tabella →
   `waiting_project`, «scegli il progetto» al proprietario (solo progetti dove
   può creare); «Remember for <client>» scrive la tabella solo con
-  `integrations.manage`.
+  `integrations.manage` (senza: 403, e non si sceglie niente; vedi S5).
 - **I suggerimenti** «From recent events» (`listClientSuggestions`): i
   clienti degli eventi recenti senza riga in tabella.
 
@@ -204,8 +204,12 @@ S4. **Sorgenti e tabella**: le rotte sopra; «esempio → campi» con la regola
 
 S5. **La risoluzione del progetto**: dalla tabella, `waiting_project` fuori
    tabella, «scegli il progetto» e «Remember for <client>» coi permessi.
-   *Test*: «Remember» senza `integrations.manage` sceglie il progetto ma non
-   scrive la tabella.
+   *Test*: «Remember» senza `integrations.manage` dà 403 e non sceglie
+   niente *(O, 46, 13 nov: la regola del prototipo, che è la specifica — un
+   progetto non si sceglie in silenzio lasciando credere che la tabella sia
+   stata scritta)*; il server calcola `permissions.rememberClient` (dettaglio
+   dell'esecuzione) e `rememberClient` («Da decidere»), e il renderer mostra
+   la casella solo allora.
 
 S6. **«Avvia un'altra»**: l'effetto, `chainAllows`, `cantManage`, la catena
    nell'outbox (`chain`), l'origine email lungo la catena (R-J13). *Test*:
@@ -392,6 +396,12 @@ F4-6. **Chi vede gli eventi recenti di una sorgente** (il payload, che può
   su ogni corpo pubblico (Review Focus: JSON annidato profondo).
 
 ### Scelte interne di 72 (nessuna domanda)
+
+- **Chi LEGGE sorgenti e tabella** *(O, 46)*: chi può costruire
+  un'automazione che le usa (`integrations.manage`, le generali, o
+  `automations.manage` in un progetto), come `canSeeSources` del prototipo —
+  altrimenti un Project Lead non sceglierebbe il webhook nel costruttore.
+  Scrivere e gli eventi recenti restano `integrations.manage`.
 
 - **La chiave di deduplica** viene dall'intestazione `Idempotency-Key`
   (al più 200 caratteri): `dedupe_key = src:<sourceId>:<chiave>`. Senza,

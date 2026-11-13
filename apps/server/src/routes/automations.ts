@@ -264,7 +264,8 @@ export async function automationRoutes(instance: FastifyInstance): Promise<void>
   );
   app.post(
     "/automations/:code/runs/:n/project",
-    { config: { access: ACCESS }, schema: { params: runParams, body: z.object({ ...expected, projectId: z.uuid() }) } },
+    // `remember` (F4): anche nella tabella cliente → progetto; senza integrations.manage 403.
+    { config: { access: ACCESS }, schema: { params: runParams, body: z.object({ ...expected, projectId: z.uuid(), remember: z.boolean().optional() }) } },
     async (request, reply) =>
       handle(reply, async () => {
         await chooseRunProject(app.db, me(request), request.params.code, request.params.n, request.body);

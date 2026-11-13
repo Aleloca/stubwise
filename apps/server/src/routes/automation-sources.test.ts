@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { automationEvents, automationRuns, automations, automationSourceEvents, automationSources, automationVersions, clientProjectLinks, projects, roles, users, type Db } from "@stubwise/db";
+import { automationEvents, automationRunInputs, automationRuns, automations, automationSourceEvents, automationSources, automationVersions, clientProjectLinks, projects, roles, users, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import type { AutomationFlow } from "@stubwise/shared";
@@ -256,5 +256,58 @@ describe("la tabella cliente → progetto (S4)", () => {
     const s = (await call(admin, "GET", "/client-links/suggestions")).json() as { items: { clientKey: string }[] };
     expect(s.items.map((i) => i.clientKey)).toContain("nuovo.it");
     expect(s.items.map((i) => i.clientKey)).not.toContain("noto.it");
+  });
+});
+
+describe("«Remember for <client>» (S5)", () => {
+  async function waitingRun(ownerId: string, projectId: string, clientKey: string) {
+    const seq = Math.floor(Math.random() * 1e6);
+    const flow: AutomationFlow = {
+      trigger: { kind: "manual" },
+      steps: [{ id: "t1", kind: "createTask", title: "T", description: "", assignee: null, dueInDays: null, project: { mode: "from_client", clientRef: "cliente.dominio" }, milestoneRef: null, approval: { mode: "auto" } }],
+      titleTemplate: "R",
+    };
+    const [a] = await db.insert(automations).values({ code: `AUT-${seq}`, seq, name: "G", projectId: null, ownerId, status: "active", activeSince: new Date() }).returning();
+    await db.insert(automationVersions).values({ automationId: a!.id, n: 1, flow, publishedAt: new Date() });
+    await db.insert(automationRuns).values({ automationId: a!.id, n: 1, version: 1, title: "R", origin: "manual", status: "waiting_project", cursor: { path: "0" }, pending: { approverIds: [ownerId], preview: { clientKey }, path: "0", round: 0 }, projectIds: [] });
+    void projectId;
+    return a!;
+  }
+  async function userWith(permissions: string[]) {
+    const u = await person();
+    const [role] = await db.insert(roles).values({ name: `R ${randomUUID().slice(0, 6)}`, scope: "instance", permissions }).returning({ id: roles.id });
+    await db.update(users).set({ instanceRoleId: role!.id }).where(eq(users.id, u.id));
+    return u;
+  }
+
+  it("con integrations.manage: la scelta va in coda E la tabella si scrive (chiave normalizzata); il dettaglio dice rememberClient", async () => {
+    const p = await project();
+    const owner = await userWith(["automations.general.manage", "integrations.manage"]);
+    await addMember(app, p.id, owner.id, "project_lead");
+    const key = `Ricorda-${randomUUID().slice(0, 6)}.IT`;
+    const a = await waitingRun(owner.id, p.id, key);
+    const detail = (await call(owner.headers, "GET", `/automations/${a.code}/runs/1`)).json() as { permissions: { rememberClient: boolean } };
+    expect(detail.permissions.rememberClient).toBe(true);
+    const res = await call(owner.headers, "POST", `/automations/${a.code}/runs/1/project`, { projectId: p.id, expectedPath: "0", remember: true });
+    expect(res.statusCode).toBe(204);
+    expect(await db.select().from(clientProjectLinks).where(eq(clientProjectLinks.clientKey, key.toLowerCase()))).toEqual([expect.objectContaining({ projectId: p.id, addedBy: owner.id })]);
+    const [run] = await db.select().from(automationRuns).where(eq(automationRuns.automationId, a.id));
+    expect(await db.select().from(automationRunInputs).where(eq(automationRunInputs.runId, run!.id))).toHaveLength(1);
+  });
+
+  it("senza integrations.manage: 403, nessuna scelta in coda e nessuna riga (la regola del prototipo); senza remember la scelta passa", async () => {
+    const p = await project();
+    const owner = await userWith(["automations.general.manage"]);
+    await addMember(app, p.id, owner.id, "project_lead");
+    const key = `negato-${randomUUID().slice(0, 6)}.it`;
+    const a = await waitingRun(owner.id, p.id, key);
+    const detail = (await call(owner.headers, "GET", `/automations/${a.code}/runs/1`)).json() as { permissions: { rememberClient: boolean } };
+    expect(detail.permissions.rememberClient).toBe(false);
+    const res = await call(owner.headers, "POST", `/automations/${a.code}/runs/1/project`, { projectId: p.id, expectedPath: "0", remember: true });
+    expect(res.statusCode).toBe(403);
+    const [run] = await db.select().from(automationRuns).where(eq(automationRuns.automationId, a.id));
+    expect(await db.select().from(automationRunInputs).where(eq(automationRunInputs.runId, run!.id))).toEqual([]);
+    expect(await db.select().from(clientProjectLinks).where(eq(clientProjectLinks.clientKey, key))).toEqual([]);
+    expect((await call(owner.headers, "POST", `/automations/${a.code}/runs/1/project`, { projectId: p.id, expectedPath: "0" })).statusCode).toBe(204);
   });
 });
