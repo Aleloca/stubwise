@@ -6580,6 +6580,14 @@ export const automationRuns = pgTable(
      * posta. Ripubblicare con un'altra casella non sposta le esecuzioni partite.
      */
     mailboxAccountId: uuid("mailbox_account_id").references(() => googleAccounts.id, { onDelete: "set null" }),
+    /**
+     * R-J13 lungo la catena (0174, F4): la casella della posta che l'EVENTO di
+     * questa esecuzione porta — per una figlia di «avvia un'altra», quella
+     * d'origine della catena. Se c'è, la posta la legge solo il proprietario di
+     * QUELLA casella, anche se la figlia è di un altro. Da `mailbox_account_id`
+     * invece l'esecuzione manda.
+     */
+    mailOriginAccountId: uuid("mail_origin_account_id").references(() => googleAccounts.id, { onDelete: "set null" }),
   },
   (table) => [
     uniqueIndex("automation_runs_n_idx").on(table.automationId, table.n),

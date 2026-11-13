@@ -30,7 +30,7 @@ import {
 } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { canManageIntegrations, writeClientLink } from "./sources.js";
-import { AutomationError, canManage, flowFor, forbidden, GENERAL_PERMISSION, managesGeneral, notFound, seen, sees, seesAutomation, visibleAutomation, type AutomationRecord, type Viewer } from "./model.js";
+import { AutomationError, sourcesFor, canManage, flowFor, forbidden, GENERAL_PERMISSION, managesGeneral, notFound, seen, sees, seesAutomation, visibleAutomation, type AutomationRecord, type Viewer } from "./model.js";
 
 /**
  * LE ESECUZIONI nel server (area 7, fetta 1; la specifica è
@@ -148,14 +148,17 @@ export async function runRowOf(db: Db, viewer: Viewer, r: RunRecord, a: Automati
   // C1 (review F2): la posta di un'esecuzione la legge il proprietario della SUA
   // casella (ripubblicare con un'altra casella non la passa a un altro); senza
   // casella, il proprietario dell'automazione.
-  const [box] = r.mailboxAccountId ? await db.select({ userId: googleAccounts.userId }).from(googleAccounts).where(eq(googleAccounts.id, r.mailboxAccountId)) : [];
-  const mailOwner = r.mailboxAccountId ? (box?.userId ?? null) : a.ownerId;
+  // F4, R-J13 lungo la catena: una figlia di «avvia un'altra» porta la posta della casella d'ORIGINE:
+  // la legge solo il proprietario di quella, anche se la figlia è di un altro.
+  const mailBox = r.mailOriginAccountId ?? r.mailboxAccountId;
+  const [box] = mailBox ? await db.select({ userId: googleAccounts.userId }).from(googleAccounts).where(eq(googleAccounts.id, mailBox)) : [];
+  const mailOwner = mailBox ? (box?.userId ?? null) : a.ownerId;
   if (viewer.id !== mailOwner) hideReplies(run, opts.decider !== true);
   // R-J13 (area 7, F2, la regola di `viewRun` del prototipo): di un'esecuzione
   // partita da un'email solo il proprietario vede mittente, oggetto e testo.
   // Gli altri leggono l'evento vuoto con `mailHidden`, il titolo col solo nome
   // e le righe senza dati (nessuna eco dell'email); chi decide vede
-  // l'anteprima del passo. (La catena, con «avvia un'altra», arriva in F4.)
+  // l'anteprima del passo. Lungo la catena («avvia un'altra», F4) vale la casella d'origine.
   // F3, C-F3-7 e review F3 I3: ciò che Claude ha ricavato da un dato tinto (di
   // fuori: la risposta di un cliente, un'email, una richiesta dal supporto) lo
   // legge solo il proprietario della posta, admin compresi. Per gli altri: la
@@ -165,8 +168,8 @@ export async function runRowOf(db: Db, viewer: Viewer, r: RunRecord, a: Automati
   if (viewer.id !== mailOwner && run.log.some((e) => e.kind === "claude")) {
     const flow = await flowOfRun(db, r);
     if (flow) {
-      // Le sorgenti esterne arrivano con la F4: fino ad allora non ce ne sono (registro).
-      const tainted = taintedKeys(flow, []);
+      // F4: i campi di una sorgente (il webhook in arrivo) sono tinti come gli altri dati di fuori.
+      const tainted = taintedKeys(flow, await sourcesFor(db, flow));
       const isTainted = (k: string) => tainted.has(k) || [...tainted].some((t) => k.startsWith(`${t}.`));
       const claudeSteps = new Map<string, Extract<Step, { kind: "claude" }>>();
       visitSteps(flow.steps, (st) => {

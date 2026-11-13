@@ -18,7 +18,7 @@ import { createRequestsEndpoints } from "./endpoints/requests.js";
 import { createMeEndpoints } from "./endpoints/me.js";
 import { createChatEndpoints } from "./endpoints/chat.js";
 import { createDriveEndpoints } from "./endpoints/drive.js";
-import { createAutomationEndpoints } from "./endpoints/automations.js";
+import { createAutomationEndpoints, createAutomationSourceEndpoints, createClientLinkEndpoints } from "./endpoints/automations.js";
 import { createGoogleEndpoints } from "./endpoints/google.js";
 import { createClaudeEndpoints } from "./endpoints/claude.js";
 import { createMilestonesEndpoints } from "./endpoints/milestones.js";
@@ -163,6 +163,9 @@ export function createEndpoints(request: ApiRequest) {
     // Area 5: il Drive dei progetti.
     drive: createDriveEndpoints(request),
     automations: createAutomationEndpoints(request),
+    // Area 7, F4: le sorgenti (il webhook in arrivo) e la tabella cliente → progetto.
+    automationSources: createAutomationSourceEndpoints(request),
+    clientLinks: createClientLinkEndpoints(request),
     google: createGoogleEndpoints(request),
   };
 }

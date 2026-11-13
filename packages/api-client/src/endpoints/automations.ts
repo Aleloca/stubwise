@@ -8,7 +8,14 @@ import type {
   AutomationRunRow,
   AutomationDecision,
   AutomationOrigin,
+  AutomationSourceEvent,
+  AutomationSourceView,
+  ClientLinkView,
+  ClientSuggestion,
+  FieldType,
   FlowIssue,
+  WebhookExamplePreview,
+  WebhookSourceCreated,
   AutomationTestClaudeResult,
   AutomationTestEstimate,
   MyAutomationRun,
@@ -22,6 +29,8 @@ import { seg, toQuery } from "../query.js";
 /** I filtri dell'elenco delle automazioni. */
 export interface AutomationListOptions {
   project?: string;
+  /** Area 7, F4: solo le generali (a chi ha `automations.general.manage`; agli altri l'elenco è vuoto). */
+  general?: boolean;
   status?: Automation["status"];
   owner?: string;
   mine?: boolean;
@@ -59,18 +68,24 @@ export function createAutomationEndpoints(request: ApiRequest) {
   const run = (code: string, n: number) => `${base(code)}/runs/${n}`;
   return {
     list(opts: AutomationListOptions = {}): Promise<{ items: AutomationRow[] }> {
-      return request("GET", `/api/automations${toQuery({ project: opts.project, status: opts.status, owner: opts.owner, mine: opts.mine ? "true" : undefined })}`);
+      return request("GET", `/api/automations${toQuery({ project: opts.project, general: opts.general ? "true" : undefined, status: opts.status, owner: opts.owner, mine: opts.mine ? "true" : undefined })}`);
     },
     get(code: string): Promise<AutomationDetail> {
       return request("GET", base(code));
     },
-    create(input: { name: string; projectId: string; description?: string; flow?: AutomationFlow }): Promise<Automation> {
+    /** `projectId: null` (F4): una generale, con `automations.general.manage` d'istanza (403 senza). */
+    create(input: { name: string; projectId: string | null; description?: string; flow?: AutomationFlow }): Promise<Automation> {
       return request("POST", "/api/automations", input);
     },
     saveDraft(code: string, input: { flow: AutomationFlow; expectedRev: number | null } & AutomationMeta): Promise<Automation> {
       return request("PUT", `${base(code)}/draft`, input);
     },
-    patch(code: string, meta: AutomationMeta): Promise<Automation> {
+    /**
+     * Nome, descrizione e (F4-2 = c) il tetto del webhook: `webhookPerMinute`
+     * e `webhookPerDay`, null = il default; oltre il massimo d'istanza si salva
+     * ma vale il massimo (`webhookLimits.effective` lo dice).
+     */
+    patch(code: string, meta: AutomationMeta & { webhookPerMinute?: number | null; webhookPerDay?: number | null }): Promise<Automation> {
       return request("PATCH", base(code), meta);
     },
     /** `mailboxAccountId` (area 7, F2): la casella da cui partono le email; serve solo se il flusso ne manda. */
@@ -117,7 +132,8 @@ export function createAutomationEndpoints(request: ApiRequest) {
     reject(code: string, n: number, body: AutomationDecisionBody): Promise<void> {
       return request("POST", `${run(code, n)}/reject`, body);
     },
-    chooseProject(code: string, n: number, body: AutomationDecisionBody & { projectId: string }): Promise<void> {
+    /** `remember` (F4): anche nella tabella cliente → progetto; solo con `permissions.rememberClient` (403 senza). */
+    chooseProject(code: string, n: number, body: AutomationDecisionBody & { projectId: string; remember?: boolean }): Promise<void> {
       return request("POST", `${run(code, n)}/project`, body);
     },
     cancelRun(code: string, n: number): Promise<void> {
@@ -153,6 +169,67 @@ export function createAutomationEndpoints(request: ApiRequest) {
     },
     myRuns(opts: { log?: "none" } = {}): Promise<{ items: MyAutomationRun[] }> {
       return request("GET", `/api/me/automation-runs${toQuery({ log: opts.log })}`);
+    },
+  };
+}
+
+/**
+ * Le sorgenti delle automazioni (area 7, F4): per ora solo il webhook in
+ * arrivo. Scrivere vuole `integrations.manage`; l'indirizzo intero (col
+ * segreto) esce SOLO da `createWebhook` e `regenerate`; gli eventi recenti
+ * solo a `integrations.manage` (403 agli altri).
+ */
+export function createAutomationSourceEndpoints(request: ApiRequest) {
+  const base = (id: string) => `/api/automation-sources/${seg(id)}`;
+  return {
+    list(): Promise<{ items: AutomationSourceView[] }> {
+      return request("GET", "/api/automation-sources");
+    },
+    createWebhook(input: { name: string }): Promise<WebhookSourceCreated> {
+      return request("POST", "/api/automation-sources", input);
+    },
+    rename(id: string, input: { name: string }): Promise<AutomationSourceView> {
+      return request("PATCH", base(id), input);
+    },
+    /** «Generate a new address»: il vecchio smette subito di funzionare. */
+    regenerate(id: string): Promise<WebhookSourceCreated> {
+      return request("POST", `${base(id)}/regenerate`);
+    },
+    previewExample(id: string, json: string): Promise<WebhookExamplePreview> {
+      return request("POST", `${base(id)}/example/preview`, { json });
+    },
+    setExample(id: string, json: string): Promise<AutomationSourceView> {
+      return request("PUT", `${base(id)}/example`, { json });
+    },
+    /** L'etichetta e il tipo di un campo (anche dentro un elenco: `prodotti.nome`). */
+    updateField(id: string, key: string, patch: { label?: string; type?: FieldType }): Promise<AutomationSourceView> {
+      return request("PATCH", `${base(id)}/fields/${seg(key)}`, patch);
+    },
+    events(id: string): Promise<{ items: AutomationSourceEvent[] }> {
+      return request("GET", `${base(id)}/events`);
+    },
+  };
+}
+
+/**
+ * La tabella cliente → progetto (area 7, F4). La chiave la normalizza il
+ * server (`clientKeyOf`: trim + minuscole); un progetto che chi legge non
+ * vede arriva senza id (`projectVisible: false`). Scrivere e i suggerimenti
+ * vogliono `integrations.manage`.
+ */
+export function createClientLinkEndpoints(request: ApiRequest) {
+  return {
+    list(): Promise<{ items: ClientLinkView[] }> {
+      return request("GET", "/api/client-links");
+    },
+    suggestions(): Promise<{ items: ClientSuggestion[] }> {
+      return request("GET", "/api/client-links/suggestions");
+    },
+    put(clientKey: string, input: { clientName: string; projectId: string }): Promise<ClientLinkView> {
+      return request("PUT", `/api/client-links/${seg(clientKey)}`, input);
+    },
+    remove(clientKey: string): Promise<void> {
+      return request("DELETE", `/api/client-links/${seg(clientKey)}`);
     },
   };
 }

@@ -1,5 +1,6 @@
 import type { EffectRequest, EngineInput } from "./engine.js";
 import type { Automation, ReasonCode, Step } from "./types.js";
+import { CHAIN_MAX } from "./availability.js";
 
 // I PIANI delle azioni della fetta 1 (area 7, R3): cosa farebbe un'azione,
 // coi controlli dell'esecuzione vera, senza scrivere e senza leggere uno
@@ -379,6 +380,48 @@ export function planNotify(
     );
   }
   return { ok: true, plan: { personIds: [person.id], projectId, text: args.text } };
+}
+
+/**
+ * «Avvia un'altra automazione» (area 7, F4, S6): i fatti dell'automazione da
+ * avviare come li vede il PROPRIETARIO di chi avvia. `null` = non esiste.
+ */
+export interface StartTarget {
+  id: string;
+  name: string;
+  status: Automation["status"];
+  /** Il proprietario di chi avvia la vede (R-G5: una che non vede vale come una che non c'è). */
+  visibleToOwner: boolean;
+  /** …e può gestirla (R-J21: avviarla è come «Avvia ora»). */
+  manageableByOwner: boolean;
+}
+
+/**
+ * Il piano di un «avvia un'altra» (la regola di `planStart` del prototipo, in
+ * un posto per prototipo ed esecutore): esiste e il proprietario la vede, la
+ * può gestire, è accesa, non è già nella catena (`chain`: le automazioni
+ * della catena di avvii sopra questa, questa compresa — niente cicli) e la
+ * catena non è già a {@link CHAIN_MAX}.
+ */
+export function planStartAutomation(target: StartTarget | null, ownerName: string, chain: readonly string[]): Planned<StartTarget> {
+  if (!target || !target.visibleToOwner) {
+    return refuse(failed("automation_not_found", { code: "automationNotFound" }, "L'automazione da avviare non esiste o il proprietario non la vede."));
+  }
+  if (!target.manageableByOwner) {
+    return refuse(
+      failed("permission_lost", { code: "cantManage", params: { owner: ownerName, name: target.name } }, `Permesso perso: il proprietario (${ownerName}) non può gestire «${target.name}».`),
+    );
+  }
+  if (target.status !== "active") {
+    return refuse(failed("automation_not_active", { code: "automationNotActive", params: { name: target.name } }, `«${target.name}» non è attiva: non è partita.`));
+  }
+  if (chain.includes(target.id)) {
+    return refuse(failed("automation_cycle", { code: "automationCycle", params: { name: target.name } }, `«${target.name}» è già in questa catena di avvii: niente cicli.`));
+  }
+  if (chain.length >= CHAIN_MAX) {
+    return refuse(failed("chain_limit", { code: "chainLimit", params: { max: CHAIN_MAX } }, `Limite raggiunto: al massimo ${CHAIN_MAX} automazioni in una catena di avvii.`));
+  }
+  return { ok: true, plan: target };
 }
 
 /** L'automazione avviata non può partire (troppe esecuzioni in corso, `startRun` → null). */

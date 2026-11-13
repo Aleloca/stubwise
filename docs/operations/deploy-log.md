@@ -4365,3 +4365,70 @@ deploy o di un rollback che la tocca.
   '%"kind":"claude"%'));`. Le righe `agent_runs` con `automation_step`
   restano (un server vecchio non le legge per operazione). La 0173 non si
   annulla.
+- **«Integrazione area 7, fetta 4: le generali e il webhook in arrivo» (13
+  nov 2026)**: branch `feat/area7-f4` (sopra il fix della F3), piano
+  `docs/plans/2026-11-13-integrazione-area7-fetta4-plan.md` (con le
+  «Correzioni di 72»). Le automazioni GENERALI (senza progetto, `AUT-<n>`,
+  permesso d'istanza `automations.general.manage`, che nessun preset riceve:
+  il full admin l'ha già), il webhook in arrivo `POST /webhooks/in/:secret`,
+  la tabella cliente → progetto e «avvia un'altra automazione».
+  Migrazione **0174** (DOPO la 0173):
+  - `automations.project_id` nullable, la sequenza
+    `automation_general_code_seq`, `webhook_per_minute` e `webhook_per_day`;
+  - le tabelle `automation_sources` (il segreto come sha256),
+    `automation_source_events` (gli ultimi 100 per sorgente),
+    `automation_source_hits` (i contatori del tetto) e `client_project_links`;
+  - `automation_events.source_id` (il CHECK ora accetta anche la sola
+    sorgente) e `automation_runs.mail_origin_account_id` (R-J13 lungo la
+    catena);
+  - i valori d'enum `source_event` (`automation_event_kind`) e `run`
+    (`automation_effect_kind`), in statement a sé e mai usati nel batch.
+
+  Nessun `notification_kind` nuovo. **Caddy non cambia per la rotta**:
+  `/webhooks/*` è già inoltrato al server (matcher `@backend`); si ribuilda
+  solo per il renderer di `/app`. Env nuove, facoltative, sul **server**:
+  `AUTOMATION_WEBHOOK_MAX_PER_MINUTE` (default 600) e
+  `AUTOMATION_WEBHOOK_MAX_PER_DAY` (default 50 000): il massimo d'istanza del
+  tetto, che nessuna scelta per automazione supera.
+  **ORDINE**: (1) **backup**; (2) **`server`**: applica la 0174, aspetta
+  healthy; (3) **`worker`**, solo SENZA lavoro dell'agente in corso (è lui a
+  consumare `source_event`, a eseguire «avvia un'altra» e a risolvere il
+  progetto del cliente); (4) **`caddy`**: con la F4 del renderer nel
+  rilascio. Verifica, da chi ha `integrations.manage`: crea un webhook
+  (l'indirizzo esce una volta), incolla un esempio, e
+  `curl -X POST -H 'content-type: application/json' -d '{…}' <indirizzo>`
+  risponde 202; un tipo sbagliato 422, visibile negli eventi recenti.
+  Controlli, sola lettura: `select status, count(*) from
+  automation_source_events where received_at > now() - interval '1 day'
+  group by status;` e le generali accese, `select code, owner_id from
+  automations where project_id is null and status = 'active';`.
+
+  **Rollback** (il server scende **insieme** al caddy; la 0174 non si
+  annulla):
+  - **Le generali**: un server e un worker vecchi non le conoscono (codice
+    scritto per `project_id` non nullo). Prima di scendere si mettono in pausa
+    e si annullano le loro esecuzioni aperte: `update automations set status
+    = 'paused', paused_reason = 'manual', active_since = null where
+    project_id is null and status = 'active';` e `update automation_runs r set
+    status = 'cancelled', ended_at = now() from automations a where
+    a.id = r.automation_id and a.project_id is null and r.status in
+    ('running','waiting_approval','waiting_project','waiting_event','suspended');`.
+    ⚠️ Non verificato: l'elenco delle automazioni di un full admin, sul server
+    vecchio, potrebbe fallire con righe a progetto nullo; se succede, le
+    generali vanno esportate e tolte (`delete from automations where
+    project_id is null;`, a cascata versioni ed esecuzioni).
+  - **Il webhook**: un server vecchio non ha la rotta, chi chiama riceve 404 e
+    gli eventi non entrano. Le sorgenti restano inerti.
+  - **R-J13 lungo la catena**: un server vecchio non legge
+    `mail_origin_account_id`, quindi la posta di una FIGLIA partita da
+    un'email diventerebbe leggibile al proprietario della figlia. Prima di
+    scendere: `update automation_runs set event = '{"email":{"mittente":"","oggetto":"","testo":""}}'::jsonb,
+    title = '' where mail_origin_account_id is not null;` (si perde il
+    contenuto di quelle esecuzioni, non la posta, che resta nella casella).
+  - ⚠️ **Il permesso nuovo**: un server vecchio ignora
+    `automations.general.manage` a lettura, ma RIFIUTA in scrittura un ruolo
+    che lo contiene (400 salvando quel ruolo). Se serve modificarli: `update
+    roles set permissions = array_remove(permissions,
+    'automations.general.manage');`.
+  - Un worker vecchio consuma gli eventi `source_event` senza avviare niente
+    (non hanno progetto), e legge l'effetto `run` come un id: nessun errore.

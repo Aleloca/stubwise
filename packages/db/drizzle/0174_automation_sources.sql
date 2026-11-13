@@ -91,3 +91,9 @@ ALTER TABLE "automation_events" ADD CONSTRAINT "automation_events_source_id_auto
 ALTER TABLE "automation_events" DROP CONSTRAINT "automation_events_project_or_account_chk";
 --> statement-breakpoint
 ALTER TABLE "automation_events" ADD CONSTRAINT "automation_events_project_or_account_chk" CHECK ("project_id" IS NOT NULL OR "account_id" IS NOT NULL OR "source_id" IS NOT NULL);
+--> statement-breakpoint
+-- R-J13 lungo la catena («avvia un'altra»): la casella della posta che l'EVENTO dell'esecuzione porta
+-- (quella d'origine della catena). Distinta da `mailbox_account_id`, da cui l'esecuzione manda.
+ALTER TABLE "automation_runs" ADD COLUMN "mail_origin_account_id" uuid;
+--> statement-breakpoint
+ALTER TABLE "automation_runs" ADD CONSTRAINT "automation_runs_mail_origin_account_id_google_accounts_id_fk" FOREIGN KEY ("mail_origin_account_id") REFERENCES "public"."google_accounts"("id") ON DELETE set null ON UPDATE no action;
