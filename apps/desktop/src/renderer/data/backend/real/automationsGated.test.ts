@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { automations } from ".";
 import { setAppClientForTests } from "./client";
-import { installFakeServer, serverTask } from "./fakeServer";
+import { installFakeServer, PROJECT_ID, serverProject, serverTask } from "./fakeServer";
+import { listNotifications } from "./notifications";
 import { getTaskByCode } from "./tasks";
 
 // Ciò che delle Automations compare FUORI dalla loro destinazione nella build
@@ -12,6 +13,8 @@ import { getTaskByCode } from "./tasks";
 // - La riga d'origine di una task: solo se il server dice che l'ha creata
 //   un'automazione (`source`), così un 404 di `/api/automation-origin` vuol
 //   dire «non la vedi», mai «task manuale».
+// - Le card `automation.*` dell'inbox: aprono l'esecuzione (o
+//   l'automazione), coi campi che il server deriva a lettura.
 
 const flag = vi.hoisted(() => ({ on: false }));
 vi.mock("../../integration", async (importOriginal) => {
@@ -90,5 +93,71 @@ describe("la riga d'origine di una task creata da un'automazione", () => {
   it("a destinazione spenta nessuna riga", async () => {
     installFakeServer(routes);
     expect((await getTaskByCode("AUD-12"))?.automationRef).toBeUndefined();
+  });
+});
+
+describe("le card `automation.*` dell'inbox", () => {
+  const card = (over: Record<string, unknown> = {}) => ({
+    id: "33333333-3333-4333-8333-333333333334",
+    kind: "automation.failed",
+    status: "open",
+    text: "Avvio · AUD-A1 #3",
+    summary: "Il passo 1 non è riuscito",
+    actions: ["open"],
+    projectId: PROJECT_ID,
+    ticketId: null,
+    jobId: null,
+    createdAt: "2026-11-13T10:00:00.000Z",
+    readAt: null,
+    snoozedUntil: null,
+    handledAt: null,
+    handledBy: null,
+    chat: null,
+    automation: {
+      automationCode: "AUD-A1",
+      automationName: "Avvio",
+      runCode: "AUD-A1 #3",
+      runStatus: "failed",
+      waitingOnYou: false,
+      decided: false,
+    },
+    ...over,
+  });
+  const inbox = (items: unknown[]) =>
+    installFakeServer({
+      "GET /api/inbox": ({ path }) => ({
+        body: { items: path.includes("status=open") ? items : [], nextCursor: null },
+      }),
+      "GET /api/projects": { body: [serverProject()] },
+    });
+
+  it("a destinazione accesa: l'esecuzione (o l'automazione, se la card non ne ha una)", async () => {
+    flag.on = true;
+    const paused = card({
+      id: "33333333-3333-4333-8333-333333333335",
+      kind: "automation.paused",
+      createdAt: "2026-11-13T09:00:00.000Z",
+      automation: { ...card().automation, runCode: null, runStatus: null },
+    });
+    inbox([card(), paused]);
+    const [failed, other] = await listNotifications();
+    expect(failed).toMatchObject({
+      objectCode: "AUD-A1 #3",
+      title: "Avvio · AUD-A1 #3",
+      body: "Il passo 1 non è riuscito",
+      link: "#/automations/AUD-A1/runs/3",
+    });
+    expect(failed!.webHref).toBeUndefined();
+    expect(other).toMatchObject({ objectCode: "AUD-A1", link: "#/automations/AUD-A1" });
+  });
+
+  it("a destinazione spenta niente link; un'automazione sparita è `objectGone`", async () => {
+    inbox([
+      card(),
+      card({ id: "33333333-3333-4333-8333-333333333336", automation: null, objectGone: true }),
+    ]);
+    const [a, gone] = await listNotifications();
+    expect(a!.link).toBe("");
+    expect(gone).toMatchObject({ objectGone: true, link: "" });
   });
 });
