@@ -64,7 +64,11 @@ Nella F3 l'inizio `source` e il passo `startAutomation` sono «Coming soon» e
   automazione che lo usa).
 - **F4-2 = c** *(M)*, NON la consigliata: il tetto di frequenza lo sceglie
   chi gestisce l'automazione, con un default di 60 richieste al minuto e
-  5 000 al giorno.
+  5 000 al giorno. Il permesso è `automations.manage` SULL'AUTOMAZIONE (nel
+  progetto, o d'istanza per una generale), NON `integrations.manage`, e si
+  imposta dall'automazione: al maintainer è stato chiesto «un default,
+  modificabile per automazione da chi la gestisce» (46, 13 nov), anche se il
+  testo dell'opzione qui sotto diceva «chi gestisce l'integrazione».
 - **Il massimo d'istanza** *(O, 46)*: sopra il tetto scelto c'è un massimo
   d'istanza NON superabile (il maintainer non ne ha parlato; scelta
   dell'orchestratrice), così un indirizzo pubblico non resta mai senza
@@ -233,9 +237,10 @@ R3. **Le generali nella build app**: la voce «General» della colonna, la
 R4. **Sources e tabella**: le pagine del prototipo sulle rotte vere (solo
    webhook; Audin e HubSpot «Coming soon»), il segreto mostrato una volta
    alla creazione e alla rigenerazione (copia, poi non più), gli eventi
-   recenti coi rifiutati e il motivo; il tetto di frequenza
-   dell'automazione (al minuto e al giorno, col default e il massimo
-   d'istanza detto accanto, F4-2 = c). *Test*: la pagina fino alla richiesta
+   recenti coi rifiutati e il motivo. Il tetto di frequenza (al minuto e
+   al giorno, col default e il massimo d'istanza detto accanto, F4-2 = c)
+   sta nell'impostazione dell'AUTOMAZIONE e lo cambia chi ha
+   `automations.manage` su di lei, non nella pagina Sources. *Test*: la pagina fino alla richiesta
    esatta; il segreto non è più leggibile dopo aver chiuso il dialogo; un
    tetto oltre il massimo non si salva (o vale il massimo, come dice il
    server).
@@ -313,7 +318,9 @@ F4-2. **Il tetto di frequenza di un indirizzo** (D3)?
    (a) 60 richieste al minuto e 5 000 al giorno, poi 429. *(consigliata:
    largo per un CRM, stretto per un abuso)*
    (b) 10 al minuto.
-   (c) Lo sceglie chi gestisce l'integrazione, per sorgente.
+   (c) Lo sceglie chi gestisce l'integrazione, per sorgente. *(Al
+   maintainer è arrivata come «un default, modificabile per automazione da
+   chi la gestisce»: vale quella, vedi le risposte.)*
 
 F4-3. **La dimensione massima del corpo**?
    (a) 256 KB. *(consigliata: un evento, non un file)*
@@ -363,8 +370,11 @@ F4-6. **Chi vede gli eventi recenti di una sorgente** (il payload, che può
   `PUBLIC_URL` e il renderer lo mostra così com'è (niente percorso scritto
   nel client). Il massimo d'istanza è una env del server
   (`AUTOMATION_WEBHOOK_MAX_PER_MINUTE`, default 600;
-  `AUTOMATION_WEBHOOK_MAX_PER_DAY`, default 50 000) e torna nella risposta
-  della sorgente, così il renderer lo dice accanto al tetto.
+  `AUTOMATION_WEBHOOK_MAX_PER_DAY`, default 50 000, *(O, 46)*) e torna
+  nella risposta dell'automazione, così il renderer lo dice accanto al
+  tetto. Il tetto scelto sta sull'automazione (`automations.webhook_per_minute`
+  e `webhook_per_day`, null = il default) e lo scrive chi ha
+  `automations.manage` su di lei (F4-2, permesso confermato da 46).
 - **C-F4-2 → sì, e serve più di quanto dica**. In shared (`automations/
   sourceFields.ts`): `deriveFields`, `labelFromKey`, `mergeFields`,
   `fieldKeys`, più `clientKeyOf` (trim + `lower`) e `checkEventFields`
