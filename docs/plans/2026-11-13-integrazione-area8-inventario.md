@@ -567,6 +567,90 @@ codice. Oggi il server le applica alla lettera:
   `<PRJ>-V<n>` → `/p/$code/releases/$release`). Con la consigliata non
   cambia niente nel componente: serve un test che parsi l'evento vero.
 
+## Decisioni (13 nov 2026)
+
+Dal maintainer *(M)*, via stubwise-46, e dall'orchestratrice *(O)*:
+
+- **Le due riscritture d'invariante del design del prototipo: CONFERMATE**
+  *(M)*. (1) L'unica azione sull'ambiente è la correzione di un server da una
+  task, via SSH, con `servers.operate` e il piano sempre approvato prima di
+  ogni comando; mai per rilasciare. (2) Niente adozione esplicita: ogni PR di
+  un repository collegato si analizza, e la prima correzione parte da sola
+  salvo «solo analisi». Si riscrivono in CLAUDE.md e in `docs/invariants/`
+  PRIMA del codice della loro fetta (le righe sono qui sotto, le applica 46
+  all'unione).
+- **S-3 = a** *(M)*: anche i merge fatti fuori da Stubwise sono rilasci.
+- **S-5 = a** *(M)*: la risposta di una persona arriva nel widget, e per email
+  dalla casella di chi risponde.
+- **S-10 = a** *(M)*: l'analisi automatica di un server parte da sola, nel
+  budget mensile, con un tetto di durata e di costo, una per episodio.
+- **S-1 = a** *(O)*: quattro fette (rilasci; avvisi; Support; Servers), con
+  l'SSH per ultimo.
+- **S-2 = a** *(O)*: le run di CI con l'account git del repository, senza
+  segreti nuovi.
+- **S-4 = a** *(O)*, con il catalogo dei tipi in shared (R-5).
+- **S-6 = a** *(O)*: la pagina di Release è il rilascio `<PRJ>-V<n>`.
+- **S-7 = a** *(O)*: i preset dei tre permessi nuovi come nella tabella del
+  design, con la regola dei preset.
+- **S-8 = a** *(O)*: chiave SSH generata dal server, cifrata a riposo, usata
+  solo dal worker.
+- **S-9 = a** *(O)*: «View conversation» anche sulle task del widget.
+- **R-1…R-5 = a** *(O)*.
+
+### Le righe delle due invarianti (da applicare all'unione della fetta che le tocca)
+
+**(1) CLAUDE.md, «Stubwise non fa deploy: il merge è il confine (fase 8)»** →
+sostituire il paragrafo con:
+
+> - **Stubwise non fa deploy; il merge è il confine dei RILASCI (fase 8,
+>   riscritta con l'area 8 il 13 nov 2026, decisione del maintainer).** Per i
+>   rilasci l'unica azione resta il merge esplicito di una PR già aperta: nessun
+>   deploy, nessuna esecuzione di pipeline, nessun riavvio. Lo stato di un
+>   rilascio si LEGGE (le run di CI, il commit che l'agente riporta, `sameCommit`)
+>   e «non ancora in produzione» resta un'osservazione. Esiste **una sola**
+>   azione sull'ambiente: la **correzione di un problema di un server**, partita
+>   da una task legata a quel server, con l'accesso SSH di correzione, avviata da
+>   chi ha `servers.operate` (mai Claude) e con il piano approvato da chi ha
+>   `plans.approve` PRIMA di ogni comando (mai Claude, mai in anticipo). Il
+>   confine nuovo: l'accesso di correzione **non rilascia** — non aggiorna
+>   immagini, non fa pull di commit, non riavvia servizi come passo di un
+>   rilascio; riporta il server a funzionare come prima secondo la diagnosi della
+>   task. Una correzione che «rilascia» è un piano da rifiutare: il prompt lo
+>   dice, il gate lo controlla. Chi collega l'accesso di correzione a un
+>   rilascio, o aggiunge un'altra azione sull'ambiente, rompe questa frase, non
+>   solo il codice: è un cambio di prodotto.
+
+e, in «I due divieti dell'operatore», punto 2, la frase «mai un deploy, mai
+un'esecuzione di ambiente (vedi l'invariante dedicata più sotto)» diventa «mai
+un deploy; l'unica azione sull'ambiente è la correzione di un server, che non
+rilascia (vedi l'invariante dedicata più sotto)». `project_environments` non è
+più «pura anagrafica» solo in questo senso: un server collegato può avere un
+accesso di correzione.
+
+**(2) `docs/invariants/pr-corrections.md`** → la voce «Adottare una PR aperta
+da altri (6 ott 2026)» diventa:
+
+> - **Le PR dei colleghi (area 8, 13 nov 2026, decisione del maintainer: niente
+>   adozione esplicita).** Ogni PR aperta su un repository collegato si
+>   analizza, di Stubwise o di chiunque, secondo l'impostazione del repository
+>   (`colleague_prs`: analisi e correzioni, solo analisi, spento; la sceglie chi
+>   ha `repos.manage`). Con «analisi e correzioni» la prima correzione parte da
+>   sola, salvo «Solo analisi» sulla singola PR (chi ha `prs.adopt` nel
+>   progetto, calcolato dal server). Le regole di sicurezza dell'adozione
+>   restano tutte, verificate DAL PROVIDER e fail-closed, prima del worktree e
+>   prima del push: mai un fork (né uno non verificabile), mai un branch
+>   `stubwise/…`, il branch di default, il target della PR o un branch
+>   protetto (`isProtectedBranch`, anche diventato protetto a correzione in
+>   corso); il push è SEMPRE in avanti (mai `--force`, mai rebase). «Chiedi
+>   modifiche» e la ripresa di una correzione ferma su una PR di un collega
+>   vogliono `prs.adopt` (`correctionActionAllowed`); il ciclo automatico, il
+>   tetto e il budget sono quelli delle PR di Stubwise.
+
+e nella voce sul push (riga ~159) «mai il branch di una PR scritta da una
+persona se non dopo un'ADOZIONE esplicita di un maintainer» diventa «il branch
+di una PR scritta da una persona solo secondo l'impostazione del repository
+(`colleague_prs`) e mai su una PR in «Solo analisi»».
+
 ## Domande di prodotto
 
 ### Del server (S-n)

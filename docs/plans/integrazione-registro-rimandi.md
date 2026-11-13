@@ -648,6 +648,16 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Area 8 — Rilasci, ambienti, avvisi, Support, Servers
 
+- L'inventario dell'area 8 (`docs/plans/2026-11-13-integrazione-area8-inventario.md`,
+  13 nov 2026, lato server di 72 e renderer di 94), con le **Decisioni**:
+  confermate *(M)* le due riscritture d'invariante del design del prototipo
+  (la correzione di un server via SSH come unica azione sull'ambiente, mai per
+  rilasciare; niente adozione esplicita delle PR, la prima correzione parte da
+  sola salvo «solo analisi»), da applicare a CLAUDE.md e `docs/invariants/`
+  PRIMA del codice della loro fetta (righe nell'inventario). S-3, S-5, S-10 =
+  a *(M)*; S-1, S-2, S-4, S-6…S-9 e R-1…R-5 = a *(O)*. Quattro fette: rilasci,
+  avvisi, Support, Servers (SSH per ultimo).
+
 - Blocchi della Home «Rilasci» (anche l'extra di `resolveHome` per
   `release.merge`) e «Clienti in attesa».
 - Origine di una richiesta da Support; «View conversation» delle task del widget.
