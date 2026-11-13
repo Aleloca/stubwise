@@ -578,6 +578,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   (`docs/invariants/automations.md`). Nessun controllo automatico lo impone:
   la review di una migrazione deve guardarlo.
 
+- F2, «email in arrivo» *(M, 13 nov 2026)*: TUTTE le email ricevute
+  (F2-1), tranne le risposte in una conversazione in cui la stessa
+  automazione ha mandato un'email: svegliano solo le sue attese (C-F2-5 del
+  piano della F2, `docs/invariants/automations.md`). Nessun filtro sui
+  messaggi automatici (`Auto-Submitted`): se un caso di giro fra due
+  automazioni diverse si presentasse, è da lì che si riparte.
+
 ## Area 8 — Rilasci, ambienti, avvisi, Support, Servers
 
 - Blocchi della Home «Rilasci» (anche l'extra di `resolveHome` per

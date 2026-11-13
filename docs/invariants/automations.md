@@ -160,3 +160,19 @@ motore condiviso (`packages/shared/src/automations/`).
 - Le righe create da un'esecuzione portano `automation_run_id` (task,
   traguardi, voci di backlog; `ON DELETE SET NULL`): l'origine si DERIVA a
   lettura da lì, mai un nome di automazione scritto nella riga.
+
+## L'inizio «email in arrivo» (F2, decisioni del maintainer del 13 nov 2026)
+
+- **Tutte le email ricevute** dalla casella scelta all'accensione fanno
+  partire l'inizio, anche quelle che il cancello dell'ammissione rifiuta;
+  non quelle MANDATE dalla casella. Si pubblica dal poller Google, prima
+  dell'ammissione (un trigger su `email_messages` perderebbe i rifiutati),
+  e solo se la casella ha un'automazione accesa con quell'inizio.
+- **Mai il botta e risposta**: un messaggio ricevuto in una conversazione
+  in cui l'automazione stessa ha mandato un'email (una riga `mail_outgoing`
+  con un suo `automation_run_id`, stessa casella, stesso `gmail_thread_id`)
+  NON fa partire quell'automazione: sveglia solo le sue attese su quella
+  conversazione. Senza questa regola un risponditore automatico o un
+  rimbalzo la farebbero ripartire all'infinito, perché un evento della
+  posta non ha origine e la catena non lo vede. Piano della F2, C-F2-5.
+

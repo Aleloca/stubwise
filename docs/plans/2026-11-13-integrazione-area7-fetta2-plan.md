@@ -281,6 +281,36 @@ arrivo. Vanno corretti tre punti del piano:
   automazioni il cui proprietario possiede la casella, e un admin non fa
   eccezione (test negativo in S8).
 
+**C-F2-5. Il botta e risposta *(M, 13 nov 2026)*.** Con TUTTE le email,
+un'automazione «email in arrivo → manda email» e il risponditore
+automatico (o il rimbalzo) di chi riceve si rimbalzerebbero all'infinito:
+l'evento nasce dalla posta, senza origine, quindi la catena non lo vede, e
+il tetto di 20 vale per esecuzione. Regola: **un messaggio ricevuto in una
+conversazione in cui l'automazione stessa ha mandato un'email NON fa
+partire quell'automazione**. Sveglia solo le sue attese su quella
+conversazione (se ce ne sono); le ALTRE automazioni della casella partono
+come sempre.
+- «Conversazione dell'automazione» = esiste una riga `mail_outgoing` con
+  `automation_run_id` di un'esecuzione di quell'automazione, la stessa
+  casella e lo stesso `gmail_thread_id` del messaggio ricevuto. Non solo la
+  conversazione APERTA da lei: anche una in cui ha risposto. Così il caso
+  di un'automazione B che risponde in una conversazione aperta da A (o dal
+  cliente) è fermato allo stesso modo: la seconda risposta del risponditore
+  non fa ripartire B. *(Lettura di 72 della decisione: «aperta» da sola
+  lascerebbe il giro aperto per B.)*
+- La regola sta nel consumatore (non nel poller): l'evento si scrive
+  comunque, e il consumatore lo scarta per quell'automazione con un indice
+  su `mail_outgoing (account_id, gmail_thread_id) where automation_run_id
+  is not null`. Le righe `failed` o `cancelled` contano lo stesso (un invio
+  interrotto può essere partito).
+- *Test* (in S8): un'automazione «email in arrivo → manda email»; il
+  risponditore automatico del destinatario risponde nella conversazione →
+  nessuna nuova esecuzione di quell'automazione, ma un'attesa della
+  risposta della stessa esecuzione su quella conversazione si sveglia con
+  `risposta.arrivata = true`; un'altra automazione della stessa casella
+  parte; un messaggio in una conversazione SENZA email dell'automazione la
+  fa partire (controllo che la regola non spenga tutto).
+
 **C-F2-1. Niente bozza Gmail per un'email d'automazione.** Né la (a) né la
 (b) della bozza, ma un invio diretto. `gmail.modify` (lo scope dell'area 6)
 ammette `users.messages.send`, quindi la bozza è un giro in più che non
@@ -380,7 +410,9 @@ S7. **Gli inizi a orario**: il tick, `automation_schedule_fires`, la regola
 S8. **L'inizio «email in arrivo»**: dal poller Google, solo le caselle del
    proprietario. *Test* NEGATIVI: un messaggio nella casella di un altro non
    fa partire l'automazione, anche se il proprietario è admin; l'evento non
-   compare nelle letture di chi non è il proprietario (R-J13).
+   compare nelle letture di chi non è il proprietario (R-J13). Il botta e
+   risposta di C-F2-5. Un messaggio rifiutato dall'ammissione fa partire
+   l'automazione (F2-1 = tutte), uno MANDATO dalla casella no.
 
 S9. **L'elenco chiuso degli scrittori di `mail_outgoing`** e l'eccezione
    all'invariante (`docs/invariants/automations.md`, docblock del
@@ -474,9 +506,9 @@ R7. **Parità** (`apps/desktop/docs/integration-area7-f2.md`) e registro.
 Ognuna con la consigliata per prima.
 
 F2-1. **Quali email fanno partire «email in arrivo»?** DECISA *(M)*:
-   TUTTE quelle ricevute dalla casella, anche non ammesse (C-F2-0). Resta
-   aperta la difesa dal botta e risposta con un risponditore automatico
-   (domanda di 72 a 46, 13 nov 2026).
+   TUTTE quelle ricevute dalla casella, anche non ammesse (C-F2-0), TRANNE
+   le risposte in una conversazione dell'automazione stessa (C-F2-5,
+   risposta del maintainer *(M)* alla domanda di 72, 13 nov 2026).
 
 F2-2. **L'email di un'automazione ha i 10 secondi per annullare?**
    (a) No, parte subito: non c'è nessuno a guardare; chi vuole fermarla
