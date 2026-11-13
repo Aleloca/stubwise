@@ -522,3 +522,14 @@ describe("La cartella dice quando si è aggiornata", () => {
     expect(folderRow("fl-stw-brand")).not.toHaveTextContent(/synced/);
   });
 });
+
+describe("Il dialogo di collegamento dice la sincronizzazione di ogni giorno (QB1 = b, O di 46)", () => {
+  it("la riga sotto la scelta", async () => {
+    await openDrive("/p/MKX/drive", "p-giulia");
+    await screen.findByRole("grid");
+    await userEvent.click(within(await moreDriveActions()).getByRole("menuitem", { name: "Link a Google folder" }));
+    const dialog = await screen.findByRole("dialog", { name: "Link a Google folder to MKX" });
+    expect(dialog).toHaveTextContent("Stubwise checks the folder every day; Sync now updates it right away.");
+    act(() => closeLinkFolder());
+  });
+});

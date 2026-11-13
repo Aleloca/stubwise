@@ -5882,6 +5882,7 @@
       "warning_one": "Everyone in {{code}} ({{count}} person) will be able to read every file in “{{folder}}” and its subfolders, even people who can't open it on Google. Stubwise reads it with your account, {{email}}.",
       "warning_other": "Everyone in {{code}} ({{count}} people) will be able to read every file in “{{folder}}” and its subfolders, even people who can't open it on Google. Stubwise reads it with your account, {{email}}.",
       "pick": "Choose a folder. Before linking, this says who will be able to read it.",
+      "daily": "Stubwise checks the folder every day; Sync now updates it right away.",
       "keys": "↑↓ to move · Enter opens a folder · ⌫ goes up",
       "cancel": "Cancel",
       "confirm": "Link folder",

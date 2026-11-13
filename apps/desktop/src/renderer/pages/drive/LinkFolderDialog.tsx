@@ -333,6 +333,8 @@ function FolderPicker({
             })
           : t("drive.link.pick")}
       </p>
+      {/* QB1 = b *(M)*: la cartella si ricontrolla da sola ogni giorno (riga di 46, O). */}
+      <p className="text-sm text-ink-muted">{t("drive.link.daily")}</p>
       {link.isError && (
         <p role="alert" className="text-sm text-critical">
           {t("drive.google.failed")}
