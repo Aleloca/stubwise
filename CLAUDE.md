@@ -292,7 +292,17 @@ percorso sul volume.
   (un `cat` via Bash fuori dalla cartella è bloccato dal CLI: è la prova
   dell'invariante, va rilanciato quando si aggiorna il CLI). Lo scenario
   `refine-read-plan` (la plan mode della chat CODE e del deep dive, rosso
-  noto) è stato tolto il 19 ott 2026 insieme a quei run. A parte, con la
+  noto) è stato tolto il 19 ott 2026 insieme a quei run. Dalla fetta 3
+  dell'area 7 c'è anche lo scenario **`automation-step`** (il passo di
+  Claude delle automazioni: la chiamata vera dell'esecutore,
+  `callClaudeModel`, su una classificazione, un input con un'istruzione
+  ostile da non seguire, un indirizzo d'attaccante iniettato e un elenco
+  tipato; nessuno strumento ammesso). Si lancia col CLI pinnato e `--model
+  sonnet`, 3 volte, al rilascio della F3, prima di accendere i passi di
+  Claude e a ogni aggiornamento del CLI o di
+  `packages/shared/src/automations/claudePrompt.ts` (13 nov 2026, CLI
+  2.1.322: 3/3); come `mail-classify-v2` non carica plugin, quindi
+  `--plugin` è facoltativo. A parte, con la
   sua entry, il golden
   **`nightly`** (`pnpm --filter @stubwise/worker golden:nightly -- --claude
   <path>`): Postgres effimero con testcontainers dentro lo script (serve
@@ -449,6 +459,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 6, fetta 5b: Google Drive nel Drive dei progetti» (13 nov 2026)
   - «Integrazione area 7, fetta 1: le Automations di progetto» (13 nov 2026)
   - «Integrazione area 7, fetta 2: email e attese» (13 nov 2026)
+  - «Integrazione area 7, fetta 3: i passi di Claude» (13 nov 2026; prima di accendere, il golden `automation-step`)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
