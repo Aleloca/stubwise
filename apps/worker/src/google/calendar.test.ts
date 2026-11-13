@@ -212,6 +212,7 @@ function event(input: Partial<GoogleCalendarEvent> & { id: string }): GoogleCale
     recurringEventId: null,
     originalStartTime: null,
     timeZone: null,
+    attachments: [],
     location: null,
     hangoutLink: null,
     conferenceEntryPoints: [],

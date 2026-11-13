@@ -23,6 +23,8 @@ import {
   calendarWriteScopeSchema,
   calendarEventProjectSchema,
   calendarFreeBusySchema,
+  meetingSummarySchema,
+  meetingTasksSchema,
   mailItemStatusSchema,
   type CalendarAttendee,
   type CalendarConferenceEntryPoint,
@@ -52,6 +54,7 @@ import {
   type CalendarWriteOutcome,
 } from "../services/calendar-writes.js";
 import { setCalendarEventProject } from "../services/calendar-project.js";
+import { meetingSummaryFor, meetingTasksFor, noteForEventRow } from "../services/meetings.js";
 import { FREEBUSY_MAX_DAYS, FREEBUSY_MAX_PEOPLE, freeBusyOf } from "../services/calendar-freebusy.js";
 
 /**
@@ -208,6 +211,32 @@ export async function meCalendarRoutes(instance: FastifyInstance, opts: { client
     "/events/:id/respond",
     { config: { access: { kind: "user" } }, schema: { params: z.object({ id: z.uuid() }), body: calendarEventRespondSchema, response: { 200: calendarWriteResultSchema, ...writeErrors } } },
     async (request, reply) => sendWritten(reply, request.user!.id, await respondCalendarEvent(writeDeps(), request.user!.id, request.params.id, request.body)),
+  );
+
+  /**
+   * F5a: il riassunto della riunione registrata di questo evento (stesso
+   * iCalUID e stessa data). 404 a chi non è nel calcolo di `canSeeMeeting` —
+   * un membro che non c'era, un admin non invitato — come a un evento che non
+   * esiste, e a un evento senza riunione registrata.
+   */
+  app.get(
+    "/events/:id/summary",
+    { config: { access: { kind: "user" } }, schema: { params: z.object({ id: z.uuid() }), response: { 200: meetingSummarySchema, 404: errorSchema, ...authErrorResponses } } },
+    async (request, reply) => {
+      const found = await noteForEventRow(app.db, request.user!.id, request.params.id);
+      const summary = found?.noteId ? await meetingSummaryFor(app.db, request.user!.id, found.noteId) : null;
+      return summary ?? apiError(reply, 404, "not_found", "Meeting summary not found");
+    },
+  );
+
+  /** F5a: «Task da questa riunione», solo ai membri del progetto dell'evento (`null` agli altri). */
+  app.get(
+    "/events/:id/tasks",
+    { config: { access: { kind: "user" } }, schema: { params: z.object({ id: z.uuid() }), response: { 200: meetingTasksSchema, 404: errorSchema, ...authErrorResponses } } },
+    async (request, reply) => {
+      const out = await meetingTasksFor(app.db, request.user!.id, request.params.id, new Date().toISOString().slice(0, 10));
+      return out === undefined ? apiError(reply, 404, "not_found", "Calendar event not found") : out;
+    },
   );
 
   /** Il progetto dell'evento, a mano (task 4): nessuna chiamata a Google. Regole in `services/calendar-project.ts`. */
@@ -668,9 +697,15 @@ async function queryCalendarEvents(db: Db, input: ListCalendarInput): Promise<Ca
  */
 async function hideUnseenProjects(db: Db, viewerId: string, items: CalendarEventItem[]): Promise<CalendarEventItem[]> {
   const ids = [...new Set(items.map((i) => i.projectId).filter((id): id is string => id !== null))];
-  if (ids.length === 0) return items;
+  if (ids.length === 0) return items.map((item) => ({ ...item, hasPrep: false }));
   const seen = await projectPermissionsByProject(db, viewerId, ids);
-  return items.map((item) => (item.projectId !== null && !seen.get(item.projectId) ? { ...item, projectId: null, projectName: null, projectBy: null } : item));
+  // F5a: la scheda di preparazione c'è se l'evento è futuro e ha un progetto che chi guarda vede (stesso passaggio).
+  const now = Date.now();
+  return items.map((item) =>
+    item.projectId !== null && !seen.get(item.projectId)
+      ? { ...item, projectId: null, projectName: null, projectBy: null, hasPrep: false }
+      : { ...item, hasPrep: item.projectId !== null && Date.parse(item.startsAt) > now },
+  );
 }
 
 function toCalendarItem(row: CalendarItemRow, options: { light?: boolean } = {}): CalendarEventItem {
@@ -717,6 +752,7 @@ function toCalendarItem(row: CalendarItemRow, options: { light?: boolean } = {})
     myResponse: mine ? (mine.responseStatus ?? "needsAction") : null,
     attendeeCount: row.attendees.length,
     ...writeAbilities(row, mine),
+    hasPrep: false,
   };
 }
 

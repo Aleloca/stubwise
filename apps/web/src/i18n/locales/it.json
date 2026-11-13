@@ -1884,6 +1884,7 @@
         "weekly_brief": "Brief settimanale",
         "mail_classify": "Classificazione della posta",
         "mail_draft": "Bozze delle email di Claude",
+        "meeting_summary": "Riassunti delle riunioni registrate",
         "chat": "Chat dei Docs",
         "claude_chat": "Conversazioni private con Claude",
         "backlog_merge": "Unione dei documenti del backlog"

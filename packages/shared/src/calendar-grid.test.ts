@@ -59,6 +59,7 @@ function event(overrides: Partial<CalendarEventItem> & Pick<CalendarEventItem, "
     canRespond: false,
     etag: null,
     myNote: null,
+    hasPrep: false,
     endsAt: null,
     allDay: false,
     status: "new",

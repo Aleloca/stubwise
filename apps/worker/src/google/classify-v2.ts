@@ -382,6 +382,9 @@ export async function classifyNewMessagesV2(deps: ClassifyBatchDeps, accountId: 
         eq(emailMessages.accountId, accountId),
         eq(emailMessages.status, "new"),
         eq(emailMessages.admitted, true),
+        // F5a (C1): l'email di Gemini la SALTA — le sue proposte sono quelle
+        // della riunione (`meetings.ts`), non quelle di un'email.
+        eq(emailMessages.kind, "email"),
         isNull(emailMessages.classificationState),
         sql`exists (select 1 from ${googleAccounts} where ${googleAccounts.id} = ${emailMessages.accountId} and ${googleAccounts.proposalsEnabled}
           and (${googleAccounts.proposalsSince} is null or ${emailMessages.createdAt} >= ${googleAccounts.proposalsSince}))`,

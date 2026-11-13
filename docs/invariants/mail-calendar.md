@@ -226,6 +226,45 @@
   risposta e che nessun dettaglio compaia nel corpo: chi aggiunge un campo
   «utile» (il titolo per chi è nello stesso progetto, il numero di eventi)
   rompe l'eccezione, non solo il test — è una decisione del maintainer.
+- **⚠️ ECCEZIONE DICHIARATA a «Posta e Calendario personali»: il riassunto e
+  le proposte di una riunione registrata li vedono TUTTI GLI INVITATI (area
+  6, F5a, decisione del maintainer del 12 nov 2026).** Una persona di
+  Stubwise invitata alla riunione — con qualunque risposta, anche declined —
+  vede il riassunto del Doc di Gemini, il link al Doc e le proposte nate
+  dalla riunione, anche se l'evento non sta nel SUO calendario e anche se
+  non ha ricevuto lei l'email; le decide se ha i permessi nel progetto, e la
+  prima decisione chiude per tutti (Q1). Senza un evento collegato le vede
+  chi ha ricevuto l'email. **Mai** un membro del progetto che non c'era,
+  **mai** un admin non invitato (nessun ruolo nel calcolo), **mai** un
+  invitato tolto da Google (dal giro dopo del poller). Il calcolo sta in UN
+  posto, `meetingViewerIds` (`packages/notifications/src/meeting-visibility.ts`,
+  condiviso da server e worker): gli invitati ATTUALI dalla riga più recente
+  e non cancellata di `calendar_events` con quell'iCalUID, in qualunque
+  casella (così un invitato senza casella collegata c'è), più
+  l'organizzatore; lo snapshot `meeting_notes.attendee_emails` solo come
+  ripiego. Il resto resta personale: la trascrizione intera non esce (né in
+  colonna né al client), l'email di Gemini resta di chi l'ha ricevuta (a
+  chi l'ha inoltrata e non c'era, `meeting.visible` è falso e il resto
+  null), `meetingOrigin.threadId`/`eventId` sono solo della PROPRIA copia e
+  della PROPRIA riga. Test NEGATIVI: `meeting-visibility.test.ts` e
+  `me-meetings.test.ts` (membro che non c'era, full admin, email inoltrata,
+  invitato tolto: 404 sul riassunto, `visible: false`, nessuna proposta,
+  nessuna decisione).
+- **Il Doc di Gemini si legge SOLO con la casella che ha ricevuto l'email
+  (area 6, F5a).** La riga di `meeting_notes` è una per Doc, e
+  `source_message_id` è la PRIMA copia vista: il worker legge il Doc col
+  token di QUELLA casella e `drive.readonly`, mai con un'altra (nemmeno di un
+  invitato che ha accesso). L'email si riconosce SOLO con mittente
+  `gemini-notes@google.com`, la PRIMA `Authentication-Results` di
+  `mx.google.com` con DMARC o DKIM di google.com, e il link a un Google Doc
+  (`gemini.ts`): fail-closed. Il collegamento all'evento è CONSERVATIVO
+  *(O, 46)*: un evento col Doc fra gli allegati, altrimenti UN solo evento
+  della casella con Meet, finito nelle 12 ore prima e col titolo
+  dell'oggetto; nessuno o più di uno = nessun legame, e la riunione resta
+  dei soli destinatari dell'email. Chi rende più generoso l'abbinamento per
+  titolo allarga chi vede la riunione. Il testo del Doc è NON FIDATO (fra
+  delimitatori, senza strumenti) e non si salva; il riassunto è NARRATIVA,
+  mai nel registro decisioni.
 - **«Aggiorna ora» non ha un percorso a parte (area 6, F1.2).** La rotta porta
   `next_sync_at` a adesso e fa un `pg_notify` (`google_sync_request`) nella
   stessa transazione; il worker si sveglia e il claim di sempre (`SKIP

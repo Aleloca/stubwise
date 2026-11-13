@@ -12257,6 +12257,7 @@
       "weekly_brief": "Weekly brief",
       "mail_classify": "Mail classification",
       "mail_draft": "Email drafts by Claude",
+      "meeting_summary": "Recorded meeting summaries",
       "chat": "Chats with Claude",
       "claude_chat": "Private conversations with Claude",
       "backlog_merge": "Backlog document merge",

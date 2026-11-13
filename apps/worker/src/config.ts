@@ -1337,6 +1337,8 @@ export function effectiveModelDefaults(
     mail_classify: config.gmailModel,
     // La bozza di Claude nella Posta (area 6, F3): la scrive il server, Sonnet.
     mail_draft: "sonnet",
+    // Il riassunto e le proposte di una riunione registrata (area 6, F5a).
+    meeting_summary: "sonnet",
     chat: SERVER_CHAT_DEFAULT_MODEL,
     // La chat con Claude (fetta 1): lo stesso modello dei turni di refinement.
     claude_chat: config.backlogModel,

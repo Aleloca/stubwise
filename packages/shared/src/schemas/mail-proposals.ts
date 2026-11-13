@@ -65,6 +65,17 @@ export const mailProposalCalendarOriginSchema = z.object({
   allDay: z.boolean().default(false),
 });
 
+/** F5a: l'origine di una proposta di una riunione registrata. `threadId` è della MIA copia dell'email, se l'ho. */
+export const mailProposalMeetingOriginSchema = z.object({
+  noteId: z.uuid(),
+  eventId: z.uuid().nullable().default(null),
+  threadId: z.string().nullable().default(null),
+  /** La casella della MIA copia (con `threadId`); null se non l'ho ricevuta. */
+  accountId: z.uuid().nullable().default(null),
+  title: z.string().nullable().default(null),
+  at: z.iso.datetime(),
+});
+
 export const mailProposalStatusSchema = z.enum(["open", "confirmed", "ignored", "handed", "failed"]);
 export type MailProposalStatus = z.infer<typeof mailProposalStatusSchema>;
 
@@ -72,7 +83,7 @@ export const mailProposalSchema = z.object({
   id: z.uuid(),
   /** `email_messages.id` del messaggio, nella casella di chi guarda. */
   /** F3b: `calendar` = una proposta da un evento (allora `messageId` è null e c'è `calendarOrigin`). */
-  kind: z.enum(["email", "calendar"]).default("email"),
+  kind: z.enum(["email", "calendar", "meeting"]).default("email"),
   messageId: z.uuid().nullable().default(null),
   projectId: z.uuid(),
   status: mailProposalStatusSchema,
@@ -106,6 +117,8 @@ export const mailProposalSchema = z.object({
   sharedWith: z.array(mailProposalPersonSchema).default([]),
   origin: mailProposalOriginSchema.nullable().default(null),
   calendarOrigin: mailProposalCalendarOriginSchema.nullable().default(null),
+  /** F5a: l'origine di una proposta di una RIUNIONE registrata (`kind: "meeting"`). */
+  meetingOrigin: mailProposalMeetingOriginSchema.nullable().default(null),
 });
 export type MailProposal = z.infer<typeof mailProposalSchema>;
 

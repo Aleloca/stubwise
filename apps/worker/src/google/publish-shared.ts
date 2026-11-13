@@ -1,5 +1,5 @@
 import { emailMessages, emailProposalRecipients, emailProposals, googleAccounts, projects, type Db } from "@stubwise/db";
-import { publishNotification, projectViewerIds, resolveRecipientUserIds } from "@stubwise/notifications";
+import { meetingViewerIds, publishNotification, projectViewerIds, resolveRecipientUserIds } from "@stubwise/notifications";
 import type { Language } from "@stubwise/shared";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getContentLanguage } from "../settings.js";
@@ -38,7 +38,8 @@ export async function publishSharedProposals(
     .where(
       and(
         eq(emailMessages.accountId, accountId),
-        eq(emailProposals.audience, "mail_recipients"),
+        // F5a: anche le proposte di una riunione registrata (`meeting_invitees`).
+        inArray(emailProposals.audience, ["mail_recipients", "meeting_invitees"]),
         eq(emailProposals.status, "classified"),
       ),
     )
@@ -52,21 +53,15 @@ export async function publishSharedProposals(
     const stored = proposal.classification as { actions?: SharedAction[]; choose?: { projectIds?: string[] } };
     const choose = stored.choose?.projectIds;
 
-    // Le copie dell'email (la stessa chiave) e i loro proprietari.
-    const copies = await db
-      .select({
-        fromAddress: emailMessages.fromAddress,
-        to: emailMessages.toAddresses,
-        cc: emailMessages.ccAddresses,
-        owner: googleAccounts.email,
-      })
-      .from(emailMessages)
-      .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
-      .where(
-        sql`coalesce(${emailMessages.rfcMessageId}, 'gmail:' || ${emailMessages.accountId} || ':' || ${emailMessages.gmailMessageId}) = ${proposal.rfcMessageId}`,
-      );
-    const addresses = copies.flatMap((c) => [c.fromAddress, ...c.to, ...(c.cc ?? []), c.owner]);
-    const people = await resolveRecipientUserIds(db, addresses);
+    // Le persone: per una riunione chi la VEDE (gli invitati di Stubwise,
+    // `meeting-visibility.ts`), mai i destinatari di un'email inoltrata; per
+    // un'email i destinatari di ogni copia.
+    const people =
+      proposal.audience === "meeting_invitees"
+        ? proposal.meetingNoteId
+          ? await meetingViewerIds(db, proposal.meetingNoteId)
+          : []
+        : await emailPeople(db, proposal.rfcMessageId);
     // Chi vede il progetto: i membri e i full admin — ma qui solo se sono
     // ANCHE destinatari (l'intersezione).
     // «Quale progetto?» (review F2, punto 7): chi vede ALMENO UNO dei
@@ -134,4 +129,19 @@ export async function publishSharedProposals(
     });
   }
   return published;
+}
+
+/** I destinatari di un'email che sono persone di Stubwise: mittente, to, cc di OGNI copia, e i proprietari delle caselle. */
+async function emailPeople(db: Db, key: string | null): Promise<string[]> {
+  const copies = await db
+    .select({
+      fromAddress: emailMessages.fromAddress,
+      to: emailMessages.toAddresses,
+      cc: emailMessages.ccAddresses,
+      owner: googleAccounts.email,
+    })
+    .from(emailMessages)
+    .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+    .where(sql`coalesce(${emailMessages.rfcMessageId}, 'gmail:' || ${emailMessages.accountId} || ':' || ${emailMessages.gmailMessageId}) = ${key}`);
+  return resolveRecipientUserIds(db, copies.flatMap((c) => [c.fromAddress, ...c.to, ...(c.cc ?? []), c.owner]));
 }

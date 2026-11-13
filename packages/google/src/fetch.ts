@@ -112,6 +112,8 @@ export interface GoogleRequestSpec {
   statusCodes?: Record<number, string>;
   /** True se la risposta non ha corpo JSON (es. `revoke`). */
   expectEmpty?: boolean;
+  /** True se la risposta è TESTO, non JSON (l'export di un Google Doc, area 6 F5): torna la stringa. */
+  expectText?: boolean;
 }
 
 /** Esegue la richiesta e restituisce il JSON grezzo (o `null` se `expectEmpty`). */
@@ -143,6 +145,7 @@ export async function requestGoogle(spec: GoogleRequestSpec, options: GoogleClie
   if (spec.expectEmpty) return null;
 
   const text = await response.text();
+  if (spec.expectText) return text;
   if (!text.trim()) return null;
   try {
     return JSON.parse(text) as unknown;
