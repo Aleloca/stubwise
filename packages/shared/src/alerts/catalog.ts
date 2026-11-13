@@ -157,6 +157,8 @@ export const LIVE_ALERT_TYPES: readonly string[] = [
   // Area 8, F2, S4 (72): i produttori ci sono (alla nascita e alla riuscita del rilascio).
   "release.merged",
   "release.succeeded",
+  // Area 8, F2, S4 (72): il webhook di una PR aperta.
+  "pr.opened",
   "monitor.alert",
   "monitor.recovered",
 ];

@@ -154,9 +154,14 @@ describe("avvisi del catalogo alla pubblicazione (area 8, F2)", () => {
 
   it("un tipo non ancora vivo (non in LIVE_ALERT_TYPES) resta sul routing di oggi; uno vivo spento di partenza va a chi si è iscritto", async () => {
     const s = await scenario();
-    await db.insert(alertSubscriptions).values({ userId: s.viewer, projectId: s.projectId, alertType: "pr.opened", app: true, phone: false });
-    await publishNotification(db, { kind: "pr.opened", projectId: s.projectId, repositoryName: "web", prNumber: 3, prUrl: "u", title: "x", url: "u" }, { projectId: s.projectId });
-    expect(await cardsOf("pr.opened")).not.toContain(s.viewer);
+    // `docs.nightly_attention` è nel catalogo ma resta sul routing di oggi (S-4).
+    await db.insert(alertSubscriptions).values({ userId: s.viewer, projectId: s.projectId, alertType: "docs.nightly_attention", app: true, phone: false });
+    await publishNotification(
+      db,
+      { kind: "docs.nightly_attention", reason: "item_failing", repositoryId: randomUUID(), repositoryName: "web", projectId: s.projectId, projectName: "P", night: "2026-11-13", docsUrl: "u" },
+      { projectId: s.projectId },
+    );
+    expect(await cardsOf("docs.nightly_attention")).not.toContain(s.viewer);
     // `release.merged` è vivo e spento di partenza: solo chi si iscrive.
     await db.insert(alertSubscriptions).values({ userId: s.viewer, projectId: s.projectId, alertType: "release.merged", app: true, phone: false });
     await publishNotification(db, { kind: "release.merged", projectId: s.projectId, releaseId: randomUUID(), releaseCode: "ACQ-V2", title: "x", url: "u" }, { projectId: s.projectId });
