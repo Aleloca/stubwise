@@ -57,6 +57,18 @@ export const AUTOMATION_F3_AVAILABILITY: AutomationAvailability = {
   steps: [...AUTOMATION_F2_AVAILABILITY.steps, "claude"],
 };
 
+/**
+ * La fetta 4: in più l'inizio da una sorgente (solo il webhook in arrivo: le
+ * sorgenti Audin e HubSpot non esistono nel server, quindi un flusso che le
+ * nomina ha una sorgente sconosciuta) e «avvia un'altra automazione». Le
+ * generali non sono un passo: le decide il permesso d'istanza.
+ */
+export const AUTOMATION_F4_AVAILABILITY: AutomationAvailability = {
+  ...AUTOMATION_F3_AVAILABILITY,
+  steps: [...AUTOMATION_F3_AVAILABILITY.steps, "startAutomation"],
+  triggers: [...AUTOMATION_F3_AVAILABILITY.triggers, "source"],
+};
+
 /** La chiave di disponibilità di un inizio. */
 export const triggerKey = (t: AutomationTrigger): TriggerKey =>
   t.kind === "stubwise" ? `stubwise:${t.event}` : t.kind;

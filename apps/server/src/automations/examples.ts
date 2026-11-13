@@ -1,10 +1,9 @@
 import { backlogItems, backlogItemTickets, emailMessages, milestones, projectMembers, projects, roles, tickets, type Db } from "@stubwise/db";
 import { automationEventFields, automationMailboxOf, loadPlanWorld, projectPermissionsByProject, type AutomationEventRef } from "@stubwise/notifications";
 import {
+  checkEventFields,
   evaluate,
   lookup,
-  projectOf,
-  visitSteps,
   type AutomationFlow,
   type OwnerMailbox,
   type SimulationContext,
@@ -14,7 +13,7 @@ import {
   type SimulationPerson,
 } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
-import { AutomationError, automationOf, configErrorsOf, mailboxAddresses, managedAutomation, seen, sees, versionsOf, type Viewer } from "./model.js";
+import { AutomationError, automationOf, configErrorsOf, mailboxAddresses, managedAutomation, namedBy, seen, sees, sourcesFor, versionsOf, type Viewer } from "./model.js";
 
 /**
  * GLI ESEMPI E IL CONTESTO DELLA PROVA (area 7, fetta 1; la specifica è
@@ -36,52 +35,66 @@ import { AutomationError, automationOf, configErrorsOf, mailboxAddresses, manage
 
 const MAX_EXAMPLES = 10;
 
+/**
+ * I progetti da cui prendere gli esempi: quello dell'automazione, oppure (una
+ * generale, F4) i progetti che chi prova vede — una generale ascolta gli
+ * eventi di ogni progetto che il proprietario vede.
+ */
+type ExampleScope = { projectId: string } | { visible: "all" | ReadonlySet<string> };
+
+function scopeWhere(column: typeof tickets.projectId | typeof backlogItems.projectId | typeof milestones.projectId, scope: ExampleScope) {
+  if ("projectId" in scope) return eq(column, scope.projectId);
+  if (scope.visible === "all") return undefined;
+  return scope.visible.size > 0 ? inArray(column, [...scope.visible]) : eq(column, "00000000-0000-0000-0000-000000000000");
+}
+
 /** Gli oggetti veri più recenti per l'inizio, come eventi. */
-async function candidateEvents(db: Db, projectId: string, flow: AutomationFlow): Promise<{ ref: AutomationEventRef; label: string; code: string | null; at: Date | null }[]> {
+async function candidateEvents(db: Db, scope: ExampleScope, flow: AutomationFlow): Promise<{ ref: AutomationEventRef; label: string; code: string | null; at: Date | null }[]> {
   const t = flow.trigger;
   if (t.kind !== "stubwise") return [];
-  const [p] = await db.select({ code: projects.code }).from(projects).where(eq(projects.id, projectId));
-  const code = p?.code ?? "";
   const LIMIT = 50;
   switch (t.event) {
     case "task_created":
     case "task_closed": {
       const closed = t.event === "task_closed";
       const rows = await db
-        .select({ id: tickets.id, title: tickets.title, number: tickets.number, createdAt: tickets.createdAt, closedAt: tickets.closedAt })
+        .select({ id: tickets.id, projectId: tickets.projectId, code: projects.code, title: tickets.title, number: tickets.number, createdAt: tickets.createdAt, closedAt: tickets.closedAt })
         .from(tickets)
-        .where(and(eq(tickets.projectId, projectId), closed ? isNotNull(tickets.closedAt) : undefined))
+        .innerJoin(projects, eq(projects.id, tickets.projectId))
+        .where(and(scopeWhere(tickets.projectId, scope), closed ? isNotNull(tickets.closedAt) : undefined))
         .orderBy(desc(closed ? tickets.closedAt : tickets.createdAt))
         .limit(LIMIT);
-      return rows.map((r) => ({ ref: { kind: t.event as "task_created", projectId, objectId: r.id, payload: {} }, label: r.title, code: `${code}-${r.number}`, at: closed ? r.closedAt : r.createdAt }));
+      return rows.map((r) => ({ ref: { kind: t.event as "task_created", projectId: r.projectId, objectId: r.id, payload: {} }, label: r.title, code: `${r.code}-${r.number}`, at: closed ? r.closedAt : r.createdAt }));
     }
     case "request_created": {
       const rows = await db
-        .select({ id: backlogItems.id, title: backlogItems.title, number: backlogItems.number, createdAt: backlogItems.createdAt })
+        .select({ id: backlogItems.id, projectId: backlogItems.projectId, code: projects.code, title: backlogItems.title, number: backlogItems.number, createdAt: backlogItems.createdAt })
         .from(backlogItems)
-        .where(eq(backlogItems.projectId, projectId))
+        .innerJoin(projects, eq(projects.id, backlogItems.projectId))
+        .where(scopeWhere(backlogItems.projectId, scope))
         .orderBy(desc(backlogItems.createdAt))
         .limit(LIMIT);
-      return rows.map((r) => ({ ref: { kind: "request_created" as const, projectId, objectId: r.id, payload: {} }, label: r.title, code: `${code}-R${r.number}`, at: r.createdAt }));
+      return rows.map((r) => ({ ref: { kind: "request_created" as const, projectId: r.projectId, objectId: r.id, payload: {} }, label: r.title, code: `${r.code}-R${r.number}`, at: r.createdAt }));
     }
     case "request_converted": {
       const rows = await db
-        .select({ id: backlogItems.id, title: backlogItems.title, number: backlogItems.number, createdAt: backlogItems.createdAt, ticketId: backlogItemTickets.ticketId })
+        .select({ id: backlogItems.id, projectId: backlogItems.projectId, code: projects.code, title: backlogItems.title, number: backlogItems.number, createdAt: backlogItems.createdAt, ticketId: backlogItemTickets.ticketId })
         .from(backlogItemTickets)
         .innerJoin(backlogItems, eq(backlogItems.id, backlogItemTickets.itemId))
-        .where(and(eq(backlogItems.projectId, projectId), eq(backlogItemTickets.role, "converted_to")))
+        .innerJoin(projects, eq(projects.id, backlogItems.projectId))
+        .where(and(scopeWhere(backlogItems.projectId, scope), eq(backlogItemTickets.role, "converted_to")))
         .orderBy(desc(backlogItemTickets.createdAt))
         .limit(LIMIT);
-      return rows.map((r) => ({ ref: { kind: "request_converted" as const, projectId, objectId: r.id, payload: { ticketId: r.ticketId } }, label: r.title, code: `${code}-R${r.number}`, at: r.createdAt }));
+      return rows.map((r) => ({ ref: { kind: "request_converted" as const, projectId: r.projectId, objectId: r.id, payload: { ticketId: r.ticketId } }, label: r.title, code: `${r.code}-R${r.number}`, at: r.createdAt }));
     }
     case "milestone_reached": {
       const rows = await db
-        .select({ id: milestones.id, name: milestones.name, closedAt: milestones.closedAt })
+        .select({ id: milestones.id, projectId: milestones.projectId, name: milestones.name, closedAt: milestones.closedAt })
         .from(milestones)
-        .where(and(eq(milestones.projectId, projectId), eq(milestones.status, "closed")))
+        .where(and(scopeWhere(milestones.projectId, scope), eq(milestones.status, "closed")))
         .orderBy(desc(milestones.closedAt))
         .limit(LIMIT);
-      return rows.map((r) => ({ ref: { kind: "milestone_reached" as const, projectId, objectId: r.id, payload: {} }, label: r.name, code: null, at: r.closedAt }));
+      return rows.map((r) => ({ ref: { kind: "milestone_reached" as const, projectId: r.projectId, objectId: r.id, payload: {} }, label: r.name, code: null, at: r.closedAt }));
     }
     case "mail_received":
       return [];
@@ -104,8 +117,17 @@ async function mailExamples(db: Db, accountId: string | null): Promise<Simulatio
   return rows.map((r) => ({ label: r.subject ?? "", code: null, at: r.at.toISOString(), event: { email: { mittente: r.from, oggetto: r.subject ?? "", testo: r.text ?? "" } } }));
 }
 
-async function examplesOf(db: Db, projectId: string, flow: AutomationFlow, mailAccountId: string | null): Promise<SimulationExample[]> {
+async function examplesOf(db: Db, scope: ExampleScope, flow: AutomationFlow, mailAccountId: string | null): Promise<SimulationExample[]> {
   const t = flow.trigger;
+  if (t.kind === "source") {
+    // F4: l'esempio incollato da chi gestisce l'integrazione. Gli eventi recenti NO:
+    // li vede solo `integrations.manage` (F4-6), e chi prova può non averlo.
+    const [source] = await sourcesFor(db, flow);
+    const example = source?.sampleEvents[0];
+    if (!source || !example) return [];
+    const projected = checkEventFields(example, source.fields);
+    return [{ label: source.name, code: null, at: null, event: projected.ok ? projected.event : {} }];
+  }
   if (t.kind === "manual" || t.kind === "schedule") {
     const today = new Date().toISOString();
     return [{ label: today.slice(0, 10), code: null, at: today, event: { avvio: { data: today.slice(0, 10) } } }];
@@ -115,33 +137,13 @@ async function examplesOf(db: Db, projectId: string, flow: AutomationFlow, mailA
     return t.filter ? all.filter((e) => evaluate(t.filter!, (key) => lookup(e.event, key))) : all;
   }
   const out: SimulationExample[] = [];
-  for (const c of await candidateEvents(db, projectId, flow)) {
+  for (const c of await candidateEvents(db, scope, flow)) {
     const event = await automationEventFields(db, c.ref);
     if (t.kind === "stubwise" && t.filter && !evaluate(t.filter, (key) => lookup(event, key))) continue;
     out.push({ label: c.label, code: c.code, at: c.at?.toISOString() ?? null, event });
     if (out.length >= MAX_EXAMPLES) break;
   }
   return out;
-}
-
-/** Le persone, i reparti e i progetti che i passi nominano. */
-function namedBy(flow: AutomationFlow, projectId: string) {
-  const projectIds = new Set<string>([projectId]);
-  const personIds = new Set<string>();
-  const departmentIds = new Set<string>();
-  const people = (who: unknown) => {
-    if (!who || typeof who !== "object") return;
-    if ("personId" in who && typeof who.personId === "string" && who.personId) personIds.add(who.personId);
-    if ("departmentId" in who && typeof who.departmentId === "string") departmentIds.add(who.departmentId);
-  };
-  visitSteps(flow.steps, (s) => {
-    const p = projectOf(s);
-    if (p?.mode === "fixed" && p.projectId) projectIds.add(p.projectId);
-    if ("approval" in s && s.approval.mode === "ask") people(s.approval.who);
-    if (s.kind === "createTask") people(s.assignee);
-    if (s.kind === "notify") people(s.who);
-  });
-  return { projectIds: [...projectIds], personIds: [...personIds], departmentIds: [...departmentIds] };
 }
 
 export async function simulationExamples(db: Db, viewer: Viewer, code: string, version: number | "draft"): Promise<SimulationExamplesView> {
@@ -229,5 +231,6 @@ export async function simulationExamples(db: Db, viewer: Viewer, code: string, v
     ownerMailbox,
   };
   // La posta solo del proprietario che avrebbe, e solo se è chi prova (R-J13).
-  return { items: await examplesOf(db, a.projectId, flow, ownerId === viewer.id && box.ok ? box.accountId : null), context };
+  const exampleScope: ExampleScope = a.projectId ? { projectId: a.projectId } : { visible };
+  return { items: await examplesOf(db, exampleScope, flow, ownerId === viewer.id && box.ok ? box.accountId : null), context };
 }

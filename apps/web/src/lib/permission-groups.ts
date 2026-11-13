@@ -33,7 +33,8 @@ export const INSTANCE_PERMISSION_GROUPS: readonly PermissionGroup<InstancePermis
       "chat.general.manage",
     ],
   },
-  { id: "projects", permissions: ["projects.create"] },
+  // Area 7, F4: le automazioni generali.
+  { id: "projects", permissions: ["projects.create", "automations.general.manage"] },
   {
     id: "integrations",
     permissions: [

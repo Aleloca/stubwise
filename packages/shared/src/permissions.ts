@@ -48,6 +48,13 @@ export const INSTANCE_PERMISSIONS = [
   // (solo il full admin, per costruzione). Si usano dalla fetta 2.
   "chat.general.create",
   "chat.general.manage",
+  // Automations, area 7, fetta 4 (Q7 = a): le automazioni GENERALI (senza
+  // progetto). Nessun preset la riceve: il full admin l'ha implicita (la
+  // verifica del 13 nov), agli altri si assegna con un ruolo. Il design la
+  // chiamava «`automations.manage` d'istanza», ma una chiave sta in UN
+  // livello solo (test del catalogo): quella di progetto resta
+  // `automations.manage`.
+  "automations.general.manage",
 ] as const;
 
 /**

@@ -862,7 +862,8 @@ export interface ChatQuestionEvent extends Omit<ChatMentionEvent, "kind"> {
  */
 export interface AutomationNotificationEvent {
   kind: "automation.approval" | "automation.failed" | "automation.notify" | "automation.paused";
-  projectId: string;
+  /** Null per un'automazione generale (area 7, F4): la card non è di un progetto. */
+  projectId: string | null;
   automationId: string;
   automationCode: string;
   automationName: string;

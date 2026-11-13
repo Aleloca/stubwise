@@ -17,7 +17,9 @@ import {
   mailboxAddresses,
   configErrorsOf,
   forbidden,
+  GENERAL_PERMISSION,
   keepHiddenProjects,
+  managesGeneral,
   latestVersion,
   managedAutomation,
   notFound,
@@ -114,24 +116,45 @@ async function nextSeq(tx: Tx, projectId: string): Promise<number> {
   return row!.next - 1;
 }
 
-async function insertAutomation(tx: Tx, viewer: Viewer, input: { projectId: string; name: string; description: string; flow: AutomationFlow }): Promise<AutomationRecord> {
-  const [project] = await tx.select({ code: projects.code }).from(projects).where(eq(projects.id, input.projectId));
-  if (!project) throw notFound();
-  const seq = await nextSeq(tx, input.projectId);
+/** Il prossimo numero di una generale (F4): `AUT-<n>`, dalla sequenza d'istanza; un codice non torna mai. */
+async function nextGeneralSeq(tx: Tx): Promise<number> {
+  const r = await tx.execute<{ n: string }>(sql`select nextval('automation_general_code_seq')::text as n`);
+  return Number(r[0]!.n);
+}
+
+async function insertAutomation(tx: Tx, viewer: Viewer, input: { projectId: string | null; name: string; description: string; flow: AutomationFlow }): Promise<AutomationRecord> {
+  let code: string;
+  let seq: number;
+  if (input.projectId === null) {
+    seq = await nextGeneralSeq(tx);
+    code = `AUT-${seq}`;
+  } else {
+    const [project] = await tx.select({ code: projects.code }).from(projects).where(eq(projects.id, input.projectId));
+    if (!project) throw notFound();
+    seq = await nextSeq(tx, input.projectId);
+    code = `${project.code}-A${seq}`;
+  }
   const [a] = await tx
     .insert(automations)
-    .values({ code: `${project.code}-A${seq}`, seq, name: input.name, description: input.description, projectId: input.projectId, status: "draft", createdBy: viewer.id })
+    .values({ code, seq, name: input.name, description: input.description, projectId: input.projectId, status: "draft", createdBy: viewer.id })
     .returning();
   await tx.insert(automationVersions).values({ automationId: a!.id, n: 1, flow: input.flow, savedBy: viewer.id, rev: 1 });
   return a!;
 }
 
-/** Una bozza nuova, mai accesa, senza proprietario. */
-export async function createAutomation(db: Db, viewer: Viewer, input: { projectId: string; name: string; description?: string; flow?: AutomationFlow }): Promise<Automation> {
+/**
+ * Una bozza nuova, mai accesa, senza proprietario. `projectId` null = una
+ * GENERALE (F4): solo con `automations.general.manage` d'istanza (403).
+ */
+export async function createAutomation(db: Db, viewer: Viewer, input: { projectId: string | null; name: string; description?: string; flow?: AutomationFlow }): Promise<Automation> {
   const name = input.name.trim();
   if (!name) throw badInput("name", "A name is required");
-  if (!sees(await seen(db, viewer), input.projectId)) throw notFound();
-  if (!(await projectPermissionsFor(db, viewer, input.projectId))?.has("automations.manage")) throw forbidden();
+  if (input.projectId === null) {
+    if (!managesGeneral(viewer)) throw forbidden(GENERAL_PERMISSION);
+  } else {
+    if (!sees(await seen(db, viewer), input.projectId)) throw notFound();
+    if (!(await projectPermissionsFor(db, viewer, input.projectId))?.has("automations.manage")) throw forbidden();
+  }
   const a = await db.transaction((tx) => insertAutomation(tx, viewer, { projectId: input.projectId, name, description: input.description?.trim() ?? "", flow: input.flow ?? emptyFlow(name) }));
   return shapeOf(db, viewer, a);
 }
@@ -176,11 +199,26 @@ export async function saveDraft(db: Db, viewer: Viewer, code: string, input: { f
   return shapeOf(db, viewer, after!);
 }
 
-/** Nome e descrizione: sono dell'automazione, mai una bozza nuova. */
-export async function patchAutomation(db: Db, viewer: Viewer, code: string, meta: AutomationMeta): Promise<Automation> {
+/**
+ * Nome, descrizione e (F4-2 = c) il tetto del webhook: sono dell'automazione,
+ * mai una bozza nuova. Il tetto lo sceglie chi la GESTISCE (`automations.manage`
+ * sull'automazione, o d'istanza per una generale): null torna al default, e una
+ * scelta oltre il massimo d'istanza si salva ma vale il massimo.
+ */
+export async function patchAutomation(
+  db: Db,
+  viewer: Viewer,
+  code: string,
+  meta: AutomationMeta & { webhookPerMinute?: number | null; webhookPerDay?: number | null },
+): Promise<Automation> {
   const a = await managedAutomation(db, viewer, code);
   if (meta.name !== undefined && !meta.name.trim()) throw badInput("name", "A name is required");
-  const set = { ...(meta.name !== undefined ? { name: meta.name.trim() } : {}), ...(meta.description !== undefined ? { description: meta.description.trim() } : {}) };
+  const set = {
+    ...(meta.name !== undefined ? { name: meta.name.trim() } : {}),
+    ...(meta.description !== undefined ? { description: meta.description.trim() } : {}),
+    ...(meta.webhookPerMinute !== undefined ? { webhookPerMinute: meta.webhookPerMinute } : {}),
+    ...(meta.webhookPerDay !== undefined ? { webhookPerDay: meta.webhookPerDay } : {}),
+  };
   const [after] = Object.keys(set).length > 0 ? await db.update(automations).set(set).where(eq(automations.id, a.id)).returning() : [a];
   return shapeOf(db, viewer, after!);
 }
@@ -212,6 +250,33 @@ async function failOnConfig(db: Db | Tx, viewer: Viewer, a: AutomationRecord, fl
   if (issues.length > 0) throw invalid("config", "The flow has configuration errors", { issues });
 }
 
+/**
+ * F4-1 = a: un webhook per automazione. Una sorgente che un'ALTRA automazione
+ * accesa o in pausa usa (nella sua versione pubblicata) non si pubblica qui
+ * (409 `source_in_use`). La risposta dice solo il fatto, non quale: l'altra
+ * può essere di un progetto che chi pubblica non vede (R-G5).
+ */
+async function sourceFree(db: Db | Tx, a: AutomationRecord, flow: AutomationFlow): Promise<void> {
+  if (flow.trigger.kind !== "source") return;
+  const sourceId = flow.trigger.sourceId;
+  const [taken] = await (db as Db)
+    .select({ id: automations.id })
+    .from(automations)
+    .innerJoin(automationVersions, eq(automationVersions.automationId, automations.id))
+    .where(
+      and(
+        sql`${automations.id} <> ${a.id}`,
+        inArray(automations.status, ["active", "paused"]),
+        sql`${automationVersions.publishedAt} is not null`,
+        sql`${automationVersions.flow}->'trigger'->>'kind' = 'source'`,
+        sql`${automationVersions.flow}->'trigger'->>'sourceId' = ${sourceId}`,
+        sql`${automationVersions.n} = (select max(v2.n) from automation_versions v2 where v2.automation_id = ${automations.id} and v2.published_at is not null)`,
+      ),
+    )
+    .limit(1);
+  if (taken) throw invalid("source_in_use", "Another automation already uses this webhook");
+}
+
 const checkRev = (rev: number | null, expectedRev: number | null | undefined) => {
   if (expectedRev !== undefined && rev !== expectedRev) throw invalid("stale", "The draft changed", { rev });
 };
@@ -228,6 +293,7 @@ export async function publishAutomation(db: Db, viewer: Viewer, code: string, op
     if (!draft || draft.publishedAt !== null) throw invalid("no_draft", "There is no draft to publish");
     checkRev(draft.rev, opts.expectedRev);
     await failOnConfig(tx, viewer, a!, draft.flow as AutomationFlow);
+    await sourceFree(tx, a!, draft.flow as AutomationFlow);
     await ownerChecks(tx, viewer, a!, draft.flow as AutomationFlow);
     const mailboxAccountId = await mailboxForPublish(tx, viewer, a!, draft.flow as AutomationFlow, opts.mailboxAccountId);
     await tx.update(automationVersions).set({ publishedAt: sql`now()`, publishedBy: viewer.id }).where(eq(automationVersions.id, draft.id));
@@ -248,6 +314,7 @@ export async function activateAutomation(db: Db, viewer: Viewer, code: string, o
   const live = await publishedVersion(db, a.id);
   if (!live) throw invalid("config", "Nothing is published", { issues: [] });
   await failOnConfig(db, viewer, a, live.flow as AutomationFlow);
+  await sourceFree(db, a, live.flow as AutomationFlow);
   await ownerChecks(db, viewer, a, live.flow as AutomationFlow);
   const mailboxAccountId = await mailboxForPublish(db, viewer, a, live.flow as AutomationFlow, opts.mailboxAccountId);
   await db.transaction(async (tx) => {
@@ -367,7 +434,7 @@ export async function startManualRun(db: Db, viewer: Viewer, code: string, input
         origin: "manual",
         startedBy: viewer.id,
         mailboxAccountId: a.mailboxAccountId,
-        projectIds: [a.projectId],
+        projectIds: a.projectId ? [a.projectId] : [],
         dueAt: sql`now()`,
       })
       .returning({ id: automationRuns.id, n: automationRuns.n });

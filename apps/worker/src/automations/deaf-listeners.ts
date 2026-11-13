@@ -22,7 +22,7 @@ export async function pauseDeafListeners(db: Db, log: (msg: string) => void = ()
     await publishNotification(
       db,
       { kind: "automation.paused", projectId: a.projectId, automationId: a.id, automationCode: a.code, automationName: a.name, runId: null, runNumber: null },
-      { projectId: a.projectId, accountUserId: a.ownerId },
+      { projectId: a.projectId ?? undefined, accountUserId: a.ownerId },
     );
   }
   return paused.length;

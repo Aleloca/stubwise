@@ -3,6 +3,7 @@ import {
   automationEffects,
   automationRuns,
   backlogItems,
+  clientProjectLinks,
   createMilestone,
   createRequestItem,
   createTicket,
@@ -11,10 +12,12 @@ import {
   projects,
   type Db,
 } from "@stubwise/db";
-import { automationMailboxOf, loadPlanWorld, milestoneNameTaken, publishNotification } from "@stubwise/notifications";
+import { automationMailboxOf, automationOwnerInScope, loadPlanWorld, milestoneNameTaken, projectPermissionsOfUser, publishNotification } from "@stubwise/notifications";
 import {
+  clientKeyOf,
   failed,
   MAIL_OUTGOING_CHANNEL,
+  PROJECT_NOT_FOUND,
   planEmail,
   planMilestone,
   planNotify,
@@ -90,6 +93,10 @@ const notAvailable = (): EffectOutcome =>
 const noOwner = (): EffectOutcome =>
   failed("permission_lost", { code: "noOwner" }, "Permesso perso: l'automazione non ha un proprietario.");
 
+/** F4: il proprietario di una generale non ha più `automations.general.manage` (ricontrollato a ogni effetto). */
+const generalLost = (): EffectOutcome =>
+  failed("permission_lost", { code: "generalLost" }, "Permesso perso: il proprietario non gestisce più le automazioni generali.");
+
 /** Le persone e i reparti che un'azione nomina (il mondo li carica). */
 function namedIn(eff: ActionEffect): { personIds: string[]; departmentIds: string[] } {
   const personIds: string[] = [];
@@ -107,10 +114,33 @@ async function projectCode(tx: Tx, projectId: string): Promise<string> {
   return p?.code ?? "";
 }
 
+/**
+ * Il progetto «del cliente» (F4, S5): la riga della tabella cliente → progetto
+ * con la chiave normalizzata (`clientKeyOf`, la stessa della scrittura).
+ * Fuori tabella, o un progetto che il PROPRIETARIO non vede (R-G5: vale come
+ * non trovato), il motore si ferma su «scegli il progetto» (`waiting_project`).
+ * Il cliente arriva dall'evento (può essere un campo non fidato di un
+ * webhook): sceglie solo FRA le righe della tabella, che cura chi gestisce le
+ * integrazioni, mai un progetto qualunque.
+ */
+async function resolveClientProject(eff: Extract<EffectRequest, { kind: "resolve_project" }>, env: EffectEnv): Promise<EffectOutcome> {
+  const owner = env.automation.ownerId;
+  if (!owner) return noOwner();
+  const notFound: EffectOutcome = { input: { kind: "effect_result", ok: false, error: PROJECT_NOT_FOUND } };
+  const key = clientKeyOf(eff.clientKey);
+  if (!key) return notFound;
+  const [link] = await env.db.select({ projectId: clientProjectLinks.projectId }).from(clientProjectLinks).where(eq(clientProjectLinks.clientKey, key));
+  if (!link || !(await projectPermissionsOfUser(env.db, owner, link.projectId))) return notFound;
+  return { input: { kind: "project_chosen", projectId: link.projectId }, projectId: link.projectId };
+}
+
 /** Esegue un effetto a nome del proprietario e restituisce l'input da rimettere nel motore. */
 export async function executeEffect(eff: EffectRequest, env: EffectEnv): Promise<EffectOutcome | EffectPending> {
-  if (eff.kind === "claude" || eff.kind === "resolve_project") return notAvailable();
+  if (eff.kind === "claude") return notAvailable();
   if (eff.kind === "startAutomation") return notAvailable();
+  // F4: una generale agisce solo finché il proprietario ha il permesso d'istanza (prima di ogni effetto, email compresa).
+  if (env.automation.projectId === null && env.automation.ownerId && !(await automationOwnerInScope(env.db, env.automation.ownerId, null))) return generalLost();
+  if (eff.kind === "resolve_project") return resolveClientProject(eff, env);
   if (eff.kind === "sendEmail") return executeEmail(eff, env);
   const owner = env.automation.ownerId;
   if (!owner) return noOwner();

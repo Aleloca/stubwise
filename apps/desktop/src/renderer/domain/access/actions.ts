@@ -33,7 +33,9 @@ export const INSTANCE_GROUPS: readonly PermissionGroup[] = [
       "chat.general.manage",
     ],
   },
-  { key: "projects", permissions: ["projects.create"] },
+  // Area 7, F4: la chiave VERA delle generali (come il web). Il prototipo usa
+  // ancora `automations.manage` d'istanza (in «prototype»): la sposta 94 con R3.
+  { key: "projects", permissions: ["projects.create", "automations.general.manage"] },
   {
     key: "integrations",
     permissions: [
