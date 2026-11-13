@@ -508,7 +508,11 @@ export async function listReleaseQueue(
     ? await db.select().from(environmentServers).where(inArray(environmentServers.environmentId, deployTargets.map((e) => e.id)))
     : [];
   const serverOf = new Map(envServerRows.map((r) => [`${r.environmentId}:${r.repositoryId}`, r.serverId]));
-  const serverIds = [...new Set(envServerRows.map((r) => r.serverId))];
+  // Senza una riga per QUELLA repository (una repository aggiunta dopo la
+  // scrittura) vale il server dell'ambiente, la forma di prima (review F1).
+  const serverFor = (env: (typeof deployTargets)[number], repositoryId: string): string | null =>
+    serverOf.get(`${env.id}:${repositoryId}`) ?? env.serverId ?? null;
+  const serverIds = [...new Set([...envServerRows.map((r) => r.serverId), ...deployTargets.flatMap((e) => (e.serverId ? [e.serverId] : []))])];
   const servicesByServer = await loadLatestServicesByServer(db, serverIds);
 
   function deployedOnFor(projectId: string, repositoryId: string, headSha: string | undefined): string[] {
@@ -516,7 +520,7 @@ export async function listReleaseQueue(
     const names: string[] = [];
     for (const env of deployTargets) {
       if (env.projectId !== projectId) continue;
-      const serverId = serverOf.get(`${env.id}:${repositoryId}`);
+      const serverId = serverFor(env, repositoryId);
       if (!serverId) continue;
       const services = servicesByServer.get(serverId) ?? [];
       // Stessa regola di `reviewStale` (`sameCommit`): per prefisso, in

@@ -143,6 +143,15 @@ describe("pollReleasesOnce", () => {
     expect(await cardsOf(s.leadId)).toHaveLength(1);
   });
 
+  it("review F1: una repository senza la sua riga in environment_servers usa il server dell'ambiente (`server_id`)", async () => {
+    const s = await setup({ ciProvider: null });
+    const [srv] = await t.db.insert(servers).values({ name: `s-${randomUUID().slice(0, 6)}`, keyHash: randomUUID() }).returning();
+    await t.db.insert(projectEnvironments).values({ projectId: s.projectId, name: "production", kind: "production", serverId: srv!.id });
+    await t.db.insert(serverMetrics).values({ serverId: srv!.id, ts: new Date(), cpuPct: 1, load1m: 0, memUsedBytes: 1, memTotalBytes: 2, swapUsedBytes: 0, diskUsedBytes: 0, diskTotalBytes: 1, netRxBytes: 0, netTxBytes: 0, disks: [], services: [{ name: "web", kind: "docker", status: "running", commitSha: "c".repeat(12) }] } as never);
+    await poll({});
+    expect((await reload(s.release.id)).seenInProductionAt).not.toBeNull();
+  });
+
   it("fuori dalla finestra si sistema così com'è", async () => {
     const s = await setup();
     await t.db.update(releases).set({ mergedAt: new Date(Date.now() - (RELEASE_WATCH_HOURS + 1) * 3_600_000) }).where(eq(releases.id, s.release.id));

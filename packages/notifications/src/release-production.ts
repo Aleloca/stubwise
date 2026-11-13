@@ -26,7 +26,7 @@ export interface ReleaseProduction {
 export async function releaseProductionOf(db: DbOrTx, projectId: string, repositoryId: string): Promise<ReleaseProduction> {
   const none = { serverId: null, services: [], reportedSha: null, reportedAt: null };
   const [env] = await (db as Db)
-    .select({ id: projectEnvironments.id })
+    .select({ id: projectEnvironments.id, serverId: projectEnvironments.serverId })
     .from(projectEnvironments)
     .where(and(eq(projectEnvironments.projectId, projectId), eq(projectEnvironments.kind, "production")));
   if (!env) return { environment: false, ...none };
@@ -34,17 +34,20 @@ export async function releaseProductionOf(db: DbOrTx, projectId: string, reposit
     .select({ serverId: environmentServers.serverId })
     .from(environmentServers)
     .where(and(eq(environmentServers.environmentId, env.id), eq(environmentServers.repositoryId, repositoryId)));
-  if (!link) return { environment: true, ...none };
+  // Senza una riga per QUESTA repository (aggiunta dopo la scrittura) vale il
+  // server dell'ambiente, la forma di prima (review F1).
+  const serverId = link?.serverId ?? env.serverId;
+  if (!serverId) return { environment: true, ...none };
   const [sample] = await (db as Db)
     .select({ services: serverMetrics.services, ts: serverMetrics.ts })
     .from(serverMetrics)
-    .where(eq(serverMetrics.serverId, link.serverId))
+    .where(eq(serverMetrics.serverId, serverId))
     .orderBy(desc(serverMetrics.ts))
     .limit(1);
   const services = (sample?.services ?? []) as DiscoveredService[];
   return {
     environment: true,
-    serverId: link.serverId,
+    serverId,
     services,
     reportedSha: services.find((s) => s.commitSha)?.commitSha ?? null,
     reportedAt: sample?.ts.toISOString() ?? null,

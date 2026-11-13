@@ -1275,14 +1275,26 @@ describe("GET /api/release-queue — deployedOn", () => {
     const { ticketId, repositoryId, projectId } = await seedOpenPr();
     const staging = await seedStaging(projectId, FULL_SHA);
     const other = await seedRepositoryInProject(testDb.db, projectId);
-    // Il server dell'ambiente passa all'altra repository; quella della PR resta senza.
+    // Il server dell'ambiente passa all'altra repository; quella della PR resta
+    // senza. Configurazione SOLO per repository: niente `server_id` di prima
+    // (che varrebbe da ripiego per la repository senza riga, review F1).
     const [row] = await testDb.db.select().from(environmentServers).where(eq(environmentServers.repositoryId, repositoryId));
+    await testDb.db.update(projectEnvironments).set({ serverId: null }).where(eq(projectEnvironments.id, row!.environmentId));
     await testDb.db.delete(environmentServers).where(eq(environmentServers.repositoryId, repositoryId));
     await testDb.db.insert(environmentServers).values({ environmentId: row!.environmentId, repositoryId: other, serverId: row!.serverId });
     vi.stubGlobal("fetch", fetchWithHead(FULL_SHA.slice(0, 12)));
     expect(await deployedOnOf(ticketId, repositoryId)).toEqual([]);
     // Rimesso sulla repository della PR, combacia di nuovo (il negativo qui sopra non è un falso-per-tutto).
     await testDb.db.insert(environmentServers).values({ environmentId: row!.environmentId, repositoryId, serverId: row!.serverId });
+    expect(await deployedOnOf(ticketId, repositoryId)).toEqual([staging]);
+  });
+
+  it("review F1: una repository aggiunta DOPO la scrittura dell'ambiente (nessuna riga sua) usa il server dell'ambiente", async () => {
+    const { ticketId, repositoryId, projectId } = await seedOpenPr();
+    const staging = await seedStaging(projectId, FULL_SHA);
+    // Come una repository nata dopo: la sua riga non c'è, resta il `server_id` di prima.
+    await testDb.db.delete(environmentServers).where(eq(environmentServers.repositoryId, repositoryId));
+    vi.stubGlobal("fetch", fetchWithHead(FULL_SHA.slice(0, 12)));
     expect(await deployedOnOf(ticketId, repositoryId)).toEqual([staging]);
   });
 });
