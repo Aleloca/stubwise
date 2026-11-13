@@ -51,7 +51,10 @@ export function parseIntervalSeconds(raw: string, min: number, max: number): num
  * Comando `docker run` completo per installare l'agente su un host monitorato.
  * `--user 0`: i nomi delle app PM2 si leggono da `<PM2_HOME>/pids`, e quando PM2
  * gira come root (`/root` è 700) l'utente 10001 dell'immagine non ci entra — si
- * vedrebbe `npm run start` al posto del nome. I mount restano tutti `:ro`.
+ * vedrebbe `npm run start` al posto del nome. I mount restano tutti `:ro`, ma
+ * per il socket Docker `:ro` non limita le richieste (impedisce di modificare
+ * il file, non di connettersi): l'agente può raggiungere tutta l'API di Docker,
+ * e oggi la usa solo per leggere. Il testo per l'utente lo dice (area 8, Q4).
  * `--group-add` resta: non serve a root, ma tiene Docker visibile a chi toglie
  * `--user 0` per scelta.
  * `STUBWISE_URL` è preso dall'origin del browser (l'istanza corrente), la chiave

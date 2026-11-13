@@ -158,9 +158,10 @@
   riparte dal branch aggiornato; mai un `--force`, mai un rebase automatico.
   Stubwise corregge solo la PR che ha aperto per QUEL ticket (branch
   `stubwise/ticket-<numero del ticket>` e stesso numero di PR), mai il branch
-  di una PR scritta da una persona **se non dopo un'ADOZIONE esplicita di un
-  maintainer** (6 ott 2026, vedi «Adottare una PR aperta da altri» qui
-  sotto) — e il push resta SEMPRE in avanti anche lì. Prima del push lo stato
+  di una PR scritta da una persona **se non secondo l'impostazione del
+  repository (`colleague_prs`) e mai su una PR in «Solo analisi»** (area 8,
+  vedi «Le PR dei colleghi» qui sotto) — e il push resta SEMPRE in avanti
+  anche lì. Prima del push lo stato
   della PR si ricontrolla: chiusa o mergiata, niente push e job `skipped`
   (errore dell'API → si pusha comunque, fail-open: il push è in avanti e sul
   branch della PR, perdere il lavoro per un errore transitorio costa di più;
@@ -298,95 +299,24 @@
   chiusura dei ticket del fix nel webhook) o si nomina il branch di un fix
   (`fix.ts`). Una copia locale è come `derivePrCycle` arrivò a mostrare il
   bottone su `stubwise/graphify-setup` mentre la rotta rispondeva 409.
-- **Adottare una PR aperta da altri (6 ott 2026) — chi, quale, dove.** Solo
-  chi ha `prs.adopt` nel progetto (escluso da `Legacy Member`, ruling R3):
-  `config.access` con `prs.adopt` sulla rotta E `if
-  (!actor.permissions.has("prs.adopt")) return { ok: false, error:
-  "forbidden" }` dentro `adoptPullRequest`/`releaseAdoption`
-  (`apps/server/src/services/pr-adoption.ts`), test negativi che asseriscono
-  sulle righe (`apps/server/src/routes/adoption.test.ts`); il bottone lo
-  accende `prAdoption.canManage` (`prs.adopt` di chi guarda), calcolato dal
-  server — mai dedotto dal client. Mai una PR su cui Stubwise non può scrivere in
-  sicurezza, verificato DAL PROVIDER all'adozione (`getPullRequestInfo`),
-  fail-closed: un fork, un fork NON VERIFICABILE (repository sorgente assente:
-  il nome del branch, da solo, non dice DOVE sta — una PR da fork su `main`
-  porterebbe il push sul `main` del repository), un branch `stubwise/…`, il
-  branch di default o il target della PR, e un **branch PROTETTO** della
-  repository (7 ott 2026: elenco configurato nel form della repository da
-  chi ha `repos.manage`, nomi esatti o `*` finale come prefisso — `develop`,
-  `release/*`). La regola dei protetti è UNA, `isProtectedBranch`
-  (`packages/shared/src/protected-branches.ts`, con
-  `protectedBranchesInputSchema` che normalizza e valida l'input): la usano il
-  rifiuto dell'adozione (422 `protected_branch`), il motivo del bottone spento
-  (`loadPrAdoption`) e il worker PRIMA del worktree e PRIMA del push,
-  rileggendo l'elenco dal database (fail-closed: un branch diventato protetto
-  dopo l'adozione, anche a correzione in corso, la ferma senza push). La
-  conferma dell'adozione (web e app) mostra IN EVIDENZA il branch su cui
-  andranno i commit, col nome dato dal server (`prAdoption.branch`); se non è
-  noto lo dice in modo neutro, e il server rifiuta comunque i casi vietati.
-  **Chi fa cosa su una PR adottata**: adotta e rilascia solo chi ha
-  `prs.adopt`; anche «Chiedi modifiche» in Stubwise e la ripresa di una
-  correzione ferma chiedono `prs.adopt` (7 ott 2026, ruling R16) — una
-  regola, `correctionActionAllowed(actorPermissions, row)`
-  (`packages/notifications/src/pr-correction-cycle.ts`: su una PR adottata e
-  non rilasciata vuole `prs.adopt`), usata da `derivePrCycle`
-  (`canRequestCorrection`/`canResume`, letti dai client), da
-  `requestCorrection` (403 `adopted_pr_admin_only`: il codice ha tenuto il
-  nome storico, il controllo è sul permesso), da `enqueueCorrection` sotto il
-  lock e da `startRun` (`needs_maintainer` sulla ripresa). Invariati: le PR
-  che Stubwise apre per i suoi ticket (chiede modifiche chi ha
-  `corrections.request`, come i member di prima), il «Request changes» della piattaforma (filtrato dal permesso di
-  scrittura lassù), il ciclo automatico, tetto e budget.
-  **Branch diventato protetto DOPO l'adozione (7 ott 2026)**: una regola sola,
-  `isAdoptedBranchProtected` (`packages/shared/src/protected-branches.ts`:
-  adottata, non rilasciata, branch fra i protetti della sua repository).
-  `enqueueCorrection` la applica SOTTO il lock a OGNI trigger — click, giro
-  automatico, «Request changes» della piattaforma — e rifiuta
-  `adopted_branch_protected` senza scrivere niente; `requestCorrection` la
-  anticipa (409 `adopted_branch_protected`), `startRun` la applica alla
-  ripresa di una correzione ferma (409, PRIMA del controllo sul permesso:
-  nessuno può riprenderla, e «la riprende un maintainer» sarebbe falso), il webhook
-  della piattaforma scrive l'avviso deduplicato sul ticket
-  (`comment.changesRequestBranchProtected.*`, quarto motivo di
-  `postDroppedRequestNotice`, il branch nella riga del motivo e mai nel
-  titolo) e `derivePrCycle` spegne `canRequestCorrection`/`canResume` con
-  `cycle.blockedReason = "adopted_branch_protected"` (`.default(null)`, web
-  `?? null`), che web e app mostrano. Il worker resta la difesa in profondità
-  (rilettura prima del worktree e prima del push) e fallisce col messaggio
-  SUO, `AdoptedBranchProtectedError` («il branch `<nome>` è protetto in questa
-  repository: Stubwise non ci pusha…»): non è un mismatch — la PR è ancora su
-  quel branch, e dire «non è più sul branch» era falso. Una `pending` nata
-  PRIMA della protezione può ancora essere promossa: la ferma il worker, che
-  la annulla come per il mismatch. Il mirror lo ripete per
-  costruzione: `MirrorManager` accetta un branch fuori da `stubwise/` SOLO con
-  l'opzione esplicita `adopted` (`apps/worker/src/git/mirrors.ts`), e con lei
-  rifiuta `force` e il default branch e apre il worktree solo dalla head del
-  branch. Chi tocca quel controllo sappia che la protezione di
-  `pushBranch(..., { force: true })` è il namespace `stubwise/`. Il commento
-  sulla PR all'adozione e al rilascio è un template i18n
-  (`prComment.adopted`/`prComment.adoptionReleased`), scritto con l'account
-  PRINCIPALE: un «Request changes» di quell'account è `own_account`, e la
-  fotografia dei commenti lo esclude — l'adozione non si auto-innesca
-  (`webhooks.corrections.test.ts`). **Un ticket `review` non avvia un fix**:
-  `startRun` risponde `review_ticket_not_runnable` salvo la forzatura di una
-  correzione ferma, perché con l'adozione un ticket review ha job di
-  correzione e il «Rilancia» di un `job.failed` (inbox, Slack, MCP)
-  avvierebbe un fix dal default; il web toglie il rilancio sui ticket review.
-  **La chiusura della PR (mergiata o no) RILASCIA l'adozione**
-  (`releaseAdoptionsOnPrClose`, nel webhook prima dell'annullamento della
-  coda, con un commento di sistema `comment.prAdoptionReleasedOnClose`): una
-  PR riaperta torna a chi l'ha aperta e va affidata di nuovo — mai il ciclo
-  che riparte da solo su un ticket review chiuso. Per difesa in profondità
-  `reopenPrRows` salta le righe adottate e non rilasciate, e `loadPrAdoption`
-  non dice mai `adopted` per una PR non aperta. Se l'ultima review APPROVA,
-  l'adozione non accoda nessuna correzione (`reviewApproved` nella risposta,
-  e web/app lo dicono): il ciclo partirà alla prossima richiesta di modifiche.
-  Il rilascio non cancella la riga: la marca, annulla la coda
-  (`cancelOpenCorrections` con la sua riga di log) e lascia i commit già
-  pushati; una correzione in volo si ferma prima del push e rimette lo
-  status `stubwise-review` com'era (`restoreStatus`); la riga resta finché la PR esiste, quindi la PR compare ancora fra
-  quelle che aspettano il merge nel polso e nella coda di rilascio (con
-  `origin: external`).
+- **Le PR dei colleghi (area 8, 13 nov 2026, decisione del maintainer: niente
+  adozione esplicita).** Ogni PR aperta su un repository collegato si
+  analizza, di Stubwise o di chiunque, secondo l'impostazione del repository
+  (`colleague_prs`: analisi e correzioni, solo analisi, spento; la sceglie chi
+  ha `repos.manage`). Con «analisi e correzioni» la prima correzione parte da
+  sola, salvo «Solo analisi» sulla singola PR (chi ha `prs.adopt` nel
+  progetto, calcolato dal server). Le regole di sicurezza dell'adozione
+  restano tutte, verificate DAL PROVIDER e fail-closed, prima del worktree e
+  prima del push: mai un fork (né uno non verificabile), mai un branch
+  `stubwise/…`, il branch di default, il target della PR o un branch
+  protetto (`isProtectedBranch`, anche diventato protetto a correzione in
+  corso); il push è SEMPRE in avanti (mai `--force`, mai rebase). «Chiedi
+  modifiche» e la ripresa di una correzione ferma su una PR di un collega
+  vogliono `prs.adopt` (`correctionActionAllowed`); il ciclo automatico, il
+  tetto e il budget sono quelli delle PR di Stubwise. (Sostituisce la voce
+  «Adottare una PR aperta da altri» del 6 ott 2026: la si legge nella storia
+  git di questo file. Fino al rilascio della fetta 1 dell'area 8 il codice
+  in produzione segue ancora l'adozione esplicita.)
 - **Il webhook «Request changes» non legge i commenti della PR, e scarta le
   riconsegne.** La fotografia la rifà il worker all'avvio della correzione
   (`refreshProviderFeedback`); il webhook salva solo il testo della review e
