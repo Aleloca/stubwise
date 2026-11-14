@@ -80,6 +80,14 @@ export const serverFixViewSchema = z.object({
   canRequestPlan: z.boolean().default(false),
   canApprove: z.boolean().default(false),
   canStop: z.boolean().default(false),
+  /** Perché l'ultimo piano proposto non è stato salvato (`schema`, `container_of_other_project`, `operations_off`…). Additivo. */
+  planError: z.string().nullable().default(null),
+  /**
+   * F4b-8 = c: un passo `docker.prune` agisce su TUTTO il server. Gli ALTRI
+   * progetti che toccherebbe (i nomi che chi guarda vede, più quanti non vede),
+   * calcolati dal server; null = nessuna pulizia nel piano. Additivo.
+   */
+  pruneWarning: z.object({ projects: z.array(z.string()), hiddenCount: z.number().int() }).nullable().default(null),
 });
 export type ServerFixView = z.infer<typeof serverFixViewSchema>;
 

@@ -246,6 +246,13 @@ export const SERVER_ANALYSIS_READ_TOOLS = [
 ] as const;
 export const SERVER_ANALYSIS_TOOLS = [...SERVER_ANALYSIS_READ_TOOLS, "report_server_diagnosis"] as const;
 export type ServerAnalysisTool = (typeof SERVER_ANALYSIS_TOOLS)[number];
+/**
+ * Gli strumenti della sessione che propone un piano nuovo per una task di
+ * server (S6, `server_fix`): le stesse letture, e al posto del resoconto UNO
+ * strumento che propone il piano (validato dal ponte, mai eseguito).
+ */
+export const SERVER_FIX_TOOLS = [...SERVER_ANALYSIS_READ_TOOLS, "propose_server_plan"] as const;
+export type ServerOpsTool = ServerAnalysisTool | "propose_server_plan";
 
 /**
  * L'unico strumento con cui l'analisi finisce. Contenuto del modello: NON

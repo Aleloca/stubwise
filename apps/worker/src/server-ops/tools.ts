@@ -1,13 +1,12 @@
 import { and, asc, desc, eq, gte } from "drizzle-orm";
-import { decrypt, environmentServers, projectEnvironments, projects, serverCommands, serverEpisodes, serverMetrics, servers, serverSshAccess, serviceChecks, type Db } from "@stubwise/db";
-import { COMMAND_OUTPUT_MAX, issueServerCommand, seenContainers, ServerCommandError } from "@stubwise/notifications";
+import { decrypt, serverCommands, serverEpisodes, serverMetrics, servers, serverSshAccess, serviceChecks, type Db } from "@stubwise/db";
+import { attributionContext, COMMAND_OUTPUT_MAX, issueServerCommand, ServerCommandError } from "@stubwise/notifications";
 import { SshHostKeyMismatchError, sshExec, type SshExec } from "./ssh.js";
 import {
   SSH_READS,
   sshReadSchema,
   serverActionSchema,
   serverDiagnosisReportSchema,
-  type AttributionInput,
   type ServerAnalysisLimits,
   type ServerAnalysisTool,
   type ServerDiagnosisReport,
@@ -61,36 +60,7 @@ export function untrusted(value: unknown): string {
 
 const pct = (used: number, total: number) => (total > 0 ? Math.round((used / total) * 1000) / 10 : null);
 
-/** I progetti del server coi container dei loro ambienti su QUEL server (S5b). */
-export async function attributionContext(db: Db, serverId: string): Promise<Omit<AttributionInput, "cause">> {
-  const rows = await db
-    .select({
-      projectId: projects.id,
-      projectCode: projects.code,
-      envName: projectEnvironments.name,
-      containers: environmentServers.containers,
-    })
-    .from(environmentServers)
-    .innerJoin(projectEnvironments, eq(projectEnvironments.id, environmentServers.environmentId))
-    .innerJoin(projects, eq(projects.id, projectEnvironments.projectId))
-    .where(eq(environmentServers.serverId, serverId));
-  const byProject = new Map<string, { projectId: string; projectCode: string; environments: Map<string, Set<string>> }>();
-  for (const r of rows) {
-    const p = byProject.get(r.projectId) ?? { projectId: r.projectId, projectCode: r.projectCode, environments: new Map() };
-    const env = p.environments.get(r.envName) ?? new Set<string>();
-    for (const c of r.containers) env.add(c);
-    p.environments.set(r.envName, env);
-    byProject.set(r.projectId, p);
-  }
-  return {
-    serverProjects: [...byProject.values()].map((p) => ({
-      projectId: p.projectId,
-      projectCode: p.projectCode,
-      environments: [...p.environments].map(([name, cs]) => ({ name, containers: [...cs] })),
-    })),
-    seenContainers: await seenContainers(db, serverId),
-  };
-}
+export { attributionContext } from "@stubwise/notifications";
 
 async function overview(db: Db, serverId: string): Promise<ToolReply> {
   const [server] = await db.select().from(servers).where(eq(servers.id, serverId));

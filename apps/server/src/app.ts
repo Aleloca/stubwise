@@ -105,6 +105,7 @@ import { savedViewRoutes } from "./routes/saved-views.js";
 import { searchRoutes } from "./routes/search.js";
 import { serverAnalysisRoutes } from "./routes/server-analyses.js";
 import { serverSshRoutes } from "./routes/server-ssh.js";
+import { serverFixRoutes } from "./routes/server-fixes.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { modelSettingsRoutes } from "./routes/model-settings.js";
 import type { RateLimitConfig } from "./routes/shared.js";
@@ -763,6 +764,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(peopleRoutes, { prefix: "/api/people" });
   void app.register(projectStatusRoutes, { prefix: "/api/projects" });
   void app.register(taskRoutes, { prefix: "/api/tasks" });
+  // Area 8, F4b, S6: la correzione di una task di server.
+  void app.register(serverFixRoutes, { prefix: "/api/tasks" });
   // Fetta 2: le sistemazioni per giorno (`/api/me/day-arrangements`, `/api/tasks/:id/day`).
   void app.register(dayArrangementRoutes, { prefix: "/api" });
   void app.register(filterRoutes, { prefix: "/api" });
