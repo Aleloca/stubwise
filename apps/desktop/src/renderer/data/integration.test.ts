@@ -70,7 +70,6 @@ const ALL: IntegrationTarget[] = [
       "releases-repo-settings",
       "releases-explain",
       "support",
-      "support-draft",
       "support-home",
       "support-widgets",
       "support-search",

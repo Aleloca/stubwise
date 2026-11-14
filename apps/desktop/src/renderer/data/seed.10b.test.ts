@@ -108,7 +108,6 @@ describe("ACQ", () => {
     as(DAVIDE);
     const view = (await support.getSupportConversation("ACQ-S7"))!;
     expect(view.state).toBe("waiting_us");
-    expect(state.supportConversations.find((c) => c.code === "ACQ-S7")!.claudeDraft).toBeNull();
     // La sua richiesta non è `high`: il filtro dell'automazione di prova lo
     // passa solo `req-acq-3`.
     const request = state.requests.find((r) => r.origin?.kind === "support" && r.origin.conversationId === "sup-acq-7")!;

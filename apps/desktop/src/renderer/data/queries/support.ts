@@ -1,10 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "@backend/api";
 import { isAppBuild } from "../build";
 import { featureIntegrated } from "../integration";
-import { getSessionPersonId } from "../session";
-import { streamText } from "@backend/runtime";
 import { MIN_QUERY } from "../../pages/chat/search";
 import {
   queryKeys,
@@ -129,11 +126,6 @@ export function useReplyToCustomer() {
   );
 }
 
-/** «Bozza di Claude»: la rigenera, non la invia. */
-export function useDraftReply() {
-  return useWrite((code: string) => api.support.draftReply(code), SUPPORT_AREAS);
-}
-
 /** «Apri la richiesta» su una non conclusa (`backlog.create`). */
 export function useOpenRequestFrom() {
   return useWrite(
@@ -181,87 +173,6 @@ export function replyToCustomerNow(code: string, body: string, clientId?: string
 /** Ricarica Support (elenco, dettaglio, Home) dopo un invio fatto fuori da React Query. */
 export function useInvalidateSupport() {
   return useInvalidate(SUPPORT_AREAS);
-}
-
-/** Ogni quanto si rilegge la conversazione mentre la bozza accodata non arriva (build app). */
-const DRAFT_POLL_MS = 2_000;
-/** Oltre quanto la bozza accodata si dà per non riuscita: la casella lo dice, il campo resta com'era. */
-const DRAFT_WAIT_MS = 90_000;
-
-export type SupportClaudeDraftState =
-  | { status: "idle" }
-  | { status: "writing"; text: string }
-  | { status: "done" | "stopped"; text: string }
-  | { status: "failed" };
-
-/**
- * «Bozza di Claude» nella casella di Support (shape support.md §5): la
- * rigenera (`draftReply`) e la scrive a pezzi nel corpo, con lo stesso ritmo
- * delle risposte di Claude (`streamText`). Non invia NULLA: chi risponde la
- * rilegge e preme «Invia al cliente». Di chi l'ha chiesta: cambiando persona
- * si ferma e sparisce.
- */
-export function useSupportClaudeDraft() {
-  const me = useSessionPersonId();
-  const invalidate = useInvalidate(SUPPORT_AREAS);
-  const [state, setState] = useState<SupportClaudeDraftState>({ status: "idle" });
-  const run = useRef<{ stopped: boolean } | null>(null);
-
-  const stop = useCallback(() => {
-    if (run.current) run.current.stopped = true;
-  }, []);
-
-  const start = useCallback(
-    (code: string) => {
-      if (run.current) run.current.stopped = true;
-      const current = { stopped: false };
-      run.current = current;
-      setState({ status: "writing", text: "" });
-      void (async () => {
-        try {
-          let view = await api.support.draftReply(code);
-          // Build app (area 8, F3): il server ACCODA la bozza. Si rilegge la
-          // conversazione finché non arriva (o finché chi l'ha chiesta smette).
-          const started = Date.now();
-          while (view.claudeDraftPending) {
-            await new Promise((resolve) => setTimeout(resolve, DRAFT_POLL_MS));
-            if (current.stopped || getSessionPersonId() !== me) return;
-            if (Date.now() - started > DRAFT_WAIT_MS) throw new Error("draft_timeout");
-            const next = await api.support.getSupportConversation(code);
-            if (!next) throw new Error("not_found");
-            view = next;
-          }
-          void invalidate();
-          let written = "";
-          const complete = await streamText(
-            view.claudeDraft ?? "",
-            `${me}:${code}`,
-            (soFar) => {
-              written = soFar;
-              if (run.current === current) setState({ status: "writing", text: soFar });
-            },
-            () => !current.stopped && getSessionPersonId() === me,
-          );
-          if (run.current === current)
-            setState({ status: complete ? "done" : "stopped", text: written });
-        } catch {
-          if (run.current === current) setState({ status: "failed" });
-        }
-      })();
-    },
-    [me, invalidate],
-  );
-
-  const reset = useCallback(() => {
-    if (run.current) run.current.stopped = true;
-    run.current = null;
-    setState({ status: "idle" });
-  }, []);
-
-  // Un'altra persona, o la casella che si chiude: la bozza si ferma.
-  useEffect(() => reset, [me, reset]);
-
-  return { state, start, stop, reset };
 }
 
 /** Solo prototipo: «Simula un messaggio del cliente». */

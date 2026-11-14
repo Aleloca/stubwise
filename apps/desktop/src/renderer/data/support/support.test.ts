@@ -45,7 +45,6 @@ describe("l'insieme esportato: nessuna richiesta da un'email", () => {
         "myRequestStatus",
         "searchSupport",
         "replyToCustomer",
-        "draftReply",
         "openRequestFrom",
         "markNotConcluded",
         "createWidget",
@@ -120,16 +119,14 @@ describe("letture e visibilità", () => {
     ).toEqual(["ACQ-S1"]);
   });
 
-  it("i membri vedono conversazione e richiesta; la bozza di Claude solo con support.reply", async () => {
+  it("i membri vedono conversazione e richiesta; rispondere solo con support.reply", async () => {
     as("p-sara");
     const sara = (await support.getSupportConversation("ACQ-S2"))!;
     expect(sara.request).toMatchObject({ code: expect.stringMatching(/^ACQ-R\d+$/) });
     expect(sara.request!.customerStatus).toBe("received");
-    expect(sara.claudeDraft).toBeNull();
     expect(sara.canReply).toBe(false);
     as("p-matteo");
     const matteo = (await support.getSupportConversation("ACQ-S2"))!;
-    expect(matteo.claudeDraft).toMatch(/^Hi Lucia/);
     expect(matteo.canReply).toBe(true);
     expect(matteo.waitingSince).toBe(conv("ACQ-S2").messages.at(-1)!.at);
   });
@@ -194,7 +191,6 @@ describe("Review Focus 4: il cliente vede solo il suo", () => {
     const text = JSON.stringify(preview);
     expect(text).not.toContain("p-laura");
     expect(text).not.toContain("p-matteo");
-    expect(text).not.toContain(conv("ACQ-S2").claudeDraft ?? "<nessuna bozza>");
     expect(preview.messages.at(-1)).toEqual({
       from: "us",
       body: "We are on it.",
@@ -206,7 +202,6 @@ describe("Review Focus 4: il cliente vede solo il suo", () => {
     as("p-sara");
     const before = conv("ACQ-S2").messages.length;
     await expect(support.replyToCustomer("ACQ-S2", "Ciao")).rejects.toThrow("forbidden");
-    await expect(support.draftReply("ACQ-S2")).rejects.toThrow("forbidden");
     expect(conv("ACQ-S2").messages).toHaveLength(before);
   });
 
@@ -217,7 +212,6 @@ describe("Review Focus 4: il cliente vede solo il suo", () => {
     const notifications = state.notifications.length;
     const view = await support.replyToCustomer("ACQ-S2", "  Thanks Lucia.  ");
     expect(view.state).toBe("reply_sent");
-    expect(view.claudeDraft).toBeNull();
     expect(conv("ACQ-S2").messages.at(-1)).toMatchObject({
       from: "team",
       authorId: "p-matteo",
@@ -245,13 +239,11 @@ describe("Review Focus 4: il cliente vede solo il suo", () => {
 });
 
 describe("R-K15: durante il triage non si risponde", () => {
-  it("in triage replyToCustomer e draftReply sono invalid: state, nessun messaggio; la vista lo dice", async () => {
+  it("in triage replyToCustomer è invalid: state, nessun messaggio; la vista lo dice", async () => {
     as("p-matteo");
     const before = conv("ACQ-S1").messages.length;
     await expect(support.replyToCustomer("ACQ-S1", "Hello")).rejects.toThrow("invalid: state");
-    await expect(support.draftReply("ACQ-S1")).rejects.toThrow("invalid: state");
     expect(conv("ACQ-S1").messages).toHaveLength(before);
-    expect(conv("ACQ-S1").claudeDraft).toBeNull();
     const view = (await support.getSupportConversation("ACQ-S1"))!;
     expect(view.canReply).toBe(true);
     expect(view.replyClosed).toBe("triage");
@@ -263,6 +255,16 @@ describe("R-K15: durante il triage non si risponde", () => {
     expect((await support.getSupportConversation("ACQ-S2"))!.replyClosed).toBeNull();
     const view = await support.replyToCustomer("ACQ-S3", "We're looking into it.");
     expect(view.messages.at(-1)!.body).toBe("We're looking into it.");
+  });
+});
+
+describe("la bozza di Claude non c'è più (area 8, F3, decisione del maintainer)", () => {
+  it("nessuna funzione, nessun campo nella vista, nessuna bozza nel modello", async () => {
+    as("p-matteo");
+    expect("draftReply" in support).toBe(false);
+    const view = (await support.getSupportConversation("ACQ-S2"))!;
+    expect("claudeDraft" in view).toBe(false);
+    expect(state.supportConversations.every((c) => !("claudeDraft" in c))).toBe(true);
   });
 });
 
@@ -280,16 +282,6 @@ describe("scritture", () => {
     as("p-matteo");
     await expect(support.replyToCustomer("ACQ-S2", "   ")).rejects.toThrow("invalid: body");
     expect(conv("ACQ-S2").messages.at(-1)!.from).toBe("customer");
-  });
-
-  it("bozza di Claude: deterministica, non parte da sola", async () => {
-    as("p-matteo");
-    const messages = conv("ACQ-S2").messages.length;
-    const a = await support.draftReply("ACQ-S2");
-    const b = await support.draftReply("ACQ-S2");
-    expect(a.claudeDraft).toBe(b.claudeDraft);
-    expect(a.claudeDraft).toContain("ACQ-R");
-    expect(conv("ACQ-S2").messages).toHaveLength(messages);
   });
 
   it("apri la richiesta da una non conclusa: backlog.create, origine Support, una sola", async () => {

@@ -809,14 +809,9 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
     const acq = SUPPORT_CONVERSATIONS.filter((c) => c.projectId === ACQ);
     // In triage: nessuna richiesta, nessun giudizio dopo il silenzio.
     expect(acq.some((c) => c.channel === "widget" && !c.requestId && !c.triage)).toBe(true);
-    // Aspettano noi (richiesta aperta, l'ultimo messaggio è del cliente) in
-    // due: ACQ-S2 con la bozza di Claude pronta, ACQ-S7 senza. La riga
-    // «Claude can help you write the reply» si vede solo sulla seconda.
+    // Richiesta aperta, l'ultimo messaggio è del cliente: ACQ-S2 e ACQ-S7.
     const waiting = acq.filter((c) => c.requestId && c.messages.at(-1)!.from === "customer");
-    expect(waiting.map((c) => [c.code, c.claudeDraft !== null])).toEqual([
-      ["ACQ-S2", true],
-      ["ACQ-S7", false],
-    ]);
+    expect(waiting.map((c) => c.code)).toEqual(["ACQ-S2", "ACQ-S7"]);
     // Non conclusa e risposta bastata (area 8, F3): il giudizio del controllo, nessuna richiesta.
     const judged = acq.filter((c) => c.triage);
     expect(judged.map((c) => [c.code, c.triage!.outcome, c.triage!.byUserId, c.requestId])).toEqual([

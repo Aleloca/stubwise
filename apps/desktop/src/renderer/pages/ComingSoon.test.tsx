@@ -654,9 +654,9 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  // Area 8, F3: Support acceso (letture e scritture). Bozza di Claude, email,
-  // Home, widget e ricerca hanno le loro funzioni, spente finché non ci sono le rotte.
-  it("aprire Support legge solo chiamate integrate, senza la bozza di Claude che non ha ancora la rotta", async () => {
+  // Area 8, F3: Support acceso (letture e scritture) e i widget; la Home e la
+  // ricerca hanno le loro funzioni, spente. Bozza di Claude, email e «Segui» non ci sono più.
+  it("aprire Support legge solo chiamate integrate, senza bozza di Claude, email né «Segui»", async () => {
     const user = userEvent.setup();
     signedInAs("p-matteo");
     renderRoute("/p/ACQ/support/ACQ-S2");
@@ -670,7 +670,7 @@ describe("aree non integrate nella build app", () => {
     );
     await waitFor(() => expect(calls).toContain("support.getSupportConversation"));
     await waitFor(() => expect(calls).toContain("support.listSupportConversations"));
-    // La casella c'è (si risponde), ma senza «Ask Claude» (S12).
+    // La casella c'è (si risponde), ma senza «Ask Claude» (la bozza non c'è più, area 8 F3).
     expect(await within(detail).findByRole("form", { name: /^Reply to / })).toBeInTheDocument();
     expect(within(detail).queryByRole("button", { name: /^Ask Claude/ })).toBeNull();
     // «Write to them by email» non c'è più (area 8, F3, decisione del maintainer).

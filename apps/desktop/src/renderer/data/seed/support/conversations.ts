@@ -76,7 +76,6 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     taskId: null,
     triage: null,
     confirmedAt: null,
-    claudeDraft: null,
   },
   {
     id: SUPPORT_CONVERSATION_IDS.waiting,
@@ -119,8 +118,6 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     taskId: null,
     triage: null,
     confirmedAt: at(4, "10:09"),
-    claudeDraft:
-      "Hi Lucia, the request is with the team and the billing office is checking which bills can be split. We'll write here as soon as there is a decision, before the yearly adjustment arrives.",
   },
   {
     id: SUPPORT_CONVERSATION_IDS.left,
@@ -143,7 +140,6 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     taskId: null,
     triage: { outcome: "not_concluded", at: at(1, "18:20"), byUserId: null },
     confirmedAt: null,
-    claudeDraft: null,
   },
   {
     id: SUPPORT_CONVERSATION_IDS.mcp,
@@ -179,7 +175,6 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     taskId: null,
     triage: null,
     confirmedAt: at(2, "10:35"),
-    claudeDraft: null,
   },
   // Area 10b: ACQ-S5 e ACQ-S6, da cui nascono le due richieste in coda.
   {
@@ -210,7 +205,6 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     taskId: null,
     triage: null,
     confirmedAt: at(3, "09:16"),
-    claudeDraft: null,
   },
   {
     id: SUPPORT_CONVERSATION_IDS.dark,
@@ -240,7 +234,6 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     taskId: null,
     triage: null,
     confirmedAt: at(1, "08:44"),
-    claudeDraft: null,
   },
   // 5 nov 2026: la seconda che aspetta noi, SENZA bozza di Claude. Con la
   // bozza pronta la riga «Claude can help you write the reply» non compare
@@ -291,7 +284,6 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     taskId: null,
     triage: null,
     confirmedAt: at(6, "09:25"),
-    claudeDraft: null,
   },
   // Area 8, F3: la risposta del widget è bastata. In fondo all'elenco, nessuna
   // azione; «Not concluded» la rimette fra quelle che aspettano il team.
@@ -317,7 +309,6 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     taskId: null,
     triage: { outcome: "concluded", at: at(1, "11:20"), byUserId: null },
     confirmedAt: null,
-    claudeDraft: null,
   },
   // Area 8, F3-1: l'esito è un TICKET aperto dal widget (la task AUD-6, che
   // dice «View conversation»), nessuna richiesta.
@@ -347,6 +338,5 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     taskId: "t-aud-6",
     triage: null,
     confirmedAt: null,
-    claudeDraft: null,
   },
 ];

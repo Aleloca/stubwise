@@ -3627,7 +3627,6 @@
           "spend": "Dirti quanto si è speso in AI questo mese",
           "archive": "Archiviare i progetti senza attività",
           "addMember": "Aggiungere qualcuno a un progetto",
-          "supportReply": "Scrivere la risposta a una conversazione di supporto",
           "releaseNotes": "Scrivere le note di rilascio di una pull request",
           "mailBody": "Scrivere un'email o una risposta nella Posta",
           "taskDescription": "Scrivere la descrizione di una task",
@@ -3643,7 +3642,6 @@
           "spend": "Quanto abbiamo speso in AI questo mese?",
           "archive": "Archivia i progetti senza attività da 3 mesi",
           "addMember": "Aggiungi [persona] a [progetto] come [ruolo]",
-          "supportReply": "Scrivi la risposta",
           "releaseNotes": "Scrivi le note di rilascio",
           "mailBody": "Scrivi un'email a [persona] per dire che [cosa]",
           "taskDescription": "Scrivi la descrizione di [task]",
@@ -3754,7 +3752,7 @@
         "openInviteBare": "Apri l'invito →"
       },
       "draft": {
-        "cantReply": "Non puoi rispondere a questa conversazione ·",
+        "noSupportReply": "In Support non scrivo risposte: ai clienti risponde l'assistente del widget, e le loro richieste le seguono sul vostro sito.",
         "cantEditNotes": "Non puoi modificare le note di rilascio di questa pull request ·",
         "cantEditTask": "Non puoi modificare **{{code}}** ·",
         "noSource": "Non ho da dove scrivere la descrizione di **{{code}}**: dimmi cosa deve dire.",
@@ -3762,7 +3760,6 @@
         "askHint": "Cosa deve dire l'email?",
         "openField": "Apri la conversazione, l'email, la pull request o la task e chiedimelo di nuovo.",
         "openCode": "Apri **{{code}}** →",
-        "openReply": "Apri la risposta →",
         "chat": "In un canale le bozze le scrive @Claude nel thread: menzionalo lì.",
         "inPanel": "Le bozze le scrivo dal riquadro di Claude, accanto al campo: chiedimelo lì."
       },
@@ -4720,8 +4717,6 @@
         "sr": "Bozza di Claude, non ancora modificata."
       },
       "pending": {
-        "supportReply": "Scrivo una bozza per la risposta a <obj>{{code}}</obj>…",
-        "supportReply_vowel": "Scrivo una bozza per la risposta ad <obj>{{code}}</obj>…",
         "releaseNotes": "Scrivo una bozza per le note di rilascio di <obj>{{code}}</obj> · pull request #{{number}}…",
         "releaseNotesBare": "Scrivo una bozza per le note di rilascio di <obj>{{code}}</obj>…",
         "mailReply": "Scrivo una bozza per la risposta a «{{subject}}»…",
@@ -4729,8 +4724,6 @@
         "taskDescription": "Scrivo una bozza per la descrizione di <obj>{{code}}</obj>…"
       },
       "placed": {
-        "supportReply": "Messa una bozza nella risposta a <obj>{{code}}</obj>",
-        "supportReply_vowel": "Messa una bozza nella risposta ad <obj>{{code}}</obj>",
         "releaseNotes": "Messa una bozza nelle note di rilascio di <obj>{{code}}</obj> · pull request #{{number}}",
         "releaseNotesBare": "Messa una bozza nelle note di rilascio di <obj>{{code}}</obj>",
         "mailReply": "Messa una bozza nella risposta a «{{subject}}»",
@@ -4738,8 +4731,6 @@
         "taskDescription": "Messa una bozza nella descrizione di <obj>{{code}}</obj>"
       },
       "waiting": {
-        "supportReply": "La bozza per la risposta a <obj>{{code}}</obj> è pronta",
-        "supportReply_vowel": "La bozza per la risposta ad <obj>{{code}}</obj> è pronta",
         "releaseNotes": "La bozza per le note di rilascio di <obj>{{code}}</obj> · pull request #{{number}} è pronta",
         "releaseNotesBare": "La bozza per le note di rilascio di <obj>{{code}}</obj> è pronta",
         "mailReply": "La bozza per la risposta a «{{subject}}» è pronta",
@@ -4775,11 +4766,6 @@
       "hint": "Apre Claude con la richiesta scritta, non inviata.",
       "notNow": "Non ora",
       "hidden": "Suggerimento nascosto.",
-      "supportReply": {
-        "line": "scrivere la risposta",
-        "prompt": "Scrivi la risposta a {{code}}",
-        "prompt_vowel": "Scrivi la risposta ad {{code}}"
-      },
       "releaseNotes": {
         "line": "scrivere le note di rilascio",
         "prompt": "Scrivi le note di rilascio"
@@ -9271,22 +9257,10 @@
       "inMcp": "in Claude Code",
       "message": "Messaggio",
       "placeholder": "Scrivi a {{name}}…",
-      "prepared": "Claude ha preparato una bozza",
-      "preparing": "Claude sta preparando una bozza…",
-      "useDraft": "Usa la bozza",
-      "show": "Mostra",
-      "hide": "Nascondi",
-      "stop": "Ferma",
       "saved": "Salvata",
       "discard": "Elimina",
       "send": "Invia al cliente",
       "emptyReason": "Scrivi prima una risposta",
-      "replaceAsk": "Sostituire il tuo testo o aggiungere la bozza di Claude sotto?",
-      "replace": "Sostituisci",
-      "addBelow": "Aggiungi sotto",
-      "cancel": "Annulla",
-      "draftFailed": "Claude non è riuscito a scrivere una bozza. Il tuo testo è com'era.",
-      "tryAgain": "Riprova",
       "sentTo": "Inviata a {{name}}",
       "undo": "Annulla",
       "readOnly": "Qui scrive solo chi può rispondere ai clienti.",
@@ -9294,8 +9268,7 @@
       "lastSeen": "{{name}} ha visto la conversazione l'ultima volta {{time}}. Vedrà la risposta quando torna.",
       "nextTime": "La vedrà la prossima volta che chiede delle sue richieste.",
       "waitPrevious": "Aspetta: la risposta di prima è ancora nella finestra dell'Annulla",
-      "notSentBack": "Non inviata. La risposta è tornata nella casella: inviala di nuovo quando vuoi.",
-      "askClaude": "Chiedi a Claude"
+      "notSentBack": "Non inviata. La risposta è tornata nella casella: inviala di nuovo quando vuoi."
     },
     "preview": {
       "title": "Cosa vede {{name}}",

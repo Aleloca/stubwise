@@ -111,7 +111,7 @@ export interface SupportRequestView {
   customerStatus: CustomerStatus;
 }
 
-export interface SupportConversationView extends Omit<SupportConversation, "claudeDraft"> {
+export interface SupportConversationView extends SupportConversation {
   projectCode: string;
   state: SupportState;
   /** Il primo messaggio del cliente rimasto senza risposta, se aspetta noi. */
@@ -119,13 +119,6 @@ export interface SupportConversationView extends Omit<SupportConversation, "clau
   lastMessage: SupportMessage | null;
   widgetName: string | null;
   request: SupportRequestView | null;
-  /** Solo con `support.reply`; per gli altri sempre `null`. */
-  claudeDraft: string | null;
-  /**
-   * Build app (area 8, F3): una bozza di Claude è in arrivo (una raffica del
-   * cliente, o «Ask Claude» accodato). Il prototipo la scrive subito: assente.
-   */
-  claudeDraftPending?: boolean;
   /**
    * Build app (area 8, F3): l'esito è un TICKET aperto dal widget (nessuna
    * richiesta). Il prototipo non ne ha: assente.
@@ -148,7 +141,7 @@ export function conversationView(me: string, c: SupportConversation): SupportCon
   const reply = holds(me, "support.reply", c.projectId);
   const st = supportState(c);
   const req = requestOf(c);
-  const { claudeDraft, ...rest } = structuredClone(c);
+  const rest = structuredClone(c);
   return {
     ...rest,
     projectCode: projectCodeOf(c.projectId),
@@ -167,47 +160,9 @@ export function conversationView(me: string, c: SupportConversation): SupportCon
         }
       : null,
     task: taskOutcomeOf(c),
-    claudeDraft: reply ? claudeDraft : null,
     canReply: reply,
     replyClosed: st === "triage" ? "triage" : null,
     canOpenRequest: st === "not_concluded" && holds(me, "backlog.create", c.projectId),
     canMarkNotConcluded: st === "answered" && reply,
   };
-}
-
-// --- la bozza di Claude (deterministica nel prototipo) -------------------------
-
-const CUSTOMER_WORDS: Record<CustomerStatus, string> = {
-  received: "we have received it and the team will look at it soon",
-  evaluating: "the team is evaluating it",
-  planned: "it is planned",
-  in_progress: "the team is working on it",
-  released: "it has been released",
-  not_proceeding: "unfortunately we are not going ahead with it for now",
-};
-
-/**
- * Il testo della bozza di Claude: dalla conversazione e dalla richiesta,
- * senza nomi del team, stime né commenti interni (li leggerebbe il
- * cliente). Lo stesso testo riempie l'email di «Scrivigli anche per email».
- */
-export function draftText(c: SupportConversation): string {
-  const first = c.customer.name.split(/\s+/)[0] || c.customer.name;
-  const req = requestOf(c);
-  const status = req
-    ? `About your request (${req.code}): ${CUSTOMER_WORDS[customerStatusOf(req)]}.`
-    : "We have read your message and we are looking into it.";
-  return `Hi ${first}, thanks for writing. ${status} We'll write here as soon as there is news.`;
-}
-
-/**
- * Area 10b (S6): la bozza della risposta per il riquadro di Claude — lo
- * stesso testo di `draftText` — se chi chiede ha `support.reply` nel
- * progetto; altrimenti `null`, anche per una conversazione che non vede
- * (R-G5). Non scrive nulla: la bozza va nel campo della risposta.
- */
-export function supportReplyDraftFor(me: string, conversationId: string): string | null {
-  const c = state.supportConversations.find((x) => x.id === conversationId);
-  if (!c || !sees(me, c.projectId) || !holds(me, "support.reply", c.projectId)) return null;
-  return draftText(c);
 }

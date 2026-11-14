@@ -8,7 +8,6 @@ import { invalid, writer } from "../writer";
 import {
   conversationFor,
   conversationView,
-  draftText,
   publishSupportRequest,
   type SupportConversationView,
 } from "./visibility";
@@ -38,7 +37,6 @@ export async function simulateCustomerMessage(
   if (!text) throw invalid("body");
   // Un messaggio nuovo rende vecchio il giudizio dopo il silenzio (lo stato lo deriva da sé).
   push(c, "customer", text);
-  if (supportState(c) === "waiting_us") c.claudeDraft = draftText(c);
   return conversationView(me, c);
 }
 

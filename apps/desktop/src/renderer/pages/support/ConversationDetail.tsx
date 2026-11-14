@@ -27,7 +27,6 @@ import { ReplyComposer } from "./ReplyComposer";
 import { pendingFor, usePendingReplies } from "./replyStore";
 import { RequestBlock } from "./RequestBlock";
 import { WhoCanLink } from "../../components/WhoCanLink";
-import { ClaudeSuggestionRow } from "../../tasks-ui/ClaudeSuggestionRow";
 
 // Il dettaglio di una conversazione (shape support.md §3, §5, §6): in testa
 // cosa vuole il cliente (il blocco della richiesta), sotto la conversazione
@@ -286,16 +285,12 @@ export function ConversationDetail({
       >
         <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6 px-8 pt-6 pb-10">
           {back}
-          <div className="flex flex-col gap-1">
-            <Header
-              conv={conv}
-              previewOpen={preview}
-              togglePreview={() => (preview ? closePreview() : setPreview(true))}
-              previewButton={previewButton}
-            />
-            {/* Area 10b: «Claude can help you write the reply», sotto la riga meta. */}
-            <ClaudeSuggestionRow place={{ kind: "support", conversationId: conv.id }} />
-          </div>
+          <Header
+            conv={conv}
+            previewOpen={preview}
+            togglePreview={() => (preview ? closePreview() : setPreview(true))}
+            previewButton={previewButton}
+          />
           <RequestBlock conv={conv} />
           <Messages conv={conv} pending={pending} lastSentRef={lastRef} />
           {!conv.canReply ? (

@@ -88,10 +88,6 @@ function fakeApi(over: Partial<SupportApi> = {}) {
       calls.push(`notConcluded ${code}`);
       return view({ state: "not_concluded", request: null });
     },
-    requestDraft: async (code) => {
-      calls.push(`draft ${code}`);
-      return view({ claudeDraftPending: true });
-    },
     preview: async () => ({
       status: "received",
       messages: [
@@ -142,7 +138,7 @@ describe("le letture di Support dal server (area 8, F3)", () => {
       byUserId: null,
     };
     const { api } = fakeApi({
-      get: async () => view({ request: null, task, triage, claudeDraftPending: true }),
+      get: async () => view({ request: null, task, triage }),
     });
     const c = (await createRealSupport(api).getSupportConversation("ACQ-S1"))!;
     expect(c).toMatchObject({
@@ -150,7 +146,6 @@ describe("le letture di Support dal server (area 8, F3)", () => {
       request: null,
       task,
       triage,
-      claudeDraftPending: true,
     });
   });
 
@@ -230,24 +225,30 @@ describe("le scritture di Support sul server (area 8, F3)", () => {
     expect(c.state).toBe("reply_sent");
   });
 
+  it("la bozza di Claude non c'è più (area 8, F3): niente funzione, niente campo nella vista", async () => {
+    const support = createRealSupport(fakeApi().api);
+    expect("draftReply" in support).toBe(false);
+    const c = (await support.getSupportConversation("ACQ-S1"))!;
+    expect("claudeDraft" in c).toBe(false);
+    expect("claudeDraftPending" in c).toBe(false);
+  });
+
   it("«Segui» non c'è più (area 8, F3): niente funzione, niente campo nella vista", async () => {
     const support = createRealSupport(fakeApi().api);
     expect("followConversation" in support).toBe(false);
     expect("following" in (await support.getSupportConversation("ACQ-S1"))!).toBe(false);
   });
 
-  it("apri la richiesta, «Not concluded», «Ask Claude»: le rotte, e la vista che rispondono", async () => {
+  it("apri la richiesta e «Not concluded»: le rotte, e la vista che rispondono", async () => {
     const { api, calls } = fakeApi();
     const support = createRealSupport(api);
     expect(
       (await support.openRequestFrom("ACQ-S1", { title: "Invoices", description: "x" })).state,
     ).toBe("request_open");
     expect((await support.markNotConcluded("ACQ-S1")).state).toBe("not_concluded");
-    expect((await support.draftReply("ACQ-S1")).claudeDraftPending).toBe(true);
     expect(calls).toEqual([
       'request ACQ-S1 {"title":"Invoices","description":"x"}',
       "notConcluded ACQ-S1",
-      "draft ACQ-S1",
     ]);
   });
 
@@ -275,8 +276,5 @@ describe("le scritture di Support sul server (area 8, F3)", () => {
         s.markNotConcluded("ACQ-S1"),
       ),
     ).toBe("invalid: state");
-    expect(
-      await words({ requestDraft: fail(409, "budget_exhausted") }, (s) => s.draftReply("ACQ-S1")),
-    ).toBe("budget_exhausted");
   });
 });

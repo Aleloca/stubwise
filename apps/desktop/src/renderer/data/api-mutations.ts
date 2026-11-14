@@ -67,7 +67,6 @@ import { recordChatTurnUsage } from "./instance/usage";
 import { contextIdFor, contextOf } from "./claude/context";
 import { mailDraftFor, taskDescriptionDraftFor } from "./claude/drafts";
 import { releaseNotesDraftFor } from "./releases/notes";
-import { supportReplyDraftFor } from "./support/visibility";
 import { dropHeld, holdJob, type JobKind } from "./instance/queue";
 import { getSessionPersonId, setSessionPersonId } from "./session";
 import {
@@ -1861,7 +1860,6 @@ export function readsAs(me: string): ReadApi {
       return seen ? { code: seen.code, projectId: seen.projectId } : null;
     },
     supportConversationIdOf: async (code) => contextIdFor(me, "support", code),
-    supportReplyDraft: async (conversationId) => supportReplyDraftFor(me, conversationId),
     releaseNotesDraft: async (prId) => releaseNotesDraftFor(me, prId),
     mailDraft: (threadId, hint) => mailDraftFor(me, threadId, hint),
     taskDescriptionDraft: async (taskId) => taskDescriptionDraftFor(me, taskId),
@@ -1947,9 +1945,7 @@ function projectsOfSteps(steps: ScriptStep[]): string[] {
     // un'email nessun progetto: è la posta di chi chiede).
     if (e.type === "draft" && e.field) {
       const f = e.field;
-      if (f.kind === "supportReply")
-        add(state.supportConversations.find((x) => x.id === f.conversationId)?.projectId);
-      else if (f.kind === "releaseNotes")
+      if (f.kind === "releaseNotes")
         add(state.openPrs.find((p) => p.id === f.prId)?.projectId);
       else if (f.kind === "taskDescription") add(ofTask(f.taskId));
     }

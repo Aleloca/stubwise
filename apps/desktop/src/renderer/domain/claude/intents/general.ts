@@ -13,7 +13,6 @@ export const CAPABILITIES: readonly CapabilityId[] = [
   "spend",
   "archive",
   "addMember",
-  "supportReply",
   "releaseNotes",
   "mailBody",
   "taskDescription",

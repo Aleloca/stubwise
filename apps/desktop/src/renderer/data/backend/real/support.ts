@@ -41,21 +41,17 @@ export interface SupportApi {
     body: SupportOpenRequestBody,
   ): Promise<Reader<{ conversation: ServerConversation; request: { id: string; code: string } }>>;
   markNotConcluded(code: string): Promise<Conversation>;
-  /** «Ask Claude»: accoda la bozza (202, la vista con `claudeDraftPending`). */
-  requestDraft(code: string): Promise<Conversation>;
 }
 
 /**
  * Gli errori nelle parole del prototipo: uno stato che non lo permette (la
  * conversazione è in triage, non è non conclusa, non è answered) è
- * `invalid: state`, come lì; il budget di Claude finito è `budget_exhausted`.
+ * `invalid: state`, come lì.
  */
 const STATE_CODES = new Set(["support_triage", "support_not_concluded", "support_not_answered"]);
 function words(error: unknown): unknown {
   if (error instanceof ApiError && error.code && STATE_CODES.has(error.code))
     return new Error("invalid: state");
-  if (error instanceof ApiError && error.code === "budget_exhausted")
-    return new Error("budget_exhausted");
   return asPrototypeError(error);
 }
 
@@ -136,8 +132,6 @@ function viewOf(c: Conversation): SupportConversationView | null {
         }
       : null,
     task: c.task ? { ...c.task, customerStatus: customerStatusOf(c.task.customerStatus) } : null,
-    claudeDraft: c.claudeDraft,
-    claudeDraftPending: c.claudeDraftPending,
     canReply: c.canReply,
     replyClosed: c.replyClosed === "triage" ? "triage" : null,
     canOpenRequest: c.canOpenRequest,
@@ -206,11 +200,6 @@ export function createRealSupport(api: SupportApi) {
     async markNotConcluded(code: string): Promise<SupportConversationView> {
       return writtenViewOf(await call(() => api.markNotConcluded(code)));
     },
-
-    /** «Ask Claude»: il server accoda la bozza; la vista dice `claudeDraftPending` finché non arriva. */
-    async draftReply(code: string): Promise<SupportConversationView> {
-      return writtenViewOf(await call(() => api.requestDraft(code)));
-    },
   } satisfies Partial<typeof Fake.support>;
 }
 
@@ -223,5 +212,4 @@ export const liveSupport: Partial<typeof Fake.support> = createRealSupport({
   reply: (code, body) => appClient().support.reply(code, body),
   openRequest: (code, body) => appClient().support.openRequest(code, body),
   markNotConcluded: (code) => appClient().support.markNotConcluded(code),
-  requestDraft: (code) => appClient().support.requestDraft(code),
 });

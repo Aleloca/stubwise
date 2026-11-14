@@ -14,11 +14,10 @@ export { suggestionKeyOf } from "../claude/suggestionKey";
 
 /**
  * L'area di lettura di ogni luogo: le scritture che cambiano la pagina (una
- * risposta al cliente, le note, un'automazione nuova, un piano deciso, i
+ * le note, un'automazione nuova, un piano deciso, i
  * consumi) ricaricano già quell'area, e con lei la riga.
  */
 const SUGGESTION_AREA: Record<api.SuggestionPlace["kind"], string> = {
-  support: "support",
   pr: "releases",
   automations: "automations",
   overview: "pulse",

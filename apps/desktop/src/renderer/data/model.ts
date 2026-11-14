@@ -1007,7 +1007,6 @@ export type ContextRef =
 
 /** Un campo che una pagina dichiara riempibile (area 10b, design parte 1). */
 export type FieldRef =
-  | { kind: "supportReply"; conversationId: string }
   | { kind: "releaseNotes"; prId: string }
   /** D1: il corpo di una risposta (`threadId`) o di un'email nuova (`null`), solo nella propria casella. */
   | { kind: "mailBody"; threadId: string | null }
@@ -3091,7 +3090,6 @@ export type CapabilityId =
   | "spend"
   | "archive"
   | "addMember"
-  | "supportReply"
   | "releaseNotes"
   | "mailBody"
   | "taskDescription"
@@ -3578,8 +3576,6 @@ export interface SupportConversation {
    * richiesta aperta dal team da una conversazione non conclusa).
    */
   confirmedAt: string | null;
-  /** La bozza di risposta di Claude: la vede solo chi ha `support.reply`, non parte mai da sola. */
-  claudeDraft: string | null;
 }
 
 /**

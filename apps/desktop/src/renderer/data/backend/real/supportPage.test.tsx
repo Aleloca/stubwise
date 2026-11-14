@@ -151,11 +151,12 @@ describe("Support nella build app (area 8, F3)", () => {
     delete (support as unknown as Record<string, unknown>).listWidgets;
   });
 
-  it("una bozza automatica in arrivo: la casella dice che Claude la sta preparando", async () => {
+  it("una bozza che un server vecchio dice in arrivo non si mostra: la bozza di Claude non c'è più", async () => {
     install({ [`GET ${BY_CODE}`]: { body: conversation({ claudeDraftPending: true }) } });
     renderRoute(`/p/AUD/support/${CODE}`);
     const d = await detail();
-    expect(await within(d).findByText("Claude is preparing a draft…")).toBeInTheDocument();
+    await within(d).findByRole("region", { name: "Task" });
+    expect(within(d).queryByText("Claude is preparing a draft…")).toBeNull();
   });
 });
 

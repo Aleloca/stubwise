@@ -12,7 +12,6 @@ import { supportState } from "../../domain/support/state";
 import {
   conversationFor,
   conversationView,
-  draftText,
   holds,
   publishSupportRequest,
   sees,
@@ -20,7 +19,7 @@ import {
 } from "./visibility";
 
 // Le scritture di Support. NESSUNA risposta parte da sola e NESSUNA email
-// automatica al cliente: Claude prepara solo bozze (`draftReply`), ogni risposta parte dal clic di chi ha `support.reply`
+// automatica al cliente: ogni risposta parte dal clic di chi ha `support.reply`
 // (`replyToCustomer`), e nessuna di queste funzioni scrive nella Posta.
 // Una richiesta nasce solo da una conversazione (mai da un'email). Gli
 // errori: `not_found` per ciò che chi agisce non vede (R-G5), `forbidden`
@@ -63,15 +62,6 @@ export async function replyToCustomer(
   const text = body.trim();
   if (!text) throw invalid("body");
   c.messages.push({ id: newId("sup-m"), from: "team", authorId: me, body: text, at: now() });
-  c.claudeDraft = null;
-  return conversationView(me, c);
-}
-
-/** «Bozza di Claude»: la rigenera (nel prototipo, un testo deterministico). Non la invia. */
-export async function draftReply(code: string): Promise<SupportConversationView> {
-  const me = await writer("support.draftReply");
-  const c = openReplyFor(me, code);
-  c.claudeDraft = draftText(c);
   return conversationView(me, c);
 }
 

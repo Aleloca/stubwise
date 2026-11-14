@@ -209,7 +209,6 @@ describe("Support — il dettaglio", () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole("form", { name: /^Reply to/ })).toBeNull();
     expect(screen.queryByText("Claude prepared a draft")).toBeNull();
-    expect(screen.queryByText(conv("ACQ-S2").claudeDraft!)).toBeNull();
     expect(screen.queryByRole("button", { name: "Write to them by email" })).toBeNull();
     // «Segui» non c'è più (area 8, F3).
     expect(within(d).queryByRole("button", { name: /^Follow/ })).toBeNull();
@@ -241,59 +240,7 @@ function renderRouteAndWait(path: string, person: string) {
   return { unmount: () => document.body.replaceChildren() };
 }
 
-describe("Support — la bozza di Claude e l'invio", () => {
-  it("la bozza pronta non riempie la casella: si rilegge, «Use draft», e non parte senza «Send»", async () => {
-    const user = userEvent.setup();
-    await open("/p/ACQ/support/ACQ-S2");
-    const form = await composer();
-    const body = within(form).getByRole("textbox", { name: "Message" });
-    expect(body).toHaveValue("");
-    await user.click(within(form).getByRole("button", { name: "Show" }));
-    expect(within(form).getByText(conv("ACQ-S2").claudeDraft!)).toBeInTheDocument();
-    const before = conv("ACQ-S2").messages.length;
-    await user.click(within(form).getByRole("button", { name: "Use draft" }));
-    expect(body).toHaveValue(conv("ACQ-S2").claudeDraft);
-    // Il segno unico (area 10b, P12): «Claude's draft», con la richiesta da cui viene.
-    const mark = form.querySelector("[data-claude-draft-mark]");
-    expect(mark).toHaveTextContent("Claude's draft");
-    expect(mark).toHaveTextContent(/Used: ACQ-R\d+/);
-    // Nulla è partito.
-    expect(conv("ACQ-S2").messages).toHaveLength(before);
-    await user.type(body, " Thanks!");
-    expect(form.querySelector("[data-claude-draft-mark]")).toBeNull();
-    expect(conv("ACQ-S2").messages).toHaveLength(before);
-  });
-
-  it("«Ask Claude» la scrive nel corpo a pezzi; con testo già scritto chiede Replace / Add below", async () => {
-    const user = userEvent.setup();
-    setStreamLatency(0);
-    await open("/p/ACQ/support/ACQ-S2");
-    const form = await composer();
-    const body = within(form).getByRole("textbox", { name: "Message" });
-    await user.type(body, "Mine.");
-    await user.click(within(form).getByRole("button", { name: "Ask Claude" }));
-    await user.click(within(form).getByRole("button", { name: "Add below" }));
-    await waitFor(() =>
-      expect(
-        (within(form).getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement).value,
-      ).toMatch(/^Mine\.\n\nHi Lucia/),
-    );
-    expect(conv("ACQ-S2").messages.at(-1)!.from).toBe("customer");
-  });
-
-  it("«Ask Claude» fallito: il testo resta, «Try again»", async () => {
-    const user = userEvent.setup();
-    await open("/p/ACQ/support/ACQ-S2");
-    const form = await composer();
-    await user.type(within(form).getByRole("textbox", { name: "Message" }), "Keep me");
-    failNext("support.draftReply");
-    await user.click(within(form).getByRole("button", { name: "Ask Claude" }));
-    await user.click(within(form).getByRole("button", { name: "Replace" }));
-    const alert = await within(form).findByRole("alert");
-    expect(alert).toHaveTextContent("Claude couldn't write a draft. Your text is unchanged.");
-    expect(within(form).getByRole("textbox", { name: "Message" })).toHaveValue("Keep me");
-  });
-
+describe("Support — l'invio", () => {
   it("«Send to customer»: «Sending…» e «Sent to … · Undo» per 5 s; Undo non lascia traccia; poi parte", async () => {
     const user = fakeTime();
     await open("/p/ACQ/support/ACQ-S2");
@@ -441,7 +388,6 @@ describe("Support — anteprima del cliente", () => {
     expect(within(messages).getAllByRole("listitem")).toHaveLength(conv("ACQ-S2").messages.length);
     expect(panel).not.toHaveTextContent("Laura");
     expect(panel).not.toHaveTextContent("Assistant (triage)");
-    expect(panel).not.toHaveTextContent(conv("ACQ-S2").claudeDraft!);
     expect(panel).toHaveTextContent("Customer portal help");
     expect(panel).toHaveTextContent(
       "Internal comments, names, estimates and drafts are never shown.",
@@ -451,6 +397,17 @@ describe("Support — anteprima del cliente", () => {
       expect(screen.queryByRole("complementary", { name: "What Lucia sees" })).toBeNull(),
     );
     expect(button).toHaveFocus();
+  });
+});
+
+describe("Support — la bozza di Claude non c'è più (area 8, F3)", () => {
+  it("niente «Ask Claude», niente bozza pronta, niente riga del suggerimento", async () => {
+    await open("/p/ACQ/support/ACQ-S2");
+    const d = await detail("ACQ-S2");
+    expect(within(d).queryByRole("button", { name: /Ask Claude/ })).toBeNull();
+    expect(within(d).queryByText("Claude prepared a draft")).toBeNull();
+    expect(within(d).queryByRole("button", { name: "Use draft" })).toBeNull();
+    expect(within(d).queryByText(/^Claude can help you/)).toBeNull();
   });
 });
 

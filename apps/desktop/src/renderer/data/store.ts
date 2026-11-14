@@ -649,7 +649,6 @@ export type ApiFnName =
   | "support.myRequestStatus"
   | "support.searchSupport"
   | "support.replyToCustomer"
-  | "support.draftReply"
   | "support.openRequestFrom"
   | "support.markNotConcluded"
   | "support.createWidget"

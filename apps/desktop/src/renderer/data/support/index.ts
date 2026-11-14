@@ -21,7 +21,6 @@ export {
 export {
   createWidget,
   deleteWidget,
-  draftReply,
   openRequestFrom,
   markNotConcluded,
   replyToCustomer,
