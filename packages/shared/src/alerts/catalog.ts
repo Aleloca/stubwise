@@ -161,6 +161,8 @@ export const LIVE_ALERT_TYPES: readonly string[] = [
   "pr.opened",
   // Area 8, F2, S4 (72): la nota di rilascio del giro notturno.
   "docs.release_note",
+  // Area 8, F2, S4 (72): la review che chiede modifiche.
+  "pr.analysis_issues",
   "monitor.alert",
   "monitor.recovered",
 ];
