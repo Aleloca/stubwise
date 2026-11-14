@@ -36,7 +36,8 @@ export const LOCAL_PROJECT_PERMISSIONS: Readonly<
 > = {};
 
 /** Ogni permesso di progetto, del registro condiviso e del prototipo (quelli che il full admin ha ovunque). */
+// Un Set su TUTTO: un permesso del prototipo che entra nel registro condiviso
+// (es. `servers.operate`, area 8 F4b) non deve comparire due volte.
 export const ALL_PROJECT_PERMISSIONS: readonly string[] = [
-  ...PROJECT_PERMISSIONS,
-  ...new Set([...Object.values(LOCAL_PROJECT_PERMISSIONS).flat(), "servers.operate"]),
+  ...new Set([...PROJECT_PERMISSIONS, ...Object.values(LOCAL_PROJECT_PERMISSIONS).flat(), "servers.operate"]),
 ];

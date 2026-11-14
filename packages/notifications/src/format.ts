@@ -376,6 +376,20 @@ export interface SupportRequestEvent {
   customerName: string | null;
   url: string;
 }
+/**
+ * Area 8, F4b: la diagnosi dell'analisi di un server, nel progetto a cui
+ * l'analisi ha attribuito il guasto (validato). `title` è il titolo della task
+ * (un template, mai il testo del modello).
+ */
+export interface ServerDiagnosisReadyEvent {
+  kind: "server.diagnosis_ready";
+  projectId: string;
+  serverName: string;
+  /** `<PRJ>-<n>` della task nata dalla diagnosi. */
+  taskCode: string;
+  title: string;
+  url: string;
+}
 /** Gli avvisi del catalogo, insieme: tutti hanno `projectId`, `title` e `url`. */
 export type CatalogAlertEvent =
   | ReleaseMergedEvent
@@ -384,7 +398,8 @@ export type CatalogAlertEvent =
   | PrAnalysisIssuesEvent
   | PrCorrectedEvent
   | DocsReleaseNoteEvent
-  | SupportRequestEvent;
+  | SupportRequestEvent
+  | ServerDiagnosisReadyEvent;
 
 /** Il server (o il suo check) è rientrato entro le soglie: alert risolto. */
 export interface MonitorRecoveredEvent {
@@ -1055,6 +1070,7 @@ function hasTicket(event: NotificationEvent): event is TicketedEvent {
     event.kind !== "pr.corrected" &&
     event.kind !== "docs.release_note" &&
     event.kind !== "support.request" &&
+    event.kind !== "server.diagnosis_ready" &&
     event.kind !== "project.pulse" &&
     event.kind !== "project.brief" &&
     event.kind !== "google.proposal" &&
@@ -1130,6 +1146,7 @@ const EMOJI: Record<NotificationKind, string> = {
   "pr.corrected": "🛠️",
   "docs.release_note": "📝",
   "support.request": "🙋",
+  "server.diagnosis_ready": "🩺",
   "monitor.recovered": "🟢",
   "job.awaiting_input": "❓",
   "project.pulse": "📣",
@@ -1259,6 +1276,7 @@ function linkParam(
     case "pr.corrected":
     case "docs.release_note":
     case "support.request":
+    case "server.diagnosis_ready":
       // Nessun ticket: il link porta alla pagina del rilascio, della PR, della nota o della conversazione.
       return renderLink(format, event.url, t(lang, "notify.linkOpen"));
     case "project.pulse":
@@ -1320,6 +1338,7 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "pr.corrected": "notify.alert.prCorrected",
   "docs.release_note": "notify.alert.docsReleaseNote",
   "support.request": "notify.alert.supportRequest",
+  "server.diagnosis_ready": "notify.alert.serverDiagnosisReady",
   "monitor.recovered": "notify.monitorRecovered",
   "job.awaiting_input": "notify.awaitingInput",
   "project.pulse": "notify.pulse",
@@ -1610,6 +1629,9 @@ function textParams(
     }
     if (event.kind === "support.request") {
       return { code: event.requestCode, title: event.title, customer: event.customerName ?? t(lang, "notify.alert.anonymousCustomer") };
+    }
+    if (event.kind === "server.diagnosis_ready") {
+      return { server: event.serverName, code: event.taskCode, title: event.title };
     }
     if (event.kind === "ticket.activity") {
       return {
@@ -1960,7 +1982,8 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
       event.kind === "pr.analysis_issues" ||
       event.kind === "pr.corrected" ||
       event.kind === "docs.release_note" ||
-      event.kind === "support.request"
+      event.kind === "support.request" ||
+      event.kind === "server.diagnosis_ready"
     ) {
       return { event: event.kind, projectId: event.projectId, title: event.title, message: formatNotificationText(event, lang), url: event.url };
     }
@@ -2185,6 +2208,7 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
     { kind: "pr.corrected", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", prNumber: 88, prUrl: "https://github.com/acme/negozio-web/pull/88", title: "Filtri per taglia", url: `${base}/app/#/p/NEG/releases?pr=7b2c9d1e-4444-4555-8666-777788889999%2388` },
     { kind: "docs.release_note", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", title: "Note del 13 novembre", url: `${base}/app/#/p/NEG/docs` },
     { kind: "support.request", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", requestCode: "NEG-R14", title: "Esportare gli ordini in PDF", customerName: "Mario Bianchi", url: `${base}/app/#/p/NEG/requests?request=NEG-R14` },
+    { kind: "server.diagnosis_ready", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", serverName: "web-prod-1", taskCode: "NEG-212", title: "Il container negozio-web riparte di continuo", url: `${base}/app/#/p/NEG/tasks/NEG-212` },
     {
       kind: "job.awaiting_input",
       ticketNumber: 131,

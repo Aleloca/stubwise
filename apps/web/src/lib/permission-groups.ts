@@ -46,7 +46,7 @@ export const INSTANCE_PERMISSION_GROUPS: readonly PermissionGroup<InstancePermis
       "mail_admission.view",
     ],
   },
-  { id: "monitoring", permissions: ["monitor.view", "monitor.manage", "usage.view"] },
+  { id: "monitoring", permissions: ["monitor.view", "monitor.manage", "servers.ssh.manage", "usage.view"] },
 ];
 
 export const PROJECT_PERMISSION_GROUPS: readonly PermissionGroup<ProjectPermission>[] = [
@@ -94,6 +94,8 @@ export const PROJECT_PERMISSION_GROUPS: readonly PermissionGroup<ProjectPermissi
   { id: "automations", permissions: ["automations.manage"] },
   // Area 8, F3: Support, le risposte ai clienti.
   { id: "support", permissions: ["support.manage"] },
+  // Area 8, F4b: l'analisi e la richiesta di un piano di correzione dei server.
+  { id: "servers", permissions: ["servers.operate"] },
 ];
 
 /** I permessi di reparto (fetta 3): si danno dalla pagina Reparti, non dai ruoli. */

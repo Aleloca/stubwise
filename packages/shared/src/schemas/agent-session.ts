@@ -37,6 +37,9 @@ export const agentSessionKindSchema = z.enum([
    * riga in `claude_conversations`); la risposta è un messaggio della Chat.
    */
   "chat_mention",
+  /** Area 8, F4b: l'analisi di un server (sole letture) e la correzione da una task (il piano). */
+  "server_analysis",
+  "server_fix",
 ]);
 export type AgentSessionKind = z.infer<typeof agentSessionKindSchema>;
 

@@ -1373,6 +1373,9 @@ export function effectiveModelDefaults(
     automation_step: "sonnet",
     // Support (area 8, F3): il giudizio sul triage è breve (G-1: Haiku).
     support_triage_check: "haiku",
+    // I server (area 8, F4b): l'analisi e il piano di correzione, Sonnet.
+    server_analysis: "sonnet",
+    server_fix_plan: "sonnet",
     chat: SERVER_CHAT_DEFAULT_MODEL,
     // La chat con Claude (fetta 1): lo stesso modello dei turni di refinement.
     claude_chat: config.backlogModel,

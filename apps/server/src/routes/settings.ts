@@ -4,6 +4,8 @@ import {
   languageSchema,
   mailAdmissionPatchSchema,
   mailAdmissionSchema,
+  readServerAnalysisLimits,
+  serverAnalysisSettingsSchema,
   ticketTypeSchema,
   type TicketType,
 } from "@stubwise/shared";
@@ -453,6 +455,33 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
           });
       });
       return { rules: await loadAllRules(app.db), prReview: await loadPrReviewSettings(app.db) };
+    },
+  );
+
+  // Area 8, F4b, S11: i tetti dell'analisi dei server (F4b-2 = b). Il worker
+  // li rilegge a ogni analisi; senza riga (o con una corrotta) i default.
+  app.get(
+    "/server-analysis",
+    {
+      config: { access: { kind: "instance", permission: "settings.manage" } },
+      schema: { response: { 200: serverAnalysisSettingsSchema, ...authErrorResponses } },
+    },
+    async () => readServerAnalysisLimits((await app.db.select().from(instanceSettings).where(eq(instanceSettings.id, 1)))[0]?.serverAnalysisLimits),
+  );
+
+  app.put(
+    "/server-analysis",
+    {
+      config: { access: { kind: "instance", permission: "settings.manage" } },
+      schema: { body: serverAnalysisSettingsSchema, response: { 200: serverAnalysisSettingsSchema, 400: errorSchema, ...authErrorResponses } },
+    },
+    async (request) => {
+      const limits = request.body;
+      await app.db
+        .insert(instanceSettings)
+        .values({ id: 1, serverAnalysisLimits: limits })
+        .onConflictDoUpdate({ target: instanceSettings.id, set: { serverAnalysisLimits: limits, updatedAt: new Date() } });
+      return limits;
     },
   );
 

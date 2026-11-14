@@ -10886,6 +10886,7 @@
           "mail": "Mail",
           "automations": "Automations",
           "support": "Support",
+          "servers": "Servers",
           "chat": "Chat"
         },
         "source": {
@@ -12375,7 +12376,9 @@
       "plugin_smoke": "Plugin smoke tests",
       "credential_test": "Account tests",
       "usage_probe": "Quota readings",
-      "support_triage_check": "Support: triage check"
+      "support_triage_check": "Support: triage check",
+      "server_analysis": "Servers: analysis",
+      "server_fix_plan": "Servers: fix plan"
     }
   },
   "instanceEffects": {

@@ -124,6 +124,8 @@ const AUDIENCE_FOR_KIND: Record<NotificationKind, Audience> = {
   "docs.release_note": "deciders",
   // Area 8, F3: nel catalogo (le iscrizioni e i seguaci); `deciders` non è mai consultato.
   "support.request": "deciders",
+  // Area 8, F4b: nel catalogo (le iscrizioni); `deciders` non è mai consultato.
+  "server.diagnosis_ready": "deciders",
   // La domanda dell'AI è rivolta a chi ha chiesto quel lavoro: chi segue il
   // progetto, l'assegnatario e il reporter non c'entrano — rispondere è una
   // decisione sul come procedere, non un aggiornamento da leggere.
@@ -223,6 +225,7 @@ export const PERMISSION_FOR_KIND: Record<NotificationKind, KindPermission> = {
   "pr.corrected": null,
   "docs.release_note": null,
   "support.request": null,
+  "server.diagnosis_ready": null,
   "docs.limit_paused": "settings.manage",
   "docs.nightly_attention": "settings.manage",
   // Alla domanda dell'agente risponde, oltre al richiedente, chi può decidere

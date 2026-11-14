@@ -25,6 +25,7 @@ import { z } from "zod";
 import { projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
 import { canViewServer, serverIdsOfProjects, visibleServerIds } from "../auth/monitor-access.js";
 import { toCheckView } from "./servers-checks.js";
+import { commandPublicKey } from "../services/server-signing.js";
 import { apiError } from "../errors.js";
 import {
   authErrorResponses,
@@ -105,6 +106,8 @@ function toServerView(row: ServerRow, agg: ServerAggregates, now: Date): ServerV
     orphan: agg.orphan,
     // I progetti non hanno ancora un archivio sul server.
     inArchivedOnly: false,
+    // Area 8, F4b: lo dichiara l'ingest (S4); finché non c'è, spento.
+    agentOperations: false,
   };
 }
 
@@ -388,6 +391,18 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
       canManage: user.instancePermissions.has("monitor.manage"),
     };
   }
+
+  // Area 8, F4b, S2: la chiave PUBBLICA d'istanza che verifica i comandi,
+  // per il comando d'installazione con le operazioni. Mai la privata.
+  // Letterale: PRIMA di `/:id`.
+  app.get(
+    "/command-key",
+    {
+      config: { access: { kind: "instance", permission: "monitor.manage" } },
+      schema: { response: { 200: z.object({ publicKey: z.string() }), ...authErrorResponses } },
+    },
+    async () => ({ publicKey: await commandPublicKey(app.db, app.encryptionKey) }),
+  );
 
   // Area 8, F4a: per codice (`SRV-<n>`). Letterale: PRIMA di `/:id`.
   app.get(

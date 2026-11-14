@@ -1352,6 +1352,7 @@ describe("sampleEvents", () => {
       "pr.corrected",
       "docs.release_note",
       "support.request",
+      "server.diagnosis_ready",
       "job.awaiting_input",
       "project.pulse",
       "project.brief",
@@ -1385,9 +1386,10 @@ describe("sampleEvents", () => {
         event.kind === "pr.analysis_issues" ||
         event.kind === "pr.corrected" ||
         event.kind === "docs.release_note" ||
-        event.kind === "support.request"
+        event.kind === "support.request" ||
+        event.kind === "server.diagnosis_ready"
       ) {
-        // Area 8: la pagina nell'app (rilascio, pannello della PR, Docs, Support).
+        // Area 8: la pagina nell'app (rilascio, pannello della PR, Docs, Support, la task del server).
         expect(event.url.startsWith("https://app.example.com/app/")).toBe(true);
       } else if (
         event.kind === "project.pulse" ||

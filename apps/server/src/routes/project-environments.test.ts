@@ -571,3 +571,75 @@ describe("area 8, F4a: il codice dei server negli ambienti", () => {
     expect(list[0]!.servers).toEqual([expect.objectContaining({ repositoryId, serverCode: `SRV-${srv!.number}` })]);
   });
 });
+
+describe("area 8, F4b, S12: i container di un ambiente su un server (l'attribuzione)", () => {
+  async function serverWith(services: string[]) {
+    const [srv] = await testDb.db.insert(servers).values({ name: `ops-${crypto.randomUUID().slice(0, 6)}`, keyHash: `hash-${crypto.randomUUID()}` }).returning();
+    await testDb.db.insert(serverMetrics).values({
+      serverId: srv!.id,
+      ts: new Date(),
+      cpuPct: 1,
+      load1m: 0,
+      memUsedBytes: 1,
+      memTotalBytes: 2,
+      swapUsedBytes: 0,
+      diskUsedBytes: 1,
+      diskTotalBytes: 2,
+      netRxBytes: 0,
+      netTxBytes: 0,
+      services: services.map((name) => ({ source: "docker", name, state: "running", cpuPct: 0, memBytes: 0, restarts: null })) as never,
+    });
+    return srv!.id;
+  }
+  const put = (pid: string, envId: string, payload: object, cookie = adminCookie) =>
+    app.inject({ method: "PUT", url: `/api/projects/${pid}/environments/${envId}/containers`, headers: { cookie }, payload });
+  const envOf = async (pid: string, name: string, serverId: string) =>
+    (await app.inject({ method: "POST", url: `/api/projects/${pid}/environments`, headers: { cookie: adminCookie }, payload: { name, kind: "staging", serverId } })).json().id as string;
+  const listed = async (pid: string, envId: string) =>
+    (await app.inject({ method: "GET", url: `/api/projects/${pid}/environments`, headers: { cookie: adminCookie } })).json().find((e: { id: string }) => e.id === envId)
+      .servers as { serverId: string; containers?: string[] }[];
+
+  it("si scrivono (solo nomi che l'agente riporta) e si rileggono per ogni repository; un PATCH che ripete il server li tiene", async () => {
+    const srv = await serverWith(["web-a", "db-a"]);
+    const { projectId: pid } = await seedRepository(testDb.db);
+    const env = await envOf(pid, "staging", srv);
+    const ok = await put(pid, env, { serverId: srv, containers: ["web-a", "db-a"] });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toEqual({ serverId: srv, containers: ["web-a", "db-a"] });
+    expect((await listed(pid, env)).map((s) => s.containers)).toEqual([["web-a", "db-a"]]);
+    // Un mai visto → 422, niente cambia; un nome che non è un nome → 400.
+    expect((await put(pid, env, { serverId: srv, containers: ["ghost"] })).statusCode).toBe(422);
+    expect((await put(pid, env, { serverId: srv, containers: ["../etc"] })).statusCode).toBe(400);
+    expect((await listed(pid, env))[0]!.containers).toEqual(["web-a", "db-a"]);
+    // Il PATCH che ripete lo stesso server non li cancella.
+    expect((await app.inject({ method: "PATCH", url: `/api/projects/${pid}/environments/${env}`, headers: { cookie: adminCookie }, payload: { serverId: srv } })).statusCode).toBe(200);
+    expect((await listed(pid, env))[0]!.containers).toEqual(["web-a", "db-a"]);
+  });
+
+  it("lo stesso container in un ALTRO progetto → 409; in un altro ambiente dello STESSO progetto si può", async () => {
+    const srv = await serverWith(["web-a", "web-b", "shared"]);
+    const { projectId: a } = await seedRepository(testDb.db);
+    const { projectId: b } = await seedRepository(testDb.db);
+    const envA = await envOf(a, "staging", srv);
+    const envA2 = await envOf(a, "production-ish", srv);
+    const envB = await envOf(b, "staging", srv);
+    expect((await put(a, envA, { serverId: srv, containers: ["web-a", "shared"] })).statusCode).toBe(200);
+    expect((await put(a, envA2, { serverId: srv, containers: ["shared"] })).statusCode).toBe(200);
+    const clash = await put(b, envB, { serverId: srv, containers: ["web-b", "shared"] });
+    expect(clash.statusCode).toBe(409);
+    expect(clash.json()).toMatchObject({ code: "container_of_other_project" });
+    expect((await listed(b, envB))[0]!.containers).toEqual([]);
+    expect((await put(b, envB, { serverId: srv, containers: ["web-b"] })).statusCode).toBe(200);
+  });
+
+  it("un server che l'ambiente non usa → 422; senza environments.manage → 403; ambiente di un altro progetto → 404", async () => {
+    const srv = await serverWith(["web"]);
+    const other = await serverWith(["web"]);
+    const { projectId: pid } = await seedRepository(testDb.db);
+    const env = await envOf(pid, "staging", srv);
+    expect((await put(pid, env, { serverId: other, containers: ["web"] })).statusCode).toBe(422);
+    expect((await put(pid, env, { serverId: srv, containers: ["web"] }, memberCookie)).statusCode).toBe(403);
+    expect((await put(projectId, env, { serverId: srv, containers: ["web"] })).statusCode).toBe(404);
+    expect((await testDb.db.select().from(environmentServers).where(eq(environmentServers.environmentId, env)))[0]!.containers).toEqual([]);
+  });
+});

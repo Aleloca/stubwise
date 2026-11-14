@@ -131,6 +131,12 @@ export const ingestBodySchema = z.object({
   agentVersion: z.string().min(1).max(50),
   samples: z.array(metricSampleSchema).min(1).max(300), // buffer 2h @30s ≈ 240
   checkResults: z.array(checkResultSchema).max(2000).default([]),
+  /**
+   * Area 8, F4b: ciò che l'agente dichiara (le operazioni accese). Facoltativo:
+   * un agente vecchio non lo manda, e vale «spente». Una dichiarazione, non un
+   * permesso: senza la firma del server l'agente non esegue niente comunque.
+   */
+  capabilities: z.object({ operations: z.boolean().default(false) }).optional(),
 });
 export type IngestBody = z.infer<typeof ingestBodySchema>;
 
@@ -154,6 +160,12 @@ export type AgentCheckConfig = z.infer<typeof agentCheckConfigSchema>;
 export const agentConfigSchema = z.object({
   sampleIntervalSeconds: sampleIntervalSecondsSchema,
   checks: z.array(agentCheckConfigSchema),
+  /**
+   * Area 8, F4b: l'id del server, che l'agente fissa alla prima config e
+   * confronta con quello di ogni comando firmato. Facoltativo: un server
+   * vecchio non lo manda (e allora l'agente non esegue comandi).
+   */
+  serverId: z.uuid().optional(),
 });
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
 
@@ -279,6 +291,9 @@ export const serverViewSchema = z.object({
   orphan: z.boolean().default(false),
   /** Lo usano solo ambienti di progetti archiviati. */
   inArchivedOnly: z.boolean().default(false),
+  // --- Area 8, F4b: additivi. ---
+  /** L'agente dichiara le operazioni accese (una dichiarazione, non un permesso). */
+  agentOperations: z.boolean().default(false),
 });
 export type ServerView = z.infer<typeof serverViewSchema>;
 

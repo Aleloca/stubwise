@@ -245,6 +245,7 @@ export const en: Catalog = {
   "notify.alert.prCorrected": "Claude pushed a correction to {repo}#{number}: {title}. {link}",
   "notify.alert.docsReleaseNote": "New release note for {repo}: {title}. {link}",
   "notify.alert.supportRequest": "New request from a customer ({customer}): {code} {title}. {link}",
+  "notify.alert.serverDiagnosisReady": "Claude's diagnosis for {server} is ready: {code} {title}. {link}",
   "notify.alert.anonymousCustomer": "Anonymous visitor",
   "notify.monitorRecovered": "{serverName} recovered ({condition}): {detail}. {link}",
   // Pulse proattivo: evento SENZA ticket ancorato al PROGETTO, il {link} porta
@@ -494,6 +495,7 @@ export const en: Catalog = {
   "push.title.pr.corrected": "Claude corrected a pull request",
   "push.title.docs.release_note": "A new release note",
   "push.title.support.request": "A new request from a customer",
+  "push.title.server.diagnosis_ready": "A server diagnosis is ready",
   "push.title.monitor.recovered": "Server recovered",
   "push.title.job.awaiting_input": "A question is waiting for you",
   // L'unico titolo con un segnaposto: il pulse arriva a progetto fermo, e
@@ -951,6 +953,7 @@ export const it: Catalog = {
   "notify.alert.prCorrected": "Claude ha spinto una correzione su {repo}#{number}: {title}. {link}",
   "notify.alert.docsReleaseNote": "Nuova nota di rilascio per {repo}: {title}. {link}",
   "notify.alert.supportRequest": "Nuova richiesta di un cliente ({customer}): {code} {title}. {link}",
+  "notify.alert.serverDiagnosisReady": "La diagnosi di Claude per {server} è pronta: {code} {title}. {link}",
   "notify.alert.anonymousCustomer": "Visitatore anonimo",
   "notify.monitorRecovered": "{serverName} tornato su ({condition}): {detail}. {link}",
   "notify.pulse":
@@ -1122,6 +1125,7 @@ export const it: Catalog = {
   "push.title.pr.corrected": "Claude ha corretto una pull request",
   "push.title.docs.release_note": "Una nuova nota di rilascio",
   "push.title.support.request": "Una nuova richiesta di un cliente",
+  "push.title.server.diagnosis_ready": "È pronta la diagnosi di un server",
   "push.title.monitor.recovered": "Server tornato su",
   "push.title.job.awaiting_input": "Una domanda ti aspetta",
   "push.title.project.pulse": "Da dove ripartire su {project}",
