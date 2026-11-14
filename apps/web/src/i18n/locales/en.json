@@ -150,6 +150,8 @@
       "creating": "Registering…",
       "projects": "Projects",
       "noProjects": "// no projects yet",
+      "projectsFromEnvironments": "A server's projects are the ones of its environments (set from the project's environments).",
+      "noEnvironments": "// no environment uses this server",
       "interval": "Sample interval (s)",
       "intervalRange": "Enter a value between {{min}} and {{max}} seconds.",
       "edit": "Edit",

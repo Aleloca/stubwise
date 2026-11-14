@@ -150,6 +150,8 @@
       "creating": "Registrazione…",
       "projects": "Progetti",
       "noProjects": "// nessun progetto",
+      "projectsFromEnvironments": "I progetti di un server sono quelli dei suoi ambienti (si scelgono dagli ambienti del progetto).",
+      "noEnvironments": "// nessun ambiente usa questo server",
       "interval": "Intervallo di campionamento (s)",
       "intervalRange": "Inserisci un valore tra {{min}} e {{max}} secondi.",
       "edit": "Modifica",

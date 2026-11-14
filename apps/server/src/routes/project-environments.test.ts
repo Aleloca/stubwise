@@ -537,3 +537,20 @@ describe("area 8, F4a, S3: un collegamento non allarga la visibilità", () => {
     expect((await patch({ cookie: adminCookie }, { servers: [{ repositoryId, serverId: hidden!.id }] })).statusCode).toBe(200);
   });
 });
+
+// Review F4a, I2: un server inesistente e uno invisibile rispondono uguale
+// (422 server_not_visible) a chi non vede tutti i server.
+describe("review F4a: inesistente = invisibile nel collegamento", () => {
+  it("un Project Lead riceve 422 server_not_visible per un id che non esiste", async () => {
+    const { projectId: pid, repositoryId } = await seedRepositoryRaw(testDb.db);
+    const lead = await createUserWithPat(app, `lead2-${randomBytes(3).toString("hex")}@acme.com`);
+    await addMember(app, pid, lead.id, "project_lead");
+    const missing = "00000000-0000-4000-8000-0000000000aa";
+    for (const body of [{ name: "a", kind: "production", serverId: missing }, { name: "b", kind: "staging", servers: [{ repositoryId, serverId: missing }] }]) {
+      const res = await app.inject({ method: "POST", url: `/api/projects/${pid}/environments`, headers: lead.headers, payload: body });
+      expect(res.statusCode, JSON.stringify(body)).toBe(422);
+      expect(res.json()).toMatchObject({ code: "server_not_visible" });
+    }
+  });
+});
+

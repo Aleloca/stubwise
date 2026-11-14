@@ -289,10 +289,10 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
       config: { access: { kind: "user" } },
       schema: {
         querystring: listQuerySchema,
-        response: { 200: z.array(serverViewSchema), ...authErrorResponses },
+        response: { 200: z.array(serverViewSchema), 404: errorSchema, ...authErrorResponses },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const now = new Date();
       const { projectId } = request.query;
       // Chi non ha `monitor.view` vede solo i server collegati a un progetto
@@ -302,6 +302,11 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
       // Filtro per progetto: gli id dei server associati, poi la lista completa.
       let rows: ServerRow[];
       if (projectId) {
+        // Un progetto invisibile risponde come uno inesistente (review F4a),
+        // anche a chi ha monitor.view: i suoi ambienti non escono.
+        if (!(await projectPermissionsFor(app.db, request.user!, projectId))) {
+          return apiError(reply, 404, "not_found", "Not found");
+        }
         // Area 8, F4a: i server degli AMBIENTI del progetto.
         const ids = (await serverIdsOfProjects(app.db, [projectId])).filter((id) => visible === "all" || visible.includes(id));
         rows =
