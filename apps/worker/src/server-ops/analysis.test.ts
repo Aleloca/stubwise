@@ -13,6 +13,8 @@ import {
   serverEpisodes,
   serverMetrics,
   servers,
+  serverSshAccess,
+  encrypt,
   type Db,
 } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
@@ -22,6 +24,7 @@ import { AgentTimeoutError, type AgentRunOptions, type AgentRunResult } from "..
 import type { SelectDeps } from "../providers/select.js";
 import { analysisGate, pruneServerCommands, queueEpisodeAnalyses, runNextServerAnalysis, type ServerAnalysisDeps } from "./analysis.js";
 import { startServerOpsBridge, type ServerOpsBridge } from "./bridge.js";
+import { SshHostKeyMismatchError, verifyPendingSshAccess, type SshExec } from "./ssh.js";
 
 /**
  * Area 8, F4b, S5: l'analisi per SERVER. Il runner finto fa ciò che farebbe il
@@ -36,6 +39,9 @@ let db: Db;
 let bridge: ServerOpsBridge;
 /** Ciò che l'«agente» risponde a un comando `read` (lo consegna e lo esegue al primo sleep). */
 let agentOutput = "log: out of memory";
+/** L'SSH finto del ponte (lo cambia ogni test). */
+let fakeSsh: SshExec = async () => ({ exitCode: 0, stdout: "", stderr: "", hostKey: "SHA256:pinned" });
+const sshCalls: string[][] = [];
 
 beforeAll(async () => {
   testDb = await startTestDb();
@@ -44,6 +50,10 @@ beforeAll(async () => {
     db,
     encryptionKey: ENCRYPTION_KEY,
     log: () => undefined,
+    sshExec: (t, argv, o) => {
+      sshCalls.push([...argv]);
+      return fakeSsh(t, argv, o);
+    },
     // L'agente: ogni attesa consegna ed esegue i comandi pendenti.
     sleep: async () => {
       await db
@@ -127,6 +137,7 @@ function cliCalling(calls: (tool: (name: string, args?: object) => Promise<{ ok:
 
 const deps = (runner: ServerAnalysisDeps["runner"]): ServerAnalysisDeps => ({
   db,
+  encryptionKey: ENCRYPTION_KEY,
   runner,
   bridge,
   select: { ...SELECT, db },
@@ -324,5 +335,105 @@ describe("S8: la potatura del registro a 90 giorni", () => {
     expect(left.has(oldFailed)).toBe(false);
     expect(left.has(oldPending)).toBe(true);
     expect(left.has(recent)).toBe(true);
+  });
+});
+
+describe("S7: l'SSH di sola lettura", () => {
+  async function access(serverId: string, over: Partial<typeof serverSshAccess.$inferInsert> = {}) {
+    await db.insert(serverSshAccess).values({
+      serverId,
+      host: "203.0.113.9",
+      publicKey: "ssh-ed25519 AAAA stubwise-read",
+      privateKeyEncrypted: encrypt("-----BEGIN OPENSSH PRIVATE KEY-----", ENCRYPTION_KEY),
+      status: "verified",
+      hostKey: "SHA256:pinned",
+      verifyResult: { groups: ["stubwise-read"], sudo: false, docker: false, journal: false, ok: true },
+      ...over,
+    });
+  }
+
+  it("la verifica: utente senza privilegi → verified con la host key fissata; con docker → failed; una connessione fallita → failed", async () => {
+    const { server: a } = await scene();
+    const { server: b } = await scene();
+    const { server: c } = await scene();
+    await access(a.id, { status: "pending", hostKey: null, verifyResult: null });
+    await access(b.id, { status: "pending", hostKey: null, verifyResult: null, host: "docker.example" });
+    await access(c.id, { status: "pending", hostKey: null, verifyResult: null, host: "down.example" });
+    const exec: SshExec = async (t, argv) => {
+      if (t.host === "down.example") throw new Error("connessione rifiutata");
+      if (argv[0] === "id") return { exitCode: 0, stdout: t.host === "docker.example" ? "stubwise-read docker\n" : "stubwise-read adm\n", stderr: "", hostKey: "SHA256:abc" };
+      return { exitCode: 1, stdout: "", stderr: "sudo: a password is required", hostKey: "SHA256:abc" };
+    };
+    await verifyPendingSshAccess(db, ENCRYPTION_KEY, exec, () => undefined);
+    const rowOf = async (id: string) => (await db.select().from(serverSshAccess).where(eq(serverSshAccess.serverId, id)))[0]!;
+    expect(await rowOf(a.id)).toMatchObject({ status: "verified", hostKey: "SHA256:abc", verifyResult: { ok: true, journal: true, sudo: false } });
+    expect(await rowOf(b.id)).toMatchObject({ status: "failed", verifyResult: { ok: false, docker: true } });
+    expect(await rowOf(c.id)).toMatchObject({ status: "failed" });
+  });
+
+  it("ssh_read: una lettura dell'elenco, registrata via ssh; journal senza gruppo → non leggibile; il tetto; un accesso non verificato → niente", async () => {
+    // Le scene dei test prima: le loro analisi in coda si chiudono qui, senza letture.
+    await queueEpisodeAnalyses(db);
+    await drain(deps(new FakeAgentRunner({ output: "x" })));
+    await setLimits({ maxSshReads: 2 });
+    const { server, episode } = await scene();
+    const { server: unverified, episode: e2 } = await scene();
+    await access(server.id);
+    await access(unverified.id, { status: "failed" });
+    fakeSsh = async () => ({ exitCode: 0, stdout: "Filesystem 1K-blocks Used", stderr: "", hostKey: "SHA256:pinned" });
+    sshCalls.length = 0;
+    const replies: Record<string, boolean[]> = {};
+    await queueEpisodeAnalyses(db);
+    await drain(
+      deps(
+        cliCalling(async (tool) => {
+          replies[String(Object.keys(replies).length)] = [
+            (await tool("ssh_read", { read: "disk" })).ok,
+            (await tool("ssh_read", { read: "journal_errors", params: { lines: 50 } })).ok,
+            (await tool("ssh_read", { read: "cat /etc/shadow" })).ok,
+            (await tool("ssh_read", { read: "load" })).ok,
+            (await tool("ssh_read", { read: "uptime" })).ok,
+          ];
+          await tool("report_server_diagnosis", { summary: "x", cause: { projectCode: null, containers: [], why: "" } });
+        }),
+      ),
+    );
+    const on = await analysisOf(episode.id);
+    const rows = await db.select().from(serverCommands).where(eq(serverCommands.analysisId, on.id));
+    expect(rows.map((r) => [r.via, r.kind, r.action, r.status])).toEqual(
+      expect.arrayContaining([
+        ["ssh", "read", "disk", "done"],
+        ["ssh", "read", "load", "done"],
+      ]),
+    );
+    expect(rows).toHaveLength(2);
+    expect(await db.select().from(serverCommands).where(eq(serverCommands.analysisId, (await analysisOf(e2.id)).id))).toEqual([]);
+    expect(Object.values(replies)).toEqual(expect.arrayContaining([[true, false, false, true, false], [false, false, false, false, false]]));
+    expect(sshCalls).toEqual([["df", "-P"], ["cat", "/proc/loadavg"]]);
+    await setLimits(null);
+  });
+
+  it("NEGATIVO: una host key cambiata → nessuna lettura, e l'accesso è sospeso", async () => {
+    const { server, episode } = await scene();
+    await access(server.id);
+    fakeSsh = async () => {
+      throw new SshHostKeyMismatchError();
+    };
+    const out: string[] = [];
+    await queueEpisodeAnalyses(db);
+    await drain(
+      deps(
+        cliCalling(async (tool) => {
+          out.push((await tool("ssh_read", { read: "disk" })).message);
+          out.push((await tool("ssh_read", { read: "load" })).message);
+          await tool("report_server_diagnosis", { summary: "x", cause: { projectCode: null, containers: [], why: "" } });
+        }),
+      ),
+    );
+    expect(out[0]).toContain("host key changed");
+    expect(out[1]).toContain("Not available");
+    expect((await db.select().from(serverSshAccess).where(eq(serverSshAccess.serverId, server.id)))[0]!.status).toBe("failed");
+    const rows = await db.select().from(serverCommands).where(eq(serverCommands.analysisId, (await analysisOf(episode.id)).id));
+    expect(rows.map((r) => r.status)).toEqual(["failed"]);
   });
 });

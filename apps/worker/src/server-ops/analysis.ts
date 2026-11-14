@@ -17,6 +17,7 @@ import { ensureAgentSession } from "../sessions/store.js";
 import { getContentLanguage } from "../settings.js";
 import { chatDisallowedTools } from "../claude-chat/turn.js";
 import { buildServerOpsMcpConfig, serverOpsServerPath, type ServerOpsBridge } from "./bridge.js";
+import { verifyPendingSshAccess, type SshExec } from "./ssh.js";
 import { attributionContext, type AnalysisGrant } from "./tools.js";
 
 /**
@@ -38,6 +39,9 @@ import { attributionContext, type AnalysisGrant } from "./tools.js";
 
 export interface ServerAnalysisDeps {
   db: Db;
+  encryptionKey: Buffer;
+  /** L'esecuzione SSH della verifica (test: finta). */
+  sshExec?: SshExec;
   runner: AgentRunner;
   bridge: ServerOpsBridge;
   select: SelectDeps;
@@ -275,6 +279,8 @@ export function startServerAnalysisPoller(deps: ServerAnalysisDeps, intervalMs =
         await pruneServerCommands(deps.db);
       }
       await recoverStaleAnalyses(deps.db, await loadLimits(deps.db));
+      // S7: la verifica degli accessi SSH in attesa (fissa la host key, rifiuta i privilegi).
+      await verifyPendingSshAccess(deps.db, deps.encryptionKey, deps.sshExec, deps.log);
       await queueEpisodeAnalyses(deps.db);
       await runNextServerAnalysis(deps);
     } catch (error) {
