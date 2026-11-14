@@ -508,6 +508,20 @@ describe("F4b: il piano è dell'insieme chiuso, e «libera spazio» su un server
     expect(allFixCommands()).toBe(0);
   });
 
+  it("R0-D: un container del server che non è fra quelli del progetto non entra (`container_not_of_project`)", async () => {
+    // La produzione di ACQ dichiara solo `portale-web` su SRV-1: `portale-import` non è suo.
+    state.environments.find((e) => e.id === "env-acq-prod")!.servers[0]!.containers = [
+      "portale-web",
+    ];
+    const c = await started("p-roberta");
+    expect(plans(c.id)).toEqual([]);
+    as("p-roberta");
+    const info = (await servers.getServerTaskInfo(TASK))!;
+    expect(info.state).toBe("no_plan");
+    expect(info.fix!.planError).toBe("container_not_of_project");
+    expect(allFixCommands()).toBe(0);
+  });
+
   it("nessuna azione ammessa serve (l'agente muto): niente piano, e la task lo dice", async () => {
     const ep = {
       id: "ep-test-silent",

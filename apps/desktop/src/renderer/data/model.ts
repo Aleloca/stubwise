@@ -1291,7 +1291,12 @@ export type ConversationEvent =
        * codice come `planError` del server (`no_plan`, `schema`,
        * `container_of_other_project`), mai testo del modello.
        */
-      planError?: "no_plan" | "schema" | "container_of_other_project";
+      planError?:
+        | "no_plan"
+        | "schema"
+        | "unknown_container"
+        | "container_of_other_project"
+        | "container_not_of_project";
       /** Solo una fase `correction`: la PR che corregge (il job del server la conosce). */
       pr?: PrRef;
     }

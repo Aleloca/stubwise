@@ -1,7 +1,13 @@
-import type { ServerAction, ServerPlan } from "@stubwise/shared";
+import {
+  validateServerPlan,
+  type AttributionInput,
+  type PlanValidation,
+  type ServerAction,
+  type ServerPlan,
+} from "@stubwise/shared";
 import { utterance } from "../../domain/claude/answers";
 import { commandInput, truncateOutput } from "../../domain/servers/commands";
-import { actionKey, checkProposedPlan } from "../../domain/servers/fixPlan";
+import { actionKey } from "../../domain/servers/fixPlan";
 import i18n from "../../i18n";
 import type {
   EpisodeReason,
@@ -96,7 +102,7 @@ export interface FixPlan {
    * Senza piano, perché (un CODICE, mai testo del modello, come `planError`
    * del server): nessuna azione serve, o il piano non stava nelle regole.
    */
-  error: "no_plan" | "schema" | "container_of_other_project" | null;
+  error: "no_plan" | Extract<PlanValidation, { ok: false }>["reason"] | null;
   planText: string;
   summary: string;
 }
@@ -144,17 +150,17 @@ function stepLine(plan: PlanStep): string {
 
 /**
  * Il piano della correzione: i passi per i motivi dell'episodio, una volta
- * ciascuno, validati (`checkProposedPlan`); le note di chi ha avviato e le
+ * ciascuno, validati (`validateServerPlan`); le note di chi ha avviato e le
  * indicazioni di chi ha rifiutato il piano di prima, se ci sono.
  * `diagnosis`: il testo della task (il servizio che nomina).
- * `otherProjectContainers`: i container legati agli ambienti di un ALTRO
- * progetto sul server — un passo su uno di loro non entra.
+ * `ctx`: il progetto della task e i progetti del server coi loro container
+ * (R0-D) — un passo su un container non del progetto non entra.
  */
 export function fixPlan(
   s: MonitoredServer,
   reasons: EpisodeReason[],
   diagnosis: string,
-  ctx: { otherProjectContainers: readonly string[] },
+  ctx: { projectId: string; serverProjects: AttributionInput["serverProjects"] },
   instructions?: string,
   notes?: string,
 ): FixPlan {
@@ -164,13 +170,12 @@ export function fixPlan(
       if (!steps.some((x) => JSON.stringify(x) === JSON.stringify(step))) steps.push(step);
   const checked =
     steps.length > 0
-      ? checkProposedPlan(
-          { steps },
-          {
-            seenContainers: docker(s).map((x) => x.name),
-            otherProjectContainers: ctx.otherProjectContainers,
-          },
-        )
+      ? validateServerPlan({
+          plan: { steps },
+          projectId: ctx.projectId,
+          serverProjects: ctx.serverProjects,
+          seenContainers: docker(s).map((x) => x.name),
+        })
       : null;
   const plan = checked?.ok ? checked.plan : null;
   const targets = (plan?.steps ?? []).flatMap((x) => containerOf(x) ?? []);
@@ -197,13 +202,8 @@ export function fixPlan(
       .filter((x) => targets.includes(x.name))
       .map((x) => agentRead("containerState", "container.state", x)),
     plan,
-    error: plan
-      ? null
-      : checked && !checked.ok
-        ? checked.reason === "unknown_container"
-          ? "schema"
-          : checked.reason
-        : "no_plan",
+    // Il motivo di `validateServerPlan` così com'è: lo stesso codice del server.
+    error: plan ? null : checked && !checked.ok ? checked.reason : "no_plan",
     planText: lines.join("\n"),
     summary:
       n > 0

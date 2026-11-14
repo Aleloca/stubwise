@@ -1,5 +1,4 @@
-import type { ServerPlan } from "@stubwise/shared";
-import { checkProposedPlan } from "../../domain/servers/fixPlan";
+import { validateServerPlan, type AttributionInput, type ServerPlan } from "@stubwise/shared";
 import { serverProjectsOf } from "../../domain/servers/projects";
 import i18n from "../../i18n";
 import {
@@ -103,18 +102,13 @@ function reasonsOf(task: Task): EpisodeReason[] {
 }
 
 /**
- * I container legati agli ambienti di un ALTRO progetto sul server: un passo
- * del piano su uno di loro non entra (il piano resta nel progetto
- * attribuito). Senza il campo «containers» dell'ambiente vale il nome
- * dell'ambiente, come in `attributeServerCause`.
+ * I progetti che usano il server ADESSO, coi container dei loro ambienti
+ * (R0-D): il piano si valida contro di loro (`validateServerPlan`), così un
+ * passo tocca solo un container del progetto della task e di nessun altro.
  */
-function otherProjectContainersOf(code: string, projectId: string): string[] {
+function serverProjectsNow(code: string): AttributionInput["serverProjects"] {
   const codeOf = (id: string) => state.projectsById.get(id)?.code ?? id;
-  return serverProjectsOf(code, liveEnvironments(), codeOf)
-    .filter((p) => p.projectId !== projectId)
-    .flatMap((p) =>
-      p.environments.flatMap((e) => (e.containers.length > 0 ? e.containers : [e.name])),
-    );
+  return serverProjectsOf(code, liveEnvironments(), codeOf);
 }
 
 const isLive = (c: Conversation | undefined): boolean => c !== undefined && c.state !== "finished";
@@ -128,9 +122,11 @@ export function serverPlanStillFits(c: Conversation): boolean {
   const plan = planned.get(c.id);
   const server = c.serverFix ? serverOf(c.serverFix.serverCode) : undefined;
   if (!plan || !server || c.projectId === null) return false;
-  return checkProposedPlan(plan, {
+  return validateServerPlan({
+    plan,
+    projectId: c.projectId,
+    serverProjects: serverProjectsNow(server.code),
     seenContainers: docker(server).map((x) => x.name),
-    otherProjectContainers: otherProjectContainersOf(server.code, c.projectId),
   }).ok;
 }
 
@@ -211,7 +207,7 @@ async function writePlan(
     server,
     reasonsOf(task),
     task.description,
-    { otherProjectContainers: otherProjectContainersOf(code, task.projectId) },
+    { projectId: task.projectId, serverProjects: serverProjectsNow(code) },
     instructions,
     notesOf.get(c.id),
   );
