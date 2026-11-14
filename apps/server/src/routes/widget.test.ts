@@ -445,6 +445,66 @@ async function enableWidget(
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Area 8, F3, S16: i siti ammessi. Elenco vuoto = qualunque sito (i widget di
+// prima); pieno = un'`Origin` assente o fuori elenco risponde 403 PRIMA di ogni
+// scrittura e di ogni chiamata al modello. L'origine dell'istanza è ammessa.
+describe("area 8, F3, S16: i siti ammessi del widget", () => {
+  const configOf = (slug: string, key: string, origin?: string) =>
+    app.inject({ method: "GET", url: `/widget/${slug}/config`, headers: { "x-stubwise-key": key, ...(origin ? { origin } : {}) } });
+
+  it("elenco vuoto: qualunque Origin, anche assente, come oggi", async () => {
+    const project = await seedProjectWithKey(testDb.db);
+    const widget = await enableWidget(testDb.db, project.projectId, project.repositoryId);
+    expect((await configOf(project.slug, widget.key)).statusCode).toBe(200);
+    expect((await configOf(project.slug, widget.key, "https://chiunque.example")).statusCode).toBe(200);
+  });
+
+  it("elenco pieno: l'origine in elenco (anche scritta diversa) e quella dell'istanza passano; assente, diversa, porta diversa, `null` → 403", async () => {
+    const project = await seedProjectWithKey(testDb.db);
+    const widget = await seedWidget(testDb.db, project.projectId, {
+      enabled: true,
+      enabledRepositoryIds: [project.repositoryId],
+      allowedOrigins: ["https://shop.example.it"],
+    });
+    expect((await configOf(project.slug, widget.key, "https://shop.example.it")).statusCode).toBe(200);
+    expect((await configOf(project.slug, widget.key, "https://SHOP.example.it:443")).statusCode).toBe(200);
+    expect((await configOf(project.slug, widget.key, "https://stubwise.example.com")).statusCode).toBe(200);
+    for (const origin of [undefined, "https://altro.example.it", "https://shop.example.it:8443", "http://shop.example.it", "null"]) {
+      const res = await configOf(project.slug, widget.key, origin);
+      expect(res.statusCode, String(origin)).toBe(403);
+      expect(res.json()).toMatchObject({ code: "origin_not_allowed" });
+    }
+  });
+
+  it("il rifiuto arriva prima di ogni scrittura e del modello: nessuna conversazione, nessun messaggio, nessun ticket", async () => {
+    const project = await seedProjectWithKey(testDb.db);
+    const widget = await seedWidget(testDb.db, project.projectId, {
+      enabled: true,
+      enabledRepositoryIds: [project.repositoryId],
+      allowedOrigins: ["https://shop.example.it"],
+    });
+    const [conv] = await testDb.db
+      .insert(widgetConversations)
+      .values({ projectId: project.projectId, widgetId: widget.id, externalUserId: "visitor-1" })
+      .returning();
+    const headers = { "x-stubwise-key": widget.key, origin: "https://altro.example.it" };
+    lastChatInput = null;
+    const created = await app.inject({ method: "POST", url: `/widget/${project.slug}/conversations`, headers, payload: { user: { id: "visitor-2" } } });
+    const posted = await app.inject({ method: "POST", url: `/widget/${project.slug}/conversations/${conv!.id}/messages`, headers, payload: { content: "Ciao", userId: "visitor-1" } });
+    const history = await app.inject({ method: "GET", url: `/widget/${project.slug}/conversations/${conv!.id}/messages?userId=visitor-1`, headers });
+    const ticket = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conv!.id}/tickets`,
+      headers,
+      payload: { userId: "visitor-1", type: "bug", title: "x", body: "y" },
+    });
+    expect([created, posted, history, ticket].map((r) => r.statusCode)).toEqual([403, 403, 403, 403]);
+    expect(await testDb.db.select().from(widgetConversations).where(eq(widgetConversations.widgetId, widget.id))).toHaveLength(1);
+    expect(await testDb.db.select().from(widgetMessages).where(eq(widgetMessages.conversationId, conv!.id))).toEqual([]);
+    expect(lastChatInput).toBeNull();
+  });
+});
+
 describe("POST /widget/:slug/conversations", () => {
   it("widget abilitato → 200 con conversationId uuid, persistita col widgetId", async () => {
     const project = await seedProjectWithKey(testDb.db);

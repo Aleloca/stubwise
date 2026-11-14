@@ -1,5 +1,6 @@
 import fastifyCors from "@fastify/cors";
 import {
+  normalizeWidgetOrigin,
   widgetChatMessageBodySchema,
   widgetConversationCreateBodySchema,
   widgetSettingsSchema,
@@ -137,8 +138,30 @@ export async function widgetRoutes(
       await apiError(reply, 401, "invalid_ingestion_key", "Invalid ingestion key");
       return;
     }
+    // Area 8, F3, S16: i siti ammessi. Elenco vuoto = qualunque sito (i widget
+    // installati prima); pieno = un'`Origin` assente o fuori elenco è rifiutata
+    // qui, prima di ogni scrittura e di ogni chiamata al modello. L'origine
+    // dell'istanza è sempre ammessa (l'anteprima nell'app). L'`Origin` la
+    // falsifica chiunque non sia un browser: protegge dall'embed su siti
+    // altrui, l'autenticazione resta la chiave.
+    if (matched.allowedOrigins.length > 0 && !originAllowed(request.headers.origin, matched.allowedOrigins)) {
+      await apiError(reply, 403, "origin_not_allowed", "This site may not load the widget");
+      return;
+    }
     request.widget = matched;
     request.widgetProject = { id: project.id, name: project.name };
+  };
+
+  const ownOrigin = (() => {
+    try {
+      return new URL(app.publicUrl).origin;
+    } catch {
+      return null;
+    }
+  })();
+  const originAllowed = (header: string | undefined, allowed: readonly string[]): boolean => {
+    const origin = typeof header === "string" ? normalizeWidgetOrigin(header) : null;
+    return origin !== null && (origin === ownOrigin || allowed.includes(origin));
   };
 
   // Bucket per chiave del progetto (fallback IP per le richieste senza header):
@@ -172,6 +195,7 @@ export async function widgetRoutes(
         response: {
           200: configResponseSchema,
           401: errorSchema,
+          403: errorSchema,
         },
       },
     },
@@ -235,6 +259,7 @@ export async function widgetRoutes(
         response: {
           200: z.object({ conversationId: z.uuid() }),
           401: errorSchema,
+          403: errorSchema,
           404: errorSchema,
         },
       },
@@ -292,6 +317,7 @@ export async function widgetRoutes(
         response: {
           200: z.object({ messages: z.array(messageSchema) }),
           401: errorSchema,
+          403: errorSchema,
           404: errorSchema,
         },
       },
@@ -376,6 +402,7 @@ export async function widgetRoutes(
         // Restano gli errori PRIMA dello stream (401/404/429/503), path normale.
         response: {
           401: errorSchema,
+          403: errorSchema,
           404: errorSchema,
           429: errorSchema,
           503: errorSchema,
@@ -551,6 +578,7 @@ export async function widgetRoutes(
         response: {
           200: z.object({ ticketId: z.uuid(), number: z.number().int() }),
           401: errorSchema,
+          403: errorSchema,
           404: errorSchema,
           429: errorSchema,
         },
