@@ -684,3 +684,21 @@ describe("area 8, F4a, S4: crea con un ambiente", () => {
     expect(res.json()).toMatchObject({ key: expect.stringMatching(/^sk_/), ingestUrl: "https://stubwise.example.com" });
   });
 });
+
+// Review F4a, I1: `?projectId=` di un progetto invisibile risponde come un
+// progetto che non esiste, anche a chi ha monitor.view.
+describe("review F4a: ?projectId= di un progetto invisibile", () => {
+  it("monitor.view senza essere membro di P: 404, nessun server di P", async () => {
+    const { projectId, repositoryId } = await seedRepository(testDb.db);
+    const { id } = await createServerReturning("di-p");
+    await linkToProject(id, projectId, repositoryId);
+    const u = await createUserWithPat(app, `v-${Math.random().toString(16).slice(2, 8)}@acme.com`);
+    const [role] = await testDb.db.insert(roles).values({ name: `view-${Math.random()}`, scope: "instance", permissions: ["monitor.view"] }).returning();
+    await testDb.db.update(users).set({ instanceRoleId: role!.id }).where(eq(users.id, u.id));
+    const res = await app.inject({ method: "GET", url: `/api/servers?projectId=${projectId}`, headers: u.headers });
+    expect(res.statusCode).toBe(404);
+    // Senza filtro il server lo vede (monitor.view), ma senza gli ambienti di P.
+    const all = (await app.inject({ method: "GET", url: "/api/servers", headers: u.headers })).json() as ServerView[];
+    expect(all.find((s) => s.id === id)).toMatchObject({ environments: [], projects: [] });
+  });
+});

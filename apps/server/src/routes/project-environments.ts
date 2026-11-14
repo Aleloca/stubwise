@@ -270,11 +270,13 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
     async (request, reply) => {
       const { projectId } = request.params;
       const { name, kind, url, serverId, servers: perRepo } = request.body;
-      if (serverId && !(await serverExists(serverId))) {
-        return apiError(reply, 400, "server_not_found", "Server not found");
-      }
+      // Prima la visibilità (review F4a): a chi non vede tutti i server un id
+      // inesistente risponde come uno invisibile (422), mai un oracolo.
       if (!(await allVisible(request.user!, { ...(serverId !== undefined ? { serverId } : {}), ...(perRepo ? { servers: perRepo } : {}) }))) {
         return apiError(reply, 422, "server_not_visible", "You can only link a server you can see");
+      }
+      if (serverId && !(await serverExists(serverId))) {
+        return apiError(reply, 400, "server_not_found", "Server not found");
       }
       try {
         const result = await app.db.transaction(async (tx) => {
@@ -351,11 +353,13 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
       if (!existing) return apiError(reply, 404, "environment_not_found", "Environment not found");
 
       const { name, url, serverId, servers: perRepo } = request.body;
-      if (serverId && !(await serverExists(serverId))) {
-        return apiError(reply, 400, "server_not_found", "Server not found");
-      }
+      // Prima la visibilità (review F4a): a chi non vede tutti i server un id
+      // inesistente risponde come uno invisibile (422), mai un oracolo.
       if (!(await allVisible(request.user!, { ...(serverId !== undefined ? { serverId } : {}), ...(perRepo ? { servers: perRepo } : {}) }))) {
         return apiError(reply, 422, "server_not_visible", "You can only link a server you can see");
+      }
+      if (serverId && !(await serverExists(serverId))) {
+        return apiError(reply, 400, "server_not_found", "Server not found");
       }
       // PATCH: campi assenti restano invariati (undefined non sovrascrive);
       // `url`/`serverId` possono però essere esplicitamente azzerati con `null`.

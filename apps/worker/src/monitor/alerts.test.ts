@@ -497,10 +497,11 @@ describe("evaluateMonitorAlertsOnce — gli episodi (area 8, F4a)", () => {
     expect(eps[0]!.severity).toBe("down");
     expect(eps[0]!.reasons.map((r) => r.kind).sort()).toEqual(["agent_silent", "check"]);
 
-    // Torna online ma il check è ancora giù: l'episodio resta aperto.
+    // Torna online ma il check è ancora giù: l'episodio resta aperto, e la
+    // gravità torna `trouble` (review F4a: dice com'è ADESSO, l'agente risponde).
     await db.update(servers).set({ lastSeenAt: NOW }).where(eq(servers.id, serverId));
     await run();
-    expect((await episodesOf(db, serverId))[0]!.recoveredAt).toBeNull();
+    expect((await episodesOf(db, serverId))[0]).toMatchObject({ recoveredAt: null, severity: "trouble" });
 
     // Anche il check risale: chiuso, all'ora del giro.
     await db.update(serviceChecks).set({ lastStatus: "up" }).where(eq(serviceChecks.id, checkId));
@@ -524,6 +525,19 @@ describe("evaluateMonitorAlertsOnce — gli episodi (area 8, F4a)", () => {
     const eps = await episodesOf(db, serverId);
     expect(eps).toHaveLength(2);
     expect(eps.filter((e) => e.recoveredAt === null)).toHaveLength(1);
+  });
+
+  it("review F4a: l'episodio parte da quando è cominciato il problema, non dall'ora del giro (es. al primo giro dopo il deploy)", async () => {
+    const { db } = testDb;
+    const lastSeen = new Date(NOW.getTime() - 2 * 3600_000);
+    const offline = await seedServer(db, { lastSeenAt: lastSeen });
+    const withCheck = await seedServer(db);
+    const downSince = new Date(NOW.getTime() - 3 * 3600_000);
+    await seedCheck(db, withCheck, { lastStatus: "down" });
+    await db.update(serviceChecks).set({ downSince }).where(eq(serviceChecks.serverId, withCheck));
+    await evaluateMonitorAlertsOnce({ db, publish: collector().publish, publicUrl: PUBLIC_URL }, NOW);
+    expect((await episodesOf(db, offline))[0]!.startedAt.toISOString()).toBe(lastSeen.toISOString());
+    expect((await episodesOf(db, withCheck))[0]!.startedAt.toISOString()).toBe(downSince.toISOString());
   });
 
   it("nessun allarme → nessun episodio; mai collegato → nessun episodio", async () => {

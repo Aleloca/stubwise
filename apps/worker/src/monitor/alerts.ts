@@ -214,10 +214,10 @@ async function syncEpisode(db: Db, serverId: string, now: Date): Promise<void> {
   }
   // I check notificati giù (lo scrive solo questo evaluator, `evaluateCheck`).
   const notified = await db
-    .select({ id: serviceChecks.id })
+    .select({ id: serviceChecks.id, downSince: serviceChecks.downSince, downNotifiedAt: serviceChecks.downNotifiedAt })
     .from(serviceChecks)
     .where(and(eq(serviceChecks.serverId, serverId), eq(serviceChecks.enabled, true), isNotNull(serviceChecks.downNotifiedAt)));
-  for (const c of notified) reasons.push({ kind: "check", checkId: c.id });
+  for (const c of notified) reasons.push({ kind: "check", checkId: c.id, since: (c.downSince ?? c.downNotifiedAt!).toISOString() });
 
   const [open] = await db
     .select()
@@ -227,17 +227,24 @@ async function syncEpisode(db: Db, serverId: string, now: Date): Promise<void> {
     if (open) await db.update(serverEpisodes).set({ recoveredAt: now }).where(eq(serverEpisodes.id, open.id));
     return;
   }
+  // La gravità dice com'è ADESSO (review F4a): `down` finché l'agente tace,
+  // `trouble` quando risponde di nuovo ma qualcosa resta in allarme.
   const severity = active.offline ? "down" : "trouble";
   if (!open) {
-    await db.insert(serverEpisodes).values({ serverId, severity, reasons, startedAt: now }).onConflictDoNothing();
+    // L'episodio parte da quando è cominciato il problema (l'ultimo segnale,
+    // il primo superamento, il controllo giù), non dall'ora del giro: al primo
+    // giro dopo un deploy un server in allarme da ore non «comincia adesso».
+    const starts = reasons.map((r) => r.since).filter((x): x is string => typeof x === "string" && !Number.isNaN(Date.parse(x)));
+    const startedAt = starts.length > 0 ? new Date(Math.min(...starts.map((x) => Date.parse(x)))) : now;
+    await db.insert(serverEpisodes).values({ serverId, severity, reasons, startedAt }).onConflictDoNothing();
     return;
   }
   // Un allarme in più si AGGIUNGE ai motivi (quelli rientrati restano: è la
-  // storia dell'episodio); la gravità sale, non scende.
+  // storia dell'episodio).
   const key = (r: EpisodeReason) => `${r.kind}:${r.checkId ?? ""}`;
   const merged = [...open.reasons];
   for (const r of reasons) if (!merged.some((m) => key(m) === key(r))) merged.push(r);
-  const nextSeverity = open.severity === "down" || severity === "down" ? "down" : "trouble";
+  const nextSeverity = severity;
   if (merged.length !== open.reasons.length || nextSeverity !== open.severity) {
     await db.update(serverEpisodes).set({ reasons: merged, severity: nextSeverity }).where(eq(serverEpisodes.id, open.id));
   }
