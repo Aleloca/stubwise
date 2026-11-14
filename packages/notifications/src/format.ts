@@ -306,6 +306,73 @@ export interface ReleaseFailedEvent {
   url: string;
 }
 
+/**
+ * Area 8, F2: i tipi del CATALOGO degli avvisi (iscrizioni per progetto).
+ * Eventi SENZA ticket; il link porta alla pagina dell'oggetto nell'app.
+ */
+interface ReleaseEventBase {
+  projectId: string;
+  releaseId: string;
+  /** `<PRJ>-V<n>`. */
+  releaseCode: string;
+  /** Il titolo della PR: lo scrive chi ha aperto la PR (anche fuori da Stubwise). */
+  title: string;
+  url: string;
+}
+/** Un rilascio è nato (il merge sul ramo di rilascio). */
+export interface ReleaseMergedEvent extends ReleaseEventBase {
+  kind: "release.merged";
+}
+/** Le run di CI di un rilascio sono tutte riuscite. */
+export interface ReleaseSucceededEvent extends ReleaseEventBase {
+  kind: "release.succeeded";
+}
+interface PrEventBase {
+  projectId: string;
+  repositoryName: string;
+  prNumber: number;
+  prUrl: string;
+  /** Il titolo della PR (scritto da chi l'ha aperta). */
+  title: string;
+  /**
+   * Il pannello della PR nell'app: `/app/#/p/<PRJ>/releases?pr=<repositoryId>%23<n>`
+   * (l'id della vista della PR è `repositoryId#numero`, univoco anche con più
+   * repository; `#` codificato perché sta dentro l'hash — richiesta di 94).
+   */
+  url: string;
+}
+/** Una PR è stata aperta su un repository collegato (≠ `job.pr_opened`, la PR di un fix di Stubwise). */
+export interface PrAlertOpenedEvent extends PrEventBase {
+  kind: "pr.opened";
+  /** La chiave della PR per l'«una volta per PR» (con `prNumber`): non dipende da `PUBLIC_URL` (review F2). */
+  repositoryId?: string;
+}
+/** L'analisi di una PR ha trovato problemi. */
+export interface PrAnalysisIssuesEvent extends PrEventBase {
+  kind: "pr.analysis_issues";
+}
+/** Claude ha spinto una correzione sul ramo di una PR di un collega. */
+export interface PrCorrectedEvent extends PrEventBase {
+  kind: "pr.corrected";
+}
+/** La nota di rilascio di un repository è stata scritta (giro notturno). */
+export interface DocsReleaseNoteEvent {
+  kind: "docs.release_note";
+  projectId: string;
+  repositoryName: string;
+  /** Il titolo della nota. */
+  title: string;
+  url: string;
+}
+/** Le sei, insieme: tutte hanno `projectId`, `title` e `url`. */
+export type CatalogAlertEvent =
+  | ReleaseMergedEvent
+  | ReleaseSucceededEvent
+  | PrAlertOpenedEvent
+  | PrAnalysisIssuesEvent
+  | PrCorrectedEvent
+  | DocsReleaseNoteEvent;
+
 /** Il server (o il suo check) è rientrato entro le soglie: alert risolto. */
 export interface MonitorRecoveredEvent {
   kind: "monitor.recovered";
@@ -907,6 +974,7 @@ export type NotificationEvent =
   | RequestCreatedEvent
   | MonitorAlertEvent
   | ReleaseFailedEvent
+  | CatalogAlertEvent
   | MonitorRecoveredEvent
   | JobAwaitingInputEvent
   | ProjectPulseEvent
@@ -935,6 +1003,7 @@ type NonTicketedEvent =
   | RequestCreatedEvent
   | MonitorAlertEvent
   | ReleaseFailedEvent
+  | CatalogAlertEvent
   | MonitorRecoveredEvent
   | ProjectPulseEvent
   | ProjectBriefEvent
@@ -966,6 +1035,12 @@ function hasTicket(event: NotificationEvent): event is TicketedEvent {
     event.kind !== "monitor.alert" &&
     event.kind !== "monitor.recovered" &&
     event.kind !== "release.failed" &&
+    event.kind !== "release.merged" &&
+    event.kind !== "release.succeeded" &&
+    event.kind !== "pr.opened" &&
+    event.kind !== "pr.analysis_issues" &&
+    event.kind !== "pr.corrected" &&
+    event.kind !== "docs.release_note" &&
     event.kind !== "project.pulse" &&
     event.kind !== "project.brief" &&
     event.kind !== "google.proposal" &&
@@ -1034,6 +1109,12 @@ const EMOJI: Record<NotificationKind, string> = {
   "request.created": "🙋",
   "monitor.alert": "🔴",
   "release.failed": "🚨",
+  "release.merged": "📦",
+  "release.succeeded": "✅",
+  "pr.opened": "🆕",
+  "pr.analysis_issues": "🔎",
+  "pr.corrected": "🛠️",
+  "docs.release_note": "📝",
   "monitor.recovered": "🟢",
   "job.awaiting_input": "❓",
   "project.pulse": "📣",
@@ -1156,7 +1237,13 @@ function linkParam(
       // Nessun ticket: il link porta alla pagina del server nella SPA.
       return renderLink(format, event.url, t(lang, "notify.linkServer"));
     case "release.failed":
-      // Nessun ticket: il link porta alla pagina del rilascio.
+    case "release.merged":
+    case "release.succeeded":
+    case "pr.opened":
+    case "pr.analysis_issues":
+    case "pr.corrected":
+    case "docs.release_note":
+      // Nessun ticket: il link porta alla pagina del rilascio, della PR o della nota.
       return renderLink(format, event.url, t(lang, "notify.linkOpen"));
     case "project.pulse":
       // Nessun ticket: il link porta al backlog del progetto, che è dove si
@@ -1210,6 +1297,12 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "request.created": "notify.requestCreated",
   "monitor.alert": "notify.monitorAlert",
   "release.failed": "notify.releaseFailed",
+  "release.merged": "notify.alert.releaseMerged",
+  "release.succeeded": "notify.alert.releaseSucceeded",
+  "pr.opened": "notify.alert.prOpened",
+  "pr.analysis_issues": "notify.alert.prAnalysisIssues",
+  "pr.corrected": "notify.alert.prCorrected",
+  "docs.release_note": "notify.alert.docsReleaseNote",
   "monitor.recovered": "notify.monitorRecovered",
   "job.awaiting_input": "notify.awaitingInput",
   "project.pulse": "notify.pulse",
@@ -1489,8 +1582,14 @@ function textParams(
     if (isAutomationEvent(event)) {
       return { automation: event.automationName, code: event.automationCode, message: event.message ?? "" };
     }
-    if (event.kind === "release.failed") {
+    if (event.kind === "release.failed" || event.kind === "release.merged" || event.kind === "release.succeeded") {
       return { code: event.releaseCode, title: event.title };
+    }
+    if (event.kind === "pr.opened" || event.kind === "pr.analysis_issues" || event.kind === "pr.corrected") {
+      return { repo: event.repositoryName, number: String(event.prNumber), title: event.title };
+    }
+    if (event.kind === "docs.release_note") {
+      return { repo: event.repositoryName, title: event.title };
     }
     if (event.kind === "ticket.activity") {
       return {
@@ -1832,6 +1931,18 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         releaseUrl: event.url,
       };
     }
+    // Area 8, F2: i tipi del catalogo non vanno mai sul webhook (M3); il ramo
+    // c'è per l'esaustività del payload.
+    if (
+      event.kind === "release.merged" ||
+      event.kind === "release.succeeded" ||
+      event.kind === "pr.opened" ||
+      event.kind === "pr.analysis_issues" ||
+      event.kind === "pr.corrected" ||
+      event.kind === "docs.release_note"
+    ) {
+      return { event: event.kind, projectId: event.projectId, title: event.title, message: formatNotificationText(event, lang), url: event.url };
+    }
     // monitor.alert | monitor.recovered: la `condition` resta l'enum grezzo
     // (machine-readable), il `detail` la descrizione, `serverUrl` la pagina
     // server (uniforme a ticketUrl/docsUrl degli altri eventi).
@@ -2046,6 +2157,12 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       failedRun: "build",
       url: `${base}/app/#/p/NEG/releases/NEG-V12`,
     },
+    { kind: "release.merged", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", releaseId: "5e3b1a2c-3333-4444-8555-666677778888", releaseCode: "NEG-V12", title: "Pagamenti: nuovo checkout", url: `${base}/app/#/p/NEG/releases/NEG-V12` },
+    { kind: "release.succeeded", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", releaseId: "5e3b1a2c-3333-4444-8555-666677778888", releaseCode: "NEG-V12", title: "Pagamenti: nuovo checkout", url: `${base}/app/#/p/NEG/releases/NEG-V12` },
+    { kind: "pr.opened", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", prNumber: 88, prUrl: "https://github.com/acme/negozio-web/pull/88", title: "Filtri per taglia", url: `${base}/app/#/p/NEG/releases?pr=7b2c9d1e-4444-4555-8666-777788889999%2388` },
+    { kind: "pr.analysis_issues", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", prNumber: 88, prUrl: "https://github.com/acme/negozio-web/pull/88", title: "Filtri per taglia", url: `${base}/app/#/p/NEG/releases?pr=7b2c9d1e-4444-4555-8666-777788889999%2388` },
+    { kind: "pr.corrected", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", prNumber: 88, prUrl: "https://github.com/acme/negozio-web/pull/88", title: "Filtri per taglia", url: `${base}/app/#/p/NEG/releases?pr=7b2c9d1e-4444-4555-8666-777788889999%2388` },
+    { kind: "docs.release_note", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", title: "Note del 13 novembre", url: `${base}/app/#/p/NEG/docs` },
     {
       kind: "job.awaiting_input",
       ticketNumber: 131,

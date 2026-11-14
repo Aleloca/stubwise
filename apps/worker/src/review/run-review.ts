@@ -13,7 +13,7 @@ import {
 } from "@stubwise/db";
 import { getProvider, type GitProvider } from "@stubwise/git";
 import { t, type Language } from "@stubwise/i18n";
-import type { DbOrTx } from "@stubwise/notifications";
+import { publishNotification, type DbOrTx } from "@stubwise/notifications";
 import { STUBWISE_BRANCH_RE, type GitProviderKind } from "@stubwise/shared";
 import { and, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -50,6 +50,7 @@ import {
   type ReviewCycleDeps,
 } from "./cycle.js";
 import { linkColleaguePr } from "./colleague-link.js";
+import { commitAuthorEmail, prAuthorMandatory } from "./pr-author.js";
 import { buildReviewPrompt, parseReviewOutput } from "./prompts.js";
 import { NATIVE_TOOLS, nativeToolsWith } from "../agent/native-tools.js";
 
@@ -793,6 +794,7 @@ export async function runPrReview(
     // Un account al limite passa al successivo sullo stesso worktree; ogni
     // tentativo registra i propri consumi (8) appena finito.
     let run: ProviderRun<AgentRunResult>;
+    let headAuthorEmail: string | null = null;
     try {
       const { diff, truncated } = await deps.mirrors.getPrDiff(
         ctx.mirrorProject,
@@ -817,8 +819,12 @@ export async function runPrReview(
         blastRadius,
       });
       const reviewSession = await sessionOpt("review");
-      run = await deps.mirrors.withWorktreeAtSha(ctx.mirrorProject, job.headSha, (dir) =>
-        runWithProviders(
+      run = await deps.mirrors.withWorktreeAtSha(ctx.mirrorProject, job.headSha, async (dir) => {
+        // Area 8, F2 (S4): l'autore dell'ultimo commit non di Stubwise (dopo
+        // una correzione la testa è di Stubwise), per l'obbligatorio
+        // `pr_author` di `pr.analysis_issues` (best-effort).
+        headAuthorEmail = await commitAuthorEmail(dir);
+        return runWithProviders(
           runSelect,
           { projectId: ctx.projectId, workClass: "interactive" },
           async (provider) => {
@@ -845,8 +851,8 @@ export async function runPrReview(
             return attempt;
           },
           limitTextOfRun,
-        ),
-      );
+        );
+      });
     } catch (err) {
       // Errori tipati dell'agente (AgentTimeoutError/AgentRunError) e del git
       // (sha irraggiungibile, mirror rotto): failed col messaggio.
@@ -998,6 +1004,34 @@ export async function runPrReview(
         })
         .where(eq(prReviews.id, reviewId));
     });
+
+    // 12a. Area 8, F2 (S4): `pr.analysis_issues` — una review che chiede
+    // modifiche è un fatto, uno per review. Obbligatorio l'autore collegato
+    // della PR (`pr_author`). Best-effort: la review è già completed.
+    if (parsed.verdict === "request_changes") {
+      try {
+        const [proj] = await deps.db.select({ code: projects.code }).from(projects).where(eq(projects.id, ctx.projectId));
+        const base = (deps.publicUrl ?? "").replace(/\/+$/, "");
+        await (deps.publish ?? publishNotification)(
+          deps.db,
+          {
+            kind: "pr.analysis_issues",
+            projectId: ctx.projectId,
+            repositoryName: ctx.repositoryName,
+            prNumber: job.prNumber,
+            prUrl: job.prUrl,
+            title: job.prTitle,
+            url: `${base}/app/#/p/${proj?.code ?? ""}/releases?pr=${job.repositoryId}%23${job.prNumber}`,
+          },
+          {
+            projectId: ctx.projectId,
+            mandatory: await prAuthorMandatory(deps.db, { projectId: ctx.projectId, ticketNumber: ticket.number, branch: job.sourceBranch, headAuthorEmail }),
+          },
+        );
+      } catch (err) {
+        console.error(`[stubwise-worker] pr-review: avviso pr.analysis_issues non pubblicato (${errText(err)})`);
+      }
+    }
 
     // 12b. Le PR dei colleghi senza adozione (area 8, F1, S8): la PR di un
     // collega diventa correggibile se il suo ramo lo permette (dal provider,

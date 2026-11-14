@@ -69,6 +69,14 @@ export const notificationKindSchema = z.enum([
   // Area 8, fetta 1 (0175): un rilascio fallito (le run di CI del commit di
   // merge), a chi ha `release.merge` nel progetto. Il link porta al rilascio.
   "release.failed",
+  // Area 8, fetta 2 (0177): i tipi del catalogo degli avvisi (iscrizioni per
+  // progetto). I destinatari li decide il catalogo, mai Slack (M3).
+  "release.merged",
+  "release.succeeded",
+  "pr.opened",
+  "pr.analysis_issues",
+  "pr.corrected",
+  "docs.release_note",
 ]);
 
 /**
@@ -744,6 +752,14 @@ export const inboxItemSchema = z.object({
    * resta com'era, senza link (`url` assente) e con «Task eliminata».
    */
   objectGone: z.boolean().default(false),
+  /**
+   * Area 8, F2: un avviso del catalogo arrivato a chi legge da OBBLIGATORIO,
+   * col motivo (`merged`, `pr_author`, `task_author`…): «ti arriva perché…» e
+   * niente «Non avvisarmi più» (il server lo rifiuta). Letto dalla SUA card:
+   * è un fatto scritto alla pubblicazione, per destinatario, non derivabile
+   * dopo. `null` per gli altri. Additivo.
+   */
+  alertMandatory: z.string().nullable().default(null),
   /**
    * Area 4, Chat (fetta 1): solo sulle card `chat.mention` e (fetta 2)
    * `chat.question`, il messaggio che

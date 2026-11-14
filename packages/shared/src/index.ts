@@ -48,6 +48,7 @@ export * from "./schemas/mail-proposals.js";
 export * from "./schemas/mail-compose.js";
 export * from "./schemas/environment.js";
 export * from "./schemas/release.js";
+export * from "./schemas/alert-subscriptions.js";
 export * from "./schemas/pr-correction.js";
 export * from "./stubwise-branch.js";
 export * from "./protected-branches.js";
@@ -79,3 +80,5 @@ export * from "./automations/index.js";
 // Area 8, F1: lo stato derivato di un rilascio e la bozza delle note di una PR.
 export * from "./releases/index.js";
 export * from "./chat-tool-routes.js";
+// Area 8, F2: il catalogo dei tipi di avviso (R-5).
+export * from "./alerts/index.js";

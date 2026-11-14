@@ -1,8 +1,8 @@
-import { gitAccounts, releaseCiRuns, releases, repositories, type Db } from "@stubwise/db";
+import { gitAccounts, releaseCiRuns, releases, repositories, ticketRepositories, tickets, type Db } from "@stubwise/db";
 import { getProvider, type CommitRuns, type ProjectGitConfig } from "@stubwise/git";
-import { decryptGitCredentials, productionForStatus, publishNotification, releaseProductionOf } from "@stubwise/notifications";
-import { releaseStatusOf, sameCommit, type ReleaseStatus } from "@stubwise/shared";
-import { and, eq, gte, isNull, lt, sql } from "drizzle-orm";
+import { decryptGitCredentials, productionForStatus, publishNotification, releaseProductionOf, type NotificationEvent } from "@stubwise/notifications";
+import { releaseStatusOf, sameCommit, type MandatoryReason, type ReleaseStatus } from "@stubwise/shared";
+import { and, eq, gte, isNull, lt, ne, sql } from "drizzle-orm";
 
 /**
  * LO STATO DI UN RILASCIO DOPO IL MERGE (area 8, F1, S4). Un giro rilegge i
@@ -141,46 +141,82 @@ async function pollOne(deps: ReleasePollerDeps, row: Row, now: Date): Promise<vo
     production: productionForStatus(production),
   });
 
-  // 4) L'avviso al primo fallimento, una volta sola.
+  // 4) Gli avvisi del catalogo (area 8, F2): `release.failed` al primo
+  //    fallimento, `release.succeeded` alla prima riuscita, una volta sola
+  //    ciascuno (il segno lo prende chi avvisa; se la pubblicazione non va a
+  //    buon fine si toglie e il rilascio non si sistema: il giro dopo riprova).
   if (status.kind === "failed" && !release.failedNotifiedAt) {
-    const [claimed] = await deps.db
-      .update(releases)
-      .set({ failedNotifiedAt: now })
-      .where(and(eq(releases.id, release.id), isNull(releases.failedNotifiedAt)))
-      .returning({ id: releases.id });
-    if (claimed) {
-      const failedRun = saved.find((r) => r.status === "failed")?.name ?? null;
-      const [proj] = await deps.db.execute<{ code: string }>(sql`select code from projects where id = ${release.projectId}`);
-      const base = (deps.publicUrl ?? "").replace(/\/+$/, "");
-      // Il segno `failed_notified_at` lo prende chi avvisa (niente doppioni fra
-      // due giri). `publishNotification` non lancia: su un errore risponde
-      // `published: 0`, come senza destinatari. Allora il segno si toglie e il
-      // rilascio NON si sistema: il giro dopo riprova (review F1). Senza
-      // destinatari si riprova fino alla fine della finestra; in pratica non
-      // succede, perché un full admin ha sempre `release.merge`.
-      const out = await publishNotification(
-        deps.db,
-        {
-          kind: "release.failed",
-          projectId: release.projectId,
-          releaseId: release.id,
-          releaseCode: release.code,
-          title: release.title,
-          failedRun,
-          url: base ? `${base}/app/#/p/${proj?.code ?? ""}/releases/${release.code}` : "",
-        },
-        { projectId: release.projectId },
-      );
-      if (out.published === 0) {
-        await deps.db.update(releases).set({ failedNotifiedAt: null }).where(eq(releases.id, release.id));
-        throw new Error("avviso release.failed non pubblicato: si riprova al giro dopo");
-      }
-    }
+    const failedRun = saved.find((r) => r.status === "failed")?.name ?? null;
+    await notifyOnce(deps, release, now, "failed", (url) => ({
+      kind: "release.failed",
+      projectId: release.projectId,
+      releaseId: release.id,
+      releaseCode: release.code,
+      title: release.title,
+      failedRun,
+      url,
+    }));
+  }
+  if (status.kind === "succeeded" && !release.succeededNotifiedAt) {
+    await notifyOnce(deps, release, now, "succeeded", (url) => ({
+      kind: "release.succeeded",
+      projectId: release.projectId,
+      releaseId: release.id,
+      releaseCode: release.code,
+      title: release.title,
+      url,
+    }));
   }
 
   // 5) Sistemato quando lo stato è concluso.
   if (status.kind === "succeeded" || status.kind === "failed" || status.kind === "in_production") {
     await deps.db.update(releases).set({ runsSettledAt: now }).where(eq(releases.id, release.id));
+  }
+}
+
+/**
+ * I destinatari OBBLIGATORI di un rilascio: chi l'ha mergiato (`merged`, una
+ * persona di Stubwise), o — se il merge l'ha fatto un'identità non collegata —
+ * l'autore della task della PR (`task_author`). Il catalogo tiene solo i motivi
+ * che il tipo prevede (`release.succeeded` non ne ha).
+ */
+async function releaseMandatory(db: ReleasePollerDeps["db"], release: typeof releases.$inferSelect): Promise<{ userId: string; reason: MandatoryReason }[]> {
+  if (release.mergedBy) return [{ userId: release.mergedBy, reason: "merged" }];
+  if (release.prNumber === null) return [];
+  const [author] = await db
+    .select({ userId: tickets.requestedByUserId })
+    .from(ticketRepositories)
+    .innerJoin(tickets, eq(tickets.id, ticketRepositories.ticketId))
+    .where(and(eq(ticketRepositories.repositoryId, release.repositoryId), eq(ticketRepositories.prNumber, release.prNumber), ne(tickets.type, "review")))
+    .limit(1);
+  return author?.userId ? [{ userId: author.userId, reason: "task_author" }] : [];
+}
+
+/** Un avviso del rilascio, una volta sola (`failed_notified_at` / `succeeded_notified_at`). */
+async function notifyOnce(
+  deps: ReleasePollerDeps,
+  release: typeof releases.$inferSelect,
+  now: Date,
+  which: "failed" | "succeeded",
+  eventOf: (url: string) => NotificationEvent,
+): Promise<void> {
+  const column = which === "failed" ? releases.failedNotifiedAt : releases.succeededNotifiedAt;
+  const mark = which === "failed" ? { failedNotifiedAt: now } : { succeededNotifiedAt: now };
+  const unmark = which === "failed" ? { failedNotifiedAt: null } : { succeededNotifiedAt: null };
+  const [claimed] = await deps.db.update(releases).set(mark).where(and(eq(releases.id, release.id), isNull(column))).returning({ id: releases.id });
+  if (!claimed) return;
+  const [proj] = await deps.db.execute<{ code: string }>(sql`select code from projects where id = ${release.projectId}`);
+  const base = (deps.publicUrl ?? "").replace(/\/+$/, "");
+  // Senza radice pubblica il link resta RELATIVO (`/app/#/…`): l'app lo apre lo stesso (94).
+  const url = `${base}/app/#/p/${proj?.code ?? ""}/releases/${release.code}`;
+  const out = await publishNotification(deps.db, eventOf(url), { projectId: release.projectId, mandatory: await releaseMandatory(deps.db, release) });
+  // `publishNotification` non lancia: su un errore risponde `failed`. Si
+  // riprova SOLO allora: «nessun destinatario» (tutti l'hanno spento, o un tipo
+  // spento di partenza) è un esito, e il segno resta — altrimenti il rilascio
+  // non si sistemerebbe mai (review F2, 46).
+  if (out.failed === true) {
+    await deps.db.update(releases).set(unmark).where(eq(releases.id, release.id));
+    throw new Error(`avviso release.${which} non pubblicato: si riprova al giro dopo`);
   }
 }
 

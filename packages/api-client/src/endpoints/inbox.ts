@@ -1,10 +1,12 @@
 import {
+  alertMuteResultSchema,
   inboxActionResultSchema,
   inboxPageSchema,
   snoozeResultSchema,
   unreadCountSchema,
 } from "@stubwise/shared";
 import type {
+  AlertMuteResult,
   Reader,
   InboxActionResult,
   InboxAnswerBodyFields,
@@ -73,6 +75,16 @@ export function createInboxEndpoints(request: ApiRequest) {
   }
 
   return {
+    /**
+     * Area 8, F2 (S6): «Non avvisarmi più di questo» — spegne il tipo della
+     * card (e la sua riga) nel suo progetto. Risponde con la riga di prima
+     * (l'«Annulla»: `client.alerts.set` con quei valori) e quella nuova.
+     * 403 `alert_mandatory` (card arrivata da obbligatorio), 422
+     * `not_a_catalog_alert`, 404 una card non tua.
+     */
+    muteType(id: string): Promise<Reader<AlertMuteResult>> {
+      return request("POST", `/api/inbox/${seg(id)}/mute-type`, undefined, alertMuteResultSchema);
+    },
     list(filters: InboxFilters = {}, cursor?: string, limit?: number): Promise<Reader<InboxPage>> {
       const query = toQuery({
         status: filters.status,

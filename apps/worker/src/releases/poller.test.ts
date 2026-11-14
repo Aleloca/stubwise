@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  alertSubscriptions,
   encrypt,
   environmentServers,
   gitAccounts,
@@ -12,6 +13,8 @@ import {
   roles,
   serverMetrics,
   servers,
+  ticketRepositories,
+  tickets,
   users,
 } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
@@ -143,6 +146,22 @@ describe("pollReleasesOnce", () => {
     expect(await cardsOf(s.leadId)).toHaveLength(1);
   });
 
+  it("review F2 (46), 2: nessun destinatario (tutti hanno spento release.failed) non è un errore: il segno resta e il rilascio si sistema", async () => {
+    const s = await setup();
+    await t.db.insert(alertSubscriptions).values({ userId: s.leadId, projectId: s.projectId, alertType: "release.failed", app: false, phone: false });
+    // Anche i full admin dell'istanza (ricevono di partenza): spenti anche loro.
+    const admins = await t.db.execute<{ id: string }>(sql`select u.id from users u join roles r on r.id = u.instance_role_id where r.permissions @> array['instance.full_admin']::text[]`);
+    for (const a of admins) {
+      await t.db.insert(alertSubscriptions).values({ userId: a.id, projectId: s.projectId, alertType: "release.failed", app: false, phone: false }).onConflictDoNothing();
+    }
+    const failed: CommitRuns = { status: "ok", runs: [{ id: "9", name: "test", status: "failed", url: "h", failedStep: "x", startedAt: new Date().toISOString(), endedAt: new Date().toISOString() }] };
+    await poll(fake(failed));
+    const after = await reload(s.release.id);
+    expect(after.failedNotifiedAt).not.toBeNull();
+    expect(after.runsSettledAt).not.toBeNull();
+    expect(await cardsOf(s.leadId)).toEqual([]);
+  });
+
   it("review F1: una repository senza la sua riga in environment_servers usa il server dell'ambiente (`server_id`)", async () => {
     const s = await setup({ ciProvider: null });
     const [srv] = await t.db.insert(servers).values({ name: `s-${randomUUID().slice(0, 6)}`, keyHash: randomUUID() }).returning();
@@ -150,6 +169,48 @@ describe("pollReleasesOnce", () => {
     await t.db.insert(serverMetrics).values({ serverId: srv!.id, ts: new Date(), cpuPct: 1, load1m: 0, memUsedBytes: 1, memTotalBytes: 2, swapUsedBytes: 0, diskUsedBytes: 0, diskTotalBytes: 1, netRxBytes: 0, netTxBytes: 0, disks: [], services: [{ name: "web", kind: "docker", status: "running", commitSha: "c".repeat(12) }] } as never);
     await poll({});
     expect((await reload(s.release.id)).seenInProductionAt).not.toBeNull();
+  });
+
+  describe("area 8, F2, S4: gli avvisi del rilascio dal catalogo", () => {
+    const memberAs = async (projectId: string, preset: string) => {
+      const [u] = await t.db.insert(users).values({ email: `m-${randomUUID()}@x.it`, passwordHash: "x", role: "member" }).returning();
+      const [role] = await t.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, preset));
+      await t.db.insert(projectMembers).values({ projectId, userId: u!.id, roleId: role!.id });
+      return u!.id;
+    };
+    const failedRun: CommitRuns = { status: "ok", runs: [{ id: "9", name: "test", status: "failed", url: "h", failedStep: "x", startedAt: new Date().toISOString(), endedAt: new Date().toISOString() }] };
+    const cardsFor = async (userId: string, kind: string) => (await t.db.select().from(notifications).where(eq(notifications.userId, userId))).filter((n) => n.kind === kind);
+
+    it("release.failed: chi ha fatto il merge (senza release.merge) la riceve da obbligatorio", async () => {
+      const s = await setup();
+      const merger = await memberAs(s.projectId, "viewer");
+      await t.db.update(releases).set({ mergedBy: merger }).where(eq(releases.id, s.release.id));
+      await poll(fake(failedRun));
+      const cards = await cardsFor(merger, "release.failed");
+      expect(cards).toHaveLength(1);
+      expect(cards[0]!.event).toMatchObject({ alertMandatory: "merged" });
+    });
+
+    it("release.failed: merge di un'identità non collegata → l'autore della task della PR", async () => {
+      const s = await setup();
+      const author = await memberAs(s.projectId, "viewer");
+      const [tk] = await t.db.insert(tickets).values({ projectId: s.projectId, number: 900 + Math.floor(Math.random() * 1000), title: "Checkout", type: "feature", priority: "medium", source: "manual", requestedByUserId: author }).returning();
+      await t.db.insert(ticketRepositories).values({ ticketId: tk!.id, repositoryId: s.repositoryId, branch: "stubwise/ticket-1", prUrl: "u", prNumber: 3, prState: "merged" });
+      await poll(fake(failedRun));
+      expect((await cardsFor(author, "release.failed"))[0]?.event).toMatchObject({ alertMandatory: "task_author" });
+    });
+
+    it("release.succeeded: a chi si è iscritto, UNA volta sola", async () => {
+      const s = await setup();
+      const sub = await memberAs(s.projectId, "viewer");
+      await t.db.insert(alertSubscriptions).values({ userId: sub, projectId: s.projectId, alertType: "release.succeeded", app: true, phone: false });
+      const ok: CommitRuns = { status: "ok", runs: [{ id: "1", name: "build", status: "success", url: "h", failedStep: null, startedAt: new Date().toISOString(), endedAt: new Date().toISOString() }] };
+      await poll(fake(ok));
+      await t.db.update(releases).set({ runsSettledAt: null }).where(eq(releases.id, s.release.id));
+      await poll(fake(ok));
+      expect(await cardsFor(sub, "release.succeeded")).toHaveLength(1);
+      expect(await cardsFor(s.leadId, "release.succeeded")).toEqual([]);
+    });
   });
 
   it("fuori dalla finestra si sistema così com'è", async () => {

@@ -24,6 +24,13 @@ import { deleteTask } from "../services/task-delete.js";
 import { createTaskFilter, deleteTaskFilter } from "../services/task-filters.js";
 import { deleteStoredObjects, saveMailBody } from "./effects.js";
 import { mailBodyTarget } from "../services/mail-body-target.js";
+import {
+  AlertSubscriptionError,
+  alertSubscriptionStamp,
+  readAlertSubscription,
+  resetAlertSubscription,
+  setAlertSubscription,
+} from "../services/alert-subscriptions.js";
 import { loadTaskViews } from "../services/task-view.js";
 import { createTask, planTask, updateTask } from "../services/task-writes.js";
 
@@ -47,10 +54,13 @@ import { createTask, planTask, updateTask } from "../services/task-writes.js";
  * scritto dopo. Le task usano la loro storia (`ticket_events`, commenti).
  */
 export type ActionObject = {
-  kind: "task" | "request" | "milestone" | "filter" | "comment";
+  kind: "task" | "request" | "milestone" | "filter" | "comment" | "subscription";
   id: string;
   code?: string;
   stamp?: string;
+  /** Una iscrizione (S7): la riga `type` di chi chiede in `projectId`; `id` = `<projectId>:<type>`. */
+  projectId?: string;
+  type?: string;
 };
 
 export interface CatalogRunResult {
@@ -435,6 +445,61 @@ const ENTRIES: CatalogEntry[] = [
       const [current] = await tx.execute<{ id: string | null }>(sql`select nullif(current_setting(${VIA_CLAUDE_SETTING}, true), '') as id`);
       saveMailBody(user.id, input, current?.id ?? null);
       return { ok: true, result: { inverse: null, objects: [], codes: [] } };
+    },
+  },
+  {
+    // Area 8, F2, S7: l'iscrizione di CHI CHIEDE a un tipo d'avviso, col
+    // servizio delle Preferenze (obbligatori e sospesi rifiutati, i partner
+    // della riga scritti insieme). «Annulla» riscrive i valori di prima.
+    fn: "setSubscription",
+    route: "PUT /api/me/alert-subscriptions/:projectId/:type",
+    access: { kind: "user" },
+    request: (args) => ({ params: { projectId: args["projectId"], type: args["type"] } }),
+    async run(tx, user, args) {
+      const input = args as { projectId: string; type: string; app?: boolean; phone?: boolean };
+      try {
+        const before = await readAlertSubscription(tx, user, input.projectId, input.type);
+        await setAlertSubscription(tx, user, {
+          projectId: input.projectId,
+          type: input.type,
+          patch: { ...(input.app !== undefined ? { app: input.app } : {}), ...(input.phone !== undefined ? { phone: input.phone } : {}) },
+        });
+        const stamp = await alertSubscriptionStamp(tx, user.id, input.projectId, input.type);
+        return {
+          ok: true,
+          result: {
+            // Senza una scelta salvata prima, «Annulla» torna al DEFAULT (che
+            // segue permessi e `push`), non a un valore fissato (review F2, 46).
+            inverse: before.saved
+              ? { fn: "setSubscription", args: { projectId: input.projectId, type: input.type, app: before.app, phone: before.phone } }
+              : { fn: "resetSubscription", args: { projectId: input.projectId, type: input.type } },
+            objects: [
+              { kind: "subscription", id: `${input.projectId}:${input.type}`, projectId: input.projectId, type: input.type, ...(stamp ? { stamp } : {}) },
+            ],
+            codes: [],
+          },
+        };
+      } catch (error) {
+        if (!(error instanceof AlertSubscriptionError)) throw error;
+        return refused(error.status === 403 ? "forbidden" : "not_found", error.code);
+      }
+    },
+  },
+  {
+    // Solo INVERSO di `setSubscription` (Claude non lo propone): la riga torna al default.
+    fn: "resetSubscription",
+    route: "DELETE /api/me/alert-subscriptions/:projectId/:type",
+    access: { kind: "user" },
+    request: (args) => ({ params: { projectId: args["projectId"], type: args["type"] } }),
+    async run(tx, user, args) {
+      const input = args as { projectId: string; type: string };
+      try {
+        await resetAlertSubscription(tx, user, input);
+        return { ok: true, result: { inverse: null, objects: [], codes: [] } };
+      } catch (error) {
+        if (!(error instanceof AlertSubscriptionError)) throw error;
+        return refused(error.status === 403 ? "forbidden" : "not_found", error.code);
+      }
     },
   },
   {

@@ -169,7 +169,7 @@ async function releaseAt(
 export async function releasePullRequest(
   db: Db,
   encryptionKey: Buffer,
-  input: { ticketId: string; repositoryId: string; actor: ProjectActor },
+  input: { ticketId: string; repositoryId: string; actor: ProjectActor; publicUrl?: string | null },
 ): Promise<ReleasePullRequestResult> {
   const { ticketId, repositoryId, actor } = input;
   if (!actor.permissions.has("release.merge")) return { ok: false, error: "forbidden" };
@@ -214,7 +214,7 @@ export async function releasePullRequest(
         target = rev?.targetBranch ?? null;
         title = rev?.prTitle ?? title;
       }
-      const releaseCode = target === null ? null : await recordAfterMerge(db, { repositoryId, targetBranch: target, prNumber, prUrl: tr.prUrl, title, mergeSha: result.sha, actorId: actor.id });
+      const releaseCode = target === null ? null : await recordAfterMerge(db, { repositoryId, targetBranch: target, prNumber, prUrl: tr.prUrl, title, mergeSha: result.sha, actorId: actor.id, publicUrl: input.publicUrl ?? null });
       return { ...result, releaseCode };
     }
     return result;
@@ -264,6 +264,7 @@ export async function releasePullRequest(
       title: review.prTitle,
       mergeSha: result.sha,
       actorId: actor.id,
+      publicUrl: input.publicUrl ?? null,
     });
     return { ...result, releaseCode };
   }
@@ -278,7 +279,7 @@ export async function releasePullRequest(
  */
 async function recordAfterMerge(
   db: Db,
-  input: { repositoryId: string; targetBranch: string; prNumber: number; prUrl: string; title: string; mergeSha: string; actorId: string },
+  input: { repositoryId: string; targetBranch: string; prNumber: number; prUrl: string; title: string; mergeSha: string; actorId: string; publicUrl: string | null },
 ): Promise<string | null> {
   try {
     const out = await recordRelease(db, {
@@ -292,6 +293,7 @@ async function recordAfterMerge(
       mergedBy: input.actorId,
       mergedGitName: null,
       viaStubwise: true,
+      publicUrl: input.publicUrl,
     });
     return out.recorded ? out.code : null;
   } catch {

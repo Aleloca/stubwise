@@ -29,6 +29,7 @@ import {
 import { STUBWISE_BRANCH_RE, prNumberFromUrl } from "@stubwise/shared";
 import { getContentLanguage } from "../settings.js";
 import { recordRelease } from "../services/releases.js";
+import { publishPrOpened } from "../services/pr-alerts.js";
 import { apiError } from "../errors.js";
 import {
   createDeliveryDedupe,
@@ -328,6 +329,18 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
         if (prEvent.reopened === true) {
           await reopenPrRows(instance.db, { repositoryId: context.repositoryId, prNumber: prEvent.prNumber });
         }
+        // Area 8, F2 (S4): `pr.opened`, un fatto a sé (non dipende dalla PR
+        // Review): una volta per PR, best-effort.
+        if (prEvent.kind === "opened") {
+          await publishPrOpened(instance.db, instance.publicUrl, {
+            repositoryId: context.repositoryId,
+            prNumber: prEvent.prNumber,
+            prUrl: prEvent.prUrl,
+            title: prEvent.title,
+            sourceBranch: prEvent.sourceBranch,
+            ...(prEvent.reopened === true ? { reopened: true } : {}),
+          }).catch((err: unknown) => request.log.warn({ err, prNumber: prEvent.prNumber }, "avviso pr.opened non pubblicato"));
+        }
 
         const [settings] = await instance.db
           .select({ enabled: instanceSettings.prReviewEnabled })
@@ -408,6 +421,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
           mergedBy: null,
           mergedGitName: event.mergedByLogin ?? null,
           viaStubwise: false,
+          publicUrl: instance.publicUrl ?? null,
         }).catch((err: unknown) => request.log.warn({ err, prNumber: event.prNumber }, "registrazione del rilascio fallita"));
       }
 

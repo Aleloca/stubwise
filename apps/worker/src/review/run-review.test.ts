@@ -316,9 +316,15 @@ describe("runPrReview", () => {
     expect(runs[0]!.jobId).toBeNull();
     expect(Number(runs[0]!.costUsd)).toBeCloseTo(0.5);
 
-    // Notifica review.completed pubblicata.
-    expect(fakes.dispatched).toHaveLength(1);
-    const event = fakes.dispatched[0]!.event;
+    // Notifica review.completed pubblicata; e (area 8, F2) `pr.analysis_issues`,
+    // perché la review chiede modifiche: col link al pannello della PR.
+    expect(fakes.dispatched.map((d) => d.event.kind).sort()).toEqual(["pr.analysis_issues", "review.completed"]);
+    expect(fakes.dispatched.find((d) => d.event.kind === "pr.analysis_issues")!.event).toMatchObject({
+      prNumber: 7,
+      title: "Fix login flow",
+      url: expect.stringMatching(new RegExp(`/app/#/p/[A-Z0-9]+/releases\\?pr=${repositoryId}%237$`)),
+    });
+    const event = fakes.dispatched.find((d) => d.event.kind === "review.completed")!.event;
     expect(event.kind).toBe("review.completed");
     if (event.kind === "review.completed") {
       expect(event.verdict).toBe("request_changes");
@@ -327,7 +333,7 @@ describe("runPrReview", () => {
     }
     // Riferimenti: progetto e ticket della review. NIENTE jobId — il "job"
     // della review non è un ai_job (FK di notifications.job_id).
-    expect(fakes.dispatched[0]!.opts).toEqual({ projectId, ticketId: ticket.id });
+    expect(fakes.dispatched.find((d) => d.event.kind === "review.completed")!.opts).toEqual({ projectId, ticketId: ticket.id });
   });
 
   describe("area 8, F1, S8: la PR di un collega senza adozione", () => {
@@ -362,7 +368,7 @@ describe("runPrReview", () => {
       await runClaimed(withInfo(fakes), makeJob(repositoryId));
       expect(await linkOf(repositoryId)).toHaveLength(1);
       expect(await testDb.db.select().from(prCorrections).where(eq(prCorrections.repositoryId, repositoryId))).toEqual([]);
-      expect(fakes.dispatched.map((d) => d.event.kind)).toEqual(["review.completed"]);
+      expect(fakes.dispatched.map((d) => d.event.kind).filter((k) => k === "review.completed")).toEqual(["review.completed"]);
     });
 
     it("il provider non dice dove sta il branch: nessuna riga, nessuna correzione (fail-closed)", async () => {
@@ -632,7 +638,7 @@ describe("runPrReview", () => {
 
     // E viaggia anche nell'EVENTO: la consegna webhook/Slack parte dal payload
     // pubblicato, non da una rilettura del DB.
-    const event = fakes.dispatched[0]!.event;
+    const event = fakes.dispatched.find((d) => d.event.kind === "review.completed")!.event;
     expect(event).toMatchObject({
       kind: "review.completed",
       summary: "La PR sistema il login. La review chiede una correzione.",

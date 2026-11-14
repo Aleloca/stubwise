@@ -112,3 +112,30 @@ describe("endpoints inbox", () => {
     ).toBeUndefined();
   });
 });
+
+describe("area 8, F2: `alertMandatory` sulla card", () => {
+  it("una risposta di un server che non lo manda si legge con `null` (additivo)", async () => {
+    const item = { id: ID, kind: "release.failed", status: "open", text: "x", actions: [], projectId: null, ticketId: null, jobId: null, handledAt: null, handledBy: null, createdAt: "2026-11-14T10:00:00.000Z", readAt: null, snoozedUntil: null };
+    const { client } = clientReturning({ items: [item], nextCursor: null, unreadCount: 0 });
+    const page = await client.inbox.list();
+    expect(page.items[0]!.alertMandatory).toBeNull();
+  });
+});
+
+describe("area 8, F2, S6: `inbox.muteType`", () => {
+  it("POST su /api/inbox/:id/mute-type, e la risposta con la riga di prima e quella nuova", async () => {
+    const row = { type: "server.trouble", group: "monitor", labelKey: "k", app: false, phone: false, state: "off" };
+    const { client, fetchImpl } = clientReturning({ before: { ...row, app: true, state: "on" }, row });
+    const out = await client.inbox.muteType(ID);
+    expect(lastCall(fetchImpl)).toEqual([`/api/inbox/${ID}/mute-type`, "POST"]);
+    expect(out.before).toMatchObject({ app: true, state: "on", mandatory: [] });
+    expect(out.row).toMatchObject({ app: false, state: "off", suspendedReason: null });
+  });
+
+  it("il progetto della card per l'«Annulla»; un server che non lo manda si legge senza", async () => {
+    const row = { type: "release.merged", group: "releases", labelKey: "k", app: false, phone: false, state: "off" };
+    const P = "22222222-2222-4222-8222-222222222222";
+    expect((await clientReturning({ before: row, row, projectId: P }).client.inbox.muteType(ID)).projectId).toBe(P);
+    expect((await clientReturning({ before: row, row }).client.inbox.muteType(ID)).projectId).toBeUndefined();
+  });
+});

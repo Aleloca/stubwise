@@ -734,12 +734,58 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     una chiamata al provider per PR. Non c'è un ripiego economico (la
     prontezza vuole i controlli letti dal provider); da rivedere se pesa.
 
+- F2 (avvisi e iscrizioni), due decisioni *(ruling di 72 approvati da 46, O,
+  14 nov 2026)*:
+  - Le iscrizioni sono lo stato di ADESSO (`alert_subscriptions`, upsert;
+    nessuna riga = il default del catalogo). La tabella della storia
+    `alert_subscription_changes` della bozza **non si fa**: sul server la card
+    nasce alla pubblicazione, nessuna lettura chiede il passato. Se un domani
+    servisse un registro delle modifiche, si aggiunge accanto.
+  - Un `monitor.*` di un server senza un solo progetto (nessun `projectId`)
+    resta sul routing di oggi (`monitor.manage`): le iscrizioni sono per
+    progetto. Test nella F2.
+
+- F2, S4, limite accettato *(O, 46, 14 nov 2026)*: l'obbligatorio
+  `pr_author` di `pr.analysis_issues` e `pr.corrected` si risolve per una PR
+  di Stubwise dall'autore della task, per la PR di un collega dall'email git
+  del commit collegata a un membro (`git_identities`). Nessun login della
+  piattaforma è legato a un utente: un collega la cui email git non è in
+  `git_identities` non riceve nulla da obbligatorio, solo per iscrizione
+  (`pr.corrected`, solo obbligatorio, non gli arriva affatto).
+
+- F2, review del server *(O, 46, 14 nov 2026)*, limiti che restano:
+  - **Il Telefono di una riga MISTA** (iscrizione più motivi obbligatori,
+    es. `release.failed` per chi ha fatto il merge): la pubblicazione manda
+    il push a un obbligatorio secondo la sua iscrizione o, senza riga,
+    `defaultPhone` e `push` — anche con l'App spenta. Le Preferenze mostrano
+    l'iscrizione; la riga lo dice con una nota sui motivi obbligatori (lato
+    renderer, 94). Le righe SOLO obbligatorie mostrano già il Telefono vero.
+  - **«Annulla» della card e delle Preferenze non è condizionato** a
+    `updated_at`, a differenza di quello di Claude: lo fa il client entro i
+    pochi secondi del toast, e le righe le scrive solo chi annulla — un
+    cambio «dopo» sarebbe suo, da un altro dispositivo, in quella finestra.
+    L'«Annulla» di Claude resta disponibile per sempre: lì serve.
+  - **Costo delle letture**: `listAlertSubscriptions` fa tre query per
+    progetto (permessi, `push`, righe salvate); l'inbox aggiunge un EXISTS
+    per ogni tipo vivo con un permesso d'iscrizione. Da raccogliere in una
+    lettura per pagina se pesa.
+
+- F2, S7, l'azione di Claude `setSubscription` *(O, 46, 14 nov 2026)*:
+  - Golden: perimetro RIDOTTO autorizzato dal maintainer (perimetro (a)):
+    `chat-subscription`, `chat-propose-not-execute` e `chat-never-catalog`,
+    3 volte ciascuno, CLI 2.1.322. **La serie intera della chat si rilancia
+    al prossimo aggiornamento del CLI** (insieme alle altre voci rimandate a
+    quel giro).
+  - «Annulla» di una riga senza scelta salvata la riporta al DEFAULT
+    (`resetSubscription`, review F2): nessuna riga fissata, il Telefono segue
+    di nuovo `push`.
+
 - Blocchi della Home «Rilasci» (anche l'extra di `resolveHome` per
   `release.merge`) e «Clienti in attesa».
 - Origine di una richiesta da Support; «View conversation» delle task del widget.
 - Adozione delle PR e rilascio (merge) — confine di prodotto invariato.
-- Azioni di Claude: iscrizioni agli avvisi, bozze di risposta di supporto e
-  delle note di rilascio della PR.
+- Azioni di Claude: bozze di risposta di supporto e delle note di rilascio
+  della PR (le iscrizioni agli avvisi sono arrivate con la F2, S7).
 - L'evento `release_page` della Chat (area 4, fetta 4, [DECIDE] 1 = a): il
   «general» lo ha acceso (D8), ma non ha una fonte finché l'area 8 non
   definisce la pagina di Release. Nasce qui, con la sua scheda.

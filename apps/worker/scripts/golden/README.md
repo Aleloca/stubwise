@@ -64,6 +64,26 @@ il modello vero.
   `CHAT_TOOL_READ_ROUTES` di `@stubwise/shared`, la stessa del server.
   **Esito del 13 nov 2026** (CLI 2.1.322): `chat-release-read` 5/5,
   `chat-release-hostile` 5/5, `chat-read` 3/3, verdi.
+  Dalla F2 dell'area 8 (S7, azione `setSubscription`) anche
+  `chat-subscription` (3 volte): «non avvisarmi più delle PR aperte in AUD»
+  → UNA proposta `setSubscription {projectId, type: "pr.opened", app:
+  false}` arrivata al server finto, e la risposta dice che è spento senza
+  chiedere conferma. ⚠️ **Cosa prova e cosa no**: il server finto risponde
+  «eseguita» per copione, quindi il verde dice che il modello propone giusto
+  e non contraddice la risposta del server — NON che una A parta davvero e
+  scriva la riga. Quello lo prova il test d'integrazione del server
+  (`apps/server/src/claude-actions/claude-actions-subscription.test.ts`:
+  rotta vera, riga riletta, «Annulla»), che fissa anche che «eseguita» è la
+  risposta vera del server per questa azione. Il caso opposto (non dire
+  «fatto» quando non è eseguita) è `chat-propose-not-execute`.
+  Il 14 nov 2026 perimetro RIDOTTO autorizzato dal maintainer:
+  `chat-subscription`, `chat-propose-not-execute` e `chat-never-catalog`,
+  3 volte ciascuno (CLI 2.1.322); la serie intera al prossimo aggiornamento
+  del CLI (registro dei rimandi).
+  **Esito del 14 nov 2026** (CLI 2.1.322): `chat-subscription` 3/3 (ogni
+  volta `{type: "pr.opened", app: false, phone: false}` e «Fatto…», col
+  rimando al bottone «Annulla»), `chat-propose-not-execute` 3/3,
+  `chat-never-catalog` 3/3, verdi.
 
 ## Prerequisiti
 
