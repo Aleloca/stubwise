@@ -82,6 +82,13 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "releases-repo-settings",
     // «Spiega» un rilascio: Claude lo legge col tool `read_release` (verde col golden di 72).
     "releases-explain",
+    // Area 8, fetta 2 (R6): Preferenze → Notifiche sulle iscrizioni vere
+    // (righe e stati dal server), la campanella del progetto e il menu
+    // degli avvisi nel pannello. «Don't alert me» dalla card è `alerts-mute`.
+    "alerts",
+    // «Don't alert me about this» dalla card (S6, `POST /api/inbox/:id/mute-type`),
+    // con l'«Annulla» nel progetto della card; non su una card arrivata da obbligatorio.
+    "alerts-mute",
     "notifications",
     "search",
     "task-detail",
@@ -285,6 +292,11 @@ export function integrationTargetOf(
   if (first === "projects") {
     // «Tutti i progetti» (il portafoglio) è della fetta 4; la colonna resta.
     return { target: { kind: "feature", name: "portfolio" }, titleKey: "nav.projects" };
+  }
+  // Preferenze → Notifiche (area 8, F2): la funzione `alerts`; le altre
+  // sezioni delle Preferenze restano della loro area.
+  if (first === "preferences" && (!second || second === "notifications")) {
+    return { target: { kind: "feature", name: "alerts" }, titleKey: "prefs.sections.notifications" };
   }
   if (first === "home" && search.view === "week") {
     return { target: { kind: "feature", name: "my-week" }, titleKey: "column.subviews.home.week" };

@@ -4820,7 +4820,13 @@
         "fillMailBody": "Scrivere il corpo dell'email nella tua bozza di Gmail",
         "pageAction": "Cambia questa pagina ({{kind}})",
         "deleteTask": "Elimina {{code}}",
-        "deleteTaskNoCode": "Elimina una task"
+        "deleteTaskNoCode": "Elimina una task",
+        "setSubscription": "Cambia i tuoi avvisi «{{type}}» in {{code}}: {{channels}}",
+        "setSubscriptionNoCode": "Cambia i tuoi avvisi «{{type}}» in un progetto: {{channels}}",
+        "setSubscriptionBare": "Cambia i tuoi avvisi «{{type}}» in {{code}}",
+        "setSubscriptionBareNoCode": "Cambia i tuoi avvisi «{{type}}» in un progetto",
+        "resetSubscription": "Riporta al default i tuoi avvisi «{{type}}» in {{code}}",
+        "resetSubscriptionNoCode": "Riporta al default i tuoi avvisi «{{type}}» in un progetto"
       },
       "summaryHidden": {
         "createTask": "Crea una task",
@@ -4845,6 +4851,16 @@
         "type": "tipo",
         "priority": "priorità",
         "projectId": "progetto"
+      },
+      "channel": {
+        "app": {
+          "on": "App accesa",
+          "off": "App spenta"
+        },
+        "phone": {
+          "on": "Telefono acceso",
+          "off": "Telefono spento"
+        }
       }
     }
   },
@@ -8602,6 +8618,7 @@
     "app": "App",
     "phone": "Telefono",
     "prototypePhone": "Prototipo: gli avvisi sul telefono si salvano, ma non parte nulla.",
+    "appPhone": "Arriva come notifica push nell'app Stubwise sul telefono.",
     "pinned": "Fissati",
     "others": "Altri progetti",
     "projects": "Progetti",
@@ -8685,6 +8702,10 @@
       "follows_conversation": "Sempre se segui la conversazione",
       "task_author": "Sempre per l'autore della task, se il merge è arrivato da fuori Stubwise",
       "assignee": "Sempre per chi ha la task assegnata"
+    },
+    "mandatoryStill": {
+      "app": "Quando ti riguarda ti arriva lo stesso nell'app",
+      "appPhone": "Quando ti riguarda ti arriva lo stesso nell'app e sul telefono"
     },
     "always": "Sempre per te",
     "alwaysPhone": "App e telefono",

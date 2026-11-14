@@ -754,6 +754,9 @@ const CONVERSATION_CHANGE_AREAS = [
   // Lo stato di una PR di Stubwise (coda, pannello, blocco Home) viene dalle
   // sessioni della sua task.
   "releases",
+  // Claude cambia le tue iscrizioni (`setSubscription`, area 8 F2): Preferenze
+  // le rilegge, dopo l'azione e dopo il suo «Annulla».
+  "alerts",
 ] as const;
 
 /** Quanto si aspetta per raccogliere più cambi in una sola rilettura (ms). */

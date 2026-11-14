@@ -524,3 +524,24 @@ describe("le azioni di Claude nella pagina della conversazione", () => {
     expect(outside()).toEqual([]);
   });
 });
+
+describe("setSubscription di Claude (area 8, F2, R5)", () => {
+  const sub = { fn: "setSubscription", args: { projectId: PROJECT_ID, type: "release.failed", phone: false }, codes: [], effectFailure: null };
+
+  it("la riga dice il progetto come nel prototipo, e «Undo» passa dalla rotta generica dei gruppi", async () => {
+    install({
+      proposals: [],
+      groups: [groupA({ actions: [sub] })],
+      routes: { [`POST /api/claude/groups/${GROUP_A}/undo`]: { body: { kind: "undone" } } },
+    });
+    const user = userEvent.setup();
+    renderRoute(`/claude/${CONV}`);
+    const undo = await screen.findByRole("button", { name: /^Undo/ }, { timeout: 3000 });
+    expect(await screen.findAllByText((_, el) => el?.textContent === "Changed your alerts in AUD")).not.toHaveLength(0);
+    await user.click(undo);
+    await waitFor(() =>
+      expect(seen.some((r) => r.method === "POST" && r.path === `/api/claude/groups/${GROUP_A}/undo`)).toBe(true),
+    );
+    expect(outside()).toEqual([]);
+  });
+});

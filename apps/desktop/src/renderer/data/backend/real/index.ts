@@ -5,6 +5,7 @@
 // tipata `typeof Fake.<nome>` con un `import type`, così il finto non entra
 // mai nel bundle.
 import type * as Fake from "../../api";
+import { liveAlerts } from "./alerts";
 import { liveAutomations } from "./automationsLive";
 import { liveReleases } from "./releasesLive";
 import { adminDepartments } from "./departments";
@@ -55,6 +56,11 @@ export const releases: typeof Fake.releases = partialNamespace<typeof Fake.relea
   "releases",
   liveReleases,
 );
+/**
+ * Le iscrizioni agli avvisi (area 8, F2): `alerts.ts`. Preferenze → Notifiche
+ * le legge solo con la funzione `alerts` accesa (R6).
+ */
+export const alerts: typeof Fake.alerts = partialNamespace<typeof Fake.alerts>("alerts", liveAlerts);
 export const chat: typeof Fake.chat = partialNamespace<typeof Fake.chat>("chat", {
   ...chatFunctions,
   channelStream,

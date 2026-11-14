@@ -75,6 +75,12 @@ export const listProjects: typeof Fake.listProjects = async () => {
   return rows.map((p, i) => toProject(p, members[i]!, working.has(p.id)));
 };
 
+/** I codici dei progetti visibili per id, dal solo elenco (senza i membri di ciascuno). */
+export async function projectCodesById(): Promise<Map<string, string>> {
+  const rows = (await appClient().projects.list()) as unknown as ServerProject[];
+  return new Map(rows.map((p) => [p.id, codeOf(p)] as const));
+}
+
 /** Un progetto invisibile risponde come uno che non esiste: `null`. */
 export const getProjectByCode: typeof Fake.getProjectByCode = async (code) => {
   const wanted = code.toUpperCase();

@@ -1,9 +1,9 @@
 import type { InboxItem, SnoozeUntil } from "@stubwise/shared";
 import type * as Fake from "../../api";
-import { isIntegrated } from "../../integration";
-import type { AppNotification } from "../../types";
+import { featureIntegrated, isIntegrated } from "../../integration";
+import type { AppNotification, MandatoryReason } from "../../types";
 import { daysFromToday } from "./clock";
-import { appClient } from "./client";
+import { appClient, session } from "./client";
 import { listPeople } from "./people";
 
 // Le notifiche della build app (integrazione area 2, fetta 1): la stessa
@@ -34,6 +34,8 @@ export interface PresentContext {
   taskCodes: ReadonlyMap<string, string>;
   /** `projectId` → codice del progetto. */
   projectCodes: ReadonlyMap<string, string>;
+  /** Chi legge: il destinatario di un obbligo (`alertMandatory`). */
+  viewerId?: string;
   /** Il nome di una persona per chi guarda (`null` se non la vede), per «Claude on behalf of …». */
   personName?: (personId: string) => string | null;
 }
@@ -76,6 +78,59 @@ export function webHrefFor(
   }
   if (item.ticketId) return `/tickets/${item.ticketId}`;
   return "/inbox";
+}
+
+export const MANDATORY_REASONS: ReadonlySet<string> = new Set([
+  "merged",
+  "pr_author",
+  "follows_conversation",
+  "task_author",
+  "assignee",
+] satisfies MandatoryReason[]);
+
+/**
+ * Area 8, F2: una card arrivata a chi legge da OBBLIGATORIO porta il motivo
+ * (`alertMandatory`, scritto alla pubblicazione per ogni destinatario): il
+ * pannello lo dice («You get this because…») e non offre «Don't alert me».
+ * Un motivo che l'app non conosce (server più nuovo) non si mostra.
+ */
+function mandatoryOf(item: InboxItem, ctx: PresentContext): Pick<AppNotification, "mandatory"> {
+  const reason = (item as Partial<InboxItem>).alertMandatory;
+  if (!reason || !MANDATORY_REASONS.has(reason)) return {};
+  return { mandatory: [{ personId: ctx.viewerId ?? "", reason: reason as MandatoryReason }] };
+}
+
+/**
+ * Area 8, F2 (R4): le card dei tipi del catalogo arrivano senza ticket, col
+ * link all'app nel campo `url` (`/app/#/p/<PRJ>/…`, il server lo scrive alla
+ * pubblicazione). Diventa il percorso nell'app (`#/p/…`) solo se è
+ * dell'istanza e porta a una pagina ACCESA in questa build: il rilascio
+ * (`releases`), il pannello di una PR (`releases-prs`, `?pr=<repository>#<n>`)
+ * e i Docs del progetto. Altrimenti `null`: la card resta «Open in web».
+ */
+export function appLinkFor(rawUrl: string | null | undefined, instanceOrigin?: string): string | null {
+  if (!rawUrl) return null;
+  let url: URL;
+  try {
+    url = new URL(rawUrl, "http://instance.invalid");
+  } catch {
+    return null;
+  }
+  const relative = rawUrl.startsWith("/") && !rawUrl.startsWith("//");
+  if (!relative && url.origin !== instanceOrigin) return null;
+  if (url.pathname !== "/app/" && url.pathname !== "/app") return null;
+  const m = /^#\/p\/[^/?#]+\/(releases|docs)(\/[^?#]+)?(\?[^#]*)?$/.exec(url.hash);
+  if (!m) return null;
+  const [, section, rest, query] = m;
+  if (!isIntegrated({ kind: "projectSection", name: section! })) return null;
+  if (section === "releases") {
+    const pr = new URLSearchParams(query ?? "").has("pr");
+    if (rest && !featureIntegrated("releases")) return null;
+    if (pr && !featureIntegrated("releases-prs") && !featureIntegrated("releases")) return null;
+  } else if (rest || query) {
+    return null;
+  }
+  return url.hash;
 }
 
 /** Una card dell'inbox come notifica del prototipo. Non lancia mai, nemmeno su un kind ignoto. */
@@ -151,6 +206,26 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
       ...viaClaudeOf(item, ctx),
     };
   }
+  const appLink = appLinkFor(item.url, ctx.instanceOrigin);
+  if (appLink) {
+    return {
+      id: item.id,
+      kind: item.kind,
+      projectId: item.projectId,
+      objectCode: projectCode ?? "",
+      departmentId: null,
+      recipientIds: [],
+      title: item.text,
+      body: item.summary ?? "",
+      createdAt: item.createdAt,
+      read: item.readAt !== null,
+      archived: item.status === "handled",
+      snoozedUntil: item.status === "snoozed" ? item.snoozedUntil : null,
+      link: appLink,
+      ...mandatoryOf(item, ctx),
+      ...viaClaudeOf(item, ctx),
+    };
+  }
   const taskCode = item.ticketId ? ctx.taskCodes.get(item.ticketId) : undefined;
   const integrated = INTEGRATED_KINDS.has(item.kind) && taskCode !== undefined && projectCode !== undefined;
   return {
@@ -168,6 +243,7 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
     snoozedUntil: item.status === "snoozed" ? item.snoozedUntil : null,
     link: integrated ? `#/p/${projectCode}/tasks?task=${taskCode}` : "",
     ...(integrated ? {} : { webHref: webHrefFor(item, ctx.instanceOrigin) }),
+    ...mandatoryOf(item, ctx),
     ...viaClaudeOf(item, ctx),
   };
 }
@@ -227,7 +303,13 @@ export const listNotifications: typeof Fake.listNotifications = async () => {
     : [];
   const personName = (personId: string) => people.find((p) => p.id === personId)?.name ?? null;
   return items
-    .map((item) => presentInboxItem(item, { taskCodes, projectCodes, instanceOrigin, personName }))
+    .map((item) => presentInboxItem(item, {
+        taskCodes,
+        projectCodes,
+        instanceOrigin,
+        personName,
+        ...(session.personId ? { viewerId: session.personId } : {}),
+      }))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 };
 

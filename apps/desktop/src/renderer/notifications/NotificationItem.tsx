@@ -31,7 +31,8 @@ export interface AlertOfNotification {
   label: string;
   /** `off`: già spento dopo l'avviso [A 17]; `undefined` se la riga non si legge (ancora). */
   state: SubscriptionState | undefined;
-  onMute: () => void;
+  /** Assente dove il server non lo offre ancora (build app senza `alerts-mute`). */
+  onMute?: () => void;
   onTurnBackOn: () => void;
   onOpenSettings: () => void;
 }
@@ -589,7 +590,7 @@ function AlertMenu({
           </button>
         </>
       )}
-      {!mandatory && alert.state === "on" && (
+      {!mandatory && alert.state === "on" && alert.onMute && (
         <button type="button" role="menuitem" className={itemClass} onClick={run(alert.onMute)}>
           {t("alerts.panel.mute", { code })}
         </button>

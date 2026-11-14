@@ -745,6 +745,22 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     resta sul routing di oggi (`monitor.manage`): le iscrizioni sono per
     progetto. Test nella F2.
 
+- F2, lato renderer (94, 14 nov 2026), ciò che resta fuori dalla build app:
+  - **le card degli avvisi dei server** (`monitor.*`, poi `server.*`) restano
+    «Open in web» finché la sezione Servers non è integrata (fetta Servers):
+    `appLinkFor` (`apps/desktop/src/renderer/data/backend/real/notifications.ts`)
+    apre nell'app solo rilasci, pannello della PR e Docs;
+  - **i permessi del catalogo condiviso** sono stringhe perché
+    `support.reply` e `servers.operate` vivono ancora solo nel prototipo:
+    quando entrano nel registro di `@stubwise/shared`, il catalogo si può
+    tipare sui permessi veri e il restringimento del prototipo
+    (`domain/alerts/catalog.ts`) sparisce;
+  - **«Annulla» contro un server senza `saved`** (un rollback, un'istanza
+    non aggiornata): il campo manca, vale `false`, e l'«Annulla» chiede il
+    ritorno al default (`DELETE`), che quel server non ha (404, «Undo» non
+    riesce e lo dice). Server e caddy escono insieme, quindi solo in un
+    rilascio scompagnato; non si ripiega su `PUT`, che fisserebbe il default.
+
 - F2, S4, limite accettato *(O, 46, 14 nov 2026)*: l'obbligatorio
   `pr_author` di `pr.analysis_issues` e `pr.corrected` si risolve per una PR
   di Stubwise dall'autore della task, per la PR di un collega dall'email git

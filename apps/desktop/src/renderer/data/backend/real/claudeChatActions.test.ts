@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forgetClaudeCaches, getConversation } from "./claude";
-import { claudeChatNamespace } from "./claudeChatActions";
+import { claudeChatNamespace, summaryOf } from "./claudeChatActions";
 import { setAppClientForTests } from "./client";
 import { installFakeServer, me, ME_ID, PROJECT_ID, serverProject, serverTicketDetail, TICKET_ID } from "./fakeServer";
 import { getSessionPerson } from "./session";
@@ -280,5 +280,113 @@ describe("i codici delle task nelle schede (review F3.4)", () => {
     await getConversation(CONV);
     await getConversation(CONV);
     expect(seen.filter((r) => r.path === `/api/tickets/${GONE}`)).toHaveLength(1);
+  });
+});
+
+describe("setSubscription di Claude nella build app (area 8, F2, R5)", () => {
+  const GROUP_S = "eeeeeeee-0000-4000-8000-0000000000c1";
+  const PROPOSAL_S = "dddddddd-0000-4000-8000-0000000000c1";
+  const PROPOSAL_SB = "dddddddd-0000-4000-8000-0000000000c2";
+  const subEvents = [
+    { id: "1", type: "input", segmentId: "s1", at: "2026-11-14T10:00:10.000Z", data: { inputId: "i1", text: "Stop the release alerts on my phone in AUD" } },
+    { id: "2", type: "actions_executed", segmentId: "s1", at: "2026-11-14T10:00:40.000Z", data: { groupId: GROUP_S, proposalId: PROPOSAL_S } },
+    { id: "3", type: "proposal", segmentId: "s1", at: "2026-11-14T10:00:50.000Z", data: { proposalId: PROPOSAL_SB } },
+  ];
+  const args = { projectId: PROJECT_ID, type: "release.failed", phone: false };
+  const subRoutes = {
+    [`GET /api/agent-sessions/${CONV}/events`]: { body: { events: subEvents, before: null } },
+    [`GET /api/claude/conversations/${CONV}/proposals`]: {
+      body: [
+        { ...proposals[0], id: PROPOSAL_S, actions: [{ fn: "setSubscription", args }], groupId: GROUP_S },
+        {
+          ...proposals[1],
+          id: PROPOSAL_SB,
+          actions: [{ fn: "setSubscription", args: { projectId: PROJECT_ID, type: "server.trouble", app: true, phone: true } }],
+          reasons: [],
+        },
+      ],
+    },
+    [`GET /api/claude/conversations/${CONV}/groups`]: {
+      body: [{ ...groups[0], id: GROUP_S, proposalId: PROPOSAL_S, actions: [{ fn: "setSubscription", args, codes: [], effectFailure: null }] }],
+    },
+  };
+
+  it("la riga eseguita ha il codice del progetto (dal projectId), come nel prototipo", async () => {
+    install(subRoutes);
+    await getSessionPerson();
+    const detail = (await getConversation(CONV))!;
+    const executed = detail.events.find((e) => e.type === "executed")!;
+    expect(executed).toMatchObject({ groupId: GROUP_S, objectCodes: ["AUD"], actions: [{ fn: "setSubscription", args }] });
+    expect(detail.undo?.[GROUP_S]).toEqual({ state: "available", needsReauth: false });
+  });
+
+  it("i progetti illeggibili non fermano la conversazione: la riga c'è, senza il codice", async () => {
+    install({ ...subRoutes, "GET /api/projects": { status: 500, body: { code: "internal", message: "x" } } });
+    await getSessionPerson();
+    const detail = (await getConversation(CONV))!;
+    const executed = detail.events.find((e) => e.type === "executed")!;
+    expect(executed).toMatchObject({ groupId: GROUP_S, objectCodes: [null] });
+  });
+
+  it("il codice del progetto si legge dall'elenco, senza i membri di ogni progetto", async () => {
+    const { seen } = install({ ...subRoutes, "GET /api/projects": { body: [serverProject()] } });
+    await getSessionPerson();
+    await getConversation(CONV);
+    expect(seen.filter((r) => /\/members/.test(r.path))).toEqual([]);
+  });
+
+  it("il riassunto dagli argomenti: progetto, tipo con la sua etichetta, solo i valori presenti", async () => {
+    install(subRoutes);
+    await getSessionPerson();
+    const detail = (await getConversation(CONV))!;
+    const summaries = detail.events.flatMap((e) =>
+      e.type === "executed" || e.type === "proposal" ? (e as { actions: { summary: string }[] }).actions.map((a) => a.summary) : [],
+    );
+    expect(summaries).toEqual([
+      "Change your “Release failed” alerts in AUD: Phone off",
+      "Change your “Server in trouble” alerts in AUD: App on, Phone on",
+    ]);
+  });
+});
+
+describe("un'azione che questa build non conosce (server più nuovo, area 8, F2, R5)", () => {
+  it("la riga si legge lo stesso, con un riassunto generico e non con una chiave grezza", async () => {
+    const GROUP_X = "eeeeeeee-0000-4000-8000-0000000000d1";
+    install({
+      [`GET /api/agent-sessions/${CONV}/events`]: {
+        body: {
+          events: [{ id: "2", type: "actions_executed", segmentId: "s1", at: "2026-11-14T10:00:40.000Z", data: { groupId: GROUP_X } }],
+          before: null,
+        },
+      },
+      [`GET /api/claude/conversations/${CONV}/proposals`]: { body: [] },
+      [`GET /api/claude/conversations/${CONV}/groups`]: {
+        body: [{ ...groups[0], id: GROUP_X, proposalId: null, actions: [{ fn: "aFutureAction", args: { projectId: PROJECT_ID }, codes: [] }] }],
+      },
+    });
+    await getSessionPerson();
+    const detail = (await getConversation(CONV))!;
+    const executed = detail.events.find((e) => e.type === "executed") as { actions: { summary: string }[] } | undefined;
+    expect(executed?.actions.map((a) => a.summary)).toEqual(["A change"]);
+  });
+});
+
+describe("il riassunto di setSubscription senza canali (review F2, m3)", () => {
+  it("senza app né phone (il server non lo manda, il client si difende) non finisce con «: »", () => {
+    const args = { projectId: PROJECT_ID, type: "release.failed" };
+    expect(summaryOf("setSubscription", args, "AUD").summary).toBe("Change your “Release failed” alerts in AUD");
+    expect(summaryOf("setSubscription", args, null).summary).toBe("Change your “Release failed” alerts in a project");
+  });
+});
+
+describe("resetSubscription, l'inverso di un setSubscription senza scelta salvata (review F2, 6)", () => {
+  it("il riassunto dice il ritorno al default, col codice del progetto", () => {
+    const args = { projectId: PROJECT_ID, type: "release.failed" };
+    expect(summaryOf("resetSubscription", args, "AUD").summary).toBe(
+      "Put your “Release failed” alerts in AUD back to the default",
+    );
+    expect(summaryOf("resetSubscription", args, null).summary).toBe(
+      "Put your “Release failed” alerts in a project back to the default",
+    );
   });
 });

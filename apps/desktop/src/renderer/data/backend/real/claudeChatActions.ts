@@ -7,6 +7,8 @@ import { appClient, session } from "./client";
 import { taskCodeOf } from "./claudeChat";
 import { knownTaskCode } from "./tasks";
 import { listPeople } from "./people";
+import { projectCodesById } from "./projects";
+import { alertTypeOf } from "../../../domain/alerts/catalog";
 import { ACTIONS } from "../../../domain/access/actions";
 
 // Le proposte e le azioni di Claude nella chat della build app (chat, fetta 3,
@@ -48,6 +50,16 @@ export function taskIdsOf(fn: string, args: Record<string, unknown>): string[] {
   return [];
 }
 
+/**
+ * Il progetto di un'azione il cui oggetto è un progetto (area 8, F2, R5):
+ * `setSubscription` non ha codici dal server (`codes: []`), e la riga dice
+ * il codice del progetto, come nel prototipo.
+ */
+const projectIdOf = (fn: string, args: Record<string, unknown>): string | null =>
+  (fn === "setSubscription" || fn === "resetSubscription") && typeof args["projectId"] === "string"
+    ? (args["projectId"] as string)
+    : null;
+
 /** Proposte, gruppi e codici delle task citate di una conversazione libera. */
 export async function readChatActions(conversationId: string): Promise<ChatActions> {
   const client = appClient().claude.conversations;
@@ -76,6 +88,19 @@ export async function readChatActions(conversationId: string): Promise<ChatActio
       if (known) codes.set(id, known);
     }),
   );
+  // I progetti delle azioni sui progetti, solo se ce n'è una: un progetto che
+  // non si vede resta senza codice, e un elenco che non si legge non ferma la
+  // conversazione (la riga si scrive senza il codice).
+  const projectIds = [...proposals.flatMap((p) => p.actions), ...groups.flatMap((g) => g.actions)].flatMap(
+    (a) => projectIdOf(a.fn, a.args) ?? [],
+  );
+  if (projectIds.length > 0) {
+    const byId = await projectCodesById().catch(() => new Map<string, string>());
+    for (const id of projectIds) {
+      const code = byId.get(id);
+      if (code) codes.set(id, code);
+    }
+  }
   return { proposals, groups, codes };
 }
 
@@ -135,14 +160,30 @@ export function summaryOf(fn: string, args: Record<string, unknown>, code: strin
     case "pageAction":
       params["kind"] = text("kind");
       break;
+    case "resetSubscription":
+    case "setSubscription": {
+      // L'etichetta del tipo dal catalogo condiviso; solo i canali presenti (un assente resta com'è).
+      const labelKey = alertTypeOf(text("type"))?.labelKey;
+      params["type"] = labelKey ? i18n.t(labelKey) : text("type");
+      params["channels"] = (["app", "phone"] as const)
+        .filter((k) => typeof args[k] === "boolean")
+        .map((k) => i18n.t(`claude.chatActions.channel.${k}.${args[k] ? "on" : "off"}`))
+        .join(", ");
+      break;
+    }
   }
-  const key = `claude.chatActions.summary.${fn}${code === null && params["code"] === "" && needsCode(fn) ? "NoCode" : ""}`;
+  // `setSubscription` senza canali (il server ne vuole almeno uno, ma il client non lo dà per certo): la frase senza «: ».
+  const phrase = fn === "setSubscription" && params["channels"] === "" ? "setSubscriptionBare" : fn;
+  // `resetSubscription` (l'inverso, mai proposto): «back to the default», senza canali.
+  const own = `claude.chatActions.summary.${phrase}${code === null && params["code"] === "" && needsCode(fn) ? "NoCode" : ""}`;
+  // Un'azione che questa build non conosce (un server più nuovo: `fn` è `__unknown__`) ha la frase generica.
+  const key = i18n.exists(own) ? own : "claude.chatActions.summaryHidden.other";
   // `summary` è la resa al momento, per chi non sa leggere la frase (`spoken` la preferisce).
   return { fn: fn as ProposedAction["fn"], args, summary: i18n.t(key, params), summaryText: { key, params } };
 }
 
 const needsCode = (fn: string) =>
-  ["updateTask", "planTask", "deleteTask", "addComment", "deleteComment", "startRun"].includes(fn);
+  ["updateTask", "planTask", "deleteTask", "addComment", "deleteComment", "startRun", "setSubscription", "resetSubscription"].includes(fn);
 
 // --- le schede e le righe ------------------------------------------------------------
 
@@ -211,7 +252,7 @@ function whoActionOf(permission: string | null, fn: string | undefined): string 
 }
 
 const codeOfAction = (a: { fn: string; args: Record<string, unknown> }, codes: Map<string, string>) =>
-  codes.get(taskIdsOf(a.fn, a.args)[0] ?? "") ?? null;
+  codes.get(taskIdsOf(a.fn, a.args)[0] ?? projectIdOf(a.fn, a.args) ?? "") ?? null;
 
 /**
  * L'autore di ogni conversazione libera letta (fetta 5): il richiedente delle
@@ -255,7 +296,7 @@ function proposalEvent(p: ProposalView, at: string, actions: ChatActions): Conve
     cls: p.cls,
     reasons: reasonsOf(p),
     ...(p.groupId ? { groupId: p.groupId } : {}),
-    ...(group ? { resultCodes: group.actions.flatMap((a) => a.codes), objectCodes: group.actions.map((a) => a.codes[0] ?? null) } : {}),
+    ...(group ? { resultCodes: group.actions.flatMap((a) => a.codes), objectCodes: group.actions.map((a) => a.codes[0] ?? codeOfAction(a, actions.codes)) } : {}),
     ...(failure ? { failure } : {}),
     ...(mailNotSaved ? { mailNotSaved } : {}),
     ...(p.undoOfGroupId ? { undoOf: p.undoOfGroupId } : {}),
@@ -271,7 +312,7 @@ function executedEvent(g: GroupView, at: string, actions: ChatActions): Conversa
     actions: g.actions.map((a) => summaryOf(a.fn, a.args, a.codes[0] ?? codeOfAction(a, actions.codes))),
     status: "done",
     resultCodes: g.actions.flatMap((a) => a.codes),
-    objectCodes: g.actions.map((a) => a.codes[0] ?? null),
+    objectCodes: g.actions.map((a) => a.codes[0] ?? codeOfAction(a, actions.codes)),
   } as ConversationEvent;
 }
 
