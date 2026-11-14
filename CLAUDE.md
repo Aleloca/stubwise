@@ -1086,7 +1086,10 @@ una voce ti riguarda.
   - **Cosa fa**: SOLO le azioni dell'insieme CHIUSO dichiarato in
     `@stubwise/shared` (`SERVER_ACTIONS`): riavviare, fermare o avviare un
     container che l'agente riporta; liberare spazio (immagini non usate,
-    cache di build, container fermi: ognuno un passo a sé). Più le LETTURE
+    cache di build, container fermi: ognuno un passo a sé; agisce su TUTTO
+    il server, quindi su un server condiviso tocca anche gli altri progetti,
+    ed è ammesso con un avviso esplicito prima dell'approvazione — decisione
+    del maintainer, F4b-8). Più le LETTURE
     (le ultime righe del log e lo stato di un container dall'agente; via SSH
     le letture dell'elenco chiuso), che non cambiano niente.
   - **Da dove parte e chi la autorizza**: l'analisi parte dal SERVER (da
