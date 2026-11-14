@@ -1371,6 +1371,9 @@ export function effectiveModelDefaults(
     meeting_summary: "sonnet",
     // Un passo di Claude di un'automazione (area 7, F3-2 = a).
     automation_step: "sonnet",
+    // Support (area 8, F3): il giudizio sul triage è breve (G-1: Haiku); la bozza al cliente, Sonnet.
+    support_triage_check: "haiku",
+    support_reply_draft: "sonnet",
     chat: SERVER_CHAT_DEFAULT_MODEL,
     // La chat con Claude (fetta 1): lo stesso modello dei turni di refinement.
     claude_chat: config.backlogModel,

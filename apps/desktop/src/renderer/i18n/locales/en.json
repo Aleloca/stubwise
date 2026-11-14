@@ -10885,6 +10885,7 @@
           "reports": "Reports",
           "mail": "Mail",
           "automations": "Automations",
+          "support": "Support",
           "chat": "Chat"
         },
         "source": {
@@ -12373,7 +12374,9 @@
       "backlog_merge": "Backlog document merge",
       "plugin_smoke": "Plugin smoke tests",
       "credential_test": "Account tests",
-      "usage_probe": "Quota readings"
+      "usage_probe": "Quota readings",
+      "support_triage_check": "Support: triage check",
+      "support_reply_draft": "Support: reply drafts"
     }
   },
   "instanceEffects": {

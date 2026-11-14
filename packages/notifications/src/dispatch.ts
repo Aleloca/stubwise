@@ -143,6 +143,8 @@ const TOGGLE_FOR_KIND: Record<NotificationKind, keyof NotificationSettingsRow> =
   "pr.analysis_issues": "notifyJobFailed",
   "pr.corrected": "notifyJobFailed",
   "docs.release_note": "notifyJobFailed",
+  "support.request": "notifyJobFailed",
+  "support.customer_replied": "notifyJobFailed",
 };
 
 /** Una transazione drizzle aperta su `Db` (il `tx` di `db.transaction`). */

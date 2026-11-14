@@ -244,6 +244,9 @@ export const en: Catalog = {
   "notify.alert.prAnalysisIssues": "The analysis found problems in {repo}#{number}: {title}. {link}",
   "notify.alert.prCorrected": "Claude pushed a correction to {repo}#{number}: {title}. {link}",
   "notify.alert.docsReleaseNote": "New release note for {repo}: {title}. {link}",
+  "notify.alert.supportRequest": "New request from a customer ({customer}): {code} {title}. {link}",
+  "notify.alert.supportCustomerReplied": "{customer} replied on {code}: {title}. {link}",
+  "notify.alert.anonymousCustomer": "Anonymous visitor",
   "notify.monitorRecovered": "{serverName} recovered ({condition}): {detail}. {link}",
   // Pulse proattivo: evento SENZA ticket ancorato al PROGETTO, il {link} porta
   // al suo backlog. I titoli delle proposte NON stanno nella frase — sono le
@@ -491,6 +494,8 @@ export const en: Catalog = {
   "push.title.pr.analysis_issues": "A pull request has problems",
   "push.title.pr.corrected": "Claude corrected a pull request",
   "push.title.docs.release_note": "A new release note",
+  "push.title.support.request": "A new request from a customer",
+  "push.title.support.customer_replied": "A customer replied",
   "push.title.monitor.recovered": "Server recovered",
   "push.title.job.awaiting_input": "A question is waiting for you",
   // L'unico titolo con un segnaposto: il pulse arriva a progetto fermo, e
@@ -947,6 +952,9 @@ export const it: Catalog = {
   "notify.alert.prAnalysisIssues": "L'analisi ha trovato problemi in {repo}#{number}: {title}. {link}",
   "notify.alert.prCorrected": "Claude ha spinto una correzione su {repo}#{number}: {title}. {link}",
   "notify.alert.docsReleaseNote": "Nuova nota di rilascio per {repo}: {title}. {link}",
+  "notify.alert.supportRequest": "Nuova richiesta di un cliente ({customer}): {code} {title}. {link}",
+  "notify.alert.supportCustomerReplied": "{customer} ha risposto su {code}: {title}. {link}",
+  "notify.alert.anonymousCustomer": "Visitatore anonimo",
   "notify.monitorRecovered": "{serverName} tornato su ({condition}): {detail}. {link}",
   "notify.pulse":
     "Nessun lavoro in corso su {project} (giorni di fermo: {idleDays}): ci sono proposte nel backlog. {link}",
@@ -1116,6 +1124,8 @@ export const it: Catalog = {
   "push.title.pr.analysis_issues": "Una pull request ha problemi",
   "push.title.pr.corrected": "Claude ha corretto una pull request",
   "push.title.docs.release_note": "Una nuova nota di rilascio",
+  "push.title.support.request": "Una nuova richiesta di un cliente",
+  "push.title.support.customer_replied": "Un cliente ha risposto",
   "push.title.monitor.recovered": "Server tornato su",
   "push.title.job.awaiting_input": "Una domanda ti aspetta",
   "push.title.project.pulse": "Da dove ripartire su {project}",

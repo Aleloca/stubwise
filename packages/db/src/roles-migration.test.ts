@@ -260,6 +260,8 @@ describe("migrazione 0097: ruoli, membri di progetto e conversione", () => {
     await applyRoleUpdates(db, "0143_drive_files.sql");
     // E `automations.manage` al solo Project Lead, con la 0169 (area 7).
     await applyRoleUpdates(db, "0169_automations.sql");
+    // E `support.reply` a Lead, Developer e Legacy Member, con la 0179 (area 8, F3).
+    await applyRoleUpdates(db, "0179_support.sql");
     const rows = await db.execute<{
       preset_key: string;
       name: string;
@@ -361,6 +363,37 @@ describe("migrazione 0097: ruoli, membri di progetto e conversione", () => {
     expect(await permsOf(aboveUser)).toContain("chat.general.create");
     expect(await presetPerms("project_lead")).toEqual(expect.arrayContaining(["chat.channels.create", "chat.channels.manage"]));
     expect(await presetPerms("developer")).not.toContain("chat.channels.manage");
+  });
+
+  it("`support.reply` va anche ai ruoli che contenevano Lead, Developer o Legacy Member (0179)", async () => {
+    const presetPerms = async (key: string) =>
+      (await db.execute<{ permissions: string[] }>(sql`select "permissions" from "roles" where "preset_key" = ${key}`))[0]!.permissions;
+    const insertRole = async (name: string, perms: string[]) => {
+      const [row] = await db.execute<{ id: string }>(sql`
+        insert into "roles" ("name", "scope", "permissions")
+        values (${name}, 'project', ${sql.raw(`ARRAY[${perms.map((p) => `'${p}'`).join(",") || "''"}]::text[]`)})
+        returning "id"`);
+      return row!.id;
+    };
+    const permsOf = async (id: string) =>
+      (await db.execute<{ permissions: string[] }>(sql`select "permissions" from "roles" where "id" = ${id}`))[0]!.permissions;
+    // Si riparte da «prima» della 0179: senza `support.reply`.
+    await db.execute(sql`update "roles" set "permissions" = array_remove("permissions", 'support.reply')`);
+    const dev = (await presetPerms("developer")).filter((p) => p !== "");
+    const legacy = (await presetPerms("legacy_member")).filter((p) => p !== "");
+    const contributor = (await presetPerms("contributor")).filter((p) => p !== "");
+    const aboveDev = await insertRole("Sopra Developer 0179", [...dev, "planning.others"]);
+    const aboveLegacy = await insertRole("Sopra Legacy 0179", [...legacy]);
+    const aboveContributor = await insertRole("Sopra Contributor 0179", [...contributor, "docs.edit"]);
+    await applyRoleUpdates(db, "0179_support.sql");
+    expect(await permsOf(aboveDev)).toContain("support.reply");
+    expect(await permsOf(aboveLegacy)).toContain("support.reply");
+    expect(await permsOf(aboveContributor)).not.toContain("support.reply");
+    for (const key of ["project_lead", "developer", "legacy_member"]) expect(await presetPerms(key), key).toContain("support.reply");
+    for (const key of ["contributor", "viewer"]) expect(await presetPerms(key), key).not.toContain("support.reply");
+    // Idempotente: una seconda volta non lo duplica.
+    await applyRoleUpdates(db, "0179_support.sql");
+    expect((await permsOf(aboveDev)).filter((p) => p === "support.reply")).toHaveLength(1);
   });
 
   it("i nomi dei ruoli sono unici per tipo, senza distinguere maiuscole", async () => {

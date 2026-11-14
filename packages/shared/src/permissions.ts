@@ -138,6 +138,13 @@ export const PROJECT_PERMISSIONS = [
    * personalizzati nascono senza.
    */
   "automations.manage",
+  /**
+   * Support, area 8 (fetta 3, 0179, S-7): rispondere ai clienti e vedere le
+   * bozze di Claude. Ai preset Project Lead, Developer e Legacy Member (la
+   * regola dei preset); Contributor e Viewer leggono le conversazioni ma non
+   * rispondono.
+   */
+  "support.reply",
 ] as const;
 
 /**

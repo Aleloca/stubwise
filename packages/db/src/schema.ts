@@ -702,6 +702,8 @@ export const projects = pgTable(
     stallTodoDays: integer("stall_todo_days").notNull().default(14),
     // Fetta 4 (0121): il prossimo numero di catalogo delle richieste.
     nextRequestNumber: integer("next_request_number").notNull().default(1),
+    /** Area 8, F3 (0179): il prossimo numero delle conversazioni di Support (`<PRJ>-S<n>`), dato dal trigger. */
+    nextSupportNumber: integer("next_support_number").notNull().default(1),
     // Fetta 4 (0118): il cliente (con un cliente il progetto è una commessa,
     // `kind` si deriva), il modello e i moduli accesi. Gli esistenti:
     // Software con tutti i moduli, interni.
@@ -1811,6 +1813,9 @@ export const notificationKind = pgEnum("notification_kind", [
   "pr.analysis_issues",
   "pr.corrected",
   "docs.release_note",
+  // Area 8, fetta 3 (0179): Support.
+  "support.request",
+  "support.customer_replied",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),
@@ -2841,9 +2846,39 @@ export const widgetConversations = pgTable(
     widgetId: uuid("widget_id").references(() => widgets.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * Area 8, F3 (0179): il numero per progetto del codice `<PRJ>-S<n>`, dato
+     * dal trigger all'insert (un valore passato è ignorato).
+     */
+    number: integer("number").notNull().default(sql`NULL`),
+    /** Il canale: il widget, o il server MCP in modalità collaboratore. */
+    channel: text("channel").$type<"widget" | "mcp">().notNull().default("widget"),
+    /**
+     * Il giudizio sul triage senza esito: il controllo del worker dopo il
+     * silenzio (`triageOutcomeByUserId` null) o una persona con «Non
+     * conclusa». Vale finché non arriva un messaggio del cliente più recente.
+     */
+    triageOutcome: text("triage_outcome").$type<"concluded" | "not_concluded">(),
+    triageOutcomeAt: timestamp("triage_outcome_at", { withTimezone: true }),
+    triageOutcomeByUserId: uuid("triage_outcome_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** L'ultimo controllo del worker: uno per silenzio. */
+    triageCheckedAt: timestamp("triage_checked_at", { withTimezone: true }),
+    /** La bozza di Claude della conversazione: UNA, mai inviata da sola. */
+    claudeDraft: text("claude_draft"),
+    claudeDraftAt: timestamp("claude_draft_at", { withTimezone: true }),
+    /** L'ultimo messaggio del cliente che la bozza ha letto (nessuna FK: è un segnalibro). */
+    claudeDraftThrough: uuid("claude_draft_through"),
+    /** La raffica: quando preparare la bozza (si sposta a ogni messaggio del cliente). */
+    draftDueAt: timestamp("draft_due_at", { withTimezone: true }),
   },
-  // Elenco delle conversazioni di un progetto, le più recenti prima.
-  (table) => [index("widget_conversations_project_idx").on(table.projectId, table.lastMessageAt)],
+  (table) => [
+    // Elenco delle conversazioni di un progetto, le più recenti prima.
+    index("widget_conversations_project_idx").on(table.projectId, table.lastMessageAt),
+    unique("widget_conversations_project_number_unique").on(table.projectId, table.number),
+    index("widget_conversations_draft_due_idx").on(table.draftDueAt).where(sql`${table.draftDueAt} IS NOT NULL`),
+    check("widget_conversations_channel_chk", sql`${table.channel} in ('widget', 'mcp')`),
+    check("widget_conversations_triage_outcome_chk", sql`${table.triageOutcome} in ('concluded', 'not_concluded')`),
+  ],
 );
 
 /**
@@ -2860,15 +2895,33 @@ export const widgetMessages = pgTable(
     conversationId: uuid("conversation_id")
       .notNull()
       .references(() => widgetConversations.id, { onDelete: "cascade" }),
-    // "user" | "assistant": registro libero (non enum) per estensibilità futura.
+    // "user" | "assistant" | "team" (area 8, F3: la risposta di una persona):
+    // registro libero (non enum) per estensibilità futura.
     role: text("role").notNull(),
     content: text("content").notNull(),
     citations: jsonb("citations"),
     ticketId: uuid("ticket_id").references(() => tickets.id, { onDelete: "set null" }),
+    /** Area 8, F3 (0179): chi del team ha scritto (`role: "team"`). */
+    authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   // I messaggi si caricano sempre per conversazione, in ordine cronologico.
   (table) => [index("widget_messages_conversation_idx").on(table.conversationId)],
+);
+
+/** Area 8, F3 (0179): chi segue una conversazione di Support (l'avviso obbligatorio `support.customer_replied`). */
+export const supportFollowers = pgTable(
+  "support_followers",
+  {
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => widgetConversations.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ name: "support_followers_pk", columns: [table.conversationId, table.userId] })],
 );
 
 // ---------------------------------------------------------------------------
@@ -3289,6 +3342,8 @@ export const backlogItems = pgTable(
     source: backlogItemSource("source").notNull(),
     // Nata da FUORI (0148): un'email in entrata. Leggerla nella chat con Claude è contenuto non fidato.
     externalOrigin: text("external_origin").$type<"email">(),
+    /** Area 8, F3 (0179): la conversazione di Support da cui è nata. */
+    supportConversationId: uuid("support_conversation_id").references((): AnyPgColumn => widgetConversations.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     /** Area 7 (0169): l'esecuzione che l'ha creata. */
     automationRunId: uuid("automation_run_id").references((): AnyPgColumn => automationRuns.id, { onDelete: "set null" }),
@@ -3300,6 +3355,7 @@ export const backlogItems = pgTable(
   (table) => [
     index("backlog_items_project_status_idx").on(table.projectId, table.status),
     unique("backlog_items_project_number_unique").on(table.projectId, table.number),
+    index("backlog_items_support_conversation_idx").on(table.supportConversationId).where(sql`${table.supportConversationId} IS NOT NULL`),
   ],
 );
 
