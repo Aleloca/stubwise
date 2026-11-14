@@ -290,6 +290,25 @@ export const serverDiskSchema = z.object({
 });
 export type ServerDisk = z.infer<typeof serverDiskSchema>;
 
+/** Un controllo come lo vede chi legge il server: mai il DSN (solo `hasDsn`). */
+export const serverCheckViewSchema = z.object({
+  id: z.uuid(),
+  serverId: z.uuid(),
+  type: checkTypeSchema,
+  name: z.string(),
+  target: z.string(),
+  hasDsn: z.boolean(),
+  intervalSeconds: z.number().int(),
+  enabled: z.boolean(),
+  lastStatus: checkStatusSchema,
+  lastCheckedAt: z.string().nullable(),
+  lastLatencyMs: z.number().int().nullable(),
+  lastError: z.string().nullable(),
+  downSince: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type ServerCheckView = z.infer<typeof serverCheckViewSchema>;
+
 /**
  * Dettaglio (solo GET /:id, non la lista): aggiunge lo snapshot corrente
  * dall'ULTIMO campione di server_metrics — servizi auto-scoperti
@@ -320,7 +339,8 @@ export const serverDetailSchema = serverViewSchema.extend({
   memUsedBytes: z.number().nullable().default(null),
   memTotalBytes: z.number().nullable().default(null),
   // --- Area 8, F4a: campi additivi. ---
-  checks: z.array(z.lazy(() => serverCheckViewSchema)).default([]),
+  // Senza `z.lazy` (readerSchema non lo attraversa): lo schema è definito sopra.
+  checks: z.array(serverCheckViewSchema).default([]),
   /** Dal più recente, al più 20. */
   episodes: z.array(serverEpisodeSchema).default([]),
   /** Le produzioni che lo usano, dei progetti visibili. */
@@ -397,24 +417,6 @@ export const serverWithKeySchema = serverViewSchema.extend({
 });
 export type ServerWithKey = z.infer<typeof serverWithKeySchema>;
 
-/** Un controllo come lo vede chi legge il server: mai il DSN (solo `hasDsn`). */
-export const serverCheckViewSchema = z.object({
-  id: z.uuid(),
-  serverId: z.uuid(),
-  type: checkTypeSchema,
-  name: z.string(),
-  target: z.string(),
-  hasDsn: z.boolean(),
-  intervalSeconds: z.number().int(),
-  enabled: z.boolean(),
-  lastStatus: checkStatusSchema,
-  lastCheckedAt: z.string().nullable(),
-  lastLatencyMs: z.number().int().nullable(),
-  lastError: z.string().nullable(),
-  downSince: z.string().nullable(),
-  createdAt: z.string(),
-});
-export type ServerCheckView = z.infer<typeof serverCheckViewSchema>;
 
 // --- Le metriche (`GET /api/servers/:id/metrics`) -----------------------------
 
@@ -450,7 +452,13 @@ export const serverRollupPointSchema = z.object({
 
 export const serverRawCheckPointSchema = z.object({
   ts: z.string(),
-  status: checkStatusSchema,
+  /**
+   * Testo, non l'enum (review F4a): sta in una union (raw | aggregato), e
+   * readerSchema non apre un enum dentro una union — uno stato nuovo farebbe
+   * fallire il parse delle metriche intere. Chi legge confronta coi valori di
+   * `checkStatusSchema`; uno sconosciuto non è né su né giù.
+   */
+  status: z.string(),
   latencyMs: z.number().int().nullable(),
 });
 
