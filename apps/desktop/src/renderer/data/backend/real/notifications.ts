@@ -1,6 +1,6 @@
 import type { InboxItem, SnoozeUntil } from "@stubwise/shared";
 import type * as Fake from "../../api";
-import { isIntegrated } from "../../integration";
+import { featureIntegrated, isIntegrated } from "../../integration";
 import type { AppNotification } from "../../types";
 import { daysFromToday } from "./clock";
 import { appClient } from "./client";
@@ -78,6 +78,39 @@ export function webHrefFor(
   return "/inbox";
 }
 
+/**
+ * Area 8, F2 (R4): le card dei tipi del catalogo arrivano senza ticket, col
+ * link all'app nel campo `url` (`/app/#/p/<PRJ>/…`, il server lo scrive alla
+ * pubblicazione). Diventa il percorso nell'app (`#/p/…`) solo se è
+ * dell'istanza e porta a una pagina ACCESA in questa build: il rilascio
+ * (`releases`), il pannello di una PR (`releases-prs`, `?pr=<repository>#<n>`)
+ * e i Docs del progetto. Altrimenti `null`: la card resta «Open in web».
+ */
+export function appLinkFor(rawUrl: string | null | undefined, instanceOrigin?: string): string | null {
+  if (!rawUrl) return null;
+  let url: URL;
+  try {
+    url = new URL(rawUrl, "http://instance.invalid");
+  } catch {
+    return null;
+  }
+  const relative = rawUrl.startsWith("/") && !rawUrl.startsWith("//");
+  if (!relative && url.origin !== instanceOrigin) return null;
+  if (url.pathname !== "/app/" && url.pathname !== "/app") return null;
+  const m = /^#\/p\/[^/?#]+\/(releases|docs)(\/[^?#]+)?(\?[^#]*)?$/.exec(url.hash);
+  if (!m) return null;
+  const [, section, rest, query] = m;
+  if (!isIntegrated({ kind: "projectSection", name: section! })) return null;
+  if (section === "releases") {
+    const pr = new URLSearchParams(query ?? "").has("pr");
+    if (rest && !featureIntegrated("releases")) return null;
+    if (pr && !featureIntegrated("releases-prs") && !featureIntegrated("releases")) return null;
+  } else if (rest || query) {
+    return null;
+  }
+  return url.hash;
+}
+
 /** Una card dell'inbox come notifica del prototipo. Non lancia mai, nemmeno su un kind ignoto. */
 export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotification {
   const projectCode = item.projectId ? ctx.projectCodes.get(item.projectId) : undefined;
@@ -148,6 +181,25 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
       link: n
         ? `#/automations/${automation.automationCode}/runs/${n}`
         : `#/automations/${automation.automationCode}`,
+      ...viaClaudeOf(item, ctx),
+    };
+  }
+  const appLink = appLinkFor(item.url, ctx.instanceOrigin);
+  if (appLink) {
+    return {
+      id: item.id,
+      kind: item.kind,
+      projectId: item.projectId,
+      objectCode: projectCode ?? "",
+      departmentId: null,
+      recipientIds: [],
+      title: item.text,
+      body: item.summary ?? "",
+      createdAt: item.createdAt,
+      read: item.readAt !== null,
+      archived: item.status === "handled",
+      snoozedUntil: item.status === "snoozed" ? item.snoozedUntil : null,
+      link: appLink,
       ...viaClaudeOf(item, ctx),
     };
   }

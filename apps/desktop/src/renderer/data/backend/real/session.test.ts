@@ -158,6 +158,58 @@ describe("le card dell'inbox", () => {
     );
   });
 
+  // Area 8, F2 (R4): le card dei tipi del catalogo arrivano senza ticket, col
+  // link all'app nel campo `url` (`/app/#/…`, S1): aprono la pagina nell'app
+  // se quella pagina è accesa, altrimenti restano «Open in web».
+  describe("tipi del catalogo, nella build app", () => {
+    beforeEach(() => vi.stubEnv("VITE_STUBWISE_BUILD", "app"));
+    afterEach(() => vi.unstubAllEnvs());
+
+    const REPO = "77777777-7777-4777-8777-777777777777";
+    const catalogCard = (kind: string, url?: string) =>
+      inboxItemSchema.parse({ ...base, kind, ticketId: null, ...(url !== undefined ? { url } : {}) });
+    const origin = { ...ctx, instanceOrigin: "https://stubwise.example.com" };
+
+    it("release.merged apre il dettaglio del rilascio nell'app", () => {
+      const n = presentInboxItem(catalogCard("release.merged", "/app/#/p/AUD/releases/AUD-V3"), origin);
+      expect(n.link).toBe("#/p/AUD/releases/AUD-V3");
+      expect(n.webHref).toBeUndefined();
+      expect(n.objectCode).toBe("AUD");
+    });
+
+    it("pr.opened apre il pannello della PR (id = repository#numero)", () => {
+      const n = presentInboxItem(catalogCard("pr.opened", `/app/#/p/AUD/releases?pr=${REPO}%237`), origin);
+      expect(n.link).toBe(`#/p/AUD/releases?pr=${REPO}%237`);
+      expect(n.webHref).toBeUndefined();
+    });
+
+    it("docs.release_note apre i Docs del progetto, anche da un URL assoluto dell'istanza", () => {
+      const n = presentInboxItem(
+        catalogCard("docs.release_note", "https://stubwise.example.com/app/#/p/AUD/docs"),
+        origin,
+      );
+      expect(n.link).toBe("#/p/AUD/docs");
+    });
+
+    it("una pagina dell'app non ancora accesa resta «Open in web»", () => {
+      const n = presentInboxItem(catalogCard("monitor.alert", "/app/#/p/AUD/servers/SRV-1"), origin);
+      expect(n.link).toBe("");
+      expect(n.webHref).toBe("/app/#/p/AUD/servers/SRV-1");
+    });
+
+    it("un /app/# di un'altra origine non apre mai una pagina dell'app", () => {
+      const n = presentInboxItem(catalogCard("release.merged", "https://evil.example.com/app/#/p/AUD/docs"), origin);
+      expect(n.link).toBe("");
+      expect(n.webHref).toBe("https://evil.example.com/app/#/p/AUD/docs");
+    });
+
+    it("una card del catalogo senza url (server più vecchio) non rompe", () => {
+      const n = presentInboxItem(catalogCard("release.succeeded"), origin);
+      expect(n.link).toBe("");
+      expect(n.title).toBe(base.text);
+    });
+  });
+
   it("una domanda di Claude apre la sessione nel web vecchio", () => {
     const item = inboxItemSchema.parse({
       ...base,
