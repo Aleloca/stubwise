@@ -202,10 +202,28 @@ describe("le card dell'inbox", () => {
       expect(presentInboxItem(catalogCard("support.request", "/app/#/p/AUD/requests?x=1"), origin).link).toBe("");
     });
 
-    it("una pagina dell'app non ancora accesa resta «Open in web»", () => {
+    it("una card monitor.* senza codice del server (rimosso, o un server di prima) resta «Open in web»", () => {
       const n = presentInboxItem(catalogCard("monitor.alert", "/app/#/p/AUD/servers/SRV-1"), origin);
       expect(n.link).toBe("");
       expect(n.webHref).toBe("/app/#/p/AUD/servers/SRV-1");
+    });
+
+    it("monitor.alert e monitor.recovered col codice del server (S12): la pagina del server nell'app", () => {
+      const web = "/monitor/servers/99999999-9999-4999-8999-999999999999";
+      const withCode = (kind: string, projectId: string | null) =>
+        inboxItemSchema.parse({ ...base, kind, ticketId: null, url: web, serverCode: "SRV-4", projectId });
+      // Con l'ancora: dentro il progetto.
+      expect(presentInboxItem(withCode("monitor.alert", base.projectId), origin).link).toBe(
+        "#/p/AUD/servers/SRV-4",
+      );
+      // Senza ancora (zero o più progetti): l'Amministrazione, per chi ha `monitor.manage`.
+      expect(presentInboxItem(withCode("monitor.recovered", null), origin).link).toBe(
+        "#/admin/servers/SRV-4",
+      );
+      // Un altro tipo col codice non diventa una pagina di server.
+      expect(presentInboxItem(withCode("job.failed", base.projectId), origin).link).not.toContain(
+        "servers",
+      );
     });
 
     it("un /app/# di un'altra origine non apre mai una pagina dell'app", () => {

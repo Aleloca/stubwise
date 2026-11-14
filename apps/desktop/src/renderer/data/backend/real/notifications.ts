@@ -80,6 +80,9 @@ export function webHrefFor(
   return "/inbox";
 }
 
+/** Le card del monitor che aprono la pagina del server (S12). */
+const MONITOR_KINDS: ReadonlySet<string> = new Set(["monitor.alert", "monitor.recovered"]);
+
 export const MANDATORY_REASONS: ReadonlySet<string> = new Set([
   "merged",
   "pr_author",
@@ -212,7 +215,19 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
       ...viaClaudeOf(item, ctx),
     };
   }
-  const appLink = appLinkFor(item.url, ctx.instanceOrigin);
+  // Area 8, F4a (S12): una card del monitor apre il server nell'app per codice
+  // (derivato a lettura dal server): nel progetto dell'ancora, o
+  // nell'Amministrazione senza ancora (zero o più progetti: `monitor.manage`).
+  // Senza codice (un server rimosso) resta «Open in web» (I1).
+  const serverLink =
+    MONITOR_KINDS.has(item.kind) && item.serverCode && isIntegrated({ kind: "projectSection", name: "servers" })
+      ? projectCode
+        ? `#/p/${projectCode}/servers/${item.serverCode}`
+        : item.projectId === null && isIntegrated({ kind: "admin", name: "servers" })
+          ? `#/admin/servers/${item.serverCode}`
+          : null
+      : null;
+  const appLink = serverLink ?? appLinkFor(item.url, ctx.instanceOrigin);
   if (appLink) {
     return {
       id: item.id,
