@@ -8602,6 +8602,7 @@
     "app": "App",
     "phone": "Phone",
     "prototypePhone": "Prototype: phone alerts are saved, but nothing is sent.",
+    "appPhone": "Sent as a push notification to the Stubwise app on your phone.",
     "pinned": "Pinned",
     "others": "Other projects",
     "projects": "Projects",

@@ -286,6 +286,11 @@ export function integrationTargetOf(
     // «Tutti i progetti» (il portafoglio) è della fetta 4; la colonna resta.
     return { target: { kind: "feature", name: "portfolio" }, titleKey: "nav.projects" };
   }
+  // Preferenze → Notifiche (area 8, F2): la funzione `alerts`; le altre
+  // sezioni delle Preferenze restano della loro area.
+  if (first === "preferences" && (!second || second === "notifications")) {
+    return { target: { kind: "feature", name: "alerts" }, titleKey: "prefs.sections.notifications" };
+  }
   if (first === "home" && search.view === "week") {
     return { target: { kind: "feature", name: "my-week" }, titleKey: "column.subviews.home.week" };
   }

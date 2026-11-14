@@ -8602,6 +8602,7 @@
     "app": "App",
     "phone": "Telefono",
     "prototypePhone": "Prototipo: gli avvisi sul telefono si salvano, ma non parte nulla.",
+    "appPhone": "Arriva come notifica push nell'app Stubwise sul telefono.",
     "pinned": "Fissati",
     "others": "Altri progetti",
     "projects": "Progetti",

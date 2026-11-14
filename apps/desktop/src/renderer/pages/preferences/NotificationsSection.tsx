@@ -13,6 +13,7 @@ import {
 import { Trans, useTranslation } from "react-i18next";
 import type { ProjectSubscriptions } from "../../data/alerts";
 import { useAlertSubscriptions } from "../../data/queries";
+import { isAppBuild } from "../../data/build";
 import { useViewer } from "../../data/viewing";
 import { Tooltip } from "../../layout/Tooltip";
 import { PageError } from "../../tasks-ui/PageStates";
@@ -59,6 +60,8 @@ const buttonClass =
 /** L'intestazione delle colonne App / Phone ⓘ: agganciata in alto mentre si scorre. */
 function ColumnsHeader() {
   const { t } = useTranslation();
+  // Nella build app il Telefono è la notifica push vera (M-2 = b); nel prototipo non parte nulla.
+  const phoneNote = t(isAppBuild() ? "alerts.appPhone" : "alerts.prototypePhone");
   return (
     <div
       data-columns-header
@@ -71,10 +74,10 @@ function ColumnsHeader() {
         className={`${SWITCH_COL} flex items-center justify-center gap-1 text-xs font-medium text-ink-muted`}
       >
         {t("alerts.phone")}
-        <Tooltip label={t("alerts.prototypePhone")}>
+        <Tooltip label={phoneNote}>
           <button
             type="button"
-            aria-label={t("alerts.prototypePhone")}
+            aria-label={phoneNote}
             className="grid size-4 place-items-center rounded-full text-ink-faint hover:text-ink"
           >
             <InfoGlyph />
