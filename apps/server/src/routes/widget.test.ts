@@ -1,12 +1,17 @@
 import { randomBytes } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import { buildApp } from "../app.js";
 import type { ChatAvailability, ChatLlm, ChatLlmInput } from "./chat-llm.js";
 import {
+  backlogItems,
   backlogJobs,
+  notifications,
+  projectMembers,
+  roles,
+  supportFollowers,
   docChunks,
   docGenerations,
   docPages,
@@ -809,6 +814,31 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
       .returning();
     return { project, widget, conversationId: conv!.id, genId };
   }
+
+  it("area 8, F3, S7: un messaggio del cliente su una conversazione con un esito avvisa chi segue (obbligatorio); in triage nessun avviso", async () => {
+    const { project, widget, conversationId } = await setupChat(testDb.db);
+    const [follower] = await testDb.db.insert(users).values({ email: `f-${Date.now()}@x.it`, passwordHash: "x", role: "member" }).returning();
+    const [viewerRole] = await testDb.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "viewer"));
+    await testDb.db.insert(projectMembers).values({ projectId: project.projectId, userId: follower!.id, roleId: viewerRole!.id });
+    await testDb.db.insert(supportFollowers).values({ conversationId, userId: follower!.id });
+    const post = (content: string) =>
+      app.inject({
+        method: "POST",
+        url: `/widget/${project.slug}/conversations/${conversationId}/messages`,
+        headers: { "x-stubwise-key": widget.key },
+        payload: { content, userId: "visitor-1" },
+      });
+    const cardsOf = () => testDb.db.select().from(notifications).where(and(eq(notifications.userId, follower!.id), eq(notifications.kind, "support.customer_replied")));
+    // In triage (nessun esito): nessun avviso, risponde l'AI del widget.
+    await post("Una domanda");
+    expect(await cardsOf()).toEqual([]);
+    // Con un esito (una richiesta legata): chi segue lo riceve anche senza iscrizione.
+    await testDb.db.insert(backlogItems).values({ projectId: project.projectId, title: "R", source: "manual", supportConversationId: conversationId });
+    await post("Ci sono novità?");
+    const cards = await cardsOf();
+    expect(cards).toHaveLength(1);
+    expect(cards[0]!.event).toMatchObject({ kind: "support.customer_replied", title: "Ci sono novità?", alertMandatory: "follows_conversation" });
+  });
 
   it("stream normale → delta + done con citazioni; user+assistant persistiti; lastMessageAt aggiornato", async () => {
     const { project, widget, conversationId, genId } = await setupChat(testDb.db);

@@ -168,6 +168,9 @@ export const LIVE_ALERT_TYPES: readonly string[] = [
   "pr.corrected",
   "monitor.alert",
   "monitor.recovered",
+  // Area 8, F3, S7 (72): la richiesta nata da una conversazione, e il cliente che scrive su una con un esito.
+  "support.request",
+  "support.customer_replied",
 ];
 
 export const alertTypeOf = (kind: string): AlertType | undefined =>

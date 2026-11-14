@@ -7,6 +7,7 @@ import {
   listSupportConversations,
   listWaitingCustomers,
   supportCustomerPreview,
+  supportEmailDraft,
   SupportError,
 } from "../services/support.js";
 import { followConversation, markNotConcluded, openRequestFrom, replyToCustomer } from "../services/support-writes.js";
@@ -50,6 +51,10 @@ export async function supportRoutes(instance: FastifyInstance): Promise<void> {
   app.get("/support/conversations/by-code/:code/preview", { config: { access: { kind: "user" } }, schema: { params: codeParams } }, async (request, reply) =>
     handle(reply, () => supportCustomerPreview(app.db, request.user!, request.params.code)),
   );
+  // S9: «Scrivigli anche per email» (i campi della Posta; il server non invia).
+  app.get("/support/conversations/by-code/:code/email-draft", { config: { access: { kind: "user" } }, schema: { params: codeParams } }, async (request, reply) =>
+    handle(reply, () => supportEmailDraft(app.db, request.user!, request.params.code)),
+  );
   app.get("/support/conversations/by-code/:code", { config: { access: { kind: "user" } }, schema: { params: codeParams } }, async (request, reply) =>
     handle(reply, () => getSupportConversation(app.db, request.user!, request.params.code)),
   );
@@ -71,7 +76,7 @@ export async function supportRoutes(instance: FastifyInstance): Promise<void> {
     { config: { access: { kind: "user" } }, schema: { params: codeParams, body: supportOpenRequestBodySchema } },
     async (request, reply) =>
       handle(reply, async () => {
-        const out = await openRequestFrom(app.db, request.user!, request.params.code, request.body);
+        const out = await openRequestFrom(app.db, request.user!, request.params.code, request.body, { publicUrl: app.publicUrl });
         return reply.code(out.created ? 201 : 200).send({ conversation: out.conversation, request: out.request });
       }),
   );

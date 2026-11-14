@@ -15,6 +15,7 @@ import {
   widgetMessages,
   widgets,
 } from "@stubwise/db";
+import { publishCustomerRepliedAlert } from "@stubwise/notifications";
 import { keysMatch } from "../ingest/shared.js";
 import { maybeEnqueueBacklogIntake } from "../backlog/enqueue.js";
 import { createTicket } from "../db/tickets.js";
@@ -494,6 +495,9 @@ export async function widgetRoutes(
         .update(widgetConversations)
         .set({ lastMessageAt: new Date() })
         .where(eq(widgetConversations.id, conversationId));
+      // Area 8, F3 (S7): su una conversazione con un esito, chi segue (e gli
+      // iscritti) sa che il cliente ha scritto. Best-effort: non lancia.
+      await publishCustomerRepliedAlert(app.db, app.publicUrl, conversationId, content);
 
       // RETRIEVAL cross-repo FILTRATO ai soli repo esposti dal widget
       // (enabledRepositoryIds). Se l'embedding è down fa fallback full-text.

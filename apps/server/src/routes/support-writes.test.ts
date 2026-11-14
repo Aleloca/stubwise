@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { backlogItemRequesters, backlogItems, notifications, projects, supportFollowers, widgetConversations, widgetMessages } from "@stubwise/db";
+import { backlogItemRequesters, backlogItems, googleAccounts, googleWorkspaces, notifications, projects, supportFollowers, widgetConversations, widgetMessages, widgets } from "@stubwise/db";
 import { seedBacklogItem, seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { SupportConversation } from "@stubwise/shared";
 import { and, eq } from "drizzle-orm";
@@ -147,6 +147,19 @@ describe("S6: «Apri la richiesta» da una non conclusa", () => {
     expect(await t.db.select().from(backlogItemRequesters).where(eq(backlogItemRequesters.itemId, item!.id))).toEqual([expect.objectContaining({ userId: dev.id })]);
   });
 
+  it("S7: la richiesta nata pubblica `support.request` (codice, titolo, cliente; il link alla richiesta) a chi la riceve di partenza", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const lead = await person("project_lead", projectId);
+    const dev = await person("developer", projectId);
+    const c = await conversation(projectId);
+    await customer(c.id, 1);
+    await judge(c.id, "not_concluded");
+    const out = (await send("POST", dev.headers, `${base(c.code)}/request`, { title: "Export PDF", description: "" })).json() as { request: { id: string; code: string } };
+    const cards = await t.db.select().from(notifications).where(and(eq(notifications.userId, lead.id), eq(notifications.kind, "support.request")));
+    expect(cards).toHaveLength(1);
+    expect(cards[0]!.event).toMatchObject({ requestCode: out.request.code, title: "Export PDF", customerName: "Mario", url: `https://s.example/app/#/p/${out.request.code.split("-R")[0]}/requests?request=${out.request.id}` });
+  });
+
   it("doppio clic (anche insieme): una richiesta sola, la seconda risposta 200 con la stessa", async () => {
     const { projectId } = await seedRepository(t.db);
     const dev = await person("developer", projectId);
@@ -203,6 +216,59 @@ describe("S15: «Non conclusa» a mano (decisione del maintainer)", () => {
     await customer(answered.id, 1);
     await judge(answered.id, "concluded");
     expect((await send("POST", contributor.headers, `${base(answered.code)}/not-concluded`)).statusCode).toBe(403);
+  });
+});
+
+describe("S9: «Scrivigli anche per email»", () => {
+  const mailbox = async (userId: string) => {
+    const [ws] = await t.db
+      .insert(googleWorkspaces)
+      .values({ name: `W${randomUUID().slice(0, 6)}`, domains: [`${randomUUID().slice(0, 6)}.it`], clientId: "c", clientSecretEncrypted: "s" })
+      .returning();
+    await t.db.insert(googleAccounts).values({
+      userId,
+      workspaceId: ws!.id,
+      email: `box-${randomUUID().slice(0, 6)}@acme.com`,
+      googleSub: randomUUID(),
+      refreshTokenEncrypted: "x",
+      scopes: ["https://www.googleapis.com/auth/gmail.modify"],
+    });
+  };
+
+  it("i campi da aprire nella Posta: lo slot, il cliente, l'oggetto e un testo di template nella lingua del widget (mai il modello)", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const dev = await person("developer", projectId);
+    await mailbox(dev.id);
+    const [w] = await t.db.insert(widgets).values({ projectId, name: "Sito", key: randomUUID(), language: "it" }).returning();
+    const c = await withRequest(projectId);
+    await t.db.update(widgetConversations).set({ widgetId: w!.id, externalUserEmail: "mario@x.it", externalUserName: "Mario Bianchi" }).where(eq(widgetConversations.id, c.id));
+    const res = await app.inject({ method: "GET", url: `${base(c.code)}/email-draft`, headers: dev.headers });
+    expect(res.statusCode, res.body).toBe(200);
+    const d = res.json() as { slot: string; to: { name: string; email: string }; subject: string; body: string };
+    expect(d.slot).toBe(`support-${c.code}`);
+    expect(d.to).toEqual({ name: "Mario Bianchi", email: "mario@x.it" });
+    expect(d.subject).toMatch(/^Sulla tua richiesta .+-R\d+$/);
+    expect(d.body).toContain("Ciao Mario");
+    expect(d.body).not.toContain(dev.id);
+    // Con la bozza di Claude della conversazione, il corpo è quella.
+    await t.db.update(widgetConversations).set({ claudeDraft: "Testo di Claude" }).where(eq(widgetConversations.id, c.id));
+    expect(((await app.inject({ method: "GET", url: `${base(c.code)}/email-draft`, headers: dev.headers })).json() as { body: string }).body).toBe("Testo di Claude");
+  });
+
+  it("perché no: senza support.reply 403; in triage, senza email del cliente, senza casella collegata 409 col perché", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const dev = await person("developer", projectId);
+    const contributor = await person("contributor", projectId);
+    const c = await withRequest(projectId);
+    const draft = (h: H, code: string) => app.inject({ method: "GET", url: `${base(code)}/email-draft`, headers: h });
+    expect((await draft(contributor.headers, c.code)).statusCode).toBe(403);
+    await t.db.update(widgetConversations).set({ externalUserEmail: null }).where(eq(widgetConversations.id, c.id));
+    expect((await draft(dev.headers, c.code)).json()).toMatchObject({ code: "support_no_email" });
+    await t.db.update(widgetConversations).set({ externalUserEmail: "m@x.it" }).where(eq(widgetConversations.id, c.id));
+    expect((await draft(dev.headers, c.code)).json()).toMatchObject({ code: "support_no_mailbox" });
+    const triage = await conversation(projectId);
+    await customer(triage.id, 1);
+    expect((await draft(dev.headers, triage.code)).json()).toMatchObject({ code: "support_triage" });
   });
 });
 

@@ -1,4 +1,5 @@
 import { backlogItems, createRequestItem, supportFollowers, widgetConversations, widgetMessages, type Db } from "@stubwise/db";
+import { publishSupportRequestAlert } from "@stubwise/notifications";
 import type { SupportConversation, SupportOpenRequestBody, SupportReplyBody } from "@stubwise/shared";
 import { and, eq, sql } from "drizzle-orm";
 import type { SessionUser } from "../auth/session.js";
@@ -72,6 +73,7 @@ export async function openRequestFrom(
   viewer: Viewer,
   code: string,
   input: SupportOpenRequestBody,
+  opts: { publicUrl?: string | null } = {},
 ): Promise<{ created: boolean; conversation: SupportConversation; request: { id: string; code: string } }> {
   const { row, ctx } = await conversationByCode(db, viewer, code);
   if (!ctx.permissions.has("backlog.create")) throw new SupportError(403, "forbidden", "Opening a request needs backlog.create");
@@ -94,6 +96,8 @@ export async function openRequestFrom(
       supportConversationId: row.id,
     });
     const [item] = await tx.select({ number: backlogItems.number }).from(backlogItems).where(eq(backlogItems.id, id));
+    // S7: l'avviso nasce con la richiesta (nella sua transazione).
+    await publishSupportRequestAlert(tx, opts.publicUrl, id);
     return { created: true, id, number: item!.number };
   });
   return {

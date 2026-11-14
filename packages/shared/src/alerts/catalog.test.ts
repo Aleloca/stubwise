@@ -94,6 +94,8 @@ describe("le righe delle Preferenze", () => {
     expect(isLiveAlertType("server.trouble")).toBe(false);
     expect(liveRowTypes()).toContain("server.trouble");
     expect(liveRowTypes()).toContain("release.failed");
-    expect(liveRowTypes()).not.toContain("support.request");
+    // Un tipo del catalogo senza produttore non ha la sua riga (area 8, F3: i support.* sono vivi).
+    expect(liveRowTypes()).not.toContain("task.created");
+    expect(liveRowTypes()).toContain("support.request");
   });
 });
