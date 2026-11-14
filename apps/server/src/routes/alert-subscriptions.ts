@@ -6,6 +6,7 @@ import {
   AlertSubscriptionError,
   copyAlertSubscriptions,
   listAlertSubscriptions,
+  muteFromNotification,
   muteProjectAlerts,
   setAlertSubscription,
 } from "../services/alert-subscriptions.js";
@@ -40,6 +41,10 @@ export async function alertSubscriptionRoutes(instance: FastifyInstance): Promis
   );
   app.post("/me/alert-subscriptions/:projectId/mute", { config: { access: { kind: "user" } }, schema: { params: projectParams } }, async (request, reply) =>
     handle(reply, async () => ({ before: await muteProjectAlerts(app.db, request.user!, request.params.projectId) })),
+  );
+  // S6: «Non avvisarmi più di questo» dalla card.
+  app.post("/inbox/:id/mute-type", { config: { access: { kind: "user" } }, schema: { params: z.object({ id: z.uuid() }) } }, async (request, reply) =>
+    handle(reply, () => muteFromNotification(app.db, request.user!, request.params.id)),
   );
   app.put(
     "/me/alert-subscriptions/:projectId/:type",
