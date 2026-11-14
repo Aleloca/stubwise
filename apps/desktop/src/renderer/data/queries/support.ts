@@ -178,6 +178,11 @@ export function useInvalidateSupport() {
   return useInvalidate(SUPPORT_AREAS);
 }
 
+/** Ogni quanto si rilegge la conversazione mentre la bozza accodata non arriva (build app). */
+const DRAFT_POLL_MS = 2_000;
+/** Oltre quanto la bozza accodata si dà per non riuscita: la casella lo dice, il campo resta com'era. */
+const DRAFT_WAIT_MS = 90_000;
+
 export type SupportClaudeDraftState =
   | { status: "idle" }
   | { status: "writing"; text: string }
@@ -209,7 +214,18 @@ export function useSupportClaudeDraft() {
       setState({ status: "writing", text: "" });
       void (async () => {
         try {
-          const view = await api.support.draftReply(code);
+          let view = await api.support.draftReply(code);
+          // Build app (area 8, F3): il server ACCODA la bozza. Si rilegge la
+          // conversazione finché non arriva (o finché chi l'ha chiesta smette).
+          const started = Date.now();
+          while (view.claudeDraftPending) {
+            await new Promise((resolve) => setTimeout(resolve, DRAFT_POLL_MS));
+            if (current.stopped || getSessionPersonId() !== me) return;
+            if (Date.now() - started > DRAFT_WAIT_MS) throw new Error("draft_timeout");
+            const next = await api.support.getSupportConversation(code);
+            if (!next) throw new Error("not_found");
+            view = next;
+          }
           void invalidate();
           let written = "";
           const complete = await streamText(
