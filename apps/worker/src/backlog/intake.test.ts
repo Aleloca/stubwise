@@ -264,6 +264,21 @@ describe("runIntake — nuova voce", () => {
     expect(cards[0]!.event).toMatchObject({ title: "Voce generata", customerName: null });
   });
 
+  it("area 8, F3, S12: una richiesta dal server MCP con la conversazione (canale `mcp`) si lega alla conversazione del suo job", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const job = fakeJob(projectId);
+    await db.insert(backlogJobs).values({ id: job.id, projectId, kind: "intake", payload: { title: "Export PDF", body: "Vorrei il PDF" } }).onConflictDoNothing();
+    const [conv] = await db.insert(widgetConversations).values({ projectId, externalUserId: "mcp:x", channel: "mcp", intakeJobId: job.id }).returning();
+    const deps = makeDeps(db, {
+      embeddingClient: embeddingClient({ "Export PDF\n\nVorrei il PDF": vecOrtho }),
+      runner: fakeRunner(INTAKE_JSON),
+    });
+    await runIntake(deps, job, { title: "Export PDF", body: "Vorrei il PDF" });
+    const [item] = await db.select().from(backlogItems).where(eq(backlogItems.projectId, projectId));
+    expect(item!.supportConversationId).toBe(conv!.id);
+  });
+
   it("(c) zona grigia (similarità tra le due soglie) → nuova voce con similarToId", async () => {
     const db = testDb.db;
     const projectId = await createProject(db);

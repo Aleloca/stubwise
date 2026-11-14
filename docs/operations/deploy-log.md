@@ -4580,3 +4580,58 @@ deploy o di un rollback che la tocca.
   3. Scendendo, i `monitor.*` con un progetto tornano su Slack e ai soli
      `monitor.manage`: le iscrizioni scritte restano in tabella e tornano a
      valere risalendo.
+
+- **«Integrazione area 8, fetta 3: Support»** *(14 nov 2026)*: branch
+  `feat/area8-f3` (da `feat/area8-f2`: si deploya DOPO la F2), piano
+  `docs/plans/2026-11-14-integrazione-area8-fetta3-plan.md`. Le conversazioni
+  coi clienti del widget (e del server MCP in modalità collaboratore) nella
+  app: la risposta di una persona (`support.reply`), gli stati derivati,
+  «Segui», la richiesta da una conversazione, il giudizio sul triage dopo il
+  silenzio, gli avvisi `support.*`.
+
+  Migrazione **0179** (`notification_kind` `support.request` e
+  `support.customer_replied`, ognuno in uno statement a sé; il codice
+  `<PRJ>-S<n>` delle conversazioni con il suo contatore e il trigger, le
+  conversazioni di prima numerate per data; canale, giudizio, bozza e job
+  d'intake su `widget_conversations`; `author_id` e `client_id` su
+  `widget_messages`; `support_followers`;
+  `backlog_items.support_conversation_id`; le operazioni AI
+  `support_triage_check` e `support_reply_draft` nei CHECK; `support.reply`
+  ai preset Project Lead, Developer, Legacy Member e ai ruoli che ne
+  contenevano uno). **ORDINE**: **server** (healthy, 0179 applicata), poi
+  **worker**, poi **caddy** (l'app e il bundle del WIDGET, `/widget.js`, che
+  ora legge le risposte del team). Nessuna env nuova.
+
+  **Da sapere subito**:
+  - **Il worker spende AI da solo** per il giudizio sul triage (S10, G-1 del
+    maintainer): una sessione breve del CLI con Haiku, una per conversazione
+    del widget rimasta 15 minuti in silenzio senza un esito, nel budget
+    mensile. Le conversazioni di prima che sono già in silenzio vengono
+    giudicate ai primi giri (dieci per giro, ogni minuto): con molte
+    conversazioni vecchie conviene guardare la spesa
+    (`select count(*) from agent_runs where operation = 'support_triage_check';`).
+  - **Il widget** (bundle servito da caddy) mostra le risposte del team col
+    titolo del widget e le legge ogni 15 s col pannello aperto: un widget in
+    cache dei siti ospiti si aggiorna al ricaricamento della pagina.
+  - **Il plugin di Claude Code**: il changeset
+    `.changeset/support-mcp-conversation.md` pubblica `@stubwise/mcp` e
+    `@stubwise/claude-plugin` all'unione su `main` (il giro di Release);
+    verificare `npm view @stubwise/mcp version` dopo.
+  Controllo, sola lettura: `select channel, count(*) from
+  widget_conversations group by 1;` e `select triage_outcome, count(*) from
+  widget_conversations group by 1;`.
+
+  **Rollback** (il server scende **insieme** al caddy; la 0179 non si
+  annulla, un server vecchio ignora tabelle e colonne):
+  1. ⚠️ **I `notification_kind` nuovi** rendono NON sicuro scendere sul
+     server finché ne esistono righe (500 su `/api/inbox`): `select kind,
+     count(*) from notifications where kind in ('support.request',
+     'support.customer_replied') group by 1;`, e se ce ne sono `delete from
+     notifications where kind in ('support.request',
+     'support.customer_replied');`.
+  2. Scendendo il caddy, un widget VECCHIO mostra le risposte del team
+     (`widget_messages.role = 'team'`) come risposte dell'AI, e solo
+     riaprendo il pannello: sono testi veri del team, nessun dato in più
+     esce. Accettato, nessuna azione.
+  3. Un worker vecchio non fa più il giudizio: le conversazioni restano «in
+     triage» nell'app nuova, nessun danno.

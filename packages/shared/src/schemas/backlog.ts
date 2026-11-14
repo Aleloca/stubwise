@@ -155,6 +155,16 @@ export const createBacklogItemSchema = z.object({
   projectId: z.uuid(),
   title: z.string().min(1).max(300),
   body: z.string().min(1).max(20_000),
+  /**
+   * Area 8, F3 (canale `mcp`): la conversazione che ha portato alla richiesta,
+   * dal server MCP in modalità collaboratore. Allegata alla richiesta e
+   * leggibile in Support; il team ci risponde e chi ha chiesto lo vede con
+   * `my_requests`. Facoltativa (additiva).
+   */
+  conversation: z
+    .array(z.object({ from: z.enum(["customer", "assistant"]), text: z.string().trim().min(1).max(4000) }))
+    .max(100)
+    .optional(),
 });
 export type CreateBacklogItemInput = z.infer<typeof createBacklogItemSchema>;
 
@@ -201,6 +211,12 @@ export const backlogItemSchema = z.object({
   updatedAt: z.iso.datetime(),
   similarTo: backlogSimilarRefSchema.nullable(),
   ticketCount: z.number().int(),
+  /**
+   * Area 8, F3 (canale `mcp`): le ultime risposte del team sulla conversazione
+   * della richiesta, senza autore. Solo con `mine=true` (chi l'ha chiesta);
+   * `[]` altrimenti; ASSENTE da un server più vecchio: chi la legge fa `?? []`.
+   */
+  teamReplies: z.array(z.object({ body: z.string(), at: z.iso.datetime() })).optional(),
 });
 export type BacklogItem = z.infer<typeof backlogItemSchema>;
 

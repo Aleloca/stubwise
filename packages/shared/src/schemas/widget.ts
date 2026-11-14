@@ -80,6 +80,41 @@ export const widgetUpsertBodySchema = widgetSettingsSchema.extend({
   repositoryFilters: widgetRepositoryFiltersSchema,
 });
 export type WidgetUpsertBody = z.infer<typeof widgetUpsertBodySchema>;
+export type WidgetUpsertInput = z.input<typeof widgetUpsertBodySchema>;
+
+/**
+ * Un widget come lo vede l'amministrazione (`/api/projects/:projectId/widgets`,
+ * la web e, dall'area 8 F3, l'app): i campi del corpo più chiave, data e il
+ * numero di conversazioni. La chiave è pubblica (sta nello snippet del sito).
+ */
+export const widgetAdminSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  key: z.string(),
+  enabled: z.boolean(),
+  enabledRepositoryIds: z.array(z.uuid()),
+  // Filtro FINE per-repo: chiavi ⊆ enabledRepositoryIds (garantito in scrittura).
+  repositoryFilters: widgetRepositoryFiltersSchema,
+  title: z.string(),
+  welcomeMessage: z.string(),
+  // Istruzioni per il system prompt: interne, mai sulla superficie pubblica del widget.
+  instructions: z.string(),
+  accentColor: z.string(),
+  language: z.string(),
+  dailyMessageCap: z.number().int().nullable(),
+  dailyTicketCap: z.number().int().nullable(),
+  createdAt: z.iso.datetime(),
+  conversationCount: z.number().int(),
+});
+export type WidgetAdmin = z.infer<typeof widgetAdminSchema>;
+
+/**
+ * L'elenco: lo legge chi vede il progetto (come la web); `canManage` (area 8,
+ * F3, additivo) dice se chi guarda ha `widget.manage` — l'app nasconde la
+ * sezione senza. Default `false` per un server più vecchio.
+ */
+export const widgetListSchema = z.object({ widgets: z.array(widgetAdminSchema), canManage: z.boolean().default(false) });
+export const widgetResultSchema = z.object({ widget: widgetAdminSchema });
 
 export const widgetConversationCreateBodySchema = z.object({
   user: z.object({

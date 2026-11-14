@@ -1,9 +1,9 @@
-import { widgetRepositoryFiltersSchema, widgetUpsertBodySchema } from "@stubwise/shared";
+import { widgetAdminSchema, widgetRepositoryFiltersSchema, widgetUpsertBodySchema } from "@stubwise/shared";
 import { and, asc, desc, eq, exists, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import type { RouteAccess } from "../auth/access.js";
+import { projectPermissionsFor, type RouteAccess } from "../auth/access.js";
 import { fromParam } from "../auth/project-resolvers.js";
 import {
   repositories,
@@ -27,27 +27,8 @@ const CONVERSATIONS_LIMIT_MAX = 200;
  * cookie). Campi elencati esplicitamente, mai spread della riga (che porterebbe
  * `projectId`, interno all'API).
  */
-const widgetSchema = z.object({
-  id: z.uuid(),
-  name: z.string(),
-  key: z.string(),
-  enabled: z.boolean(),
-  enabledRepositoryIds: z.array(z.uuid()),
-  // Filtro FINE per-repo (path filter): chiavi ⊆ enabledRepositoryIds (garantito
-  // in scrittura). Round-trip completo verso la SPA.
-  repositoryFilters: widgetRepositoryFiltersSchema,
-  title: z.string(),
-  welcomeMessage: z.string(),
-  // Istruzioni aggiuntive per il system prompt della chat (interne: non esposte
-  // sulla superficie pubblica del widget, solo su questa superficie SPA admin).
-  instructions: z.string(),
-  accentColor: z.string(),
-  language: z.string(),
-  dailyMessageCap: z.number().int().nullable(),
-  dailyTicketCap: z.number().int().nullable(),
-  createdAt: z.iso.datetime(),
-  conversationCount: z.number().int(),
-});
+// La forma di un widget sta in `@stubwise/shared` (`widgetAdminSchema`), la stessa del client.
+const widgetSchema = widgetAdminSchema;
 
 type WidgetRow = typeof widgets.$inferSelect;
 
@@ -140,7 +121,7 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
       schema: {
         params: idParamsSchema,
         response: {
-          200: z.object({ widgets: z.array(widgetSchema) }),
+          200: z.object({ widgets: z.array(widgetSchema), canManage: z.boolean() }),
           404: errorSchema,
           ...authErrorResponses,
         },
@@ -162,7 +143,12 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
         // Ordine stabile: createdAt asc, tiebreaker sull'id al bordo del limit.
         .orderBy(asc(widgets.createdAt), asc(widgets.id));
 
-      return { widgets: rows.map((r) => toPublicWidget(r.widget, r.conversationCount)) };
+      // Area 8, F3: chi guarda può gestirli? (l'app nasconde la sezione senza).
+      const permissions = await projectPermissionsFor(app.db, request.user!, projectId);
+      return {
+        widgets: rows.map((r) => toPublicWidget(r.widget, r.conversationCount)),
+        canManage: permissions?.has("widget.manage") ?? false,
+      };
     },
   );
 

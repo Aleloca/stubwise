@@ -2853,6 +2853,8 @@ export const widgetConversations = pgTable(
     number: integer("number").notNull().default(sql`NULL`),
     /** Il canale: il widget, o il server MCP in modalità collaboratore. */
     channel: text("channel").$type<"widget" | "mcp">().notNull().default("widget"),
+    /** Il canale `mcp`: il job d'intake della richiesta con cui la conversazione è arrivata. */
+    intakeJobId: uuid("intake_job_id").references((): AnyPgColumn => backlogJobs.id, { onDelete: "set null" }),
     /**
      * Il giudizio sul triage senza esito: il controllo del worker dopo il
      * silenzio (`triageOutcomeByUserId` null) o una persona con «Non
@@ -2876,6 +2878,7 @@ export const widgetConversations = pgTable(
     index("widget_conversations_project_idx").on(table.projectId, table.lastMessageAt),
     unique("widget_conversations_project_number_unique").on(table.projectId, table.number),
     index("widget_conversations_draft_due_idx").on(table.draftDueAt).where(sql`${table.draftDueAt} IS NOT NULL`),
+    index("widget_conversations_intake_job_idx").on(table.intakeJobId).where(sql`${table.intakeJobId} IS NOT NULL`),
     check("widget_conversations_channel_chk", sql`${table.channel} in ('widget', 'mcp')`),
     check("widget_conversations_triage_outcome_chk", sql`${table.triageOutcome} in ('concluded', 'not_concluded')`),
   ],

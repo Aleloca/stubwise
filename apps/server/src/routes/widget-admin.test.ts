@@ -90,7 +90,14 @@ describe("GET /api/projects/:projectId/widgets", () => {
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ widgets: [] });
+    // Area 8, F3: `canManage` dice se chi guarda può gestirli (il Legacy Member no).
+    expect(res.json()).toEqual({ widgets: [], canManage: false });
+  });
+
+  it("area 8, F3: `canManage` vero per chi ha widget.manage (il full admin)", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    const res = await app.inject({ method: "GET", url: `/api/projects/${projectId}/widgets`, headers: { cookie: adminCookie } });
+    expect(res.json()).toMatchObject({ canManage: true });
   });
 
   it("conversationCount: aggregato corretto per widget", async () => {
