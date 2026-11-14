@@ -80,6 +80,12 @@ CREATE INDEX "widget_conversations_draft_due_idx" ON "widget_conversations" USIN
 -- il suo autore.
 ALTER TABLE "widget_messages" ADD COLUMN "author_id" uuid REFERENCES "users"("id") ON DELETE SET NULL;
 --> statement-breakpoint
+-- L'id che il client dà a una risposta («Send to customer»): un doppio invio,
+-- o un «Retry» dopo un timeout, non manda due messaggi.
+ALTER TABLE "widget_messages" ADD COLUMN "client_id" uuid;
+--> statement-breakpoint
+CREATE UNIQUE INDEX "widget_messages_client_id_idx" ON "widget_messages" USING btree ("conversation_id", "client_id") WHERE "client_id" IS NOT NULL;
+--> statement-breakpoint
 -- «Segui» ([A 14]): l'avviso obbligatorio `support.customer_replied`.
 CREATE TABLE "support_followers" (
 	"conversation_id" uuid NOT NULL REFERENCES "widget_conversations"("id") ON DELETE CASCADE,

@@ -12,6 +12,8 @@ export interface CreateRequestItemInput {
   requesterId: string;
   /** Area 7: l'esecuzione che la crea. */
   automationRunId?: string | null;
+  /** Area 8, F3: la conversazione di Support da cui nasce («Apri la richiesta»). */
+  supportConversationId?: string | null;
   /**
    * Il job di stima (una sessione di Claude). Di default sì, come per una
    * persona; `false` SOLO dall'esecutore delle automazioni: P3 = a, nessun
@@ -37,6 +39,7 @@ export async function createRequestItem(db: DbOrTx, input: CreateRequestItemInpu
         document: input.document,
         source: "manual",
         ...(input.automationRunId ? { automationRunId: input.automationRunId } : {}),
+        ...(input.supportConversationId ? { supportConversationId: input.supportConversationId } : {}),
       })
       .returning({ id: backlogItems.id });
     if (input.estimate !== false) await tx.insert(backlogJobs).values({ projectId: input.projectId, kind: "estimate", payload: { itemId: item!.id } });
