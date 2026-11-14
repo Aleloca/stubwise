@@ -67,7 +67,7 @@ const checkViewSchema = z.object({
 type CheckView = z.infer<typeof checkViewSchema>;
 
 /** Compone la proiezione pubblica: mai `dsnEncrypted`, mai il DSN in chiaro. */
-function toCheckView(row: CheckRow): CheckView {
+export function toCheckView(row: CheckRow): CheckView {
   return {
     id: row.id,
     serverId: row.serverId,
