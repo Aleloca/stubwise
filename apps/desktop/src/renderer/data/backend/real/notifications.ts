@@ -119,11 +119,20 @@ export function appLinkFor(rawUrl: string | null | undefined, instanceOrigin?: s
   const relative = rawUrl.startsWith("/") && !rawUrl.startsWith("//");
   if (!relative && url.origin !== instanceOrigin) return null;
   if (url.pathname !== "/app/" && url.pathname !== "/app") return null;
-  const m = /^#\/p\/[^/?#]+\/(releases|docs)(\/[^?#]+)?(\?[^#]*)?$/.exec(url.hash);
+  const m = /^#\/p\/[^/?#]+\/(releases|docs|support|requests)(\/[^?#]+)?(\?[^#]*)?$/.exec(
+    url.hash,
+  );
   if (!m) return null;
   const [, section, rest, query] = m;
   if (!isIntegrated({ kind: "projectSection", name: section! })) return null;
-  if (section === "releases") {
+  if (section === "support") {
+    // Area 8, F3: la conversazione (`support.customer_replied`), mai l'elenco nudo.
+    if (!rest || query) return null;
+  } else if (section === "requests") {
+    // Area 8, F3: la richiesta nel suo pannello (`support.request`), solo `?request=`.
+    const params = new URLSearchParams(query ?? "");
+    if (rest || [...params.keys()].join() !== "request") return null;
+  } else if (section === "releases") {
     const pr = new URLSearchParams(query ?? "").has("pr");
     if (rest && !featureIntegrated("releases")) return null;
     if (pr && !featureIntegrated("releases-prs") && !featureIntegrated("releases")) return null;
