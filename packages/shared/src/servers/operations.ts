@@ -47,7 +47,10 @@ export const serverActionSchema = z.discriminatedUnion("action", [
   actionVariant(SERVER_ACTIONS[4]),
   actionVariant(SERVER_ACTIONS[5]),
 ]);
-export type ServerAction = z.infer<typeof serverActionSchema>;
+/** Un'azione: il tipo CORRELA l'azione ai suoi parametri (il `switch` sull'azione li restringe). */
+export type ServerAction = {
+  [A in (typeof SERVER_ACTIONS)[number] as A["action"]]: { action: A["action"]; params: z.infer<A["params"]> };
+}[ServerActionName];
 
 export const serverActionKind = (action: string): ServerActionKind | null =>
   SERVER_ACTIONS.find((a) => a.action === action)?.kind ?? null;

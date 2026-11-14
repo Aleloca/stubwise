@@ -505,6 +505,8 @@ describe("GET /monitor/config", () => {
       checks: { id: string; type: string; target: string }[];
     };
     expect(cfg.sampleIntervalSeconds).toBe(45);
+    // Area 8, F4b: l'agente fissa il suo id (i comandi firmati lo nominano).
+    expect((cfg as unknown as { serverId: string }).serverId).toBe(server.id);
 
     const ids = cfg.checks.map((c) => c.id);
     expect(ids).toContain(http.id);

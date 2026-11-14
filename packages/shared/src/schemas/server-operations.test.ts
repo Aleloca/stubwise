@@ -22,3 +22,11 @@ describe("le forme delle operazioni sui server", () => {
     expect(view.agentOperations).toBe(false);
   });
 });
+
+describe("agentConfigSchema: serverId è additivo", () => {
+  it("una config di un server vecchio, senza serverId, si legge ancora", async () => {
+    const { agentConfigSchema } = await import("./server.js");
+    const cfg = agentConfigSchema.parse({ sampleIntervalSeconds: 30, checks: [] });
+    expect(cfg.serverId).toBeUndefined();
+  });
+});

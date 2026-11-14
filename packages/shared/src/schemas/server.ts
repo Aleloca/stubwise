@@ -160,6 +160,12 @@ export type AgentCheckConfig = z.infer<typeof agentCheckConfigSchema>;
 export const agentConfigSchema = z.object({
   sampleIntervalSeconds: sampleIntervalSecondsSchema,
   checks: z.array(agentCheckConfigSchema),
+  /**
+   * Area 8, F4b: l'id del server, che l'agente fissa alla prima config e
+   * confronta con quello di ogni comando firmato. Facoltativo: un server
+   * vecchio non lo manda (e allora l'agente non esegue comandi).
+   */
+  serverId: z.uuid().optional(),
 });
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
 

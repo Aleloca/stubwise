@@ -273,7 +273,7 @@ export async function monitorRoutes(
         });
       }
 
-      return { sampleIntervalSeconds: server.sampleIntervalSeconds, checks };
+      return { sampleIntervalSeconds: server.sampleIntervalSeconds, checks, serverId: server.id };
     },
   );
 
