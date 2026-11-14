@@ -42,9 +42,7 @@ export type { ActionClass, ClassReason, ClaudeBusyReason, ExecutedFailure } from
  * progetto, dall'area 8b avviare la correzione di un server da una task
  * (`servers.operate`: nessun preset, solo concessioni persona × progetto).
  */
-export type LocalProjectPermission =
-  | "support.reply"
-  | "servers.operate";
+export type LocalProjectPermission = "servers.operate";
 
 /**
  * Permessi d'istanza che vivono solo nel prototipo: vedere le conversazioni

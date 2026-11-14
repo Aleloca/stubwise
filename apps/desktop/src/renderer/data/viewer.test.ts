@@ -1,4 +1,4 @@
-import { INSTANCE_PERMISSIONS, PROJECT_PERMISSIONS } from "@stubwise/shared";
+import { INSTANCE_PERMISSIONS, PRESET_ROLES, PROJECT_PERMISSIONS } from "@stubwise/shared";
 import { describe, expect, it } from "vitest";
 import { GIULIA_LEAD_CODES, PROJECTS } from "./seed/projects";
 import en from "../i18n/locales/en.json";
@@ -372,7 +372,10 @@ describe("permessi dei server (area 8b)", () => {
   const AUD = "prj-aud";
 
   it("servers.operate: nessun preset di progetto lo contiene", () => {
-    const presets = Object.entries(LOCAL_PROJECT_PERMISSIONS);
+    // I preset di progetto come li ha il prototipo: quelli del registro più i locali.
+    const presets = PRESET_ROLES.filter((r) => r.scope === "project").map(
+      (r) => [r.key, [...r.permissions, ...(LOCAL_PROJECT_PERMISSIONS[r.key] ?? [])]] as const,
+    );
     expect(presets.length).toBeGreaterThan(0);
     for (const [preset, perms] of presets) expect(perms, preset).not.toContain("servers.operate");
   });

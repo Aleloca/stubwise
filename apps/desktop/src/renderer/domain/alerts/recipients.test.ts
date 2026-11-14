@@ -89,7 +89,7 @@ describe("catalogo degli avvisi", () => {
   });
 
   it("ogni permesso del catalogo condiviso è uno che il prototipo conosce", () => {
-    const local: LocalProjectPermission[] = ["support.reply", "servers.operate"];
+    const local: LocalProjectPermission[] = ["servers.operate"];
     const known = new Set<string>([...PROJECT_PERMISSIONS, ...INSTANCE_PERMISSIONS, ...local]);
     for (const t of SHARED_ALERT_TYPES) {
       const rules = [t.defaultOn, t.appDefaultOn].filter((r) => typeof r === "object");
