@@ -46,7 +46,8 @@ export async function openServerTask(
   const code = `SRV-${server.number}`;
   const lang = input.language;
 
-  const validation = input.report.fix
+  // Un `fix` senza passi è «nessun piano», non un piano non valido (golden F4b).
+  const validation = input.report.fix && input.report.fix.steps.length > 0
     ? validateServerPlan({ plan: input.report.fix, projectId: input.projectId, serverProjects: input.context.serverProjects, seenContainers: input.context.seenContainers })
     : null;
   const operationsOn = server.agentCapabilities.operations === true;
