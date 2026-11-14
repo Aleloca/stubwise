@@ -6,7 +6,7 @@ import { checkSamples, environmentServers, projectEnvironments, repositories, ro
 import type { ServerDetail, ServerView } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedRepository, startTestDb } from "@stubwise/db/testing";
+import { seedRepository, seedRepositoryInProject, startTestDb } from "@stubwise/db/testing";
 import { addMember, createUserWithPat, seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
@@ -689,6 +689,26 @@ describe("area 8, F4a, S4: crea con un ambiente", () => {
     ]);
     const [after] = await testDb.db.select({ serverId: projectEnvironments.serverId }).from(projectEnvironments).where(eq(projectEnvironments.id, env!.id));
     expect(after!.serverId).toBe(id);
+  });
+
+  it("review F4a (renderer): per tutto il progetto, le eccezioni per repository VINCONO (restano dove sono)", async () => {
+    const { projectId, repositoryId: a } = await seedRepository(testDb.db);
+    const b = await seedRepositoryInProject(testDb.db, projectId);
+    const c = await seedRepositoryInProject(testDb.db, projectId);
+    const [env] = await testDb.db.insert(projectEnvironments).values({ projectId, name: "eccezioni", kind: "staging" }).returning();
+    const { id: srv2 } = await createServerReturning("srv-a");
+    const { id: srv3 } = await createServerReturning("srv-b");
+    await testDb.db.insert(environmentServers).values([
+      { environmentId: env!.id, repositoryId: a, serverId: srv2 },
+      { environmentId: env!.id, repositoryId: b, serverId: srv3 },
+    ]);
+    const res = await app.inject({ method: "POST", url: "/api/servers", headers: { cookie: adminCookie }, payload: { name: "srv-tutti", environment: { environmentId: env!.id } } });
+    expect(res.statusCode, res.body).toBe(201);
+    const srv7 = (res.json() as { id: string }).id;
+    const rows = await testDb.db.select().from(environmentServers).where(eq(environmentServers.environmentId, env!.id));
+    expect(Object.fromEntries(rows.map((r) => [r.repositoryId, r.serverId]))).toEqual({ [a]: srv2, [b]: srv3, [c]: srv7 });
+    const [after] = await testDb.db.select({ serverId: projectEnvironments.serverId }).from(projectEnvironments).where(eq(projectEnvironments.id, env!.id));
+    expect(after!.serverId).toBe(srv7);
   });
 
   it("rigenerare la chiave porta anche l'ingestUrl", async () => {

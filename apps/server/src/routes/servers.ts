@@ -285,10 +285,12 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
         }
         if (env) {
           for (const repositoryId of targetRepos) {
-            await tx
-              .insert(environmentServers)
-              .values({ environmentId: env.id, repositoryId, serverId: row.id })
-              .onConflictDoUpdate({ target: [environmentServers.environmentId, environmentServers.repositoryId], set: { serverId: row.id } });
+            const insert = tx.insert(environmentServers).values({ environmentId: env.id, repositoryId, serverId: row.id });
+            // Per tutto il progetto le eccezioni per repository VINCONO (review
+            // F4a, come il prototipo): solo le repository senza riga. Per
+            // repository nominate la scelta è esplicita e sostituisce.
+            if (wholeProject) await insert.onConflictDoNothing();
+            else await insert.onConflictDoUpdate({ target: [environmentServers.environmentId, environmentServers.repositoryId], set: { serverId: row.id } });
           }
         }
         return row;
