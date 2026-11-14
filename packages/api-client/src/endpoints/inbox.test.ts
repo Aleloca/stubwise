@@ -121,3 +121,14 @@ describe("area 8, F2: `alertMandatory` sulla card", () => {
     expect(page.items[0]!.alertMandatory).toBeNull();
   });
 });
+
+describe("area 8, F2, S6: `inbox.muteType`", () => {
+  it("POST su /api/inbox/:id/mute-type, e la risposta con la riga di prima e quella nuova", async () => {
+    const row = { type: "server.trouble", group: "monitor", labelKey: "k", app: false, phone: false, state: "off" };
+    const { client, fetchImpl } = clientReturning({ before: { ...row, app: true, state: "on" }, row });
+    const out = await client.inbox.muteType(ID);
+    expect(lastCall(fetchImpl)).toEqual([`/api/inbox/${ID}/mute-type`, "POST"]);
+    expect(out.before).toMatchObject({ app: true, state: "on", mandatory: [] });
+    expect(out.row).toMatchObject({ app: false, state: "off", suspendedReason: null });
+  });
+});
