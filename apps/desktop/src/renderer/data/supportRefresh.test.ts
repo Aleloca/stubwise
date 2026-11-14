@@ -1,22 +1,29 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { supportRefreshMs } from "./queries";
 
-// Area 8, F3 (R8): Support non ha uno stream. Nella build app il dettaglio
-// aperto si rilegge ogni 15 s e l'elenco ogni 30 s (più le card `support.*`
-// dell'inbox); il prototipo cambia solo da sé.
+// Area 8, F3 (R6): Support non ha uno stream. Nella build app il dettaglio
+// aperto si rilegge ogni 15 s solo finché la conversazione è senza esito (in
+// triage, non conclusa o bastata: un messaggio del cliente la riporta in
+// triage). Chiusa con un esito non riceve più messaggi: si ferma. L'elenco
+// ogni 30 s. Il prototipo cambia solo da sé.
 
 afterEach(() => vi.unstubAllEnvs());
 
 describe("il ritmo di Support", () => {
   it("nel prototipo non si rilegge da solo", () => {
     vi.stubEnv("VITE_STUBWISE_BUILD", "prototype");
-    expect(supportRefreshMs("detail")).toBe(false);
+    expect(supportRefreshMs("detail", "triage")).toBe(false);
     expect(supportRefreshMs("list")).toBe(false);
   });
 
-  it("nella build app il dettaglio ogni 15 s, l'elenco (e «Clienti in attesa») ogni 30 s", () => {
+  it("nella build app il dettaglio ogni 15 s solo senza esito, l'elenco ogni 30 s", () => {
     vi.stubEnv("VITE_STUBWISE_BUILD", "app");
-    expect(supportRefreshMs("detail")).toBe(15_000);
+    for (const state of ["triage", "not_concluded", "answered"] as const) {
+      expect(supportRefreshMs("detail", state)).toBe(15_000);
+    }
+    // Chiusa (con l'esito), o non ancora letta: niente ritmo.
+    expect(supportRefreshMs("detail", "request_open")).toBe(false);
+    expect(supportRefreshMs("detail", undefined)).toBe(false);
     expect(supportRefreshMs("list")).toBe(30_000);
   });
 });

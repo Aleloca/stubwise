@@ -3,13 +3,7 @@ import * as api from "@backend/api";
 import { isAppBuild } from "../build";
 import { featureIntegrated } from "../integration";
 import { MIN_QUERY } from "../../pages/chat/search";
-import {
-  queryKeys,
-  REQUEST_AREAS,
-  useInvalidate,
-  useSessionPersonId,
-  useWrite,
-} from "../queries";
+import { queryKeys, REQUEST_AREAS, useInvalidate, useSessionPersonId, useWrite } from "../queries";
 
 // Gli hook di questa parte dell'area 8a; `data/queries` li ri-esporta.
 // L'import circolare con `../queries` è innocuo: gli helper si usano solo
@@ -29,14 +23,19 @@ const SUPPORT_AREAS = ["support", "notifications"] as const;
 const supportRequestAreas = () => [...SUPPORT_AREAS, ...REQUEST_AREAS];
 
 /**
- * Ogni quanto Support si rilegge da solo (area 8, F3, R8): nella build app
- * non c'è uno stream, quindi il dettaglio aperto ogni 15 s e l'elenco (e
- * «Clienti in attesa») ogni 30 s; le card `support.*` dell'inbox lo
- * rileggono subito. Il prototipo cambia solo da sé: mai.
+ * Ogni quanto Support si rilegge da solo (area 8, F3, R6): nella build app
+ * non c'è uno stream. Il dettaglio aperto ogni 15 s finché la conversazione
+ * è senza esito (un messaggio del cliente può riportarla in triage); chiusa
+ * (`request_open`) non riceve più messaggi, e la successiva la mostra
+ * l'elenco, ogni 30 s. Il prototipo cambia solo da sé: mai.
  */
-export function supportRefreshMs(kind: "detail" | "list"): number | false {
+export function supportRefreshMs(
+  kind: "detail" | "list",
+  state?: api.support.SupportState,
+): number | false {
   if (!isAppBuild()) return false;
-  return kind === "detail" ? 15_000 : 30_000;
+  if (kind === "list") return 30_000;
+  return state !== undefined && state !== "request_open" ? 15_000 : false;
 }
 
 /** Le conversazioni coi clienti del progetto, raggruppate per stato. */
@@ -60,7 +59,7 @@ export function useSupportConversation(code: string | undefined) {
     queryKey: queryKeys.supportConversation(me, code ?? ""),
     queryFn: () => api.support.getSupportConversation(code!),
     enabled: !!code,
-    refetchInterval: supportRefreshMs("detail"),
+    refetchInterval: (query) => supportRefreshMs("detail", query.state.data?.state),
   });
 }
 
