@@ -1256,6 +1256,7 @@ describe("automationStepChecks (area 7, F3)", () => {
 describe("needsPlugins", () => {
   it("`--plugin` serve solo se uno degli scenari scelti carica plugin", () => {
     expect(needsPlugins(["automation-step"])).toBe(false);
+    expect(needsPlugins(["support-triage-check"])).toBe(false);
     expect(needsPlugins(["automation-step", "mail-classify-v2"])).toBe(false);
     expect(needsPlugins(["automation-step", "refine"])).toBe(true);
     expect(needsPlugins(["plan-only"])).toBe(true);

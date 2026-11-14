@@ -245,7 +245,7 @@ function printUsage(): void {
       "                      Tipicamente la dir materializzata: /plugins/<slug>/<sha>.",
       "                      Il plugin base di Stubwise è sempre caricato per primo.",
       "                      Facoltativo se gli scenari scelti non caricano plugin",
-      "                      (automation-step, mail-classify-v2).",
+      "                      (automation-step, mail-classify-v2, support-triage-check, chat-*).",
       "  --scenario <nome>   solo questo scenario (ripetibile). Default: tutti tranne gli opt-in.",
       `                      Nomi: ${SCENARIO_NAMES.join(", ")}.`,
       `                      Opt-in (solo se nominati): ${OPT_IN_SCENARIOS.join(", ")}.`,
@@ -312,7 +312,7 @@ function parseArgs(argv: string[]): Args {
 
   const selected = selectScenarios(scenarios);
   // `--plugin` serve solo se uno degli scenari scelti carica plugin (non `automation-step`, `mail-classify-v2`).
-  if (plugins.length === 0 && needsPlugins(selected)) fail("Serve almeno un --plugin <dir> (tranne per gli scenari senza plugin: automation-step, mail-classify-v2)");
+  if (plugins.length === 0 && needsPlugins(selected)) fail("Serve almeno un --plugin <dir> (tranne per gli scenari senza plugin: automation-step, mail-classify-v2, support-triage-check, chat-*)");
   return {
     plugins,
     scenarios: selected,

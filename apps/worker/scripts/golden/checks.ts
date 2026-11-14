@@ -76,6 +76,8 @@ export function selectScenarios(named: readonly ScenarioName[]): ScenarioName[] 
 export const PLUGINLESS_SCENARIOS: readonly ScenarioName[] = [
   "automation-step",
   "mail-classify-v2",
+  // Il giudizio sul triage di Support (area 8, F3): una run di testo, nessun plugin.
+  "support-triage-check",
   // La chat con Claude (13 nov 2026, area 8, F1): il turno è cablato come
   // `runChatTurn`, `--setting-sources ""` e NESSUN plugin (`runChat` non passa
   // `pluginDirs`), quindi `--plugin` non gli serve.
