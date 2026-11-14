@@ -8,10 +8,11 @@ import {
   type ProjectEnvironment,
 } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { RouteAccess } from "../auth/access.js";
+import { visibleServerIds } from "../auth/monitor-access.js";
 import { fromParam } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
 import { loadLatestServicesByServer } from "../services/server-samples.js";
@@ -74,6 +75,22 @@ const MANAGE_ACCESS: RouteAccess = {
 
 export async function projectEnvironmentRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+
+  /**
+   * Area 8, F4a, S3: un collegamento DÀ la visibilità del server a tutto il
+   * progetto (i server si vedono dagli ambienti), quindi si collega solo un
+   * server che chi scrive vede già, o con `monitor.manage`. Togliere (null)
+   * non chiede niente.
+   */
+  async function allVisible(
+    user: NonNullable<FastifyRequest["user"]>,
+    input: { serverId?: string | null; servers?: { serverId: string | null }[] },
+  ): Promise<boolean> {
+    const wanted = [...new Set([...(input.servers ?? []).flatMap((x) => (x.serverId ? [x.serverId] : [])), ...(input.serverId ? [input.serverId] : [])])];
+    if (wanted.length === 0) return true;
+    const visible = await visibleServerIds(app.db, user);
+    return visible === "all" || wanted.every((id) => visible.includes(id));
+  }
 
   async function serverExists(serverId: string): Promise<boolean> {
     const [row] = await app.db.select({ id: servers.id }).from(servers).where(eq(servers.id, serverId));
@@ -245,6 +262,7 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
           400: errorSchema,
           404: errorSchema,
           409: errorSchema,
+          422: errorSchema,
           ...authErrorResponses,
         },
       },
@@ -254,6 +272,9 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
       const { name, kind, url, serverId, servers: perRepo } = request.body;
       if (serverId && !(await serverExists(serverId))) {
         return apiError(reply, 400, "server_not_found", "Server not found");
+      }
+      if (!(await allVisible(request.user!, { ...(serverId !== undefined ? { serverId } : {}), ...(perRepo ? { servers: perRepo } : {}) }))) {
+        return apiError(reply, 422, "server_not_visible", "You can only link a server you can see");
       }
       try {
         const result = await app.db.transaction(async (tx) => {
@@ -319,6 +340,7 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
           400: errorSchema,
           404: errorSchema,
           409: errorSchema,
+          422: errorSchema,
           ...authErrorResponses,
         },
       },
@@ -331,6 +353,9 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
       const { name, url, serverId, servers: perRepo } = request.body;
       if (serverId && !(await serverExists(serverId))) {
         return apiError(reply, 400, "server_not_found", "Server not found");
+      }
+      if (!(await allVisible(request.user!, { ...(serverId !== undefined ? { serverId } : {}), ...(perRepo ? { servers: perRepo } : {}) }))) {
+        return apiError(reply, 422, "server_not_visible", "You can only link a server you can see");
       }
       // PATCH: campi assenti restano invariati (undefined non sovrascrive);
       // `url`/`serverId` possono però essere esplicitamente azzerati con `null`.

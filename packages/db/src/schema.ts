@@ -2951,9 +2951,42 @@ export const servers = pgTable("servers", {
     .notNull()
     .default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Area 8, F4a (0180): il numero d'istanza del codice `SRV-<n>`, da una sequenza, mai riusato. */
+  number: integer("number").notNull().default(sql`nextval('servers_number_seq')`).unique("servers_number_unique"),
 });
 
 /**
+ * Area 8, F4a (0180): un episodio di un server, dall'allarme al rientro (uno
+ * aperto per server: un secondo allarme si aggiunge ai motivi). Lo scrive il
+ * worker degli avvisi; la F4b ci attacca l'analisi.
+ */
+export const serverEpisodes = pgTable(
+  "server_episodes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+    severity: text("severity").$type<"trouble" | "down">().notNull(),
+    reasons: jsonb("reasons")
+      .$type<{ kind: string; valuePct?: number; thresholdPct?: number; checkId?: string; since?: string }[]>()
+      .notNull()
+      .default([]),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    recoveredAt: timestamp("recovered_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("server_episodes_server_idx").on(table.serverId, table.startedAt),
+    uniqueIndex("server_episodes_open_idx").on(table.serverId).where(sql`${table.recoveredAt} IS NULL`),
+    check("server_episodes_severity_chk", sql`${table.severity} in ('trouble', 'down')`),
+  ],
+);
+
+/**
+ * ⚠️ Area 8, F4a (F4a-4 = b): NON conta più per la visibilità né per gli
+ * avvisi — un server si vede dagli ambienti (`environment_servers`). Il web
+ * vecchio può ancora scriverla; resta inerte per il rollback.
+ *
  * Legame N:M server↔progetto: un server può essere condiviso tra più progetti,
  * un progetto può avere più server. Cascata da entrambi i lati.
  */

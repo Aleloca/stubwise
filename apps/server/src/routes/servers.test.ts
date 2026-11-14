@@ -2,11 +2,12 @@ import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { checkSamples, serverMetrics, serverProjects, servers, serviceChecks } from "@stubwise/db";
+import { checkSamples, environmentServers, projectEnvironments, repositories, serverEpisodes, serverMetrics, serverProjects, servers, serviceChecks } from "@stubwise/db";
+import type { ServerDetail, ServerView } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
-import { seedUsers } from "../test/fixtures.js";
+import { addMember, createUserWithPat, seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -40,6 +41,17 @@ function createServer(payload: Record<string, unknown>, cookie = adminCookie) {
     headers: { cookie },
     payload,
   });
+}
+
+/**
+ * Area 8, F4a: un server si lega a un progetto dagli AMBIENTI (per
+ * repository). Un ambiente `production` del progetto, una repository (la
+ * prima del progetto se non data).
+ */
+async function linkToProject(serverId: string, projectId: string, repositoryId?: string): Promise<void> {
+  const repo = repositoryId ?? (await testDb.db.select({ id: repositories.id }).from(repositories).where(eq(repositories.projectId, projectId)))[0]!.id;
+  const [env] = await testDb.db.insert(projectEnvironments).values({ projectId, name: `env-${Math.random()}`, kind: "staging" }).returning();
+  await testDb.db.insert(environmentServers).values({ environmentId: env!.id, repositoryId: repo, serverId });
 }
 
 /** Crea un server via API e restituisce id + chiave in chiaro. */
@@ -104,12 +116,7 @@ describe("GET /api/servers", () => {
       .set({ lastSeenAt: new Date(), sampleIntervalSeconds: 30 })
       .where(eq(servers.id, onlineId));
     // Associa il server online al progetto.
-    await app.inject({
-      method: "PATCH",
-      url: `/api/servers/${onlineId}`,
-      headers: { cookie: adminCookie },
-      payload: { projectIds: [projectId] },
-    });
+    await linkToProject(onlineId, projectId);
     // Campioni fini: 25 valori cpu (ne devono tornare gli ultimi 20, dal più vecchio).
     const base = Date.now() - 25 * 30_000;
     const cpuRows = Array.from({ length: 25 }, (_, i) => ({
@@ -147,7 +154,7 @@ describe("GET /api/servers", () => {
       .set({ lastSeenAt: new Date(Date.now() - 3 * 30_000 - 1000), sampleIntervalSeconds: 30 })
       .where(eq(servers.id, offlineId));
 
-    const res = await app.inject({ method: "GET", url: "/api/servers", headers: { cookie: memberCookie } });
+    const res = await app.inject({ method: "GET", url: "/api/servers", headers: { cookie: adminCookie } });
     expect(res.statusCode).toBe(200);
     const list = res.json() as Array<Record<string, unknown>>;
     // Nessun campo chiave in NESSUNA riga.
@@ -178,16 +185,11 @@ describe("GET /api/servers", () => {
     const { projectId } = await seedRepository(testDb.db);
     const { id: assocId } = await createServerReturning("assoc");
     await createServerReturning("non-assoc");
-    await app.inject({
-      method: "PATCH",
-      url: `/api/servers/${assocId}`,
-      headers: { cookie: adminCookie },
-      payload: { projectIds: [projectId] },
-    });
+    await linkToProject(assocId, projectId);
     const res = await app.inject({
       method: "GET",
       url: `/api/servers?projectId=${projectId}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
     const list = res.json() as Array<{ id: string }>;
@@ -198,22 +200,18 @@ describe("GET /api/servers", () => {
     const { projectId: p1 } = await seedRepository(testDb.db);
     const { projectId: p2 } = await seedRepository(testDb.db);
     const { id } = await createServerReturning("multi-progetto");
-    await app.inject({
-      method: "PATCH",
-      url: `/api/servers/${id}`,
-      headers: { cookie: adminCookie },
-      payload: { projectIds: [p1, p2] },
-    });
+    await linkToProject(id, p1);
+    await linkToProject(id, p2);
     const res = await app.inject({
       method: "GET",
       url: `/api/servers?projectId=${p1}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
     const list = res.json() as Array<{ id: string; projects: { id: string }[] }>;
     expect(list.map((s) => s.id)).toEqual([id]);
     // Il filtro seleziona i server, non taglia le associazioni: i progetti
-    // restano tutti.
+    // (dei suoi ambienti) restano tutti.
     expect(list[0]!.projects.map((p) => p.id).sort()).toEqual([p1, p2].sort());
   });
 
@@ -227,16 +225,11 @@ describe("GET /api/servers/:id", () => {
   it("dettaglio con gli stessi campi della lista", async () => {
     const { projectId } = await seedRepository(testDb.db);
     const { id } = await createServerReturning("dettaglio");
-    await app.inject({
-      method: "PATCH",
-      url: `/api/servers/${id}`,
-      headers: { cookie: adminCookie },
-      payload: { projectIds: [projectId] },
-    });
+    await linkToProject(id, projectId);
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as Record<string, unknown>;
@@ -299,7 +292,7 @@ describe("GET /api/servers/:id", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as Record<string, unknown>;
@@ -313,7 +306,7 @@ describe("GET /api/servers/:id", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as Record<string, unknown>;
@@ -344,7 +337,7 @@ describe("GET /api/servers/:id", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as Record<string, unknown>;
@@ -357,7 +350,7 @@ describe("GET /api/servers/:id", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     const body = res.json() as Record<string, unknown>;
     expect(body.memUsedBytes).toBeNull();
@@ -368,7 +361,7 @@ describe("GET /api/servers/:id", () => {
     const res = await app.inject({
       method: "GET",
       url: "/api/servers/00000000-0000-0000-0000-000000000000",
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(404);
   });
@@ -400,97 +393,20 @@ describe("PATCH /api/servers/:id", () => {
     expect(body).not.toHaveProperty("keyHash");
   });
 
-  it("projectIds sincronizza server_projects (replace completo)", async () => {
-    const { projectId: p1 } = await seedRepository(testDb.db);
-    const { projectId: p2 } = await seedRepository(testDb.db);
-    const { id } = await createServerReturning("sync-progetti");
-
-    // Prima associazione: [p1].
-    await app.inject({
-      method: "PATCH",
-      url: `/api/servers/${id}`,
-      headers: { cookie: adminCookie },
-      payload: { projectIds: [p1] },
-    });
-    let res = await app.inject({ method: "GET", url: `/api/servers/${id}`, headers: { cookie: adminCookie } });
-    expect((res.json() as { projects: { id: string }[] }).projects.map((p) => p.id)).toEqual([p1]);
-
-    // Replace: [p2].
-    await app.inject({
-      method: "PATCH",
-      url: `/api/servers/${id}`,
-      headers: { cookie: adminCookie },
-      payload: { projectIds: [p2] },
-    });
-    res = await app.inject({ method: "GET", url: `/api/servers/${id}`, headers: { cookie: adminCookie } });
-    expect((res.json() as { projects: { id: string }[] }).projects.map((p) => p.id)).toEqual([p2]);
-
-    // projectIds omesso: NON tocca le associazioni.
-    await app.inject({
-      method: "PATCH",
-      url: `/api/servers/${id}`,
-      headers: { cookie: adminCookie },
-      payload: { name: "solo-nome" },
-    });
-    res = await app.inject({ method: "GET", url: `/api/servers/${id}`, headers: { cookie: adminCookie } });
-    expect((res.json() as { projects: { id: string }[] }).projects.map((p) => p.id)).toEqual([p2]);
-
-    // projectIds vuoto: azzera.
-    await app.inject({
-      method: "PATCH",
-      url: `/api/servers/${id}`,
-      headers: { cookie: adminCookie },
-      payload: { projectIds: [] },
-    });
-    res = await app.inject({ method: "GET", url: `/api/servers/${id}`, headers: { cookie: adminCookie } });
-    expect((res.json() as { projects: unknown[] }).projects).toEqual([]);
-  });
-
-  it("projectIds con duplicati: 200 e una sola riga di associazione", async () => {
-    const { projectId } = await seedRepository(testDb.db);
-    const { id } = await createServerReturning("dedup-progetti");
+  it("area 8, F4a-4 = b: `projectIds` si accetta (un web in cache) ma si IGNORA: nessun legame, i progetti vengono dagli ambienti", async () => {
+    const { projectId, repositoryId } = await seedRepository(testDb.db);
+    const { projectId: other } = await seedRepository(testDb.db);
+    const { id } = await createServerReturning("progetti-dagli-ambienti");
+    await linkToProject(id, projectId, repositoryId);
     const res = await app.inject({
       method: "PATCH",
       url: `/api/servers/${id}`,
       headers: { cookie: adminCookie },
-      payload: { projectIds: [projectId, projectId] },
+      payload: { name: "rinominato", projectIds: [other, "00000000-0000-0000-0000-000000000000"] },
     });
     expect(res.statusCode).toBe(200);
-    expect((res.json() as { projects: { id: string }[] }).projects.map((p) => p.id)).toEqual([
-      projectId,
-    ]);
-    const links = await testDb.db
-      .select()
-      .from(serverProjects)
-      .where(eq(serverProjects.serverId, id));
-    expect(links).toHaveLength(1);
-  });
-
-  it("atomicità: name valido + projectId inesistente → 422 e name invariato in DB", async () => {
-    const { id } = await createServerReturning("atomico");
-    const res = await app.inject({
-      method: "PATCH",
-      url: `/api/servers/${id}`,
-      headers: { cookie: adminCookie },
-      payload: {
-        name: "non-deve-applicarsi",
-        projectIds: ["00000000-0000-0000-0000-000000000000"],
-      },
-    });
-    expect(res.statusCode).toBe(422);
-    const [row] = await testDb.db.select().from(servers).where(eq(servers.id, id));
-    expect(row!.name).toBe("atomico");
-  });
-
-  it("projectId inesistente: 422", async () => {
-    const { id } = await createServerReturning("progetto-ko");
-    const res = await app.inject({
-      method: "PATCH",
-      url: `/api/servers/${id}`,
-      headers: { cookie: adminCookie },
-      payload: { projectIds: ["00000000-0000-0000-0000-000000000000"] },
-    });
-    expect(res.statusCode).toBe(422);
+    expect(res.json()).toMatchObject({ name: "rinominato", projects: [{ id: projectId }] });
+    expect(await testDb.db.select().from(serverProjects).where(eq(serverProjects.serverId, id))).toEqual([]);
   });
 
   it("un member non può aggiornare: 403", async () => {
@@ -641,5 +557,80 @@ describe("DELETE /api/servers/:id", () => {
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(403);
+  });
+});
+
+// Area 8, F4a, S2: la vista nella forma del prototipo. Gli ambienti e i
+// progetti di un server sono SOLO quelli dei progetti che chi guarda vede;
+// salute, codice, episodi e permessi li calcola il server.
+describe("area 8, F4a, S2: la proiezione per l'app", () => {
+  async function lead(projectId: string) {
+    const u = await createUserWithPat(app, `l-${Math.random().toString(16).slice(2, 8)}@acme.com`);
+    await addMember(app, projectId, u.id, "project_lead");
+    return u;
+  }
+
+  it("riga: SRV-n, salute, ambienti e progetti dei SOLI progetti visibili; orfano se nessun ambiente", async () => {
+    const { projectId: pA, repositoryId: rA } = await seedRepository(testDb.db);
+    const { projectId: pB, repositoryId: rB } = await seedRepository(testDb.db);
+    const { id } = await createServerReturning("condiviso");
+    await linkToProject(id, pA, rA);
+    await linkToProject(id, pB, rB);
+    const { id: orphanId } = await createServerReturning("orfano");
+    const u = await lead(pA);
+    const rows = (await app.inject({ method: "GET", url: "/api/servers", headers: u.headers })).json() as ServerView[];
+    const row = rows.find((r) => r.id === id)!;
+    const [db] = await testDb.db.select({ number: servers.number }).from(servers).where(eq(servers.id, id));
+    expect(row).toMatchObject({ code: `SRV-${db!.number}`, work: "none", orphan: false, health: { health: "never_connected", since: null, reasons: [] } });
+    expect(row.environments.map((e) => e.projectId)).toEqual([pA]);
+    expect(row.environments[0]).toMatchObject({ kind: "staging", repositoryId: rA });
+    expect(row.projects.map((p) => p.id)).toEqual([pA]);
+    expect(rows.some((r) => r.id === orphanId)).toBe(false);
+    const asAdmin = (await app.inject({ method: "GET", url: "/api/servers", headers: { cookie: adminCookie } })).json() as ServerView[];
+    expect(asAdmin.find((r) => r.id === orphanId)).toMatchObject({ orphan: true, environments: [] });
+    expect(asAdmin.find((r) => r.id === id)!.environments.map((e) => e.projectId).sort()).toEqual([pA, pB].sort());
+  });
+
+  it("dettaglio: controlli, episodi dal più recente, la salute da un episodio aperto, le produzioni visibili, canManage dal server", async () => {
+    const { projectId, repositoryId } = await seedRepository(testDb.db);
+    const { id } = await createServerReturning("dettaglio-f4a");
+    await testDb.db.update(servers).set({ lastSeenAt: new Date(), sampleIntervalSeconds: 30 }).where(eq(servers.id, id));
+    const [env] = await testDb.db.insert(projectEnvironments).values({ projectId, name: "produzione", kind: "production" }).returning();
+    await testDb.db.insert(environmentServers).values({ environmentId: env!.id, repositoryId, serverId: id });
+    await testDb.db.insert(serviceChecks).values({ serverId: id, type: "http", name: "home", target: "https://x", lastStatus: "down" });
+    const old = new Date(Date.now() - 48 * 3_600_000);
+    await testDb.db.insert(serverEpisodes).values([
+      { serverId: id, severity: "down", reasons: [{ kind: "agent_silent" }], startedAt: old, recoveredAt: new Date(old.getTime() + 600_000) },
+      { serverId: id, severity: "trouble", reasons: [{ kind: "cpu", valuePct: 97, thresholdPct: 95 }], startedAt: new Date(Date.now() - 600_000) },
+    ]);
+    const u = await lead(projectId);
+    const d = (await app.inject({ method: "GET", url: `/api/servers/${id}`, headers: u.headers })).json() as ServerDetail;
+    expect(d.checks.map((c) => c.name)).toEqual(["home"]);
+    expect(JSON.stringify(d.checks)).not.toContain("dsnEncrypted");
+    expect(d.episodes.map((e) => e.severity)).toEqual(["trouble", "down"]);
+    expect(d.episodes[0]!.recoveredAt).toBeNull();
+    expect(d.health).toMatchObject({ health: "trouble", reasons: [{ kind: "cpu" }] });
+    expect(d.productionProjects).toEqual([{ id: projectId, code: expect.any(String), name: "Progetto di test" }]);
+    expect(d.canManage).toBe(false);
+    const asAdmin = (await app.inject({ method: "GET", url: `/api/servers/${id}`, headers: { cookie: adminCookie } })).json() as ServerDetail;
+    expect(asAdmin.canManage).toBe(true);
+  });
+
+  it("per codice: SRV-n → il dettaglio; invisibile, inesistente o storto → 404", async () => {
+    const { projectId, repositoryId } = await seedRepository(testDb.db);
+    const { projectId: other } = await seedRepository(testDb.db);
+    const { id } = await createServerReturning("per-codice");
+    await linkToProject(id, projectId, repositoryId);
+    const [db] = await testDb.db.select({ number: servers.number }).from(servers).where(eq(servers.id, id));
+    const u = await lead(projectId);
+    const stranger = await lead(other);
+    const byCode = (headers: Record<string, string>, code: string) => app.inject({ method: "GET", url: `/api/servers/by-code/${code}`, headers });
+    const ok = await byCode(u.headers, `SRV-${db!.number}`);
+    expect(ok.statusCode).toBe(200);
+    expect((ok.json() as ServerDetail).id).toBe(id);
+    expect((await byCode(u.headers, `srv-${db!.number}`)).statusCode).toBe(200);
+    expect((await byCode(stranger.headers, `SRV-${db!.number}`)).statusCode).toBe(404);
+    expect((await byCode(u.headers, "SRV-999999")).statusCode).toBe(404);
+    expect((await byCode(u.headers, "storto")).statusCode).toBe(404);
   });
 });

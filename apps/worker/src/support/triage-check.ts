@@ -54,8 +54,20 @@ export const CLOSE = "<<<END_CONVERSATION>>>";
 
 const answerSchema = z.object({ outcome: z.enum(["concluded", "not_concluded"]) });
 
-/** Il testo di un messaggio senza i delimitatori: il cliente non può chiudere il blocco. */
-const clean = (text: string) => text.split(OPEN).join("").split(CLOSE).join("");
+/**
+ * Il testo di un messaggio senza i delimitatori: il cliente non può chiudere il
+ * blocco. Si ripete finché il testo non cambia più: un delimitatore annidato
+ * (`<<<END_<<<END_CONVERSATION>>>CONVERSATION>>>`) si ricomporrebbe dopo un
+ * solo passaggio (review F3).
+ */
+function clean(text: string): string {
+  let out = text;
+  for (;;) {
+    const next = out.split(OPEN).join("").split(CLOSE).join("");
+    if (next === out) return out;
+    out = next;
+  }
+}
 
 export function buildTriageCheckPrompt(messages: readonly { role: string; content: string }[]): string {
   let transcript = messages
@@ -96,6 +108,9 @@ async function dueConversations(db: Db, now: Date) {
     .from(widgetConversations)
     .where(
       and(
+        // Solo il widget: una conversazione `mcp` arriva con la sua richiesta
+        // (anche se l'intake è ancora in coda o l'ha fusa in un'altra).
+        eq(widgetConversations.channel, "widget"),
         lt(widgetConversations.lastMessageAt, idleBefore),
         or(isNull(widgetConversations.triageCheckedAt), lt(widgetConversations.triageCheckedAt, widgetConversations.lastMessageAt)),
         notExists(db.select({ one: sql`1` }).from(backlogItems).where(eq(backlogItems.supportConversationId, widgetConversations.id))),

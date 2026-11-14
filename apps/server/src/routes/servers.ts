@@ -1,29 +1,35 @@
 import {
   computeServerStatus,
   createServerSchema,
+  serverHealth,
+  type HealthEpisode,
   serverDetailSchema,
   serverViewSchema,
   updateServerSchema,
 } from "@stubwise/shared";
 import {
   projects,
+  environmentServers,
+  projectEnvironments,
+  repositories,
+  serverEpisodes,
   serverMetrics,
-  serverProjects,
   servers,
   serviceChecks,
 } from "@stubwise/db";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { canViewServer, visibleServerIds } from "../auth/monitor-access.js";
+import { visibleProjectIds } from "../auth/access.js";
+import { canViewServer, serverIdsOfProjects, visibleServerIds } from "../auth/monitor-access.js";
+import { toCheckView } from "./servers-checks.js";
 import { apiError } from "../errors.js";
 import {
   authErrorResponses,
   errorSchema,
   generateServerKey,
   hashServerKey,
-  isForeignKeyViolation,
 } from "./shared.js";
 
 /** Quanti valori di CPU recenti includere nella lista/dettaglio (sparkline UI). */
@@ -52,11 +58,20 @@ interface ServerAggregates {
   checksUp: number;
   checksDown: number;
   recentCpu: number[];
+  /** Area 8, F4a: gli ambienti che lo usano, dei SOLI progetti visibili. */
+  environments: ServerView["environments"];
+  /** Nessun ambiente di nessun progetto (anche invisibile) lo usa. */
+  orphan: boolean;
+  /** Gli episodi, dal più recente (al più EPISODES_SHOWN). */
+  episodes: { id: string; severity: "trouble" | "down"; reasons: HealthEpisode["reasons"][number][]; startedAt: string; recoveredAt: string | null }[];
 }
+
+/** Quanti episodi porta il dettaglio (e su quanti si calcola la salute). */
+const EPISODES_SHOWN = 20;
 
 /** Aggregati vuoti (server senza progetti/check/campioni). */
 function emptyAggregates(): ServerAggregates {
-  return { projects: [], checksUp: 0, checksDown: 0, recentCpu: [] };
+  return { projects: [], checksUp: 0, checksDown: 0, recentCpu: [], environments: [], orphan: true, episodes: [] };
 }
 
 /**
@@ -78,6 +93,19 @@ function toServerView(row: ServerRow, agg: ServerAggregates, now: Date): ServerV
     checksUp: agg.checksUp,
     checksDown: agg.checksDown,
     recentCpu: agg.recentCpu,
+    // Area 8, F4a (S2).
+    code: `SRV-${row.number}`,
+    health: serverHealth(
+      { status: computeServerStatus(row.lastSeenAt, row.sampleIntervalSeconds, now), lastSeenAt: row.lastSeenAt ? row.lastSeenAt.toISOString() : null },
+      agg.episodes,
+      now.toISOString(),
+    ),
+    environments: agg.environments,
+    // L'analisi e la correzione sono della F4b.
+    work: "none",
+    orphan: agg.orphan,
+    // I progetti non hanno ancora un archivio sul server.
+    inArchivedOnly: false,
   };
 }
 
@@ -90,24 +118,67 @@ function toServerView(row: ServerRow, agg: ServerAggregates, now: Date): ServerV
 async function loadAggregates(
   app: FastifyInstance,
   serverIds: string[],
+  /** I progetti che chi guarda vede: ambienti e progetti di un server solo di questi. */
+  visibleProjects: "all" | readonly string[],
 ): Promise<Map<string, ServerAggregates>> {
   const byServer = new Map<string, ServerAggregates>();
   for (const id of serverIds) byServer.set(id, emptyAggregates());
   if (serverIds.length === 0) return byServer;
 
-  // Progetti associati, in una sola query con la join sui nomi.
-  const projectRows = await app.db
+  // Area 8, F4a: gli ambienti (per repository) che usano ogni server, con
+  // progetto e repository, in una query. Orfano = nessuna riga; ambienti e
+  // progetti della vista = solo quelli dei progetti visibili.
+  const envRows = await app.db
     .select({
-      serverId: serverProjects.serverId,
-      id: projects.id,
-      name: projects.name,
+      serverId: environmentServers.serverId,
+      projectId: projects.id,
+      projectCode: projects.code,
+      projectName: projects.name,
+      environmentId: projectEnvironments.id,
+      name: projectEnvironments.name,
+      kind: projectEnvironments.kind,
+      repositoryId: repositories.id,
+      repositoryName: repositories.name,
     })
-    .from(serverProjects)
-    .innerJoin(projects, eq(projects.id, serverProjects.projectId))
-    .where(inArray(serverProjects.serverId, serverIds))
-    .orderBy(projects.name);
-  for (const r of projectRows) {
-    byServer.get(r.serverId)!.projects.push({ id: r.id, name: r.name });
+    .from(environmentServers)
+    .innerJoin(projectEnvironments, eq(projectEnvironments.id, environmentServers.environmentId))
+    .innerJoin(projects, eq(projects.id, projectEnvironments.projectId))
+    .innerJoin(repositories, eq(repositories.id, environmentServers.repositoryId))
+    .where(inArray(environmentServers.serverId, serverIds))
+    .orderBy(projects.name, projectEnvironments.name, repositories.name);
+  const sees = (projectId: string) => visibleProjects === "all" || visibleProjects.includes(projectId);
+  for (const r of envRows) {
+    const agg = byServer.get(r.serverId)!;
+    agg.orphan = false;
+    if (!sees(r.projectId)) continue;
+    agg.environments.push({
+      projectId: r.projectId,
+      projectCode: r.projectCode ?? "",
+      environmentId: r.environmentId,
+      name: r.name,
+      kind: r.kind,
+      repositoryId: r.repositoryId,
+      repositoryName: r.repositoryName,
+    });
+    if (!agg.projects.some((p) => p.id === r.projectId)) agg.projects.push({ id: r.projectId, name: r.projectName });
+  }
+
+  // Gli episodi (la salute e il dettaglio), dal più recente.
+  const episodeRows = await app.db
+    .select()
+    .from(serverEpisodes)
+    .where(inArray(serverEpisodes.serverId, serverIds))
+    .orderBy(desc(serverEpisodes.startedAt));
+  for (const e of episodeRows) {
+    const agg = byServer.get(e.serverId)!;
+    if (agg.episodes.length >= EPISODES_SHOWN) continue;
+    agg.episodes.push({
+      id: e.id,
+      severity: e.severity,
+      reasons: e.reasons,
+      startedAt: e.startedAt.toISOString(),
+      recoveredAt: e.recoveredAt ? e.recoveredAt.toISOString() : null,
+    });
   }
 
   // Conteggi check up/down (solo abilitati), aggregati per server in una query.
@@ -192,13 +263,8 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
       // Filtro per progetto: gli id dei server associati, poi la lista completa.
       let rows: ServerRow[];
       if (projectId) {
-        const associated = await app.db
-          .select({ serverId: serverProjects.serverId })
-          .from(serverProjects)
-          .where(eq(serverProjects.projectId, projectId));
-        const ids = associated
-          .map((a) => a.serverId)
-          .filter((id) => visible === "all" || visible.includes(id));
+        // Area 8, F4a: i server degli AMBIENTI del progetto.
+        const ids = (await serverIdsOfProjects(app.db, [projectId])).filter((id) => visible === "all" || visible.includes(id));
         rows =
           ids.length === 0
             ? []
@@ -220,8 +286,71 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
                 .orderBy(servers.createdAt);
       }
 
-      const agg = await loadAggregates(app, rows.map((r) => r.id));
+      const agg = await loadAggregates(app, rows.map((r) => r.id), await visibleProjectIds(app.db, request.user!));
       return rows.map((r) => toServerView(r, agg.get(r.id)!, now));
+    },
+  );
+
+  /** Il dettaglio di un server visibile (per id o per codice): la vista più lo snapshot, i controlli, gli episodi. */
+  async function detailOf(row: ServerRow, user: NonNullable<FastifyRequest["user"]>) {
+    const now = new Date();
+    const visibleProjects = await visibleProjectIds(app.db, user);
+    const agg = (await loadAggregates(app, [row.id], visibleProjects)).get(row.id)!;
+    // Snapshot corrente dall'ultimo campione: servizi scoperti, dischi,
+    // memoria e ts. La memoria (23 set 2026) sta nella STESSA riga: le due
+    // colonne sono NOT NULL, quindi c'è sempre quando c'è un campione.
+    const [latest] = await app.db
+      .select({
+        ts: serverMetrics.ts,
+        services: serverMetrics.services,
+        disks: serverMetrics.disks,
+        memUsedBytes: serverMetrics.memUsedBytes,
+        memTotalBytes: serverMetrics.memTotalBytes,
+      })
+      .from(serverMetrics)
+      .where(eq(serverMetrics.serverId, row.id))
+      .orderBy(desc(serverMetrics.ts))
+      .limit(1);
+    const checks = await app.db.select().from(serviceChecks).where(eq(serviceChecks.serverId, row.id)).orderBy(serviceChecks.createdAt);
+    const productionProjects: { id: string; code: string; name: string }[] = [];
+    for (const e of agg.environments) {
+      if (e.kind === "production" && !productionProjects.some((p) => p.id === e.projectId)) {
+        productionProjects.push({ id: e.projectId, code: e.projectCode, name: agg.projects.find((p) => p.id === e.projectId)?.name ?? "" });
+      }
+    }
+    return {
+      ...toServerView(row, agg, now),
+      services: latest?.services ?? [],
+      disks: latest?.disks ?? [],
+      metricsAt: latest ? latest.ts.toISOString() : null,
+      memUsedBytes: latest?.memUsedBytes ?? null,
+      memTotalBytes: latest?.memTotalBytes ?? null,
+      // Area 8, F4a (S2).
+      checks: checks.map(toCheckView),
+      episodes: agg.episodes,
+      productionProjects,
+      canManage: user.instancePermissions.has("monitor.manage"),
+    };
+  }
+
+  // Area 8, F4a: per codice (`SRV-<n>`). Letterale: PRIMA di `/:id`.
+  app.get(
+    "/by-code/:code",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        params: z.object({ code: z.string().min(1).max(40) }),
+        response: { 200: serverDetailSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const m = /^SRV-(\d{1,9})$/i.exec(request.params.code.trim());
+      const [row] = m ? await app.db.select().from(servers).where(eq(servers.number, Number(m[1]))) : [];
+      // Un server non visibile risponde 404 come uno inesistente.
+      if (!row || !(await canViewServer(app.db, request.user!, row.id))) {
+        return apiError(reply, 404, "server_not_found", "Server not found");
+      }
+      return detailOf(row, request.user!);
     },
   );
 
@@ -235,37 +364,13 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const now = new Date();
       // Un server non visibile risponde 404 come uno inesistente.
       if (!(await canViewServer(app.db, request.user!, request.params.id))) {
         return apiError(reply, 404, "server_not_found", "Server not found");
       }
       const [row] = await app.db.select().from(servers).where(eq(servers.id, request.params.id));
       if (!row) return apiError(reply, 404, "server_not_found", "Server not found");
-      const agg = await loadAggregates(app, [row.id]);
-      // Snapshot corrente dall'ultimo campione: servizi scoperti, dischi,
-      // memoria e ts. La memoria (23 set 2026) sta nella STESSA riga: le due
-      // colonne sono NOT NULL, quindi c'è sempre quando c'è un campione.
-      const [latest] = await app.db
-        .select({
-          ts: serverMetrics.ts,
-          services: serverMetrics.services,
-          disks: serverMetrics.disks,
-          memUsedBytes: serverMetrics.memUsedBytes,
-          memTotalBytes: serverMetrics.memTotalBytes,
-        })
-        .from(serverMetrics)
-        .where(eq(serverMetrics.serverId, row.id))
-        .orderBy(desc(serverMetrics.ts))
-        .limit(1);
-      return {
-        ...toServerView(row, agg.get(row.id)!, now),
-        services: latest?.services ?? [],
-        disks: latest?.disks ?? [],
-        metricsAt: latest ? latest.ts.toISOString() : null,
-        memUsedBytes: latest?.memUsedBytes ?? null,
-        memTotalBytes: latest?.memTotalBytes ?? null,
-      };
+      return detailOf(row, request.user!);
     },
   );
 
@@ -286,7 +391,10 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const now = new Date();
-      const { name, sampleIntervalSeconds, alertThresholds, projectIds } = request.body;
+      // `projectIds` (area 8, F4a-4 = b): si accetta ancora (un web in cache non
+      // deve rompersi) ma si IGNORA — i progetti di un server sono quelli dei
+      // suoi ambienti. `server_projects` resta inerte per il rollback.
+      const { name, sampleIntervalSeconds, alertThresholds } = request.body;
 
       const updates: Partial<ServerRow> = {};
       if (name !== undefined) updates.name = name;
@@ -295,40 +403,13 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
       // già applicato i default sui campi omessi.
       if (alertThresholds !== undefined) updates.alertThresholds = alertThresholds;
 
-      // Esistenza + eventuale sync dei progetti in un'unica transazione: se un
-      // projectId è inesistente la FK viola e l'intero PATCH torna 422 (nessuna
-      // modifica parziale applicata).
-      try {
-        const applied = await app.db.transaction(async (tx) => {
-          const [row] =
-            Object.keys(updates).length > 0
-              ? await tx.update(servers).set(updates).where(eq(servers.id, request.params.id)).returning()
-              : await tx.select().from(servers).where(eq(servers.id, request.params.id));
-          if (!row) return undefined;
-
-          // projectIds assente → associazioni intatte; presente → replace
-          // completo. Dedup preventivo: un duplicato nel body violerebbe
-          // l'unique (server_id, project_id) → 500, non la FK.
-          if (projectIds !== undefined) {
-            const uniqueProjectIds = [...new Set(projectIds)];
-            await tx.delete(serverProjects).where(eq(serverProjects.serverId, row.id));
-            if (uniqueProjectIds.length > 0) {
-              await tx
-                .insert(serverProjects)
-                .values(uniqueProjectIds.map((projectId) => ({ serverId: row.id, projectId })));
-            }
-          }
-          return row;
-        });
-        if (!applied) return apiError(reply, 404, "server_not_found", "Server not found");
-        const agg = await loadAggregates(app, [applied.id]);
-        return toServerView(applied, agg.get(applied.id)!, now);
-      } catch (error) {
-        if (isForeignKeyViolation(error)) {
-          return apiError(reply, 422, "project_not_found", "One or more projects do not exist");
-        }
-        throw error;
-      }
+      const [applied] =
+        Object.keys(updates).length > 0
+          ? await app.db.update(servers).set(updates).where(eq(servers.id, request.params.id)).returning()
+          : await app.db.select().from(servers).where(eq(servers.id, request.params.id));
+      if (!applied) return apiError(reply, 404, "server_not_found", "Server not found");
+      const agg = await loadAggregates(app, [applied.id], await visibleProjectIds(app.db, request.user!));
+      return toServerView(applied, agg.get(applied.id)!, now);
     },
   );
 
@@ -350,7 +431,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(servers.id, request.params.id))
         .returning();
       if (!updated) return apiError(reply, 404, "server_not_found", "Server not found");
-      const agg = await loadAggregates(app, [updated.id]);
+      const agg = await loadAggregates(app, [updated.id], await visibleProjectIds(app.db, request.user!));
       return { ...toServerView(updated, agg.get(updated.id)!, now), key };
     },
   );

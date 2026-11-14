@@ -850,6 +850,19 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     installati, con un avviso nella UI *(M, 14 nov 2026)*. L'`Origin` lo
     falsifica chiunque non sia un browser: protegge dall'embed su siti
     altrui, non sostituisce la chiave.
+  - **Dalla review finale della F3** *(O, 72, 14 nov 2026)*, limiti accettati:
+    - il messaggio del cliente si scrive DOPO il lock della catena
+      (`openConversationFor`): se «Apri la richiesta» cade in quei
+      millisecondi, il messaggio finisce sulla conversazione appena chiusa
+      (visibile al team, nessun danno);
+    - col backlog del progetto spento, `create_backlog_item` apre un ticket
+      `feature` e la conversazione del collaboratore si perde senza dirlo
+      (come `/from-design`);
+    - il test «nessun altro scrive `team`» guarda solo il letterale in
+      `apps/server` e `apps/worker`;
+    - un'anteprima del widget da un'app impacchettata (`file://`,
+      `app://`) è rifiutata con un elenco di siti pieno: l'anteprima
+      dell'app web (`PUBLIC_URL`) è ammessa.
 - **L'API per i siti** *(M, 14 nov 2026; fetta a sé DOPO la F3)*: il cliente
   segue sul sito che ospita il widget le sue richieste e i suoi ticket.
   Note di 72 per il design:

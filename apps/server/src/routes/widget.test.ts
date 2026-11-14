@@ -895,6 +895,9 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
       expect(res.json()).toMatchObject({ conversationId: next });
       expect((await messagesOf(next)).some((m) => m.ticketId === res.json().ticketId)).toBe(true);
       expect((await messagesOf(conversationId)).some((m) => m.ticketId !== null)).toBe(false);
+      // Review F3, I2: la trascrizione è quella dove è nata la proposta (la chiusa), non la successiva vuota.
+      const [ticket] = await testDb.db.select({ body: tickets.body }).from(tickets).where(eq(tickets.id, res.json().ticketId));
+      expect(ticket!.body).toContain("Vecchia domanda");
     });
   });
 

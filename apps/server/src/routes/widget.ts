@@ -664,12 +664,19 @@ export async function widgetRoutes(
 
       // Ultimi N messaggi PRIMA della conferma, in ordine cronologico (DESC +
       // reverse per l'indice, tiebreaker su id come lo storico).
-      const recent = await app.db
-        .select({ role: widgetMessages.role, content: widgetMessages.content })
-        .from(widgetMessages)
-        .where(eq(widgetMessages.conversationId, targetId))
-        .orderBy(desc(widgetMessages.createdAt), desc(widgetMessages.id))
-        .limit(WIDGET_TICKET_TRANSCRIPT_MESSAGES);
+      const recentOf = (id: string) =>
+        app.db
+          .select({ role: widgetMessages.role, content: widgetMessages.content })
+          .from(widgetMessages)
+          .where(eq(widgetMessages.conversationId, id))
+          .orderBy(desc(widgetMessages.createdAt), desc(widgetMessages.id))
+          .limit(WIDGET_TICKET_TRANSCRIPT_MESSAGES);
+      // La trascrizione è dove la proposta è nata: la successiva se ha già i
+      // messaggi (un widget vecchio che scrive alla chiusa), altrimenti la
+      // conversazione su cui si conferma — una successiva appena aperta è vuota
+      // (review F3).
+      let recent = await recentOf(targetId);
+      if (targetId !== conversationId && !recent.some((m) => m.role === "user")) recent = await recentOf(conversationId);
       const transcript = recent.reverse();
 
       const body = composeWidgetTicketBody({

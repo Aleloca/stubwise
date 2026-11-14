@@ -5,14 +5,15 @@ import { eq } from "drizzle-orm";
 import {
   aiModelSettings,
   aiProviders,
+  environmentServers,
   gitAccounts,
   gitIdentities,
   googleWorkspaces,
   instanceSettings,
   invites,
   plugins,
+  projectEnvironments,
   projectMembers,
-  projects,
   roles,
   serverProjects,
   servers,
@@ -20,7 +21,7 @@ import {
   users,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { startTestDb } from "@stubwise/db/testing";
+import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { fullSessionCookie, seedUsers } from "../test/fixtures.js";
 
@@ -304,51 +305,51 @@ describe("permessi granulari d'istanza", () => {
   });
 });
 
-describe("server di monitoraggio: visibilità tramite progetto collegato", () => {
-  it("senza monitor.view: vede il server di un suo progetto, non quello altrui", async () => {
+describe("server di monitoraggio: la visibilità dagli AMBIENTI (area 8, F4a)", () => {
+  it("il preset User vede i server degli ambienti dei suoi progetti; un server SOLO in server_projects è invisibile; monitor.view li vede tutti", async () => {
     const [mine] = await testDb.db.insert(servers).values({ name: "mio", keyHash: "h1" }).returning();
     const [other] = await testDb.db.insert(servers).values({ name: "altrui", keyHash: "h2" }).returning();
-    const [pMine] = await testDb.db.insert(projects).values({ name: "Mio", slug: "mio-mon", ingestionKey: "ik-mio" }).returning();
-    const [pOther] = await testDb.db.insert(projects).values({ name: "Altrui", slug: "altrui-mon", ingestionKey: "ik-altrui" }).returning();
-    await testDb.db.insert(serverProjects).values([
-      { serverId: mine!.id, projectId: pMine!.id },
-      { serverId: other!.id, projectId: pOther!.id },
+    const [legacy] = await testDb.db.insert(servers).values({ name: "solo-web", keyHash: "h3" }).returning();
+    const { projectId: pMine, repositoryId: rMine } = await seedRepository(testDb.db);
+    const { projectId: pOther, repositoryId: rOther } = await seedRepository(testDb.db);
+    const [envMine] = await testDb.db.insert(projectEnvironments).values({ projectId: pMine, name: "production", kind: "production" }).returning();
+    const [envOther] = await testDb.db.insert(projectEnvironments).values({ projectId: pOther, name: "production", kind: "production" }).returning();
+    await testDb.db.insert(environmentServers).values([
+      { environmentId: envMine!.id, repositoryId: rMine, serverId: mine!.id },
+      { environmentId: envOther!.id, repositoryId: rOther, serverId: other!.id },
     ]);
+    // Il legame del web (F4a-4 = b): non conta più.
+    await testDb.db.insert(serverProjects).values({ serverId: legacy!.id, projectId: pMine });
     const [projectRole] = await testDb.db.select().from(roles).where(eq(roles.scope, "project")).limit(1);
     const monUser = await makeUser("mon@example.com");
     const monCookie = monUser.cookie;
-    await testDb.db.insert(projectMembers).values({ projectId: pMine!.id, userId: monUser.id, roleId: projectRole!.id });
+    await testDb.db.insert(projectMembers).values({ projectId: pMine, userId: monUser.id, roleId: projectRole!.id });
 
-    // Con il preset User (monitor.view) li vede entrambi.
-    const withView = await app.inject({ method: "GET", url: "/api/servers", headers: { cookie: monCookie } });
-    const namesWith = (withView.json() as { name: string }[]).map((s) => s.name);
-    expect(namesWith).toContain("mio");
-    expect(namesWith).toContain("altrui");
-
-    // Si toglie monitor.view: resta solo il server del progetto di cui è membro.
-    const [noMonitor] = await testDb.db
-      .insert(roles)
-      .values({ name: "Senza monitor", scope: "instance", permissions: ["users.view_all"] })
-      .returning();
-    await testDb.db.update(users).set({ instanceRoleId: noMonitor!.id }).where(eq(users.id, monUser.id));
-
+    // Il preset User (senza monitor.view dalla 0180): solo il server dell'ambiente del suo progetto.
     const list = await app.inject({ method: "GET", url: "/api/servers", headers: { cookie: monCookie } });
     expect(list.statusCode).toBe(200);
     expect((list.json() as { name: string }[]).map((s) => s.name)).toEqual(["mio"]);
+    const ofProject = await app.inject({ method: "GET", url: `/api/servers?projectId=${pMine}`, headers: { cookie: monCookie } });
+    expect((ofProject.json() as { name: string }[]).map((s) => s.name)).toEqual(["mio"]);
 
-    const detailMine = await app.inject({ method: "GET", url: `/api/servers/${mine!.id}`, headers: { cookie: monCookie } });
-    expect(detailMine.statusCode).toBe(200);
-    const detailOther = await app.inject({ method: "GET", url: `/api/servers/${other!.id}`, headers: { cookie: monCookie } });
-    expect(detailOther.statusCode).toBe(404);
-    const checksOther = await app.inject({ method: "GET", url: `/api/servers/${other!.id}/checks`, headers: { cookie: monCookie } });
-    expect(checksOther.statusCode).toBe(404);
-    const checksMine = await app.inject({ method: "GET", url: `/api/servers/${mine!.id}/checks`, headers: { cookie: monCookie } });
-    expect(checksMine.statusCode).toBe(200);
-    const metricsOther = await app.inject({
-      method: "GET",
-      url: `/api/servers/${other!.id}/metrics?from=2026-01-01T00:00:00.000Z&to=2026-01-02T00:00:00.000Z`,
-      headers: { cookie: monCookie },
-    });
-    expect(metricsOther.statusCode).toBe(404);
+    const get = (id: string, path = "") => app.inject({ method: "GET", url: `/api/servers/${id}${path}`, headers: { cookie: monCookie } });
+    const metrics = "/metrics?from=2026-01-01T00:00:00.000Z&to=2026-01-02T00:00:00.000Z";
+    expect((await get(mine!.id)).statusCode).toBe(200);
+    expect((await get(mine!.id, "/checks")).statusCode).toBe(200);
+    for (const hidden of [other!.id, legacy!.id]) {
+      expect((await get(hidden)).statusCode).toBe(404);
+      expect((await get(hidden, "/checks")).statusCode).toBe(404);
+      expect((await get(hidden, metrics)).statusCode).toBe(404);
+    }
+
+    // Con monitor.view (un ruolo che lo dà a mano) li vede tutti.
+    const [withView] = await testDb.db
+      .insert(roles)
+      .values({ name: "Monitor", scope: "instance", permissions: ["users.view_all", "monitor.view"] })
+      .returning();
+    await testDb.db.update(users).set({ instanceRoleId: withView!.id }).where(eq(users.id, monUser.id));
+    const all = (await app.inject({ method: "GET", url: "/api/servers", headers: { cookie: monCookie } })).json() as { name: string }[];
+    expect(all.map((s) => s.name)).toEqual(expect.arrayContaining(["mio", "altrui", "solo-web"]));
   });
 });
+

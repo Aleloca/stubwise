@@ -59,6 +59,17 @@ const judge = (id: string, outcome: "concluded" | "not_concluded") =>
 const teamMessages = (id: string) => t.db.select().from(widgetMessages).where(and(eq(widgetMessages.conversationId, id), eq(widgetMessages.role, "team")));
 const base = (code: string) => `/api/support/conversations/by-code/${code}`;
 
+/** Una conversazione mcp come la crea `POST /api/backlog`: col suo job d'intake, già finito su `itemId`. */
+async function mcpWithJob(projectId: string, userId: string, itemId: string) {
+  const [job] = await t.db
+    .insert(backlogJobs)
+    .values({ projectId, kind: "intake", status: "done", payload: { title: "x", body: "y", requestedByUserId: userId }, resultItemId: itemId })
+    .returning();
+  const [c] = await t.db.insert(widgetConversations).values({ projectId, externalUserId: `mcp:${userId}`, channel: "mcp", intakeJobId: job!.id }).returning();
+  const [p] = await t.db.select({ code: projects.code }).from(projects).where(eq(projects.id, projectId));
+  return { id: c!.id, code: `${p!.code}-S${c!.number}` };
+}
+
 async function mcpConversation(projectId: string) {
   const c = await withRequest(projectId);
   await t.db.update(widgetConversations).set({ channel: "mcp" }).where(eq(widgetConversations.id, c.id));
@@ -257,12 +268,39 @@ describe("S12: il canale `mcp` (le richieste dal server MCP in modalità collabo
     expect(await t.db.select().from(widgetConversations).where(eq(widgetConversations.intakeJobId, jobId))).toEqual([]);
   });
 
+  it("review F3, I1: una richiesta FUSA in una che c'era — la conversazione mcp ha l'esito dal job, le risposte arrivano a chi l'ha scritta e non al co-richiedente; niente «Apri la richiesta»", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const first = await person("contributor", projectId);
+    const second = await person("contributor", projectId);
+    const dev = await person("developer", projectId);
+    // La voce c'era (e porta la conversazione del primo); la richiesta del secondo vi è stata fusa.
+    const [item] = await t.db.insert(backlogItems).values({ projectId, title: "Export PDF", source: "manual" }).returning();
+    const own = await mcpWithJob(projectId, first.id, item!.id);
+    await t.db.update(backlogItems).set({ supportConversationId: own.id }).where(eq(backlogItems.id, item!.id));
+    const merged = await mcpWithJob(projectId, second.id, item!.id);
+    await t.db.insert(backlogItemRequesters).values([{ itemId: item!.id, userId: first.id }, { itemId: item!.id, userId: second.id }]);
+    await t.db.insert(widgetMessages).values({ conversationId: merged.id, role: "user", content: "Anche a me", createdAt: at(1) });
+    // La conversazione fusa ha un esito (la voce del job): chiusa, nessuna richiesta doppia.
+    const view = (await app.inject({ method: "GET", url: base(merged.code), headers: dev.headers })).json() as SupportConversation;
+    expect(view).toMatchObject({ state: "request_open", canOpenRequest: false, request: { id: item!.id } });
+    // Le risposte: a ciascuno le sue.
+    expect((await send("POST", dev.headers, `${base(merged.code)}/replies`, { body: "Per te, secondo" })).statusCode).toBe(200);
+    expect((await send("POST", dev.headers, `${base(own.code)}/replies`, { body: "Per te, primo" })).statusCode).toBe(200);
+    const repliesOf = async (headers: H) =>
+      ((await app.inject({ method: "GET", url: "/api/backlog?mine=true", headers })).json() as { items: { id: string; teamReplies?: { body: string }[] }[] }).items
+        .find((i) => i.id === item!.id)!
+        .teamReplies!.map((r) => r.body);
+    expect(await repliesOf(second.headers)).toEqual(["Per te, secondo"]);
+    expect(await repliesOf(first.headers)).toEqual(["Per te, primo"]);
+  });
+
   it("`mine=true`: le richieste di chi chiede portano le risposte del team (senza autore); senza `mine` no", async () => {
     const { projectId } = await seedRepository(t.db);
     const contributor = await person("contributor", projectId);
     const dev = await person("developer", projectId);
-    const [c] = await t.db.insert(widgetConversations).values({ projectId, externalUserId: `mcp:${contributor.id}`, channel: "mcp" }).returning();
-    const [item] = await t.db.insert(backlogItems).values({ projectId, title: "Export PDF", source: "manual", supportConversationId: c!.id }).returning();
+    const [item] = await t.db.insert(backlogItems).values({ projectId, title: "Export PDF", source: "manual" }).returning();
+    const c = await mcpWithJob(projectId, contributor.id, item!.id);
+    await t.db.update(backlogItems).set({ supportConversationId: c.id }).where(eq(backlogItems.id, item!.id));
     await t.db.insert(backlogItemRequesters).values({ itemId: item!.id, userId: contributor.id });
     await t.db.insert(widgetMessages).values({ conversationId: c!.id, role: "user", content: "Si può?", createdAt: at(1) });
     await t.db.insert(widgetMessages).values({ conversationId: c!.id, role: "team", content: "Sì, la mettiamo in pianificazione.", authorId: dev.id, createdAt: at(5) });
