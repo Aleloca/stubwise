@@ -4531,3 +4531,52 @@ deploy o di un rollback che la tocca.
   4. Il trigger della Chat non dà fastidio a un server vecchio (scrive
      eventi `release_page` che sa già leggere senza oggetto); i rilasci
      restano nel DB e riappaiono risalendo.
+- **«Integrazione area 8, fetta 2: gli avvisi e le iscrizioni per progetto»
+  (14 nov 2026)**: branch `feat/area8-f2` (da `feat/area8-f1`: si deploya
+  DOPO la F1), piano `docs/plans/2026-11-13-integrazione-area8-fetta2-plan.md`.
+  Il catalogo dei tipi d'avviso è codice in `@stubwise/shared` (`alerts/`).
+
+  Migrazioni **0177** (i `notification_kind` del catalogo — `release.merged`,
+  `release.succeeded`, `pr.opened`, `pr.analysis_issues`, `pr.corrected`,
+  `docs.release_note` — ognuno in uno statement a sé; la tabella
+  `alert_subscriptions`, lo stato di ADESSO delle iscrizioni per persona,
+  progetto e tipo) e **0178** (`releases.succeeded_notified_at`). **ORDINE**:
+  **server** (healthy, 0177–0178 applicate), poi **worker**, poi **caddy**.
+  Nessuna env nuova.
+
+  **Da sapere subito**:
+  - I tipi del catalogo (sopra, più `release.failed` e i `monitor.*` con un
+    progetto) hanno i destinatari del CATALOGO: gli obbligatori, poi chi è
+    iscritto o, senza riga, il default dai permessi di adesso. **Nessuno
+    cambia destinatari il giorno del deploy** (S-4): `release.failed` resta a
+    chi ha `release.merge`, i `monitor.*` a chi ha `monitor.manage` (permesso
+    d'istanza, M-1 = a); i tipi nuovi partono SPENTI (si iscrive chi li vuole).
+  - **I `monitor.*` di un server con un solo progetto smettono di andare su
+    Slack** (DM e webhook), come ogni tipo del catalogo (M3): la nota di
+    rilascio lo deve dire. Quelli di un server senza un solo progetto restano
+    sul routing di oggi, Slack compreso.
+  - Il push dei tipi del catalogo segue il «Telefono» del tipo (M-2 = b);
+    senza una riga d'iscrizione vale anche l'interruttore `push` di oggi,
+    quindi chi l'ha spento non riceve un telefono nuovo.
+  - Una card arrivata da OBBLIGATORIO porta il motivo nell'evento
+    (`alertMandatory`); la revoca a lettura nasconde le card dei tipi che
+    vogliono un permesso per iscriversi a chi l'ha perso (non a chi l'ha
+    avuta da obbligatorio).
+  Controllo, sola lettura: `select alert_type, app, count(*) from
+  alert_subscriptions group by 1, 2 order by 1;`.
+
+  **Rollback** (il server scende **insieme** al caddy; 0177 e 0178 non si
+  annullano, un server vecchio ignora tabella e colonna):
+  1. ⚠️ **I `notification_kind` nuovi** rendono NON sicuro scendere sul
+     server finché ne esistono righe (500 su `/api/inbox`): `select kind,
+     count(*) from notifications where kind in ('release.merged',
+     'release.succeeded', 'pr.opened', 'pr.analysis_issues', 'pr.corrected',
+     'docs.release_note') group by 1;`, e se ce ne sono `delete from
+     notifications where kind in (…stessi…);` (le consegne se ne vanno in
+     cascata).
+  2. Le card di `release.failed` e dei `monitor.*` pubblicate dopo il deploy
+     possono avere `alertMandatory` nell'evento: un server vecchio ignora il
+     campo, nessuna azione.
+  3. Scendendo, i `monitor.*` con un progetto tornano su Slack e ai soli
+     `monitor.manage`: le iscrizioni scritte restano in tabella e tornano a
+     valere risalendo.
