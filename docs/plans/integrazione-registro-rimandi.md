@@ -780,7 +780,7 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     chiusa: un «grazie» dopo un ticket apre una conversazione nuova che il
     controllo giudicherà (di solito `answered`). Accettato: è la regola.
   - **I siti ammessi** (S16): elenco vuoto = tutto ammesso, per i widget già
-    installati (proposta di 46, da confermare col maintainer). L'`Origin` lo
+    installati, con un avviso nella UI *(M, 14 nov 2026)*. L'`Origin` lo
     falsifica chiunque non sia un browser: protegge dall'embed su siti
     altrui, non sostituisce la chiave.
 - **L'API per i siti** *(M, 14 nov 2026; fetta a sé DOPO la F3)*: il cliente
@@ -805,10 +805,35 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - **I siti ammessi** (`widgets.allowed_origins`, F3 S16) valgono anche
     per l'API se è chiamata dal browser.
   - **Il rate limit e il tetto** per chiave, come le rotte del widget.
-- **«Clienti in attesa»** *(M, 14 nov 2026)*: il blocco della Home resta,
-  ma legato alle EMAIL delle caselle e alle automazioni, non al widget. La
-  versione Support (`/me/waiting-customers`) esce dalla F3. Proposta di
-  72 a 46 (definizione, fonti, cosa mostra), poi il maintainer decide.
+- **«Clienti in attesa»** *(M, 14 nov 2026; fetta a sé DOPO la F3, insieme
+  alla cattura della posta inviata)*: il blocco della Home resta, ma legato
+  alle EMAIL delle caselle, non al widget. La versione Support
+  (`/me/waiting-customers` sulle conversazioni) esce dalla F3.
+  - **Definizione** (proposta di 72, approvata): un cliente aspetta me = un
+    thread delle MIE caselle (a) ammesso, in un progetto che vedo; (b) il cui
+    ultimo messaggio viene da un indirizzo ESTERNO (non la mia casella né
+    un'altra casella collegata dell'istanza); (c) ricevuto da più di **24
+    ore** *(M)*; (d) senza un nostro messaggio dopo (posta inviata
+    catturata, o un `mail_outgoing` `sent` sullo stesso `gmailThreadId`); (e)
+    non rumore: `signal` ≠ `none` OPPURE importanza alta.
+  - **Fonte**: una query accanto a `GET /me/mail/threads`
+    (`apps/server/src/routes/me-mail.ts`, che dà già una riga per thread con
+    `lastFrom`/`lastReceivedAt`, sulle sole caselle di chi guarda), servita
+    come `GET /api/me/waiting-customers`; dall'attesa più vecchia, al più 20.
+  - **Le righe**: nome/email del cliente, oggetto, progetto, «aspetta da N
+    ore/giorni», il segnale (richiesta, scadenza…); il clic apre il thread
+    nella Posta. Lo vede chi ha una casella collegata, senza permesso (è la
+    sua posta: mai le caselle dei colleghi, mai agli admin, `mailbox_owner`).
+    Nel catalogo della Home, mai nelle Home di default ([A 17]).
+  - **Prerequisito**: la posta inviata va catturata anche nel primo giro e
+    nel resync sui thread ammessi (oggi `newer_than:7d -from:me`, e i thread
+    non noti restano fuori: `apps/worker/src/google/poller.ts`), o (d) dà
+    falsi positivi (un thread a cui si è risposto da Gmail).
+  - **Le automazioni** *(M)*: FUORI dal blocco. Le esecuzioni in
+    `waiting_event` con `replyTo` sono «noi aspettiamo il cliente» e restano
+    nel loro blocco.
+  - **Le tre decisioni** *(M, 14 nov 2026)*: soglia 24 ore; automazioni
+    fuori; una fetta a sé dopo la F3, con la cattura della posta inviata.
 
 - F2, S7, l'azione di Claude `setSubscription` *(O, 46, 14 nov 2026)*:
   - Golden: perimetro RIDOTTO autorizzato dal maintainer (perimetro (a)):
