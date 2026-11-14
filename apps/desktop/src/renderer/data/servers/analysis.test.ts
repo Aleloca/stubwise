@@ -291,6 +291,8 @@ describe("RF 4: episodi ai bordi", () => {
 
   it("F4b-4: server condiviso senza container che dimostrino il progetto: «non determinato», nessuna task né proposta, avviso in entrambi", async () => {
     const other = await sharedSrv1();
+    // Senza i container di ACQ (R0-D) vale il nome dell'ambiente, «Production»: `postgres` non è di nessuno.
+    state.environments.find((e) => e.id === "env-acq-prod")!.servers[0]!.containers = [];
     const ep = await servers.simulateServerAlert("SRV-1", "memory");
     await whenAnalysesIdle();
 
@@ -318,8 +320,7 @@ describe("RF 4: episodi ai bordi", () => {
 
   it("F4b-4: su un server condiviso la task nasce nel progetto del container della causa, non nel primo", async () => {
     const other = await sharedSrv1();
-    // Senza il campo «containers» (R7) vale il NOME dell'ambiente: la produzione di ACQ è `postgres`.
-    state.environments.find((e) => e.id === "env-acq-prod")!.name = "postgres";
+    // `postgres` è fra i container della produzione di ACQ su SRV-1 (R0-D, seme).
     const ep = await servers.simulateServerAlert("SRV-1", "memory");
     await whenAnalysesIdle();
     const a = onlyAnalysis("SRV-1");
@@ -333,7 +334,8 @@ describe("RF 4: episodi ai bordi", () => {
 
   it("F4b-4: un container legato a DUE progetti non attribuisce a nessuno", async () => {
     const other = await sharedSrv1();
-    state.environments.find((e) => e.id === "env-acq-prod")!.name = "postgres";
+    // ACQ ha `postgres` fra i suoi container (seme); l'altro progetto, senza
+    // container, vale col nome dell'ambiente.
     state.environments.find((e) => e.projectId === other.id)!.name = "postgres";
     const ep = await servers.simulateServerAlert("SRV-1", "memory");
     await whenAnalysesIdle();

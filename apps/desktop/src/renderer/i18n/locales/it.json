@@ -9062,7 +9062,23 @@
       },
       "orphanWarning_one": "{{codes}} non sarà più in nessun ambiente. Solo chi gestisce il monitoraggio potrà ricollegarlo.",
       "orphanWarning_other": "{{codes}} non saranno più in nessun ambiente. Solo chi gestisce il monitoraggio potrà ricollegarli.",
-      "kindLocked": "Il tipo non cambia: per un altro tipo, aggiungi un ambiente nuovo."
+      "kindLocked": "Il tipo non cambia: per un altro tipo, aggiungi un ambiente nuovo.",
+      "containers": {
+        "line": "Container su {{code}}: {{list}}",
+        "menu": "Container su {{code}}",
+        "title": "Container di {{name}} su {{code}}",
+        "body": "Scegli i container su {{code}} che appartengono a {{name}}. Claude li usa per capire da quale progetto viene un problema sul server, e una correzione tocca solo loro. Senza nessuno scelto vale il container col nome dell'ambiente.",
+        "loading": "Carico i container che l'agente riporta…",
+        "none": "L'agente non riporta nessun container su {{code}}.",
+        "unseen": "Non vedi {{code}}, quindi qui non si possono elencare i suoi container. Può sceglierli chi gestisce il monitoraggio.",
+        "save": "Salva",
+        "errors": {
+          "container_of_other_project": "Un container che hai scelto appartiene a un altro progetto su questo server.",
+          "unknown_container": "L'agente non riporta più uno di questi container. Riapri l'elenco e riprova.",
+          "server_not_in_environment": "Questo ambiente non usa più {{code}}.",
+          "generic": "Non è stato possibile salvare i container. Riprova."
+        }
+      }
     },
     "panel": {
       "label": "Pull request {{pr}}",

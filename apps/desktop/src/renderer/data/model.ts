@@ -3320,6 +3320,13 @@ export interface EnvironmentServer {
   /** Il commit che l'agente riporta per quella repository (o per il progetto). */
   reportedSha: string | null;
   reportedAt: string | null;
+  /**
+   * Area 8, F4b (R0-D, R7): i container di QUESTO server che appartengono
+   * all'ambiente — dicono quale progetto possiede un container (attribuzione
+   * di un guasto, piano di correzione). Vuoto o assente: vale il container
+   * col NOME dell'ambiente (la regola di `@stubwise/shared`).
+   */
+  containers?: string[];
 }
 
 /**

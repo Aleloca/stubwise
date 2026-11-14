@@ -632,6 +632,7 @@ export type ApiFnName =
   | "releases.explainRelease"
   | "releases.createEnvironment"
   | "releases.updateEnvironment"
+  | "releases.setEnvironmentContainers"
   | "releases.deleteEnvironment"
   /** Solo prototipo: l'esito di una run di CI, la comparsa sul server, il push dell'autore. */
   | "releases.simulateRunOutcome"

@@ -23,9 +23,9 @@ export function alertProjectsOf(serverCode: string, envs: ProjectEnvironment[]):
  * I progetti i cui ambienti (di ogni tipo) usano `serverCode`, nella forma
  * di `attributeServerCause` di `@stubwise/shared` (area 8, F4b-4): l'analisi
  * parte dal SERVER e l'attribuzione al progetto si valida contro questi.
- * Un progetto una volta sola, nell'ordine degli ambienti. Il prototipo non
- * ha ancora il campo «containers» dell'ambiente (R7): `[]`, cioè vale il
- * container col NOME dell'ambiente (la regola di shared).
+ * Un progetto una volta sola, nell'ordine degli ambienti. I container sono
+ * quelli dell'ambiente su QUESTO server (R0-D, R7); senza, vale il container
+ * col NOME dell'ambiente (la regola di shared).
  */
 export function serverProjectsOf(
   serverCode: string,
@@ -44,7 +44,13 @@ export function serverProjectsOf(
       p = { projectId: env.projectId, projectCode: codeOf(env.projectId), environments: [] };
       out.push(p);
     }
-    p.environments.push({ name: env.name, containers: [] });
+    // I container di QUESTO server nell'ambiente (R0-D), su ogni sua riga.
+    const containers = [
+      ...new Set(
+        env.servers.flatMap((s) => (s.serverCode === serverCode ? (s.containers ?? []) : [])),
+      ),
+    ];
+    p.environments.push({ name: env.name, containers });
   }
   return out;
 }

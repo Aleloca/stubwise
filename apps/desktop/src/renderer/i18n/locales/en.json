@@ -9062,7 +9062,23 @@
       },
       "orphanWarning_one": "{{codes}} won't be in any environment anymore. Only someone who manages monitoring can link it again.",
       "orphanWarning_other": "{{codes}} won't be in any environment anymore. Only someone who manages monitoring can link them again.",
-      "kindLocked": "The type can't change: for another type, add a new environment."
+      "kindLocked": "The type can't change: for another type, add a new environment.",
+      "containers": {
+        "line": "Containers on {{code}}: {{list}}",
+        "menu": "Containers on {{code}}",
+        "title": "Containers of {{name}} on {{code}}",
+        "body": "Pick the containers on {{code}} that belong to {{name}}. Claude uses them to tell which project a problem on the server comes from, and a fix only touches them. With none picked, the container named like the environment counts.",
+        "loading": "Loading the containers the agent reports…",
+        "none": "The agent doesn't report any container on {{code}}.",
+        "unseen": "You can't see {{code}}, so its containers can't be listed here. Someone who manages the monitoring can pick them.",
+        "save": "Save",
+        "errors": {
+          "container_of_other_project": "A container you picked belongs to another project on this server.",
+          "unknown_container": "The agent doesn't report one of these containers any more. Reopen the list and try again.",
+          "server_not_in_environment": "This environment doesn't use {{code}} any more.",
+          "generic": "Couldn't save the containers. Try again."
+        }
+      }
     },
     "panel": {
       "label": "Pull request {{pr}}",

@@ -57,6 +57,8 @@ describe("anti-obiettivo 1: api.releases non avvia mai un rilascio", () => {
         "createEnvironment",
         "updateEnvironment",
         "deleteEnvironment",
+        // R0-D: l'anagrafica dei container di un ambiente, mai un'azione sul server.
+        "setEnvironmentContainers",
         "simulateRunOutcome",
         "simulateSeenOnServer",
         "simulateAuthorPush",

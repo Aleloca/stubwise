@@ -28,6 +28,7 @@ import type {
   Repository,
   Task,
 } from "../types";
+import { CONTAINER_NAME_RE } from "@stubwise/shared";
 import { forbidden, invalid, notFound, writer } from "../writer";
 import { assertServerCodesVisible } from "../servers/visibility";
 import {
@@ -600,6 +601,50 @@ export async function updateEnvironment(
     ...(diff ? { before: diff.before, after: diff.after } : {}),
   });
   return copy(env);
+}
+
+/**
+ * I container di un ambiente su uno dei suoi server (area 8, F4b, R0-D: PUT
+ * …/environments/:id/containers sul server). Solo nomi che l'agente
+ * riporta per quel server (`unknown_container`), mai di un ALTRO progetto
+ * sullo stesso server (`container_of_other_project`); sostituisce l'elenco
+ * su ogni riga dell'ambiente con quel server. Chi scrive ha
+ * `environments.manage` nel progetto: non serve che veda il server.
+ */
+export async function setEnvironmentContainers(
+  id: string,
+  input: { serverCode: string; containers: string[] },
+): Promise<{ serverCode: string; containers: string[] }> {
+  const me = await writer("releases.setEnvironmentContainers");
+  const env = environmentFor(me, id);
+  if (!holds(me, "environments.manage", env.projectId)) throw forbidden();
+  const serverCode = input.serverCode.trim().toUpperCase();
+  const rows = env.servers.filter((s) => s.serverCode === serverCode);
+  if (rows.length === 0) throw invalid("server_not_in_environment");
+  const containers = [...new Set(input.containers)];
+  if (containers.length > 50 || containers.some((c) => !CONTAINER_NAME_RE.test(c)))
+    throw invalid("containers");
+  const server = state.servers.find((s) => s.code === serverCode);
+  const seen = new Set(
+    (server?.services ?? []).filter((x) => x.source === "docker").map((x) => x.name),
+  );
+  if (containers.some((c) => !seen.has(c))) throw invalid("unknown_container");
+  const clash = state.environments.some(
+    (e) =>
+      e.projectId !== env.projectId &&
+      e.servers.some(
+        (s) => s.serverCode === serverCode && (s.containers ?? []).some((c) => containers.includes(c)),
+      ),
+  );
+  if (clash) throw invalid("container_of_other_project");
+  for (const r of rows) r.containers = [...containers];
+  recordChange({
+    kind: "environment.updated",
+    actorId: me,
+    projectId: env.projectId,
+    object: environmentObject(env),
+  });
+  return { serverCode, containers };
 }
 
 export async function deleteEnvironment(id: string): Promise<void> {

@@ -32,6 +32,7 @@ export {
   setReleasePipeline,
   setRepoPrMode,
   updateEnvironment,
+  setEnvironmentContainers,
   type CorrectionRequestResult,
   type FixResult,
   type EnvironmentInput,
