@@ -894,9 +894,8 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     - `syncEpisode` legge e riscrive i motivi senza lock: sicuro perché il
       poller degli avvisi è single-flight in un processo worker solo.
 - F4a, lato renderer (94, 14 nov 2026), ciò che resta fuori o diverge:
-  - **creare un server dalla sezione di un progetto** (`servers-create-in-env`):
-    spento finché 46 non sceglie come collegare le repository (il server ora
-    accetta l'ambiente senza `repositoryIds` = tutto il progetto);
+  - *(fatto: «New server» da un progetto nasce dentro un ambiente per tutto il
+    progetto, decisione c di 46.)*
   - **il tipo di un ambiente non cambia** nella build app (il PATCH del
     server non lo accetta): il dialogo lo blocca in modifica e lo dice; nel
     prototipo si cambia;
