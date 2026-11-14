@@ -82,6 +82,14 @@ describe("le righe delle Preferenze", () => {
     );
   });
 
+  it("i tipi di una riga partono col Telefono della riga (decisione del maintainer, 14 nov 2026: anche i «rientrato»)", () => {
+    for (const t of ALERT_TYPES.filter((x) => x.sameRowAs)) {
+      expect(t.defaultPhone, t.type).toBe(alertTypeOf(t.sameRowAs!)!.defaultPhone);
+    }
+    expect(alertTypeOf("monitor.recovered")!.defaultPhone).toBe(true);
+    expect(alertTypeOf("server.recovered")!.defaultPhone).toBe(true);
+  });
+
   it("una riga si mostra se uno dei suoi tipi è vivo (la riga dei monitor.* con server.trouble non ancora vivo)", () => {
     expect(isLiveAlertType("server.trouble")).toBe(false);
     expect(liveRowTypes()).toContain("server.trouble");

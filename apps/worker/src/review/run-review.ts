@@ -820,7 +820,8 @@ export async function runPrReview(
       });
       const reviewSession = await sessionOpt("review");
       run = await deps.mirrors.withWorktreeAtSha(ctx.mirrorProject, job.headSha, async (dir) => {
-        // Area 8, F2 (S4): l'autore del commit di testa, per l'obbligatorio
+        // Area 8, F2 (S4): l'autore dell'ultimo commit non di Stubwise (dopo
+        // una correzione la testa è di Stubwise), per l'obbligatorio
         // `pr_author` di `pr.analysis_issues` (best-effort).
         headAuthorEmail = await commitAuthorEmail(dir);
         return runWithProviders(

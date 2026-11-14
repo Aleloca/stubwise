@@ -66,7 +66,8 @@ async function laterChangeOf(
     if (row && row.at.toISOString() > o.stamp) return { byUserId: null };
   }
   // Le iscrizioni (S7): la riga di chi ha chiesto, riscritta dopo (dalle
-  // Preferenze, «Copia da», «Silenzia»). Solo lui le scrive.
+  // Preferenze, «Copia da», «Silenzia») o tolta (ritorno al default). Solo lui
+  // le scrive.
   for (const o of objects) {
     if (o.kind !== "subscription" || !o.stamp || !o.projectId || !o.type) continue;
     const [row] = await db
@@ -79,7 +80,8 @@ async function laterChangeOf(
           eq(alertSubscriptions.alertType, o.type),
         ),
       );
-    if (row && row.at.toISOString() > o.stamp) return { byUserId: group.requesterId };
+    // Riscritta dopo, o riportata al default (la riga non c'è più).
+    if (!row || row.at.toISOString() > o.stamp) return { byUserId: group.requesterId };
   }
   const taskIds = objects.filter((o) => o.kind === "task").map((o) => o.id);
   if (taskIds.length === 0) return undefined;

@@ -1,7 +1,7 @@
 import { gitIdentities, tickets, type Db } from "@stubwise/db";
 import { stubwiseTicketNumber, type MandatoryReason } from "@stubwise/shared";
 import { and, eq, sql } from "drizzle-orm";
-import { gitIn } from "../pipeline/repo-steps.js";
+import { gitIn, STUBWISE_COMMIT_EMAIL } from "../pipeline/repo-steps.js";
 
 /**
  * L'AUTORE COLLEGATO di una PR, per il destinatario obbligatorio `pr_author`
@@ -9,8 +9,8 @@ import { gitIn } from "../pipeline/repo-steps.js";
  * `pr.corrected`). Best-effort, mai indovinato:
  * - una PR di Stubwise (`stubwise/ticket-<N>` del suo ticket): l'autore della
  *   task (Stubwise l'ha aperta per lui);
- * - una PR di un collega: l'email dell'autore del commit di testa, letta nel
- *   worktree, collegata a un membro da `git_identities` (l'unico legame fra
+ * - una PR di un collega: l'email dell'autore dell'ultimo commit NON di
+ *   Stubwise (`commitAuthorEmail`), letta nel worktree, collegata a un membro da `git_identities` (l'unico legame fra
  *   identità git e persone). Nessun login della piattaforma è collegato a un
  *   utente, quindi senza quell'email collegata non c'è nessun obbligatorio.
  */
@@ -33,11 +33,23 @@ export async function prAuthorMandatory(
   return identity ? [{ userId: identity.userId, reason: "pr_author" }] : [];
 }
 
-/** L'email dell'autore di un commit nel worktree; `null` se git non la sa dire. */
+/** Quanti commit guardare all'indietro per trovare quello di una persona. */
+const AUTHOR_LOOKBACK = 200;
+
+/**
+ * L'email dell'autore dell'ultimo commit NON di Stubwise da `ref` all'indietro
+ * (review F2, 46): dopo una correzione la testa è di Stubwise
+ * (`ai@stubwise`), e l'autore della PR resta il collega. `null` se git non la
+ * sa dire o se ci sono solo commit di Stubwise (Stubwise non è mai `pr_author`).
+ */
 export async function commitAuthorEmail(dir: string, ref = "HEAD"): Promise<string | null> {
   try {
-    const out = (await gitIn(dir, ["log", "-1", "--format=%ae", ref])).trim();
-    return out.length > 0 ? out : null;
+    const out = await gitIn(dir, ["log", `-n${AUTHOR_LOOKBACK}`, "--format=%ae", ref]);
+    const email = out
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.length > 0 && line.toLowerCase() !== STUBWISE_COMMIT_EMAIL);
+    return email ?? null;
   } catch {
     return null;
   }

@@ -8,6 +8,7 @@ import {
   listAlertSubscriptions,
   muteFromNotification,
   muteProjectAlerts,
+  resetAlertSubscription,
   setAlertSubscription,
 } from "../services/alert-subscriptions.js";
 
@@ -54,5 +55,12 @@ export async function alertSubscriptionRoutes(instance: FastifyInstance): Promis
     },
     async (request, reply) =>
       handle(reply, () => setAlertSubscription(app.db, request.user!, { projectId: request.params.projectId, type: request.params.type, patch: request.body })),
+  );
+  // Review F2 (46): torna al default (nessuna scelta salvata, partner compresi).
+  app.delete(
+    "/me/alert-subscriptions/:projectId/:type",
+    { config: { access: { kind: "user" } }, schema: { params: z.object({ projectId: z.uuid(), type: z.string().min(1).max(80) }) } },
+    async (request, reply) =>
+      handle(reply, () => resetAlertSubscription(app.db, request.user!, { projectId: request.params.projectId, type: request.params.type })),
   );
 }

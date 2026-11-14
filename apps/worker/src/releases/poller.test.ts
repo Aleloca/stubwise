@@ -146,6 +146,22 @@ describe("pollReleasesOnce", () => {
     expect(await cardsOf(s.leadId)).toHaveLength(1);
   });
 
+  it("review F2 (46), 2: nessun destinatario (tutti hanno spento release.failed) non è un errore: il segno resta e il rilascio si sistema", async () => {
+    const s = await setup();
+    await t.db.insert(alertSubscriptions).values({ userId: s.leadId, projectId: s.projectId, alertType: "release.failed", app: false, phone: false });
+    // Anche i full admin dell'istanza (ricevono di partenza): spenti anche loro.
+    const admins = await t.db.execute<{ id: string }>(sql`select u.id from users u join roles r on r.id = u.instance_role_id where r.permissions @> array['instance.full_admin']::text[]`);
+    for (const a of admins) {
+      await t.db.insert(alertSubscriptions).values({ userId: a.id, projectId: s.projectId, alertType: "release.failed", app: false, phone: false }).onConflictDoNothing();
+    }
+    const failed: CommitRuns = { status: "ok", runs: [{ id: "9", name: "test", status: "failed", url: "h", failedStep: "x", startedAt: new Date().toISOString(), endedAt: new Date().toISOString() }] };
+    await poll(fake(failed));
+    const after = await reload(s.release.id);
+    expect(after.failedNotifiedAt).not.toBeNull();
+    expect(after.runsSettledAt).not.toBeNull();
+    expect(await cardsOf(s.leadId)).toEqual([]);
+  });
+
   it("review F1: una repository senza la sua riga in environment_servers usa il server dell'ambiente (`server_id`)", async () => {
     const s = await setup({ ciProvider: null });
     const [srv] = await t.db.insert(servers).values({ name: `s-${randomUUID().slice(0, 6)}`, keyHash: randomUUID() }).returning();

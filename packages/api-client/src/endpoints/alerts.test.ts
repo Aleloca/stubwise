@@ -22,7 +22,7 @@ describe("client.alerts", () => {
     const { c, fetchImpl } = client({ items: [{ projectId: P, projectCode: "AUD", projectName: "Audin", rows: [row] }] });
     const out = await c.alerts.list();
     expect(call(fetchImpl)).toMatchObject({ url: "https://x.test/api/me/alert-subscriptions", method: "GET" });
-    expect(out.items[0]!.rows[0]).toMatchObject({ suspendedReason: null, mandatory: [] });
+    expect(out.items[0]!.rows[0]).toMatchObject({ suspendedReason: null, mandatory: [], saved: false });
   });
 
   it("set (patch, il tipo nel percorso), copy, mute", async () => {
@@ -33,6 +33,13 @@ describe("client.alerts", () => {
     expect(call(fetchImpl)).toMatchObject({ url: `https://x.test/api/me/alert-subscriptions/${P}/server.trouble`, method: "PUT", body: { app: true } });
     expect(call(fetchImpl, 1)).toMatchObject({ url: `https://x.test/api/me/alert-subscriptions/${P}/copy`, method: "POST", body: { fromProjectId: "22222222-2222-4222-8222-222222222222" } });
     expect(call(fetchImpl, 2)).toMatchObject({ url: `https://x.test/api/me/alert-subscriptions/${P}/mute`, method: "POST" });
+  });
+
+  it("reset (review F2): DELETE sulla riga, risponde con la riga di adesso (senza `saved`: false)", async () => {
+    const { c, fetchImpl } = client(row);
+    const out = await c.alerts.reset(P, "server.trouble");
+    expect(call(fetchImpl)).toMatchObject({ url: `https://x.test/api/me/alert-subscriptions/${P}/server.trouble`, method: "DELETE" });
+    expect(out).toMatchObject({ type: "release.failed", saved: false });
   });
 
   it("uno stato sconosciuto (un server più nuovo) non fa crollare la lista", async () => {

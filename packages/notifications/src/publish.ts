@@ -119,8 +119,9 @@ export const MANDATORY_KINDS: ReadonlySet<NotificationEvent["kind"]> = new Set<N
  *    successiva, cioè esattamente la rottura che l'inghiottimento vorrebbe
  *    evitare).
  *
- * @returns quante righe di inbox sono state scritte (destinatari raggiunti) e
- * i loro id.
+ * @returns quante righe di inbox sono state scritte (destinatari raggiunti),
+ * i loro id, e `failed`: vero SOLO se la pubblicazione è fallita (non per
+ * «nessun destinatario»).
  *
  * ⚠️ **`notificationIds` esiste per non far ritrovare a nessuno le righe
  * appena scritte cercandole** (18 set 2026). `publishProposal`
@@ -141,7 +142,7 @@ export async function publishNotification(
   db: DbOrTx,
   event: NotificationEvent,
   opts: PublishOpts,
-): Promise<{ published: number; notificationIds: string[] }> {
+): Promise<{ published: number; notificationIds: string[]; failed?: true }> {
   try {
     return await db.transaction(async (inner) => {
       // Il PROGETTO dell'evento: quello dichiarato, o in mancanza quello del
@@ -159,7 +160,7 @@ export async function publishNotification(
       // l'interruttore `push` della persona (M-2 = b). Tutto il resto (anche un
       // `monitor.*` senza progetto) resta sul routing di oggi (S-4).
       const alertType = projectId !== null && isLiveAlertType(event.kind) ? alertTypeOf(event.kind) : undefined;
-      const catalog = alertType && projectId !== null ? await resolveCatalog(inner, alertType, projectId, opts) : null;
+      const catalog = alertType && projectId !== null ? await resolveCatalogRecipients(inner, alertType, projectId, opts) : null;
       const recipients = (catalog ? catalog.app : recipientsFor(event, await resolveRoutingContext(inner, event, opts, projectId))).filter(
         (id) => !agentIds.has(id),
       );
@@ -262,7 +263,9 @@ export async function publishNotification(
     // riceve nulla. `console` e non un logger perché il package non ne ha uno
     // fra le mani (stessa scelta di `slack-client.ts`).
     console.warn(`[notify] publish di ${event.kind} fallita, nessuna riga scritta:`, error);
-    return { published: 0, notificationIds: [] };
+    // `failed` distingue questo caso da «nessun destinatario» (anche quello è
+    // `published: 0`): chi deve riprovare riprova solo qui (review F2, 46).
+    return { published: 0, notificationIds: [], failed: true };
   }
 }
 
@@ -270,7 +273,12 @@ export async function publishNotification(
  * Il contesto di un avviso del catalogo (area 8, F2, S2), letto ADESSO: chi
  * vede il progetto, i permessi che il tipo guarda, le iscrizioni scritte.
  */
-async function resolveCatalog(
+/**
+ * I destinatari di un avviso del catalogo, coi dati di ADESSO. Esportata per
+ * il test di parità con le Preferenze (review F2, 46): ciò che le Preferenze
+ * mostrano acceso senza una riga deve essere ciò che riceve la card.
+ */
+export async function resolveCatalogRecipients(
   db: DbOrTx,
   type: AlertType,
   projectId: string,

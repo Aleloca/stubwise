@@ -1,27 +1,29 @@
 import { randomUUID } from "node:crypto";
-import { alertSubscriptions, notifications, users } from "@stubwise/db";
+import { alertSubscriptions, notifications, roles, users } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
-import { publishNotification } from "@stubwise/notifications";
+import { publishNotification, resolveCatalogRecipients } from "@stubwise/notifications";
+import { alertTypeOf, LIVE_ALERT_TYPES, rowTypeOf } from "@stubwise/shared";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { addMember, createUserWithPat, seedUsers } from "../test/fixtures.js";
+import { addMember, createUserWithPat, seedUsers, type SeededUsers } from "../test/fixtures.js";
 
 /** Area 8, F2, S5: le iscrizioni agli avvisi di chi chiede, per progetto. */
 
 let t: TestDb;
 let app: ReturnType<typeof buildApp>;
+let seeded: SeededUsers;
 beforeAll(async () => {
   t = await startTestDb();
   app = buildApp({ db: t.db, sessionSecret: "x".repeat(40), publicUrl: "https://s.example" });
-  await seedUsers(app);
+  seeded = await seedUsers(app);
 }, 120_000);
 afterAll(async () => {
   await app.close();
   await t.stop();
 });
 
-type Row = { type: string; app: boolean; phone: boolean; state: string; suspendedReason: string | null; mandatory: string[] };
+type Row = { type: string; app: boolean; phone: boolean; state: string; suspendedReason: string | null; mandatory: string[]; saved: boolean };
 const person = async (preset: string, projectId: string) => {
   const u = await createUserWithPat(app, `u-${randomUUID().slice(0, 8)}@acme.com`);
   await addMember(app, projectId, u.id, preset);
@@ -32,6 +34,8 @@ const list = async (headers: Record<string, string>, projectId: string) =>
 const rowOf = (rows: Row[], type: string) => rows.find((r) => r.type === type)!;
 const put = (headers: Record<string, string>, projectId: string, type: string, payload: object) =>
   app.inject({ method: "PUT", url: `/api/me/alert-subscriptions/${projectId}/${encodeURIComponent(type)}`, headers, payload });
+const reset = (headers: Record<string, string>, projectId: string, type: string) =>
+  app.inject({ method: "DELETE", url: `/api/me/alert-subscriptions/${projectId}/${encodeURIComponent(type)}`, headers });
 
 describe("le iscrizioni agli avvisi (area 8, F2, S5)", () => {
   it("lo stato lo calcola il server: default dai permessi, sospeso senza il permesso, solo obbligatorio", async () => {
@@ -132,5 +136,119 @@ describe("le iscrizioni agli avvisi (area 8, F2, S5)", () => {
       expect((await mute(lead.headers, await card(lead.id, null, "monitor.alert"))).statusCode).toBe(422);
       expect((await mute(lead.headers, await card(other.id, projectId, "release.failed"))).statusCode).toBe(404);
     });
+  });
+});
+
+/** Un utente con un ruolo d'ISTANZA che ha solo `monitor.manage` (oltre ai permessi di `User`). */
+async function monitorManager(projectId: string) {
+  const u = await person("developer", projectId);
+  const [role] = await t.db
+    .insert(roles)
+    .values({ name: `Monitor ${randomUUID().slice(0, 6)}`, scope: "instance", permissions: ["monitor.manage"] })
+    .returning({ id: roles.id });
+  await t.db.update(users).set({ instanceRoleId: role!.id }).where(eq(users.id, u.id));
+  return u;
+}
+
+describe("review F2 (46), 1: i permessi d'ISTANZA contano come nella pubblicazione", () => {
+  it("un full admin e chi ha monitor.manage d'istanza, senza riga: la riga dei server è accesa, Telefono = push", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const monitor = await monitorManager(projectId);
+    expect(rowOf(await list(monitor.headers, projectId), "server.trouble")).toMatchObject({ app: true, phone: true, state: "on" });
+    await t.db.update(users).set({ notifyPush: false }).where(eq(users.id, monitor.id));
+    expect(rowOf(await list(monitor.headers, projectId), "server.trouble")).toMatchObject({ app: true, phone: false, state: "on" });
+    const admin = { cookie: seeded.adminCookie };
+    await t.db.update(users).set({ notifyPush: true }).where(eq(users.id, seeded.adminId));
+    expect(rowOf(await list(admin, projectId), "server.trouble")).toMatchObject({ app: true, phone: true, state: "on" });
+  });
+
+  it("scrivere solo il Telefono non spegne l'App di chi la riceve per default", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const monitor = await monitorManager(projectId);
+    const res = await put(monitor.headers, projectId, "server.trouble", { phone: false });
+    expect(res.json()).toMatchObject({ app: true, phone: false, state: "on" });
+  });
+
+  it("PARITÀ: per ogni tipo vivo, «acceso nelle Preferenze senza riga» ⇔ «riceve la card» (e il Telefono ⇔ il push)", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const people = [
+      { id: seeded.adminId, headers: { cookie: seeded.adminCookie } as Record<string, string> },
+      await monitorManager(projectId),
+      await person("project_lead", projectId),
+      await person("developer", projectId),
+      await person("contributor", projectId),
+      await person("viewer", projectId),
+    ];
+    // Un po' di push spenti, per provare anche il Telefono.
+    await t.db.update(users).set({ notifyPush: false }).where(eq(users.id, people[3]!.id));
+    for (const type of LIVE_ALERT_TYPES) {
+      const recipients = await resolveCatalogRecipients(t.db, alertTypeOf(type)!, projectId, {});
+      for (const p of people) {
+        const row = rowOf(await list(p.headers, projectId), rowTypeOf(type));
+        const shownOn = row.state === "on";
+        expect(recipients.app.includes(p.id), `${type} app per ${p.id}`).toBe(shownOn);
+        // Ogni tipo di una riga parte col Telefono della riga (maintainer, 14 nov 2026).
+        expect(recipients.phone.has(p.id), `${type} telefono per ${p.id}`).toBe(shownOn && row.phone);
+      }
+    }
+  });
+
+  it("un «rientrato» nella riga dei server segue il Telefono della riga anche senza una scelta salvata (maintainer, 14 nov 2026)", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const monitor = await monitorManager(projectId);
+    expect(rowOf(await list(monitor.headers, projectId), "server.trouble")).toMatchObject({ app: true, phone: true, saved: false });
+    const recovered = await resolveCatalogRecipients(t.db, alertTypeOf("monitor.recovered")!, projectId, {});
+    expect(recovered.app).toContain(monitor.id);
+    expect(recovered.phone.has(monitor.id)).toBe(true);
+  });
+});
+
+describe("review F2 (46), A/B/C: App e Telefono legati, il Telefono degli obbligatori, il ritorno al default", () => {
+  it("A: App spenta spegne il Telefono; riaccesa, il Telefono resta spento (nessun push che nessuno ha chiesto)", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const lead = await person("project_lead", projectId);
+    expect(rowOf(await list(lead.headers, projectId), "release.failed")).toMatchObject({ app: true, phone: true });
+    expect((await put(lead.headers, projectId, "release.failed", { app: false })).json()).toMatchObject({ app: false, phone: false });
+    expect((await put(lead.headers, projectId, "release.failed", { app: true })).json()).toMatchObject({ app: true, phone: false });
+  });
+
+  it("A: accendere il Telefono accende anche l'App", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const lead = await person("project_lead", projectId);
+    expect((await put(lead.headers, projectId, "release.merged", { phone: true })).json()).toMatchObject({ app: true, phone: true, state: "on" });
+  });
+
+  it("B: una riga SOLO obbligatoria mostra il Telefono che arriva davvero (defaultPhone e push)", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const lead = await person("project_lead", projectId);
+    expect(rowOf(await list(lead.headers, projectId), "pr.corrected")).toMatchObject({ state: "mandatory", app: false, phone: true });
+    await t.db.update(users).set({ notifyPush: false }).where(eq(users.id, lead.id));
+    expect(rowOf(await list(lead.headers, projectId), "pr.corrected")).toMatchObject({ state: "mandatory", phone: false });
+  });
+
+  it("C: `saved` dice se c'è una scelta; DELETE torna al default (tutti i partner) e il Telefono segue di nuovo push", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const monitor = await monitorManager(projectId);
+    expect(rowOf(await list(monitor.headers, projectId), "server.trouble")).toMatchObject({ saved: false, phone: true });
+    await put(monitor.headers, projectId, "server.trouble", { phone: false });
+    expect(rowOf(await list(monitor.headers, projectId), "server.trouble")).toMatchObject({ saved: true, phone: false });
+    const res = await reset(monitor.headers, projectId, "server.trouble");
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toMatchObject({ type: "server.trouble", saved: false, app: true, phone: true });
+    expect(await t.db.select().from(alertSubscriptions).where(and(eq(alertSubscriptions.userId, monitor.id), eq(alertSubscriptions.projectId, projectId)))).toEqual([]);
+    await t.db.update(users).set({ notifyPush: false }).where(eq(users.id, monitor.id));
+    expect(rowOf(await list(monitor.headers, projectId), "server.trouble")).toMatchObject({ phone: false });
+  });
+
+  it("C: le stesse regole del PUT (403 obbligatoria o sospesa, 404 progetto nascosto), e le risposte di Mute portano `saved` per l'Annulla", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const contributor = await person("contributor", projectId);
+    expect((await reset(contributor.headers, projectId, "pr.corrected")).statusCode).toBe(403);
+    expect((await reset(contributor.headers, projectId, "pr.analysis_issues")).statusCode).toBe(403);
+    const { projectId: other } = await seedRepository(t.db);
+    expect((await reset(contributor.headers, other, "release.failed")).statusCode).toBe(404);
+    const muted = await app.inject({ method: "POST", url: `/api/me/alert-subscriptions/${projectId}/mute`, headers: contributor.headers });
+    const before = (muted.json() as { before: Row[] }).before;
+    expect(before.every((r) => r.saved === false)).toBe(true);
   });
 });
