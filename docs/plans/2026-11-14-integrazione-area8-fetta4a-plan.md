@@ -128,12 +128,13 @@ S1. **La visibilità dagli ambienti** (`monitor-access.ts`, UN posto):
 S2. **Le letture nella forma del prototipo** (campi additivi con default,
    schemi in `@stubwise/shared`, `serverViewSchema` e `serverDetailSchema`
    ci passano dall'inline):
-   - in ogni riga: `code`, `health` (`ok` | `warning` |
-     `down` | `unknown`, derivata da `last_seen_at`, `active_alerts` e
-     controlli giù, con UNA funzione pura in shared che usano server e
-     renderer), `environments` (`{ projectCode, environmentName, kind,
-     repositoryName }[]`, solo dei progetti visibili), `recentCpu` (gli ultimi
-     punti, per la scintilla), `work` e `access` null (F4b);
+   - in ogni riga: `code` (`SRV-<n>`), `health` (`{ health: healthy |
+     trouble | down | recovered | never_connected, since, reasons }`, da
+     `serverHealth` di shared — la funzione del prototipo — sugli episodi e
+     sull'ultimo segnale: UNA regola per server e renderer), `environments`
+     (`{ projectId, projectCode, environmentId, name, kind, repositoryId,
+     repositoryName }[]`, solo dei progetti visibili), `work` (`none` nella
+     F4a); `recentCpu` c'era già; `access` (l'SSH) arriva con la F4b;
    - nell'elenco d'istanza (`monitor.manage`): `orphan` (nessun ambiente) e
      `inArchivedOnly`; `projects` di un server dagli ambienti;
    - nel dettaglio: i controlli con l'ultimo esito, `canManage` calcolato
@@ -171,7 +172,8 @@ S6. **Le metriche per gli intervalli lunghi**: `?from&to` resta; per
    intervalli oltre 7 giorni il server aggrega il rollup a passo più largo
    (1 h fino a 30 giorni, 4 h fino a 90) con `date_bin`, sotto il tetto di
    6000 punti, e dice `resolution` (`raw` | `5m` | `1h` | `4h`, valore
-   nuovo: i client passano dal `readerSchema`) e `sampleCount`. Le
+   nuovo: i client passano dal `readerSchema`); nessun `sampleCount` (il
+   passo lo dice `resolution`). Le
    percentuali (memoria, disco) le calcola il client dai byte (`memTotal`
    c'è): nessun cambio di forma.
    *Test*: 90 giorni non tronca; la media del passo largo è quella dei
@@ -190,6 +192,13 @@ S8. **Il client** (`packages/api-client`): `servers` cresce con crea,
    il commento «nessuna scrittura» diventa «nessuna scrittura dal mobile»
    (la scelta del mobile resta sua). Ogni campo nuovo facoltativo, con un
    test che parsa una risposta senza.
+
+S12. **Il codice del server sulle card `monitor.*`** (per i link dell'app,
+   R5): `InboxMonitor.serverCode` DERIVATO a lettura (la regola delle card:
+   un campo che si deriva non si scrive nell'evento) dall'id del server
+   dell'evento (`url` → `servers.number`), `null` per un server tolto; il
+   `projectId` dell'ancora c'è già. Additivo, test con una card SENZA il
+   campo e con una card vecchia.
 
 S9. **Il deploy-log** (0180, il preset `User`, server prima di worker e
    caddy) con, PRIMA del deploy, le query di sola lettura: (1) i server
@@ -235,7 +244,22 @@ R3. La chiave dell'agente mostrata una volta fuori dalla cache delle
 R4. Nessun «Simulate», nessun SSH, nessuna correzione nella build app (I1,
    R-2), con un test per pagina; `INTEGRATED_CALLS` cresce nello stesso
    commit (I3).
-R5. I link delle card `monitor.*` alla pagina del server.
+R5. I link delle card `monitor.*` alla pagina del server, per codice
+   (S12): con l'ancora di progetto `#/p/<CODE>/servers/SRV-<n>`, senza
+   (zero o più progetti: le riceve chi ha `monitor.manage`)
+   `/admin/servers/SRV-<n>`.
+R6. Il form degli ambienti offre solo i server dell'elenco (quelli che chi
+   scrive vede); il 422 `server_not_visible` (S3) nelle parole del
+   prototipo, con un test.
+
+*Review di 94 (14 nov 2026)*: R1 `servers-monitor` (sezione di progetto e
+Amministrazione) ed `environments`; gli episodi dentro `servers-monitor`
+(sono nel dettaglio). La salute del prototipo passa a `serverHealth` di
+shared. Le metriche: la finestra la sceglie il client, `resolution` la legge
+e la dice, le percentuali dai byte. Impostazioni senza progetto principale e
+senza «progetti da spuntare» (i progetti vengono dagli ambienti, detto in
+sola lettura). Il comando con `agentInstallCommand({ instanceUrl: ingestUrl
+?? origine dell'istanza, key })`.
 
 ## Global Constraints
 
