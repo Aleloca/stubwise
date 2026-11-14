@@ -82,3 +82,5 @@ export * from "./releases/index.js";
 export * from "./chat-tool-routes.js";
 // Area 8, F2: il catalogo dei tipi di avviso (R-5).
 export * from "./alerts/index.js";
+export * from "./support/index.js";
+export * from "./schemas/support.js";

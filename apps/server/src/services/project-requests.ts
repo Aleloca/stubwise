@@ -127,6 +127,8 @@ async function decorate<R extends CommonRow>(db: Db, rows: R[]): Promise<{ row: 
       mergedIntoCode: r.mergedIntoId ? (codeOf.get(r.mergedIntoId) ?? null) : null,
       taskIds: tasksOf.get(r.id) ?? [],
       deletedTaskCodes: deletedCodes.get(r.id) ?? [],
+      // Area 8, F3: la provenienza da Support la deriva S6 (oggi nessuna richiesta nasce da una conversazione).
+      origin: null,
       createdAt: r.createdAt.toISOString(),
       suggestions: suggested
         ? {
