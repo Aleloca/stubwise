@@ -164,7 +164,7 @@ export async function muteFromNotification(
   db: Db,
   viewer: Viewer,
   notificationId: string,
-): Promise<{ before: AlertSubscriptionRow; row: AlertSubscriptionRow }> {
+): Promise<{ before: AlertSubscriptionRow; row: AlertSubscriptionRow; projectId: string }> {
   const [card] = await db
     .select({ kind: notifications.kind, projectId: notifications.projectId, event: notifications.event })
     .from(notifications)
@@ -180,5 +180,5 @@ export async function muteFromNotification(
   const before = (await rowsOf(db, viewer, card.projectId)).find((r) => r.type === type);
   if (!before) throw new AlertSubscriptionError(422, "not_a_catalog_alert", "This notification can't be muted by type");
   const row = await setAlertSubscription(db, viewer, { projectId: card.projectId, type, patch: { app: false, phone: false } });
-  return { before, row };
+  return { before, row, projectId: card.projectId };
 }

@@ -106,7 +106,7 @@ describe("le iscrizioni agli avvisi (area 8, F2, S5)", () => {
       const id = await card(lead.id, projectId, "monitor.alert");
       const res = await mute(lead.headers, id);
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toMatchObject({ before: { type: "server.trouble" }, row: { type: "server.trouble", app: false, phone: false, state: "off" } });
+      expect(res.json()).toMatchObject({ projectId, before: { type: "server.trouble" }, row: { type: "server.trouble", app: false, phone: false, state: "off" } });
       const [sub] = await t.db.select().from(alertSubscriptions).where(and(eq(alertSubscriptions.userId, lead.id), eq(alertSubscriptions.alertType, "monitor.alert")));
       expect(sub).toMatchObject({ app: false, phone: false });
     });

@@ -50,5 +50,10 @@ export type SetAlertSubscriptionInput = z.infer<typeof setAlertSubscriptionSchem
 export const alertSubscriptionsBeforeSchema = z.object({ before: z.array(alertSubscriptionRowSchema) });
 
 /** «Non avvisarmi più di questo» (`POST /api/inbox/:id/mute-type`): la riga di prima (l'«Annulla») e quella nuova. */
-export const alertMuteResultSchema = z.object({ before: alertSubscriptionRowSchema, row: alertSubscriptionRowSchema });
+export const alertMuteResultSchema = z.object({
+  before: alertSubscriptionRowSchema,
+  row: alertSubscriptionRowSchema,
+  /** Il progetto della card: l'«Annulla» riscrive `before` con `set(projectId, before.type, …)`. Facoltativo (additivo). */
+  projectId: z.uuid().optional(),
+});
 export type AlertMuteResult = z.infer<typeof alertMuteResultSchema>;
