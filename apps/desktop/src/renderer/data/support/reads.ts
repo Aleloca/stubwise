@@ -94,7 +94,13 @@ export async function listWaitingCustomers(): Promise<SupportConversationView[]>
     .map((c) => conversationView(me, c));
 }
 
-export type SupportWidgetView = SupportWidget & { conversationCount: number };
+export type SupportWidgetView = SupportWidget & {
+  conversationCount: number;
+  /** Build app (area 8, F3): la chiave pubblica del widget, per lo snippet. */
+  key?: string;
+  /** Build app (area 8, F3): l'indirizzo vero dell'istanza, per lo snippet. */
+  snippetOrigin?: string;
+};
 
 export interface WidgetList {
   /** `widget.manage`: senza, l'elenco è vuoto (i widget non si vedono). */

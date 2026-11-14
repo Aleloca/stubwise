@@ -90,12 +90,13 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Area 8, fetta 3: Support — elenco, dettaglio, anteprima, risposta, «Segui»,
     // «Apri la richiesta», «Not concluded»; «Write to them by email»
     // (`support-email`, S9) e «Clienti in attesa» nella Home (`support-home`,
-    // S8). Restano spente, ciascuna con la sua funzione finché non ha la
-    // rotta: la bozza di Claude (`support-draft`, S12), i widget
-    // (`support-widgets`) e la ricerca ⌘K (`support-search`, fuori F3).
+    // S8) e i widget (`support-widgets`, sulle rotte di oggi). Restano spente,
+    // ciascuna con la sua funzione finché non ha la rotta: la bozza di Claude
+    // (`support-draft`) e la ricerca ⌘K (`support-search`, fuori F3).
     "support",
     "support-email",
     "support-home",
+    "support-widgets",
     // «Don't alert me about this» dalla card (S6, `POST /api/inbox/:id/mute-type`),
     // con l'«Annulla» nel progetto della card; non su una card arrivata da obbligatorio.
     "alerts-mute",

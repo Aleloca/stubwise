@@ -8,11 +8,11 @@ e «Not concluded» su una `answered`). Server, worker, widget e
 (`feat/area8-f3-renderer`).
 
 Nella build app sono ACCESE la sezione `support` e le funzioni `support`
-(letture e scritture), `support-email` (S9) e `support-home` (S8), con le loro
-chiamate in `INTEGRATED_CALLS` (regola I3). Restano SPENTE, ciascuna con la
-sua funzione: la bozza di Claude (`support-draft`, il lavoro del worker è
-fermo su un [DECIDE] di 46), i widget (`support-widgets`, manca
-`client.widgets`) e la ricerca ⌘K (`support-search`, fuori dalla F3).
+(letture e scritture), `support-email` (S9), `support-home` (S8) e
+`support-widgets`, con le loro chiamate in `INTEGRATED_CALLS` (regola I3).
+Restano SPENTE, ciascuna con la sua funzione: la bozza di Claude
+(`support-draft`, il lavoro del worker è fermo su un [DECIDE] di 46) e la
+ricerca ⌘K (`support-search`, fuori dalla F3).
 
 ## Renderer (stubwise-94)
 
@@ -31,11 +31,12 @@ fermo su un [DECIDE] di 46), i widget (`support-widgets`, manca
 | Gli avvisi `support.*` (R4, S7) | le righe nelle Preferenze (dal catalogo condiviso); le card aprono la conversazione e la richiesta nell'app | `real/session.test.ts` | fatto |
 | Il ritmo (R8) | nessuno stream: dettaglio ogni 15 s, elenco e «Clienti in attesa» ogni 30 s | `data/supportRefresh.test.ts` | fatto |
 | La bozza di Claude (R6) | «Ask Claude» aspetta la bozza accodata (`claudeDraftPending`, rilegge ogni 2 s, al più 90 s); «Claude is preparing a draft…» per quella automatica | `data/queries/supportDraft.test.tsx`, `real/supportPage.test.tsx` | pronto, spento (`support-draft`) |
-| I widget (R1, R2) | — | — | in attesa di `client.widgets` |
+| I widget (R1, R2) | sulle rotte di oggi (`client.widgets`): i nomi del web tradotti, la PUT col corpo intero e i filtri dei repository ancora accesi; la sezione solo con `widget.manage`; lo snippet con l'indirizzo vero dell'istanza e la chiave pubblica; nessun campo «siti ammessi» (il server non lo ha) | `real/supportWidgets.test.ts`, `pages/support/widgetSnippet.test.ts`, `pages/ComingSoon.test.tsx` | fatto |
 | `support.reply` | dal registro condiviso, nel gruppo «Support» (non più locale del prototipo) | `data/access/whoCan.test.ts`, `domain/access/access.test.ts` | fatto |
 
 ### Differenze dichiarate
 
+- I widget non hanno i «siti ammessi»: il server non ha il campo (registro).
 - Il triage rifatto nel widget (domande, desiderio riscritto e confermato) è
   fuori dalla F3: `rewrittenWish` e `confirmedAt` arrivano `null` dal server.
 - Una card `support.*` non rilegge Support da sé: aprirla legge la

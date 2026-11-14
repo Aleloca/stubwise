@@ -766,8 +766,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - **la bozza di Claude** (`support-draft`): il renderer è pronto («Ask
     Claude» aspetta la bozza accodata), il lavoro del worker aspetta il
     [DECIDE] di 46 su cosa fa il widget dopo un esito;
-  - **i widget** (`support-widgets`): le rotte ci sono, manca
-    `client.widgets` in `@stubwise/api-client` (chiesto a 72);
+  - **i «siti ammessi» di un widget** (`origins` del prototipo): il server
+    non ha il campo, quindi nella build app il campo e la riga della guida
+    non ci sono, e il widget si carica da qualunque sito che abbia lo
+    snippet (decisione di prodotto da prendere: 46);
+  - **un `kind` sconosciuto nei filtri di un widget** (un server più nuovo):
+    l'app lo legge come `__unknown__` e salvando lo toglie, perché non può
+    rimandarlo com'era;
   - **la ricerca ⌘K delle conversazioni** (`support-search`): nessuna rotta,
     fuori dalla F3;
   - **una card `support.*` non rilegge Support**: nessun legame fra le card

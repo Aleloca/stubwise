@@ -7,6 +7,7 @@
 import type * as Fake from "../../api";
 import { liveAlerts } from "./alerts";
 import { liveSupport } from "./support";
+import { liveWidgets } from "./supportWidgets";
 import { liveAutomations } from "./automationsLive";
 import { liveReleases } from "./releasesLive";
 import { adminDepartments } from "./departments";
@@ -68,7 +69,11 @@ export const alerts: typeof Fake.alerts = partialNamespace<typeof Fake.alerts>("
  * scritture si accendono con le rotte (I1); finché sono spente nessuna
  * pagina chiama questo namespace.
  */
-export const support: typeof Fake.support = partialNamespace<typeof Fake.support>("support", liveSupport);
+export const support: typeof Fake.support = partialNamespace<typeof Fake.support>("support", {
+  ...liveSupport,
+  // I widget (R1/R2) sulle rotte di oggi, `supportWidgets.ts`.
+  ...liveWidgets,
+});
 export const chat: typeof Fake.chat = partialNamespace<typeof Fake.chat>("chat", {
   ...chatFunctions,
   channelStream,

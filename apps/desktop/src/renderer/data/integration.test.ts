@@ -112,6 +112,7 @@ describe("isIntegrated", () => {
         "feature:support",
         "feature:support-email",
         "feature:support-home",
+        "feature:support-widgets",
         "destination:projects",
         "projectSection:tasks",
         "projectSettings:statuses",

@@ -429,6 +429,11 @@ const INTEGRATED_CALLS = new Set([
   // S9 e S8: «Write to them by email» e «Clienti in attesa».
   "support.emailDraftFor",
   "support.listWaitingCustomers",
+  // I widget (support-widgets), sulle rotte di oggi.
+  "support.listWidgets",
+  "support.createWidget",
+  "support.updateWidget",
+  "support.deleteWidget",
   // Area 8, F2 (R6): le iscrizioni agli avvisi.
   "alerts.subscriptionRows",
   "alerts.setSubscription",
@@ -687,6 +692,17 @@ describe("aree non integrate nella build app", () => {
     await user.click(button);
     await waitFor(() => expect(calls).toContain("support.emailDraftFor"));
     await waitFor(() => expect(router.state.location.pathname).toBe("/mail"));
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("i widget di Support (area 8, F3, support-widgets): elenco e pannello sulle chiamate integrate, senza i siti ammessi", async () => {
+    signedInAs("p-matteo");
+    renderRoute("/p/ACQ/support?view=widgets&widget=wdg-acq-portal");
+    const panel = await screen.findByRole("complementary", { name: "Edit Customer portal help" }, { timeout: 3000 });
+    await waitFor(() => expect(calls).toContain("support.listWidgets"));
+    // Il server non ha i siti ammessi: nella build app il campo non c'è.
+    expect(within(panel).queryByLabelText(/^Sites/)).toBeNull();
     await settle();
     expect(outside()).toEqual([]);
   });

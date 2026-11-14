@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { isAppBuild } from "../../data/build";
 import {
   useCreateWidget,
   useDeleteWidget,
@@ -280,19 +281,22 @@ export function WidgetPanel({
             })
           )}
         </fieldset>
-        <Field
-          label={t("support.widgets.fields.origins")}
-          htmlFor={`${id}-origins`}
-          hint={t("support.widgets.fields.originsHint")}
-        >
-          <textarea
-            id={`${id}-origins`}
-            rows={2}
-            value={origins}
-            onChange={(e) => setOrigins(e.target.value)}
-            className={`${inputClass} resize-y`}
-          />
-        </Field>
+        {/* Il server non ha i siti ammessi (area 8, F3): nella build app il campo non c'è. */}
+        {!isAppBuild() && (
+          <Field
+            label={t("support.widgets.fields.origins")}
+            htmlFor={`${id}-origins`}
+            hint={t("support.widgets.fields.originsHint")}
+          >
+            <textarea
+              id={`${id}-origins`}
+              rows={2}
+              value={origins}
+              onChange={(e) => setOrigins(e.target.value)}
+              className={`${inputClass} resize-y`}
+            />
+          </Field>
+        )}
         <Field label={t("support.widgets.fields.title")} htmlFor={`${id}-title-f`}>
           <input
             id={`${id}-title-f`}
