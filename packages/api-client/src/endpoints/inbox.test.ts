@@ -112,3 +112,12 @@ describe("endpoints inbox", () => {
     ).toBeUndefined();
   });
 });
+
+describe("area 8, F2: `alertMandatory` sulla card", () => {
+  it("una risposta di un server che non lo manda si legge con `null` (additivo)", async () => {
+    const item = { id: ID, kind: "release.failed", status: "open", text: "x", actions: [], projectId: null, ticketId: null, jobId: null, handledAt: null, handledBy: null, createdAt: "2026-11-14T10:00:00.000Z", readAt: null, snoozedUntil: null };
+    const { client } = clientReturning({ items: [item], nextCursor: null, unreadCount: 0 });
+    const page = await client.inbox.list();
+    expect(page.items[0]!.alertMandatory).toBeNull();
+  });
+});

@@ -1,10 +1,12 @@
-import { alertSubscriptions, projects, users, type Db } from "@stubwise/db";
+import { alertSubscriptions, notifications, projects, users, type Db } from "@stubwise/db";
+import { notificationVisibleToRecipient } from "@stubwise/notifications";
 import {
   alertTypeOf,
   defaultApplies,
   isLiveAlertType,
   liveRowTypes,
   rowPartners,
+  rowTypeOf,
   type AlertSubscriptionRow,
   type AlertType,
   type ProjectSubscriptions,
@@ -148,4 +150,35 @@ export async function muteProjectAlerts(db: Db, viewer: Viewer, projectId: strin
   const before = await rowsOf(db, viewer, projectId);
   for (const row of before) if (writable(row)) await write(db, viewer.id, projectId, row.type, { app: false, phone: false });
   return before;
+}
+
+/**
+ * «Non avvisarmi più di questo» (area 8, F2, S6): dalla card di chi chiede,
+ * spegne il suo TIPO (e la sua riga) nel progetto della card. La card deve
+ * essere sua e ancora visibile (404 altrimenti, come una che non esiste); un
+ * kind fuori dal catalogo vivo o senza progetto è 422; una card arrivata da
+ * OBBLIGATORIO (`alertMandatory`) è 403 — spegnere l'iscrizione non la
+ * fermerebbe. Risponde con la riga di prima (l'«Annulla») e quella nuova.
+ */
+export async function muteFromNotification(
+  db: Db,
+  viewer: Viewer,
+  notificationId: string,
+): Promise<{ before: AlertSubscriptionRow; row: AlertSubscriptionRow }> {
+  const [card] = await db
+    .select({ kind: notifications.kind, projectId: notifications.projectId, event: notifications.event })
+    .from(notifications)
+    .where(and(eq(notifications.id, notificationId), eq(notifications.userId, viewer.id), notificationVisibleToRecipient()));
+  if (!card) throw new AlertSubscriptionError(404, "not_found", "Not found");
+  if (!isLiveAlertType(card.kind) || card.projectId === null) {
+    throw new AlertSubscriptionError(422, "not_a_catalog_alert", "This notification can't be muted by type");
+  }
+  if (typeof (card.event as { alertMandatory?: unknown }).alertMandatory === "string") {
+    throw new AlertSubscriptionError(403, "alert_mandatory", "This notification reaches you anyway");
+  }
+  const type = rowTypeOf(card.kind);
+  const before = (await rowsOf(db, viewer, card.projectId)).find((r) => r.type === type);
+  if (!before) throw new AlertSubscriptionError(422, "not_a_catalog_alert", "This notification can't be muted by type");
+  const row = await setAlertSubscription(db, viewer, { projectId: card.projectId, type, patch: { app: false, phone: false } });
+  return { before, row };
 }

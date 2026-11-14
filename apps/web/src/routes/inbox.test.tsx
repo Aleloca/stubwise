@@ -72,6 +72,8 @@ const PROJECTS = [{ id: PROJECT_ID, name: "Apollo", slug: "apollo" }];
 function item(overrides: Partial<InboxItem> & Pick<InboxItem, "id">): InboxItem {
   return {
     objectGone: false,
+    // Area 8, F2: il web non lo legge; c'è perché il tipo lo vuole.
+    alertMandatory: null,
     chat: null,
     automation: null,
     kind: "job.plan_review",
