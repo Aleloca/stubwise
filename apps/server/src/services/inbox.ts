@@ -35,6 +35,7 @@ import {
   prReviews,
   projectMembers,
   projects,
+  serverFixes,
   servers,
   tickets,
   users,
@@ -799,7 +800,7 @@ export interface InboxItem extends ViaClaudeFields {
   objectGone: boolean;
   /** Area 8, F2: il motivo per cui l'avviso arriva a chi legge da obbligatorio (dalla SUA card), o null. */
   alertMandatory: string | null;
-  /** Area 8, F4a: solo `monitor.*`, il codice del server derivato a lettura (`serverCodesByNotification`), o null. */
+  /** Area 8, F4a/F4b: `monitor.*` e `server.diagnosis_ready`, il codice del server derivato a lettura (`serverCodesByNotification`), o null. */
   serverCode: string | null;
   /** Area 4, Chat: solo `chat.mention` e `chat.question`, il messaggio come lo vede chi legge (`readChatMention`). */
   chat?: {
@@ -1631,9 +1632,22 @@ function reviewOutcomeForItem(kind: NotificationKind, rawEvent: Record<string, u
  */
 async function serverCodesByNotification(
   db: Db,
-  rows: readonly { id: string; kind: string; event: unknown }[],
+  rows: readonly { id: string; kind: string; event: unknown; ticketId: string | null }[],
 ): Promise<Map<string, string>> {
   const idByCard = new Map<string, string>();
+  // Area 8, F4b: la card della diagnosi, dal suo ticket (server_fixes), mai dall'evento.
+  const diagnosis = rows.filter((r) => r.kind === "server.diagnosis_ready" && r.ticketId !== null);
+  if (diagnosis.length > 0) {
+    const fixes = await db
+      .select({ taskId: serverFixes.taskId, serverId: serverFixes.serverId })
+      .from(serverFixes)
+      .where(inArray(serverFixes.taskId, [...new Set(diagnosis.map((r) => r.ticketId!))]));
+    const serverByTask = new Map(fixes.map((f) => [f.taskId, f.serverId]));
+    for (const r of diagnosis) {
+      const serverId = serverByTask.get(r.ticketId!);
+      if (serverId) idByCard.set(r.id, serverId);
+    }
+  }
   for (const r of rows) {
     if (r.kind !== "monitor.alert" && r.kind !== "monitor.recovered") continue;
     const url = (r.event as { url?: unknown }).url;
