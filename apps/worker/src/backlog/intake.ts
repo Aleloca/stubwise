@@ -8,6 +8,7 @@ import {
   retrieveChunksForProject,
   projects,
   tickets,
+  widgetMessages,
   users,
   type Db,
 } from "@stubwise/db";
@@ -266,10 +267,21 @@ async function createNewItem(
   const similarToId = best && best.similarity >= deps.similarThreshold ? best.id : null;
 
   return deps.db.transaction(async (tx) => {
+    // Area 8, F3 (S6): il ticket aperto da un widget porta la sua conversazione
+    // di Support; la voce che ne nasce la ricorda (la provenienza della
+    // richiesta). Solo alla NASCITA: una fusa in una che c'era tiene la sua.
+    const [fromWidget] = ticket
+      ? await tx
+          .select({ conversationId: widgetMessages.conversationId })
+          .from(widgetMessages)
+          .where(eq(widgetMessages.ticketId, ticket.id))
+          .limit(1)
+      : [];
     const [inserted] = await tx
       .insert(backlogItems)
       .values({
         projectId,
+        ...(fromWidget ? { supportConversationId: fromWidget.conversationId } : {}),
         title: parsed.title,
         document: parsed.document,
         effort: parsed.effort,

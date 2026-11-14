@@ -203,4 +203,28 @@ describe("Support, le letture (area 8, F3, S2)", () => {
     expect(waiting.map((i) => i.code)).toEqual([early.code, late.code]);
     expect(((await get(contributor.headers, "/api/me/waiting-customers")).json() as { items: SupportConversation[] }).items.filter((i) => i.projectId === projectId)).toEqual([]);
   });
+
+  it("S6: la provenienza di una richiesta e la conversazione di una task del widget si DERIVANO a lettura (null per le altre)", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const dev = await person("developer", projectId);
+    const c = await conversation(projectId, { name: "Luca Riva" });
+    await message(c.id, "user", 1);
+    await message(c.id, "assistant", 2);
+    const { itemId } = await seedBacklogItem(t.db, { projectId });
+    await t.db.update(backlogItems).set({ supportConversationId: c.id }).where(eq(backlogItems.id, itemId));
+    const { itemId: plain } = await seedBacklogItem(t.db, { projectId });
+    const req = (await get(dev.headers, `/api/requests/${itemId}`)).json() as { origin: unknown };
+    expect(req.origin).toEqual({ kind: "support", conversationCode: c.code, channel: "widget", customerName: "Luca Riva", messageCount: 2 });
+    expect(((await get(dev.headers, `/api/requests/${plain}`)).json() as { origin: unknown }).origin).toBeNull();
+
+    const { ticketId } = await seedTicket(t.db, { projectId, number: 901 });
+    const { ticketId: other } = await seedTicket(t.db, { projectId, number: 902 });
+    await message(c.id, "user", 3, { ticketId });
+    const [p] = await t.db.select({ code: projects.code }).from(projects).where(eq(projects.id, projectId));
+    const task = (await get(dev.headers, `/api/tasks/by-code/${p!.code}-901`)).json() as { supportConversationCode: string | null };
+    expect(task.supportConversationCode).toBe(c.code);
+    const plainTask = (await get(dev.headers, `/api/tasks/by-code/${p!.code}-902`)).json() as { supportConversationCode: string | null };
+    expect(plainTask.supportConversationCode).toBeNull();
+    expect(other).toBeDefined();
+  });
 });
