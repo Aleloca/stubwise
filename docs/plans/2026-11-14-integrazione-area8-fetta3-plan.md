@@ -89,8 +89,7 @@ automatica di Claude e «Chiedi a Claude», l'avviso
   rispondere ai collaboratori». «Apri la richiesta» vuole ANCHE
   `backlog.create` (nessuna strada per creare voci di backlog senza quel
   permesso).
-- **I siti ammessi, elenco vuoto = tutto ammesso** (proposta, da
-  confermare): i widget già installati non hanno un elenco, e rifiutarli
+- **I siti ammessi, elenco vuoto = tutto ammesso** *(M, 14 nov 2026)*: i widget già installati non hanno un elenco, e rifiutarli
   li spegnerebbe tutti al deploy. La UI avvisa «Qualunque sito può
   caricare questo widget». Un elenco NON vuoto rifiuta ogni origine
   assente o diversa (sotto, S16).
@@ -102,10 +101,9 @@ automatica di Claude e «Chiedi a Claude», l'avviso
 
 - **L'API per i siti** (il cliente segue le sue richieste e i suoi ticket
   sul sito dell'host): fetta a sé dopo la F3, note nel registro.
-- **«Clienti in attesa»**: resta come blocco della Home, ma legato alle
-  EMAIL delle caselle e alle automazioni, non al widget. La proposta
-  (definizione, fonti, cosa mostra) va a 46 e al maintainer; nessun codice
-  in F3.
+- **«Clienti in attesa»**: resta come blocco della Home, legato alle EMAIL
+  delle caselle (non al widget né alle automazioni): fetta a sé dopo la F3,
+  con la cattura della posta inviata. Definizione e decisioni nel registro.
 - Il triage rifatto nel widget (decisione 5 del maintainer nel design del
   prototipo): registro.
 - Qualunque messaggio del team al cliente: nel widget, per email, in
