@@ -111,6 +111,18 @@ describe("le iscrizioni agli avvisi (area 8, F2, S5)", () => {
       expect(sub).toMatchObject({ app: false, phone: false });
     });
 
+    it("l'inbox dice a chi legge PERCHÉ un avviso gli arriva comunque (`alertMandatory`), null sulle altre card", async () => {
+      const { projectId } = await seedRepository(t.db);
+      const lead = await person("project_lead", projectId);
+      const mandatoryId = await card(lead.id, projectId, "release.failed", { alertMandatory: "merged" });
+      const plainId = await card(lead.id, projectId, "release.failed");
+      const res = await app.inject({ method: "GET", url: "/api/inbox", headers: lead.headers });
+      expect(res.statusCode).toBe(200);
+      const items = (res.json() as { items: { id: string; alertMandatory: string | null }[] }).items;
+      expect(items.find((i) => i.id === mandatoryId)!.alertMandatory).toBe("merged");
+      expect(items.find((i) => i.id === plainId)!.alertMandatory).toBeNull();
+    });
+
     it("403 se la card è arrivata da obbligatorio; 422 un kind fuori dal catalogo o senza progetto; 404 la card di un altro", async () => {
       const { projectId } = await seedRepository(t.db);
       const lead = await person("project_lead", projectId);

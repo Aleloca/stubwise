@@ -796,6 +796,8 @@ export interface InboxItem extends ViaClaudeFields {
   taskCode: string | null;
   /** La task della card è stata eliminata (dalla lapide, a lettura). */
   objectGone: boolean;
+  /** Area 8, F2: il motivo per cui l'avviso arriva a chi legge da obbligatorio (dalla SUA card), o null. */
+  alertMandatory: string | null;
   /** Area 4, Chat: solo `chat.mention` e `chat.question`, il messaggio come lo vede chi legge (`readChatMention`). */
   chat?: {
     channelId: string;
@@ -1096,6 +1098,8 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       // L'esito della review, per il TONO della card (F8 del ciclo di
       // correzione): derivato a lettura dall'evento, anche per le card vecchie.
       reviewOutcome: reviewOutcomeForItem(r.kind, r.event),
+      // Area 8, F2: il motivo per cui l'avviso arriva a chi legge (scritto sulla SUA card).
+      alertMandatory: typeof (r.event as { alertMandatory?: unknown }).alertMandatory === "string" ? (r.event as { alertMandatory: string }).alertMandatory : null,
       // Le azioni NON passano dal jsonb: la chiave del catalogo è la colonna
       // enum `kind`, che il DB garantisce valida. Una card col testo degradato
       // resta quindi azionabile.
