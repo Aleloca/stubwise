@@ -364,10 +364,12 @@ describe("comando di rimozione", () => {
 });
 
 describe("ultimo uso", () => {
-  it("l'analisi di un progetto che chi guarda non vede: niente sessione (R-G5)", async () => {
-    // L'analisi di SRV-1 spostata su un progetto che Sara non vede.
+  it("l'analisi attribuita a un progetto che chi guarda non vede: niente sessione (R-G5)", async () => {
+    // L'analisi di SRV-1 attribuita a un progetto che Sara non vede: la sessione è lì.
     const aud = PROJECTS.find((p) => p.code === "AUD")!;
-    state.serverAnalyses.find((a) => a.id === "an-srv-1-1")!.projectId = aud.id;
+    const a = state.serverAnalyses.find((x) => x.id === "an-srv-1-1")!;
+    a.attribution = { kind: "attributed", projectId: aud.id, projectCode: aud.code };
+    state.conversations.find((c) => c.id === a.conversationId)!.projectId = aud.id;
     as("p-sara");
     const use = (await view("SRV-1")).lastUse.read!;
     expect(use.label.kind).toBe("analysis");

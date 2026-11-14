@@ -1,4 +1,4 @@
-import type { StallReason, TicketPriority } from "@stubwise/shared";
+import type { Attribution, StallReason, TicketPriority } from "@stubwise/shared";
 import type {
   ClaudeActionFn,
   ClaudeBusyReason,
@@ -3409,8 +3409,6 @@ export interface MonitoredServer {
   thresholds: ServerThresholds;
   services: ServerService[];
   disks: ServerDisk[];
-  /** Dove si apre la diagnosi quando il server è in produzione di più progetti. */
-  primaryProjectId: string | null;
   createdAt: string;
   /** Solo prototipo: se l'SSH risponde («Simula server irraggiungibile»). */
   sshReachable: boolean;
@@ -3440,19 +3438,43 @@ export interface ServerEpisode {
 }
 
 /** L'analisi automatica di un episodio, in sola lettura: una sessione e, alla fine, una task. */
+/**
+ * L'attribuzione del guasto a un progetto (area 8, F4b-4): l'esito di
+ * `attributeServerCause` di `@stubwise/shared`, la regola pura che il
+ * prototipo USA (mai una copia).
+ */
+export type ServerAttribution = Attribution;
+
+/**
+ * L'analisi automatica di un episodio: è del SERVER (F4b-4), nel budget
+ * mensile dell'istanza; nessun progetto scelto prima. È lei a dire quale
+ * progetto è la causa (`attribution`): attribuita, la task nasce in QUEL
+ * progetto; non determinata, nessuna task e nessuna proposta.
+ */
 export interface ServerAnalysis {
   id: string;
   serverCode: string;
   episodeId: string;
-  projectId: string;
   conversationId: string;
+  /**
+   * Scritta a fine analisi; `null` mentre gira, o se si è fermata prima di
+   * concludere (il server tolto, `failed` per la task che non si apre resta
+   * attribuita: l'attribuzione viene prima).
+   */
+  attribution: ServerAttribution | null;
+  /**
+   * La diagnosi (testo dell'analisi, non fidato), solo quando la causa NON è
+   * determinata: senza task resta qui, sull'episodio, e la legge chi ha
+   * `monitor.manage` (piano F4b, S5b). Con una task la diagnosi sta nella task.
+   */
+  diagnosis?: string | null;
   /**
    * `stopped`: finita senza diagnosi, perché il server è rientrato prima
    * della prima lettura o perché l'accesso di lettura ha smesso di essere
-   * usabile (revoca, lettura che scrive); la task c'è e lo dice. Anche
-   * quando il server è stato tolto dal progetto a metà: lì senza task
-   * (`taskId` null), lo dice la sessione. `failed`:
-   * la task non si è potuta aprire (la sessione dice perché).
+   * usabile (revoca, lettura che scrive); la task, se c'è un progetto
+   * attribuito, lo dice. `failed`: la task non si è potuta aprire (la
+   * sessione dice perché). Con la causa non determinata `taskId` resta
+   * `null` qualunque sia l'esito.
    */
   outcome: "running" | "diagnosed" | "unreachable" | "timed_out" | "stopped" | "failed";
   taskId: string | null;

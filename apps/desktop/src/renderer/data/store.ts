@@ -1837,7 +1837,8 @@ export function knownDeletedProject(
  * Chi vede una conversazione con Claude — l'unica regola, per le letture e
  * per lo stream. Libera privata: chi l'ha aperta; pubblica: anche chi ha
  * `claude.public.view`. Sessioni di lavoro: `repos.view` nel progetto (il
- * refine `backlog.edit`). Posta: solo il titolare, mai gli admin.
+ * refine `backlog.edit`; l'analisi di un server anche `monitor.manage`).
+ * Posta: solo il titolare, mai gli admin.
  */
 export function canSeeConversation(personId: string, c: Conversation): boolean {
   const viewer = viewerFor(personId);
@@ -1850,6 +1851,14 @@ export function canSeeConversation(personId: string, c: Conversation): boolean {
       return c.ownerId === personId;
     case "refine":
       return c.projectId !== null && can(viewer, "backlog.edit", c.projectId);
+    case "server_analysis":
+      // Del server, non di un progetto (area 8, F4b-4): chi gestisce il
+      // monitor; e, attribuita, chi legge il progetto attribuito (dove la
+      // sessione entra a fine analisi, `data/servers/analysis.ts`).
+      return (
+        can(viewer, "monitor.manage") ||
+        (c.projectId !== null && can(viewer, "repos.view", c.projectId))
+      );
     default:
       return c.projectId !== null && can(viewer, "repos.view", c.projectId);
   }

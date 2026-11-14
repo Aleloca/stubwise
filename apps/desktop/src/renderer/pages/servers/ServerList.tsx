@@ -159,7 +159,7 @@ function ServerRowItem({ row, projectCode }: { row: Row; projectCode: string | n
   const { t, i18n } = useTranslation();
   const { word, when } = healthParts(row.health, t, i18n.language);
   const where = whereLine(row, t);
-  const diagnoses = diagnosesLine(row, projectCode, t);
+  const diagnoses = diagnosesLine(row, t);
   // Dall'Amministrazione: la colonna dei progetti (non per gli orfani, vuota
   // per un server dei soli progetti archiviati: la seconda riga lo dice).
   const projects = row.projects && !row.orphan && !row.inArchivedOnly ? row.projects : null;

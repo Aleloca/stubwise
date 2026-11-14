@@ -20,7 +20,7 @@ import {
 } from "../api";
 import { SERVER_ALERT_NOTIFICATIONS } from "../seed/servers/alerts";
 import { setSessionPersonId } from "../session";
-import { eventsOf, setStreamLatency, state } from "../store";
+import { canSeeConversation, eventsOf, setStreamLatency, state } from "../store";
 import type { AppNotification, ConversationEvent, ServerAnalysis } from "../types";
 import { raiseEpisode, whenAnalysesIdle } from "./analysis";
 
@@ -78,7 +78,12 @@ describe("allarme con l'accesso di lettura: l'analisi apre la task", () => {
 
     await whenAnalysesIdle();
     const a = onlyAnalysis("SRV-1");
-    expect(a).toMatchObject({ projectId: ACQ, outcome: "diagnosed", episodeId: ep.id });
+    // F4b-4: è l'analisi a dire il progetto; SRV-1 lo usa solo ACQ.
+    expect(a).toMatchObject({
+      attribution: { kind: "attributed", projectId: ACQ, projectCode: "ACQ" },
+      outcome: "diagnosed",
+      episodeId: ep.id,
+    });
     expect(state.serverEpisodes.find((e) => e.id === ep.id)!.analysisId).toBe(a.id);
 
     const c = sessionOf(a);
@@ -249,7 +254,8 @@ describe("RF 4: episodi ai bordi", () => {
     expect(newAnalyses("SRV-1").map((x) => x.outcome)).toEqual(["unreachable", "diagnosed"]);
   });
 
-  it("SRV-1 anche nella produzione di un secondo progetto: task nel principale, avviso in entrambi", async () => {
+  /** SRV-1 anche nella produzione di un secondo progetto, che viene PRIMA di ACQ negli ambienti. */
+  async function sharedSrv1() {
     const other = await createProject({
       code: "SRVX",
       name: "Second production",
@@ -261,10 +267,32 @@ describe("RF 4: episodi ai bordi", () => {
       url: null,
       servers: [{ repositoryId: null, serverCode: "SRV-1" }],
     });
-    // La produzione nuova viene PRIMA di quella di ACQ: vince il principale, non il primo.
     state.environments.unshift(state.environments.pop()!);
     expect(state.environments[0]!.projectId).toBe(other.id);
+    return other;
+  }
+  const serverTasksOf = (episodeId: string) =>
+    state.tasks.filter((t) => t.serverRef?.episodeId === episodeId);
+
+  it("F4b-4: l'analisi parte dal SERVER: mentre guarda non è di nessun progetto, la sessione la vede chi gestisce il monitor", async () => {
+    setStreamLatency(20);
     await servers.simulateServerAlert("SRV-1", "memory");
+    await vi.waitFor(() => expect(newAnalyses("SRV-1")).toHaveLength(1), FAST);
+    const a = onlyAnalysis("SRV-1");
+    expect(a.attribution).toBeNull();
+    expect(sessionOf(a).projectId).toBeNull();
+    // Roberta ha `monitor.manage`; Marco (ACQ) no: prima dell'attribuzione non la vede.
+    expect(canSeeConversation("p-roberta", sessionOf(a))).toBe(true);
+    expect(canSeeConversation("p-marco", sessionOf(a))).toBe(false);
+    await whenAnalysesIdle();
+    // Attribuita ad ACQ: la sessione entra in ACQ, e chi lo legge la vede.
+    expect(sessionOf(a).projectId).toBe(ACQ);
+    expect(canSeeConversation("p-marco", sessionOf(a))).toBe(true);
+  });
+
+  it("F4b-4: server condiviso senza container che dimostrino il progetto: «non determinato», nessuna task né proposta, avviso in entrambi", async () => {
+    const other = await sharedSrv1();
+    const ep = await servers.simulateServerAlert("SRV-1", "memory");
     await whenAnalysesIdle();
 
     expect(
@@ -273,10 +301,48 @@ describe("RF 4: episodi ai bordi", () => {
         .sort(),
     ).toEqual([ACQ, other.id].sort());
     const a = onlyAnalysis("SRV-1");
-    expect(a.projectId).toBe(ACQ);
-    expect(taskOf(a).projectId).toBe(ACQ);
-    expect(state.tasks.some((t) => t.projectId === other.id && t.source === "server")).toBe(false);
+    // L'analisi nomina il primo progetto, ma `postgres` non è legato ai suoi ambienti.
+    expect(a.attribution).toEqual({ kind: "undetermined", reason: "no_container_of_project" });
+    expect(a).toMatchObject({ outcome: "diagnosed", taskId: null, proposal: null });
+    // La diagnosi resta sull'analisi (sull'episodio), senza task.
+    expect(a.diagnosis).toMatch(/Memory on acq-prod-01/);
+    expect(serverTasksOf(ep.id)).toEqual([]);
+    expect(sessionOf(a)).toMatchObject({ projectId: null, state: "finished", outcome: "ok" });
+    const ready = published("server.diagnosis_ready", "SRV-1");
+    expect(ready.map((n) => n.projectId).sort()).toEqual([ACQ, other.id].sort());
+    for (const n of ready) {
+      expect(n.title).toBe("Cause not determined");
+      expect(n.body).toMatch(/couldn't tell which project is causing it/);
+      expect(n.link).toMatch(/^#\/p\/(ACQ|SRVX)\/servers\/SRV-1$/);
+    }
+  });
+
+  it("F4b-4: su un server condiviso la task nasce nel progetto del container della causa, non nel primo", async () => {
+    const other = await sharedSrv1();
+    // Senza il campo «containers» (R7) vale il NOME dell'ambiente: la produzione di ACQ è `postgres`.
+    state.environments.find((e) => e.id === "env-acq-prod")!.name = "postgres";
+    const ep = await servers.simulateServerAlert("SRV-1", "memory");
+    await whenAnalysesIdle();
+    const a = onlyAnalysis("SRV-1");
+    expect(a.attribution).toEqual({ kind: "attributed", projectId: ACQ, projectCode: "ACQ" });
+    expect(serverTasksOf(ep.id).map((t) => t.projectId)).toEqual([ACQ]);
+    expect(a.proposal).toMatch(/postgres/);
+    expect(a.diagnosis ?? null).toBeNull();
     expect(published("server.diagnosis_ready", "SRV-1").map((n) => n.projectId)).toEqual([ACQ]);
+    expect(state.tasks.some((t) => t.projectId === other.id && t.source === "server")).toBe(false);
+  });
+
+  it("F4b-4: un container legato a DUE progetti non attribuisce a nessuno", async () => {
+    const other = await sharedSrv1();
+    state.environments.find((e) => e.id === "env-acq-prod")!.name = "postgres";
+    state.environments.find((e) => e.projectId === other.id)!.name = "postgres";
+    const ep = await servers.simulateServerAlert("SRV-1", "memory");
+    await whenAnalysesIdle();
+    expect(onlyAnalysis("SRV-1").attribution).toEqual({
+      kind: "undetermined",
+      reason: "containers_of_other_project",
+    });
+    expect(serverTasksOf(ep.id)).toEqual([]);
   });
 
   it("server solo di staging: nessun avviso del catalogo, nessuna analisi (anche con l'accesso)", async () => {
@@ -520,7 +586,10 @@ describe("R-L9: Claude lavora in ogni progetto, anche in quelli creati dall'app"
     await servers.simulateServerAlert(server.code, "cpu");
     await whenAnalysesIdle();
     const a = onlyAnalysis(server.code);
-    expect(a).toMatchObject({ projectId: p.id, outcome: "diagnosed" });
+    expect(a).toMatchObject({
+      attribution: { kind: "attributed", projectId: p.id, projectCode: "NEWP" },
+      outcome: "diagnosed",
+    });
     expect(taskOf(a)).toMatchObject({ projectId: p.id, createdById: "p-claude", source: "server" });
     expect(published("server.trouble", server.code)[0]!.body).toMatch(/Claude is looking into it/);
     // La membership mostrata non cambia: Claude è membro implicito, non scritto.
@@ -582,7 +651,7 @@ describe("analisi ai bordi (fix round 1)", () => {
     expect(taskOf(a).description).toMatch(/\*\*Stopped\*\* — the read-only SSH access stopped/);
   });
 
-  it("tolto dal progetto durante l'analisi → si ferma: nessuna lettura dopo, nessuna task lì", async () => {
+  it("tolto da ogni ambiente durante l'analisi: finisce (è del server), ma nessun progetto la può avere: nessuna task", async () => {
     setStreamLatency(20);
     await servers.simulateServerAlert("SRV-1", "memory");
     await vi.waitFor(() => expect(newAnalyses("SRV-1")).toHaveLength(1), FAST);
@@ -591,13 +660,16 @@ describe("analisi ai bordi (fix round 1)", () => {
     const tasksBefore = state.tasks.length;
     for (const env of state.environments)
       if (env.projectId === ACQ) env.servers = env.servers.filter((s) => s.serverCode !== "SRV-1");
-    const readsAtDetach = actionsOf(a.conversationId).length;
     await whenAnalysesIdle();
-    expect(actionsOf(a.conversationId).length).toBe(readsAtDetach);
-    expect(a).toMatchObject({ outcome: "stopped", taskId: null });
+    expect(a).toMatchObject({
+      outcome: "diagnosed",
+      taskId: null,
+      attribution: { kind: "undetermined", reason: "no_project" },
+    });
     expect(state.tasks.length).toBe(tasksBefore);
+    // Nessuna produzione lo usa più: nessun avviso, nemmeno «non determinato».
     expect(published("server.diagnosis_ready", "SRV-1")).toHaveLength(0);
-    expect(sessionOf(a)).toMatchObject({ state: "finished", outcome: "failed" });
+    expect(sessionOf(a)).toMatchObject({ state: "finished", outcome: "ok", projectId: null });
   });
 
   it("una «lettura che scrive» durante l'analisi la ferma alla lettura successiva", async () => {

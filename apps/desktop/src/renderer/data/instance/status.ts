@@ -4,7 +4,16 @@ import { canSeeRun, runById } from "../automations/visibility";
 import { docsAccess } from "../docs/reads";
 import { productPageHref } from "../productDocs/claudeReads";
 import { serverHref } from "../servers/visibility";
-import { currentPhase, eventsOf, familyOf, gate, now, state, visibleProjectIds } from "../store";
+import {
+  canSeeConversation,
+  currentPhase,
+  eventsOf,
+  familyOf,
+  gate,
+  now,
+  state,
+  visibleProjectIds,
+} from "../store";
 import type { ActionAvailability } from "../types";
 import { forbidden } from "../writer";
 import { canI } from "./common";
@@ -211,7 +220,8 @@ type Job = Omit<
 >;
 
 function sessionJob(c: Conversation, kind: NonNullable<ReturnType<typeof jobKindOf>>): Job | null {
-  const projectId = c.projectId!;
+  // Solo l'analisi di un server può non avere progetto (F4b-4: lo dice lei, a fine analisi).
+  const projectId = c.projectId;
   const failed = isFailed(c);
   // Una correzione ferma (ruling T5 I1) si mostra in attesa, senza blocco:
   // si riprende dalla task, non dalla coda.
@@ -231,7 +241,9 @@ function sessionJob(c: Conversation, kind: NonNullable<ReturnType<typeof jobKind
     since: failed || stalledCorrection ? c.updatedAt : c.createdAt,
     href:
       kind === "server_analysis" && server
-        ? serverHref(codeOf(projectId), server)
+        ? projectId === null
+          ? `#/admin/servers/${server}`
+          : serverHref(codeOf(projectId), server)
         : taskHref(c.taskId),
     summary: failed ? (c.failureSummary ?? null) : null,
     superseded: failed && kind === "task_run" && newerWorkOf(c) !== null,
@@ -291,7 +303,10 @@ function allJobs(): Job[] {
   const held = heldJobs();
   const heldSessions = new Set(held.map((h) => h.conversationId).filter(Boolean));
   const sessions = state.conversations.flatMap((c) => {
-    const kind = c.projectId !== null && !heldSessions.has(c.id) ? jobKindOf(c) : null;
+    const kind =
+      (c.projectId !== null || c.kind === "server_analysis") && !heldSessions.has(c.id)
+        ? jobKindOf(c)
+        : null;
     const job = kind ? sessionJob(c, kind) : null;
     return job ? [job] : [];
   });
@@ -325,9 +340,14 @@ export async function getInstanceStatus(): Promise<InstanceStatusView> {
 
   const all = allJobs().sort(byStateThenAge);
   // Un lavoro senza progetto (un passo d'automazione generale fermo per il
-  // budget) lo vede chi vede l'esecuzione; non è mai di un progetto nascosto.
+  // budget) lo vede chi vede l'esecuzione; l'analisi di un server non ancora
+  // attribuita (F4b-4), chi ne legge la sessione. Mai di un progetto nascosto.
   const sees = (j: Job): boolean => {
     if (j.projectId !== null) return visible.has(j.projectId);
+    if (j.kind === "server_analysis") {
+      const c = state.conversations.find((x) => x.id === j.id);
+      return c !== undefined && canSeeConversation(me, c);
+    }
     const run = j.kind === "automation" ? runById(j.id) : undefined;
     return run !== undefined && canSeeRun(me, run);
   };

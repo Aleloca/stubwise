@@ -2,7 +2,7 @@ import { featureIntegrated } from "../../data/integration";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { usePauserName, waitingText, WithWho } from "../../components/InstanceBlock";
+import { WithWho } from "../../components/InstanceBlock";
 import { useAiBlock, useTask } from "../../data/queries";
 import type { ServerDetail, ServerEpisodeView } from "../../data/servers";
 import { WorkingRing } from "../claude/conversation/parts";
@@ -22,7 +22,9 @@ import { HealthGlyph } from "./glyphs";
 // di 24 ore o una task di server aperta. Dice da quando, perché (i motivi
 // in frase) e chi ci lavora; senza accesso di lettura usabile dice che
 // Claude non può guardare, e a chi gestisce gli accessi porta lì.
-// L'ora del rientro è nel fuso di chi guarda.
+// L'ora del rientro è nel fuso di chi guarda. L'analisi è del server (area
+// 8, F4b-4): nessun progetto «dell'analisi» prima; a fine analisi, se il
+// progetto non si è potuto dire, la riga lo dice col perché.
 
 const linkClass = "rounded-sm text-ink underline underline-offset-4 hover:decoration-2";
 
@@ -60,8 +62,6 @@ function WorkLine({
 }) {
   const { t } = useTranslation();
   const analysis = episode?.analysis ?? null;
-  // Chi ha messo la pausa, con «(deactivated)» come altrove (M5).
-  const pauser = usePauserName(episode?.analysisWaiting ?? null);
   const taskCode = episode?.taskCode ?? server.workTaskCode;
   const line = (ring: boolean, text: string, extra?: ReactNode) => (
     <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-md text-ink">
@@ -77,25 +77,29 @@ function WorkLine({
       )}
     </p>
   );
-  const session = (id: string) => (
-    <Link to="/claude/$id" params={{ id }} className={linkClass}>
-      {t("servers.now.openSession")}
-    </Link>
-  );
+  // La sessione solo a chi la può leggere (il livello dati dà l'id, o `null`).
+  const session = (id: string | null) =>
+    id === null ? undefined : (
+      <Link to="/claude/$id" params={{ id }} className={linkClass}>
+        {t("servers.now.openSession")}
+      </Link>
+    );
   const task = taskCode ? <TaskLink code={taskCode} /> : undefined;
 
   if (server.work === "fixing") return line(true, t("servers.now.work.fixing"), task);
-  // Area 9b: nata ma ferma per la coda in pausa, senza anello (non sta lavorando).
-  if (analysis?.outcome === "running" && episode?.analysisWaiting)
-    return line(
-      false,
-      waitingText(t, episode.analysisWaiting, pauser),
-      session(analysis.conversationId),
-    );
   if (analysis?.outcome === "running")
     return line(true, t("servers.now.work.analyzing"), session(analysis.conversationId));
   if (analysis?.outcome === "failed")
     return line(false, t("servers.now.work.failed"), session(analysis.conversationId));
+  // Il progetto non si è potuto dire: nessuna task, e il perché (F4b-4).
+  if (analysis?.attribution?.kind === "undetermined")
+    return line(
+      false,
+      t("servers.now.work.undetermined", {
+        reason: t(`servers.attribution.${analysis.attribution.reason}`),
+      }),
+      session(analysis.conversationId),
+    );
   if (analysis) {
     const key = analysis.outcome === "diagnosed" ? "diagnosed" : analysis.outcome;
     if (!episode?.taskCode) return line(false, t("servers.now.work.hiddenTask"));
@@ -168,15 +172,14 @@ export function NowBox({ server }: { server: ServerDetail }) {
       {work}
       {/* Un orfano (area 9b) non ha staging né produzioni: «Staging only» sarebbe
           falso, e che Claude lavori solo dentro un progetto lo dice la testata. */}
-      {featureIntegrated("servers-analysis") &&
-        !server.orphan &&
-        server.analysisProject === null &&
-        inTrouble && <p className="text-md text-ink-muted">{t("servers.stagingOnly")}</p>}
+      {featureIntegrated("servers-analysis") && !server.orphan && !server.alerting && inTrouble && (
+        <p className="text-md text-ink-muted">{t("servers.stagingOnly")}</p>
+      )}
       {featureIntegrated("servers-analysis") &&
         inTrouble &&
         noRead &&
         !server.orphan &&
-        server.analysisProject !== null &&
+        server.alerting &&
         server.work === "none" &&
         !episode?.analysis && (
           <div className="flex flex-wrap items-center gap-3">
@@ -200,11 +203,6 @@ export function NowBox({ server }: { server: ServerDetail }) {
       {open?.analysisBlocked === "monthly_budget" && !open.analysis && budgetNow && (
         <p data-ai-block="monthly_budget" className="text-md text-pretty text-ink">
           <WithWho text={t("servers.now.noBudget")} />
-        </p>
-      )}
-      {server.productionProjects.length > 1 && server.analysisProject?.code && (
-        <p className="text-sm text-ink-muted">
-          {t("servers.now.primary", { code: server.analysisProject.code })}
         </p>
       )}
     </section>

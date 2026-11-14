@@ -1,7 +1,8 @@
-import { notificationKindSchema } from "@stubwise/shared";
+import { attributeServerCause, notificationKindSchema } from "@stubwise/shared";
 import { describe, expect, it } from "vitest";
 import type { StallReason } from "../domain/stalled";
 import { stallOf } from "../domain/stalled";
+import { serverProjectsOf } from "../domain/servers/projects";
 import { TEMPLATE_MODULES } from "../domain/templates";
 import { compareWeeks } from "../domain/weeks";
 import { validateFlow } from "@stubwise/shared";
@@ -2570,9 +2571,8 @@ describe("seed: server (area 8b)", () => {
       expect(s.code).toMatch(/^SRV-\d+$/);
       const envs = ENVIRONMENTS.filter((e) => e.servers.some((x) => x.serverCode === s.code));
       expect(envs.length, s.code).toBeGreaterThan(0);
-      // Il progetto principale è uno di quelli in cui il server è in produzione.
-      const prodProjects = envs.filter((e) => e.kind === "production").map((e) => e.projectId);
-      expect(prodProjects).toContain(s.primaryProjectId);
+      // F4b-4: nessun progetto principale (l'analisi parte dal server e dice il progetto).
+      expect(s).not.toHaveProperty("primaryProjectId");
       expect(s.thresholds).toEqual(DEFAULT_THRESHOLDS);
       expect(s.services.length).toBeGreaterThan(0);
       expect(s.disks.length).toBeGreaterThan(0);
@@ -2586,10 +2586,6 @@ describe("seed: server (area 8b)", () => {
       diskPct: 90,
       sustainedMinutes: 5,
     });
-    expect(server("SRV-1").primaryProjectId).toBe(ACQ);
-    expect(server("SRV-2").primaryProjectId).toBe(STW);
-    expect(server("SRV-3").primaryProjectId).toBe(AUD);
-    expect(server("SRV-4").primaryProjectId).toBe(AUD);
     // I controlli: id unici, di un server del seme, uno solo giù (su SRV-2).
     expect(new Set(SERVER_CHECKS.map((c) => c.id)).size).toBe(SERVER_CHECKS.length);
     for (const c of SERVER_CHECKS) expect(SERVERS.some((s) => s.code === c.serverCode)).toBe(true);
@@ -2626,9 +2622,25 @@ describe("seed: server (area 8b)", () => {
     expect(an).toMatchObject({
       serverCode: "SRV-1",
       episodeId: ep.id,
-      projectId: ACQ,
       outcome: "diagnosed",
     });
+    // F4b-4: l'attribuzione del seme è quella che la regola di shared dà sui
+    // dati del seme (SRV-1 lo usa solo ACQ), non una scritta a mano.
+    const serverProjects = serverProjectsOf(
+      "SRV-1",
+      ENVIRONMENTS,
+      (id) => projectsById.get(id)!.code,
+    );
+    expect(an.attribution).toEqual(
+      attributeServerCause({
+        serverProjects,
+        seenContainers: server("SRV-1")
+          .services.filter((x) => x.source === "docker")
+          .map((x) => x.name),
+        cause: { projectCode: "ACQ", containers: ["portale-import"] },
+      }),
+    );
+    expect(an.attribution).toEqual({ kind: "attributed", projectId: ACQ, projectCode: "ACQ" });
     expect(an.startedAt >= ep.startedAt).toBe(true);
     expect(an.endedAt! > an.startedAt).toBe(true);
     // La sessione: di Claude, del progetto, conclusa, solo comandi di lettura con le uscite.

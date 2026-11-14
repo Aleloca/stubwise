@@ -1,3 +1,4 @@
+import type { AttributionInput } from "@stubwise/shared";
 import { utterance } from "../../domain/claude/answers";
 import { truncateOutput } from "../../domain/servers/commands";
 import { ANALYSIS_MAX_MINUTES } from "../../domain/servers/limits";
@@ -313,6 +314,48 @@ export function diagnosisOf(s: MonitoredServer, episode: ServerEpisode): Analysi
     body: parts.length > 1 ? parts.map((p) => p.body).join("\n\n") : first.body,
     proposal: parts.length > 1 ? parts.map((p) => `- ${p.proposal}`).join("\n") : first.proposal,
   };
+}
+
+// --- la causa dichiarata (F4b-4) ------------------------------------------
+
+/** Il container docker che un motivo chiama in causa, se c'è. */
+function containerOf(s: MonitoredServer, reason: EpisodeReason): string | null {
+  const service =
+    reason.kind === "memory"
+      ? heaviest(s, "mem")
+      : reason.kind === "cpu"
+        ? heaviest(s, "cpu")
+        : reason.kind === "check"
+          ? serviceOfCheck(s, reason.checkId)
+          : null;
+  return service?.source === "docker" ? service.name : null;
+}
+
+/**
+ * La causa che l'analisi DICHIARA (solo prototipo, deterministica: in
+ * produzione è il campo strutturato dello strumento finale): i container
+ * docker che i motivi chiamano in causa, e il progetto che Claude nomina —
+ * quello a cui il primo di quei container è legato (oggi il NOME
+ * dell'ambiente, finché manca il campo «containers», R7), altrimenti il
+ * primo progetto del server. È contenuto del modello, NON fidato: lo valida
+ * `attributeServerCause` (`analysis.ts`).
+ */
+export function declaredCauseOf(
+  s: MonitoredServer,
+  episode: ServerEpisode,
+  serverProjects: AttributionInput["serverProjects"],
+): AttributionInput["cause"] {
+  const containers: string[] = [];
+  for (const r of episode.reasons) {
+    const c = containerOf(s, r);
+    if (c !== null && !containers.includes(c)) containers.push(c);
+  }
+  const owner = serverProjects.find((p) =>
+    p.environments.some((e) =>
+      (e.containers.length > 0 ? e.containers : [e.name]).includes(containers[0] ?? ""),
+    ),
+  );
+  return { projectCode: (owner ?? serverProjects[0])?.projectCode ?? null, containers };
 }
 
 /** L'apertura della sessione: la fase d'analisi e che cosa Claude va a guardare. */

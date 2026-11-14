@@ -13,7 +13,6 @@ import { recordChange } from "../changelog/index";
 import { changedFields } from "../changelog/settingValues";
 // Per effetto: registra i tipi di voce di progetto (`recordChange` lancia su uno ignoto).
 import "../projectSettings/changeTypes";
-import { alertProjectsOf } from "../../domain/servers/projects";
 import { publishAlert } from "../alerts/publish";
 import { aiBlockFor } from "../instance/blocks";
 import { noteProductSource } from "../productDocs/sourceEvents";
@@ -591,7 +590,6 @@ export async function updateEnvironment(
   if (patch.kind !== undefined) env.kind = patch.kind;
   if (patch.url !== undefined) env.url = patch.url?.trim() || null;
   if (patch.servers !== undefined) env.servers = serverRows(env.servers, patch.servers);
-  dropStalePrimaries();
   // I server collegati non hanno un prima/dopo: se cambiano solo loro c'è la frase.
   const diff = changedFields(before, { name: env.name, kind: env.kind, url: env.url });
   recordChange({
@@ -611,23 +609,10 @@ export async function deleteEnvironment(id: string): Promise<void> {
   state.environments = state.environments.filter((e) => e.id !== id);
   // I suoi file d'ambiente (area 9c) se ne vanno con lui, segreti compresi.
   dropEnvironmentFiles(id);
-  dropStalePrimaries();
   recordChange({
     kind: "environment.deleted",
     actorId: me,
     projectId: env.projectId,
     object: environmentObject(env),
   });
-}
-
-/**
- * Il progetto principale di un server è una delle produzioni che lo usano:
- * tolto il server da quella produzione (riga o ambiente), il principale si
- * azzera e l'analisi ricade sulla prima produzione rimasta (`analysisProjectOf`).
- */
-function dropStalePrimaries(): void {
-  for (const s of state.servers) {
-    if (s.primaryProjectId && !alertProjectsOf(s.code, state.environments).includes(s.primaryProjectId))
-      s.primaryProjectId = null;
-  }
 }

@@ -291,8 +291,6 @@ function useFieldsLine() {
   const word = (field: string, v: string | boolean | null | undefined): string => {
     if (v === null || v === undefined || v === "") return t("changelog.entry.none");
     if (typeof v === "boolean") return t(v ? "changelog.values.on" : "changelog.values.off");
-    // Il segnaposto di `changelog/reads.ts` (`HIDDEN_PROJECT`): una pagina non importa il livello dati.
-    if (field === "primaryProject" && v === "@hidden") return t("changelog.values.hiddenProject");
     // «Nome:famiglia» (`project.statuses_changed`): la famiglia si traduce qui.
     if (field === "statusFamilies") {
       const at = v.lastIndexOf(":");

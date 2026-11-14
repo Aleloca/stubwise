@@ -1,28 +1,37 @@
+import { attributeServerCause } from "@stubwise/shared";
 import { ANALYSIS_MAX_COST_USD, ANALYSIS_MAX_MINUTES } from "../../domain/servers/limits";
-import { alertProjectsOf, analysisProjectOf, serverInProject } from "../../domain/servers/projects";
+import { alertProjectsOf, serverProjectsOf } from "../../domain/servers/projects";
 import { accessState, accessUsable } from "../../domain/servers/sshAccess";
 import { utterance } from "../../domain/claude/answers";
 import i18n from "../../i18n";
 import { publishAlert } from "../alerts/publish";
-import { createTaskAs, openWorkConversationAs, runIdentity, startOrHold } from "../api-mutations";
+import { createTaskAs, openWorkConversationAs, runIdentity } from "../api-mutations";
 import { aiBlockFor } from "../instance/blocks";
 import { CLAUDE_ID } from "../seed/people";
 import { newId, now, onStoreReset, state, storeGeneration } from "../store";
 import { interruptScripts, notifyConversationChange, runScript } from "../stream";
 import type {
-  AiBlock,
   EpisodeReason,
   ModelUsage,
   MonitoredServer,
   Outcome,
   ScriptStep,
   ServerAnalysis,
+  ServerAttribution,
   ServerEpisode,
   Task,
 } from "../types";
 import { notFound } from "../writer";
 import { markUsed, onAccessRevoked } from "./access";
-import { diagnosisOf, openingSteps, readsFor, readSteps, reasonsPhrase } from "./scripts";
+import {
+  declaredCauseOf,
+  diagnosisOf,
+  docker,
+  openingSteps,
+  readsFor,
+  readSteps,
+  reasonsPhrase,
+} from "./scripts";
 import { liveEnvironments, serverHref } from "./visibility";
 
 // Gli episodi dei server e l'analisi automatica (area 8b, solo prototipo:
@@ -36,14 +45,22 @@ import { liveEnvironments, serverHref } from "./visibility";
 // finita, la task lo registra in fondo.
 //
 // Gli avvisi vanno ai progetti la cui PRODUZIONE usa il server (R-L2,
-// `alertProjectsOf`); l'analisi gira in UN progetto (`analysisProjectOf`: il
-// principale se è fra quelli), a nome di Claude — che lavora in ogni
-// progetto (R-L9) — e solo con l'accesso di LETTURA usabile
-// (`accessUsable`, mai il solo stato, ricontrollato prima di ogni lettura):
-// sola lettura vera, nessun altro accesso. Finisce con una task anche col
-// server irraggiungibile, al limite di tempo, rientrato prima di guardare o
-// con l'accesso perso a metà, con ciò che ha visto; se la task non si apre,
-// finisce `failed` e lo dice — mai `running` per sempre.
+// `alertProjectsOf`). L'analisi è del SERVER (area 8, F4b-4): nessun
+// progetto scelto prima, nessun «progetto principale»; parte all'allarme se
+// una produzione usa il server, nel budget mensile dell'ISTANZA (la pausa
+// della coda di un progetto non la ferma: non è di un progetto), a nome di
+// Claude e solo con l'accesso di LETTURA usabile (`accessUsable`, mai il solo
+// stato, ricontrollato prima di ogni lettura): sola lettura vera.
+//
+// È lei a dire QUALE progetto è la causa: la causa dichiarata
+// (`declaredCauseOf`, contenuto del modello, non fidato) si valida con
+// `attributeServerCause` di `@stubwise/shared` contro i progetti del server
+// e i container legati ai loro ambienti. Attribuita, la task nasce in QUEL
+// progetto (anche col server irraggiungibile, al limite di tempo, rientrato
+// prima di guardare o con l'accesso perso a metà, con ciò che ha visto); se
+// la task non si apre, finisce `failed` e lo dice — mai `running` per
+// sempre. Non determinata: nessuna task, nessuna proposta; la diagnosi resta
+// sull'analisi (la legge chi gestisce il monitor) e l'avviso lo dice.
 //
 // Tutto il seguito fissa la generazione dello stato quando parte: dopo un
 // `resetApi` nessuna analisi scrive nello stato nuovo.
@@ -110,35 +127,20 @@ function noAnalysisTail(code: string): string {
 }
 
 /**
- * La coda dell'avviso: cosa fa Claude adesso. Con la coda del progetto in
- * pausa l'analisi aspetta, col budget raggiunto non parte (revisione finale
- * M4): l'avviso non dice «is looking into it» quando non è vero.
+ * La coda dell'avviso: cosa fa Claude adesso. Col budget raggiunto non
+ * parte (revisione finale M4): l'avviso non dice «is looking into it» quando
+ * non è vero.
  */
-function publishTrouble(
-  s: MonitoredServer,
-  ep: ServerEpisode,
-  analyzes: boolean,
-  block: AiBlock | null,
-  projectId: string | null,
-): void {
+function publishTrouble(s: MonitoredServer, ep: ServerEpisode, analyzes: boolean): void {
   const readable = accessUsable(state.serverAccess.get(s.code), "read");
-  // La frase si scrive per ogni avviso: il codice del progetto dell'analisi
-  // compare solo nell'avviso che va a quel progetto. Le altre produzioni
-  // possono non vederlo (R-G5, ri-revisione N1).
-  const tailFor = (to: string): string =>
-    analyzes
-      ? block?.reason === "queue_paused" && projectId !== null
-        ? to === projectId
-          ? ` Claude looks into it when ${projectCode(projectId)}'s queue resumes.`
-          : " Claude looks into it when the queue resumes."
-        : " Claude is looking into it with read-only access."
-      : !readable
-        ? ` ${noAnalysisTail(s.code)}`
-        : ep.analysisBlocked === "monthly_budget"
-          ? " Claude can't look into it: the monthly AI budget is used up."
-          : "";
+  const tail = analyzes
+    ? " Claude is looking into it with read-only access."
+    : !readable
+      ? ` ${noAnalysisTail(s.code)}`
+      : ep.analysisBlocked === "monthly_budget"
+        ? " Claude can't look into it: the monthly AI budget is used up."
+        : "";
   for (const to of alertProjectsOf(s.code, liveEnvironments())) {
-    const tail = tailFor(to);
     publishAlert({
       kind: ep.severity === "down" ? "server.down" : "server.trouble",
       projectId: to,
@@ -156,7 +158,8 @@ function publishTrouble(
  * Un allarme del server. Con un episodio aperto aggiunge i motivi nuovi (e
  * passa a `down` se serve) senza avvisi né analisi nuovi. Altrimenti apre
  * l'episodio, avvisa le produzioni che usano il server e, con l'accesso di
- * lettura usabile e un progetto dell'analisi, fa partire l'analisi.
+ * lettura usabile, almeno una produzione e il budget dell'istanza, fa
+ * partire l'analisi del server.
  */
 export function raiseEpisode(
   serverCode: string,
@@ -187,24 +190,18 @@ export function raiseEpisode(
     analysisId: null,
   };
   state.serverEpisodes.push(episode);
-  const projectId = analysisProjectOf(serverCode, liveEnvironments(), server.primaryProjectId);
-  // Claude lavora in ogni progetto (R-L9): basta l'accesso di lettura usabile.
-  // Area 9b: col budget del mese esaurito l'analisi non parte; con la coda
-  // del progetto in pausa nasce e aspetta la ripresa.
-  const block = projectId === null ? null : aiBlockFor(projectId);
-  const analyzes =
-    projectId !== null &&
-    accessUsable(state.serverAccess.get(serverCode), "read") &&
-    block?.reason !== "monthly_budget";
-  if (
-    projectId !== null &&
-    !analyzes &&
-    block?.reason === "monthly_budget" &&
-    accessUsable(state.serverAccess.get(serverCode), "read")
-  )
-    episode.analysisBlocked = "monthly_budget";
-  publishTrouble(server, episode, analyzes, block, projectId);
-  if (analyzes) startAnalysis(server, episode, projectId, opts.overrun === true, block);
+  // Solo con una produzione (un server di solo staging non avvisa e non si
+  // analizza) e l'accesso di lettura usabile. Il budget è dell'istanza
+  // (`aiBlockFor(null)`: nessuna pausa di progetto, F4b-4): esaurito,
+  // l'analisi non parte e l'episodio lo ricorda (area 9b).
+  const eligible =
+    alertProjectsOf(serverCode, liveEnvironments()).length > 0 &&
+    accessUsable(state.serverAccess.get(serverCode), "read");
+  const block = aiBlockFor(null);
+  const analyzes = eligible && block === null;
+  if (eligible && block?.reason === "monthly_budget") episode.analysisBlocked = "monthly_budget";
+  publishTrouble(server, episode, analyzes);
+  if (analyzes) startAnalysis(server, episode, opts.overrun === true);
   return episode;
 }
 
@@ -269,20 +266,17 @@ export function recoverEpisode(serverCode: string): ServerEpisode | null {
 
 // --- l'analisi ----------------------------------------------------------------
 
-function startAnalysis(
-  server: MonitoredServer,
-  episode: ServerEpisode,
-  projectId: string,
-  overrun: boolean,
-  block: AiBlock | null,
-): void {
+function startAnalysis(server: MonitoredServer, episode: ServerEpisode, overrun: boolean): void {
   const gen = storeGeneration();
+  // Del server, non di un progetto (F4b-4): la sessione entra nel progetto
+  // attribuito a fine analisi (`finish`); prima la vede chi gestisce il
+  // monitor (`canSeeConversation`). L'account è quello della catena dell'istanza.
   const c = openWorkConversationAs(CLAUDE_ID, {
     kind: "server_analysis",
-    ...runIdentity("fix_plan", projectId),
+    ...runIdentity("fix_plan", null),
     title: `${server.code} ${server.name} · ${reasonsPhrase(episode.reasons)}`,
-    projectId,
-    touchedProjectIds: [projectId],
+    projectId: null,
+    touchedProjectIds: [],
     state: "working",
     usage: [],
     analysisLimits: { maxMinutes: ANALYSIS_MAX_MINUTES, maxCostUsd: ANALYSIS_MAX_COST_USD },
@@ -292,8 +286,8 @@ function startAnalysis(
     id: newId("an"),
     serverCode: server.code,
     episodeId: episode.id,
-    projectId,
     conversationId: c.id,
+    attribution: null,
     outcome: "running",
     taskId: null,
     startedAt: now(),
@@ -312,8 +306,8 @@ function startAnalysis(
     runs.set(analysis.id, done);
     return done;
   };
-  // Senza blocco parte subito (nello stesso giro); con la coda in pausa aspetta la ripresa.
-  void startOrHold(CLAUDE_ID, c, "server_analysis", block, gen, go);
+  // Parte subito, nello stesso giro: il budget l'ha già guardato `raiseEpisode`.
+  void go();
 }
 
 /** I tentativi di connessione a un server che non risponde: letture fallite. */
@@ -359,7 +353,6 @@ async function drive(
   while (episode.recoveredAt === null) {
     server = serverOf(a.serverCode);
     if (!server) return;
-    if (gone(a)) return stopGone(a, gen);
     const all = readsFor(server, episode.reasons);
     const next = all.find((r) => !ran.has(r.input));
     if (!next) break;
@@ -378,37 +371,8 @@ async function drive(
     await runScript(a.conversationId, readSteps([next]), gen);
     if (!alive()) return;
   }
-  if (gone(a)) return stopGone(a, gen);
   if (ending === "diagnosed" && ran.size === 0) ending = "recovered_early";
   return finish(a, episode, gen, ending, ran.size);
-}
-
-/** Il server non è più in un ambiente del progetto dell'analisi (tolto a metà). */
-const gone = (a: ServerAnalysis): boolean =>
-  !serverInProject(a.serverCode, a.projectId, state.environments);
-
-/**
- * Tolto il server dal progetto a metà: Claude non lo legge più per conto di
- * quel progetto e non ci apre la task (stessa regola della correzione,
- * `server_gone`). L'analisi finisce `stopped` senza task; la sessione dice perché.
- */
-async function stopGone(a: ServerAnalysis, gen: number): Promise<void> {
-  if (gen !== storeGeneration() || a.outcome !== "running") return;
-  a.outcome = "stopped";
-  a.endedAt = now();
-  await runScript(
-    a.conversationId,
-    [
-      { step: "finish_action", outcome: "failed", result: "Stopped" },
-      {
-        step: "say",
-        text: `${a.serverCode} is no longer in this project's environments, so I stopped. No task was opened.`,
-      },
-      { step: "event", event: { type: "phase", phase: "analysis", outcome: "failed" } },
-      { step: "state", state: "finished", outcome: "failed" },
-    ],
-    gen,
-  );
 }
 
 /** I consumi finti dell'analisi: plausibili, sotto il tetto (`ANALYSIS_MAX_COST_USD`). */
@@ -481,8 +445,39 @@ function taskOf(s: MonitoredServer, ep: ServerEpisode, outcome: Ending, reads: n
     parts = [`**Diagnosis** — ${d.body}`, proposal, untouched];
   }
   if (ep.recoveredAt !== null && outcome !== "recovered_early") parts.push(recoveredLine(ep));
-  return { title, description: parts.join("\n\n") };
+  return { title, description: parts.join("\n\n"), parts };
 }
+
+/**
+ * La diagnosi che resta sull'analisi quando la causa non è determinata: il
+ * testo della task che non nasce, SENZA la proposta (niente piano senza un
+ * progetto, F4b-4).
+ */
+const undeterminedDiagnosisOf = (
+  s: MonitoredServer,
+  ep: ServerEpisode,
+  outcome: Ending,
+  reads: number,
+): string =>
+  taskOf(s, ep, outcome, reads)
+    .parts.filter((p) => !p.startsWith("**Proposal**"))
+    .join("\n\n");
+
+/**
+ * Perché il progetto non si può dire, in inglese come gli altri testi dei
+ * dati (avviso e sessione); la UI ha le sue frasi
+ * (`servers.attribution.<reason>`).
+ */
+const UNDETERMINED: Record<Extract<ServerAttribution, { kind: "undetermined" }>["reason"], string> =
+  {
+    no_project: "the analysis didn't name a project",
+    project_not_on_server: "the project it named doesn't use this server",
+    no_containers: "it didn't name a container, and more than one project uses this server",
+    unknown_container: "it named a container the agent doesn't report on this server",
+    no_container_of_project:
+      "none of the containers it named belongs to that project's environments",
+    containers_of_other_project: "it named a container that belongs to another project",
+  };
 
 /** L'inizio del corpo di «Diagnosi pronta», per esito. */
 const READY_BODY: Record<Ending, (name: string) => string> = {
@@ -536,6 +531,22 @@ async function failAnalysis(a: ServerAnalysis, gen: number, e: unknown): Promise
   );
 }
 
+/**
+ * L'attribuzione (F4b-4): la causa che l'analisi dichiara, validata dalla
+ * regola pura di `@stubwise/shared` contro i progetti che usano il server
+ * ADESSO (non archiviati) e i container che l'agente riporta. Senza letture
+ * l'analisi non dichiara niente: vale solo «un solo progetto, quello».
+ */
+function attributionOf(s: MonitoredServer, ep: ServerEpisode, reads: number): ServerAttribution {
+  const serverProjects = serverProjectsOf(s.code, liveEnvironments(), projectCode);
+  return attributeServerCause({
+    serverProjects,
+    seenContainers: docker(s).map((x) => x.name),
+    cause:
+      reads > 0 ? declaredCauseOf(s, ep, serverProjects) : { projectCode: null, containers: [] },
+  });
+}
+
 async function finish(
   a: ServerAnalysis,
   ep: ServerEpisode,
@@ -546,11 +557,28 @@ async function finish(
   if (gen !== storeGeneration()) return;
   const s = serverOf(a.serverCode);
   if (!s) return;
+  const attribution = attributionOf(s, ep, reads);
+  a.attribution = attribution;
+  const c = state.conversations.find((x) => x.id === a.conversationId);
+  if (c) {
+    // Col modello con cui è partita (area 9b, `fix_plan`).
+    c.usage = [{ ...usageOf(reads), ...(c.model ? { model: c.model } : {}) }];
+    notifyConversationChange(c.id);
+  }
+  if (attribution.kind === "undetermined") return finishUndetermined(a, ep, gen, outcome, reads);
+  const projectId = attribution.projectId;
+  // La sessione entra nel progetto attribuito: lì la legge chi legge il progetto.
+  // Prima della task: se la task non si apre, la sessione dice perché lì.
+  if (c) {
+    c.projectId = projectId;
+    c.touchedProjectIds = [projectId];
+    notifyConversationChange(c.id);
+  }
   const { title, description } = taskOf(s, ep, outcome, reads);
   const task: Task = createTaskAs(
     CLAUDE_ID,
     {
-      projectId: a.projectId,
+      projectId,
       title,
       description,
       type: "bug",
@@ -569,18 +597,15 @@ async function finish(
     outcome === "diagnosed" || outcome === "timed_out" || (outcome === "access_lost" && reads > 0);
   a.proposal = proposes ? diagnosisOf(s, ep).proposal : null;
   a.endedAt = now();
-  const c = state.conversations.find((x) => x.id === a.conversationId);
   if (c) {
     c.taskId = task.id;
-    // Col modello con cui è partita (area 9b, `fix_plan`).
-    c.usage = [{ ...usageOf(reads), ...(c.model ? { model: c.model } : {}) }];
     notifyConversationChange(c.id);
   }
-  const code = projectCode(a.projectId);
+  const code = projectCode(projectId);
   const link = `#/p/${code}/tasks?task=${task.code}`;
   publishAlert({
     kind: "server.diagnosis_ready",
-    projectId: a.projectId,
+    projectId,
     objectCode: s.code,
     title: "Diagnosis ready",
     body: `${READY_BODY[outcome](s.name)}: ${task.code} ${task.title}.`,
@@ -608,6 +633,52 @@ async function finish(
           text: `Diagnosis written in ${task.code}`,
           link,
         },
+      },
+      { step: "event", event: { type: "phase", phase: "analysis", outcome: phaseOutcome } },
+      { step: "state", state: "finished", outcome: phaseOutcome },
+    ],
+    gen,
+  );
+}
+
+/**
+ * La causa non determinata (F4b-4): nessuna task, nessuna proposta. La
+ * diagnosi resta sull'analisi; le produzioni che usano il server lo sanno
+ * («Cause not determined», al server, non a una task). La sessione resta
+ * senza progetto: la legge chi gestisce il monitor.
+ */
+async function finishUndetermined(
+  a: ServerAnalysis,
+  ep: ServerEpisode,
+  gen: number,
+  outcome: Ending,
+  reads: number,
+): Promise<void> {
+  const s = serverOf(a.serverCode)!;
+  const why = a.attribution?.kind === "undetermined" ? UNDETERMINED[a.attribution.reason] : "";
+  a.outcome = ANALYSIS_OUTCOME[outcome];
+  a.taskId = null;
+  a.proposal = null;
+  a.diagnosis = undeterminedDiagnosisOf(s, ep, outcome, reads);
+  a.endedAt = now();
+  for (const to of alertProjectsOf(s.code, liveEnvironments())) {
+    publishAlert({
+      kind: "server.diagnosis_ready",
+      projectId: to,
+      objectCode: s.code,
+      title: "Cause not determined",
+      body: `${READY_BODY[outcome](s.name)}, but couldn't tell which project is causing it: ${why}. No task was opened.`,
+      link: serverHref(projectCode(to), s.code),
+    });
+  }
+  const phaseOutcome = SESSION_OUTCOME[outcome];
+  await runScript(
+    a.conversationId,
+    [
+      { step: "finish_action" },
+      {
+        step: "say",
+        text: `I couldn't tell which project is causing it (${why}), so I didn't open a task or propose a fix. The diagnosis stays with the alert on ${s.code}.`,
       },
       { step: "event", event: { type: "phase", phase: "analysis", outcome: phaseOutcome } },
       { step: "state", state: "finished", outcome: phaseOutcome },

@@ -4,10 +4,11 @@ import { PROJECTS } from "../projects";
 import { statusIdOf } from "../statuses";
 import { SRV1_MEMORY_EPISODE } from "./episodes";
 
-// L'analisi dell'allarme di memoria di SRV-1 (ACQ): Claude guarda il server
-// con l'accesso di LETTURA (solo comandi di lettura, `tool: "server.read"`),
-// scrive la diagnosi e apre la task. Nessuno l'ha chiesta: la sessione è di
-// Claude, e si legge come le altre sessioni automatiche.
+// L'analisi dell'allarme di memoria di SRV-1: Claude guarda il server con
+// l'accesso di LETTURA (solo comandi di lettura, `tool: "server.read"`),
+// scrive la diagnosi, la attribuisce ad ACQ (l'unico progetto del server) e
+// apre lì la task. Nessuno l'ha chiesta: la sessione è di Claude, entrata in
+// ACQ con l'attribuzione, e si legge come le altre sessioni automatiche.
 //
 // Il codice della task è il prossimo libero di ACQ (5 task generate, quindi
 // ACQ-6): `seed.test.ts` lo verifica.
@@ -29,8 +30,11 @@ export const SERVER_ANALYSES: ServerAnalysis[] = [
     id: ANALYSIS_ID,
     serverCode: "SRV-1",
     episodeId: SRV1_MEMORY_EPISODE.id,
-    projectId: ACQ.id,
     conversationId: CONVERSATION_ID,
+    // Area 8, F4b-4: l'analisi è del server e dice il progetto; SRV-1 lo usa
+    // solo ACQ, quindi la regola di shared lo attribuisce ad ACQ (il test del
+    // seme lo ricalcola con `attributeServerCause`).
+    attribution: { kind: "attributed", projectId: ACQ.id, projectCode: ACQ.code },
     outcome: "diagnosed",
     taskId: TASK_ID,
     startedAt: STARTED,

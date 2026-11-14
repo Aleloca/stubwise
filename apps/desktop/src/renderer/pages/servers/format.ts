@@ -6,8 +6,8 @@ import { ago } from "../releases/format";
 
 // Le parole della sezione Servers (shape servers.md §3): salute, motivi,
 // lavoro, accesso, ambienti, durate. Tutto da template i18n e dagli stati
-// già derivati dal livello dati (`health`, `work`, `access`,
-// `analysisProject`): qui non si ricalcola nessuno stato.
+// già derivati dal livello dati (`health`, `work`, `access`, `alerting`):
+// qui non si ricalcola nessuno stato.
 //
 // Le ore di un server sono nel fuso di CHI GUARDA (decisione del controller
 // per l'ora del rientro, estesa a tutta la pagina perché una pagina con due
@@ -142,21 +142,15 @@ export function reasonSentence(
   }
 }
 
-/** «Production · ACQ (primary)» per ogni ambiente, separati da «·». */
-export function environmentsLine(
-  row: Pick<ServerRow, "environments" | "primaryProjectCode">,
-  t: TFunction,
-): string {
+/** «Production · ACQ» per ogni ambiente, separati da «·». */
+export function environmentsLine(row: Pick<ServerRow, "environments">, t: TFunction): string {
   return row.environments
-    .map((e) => {
-      const base = t("servers.envLine", {
+    .map((e) =>
+      t("servers.envLine", {
         kind: t(`releases.environments.kinds.${e.kind}`),
         code: e.projectCode,
-      });
-      return e.kind === "production" && e.projectCode === row.primaryProjectCode
-        ? t("servers.envPrimary", { env: base })
-        : base;
-    })
+      }),
+    )
     .join(" · ");
 }
 
@@ -166,7 +160,7 @@ export function environmentsLine(
  * see» per un server dei soli progetti invisibili (R-G5, senza numero).
  */
 export function whereLine(
-  row: Pick<ServerRow, "environments" | "primaryProjectCode"> & {
+  row: Pick<ServerRow, "environments"> & {
     orphan?: boolean;
     inArchivedOnly?: boolean;
   },
@@ -187,22 +181,17 @@ export function accessProblem(row: Pick<ServerRow, "access">, t: TFunction): str
 }
 
 /**
- * La seconda riga dopo gli ambienti: dove vanno le diagnosi quando non
- * restano in questo progetto, o che uno staging non avvisa.
+ * La seconda riga dopo gli ambienti: che uno staging non avvisa. Dove va
+ * una diagnosi non si dice prima: l'analisi è del server e il progetto lo
+ * dice lei, a fine analisi (area 8, F4b-4).
  */
 export function diagnosesLine(
-  row: Pick<ServerRow, "analysisProject"> & { orphan?: boolean },
-  projectCode: string | null,
+  row: Pick<ServerRow, "alerting"> & { orphan?: boolean },
   t: TFunction,
 ): string | null {
   // Un orfano non ha né produzioni né staging: «Staging only» sarebbe falso.
   if (row.orphan) return null;
-  if (row.analysisProject === null) return t("servers.stagingOnly");
-  // Dall'Amministrazione (area 9b) non c'è un progetto «di qui» da cui le diagnosi vadano altrove.
-  if (projectCode === null || row.analysisProject.code === projectCode) return null;
-  return row.analysisProject.code
-    ? t("servers.diagnosesGoTo", { code: row.analysisProject.code })
-    : t("servers.diagnosesGoElsewhere");
+  return row.alerting ? null : t("servers.stagingOnly");
 }
 
 /** Byte in parole corte: «412 GB», «38 MB». */

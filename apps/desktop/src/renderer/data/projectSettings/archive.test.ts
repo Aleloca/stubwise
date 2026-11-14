@@ -605,7 +605,7 @@ describe("Amministrazione → Servers: inArchivedOnly", () => {
       false,
     );
     // Il dettaglio non promette un'analisi che non partirebbe.
-    expect((await servers.getServer("SRV-5")).analysisProject).toBeNull();
+    expect((await servers.getServer("SRV-5")).alerting).toBe(false);
     await servers.simulateServerRecovery("SRV-5");
     expect(rncAlerts()).toBe(0);
 

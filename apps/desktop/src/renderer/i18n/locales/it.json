@@ -9360,10 +9360,7 @@
     "notFound": "Questo server non esiste, o non puoi vederlo.",
     "noEnvironments": "In nessun ambiente",
     "envLine": "{{kind}} · {{code}}",
-    "envPrimary": "{{env}} (principale)",
     "stagingOnly": "Solo staging: niente avvisi, niente analisi",
-    "diagnosesGoTo": "Le diagnosi vanno in {{code}}",
-    "diagnosesGoElsewhere": "Le diagnosi vanno in un altro progetto",
     "errors": {
       "list": "Non è stato possibile caricare i server di {{code}}",
       "detail": "Non è stato possibile caricare questo server",
@@ -9460,7 +9457,6 @@
       "noAccess": "Claude non può guardarci: nessun accesso SSH.",
       "noBudget": "Claude non può guardarci: il budget AI del mese è esaurito.",
       "linkAccess": "Collega l'accesso SSH",
-      "primary": "La diagnosi si apre in {{code}}, il progetto principale.",
       "work": {
         "analyzing": "Claude ci sta guardando con l'accesso in sola lettura",
         "diagnosed": "Diagnosi pronta",
@@ -9468,11 +9464,20 @@
         "unreachable": "Claude non è riuscito a raggiungere il server",
         "stopped": "Claude si è fermato prima di una diagnosi",
         "failed": "L'analisi di Claude non è riuscita: la task non si è potuta aprire",
+        "undetermined": "Claude non è riuscito a dire quale progetto causa il problema: {{reason}} Nessuna task aperta.",
         "fixing": "Correzione in corso",
         "hiddenTask": "La diagnosi è in un progetto che non vedi."
       },
       "downDay": "Non risponde dal {{when}}",
       "troubleDay": "In difficoltà dal {{when}}"
+    },
+    "attribution": {
+      "no_project": "l'analisi non ha indicato un progetto.",
+      "project_not_on_server": "il progetto indicato non usa questo server.",
+      "no_containers": "non ha indicato un container, e questo server lo usano più progetti.",
+      "unknown_container": "ha indicato un container che l'agente non riporta su questo server.",
+      "no_container_of_project": "nessuno dei container indicati appartiene agli ambienti di quel progetto.",
+      "containers_of_other_project": "ha indicato un container che appartiene a un altro progetto."
     },
     "charts": {
       "rangeLabel": "Intervallo",
@@ -9624,14 +9629,9 @@
       "name": "Nome",
       "interval": "Riporta ogni (secondi)",
       "intervalHint": "Da 10 a 300 secondi.",
-      "primary": "Progetto principale",
-      "primaryOnly": "{{code}}: l'unica produzione che usa questo server",
-      "primaryNone": "Nessuna produzione usa questo server: niente avvisi, niente analisi.",
-      "primaryHint": "Le diagnosi di Claude si aprono qui come task.",
       "errors": {
         "name": "Dai un nome al server.",
         "sampleIntervalSeconds": "Usa un numero intero di secondi da 10 a 300.",
-        "primaryProjectId": "Scegli un progetto la cui produzione usa questo server.",
         "generic": "Non è stato possibile salvare le impostazioni. Riprova."
       },
       "key": {
@@ -9653,8 +9653,7 @@
         "busy": "Claude sta lavorando su {{code}} in questo momento. Eliminalo quando l'analisi o la correzione è finita.",
         "error": "Non è stato possibile eliminare {{code}}. Riprova.",
         "done": "{{code}} eliminato"
-      },
-      "primaryHidden": "Le produzioni che usano questo server sono in progetti che non vedi."
+      }
     },
     "create": {
       "title": "Nuovo server in {{code}}",
@@ -12316,7 +12315,6 @@
       "url": "Indirizzo",
       "events": "Eventi",
       "sampleInterval": "Campione ogni (s)",
-      "primaryProject": "Progetto principale",
       "cpu": "CPU %",
       "mem": "Memoria %",
       "disk": "Disco %",

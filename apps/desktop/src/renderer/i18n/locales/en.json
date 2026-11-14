@@ -9360,10 +9360,7 @@
     "notFound": "This server doesn't exist, or you can't see it.",
     "noEnvironments": "In no environment",
     "envLine": "{{kind}} · {{code}}",
-    "envPrimary": "{{env}} (primary)",
     "stagingOnly": "Staging only: no alerts, no analysis",
-    "diagnosesGoTo": "Diagnoses go to {{code}}",
-    "diagnosesGoElsewhere": "Diagnoses go to another project",
     "errors": {
       "list": "Couldn't load the servers of {{code}}",
       "detail": "Couldn't load this server",
@@ -9460,7 +9457,6 @@
       "noAccess": "Claude can't look into it: no SSH access.",
       "noBudget": "Claude can't look into it: the monthly AI budget is used up.",
       "linkAccess": "Link SSH access",
-      "primary": "The diagnosis opens in {{code}}, the primary project.",
       "work": {
         "analyzing": "Claude is looking into it with read-only access",
         "diagnosed": "Diagnosis ready",
@@ -9468,11 +9464,20 @@
         "unreachable": "Claude couldn't reach the server",
         "stopped": "Claude stopped before a diagnosis",
         "failed": "Claude's analysis failed: the task couldn't be opened",
+        "undetermined": "Claude couldn't tell which project is causing it: {{reason}} No task was opened.",
         "fixing": "Fix running",
         "hiddenTask": "The diagnosis is in a project you can't see."
       },
       "downDay": "Not responding since {{when}}",
       "troubleDay": "In trouble since {{when}}"
+    },
+    "attribution": {
+      "no_project": "the analysis didn't name a project.",
+      "project_not_on_server": "the project it named doesn't use this server.",
+      "no_containers": "it didn't name a container, and more than one project uses this server.",
+      "unknown_container": "it named a container the agent doesn't report on this server.",
+      "no_container_of_project": "none of the containers it named belongs to that project's environments.",
+      "containers_of_other_project": "it named a container that belongs to another project."
     },
     "charts": {
       "rangeLabel": "Time range",
@@ -9624,14 +9629,9 @@
       "name": "Name",
       "interval": "Report every (seconds)",
       "intervalHint": "From 10 to 300 seconds.",
-      "primary": "Primary project",
-      "primaryOnly": "{{code}} — the only production using this server",
-      "primaryNone": "No production uses this server: no alerts, no analysis.",
-      "primaryHint": "Claude's diagnoses open as tasks here.",
       "errors": {
         "name": "Give the server a name.",
         "sampleIntervalSeconds": "Use a whole number of seconds from 10 to 300.",
-        "primaryProjectId": "Choose a project whose production uses this server.",
         "generic": "Couldn't save the settings. Try again."
       },
       "key": {
@@ -9653,8 +9653,7 @@
         "busy": "Claude is working on {{code}} right now. Delete it when the analysis or the fix is over.",
         "error": "Couldn't delete {{code}}. Try again.",
         "done": "{{code}} deleted"
-      },
-      "primaryHidden": "The productions using this server are in projects you can't see."
+      }
     },
     "create": {
       "title": "New server in {{code}}",
@@ -12316,7 +12315,6 @@
       "url": "Address",
       "events": "Events",
       "sampleInterval": "Sample every (s)",
-      "primaryProject": "Main project",
       "cpu": "CPU %",
       "mem": "Memory %",
       "disk": "Disk %",

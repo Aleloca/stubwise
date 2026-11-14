@@ -192,8 +192,7 @@ describe("i Server dal server (area 8, F4a)", () => {
       workTaskCode: null,
       access: "not_linked",
       environments: [{ projectCode: "ACQ", name: "Production", kind: "production" }],
-      primaryProjectCode: null,
-      analysisProject: null,
+      alerting: true,
       recentCpu: [10, 20],
     });
   });
@@ -375,7 +374,7 @@ describe("i Server dal server (area 8, F4a)", () => {
     expect(m.check).toBeNull();
   });
 
-  it("le scritture: per id dal codice, il progetto principale non si manda, le soglie intere", async () => {
+  it("le scritture: per id dal codice, le soglie intere", async () => {
     const servers = createRealServers(
       fakeApi(),
       () => NOW,
@@ -383,7 +382,7 @@ describe("i Server dal server (area 8, F4a)", () => {
     );
     await servers.getServer("SRV-1");
     expect(
-      (await servers.updateServer("SRV-1", { name: "renamed", primaryProjectId: PRJ })).name,
+      (await servers.updateServer("SRV-1", { name: "renamed" })).name,
     ).toBe("renamed");
     const t = { cpuPct: 80, memPct: 85, diskPct: 90, sustainedMinutes: 10 };
     expect(await servers.setThresholds("SRV-1", t)).toEqual(t);

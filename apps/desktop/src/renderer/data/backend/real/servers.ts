@@ -162,9 +162,9 @@ export function rowOf(v: View, now: string): ServerRow | null {
     // L'accesso SSH è della F4b: nella build app il pannello non c'è.
     access: "not_linked",
     environments: environmentsOf(v),
-    // Il progetto principale e l'analisi sono della F4b (I1).
-    primaryProjectCode: null,
-    analysisProject: null,
+    // Una produzione fra gli ambienti che il server dà: gli allarmi avvisano
+    // (e, con la F4b, l'analisi del server parte).
+    alerting: v.environments.some((e) => e.kind === "production"),
     recentCpu: [...v.recentCpu],
   };
 }

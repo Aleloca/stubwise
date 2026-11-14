@@ -413,8 +413,13 @@ describe("modelli per operazione", () => {
     // 20 con `meeting_summary` (riassunto e proposte di una riunione registrata, F5a, gruppo mail);
     // 21 con `automation_step` (un passo di Claude di un'automazione, area 7 F3, gruppo automations);
     // 22 con `support_triage_check` (il giudizio dopo il silenzio, area 8 F3, gruppo support:
-    // la bozza della risposta `support_reply_draft` è uscita con la premessa corretta).
-    expect(rows).toHaveLength(22);
+    // la bozza della risposta `support_reply_draft` è uscita con la premessa corretta);
+    // 24 con `server_analysis` e `server_fix_plan` (area 8 F4b, gruppo servers).
+    expect(rows).toHaveLength(24);
+    expect(rows.filter((r) => r.group === "servers").map((r) => r.operation)).toEqual([
+      "server_analysis",
+      "server_fix_plan",
+    ]);
     expect(rows.find((r) => r.operation === "support_triage_check")).toMatchObject({
       group: "support",
     });

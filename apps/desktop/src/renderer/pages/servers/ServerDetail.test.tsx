@@ -149,6 +149,31 @@ describe("testata e «Now»", () => {
     expect(within(now).getByRole("link", { name: "Open session" })).toBeInTheDocument();
   });
 
+  it("F4b-4: la causa non determinata si dice col perché; nessuna task. La sessione solo a chi gestisce il monitor", async () => {
+    const a = state.serverAnalyses[0]!;
+    a.attribution = { kind: "undetermined", reason: "containers_of_other_project" };
+    a.taskId = null;
+    state.conversations.find((c) => c.id === a.conversationId)!.projectId = null;
+    // L'episodio ancora aperto: il riquadro «Now» c'è.
+    state.serverEpisodes.find((e) => e.id === a.episodeId)!.recoveredAt = null;
+    await open("/p/ACQ/servers/SRV-1", "p-marco");
+    const now = await screen.findByRole("region", { name: "Now" });
+    expect(now).toHaveTextContent(
+      "Claude couldn't tell which project is causing it: it named a container that belongs to another project. No task was opened.",
+    );
+    expect(within(now).queryByRole("link", { name: "Open session" })).toBeNull();
+    document.body.innerHTML = "";
+    await open("/p/ACQ/servers/SRV-1", "p-roberta");
+    const forRoberta = await screen.findByRole("region", { name: "Now" });
+    expect(within(forRoberta).getByRole("link", { name: "Open session" })).toBeInTheDocument();
+    document.body.innerHTML = "";
+    act(() => setLanguage("it"));
+    await open("/p/ACQ/servers/SRV-1", "p-marco");
+    expect(await screen.findByRole("region", { name: "Adesso" })).toHaveTextContent(
+      "Claude non è riuscito a dire quale progetto causa il problema: ha indicato un container che appartiene a un altro progetto. Nessuna task aperta.",
+    );
+  });
+
   it("nessun bottone agisce sul server: niente Restart, Deploy, Pull", async () => {
     await open("/p/ACQ/servers/SRV-1", "p-roberta");
     await screen.findByRole("region", { name: "Services" });
@@ -377,36 +402,14 @@ describe("gestione: solo con monitor.manage", () => {
     expect(within(thresholds).getByRole("status")).toHaveTextContent("");
   });
 
-  it("Roberta: progetto principale solo fra le produzioni; con una sola, la frase fissa", async () => {
-    await open("/p/ACQ/servers/SRV-1", "p-roberta");
-    expect(part("Settings")).toHaveTextContent("ACQ — the only production using this server");
-    document.body.innerHTML = "";
-    resetApi();
-    // SRV-1 anche nella produzione di STW e nello staging di AUD.
+  it("F4b-4: nessun progetto principale da scegliere, nemmeno su un server di due produzioni", async () => {
     const row = { repositoryId: null, serverCode: "SRV-1", reportedSha: null, reportedAt: null };
     state.environments.find((e) => e.id === "env-stw-prod")!.servers.push({ ...row });
-    state.environments.find((e) => e.id === "env-aud-staging")!.servers.push({ ...row });
     await open("/p/ACQ/servers/SRV-1", "p-roberta");
-    const select = within(part("Settings")).getByRole("combobox", { name: "Primary project" });
-    expect(
-      within(select)
-        .getAllByRole("option")
-        .map((o) => o.textContent),
-    ).toEqual(["STW · Stubwise", "ACQ · Portale utenti Acquedotto delle Colline"]);
-  });
-
-  it("salvare solo il nome non scrive il principale se non è cambiato (principale non impostato)", async () => {
-    const row = { repositoryId: null, serverCode: "SRV-1", reportedSha: null, reportedAt: null };
-    state.environments.find((e) => e.id === "env-stw-prod")!.servers.push({ ...row });
-    server("SRV-1").primaryProjectId = null;
-    const user = userEvent.setup();
-    await open("/p/ACQ/servers/SRV-1", "p-roberta");
-    const name = within(part("Settings")).getByRole("textbox", { name: "Name" });
-    await user.clear(name);
-    await user.type(name, "acq-prod-renamed");
-    await user.click(within(part("Settings")).getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(server("SRV-1").name).toBe("acq-prod-renamed"));
-    expect(server("SRV-1").primaryProjectId).toBeNull();
+    const settings = part("Settings");
+    expect(within(settings).queryByRole("combobox")).toBeNull();
+    expect(settings).not.toHaveTextContent(/primary/i);
+    expect(screen.getByRole("region", { name: "Now" })).not.toHaveTextContent(/primary/i);
   });
 
   it("Roberta: aggiunge un controllo dal dialogo, lo sospende, lo cancella a due tempi", async () => {
