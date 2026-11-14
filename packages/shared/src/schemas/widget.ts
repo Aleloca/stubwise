@@ -72,6 +72,20 @@ export const widgetRepositoryFiltersSchema = z
   .default({});
 export type WidgetRepositoryFilters = z.infer<typeof widgetRepositoryFiltersSchema>;
 
+/**
+ * Lo STESSO filtro come lo legge un client (area 8, F3, review): senza i
+ * tetti della scrittura. I limiti sono una regola di chi SCRIVE (il body);
+ * nella risposta `readerSchema` non sa attraversare un array coi tetti
+ * (`array(checks)`), e un client non deve rifiutare una risposta perché il
+ * server ha alzato un limite.
+ */
+const widgetRepositoryFilterViewSchema = z.object({
+  paths: z.array(z.string()).default([]),
+  slugs: z.array(z.string()).default([]),
+  kinds: z.array(docPageKindSchema).default([]),
+});
+const widgetRepositoryFiltersViewSchema = z.record(z.uuid(), widgetRepositoryFilterViewSchema).default({});
+
 /** Body di create/update di un widget (API interna). Estende la config con identità e cap. */
 /**
  * Un sito ammesso (area 8, F3, S16): l'origine come la manda il browser
@@ -138,7 +152,7 @@ export const widgetAdminSchema = z.object({
   enabled: z.boolean(),
   enabledRepositoryIds: z.array(z.uuid()),
   // Filtro FINE per-repo: chiavi ⊆ enabledRepositoryIds (garantito in scrittura).
-  repositoryFilters: widgetRepositoryFiltersSchema,
+  repositoryFilters: widgetRepositoryFiltersViewSchema,
   title: z.string(),
   welcomeMessage: z.string(),
   // Istruzioni per il system prompt: interne, mai sulla superficie pubblica del widget.
