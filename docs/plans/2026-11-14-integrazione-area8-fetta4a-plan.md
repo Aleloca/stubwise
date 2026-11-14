@@ -20,14 +20,12 @@
 ## Decisioni *(M, 14 nov 2026, via 46)*
 
 - **F4a-1 = a**: `monitor.view` esce dal preset `User` (anche il web: un
-  utente vede i server dei suoi progetti). La regola dei preset al
-  contrario per i ruoli già creati: un ruolo personalizzato d'istanza che
-  conteneva TUTTI i permessi di prima del preset `User` e NON ha
-  `monitor.manage` perde `monitor.view` come il preset (era il preset che
-  glielo dava); chi ha `monitor.manage` lo tiene (chi gestisce vede). Ruling
-  di 72: costa se sbagliato che un ruolo costruito a mano «User +
-  monitor.view» perda la vista; il deploy-log ha la query che li elenca
-  prima.
+  utente vede i server dei suoi progetti). **Solo dal preset** *(O, 46)*: i
+  ruoli personalizzati non si toccano (toglierlo da un ruolo fatto a mano è
+  una scelta che la migrazione non può indovinare: «contiene tutto `User`»
+  non distingue una copia da una scelta). Il deploy-log elenca i ruoli
+  personalizzati con `monitor.view` senza `monitor.manage`, come passo
+  post-deploy («controlla questi ruoli»): decide l'admin.
 - **F4a-2 = a**: `SRV-<n>`, contatore d'istanza.
 - **F4a-3 = a**: gli episodi nella F4a.
 - **F4a-4 = b**: un server si vede SOLO dagli ambienti dei progetti visibili
@@ -109,8 +107,7 @@
   `metric`/`check_id`, `started_at`, `ended_at`, `peak` jsonb): lo scrive il
   worker degli avvisi all'apertura e al rientro; la F4b ci aggiunge l'analisi
   (F4a-3 = a).
-- Il preset `User` senza `monitor.view` e i ruoli che lo seguivano
-  (Decisioni, F4a-1 = a).
+- Il preset `User` senza `monitor.view`, solo il preset (Decisioni, F4a-1 = a).
 
 ## Task del SERVER (interfacce e test; l'implementazione è di 72)
 
@@ -120,13 +117,13 @@ S1. **La visibilità dagli ambienti** (`monitor-access.ts`, UN posto):
    `server_projects` (F4a-4 = b). `?projectId=` filtra dagli ambienti di quel
    progetto. Elenchi filtrati nella WHERE; un server invisibile risponde 404
    come uno che non esiste. Con la migrazione: `monitor.view` fuori dal
-   preset `User` e dai ruoli che lo seguivano (Decisioni).
+   preset `User`, SOLO dal preset (Decisioni).
    *Test*: visibile da un ambiente di un progetto visibile; non da uno di un
    progetto invisibile; **un server SOLO in `server_projects` è invisibile a
    chi non ha `monitor.view`** (e 404 sul dettaglio, sulle metriche, sui
    controlli); con `monitor.view`/`monitor.manage` tutti; un User (preset)
-   non ha più `monitor.view`; il ruolo personalizzato «User intero» lo perde,
-   quello con `monitor.manage` lo tiene; elenco e dettaglio d'accordo.
+   non ha più `monitor.view`; un ruolo personalizzato che lo aveva lo tiene
+   (non si tocca); elenco e dettaglio d'accordo.
 
 S2. **Le letture nella forma del prototipo** (campi additivi con default,
    schemi in `@stubwise/shared`, `serverViewSchema` e `serverDetailSchema`
@@ -197,8 +194,10 @@ S8. **Il client** (`packages/api-client`): `servers` cresce con crea,
 S9. **Il deploy-log** (0180, il preset `User`, server prima di worker e
    caddy) con, PRIMA del deploy, le query di sola lettura: (1) i server
    collegati SOLO da `server_projects` (nessun `environment_servers`), coi
-   loro progetti, da mettere in un ambiente o lasciare al monitor; (2) i
-   ruoli personalizzati che perderanno `monitor.view`. E il registro.
+   loro progetti, da mettere in un ambiente o lasciare al monitor. DOPO, come
+   passo da fare: (2) i ruoli personalizzati con `monitor.view` senza
+   `monitor.manage` («controlla questi ruoli»: vedono ancora ogni server). E
+   il registro.
 
 S10. **L'ancora degli avvisi dagli ambienti**: il worker
    (`apps/worker/src/monitor/alerts.ts`, `serverRefs`) prende il progetto di
