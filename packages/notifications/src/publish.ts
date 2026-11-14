@@ -159,7 +159,7 @@ export async function publishNotification(
       // l'interruttore `push` della persona (M-2 = b). Tutto il resto (anche un
       // `monitor.*` senza progetto) resta sul routing di oggi (S-4).
       const alertType = projectId !== null && isLiveAlertType(event.kind) ? alertTypeOf(event.kind) : undefined;
-      const catalog = alertType && projectId !== null ? await resolveCatalog(inner, alertType, projectId, opts) : null;
+      const catalog = alertType && projectId !== null ? await resolveCatalogRecipients(inner, alertType, projectId, opts) : null;
       const recipients = (catalog ? catalog.app : recipientsFor(event, await resolveRoutingContext(inner, event, opts, projectId))).filter(
         (id) => !agentIds.has(id),
       );
@@ -270,7 +270,12 @@ export async function publishNotification(
  * Il contesto di un avviso del catalogo (area 8, F2, S2), letto ADESSO: chi
  * vede il progetto, i permessi che il tipo guarda, le iscrizioni scritte.
  */
-async function resolveCatalog(
+/**
+ * I destinatari di un avviso del catalogo, coi dati di ADESSO. Esportata per
+ * il test di parità con le Preferenze (review F2, 46): ciò che le Preferenze
+ * mostrano acceso senza una riga deve essere ciò che riceve la card.
+ */
+export async function resolveCatalogRecipients(
   db: DbOrTx,
   type: AlertType,
   projectId: string,

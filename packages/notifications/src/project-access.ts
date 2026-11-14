@@ -249,6 +249,22 @@ export async function projectViewerIdsByProject(db: DbOrTx, projectIds: readonly
 const INSTANCE_PERMISSION_SET: ReadonlySet<string> = new Set(INSTANCE_PERMISSIONS);
 
 /**
+ * Se una persona HA `permission`, dai suoi permessi effettivi (un full admin
+ * li ha tutti in entrambi gli insiemi): un permesso d'ISTANZA dal ruolo
+ * d'istanza, uno di PROGETTO dal ruolo nel progetto. La stessa regola di
+ * {@link userIdsWithPermission} per una persona sola: la usano le Preferenze
+ * degli avvisi (review F2, 46: `monitor.manage` è d'istanza), e il test di
+ * parità le tiene d'accordo con la pubblicazione.
+ */
+export function holdsPermission(
+  permission: string,
+  perms: { instance: ReadonlySet<string>; project: ReadonlySet<string> | null },
+): boolean {
+  if (INSTANCE_PERMISSION_SET.has(permission)) return perms.instance.has(permission);
+  return perms.project?.has(permission) ?? false;
+}
+
+/**
  * Chi ha `permission`: i full admin sempre, più
  *  - per un permesso d'ISTANZA, chi ce l'ha nel ruolo d'istanza;
  *  - per un permesso di PROGETTO, i membri di `projectId` il cui ruolo lo

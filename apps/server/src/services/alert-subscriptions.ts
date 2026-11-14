@@ -1,5 +1,5 @@
 import { alertSubscriptions, notifications, projects, users, type Db } from "@stubwise/db";
-import { notificationVisibleToRecipient } from "@stubwise/notifications";
+import { holdsPermission, notificationVisibleToRecipient } from "@stubwise/notifications";
 import {
   alertTypeOf,
   defaultApplies,
@@ -68,7 +68,9 @@ async function scopeOf(db: Db, viewer: Viewer, projectId: string): Promise<Scope
   if (!perms) throw new AlertSubscriptionError(404, "not_found", "Not found");
   const [me] = await db.select({ push: users.notifyPush }).from(users).where(eq(users.id, viewer.id));
   return {
-    holds: (perm) => perms.has(perm as never),
+    // La regola della pubblicazione: un permesso d'istanza (`monitor.manage`)
+    // dal ruolo d'istanza, uno di progetto dal ruolo nel progetto (review F2, 46).
+    holds: (perm) => holdsPermission(perm, { instance: viewer.instancePermissions, project: perms }),
     fullAdmin: viewer.instancePermissions.has("instance.full_admin"),
     push: me?.push === true,
   };

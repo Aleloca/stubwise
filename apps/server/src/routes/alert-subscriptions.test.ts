@@ -1,20 +1,22 @@
 import { randomUUID } from "node:crypto";
-import { alertSubscriptions, notifications, users } from "@stubwise/db";
+import { alertSubscriptions, notifications, roles, users } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
-import { publishNotification } from "@stubwise/notifications";
+import { publishNotification, resolveCatalogRecipients } from "@stubwise/notifications";
+import { alertTypeOf, LIVE_ALERT_TYPES, rowTypeOf } from "@stubwise/shared";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { addMember, createUserWithPat, seedUsers } from "../test/fixtures.js";
+import { addMember, createUserWithPat, seedUsers, type SeededUsers } from "../test/fixtures.js";
 
 /** Area 8, F2, S5: le iscrizioni agli avvisi di chi chiede, per progetto. */
 
 let t: TestDb;
 let app: ReturnType<typeof buildApp>;
+let seeded: SeededUsers;
 beforeAll(async () => {
   t = await startTestDb();
   app = buildApp({ db: t.db, sessionSecret: "x".repeat(40), publicUrl: "https://s.example" });
-  await seedUsers(app);
+  seeded = await seedUsers(app);
 }, 120_000);
 afterAll(async () => {
   await app.close();
@@ -132,5 +134,74 @@ describe("le iscrizioni agli avvisi (area 8, F2, S5)", () => {
       expect((await mute(lead.headers, await card(lead.id, null, "monitor.alert"))).statusCode).toBe(422);
       expect((await mute(lead.headers, await card(other.id, projectId, "release.failed"))).statusCode).toBe(404);
     });
+  });
+});
+
+/** Un utente con un ruolo d'ISTANZA che ha solo `monitor.manage` (oltre ai permessi di `User`). */
+async function monitorManager(projectId: string) {
+  const u = await person("developer", projectId);
+  const [role] = await t.db
+    .insert(roles)
+    .values({ name: `Monitor ${randomUUID().slice(0, 6)}`, scope: "instance", permissions: ["monitor.manage"] })
+    .returning({ id: roles.id });
+  await t.db.update(users).set({ instanceRoleId: role!.id }).where(eq(users.id, u.id));
+  return u;
+}
+
+describe("review F2 (46), 1: i permessi d'ISTANZA contano come nella pubblicazione", () => {
+  it("un full admin e chi ha monitor.manage d'istanza, senza riga: la riga dei server è accesa, Telefono = push", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const monitor = await monitorManager(projectId);
+    expect(rowOf(await list(monitor.headers, projectId), "server.trouble")).toMatchObject({ app: true, phone: true, state: "on" });
+    await t.db.update(users).set({ notifyPush: false }).where(eq(users.id, monitor.id));
+    expect(rowOf(await list(monitor.headers, projectId), "server.trouble")).toMatchObject({ app: true, phone: false, state: "on" });
+    const admin = { cookie: seeded.adminCookie };
+    await t.db.update(users).set({ notifyPush: true }).where(eq(users.id, seeded.adminId));
+    expect(rowOf(await list(admin, projectId), "server.trouble")).toMatchObject({ app: true, phone: true, state: "on" });
+  });
+
+  it("scrivere solo il Telefono non spegne l'App di chi la riceve per default", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const monitor = await monitorManager(projectId);
+    const res = await put(monitor.headers, projectId, "server.trouble", { phone: false });
+    expect(res.json()).toMatchObject({ app: true, phone: false, state: "on" });
+  });
+
+  it("PARITÀ: per ogni tipo vivo, «acceso nelle Preferenze senza riga» ⇔ «riceve la card» (e il Telefono ⇔ il push)", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const people = [
+      { id: seeded.adminId, headers: { cookie: seeded.adminCookie } as Record<string, string> },
+      await monitorManager(projectId),
+      await person("project_lead", projectId),
+      await person("developer", projectId),
+      await person("contributor", projectId),
+      await person("viewer", projectId),
+    ];
+    // Un po' di push spenti, per provare anche il Telefono.
+    await t.db.update(users).set({ notifyPush: false }).where(eq(users.id, people[3]!.id));
+    for (const type of LIVE_ALERT_TYPES) {
+      const recipients = await resolveCatalogRecipients(t.db, alertTypeOf(type)!, projectId, {});
+      for (const p of people) {
+        const row = rowOf(await list(p.headers, projectId), rowTypeOf(type));
+        const shownOn = row.state === "on";
+        expect(recipients.app.includes(p.id), `${type} app per ${p.id}`).toBe(shownOn);
+        // Il Telefono della riga è quello del tipo che le dà il valore; un partner
+        // con un `defaultPhone` diverso (i «rientrato») senza riga non suona: sotto.
+        // Nessuna riga scritta qui: suona chi vede la riga accesa col Telefono, se il tipo suona di partenza.
+        expect(recipients.phone.has(p.id), `${type} telefono per ${p.id}`).toBe(shownOn && row.phone && alertTypeOf(type)!.defaultPhone);
+      }
+    }
+  });
+
+  it("un «rientrato» (defaultPhone spento) nella riga dei server: senza riga non suona anche se la riga dice Telefono acceso; scritta la riga, segue la riga", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const monitor = await monitorManager(projectId);
+    expect(rowOf(await list(monitor.headers, projectId), "server.trouble")).toMatchObject({ app: true, phone: true });
+    const before = await resolveCatalogRecipients(t.db, alertTypeOf("monitor.recovered")!, projectId, {});
+    expect(before.app).toContain(monitor.id);
+    expect(before.phone.has(monitor.id)).toBe(false);
+    await put(monitor.headers, projectId, "server.trouble", { phone: true });
+    const after = await resolveCatalogRecipients(t.db, alertTypeOf("monitor.recovered")!, projectId, {});
+    expect(after.phone.has(monitor.id)).toBe(true);
   });
 });
