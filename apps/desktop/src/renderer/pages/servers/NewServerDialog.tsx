@@ -45,18 +45,25 @@ function useCreateServerFlow(onDone: (code: string) => void) {
   const { t } = useTranslation();
   const create = useCreateServer();
   const [error, setError] = useState<string | null>(null);
+  /** Creato, ma la chiave non c'è più: niente secondo clic che farebbe un doppione (review F4a, M3). */
+  const [locked, setLocked] = useState(false);
   const [created, setCreated] = useState<{
     code: string;
     agentKey: string;
     instanceUrl?: string;
   } | null>(null);
   const submit = (input: CreateServerInput) => {
+    if (locked || create.isPending) return;
     setError(null);
     create.mutate(input, {
       // La chiave si PRENDE dal suo posto (I2): da qui vive solo in questo stato.
       onSuccess: (r) => {
         const k = takeAgentKey(r.server.code);
         if (k) setCreated({ code: r.server.code, agentKey: k.key, instanceUrl: k.instanceUrl });
+        else {
+          setLocked(true);
+          setError(t("servers.create.keyLost", { code: r.server.code }));
+        }
       },
       onError: (e) => setError(createErrorMessage(e, t)),
     });
@@ -70,7 +77,7 @@ function useCreateServerFlow(onDone: (code: string) => void) {
       onDone={() => onDone(created.code)}
     />
   ) : null;
-  return { submit, error, pending: create.isPending, keyPanel };
+  return { submit, error, pending: create.isPending, locked, keyPanel };
 }
 
 /**
@@ -113,7 +120,7 @@ export function NewInstanceServerDialog({ onClose }: { onClose: () => void }) {
           <button
             type="button"
             data-create-server
-            disabled={!ready}
+            disabled={!ready || flow.locked}
             onClick={submit}
             className={`${primaryButton} disabled:opacity-40`}
           >
@@ -191,7 +198,7 @@ export function NewServerDialog({ project, onClose }: { project: Project; onClos
             <button
               type="button"
               data-create-server
-              disabled={flow.pending || !name.trim()}
+              disabled={flow.pending || flow.locked || !name.trim()}
               onClick={submit}
               className={`${primaryButton} disabled:opacity-40`}
             >

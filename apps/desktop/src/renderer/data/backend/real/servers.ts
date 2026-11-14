@@ -10,6 +10,7 @@ import {
   type ServerWithKey,
   type UpdateCheckInput,
 } from "@stubwise/shared";
+import { METRIC_POINTS_MAX } from "../../../domain/servers/limits";
 import { downsample, downsampleSamples } from "../../../domain/servers/metrics";
 import type {
   CheckSample,
@@ -69,16 +70,20 @@ const RANGE_MS: Record<MetricRange, number> = {
   "90d": 90 * 24 * 3_600_000,
 };
 
-/** Di quanti secondi è la media di un punto, per la nota sotto i grafici (solo i passi larghi). */
-const AVERAGED_SECONDS: Partial<Record<string, number>> = { "1h": 3_600, "4h": 14_400 };
+/** Il passo del server in secondi (un punto aggregato è la media del suo passo). */
+const STEP_SECONDS: Partial<Record<string, number>> = { "5m": 300, "1h": 3_600, "4h": 14_400 };
 
 const pct = (used: number, total: number) => (total > 0 ? (used / total) * 100 : 0);
 
 type ServerPoint = Reader<ServerMetricsResponse>["points"][number];
 type ServerCheckPoint = NonNullable<Reader<ServerMetricsResponse>["checkPoints"]>[number];
 
-/** Un punto del server (byte; grezzo o aggregato) nella forma del prototipo (percentuali). */
-function pointOf(p: ServerPoint): MetricPoint {
+/**
+ * Un punto del server (byte; grezzo o aggregato) nella forma del prototipo:
+ * percentuali, e la rete in byte al SECONDO (review F4a, M2) — il grezzo è il
+ * delta del campionamento, l'aggregato la somma del passo.
+ */
+function pointOf(p: ServerPoint, sampleSeconds: number, stepSeconds: number): MetricPoint {
   if ("cpuPct" in p) {
     return {
       ts: p.ts,
@@ -86,8 +91,8 @@ function pointOf(p: ServerPoint): MetricPoint {
       memPct: pct(p.memUsedBytes, p.memTotalBytes),
       diskPct: pct(p.diskUsedBytes, p.diskTotalBytes),
       load1m: p.load1m,
-      netRxBytes: p.netRxBytes,
-      netTxBytes: p.netTxBytes,
+      netRxBytes: p.netRxBytes / sampleSeconds,
+      netTxBytes: p.netTxBytes / sampleSeconds,
     };
   }
   return {
@@ -96,8 +101,8 @@ function pointOf(p: ServerPoint): MetricPoint {
     memPct: pct(p.memUsedBytesAvg, p.memTotalBytes),
     diskPct: pct(p.diskUsedBytesAvg, p.diskTotalBytes),
     load1m: p.load1mAvg,
-    netRxBytes: p.netRxBytesSum,
-    netTxBytes: p.netTxBytesSum,
+    netRxBytes: p.netRxBytesSum / stepSeconds,
+    netTxBytes: p.netTxBytesSum / stepSeconds,
   };
 }
 
@@ -274,6 +279,8 @@ export function createRealServers(
 ) {
   /** L'id del server per codice (le metriche vanno per id): dall'ultimo dettaglio letto. */
   const ids = new Map<string, string>();
+  /** L'intervallo di campionamento per codice (la rete grezza è per campione). */
+  const intervals = new Map<string, number>();
   const idOf = async (code: string) =>
     ids.get(code) ?? (await inPrototypeWords(() => api.byCode(code))).id;
   /** Di quale server è un controllo (le rotte dei controlli vanno per server): dall'ultimo dettaglio. */
@@ -314,6 +321,7 @@ export function createRealServers(
       const out = detailOf(d, now());
       if (!out) throw new Error("not_found");
       ids.set(out.code, d.id);
+      intervals.set(out.code, d.sampleIntervalSeconds);
       for (const c of out.checks) checkHome.set(c.id, { serverId: d.id, code: out.code });
       return out;
     },
@@ -413,7 +421,9 @@ export function createRealServers(
       const res = await inPrototypeWords(() =>
         api.metrics(id, { from, to, ...(checkId ? { checkId } : {}) }),
       );
-      const all = res.points.map(pointOf);
+      const sample = intervals.get(code) ?? 30;
+      const step = STEP_SECONDS[res.resolution] ?? sample;
+      const all = res.points.map((p) => pointOf(p, sample, step));
       const reduced = downsample(all);
       const samples = (res.checkPoints ?? []).flatMap((c) => sampleOf(c) ?? []);
       const reducedSamples = downsampleSamples(samples);
@@ -421,7 +431,16 @@ export function createRealServers(
         points: reduced.points,
         truncated: reduced.truncated || res.truncated,
         sampleCount: all.length,
-        averagedSeconds: AVERAGED_SECONDS[res.resolution] ?? null,
+        // La media vera (review F4a, M1), come il prototipo: solo a 30 e 90
+        // giorni, la finestra dopo la riduzione a 300 punti (o il passo del
+        // server se non serve ridurre). Fino a 7 giorni vale la nota dei punti
+        // ridotti (`sampleCount`): mai «5 minuti» su punti che sono medie di più.
+        averagedSeconds:
+          range !== "30d" && range !== "90d"
+            ? null
+            : reduced.truncated
+              ? Math.round(RANGE_MS[range] / 1000 / (METRIC_POINTS_MAX - 2))
+              : (STEP_SECONDS[res.resolution] ?? null),
         check: checkId
           ? {
               samples: reducedSamples.samples,

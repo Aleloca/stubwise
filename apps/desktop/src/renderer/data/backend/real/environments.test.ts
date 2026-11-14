@@ -181,6 +181,13 @@ describe("gli ambienti dal server (area 8, F4a)", () => {
     ]);
   });
 
+  it("review F4a, I2: un Lead che non vede il server rinomina l'ambiente: si manda solo il nome", async () => {
+    const envs = createRealEnvironments(fakeApi({ servers: async () => [] }));
+    await envs.listEnvironments(PRJ);
+    await envs.updateEnvironment(ENV, { name: "Prod" });
+    expect(calls).toEqual([["update", PRJ, ENV, { name: "Prod" }]]);
+  });
+
   it("togliere usa il progetto dell'ambiente; uno mai letto è not_found", async () => {
     const envs = createRealEnvironments(fakeApi());
     await expect(envs.deleteEnvironment(ENV)).rejects.toThrow("not_found");

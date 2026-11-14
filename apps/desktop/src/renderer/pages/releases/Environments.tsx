@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isAppBuild } from "../../data/build";
+import { environmentPatch } from "./environmentPatch";
 import {
   useCreateEnvironment,
   useDeleteEnvironment,
@@ -143,7 +144,12 @@ function EnvironmentDialog({
     setError(null);
     const input = inputOf(draft);
     try {
-      if (environment) await update.mutateAsync({ id: environment.id, patch: input });
+      // Solo ciò che è cambiato (review F4a, I2): i collegamenti solo se cambiano.
+      if (environment)
+        await update.mutateAsync({
+          id: environment.id,
+          patch: environmentPatch(inputOf(draftOf(environment)), input),
+        });
       else await create.mutateAsync({ projectId, input });
       onClose();
     } catch (e) {

@@ -9422,7 +9422,13 @@
       "checkError": "Il controllo «{{name}}» è giù: {{error}}",
       "checkGone": "Era giù un controllo che non esiste più",
       "silentOpen": "L'agente non riporta dalle {{time}}",
-      "silentClosed": "L'agente ha smesso di riportare alle {{time}}"
+      "silentClosed": "L'agente ha smesso di riportare alle {{time}}",
+      "cpuAbove": "CPU sopra la soglia",
+      "memoryAbove": "Memoria sopra la soglia",
+      "diskAbove": "Disco sopra la soglia",
+      "cpuAt": "CPU al {{value}}%",
+      "memoryAt": "Memoria al {{value}}%",
+      "diskAt": "Disco al {{value}}%"
     },
     "reasonShort": {
       "cpu": "CPU",
@@ -9511,7 +9517,8 @@
       "summaryAveraged_one": "Media {{avg}} · media di {{count}} ora più alta {{peak}} il {{day}}",
       "summaryAveraged_other": "Media {{avg}} · media di {{count}} ore più alta {{peak}} il {{day}}",
       "summaryDay": "Media {{avg}} · picco {{peak}} il {{day}}",
-      "summaryLatencyDay": "Media {{avg}} · più lento {{peak}} il {{day}}"
+      "summaryLatencyDay": "Media {{avg}} · più lento {{peak}} il {{day}}",
+      "perSecond": "{{value}}/s"
     },
     "services": {
       "filter": "Filtra i servizi",
@@ -9672,7 +9679,8 @@
         "name": "Dai un nome al server.",
         "environment": "Questo ambiente ha già un server.",
         "generic": "Non è stato possibile creare il server. Riprova."
-      }
+      },
+      "keyLost": "Il server è stato creato, ma la sua chiave non si può più mostrare: rigenerala dalle impostazioni di {{code}}."
     },
     "key": {
       "readyTitle": "{{code}} è pronto per il suo agente",

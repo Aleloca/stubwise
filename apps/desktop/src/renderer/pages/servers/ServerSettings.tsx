@@ -52,7 +52,12 @@ function RegenerateDialog({ server, onClose }: { server: ServerDetail; onClose: 
             onClick={() =>
               regenerate.mutate(server.code, {
                 // La chiave si PRENDE dal suo posto (I2): da qui vive solo in questo stato.
-                onSuccess: () => setKey(takeAgentKey(server.code) ?? null),
+                // Senza la chiave (non c'è più): l'errore, non un pannello vuoto (review F4a, M3).
+                onSuccess: () => {
+                  const k = takeAgentKey(server.code);
+                  if (k) setKey(k);
+                  else setFailed(true);
+                },
                 onError: () => setFailed(true),
               })
             }

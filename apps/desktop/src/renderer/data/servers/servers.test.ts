@@ -191,7 +191,12 @@ describe("letture dei server", () => {
     const hour = await servers.getServerMetrics("SRV-1", "1h", "chk-srv-1-api");
     const stored = state.serverMetrics.get("SRV-1")!.at(-1)!;
     const sample = state.serverCheckSamples.get("chk-srv-1-api")!.at(-1)!;
-    expect(hour.points.at(-1)).toEqual(stored);
+    // La rete in byte al secondo (review F4a, M2): 30 s di campionamento.
+    expect(hour.points.at(-1)).toEqual({
+      ...stored,
+      netRxBytes: stored.netRxBytes / 30,
+      netTxBytes: stored.netTxBytes / 30,
+    });
     expect(hour.points.at(-1)).not.toBe(stored);
     expect(hour.check!.samples.at(-1)).not.toBe(sample);
     hour.points.at(-1)!.cpuPct = -1;
@@ -288,6 +293,26 @@ describe("monitor: creare, modificare, togliere (monitor.manage)", () => {
       expect(text).not.toContain(again.agentKey);
       expect(text).not.toMatch(AGENT_KEY_RE);
     }
+  });
+
+  it("review F4a, I1: nato in un ambiente con sole eccezioni per repository, le eccezioni restano", async () => {
+    as("p-roberta");
+    const before = env("env-aud-prod").servers.map((s) => [s.repositoryId, s.serverCode]);
+    expect(before.every(([repo]) => repo !== null)).toBe(true);
+    const { server: row } = await servers.createServer({
+      name: "aud-edge",
+      environmentId: "env-aud-prod",
+    });
+    const after = env("env-aud-prod").servers.map((s) => [s.repositoryId, s.serverCode]);
+    expect(after).toEqual([...before, [null, row.code]]);
+  });
+
+  it("review F4a, M2: la rete in byte al secondo (la scala non cambia con l'intervallo)", async () => {
+    as("p-marco");
+    const stored = state.serverMetrics.get("SRV-1")!.at(-1)!;
+    const m = await servers.getServerMetrics("SRV-1", "1h");
+    expect(m.points.at(-1)!.netRxBytes).toBeCloseTo(stored.netRxBytes / 30);
+    expect(m.points.at(-1)!.netTxBytes).toBeCloseTo(stored.netTxBytes / 30);
   });
 
   it("con monitor.manage ma senza environments.manage nel progetto: forbidden", async () => {

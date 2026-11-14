@@ -133,7 +133,10 @@ export function NowBox({ server }: { server: ServerDetail }) {
   } else {
     title = t(`servers.health.${h.health}`);
   }
-  const reasons = open ? h.reasons : (episode?.reasons ?? []);
+  // Le frasi dei motivi; uno che l'app non conosce non lascia una riga vuota (review F4a, I3).
+  const reasons = (open ? h.reasons : (episode?.reasons ?? [])).flatMap(
+    (r) => reasonSentence(r, server.checks, t, lang, open ? open.startedAt : null) ?? [],
+  );
   const noRead = !server.access.usable.read;
   const inTrouble = h.health === "down" || h.health === "trouble";
   const work = <WorkLine server={server} episode={episode} />;
@@ -160,9 +163,9 @@ export function NowBox({ server }: { server: ServerDetail }) {
           </p>
           {reasons.length > 0 && (
             <ul aria-label={t("servers.now.reasons")} className="flex flex-col gap-0.5">
-              {reasons.map((r, i) => (
+              {reasons.map((sentence, i) => (
                 <li key={i} className="num text-md text-ink-muted">
-                  {reasonSentence(r, server.checks, t, lang, open ? open.startedAt : null)}
+                  {sentence}
                 </li>
               ))}
             </ul>

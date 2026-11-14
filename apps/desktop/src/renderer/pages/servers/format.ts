@@ -113,15 +113,23 @@ export function reasonSentence(
   t: TFunction,
   language: string,
   openSince: string | null,
-): string {
+): string | null {
   switch (reason.kind) {
     case "cpu":
     case "memory":
     case "disk": {
-      const base = t(`servers.reasons.${reason.kind}`, {
-        value: Math.round(reason.valuePct),
-        threshold: reason.thresholdPct,
-      });
+      // Dal server il valore o la soglia possono mancare (review F4a, I3): mai «NaN%».
+      const { valuePct, thresholdPct } = reason as { valuePct?: number; thresholdPct?: number };
+      const hasValue = typeof valuePct === "number" && Number.isFinite(valuePct);
+      const hasThreshold = typeof thresholdPct === "number" && Number.isFinite(thresholdPct);
+      const base = !hasValue
+        ? t(`servers.reasons.${reason.kind}Above`)
+        : !hasThreshold
+          ? t(`servers.reasons.${reason.kind}At`, { value: Math.round(valuePct) })
+          : t(`servers.reasons.${reason.kind}`, {
+              value: Math.round(valuePct),
+              threshold: thresholdPct,
+            });
       if (!openSince) return base;
       return t("servers.reasons.forDuration", {
         reason: base,
@@ -139,6 +147,9 @@ export function reasonSentence(
       return t(openSince ? "servers.reasons.silentOpen" : "servers.reasons.silentClosed", {
         time: clockLocal(reason.since, language),
       });
+    default:
+      // Un motivo che l'app non conosce (un server più nuovo): nessuna riga.
+      return null;
   }
 }
 

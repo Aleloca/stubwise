@@ -346,8 +346,9 @@ describe("i Server dal server (area 8, F4a)", () => {
         memPct: 25,
         diskPct: 30,
         load1m: 1,
-        netRxBytes: 5,
-        netTxBytes: 6,
+        // Review F4a, M2: byte al secondo, il grezzo sul campionamento (30 s).
+        netRxBytes: 5 / 30,
+        netTxBytes: 6 / 30,
       },
       {
         ts: "2026-11-01T01:00:00.000Z",
@@ -355,8 +356,9 @@ describe("i Server dal server (area 8, F4a)", () => {
         memPct: 50,
         diskPct: 40,
         load1m: 0.5,
-        netRxBytes: 7,
-        netTxBytes: 8,
+        // …e l'aggregato sul passo (1 h).
+        netRxBytes: 7 / 3600,
+        netTxBytes: 8 / 3600,
       },
     ]);
     // Un'ora per punto: la nota sotto i grafici lo dice.
@@ -366,6 +368,40 @@ describe("i Server dal server (area 8, F4a)", () => {
       // Giù almeno una volta nel passo: giù.
       { ts: "2026-11-01T01:00:00.000Z", status: "down", latencyMs: 120 },
     ]);
+  });
+
+  it("review F4a, M1: la media è quella vera dopo la riduzione a 300 punti; a 7 giorni la nota dei punti ridotti", async () => {
+    const raw = (i: number) => ({
+      ts: new Date(Date.parse(NOW) - (2000 - i) * 30_000).toISOString(),
+      cpuPct: 1,
+      load1m: 0,
+      memUsedBytes: 1,
+      memTotalBytes: 2,
+      swapUsedBytes: 0,
+      diskUsedBytes: 1,
+      diskTotalBytes: 2,
+      netRxBytes: 0,
+      netTxBytes: 0,
+    });
+    const series = (n: number) => async () =>
+      serverMetricsResponseSchema.parse({
+        resolution: "5m",
+        truncated: false,
+        points: Array.from({ length: n }, (_, i) => raw(i)),
+      });
+    const many = createRealServers(fakeApi({ metrics: series(2000) }), () => NOW);
+    // A 7 giorni (passo del server 5 min, 2000 punti ridotti a 300): nessuna
+    // «media di 5 minuti», la UI dice «300 punti medi di 2000 campioni».
+    const week = await many.getServerMetrics("SRV-1", "7d");
+    expect(week.averagedSeconds).toBeNull();
+    expect(week.sampleCount).toBe(2000);
+    // A 30 giorni la finestra vera dopo la riduzione, non il passo.
+    expect((await many.getServerMetrics("SRV-1", "30d")).averagedSeconds).toBe(
+      Math.round((30 * 86_400) / (300 - 2)),
+    );
+    // Pochi punti: la media è il passo del server.
+    const few = createRealServers(fakeApi({ metrics: series(1) }), () => NOW);
+    expect((await few.getServerMetrics("SRV-1", "30d")).averagedSeconds).toBe(300);
   });
 
   it("le metriche grezze non dicono una media; senza controllo nessun campione", async () => {

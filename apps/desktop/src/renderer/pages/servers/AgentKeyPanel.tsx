@@ -1,5 +1,6 @@
 import { agentInstallCommand } from "@stubwise/shared";
 import { useId, useState } from "react";
+import { isAppBuild } from "../../data/build";
 import { useTranslation } from "react-i18next";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
@@ -125,7 +126,8 @@ export function AgentKeyDialog({
             {copied === "key" ? t("servers.key.copied") : t("servers.key.copy")}
           </button>
         </div>
-        <p className="text-xs text-ink-faint">{t("servers.key.prototype")}</p>
+        {/* Solo nel prototipo la chiave è finta (review F4a, I4). */}
+        {!isAppBuild() && <p className="text-xs text-ink-faint">{t("servers.key.prototype")}</p>}
       </div>
       <div className="flex flex-col gap-1.5">
         <div className="flex min-w-0 flex-col gap-0.5">
