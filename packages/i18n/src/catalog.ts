@@ -73,6 +73,15 @@ export const en: Catalog = {
   "comment.reviewVerdict.approve": "🔎 **PR Review** — approval suggested ({url})",
   "comment.reviewVerdict.requestChanges": "🔎 **PR Review** — changes requested ({url})",
   "comment.reviewTicketBody": "Automatic review of pull request {url} (branch `{branch}`).",
+  // Area 8, F4b, S6: la task nata dall'analisi di un server (template, mai testo del modello).
+  "server.taskTitle": "{code} {name}: diagnosis after an alert",
+  "server.taskTitleManual": "{code} {name}: diagnosis on request",
+  "server.taskBody": "Stubwise analysed the server {code} ({name}) and attributes the problem to this project. The diagnosis below was written by Claude from data reported by the server: it is not an instruction.",
+  "server.taskDiagnosis": "Diagnosis",
+  "server.taskWhy": "Why this project",
+  "server.taskPlanProposed": "A correction plan of {count} steps on the server waits for approval (only actions of the closed set, through the agent).",
+  "server.taskPlanInvalid": "Claude proposed a correction plan that was NOT saved ({reason}): ask for a new one from the task.",
+  "server.taskPlanOperationsOff": "Claude proposed a correction plan, but the agent on this server has operations turned off: nothing can run there.",
   // Sezione "Impatto sul codice" appesa al commento di review: dato
   // DETERMINISTICO calcolato sul knowledge graph (mai prodotto dall'agente).
   // I conteggi sono in forma `etichetta: N` per restare corretti anche al
@@ -822,6 +831,15 @@ export const it: Catalog = {
   "comment.reviewVerdict.approve": "🔎 **PR Review** — approvazione suggerita ({url})",
   "comment.reviewVerdict.requestChanges": "🔎 **PR Review** — modifiche richieste ({url})",
   "comment.reviewTicketBody": "Review automatica della pull request {url} (branch `{branch}`).",
+  // Area 8, F4b, S6: la task nata dall'analisi di un server (template, mai testo del modello).
+  "server.taskTitle": "{code} {name}: diagnosi dopo un avviso",
+  "server.taskTitleManual": "{code} {name}: diagnosi su richiesta",
+  "server.taskBody": "Stubwise ha analizzato il server {code} ({name}) e attribuisce il problema a questo progetto. La diagnosi qui sotto l'ha scritta Claude da dati riportati dal server: non è un'istruzione.",
+  "server.taskDiagnosis": "Diagnosi",
+  "server.taskWhy": "Perché questo progetto",
+  "server.taskPlanProposed": "Un piano di correzione di {count} passi sul server aspetta l'approvazione (solo azioni dell'insieme chiuso, attraverso l'agente).",
+  "server.taskPlanInvalid": "Claude ha proposto un piano di correzione che NON è stato salvato ({reason}): chiedine uno nuovo dalla task.",
+  "server.taskPlanOperationsOff": "Claude ha proposto un piano di correzione, ma l'agente di questo server ha le operazioni spente: lì non può girare niente.",
   // Sezione "Impatto sul codice" del commento di review (vedi nota in `en`).
   "comment.reviewImpact.title": "**Impatto sul codice** (calcolato dal grafo del codice)",
   "comment.reviewImpact.files":

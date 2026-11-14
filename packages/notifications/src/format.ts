@@ -389,6 +389,8 @@ export interface ServerDiagnosisReadyEvent {
   taskCode: string;
   title: string;
   url: string;
+  /** Il server (additivo): il client ne deriva il codice `SRV-<n>` a lettura. */
+  serverId?: string;
 }
 /** Gli avvisi del catalogo, insieme: tutti hanno `projectId`, `title` e `url`. */
 export type CatalogAlertEvent =

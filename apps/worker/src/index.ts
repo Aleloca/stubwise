@@ -744,7 +744,7 @@ let serverOpsBridge: Awaited<ReturnType<typeof startServerOpsBridge>> | null = n
 let serverAnalysisPoller: ServerAnalysisPoller | null = null;
 try {
   serverOpsBridge = await startServerOpsBridge({ db, encryptionKey: config.encryptionKey, log: (m) => console.warn(m) });
-  serverAnalysisPoller = startServerAnalysisPoller({ db, encryptionKey: config.encryptionKey, runner, bridge: serverOpsBridge, select, log: (m) => console.warn(m) });
+  serverAnalysisPoller = startServerAnalysisPoller({ db, encryptionKey: config.encryptionKey, publicUrl: config.publicUrl, runner, bridge: serverOpsBridge, select, log: (m) => console.warn(m) });
   controller.signal.addEventListener("abort", () => serverAnalysisPoller?.stop(), { once: true });
 } catch (error) {
   console.error(`[stubwise-worker] ponte dei server non avviato, analisi dei server spente: ${String(error)}`);

@@ -42,6 +42,7 @@ let agentOutput = "log: out of memory";
 /** L'SSH finto del ponte (lo cambia ogni test). */
 let fakeSsh: SshExec = async () => ({ exitCode: 0, stdout: "", stderr: "", hostKey: "SHA256:pinned" });
 const sshCalls: string[][] = [];
+const published: { event: unknown; opts: unknown }[] = [];
 
 beforeAll(async () => {
   testDb = await startTestDb();
@@ -138,6 +139,11 @@ function cliCalling(calls: (tool: (name: string, args?: object) => Promise<{ ok:
 const deps = (runner: ServerAnalysisDeps["runner"]): ServerAnalysisDeps => ({
   db,
   encryptionKey: ENCRYPTION_KEY,
+  publicUrl: "https://stubwise.example.com",
+  publish: async (_db, event, opts) => {
+    published.push({ event, opts });
+    return undefined as never;
+  },
   runner,
   bridge,
   select: { ...SELECT, db },
