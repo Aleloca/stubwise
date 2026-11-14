@@ -554,3 +554,20 @@ describe("review F4a: inesistente = invisibile nel collegamento", () => {
   });
 });
 
+
+// Area 8, F4a (richiesta di 94): il codice `SRV-<n>` dei server dell'ambiente,
+// per repository e per l'ambiente intero (`serverId`), additivo.
+describe("area 8, F4a: il codice dei server negli ambienti", () => {
+  it("serverCode su ogni repository e sull'ambiente", async () => {
+    const { projectId: pid, repositoryId } = await seedRepositoryRaw(testDb.db);
+    const [srv] = await testDb.db.insert(servers).values({ name: "web", keyHash: `h-${randomBytes(4).toString("hex")}` }).returning();
+    const created = await app.inject({ method: "POST", url: `/api/projects/${pid}/environments`, headers: { cookie: adminCookie }, payload: { name: "prod", kind: "production", serverId: srv!.id } });
+    expect(created.statusCode, created.body).toBe(201);
+    const list = (await app.inject({ method: "GET", url: `/api/projects/${pid}/environments`, headers: { cookie: adminCookie } })).json() as {
+      serverCode?: string | null;
+      servers: { repositoryId: string; serverCode?: string }[];
+    }[];
+    expect(list[0]!.serverCode).toBe(`SRV-${srv!.number}`);
+    expect(list[0]!.servers).toEqual([expect.objectContaining({ repositoryId, serverCode: `SRV-${srv!.number}` })]);
+  });
+});

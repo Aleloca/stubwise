@@ -26,6 +26,8 @@ export const projectEnvironmentSchema = z.object({
   kind: environmentKindSchema,
   url: z.url().nullable(),
   serverId: z.uuid().nullable(),
+  /** Area 8, F4a: il codice `SRV-<n>` di `serverId` (null senza; facoltativo per un server più vecchio). */
+  serverCode: z.string().nullable().optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   /** Immagine del servizio (docker) trovato sul server collegato, se noto. */
@@ -50,6 +52,8 @@ export const projectEnvironmentSchema = z.object({
         // quello del servizio col nome dell'ambiente (la convenzione di
         // `runningCommitSha`), e nessun codice.
         serverName: z.string().optional(),
+        /** Area 8, F4a: il codice `SRV-<n>` del server (facoltativo). */
+        serverCode: z.string().optional(),
         reportedSha: z.string().nullable().optional(),
         reportedAt: z.iso.datetime().nullable().optional(),
         releaseCode: z.string().nullable().optional(),
