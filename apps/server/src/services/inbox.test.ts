@@ -16,6 +16,7 @@ import {
   projectMembers,
   repositories,
   roles,
+  servers,
   users,
   type Db,
 } from "@stubwise/db";
@@ -3123,5 +3124,32 @@ describe("google.proposal — passata al progetto (fase permessi)", () => {
       (i) => i.id === ownerCardId,
     );
     expect(ownerAfter?.google?.decision).toEqual({ status: "actioned", chosen: ["Voce: export"], error: null });
+  });
+});
+
+// Area 8, F4a, S12: le card `monitor.*` portano il codice del server per i
+// link dell'app, DERIVATO a lettura (l'evento ha solo il link del web con
+// l'id): anche sulle card di prima; null per un server tolto e sugli altri kind.
+describe("area 8, F4a, S12: il codice del server sulle card monitor.*", () => {
+  it("SRV-n dall'id del server nel link dell'evento; server tolto → null; altri kind → null", async () => {
+    const user = await seedUser("member");
+    const [srv] = await db.insert(servers).values({ name: "web-1", keyHash: `h-${randomUUID()}` }).returning();
+    const [gone] = await db.insert(servers).values({ name: "via", keyHash: `h-${randomUUID()}` }).returning();
+    const monitorEvent = (serverId: string) => ({
+      kind: "monitor.alert",
+      serverName: "web-1",
+      condition: "offline",
+      detail: "Nessun heartbeat da 5 minuti",
+      url: `https://stub.example/monitor/servers/${serverId}`,
+    });
+    const card = await seedRawNotification({ userId: user.id, kind: "monitor.alert", event: monitorEvent(srv!.id) });
+    const goneCard = await seedRawNotification({ userId: user.id, kind: "monitor.recovered", event: { ...monitorEvent(gone!.id), kind: "monitor.recovered" } });
+    await db.delete(servers).where(eq(servers.id, gone!.id));
+    const other = await seedRawNotification({ userId: user.id, kind: "project.brief", event: { kind: "project.brief", projectId, projectName: "P", summary: "s", projectUrl: "https://x" } });
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const byId = (id: string) => items.find((i) => i.id === id)!;
+    expect(byId(card).serverCode).toBe(`SRV-${srv!.number}`);
+    expect(byId(goneCard).serverCode).toBeNull();
+    expect(byId(other).serverCode).toBeNull();
   });
 });
