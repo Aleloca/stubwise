@@ -1,4 +1,5 @@
-import { commitSummaries, docPages, nightlyItems, repositories, type Db } from "@stubwise/db";
+import { commitSummaries, docPages, nightlyItems, projects, repositories, type Db } from "@stubwise/db";
+import { publishNotification } from "@stubwise/notifications";
 import {
   buildReleasePrompt,
   mapAffectedPages,
@@ -267,6 +268,22 @@ export async function runReleaseItem(
       })
       .returning({ id: docPages.id });
     await completeWith(tx as unknown as Db, item.id, item.payload, page!.id);
+    // Area 8, F2 (S4): `docs.release_note`, nella STESSA transazione della
+    // pagina — una volta per nota. `publishNotification` gira in un savepoint
+    // e non lancia: un avviso mancato non disfa la nota.
+    const [proj] = await tx.select({ code: projects.code }).from(projects).where(eq(projects.id, repo.projectId));
+    const base = deps.publicUrl.replace(/\/+$/, "");
+    await (deps.publish ?? publishNotification)(
+      tx as unknown as Db,
+      {
+        kind: "docs.release_note",
+        projectId: repo.projectId,
+        repositoryName: repo.repositoryName,
+        title: notes.title,
+        url: base ? `${base}/app/#/p/${proj?.code ?? ""}/docs` : "",
+      },
+      { projectId: repo.projectId },
+    );
     return page!.id;
   });
   deps.log(

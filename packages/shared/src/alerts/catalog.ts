@@ -159,6 +159,8 @@ export const LIVE_ALERT_TYPES: readonly string[] = [
   "release.succeeded",
   // Area 8, F2, S4 (72): il webhook di una PR aperta.
   "pr.opened",
+  // Area 8, F2, S4 (72): la nota di rilascio del giro notturno.
+  "docs.release_note",
   "monitor.alert",
   "monitor.recovered",
 ];
