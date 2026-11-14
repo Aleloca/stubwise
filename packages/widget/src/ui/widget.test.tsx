@@ -255,6 +255,66 @@ describe("chat streaming", () => {
     expect(localStorage.getItem("stubwise-widget:acme:conversation")).toBe("conv-99");
   });
 
+  // Area 8, F3, S17: una conversazione con un esito è chiusa; il server manda il
+  // messaggio nella successiva e la annuncia. Il widget ne salva l'id e da lì
+  // scrive alla successiva.
+  it("evento `conversation` (la successiva di una chiusa) → id salvato e il messaggio dopo va alla successiva", async () => {
+    localStorage.setItem("stubwise-widget:acme:conversation", "conv-old");
+    const { calls } = installFetch({
+      "GET /config": jsonResponse(200, activeConfig()),
+      "GET userId=u1": jsonResponse(200, { messages: [] }),
+      "POST /conversations/conv-old/messages": sseResponse([
+        'data: {"type":"conversation","conversationId":"conv-new"}\n\n',
+        'data: {"type":"delta","text":"Eccomi"}\n\n',
+        'data: {"type":"done","conversationId":"conv-new","citations":[]}\n\n',
+      ]),
+      "POST /conversations/conv-new/messages": sseResponse([
+        'data: {"type":"delta","text":"Ancora qui"}\n\n',
+        'data: {"type":"done","conversationId":"conv-new","citations":[]}\n\n',
+      ]),
+    });
+    await initWidget({ dsn: DSN, user: USER });
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-bubble")!.click();
+    await flush();
+    const say = async (text: string) => {
+      const input = shadow().querySelector<HTMLTextAreaElement>(".sw-composer-input")!;
+      input.value = text;
+      input.dispatchEvent(new Event("input"));
+      await flush();
+      shadow().querySelector<HTMLButtonElement>(".sw-composer .sw-btn")!.click();
+      await flush(6);
+    };
+    await say("una cosa nuova");
+    expect(localStorage.getItem("stubwise-widget:acme:conversation")).toBe("conv-new");
+    await say("e un'altra");
+    expect(calls.filter((c) => c.method === "POST" && c.url.endsWith("/messages")).map((c) => c.url.split("/").at(-2))).toEqual(["conv-old", "conv-new"]);
+    expect(shadow().textContent).toContain("Ancora qui");
+  });
+
+  it("anche solo il `done` con un altro id basta (lo stream si è interrotto prima dell'evento)", async () => {
+    localStorage.setItem("stubwise-widget:acme:conversation", "conv-old");
+    installFetch({
+      "GET /config": jsonResponse(200, activeConfig()),
+      "GET userId=u1": jsonResponse(200, { messages: [] }),
+      "POST /conversations/conv-old/messages": sseResponse([
+        'data: {"type":"delta","text":"Ok"}\n\n',
+        'data: {"type":"done","conversationId":"conv-next","citations":[]}\n\n',
+      ]),
+    });
+    await initWidget({ dsn: DSN, user: USER });
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-bubble")!.click();
+    await flush();
+    const input = shadow().querySelector<HTMLTextAreaElement>(".sw-composer-input")!;
+    input.value = "ciao";
+    input.dispatchEvent(new Event("input"));
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-composer .sw-btn")!.click();
+    await flush(6);
+    expect(localStorage.getItem("stubwise-widget:acme:conversation")).toBe("conv-next");
+  });
+
   it("risposta assistant con **grassetto** → il DOM del messaggio contiene <strong>", async () => {
     installFetch({
       "GET /config": jsonResponse(200, activeConfig()),
@@ -359,6 +419,31 @@ describe("ticket card", () => {
       userId: "u1",
     });
     expect(shadow().querySelector(".sw-card-confirmed")?.textContent).toContain("#128");
+  });
+
+  it("area 8, F3, S17: la conferma finita nella successiva → l'id della successiva salvato", async () => {
+    installFetch({
+      "GET /config": jsonResponse(200, activeConfig()),
+      "POST /conversations": jsonResponse(200, { conversationId: "conv-7" }),
+      "POST /conversations/conv-7/messages": sseResponse([
+        'data: {"type":"ticket_proposal","proposal":{"title":"T","body":"B","type":"bug"}}\n\n',
+        'data: {"type":"done","conversationId":"conv-7","citations":[]}\n\n',
+      ]),
+      "POST /conversations/conv-7/tickets": jsonResponse(200, { ticketId: "t1", number: 9, conversationId: "conv-8" }),
+    });
+    await initWidget({ dsn: DSN, user: USER });
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-bubble")!.click();
+    await flush();
+    const input = shadow().querySelector<HTMLTextAreaElement>(".sw-composer-input")!;
+    input.value = "bug";
+    input.dispatchEvent(new Event("input"));
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-composer .sw-btn")!.click();
+    await flush(6);
+    shadow().querySelector<HTMLButtonElement>(".sw-card .sw-btn")!.click();
+    await flush(6);
+    expect(localStorage.getItem("stubwise-widget:acme:conversation")).toBe("conv-8");
   });
 });
 
@@ -724,70 +809,5 @@ describe("drag", () => {
     window.dispatchEvent(new Event("resize"));
     await flush();
     expect(cssVar("--sw-bubble-top")).toBe("524px");
-  });
-});
-
-describe("area 8, F3, S4: le risposte del team", () => {
-  async function open(routes: Record<string, Response | (() => Response)>) {
-    localStorage.setItem("stubwise-widget:acme:conversation", "conv-old");
-    const fx = installFetch({
-      "GET /config": () => jsonResponse(200, activeConfig()),
-      "GET /conversations/conv-old/messages?userId=u1": () =>
-        jsonResponse(200, {
-          messages: [
-            { id: "m1", role: "user", content: "domanda", citations: null },
-            { id: "m2", role: "assistant", content: "risposta AI", citations: [] },
-            { id: "m3", role: "team", content: "Ciao, ci pensiamo noi", citations: null },
-          ],
-        }),
-      ...routes,
-    });
-    await initWidget({ dsn: DSN, user: USER });
-    await flush();
-    shadow().querySelector<HTMLButtonElement>(".sw-bubble")!.click();
-    await flush(6);
-    return fx;
-  }
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("un messaggio del team nello storico ha il nome del widget, mai una persona", async () => {
-    await open({});
-    const team = shadow().querySelector(".sw-msg-team");
-    expect(team).not.toBeNull();
-    expect(team!.textContent).toContain("Ciao, ci pensiamo noi");
-    expect(team!.querySelector(".sw-msg-team-name")!.textContent).toBe("Assistenza Acme");
-  });
-
-  it("col pannello aperto legge i messaggi nuovi ogni 15 s, DOPO l'ultimo, e aggiunge solo quelli del team", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-    const fx = await open({
-      "GET /conversations/conv-old/messages?userId=u1&after=m3": () =>
-        jsonResponse(200, {
-          messages: [
-            { id: "m4", role: "user", content: "doppione del cliente", citations: null },
-            { id: "m5", role: "team", content: "Ecco la risposta nuova", citations: null },
-          ],
-        }),
-    });
-    vi.advanceTimersByTime(15_000);
-    await flush(6);
-    expect(fx.calls.some((c) => c.url.endsWith("&after=m3"))).toBe(true);
-    expect(shadow().textContent).toContain("Ecco la risposta nuova");
-    // Il cliente e l'AI sono già nella timeline dallo stream: il polling non li duplica.
-    expect(shadow().textContent).not.toContain("doppione del cliente");
-  });
-
-  it("chiuso il pannello, il polling si ferma", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-    const fx = await open({});
-    shadow().querySelector<HTMLButtonElement>(".sw-header-close, .sw-bubble")!.click();
-    await flush(6);
-    const before = fx.calls.length;
-    vi.advanceTimersByTime(60_000);
-    await flush(6);
-    expect(fx.calls.length).toBe(before);
   });
 });

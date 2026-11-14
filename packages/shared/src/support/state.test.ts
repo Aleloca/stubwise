@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   SUPPORT_STATE_ORDER,
   SUPPORT_TRIAGE_IDLE_MINUTES,
-  supportMailSlot,
   supportState,
-  waitingSince,
   wishTitle,
   type SupportStateInput,
 } from "./state.js";
@@ -42,10 +40,10 @@ describe("supportState", () => {
     expect(supportState(conv({ messages, judgment: { outcome: "concluded", at: "4" } }))).toBe("answered");
   });
 
-  it("con un esito l'ultimo messaggio decide (cliente → aspetta noi, team → risposta inviata, altrimenti richiesta aperta)", () => {
+  it("con un esito la conversazione è chiusa: richiesta aperta, qualunque sia l'ultimo messaggio", () => {
     const base = { hasOutcome: true };
-    expect(supportState(conv({ ...base, messages: [msg("customer", "1")] }))).toBe("waiting_us");
-    expect(supportState(conv({ ...base, messages: [msg("customer", "1"), msg("team", "2")] }))).toBe("reply_sent");
+    expect(supportState(conv({ ...base, messages: [msg("customer", "1")] }))).toBe("request_open");
+    expect(supportState(conv({ ...base, messages: [msg("customer", "1"), msg("team", "2")] }))).toBe("request_open");
     expect(supportState(conv({ ...base, messages: [msg("customer", "1"), msg("triage", "2")] }))).toBe("request_open");
     expect(supportState(conv(base))).toBe("request_open");
   });
@@ -56,25 +54,8 @@ describe("supportState", () => {
     ).toBe("request_open");
   });
 
-  it("l'ordine dei gruppi: chi aspetta noi in cima, le risolte dal widget in fondo; un valore per stato", () => {
-    expect(SUPPORT_STATE_ORDER[0]).toBe("waiting_us");
-    expect(SUPPORT_STATE_ORDER.at(-1)).toBe("answered");
-    expect(new Set(SUPPORT_STATE_ORDER).size).toBe(6);
-  });
-});
-
-describe("waitingSince", () => {
-  it("dal primo dei messaggi del cliente rimasti senza risposta", () => {
-    const c = conv({
-      hasOutcome: true,
-      messages: [msg("customer", "1"), msg("team", "2"), msg("customer", "3"), msg("customer", "4")],
-    });
-    expect(waitingSince(c)).toBe("3");
-  });
-
-  it("null se non aspetta noi", () => {
-    expect(waitingSince(conv({ messages: [msg("customer", "1")] }))).toBeNull();
-    expect(waitingSince(conv({ hasOutcome: true, messages: [msg("customer", "1"), msg("team", "2")] }))).toBeNull();
+  it("l'ordine dei gruppi: le non concluse in cima, le risolte dal widget in fondo; un valore per stato", () => {
+    expect(SUPPORT_STATE_ORDER).toEqual(["not_concluded", "triage", "request_open", "answered"]);
   });
 });
 
@@ -82,8 +63,7 @@ describe("le costanti e i testi", () => {
   it("l'attesa del controllo è di 15 minuti (decisione di 46)", () => {
     expect(SUPPORT_TRIAGE_IDLE_MINUTES).toBe(15);
   });
-  it("lo slot della Posta e il titolo dal desiderio", () => {
-    expect(supportMailSlot("ACQ-S2")).toBe("support-ACQ-S2");
+  it("il titolo dal desiderio", () => {
     expect(wishTitle("Vorrei esportare i dati. Anche in PDF.")).toBe("Vorrei esportare i dati");
     expect(wishTitle("x".repeat(100))).toHaveLength(80);
   });

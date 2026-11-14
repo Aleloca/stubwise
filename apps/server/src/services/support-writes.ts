@@ -1,4 +1,4 @@
-import { backlogItems, createRequestItem, supportFollowers, widgetConversations, widgetMessages, type Db } from "@stubwise/db";
+import { backlogItems, createRequestItem, widgetConversations, widgetMessages, type Db } from "@stubwise/db";
 import { publishSupportRequestAlert } from "@stubwise/notifications";
 import type { SupportConversation, SupportOpenRequestBody, SupportReplyBody } from "@stubwise/shared";
 import { and, eq, sql } from "drizzle-orm";
@@ -10,19 +10,27 @@ import { conversationByCode, SupportError, supportView } from "./support.js";
  * (le rotte dichiarano `user`), blocca la riga della conversazione (due
  * clic insieme fanno una cosa sola) e risponde con la vista aggiornata.
  *
- * ⚠️ Una risposta al cliente nasce SOLO da `replyToCustomer`, cioè dal clic
- * «Send to customer» di chi ha `support.reply` (test sul sorgente in
- * `support-writes.test.ts`): nessuna risposta automatica, nessuna email.
+ * ⚠️ Il team non scrive MAI al cliente del widget (maintainer, 14 nov 2026).
+ * Un messaggio `team` nasce SOLO da `replyToCollaborator`, e solo sul canale
+ * `mcp` (test sul sorgente in `support-writes.test.ts`).
  */
 
 type Viewer = Pick<SessionUser, "id" | "instancePermissions">;
 
 const lock = (tx: Db, id: string) => tx.execute(sql`select ${widgetConversations.id} from ${widgetConversations} where ${widgetConversations.id} = ${id} for update`);
 
-/** «Send to customer» (S3): un messaggio del team; chi risponde segue; la bozza di Claude non serve più. */
-export async function replyToCustomer(db: Db, viewer: Viewer, code: string, input: SupportReplyBody): Promise<SupportConversation> {
+/**
+ * La risposta al collaboratore (S3): SOLO sul canale `mcp`, il collaboratore
+ * interno che ha aperto la richiesta da Claude Code (gli arriva con
+ * `my_requests`). Su una conversazione del widget 409: al cliente il team non
+ * scrive mai (maintainer, 14 nov 2026). `clientId` rende un doppio invio uno.
+ */
+export async function replyToCollaborator(db: Db, viewer: Viewer, code: string, input: SupportReplyBody): Promise<SupportConversation> {
   const { row, ctx } = await conversationByCode(db, viewer, code);
-  if (!ctx.permissions.has("support.reply")) throw new SupportError(403, "forbidden", "Replying to customers needs support.reply");
+  if (!ctx.permissions.has("support.manage")) throw new SupportError(403, "forbidden", "Replying to collaborators needs support.manage");
+  if (row.channel !== "mcp") {
+    throw new SupportError(409, "support_widget_no_reply", "The team never writes to a widget customer");
+  }
   await db.transaction(async (tx) => {
     await lock(tx, row.id);
     if (input.clientId) {
@@ -31,10 +39,6 @@ export async function replyToCustomer(db: Db, viewer: Viewer, code: string, inpu
         .from(widgetMessages)
         .where(and(eq(widgetMessages.conversationId, row.id), eq(widgetMessages.clientId, input.clientId)));
       if (already) return;
-    }
-    // Durante il triage le domande al cliente le fa l'AI del widget (R-K15).
-    if ((await supportView(tx, row, ctx)).state === "triage") {
-      throw new SupportError(409, "support_triage", "The widget is still talking with the customer");
     }
     const now = new Date();
     await tx.insert(widgetMessages).values({
@@ -45,26 +49,14 @@ export async function replyToCustomer(db: Db, viewer: Viewer, code: string, inpu
       ...(input.clientId ? { clientId: input.clientId } : {}),
       createdAt: now,
     });
-    await tx
-      .update(widgetConversations)
-      .set({ lastMessageAt: now, claudeDraft: null, claudeDraftAt: null, claudeDraftThrough: null, draftDueAt: null })
-      .where(eq(widgetConversations.id, row.id));
-    await tx.insert(supportFollowers).values({ conversationId: row.id, userId: viewer.id }).onConflictDoNothing();
+    await tx.update(widgetConversations).set({ lastMessageAt: now }).where(eq(widgetConversations.id, row.id));
   });
-  return supportView(db, row, ctx);
-}
-
-/** «Segui» (S5): chi vede il progetto (seguire non è rispondere, R-K12). */
-export async function followConversation(db: Db, viewer: Viewer, code: string, on: boolean): Promise<SupportConversation> {
-  const { row, ctx } = await conversationByCode(db, viewer, code);
-  if (on) await db.insert(supportFollowers).values({ conversationId: row.id, userId: viewer.id }).onConflictDoNothing();
-  else await db.delete(supportFollowers).where(and(eq(supportFollowers.conversationId, row.id), eq(supportFollowers.userId, viewer.id)));
   return supportView(db, row, ctx);
 }
 
 /**
  * «Apri la richiesta» (S6) su una conversazione non conclusa
- * (`backlog.create`): nasce legata alla conversazione, chi la apre è il
+ * (`support.manage` E `backlog.create`): nasce legata alla conversazione, chi la apre è il
  * richiedente (come `openRequestFrom` del prototipo). Una conversazione che ha
  * già la sua richiesta la restituisce (`created: false`).
  */
@@ -76,7 +68,9 @@ export async function openRequestFrom(
   opts: { publicUrl?: string | null } = {},
 ): Promise<{ created: boolean; conversation: SupportConversation; request: { id: string; code: string } }> {
   const { row, ctx } = await conversationByCode(db, viewer, code);
-  if (!ctx.permissions.has("backlog.create")) throw new SupportError(403, "forbidden", "Opening a request needs backlog.create");
+  if (!ctx.permissions.has("support.manage") || !ctx.permissions.has("backlog.create")) {
+    throw new SupportError(403, "forbidden", "Opening a request needs support.manage and backlog.create");
+  }
   const result = await db.transaction(async (tx) => {
     await lock(tx, row.id);
     const [existing] = await tx
@@ -115,7 +109,7 @@ export async function openRequestFrom(
  */
 export async function markNotConcluded(db: Db, viewer: Viewer, code: string): Promise<SupportConversation> {
   const { row, ctx } = await conversationByCode(db, viewer, code);
-  if (!ctx.permissions.has("support.reply")) throw new SupportError(403, "forbidden", "Needs support.reply");
+  if (!ctx.permissions.has("support.manage")) throw new SupportError(403, "forbidden", "Needs support.manage");
   await db.transaction(async (tx) => {
     await lock(tx, row.id);
     const state = (await supportView(tx, row, ctx)).state;

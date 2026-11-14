@@ -12380,8 +12380,7 @@
       "plugin_smoke": "Smoke test dei plugin",
       "credential_test": "Prove degli account",
       "usage_probe": "Letture della quota",
-      "support_triage_check": "Supporto: giudizio sul triage",
-      "support_reply_draft": "Supporto: bozze di risposta"
+      "support_triage_check": "Supporto: giudizio sul triage"
     }
   },
   "instanceEffects": {

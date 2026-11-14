@@ -13,7 +13,8 @@ import { seg } from "../query.js";
  * `/api/projects/:projectId/widgets`. L'elenco lo legge chi vede il progetto;
  * `canManage` (calcolato dal server) dice se chi guarda li gestisce.
  * ⚠️ `update` è una SOSTITUZIONE: il corpo va mandato intero, compreso
- * `repositoryFilters` (un corpo senza azzera i filtri salvati).
+ * `repositoryFilters` (un corpo senza azzera i filtri salvati). L'unica
+ * eccezione è `origins` (i siti ammessi, S16): assente = l'elenco resta com'è.
  */
 export function createWidgetEndpoints(request: ApiRequest) {
   const base = (projectId: string) => `/api/projects/${seg(projectId)}/widgets`;

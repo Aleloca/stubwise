@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { backlogItemRequesters, backlogItems, backlogJobs, googleAccounts, googleWorkspaces, notifications, projects, supportFollowers, widgetConversations, widgetMessages, widgets } from "@stubwise/db";
+import { backlogItemRequesters, backlogItems, backlogJobs, notifications, projects, widgetConversations, widgetMessages } from "@stubwise/db";
 import { seedBacklogItem, seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { SupportConversation } from "@stubwise/shared";
 import { and, eq } from "drizzle-orm";
@@ -11,8 +11,8 @@ import { buildApp } from "../app.js";
 import { addMember, createUserWithPat, seedUsers } from "../test/fixtures.js";
 
 /**
- * Support, le scritture (area 8, F3: S3 la risposta, S5 «Segui», S6 la
- * richiesta da una conversazione, S15 «Non conclusa»). Ognuna risponde con la
+ * Support, le scritture (area 8, F3: S3 la risposta al collaboratore, solo
+ * canale `mcp`; S6 la richiesta da una conversazione, S15 «Non conclusa»). Ognuna risponde con la
  * vista aggiornata; i permessi li ricontrolla il servizio.
  */
 
@@ -59,27 +59,46 @@ const judge = (id: string, outcome: "concluded" | "not_concluded") =>
 const teamMessages = (id: string) => t.db.select().from(widgetMessages).where(and(eq(widgetMessages.conversationId, id), eq(widgetMessages.role, "team")));
 const base = (code: string) => `/api/support/conversations/by-code/${code}`;
 
-describe("S3: «Send to customer»", () => {
-  it("scrive il messaggio del team con l'autore, segue da sé, toglie la bozza, risponde con la vista", async () => {
+async function mcpConversation(projectId: string) {
+  const c = await withRequest(projectId);
+  await t.db.update(widgetConversations).set({ channel: "mcp" }).where(eq(widgetConversations.id, c.id));
+  return c;
+}
+
+describe("S3: la risposta al collaboratore (solo canale `mcp`)", () => {
+  it("sul canale mcp: il messaggio del team con l'autore, nessun avviso, la vista", async () => {
     const { projectId } = await seedRepository(t.db);
     const dev = await person("developer", projectId);
-    const c = await withRequest(projectId);
-    await t.db.update(widgetConversations).set({ claudeDraft: "Bozza", claudeDraftAt: at(2), draftDueAt: at(3) }).where(eq(widgetConversations.id, c.id));
+    const c = await mcpConversation(projectId);
     const res = await send("POST", dev.headers, `${base(c.code)}/replies`, { body: "  Ciao Mario  " });
     expect(res.statusCode, res.body).toBe(200);
-    const v = res.json() as SupportConversation;
-    expect(v).toMatchObject({ state: "reply_sent", following: true, claudeDraft: null, claudeDraftPending: false });
+    expect(res.json()).toMatchObject({ state: "request_open", canReplyToCollaborator: true });
     const [m] = await teamMessages(c.id);
     expect(m).toMatchObject({ content: "Ciao Mario", authorId: dev.id });
-    expect(await t.db.select().from(supportFollowers).where(eq(supportFollowers.conversationId, c.id))).toHaveLength(1);
-    // Nessun avviso, nessuna email: la risposta non pubblica niente.
     expect(await t.db.select().from(notifications).where(eq(notifications.projectId, projectId))).toEqual([]);
+  });
+
+  it("su una conversazione del WIDGET 409 `support_widget_no_reply` e niente scritto, qualunque sia lo stato (premessa corretta)", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const dev = await person("developer", projectId);
+    const closed = await withRequest(projectId);
+    const answered = await conversation(projectId);
+    await customer(answered.id, 1);
+    await judge(answered.id, "concluded");
+    const triage = await conversation(projectId);
+    await customer(triage.id, 1);
+    for (const c of [closed, answered, triage]) {
+      const res = await send("POST", dev.headers, `${base(c.code)}/replies`, { body: "No" });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toMatchObject({ code: "support_widget_no_reply" });
+      expect(await teamMessages(c.id)).toEqual([]);
+    }
   });
 
   it("idempotente su `clientId`: un doppio invio è un messaggio solo", async () => {
     const { projectId } = await seedRepository(t.db);
     const dev = await person("developer", projectId);
-    const c = await withRequest(projectId);
+    const c = await mcpConversation(projectId);
     const clientId = randomUUID();
     const results = await Promise.all([1, 2, 3].map(() => send("POST", dev.headers, `${base(c.code)}/replies`, { body: "Una volta", clientId })));
     // Ogni invio riceve la vista (non un errore): il secondo trova il primo.
@@ -87,44 +106,23 @@ describe("S3: «Send to customer»", () => {
     expect(await teamMessages(c.id)).toHaveLength(1);
   });
 
-  it("senza `support.reply` 403 e niente scritto; durante il triage 409 `support_triage`; un progetto invisibile 404", async () => {
+  it("senza `support.manage` 403 e niente scritto; un progetto invisibile 404", async () => {
     const { projectId } = await seedRepository(t.db);
     const contributor = await person("contributor", projectId);
-    const dev = await person("developer", projectId);
-    const c = await withRequest(projectId);
-    const forbidden = await send("POST", contributor.headers, `${base(c.code)}/replies`, { body: "No" });
-    expect(forbidden.statusCode).toBe(403);
-    const triage = await conversation(projectId);
-    await customer(triage.id, 1);
-    expect((await send("POST", dev.headers, `${base(triage.code)}/replies`, { body: "No" })).json()).toMatchObject({ code: "support_triage" });
+    const c = await mcpConversation(projectId);
+    expect((await send("POST", contributor.headers, `${base(c.code)}/replies`, { body: "No" })).statusCode).toBe(403);
     const { projectId: other } = await seedRepository(t.db);
     const outsider = await person("developer", other);
     expect((await send("POST", outsider.headers, `${base(c.code)}/replies`, { body: "No" })).statusCode).toBe(404);
     expect(await teamMessages(c.id)).toEqual([]);
-    expect(await teamMessages(triage.id)).toEqual([]);
   });
 
-  it("si risponde anche a una non conclusa e a una `answered` (fuori dal triage)", async () => {
+  it("«Segui» e la bozza email non esistono più", async () => {
     const { projectId } = await seedRepository(t.db);
     const dev = await person("developer", projectId);
-    for (const outcome of ["not_concluded", "concluded"] as const) {
-      const c = await conversation(projectId);
-      await customer(c.id, 1);
-      await judge(c.id, outcome);
-      expect((await send("POST", dev.headers, `${base(c.code)}/replies`, { body: "Ciao" })).statusCode).toBe(200);
-    }
-  });
-});
-
-describe("S5: «Segui»", () => {
-  it("chi vede il progetto segue e smette (seguire non è rispondere)", async () => {
-    const { projectId } = await seedRepository(t.db);
-    const viewer = await person("viewer", projectId);
-    const c = await conversation(projectId);
-    expect((await send("PUT", viewer.headers, `${base(c.code)}/follow`, { on: true })).json()).toMatchObject({ following: true });
-    expect((await send("PUT", viewer.headers, `${base(c.code)}/follow`, { on: true })).json()).toMatchObject({ following: true });
-    expect(await t.db.select().from(supportFollowers).where(eq(supportFollowers.conversationId, c.id))).toHaveLength(1);
-    expect((await send("PUT", viewer.headers, `${base(c.code)}/follow`, { on: false })).json()).toMatchObject({ following: false });
+    const c = await mcpConversation(projectId);
+    expect((await send("PUT", dev.headers, `${base(c.code)}/follow`, { on: true })).statusCode).toBe(404);
+    expect((await app.inject({ method: "GET", url: `${base(c.code)}/email-draft`, headers: dev.headers })).statusCode).toBe(404);
   });
 });
 
@@ -171,10 +169,11 @@ describe("S6: «Apri la richiesta» da una non conclusa", () => {
     expect(await t.db.select().from(backlogItems).where(eq(backlogItems.supportConversationId, c.id))).toHaveLength(1);
   });
 
-  it("su una che non è «non conclusa» 409 `support_not_concluded`; senza backlog.create 403", async () => {
+  it("su una che non è «non conclusa» 409 `support_not_concluded`; senza support.manage o backlog.create 403", async () => {
     const { projectId } = await seedRepository(t.db);
     const dev = await person("developer", projectId);
     const viewer = await person("viewer", projectId);
+    const contributor = await person("contributor", projectId);
     const triage = await conversation(projectId);
     await customer(triage.id, 1);
     expect((await send("POST", dev.headers, `${base(triage.code)}/request`, { title: "x" })).json()).toMatchObject({ code: "support_not_concluded" });
@@ -182,6 +181,8 @@ describe("S6: «Apri la richiesta» da una non conclusa", () => {
     await customer(nc.id, 1);
     await judge(nc.id, "not_concluded");
     expect((await send("POST", viewer.headers, `${base(nc.code)}/request`, { title: "x" })).statusCode).toBe(403);
+    // Il Contributor ha backlog.create ma non support.manage: niente.
+    expect((await send("POST", contributor.headers, `${base(nc.code)}/request`, { title: "x" })).statusCode).toBe(403);
     expect(await t.db.select().from(backlogItems).where(eq(backlogItems.supportConversationId, nc.id))).toEqual([]);
   });
 });
@@ -205,7 +206,7 @@ describe("S15: «Non conclusa» a mano (decisione del maintainer)", () => {
     expect(again!.triageOutcomeAt!.toISOString()).toBe(before);
   });
 
-  it("solo su `answered` (409 `support_not_answered`), solo con support.reply (403)", async () => {
+  it("solo su `answered` (409 `support_not_answered`), solo con support.manage (403)", async () => {
     const { projectId } = await seedRepository(t.db);
     const dev = await person("developer", projectId);
     const contributor = await person("contributor", projectId);
@@ -216,59 +217,6 @@ describe("S15: «Non conclusa» a mano (decisione del maintainer)", () => {
     await customer(answered.id, 1);
     await judge(answered.id, "concluded");
     expect((await send("POST", contributor.headers, `${base(answered.code)}/not-concluded`)).statusCode).toBe(403);
-  });
-});
-
-describe("S9: «Scrivigli anche per email»", () => {
-  const mailbox = async (userId: string) => {
-    const [ws] = await t.db
-      .insert(googleWorkspaces)
-      .values({ name: `W${randomUUID().slice(0, 6)}`, domains: [`${randomUUID().slice(0, 6)}.it`], clientId: "c", clientSecretEncrypted: "s" })
-      .returning();
-    await t.db.insert(googleAccounts).values({
-      userId,
-      workspaceId: ws!.id,
-      email: `box-${randomUUID().slice(0, 6)}@acme.com`,
-      googleSub: randomUUID(),
-      refreshTokenEncrypted: "x",
-      scopes: ["https://www.googleapis.com/auth/gmail.modify"],
-    });
-  };
-
-  it("i campi da aprire nella Posta: lo slot, il cliente, l'oggetto e un testo di template nella lingua del widget (mai il modello)", async () => {
-    const { projectId } = await seedRepository(t.db);
-    const dev = await person("developer", projectId);
-    await mailbox(dev.id);
-    const [w] = await t.db.insert(widgets).values({ projectId, name: "Sito", key: randomUUID(), language: "it" }).returning();
-    const c = await withRequest(projectId);
-    await t.db.update(widgetConversations).set({ widgetId: w!.id, externalUserEmail: "mario@x.it", externalUserName: "Mario Bianchi" }).where(eq(widgetConversations.id, c.id));
-    const res = await app.inject({ method: "GET", url: `${base(c.code)}/email-draft`, headers: dev.headers });
-    expect(res.statusCode, res.body).toBe(200);
-    const d = res.json() as { slot: string; to: { name: string; email: string }; subject: string; body: string };
-    expect(d.slot).toBe(`support-${c.code}`);
-    expect(d.to).toEqual({ name: "Mario Bianchi", email: "mario@x.it" });
-    expect(d.subject).toMatch(/^Sulla tua richiesta .+-R\d+$/);
-    expect(d.body).toContain("Ciao Mario");
-    expect(d.body).not.toContain(dev.id);
-    // Con la bozza di Claude della conversazione, il corpo è quella.
-    await t.db.update(widgetConversations).set({ claudeDraft: "Testo di Claude" }).where(eq(widgetConversations.id, c.id));
-    expect(((await app.inject({ method: "GET", url: `${base(c.code)}/email-draft`, headers: dev.headers })).json() as { body: string }).body).toBe("Testo di Claude");
-  });
-
-  it("perché no: senza support.reply 403; in triage, senza email del cliente, senza casella collegata 409 col perché", async () => {
-    const { projectId } = await seedRepository(t.db);
-    const dev = await person("developer", projectId);
-    const contributor = await person("contributor", projectId);
-    const c = await withRequest(projectId);
-    const draft = (h: H, code: string) => app.inject({ method: "GET", url: `${base(code)}/email-draft`, headers: h });
-    expect((await draft(contributor.headers, c.code)).statusCode).toBe(403);
-    await t.db.update(widgetConversations).set({ externalUserEmail: null }).where(eq(widgetConversations.id, c.id));
-    expect((await draft(dev.headers, c.code)).json()).toMatchObject({ code: "support_no_email" });
-    await t.db.update(widgetConversations).set({ externalUserEmail: "m@x.it" }).where(eq(widgetConversations.id, c.id));
-    expect((await draft(dev.headers, c.code)).json()).toMatchObject({ code: "support_no_mailbox" });
-    const triage = await conversation(projectId);
-    await customer(triage.id, 1);
-    expect((await draft(dev.headers, triage.code)).json()).toMatchObject({ code: "support_triage" });
   });
 });
 
@@ -327,7 +275,7 @@ describe("S12: il canale `mcp` (le richieste dal server MCP in modalità collabo
   });
 });
 
-describe("una risposta al cliente nasce SOLO da «Send to customer»", () => {
+describe("il team non scrive al cliente del widget: un messaggio `team` nasce SOLO dalla risposta al collaboratore", () => {
   it("nessun altro sorgente di server e worker scrive un messaggio `team`", () => {
     const root = fileURLToPath(new URL("../../../", import.meta.url));
     const files: string[] = [];

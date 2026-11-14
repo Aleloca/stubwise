@@ -50,6 +50,9 @@ export const SCENARIO_NAMES = [
   // Il passo di Claude delle automazioni (area 7, fetta 3): al rilascio della F3
   // e a ogni aggiornamento del CLI o del prompt (`claudePrompt.ts`).
   "automation-step",
+  // Il giudizio sul triage di Support dopo il silenzio (area 8, F3, S10, G-1):
+  // al rilascio della F3 e a ogni aggiornamento del CLI o del prompt.
+  "support-triage-check",
 ] as const;
 export type ScenarioName = (typeof SCENARIO_NAMES)[number];
 
@@ -73,6 +76,8 @@ export function selectScenarios(named: readonly ScenarioName[]): ScenarioName[] 
 export const PLUGINLESS_SCENARIOS: readonly ScenarioName[] = [
   "automation-step",
   "mail-classify-v2",
+  // Il giudizio sul triage di Support (area 8, F3): una run di testo, nessun plugin.
+  "support-triage-check",
   // La chat con Claude (13 nov 2026, area 8, F1): il turno è cablato come
   // `runChatTurn`, `--setting-sources ""` e NESSUN plugin (`runChat` non passa
   // `pluginDirs`), quindi `--plugin` non gli serve.
@@ -1417,6 +1422,32 @@ export interface MailClassifyObservation {
     projects: { projectId: string; actions: { type: string }[] }[];
     uncertainProjectIds: string[];
   } | null;
+}
+
+/** Il giudizio sul triage di UNA conversazione (area 8, F3, S10). */
+export interface SupportTriageObservation {
+  name: string;
+  expected: "concluded" | "not_concluded";
+  exitCode: number;
+  /** Il testo della risposta (null se la run non ha dato testo). */
+  raw: string | null;
+  /** Il giudizio letto con `parseTriageAnswer` della produzione (null = fuori forma). */
+  outcome: "concluded" | "not_concluded" | null;
+}
+
+/**
+ * I check del giudizio: la run riesce in UN turno senza tool (con `maxTurns` 1
+ * e nessun nativo, un tool la farebbe finire senza testo), la risposta ha la
+ * forma chiusa e il giudizio è quello atteso.
+ */
+export function supportTriageChecks(observations: readonly SupportTriageObservation[]): Check[] {
+  const checks: Check[] = [];
+  for (const obs of observations) {
+    checks.push({ name: `${obs.name}: run riuscita in un turno, senza tool`, passed: obs.exitCode === 0 && obs.raw !== null, detail: `exit ${obs.exitCode}` });
+    checks.push({ name: `${obs.name}: risposta nella forma chiusa`, passed: obs.outcome !== null, detail: (obs.raw ?? "").slice(0, 200) });
+    checks.push({ name: `${obs.name}: giudizio ${obs.expected}`, passed: obs.outcome === obs.expected, detail: `giudizio: ${obs.outcome ?? "nessuno"}` });
+  }
+  return checks;
 }
 
 /** I check della classificazione nuova: forma prima di tutto, poi il merito per email. */

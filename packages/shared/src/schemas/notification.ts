@@ -81,7 +81,6 @@ export const notificationKindSchema = z.enum([
   // un messaggio del cliente su una conversazione con un esito (ai seguaci da
   // obbligatori, agli iscritti). Nel catalogo degli avvisi.
   "support.request",
-  "support.customer_replied",
 ]);
 
 /**

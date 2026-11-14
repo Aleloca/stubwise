@@ -3,33 +3,21 @@
 // DERIVA, non si salva. L'ingresso è NEUTRO (accordo con 94): lo riempiono il
 // server (l'esito, il giudizio del controllo, i messaggi) e il prototipo.
 //
-// - Con un ESITO (una richiesta legata o un ticket aperto dal widget, F3-1):
-//   ultimo messaggio del cliente → aspetta noi; nostro (team) → risposta
-//   inviata; altrimenti richiesta aperta.
-// - Senza esito, il GIUDIZIO sul triage (il controllo del worker dopo il
+// La premessa (maintainer, 14 nov 2026): il team non scrive MAI al cliente
+// nel widget, e una conversazione con un ESITO (una richiesta legata o un
+// ticket aperto dal widget, F3-1) è CHIUSA: un messaggio nuovo del cliente va
+// nella sua successiva. Quindi:
+// - con un esito → richiesta aperta, qualunque sia l'ultimo messaggio;
+// - senza esito, il GIUDIZIO sul triage (il controllo del worker dopo il
 //   silenzio, o «Non conclusa» di una persona) vale se non è più vecchio
 //   dell'ultimo messaggio del cliente: `not_concluded` → non conclusa;
-//   `concluded` → `answered` (la risposta del widget è bastata). Senza un
-//   giudizio valido → in triage: un messaggio nuovo del cliente riapre il
-//   triage da sé.
+//   `concluded` → `answered` (l'AI del widget è bastata). Senza un giudizio
+//   valido → in triage: un messaggio nuovo del cliente riapre il triage da sé.
 
-export type SupportState =
-  | "triage"
-  | "request_open"
-  | "waiting_us"
-  | "reply_sent"
-  | "not_concluded"
-  | "answered";
+export type SupportState = "triage" | "request_open" | "not_concluded" | "answered";
 
-/** L'ordine dei gruppi dell'elenco: chi aspetta noi in cima, le risolte dal widget in fondo. */
-export const SUPPORT_STATE_ORDER: readonly SupportState[] = [
-  "waiting_us",
-  "triage",
-  "not_concluded",
-  "request_open",
-  "reply_sent",
-  "answered",
-];
+/** L'ordine dei gruppi dell'elenco: le da guardare in cima, le risolte dal widget in fondo. */
+export const SUPPORT_STATE_ORDER: readonly SupportState[] = ["not_concluded", "triage", "request_open", "answered"];
 
 /**
  * Dopo quanti minuti di silenzio il controllo del worker giudica una
@@ -38,6 +26,7 @@ export const SUPPORT_STATE_ORDER: readonly SupportState[] = [
  */
 export const SUPPORT_TRIAGE_IDLE_MINUTES = 15;
 
+/** `team`: una persona, SOLO sul canale `mcp` (il collaboratore interno). */
 export type SupportMessageFrom = "customer" | "triage" | "team";
 export type SupportTriageOutcome = "concluded" | "not_concluded";
 
@@ -58,36 +47,13 @@ function lastCustomerAt(c: SupportStateInput): string | null {
 }
 
 export function supportState(c: SupportStateInput): SupportState {
-  if (c.hasOutcome) {
-    const last = c.messages.at(-1);
-    if (last?.from === "customer") return "waiting_us";
-    if (last?.from === "team") return "reply_sent";
-    return "request_open";
-  }
+  if (c.hasOutcome) return "request_open";
   const customerAt = lastCustomerAt(c);
   if (c.judgment && (customerAt === null || c.judgment.at >= customerAt)) {
     return c.judgment.outcome === "not_concluded" ? "not_concluded" : "answered";
   }
   return "triage";
 }
-
-/**
- * Da quando il cliente aspetta noi: il primo dei suoi messaggi in fondo alla
- * conversazione, ancora senza risposta. `null` se non aspetta noi.
- */
-export function waitingSince(c: SupportStateInput): string | null {
-  if (supportState(c) !== "waiting_us") return null;
-  let i = c.messages.length - 1;
-  while (i > 0 && c.messages[i - 1]!.from === "customer") i--;
-  return c.messages[i]!.at;
-}
-
-/**
- * Lo slot della Posta per la bozza di «Scrivigli anche per email» (R-K14): un
- * posto suo accanto alla «nuova email», che così non si sovrascrive.
- */
-export const supportMailSlot = (code: string): string => `support-${code}`;
-export const SUPPORT_MAIL_SLOT = /^support-[A-Z0-9]{2,10}-S\d+$/;
 
 /** Il titolo di una richiesta dal desiderio: la prima frase, senza il punto finale, al più 80 caratteri. */
 export function wishTitle(wish: string): string {

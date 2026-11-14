@@ -73,11 +73,55 @@ export const widgetRepositoryFiltersSchema = z
 export type WidgetRepositoryFilters = z.infer<typeof widgetRepositoryFiltersSchema>;
 
 /** Body di create/update di un widget (API interna). Estende la config con identità e cap. */
+/**
+ * Un sito ammesso (area 8, F3, S16): l'origine come la manda il browser
+ * nell'header `Origin`, `https://host[:porta]` (`http` solo per `localhost` e
+ * `127.0.0.1`), niente percorso, query, frammento o credenziali. Si
+ * normalizza (host minuscolo, porta di default tolta, `/` finale tolta).
+ * `null` se non è un'origine valida.
+ */
+export function normalizeWidgetOrigin(value: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    return null;
+  }
+  const local = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && local)) return null;
+  if (url.username || url.password || url.search || url.hash || (url.pathname !== "/" && url.pathname !== "")) return null;
+  return url.origin;
+}
+
+export const WIDGET_MAX_ORIGINS = 20;
+
+/** L'elenco dei siti ammessi: normalizzato e senza doppioni; vuoto = qualunque sito. */
+export const widgetOriginsSchema = z
+  .array(z.string().max(300))
+  .max(WIDGET_MAX_ORIGINS)
+  .transform((list, ctx) => {
+    const out: string[] = [];
+    for (const raw of list) {
+      const origin = normalizeWidgetOrigin(raw);
+      if (origin === null) {
+        ctx.addIssue({ code: "custom", message: `not an origin: ${raw}` });
+        return z.NEVER;
+      }
+      if (!out.includes(origin)) out.push(origin);
+    }
+    return out;
+  });
+
 export const widgetUpsertBodySchema = widgetSettingsSchema.extend({
   name: z.string().min(1).max(80),
   dailyMessageCap: dailyCapSchema,
   dailyTicketCap: dailyCapSchema,
   repositoryFilters: widgetRepositoryFiltersSchema,
+  /**
+   * I siti ammessi (S16). FACOLTATIVO (un client più vecchio non lo manda):
+   * assente nella modifica = l'elenco resta com'è; nella creazione = vuoto.
+   */
+  origins: widgetOriginsSchema.optional(),
 });
 export type WidgetUpsertBody = z.infer<typeof widgetUpsertBodySchema>;
 export type WidgetUpsertInput = z.input<typeof widgetUpsertBodySchema>;
@@ -105,6 +149,8 @@ export const widgetAdminSchema = z.object({
   dailyTicketCap: z.number().int().nullable(),
   createdAt: z.iso.datetime(),
   conversationCount: z.number().int(),
+  /** I siti ammessi (area 8, F3, S16, additivo): vuoto = qualunque sito. */
+  origins: z.array(z.string()).default([]),
 });
 export type WidgetAdmin = z.infer<typeof widgetAdminSchema>;
 

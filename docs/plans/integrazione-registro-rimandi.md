@@ -817,13 +817,83 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     esito (il controllo la giudicherà).
   - **Costo delle letture di Support**: la vista di ogni conversazione fa
     qualche query (esito, stato delle PR della richiesta o della task);
-    l'elenco e «Clienti in attesa» la fanno per conversazione. Va bene per
-    0–80 per progetto; da raccogliere in blocco se pesa.
-  - **Le risposte del team via Claude Code**: `my_requests` mostra le ultime
-    tre, senza un «non lette».
-  - **S8** (la Home «Clienti in attesa»): nessun extra di `resolveHome` sul
-    server. Il blocco sta nel catalogo di chi ha `support.reply`, mai nelle
-    Home di default ([A 17]); il filtro è del renderer.
+    l'elenco la fa per conversazione. Va bene per 0–80 per progetto; da
+    raccogliere in blocco se pesa.
+  - **Le risposte del team via Claude Code** (canale `mcp`, l'unico in cui
+    il team scrive): `my_requests` mostra le ultime tre, senza un «non
+    lette».
+  - **La premessa corretta** *(M, 14 nov 2026)*: il team non scrive MAI al
+    cliente nel widget; una conversazione con un esito è chiusa e un
+    messaggio nuovo apre la successiva. Escono dalla F3 (scritti e tolti, o
+    mai scritti): la risposta nel widget e la sua lettura, il compositore
+    sulle conversazioni del widget, la bozza automatica di Claude e «Chiedi
+    a Claude», `support.customer_replied`, «Segui», gli stati `waiting_us` e
+    `reply_sent`, «Scrivigli per email», la versione Support di «Clienti in
+    attesa». Il prototipo va riallineato (94).
+  - **Un widget vecchio dopo la chiusura** (S17): continua a scrivere
+    all'id della conversazione chiusa e il server porta i messaggi alla
+    successiva; ma all'apertura del pannello ricarica la storia della
+    CHIUSA, quindi il cliente non vede i messaggi nuovi finché il bundle
+    del widget non si aggiorna (caddy, lo stesso deploy). Accettato: il
+    bundle è servito da noi.
+  - **L'AI del widget nella successiva** parte senza la storia della
+    chiusa: un «grazie» dopo un ticket apre una conversazione nuova che il
+    controllo giudicherà (di solito `answered`). Accettato: è la regola.
+  - **I siti ammessi** (S16): elenco vuoto = tutto ammesso, per i widget già
+    installati, con un avviso nella UI *(M, 14 nov 2026)*. L'`Origin` lo
+    falsifica chiunque non sia un browser: protegge dall'embed su siti
+    altrui, non sostituisce la chiave.
+- **L'API per i siti** *(M, 14 nov 2026; fetta a sé DOPO la F3)*: il cliente
+  segue sul sito che ospita il widget le sue richieste e i suoi ticket.
+  Note di 72 per il design:
+  - **Autenticazione**: la chiave del widget da sola non basta (è nel
+    client, chiunque può dichiararsi un altro cliente). Serve un'identità
+    del cliente FIRMATA dal sito (un token firmato col segreto del widget,
+    lato server dell'host: `{ externalUserId, email?, exp }`, HMAC), o una
+    chiave server-to-server per widget che il sito usa dal suo backend.
+    Oggi il widget dichiara `userId` in chiaro: va bene per la chat, non
+    per leggere lo stato delle richieste.
+  - **Il legame cliente → richieste**: `widget_conversations.external_user_id`
+    → la conversazione → la richiesta (`backlog_items.support_conversation_id`)
+    o il ticket (`widget_messages.ticket_id`); le conversazioni successive
+    (`continued_in_id`) sono dello stesso cliente. Una richiesta FUSA in
+    un'altra perde il legame (limite della F3, sopra): l'API dovrà seguire
+    la fusione.
+  - **Cosa mostra**: lo stato in parole del cliente (`customerStatus`,
+    già in `@stubwise/shared`, con i suoi test), il titolo, il codice, le
+    date; MAI nomi del team, stime, commenti, il testo interno.
+  - **I siti ammessi** (`widgets.allowed_origins`, F3 S16) valgono anche
+    per l'API se è chiamata dal browser.
+  - **Il rate limit e il tetto** per chiave, come le rotte del widget.
+- **«Clienti in attesa»** *(M, 14 nov 2026; fetta a sé DOPO la F3, insieme
+  alla cattura della posta inviata)*: il blocco della Home resta, ma legato
+  alle EMAIL delle caselle, non al widget. La versione Support
+  (`/me/waiting-customers` sulle conversazioni) esce dalla F3.
+  - **Definizione** (proposta di 72, approvata): un cliente aspetta me = un
+    thread delle MIE caselle (a) ammesso, in un progetto che vedo; (b) il cui
+    ultimo messaggio viene da un indirizzo ESTERNO (non la mia casella né
+    un'altra casella collegata dell'istanza); (c) ricevuto da più di **24
+    ore** *(M)*; (d) senza un nostro messaggio dopo (posta inviata
+    catturata, o un `mail_outgoing` `sent` sullo stesso `gmailThreadId`); (e)
+    non rumore: `signal` ≠ `none` OPPURE importanza alta.
+  - **Fonte**: una query accanto a `GET /me/mail/threads`
+    (`apps/server/src/routes/me-mail.ts`, che dà già una riga per thread con
+    `lastFrom`/`lastReceivedAt`, sulle sole caselle di chi guarda), servita
+    come `GET /api/me/waiting-customers`; dall'attesa più vecchia, al più 20.
+  - **Le righe**: nome/email del cliente, oggetto, progetto, «aspetta da N
+    ore/giorni», il segnale (richiesta, scadenza…); il clic apre il thread
+    nella Posta. Lo vede chi ha una casella collegata, senza permesso (è la
+    sua posta: mai le caselle dei colleghi, mai agli admin, `mailbox_owner`).
+    Nel catalogo della Home, mai nelle Home di default ([A 17]).
+  - **Prerequisito**: la posta inviata va catturata anche nel primo giro e
+    nel resync sui thread ammessi (oggi `newer_than:7d -from:me`, e i thread
+    non noti restano fuori: `apps/worker/src/google/poller.ts`), o (d) dà
+    falsi positivi (un thread a cui si è risposto da Gmail).
+  - **Le automazioni** *(M)*: FUORI dal blocco. Le esecuzioni in
+    `waiting_event` con `replyTo` sono «noi aspettiamo il cliente» e restano
+    nel loro blocco.
+  - **Le tre decisioni** *(M, 14 nov 2026)*: soglia 24 ore; automazioni
+    fuori; una fetta a sé dopo la F3, con la cattura della posta inviata.
 
 - F2, S7, l'azione di Claude `setSubscription` *(O, 46, 14 nov 2026)*:
   - Golden: perimetro RIDOTTO autorizzato dal maintainer (perimetro (a)):

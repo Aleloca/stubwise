@@ -1,11 +1,12 @@
 import fastifyCors from "@fastify/cors";
 import {
+  normalizeWidgetOrigin,
   widgetChatMessageBodySchema,
   widgetConversationCreateBodySchema,
   widgetSettingsSchema,
   widgetTicketConfirmBodySchema,
 } from "@stubwise/shared";
-import { and, asc, count, desc, eq, gte, isNotNull, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, isNotNull } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -15,12 +16,12 @@ import {
   widgetMessages,
   widgets,
 } from "@stubwise/db";
-import { publishCustomerRepliedAlert } from "@stubwise/notifications";
 import { keysMatch } from "../ingest/shared.js";
 import { maybeEnqueueBacklogIntake } from "../backlog/enqueue.js";
 import { createTicket } from "../db/tickets.js";
 import { errorSchema, unprocessableEntityFormatter } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
+import { openConversationFor } from "../services/support-continuation.js";
 import { apiError } from "../errors.js";
 import { retrieveChunksForProject } from "./docs-retrieval.js";
 import { buildCitations, CHAT_RETRIEVAL_K } from "./docs-rag.js";
@@ -138,8 +139,30 @@ export async function widgetRoutes(
       await apiError(reply, 401, "invalid_ingestion_key", "Invalid ingestion key");
       return;
     }
+    // Area 8, F3, S16: i siti ammessi. Elenco vuoto = qualunque sito (i widget
+    // installati prima); pieno = un'`Origin` assente o fuori elenco è rifiutata
+    // qui, prima di ogni scrittura e di ogni chiamata al modello. L'origine
+    // dell'istanza è sempre ammessa (l'anteprima nell'app). L'`Origin` la
+    // falsifica chiunque non sia un browser: protegge dall'embed su siti
+    // altrui, l'autenticazione resta la chiave.
+    if (matched.allowedOrigins.length > 0 && !originAllowed(request.headers.origin, matched.allowedOrigins)) {
+      await apiError(reply, 403, "origin_not_allowed", "This site may not load the widget");
+      return;
+    }
     request.widget = matched;
     request.widgetProject = { id: project.id, name: project.name };
+  };
+
+  const ownOrigin = (() => {
+    try {
+      return new URL(app.publicUrl).origin;
+    } catch {
+      return null;
+    }
+  })();
+  const originAllowed = (header: string | undefined, allowed: readonly string[]): boolean => {
+    const origin = typeof header === "string" ? normalizeWidgetOrigin(header) : null;
+    return origin !== null && (origin === ownOrigin || allowed.includes(origin));
   };
 
   // Bucket per chiave del progetto (fallback IP per le richieste senza header):
@@ -173,6 +196,7 @@ export async function widgetRoutes(
         response: {
           200: configResponseSchema,
           401: errorSchema,
+          403: errorSchema,
         },
       },
     },
@@ -236,6 +260,7 @@ export async function widgetRoutes(
         response: {
           200: z.object({ conversationId: z.uuid() }),
           401: errorSchema,
+          403: errorSchema,
           404: errorSchema,
         },
       },
@@ -289,13 +314,11 @@ export async function widgetRoutes(
           slug: z.string().min(1),
           conversationId: z.uuid(),
         }),
-        // `after` (area 8, F3, S4): solo i messaggi DOPO quello dato, per leggere
-        // le risposte del team mentre il pannello è aperto. Un id che non è di
-        // questa conversazione dà la storia intera.
-        querystring: z.object({ userId: z.string().min(1), after: z.uuid().optional() }),
+        querystring: z.object({ userId: z.string().min(1) }),
         response: {
           200: z.object({ messages: z.array(messageSchema) }),
           401: errorSchema,
+          403: errorSchema,
           404: errorSchema,
         },
       },
@@ -306,7 +329,7 @@ export async function widgetRoutes(
         return apiError(reply, 404, "widget_disabled", "Widget not available");
       }
       const { conversationId } = request.params;
-      const { userId, after } = request.query;
+      const { userId } = request.query;
 
       const [conversation] = await app.db
         .select({ externalUserId: widgetConversations.externalUserId })
@@ -325,15 +348,6 @@ export async function widgetRoutes(
         return apiError(reply, 404, "conversation_not_found", "Conversation not found");
       }
 
-      // L'ancora di `after`, SOLO se è un messaggio di questa conversazione.
-      const [anchor] = after
-        ? await app.db
-            .select({ id: widgetMessages.id })
-            .from(widgetMessages)
-            .where(and(eq(widgetMessages.id, after), eq(widgetMessages.conversationId, conversationId)))
-        : [];
-      // L'autore di un messaggio del team non esce mai: il cliente vede il
-      // team come il widget, mai una persona.
       const rows = await app.db
         .select({
           id: widgetMessages.id,
@@ -344,16 +358,7 @@ export async function widgetRoutes(
           createdAt: widgetMessages.createdAt,
         })
         .from(widgetMessages)
-        .where(
-          and(
-            eq(widgetMessages.conversationId, conversationId),
-            anchor
-              ? // Il confronto col `created_at` dell'ancora letto in SQL: il DB tiene i
-                // microsecondi, un `Date` solo i millisecondi (l'ancora tornerebbe).
-                sql`(${widgetMessages.createdAt}, ${widgetMessages.id}) > (select a.created_at, a.id from ${widgetMessages} a where a.id = ${anchor.id})`
-              : undefined,
-          ),
-        )
+        .where(eq(widgetMessages.conversationId, conversationId))
         // Tiebreaker su `id`: due messaggi con lo stesso createdAt (user+assistant
         // ravvicinati) devono avere un ordine stabile e deterministico.
         .orderBy(asc(widgetMessages.createdAt), asc(widgetMessages.id));
@@ -398,6 +403,7 @@ export async function widgetRoutes(
         // Restano gli errori PRIMA dello stream (401/404/429/503), path normale.
         response: {
           401: errorSchema,
+          403: errorSchema,
           404: errorSchema,
           429: errorSchema,
           503: errorSchema,
@@ -484,20 +490,22 @@ export async function widgetRoutes(
         return apiError(reply, 503, "chat_unavailable", "Chat is not available");
       }
 
+      // Area 8, F3, S17: una conversazione con un esito è CHIUSA; il messaggio
+      // va nella sua successiva (creata se manca, una sola). Dopo la proprietà,
+      // il cap e il pre-flight: è la prima scrittura.
+      const targetId = await openConversationFor(app.db, conversationId);
+
       // Persiste il messaggio utente PRIMA del retrieval/streaming, aggiorna il
       // last_message_at (ordina l'elenco viewer + alimenta il cap del giorno).
       await app.db.insert(widgetMessages).values({
-        conversationId,
+        conversationId: targetId,
         role: "user",
         content,
       });
       await app.db
         .update(widgetConversations)
         .set({ lastMessageAt: new Date() })
-        .where(eq(widgetConversations.id, conversationId));
-      // Area 8, F3 (S7): su una conversazione con un esito, chi segue (e gli
-      // iscritti) sa che il cliente ha scritto. Best-effort: non lancia.
-      await publishCustomerRepliedAlert(app.db, app.publicUrl, conversationId, content);
+        .where(eq(widgetConversations.id, targetId));
 
       // RETRIEVAL cross-repo FILTRATO ai soli repo esposti dal widget
       // (enabledRepositoryIds). Se l'embedding è down fa fallback full-text.
@@ -523,7 +531,7 @@ export async function widgetRoutes(
       const recent = await app.db
         .select({ role: widgetMessages.role, content: widgetMessages.content })
         .from(widgetMessages)
-        .where(eq(widgetMessages.conversationId, conversationId))
+        .where(eq(widgetMessages.conversationId, targetId))
         .orderBy(desc(widgetMessages.createdAt), desc(widgetMessages.id))
         .limit(WIDGET_HISTORY_PAIRS * 2);
       const history = recent
@@ -540,11 +548,13 @@ export async function widgetRoutes(
         chatLlm: app.chatLlm,
         request,
         reply,
-        conversationId,
+        conversationId: targetId,
+        // Il widget impara l'id della successiva (un widget vecchio ignora l'evento).
+        announceConversation: targetId !== conversationId,
         system,
         history,
         citations,
-        logContext: { projectId: project.id, conversationId },
+        logContext: { projectId: project.id, conversationId: targetId },
         projectId: project.id,
       });
     },
@@ -574,8 +584,11 @@ export async function widgetRoutes(
         }),
         body: widgetTicketConfirmBodySchema,
         response: {
-          200: z.object({ ticketId: z.uuid(), number: z.number().int() }),
+          // `conversationId` (area 8, F3, S17, additivo): dove è finita la conferma
+          // (la successiva, se la conversazione era chiusa).
+          200: z.object({ ticketId: z.uuid(), number: z.number().int(), conversationId: z.uuid() }),
           401: errorSchema,
+          403: errorSchema,
           404: errorSchema,
           429: errorSchema,
         },
@@ -646,12 +659,15 @@ export async function widgetRoutes(
       const language = widgetSettingsSchema.shape.language.safeParse(widget.language);
       const lang = language.success ? language.data : "it";
 
+      // Area 8, F3, S17: su una conversazione chiusa la conferma va alla successiva.
+      const targetId = await openConversationFor(app.db, conversationId);
+
       // Ultimi N messaggi PRIMA della conferma, in ordine cronologico (DESC +
       // reverse per l'indice, tiebreaker su id come lo storico).
       const recent = await app.db
         .select({ role: widgetMessages.role, content: widgetMessages.content })
         .from(widgetMessages)
-        .where(eq(widgetMessages.conversationId, conversationId))
+        .where(eq(widgetMessages.conversationId, targetId))
         .orderBy(desc(widgetMessages.createdAt), desc(widgetMessages.id))
         .limit(WIDGET_TICKET_TRANSCRIPT_MESSAGES);
       const transcript = recent.reverse();
@@ -695,7 +711,7 @@ export async function widgetRoutes(
             ? `Report submitted: #${created.number}`
             : `Segnalazione registrata: #${created.number}`;
         await tx.insert(widgetMessages).values({
-          conversationId,
+          conversationId: targetId,
           role: "assistant",
           content: confirmation,
           ticketId: created.id,
@@ -703,11 +719,11 @@ export async function widgetRoutes(
         await tx
           .update(widgetConversations)
           .set({ lastMessageAt: new Date() })
-          .where(eq(widgetConversations.id, conversationId));
+          .where(eq(widgetConversations.id, targetId));
         return created;
       });
 
-      return { ticketId: ticket.id, number: ticket.number };
+      return { ticketId: ticket.id, number: ticket.number, conversationId: targetId };
     },
   );
 }

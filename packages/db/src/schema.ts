@@ -1815,7 +1815,6 @@ export const notificationKind = pgEnum("notification_kind", [
   "docs.release_note",
   // Area 8, fetta 3 (0179): Support.
   "support.request",
-  "support.customer_replied",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),
@@ -2819,6 +2818,12 @@ export const widgets = pgTable(
       .$type<Record<string, { paths: string[]; slugs: string[]; kinds?: string[] }>>()
       .notNull()
       .default({}),
+    /**
+     * Area 8, F3 (0179, S16): i siti ammessi (`https://host[:porta]`). Vuoto =
+     * qualunque sito (i widget installati prima); pieno = le rotte pubbliche
+     * rifiutano un'`Origin` assente o fuori elenco.
+     */
+    allowedOrigins: text("allowed_origins").array().notNull().default(sql`'{}'::text[]`),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   // Elenco dei widget di un progetto.
@@ -2865,19 +2870,16 @@ export const widgetConversations = pgTable(
     triageOutcomeByUserId: uuid("triage_outcome_by_user_id").references(() => users.id, { onDelete: "set null" }),
     /** L'ultimo controllo del worker: uno per silenzio. */
     triageCheckedAt: timestamp("triage_checked_at", { withTimezone: true }),
-    /** La bozza di Claude della conversazione: UNA, mai inviata da sola. */
-    claudeDraft: text("claude_draft"),
-    claudeDraftAt: timestamp("claude_draft_at", { withTimezone: true }),
-    /** L'ultimo messaggio del cliente che la bozza ha letto (nessuna FK: è un segnalibro). */
-    claudeDraftThrough: uuid("claude_draft_through"),
-    /** La raffica: quando preparare la bozza (si sposta a ogni messaggio del cliente). */
-    draftDueAt: timestamp("draft_due_at", { withTimezone: true }),
+    /**
+     * La conversazione che ha preso il posto di questa dopo la chiusura (un
+     * esito): un messaggio del cliente su una chiusa va lì (F3, S17).
+     */
+    continuedInId: uuid("continued_in_id").references((): AnyPgColumn => widgetConversations.id, { onDelete: "set null" }),
   },
   (table) => [
     // Elenco delle conversazioni di un progetto, le più recenti prima.
     index("widget_conversations_project_idx").on(table.projectId, table.lastMessageAt),
     unique("widget_conversations_project_number_unique").on(table.projectId, table.number),
-    index("widget_conversations_draft_due_idx").on(table.draftDueAt).where(sql`${table.draftDueAt} IS NOT NULL`),
     index("widget_conversations_intake_job_idx").on(table.intakeJobId).where(sql`${table.intakeJobId} IS NOT NULL`),
     check("widget_conversations_channel_chk", sql`${table.channel} in ('widget', 'mcp')`),
     check("widget_conversations_triage_outcome_chk", sql`${table.triageOutcome} in ('concluded', 'not_concluded')`),
@@ -2898,13 +2900,13 @@ export const widgetMessages = pgTable(
     conversationId: uuid("conversation_id")
       .notNull()
       .references(() => widgetConversations.id, { onDelete: "cascade" }),
-    // "user" | "assistant" | "team" (area 8, F3: la risposta di una persona):
-    // registro libero (non enum) per estensibilità futura.
+    // "user" | "assistant" | "team" (area 8, F3: la risposta di una persona
+    // a un collaboratore, SOLO sul canale `mcp`): registro libero (non enum).
     role: text("role").notNull(),
     content: text("content").notNull(),
     citations: jsonb("citations"),
     ticketId: uuid("ticket_id").references(() => tickets.id, { onDelete: "set null" }),
-    /** Area 8, F3 (0179): chi del team ha scritto (`role: "team"`). */
+    /** Area 8, F3 (0179): chi del team ha scritto (`role: "team"`, canale `mcp`). */
     authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
     /** L'id che il client dà a una risposta: un doppio invio non manda due messaggi. */
     clientId: uuid("client_id"),
@@ -2915,21 +2917,6 @@ export const widgetMessages = pgTable(
     index("widget_messages_conversation_idx").on(table.conversationId),
     uniqueIndex("widget_messages_client_id_idx").on(table.conversationId, table.clientId).where(sql`${table.clientId} IS NOT NULL`),
   ],
-);
-
-/** Area 8, F3 (0179): chi segue una conversazione di Support (l'avviso obbligatorio `support.customer_replied`). */
-export const supportFollowers = pgTable(
-  "support_followers",
-  {
-    conversationId: uuid("conversation_id")
-      .notNull()
-      .references(() => widgetConversations.id, { onDelete: "cascade" }),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [primaryKey({ name: "support_followers_pk", columns: [table.conversationId, table.userId] })],
 );
 
 // ---------------------------------------------------------------------------

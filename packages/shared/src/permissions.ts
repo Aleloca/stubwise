@@ -139,12 +139,13 @@ export const PROJECT_PERMISSIONS = [
    */
   "automations.manage",
   /**
-   * Support, area 8 (fetta 3, 0179, S-7): rispondere ai clienti e vedere le
-   * bozze di Claude. Ai preset Project Lead, Developer e Legacy Member (la
-   * regola dei preset); Contributor e Viewer leggono le conversazioni ma non
-   * rispondono.
+   * Support, area 8 (fetta 3, 0179, S-7): gestire le conversazioni — aprire
+   * la richiesta da una conversazione (con `backlog.create`), segnarla non
+   * conclusa, rispondere ai collaboratori del canale `mcp` (al cliente del
+   * widget il team non scrive mai). Ai preset Project Lead, Developer e
+   * Legacy Member (la regola dei preset); Contributor e Viewer leggono.
    */
-  "support.reply",
+  "support.manage",
 ] as const;
 
 /**

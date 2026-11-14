@@ -207,6 +207,12 @@ interface StreamWidgetChatResponseArgs {
   logContext: Record<string, string>;
   /** Progetto del widget, a cui attribuire i consumi (null se ignoto). */
   projectId: string | null;
+  /**
+   * Area 8, F3, S17: la conversazione è la SUCCESSIVA di una chiusa. Il primo
+   * evento la annuncia (`conversation`), così il widget ne salva l'id; un
+   * widget vecchio ignora il tipo sconosciuto (c'è anche nel `done`).
+   */
+  announceConversation?: boolean;
 }
 
 /**
@@ -242,6 +248,8 @@ export async function streamWidgetChatResponse(
     // Coerente con la config CORS del plugin (origin: "*").
     "Access-Control-Allow-Origin": "*",
   });
+
+  if (args.announceConversation) writeSseEvent(reply, { type: "conversation", conversationId });
 
   const controller = new AbortController();
   let clientGone = false;

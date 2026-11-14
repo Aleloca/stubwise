@@ -93,7 +93,7 @@ export const PROJECT_PERMISSION_GROUPS: readonly PermissionGroup<ProjectPermissi
   // Area 7, le Automations del progetto.
   { id: "automations", permissions: ["automations.manage"] },
   // Area 8, F3: Support, le risposte ai clienti.
-  { id: "support", permissions: ["support.reply"] },
+  { id: "support", permissions: ["support.manage"] },
 ];
 
 /** I permessi di reparto (fetta 3): si danno dalla pagina Reparti, non dai ruoli. */

@@ -5,7 +5,6 @@ import {
   supportConversationListSchema,
   supportConversationSchema,
   supportCustomerPreviewSchema,
-  supportEmailDraftSchema,
   supportOpenRequestBodySchema,
   supportOpenRequestResultSchema,
   supportReplyBodySchema,
@@ -39,27 +38,28 @@ describe("supportConversationSchema", () => {
       customer: { name: null, email: null },
       messages: [],
       lastMessage: null,
-      waitingSince: null,
       rewrittenWish: null,
       confirmedAt: null,
       triage: null,
       request: null,
       task: null,
-      claudeDraft: null,
-      claudeDraftAt: null,
-      claudeDraftPending: false,
-      following: false,
-      canReply: false,
-      replyClosed: null,
       canOpenRequest: false,
       canMarkNotConcluded: false,
-      emailBlocked: null,
+      canReplyToCollaborator: false,
+      continuedIn: null,
+      continuedFrom: null,
     });
   });
 
   it("il giudizio porta il suo autore (null = il controllo del worker)", () => {
     const v = supportConversationSchema.parse({ ...minimal, state: "answered", triage: { outcome: "concluded", at: "2026-11-14T10:20:00.000Z" } });
     expect(v.triage).toEqual({ outcome: "concluded", at: "2026-11-14T10:20:00.000Z", byUserId: null });
+  });
+
+  it("la successiva di una chiusa e la sua origine", () => {
+    const v = supportConversationSchema.parse({ ...minimal, state: "request_open", continuedIn: { code: "ACQ-S3" } });
+    expect(v.continuedIn).toEqual({ code: "ACQ-S3" });
+    expect(v.continuedFrom).toBeNull();
   });
 
   it("uno stato o un canale sconosciuti (un server più nuovo) non fanno crollare l'elenco nel client", () => {
@@ -74,7 +74,7 @@ describe("le altre forme", () => {
     expect(Object.keys(p.messages[0]!)).toEqual(["from", "body", "at"]);
   });
 
-  it("la risposta: un testo non vuoto, `clientId` facoltativo", () => {
+  it("la risposta al collaboratore: un testo non vuoto, `clientId` facoltativo", () => {
     expect(supportReplyBodySchema.safeParse({ body: "  " }).success).toBe(false);
     expect(supportReplyBodySchema.parse({ body: " Ciao " })).toEqual({ body: "Ciao" });
   });
@@ -83,11 +83,6 @@ describe("le altre forme", () => {
     expect(supportOpenRequestBodySchema.safeParse({ title: "", description: "" }).success).toBe(false);
     const r = supportOpenRequestResultSchema.parse({ conversation: minimal, request: { id: P, code: "ACQ-R14" } });
     expect(r.request.code).toBe("ACQ-R14");
-  });
-
-  it("la bozza email: lo slot della conversazione", () => {
-    const d = supportEmailDraftSchema.parse({ slot: "support-ACQ-S2", to: { email: "m@x.it" }, subject: "s", body: "b" });
-    expect(d.to).toEqual({ name: null, email: "m@x.it" });
   });
 
   it("la provenienza di una richiesta e la conversazione di una task: assenti → null (server più vecchio)", () => {

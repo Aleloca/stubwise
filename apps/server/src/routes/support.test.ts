@@ -9,8 +9,9 @@ import { addMember, createUserWithPat, seedUsers } from "../test/fixtures.js";
 
 /**
  * Support, le letture per i membri (area 8, F3, S2): elenco, dettaglio,
- * anteprima del cliente, «Clienti in attesa». Lo stato si deriva; ciò che chi
- * guarda può fare lo dice il server; un progetto invisibile è 404.
+ * anteprima del cliente. Lo stato si deriva (una conversazione con un esito è
+ * chiusa); ciò che chi guarda può fare lo dice il server; un progetto
+ * invisibile è 404.
  */
 
 let t: TestDb;
@@ -57,7 +58,7 @@ async function message(conversationId: string, role: "user" | "assistant" | "tea
 }
 
 describe("Support, le letture (area 8, F3, S2)", () => {
-  it("gli stati si derivano: triage, answered, not_concluded, waiting_us, reply_sent, request_open; chi aspetta noi in cima", async () => {
+  it("gli stati si derivano: triage, answered, not_concluded, request_open (una con esito è chiusa); le non concluse in cima", async () => {
     const { projectId } = await seedRepository(t.db);
     const dev = await person("developer", projectId);
     const triage = await conversation(projectId);
@@ -69,34 +70,35 @@ describe("Support, le letture (area 8, F3, S2)", () => {
     const notConcluded = await conversation(projectId);
     await message(notConcluded.id, "user", 1);
     await t.db.update(widgetConversations).set({ triageOutcome: "not_concluded", triageOutcomeAt: at(20) }).where(eq(widgetConversations.id, notConcluded.id));
-    const waiting = await conversation(projectId);
-    await message(waiting.id, "user", 1);
-    await message(waiting.id, "user", 3);
+    // Con una richiesta legata: chiusa, anche se l'ultimo messaggio è del cliente.
+    const withRequest = await conversation(projectId);
+    await message(withRequest.id, "user", 1);
+    await message(withRequest.id, "user", 3);
     const { itemId } = await seedBacklogItem(t.db, { projectId });
-    await t.db.update(backlogItems).set({ supportConversationId: waiting.id }).where(eq(backlogItems.id, itemId));
-    const replied = await conversation(projectId);
+    await t.db.update(backlogItems).set({ supportConversationId: withRequest.id }).where(eq(backlogItems.id, itemId));
+    const withTicket = await conversation(projectId);
     const { ticketId } = await seedTicket(t.db, { projectId, number: 900 });
-    await message(replied.id, "user", 1, { ticketId });
-    await message(replied.id, "team", 4);
+    await message(withTicket.id, "user", 1, { ticketId });
+    await message(withTicket.id, "assistant", 4);
 
     const items = await list(dev.headers, projectId);
     const stateOf = (code: string) => items.find((i) => i.code === code)!.state;
     expect(stateOf(triage.code)).toBe("triage");
     expect(stateOf(answered.code)).toBe("answered");
     expect(stateOf(notConcluded.code)).toBe("not_concluded");
-    expect(stateOf(waiting.code)).toBe("waiting_us");
-    expect(stateOf(replied.code)).toBe("reply_sent");
-    expect(items[0]!.code).toBe(waiting.code);
+    expect(stateOf(withRequest.code)).toBe("request_open");
+    expect(stateOf(withTicket.code)).toBe("request_open");
+    expect(items[0]!.code).toBe(notConcluded.code);
     expect(items.at(-1)!.code).toBe(answered.code);
     // Nell'elenco i messaggi sono vuoti, c'è l'ultimo.
-    expect(items[0]!.messages).toEqual([]);
-    expect(items[0]!.lastMessage).toMatchObject({ from: "customer", body: "user 3" });
-    expect(items[0]!.waitingSince).toBe(at(1).toISOString());
+    const listed = items.find((i) => i.code === withRequest.code)!;
+    expect(listed.messages).toEqual([]);
+    expect(listed.lastMessage).toMatchObject({ from: "customer", body: "user 3" });
     // Il filtro per stato.
     expect((await list(dev.headers, projectId, "answered")).map((i) => i.code)).toEqual([answered.code]);
     // Un ticket del widget è l'esito: il blocco della task.
-    expect(items.find((i) => i.code === replied.code)!.task).toMatchObject({ code: expect.stringMatching(/-900$/), customerStatus: "planned" });
-    expect(items.find((i) => i.code === waiting.code)!.request).toMatchObject({ status: "new", customerStatus: "received" });
+    expect(items.find((i) => i.code === withTicket.code)!.task).toMatchObject({ code: expect.stringMatching(/-900$/), customerStatus: "planned" });
+    expect(listed.request).toMatchObject({ status: "new", customerStatus: "received" });
   });
 
   it("un messaggio del cliente DOPO il giudizio lo rende vecchio: di nuovo in triage", async () => {
@@ -109,29 +111,25 @@ describe("Support, le letture (area 8, F3, S2)", () => {
     expect((await detail(dev.headers, c.code)).state).toBe("triage");
   });
 
-  it("ciò che chi guarda può fare lo dice il server: Contributor no, Developer sì; la bozza solo a chi risponde", async () => {
+  it("ciò che chi guarda può fare lo dice il server: Contributor no, Developer sì (support.manage)", async () => {
     const { projectId } = await seedRepository(t.db);
     const contributor = await person("contributor", projectId);
     const dev = await person("developer", projectId);
     const c = await conversation(projectId);
     await message(c.id, "user", 1);
-    await t.db
-      .update(widgetConversations)
-      .set({ triageOutcome: "concluded", triageOutcomeAt: at(20), claudeDraft: "Ciao Mario", claudeDraftAt: at(21) })
-      .where(eq(widgetConversations.id, c.id));
-    const asContributor = await detail(contributor.headers, c.code);
-    expect(asContributor).toMatchObject({ canReply: false, claudeDraft: null, claudeDraftAt: null, canMarkNotConcluded: false, emailBlocked: "no_permission" });
-    const asDev = await detail(dev.headers, c.code);
-    expect(asDev).toMatchObject({ canReply: true, claudeDraft: "Ciao Mario", canMarkNotConcluded: true, emailBlocked: "no_mailbox", replyClosed: null });
+    await t.db.update(widgetConversations).set({ triageOutcome: "concluded", triageOutcomeAt: at(20) }).where(eq(widgetConversations.id, c.id));
+    expect(await detail(contributor.headers, c.code)).toMatchObject({ canMarkNotConcluded: false, canReplyToCollaborator: false });
+    // Sul widget nessuno risponde al cliente, nemmeno chi ha support.manage.
+    expect(await detail(dev.headers, c.code)).toMatchObject({ canMarkNotConcluded: true, canReplyToCollaborator: false });
   });
 
-  it("in triage la casella è chiusa; su una non conclusa «Apri la richiesta» per chi ha backlog.create", async () => {
+  it("su una non conclusa «Apri la richiesta» per chi ha support.manage e backlog.create; non in triage", async () => {
     const { projectId } = await seedRepository(t.db);
     const dev = await person("developer", projectId);
     const viewer = await person("viewer", projectId);
     const triage = await conversation(projectId);
     await message(triage.id, "user", 1);
-    expect(await detail(dev.headers, triage.code)).toMatchObject({ replyClosed: "triage", emailBlocked: "triage", canOpenRequest: false });
+    expect((await detail(dev.headers, triage.code)).canOpenRequest).toBe(false);
     const nc = await conversation(projectId);
     await message(nc.id, "user", 1);
     await t.db.update(widgetConversations).set({ triageOutcome: "not_concluded", triageOutcomeAt: at(20) }).where(eq(widgetConversations.id, nc.id));
@@ -139,11 +137,22 @@ describe("Support, le letture (area 8, F3, S2)", () => {
     expect((await detail(viewer.headers, nc.code)).canOpenRequest).toBe(false);
   });
 
-  it("il dettaglio: i messaggi interi, l'autore del team, il widget; senza email del cliente lo dice", async () => {
+  it("la successiva di una chiusa: «continua in» sulla chiusa, «seguito di» sulla successiva", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const dev = await person("developer", projectId);
+    const closed = await conversation(projectId);
+    const next = await conversation(projectId);
+    await t.db.update(widgetConversations).set({ continuedInId: next.id }).where(eq(widgetConversations.id, closed.id));
+    expect(await detail(dev.headers, closed.code)).toMatchObject({ continuedIn: { code: next.code }, continuedFrom: null });
+    expect(await detail(dev.headers, next.code)).toMatchObject({ continuedIn: null, continuedFrom: { code: closed.code } });
+  });
+
+  it("il dettaglio: i messaggi interi, l'autore del team (canale mcp), il widget", async () => {
     const { projectId } = await seedRepository(t.db);
     const dev = await person("developer", projectId);
     const [w] = await t.db.insert(widgets).values({ projectId, name: "Sito Acquaviva", key: randomUUID() }).returning();
     const c = await conversation(projectId, { email: null, widgetId: w!.id });
+    await t.db.update(widgetConversations).set({ channel: "mcp" }).where(eq(widgetConversations.id, c.id));
     const { itemId } = await seedBacklogItem(t.db, { projectId });
     await t.db.update(backlogItems).set({ supportConversationId: c.id }).where(eq(backlogItems.id, itemId));
     await message(c.id, "user", 1);
@@ -152,7 +161,7 @@ describe("Support, le letture (area 8, F3, S2)", () => {
     const v = await detail(dev.headers, c.code);
     expect(v.messages.map((m) => m.from)).toEqual(["customer", "triage", "team"]);
     expect(v.messages[2]!.authorId).toBe(dev.id);
-    expect(v).toMatchObject({ widgetName: "Sito Acquaviva", state: "reply_sent", emailBlocked: "no_email", customer: { name: "Mario Bianchi", email: null } });
+    expect(v).toMatchObject({ widgetName: "Sito Acquaviva", state: "request_open", canReplyToCollaborator: true, customer: { name: "Mario Bianchi", email: null } });
   });
 
   it("un progetto invisibile risponde come inesistente; un codice storto o assente è 404", async () => {
@@ -168,40 +177,24 @@ describe("Support, le letture (area 8, F3, S2)", () => {
     expect((await get(insider.headers, `/api/support/conversations/by-code/storto`)).statusCode).toBe(404);
   });
 
-  it("l'anteprima del cliente: solo «customer» e «us», nessun autore, nessuna bozza; lo stato in parole", async () => {
+  it("l'anteprima del cliente: solo «customer» e «us», nessun autore; lo stato in parole", async () => {
     const { projectId } = await seedRepository(t.db);
     const dev = await person("developer", projectId);
     const c = await conversation(projectId);
     await message(c.id, "user", 1);
     await message(c.id, "assistant", 2);
     await message(c.id, "team", 3, { authorId: dev.id });
-    await t.db.update(widgetConversations).set({ claudeDraft: "BOZZA SEGRETA" }).where(eq(widgetConversations.id, c.id));
     const res = await get(dev.headers, `/api/support/conversations/by-code/${c.code}/preview`);
     const p = res.json() as SupportCustomerPreview;
     expect(p.messages.map((m) => m.from)).toEqual(["customer", "us", "us"]);
     expect(res.body).not.toContain(dev.id);
-    expect(res.body).not.toContain("BOZZA SEGRETA");
     expect(p.status).toBe("received");
   });
 
-  it("«Clienti in attesa»: solo chi aspetta noi, nei progetti con support.reply; dalla più vecchia attesa", async () => {
+  it("«Clienti in attesa» non è più di Support (premessa corretta): la rotta non c'è", async () => {
     const { projectId } = await seedRepository(t.db);
     const dev = await person("developer", projectId);
-    const contributor = await person("contributor", projectId);
-    const linked = async (min: number) => {
-      const c = await conversation(projectId);
-      await message(c.id, "user", min);
-      const { itemId } = await seedBacklogItem(t.db, { projectId });
-      await t.db.update(backlogItems).set({ supportConversationId: c.id }).where(eq(backlogItems.id, itemId));
-      return c;
-    };
-    const late = await linked(9);
-    const early = await linked(2);
-    const notWaiting = await conversation(projectId);
-    await message(notWaiting.id, "user", 1);
-    const waiting = ((await get(dev.headers, "/api/me/waiting-customers")).json() as { items: SupportConversation[] }).items.filter((i) => i.projectId === projectId);
-    expect(waiting.map((i) => i.code)).toEqual([early.code, late.code]);
-    expect(((await get(contributor.headers, "/api/me/waiting-customers")).json() as { items: SupportConversation[] }).items.filter((i) => i.projectId === projectId)).toEqual([]);
+    expect((await get(dev.headers, "/api/me/waiting-customers")).statusCode).toBe(404);
   });
 
   it("S6: la provenienza di una richiesta e la conversazione di una task del widget si DERIVANO a lettura (null per le altre)", async () => {
