@@ -34,7 +34,8 @@ type WidgetRow = typeof widgets.$inferSelect;
 
 /** Il corpo senza `origins`, che in tabella si chiama `allowed_origins`. */
 function withoutOrigins<T extends { origins?: unknown }>(body: T): Omit<T, "origins"> {
-  const { origins: _origins, ...rest } = body;
+  const rest: T = { ...body };
+  delete rest.origins;
   return rest;
 }
 
