@@ -640,7 +640,8 @@ describe("pickTrialExamples", () => {
     expect(richiesta.progetto).toBe("ACQ");
     // Scritto per non passare, non passa.
     for (const r of state.requests) r.urgency = "high";
-    for (const r of state.requests) r.origin = { kind: "support", conversationId: "x" };
+    for (const r of state.requests)
+      r.origin = { kind: "support", conversationId: "x", conversationCode: "ACQ-S9" };
     const [fail] = pickTrialExamples(LAURA, a.id, ["fails"]);
     expect(fail!.written).toBe(true);
     expect(evaluate(URGENT_FILTER, (k) => lookup(fail!.event, k))).toBe(false);
@@ -658,7 +659,7 @@ describe("pickTrialExamples", () => {
     const hidden = state.requests.find((r) => !visibleProjectIds(MATTEO).has(r.projectId))!;
     expect(hidden).toBeDefined();
     hidden.urgency = "high";
-    hidden.origin = { kind: "support", conversationId: "x" };
+    hidden.origin = { kind: "support", conversationId: "x", conversationCode: "ACQ-S9" };
     hidden.createdAt = "2999-01-01T00:00:00.000Z";
     const a = createAutomationAs(MATTEO, { name: "Urgenti", projectId: null, flow: urgentFlow() });
     for (const want of ["passes", "fails"] as const) {

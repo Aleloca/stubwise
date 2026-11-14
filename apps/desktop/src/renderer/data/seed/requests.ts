@@ -56,13 +56,15 @@ const ROWS: Row[] = [
 // Le richieste nate da una conversazione di Support (area 8a): nessun
 // richiedente del team (è un cliente), il testo è il desiderio riscritto dal
 // triage. Una richiesta non nasce MAI da un'email.
-const FROM_SUPPORT: Record<string, { conversationId: string; description: string }> =
-  Object.fromEntries(
-    SUPPORT_CONVERSATIONS.filter((c) => c.requestId !== null).map((c) => [
-      c.requestId!,
-      { conversationId: c.id, description: c.rewrittenWish! },
-    ]),
-  );
+const FROM_SUPPORT: Record<
+  string,
+  { conversationId: string; conversationCode: string; description: string }
+> = Object.fromEntries(
+  SUPPORT_CONVERSATIONS.filter((c) => c.requestId !== null).map((c) => [
+    c.requestId!,
+    { conversationId: c.id, conversationCode: c.code, description: c.rewrittenWish! },
+  ]),
+);
 
 // Area 11b: le richieste aperte da una pagina della doc di prodotto (Phases),
 // ciascuna sulla frase da cui è nata. Il testo è di chi l'ha aperta.
@@ -162,7 +164,13 @@ export const REQUESTS: ProjectRequest[] = ROWS.map(
     createdAt: `${daysFromToday(-days)}T11:00:00Z`,
     suggestions: SUGGESTIONS[id] ?? null,
     ...(FROM_SUPPORT[id]
-      ? { origin: { kind: "support" as const, conversationId: FROM_SUPPORT[id].conversationId } }
+      ? {
+          origin: {
+            kind: "support" as const,
+            conversationId: FROM_SUPPORT[id].conversationId,
+            conversationCode: FROM_SUPPORT[id].conversationCode,
+          },
+        }
       : FROM_PRODUCT_DOC[id]
         ? { origin: { ...FROM_PRODUCT_DOC[id].origin } }
         : {}),

@@ -343,7 +343,7 @@ describe("scritture", () => {
     ]);
     expect(a.request!.id).toBe(b.request!.id);
     const req = state.requests.find((r) => r.id === a.request!.id)!;
-    expect(req.origin).toEqual({ kind: "support", conversationId: conv("ACQ-S3").id });
+    expect(req.origin).toEqual({ kind: "support", conversationId: conv("ACQ-S3").id, conversationCode: "ACQ-S3" });
     expect(req.requesterIds).toEqual([]);
     expect(state.requests.filter((r) => r.title === "Logged out often")).toHaveLength(1);
     expect(a.state).toBe("request_open");
@@ -475,7 +475,7 @@ describe("simulazioni e avvisi", () => {
     expect(view.state).toBe("request_open");
     expect(view.confirmedAt).not.toBeNull();
     const req = state.requests.find((r) => r.id === conv("ACQ-S1").requestId)!;
-    expect(req.origin).toEqual({ kind: "support", conversationId: conv("ACQ-S1").id });
+    expect(req.origin).toEqual({ kind: "support", conversationId: conv("ACQ-S1").id, conversationCode: "ACQ-S1" });
     expect(req.description).toBe(conv("ACQ-S1").rewrittenWish);
     expect(state.notifications.at(-1)).toMatchObject({
       kind: "support.request",
@@ -490,7 +490,7 @@ describe("simulazioni e avvisi", () => {
     const s4 = (await support.getSupportConversation("ACQ-S4"))!;
     expect(s4.channel).toBe("mcp");
     const req = state.requests.find((r) => r.id === s4.request!.id)!;
-    expect(req.origin).toEqual({ kind: "support", conversationId: s4.id });
+    expect(req.origin).toEqual({ kind: "support", conversationId: s4.id, conversationCode: s4.code });
     expect(s4.messages.length).toBeGreaterThan(0);
   });
 });

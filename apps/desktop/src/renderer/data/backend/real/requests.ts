@@ -87,6 +87,10 @@ function fromView(v: ProjectRequestView): ProjectRequest {
     createdAt: v.createdAt,
     suggestions: v.suggestions ?? null,
     ...(v.webHref ? { webHref: v.webHref } : {}),
+    // Nata da una conversazione di Support (area 8, F3): il codice; l'id la build app non lo riceve.
+    ...(v.origin?.kind === "support"
+      ? { origin: { kind: "support", conversationId: null, conversationCode: v.origin.conversationCode } }
+      : {}),
   } as ProjectRequest;
 }
 

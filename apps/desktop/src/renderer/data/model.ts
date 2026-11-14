@@ -679,7 +679,14 @@ export interface ProjectRequest {
    * Una richiesta non nasce MAI da un'email: una domanda nata da un'email
    * porta alla pagina, non all'email.
    */
-  origin?: { kind: "support"; conversationId: string } | ProductDocOrigin;
+  /**
+   * Da dove viene. Support: il codice della conversazione (`ACQ-S3`), lo
+   * stesso del server (area 8, F3); l'id lo ha solo il prototipo (`null`
+   * nella build app, che non lo riceve).
+   */
+  origin?:
+    | { kind: "support"; conversationId: string | null; conversationCode: string }
+    | ProductDocOrigin;
   /**
    * 11b (P38): la pagina della doc di prodotto da cui nasce, come la legge
    * chi guarda («Dalla doc: <pagina>»). Derivata a lettura (`getRequest`,

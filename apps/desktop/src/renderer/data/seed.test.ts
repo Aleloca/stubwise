@@ -803,7 +803,7 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
       if (c.requestId) {
         const request = requestsById.get(c.requestId)!;
         expect(request.projectId).toBe(c.projectId);
-        expect(request.origin).toEqual({ kind: "support", conversationId: c.id });
+        expect(request.origin).toEqual({ kind: "support", conversationId: c.id, conversationCode: c.code });
       }
       for (const id of c.followerIds) expect(project.memberIds).toContain(id);
     }

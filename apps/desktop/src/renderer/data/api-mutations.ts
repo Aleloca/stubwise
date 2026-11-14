@@ -1062,7 +1062,7 @@ export function insertRequest(
     taskIds: [],
     createdAt: now(),
     ...(conv
-      ? { origin: { kind: "support" as const, conversationId: conv.id } }
+      ? { origin: { kind: "support" as const, conversationId: conv.id, conversationCode: conv.code } }
       : input.origin?.kind === "product_doc"
         ? { origin: productDocOriginOf(input.origin) }
         : {}),

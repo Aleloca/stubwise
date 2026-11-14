@@ -542,6 +542,7 @@ describe("Support — «Apri la richiesta» su una non conclusa", () => {
     expect(state.requests.at(-1)!.origin).toEqual({
       kind: "support",
       conversationId: conv("ACQ-S3").id,
+      conversationCode: "ACQ-S3",
     });
   });
 
