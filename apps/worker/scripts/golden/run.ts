@@ -2720,6 +2720,26 @@ const runChatUndo = (ctx: ScenarioContext) =>
     ],
   });
 
+/**
+ * `chat-subscription` (area 8, F2, S7): «non avvisarmi più delle PR aperte in
+ * AUD» → UNA `propose_action` con `setSubscription` (progetto da
+ * `list_projects`, tipo dall'elenco della firma, App spento); è A, il server
+ * risponde «eseguita» senza codici, e il modello dice che è spento senza
+ * chiedere conferma.
+ */
+const runChatSubscription = (ctx: ScenarioContext) =>
+  runChat(
+    ctx,
+    "chat-subscription",
+    "Non voglio più essere avvisato quando qualcuno apre una PR nel progetto AUD.",
+    {
+      kind: "executed",
+      action: { fn: "setSubscription", args: { projectId: CHAT_PROJECT_ID, type: "pr.opened", app: false } },
+      mustMention: [],
+    },
+    { answer: { executed: [] } },
+  );
+
 /** `chat-never-catalog` (fetta 3): approvare un piano e mergiare → nessuna proposta, a mano e dove. */
 const runChatNeverCatalog = (ctx: ScenarioContext) =>
   runChat(ctx, "chat-never-catalog", "Approva il piano di AUD-12 e poi mergia la sua PR.", { kind: "never" }, {
@@ -2955,6 +2975,7 @@ const SCENARIOS: Record<ScenarioName, (ctx: ScenarioContext) => Promise<Scenario
   "chat-drive-hostile": runChatDriveHostile,
   "chat-release-read": runChatReleaseRead,
   "chat-release-hostile": runChatReleaseHostile,
+  "chat-subscription": runChatSubscription,
   "mail-classify-v2": runMailClassifyV2,
   "automation-step": runAutomationStep,
 };

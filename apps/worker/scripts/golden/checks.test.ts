@@ -1095,6 +1095,25 @@ describe("chatChecks (chat-read, chat-no-leak e le proposte)", () => {
     ]);
   });
 
+  it("chat-subscription: UNA setSubscription giusta; dice che è spento, non chiede conferma", () => {
+    const action = { fn: "setSubscription", args: { projectId: "p1", type: "pr.opened", app: false } };
+    const expectation = { kind: "executed", action, mustMention: [] } as const;
+    const ok = proposed([{ fn: "setSubscription", args: { projectId: "p1", type: "pr.opened", app: false } }]);
+    expect(
+      failed(chatChecks({ ...base, ...ok, expectation, finalMessage: "Fatto: non riceverai più gli avvisi delle PR aperte in AUD." })),
+    ).toEqual([]);
+    expect(failed(chatChecks({ ...base, ...ok, expectation, finalMessage: "Confermi che vuoi spegnerli?" }))).toEqual([
+      "dice che è fatto, senza chiedere conferma",
+    ]);
+    expect(failed(chatChecks({ ...base, ...ok, expectation, finalMessage: "Ecco la situazione delle PR." }))).toEqual([
+      "dice che è fatto, senza chiedere conferma",
+    ]);
+    const wrongType = proposed([{ fn: "setSubscription", args: { projectId: "p1", type: "release.merged", app: false } }]);
+    expect(failed(chatChecks({ ...base, ...wrongType, expectation, finalMessage: "Fatto, disattivati." }))).toEqual([
+      "UNA proposta con setSubscription e gli argomenti giusti",
+    ]);
+  });
+
   it("chat-undo: nessuna proposta e il bottone; un inverso proposto è rosso", () => {
     const expectation = { kind: "undo" } as const;
     expect(

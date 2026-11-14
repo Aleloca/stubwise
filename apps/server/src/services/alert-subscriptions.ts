@@ -133,6 +133,26 @@ export async function setAlertSubscription(
   return (await rowsOf(db, viewer, input.projectId)).find((r) => r.type === input.type)!;
 }
 
+/**
+ * La riga di un tipo per chi chiede, coi valori di ADESSO (l'azione di Claude
+ * `setSubscription`, S7, ci legge «com'era» per «Annulla»). Gli stessi errori
+ * della rotta.
+ */
+export async function readAlertSubscription(db: Db, viewer: Viewer, projectId: string, type: string): Promise<AlertSubscriptionRow> {
+  const row = (await rowsOf(db, viewer, projectId)).find((r) => r.type === type);
+  if (!row) throw new AlertSubscriptionError(404, "alert_type_not_found", "No such alert type");
+  return row;
+}
+
+/** Quando è stata scritta l'ultima volta la riga `type` di chi chiede (`undefined`: mai). */
+export async function alertSubscriptionStamp(db: Db, userId: string, projectId: string, type: string): Promise<string | undefined> {
+  const [row] = await db
+    .select({ at: alertSubscriptions.updatedAt })
+    .from(alertSubscriptions)
+    .where(and(eq(alertSubscriptions.userId, userId), eq(alertSubscriptions.projectId, projectId), eq(alertSubscriptions.alertType, type)));
+  return row?.at.toISOString();
+}
+
 /** «Copia da»: le righe scrivibili di `projectId` prendono i valori di `fromProjectId`. Risponde con le righe di PRIMA. */
 export async function copyAlertSubscriptions(db: Db, viewer: Viewer, input: { projectId: string; fromProjectId: string }): Promise<AlertSubscriptionRow[]> {
   const before = await rowsOf(db, viewer, input.projectId);

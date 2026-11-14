@@ -4,6 +4,7 @@ import { isoWeekSchema, newTaskBodySchema, taskPatchSchema } from "./task-view.j
 import { milestoneDraftSchema } from "./milestone.js";
 import { newRequestBodySchema } from "./project-request.js";
 import { mailComposeModeSchema } from "./mail-compose.js";
+import { liveRowTypes } from "../alerts/catalog.js";
 
 /**
  * Il catalogo delle azioni di Claude (chat, fetta 3): l'elenco CHIUSO di ciò
@@ -38,6 +39,8 @@ export const CLAUDE_ACTION_FNS = [
   "pageAction",
   // Area 6, F3: il corpo di un'email nella bozza di chi conferma. SEMPRE B.
   "fillMailBody",
+  // Area 8, F2, S7: l'iscrizione a un tipo d'avviso di chi chiede. A, con «Annulla».
+  "setSubscription",
   // Solo inverso.
   "deleteTask",
 ] as const;
@@ -66,6 +69,8 @@ export const CLAUDE_DECLARED_CLASS: Record<ClaudeActionFn, "A" | "B"> = {
   pageAction: "A",
   // Scrive su Gmail (la bozza di chi conferma): mai senza conferma.
   fillMailBody: "B",
+  // Tocca solo le iscrizioni di chi chiede: nessun altro è avvisato.
+  setSubscription: "A",
   deleteTask: "B",
 };
 
@@ -108,6 +113,19 @@ export const CLAUDE_ACTION_ARGS = {
       text: z.string().trim().min(1).max(200_000),
     })
     .strict(),
+  // Area 8, F2, S7: come `PUT /api/me/alert-subscriptions/:projectId/:type`,
+  // SEMPRE di chi chiede (nessun `userId`). `type` è una riga VIVA delle
+  // Preferenze (`liveRowTypes`): l'elenco entra nella firma, così il modello
+  // non inventa tipi. Almeno uno fra App e Telefono; gli assenti restano.
+  setSubscription: z
+    .object({
+      projectId: id,
+      type: z.enum(liveRowTypes() as [string, ...string[]]),
+      app: z.boolean().optional(),
+      phone: z.boolean().optional(),
+    })
+    .strict()
+    .refine((a) => a.app !== undefined || a.phone !== undefined, { message: "app or phone" }),
   deleteTask: z.object({ id }),
 } satisfies Record<ClaudeActionFn, z.ZodType>;
 
