@@ -100,6 +100,19 @@ describe("il controllo dopo il silenzio (S10)", () => {
     expect(d.runs).toEqual([]);
   });
 
+  it("la successiva di una chiusa (S17) si giudica sui SOLI suoi messaggi", async () => {
+    const closed = await conversation(90, [["user", "VECCHIA: vorrei un rimborso"], ["assistant", "Ho aperto una segnalazione."]]);
+    await t.db.insert(backlogItems).values({ projectId, title: "R", source: "manual", supportConversationId: closed });
+    const next = await conversation(SUPPORT_TRIAGE_IDLE_MINUTES + 1, [["user", "NUOVA: come cambio la password?"], ["assistant", "Da Profilo → Sicurezza."]]);
+    await t.db.update(widgetConversations).set({ continuedInId: next }).where(eq(widgetConversations.id, closed));
+    const d = deps('{"outcome":"concluded"}');
+    expect(await checkIdleConversationsOnce(d)).toBe(1);
+    expect(d.runs).toHaveLength(1);
+    expect(d.runs[0]!.prompt).toContain("NUOVA: come cambio la password?");
+    expect(d.runs[0]!.prompt).not.toContain("VECCHIA");
+    expect((await rowOf(next)).triageOutcome).toBe("concluded");
+  });
+
   it("«Non conclusa» di una persona ferma il controllo finché il cliente non riscrive", async () => {
     const id = await conversation(60);
     await t.db.update(widgetConversations).set({ triageOutcome: "not_concluded", triageOutcomeAt: ago(10), triageCheckedAt: ago(10) }).where(eq(widgetConversations.id, id));

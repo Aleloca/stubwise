@@ -21,6 +21,7 @@ import { maybeEnqueueBacklogIntake } from "../backlog/enqueue.js";
 import { createTicket } from "../db/tickets.js";
 import { errorSchema, unprocessableEntityFormatter } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
+import { openConversationFor } from "../services/support-continuation.js";
 import { apiError } from "../errors.js";
 import { retrieveChunksForProject } from "./docs-retrieval.js";
 import { buildCitations, CHAT_RETRIEVAL_K } from "./docs-rag.js";
@@ -489,17 +490,22 @@ export async function widgetRoutes(
         return apiError(reply, 503, "chat_unavailable", "Chat is not available");
       }
 
+      // Area 8, F3, S17: una conversazione con un esito è CHIUSA; il messaggio
+      // va nella sua successiva (creata se manca, una sola). Dopo la proprietà,
+      // il cap e il pre-flight: è la prima scrittura.
+      const targetId = await openConversationFor(app.db, conversationId);
+
       // Persiste il messaggio utente PRIMA del retrieval/streaming, aggiorna il
       // last_message_at (ordina l'elenco viewer + alimenta il cap del giorno).
       await app.db.insert(widgetMessages).values({
-        conversationId,
+        conversationId: targetId,
         role: "user",
         content,
       });
       await app.db
         .update(widgetConversations)
         .set({ lastMessageAt: new Date() })
-        .where(eq(widgetConversations.id, conversationId));
+        .where(eq(widgetConversations.id, targetId));
 
       // RETRIEVAL cross-repo FILTRATO ai soli repo esposti dal widget
       // (enabledRepositoryIds). Se l'embedding è down fa fallback full-text.
@@ -525,7 +531,7 @@ export async function widgetRoutes(
       const recent = await app.db
         .select({ role: widgetMessages.role, content: widgetMessages.content })
         .from(widgetMessages)
-        .where(eq(widgetMessages.conversationId, conversationId))
+        .where(eq(widgetMessages.conversationId, targetId))
         .orderBy(desc(widgetMessages.createdAt), desc(widgetMessages.id))
         .limit(WIDGET_HISTORY_PAIRS * 2);
       const history = recent
@@ -542,11 +548,13 @@ export async function widgetRoutes(
         chatLlm: app.chatLlm,
         request,
         reply,
-        conversationId,
+        conversationId: targetId,
+        // Il widget impara l'id della successiva (un widget vecchio ignora l'evento).
+        announceConversation: targetId !== conversationId,
         system,
         history,
         citations,
-        logContext: { projectId: project.id, conversationId },
+        logContext: { projectId: project.id, conversationId: targetId },
         projectId: project.id,
       });
     },
@@ -576,7 +584,9 @@ export async function widgetRoutes(
         }),
         body: widgetTicketConfirmBodySchema,
         response: {
-          200: z.object({ ticketId: z.uuid(), number: z.number().int() }),
+          // `conversationId` (area 8, F3, S17, additivo): dove è finita la conferma
+          // (la successiva, se la conversazione era chiusa).
+          200: z.object({ ticketId: z.uuid(), number: z.number().int(), conversationId: z.uuid() }),
           401: errorSchema,
           403: errorSchema,
           404: errorSchema,
@@ -649,12 +659,15 @@ export async function widgetRoutes(
       const language = widgetSettingsSchema.shape.language.safeParse(widget.language);
       const lang = language.success ? language.data : "it";
 
+      // Area 8, F3, S17: su una conversazione chiusa la conferma va alla successiva.
+      const targetId = await openConversationFor(app.db, conversationId);
+
       // Ultimi N messaggi PRIMA della conferma, in ordine cronologico (DESC +
       // reverse per l'indice, tiebreaker su id come lo storico).
       const recent = await app.db
         .select({ role: widgetMessages.role, content: widgetMessages.content })
         .from(widgetMessages)
-        .where(eq(widgetMessages.conversationId, conversationId))
+        .where(eq(widgetMessages.conversationId, targetId))
         .orderBy(desc(widgetMessages.createdAt), desc(widgetMessages.id))
         .limit(WIDGET_TICKET_TRANSCRIPT_MESSAGES);
       const transcript = recent.reverse();
@@ -698,7 +711,7 @@ export async function widgetRoutes(
             ? `Report submitted: #${created.number}`
             : `Segnalazione registrata: #${created.number}`;
         await tx.insert(widgetMessages).values({
-          conversationId,
+          conversationId: targetId,
           role: "assistant",
           content: confirmation,
           ticketId: created.id,
@@ -706,11 +719,11 @@ export async function widgetRoutes(
         await tx
           .update(widgetConversations)
           .set({ lastMessageAt: new Date() })
-          .where(eq(widgetConversations.id, conversationId));
+          .where(eq(widgetConversations.id, targetId));
         return created;
       });
 
-      return { ticketId: ticket.id, number: ticket.number };
+      return { ticketId: ticket.id, number: ticket.number, conversationId: targetId };
     },
   );
 }

@@ -177,6 +177,16 @@ export function Chat({
     if (el && pinnedRef.current) el.scrollTop = el.scrollHeight;
   }, [items]);
 
+  /**
+   * Area 8, F3, S17: il server ha mandato il messaggio nella successiva di una
+   * conversazione chiusa. Da qui si scrive a lei (e la si ricorda).
+   */
+  function adoptConversation(id: string | undefined) {
+    if (!id || id === conversationId.current) return;
+    conversationId.current = id;
+    setConversationId(base.slug, id);
+  }
+
   /** Assicura una conversazione (crea lazy al primo invio, poi la persiste). */
   async function ensureConversation(): Promise<string> {
     if (conversationId.current) return conversationId.current;
@@ -228,7 +238,10 @@ export function Chat({
             ...prev,
             { kind: "ticket", id: nextId(), proposal: event.proposal },
           ]);
+        } else if (event.type === "conversation") {
+          adoptConversation(event.conversationId);
         } else if (event.type === "done") {
+          adoptConversation(event.conversationId);
           patchAssistant((a) => ({ ...a, citations: event.citations }));
         } else if (event.type === "error") {
           patchAssistant((a) => ({ ...a, text: a.text || strings.errorGeneric }));
@@ -259,12 +272,13 @@ export function Chat({
     input: { title: string; body: string },
   ): Promise<{ number: number }> {
     const id = await ensureConversation();
-    const { number } = await confirmTicket(base, id, {
+    const { number, conversationId: landedIn } = await confirmTicket(base, id, {
       title: input.title,
       body: input.body,
       type: proposal.type,
       userId: user.id,
     });
+    adoptConversation(landedIn);
     return { number };
   }
 

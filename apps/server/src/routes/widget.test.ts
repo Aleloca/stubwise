@@ -6,6 +6,7 @@ import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import { buildApp } from "../app.js";
 import type { ChatAvailability, ChatLlm, ChatLlmInput } from "./chat-llm.js";
 import {
+  backlogItems,
   backlogJobs,
   docChunks,
   docGenerations,
@@ -807,6 +808,95 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
       .returning();
     return { project, widget, conversationId: conv!.id, genId };
   }
+
+  // Area 8, F3, S17 (maintainer, 14 nov 2026): una conversazione con un esito
+  // è CHIUSA; un messaggio del cliente va nella sua successiva (una sola).
+  describe("area 8, F3, S17: la conversazione chiusa", () => {
+    const post = (slug: string, key: string, conversationId: string, content: string, userId = "visitor-1") =>
+      app.inject({
+        method: "POST",
+        url: `/widget/${slug}/conversations/${conversationId}/messages`,
+        headers: { "x-stubwise-key": key },
+        payload: { content, userId },
+      });
+    async function closedChat() {
+      const chat = await setupChat(testDb.db);
+      await testDb.db.update(widgetConversations).set({ externalUserName: "Mario", externalUserEmail: "m@x.it" }).where(eq(widgetConversations.id, chat.conversationId));
+      await testDb.db.insert(widgetMessages).values({ conversationId: chat.conversationId, role: "user", content: "Vecchia domanda" });
+      await testDb.db.insert(backlogItems).values({ projectId: chat.project.projectId, title: "R", source: "manual", supportConversationId: chat.conversationId });
+      return chat;
+    }
+    const row = async (id: string) => (await testDb.db.select().from(widgetConversations).where(eq(widgetConversations.id, id)))[0]!;
+    const messagesOf = async (id: string) => testDb.db.select().from(widgetMessages).where(eq(widgetMessages.conversationId, id));
+
+    it("un messaggio su una chiusa apre la successiva (S<n+1>, stesso cliente) e il messaggio va lì; lo stream la annuncia", async () => {
+      const { project, widget, conversationId } = await closedChat();
+      lastChatInput = null;
+      const res = await post(project.slug, widget.key, conversationId, "Una cosa nuova");
+      expect(res.statusCode).toBe(200);
+      const closed = await row(conversationId);
+      expect(closed.continuedInId).not.toBeNull();
+      const next = await row(closed.continuedInId!);
+      expect(next).toMatchObject({ projectId: project.projectId, widgetId: widget.id, externalUserId: "visitor-1", externalUserName: "Mario", externalUserEmail: "m@x.it", channel: "widget", number: closed.number + 1 });
+      expect((await messagesOf(conversationId)).map((m) => m.content)).toEqual(["Vecchia domanda"]);
+      expect((await messagesOf(next.id)).filter((m) => m.role === "user").map((m) => m.content)).toEqual(["Una cosa nuova"]);
+      // L'AI parte dalla successiva: la storia della chiusa non entra nel prompt.
+      expect(JSON.stringify(lastChatInput!.messages)).not.toContain("Vecchia domanda");
+      const events = res.body.split("\n\n").filter((e) => e.startsWith("data: ")).map((e) => JSON.parse(e.slice(6)) as { type: string; conversationId?: string });
+      expect(events[0]).toEqual({ type: "conversation", conversationId: next.id });
+      expect(events.at(-1)).toMatchObject({ type: "done", conversationId: next.id });
+    });
+
+    it("su una conversazione aperta nessun evento `conversation` e nessuna successiva (come prima)", async () => {
+      const { project, widget, conversationId } = await setupChat(testDb.db);
+      const res = await post(project.slug, widget.key, conversationId, "Ciao");
+      expect(res.body).not.toContain('"type":"conversation"');
+      expect((await row(conversationId)).continuedInId).toBeNull();
+    });
+
+    it("un widget vecchio che riscrive alla chiusa finisce nella STESSA successiva; due messaggi insieme ne aprono una sola", async () => {
+      const { project, widget, conversationId } = await closedChat();
+      await Promise.all([post(project.slug, widget.key, conversationId, "uno"), post(project.slug, widget.key, conversationId, "due")]);
+      await post(project.slug, widget.key, conversationId, "tre");
+      const all = await testDb.db.select().from(widgetConversations).where(eq(widgetConversations.widgetId, widget.id));
+      expect(all).toHaveLength(2);
+      const next = (await row(conversationId)).continuedInId!;
+      expect((await messagesOf(next)).filter((m) => m.role === "user").map((m) => m.content).sort()).toEqual(["due", "tre", "uno"]);
+    });
+
+    it("se anche la successiva si chiude, il messaggio dopo apre la terza", async () => {
+      const { project, widget, conversationId } = await closedChat();
+      await post(project.slug, widget.key, conversationId, "uno");
+      const second = (await row(conversationId)).continuedInId!;
+      const { ticketId } = await seedTicket(testDb.db, { projectId: project.projectId, number: 77 });
+      await testDb.db.insert(widgetMessages).values({ conversationId: second, role: "assistant", content: "Segnalazione registrata", ticketId });
+      await post(project.slug, widget.key, conversationId, "due");
+      const third = (await row(second)).continuedInId!;
+      expect(third).toBeTruthy();
+      expect((await messagesOf(third)).filter((m) => m.role === "user").map((m) => m.content)).toEqual(["due"]);
+    });
+
+    it("un altro `userId` sulla chiusa: 404 come prima, nessuna successiva", async () => {
+      const { project, widget, conversationId } = await closedChat();
+      expect((await post(project.slug, widget.key, conversationId, "intruso", "visitor-2")).statusCode).toBe(404);
+      expect((await row(conversationId)).continuedInId).toBeNull();
+    });
+
+    it("la conferma di un ticket su una chiusa va alla successiva, e la risposta ne dice l'id", async () => {
+      const { project, widget, conversationId } = await closedChat();
+      const res = await app.inject({
+        method: "POST",
+        url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
+        headers: { "x-stubwise-key": widget.key },
+        payload: { userId: "visitor-1", type: "bug", title: "Si rompe", body: "Dettagli" },
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      const next = (await row(conversationId)).continuedInId!;
+      expect(res.json()).toMatchObject({ conversationId: next });
+      expect((await messagesOf(next)).some((m) => m.ticketId === res.json().ticketId)).toBe(true);
+      expect((await messagesOf(conversationId)).some((m) => m.ticketId !== null)).toBe(false);
+    });
+  });
 
   it("stream normale → delta + done con citazioni; user+assistant persistiti; lastMessageAt aggiornato", async () => {
     const { project, widget, conversationId, genId } = await setupChat(testDb.db);
