@@ -14,6 +14,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import { GMAIL_MODIFY_SCOPE } from "@stubwise/google";
+import { t } from "@stubwise/i18n";
 import { projectPermissionsByProject } from "@stubwise/notifications";
 import {
   customerStatus,
@@ -25,6 +26,9 @@ import {
   type ReleaseStatusKind,
   type SupportConversation,
   type SupportCustomerPreview,
+  type SupportEmailDraft,
+  supportMailSlot,
+  type Language,
   type SupportMessage,
   type SupportState,
   type SupportStateInput,
@@ -312,4 +316,50 @@ export async function listWaitingCustomers(db: Db, viewer: Viewer): Promise<Supp
     }
   }
   return out.sort((a, b) => (a.waitingSince ?? "").localeCompare(b.waitingSince ?? "") || a.code.localeCompare(b.code));
+}
+
+/**
+ * «Scrivigli anche per email» (S9, S-5): i campi da aprire nella Posta, dalla
+ * casella di chi scrive. Il server NON salva né invia: l'invio è quello della
+ * Posta (area 6). Il corpo è la bozza di Claude della conversazione se c'è,
+ * altrimenti un testo di TEMPLATE nella lingua del widget (mai il modello):
+ * nessun nome del team, nessuna stima. `emailBlocked` della vista dice perché
+ * no.
+ */
+export async function supportEmailDraft(db: Db, viewer: Viewer, code: string): Promise<SupportEmailDraft> {
+  const { row, ctx } = await conversationByCode(db, viewer, code);
+  const view = await viewOf(db, row, ctx, false);
+  switch (view.emailBlocked) {
+    case "no_permission":
+      throw new SupportError(403, "forbidden", "Writing to customers needs support.reply");
+    case "triage":
+      throw new SupportError(409, "support_triage", "The widget is still talking with the customer");
+    case "no_email":
+      throw new SupportError(409, "support_no_email", "The customer didn't leave an email address");
+    case "no_mailbox":
+      throw new SupportError(409, "support_no_mailbox", "Connect your Google account to write from Stubwise");
+    case null:
+      break;
+  }
+  const [widget] = row.widgetId ? await db.select({ language: widgets.language }).from(widgets).where(eq(widgets.id, row.widgetId)) : [];
+  const lang: Language = widget?.language === "it" ? "it" : "en";
+  const first = row.externalUserName?.trim().split(/\s+/)[0] ?? "";
+  const request = view.request;
+  const status = request
+    ? t(lang, `support.email.status.${request.customerStatus}`, { code: request.code })
+    : view.task
+      ? t(lang, `support.email.status.${view.task.customerStatus}`, { code: view.task.code })
+      : t(lang, "support.email.status.none");
+  const ref = request?.code ?? view.task?.code ?? null;
+  return {
+    slot: supportMailSlot(view.code),
+    to: { name: row.externalUserName, email: row.externalUserEmail! },
+    subject: ref ? t(lang, "support.email.subjectRequest", { code: ref }) : t(lang, "support.email.subjectMessage"),
+    body:
+      row.claudeDraft ??
+      t(lang, "support.email.body", {
+        greeting: first ? t(lang, "support.email.greeting", { name: first }) : t(lang, "support.email.greetingAnon"),
+        status,
+      }),
+  };
 }
