@@ -160,7 +160,11 @@
 
 `supportState` del prototipo passa in `@stubwise/shared`
 (`support/state.ts`), con la sua tabella di test, e la usano server e
-renderer. «La richiesta» di una conversazione (F3-1 = a) è il suo ESITO:
+renderer, con un ingresso NEUTRO che entrambi riempiono (94):
+`supportState({ hasOutcome, judgment: { outcome, at } | null, messages:
+{ from: "customer" | "triage" | "team", at }[] })`; il giudizio vale se `at` ≥
+l'ultimo messaggio del cliente. `waitingSince` prende lo stesso ingresso. Il
+prototipo sostituisce `leftAt` con `triage: { outcome, at } | null`. «La richiesta» di una conversazione (F3-1 = a) è il suo ESITO:
 una richiesta legata (`backlog_items.support_conversation_id`) o un ticket
 aperto dal widget (`widget_messages.ticket_id`).
 - Con un esito: ultimo messaggio del cliente → `waiting_us`; nostro (`team`)
@@ -194,6 +198,15 @@ S2. **Le letture per i membri** (`member` del progetto: le conversazioni le
      (codice, titolo, stato), `following`, e ciò che chi guarda PUÒ fare,
      calcolato dal server (`canReply`, `replyClosed`, `canOpenRequest`,
      `emailBlocked`). Ordine per gruppo come `byGroup`. Filtrata nella WHERE.
+     Nell'elenco `messages` è `[]` (c'è `lastMessage`); pieno nel dettaglio.
+     Campi della vista concordati con 94, tutti additivi (default null/false):
+     `triage: { outcome, at } | null` (il giudizio del controllo);
+     `task: { id, code, title, customerStatus } | null` (l'esito è un ticket
+     del widget: il blocco mostra la task invece della richiesta);
+     `claudeDraft`, `claudeDraftAt`, `claudeDraftPending` (una raffica in
+     attesa o un «Ask Claude» accodato). `leftAt` del prototipo sparisce;
+     `rewrittenWish` e `confirmedAt` restano nella forma, null dal server (il
+     triage rifatto è fuori dalla F3).
    - `GET /api/support/conversations/by-code/:code` → la vista con i
      messaggi (`from`: `customer` | `triage` | `team`; per un `team` l'autore
      solo a chi vede il progetto).
@@ -213,7 +226,7 @@ S3. **La risposta**: `POST /api/support/conversations/by-code/:code/replies
    `support_triage` mentre la conversazione è in triage (R-K15: le domande le
    fa l'AI del widget). Toglie la bozza di Claude della conversazione (era
    per i messaggi a cui si è appena risposto). Nessun avviso, nessuna email,
-   nessuna risposta automatica. Idempotente su un `clientId` facoltativo (un doppio clic o un
+   nessuna risposta automatica. Risponde con la VISTA aggiornata. Idempotente su un `clientId` facoltativo (un doppio clic o un
    «Retry» dopo un timeout non manda due messaggi).
    *Test*: senza `support.reply` 403 e nessun messaggio (Contributor, e un
    ruolo personalizzato senza il permesso); in triage 409; il messaggio non
@@ -232,7 +245,7 @@ S4. **Il widget legge le risposte**: `GET /widget/:slug/conversations/:id/messag
    chiuso. Deploy: `caddy` (il bundle del widget).
 
 S5. **«Segui»**: `PUT /api/support/conversations/by-code/:code/follow { on }`
-   (chi vede il progetto: seguire non è rispondere, R-K12).
+   (chi vede il progetto: seguire non è rispondere, R-K12) → la vista.
    *Test*: segue e smette; un progetto invisibile 404.
 
 S6. **La richiesta da una conversazione**: `POST …/by-code/:code/request
@@ -247,6 +260,13 @@ S6. **La richiesta da una conversazione**: `POST …/by-code/:code/request
    *Test*: doppio clic → una richiesta; una conversazione in triage 409;
    senza `backlog.create` 403; la provenienza di una richiesta vecchia è
    `null` (parse senza il campo).
+   Risposte: 201 `{ conversation: <vista>, request: { id, code } }`; una
+   conversazione che ha già la sua richiesta → 200 con la stessa (idempotente);
+   una che non è «non conclusa» → 409 `support_not_concluded`; senza
+   `backlog.create` 403. «View conversation» sulle TASK del widget (S-9): il
+   dettaglio della task ha `supportConversationCode: string | null` (additivo,
+   derivato da `widget_messages.ticket_id`); il blocco legge la conversazione
+   per codice.
 
 S7. **Gli avvisi** (catalogo della F2, `LIVE_ALERT_TYPES`; F3-5 = a):
    - `support.request`: alla nascita della richiesta da una conversazione
@@ -311,8 +331,10 @@ S11. **La bozza di Claude, automatica** (F3-3 = b; worker): un messaggio
    ha `support.reply` (la vista: `claudeDraft` null per gli altri). NON parte
    mai: la manda una persona con «Send to customer».
    «Ask Claude» del compositore: `POST …/by-code/:code/draft` (`support.reply`,
-   budget) la rigenera adesso (stessa funzione, accodata: il renderer legge
-   la vista).
+   budget) la rigenera adesso: accoda (`draft_due_at` = adesso) e risponde
+   202 con la vista (`claudeDraftPending: true`); il renderer rilegge la
+   vista finché la bozza non arriva. Budget esaurito → 409
+   `budget_exhausted`, niente in coda.
    *Test*: tre messaggi in 30 s → una bozza; nessuna bozza in triage; la
    bozza non è nella vista di un Contributor né nell'anteprima del cliente;
    budget esaurito → nessuna run e nessun errore al cliente; la risposta del
@@ -362,7 +384,13 @@ R6. La bozza di Claude della conversazione: «Claude prepared a draft · Use
    rigenera (S11); il segno «Claude's draft» nel campo (`claude-drafts.md`
    §3.4). Il campo di chi scrive resta nel `replyStore`.
 R7. Lo stato `answered` (nuovo): nel prototipo (dominio, seme, elenco in
-   fondo) e nella build app.
+   fondo) e nella build app; le parole con `SUPPORT_TRIAGE_IDLE_MINUTES`.
+R8. Il dal vivo senza stream: il dettaglio si rilegge ogni 15 s mentre è
+   aperto, l'elenco ogni 30 s, e le card `support.*` dell'inbox invalidano.
+
+Nota di prodotto (94, per 46): `answered` non ha azioni (`canOpenRequest`
+falso); se il team non è d'accordo col «conclusa», oggi l'unica strada è un
+nuovo messaggio del cliente.
 *Test* (dal design): nessuna risposta senza «Send to customer»; l'Undo non
 manda niente; una conversazione di un progetto invisibile come inesistente;
 la bozza di Claude non parte da sola.
