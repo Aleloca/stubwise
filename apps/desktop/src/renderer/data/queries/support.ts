@@ -1,6 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "@backend/api";
+import { isAppBuild } from "../build";
 import { featureIntegrated } from "../integration";
 import { getSessionPersonId } from "../session";
 import { streamText } from "@backend/runtime";
@@ -30,6 +31,17 @@ const SUPPORT_AREAS = ["support", "notifications"] as const;
  */
 const supportRequestAreas = () => [...SUPPORT_AREAS, ...REQUEST_AREAS];
 
+/**
+ * Ogni quanto Support si rilegge da solo (area 8, F3, R8): nella build app
+ * non c'è uno stream, quindi il dettaglio aperto ogni 15 s e l'elenco (e
+ * «Clienti in attesa») ogni 30 s; le card `support.*` dell'inbox lo
+ * rileggono subito. Il prototipo cambia solo da sé: mai.
+ */
+export function supportRefreshMs(kind: "detail" | "list"): number | false {
+  if (!isAppBuild()) return false;
+  return kind === "detail" ? 15_000 : 30_000;
+}
+
 /** Le conversazioni coi clienti del progetto, raggruppate per stato. */
 export function useSupportConversations(
   projectId: string | undefined,
@@ -40,6 +52,7 @@ export function useSupportConversations(
     queryKey: queryKeys.supportConversations(me, projectId ?? "", filter.state ?? ""),
     queryFn: () => api.support.listSupportConversations(projectId!, filter),
     enabled: !!projectId,
+    refetchInterval: supportRefreshMs("list"),
   });
 }
 
@@ -50,6 +63,7 @@ export function useSupportConversation(code: string | undefined) {
     queryKey: queryKeys.supportConversation(me, code ?? ""),
     queryFn: () => api.support.getSupportConversation(code!),
     enabled: !!code,
+    refetchInterval: supportRefreshMs("detail"),
   });
 }
 
@@ -69,6 +83,7 @@ export function useWaitingCustomers() {
   return useQuery({
     queryKey: queryKeys.waitingCustomers(me),
     queryFn: () => api.support.listWaitingCustomers(),
+    refetchInterval: supportRefreshMs("list"),
   });
 }
 
