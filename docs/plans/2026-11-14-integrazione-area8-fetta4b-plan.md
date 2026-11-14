@@ -480,6 +480,12 @@ S10. **Golden** (sotto) e **deploy-log** (0181, l'immagine dell'agente
 
 ## Task del RENDERER (94; dal design, li rivede lui)
 
+R0. *(sì di 46, 14 nov 2026)* Il PROTOTIPO allineato alle decisioni F4b,
+   come nella F3: la correzione passa dall'AGENTE (mai SSH), un solo accesso
+   SSH di sola lettura (niente coppia `stubwise-fix`), l'analisi parte dal
+   SERVER e attribuisce il progetto, il piano lo approva chi ha
+   `plans.approve` nel progetto attribuito, il campo «containers»
+   dell'ambiente (S12). Così la specifica e l'app tornano a coincidere.
 R1. I flag `servers-operations` (correzione, Stop, registro) e
    `servers-ssh-read` (gli accessi di sola lettura), accendibili separati.
 R2. La sezione della task (`pages/task/ServerSection.tsx`): il piano con le
@@ -490,8 +496,16 @@ R3. L'interruttore «operazioni» e il comando d'installazione con la chiave
 R4. L'SSH: solo la coppia di LETTURA (`stubwise-read`); nessuna traccia
    della coppia `stubwise-fix` del prototipo nella build app (I1); la
    verifica che dice `sudo`/`docker`.
-R5. La parità della F4b: la specifica (prototipo: due coppie SSH, correzione
-   via SSH) e l'app divergono per decisione del maintainer.
+R5. La parità della F4b, normale: dopo R0 prototipo e app dicono le stesse
+   cose (nessuna divergenza voluta).
+R6. *(sì di 46, 14 nov 2026)* I tetti dell'analisi in Amministrazione → AI
+   (S11, `GET/PUT /api/settings/server-analysis`, `settings.manage`): acceso,
+   minuti 1–60, costo 0,1–20 $, letture dell'agente 0–200, letture SSH
+   0–200; i default 10 / 1 / 30 / 30 / acceso.
+R7. Il campo «containers» dell'ambiente (S12): per ogni server
+   dell'ambiente, i container che l'agente riporta, scelti fra quelli
+   (`PUT …/environments/:envId/containers`, `environments.manage`); 409 →
+   «è di un altro progetto», 422 → «l'agente non lo vede».
 
 ## Global Constraints
 

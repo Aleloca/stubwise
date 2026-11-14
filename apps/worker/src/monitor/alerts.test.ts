@@ -540,6 +540,24 @@ describe("evaluateMonitorAlertsOnce — gli episodi (area 8, F4a)", () => {
     expect((await episodesOf(db, withCheck))[0]!.startedAt.toISOString()).toBe(downSince.toISOString());
   });
 
+  it("review F4a (renderer): i motivi cpu/memoria/disco portano valuePct, l'ultimo valore letto; un episodio già aperto lo aggiorna", async () => {
+    const { db } = testDb;
+    const serverId = await seedServer(db, { name: "srv-val" });
+    await seedWindow(db, serverId, 6, { cpuPct: 97, memUsedBytes: 95, memTotalBytes: 100, diskUsedBytes: 50, diskTotalBytes: 100 });
+    await evaluateMonitorAlertsOnce({ db, publish: collector().publish, publicUrl: PUBLIC_URL }, NOW);
+    let [ep] = await episodesOf(db, serverId);
+    const byKind = (e: typeof ep) => Object.fromEntries(e!.reasons.map((r) => [r.kind, r]));
+    expect(byKind(ep).cpu).toMatchObject({ valuePct: 97 });
+    expect(byKind(ep).memory).toMatchObject({ valuePct: 95 });
+    // Un episodio scritto prima (senza valuePct) lo riceve al giro dopo.
+    await db.update(serverEpisodes).set({ reasons: ep!.reasons.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => k !== "valuePct")) as typeof r) }).where(eq(serverEpisodes.id, ep!.id));
+    await seedMetric(db, serverId, new Date(NOW.getTime() + 1000), { cpuPct: 99, memUsedBytes: 96, memTotalBytes: 100, diskUsedBytes: 50, diskTotalBytes: 100 });
+    await evaluateMonitorAlertsOnce({ db, publish: collector().publish, publicUrl: PUBLIC_URL }, new Date(NOW.getTime() + 1000));
+    [ep] = await episodesOf(db, serverId);
+    expect(byKind(ep).cpu).toMatchObject({ valuePct: 99 });
+    expect(byKind(ep).memory).toMatchObject({ valuePct: 96 });
+  });
+
   it("nessun allarme → nessun episodio; mai collegato → nessun episodio", async () => {
     const { db } = testDb;
     const ok = await seedServer(db);
