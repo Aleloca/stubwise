@@ -437,7 +437,7 @@ describe("GET /api/servers/:id/checks", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}/checks`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
     const list = res.json() as Array<Record<string, unknown>>;
@@ -462,7 +462,7 @@ describe("GET /api/servers/:id/checks", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${NIL_UUID}/checks`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(404);
   });
@@ -606,7 +606,7 @@ describe("GET /api/servers/:id/metrics", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as {
@@ -638,7 +638,7 @@ describe("GET /api/servers/:id/metrics", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as {
@@ -663,7 +663,7 @@ describe("GET /api/servers/:id/metrics", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}/metrics?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
     expect((res.json() as { resolution: string }).resolution).toBe("raw");
@@ -687,7 +687,7 @@ describe("GET /api/servers/:id/metrics", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as {
@@ -726,7 +726,7 @@ describe("GET /api/servers/:id/metrics", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&checkId=${checkId}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as {
@@ -764,7 +764,7 @@ describe("GET /api/servers/:id/metrics", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&checkId=${checkId}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as {
@@ -795,7 +795,7 @@ describe("GET /api/servers/:id/metrics", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${serverB}/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&checkId=${checkId}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(404);
   });
@@ -806,7 +806,7 @@ describe("GET /api/servers/:id/metrics", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${NIL_UUID}/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(404);
   });
@@ -818,7 +818,7 @@ describe("GET /api/servers/:id/metrics", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -828,7 +828,7 @@ describe("GET /api/servers/:id/metrics", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/servers/${id}/metrics`,
-      headers: { cookie: memberCookie },
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(400);
   });

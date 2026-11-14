@@ -116,6 +116,10 @@ describe("parità con la can() delle aree 2–8 (fixture generato prima del camb
             return;
           }
           if (now === before[i]) return;
+          // Area 8, F4a (0180, decisione del maintainer F4a-1 = a): `monitor.view`
+          // è uscito dal preset `User`; chi lo aveva dal preset lo perde (i server
+          // si vedono dagli ambienti dei propri progetti). Solo perdite, solo lui.
+          if (perm === "monitor.view" && before[i] && !now) return;
           // Solo i guadagni: una persona aggiunta a un progetto non perde permessi.
           if (MEMBERS_AFTER_FIXTURE[`${personId}|${projectId}`] && !before[i] && now) return;
           const allowed = ALLOWED_DIFFERENCES.some(

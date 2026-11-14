@@ -7,8 +7,9 @@ import {
 } from "@stubwise/shared";
 import {
   projects,
+  environmentServers,
+  projectEnvironments,
   serverMetrics,
-  serverProjects,
   servers,
   serviceChecks,
 } from "@stubwise/db";
@@ -16,14 +17,13 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { canViewServer, visibleServerIds } from "../auth/monitor-access.js";
+import { canViewServer, serverIdsOfProjects, visibleServerIds } from "../auth/monitor-access.js";
 import { apiError } from "../errors.js";
 import {
   authErrorResponses,
   errorSchema,
   generateServerKey,
   hashServerKey,
-  isForeignKeyViolation,
 } from "./shared.js";
 
 /** Quanti valori di CPU recenti includere nella lista/dettaglio (sparkline UI). */
@@ -102,16 +102,17 @@ async function loadAggregates(
   for (const id of serverIds) byServer.set(id, emptyAggregates());
   if (serverIds.length === 0) return byServer;
 
-  // Progetti associati, in una sola query con la join sui nomi.
+  // Progetti associati (area 8, F4a: quelli dei suoi AMBIENTI), in una query.
   const projectRows = await app.db
-    .select({
-      serverId: serverProjects.serverId,
+    .selectDistinct({
+      serverId: environmentServers.serverId,
       id: projects.id,
       name: projects.name,
     })
-    .from(serverProjects)
-    .innerJoin(projects, eq(projects.id, serverProjects.projectId))
-    .where(inArray(serverProjects.serverId, serverIds))
+    .from(environmentServers)
+    .innerJoin(projectEnvironments, eq(projectEnvironments.id, environmentServers.environmentId))
+    .innerJoin(projects, eq(projects.id, projectEnvironments.projectId))
+    .where(inArray(environmentServers.serverId, serverIds))
     .orderBy(projects.name);
   for (const r of projectRows) {
     byServer.get(r.serverId)!.projects.push({ id: r.id, name: r.name });
@@ -199,13 +200,8 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
       // Filtro per progetto: gli id dei server associati, poi la lista completa.
       let rows: ServerRow[];
       if (projectId) {
-        const associated = await app.db
-          .select({ serverId: serverProjects.serverId })
-          .from(serverProjects)
-          .where(eq(serverProjects.projectId, projectId));
-        const ids = associated
-          .map((a) => a.serverId)
-          .filter((id) => visible === "all" || visible.includes(id));
+        // Area 8, F4a: i server degli AMBIENTI del progetto.
+        const ids = (await serverIdsOfProjects(app.db, [projectId])).filter((id) => visible === "all" || visible.includes(id));
         rows =
           ids.length === 0
             ? []
@@ -297,7 +293,10 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const now = new Date();
-      const { name, sampleIntervalSeconds, alertThresholds, projectIds } = request.body;
+      // `projectIds` (area 8, F4a-4 = b): si accetta ancora (un web in cache non
+      // deve rompersi) ma si IGNORA — i progetti di un server sono quelli dei
+      // suoi ambienti. `server_projects` resta inerte per il rollback.
+      const { name, sampleIntervalSeconds, alertThresholds } = request.body;
 
       const updates: Partial<ServerRow> = {};
       if (name !== undefined) updates.name = name;
@@ -306,40 +305,13 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
       // già applicato i default sui campi omessi.
       if (alertThresholds !== undefined) updates.alertThresholds = alertThresholds;
 
-      // Esistenza + eventuale sync dei progetti in un'unica transazione: se un
-      // projectId è inesistente la FK viola e l'intero PATCH torna 422 (nessuna
-      // modifica parziale applicata).
-      try {
-        const applied = await app.db.transaction(async (tx) => {
-          const [row] =
-            Object.keys(updates).length > 0
-              ? await tx.update(servers).set(updates).where(eq(servers.id, request.params.id)).returning()
-              : await tx.select().from(servers).where(eq(servers.id, request.params.id));
-          if (!row) return undefined;
-
-          // projectIds assente → associazioni intatte; presente → replace
-          // completo. Dedup preventivo: un duplicato nel body violerebbe
-          // l'unique (server_id, project_id) → 500, non la FK.
-          if (projectIds !== undefined) {
-            const uniqueProjectIds = [...new Set(projectIds)];
-            await tx.delete(serverProjects).where(eq(serverProjects.serverId, row.id));
-            if (uniqueProjectIds.length > 0) {
-              await tx
-                .insert(serverProjects)
-                .values(uniqueProjectIds.map((projectId) => ({ serverId: row.id, projectId })));
-            }
-          }
-          return row;
-        });
-        if (!applied) return apiError(reply, 404, "server_not_found", "Server not found");
-        const agg = await loadAggregates(app, [applied.id]);
-        return toServerView(applied, agg.get(applied.id)!, now);
-      } catch (error) {
-        if (isForeignKeyViolation(error)) {
-          return apiError(reply, 422, "project_not_found", "One or more projects do not exist");
-        }
-        throw error;
-      }
+      const [applied] =
+        Object.keys(updates).length > 0
+          ? await app.db.update(servers).set(updates).where(eq(servers.id, request.params.id)).returning()
+          : await app.db.select().from(servers).where(eq(servers.id, request.params.id));
+      if (!applied) return apiError(reply, 404, "server_not_found", "Server not found");
+      const agg = await loadAggregates(app, [applied.id]);
+      return toServerView(applied, agg.get(applied.id)!, now);
     },
   );
 
