@@ -3,6 +3,8 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  alerts as alertsApi,
+  claude as claudeApi,
   failNext,
   releases as releasesApi,
   resetApi,
@@ -50,6 +52,8 @@ import {
   useMyReleases,
   useOpenPrs,
   useSetAlertSubscription,
+  useAlertSubscriptions,
+  useUndoClaudeActions,
 } from "./queries";
 import { TODAY } from "./seed/dates";
 import { getSessionPersonId } from "./session";
@@ -628,5 +632,32 @@ describe("il Drive si rilegge mentre un file è in lettura", () => {
     // Niente più in lettura: niente rilettura, e la prossima volta si riparte da 3 s.
     expect(drivePollInterval("q1", false, t0 + 602_000)).toBe(false);
     expect(drivePollInterval("q1", true, t0 + 700_000)).toBe(3000);
+  });
+});
+
+describe("le iscrizioni seguono le azioni di Claude (area 8, F2, R5)", () => {
+  it("un cambio della conversazione (Claude ha eseguito `setSubscription`) rilegge le iscrizioni", async () => {
+    const read = vi.spyOn(alertsApi, "subscriptionRows");
+    const { result } = renderHook(() => useAlertSubscriptions(), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const before = read.mock.calls.length;
+    await act(() => runScript("cv-run-stw-3", [{ step: "state", state: "finished" }]));
+    await waitFor(() => expect(read.mock.calls.length).toBeGreaterThan(before));
+    read.mockRestore();
+  });
+
+  it("«Undo» di un gruppo di Claude rilegge le iscrizioni (Preferenze non mostra il valore di prima)", async () => {
+    const read = vi.spyOn(alertsApi, "subscriptionRows");
+    const undo = vi.spyOn(claudeApi, "undoClaudeActions").mockResolvedValue({ ok: true });
+    const { result } = renderHook(
+      () => ({ subs: useAlertSubscriptions(), undo: useUndoClaudeActions() }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.subs.isSuccess).toBe(true));
+    const before = read.mock.calls.length;
+    await act(() => result.current.undo.mutateAsync({ id: "cv-x", groupId: "g-x" }));
+    await waitFor(() => expect(read.mock.calls.length).toBeGreaterThan(before));
+    undo.mockRestore();
+    read.mockRestore();
   });
 });

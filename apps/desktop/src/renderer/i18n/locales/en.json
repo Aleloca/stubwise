@@ -4820,7 +4820,9 @@
         "fillMailBody": "Write the email body in your Gmail draft",
         "pageAction": "Change this page ({{kind}})",
         "deleteTask": "Delete {{code}}",
-        "deleteTaskNoCode": "Delete a task"
+        "deleteTaskNoCode": "Delete a task",
+        "setSubscription": "Change your “{{type}}” alerts in {{code}}: {{channels}}",
+        "setSubscriptionNoCode": "Change your “{{type}}” alerts in a project: {{channels}}"
       },
       "summaryHidden": {
         "createTask": "Create a task",
@@ -4845,6 +4847,16 @@
         "type": "type",
         "priority": "priority",
         "projectId": "project"
+      },
+      "channel": {
+        "app": {
+          "on": "App on",
+          "off": "App off"
+        },
+        "phone": {
+          "on": "Phone on",
+          "off": "Phone off"
+        }
       }
     }
   },

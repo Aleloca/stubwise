@@ -11,7 +11,9 @@ piano gli assegna (`feat/area8-f2-renderer`).
 Nella build app sono ACCESE `alerts` (Preferenze → Notifiche, la campanella
 del progetto, il menu degli avvisi nel pannello) e `alerts-mute` («Don't
 alert me» dalla card), con le loro chiamate in `INTEGRATED_CALLS` (regola
-I3 dell'area 7). Resta da fare l'azione di Claude (R5, sopra S7 di 72).
+I3 dell'area 7). L'azione di Claude `setSubscription` (R5) passa dal
+canale generico delle azioni, già acceso (`claude-actions`): nessuna
+chiamata nuova del renderer.
 
 ## Renderer e moduli condivisi (stubwise-94)
 
@@ -24,7 +26,7 @@ I3 dell'area 7). Resta da fare l'azione di Claude (R5, sopra S7 di 72).
 | Il `?pr=` del router | accetta anche `<id>#<numero>`, l'id di una PR nella build app (difetto della F1: il pannello non si apriva, corretto anche su `feat/area8-f1-renderer`) | `real/releasesPrsPage.test.tsx` | fatto |
 | Le iscrizioni: elenco, scrittura, copia, «Mute» (R2) | `real/alerts.ts` su `client.alerts.list/set/copy/mute`, con le firme del prototipo: i progetti seguiti prima (i fissati), le righe e gli stati dal server, una riga di stato sconosciuto non si mostra; `setSubscription` scrive la RIGA (`monitor.alert` → `server.trouble`); l'«Annulla» di copia e «Mute» riscrive con `PUT` le righe di prima che si possono scrivere; gli errori nelle parole del prototipo | `real/alerts.test.ts` | fatto |
 | Preferenze → Notifiche e la campanella del progetto (R3) | `/preferences/notifications` è della funzione `alerts` (le altre sezioni delle Preferenze restano della loro area); il Telefono di un tipo del catalogo vale da solo (M-2 = b) e la nota ⓘ dice che arriva come push sul telefono; senza riga il server lo calcola (`defaultPhone` e `notify_push`), il client lo legge; un obbligatorio non si spegne, un sospeso lo dice in parole. La campanella del progetto c'è solo con `alerts`. «Security off» nella colonna delle Preferenze solo dove la sezione Sicurezza è accesa (area 9) | `real/alertsPage.test.tsx` (anche la PUT esatta, «Mute» con «Undo», le letture assenti a funzione spenta) | fatto |
-| L'azione di Claude `setSubscription` (R5) | l'adattatore nel catalogo delle azioni della build app, con l'«Undo» del prototipo | — | in attesa di S7 |
+| L'azione di Claude `setSubscription` (R5) | la esegue il server (S7, classe A) e la riga e l'«Undo» passano dal canale generico dei gruppi (`/groups`, `POST /api/claude/groups/:id/undo`). Il server non dà codici: la riga dice il codice del progetto dal `projectId` («Changed your alerts in AUD», come nel prototipo) e il riassunto della scheda si scrive dagli argomenti (l'etichetta del tipo dal catalogo condiviso, solo i canali presenti). Dopo l'azione e dopo l'«Undo» Preferenze → Notifiche rilegge le iscrizioni; un'azione che la build non conosce (`__unknown__`) ha la frase generica, non una chiave grezza | `real/claudeChatActions.test.ts`, `real/claudeChatActionsPage.test.tsx`, `data/queries.test.tsx` | fatto |
 | `INTEGRATED_CALLS` e l'accensione (R6) | `alerts` e `alerts-mute` accese; le cinque chiamate `alerts.*` in `INTEGRATED_CALLS` | `pages/ComingSoon.test.tsx` («aprire Preferenze → Notifiche legge solo chiamate integrate») | fatto |
 | «Non avvisarmi più di questo» dalla card (S6) | `muteFromNotification` su `client.inbox.muteType`: il server spegne la riga del tipo della card nel suo progetto; l'«Annulla» riscrive la riga di prima nel progetto della risposta (senza progetto, da un server più vecchio, lo dice invece di scrivere); funzione `alerts-mute` | `real/alerts.test.ts`, `real/alertsPage.test.tsx` | fatto |
 | «Ti arriva perché…» | `alertMandatory` dell'`InboxItem` (scritto alla pubblicazione per ogni destinatario) diventa il `mandatory` della card: il pannello dice il motivo e non offre «Don't alert me»; un motivo sconosciuto non si mostra | `real/session.test.ts`, `real/alertsPage.test.tsx` | fatto |

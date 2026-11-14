@@ -4820,7 +4820,9 @@
         "fillMailBody": "Scrivere il corpo dell'email nella tua bozza di Gmail",
         "pageAction": "Cambia questa pagina ({{kind}})",
         "deleteTask": "Elimina {{code}}",
-        "deleteTaskNoCode": "Elimina una task"
+        "deleteTaskNoCode": "Elimina una task",
+        "setSubscription": "Cambia i tuoi avvisi «{{type}}» in {{code}}: {{channels}}",
+        "setSubscriptionNoCode": "Cambia i tuoi avvisi «{{type}}» in un progetto: {{channels}}"
       },
       "summaryHidden": {
         "createTask": "Crea una task",
@@ -4845,6 +4847,16 @@
         "type": "tipo",
         "priority": "priorità",
         "projectId": "progetto"
+      },
+      "channel": {
+        "app": {
+          "on": "App accesa",
+          "off": "App spenta"
+        },
+        "phone": {
+          "on": "Telefono acceso",
+          "off": "Telefono spento"
+        }
       }
     }
   },
