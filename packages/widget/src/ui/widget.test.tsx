@@ -726,3 +726,68 @@ describe("drag", () => {
     expect(cssVar("--sw-bubble-top")).toBe("524px");
   });
 });
+
+describe("area 8, F3, S4: le risposte del team", () => {
+  async function open(routes: Record<string, Response | (() => Response)>) {
+    localStorage.setItem("stubwise-widget:acme:conversation", "conv-old");
+    const fx = installFetch({
+      "GET /config": () => jsonResponse(200, activeConfig()),
+      "GET /conversations/conv-old/messages?userId=u1": () =>
+        jsonResponse(200, {
+          messages: [
+            { id: "m1", role: "user", content: "domanda", citations: null },
+            { id: "m2", role: "assistant", content: "risposta AI", citations: [] },
+            { id: "m3", role: "team", content: "Ciao, ci pensiamo noi", citations: null },
+          ],
+        }),
+      ...routes,
+    });
+    await initWidget({ dsn: DSN, user: USER });
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-bubble")!.click();
+    await flush(6);
+    return fx;
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("un messaggio del team nello storico ha il nome del widget, mai una persona", async () => {
+    await open({});
+    const team = shadow().querySelector(".sw-msg-team");
+    expect(team).not.toBeNull();
+    expect(team!.textContent).toContain("Ciao, ci pensiamo noi");
+    expect(team!.querySelector(".sw-msg-team-name")!.textContent).toBe("Assistenza Acme");
+  });
+
+  it("col pannello aperto legge i messaggi nuovi ogni 15 s, DOPO l'ultimo, e aggiunge solo quelli del team", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const fx = await open({
+      "GET /conversations/conv-old/messages?userId=u1&after=m3": () =>
+        jsonResponse(200, {
+          messages: [
+            { id: "m4", role: "user", content: "doppione del cliente", citations: null },
+            { id: "m5", role: "team", content: "Ecco la risposta nuova", citations: null },
+          ],
+        }),
+    });
+    vi.advanceTimersByTime(15_000);
+    await flush(6);
+    expect(fx.calls.some((c) => c.url.endsWith("&after=m3"))).toBe(true);
+    expect(shadow().textContent).toContain("Ecco la risposta nuova");
+    // Il cliente e l'AI sono già nella timeline dallo stream: il polling non li duplica.
+    expect(shadow().textContent).not.toContain("doppione del cliente");
+  });
+
+  it("chiuso il pannello, il polling si ferma", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const fx = await open({});
+    shadow().querySelector<HTMLButtonElement>(".sw-header-close, .sw-bubble")!.click();
+    await flush(6);
+    const before = fx.calls.length;
+    vi.advanceTimersByTime(60_000);
+    await flush(6);
+    expect(fx.calls.length).toBe(before);
+  });
+});

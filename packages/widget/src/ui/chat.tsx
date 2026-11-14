@@ -28,6 +28,8 @@ import { TicketCard } from "./ticket-card.js";
 export type ChatItem =
   | { kind: "user"; id: string; text: string }
   | { kind: "assistant"; id: string; text: string; citations: WidgetCitation[] }
+  /** Area 8, F3: la risposta di una persona del team; il cliente la vede col nome del widget. */
+  | { kind: "team"; id: string; text: string }
   | { kind: "ticket"; id: string; proposal: WidgetTicketProposal };
 
 export interface ChatProps {
@@ -38,6 +40,8 @@ export interface ChatProps {
   welcomeMessage: string;
   /** Composer attivo solo se la chat è abilitata lato config. */
   chatEnabled: boolean;
+  /** Il nome con cui il team firma le risposte: il titolo del widget, mai una persona. */
+  teamName: string;
   /** conversationId iniziale da storage (o null: nuova conversazione lazy). */
   initialConversationId: string | null;
   /**
@@ -60,6 +64,7 @@ export function Chat({
   strings,
   welcomeMessage,
   chatEnabled,
+  teamName,
   initialConversationId,
   resetRef,
 }: ChatProps) {
@@ -71,6 +76,11 @@ export function Chat({
   // Controller dell'invio in corso: alla chiusura del pannello (smontaggio del
   // componente) abortiamo il fetch/stream così la lettura non prosegue a vuoto.
   const abortRef = useRef<AbortController | null>(null);
+  // L'ultimo messaggio del SERVER visto (storico o polling): il polling chiede
+  // solo quelli dopo. Lo stream non lo sposta (i suoi id sono locali).
+  const lastServerIdRef = useRef<string | null>(null);
+  const streamingRef = useRef(false);
+  streamingRef.current = streaming;
 
   // Abort dell'eventuale stream attivo allo smontaggio (chiusura del pannello).
   useEffect(() => {
@@ -128,16 +138,19 @@ export function Chat({
           setItems([{ kind: "assistant", id: nextId(), text: welcomeMessage, citations: [] }]);
           return;
         }
+        lastServerIdRef.current = messages.at(-1)!.id;
         setItems(
           messages.map((m) =>
             m.role === "user"
               ? { kind: "user", id: m.id, text: m.content }
-              : {
-                  kind: "assistant",
-                  id: m.id,
-                  text: m.content,
-                  citations: Array.isArray(m.citations) ? m.citations : [],
-                },
+              : m.role === "team"
+                ? { kind: "team", id: m.id, text: m.content }
+                : {
+                    kind: "assistant",
+                    id: m.id,
+                    text: m.content,
+                    citations: Array.isArray(m.citations) ? m.citations : [],
+                  },
           ),
         );
       } catch (err) {
@@ -157,6 +170,42 @@ export function Chat({
     };
     // Solo al mount: lo storico si carica una volta per apertura del pannello
     // (il pannello si smonta/rimonta all'apri/chiudi). Le dipendenze sono stabili.
+  }, []);
+
+  // Area 8, F3: le risposte del team arrivano mentre il pannello è aperto. Un
+  // polling leggero (ogni 15 s, e quando la pagina torna visibile) chiede i
+  // messaggi DOPO l'ultimo visto e aggiunge SOLO quelli del team: il cliente e
+  // l'AI sono già nella timeline dallo stream. Si ferma allo smontaggio
+  // (pannello chiuso) e durante uno stream.
+  useEffect(() => {
+    let stopped = false;
+    async function poll() {
+      const id = conversationId.current;
+      if (stopped || !id || streamingRef.current) return;
+      try {
+        const { messages } = await fetchMessages(base, id, user.id, lastServerIdRef.current ?? undefined);
+        if (stopped || messages.length === 0) return;
+        lastServerIdRef.current = messages.at(-1)!.id;
+        const team = messages.filter((m) => m.role === "team");
+        if (team.length === 0) return;
+        setItems((prev) => [
+          ...prev,
+          ...team.filter((m) => !prev.some((it) => it.id === m.id)).map((m) => ({ kind: "team" as const, id: m.id, text: m.content })),
+        ]);
+      } catch {
+        // In silenzio: il prossimo giro riprova.
+      }
+    }
+    const timer = setInterval(() => void poll(), 15_000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void poll();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
   // Scroll pinning: l'autoscroll segue lo stream SOLO se l'utente è agganciato
@@ -292,6 +341,14 @@ export function Chat({
             return (
               <div key={it.id} class="sw-msg sw-msg-user">
                 {it.text}
+              </div>
+            );
+          }
+          if (it.kind === "team") {
+            return (
+              <div key={it.id} class="sw-msg sw-msg-assistant sw-msg-team">
+                <div class="sw-msg-team-name">{teamName}</div>
+                {renderMarkdown(it.text)}
               </div>
             );
           }
