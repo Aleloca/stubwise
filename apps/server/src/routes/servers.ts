@@ -105,6 +105,8 @@ function toServerView(row: ServerRow, agg: ServerAggregates, now: Date): ServerV
     orphan: agg.orphan,
     // I progetti non hanno ancora un archivio sul server.
     inArchivedOnly: false,
+    // Area 8, F4b: lo dichiara l'ingest (S4); finché non c'è, spento.
+    agentOperations: false,
   };
 }
 
