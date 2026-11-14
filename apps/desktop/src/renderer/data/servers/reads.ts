@@ -365,7 +365,7 @@ function fixInfo(
   const planError =
     lastPhase?.type === "phase" && lastPhase.planError
       ? lastPhase.planError
-      : lastPhase?.type === "phase" && lastPhase.operationsOff
+      : lastPhase?.type === "phase" && lastPhase.reason === "operations_off"
         ? "operations_off"
         : failedStep
           ? `step_failed:${failedStep.index}`
@@ -439,11 +439,9 @@ export async function getServerTaskInfo(taskId: string): Promise<ServerTaskInfo 
           reason:
             lastPhase?.type !== "phase"
               ? null
-              : lastPhase.operationsOff
-                ? ("operations_off" as const)
-                : lastPhase.reason === "server_gone"
-                  ? lastPhase.reason
-                  : null,
+              : lastPhase.reason === "operations_off" || lastPhase.reason === "server_gone"
+                ? lastPhase.reason
+                : null,
           outcome: run.outcome ?? "stopped",
         }
       : null;

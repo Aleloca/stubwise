@@ -381,7 +381,7 @@ describe("F4b: le operazioni dell'agente, e l'SSH che non c'entra", () => {
     expect(actions(c.id, "server.fix").every((a) => a.state !== "running")).toBe(true);
     expect(session(c.id)).toMatchObject({ state: "finished", outcome: "stopped" });
     const last = phases(c.id).at(-1)!;
-    expect(last).toMatchObject({ outcome: "stopped", operationsOff: true });
+    expect(last).toMatchObject({ outcome: "stopped", reason: "operations_off" });
     as("p-roberta");
     expect((await servers.getServerTaskInfo(c.taskId!))!.fix!.planError).toBe("operations_off");
     expect(last.stoppedById).toBeUndefined();

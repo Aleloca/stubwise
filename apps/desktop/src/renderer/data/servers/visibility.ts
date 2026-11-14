@@ -359,8 +359,8 @@ export interface ServerDetail extends Omit<ServerRow, "access"> {
   inArchivedOnly: boolean;
   /**
    * «Ask Claude to look into it» (R0-A2): `servers.operate` in un progetto il
-   * cui ambiente usa il server (staging compreso), l'accesso di lettura
-   * usabile e nessuna analisi in corso.
+   * cui ambiente usa il server (staging compreso) e nessuna analisi in corso.
+   * L'accesso di lettura non serve (senza, niente letture SSH).
    */
   canStartAnalysis: boolean;
   /** L'ultima analisi chiesta a mano, se c'è. */
@@ -454,7 +454,6 @@ export function serverDetail(me: string, s: MonitoredServer): ServerDetail {
     inArchivedOnly: inArchivedOnlyOf(s.code),
     canStartAnalysis:
       canOperateServer(me, s.code) &&
-      accessUsable(state.serverAccess.get(s.code)) &&
       !state.serverAnalyses.some((a) => a.serverCode === s.code && a.outcome === "running"),
     manualAnalysis: (() => {
       const last = state.serverAnalyses

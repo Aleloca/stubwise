@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { releases, resetApi, servers, setLatency } from "../api";
 import { setSessionPersonId } from "../session";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
-import { state, visibleProjectIds } from "../store";
+import { eventsOf, state, visibleProjectIds } from "../store";
 import { can, viewerFor } from "../viewer";
 import { whenAnalysesIdle } from "./analysis";
 
@@ -124,13 +124,24 @@ describe("avvio a mano dell'analisi (R0-A2)", () => {
     expect(state.serverAnalyses).toHaveLength(before);
   });
 
-  it("senza l'accesso di lettura usabile non parte: `invalid: access`, e il dettaglio non la offre", async () => {
+  it("senza l'accesso di lettura parte lo stesso (come sul server): niente letture SSH, lo dice, e scrive la diagnosi", async () => {
     const code = await stagingServer({ access: false });
     as("p-marco");
-    expect((await servers.getServer(code)).canStartAnalysis).toBe(false);
-    const before = state.serverAnalyses.length;
-    expect(await message(servers.startServerAnalysis(code))).toBe("invalid: access");
-    expect(state.serverAnalyses).toHaveLength(before);
+    expect((await servers.getServer(code)).canStartAnalysis).toBe(true);
+    const view = await servers.startServerAnalysis(code);
+    await whenAnalysesIdle();
+    const a = state.serverAnalyses.find((x) => x.id === view.id)!;
+    // Lo stato del server lo legge sempre (dal database): diagnosi, non «rientrato».
+    expect(a.outcome).toBe("diagnosed");
+    const said = eventsOf(a.conversationId)
+      .flatMap((e) => (e.type === "assistant" ? [e.text] : []))
+      .join("\n");
+    expect(said).toMatch(/can't read over SSH/);
+    const reads = eventsOf(a.conversationId).filter(
+      (e) => e.type === "action" && e.serverCommand?.via === "ssh",
+    );
+    expect(reads).toEqual([]);
+    expect(state.serverAccess.get(code)?.lastUse ?? null).toBeNull();
   });
 });
 

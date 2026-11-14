@@ -352,13 +352,15 @@ const askedBy = (a: ServerAnalysis): string | null =>
  * dell'istanza, attribuzione), ma da chiunque abbia `servers.operate` in un
  * progetto il cui ambiente usa il server — staging compreso. Chi la chiede
  * l'ha già passato (`startServerAnalysis` in `operate.ts`); qui: una già in
- * corso (`analysis_running`), l'accesso di lettura (`access`) e il budget.
+ * corso (`analysis_running`) e il budget (solo nel prototipo, in anticipo:
+ * sul server la ferma il cancello del worker, `blocked`). L'accesso di
+ * lettura NON serve: lo stato del server Claude lo legge comunque (dal
+ * database); senza SSH verificato le letture SSH non ci sono, e lo dice.
  * Nessun episodio: con uno aperto guarda i suoi motivi (una copia), senza
  * uno sguardo generale.
  */
 export function startManualAnalysis(server: MonitoredServer, me: string): ServerAnalysis {
   if (runningOn(server.code)) throw invalid("analysis_running");
-  if (!accessUsable(state.serverAccess.get(server.code))) throw invalid("access");
   if (aiBlockFor(null)?.reason === "monthly_budget") throw invalid("monthly_budget");
   const open = state.serverEpisodes.find(
     (e) => e.serverCode === server.code && e.recoveredAt === null,
@@ -412,9 +414,26 @@ async function drive(
   const alive = () => gen === storeGeneration();
   let server = serverOf(a.serverCode);
   if (!server) return;
+  // Una a mano parte anche senza l'accesso di lettura (R0-A2, come sul
+  // server): allora niente letture SSH, solo quelle via agente e lo stato.
+  const manual = !!a.startedBy;
+  const ssh = accessUsable(state.serverAccess.get(a.serverCode));
   await runScript(a.conversationId, openingOf(server, episode, a), gen);
   if (!alive()) return;
-  if (!server.sshReachable) {
+  if (!ssh) {
+    await runScript(
+      a.conversationId,
+      [
+        {
+          step: "say",
+          text: `I can't read over SSH: ${server.code} has no verified read-only access. I'm working from the server's state and what the agent can read.`,
+        },
+      ],
+      gen,
+    );
+    if (!alive()) return;
+  }
+  if (ssh && !server.sshReachable) {
     await runScript(a.conversationId, unreachableSteps(server), gen);
     if (!alive()) return;
     return finish(a, episode, gen, "unreachable", 0);
@@ -436,7 +455,9 @@ async function drive(
       await runScript(a.conversationId, unavailableSteps(server, missing), gen);
       if (!alive()) return;
     }
-    const all = readsFor(server, episode.reasons, reach);
+    const all = readsFor(server, episode.reasons, reach).filter(
+      (r) => ssh || r.command.via !== "ssh",
+    );
     const next = all.find((r) => !ran.has(commandInput(r.command)));
     if (!next) break;
     // Al limite di tempo (solo «Simula»): metà delle letture, poi si ferma.
@@ -444,17 +465,19 @@ async function drive(
       ending = "timed_out";
       break;
     }
-    if (!accessUsable(state.serverAccess.get(a.serverCode))) {
+    if (ssh && !accessUsable(state.serverAccess.get(a.serverCode))) {
       ending = "access_lost";
       break;
     }
-    // L'uso si registra alla prima lettura vera, non prima.
-    if (ran.size === 0) markUsed(a.serverCode, { kind: "analysis", analysisId: a.id });
+    // L'uso si registra alla prima lettura vera, non prima (e solo con l'SSH).
+    if (ssh && ran.size === 0) markUsed(a.serverCode, { kind: "analysis", analysisId: a.id });
     ran.add(commandInput(next.command));
     await runScript(a.conversationId, readSteps([next]), gen);
     if (!alive()) return;
   }
-  if (ending === "diagnosed" && ran.size === 0) ending = "recovered_early";
+  // Senza letture un'automatica è rientrata prima di guardare; una a mano ha
+  // comunque guardato lo stato del server.
+  if (ending === "diagnosed" && ran.size === 0 && !manual) ending = "recovered_early";
   return finish(a, episode, gen, ending, ran.size);
 }
 

@@ -1280,25 +1280,18 @@ export type ConversationEvent =
        * `item_closed`: il refine si è chiuso perché la richiesta è stata
        * trasformata, archiviata o fusa. Correzione di un server (area 8,
        * F4b), fase fermata SENZA una persona: `server_gone` (il server non
-       * è più in un ambiente del progetto) o, con `operationsOff`, le
-       * operazioni dell'agente spente. Lo Stop di una persona porta
+       * è più in un ambiente del progetto) o `operations_off` (le
+       * operazioni dell'agente spente). Lo Stop di una persona porta
        * `stoppedById`; tempo scaduto ed errore hanno il loro `outcome`
        * (`timed_out`, `failed`).
        */
-      reason?: "item_closed" | "server_gone";
-      /**
-       * Correzione di un server fermata perché l'agente non ha più le
-       * operazioni accese (area 8, F4b). Un campo a sé e non un valore di
-       * `reason`: il tipo condiviso (`@stubwise/shared`, `claude/work.ts`)
-       * non lo conosce ancora, e il desktop deve restargli assegnabile.
-       */
-      operationsOff?: true;
+      reason?: "item_closed" | "server_gone" | "operations_off";
       /**
        * Correzione di un server chiusa SENZA piano (area 8, F4b): perché, un
        * codice come `planError` del server (`no_plan`, `schema`,
        * `container_of_other_project`), mai testo del modello.
        */
-      planError?: "no_plan" | "schema" | "container_of_other_project" | null;
+      planError?: "no_plan" | "schema" | "container_of_other_project";
       /** Solo una fase `correction`: la PR che corregge (il job del server la conosce). */
       pr?: PrRef;
     }

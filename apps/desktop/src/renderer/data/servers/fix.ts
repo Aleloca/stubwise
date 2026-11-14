@@ -258,7 +258,12 @@ async function writePlan(
           },
           {
             step: "event",
-            event: { type: "phase", phase: "plan", outcome: "ok", planError: proposal.error },
+            event: {
+              type: "phase",
+              phase: "plan",
+              outcome: "ok",
+              ...(proposal.error ? { planError: proposal.error } : {}),
+            },
           },
           { step: "state", state: "finished", outcome: "ok" },
         ];
@@ -407,7 +412,7 @@ function stopFix(c: Conversation, gen: number, reason: StopReason): Promise<void
           type: "phase",
           phase: phaseNow(c),
           outcome: "stopped",
-          ...(reason === "server_gone" ? { reason } : { operationsOff: true as const }),
+          reason: reason === "server_gone" ? reason : "operations_off",
         },
       },
       { step: "state", state: "finished", outcome: "stopped" },
