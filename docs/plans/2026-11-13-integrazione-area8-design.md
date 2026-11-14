@@ -37,7 +37,7 @@ Il dettaglio per voce è nell'inventario (lato server). In breve:
   di CI, i merge esterni, le note per PR, i server per repository, le
   iscrizioni agli avvisi, la risposta di una persona al cliente, il canale
   dei comandi verso l'agente, l'analisi automatica e la correzione dei
-  server, i permessi `support.reply` e `servers.operate`, le azioni di
+  server, i permessi `support.manage` e `servers.operate`, le azioni di
   Claude dell'area,
   la fonte di `release_page`.
 
@@ -47,7 +47,7 @@ Il dettaglio per voce è nell'inventario (lato server). In breve:
 |---|---|
 | Releases: PR aperte (di Stubwise e dei colleghi) con l'analisi, la coda, il merge in due passi, il rilascio `<PRJ>-V<n>` e il suo stato letto dalle run di CI o dal commit in produzione, il rilascio fallito con «Spiega» e «Fai sistemare a Claude», le note per PR, gli ambienti per repository | Lanciare un rilascio: nessun Deploy, nessun «Riprova la pipeline» *(maintainer)* |
 | Gli avvisi: catalogo dei tipi, iscrizioni per progetto, destinatari calcolati a lettura, Preferenze → Notifiche, la scorciatoia dal progetto | Slack *(maintainer: in dismissione)*; i webhook in uscita e le impostazioni d'istanza delle notifiche (area 9) |
-| Support: conversazioni del widget e del server MCP, stati, la risposta di una persona (widget ed email), «segui», la richiesta aperta da una conversazione, «View conversation» su richieste e task, la bozza di Claude | Rispondere in automatico *(maintainer: Claude prepara solo bozze)*; chiudere, assegnare, etichettare ([A 7]) |
+| Support: conversazioni del widget e del server MCP, stati, la richiesta aperta da una conversazione, «View conversation» su richieste e task, i siti ammessi del widget, la risposta ai collaboratori del canale MCP | Qualunque messaggio del team al cliente del widget *(premessa corretta, 14 nov 2026)*; chiudere, assegnare, etichettare ([A 7]); l'API per i siti (fetta dopo la F3) |
 | Servers: il monitor nell'app, l'accesso SSH di SOLA LETTURA per l'analisi (Q3 = b), l'analisi automatica all'avviso, la correzione da task attraverso l'agente di monitoraggio | La vista complessiva dei server (area 9); qualunque scrittura via SSH |
 | Azioni di Claude: iscrizioni agli avvisi, bozza di risposta, bozza delle note della PR | Il merge (NEVER), la correzione di un server avviata da Claude (R-L9) |
 | L'evento `release_page` della Chat (la pagina è il rilascio, S-6) | |
@@ -115,13 +115,19 @@ Ogni fetta si usa da sola, ha il suo piano, la sua review, la sua parità.
   dal progetto, l'azione di Claude `setSubscription`. Il catalogo copre i
   tipi nuovi dell'area e i `monitor.*`; gli altri `notification_kind`
   restano sul routing di oggi (S-4) finché un'area non li porta.
-- **F3, Support.** La risposta di una persona (`support.reply`) nel widget e,
-  se il cliente ha lasciato l'email, per email dalla casella di chi risponde
-  (S-5); gli stati della conversazione ([A 2]); «segui» ([A 14]); la
-  richiesta aperta da una conversazione e la sua origine; «View conversation»
-  su richieste e task (S-9); le conversazioni del server MCP in modalità
-  collaboratore; la Home «Clienti in attesa»; gli avvisi `support.*` (nel
-  catalogo della F2); la bozza di risposta di Claude.
+- **F3, Support.** *(Premessa corretta dal maintainer il 14 nov 2026: il
+  team non scrive MAI al cliente nel widget; una conversazione con un esito
+  è chiusa e un messaggio nuovo ne apre un'altra; il cliente segue le sue
+  richieste sul sito che ospita il widget, via un'API: fetta dopo la F3.
+  Il piano della F3 ha i dettagli.)* Gli stati della conversazione ([A 2]);
+  il giudizio dopo il silenzio; «Non conclusa» e la richiesta aperta da una
+  conversazione, con la sua origine; «View conversation» su richieste e
+  task (S-9); la conversazione chiusa e la sua successiva; i siti ammessi
+  del widget; le conversazioni del server MCP in modalità collaboratore, con
+  la risposta del team (interno); l'avviso `support.request`. Escono la
+  risposta nel widget, l'email, «segui», la bozza di Claude e la versione
+  Support di «Clienti in attesa» (il blocco resta, su email e automazioni:
+  proposta a parte).
 - **F4, Servers.** **F4a**: il monitor nell'app (elenco, dettaglio, metriche,
   controlli, soglie, chiave dell'agente, Amministrazione), la visibilità dei
   server dagli ambienti per repository (F1). **F4b** (per ultima, dopo la
@@ -160,12 +166,13 @@ Ogni fetta si usa da sola, ha il suo piano, la sua review, la sua parità.
   (permessi e catalogo), non si salvano.
 - Nessuna tabella per il catalogo: è codice in `@stubwise/shared`.
 
-**F3**
-- `widget_messages.role`: in più `human` (testo libero oggi, nessuna
-  migrazione d'enum), `author_id`, `delivered_by_email_at`.
-- `widget_conversations`: `channel` (`widget` | `mcp`), `state`, il cliente
-  che aspetta noi da quando (`waiting_since`).
-- `support_followers`: chi segue una conversazione.
+**F3** (la forma vera è nel piano della F3, migrazione 0179)
+- `widget_messages.role`: in più `team`, `author_id`, `client_id`, SOLO per
+  le risposte ai collaboratori del canale `mcp`.
+- `widget_conversations`: `number` (il codice), `channel` (`widget` |
+  `mcp`), il giudizio sul triage, `continued_in_id` (la successiva di una
+  chiusa). Lo stato si deriva.
+- `widgets.allowed_origins`: i siti ammessi.
 - La richiesta aperta da una conversazione: `backlog_items.support_conversation_id`.
 
 **F4**
@@ -205,10 +212,9 @@ Ogni fetta si usa da sola, ha il suo piano, la sua review, la sua parità.
   prima correzione parte da sola salvo «Solo analisi», con le regole di
   sicurezza dell'adozione (invariante 2) e il ciclo, il tetto e il budget di
   oggi.
-- **La risposta al cliente (F3)**: il widget legge i messaggi nuovi della
-  conversazione (polling leggero sul suo endpoint pubblico, stessa chiave);
-  l'email parte dalla casella di chi risponde, con le regole d'invio della
-  Posta (area 6).
+- **Il giudizio dopo il silenzio (F3)**: una sessione breve del CLI dal
+  runner del worker (Haiku) decide se l'AI del widget è bastata. Nessuna
+  risposta al cliente dal worker *(premessa corretta, 14 nov 2026)*.
 - **L'analisi automatica (F4b, S-10)**: all'avviso (`monitor.alert`), un
   agente Claude che legge ciò che l'agente di monitoraggio riporta (metriche,
   servizi, controlli; e, se le letture sono accese, le azioni di lettura
@@ -302,7 +308,7 @@ garantisca. È il punto da cui parte la domanda Q4.
 
 | Permesso | Livello | Cosa | Preset |
 |---|---|---|---|
-| `support.reply` (nuovo) | progetto | Rispondere ai clienti, vedere le bozze di Claude | Project Lead, Developer, Legacy Member |
+| `support.manage` (nuovo; era `support.reply` nella prima stesura) | progetto | Aprire la richiesta da una conversazione (con `backlog.create`), segnarla non conclusa, rispondere ai collaboratori del canale MCP | Project Lead, Developer, Legacy Member |
 | `servers.operate` (nuovo) | progetto | Avviare la correzione di un server da una task | nessun preset di progetto (persona per persona); implicito per il full admin |
 | `servers.ssh.manage` (nuovo, Q3 = b) | istanza | Collegare, verificare, rigenerare, revocare l'accesso SSH di sola lettura | Admin (implicito per il full admin) |
 | `release.merge`, `prs.adopt`, `repos.manage`, `repos.view`, `environments.manage`, `widget.manage`, `monitor.view`, `monitor.manage`, `plans.approve` | invariati | (il loro uso nell'area nell'inventario) | invariati |
@@ -342,13 +348,11 @@ preset). Nessuna chiave a due livelli (il test del catalogo).
   sospende l'iscrizione senza riscrivere righe; un tipo obbligatorio non si
   spegne; nessuna card di oggi cambia destinatari di colpo (S-4); il
   catalogo e i `notification_kind` restano allineati (test di parità).
-- **F3**: una risposta parte solo con «Send to customer»; l'Undo di 5 s è
-  SOLO della UI (`replyStore.ts` del prototipo: la risposta va al server allo
-  scadere), quindi nessuna rotta di annullamento e nessuna risposta
-  arrivata al server prima dello scadere; l'email parte solo dalla
-  casella di chi risponde, coi suoi scope; il testo del cliente è non fidato
-  nella bozza di Claude; una conversazione la vede solo chi vede il progetto;
-  il widget riceve solo i messaggi della sua conversazione.
+- **F3**: nessun messaggio del team su una conversazione del widget, da
+  nessuna strada; una conversazione chiusa non riceve messaggi (vanno alla
+  successiva, una sola); i siti ammessi rifiutano prima di ogni scrittura;
+  il testo del cliente è non fidato nel giudizio del worker; una
+  conversazione la vede solo chi vede il progetto.
 - **F4** (le operazioni attraverso l'agente soprattutto):
   - **niente deploy**: l'insieme delle azioni non contiene pull, ricreazione
     di un container con un'immagine nuova, `compose up`, `exec`; un piano che
@@ -502,42 +506,23 @@ preset). Nessuna chiave a due livelli (il test del catalogo).
 
 ### F3, Support
 
-- **Pagine**:
-  - `pages/support/`: `SupportPage` (`ConversationList`,
-    `ConversationDetail`, `Messages`, `CustomerPreview`), `ReplyComposer`
-    con `replyStore.ts`, `RequestBlock`, i widget (`Widgets`, `WidgetPanel`,
-    `widgetSnippet.ts`), la route `/p/$code/support/$conversation`;
-  - l'origine di una richiesta (`RequestOrigin` in
-    `pages/requests/RequestDetail.tsx`).
-- **«Annulla» è della UI**: nel prototipo la finestra di 5 s la tiene
-  `replyStore.ts`, e `replyToCustomer` parte solo allo scadere, quindi
-  «Annulla» non lascia traccia sul server. Non serve una rotta di
-  annullamento (a differenza della Posta, dove l'invio è differito sul
-  server). Il Review Focus della F3 «l'Undo funziona davvero» si verifica
-  nel renderer: nessuna richiesta prima dello scadere, nessuna dopo un
-  «Annulla». Cambiare persona nella finestra NON annulla, come nella Posta
-  e come dice `replyStore.ts`.
+*(Riscritto il 14 nov 2026 sulla premessa corretta: il dettaglio è nei
+task del renderer del piano della F3.)*
+
+- **Pagine**: `pages/support/` (`SupportPage`, `ConversationList`,
+  `ConversationDetail`, `Messages`, `CustomerPreview`, `RequestBlock`, i
+  widget coi siti ammessi), la route `/p/$code/support/$conversation`;
+  `RequestOrigin` nel dettaglio della richiesta. Le conversazioni del
+  widget sono in SOLA LETTURA (con «Continua in S<n>» / «Seguito di
+  S<n>»); il compositore c'è solo sulle conversazioni `mcp`.
 - **«View conversation» su una task del widget** (S-9): lo stesso blocco
-  di `RequestOrigin`, in sola lettura, nel dettaglio della task di un ticket
-  `source: "widget"`, sopra `?ticketId=`. Il prototipo non lo ha sulle task:
-  è un'aggiunta della build app, da mettere anche nel prototipo perché
-  resti la specifica.
-- **«Scrivigli anche per email»** (`emailDraftFor`): apre la composizione
-  della Posta (area 6, integrata) dalla casella di chi risponde (S-5), con
-  le regole d'invio della Posta.
-- **Flag**:
-  1. `support-widgets`, sulle rotte di oggi (`/api/projects/:projectId/widgets`,
-     `widget.manage`; lo snippet con l'origine vera dell'istanza);
-  2. `support-read`: le conversazioni in sola lettura, `RequestOrigin` e
-     «View conversation», sulle rotte di oggi;
-  3. `support`: la risposta, gli stati, «segui», la richiesta da una
-     conversazione, la Home «Clienti in attesa», la bozza di Claude, il
-     canale `mcp`.
-- **Test**:
-  - nessuna risposta senza «Send to customer»;
-  - l'Undo non manda niente;
-  - una conversazione di un progetto invisibile risponde come inesistente;
-  - la bozza di Claude non parte da sola.
+  di `RequestOrigin`, in sola lettura, anche nel prototipo.
+- Escono dal prototipo (perché resti la specifica): la risposta al
+  cliente e `replyStore.ts`, «Scrivigli anche per email», «Segui», la
+  bozza di Claude, gli stati `waiting_us`/`reply_sent`.
+- **Flag**: `support-widgets`, `support-read`, `support` (vedi il piano).
+- **Test**: nessun compositore su una conversazione del widget; una
+  conversazione di un progetto invisibile risponde come inesistente.
 
 ### F4, Servers
 
@@ -609,8 +594,9 @@ preset). Nessuna chiave a due livelli (il test del catalogo).
 
 Ogni azione arriva con la sua fetta e col suo adattatore nel catalogo
 condiviso: le note della PR (`releaseNotesDraft`) con la F1,
-`setSubscription` con la F2, la bozza di risposta (`supportReplyDraft`,
-`useSupportClaudeDraft`) con la F3. Il merge e la correzione di un server
+`setSubscription` con la F2. La bozza di risposta (`supportReplyDraft`,
+`useSupportClaudeDraft`) esce con la premessa corretta della F3 (14 nov
+2026). Il merge e la correzione di un server
 restano fuori dal catalogo e dalla palette (`palette/commands.ts`) anche
 come suggerimento. I gruppi di ricerca dell'area (`searchReleases`,
 `searchSupport`, `searchServers`) non hanno oggi un consumatore in pagina:
