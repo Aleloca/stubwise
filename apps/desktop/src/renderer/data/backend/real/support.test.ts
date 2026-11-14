@@ -304,8 +304,13 @@ describe("le scritture di Support sul server (area 8, F3)", () => {
     });
   });
 
-  it("l'email bloccata (409 support_triage, o senza email) nelle parole del prototipo", async () => {
-    const { api } = fakeApi({ emailDraft: fail(409, "support_triage") });
-    await expect(createRealSupport(api).emailDraftFor("ACQ-S1")).rejects.toThrow("invalid: state");
+  it("l'email bloccata nelle parole del prototipo: in triage, senza email, senza casella", async () => {
+    const reason = (code: string) =>
+      createRealSupport(fakeApi({ emailDraft: fail(409, code) }).api)
+        .emailDraftFor("ACQ-S1")
+        .catch((e: Error) => e.message);
+    expect(await reason("support_triage")).toBe("invalid: state");
+    expect(await reason("support_no_email")).toBe("invalid: no_email");
+    expect(await reason("support_no_mailbox")).toBe("google_not_connected");
   });
 });

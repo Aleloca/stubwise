@@ -59,6 +59,11 @@ function words(error: unknown): unknown {
     return new Error("invalid: state");
   if (error instanceof ApiError && error.code === "budget_exhausted")
     return new Error("budget_exhausted");
+  // «Write to them by email» (S9): le ragioni di `emailBlocked`, come le dice il prototipo.
+  if (error instanceof ApiError && error.code === "support_no_email")
+    return new Error("invalid: no_email");
+  if (error instanceof ApiError && error.code === "support_no_mailbox")
+    return new Error("google_not_connected");
   return asPrototypeError(error);
 }
 

@@ -110,6 +110,8 @@ describe("isIntegrated", () => {
         // widget e ricerca restano spenti finché non hanno le rotte.
         "projectSection:support",
         "feature:support",
+        "feature:support-email",
+        "feature:support-home",
         "destination:projects",
         "projectSection:tasks",
         "projectSettings:statuses",

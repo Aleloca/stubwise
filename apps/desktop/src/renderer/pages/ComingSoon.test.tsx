@@ -426,6 +426,9 @@ const INTEGRATED_CALLS = new Set([
   "support.followConversation",
   "support.openRequestFrom",
   "support.markNotConcluded",
+  // S9 e S8: «Write to them by email» e «Clienti in attesa».
+  "support.emailDraftFor",
+  "support.listWaitingCustomers",
   // Area 8, F2 (R6): le iscrizioni agli avvisi.
   "alerts.subscriptionRows",
   "alerts.setSubscription",
@@ -652,7 +655,7 @@ describe("aree non integrate nella build app", () => {
 
   // Area 8, F3: Support acceso (letture e scritture). Bozza di Claude, email,
   // Home, widget e ricerca hanno le loro funzioni, spente finché non ci sono le rotte.
-  it("aprire Support legge solo chiamate integrate, senza le parti che non hanno rotte", async () => {
+  it("aprire Support legge solo chiamate integrate, senza la bozza di Claude che non ha ancora la rotta", async () => {
     const user = userEvent.setup();
     signedInAs("p-matteo");
     renderRoute("/p/ACQ/support/ACQ-S2");
@@ -666,13 +669,24 @@ describe("aree non integrate nella build app", () => {
     );
     await waitFor(() => expect(calls).toContain("support.getSupportConversation"));
     await waitFor(() => expect(calls).toContain("support.listSupportConversations"));
-    // La casella c'è (si risponde), ma senza «Ask Claude» (S12) né l'email (S9).
+    // La casella c'è (si risponde), ma senza «Ask Claude» (S12); l'email ha il suo test.
     expect(await within(detail).findByRole("form", { name: /^Reply to / })).toBeInTheDocument();
     expect(within(detail).queryByRole("button", { name: /^Ask Claude/ })).toBeNull();
-    expect(within(detail).queryByRole("button", { name: "Write to them by email" })).toBeNull();
     // Nessuna simulazione del prototipo nel menu.
     await user.click(within(detail).getByRole("button", { name: "More actions" }));
     expect(screen.queryByRole("menuitem", { name: /^Simulate/ })).toBeNull();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("«Write to them by email» (area 8, F3, S9): la bozza dal server e la Posta, solo chiamate integrate", async () => {
+    const user = userEvent.setup();
+    signedInAs("p-matteo");
+    const router = renderRoute("/p/ACQ/support/ACQ-S2");
+    const button = await screen.findByRole("button", { name: "Write to them by email" }, { timeout: 3000 });
+    await user.click(button);
+    await waitFor(() => expect(calls).toContain("support.emailDraftFor"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/mail"));
     await settle();
     expect(outside()).toEqual([]);
   });
@@ -867,7 +881,8 @@ describe("le superfici della fetta 2 nella build app", () => {
 // «Upcoming» (gli appuntamenti) è acceso dall'area 6, fetta 1; «Important email» dalla fetta 2;
 // «Automations» dall'area 7, fetta 1.
 // Dall'area 8 (fetta 1) «Releases» è integrato: resta futuro «Customers waiting».
-const FUTURE_BLOCKS = /^Customers waiting/;
+/** «Clienti in attesa» (area 8, F3, S8): acceso, ma mai nelle Home di default ([A 17]). */
+const WAITING_BLOCK = /^Customers waiting/;
 
 describe("le superfici della fetta 3 nella build app", () => {
   it("dopo il login si atterra sulla Home a blocchi", async () => {
@@ -893,12 +908,13 @@ describe("le superfici della fetta 3 nella build app", () => {
     renderRoute("/home");
     expect(await screen.findByRole("region", { name: /^My week/ })).toBeInTheDocument();
     expect(await screen.findByRole("region", { name: /^My tasks/ })).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: FUTURE_BLOCKS })).toBeNull();
+    // «Clienti in attesa» è acceso (area 8, F3) ma non entra da sé in una Home di default ([A 17]).
+    expect(screen.queryByRole("region", { name: WAITING_BLOCK })).toBeNull();
     await settle();
     expect(outside()).toEqual([]);
   });
 
-  it("un blocco di un'area non integrata salvato nella Home personale non si mostra e non chiama nulla", async () => {
+  it("«Clienti in attesa» salvato nella Home personale si mostra e legge solo chiamate integrate (area 8, F3)", async () => {
     signedInAs("p-marco");
     const { setPersonalHome } = await import("../data/api");
     await setPersonalHome([
@@ -912,12 +928,13 @@ describe("le superfici della fetta 3 nella build app", () => {
     calls.length = 0;
     renderRoute("/home");
     expect(await screen.findByRole("region", { name: /^My tasks/ })).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: FUTURE_BLOCKS })).toBeNull();
+    expect(await screen.findByRole("region", { name: WAITING_BLOCK })).toBeInTheDocument();
+    await waitFor(() => expect(calls).toContain("support.listWaitingCustomers"));
     await settle();
     expect(outside()).toEqual([]);
   });
 
-  it("il catalogo dei blocchi non propone le aree non integrate", async () => {
+  it("il catalogo dei blocchi propone «Clienti in attesa» a chi risponde ai clienti (area 8, F3)", async () => {
     signedInAs("p-marco");
     renderRoute("/home");
     await userEvent.click(await screen.findByRole("button", { name: "Customize" }));
@@ -926,7 +943,7 @@ describe("le superfici della fetta 3 nella build app", () => {
     const names = within(menu)
       .queryAllByRole("menuitem")
       .map((i) => i.textContent ?? "");
-    expect(names.some((n) => FUTURE_BLOCKS.test(n))).toBe(false);
+    expect(names.some((n) => WAITING_BLOCK.test(n))).toBe(true);
     await settle();
     expect(outside()).toEqual([]);
   });
