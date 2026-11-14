@@ -754,7 +754,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     `support.reply` e `servers.operate` vivono ancora solo nel prototipo:
     quando entrano nel registro di `@stubwise/shared`, il catalogo si può
     tipare sui permessi veri e il restringimento del prototipo
-    (`domain/alerts/catalog.ts`) sparisce.
+    (`domain/alerts/catalog.ts`) sparisce;
+  - **«Annulla» contro un server senza `saved`** (un rollback, un'istanza
+    non aggiornata): il campo manca, vale `false`, e l'«Annulla» chiede il
+    ritorno al default (`DELETE`), che quel server non ha (404, «Undo» non
+    riesce e lo dice). Server e caddy escono insieme, quindi solo in un
+    rilascio scompagnato; non si ripiega su `PUT`, che fisserebbe il default.
 
 - F2, S4, limite accettato *(O, 46, 14 nov 2026)*: l'obbligatorio
   `pr_author` di `pr.analysis_issues` e `pr.corrected` si risolve per una PR

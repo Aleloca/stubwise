@@ -378,3 +378,15 @@ describe("il riassunto di setSubscription senza canali (review F2, m3)", () => {
     expect(summaryOf("setSubscription", args, null).summary).toBe("Change your “Release failed” alerts in a project");
   });
 });
+
+describe("resetSubscription, l'inverso di un setSubscription senza scelta salvata (review F2, 6)", () => {
+  it("il riassunto dice il ritorno al default, col codice del progetto", () => {
+    const args = { projectId: PROJECT_ID, type: "release.failed" };
+    expect(summaryOf("resetSubscription", args, "AUD").summary).toBe(
+      "Put your “Release failed” alerts in AUD back to the default",
+    );
+    expect(summaryOf("resetSubscription", args, null).summary).toBe(
+      "Put your “Release failed” alerts in a project back to the default",
+    );
+  });
+});

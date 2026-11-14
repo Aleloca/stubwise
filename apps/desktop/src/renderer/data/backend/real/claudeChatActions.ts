@@ -56,7 +56,9 @@ export function taskIdsOf(fn: string, args: Record<string, unknown>): string[] {
  * il codice del progetto, come nel prototipo.
  */
 const projectIdOf = (fn: string, args: Record<string, unknown>): string | null =>
-  fn === "setSubscription" && typeof args["projectId"] === "string" ? (args["projectId"] as string) : null;
+  (fn === "setSubscription" || fn === "resetSubscription") && typeof args["projectId"] === "string"
+    ? (args["projectId"] as string)
+    : null;
 
 /** Proposte, gruppi e codici delle task citate di una conversazione libera. */
 export async function readChatActions(conversationId: string): Promise<ChatActions> {
@@ -158,6 +160,7 @@ export function summaryOf(fn: string, args: Record<string, unknown>, code: strin
     case "pageAction":
       params["kind"] = text("kind");
       break;
+    case "resetSubscription":
     case "setSubscription": {
       // L'etichetta del tipo dal catalogo condiviso; solo i canali presenti (un assente resta com'è).
       const labelKey = alertTypeOf(text("type"))?.labelKey;
@@ -171,6 +174,7 @@ export function summaryOf(fn: string, args: Record<string, unknown>, code: strin
   }
   // `setSubscription` senza canali (il server ne vuole almeno uno, ma il client non lo dà per certo): la frase senza «: ».
   const phrase = fn === "setSubscription" && params["channels"] === "" ? "setSubscriptionBare" : fn;
+  // `resetSubscription` (l'inverso, mai proposto): «back to the default», senza canali.
   const own = `claude.chatActions.summary.${phrase}${code === null && params["code"] === "" && needsCode(fn) ? "NoCode" : ""}`;
   // Un'azione che questa build non conosce (un server più nuovo: `fn` è `__unknown__`) ha la frase generica.
   const key = i18n.exists(own) ? own : "claude.chatActions.summaryHidden.other";
@@ -179,7 +183,7 @@ export function summaryOf(fn: string, args: Record<string, unknown>, code: strin
 }
 
 const needsCode = (fn: string) =>
-  ["updateTask", "planTask", "deleteTask", "addComment", "deleteComment", "startRun", "setSubscription"].includes(fn);
+  ["updateTask", "planTask", "deleteTask", "addComment", "deleteComment", "startRun", "setSubscription", "resetSubscription"].includes(fn);
 
 // --- le schede e le righe ------------------------------------------------------------
 

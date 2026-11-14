@@ -4824,7 +4824,9 @@
         "setSubscription": "Change your “{{type}}” alerts in {{code}}: {{channels}}",
         "setSubscriptionNoCode": "Change your “{{type}}” alerts in a project: {{channels}}",
         "setSubscriptionBare": "Change your “{{type}}” alerts in {{code}}",
-        "setSubscriptionBareNoCode": "Change your “{{type}}” alerts in a project"
+        "setSubscriptionBareNoCode": "Change your “{{type}}” alerts in a project",
+        "resetSubscription": "Put your “{{type}}” alerts in {{code}} back to the default",
+        "resetSubscriptionNoCode": "Put your “{{type}}” alerts in a project back to the default"
       },
       "summaryHidden": {
         "createTask": "Create a task",
@@ -8700,6 +8702,10 @@
       "follows_conversation": "Always if you follow the conversation",
       "task_author": "Always for the task's author, if the merge came from outside Stubwise",
       "assignee": "Always for whoever the task is assigned to"
+    },
+    "mandatoryStill": {
+      "app": "When it applies to you, it still reaches you in the app",
+      "appPhone": "When it applies to you, it still reaches you in the app and on your phone"
     },
     "always": "Always for you",
     "alwaysPhone": "App and phone",

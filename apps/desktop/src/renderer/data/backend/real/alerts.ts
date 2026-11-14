@@ -36,6 +36,8 @@ export interface AlertsApi {
   ): Promise<AlertSubscriptionRow>;
   copy(projectId: string, fromProjectId: string): Promise<{ before: AlertSubscriptionRow[] }>;
   mute(projectId: string): Promise<{ before: AlertSubscriptionRow[] }>;
+  /** Riporta la riga al default (`DELETE`): niente scelta salvata, i valori seguono permessi e `push`. */
+  reset(projectId: string, type: string): Promise<AlertSubscriptionRow>;
   /** «Don't alert me» dalla card (S6): la riga di prima, quella di adesso e il progetto della card. */
   muteType(
     notificationId: string,
@@ -83,13 +85,22 @@ async function call<T>(run: () => Promise<T>): Promise<T> {
 }
 
 export function createRealAlerts(api: AlertsApi) {
-  /** Rimette le righe di prima: solo quelle che si possono scrivere (le altre il server le rifiuta). */
+  /**
+   * Rimette le righe di prima: solo quelle che si possono scrivere (le altre
+   * il server le rifiuta). Una riga con una scelta salvata si riscrive; una
+   * senza (`saved: false`) torna al default, invece di fissarne i valori di
+   * quel momento (il Telefono smetterebbe di seguire `push`).
+   */
   const undoOf = (projectId: string, before: AlertSubscriptionRow[]): Undoable => ({
     async undo() {
       const writable = before.filter((r) => r.state === "on" || r.state === "off");
       await call(() =>
         Promise.all(
-          writable.map((r) => api.set(projectId, r.type, { app: r.app, phone: r.phone })),
+          writable.map((r) =>
+            r.saved
+              ? api.set(projectId, r.type, { app: r.app, phone: r.phone })
+              : api.reset(projectId, r.type),
+          ),
         ),
       );
     },
@@ -159,5 +170,6 @@ export const liveAlerts: Partial<typeof Fake.alerts> = createRealAlerts({
   set: (projectId, type, patch) => appClient().alerts.set(projectId, type, patch),
   copy: (projectId, fromProjectId) => appClient().alerts.copy(projectId, fromProjectId),
   mute: (projectId) => appClient().alerts.mute(projectId),
+  reset: (projectId, type) => appClient().alerts.reset(projectId, type),
   muteType: (notificationId) => appClient().inbox.muteType(notificationId),
 });

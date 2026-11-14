@@ -21,6 +21,7 @@ const row = (over: Partial<AlertSubscriptionRow> = {}): AlertSubscriptionRow => 
   state: "on",
   suspendedReason: null,
   mandatory: ["merged", "task_author"],
+  saved: true,
   ...over,
 });
 
@@ -53,6 +54,10 @@ function fakeApi(over: Partial<AlertsApi> = {}) {
     mute: async (projectId) => {
       calls.push(`mute ${projectId}`);
       return { before: [] };
+    },
+    reset: async (projectId, type) => {
+      calls.push(`reset ${projectId} ${type}`);
+      return row({ type, saved: false });
     },
     muteType: async (notificationId) => {
       calls.push(`muteType ${notificationId}`);
@@ -216,6 +221,48 @@ describe("le iscrizioni dal server (R2)", () => {
     expect(calls).toEqual([`mute ${AUD}`]);
     await undo.undo();
     expect(calls[1]).toBe(`set ${AUD} release.failed {"app":true,"phone":true}`);
+  });
+
+  it("l'«Annulla» riporta al default le righe senza una scelta salvata (saved: false), non le fissa (review F2, m1)", async () => {
+    const before = [
+      row({ type: "release.failed", app: true, phone: false, saved: true }),
+      row({ type: "release.merged", app: true, phone: true, saved: false }),
+      row({ type: "pr.corrected", state: "mandatory", saved: false }),
+    ];
+    const { api, calls } = fakeApi({
+      mute: async (projectId) => {
+        calls.push(`mute ${projectId}`);
+        return { before };
+      },
+      copy: async (projectId, fromProjectId) => {
+        calls.push(`copy ${projectId} from ${fromProjectId}`);
+        return { before };
+      },
+    });
+    const alerts = createRealAlerts(api);
+    await (await alerts.muteProject(AUD)).undo();
+    await (await alerts.copySubscriptions(BLD, AUD)).undo();
+    const undos = calls.filter((c) => !c.startsWith("mute") && !c.startsWith("copy"));
+    expect(undos.sort()).toEqual(
+      [
+        `set ${AUD} release.failed {"app":true,"phone":false}`,
+        `reset ${AUD} release.merged`,
+        `set ${AUD} release.failed {"app":true,"phone":false}`,
+        `reset ${AUD} release.merged`,
+      ].sort(),
+    );
+  });
+
+  it("dalla card: senza una scelta salvata l'«Annulla» riporta la riga al default (review F2, m1)", async () => {
+    const { api, calls } = fakeApi({
+      muteType: async () => ({
+        before: row({ type: "release.merged", saved: false }),
+        row: row({ type: "release.merged", app: false, phone: false, state: "off" }),
+        projectId: AUD,
+      }),
+    });
+    await (await createRealAlerts(api).muteFromNotification(CARD)).undo();
+    expect(calls.filter((c) => !c.startsWith("muteType"))).toEqual([`reset ${AUD} release.merged`]);
   });
 
   it("copia e «Mute» su un progetto invisibile: not_found", async () => {

@@ -44,6 +44,7 @@ const row = (over: Record<string, unknown> = {}) => ({
   state: "on",
   suspendedReason: null,
   mandatory: ["merged", "task_author"],
+  saved: true,
   ...over,
 });
 
@@ -150,6 +151,70 @@ describe("Preferenze → Notifiche nella build app (area 8, F2, R3)", () => {
     ).toBeVisible();
   });
 
+  it("una riga spenta con un obbligo dice che arriva lo stesso, e dove (review F2, 5)", async () => {
+    install({
+      [`GET ${BASE}`]: {
+        body: {
+          items: [
+            {
+              projectId: PROJECT_ID,
+              projectCode: "AUD",
+              projectName: "Audin",
+              rows: [
+                row({ app: false, phone: true, state: "off", mandatory: ["merged"] }),
+                row({ type: "release.merged", labelKey: "alerts.types.release_merged", app: false, phone: false, state: "off", mandatory: ["merged"] }),
+                row({ type: "pr.opened", group: "prs", labelKey: "alerts.types.pr_opened", app: false, phone: false, state: "off", mandatory: [] }),
+              ],
+            },
+          ],
+        },
+      },
+    });
+    renderRoute("/preferences/notifications");
+    await ready();
+    const lineOf = (name: string) => sw(`${name} in AUD, App`).closest("[data-alert-row]")!;
+    expect(lineOf("Release failed")).toHaveTextContent("When it applies to you, it still reaches you in the app and on your phone");
+    expect(lineOf("Release merged")).toHaveTextContent("When it applies to you, it still reaches you in the app");
+    expect(lineOf("Release merged")).not.toHaveTextContent("on your phone");
+    expect(lineOf("New PR")).not.toHaveTextContent("still reaches you");
+  });
+
+  it("una riga accesa (gli interruttori lo dicono già) o sospesa (nessuna promessa) con un obbligo non aggiunge la nota", async () => {
+    install();
+    renderRoute("/preferences/notifications");
+    await ready();
+    expect(screen.queryByText(/still reaches you/)).toBeNull();
+  });
+
+  it("i valori sono quelli del server: il Telefono di una riga solo obbligatoria, la riga dei server accesa (review F2, 1 e 4)", async () => {
+    install({
+      [`GET ${BASE}`]: {
+        body: {
+          items: [
+            {
+              projectId: PROJECT_ID,
+              projectCode: "AUD",
+              projectName: "Audin",
+              rows: [
+                row(),
+                row({ type: "pr.corrected", group: "prs", labelKey: "alerts.types.pr_corrected", state: "mandatory", app: true, phone: true, mandatory: ["pr_author"], saved: false }),
+                row({ type: "job.failed", group: "tasks", labelKey: "alerts.types.job_failed", state: "mandatory", app: true, phone: false, mandatory: ["assignee"], saved: false }),
+                row({ type: "server.trouble", group: "monitor", labelKey: "alerts.types.server_trouble", state: "on", app: true, phone: true, mandatory: [], saved: false }),
+              ],
+            },
+          ],
+        },
+      },
+    });
+    renderRoute("/preferences/notifications");
+    await ready();
+    const rowOf = (type: string) => document.querySelector<HTMLElement>(`[data-alert-row="${type}"]`)!;
+    expect(rowOf("pr.corrected")).toHaveTextContent("App and phone");
+    expect(rowOf("job.failed")).toHaveTextContent("App only");
+    expect(sw("Server in trouble in AUD, App")).toHaveAttribute("aria-checked", "true");
+    expect(sw("Server in trouble in AUD, Phone")).toHaveAttribute("aria-checked", "true");
+  });
+
   it("un interruttore scrive la riga con una PUT (una patch)", async () => {
     install();
     renderRoute("/preferences/notifications");
@@ -242,16 +307,18 @@ describe("Preferenze → Notifiche nella build app (area 8, F2, R3)", () => {
     return panel;
   }
 
-  it("«Don't alert me» dalla card: il mute del server (S6), e «Undo» riscrive la riga di prima", async () => {
+  it("«Don't alert me» dalla card: il mute del server (S6), e «Undo» riporta al default la riga senza scelta salvata", async () => {
     install({
       "GET /api/inbox": inboxWith(cardOf()),
       [`POST /api/inbox/${CARD_ID}/mute-type`]: {
         body: {
-          before: row(),
+          // Nessuna scelta salvata prima: l'«Undo» la riporta al default, non la fissa (review F2, m1).
+          before: row({ saved: false }),
           row: row({ app: false, phone: false, state: "off" }),
           projectId: PROJECT_ID,
         },
       },
+      [`DELETE ${BASE}/${PROJECT_ID}/release.failed`]: { body: row({ saved: false }) },
     });
     renderRoute("/preferences/notifications");
     await ready();
@@ -266,9 +333,9 @@ describe("Preferenze → Notifiche nella build app (area 8, F2, R3)", () => {
     );
     await user.click(await screen.findByRole("button", { name: "Undo" }));
     await waitFor(() =>
-      expect(seen.filter((r) => r.method === "PUT").map((r) => [r.path, r.body])).toEqual([
-        [`${BASE}/${PROJECT_ID}/release.failed`, { app: true, phone: true }],
-      ]),
+      expect(
+        seen.filter((r) => r.method === "PUT" || r.method === "DELETE").map((r) => [r.method, r.path]),
+      ).toEqual([["DELETE", `${BASE}/${PROJECT_ID}/release.failed`]]),
     );
   });
 

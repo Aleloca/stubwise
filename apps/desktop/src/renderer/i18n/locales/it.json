@@ -4824,7 +4824,9 @@
         "setSubscription": "Cambia i tuoi avvisi «{{type}}» in {{code}}: {{channels}}",
         "setSubscriptionNoCode": "Cambia i tuoi avvisi «{{type}}» in un progetto: {{channels}}",
         "setSubscriptionBare": "Cambia i tuoi avvisi «{{type}}» in {{code}}",
-        "setSubscriptionBareNoCode": "Cambia i tuoi avvisi «{{type}}» in un progetto"
+        "setSubscriptionBareNoCode": "Cambia i tuoi avvisi «{{type}}» in un progetto",
+        "resetSubscription": "Riporta al default i tuoi avvisi «{{type}}» in {{code}}",
+        "resetSubscriptionNoCode": "Riporta al default i tuoi avvisi «{{type}}» in un progetto"
       },
       "summaryHidden": {
         "createTask": "Crea una task",
@@ -8700,6 +8702,10 @@
       "follows_conversation": "Sempre se segui la conversazione",
       "task_author": "Sempre per l'autore della task, se il merge è arrivato da fuori Stubwise",
       "assignee": "Sempre per chi ha la task assegnata"
+    },
+    "mandatoryStill": {
+      "app": "Quando ti riguarda ti arriva lo stesso nell'app",
+      "appPhone": "Quando ti riguarda ti arriva lo stesso nell'app e sul telefono"
     },
     "always": "Sempre per te",
     "alwaysPhone": "App e telefono",
