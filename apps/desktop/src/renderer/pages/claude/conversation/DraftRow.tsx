@@ -33,13 +33,7 @@ const K = "claude.drafts";
 
 /** Il campo come lo dice la frase: la chiave del luogo, i valori, dove porta «Put it in the field». */
 interface Where {
-  kind:
-    | "supportReply"
-    | "releaseNotes"
-    | "releaseNotesBare"
-    | "mailReply"
-    | "mailNew"
-    | "taskDescription";
+  kind: "releaseNotes" | "releaseNotesBare" | "mailReply" | "mailNew" | "taskDescription";
   /** Il gruppo per «Replace or add below?» e «com'era». */
   group: "reply" | "notes" | "email" | "description";
   values: { code?: string; number?: number; subject?: string };
@@ -49,8 +43,6 @@ interface Where {
 const contextOfField = (field: FieldRef | null): ContextRef | null => {
   if (!field) return null;
   switch (field.kind) {
-    case "supportReply":
-      return { kind: "support", conversationId: field.conversationId };
     case "releaseNotes":
       return { kind: "pr", prId: field.prId };
     case "taskDescription":
@@ -82,15 +74,6 @@ function useWhere(field: FieldRef | null): Where | null {
   if (!described?.code) return null;
   const projectCode = projects?.find((p) => p.id === described.projectId)?.code;
   switch (field.kind) {
-    case "supportReply":
-      return projectCode
-        ? {
-            kind: "supportReply",
-            group: "reply",
-            values: { code: described.code },
-            route: `/p/${projectCode}/support/${described.code}`,
-          }
-        : null;
     case "releaseNotes": {
       const number = described.params?.number;
       return {

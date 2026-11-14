@@ -25,7 +25,6 @@ import {
   productWeekChangesFor,
 } from "../../data/productDocs/claudePanel";
 import { releaseNotesDraftFor } from "../../data/releases/notes";
-import { supportReplyDraftFor } from "../../data/support/visibility";
 import { getSessionPersonId, setSessionPersonId } from "../../data/session";
 import { now, state } from "../../data/store";
 import type { ProposedAction, ScriptStep } from "../../data/types";
@@ -79,7 +78,6 @@ const READ: ReadApi = {
     return seen ? { code: seen.code, projectId: seen.projectId } : null;
   },
   supportConversationIdOf: async (code) => contextIdFor(getSessionPersonId(), "support", code),
-  supportReplyDraft: async (id) => supportReplyDraftFor(getSessionPersonId(), id),
   releaseNotesDraft: async (prId) => releaseNotesDraftFor(getSessionPersonId(), prId),
   mailDraft: (threadId, hint) => mailDraftFor(getSessionPersonId(), threadId, hint),
   taskDescriptionDraft: async (taskId) => taskDescriptionDraftFor(getSessionPersonId(), taskId),
@@ -633,7 +631,6 @@ describe("la posta e le riunioni di altri non arrivano a Claude (Review Focus 1)
       "releaseNotesDraft",
       "spendThisMonth",
       "supportConversationIdOf",
-      "supportReplyDraft",
       "taskDescriptionDraft",
       "validateAutomationFlow",
     ]);

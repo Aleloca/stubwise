@@ -12,7 +12,7 @@ import { SUPPORT_TWO_UP_QUERY } from "./format";
 import { clearReplyStore } from "./replyStore";
 
 // Le porte d'ingresso di Support (Task 9): il blocco Home «Clienti in
-// attesa» ([A 17]: nel catalogo di chi ha `support.reply`, mai nelle Home
+// attesa» ([A 17]: nel catalogo di chi ha `support.manage`, mai nelle Home
 // di default) e ⌘K (le conversazioni per codice, «New widget»).
 
 beforeEach(() => {
@@ -36,7 +36,7 @@ function homeWithWaiting(personId: string) {
 }
 
 describe("Home — «Customers waiting»", () => {
-  it("nel catalogo di chi ha support.reply, non di Sara; mai nelle Home di default", async () => {
+  it("nel catalogo di chi ha support.manage, non di Sara; mai nelle Home di default", async () => {
     expect(BLOCKS.waitingCustomers.available(viewerFor("p-matteo"))).toBe(true);
     expect(BLOCKS.waitingCustomers.available(viewerFor("p-sara"))).toBe(false);
     renderRoute("/home", "p-laura");
@@ -44,24 +44,8 @@ describe("Home — «Customers waiting»", () => {
     expect(screen.queryByRole("region", { name: /^Customers waiting/ })).toBeNull();
   });
 
-  it("le attese più vecchie in alto, con «waiting»; il clic apre il dettaglio", async () => {
+  it("nel prototipo il blocco è vuoto finché la fetta delle email non ne dà la fonte (area 8, F3)", async () => {
     homeWithWaiting("p-matteo");
-    const user = userEvent.setup();
-    const router = renderRoute("/home", "p-matteo");
-    const block = await screen.findByRole("region", { name: /^Customers waiting/ });
-    const row = await within(block).findByRole("link", { name: /ACQ-S2/ });
-    expect(row).toHaveTextContent("Lucia Benedetti");
-    expect(row).toHaveTextContent("waiting 3 h");
-    await user.click(row);
-    await waitFor(() => expect(router.state.location.pathname).toBe("/p/ACQ/support/ACQ-S2"));
-  });
-
-  it("vuoto: «No customer is waiting»", async () => {
-    homeWithWaiting("p-matteo");
-    // Le due che aspettano noi: ACQ-S2 e ACQ-S7 (5 nov 2026).
-    state.supportConversations = state.supportConversations.filter(
-      (c) => c.code !== "ACQ-S2" && c.code !== "ACQ-S7",
-    );
     renderRoute("/home", "p-matteo");
     const block = await screen.findByRole("region", { name: /^Customers waiting/ });
     expect(await within(block).findByText("No customer is waiting")).toBeInTheDocument();
@@ -79,7 +63,7 @@ describe("⌘K — conversazioni di Support", () => {
     const group = await within(dialog).findByRole("group", { name: "Support" });
     const option = within(group).getByRole("option", { name: /ACQ-S2/ });
     expect(option).toHaveTextContent("Lucia Benedetti");
-    expect(option).toHaveTextContent("Waiting on us");
+    expect(option).toHaveTextContent("Request open");
     await user.click(option);
     await waitFor(() => expect(router.state.location.pathname).toBe("/p/ACQ/support/ACQ-S2"));
   });

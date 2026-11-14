@@ -67,7 +67,6 @@ import { recordChatTurnUsage } from "./instance/usage";
 import { contextIdFor, contextOf } from "./claude/context";
 import { mailDraftFor, taskDescriptionDraftFor } from "./claude/drafts";
 import { releaseNotesDraftFor } from "./releases/notes";
-import { supportReplyDraftFor } from "./support/visibility";
 import { dropHeld, holdJob, type JobKind } from "./instance/queue";
 import { getSessionPersonId, setSessionPersonId } from "./session";
 import {
@@ -989,6 +988,11 @@ export function checkNewRequest(
 
 export function createRequestAs(me: string, input: NewRequestInput): ProjectRequest {
   const project = checkNewRequest(me, input);
+  // Da una conversazione di Support: anche `support.manage` (review F3, m6),
+  // come «Apri la richiesta»; nessuna strada più larga.
+  if (input.origin?.kind === "support" && !can(viewerFor(me), "support.manage", project.id)) {
+    throw forbidden();
+  }
   // Dalla doc di prodotto (11b, P20): pagina e progetto si controllano a
   // parte, e la domanda (se c'è) si chiude nella stessa scrittura.
   const fromDoc = input.origin?.kind === "product_doc" ? input.origin : null;
@@ -1062,7 +1066,7 @@ export function insertRequest(
     taskIds: [],
     createdAt: now(),
     ...(conv
-      ? { origin: { kind: "support" as const, conversationId: conv.id } }
+      ? { origin: { kind: "support" as const, conversationId: conv.id, conversationCode: conv.code } }
       : input.origin?.kind === "product_doc"
         ? { origin: productDocOriginOf(input.origin) }
         : {}),
@@ -1861,7 +1865,6 @@ export function readsAs(me: string): ReadApi {
       return seen ? { code: seen.code, projectId: seen.projectId } : null;
     },
     supportConversationIdOf: async (code) => contextIdFor(me, "support", code),
-    supportReplyDraft: async (conversationId) => supportReplyDraftFor(me, conversationId),
     releaseNotesDraft: async (prId) => releaseNotesDraftFor(me, prId),
     mailDraft: (threadId, hint) => mailDraftFor(me, threadId, hint),
     taskDescriptionDraft: async (taskId) => taskDescriptionDraftFor(me, taskId),
@@ -1947,9 +1950,7 @@ function projectsOfSteps(steps: ScriptStep[]): string[] {
     // un'email nessun progetto: è la posta di chi chiede).
     if (e.type === "draft" && e.field) {
       const f = e.field;
-      if (f.kind === "supportReply")
-        add(state.supportConversations.find((x) => x.id === f.conversationId)?.projectId);
-      else if (f.kind === "releaseNotes")
+      if (f.kind === "releaseNotes")
         add(state.openPrs.find((p) => p.id === f.prId)?.projectId);
       else if (f.kind === "taskDescription") add(ofTask(f.taskId));
     }

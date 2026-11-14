@@ -47,7 +47,6 @@ export const LOCAL_NOTIFICATION_KINDS = [
   "docs.release_note",
   "task.created",
   "support.request",
-  "support.customer_replied",
   "server.trouble",
   "server.down",
   "server.recovered",

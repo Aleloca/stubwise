@@ -57,7 +57,7 @@ describe("checkEscalation", () => {
     expect(
       checkEscalation(marco, ["plans.approve", "runs.start", "release.merge", "plans.approve"]),
     ).toEqual({ ok: false, error: "escalation", missing: ["plans.approve", "release.merge"] });
-    expect(checkEscalation(marco, ["runs.start", "support.reply"])).toEqual({ ok: true });
+    expect(checkEscalation(marco, ["runs.start", "support.manage"])).toEqual({ ok: true });
   });
 
   it("Roberta (full admin) dà qualunque permesso, a ogni livello", () => {
@@ -313,7 +313,7 @@ describe("ACTIONS e gruppi", () => {
       "release.merge",
       "servers.operate",
       "project.members.manage",
-      "support.reply",
+      "support.manage",
       "planning.others",
       "automations.manage",
       "runs.start",
@@ -363,9 +363,9 @@ describe("ACTIONS e gruppi", () => {
     check(INSTANCE_GROUPS, [...INSTANCE_SET]);
     check(PROJECT_GROUPS, ALL_PROJECT_PERMISSIONS);
     // I 14 gruppi del web (con «credentials» della cassaforte e, dall'area 4,
-    // «chat», dall'area 5 «drive», dall'area 7 «automations»), più
-    // «prototype» a ogni livello.
-    expect(INSTANCE_GROUPS.length + PROJECT_GROUPS.length).toBe(17);
+    // «chat», dall'area 5 «drive», dall'area 7 «automations», dall'area 8 F3
+    // «support»), più «prototype» a ogni livello.
+    expect(INSTANCE_GROUPS.length + PROJECT_GROUPS.length).toBe(18);
     expect(INSTANCE_GROUPS.at(-1)!.permissions).toEqual(LOCAL_INSTANCE_PERMISSIONS);
     for (const p of INSTANCE_PERMISSIONS) expect(groupOf("instance", p)).not.toBe("prototype");
     for (const p of PROJECT_PERMISSIONS) expect(groupOf("project", p)).not.toBe("prototype");

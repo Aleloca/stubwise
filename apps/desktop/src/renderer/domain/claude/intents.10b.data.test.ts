@@ -196,7 +196,6 @@ describe("S0, la risposta onesta", () => {
     "spend",
     "archive",
     "addMember",
-    "supportReply",
     "releaseNotes",
     "mailBody",
     "taskDescription",

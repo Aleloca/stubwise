@@ -112,9 +112,9 @@ describe("l'elenco", () => {
         sources: [{ kind: "department", departmentId: "dep-support", departmentName: "Support" }],
       },
     ]);
-    // Marco ha support.reply dal ruolo E da Development: non è «in più».
+    // Marco ha support.manage dal ruolo E da Development: non è «in più».
     expect((await rowOf(ACQ, "p-marco"))!.extra.map((e) => e.permission)).not.toContain(
-      "support.reply",
+      "support.manage",
     );
   });
 
@@ -428,7 +428,7 @@ describe("la bozza del membro: previewMember e saveMember con UNA regola", () =>
     expect(p.viewerLoses).toEqual([]);
     const ops = p.permissions.find((x) => x.permission === "servers.operate")!;
     expect(ops.sources).toEqual([expect.objectContaining({ kind: "grant", origin: "given" })]);
-    const reply = p.permissions.find((x) => x.permission === "support.reply")!;
+    const reply = p.permissions.find((x) => x.permission === "support.manage")!;
     expect(reply.sources.map((s) => s.kind).sort()).toEqual(["department", "role"]);
   });
 

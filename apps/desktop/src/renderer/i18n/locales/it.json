@@ -1324,7 +1324,8 @@
         "automation": "Automazione",
         "server": "Server"
       },
-      "serverTitle": "Aperta da Claude dopo un avviso su {{code}}"
+      "serverTitle": "Aperta da Claude dopo un avviso su {{code}}",
+      "viewConversation": "Vedi la conversazione"
     },
     "technical": {
       "title": "Dettagli tecnici",
@@ -3626,7 +3627,6 @@
           "spend": "Dirti quanto si è speso in AI questo mese",
           "archive": "Archiviare i progetti senza attività",
           "addMember": "Aggiungere qualcuno a un progetto",
-          "supportReply": "Scrivere la risposta a una conversazione di supporto",
           "releaseNotes": "Scrivere le note di rilascio di una pull request",
           "mailBody": "Scrivere un'email o una risposta nella Posta",
           "taskDescription": "Scrivere la descrizione di una task",
@@ -3642,7 +3642,6 @@
           "spend": "Quanto abbiamo speso in AI questo mese?",
           "archive": "Archivia i progetti senza attività da 3 mesi",
           "addMember": "Aggiungi [persona] a [progetto] come [ruolo]",
-          "supportReply": "Scrivi la risposta",
           "releaseNotes": "Scrivi le note di rilascio",
           "mailBody": "Scrivi un'email a [persona] per dire che [cosa]",
           "taskDescription": "Scrivi la descrizione di [task]",
@@ -3753,7 +3752,7 @@
         "openInviteBare": "Apri l'invito →"
       },
       "draft": {
-        "cantReply": "Non puoi rispondere a questa conversazione ·",
+        "noSupportReply": "In Support non scrivo risposte.",
         "cantEditNotes": "Non puoi modificare le note di rilascio di questa pull request ·",
         "cantEditTask": "Non puoi modificare **{{code}}** ·",
         "noSource": "Non ho da dove scrivere la descrizione di **{{code}}**: dimmi cosa deve dire.",
@@ -3761,7 +3760,6 @@
         "askHint": "Cosa deve dire l'email?",
         "openField": "Apri la conversazione, l'email, la pull request o la task e chiedimelo di nuovo.",
         "openCode": "Apri **{{code}}** →",
-        "openReply": "Apri la risposta →",
         "chat": "In un canale le bozze le scrive @Claude nel thread: menzionalo lì.",
         "inPanel": "Le bozze le scrivo dal riquadro di Claude, accanto al campo: chiedimelo lì."
       },
@@ -4719,8 +4717,6 @@
         "sr": "Bozza di Claude, non ancora modificata."
       },
       "pending": {
-        "supportReply": "Scrivo una bozza per la risposta a <obj>{{code}}</obj>…",
-        "supportReply_vowel": "Scrivo una bozza per la risposta ad <obj>{{code}}</obj>…",
         "releaseNotes": "Scrivo una bozza per le note di rilascio di <obj>{{code}}</obj> · pull request #{{number}}…",
         "releaseNotesBare": "Scrivo una bozza per le note di rilascio di <obj>{{code}}</obj>…",
         "mailReply": "Scrivo una bozza per la risposta a «{{subject}}»…",
@@ -4728,8 +4724,6 @@
         "taskDescription": "Scrivo una bozza per la descrizione di <obj>{{code}}</obj>…"
       },
       "placed": {
-        "supportReply": "Messa una bozza nella risposta a <obj>{{code}}</obj>",
-        "supportReply_vowel": "Messa una bozza nella risposta ad <obj>{{code}}</obj>",
         "releaseNotes": "Messa una bozza nelle note di rilascio di <obj>{{code}}</obj> · pull request #{{number}}",
         "releaseNotesBare": "Messa una bozza nelle note di rilascio di <obj>{{code}}</obj>",
         "mailReply": "Messa una bozza nella risposta a «{{subject}}»",
@@ -4737,8 +4731,6 @@
         "taskDescription": "Messa una bozza nella descrizione di <obj>{{code}}</obj>"
       },
       "waiting": {
-        "supportReply": "La bozza per la risposta a <obj>{{code}}</obj> è pronta",
-        "supportReply_vowel": "La bozza per la risposta ad <obj>{{code}}</obj> è pronta",
         "releaseNotes": "La bozza per le note di rilascio di <obj>{{code}}</obj> · pull request #{{number}} è pronta",
         "releaseNotesBare": "La bozza per le note di rilascio di <obj>{{code}}</obj> è pronta",
         "mailReply": "La bozza per la risposta a «{{subject}}» è pronta",
@@ -4774,11 +4766,6 @@
       "hint": "Apre Claude con la richiesta scritta, non inviata.",
       "notNow": "Non ora",
       "hidden": "Suggerimento nascosto.",
-      "supportReply": {
-        "line": "scrivere la risposta",
-        "prompt": "Scrivi la risposta a {{code}}",
-        "prompt_vowel": "Scrivi la risposta ad {{code}}"
-      },
       "releaseNotes": {
         "line": "scrivere le note di rilascio",
         "prompt": "Scrivi le note di rilascio"
@@ -8659,7 +8646,6 @@
       "task_created": "Nuova task",
       "task_created_by_automation": "Nuova task da un'automazione",
       "support_request": "Nuova richiesta",
-      "support_customer_replied": "Il cliente ha risposto",
       "job_pr_opened": "Claude ha aperto una PR",
       "review_completed": "Revisione della PR conclusa",
       "ticket_created": "Nuova task",
@@ -8685,7 +8671,6 @@
       "task_created": "Quando si crea una task in {{code}}",
       "task_created_by_automation": "Quando un'automazione crea una task in {{code}}",
       "support_request": "Quando si apre una richiesta in {{code}}, da un cliente o da un collega",
-      "support_customer_replied": "Quando un cliente riscrive in una conversazione di {{code}}",
       "job_pr_opened": "Quando Claude apre una PR per una task di {{code}}",
       "review_completed": "Quando Claude finisce di rivedere una PR di {{code}}",
       "ticket_created": "Quando si crea una task in {{code}}",
@@ -8699,7 +8684,6 @@
     "mandatoryLine": {
       "merged": "Sempre se il merge l'hai fatto tu",
       "pr_author": "Sempre per chi ha aperto la PR",
-      "follows_conversation": "Sempre se segui la conversazione",
       "task_author": "Sempre per l'autore della task, se il merge è arrivato da fuori Stubwise",
       "assignee": "Sempre per chi ha la task assegnata"
     },
@@ -8715,7 +8699,6 @@
       "docs_view": "Sospeso · non vedi più i docs di {{code}}",
       "tickets_view_all": "Sospeso · non vedi più tutte le task di {{code}}",
       "backlog_view_all": "Sospeso · non vedi più le richieste di {{code}}",
-      "support_reply": "Sospeso · non puoi più rispondere ai clienti di {{code}}",
       "other": "Sospeso · non lo vedi più in {{code}}"
     },
     "suspendedBack": "Torna da solo se riavrai l'accesso.",
@@ -8777,7 +8760,6 @@
       "why": {
         "merged": "Lo ricevi perché il merge l'hai fatto tu",
         "pr_author": "Lo ricevi perché questa PR l'hai aperta tu",
-        "follows_conversation": "Lo ricevi perché segui questa conversazione",
         "task_author": "Lo ricevi perché la PR viene da una tua task",
         "assignee": "Lo ricevi perché la task è assegnata a te"
       }
@@ -9171,11 +9153,10 @@
       "mcp": "Claude Code"
     },
     "state": {
-      "waiting_us": "Aspetta noi",
       "triage": "In triage",
       "not_concluded": "Non conclusa",
       "request_open": "Richiesta aperta",
-      "reply_sent": "Risposta inviata"
+      "answered": "Risposta bastata"
     },
     "customerStatus": {
       "received": "Ricevuta",
@@ -9210,19 +9191,18 @@
       "widgetChannel": "Widget · {{name}}",
       "started": "iniziata il {{date}}",
       "preview": "Anteprima del cliente",
-      "follow": "Segui",
-      "following": "Segui già",
       "more": "Altre azioni",
       "copyLink": "Copia il link",
       "linkCopied": "Link copiato",
       "linkError": "Non è stato possibile copiare il link.",
-      "writeEmail": "Scrivigli anche per email",
       "prototype": "Solo nel prototipo",
       "simulateMessage": "Simula un messaggio del cliente",
       "simulateLeaves": "Simula: il cliente se ne va",
       "simulateTriage": "Simula: triage concluso",
       "simulatedText": "Buongiorno, ci sono novità?",
-      "actionFailed": "Qualcosa non è andato. Non è cambiato nulla."
+      "actionFailed": "Qualcosa non è andato. Non è cambiato nulla.",
+      "continuedIn": "Continua in",
+      "continuedFrom": "Seguito di"
     },
     "request": {
       "label": "Richiesta",
@@ -9231,9 +9211,17 @@
       "showAll": "Mostra tutto",
       "showLess": "Mostra meno",
       "triage": "Ancora nessuna richiesta · l'assistente sta facendo domande",
-      "left": "Nessuna richiesta · il cliente se n'è andato prima di confermare",
+      "left": "Nessuna richiesta · al cliente serve ancora qualcosa",
+      "answered": "Nessuna richiesta · la risposta del widget è bastata",
+      "answeredWhy": "Il cliente non scrive da {{minutes}} minuti.",
+      "answeredMark": "Se non è risolta, segnala che non è conclusa: torna al team.",
+      "notConcluded": "Non conclusa",
+      "notConcludedError": "Non è stato possibile segnare la conversazione come non conclusa.",
       "open": "Apri la richiesta",
-      "cannotOpen": "Può aprirla chi ha il permesso di creare richieste."
+      "cannotOpen": "Può aprirla chi gestisce le conversazioni di Support e può creare richieste."
+    },
+    "task": {
+      "label": "Task"
     },
     "openDialog": {
       "title": "Apri la richiesta",
@@ -9252,8 +9240,7 @@
       "label": "Conversazione",
       "assistant": "Assistente (triage)",
       "team": "Team",
-      "sentWidget": "Inviata al cliente nel widget",
-      "sentMcp": "Inviata al cliente in Claude Code",
+      "sentMcp": "Inviata al collaboratore in Claude Code",
       "earlier_one": "{{count}} messaggio precedente",
       "earlier_other": "{{count}} messaggi precedenti",
       "sending": "Invio…",
@@ -9261,39 +9248,19 @@
     },
     "reply": {
       "to": "Rispondi a {{name}}",
-      "inWidget": "nel widget",
       "inMcp": "in Claude Code",
       "message": "Messaggio",
       "placeholder": "Scrivi a {{name}}…",
-      "prepared": "Claude ha preparato una bozza",
-      "useDraft": "Usa la bozza",
-      "show": "Mostra",
-      "hide": "Nascondi",
-      "stop": "Ferma",
       "saved": "Salvata",
       "discard": "Elimina",
-      "send": "Invia al cliente",
+      "send": "Invia",
       "emptyReason": "Scrivi prima una risposta",
-      "replaceAsk": "Sostituire il tuo testo o aggiungere la bozza di Claude sotto?",
-      "replace": "Sostituisci",
-      "addBelow": "Aggiungi sotto",
-      "cancel": "Annulla",
-      "draftFailed": "Claude non è riuscito a scrivere una bozza. Il tuo testo è com'era.",
-      "tryAgain": "Riprova",
       "sentTo": "Inviata a {{name}}",
       "undo": "Annulla",
-      "readOnly": "Qui scrive solo chi può rispondere ai clienti.",
-      "triage": "L'assistente sta ancora facendo domande al cliente: potrai rispondere quando il triage è concluso.",
-      "lastSeen": "{{name}} ha visto la conversazione l'ultima volta {{time}}. Vedrà la risposta quando torna.",
+      "readOnly": "Rispondono qui solo le persone che possono gestire le conversazioni di Support.",
       "nextTime": "La vedrà la prossima volta che chiede delle sue richieste.",
-      "noEmail": "Il cliente non ha lasciato un indirizzo email",
-      "noMailbox": "Collega il tuo account Google per scrivere da Stubwise",
-      "connect": "Collega",
-      "emailError": "Non è stato possibile preparare l'email.",
       "waitPrevious": "Aspetta: la risposta di prima è ancora nella finestra dell'Annulla",
-      "notSentBack": "Non inviata. La risposta è tornata nella casella: inviala di nuovo quando vuoi.",
-      "noEmailTriage": "L'assistente sta ancora facendo domande al cliente",
-      "askClaude": "Chiedi a Claude"
+      "notSentBack": "Non inviata. La risposta è tornata nella casella: inviala di nuovo quando vuoi."
     },
     "preview": {
       "title": "Cosa vede {{name}}",
@@ -9332,7 +9299,7 @@
         "instructions": "Le istruzioni possono avere al massimo 4000 caratteri.",
         "accentColor": "Il colore deve essere come #22c55e.",
         "language": "Scegli italiano o inglese.",
-        "origins": "Ogni sito deve essere come https://example.com.",
+        "origins": "Ogni sito deve essere come https://example.com (http solo per localhost, senza percorso), al massimo 20.",
         "sourceRepositoryIds": "Scegli repository di questo progetto.",
         "dailyMessageCap": "Messaggi al giorno: un numero intero da 1 a 100000, o vuoto.",
         "dailyRequestCap": "Richieste al giorno: un numero intero da 1 a 100000, o vuoto."
@@ -9343,7 +9310,8 @@
         "sources": "Fonti della documentazione",
         "noSources": "Questo progetto non ha repository.",
         "origins": "Siti",
-        "originsHint": "Uno per riga, come https://example.com",
+        "originsHint": "Uno per riga, come https://example.com (http solo per localhost). Vuoto: qualunque sito.",
+        "anySite": "Qualunque sito può caricare questo widget.",
         "title": "Titolo",
         "welcome": "Messaggio di benvenuto",
         "instructions": "Istruzioni per l'assistente",
@@ -9367,7 +9335,8 @@
       "deleteAsk": "Eliminare {{name}}? Le sue conversazioni restano.",
       "deleteConfirm": "Elimina",
       "deleted": "{{name}} eliminato",
-      "deleteError": "Non è stato possibile eliminare il widget."
+      "deleteError": "Non è stato possibile eliminare il widget.",
+      "anySiteShort": "Qualunque sito"
     },
     "origin": {
       "title": "Da dove nasce",
@@ -9940,7 +9909,7 @@
       "manageChannels": "gestire i canali",
       "manageDrive": "gestire il drive",
       "manageProjectAutomations": "gestire le automazioni del progetto",
-      "replyCustomers": "rispondere ai clienti",
+      "manageSupport": "gestire le conversazioni di Support",
       "fixServer": "avviare la correzione di un server",
       "manageRoles": "gestire i ruoli",
       "manageSettings": "cambiare le impostazioni dell'istanza",
@@ -9977,7 +9946,8 @@
       "prototype": "Prototipo",
       "chat": "Chat",
       "drive": "Drive",
-      "automations": "Automazioni"
+      "automations": "Automazioni",
+      "support": "Supporto"
     },
     "page": {
       "intro": "Scopri chi può fare una cosa in un progetto, o cosa può fare una persona — e perché. Vedi solo i progetti e le persone che vedi già.",
@@ -11981,9 +11951,9 @@
       }
     },
     "support": {
-      "reply": {
-        "label": "rispondere ai clienti",
-        "hint": "Rispondere alle conversazioni dei clienti in Support."
+      "manage": {
+        "label": "gestire le conversazioni di Support",
+        "hint": "Aprire la richiesta, segnarle non concluse, rispondere ai collaboratori."
       }
     },
     "department": {

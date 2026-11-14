@@ -1,3 +1,4 @@
+import { normalizeWidgetOrigin } from "@stubwise/shared";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -58,7 +59,7 @@ function Segmented<T extends string>({
   );
 }
 
-type Fields = Required<Omit<WidgetInput, "dailyMessageCap" | "dailyRequestCap">> & {
+type Fields = Required<Omit<WidgetInput, "dailyMessageCap" | "dailyRequestCap" | "origins">> & {
   dailyMessageCap: string;
   dailyRequestCap: string;
 };
@@ -67,7 +68,6 @@ const fieldsOf = (w: SupportWidgetView | null): Fields => ({
   name: w?.name ?? "",
   enabled: w?.enabled ?? false,
   sourceRepositoryIds: w?.sourceRepositoryIds ?? [],
-  origins: w?.origins ?? [],
   title: w?.title ?? "Help",
   welcomeMessage: w?.welcomeMessage ?? "Hi! How can we help?",
   instructions: w?.instructions ?? "",
@@ -144,18 +144,29 @@ export function WidgetPanel({
   const repos = useRepositorySettings(projectId).data?.repositories ?? [];
   const [f, setF] = useState<Fields>(() => fieldsOf(widget));
   const [origins, setOrigins] = useState(() => (widget?.origins ?? []).join("\n"));
+  /** I siti com'erano all'apertura: si mandano solo se cambiano rispetto a questi. */
+  const [openedOrigins] = useState(() => [...(widget?.origins ?? [])]);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const firstRef = useRef<HTMLInputElement>(null);
   useEffect(() => firstRef.current?.focus(), []);
   const set = (patch: Partial<Fields>) => setF((old) => ({ ...old, ...patch }));
 
-  const input = (): WidgetInput => ({
-    ...f,
-    origins: origins
+  // I siti si mandano solo se li ho cambiati (review F3, m2): un salvataggio
+  // d'altro non riscrive quelli che un collega ha messo nel frattempo.
+  const originList = () =>
+    origins
       .split("\n")
       .map((o) => o.trim())
-      .filter(Boolean),
+      .filter(Boolean);
+  const originsChanged = () => {
+    const list = originList().map((o) => normalizeWidgetOrigin(o) ?? o);
+    const before = openedOrigins;
+    return list.length !== before.length || list.some((o, i) => o !== before[i]);
+  };
+  const input = (): WidgetInput => ({
+    ...f,
+    ...(!widget || originsChanged() ? { origins: originList() } : {}),
     dailyMessageCap: capOf(f.dailyMessageCap),
     dailyRequestCap: capOf(f.dailyRequestCap),
   });
@@ -280,6 +291,7 @@ export function WidgetPanel({
             })
           )}
         </fieldset>
+        {/* I siti ammessi (area 8, F3, S16): vuoto = qualunque sito, e lo si dice. */}
         <Field
           label={t("support.widgets.fields.origins")}
           htmlFor={`${id}-origins`}
@@ -292,6 +304,9 @@ export function WidgetPanel({
             onChange={(e) => setOrigins(e.target.value)}
             className={`${inputClass} resize-y`}
           />
+          {origins.trim() === "" && (
+            <p className="text-xs text-warning">{t("support.widgets.fields.anySite")}</p>
+          )}
         </Field>
         <Field label={t("support.widgets.fields.title")} htmlFor={`${id}-title-f`}>
           <input

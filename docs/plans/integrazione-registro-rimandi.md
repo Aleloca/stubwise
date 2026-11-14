@@ -751,15 +751,40 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     `appLinkFor` (`apps/desktop/src/renderer/data/backend/real/notifications.ts`)
     apre nell'app solo rilasci, pannello della PR e Docs;
   - **i permessi del catalogo condiviso** sono stringhe perché
-    `support.reply` e `servers.operate` vivono ancora solo nel prototipo:
-    quando entrano nel registro di `@stubwise/shared`, il catalogo si può
-    tipare sui permessi veri e il restringimento del prototipo
-    (`domain/alerts/catalog.ts`) sparisce;
+    `servers.operate` vive ancora solo nel prototipo (`support.reply` è nel
+    registro dalla F3): quando entra nel registro di `@stubwise/shared`, il
+    catalogo si può tipare sui permessi veri e il restringimento del
+    prototipo (`domain/alerts/catalog.ts`) sparisce;
   - **«Annulla» contro un server senza `saved`** (un rollback, un'istanza
     non aggiornata): il campo manca, vale `false`, e l'«Annulla» chiede il
     ritorno al default (`DELETE`), che quel server non ha (404, «Undo» non
     riesce e lo dice). Server e caddy escono insieme, quindi solo in un
     rilascio scompagnato; non si ripiega su `PUT`, che fisserebbe il default.
+
+- F3, lato renderer (94, 14 nov 2026), ciò che resta fuori dalla build app
+  (parità: `apps/desktop/docs/integration-area8-f3.md`):
+  - *(superati dalla premessa corretta del maintainer, 14 nov 2026: la bozza
+    di Claude, «Segui», «Scrivigli per email» e la risposta nel widget sono
+    usciti; i siti ammessi tornano col campo `origins` del server.)*
+  - **la macchina degli slot della Posta** (`slot` delle bozze,
+    `?compose=support-…`): serviva solo a «Scrivigli per email», uscita; resta
+    accettata (`SUPPORT_MAIL_SLOT` locale) finché non si toglie in un giro di
+    pulizia della Posta;
+  - **«Clienti in attesa» nel prototipo aspetta la fetta delle email** (la
+    posta delle caselle, soglia 24 h, dopo la F3): con le conversazioni
+    chiuse il blocco del prototipo è vuoto, e il suo esempio arriverà con
+    quella fetta (46, 14 nov 2026); nella build app il blocco è spento;
+  - **Claude non ha più il permesso di Support**: `support.reply` era nel suo
+    insieme fisso, `support.manage` no (Claude non ha mai un `*.manage`):
+    non apre richieste né segna conversazioni;
+  - **un `kind` sconosciuto nei filtri di un widget** (un server più nuovo):
+    l'app lo legge come `__unknown__` e salvando lo toglie, perché non può
+    rimandarlo com'era;
+  - **la ricerca ⌘K delle conversazioni** (`support-search`): nessuna rotta,
+    fuori dalla F3;
+  - **una card `support.*` non rilegge Support**: nessun legame fra le card
+    dell'inbox e le aree; aprirla legge la conversazione, il ritmo (15 s /
+    30 s) copre il resto.
 
 - F2, S4, limite accettato *(O, 46, 14 nov 2026)*: l'obbligatorio
   `pr_author` di `pr.analysis_issues` e `pr.corrected` si risolve per una PR

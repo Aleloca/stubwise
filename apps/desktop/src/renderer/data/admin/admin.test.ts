@@ -157,7 +157,7 @@ const SENSITIVE: Record<string, { setup?: () => void; call: () => Promise<AdminR
       call: () => admin.setHomeManagers("dep-sales", ["p-matteo", "p-elena"]),
     },
     "admin.setDepartmentPermissions": {
-      call: () => admin.setDepartmentPermissions("dep-sales", ["support.reply"]),
+      call: () => admin.setDepartmentPermissions("dep-sales", ["support.manage"]),
     },
     "admin.saveDepartment": {
       call: () =>
@@ -358,7 +358,7 @@ describe("RF 1: si dà solo ciò che si ha", () => {
     });
   });
 
-  describe("Laura aggiunge Giulia a Development, che porta support.reply", () => {
+  describe("Laura aggiunge Giulia a Development, che porta support.manage", () => {
     it("senza departments.manage → forbidden", async () => {
       as("p-laura");
       reauth("p-laura");
@@ -369,7 +369,7 @@ describe("RF 1: si dà solo ciò che si ha", () => {
       );
     });
 
-    it("con departments.manage e support.reply nei progetti di chi entra → ammesso", async () => {
+    it("con departments.manage e support.manage nei progetti di chi entra → ammesso", async () => {
       giveInstance("p-laura", "departments.manage");
       onlyInProjectsOf("p-marco", "p-laura");
       as("p-laura");
@@ -384,10 +384,10 @@ describe("RF 1: si dà solo ciò che si ha", () => {
       giveInstance("p-laura", "departments.manage");
       as("p-laura");
       reauth("p-laura");
-      // Giulia è anche in CBV e OLV, dove Laura non è: lì support.reply non ce l'ha.
+      // Giulia è anche in CBV e OLV, dove Laura non è: lì support.manage non ce l'ha.
       await refused(
         () => admin.setDepartmentMembers("dep-development", [...developmentMembers(), "p-giulia"]),
-        { error: "escalation", missing: ["support.reply"] },
+        { error: "escalation", missing: ["support.manage"] },
       );
     });
 
@@ -449,7 +449,7 @@ describe("RF 1: si dà solo ciò che si ha", () => {
       });
       await refused(
         () => admin.setDepartmentMembers("dep-development", [...developmentMembers(), "p-marco"]),
-        { error: "escalation", missing: ["support.reply", "servers.operate"] },
+        { error: "escalation", missing: ["support.manage", "servers.operate"] },
       );
     });
   });
@@ -1381,7 +1381,7 @@ describe("saveDepartment: la bozza intera, tutto o niente", () => {
   });
 
   it("giro 2 (N-1): un membro salvato tolto dalla bozza e rimesso non è un'aggiunta", async () => {
-    // Marco gestisce i reparti; Development dà «reply to customers», che Marco
+    // Marco gestisce i reparti; Development dà «manage Support conversations», che Marco
     // non ha nei progetti di Laura dove lui non è.
     giveInstance("p-marco", "departments.manage");
     as("p-marco");
@@ -1478,12 +1478,12 @@ describe("saveDepartment: la bozza intera, tutto o niente", () => {
       await admin.saveDepartment("dep-sales", {
         memberIds: [...sales.memberIds, "p-sara"],
         homeManagerIds: [...sales.homeManagerIds, "p-sara"],
-        projectPermissions: ["support.reply"],
+        projectPermissions: ["support.manage"],
       }),
     ).toEqual({ ok: true });
     expect(dept("dep-sales").memberIds).toContain("p-sara");
     expect(dept("dep-sales").homeManagerIds).toContain("p-sara");
-    expect(dept("dep-sales").projectPermissions).toEqual(["support.reply"]);
+    expect(dept("dep-sales").projectPermissions).toEqual(["support.manage"]);
     expect(state.changelog.slice(entries).map((e) => e.kind).sort()).toEqual([
       "department.home_managers_changed",
       "department.members_changed",
@@ -1498,9 +1498,9 @@ describe("saveDepartment: la bozza intera, tutto o niente", () => {
     });
     expect(byKind("department.home_managers_changed").params.added).toBe("p-sara");
     expect(byKind("department.permissions_changed").params).toMatchObject({
-      added: "support.reply",
+      added: "support.manage",
       before: "",
-      after: "support.reply",
+      after: "support.manage",
     });
   });
 
@@ -1512,7 +1512,7 @@ describe("saveDepartment: la bozza intera, tutto o niente", () => {
         if (p.instanceRoleId === roleIdOf("admin")) p.instanceRoleId = roleIdOf("user");
       for (const m of s.memberships) if (m.projectId === ACQ) m.roleId = roleIdOf("developer");
       s.departments.find((d) => d.departmentId === "dep-development")!.projectPermissions = [
-        "support.reply",
+        "support.manage",
         "project.members.manage",
       ];
     });
@@ -1526,7 +1526,7 @@ describe("saveDepartment: la bozza intera, tutto o niente", () => {
         admin.saveDepartment("dep-development", {
           memberIds: dev.memberIds,
           homeManagerIds: [...dev.homeManagerIds, other],
-          projectPermissions: ["support.reply"],
+          projectPermissions: ["support.manage"],
         }),
       { error: "invalid", reason: "last_members_manager" },
     );
@@ -1562,11 +1562,11 @@ describe("viewerLosesIf: cosa perde davvero chi salva un ruolo", () => {
 
   it("chi ha il permesso anche da un'altra fonte non lo perde; la simulazione non scrive niente", async () => {
     const lead = accessState().roles.find((r) => r.key === "project_lead")!;
-    const next = lead.permissions.filter((p) => p !== "support.reply");
+    const next = lead.permissions.filter((p) => p !== "support.manage");
     giveInstance("p-laura", "roles.manage");
     as("p-laura");
     const before = snapshot();
-    // Laura è in Development, che dà «reply to customers»: la tiene.
+    // Laura è in Development, che dà «manage Support conversations»: la tiene.
     expect(dept("dep-development").memberIds).toContain("p-laura");
     expect(await admin.viewerLosesIf(lead.id, next)).toEqual([]);
     expect(snapshot()).toBe(before);
@@ -1700,17 +1700,17 @@ describe("prima e dopo nelle voci dei permessi", () => {
   });
 
   it("setDepartmentPermissions: before è l'insieme di prima, after quello salvato", async () => {
-    expect(dept("dep-development").projectPermissions).toEqual(["support.reply"]);
+    expect(dept("dep-development").projectPermissions).toEqual(["support.manage"]);
     expect(
-      await admin.setDepartmentPermissions("dep-development", ["support.reply", "docs.edit"]),
+      await admin.setDepartmentPermissions("dep-development", ["support.manage", "docs.edit"]),
     ).toEqual({ ok: true });
     const entry = state.changelog.at(-1)!;
     expect(entry.kind).toBe("department.permissions_changed");
     expect(entry.params).toMatchObject({
       added: "docs.edit",
       removed: "",
-      before: "support.reply",
-      after: "support.reply,docs.edit",
+      before: "support.manage",
+      after: "support.manage,docs.edit",
     });
     expect(entry.params.before).not.toBe(entry.params.after);
   });

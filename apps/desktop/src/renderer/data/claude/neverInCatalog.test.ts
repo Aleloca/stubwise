@@ -44,7 +44,7 @@ const NEVER = [
   "setEnvVar",
   "createProvider",
   "sendDraft",
-  "replyToCustomer",
+  "replyToCollaborator",
 ];
 
 /** Le scritture dei segreti del 9b: restano nel dialogo vero (maintainer, 2 nov 2026). */

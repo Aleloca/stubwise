@@ -411,8 +411,14 @@ describe("modelli per operazione", () => {
     // `drive_summary` (i riassunti dei file del Drive, F3 dell'area 5, gruppo docs);
     // 19 con `mail_draft` (la bozza di Claude per la Posta, F3 dell'area 6, gruppo mail);
     // 20 con `meeting_summary` (riassunto e proposte di una riunione registrata, F5a, gruppo mail);
-    // 21 con `automation_step` (un passo di Claude di un'automazione, area 7 F3, gruppo automations).
-    expect(rows).toHaveLength(21);
+    // 21 con `automation_step` (un passo di Claude di un'automazione, area 7 F3, gruppo automations);
+    // 22 con `support_triage_check` (il giudizio dopo il silenzio, area 8 F3, gruppo support:
+    // la bozza della risposta `support_reply_draft` è uscita con la premessa corretta).
+    expect(rows).toHaveLength(22);
+    expect(rows.find((r) => r.operation === "support_triage_check")).toMatchObject({
+      group: "support",
+    });
+    expect(rows.map((r) => r.operation)).not.toContain("support_reply_draft");
     expect(rows.find((r) => r.operation === "automation_step")).toMatchObject({ group: "automations" });
     expect(en.usage.operations.automation_step).toBe("Automation steps");
     expect(it_.usage.operations.automation_step).toBe("Passi delle automazioni");

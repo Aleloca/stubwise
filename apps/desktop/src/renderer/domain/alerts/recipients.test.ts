@@ -58,7 +58,6 @@ describe("catalogo degli avvisi", () => {
       "docs.release_note",
       "task.created",
       "support.request",
-      "support.customer_replied",
       "job.pr_opened",
       "review.completed",
       "job.failed",
@@ -89,7 +88,7 @@ describe("catalogo degli avvisi", () => {
   });
 
   it("ogni permesso del catalogo condiviso è uno che il prototipo conosce", () => {
-    const local: LocalProjectPermission[] = ["support.reply", "servers.operate"];
+    const local: LocalProjectPermission[] = ["servers.operate"];
     const known = new Set<string>([...PROJECT_PERMISSIONS, ...INSTANCE_PERMISSIONS, ...local]);
     for (const t of SHARED_ALERT_TYPES) {
       const rules = [t.defaultOn, t.appDefaultOn].filter((r) => typeof r === "object");
@@ -115,11 +114,8 @@ describe("catalogo degli avvisi", () => {
     expect(alertTypeOf("release.failed")!.mandatory).toEqual(["merged", "task_author"]);
     expect(ruleApplies(alertTypeOf("release.failed")!.defaultOn, merge)).toBe(true);
     expect(ruleApplies(alertTypeOf("support.request")!.defaultOn, perms("backlog.edit"))).toBe(true);
-    expect(alertTypeOf("support.customer_replied")!.mandatory).toEqual(["follows_conversation"]);
-    // R-K12: segue (e riceve) chi vede la conversazione; acceso di default per chi risponde.
-    expect(alertTypeOf("support.customer_replied")!.subscribe.perm).toBe("member");
-    expect(ruleApplies(alertTypeOf("support.customer_replied")!.defaultOn, perms("support.reply"))).toBe(true);
-    expect(ruleApplies(alertTypeOf("support.customer_replied")!.defaultOn, none)).toBe(false);
+    // Area 8, F3: «il cliente ha risposto» non c'è più (il team non scrive al cliente).
+    expect(alertTypeOf("support.customer_replied")).toBeUndefined();
     // I kind di prima: la regola di oggi, tutti i membri.
     expect(alertTypeOf("job.pr_opened")!.subscribe.perm).toBe("member");
     expect(ruleApplies(alertTypeOf("job.pr_opened")!.defaultOn, none)).toBe(true);

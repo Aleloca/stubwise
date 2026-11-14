@@ -20,7 +20,7 @@ export { ALERT_GROUPS, type AlertGroup } from "@stubwise/shared";
 
 // Il catalogo condiviso nomina i permessi come stringhe: ci sono quelli del
 // registro (di progetto, e `monitor.manage` d'istanza) e quelli che per ora
-// vivono solo nel prototipo (`support.reply`, `servers.operate`). Qui si
+// vivono solo nel prototipo (`support.manage`, `servers.operate`). Qui si
 // restringono a `Permission` in UN posto; un test verifica che ogni permesso
 // del catalogo sia uno che il prototipo conosce.
 export type DefaultRule = "off" | "members" | { perm: Permission };

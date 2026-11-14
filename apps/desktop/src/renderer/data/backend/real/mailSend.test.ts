@@ -141,6 +141,20 @@ describe("Invia", () => {
   });
 });
 
+describe("«è partito?» quando il client non si può più creare", () => {
+  it("un client che lancia mentre si aspetta (l'ambiente chiuso, la finestra andata) chiude l'attesa, senza un rifiuto non gestito", async () => {
+    vi.useFakeTimers();
+    installFakeServer({ [`GET /api/me/mail/outgoing/${O1}`]: () => ({ body: outgoing({ state: "queued" }) }) });
+    const wait = mail.whenSendSettled(O1);
+    await vi.advanceTimersByTimeAsync(1_100);
+    // Dopo la chiusura: nessun client, e crearne uno lancia (come `window` assente).
+    setAppClientForTests(null);
+    vi.stubGlobal("window", undefined);
+    await vi.advanceTimersByTimeAsync(1_100);
+    await expect(wait).resolves.toBeUndefined();
+  });
+});
+
 describe("Annulla, Riprova, Elimina", () => {
   it("«Annulla» entro i 10 s: la bozza torna", async () => {
     installFakeServer({ ...base, [`POST /api/me/mail/outgoing/${O1}/undo`]: { body: { draft: draft(), droppedAttachments: [] } } });

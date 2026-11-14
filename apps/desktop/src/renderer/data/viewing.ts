@@ -93,7 +93,6 @@ export const CLAUDE_PROJECT_PERMISSIONS: ReadonlySet<string> = new Set([
   "docs.generate",
   "chat.channels.create",
   "drive.upload",
-  "support.reply",
 ]);
 
 /** D'istanza: quelli del preset User di allora, senza i vietati (nessuna concessione si aggiunge). */

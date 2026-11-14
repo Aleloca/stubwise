@@ -22,7 +22,7 @@ export { WEBHOOK_EVENTS } from "./constants";
 // maintainer il 30 ott 2026). Fuori, col motivo: `pr.opened` (rumore, e
 // quella di Claude è già `job.pr_opened`), `task.created` (coincide con
 // `ticket.created`), `pr.corrected` (avviso personale), le risposte dei
-// clienti (`support.customer_replied`: porterebbero fuori le parole di un
+// clienti (allora `support.customer_replied`, uscito nell'area 8 F3: porterebbe fuori le parole di un
 // cliente, maintainer), `google.proposal`, la posta e `security.alert`.
 // `saveWebhook` rifiuta un id che non è qui: un evento escluso non si
 // accende nemmeno per sbaglio.

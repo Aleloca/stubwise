@@ -7,7 +7,7 @@ import { BlockSection, Capped, queryState, rowKeys } from "./BlockSection";
 /**
  * «Clienti in attesa» (shape support.md §6, [A 17]): le conversazioni che
  * aspettano una nostra risposta, nei progetti dove posso rispondere, dalla
- * più vecchia attesa. Nel catalogo di chi ha `support.reply` in almeno un
+ * più vecchia attesa. Nel catalogo di chi ha `support.manage` in almeno un
  * progetto, mai nelle Home di default. Il clic apre il dettaglio.
  */
 

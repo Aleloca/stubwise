@@ -424,15 +424,14 @@ describe("l'istanza vuota, dopo il primo avvio", () => {
 
   // Area 10b, Task 13: gli scenari sull'istanza vuota. S0 risponde con le sue
   // nove voci e S2 dice che nessun progetto è fermo (una frase, non un elenco
-  // vuoto né un errore). Dei cinque suggerimenti quattro stanno sulla pagina
-  // di un oggetto (conversazione, PR, Automations o Overview di un progetto)
+  // vuoto né un errore). Dei quattro suggerimenti tre stanno sulla pagina
+  // di un oggetto (PR, Automations o Overview di un progetto)
   // e senza oggetti non compaiono; resta Consumi, che lo shape vuole «sempre»
   // per chi ha `usage.view`.
   it("S0 risponde, S2 dice «No project has stalled tasks», i suggerimenti degli oggetti non ci sono", async () => {
     setStreamLatency(null);
     const user = userEvent.setup();
     for (const place of [
-      { kind: "support", conversationId: "sup-acq-2" },
       { kind: "pr", prId: "opr-acq-77" },
       { kind: "automations", projectId: "prj-acq" },
       { kind: "overview", projectId: "prj-acq" },

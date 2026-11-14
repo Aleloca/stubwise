@@ -58,7 +58,7 @@ describe("Support — Widget", () => {
     const row = within(list).getByRole("listitem");
     expect(row).toHaveTextContent("Customer portal help");
     expect(row).toHaveTextContent("On");
-    expect(row).toHaveTextContent("6 conversations");
+    expect(row).toHaveTextContent("8 conversations");
   });
 
   it("Edit: i campi del web, lo snippet e la guida; salvare cambia il widget", async () => {
@@ -89,6 +89,57 @@ describe("Support — Widget", () => {
     await user.type(title, "Ask us");
     await user.click(within(panel).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(state.supportWidgets[0]!.title).toBe("Ask us"));
+  });
+
+  it("siti ammessi (area 8, F3): elenco vuoto = qualunque sito, e lo dice; si salvano normalizzati", async () => {
+    const user = userEvent.setup();
+    await open("/p/ACQ/support?view=widgets&widget=wdg-acq-portal");
+    const panel = await screen.findByRole("complementary", { name: "Edit Customer portal help" });
+    const sites = within(panel).getByLabelText(/^Sites/);
+    await user.clear(sites);
+    expect(within(panel).getByText("Any site can load this widget.")).toBeInTheDocument();
+    await user.type(sites, "https://Shop.Example.com/");
+    expect(within(panel).queryByText("Any site can load this widget.")).toBeNull();
+    await user.click(within(panel).getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(state.supportWidgets[0]!.origins).toEqual(["https://shop.example.com"]),
+    );
+  });
+
+  it("a elenco vuoto la riga del widget lo dice (review F3, m1)", async () => {
+    state.supportWidgets[0]!.origins = [];
+    await open("/p/ACQ/support?view=widgets");
+    const list = await screen.findByRole("list", { name: "Widgets" });
+    expect(within(list).getByRole("listitem")).toHaveTextContent("Any site");
+  });
+
+  it("modificare il titolo non riscrive i siti: quelli di un collega restano (review F3, m2)", async () => {
+    const user = userEvent.setup();
+    await open("/p/ACQ/support?view=widgets&widget=wdg-acq-portal");
+    const panel = await screen.findByRole("complementary", { name: "Edit Customer portal help" });
+    // Un collega cambia i siti mentre il pannello è aperto.
+    state.supportWidgets[0]!.origins = ["https://colleague.example.com"];
+    const title = within(panel).getByLabelText("Title");
+    await user.clear(title);
+    await user.type(title, "Ask us");
+    await user.click(within(panel).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(state.supportWidgets[0]!.title).toBe("Ask us"));
+    expect(state.supportWidgets[0]!.origins).toEqual(["https://colleague.example.com"]);
+  });
+
+  it("un sito in http fuori da localhost: il motivo, nulla salvato", async () => {
+    const user = userEvent.setup();
+    const before = [...state.supportWidgets[0]!.origins];
+    await open("/p/ACQ/support?view=widgets&widget=wdg-acq-portal");
+    const panel = await screen.findByRole("complementary", { name: "Edit Customer portal help" });
+    const sites = within(panel).getByLabelText(/^Sites/);
+    await user.clear(sites);
+    await user.type(sites, "http://shop.example.com");
+    await user.click(within(panel).getByRole("button", { name: "Save" }));
+    expect(await within(panel).findByRole("alert")).toHaveTextContent(
+      "Each site must be like https://example.com",
+    );
+    expect(state.supportWidgets[0]!.origins).toEqual(before);
   });
 
   it("un valore sbagliato: il motivo in parole, nulla salvato", async () => {

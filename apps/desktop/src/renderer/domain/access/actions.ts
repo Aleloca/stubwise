@@ -96,10 +96,7 @@ export const PROJECT_GROUPS: readonly PermissionGroup[] = [
   },
   {
     key: "prototype",
-    permissions: [
-      "support.reply",
-      "servers.operate",
-    ],
+    permissions: ["servers.operate"],
   },
   // La cassaforte delle credenziali (main, 23 ott 2026): lo stesso gruppo del web.
   { key: "credentials", permissions: ["credentials.create", "credentials.edit", "credentials.share"] },
@@ -109,6 +106,8 @@ export const PROJECT_GROUPS: readonly PermissionGroup[] = [
   { key: "drive", permissions: ["drive.upload", "drive.manage", "drive.history"] },
   // Area 7, le automazioni del progetto (registro condiviso dalla fetta 1, come il web).
   { key: "automations", permissions: ["automations.manage"] },
+  // Area 8, F3: Support, gestire le conversazioni (registro condiviso dalla fetta 3, come il web).
+  { key: "support", permissions: ["support.manage"] },
 ];
 
 export const groupsFor = (scope: AccessScope): readonly PermissionGroup[] =>
@@ -200,7 +199,7 @@ export const ACTIONS: readonly AccessAction[] = [
   project("manageChannels", "chat.channels.manage"),
   project("manageDrive", "drive.manage"),
   project("manageProjectAutomations", "automations.manage"),
-  project("replyCustomers", "support.reply"),
+  project("manageSupport", "support.manage"),
   project("fixServer", "servers.operate"),
   // istanza
   instance("manageRoles", "roles.manage"),

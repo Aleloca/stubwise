@@ -1324,7 +1324,8 @@
         "automation": "Automation",
         "server": "Server"
       },
-      "serverTitle": "Opened by Claude after an alert on {{code}}"
+      "serverTitle": "Opened by Claude after an alert on {{code}}",
+      "viewConversation": "View conversation"
     },
     "technical": {
       "title": "Technical details",
@@ -3626,7 +3627,6 @@
           "spend": "Tell you this month's AI spend",
           "archive": "Archive projects with no activity",
           "addMember": "Add someone to a project",
-          "supportReply": "Write the reply to a support conversation",
           "releaseNotes": "Write a pull request's release notes",
           "mailBody": "Write an email or a reply in Mail",
           "taskDescription": "Write a task's description",
@@ -3642,7 +3642,6 @@
           "spend": "How much have we spent on AI this month?",
           "archive": "Archive the projects with no activity for 3 months",
           "addMember": "Add [person] to [project] as [role]",
-          "supportReply": "Write the reply",
           "releaseNotes": "Write the release notes",
           "mailBody": "Write an email to [person] saying [what]",
           "taskDescription": "Write the description of [task]",
@@ -3753,7 +3752,7 @@
         "openInviteBare": "Open the invite →"
       },
       "draft": {
-        "cantReply": "You can't reply to this conversation ·",
+        "noSupportReply": "I don't write replies in Support.",
         "cantEditNotes": "You can't edit the release notes of this pull request ·",
         "cantEditTask": "You can't edit **{{code}}** ·",
         "noSource": "I have nothing to write **{{code}}**'s description from: tell me what it should say.",
@@ -3761,7 +3760,6 @@
         "askHint": "What should the email say?",
         "openField": "Open the conversation, the email, the pull request or the task and ask me again.",
         "openCode": "Open **{{code}}** →",
-        "openReply": "Open the reply →",
         "chat": "In a channel, drafts are written by @Claude in the thread: mention @Claude there.",
         "inPanel": "I write drafts from the Claude panel, next to the field: ask me there."
       },
@@ -4719,8 +4717,6 @@
         "sr": "Claude's draft, not edited yet."
       },
       "pending": {
-        "supportReply": "Writing a draft for the reply to <obj>{{code}}</obj>…",
-        "supportReply_vowel": "Writing a draft for the reply to <obj>{{code}}</obj>…",
         "releaseNotes": "Writing a draft for the release notes of <obj>{{code}}</obj> · pull request #{{number}}…",
         "releaseNotesBare": "Writing a draft for the release notes of <obj>{{code}}</obj>…",
         "mailReply": "Writing a draft for the reply to “{{subject}}”…",
@@ -4728,8 +4724,6 @@
         "taskDescription": "Writing a draft for the description of <obj>{{code}}</obj>…"
       },
       "placed": {
-        "supportReply": "Put a draft in the reply to <obj>{{code}}</obj>",
-        "supportReply_vowel": "Put a draft in the reply to <obj>{{code}}</obj>",
         "releaseNotes": "Put a draft in the release notes of <obj>{{code}}</obj> · pull request #{{number}}",
         "releaseNotesBare": "Put a draft in the release notes of <obj>{{code}}</obj>",
         "mailReply": "Put a draft in the reply to “{{subject}}”",
@@ -4737,8 +4731,6 @@
         "taskDescription": "Put a draft in the description of <obj>{{code}}</obj>"
       },
       "waiting": {
-        "supportReply": "The draft for the reply to <obj>{{code}}</obj> is ready",
-        "supportReply_vowel": "The draft for the reply to <obj>{{code}}</obj> is ready",
         "releaseNotes": "The draft for the release notes of <obj>{{code}}</obj> · pull request #{{number}} is ready",
         "releaseNotesBare": "The draft for the release notes of <obj>{{code}}</obj> is ready",
         "mailReply": "The draft for the reply to “{{subject}}” is ready",
@@ -4774,11 +4766,6 @@
       "hint": "Opens Claude with the request written, not sent.",
       "notNow": "Not now",
       "hidden": "Suggestion hidden.",
-      "supportReply": {
-        "line": "write the reply",
-        "prompt": "Write the reply to {{code}}",
-        "prompt_vowel": "Write the reply to {{code}}"
-      },
       "releaseNotes": {
         "line": "write the release notes",
         "prompt": "Write the release notes"
@@ -8659,7 +8646,6 @@
       "task_created": "New task",
       "task_created_by_automation": "New task from an automation",
       "support_request": "New request",
-      "support_customer_replied": "Customer replied",
       "job_pr_opened": "Claude opened a PR",
       "review_completed": "PR review done",
       "ticket_created": "New task",
@@ -8685,7 +8671,6 @@
       "task_created": "When a task is created in {{code}}",
       "task_created_by_automation": "When an automation creates a task in {{code}}",
       "support_request": "When a request is opened in {{code}}, by a customer or a colleague",
-      "support_customer_replied": "When a customer writes again in a conversation of {{code}}",
       "job_pr_opened": "When Claude opens a PR for a task of {{code}}",
       "review_completed": "When Claude finishes reviewing a PR of {{code}}",
       "ticket_created": "When a task is created in {{code}}",
@@ -8699,7 +8684,6 @@
     "mandatoryLine": {
       "merged": "Always when you did the merge",
       "pr_author": "Always for the PR's author",
-      "follows_conversation": "Always if you follow the conversation",
       "task_author": "Always for the task's author, if the merge came from outside Stubwise",
       "assignee": "Always for whoever the task is assigned to"
     },
@@ -8715,7 +8699,6 @@
       "docs_view": "Paused · you can no longer see {{code}}'s docs",
       "tickets_view_all": "Paused · you can no longer see all of {{code}}'s tasks",
       "backlog_view_all": "Paused · you can no longer see {{code}}'s requests",
-      "support_reply": "Paused · you can no longer reply to {{code}}'s customers",
       "other": "Paused · you can no longer see this in {{code}}"
     },
     "suspendedBack": "It comes back if you get access again.",
@@ -8777,7 +8760,6 @@
       "why": {
         "merged": "You get this because you did the merge",
         "pr_author": "You get this because you opened this PR",
-        "follows_conversation": "You get this because you follow this conversation",
         "task_author": "You get this because the PR comes from your task",
         "assignee": "You get this because the task is assigned to you"
       }
@@ -9171,11 +9153,10 @@
       "mcp": "Claude Code"
     },
     "state": {
-      "waiting_us": "Waiting on us",
       "triage": "In triage",
       "not_concluded": "Not concluded",
       "request_open": "Request open",
-      "reply_sent": "Replied"
+      "answered": "Answered"
     },
     "customerStatus": {
       "received": "Received",
@@ -9210,19 +9191,18 @@
       "widgetChannel": "Widget · {{name}}",
       "started": "started {{date}}",
       "preview": "Customer preview",
-      "follow": "Follow",
-      "following": "Following",
       "more": "More actions",
       "copyLink": "Copy link",
       "linkCopied": "Link copied",
       "linkError": "Couldn't copy the link.",
-      "writeEmail": "Write to them by email",
       "prototype": "Prototype only",
       "simulateMessage": "Simulate a customer message",
       "simulateLeaves": "Simulate: customer leaves",
       "simulateTriage": "Simulate: triage done",
       "simulatedText": "Hello, is there any news?",
-      "actionFailed": "Something went wrong. Nothing changed."
+      "actionFailed": "Something went wrong. Nothing changed.",
+      "continuedIn": "Continued in",
+      "continuedFrom": "Follow-up of"
     },
     "request": {
       "label": "Request",
@@ -9231,9 +9211,17 @@
       "showAll": "Show all",
       "showLess": "Show less",
       "triage": "No request yet · the assistant is still asking",
-      "left": "No request · the customer left before confirming",
+      "left": "No request · the customer still needs something",
+      "answered": "No request · the widget's answer was enough",
+      "answeredWhy": "No reply from the customer for {{minutes}} minutes.",
+      "answeredMark": "If it isn't settled, mark it not concluded: it goes back to the team.",
+      "notConcluded": "Not concluded",
+      "notConcludedError": "Couldn't mark the conversation as not concluded.",
       "open": "Open the request",
-      "cannotOpen": "Someone with permission to create requests can open it."
+      "cannotOpen": "Someone who can manage Support conversations and create requests can open it."
+    },
+    "task": {
+      "label": "Task"
     },
     "openDialog": {
       "title": "Open the request",
@@ -9252,8 +9240,7 @@
       "label": "Conversation",
       "assistant": "Assistant (triage)",
       "team": "Team",
-      "sentWidget": "Sent to the customer in the widget",
-      "sentMcp": "Sent to the customer in Claude Code",
+      "sentMcp": "Sent to the collaborator in Claude Code",
       "earlier_one": "{{count}} earlier message",
       "earlier_other": "{{count}} earlier messages",
       "sending": "Sending…",
@@ -9261,39 +9248,19 @@
     },
     "reply": {
       "to": "Reply to {{name}}",
-      "inWidget": "in the widget",
       "inMcp": "in Claude Code",
       "message": "Message",
       "placeholder": "Write to {{name}}…",
-      "prepared": "Claude prepared a draft",
-      "useDraft": "Use draft",
-      "show": "Show",
-      "hide": "Hide",
-      "stop": "Stop",
       "saved": "Saved",
       "discard": "Discard",
-      "send": "Send to customer",
+      "send": "Send",
       "emptyReason": "Write a reply first",
-      "replaceAsk": "Replace your text or add Claude's draft below it?",
-      "replace": "Replace",
-      "addBelow": "Add below",
-      "cancel": "Cancel",
-      "draftFailed": "Claude couldn't write a draft. Your text is unchanged.",
-      "tryAgain": "Try again",
       "sentTo": "Sent to {{name}}",
       "undo": "Undo",
-      "readOnly": "Only people who can reply to customers write here.",
-      "triage": "The assistant is still asking the customer questions: you can reply once the triage ends.",
-      "lastSeen": "{{name}} last saw the conversation {{time}}. They'll see your reply when they come back.",
+      "readOnly": "Only people who can manage Support conversations reply here.",
       "nextTime": "They'll see it the next time they ask about their requests.",
-      "noEmail": "The customer didn't leave an email address",
-      "noMailbox": "Connect your Google account to write from Stubwise",
-      "connect": "Connect",
-      "emailError": "Couldn't prepare the email.",
       "waitPrevious": "Wait: your previous reply is still in its Undo window",
-      "notSentBack": "Not sent. Your reply is back in the box: send it again when you're ready.",
-      "noEmailTriage": "The assistant is still asking the customer questions",
-      "askClaude": "Ask Claude"
+      "notSentBack": "Not sent. Your reply is back in the box: send it again when you're ready."
     },
     "preview": {
       "title": "What {{name}} sees",
@@ -9332,7 +9299,7 @@
         "instructions": "The instructions can be at most 4000 characters.",
         "accentColor": "The colour must be like #22c55e.",
         "language": "Choose Italian or English.",
-        "origins": "Each site must be like https://example.com.",
+        "origins": "Each site must be like https://example.com (http only for localhost, no path), at most 20.",
         "sourceRepositoryIds": "Choose repositories of this project.",
         "dailyMessageCap": "Messages per day: a whole number from 1 to 100000, or empty.",
         "dailyRequestCap": "Requests per day: a whole number from 1 to 100000, or empty."
@@ -9343,7 +9310,8 @@
         "sources": "Documentation sources",
         "noSources": "This project has no repositories.",
         "origins": "Sites",
-        "originsHint": "One per line, like https://example.com",
+        "originsHint": "One per line, like https://example.com (http only for localhost). Empty: any site.",
+        "anySite": "Any site can load this widget.",
         "title": "Title",
         "welcome": "Welcome message",
         "instructions": "Instructions for the assistant",
@@ -9367,7 +9335,8 @@
       "deleteAsk": "Delete {{name}}? Its conversations stay.",
       "deleteConfirm": "Delete",
       "deleted": "{{name}} deleted",
-      "deleteError": "Couldn't delete the widget."
+      "deleteError": "Couldn't delete the widget.",
+      "anySiteShort": "Any site"
     },
     "origin": {
       "title": "Where it comes from",
@@ -9940,7 +9909,7 @@
       "manageChannels": "manage channels",
       "manageDrive": "manage the drive",
       "manageProjectAutomations": "manage the project's automations",
-      "replyCustomers": "reply to customers",
+      "manageSupport": "manage Support conversations",
       "fixServer": "start a server fix",
       "manageRoles": "manage roles",
       "manageSettings": "change the instance settings",
@@ -9977,7 +9946,8 @@
       "prototype": "Prototype",
       "chat": "Chat",
       "drive": "Drive",
-      "automations": "Automations"
+      "automations": "Automations",
+      "support": "Support"
     },
     "page": {
       "intro": "Find out who can do something in a project, or what someone can do — and why. You only see the projects and people you can see.",
@@ -11981,9 +11951,9 @@
       }
     },
     "support": {
-      "reply": {
-        "label": "reply to customers",
-        "hint": "Answer customers' conversations in Support."
+      "manage": {
+        "label": "manage Support conversations",
+        "hint": "Open the request, mark them not concluded, reply to collaborators."
       }
     },
     "department": {

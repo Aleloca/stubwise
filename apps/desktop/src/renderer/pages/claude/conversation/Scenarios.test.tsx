@@ -228,28 +228,28 @@ describe("«Hypothesis» e «Details»", () => {
   });
 });
 
-const NINE: CapabilityId[] = [
+// Otto voci: la risposta di Support è uscita (area 8, F3).
+const EIGHT: CapabilityId[] = [
   "automation",
   "stalled",
   "spend",
   "archive",
   "addMember",
-  "supportReply",
   "releaseNotes",
   "mailBody",
   "taskDescription",
 ];
 
 describe("S0, la risposta onesta", () => {
-  it("nove voci; un clic scrive la frase nella casella, il primo segnaposto selezionato, nessun invio", async () => {
+  it("otto voci; un clic scrive la frase nella casella, il primo segnaposto selezionato, nessun invio", async () => {
     const user = userEvent.setup();
     const id = await injected(LAURA, [
       { type: "assistant", text: "In the prototype I can do these things:", done: true },
-      { type: "capabilities", items: NINE },
+      { type: "capabilities", items: EIGHT },
     ]);
     const list = await screen.findByRole("list", { name: "What I can do" });
     const items = within(list).getAllByRole("button");
-    expect(items).toHaveLength(9);
+    expect(items).toHaveLength(8);
     expect(items[0]).toHaveTextContent("Build an automation and test it");
 
     const sent = userEvents(id).length;
@@ -267,7 +267,7 @@ describe("S0, la risposta onesta", () => {
 
   it("m8: Tab salta ai segnaposti solo dopo una voce di S0, mai nel testo scritto dalla persona", async () => {
     const user = userEvent.setup();
-    await injected(LAURA, [{ type: "capabilities", items: NINE }]);
+    await injected(LAURA, [{ type: "capabilities", items: EIGHT }]);
     await screen.findByRole("list", { name: "What I can do" });
     const box = screen.getByRole("combobox", { name: /message to claude/i }) as HTMLTextAreaElement;
     await user.click(box);
@@ -279,14 +279,14 @@ describe("S0, la risposta onesta", () => {
 
   it("col progetto nel contesto, «[project]» è già il suo codice", async () => {
     const user = userEvent.setup();
-    await injected(LAURA, [{ type: "capabilities", items: NINE }], ACQ);
+    await injected(LAURA, [{ type: "capabilities", items: EIGHT }], ACQ);
     const list = await screen.findByRole("list", { name: "What I can do" });
     await user.click(within(list).getByRole("button", { name: /Add someone to a project/ }));
     const box = screen.getByRole("combobox", { name: /message to claude/i }) as HTMLTextAreaElement;
     await waitFor(() => expect(box.value).toBe("Add [person] to ACQ as [role]"));
   });
 
-  it("nel riquadro (Laura, Support di ACQ): «scrivimi una poesia» dà tutte le voci (nove, più le cinque della doc di prodotto del 11b)", async () => {
+  it("nel riquadro (Laura, Support di ACQ): «scrivimi una poesia» dà tutte le voci (otto, più le cinque della doc di prodotto del 11b)", async () => {
     const user = userEvent.setup();
     renderRoute("/p/ACQ/overview", LAURA);
     await screen.findAllByRole("heading");
@@ -300,7 +300,7 @@ describe("S0, la risposta onesta", () => {
       { name: "What I can do" },
       { timeout: 4000 },
     );
-    expect(within(list).getAllByRole("button")).toHaveLength(14);
+    expect(within(list).getAllByRole("button")).toHaveLength(13);
   });
 });
 
@@ -675,7 +675,7 @@ describe("nella Chat (@Claude)", () => {
     renderRoute(`/chat/ch-announcements?thread=${callId}`, "p-giulia");
     const panel = await screen.findByRole("region", { name: "Thread" });
     const list = await within(panel).findByRole("list", { name: "Cosa so fare" });
-    expect(within(list).getAllByRole("listitem")).toHaveLength(14);
+    expect(within(list).getAllByRole("listitem")).toHaveLength(13);
     expect(within(list).queryAllByRole("button")).toEqual([]);
     expect(list).toHaveTextContent("Costruire un'automazione e provarla");
     expect(list).not.toHaveTextContent("Quando arriva una richiesta di supporto urgente");

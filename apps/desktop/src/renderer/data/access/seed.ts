@@ -209,10 +209,10 @@ export const DEPARTMENT_ROLES: DepartmentRole[] = [
  * I permessi di progetto che un reparto dà ai suoi membri (design, «Permessi
  * del reparto»). L'esempio del design: tutto Development risponde ai
  * clienti. Oggi non cambia niente a nessuno: i membri di Development sono
- * Developer o Project Lead, che `support.reply` l'hanno già dal ruolo.
+ * Developer o Project Lead, che `support.manage` l'hanno già dal ruolo.
  */
 const DEPARTMENT_PROJECT_PERMISSIONS: Record<string, readonly string[]> = {
-  "dep-development": ["support.reply"],
+  "dep-development": ["support.manage"],
 };
 
 function seedDepartments(): DepartmentAccess[] {

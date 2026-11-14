@@ -182,8 +182,6 @@ function askerOf(log: readonly ConversationEvent[], index: number): string | nul
 /** `me` vede l'oggetto del campo (per il corpo di un'email: è sua la casella). */
 function seesField(me: string, field: FieldRef, asker: string | null): boolean {
   switch (field.kind) {
-    case "supportReply":
-      return contextOf(me, { kind: "support", conversationId: field.conversationId }) !== null;
     case "releaseNotes":
       return contextOf(me, { kind: "pr", prId: field.prId }) !== null;
     case "taskDescription":

@@ -1,5 +1,5 @@
 import type { CustomerStatus } from "../../domain/releases/customerStatus";
-import { supportState, waitingSince, type SupportState } from "../../domain/support/state";
+import { SUPPORT_STATE_ORDER, supportState, type SupportState } from "../../domain/support/state";
 import { fold } from "../../domain/textSearch";
 import { gate, state } from "../store";
 import type { SupportConversation, SupportWidget } from "../types";
@@ -18,23 +18,16 @@ import {
 // sono `null`, come una che non esiste (R-G5). Gli stati si derivano a
 // lettura.
 
-/** L'ordine dei gruppi dell'elenco (shape support.md [A 2]): chi aspetta noi in cima. */
-const STATE_ORDER: readonly SupportState[] = [
-  "waiting_us",
-  "triage",
-  "not_concluded",
-  "request_open",
-  "reply_sent",
-];
+/** L'ordine dei gruppi dell'elenco [A 2]: quello di `@stubwise/shared` (area 8, F3). */
+const STATE_ORDER = SUPPORT_STATE_ORDER;
 
 const lastAt = (c: SupportConversation): string => c.messages.at(-1)?.at ?? "";
 
-/** Dentro un gruppo: la più vecchia attesa in alto per «aspetta noi», la più recente per gli altri. */
+/** Dentro un gruppo: la più recente in alto. */
 function byGroup(a: SupportConversation, b: SupportConversation): number {
   const sa = supportState(a);
   const sb = supportState(b);
   if (sa !== sb) return STATE_ORDER.indexOf(sa) - STATE_ORDER.indexOf(sb);
-  if (sa === "waiting_us") return waitingSince(a)!.localeCompare(waitingSince(b)!);
   return lastAt(b).localeCompare(lastAt(a)) || a.code.localeCompare(b.code);
 }
 
@@ -83,19 +76,43 @@ export async function customerPreview(code: string): Promise<CustomerPreview | n
   };
 }
 
-/** Il blocco «Clienti in attesa» della Home: aspettano noi, dove ho `support.reply`. */
-export async function listWaitingCustomers(): Promise<SupportConversationView[]> {
-  const me = await gate("support.listWaitingCustomers");
-  return state.supportConversations
-    .filter((c) => sees(me, c.projectId) && holds(me, "support.reply", c.projectId))
-    .filter((c) => supportState(c) === "waiting_us")
-    .sort(
-      (a, b) => waitingSince(a)!.localeCompare(waitingSince(b)!) || a.code.localeCompare(b.code),
-    )
-    .map((c) => conversationView(me, c));
+/** Una riga di «Clienti in attesa»: la conversazione, e da quando il cliente aspetta. */
+export type WaitingCustomerView = SupportConversationView & { waitingSince: string };
+
+/**
+ * Da quando il cliente aspetta il team: il primo suo messaggio dopo l'ultimo
+ * di qualcun altro, se l'ultimo è suo e la conversazione ha un esito. Una
+ * regola SOLO del prototipo (area 8, F3): il blocco della Home avrà una fonte
+ * nuova (la posta delle caselle, fetta a sé); finché non c'è, il prototipo
+ * resta com'era e nella build app il blocco è spento.
+ */
+function waitingSince(c: SupportConversation): string | null {
+  if (c.requestId === null && c.taskId === null) return null;
+  if (c.messages.at(-1)?.from !== "customer") return null;
+  let since: string | null = null;
+  for (const m of c.messages) since = m.from === "customer" ? (since ?? m.at) : null;
+  return since;
 }
 
-export type SupportWidgetView = SupportWidget & { conversationCount: number };
+/** Il blocco «Clienti in attesa» della Home (solo prototipo), dove ho `support.manage`. */
+export async function listWaitingCustomers(): Promise<WaitingCustomerView[]> {
+  const me = await gate("support.listWaitingCustomers");
+  return state.supportConversations
+    .filter((c) => sees(me, c.projectId) && holds(me, "support.manage", c.projectId))
+    .flatMap((c) => {
+      const since = waitingSince(c);
+      return since ? [{ ...conversationView(me, c), waitingSince: since }] : [];
+    })
+    .sort((a, b) => a.waitingSince.localeCompare(b.waitingSince) || a.code.localeCompare(b.code));
+}
+
+export type SupportWidgetView = SupportWidget & {
+  conversationCount: number;
+  /** Build app (area 8, F3): la chiave pubblica del widget, per lo snippet. */
+  key?: string;
+  /** Build app (area 8, F3): l'indirizzo vero dell'istanza, per lo snippet. */
+  snippetOrigin?: string;
+};
 
 export interface WidgetList {
   /** `widget.manage`: senza, l'elenco è vuoto (i widget non si vedono). */

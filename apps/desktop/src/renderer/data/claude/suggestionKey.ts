@@ -4,12 +4,10 @@ import type { SuggestionPlace } from "./suggestions";
 
 /**
  * La chiave di «Not now»: l'oggetto, non il tipo di pagina ([SG 7], maintainer
- * 2 nov 2026). Nascosta su ACQ-S2, la riga resta sulle altre conversazioni.
+ * 2 nov 2026). Nascosta su una PR, la riga resta sulle altre.
  */
 export function suggestionKeyOf(place: SuggestionPlace): string {
   switch (place.kind) {
-    case "support":
-      return `support:${place.conversationId}`;
     case "pr":
       return `pr:${place.prId}`;
     case "automations":

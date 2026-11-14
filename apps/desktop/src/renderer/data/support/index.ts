@@ -21,11 +21,9 @@ export {
 export {
   createWidget,
   deleteWidget,
-  draftReply,
-  emailDraftFor,
-  followConversation,
   openRequestFrom,
-  replyToCustomer,
+  markNotConcluded,
+  replyToCollaborator,
   updateWidget,
   type WidgetInput,
 } from "./writes";

@@ -43,8 +43,6 @@ export interface FillableField {
 /** La chiave stabile di un campo: lo stesso oggetto di dati, la stessa chiave. */
 export function fieldKey(ref: FieldRef): string {
   switch (ref.kind) {
-    case "supportReply":
-      return `supportReply:${ref.conversationId}`;
     case "releaseNotes":
       return `releaseNotes:${ref.prId}`;
     case "mailBody":

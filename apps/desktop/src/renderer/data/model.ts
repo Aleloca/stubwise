@@ -275,7 +275,6 @@ export interface ProductCardView {
 export type MandatoryReason =
   | "merged"
   | "pr_author"
-  | "follows_conversation"
   | "task_author"
   | "assignee";
 
@@ -386,6 +385,11 @@ export interface Task {
   occurrences: number;
   /** Il payload dell'integrazione (chiave → valore), quando c'è. */
   technical?: Record<string, string> | null;
+  /**
+   * Aperta dal widget (area 8, F3, S-9): il codice della conversazione da cui
+   * è nata, per «View conversation». Si deriva a lettura, non si salva.
+   */
+  supportConversationCode?: string | null;
   /** Creata da un'esecuzione di un'automazione (area 7): «Creata dall'automazione X · esecuzione Y». */
   automationRef?: AutomationRef;
   /** Creata da «Fai sistemare a Claude» su un rilascio fallito (area 8a). */
@@ -679,7 +683,14 @@ export interface ProjectRequest {
    * Una richiesta non nasce MAI da un'email: una domanda nata da un'email
    * porta alla pagina, non all'email.
    */
-  origin?: { kind: "support"; conversationId: string } | ProductDocOrigin;
+  /**
+   * Da dove viene. Support: il codice della conversazione (`ACQ-S3`), lo
+   * stesso del server (area 8, F3); l'id lo ha solo il prototipo (`null`
+   * nella build app, che non lo riceve).
+   */
+  origin?:
+    | { kind: "support"; conversationId: string | null; conversationCode: string }
+    | ProductDocOrigin;
   /**
    * 11b (P38): la pagina della doc di prodotto da cui nasce, come la legge
    * chi guarda («Dalla doc: <pagina>»). Derivata a lettura (`getRequest`,
@@ -995,7 +1006,6 @@ export type ContextRef =
 
 /** Un campo che una pagina dichiara riempibile (area 10b, design parte 1). */
 export type FieldRef =
-  | { kind: "supportReply"; conversationId: string }
   | { kind: "releaseNotes"; prId: string }
   /** D1: il corpo di una risposta (`threadId`) o di un'email nuova (`null`), solo nella propria casella. */
   | { kind: "mailBody"; threadId: string | null }
@@ -3079,7 +3089,6 @@ export type CapabilityId =
   | "spend"
   | "archive"
   | "addMember"
-  | "supportReply"
   | "releaseNotes"
   | "mailBody"
   | "taskDescription"
@@ -3548,17 +3557,29 @@ export interface SupportConversation {
   /** Il desiderio del cliente riscritto dal triage; `null` finché il triage non lo ha. */
   rewrittenWish: string | null;
   requestId: string | null;
-  /** Il cliente se n'è andato prima della fine del triage. */
-  leftAt: string | null;
+  /**
+   * La task aperta dal widget (area 8, F3-1: l'esito è un ticket, nessuna
+   * richiesta). Con una richiesta legata vale la richiesta.
+   */
+  taskId: string | null;
+  /**
+   * Il giudizio dopo il silenzio (area 8, F3: il controllo del worker dopo
+   * `SUPPORT_TRIAGE_IDLE_MINUTES`): la risposta è bastata (`concluded`) o
+   * resta un bisogno (`not_concluded`). Vale finché il cliente non riscrive.
+   * `byUserId`: chi ha premuto «Not concluded» su una `answered`; `null` = il controllo.
+   */
+  triage: { outcome: "concluded" | "not_concluded"; at: string; byUserId: string | null } | null;
   /**
    * Quando il cliente ha confermato il desiderio riscritto, a fine triage
    * («Confirmed by the customer, …»); `null` se non l'ha confermato (una
    * richiesta aperta dal team da una conversazione non conclusa).
    */
   confirmedAt: string | null;
-  followerIds: string[];
-  /** La bozza di risposta di Claude: la vede solo chi ha `support.reply`, non parte mai da sola. */
-  claudeDraft: string | null;
+  /**
+   * Area 8, F3 (S17): con un esito la conversazione è CHIUSA, e un messaggio
+   * nuovo del cliente apre la successiva; qui il suo id. Assente: nessuna.
+   */
+  continuedInId?: string;
 }
 
 /**

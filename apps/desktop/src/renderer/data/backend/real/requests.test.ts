@@ -136,6 +136,24 @@ describe("le Requests dal server", () => {
     expect(await getRequestByCode("AUD-R404")).toBeNull();
   });
 
+  it("la provenienza da Support (area 8, F3): il codice della conversazione; senza il campo, nessuna", async () => {
+    const origin = {
+      kind: "support",
+      conversationCode: "AUD-S3",
+      channel: "widget",
+      customerName: "Lucia",
+      messageCount: 4,
+    };
+    installFakeServer({ [`GET /api/requests/${ITEM}`]: { body: full({ origin }) } });
+    expect((await getRequest(ITEM))?.origin).toEqual({
+      kind: "support",
+      conversationId: null,
+      conversationCode: "AUD-S3",
+    });
+    installFakeServer({ [`GET /api/requests/${ITEM}`]: { body: full() } });
+    expect((await getRequest(ITEM))?.origin).toBeUndefined();
+  });
+
   it("una richiesta con una task eliminata la nomina (deletedTaskCodes); senza il campo, niente", async () => {
     installFakeServer({ [`GET /api/requests/${ITEM}`]: { body: full({ deletedTaskCodes: ["AUD-31"] }) } });
     expect((await getRequest(ITEM))?.deletedTaskCodes).toEqual(["AUD-31"]);

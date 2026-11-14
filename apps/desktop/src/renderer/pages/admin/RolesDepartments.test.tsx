@@ -252,7 +252,7 @@ describe("Departments", () => {
   it("aggiungere a un reparto chi riceverebbe permessi che chi agisce non ha: spento, col motivo", async () => {
     const user = userEvent.setup();
     give(MARCO, "departments.manage");
-    // Sara sta in progetti dove Marco non è: lì Marco non ha «reply to customers».
+    // Sara sta in progetti dove Marco non è: lì Marco non ha «manage Support conversations».
     renderRoute("/admin/departments?department=dep-development", MARCO);
     const panel = await screen.findByRole("region", { name: "Department Development" });
     await user.click(within(panel).getByRole("button", { name: "Add people" }));
@@ -261,7 +261,7 @@ describe("Departments", () => {
     expect(sara).toHaveAttribute("aria-disabled", "true");
     expect(
       within(sara).getByText(
-        "Development gives reply to customers, which you don't have in their projects.",
+        "Development gives manage Support conversations, which you don't have in their projects.",
       ),
     ).toBeVisible();
     await user.click(sara);

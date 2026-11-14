@@ -191,6 +191,17 @@ describe("le card dell'inbox", () => {
       expect(n.link).toBe("#/p/AUD/docs");
     });
 
+    it("support.request apre la richiesta nel pannello delle richieste (area 8, F3)", () => {
+      const item = "88888888-8888-4888-8888-888888888888";
+      const n = presentInboxItem(catalogCard("support.request", `/app/#/p/AUD/requests?request=${item}`), origin);
+      expect(n.link).toBe(`#/p/AUD/requests?request=${item}`);
+    });
+
+    it("un link a Support (nessuna card ci porta più, area 8 F3), o una query sconosciuta sulle richieste, resta «Open in web»", () => {
+      expect(presentInboxItem(catalogCard("support.request", "/app/#/p/AUD/support/AUD-S3"), origin).link).toBe("");
+      expect(presentInboxItem(catalogCard("support.request", "/app/#/p/AUD/requests?x=1"), origin).link).toBe("");
+    });
+
     it("una pagina dell'app non ancora accesa resta «Open in web»", () => {
       const n = presentInboxItem(catalogCard("monitor.alert", "/app/#/p/AUD/servers/SRV-1"), origin);
       expect(n.link).toBe("");

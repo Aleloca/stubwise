@@ -168,7 +168,7 @@ export * as automations from "./automations";
 export * as alerts from "./alerts";
 /** Rilasci, PR e ambienti (area 8a): `api.releases.listOpenPrs(…)`, `api.releases.mergePr(…)`… */
 export * as releases from "./releases";
-/** Support (area 8a): `api.support.listSupportConversations(…)`, `api.support.replyToCustomer(…)`… */
+/** Support (area 8a): `api.support.listSupportConversations(…)`, `api.support.replyToCollaborator(…)`… */
 export * as support from "./support";
 /** I Server (area 8b): `api.servers.listProjectServers(…)`, `api.servers.createServer(…)`… */
 export * as servers from "./servers";
@@ -329,7 +329,13 @@ export async function getTaskByCode(code: string): Promise<Task | null> {
   const me = await gate("getTaskByCode");
   const task = state.tasks.find((t) => t.code === code.toUpperCase());
   if (!task || !visibleProjectIds(me).has(task.projectId)) return null;
-  return { ...copy(task), assigneeStatus: assigneeStatusOf(task.assigneeId) };
+  // Aperta dal widget (area 8, F3, S-9): la conversazione da cui è nata, derivata a lettura.
+  const conversation = state.supportConversations.find((c) => c.taskId === task.id);
+  return {
+    ...copy(task),
+    assigneeStatus: assigneeStatusOf(task.assigneeId),
+    supportConversationCode: conversation?.code ?? null,
+  };
 }
 
 export async function listActivity(taskId: string): Promise<ActivityEntry[]> {

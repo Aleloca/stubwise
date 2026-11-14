@@ -1,4 +1,4 @@
-import { INSTANCE_PERMISSIONS, PROJECT_PERMISSIONS } from "@stubwise/shared";
+import { INSTANCE_PERMISSIONS, PRESET_ROLES, PROJECT_PERMISSIONS } from "@stubwise/shared";
 import { describe, expect, it } from "vitest";
 import { GIULIA_LEAD_CODES, PROJECTS } from "./seed/projects";
 import en from "../i18n/locales/en.json";
@@ -351,19 +351,19 @@ describe("permessi del Support (area 8a)", () => {
   const AUD = "prj-aud";
   const ACQ = "prj-acq";
 
-  it("support.reply: Project Lead, Developer e Legacy Member sì; Contributor e Viewer no", () => {
-    expect(can(byPerson("p-laura"), "support.reply", AUD)).toBe(true);
-    expect(can(byPerson("p-marco"), "support.reply", AUD)).toBe(true);
+  it("support.manage: Project Lead, Developer e Legacy Member sì; Contributor e Viewer no", () => {
+    expect(can(byPerson("p-laura"), "support.manage", AUD)).toBe(true);
+    expect(can(byPerson("p-marco"), "support.manage", AUD)).toBe(true);
     // Elena è Legacy Member in AUD.
-    expect(can(byPerson("p-elena"), "support.reply", AUD)).toBe(true);
-    expect(can(byPerson("p-matteo"), "support.reply", ACQ)).toBe(true);
+    expect(can(byPerson("p-elena"), "support.manage", AUD)).toBe(true);
+    expect(can(byPerson("p-matteo"), "support.manage", ACQ)).toBe(true);
     // Sara (Contributor) e Silvia (Viewer) sono membri di ACQ ma non rispondono ai clienti.
     expect(byPerson("p-sara").projectPermissions[ACQ]).toBeDefined();
-    expect(can(byPerson("p-sara"), "support.reply", ACQ)).toBe(false);
+    expect(can(byPerson("p-sara"), "support.manage", ACQ)).toBe(false);
     expect(byPerson("p-silvia").projectPermissions[ACQ]).toBeDefined();
-    expect(can(byPerson("p-silvia"), "support.reply", ACQ)).toBe(false);
+    expect(can(byPerson("p-silvia"), "support.manage", ACQ)).toBe(false);
     // Il full admin ce l'ha ovunque, come ogni permesso di progetto.
-    expect(can(byPerson("p-roberta"), "support.reply", ACQ)).toBe(true);
+    expect(can(byPerson("p-roberta"), "support.manage", ACQ)).toBe(true);
   });
 });
 
@@ -372,7 +372,10 @@ describe("permessi dei server (area 8b)", () => {
   const AUD = "prj-aud";
 
   it("servers.operate: nessun preset di progetto lo contiene", () => {
-    const presets = Object.entries(LOCAL_PROJECT_PERMISSIONS);
+    // I preset di progetto come li ha il prototipo: quelli del registro più i locali.
+    const presets = PRESET_ROLES.filter((r) => r.scope === "project").map(
+      (r) => [r.key, [...r.permissions, ...(LOCAL_PROJECT_PERMISSIONS[r.key] ?? [])]] as const,
+    );
     expect(presets.length).toBeGreaterThan(0);
     for (const [preset, perms] of presets) expect(perms, preset).not.toContain("servers.operate");
   });
