@@ -20,7 +20,7 @@ import { SERVER_ANALYSIS_TOOLS, SERVER_MCP_SERVER_NAME } from "@stubwise/shared"
 import { FakeAgentRunner } from "../agent/fake.js";
 import { AgentTimeoutError, type AgentRunOptions, type AgentRunResult } from "../agent/runner.js";
 import type { SelectDeps } from "../providers/select.js";
-import { analysisGate, queueEpisodeAnalyses, runNextServerAnalysis, type ServerAnalysisDeps } from "./analysis.js";
+import { analysisGate, pruneServerCommands, queueEpisodeAnalyses, runNextServerAnalysis, type ServerAnalysisDeps } from "./analysis.js";
 import { startServerOpsBridge, type ServerOpsBridge } from "./bridge.js";
 
 /**
@@ -301,3 +301,28 @@ describe("il run: sole letture, tetti di Impostazioni, attribuzione validata", (
   });
 });
 
+
+describe("S8: la potatura del registro a 90 giorni", () => {
+  it("toglie i chiusi oltre 90 giorni; tiene i recenti e quelli ancora aperti", async () => {
+    const { server } = await scene();
+    const now = new Date("2026-11-14T12:00:00Z");
+    const at = (days: number) => new Date(now.getTime() - days * 86_400_000);
+    const insert = async (issuedAt: Date, status: "done" | "pending" | "failed") =>
+      (
+        await db
+          .insert(serverCommands)
+          .values({ serverId: server.id, action: "container.state", params: { container: "web-a" }, kind: "read", issuedAt, expiresAt: new Date(issuedAt.getTime() + 600_000), status })
+          .returning()
+      )[0]!.id;
+    const oldDone = await insert(at(91), "done");
+    const oldFailed = await insert(at(120), "failed");
+    const oldPending = await insert(at(91), "pending");
+    const recent = await insert(at(89), "done");
+    expect(await pruneServerCommands(db, now)).toBeGreaterThanOrEqual(2);
+    const left = new Set((await db.select({ id: serverCommands.id }).from(serverCommands).where(eq(serverCommands.serverId, server.id))).map((r) => r.id));
+    expect(left.has(oldDone)).toBe(false);
+    expect(left.has(oldFailed)).toBe(false);
+    expect(left.has(oldPending)).toBe(true);
+    expect(left.has(recent)).toBe(true);
+  });
+});

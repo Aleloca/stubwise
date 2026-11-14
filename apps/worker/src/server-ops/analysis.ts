@@ -1,8 +1,8 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { and, eq, isNotNull, isNull, lt, sql } from "drizzle-orm";
-import { instanceSettings, monthlyCostUsd, serverAnalyses, serverEpisodes, servers, type Db } from "@stubwise/db";
+import { and, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { instanceSettings, monthlyCostUsd, serverAnalyses, serverCommands, serverEpisodes, servers, type Db } from "@stubwise/db";
 import { aiBudgetState } from "@stubwise/notifications";
 import {
   attributeServerCause,
@@ -239,6 +239,24 @@ async function recordOutcome(
     .where(eq(serverAnalyses.id, analysisId));
 }
 
+/** Quanto si tiene il registro dei comandi (docs/invariants/server-operations.md). */
+export const SERVER_COMMANDS_RETENTION_DAYS = 90;
+
+/**
+ * S8: la potatura del registro. Si toglie solo ciò che è CHIUSO e più vecchio
+ * di 90 giorni (un comando ancora `pending`/`delivered` resta finché non si
+ * chiude); un'approvazione resta (la FK è RESTRICT verso i comandi, non il
+ * contrario). Restituisce quante righe.
+ */
+export async function pruneServerCommands(db: Db, now = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - SERVER_COMMANDS_RETENTION_DAYS * 86_400_000);
+  const rows = await db
+    .delete(serverCommands)
+    .where(and(lt(serverCommands.issuedAt, cutoff), inArray(serverCommands.status, ["done", "failed", "expired", "cancelled"])))
+    .returning({ id: serverCommands.id });
+  return rows.length;
+}
+
 export interface ServerAnalysisPoller {
   stop(): void;
 }
@@ -247,10 +265,15 @@ export interface ServerAnalysisPoller {
 export function startServerAnalysisPoller(deps: ServerAnalysisDeps, intervalMs = 30_000): ServerAnalysisPoller {
   let running = false;
   let stopped = false;
+  let prunedAt = 0;
   const tick = async () => {
     if (running || stopped) return;
     running = true;
     try {
+      if (Date.now() - prunedAt > 3_600_000) {
+        prunedAt = Date.now();
+        await pruneServerCommands(deps.db);
+      }
       await recoverStaleAnalyses(deps.db, await loadLimits(deps.db));
       await queueEpisodeAnalyses(deps.db);
       await runNextServerAnalysis(deps);

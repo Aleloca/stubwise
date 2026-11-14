@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { environmentServers, projectEnvironments, projectMembers, roles, serverAnalyses, servers } from "@stubwise/db";
+import { environmentServers, projectEnvironments, projectMembers, roles, serverAnalyses, serverCommands, servers } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { addMember, createUserWithPat, seedUsers, type SeededUsers } from "../test/fixtures.js";
 
@@ -76,5 +76,41 @@ describe("POST /api/servers/:id/analyses", () => {
   it("un full admin può (ha tutti i permessi su ogni progetto)", async () => {
     const { serverId } = await serverOfProject();
     expect((await start(serverId, { cookie: users.adminCookie })).statusCode).toBe(202);
+  });
+});
+
+describe("GET /api/servers/:id/operations (S8, il registro)", () => {
+  async function command(serverId: string, issuedAt: Date, requestedByUserId: string | null = null) {
+    const expiresAt = new Date(issuedAt.getTime() + 600_000);
+    const [c] = await testDb.db
+      .insert(serverCommands)
+      .values({ serverId, action: "container.state", params: { container: "web" }, kind: "read", issuedAt, expiresAt, requestedByUserId, status: "done", exitCode: 0, output: "running" })
+      .returning();
+    return c!.id;
+  }
+  const log = (serverId: string, headers: Record<string, string>, query = "") => app.inject({ method: "GET", url: `/api/servers/${serverId}/operations${query}`, headers });
+
+  it("servers.operate in un progetto del server, o monitor.manage: legge dal più recente, con l'autore; prima di una data", async () => {
+    const { projectId, serverId } = await serverOfProject();
+    const u = await createUserWithPat(app, `log-${randomBytes(3).toString("hex")}@acme.com`);
+    await testDb.db.insert(projectMembers).values({ projectId, userId: u.id, roleId: operateRoleId });
+    const older = await command(serverId, new Date("2026-11-10T10:00:00Z"));
+    const newer = await command(serverId, new Date("2026-11-11T10:00:00Z"), u.id);
+    const res = await log(serverId, u.headers);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().commands.map((c: { id: string }) => c.id)).toEqual([newer, older]);
+    expect(res.json().commands[0]).toMatchObject({ kind: "read", via: "agent", status: "done", output: "running", requestedBy: { id: u.id } });
+    expect((await log(serverId, u.headers, "?before=2026-11-11T00:00:00.000Z")).json().commands.map((c: { id: string }) => c.id)).toEqual([older]);
+    expect((await log(serverId, { cookie: users.adminCookie })).statusCode).toBe(200);
+  });
+
+  it("NEGATIVO: un Project Lead del progetto (senza servers.operate) → 403; chi non vede il server → 404", async () => {
+    const { projectId, serverId } = await serverOfProject();
+    await command(serverId, new Date());
+    const lead = await createUserWithPat(app, `ll-${randomBytes(3).toString("hex")}@acme.com`);
+    await addMember(app, projectId, lead.id, "project_lead");
+    expect((await log(serverId, lead.headers)).statusCode).toBe(403);
+    const stranger = await createUserWithPat(app, `st-${randomBytes(3).toString("hex")}@acme.com`);
+    expect((await log(serverId, stranger.headers)).statusCode).toBe(404);
   });
 });
