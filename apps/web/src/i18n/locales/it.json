@@ -1995,7 +1995,8 @@
       "webhook": "Webhook",
       "widget": "Widget",
       "email": "Email",
-      "automation": "Automazione"
+      "automation": "Automazione",
+      "server": "Server"
     },
     "effort": {
       "1": "Banale",

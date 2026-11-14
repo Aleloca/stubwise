@@ -121,6 +121,8 @@ export const SOURCE_LABEL_KEYS: Record<TicketSource, string> = {
   email: "badges:source.email",
   // Area 7: una task creata da un'automazione.
   automation: "badges:source.automation",
+  // Area 8, F4b: una task nata dall'analisi di un server.
+  server: "badges:source.server",
 };
 
 const badgeBase =
