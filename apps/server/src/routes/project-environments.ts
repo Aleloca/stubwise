@@ -152,7 +152,9 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
     const pairs = rows.flatMap((r) => (byEnv.get(r.id) ?? []).map((s) => ({ env: r, ...s })));
     const serverIds = [...new Set(pairs.map((p) => p.serverId))];
     if (serverIds.length === 0) return { servers: new Map(), onlyHere: new Set() };
-    const names = new Map((await app.db.select({ id: servers.id, name: servers.name }).from(servers).where(inArray(servers.id, serverIds))).map((s) => [s.id, s.name]));
+    const named = await app.db.select({ id: servers.id, name: servers.name, number: servers.number }).from(servers).where(inArray(servers.id, serverIds));
+    const names = new Map(named.map((s) => [s.id, s.name]));
+    const codes = new Map(named.map((s) => [s.id, `SRV-${s.number}`]));
     const samples = new Map(
       (
         await app.db
@@ -189,7 +191,7 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
       list.push({
         repositoryId: p.repositoryId,
         serverId: p.serverId,
-        ...(names.has(p.serverId) ? { serverName: names.get(p.serverId)! } : {}),
+        ...(names.has(p.serverId) ? { serverName: names.get(p.serverId)!, serverCode: codes.get(p.serverId)! } : {}),
         reportedSha,
         reportedAt: sample ? sample.ts.toISOString() : null,
         releaseCode,
@@ -242,8 +244,15 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
       const byEnv = await serversOf(rows.map((r) => r.id));
       const extras = await listExtras(projectId, rows, byEnv);
       const canManage = request.access?.permissions.has("environments.manage") === true;
+      // Area 8, F4a: il codice del server dell'ambiente intero (`serverId`).
+      const envCodes = new Map(
+        serverIds.length === 0
+          ? []
+          : (await app.db.select({ id: servers.id, number: servers.number }).from(servers).where(inArray(servers.id, serverIds))).map((s) => [s.id, `SRV-${s.number}`]),
+      );
       return rows.map((row) => ({
         ...toPublic(row, servicesByServer, extras.servers.get(row.id) ?? byEnv.get(row.id) ?? []),
+        serverCode: row.serverId ? (envCodes.get(row.serverId) ?? null) : null,
         canManage,
         onlyHere: (byEnv.get(row.id) ?? []).map((s) => s.serverId).filter((id, i, all) => extras.onlyHere.has(id) && all.indexOf(id) === i),
       }));
