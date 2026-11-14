@@ -106,7 +106,7 @@ export const PROJECT_GROUPS: readonly PermissionGroup[] = [
   { key: "drive", permissions: ["drive.upload", "drive.manage", "drive.history"] },
   // Area 7, le automazioni del progetto (registro condiviso dalla fetta 1, come il web).
   { key: "automations", permissions: ["automations.manage"] },
-  // Area 8, F3: Support, le risposte ai clienti (registro condiviso dalla fetta 3, come il web).
+  // Area 8, F3: Support, gestire le conversazioni (registro condiviso dalla fetta 3, come il web).
   { key: "support", permissions: ["support.manage"] },
 ];
 

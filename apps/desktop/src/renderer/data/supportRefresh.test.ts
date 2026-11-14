@@ -16,13 +16,14 @@ describe("il ritmo di Support", () => {
     expect(supportRefreshMs("list")).toBe(false);
   });
 
-  it("nella build app il dettaglio ogni 15 s solo senza esito, l'elenco ogni 30 s", () => {
+  it("nella build app il dettaglio ogni 15 s senza esito, 30 s chiusa; l'elenco ogni 30 s", () => {
     vi.stubEnv("VITE_STUBWISE_BUILD", "app");
     for (const state of ["triage", "not_concluded", "answered"] as const) {
       expect(supportRefreshMs("detail", state)).toBe(15_000);
     }
-    // Chiusa (con l'esito), o non ancora letta: niente ritmo.
-    expect(supportRefreshMs("detail", "request_open")).toBe(false);
+    // Chiusa (con l'esito): ogni 30 s, perché la richiesta e «Continued in» cambiano ancora.
+    expect(supportRefreshMs("detail", "request_open")).toBe(30_000);
+    // Non ancora letta: niente ritmo.
     expect(supportRefreshMs("detail", undefined)).toBe(false);
     expect(supportRefreshMs("list")).toBe(30_000);
   });

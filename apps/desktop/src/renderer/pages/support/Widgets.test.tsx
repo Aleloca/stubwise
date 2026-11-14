@@ -106,6 +106,27 @@ describe("Support — Widget", () => {
     );
   });
 
+  it("a elenco vuoto la riga del widget lo dice (review F3, m1)", async () => {
+    state.supportWidgets[0]!.origins = [];
+    await open("/p/ACQ/support?view=widgets");
+    const list = await screen.findByRole("list", { name: "Widgets" });
+    expect(within(list).getByRole("listitem")).toHaveTextContent("Any site");
+  });
+
+  it("modificare il titolo non riscrive i siti: quelli di un collega restano (review F3, m2)", async () => {
+    const user = userEvent.setup();
+    await open("/p/ACQ/support?view=widgets&widget=wdg-acq-portal");
+    const panel = await screen.findByRole("complementary", { name: "Edit Customer portal help" });
+    // Un collega cambia i siti mentre il pannello è aperto.
+    state.supportWidgets[0]!.origins = ["https://colleague.example.com"];
+    const title = within(panel).getByLabelText("Title");
+    await user.clear(title);
+    await user.type(title, "Ask us");
+    await user.click(within(panel).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(state.supportWidgets[0]!.title).toBe("Ask us"));
+    expect(state.supportWidgets[0]!.origins).toEqual(["https://colleague.example.com"]);
+  });
+
   it("un sito in http fuori da localhost: il motivo, nulla salvato", async () => {
     const user = userEvent.setup();
     const before = [...state.supportWidgets[0]!.origins];
