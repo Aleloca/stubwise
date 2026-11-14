@@ -1,6 +1,7 @@
 import {
   aiJobs,
   backlogItems,
+  backlogJobs,
   backlogItemTickets,
   projects,
   releases,
@@ -24,7 +25,7 @@ import {
   type SupportState,
   type SupportStateInput,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { projectPermissionsFor } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { releaseStatusById } from "./releases.js";
@@ -107,7 +108,16 @@ async function outcomeOf(db: Db, c: ConversationRow, projectCode: string, ticket
   const [item] = await db
     .select({ id: backlogItems.id, number: backlogItems.number, title: backlogItems.title, originContent: backlogItems.originContent, document: backlogItems.document, status: backlogItems.status, mergedIntoId: backlogItems.mergedIntoId })
     .from(backlogItems)
-    .where(eq(backlogItems.supportConversationId, c.id))
+    .where(
+      // La voce legata; per il canale `mcp` anche quella su cui è finito il suo
+      // job d'intake (una richiesta FUSA in una che c'era non si lega: review F3).
+      c.channel === "mcp" && c.intakeJobId
+        ? or(
+            eq(backlogItems.supportConversationId, c.id),
+            eq(backlogItems.id, sql`(select ${backlogJobs.resultItemId} from ${backlogJobs} where ${backlogJobs.id} = ${c.intakeJobId})`),
+          )
+        : eq(backlogItems.supportConversationId, c.id),
+    )
     .orderBy(asc(backlogItems.createdAt))
     .limit(1);
   if (item) {

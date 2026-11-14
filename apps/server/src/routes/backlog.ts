@@ -381,13 +381,26 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       // vede il team, mai una persona). Una query per pagina.
       const repliesByItem = new Map<string, { body: string; at: string }[]>();
       if (mine && page.length > 0) {
+        // Dalla conversazione `mcp` di CHI GUARDA, ritrovata dal suo job d'intake:
+        // vale anche per una richiesta fusa in una voce che c'era, e un
+        // co-richiedente non legge le risposte date a un altro (review F3).
         const replies = await app.db
-          .select({ itemId: backlogItems.id, body: widgetMessages.content, at: widgetMessages.createdAt })
-          .from(backlogItems)
-          .innerJoin(widgetMessages, eq(widgetMessages.conversationId, backlogItems.supportConversationId))
-          .where(and(inArray(backlogItems.id, page.map((r) => r.id)), eq(widgetMessages.role, "team")))
+          .select({ itemId: backlogJobs.resultItemId, body: widgetMessages.content, at: widgetMessages.createdAt })
+          .from(widgetConversations)
+          .innerJoin(backlogJobs, eq(backlogJobs.id, widgetConversations.intakeJobId))
+          .innerJoin(widgetMessages, eq(widgetMessages.conversationId, widgetConversations.id))
+          .where(
+            and(
+              eq(widgetConversations.channel, "mcp"),
+              eq(widgetConversations.externalUserId, `mcp:${request.user!.id}`),
+              inArray(backlogJobs.resultItemId, page.map((r) => r.id)),
+              eq(widgetMessages.role, "team"),
+            ),
+          )
           .orderBy(asc(widgetMessages.createdAt));
-        for (const r of replies) repliesByItem.set(r.itemId, [...(repliesByItem.get(r.itemId) ?? []), { body: r.body, at: r.at.toISOString() }].slice(-3));
+        for (const r of replies) {
+          if (r.itemId) repliesByItem.set(r.itemId, [...(repliesByItem.get(r.itemId) ?? []), { body: r.body, at: r.at.toISOString() }].slice(-3));
+        }
       }
 
       // Titoli delle voci "simili" della pagina in un'unica query (no N+1).
