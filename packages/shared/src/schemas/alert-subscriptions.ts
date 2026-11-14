@@ -29,6 +29,13 @@ export const alertSubscriptionRowSchema = z.object({
   suspendedReason: z.string().nullable().default(null),
   /** I motivi per cui un avviso di questo tipo arriva comunque. */
   mandatory: z.array(z.string()).default([]),
+  /**
+   * C'è una scelta salvata (review F2, 46). Senza, i valori sono il default
+   * di adesso (permessi, `push`) e lo seguono. L'«Annulla» di una riga
+   * `saved: false` non la riscrive: la riporta al default con
+   * `DELETE /api/me/alert-subscriptions/:projectId/:type`. Additivo.
+   */
+  saved: z.boolean().default(false),
 });
 export type AlertSubscriptionRow = z.infer<typeof alertSubscriptionRowSchema>;
 
@@ -42,11 +49,19 @@ export type ProjectSubscriptions = z.infer<typeof projectSubscriptionsSchema>;
 
 export const alertSubscriptionsListSchema = z.object({ items: z.array(projectSubscriptionsSchema) });
 
-/** `PUT /api/me/alert-subscriptions/:projectId/:type`: una patch (gli assenti restano). */
+/**
+ * `PUT /api/me/alert-subscriptions/:projectId/:type`: una patch (gli assenti
+ * restano). App e Telefono sono LEGATI (review F2, 46), su ogni strada:
+ * `app: false` spegne anche il Telefono, `phone: true` accende anche l'App.
+ */
 export const setAlertSubscriptionSchema = z.object({ app: z.boolean().optional(), phone: z.boolean().optional() });
 export type SetAlertSubscriptionInput = z.infer<typeof setAlertSubscriptionSchema>;
 
-/** Copia e «Mute» rispondono con le righe di PRIMA, per l'«Annulla» (il client le riscrive con `PUT`). */
+/**
+ * Copia e «Mute» rispondono con le righe di PRIMA, per l'«Annulla»: il client
+ * riscrive con `PUT` le righe `saved`, e riporta al default con `DELETE` le
+ * altre.
+ */
 export const alertSubscriptionsBeforeSchema = z.object({ before: z.array(alertSubscriptionRowSchema) });
 
 /** «Non avvisarmi più di questo» (`POST /api/inbox/:id/mute-type`): la riga di prima (l'«Annulla») e quella nuova. */

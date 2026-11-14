@@ -28,6 +28,7 @@ import {
   AlertSubscriptionError,
   alertSubscriptionStamp,
   readAlertSubscription,
+  resetAlertSubscription,
   setAlertSubscription,
 } from "../services/alert-subscriptions.js";
 import { loadTaskViews } from "../services/task-view.js";
@@ -467,13 +468,34 @@ const ENTRIES: CatalogEntry[] = [
         return {
           ok: true,
           result: {
-            inverse: { fn: "setSubscription", args: { projectId: input.projectId, type: input.type, app: before.app, phone: before.phone } },
+            // Senza una scelta salvata prima, «Annulla» torna al DEFAULT (che
+            // segue permessi e `push`), non a un valore fissato (review F2, 46).
+            inverse: before.saved
+              ? { fn: "setSubscription", args: { projectId: input.projectId, type: input.type, app: before.app, phone: before.phone } }
+              : { fn: "resetSubscription", args: { projectId: input.projectId, type: input.type } },
             objects: [
               { kind: "subscription", id: `${input.projectId}:${input.type}`, projectId: input.projectId, type: input.type, ...(stamp ? { stamp } : {}) },
             ],
             codes: [],
           },
         };
+      } catch (error) {
+        if (!(error instanceof AlertSubscriptionError)) throw error;
+        return refused(error.status === 403 ? "forbidden" : "not_found", error.code);
+      }
+    },
+  },
+  {
+    // Solo INVERSO di `setSubscription` (Claude non lo propone): la riga torna al default.
+    fn: "resetSubscription",
+    route: "DELETE /api/me/alert-subscriptions/:projectId/:type",
+    access: { kind: "user" },
+    request: (args) => ({ params: { projectId: args["projectId"], type: args["type"] } }),
+    async run(tx, user, args) {
+      const input = args as { projectId: string; type: string };
+      try {
+        await resetAlertSubscription(tx, user, input);
+        return { ok: true, result: { inverse: null, objects: [], codes: [] } };
       } catch (error) {
         if (!(error instanceof AlertSubscriptionError)) throw error;
         return refused(error.status === 403 ? "forbidden" : "not_found", error.code);

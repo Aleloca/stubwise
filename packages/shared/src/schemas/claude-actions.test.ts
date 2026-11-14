@@ -9,6 +9,7 @@ describe("le firme delle azioni per il prompt della chat", () => {
   it("una riga per ogni azione proponibile, e nessun inverso", () => {
     expect(lines.map((l) => /^- (\w+)\(/.exec(l)?.[1])).toEqual([...CLAUDE_PROPOSABLE_FNS]);
     expect(lines.some((l) => l.startsWith("- deleteTask("))).toBe(false);
+    expect(lines.some((l) => l.startsWith("- resetSubscription("))).toBe(false);
   });
 
   it("vengono dagli schemi del server: campi, obbligatorietà, enum, uuid", () => {

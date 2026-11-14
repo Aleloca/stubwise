@@ -764,17 +764,37 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `git_identities` non riceve nulla da obbligatorio, solo per iscrizione
   (`pr.corrected`, solo obbligatorio, non gli arriva affatto).
 
+- F2, review del server *(O, 46, 14 nov 2026)*, limiti che restano:
+  - **Il Telefono di una riga MISTA** (iscrizione più motivi obbligatori,
+    es. `release.failed` per chi ha fatto il merge): la pubblicazione manda
+    il push a un obbligatorio secondo la sua iscrizione o, senza riga,
+    `defaultPhone` e `push` — anche con l'App spenta. Le Preferenze mostrano
+    l'iscrizione; la riga lo dice con una nota sui motivi obbligatori (lato
+    renderer, 94). Le righe SOLO obbligatorie mostrano già il Telefono vero.
+  - **Il Telefono dei «rientrato» nella riga dei server**: `monitor.recovered`
+    e `server.recovered` hanno `defaultPhone` spento, la riga mostra quello
+    di `monitor.alert` (acceso). Senza una scelta salvata un rientro non
+    suona; scritta la riga, tutti i partner la seguono. Come il prototipo;
+    il test di parità lo fissa.
+  - **«Annulla» della card e delle Preferenze non è condizionato** a
+    `updated_at`, a differenza di quello di Claude: lo fa il client entro i
+    pochi secondi del toast, e le righe le scrive solo chi annulla — un
+    cambio «dopo» sarebbe suo, da un altro dispositivo, in quella finestra.
+    L'«Annulla» di Claude resta disponibile per sempre: lì serve.
+  - **Costo delle letture**: `listAlertSubscriptions` fa tre query per
+    progetto (permessi, `push`, righe salvate); l'inbox aggiunge un EXISTS
+    per ogni tipo vivo con un permesso d'iscrizione. Da raccogliere in una
+    lettura per pagina se pesa.
+
 - F2, S7, l'azione di Claude `setSubscription` *(O, 46, 14 nov 2026)*:
   - Golden: perimetro RIDOTTO autorizzato dal maintainer (perimetro (a)):
     `chat-subscription`, `chat-propose-not-execute` e `chat-never-catalog`,
     3 volte ciascuno, CLI 2.1.322. **La serie intera della chat si rilancia
     al prossimo aggiornamento del CLI** (insieme alle altre voci rimandate a
     quel giro).
-  - «Annulla» riscrive i valori di prima come riga ESPLICITA: chi non aveva
-    mai toccato quel tipo (valore = default dai permessi) dopo l'Annulla ha
-    una riga coi valori di allora, e un cambio di permessi successivo non
-    sposta più il suo default. Accettato: è quello che fanno anche le
-    Preferenze dopo un interruttore toccato e rimesso com'era.
+  - «Annulla» di una riga senza scelta salvata la riporta al DEFAULT
+    (`resetSubscription`, review F2): nessuna riga fissata, il Telefono segue
+    di nuovo `push`.
 
 - Blocchi della Home «Rilasci» (anche l'extra di `resolveHome` per
   `release.merge`) e «Clienti in attesa».

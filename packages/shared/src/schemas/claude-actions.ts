@@ -41,14 +41,19 @@ export const CLAUDE_ACTION_FNS = [
   "fillMailBody",
   // Area 8, F2, S7: l'iscrizione a un tipo d'avviso di chi chiede. A, con «Annulla».
   "setSubscription",
-  // Solo inverso.
+  // Solo inversi.
   "deleteTask",
+  // Area 8, F2 (review): l'«Annulla» di un setSubscription su una riga senza scelta salvata.
+  "resetSubscription",
 ] as const;
 export const claudeActionFnSchema = z.enum(CLAUDE_ACTION_FNS);
 export type ClaudeActionFn = z.infer<typeof claudeActionFnSchema>;
 
+/** Le `fn` che esistono SOLO come inverso di un'altra («Annulla»): Claude non le propone. */
+export const CLAUDE_INVERSE_ONLY_FNS: readonly ClaudeActionFn[] = ["deleteTask", "resetSubscription"];
+
 /** Le `fn` che Claude può proporre (il catalogo meno gli inversi). */
-export const CLAUDE_PROPOSABLE_FNS = CLAUDE_ACTION_FNS.filter((f) => f !== "deleteTask");
+export const CLAUDE_PROPOSABLE_FNS = CLAUDE_ACTION_FNS.filter((f) => !CLAUDE_INVERSE_ONLY_FNS.includes(f));
 
 /** La classe dichiarata: A parte subito (con «Annulla»), B chiede conferma. La C (riconferma) è la fetta 4. */
 export const CLAUDE_DECLARED_CLASS: Record<ClaudeActionFn, "A" | "B"> = {
@@ -72,6 +77,8 @@ export const CLAUDE_DECLARED_CLASS: Record<ClaudeActionFn, "A" | "B"> = {
   // Tocca solo le iscrizioni di chi chiede: nessun altro è avvisato.
   setSubscription: "A",
   deleteTask: "B",
+  // Riporta al default le iscrizioni di chi chiede: nessun altro è avvisato.
+  resetSubscription: "A",
 };
 
 const id = z.uuid();
@@ -127,6 +134,7 @@ export const CLAUDE_ACTION_ARGS = {
     .strict()
     .refine((a) => a.app !== undefined || a.phone !== undefined, { message: "app or phone" }),
   deleteTask: z.object({ id }),
+  resetSubscription: z.object({ projectId: id, type: z.enum(liveRowTypes() as [string, ...string[]]) }).strict(),
 } satisfies Record<ClaudeActionFn, z.ZodType>;
 
 export const claudeProposedActionSchema = z.object({
