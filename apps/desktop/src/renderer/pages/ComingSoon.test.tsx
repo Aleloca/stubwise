@@ -722,7 +722,8 @@ describe("aree non integrate nella build app", () => {
   // Area 8, F4a: i Server in sola lettura (elenco, dettaglio, metriche, episodi).
   // Scritture, SSH, analisi e simulazioni restano fuori dalla build app (I1).
   it("i Server del progetto: l'elenco legge solo chiamate integrate, senza «New server»", async () => {
-    signedInAs("p-laura");
+    // Roberta ha `monitor.manage`: nel prototipo vedrebbe «New server».
+    signedInAs("p-roberta");
     renderRoute("/p/ACQ/servers");
     expect(await screen.findByRole("heading", { level: 1, name: "Servers" })).toBeInTheDocument();
     await waitFor(() => expect(calls).toContain("servers.listProjectServers"));
@@ -733,7 +734,8 @@ describe("aree non integrate nella build app", () => {
   });
 
   it("il dettaglio di un Server: metriche ed episodi in sola lettura; niente SSH, impostazioni, controlli in scrittura né simulazioni", async () => {
-    signedInAs("p-laura");
+    // Roberta ha `monitor.manage`: nel prototipo vedrebbe le scritture.
+    signedInAs("p-roberta");
     renderRoute("/p/ACQ/servers/SRV-1");
     const index = await screen.findByRole("navigation", { name: "Parts of SRV-1" }, { timeout: 3000 });
     await waitFor(() => expect(calls).toContain("servers.getServer"));
@@ -741,7 +743,8 @@ describe("aree non integrate nella build app", () => {
     expect(within(index).queryByRole("button", { name: "SSH access" })).toBeNull();
     expect(within(index).queryByRole("button", { name: "Settings" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add check" })).toBeNull();
-    expect(screen.queryByText("Prototype only: server signals")).toBeNull();
+    expect(screen.queryByRole("region", { name: "Prototype only: server signals" })).toBeNull();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
     await settle();
     expect(outside()).toEqual([]);
   });
