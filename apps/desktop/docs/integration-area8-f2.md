@@ -8,10 +8,10 @@ worker, `@stubwise/notifications` e `@stubwise/api-client` sono di
 stubwise-72 (`feat/area8-f2`); qui il renderer e il catalogo condiviso che il
 piano gli assegna (`feat/area8-f2-renderer`).
 
-Documento in corso: le righe «in attesa» si chiudono quando 72 ha le rotte
-delle iscrizioni (S5) e il client (S8, `client.alerts`). Nessuna funzione
-nuova è accesa nella build app finché R6 non c'è (regola I3 dell'area 7:
-`INTEGRATED_CALLS` cresce nello stesso commit dell'accensione).
+Nella build app sono ACCESE `alerts` (Preferenze → Notifiche, la campanella
+del progetto, il menu degli avvisi nel pannello) e `alerts-mute` («Don't
+alert me» dalla card), con le loro chiamate in `INTEGRATED_CALLS` (regola
+I3 dell'area 7). Resta da fare l'azione di Claude (R5, sopra S7 di 72).
 
 ## Renderer e moduli condivisi (stubwise-94)
 
@@ -22,10 +22,12 @@ nuova è accesa nella build app finché R6 non c'è (regola I3 dell'area 7:
 | Il prototipo sul catalogo condiviso | `domain/alerts/catalog.ts` ne fa una copia mutabile (`registerAlertTypes` resta il punto d'estensione dei test) e restringe i permessi a `Permission` in un posto; `ruleApplies` legge `defaultOn`. `domain/alerts/recipients.ts` resta del prototipo (nella build app i destinatari li calcola il server) | `domain/alerts/recipients.test.ts` (ogni permesso del catalogo è noto al prototipo), `data/alerts/alerts.test.ts`, `data/servers/analysis.test.ts` | fatto |
 | Le card dei tipi nuovi nell'inbox (R4) | `appLinkFor` in `real/notifications.ts`: l'`url` `/app/#/p/<PRJ>/…` che il server scrive (S1) apre la pagina nell'app se è dell'istanza e la pagina è accesa: il rilascio (`releases`), il pannello della PR (`releases-prs`, `?pr=<repository>%23<n>`), i Docs del progetto. Altrimenti «Open in web»; un'altra origine mai nell'app; una card senza `url` (server più vecchio) non rompe | `real/session.test.ts`, `real/releasesPrsPage.test.tsx` (il pannello dall'URL e dalla riga) | fatto |
 | Il `?pr=` del router | accetta anche `<id>#<numero>`, l'id di una PR nella build app (difetto della F1: il pannello non si apriva, corretto anche su `feat/area8-f1-renderer`) | `real/releasesPrsPage.test.tsx` | fatto |
-| Le iscrizioni: elenco, scrittura, copia, «Mute» (R2) | `real/alerts.ts` su `client.alerts.list/set/copy/mute`, con le firme del prototipo; l'«Annulla» riscrive le righe di prima con `PUT` | — | in attesa di S5, S8 |
-| Preferenze → Notifiche e «Mute» della colonna (R3) | solo le righe dei tipi vivi che il server manda; il Telefono di un tipo del catalogo vale da solo (M-2 = b) e, senza riga, è quello che il server calcola (`defaultPhone` e `notify_push`): il client lo legge, non lo deduce; un obbligatorio non si spegne, un sospeso lo dice; «ti arriva perché…» da `event.alertMandatory` | — | in attesa di S5, S8 |
-| L'azione di Claude `setSubscription` (R5) | l'adattatore nel catalogo delle azioni della build app, con l'«Undo» del prototipo | — | in attesa di S7, S8 |
-| `INTEGRATED_CALLS` e l'accensione (R6) | nello stesso commit dell'accensione, con «aprire Preferenze → Notifiche legge solo chiamate integrate» | — | in attesa di R2, R3 |
+| Le iscrizioni: elenco, scrittura, copia, «Mute» (R2) | `real/alerts.ts` su `client.alerts.list/set/copy/mute`, con le firme del prototipo: i progetti seguiti prima (i fissati), le righe e gli stati dal server, una riga di stato sconosciuto non si mostra; `setSubscription` scrive la RIGA (`monitor.alert` → `server.trouble`); l'«Annulla» di copia e «Mute» riscrive con `PUT` le righe di prima che si possono scrivere; gli errori nelle parole del prototipo | `real/alerts.test.ts` | fatto |
+| Preferenze → Notifiche e la campanella del progetto (R3) | `/preferences/notifications` è della funzione `alerts` (le altre sezioni delle Preferenze restano della loro area); il Telefono di un tipo del catalogo vale da solo (M-2 = b) e la nota ⓘ dice che arriva come push sul telefono; senza riga il server lo calcola (`defaultPhone` e `notify_push`), il client lo legge; un obbligatorio non si spegne, un sospeso lo dice in parole. La campanella del progetto c'è solo con `alerts`. «Security off» nella colonna delle Preferenze solo dove la sezione Sicurezza è accesa (area 9) | `real/alertsPage.test.tsx` (anche la PUT esatta, «Mute» con «Undo», le letture assenti a funzione spenta) | fatto |
+| L'azione di Claude `setSubscription` (R5) | l'adattatore nel catalogo delle azioni della build app, con l'«Undo» del prototipo | — | in attesa di S7 |
+| `INTEGRATED_CALLS` e l'accensione (R6) | `alerts` e `alerts-mute` accese; le cinque chiamate `alerts.*` in `INTEGRATED_CALLS` | `pages/ComingSoon.test.tsx` («aprire Preferenze → Notifiche legge solo chiamate integrate») | fatto |
+| «Non avvisarmi più di questo» dalla card (S6) | `muteFromNotification` su `client.inbox.muteType`: il server spegne la riga del tipo della card nel suo progetto; l'«Annulla» riscrive la riga di prima nel progetto della risposta (senza progetto, da un server più vecchio, lo dice invece di scrivere); funzione `alerts-mute` | `real/alerts.test.ts`, `real/alertsPage.test.tsx` | fatto |
+| «Ti arriva perché…» | `alertMandatory` dell'`InboxItem` (scritto alla pubblicazione per ogni destinatario) diventa il `mandatory` della card: il pannello dice il motivo e non offre «Don't alert me»; un motivo sconosciuto non si mostra | `real/session.test.ts`, `real/alertsPage.test.tsx` | fatto |
 
 ### Differenze dichiarate
 
