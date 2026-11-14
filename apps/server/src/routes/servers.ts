@@ -2,6 +2,7 @@ import {
   computeServerStatus,
   createServerSchema,
   serverHealth,
+  serverWithKeySchema,
   type HealthEpisode,
   serverDetailSchema,
   serverViewSchema,
@@ -21,7 +22,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { visibleProjectIds } from "../auth/access.js";
+import { projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
 import { canViewServer, serverIdsOfProjects, visibleServerIds } from "../auth/monitor-access.js";
 import { toCheckView } from "./servers-checks.js";
 import { apiError } from "../errors.js";
@@ -49,8 +50,6 @@ type ServerRow = typeof servers.$inferSelect;
  */
 type ServerView = z.infer<typeof serverViewSchema>;
 
-/** Risposta con la chiave in chiaro: creazione e rigenerazione, una sola volta. */
-const serverWithKeySchema = serverViewSchema.extend({ key: z.string() });
 
 /** Dati aggregati per un server, da unire alla riga base nella proiezione. */
 interface ServerAggregates {
@@ -221,26 +220,66 @@ async function loadAggregates(
 export async function serverRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
+  /** L'URL dell'istanza per il comando d'installazione (`agentInstallCommand`); null senza PUBLIC_URL. */
+  const ingestUrlOf = (): string | null => {
+    try {
+      return app.publicUrl;
+    } catch {
+      return null;
+    }
+  };
+
   app.post(
     "/",
     {
       config: { access: { kind: "instance", permission: "monitor.manage" } },
       schema: {
         body: createServerSchema,
-        response: { 201: serverWithKeySchema, 400: errorSchema, ...authErrorResponses },
+        response: { 201: serverWithKeySchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
       const now = new Date();
       const key = generateServerKey();
-      const [created] = await app.db
-        .insert(servers)
-        .values({ name: request.body.name, keyHash: hashServerKey(key) })
-        .returning();
-      if (!created) throw new Error("insert del server non ha restituito la riga");
-      return await reply
-        .code(201)
-        .send({ ...toServerView(created, emptyAggregates(), now), key });
+      const { name, environment } = request.body;
+      // Area 8, F4a, S4: con un ambiente, server e collegamento nella STESSA
+      // transazione (due chiamate lascerebbero un server orfano a metà). Serve
+      // `environments.manage` nel progetto dell'ambiente, oltre a monitor.manage.
+      let env: { id: string; projectId: string } | undefined;
+      if (environment) {
+        [env] = await app.db
+          .select({ id: projectEnvironments.id, projectId: projectEnvironments.projectId })
+          .from(projectEnvironments)
+          .where(eq(projectEnvironments.id, environment.environmentId));
+        // Un ambiente di un progetto invisibile risponde come uno inesistente.
+        const permissions = env ? await projectPermissionsFor(app.db, request.user!, env.projectId) : null;
+        if (!env || !permissions) return apiError(reply, 404, "environment_not_found", "Environment not found");
+        if (!permissions.has("environments.manage")) {
+          return apiError(reply, 403, "forbidden", "Linking a server to an environment needs environments.manage");
+        }
+        const repos = await app.db
+          .select({ id: repositories.id })
+          .from(repositories)
+          .where(and(eq(repositories.projectId, env.projectId), inArray(repositories.id, environment.repositoryIds)));
+        if (repos.length !== new Set(environment.repositoryIds).size) {
+          return apiError(reply, 400, "bad_repository", "A repository is not in this project");
+        }
+      }
+      const created = await app.db.transaction(async (tx) => {
+        const [row] = await tx.insert(servers).values({ name, keyHash: hashServerKey(key) }).returning();
+        if (!row) throw new Error("insert del server non ha restituito la riga");
+        if (env && environment) {
+          for (const repositoryId of new Set(environment.repositoryIds)) {
+            await tx
+              .insert(environmentServers)
+              .values({ environmentId: env.id, repositoryId, serverId: row.id })
+              .onConflictDoUpdate({ target: [environmentServers.environmentId, environmentServers.repositoryId], set: { serverId: row.id } });
+          }
+        }
+        return row;
+      });
+      const agg = (await loadAggregates(app, [created.id], await visibleProjectIds(app.db, request.user!))).get(created.id)!;
+      return await reply.code(201).send({ ...toServerView(created, agg, now), key, ingestUrl: ingestUrlOf() });
     },
   );
 
@@ -432,7 +471,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
         .returning();
       if (!updated) return apiError(reply, 404, "server_not_found", "Server not found");
       const agg = await loadAggregates(app, [updated.id], await visibleProjectIds(app.db, request.user!));
-      return { ...toServerView(updated, agg.get(updated.id)!, now), key };
+      return { ...toServerView(updated, agg.get(updated.id)!, now), key, ingestUrl: ingestUrlOf() };
     },
   );
 
