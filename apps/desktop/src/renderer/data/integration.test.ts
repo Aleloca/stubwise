@@ -73,6 +73,11 @@ const ALL: IntegrationTarget[] = [
       "support-home",
       "support-widgets",
       "support-search",
+      "servers-monitor",
+      "servers-write",
+      "servers-ssh",
+      "servers-analysis",
+      "servers-search",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -109,6 +114,10 @@ describe("isIntegrated", () => {
         "projectSection:support",
         "feature:support",
         "feature:support-widgets",
+        // Area 8, F4a: i Server in sola lettura; scritture, SSH, analisi e ricerca spente.
+        "projectSection:servers",
+        "admin:servers",
+        "feature:servers-monitor",
         "destination:projects",
         "projectSection:tasks",
         "projectSettings:statuses",

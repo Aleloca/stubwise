@@ -1,3 +1,4 @@
+import { featureIntegrated } from "../../data/integration";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -167,10 +168,12 @@ export function NowBox({ server }: { server: ServerDetail }) {
       {work}
       {/* Un orfano (area 9b) non ha staging né produzioni: «Staging only» sarebbe
           falso, e che Claude lavori solo dentro un progetto lo dice la testata. */}
-      {!server.orphan && server.analysisProject === null && inTrouble && (
-        <p className="text-md text-ink-muted">{t("servers.stagingOnly")}</p>
-      )}
-      {inTrouble &&
+      {featureIntegrated("servers-analysis") &&
+        !server.orphan &&
+        server.analysisProject === null &&
+        inTrouble && <p className="text-md text-ink-muted">{t("servers.stagingOnly")}</p>}
+      {featureIntegrated("servers-analysis") &&
+        inTrouble &&
         noRead &&
         !server.orphan &&
         server.analysisProject !== null &&

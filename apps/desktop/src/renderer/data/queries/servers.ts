@@ -24,7 +24,7 @@ export function useProjectServers(projectId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.projectServers(me, projectId ?? ""),
     queryFn: () => api.servers.listProjectServers(projectId!),
-    enabled: !!projectId && featureIntegrated("servers"),
+    enabled: !!projectId && featureIntegrated("servers-monitor"),
   });
 }
 
@@ -80,7 +80,8 @@ export function useServerSearch(q: string, enabled = true) {
     queryKey: queryKeys.serverSearch(me, q),
     queryFn: () => api.servers.searchServers(q),
     // Solo dove l'area è integrata (review area 8 F1, m5).
-    enabled: enabled && q.trim().length >= MIN_QUERY && featureIntegrated("servers"),
+    // La ricerca ⌘K dei server è fuori dalla F4a: la sua funzione, spenta.
+    enabled: enabled && q.trim().length >= MIN_QUERY && featureIntegrated("servers-search"),
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
   });

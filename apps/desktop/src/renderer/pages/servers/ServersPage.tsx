@@ -1,3 +1,4 @@
+import { featureIntegrated } from "../../data/integration";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useProject, useProjectServers } from "../../data/queries";
@@ -45,7 +46,8 @@ export function ServersPage({ projectCode }: { projectCode: string }) {
   const project = useProject(projectCode).data ?? undefined;
   const servers = useProjectServers(project?.id);
   const [creating, setCreating] = useState(false);
-  const canCreate = can(viewer, "monitor.manage");
+  // Build app (area 8, F4a): creare non è ancora acceso (`servers-write`, I1).
+  const canCreate = can(viewer, "monitor.manage") && featureIntegrated("servers-write");
   const newButton = canCreate ? (
     <button
       type="button"

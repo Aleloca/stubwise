@@ -126,6 +126,8 @@ const INTEGRATED_CALLS = new Set([
   "markNotification",
   "search",
   "admin.listDepartments",
+  // Le persone attive accanto a «People» nella colonna dell'Amministrazione (reali dalla fetta 1).
+  "admin.listPeople",
   "admin.createDepartment",
   "admin.updateDepartment",
   "admin.saveDepartment",
@@ -431,6 +433,11 @@ const INTEGRATED_CALLS = new Set([
   "support.createWidget",
   "support.updateWidget",
   "support.deleteWidget",
+  // Area 8, F4a: i Server in sola lettura.
+  "servers.listProjectServers",
+  "servers.listAllServers",
+  "servers.getServer",
+  "servers.getServerMetrics",
   // Area 8, F2 (R6): le iscrizioni agli avvisi.
   "alerts.subscriptionRows",
   "alerts.setSubscription",
@@ -605,9 +612,9 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("una sezione di progetto non integrata mostra «Coming soon»", async () => {
-    // Dall'area 8 le Release (fetta 1) e Support (fetta 3) sono accesi: Servers non ancora.
-    renderRoute("/p/AUD/servers");
+  it("una pagina di progetto non integrata mostra «Coming soon»", async () => {
+    // Dall'area 8, F4a, ogni sezione di progetto è accesa: resta una voce delle impostazioni.
+    renderRoute("/p/AUD/settings/plugins");
     expect(await screen.findByText("Coming soon")).toBeInTheDocument();
     await settle();
     expect(outside()).toEqual([]);
@@ -708,6 +715,43 @@ describe("aree non integrate nella build app", () => {
     await waitFor(() => expect(calls).toContain("support.listWidgets"));
     // I siti ammessi (`origins` del server): il campo c'è anche nella build app.
     expect(within(panel).getByLabelText(/^Sites/)).toBeInTheDocument();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 8, F4a: i Server in sola lettura (elenco, dettaglio, metriche, episodi).
+  // Scritture, SSH, analisi e simulazioni restano fuori dalla build app (I1).
+  it("i Server del progetto: l'elenco legge solo chiamate integrate, senza «New server»", async () => {
+    signedInAs("p-laura");
+    renderRoute("/p/ACQ/servers");
+    expect(await screen.findByRole("heading", { level: 1, name: "Servers" })).toBeInTheDocument();
+    await waitFor(() => expect(calls).toContain("servers.listProjectServers"));
+    expect(screen.queryByText("Coming soon")).toBeNull();
+    expect(screen.queryByRole("button", { name: "New server" })).toBeNull();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("il dettaglio di un Server: metriche ed episodi in sola lettura; niente SSH, impostazioni, controlli in scrittura né simulazioni", async () => {
+    signedInAs("p-laura");
+    renderRoute("/p/ACQ/servers/SRV-1");
+    const index = await screen.findByRole("navigation", { name: "Parts of SRV-1" }, { timeout: 3000 });
+    await waitFor(() => expect(calls).toContain("servers.getServer"));
+    await waitFor(() => expect(calls).toContain("servers.getServerMetrics"));
+    expect(within(index).queryByRole("button", { name: "SSH access" })).toBeNull();
+    expect(within(index).queryByRole("button", { name: "Settings" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add check" })).toBeNull();
+    expect(screen.queryByText("Prototype only: server signals")).toBeNull();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("l'Amministrazione dei Server: tutti i server, solo chiamate integrate, senza «New server»", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/servers");
+    await waitFor(() => expect(calls).toContain("servers.listAllServers"));
+    expect(screen.queryByText("Coming soon")).toBeNull();
+    expect(screen.queryByRole("button", { name: "New server" })).toBeNull();
     await settle();
     expect(outside()).toEqual([]);
   });
