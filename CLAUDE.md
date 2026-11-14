@@ -463,6 +463,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 7, fetta 4: le generali e il webhook in arrivo» (13 nov 2026)
   - «Integrazione area 8, fetta 1: i rilasci» (13 nov 2026; migrazioni 0175 e 0176, prima il server)
   - «Integrazione area 8, fetta 2: gli avvisi e le iscrizioni per progetto» (14 nov 2026; migrazioni 0177 e 0178, sei `notification_kind` nuovi: rollback del server NON sicuro finché ne esistono righe)
+  - «Integrazione area 8, fetta 3: Support» (14 nov 2026; migrazione 0179, server → worker → caddy col bundle del widget, rilascio del plugin MCP col changeset)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -896,6 +897,16 @@ una voce ti riguarda.
   viene SALTATA in silenzio. Chi aggiunge una migrazione su un branch vecchio
   le dia un `when` più grande dell'ultimo già su main, non solo il numero
   libero.
+- **Il team non scrive MAI al cliente nel widget (decisione del maintainer,
+  14 nov 2026, area 8 F3).** Nel widget risponde solo l'AI; una conversazione
+  con un esito (richiesta o ticket) è CHIUSA, e un messaggio nuovo del cliente
+  apre una conversazione successiva (`continued_in_id`). Il cliente segue
+  richieste e ticket sul sito che ospita il widget, via API (fetta a sé, non
+  ancora fatta). L'unico canale in cui il team risponde è `mcp` (collaboratori
+  interni in Claude Code): la rotta di risposta rifiuta le conversazioni del
+  widget (409 `support_widget_no_reply`). Il prototipo diceva il contrario ed
+  è stato corretto: non reintrodurre composer, bozze o «il cliente ha
+  risposto» sul widget.
 - **Il registro decisioni non è MAI scritto dall'AI.** `project_decisions`
   raccoglie *fatti* — la risposta a una domanda dell'agente, un piano
   approvato o rifiutato con indicazioni, una proposta del pulse accettata,
