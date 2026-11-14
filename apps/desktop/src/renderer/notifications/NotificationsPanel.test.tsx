@@ -480,9 +480,6 @@ describe("«Don't alert me about this in <progetto>» (area 8a)", () => {
     const panel = await openPanel(user);
     const item = await waitFor(() => itemOf(panel, "n-a8-5"));
     expect(item).toHaveTextContent("You get this because you did the merge");
-    expect(
-      within(itemOf(panel, "n-a8-10")).getByText("You get this because you follow this conversation"),
-    ).toBeVisible();
     await user.click(within(item).getByRole("button", { name: "More actions" }));
     const menu = await screen.findByRole("menu", { name: "More actions" });
     expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual([
@@ -493,6 +490,17 @@ describe("«Don't alert me about this in <progetto>» (area 8a)", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/preferences/notifications"));
     expect(router.state.location.search).toMatchObject({ project: "AUD" });
     expect(screen.queryByRole("dialog", { name: "Notifications" })).toBeNull();
+  });
+
+  it("obbligatorio: un'altra ragione, scritta sotto il corpo (l'autore della PR)", async () => {
+    // Era «segui la conversazione» su Support, uscita con l'area 8, F3: la
+    // stessa prova su un'altra ragione del seme, le card della PR di Marco.
+    const user = userEvent.setup();
+    renderRoute("/home", "p-marco");
+    const panel = await openPanel(user);
+    const reasons = await within(panel).findAllByText("You get this because you opened this PR");
+    expect(reasons.length).toBeGreaterThan(0);
+    for (const r of reasons) expect(r).toBeVisible();
   });
 
   it("fuori dal catalogo (decisioni, menzioni, sicurezza) niente «⋯»", async () => {
