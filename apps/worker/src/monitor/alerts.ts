@@ -10,7 +10,7 @@ import {
   computeServerStatus,
   type AlertThresholds,
 } from "@stubwise/shared";
-import { and, eq, gte, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, isNull } from "drizzle-orm";
 
 /**
  * VALUTAZIONE ALERT del monitoraggio (isteresi + recovery).
@@ -207,10 +207,19 @@ async function syncEpisode(db: Db, serverId: string, now: Date): Promise<void> {
     mem: ["memory", thresholds.memPct],
     disk: ["disk", thresholds.diskPct],
   };
+  // Il valore dell'ultimo campione (review F4a: senza, l'app mostrava «CPU al NaN%»).
+  const [last] = await db.select().from(serverMetrics).where(eq(serverMetrics.serverId, serverId)).orderBy(desc(serverMetrics.ts)).limit(1);
+  const share = (used: number, total: number) => (total > 0 ? Math.round((used / total) * 1000) / 10 : undefined);
+  const lastValue: Record<ThresholdKey, number | undefined> = {
+    cpu: last ? Math.round(last.cpuPct * 10) / 10 : undefined,
+    mem: last ? share(last.memUsedBytes, last.memTotalBytes) : undefined,
+    disk: last ? share(last.diskUsedBytes, last.diskTotalBytes) : undefined,
+  };
   for (const key of ["cpu", "mem", "disk"] as const) {
     if (!active[key]) continue;
     const [kind, threshold] = metric[key];
-    reasons.push({ kind, ...(threshold !== null ? { thresholdPct: threshold } : {}), since: active[key].since });
+    const value = lastValue[key];
+    reasons.push({ kind, ...(value !== undefined ? { valuePct: value } : {}), ...(threshold !== null ? { thresholdPct: threshold } : {}), since: active[key].since });
   }
   // I check notificati giù (lo scrive solo questo evaluator, `evaluateCheck`).
   const notified = await db
@@ -242,10 +251,14 @@ async function syncEpisode(db: Db, serverId: string, now: Date): Promise<void> {
   // Un allarme in più si AGGIUNGE ai motivi (quelli rientrati restano: è la
   // storia dell'episodio).
   const key = (r: EpisodeReason) => `${r.kind}:${r.checkId ?? ""}`;
-  const merged = [...open.reasons];
+  // Un motivo ancora attivo prende l'ultimo valore letto (additivo: `since` resta il suo).
+  const merged = open.reasons.map((m) => {
+    const current = reasons.find((r) => key(r) === key(m));
+    return current?.valuePct !== undefined ? { ...m, valuePct: current.valuePct } : m;
+  });
   for (const r of reasons) if (!merged.some((m) => key(m) === key(r))) merged.push(r);
   const nextSeverity = severity;
-  if (merged.length !== open.reasons.length || nextSeverity !== open.severity) {
+  if (JSON.stringify(merged) !== JSON.stringify(open.reasons) || nextSeverity !== open.severity) {
     await db.update(serverEpisodes).set({ reasons: merged, severity: nextSeverity }).where(eq(serverEpisodes.id, open.id));
   }
 }
