@@ -1576,7 +1576,8 @@
         "chat": "Chat",
         "departmentHome": "Home del reparto",
         "drive": "Drive",
-        "automations": "Automazioni"
+        "automations": "Automazioni",
+        "support": "Supporto"
       },
       "fullAdminHint": "L'amministrazione completa comprende ogni permesso, su ogni progetto.",
       "save": "Salva il ruolo",
@@ -1728,7 +1729,9 @@
       "automationApproval": "Approvazione",
       "automationFailed": "Esecuzione fallita",
       "automationNotify": "Automazione",
-      "automationPaused": "Automazione in pausa"
+      "automationPaused": "Automazione in pausa",
+      "supportRequest": "Richiesta di un cliente",
+      "supportCustomerReplied": "Il cliente ha risposto"
     },
     "actions": {
       "approvePlan": "Approva piano",
@@ -1878,6 +1881,7 @@
         "reports": "Report",
         "mail": "Posta",
         "automations": "Automazioni",
+        "support": "Supporto",
         "chat": "Chat"
       },
       "ops": {
@@ -1901,7 +1905,9 @@
         "automation_step": "Passi delle automazioni",
         "chat": "Chat dei Docs",
         "claude_chat": "Conversazioni private con Claude",
-        "backlog_merge": "Unione dei documenti del backlog"
+        "backlog_merge": "Unione dei documenti del backlog",
+        "support_triage_check": "Supporto: giudizio sul triage",
+        "support_reply_draft": "Supporto: bozze di risposta"
       }
     }
   },
@@ -3541,6 +3547,9 @@
         "general": {
           "manage": "Gestire le automazioni generali (senza progetto) e decidere le loro esecuzioni"
         }
+      },
+      "support": {
+        "reply": "Rispondere ai clienti e vedere le bozze di Claude"
       }
     }
   },

@@ -1240,6 +1240,13 @@
       "when": 1799798400000,
       "tag": "0178_release_succeeded_notified",
       "breakpoints": true
+    },
+    {
+      "idx": 179,
+      "version": "7",
+      "when": 1799884800000,
+      "tag": "0179_support",
+      "breakpoints": true
     }
   ]
 }

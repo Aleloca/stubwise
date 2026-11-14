@@ -364,14 +364,42 @@ export interface DocsReleaseNoteEvent {
   title: string;
   url: string;
 }
-/** Le sei, insieme: tutte hanno `projectId`, `title` e `url`. */
+/** Area 8, F3: una richiesta nata da una conversazione di Support. */
+export interface SupportRequestEvent {
+  kind: "support.request";
+  projectId: string;
+  /** `<PRJ>-R<n>` della richiesta. */
+  requestCode: string;
+  /** Il titolo della richiesta (scritto dal team o dal triage). */
+  title: string;
+  /** Il nome dichiarato dal cliente; null = anonimo. */
+  customerName: string | null;
+  url: string;
+}
+/**
+ * Area 8, F3: il cliente ha scritto su una conversazione con un esito.
+ * `excerpt` è il testo del CLIENTE (non fidato: solo mostrato, troncato).
+ */
+export interface SupportCustomerRepliedEvent {
+  kind: "support.customer_replied";
+  projectId: string;
+  /** `<PRJ>-S<n>` della conversazione. */
+  conversationCode: string;
+  customerName: string | null;
+  /** L'inizio del messaggio del cliente; per uniformità col catalogo è anche il `title`. */
+  title: string;
+  url: string;
+}
+/** Gli avvisi del catalogo, insieme: tutti hanno `projectId`, `title` e `url`. */
 export type CatalogAlertEvent =
   | ReleaseMergedEvent
   | ReleaseSucceededEvent
   | PrAlertOpenedEvent
   | PrAnalysisIssuesEvent
   | PrCorrectedEvent
-  | DocsReleaseNoteEvent;
+  | DocsReleaseNoteEvent
+  | SupportRequestEvent
+  | SupportCustomerRepliedEvent;
 
 /** Il server (o il suo check) è rientrato entro le soglie: alert risolto. */
 export interface MonitorRecoveredEvent {
@@ -1041,6 +1069,8 @@ function hasTicket(event: NotificationEvent): event is TicketedEvent {
     event.kind !== "pr.analysis_issues" &&
     event.kind !== "pr.corrected" &&
     event.kind !== "docs.release_note" &&
+    event.kind !== "support.request" &&
+    event.kind !== "support.customer_replied" &&
     event.kind !== "project.pulse" &&
     event.kind !== "project.brief" &&
     event.kind !== "google.proposal" &&
@@ -1115,6 +1145,8 @@ const EMOJI: Record<NotificationKind, string> = {
   "pr.analysis_issues": "🔎",
   "pr.corrected": "🛠️",
   "docs.release_note": "📝",
+  "support.request": "🙋",
+  "support.customer_replied": "💬",
   "monitor.recovered": "🟢",
   "job.awaiting_input": "❓",
   "project.pulse": "📣",
@@ -1243,7 +1275,9 @@ function linkParam(
     case "pr.analysis_issues":
     case "pr.corrected":
     case "docs.release_note":
-      // Nessun ticket: il link porta alla pagina del rilascio, della PR o della nota.
+    case "support.request":
+    case "support.customer_replied":
+      // Nessun ticket: il link porta alla pagina del rilascio, della PR, della nota o della conversazione.
       return renderLink(format, event.url, t(lang, "notify.linkOpen"));
     case "project.pulse":
       // Nessun ticket: il link porta al backlog del progetto, che è dove si
@@ -1303,6 +1337,8 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "pr.analysis_issues": "notify.alert.prAnalysisIssues",
   "pr.corrected": "notify.alert.prCorrected",
   "docs.release_note": "notify.alert.docsReleaseNote",
+  "support.request": "notify.alert.supportRequest",
+  "support.customer_replied": "notify.alert.supportCustomerReplied",
   "monitor.recovered": "notify.monitorRecovered",
   "job.awaiting_input": "notify.awaitingInput",
   "project.pulse": "notify.pulse",
@@ -1590,6 +1626,12 @@ function textParams(
     }
     if (event.kind === "docs.release_note") {
       return { repo: event.repositoryName, title: event.title };
+    }
+    if (event.kind === "support.request") {
+      return { code: event.requestCode, title: event.title, customer: event.customerName ?? t(lang, "notify.alert.anonymousCustomer") };
+    }
+    if (event.kind === "support.customer_replied") {
+      return { code: event.conversationCode, title: event.title, customer: event.customerName ?? t(lang, "notify.alert.anonymousCustomer") };
     }
     if (event.kind === "ticket.activity") {
       return {
@@ -1939,7 +1981,9 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
       event.kind === "pr.opened" ||
       event.kind === "pr.analysis_issues" ||
       event.kind === "pr.corrected" ||
-      event.kind === "docs.release_note"
+      event.kind === "docs.release_note" ||
+      event.kind === "support.request" ||
+      event.kind === "support.customer_replied"
     ) {
       return { event: event.kind, projectId: event.projectId, title: event.title, message: formatNotificationText(event, lang), url: event.url };
     }
@@ -2163,6 +2207,8 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
     { kind: "pr.analysis_issues", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", prNumber: 88, prUrl: "https://github.com/acme/negozio-web/pull/88", title: "Filtri per taglia", url: `${base}/app/#/p/NEG/releases?pr=7b2c9d1e-4444-4555-8666-777788889999%2388` },
     { kind: "pr.corrected", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", prNumber: 88, prUrl: "https://github.com/acme/negozio-web/pull/88", title: "Filtri per taglia", url: `${base}/app/#/p/NEG/releases?pr=7b2c9d1e-4444-4555-8666-777788889999%2388` },
     { kind: "docs.release_note", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", repositoryName: "negozio-web", title: "Note del 13 novembre", url: `${base}/app/#/p/NEG/docs` },
+    { kind: "support.request", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", requestCode: "NEG-R14", title: "Esportare gli ordini in PDF", customerName: "Mario Bianchi", url: `${base}/app/#/p/NEG/requests?request=NEG-R14` },
+    { kind: "support.customer_replied", projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc", conversationCode: "NEG-S2", customerName: null, title: "Ci sono novità sull'export?", url: `${base}/app/#/p/NEG/support/NEG-S2` },
     {
       kind: "job.awaiting_input",
       ticketNumber: 131,

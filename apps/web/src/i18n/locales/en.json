@@ -1576,7 +1576,8 @@
         "chat": "Chat",
         "departmentHome": "Department Home",
         "drive": "Drive",
-        "automations": "Automations"
+        "automations": "Automations",
+        "support": "Support"
       },
       "fullAdminHint": "Full administration includes every permission, on every project.",
       "save": "Save role",
@@ -1728,7 +1729,9 @@
       "automationApproval": "Approval",
       "automationFailed": "Run failed",
       "automationNotify": "Automation",
-      "automationPaused": "Automation paused"
+      "automationPaused": "Automation paused",
+      "supportRequest": "Customer request",
+      "supportCustomerReplied": "Customer replied"
     },
     "actions": {
       "approvePlan": "Approve plan",
@@ -1878,6 +1881,7 @@
         "reports": "Reports",
         "mail": "Mail",
         "automations": "Automations",
+        "support": "Support",
         "chat": "Chat"
       },
       "ops": {
@@ -1901,7 +1905,9 @@
         "automation_step": "Automation steps",
         "chat": "Docs chat",
         "claude_chat": "Private conversations with Claude",
-        "backlog_merge": "Backlog document merge"
+        "backlog_merge": "Backlog document merge",
+        "support_triage_check": "Support: triage check",
+        "support_reply_draft": "Support: reply drafts"
       }
     }
   },
@@ -3541,6 +3547,9 @@
         "general": {
           "manage": "Manage the general automations (without a project) and decide their runs"
         }
+      },
+      "support": {
+        "reply": "Reply to customers and see Claude's drafts"
       }
     }
   },
