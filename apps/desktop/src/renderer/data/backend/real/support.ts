@@ -127,6 +127,7 @@ function viewOf(c: Conversation): SupportConversationView | null {
         }
       : null,
     requestId: c.request?.id ?? null,
+    taskId: c.task?.id ?? null,
     request: c.request
       ? {
           id: c.request.id,

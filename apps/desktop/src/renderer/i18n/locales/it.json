@@ -1324,7 +1324,8 @@
         "automation": "Automazione",
         "server": "Server"
       },
-      "serverTitle": "Aperta da Claude dopo un avviso su {{code}}"
+      "serverTitle": "Aperta da Claude dopo un avviso su {{code}}",
+      "viewConversation": "Vedi la conversazione"
     },
     "technical": {
       "title": "Dettagli tecnici",

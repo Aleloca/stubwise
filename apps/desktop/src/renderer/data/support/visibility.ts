@@ -80,6 +80,21 @@ export function customerStatusOf(req: ProjectRequest | null): CustomerStatus {
   );
 }
 
+/**
+ * L'esito che è un ticket del widget (area 8, F3-1): la task, col passo che
+ * vede il cliente (nessuna richiesta: le task, i rilasci delle loro PR).
+ */
+function taskOutcomeOf(c: SupportConversation): SupportConversationView["task"] {
+  const task = c.taskId ? state.tasksById.get(c.taskId) : undefined;
+  if (!task) return null;
+  return {
+    id: task.id,
+    code: task.code,
+    title: task.title,
+    customerStatus: customerStatus(null, [task], releasesOfTask(task.id)),
+  };
+}
+
 export const requestOf = (c: SupportConversation): ProjectRequest | null =>
   (c.requestId && state.requests.find((r) => r.id === c.requestId)) || null;
 
@@ -170,6 +185,7 @@ export function conversationView(me: string, c: SupportConversation): SupportCon
           customerStatus: customerStatusOf(req),
         }
       : null,
+    task: taskOutcomeOf(c),
     claudeDraft: reply ? claudeDraft : null,
     following: followerIds.includes(me),
     canReply: reply,

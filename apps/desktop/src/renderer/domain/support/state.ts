@@ -22,7 +22,8 @@ export {
 export { deriveSupportState, deriveWaitingSince };
 
 const inputOf = (c: SupportConversation): SupportStateInput => ({
-  hasOutcome: c.requestId !== null,
+  // L'esito: una richiesta legata o la task aperta dal widget (F3-1).
+  hasOutcome: c.requestId !== null || c.taskId !== null,
   judgment: c.triage,
   messages: c.messages,
 });

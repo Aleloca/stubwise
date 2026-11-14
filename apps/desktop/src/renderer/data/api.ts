@@ -329,7 +329,13 @@ export async function getTaskByCode(code: string): Promise<Task | null> {
   const me = await gate("getTaskByCode");
   const task = state.tasks.find((t) => t.code === code.toUpperCase());
   if (!task || !visibleProjectIds(me).has(task.projectId)) return null;
-  return { ...copy(task), assigneeStatus: assigneeStatusOf(task.assigneeId) };
+  // Aperta dal widget (area 8, F3, S-9): la conversazione da cui è nata, derivata a lettura.
+  const conversation = state.supportConversations.find((c) => c.taskId === task.id);
+  return {
+    ...copy(task),
+    assigneeStatus: assigneeStatusOf(task.assigneeId),
+    supportConversationCode: conversation?.code ?? null,
+  };
 }
 
 export async function listActivity(taskId: string): Promise<ActivityEntry[]> {

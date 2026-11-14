@@ -90,6 +90,8 @@ export function toTask(view: TaskViewData): Task {
     ...(view.technical !== undefined ? { technical: view.technical } : {}),
     ...(view.assigneeStatus !== undefined ? { assigneeStatus: view.assigneeStatus } : {}),
     ...(view.canPlan !== undefined ? { canPlan: view.canPlan } : {}),
+    // Aperta dal widget (area 8, F3, S-9): la conversazione, per «View conversation».
+    ...(view.supportConversationCode ? { supportConversationCode: view.supportConversationCode } : {}),
   } as Task;
 }
 

@@ -446,8 +446,9 @@ describe("scritture", () => {
     const w = await support.createWidget(ACQ, { name: "Site", origins: ["https://acq.test"] });
     expect((await support.updateWidget(w.id, { name: "Site 2" })).name).toBe("Site 2");
     await support.deleteWidget("wdg-acq-portal");
-    expect(state.supportWidgets.map((x) => x.id)).toEqual([w.id]);
-    expect(state.supportConversations).toHaveLength(8);
+    expect(state.supportWidgets.filter((x) => x.projectId === ACQ).map((x) => x.id)).toEqual([w.id]);
+    // Area 8, F3: più AUD-S1 (l'esito è un ticket del widget di Audin).
+    expect(state.supportConversations).toHaveLength(9);
     const s1 = (await support.getSupportConversation("ACQ-S1"))!;
     expect(s1.widgetName).toBeNull();
   });
@@ -570,7 +571,8 @@ describe("failNext e resetApi", () => {
     await support.deleteWidget("wdg-acq-portal");
     resetApi();
     expect(conv("ACQ-S2").messages.at(-1)!.from).toBe("customer");
-    expect(state.supportWidgets).toHaveLength(1);
+    // Il widget di ACQ e (area 8, F3) quello di Audin.
+    expect(state.supportWidgets.map((w) => w.id)).toEqual(["wdg-acq-portal", "wdg-aud-help"]);
   });
 });
 
@@ -615,5 +617,16 @@ describe("«Not concluded» su una conversazione answered (area 8, F3)", () => {
     // Il cliente riscrive un minuto dopo (l'orologio del prototipo è fermo).
     advanceNow(60_000);
     expect((await support.simulateCustomerMessage("ACQ-S8", "Actually, one more thing")).state).toBe("triage");
+  });
+});
+
+describe("l'esito che è un ticket del widget (area 8, F3)", () => {
+  it("AUD-S1: l'esito è la task aperta dal widget, la richiesta non c'è; il blocco ha la task e cosa vede il cliente", async () => {
+    as("p-matteo");
+    const c = (await support.getSupportConversation("AUD-S1"))!;
+    expect(c.state).toBe("request_open");
+    expect(c.request).toBeNull();
+    expect(c.task).toMatchObject({ code: "AUD-6", title: "Speed up the dashboard of large accounts" });
+    expect(c.task!.customerStatus).toBe("planned");
   });
 });

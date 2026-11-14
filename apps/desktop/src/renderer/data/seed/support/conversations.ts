@@ -12,6 +12,8 @@ import { daysFromToday } from "../dates";
 // - ACQ-S4: dal server MCP, la richiesta è nata con la conversazione allegata.
 // - ACQ-S5, ACQ-S6: dal widget, le due richieste in coda (area 10b).
 // - ACQ-S7: dal widget, aspetta una nostra risposta SENZA bozza di Claude.
+// - AUD-S1: dal widget di Audin, l'esito è la task che il widget ha aperto
+//   (AUD-6, un ticket: nessuna richiesta, area 8 F3-1).
 // - ACQ-S8: dal widget, la risposta è bastata (area 8, F3, `answered`): il
 //   controllo dopo il silenzio l'ha giudicata conclusa.
 
@@ -35,6 +37,7 @@ export const SUPPORT_CONVERSATION_IDS = {
   dark: "sup-acq-6",
   billingEmail: "sup-acq-7",
   answered: "sup-acq-8",
+  ticket: "sup-aud-1",
 } as const;
 
 const at = (days: number, hm: string) => `${daysFromToday(-days)}T${hm}:00Z`;
@@ -70,6 +73,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     ]),
     rewrittenWish: null,
     requestId: null,
+    taskId: null,
     triage: null,
     confirmedAt: null,
     followerIds: [],
@@ -113,6 +117,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     rewrittenWish:
       "Pay the larger bills (like the yearly adjustment) in instalments from the customer portal.",
     requestId: SUPPORT_REQUEST_IDS.waiting,
+    taskId: null,
     triage: null,
     confirmedAt: at(4, "10:09"),
     followerIds: ["p-laura"],
@@ -137,6 +142,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     ]),
     rewrittenWish: null,
     requestId: null,
+    taskId: null,
     triage: { outcome: "not_concluded", at: at(1, "18:20"), byUserId: null },
     confirmedAt: null,
     followerIds: [],
@@ -173,6 +179,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     rewrittenWish:
       "Download the consumption history of the last two years for all the town buildings, in one spreadsheet.",
     requestId: SUPPORT_REQUEST_IDS.mcp,
+    taskId: null,
     triage: null,
     confirmedAt: at(2, "10:35"),
     followerIds: [],
@@ -204,6 +211,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     ]),
     rewrittenWish: "Get a text message a few days before the water bill is due.",
     requestId: SUPPORT_REQUEST_IDS.reminder,
+    taskId: null,
     triage: null,
     confirmedAt: at(3, "09:16"),
     followerIds: [],
@@ -234,6 +242,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     ]),
     rewrittenWish: "A dark appearance for the customer portal.",
     requestId: SUPPORT_REQUEST_IDS.dark,
+    taskId: null,
     triage: null,
     confirmedAt: at(1, "08:44"),
     followerIds: [],
@@ -285,6 +294,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     ]),
     rewrittenWish: "Change the email address that receives the bills from the customer portal.",
     requestId: SUPPORT_REQUEST_IDS.billingEmail,
+    taskId: null,
     triage: null,
     confirmedAt: at(6, "09:25"),
     followerIds: ["p-davide"],
@@ -311,7 +321,39 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     ]),
     rewrittenWish: null,
     requestId: null,
+    taskId: null,
     triage: { outcome: "concluded", at: at(1, "11:20"), byUserId: null },
+    confirmedAt: null,
+    followerIds: [],
+    claudeDraft: null,
+  },
+  // Area 8, F3-1: l'esito è un TICKET aperto dal widget (la task AUD-6, che
+  // dice «View conversation»), nessuna richiesta.
+  {
+    id: SUPPORT_CONVERSATION_IDS.ticket,
+    code: "AUD-S1",
+    projectId: "prj-aud",
+    channel: "widget",
+    widgetId: "wdg-aud-help",
+    customer: { name: "Paolo Ferri", email: "paolo.ferri@example.com" },
+    messages: messages(SUPPORT_CONVERSATION_IDS.ticket, [
+      [
+        "customer",
+        null,
+        "The dashboard takes forever to load on our big account.",
+        at(25, "09:10"),
+      ],
+      [
+        "triage",
+        null,
+        "Thanks: I reported it to the team with the page and the browser. You'll find the answer here.",
+        at(25, "09:11"),
+      ],
+    ]),
+    rewrittenWish: null,
+    requestId: null,
+    taskId: "t-aud-6",
+    triage: null,
     confirmedAt: null,
     followerIds: [],
     claudeDraft: null,

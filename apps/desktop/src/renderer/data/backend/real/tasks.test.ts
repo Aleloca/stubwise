@@ -50,6 +50,15 @@ describe("le task dal server", () => {
     expect(await getTaskByCode("aud-404")).toBeNull();
   });
 
+  it("una task aperta dal widget porta il codice della sua conversazione (area 8, F3, S-9); senza il campo, nessuno", async () => {
+    installFakeServer({
+      "GET /api/tasks/by-code/AUD-6": { body: serverTask({ code: "AUD-6", source: "widget", supportConversationCode: "AUD-S1" }) },
+    });
+    expect((await getTaskByCode("AUD-6"))?.supportConversationCode).toBe("AUD-S1");
+    installFakeServer({ "GET /api/tasks/by-code/AUD-6": { body: serverTask({ code: "AUD-6" }) } });
+    expect((await getTaskByCode("AUD-6"))?.supportConversationCode ?? null).toBeNull();
+  });
+
   it("un motivo di ferma sconosciuto non si mostra come uno noto", async () => {
     expect(toStallReason({ kind: "__unknown__" })).toBeNull();
     expect(toStallReason({ kind: "manual", reason: "Waiting on legal" })).toEqual({

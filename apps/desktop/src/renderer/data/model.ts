@@ -386,6 +386,11 @@ export interface Task {
   occurrences: number;
   /** Il payload dell'integrazione (chiave → valore), quando c'è. */
   technical?: Record<string, string> | null;
+  /**
+   * Aperta dal widget (area 8, F3, S-9): il codice della conversazione da cui
+   * è nata, per «View conversation». Si deriva a lettura, non si salva.
+   */
+  supportConversationCode?: string | null;
   /** Creata da un'esecuzione di un'automazione (area 7): «Creata dall'automazione X · esecuzione Y». */
   automationRef?: AutomationRef;
   /** Creata da «Fai sistemare a Claude» su un rilascio fallito (area 8a). */
@@ -3555,6 +3560,11 @@ export interface SupportConversation {
   /** Il desiderio del cliente riscritto dal triage; `null` finché il triage non lo ha. */
   rewrittenWish: string | null;
   requestId: string | null;
+  /**
+   * La task aperta dal widget (area 8, F3-1: l'esito è un ticket, nessuna
+   * richiesta). Con una richiesta legata vale la richiesta.
+   */
+  taskId: string | null;
   /**
    * Il giudizio dopo il silenzio (area 8, F3: il controllo del worker dopo
    * `SUPPORT_TRIAGE_IDLE_MINUTES`): la risposta è bastata (`concluded`) o

@@ -25,6 +25,7 @@ const conv = (over: Partial<SupportConversation> = {}): SupportConversation => (
   messages: [],
   rewrittenWish: null,
   requestId: null,
+  taskId: null,
   triage: null,
   confirmedAt: null,
   followerIds: [],

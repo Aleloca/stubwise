@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { featureIntegrated } from "../../data/integration";
 import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -649,6 +650,19 @@ export function TaskHeader({
               occurrences={task.occurrences}
               serverCode={task.serverRef?.serverCode}
             />
+            {/* Aperta dal widget (area 8, F3, S-9): la conversazione da cui è nata. */}
+            {task.supportConversationCode && featureIntegrated("support") && (
+              <Link
+                to="/p/$code/support/$conversation"
+                params={{
+                  code: task.supportConversationCode.split("-")[0]!,
+                  conversation: task.supportConversationCode,
+                }}
+                className="ml-2 rounded-sm text-sm font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+              >
+                {t("taskDetail.source.viewConversation")}
+              </Link>
+            )}
           </Field>
         ) : null}
       </dl>
