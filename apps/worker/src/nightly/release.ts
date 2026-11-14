@@ -280,7 +280,8 @@ export async function runReleaseItem(
         projectId: repo.projectId,
         repositoryName: repo.repositoryName,
         title: notes.title,
-        url: base ? `${base}/app/#/p/${proj?.code ?? ""}/docs` : "",
+        // Senza radice pubblica il link resta RELATIVO (`/app/#/…`), come gli altri avvisi.
+        url: `${base}/app/#/p/${proj?.code ?? ""}/docs`,
       },
       { projectId: repo.projectId },
     );

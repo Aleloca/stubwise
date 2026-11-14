@@ -207,7 +207,8 @@ async function notifyOnce(
   if (!claimed) return;
   const [proj] = await deps.db.execute<{ code: string }>(sql`select code from projects where id = ${release.projectId}`);
   const base = (deps.publicUrl ?? "").replace(/\/+$/, "");
-  const url = base ? `${base}/app/#/p/${proj?.code ?? ""}/releases/${release.code}` : "";
+  // Senza radice pubblica il link resta RELATIVO (`/app/#/…`): l'app lo apre lo stesso (94).
+  const url = `${base}/app/#/p/${proj?.code ?? ""}/releases/${release.code}`;
   const out = await publishNotification(deps.db, eventOf(url), { projectId: release.projectId, mandatory: await releaseMandatory(deps.db, release) });
   // `publishNotification` non lancia: su un errore risponde `published: 0`.
   // Un tipo spento di partenza (`release.succeeded`) può anche non avere

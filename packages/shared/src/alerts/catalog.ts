@@ -163,6 +163,8 @@ export const LIVE_ALERT_TYPES: readonly string[] = [
   "docs.release_note",
   // Area 8, F2, S4 (72): la review che chiede modifiche.
   "pr.analysis_issues",
+  // Area 8, F2, S4 (72): una correzione spinta sul ramo di un collega.
+  "pr.corrected",
   "monitor.alert",
   "monitor.recovered",
 ];
