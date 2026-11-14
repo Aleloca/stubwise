@@ -9896,7 +9896,27 @@
     "hiddenProjects": "In projects you can't see",
     "projectsLabel": "Projects: {{codes}}",
     "projectsMore": "+{{count}}",
-    "orphanNoClaude": "Link this server to a project first: Claude works inside a project."
+    "orphanNoClaude": "Link this server to a project first: Claude works inside a project.",
+    "manual": {
+      "label": "Claude on this server",
+      "start": "Ask Claude to look into it",
+      "hint": "Claude looks at the server with the read-only access and writes what it finds, like after an alert.",
+      "running": "{{name}} asked Claude to look into it: Claude is looking with read-only access",
+      "diagnosed": "Diagnosis ready, asked by {{name}}",
+      "timed_out": "Partial diagnosis, asked by {{name}}: Claude ran out of time",
+      "unreachable": "Claude couldn't reach the server (asked by {{name}})",
+      "stopped": "Claude stopped before a diagnosis (asked by {{name}})",
+      "failed": "Claude's analysis failed (asked by {{name}}): the task couldn't be opened",
+      "undetermined": "Claude couldn't tell which project is causing it: {{reason}} No task was opened.",
+      "hiddenTask": "The diagnosis is in a project you can't see.",
+      "errors": {
+        "analysis_running": "Claude is already looking into this server.",
+        "access": "Claude can't look into it: the read-only SSH access isn't usable.",
+        "monthly_budget": "Claude can't look into it: the monthly AI budget is used up.",
+        "forbidden": "You can't ask Claude to look into this server.",
+        "generic": "Couldn't ask Claude to look into it. Try again."
+      }
+    }
   },
   "whoCan": {
     "actions": {

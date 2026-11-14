@@ -450,6 +450,37 @@ export function declaredCauseOf(
   return { projectCode: (owner ?? serverProjects[0])?.projectCode ?? null, containers };
 }
 
+/**
+ * Lo sguardo generale di un'analisi a mano senza allarme (R0-A2): le stesse
+ * letture di memoria, CPU e disco, ai valori di adesso (le soglie restano
+ * quelle del server). Non sono motivi di un episodio: non si salvano mai.
+ */
+export function lookReasons(s: MonitoredServer): EpisodeReason[] {
+  const root = s.disks[0];
+  const diskPct = root && root.totalBytes > 0 ? (root.usedBytes / root.totalBytes) * 100 : 0;
+  return [
+    { kind: "memory", valuePct: 52, thresholdPct: s.thresholds.memPct ?? 90 },
+    { kind: "cpu", valuePct: 18, thresholdPct: s.thresholds.cpuPct ?? 90 },
+    { kind: "disk", valuePct: Math.round(diskPct), thresholdPct: s.thresholds.diskPct ?? 90 },
+  ];
+}
+
+/** La diagnosi di uno sguardo a mano: niente sopra gli avvisi, e chi pesa di più. */
+export function lookDiagnosisOf(s: MonitoredServer): AnalysisDiagnosis {
+  const mem = heaviest(s, "mem");
+  const cpu = heaviest(s, "cpu");
+  const who = [
+    mem ? `the service using the most memory is \`${mem.name}\`` : null,
+    cpu ? `the busiest is \`${cpu.name}\`` : null,
+  ].filter(Boolean);
+  return {
+    title: `${s.name} checked on request`,
+    body: `Claude looked at ${s.name} (${s.code}) on request: memory, CPU and disk are under the alerts right now.${who.length > 0 ? ` Of the services, ${who.join(" and ")}.` : ""}`,
+    proposal:
+      "Nothing to do right now; if something looks off, the server's charts show when it started.",
+  };
+}
+
 /** L'apertura della sessione: la fase d'analisi e che cosa Claude va a guardare. */
 export function openingSteps(s: MonitoredServer, episode: ServerEpisode): ScriptStep[] {
   return [

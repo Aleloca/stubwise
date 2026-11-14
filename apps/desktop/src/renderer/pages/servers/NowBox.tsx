@@ -88,9 +88,9 @@ function WorkLine({
 
   if (server.work === "fixing") return line(true, t("servers.now.work.fixing"), task);
   if (analysis?.outcome === "running")
-    return line(true, t("servers.now.work.analyzing"), session(analysis.conversationId));
+    return line(true, t("servers.now.work.analyzing"), session(analysis.sessionId));
   if (analysis?.outcome === "failed")
-    return line(false, t("servers.now.work.failed"), session(analysis.conversationId));
+    return line(false, t("servers.now.work.failed"), session(analysis.sessionId));
   // Il progetto non si è potuto dire: nessuna task, e il perché (F4b-4).
   if (analysis?.attribution?.kind === "undetermined")
     return line(
@@ -98,7 +98,7 @@ function WorkLine({
       t("servers.now.work.undetermined", {
         reason: t(`servers.attribution.${analysis.attribution.reason}`),
       }),
-      session(analysis.conversationId),
+      session(analysis.sessionId),
     );
   if (analysis) {
     const key = analysis.outcome === "diagnosed" ? "diagnosed" : analysis.outcome;

@@ -540,7 +540,7 @@ describe("revisione finale M4: l'avviso e il riquadro dicono perché Claude non 
     expect(body).not.toContain("queue resumes");
     const episode = (await servers.getServer("SRV-1")).episodes[0]!;
     expect(episode.analysis?.outcome).toBe("running");
-    expect(conv(episode.analysis!.conversationId!).waiting ?? null).toBeNull();
+    expect(conv(episode.analysis!.sessionId!).waiting ?? null).toBeNull();
     await whenAnalysesIdle();
   });
 

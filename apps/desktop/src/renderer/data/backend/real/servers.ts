@@ -269,6 +269,9 @@ export function detailOf(d: Reader<ServerDetailShape>, now: string): ServerDetai
     sshReachable: false,
     orphan: d.orphan,
     inArchivedOnly: d.inArchivedOnly,
+    // L'analisi a mano arriva col cablaggio di F4b (`client.serverOps.startAnalysis`).
+    canStartAnalysis: false,
+    manualAnalysis: null,
   };
 }
 

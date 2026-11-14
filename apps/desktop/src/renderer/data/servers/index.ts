@@ -32,6 +32,7 @@ export {
   type ServerTaskInfo,
 } from "./reads";
 export { startServerFix } from "./fix";
+export { startServerAnalysis } from "./operate";
 export {
   createCheck,
   createServer,
@@ -56,6 +57,7 @@ export {
 export {
   RECENT_CPU_POINTS,
   serverHref,
+  type ServerAnalysisView,
   type ServerDetail,
   type ServerEpisodeView,
   type ServerRow,

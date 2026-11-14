@@ -22,12 +22,15 @@ import type {
   ServerEpisode,
   Task,
 } from "../types";
-import { notFound } from "../writer";
+import { PEOPLE } from "../seed/people";
+import { invalid, notFound } from "../writer";
 import { markUsed, onAccessRevoked } from "./access";
 import {
   declaredCauseOf,
   diagnosisOf,
   docker,
+  lookDiagnosisOf,
+  lookReasons,
   openingSteps,
   readsFor,
   readSteps,
@@ -280,7 +283,12 @@ export function recoverEpisode(serverCode: string): ServerEpisode | null {
 
 // --- l'analisi ----------------------------------------------------------------
 
-function startAnalysis(server: MonitoredServer, episode: ServerEpisode, overrun: boolean): void {
+function startAnalysis(
+  server: MonitoredServer,
+  episode: ServerEpisode,
+  overrun: boolean,
+  startedBy: string | null = null,
+): ServerAnalysis {
   const gen = storeGeneration();
   // Del server, non di un progetto (F4b-4): la sessione entra nel progetto
   // attribuito a fine analisi (`finish`); prima la vede chi gestisce il
@@ -299,7 +307,9 @@ function startAnalysis(server: MonitoredServer, episode: ServerEpisode, overrun:
   const analysis: ServerAnalysis = {
     id: newId("an"),
     serverCode: server.code,
-    episodeId: episode.id,
+    // Una a mano non è di un episodio (R0-A2): ne guarda una COPIA, mai salvata.
+    episodeId: startedBy ? null : episode.id,
+    startedBy,
     conversationId: c.id,
     attribution: null,
     outcome: "running",
@@ -308,7 +318,7 @@ function startAnalysis(server: MonitoredServer, episode: ServerEpisode, overrun:
     endedAt: null,
   };
   state.serverAnalyses.push(analysis);
-  episode.analysisId = analysis.id;
+  if (!startedBy) episode.analysisId = analysis.id;
   // Un errore (la task che non si apre) non lascia mai l'analisi `running`:
   // R-L6 bloccherebbe il server per sempre.
   const go = (): Promise<void> => {
@@ -320,8 +330,50 @@ function startAnalysis(server: MonitoredServer, episode: ServerEpisode, overrun:
     runs.set(analysis.id, done);
     return done;
   };
-  // Parte subito, nello stesso giro: il budget l'ha già guardato `raiseEpisode`.
+  // Parte subito, nello stesso giro: il budget l'ha già guardato chi la avvia.
   void go();
+  return analysis;
+}
+
+/**
+ * Le cornici delle analisi a mano senza allarme: uno sguardo generale al
+ * server (`lookReasons`), con la sua diagnosi (`lookDiagnosisOf`), non i
+ * motivi di un episodio che non c'è.
+ */
+const looks = new WeakSet<ServerEpisode>();
+
+/** Chi ha chiesto un'analisi a mano, per nome. */
+const askedBy = (a: ServerAnalysis): string | null =>
+  a.startedBy ? (PEOPLE.find((p) => p.id === a.startedBy)?.name ?? null) : null;
+
+/**
+ * «Ask Claude to look into it» (R0-A2): l'analisi a mano di un server, con
+ * le stesse regole dell'automatica (sola lettura, tetti, budget
+ * dell'istanza, attribuzione), ma da chiunque abbia `servers.operate` in un
+ * progetto il cui ambiente usa il server — staging compreso. Chi la chiede
+ * l'ha già passato (`startServerAnalysis` in `operate.ts`); qui: una già in
+ * corso (`analysis_running`), l'accesso di lettura (`access`) e il budget.
+ * Nessun episodio: con uno aperto guarda i suoi motivi (una copia), senza
+ * uno sguardo generale.
+ */
+export function startManualAnalysis(server: MonitoredServer, me: string): ServerAnalysis {
+  if (runningOn(server.code)) throw invalid("analysis_running");
+  if (!accessUsable(state.serverAccess.get(server.code))) throw invalid("access");
+  if (aiBlockFor(null)?.reason === "monthly_budget") throw invalid("monthly_budget");
+  const open = state.serverEpisodes.find(
+    (e) => e.serverCode === server.code && e.recoveredAt === null,
+  );
+  const frame: ServerEpisode = {
+    id: newId("look"),
+    serverCode: server.code,
+    severity: open?.severity ?? "trouble",
+    reasons: open ? structuredClone(open.reasons) : lookReasons(server),
+    startedAt: now(),
+    recoveredAt: null,
+    analysisId: null,
+  };
+  if (!open) looks.add(frame);
+  return startAnalysis(server, frame, false, me);
 }
 
 /** I tentativi di connessione a un server che non risponde: letture fallite. */
@@ -360,7 +412,7 @@ async function drive(
   const alive = () => gen === storeGeneration();
   let server = serverOf(a.serverCode);
   if (!server) return;
-  await runScript(a.conversationId, openingSteps(server, episode), gen);
+  await runScript(a.conversationId, openingOf(server, episode, a), gen);
   if (!alive()) return;
   if (!server.sshReachable) {
     await runScript(a.conversationId, unreachableSteps(server), gen);
@@ -440,8 +492,37 @@ const SESSION_OUTCOME: Record<Ending, Outcome> = {
   access_lost: "failed",
 };
 
-function taskOf(s: MonitoredServer, ep: ServerEpisode, outcome: Ending, reads: number) {
-  const d = diagnosisOf(s, ep, reachOf(s));
+/** La diagnosi della cornice: lo sguardo generale, o i motivi dell'episodio. */
+const diagnosisFor = (s: MonitoredServer, ep: ServerEpisode) =>
+  looks.has(ep) ? lookDiagnosisOf(s) : diagnosisOf(s, ep, reachOf(s));
+
+/** Che cosa si guardava, in frase: i motivi, o lo sguardo a mano. */
+const whatPhrase = (ep: ServerEpisode): string =>
+  looks.has(ep) ? "a check on request, no alert" : reasonsPhrase(ep.reasons);
+
+/** L'apertura della sessione: a mano dice chi l'ha chiesta. */
+function openingOf(s: MonitoredServer, ep: ServerEpisode, a: ServerAnalysis): ScriptStep[] {
+  const steps = openingSteps(s, ep);
+  const who = askedBy(a);
+  if (!who) return steps;
+  return steps.map((x) =>
+    x.step === "say"
+      ? {
+          ...x,
+          text: `${s.name}: ${who} asked me to look into it (${whatPhrase(ep)}). Looking into it with the read-only access (at most ${ANALYSIS_MAX_MINUTES} minutes).`,
+        }
+      : x,
+  );
+}
+
+function taskOf(
+  s: MonitoredServer,
+  ep: ServerEpisode,
+  outcome: Ending,
+  reads: number,
+  a?: ServerAnalysis,
+) {
+  const d = diagnosisFor(s, ep);
   const proposal = d.proposal.startsWith("- ")
     ? `**Proposal**\n${d.proposal}`
     : `**Proposal** — ${d.proposal}`;
@@ -451,7 +532,7 @@ function taskOf(s: MonitoredServer, ep: ServerEpisode, outcome: Ending, reads: n
   if (outcome === "unreachable") {
     title = `${s.name} not reachable over SSH`;
     parts = [
-      `**Not reachable** — Claude couldn't connect to ${s.name} (${s.code}) over SSH: ${ATTEMPTS} attempts, all timed out, so there is no diagnosis. The alert was: ${reasonsPhrase(ep.reasons)}.`,
+      `**Not reachable** — Claude couldn't connect to ${s.name} (${s.code}) over SSH: ${ATTEMPTS} attempts, all timed out, so there is no diagnosis. The alert was: ${whatPhrase(ep)}.`,
       "**Proposal** — Check the server from the provider's console. Once SSH answers again, the next alert is looked into as usual.",
     ];
   } else if (outcome === "recovered_early") {
@@ -476,6 +557,8 @@ function taskOf(s: MonitoredServer, ep: ServerEpisode, outcome: Ending, reads: n
     parts = [`**Diagnosis** — ${d.body}`, proposal, untouched];
   }
   if (ep.recoveredAt !== null && outcome !== "recovered_early") parts.push(recoveredLine(ep));
+  const who = a ? askedBy(a) : null;
+  if (who) parts.push(`Analysis asked by ${who} from the server page, not started by an alert.`);
   return { title, description: parts.join("\n\n"), parts };
 }
 
@@ -489,8 +572,9 @@ const undeterminedDiagnosisOf = (
   ep: ServerEpisode,
   outcome: Ending,
   reads: number,
+  a: ServerAnalysis,
 ): string =>
-  taskOf(s, ep, outcome, reads)
+  taskOf(s, ep, outcome, reads, a)
     .parts.filter((p) => !p.startsWith("**Proposal**"))
     .join("\n\n");
 
@@ -605,7 +689,7 @@ async function finish(
     c.touchedProjectIds = [projectId];
     notifyConversationChange(c.id);
   }
-  const { title, description } = taskOf(s, ep, outcome, reads);
+  const { title, description } = taskOf(s, ep, outcome, reads, a);
   const task: Task = createTaskAs(
     CLAUDE_ID,
     {
@@ -616,7 +700,7 @@ async function finish(
       assigneeId: null,
       priority: ep.severity === "down" ? "urgent" : "high",
     },
-    { source: "server", serverRef: { serverCode: s.code, episodeId: ep.id } },
+    { source: "server", serverRef: { serverCode: s.code, episodeId: a.episodeId } },
   );
   // Claude non segue la task: non è una persona da avvisare (R-K5).
   task.followerIds = [];
@@ -626,7 +710,7 @@ async function finish(
   // Server: solo se Claude ha letto qualcosa da cui proporre.
   const proposes =
     outcome === "diagnosed" || outcome === "timed_out" || (outcome === "access_lost" && reads > 0);
-  a.proposal = proposes ? diagnosisOf(s, ep, reachOf(s)).proposal : null;
+  a.proposal = proposes ? diagnosisFor(s, ep).proposal : null;
   a.endedAt = now();
   if (c) {
     c.taskId = task.id;
@@ -690,7 +774,7 @@ async function finishUndetermined(
   a.outcome = ANALYSIS_OUTCOME[outcome];
   a.taskId = null;
   a.proposal = null;
-  a.diagnosis = undeterminedDiagnosisOf(s, ep, outcome, reads);
+  a.diagnosis = undeterminedDiagnosisOf(s, ep, outcome, reads, a);
   a.endedAt = now();
   for (const to of alertProjectsOf(s.code, liveEnvironments())) {
     publishAlert({

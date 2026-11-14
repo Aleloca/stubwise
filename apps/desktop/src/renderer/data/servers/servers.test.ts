@@ -153,7 +153,9 @@ describe("letture dei server", () => {
     expect(d.episodes[0]!.analysis).toMatchObject({
       outcome: "diagnosed",
       attribution: { kind: "attributed", projectCode: null },
-      conversationId: null,
+      sessionId: null,
+      canViewDiagnosis: false,
+      taskCode: null,
     });
     expect(d.episodes[0]!.taskCode).toBeNull();
     expect(JSON.stringify(d)).not.toMatch(/AUD|prj-aud/);
@@ -669,8 +671,10 @@ describe("Task 7: ciò che la UI legge senza dedurlo", () => {
     expect(fromAcq.analysis).toMatchObject({
       outcome: "diagnosed",
       attribution: { kind: "attributed", projectCode: "ACQ" },
-      conversationId: "cv-srv-1-analysis",
+      sessionId: "cv-srv-1-analysis",
+      canViewDiagnosis: true,
       diagnosis: null,
+      taskCode: "ACQ-6",
     });
     expect(fromAcq.taskCode).toBe("ACQ-6");
     // Chi non vede il progetto attribuito: il test «progetto attribuito, sessione e task …» qui sopra.
@@ -685,11 +689,11 @@ describe("Task 7: ciò che la UI legge senza dedurlo", () => {
     expect(marco.attribution).toEqual({ kind: "undetermined", reason: "no_container_of_project" });
     expect(marco.diagnosis).toBeNull();
     // Senza un progetto attribuito la sessione è solo di chi gestisce il monitor.
-    expect(marco.conversationId).toBeNull();
+    expect(marco.sessionId).toBeNull();
     as("p-roberta");
     const roberta = (await servers.getServer("SRV-1")).episodes.find((e) => e.analysis)!.analysis!;
     expect(roberta.diagnosis).toMatch(/keeps every row in memory/);
-    expect(roberta.conversationId).toBe("cv-srv-1-analysis");
+    expect(roberta.sessionId).toBe("cv-srv-1-analysis");
   });
 
   it("le metriche portano quanti campioni c'erano prima della riduzione", async () => {

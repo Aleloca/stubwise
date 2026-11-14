@@ -9896,7 +9896,27 @@
     "hiddenProjects": "In progetti che non vedi",
     "projectsLabel": "Progetti: {{codes}}",
     "projectsMore": "+{{count}}",
-    "orphanNoClaude": "Collega prima il server a un progetto: Claude lavora dentro un progetto."
+    "orphanNoClaude": "Collega prima il server a un progetto: Claude lavora dentro un progetto.",
+    "manual": {
+      "label": "Claude su questo server",
+      "start": "Chiedi a Claude di guardarci",
+      "hint": "Claude guarda il server con l'accesso in sola lettura e scrive cosa trova, come dopo un avviso.",
+      "running": "{{name}} ha chiesto a Claude di guardarci: Claude sta guardando in sola lettura",
+      "diagnosed": "Diagnosi pronta, chiesta da {{name}}",
+      "timed_out": "Diagnosi parziale, chiesta da {{name}}: Claude ha finito il tempo",
+      "unreachable": "Claude non è riuscito a raggiungere il server (chiesto da {{name}})",
+      "stopped": "Claude si è fermato prima di una diagnosi (chiesto da {{name}})",
+      "failed": "L'analisi di Claude non è riuscita (chiesta da {{name}}): la task non si è aperta",
+      "undetermined": "Claude non è riuscito a capire quale progetto ne è la causa: {{reason}} Nessuna task aperta.",
+      "hiddenTask": "La diagnosi è in un progetto che non vedi.",
+      "errors": {
+        "analysis_running": "Claude sta già guardando questo server.",
+        "access": "Claude non può guardarci: l'accesso SSH in sola lettura non è usabile.",
+        "monthly_budget": "Claude non può guardarci: il budget AI del mese è esaurito.",
+        "forbidden": "Non puoi chiedere a Claude di guardare questo server.",
+        "generic": "Non è stato possibile chiederlo a Claude. Riprova."
+      }
+    }
   },
   "whoCan": {
     "actions": {

@@ -3476,7 +3476,10 @@ export type ServerAttribution = Attribution;
 export interface ServerAnalysis {
   id: string;
   serverCode: string;
-  episodeId: string;
+  /** L'episodio che l'ha fatta partire; `null` per una a mano (R0-A2, come sul server). */
+  episodeId: string | null;
+  /** Chi l'ha chiesta a mano («Ask Claude to look into it»); `null`/assente = all'allarme. */
+  startedBy?: string | null;
   conversationId: string;
   /**
    * Scritta a fine analisi; `null` mentre gira, o se si è fermata prima di

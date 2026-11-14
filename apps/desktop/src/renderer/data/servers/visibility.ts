@@ -11,6 +11,7 @@ import {
   type AccessState,
 } from "../../domain/servers/sshAccess";
 import { holds, sees } from "../access";
+import { PEOPLE } from "../seed/people";
 import { latestRunOf, now, state, visibleProjectIds } from "../store";
 import type {
   SshPublicKey,
@@ -294,16 +295,27 @@ export type ServerAttributionView =
 export interface ServerAnalysisView {
   id: string;
   serverCode: string;
-  episodeId: string;
+  /** `null` per un'analisi a mano (R0-A2). */
+  episodeId: string | null;
   outcome: ServerAnalysis["outcome"];
+  /** Chi l'ha chiesta a mano; `null` = all'allarme. Lo vede chiunque veda il server. */
+  startedBy: { id: string; name: string } | null;
   startedAt: string;
   endedAt: string | null;
-  /** La sessione, solo per chi gestisce il monitor o vede il progetto attribuito (`analysisSessionOf`). */
-  conversationId: string | null;
+  /**
+   * Diagnosi e sessione per chi guarda (regola del server, `canViewDiagnosis`
+   * della vista): chi gestisce il monitor sempre; dopo l'attribuzione anche
+   * chi legge il progetto attribuito. Prima, o non determinata, solo il monitor.
+   */
+  canViewDiagnosis: boolean;
+  /** La sessione, con `canViewDiagnosis` (e se la sessione c'è ancora). */
+  sessionId: string | null;
   /** Quale progetto è la causa; `null` mentre gira (o fermata prima di concludere). */
   attribution: ServerAttributionView | null;
-  /** La diagnosi rimasta senza task (causa non determinata): solo a chi ha `monitor.manage`. */
+  /** La diagnosi rimasta senza task (causa non determinata), con `canViewDiagnosis`. */
   diagnosis: string | null;
+  /** La task nata nel progetto attribuito, se chi guarda la vede. */
+  taskCode: string | null;
 }
 
 export interface ServerEpisodeView extends ServerEpisode {
@@ -345,6 +357,14 @@ export interface ServerDetail extends Omit<ServerRow, "access"> {
   orphan: boolean;
   /** Lo usano solo ambienti di progetti archiviati (Task 5): «Only in archived projects», senza nomi. */
   inArchivedOnly: boolean;
+  /**
+   * «Ask Claude to look into it» (R0-A2): `servers.operate` in un progetto il
+   * cui ambiente usa il server (staging compreso), l'accesso di lettura
+   * usabile e nessuna analisi in corso.
+   */
+  canStartAnalysis: boolean;
+  /** L'ultima analisi chiesta a mano, se c'è. */
+  manualAnalysis: ServerAnalysisView | null;
 }
 
 /**
@@ -353,29 +373,41 @@ export interface ServerDetail extends Omit<ServerRow, "access"> {
  * o non determinata, la sessione non è di un progetto: F4b-4). La stessa
  * regola di prima con il progetto attribuito al posto di quello scelto.
  */
-function analysisSessionOf(me: string, a: ServerAnalysis): string | null {
+function canViewDiagnosisOf(me: string, a: ServerAnalysis): boolean {
   const at = a.attribution;
-  const ok = canMonitor(me) || (at?.kind === "attributed" && sees(me, at.projectId));
-  return ok && state.conversations.some((c) => c.id === a.conversationId) ? a.conversationId : null;
+  return canMonitor(me) || (at?.kind === "attributed" && sees(me, at.projectId));
 }
 
-function analysisView(me: string, a: ServerAnalysis): ServerAnalysisView {
+function analysisSessionOf(me: string, a: ServerAnalysis): string | null {
+  return canViewDiagnosisOf(me, a) && state.conversations.some((c) => c.id === a.conversationId)
+    ? a.conversationId
+    : null;
+}
+
+export function analysisView(me: string, a: ServerAnalysis): ServerAnalysisView {
   const at = a.attribution;
+  const who = a.startedBy ? PEOPLE.find((p) => p.id === a.startedBy) : undefined;
   return {
     id: a.id,
     serverCode: a.serverCode,
     episodeId: a.episodeId,
     outcome: a.outcome,
+    startedBy: who ? { id: who.id, name: who.name } : null,
     startedAt: a.startedAt,
     endedAt: a.endedAt,
-    conversationId: analysisSessionOf(me, a),
+    canViewDiagnosis: canViewDiagnosisOf(me, a),
+    sessionId: analysisSessionOf(me, a),
     attribution:
       at === null
         ? null
         : at.kind === "attributed"
           ? { kind: "attributed", projectCode: sees(me, at.projectId) ? at.projectCode : null }
           : { kind: "undetermined", reason: at.reason },
-    diagnosis: canMonitor(me) ? (a.diagnosis ?? null) : null,
+    diagnosis: canViewDiagnosisOf(me, a) ? (a.diagnosis ?? null) : null,
+    taskCode: (() => {
+      const task = a.taskId ? state.tasksById.get(a.taskId) : undefined;
+      return task && sees(me, task.projectId) ? task.code : null;
+    })(),
   };
 }
 
@@ -420,7 +452,31 @@ export function serverDetail(me: string, s: MonitoredServer): ServerDetail {
     agentOperations: s.agentOperations,
     orphan: environmentsOf(s.code).length === 0,
     inArchivedOnly: inArchivedOnlyOf(s.code),
+    canStartAnalysis:
+      canOperateServer(me, s.code) &&
+      accessUsable(state.serverAccess.get(s.code)) &&
+      !state.serverAnalyses.some((a) => a.serverCode === s.code && a.outcome === "running"),
+    manualAnalysis: (() => {
+      const last = state.serverAnalyses
+        .filter((a) => a.serverCode === s.code && a.startedBy)
+        .sort((x, y) => y.startedAt.localeCompare(x.startedAt))[0];
+      return last ? analysisView(me, last) : null;
+    })(),
   };
+}
+
+/**
+ * `servers.operate` in un progetto (visibile, non archiviato) il cui
+ * ambiente usa il server, di qualunque tipo (R0-A2: staging compreso).
+ */
+export function canOperateServer(me: string, code: string): boolean {
+  const viewer = viewerFor(me);
+  return liveEnvironments().some(
+    (e) =>
+      e.servers.some((x) => x.serverCode === code) &&
+      sees(me, e.projectId) &&
+      can(viewer, "servers.operate", e.projectId),
+  );
 }
 
 /** L'indirizzo del dettaglio di un server (avvisi, ⌘K): `#/p/STW/servers/SRV-2`. */
