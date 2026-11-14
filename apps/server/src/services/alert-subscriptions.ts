@@ -52,10 +52,12 @@ function rowOf(rowType: string, scope: Scope, saved: ReadonlyMap<string, { app: 
   const main = alertTypeOf(rowType);
   const type = valueTypeOf(rowType);
   if (!main || !type) return null;
-  const base = { type: rowType, group: main.group, labelKey: main.labelKey, mandatory: [...type.mandatory] };
-  if (type.mandatoryOnly) return { ...base, app: false, phone: false, state: "mandatory", suspendedReason: null };
-  const perm = type.subscribe.perm;
   const sub = saved.get(type.type);
+  const base = { type: rowType, group: main.group, labelKey: main.labelKey, mandatory: [...type.mandatory], saved: sub !== undefined };
+  // Solo obbligatoria: nessuna iscrizione, ma il push agli obbligatori arriva
+  // come lo manda la pubblicazione (`defaultPhone` e `push`, review F2, 46).
+  if (type.mandatoryOnly) return { ...base, app: false, phone: type.defaultPhone && scope.push, state: "mandatory", suspendedReason: null };
+  const perm = type.subscribe.perm;
   const defaultOn = defaultApplies(type.appDefaultOn ?? type.defaultOn, scope.holds) || (type.defaultForFullAdmins === true && scope.fullAdmin);
   const app = sub ? sub.app : defaultOn;
   const phone = sub ? sub.phone : app && type.defaultPhone && scope.push;
@@ -122,17 +124,54 @@ async function write(db: Db, userId: string, projectId: string, rowType: string,
 
 const writable = (row: AlertSubscriptionRow) => row.state === "on" || row.state === "off";
 
+/** La riga `type` scrivibile di chi chiede, o l'errore della rotta. */
+async function writableRow(db: Db, viewer: Viewer, projectId: string, type: string): Promise<AlertSubscriptionRow> {
+  const row = (await rowsOf(db, viewer, projectId)).find((r) => r.type === type);
+  if (!row) throw new AlertSubscriptionError(404, "alert_type_not_found", "No such alert type");
+  if (!writable(row)) throw new AlertSubscriptionError(403, row.state === "mandatory" ? "alert_mandatory_only" : "alert_suspended", "This alert can't be changed");
+  return row;
+}
+
+/** App e Telefono LEGATI (review F2, 46): App spenta spegne il Telefono, Telefono acceso accende l'App. */
+function coupled(row: AlertSubscriptionRow, patch: SetAlertSubscriptionInput): { app: boolean; phone: boolean } {
+  let app = patch.app ?? row.app;
+  let phone = patch.phone ?? row.phone;
+  if (patch.app === false) phone = false;
+  if (patch.phone === true) app = true;
+  return { app, phone };
+}
+
 export async function setAlertSubscription(
   db: Db,
   viewer: Viewer,
   input: { projectId: string; type: string; patch: SetAlertSubscriptionInput },
 ): Promise<AlertSubscriptionRow> {
-  const rows = await rowsOf(db, viewer, input.projectId);
-  const row = rows.find((r) => r.type === input.type);
-  if (!row) throw new AlertSubscriptionError(404, "alert_type_not_found", "No such alert type");
-  if (!writable(row)) throw new AlertSubscriptionError(403, row.state === "mandatory" ? "alert_mandatory_only" : "alert_suspended", "This alert can't be changed");
-  await write(db, viewer.id, input.projectId, row.type, { app: input.patch.app ?? row.app, phone: input.patch.phone ?? row.phone });
-  return (await rowsOf(db, viewer, input.projectId)).find((r) => r.type === input.type)!;
+  return db.transaction(async (tx) => {
+    const row = await writableRow(tx, viewer, input.projectId, input.type);
+    await write(tx, viewer.id, input.projectId, row.type, coupled(row, input.patch));
+    return (await rowsOf(tx, viewer, input.projectId)).find((r) => r.type === input.type)!;
+  });
+}
+
+/**
+ * Riporta la riga al DEFAULT (review F2, 46): toglie la scelta salvata della
+ * riga e dei suoi partner, così i valori seguono di nuovo permessi e `push`.
+ * Le stesse regole del `PUT`. Risponde con la riga di adesso.
+ */
+export async function resetAlertSubscription(db: Db, viewer: Viewer, input: { projectId: string; type: string }): Promise<AlertSubscriptionRow> {
+  return db.transaction(async (tx) => {
+    const row = await writableRow(tx, viewer, input.projectId, input.type);
+    await tx
+      .delete(alertSubscriptions)
+      .where(
+        and(
+          eq(alertSubscriptions.userId, viewer.id),
+          eq(alertSubscriptions.projectId, input.projectId),
+          inArray(alertSubscriptions.alertType, rowPartners(row.type).map((t) => t.type)),
+        ),
+      );
+    return (await rowsOf(tx, viewer, input.projectId)).find((r) => r.type === input.type)!;
+  });
 }
 
 /**
@@ -157,21 +196,25 @@ export async function alertSubscriptionStamp(db: Db, userId: string, projectId: 
 
 /** «Copia da»: le righe scrivibili di `projectId` prendono i valori di `fromProjectId`. Risponde con le righe di PRIMA. */
 export async function copyAlertSubscriptions(db: Db, viewer: Viewer, input: { projectId: string; fromProjectId: string }): Promise<AlertSubscriptionRow[]> {
-  const before = await rowsOf(db, viewer, input.projectId);
-  const source = await rowsOf(db, viewer, input.fromProjectId);
-  for (const row of before) {
-    const from = source.find((r) => r.type === row.type);
-    if (!from || !writable(row)) continue;
-    await write(db, viewer.id, input.projectId, row.type, { app: from.app, phone: from.phone });
-  }
-  return before;
+  return db.transaction(async (tx) => {
+    const before = await rowsOf(tx, viewer, input.projectId);
+    const source = await rowsOf(tx, viewer, input.fromProjectId);
+    for (const row of before) {
+      const from = source.find((r) => r.type === row.type);
+      if (!from || !writable(row)) continue;
+      await write(tx, viewer.id, input.projectId, row.type, { app: from.app, phone: from.app && from.phone });
+    }
+    return before;
+  });
 }
 
 /** «Mute»: tutto spento nel progetto (le righe scrivibili). Risponde con le righe di PRIMA. */
 export async function muteProjectAlerts(db: Db, viewer: Viewer, projectId: string): Promise<AlertSubscriptionRow[]> {
-  const before = await rowsOf(db, viewer, projectId);
-  for (const row of before) if (writable(row)) await write(db, viewer.id, projectId, row.type, { app: false, phone: false });
-  return before;
+  return db.transaction(async (tx) => {
+    const before = await rowsOf(tx, viewer, projectId);
+    for (const row of before) if (writable(row)) await write(tx, viewer.id, projectId, row.type, { app: false, phone: false });
+    return before;
+  });
 }
 
 /**
@@ -187,20 +230,22 @@ export async function muteFromNotification(
   viewer: Viewer,
   notificationId: string,
 ): Promise<{ before: AlertSubscriptionRow; row: AlertSubscriptionRow; projectId: string }> {
-  const [card] = await db
-    .select({ kind: notifications.kind, projectId: notifications.projectId, event: notifications.event })
-    .from(notifications)
-    .where(and(eq(notifications.id, notificationId), eq(notifications.userId, viewer.id), notificationVisibleToRecipient()));
-  if (!card) throw new AlertSubscriptionError(404, "not_found", "Not found");
-  if (!isLiveAlertType(card.kind) || card.projectId === null) {
-    throw new AlertSubscriptionError(422, "not_a_catalog_alert", "This notification can't be muted by type");
-  }
-  if (typeof (card.event as { alertMandatory?: unknown }).alertMandatory === "string") {
-    throw new AlertSubscriptionError(403, "alert_mandatory", "This notification reaches you anyway");
-  }
-  const type = rowTypeOf(card.kind);
-  const before = (await rowsOf(db, viewer, card.projectId)).find((r) => r.type === type);
-  if (!before) throw new AlertSubscriptionError(422, "not_a_catalog_alert", "This notification can't be muted by type");
-  const row = await setAlertSubscription(db, viewer, { projectId: card.projectId, type, patch: { app: false, phone: false } });
-  return { before, row, projectId: card.projectId };
+  return db.transaction(async (tx) => {
+    const [card] = await tx
+      .select({ kind: notifications.kind, projectId: notifications.projectId, event: notifications.event })
+      .from(notifications)
+      .where(and(eq(notifications.id, notificationId), eq(notifications.userId, viewer.id), notificationVisibleToRecipient()));
+    if (!card) throw new AlertSubscriptionError(404, "not_found", "Not found");
+    if (!isLiveAlertType(card.kind) || card.projectId === null) {
+      throw new AlertSubscriptionError(422, "not_a_catalog_alert", "This notification can't be muted by type");
+    }
+    if (typeof (card.event as { alertMandatory?: unknown }).alertMandatory === "string") {
+      throw new AlertSubscriptionError(403, "alert_mandatory", "This notification reaches you anyway");
+    }
+    const type = rowTypeOf(card.kind);
+    const before = (await rowsOf(tx, viewer, card.projectId)).find((r) => r.type === type);
+    if (!before) throw new AlertSubscriptionError(422, "not_a_catalog_alert", "This notification can't be muted by type");
+    const row = await setAlertSubscription(tx, viewer, { projectId: card.projectId, type, patch: { app: false, phone: false } });
+    return { before, row, projectId: card.projectId };
+  });
 }

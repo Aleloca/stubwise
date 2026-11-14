@@ -52,6 +52,12 @@ const propose = async (actions: unknown[]) => {
 const asAuthor = (method: "GET" | "POST" | "PUT", url: string, payload?: Record<string, unknown>) =>
   app.inject({ method, url, headers: { cookie: author.headers.cookie }, ...(payload ? { payload } : {}) });
 
+async function savedOf(type: string): Promise<boolean> {
+  const { items } = (await asAuthor("GET", "/api/me/alert-subscriptions")).json() as {
+    items: { projectId: string; rows: { type: string; saved: boolean }[] }[];
+  };
+  return items.find((p) => p.projectId === projectId)!.rows.find((r) => r.type === type)!.saved;
+}
 async function rowOf(type: string): Promise<{ app: boolean; phone: boolean; state: string }> {
   const { items: list } = (await asAuthor("GET", "/api/me/alert-subscriptions")).json() as {
     items: { projectId: string; rows: { type: string; app: boolean; phone: boolean; state: string }[] }[];
@@ -70,13 +76,42 @@ async function groupOf(sid: string) {
 }
 
 describe("setSubscription (A)", () => {
+  it("review F2 (46), 5: «Annulla» su una riga senza scelta salvata la riporta al DEFAULT (nessuna riga), non a un valore fissato", async () => {
+    expect(await savedOf("docs.release_note")).toBe(false);
+    const { sid, res } = await propose([{ fn: "setSubscription", args: { projectId, type: "docs.release_note", app: true } }]);
+    expect(res.json()).toMatchObject({ status: "executed" });
+    expect(await savedOf("docs.release_note")).toBe(true);
+    const group = await groupOf(sid);
+    expect((await asAuthor("POST", `/api/claude/groups/${group.id}/undo`)).json()).toEqual({ kind: "undone" });
+    expect(await savedOf("docs.release_note")).toBe(false);
+    const rows = await t.db
+      .select()
+      .from(alertSubscriptions)
+      .where(and(eq(alertSubscriptions.userId, author.id), eq(alertSubscriptions.projectId, projectId), eq(alertSubscriptions.alertType, "docs.release_note")));
+    expect(rows).toEqual([]);
+  });
+
+  it("review F2 (46), A: {phone:true} su una riga spenta accende anche l'App", async () => {
+    const { res } = await propose([{ fn: "setSubscription", args: { projectId, type: "release.succeeded", phone: true } }]);
+    expect(res.json()).toMatchObject({ status: "executed" });
+    expect(await rowOf("release.succeeded")).toEqual({ app: true, phone: true, state: "on" });
+  });
+
+  it("review F2 (46), 5: riportata al default dalle Preferenze DOPO l'azione, «Annulla» è changed_after", async () => {
+    const { sid } = await propose([{ fn: "setSubscription", args: { projectId, type: "pr.opened", app: true } }]);
+    const del = await app.inject({ method: "DELETE", url: `/api/me/alert-subscriptions/${projectId}/pr.opened`, headers: { cookie: author.headers.cookie } });
+    expect(del.statusCode, del.body).toBe(200);
+    expect(await groupOf(sid)).toMatchObject({ undo: "changed_after" });
+  });
+
   it("parte subito, scrive SOLO l'iscrizione di chi chiede; «Annulla» riscrive i valori di prima", async () => {
     expect(await rowOf("pr.opened")).toEqual({ app: false, phone: false, state: "off" });
     const { sid, res } = await propose([{ fn: "setSubscription", args: { projectId, type: "pr.opened", app: true } }]);
     expect(res.json()).toMatchObject({ status: "executed" });
     expect(await rowOf("pr.opened")).toEqual({ app: true, phone: false, state: "on" });
     const rows = await t.db.select().from(alertSubscriptions).where(eq(alertSubscriptions.projectId, projectId));
-    expect(rows.map((r) => r.userId)).toEqual([author.id]);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(new Set(rows.map((r) => r.userId))).toEqual(new Set([author.id]));
 
     const group = await groupOf(sid);
     expect(group.undo).toBe("available");

@@ -23,7 +23,7 @@ afterAll(async () => {
   await t.stop();
 });
 
-type Row = { type: string; app: boolean; phone: boolean; state: string; suspendedReason: string | null; mandatory: string[] };
+type Row = { type: string; app: boolean; phone: boolean; state: string; suspendedReason: string | null; mandatory: string[]; saved: boolean };
 const person = async (preset: string, projectId: string) => {
   const u = await createUserWithPat(app, `u-${randomUUID().slice(0, 8)}@acme.com`);
   await addMember(app, projectId, u.id, preset);
@@ -34,6 +34,8 @@ const list = async (headers: Record<string, string>, projectId: string) =>
 const rowOf = (rows: Row[], type: string) => rows.find((r) => r.type === type)!;
 const put = (headers: Record<string, string>, projectId: string, type: string, payload: object) =>
   app.inject({ method: "PUT", url: `/api/me/alert-subscriptions/${projectId}/${encodeURIComponent(type)}`, headers, payload });
+const reset = (headers: Record<string, string>, projectId: string, type: string) =>
+  app.inject({ method: "DELETE", url: `/api/me/alert-subscriptions/${projectId}/${encodeURIComponent(type)}`, headers });
 
 describe("le iscrizioni agli avvisi (area 8, F2, S5)", () => {
   it("lo stato lo calcola il server: default dai permessi, sospeso senza il permesso, solo obbligatorio", async () => {
@@ -203,5 +205,55 @@ describe("review F2 (46), 1: i permessi d'ISTANZA contano come nella pubblicazio
     await put(monitor.headers, projectId, "server.trouble", { phone: true });
     const after = await resolveCatalogRecipients(t.db, alertTypeOf("monitor.recovered")!, projectId, {});
     expect(after.phone.has(monitor.id)).toBe(true);
+  });
+});
+
+describe("review F2 (46), A/B/C: App e Telefono legati, il Telefono degli obbligatori, il ritorno al default", () => {
+  it("A: App spenta spegne il Telefono; riaccesa, il Telefono resta spento (nessun push che nessuno ha chiesto)", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const lead = await person("project_lead", projectId);
+    expect(rowOf(await list(lead.headers, projectId), "release.failed")).toMatchObject({ app: true, phone: true });
+    expect((await put(lead.headers, projectId, "release.failed", { app: false })).json()).toMatchObject({ app: false, phone: false });
+    expect((await put(lead.headers, projectId, "release.failed", { app: true })).json()).toMatchObject({ app: true, phone: false });
+  });
+
+  it("A: accendere il Telefono accende anche l'App", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const lead = await person("project_lead", projectId);
+    expect((await put(lead.headers, projectId, "release.merged", { phone: true })).json()).toMatchObject({ app: true, phone: true, state: "on" });
+  });
+
+  it("B: una riga SOLO obbligatoria mostra il Telefono che arriva davvero (defaultPhone e push)", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const lead = await person("project_lead", projectId);
+    expect(rowOf(await list(lead.headers, projectId), "pr.corrected")).toMatchObject({ state: "mandatory", app: false, phone: true });
+    await t.db.update(users).set({ notifyPush: false }).where(eq(users.id, lead.id));
+    expect(rowOf(await list(lead.headers, projectId), "pr.corrected")).toMatchObject({ state: "mandatory", phone: false });
+  });
+
+  it("C: `saved` dice se c'è una scelta; DELETE torna al default (tutti i partner) e il Telefono segue di nuovo push", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const monitor = await monitorManager(projectId);
+    expect(rowOf(await list(monitor.headers, projectId), "server.trouble")).toMatchObject({ saved: false, phone: true });
+    await put(monitor.headers, projectId, "server.trouble", { phone: false });
+    expect(rowOf(await list(monitor.headers, projectId), "server.trouble")).toMatchObject({ saved: true, phone: false });
+    const res = await reset(monitor.headers, projectId, "server.trouble");
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toMatchObject({ type: "server.trouble", saved: false, app: true, phone: true });
+    expect(await t.db.select().from(alertSubscriptions).where(and(eq(alertSubscriptions.userId, monitor.id), eq(alertSubscriptions.projectId, projectId)))).toEqual([]);
+    await t.db.update(users).set({ notifyPush: false }).where(eq(users.id, monitor.id));
+    expect(rowOf(await list(monitor.headers, projectId), "server.trouble")).toMatchObject({ phone: false });
+  });
+
+  it("C: le stesse regole del PUT (403 obbligatoria o sospesa, 404 progetto nascosto), e le risposte di Mute portano `saved` per l'Annulla", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const contributor = await person("contributor", projectId);
+    expect((await reset(contributor.headers, projectId, "pr.corrected")).statusCode).toBe(403);
+    expect((await reset(contributor.headers, projectId, "pr.analysis_issues")).statusCode).toBe(403);
+    const { projectId: other } = await seedRepository(t.db);
+    expect((await reset(contributor.headers, other, "release.failed")).statusCode).toBe(404);
+    const muted = await app.inject({ method: "POST", url: `/api/me/alert-subscriptions/${projectId}/mute`, headers: contributor.headers });
+    const before = (muted.json() as { before: Row[] }).before;
+    expect(before.every((r) => r.saved === false)).toBe(true);
   });
 });
