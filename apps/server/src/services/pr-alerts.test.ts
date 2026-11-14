@@ -41,4 +41,22 @@ describe("pr.opened (area 8, F2, S4)", () => {
     await publishPrOpened(t.db, "https://s.example", { repositoryId, prNumber: 4, prUrl: "u", title: "x", sourceBranch: "feature/y", reopened: true });
     expect(await cardsOf(sub)).toEqual([]);
   });
+
+  it("review F2 (46), 4: due consegne CONTEMPORANEE della stessa PR danno una card sola", async () => {
+    const { projectId, repositoryId } = await seedRepository(t.db);
+    const sub = await subscriber(projectId);
+    const input = { repositoryId, prNumber: 21, prUrl: "u", title: "x", sourceBranch: "feature/z" };
+    await Promise.all(Array.from({ length: 6 }, () => publishPrOpened(t.db, "https://s.example", input)));
+    expect(await cardsOf(sub)).toHaveLength(1);
+  });
+
+  it("review F2 (46), 4: la chiave non dipende da PUBLIC_URL (cambiata, o assente, la PR resta una)", async () => {
+    const { projectId, repositoryId } = await seedRepository(t.db);
+    const sub = await subscriber(projectId);
+    const input = { repositoryId, prNumber: 22, prUrl: "u", title: "x", sourceBranch: "feature/w" };
+    await publishPrOpened(t.db, "https://s.example", input);
+    await publishPrOpened(t.db, "https://nuovo.example", input);
+    await publishPrOpened(t.db, null, input);
+    expect(await cardsOf(sub)).toHaveLength(1);
+  });
 });

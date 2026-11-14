@@ -344,6 +344,8 @@ interface PrEventBase {
 /** Una PR è stata aperta su un repository collegato (≠ `job.pr_opened`, la PR di un fix di Stubwise). */
 export interface PrAlertOpenedEvent extends PrEventBase {
   kind: "pr.opened";
+  /** La chiave della PR per l'«una volta per PR» (con `prNumber`): non dipende da `PUBLIC_URL` (review F2). */
+  repositoryId?: string;
 }
 /** L'analisi di una PR ha trovato problemi. */
 export interface PrAnalysisIssuesEvent extends PrEventBase {
