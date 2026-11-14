@@ -78,6 +78,22 @@
   `server-analysis-hostile` ×5, `server-fix-plan` ×3,
   `server-fix-plan-deploy` ×5), con l'attribuzione negli scenari
   dell'analisi; pre-flight di sempre.
+- **F4b-6 = b** *(14 nov 2026, via 46)*: la task di server passa da
+  triage/auto-fix come ogni bug («tanto poi apre solo la PR, non la
+  mergia»). Il suo testo viene da dati non fidati: nella descrizione le parti
+  dell'analisi e dei log restano DELIMITATE come contenuto non fidato (la
+  stessa convenzione che i prompt del worker riconoscono già), mai mescolate
+  alle istruzioni; un test verifica che un testo ostile nei log arrivi
+  delimitato nel prompt del fix.
+- **F4b-7** *(OK di 46)*: lo stato della correzione nella tabella
+  `server_fixes` (0182), una per task; il piano MAI nel piano del ticket
+  (`run_ticket` e la pipeline lo leggerebbero come piano di codice).
+  `server` in `ticket_source`, in uno statement a sé.
+- **F4b-8 = c**: `docker.prune` ammessa su OGNI server, con un avviso
+  esplicito prima dell'approvazione («agisce su tutto il server: tocca anche
+  immagini/cache/container fermi di <altri progetti>», i progetti calcolati
+  dal server nella vista); l'approvazione resta `plans.approve` nel progetto
+  attribuito. L'invariante in CLAUDE.md l'ha aggiornata 46.
 
 ## Task 0 — LA RISCRITTURA DELLE INVARIANTI *(APPROVATA e applicata da 46 in CLAUDE.md, dc657e7c1; il testo sotto è la proposta, quello in CLAUDE.md fa fede: dice in più che l'analisi parte dal SERVER e individua il progetto, F4b-4)*
 
