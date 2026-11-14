@@ -87,6 +87,11 @@
   riquadro in F3: «Ask Claude» del compositore rigenera la bozza della
   conversazione (S11). Costa se sbagliato: due persone che scrivono insieme
   non hanno un testo salvato sul server ciascuna (lo tiene il loro client).
+- **«Non conclusa» a mano** *(M, 14 nov 2026)*: sì a un bottone sulla
+  conversazione che la rimette fra quelle che aspettano il team. Permesso
+  `support.reply`; scrive il giudizio `not_concluded` con la PERSONA come
+  autrice; idempotente; non fa partire un nuovo controllo con Haiku finché il
+  cliente non riscrive (S15).
 - **F3-4 = a**: il canale `mcp` dentro la F3, ultimo task, col suo rilascio
   (changeset `@stubwise/mcp` e `@stubwise/claude-plugin`).
 - **F3-5 = a**: «il cliente ha risposto» solo su una conversazione con un
@@ -138,6 +143,8 @@
   migrazione d'enum), `author_id` (FK `users`, `set null`).
 - `widget_conversations`, il giudizio sul triage (F3-2): `triage_outcome`
   (`concluded` | `not_concluded` | null), `triage_outcome_at`,
+  `triage_outcome_by_user_id` (null = il controllo; una persona con «Non
+  conclusa», S15),
   `triage_checked_at` (il
   controllo del worker: una volta per silenzio, vedi S10).
 - `widget_conversations`, la bozza (F3-3): `claude_draft`, `claude_draft_at`,
@@ -200,7 +207,8 @@ S2. **Le letture per i membri** (`member` del progetto: le conversazioni le
      `emailBlocked`). Ordine per gruppo come `byGroup`. Filtrata nella WHERE.
      Nell'elenco `messages` è `[]` (c'è `lastMessage`); pieno nel dettaglio.
      Campi della vista concordati con 94, tutti additivi (default null/false):
-     `triage: { outcome, at } | null` (il giudizio del controllo);
+     `triage: { outcome, at, byUserId } | null` (il giudizio: `byUserId` null =
+     il controllo, altrimenti chi ha premuto «Non conclusa»); `canMarkNotConcluded`;
      `task: { id, code, title, customerStatus } | null` (l'esito è un ticket
      del widget: il blocco mostra la task invece della richiesta);
      `claudeDraft`, `claudeDraftAt`, `claudeDraftPending` (una raffica in
@@ -341,6 +349,19 @@ S11. **La bozza di Claude, automatica** (F3-3 = b; worker): un messaggio
    team toglie la bozza; il run non ha tool; nessun percorso la invia (test
    sul sorgente). Golden (sotto).
 
+S15. **«Non conclusa» a mano** (decisione del maintainer): `POST
+   …/by-code/:code/not-concluded` (`support.reply`, rotta e servizio) su una
+   conversazione SENZA esito (in triage o `answered`) → scrive
+   `triage_outcome = not_concluded`, `triage_outcome_at = now`,
+   `triage_outcome_by_user_id` = chi preme, e `triage_checked_at = now`
+   (nessun controllo finché il cliente non riscrive) → la vista. Una
+   conversazione già `not_concluded` → 200 con la vista, niente scritto
+   (idempotente); con un esito → 409 `support_has_outcome`. Nella vista
+   `triage.byUserId` (null = il controllo).
+   *Test*: da `answered` a `not_concluded`, autore la persona; due volte →
+   un giudizio solo; nessuna run del controllo finché non arriva un messaggio
+   del cliente, poi sì; senza `support.reply` 403; con un esito 409.
+
 S12. **Il canale `mcp`** (F3-4 = a, ultimo task, rilascio a parte): `create_backlog_item` riceve la
    conversazione (campo nuovo, facoltativo: cambio additivo,
    `@stubwise/mcp` e il plugin col changeset); il server la salva come
@@ -388,9 +409,8 @@ R7. Lo stato `answered` (nuovo): nel prototipo (dominio, seme, elenco in
 R8. Il dal vivo senza stream: il dettaglio si rilegge ogni 15 s mentre è
    aperto, l'elenco ogni 30 s, e le card `support.*` dell'inbox invalidano.
 
-Nota di prodotto (94, per 46): `answered` non ha azioni (`canOpenRequest`
-falso); se il team non è d'accordo col «conclusa», oggi l'unica strada è un
-nuovo messaggio del cliente.
+`answered` e il bottone «Non conclusa»: vedi la decisione del maintainer
+(«Decisioni») e S15.
 *Test* (dal design): nessuna risposta senza «Send to customer»; l'Undo non
 manda niente; una conversazione di un progetto invisibile come inesistente;
 la bozza di Claude non parte da sola.
