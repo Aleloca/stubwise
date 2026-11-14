@@ -28,6 +28,12 @@ export const INSTANCE_PERMISSIONS = [
   "integrations.manage",
   "monitor.view",
   "monitor.manage",
+  /**
+   * Area 8, F4b (0181, Q3 = b): collegare, verificare, rigenerare, revocare
+   * l'accesso SSH di SOLA lettura di un server. All'Admin (implicito per il
+   * full admin); nessun altro preset.
+   */
+  "servers.ssh.manage",
   "usage.view",
   "users.view_all",
   // Letture d'istanza aperte oggi a ogni utente autenticato, aggiunte con
@@ -146,6 +152,13 @@ export const PROJECT_PERMISSIONS = [
    * Legacy Member (la regola dei preset); Contributor e Viewer leggono.
    */
   "support.manage",
+  /**
+   * Area 8, F4b (0181): avviare l'analisi di un server a mano e chiedere un
+   * piano di correzione da una task di server (nessun preset: persona per
+   * persona; implicito per il full admin). Il piano lo APPROVA sempre chi ha
+   * `plans.approve` nel progetto (CLAUDE.md «Stubwise non fa deploy»).
+   */
+  "servers.operate",
 ] as const;
 
 /**
@@ -269,6 +282,14 @@ const VIEW_PROJECT_PERMISSIONS = PROJECT_PERMISSIONS.filter(
   (p) => p.endsWith(".view") || p.endsWith(".view_all"),
 );
 
+/**
+ * I permessi di progetto che NESSUN preset contiene: si danno persona per
+ * persona (area 8, F4b, S-7: `servers.operate`). Un full admin li ha
+ * comunque, per costruzione.
+ */
+export const PRESETLESS_PROJECT_PERMISSIONS: readonly ProjectPermission[] = ["servers.operate"];
+const inPresets = (p: ProjectPermission) => !PRESETLESS_PROJECT_PERMISSIONS.includes(p);
+
 /** I sette ruoli già pronti. I nomi sono in inglese e non si traducono. */
 export const PRESET_ROLES: readonly PresetRole[] = [
   { key: "admin", name: "Admin", scope: "instance", permissions: ["instance.full_admin"] },
@@ -277,7 +298,7 @@ export const PRESET_ROLES: readonly PresetRole[] = [
     key: "project_lead",
     name: "Project Lead",
     scope: "project",
-    permissions: PROJECT_PERMISSIONS,
+    permissions: PROJECT_PERMISSIONS.filter(inPresets),
   },
   {
     key: "developer",
@@ -285,6 +306,7 @@ export const PRESET_ROLES: readonly PresetRole[] = [
     scope: "project",
     permissions: PROJECT_PERMISSIONS.filter(
       (p) =>
+        inPresets(p) &&
         p !== "plans.approve" &&
         p !== "release.merge" &&
         p !== "project.members.manage" &&
@@ -311,7 +333,7 @@ export const PRESET_ROLES: readonly PresetRole[] = [
     key: "legacy_member",
     name: "Legacy Member",
     scope: "project",
-    permissions: PROJECT_PERMISSIONS.filter((p) => !LEGACY_MEMBER_EXCLUDED.includes(p)),
+    permissions: PROJECT_PERMISSIONS.filter((p) => inPresets(p) && !LEGACY_MEMBER_EXCLUDED.includes(p)),
   },
 ];
 

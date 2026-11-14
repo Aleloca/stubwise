@@ -935,6 +935,8 @@ describe("effectiveModelDefaults", () => {
       automation_step: "sonnet",
       // Support (area 8, F3): il giudizio con Haiku (G-1), la bozza con Sonnet.
       support_triage_check: "haiku",
+      server_analysis: "sonnet",
+      server_fix_plan: "sonnet",
       chat: "claude-opus-4-8",
       claude_chat: config.backlogModel,
       backlog_merge: "claude-opus-4-8",

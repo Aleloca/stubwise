@@ -262,6 +262,8 @@ describe("migrazione 0097: ruoli, membri di progetto e conversione", () => {
     await applyRoleUpdates(db, "0169_automations.sql");
     // E `support.manage` a Lead, Developer e Legacy Member, con la 0179 (area 8, F3).
     await applyRoleUpdates(db, "0179_support.sql");
+    // E `monitor.view` fuori dal preset User, con la 0180 (area 8, F4a).
+    await applyRoleUpdates(db, "0180_servers_codes_episodes.sql");
     const rows = await db.execute<{
       preset_key: string;
       name: string;

@@ -154,6 +154,7 @@ const CATALOG_FOR_KIND: Record<
   "pr.corrected": { decisions: [], permission: null, archivable: true },
   "docs.release_note": { decisions: [], permission: null, archivable: true },
   "support.request": { decisions: [], permission: null, archivable: true },
+  "server.diagnosis_ready": { decisions: [], permission: null, archivable: true },
   "monitor.recovered": { decisions: [], permission: null, archivable: true },
   // NON archiviabile di proposito: la domanda dell'agente si chiude solo
   // rispondendo. Archiviarla lascerebbe il job parcheggiato in `awaiting_input`
@@ -465,6 +466,7 @@ export function openUrl(event: NotificationEvent, publicUrl?: string): string {
     case "pr.corrected":
     case "docs.release_note":
     case "support.request":
+    case "server.diagnosis_ready":
       return event.url;
     // Il pulse è ancorato al progetto, non a un ticket: "Apri" porta dove si
     // vedono TUTTE le proposte, cioè il backlog del progetto.

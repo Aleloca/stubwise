@@ -403,8 +403,8 @@ describe("permessi dei server (area 8b)", () => {
     for (const id of ["p-giulia", "p-marco", "p-laura", "p-sara", "p-matteo", "p-elena"]) {
       expect(can(byPerson(id), "servers.ssh.manage"), id).toBe(false);
     }
-    // Locale al prototipo, separato da monitor.manage.
-    expect(INSTANCE_PERMISSIONS as readonly string[]).not.toContain("servers.ssh.manage");
+    // Separato da monitor.manage; dall'area 8, F4b (0181) è anche nel registro condiviso.
+    expect(INSTANCE_PERMISSIONS as readonly string[]).toContain("servers.ssh.manage");
   });
 
   it("le concessioni del seme si tolgono, e resetViewerGrants (resetApi) le rimette", () => {
