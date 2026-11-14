@@ -1,6 +1,7 @@
 import {
   projectEnvironmentSchema,
   type CreateEnvironmentInput,
+  type SetEnvironmentContainers,
   type MyReleases,
   type OpenPull,
   type PatchEnvironmentInput,
@@ -67,6 +68,8 @@ export function createReleaseEndpoints(request: ApiRequest) {
   };
 }
 
+const environmentContainersReadSchema = z.object({ serverId: z.string(), containers: z.array(z.string()) });
+
 /** Gli ambienti di un progetto, coi server per repository (area 8, F1, R-L2). */
 export function createEnvironmentEndpoints(request: ApiRequest) {
   return {
@@ -81,6 +84,11 @@ export function createEnvironmentEndpoints(request: ApiRequest) {
     },
     remove(projectId: string, environmentId: string): Promise<void> {
       return request("DELETE", `/api/projects/${seg(projectId)}/environments/${seg(environmentId)}`);
+    },
+    /** Area 8, F4b (S12): i container di un server che sono di questo ambiente (`environments.manage`). */
+    setContainers(projectId: string, environmentId: string, body: SetEnvironmentContainers): Promise<Reader<SetEnvironmentContainers>> {
+      // La risposta si legge SENZA i tetti del body (readerSchema non attraversa un array coi tetti).
+      return request("PUT", `/api/projects/${seg(projectId)}/environments/${seg(environmentId)}/containers`, body, environmentContainersReadSchema);
     },
   };
 }
