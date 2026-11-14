@@ -1,4 +1,5 @@
 import type * as Fake from "../../api";
+import { createRealEnvironments } from "./environments";
 import { appClient } from "./client";
 import { projectCodes } from "./claude";
 import { createRealPrs } from "./releasePrs";
@@ -58,6 +59,25 @@ const repoSettings = createRealRepoSettings({
   },
 });
 
+// Gli ambienti (area 8, F4a): le rotte di F1, coi server che chi scrive vede.
+const environments = createRealEnvironments({
+  list: (projectId) => appClient().environments.list(projectId),
+  repositories: async (projectId) =>
+    (await appClient().repositories.list(projectId)).map((r) => ({ id: r.id, name: r.name })),
+  servers: async () => (await appClient().servers.list()).map((s) => ({ id: s.id, code: s.code })),
+  // `environments.manage` di chi guarda: i permessi che il server calcola (`/api/auth/me`).
+  canManage: async (projectId) => {
+    const me = await appClient().auth.me();
+    return (
+      me.instancePermissions.includes("instance.full_admin") ||
+      (me.projectPermissions[projectId] ?? []).includes("environments.manage" as never)
+    );
+  },
+  create: (projectId, body) => appClient().environments.create(projectId, body),
+  update: (projectId, id, patch) => appClient().environments.update(projectId, id, patch),
+  remove: (projectId, id) => appClient().environments.remove(projectId, id),
+});
+
 // «Spiega»: una conversazione con Claude col contesto del rilascio (il tool `read_release` di 72).
 const explain = createRealExplain({
   mine: async () =>
@@ -87,6 +107,11 @@ export const liveReleases: Partial<typeof Fake.releases> = {
   getRepositorySettings: repoSettings.getRepositorySettings,
   setRepoPrMode: repoSettings.setRepoPrMode,
   setReleasePipeline: repoSettings.setReleasePipeline,
+  // `environments` (area 8, F4a): gli ambienti coi server per repository.
+  listEnvironments: environments.listEnvironments,
+  createEnvironment: environments.createEnvironment,
+  updateEnvironment: environments.updateEnvironment,
+  deleteEnvironment: environments.deleteEnvironment,
 };
 
 /** La bozza delle note della PR per il riquadro di Claude (calcolata dal server). */

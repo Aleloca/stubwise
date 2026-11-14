@@ -8,10 +8,11 @@ import {
   type ProjectEnvironment,
 } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { RouteAccess } from "../auth/access.js";
+import { visibleServerIds } from "../auth/monitor-access.js";
 import { fromParam } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
 import { loadLatestServicesByServer } from "../services/server-samples.js";
@@ -75,6 +76,22 @@ const MANAGE_ACCESS: RouteAccess = {
 export async function projectEnvironmentRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
+  /**
+   * Area 8, F4a, S3: un collegamento DÀ la visibilità del server a tutto il
+   * progetto (i server si vedono dagli ambienti), quindi si collega solo un
+   * server che chi scrive vede già, o con `monitor.manage`. Togliere (null)
+   * non chiede niente.
+   */
+  async function allVisible(
+    user: NonNullable<FastifyRequest["user"]>,
+    input: { serverId?: string | null; servers?: { serverId: string | null }[] },
+  ): Promise<boolean> {
+    const wanted = [...new Set([...(input.servers ?? []).flatMap((x) => (x.serverId ? [x.serverId] : [])), ...(input.serverId ? [input.serverId] : [])])];
+    if (wanted.length === 0) return true;
+    const visible = await visibleServerIds(app.db, user);
+    return visible === "all" || wanted.every((id) => visible.includes(id));
+  }
+
   async function serverExists(serverId: string): Promise<boolean> {
     const [row] = await app.db.select({ id: servers.id }).from(servers).where(eq(servers.id, serverId));
     return row !== undefined;
@@ -135,7 +152,9 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
     const pairs = rows.flatMap((r) => (byEnv.get(r.id) ?? []).map((s) => ({ env: r, ...s })));
     const serverIds = [...new Set(pairs.map((p) => p.serverId))];
     if (serverIds.length === 0) return { servers: new Map(), onlyHere: new Set() };
-    const names = new Map((await app.db.select({ id: servers.id, name: servers.name }).from(servers).where(inArray(servers.id, serverIds))).map((s) => [s.id, s.name]));
+    const named = await app.db.select({ id: servers.id, name: servers.name, number: servers.number }).from(servers).where(inArray(servers.id, serverIds));
+    const names = new Map(named.map((s) => [s.id, s.name]));
+    const codes = new Map(named.map((s) => [s.id, `SRV-${s.number}`]));
     const samples = new Map(
       (
         await app.db
@@ -172,7 +191,7 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
       list.push({
         repositoryId: p.repositoryId,
         serverId: p.serverId,
-        ...(names.has(p.serverId) ? { serverName: names.get(p.serverId)! } : {}),
+        ...(names.has(p.serverId) ? { serverName: names.get(p.serverId)!, serverCode: codes.get(p.serverId)! } : {}),
         reportedSha,
         reportedAt: sample ? sample.ts.toISOString() : null,
         releaseCode,
@@ -225,8 +244,15 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
       const byEnv = await serversOf(rows.map((r) => r.id));
       const extras = await listExtras(projectId, rows, byEnv);
       const canManage = request.access?.permissions.has("environments.manage") === true;
+      // Area 8, F4a: il codice del server dell'ambiente intero (`serverId`).
+      const envCodes = new Map(
+        serverIds.length === 0
+          ? []
+          : (await app.db.select({ id: servers.id, number: servers.number }).from(servers).where(inArray(servers.id, serverIds))).map((s) => [s.id, `SRV-${s.number}`]),
+      );
       return rows.map((row) => ({
         ...toPublic(row, servicesByServer, extras.servers.get(row.id) ?? byEnv.get(row.id) ?? []),
+        serverCode: row.serverId ? (envCodes.get(row.serverId) ?? null) : null,
         canManage,
         onlyHere: (byEnv.get(row.id) ?? []).map((s) => s.serverId).filter((id, i, all) => extras.onlyHere.has(id) && all.indexOf(id) === i),
       }));
@@ -245,6 +271,7 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
           400: errorSchema,
           404: errorSchema,
           409: errorSchema,
+          422: errorSchema,
           ...authErrorResponses,
         },
       },
@@ -252,6 +279,11 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
     async (request, reply) => {
       const { projectId } = request.params;
       const { name, kind, url, serverId, servers: perRepo } = request.body;
+      // Prima la visibilità (review F4a): a chi non vede tutti i server un id
+      // inesistente risponde come uno invisibile (422), mai un oracolo.
+      if (!(await allVisible(request.user!, { ...(serverId !== undefined ? { serverId } : {}), ...(perRepo ? { servers: perRepo } : {}) }))) {
+        return apiError(reply, 422, "server_not_visible", "You can only link a server you can see");
+      }
       if (serverId && !(await serverExists(serverId))) {
         return apiError(reply, 400, "server_not_found", "Server not found");
       }
@@ -319,6 +351,7 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
           400: errorSchema,
           404: errorSchema,
           409: errorSchema,
+          422: errorSchema,
           ...authErrorResponses,
         },
       },
@@ -329,6 +362,11 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
       if (!existing) return apiError(reply, 404, "environment_not_found", "Environment not found");
 
       const { name, url, serverId, servers: perRepo } = request.body;
+      // Prima la visibilità (review F4a): a chi non vede tutti i server un id
+      // inesistente risponde come uno invisibile (422), mai un oracolo.
+      if (!(await allVisible(request.user!, { ...(serverId !== undefined ? { serverId } : {}), ...(perRepo ? { servers: perRepo } : {}) }))) {
+        return apiError(reply, 422, "server_not_visible", "You can only link a server you can see");
+      }
       if (serverId && !(await serverExists(serverId))) {
         return apiError(reply, 400, "server_not_found", "Server not found");
       }

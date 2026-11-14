@@ -76,13 +76,24 @@ const MEMBERS_AFTER_FIXTURE: Readonly<Record<string, string>> = {
 };
 
 /**
- * I permessi che Claude ha perso dopo il fixture, col motivo: aveva
- * `support.reply`, che nell'area 8 (F3) è diventato `support.manage`, e
- * Claude non ha mai un permesso `*.manage` (`claudeForbidden`): non apre
- * richieste né segna conversazioni, e il team non scrive al cliente.
+ * I permessi persi dopo il fixture per una DECISIONE, col motivo: solo
+ * perdite (prima sì, adesso no), di chi è indicato (`anyone`: di chiunque li
+ * avesse dal preset). Il fixture non si rigenera, quindi la decisione si
+ * scrive qui, una volta, invece che in un'eccezione nel ciclo.
  */
-const CLAUDE_LOST_AFTER_FIXTURE: Readonly<Record<string, string>> = {
-  "support.manage": "area 8, F3: `support.reply` → `support.manage`, un permesso di gestione",
+const LOST_AFTER_FIXTURE: Readonly<Record<string, { who: string; reason: string }>> = {
+  // `support.reply` era nel suo insieme fisso; `support.manage` no: Claude non
+  // ha mai un `*.manage` (`claudeForbidden`), non apre richieste né segna conversazioni.
+  "support.manage": {
+    who: CLAUDE_ID,
+    reason: "area 8, F3: `support.reply` → `support.manage`, un permesso di gestione",
+  },
+  // F4a-1 = a (0180): `monitor.view` esce dal preset `User`; i server si vedono
+  // dagli ambienti dei propri progetti. Il prototipo non lo legge per i server.
+  "monitor.view": {
+    who: "anyone",
+    reason: "area 8, F4a-1: `monitor.view` fuori dal preset `User`",
+  },
 };
 
 /** Chi guadagna `support.manage` dal reparto perché il seme lo fa Contributor (`persona|progetto`). */
@@ -126,7 +137,9 @@ describe("parità con la can() delle aree 2–8 (fixture generato prima del camb
             return;
           }
           if (now === before[i]) return;
-          if (personId === CLAUDE_ID && CLAUDE_LOST_AFTER_FIXTURE[perm] && before[i] && !now) return;
+          const lost = LOST_AFTER_FIXTURE[perm];
+          if (lost && (lost.who === "anyone" || lost.who === personId) && before[i] && !now)
+            return;
           // Solo i guadagni: una persona aggiunta a un progetto non perde permessi.
           if (MEMBERS_AFTER_FIXTURE[`${personId}|${projectId}`] && !before[i] && now) return;
           const allowed = ALLOWED_DIFFERENCES.some(
@@ -271,7 +284,7 @@ describe("Claude, insieme fisso (R-L9, R-L11)", () => {
       (p) => INSTANCE_SET.has(p) && hexToBits(rows[p]!, projects.length)[0],
     );
     expect([...CLAUDE_PROJECT_PERMISSIONS].sort()).toEqual(
-      projectBefore.filter((p) => !CLAUDE_LOST_AFTER_FIXTURE[p]).sort(),
+      projectBefore.filter((p) => LOST_AFTER_FIXTURE[p]?.who !== CLAUDE_ID).sort(),
     );
     expect([...CLAUDE_INSTANCE_PERMISSIONS].sort()).toEqual(instanceBefore.sort());
   });

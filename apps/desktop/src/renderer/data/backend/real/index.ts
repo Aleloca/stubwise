@@ -8,6 +8,7 @@ import type * as Fake from "../../api";
 import { liveAlerts } from "./alerts";
 import { liveSupport } from "./support";
 import { liveWidgets } from "./supportWidgets";
+import { liveServers } from "./servers";
 import { liveAutomations } from "./automationsLive";
 import { liveReleases } from "./releasesLive";
 import { adminDepartments } from "./departments";
@@ -74,6 +75,15 @@ export const support: typeof Fake.support = partialNamespace<typeof Fake.support
   // I widget (R1/R2) sulle rotte di oggi, `supportWidgets.ts`.
   ...liveWidgets,
 });
+/**
+ * I Server (area 8, F4a): `servers.ts`, sulle rotte di 72, in sola lettura
+ * (elenchi, dettaglio, metriche, episodi). Scritture, SSH, analisi e
+ * correzione restano «non integrati».
+ */
+export const servers: typeof Fake.servers = partialNamespace<typeof Fake.servers>(
+  "servers",
+  liveServers,
+);
 export const chat: typeof Fake.chat = partialNamespace<typeof Fake.chat>("chat", {
   ...chatFunctions,
   channelStream,

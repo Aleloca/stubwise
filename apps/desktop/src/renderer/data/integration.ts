@@ -51,11 +51,12 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   // Area 5, fetta 1: i Docs del progetto (`docs`, sezione e feature).
   // Area 8, fetta 1: la sezione Releases con le sole PR aperte (`releases-prs`).
   // Area 8, fetta 3: Support (le conversazioni coi clienti, letture e scritture).
-  projectSection: new Set(["overview", "tasks", "requests", "planning", "chat", "docs", "drive", "automations", "releases", "support"]),
+  // Area 8, F4a: i Server in sola lettura (`servers`, sezione e Amministrazione).
+  projectSection: new Set(["overview", "tasks", "requests", "planning", "chat", "docs", "drive", "automations", "releases", "support", "servers"]),
   // Stati e soglie del progetto.
   // Area 8, fetta 1 (46): «Repositories» ridotta al solo blocco «Releases» (`releases-repo-settings`).
   projectSettings: new Set(["statuses", "repositories"]),
-  admin: new Set(["departments"]),
+  admin: new Set(["departments", "servers"]),
   taskView: new Set(["list", "board", "timeline"]),
   feature: new Set([
     // Area 7, fetta 1: le Automations (Home, «Da decidere», ⌘K, righe d'origine).
@@ -96,6 +97,16 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // è da definire (decisione del maintainer); resta nel catalogo.
     "support",
     "support-widgets",
+    // Area 8, F4a: i Server (letture e scritture, la chiave una volta).
+    // Restano spente: l'SSH (`servers-ssh`) e
+    // l'analisi (`servers-analysis`, F4b), la ricerca ⌘K (`servers-search`).
+    "servers-monitor",
+    "servers-write",
+    // «New server» dalla sezione di un progetto: dentro un ambiente, per tutto
+    // il progetto (decisione c di 46: l'ambiente senza repository).
+    "servers-create-in-env",
+    // Gli ambienti col form (spenti dalla F1): i server si scelgono fra quelli visibili.
+    "environments",
     // «Don't alert me about this» dalla card (S6, `POST /api/inbox/:id/mute-type`),
     // con l'«Annulla» nel progetto della card; non su una card arrivata da obbligatorio.
     "alerts-mute",

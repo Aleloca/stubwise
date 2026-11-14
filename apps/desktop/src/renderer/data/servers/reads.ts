@@ -90,6 +90,20 @@ export async function listAllServers(): Promise<InstanceServerRow[]> {
     });
 }
 
+/**
+ * I server che chi guarda può collegare a un ambiente (area 8, F4a, S3): quelli
+ * che vede, in ordine di numero. Un collegamento non allarga la visibilità
+ * oltre ciò che vede chi scrive; il form degli ambienti li suggerisce.
+ */
+export async function listLinkableServers(): Promise<{ code: string; name: string }[]> {
+  const me = await gate("servers.listLinkableServers");
+  const visible = serversVisibleTo(me);
+  return state.servers
+    .filter((s) => visible.has(s.code))
+    .sort((a, b) => codeNumber(a.code) - codeNumber(b.code))
+    .map((s) => ({ code: s.code, name: s.name }));
+}
+
 /** Il dettaglio di un server (`SRV-1`); `not_found` se invisibile o inesistente. */
 export async function getServer(code: string): Promise<ServerDetail> {
   const me = await gate("servers.getServer");
@@ -143,7 +157,17 @@ export async function getServerMetrics(
     );
     check = { ...downsampleSamples(samples), sampleCount: samples.length };
   }
-  const all = metricsSince(server.code, fromMs);
+  // La rete in byte al SECONDO (review F4a, M2): ogni punto porta i byte del
+  // suo intervallo (30 s di recente, un passo largo più indietro); divisi per
+  // la sua durata, la scala non cambia con l'intervallo scelto.
+  const all = metricsSince(server.code, fromMs).map((p, i, list) => {
+    const prev = list[i - 1];
+    const seconds = Math.max(
+      server.sampleIntervalSeconds,
+      prev ? (Date.parse(p.ts) - Date.parse(prev.ts)) / 1000 : server.sampleIntervalSeconds,
+    );
+    return { ...p, netRxBytes: p.netRxBytes / seconds, netTxBytes: p.netTxBytes / seconds };
+  });
   // Copie: i punti del seme sono condivisi (congelati), mai riferimenti allo stato.
   // Oltre i 7 giorni la serie ha due passi: si ricampiona per durata, non per indice.
   if (range === "30d" || range === "90d") {
@@ -155,6 +179,8 @@ export async function getServerMetrics(
       check,
     });
   }
+  // Fino a 7 giorni la nota è quella dei punti ridotti («Showing 300 averaged
+  // points of N samples», da `sampleCount`), non la finestra.
   return copy({ ...downsample(all), sampleCount: all.length, averagedSeconds: null, check });
 }
 

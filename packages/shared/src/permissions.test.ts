@@ -164,7 +164,8 @@ describe("catalogo dei permessi", () => {
     expect([...perms].sort()).toEqual(
       // `claude.public.view`: leggere le pubbliche con Claude (fetta 5, D4 del maintainer).
       // `chat.general.create`: creare un canale generale (area 4, D3).
-      ["chat.general.create", "claude.public.view", "git_accounts.view", "mail_admission.view", "monitor.view", "users.view_all"].sort(),
+      // `monitor.view` non c'è più (area 8, F4a, 0180): i server si vedono dagli ambienti dei propri progetti.
+      ["chat.general.create", "claude.public.view", "git_accounts.view", "mail_admission.view", "users.view_all"].sort(),
     );
     expect(perms.some((p) => p.endsWith(".manage") || p === "instance.full_admin")).toBe(false);
   });

@@ -1,3 +1,9 @@
+import {
+  RECOVERED_SHOWN_HOURS as SHARED_RECOVERED_SHOWN_HOURS,
+  serverHealth as sharedServerHealth,
+} from "@stubwise/shared";
+import { deriveServerHealth } from "./health";
+import { RECOVERED_SHOWN_HOURS as RECOVERED_SHOWN_HOURS_LOCAL } from "./limits";
 import { describe, expect, it } from "vitest";
 import type { MonitoredServer, ServerAnalysis, ServerEpisode } from "../../data/model";
 import { hoursAgo, NOW, serverTask } from "./fixtures";
@@ -145,5 +151,12 @@ describe("serverWork", () => {
     expect(serverWork({ analyses: [analysis("running")], serverTasks: [open, live] })).toBe(
       "fixing",
     );
+  });
+});
+
+describe("una regola sola (area 8, F4a)", () => {
+  it("il prototipo usa la salute di `@stubwise/shared`, non una copia", () => {
+    expect(deriveServerHealth).toBe(sharedServerHealth);
+    expect(RECOVERED_SHOWN_HOURS_LOCAL).toBe(SHARED_RECOVERED_SHOWN_HOURS);
   });
 });

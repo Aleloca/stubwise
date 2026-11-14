@@ -1,3 +1,4 @@
+import { featureIntegrated } from "../../data/integration";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -128,7 +129,10 @@ export function NowBox({ server }: { server: ServerDetail }) {
   } else {
     title = t(`servers.health.${h.health}`);
   }
-  const reasons = open ? h.reasons : (episode?.reasons ?? []);
+  // Le frasi dei motivi; uno che l'app non conosce non lascia una riga vuota (review F4a, I3).
+  const reasons = (open ? h.reasons : (episode?.reasons ?? [])).flatMap(
+    (r) => reasonSentence(r, server.checks, t, lang, open ? open.startedAt : null) ?? [],
+  );
   const noRead = !server.access.usable.read;
   const inTrouble = h.health === "down" || h.health === "trouble";
   const work = <WorkLine server={server} episode={episode} />;
@@ -155,9 +159,9 @@ export function NowBox({ server }: { server: ServerDetail }) {
           </p>
           {reasons.length > 0 && (
             <ul aria-label={t("servers.now.reasons")} className="flex flex-col gap-0.5">
-              {reasons.map((r, i) => (
+              {reasons.map((sentence, i) => (
                 <li key={i} className="num text-md text-ink-muted">
-                  {reasonSentence(r, server.checks, t, lang, open ? open.startedAt : null)}
+                  {sentence}
                 </li>
               ))}
             </ul>
@@ -167,10 +171,12 @@ export function NowBox({ server }: { server: ServerDetail }) {
       {work}
       {/* Un orfano (area 9b) non ha staging né produzioni: «Staging only» sarebbe
           falso, e che Claude lavori solo dentro un progetto lo dice la testata. */}
-      {!server.orphan && server.analysisProject === null && inTrouble && (
-        <p className="text-md text-ink-muted">{t("servers.stagingOnly")}</p>
-      )}
-      {inTrouble &&
+      {featureIntegrated("servers-analysis") &&
+        !server.orphan &&
+        server.analysisProject === null &&
+        inTrouble && <p className="text-md text-ink-muted">{t("servers.stagingOnly")}</p>}
+      {featureIntegrated("servers-analysis") &&
+        inTrouble &&
         noRead &&
         !server.orphan &&
         server.analysisProject !== null &&

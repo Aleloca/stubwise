@@ -2,6 +2,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import type { ScriptLang } from "../../domain/servers/installScript";
 import * as api from "@backend/api";
+import { revealAgentKey } from "../revealedAgentKey";
 import { featureIntegrated } from "../integration";
 import { MIN_QUERY } from "../../pages/chat/search";
 import { queryKeys, useConversationChanges, useSessionPersonId, useWrite } from "../queries";
@@ -24,7 +25,7 @@ export function useProjectServers(projectId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.projectServers(me, projectId ?? ""),
     queryFn: () => api.servers.listProjectServers(projectId!),
-    enabled: !!projectId && featureIntegrated("servers"),
+    enabled: !!projectId && featureIntegrated("servers-monitor"),
   });
 }
 
@@ -38,6 +39,16 @@ export function useAllServers() {
   return useQuery({
     queryKey: queryKeys.allServers(me),
     queryFn: () => api.servers.listAllServers(),
+  });
+}
+
+/** I server che chi guarda può collegare a un ambiente (quelli che vede), per il form. */
+export function useLinkableServers(enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.linkableServers(me),
+    queryFn: () => api.servers.listLinkableServers(),
+    enabled: enabled && featureIntegrated("environments"),
   });
 }
 
@@ -80,23 +91,37 @@ export function useServerSearch(q: string, enabled = true) {
     queryKey: queryKeys.serverSearch(me, q),
     queryFn: () => api.servers.searchServers(q),
     // Solo dove l'area è integrata (review area 8 F1, m5).
-    enabled: enabled && q.trim().length >= MIN_QUERY && featureIntegrated("servers"),
+    // La ricerca ⌘K dei server è fuori dalla F4a: la sua funzione, spenta.
+    enabled: enabled && q.trim().length >= MIN_QUERY && featureIntegrated("servers-search"),
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
   });
 }
 
 /** Un server nuovo in un ambiente; la chiave dell'agente è SOLO nel risultato. */
-export function useCreateServer() {
-  return useWrite(
-    (input: api.servers.CreateServerInput) => api.servers.createServer(input),
-    SERVER_ENV_AREAS,
-  );
+/**
+ * Un server nuovo. La chiave dell'agente NON sta nel risultato (la cache
+ * delle mutazioni la terrebbe, regola I2): la si mette da parte per il
+ * pannello che la mostra una volta (`takeAgentKey`).
+ */
+export async function createServerAndReveal(input: api.servers.CreateServerInput) {
+  const { agentKey, instanceUrl, ...rest } = await api.servers.createServer(input);
+  revealAgentKey(rest.server.code, { key: agentKey, ...(instanceUrl ? { instanceUrl } : {}) });
+  return rest;
 }
 
-/** Una chiave nuova per l'agente: SOLO nel risultato. */
+/** Una chiave nuova per l'agente: per il pannello, mai nel risultato (I2). */
+export async function regenerateAndReveal(code: string): Promise<void> {
+  const { agentKey, instanceUrl } = await api.servers.regenerateAgentKey(code);
+  revealAgentKey(code, { key: agentKey, ...(instanceUrl ? { instanceUrl } : {}) });
+}
+
+export function useCreateServer() {
+  return useWrite(createServerAndReveal, SERVER_ENV_AREAS);
+}
+
 export function useRegenerateAgentKey() {
-  return useWrite((code: string) => api.servers.regenerateAgentKey(code), SERVER_AREAS);
+  return useWrite(regenerateAndReveal, SERVER_AREAS);
 }
 
 export function useUpdateServer() {

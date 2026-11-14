@@ -1,8 +1,8 @@
 import {
-  checkStatusSchema,
-  checkTypeSchema,
   createCheckSchema,
   updateCheckSchema,
+  serverCheckViewSchema,
+  serverMetricsResponseSchema,
 } from "@stubwise/shared";
 import {
   checkSamples,
@@ -13,7 +13,7 @@ import {
   servers,
   serviceChecks,
 } from "@stubwise/db";
-import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -30,6 +30,18 @@ const RAW_RESOLUTION_MAX_MS = 48 * 60 * 60 * 1000;
  * risposta segnala il taglio con `truncated: true`.
  */
 export const METRICS_POINT_LIMIT = 6000;
+
+/**
+ * Area 8, F4a, S6: oltre una settimana il rollup a 5 minuti supera il tetto
+ * (90 giorni = 25 920 punti): si aggrega a un passo largo, 1 h fino a 30
+ * giorni (720), 4 h oltre (540 per 90 giorni). Medie delle medie, massimi dei
+ * massimi, somme della rete; i passi allineati a `date_bin` dall'origine UTC.
+ */
+const DAY_MS = 24 * 60 * 60 * 1000;
+function wideStep(spanMs: number): { resolution: "1h" | "4h"; interval: string } | null {
+  if (spanMs <= 7 * DAY_MS) return null;
+  return spanMs <= 30 * DAY_MS ? { resolution: "1h", interval: "1 hour" } : { resolution: "4h", interval: "4 hours" };
+}
 
 const idParamsSchema = z.object({ id: z.uuid() });
 const checkParamsSchema = z.object({ id: z.uuid(), checkId: z.uuid() });
@@ -48,26 +60,12 @@ function isDbCheckType(type: CheckRow["type"]): boolean {
  * vuoto (il DSN vive solo in `dsnEncrypted`, decifrato unicamente per l'agente
  * su /monitor/config).
  */
-const checkViewSchema = z.object({
-  id: z.uuid(),
-  serverId: z.uuid(),
-  type: checkTypeSchema,
-  name: z.string(),
-  target: z.string(),
-  hasDsn: z.boolean(),
-  intervalSeconds: z.number().int(),
-  enabled: z.boolean(),
-  lastStatus: checkStatusSchema,
-  lastCheckedAt: z.string().nullable(),
-  lastLatencyMs: z.number().int().nullable(),
-  lastError: z.string().nullable(),
-  downSince: z.string().nullable(),
-  createdAt: z.string(),
-});
+/** La forma di un controllo sta in `@stubwise/shared` (area 8, F4a: la legge anche l'app). */
+const checkViewSchema = serverCheckViewSchema;
 type CheckView = z.infer<typeof checkViewSchema>;
 
 /** Compone la proiezione pubblica: mai `dsnEncrypted`, mai il DSN in chiaro. */
-function toCheckView(row: CheckRow): CheckView {
+export function toCheckView(row: CheckRow): CheckView {
   return {
     id: row.id,
     serverId: row.serverId,
@@ -86,69 +84,13 @@ function toCheckView(row: CheckRow): CheckView {
   };
 }
 
-// --- Schemi dei punti metrica -------------------------------------------------
-
-/** Punto a risoluzione piena (campione host grezzo). */
-const rawPointSchema = z.object({
-  ts: z.string(),
-  cpuPct: z.number(),
-  load1m: z.number(),
-  memUsedBytes: z.number(),
-  memTotalBytes: z.number(),
-  swapUsedBytes: z.number(),
-  diskUsedBytes: z.number(),
-  diskTotalBytes: z.number(),
-  netRxBytes: z.number(),
-  netTxBytes: z.number(),
-});
-
-/** Punto aggregato a 5 minuti (rollup): coppie avg/max + somme di rete. */
-const rollupPointSchema = z.object({
-  ts: z.string(),
-  cpuPctAvg: z.number(),
-  cpuPctMax: z.number(),
-  load1mAvg: z.number(),
-  load1mMax: z.number(),
-  memUsedBytesAvg: z.number(),
-  memUsedBytesMax: z.number(),
-  memTotalBytes: z.number(),
-  diskUsedBytesAvg: z.number(),
-  diskUsedBytesMax: z.number(),
-  diskTotalBytes: z.number(),
-  netRxBytesSum: z.number(),
-  netTxBytesSum: z.number(),
-});
-
-/** Esito di check a risoluzione piena. */
-const rawCheckPointSchema = z.object({
-  ts: z.string(),
-  status: checkStatusSchema,
-  latencyMs: z.number().int().nullable(),
-});
-
-/** Esito di check aggregato a 5 minuti (rollup). */
-const rollupCheckPointSchema = z.object({
-  ts: z.string(),
-  upCount: z.number().int(),
-  downCount: z.number().int(),
-  latencyMsAvg: z.number().nullable(),
-  latencyMsMax: z.number().int().nullable(),
-});
-
 const metricsQuerySchema = z.object({
   from: z.iso.datetime(),
   to: z.iso.datetime(),
   checkId: z.uuid().optional(),
 });
 
-const metricsResponseSchema = z.object({
-  resolution: z.enum(["raw", "5m"]),
-  // True se almeno una serie ha saturato METRICS_POINT_LIMIT: il client sa che
-  // la finestra mostrata è la coda più recente del range richiesto, non tutto.
-  truncated: z.boolean(),
-  points: z.array(z.union([rawPointSchema, rollupPointSchema])),
-  checkPoints: z.array(z.union([rawCheckPointSchema, rollupCheckPointSchema])).optional(),
-});
+/** La risposta delle metriche sta in `@stubwise/shared` (`serverMetricsResponseSchema`, area 8, F4a). */
 
 /**
  * Route dei check di servizio e delle metriche di un server, registrate sotto
@@ -341,7 +283,7 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
       schema: {
         params: idParamsSchema,
         querystring: metricsQuerySchema,
-        response: { 200: metricsResponseSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
+        response: { 200: serverMetricsResponseSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
@@ -423,6 +365,55 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
           latencyMs: s.latencyMs,
         }));
         return { resolution: "raw" as const, truncated, points, checkPoints };
+      }
+
+      const wide = wideStep(to.getTime() - from.getTime());
+      if (wide) {
+        const r = serverMetricsRollup;
+        const bin = sql`date_bin(${sql.raw(`interval '${wide.interval}'`)}, ${r.ts}, timestamptz '2000-01-01 00:00:00+00')`;
+        const n = (expr: ReturnType<typeof sql>) => sql<number>`${expr}::float8`.mapWith(Number);
+        const binned = await app.db
+          .select({
+            ts: sql<string>`${bin}`.mapWith((v: unknown) => new Date(String(v)).toISOString()),
+            cpuPctAvg: n(sql`avg(${r.cpuPctAvg})`),
+            cpuPctMax: n(sql`max(${r.cpuPctMax})`),
+            load1mAvg: n(sql`avg(${r.load1mAvg})`),
+            load1mMax: n(sql`max(${r.load1mMax})`),
+            memUsedBytesAvg: n(sql`round(avg(${r.memUsedBytesAvg}))`),
+            memUsedBytesMax: n(sql`max(${r.memUsedBytesMax})`),
+            memTotalBytes: n(sql`max(${r.memTotalBytes})`),
+            diskUsedBytesAvg: n(sql`round(avg(${r.diskUsedBytesAvg}))`),
+            diskUsedBytesMax: n(sql`max(${r.diskUsedBytesMax})`),
+            diskTotalBytes: n(sql`max(${r.diskTotalBytes})`),
+            netRxBytesSum: n(sql`sum(${r.netRxBytesSum})`),
+            netTxBytesSum: n(sql`sum(${r.netTxBytesSum})`),
+          })
+          .from(r)
+          .where(and(eq(r.serverId, serverId), gte(r.ts, from), lte(r.ts, to)))
+          .groupBy(bin)
+          .orderBy(desc(bin))
+          .limit(METRICS_POINT_LIMIT);
+        truncated ||= binned.length === METRICS_POINT_LIMIT;
+        binned.reverse();
+        if (checkId === undefined) return { resolution: wide.resolution, truncated, points: binned };
+        const c = checkSamplesRollup;
+        const cbin = sql`date_bin(${sql.raw(`interval '${wide.interval}'`)}, ${c.ts}, timestamptz '2000-01-01 00:00:00+00')`;
+        const checkBinned = await app.db
+          .select({
+            ts: sql<string>`${cbin}`.mapWith((v: unknown) => new Date(String(v)).toISOString()),
+            upCount: sql<number>`sum(${c.upCount})::int`.mapWith(Number),
+            downCount: sql<number>`sum(${c.downCount})::int`.mapWith(Number),
+            latencyMsAvg: sql<number | null>`avg(${c.latencyMsAvg})::float8`,
+            latencyMsMax: sql<number | null>`max(${c.latencyMsMax})`,
+          })
+          .from(c)
+          .where(and(eq(c.checkId, checkId), gte(c.ts, from), lte(c.ts, to)))
+          .groupBy(cbin)
+          .orderBy(desc(cbin))
+          .limit(METRICS_POINT_LIMIT);
+        truncated ||= checkBinned.length === METRICS_POINT_LIMIT;
+        checkBinned.reverse();
+        return { resolution: wide.resolution, truncated, points: binned, checkPoints: checkBinned };
       }
 
       const rows = await app.db

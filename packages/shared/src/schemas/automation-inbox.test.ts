@@ -53,3 +53,11 @@ describe("i traguardi: automationCreated", () => {
     expect(m.automationCreated === true).toBe(false);
   });
 });
+
+// Area 8, F4a, S12: il codice del server sulle card `monitor.*`, additivo.
+describe("il codice del server sulle card monitor.*", () => {
+  it("una card senza `serverCode` (server di prima) si legge con null; con il campo, il codice", () => {
+    expect(inboxItemSchema.parse({ ...base, kind: "monitor.alert" }).serverCode).toBeNull();
+    expect(inboxItemSchema.parse({ ...base, kind: "monitor.alert", serverCode: "SRV-3" }).serverCode).toBe("SRV-3");
+  });
+});

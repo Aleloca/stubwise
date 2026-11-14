@@ -35,6 +35,7 @@ import {
   prReviews,
   projectMembers,
   projects,
+  servers,
   tickets,
   users,
   type Db,
@@ -798,6 +799,8 @@ export interface InboxItem extends ViaClaudeFields {
   objectGone: boolean;
   /** Area 8, F2: il motivo per cui l'avviso arriva a chi legge da obbligatorio (dalla SUA card), o null. */
   alertMandatory: string | null;
+  /** Area 8, F4a: solo `monitor.*`, il codice del server derivato a lettura (`serverCodesByNotification`), o null. */
+  serverCode: string | null;
   /** Area 4, Chat: solo `chat.mention` e `chat.question`, il messaggio come lo vede chi legge (`readChatMention`). */
   chat?: {
     channelId: string;
@@ -993,6 +996,8 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       return typeof id === "string" ? [id] : [];
     }),
   );
+  // Area 8, F4a: il codice del server delle card `monitor.*`.
+  const serverCodes = await serverCodesByNotification(db, page);
   // Solo per le card di posta: le altre non hanno una riga `email_proposals` e
   // la mappa resta vuota per loro.
   const sourceProposalIds = await sourceProposalIdsByNotification(
@@ -1100,6 +1105,8 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       reviewOutcome: reviewOutcomeForItem(r.kind, r.event),
       // Area 8, F2: il motivo per cui l'avviso arriva a chi legge (scritto sulla SUA card).
       alertMandatory: typeof (r.event as { alertMandatory?: unknown }).alertMandatory === "string" ? (r.event as { alertMandatory: string }).alertMandatory : null,
+      // Area 8, F4a: il codice del server, dalla riga del server (mai dal jsonb).
+      serverCode: serverCodes.get(r.id) ?? null,
       // Le azioni NON passano dal jsonb: la chiave del catalogo è la colonna
       // enum `kind`, che il DB garantisce valida. Una card col testo degradato
       // resta quindi azionabile.
@@ -1617,6 +1624,36 @@ function reviewOutcomeForItem(kind: NotificationKind, rawEvent: Record<string, u
  * pubblicate quando la tabella non esisteva — semplicemente non compaiono
  * nella mappa, e il chiamante legge `null`.
  */
+/**
+ * Area 8, F4a: il codice `SRV-<n>` del server di ogni card `monitor.*`, dal
+ * suo id nel link dell'evento (`…/monitor/servers/<id>`), in UNA query per
+ * pagina. Un server tolto non c'è: nessuna voce.
+ */
+async function serverCodesByNotification(
+  db: Db,
+  rows: readonly { id: string; kind: string; event: unknown }[],
+): Promise<Map<string, string>> {
+  const idByCard = new Map<string, string>();
+  for (const r of rows) {
+    if (r.kind !== "monitor.alert" && r.kind !== "monitor.recovered") continue;
+    const url = (r.event as { url?: unknown }).url;
+    const m = typeof url === "string" ? /\/monitor\/servers\/([0-9a-f-]{36})(?:[/?#]|$)/i.exec(url) : null;
+    if (m) idByCard.set(r.id, m[1]!.toLowerCase());
+  }
+  const out = new Map<string, string>();
+  if (idByCard.size === 0) return out;
+  const found = await db
+    .select({ id: servers.id, number: servers.number })
+    .from(servers)
+    .where(inArray(servers.id, [...new Set(idByCard.values())]));
+  const numberById = new Map(found.map((s) => [s.id, s.number]));
+  for (const [cardId, serverId] of idByCard) {
+    const n = numberById.get(serverId);
+    if (n !== undefined) out.set(cardId, `SRV-${n}`);
+  }
+  return out;
+}
+
 async function sourceProposalIdsByNotification(
   db: Db,
   userId: string,

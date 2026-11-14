@@ -863,6 +863,55 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     - un'anteprima del widget da un'app impacchettata (`file://`,
       `app://`) è rifiutata con un elenco di siti pieno: l'anteprima
       dell'app web (`PUBLIC_URL`) è ammessa.
+- F4a (Servers, monitor e ambienti) *(O, 72, 14 nov 2026)*, limiti e rimandi:
+  - **`inArchivedOnly`** resta `false`: i progetti non hanno ancora un
+    archivio sul server (il prototipo sì, area 9c).
+  - **Il progetto principale** di un server (`primaryProjectId`, dove
+    l'analisi apre la task), `work`, `access` (l'SSH), il controllo «busy»
+    dell'eliminazione: con la F4b.
+  - **`server_projects`** resta come tabella inerte per il rollback (il web
+    nuovo non la scrive, il server ignora `projectIds`): si toglie in un
+    rilascio dopo, col ritiro del web.
+  - **Il link delle card `monitor.*`** nell'evento resta quello del web
+    (`/monitor/servers/<id>`): l'app usa `serverCode`, derivato a lettura.
+  - **Le letture dei server** fanno qualche query per server (ambienti,
+    episodi, CPU recente): va bene per decine di server; da raccogliere se
+    pesa.
+  - **Dalla review finale della F4a** *(O, 72, 14 nov 2026)*, limiti accettati:
+    - creare un server con un ambiente SOSTITUISCE il server già legato a
+      quella (ambiente, repository), come il form degli ambienti;
+    - i controlli di `POST /api/servers` con un ambiente stanno fuori dalla
+      transazione: un ambiente cancellato nel mezzo dà 500 (nessun server
+      orfano: la transazione torna indietro); `repositoryIds` senza tetto;
+    - `orphan` esce in ogni vista (per chi vede il server da un ambiente è
+      sempre `false`);
+    - `PATCH /api/servers/:id` ignora `projectIds` e risponde 200 (un web in
+      cache crede di aver salvato), scelta dichiarata;
+    - il tipo web delle metriche conosce solo `raw` | `5m` (a runtime ogni
+      altro valore è trattato come aggregato);
+    - il backfill della 0180 sui server esistenti non ha un test (il DB dei
+      test parte vuoto);
+    - `syncEpisode` legge e riscrive i motivi senza lock: sicuro perché il
+      poller degli avvisi è single-flight in un processo worker solo.
+- F4a, lato renderer (94, 14 nov 2026), ciò che resta fuori o diverge:
+  - *(fatto: «New server» da un progetto nasce dentro un ambiente per tutto il
+    progetto, decisione c di 46.)*
+  - **il tipo di un ambiente non cambia** nella build app (il PATCH del
+    server non lo accetta): il dialogo lo blocca in modifica e lo dice; nel
+    prototipo si cambia;
+  - **il server di un ambiente si sceglie fra i suggerimenti** (i server che
+    chi scrive vede), ma il campo resta testo: un codice che non vede è
+    `invalid: serverCode` (lo stesso 422 `server_not_visible` del server);
+  - **SSH, analisi, progetto principale, ricerca ⌘K dei server**: spenti
+    (F4b, o fuori); le simulazioni restano solo del prototipo.
+  - **Dalla review della F4a** *(O, 46, 14 nov 2026)*, limiti accettati:
+    - M4: le card `monitor.*` di prima, ancorate a un progetto di
+      `server_projects` che ora non vede più il server, aprono la pagina del
+      server in quel progetto, dove il server non c'è più (404 «non
+      esiste»): restano finché non si archiviano;
+    - M5: il link di una card è quello del momento della lettura, e due
+      persone che modificano lo stesso ambiente insieme: vince l'ultima (il
+      PATCH non ha una precondizione di versione).
 - **L'API per i siti** *(M, 14 nov 2026; fetta a sé DOPO la F3)*: il cliente
   segue sul sito che ospita il widget le sue richieste e i suoi ticket.
   Note di 72 per il design:

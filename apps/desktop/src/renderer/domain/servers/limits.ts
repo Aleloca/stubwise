@@ -9,7 +9,7 @@ export const ANALYSIS_MAX_MINUTES = 20;
 export const ANALYSIS_MAX_COST_USD = 2;
 /** Di un comando si mostrano le ultime 40 righe d'uscita; il resto con «vedi tutto». */
 export const COMMAND_OUTPUT_MAX_LINES = 40;
-/** Un server rientrato si dice «rientrato» per 24 ore, poi torna «in salute». */
-export const RECOVERED_SHOWN_HOURS = 24;
+/** Un server rientrato si dice «rientrato» per 24 ore, poi torna «in salute» (la regola di shared). */
+export { RECOVERED_SHOWN_HOURS } from "@stubwise/shared";
 /** Un grafico non disegna più di 300 punti: 7 giorni a 30 s si riducono a media. */
 export const METRIC_POINTS_MAX = 300;

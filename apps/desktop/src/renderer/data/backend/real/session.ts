@@ -13,6 +13,7 @@ import { appClient, session } from "./client";
 import { NotIntegratedError, partialNamespace } from "./notIntegrated";
 import { forgetCommentTickets } from "./taskDetail";
 import { forgetAutomationRefs } from "./automationsLive";
+import { forgetRevealedAgentKeys } from "../../revealedAgentKey";
 import { forgetRevealedAddresses } from "../../revealedAddress";
 import { forgetStreams } from "./claudeStream";
 import { forgetFilterCaches } from "./filters";
@@ -72,6 +73,8 @@ function forgetClientCaches(): void {
   // Le Automations (area 7): codici e revisioni letti, e il segreto di un webhook appena visto.
   forgetAutomationRefs();
   forgetRevealedAddresses();
+  // I Server (area 8, F4a): una chiave dell'agente appena creata e non ancora mostrata (I2).
+  forgetRevealedAgentKeys();
   // Il Calendario (F4): etag visti e salvataggi in corso o non riusciti.
   forgetCalendarWrites();
   forgetHomeCaches();

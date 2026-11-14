@@ -764,6 +764,13 @@ export const inboxItemSchema = z.object({
    */
   alertMandatory: z.string().nullable().default(null),
   /**
+   * Area 8, F4a: solo sulle card `monitor.*`, il codice del server
+   * (`SRV-<n>`) per il link dell'app, DERIVATO a lettura dall'id nel link
+   * dell'evento (vale anche per le card di prima). `null` per gli altri kind e
+   * per un server tolto. Additivo.
+   */
+  serverCode: z.string().nullable().default(null),
+  /**
    * Area 4, Chat (fetta 1): solo sulle card `chat.mention` e (fetta 2)
    * `chat.question`, il messaggio che
    * nomina chi legge, DERIVATO a lettura (canale, thread, chi scrive, un

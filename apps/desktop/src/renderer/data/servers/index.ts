@@ -21,6 +21,7 @@ export {
   getServerMetrics,
   getServerTaskInfo,
   listAllServers,
+  listLinkableServers,
   listProjectServers,
   searchServers,
   type InstanceServerRow,

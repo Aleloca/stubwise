@@ -126,6 +126,8 @@ const INTEGRATED_CALLS = new Set([
   "markNotification",
   "search",
   "admin.listDepartments",
+  // Le persone attive accanto a «People» nella colonna dell'Amministrazione (reali dalla fetta 1).
+  "admin.listPeople",
   "admin.createDepartment",
   "admin.updateDepartment",
   "admin.saveDepartment",
@@ -431,6 +433,26 @@ const INTEGRATED_CALLS = new Set([
   "support.createWidget",
   "support.updateWidget",
   "support.deleteWidget",
+  // Area 8, F4a: i Server in sola lettura.
+  "servers.listProjectServers",
+  "servers.listAllServers",
+  "servers.getServer",
+  "servers.getServerMetrics",
+  // Le scritture (`servers-write`); creare dentro un ambiente no.
+  "servers.createServer",
+  "servers.updateServer",
+  "servers.setThresholds",
+  "servers.deleteServer",
+  "servers.regenerateAgentKey",
+  "servers.createCheck",
+  "servers.updateCheck",
+  "servers.deleteCheck",
+  // Gli ambienti (`environments`) e i server che si possono collegare.
+  "releases.listEnvironments",
+  "releases.createEnvironment",
+  "releases.updateEnvironment",
+  "releases.deleteEnvironment",
+  "servers.listLinkableServers",
   // Area 8, F2 (R6): le iscrizioni agli avvisi.
   "alerts.subscriptionRows",
   "alerts.setSubscription",
@@ -605,9 +627,9 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("una sezione di progetto non integrata mostra «Coming soon»", async () => {
-    // Dall'area 8 le Release (fetta 1) e Support (fetta 3) sono accesi: Servers non ancora.
-    renderRoute("/p/AUD/servers");
+  it("una pagina di progetto non integrata mostra «Coming soon»", async () => {
+    // Dall'area 8, F4a, ogni sezione di progetto è accesa: resta una voce delle impostazioni.
+    renderRoute("/p/AUD/settings/plugins");
     expect(await screen.findByText("Coming soon")).toBeInTheDocument();
     await settle();
     expect(outside()).toEqual([]);
@@ -712,6 +734,83 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
+  // Area 8, F4a: i Server in sola lettura (elenco, dettaglio, metriche, episodi).
+  // Scritture, SSH, analisi e simulazioni restano fuori dalla build app (I1).
+  it("i Server del progetto: l'elenco e «New server» dentro un ambiente (decisione c), solo chiamate integrate", async () => {
+    // Roberta ha `monitor.manage` ed `environments.manage`.
+    signedInAs("p-roberta");
+    renderRoute("/p/ACQ/servers");
+    expect(await screen.findByRole("heading", { level: 1, name: "Servers" })).toBeInTheDocument();
+    await waitFor(() => expect(calls).toContain("servers.listProjectServers"));
+    expect(screen.queryByText("Coming soon")).toBeNull();
+    expect(await screen.findByRole("button", { name: "New server" })).toBeInTheDocument();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("il dettaglio di un Server: metriche, episodi e scritture; niente SSH, progetto principale né simulazioni", async () => {
+    // Roberta ha `monitor.manage`: le scritture ci sono, la F4b no.
+    signedInAs("p-roberta");
+    renderRoute("/p/ACQ/servers/SRV-1");
+    const index = await screen.findByRole("navigation", { name: "Parts of SRV-1" }, { timeout: 3000 });
+    await waitFor(() => expect(calls).toContain("servers.getServer"));
+    await waitFor(() => expect(calls).toContain("servers.getServerMetrics"));
+    expect(within(index).queryByRole("button", { name: "SSH access" })).toBeNull();
+    expect(within(index).getByRole("button", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add check" })).toBeInTheDocument();
+    // Il progetto principale (dell'analisi, F4b) non si offre.
+    expect(screen.queryByText("Primary project")).toBeNull();
+    expect(screen.queryByRole("region", { name: "Prototype only: server signals" })).toBeNull();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("l'Amministrazione dei Server: tutti i server e «New server» (nasce orfano), la chiave una volta; solo chiamate integrate", async () => {
+    const user = userEvent.setup();
+    signedInAs("p-roberta");
+    renderRoute("/admin/servers");
+    await waitFor(() => expect(calls).toContain("servers.listAllServers"));
+    expect(screen.queryByText("Coming soon")).toBeNull();
+    await user.click(await screen.findByRole("button", { name: "New server" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByRole("textbox", { name: "Name" }), "edge-01");
+    await user.click(within(dialog).getByRole("button", { name: /^Create/ }));
+    await waitFor(() => expect(calls).toContain("servers.createServer"));
+    expect(await screen.findByText(/STUBWISE_SERVER_KEY=sk_/)).toBeInTheDocument();
+    // La chiave è vera: niente nota del prototipo (review F4a, I4).
+    expect(screen.queryByText(/Prototype: this key is made up/)).toBeNull();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("gli ambienti (area 8, F4a): il server fra quelli visibili, il tipo fermo in modifica, solo chiamate integrate", async () => {
+    const user = userEvent.setup();
+    signedInAs("p-laura");
+    renderRoute("/p/AUD/releases");
+    const part = await screen.findByRole("region", { name: /^Environments/ }, { timeout: 3000 });
+    await user.click(await within(part).findByRole("button", { name: "Add environment" }));
+    const add = await screen.findByRole("dialog", { name: "Add environment" });
+    await waitFor(() => expect(calls).toContain("servers.listLinkableServers"));
+    const list = document.getElementById(
+      within(add).getByRole("combobox", { name: "Server" }).getAttribute("list")!,
+    )!;
+    await waitFor(() => expect(list.querySelectorAll("option").length).toBeGreaterThan(0));
+    // Nell'aggiungere il tipo si sceglie.
+    expect(within(add).getByRole("radio", { name: "Test" })).toBeEnabled();
+    await user.click(within(add).getByRole("button", { name: "Cancel" }));
+    await user.click(within(part).getByRole("button", { name: "More for Production" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Edit" }));
+    const edit = await screen.findByRole("dialog", { name: "Edit environment" });
+    expect(within(edit).getByRole("radio", { name: "Test" })).toBeDisabled();
+    expect(within(edit).getByRole("radio", { name: "Production" })).toBeChecked();
+    expect(
+      within(edit).getByText("The type can't change: for another type, add a new environment."),
+    ).toBeInTheDocument();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
   it("aprire Releases legge solo chiamate integrate", async () => {
     renderRoute("/p/AUD/releases");
     expect(await screen.findByRole("region", { name: "Pull requests" })).toBeInTheDocument();
@@ -719,9 +818,11 @@ describe("aree non integrate nella build app", () => {
     await waitFor(() => expect(calls).toContain("releases.listReleaseQueue"));
     await settle();
     await waitFor(() => expect(calls).toContain("releases.listReleases"));
+    // Area 8, F4a: gli ambienti accesi, coi server che chi scrive vede.
+    await waitFor(() => expect(calls).toContain("releases.listEnvironments"));
     expect(
-      within(screen.getByRole("region", { name: "Environments" })).getByText("Coming soon"),
-    ).toBeInTheDocument();
+      within(screen.getByRole("region", { name: /^Environments/ })).queryByText("Coming soon"),
+    ).toBeNull();
     expect(outside()).toEqual([]);
   });
 

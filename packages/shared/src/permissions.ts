@@ -256,7 +256,8 @@ const LEGACY_MEMBER_EXCLUDED: readonly ProjectPermission[] = [
  * `/api/milestones`, `/api/briefs`, `/api/search`.
  */
 const USER_INSTANCE_PERMISSIONS: readonly InstancePermission[] = [
-  "monitor.view",
+  // Area 8, F4a (0180): `monitor.view` non c'è più. Un utente vede i server
+  // dei suoi progetti, dagli ambienti (F4a-1 = a, il modello del prototipo).
   "users.view_all",
   "git_accounts.view",
   "mail_admission.view",
