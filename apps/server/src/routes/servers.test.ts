@@ -678,6 +678,19 @@ describe("area 8, F4a, S4: crea con un ambiente", () => {
     expect(await count()).toBe(before);
   });
 
+  it("senza repositoryIds: TUTTE le repository del progetto, e l'ambiente intero (`serverId`), come il form degli ambienti", async () => {
+    const { projectId, repositoryId } = await seedRepository(testDb.db);
+    const [env] = await testDb.db.insert(projectEnvironments).values({ projectId, name: "tutto", kind: "staging" }).returning();
+    const res = await app.inject({ method: "POST", url: "/api/servers", headers: { cookie: adminCookie }, payload: { name: "intero", environment: { environmentId: env!.id } } });
+    expect(res.statusCode, res.body).toBe(201);
+    const id = (res.json() as { id: string }).id;
+    expect(await testDb.db.select().from(environmentServers).where(eq(environmentServers.serverId, id))).toEqual([
+      expect.objectContaining({ environmentId: env!.id, repositoryId, serverId: id }),
+    ]);
+    const [after] = await testDb.db.select({ serverId: projectEnvironments.serverId }).from(projectEnvironments).where(eq(projectEnvironments.id, env!.id));
+    expect(after!.serverId).toBe(id);
+  });
+
   it("rigenerare la chiave porta anche l'ingestUrl", async () => {
     const { id } = await createServerReturning("rigenera-url");
     const res = await app.inject({ method: "POST", url: `/api/servers/${id}/regenerate-key`, headers: { cookie: adminCookie } });

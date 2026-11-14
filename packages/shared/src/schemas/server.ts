@@ -344,7 +344,9 @@ export type ServerDetail = z.infer<typeof serverDetailSchema>;
  */
 export const createServerSchema = z.object({
   name: z.string().min(1).max(255),
-  environment: z.object({ environmentId: z.uuid(), repositoryIds: z.array(z.uuid()).min(1) }).optional(),
+  // `repositoryIds` assente = TUTTE le repository del progetto e l'ambiente
+  // intero (`serverId`), come il form degli ambienti.
+  environment: z.object({ environmentId: z.uuid(), repositoryIds: z.array(z.uuid()).min(1).optional() }).optional(),
 });
 export type CreateServerInput = z.infer<typeof createServerSchema>;
 
