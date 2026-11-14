@@ -386,3 +386,25 @@ describe("my_requests — istanza più vecchia di questo rilascio", () => {
     expect(out).toContain("«Export CSV»");
   });
 });
+
+describe("my_requests — le risposte del team su una richiesta aperta da Claude Code (area 8, F3)", () => {
+  it("le ultime risposte del team sotto la riga della richiesta, senza nomi", async () => {
+    const client = makeClient();
+    client.listBacklog.mockResolvedValue({
+      items: [{ ...fakeItem({ status: "new" }), teamReplies: [{ body: "La mettiamo in pianificazione per novembre.", at: "2026-11-14T10:00:00.000Z" }] }],
+      nextCursor: null,
+    });
+    const res = await tool("my_requests").handler({}, makeCtx(client));
+    expect(text(res)).toContain("Risposte del team:");
+    expect(text(res)).toContain("La mettiamo in pianificazione per novembre.");
+    expect(text(res)).toContain("2026-11-14");
+  });
+
+  it("un server più vecchio (senza `teamReplies`) non rompe niente", async () => {
+    const client = makeClient();
+    client.listBacklog.mockResolvedValue({ items: [fakeItem({ status: "new" })], nextCursor: null });
+    const res = await tool("my_requests").handler({}, makeCtx(client));
+    expect(text(res)).not.toContain("Risposte del team");
+  });
+});
+

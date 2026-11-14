@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import { StubwiseApiError } from "../client.js";
+import { StubwiseApiError, type CreateBacklogItemParams } from "../client.js";
 import { appendNotice } from "../notices.js";
 import { errorResult, resolveProject, runTool, textResult } from "./shared.js";
 import type { ToolContext, ToolDef, ToolResult } from "./types.js";
@@ -223,6 +223,18 @@ const createBacklogItemInput = {
     .describe("Slug del progetto. Se omesso, usa il progetto collegato al repo corrente."),
   title: z.string().min(1).describe("Titolo della voce di backlog."),
   body: z.string().min(1).describe("Contenuto/descrizione della voce di backlog (markdown)."),
+  conversation: z
+    .array(
+      z.object({
+        from: z.enum(["customer", "assistant"]).describe("«customer»: l'utente che chiede; «assistant»: le tue risposte."),
+        text: z.string().min(1).max(4000),
+      }),
+    )
+    .max(100)
+    .optional()
+    .describe(
+      "La conversazione con l'utente che ha portato alla richiesta, in ordine: viene allegata alla richiesta e il team la legge, e può rispondere (l'utente vede le risposte con my_requests). Le sue parole come le ha scritte.",
+    ),
 };
 
 const createBacklogItem: ToolDef = {
@@ -253,10 +265,12 @@ const createBacklogItem: ToolDef = {
       // Istante dell'invio: una voce risultante creata PRIMA vuol dire che
       // l'intake ha fuso la richiesta in una già aperta (vedi `mergedNote`).
       const sentAt = Date.now();
+      const conversation = args.conversation as CreateBacklogItemParams["conversation"];
       const { jobId } = await ctx.client.createBacklogItem({
         projectId: resolved.project.id,
         title: args.title as string,
         body: args.body as string,
+        ...(conversation && conversation.length > 0 ? { conversation } : {}),
       });
 
       const sleep = ctx.sleep ?? realSleep;

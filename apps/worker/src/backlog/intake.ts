@@ -8,6 +8,7 @@ import {
   retrieveChunksForProject,
   projects,
   tickets,
+  widgetConversations,
   widgetMessages,
   users,
   type Db,
@@ -271,13 +272,19 @@ async function createNewItem(
     // Area 8, F3 (S6): il ticket aperto da un widget porta la sua conversazione
     // di Support; la voce che ne nasce la ricorda (la provenienza della
     // richiesta). Solo alla NASCITA: una fusa in una che c'era tiene la sua.
+    // Il canale `mcp`: la conversazione è arrivata con la richiesta, legata al
+    // job d'intake (il payload resta `strict`).
     const [fromWidget] = ticket
       ? await tx
           .select({ conversationId: widgetMessages.conversationId })
           .from(widgetMessages)
           .where(eq(widgetMessages.ticketId, ticket.id))
           .limit(1)
-      : [];
+      : await tx
+          .select({ conversationId: widgetConversations.id })
+          .from(widgetConversations)
+          .where(eq(widgetConversations.intakeJobId, jobId))
+          .limit(1);
     const [inserted] = await tx
       .insert(backlogItems)
       .values({

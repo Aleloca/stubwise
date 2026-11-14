@@ -48,6 +48,13 @@ ALTER TABLE "widget_conversations" ADD COLUMN "channel" text DEFAULT 'widget' NO
 --> statement-breakpoint
 ALTER TABLE "widget_conversations" ADD CONSTRAINT "widget_conversations_channel_chk" CHECK ("channel" in ('widget', 'mcp'));
 --> statement-breakpoint
+-- Il canale `mcp`: la conversazione arriva con la richiesta, e il worker la
+-- ritrova dal job d'intake (il payload del job è `strict`: un campo nuovo lo
+-- farebbe rifiutare a un worker più vecchio).
+ALTER TABLE "widget_conversations" ADD COLUMN "intake_job_id" uuid REFERENCES "backlog_jobs"("id") ON DELETE SET NULL;
+--> statement-breakpoint
+CREATE INDEX "widget_conversations_intake_job_idx" ON "widget_conversations" USING btree ("intake_job_id") WHERE "intake_job_id" IS NOT NULL;
+--> statement-breakpoint
 -- Il giudizio sul triage di una conversazione senza esito (F3-2, G-1): lo dà
 -- il controllo del worker dopo il silenzio (`by_user_id` null) o una persona
 -- con «Non conclusa». Vale finché non arriva un messaggio del cliente più

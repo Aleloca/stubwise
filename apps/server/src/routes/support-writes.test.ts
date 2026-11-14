@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { backlogItemRequesters, backlogItems, googleAccounts, googleWorkspaces, notifications, projects, supportFollowers, widgetConversations, widgetMessages, widgets } from "@stubwise/db";
+import { backlogItemRequesters, backlogItems, backlogJobs, googleAccounts, googleWorkspaces, notifications, projects, supportFollowers, widgetConversations, widgetMessages, widgets } from "@stubwise/db";
 import { seedBacklogItem, seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { SupportConversation } from "@stubwise/shared";
 import { and, eq } from "drizzle-orm";
@@ -269,6 +269,61 @@ describe("S9: «Scrivigli anche per email»", () => {
     const triage = await conversation(projectId);
     await customer(triage.id, 1);
     expect((await draft(dev.headers, triage.code)).json()).toMatchObject({ code: "support_triage" });
+  });
+});
+
+describe("S12: il canale `mcp` (le richieste dal server MCP in modalità collaboratore)", () => {
+  it("POST /api/backlog con la conversazione: una conversazione `mcp` legata al job d'intake, il cliente è chi chiede", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const contributor = await person("contributor", projectId);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/backlog",
+      headers: contributor.headers,
+      payload: {
+        projectId,
+        title: "Export PDF",
+        body: "Vorrei il PDF",
+        conversation: [
+          { from: "customer", text: "Si può avere l'export in PDF?" },
+          { from: "assistant", text: "Oggi c'è solo il CSV." },
+        ],
+      },
+    });
+    expect(res.statusCode, res.body).toBe(202);
+    const { jobId } = res.json() as { jobId: string };
+    const [c] = await t.db.select().from(widgetConversations).where(eq(widgetConversations.intakeJobId, jobId));
+    expect(c).toMatchObject({ channel: "mcp", projectId, externalUserId: `mcp:${contributor.id}`, widgetId: null });
+    const messages = await t.db.select().from(widgetMessages).where(eq(widgetMessages.conversationId, c!.id));
+    expect(messages.map((m) => m.role).sort()).toEqual(["assistant", "user"]);
+    // Il job d'intake non porta campi nuovi (il payload è strict: un worker più vecchio lo rifiuterebbe).
+    const [job] = await t.db.select().from(backlogJobs).where(eq(backlogJobs.id, jobId));
+    expect(Object.keys(job!.payload as object).sort()).toEqual(["body", "requestedByUserId", "title"]);
+  });
+
+  it("senza conversazione come oggi: nessuna conversazione", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const contributor = await person("contributor", projectId);
+    const res = await app.inject({ method: "POST", url: "/api/backlog", headers: contributor.headers, payload: { projectId, title: "x", body: "y" } });
+    const { jobId } = res.json() as { jobId: string };
+    expect(await t.db.select().from(widgetConversations).where(eq(widgetConversations.intakeJobId, jobId))).toEqual([]);
+  });
+
+  it("`mine=true`: le richieste di chi chiede portano le risposte del team (senza autore); senza `mine` no", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const contributor = await person("contributor", projectId);
+    const dev = await person("developer", projectId);
+    const [c] = await t.db.insert(widgetConversations).values({ projectId, externalUserId: `mcp:${contributor.id}`, channel: "mcp" }).returning();
+    const [item] = await t.db.insert(backlogItems).values({ projectId, title: "Export PDF", source: "manual", supportConversationId: c!.id }).returning();
+    await t.db.insert(backlogItemRequesters).values({ itemId: item!.id, userId: contributor.id });
+    await t.db.insert(widgetMessages).values({ conversationId: c!.id, role: "user", content: "Si può?", createdAt: at(1) });
+    await t.db.insert(widgetMessages).values({ conversationId: c!.id, role: "team", content: "Sì, la mettiamo in pianificazione.", authorId: dev.id, createdAt: at(5) });
+    const mine = (await app.inject({ method: "GET", url: "/api/backlog?mine=true", headers: contributor.headers })).json() as { items: { id: string; teamReplies?: unknown }[] };
+    const row = mine.items.find((i) => i.id === item!.id)!;
+    expect(row.teamReplies).toEqual([{ body: "Sì, la mettiamo in pianificazione.", at: at(5).toISOString() }]);
+    expect(JSON.stringify(mine)).not.toContain(dev.id);
+    const all = (await app.inject({ method: "GET", url: `/api/backlog?projectId=${projectId}`, headers: dev.headers })).json() as { items: { id: string; teamReplies?: unknown }[] };
+    expect(all.items.find((i) => i.id === item!.id)!.teamReplies).toEqual([]);
   });
 });
 

@@ -275,6 +275,20 @@ describe("create_backlog_item (polling)", () => {
     expect(firstText(res)).toContain("frontmatter");
   });
 
+  it("area 8, F3: la conversazione si allega alla richiesta (campo facoltativo, inoltrato com'è)", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject({ slug: "acme" }));
+    client.createBacklogItem.mockResolvedValue({ queued: true, jobId: JOB_ID });
+    client.getBacklogJob.mockResolvedValue({ status: "done", resultItemId: ITEM_ID, error: null });
+    const { ctx } = makeCtx(client, { sleep: countingSleep(), pollOptions: { intervalMs: 5, timeoutMs: 10_000 } });
+    const conversation = [
+      { from: "customer", text: "Si può avere il PDF?" },
+      { from: "assistant", text: "Oggi c'è solo il CSV." },
+    ];
+    await tool("create_backlog_item").handler({ project: "acme", title: "Idea", body: "Descrizione", conversation }, ctx);
+    expect(client.createBacklogItem).toHaveBeenCalledWith({ projectId: PROJECT_ID, title: "Idea", body: "Descrizione", conversation });
+  });
+
   it("(b) job 'failed' → messaggio di fallimento con l'errore", async () => {
     const client = makeClient();
     client.getProjectBySlug.mockResolvedValue(fakeProject({ slug: "acme" }));
