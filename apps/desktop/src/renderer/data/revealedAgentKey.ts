@@ -14,8 +14,18 @@ export interface RevealedAgentKey {
 
 const revealed = new Map<string, RevealedAgentKey>();
 
+/**
+ * Quanto la chiave aspetta il pannello che la prende (review F4a, M3): il
+ * pannello la prende subito dopo la scrittura; se non succede (il dialogo è
+ * stato chiuso), non resta in memoria.
+ */
+export const AGENT_KEY_KEPT_MS = 60_000;
+
 export function revealAgentKey(serverCode: string, value: RevealedAgentKey): void {
   revealed.set(serverCode, value);
+  setTimeout(() => {
+    if (revealed.get(serverCode) === value) revealed.delete(serverCode);
+  }, AGENT_KEY_KEPT_MS);
 }
 
 /** La chiave di `serverCode`, una volta sola: dopo non c'è più. */

@@ -240,7 +240,8 @@ export function MetricsCharts({
     const rx = points.map((p) => p.netRxBytes);
     const tx = points.map((p) => p.netTxBytes);
     const netMax = Math.max(1024, ...rx, ...tx) * 1.1;
-    const fmtBytes = (v: number) => bytes(v, lang);
+    // La rete in byte al secondo (review F4a, M2): la scala non cambia con l'intervallo.
+    const fmtBytes = (v: number) => t("servers.charts.perSecond", { value: bytes(v, lang) });
     const netIn = stats(rx, times);
     const netOut = stats(tx, times);
     const samples = metrics.data.check?.samples ?? [];

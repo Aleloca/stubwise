@@ -778,6 +778,8 @@ describe("aree non integrate nella build app", () => {
     await user.click(within(dialog).getByRole("button", { name: /^Create/ }));
     await waitFor(() => expect(calls).toContain("servers.createServer"));
     expect(await screen.findByText(/STUBWISE_SERVER_KEY=sk_/)).toBeInTheDocument();
+    // La chiave è vera: niente nota del prototipo (review F4a, I4).
+    expect(screen.queryByText(/Prototype: this key is made up/)).toBeNull();
     await settle();
     expect(outside()).toEqual([]);
   });

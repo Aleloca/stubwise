@@ -172,6 +172,10 @@ describe("grafici", () => {
       /^Average \d+% · peak \d+% at \d\d:\d\d$/,
     );
     expect(within(charts).getByRole("group", { name: "Memory" })).toHaveTextContent("Alert at 90%");
+    // La rete in byte al secondo (review F4a, M2).
+    expect(within(charts).getByRole("group", { name: "Network" })).toHaveAccessibleDescription(
+      /^In: average [\d.,]+ \w+\/s, peak [\d.,]+ \w+\/s · Out: average [\d.,]+ \w+\/s, peak [\d.,]+ \w+\/s$/,
+    );
     expect(
       within(charts).getByText(/^Showing 300 averaged points of 2,880 samples\.$/),
     ).toBeInTheDocument();

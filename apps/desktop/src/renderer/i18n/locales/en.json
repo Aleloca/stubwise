@@ -9425,7 +9425,13 @@
       "checkError": "Check “{{name}}” is down: {{error}}",
       "checkGone": "A check that no longer exists was down",
       "silentOpen": "The agent hasn't reported since {{time}}",
-      "silentClosed": "The agent stopped reporting at {{time}}"
+      "silentClosed": "The agent stopped reporting at {{time}}",
+      "cpuAbove": "CPU above the threshold",
+      "memoryAbove": "Memory above the threshold",
+      "diskAbove": "Disk above the threshold",
+      "cpuAt": "CPU at {{value}}%",
+      "memoryAt": "Memory at {{value}}%",
+      "diskAt": "Disk at {{value}}%"
     },
     "reasonShort": {
       "cpu": "CPU",
@@ -9506,7 +9512,8 @@
       "summaryAveraged_one": "Average {{avg}} · highest {{count}}-hour average {{peak}} on {{day}}",
       "summaryAveraged_other": "Average {{avg}} · highest {{count}}-hour average {{peak}} on {{day}}",
       "summaryDay": "Average {{avg}} · peak {{peak}} on {{day}}",
-      "summaryLatencyDay": "Average {{avg}} · slowest {{peak}} on {{day}}"
+      "summaryLatencyDay": "Average {{avg}} · slowest {{peak}} on {{day}}",
+      "perSecond": "{{value}}/s"
     },
     "services": {
       "filter": "Filter services",
@@ -9673,7 +9680,8 @@
         "name": "Give the server a name.",
         "environment": "This environment already has a server.",
         "generic": "Couldn't create the server. Try again."
-      }
+      },
+      "keyLost": "The server was created, but its key can't be shown anymore: regenerate it from the settings of {{code}}."
     },
     "key": {
       "readyTitle": "{{code}} is ready for its agent",

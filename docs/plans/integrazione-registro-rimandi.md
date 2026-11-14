@@ -904,6 +904,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     `invalid: serverCode` (lo stesso 422 `server_not_visible` del server);
   - **SSH, analisi, progetto principale, ricerca ⌘K dei server**: spenti
     (F4b, o fuori); le simulazioni restano solo del prototipo.
+  - **Dalla review della F4a** *(O, 46, 14 nov 2026)*, limiti accettati:
+    - M4: le card `monitor.*` di prima, ancorate a un progetto di
+      `server_projects` che ora non vede più il server, aprono la pagina del
+      server in quel progetto, dove il server non c'è più (404 «non
+      esiste»): restano finché non si archiviano;
+    - M5: il link di una card è quello del momento della lettura, e due
+      persone che modificano lo stesso ambiente insieme: vince l'ultima (il
+      PATCH non ha una precondizione di versione).
 - **L'API per i siti** *(M, 14 nov 2026; fetta a sé DOPO la F3)*: il cliente
   segue sul sito che ospita il widget le sue richieste e i suoi ticket.
   Note di 72 per il design:
