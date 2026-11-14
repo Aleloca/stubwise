@@ -74,6 +74,8 @@ function item(overrides: Partial<InboxItem> & Pick<InboxItem, "id">): InboxItem 
     objectGone: false,
     // Area 8, F2: il web non lo legge; c'è perché il tipo lo vuole.
     alertMandatory: null,
+    // Area 8, F4a: idem (il codice del server, per i link dell'app).
+    serverCode: null,
     chat: null,
     automation: null,
     kind: "job.plan_review",

@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { checkSamples, environmentServers, projectEnvironments, repositories, serverEpisodes, serverMetrics, serverProjects, servers, serviceChecks } from "@stubwise/db";
+import { checkSamples, environmentServers, projectEnvironments, repositories, roles, serverEpisodes, serverMetrics, serverProjects, servers, serviceChecks, users } from "@stubwise/db";
 import type { ServerDetail, ServerView } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import type { TestDb } from "@stubwise/db/testing";
@@ -632,5 +632,55 @@ describe("area 8, F4a, S2: la proiezione per l'app", () => {
     expect((await byCode(stranger.headers, `SRV-${db!.number}`)).statusCode).toBe(404);
     expect((await byCode(u.headers, "SRV-999999")).statusCode).toBe(404);
     expect((await byCode(u.headers, "storto")).statusCode).toBe(404);
+  });
+});
+
+// Area 8, F4a, S4: crea un server già in un ambiente, in UNA transazione
+// (monitor.manage più environments.manage in quel progetto); la risposta con
+// la chiave porta l'URL dell'istanza per il comando d'installazione.
+describe("area 8, F4a, S4: crea con un ambiente", () => {
+  async function monitorManager(projectId?: string, preset = "project_lead") {
+    const u = await createUserWithPat(app, `m-${Math.random().toString(16).slice(2, 8)}@acme.com`);
+    const [role] = await testDb.db.insert(roles).values({ name: `mon-${Math.random()}`, scope: "instance", permissions: ["monitor.manage"] }).returning();
+    await testDb.db.update(users).set({ instanceRoleId: role!.id }).where(eq(users.id, u.id));
+    if (projectId) await addMember(app, projectId, u.id, preset);
+    return u;
+  }
+  const count = async () => (await testDb.db.select({ id: servers.id }).from(servers)).length;
+
+  it("con environments.manage: il server nasce già nell'ambiente (per le repository date), con la chiave e l'ingestUrl", async () => {
+    const { projectId, repositoryId } = await seedRepository(testDb.db);
+    const [env] = await testDb.db.insert(projectEnvironments).values({ projectId, name: "produzione", kind: "production" }).returning();
+    const u = await monitorManager(projectId);
+    const res = await app.inject({ method: "POST", url: "/api/servers", headers: u.headers, payload: { name: "nuovo", environment: { environmentId: env!.id, repositoryIds: [repositoryId] } } });
+    expect(res.statusCode, res.body).toBe(201);
+    const body = res.json() as { id: string; key: string; ingestUrl: string; code: string; environments: { environmentId: string }[] };
+    expect(body.key).toMatch(/^sk_/);
+    expect(body.ingestUrl).toBe("https://stubwise.example.com");
+    expect(body.code).toMatch(/^SRV-\d+$/);
+    expect(body.environments.map((e) => e.environmentId)).toEqual([env!.id]);
+    const links = await testDb.db.select().from(environmentServers).where(eq(environmentServers.serverId, body.id));
+    expect(links).toEqual([{ environmentId: env!.id, repositoryId, serverId: body.id }]);
+  });
+
+  it("senza environments.manage in quel progetto: 403; progetto invisibile o ambiente inesistente: 404; repository di un altro progetto: 400 — sempre nessun server", async () => {
+    const { projectId, repositoryId } = await seedRepository(testDb.db);
+    const { repositoryId: foreignRepo } = await seedRepository(testDb.db);
+    const [env] = await testDb.db.insert(projectEnvironments).values({ projectId, name: "staging", kind: "staging" }).returning();
+    const outsider = await monitorManager();
+    const contributor = await monitorManager(projectId, "contributor");
+    const before = await count();
+    const post = (headers: Record<string, string>, environment: object) => app.inject({ method: "POST", url: "/api/servers", headers, payload: { name: "x", environment } });
+    expect((await post(contributor.headers, { environmentId: env!.id, repositoryIds: [repositoryId] })).statusCode).toBe(403);
+    expect((await post(outsider.headers, { environmentId: env!.id, repositoryIds: [repositoryId] })).statusCode).toBe(404);
+    expect((await post({ cookie: adminCookie }, { environmentId: "00000000-0000-4000-8000-000000000000", repositoryIds: [repositoryId] })).statusCode).toBe(404);
+    expect((await post({ cookie: adminCookie }, { environmentId: env!.id, repositoryIds: [foreignRepo] })).statusCode).toBe(400);
+    expect(await count()).toBe(before);
+  });
+
+  it("rigenerare la chiave porta anche l'ingestUrl", async () => {
+    const { id } = await createServerReturning("rigenera-url");
+    const res = await app.inject({ method: "POST", url: `/api/servers/${id}/regenerate-key`, headers: { cookie: adminCookie } });
+    expect(res.json()).toMatchObject({ key: expect.stringMatching(/^sk_/), ingestUrl: "https://stubwise.example.com" });
   });
 });
