@@ -776,11 +776,6 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     `defaultPhone` e `push` — anche con l'App spenta. Le Preferenze mostrano
     l'iscrizione; la riga lo dice con una nota sui motivi obbligatori (lato
     renderer, 94). Le righe SOLO obbligatorie mostrano già il Telefono vero.
-  - **Il Telefono dei «rientrato» nella riga dei server**: `monitor.recovered`
-    e `server.recovered` hanno `defaultPhone` spento, la riga mostra quello
-    di `monitor.alert` (acceso). Senza una scelta salvata un rientro non
-    suona; scritta la riga, tutti i partner la seguono. Come il prototipo;
-    il test di parità lo fissa.
   - **«Annulla» della card e delle Preferenze non è condizionato** a
     `updated_at`, a differenza di quello di Claude: lo fa il client entro i
     pochi secondi del toast, e le righe le scrive solo chi annulla — un

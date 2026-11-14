@@ -134,7 +134,8 @@ export const ALERT_TYPES: readonly AlertType[] = [
     sameRowAs: "server.trouble",
     appDefaultOn: { perm: "monitor.manage" },
   }),
-  row("monitor.recovered", "monitor", "member", "members", false, [], {
+  // Il Telefono della riga anche per i «rientrato» (decisione del maintainer, 14 nov 2026).
+  row("monitor.recovered", "monitor", "member", "members", true, [], {
     sameRowAs: "server.trouble",
     appDefaultOn: { perm: "monitor.manage" },
   }),
@@ -142,7 +143,7 @@ export const ALERT_TYPES: readonly AlertType[] = [
   row("project.brief", "claude", "member", "members", false),
   serverRow("server.trouble", true),
   serverRow("server.down", true, { sameRowAs: "server.trouble" }),
-  serverRow("server.recovered", false, { sameRowAs: "server.trouble" }),
+  serverRow("server.recovered", true, { sameRowAs: "server.trouble" }),
   serverRow("server.diagnosis_ready", true),
 ];
 
