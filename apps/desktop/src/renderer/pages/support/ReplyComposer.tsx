@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { featureIntegrated } from "../../data/integration";
 import {
   useInvalidateSupport,
   useSessionPersonId,
@@ -347,14 +348,17 @@ export function ReplyComposer({
               {t("support.reply.stop")}
             </button>
           ) : (
-            <button
-              type="button"
-              className={quietButton}
-              onClick={() => choose("regenerate")}
-            >
-              <ClaudeMark />
-              {t("support.reply.askClaude")}
-            </button>
+            // La bozza di Claude ha la sua funzione (`support-draft`, S12): spenta, il bottone non c'è.
+            featureIntegrated("support-draft") && (
+              <button
+                type="button"
+                className={quietButton}
+                onClick={() => choose("regenerate")}
+              >
+                <ClaudeMark />
+                {t("support.reply.askClaude")}
+              </button>
+            )
           )}
           <span className="ml-auto flex items-center gap-1">
             {saved && body !== "" && (

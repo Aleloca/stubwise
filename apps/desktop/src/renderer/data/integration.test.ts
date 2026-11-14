@@ -69,6 +69,12 @@ const ALL: IntegrationTarget[] = [
       "releases",
       "releases-repo-settings",
       "releases-explain",
+      "support",
+      "support-draft",
+      "support-email",
+      "support-home",
+      "support-widgets",
+      "support-search",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -100,6 +106,10 @@ describe("isIntegrated", () => {
         "feature:releases",
         "feature:releases-repo-settings",
         "feature:releases-explain",
+        // Area 8, fetta 3: Support (letture e scritture); bozza, email, Home,
+        // widget e ricerca restano spenti finché non hanno le rotte.
+        "projectSection:support",
+        "feature:support",
         "destination:projects",
         "projectSection:tasks",
         "projectSettings:statuses",

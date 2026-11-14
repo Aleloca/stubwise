@@ -50,7 +50,8 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   destination: new Set(["home", "projects", "planning", "filters", "claude", "chat", "drive", "calendar", "mail", "automations"]),
   // Area 5, fetta 1: i Docs del progetto (`docs`, sezione e feature).
   // Area 8, fetta 1: la sezione Releases con le sole PR aperte (`releases-prs`).
-  projectSection: new Set(["overview", "tasks", "requests", "planning", "chat", "docs", "drive", "automations", "releases"]),
+  // Area 8, fetta 3: Support (le conversazioni coi clienti, letture e scritture).
+  projectSection: new Set(["overview", "tasks", "requests", "planning", "chat", "docs", "drive", "automations", "releases", "support"]),
   // Stati e soglie del progetto.
   // Area 8, fetta 1 (46): «Repositories» ridotta al solo blocco «Releases» (`releases-repo-settings`).
   projectSettings: new Set(["statuses", "repositories"]),
@@ -86,6 +87,12 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // (righe e stati dal server), la campanella del progetto e il menu
     // degli avvisi nel pannello. «Don't alert me» dalla card è `alerts-mute`.
     "alerts",
+    // Area 8, fetta 3: Support — elenco, dettaglio, anteprima, risposta, «Segui»,
+    // «Apri la richiesta», «Not concluded». Restano spente, ciascuna con la sua
+    // funzione finché non ha la rotta: la bozza di Claude (`support-draft`,
+    // S12), l'email (`support-email`, S9), la Home (`support-home`, S8), i
+    // widget (`support-widgets`) e la ricerca ⌘K (`support-search`, fuori F3).
+    "support",
     // «Don't alert me about this» dalla card (S6, `POST /api/inbox/:id/mute-type`),
     // con l'«Annulla» nel progetto della card; non su una card arrivata da obbligatorio.
     "alerts-mute",

@@ -418,6 +418,14 @@ const INTEGRATED_CALLS = new Set([
   // Area 8, F1 (`releases-repo-settings`): la sezione «Repositories» ridotta.
   "releases.getRepositorySettings",
   "releases.setRepoPrMode",
+  // Area 8, F3: Support (letture e scritture sulle rotte di 72).
+  "support.listSupportConversations",
+  "support.getSupportConversation",
+  "support.customerPreview",
+  "support.replyToCustomer",
+  "support.followConversation",
+  "support.openRequestFrom",
+  "support.markNotConcluded",
   // Area 8, F2 (R6): le iscrizioni agli avvisi.
   "alerts.subscriptionRows",
   "alerts.setSubscription",
@@ -593,8 +601,8 @@ describe("aree non integrate nella build app", () => {
   });
 
   it("una sezione di progetto non integrata mostra «Coming soon»", async () => {
-    // Dall'area 8 (fetta 1) le Release sono accese con le sole PR: Support non ancora.
-    renderRoute("/p/AUD/support");
+    // Dall'area 8 le Release (fetta 1) e Support (fetta 3) sono accesi: Servers non ancora.
+    renderRoute("/p/AUD/servers");
     expect(await screen.findByText("Coming soon")).toBeInTheDocument();
     await settle();
     expect(outside()).toEqual([]);
@@ -638,6 +646,33 @@ describe("aree non integrate nella build app", () => {
       await screen.findByRole("heading", { level: 1, name: "Notifications" }),
     ).toBeInTheDocument();
     await waitFor(() => expect(calls).toContain("alerts.subscriptionRows"));
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 8, F3: Support acceso (letture e scritture). Bozza di Claude, email,
+  // Home, widget e ricerca hanno le loro funzioni, spente finché non ci sono le rotte.
+  it("aprire Support legge solo chiamate integrate, senza le parti che non hanno rotte", async () => {
+    const user = userEvent.setup();
+    signedInAs("p-matteo");
+    renderRoute("/p/ACQ/support/ACQ-S2");
+    const detail = await waitFor(
+      () => {
+        const el = document.querySelector<HTMLElement>('[data-support-detail="ACQ-S2"]');
+        if (!el) throw new Error("no detail");
+        return el;
+      },
+      { timeout: 3000 },
+    );
+    await waitFor(() => expect(calls).toContain("support.getSupportConversation"));
+    await waitFor(() => expect(calls).toContain("support.listSupportConversations"));
+    // La casella c'è (si risponde), ma senza «Ask Claude» (S12) né l'email (S9).
+    expect(await within(detail).findByRole("form", { name: /^Reply to / })).toBeInTheDocument();
+    expect(within(detail).queryByRole("button", { name: /^Ask Claude/ })).toBeNull();
+    expect(within(detail).queryByRole("button", { name: "Write to them by email" })).toBeNull();
+    // Nessuna simulazione del prototipo nel menu.
+    await user.click(within(detail).getByRole("button", { name: "More actions" }));
+    expect(screen.queryByRole("menuitem", { name: /^Simulate/ })).toBeNull();
     await settle();
     expect(outside()).toEqual([]);
   });

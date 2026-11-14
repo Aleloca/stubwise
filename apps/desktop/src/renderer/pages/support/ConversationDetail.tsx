@@ -1,6 +1,8 @@
 import { useNavigate } from "@tanstack/react-router";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { isAppBuild } from "../../data/build";
+import { featureIntegrated } from "../../data/integration";
 import {
   useEmailDraftFor,
   useFollowConversation,
@@ -78,6 +80,14 @@ function useWriteByEmail() {
     }
   };
 }
+
+/**
+ * Perché «Write to them by email» non c'è: quello del server, oppure la
+ * funzione spenta (`support-email`, area 8 F3: finché non c'è la rotta S9)
+ * come chi non ha il permesso, cioè nessuna voce.
+ */
+const emailBlockedOf = (conv: SupportConversationView): SupportConversationView["emailBlocked"] =>
+  featureIntegrated("support-email") ? conv.emailBlocked : "no_permission";
 
 /** Il cliente non è più sul sito: da quando, se è passato abbastanza. */
 function awaySince(conv: SupportConversationView, nowIso: string): string | null {
@@ -187,7 +197,7 @@ function Header({
                 >
                   {t("support.detail.copyLink")}
                 </button>
-                {conv.emailBlocked === null && (
+                {emailBlockedOf(conv) === null && (
                   <button
                     type="button"
                     role="menuitem"
@@ -198,7 +208,7 @@ function Header({
                     {t("support.detail.writeEmail")}
                   </button>
                 )}
-                {conv.emailBlocked !== null && conv.emailBlocked !== "no_permission" && (
+                {emailBlockedOf(conv) !== null && emailBlockedOf(conv) !== "no_permission" && (
                   <>
                     <button
                       type="button"
@@ -210,54 +220,57 @@ function Header({
                       {t("support.detail.writeEmail")}
                     </button>
                     <MenuNote>
-                      {conv.emailBlocked === "no_email"
+                      {emailBlockedOf(conv) === "no_email"
                         ? t("support.reply.noEmail")
-                        : conv.emailBlocked === "triage"
+                        : emailBlockedOf(conv) === "triage"
                           ? t("support.reply.noEmailTriage")
                           : t("support.reply.noMailbox")}
                     </MenuNote>
                   </>
                 )}
               </MenuGroup>
-              <MenuGroup label={t("support.detail.prototype")}>
-                <button
-                  type="button"
-                  role="menuitem"
-                  tabIndex={-1}
-                  className={itemClass}
-                  onClick={() => {
-                    close();
-                    message.mutate(
-                      { code: conv.code, body: t("support.detail.simulatedText") },
-                      { onError: failed },
-                    );
-                  }}
-                >
-                  {t("support.detail.simulateMessage")}
-                </button>
-                {conv.state === "triage" && (
-                  <>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      tabIndex={-1}
-                      className={itemClass}
-                      onClick={() => (close(), leaves.mutate(conv.code, { onError: failed }))}
-                    >
-                      {t("support.detail.simulateLeaves")}
-                    </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      tabIndex={-1}
-                      className={itemClass}
-                      onClick={() => (close(), triage.mutate(conv.code, { onError: failed }))}
-                    >
-                      {t("support.detail.simulateTriage")}
-                    </button>
-                  </>
-                )}
-              </MenuGroup>
+              {/* Le simulazioni del cliente sono solo del prototipo (area 8, F3). */}
+              {!isAppBuild() && (
+                <MenuGroup label={t("support.detail.prototype")}>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    tabIndex={-1}
+                    className={itemClass}
+                    onClick={() => {
+                      close();
+                      message.mutate(
+                        { code: conv.code, body: t("support.detail.simulatedText") },
+                        { onError: failed },
+                      );
+                    }}
+                  >
+                    {t("support.detail.simulateMessage")}
+                  </button>
+                  {conv.state === "triage" && (
+                    <>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        tabIndex={-1}
+                        className={itemClass}
+                        onClick={() => (close(), leaves.mutate(conv.code, { onError: failed }))}
+                      >
+                        {t("support.detail.simulateLeaves")}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        tabIndex={-1}
+                        className={itemClass}
+                        onClick={() => (close(), triage.mutate(conv.code, { onError: failed }))}
+                      >
+                        {t("support.detail.simulateTriage")}
+                      </button>
+                    </>
+                  )}
+                </MenuGroup>
+              )}
             </>
           )}
         </MenuButton>
@@ -357,7 +370,7 @@ export function ConversationDetail({
     ) : (
       <div className="flex flex-col gap-1 text-xs text-ink-muted">
         {away && <p>{t("support.reply.lastSeen", { name, time: ago(away, t, i18n.language) })}</p>}
-        {conv.emailBlocked === null && (
+        {emailBlockedOf(conv) === null && (
           <p>
             <button
               type="button"
@@ -368,7 +381,7 @@ export function ConversationDetail({
             </button>
           </p>
         )}
-        {conv.emailBlocked === "no_mailbox" && (
+        {emailBlockedOf(conv) === "no_mailbox" && (
           <p>
             {t("support.reply.noMailbox")} ·{" "}
             <button
