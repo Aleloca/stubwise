@@ -13,8 +13,10 @@ import { defaultApplies, type AlertType, type MandatoryReason } from "@stubwise/
  *   l'esserne membri) e l'iscrizione è accesa — la riga di
  *   `alert_subscriptions`, o senza riga il default del catalogo dai permessi
  *   di adesso (`appDefaultOn ?? defaultOn`, più `defaultForFullAdmins`);
- * - il Telefono (push): la riga, o `defaultPhone`. Per i tipi del catalogo
- *   SOSTITUISCE l'interruttore `push` della persona (M-2 = b).
+ * - il Telefono (push): la riga, che per i tipi del catalogo SOSTITUISCE
+ *   l'interruttore `push` della persona (M-2 = b); SENZA riga, `defaultPhone`
+ *   E l'interruttore `push` di oggi (`pushPreference`), così il giorno del
+ *   deploy nessuno con `push` spento riceve un telefono nuovo (46).
  * Tutti dentro chi VEDE il progetto (`members`).
  */
 export interface CatalogRecipientsContext {
@@ -28,6 +30,8 @@ export interface CatalogRecipientsContext {
   subscriptions: ReadonlyMap<string, { app: boolean; phone: boolean }>;
   /** I destinatari obbligatori, coi loro motivi. */
   mandatory: readonly { userId: string; reason: MandatoryReason }[];
+  /** L'interruttore `push` di oggi della persona: vale SOLO senza una riga d'iscrizione. */
+  pushPreference: (userId: string) => boolean;
 }
 
 export interface CatalogRecipients {
@@ -50,9 +54,10 @@ export function catalogRecipients(type: AlertType, ctx: CatalogRecipientsContext
     if (wantsPhone) phone.add(userId);
   };
   // Gli obbligatori, sempre (solo i motivi che il tipo prevede).
+  const defaultPhone = (userId: string) => type.defaultPhone && ctx.pushPreference(userId);
   for (const m of ctx.mandatory) {
     if (!type.mandatory.includes(m.reason)) continue;
-    add(m.userId, ctx.subscriptions.get(m.userId)?.phone ?? type.defaultPhone);
+    add(m.userId, ctx.subscriptions.get(m.userId)?.phone ?? defaultPhone(m.userId));
     if (app.includes(m.userId) && !mandatory.has(m.userId)) mandatory.set(m.userId, m.reason);
   }
   if (type.mandatoryOnly) return { app, phone, mandatory };
@@ -64,7 +69,7 @@ export function catalogRecipients(type: AlertType, ctx: CatalogRecipientsContext
     const on = sub
       ? sub.app
       : defaultApplies(rule, (perm) => ctx.holds(userId, perm)) || (type.defaultForFullAdmins === true && ctx.fullAdmins.has(userId));
-    if (on) add(userId, sub ? sub.phone : type.defaultPhone);
+    if (on) add(userId, sub ? sub.phone : defaultPhone(userId));
   }
   return { app, phone, mandatory };
 }

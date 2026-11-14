@@ -67,6 +67,7 @@ import { taskRoutes } from "./routes/tasks.js";
 import { dayArrangementRoutes } from "./routes/day-arrangements.js";
 import { filterRoutes } from "./routes/filters.js";
 import { homeRoutes } from "./routes/home.js";
+import { alertSubscriptionRoutes } from "./routes/alert-subscriptions.js";
 import { requestRoutes } from "./routes/requests.js";
 import { overviewRoutes } from "./routes/overview.js";
 import { projectRequestRoutes } from "./routes/project-requests.js";
@@ -759,6 +760,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(dayArrangementRoutes, { prefix: "/api" });
   void app.register(filterRoutes, { prefix: "/api" });
   void app.register(homeRoutes, { prefix: "/api" });
+  // Area 8, F2: le iscrizioni agli avvisi del catalogo.
+  void app.register(alertSubscriptionRoutes, { prefix: "/api" });
   void app.register(requestRoutes, { prefix: "/api" });
   void app.register(overviewRoutes, { prefix: "/api" });
   void app.register(projectRequestRoutes, { prefix: "/api" });

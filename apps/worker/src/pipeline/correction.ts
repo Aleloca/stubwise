@@ -23,6 +23,7 @@ import {
   promotePendingForTicket,
   providerFeedbackCutoff,
   colleagueCorrectionPermitted,
+  publishNotification,
   resolveProviderUserId,
   resolveReviewAccountWithCredentials,
   selectProviderFeedback,
@@ -43,6 +44,7 @@ import {
 } from "@stubwise/shared";
 import { and, count, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import { commitAuthorEmail, prAuthorMandatory } from "../review/pr-author.js";
 import {
   AgentRunCancelledError,
   AgentRunError,
@@ -1027,6 +1029,9 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
   // `as`: TS non vede l'assegnazione dentro la callback e lo restringerebbe a
   // `null` nel catch.
   let pushed = null as Pushed | null;
+  // Area 8, F2 (S4): l'autore dell'ultimo commit del collega PRIMA della
+  // correzione (`startSha`), per l'obbligatorio `pr_author` di `pr.corrected`.
+  let prAuthorEmail = null as string | null;
   // Nessun commit dell'agente: la head del worktree dev'essere ancora quella di
   // partenza prima di ogni stage/commit di Stubwise (e dopo ogni run). Un
   // commit dell'agente sfuggirebbe altrimenti al rilevamento delle modifiche
@@ -1273,6 +1278,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
           const testStatus = loop.testStatusByRepo.get(state.prepared.repositoryId) ?? "skipped";
           // «Annulla il lavoro» arrivato a CLI già uscito: niente push sulla PR.
           assertNotCancelled(deps.cancelSignal);
+          if (adopted) prAuthorEmail = await commitAuthorEmail(state.dir, startSha ?? "HEAD");
           // MAI --force: un rifiuto è PushRejectedError, gestito sotto.
           await mirrors.pushBranch(mirrorProject, branch, adoptedOpt);
           pushed = { report, agentOutput: loop.output, testStatus, headSha, prFiles };
@@ -1568,6 +1574,41 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     // controllo pre-push: il push c'è stato, ma la PR non si corregge più — né
     // promozione né review (la riga di log l'ha scritta closeJobAndCorrection).
     if (!correctionDone) return "pushed";
+
+    // Area 8, F2 (S4): `pr.corrected` — Claude ha spinto una correzione sul
+    // ramo di una PR di un COLLEGA (o adottata), una volta per correzione.
+    // Solo obbligatorio (`mandatoryOnly`): l'autore collegato della PR.
+    // Best-effort, prima dell'accodamento della review (l'ultimo passo).
+    if (adopted) {
+      try {
+        const [rev] = await db
+          .select({ title: prReviews.prTitle })
+          .from(prReviews)
+          .where(and(eq(prReviews.repositoryId, correction!.repositoryId), eq(prReviews.prNumber, correction!.prNumber)))
+          .orderBy(desc(prReviews.createdAt))
+          .limit(1);
+        const [proj] = await db.select({ code: projects.code }).from(projects).where(eq(projects.id, row!.repository.projectId));
+        const base = (deps.publicUrl ?? "").replace(/\/+$/, "");
+        await (deps.publish ?? publishNotification)(
+          db,
+          {
+            kind: "pr.corrected",
+            projectId: row!.repository.projectId,
+            repositoryName: row!.repository.name,
+            prNumber: correction!.prNumber,
+            prUrl,
+            title: rev?.title ?? ticket!.title,
+            url: `${base}/app/#/p/${proj?.code ?? ""}/releases?pr=${correction!.repositoryId}%23${correction!.prNumber}`,
+          },
+          {
+            projectId: row!.repository.projectId,
+            mandatory: await prAuthorMandatory(db, { projectId: row!.repository.projectId, ticketNumber: ticket!.number, branch, headAuthorEmail: prAuthorEmail }),
+          },
+        );
+      } catch (err) {
+        await logLine(`avviso pr.corrected non pubblicato (${err instanceof Error ? err.message : String(err)})`);
+      }
+    }
 
     // Dopo il push: prima le richieste umane in attesa del ticket; poi la review
     // di QUESTA PR, se non ha una correzione aperta. Sulla head ATTUALE del

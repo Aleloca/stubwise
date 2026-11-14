@@ -120,7 +120,8 @@ export async function recordRelease(db: Db, input: RecordReleaseInput): Promise<
           releaseId: row.id,
           releaseCode: code,
           title: input.title,
-          url: base ? `${base}/app/#/p/${repo.projectCode}/releases/${code}` : "",
+          // Senza radice pubblica il link resta RELATIVO (`/app/#/…`): l'app lo apre lo stesso (94).
+          url: `${base}/app/#/p/${repo.projectCode}/releases/${code}`,
         },
         { projectId: repo.projectId },
       );

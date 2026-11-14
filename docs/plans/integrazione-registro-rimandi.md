@@ -756,6 +756,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     tipare sui permessi veri e il restringimento del prototipo
     (`domain/alerts/catalog.ts`) sparisce.
 
+- F2, S4, limite accettato *(O, 46, 14 nov 2026)*: l'obbligatorio
+  `pr_author` di `pr.analysis_issues` e `pr.corrected` si risolve per una PR
+  di Stubwise dall'autore della task, per la PR di un collega dall'email git
+  del commit collegata a un membro (`git_identities`). Nessun login della
+  piattaforma è legato a un utente: un collega la cui email git non è in
+  `git_identities` non riceve nulla da obbligatorio, solo per iscrizione
+  (`pr.corrected`, solo obbligatorio, non gli arriva affatto).
+
 - Blocchi della Home «Rilasci» (anche l'extra di `resolveHome` per
   `release.merge`) e «Clienti in attesa».
 - Origine di una richiesta da Support; «View conversation» delle task del widget.

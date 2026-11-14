@@ -19,6 +19,7 @@ import { createMeEndpoints } from "./endpoints/me.js";
 import { createChatEndpoints } from "./endpoints/chat.js";
 import { createDriveEndpoints } from "./endpoints/drive.js";
 import { createEnvironmentEndpoints, createReleaseEndpoints } from "./endpoints/releases.js";
+import { createAlertEndpoints } from "./endpoints/alerts.js";
 import { createAutomationEndpoints, createAutomationSourceEndpoints, createClientLinkEndpoints } from "./endpoints/automations.js";
 import { createGoogleEndpoints } from "./endpoints/google.js";
 import { createClaudeEndpoints } from "./endpoints/claude.js";
@@ -171,6 +172,8 @@ export function createEndpoints(request: ApiRequest) {
     // Area 8, F1: i rilasci, le PR aperte, la Home «Rilasci», gli ambienti per repository.
     releases: createReleaseEndpoints(request),
     environments: createEnvironmentEndpoints(request),
+    // Area 8, F2: le iscrizioni agli avvisi.
+    alerts: createAlertEndpoints(request),
   };
 }
 

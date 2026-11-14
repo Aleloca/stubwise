@@ -154,6 +154,17 @@ export const ALERT_TYPES: readonly AlertType[] = [
  */
 export const LIVE_ALERT_TYPES: readonly string[] = [
   "release.failed",
+  // Area 8, F2, S4 (72): i produttori ci sono (alla nascita e alla riuscita del rilascio).
+  "release.merged",
+  "release.succeeded",
+  // Area 8, F2, S4 (72): il webhook di una PR aperta.
+  "pr.opened",
+  // Area 8, F2, S4 (72): la nota di rilascio del giro notturno.
+  "docs.release_note",
+  // Area 8, F2, S4 (72): la review che chiede modifiche.
+  "pr.analysis_issues",
+  // Area 8, F2, S4 (72): una correzione spinta sul ramo di un collega.
+  "pr.corrected",
   "monitor.alert",
   "monitor.recovered",
 ];

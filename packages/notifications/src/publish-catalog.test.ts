@@ -123,6 +123,19 @@ describe("avvisi del catalogo alla pubblicazione (area 8, F2)", () => {
     expect(owners).toEqual([off]);
   });
 
+  it("46: il giorno del deploy chi ha `push` spento e nessuna riga NON riceve un telefono nuovo per release.failed", async () => {
+    const { projectId } = await seedRepository(db);
+    const quiet = await person({ notifyPush: false, device: true });
+    const loud = await person({ notifyPush: true, device: true });
+    await join(quiet, projectId, "project_lead");
+    await join(loud, projectId, "project_lead");
+    await publishNotification(db, failed(projectId), { projectId });
+    const pushed = await deliveriesOf("push");
+    const owners = (await db.select({ userId: notifications.userId }).from(notifications).where(inArray(notifications.id, pushed.map((d) => d.notificationId!)))).map((r) => r.userId);
+    expect(owners).toEqual([loud]);
+    expect(await cardsOf("release.failed")).toEqual([quiet, loud].sort());
+  });
+
   it("spegnere vale per il futuro; un obbligatorio arriva anche spento", async () => {
     const s = await scenario();
     await publishNotification(db, failed(s.projectId), { projectId: s.projectId });
@@ -139,11 +152,20 @@ describe("avvisi del catalogo alla pubblicazione (area 8, F2)", () => {
     expect(last.filter((n) => n.userId === s.admin).every((n) => (n.event as { alertMandatory?: string }).alertMandatory === undefined)).toBe(true);
   });
 
-  it("un tipo non ancora vivo (non in LIVE_ALERT_TYPES) resta sul routing di oggi", async () => {
+  it("un tipo non ancora vivo (non in LIVE_ALERT_TYPES) resta sul routing di oggi; uno vivo spento di partenza va a chi si è iscritto", async () => {
     const s = await scenario();
+    // `docs.nightly_attention` è nel catalogo ma resta sul routing di oggi (S-4).
+    await db.insert(alertSubscriptions).values({ userId: s.viewer, projectId: s.projectId, alertType: "docs.nightly_attention", app: true, phone: false });
+    await publishNotification(
+      db,
+      { kind: "docs.nightly_attention", reason: "item_failing", repositoryId: randomUUID(), repositoryName: "web", projectId: s.projectId, projectName: "P", night: "2026-11-13", docsUrl: "u" },
+      { projectId: s.projectId },
+    );
+    expect(await cardsOf("docs.nightly_attention")).not.toContain(s.viewer);
+    // `release.merged` è vivo e spento di partenza: solo chi si iscrive.
     await db.insert(alertSubscriptions).values({ userId: s.viewer, projectId: s.projectId, alertType: "release.merged", app: true, phone: false });
     await publishNotification(db, { kind: "release.merged", projectId: s.projectId, releaseId: randomUUID(), releaseCode: "ACQ-V2", title: "x", url: "u" }, { projectId: s.projectId });
-    expect(await cardsOf("release.merged")).not.toContain(s.viewer);
+    expect(await cardsOf("release.merged")).toEqual([s.viewer]);
   });
 
   it("la revoca a lettura: chi perde `subscribe.perm` (repos.view) non vede la card, la rivede se torna; chi l'ha avuta da obbligatorio la vede", async () => {

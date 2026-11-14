@@ -17,6 +17,7 @@ import {
   ticketRepositories,
   tickets,
   type Db,
+  gitIdentities,
   users,
 } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
@@ -2167,6 +2168,36 @@ describe("runCorrection su una PR ADOTTATA (6 ott 2026)", () => {
     expect(jobAfter!.error).toContain(text);
     // Nessuna review di una head che non è più quella giusta.
     expect(await testDb.db.select().from(prReviewJobs)).toHaveLength(0);
+  });
+
+  it("area 8, F2, S4: una correzione sulla PR di STUBWISE non pubblica `pr.corrected` (è solo per i rami dei colleghi)", async () => {
+    const f = await makeFixture();
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f), trigger: "stubwise" });
+    const dispatched: NotificationEvent[] = [];
+    expect(await runCorrection(makeDeps(f, applyingRunner(f), makeProvider(), dispatched), job)).toBe("pushed");
+    expect(dispatched.map((e) => e.kind)).not.toContain("pr.corrected");
+  });
+
+  it("area 8, F2, S4: una correzione spinta sul ramo del collega pubblica `pr.corrected`, coll'autore del commit (collegato) obbligatorio", async () => {
+    const f = await makeFixture({ branch: ADOPTED, adopted: true });
+    const [colleague] = await testDb.db.insert(users).values({ email: `c-${randomUUID()}@x.it`, passwordHash: "x", role: "member" }).returning();
+    // I commit della fixture sono di `seed@example.com` (SEED): è il collega.
+    await testDb.db.insert(gitIdentities).values({ userId: colleague!.id, email: "seed@example.com" }).onConflictDoNothing();
+    const { job } = await seedCorrection(f, { reviewId: await seedReview(f), trigger: "stubwise" });
+    const provider = makeProvider();
+    provider.getPullRequestInfo.mockResolvedValue({ state: "open", sourceBranch: ADOPTED, targetBranch: "main", headSha: f.prSha, fromFork: false });
+    const calls: { event: NotificationEvent; opts: unknown }[] = [];
+    const deps = makeDeps(f, applyingRunner(f), provider, [], {
+      publish: (async (_db: Db, event: NotificationEvent, opts: unknown) => {
+        calls.push({ event, opts });
+        return { published: 1, notificationIds: [] };
+      }) as never,
+    });
+    expect(await runCorrection(deps, job)).toBe("pushed");
+    const corrected = calls.filter((c) => c.event.kind === "pr.corrected");
+    expect(corrected).toHaveLength(1);
+    expect(corrected[0]!.event).toMatchObject({ prNumber: 12, url: expect.stringMatching(new RegExp(`/app/#/p/[A-Z0-9]+/releases\\?pr=${f.repositoryId}%2312$`)) });
+    expect(corrected[0]!.opts).toMatchObject({ mandatory: [{ userId: colleague!.id, reason: "pr_author" }] });
   });
 
   describe("area 8, F1, S8: l'impostazione delle PR dei colleghi e il ramo di rilascio, ricontrollati", () => {
