@@ -136,8 +136,8 @@ describe("il registro delle modifiche del 9b", () => {
     for (const t of INSTANCE_CHANGE_TYPES)
       expect(t.scope, t.kind).toBe(t.group === "queue" ? "project" : "instance");
     expect(INSTANCE_CHANGE_TYPES.map((t) => t.kind)).toContain("webhook.changed");
-    // ai 9, integrations 16, servers 7, queue 3.
-    expect(INSTANCE_CHANGE_TYPES).toHaveLength(35);
+    // ai 10 (R0-C: i tetti dell'analisi dei server), integrations 16, servers 7, queue 3.
+    expect(INSTANCE_CHANGE_TYPES).toHaveLength(36);
   });
 
   /** Una voce per tipo, scritta come la scriveranno i Task 3–7. */

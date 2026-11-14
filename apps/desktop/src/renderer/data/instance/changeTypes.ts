@@ -56,6 +56,7 @@ export const INSTANCE_CHANGE_TYPES: readonly ChangeType[] = [
   aiSettings("automation.changed"),
   aiSettings("budget.changed"),
   aiSettings("content_language.changed"),
+  aiSettings("server_analysis.changed"),
   git("git_account.created"),
   git("git_account.updated"),
   git("git_account.token_replaced"),

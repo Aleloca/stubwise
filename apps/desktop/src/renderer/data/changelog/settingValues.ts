@@ -115,6 +115,9 @@ export const SETTING_KINDS: Readonly<Record<string, SettingValue["type"]>> = {
   "model.changed": "model",
   "budget.changed": "budget",
   "content_language.changed": "language",
+  // R0-C: i tetti dell'analisi dei server (`analysisEnabled`, `maxMinutes`,
+  // `maxCostUsd`, `maxAgentReads`, `maxSshReads`).
+  "server_analysis.changed": "fields",
   "automation.changed": "automation",
   "git_account.updated": "fields",
   "google_app.updated": "fields",

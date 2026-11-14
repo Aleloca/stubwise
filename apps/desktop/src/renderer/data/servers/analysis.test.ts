@@ -6,7 +6,7 @@ import {
   type AlertType,
 } from "../../domain/alerts/catalog";
 import { inClosedSet } from "../../domain/servers/commands";
-import { ANALYSIS_MAX_COST_USD, ANALYSIS_MAX_MINUTES } from "../../domain/servers/limits";
+import { serverAnalysisLimitsSchema } from "@stubwise/shared";
 import { whyReceives } from "../alerts/visibility";
 import {
   alerts,
@@ -25,6 +25,7 @@ import type { AppNotification, ConversationEvent, ServerAnalysis } from "../type
 import { raiseEpisode, whenAnalysesIdle } from "./analysis";
 
 const ACQ = "prj-acq";
+const LIMITS = serverAnalysisLimitsSchema.parse({});
 const as = (personId: string) => setSessionPersonId(personId);
 const message = (p: Promise<unknown>) =>
   p.then(
@@ -95,9 +96,10 @@ describe("allarme con l'accesso di lettura: l'analisi apre la task", () => {
       taskId: a.taskId,
       state: "finished",
       outcome: "ok",
-      analysisLimits: { maxMinutes: ANALYSIS_MAX_MINUTES, maxCostUsd: ANALYSIS_MAX_COST_USD },
+      // I tetti di base di Amministrazione → AI (R0-C): quelli di shared.
+      analysisLimits: { maxMinutes: LIMITS.maxMinutes, maxCostUsd: LIMITS.maxCostUsd },
     });
-    expect(c.usage![0]!.costUsd).toBeLessThanOrEqual(ANALYSIS_MAX_COST_USD);
+    expect(c.usage![0]!.costUsd).toBeLessThanOrEqual(LIMITS.maxCostUsd);
     // Le letture degli insiemi chiusi (F4b): via SSH l'argv fisso di
     // `SSH_READS`, i log del container via AGENTE (le operazioni di SRV-1
     // sono accese), mai `sudo docker` via SSH.
@@ -148,7 +150,9 @@ describe("allarme con l'accesso di lettura: l'analisi apre la task", () => {
     expect(a.outcome).toBe("timed_out");
     expect(sessionOf(a)).toMatchObject({ state: "finished", outcome: "timed_out" });
     expect(actionsOf(a.conversationId).length).toBeLessThan(5);
-    expect(taskOf(a).description).toMatch(/Partial diagnosis.*20 minutes/);
+    expect(taskOf(a).description).toMatch(
+      new RegExp(`Partial diagnosis.*${LIMITS.maxMinutes} minutes`),
+    );
   });
 });
 

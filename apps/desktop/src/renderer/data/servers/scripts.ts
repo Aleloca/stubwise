@@ -1,7 +1,6 @@
 import type { AttributionInput } from "@stubwise/shared";
 import { utterance } from "../../domain/claude/answers";
 import { commandInput, truncateOutput } from "../../domain/servers/commands";
-import { ANALYSIS_MAX_MINUTES } from "../../domain/servers/limits";
 import i18n from "../../i18n";
 import { state } from "../store";
 import type {
@@ -482,13 +481,17 @@ export function lookDiagnosisOf(s: MonitoredServer): AnalysisDiagnosis {
 }
 
 /** L'apertura della sessione: la fase d'analisi e che cosa Claude va a guardare. */
-export function openingSteps(s: MonitoredServer, episode: ServerEpisode): ScriptStep[] {
+export function openingSteps(
+  s: MonitoredServer,
+  episode: ServerEpisode,
+  maxMinutes: number,
+): ScriptStep[] {
   return [
     { step: "event", event: { type: "phase", phase: "analysis", outcome: null } },
     { step: "state", state: "working" },
     {
       step: "say",
-      text: `${s.name}: ${reasonsPhrase(episode.reasons)}. Looking into it with the read-only access (at most ${ANALYSIS_MAX_MINUTES} minutes).`,
+      text: `${s.name}: ${reasonsPhrase(episode.reasons)}. Looking into it with the read-only access (at most ${maxMinutes} minutes).`,
     },
   ];
 }

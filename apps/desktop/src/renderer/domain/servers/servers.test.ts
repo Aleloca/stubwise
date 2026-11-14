@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CheckSample, MetricPoint, ProjectEnvironment } from "../../data/model";
-import {
-  ANALYSIS_MAX_COST_USD,
-  ANALYSIS_MAX_MINUTES,
-  COMMAND_OUTPUT_MAX_LINES,
-  METRIC_POINTS_MAX,
-  RECOVERED_SHOWN_HOURS,
-} from "./limits";
+import { COMMAND_OUTPUT_MAX_LINES, METRIC_POINTS_MAX, RECOVERED_SHOWN_HOURS } from "./limits";
 import { downsample, downsampleSamples } from "./metrics";
 import { alertProjectsOf, serverProjectsOf } from "./projects";
 
@@ -15,8 +9,6 @@ import { alertProjectsOf, serverProjectsOf } from "./projects";
 
 describe("limiti", () => {
   it("sono quelli del piano", () => {
-    expect(ANALYSIS_MAX_MINUTES).toBe(20);
-    expect(ANALYSIS_MAX_COST_USD).toBe(2);
     expect(COMMAND_OUTPUT_MAX_LINES).toBe(40);
     expect(RECOVERED_SHOWN_HOURS).toBe(24);
     expect(METRIC_POINTS_MAX).toBe(300);

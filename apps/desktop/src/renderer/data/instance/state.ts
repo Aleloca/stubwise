@@ -1,4 +1,4 @@
-import type { AiModelChoice, AiOperation } from "@stubwise/shared";
+import type { AiModelChoice, AiOperation, ServerAnalysisLimits } from "@stubwise/shared";
 import type { TaskType } from "../model";
 
 // Lo stato d'istanza dell'area 9b (Amministrazione → istanza): i provider
@@ -136,6 +136,8 @@ export interface InstanceState {
     prReview: { enabled: boolean; maxCostUsd: number | null };
   };
   budget: { monthlyUsd: number | null; contentLanguage: "en" | "it" };
+  /** I tetti dell'analisi dei server (area 8, F4b, R0-C): la forma di `@stubwise/shared`. */
+  serverAnalysis: ServerAnalysisLimits;
   gitAccounts: GitAccount[];
   plugins: RegisteredPlugin[];
   storage: StorageSettings;

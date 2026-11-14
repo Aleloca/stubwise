@@ -203,6 +203,12 @@ export function NowBox({ server }: { server: ServerDetail }) {
         )}
       {/* Col budget raggiunto all'allarme l'analisi non è partita: lo si dice,
           col «Who?» di chi alza il budget (shape EF, revisione finale M4). */}
+      {/* L'analisi spenta in Amministrazione → AI all'allarme (R0-C). */}
+      {open?.analysisBlocked === "disabled" && !open.analysis && (
+        <p data-analysis-off className="text-md text-pretty text-ink">
+          {t("servers.now.analysisOff")}
+        </p>
+      )}
       {open?.analysisBlocked === "monthly_budget" && !open.analysis && budgetNow && (
         <p data-ai-block="monthly_budget" className="text-md text-pretty text-ink">
           <WithWho text={t("servers.now.noBudget")} />

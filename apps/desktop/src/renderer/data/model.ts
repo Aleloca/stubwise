@@ -3461,7 +3461,7 @@ export interface ServerEpisode {
    * mese raggiunto all'apertura dell'episodio. Il riquadro «Now» lo dice;
    * l'analisi non riparte da sola quando il budget torna.
    */
-  analysisBlocked?: "monthly_budget" | null;
+  analysisBlocked?: "monthly_budget" | "disabled" | null;
 }
 
 /** L'analisi automatica di un episodio, in sola lettura: una sessione e, alla fine, una task. */
@@ -3485,6 +3485,11 @@ export interface ServerAnalysis {
   episodeId: string | null;
   /** Chi l'ha chiesta a mano («Ask Claude to look into it»); `null`/assente = all'allarme. */
   startedBy?: string | null;
+  /**
+   * I tetti con cui è partita (R0-C, Amministrazione → AI): un cambio dopo
+   * non la tocca. Assenti (il seme): i default di `@stubwise/shared`.
+   */
+  limits?: { maxMinutes: number; maxCostUsd: number; maxAgentReads: number; maxSshReads: number };
   conversationId: string;
   /**
    * Scritta a fine analisi; `null` mentre gira, o se si è fermata prima di

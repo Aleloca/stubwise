@@ -1,5 +1,4 @@
-import { attributeServerCause } from "@stubwise/shared";
-import { ANALYSIS_MAX_COST_USD, ANALYSIS_MAX_MINUTES } from "../../domain/servers/limits";
+import { attributeServerCause, serverAnalysisLimitsSchema } from "@stubwise/shared";
 import { alertProjectsOf, serverProjectsOf } from "../../domain/servers/projects";
 import { commandInput } from "../../domain/servers/commands";
 import { accessState, accessUsable, journalReadable } from "../../domain/servers/sshAccess";
@@ -102,6 +101,11 @@ const reachOf = (s: MonitoredServer): ReadReach => ({
   agent: s.agentOperations,
 });
 
+/** I tetti di un'analisi: quelli con cui è partita, o i default di shared (il seme). */
+const DEFAULT_LIMITS = serverAnalysisLimitsSchema.parse({});
+const limitsOf = (a: ServerAnalysis): NonNullable<ServerAnalysis["limits"]> =>
+  a.limits ?? DEFAULT_LIMITS;
+
 /** L'analisi in corso su un server, se c'è. */
 const runningOn = (code: string): ServerAnalysis | undefined =>
   state.serverAnalyses.find((a) => a.serverCode === code && a.outcome === "running");
@@ -156,7 +160,9 @@ function publishTrouble(s: MonitoredServer, ep: ServerEpisode, analyzes: boolean
       ? ` ${noAnalysisTail(s.code)}`
       : ep.analysisBlocked === "monthly_budget"
         ? " Claude can't look into it: the monthly AI budget is used up."
-        : "";
+        : ep.analysisBlocked === "disabled"
+          ? " Claude doesn't look into alerts: the server analysis is turned off in Administration → AI."
+          : "";
   for (const to of alertProjectsOf(s.code, liveEnvironments())) {
     publishAlert({
       kind: ep.severity === "down" ? "server.down" : "server.trouble",
@@ -215,8 +221,12 @@ export function raiseEpisode(
     alertProjectsOf(serverCode, liveEnvironments()).length > 0 &&
     accessUsable(state.serverAccess.get(serverCode));
   const block = aiBlockFor(null);
-  const analyzes = eligible && block === null;
-  if (eligible && block?.reason === "monthly_budget") episode.analysisBlocked = "monthly_budget";
+  // Spenta in Amministrazione → AI (R0-C): non parte, e l'episodio lo ricorda.
+  const enabled = state.instance.serverAnalysis.enabled;
+  const analyzes = eligible && enabled && block === null;
+  if (eligible && !enabled) episode.analysisBlocked = "disabled";
+  else if (eligible && block?.reason === "monthly_budget")
+    episode.analysisBlocked = "monthly_budget";
   publishTrouble(server, episode, analyzes);
   if (analyzes) startAnalysis(server, episode, opts.overrun === true);
   return episode;
@@ -290,6 +300,9 @@ function startAnalysis(
   startedBy: string | null = null,
 ): ServerAnalysis {
   const gen = storeGeneration();
+  // I tetti di adesso (R0-C): restano quelli per tutta l'analisi.
+  const { maxMinutes, maxCostUsd, maxAgentReads, maxSshReads } = state.instance.serverAnalysis;
+  const limits = { maxMinutes, maxCostUsd, maxAgentReads, maxSshReads };
   // Del server, non di un progetto (F4b-4): la sessione entra nel progetto
   // attribuito a fine analisi (`finish`); prima la vede chi gestisce il
   // monitor (`canSeeConversation`). L'account è quello della catena dell'istanza.
@@ -301,7 +314,7 @@ function startAnalysis(
     touchedProjectIds: [],
     state: "working",
     usage: [],
-    analysisLimits: { maxMinutes: ANALYSIS_MAX_MINUTES, maxCostUsd: ANALYSIS_MAX_COST_USD },
+    analysisLimits: { maxMinutes: limits.maxMinutes, maxCostUsd: limits.maxCostUsd },
     serverAnalysis: { serverCode: server.code },
   });
   const analysis: ServerAnalysis = {
@@ -310,6 +323,7 @@ function startAnalysis(
     // Una a mano non è di un episodio (R0-A2): ne guarda una COPIA, mai salvata.
     episodeId: startedBy ? null : episode.id,
     startedBy,
+    limits,
     conversationId: c.id,
     attribution: null,
     outcome: "running",
@@ -361,6 +375,8 @@ const askedBy = (a: ServerAnalysis): string | null =>
  */
 export function startManualAnalysis(server: MonitoredServer, me: string): ServerAnalysis {
   if (runningOn(server.code)) throw invalid("analysis_running");
+  // Spenta in Amministrazione → AI (R0-C): sul server la ferma il cancello del worker (`blocked`).
+  if (!state.instance.serverAnalysis.enabled) throw invalid("disabled");
   if (aiBlockFor(null)?.reason === "monthly_budget") throw invalid("monthly_budget");
   const open = state.serverEpisodes.find(
     (e) => e.serverCode === server.code && e.recoveredAt === null,
@@ -439,6 +455,10 @@ async function drive(
     return finish(a, episode, gen, "unreachable", 0);
   }
   const ran = new Set<string>();
+  // I tetti delle letture per via (R0-C): raggiunto, quella via si ferma e lo si dice una volta.
+  const caps = { ssh: limitsOf(a).maxSshReads, agent: limitsOf(a).maxAgentReads };
+  const used = { ssh: 0, agent: 0 };
+  const capped = new Set<"ssh" | "agent">();
   /** Ciò che non si legge, detto una volta sola (un secondo allarme può aggiungerne). */
   const told = new Set<UnavailableRead>();
   let ending: Ending = "diagnosed";
@@ -458,7 +478,24 @@ async function drive(
     const all = readsFor(server, episode.reasons, reach).filter(
       (r) => ssh || r.command.via !== "ssh",
     );
-    const next = all.find((r) => !ran.has(commandInput(r.command)));
+    const pending = all.filter((r) => !ran.has(commandInput(r.command)));
+    for (const via of ["ssh", "agent"] as const) {
+      if (capped.has(via) || used[via] < caps[via] || !pending.some((r) => r.command.via === via))
+        continue;
+      capped.add(via);
+      await runScript(
+        a.conversationId,
+        [
+          {
+            step: "say",
+            text: `I reached the limit of ${caps[via]} ${via === "ssh" ? "SSH" : "agent"} read${caps[via] === 1 ? "" : "s"} for this analysis, so I'm not reading more that way.`,
+          },
+        ],
+        gen,
+      );
+      if (!alive()) return;
+    }
+    const next = pending.find((r) => !capped.has(r.command.via));
     if (!next) break;
     // Al limite di tempo (solo «Simula»): metà delle letture, poi si ferma.
     if (overrun && ran.size >= Math.ceil(all.length / 2)) {
@@ -472,6 +509,7 @@ async function drive(
     // L'uso si registra alla prima lettura vera, non prima (e solo con l'SSH).
     if (ssh && ran.size === 0) markUsed(a.serverCode, { kind: "analysis", analysisId: a.id });
     ran.add(commandInput(next.command));
+    used[next.command.via] += 1;
     await runScript(a.conversationId, readSteps([next]), gen);
     if (!alive()) return;
   }
@@ -481,14 +519,14 @@ async function drive(
   return finish(a, episode, gen, ending, ran.size);
 }
 
-/** I consumi finti dell'analisi: plausibili, sotto il tetto (`ANALYSIS_MAX_COST_USD`). */
-function usageOf(reads: number): ModelUsage {
+/** I consumi finti dell'analisi: plausibili, sotto il suo tetto di costo. */
+function usageOf(reads: number, maxCostUsd: number): ModelUsage {
   return {
     model: "claude-sonnet-4-5",
     inputTokens: 6_200 + 4_100 * reads,
     outputTokens: 900 + 260 * reads,
     cacheReadTokens: 3_800 * reads,
-    costUsd: Math.min(ANALYSIS_MAX_COST_USD, Math.round((0.05 + 0.04 * reads) * 100) / 100),
+    costUsd: Math.min(maxCostUsd, Math.round((0.05 + 0.04 * reads) * 100) / 100),
   };
 }
 
@@ -525,14 +563,14 @@ const whatPhrase = (ep: ServerEpisode): string =>
 
 /** L'apertura della sessione: a mano dice chi l'ha chiesta. */
 function openingOf(s: MonitoredServer, ep: ServerEpisode, a: ServerAnalysis): ScriptStep[] {
-  const steps = openingSteps(s, ep);
+  const steps = openingSteps(s, ep, limitsOf(a).maxMinutes);
   const who = askedBy(a);
   if (!who) return steps;
   return steps.map((x) =>
     x.step === "say"
       ? {
           ...x,
-          text: `${s.name}: ${who} asked me to look into it (${whatPhrase(ep)}). Looking into it with the read-only access (at most ${ANALYSIS_MAX_MINUTES} minutes).`,
+          text: `${s.name}: ${who} asked me to look into it (${whatPhrase(ep)}). Looking into it with the read-only access (at most ${limitsOf(a).maxMinutes} minutes).`,
         }
       : x,
   );
@@ -572,7 +610,7 @@ function taskOf(
     ];
   } else if (outcome === "timed_out") {
     parts = [
-      `**Partial diagnosis** — Claude stopped after ${ANALYSIS_MAX_MINUTES} minutes, the analysis limit, after ${reads} reads. What it saw so far: ${d.body}`,
+      `**Partial diagnosis** — Claude stopped after ${a ? limitsOf(a).maxMinutes : DEFAULT_LIMITS.maxMinutes} minutes, the analysis limit, after ${reads} reads. What it saw so far: ${d.body}`,
       proposal,
       untouched,
     ];
@@ -700,7 +738,9 @@ async function finish(
   const c = state.conversations.find((x) => x.id === a.conversationId);
   if (c) {
     // Col modello con cui è partita (area 9b, `fix_plan`).
-    c.usage = [{ ...usageOf(reads), ...(c.model ? { model: c.model } : {}) }];
+    c.usage = [
+      { ...usageOf(reads, limitsOf(a).maxCostUsd), ...(c.model ? { model: c.model } : {}) },
+    ];
     notifyConversationChange(c.id);
   }
   if (attribution.kind === "undetermined") return finishUndetermined(a, ep, gen, outcome, reads);
@@ -751,7 +791,7 @@ async function finish(
   });
   const said: Record<Ending, string> = {
     unreachable: `I couldn't reach ${s.name} over SSH after ${ATTEMPTS} attempts. I opened ${task.code} anyway, with what we know.`,
-    timed_out: `I stopped after ${ANALYSIS_MAX_MINUTES} minutes, the analysis limit. I wrote what I saw so far in ${task.code}.`,
+    timed_out: `I stopped after ${limitsOf(a).maxMinutes} minutes, the analysis limit. I wrote what I saw so far in ${task.code}.`,
     recovered_early: `The server was back to normal before I read anything. I noted it in ${task.code}.`,
     access_lost: `The read-only access stopped being usable, so I stopped. I wrote what I saw in ${task.code}.`,
     diagnosed: `${ep.recoveredAt !== null ? "The server is back to normal, so I stopped there. " : ""}I wrote the diagnosis and a proposal in ${task.code}.`,

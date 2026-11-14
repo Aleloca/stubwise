@@ -912,6 +912,23 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     - M5: il link di una card è quello del momento della lettura, e due
       persone che modificano lo stesso ambiente insieme: vince l'ultima (il
       PATCH non ha una precondizione di versione).
+- F4b, lato renderer (94, 14 nov 2026): nel prototipo, spenti nell'app
+  finché non si collegano a `client.serverOps` / `client.environments`
+  (cablaggio F4b, il pezzo successivo):
+  - **l'analisi a mano** («Ask Claude to look into it», R0-A2): nell'app
+    `canStartAnalysis` è `false` e `manualAnalysis` `null`;
+  - **i container degli ambienti** (R0-D, feature `environment-containers`);
+  - **i tetti dell'analisi** in Amministrazione → AI (R0-C, feature
+    `servers-analysis-limits`).
+  - Divergenze del prototipo dal server, dichiarate: col budget esaurito o
+    l'analisi spenta il prototipo rifiuta l'analisi a mano SUBITO
+    (`invalid: monthly_budget` / `invalid: disabled`), il server la accoda
+    e la segna `blocked`; un «Cause not determined» su un server di solo
+    staging non arriva a nessuno (gli avvisi vanno alle produzioni).
+  - **Da decidere (46)**: l'analisi AUTOMATICA senza l'accesso SSH. Il
+    worker la fa partire comunque (con stato, metriche, controlli, episodi
+    e ambienti); il prototipo no («Claude can't look into it: no SSH
+    access»).
 - **L'API per i siti** *(M, 14 nov 2026; fetta a sé DOPO la F3)*: il cliente
   segue sul sito che ospita il widget le sue richieste e i suoi ticket.
   Note di 72 per il design:

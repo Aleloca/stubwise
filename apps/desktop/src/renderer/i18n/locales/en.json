@@ -9506,7 +9506,8 @@
         "hiddenTask": "The diagnosis is in a project you can't see."
       },
       "downDay": "Not responding since {{when}}",
-      "troubleDay": "In trouble since {{when}}"
+      "troubleDay": "In trouble since {{when}}",
+      "analysisOff": "Claude doesn't look into alerts: the server analysis is turned off in Administration → AI."
     },
     "attribution": {
       "no_project": "the analysis didn't name a project.",
@@ -11027,6 +11028,23 @@
         "replace": "Replace",
         "replaceOf": "Replace {{label}}",
         "saved": "{{label}}: ending in {{last4}}"
+      },
+      "serverAnalysis": {
+        "title": "Server analysis",
+        "intro": "When a monitored server raises an alert, Claude looks into it with read-only access and writes a diagnosis. These limits apply to every analysis, automatic or asked for by hand, and count towards the monthly budget.",
+        "enabled": "Claude looks into server alerts",
+        "off": "Off: alerts still arrive, but Claude doesn't look into them, and nobody can ask it to.",
+        "maxMinutes": "Minutes at most",
+        "maxCostUsd": "Cost at most ($)",
+        "maxSshReads": "SSH reads at most",
+        "maxAgentReads": "Agent reads at most",
+        "errors": {
+          "maxMinutes": "From 1 to 60 minutes.",
+          "maxCostUsd": "From $0.10 to $20.",
+          "maxSshReads": "From 0 to 200 reads.",
+          "maxAgentReads": "From 0 to 200 reads."
+        },
+        "save": "Save limits"
       }
     },
     "integrations": {
@@ -12181,6 +12199,9 @@
       },
       "task": {
         "deleted": "<actor>{{actor}}</actor> deleted the task <strong>{{object}}</strong> “{{title}}”."
+      },
+      "server_analysis": {
+        "changed": "<actor>{{actor}}</actor> changed the limits of the server analysis."
       }
     },
     "groups": {
@@ -12390,7 +12411,12 @@
       "pipeline": "Release pipelines",
       "branch": "Release branch",
       "statusFamilies": "Statuses by family",
-      "kind": "Kind"
+      "kind": "Kind",
+      "analysisEnabled": "Analysis on",
+      "maxMinutes": "Max minutes",
+      "maxCostUsd": "Max cost ($)",
+      "maxAgentReads": "Max agent reads",
+      "maxSshReads": "Max SSH reads"
     },
     "via": {
       "actor": "Claude on behalf of {{name}}",

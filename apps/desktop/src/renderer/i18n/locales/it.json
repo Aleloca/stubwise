@@ -9506,7 +9506,8 @@
         "hiddenTask": "La diagnosi è in un progetto che non vedi."
       },
       "downDay": "Non risponde dal {{when}}",
-      "troubleDay": "In difficoltà dal {{when}}"
+      "troubleDay": "In difficoltà dal {{when}}",
+      "analysisOff": "Claude non guarda gli avvisi: l'analisi dei server è spenta in Amministrazione → AI."
     },
     "attribution": {
       "no_project": "l'analisi non ha indicato un progetto.",
@@ -11027,6 +11028,23 @@
         "replace": "Sostituisci",
         "replaceOf": "Sostituisci {{label}}",
         "saved": "{{label}}: finisce con {{last4}}"
+      },
+      "serverAnalysis": {
+        "title": "Analisi dei server",
+        "intro": "Quando un server monitorato manda un avviso, Claude ci guarda con l'accesso in sola lettura e scrive una diagnosi. Questi limiti valgono per ogni analisi, automatica o chiesta a mano, e contano nel budget del mese.",
+        "enabled": "Claude guarda gli avvisi dei server",
+        "off": "Spenta: gli avvisi arrivano comunque, ma Claude non ci guarda, e nessuno glielo può chiedere.",
+        "maxMinutes": "Minuti al massimo",
+        "maxCostUsd": "Costo massimo ($)",
+        "maxSshReads": "Letture SSH al massimo",
+        "maxAgentReads": "Letture via agente al massimo",
+        "errors": {
+          "maxMinutes": "Da 1 a 60 minuti.",
+          "maxCostUsd": "Da 0,10 $ a 20 $.",
+          "maxSshReads": "Da 0 a 200 letture.",
+          "maxAgentReads": "Da 0 a 200 letture."
+        },
+        "save": "Salva i limiti"
       }
     },
     "integrations": {
@@ -12181,6 +12199,9 @@
       },
       "task": {
         "deleted": "<actor>{{actor}}</actor> ha eliminato la task <strong>{{object}}</strong> «{{title}}»."
+      },
+      "server_analysis": {
+        "changed": "<actor>{{actor}}</actor> ha cambiato i limiti dell'analisi dei server."
       }
     },
     "groups": {
@@ -12390,7 +12411,12 @@
       "pipeline": "Pipeline dei rilasci",
       "branch": "Ramo di rilascio",
       "statusFamilies": "Famiglia degli stati",
-      "kind": "Tipo"
+      "kind": "Tipo",
+      "analysisEnabled": "Analisi accesa",
+      "maxMinutes": "Minuti al massimo",
+      "maxCostUsd": "Costo massimo ($)",
+      "maxAgentReads": "Letture via agente al massimo",
+      "maxSshReads": "Letture SSH al massimo"
     },
     "via": {
       "actor": "Claude per conto di {{name}}",

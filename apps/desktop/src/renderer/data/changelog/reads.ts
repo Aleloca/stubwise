@@ -276,6 +276,7 @@ const INSTANCE_VALUE_KINDS: ReadonlySet<string> = new Set([
   "automation.changed",
   "budget.changed",
   "content_language.changed",
+  "server_analysis.changed",
   "git_account.updated",
   "git_account.default_reviewer_changed",
   "plugin.ref_updated",
