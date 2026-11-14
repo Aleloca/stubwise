@@ -3,10 +3,18 @@ import {
   type Reader,
   type ServerCheckView,
   type ServerDetail as ServerDetailShape,
+  type ServerMetricsResponse,
   type ServerView,
 } from "@stubwise/shared";
-import type { EpisodeReason, ServerCheck, ServerService } from "../../model";
-import type { InstanceServerRow } from "../../servers/reads";
+import { downsample, downsampleSamples } from "../../../domain/servers/metrics";
+import type {
+  CheckSample,
+  EpisodeReason,
+  MetricPoint,
+  ServerCheck,
+  ServerService,
+} from "../../model";
+import type { InstanceServerRow, MetricRange, ServerMetrics } from "../../servers/reads";
 import type { ServerDetail, ServerRow, SshAccessView } from "../../servers/visibility";
 import { inPrototypeWords } from "./automationRefs";
 import { appClient } from "./client";
@@ -22,6 +30,63 @@ import { appClient } from "./client";
 export interface ServersApi {
   list(projectId?: string): Promise<Reader<ServerView>[]>;
   byCode(code: string): Promise<Reader<ServerDetailShape>>;
+  metrics(
+    serverId: string,
+    range: { from: string; to: string; checkId?: string },
+  ): Promise<Reader<ServerMetricsResponse>>;
+}
+
+const RANGE_MS: Record<MetricRange, number> = {
+  "1h": 3_600_000,
+  "24h": 24 * 3_600_000,
+  "7d": 7 * 24 * 3_600_000,
+  "30d": 30 * 24 * 3_600_000,
+  "90d": 90 * 24 * 3_600_000,
+};
+
+/** Di quanti secondi è la media di un punto, per la nota sotto i grafici (solo i passi larghi). */
+const AVERAGED_SECONDS: Partial<Record<string, number>> = { "1h": 3_600, "4h": 14_400 };
+
+const pct = (used: number, total: number) => (total > 0 ? (used / total) * 100 : 0);
+
+type ServerPoint = Reader<ServerMetricsResponse>["points"][number];
+type ServerCheckPoint = NonNullable<Reader<ServerMetricsResponse>["checkPoints"]>[number];
+
+/** Un punto del server (byte; grezzo o aggregato) nella forma del prototipo (percentuali). */
+function pointOf(p: ServerPoint): MetricPoint {
+  if ("cpuPct" in p) {
+    return {
+      ts: p.ts,
+      cpuPct: p.cpuPct,
+      memPct: pct(p.memUsedBytes, p.memTotalBytes),
+      diskPct: pct(p.diskUsedBytes, p.diskTotalBytes),
+      load1m: p.load1m,
+      netRxBytes: p.netRxBytes,
+      netTxBytes: p.netTxBytes,
+    };
+  }
+  return {
+    ts: p.ts,
+    cpuPct: p.cpuPctAvg,
+    memPct: pct(p.memUsedBytesAvg, p.memTotalBytes),
+    diskPct: pct(p.diskUsedBytesAvg, p.diskTotalBytes),
+    load1m: p.load1mAvg,
+    netRxBytes: p.netRxBytesSum,
+    netTxBytes: p.netTxBytesSum,
+  };
+}
+
+/** Un campione di controllo: giù se nel passo è stato giù almeno una volta; uno «sconosciuto» non si disegna. */
+function sampleOf(c: ServerCheckPoint): CheckSample | null {
+  if ("status" in c) {
+    if (c.status !== "up" && c.status !== "down") return null;
+    return { ts: c.ts, status: c.status, latencyMs: c.latencyMs };
+  }
+  return {
+    ts: c.ts,
+    status: c.downCount > 0 ? "down" : "up",
+    latencyMs: c.latencyMsAvg === null ? null : Math.round(c.latencyMsAvg),
+  };
 }
 
 type View = Reader<ServerView>;
@@ -181,6 +246,10 @@ export function createRealServers(
   api: ServersApi,
   now: () => string = () => new Date().toISOString(),
 ) {
+  /** L'id del server per codice (le metriche vanno per id): dall'ultimo dettaglio letto. */
+  const ids = new Map<string, string>();
+  const idOf = async (code: string) =>
+    ids.get(code) ?? (await inPrototypeWords(() => api.byCode(code))).id;
   return {
     /** I server degli ambienti del progetto, in ordine di numero. */
     async listProjectServers(projectId: string): Promise<ServerRow[]> {
@@ -199,7 +268,44 @@ export function createRealServers(
       const d = await inPrototypeWords(() => api.byCode(code));
       const out = detailOf(d, now());
       if (!out) throw new Error("not_found");
+      ids.set(out.code, d.id);
       return out;
+    },
+
+    /**
+     * Le metriche dell'intervallo: il passo lo sceglie il server dalla durata
+     * (grezzo fino a 48 h, 5 min fino a 7 giorni, 1 h fino a 30, 4 h oltre),
+     * le percentuali si calcolano qui dai byte, e il grafico non disegna più
+     * di `METRIC_POINTS_MAX` punti.
+     */
+    async getServerMetrics(
+      code: string,
+      range: MetricRange,
+      checkId?: string,
+    ): Promise<ServerMetrics> {
+      const id = await idOf(code);
+      const to = now();
+      const from = new Date(Date.parse(to) - RANGE_MS[range]).toISOString();
+      const res = await inPrototypeWords(() =>
+        api.metrics(id, { from, to, ...(checkId ? { checkId } : {}) }),
+      );
+      const all = res.points.map(pointOf);
+      const reduced = downsample(all);
+      const samples = (res.checkPoints ?? []).flatMap((c) => sampleOf(c) ?? []);
+      const reducedSamples = downsampleSamples(samples);
+      return {
+        points: reduced.points,
+        truncated: reduced.truncated || res.truncated,
+        sampleCount: all.length,
+        averagedSeconds: AVERAGED_SECONDS[res.resolution] ?? null,
+        check: checkId
+          ? {
+              samples: reducedSamples.samples,
+              truncated: reducedSamples.truncated || res.truncated,
+              sampleCount: samples.length,
+            }
+          : null,
+      };
     },
   };
 }
@@ -208,4 +314,5 @@ export function createRealServers(
 export const liveServers = createRealServers({
   list: (projectId) => appClient().servers.list(projectId),
   byCode: (code) => appClient().servers.byCode(code),
+  metrics: (id, range) => appClient().servers.metrics(id, range),
 });

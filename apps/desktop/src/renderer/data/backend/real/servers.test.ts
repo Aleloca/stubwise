@@ -1,5 +1,9 @@
 import { ApiError } from "@stubwise/api-client";
-import { serverDetailSchema, serverViewSchema } from "@stubwise/shared";
+import {
+  serverDetailSchema,
+  serverMetricsResponseSchema,
+  serverViewSchema,
+} from "@stubwise/shared";
 import { describe, expect, it } from "vitest";
 import { createRealServers, type ServersApi } from "./servers";
 
@@ -122,6 +126,8 @@ function fakeApi(over: Partial<ServersApi> = {}): ServersApi {
   return {
     list: async () => [view()],
     byCode: async () => detail(),
+    metrics: async () =>
+      serverMetricsResponseSchema.parse({ resolution: "raw", truncated: false, points: [] }),
     ...over,
   };
 }
@@ -235,5 +241,94 @@ describe("i Server dal server (area 8, F4a)", () => {
       },
     });
     await expect(createRealServers(api, () => NOW).getServer("SRV-9")).rejects.toThrow("not_found");
+  });
+
+  it("le metriche: l'intervallo all'indietro da adesso, le percentuali dai byte, grezze o aggregate", async () => {
+    const asked: unknown[] = [];
+    const api = fakeApi({
+      metrics: async (id, range) => {
+        asked.push([id, range]);
+        return serverMetricsResponseSchema.parse({
+          resolution: "1h",
+          truncated: false,
+          points: [
+            {
+              ts: "2026-11-01T00:00:00.000Z",
+              cpuPct: 40,
+              load1m: 1,
+              memUsedBytes: 50,
+              memTotalBytes: 200,
+              swapUsedBytes: 0,
+              diskUsedBytes: 30,
+              diskTotalBytes: 100,
+              netRxBytes: 5,
+              netTxBytes: 6,
+            },
+            {
+              ts: "2026-11-01T01:00:00.000Z",
+              cpuPctAvg: 20,
+              cpuPctMax: 90,
+              load1mAvg: 0.5,
+              load1mMax: 2,
+              memUsedBytesAvg: 100,
+              memUsedBytesMax: 150,
+              memTotalBytes: 200,
+              diskUsedBytesAvg: 40,
+              diskUsedBytesMax: 45,
+              diskTotalBytes: 100,
+              netRxBytesSum: 7,
+              netTxBytesSum: 8,
+            },
+          ],
+          checkPoints: [
+            { ts: "2026-11-01T00:00:00.000Z", status: "up", latencyMs: 100 },
+            {
+              ts: "2026-11-01T01:00:00.000Z",
+              upCount: 50,
+              downCount: 2,
+              latencyMsAvg: 120.4,
+              latencyMsMax: 900,
+            },
+          ],
+        });
+      },
+    });
+    const servers = createRealServers(api, () => NOW);
+    await servers.getServer("SRV-1");
+    const m = await servers.getServerMetrics("SRV-1", "30d", CHK);
+    expect(asked).toEqual([[S1, { from: "2026-10-15T12:00:00.000Z", to: NOW, checkId: CHK }]]);
+    expect(m.points).toEqual([
+      {
+        ts: "2026-11-01T00:00:00.000Z",
+        cpuPct: 40,
+        memPct: 25,
+        diskPct: 30,
+        load1m: 1,
+        netRxBytes: 5,
+        netTxBytes: 6,
+      },
+      {
+        ts: "2026-11-01T01:00:00.000Z",
+        cpuPct: 20,
+        memPct: 50,
+        diskPct: 40,
+        load1m: 0.5,
+        netRxBytes: 7,
+        netTxBytes: 8,
+      },
+    ]);
+    // Un'ora per punto: la nota sotto i grafici lo dice.
+    expect(m.averagedSeconds).toBe(3_600);
+    expect(m.check!.samples).toEqual([
+      { ts: "2026-11-01T00:00:00.000Z", status: "up", latencyMs: 100 },
+      // Giù almeno una volta nel passo: giù.
+      { ts: "2026-11-01T01:00:00.000Z", status: "down", latencyMs: 120 },
+    ]);
+  });
+
+  it("le metriche grezze non dicono una media; senza controllo nessun campione", async () => {
+    const m = await createRealServers(fakeApi(), () => NOW).getServerMetrics("SRV-1", "24h");
+    expect(m.averagedSeconds).toBeNull();
+    expect(m.check).toBeNull();
   });
 });
