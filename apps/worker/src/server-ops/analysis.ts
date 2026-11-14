@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { and, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { instanceSettings, monthlyCostUsd, serverAnalyses, serverCommands, serverEpisodes, servers, type Db } from "@stubwise/db";
-import { aiBudgetState } from "@stubwise/notifications";
+import { aiBudgetState, type publishNotification } from "@stubwise/notifications";
 import {
   attributeServerCause,
   readServerAnalysisLimits,
@@ -17,6 +17,8 @@ import { ensureAgentSession } from "../sessions/store.js";
 import { getContentLanguage } from "../settings.js";
 import { chatDisallowedTools } from "../claude-chat/turn.js";
 import { buildServerOpsMcpConfig, serverOpsServerPath, type ServerOpsBridge } from "./bridge.js";
+import { openServerTask } from "./fix-task.js";
+import { verifyPendingSshAccess, type SshExec } from "./ssh.js";
 import { attributionContext, type AnalysisGrant } from "./tools.js";
 
 /**
@@ -38,6 +40,12 @@ import { attributionContext, type AnalysisGrant } from "./tools.js";
 
 export interface ServerAnalysisDeps {
   db: Db;
+  encryptionKey: Buffer;
+  /** L'esecuzione SSH della verifica (test: finta). */
+  sshExec?: SshExec;
+  /** Per il link dell'avviso della diagnosi. */
+  publicUrl: string;
+  publish?: typeof publishNotification;
   runner: AgentRunner;
   bridge: ServerOpsBridge;
   select: SelectDeps;
@@ -196,7 +204,30 @@ export async function runNextServerAnalysis(deps: ServerAnalysisDeps): Promise<b
     access.revoke();
     await rm(cwd, { recursive: true, force: true }).catch(() => undefined);
   }
-  await recordOutcome(db, next.id, server.id, grant.report, result, failure);
+  const attributed = await recordOutcome(db, next.id, server.id, grant.report, result, failure);
+  // S6: un'attribuzione VALIDA apre la task nel progetto attribuito.
+  if (attributed && grant.report) {
+    try {
+      await openServerTask(
+        db,
+        {
+          analysisId: next.id,
+          serverId: server.id,
+          projectId: attributed.projectId,
+          manual: next.episodeId === null,
+          report: grant.report,
+          context: attributed.context,
+          language: await getContentLanguage(db),
+          publicUrl: deps.publicUrl,
+          severity: episode?.severity ?? null,
+        },
+        deps.publish,
+        log,
+      );
+    } catch (error) {
+      log(`[server-ops] task dell'analisi ${next.id} non aperta: ${describeError(error)}`);
+    }
+  }
   if (failure) log(`[server-ops] analisi ${next.id} senza diagnosi: ${failure}`);
   return true;
 }
@@ -208,7 +239,7 @@ async function recordOutcome(
   report: ServerDiagnosisReport | null,
   result: AgentRunResult | null,
   failure: string | null,
-): Promise<void> {
+): Promise<{ projectId: string; context: Awaited<ReturnType<typeof attributionContext>> } | null> {
   const costUsd = result?.usage?.totalCostUsd;
   const cost = costUsd !== undefined ? String(costUsd) : null;
   if (report === null) {
@@ -216,7 +247,7 @@ async function recordOutcome(
       .update(serverAnalyses)
       .set({ status: "failed", costUsd: cost, attribution: failure ? { error: failure } : null, finishedAt: new Date() })
       .where(eq(serverAnalyses.id, analysisId));
-    return;
+    return null;
   }
   const ctx = await attributionContext(db, serverId);
   const attribution = attributeServerCause({ ...ctx, cause: report.cause });
@@ -237,6 +268,7 @@ async function recordOutcome(
       finishedAt: new Date(),
     })
     .where(eq(serverAnalyses.id, analysisId));
+  return attribution.kind === "attributed" ? { projectId: attribution.projectId, context: ctx } : null;
 }
 
 /** Quanto si tiene il registro dei comandi (docs/invariants/server-operations.md). */
@@ -275,6 +307,8 @@ export function startServerAnalysisPoller(deps: ServerAnalysisDeps, intervalMs =
         await pruneServerCommands(deps.db);
       }
       await recoverStaleAnalyses(deps.db, await loadLimits(deps.db));
+      // S7: la verifica degli accessi SSH in attesa (fissa la host key, rifiuta i privilegi).
+      await verifyPendingSshAccess(deps.db, deps.encryptionKey, deps.sshExec, deps.log);
       await queueEpisodeAnalyses(deps.db);
       await runNextServerAnalysis(deps);
     } catch (error) {

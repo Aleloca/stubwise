@@ -1,3 +1,4 @@
+import { createServerOpsEndpoints } from "./endpoints/server-ops.js";
 import { readerSchema } from "@stubwise/shared";
 import type { Reader } from "@stubwise/shared";
 import type { ZodType } from "zod";
@@ -179,6 +180,8 @@ export function createEndpoints(request: ApiRequest) {
     // Area 8, F3: Support, le conversazioni coi clienti.
     support: createSupportEndpoints(request),
     widgets: createWidgetEndpoints(request),
+    // Area 8, F4b: analisi, correzione, registro e SSH di sola lettura dei server.
+    serverOps: createServerOpsEndpoints(request),
   };
 }
 

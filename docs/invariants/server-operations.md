@@ -10,7 +10,10 @@ piano è `docs/plans/2026-11-14-integrazione-area8-fetta4b-plan.md`.
 - Le azioni sono SOLO quelle di `SERVER_ACTIONS` (`@stubwise/shared`): oggi
   `container.restart`, `container.stop`, `container.start`, `docker.prune`
   (`images_unused`, `build_cache`, `stopped_containers`: ognuna un passo
-  approvato a sé) e le due letture `container.logs`, `container.state`. Ogni
+  approvato a sé; ammessa su OGNI server, anche condiviso — F4b-8 = c — ma
+  agisce su TUTTO il server, quindi prima dell'approvazione la vista dice
+  quali ALTRI progetti tocca, calcolati dal server; l'approvazione resta
+  `plans.approve` nel progetto attribuito) e le due letture `container.logs`, `container.state`. Ogni
   azione ha il suo schema dei parametri; il container è il NOME di un
   container che l'agente riporta, con la regex dei nomi di Docker; mai un
   pattern, mai un valore composto da un'uscita.

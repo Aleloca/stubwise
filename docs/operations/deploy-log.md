@@ -4704,3 +4704,60 @@ deploy o di un rollback che la tocca.
   episodi. Il preset `User` resta SENZA `monitor.view`: per tornare a prima,
   `update roles set permissions = array_append(permissions, 'monitor.view')
   where preset_key = 'user' and not ('monitor.view' = any(permissions));`.
+- **«Integrazione area 8, fetta 4b: le operazioni sui server»** *(14 nov
+  2026)*: branch `feat/area8-f4b` (da `feat/area8-f4a`: si deploya DOPO la
+  F4a), piano `docs/plans/2026-11-14-integrazione-area8-fetta4b-plan.md`,
+  regole `docs/invariants/server-operations.md`. L'UNICA azione
+  sull'ambiente: la correzione di un problema di un server, attraverso
+  l'AGENTE (mai SSH), solo azioni dell'insieme chiuso, firmate passo per
+  passo dopo l'approvazione di chi ha `plans.approve` nel progetto
+  ATTRIBUITO. L'analisi parte dal server all'allarme (sole letture, nei tetti
+  di Impostazioni, nel budget dell'istanza) e attribuisce il progetto; la task
+  passa dal triage come ogni bug (F4b-6 = b); la pulizia è ammessa su ogni
+  server con l'avviso (F4b-8 = c); SSH solo letture (`servers.ssh.manage`).
+
+  Migrazioni **0181** (kind `server.diagnosis_ready`; `servers.agent_capabilities`;
+  `environment_servers.containers`; `instance_signing_keys`, `server_analyses`,
+  `server_operation_approvals`, `server_commands`, `server_ssh_access`;
+  `instance_settings.server_analysis_limits`; kind e operazioni nuovi nei
+  CHECK) e **0182** (`server` in `ticket_source`; `server_fixes`). Nessuna
+  env nuova. Dipendenza nuova `ssh2` (server e worker).
+
+  **ORDINE**: **server** (healthy, 0181 e 0182 applicate), poi **worker** (il
+  giro delle analisi e della correzione, il ponte di `stubwise_server`,
+  la verifica SSH), poi **caddy** (il renderer dell'app, quando la sua
+  parte F4b è dentro). L'immagine dell'**agente** nuova la pubblica la CI
+  (`agent-image.yml`) col merge che tocca `packages/agent`: gli host NON si
+  aggiornano da soli, e un agente si aggiorna SOLO se si vogliono le
+  operazioni su quell'host (comando d'installazione con
+  `STUBWISE_OPERATIONS=1` e la chiave pubblica d'istanza, `GET
+  /api/servers/command-key`). Senza, l'agente nuovo si comporta come il
+  vecchio (non interroga i comandi).
+
+  **Da sapere subito**:
+  - Le analisi automatiche partono all'apertura di un episodio, accese di
+    default (10 min, 1 $, 30 + 30 letture): si spengono o si stringono in
+    Impostazioni (`/api/settings/server-analysis`). Un episodio già aperto
+    al deploy riceve la SUA analisi al primo giro.
+  - `servers.operate` non è in nessun preset: va dato a mano in un ruolo di
+    progetto. `servers.ssh.manage` è dell'Admin d'istanza.
+  - ⚠️ Un riavvio del worker a metà di un'analisi la lascia `failed` dopo
+    durata+15'; a metà di una correzione la lascia `running` con un comando
+    forse consegnato: prima di riavviare, sola lettura,
+    `select id, status from server_fixes where status in ('proposing','running');`
+    e `select count(*) from server_analyses where status = 'running' and session_id is not null;`
+    devono essere vuoti/zero (come «Worker fail-on-restart»).
+  Controllo, sola lettura: `select count(*) from instance_signing_keys where
+  retired_at is null;` (al più 1, nasce al primo bisogno).
+
+  **Rollback** (il server scende **insieme** al caddy; 0181/0182 non si
+  annullano): un server vecchio ignora le tabelle nuove e non consegna
+  comandi; un agente nuovo senza un server nuovo riceve 404 su
+  `/monitor/commands` e continua a campionare. ⚠️ Il kind
+  `server.diagnosis_ready` rende NON sicuro scendere d'immagine sul server
+  finché ne esistono righe (500 su `/api/inbox`): prima `delete from
+  notifications where kind = 'server.diagnosis_ready';`. Le task di
+  sorgente `server` restano: un server vecchio che non conosce il valore le
+  mostra senza sorgente (il web fa un cast). Per fermare tutto senza
+  rollback: analisi spente in Impostazioni e `update server_fixes set
+  status = 'stopped' where status in ('proposing','approved','running');`.

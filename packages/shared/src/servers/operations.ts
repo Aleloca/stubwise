@@ -246,6 +246,13 @@ export const SERVER_ANALYSIS_READ_TOOLS = [
 ] as const;
 export const SERVER_ANALYSIS_TOOLS = [...SERVER_ANALYSIS_READ_TOOLS, "report_server_diagnosis"] as const;
 export type ServerAnalysisTool = (typeof SERVER_ANALYSIS_TOOLS)[number];
+/**
+ * Gli strumenti della sessione che propone un piano nuovo per una task di
+ * server (S6, `server_fix`): le stesse letture, e al posto del resoconto UNO
+ * strumento che propone il piano (validato dal ponte, mai eseguito).
+ */
+export const SERVER_FIX_TOOLS = [...SERVER_ANALYSIS_READ_TOOLS, "propose_server_plan"] as const;
+export type ServerOpsTool = ServerAnalysisTool | "propose_server_plan";
 
 /**
  * L'unico strumento con cui l'analisi finisce. Contenuto del modello: NON
@@ -281,7 +288,7 @@ export type PlanValidation =
   | { ok: true; plan: ServerPlan }
   | {
       ok: false;
-      reason: "schema" | "unknown_container" | "container_of_other_project" | "container_not_of_project" | "prune_on_shared_server";
+      reason: "schema" | "unknown_container" | "container_of_other_project" | "container_not_of_project";
       step: number | null;
     };
 
@@ -290,9 +297,11 @@ export type PlanValidation =
  * salvabile solo se: è nello schema chiuso (solo azioni che cambiano, 1–10
  * passi, parametri stretti); ogni container è VISTO sul server ed è legato a
  * un ambiente del progetto ATTRIBUITO (la lista dell'ambiente, o il nome
- * dell'ambiente se la lista è vuota) e a nessun altro progetto; una pulizia
- * (`docker.prune`, che tocca tutto il server) solo su un server che usa
- * SOLTANTO quel progetto. Il testo libero non diventa mai un comando.
+ * dell'ambiente se la lista è vuota) e a nessun altro progetto. Una pulizia
+ * (`docker.prune`) non nomina container ed è ammessa su ogni server (F4b-8 =
+ * c): agisce su TUTTO il server, e chi approva lo vede prima (l'avviso coi
+ * progetti toccati lo calcola il server nella vista della correzione). Il
+ * testo libero non diventa mai un comando.
  */
 export function validateServerPlan(input: {
   plan: unknown;
@@ -309,12 +318,8 @@ export function validateServerPlan(input: {
       for (const c of env.containers.length > 0 ? env.containers : [env.name]) owners.set(c, (owners.get(c) ?? new Set()).add(p.projectId));
     }
   }
-  const shared = input.serverProjects.some((p) => p.projectId !== input.projectId);
   for (const [i, step] of parsed.data.steps.entries()) {
-    if (step.action === "docker.prune") {
-      if (shared) return { ok: false, reason: "prune_on_shared_server", step: i };
-      continue;
-    }
+    if (step.action === "docker.prune") continue;
     const container = (step.params as { container: string }).container;
     if (!seen.has(container)) return { ok: false, reason: "unknown_container", step: i };
     const of = owners.get(container) ?? new Set<string>();

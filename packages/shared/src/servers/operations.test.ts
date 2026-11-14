@@ -221,10 +221,11 @@ describe("validateServerPlan (S6): una proposta salvabile, o perché no", () => 
     expect(v({ steps: [step("container.start", { container: "other" })] })).toMatchObject({ ok: false, reason: "container_not_of_project" });
   });
 
-  it("una pulizia solo su un server di un solo progetto", async () => {
+  it("una pulizia è ammessa su ogni server, anche condiviso (F4b-8 = c: l'avviso è nella vista)", async () => {
     const { v, serverProjects } = await ctx();
     const prune = { steps: [step("docker.prune", { what: "build_cache" })] };
-    expect(v(prune)).toMatchObject({ ok: false, reason: "prune_on_shared_server" });
+    expect(v(prune)).toMatchObject({ ok: true });
     expect(v(prune, "A", [serverProjects[0]!])).toMatchObject({ ok: true });
+    expect(v({ steps: [step("docker.prune", { what: "everything" })] })).toMatchObject({ ok: false, reason: "schema" });
   });
 });

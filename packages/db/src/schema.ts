@@ -7132,6 +7132,56 @@ export const serverOperationApprovals = pgTable("server_operation_approvals", {
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
 });
 
+/**
+ * Area 8, F4b, S6 (0182): la correzione di un server, UNA per task, nel
+ * progetto ATTRIBUITO. Il piano (validato) sta qui, MAI nel piano del ticket
+ * (F4b-7): la pipeline del codice non lo vede.
+ */
+export const serverFixes = pgTable(
+  "server_fixes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    analysisId: uuid("analysis_id").references(() => serverAnalyses.id, { onDelete: "set null" }),
+    status: text("status")
+      .$type<"none" | "proposing" | "awaiting_approval" | "approved" | "running" | "done" | "failed" | "stopped" | "rejected">()
+      .notNull()
+      .default("none"),
+    steps: jsonb("steps").$type<{ action: string; params: Record<string, unknown>; why: string }[]>().notNull().default([]),
+    planError: text("plan_error"),
+    sessionId: uuid("session_id").references((): AnyPgColumn => agentSessions.id, { onDelete: "set null" }),
+    approvalId: uuid("approval_id").references(() => serverOperationApprovals.id, { onDelete: "set null" }),
+    currentStep: integer("current_step"),
+    stepCommands: jsonb("step_commands").$type<Record<string, string>>().notNull().default({}),
+    requestedByUserId: uuid("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    rejectedByUserId: uuid("rejected_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    rejectedAt: timestamp("rejected_at", { withTimezone: true }),
+    rejectionNote: text("rejection_note"),
+    stoppedByUserId: uuid("stopped_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("server_fixes_task_idx").on(table.taskId),
+    index("server_fixes_server_idx").on(table.serverId),
+    check(
+      "server_fixes_status_chk",
+      sql`${table.status} in ('none', 'proposing', 'awaiting_approval', 'approved', 'running', 'done', 'failed', 'stopped', 'rejected')`,
+    ),
+    check("server_fixes_awaiting_has_steps_chk", sql`${table.status} <> 'awaiting_approval' or jsonb_array_length(${table.steps}) between 1 and 10`),
+    check("server_fixes_approved_chk", sql`${table.status} not in ('approved', 'running') or ${table.approvalId} is not null`),
+  ],
+);
+
 /** Il registro: ogni comando dell'agente e ogni lettura SSH. `id` è il nonce. */
 export const serverCommands = pgTable(
   "server_commands",

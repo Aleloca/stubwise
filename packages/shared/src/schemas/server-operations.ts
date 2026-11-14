@@ -51,6 +51,14 @@ export const serverAnalysisViewSchema = z.object({
   /** La task nata nel progetto attribuito, se chi guarda la vede. */
   taskCode: z.string().nullable().default(null),
   blockedBy: z.enum(["monthly_budget", "cap", "disabled"]).nullable().default(null),
+  /**
+   * Chi guarda legge la diagnosi e la sessione: `monitor.manage`, e dopo
+   * un'attribuzione anche `repos.view` nel progetto attribuito (calcolato dal
+   * server; senza, `diagnosis` è null). Additivo.
+   */
+  canViewDiagnosis: z.boolean().default(false),
+  /** La sessione di Claude dell'analisi, solo con `canViewDiagnosis`. Additivo. */
+  sessionId: z.uuid().nullable().default(null),
   startedAt: z.iso.datetime(),
   finishedAt: z.iso.datetime().nullable().default(null),
 });
@@ -80,6 +88,14 @@ export const serverFixViewSchema = z.object({
   canRequestPlan: z.boolean().default(false),
   canApprove: z.boolean().default(false),
   canStop: z.boolean().default(false),
+  /** Perché l'ultimo piano proposto non è stato salvato (`schema`, `container_of_other_project`, `operations_off`…). Additivo. */
+  planError: z.string().nullable().default(null),
+  /**
+   * F4b-8 = c: un passo `docker.prune` agisce su TUTTO il server. Gli ALTRI
+   * progetti che toccherebbe (i nomi che chi guarda vede, più quanti non vede),
+   * calcolati dal server; null = nessuna pulizia nel piano. Additivo.
+   */
+  pruneWarning: z.object({ projects: z.array(z.string()), hiddenCount: z.number().int() }).nullable().default(null),
 });
 export type ServerFixView = z.infer<typeof serverFixViewSchema>;
 

@@ -112,6 +112,7 @@ export type ActionEvent = Base & {
   resultText?: unknown;
   state: "running" | "done" | "failed";
   truncated?: boolean;
+  /** @deprecated Area 8, F4b: la correzione via SSH non esiste (l'SSH è solo letture). Si toglie quando il desktop si è allineato. */
   access?: "read" | "fix";
 };
 
@@ -121,7 +122,14 @@ export type PhaseEvent = Base & {
   outcome: Outcome | null;
   stoppedById?: string;
   closedById?: string;
-  reason?: "item_closed" | "fix_access_revoked" | "fix_access_unusable" | "server_gone";
+  /**
+   * Area 8, F4b: `operations_off` = l'agente del server ha le operazioni
+   * spente. `fix_access_revoked`/`fix_access_unusable` sono @deprecated (la
+   * correzione via SSH non esiste): si tolgono quando il desktop si è allineato.
+   */
+  reason?: "item_closed" | "operations_off" | "fix_access_revoked" | "fix_access_unusable" | "server_gone";
+  /** Area 8, F4b: perché il piano di una correzione non è stato salvato o si è fermato (`planError` della vista). */
+  planError?: string;
   pr?: PrRef;
 };
 
@@ -138,6 +146,7 @@ export type PlanEvent = Base & {
   type: "plan";
   planText: string;
   summary: string;
+  /** @deprecated Area 8, F4b: i passi di una correzione stanno nella sua vista (`serverFixViewSchema`), mai comandi di shell. */
   commands?: { input: string; why: string }[];
   /** `undecided`: nessun esito verificabile (piano fermo, annullato sul gate, fallito prima di eseguire). */
   status: "pending" | "approved" | "rejected" | "pre_approved" | "undecided";

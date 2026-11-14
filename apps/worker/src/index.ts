@@ -18,6 +18,7 @@ import { createRefineWorktreeRegistry } from "./backlog/refine/worktrees.js";
 import { startChatBridge } from "./claude-chat/bridge.js";
 import { startServerAnalysisPoller, type ServerAnalysisPoller } from "./server-ops/analysis.js";
 import { startServerOpsBridge } from "./server-ops/bridge.js";
+import { startServerFixPoller, type ServerFixPoller } from "./server-ops/fix-run.js";
 import { askChatQuestion } from "./claude-chat/mention.js";
 import { ChatScheduler } from "./claude-chat/scheduler.js";
 import { turnDispatcher } from "./sessions/turn-dispatch.js";
@@ -742,10 +743,14 @@ if (relay && chatBridge) {
 // mai il worker (gli episodi restano, senza diagnosi).
 let serverOpsBridge: Awaited<ReturnType<typeof startServerOpsBridge>> | null = null;
 let serverAnalysisPoller: ServerAnalysisPoller | null = null;
+let serverFixPoller: ServerFixPoller | null = null;
 try {
   serverOpsBridge = await startServerOpsBridge({ db, encryptionKey: config.encryptionKey, log: (m) => console.warn(m) });
-  serverAnalysisPoller = startServerAnalysisPoller({ db, runner, bridge: serverOpsBridge, select, log: (m) => console.warn(m) });
+  serverAnalysisPoller = startServerAnalysisPoller({ db, encryptionKey: config.encryptionKey, publicUrl: config.publicUrl, runner, bridge: serverOpsBridge, select, log: (m) => console.warn(m) });
   controller.signal.addEventListener("abort", () => serverAnalysisPoller?.stop(), { once: true });
+  // S6: la correzione (piano nuovo, passi approvati) su un giro suo: un passo può attendere minuti.
+  serverFixPoller = startServerFixPoller({ db, encryptionKey: config.encryptionKey, runner, bridge: serverOpsBridge, select, log: (m) => console.warn(m) });
+  controller.signal.addEventListener("abort", () => serverFixPoller?.stop(), { once: true });
 } catch (error) {
   console.error(`[stubwise-worker] ponte dei server non avviato, analisi dei server spente: ${String(error)}`);
 }
@@ -1055,6 +1060,7 @@ await refineBridge?.close();
 await chatScheduler?.shutdown();
 await chatBridge?.close();
 serverAnalysisPoller?.stop();
+serverFixPoller?.stop();
 await serverOpsBridge?.close();
 relay?.stop();
 stopCancelWatch();

@@ -1,4 +1,4 @@
-import { environmentServers, projectEnvironments, serverAnalyses, serverCommands, servers, users } from "@stubwise/db";
+import { environmentServers, projectEnvironments, projects, serverAnalyses, serverCommands, servers, tickets, users } from "@stubwise/db";
 import { serverAnalysisViewSchema, serverCommandViewSchema, type ServerAnalysisView, type ServerCommandView } from "@stubwise/shared";
 import { and, desc, eq, lt } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -91,10 +91,69 @@ export async function serverAnalysisRoutes(instance: FastifyInstance): Promise<v
         attribution: null,
         taskCode: null,
         blockedBy: null,
+        canViewDiagnosis: false,
+        sessionId: null,
         startedAt: row.startedAt.toISOString(),
         finishedAt: null,
       };
       return reply.code(202).send(view);
+    },
+  );
+
+  // S9: le analisi di un server, dalla più recente. Stato, motivo e attribuzione
+  // a chi vede il server; la diagnosi (testo del modello, NON fidato) e la
+  // sessione a chi ha `monitor.manage`, e dopo l'attribuzione anche a chi ha
+  // `repos.view` nel progetto attribuito (regola concordata col renderer).
+  app.get(
+    "/:id/analyses",
+    {
+      config: { access: { kind: "user" } },
+      schema: { params: idParamsSchema, response: { 200: z.object({ analyses: z.array(serverAnalysisViewSchema) }), 404: errorSchema, ...authErrorResponses } },
+    },
+    async (request, reply) => {
+      const user = request.user!;
+      const serverId = request.params.id;
+      const [server] = await app.db.select({ id: servers.id }).from(servers).where(eq(servers.id, serverId));
+      if (!server || !(await canViewServer(app.db, user, serverId))) return apiError(reply, 404, "not_found", "Server not found");
+      const rows = await app.db
+        .select({ a: serverAnalyses, projectCode: projects.code, ticketNumber: tickets.number, displayName: users.displayName, email: users.email })
+        .from(serverAnalyses)
+        .leftJoin(projects, eq(projects.id, serverAnalyses.attributedProjectId))
+        .leftJoin(tickets, eq(tickets.id, serverAnalyses.taskId))
+        .leftJoin(users, eq(users.id, serverAnalyses.startedByUserId))
+        .where(eq(serverAnalyses.serverId, serverId))
+        .orderBy(desc(serverAnalyses.startedAt))
+        .limit(20);
+      const manage = user.instancePermissions.has("monitor.manage");
+      const permsCache = new Map<string, boolean>();
+      const reposViewIn = async (projectId: string) => {
+        if (!permsCache.has(projectId)) permsCache.set(projectId, (await projectPermissionsFor(app.db, user, projectId))?.has("repos.view") === true);
+        return permsCache.get(projectId)!;
+      };
+      const analyses: ServerAnalysisView[] = [];
+      for (const { a, projectCode, ticketNumber, displayName, email } of rows) {
+        const result = (a.attribution as { result?: { kind?: string; reason?: string } } | null)?.result;
+        const canView = manage || (a.attributedProjectId !== null && (await reposViewIn(a.attributedProjectId)));
+        analyses.push({
+          id: a.id,
+          serverId,
+          episodeId: a.episodeId,
+          status: a.status,
+          startedBy: a.startedByUserId && email ? { id: a.startedByUserId, name: nameOf({ displayName, email }) } : null,
+          diagnosis: canView ? a.diagnosis : null,
+          attribution:
+            result?.kind === "attributed" || result?.kind === "undetermined"
+              ? { kind: result.kind, projectCode: result.kind === "attributed" ? (projectCode ?? null) : null, reason: result.reason ?? null }
+              : null,
+          taskCode: canView && projectCode && ticketNumber !== null ? `${projectCode}-${ticketNumber}` : null,
+          blockedBy: a.blockedBy,
+          canViewDiagnosis: canView,
+          sessionId: canView ? a.sessionId : null,
+          startedAt: a.startedAt.toISOString(),
+          finishedAt: a.finishedAt?.toISOString() ?? null,
+        });
+      }
+      return { analyses };
     },
   );
 

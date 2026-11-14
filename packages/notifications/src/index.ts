@@ -346,3 +346,4 @@ export {
   seenContainers,
   type IssueServerCommandInput,
 } from "./server-ops/commands.js";
+export { attributionContext } from "./server-ops/context.js";
