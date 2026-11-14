@@ -1,13 +1,8 @@
-import { useNavigate } from "@tanstack/react-router";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isAppBuild } from "../../data/build";
-import { featureIntegrated } from "../../data/integration";
 import {
-  useEmailDraftFor,
   useFollowConversation,
-  useLoadMailDraft,
-  useSaveMailDraft,
   useSessionPersonId,
   useSimulateCustomerLeaves,
   useSimulateCustomerMessage,
@@ -17,12 +12,10 @@ import {
 } from "../../data/queries";
 import { now } from "../../data/dates";
 import { useMediaQuery } from "../../layout/useMediaQuery";
-import { MenuGroup, MenuNote, itemClass } from "../../tasks-ui/Menu";
+import { MenuGroup, itemClass } from "../../tasks-ui/Menu";
 import { PageError, PageSkeleton } from "../../tasks-ui/PageStates";
 import { useToast } from "../../tasks-ui/Toast";
 import { quietButton, secondaryButton } from "../claude/conversation/parts";
-import { openGoogleAccount } from "../drive/GoogleAccountCard";
-import { requestCompose } from "../mail/composeRequest";
 import { MoreGlyph } from "../mail/glyphs";
 import { dayLabel } from "../mail/format";
 import { ago } from "../releases/format";
@@ -41,53 +34,11 @@ import { ClaudeSuggestionRow } from "../../tasks-ui/ClaudeSuggestionRow";
 // cosa vuole il cliente (il blocco della richiesta), sotto la conversazione
 // che lo prova, in fondo la casella — solo per chi ha `support.reply` e mai
 // durante il triage (R-K15). «Anteprima del cliente» (P) mostra ciò che vede
-// lui; «Scrivigli anche per email» apre la Posta con una bozza nello slot
-// della conversazione (R-K14), che parte solo da «Invia» di una persona.
+// lui. Per email il team non scrive al cliente da qui (area 8, F3, decisione
+// del maintainer).
 
 /** Dopo quanti minuti senza il cliente si dice che non è più sul sito [A 12]. */
 const AWAY_MINUTES = 30;
-
-/** «Scrivigli anche per email»: la bozza nella Posta (la sua, se c'era già), poi la Posta. */
-function useWriteByEmail() {
-  const { t } = useTranslation();
-  const toast = useToast();
-  const navigate = useNavigate();
-  const emailDraft = useEmailDraftFor();
-  const load = useLoadMailDraft();
-  const save = useSaveMailDraft();
-  return async (code: string) => {
-    try {
-      const { slot, draft } = await emailDraft.mutateAsync(code);
-      // Una bozza già scritta per questo cliente non si sovrascrive.
-      const saved = await load(null, "new", slot);
-      if (!saved.to.length && !saved.subject.trim() && !saved.body.trim()) {
-        await save.mutateAsync({
-          threadId: null,
-          mode: "new",
-          replyToMessageId: null,
-          to: draft.to,
-          cc: [],
-          subject: draft.subject,
-          body: draft.body,
-          attachments: [],
-          slot,
-        });
-      }
-      requestCompose({ threadId: null, mode: "new", focus: "body", slot });
-      void navigate({ to: "/mail", search: { compose: slot } as never });
-    } catch {
-      toast.error(t("support.reply.emailError"));
-    }
-  };
-}
-
-/**
- * Perché «Write to them by email» non c'è: quello del server, oppure la
- * funzione spenta (`support-email`, area 8 F3: finché non c'è la rotta S9)
- * come chi non ha il permesso, cioè nessuna voce.
- */
-const emailBlockedOf = (conv: SupportConversationView): SupportConversationView["emailBlocked"] =>
-  featureIntegrated("support-email") ? conv.emailBlocked : "no_permission";
 
 /** Il cliente non è più sul sito: da quando, se è passato abbastanza. */
 function awaySince(conv: SupportConversationView, nowIso: string): string | null {
@@ -103,13 +54,11 @@ function Header({
   previewOpen,
   togglePreview,
   previewButton,
-  writeByEmail,
 }: {
   conv: SupportConversationView;
   previewOpen: boolean;
   togglePreview: () => void;
   previewButton: React.RefObject<HTMLButtonElement | null>;
-  writeByEmail: () => void;
 }) {
   const { t, i18n } = useTranslation();
   const toast = useToast();
@@ -197,37 +146,6 @@ function Header({
                 >
                   {t("support.detail.copyLink")}
                 </button>
-                {emailBlockedOf(conv) === null && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    tabIndex={-1}
-                    className={itemClass}
-                    onClick={() => (close(), writeByEmail())}
-                  >
-                    {t("support.detail.writeEmail")}
-                  </button>
-                )}
-                {emailBlockedOf(conv) !== null && emailBlockedOf(conv) !== "no_permission" && (
-                  <>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      tabIndex={-1}
-                      aria-disabled="true"
-                      className={`${itemClass} text-ink-faint hover:bg-transparent`}
-                    >
-                      {t("support.detail.writeEmail")}
-                    </button>
-                    <MenuNote>
-                      {emailBlockedOf(conv) === "no_email"
-                        ? t("support.reply.noEmail")
-                        : emailBlockedOf(conv) === "triage"
-                          ? t("support.reply.noEmailTriage")
-                          : t("support.reply.noMailbox")}
-                    </MenuNote>
-                  </>
-                )}
               </MenuGroup>
               {/* Le simulazioni del cliente sono solo del prototipo (area 8, F3). */}
               {!isAppBuild() && (
@@ -297,7 +215,6 @@ export function ConversationDetail({
   const previewButton = useRef<HTMLButtonElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const lastRef = useRef<HTMLLIElement>(null);
-  const writeByEmail = useWriteByEmail();
   usePendingReplies();
   const conv = q.data;
 
@@ -370,29 +287,6 @@ export function ConversationDetail({
     ) : (
       <div className="flex flex-col gap-1 text-xs text-ink-muted">
         {away && <p>{t("support.reply.lastSeen", { name, time: ago(away, t, i18n.language) })}</p>}
-        {emailBlockedOf(conv) === null && (
-          <p>
-            <button
-              type="button"
-              onClick={() => void writeByEmail(conv.code)}
-              className="rounded-sm font-semibold text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
-            >
-              {t("support.detail.writeEmail")}
-            </button>
-          </p>
-        )}
-        {emailBlockedOf(conv) === "no_mailbox" && (
-          <p>
-            {t("support.reply.noMailbox")} ·{" "}
-            <button
-              type="button"
-              onClick={() => openGoogleAccount()}
-              className="rounded-sm font-semibold text-ink underline decoration-ink/30 underline-offset-2"
-            >
-              {t("support.reply.connect")}
-            </button>
-          </p>
-        )}
       </div>
     );
 
@@ -411,7 +305,6 @@ export function ConversationDetail({
               previewOpen={preview}
               togglePreview={() => (preview ? closePreview() : setPreview(true))}
               previewButton={previewButton}
-              writeByEmail={() => void writeByEmail(conv.code)}
             />
             {/* Area 10b: «Claude can help you write the reply», sotto la riga meta. */}
             <ClaudeSuggestionRow place={{ kind: "support", conversationId: conv.id }} />

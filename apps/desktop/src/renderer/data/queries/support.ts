@@ -155,11 +155,6 @@ export function useFollowConversation() {
   );
 }
 
-/** «Scrivigli anche per email»: la bozza per il compositore della Posta. Non scrive nulla. */
-export function useEmailDraftFor() {
-  return useWrite((code: string) => api.support.emailDraftFor(code), []);
-}
-
 export function useCreateWidget() {
   return useWrite(
     ({ projectId, input }: { projectId: string; input: api.support.WidgetInput }) =>

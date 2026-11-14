@@ -50,7 +50,6 @@ describe("l'insieme esportato: nessuna richiesta da un'email", () => {
         "openRequestFrom",
         "markNotConcluded",
         "followConversation",
-        "emailDraftFor",
         "createWidget",
         "updateWidget",
         "deleteWidget",
@@ -210,11 +209,10 @@ describe("Review Focus 4: il cliente vede solo il suo", () => {
     const before = conv("ACQ-S2").messages.length;
     await expect(support.replyToCustomer("ACQ-S2", "Ciao")).rejects.toThrow("forbidden");
     await expect(support.draftReply("ACQ-S2")).rejects.toThrow("forbidden");
-    await expect(support.emailDraftFor("ACQ-S2")).rejects.toThrow("forbidden");
     expect(conv("ACQ-S2").messages).toHaveLength(before);
   });
 
-  it("risposta ed emailDraftFor non toccano la Posta e non avvisano nessuno", async () => {
+  it("la risposta non tocca la Posta e non avvisa nessuno", async () => {
     as("p-matteo");
     const mail = structuredClone(state.mailMessages);
     const drafts = structuredClone(state.mailDrafts);
@@ -228,25 +226,9 @@ describe("Review Focus 4: il cliente vede solo il suo", () => {
       authorId: "p-matteo",
       body: "Thanks Lucia.",
     });
-    const email = await support.emailDraftFor("ACQ-S2");
-    expect(email.slot).toBe("support-ACQ-S2");
-    expect(email.draft.threadId).toBeNull();
-    expect(email.draft).toMatchObject({
-      mode: "new",
-      to: [expect.objectContaining({ email: "lucia.benedetti@example.com" })],
-      subject: expect.stringMatching(/^About your request ACQ-R\d+$/),
-    });
-    expect(email.draft.body).toMatch(/^Hi Lucia/);
     expect(state.mailMessages).toEqual(mail);
     expect(state.mailDrafts).toEqual(drafts);
     expect(state.notifications).toHaveLength(notifications);
-  });
-
-  it("emailDraftFor: senza indirizzo o senza casella collegata, nessuna bozza", async () => {
-    as("p-matteo");
-    await expect(support.emailDraftFor("ACQ-S3")).rejects.toThrow("invalid: no_email");
-    as("p-roberta");
-    await expect(support.emailDraftFor("ACQ-S2")).rejects.toThrow("google_not_connected");
   });
 
   it("il cliente se ne va durante il triage: non conclusa, nessuna richiesta", async () => {
@@ -287,27 +269,12 @@ describe("R-K15: durante il triage non si risponde", () => {
   });
 });
 
-describe("R-K18: durante il triage nemmeno l'email", () => {
-  it("emailDraftFor in triage è invalid: state, e la vista dice perché", async () => {
+describe("«Scrivigli per email» non c'è più (area 8, F3, decisione del maintainer)", () => {
+  it("il team non scrive al cliente per email da Support: nessuna funzione, nessun campo nella vista", async () => {
     as("p-matteo");
-    const drafts = structuredClone(state.mailDrafts);
-    await expect(support.emailDraftFor("ACQ-S1")).rejects.toThrow("invalid: state");
-    expect(state.mailDrafts).toEqual(drafts);
-    expect((await support.getSupportConversation("ACQ-S1"))!.emailBlocked).toBe("triage");
-    // Chi non può rispondere resta `no_permission`, anche in triage.
-    as("p-sara");
-    expect((await support.getSupportConversation("ACQ-S1"))!.emailBlocked).toBe("no_permission");
-  });
-});
-
-describe("R-K14: la bozza email ha uno slot suo", () => {
-  it("emailDraftFor non usa lo slot della nuova email: id e slot della conversazione", async () => {
-    as("p-matteo");
-    const { draft } = await support.emailDraftFor("ACQ-S2");
-    expect(draft.id).toBe("md-p-matteo-support-ACQ-S2");
-    expect(draft.slot).toBe("support-ACQ-S2");
-    expect(draft.threadId).toBeNull();
-    expect(draft.id).not.toBe("md-p-matteo-new");
+    expect("emailDraftFor" in support).toBe(false);
+    const view = (await support.getSupportConversation("ACQ-S2"))!;
+    expect("emailBlocked" in view).toBe(false);
   });
 });
 

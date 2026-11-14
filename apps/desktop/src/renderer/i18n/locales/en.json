@@ -9218,7 +9218,6 @@
       "copyLink": "Copy link",
       "linkCopied": "Link copied",
       "linkError": "Couldn't copy the link.",
-      "writeEmail": "Write to them by email",
       "prototype": "Prototype only",
       "simulateMessage": "Simulate a customer message",
       "simulateLeaves": "Simulate: customer leaves",
@@ -9296,13 +9295,8 @@
       "triage": "The assistant is still asking the customer questions: you can reply once the triage ends.",
       "lastSeen": "{{name}} last saw the conversation {{time}}. They'll see your reply when they come back.",
       "nextTime": "They'll see it the next time they ask about their requests.",
-      "noEmail": "The customer didn't leave an email address",
-      "noMailbox": "Connect your Google account to write from Stubwise",
-      "connect": "Connect",
-      "emailError": "Couldn't prepare the email.",
       "waitPrevious": "Wait: your previous reply is still in its Undo window",
       "notSentBack": "Not sent. Your reply is back in the box: send it again when you're ready.",
-      "noEmailTriage": "The assistant is still asking the customer questions",
       "askClaude": "Ask Claude"
     },
     "preview": {

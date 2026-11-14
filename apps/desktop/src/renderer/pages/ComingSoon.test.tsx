@@ -426,8 +426,6 @@ const INTEGRATED_CALLS = new Set([
   "support.followConversation",
   "support.openRequestFrom",
   "support.markNotConcluded",
-  // S9: «Write to them by email». «Clienti in attesa» (S8) è spento: la sua lettura no.
-  "support.emailDraftFor",
   // I widget (support-widgets), sulle rotte di oggi.
   "support.listWidgets",
   "support.createWidget",
@@ -673,24 +671,14 @@ describe("aree non integrate nella build app", () => {
     );
     await waitFor(() => expect(calls).toContain("support.getSupportConversation"));
     await waitFor(() => expect(calls).toContain("support.listSupportConversations"));
-    // La casella c'è (si risponde), ma senza «Ask Claude» (S12); l'email ha il suo test.
+    // La casella c'è (si risponde), ma senza «Ask Claude» (S12).
     expect(await within(detail).findByRole("form", { name: /^Reply to / })).toBeInTheDocument();
     expect(within(detail).queryByRole("button", { name: /^Ask Claude/ })).toBeNull();
+    // «Write to them by email» non c'è più (area 8, F3, decisione del maintainer).
+    expect(within(detail).queryByRole("button", { name: "Write to them by email" })).toBeNull();
     // Nessuna simulazione del prototipo nel menu.
     await user.click(within(detail).getByRole("button", { name: "More actions" }));
     expect(screen.queryByRole("menuitem", { name: /^Simulate/ })).toBeNull();
-    await settle();
-    expect(outside()).toEqual([]);
-  });
-
-  it("«Write to them by email» (area 8, F3, S9): la bozza dal server e la Posta, solo chiamate integrate", async () => {
-    const user = userEvent.setup();
-    signedInAs("p-matteo");
-    const router = renderRoute("/p/ACQ/support/ACQ-S2");
-    const button = await screen.findByRole("button", { name: "Write to them by email" }, { timeout: 3000 });
-    await user.click(button);
-    await waitFor(() => expect(calls).toContain("support.emailDraftFor"));
-    await waitFor(() => expect(router.state.location.pathname).toBe("/mail"));
     await settle();
     expect(outside()).toEqual([]);
   });

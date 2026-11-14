@@ -22,7 +22,6 @@ export {
   createWidget,
   deleteWidget,
   draftReply,
-  emailDraftFor,
   followConversation,
   openRequestFrom,
   markNotConcluded,

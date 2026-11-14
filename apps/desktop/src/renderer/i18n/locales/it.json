@@ -9218,7 +9218,6 @@
       "copyLink": "Copia il link",
       "linkCopied": "Link copiato",
       "linkError": "Non è stato possibile copiare il link.",
-      "writeEmail": "Scrivigli anche per email",
       "prototype": "Solo nel prototipo",
       "simulateMessage": "Simula un messaggio del cliente",
       "simulateLeaves": "Simula: il cliente se ne va",
@@ -9296,13 +9295,8 @@
       "triage": "L'assistente sta ancora facendo domande al cliente: potrai rispondere quando il triage è concluso.",
       "lastSeen": "{{name}} ha visto la conversazione l'ultima volta {{time}}. Vedrà la risposta quando torna.",
       "nextTime": "La vedrà la prossima volta che chiede delle sue richieste.",
-      "noEmail": "Il cliente non ha lasciato un indirizzo email",
-      "noMailbox": "Collega il tuo account Google per scrivere da Stubwise",
-      "connect": "Collega",
-      "emailError": "Non è stato possibile preparare l'email.",
       "waitPrevious": "Aspetta: la risposta di prima è ancora nella finestra dell'Annulla",
       "notSentBack": "Non inviata. La risposta è tornata nella casella: inviala di nuovo quando vuoi.",
-      "noEmailTriage": "L'assistente sta ancora facendo domande al cliente",
       "askClaude": "Chiedi a Claude"
     },
     "preview": {

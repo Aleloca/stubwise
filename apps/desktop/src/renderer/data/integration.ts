@@ -88,14 +88,13 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // degli avvisi nel pannello. «Don't alert me» dalla card è `alerts-mute`.
     "alerts",
     // Area 8, fetta 3: Support — elenco, dettaglio, anteprima, risposta, «Segui»,
-    // «Apri la richiesta», «Not concluded»; «Write to them by email»
-    // (`support-email`, S9) e i widget (`support-widgets`, sulle rotte di
-    // oggi). Restano spente: la bozza di Claude (`support-draft`), la ricerca
+    // «Apri la richiesta», «Not concluded» e i widget (`support-widgets`, sulle
+    // rotte di oggi). «Write to them by email» non c'è più (decisione del
+    // maintainer: il team non scrive al cliente). Restano spente: la bozza di Claude (`support-draft`), la ricerca
     // ⌘K (`support-search`, fuori F3) e «Clienti in attesa» nella Home
     // (`support-home`): la sua fonte è posta e automazioni, non il widget, ed
     // è da definire (decisione del maintainer); resta nel catalogo.
     "support",
-    "support-email",
     "support-widgets",
     // «Don't alert me about this» dalla card (S6, `POST /api/inbox/:id/mute-type`),
     // con l'«Annulla» nel progetto della card; non su una card arrivata da obbligatorio.

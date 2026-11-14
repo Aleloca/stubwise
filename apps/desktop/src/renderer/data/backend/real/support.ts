@@ -3,13 +3,12 @@ import type {
   Reader,
   SupportConversation as ServerConversation,
   SupportCustomerPreview,
-  SupportEmailDraft,
   SupportOpenRequestBody,
   SupportReplyBody,
 } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { CustomerPreview, SupportConversationView } from "../../support";
-import type { MailDraft, SupportMessage } from "../../model";
+import type { SupportMessage } from "../../model";
 import {
   CUSTOMER_STATUSES,
   SUPPORT_STATE_ORDER,
@@ -17,7 +16,7 @@ import {
   type SupportState,
 } from "@stubwise/shared";
 import { asPrototypeError } from "./automationRefs";
-import { appClient, session } from "./client";
+import { appClient } from "./client";
 
 // Support della build app (area 8, F3) sopra le rotte vere, con le firme del
 // prototipo (`data/support/reads.ts`). Lo stato, la richiesta o la task
@@ -45,7 +44,6 @@ export interface SupportApi {
   markNotConcluded(code: string): Promise<Conversation>;
   /** «Ask Claude»: accoda la bozza (202, la vista con `claudeDraftPending`). */
   requestDraft(code: string): Promise<Conversation>;
-  emailDraft(code: string): Promise<Reader<SupportEmailDraft>>;
 }
 
 /**
@@ -59,11 +57,6 @@ function words(error: unknown): unknown {
     return new Error("invalid: state");
   if (error instanceof ApiError && error.code === "budget_exhausted")
     return new Error("budget_exhausted");
-  // «Write to them by email» (S9): le ragioni di `emailBlocked`, come le dice il prototipo.
-  if (error instanceof ApiError && error.code === "support_no_email")
-    return new Error("invalid: no_email");
-  if (error instanceof ApiError && error.code === "support_no_mailbox")
-    return new Error("google_not_connected");
   return asPrototypeError(error);
 }
 
@@ -151,16 +144,12 @@ function viewOf(c: Conversation): SupportConversationView | null {
     replyClosed: c.replyClosed === "triage" ? "triage" : null,
     canOpenRequest: c.canOpenRequest,
     canMarkNotConcluded: c.canMarkNotConcluded,
-    emailBlocked: c.emailBlocked === "__unknown__" ? "no_permission" : c.emailBlocked,
   };
 }
 
 const viewsOf = (items: readonly Conversation[]) => items.flatMap((c) => viewOf(c) ?? []);
 
-export function createRealSupport(
-  api: SupportApi,
-  me: () => string = () => session.personId ?? "",
-) {
+export function createRealSupport(api: SupportApi) {
   return {
     async listSupportConversations(
       projectId: string,
@@ -228,33 +217,6 @@ export function createRealSupport(
     async draftReply(code: string): Promise<SupportConversationView> {
       return writtenViewOf(await call(() => api.requestDraft(code)));
     },
-
-    /**
-     * «Write to them by email»: la bozza NUOVA da aprire nella Posta, nello
-     * slot della conversazione, dalla casella di chi scrive. Il server non
-     * salva né invia: la manda una persona, dalla Posta.
-     */
-    async emailDraftFor(code: string): Promise<{ slot: string; draft: MailDraft }> {
-      const d = await call(() => api.emailDraft(code));
-      const personId = me();
-      return {
-        slot: d.slot,
-        draft: {
-          id: `md-${personId}-${d.slot}`,
-          personId,
-          threadId: null,
-          mode: "new",
-          slot: d.slot,
-          replyToMessageId: null,
-          to: [{ name: d.to.name ?? "", email: d.to.email, personId: null }],
-          cc: [],
-          subject: d.subject,
-          body: d.body,
-          attachments: [],
-          updatedAt: new Date().toISOString(),
-        },
-      };
-    },
   } satisfies Partial<typeof Fake.support>;
 }
 
@@ -269,5 +231,4 @@ export const liveSupport: Partial<typeof Fake.support> = createRealSupport({
   openRequest: (code, body) => appClient().support.openRequest(code, body),
   markNotConcluded: (code) => appClient().support.markNotConcluded(code),
   requestDraft: (code) => appClient().support.requestDraft(code),
-  emailDraft: (code) => appClient().support.emailDraft(code),
 });

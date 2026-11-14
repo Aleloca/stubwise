@@ -5,25 +5,22 @@ import { recordChange } from "../changelog/index";
 import { changedFields } from "../changelog/settingValues";
 // Per effetto: registra i tipi di voce di progetto (`recordChange` lancia su uno ignoto).
 import "../projectSettings/changeTypes";
-import { mailboxOf } from "../mail/compose";
 import { copy, newId, now, state } from "../store";
-import type { MailDraft, SupportWidget } from "../types";
+import type { SupportWidget } from "../types";
 import { forbidden, invalid, notFound, writer } from "../writer";
-import { supportMailSlot, supportState } from "../../domain/support/state";
+import { supportState } from "../../domain/support/state";
 import {
   conversationFor,
   conversationView,
   draftText,
   holds,
   publishSupportRequest,
-  requestOf,
   sees,
   type SupportConversationView,
 } from "./visibility";
 
 // Le scritture di Support. NESSUNA risposta parte da sola e NESSUNA email
-// automatica al cliente: Claude prepara solo bozze (`draftReply`,
-// `emailDraftFor`), ogni risposta parte dal clic di chi ha `support.reply`
+// automatica al cliente: Claude prepara solo bozze (`draftReply`), ogni risposta parte dal clic di chi ha `support.reply`
 // (`replyToCustomer`), e nessuna di queste funzioni scrive nella Posta.
 // Una richiesta nasce solo da una conversazione (mai da un'email). Gli
 // errori: `not_found` per ciò che chi agisce non vede (R-G5), `forbidden`
@@ -136,43 +133,6 @@ export async function followConversation(
   c.followerIds = c.followerIds.filter((id) => id !== me);
   if (on) c.followerIds.push(me);
   return conversationView(me, c);
-}
-
-/**
- * «Scrivigli anche per email»: la bozza da aprire nel compositore della
- * Posta (area 6), dalla casella di chi scrive, col testo di Claude. NON la
- * salva e NON la invia: la manda una persona, dalla Posta. È sempre
- * un'email nuova, nello slot della conversazione (`support-<codice>`,
- * R-K14): accanto alla «nuova email» di chi scrive, mai al suo posto, e mai
- * dentro una conversazione della Posta (la cui bozza sovrascriverebbe).
- */
-export async function emailDraftFor(
-  code: string,
-): Promise<{ slot: string; draft: MailDraft }> {
-  const me = await writer("support.emailDraftFor");
-  // Nemmeno l'email durante il triage: Claude sta facendo le domande (R-K18).
-  const c = openReplyFor(me, code);
-  const email = c.customer.email;
-  if (!email) throw invalid("no_email");
-  mailboxOf(me);
-  const req = requestOf(c);
-  const slot = supportMailSlot(c.code);
-  const draft: MailDraft = {
-    id: `md-${me}-${slot}`,
-    personId: me,
-    threadId: null,
-    mode: "new",
-    slot,
-    replyToMessageId: null,
-    to: [{ name: c.customer.name, email, personId: null }],
-    cc: [],
-    subject: req ? `About your request ${req.code}` : "About your message",
-    body: draftText(c),
-    attachments: [],
-    updatedAt: now(),
-  };
-  // Sempre un'email nuova nel suo slot: nessuna conversazione della Posta.
-  return { slot, draft };
 }
 
 // --- widget -------------------------------------------------------------------

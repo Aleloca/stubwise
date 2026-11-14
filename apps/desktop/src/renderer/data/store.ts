@@ -653,7 +653,6 @@ export type ApiFnName =
   | "support.openRequestFrom"
   | "support.markNotConcluded"
   | "support.followConversation"
-  | "support.emailDraftFor"
   | "support.createWidget"
   | "support.updateWidget"
   | "support.deleteWidget"

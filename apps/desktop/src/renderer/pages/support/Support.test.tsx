@@ -11,7 +11,6 @@ import { setLanguage } from "../../i18n";
 import { renderRoute } from "../../test/renderRoute";
 import { setMatchMedia } from "../../test/setup";
 import { clearToasts } from "../../tasks-ui/Toast";
-import { MAIL_TWO_UP_QUERY } from "../mail/MailPage";
 import { PREVIEW_DOCKED_QUERY, SUPPORT_TWO_UP_QUERY } from "./format";
 import { clearReplyStore, REPLY_UNDO_MS } from "./replyStore";
 
@@ -418,20 +417,6 @@ describe("Support — la bozza di Claude e l'invio", () => {
 });
 
 describe("Support — R-K18 e errori di caricamento", () => {
-  it("in triage «Write to them by email» non c'è: nel «⋯» è disattivata col perché", async () => {
-    const user = userEvent.setup();
-    await open("/p/ACQ/support/ACQ-S1");
-    await detail("ACQ-S1");
-    await user.click(screen.getByRole("button", { name: "More actions" }));
-    expect(screen.getByRole("menuitem", { name: "Write to them by email" })).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
-    expect(
-      screen.getByText("The assistant is still asking the customer questions"),
-    ).toBeInTheDocument();
-  });
-
   it("m4: un dettaglio che non si carica dice l'errore con «Retry», non «not found»", async () => {
     failNext("support.getSupportConversation");
     const user = userEvent.setup();
@@ -472,50 +457,16 @@ describe("Support — anteprima del cliente", () => {
   });
 });
 
-describe("Support — «Scrivigli anche per email» (R-K14)", () => {
-  it("apre il compositore della Posta con la bozza, senza toccare la nuova email non inviata", async () => {
-    setMatchMedia(MAIL_TWO_UP_QUERY, true);
-    state.mailDrafts.push({
-      id: "md-p-matteo-new",
-      personId: "p-matteo",
-      threadId: null,
-      mode: "new",
-      replyToMessageId: null,
-      to: [],
-      cc: [],
-      subject: "Unsent",
-      body: "My unsent email.",
-      attachments: [],
-      updatedAt: "2026-10-28T09:00:00Z",
-    });
-    const mail = structuredClone(state.mailMessages);
+describe("Support — «Scrivigli per email» non c'è più (area 8, F3)", () => {
+  it("né sotto la conversazione né nel «⋯», nemmeno per chi ha una casella e il cliente un indirizzo", async () => {
     const user = userEvent.setup();
-    const router = await open("/p/ACQ/support/ACQ-S2");
-    await composer();
-    await user.click(screen.getByRole("button", { name: "Write to them by email" }));
-    await waitFor(() => expect(router.state.location.pathname).toBe("/mail"));
-    expect(router.state.location.search).toMatchObject({ compose: "support-ACQ-S2" });
-    const form = await screen.findByRole("form", { name: /New email/i });
-    await waitFor(() =>
-      expect(
-        (within(form).getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement).value,
-      ).toMatch(/^Hi Lucia/),
-    );
-    expect(form).toHaveTextContent("lucia.benedetti@example.com");
-    expect(within(form).getByDisplayValue(/^About your request ACQ-R\d+$/)).toBeInTheDocument();
-    expect(state.mailDrafts.find((d) => d.id === "md-p-matteo-new")!.body).toBe("My unsent email.");
-    expect(state.mailMessages).toEqual(mail);
-  });
-
-  it("senza indirizzo la voce non c'è sotto la casella; nel «⋯» è disattivata col perché", async () => {
-    const user = userEvent.setup();
-    await open("/p/ACQ/support/ACQ-S3");
-    await composer();
+    await open("/p/ACQ/support/ACQ-S2");
+    await detail("ACQ-S2");
     expect(screen.queryByRole("button", { name: "Write to them by email" })).toBeNull();
+    expect(screen.queryByText("Connect your Google account to write from Stubwise")).toBeNull();
     await user.click(screen.getByRole("button", { name: "More actions" }));
-    const item = screen.getByRole("menuitem", { name: "Write to them by email" });
-    expect(item).toHaveAttribute("aria-disabled", "true");
-    expect(screen.getByText("The customer didn't leave an email address")).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Copy link" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Write to them by email" })).toBeNull();
   });
 });
 

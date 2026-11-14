@@ -96,12 +96,6 @@ function fakeApi(over: Partial<SupportApi> = {}) {
       calls.push(`draft ${code}`);
       return view({ claudeDraftPending: true });
     },
-    emailDraft: async () => ({
-      slot: "support-ACQ-S1",
-      to: { name: "Lucia", email: "lucia@example.com" },
-      subject: "About your request ACQ-R1",
-      body: "Hi Lucia, …",
-    }),
     preview: async () => ({
       status: "received",
       messages: [
@@ -284,33 +278,5 @@ describe("le scritture di Support sul server (area 8, F3)", () => {
     expect(
       await words({ requestDraft: fail(409, "budget_exhausted") }, (s) => s.draftReply("ACQ-S1")),
     ).toBe("budget_exhausted");
-  });
-
-  it("«Write to them by email»: la bozza nuova per la Posta, nello slot della conversazione, da chi scrive", async () => {
-    const { api } = fakeApi();
-    const out = await createRealSupport(api, () => "me-1").emailDraftFor("ACQ-S1");
-    expect(out.slot).toBe("support-ACQ-S1");
-    expect(out.draft).toMatchObject({
-      personId: "me-1",
-      threadId: null,
-      mode: "new",
-      slot: "support-ACQ-S1",
-      replyToMessageId: null,
-      to: [{ name: "Lucia", email: "lucia@example.com", personId: null }],
-      cc: [],
-      subject: "About your request ACQ-R1",
-      body: "Hi Lucia, …",
-      attachments: [],
-    });
-  });
-
-  it("l'email bloccata nelle parole del prototipo: in triage, senza email, senza casella", async () => {
-    const reason = (code: string) =>
-      createRealSupport(fakeApi({ emailDraft: fail(409, code) }).api)
-        .emailDraftFor("ACQ-S1")
-        .catch((e: Error) => e.message);
-    expect(await reason("support_triage")).toBe("invalid: state");
-    expect(await reason("support_no_email")).toBe("invalid: no_email");
-    expect(await reason("support_no_mailbox")).toBe("google_not_connected");
   });
 });

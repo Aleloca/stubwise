@@ -71,7 +71,6 @@ const ALL: IntegrationTarget[] = [
       "releases-explain",
       "support",
       "support-draft",
-      "support-email",
       "support-home",
       "support-widgets",
       "support-search",
@@ -110,7 +109,6 @@ describe("isIntegrated", () => {
         // ricerca senza rotta, «Clienti in attesa» spento (fonte da definire).
         "projectSection:support",
         "feature:support",
-        "feature:support-email",
         "feature:support-widgets",
         "destination:projects",
         "projectSection:tasks",
