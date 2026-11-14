@@ -377,6 +377,8 @@ export async function loadTaskViews(
       assigneeStatus: t.assigneeId ? "active" : null,
       canPlan: canPlanOf(t),
       claudeRun: null,
+      // Area 8, F3 (S-9): la conversazione del widget la deriva S6.
+      supportConversationCode: null,
     },
   }));
 }
