@@ -246,6 +246,8 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
       // transazione (due chiamate lascerebbero un server orfano a metà). Serve
       // `environments.manage` nel progetto dell'ambiente, oltre a monitor.manage.
       let env: { id: string; projectId: string } | undefined;
+      let targetRepos: string[] = [];
+      let wholeProject = false;
       if (environment) {
         [env] = await app.db
           .select({ id: projectEnvironments.id, projectId: projectEnvironments.projectId })
@@ -257,19 +259,29 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
         if (!permissions.has("environments.manage")) {
           return apiError(reply, 403, "forbidden", "Linking a server to an environment needs environments.manage");
         }
-        const repos = await app.db
-          .select({ id: repositories.id })
-          .from(repositories)
-          .where(and(eq(repositories.projectId, env.projectId), inArray(repositories.id, environment.repositoryIds)));
-        if (repos.length !== new Set(environment.repositoryIds).size) {
-          return apiError(reply, 400, "bad_repository", "A repository is not in this project");
+        if (environment.repositoryIds) {
+          const repos = await app.db
+            .select({ id: repositories.id })
+            .from(repositories)
+            .where(and(eq(repositories.projectId, env.projectId), inArray(repositories.id, environment.repositoryIds)));
+          if (repos.length !== new Set(environment.repositoryIds).size) {
+            return apiError(reply, 400, "bad_repository", "A repository is not in this project");
+          }
+          targetRepos = [...new Set(environment.repositoryIds)];
+        } else {
+          // Tutto il progetto: ogni repository, e l'ambiente intero (`serverId`).
+          targetRepos = (await app.db.select({ id: repositories.id }).from(repositories).where(eq(repositories.projectId, env.projectId))).map((r) => r.id);
+          wholeProject = true;
         }
       }
       const created = await app.db.transaction(async (tx) => {
         const [row] = await tx.insert(servers).values({ name, keyHash: hashServerKey(key) }).returning();
         if (!row) throw new Error("insert del server non ha restituito la riga");
-        if (env && environment) {
-          for (const repositoryId of new Set(environment.repositoryIds)) {
+        if (env && wholeProject) {
+          await tx.update(projectEnvironments).set({ serverId: row.id }).where(eq(projectEnvironments.id, env.id));
+        }
+        if (env) {
+          for (const repositoryId of targetRepos) {
             await tx
               .insert(environmentServers)
               .values({ environmentId: env.id, repositoryId, serverId: row.id })

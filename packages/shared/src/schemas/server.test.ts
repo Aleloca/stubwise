@@ -107,5 +107,6 @@ describe("area 8, F4a: le forme dei server sono additive", () => {
     expect(serverMetricsResponseSchema.parse({ resolution: "4h", truncated: false, points: [] }).resolution).toBe("4h");
     expect(createServerSchema.parse({ name: "x" }).environment).toBeUndefined();
     expect(createServerSchema.safeParse({ name: "x", environment: { environmentId: view.id, repositoryIds: [] } }).success).toBe(false);
+    expect(createServerSchema.parse({ name: "x", environment: { environmentId: view.id } }).environment?.repositoryIds).toBeUndefined();
   });
 });
