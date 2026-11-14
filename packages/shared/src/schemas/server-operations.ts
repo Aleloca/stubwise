@@ -51,6 +51,14 @@ export const serverAnalysisViewSchema = z.object({
   /** La task nata nel progetto attribuito, se chi guarda la vede. */
   taskCode: z.string().nullable().default(null),
   blockedBy: z.enum(["monthly_budget", "cap", "disabled"]).nullable().default(null),
+  /**
+   * Chi guarda legge la diagnosi e la sessione: `monitor.manage`, e dopo
+   * un'attribuzione anche `repos.view` nel progetto attribuito (calcolato dal
+   * server; senza, `diagnosis` è null). Additivo.
+   */
+  canViewDiagnosis: z.boolean().default(false),
+  /** La sessione di Claude dell'analisi, solo con `canViewDiagnosis`. Additivo. */
+  sessionId: z.uuid().nullable().default(null),
   startedAt: z.iso.datetime(),
   finishedAt: z.iso.datetime().nullable().default(null),
 });

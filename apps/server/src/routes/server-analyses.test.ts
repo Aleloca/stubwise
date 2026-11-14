@@ -4,7 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { environmentServers, projectEnvironments, projectMembers, roles, serverAnalyses, serverCommands, servers } from "@stubwise/db";
-import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { seedRepository, seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { addMember, createUserWithPat, seedUsers, type SeededUsers } from "../test/fixtures.js";
 
 /**
@@ -112,5 +112,43 @@ describe("GET /api/servers/:id/operations (S8, il registro)", () => {
     expect((await log(serverId, lead.headers)).statusCode).toBe(403);
     const stranger = await createUserWithPat(app, `st-${randomBytes(3).toString("hex")}@acme.com`);
     expect((await log(serverId, stranger.headers)).statusCode).toBe(404);
+  });
+});
+
+describe("GET /api/servers/:id/analyses (S9)", () => {
+  it("stato e attribuzione a chi vede il server; la diagnosi a monitor.manage e, se attribuita, a repos.view nel progetto attribuito", async () => {
+    const { projectId: a, serverId } = await serverOfProject();
+    // Un secondo progetto sullo stesso server.
+    const { projectId: b, repositoryId: repoB } = await seedRepository(testDb.db);
+    const [envB] = await testDb.db.insert(projectEnvironments).values({ projectId: b, name: "staging", kind: "staging", serverId }).returning();
+    await testDb.db.insert(environmentServers).values({ environmentId: envB!.id, repositoryId: repoB, serverId });
+    const { ticketId } = await seedTicket(testDb.db, { projectId: a });
+    const [attributed] = await testDb.db
+      .insert(serverAnalyses)
+      .values({ serverId, status: "done", diagnosis: "OOM in web-a", attributedProjectId: a, taskId: ticketId, attribution: { result: { kind: "attributed" } }, startedAt: new Date("2026-11-14T10:00:00Z") })
+      .returning();
+    const [undetermined] = await testDb.db
+      .insert(serverAnalyses)
+      .values({ serverId, status: "done", diagnosis: "boh", attribution: { result: { kind: "undetermined", reason: "no_project" } }, startedAt: new Date("2026-11-14T11:00:00Z") })
+      .returning();
+    const devA = await createUserWithPat(app, `da-${randomBytes(3).toString("hex")}@acme.com`);
+    await addMember(app, a, devA.id, "developer");
+    const leadB = await createUserWithPat(app, `lb-${randomBytes(3).toString("hex")}@acme.com`);
+    await addMember(app, b, leadB.id, "project_lead");
+    const list = async (headers: Record<string, string>) => {
+      const res = await app.inject({ method: "GET", url: `/api/servers/${serverId}/analyses`, headers });
+      expect(res.statusCode, res.body).toBe(200);
+      return new Map((res.json().analyses as { id: string }[]).map((x) => [x.id, x as Record<string, unknown>]));
+    };
+    const admin = await list({ cookie: users.adminCookie });
+    expect(admin.get(attributed!.id)).toMatchObject({ diagnosis: "OOM in web-a", canViewDiagnosis: true, attribution: { kind: "attributed" }, taskCode: expect.stringMatching(/-\d+$/) });
+    expect(admin.get(undetermined!.id)).toMatchObject({ diagnosis: "boh", canViewDiagnosis: true, attribution: { kind: "undetermined", reason: "no_project", projectCode: null } });
+    const dev = await list(devA.headers);
+    expect(dev.get(attributed!.id)).toMatchObject({ diagnosis: "OOM in web-a", canViewDiagnosis: true });
+    expect(dev.get(undetermined!.id)).toMatchObject({ diagnosis: null, canViewDiagnosis: false, sessionId: null, status: "done" });
+    const lead = await list(leadB.headers);
+    expect(lead.get(attributed!.id)).toMatchObject({ diagnosis: null, canViewDiagnosis: false, taskCode: null, attribution: { kind: "attributed" } });
+    const stranger = await createUserWithPat(app, `x-${randomBytes(3).toString("hex")}@acme.com`);
+    expect((await app.inject({ method: "GET", url: `/api/servers/${serverId}/analyses`, headers: stranger.headers })).statusCode).toBe(404);
   });
 });
