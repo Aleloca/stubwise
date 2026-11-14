@@ -6,6 +6,7 @@
 // mai nel bundle.
 import type * as Fake from "../../api";
 import { liveAlerts } from "./alerts";
+import { liveSupport } from "./support";
 import { liveAutomations } from "./automationsLive";
 import { liveReleases } from "./releasesLive";
 import { adminDepartments } from "./departments";
@@ -61,6 +62,13 @@ export const releases: typeof Fake.releases = partialNamespace<typeof Fake.relea
  * le legge solo con la funzione `alerts` accesa (R6).
  */
 export const alerts: typeof Fake.alerts = partialNamespace<typeof Fake.alerts>("alerts", liveAlerts);
+
+/**
+ * Support (area 8, F3): `support.ts`, sulle rotte di 72. La sezione e le sue
+ * scritture si accendono con le rotte (I1); finché sono spente nessuna
+ * pagina chiama questo namespace.
+ */
+export const support: typeof Fake.support = partialNamespace<typeof Fake.support>("support", liveSupport);
 export const chat: typeof Fake.chat = partialNamespace<typeof Fake.chat>("chat", {
   ...chatFunctions,
   channelStream,

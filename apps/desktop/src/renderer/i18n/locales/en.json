@@ -9240,6 +9240,9 @@
       "open": "Open the request",
       "cannotOpen": "Someone with permission to create requests can open it."
     },
+    "task": {
+      "label": "Task"
+    },
     "openDialog": {
       "title": "Open the request",
       "project": "Project",
@@ -9271,6 +9274,7 @@
       "message": "Message",
       "placeholder": "Write to {{name}}…",
       "prepared": "Claude prepared a draft",
+      "preparing": "Claude is preparing a draft…",
       "useDraft": "Use draft",
       "show": "Show",
       "hide": "Hide",

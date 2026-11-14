@@ -211,6 +211,13 @@ export function ReplyComposer({
           {t("support.reply.to", { name })} ·{" "}
           {t(conv.channel === "widget" ? "support.reply.inWidget" : "support.reply.inMcp")}
         </p>
+        {/* Build app (area 8, F3): la bozza automatica è in arrivo (una raffica del cliente). */}
+        {conv.claudeDraftPending && !conv.claudeDraft && !writing && (
+          <p className="flex items-center gap-1.5 border-b border-rule px-3 py-2 text-xs text-ink-muted">
+            <ClaudeMark />
+            {t("support.reply.preparing")}
+          </p>
+        )}
         {conv.claudeDraft && !drafted && !writing && (
           <div className="flex flex-col gap-1 border-b border-rule px-3 py-2 text-xs">
             <p className="flex flex-wrap items-center gap-1.5 text-ink-muted">

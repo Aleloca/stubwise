@@ -77,7 +77,8 @@ export function useSupportWidgets(projectId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.supportWidgets(me, projectId ?? ""),
     queryFn: () => api.support.listWidgets(projectId!),
-    enabled: !!projectId,
+    // Build app: i widget hanno la loro funzione (area 8, F3, R1).
+    enabled: !!projectId && featureIntegrated("support-widgets"),
   });
 }
 
@@ -87,8 +88,9 @@ export function useSupportSearch(q: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.supportSearch(me, q),
     queryFn: () => api.support.searchSupport(q),
-    // Solo dove l'area è integrata (review area 8 F1, m5).
-    enabled: enabled && q.trim().length >= MIN_QUERY && featureIntegrated("support"),
+    // Solo dove la ricerca è integrata (review area 8 F1, m5): non è nella F3
+    // (nessuna rotta), quindi ha la sua funzione, spenta anche con `support`.
+    enabled: enabled && q.trim().length >= MIN_QUERY && featureIntegrated("support-search"),
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
   });

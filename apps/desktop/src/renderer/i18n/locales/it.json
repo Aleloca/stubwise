@@ -9240,6 +9240,9 @@
       "open": "Apri la richiesta",
       "cannotOpen": "Può aprirla chi ha il permesso di creare richieste."
     },
+    "task": {
+      "label": "Task"
+    },
     "openDialog": {
       "title": "Apri la richiesta",
       "project": "Progetto",
@@ -9271,6 +9274,7 @@
       "message": "Messaggio",
       "placeholder": "Scrivi a {{name}}…",
       "prepared": "Claude ha preparato una bozza",
+      "preparing": "Claude sta preparando una bozza…",
       "useDraft": "Usa la bozza",
       "show": "Mostra",
       "hide": "Nascondi",

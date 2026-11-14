@@ -220,6 +220,35 @@ export function RequestBlock({ conv }: { conv: SupportConversationView }) {
     );
   }
 
+  // Build app (area 8, F3-1): l'esito è un TICKET aperto dal widget, senza richiesta.
+  if (conv.task) {
+    const task = conv.task;
+    return (
+      <section aria-label={t("support.task.label")} data-request-block className={card}>
+        <div className="flex min-w-0 items-center gap-x-3">
+          <span className="heading-group shrink-0">{t("support.task.label")}</span>
+          <Link
+            to="/p/$code/$section"
+            params={{ code: conv.projectCode, section: "tasks" }}
+            search={{ task: task.code }}
+            className="flex min-w-0 items-baseline gap-2 rounded-sm text-md text-ink underline-offset-4 hover:underline"
+          >
+            <span className="num shrink-0 text-xs font-semibold tracking-[0.02em]">
+              {task.code}
+            </span>
+            <span className="min-w-0 truncate">{task.title}</span>
+          </Link>
+        </div>
+        <p className="text-xs text-ink-muted">
+          {t("support.request.customerSees")}{" "}
+          <span className="font-semibold text-ink">
+            {t(`support.customerStatus.${task.customerStatus}`)}
+          </span>
+        </p>
+      </section>
+    );
+  }
+
   if (conv.state === "triage") {
     return (
       <section aria-label={t("support.request.label")} data-request-block className={card}>
