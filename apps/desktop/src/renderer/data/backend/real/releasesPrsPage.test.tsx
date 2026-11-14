@@ -146,10 +146,21 @@ describe("le PR aperte nella build app (area 8, F1, releases-prs)", () => {
     expect(seen.some((r) => r.path.includes("/environments"))).toBe(false);
   });
 
-  it("il link di una card PR (`?pr=<repository>%23<n>`, F2 R4) apre il pannello di quella PR", async () => {
+  // L'id di una PR nella build app è `<repository>#<numero>`: il `?pr=` lo deve
+  // accettare, o il pannello non si apre né dall'URL né dalla riga.
+  it("il pannello della PR si apre da ?pr=<repository>%23<n>", async () => {
     install();
     renderRoute(`/p/AUD/releases?pr=${REPO}%23246`);
     expect(await screen.findByLabelText(/Pull request .*#246/, {}, { timeout: 3000 })).toBeTruthy();
+  });
+
+  it("il pannello della PR si apre dal clic sulla riga", async () => {
+    install();
+    renderRoute("/p/AUD/releases");
+    await userEvent.click(
+      await screen.findByRole("link", { name: /^audin-app#246,/ }, { timeout: 3000 }),
+    );
+    expect(await screen.findByLabelText(/Pull request .*#246/)).toBeTruthy();
   });
 
   it("il merge in due passi: «Release», poi «Confirm merge» → la rotta del merge della PR", async () => {

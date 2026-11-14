@@ -343,7 +343,7 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
       key === "decision"
         ? /^[\w-]+$/.test(value)
         : // Releases: l'id della PR; nella build app è `<repository>#<numero>`
-          // (`data/backend/real/releasePrs.ts`), il link delle card (F2, R4).
+          // (`data/backend/real/releasePrs.ts`).
           key === "pr"
           ? /^[\w-]+(#\d+)?$/.test(value)
           : key === "range"
