@@ -107,7 +107,7 @@ export const PROJECT_GROUPS: readonly PermissionGroup[] = [
   // Area 7, le automazioni del progetto (registro condiviso dalla fetta 1, come il web).
   { key: "automations", permissions: ["automations.manage"] },
   // Area 8, F3: Support, le risposte ai clienti (registro condiviso dalla fetta 3, come il web).
-  { key: "support", permissions: ["support.reply"] },
+  { key: "support", permissions: ["support.manage"] },
 ];
 
 export const groupsFor = (scope: AccessScope): readonly PermissionGroup[] =>
@@ -199,7 +199,7 @@ export const ACTIONS: readonly AccessAction[] = [
   project("manageChannels", "chat.channels.manage"),
   project("manageDrive", "drive.manage"),
   project("manageProjectAutomations", "automations.manage"),
-  project("replyCustomers", "support.reply"),
+  project("manageSupport", "support.manage"),
   project("fixServer", "servers.operate"),
   // istanza
   instance("manageRoles", "roles.manage"),

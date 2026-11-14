@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isAppBuild } from "../../data/build";
@@ -9,7 +10,6 @@ import {
   useSupportConversation,
   type SupportConversationView,
 } from "../../data/queries";
-import { now } from "../../data/dates";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { MenuGroup, itemClass } from "../../tasks-ui/Menu";
 import { PageError, PageSkeleton } from "../../tasks-ui/PageStates";
@@ -17,7 +17,6 @@ import { useToast } from "../../tasks-ui/Toast";
 import { quietButton, secondaryButton } from "../claude/conversation/parts";
 import { MoreGlyph } from "../mail/glyphs";
 import { dayLabel } from "../mail/format";
-import { ago } from "../releases/format";
 import { MenuButton } from "../tasks/controls";
 import { typing } from "../tasks/useTaskKeys";
 import { CustomerPreview } from "./CustomerPreview";
@@ -30,21 +29,36 @@ import { WhoCanLink } from "../../components/WhoCanLink";
 
 // Il dettaglio di una conversazione (shape support.md §3, §5, §6): in testa
 // cosa vuole il cliente (il blocco della richiesta), sotto la conversazione
-// che lo prova, in fondo la casella — solo per chi ha `support.reply` e mai
-// durante il triage (R-K15). «Anteprima del cliente» (P) mostra ciò che vede
-// lui. Per email il team non scrive al cliente da qui (area 8, F3, decisione
-// del maintainer).
+// che lo prova. Area 8, F3 (decisione del maintainer): al cliente del widget
+// il team non scrive MAI — la conversazione si legge e basta; con un esito è
+// chiusa, e un messaggio nuovo del cliente apre la successiva («Continued in
+// …» / «Follow-up of …»). La casella c'è solo sul canale `mcp` (i
+// collaboratori interni), per chi ha `support.manage`. «Anteprima del
+// cliente» (P) mostra ciò che vede lui.
 
-/** Dopo quanti minuti senza il cliente si dice che non è più sul sito [A 12]. */
-const AWAY_MINUTES = 30;
-
-/** Il cliente non è più sul sito: da quando, se è passato abbastanza. */
-function awaySince(conv: SupportConversationView, nowIso: string): string | null {
-  if (conv.channel !== "widget") return null;
-  // Dall'ultimo messaggio del cliente (area 8, F3: non c'è più un «se n'è andato»).
-  const since = [...conv.messages].reverse().find((m) => m.from === "customer")?.at;
-  if (!since) return null;
-  return (Date.parse(nowIso) - Date.parse(since)) / 60_000 >= AWAY_MINUTES ? since : null;
+/** «Continued in ACQ-S9» / «Follow-up of ACQ-S3»: il legame fra una chiusa e la successiva. */
+function ContinuationLine({
+  conv,
+  which,
+}: {
+  conv: SupportConversationView;
+  which: "in" | "from";
+}) {
+  const { t } = useTranslation();
+  const other = which === "in" ? conv.continuedIn : conv.continuedFrom;
+  if (!other) return null;
+  return (
+    <p className="text-sm text-ink-muted" data-support-continuation={which}>
+      {t(which === "in" ? "support.detail.continuedIn" : "support.detail.continuedFrom")}{" "}
+      <Link
+        to="/p/$code/support/$conversation"
+        params={{ code: conv.projectCode, conversation: other.code }}
+        className="num rounded-sm font-semibold text-ink underline-offset-4 hover:underline"
+      >
+        {other.code}
+      </Link>
+    </p>
+  );
 }
 
 function Header({
@@ -193,7 +207,7 @@ export function ConversationDetail({
   back?: React.ReactNode;
   notFound: React.ReactNode;
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const me = useSessionPersonId();
   const q = useSupportConversation(code);
   const docked = useMediaQuery(PREVIEW_DOCKED_QUERY);
@@ -254,7 +268,6 @@ export function ConversationDetail({
 
   const name = firstName(conv, t);
   const pending = pendingFor(me, conv.code);
-  const away = awaySince(conv, now());
   const previewPanel = preview && (
     <CustomerPreview
       key={conv.code}
@@ -267,14 +280,7 @@ export function ConversationDetail({
   );
   if (preview && !docked) return <div className="flex min-h-0 flex-1">{previewPanel}</div>;
 
-  const footer =
-    conv.channel === "mcp" ? (
-      <p className="text-xs text-ink-muted">{t("support.reply.nextTime")}</p>
-    ) : (
-      <div className="flex flex-col gap-1 text-xs text-ink-muted">
-        {away && <p>{t("support.reply.lastSeen", { name, time: ago(away, t, i18n.language) })}</p>}
-      </div>
-    );
+  const footer = <p className="text-xs text-ink-muted">{t("support.reply.nextTime")}</p>;
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
@@ -291,21 +297,19 @@ export function ConversationDetail({
             togglePreview={() => (preview ? closePreview() : setPreview(true))}
             previewButton={previewButton}
           />
+          <ContinuationLine conv={conv} which="from" />
           <RequestBlock conv={conv} />
           <Messages conv={conv} pending={pending} lastSentRef={lastRef} />
-          {!conv.canReply ? (
+          <ContinuationLine conv={conv} which="in" />
+          {conv.channel !== "mcp" ? null : !conv.canReplyToCollaborator ? (
             <p className="border-t border-rule pt-4 text-xs text-ink-muted">
               {t("support.reply.readOnly")}{" "}
-              <WhoCanLink action="replyCustomers" projectCode={conv.projectCode} />
-            </p>
-          ) : conv.replyClosed === "triage" ? (
-            <p className="border-t border-rule pt-4 text-xs text-ink-muted">
-              {t("support.reply.triage")}
+              <WhoCanLink action="manageSupport" projectCode={conv.projectCode} />
             </p>
           ) : (
             // Agganciata in fondo alla colonna (shape support §6, il momento
-            // focale): desiderio in alto, bozza e «Send to customer» si vedono
-            // insieme anche quando la conversazione è lunga.
+            // focale): la richiesta in alto, la casella si vede anche quando
+            // la conversazione è lunga.
             <div
               data-reply-dock
               className="sticky bottom-0 z-10 -mx-8 -mb-10 bg-ground px-8 pt-1 pb-6"

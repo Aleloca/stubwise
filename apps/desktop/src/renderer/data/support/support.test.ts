@@ -44,7 +44,7 @@ describe("l'insieme esportato: nessuna richiesta da un'email", () => {
         "listWidgets",
         "myRequestStatus",
         "searchSupport",
-        "replyToCustomer",
+        "replyToCollaborator",
         "openRequestFrom",
         "markNotConcluded",
         "createWidget",
@@ -91,23 +91,24 @@ describe("letture e visibilità", () => {
     const byCode = new Map(list.map((c) => [c.code, c.state]));
     expect(Object.fromEntries(byCode)).toEqual({
       "ACQ-S1": "triage",
-      "ACQ-S2": "waiting_us",
+      // Area 8, F3: con un esito la conversazione è chiusa, qualunque sia l'ultimo messaggio.
+      "ACQ-S2": "request_open",
       "ACQ-S3": "not_concluded",
       "ACQ-S4": "request_open",
       // Area 10b: le due nate dal supporto, in coda.
       "ACQ-S5": "request_open",
       "ACQ-S6": "request_open",
-      // 5 nov 2026: la seconda che aspetta noi, senza bozza di Claude.
-      "ACQ-S7": "waiting_us",
+      "ACQ-S7": "request_open",
       // Area 8, F3: la risposta del widget è bastata (il controllo dopo il silenzio).
       "ACQ-S8": "answered",
     });
-    // Ordine dei gruppi: aspetta noi, in triage, non concluse, richiesta aperta (la più recente prima), risposte.
+    // Ordine dei gruppi (area 8, F3): non concluse, in triage, richiesta aperta
+    // (la più recente prima), risposte.
     expect(list.map((c) => c.code)).toEqual([
-      "ACQ-S2",
-      "ACQ-S7",
-      "ACQ-S1",
       "ACQ-S3",
+      "ACQ-S1",
+      "ACQ-S7",
+      "ACQ-S2",
       "ACQ-S6",
       "ACQ-S4",
       "ACQ-S5",
@@ -119,16 +120,19 @@ describe("letture e visibilità", () => {
     ).toEqual(["ACQ-S1"]);
   });
 
-  it("i membri vedono conversazione e richiesta; rispondere solo con support.reply", async () => {
+  it("i membri vedono conversazione e richiesta; rispondere solo con support.manage", async () => {
     as("p-sara");
     const sara = (await support.getSupportConversation("ACQ-S2"))!;
     expect(sara.request).toMatchObject({ code: expect.stringMatching(/^ACQ-R\d+$/) });
     expect(sara.request!.customerStatus).toBe("received");
-    expect(sara.canReply).toBe(false);
+    expect(sara.canReplyToCollaborator).toBe(false);
     as("p-matteo");
-    const matteo = (await support.getSupportConversation("ACQ-S2"))!;
-    expect(matteo.canReply).toBe(true);
-    expect(matteo.waitingSince).toBe(conv("ACQ-S2").messages.at(-1)!.at);
+    // ACQ-S2 è del widget: al cliente non si scrive, nemmeno con support.manage.
+    expect((await support.getSupportConversation("ACQ-S2"))!.canReplyToCollaborator).toBe(false);
+    // ACQ-S4 è del canale mcp: il collaboratore interno sì, con support.manage.
+    expect((await support.getSupportConversation("ACQ-S4"))!.canReplyToCollaborator).toBe(true);
+    as("p-sara");
+    expect((await support.getSupportConversation("ACQ-S4"))!.canReplyToCollaborator).toBe(false);
   });
 
   it("R-G5: inesistente e progetto invisibile rispondono uguale", async () => {
@@ -140,8 +144,8 @@ describe("letture e visibilità", () => {
     expect(await support.searchSupport("ACQ-S2")).toEqual([]);
     expect(await support.myRequestStatus("req-acq-1")).toBeNull();
     expect(await support.listWidgets(ACQ)).toEqual({ canManage: false, widgets: [] });
-    await expect(support.replyToCustomer("ACQ-S2", "x")).rejects.toThrow("not_found");
-    await expect(support.replyToCustomer("ACQ-S99", "x")).rejects.toThrow("not_found");
+    await expect(support.replyToCollaborator("ACQ-S2", "x")).rejects.toThrow("not_found");
+    await expect(support.replyToCollaborator("ACQ-S99", "x")).rejects.toThrow("not_found");
     await expect(support.simulateCustomerMessage("ACQ-S2", "x")).rejects.toThrow("not_found");
   });
 
@@ -169,7 +173,7 @@ describe("letture e visibilità", () => {
     expect((await support.searchSupport("acq-s3")).map((x) => x.code)).toEqual(["ACQ-S3"]);
   });
 
-  it("Clienti in attesa: aspetta noi, dove ho support.reply", async () => {
+  it("Clienti in attesa: aspetta noi, dove ho support.manage", async () => {
     as("p-matteo");
     expect((await support.listWaitingCustomers()).map((c) => c.code)).toEqual(["ACQ-S2", "ACQ-S7"]);
     as("p-sara");
@@ -180,7 +184,6 @@ describe("letture e visibilità", () => {
 describe("Review Focus 4: il cliente vede solo il suo", () => {
   it("anteprima: niente autori, bozze né commenti interni", async () => {
     as("p-matteo");
-    await support.replyToCustomer("ACQ-S2", "We are on it.");
     const preview = (await support.customerPreview("ACQ-S2"))!;
     expect(Object.keys(preview).sort()).toEqual(["messages", "status"]);
     expect(preview.status).toBe("received");
@@ -191,18 +194,13 @@ describe("Review Focus 4: il cliente vede solo il suo", () => {
     const text = JSON.stringify(preview);
     expect(text).not.toContain("p-laura");
     expect(text).not.toContain("p-matteo");
-    expect(preview.messages.at(-1)).toEqual({
-      from: "us",
-      body: "We are on it.",
-      at: expect.any(String),
-    });
   });
 
   it("Sara non risponde: forbidden e nessun messaggio", async () => {
     as("p-sara");
-    const before = conv("ACQ-S2").messages.length;
-    await expect(support.replyToCustomer("ACQ-S2", "Ciao")).rejects.toThrow("forbidden");
-    expect(conv("ACQ-S2").messages).toHaveLength(before);
+    const before = conv("ACQ-S4").messages.length;
+    await expect(support.replyToCollaborator("ACQ-S4", "Ciao")).rejects.toThrow("forbidden");
+    expect(conv("ACQ-S4").messages).toHaveLength(before);
   });
 
   it("la risposta non tocca la Posta e non avvisa nessuno", async () => {
@@ -210,12 +208,12 @@ describe("Review Focus 4: il cliente vede solo il suo", () => {
     const mail = structuredClone(state.mailMessages);
     const drafts = structuredClone(state.mailDrafts);
     const notifications = state.notifications.length;
-    const view = await support.replyToCustomer("ACQ-S2", "  Thanks Lucia.  ");
-    expect(view.state).toBe("reply_sent");
-    expect(conv("ACQ-S2").messages.at(-1)).toMatchObject({
+    const view = await support.replyToCollaborator("ACQ-S4", "  Thanks.  ");
+    expect(view.state).toBe("request_open");
+    expect(conv("ACQ-S4").messages.at(-1)).toMatchObject({
       from: "team",
       authorId: "p-matteo",
-      body: "Thanks Lucia.",
+      body: "Thanks.",
     });
     expect(state.mailMessages).toEqual(mail);
     expect(state.mailDrafts).toEqual(drafts);
@@ -238,23 +236,26 @@ describe("Review Focus 4: il cliente vede solo il suo", () => {
   });
 });
 
-describe("R-K15: durante il triage non si risponde", () => {
-  it("in triage replyToCustomer è invalid: state, nessun messaggio; la vista lo dice", async () => {
+describe("al cliente del widget il team non scrive mai (area 8, F3)", () => {
+  it("replyToCollaborator su una conversazione del widget: invalid: channel in ogni stato, nessun messaggio", async () => {
     as("p-matteo");
-    const before = conv("ACQ-S1").messages.length;
-    await expect(support.replyToCustomer("ACQ-S1", "Hello")).rejects.toThrow("invalid: state");
-    expect(conv("ACQ-S1").messages).toHaveLength(before);
-    const view = (await support.getSupportConversation("ACQ-S1"))!;
-    expect(view.canReply).toBe(true);
-    expect(view.replyClosed).toBe("triage");
+    for (const code of ["ACQ-S1", "ACQ-S2", "ACQ-S3", "ACQ-S8"]) {
+      const before = conv(code).messages.length;
+      await expect(support.replyToCollaborator(code, "Hello")).rejects.toThrow("invalid: channel");
+      expect(conv(code).messages).toHaveLength(before);
+    }
   });
 
-  it("su una non conclusa si risponde; fuori dal triage la casella è aperta", async () => {
+  it("sul canale mcp si risponde al collaboratore; senza support.manage no", async () => {
     as("p-matteo");
-    expect((await support.getSupportConversation("ACQ-S3"))!.replyClosed).toBeNull();
-    expect((await support.getSupportConversation("ACQ-S2"))!.replyClosed).toBeNull();
-    const view = await support.replyToCustomer("ACQ-S3", "We're looking into it.");
-    expect(view.messages.at(-1)!.body).toBe("We're looking into it.");
+    const view = await support.replyToCollaborator("ACQ-S4", "We're looking into it.");
+    expect(view.messages.at(-1)).toMatchObject({
+      from: "team",
+      authorId: "p-matteo",
+      body: "We're looking into it.",
+    });
+    as("p-sara");
+    await expect(support.replyToCollaborator("ACQ-S4", "Hi")).rejects.toThrow("forbidden");
   });
 });
 
@@ -280,19 +281,27 @@ describe("«Scrivigli per email» non c'è più (area 8, F3, decisione del maint
 describe("scritture", () => {
   it("risposta vuota: invalid, nessun messaggio", async () => {
     as("p-matteo");
-    await expect(support.replyToCustomer("ACQ-S2", "   ")).rejects.toThrow("invalid: body");
-    expect(conv("ACQ-S2").messages.at(-1)!.from).toBe("customer");
+    const before = conv("ACQ-S4").messages.length;
+    await expect(support.replyToCollaborator("ACQ-S4", "   ")).rejects.toThrow("invalid: body");
+    expect(conv("ACQ-S4").messages).toHaveLength(before);
   });
 
-  it("apri la richiesta da una non conclusa: backlog.create, origine Support, una sola", async () => {
+  it("apri la richiesta da una non conclusa: support.manage e backlog.create, origine Support, una sola", async () => {
     as("p-silvia");
     await expect(
       support.openRequestFrom("ACQ-S3", { title: "Logout", description: "" }),
     ).rejects.toThrow("forbidden");
+    // Area 8, F3: backlog.create non basta, serve anche support.manage.
     as("p-sara");
+    await expect(
+      support.openRequestFrom("ACQ-S3", { title: "Logout", description: "" }),
+    ).rejects.toThrow("forbidden");
+    expect((await support.getSupportConversation("ACQ-S3"))!.canOpenRequest).toBe(false);
+    as("p-matteo");
     await expect(
       support.openRequestFrom("ACQ-S1", { title: "x", description: "" }),
     ).rejects.toThrow("invalid: state");
+    expect((await support.getSupportConversation("ACQ-S3"))!.canOpenRequest).toBe(true);
     const [a, b] = await Promise.all([
       support.openRequestFrom("ACQ-S3", { title: "Logged out often", description: "Stay in." }),
       support.openRequestFrom("ACQ-S3", { title: "Logged out often", description: "Stay in." }),
@@ -492,27 +501,28 @@ describe("customerStatus segue richiesta → task → rilascio", () => {
 describe("failNext e resetApi", () => {
   it("una chiamata fallita non scrive", async () => {
     as("p-matteo");
-    failNext("support.replyToCustomer");
-    const before = conv("ACQ-S2").messages.length;
-    await expect(support.replyToCustomer("ACQ-S2", "x")).rejects.toThrow(/Simulated failure/);
-    expect(conv("ACQ-S2").messages).toHaveLength(before);
+    failNext("support.replyToCollaborator");
+    const before = conv("ACQ-S4").messages.length;
+    await expect(support.replyToCollaborator("ACQ-S4", "x")).rejects.toThrow(/Simulated failure/);
+    expect(conv("ACQ-S4").messages).toHaveLength(before);
     failNext("support.listSupportConversations");
     await expect(support.listSupportConversations(ACQ)).rejects.toThrow(/Simulated failure/);
   });
 
   it("resetApi riporta conversazioni e widget al seme", async () => {
     as("p-matteo");
-    await support.replyToCustomer("ACQ-S2", "x");
+    const seeded = conv("ACQ-S4").messages.length;
+    await support.replyToCollaborator("ACQ-S4", "x");
     await support.deleteWidget("wdg-acq-portal");
     resetApi();
-    expect(conv("ACQ-S2").messages.at(-1)!.from).toBe("customer");
+    expect(conv("ACQ-S4").messages).toHaveLength(seeded);
     // Il widget di ACQ e (area 8, F3) quello di Audin.
     expect(state.supportWidgets.map((w) => w.id)).toEqual(["wdg-acq-portal", "wdg-aud-help"]);
   });
 });
 
 describe("«Not concluded» su una conversazione answered (area 8, F3)", () => {
-  it("con support.reply: torna fra quelle che aspettano il team, col nome di chi l'ha deciso", async () => {
+  it("con support.manage: torna fra quelle che aspettano il team, col nome di chi l'ha deciso", async () => {
     as("p-matteo");
     const before = (await support.getSupportConversation("ACQ-S8"))!;
     expect(before.state).toBe("answered");
@@ -524,7 +534,7 @@ describe("«Not concluded» su una conversazione answered (area 8, F3)", () => {
     expect(after.triage).toMatchObject({ outcome: "not_concluded", byUserId: "p-matteo" });
   });
 
-  it("senza support.reply: niente bottone e forbidden; la conversazione resta answered", async () => {
+  it("senza support.manage: niente bottone e forbidden; la conversazione resta answered", async () => {
     as("p-sara");
     expect((await support.getSupportConversation("ACQ-S8"))!.canMarkNotConcluded).toBe(false);
     await expect(support.markNotConcluded("ACQ-S8")).rejects.toThrow("forbidden");

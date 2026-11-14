@@ -1,6 +1,6 @@
 import { customerStatus, type CustomerStatus } from "../../domain/releases/customerStatus";
 import type { ReleaseStatusKind } from "../../domain/releases/releaseStatus";
-import { supportState, waitingSince, type SupportState } from "../../domain/support/state";
+import { supportState, type SupportState } from "../../domain/support/state";
 import { publishAlert } from "../alerts/publish";
 import { statusOf } from "../releases/visibility";
 import { holds, sees } from "../access";
@@ -10,8 +10,8 @@ import { notFound } from "../writer";
 
 // Chi vede che cosa in Support (area 8a) — l'unica regola, per letture e
 // scritture. Le conversazioni e la richiesta nata le vedono i membri del
-// progetto (chi lo vede); la bozza di Claude e la casella della risposta
-// solo chi ha `support.reply`; i widget solo chi ha `widget.manage`. Una
+// progetto (chi lo vede); la casella della risposta ai collaboratori (canale
+// `mcp`) solo chi ha `support.manage`; i widget solo chi ha `widget.manage`. Una
 // conversazione di un progetto invisibile risponde come una che non esiste
 // (R-G5). Lo stato della conversazione e quello per il cliente si DERIVANO
 // qui, con le regole pure di `domain/support` e `domain/releases`.
@@ -114,8 +114,6 @@ export interface SupportRequestView {
 export interface SupportConversationView extends SupportConversation {
   projectCode: string;
   state: SupportState;
-  /** Il primo messaggio del cliente rimasto senza risposta, se aspetta noi. */
-  waitingSince: string | null;
   lastMessage: SupportMessage | null;
   widgetName: string | null;
   request: SupportRequestView | null;
@@ -124,21 +122,30 @@ export interface SupportConversationView extends SupportConversation {
    * richiesta). Il prototipo non ne ha: assente.
    */
   task?: { id: string; code: string; title: string; customerStatus: CustomerStatus } | null;
-  /** Cosa può fare chi guarda, deciso qui (il client non lo deduce). */
-  canReply: boolean;
   /**
-   * La casella è chiusa anche a chi può rispondere: `triage` mentre Claude
-   * fa le domande al cliente (R-K15). `null` = si risponde.
+   * Area 8, F3 (S17): sulla conversazione chiusa, quella che l'ha seguita;
+   * sulla successiva, da dove viene. `null`: nessuna.
    */
-  replyClosed: "triage" | null;
-  /** «Apri la richiesta»: su una non conclusa, con `backlog.create`. */
+  continuedIn: { code: string } | null;
+  continuedFrom: { code: string } | null;
+  /**
+   * Cosa può fare chi guarda, deciso qui (il client non lo deduce). La
+   * casella c'è SOLO sul canale `mcp` (i collaboratori interni), con
+   * `support.manage`: al cliente del widget il team non scrive mai (area 8, F3).
+   */
+  canReplyToCollaborator: boolean;
+  /** «Apri la richiesta»: su una non conclusa, con `support.manage` e `backlog.create`. */
   canOpenRequest: boolean;
-  /** «Not concluded» (area 8, F3): su una `answered`, con `support.reply`. */
+  /** «Not concluded» (area 8, F3): su una `answered`, con `support.manage`. */
   canMarkNotConcluded: boolean;
 }
 
 export function conversationView(me: string, c: SupportConversation): SupportConversationView {
-  const reply = holds(me, "support.reply", c.projectId);
+  const manage = holds(me, "support.manage", c.projectId);
+  const codeOf = (id: string | undefined) => {
+    const other = id ? state.supportConversations.find((x) => x.id === id) : undefined;
+    return other ? { code: other.code } : null;
+  };
   const st = supportState(c);
   const req = requestOf(c);
   const rest = structuredClone(c);
@@ -146,7 +153,6 @@ export function conversationView(me: string, c: SupportConversation): SupportCon
     ...rest,
     projectCode: projectCodeOf(c.projectId),
     state: st,
-    waitingSince: waitingSince(c),
     lastMessage: rest.messages.at(-1) ?? null,
     widgetName: state.supportWidgets.find((w) => w.id === c.widgetId)?.name ?? null,
     request: req
@@ -160,9 +166,10 @@ export function conversationView(me: string, c: SupportConversation): SupportCon
         }
       : null,
     task: taskOutcomeOf(c),
-    canReply: reply,
-    replyClosed: st === "triage" ? "triage" : null,
-    canOpenRequest: st === "not_concluded" && holds(me, "backlog.create", c.projectId),
-    canMarkNotConcluded: st === "answered" && reply,
+    continuedIn: codeOf(c.continuedInId),
+    continuedFrom: codeOf(state.supportConversations.find((x) => x.continuedInId === c.id)?.id),
+    canReplyToCollaborator: c.channel === "mcp" && manage,
+    canOpenRequest: st === "not_concluded" && manage && holds(me, "backlog.create", c.projectId),
+    canMarkNotConcluded: st === "answered" && manage,
   };
 }

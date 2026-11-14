@@ -3752,7 +3752,7 @@
         "openInviteBare": "Apri l'invito →"
       },
       "draft": {
-        "noSupportReply": "In Support non scrivo risposte: ai clienti risponde l'assistente del widget, e le loro richieste le seguono sul vostro sito.",
+        "noSupportReply": "In Support non scrivo risposte.",
         "cantEditNotes": "Non puoi modificare le note di rilascio di questa pull request ·",
         "cantEditTask": "Non puoi modificare **{{code}}** ·",
         "noSource": "Non ho da dove scrivere la descrizione di **{{code}}**: dimmi cosa deve dire.",
@@ -8646,7 +8646,6 @@
       "task_created": "Nuova task",
       "task_created_by_automation": "Nuova task da un'automazione",
       "support_request": "Nuova richiesta",
-      "support_customer_replied": "Il cliente ha risposto",
       "job_pr_opened": "Claude ha aperto una PR",
       "review_completed": "Revisione della PR conclusa",
       "ticket_created": "Nuova task",
@@ -8672,7 +8671,6 @@
       "task_created": "Quando si crea una task in {{code}}",
       "task_created_by_automation": "Quando un'automazione crea una task in {{code}}",
       "support_request": "Quando si apre una richiesta in {{code}}, da un cliente o da un collega",
-      "support_customer_replied": "Quando un cliente riscrive in una conversazione di {{code}}",
       "job_pr_opened": "Quando Claude apre una PR per una task di {{code}}",
       "review_completed": "Quando Claude finisce di rivedere una PR di {{code}}",
       "ticket_created": "Quando si crea una task in {{code}}",
@@ -8686,7 +8684,6 @@
     "mandatoryLine": {
       "merged": "Sempre se il merge l'hai fatto tu",
       "pr_author": "Sempre per chi ha aperto la PR",
-      "follows_conversation": "Sempre se segui la conversazione",
       "task_author": "Sempre per l'autore della task, se il merge è arrivato da fuori Stubwise",
       "assignee": "Sempre per chi ha la task assegnata"
     },
@@ -8702,7 +8699,6 @@
       "docs_view": "Sospeso · non vedi più i docs di {{code}}",
       "tickets_view_all": "Sospeso · non vedi più tutte le task di {{code}}",
       "backlog_view_all": "Sospeso · non vedi più le richieste di {{code}}",
-      "support_reply": "Sospeso · non puoi più rispondere ai clienti di {{code}}",
       "other": "Sospeso · non lo vedi più in {{code}}"
     },
     "suspendedBack": "Torna da solo se riavrai l'accesso.",
@@ -8764,7 +8760,6 @@
       "why": {
         "merged": "Lo ricevi perché il merge l'hai fatto tu",
         "pr_author": "Lo ricevi perché questa PR l'hai aperta tu",
-        "follows_conversation": "Lo ricevi perché segui questa conversazione",
         "task_author": "Lo ricevi perché la PR viene da una tua task",
         "assignee": "Lo ricevi perché la task è assegnata a te"
       }
@@ -9158,11 +9153,9 @@
       "mcp": "Claude Code"
     },
     "state": {
-      "waiting_us": "Aspetta noi",
       "triage": "In triage",
       "not_concluded": "Non conclusa",
       "request_open": "Richiesta aperta",
-      "reply_sent": "Risposta inviata",
       "answered": "Risposta bastata"
     },
     "customerStatus": {
@@ -9207,7 +9200,9 @@
       "simulateLeaves": "Simula: il cliente se ne va",
       "simulateTriage": "Simula: triage concluso",
       "simulatedText": "Buongiorno, ci sono novità?",
-      "actionFailed": "Qualcosa non è andato. Non è cambiato nulla."
+      "actionFailed": "Qualcosa non è andato. Non è cambiato nulla.",
+      "continuedIn": "Continua in",
+      "continuedFrom": "Seguito di"
     },
     "request": {
       "label": "Richiesta",
@@ -9253,19 +9248,16 @@
     },
     "reply": {
       "to": "Rispondi a {{name}}",
-      "inWidget": "nel widget",
       "inMcp": "in Claude Code",
       "message": "Messaggio",
       "placeholder": "Scrivi a {{name}}…",
       "saved": "Salvata",
       "discard": "Elimina",
-      "send": "Invia al cliente",
+      "send": "Invia",
       "emptyReason": "Scrivi prima una risposta",
       "sentTo": "Inviata a {{name}}",
       "undo": "Annulla",
-      "readOnly": "Qui scrive solo chi può rispondere ai clienti.",
-      "triage": "L'assistente sta ancora facendo domande al cliente: potrai rispondere quando il triage è concluso.",
-      "lastSeen": "{{name}} ha visto la conversazione l'ultima volta {{time}}. Vedrà la risposta quando torna.",
+      "readOnly": "Rispondono qui solo le persone che possono gestire le conversazioni di Support.",
       "nextTime": "La vedrà la prossima volta che chiede delle sue richieste.",
       "waitPrevious": "Aspetta: la risposta di prima è ancora nella finestra dell'Annulla",
       "notSentBack": "Non inviata. La risposta è tornata nella casella: inviala di nuovo quando vuoi."
@@ -9915,7 +9907,7 @@
       "manageChannels": "gestire i canali",
       "manageDrive": "gestire il drive",
       "manageProjectAutomations": "gestire le automazioni del progetto",
-      "replyCustomers": "rispondere ai clienti",
+      "manageSupport": "gestire le conversazioni di Support",
       "fixServer": "avviare la correzione di un server",
       "manageRoles": "gestire i ruoli",
       "manageSettings": "cambiare le impostazioni dell'istanza",
@@ -11957,9 +11949,9 @@
       }
     },
     "support": {
-      "reply": {
-        "label": "rispondere ai clienti",
-        "hint": "Rispondere alle conversazioni dei clienti in Support."
+      "manage": {
+        "label": "gestire le conversazioni di Support",
+        "hint": "Aprire la richiesta, segnarle non concluse, rispondere ai collaboratori."
       }
     },
     "department": {

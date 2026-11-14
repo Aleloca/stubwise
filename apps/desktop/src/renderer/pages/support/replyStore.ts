@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { getSessionPersonId } from "../../data/session";
 import { placeDraft } from "../../domain/claude/intents/mailDraft";
-import { onBeforePersonaChange, replyToCustomerNow } from "../../data/queries";
+import { onBeforePersonaChange, replyToCollaboratorNow } from "../../data/queries";
 
 // Ciò che la casella di Support tiene fra un montaggio e l'altro (shape
 // support.md §5), per persona e conversazione:
@@ -10,7 +10,7 @@ import { onBeforePersonaChange, replyToCustomerNow } from "../../data/queries";
 //   persona che lo scriveva anche cambiando persona o conversazione;
 // - l'invio in attesa: «Invia al cliente» parte dopo 5 s, la finestra
 //   dell'«Annulla» come nella Posta [A 11]. La finestra la tiene la UI: il
-//   livello dati riceve `replyToCustomer` solo alla fine, quindi «Annulla»
+//   livello dati riceve `replyToCollaborator` solo alla fine, quindi «Annulla»
 //   non lascia traccia. Cambiare persona nella finestra NON annulla: l'invio
 //   parte subito, a nome di chi ha cliccato (come la Posta, Review Focus 4).
 //   Un invio alla volta: finché uno è in attesa, «Invia» è fermo (I1).
@@ -86,7 +86,7 @@ async function deliver(k: string, onSent: () => Promise<void> | void): Promise<v
   if (!p) return;
   p.timer = null;
   try {
-    const view = await replyToCustomerNow(p.code, p.body, p.clientId);
+    const view = await replyToCollaboratorNow(p.code, p.body, p.clientId);
     p.deliveredId = view.messages.at(-1)?.id;
   } catch {
     giveBack(k, p);
@@ -169,7 +169,7 @@ onBeforePersonaChange(() => {
     if (p.personId !== me || p.timer === null) continue;
     window.clearTimeout(p.timer);
     p.timer = null;
-    void replyToCustomerNow(p.code, p.body, p.clientId).then(
+    void replyToCollaboratorNow(p.code, p.body, p.clientId).then(
       () => {
         if (pending.get(k) === p) pending.delete(k);
         emit();

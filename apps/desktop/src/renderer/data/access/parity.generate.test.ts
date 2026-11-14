@@ -39,7 +39,7 @@ const PARITY_PERMISSIONS: readonly string[] = [
   "drive.upload",
   "drive.manage",
   "drive.history",
-  "support.reply",
+  "support.manage",
   "servers.operate",
   "department.home.manage",
 ];

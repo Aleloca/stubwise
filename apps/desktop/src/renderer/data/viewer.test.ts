@@ -351,19 +351,19 @@ describe("permessi del Support (area 8a)", () => {
   const AUD = "prj-aud";
   const ACQ = "prj-acq";
 
-  it("support.reply: Project Lead, Developer e Legacy Member sì; Contributor e Viewer no", () => {
-    expect(can(byPerson("p-laura"), "support.reply", AUD)).toBe(true);
-    expect(can(byPerson("p-marco"), "support.reply", AUD)).toBe(true);
+  it("support.manage: Project Lead, Developer e Legacy Member sì; Contributor e Viewer no", () => {
+    expect(can(byPerson("p-laura"), "support.manage", AUD)).toBe(true);
+    expect(can(byPerson("p-marco"), "support.manage", AUD)).toBe(true);
     // Elena è Legacy Member in AUD.
-    expect(can(byPerson("p-elena"), "support.reply", AUD)).toBe(true);
-    expect(can(byPerson("p-matteo"), "support.reply", ACQ)).toBe(true);
+    expect(can(byPerson("p-elena"), "support.manage", AUD)).toBe(true);
+    expect(can(byPerson("p-matteo"), "support.manage", ACQ)).toBe(true);
     // Sara (Contributor) e Silvia (Viewer) sono membri di ACQ ma non rispondono ai clienti.
     expect(byPerson("p-sara").projectPermissions[ACQ]).toBeDefined();
-    expect(can(byPerson("p-sara"), "support.reply", ACQ)).toBe(false);
+    expect(can(byPerson("p-sara"), "support.manage", ACQ)).toBe(false);
     expect(byPerson("p-silvia").projectPermissions[ACQ]).toBeDefined();
-    expect(can(byPerson("p-silvia"), "support.reply", ACQ)).toBe(false);
+    expect(can(byPerson("p-silvia"), "support.manage", ACQ)).toBe(false);
     // Il full admin ce l'ha ovunque, come ogni permesso di progetto.
-    expect(can(byPerson("p-roberta"), "support.reply", ACQ)).toBe(true);
+    expect(can(byPerson("p-roberta"), "support.manage", ACQ)).toBe(true);
   });
 });
 

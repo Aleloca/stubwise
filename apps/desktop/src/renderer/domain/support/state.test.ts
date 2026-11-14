@@ -5,7 +5,7 @@ import {
   customerStatus as sharedCustomerStatus,
 } from "@stubwise/shared";
 import { customerStatus } from "../releases/customerStatus";
-import { deriveSupportState, supportState, waitingSince } from "./state";
+import { deriveSupportState, supportState } from "./state";
 
 const msg = (from: SupportMessage["from"], at: string): SupportMessage => ({
   id: `m-${at}`,
@@ -68,16 +68,17 @@ describe("supportState", () => {
     ).toBe("answered");
   });
 
-  it("con richiesta: l'ultimo messaggio decide (cliente → aspetta noi, team → risposta inviata)", () => {
+  it("con un esito la conversazione è chiusa: richiesta aperta, qualunque sia l'ultimo messaggio (area 8, F3)", () => {
     const base = { requestId: "req-1" };
-    expect(supportState(conv({ ...base, messages: [msg("customer", "1")] }))).toBe("waiting_us");
+    expect(supportState(conv({ ...base, messages: [msg("customer", "1")] }))).toBe("request_open");
     expect(
       supportState(conv({ ...base, messages: [msg("customer", "1"), msg("team", "2")] })),
-    ).toBe("reply_sent");
-    expect(
-      supportState(conv({ ...base, messages: [msg("customer", "1"), msg("triage", "2")] })),
     ).toBe("request_open");
     expect(supportState(conv(base))).toBe("request_open");
+    // La task aperta dal widget è un esito come la richiesta.
+    expect(supportState(conv({ taskId: "t-1", messages: [msg("customer", "1")] }))).toBe(
+      "request_open",
+    );
   });
 
   it("un esito vince sul giudizio (non conclusa e answered sono solo senza esito)", () => {
@@ -92,30 +93,6 @@ describe("supportState", () => {
         ),
       ).toBe("request_open");
     }
-  });
-});
-
-describe("waitingSince", () => {
-  it("dal primo dei messaggi del cliente rimasti senza risposta", () => {
-    const c = conv({
-      requestId: "req-1",
-      messages: [
-        msg("customer", "1"),
-        msg("team", "2"),
-        msg("customer", "3"),
-        msg("customer", "4"),
-      ],
-    });
-    expect(waitingSince(c)).toBe("3");
-  });
-
-  it("null se non aspetta noi", () => {
-    expect(waitingSince(conv({ messages: [msg("customer", "1")] }))).toBeNull();
-    expect(
-      waitingSince(
-        conv({ requestId: "req-1", messages: [msg("customer", "1"), msg("team", "2")] }),
-      ),
-    ).toBeNull();
   });
 });
 

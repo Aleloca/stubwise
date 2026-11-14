@@ -32,10 +32,9 @@ export interface SupportApi {
     projectId: string,
     opts: { state?: string },
   ): Promise<Reader<{ items: ServerConversation[] }>>;
-  waitingCustomers(): Promise<Reader<{ items: ServerConversation[] }>>;
   get(code: string): Promise<Conversation>;
   preview(code: string): Promise<Reader<SupportCustomerPreview>>;
-  reply(code: string, body: SupportReplyBody): Promise<Conversation>;
+  replyToCollaborator(code: string, body: SupportReplyBody): Promise<Conversation>;
   openRequest(
     code: string,
     body: SupportOpenRequestBody,
@@ -52,6 +51,9 @@ const STATE_CODES = new Set(["support_triage", "support_not_concluded", "support
 function words(error: unknown): unknown {
   if (error instanceof ApiError && error.code && STATE_CODES.has(error.code))
     return new Error("invalid: state");
+  // Al cliente del widget il team non scrive (area 8, F3): come il prototipo.
+  if (error instanceof ApiError && error.code === "support_widget_no_reply")
+    return new Error("invalid: channel");
   return asPrototypeError(error);
 }
 
@@ -109,7 +111,6 @@ function viewOf(c: Conversation): SupportConversationView | null {
     messages: c.messages.flatMap((m) => messageOf(m) ?? []),
     lastMessage: c.lastMessage ? messageOf(c.lastMessage) : null,
     state: c.state as SupportState,
-    waitingSince: c.waitingSince,
     rewrittenWish: c.rewrittenWish,
     confirmedAt: c.confirmedAt,
     triage: c.triage
@@ -132,8 +133,9 @@ function viewOf(c: Conversation): SupportConversationView | null {
         }
       : null,
     task: c.task ? { ...c.task, customerStatus: customerStatusOf(c.task.customerStatus) } : null,
-    canReply: c.canReply,
-    replyClosed: c.replyClosed === "triage" ? "triage" : null,
+    continuedIn: c.continuedIn,
+    continuedFrom: c.continuedFrom,
+    canReplyToCollaborator: c.canReplyToCollaborator,
     canOpenRequest: c.canOpenRequest,
     canMarkNotConcluded: c.canMarkNotConcluded,
   };
@@ -169,23 +171,22 @@ export function createRealSupport(api: SupportApi) {
       };
     },
 
-    async listWaitingCustomers(): Promise<SupportConversationView[]> {
-      const out = await orNull(() => api.waitingCustomers());
-      return out ? viewsOf(out.items) : [];
-    },
-
     /**
-     * «Send to customer», allo scadere dell'Undo del compositore. `clientId`
+     * La risposta al collaboratore (canale `mcp`), allo scadere dell'Undo del
+     * compositore; su una conversazione del widget il server risponde 409
+     * (`invalid: channel`). `clientId`
      * è quello dell'invio: lo stesso invio ripetuto (un doppio clic, un
      * nuovo tentativo della rete) il server lo scrive una volta sola.
      */
-    async replyToCustomer(
+    async replyToCollaborator(
       code: string,
       body: string,
       clientId?: string,
     ): Promise<SupportConversationView> {
       return writtenViewOf(
-        await call(() => api.reply(code, { body, ...(clientId ? { clientId } : {}) })),
+        await call(() =>
+          api.replyToCollaborator(code, { body, ...(clientId ? { clientId } : {}) }),
+        ),
       );
     },
 
@@ -206,10 +207,9 @@ export function createRealSupport(api: SupportApi) {
 /** Sul client vero (il client si legge a ogni chiamata). */
 export const liveSupport: Partial<typeof Fake.support> = createRealSupport({
   list: (projectId, opts) => appClient().support.list(projectId, opts),
-  waitingCustomers: () => appClient().support.waitingCustomers(),
   get: (code) => appClient().support.get(code),
   preview: (code) => appClient().support.preview(code),
-  reply: (code, body) => appClient().support.reply(code, body),
+  replyToCollaborator: (code, body) => appClient().support.replyToCollaborator(code, body),
   openRequest: (code, body) => appClient().support.openRequest(code, body),
   markNotConcluded: (code) => appClient().support.markNotConcluded(code),
 });

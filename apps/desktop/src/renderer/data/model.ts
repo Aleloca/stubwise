@@ -275,7 +275,6 @@ export interface ProductCardView {
 export type MandatoryReason =
   | "merged"
   | "pr_author"
-  | "follows_conversation"
   | "task_author"
   | "assignee";
 
@@ -3576,6 +3575,11 @@ export interface SupportConversation {
    * richiesta aperta dal team da una conversazione non conclusa).
    */
   confirmedAt: string | null;
+  /**
+   * Area 8, F3 (S17): con un esito la conversazione è CHIUSA, e un messaggio
+   * nuovo del cliente apre la successiva; qui il suo id. Assente: nessuna.
+   */
+  continuedInId?: string;
 }
 
 /**

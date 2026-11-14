@@ -57,7 +57,7 @@ describe("checkEscalation", () => {
     expect(
       checkEscalation(marco, ["plans.approve", "runs.start", "release.merge", "plans.approve"]),
     ).toEqual({ ok: false, error: "escalation", missing: ["plans.approve", "release.merge"] });
-    expect(checkEscalation(marco, ["runs.start", "support.reply"])).toEqual({ ok: true });
+    expect(checkEscalation(marco, ["runs.start", "support.manage"])).toEqual({ ok: true });
   });
 
   it("Roberta (full admin) dà qualunque permesso, a ogni livello", () => {
@@ -313,7 +313,7 @@ describe("ACTIONS e gruppi", () => {
       "release.merge",
       "servers.operate",
       "project.members.manage",
-      "support.reply",
+      "support.manage",
       "planning.others",
       "automations.manage",
       "runs.start",

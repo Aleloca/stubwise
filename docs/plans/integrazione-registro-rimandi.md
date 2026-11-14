@@ -763,13 +763,20 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 - F3, lato renderer (94, 14 nov 2026), ciò che resta fuori dalla build app
   (parità: `apps/desktop/docs/integration-area8-f3.md`):
-  - **la bozza di Claude** (`support-draft`): il renderer è pronto («Ask
-    Claude» aspetta la bozza accodata), il lavoro del worker aspetta il
-    [DECIDE] di 46 su cosa fa il widget dopo un esito;
-  - **i «siti ammessi» di un widget** (`origins` del prototipo): il server
-    non ha il campo, quindi nella build app il campo e la riga della guida
-    non ci sono, e il widget si carica da qualunque sito che abbia lo
-    snippet (decisione di prodotto da prendere: 46);
+  - *(superati dalla premessa corretta del maintainer, 14 nov 2026: la bozza
+    di Claude, «Segui», «Scrivigli per email» e la risposta nel widget sono
+    usciti; i siti ammessi tornano col campo `origins` del server.)*
+  - **la macchina degli slot della Posta** (`slot` delle bozze,
+    `?compose=support-…`): serviva solo a «Scrivigli per email», uscita; resta
+    accettata (`SUPPORT_MAIL_SLOT` locale) finché non si toglie in un giro di
+    pulizia della Posta;
+  - **«Clienti in attesa» nel prototipo**: la regola che lo riempie è ora
+    locale (esito e ultimo messaggio del cliente), finché la fetta a sé (la
+    posta delle caselle, 24 h) non ne dà la fonte; nella build app il blocco è
+    spento;
+  - **Claude non ha più il permesso di Support**: `support.reply` era nel suo
+    insieme fisso, `support.manage` no (Claude non ha mai un `*.manage`):
+    non apre richieste né segna conversazioni;
   - **un `kind` sconosciuto nei filtri di un widget** (un server più nuovo):
     l'app lo legge come `__unknown__` e salvando lo toglie, perché non può
     rimandarlo com'era;

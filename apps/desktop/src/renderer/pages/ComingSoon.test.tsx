@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderRoute } from "../test/renderRoute";
 import { closeGoogleAccount } from "./drive/GoogleAccountCard";
+import { REPLY_UNDO_MS } from "./support/replyStore";
 
 // Le aree non integrate nella build app (integrazione area 2, fetta 1): restano
 // nella navigazione con «Coming soon» e non leggono niente. Nei test il livello
@@ -422,7 +423,7 @@ const INTEGRATED_CALLS = new Set([
   "support.listSupportConversations",
   "support.getSupportConversation",
   "support.customerPreview",
-  "support.replyToCustomer",
+  "support.replyToCollaborator",
   "support.openRequestFrom",
   "support.markNotConcluded",
   // I widget (support-widgets), sulle rotte di oggi.
@@ -670,8 +671,9 @@ describe("aree non integrate nella build app", () => {
     );
     await waitFor(() => expect(calls).toContain("support.getSupportConversation"));
     await waitFor(() => expect(calls).toContain("support.listSupportConversations"));
-    // La casella c'è (si risponde), ma senza «Ask Claude» (la bozza non c'è più, area 8 F3).
-    expect(await within(detail).findByRole("form", { name: /^Reply to / })).toBeInTheDocument();
+    // Al cliente del widget il team non scrive (area 8, F3): nessuna casella, né «Ask Claude».
+    await within(detail).findByRole("region", { name: "Request" });
+    expect(within(detail).queryByRole("form", { name: /^Reply to / })).toBeNull();
     expect(within(detail).queryByRole("button", { name: /^Ask Claude/ })).toBeNull();
     // «Write to them by email» non c'è più (area 8, F3, decisione del maintainer).
     expect(within(detail).queryByRole("button", { name: "Write to them by email" })).toBeNull();
@@ -680,6 +682,21 @@ describe("aree non integrate nella build app", () => {
     // Nessuna simulazione del prototipo nel menu.
     await user.click(within(detail).getByRole("button", { name: "More actions" }));
     expect(screen.queryByRole("menuitem", { name: /^Simulate/ })).toBeNull();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("la risposta al collaboratore del canale mcp (area 8, F3): la casella c'è e scrive con una chiamata integrata", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    signedInAs("p-matteo");
+    renderRoute("/p/ACQ/support/ACQ-S4");
+    const form = await screen.findByRole("form", { name: /^Reply to / }, { timeout: 3000 });
+    await user.type(within(form).getByRole("textbox", { name: "Message" }), "On it.");
+    await user.click(within(form).getByRole("button", { name: "Send" }));
+    await act(() => vi.advanceTimersByTimeAsync(REPLY_UNDO_MS + 100));
+    await waitFor(() => expect(calls).toContain("support.replyToCollaborator"));
+    vi.useRealTimers();
     await settle();
     expect(outside()).toEqual([]);
   });

@@ -118,10 +118,10 @@ export function useMyRequestStatus(requestId: string | undefined) {
   });
 }
 
-/** «Invia al cliente»: solo dal clic di chi ha `support.reply`, mai un'email. */
+/** La risposta al collaboratore (canale `mcp`): solo dal clic di chi ha `support.manage`. */
 export function useReplyToCustomer() {
   return useWrite(
-    ({ code, body }: { code: string; body: string }) => api.support.replyToCustomer(code, body),
+    ({ code, body }: { code: string; body: string }) => api.support.replyToCollaborator(code, body),
     SUPPORT_AREAS,
   );
 }
@@ -135,7 +135,7 @@ export function useOpenRequestFrom() {
   );
 }
 
-/** «Not concluded» su una `answered` (`support.reply`): torna fra quelle che aspettano il team. */
+/** «Not concluded» su una `answered` (`support.manage`): diventa non conclusa. */
 export function useMarkNotConcluded() {
   return useWrite((code: string) => api.support.markNotConcluded(code), SUPPORT_AREAS);
 }
@@ -166,8 +166,8 @@ export function useDeleteWidget() {
  * `writer` legge la sessione ora — a nome di chi ha cliccato «Invia». La
  * pagina della persona nuova si rilegge comunque da capo.
  */
-export function replyToCustomerNow(code: string, body: string, clientId?: string) {
-  return api.support.replyToCustomer(code, body, clientId);
+export function replyToCollaboratorNow(code: string, body: string, clientId?: string) {
+  return api.support.replyToCollaborator(code, body, clientId);
 }
 
 /** Ricarica Support (elenco, dettaglio, Home) dopo un invio fatto fuori da React Query. */

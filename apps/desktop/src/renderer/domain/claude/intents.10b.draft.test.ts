@@ -122,8 +122,7 @@ describe("recognize: la bozza", () => {
 });
 
 describe("S6: Claude non scrive risposte in Support (area 8, F3)", () => {
-  const NO_REPLY_EN =
-    "I don't write replies in Support: customers get their answers from the widget's assistant and follow their requests on your site.";
+  const NO_REPLY_EN = "I don't write replies in Support.";
   it("Davide su ACQ-S2: la riga che lo dice, nessun `draft`, nessun messaggio", async () => {
     const c = state.supportConversations.find((x) => x.id === SUP_ACQ_2)!;
     const before = c.messages.length;
@@ -138,9 +137,7 @@ describe("S6: Claude non scrive risposte in Support (area 8, F3)", () => {
 
   it("il codice nella frase vale come il contesto, per chiunque la veda", async () => {
     const steps = await respond("scrivi la risposta ad ACQ-S2", as(SARA, it_));
-    expect(said(steps)).toBe(
-      "In Support non scrivo risposte: ai clienti risponde l'assistente del widget, e le loro richieste le seguono sul vostro sito.",
-    );
+    expect(said(steps)).toBe("In Support non scrivo risposte.");
     expect(drafts(steps)).toEqual([]);
   });
 

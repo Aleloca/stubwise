@@ -18,9 +18,10 @@ import {
   type SupportConversationView,
 } from "./visibility";
 
-// Le scritture di Support. NESSUNA risposta parte da sola e NESSUNA email
-// automatica al cliente: ogni risposta parte dal clic di chi ha `support.reply`
-// (`replyToCustomer`), e nessuna di queste funzioni scrive nella Posta.
+// Le scritture di Support. Il team non scrive MAI al cliente del widget (area
+// 8, F3, decisione del maintainer): risponde solo ai collaboratori interni del
+// canale `mcp`, dal clic di chi ha `support.manage` (`replyToCollaborator`).
+// Nessuna di queste funzioni scrive nella Posta.
 // Una richiesta nasce solo da una conversazione (mai da un'email). Gli
 // errori: `not_found` per ciò che chi agisce non vede (R-G5), `forbidden`
 // per ciò che vede ma non può fare, `invalid: <cosa>` per un input sbagliato.
@@ -30,35 +31,25 @@ const widgetObject = (w: SupportWidget) => ({ type: "widget", id: w.id, label: w
 
 function replierFor(me: string, code: string) {
   const c = conversationFor(me, code);
-  if (!holds(me, "support.reply", c.projectId)) throw forbidden();
+  if (!holds(me, "support.manage", c.projectId)) throw forbidden();
   return c;
 }
 
 /**
- * Durante il triage le domande al cliente le fa Claude: né la risposta né
- * la sua bozza (R-K15, `invalid: state`). Su una «non conclusa» si risponde.
+ * La risposta al collaboratore (canale `mcp`): un messaggio del team, che gli
+ * arriva con `my_requests`. Su una conversazione del widget `invalid:
+ * channel`, qualunque sia lo stato, e nessun messaggio (il 409
+ * `support_widget_no_reply` del server). Nessun avviso, nessuna email.
  */
-function openReplyFor(me: string, code: string) {
-  const c = replierFor(me, code);
-  if (supportState(c) === "triage") throw invalid("state");
-  return c;
-}
-
-/**
- * «Invia al cliente»: un messaggio del team, che arriva al cliente nel canale
- * da cui ha scritto (widget o Claude Code). Chi risponde segue la
- * conversazione da sé (shape [A 14]); la bozza di Claude, scritta per il
- * messaggio a cui si è appena risposto, non serve più. Nessun avviso, nessuna
- * email.
- */
-export async function replyToCustomer(
+export async function replyToCollaborator(
   code: string,
   body: string,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- l'id dell'invio è per il server (un doppio invio è uno solo): il prototipo non ne ha bisogno
   _clientId?: string,
 ): Promise<SupportConversationView> {
-  const me = await writer("support.replyToCustomer");
-  const c = openReplyFor(me, code);
+  const me = await writer("support.replyToCollaborator");
+  const c = replierFor(me, code);
+  if (c.channel !== "mcp") throw invalid("channel");
   const text = body.trim();
   if (!text) throw invalid("body");
   c.messages.push({ id: newId("sup-m"), from: "team", authorId: me, body: text, at: now() });
@@ -66,7 +57,8 @@ export async function replyToCustomer(
 }
 
 /**
- * «Apri la richiesta» su una conversazione non conclusa (`backlog.create`):
+ * «Apri la richiesta» su una conversazione non conclusa (`support.manage` e
+ * `backlog.create`):
  * la richiesta nasce con la conversazione allegata. Un secondo clic (o due
  * chiamate sovrapposte) restituisce la stessa.
  */
@@ -75,7 +67,7 @@ export async function openRequestFrom(
   input: { title: string; description: string },
 ): Promise<SupportConversationView> {
   const me = await writer("support.openRequestFrom");
-  const c = conversationFor(me, code);
+  const c = replierFor(me, code);
   if (!holds(me, "backlog.create", c.projectId)) throw forbidden();
   if (c.requestId !== null) return conversationView(me, c);
   if (supportState(c) !== "not_concluded") throw invalid("state");
@@ -92,7 +84,7 @@ export async function openRequestFrom(
 
 /**
  * «Not concluded» su una conversazione `answered` (area 8, F3, decisione del
- * maintainer): chi ha `support.reply` non è d'accordo col giudizio dopo il
+ * maintainer): chi ha `support.manage` non è d'accordo col giudizio dopo il
  * silenzio, e la rimette fra quelle che aspettano il team (non conclusa: si
  * può aprire la richiesta). Il giudizio porta il suo nome; un messaggio nuovo
  * del cliente lo rende vecchio come ogni giudizio. Su una già non conclusa

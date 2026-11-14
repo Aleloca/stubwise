@@ -23,7 +23,7 @@ export {
   deleteWidget,
   openRequestFrom,
   markNotConcluded,
-  replyToCustomer,
+  replyToCollaborator,
   updateWidget,
   type WidgetInput,
 } from "./writes";

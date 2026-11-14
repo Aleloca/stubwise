@@ -73,34 +73,34 @@ function fakeTime() {
 const advance = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
 
 describe("Support — l'elenco", () => {
-  it("raggruppato per stato, chi aspetta noi in cima col punto e l'attesa", async () => {
+  it("raggruppato per stato (area 8, F3): le non concluse in cima col punto, le chiuse sotto", async () => {
     await open("/p/ACQ/support");
     const list = await screen.findByRole("listbox", { name: "Conversations" });
     const groups = within(list).getAllByRole("group");
     expect(groups.map((g) => g.textContent?.split(/\d/)[0])).toEqual([
-      "Waiting on us",
-      "In triage",
       "Not concluded",
+      "In triage",
       "Request open",
-      // Area 8, F3: la risposta del widget è bastata, in fondo.
+      // La risposta del widget è bastata, in fondo.
       "Answered",
     ]);
-    // ACQ-S2 aspetta da più tempo di ACQ-S7 (5 nov 2026): è la prima.
+    // Aspetta te: una non conclusa da cui puoi aprire la richiesta.
     const waiting = within(groups[0]!).getAllByRole("option");
-    expect(waiting.map((o) => o.dataset.supportRow)).toEqual(["ACQ-S2", "ACQ-S7"]);
-    const s2 = waiting[0]!;
-    expect(s2).toHaveAccessibleName(
-      /^Waiting on you, ACQ-S2, Lucia Benedetti, Widget, Waiting on us, waiting 3 h/,
+    expect(waiting.map((o) => o.dataset.supportRow)).toEqual(["ACQ-S3"]);
+    expect(waiting[0]!).toHaveAccessibleName(
+      /^Waiting on you, ACQ-S3, Visitor, Widget, Not concluded$/,
     );
-    expect(s2).toHaveTextContent("waiting 3 h");
+    // Una conversazione con l'esito è chiusa: niente punto, niente attesa.
+    const s2 = within(list).getByRole("option", { name: /ACQ-S2/ });
+    expect(s2).toHaveAccessibleName(/^ACQ-S2, Lucia Benedetti, Widget, Request open$/);
     // Il canale ha un nome, non è solo un glifo.
-    expect(within(groups[3]!).getByRole("img", { name: "Claude Code" })).toBeInTheDocument();
+    expect(within(groups[2]!).getByRole("img", { name: "Claude Code" })).toBeInTheDocument();
   });
 
-  it("Sara (senza support.reply): nessun punto «ti aspetta»", async () => {
+  it("Sara (senza support.manage): nessun punto «ti aspetta»", async () => {
     await open("/p/ACQ/support", "p-sara");
-    const s2 = await screen.findByRole("option", { name: /ACQ-S2/ });
-    expect(s2).not.toHaveAccessibleName(/Waiting on you/);
+    const s3 = await screen.findByRole("option", { name: /ACQ-S3/ });
+    expect(s3).not.toHaveAccessibleName(/Waiting on you/);
   });
 
   it("ricerca e canale; vuoto filtrato con «Clear filters»; J/K e Invio aprono", async () => {
@@ -122,11 +122,11 @@ describe("Support — l'elenco", () => {
     await user.click(screen.getByRole("menuitemradio", { name: "Any" }));
     list.focus();
     await user.keyboard("j");
-    await waitFor(() => expect(router.state.location.pathname).toBe("/p/ACQ/support/ACQ-S2"));
-    await user.keyboard("j");
-    await waitFor(() => expect(router.state.location.pathname).toBe("/p/ACQ/support/ACQ-S7"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/p/ACQ/support/ACQ-S3"));
     await user.keyboard("j");
     await waitFor(() => expect(router.state.location.pathname).toBe("/p/ACQ/support/ACQ-S1"));
+    await user.keyboard("j");
+    await waitFor(() => expect(router.state.location.pathname).toBe("/p/ACQ/support/ACQ-S7"));
   });
 
   it("errore con «Retry»: riprova e l'elenco arriva", async () => {
@@ -200,13 +200,19 @@ describe("Support — il dettaglio", () => {
     expect(list.querySelectorAll("[data-support-message]")).toHaveLength(200);
   });
 
-  it("Sara vede la conversazione e la richiesta, ma nessuna casella, nessuna bozza, nessuna email", async () => {
+  it("Sara vede la conversazione e la richiesta; sul canale mcp la riga «solo chi gestisce», nessuna casella", async () => {
+    await open("/p/ACQ/support/ACQ-S4", "p-sara");
+    const mcp = await detail("ACQ-S4");
+    expect(
+      within(mcp).getByText("Only people who can manage Support conversations reply here."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("form", { name: /^Reply to/ })).toBeNull();
+    document.body.replaceChildren();
     await open("/p/ACQ/support/ACQ-S2", "p-sara");
     const d = await detail("ACQ-S2");
     expect(within(d).getByRole("region", { name: "Request" })).toBeInTheDocument();
-    expect(
-      within(d).getByText("Only people who can reply to customers write here."),
-    ).toBeInTheDocument();
+    // Del widget: nessuna riga sulla risposta, perché al cliente non scrive nessuno.
+    expect(within(d).queryByText(/reply here/)).toBeNull();
     expect(screen.queryByRole("form", { name: /^Reply to/ })).toBeNull();
     expect(screen.queryByText("Claude prepared a draft")).toBeNull();
     expect(screen.queryByRole("button", { name: "Write to them by email" })).toBeNull();
@@ -214,14 +220,21 @@ describe("Support — il dettaglio", () => {
     expect(within(d).queryByRole("button", { name: /^Follow/ })).toBeNull();
   });
 
-  it("R-K15: in triage nessuna casella, nemmeno per chi risponde; su una non conclusa sì", async () => {
+  it("al cliente del widget il team non scrive mai (area 8, F3): nessuna casella in nessuno stato, nemmeno con support.manage", async () => {
+    for (const code of ["ACQ-S1", "ACQ-S2", "ACQ-S3", "ACQ-S8"]) {
+      await open(`/p/ACQ/support/${code}`);
+      await detail(code);
+      expect(screen.queryByRole("form", { name: /^Reply to/ }), code).toBeNull();
+      document.body.replaceChildren();
+    }
     await open("/p/ACQ/support/ACQ-S1");
-    const d = await detail("ACQ-S1");
-    expect(within(d).getByText(/still asking the customer questions/)).toBeInTheDocument();
-    expect(screen.queryByRole("form", { name: /^Reply to/ })).toBeNull();
     expect(
-      within(d).getByText("No request yet · the assistant is still asking"),
+      within(await detail("ACQ-S1")).getByText("No request yet · the assistant is still asking"),
     ).toBeInTheDocument();
+    document.body.replaceChildren();
+    // Il collaboratore del canale mcp sì.
+    await open("/p/ACQ/support/ACQ-S4");
+    expect(await composer()).toHaveAccessibleName("Reply to Technical office, Comune di Valfonda");
   });
 
   it("una conversazione inesistente e una di un progetto invisibile danno la stessa pagina (R-G5)", async () => {
@@ -240,21 +253,21 @@ function renderRouteAndWait(path: string, person: string) {
   return { unmount: () => document.body.replaceChildren() };
 }
 
-describe("Support — l'invio", () => {
-  it("«Send to customer»: «Sending…» e «Sent to … · Undo» per 5 s; Undo non lascia traccia; poi parte", async () => {
+describe("Support — la risposta al collaboratore (canale mcp)", () => {
+  it("«Send»: «Sending…» e «Sent to … · Undo» per 5 s; Undo non lascia traccia; poi parte", async () => {
     const user = fakeTime();
-    await open("/p/ACQ/support/ACQ-S2");
+    await open("/p/ACQ/support/ACQ-S4");
     const form = await composer();
-    const send = within(form).getByRole("button", { name: "Send to customer" });
+    const send = within(form).getByRole("button", { name: "Send" });
     expect(send).toBeDisabled();
     expect(send).toHaveAttribute("title", "Write a reply first");
     const body = within(form).getByRole("textbox", { name: "Message" });
     await user.type(body, "We'll call you tomorrow.");
-    const before = conv("ACQ-S2").messages.length;
+    const before = conv("ACQ-S4").messages.length;
     await user.click(send);
     expect(body).toHaveValue("");
     expect(await screen.findByText("Sending…")).toBeInTheDocument();
-    const toast = await screen.findByText("Sent to Lucia Benedetti");
+    const toast = await screen.findByText("Sent to Technical office, Comune di Valfonda");
     await user.click(
       within(toast.closest("[role=status], li, div")!.parentElement!).getByRole("button", {
         name: "Undo",
@@ -263,33 +276,33 @@ describe("Support — l'invio", () => {
     expect(screen.queryByText("Sending…")).toBeNull();
     expect(body).toHaveValue("We'll call you tomorrow.");
     await advance(REPLY_UNDO_MS + 100);
-    expect(conv("ACQ-S2").messages).toHaveLength(before);
+    expect(conv("ACQ-S4").messages).toHaveLength(before);
 
-    await user.click(within(form).getByRole("button", { name: "Send to customer" }));
+    await user.click(within(form).getByRole("button", { name: "Send" }));
     await advance(REPLY_UNDO_MS + 100);
-    await waitFor(() => expect(conv("ACQ-S2").messages).toHaveLength(before + 1));
-    expect(conv("ACQ-S2").messages.at(-1)).toMatchObject({
+    await waitFor(() => expect(conv("ACQ-S4").messages).toHaveLength(before + 1));
+    expect(conv("ACQ-S4").messages.at(-1)).toMatchObject({
       from: "team",
       authorId: "p-matteo",
       body: "We'll call you tomorrow.",
     });
-    const d = await detail("ACQ-S2");
+    const d = await detail("ACQ-S4");
     await waitFor(() => expect(within(d).queryByText("Sending…")).toBeNull());
   });
 
   it("n1: lo stesso testo dell'ultimo messaggio mio: «Sending…» si vede lo stesso", async () => {
     const user = fakeTime();
-    conv("ACQ-S2").messages.push({
+    conv("ACQ-S4").messages.push({
       id: "sup-m-same",
       from: "team",
       authorId: "p-matteo",
       body: "Same.",
       at: "2026-10-28T08:30:00Z",
     });
-    await open("/p/ACQ/support/ACQ-S2");
+    await open("/p/ACQ/support/ACQ-S4");
     const form = await composer();
     await user.type(within(form).getByRole("textbox", { name: "Message" }), "Same.");
-    await user.click(within(form).getByRole("button", { name: "Send to customer" }));
+    await user.click(within(form).getByRole("button", { name: "Send" }));
     expect(await screen.findByText("Sending…")).toBeInTheDocument();
     await advance(REPLY_UNDO_MS + 100);
     await waitFor(() => expect(screen.queryByText("Sending…")).toBeNull());
@@ -298,11 +311,11 @@ describe("Support — l'invio", () => {
 
   it("I1: un invio alla volta — col primo nella finestra «Send» è fermo col perché; nessun invio si perde", async () => {
     const user = fakeTime();
-    await open("/p/ACQ/support/ACQ-S2");
+    await open("/p/ACQ/support/ACQ-S4");
     const form = await composer();
     const body = within(form).getByRole("textbox", { name: "Message" });
-    const send = within(form).getByRole("button", { name: "Send to customer" });
-    const before = conv("ACQ-S2").messages.length;
+    const send = within(form).getByRole("button", { name: "Send" });
+    const before = conv("ACQ-S4").messages.length;
     await user.type(body, "First reply.");
     await user.click(send);
     await user.type(body, "Second reply.");
@@ -310,16 +323,16 @@ describe("Support — l'invio", () => {
     expect(send).toHaveAttribute("title", "Wait: your previous reply is still in its Undo window");
     await user.keyboard("{Control>}{Enter}{/Control}");
     await advance(REPLY_UNDO_MS + 100);
-    await waitFor(() => expect(conv("ACQ-S2").messages).toHaveLength(before + 1));
-    expect(conv("ACQ-S2").messages.at(-1)!.body).toBe("First reply.");
+    await waitFor(() => expect(conv("ACQ-S4").messages).toHaveLength(before + 1));
+    expect(conv("ACQ-S4").messages.at(-1)!.body).toBe("First reply.");
     // Il secondo testo è ancora nella casella, e ora parte.
     expect(body).toHaveValue("Second reply.");
     await waitFor(() => expect(send).toBeEnabled());
     await user.click(send);
     await advance(REPLY_UNDO_MS + 100);
-    await waitFor(() => expect(conv("ACQ-S2").messages).toHaveLength(before + 2));
+    await waitFor(() => expect(conv("ACQ-S4").messages).toHaveLength(before + 2));
     expect(
-      conv("ACQ-S2")
+      conv("ACQ-S4")
         .messages.slice(-2)
         .map((m) => m.body),
     ).toEqual(["First reply.", "Second reply."]);
@@ -327,13 +340,13 @@ describe("Support — l'invio", () => {
 
   it("invio non riuscito: «Not sent», il testo torna nella casella (sotto il nuovo), mai ritentato da solo", async () => {
     const user = fakeTime();
-    await open("/p/ACQ/support/ACQ-S2");
+    await open("/p/ACQ/support/ACQ-S4");
     const form = await composer();
     const body = within(form).getByRole("textbox", { name: "Message" });
     await user.type(body, "Hello again.");
-    const before = conv("ACQ-S2").messages.length;
-    failNext("support.replyToCustomer");
-    await user.click(within(form).getByRole("button", { name: "Send to customer" }));
+    const before = conv("ACQ-S4").messages.length;
+    failNext("support.replyToCollaborator");
+    await user.click(within(form).getByRole("button", { name: "Send" }));
     // Nella finestra si scrive già altro: il testo fallito torna SOTTO, non al suo posto.
     await user.type(body, "Also:");
     await advance(REPLY_UNDO_MS + 100);
@@ -342,17 +355,17 @@ describe("Support — l'invio", () => {
     expect(body).toHaveValue("Also:\n\nHello again.");
     expect(screen.queryByText("Sending…")).toBeNull();
     await advance(REPLY_UNDO_MS * 3);
-    expect(conv("ACQ-S2").messages).toHaveLength(before);
+    expect(conv("ACQ-S4").messages).toHaveLength(before);
   });
 
   it("dopo l'invio il fuoco va al messaggio inviato", async () => {
     const user = fakeTime();
-    await open("/p/ACQ/support/ACQ-S2");
+    await open("/p/ACQ/support/ACQ-S4");
     const form = await composer();
     await user.type(within(form).getByRole("textbox", { name: "Message" }), "Done.");
-    await user.click(within(form).getByRole("button", { name: "Send to customer" }));
+    await user.click(within(form).getByRole("button", { name: "Send" }));
     await advance(REPLY_UNDO_MS + 100);
-    const d = await detail("ACQ-S2");
+    const d = await detail("ACQ-S4");
     await waitFor(() =>
       expect(document.activeElement).toBe([...d.querySelectorAll("[data-support-message]")].at(-1)),
     );
@@ -479,13 +492,13 @@ describe("Support — «Apri la richiesta» su una non conclusa", () => {
 describe("Support — cambio di persona con un dettaglio aperto", () => {
   it("la casella si chiude tenendo il testo di chi scriveva; Sara ha la riga; un esterno «not found»", async () => {
     const user = userEvent.setup();
-    await open("/p/ACQ/support/ACQ-S2");
+    await open("/p/ACQ/support/ACQ-S4");
     const form = await composer();
     await user.type(within(form).getByRole("textbox", { name: "Message" }), "Half a reply");
     await switchPersona(/Sara Montanari/, user);
-    const d = await detail("ACQ-S2");
+    const d = await detail("ACQ-S4");
     expect(
-      within(d).getByText("Only people who can reply to customers write here."),
+      within(d).getByText("Only people who can manage Support conversations reply here."),
     ).toBeInTheDocument();
     expect(screen.queryByText("Half a reply")).toBeNull();
     await switchPersona(/Matteo Conti/, user);
@@ -502,7 +515,7 @@ describe("Support — cambio di persona con un dettaglio aperto", () => {
 });
 
 describe("Support — «Not concluded» su una answered (area 8, F3)", () => {
-  it("dice che la risposta del widget è bastata, e dopo quanto silenzio; con support.reply la rimette fra quelle da fare", async () => {
+  it("dice che la risposta del widget è bastata, e dopo quanto silenzio; con support.manage la rimette fra quelle da fare", async () => {
     const user = userEvent.setup();
     await open("/p/ACQ/support/ACQ-S8");
     const d = await detail("ACQ-S8");
@@ -515,7 +528,7 @@ describe("Support — «Not concluded» su una answered (area 8, F3)", () => {
     expect(conv("ACQ-S8").triage).toMatchObject({ outcome: "not_concluded", byUserId: "p-matteo" });
   });
 
-  it("senza support.reply nessun bottone", async () => {
+  it("senza support.manage nessun bottone", async () => {
     await open("/p/ACQ/support/ACQ-S8", "p-sara");
     const d = await detail("ACQ-S8");
     expect(within(d).getByRole("region", { name: "Request" })).toHaveTextContent(

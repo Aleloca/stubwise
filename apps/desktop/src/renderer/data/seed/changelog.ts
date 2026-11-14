@@ -117,7 +117,7 @@ const ROWS: Row[] = [
     actorId: "p-roberta",
     projectId: null,
     object: department("dep-development", "Development"),
-    params: { added: "support.reply", removed: "", before: "", after: "support.reply" },
+    params: { added: "support.manage", removed: "", before: "", after: "support.manage" },
   },
   {
     kind: "department.home_managers_changed",

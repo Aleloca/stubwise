@@ -83,7 +83,6 @@ export function webHrefFor(
 export const MANDATORY_REASONS: ReadonlySet<string> = new Set([
   "merged",
   "pr_author",
-  "follows_conversation",
   "task_author",
   "assignee",
 ] satisfies MandatoryReason[]);
@@ -119,16 +118,14 @@ export function appLinkFor(rawUrl: string | null | undefined, instanceOrigin?: s
   const relative = rawUrl.startsWith("/") && !rawUrl.startsWith("//");
   if (!relative && url.origin !== instanceOrigin) return null;
   if (url.pathname !== "/app/" && url.pathname !== "/app") return null;
-  const m = /^#\/p\/[^/?#]+\/(releases|docs|support|requests)(\/[^?#]+)?(\?[^#]*)?$/.exec(
+  const m = /^#\/p\/[^/?#]+\/(releases|docs|requests)(\/[^?#]+)?(\?[^#]*)?$/.exec(
     url.hash,
   );
   if (!m) return null;
   const [, section, rest, query] = m;
   if (!isIntegrated({ kind: "projectSection", name: section! })) return null;
-  if (section === "support") {
-    // Area 8, F3: la conversazione (`support.customer_replied`), mai l'elenco nudo.
-    if (!rest || query) return null;
-  } else if (section === "requests") {
+  // Area 8, F3: nessuna card porta a Support (`support.customer_replied` è uscito).
+  if (section === "requests") {
     // Area 8, F3: la richiesta nel suo pannello (`support.request`), solo `?request=`.
     const params = new URLSearchParams(query ?? "");
     if (rest || [...params.keys()].join() !== "request") return null;

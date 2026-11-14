@@ -420,7 +420,7 @@ describe("Who can?", () => {
       s.grants.push({
         personId: "p-marco",
         projectId: ACQ,
-        permission: "support.reply",
+        permission: "support.manage",
         grantedById: giver,
         at: "2026-10-20T10:00:00Z",
       });
@@ -428,7 +428,7 @@ describe("Who can?", () => {
     renderRoute("/admin/who-can?view=what&person=p-marco&project=ACQ", LAURA);
     await heading("Who can?");
     const row = await waitFor(() => {
-      const r = document.querySelector<HTMLElement>("[data-permission='support.reply']");
+      const r = document.querySelector<HTMLElement>("[data-permission='support.manage']");
       expect(r).not.toBeNull();
       return r!;
     });

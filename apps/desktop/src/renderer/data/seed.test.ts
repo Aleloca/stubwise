@@ -552,7 +552,6 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
       "docs.release_note",
       "task.created",
       "support.request",
-      "support.customer_replied",
     ];
     for (const k of kinds8a) {
       expect(LOCAL_NOTIFICATION_KINDS as readonly string[]).toContain(k);

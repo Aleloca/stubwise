@@ -32,8 +32,7 @@ const view = (over: Partial<SupportConversation> = {}): SupportConversation => (
   customer: { name: "Lucia", email: "lucia@example.com" },
   messages: [message()],
   lastMessage: message(),
-  state: "waiting_us",
-  waitingSince: "2026-11-14T10:00:00.000Z",
+  state: "request_open",
   rewrittenWish: null,
   confirmedAt: null,
   triage: null,
@@ -46,15 +45,11 @@ const view = (over: Partial<SupportConversation> = {}): SupportConversation => (
     customerStatus: "received",
   },
   task: null,
-  claudeDraft: null,
-  claudeDraftAt: null,
-  claudeDraftPending: false,
-  following: false,
-  canReply: true,
-  replyClosed: null,
+  continuedIn: null,
+  continuedFrom: null,
+  canReplyToCollaborator: false,
   canOpenRequest: false,
   canMarkNotConcluded: false,
-  emailBlocked: null,
   createdAt: "2026-11-14T09:59:00.000Z",
   lastMessageAt: "2026-11-14T10:00:00.000Z",
   ...over,
@@ -71,11 +66,10 @@ function fakeApi(over: Partial<SupportApi> = {}) {
       calls.push(`list ${projectId} ${opts.state ?? ""}`);
       return { items: [view({ messages: [] })] };
     },
-    waitingCustomers: async () => ({ items: [view({ messages: [] })] }),
     get: async () => view(),
-    reply: async (code, body) => {
+    replyToCollaborator: async (code, body) => {
       calls.push(`reply ${code} ${JSON.stringify(body)}`);
-      return view({ state: "reply_sent" });
+      return view({ channel: "mcp", canReplyToCollaborator: true });
     },
     openRequest: async (code, body) => {
       calls.push(`request ${code} ${JSON.stringify(body)}`);
@@ -102,18 +96,22 @@ function fakeApi(over: Partial<SupportApi> = {}) {
 describe("le letture di Support dal server (area 8, F3)", () => {
   it("l'elenco nella forma del prototipo: la richiesta legata, il cliente, lo stato e l'ultimo messaggio", async () => {
     const { api, calls } = fakeApi();
-    const [c] = await createRealSupport(api).listSupportConversations(PRJ, { state: "waiting_us" });
-    expect(calls).toEqual([`list ${PRJ} waiting_us`]);
+    const [c] = await createRealSupport(api).listSupportConversations(PRJ, {
+      state: "request_open",
+    });
+    expect(calls).toEqual([`list ${PRJ} request_open`]);
     expect(c).toMatchObject({
       code: "ACQ-S1",
       projectCode: "ACQ",
-      state: "waiting_us",
+      state: "request_open",
       requestId: REQ,
       request: { code: "ACQ-R1", customerStatus: "received" },
       customer: { name: "Lucia", email: "lucia@example.com" },
       messages: [],
       lastMessage: { body: "Where is my invoice?" },
-      canReply: true,
+      canReplyToCollaborator: false,
+      continuedIn: null,
+      continuedFrom: null,
     });
   });
 
@@ -194,7 +192,6 @@ describe("le letture di Support dal server (area 8, F3)", () => {
         { from: "customer", body: "Where is my invoice?", at: "2026-11-14T10:00:00.000Z" },
       ],
     });
-    expect((await support.listWaitingCustomers()).map((c) => c.code)).toEqual(["ACQ-S1"]);
   });
 
   it("un altro errore non diventa un elenco vuoto", async () => {
@@ -212,9 +209,9 @@ describe("le scritture di Support sul server (area 8, F3)", () => {
     throw new ApiError(status, code, code);
   };
 
-  it("«Send to customer»: il testo e il clientId dell'invio (un doppio invio è uno solo), e la vista del server", async () => {
+  it("la risposta al collaboratore: il testo e il clientId dell'invio (un doppio invio è uno solo), e la vista del server", async () => {
     const { api, calls } = fakeApi();
-    const c = await createRealSupport(api).replyToCustomer(
+    const c = await createRealSupport(api).replyToCollaborator(
       "ACQ-S1",
       "Hi Lucia",
       "66666666-6666-4666-8666-666666666666",
@@ -222,7 +219,21 @@ describe("le scritture di Support sul server (area 8, F3)", () => {
     expect(calls).toEqual([
       `reply ACQ-S1 {"body":"Hi Lucia","clientId":"66666666-6666-4666-8666-666666666666"}`,
     ]);
-    expect(c.state).toBe("reply_sent");
+    expect(c).toMatchObject({ channel: "mcp", canReplyToCollaborator: true });
+  });
+
+  it("la conversazione chiusa e la successiva (S17): i legami come li dà il server", async () => {
+    const { api } = fakeApi({
+      get: async () => view({ continuedIn: { code: "ACQ-S9" }, continuedFrom: { code: "ACQ-S0" } }),
+    });
+    expect(await createRealSupport(api).getSupportConversation("ACQ-S1")).toMatchObject({
+      continuedIn: { code: "ACQ-S9" },
+      continuedFrom: { code: "ACQ-S0" },
+    });
+  });
+
+  it("niente «Clienti in attesa» dal server (fonte da definire): la lettura non c'è", () => {
+    expect("listWaitingCustomers" in createRealSupport(fakeApi().api)).toBe(false);
   });
 
   it("la bozza di Claude non c'è più (area 8, F3): niente funzione, niente campo nella vista", async () => {
@@ -258,14 +269,25 @@ describe("le scritture di Support sul server (area 8, F3)", () => {
       run: (s: ReturnType<typeof createRealSupport>) => Promise<unknown>,
     ) => run(createRealSupport(fakeApi(over).api)).catch((e: Error) => e.message);
     expect(
-      await words({ reply: fail(409, "support_triage") }, (s) => s.replyToCustomer("ACQ-S1", "x")),
+      await words({ replyToCollaborator: fail(409, "support_triage") }, (s) =>
+        s.replyToCollaborator("ACQ-S1", "x"),
+      ),
     ).toBe("invalid: state");
     expect(
-      await words({ reply: fail(403, "forbidden") }, (s) => s.replyToCustomer("ACQ-S1", "x")),
+      await words({ replyToCollaborator: fail(403, "forbidden") }, (s) =>
+        s.replyToCollaborator("ACQ-S1", "x"),
+      ),
     ).toBe("forbidden");
     expect(
-      await words({ reply: fail(404, "not_found") }, (s) => s.replyToCustomer("ACQ-S1", "x")),
+      await words({ replyToCollaborator: fail(404, "not_found") }, (s) =>
+        s.replyToCollaborator("ACQ-S1", "x"),
+      ),
     ).toBe("not_found");
+    expect(
+      await words({ replyToCollaborator: fail(409, "support_widget_no_reply") }, (s) =>
+        s.replyToCollaborator("ACQ-S1", "x"),
+      ),
+    ).toBe("invalid: channel");
     expect(
       await words({ openRequest: fail(409, "support_not_concluded") }, (s) =>
         s.openRequestFrom("ACQ-S1", { title: "x", description: "" }),

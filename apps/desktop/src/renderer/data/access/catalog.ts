@@ -26,7 +26,7 @@ export const INSTANCE_SET: ReadonlySet<string> = new Set<string>([
  * fetta 2: del Project Lead e implicito per il full admin.) I canali della Chat (area 4) sono nel registro condiviso dalla fetta 1
  * dell'integrazione, il Drive (area 5: `drive.upload`, `drive.manage`,
  * `drive.history`) dalla fetta 2, `automations.manage` di progetto (area 7,
- * del Project Lead) dalla fetta 1 dell'area 7, `support.reply` (Project Lead,
+ * del Project Lead) dalla fetta 1 dell'area 7, `support.manage` (Project Lead,
  * Developer e Legacy Member, area 8a) dalla fetta 3 dell'area 8: qui
  * resterebbero due volte nel ruolo. `servers.operate` (area 8b) non è di
  * nessun preset: si dà persona per persona (`SEED_PROJECT_GRANTS`).

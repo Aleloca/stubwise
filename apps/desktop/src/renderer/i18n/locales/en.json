@@ -3752,7 +3752,7 @@
         "openInviteBare": "Open the invite →"
       },
       "draft": {
-        "noSupportReply": "I don't write replies in Support: customers get their answers from the widget's assistant and follow their requests on your site.",
+        "noSupportReply": "I don't write replies in Support.",
         "cantEditNotes": "You can't edit the release notes of this pull request ·",
         "cantEditTask": "You can't edit **{{code}}** ·",
         "noSource": "I have nothing to write **{{code}}**'s description from: tell me what it should say.",
@@ -8646,7 +8646,6 @@
       "task_created": "New task",
       "task_created_by_automation": "New task from an automation",
       "support_request": "New request",
-      "support_customer_replied": "Customer replied",
       "job_pr_opened": "Claude opened a PR",
       "review_completed": "PR review done",
       "ticket_created": "New task",
@@ -8672,7 +8671,6 @@
       "task_created": "When a task is created in {{code}}",
       "task_created_by_automation": "When an automation creates a task in {{code}}",
       "support_request": "When a request is opened in {{code}}, by a customer or a colleague",
-      "support_customer_replied": "When a customer writes again in a conversation of {{code}}",
       "job_pr_opened": "When Claude opens a PR for a task of {{code}}",
       "review_completed": "When Claude finishes reviewing a PR of {{code}}",
       "ticket_created": "When a task is created in {{code}}",
@@ -8686,7 +8684,6 @@
     "mandatoryLine": {
       "merged": "Always when you did the merge",
       "pr_author": "Always for the PR's author",
-      "follows_conversation": "Always if you follow the conversation",
       "task_author": "Always for the task's author, if the merge came from outside Stubwise",
       "assignee": "Always for whoever the task is assigned to"
     },
@@ -8702,7 +8699,6 @@
       "docs_view": "Paused · you can no longer see {{code}}'s docs",
       "tickets_view_all": "Paused · you can no longer see all of {{code}}'s tasks",
       "backlog_view_all": "Paused · you can no longer see {{code}}'s requests",
-      "support_reply": "Paused · you can no longer reply to {{code}}'s customers",
       "other": "Paused · you can no longer see this in {{code}}"
     },
     "suspendedBack": "It comes back if you get access again.",
@@ -8764,7 +8760,6 @@
       "why": {
         "merged": "You get this because you did the merge",
         "pr_author": "You get this because you opened this PR",
-        "follows_conversation": "You get this because you follow this conversation",
         "task_author": "You get this because the PR comes from your task",
         "assignee": "You get this because the task is assigned to you"
       }
@@ -9158,11 +9153,9 @@
       "mcp": "Claude Code"
     },
     "state": {
-      "waiting_us": "Waiting on us",
       "triage": "In triage",
       "not_concluded": "Not concluded",
       "request_open": "Request open",
-      "reply_sent": "Replied",
       "answered": "Answered"
     },
     "customerStatus": {
@@ -9207,7 +9200,9 @@
       "simulateLeaves": "Simulate: customer leaves",
       "simulateTriage": "Simulate: triage done",
       "simulatedText": "Hello, is there any news?",
-      "actionFailed": "Something went wrong. Nothing changed."
+      "actionFailed": "Something went wrong. Nothing changed.",
+      "continuedIn": "Continued in",
+      "continuedFrom": "Follow-up of"
     },
     "request": {
       "label": "Request",
@@ -9253,19 +9248,16 @@
     },
     "reply": {
       "to": "Reply to {{name}}",
-      "inWidget": "in the widget",
       "inMcp": "in Claude Code",
       "message": "Message",
       "placeholder": "Write to {{name}}…",
       "saved": "Saved",
       "discard": "Discard",
-      "send": "Send to customer",
+      "send": "Send",
       "emptyReason": "Write a reply first",
       "sentTo": "Sent to {{name}}",
       "undo": "Undo",
-      "readOnly": "Only people who can reply to customers write here.",
-      "triage": "The assistant is still asking the customer questions: you can reply once the triage ends.",
-      "lastSeen": "{{name}} last saw the conversation {{time}}. They'll see your reply when they come back.",
+      "readOnly": "Only people who can manage Support conversations reply here.",
       "nextTime": "They'll see it the next time they ask about their requests.",
       "waitPrevious": "Wait: your previous reply is still in its Undo window",
       "notSentBack": "Not sent. Your reply is back in the box: send it again when you're ready."
@@ -9915,7 +9907,7 @@
       "manageChannels": "manage channels",
       "manageDrive": "manage the drive",
       "manageProjectAutomations": "manage the project's automations",
-      "replyCustomers": "reply to customers",
+      "manageSupport": "manage Support conversations",
       "fixServer": "start a server fix",
       "manageRoles": "manage roles",
       "manageSettings": "change the instance settings",
@@ -11957,9 +11949,9 @@
       }
     },
     "support": {
-      "reply": {
-        "label": "reply to customers",
-        "hint": "Answer customers' conversations in Support."
+      "manage": {
+        "label": "manage Support conversations",
+        "hint": "Open the request, mark them not concluded, reply to collaborators."
       }
     },
     "department": {

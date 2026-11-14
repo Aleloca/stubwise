@@ -26,6 +26,7 @@ const widget = (over: Partial<WidgetAdmin> = {}): WidgetAdmin => ({
   language: "en",
   dailyMessageCap: null,
   dailyTicketCap: 20,
+  origins: [],
   createdAt: "2026-11-01T09:00:00.000Z",
   conversationCount: 3,
   ...over,

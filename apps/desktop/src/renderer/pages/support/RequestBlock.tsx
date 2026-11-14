@@ -21,7 +21,7 @@ import { RequestStatusLabel } from "../requests/marks";
 
 /**
  * «Not concluded» (area 8, F3, decisione del maintainer): chi ha
- * `support.reply` non è d'accordo che la risposta del widget sia bastata, e
+ * `support.manage` non è d'accordo che la risposta del widget sia bastata, e
  * la rimette fra quelle che aspettano il team.
  */
 function NotConcludedButton({ code }: { code: string }) {

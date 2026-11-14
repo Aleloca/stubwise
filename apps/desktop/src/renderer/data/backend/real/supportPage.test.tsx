@@ -52,22 +52,16 @@ const conversation = (over: Record<string, unknown> = {}) => ({
   customer: { name: "Lucia Benedetti", email: "lucia@example.com" },
   messages: [message],
   lastMessage: message,
-  state: "waiting_us",
-  waitingSince: "2026-11-14T10:00:00.000Z",
+  state: "request_open",
   rewrittenWish: null,
   confirmedAt: null,
   triage: null,
   request: null,
   task: { id: TASK, code: "AUD-12", title: "Invoices page is empty", customerStatus: "planned" },
-  claudeDraft: null,
-  claudeDraftAt: null,
-  claudeDraftPending: false,
-  following: false,
-  canReply: true,
-  replyClosed: null,
+  // Senza `canReplyToCollaborator`, `continuedIn`, `continuedFrom` apposta:
+  // un server di prima della correzione F3, e i default li riempiono.
   canOpenRequest: false,
   canMarkNotConcluded: false,
-  emailBlocked: "no_mailbox",
   createdAt: "2026-11-14T09:59:00.000Z",
   lastMessageAt: "2026-11-14T10:00:00.000Z",
   ...over,
@@ -76,7 +70,7 @@ const conversation = (over: Record<string, unknown> = {}) => ({
 function install(routes: Record<string, unknown> = {}) {
   installFakeServer({
     "GET /api/auth/me": {
-      body: me({ projectPermissions: { [PROJECT_ID]: ["tickets.view_all", "support.reply"] } }),
+      body: me({ projectPermissions: { [PROJECT_ID]: ["tickets.view_all", "support.manage"] } }),
     },
     "GET /api/projects": { body: [serverProject({ memberIds: [ME_ID] })] },
     "GET /api/me/follows": { body: { projectIds: [PROJECT_ID] } },
@@ -149,6 +143,43 @@ describe("Support nella build app (area 8, F3)", () => {
     await within(await detail()).findByRole("region", { name: "Task" });
     expect(widgets).not.toHaveBeenCalled();
     delete (support as unknown as Record<string, unknown>).listWidgets;
+  });
+
+  it("al cliente del widget nessuna casella; il collaboratore mcp (canReplyToCollaborator) sì", async () => {
+    install();
+    renderRoute(`/p/AUD/support/${CODE}`);
+    const d = await detail();
+    await within(d).findByRole("region", { name: "Task" });
+    expect(within(d).queryByRole("form", { name: /^Reply to/ })).toBeNull();
+    document.body.replaceChildren();
+    install({
+      [`GET ${BY_CODE}`]: {
+        body: conversation({ channel: "mcp", canReplyToCollaborator: true }),
+      },
+    });
+    renderRoute(`/p/AUD/support/${CODE}`);
+    expect(
+      await within(await detail()).findByRole("form", { name: "Reply to Lucia Benedetti" }),
+    ).toBeInTheDocument();
+  });
+
+  it("la conversazione chiusa porta alla successiva, e la successiva a quella di prima (S17)", async () => {
+    install({
+      [`GET ${BY_CODE}`]: {
+        body: conversation({ continuedIn: { code: "AUD-S7" }, continuedFrom: { code: "AUD-S0" } }),
+      },
+    });
+    renderRoute(`/p/AUD/support/${CODE}`);
+    const d = await detail();
+    expect(await within(d).findByText("Continued in")).toBeInTheDocument();
+    expect(within(d).getByRole("link", { name: "AUD-S7" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("/p/AUD/support/AUD-S7"),
+    );
+    expect(within(d).getByRole("link", { name: "AUD-S0" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("/p/AUD/support/AUD-S0"),
+    );
   });
 
   it("una bozza che un server vecchio dice in arrivo non si mostra: la bozza di Claude non c'è più", async () => {

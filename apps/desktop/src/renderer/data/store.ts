@@ -648,7 +648,7 @@ export type ApiFnName =
   | "support.listWidgets"
   | "support.myRequestStatus"
   | "support.searchSupport"
-  | "support.replyToCustomer"
+  | "support.replyToCollaborator"
   | "support.openRequestFrom"
   | "support.markNotConcluded"
   | "support.createWidget"

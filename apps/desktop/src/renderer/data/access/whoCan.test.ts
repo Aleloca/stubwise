@@ -109,8 +109,8 @@ describe("whoCan: parità con can() (RF 5)", () => {
       expect.objectContaining({ kind: "grant", grantedById: "p-roberta" }),
     ]);
     expect(r.people[1]!.sources).toEqual([{ kind: "full_admin" }]);
-    // Development dà support.reply: Marco ce l'ha dal ruolo e dal reparto, il ruolo prima.
-    const reply = whoCan("p-roberta", "replyCustomers", ACQ);
+    // Development dà support.manage: Marco ce l'ha dal ruolo e dal reparto, il ruolo prima.
+    const reply = whoCan("p-roberta", "manageSupport", ACQ);
     if (!reply.visible) throw new Error("invisibile");
     const marco = reply.people.find((p) => p.personId === "p-marco")!;
     expect(marco.sources.map((s) => s.kind)).toEqual(["role", "department"]);

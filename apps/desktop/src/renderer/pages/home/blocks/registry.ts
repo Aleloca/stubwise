@@ -131,7 +131,7 @@ export const BLOCKS: Record<HomeBlockKind, BlockDef> = {
   waitingCustomers: {
     titleKey: "home.blocks.waitingCustomers",
     component: WaitingCustomersBlock,
-    ...ofArea("support-home", (viewer) => can(viewer, "support.reply")),
+    ...ofArea("support-home", (viewer) => can(viewer, "support.manage")),
   },
   filter: { titleKey: "home.blocks.filter", component: FilterBlock, available: always },
 };

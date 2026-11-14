@@ -12,7 +12,7 @@ import { SUPPORT_TWO_UP_QUERY } from "./format";
 import { clearReplyStore } from "./replyStore";
 
 // Le porte d'ingresso di Support (Task 9): il blocco Home «Clienti in
-// attesa» ([A 17]: nel catalogo di chi ha `support.reply`, mai nelle Home
+// attesa» ([A 17]: nel catalogo di chi ha `support.manage`, mai nelle Home
 // di default) e ⌘K (le conversazioni per codice, «New widget»).
 
 beforeEach(() => {
@@ -36,7 +36,7 @@ function homeWithWaiting(personId: string) {
 }
 
 describe("Home — «Customers waiting»", () => {
-  it("nel catalogo di chi ha support.reply, non di Sara; mai nelle Home di default", async () => {
+  it("nel catalogo di chi ha support.manage, non di Sara; mai nelle Home di default", async () => {
     expect(BLOCKS.waitingCustomers.available(viewerFor("p-matteo"))).toBe(true);
     expect(BLOCKS.waitingCustomers.available(viewerFor("p-sara"))).toBe(false);
     renderRoute("/home", "p-laura");
@@ -79,7 +79,7 @@ describe("⌘K — conversazioni di Support", () => {
     const group = await within(dialog).findByRole("group", { name: "Support" });
     const option = within(group).getByRole("option", { name: /ACQ-S2/ });
     expect(option).toHaveTextContent("Lucia Benedetti");
-    expect(option).toHaveTextContent("Waiting on us");
+    expect(option).toHaveTextContent("Request open");
     await user.click(option);
     await waitFor(() => expect(router.state.location.pathname).toBe("/p/ACQ/support/ACQ-S2"));
   });

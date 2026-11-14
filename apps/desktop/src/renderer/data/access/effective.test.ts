@@ -43,7 +43,7 @@ const hexToBits = (hex: string, n: number): boolean[] =>
 
 /**
  * Le sole differenze ammesse fra la `can()` di prima e quella di adesso, una
- * per una col motivo. Il permesso di reparto di Development (`support.reply`)
+ * per una col motivo. Il permesso di reparto di Development (`support.manage`)
  * potrebbe aggiungerne, ma non ne aggiunge: i membri di Development sono
  * Developer o Project Lead in ogni progetto dove sono membri, e quel permesso
  * l'avevano già dal ruolo. Il test sotto «fonti» lo verifica.
@@ -75,7 +75,17 @@ const MEMBERS_AFTER_FIXTURE: Readonly<Record<string, string>> = {
     "area 10b: Davide (reparto Support) entra in ACQ per rispondere ai clienti nelle scene del supporto",
 };
 
-/** Chi guadagna `support.reply` dal reparto perché il seme lo fa Contributor (`persona|progetto`). */
+/**
+ * I permessi che Claude ha perso dopo il fixture, col motivo: aveva
+ * `support.reply`, che nell'area 8 (F3) è diventato `support.manage`, e
+ * Claude non ha mai un permesso `*.manage` (`claudeForbidden`): non apre
+ * richieste né segna conversazioni, e il team non scrive al cliente.
+ */
+const CLAUDE_LOST_AFTER_FIXTURE: Readonly<Record<string, string>> = {
+  "support.manage": "area 8, F3: `support.reply` → `support.manage`, un permesso di gestione",
+};
+
+/** Chi guadagna `support.manage` dal reparto perché il seme lo fa Contributor (`persona|progetto`). */
 const GAINS_FROM_DEPARTMENT = new Set(["p-laura|prj-lnt"]);
 
 describe("parità con la can() delle aree 2–8 (fixture generato prima del cambio)", () => {
@@ -116,6 +126,7 @@ describe("parità con la can() delle aree 2–8 (fixture generato prima del camb
             return;
           }
           if (now === before[i]) return;
+          if (personId === CLAUDE_ID && CLAUDE_LOST_AFTER_FIXTURE[perm] && before[i] && !now) return;
           // Solo i guadagni: una persona aggiunta a un progetto non perde permessi.
           if (MEMBERS_AFTER_FIXTURE[`${personId}|${projectId}`] && !before[i] && now) return;
           const allowed = ALLOWED_DIFFERENCES.some(
@@ -173,12 +184,12 @@ describe("le fonti dei permessi", () => {
     }
   });
 
-  it("Development porta `support.reply`, con fonte il reparto, dove i suoi membri sono già membri", () => {
+  it("Development porta `support.manage`, con fonte il reparto, dove i suoi membri sono già membri", () => {
     const dev = accessState().departments.find((d) => d.departmentId === "dep-development")!;
-    expect(dev.projectPermissions).toEqual(["support.reply"]);
+    expect(dev.projectPermissions).toEqual(["support.manage"]);
     for (const personId of dev.memberIds) {
       for (const project of PROJECTS) {
-        const sources = effectivePermissions(personId, project.id).get("support.reply") ?? [];
+        const sources = effectivePermissions(personId, project.id).get("support.manage") ?? [];
         const fromDept = sources.some((s) => s.kind === "department");
         // Simone, disattivato, non ha permessi effettivi (Task 5).
         // Chi è disattivato lo dice lo stato del seme, non una seconda lista scritta qui.
@@ -190,7 +201,7 @@ describe("le fonti dei permessi", () => {
         );
         // Nessuno lo guadagna: chi lo ha dal reparto lo ha anche dal ruolo. Le
         // sole coppie attese, una per una: Laura è Contributor in LNT (area
-        // 10b) e il reparto le dà `support.reply`. È una conseguenza accettata
+        // 10b) e il reparto le dà `support.manage`. È una conseguenza accettata
         // del ruolo scelto per il seme, non un'intenzione.
         if (fromDept && !GAINS_FROM_DEPARTMENT.has(`${personId}|${project.id}`))
           expect(sources.some((s) => s.kind === "role")).toBe(true);
@@ -259,7 +270,9 @@ describe("Claude, insieme fisso (R-L9, R-L11)", () => {
     const instanceBefore = PARITY_PERMISSIONS.filter(
       (p) => INSTANCE_SET.has(p) && hexToBits(rows[p]!, projects.length)[0],
     );
-    expect([...CLAUDE_PROJECT_PERMISSIONS].sort()).toEqual(projectBefore.sort());
+    expect([...CLAUDE_PROJECT_PERMISSIONS].sort()).toEqual(
+      projectBefore.filter((p) => !CLAUDE_LOST_AFTER_FIXTURE[p]).sort(),
+    );
     expect([...CLAUDE_INSTANCE_PERMISSIONS].sort()).toEqual(instanceBefore.sort());
   });
 

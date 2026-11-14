@@ -109,8 +109,7 @@ export function ReplyComposer({
         className="compose-enter flex min-w-0 flex-col rounded-lg border border-rule-strong bg-surface"
       >
         <p className="flex h-8 items-center border-b border-rule px-3 text-xs font-semibold text-ink-muted">
-          {t("support.reply.to", { name })} ·{" "}
-          {t(conv.channel === "widget" ? "support.reply.inWidget" : "support.reply.inMcp")}
+          {t("support.reply.to", { name })} · {t("support.reply.inMcp")}
         </p>
         <textarea
           ref={bodyRef}
