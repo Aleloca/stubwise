@@ -187,24 +187,19 @@ describe("review F2 (46), 1: i permessi d'ISTANZA contano come nella pubblicazio
         const row = rowOf(await list(p.headers, projectId), rowTypeOf(type));
         const shownOn = row.state === "on";
         expect(recipients.app.includes(p.id), `${type} app per ${p.id}`).toBe(shownOn);
-        // Il Telefono della riga è quello del tipo che le dà il valore; un partner
-        // con un `defaultPhone` diverso (i «rientrato») senza riga non suona: sotto.
-        // Nessuna riga scritta qui: suona chi vede la riga accesa col Telefono, se il tipo suona di partenza.
-        expect(recipients.phone.has(p.id), `${type} telefono per ${p.id}`).toBe(shownOn && row.phone && alertTypeOf(type)!.defaultPhone);
+        // Ogni tipo di una riga parte col Telefono della riga (maintainer, 14 nov 2026).
+        expect(recipients.phone.has(p.id), `${type} telefono per ${p.id}`).toBe(shownOn && row.phone);
       }
     }
   });
 
-  it("un «rientrato» (defaultPhone spento) nella riga dei server: senza riga non suona anche se la riga dice Telefono acceso; scritta la riga, segue la riga", async () => {
+  it("un «rientrato» nella riga dei server segue il Telefono della riga anche senza una scelta salvata (maintainer, 14 nov 2026)", async () => {
     const { projectId } = await seedRepository(t.db);
     const monitor = await monitorManager(projectId);
-    expect(rowOf(await list(monitor.headers, projectId), "server.trouble")).toMatchObject({ app: true, phone: true });
-    const before = await resolveCatalogRecipients(t.db, alertTypeOf("monitor.recovered")!, projectId, {});
-    expect(before.app).toContain(monitor.id);
-    expect(before.phone.has(monitor.id)).toBe(false);
-    await put(monitor.headers, projectId, "server.trouble", { phone: true });
-    const after = await resolveCatalogRecipients(t.db, alertTypeOf("monitor.recovered")!, projectId, {});
-    expect(after.phone.has(monitor.id)).toBe(true);
+    expect(rowOf(await list(monitor.headers, projectId), "server.trouble")).toMatchObject({ app: true, phone: true, saved: false });
+    const recovered = await resolveCatalogRecipients(t.db, alertTypeOf("monitor.recovered")!, projectId, {});
+    expect(recovered.app).toContain(monitor.id);
+    expect(recovered.phone.has(monitor.id)).toBe(true);
   });
 });
 
