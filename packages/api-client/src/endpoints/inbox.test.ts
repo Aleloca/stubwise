@@ -131,4 +131,11 @@ describe("area 8, F2, S6: `inbox.muteType`", () => {
     expect(out.before).toMatchObject({ app: true, state: "on", mandatory: [] });
     expect(out.row).toMatchObject({ app: false, state: "off", suspendedReason: null });
   });
+
+  it("il progetto della card per l'«Annulla»; un server che non lo manda si legge senza", async () => {
+    const row = { type: "release.merged", group: "releases", labelKey: "k", app: false, phone: false, state: "off" };
+    const P = "22222222-2222-4222-8222-222222222222";
+    expect((await clientReturning({ before: row, row, projectId: P }).client.inbox.muteType(ID)).projectId).toBe(P);
+    expect((await clientReturning({ before: row, row }).client.inbox.muteType(ID)).projectId).toBeUndefined();
+  });
 });
