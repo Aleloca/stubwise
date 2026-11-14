@@ -796,6 +796,20 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     - un'anteprima del widget da un'app impacchettata (`file://`,
       `app://`) è rifiutata con un elenco di siti pieno: l'anteprima
       dell'app web (`PUBLIC_URL`) è ammessa.
+- F4a (Servers, monitor e ambienti) *(O, 72, 14 nov 2026)*, limiti e rimandi:
+  - **`inArchivedOnly`** resta `false`: i progetti non hanno ancora un
+    archivio sul server (il prototipo sì, area 9c).
+  - **Il progetto principale** di un server (`primaryProjectId`, dove
+    l'analisi apre la task), `work`, `access` (l'SSH), il controllo «busy»
+    dell'eliminazione: con la F4b.
+  - **`server_projects`** resta come tabella inerte per il rollback (il web
+    nuovo non la scrive, il server ignora `projectIds`): si toglie in un
+    rilascio dopo, col ritiro del web.
+  - **Il link delle card `monitor.*`** nell'evento resta quello del web
+    (`/monitor/servers/<id>`): l'app usa `serverCode`, derivato a lettura.
+  - **Le letture dei server** fanno qualche query per server (ambienti,
+    episodi, CPU recente): va bene per decine di server; da raccogliere se
+    pesa.
 - **L'API per i siti** *(M, 14 nov 2026; fetta a sé DOPO la F3)*: il cliente
   segue sul sito che ospita il widget le sue richieste e i suoi ticket.
   Note di 72 per il design:

@@ -4642,3 +4642,65 @@ deploy o di un rollback che la tocca.
      prima della F3). Le successive già create restano conversazioni normali.
   3. Un worker vecchio non fa più il giudizio: le conversazioni restano «in
      triage» nell'app nuova, nessun danno.
+
+- **«Integrazione area 8, fetta 4a: Servers, monitor e ambienti»** *(14 nov
+  2026)*: branch `feat/area8-f4a` (da `feat/area8-f3`: si deploya DOPO la
+  F3), piano `docs/plans/2026-11-14-integrazione-area8-fetta4a-plan.md`. Il
+  monitor nell'app, gli ambienti nell'app, e la visibilità dei server dagli
+  AMBIENTI. **Decisioni del maintainer**: `monitor.view` esce dal preset
+  `User` (F4a-1 = a); i server si vedono SOLO dagli ambienti dei progetti
+  visibili, `server_projects` non conta più (F4a-4 = b); codici `SRV-<n>`;
+  gli episodi.
+
+  **PRIMA del deploy, sola lettura** — i server collegati SOLO dal web
+  (`server_projects`, nessun ambiente), coi loro progetti: dopo il deploy li
+  vede solo chi ha `monitor.view`/`monitor.manage`, e i loro avvisi perdono
+  l'ancora di progetto. Vanno messi in un ambiente del progetto (o lasciati
+  al monitor):
+
+  ```sql
+  select s.name as server, p.name as progetto
+  from servers s
+  join server_projects sp on sp.server_id = s.id
+  join projects p on p.id = sp.project_id
+  where not exists (select 1 from environment_servers es where es.server_id = s.id)
+  order by s.name, p.name;
+  ```
+
+  Migrazione **0180** (`servers.number` da una sequenza d'istanza, i server
+  di prima numerati per data di creazione; `server_episodes`, un episodio
+  aperto per server; `monitor.view` tolto dal SOLO preset `User`).
+  **ORDINE**: **server** (healthy, 0180 applicata), poi **worker** (gli
+  avvisi prendono l'ancora dagli ambienti e scrivono gli episodi), poi
+  **caddy** (il web: le spunte dei progetti di un server spariscono, al loro
+  posto «i progetti sono quelli dei suoi ambienti»). Nessuna env nuova.
+
+  **DOPO il deploy, passo da fare** — i ruoli personalizzati d'istanza con
+  `monitor.view` ma senza `monitor.manage` vedono ancora OGNI server: la
+  migrazione non li tocca (toglierlo da un ruolo fatto a mano è una scelta
+  dell'admin). Controlla questi ruoli:
+
+  ```sql
+  select name, permissions from roles
+  where scope = 'instance' and preset_key is null
+    and 'monitor.view' = any(permissions) and not ('monitor.manage' = any(permissions));
+  ```
+
+  **Da sapere subito**:
+  - Un utente (preset `User`) che prima vedeva tutti i server ora vede quelli
+    dei SUOI progetti, dagli ambienti, anche sul web (pagina del monitor e
+    dettaglio di progetto).
+  - Collegare un server a un ambiente chiede di vederlo già (o
+    `monitor.manage`): 422 `server_not_visible` altrimenti.
+  - Il `PATCH /api/servers/:id` accetta ancora `projectIds` (un web in cache)
+    ma li IGNORA; la tabella `server_projects` resta inerte per il rollback.
+  - Le metriche oltre 7 giorni arrivano aggregate a 1 h (fino a 30) e 4 h.
+  Controllo, sola lettura: `select count(*) from server_episodes where
+  recovered_at is null;` e `select max(number) from servers;`.
+
+  **Rollback** (il server scende **insieme** al caddy; la 0180 non si
+  annulla): un server vecchio legge di nuovo `server_projects` (quello di
+  prima del deploy, il web nuovo non lo scrive più) e ignora numeri ed
+  episodi. Il preset `User` resta SENZA `monitor.view`: per tornare a prima,
+  `update roles set permissions = array_append(permissions, 'monitor.view')
+  where preset_key = 'user' and not ('monitor.view' = any(permissions));`.
