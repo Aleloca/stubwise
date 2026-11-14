@@ -1,9 +1,9 @@
 import type { InboxItem, SnoozeUntil } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import { featureIntegrated, isIntegrated } from "../../integration";
-import type { AppNotification } from "../../types";
+import type { AppNotification, MandatoryReason } from "../../types";
 import { daysFromToday } from "./clock";
-import { appClient } from "./client";
+import { appClient, session } from "./client";
 import { listPeople } from "./people";
 
 // Le notifiche della build app (integrazione area 2, fetta 1): la stessa
@@ -34,6 +34,8 @@ export interface PresentContext {
   taskCodes: ReadonlyMap<string, string>;
   /** `projectId` → codice del progetto. */
   projectCodes: ReadonlyMap<string, string>;
+  /** Chi legge: il destinatario di un obbligo (`alertMandatory`). */
+  viewerId?: string;
   /** Il nome di una persona per chi guarda (`null` se non la vede), per «Claude on behalf of …». */
   personName?: (personId: string) => string | null;
 }
@@ -76,6 +78,26 @@ export function webHrefFor(
   }
   if (item.ticketId) return `/tickets/${item.ticketId}`;
   return "/inbox";
+}
+
+const MANDATORY_REASONS: ReadonlySet<string> = new Set([
+  "merged",
+  "pr_author",
+  "follows_conversation",
+  "task_author",
+  "assignee",
+] satisfies MandatoryReason[]);
+
+/**
+ * Area 8, F2: una card arrivata a chi legge da OBBLIGATORIO porta il motivo
+ * (`alertMandatory`, scritto alla pubblicazione per ogni destinatario): il
+ * pannello lo dice («You get this because…») e non offre «Don't alert me».
+ * Un motivo che l'app non conosce (server più nuovo) non si mostra.
+ */
+function mandatoryOf(item: InboxItem, ctx: PresentContext): Pick<AppNotification, "mandatory"> {
+  const reason = (item as Partial<InboxItem>).alertMandatory;
+  if (!reason || !MANDATORY_REASONS.has(reason)) return {};
+  return { mandatory: [{ personId: ctx.viewerId ?? "", reason: reason as MandatoryReason }] };
 }
 
 /**
@@ -200,6 +222,7 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
       archived: item.status === "handled",
       snoozedUntil: item.status === "snoozed" ? item.snoozedUntil : null,
       link: appLink,
+      ...mandatoryOf(item, ctx),
       ...viaClaudeOf(item, ctx),
     };
   }
@@ -220,6 +243,7 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
     snoozedUntil: item.status === "snoozed" ? item.snoozedUntil : null,
     link: integrated ? `#/p/${projectCode}/tasks?task=${taskCode}` : "",
     ...(integrated ? {} : { webHref: webHrefFor(item, ctx.instanceOrigin) }),
+    ...mandatoryOf(item, ctx),
     ...viaClaudeOf(item, ctx),
   };
 }
@@ -279,7 +303,13 @@ export const listNotifications: typeof Fake.listNotifications = async () => {
     : [];
   const personName = (personId: string) => people.find((p) => p.id === personId)?.name ?? null;
   return items
-    .map((item) => presentInboxItem(item, { taskCodes, projectCodes, instanceOrigin, personName }))
+    .map((item) => presentInboxItem(item, {
+        taskCodes,
+        projectCodes,
+        instanceOrigin,
+        personName,
+        ...(session.personId ? { viewerId: session.personId } : {}),
+      }))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 };
 

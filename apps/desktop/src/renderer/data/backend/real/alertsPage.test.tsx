@@ -109,6 +109,11 @@ function install(routes: Record<string, unknown> = {}) {
   } as Parameters<typeof installFakeServer>[0]).seen;
 }
 
+/** L'inbox con la card solo fra le aperte (il client legge aperte, posticipate e gestite). */
+const inboxWith = (card: object) => (r: SeenRequest) => ({
+  body: { items: r.path.includes("status=open") ? [card] : [], nextCursor: null },
+});
+
 const sw = (name: string) => screen.getByRole("switch", { name });
 const ready = () =>
   screen.findByRole("switch", { name: "Release failed in AUD, App" }, { timeout: 3000 });
@@ -221,7 +226,7 @@ describe("Preferenze → Notifiche nella build app (area 8, F2, R3)", () => {
       handledAt: null,
       handledBy: null,
     };
-    install({ "GET /api/inbox": { body: { items: [card], nextCursor: null } } });
+    install({ "GET /api/inbox": inboxWith(card) });
     renderRoute("/preferences/notifications");
     await ready();
     const user = userEvent.setup();
@@ -235,5 +240,32 @@ describe("Preferenze → Notifiche nella build app (area 8, F2, R3)", () => {
     await user.click(within(item).getByRole("button", { name: "More actions" }));
     expect(await screen.findByRole("menuitem", { name: "Alert settings for AUD" })).toBeTruthy();
     expect(screen.queryByRole("menuitem", { name: "Don't alert me about this in AUD" })).toBeNull();
+  });
+
+  it("una card arrivata da obbligatorio dice perché (alertMandatory)", async () => {
+    const card = {
+      id: "66666666-6666-4666-8666-666666666666",
+      kind: "release.failed",
+      status: "open",
+      text: "AUD-V3 failed in production",
+      actions: ["open"],
+      projectId: PROJECT_ID,
+      ticketId: null,
+      jobId: null,
+      url: "/app/#/p/AUD/releases/AUD-V3",
+      alertMandatory: "merged",
+      createdAt: "2026-11-14T10:00:00.000Z",
+      readAt: null,
+      snoozedUntil: null,
+      handledAt: null,
+      handledBy: null,
+    };
+    install({ "GET /api/inbox": inboxWith(card) });
+    renderRoute("/preferences/notifications");
+    await ready();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /^Notifications/ }));
+    const panel = await screen.findByRole("dialog", { name: "Notifications" });
+    expect(await within(panel).findByText("You get this because you did the merge")).toBeTruthy();
   });
 });

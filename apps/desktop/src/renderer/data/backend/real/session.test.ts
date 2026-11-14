@@ -203,6 +203,30 @@ describe("le card dell'inbox", () => {
       expect(n.webHref).toBe("https://evil.example.com/app/#/p/AUD/docs");
     });
 
+    it("una card arrivata da obbligatorio porta il suo motivo (alertMandatory), per chi legge", () => {
+      const item = inboxItemSchema.parse({
+        ...base,
+        kind: "release.failed",
+        ticketId: null,
+        url: "/app/#/p/AUD/releases/AUD-V3",
+        alertMandatory: "merged",
+      });
+      const n = presentInboxItem(item, { ...origin, viewerId: ME_ID });
+      expect(n.mandatory).toEqual([{ personId: ME_ID, reason: "merged" }]);
+    });
+
+    it("senza alertMandatory (o con un motivo che l'app non conosce) nessun obbligo", () => {
+      const plain = catalogCard("release.failed", "/app/#/p/AUD/releases/AUD-V3");
+      expect(presentInboxItem(plain, { ...origin, viewerId: ME_ID }).mandatory).toBeUndefined();
+      const future = inboxItemSchema.parse({
+        ...base,
+        kind: "release.failed",
+        ticketId: null,
+        alertMandatory: "something_new",
+      });
+      expect(presentInboxItem(future, { ...origin, viewerId: ME_ID }).mandatory).toBeUndefined();
+    });
+
     it("una card del catalogo senza url (server più vecchio) non rompe", () => {
       const n = presentInboxItem(catalogCard("release.succeeded"), origin);
       expect(n.link).toBe("");
