@@ -110,7 +110,7 @@ async function seedOpenPr(overrides: { testStatus?: "passed" | "failed" | "skipp
  * riassunto dalla PR review automatica ma nessun test interno né rischio.
  */
 async function seedExternalPr(
-  overrides: { prUrl?: string; prNumber?: number; verdict?: "approve" | "request_changes" | null } = {},
+  overrides: { prUrl?: string; prNumber?: number; verdict?: "approve" | "request_changes" | null; targetBranch?: string | null } = {},
 ) {
   const [account] = await testDb.db
     .insert(gitAccounts)
@@ -142,6 +142,9 @@ async function seedExternalPr(
     startedAt: new Date(),
     verdict: overrides.verdict === undefined ? "approve" : overrides.verdict,
     prSummary: "Cambia solo un typo.",
+    // Il ramo su cui la PR andrà (review della F1: senza, il merge non registra
+    // il rilascio). `main` è il ramo di default, quindi di rilascio.
+    targetBranch: overrides.targetBranch === undefined ? "main" : overrides.targetBranch,
   });
 
   return { ticketId, repositoryId, prNumber, prUrl };
@@ -523,6 +526,41 @@ describe("POST /api/tickets/:id/repositories/:repositoryId/release", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ merged: true, sha: "extdeadbeef", releaseCode: expect.stringMatching(/-V\d+$/) });
+  });
+
+  it("review F1: PR esterna col target IGNOTO (la review non lo sa): il merge c'è, ma nessun rilascio qui (lo registra il webhook)", async () => {
+    const { ticketId, repositoryId, prNumber } = await seedExternalPr({ targetBranch: null });
+    const detailUrl = `https://api.github.com/repos/acme/demo-shop/pulls/${prNumber}`;
+    const checksUrl = `https://api.github.com/repos/acme/demo-shop/commits/extheadsha/check-runs?per_page=100`;
+    const mergeUrl = `https://api.github.com/repos/acme/demo-shop/pulls/${prNumber}/merge`;
+    const fetchMock = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url === detailUrl && method === "GET") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ state: "open", head: { sha: "extheadsha" } }), { status: 200 }),
+        );
+      }
+      if (url === checksUrl && method === "GET") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ check_runs: [{ name: "ci", status: "completed", conclusion: "success" }] }),
+            { status: 200 },
+          ),
+        );
+      }
+      if (url === mergeUrl && method === "PUT") {
+        return Promise.resolve(new Response(JSON.stringify({ merged: true, sha: "extdeadbeef" }), { status: 200 }));
+      }
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await release(ticketId, repositoryId, adminCookie);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ merged: true, sha: "extdeadbeef", releaseCode: null });
+    expect(await testDb.db.select().from(releases).where(eq(releases.repositoryId, repositoryId))).toEqual([]);
   });
 
   it("PR esterna già chiusa sul provider: 409 already_closed, nessuna chiamata di merge", async () => {
