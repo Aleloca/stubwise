@@ -103,6 +103,8 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // l'analisi (`servers-analysis`, F4b), la ricerca ⌘K (`servers-search`).
     "servers-monitor",
     "servers-write",
+    // Gli ambienti col form (spenti dalla F1): i server si scelgono fra quelli visibili.
+    "environments",
     // «Don't alert me about this» dalla card (S6, `POST /api/inbox/:id/mute-type`),
     // con l'«Annulla» nel progetto della card; non su una card arrivata da obbligatorio.
     "alerts-mute",

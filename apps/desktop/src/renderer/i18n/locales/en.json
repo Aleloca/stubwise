@@ -9046,7 +9046,8 @@
         "generic": "Couldn't save the environment."
       },
       "orphanWarning_one": "{{codes}} won't be in any environment anymore. Only someone who manages monitoring can link it again.",
-      "orphanWarning_other": "{{codes}} won't be in any environment anymore. Only someone who manages monitoring can link them again."
+      "orphanWarning_other": "{{codes}} won't be in any environment anymore. Only someone who manages monitoring can link them again.",
+      "kindLocked": "The type can't change: for another type, add a new environment."
     },
     "panel": {
       "label": "Pull request {{pr}}",

@@ -292,6 +292,13 @@ export function createRealServers(
       return rows.sort(byNumber);
     },
 
+    /** I server che chi guarda può collegare a un ambiente: quelli che vede (S3). */
+    async listLinkableServers(): Promise<{ code: string; name: string }[]> {
+      return (await api.list())
+        .flatMap((v) => (v.code ? [{ code: v.code, name: v.name }] : []))
+        .sort(byNumber);
+    },
+
     /** Tutti i server dell'istanza (Amministrazione, `monitor.manage`), in ordine di numero. */
     async listAllServers(): Promise<InstanceServerRow[]> {
       const rows = (await api.list()).flatMap((v) => instanceRowOf(v, now()) ?? []);

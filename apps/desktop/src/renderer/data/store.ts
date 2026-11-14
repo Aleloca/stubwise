@@ -661,6 +661,7 @@ export type ApiFnName =
   // Server (area 8b)
   | "servers.listProjectServers"
   | "servers.listAllServers"
+  | "servers.listLinkableServers"
   | "servers.getServer"
   | "servers.getServerMetrics"
   | "servers.searchServers"

@@ -893,6 +893,18 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
       test parte vuoto);
     - `syncEpisode` legge e riscrive i motivi senza lock: sicuro perché il
       poller degli avvisi è single-flight in un processo worker solo.
+- F4a, lato renderer (94, 14 nov 2026), ciò che resta fuori o diverge:
+  - **creare un server dalla sezione di un progetto** (`servers-create-in-env`):
+    spento finché 46 non sceglie come collegare le repository (il server ora
+    accetta l'ambiente senza `repositoryIds` = tutto il progetto);
+  - **il tipo di un ambiente non cambia** nella build app (il PATCH del
+    server non lo accetta): il dialogo lo blocca in modifica e lo dice; nel
+    prototipo si cambia;
+  - **il server di un ambiente si sceglie fra i suggerimenti** (i server che
+    chi scrive vede), ma il campo resta testo: un codice che non vede è
+    `invalid: serverCode` (lo stesso 422 `server_not_visible` del server);
+  - **SSH, analisi, progetto principale, ricerca ⌘K dei server**: spenti
+    (F4b, o fuori); le simulazioni restano solo del prototipo.
 - **L'API per i siti** *(M, 14 nov 2026; fetta a sé DOPO la F3)*: il cliente
   segue sul sito che ospita il widget le sue richieste e i suoi ticket.
   Note di 72 per il design:

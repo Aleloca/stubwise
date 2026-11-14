@@ -21,7 +21,8 @@ vi.mock("../../integration", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../integration")>();
   const on = (name: string) => name === "releases-prs";
   // Lo stato «solo PR»: i rilasci spenti anche se la build li accende (i cancelli per parte).
-  const off = (name: string) => name === "releases";
+  // Gli ambienti (accesi dalla F4a) qui restano spenti: si provano le PR da sole.
+  const off = (name: string) => name === "releases" || name === "environments";
   return {
     ...actual,
     isIntegrated: (t: Parameters<typeof actual.isIntegrated>[0]) =>

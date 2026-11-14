@@ -42,6 +42,16 @@ export function useAllServers() {
   });
 }
 
+/** I server che chi guarda può collegare a un ambiente (quelli che vede), per il form. */
+export function useLinkableServers(enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.linkableServers(me),
+    queryFn: () => api.servers.listLinkableServers(),
+    enabled: enabled && featureIntegrated("environments"),
+  });
+}
+
 /** Il dettaglio di un server (errore `not_found`: nascosto o inesistente, R-G5). */
 export function useServer(code: string | undefined) {
   const me = useSessionPersonId();

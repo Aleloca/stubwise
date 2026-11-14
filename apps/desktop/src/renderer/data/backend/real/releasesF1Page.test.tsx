@@ -33,8 +33,10 @@ vi.mock("../../integration", async (importOriginal) => {
       (t.kind === "projectSection" && t.name === "releases") ||
       (t.kind === "projectSettings" && t.name === "repositories") ||
       (t.kind === "feature" && on(t.name)) ||
-      actual.isIntegrated(t),
-    featureIntegrated: (name: string) => on(name) || actual.featureIntegrated(name),
+      // Gli ambienti (accesi dalla F4a) qui restano spenti: si prova la F1 da sola.
+      (!(t.kind === "feature" && t.name === "environments") && actual.isIntegrated(t)),
+    featureIntegrated: (name: string) =>
+      on(name) || (name !== "environments" && actual.featureIntegrated(name)),
   };
 });
 

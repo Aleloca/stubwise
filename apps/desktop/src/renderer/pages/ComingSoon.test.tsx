@@ -447,6 +447,12 @@ const INTEGRATED_CALLS = new Set([
   "servers.createCheck",
   "servers.updateCheck",
   "servers.deleteCheck",
+  // Gli ambienti (`environments`) e i server che si possono collegare.
+  "releases.listEnvironments",
+  "releases.createEnvironment",
+  "releases.updateEnvironment",
+  "releases.deleteEnvironment",
+  "servers.listLinkableServers",
   // Area 8, F2 (R6): le iscrizioni agli avvisi.
   "alerts.subscriptionRows",
   "alerts.setSubscription",
@@ -776,6 +782,33 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
+  it("gli ambienti (area 8, F4a): il server fra quelli visibili, il tipo fermo in modifica, solo chiamate integrate", async () => {
+    const user = userEvent.setup();
+    signedInAs("p-laura");
+    renderRoute("/p/AUD/releases");
+    const part = await screen.findByRole("region", { name: /^Environments/ }, { timeout: 3000 });
+    await user.click(await within(part).findByRole("button", { name: "Add environment" }));
+    const add = await screen.findByRole("dialog", { name: "Add environment" });
+    await waitFor(() => expect(calls).toContain("servers.listLinkableServers"));
+    const list = document.getElementById(
+      within(add).getByRole("combobox", { name: "Server" }).getAttribute("list")!,
+    )!;
+    await waitFor(() => expect(list.querySelectorAll("option").length).toBeGreaterThan(0));
+    // Nell'aggiungere il tipo si sceglie.
+    expect(within(add).getByRole("radio", { name: "Test" })).toBeEnabled();
+    await user.click(within(add).getByRole("button", { name: "Cancel" }));
+    await user.click(within(part).getByRole("button", { name: "More for Production" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Edit" }));
+    const edit = await screen.findByRole("dialog", { name: "Edit environment" });
+    expect(within(edit).getByRole("radio", { name: "Test" })).toBeDisabled();
+    expect(within(edit).getByRole("radio", { name: "Production" })).toBeChecked();
+    expect(
+      within(edit).getByText("The type can't change: for another type, add a new environment."),
+    ).toBeInTheDocument();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
   it("aprire Releases legge solo chiamate integrate", async () => {
     renderRoute("/p/AUD/releases");
     expect(await screen.findByRole("region", { name: "Pull requests" })).toBeInTheDocument();
@@ -783,9 +816,11 @@ describe("aree non integrate nella build app", () => {
     await waitFor(() => expect(calls).toContain("releases.listReleaseQueue"));
     await settle();
     await waitFor(() => expect(calls).toContain("releases.listReleases"));
+    // Area 8, F4a: gli ambienti accesi, coi server che chi scrive vede.
+    await waitFor(() => expect(calls).toContain("releases.listEnvironments"));
     expect(
-      within(screen.getByRole("region", { name: "Environments" })).getByText("Coming soon"),
-    ).toBeInTheDocument();
+      within(screen.getByRole("region", { name: /^Environments/ })).queryByText("Coming soon"),
+    ).toBeNull();
     expect(outside()).toEqual([]);
   });
 

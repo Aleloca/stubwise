@@ -9046,7 +9046,8 @@
         "generic": "Non è stato possibile salvare l'ambiente."
       },
       "orphanWarning_one": "{{codes}} non sarà più in nessun ambiente. Solo chi gestisce il monitoraggio potrà ricollegarlo.",
-      "orphanWarning_other": "{{codes}} non saranno più in nessun ambiente. Solo chi gestisce il monitoraggio potrà ricollegarli."
+      "orphanWarning_other": "{{codes}} non saranno più in nessun ambiente. Solo chi gestisce il monitoraggio potrà ricollegarli.",
+      "kindLocked": "Il tipo non cambia: per un altro tipo, aggiungi un ambiente nuovo."
     },
     "panel": {
       "label": "Pull request {{pr}}",

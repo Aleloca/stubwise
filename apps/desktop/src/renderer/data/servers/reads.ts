@@ -90,6 +90,20 @@ export async function listAllServers(): Promise<InstanceServerRow[]> {
     });
 }
 
+/**
+ * I server che chi guarda può collegare a un ambiente (area 8, F4a, S3): quelli
+ * che vede, in ordine di numero. Un collegamento non allarga la visibilità
+ * oltre ciò che vede chi scrive; il form degli ambienti li suggerisce.
+ */
+export async function listLinkableServers(): Promise<{ code: string; name: string }[]> {
+  const me = await gate("servers.listLinkableServers");
+  const visible = serversVisibleTo(me);
+  return state.servers
+    .filter((s) => visible.has(s.code))
+    .sort((a, b) => codeNumber(a.code) - codeNumber(b.code))
+    .map((s) => ({ code: s.code, name: s.name }));
+}
+
 /** Il dettaglio di un server (`SRV-1`); `not_found` se invisibile o inesistente. */
 export async function getServer(code: string): Promise<ServerDetail> {
   const me = await gate("servers.getServer");

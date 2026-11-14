@@ -1,8 +1,10 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { isAppBuild } from "../../data/build";
 import {
   useCreateEnvironment,
   useDeleteEnvironment,
+  useLinkableServers,
   useUpdateEnvironment,
 } from "../../data/queries";
 import type { EnvironmentInput, EnvironmentView } from "../../data/releases";
@@ -121,7 +123,12 @@ function EnvironmentDialog({
   const { t } = useTranslation();
   const create = useCreateEnvironment();
   const update = useUpdateEnvironment();
-  const ids = { name: useId(), url: useId(), server: useId() };
+  const ids = { name: useId(), url: useId(), server: useId(), servers: useId() };
+  // I server si scelgono fra quelli che chi scrive vede (area 8, F4a, S3).
+  const linkable = useLinkableServers().data ?? [];
+  // Nella build app il tipo di un ambiente esistente non cambia (il server non
+  // lo permette: un altro tipo è un ambiente nuovo).
+  const kindLocked = environment !== null && isAppBuild();
   const [draft, setDraft] = useState<Draft>(() => draftOf(environment));
   // Server per repository: con più repository, o se l'ambiente ne ha già.
   const perRepo =
@@ -186,7 +193,8 @@ function EnvironmentDialog({
           {t("releases.environments.kind")}
         </legend>
         {KINDS.map((kind) => {
-          const blocked = kind === "production" && !!otherProduction;
+          const blocked =
+            (kind === "production" && !!otherProduction) || (kindLocked && kind !== draft.kind);
           return (
             <label
               key={kind}
@@ -209,6 +217,9 @@ function EnvironmentDialog({
             {t("releases.environments.productionExists", { name: otherProduction.name })}
           </p>
         )}
+        {kindLocked && (
+          <p className="text-xs text-ink-muted">{t("releases.environments.kindLocked")}</p>
+        )}
       </fieldset>
       <DialogField label={t("releases.environments.url")} htmlFor={ids.url}>
         <input
@@ -229,6 +240,7 @@ function EnvironmentDialog({
       >
         <input
           id={ids.server}
+          list={ids.servers}
           placeholder="SRV-3"
           value={draft.server}
           onChange={(e) => setDraft((d) => ({ ...d, server: e.target.value }))}
@@ -246,6 +258,7 @@ function EnvironmentDialog({
                 {r.name}
               </span>
               <input
+                list={ids.servers}
                 placeholder={draft.server.trim() || t("releases.environments.sameAsProject")}
                 value={draft.byRepo[r.id] ?? ""}
                 onChange={(e) =>
@@ -257,6 +270,13 @@ function EnvironmentDialog({
           ))}
         </fieldset>
       )}
+      <datalist id={ids.servers}>
+        {linkable.map((s) => (
+          <option key={s.code} value={s.code}>
+            {s.name}
+          </option>
+        ))}
+      </datalist>
       <OrphanWarning
         codes={orphaned(
           environment,
