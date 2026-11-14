@@ -48,3 +48,7 @@ export type SetAlertSubscriptionInput = z.infer<typeof setAlertSubscriptionSchem
 
 /** Copia e «Mute» rispondono con le righe di PRIMA, per l'«Annulla» (il client le riscrive con `PUT`). */
 export const alertSubscriptionsBeforeSchema = z.object({ before: z.array(alertSubscriptionRowSchema) });
+
+/** «Non avvisarmi più di questo» (`POST /api/inbox/:id/mute-type`): la riga di prima (l'«Annulla») e quella nuova. */
+export const alertMuteResultSchema = z.object({ before: alertSubscriptionRowSchema, row: alertSubscriptionRowSchema });
+export type AlertMuteResult = z.infer<typeof alertMuteResultSchema>;
