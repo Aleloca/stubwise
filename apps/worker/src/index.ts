@@ -42,6 +42,7 @@ import { createHandler, createProjectSerializer } from "./handler.js";
 import { createCancelRegistry, startCancelWatch } from "./pipeline/cancel.js";
 import { startMonitorAlertPoller } from "./monitor/alerts.js";
 import { startReleasePoller } from "./releases/poller.js";
+import { startTriageCheckPoller } from "./support/triage-check.js";
 import { PUSH_RELAY_TIMEOUT_MS, startDeliveriesPoller } from "./notify/deliveries-poller.js";
 import { startPluginPoller } from "./plugins/poller.js";
 import { startMonitorRollupPoller } from "./monitor/rollup.js";
@@ -871,6 +872,19 @@ startReleasePoller({
   publicUrl: config.publicUrl,
   intervalSeconds: config.releasePollSeconds,
   signal: controller.signal,
+});
+
+// Area 8, F3 (S10, G-1 del maintainer): il giudizio sul triage di Support dopo
+// il silenzio. Una sessione breve del CLI dal runner del worker (Haiku di
+// default, `support_triage_check`, nessun tool), una volta per silenzio, nel
+// budget mensile. Fuori dal serializer di progetto (niente mirror). Best-effort.
+startTriageCheckPoller({
+  db,
+  runner,
+  select,
+  intervalSeconds: 60,
+  signal: controller.signal,
+  log: (message) => console.warn(message),
 });
 
 // Poller del PULSE PROATTIVO: task SEPARATO dal loop dei job, sul proprio
