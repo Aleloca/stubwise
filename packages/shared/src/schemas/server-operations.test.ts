@@ -30,3 +30,21 @@ describe("agentConfigSchema: serverId è additivo", () => {
     expect(cfg.serverId).toBeUndefined();
   });
 });
+
+describe("projectEnvironmentSchema: containers è additivo (S12)", () => {
+  it("una riga repository→server senza containers (server di prima) si legge", async () => {
+    const { projectEnvironmentSchema } = await import("./environment.js");
+    const env = projectEnvironmentSchema.parse({
+      id: "00000000-0000-4000-8000-000000000001",
+      projectId: "00000000-0000-4000-8000-000000000002",
+      name: "staging",
+      kind: "staging",
+      url: null,
+      serverId: null,
+      createdAt: "2026-11-14T10:00:00.000Z",
+      updatedAt: "2026-11-14T10:00:00.000Z",
+      servers: [{ repositoryId: "00000000-0000-4000-8000-000000000003", serverId: "00000000-0000-4000-8000-000000000004" }],
+    });
+    expect(env.servers[0]!.containers).toBeUndefined();
+  });
+});

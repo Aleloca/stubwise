@@ -150,3 +150,13 @@ describe("attributeServerCause: QUALE progetto causa il guasto (F4b-4), validato
     expect(attr({ projectCode: null, containers: ["fantasma"] }, one)).toMatchObject({ kind: "undetermined", reason: "unknown_container" });
   });
 });
+
+describe("readServerAnalysisLimits: i tetti salvati, o i default", () => {
+  it("null o corrotti → i default; parziali → completati", async () => {
+    const { readServerAnalysisLimits } = await import("./operations.js");
+    const D = { enabled: true, maxMinutes: 10, maxCostUsd: 1, maxAgentReads: 30, maxSshReads: 30 };
+    expect(readServerAnalysisLimits(null)).toEqual(D);
+    expect(readServerAnalysisLimits({ maxMinutes: "x" })).toEqual(D);
+    expect(readServerAnalysisLimits({ maxMinutes: 5 })).toEqual({ ...D, maxMinutes: 5 });
+  });
+});

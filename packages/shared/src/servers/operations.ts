@@ -151,6 +151,16 @@ export const serverAnalysisLimitsSchema = z.object({
 });
 export type ServerAnalysisLimits = z.infer<typeof serverAnalysisLimitsSchema>;
 
+/**
+ * I tetti salvati (`instance_settings.server_analysis_limits`), o i default:
+ * una riga assente o corrotta non toglie i tetti, li riporta ai default.
+ * Server e worker leggono da qui.
+ */
+export function readServerAnalysisLimits(raw: unknown): ServerAnalysisLimits {
+  const parsed = serverAnalysisLimitsSchema.safeParse(raw ?? {});
+  return parsed.success ? parsed.data : serverAnalysisLimitsSchema.parse({});
+}
+
 // --- L'attribuzione del guasto a un progetto (F4b-4) -------------------------
 
 export interface AttributionInput {
