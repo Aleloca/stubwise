@@ -745,6 +745,17 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     resta sul routing di oggi (`monitor.manage`): le iscrizioni sono per
     progetto. Test nella F2.
 
+- F2, lato renderer (94, 14 nov 2026), ciò che resta fuori dalla build app:
+  - **le card degli avvisi dei server** (`monitor.*`, poi `server.*`) restano
+    «Open in web» finché la sezione Servers non è integrata (fetta Servers):
+    `appLinkFor` (`apps/desktop/src/renderer/data/backend/real/notifications.ts`)
+    apre nell'app solo rilasci, pannello della PR e Docs;
+  - **i permessi del catalogo condiviso** sono stringhe perché
+    `support.reply` e `servers.operate` vivono ancora solo nel prototipo:
+    quando entrano nel registro di `@stubwise/shared`, il catalogo si può
+    tipare sui permessi veri e il restringimento del prototipo
+    (`domain/alerts/catalog.ts`) sparisce.
+
 - Blocchi della Home «Rilasci» (anche l'extra di `resolveHome` per
   `release.merge`) e «Clienti in attesa».
 - Origine di una richiesta da Support; «View conversation» delle task del widget.
