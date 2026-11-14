@@ -11,7 +11,7 @@ import {
 } from "../api";
 import { PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
-import { state, visibleProjectIds } from "../store";
+import { advanceNow, state, visibleProjectIds } from "../store";
 import type { SupportConversation } from "../types";
 
 const ACQ = "prj-acq";
@@ -48,6 +48,7 @@ describe("l'insieme esportato: nessuna richiesta da un'email", () => {
         "replyToCustomer",
         "draftReply",
         "openRequestFrom",
+        "markNotConcluded",
         "followConversation",
         "emailDraftFor",
         "createWidget",
@@ -570,5 +571,49 @@ describe("failNext e resetApi", () => {
     resetApi();
     expect(conv("ACQ-S2").messages.at(-1)!.from).toBe("customer");
     expect(state.supportWidgets).toHaveLength(1);
+  });
+});
+
+describe("«Not concluded» su una conversazione answered (area 8, F3)", () => {
+  it("con support.reply: torna fra quelle che aspettano il team, col nome di chi l'ha deciso", async () => {
+    as("p-matteo");
+    const before = (await support.getSupportConversation("ACQ-S8"))!;
+    expect(before.state).toBe("answered");
+    expect(before.canMarkNotConcluded).toBe(true);
+    const after = await support.markNotConcluded("ACQ-S8");
+    expect(after.state).toBe("not_concluded");
+    expect(after.canMarkNotConcluded).toBe(false);
+    expect(after.canOpenRequest).toBe(true);
+    expect(after.triage).toMatchObject({ outcome: "not_concluded", byUserId: "p-matteo" });
+  });
+
+  it("senza support.reply: niente bottone e forbidden; la conversazione resta answered", async () => {
+    as("p-sara");
+    expect((await support.getSupportConversation("ACQ-S8"))!.canMarkNotConcluded).toBe(false);
+    await expect(support.markNotConcluded("ACQ-S8")).rejects.toThrow("forbidden");
+    expect((await support.getSupportConversation("ACQ-S8"))!.state).toBe("answered");
+  });
+
+  it("solo su una answered (invalid: state); su una già non conclusa la stessa vista", async () => {
+    as("p-matteo");
+    await expect(support.markNotConcluded("ACQ-S1")).rejects.toThrow("invalid: state");
+    await expect(support.markNotConcluded("ACQ-S2")).rejects.toThrow("invalid: state");
+    const s3 = conv("ACQ-S3").triage;
+    expect((await support.markNotConcluded("ACQ-S3")).state).toBe("not_concluded");
+    expect(conv("ACQ-S3").triage).toEqual(s3);
+    expect((await support.getSupportConversation("ACQ-S1"))!.canMarkNotConcluded).toBe(false);
+  });
+
+  it("un progetto che non vede: not_found", async () => {
+    as(outsider());
+    await expect(support.markNotConcluded("ACQ-S8")).rejects.toThrow("not_found");
+  });
+
+  it("un messaggio nuovo del cliente rende vecchio il giudizio della persona: di nuovo in triage", async () => {
+    as("p-matteo");
+    await support.markNotConcluded("ACQ-S8");
+    // Il cliente riscrive un minuto dopo (l'orologio del prototipo è fermo).
+    advanceNow(60_000);
+    expect((await support.simulateCustomerMessage("ACQ-S8", "Actually, one more thing")).state).toBe("triage");
   });
 });

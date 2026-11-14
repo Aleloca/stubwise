@@ -9232,7 +9232,11 @@
       "showAll": "Mostra tutto",
       "showLess": "Mostra meno",
       "triage": "Ancora nessuna richiesta · l'assistente sta facendo domande",
-      "left": "Nessuna richiesta · il cliente se n'è andato prima di confermare",
+      "left": "Nessuna richiesta · al cliente serve ancora qualcosa",
+      "answered": "Nessuna richiesta · la risposta del widget è bastata",
+      "answeredWhy": "Il cliente non scrive da {{minutes}} minuti. Se non è risolta, segnala che non è conclusa: torna al team.",
+      "notConcluded": "Non conclusa",
+      "notConcludedError": "Non è stato possibile segnare la conversazione come non conclusa.",
       "open": "Apri la richiesta",
       "cannotOpen": "Può aprirla chi ha il permesso di creare richieste."
     },

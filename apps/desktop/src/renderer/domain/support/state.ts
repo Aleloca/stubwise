@@ -11,6 +11,13 @@ import type { SupportConversation } from "../../data/model";
 // `deriveSupportState` ha l'ingresso neutro del server (passerà in
 // `@stubwise/shared`); `supportState` lo legge da una conversazione del prototipo.
 
+/**
+ * Dopo quanti minuti di silenzio del cliente il controllo giudica una
+ * conversazione senza esito (area 8, F3). Arriverà da `@stubwise/shared`
+ * (`SUPPORT_TRIAGE_IDLE_MINUTES`, del server): allora questo la ri-esporta.
+ */
+export const SUPPORT_TRIAGE_IDLE_MINUTES = 15;
+
 export type SupportState =
   | "triage"
   | "request_open"

@@ -525,8 +525,9 @@ describe("Support — «Apri la richiesta» su una non conclusa", () => {
     const requests = state.requests.length;
     await open("/p/ACQ/support/ACQ-S3");
     const d = await detail("ACQ-S3");
+    // Area 8, F3: la non conclusa la decide il controllo dopo il silenzio, non «se n'è andato».
     expect(
-      within(d).getByText("No request · the customer left before confirming"),
+      within(d).getByText("No request · the customer still needs something"),
     ).toBeInTheDocument();
     await user.click(within(d).getByRole("button", { name: "Open the request" }));
     const dialog = await screen.findByRole("dialog", { name: "Open the request" });
@@ -591,5 +592,29 @@ describe("Support — cambio di persona con un dettaglio aperto", () => {
         name: "This conversation doesn't exist or you can't see it.",
       }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("Support — «Not concluded» su una answered (area 8, F3)", () => {
+  it("dice che la risposta del widget è bastata, e dopo quanto silenzio; con support.reply la rimette fra quelle da fare", async () => {
+    const user = userEvent.setup();
+    await open("/p/ACQ/support/ACQ-S8");
+    const d = await detail("ACQ-S8");
+    const block = within(d).getByRole("region", { name: "Request" });
+    expect(block).toHaveTextContent("No request · the widget's answer was enough");
+    expect(block).toHaveTextContent("No reply from the customer for 15 minutes");
+    expect(within(block).queryByRole("button", { name: "Open the request" })).toBeNull();
+    await user.click(within(block).getByRole("button", { name: "Not concluded" }));
+    expect(await within(d).findByRole("button", { name: "Open the request" })).toBeInTheDocument();
+    expect(conv("ACQ-S8").triage).toMatchObject({ outcome: "not_concluded", byUserId: "p-matteo" });
+  });
+
+  it("senza support.reply nessun bottone", async () => {
+    await open("/p/ACQ/support/ACQ-S8", "p-sara");
+    const d = await detail("ACQ-S8");
+    expect(within(d).getByRole("region", { name: "Request" })).toHaveTextContent(
+      "No request · the widget's answer was enough",
+    );
+    expect(within(d).queryByRole("button", { name: "Not concluded" })).toBeNull();
   });
 });

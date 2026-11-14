@@ -25,6 +25,7 @@ export {
   emailDraftFor,
   followConversation,
   openRequestFrom,
+  markNotConcluded,
   replyToCustomer,
   updateWidget,
   type WidgetInput,

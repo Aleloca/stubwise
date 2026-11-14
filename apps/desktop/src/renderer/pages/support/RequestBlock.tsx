@@ -1,9 +1,13 @@
 import { Link } from "@tanstack/react-router";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useOpenRequestFrom, type SupportConversationView } from "../../data/queries";
+import {
+  useMarkNotConcluded,
+  useOpenRequestFrom,
+  type SupportConversationView,
+} from "../../data/queries";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
-import { wishTitle } from "../../domain/support/state";
+import { SUPPORT_TRIAGE_IDLE_MINUTES, wishTitle } from "../../domain/support/state";
 import { formatDateTime } from "../../notifications/time";
 import { useToast } from "../../tasks-ui/Toast";
 import { primaryButton, secondaryButton, WorkingRing } from "../claude/conversation/parts";
@@ -14,6 +18,31 @@ import { RequestStatusLabel } from "../requests/marks";
 // riscritto con il codice della richiesta e cosa vede il cliente. In triage
 // lo dice l'anello di Claude; su una «non conclusa» chi ha `backlog.create`
 // apre la richiesta a mano (mai da sola, mai da un'email) [A 5].
+
+/**
+ * «Not concluded» (area 8, F3, decisione del maintainer): chi ha
+ * `support.reply` non è d'accordo che la risposta del widget sia bastata, e
+ * la rimette fra quelle che aspettano il team.
+ */
+function NotConcludedButton({ code }: { code: string }) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const mark = useMarkNotConcluded();
+  return (
+    <div>
+      <button
+        type="button"
+        className={secondaryButton}
+        disabled={mark.isPending}
+        onClick={() =>
+          mark.mutate(code, { onError: () => toast.error(t("support.request.notConcludedError")) })
+        }
+      >
+        {t("support.request.notConcluded")}
+      </button>
+    </div>
+  );
+}
 
 /** Oltre quante righe il desiderio si chiude con «Show all». */
 const WISH_LINES = 6;
@@ -198,6 +227,18 @@ export function RequestBlock({ conv }: { conv: SupportConversationView }) {
           <WorkingRing size={12} />
           {t("support.request.triage")}
         </p>
+      </section>
+    );
+  }
+
+  if (conv.state === "answered") {
+    return (
+      <section aria-label={t("support.request.label")} data-request-block className={card}>
+        <p className="text-md text-ink">{t("support.request.answered")}</p>
+        <p className="text-sm text-ink-muted">
+          {t("support.request.answeredWhy", { minutes: SUPPORT_TRIAGE_IDLE_MINUTES })}
+        </p>
+        {conv.canMarkNotConcluded && <NotConcludedButton code={conv.code} />}
       </section>
     );
   }

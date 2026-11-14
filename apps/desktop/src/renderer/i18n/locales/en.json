@@ -9232,7 +9232,11 @@
       "showAll": "Show all",
       "showLess": "Show less",
       "triage": "No request yet · the assistant is still asking",
-      "left": "No request · the customer left before confirming",
+      "left": "No request · the customer still needs something",
+      "answered": "No request · the widget's answer was enough",
+      "answeredWhy": "No reply from the customer for {{minutes}} minutes. If it isn't settled, mark it not concluded: it goes back to the team.",
+      "notConcluded": "Not concluded",
+      "notConcludedError": "Couldn't mark the conversation as not concluded.",
       "open": "Open the request",
       "cannotOpen": "Someone with permission to create requests can open it."
     },

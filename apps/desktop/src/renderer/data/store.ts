@@ -651,6 +651,7 @@ export type ApiFnName =
   | "support.replyToCustomer"
   | "support.draftReply"
   | "support.openRequestFrom"
+  | "support.markNotConcluded"
   | "support.followConversation"
   | "support.emailDraftFor"
   | "support.createWidget"

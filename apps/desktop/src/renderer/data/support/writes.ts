@@ -103,6 +103,24 @@ export async function openRequestFrom(
 }
 
 /**
+ * «Not concluded» su una conversazione `answered` (area 8, F3, decisione del
+ * maintainer): chi ha `support.reply` non è d'accordo col giudizio dopo il
+ * silenzio, e la rimette fra quelle che aspettano il team (non conclusa: si
+ * può aprire la richiesta). Il giudizio porta il suo nome; un messaggio nuovo
+ * del cliente lo rende vecchio come ogni giudizio. Su una già non conclusa
+ * restituisce la stessa vista.
+ */
+export async function markNotConcluded(code: string): Promise<SupportConversationView> {
+  const me = await writer("support.markNotConcluded");
+  const c = replierFor(me, code);
+  const st = supportState(c);
+  if (st === "not_concluded") return conversationView(me, c);
+  if (st !== "answered") throw invalid("state");
+  c.triage = { outcome: "not_concluded", at: now(), byUserId: me };
+  return conversationView(me, c);
+}
+
+/**
  * «Segui»: l'avviso obbligatorio `support.customer_replied` a ogni messaggio
  * nuovo del cliente. Segue chiunque veda la conversazione, cioè ogni membro
  * del progetto (R-K12); rispondere resta a chi ha `support.reply`.

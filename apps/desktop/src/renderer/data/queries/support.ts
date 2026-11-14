@@ -126,6 +126,11 @@ export function useOpenRequestFrom() {
   );
 }
 
+/** «Not concluded» su una `answered` (`support.reply`): torna fra quelle che aspettano il team. */
+export function useMarkNotConcluded() {
+  return useWrite((code: string) => api.support.markNotConcluded(code), SUPPORT_AREAS);
+}
+
 export function useFollowConversation() {
   return useWrite(
     ({ code, on }: { code: string; on: boolean }) => api.support.followConversation(code, on),

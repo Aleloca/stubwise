@@ -119,6 +119,8 @@ export interface SupportConversationView extends Omit<
   replyClosed: "triage" | null;
   /** «Apri la richiesta»: su una non conclusa, con `backlog.create`. */
   canOpenRequest: boolean;
+  /** «Not concluded» (area 8, F3): su una `answered`, con `support.reply`. */
+  canMarkNotConcluded: boolean;
   /**
    * «Scrivigli anche per email»: `null` se si può; altrimenti il perché.
    * Senza `support.reply` la voce non c'è (`no_permission`); durante il
@@ -163,6 +165,7 @@ export function conversationView(me: string, c: SupportConversation): SupportCon
     canReply: reply,
     replyClosed: st === "triage" ? "triage" : null,
     canOpenRequest: st === "not_concluded" && holds(me, "backlog.create", c.projectId),
+    canMarkNotConcluded: st === "answered" && reply,
     emailBlocked: emailBlocked(me, c),
   };
 }
