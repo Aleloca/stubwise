@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { SupportConversation, SupportMessage } from "../../data/model";
-import { supportState, waitingSince } from "./state";
+import {
+  supportState as sharedSupportState,
+  customerStatus as sharedCustomerStatus,
+} from "@stubwise/shared";
+import { customerStatus } from "../releases/customerStatus";
+import { deriveSupportState, supportState, waitingSince } from "./state";
 
 const msg = (from: SupportMessage["from"], at: string): SupportMessage => ({
   id: `m-${at}`,
@@ -112,5 +117,19 @@ describe("waitingSince", () => {
         conv({ requestId: "req-1", messages: [msg("customer", "1"), msg("team", "2")] }),
       ),
     ).toBeNull();
+  });
+});
+
+describe("una regola sola (area 8, F3)", () => {
+  it("il prototipo usa lo stato di `@stubwise/shared`, non una copia", () => {
+    expect(deriveSupportState).toBe(sharedSupportState);
+  });
+
+  it("lo stato per il cliente del prototipo è quello di shared, letto dai suoi oggetti", () => {
+    const req = { status: "archived", mergedIntoId: "req-2" } as never;
+    expect(customerStatus(req, [], [])).toBe(
+      sharedCustomerStatus({ status: "archived", merged: true }, [], []),
+    );
+    expect(customerStatus(req, [], [])).toBe("evaluating");
   });
 });

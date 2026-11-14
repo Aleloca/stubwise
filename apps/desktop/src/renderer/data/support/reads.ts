@@ -1,5 +1,10 @@
 import type { CustomerStatus } from "../../domain/releases/customerStatus";
-import { supportState, waitingSince, type SupportState } from "../../domain/support/state";
+import {
+  SUPPORT_STATE_ORDER,
+  supportState,
+  waitingSince,
+  type SupportState,
+} from "../../domain/support/state";
 import { fold } from "../../domain/textSearch";
 import { gate, state } from "../store";
 import type { SupportConversation, SupportWidget } from "../types";
@@ -18,16 +23,8 @@ import {
 // sono `null`, come una che non esiste (R-G5). Gli stati si derivano a
 // lettura.
 
-/** L'ordine dei gruppi dell'elenco (shape support.md [A 2]): chi aspetta noi in cima. */
-const STATE_ORDER: readonly SupportState[] = [
-  "waiting_us",
-  "triage",
-  "not_concluded",
-  "request_open",
-  "reply_sent",
-  // Area 8, F3: la risposta del widget è bastata; in fondo, nessuna azione.
-  "answered",
-];
+/** L'ordine dei gruppi dell'elenco [A 2]: quello di `@stubwise/shared` (area 8, F3). */
+const STATE_ORDER = SUPPORT_STATE_ORDER;
 
 const lastAt = (c: SupportConversation): string => c.messages.at(-1)?.at ?? "";
 

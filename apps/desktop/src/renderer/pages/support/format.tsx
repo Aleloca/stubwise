@@ -2,6 +2,7 @@ import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { now } from "../../data/dates";
 import type { SupportConversationView, SupportState } from "../../data/support";
+import { SUPPORT_STATE_ORDER } from "../../domain/support/state";
 import { Glyph } from "../automations/glyphs";
 
 // Pezzi comuni della sezione Support (shape support.md §3, §5): lo stato in
@@ -12,16 +13,8 @@ import { Glyph } from "../automations/glyphs";
 export const SUPPORT_TWO_UP_QUERY = "(min-width: 1100px)";
 export const PREVIEW_DOCKED_QUERY = "(min-width: 1400px)";
 
-/** L'ordine dei gruppi dell'elenco [A 2] (lo stesso del livello dati). */
-export const STATE_ORDER: readonly SupportState[] = [
-  "waiting_us",
-  "triage",
-  "not_concluded",
-  "request_open",
-  "reply_sent",
-  // Area 8, F3: la risposta del widget è bastata; in fondo, nessuna azione.
-  "answered",
-];
+/** L'ordine dei gruppi dell'elenco [A 2]: quello di `@stubwise/shared` (area 8, F3). */
+export const STATE_ORDER = SUPPORT_STATE_ORDER;
 
 /** Oltre quante ore l'attesa si segnala (`warning` con icona) [A 4]. */
 const LONG_WAIT_HOURS = 24;
