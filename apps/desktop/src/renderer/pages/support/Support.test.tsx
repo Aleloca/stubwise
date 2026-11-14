@@ -126,7 +126,7 @@ describe("Support — l'elenco", () => {
     await user.keyboard("j");
     await waitFor(() => expect(router.state.location.pathname).toBe("/p/ACQ/support/ACQ-S1"));
     await user.keyboard("j");
-    await waitFor(() => expect(router.state.location.pathname).toBe("/p/ACQ/support/ACQ-S7"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/p/ACQ/support/ACQ-S9"));
   });
 
   it("errore con «Retry»: riprova e l'elenco arriva", async () => {
@@ -175,7 +175,10 @@ describe("Support — il dettaglio", () => {
     expect(block).toHaveTextContent(/Confirmed by the customer, .*10:09/);
     const messages = within(d).getByRole("list", { name: "Conversation" });
     expect(within(messages).getAllByText("Assistant (triage)").length).toBeGreaterThan(0);
-    expect(within(messages).getByText("Sent to the customer in the widget")).toBeInTheDocument();
+    // Al cliente del widget il team non scrive (area 8, F3): nessun messaggio del team.
+    expect(within(messages).queryByText(/^Sent to the/)).toBeNull();
+    // Chiusa con l'esito: il cliente ha riscritto in ACQ-S9.
+    expect(within(d).getByRole("link", { name: "ACQ-S9" })).toBeInTheDocument();
   });
 
   it("Review Focus 5: 200 messaggi — i primi 3, una fascia «187 earlier messages», gli ultimi 10", async () => {

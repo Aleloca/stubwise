@@ -101,23 +101,26 @@ describe("letture e visibilità", () => {
       "ACQ-S7": "request_open",
       // Area 8, F3: la risposta del widget è bastata (il controllo dopo il silenzio).
       "ACQ-S8": "answered",
+      // La successiva di ACQ-S2 (S17): il triage riparte.
+      "ACQ-S9": "triage",
     });
     // Ordine dei gruppi (area 8, F3): non concluse, in triage, richiesta aperta
     // (la più recente prima), risposte.
     expect(list.map((c) => c.code)).toEqual([
       "ACQ-S3",
       "ACQ-S1",
-      "ACQ-S7",
-      "ACQ-S2",
+      "ACQ-S9",
       "ACQ-S6",
       "ACQ-S4",
       "ACQ-S5",
+      "ACQ-S2",
+      "ACQ-S7",
       // `answered` in fondo: nessuna azione da fare.
       "ACQ-S8",
     ]);
     expect(
       (await support.listSupportConversations(ACQ, { state: "triage" })).map((c) => c.code),
-    ).toEqual(["ACQ-S1"]);
+    ).toEqual(["ACQ-S1", "ACQ-S9"]);
   });
 
   it("i membri vedono conversazione e richiesta; rispondere solo con support.manage", async () => {
@@ -160,23 +163,23 @@ describe("letture e visibilità", () => {
     const list = await support.listWidgets(ACQ);
     expect(list.canManage).toBe(true);
     expect(list.widgets).toEqual([
-      expect.objectContaining({ id: "wdg-acq-portal", conversationCount: 7 }),
+      expect.objectContaining({ id: "wdg-acq-portal", conversationCount: 8 }),
     ]);
   });
 
   it("⌘K trova per codice e nome del cliente", async () => {
     as("p-sara");
     const r = await support.searchSupport("lucia");
-    expect(r).toEqual([
-      expect.objectContaining({ code: "ACQ-S2", route: "#/p/ACQ/support/ACQ-S2" }),
+    expect(r.map((x) => [x.code, x.route])).toEqual([
+      ["ACQ-S2", "#/p/ACQ/support/ACQ-S2"],
+      ["ACQ-S9", "#/p/ACQ/support/ACQ-S9"],
     ]);
     expect((await support.searchSupport("acq-s3")).map((x) => x.code)).toEqual(["ACQ-S3"]);
   });
 
-  it("Clienti in attesa: aspetta noi, dove ho support.manage", async () => {
+  it("Clienti in attesa (prototipo): vuoto finché la fetta delle email non ne dà la fonte (area 8, F3)", async () => {
+    // Con un esito la conversazione è chiusa: il cliente non aspetta più lì.
     as("p-matteo");
-    expect((await support.listWaitingCustomers()).map((c) => c.code)).toEqual(["ACQ-S2", "ACQ-S7"]);
-    as("p-sara");
     expect(await support.listWaitingCustomers()).toEqual([]);
   });
 });
@@ -398,10 +401,56 @@ describe("scritture", () => {
     expect((await support.updateWidget(w.id, { name: "Site 2" })).name).toBe("Site 2");
     await support.deleteWidget("wdg-acq-portal");
     expect(state.supportWidgets.filter((x) => x.projectId === ACQ).map((x) => x.id)).toEqual([w.id]);
-    // Area 8, F3: più AUD-S1 (l'esito è un ticket del widget di Audin).
-    expect(state.supportConversations).toHaveLength(9);
+    // Area 8, F3: più AUD-S1 (l'esito è un ticket del widget di Audin) e ACQ-S9 (S17).
+    expect(state.supportConversations).toHaveLength(10);
     const s1 = (await support.getSupportConversation("ACQ-S1"))!;
     expect(s1.widgetName).toBeNull();
+  });
+});
+
+describe("la conversazione chiusa e la successiva (area 8, F3, S17)", () => {
+  it("il seme: ACQ-S2 è chiusa e continua in ACQ-S9, che viene da lì", async () => {
+    as("p-matteo");
+    const s2 = (await support.getSupportConversation("ACQ-S2"))!;
+    expect(s2.continuedIn).toEqual({ code: "ACQ-S9" });
+    const s9 = (await support.getSupportConversation("ACQ-S9"))!;
+    expect(s9.continuedFrom).toEqual({ code: "ACQ-S2" });
+    expect(s9.state).toBe("triage");
+  });
+
+  it("un messaggio su una conversazione con esito apre la successiva: nessuna riga sulla chiusa", async () => {
+    as("p-matteo");
+    const before = conv("ACQ-S7").messages.length;
+    const count = state.supportConversations.length;
+    const view = await support.simulateCustomerMessage("ACQ-S7", "Is it done?");
+    expect(conv("ACQ-S7").messages).toHaveLength(before);
+    expect(state.supportConversations).toHaveLength(count + 1);
+    expect(view.code).toBe("ACQ-S10");
+    expect(view.continuedFrom).toEqual({ code: "ACQ-S7" });
+    expect(view.messages.map((m) => [m.from, m.body])).toEqual([["customer", "Is it done?"]]);
+    expect(view.customer).toEqual(conv("ACQ-S7").customer);
+    expect(view.state).toBe("triage");
+    // Il secondo messaggio va alla STESSA successiva.
+    await support.simulateCustomerMessage("ACQ-S7", "Hello?");
+    expect(state.supportConversations).toHaveLength(count + 1);
+    expect(conv("ACQ-S10").messages).toHaveLength(2);
+  });
+
+  it("su una successiva chiusa a sua volta, se ne apre una terza in fondo alla catena", async () => {
+    as("p-matteo");
+    conv("ACQ-S9").requestId = conv("ACQ-S2").requestId;
+    const view = await support.simulateCustomerMessage("ACQ-S2", "Still there?");
+    expect(view.code).toBe("ACQ-S10");
+    expect(view.continuedFrom).toEqual({ code: "ACQ-S9" });
+    expect(conv("ACQ-S9").messages.at(-1)!.body).not.toBe("Still there?");
+  });
+
+  it("senza esito il messaggio resta nella stessa conversazione", async () => {
+    as("p-matteo");
+    const count = state.supportConversations.length;
+    const view = await support.simulateCustomerMessage("ACQ-S3", "Still happening.");
+    expect(view.code).toBe("ACQ-S3");
+    expect(state.supportConversations).toHaveLength(count);
   });
 });
 

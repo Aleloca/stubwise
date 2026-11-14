@@ -770,10 +770,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     `?compose=support-…`): serviva solo a «Scrivigli per email», uscita; resta
     accettata (`SUPPORT_MAIL_SLOT` locale) finché non si toglie in un giro di
     pulizia della Posta;
-  - **«Clienti in attesa» nel prototipo**: la regola che lo riempie è ora
-    locale (esito e ultimo messaggio del cliente), finché la fetta a sé (la
-    posta delle caselle, 24 h) non ne dà la fonte; nella build app il blocco è
-    spento;
+  - **«Clienti in attesa» nel prototipo aspetta la fetta delle email** (la
+    posta delle caselle, soglia 24 h, dopo la F3): con le conversazioni
+    chiuse il blocco del prototipo è vuoto, e il suo esempio arriverà con
+    quella fetta (46, 14 nov 2026); nella build app il blocco è spento;
   - **Claude non ha più il permesso di Support**: `support.reply` era nel suo
     insieme fisso, `support.manage` no (Claude non ha mai un `*.manage`):
     non apre richieste né segna conversazioni;

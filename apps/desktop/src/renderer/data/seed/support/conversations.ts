@@ -5,17 +5,21 @@ import { daysFromToday } from "../dates";
 // solo dai canali col triage: il widget e il server MCP, MAI da un'email.
 //
 // - ACQ-S1: dal widget, il triage è ancora in corso.
-// - ACQ-S2: dal widget, la richiesta è aperta e il cliente ha riscritto:
-//   aspetta una nostra risposta, con la bozza di Claude pronta.
+// - ACQ-S2: dal widget, la richiesta è aperta: la conversazione è chiusa.
+//   Il cliente ha riscritto e continua in ACQ-S9 (area 8, F3, S17).
 // - ACQ-S3: dal widget, il controllo dopo il silenzio l'ha giudicata non
 //   conclusa: resta un bisogno, nessuna richiesta.
 // - ACQ-S4: dal server MCP, la richiesta è nata con la conversazione allegata.
 // - ACQ-S5, ACQ-S6: dal widget, le due richieste in coda (area 10b).
-// - ACQ-S7: dal widget, aspetta una nostra risposta SENZA bozza di Claude.
+// - ACQ-S7: dal widget, un'altra richiesta aperta (chiusa).
 // - AUD-S1: dal widget di Audin, l'esito è la task che il widget ha aperto
 //   (AUD-6, un ticket: nessuna richiesta, area 8 F3-1).
 // - ACQ-S8: dal widget, la risposta è bastata (area 8, F3, `answered`): il
 //   controllo dopo il silenzio l'ha giudicata conclusa.
+// - ACQ-S9: la successiva di ACQ-S2 (area 8, F3, S17): Lucia ha riscritto
+//   dopo l'esito, e il triage riparte da qui.
+// Al cliente del widget il team non scrive mai (area 8, F3): i messaggi
+// `team` stanno solo sul canale `mcp`.
 
 /** Le richieste nate da una conversazione (in `requests.ts`, con `origin`). */
 export const SUPPORT_REQUEST_IDS = {
@@ -37,6 +41,7 @@ export const SUPPORT_CONVERSATION_IDS = {
   dark: "sup-acq-6",
   billingEmail: "sup-acq-7",
   answered: "sup-acq-8",
+  followUp: "sup-acq-9",
   ticket: "sup-aud-1",
 } as const;
 
@@ -98,19 +103,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
         at(4, "10:06"),
       ],
       ["customer", null, "Only the larger ones, like the yearly adjustment.", at(4, "10:09")],
-      [
-        "triage",
-        null,
-        "Got it: I passed your request to the team. You'll find the answer here.",
-        at(4, "10:10"),
-      ],
-      [
-        "team",
-        "p-laura",
-        "Thanks Lucia, we're looking into it with the billing office.",
-        at(2, "15:20"),
-      ],
-      ["customer", null, "Any news? The yearly adjustment arrives next month.", at(0, "08:15")],
+      ["triage", null, "Got it: I passed your request to the team.", at(4, "10:10")],
     ]),
     rewrittenWish:
       "Pay the larger bills (like the yearly adjustment) in instalments from the customer portal.",
@@ -118,6 +111,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     taskId: null,
     triage: null,
     confirmedAt: at(4, "10:09"),
+    continuedInId: SUPPORT_CONVERSATION_IDS.followUp,
   },
   {
     id: SUPPORT_CONVERSATION_IDS.left,
@@ -193,12 +187,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
         at(3, "09:13"),
       ],
       ["customer", null, "Yes, that would be perfect.", at(3, "09:16")],
-      [
-        "triage",
-        null,
-        "Got it: I passed your request to the team. You'll find the answer here.",
-        at(3, "09:17"),
-      ],
+      ["triage", null, "Got it: I passed your request to the team.", at(3, "09:17")],
     ]),
     rewrittenWish: "Get a text message a few days before the water bill is due.",
     requestId: SUPPORT_REQUEST_IDS.reminder,
@@ -260,24 +249,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
         at(6, "09:21"),
       ],
       ["customer", null, "From the portal, so I can change it again myself.", at(6, "09:25")],
-      [
-        "triage",
-        null,
-        "Got it: I passed your request to the team. You'll find the answer here.",
-        at(6, "09:26"),
-      ],
-      [
-        "team",
-        "p-davide",
-        "Thanks Marta, for now we changed it for you: the next bill goes to the new address.",
-        at(5, "14:10"),
-      ],
-      [
-        "customer",
-        null,
-        "Thank you! Will I be able to change it from the portal myself next time?",
-        at(0, "09:05"),
-      ],
+      ["triage", null, "Got it: I passed your request to the team.", at(6, "09:26")],
     ]),
     rewrittenWish: "Change the email address that receives the bills from the customer portal.",
     requestId: SUPPORT_REQUEST_IDS.billingEmail,
@@ -329,13 +301,37 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
       [
         "triage",
         null,
-        "Thanks: I reported it to the team with the page and the browser. You'll find the answer here.",
+        "Thanks: I reported it to the team with the page and the browser.",
         at(25, "09:11"),
       ],
     ]),
     rewrittenWish: null,
     requestId: null,
     taskId: "t-aud-6",
+    triage: null,
+    confirmedAt: null,
+  },
+  // Area 8, F3 (S17): Lucia riscrive dopo l'esito di ACQ-S2: una conversazione
+  // nuova, e il triage riparte.
+  {
+    id: SUPPORT_CONVERSATION_IDS.followUp,
+    code: "ACQ-S9",
+    projectId: "prj-acq",
+    channel: "widget",
+    widgetId: "wdg-acq-portal",
+    customer: { name: "Lucia Benedetti", email: "lucia.benedetti@example.com" },
+    messages: messages(SUPPORT_CONVERSATION_IDS.followUp, [
+      ["customer", null, "Any news? The yearly adjustment arrives next month.", at(0, "08:15")],
+      [
+        "triage",
+        null,
+        "Your request about instalments is with the team. Is there something else I can help with?",
+        at(0, "08:16"),
+      ],
+    ]),
+    rewrittenWish: null,
+    requestId: null,
+    taskId: null,
     triage: null,
     confirmedAt: null,
   },

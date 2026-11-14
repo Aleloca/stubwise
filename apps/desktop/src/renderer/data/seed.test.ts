@@ -796,6 +796,21 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
       for (const m of c.messages) {
         if (m.from === "team") expect(project.memberIds).toContain(m.authorId);
         else expect(m.authorId).toBeNull();
+        // Area 8, F3: al cliente del widget il team non scrive mai.
+        if (c.channel === "widget") expect(m.from, c.code).not.toBe("team");
+      }
+      // Con un esito la conversazione è chiusa: dopo l'esito il cliente scrive nella successiva.
+      if (c.requestId || c.taskId) {
+        const outcomeAt = c.confirmedAt ?? c.messages.at(-1)!.at;
+        expect(
+          c.messages.filter((m) => m.from === "customer" && m.at > outcomeAt),
+          c.code,
+        ).toEqual([]);
+      }
+      if (c.continuedInId) {
+        const next = SUPPORT_CONVERSATIONS.find((x) => x.id === c.continuedInId)!;
+        expect([next.projectId, next.channel, next.widgetId]).toEqual([c.projectId, c.channel, c.widgetId]);
+        expect(next.customer).toEqual(c.customer);
       }
       const ats = c.messages.map((m) => m.at);
       expect(ats).toEqual([...ats].sort());
@@ -808,9 +823,9 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
     const acq = SUPPORT_CONVERSATIONS.filter((c) => c.projectId === ACQ);
     // In triage: nessuna richiesta, nessun giudizio dopo il silenzio.
     expect(acq.some((c) => c.channel === "widget" && !c.requestId && !c.triage)).toBe(true);
-    // Richiesta aperta, l'ultimo messaggio è del cliente: ACQ-S2 e ACQ-S7.
-    const waiting = acq.filter((c) => c.requestId && c.messages.at(-1)!.from === "customer");
-    expect(waiting.map((c) => c.code)).toEqual(["ACQ-S2", "ACQ-S7"]);
+    // Area 8, F3: con un esito chiusa; ACQ-S2 continua in ACQ-S9.
+    const closedThenContinued = acq.filter((c) => c.continuedInId);
+    expect(closedThenContinued.map((c) => c.code)).toEqual(["ACQ-S2"]);
     // Non conclusa e risposta bastata (area 8, F3): il giudizio del controllo, nessuna richiesta.
     const judged = acq.filter((c) => c.triage);
     expect(judged.map((c) => [c.code, c.triage!.outcome, c.triage!.byUserId, c.requestId])).toEqual([
@@ -893,7 +908,7 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
     expect(state.notificationMarks.size).toBe(0);
     expect(state.releaseCodeSeq.get(AUD)).toBe(3);
     expect(state.releaseCodeSeq.get(STW)).toBe(2);
-    expect(state.supportCodeSeq.get(ACQ)).toBe(8);
+    expect(state.supportCodeSeq.get(ACQ)).toBe(9);
     // Copie: cambiare lo stato non tocca il seme.
     state.releases[0]!.title = "changed";
     expect(RELEASES[0]!.title).not.toBe("changed");

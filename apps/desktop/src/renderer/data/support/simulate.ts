@@ -21,11 +21,56 @@ import {
 const push = (c: SupportConversation, from: SupportMessage["from"], body: string) =>
   c.messages.push({ id: newId("sup-m"), from, authorId: null, body, at: now() });
 
+const hasOutcome = (c: SupportConversation) => c.requestId !== null || c.taskId !== null;
+
+/** Il prossimo `<PRJ>-S<n>` del progetto, dal contatore: mai riusato. */
+function nextCode(projectId: string): string {
+  const n = (state.supportCodeSeq.get(projectId) ?? 0) + 1;
+  state.supportCodeSeq.set(projectId, n);
+  return `${state.projectsById.get(projectId)!.code}-S${n}`;
+}
+
+/**
+ * Dove va un messaggio del cliente (area 8, F3, S17): una conversazione con
+ * un esito è CHIUSA, e il messaggio va alla sua successiva — si segue la
+ * catena fino alla prima senza esito; se non c'è, se ne apre una (stesso
+ * canale, widget e cliente) e la si lega. Senza esito, la stessa.
+ */
+function receiverOf(c: SupportConversation): SupportConversation {
+  let cur = c;
+  while (hasOutcome(cur)) {
+    const next = cur.continuedInId
+      ? state.supportConversations.find((x) => x.id === cur.continuedInId)
+      : undefined;
+    if (next) {
+      cur = next;
+      continue;
+    }
+    const fresh: SupportConversation = {
+      id: newId("sup"),
+      code: nextCode(cur.projectId),
+      projectId: cur.projectId,
+      channel: cur.channel,
+      widgetId: cur.widgetId,
+      customer: { ...cur.customer },
+      messages: [],
+      rewrittenWish: null,
+      requestId: null,
+      taskId: null,
+      triage: null,
+      confirmedAt: null,
+    };
+    state.supportConversations.push(fresh);
+    cur.continuedInId = fresh.id;
+    return fresh;
+  }
+  return cur;
+}
+
 /**
  * «Simula un messaggio del cliente». Su una «non conclusa» il triage
- * riprende (shape [A 2]); su una conversazione con richiesta Claude prepara
- * la bozza della risposta (che non parte da sola). Nessun avviso: non c'è
- * più «Segui» (area 8, F3).
+ * riprende (shape [A 2]); su una conversazione con un esito apre (o
+ * raggiunge) la successiva, e restituisce quella. Nessun avviso.
  */
 export async function simulateCustomerMessage(
   code: string,
@@ -35,9 +80,10 @@ export async function simulateCustomerMessage(
   const c = conversationFor(me, code);
   const text = body.trim();
   if (!text) throw invalid("body");
+  const target = receiverOf(c);
   // Un messaggio nuovo rende vecchio il giudizio dopo il silenzio (lo stato lo deriva da sé).
-  push(c, "customer", text);
-  return conversationView(me, c);
+  push(target, "customer", text);
+  return conversationView(me, target);
 }
 
 /** «Simula: il cliente se ne va» durante il triage: non conclusa, nessuna richiesta. */
@@ -66,7 +112,7 @@ export async function simulateTriageDone(code: string): Promise<SupportConversat
     c.rewrittenWish ?? c.messages.find((m) => m.from === "customer")?.body ?? c.customer.name;
   push(c, "triage", `Is this what you need? “${wish}”`);
   push(c, "customer", "Yes, that's it.");
-  push(c, "triage", "Thanks: I passed your request to the team. You'll find the answer here.");
+  push(c, "triage", "Thanks: I passed your request to the team.");
   c.rewrittenWish = wish;
   c.confirmedAt = now();
   const project = state.projectsById.get(c.projectId)!;
