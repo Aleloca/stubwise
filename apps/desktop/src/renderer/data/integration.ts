@@ -98,11 +98,13 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "support",
     "support-widgets",
     // Area 8, F4a: i Server (letture e scritture, la chiave una volta).
-    // Restano spente: creare dentro un ambiente (`servers-create-in-env`,
-    // aspetta la decisione sulle repository), l'SSH (`servers-ssh`) e
+    // Restano spente: l'SSH (`servers-ssh`) e
     // l'analisi (`servers-analysis`, F4b), la ricerca ⌘K (`servers-search`).
     "servers-monitor",
     "servers-write",
+    // «New server» dalla sezione di un progetto: dentro un ambiente, per tutto
+    // il progetto (decisione c di 46: l'ambiente senza repository).
+    "servers-create-in-env",
     // Gli ambienti col form (spenti dalla F1): i server si scelgono fra quelli visibili.
     "environments",
     // «Don't alert me about this» dalla card (S6, `POST /api/inbox/:id/mute-type`),

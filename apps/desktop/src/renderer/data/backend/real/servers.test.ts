@@ -415,12 +415,10 @@ describe("i Server dal server (area 8, F4a)", () => {
     });
   });
 
-  it("creare dentro un ambiente aspetta la decisione: `invalid: environment`, niente creato", async () => {
-    const servers = createRealServers(fakeApi(), () => NOW);
-    await expect(servers.createServer({ name: "x", environmentId: "env-1" })).rejects.toThrow(
-      "invalid: environment",
-    );
-    expect(calls).toEqual([]);
+  it("creare dentro un ambiente (decisione c): l'ambiente senza repository = tutto il progetto", async () => {
+    const servers = createRealServers(fakeApi(), () => NOW, async () => "https://desk.acme.test");
+    await servers.createServer({ name: "edge", environmentId: ENV });
+    expect(calls).toEqual([["create", { name: "edge", environment: { environmentId: ENV } }]]);
   });
 
   it("i controlli: per server e controllo; un controllo mai letto è not_found", async () => {

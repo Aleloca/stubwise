@@ -46,8 +46,7 @@ export function ServersPage({ projectCode }: { projectCode: string }) {
   const project = useProject(projectCode).data ?? undefined;
   const servers = useProjectServers(project?.id);
   const [creating, setCreating] = useState(false);
-  // Build app (area 8, F4a): creare DENTRO un ambiente aspetta la decisione su
-  // come il server collega le repository (`servers-create-in-env`, I1).
+  // Build app (area 8, F4a): dentro un ambiente, per tutto il progetto (decisione c).
   const canCreate = can(viewer, "monitor.manage") && featureIntegrated("servers-create-in-env");
   const newButton = canCreate ? (
     <button

@@ -41,7 +41,10 @@ export interface ServersApi {
     serverId: string,
     range: { from: string; to: string; checkId?: string },
   ): Promise<Reader<ServerMetricsResponse>>;
-  create(input: { name: string }): Promise<Reader<ServerWithKey>>;
+  create(input: {
+    name: string;
+    environment?: { environmentId: string };
+  }): Promise<Reader<ServerWithKey>>;
   update(
     serverId: string,
     patch: { name?: string; sampleIntervalSeconds?: number },
@@ -317,15 +320,21 @@ export function createRealServers(
 
     /**
      * Un server nuovo. Dall'Amministrazione nasce orfano (`environmentId:
-     * null`); dentro un ambiente di un progetto aspetta la decisione su come
-     * il server collega le repository (registro): finché non c'è, nella build
-     * app quel bottone non c'è, e qui è `invalid: environment`.
+     * null`); dalla sezione di un progetto nasce dentro un suo ambiente, per
+     * tutto il progetto (decisione c: l'ambiente senza repository, il server
+     * lo stende su ognuna e imposta il `serverId` dell'ambiente).
      */
     async createServer(
       input: CreateServerInput,
     ): Promise<{ server: ServerRow; agentKey: string; instanceUrl?: string }> {
-      if (input.environmentId !== null) throw new Error("invalid: environment");
-      const r = await inPrototypeWords(() => api.create({ name: input.name }));
+      const r = await inPrototypeWords(() =>
+        api.create({
+          name: input.name,
+          ...(input.environmentId !== null
+            ? { environment: { environmentId: input.environmentId } }
+            : {}),
+        }),
+      );
       const server = rowOf(r, now());
       if (!server) throw new Error("not_found");
       ids.set(server.code, r.id);

@@ -121,6 +121,7 @@ describe("isIntegrated", () => {
         "admin:servers",
         "feature:servers-monitor",
         "feature:servers-write",
+        "feature:servers-create-in-env",
         "feature:environments",
         "destination:projects",
         "projectSection:tasks",

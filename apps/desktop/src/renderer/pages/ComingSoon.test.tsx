@@ -736,14 +736,14 @@ describe("aree non integrate nella build app", () => {
 
   // Area 8, F4a: i Server in sola lettura (elenco, dettaglio, metriche, episodi).
   // Scritture, SSH, analisi e simulazioni restano fuori dalla build app (I1).
-  it("i Server del progetto: l'elenco legge solo chiamate integrate, senza «New server» (dentro un ambiente aspetta la decisione)", async () => {
-    // Roberta ha `monitor.manage`: nel prototipo vedrebbe «New server».
+  it("i Server del progetto: l'elenco e «New server» dentro un ambiente (decisione c), solo chiamate integrate", async () => {
+    // Roberta ha `monitor.manage` ed `environments.manage`.
     signedInAs("p-roberta");
     renderRoute("/p/ACQ/servers");
     expect(await screen.findByRole("heading", { level: 1, name: "Servers" })).toBeInTheDocument();
     await waitFor(() => expect(calls).toContain("servers.listProjectServers"));
     expect(screen.queryByText("Coming soon")).toBeNull();
-    expect(screen.queryByRole("button", { name: "New server" })).toBeNull();
+    expect(await screen.findByRole("button", { name: "New server" })).toBeInTheDocument();
     await settle();
     expect(outside()).toEqual([]);
   });
