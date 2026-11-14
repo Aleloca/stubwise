@@ -96,8 +96,11 @@ const whenSendSettled: Mail["whenSendSettled"] = async (messageId) => {
   const deadline = Date.now() + SETTLE_WAIT_MS;
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, SETTLE_POLL_MS));
-    const o = await appClient()
-      .mail.outgoing(messageId)
+    // Anche `appClient()` sta dentro la catena: se non si può più creare (la
+    // finestra chiusa, l'ambiente dei test smontato) lancia SUBITO, e un
+    // `.catch` sulla sola promessa non lo prenderebbe. Si smette di aspettare.
+    const o = await Promise.resolve()
+      .then(() => appClient().mail.outgoing(messageId))
       .catch(() => null);
     if (!o || (o.state !== "queued" && o.state !== "sending")) return;
   }
