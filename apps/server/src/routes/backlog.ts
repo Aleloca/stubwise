@@ -29,6 +29,7 @@ import {
 } from "@stubwise/notifications";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
+import { personName } from "../services/people.js";
 import {
   backlogItemRequesters,
   backlogItems,
@@ -38,6 +39,8 @@ import {
   projects,
   tickets,
   users,
+  widgetConversations,
+  widgetMessages,
 } from "@stubwise/db";
 import {
   inProjects,
@@ -373,6 +376,33 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         for (const c of counts) ticketCountByItem.set(c.itemId, c.count);
       }
 
+      // Area 8, F3 (canale `mcp`): con `mine=true`, le ultime risposte del team
+      // sulla conversazione di ciascuna richiesta (senza autore: chi ha chiesto
+      // vede il team, mai una persona). Una query per pagina.
+      const repliesByItem = new Map<string, { body: string; at: string }[]>();
+      if (mine && page.length > 0) {
+        // Dalla conversazione `mcp` di CHI GUARDA, ritrovata dal suo job d'intake:
+        // vale anche per una richiesta fusa in una voce che c'era, e un
+        // co-richiedente non legge le risposte date a un altro (review F3).
+        const replies = await app.db
+          .select({ itemId: backlogJobs.resultItemId, body: widgetMessages.content, at: widgetMessages.createdAt })
+          .from(widgetConversations)
+          .innerJoin(backlogJobs, eq(backlogJobs.id, widgetConversations.intakeJobId))
+          .innerJoin(widgetMessages, eq(widgetMessages.conversationId, widgetConversations.id))
+          .where(
+            and(
+              eq(widgetConversations.channel, "mcp"),
+              eq(widgetConversations.externalUserId, `mcp:${request.user!.id}`),
+              inArray(backlogJobs.resultItemId, page.map((r) => r.id)),
+              eq(widgetMessages.role, "team"),
+            ),
+          )
+          .orderBy(asc(widgetMessages.createdAt));
+        for (const r of replies) {
+          if (r.itemId) repliesByItem.set(r.itemId, [...(repliesByItem.get(r.itemId) ?? []), { body: r.body, at: r.at.toISOString() }].slice(-3));
+        }
+      }
+
       // Titoli delle voci "simili" della pagina in un'unica query (no N+1).
       const similarIds = [
         ...new Set(
@@ -406,6 +436,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           updatedAt: r.updatedAt.toISOString(),
           similarTo: r.similarToId ? (similarById.get(r.similarToId) ?? null) : null,
           ticketCount: ticketCountByItem.get(r.id) ?? 0,
+          teamReplies: repliesByItem.get(r.id) ?? [],
         })),
         nextCursor,
         total,
@@ -711,12 +742,39 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { projectId, title, body } = request.body;
-      const result = await enqueueBacklogIntake(app.db, {
-        projectId,
-        title,
-        body,
-        requestedByUserId: request.user!.id,
+      const { projectId, title, body, conversation } = request.body;
+      const me = request.user!;
+      const result = await app.db.transaction(async (tx) => {
+        const queued = await enqueueBacklogIntake(tx, { projectId, title, body, requestedByUserId: me.id });
+        // Area 8, F3 (canale `mcp`): la conversazione arriva con la richiesta.
+        // Il worker la ritrova dal job d'intake e la lega alla voce che nasce
+        // (il payload del job resta com'è: è `strict`).
+        if (queued.ok && conversation && conversation.length > 0) {
+          const [person] = await tx.select({ email: users.email, displayName: users.displayName }).from(users).where(eq(users.id, me.id));
+          const now = Date.now();
+          const [c] = await tx
+            .insert(widgetConversations)
+            .values({
+              projectId,
+              channel: "mcp",
+              externalUserId: `mcp:${me.id}`,
+              externalUserName: person ? personName(person) : null,
+              externalUserEmail: person?.email ?? null,
+              intakeJobId: queued.jobId,
+              lastMessageAt: new Date(now),
+            })
+            .returning({ id: widgetConversations.id });
+          await tx.insert(widgetMessages).values(
+            conversation.map((m, i) => ({
+              conversationId: c!.id,
+              role: m.from === "customer" ? "user" : "assistant",
+              content: m.text,
+              // In ordine, un millisecondo l'uno dall'altro (la conversazione è già avvenuta).
+              createdAt: new Date(now - (conversation.length - i)),
+            })),
+          );
+        }
+        return queued;
       });
       if (!result.ok) return apiError(reply, 404, "project_not_found", "Project not found");
       return reply.code(202).send({ queued: true, jobId: result.jobId });

@@ -129,4 +129,13 @@ describe("parseSseStream", () => {
     const events = await collect([huge, '\n\ndata: {"type":"delta","text":"tardi"}\n\n']);
     expect(events).toEqual([{ type: "error", message: "stream buffer overflow" }]);
   });
+
+  it("area 8, F3, S17: l'evento `conversation` (la successiva di una chiusa); senza id si ignora", async () => {
+    const events: unknown[] = [];
+    await parseSseStream(
+      new Response(['data: {"type":"conversation","conversationId":"c2"}\n\n', 'data: {"type":"conversation"}\n\n'].join("")),
+      (e) => events.push(e),
+    );
+    expect(events).toEqual([{ type: "conversation", conversationId: "c2" }]);
+  });
 });

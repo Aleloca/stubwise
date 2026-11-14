@@ -8,6 +8,8 @@ import {
   retrieveChunksForProject,
   projects,
   tickets,
+  widgetConversations,
+  widgetMessages,
   users,
   type Db,
 } from "@stubwise/db";
@@ -16,6 +18,7 @@ import {
   isCollaboratorRequest,
   projectPermissionsOfUser,
   publishRequestCreated,
+  publishSupportRequestAlert,
 } from "@stubwise/notifications";
 import {
   backlogRiskSchema,
@@ -266,10 +269,27 @@ async function createNewItem(
   const similarToId = best && best.similarity >= deps.similarThreshold ? best.id : null;
 
   return deps.db.transaction(async (tx) => {
+    // Area 8, F3 (S6): il ticket aperto da un widget porta la sua conversazione
+    // di Support; la voce che ne nasce la ricorda (la provenienza della
+    // richiesta). Solo alla NASCITA: una fusa in una che c'era tiene la sua.
+    // Il canale `mcp`: la conversazione è arrivata con la richiesta, legata al
+    // job d'intake (il payload resta `strict`).
+    const [fromWidget] = ticket
+      ? await tx
+          .select({ conversationId: widgetMessages.conversationId })
+          .from(widgetMessages)
+          .where(eq(widgetMessages.ticketId, ticket.id))
+          .limit(1)
+      : await tx
+          .select({ conversationId: widgetConversations.id })
+          .from(widgetConversations)
+          .where(eq(widgetConversations.intakeJobId, jobId))
+          .limit(1);
     const [inserted] = await tx
       .insert(backlogItems)
       .values({
         projectId,
+        ...(fromWidget ? { supportConversationId: fromWidget.conversationId } : {}),
         title: parsed.title,
         document: parsed.document,
         effort: parsed.effort,
@@ -456,6 +476,10 @@ export async function runIntake(
     await announceRequest(deps, projectId, requesterId, result, true);
   } else {
     result = await createNewItem(deps, job.id, projectId, input, vec, best, ticket, lang, requesterId);
+    // Area 8, F3 (S7): una richiesta nata dal ticket di un widget si annuncia
+    // (`support.request`, catalogo). Dopo il commit, come l'avviso agli admin:
+    // un avviso non fa fallire l'intake. Senza conversazione legata non fa niente.
+    await publishSupportRequestAlert(db, deps.publicUrl ?? null, result.itemId);
     await announceRequest(deps, projectId, requesterId, result, false);
   }
 

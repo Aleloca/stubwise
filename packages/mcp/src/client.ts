@@ -167,6 +167,11 @@ export interface BacklogItemSummary {
   urgency: Urgency | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Area 8, F3: le ultime risposte del team sulla conversazione della richiesta
+   * (solo con `mine`). Assente da un server più vecchio.
+   */
+  teamReplies?: { body: string; at: string }[];
 }
 
 /**
@@ -357,6 +362,8 @@ export interface CreateBacklogItemParams {
   projectId: string;
   title: string;
   body: string;
+  /** Area 8, F3: la conversazione che ha portato alla richiesta (facoltativa). */
+  conversation?: { from: "customer" | "assistant"; text: string }[];
 }
 
 export interface CreateTicketParams {

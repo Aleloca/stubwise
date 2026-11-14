@@ -169,6 +169,12 @@ export const taskViewSchema = z.object({
    * dice la frase del codice. `null` altrove. Additivo.
    */
   claudeRun: z.string().nullable().default(null),
+  /**
+   * Area 8, F3 (S-9): la conversazione di Support da cui il widget ha aperto
+   * questa task, per «View conversation»; derivata da
+   * `widget_messages.ticket_id`. Null per le altre e da un server più vecchio.
+   */
+  supportConversationCode: z.string().nullable().default(null),
 });
 export type TaskViewData = z.infer<typeof taskViewSchema>;
 

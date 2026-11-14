@@ -90,7 +90,14 @@ describe("GET /api/projects/:projectId/widgets", () => {
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ widgets: [] });
+    // Area 8, F3: `canManage` dice se chi guarda può gestirli (il Legacy Member no).
+    expect(res.json()).toEqual({ widgets: [], canManage: false });
+  });
+
+  it("area 8, F3: `canManage` vero per chi ha widget.manage (il full admin)", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    const res = await app.inject({ method: "GET", url: `/api/projects/${projectId}/widgets`, headers: { cookie: adminCookie } });
+    expect(res.json()).toMatchObject({ canManage: true });
   });
 
   it("conversationCount: aggregato corretto per widget", async () => {
@@ -403,6 +410,25 @@ describe("PUT /api/projects/:projectId/widgets/:widgetId", () => {
     });
     const found = get.json().widgets.find((w: { id: string }) => w.id === widgetId);
     expect(found).toMatchObject(payload);
+  });
+
+  it("area 8, F3, S16: i siti ammessi — vuoti alla creazione, normalizzati; una PUT senza `origins` non li tocca, con [] li svuota; uno storto 400", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    const widgetId = await createWidget(projectId);
+    const put = (payload: Record<string, unknown>) =>
+      app.inject({ method: "PUT", url: `/api/projects/${projectId}/widgets/${widgetId}`, headers: { cookie: adminCookie }, payload });
+    const list = async () =>
+      (await app.inject({ method: "GET", url: `/api/projects/${projectId}/widgets`, headers: { cookie: memberCookie } })).json().widgets.find((w: { id: string }) => w.id === widgetId);
+    expect((await list()).origins).toEqual([]);
+    const set = await put(upsertBody({ origins: ["https://Shop.example.com/", "https://shop.example.com"] }));
+    expect(set.statusCode, set.body).toBe(200);
+    expect(set.json().widget.origins).toEqual(["https://shop.example.com"]);
+    // Un client che non conosce `origins` (la web di oggi) non li azzera.
+    expect((await put(upsertBody({ name: "Senza origins" }))).statusCode).toBe(200);
+    expect((await list()).origins).toEqual(["https://shop.example.com"]);
+    expect((await put(upsertBody({ origins: ["https://shop.example.com/negozio"] }))).statusCode).toBe(400);
+    expect((await list()).origins).toEqual(["https://shop.example.com"]);
+    expect((await put(upsertBody({ origins: [] }))).json().widget.origins).toEqual([]);
   });
 
   it("la key NON è modificabile dalla PUT", async () => {

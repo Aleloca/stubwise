@@ -38,6 +38,8 @@ export const AI_OPERATIONS = [
   "plugin_smoke",
   "credential_test",
   "usage_probe",
+  // Area 8, F3: il giudizio sul triage dopo il silenzio (Haiku) e la bozza della risposta al cliente.
+  "support_triage_check",
 ] as const;
 
 export type AiOperation = (typeof AI_OPERATIONS)[number];
@@ -52,6 +54,7 @@ export type AiOperationGroupKey =
   | "reports"
   | "mail"
   | "automations"
+  | "support"
   | "chat"
   | "technical";
 
@@ -67,6 +70,7 @@ export const AI_OPERATION_GROUPS: {
   { group: "reports", operations: ["daily_report", "weekly_brief"] },
   { group: "mail", operations: ["mail_classify", "mail_draft", "meeting_summary"] },
   { group: "automations", operations: ["automation_step"] },
+  { group: "support", operations: ["support_triage_check"] },
   { group: "chat", operations: ["chat", "claude_chat", "backlog_merge"] },
   { group: "technical", operations: ["plugin_smoke", "credential_test", "usage_probe"] },
 ];

@@ -68,6 +68,7 @@ import { dayArrangementRoutes } from "./routes/day-arrangements.js";
 import { filterRoutes } from "./routes/filters.js";
 import { homeRoutes } from "./routes/home.js";
 import { alertSubscriptionRoutes } from "./routes/alert-subscriptions.js";
+import { supportRoutes } from "./routes/support.js";
 import { requestRoutes } from "./routes/requests.js";
 import { overviewRoutes } from "./routes/overview.js";
 import { projectRequestRoutes } from "./routes/project-requests.js";
@@ -762,6 +763,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(homeRoutes, { prefix: "/api" });
   // Area 8, F2: le iscrizioni agli avvisi del catalogo.
   void app.register(alertSubscriptionRoutes, { prefix: "/api" });
+  // Area 8, F3: Support, le conversazioni coi clienti.
+  void app.register(supportRoutes, { prefix: "/api" });
   void app.register(requestRoutes, { prefix: "/api" });
   void app.register(overviewRoutes, { prefix: "/api" });
   void app.register(projectRequestRoutes, { prefix: "/api" });

@@ -4,6 +4,7 @@ import { and, asc, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { projectIdsWithPermission } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { deletedTaskCodesOf } from "./task-delete.js";
+import { supportOriginsForRequests } from "./support-links.js";
 import { backlogVisibleSql } from "./backlog-visibility.js";
 
 /**
@@ -106,6 +107,7 @@ async function decorate<R extends CommonRow>(db: Db, rows: R[]): Promise<{ row: 
   const tasksOf = group(links, (l) => l.ticketId);
   const codeOf = new Map(merged.map((m) => [m.id, `${m.code}-R${m.number}`]));
   const deletedCodes = await deletedTaskCodesOf(db, ids);
+  const originOf = await supportOriginsForRequests(db, ids);
   return rows.map((r) => {
     const urgency = levelOf(r.urgency);
     const suggested = r.suggested;
@@ -127,6 +129,8 @@ async function decorate<R extends CommonRow>(db: Db, rows: R[]): Promise<{ row: 
       mergedIntoCode: r.mergedIntoId ? (codeOf.get(r.mergedIntoId) ?? null) : null,
       taskIds: tasksOf.get(r.id) ?? [],
       deletedTaskCodes: deletedCodes.get(r.id) ?? [],
+      // Area 8, F3 (S6): la conversazione di Support da cui è nata, derivata a lettura.
+      origin: originOf.get(r.id) ?? null,
       createdAt: r.createdAt.toISOString(),
       suggestions: suggested
         ? {

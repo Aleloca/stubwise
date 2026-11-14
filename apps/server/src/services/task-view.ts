@@ -31,6 +31,7 @@ import {
   type TicketSource,
   type TicketType,
 } from "@stubwise/shared";
+import { supportCodesForTickets } from "./support-links.js";
 import { and, asc, desc, eq, gte, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import {
   inProjects,
@@ -310,6 +311,8 @@ export async function loadTaskViews(
     return map;
   };
   const followersOf = group(followers);
+  // Area 8, F3 (S-9): la conversazione del widget da cui è nata, per «View conversation».
+  const supportCodeOf = await supportCodesForTickets(db, ids);
   const linksOf = new Map<string, typeof links>();
   for (const l of links) linksOf.set(l.sourceTicketId, [...(linksOf.get(l.sourceTicketId) ?? []), l]);
   const filesOf = group(files);
@@ -377,6 +380,7 @@ export async function loadTaskViews(
       assigneeStatus: t.assigneeId ? "active" : null,
       canPlan: canPlanOf(t),
       claudeRun: null,
+      supportConversationCode: supportCodeOf.get(t.id) ?? null,
     },
   }));
 }

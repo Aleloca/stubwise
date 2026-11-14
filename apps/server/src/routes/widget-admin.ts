@@ -1,9 +1,9 @@
-import { widgetRepositoryFiltersSchema, widgetUpsertBodySchema } from "@stubwise/shared";
+import { widgetAdminSchema, widgetRepositoryFiltersSchema, widgetUpsertBodySchema } from "@stubwise/shared";
 import { and, asc, desc, eq, exists, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import type { RouteAccess } from "../auth/access.js";
+import { projectPermissionsFor, type RouteAccess } from "../auth/access.js";
 import { fromParam } from "../auth/project-resolvers.js";
 import {
   repositories,
@@ -27,29 +27,17 @@ const CONVERSATIONS_LIMIT_MAX = 200;
  * cookie). Campi elencati esplicitamente, mai spread della riga (che porterebbe
  * `projectId`, interno all'API).
  */
-const widgetSchema = z.object({
-  id: z.uuid(),
-  name: z.string(),
-  key: z.string(),
-  enabled: z.boolean(),
-  enabledRepositoryIds: z.array(z.uuid()),
-  // Filtro FINE per-repo (path filter): chiavi ⊆ enabledRepositoryIds (garantito
-  // in scrittura). Round-trip completo verso la SPA.
-  repositoryFilters: widgetRepositoryFiltersSchema,
-  title: z.string(),
-  welcomeMessage: z.string(),
-  // Istruzioni aggiuntive per il system prompt della chat (interne: non esposte
-  // sulla superficie pubblica del widget, solo su questa superficie SPA admin).
-  instructions: z.string(),
-  accentColor: z.string(),
-  language: z.string(),
-  dailyMessageCap: z.number().int().nullable(),
-  dailyTicketCap: z.number().int().nullable(),
-  createdAt: z.iso.datetime(),
-  conversationCount: z.number().int(),
-});
+// La forma di un widget sta in `@stubwise/shared` (`widgetAdminSchema`), la stessa del client.
+const widgetSchema = widgetAdminSchema;
 
 type WidgetRow = typeof widgets.$inferSelect;
+
+/** Il corpo senza `origins`, che in tabella si chiama `allowed_origins`. */
+function withoutOrigins<T extends { origins?: unknown }>(body: T): Omit<T, "origins"> {
+  const rest: T = { ...body };
+  delete rest.origins;
+  return rest;
+}
 
 /**
  * Proiezione di una riga widget + conteggio conversazioni verso lo schema
@@ -75,6 +63,7 @@ function toPublicWidget(row: WidgetRow, conversationCount: number): z.infer<type
     dailyTicketCap: row.dailyTicketCap,
     createdAt: row.createdAt.toISOString(),
     conversationCount,
+    origins: row.allowedOrigins,
   };
 }
 
@@ -140,7 +129,7 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
       schema: {
         params: idParamsSchema,
         response: {
-          200: z.object({ widgets: z.array(widgetSchema) }),
+          200: z.object({ widgets: z.array(widgetSchema), canManage: z.boolean() }),
           404: errorSchema,
           ...authErrorResponses,
         },
@@ -162,7 +151,12 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
         // Ordine stabile: createdAt asc, tiebreaker sull'id al bordo del limit.
         .orderBy(asc(widgets.createdAt), asc(widgets.id));
 
-      return { widgets: rows.map((r) => toPublicWidget(r.widget, r.conversationCount)) };
+      // Area 8, F3: chi guarda può gestirli? (l'app nasconde la sezione senza).
+      const permissions = await projectPermissionsFor(app.db, request.user!, projectId);
+      return {
+        widgets: rows.map((r) => toPublicWidget(r.widget, r.conversationCount)),
+        canManage: permissions?.has("widget.manage") ?? false,
+      };
     },
   );
 
@@ -207,7 +201,8 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
         .insert(widgets)
         // body per primo: projectId e key non devono mai essere sovrascrivibili
         // dal client, nemmeno se lo schema diventasse passthrough.
-        .values({ ...body, projectId, key: generateIngestionKey() })
+        // `origins` (area 8, F3, S16) è la colonna `allowed_origins`; assente = vuoto.
+        .values({ ...withoutOrigins(body), allowedOrigins: body.origins ?? [], projectId, key: generateIngestionKey() })
         .returning();
       if (!row) throw new Error("insert del widget non ha restituito la riga");
       // Widget appena creato: nessuna conversazione ancora collegata.
@@ -262,7 +257,8 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
 
       const [row] = await app.db
         .update(widgets)
-        .set(body)
+        // `origins` assente (un client che non lo conosce) lascia l'elenco com'è.
+        .set({ ...withoutOrigins(body), ...(body.origins !== undefined ? { allowedOrigins: body.origins } : {}) })
         .where(and(eq(widgets.id, widgetId), eq(widgets.projectId, projectId)))
         .returning();
       if (!row) throw new Error("update del widget non ha restituito la riga");

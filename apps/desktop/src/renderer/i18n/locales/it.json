@@ -10914,6 +10914,7 @@
           "reports": "Report",
           "mail": "Posta",
           "automations": "Automazioni",
+          "support": "Supporto",
           "chat": "Chat"
         },
         "source": {
@@ -12402,7 +12403,8 @@
       "backlog_merge": "Unione dei documenti del backlog",
       "plugin_smoke": "Smoke test dei plugin",
       "credential_test": "Prove degli account",
-      "usage_probe": "Letture della quota"
+      "usage_probe": "Letture della quota",
+      "support_triage_check": "Supporto: giudizio sul triage"
     }
   },
   "instanceEffects": {

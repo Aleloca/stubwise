@@ -176,12 +176,13 @@ export async function confirmTicket(
   base: WidgetApiBase,
   conversationId: string,
   body: WidgetTicketConfirm,
-): Promise<{ ticketId: string; number: number }> {
+): Promise<{ ticketId: string; number: number; conversationId?: string }> {
   const response = await fetch(url(base, `/conversations/${conversationId}/tickets`), {
     method: "POST",
     headers: headers(base, true),
     body: JSON.stringify(body),
   });
   if (!response.ok) await throwApiError(response);
-  return (await response.json()) as { ticketId: string; number: number };
+  // `conversationId` (area 8, F3, S17): dove è finita la conferma; assente da un server più vecchio.
+  return (await response.json()) as { ticketId: string; number: number; conversationId?: string };
 }

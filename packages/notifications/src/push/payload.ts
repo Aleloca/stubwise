@@ -57,6 +57,7 @@ export const PUSH_TITLE_KEY: Record<NotificationKind, string> = {
   "pr.analysis_issues": "push.title.pr.analysis_issues",
   "pr.corrected": "push.title.pr.corrected",
   "docs.release_note": "push.title.docs.release_note",
+  "support.request": "push.title.support.request",
   "monitor.recovered": "push.title.monitor.recovered",
   "job.awaiting_input": "push.title.job.awaiting_input",
   "project.pulse": "push.title.project.pulse",

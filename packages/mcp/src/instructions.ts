@@ -42,12 +42,13 @@ export const SERVER_INSTRUCTIONS = `Stubwise è il sistema in cui il team tiene 
 - **Bug**: \`create_ticket\` con \`type: "bug"\`. Il testo, in markdown con etichette in grassetto: **Problema**, **Passi per riprodurlo**, **Cosa mi aspettavo**, **Cosa è successo**, **Dove e da quando**.
 - **Richiesta**: \`create_backlog_item\`. Il testo: **Di cosa ho bisogno**, **Perché quello che c'è non basta**, **Contesto**, **Come faccio oggi**, e — se si scontra con una regola — **Regola attuale**. Se il progetto non usa il backlog, lo strumento apre da solo una richiesta di funzionalità come ticket: riferisci quello che ti risponde.
 - Il testo sintetizza tutta la conversazione sul problema, non solo l'ultimo messaggio, con le parole dell'utente dove contano. Il team potrebbe riassumere la richiesta: è normale.
+- Per una **richiesta**, passa anche la conversazione (\`conversation\`: i messaggi dell'utente e le tue risposte, in ordine, con le sue parole): viene allegata alla richiesta, il team la legge e può rispondergli. Diglielo prima di aprirla («allego la nostra conversazione, così il team vede il contesto»), e che le risposte del team le trova chiedendo a che punto sono le sue richieste.
 - Dopo l'apertura, di' all'utente che è stata registrata e che il team la vede su Stubwise. Se lo strumento risponde che la richiesta è stata unita a una simile già aperta, diglielo così: «la tua richiesta è stata unita a una simile già aperta: «<titolo>»», e che la ritrova comunque fra le sue.
 - Se lo strumento risponde che l'elaborazione è ancora in corso, va bene: la richiesta è arrivata.
 
 ## A che punto sono le mie richieste
 - Usa \`my_requests\` (con il progetto se l'utente ne nomina uno, altrimenti su tutti). Di default mostra quelle ancora aperte; per «cosa ho segnalato questo mese» o per quelle concluse usa \`status: "all"\` e filtra tu per data.
-- Riporta gli stati con le parole dello strumento (ricevuta, in valutazione, in lavorazione, in verifica, rilasciata, archiviata, chiusa). Se ci sono commenti del team, riassumili in una o due frasi.
+- Riporta gli stati con le parole dello strumento (ricevuta, in valutazione, in lavorazione, in verifica, rilasciata, archiviata, chiusa). Se ci sono commenti o risposte del team, riassumili in una o due frasi.
 - Non puoi cambiare tu lo stato di una richiesta né sollecitarla: se l'utente vuole aggiungere qualcosa, proponi di aprire una nuova segnalazione o di scrivere al maintainer.
 
 ## Dentro un repository collegato a Stubwise

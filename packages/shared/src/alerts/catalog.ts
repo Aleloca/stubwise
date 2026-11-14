@@ -26,7 +26,6 @@ export const ALERT_GROUPS: readonly AlertGroup[] = [
 export type MandatoryReason =
   | "merged"
   | "pr_author"
-  | "follows_conversation"
   | "task_author"
   | "assignee";
 
@@ -119,9 +118,6 @@ export const ALERT_TYPES: readonly AlertType[] = [
   row("task.created", "tasks", "tickets.view_all", "off", false),
   row("task.created_by_automation", "tasks", "tickets.view_all", "off", false, ["assignee"]),
   row("support.request", "support", "backlog.view_all", { perm: "backlog.edit" }, false),
-  row("support.customer_replied", "support", "member", { perm: "support.reply" }, true, [
-    "follows_conversation",
-  ]),
   row("job.pr_opened", "prs", "member", "members", false),
   row("review.completed", "prs", "member", "members", false),
   row("ticket.created", "tasks", "member", "members", false, [], { sameRowAs: "task.created" }),
@@ -168,6 +164,8 @@ export const LIVE_ALERT_TYPES: readonly string[] = [
   "pr.corrected",
   "monitor.alert",
   "monitor.recovered",
+  // Area 8, F3, S7 (72): la richiesta nata da una conversazione.
+  "support.request",
 ];
 
 export const alertTypeOf = (kind: string): AlertType | undefined =>

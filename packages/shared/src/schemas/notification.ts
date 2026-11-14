@@ -77,6 +77,9 @@ export const notificationKindSchema = z.enum([
   "pr.analysis_issues",
   "pr.corrected",
   "docs.release_note",
+  // Area 8, fetta 3 (0179): Support. Una richiesta nata da una conversazione,
+  // nel catalogo degli avvisi.
+  "support.request",
 ]);
 
 /**

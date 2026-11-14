@@ -62,6 +62,21 @@ export const projectRequestViewSchema = z.object({
    * dalla lapide a lettura; default per un server più vecchio.
    */
   deletedTaskCodes: z.array(z.string()).default([]),
+  /**
+   * Area 8, F3: da dove viene — una conversazione di Support (widget o Claude
+   * Code); la conversazione si legge per codice. Derivata a lettura; null per
+   * le altre e da un server più vecchio.
+   */
+  origin: z
+    .object({
+      kind: z.literal("support"),
+      conversationCode: z.string(),
+      channel: z.enum(["widget", "mcp"]),
+      customerName: z.string().nullable().default(null),
+      messageCount: z.number().int().nonnegative(),
+    })
+    .nullable()
+    .default(null),
   createdAt: z.iso.datetime(),
   /** Le proposte dell'intake ancora da decidere (testo dell'AI), o null. */
   suggestions: z
