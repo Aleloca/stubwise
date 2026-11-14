@@ -274,3 +274,52 @@ export const serverDiagnosisReportSchema = z
   })
   .strict();
 export type ServerDiagnosisReport = z.infer<typeof serverDiagnosisReportSchema>;
+
+// --- Il piano di correzione, validato (area 8, F4b, S6) ----------------------
+
+export type PlanValidation =
+  | { ok: true; plan: ServerPlan }
+  | {
+      ok: false;
+      reason: "schema" | "unknown_container" | "container_of_other_project" | "container_not_of_project" | "prune_on_shared_server";
+      step: number | null;
+    };
+
+/**
+ * Un piano proposto (contenuto del modello: NON fidato) diventa una proposta
+ * salvabile solo se: è nello schema chiuso (solo azioni che cambiano, 1–10
+ * passi, parametri stretti); ogni container è VISTO sul server ed è legato a
+ * un ambiente del progetto ATTRIBUITO (la lista dell'ambiente, o il nome
+ * dell'ambiente se la lista è vuota) e a nessun altro progetto; una pulizia
+ * (`docker.prune`, che tocca tutto il server) solo su un server che usa
+ * SOLTANTO quel progetto. Il testo libero non diventa mai un comando.
+ */
+export function validateServerPlan(input: {
+  plan: unknown;
+  projectId: string;
+  serverProjects: AttributionInput["serverProjects"];
+  seenContainers: readonly string[];
+}): PlanValidation {
+  const parsed = serverPlanSchema.safeParse(input.plan);
+  if (!parsed.success) return { ok: false, reason: "schema", step: null };
+  const seen = new Set(input.seenContainers);
+  const owners = new Map<string, Set<string>>();
+  for (const p of input.serverProjects) {
+    for (const env of p.environments) {
+      for (const c of env.containers.length > 0 ? env.containers : [env.name]) owners.set(c, (owners.get(c) ?? new Set()).add(p.projectId));
+    }
+  }
+  const shared = input.serverProjects.some((p) => p.projectId !== input.projectId);
+  for (const [i, step] of parsed.data.steps.entries()) {
+    if (step.action === "docker.prune") {
+      if (shared) return { ok: false, reason: "prune_on_shared_server", step: i };
+      continue;
+    }
+    const container = (step.params as { container: string }).container;
+    if (!seen.has(container)) return { ok: false, reason: "unknown_container", step: i };
+    const of = owners.get(container) ?? new Set<string>();
+    if ([...of].some((id) => id !== input.projectId)) return { ok: false, reason: "container_of_other_project", step: i };
+    if (!of.has(input.projectId)) return { ok: false, reason: "container_not_of_project", step: i };
+  }
+  return { ok: true, plan: parsed.data };
+}

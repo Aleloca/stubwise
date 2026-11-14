@@ -186,3 +186,45 @@ describe("gli strumenti dell'analisi (S5)", () => {
     expect(serverDiagnosisReportSchema.safeParse({ ...ok, fix: { steps: [step] } }).success).toBe(true);
   });
 });
+
+describe("validateServerPlan (S6): una proposta salvabile, o perché no", () => {
+  const ctx = async () => {
+    const { validateServerPlan } = await import("./operations.js");
+    const serverProjects = [
+      { projectId: "A", projectCode: "AAA", environments: [{ name: "production", containers: ["web-a"] }] },
+      { projectId: "B", projectCode: "BBB", environments: [{ name: "staging", containers: [] }] },
+    ];
+    const v = (plan: unknown, projectId = "A", projects = serverProjects) =>
+      validateServerPlan({ plan, projectId, serverProjects: projects, seenContainers: ["web-a", "staging", "other"] });
+    return { v, serverProjects };
+  };
+  const step = (action: string, params: object) => ({ action, params, why: "perché" });
+
+  it("un riavvio di un container del progetto: ok", async () => {
+    const { v } = await ctx();
+    expect(v({ steps: [step("container.restart", { container: "web-a", timeoutSeconds: 10 })] })).toMatchObject({ ok: true });
+  });
+
+  it("NEGATIVO: fuori schema (rilascio, shell, parametro in più, lettura), container mai visto, di un altro progetto, di nessun progetto", async () => {
+    const { v } = await ctx();
+    expect(v({ steps: [step("image.pull", { image: "x" })] })).toMatchObject({ ok: false, reason: "schema" });
+    expect(v({ steps: [step("container.restart", { container: "web-a; rm -rf /", timeoutSeconds: 10 })] })).toMatchObject({ ok: false, reason: "schema" });
+    expect(v({ steps: [step("container.start", { container: "web-a", cmd: "sh" })] })).toMatchObject({ ok: false, reason: "schema" });
+    expect(v({ steps: [step("container.logs", { container: "web-a", lines: 5, sinceMinutes: 5 })] })).toMatchObject({ ok: false, reason: "schema" });
+    expect(v({ steps: [step("container.start", { container: "ghost" })] })).toMatchObject({ ok: false, reason: "unknown_container", step: 0 });
+    // `staging` è il container di B per il nome dell'ambiente (lista vuota).
+    expect(v({ steps: [step("container.restart", { container: "web-a", timeoutSeconds: 5 }), step("container.stop", { container: "staging", timeoutSeconds: 5 })] })).toMatchObject({
+      ok: false,
+      reason: "container_of_other_project",
+      step: 1,
+    });
+    expect(v({ steps: [step("container.start", { container: "other" })] })).toMatchObject({ ok: false, reason: "container_not_of_project" });
+  });
+
+  it("una pulizia solo su un server di un solo progetto", async () => {
+    const { v, serverProjects } = await ctx();
+    const prune = { steps: [step("docker.prune", { what: "build_cache" })] };
+    expect(v(prune)).toMatchObject({ ok: false, reason: "prune_on_shared_server" });
+    expect(v(prune, "A", [serverProjects[0]!])).toMatchObject({ ok: true });
+  });
+});
