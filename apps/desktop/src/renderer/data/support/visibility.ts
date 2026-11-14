@@ -109,6 +109,16 @@ export interface SupportConversationView extends Omit<
   request: SupportRequestView | null;
   /** Solo con `support.reply`; per gli altri sempre `null`. */
   claudeDraft: string | null;
+  /**
+   * Build app (area 8, F3): una bozza di Claude è in arrivo (una raffica del
+   * cliente, o «Ask Claude» accodato). Il prototipo la scrive subito: assente.
+   */
+  claudeDraftPending?: boolean;
+  /**
+   * Build app (area 8, F3): l'esito è un TICKET aperto dal widget (nessuna
+   * richiesta). Il prototipo non ne ha: assente.
+   */
+  task?: { id: string; code: string; title: string; customerStatus: CustomerStatus } | null;
   following: boolean;
   /** Cosa può fare chi guarda, deciso qui (il client non lo deduce). */
   canReply: boolean;
