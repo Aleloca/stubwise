@@ -2,6 +2,7 @@ import { attributeServerCause, notificationKindSchema } from "@stubwise/shared";
 import { describe, expect, it } from "vitest";
 import type { StallReason } from "../domain/stalled";
 import { stallOf } from "../domain/stalled";
+import { inClosedSet } from "../domain/servers/commands";
 import { serverProjectsOf } from "../domain/servers/projects";
 import { TEMPLATE_MODULES } from "../domain/templates";
 import { compareWeeks } from "../domain/weeks";
@@ -2596,12 +2597,22 @@ describe("seed: server (area 8b)", () => {
     expect(down[0]!.latencyMs).toBeNull();
   });
 
-  it("SRV-1 (ACQ): accesso verificato su entrambi, episodio di memoria coerente con gli avvisi del seme", () => {
+  it("SRV-1 (ACQ): accesso di sola lettura verificato, operazioni dell'agente accese, episodio di memoria coerente con gli avvisi del seme", () => {
     const a = accessOf("SRV-1")!;
-    expect(a.keys).not.toBeNull();
+    expect(a.key).not.toBeNull();
     expect(a.pending).toBeNull();
     expect(a.revokedAt).toBeNull();
-    expect(a.verification).toMatchObject({ read: "ok", fix: "ok", reason: null, ofPending: false });
+    expect(a.verification).toMatchObject({
+      login: "ok",
+      sudo: false,
+      docker: false,
+      journal: true,
+      ok: true,
+      reason: null,
+      ofPending: false,
+    });
+    // Area 8, F4b: solo l'agente di SRV-1 ha le operazioni accese.
+    expect(SERVERS.filter((s) => s.agentOperations).map((s) => s.code)).toEqual(["SRV-1"]);
     const [ep, ...rest] = episodesOf("SRV-1");
     expect(rest).toEqual([]);
     expect(ep!.severity).toBe("trouble");
@@ -2662,22 +2673,23 @@ describe("seed: server (area 8b)", () => {
       expect(e).toMatchObject({ tool: "server.read", state: "done" });
       expect(e.input).toBeTruthy();
       expect(e.result).toBeTruthy();
-      // Nessun comando che scrive o che legge l'ambiente dei container.
-      expect(e.input).not.toMatch(/docker (inspect|restart|rm|exec)|\brm\b|\bkill\b/);
+      // Solo letture degli insiemi chiusi (F4b): mai sudo, mai docker via SSH.
+      expect(e.serverCommand).toMatchObject({ kind: "read", approvalId: null });
+      expect(inClosedSet(e.serverCommand!)).toBe(true);
+      expect(e.input).not.toMatch(/\bsudo\b|\bdocker\b|\brm\b|\bkill\b/);
     }
     const result = events.find((e) => e.type === "work_result")!;
     expect(result).toMatchObject({
       kind: "server_diagnosis",
       link: `#/p/ACQ/tasks?task=${SERVER_TASK_CODE}`,
     });
-    // L'ultimo uso dell'accesso di lettura è l'analisi; quello di correzione non c'è mai stato.
+    // L'ultimo uso dell'accesso (di sola lettura) è l'analisi.
     const a = accessOf("SRV-1")!;
-    expect(a.lastUse.read).toEqual({
+    expect(a.lastUse).toEqual({
       at: expect.any(String),
       ref: { kind: "analysis", analysisId: an.id },
     });
-    expect(a.lastUse.read!.at >= an.startedAt && a.lastUse.read!.at <= an.endedAt!).toBe(true);
-    expect(a.lastUse.fix).toBeUndefined();
+    expect(a.lastUse!.at >= an.startedAt && a.lastUse!.at <= an.endedAt!).toBe(true);
   });
 
   it("SRV-1: la task è la prossima di ACQ, bug, senza incaricato, di Claude, legata al server", () => {
@@ -2736,12 +2748,12 @@ describe("seed: server (area 8b)", () => {
     expect(n.body).toMatch(/no SSH access/);
   });
 
-  it("SRV-3 (AUD, audin-app): in salute, accesso in attesa del comando (chiavi generate, mai verificate)", () => {
+  it("SRV-3 (AUD, audin-app): in salute, accesso in attesa del comando (chiave generata, mai verificata)", () => {
     const a = accessOf("SRV-3")!;
-    expect(a.keys).toBeNull();
+    expect(a.key).toBeNull();
     expect(a.pending).not.toBeNull();
     expect(a.verification).toBeNull();
-    expect(a.lastUse).toEqual({});
+    expect(a.lastUse).toBeNull();
     expect(a.revokedAt).toBeNull();
     // Il vecchio episodio (agente muto) è rientrato da giorni: oggi è in salute.
     const [old, ...rest] = episodesOf("SRV-3");
@@ -2760,20 +2772,18 @@ describe("seed: server (area 8b)", () => {
     expect(episodesOf("SRV-4")).toEqual([]);
   });
 
-  it("chiavi pubbliche ssh-ed25519 col commento dell'utente; nessuna chiave privata nel seme", () => {
+  it("chiavi pubbliche ssh-ed25519 dell'unico utente di lettura; nessuna chiave privata nel seme", () => {
     expect(SERVER_ACCESS.map((a) => a.serverCode)).toEqual(["SRV-1", "SRV-3"]);
     for (const a of SERVER_ACCESS) {
-      for (const pair of [a.keys, a.pending]) {
-        if (!pair) continue;
-        for (const kind of ["read", "fix"] as const) {
-          expect(pair[kind].publicKey).toMatch(
-            new RegExp(`^ssh-ed25519 AAAA[A-Za-z0-9+/]+ stubwise-${kind}@${a.serverCode}$`),
-          );
-          expect(pair[kind].fingerprint).toMatch(/^SHA256:[A-Za-z0-9+/]{43}$/);
-        }
-        expect(pair.read.publicKey).not.toBe(pair.fix.publicKey);
+      for (const key of [a.key, a.pending]) {
+        if (!key) continue;
+        expect(key.publicKey).toMatch(
+          new RegExp(`^ssh-ed25519 AAAA[A-Za-z0-9+/]+ stubwise-read@${a.serverCode}$`),
+        );
+        expect(key.fingerprint).toMatch(/^SHA256:[A-Za-z0-9+/]{43}$/);
       }
     }
+    expect(JSON.stringify(SERVER_ACCESS)).not.toMatch(/stubwise-fix|"fix"/);
     const all = JSON.stringify([SERVERS, SERVER_ACCESS, SERVER_CONVERSATIONS, SERVER_TASKS]);
     expect(all).not.toMatch(/PRIVATE KEY/);
   });

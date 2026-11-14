@@ -191,12 +191,13 @@ export function instanceRowOf(v: View, now: string): InstanceServerRow | null {
 /** L'accesso SSH è della F4b: nella build app è sempre «non collegato», e il pannello non c'è. */
 const NO_ACCESS: SshAccessView = {
   state: "not_linked",
-  read: null,
-  fix: null,
+  username: "stubwise-read",
+  key: null,
   pending: null,
   verification: null,
-  usable: { read: false, fix: false },
-  lastUse: { read: null, fix: null },
+  usable: false,
+  journal: false,
+  lastUse: null,
   revokedAt: null,
   canManage: false,
 };
@@ -241,6 +242,8 @@ export function detailOf(d: Reader<ServerDetailShape>, now: string): ServerDetai
   return {
     ...row,
     access: NO_ACCESS,
+    // Area 8, F4b: dichiarazione dell'agente, di base spenta.
+    agentOperations: d.agentOperations,
     agentVersion: d.agentVersion,
     lastSeenAt: d.lastSeenAt,
     sampleIntervalSeconds: d.sampleIntervalSeconds,

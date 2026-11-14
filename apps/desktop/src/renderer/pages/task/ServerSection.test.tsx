@@ -1,7 +1,18 @@
 import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { decidePlan, resetApi, servers, setLatency, setStreamLatency, stop } from "../../data/api";
+import {
+  createProject,
+  decidePlan,
+  releases,
+  resetApi,
+  servers,
+  setLatency,
+  setStreamLatency,
+  stop,
+} from "../../data/api";
+import { createTaskAs } from "../../data/api-mutations";
+import { CLAUDE_ID } from "../../data/seed/people";
 import { whenFixesIdle } from "../../data/servers/fix";
 import { setSessionPersonId } from "../../data/session";
 import { eventsOf, state } from "../../data/store";
@@ -10,12 +21,15 @@ import { setLanguage } from "../../i18n";
 import { renderRoute } from "../../test/renderRoute";
 import { setMatchMedia } from "../../test/setup";
 
-// La task di un server (Task 9 del piano 8b, shape server-task.md): la
-// sezione «Server» in testa al pannello, l'avvio con le due condizioni
-// sempre scritte, la scheda del piano della correzione (mai in anticipo,
-// approvazione spenta col motivo), il registro dei comandi con l'uscita
-// lunga in finestra, il controllo finale in parole; la sessione d'analisi
-// nella destinazione Claude; «Link SSH access» sull'avviso senza accesso.
+// La task di un server (Task 9 del piano 8b, shape server-task.md; area 8,
+// F4b): la sezione «Server» in testa al pannello, l'avvio con le due
+// condizioni sempre scritte, la scheda del piano della correzione — SOLO
+// azioni dell'insieme chiuso, tradotte, nessun campo libero, mai in
+// anticipo, approvazione spenta col motivo, l'avviso su un server condiviso
+// PRIMA di approvare «libera spazio» — il registro dei comandi con l'uscita
+// lunga in finestra e NON fidata (testo, mai link), il controllo finale in
+// parole; la sessione d'analisi nella destinazione Claude; «Link SSH access»
+// sull'avviso senza accesso.
 
 const TASK = "t-acq-srv-1"; // ACQ-6, la diagnosi di SRV-1 (seme)
 const CODE = "ACQ-6";
@@ -52,10 +66,11 @@ async function startAs(me: string): Promise<string> {
 
 const fixConversation = () => state.conversations.find((c) => c.serverFix)!.id;
 
+const isChange = (e: ConversationEvent): e is Extract<ConversationEvent, { type: "action" }> =>
+  e.type === "action" && e.serverCommand?.kind === "change";
 const fixCommands = () =>
-  state.conversations
-    .flatMap((c) => eventsOf(c.id))
-    .filter((e) => e.type === "action" && e.access === "fix").length;
+  state.conversations.flatMap((c) => eventsOf(c.id)).filter(isChange).length;
+const srv1 = () => state.servers.find((s) => s.code === "SRV-1")!;
 
 describe("sezione Server: il budget del mese (area 9b, shape instance-effects)", () => {
   it("«Start fix on the server» spento con la frase del budget e «Who?»", async () => {
@@ -78,7 +93,7 @@ describe("sezione Server", () => {
     expect(section).toHaveTextContent(/Memory above 90% · .*18:00 → 20:00 \(back to normal\)/);
     expect(section).toHaveTextContent("Diagnosis ready");
     expect(section).toHaveTextContent("Suggested fix:");
-    expect(section).toHaveTextContent(/Limit the portale-import container to 2 GB/);
+    expect(section).toHaveTextContent(/Restart the portale-import container/);
     expect(within(section).getByRole("link", { name: /Read the analysis/ })).toHaveAttribute(
       "href",
       expect.stringContaining("/claude/cv-srv-1-analysis"),
@@ -104,7 +119,7 @@ describe("sezione Server", () => {
         "1. Only people allowed to operate ACQ's servers can start it.",
       );
       expect(section).toHaveTextContent(
-        "2. Claude writes a plan first. Nothing runs on SRV-1 until someone who can approve plans in ACQ approves it — even you.",
+        "2. Claude writes a plan of allowed actions first. Nothing runs on SRV-1 until someone who can approve plans in ACQ approves it — even you.",
       );
       document.body.innerHTML = "";
     }
@@ -114,7 +129,7 @@ describe("sezione Server", () => {
     expect(laura).toHaveTextContent(
       "1. Only people allowed to operate ACQ's servers can start it.",
     );
-    expect(laura).toHaveTextContent(/2\. Claude writes a plan first/);
+    expect(laura).toHaveTextContent(/2\. Claude writes a plan of allowed actions first/);
   });
 
   it("Roberta avvia dal dialogo: piano da approvare anche per lei, nessun anticipo, nessun comando", async () => {
@@ -122,7 +137,10 @@ describe("sezione Server", () => {
     const section = await openTask("p-roberta");
     await user.click(within(section).getByRole("button", { name: "Start fix on the server" }));
     const dialog = await screen.findByRole("dialog", { name: "Start a fix on SRV-1?" });
-    expect(dialog).toHaveTextContent("stubwise-fix, which can do anything on SRV-1");
+    expect(dialog).toHaveTextContent(
+      "The agent runs only the allowed actions, one at a time — restart, stop or start a container, free up space — and only after the plan is approved.",
+    );
+    expect(dialog).not.toHaveTextContent(/stubwise-fix|can do anything/);
     // Il campo facoltativo «Notes for Claude» (shape server-task §2).
     await user.type(
       within(dialog).getByRole("textbox", { name: "Notes for Claude" }),
@@ -139,11 +157,13 @@ describe("sezione Server", () => {
       expect(serverSection()).toHaveTextContent("Fix plan waiting for your approval"),
     );
     const plan = await within(claudeSection()).findByRole("region", { name: "Fix plan for SRV-1" });
-    expect(plan).toHaveTextContent("Runs as stubwise-fix: it can do anything on SRV-1.");
+    expect(plan).toHaveTextContent(
+      "The monitoring agent on SRV-1 runs these actions, one at a time. Nothing else can run.",
+    );
     expect(plan).toHaveTextContent(
       "A plan that releases — pull, image update, deploy — must be rejected. Releases go through Releases.",
     );
-    expect(plan).toHaveTextContent("You started this fix. Approving runs the commands on SRV-1.");
+    expect(plan).toHaveTextContent("You started this fix. Approving runs the actions on SRV-1.");
     expect(within(plan).getByRole("button", { name: "Approve the plan" })).toBeEnabled();
     expect(within(plan).getByRole("button", { name: "Reject with instructions" })).toBeEnabled();
     expect(claudeSection()).toHaveTextContent("Fix on SRV-1 · waiting for your approval");
@@ -185,34 +205,100 @@ describe("sezione Server", () => {
     expect(serverSection()).not.toHaveTextContent("deleted");
   });
 
-  it("il piano mostra i comandi previsti uno per uno, col perché, senza aprire niente", async () => {
+  it("il piano mostra SOLO le azioni dell'insieme chiuso, tradotte, col perché; nessun comando né campo libero", async () => {
     const id = await startAs("p-marco");
     const event = eventsOf(id).find((e) => e.type === "plan") as Extract<
       ConversationEvent,
       { type: "plan" }
     >;
-    expect(event.commands?.length).toBeGreaterThan(0);
+    expect(event.serverPlan?.steps.length).toBeGreaterThan(0);
     await openTask("p-laura");
     const plan = await within(claudeSection()).findByRole("region", { name: "Fix plan for SRV-1" });
-    const list = within(plan).getByRole("list", { name: "Commands to run on SRV-1" });
+    const list = within(plan).getByRole("list", { name: "Actions on SRV-1" });
     const items = within(list).getAllByRole("listitem");
-    expect(items).toHaveLength(event.commands!.length);
-    event.commands!.forEach((c, i) => {
-      expect(items[i]).toHaveTextContent(c.input);
-      expect(items[i]).toHaveTextContent(c.why);
-    });
-    // Il piano intero resta chiuso: i comandi si leggono senza clic.
+    expect(items).toHaveLength(event.serverPlan!.steps.length);
+    expect(items[0]).toHaveTextContent("Restart portale-import (stopping it waits up to 30 s)");
+    event.serverPlan!.steps.forEach((step, i) => expect(items[i]).toHaveTextContent(step.why));
+    // Nessuna riga di comando a vista, nessun campo per scriverne una.
+    expect(list.querySelector("code")).toBeNull();
+    expect(list).not.toHaveTextContent(/container\.restart|sudo|docker /);
+    expect(within(plan).queryByRole("textbox")).toBeNull();
+    // Il piano intero resta chiuso: le azioni si leggono senza clic.
     expect(within(plan).getByRole("button", { name: "Read the full plan" })).toBeInTheDocument();
+    // In italiano le azioni sono tradotte.
+    act(() => setLanguage("it"));
+    try {
+      await waitFor(() =>
+        expect(
+          within(claudeSection()).getByRole("list", { name: "Azioni su SRV-1" }),
+        ).toHaveTextContent("Riavvia portale-import (per fermarlo aspetta fino a 30 s)"),
+      );
+    } finally {
+      act(() => setLanguage("en"));
+    }
   });
 
-  it("accesso revocato col piano in attesa: Approve spento col motivo, Reject attivo", async () => {
-    await startAs("p-marco");
+  it("server condiviso: l'avviso su «libera spazio» c'è PRIMA di approvare, coi progetti che chi guarda vede", async () => {
     setSessionPersonId("p-roberta");
-    await servers.revokeSshAccess("SRV-1");
+    const other = await createProject({ code: "SHOP", name: "Shop", template: "software" });
+    await releases.createEnvironment(other.id, {
+      name: "Production",
+      kind: "production",
+      url: null,
+      servers: [{ repositoryId: null, serverCode: "SRV-1" }],
+    });
+    const ep = {
+      id: "ep-ui-disk",
+      serverCode: "SRV-1",
+      severity: "trouble" as const,
+      reasons: [{ kind: "disk" as const, valuePct: 96, thresholdPct: 90 }],
+      startedAt: "2026-11-14T10:00:00Z",
+      recoveredAt: null,
+      analysisId: null,
+    };
+    state.serverEpisodes.push(ep);
+    const task = createTaskAs(
+      CLAUDE_ID,
+      { projectId: "prj-acq", title: "Disk full on acq-prod-01", type: "bug" },
+      { source: "server", serverRef: { serverCode: "SRV-1", episodeId: ep.id } },
+    );
+    setSessionPersonId("p-roberta");
+    const c = await servers.startServerFix(task.id);
+    await whenFixesIdle();
+    expect(eventsOf(c.id).some((e) => e.type === "plan")).toBe(true);
+    renderRoute(`/p/ACQ/tasks?task=${task.code}`, "p-roberta");
+    const dialog = await screen.findByRole("dialog", { name: `Task ${task.code}` });
+    const plan = await waitFor(() =>
+      within(within(dialog).getByRole("region", { name: "Claude" })).getByRole("region", {
+        name: "Fix plan for SRV-1",
+      }),
+    );
+    const warning = within(plan).getByRole("note", { name: "SRV-1 is shared" });
+    expect(warning).toHaveTextContent(
+      "Freeing up space touches the whole server: SRV-1 is also used by Shop.",
+    );
+    // Prima dei bottoni di decisione.
+    const approve = within(plan).getByRole("button", { name: "Approve the plan" });
+    expect(
+      warning.compareDocumentPosition(approve) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(fixCommands()).toBe(0);
+  });
+
+  it("server non condiviso: nessun avviso", async () => {
+    await startAs("p-roberta");
+    await openTask("p-roberta");
+    const plan = await within(claudeSection()).findByRole("region", { name: "Fix plan for SRV-1" });
+    expect(within(plan).queryByRole("note", { name: /is shared/ })).toBeNull();
+  });
+
+  it("operazioni dell'agente spente col piano in attesa: Approve spento col motivo, Reject attivo", async () => {
+    await startAs("p-marco");
+    srv1().agentOperations = false;
     await openTask("p-laura");
     const plan = await within(claudeSection()).findByRole("region", { name: "Fix plan for SRV-1" });
     expect(plan).toHaveTextContent(
-      "Fix access to SRV-1 was revoked. Link it again to approve this plan.",
+      "The agent on SRV-1 doesn't have operations on. Re-run its install command with operations on to approve this plan.",
     );
     expect(within(plan).getByRole("button", { name: "Approve the plan" })).toBeDisabled();
     // Bloccato, il rifiuto chiude: niente indicazioni (un piano riscritto sarebbe bloccato uguale).
@@ -243,8 +329,12 @@ describe("sezione Server", () => {
     expect(log).toHaveAttribute("aria-expanded", "false");
     await userEvent.click(log);
     const list = within(claudeSection()).getByRole("list", { name: "Commands on SRV-1" });
-    expect(within(list).getAllByText("fix").length).toBeGreaterThan(0);
+    expect(within(list).getAllByText("change").length).toBe(1);
     expect(within(list).getAllByText("read").length).toBeGreaterThan(0);
+    // Ogni riga dice la sua azione tradotta e per quale via: l'agente.
+    expect(list).toHaveTextContent("Restarted portale-import");
+    expect(within(list).getAllByText("agent").length).toBeGreaterThan(0);
+    expect(within(list).queryByText("SSH")).toBeNull();
     expect(claudeSection()).toHaveTextContent(/Check after the fix: resolved/);
   });
 
@@ -306,7 +396,7 @@ describe("sezione Server", () => {
     await userEvent.click(
       within(claudeSection()).getByRole("button", { name: /Commands on SRV-1/ }),
     );
-    expect(claudeSection()).toHaveTextContent(/Stopped by Roberta .* No commands after this\./);
+    expect(claudeSection()).toHaveTextContent(/Stopped by Roberta .* No actions after this\./);
   });
 
   it("«More» compare quando la proposta è tagliata davvero, anche se è corta", async () => {
@@ -326,15 +416,19 @@ describe("sezione Server", () => {
     }
   });
 
-  it("una revoca durante l'esecuzione dice il motivo, mai «stopped by»", async () => {
-    await haltAfterFirstCommand(() => servers.revokeSshAccess("SRV-1"));
+  it("le operazioni spente durante l'esecuzione dicono il motivo, mai «stopped by»", async () => {
+    await haltAfterFirstCommand(async () => {
+      srv1().agentOperations = false;
+    });
     const section = await openTask("p-roberta");
-    await waitFor(() => expect(section).toHaveTextContent("Fix stopped: fix access was revoked"));
+    await waitFor(() =>
+      expect(section).toHaveTextContent("Fix stopped: the agent's operations were turned off"),
+    );
     expect(section).not.toHaveTextContent(/stopped by/i);
     await userEvent.click(
       within(claudeSection()).getByRole("button", { name: /Commands on SRV-1/ }),
     );
-    expect(claudeSection()).toHaveTextContent("Stopped: fix access was revoked.");
+    expect(claudeSection()).toHaveTextContent("Stopped: the agent's operations were turned off.");
     expect(claudeSection()).not.toHaveTextContent(/stopped by/i);
   });
 
@@ -344,18 +438,13 @@ describe("sezione Server", () => {
     await decidePlan(id, "approve");
     await whenFixesIdle();
     const long = Array.from({ length: 5000 }, (_, i) => `line ${i + 1}`).join("\n");
-    const fix = eventsOf(id).find(
-      (e): e is Extract<ConversationEvent, { type: "action" }> =>
-        e.type === "action" && e.access === "fix",
-    )!;
+    const fix = eventsOf(id).find(isChange)!;
     fix.result = long;
     fix.truncated = true;
     const user = userEvent.setup();
     await openTask("p-laura");
     await user.click(within(claudeSection()).getByRole("button", { name: /Commands on SRV-1/ }));
-    const row = within(claudeSection()).getByRole("button", {
-      name: new RegExp(fix.input!.slice(0, 20)),
-    });
+    const row = within(claudeSection()).getByRole("button", { name: /Restarted portale-import/ });
     await user.click(row);
     const out = await within(claudeSection()).findByRole("region", { name: /Output of/ });
     expect(out).toHaveTextContent("Showing the last 40 of 5,000 lines");
@@ -372,21 +461,36 @@ describe("sezione Server", () => {
     setSessionPersonId("p-laura");
     await decidePlan(id, "approve");
     await whenFixesIdle();
-    const fix = eventsOf(id).find(
-      (e): e is Extract<ConversationEvent, { type: "action" }> =>
-        e.type === "action" && e.access === "fix",
-    )!;
+    const fix = eventsOf(id).find(isChange)!;
     fix.result = "NAME   CPU %   MEM USAGE\nportale   12.0%   210MiB / 1GiB";
     const user = userEvent.setup();
     await openTask("p-laura");
     await user.click(within(claudeSection()).getByRole("button", { name: /Commands on SRV-1/ }));
     await user.click(
-      within(claudeSection()).getByRole("button", { name: new RegExp(fix.input!.slice(0, 20)) }),
+      within(claudeSection()).getByRole("button", { name: /Restarted portale-import/ }),
     );
     const out = await within(claudeSection()).findByRole("region", { name: /Output of/ });
     expect(out).toHaveTextContent("2 lines");
     expect(out).not.toHaveTextContent(/Showing the last/);
     expect(out.querySelector("[data-log-line]")!.className).toMatch(/(^| )whitespace-pre( |$)/);
+  });
+
+  it("l'uscita di un'azione è contenuto NON fidato: testo, mai un link o un markup", async () => {
+    const id = await startAs("p-marco");
+    setSessionPersonId("p-laura");
+    await decidePlan(id, "approve");
+    await whenFixesIdle();
+    const fix = eventsOf(id).find(isChange)!;
+    fix.result = "[Open the dashboard](https://evil.example) **now** <img src=x onerror=alert(1)>";
+    const user = userEvent.setup();
+    await openTask("p-laura");
+    await user.click(within(claudeSection()).getByRole("button", { name: /Commands on SRV-1/ }));
+    await user.click(
+      within(claudeSection()).getByRole("button", { name: /Restarted portale-import/ }),
+    );
+    const out = await within(claudeSection()).findByRole("region", { name: /Output of/ });
+    expect(out).toHaveTextContent("[Open the dashboard](https://evil.example) **now**");
+    expect(out.querySelector("a[href*='evil'], img, strong")).toBeNull();
   });
 
   it("cambio di persona con la task aperta: l'avvio compare e sparisce sul posto", async () => {
@@ -435,8 +539,11 @@ describe("la sessione d'analisi nella destinazione Claude", () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: /Message/ })).toBeNull();
     const list = await screen.findByRole("list", { name: "Commands on SRV-1" });
-    expect(within(list).getAllByText("read").length).toBe(6);
-    expect(within(list).queryByText("fix")).toBeNull();
+    expect(within(list).getAllByText("read").length).toBe(5);
+    expect(within(list).queryByText("change")).toBeNull();
+    // Le letture via SSH e quella del log via agente.
+    expect(within(list).getAllByText("SSH").length).toBe(4);
+    expect(within(list).getAllByText("agent").length).toBe(1);
   });
 
   it("d4: il lato oggetto mostra il server (riga ed episodio) sopra la task", async () => {

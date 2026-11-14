@@ -1,7 +1,8 @@
 import { attributeServerCause } from "@stubwise/shared";
 import { ANALYSIS_MAX_COST_USD, ANALYSIS_MAX_MINUTES } from "../../domain/servers/limits";
 import { alertProjectsOf, serverProjectsOf } from "../../domain/servers/projects";
-import { accessState, accessUsable } from "../../domain/servers/sshAccess";
+import { commandInput } from "../../domain/servers/commands";
+import { accessState, accessUsable, journalReadable } from "../../domain/servers/sshAccess";
 import { utterance } from "../../domain/claude/answers";
 import i18n from "../../i18n";
 import { publishAlert } from "../alerts/publish";
@@ -31,6 +32,10 @@ import {
   readsFor,
   readSteps,
   reasonsPhrase,
+  unavailableOf,
+  unavailableSteps,
+  type ReadReach,
+  type UnavailableRead,
 } from "./scripts";
 import { liveEnvironments, serverHref } from "./visibility";
 
@@ -50,7 +55,10 @@ import { liveEnvironments, serverHref } from "./visibility";
 // una produzione usa il server, nel budget mensile dell'ISTANZA (la pausa
 // della coda di un progetto non la ferma: non è di un progetto), a nome di
 // Claude e solo con l'accesso di LETTURA usabile (`accessUsable`, mai il solo
-// stato, ricontrollato prima di ogni lettura): sola lettura vera.
+// stato, ricontrollato prima di ogni lettura): sola lettura vera. Legge solo
+// dagli insiemi chiusi (F4b): le letture SSH di `SSH_READS` (il journal solo
+// col gruppo, F4b-3) e, con le operazioni dell'agente accese, i log e lo
+// stato dei container via agente; ciò che non può leggere lo dice.
 //
 // È lei a dire QUALE progetto è la causa: la causa dichiarata
 // (`declaredCauseOf`, contenuto del modello, non fidato) si valida con
@@ -84,6 +92,12 @@ const serverOf = (code: string): MonitoredServer | undefined =>
   state.servers.find((s) => s.code === code);
 
 const projectCode = (projectId: string) => state.projectsById.get(projectId)!.code;
+
+/** Che cosa l'analisi può leggere adesso: il journal (col gruppo) e i container (con l'agente). */
+const reachOf = (s: MonitoredServer): ReadReach => ({
+  journal: journalReadable(state.serverAccess.get(s.code)),
+  agent: s.agentOperations,
+});
 
 /** L'analisi in corso su un server, se c'è. */
 const runningOn = (code: string): ServerAnalysis | undefined =>
@@ -132,7 +146,7 @@ function noAnalysisTail(code: string): string {
  * non è vero.
  */
 function publishTrouble(s: MonitoredServer, ep: ServerEpisode, analyzes: boolean): void {
-  const readable = accessUsable(state.serverAccess.get(s.code), "read");
+  const readable = accessUsable(state.serverAccess.get(s.code));
   const tail = analyzes
     ? " Claude is looking into it with read-only access."
     : !readable
@@ -196,7 +210,7 @@ export function raiseEpisode(
   // l'analisi non parte e l'episodio lo ricorda (area 9b).
   const eligible =
     alertProjectsOf(serverCode, liveEnvironments()).length > 0 &&
-    accessUsable(state.serverAccess.get(serverCode), "read");
+    accessUsable(state.serverAccess.get(serverCode));
   const block = aiBlockFor(null);
   const analyzes = eligible && block === null;
   if (eligible && block?.reason === "monthly_budget") episode.analysisBlocked = "monthly_budget";
@@ -316,13 +330,21 @@ function unreachableSteps(s: MonitoredServer): ScriptStep[] {
   return Array.from({ length: ATTEMPTS }, (_, i) => {
     const key = "claude.serverAnalysis.reads.attempt";
     const params = { n: i + 1 };
+    const command = {
+      action: "uptime",
+      params: {},
+      kind: "read",
+      via: "ssh",
+      approvalId: null,
+      exitCode: 255,
+    } as const;
     return {
       step: "action" as const,
       tool: "server.read",
-      access: "read" as const,
+      serverCommand: command,
       label: i18n.t(key, params),
       labelText: utterance(key, params),
-      input: "uptime",
+      input: commandInput(command),
       result: `ssh: connect to host ${host} port 22: Connection timed out`,
       outcome: "failed" as const,
     };
@@ -346,6 +368,8 @@ async function drive(
     return finish(a, episode, gen, "unreachable", 0);
   }
   const ran = new Set<string>();
+  /** Ciò che non si legge, detto una volta sola (un secondo allarme può aggiungerne). */
+  const told = new Set<UnavailableRead>();
   let ending: Ending = "diagnosed";
   // Una lettura alla volta, dai motivi di ADESSO: un secondo allarme durante
   // aggiunge le sue. Prima di ogni lettura si ricontrolla l'accesso (revoca,
@@ -353,21 +377,28 @@ async function drive(
   while (episode.recoveredAt === null) {
     server = serverOf(a.serverCode);
     if (!server) return;
-    const all = readsFor(server, episode.reasons);
-    const next = all.find((r) => !ran.has(r.input));
+    const reach = reachOf(server);
+    const missing = unavailableOf(server, episode.reasons, reach).filter((m) => !told.has(m));
+    if (missing.length > 0) {
+      for (const m of missing) told.add(m);
+      await runScript(a.conversationId, unavailableSteps(server, missing), gen);
+      if (!alive()) return;
+    }
+    const all = readsFor(server, episode.reasons, reach);
+    const next = all.find((r) => !ran.has(commandInput(r.command)));
     if (!next) break;
     // Al limite di tempo (solo «Simula»): metà delle letture, poi si ferma.
     if (overrun && ran.size >= Math.ceil(all.length / 2)) {
       ending = "timed_out";
       break;
     }
-    if (!accessUsable(state.serverAccess.get(a.serverCode), "read")) {
+    if (!accessUsable(state.serverAccess.get(a.serverCode))) {
       ending = "access_lost";
       break;
     }
     // L'uso si registra alla prima lettura vera, non prima.
-    if (ran.size === 0) markUsed(a.serverCode, "read", { kind: "analysis", analysisId: a.id });
-    ran.add(next.input);
+    if (ran.size === 0) markUsed(a.serverCode, { kind: "analysis", analysisId: a.id });
+    ran.add(commandInput(next.command));
     await runScript(a.conversationId, readSteps([next]), gen);
     if (!alive()) return;
   }
@@ -410,7 +441,7 @@ const SESSION_OUTCOME: Record<Ending, Outcome> = {
 };
 
 function taskOf(s: MonitoredServer, ep: ServerEpisode, outcome: Ending, reads: number) {
-  const d = diagnosisOf(s, ep);
+  const d = diagnosisOf(s, ep, reachOf(s));
   const proposal = d.proposal.startsWith("- ")
     ? `**Proposal**\n${d.proposal}`
     : `**Proposal** — ${d.proposal}`;
@@ -595,7 +626,7 @@ async function finish(
   // Server: solo se Claude ha letto qualcosa da cui proporre.
   const proposes =
     outcome === "diagnosed" || outcome === "timed_out" || (outcome === "access_lost" && reads > 0);
-  a.proposal = proposes ? diagnosisOf(s, ep).proposal : null;
+  a.proposal = proposes ? diagnosisOf(s, ep, reachOf(s)).proposal : null;
   a.endedAt = now();
   if (c) {
     c.taskId = task.id;

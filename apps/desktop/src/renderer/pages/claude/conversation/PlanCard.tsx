@@ -1,4 +1,3 @@
-import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { WhoCanLink } from "../../../components/WhoCanLink";
@@ -8,7 +7,7 @@ import { Markdown } from "../../../tasks-ui/Markdown";
 import type { Ev } from "./flow";
 import { TroubleGlyph } from "../../servers/glyphs";
 import { WaitingDot } from "./QuestionCard";
-import type { ServerFixPlan } from "./serverFixPlan";
+import { stepLabel, type ServerFixPlan } from "./serverFixPlan";
 import {
   cardClass,
   DisclosureGlyph,
@@ -31,13 +30,17 @@ import {
  * già che il piano aspetta (la riga di stato della task), e la scheda non
  * lo ripete — si intitola solo «Plan».
  *
- * `serverFix` (area 8b): il piano di una correzione di server. Dice con
- * quale accesso girerà («può fare tutto») e che un piano che rilascia va
+ * `serverFix` (area 8, F4b): il piano di una correzione di server. Mostra
+ * SOLO le azioni dell'insieme chiuso (`serverPlan`), tradotte, col perché
+ * come testo — mai un comando, mai un campo per scriverne uno —; dice che
+ * le esegue l'agente, una alla volta, e che un piano che rilascia va
  * rifiutato; nessuna approvazione in anticipo; chi l'ha avviata e può
- * approvare legge che approvando partono i comandi. Con l'approvazione
- * spenta (`blockedReason`, calcolata dal livello dati) Approve resta
- * visibile ma spento, col motivo sopra, e Reject resta attivo se il livello
- * dati lo permette (`canReject`).
+ * approvare legge che approvando partono le azioni. Un piano che libera
+ * spazio su un server CONDIVISO lo dice prima dei bottoni, coi progetti che
+ * chi guarda vede (decisione del maintainer). Con l'approvazione spenta
+ * (`blockedReason`, calcolata dal livello dati) Approve resta visibile ma
+ * spento, col motivo sopra, e Reject resta attivo se il livello dati lo
+ * permette (`canReject`).
  */
 export function PlanCard({
   conversationId,
@@ -186,26 +189,44 @@ export function PlanCard({
         </span>
         <Markdown source={event.summary} className="max-w-[68ch]" />
       </div>
-      {serverFix && event.commands && event.commands.length > 0 && (
-        // Chi approva legge il piano comando per comando, sempre a vista (shape server-task §3).
+      {serverFix && event.serverPlan && event.serverPlan.steps.length > 0 && (
+        // Chi approva legge il piano azione per azione, sempre a vista (shape
+        // server-task §3): le azioni tradotte, il perché (del modello) come testo.
         <ol
           aria-label={t(`${F}.commands`, { code: serverFix.code })}
           className="flex min-w-0 flex-col gap-2"
         >
-          {event.commands.map((c, i) => (
-            <li key={i} className="flex min-w-0 gap-2">
+          {event.serverPlan.steps.map((step, i) => (
+            <li key={i} className="flex min-w-0 gap-2" data-plan-step={step.action}>
               <span className="num w-4 shrink-0 text-right text-xs leading-5 text-ink-muted">
                 {i + 1}
               </span>
               <span className="flex min-w-0 flex-col">
-                <code title={c.input} className="truncate font-code text-xs leading-5 text-ink">
-                  {c.input}
-                </code>
-                <span className="text-[13px] text-ink-muted">{c.why}</span>
+                <span className="text-sm leading-5 font-medium text-ink [overflow-wrap:anywhere]">
+                  {stepLabel(t, step)}
+                </span>
+                <span className="text-[13px] text-ink-muted [overflow-wrap:anywhere]">
+                  {step.why}
+                </span>
               </span>
             </li>
           ))}
         </ol>
+      )}
+      {serverFix?.pruneWarning && (
+        // «Libera spazio» tocca tutto il server: su uno condiviso si dice
+        // PRIMA di approvare, coi progetti che chi guarda vede (gli altri contati).
+        <div
+          role="note"
+          aria-label={t(`${F}.shared.title`, { code: serverFix.code })}
+          data-shared-warning
+          className="flex items-start gap-1.5 border-l border-critical py-0.5 pl-2.5 text-sm text-ink"
+        >
+          <span className="mt-0.5 shrink-0">
+            <TroubleGlyph />
+          </span>
+          <span>{sharedLine(t, serverFix.code, serverFix.pruneWarning)}</span>
+        </div>
       )}
       {toggle}
       {fullPlan}
@@ -214,18 +235,8 @@ export function PlanCard({
         rejecting === null &&
         // Sopra i bottoni: perché Approve è spento, o che approvando partono i comandi.
         (serverFix.blockedReason ? (
-          <p role="note" className="flex flex-wrap items-baseline gap-x-2 text-sm text-ink">
-            <span>{t(`${F}.blocked.${serverFix.blockedReason}`, { code: serverFix.code })}</span>
-            {serverFix.accessProject && serverFix.blockedReason !== "server_gone" && (
-              <Link
-                to="/p/$code/servers/$server"
-                params={{ code: serverFix.accessProject, server: serverFix.code }}
-                search={{ section: "access" } as never}
-                className="font-medium text-ink underline decoration-ink/30 underline-offset-4 hover:decoration-ink"
-              >
-                {t("taskDetail.server.linkAccess")}
-              </Link>
-            )}
+          <p role="note" className="text-sm text-ink">
+            {t(`${F}.blocked.${serverFix.blockedReason}`, { code: serverFix.code })}
           </p>
         ) : (
           serverFix.startedByViewer &&
@@ -327,4 +338,18 @@ export function PlanCard({
       )}
     </section>
   );
+}
+
+/** La frase dell'avviso «server condiviso»: i progetti che chi guarda vede, gli altri contati. */
+function sharedLine(
+  t: ReturnType<typeof useTranslation>["t"],
+  code: string,
+  warning: NonNullable<ServerFixPlan["pruneWarning"]>,
+): string {
+  const F = "taskDetail.server.planCard.shared";
+  const projects = warning.projects.join(", ");
+  const count = warning.hiddenCount;
+  if (warning.projects.length > 0 && count > 0) return t(`${F}.both`, { code, projects, count });
+  if (warning.projects.length > 0) return t(`${F}.projects`, { code, projects });
+  return t(`${F}.hidden`, { code, count });
 }

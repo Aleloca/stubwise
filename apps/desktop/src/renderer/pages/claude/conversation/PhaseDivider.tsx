@@ -53,7 +53,11 @@ export function PhaseDivider({
   else if (event.outcome === "timed_out") outcome = t("claude.conversation.phase.timedOut");
   else if (event.outcome === "stopped") {
     // Una fermata senza persona (correzione di un server) dice il motivo.
-    const reason = event.reason && event.reason !== "item_closed" ? event.reason : null;
+    const reason = event.operationsOff
+      ? "operations_off"
+      : event.reason && event.reason !== "item_closed"
+        ? event.reason
+        : null;
     outcome = stoppedBy
       ? t("claude.conversation.phase.stoppedBy", { name: stoppedBy })
       : reason

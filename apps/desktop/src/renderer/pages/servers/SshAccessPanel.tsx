@@ -22,22 +22,25 @@ import { Part } from "./Part";
 import { AccessRows } from "./SshAccessRows";
 import { RegenerateDialog, RevokeDialog, SshSimulateBox } from "./SshAccessDialogs";
 import { Step } from "./SshSteps";
-import { ReadWritesResult, VerifyResult } from "./VerifyResult";
+import { privileged, PrivilegedResult, VerifyResult } from "./VerifyResult";
 import { WhoCanLink } from "../../components/WhoCanLink";
 
-// La parte «SSH access» del dettaglio di un server (shape server-access.md):
-// finché i due accessi non sono verificati è una procedura in tre passi
-// (1 Link · 2 Run the command · 3 Verify) col passo corrente aperto; a
-// verifica riuscita si chiude in due righe di stato, una per accesso, con
-// l'ultimo uso. Rigenera riapre la procedura per le chiavi NUOVE sopra le
-// righe in uso; Revoca mostra il comando di rimozione fino a «Done».
+// La parte «SSH access» del dettaglio di un server (shape server-access.md;
+// area 8, F4b): UN accesso, di sola lettura (`stubwise-read`), per
+// l'analisi. Le correzioni non passano di qui: le esegue l'agente. Finché
+// l'accesso non è verificato è una procedura in tre passi (1 Link · 2 Run
+// the command · 3 Verify) col passo corrente aperto; a verifica riuscita si
+// chiude nella riga di stato, con l'ultimo uso. Rigenera riapre la
+// procedura per la chiave NUOVA sopra la riga in uso; Revoca mostra il
+// comando di rimozione fino a «Done».
 //
 // Tutto si legge dalla vista del livello dati (`server.access`): lo stato
-// (`AccessState`), se un accesso funziona (`usable`, mai lo stato grezzo:
-// in rigenerazione dipende dall'esito delle vecchie chiavi, R-L8), l'esito
-// dell'ultima verifica e il permesso (`canManage`, `servers.ssh.manage`).
-// Chi non lo ha vede le sole righe di stato: nessun comando, nessuna
-// impronta, nessuna azione. Le chiavi private non arrivano mai qui.
+// (`AccessState`), se l'accesso funziona (`usable`, mai lo stato grezzo: in
+// rigenerazione dipende dall'esito della vecchia chiave, R-L8), l'esito
+// dell'ultima verifica (login, `sudo`, `docker`, journal) e il permesso
+// (`canManage`, `servers.ssh.manage`). Chi non lo ha vede la sola riga di
+// stato: nessun comando, nessuna impronta, nessuna azione. La chiave
+// privata non arriva mai qui.
 
 // --- la parte ---------------------------------------------------------------
 
@@ -77,15 +80,12 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
     }
   });
 
-  const hasKeys = a.read !== null;
+  const hasKeys = a.key !== null;
   const v = a.verification;
   const regenerating = hasKeys && a.pending !== null;
-  // Quali chiavi attuali restano valide mentre si rigenera (R-L8): solo
-  // quelle che funzionavano già, accesso per accesso, mai «tutte».
-  const kept: "both" | "read" | "fix" | "none" =
-    a.usable.read && a.usable.fix ? "both" : a.usable.read ? "read" : a.usable.fix ? "fix" : "none";
-  const keptText = (both: string, read: string, fix: string, none: string) =>
-    t(`servers.ssh.${{ both, read, fix, none }[kept]}`);
+  // La chiave attuale resta valida mentre si rigenera (R-L8) solo se
+  // funzionava già: altrimenti non si promette niente.
+  const keptText = (kept: string, none: string) => t(`servers.ssh.${a.usable ? kept : none}`);
 
   const doLink = () =>
     link.mutate(code, {
@@ -151,19 +151,14 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
 
   /** L'esito delle chiavi che la procedura sta verificando, con la frase sulle chiavi se si rigenera. */
   const result = (forNew: boolean) => {
-    if (a.state === "read_writes") return <ReadWritesResult ref={resultRef} />;
+    // Con più della lettura per la chiave VECCHIA (la vista non lo porta):
+    // solo l'errore, senza righe inventate.
+    if (a.state === "privileged" && !(v && privileged(v)))
+      return <PrivilegedResult ref={resultRef} />;
     if (!v || (forNew && !v.ofPending)) return null;
     const summary =
       forNew && regenerating
-        ? {
-            ok: false,
-            text: keptText(
-              "outcome.newFailedKept",
-              "outcome.newFailedKeptRead",
-              "outcome.newFailedKeptFix",
-              "outcome.newFailedNone",
-            ),
-          }
+        ? { ok: false, text: keptText("outcome.newFailedKept", "outcome.newFailedNone") }
         : null;
     return <VerifyResult ref={resultRef} code={code} verification={v} summary={summary} />;
   };
@@ -171,7 +166,7 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
   /** La procedura in tre passi: per il primo collegamento o per le chiavi nuove. */
   const procedure = (current: 1 | 2 | 3) => {
     const forNew = current > 1 && (a.pending !== null || !hasKeys);
-    const created = a.pending?.read.createdAt ?? a.read?.createdAt ?? null;
+    const created = a.pending?.createdAt ?? a.key?.createdAt ?? null;
     const failedHere = current === 3;
     const commandOpen = current === 2 || showCommand;
     return (
@@ -182,12 +177,7 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
               {t("servers.ssh.regenerating.title")}
             </h3>
             <p className="text-sm text-ink-muted">
-              {keptText(
-                "regenerating.keep",
-                "regenerating.keepRead",
-                "regenerating.keepFix",
-                "regenerating.keepNone",
-              )}
+              {keptText("regenerating.keep", "regenerating.keepNone")}
             </p>
           </div>
         )}
@@ -279,7 +269,7 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
   if (manage) {
     const st = a.state;
     if (
-      ["verified", "read_writes"].includes(st) ||
+      ["verified", "privileged"].includes(st) ||
       (st === "verify_failed" && hasKeys && !regenerating)
     )
       items.push({
@@ -289,7 +279,7 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
       });
     if (st === "verified")
       items.push({ key: "verify", label: t("servers.ssh.menu.verifyAgain"), run: doVerify });
-    if (["verified", "verify_failed", "read_writes"].includes(st) && !regenerating)
+    if (["verified", "verify_failed", "privileged"].includes(st) && !regenerating)
       items.push({
         key: "regen",
         label: t("servers.ssh.menu.regenerate"),
@@ -407,7 +397,7 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
       </>
     );
   } else {
-    // verified, read_writes, o una verifica non riuscita delle chiavi in uso.
+    // verified, privileged, o una verifica non riuscita della chiave in uso.
     const success =
       a.state === "verified" && justVerified && v ? (
         <VerifyResult
@@ -444,7 +434,7 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
         <div className="flex flex-col gap-4 border-t border-rule pt-3 pl-3">
           <p className="text-md text-ink-muted">{t("servers.ssh.intro", { code })}</p>
           {body}
-          {/* Le chiavi pubbliche contano solo dove c'è (o ci sarà) un comando
+          {/* La chiave pubblica conta solo dove c'è (o ci sarà) un comando
               d'installazione: non dopo una revoca, né sotto il comando di rimozione. */}
           {manage && a.state !== "revoked" && (
             <p className="max-w-[760px] text-xs text-ink-muted">
@@ -455,12 +445,7 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
         {confirm === "regenerate" && (
           <RegenerateDialog
             code={code}
-            body={keptText(
-              "regenerate.body",
-              "regenerate.bodyRead",
-              "regenerate.bodyFix",
-              "regenerate.bodyNone",
-            )}
+            body={keptText("regenerate.body", "regenerate.bodyNone")}
             pending={regen.isPending}
             onConfirm={doRegenerate}
             onClose={() => setConfirm(null)}

@@ -109,7 +109,7 @@ describe("comandi dei server (area 8b)", () => {
       "not_linked",
       "awaiting_command",
       "verify_failed",
-      "read_writes",
+      "privileged",
       "revoked",
     ])
       expect(linkSsh(ssh, state), state).toBe(true);

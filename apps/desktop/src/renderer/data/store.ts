@@ -3,7 +3,6 @@ import { stallOf, type Stall } from "../domain/stalled";
 import { currentWeek } from "../domain/weeks";
 import { matches, type FilterContext } from "../domain/filters";
 import { serverInProject } from "../domain/servers/projects";
-import { accessState, accessUsable } from "../domain/servers/sshAccess";
 import { ACTIVITY } from "./seed/activity";
 import { BRIEFS } from "./seed/briefs";
 import {
@@ -1976,22 +1975,21 @@ export function currentPhase(log: readonly ConversationEvent[]): string | null {
 }
 
 /**
- * Perché una correzione di server non può eseguire comandi adesso (`null`
+ * Perché una correzione di server non può eseguire azioni adesso (`null`
  * se può, o se `c` non è una correzione): il server non esiste più o non è
  * più in un ambiente del progetto della sessione (R-L2, R-G5), oppure
- * l'accesso di correzione non è usabile (mai il solo stato). Una regola
- * sola per l'approvazione (`conversationPermissions`, `decidePlan`) e per
- * l'esecuzione (`data/servers/fix.ts`, che in più chiede la chiave).
+ * l'agente non ha le operazioni accese (area 8, F4b: la correzione passa
+ * dall'agente, mai dall'SSH). Una regola sola per l'approvazione
+ * (`conversationPermissions`, `decidePlan`) e per l'esecuzione
+ * (`data/servers/fix.ts`).
  */
 export function serverFixBlock(c: Conversation): ServerFixBlock | null {
   if (!c.serverFix) return null;
   const code = c.serverFix.serverCode;
-  const exists = state.servers.some((s) => s.code === code);
-  if (!exists || c.projectId === null || !serverInProject(code, c.projectId, state.environments))
+  const server = state.servers.find((s) => s.code === code);
+  if (!server || c.projectId === null || !serverInProject(code, c.projectId, state.environments))
     return "server_gone";
-  const access = state.serverAccess.get(code);
-  if (accessUsable(access, "fix")) return null;
-  return accessState(access) === "revoked" ? "fix_access_revoked" : "fix_access_unverified";
+  return server.agentOperations ? null : "operations_off";
 }
 
 /**
@@ -2056,9 +2054,9 @@ export function conversationPermissions(
     ["new", "ready", "refining"].includes(request.status) &&
     request.mergedIntoId === null;
   const decidable = plan !== undefined && approver && c.state === "awaiting_approval";
-  // Correzione di un server (area 8b): il piano che aspetta non si approva
-  // se il server non è più del progetto o l'accesso di correzione non è
-  // usabile adesso (`serverFixBlock`). La ragione la riceve solo chi
+  // Correzione di un server (area 8, F4b): il piano che aspetta non si
+  // approva se il server non è più del progetto o l'agente non ha le
+  // operazioni accese adesso (`serverFixBlock`). La ragione la riceve solo chi
   // altrimenti potrebbe decidere: per lui il rifiuto resta (`canRejectPlan`).
   const planBlockedReason = decidable ? serverFixBlock(c) : null;
   // Niente approvazione in anticipo per una correzione di server.

@@ -13,7 +13,6 @@ import {
 } from "../../data/queries";
 import type { ServerTaskInfo } from "../../data/servers";
 import type { EpisodeReason, ServerEpisode, Task } from "../../data/types";
-import { can, useViewer } from "../../data/viewing";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
 import { Markdown } from "../../tasks-ui/Markdown";
 import { useToast } from "../../tasks-ui/Toast";
@@ -29,7 +28,9 @@ import { WhoCanLink } from "../../components/WhoCanLink";
 // in testa al pannello, prima della descrizione. Il server è il contesto,
 // Claude è il lavoro: qui stanno server, episodio, a che punto è la
 // correzione, la proposta e l'avvio con le DUE CONDIZIONI sempre scritte
-// sotto (anche a chi non può avviare). Piano, comandi e controllo finale
+// sotto (anche a chi non può avviare). La correzione passa dall'agente (area
+// 8, F4b): senza le sue operazioni accese l'avvio lo dice, e non c'è niente
+// da collegare via SSH. Piano, comandi e controllo finale
 // vivono nella sezione Claude. Chi può avviare lo dice il livello dati
 // (`startBlock`), mai la UI; l'ora dell'episodio è nel fuso di chi guarda.
 
@@ -38,14 +39,9 @@ const linkClass =
   "font-medium text-ink underline decoration-ink/30 underline-offset-4 hover:decoration-ink";
 
 /** Gli stati dopo cui l'avvio dice «Start fix again». */
-const AGAIN = new Set(["plan_rejected", "stopped", "not_resolved"]);
+const AGAIN = new Set(["plan_rejected", "stopped", "not_resolved", "no_plan"]);
 /** I blocchi d'avvio sotto cui le due condizioni restano scritte. */
-const CONDITIONS_UNDER = new Set([
-  "no_permission",
-  "no_fix_access",
-  "fix_access_unverified",
-  "server_busy",
-]);
+const CONDITIONS_UNDER = new Set(["no_permission", "operations_off", "server_busy"]);
 
 export function ServerSection({ task }: { task: Task }) {
   const { t } = useTranslation();
@@ -314,10 +310,8 @@ function Proposal({ text }: { text: string }) {
 
 function ServerBody({ task, info }: { task: Task; info: ServerTaskInfo }) {
   const { t } = useTranslation();
-  const { viewer } = useViewer();
   const project = useProjects().data?.find((p) => p.id === task.projectId)?.code ?? "";
   const code = info.server?.code ?? task.serverRef?.serverCode ?? "";
-  const manageSsh = can(viewer, "servers.ssh.manage");
   const [confirming, setConfirming] = useState(false);
   const [notes, setNotes] = useState("");
   const notesId = useId();
@@ -349,18 +343,6 @@ function ServerBody({ task, info }: { task: Task; info: ServerTaskInfo }) {
 
   const block = info.startBlock;
   const showConditions = info.server !== null && (block === null || CONDITIONS_UNDER.has(block));
-  // Il dettaglio del server si apre dove il server è (lo dice il livello dati).
-  const home = info.server?.projectCode ?? null;
-  const accessLink = manageSsh && info.server && home && (
-    <Link
-      to="/p/$code/servers/$server"
-      params={{ code: home, server: code }}
-      search={{ section: "access" } as never}
-      className={linkClass}
-    >
-      {t(`${K}.linkAccess`)}
-    </Link>
-  );
 
   let start_: ReactNode = null;
   if (info.server && block === null) {
@@ -390,7 +372,6 @@ function ServerBody({ task, info }: { task: Task; info: ServerTaskInfo }) {
     start_ = (
       <p className="flex flex-wrap items-baseline gap-x-2 text-sm text-ink-muted">
         <span>{t(`${K}.blocks.${block}`, { code, project })}</span>
-        {(block === "no_fix_access" || block === "fix_access_unverified") && accessLink}
         {block === "no_permission" && (
           <WhoCanLink action="fixServer" projectId={task.projectId} projectCode={project} />
         )}

@@ -28,6 +28,8 @@ function StopLine({ phase }: { phase: Ev<"phase"> }) {
   let text: string | null = null;
   if (phase.stoppedById) {
     text = t(`${K}.stoppedBy`, { name, time: clock(phase.at, i18n.language) });
+  } else if (phase.operationsOff) {
+    text = t(`${K}.stoppedReasons.operations_off`);
   } else if (phase.reason && phase.reason !== "item_closed") {
     text = t(`${K}.stoppedReasons.${phase.reason}`);
   } else if (phase.outcome === "failed" || phase.outcome === "timed_out") {

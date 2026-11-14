@@ -599,7 +599,7 @@ function WithRun({
   const [form, setForm] = useState<Form>(null);
   const [cancelling, setCancelling] = useState(false);
   const sectionRef = useRef<HTMLElement>(null);
-  const fixPlan = useServerFixPlan(detail, code || null);
+  const fixPlan = useServerFixPlan(detail);
 
   // Dal vivo quando lo stream ha dato qualcosa; stato ed esito dal dettaglio.
   const events: ConversationEvent[] = stream.events.length > 0 ? stream.events : run.events;

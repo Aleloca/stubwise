@@ -166,6 +166,7 @@ import { overStubwiseCap } from "./releases/visibility";
 import {
   executeServerFix,
   replanServerFix,
+  serverPlanStillFits,
   stopAndReplanServerFixAs,
   stopServerFixAs,
 } from "./servers/fix";
@@ -2651,6 +2652,8 @@ export async function stop(id: string): Promise<void> {
   const gen = storeGeneration();
   const me = await afterGate("stop", gen);
   const c = conversationFor(me, id);
+  // Una correzione di server già chiusa non si ferma (le parole del server, F4b).
+  if (c.serverFix && c.state === "finished") throw invalid("not_running");
   if (!conversationPermissions(me, c).canInterrupt) throw forbidden();
   if (c.kind === "free") {
     await stopFree(me, c, gen);
@@ -2849,19 +2852,24 @@ export async function decidePlan(
   // `canRejectPlan` è il piano che aspetta e chi può deciderlo; il rifiuto
   // resta anche con l'approvazione spenta (correzione di un server).
   if (!plan || !perms.canRejectPlan) {
-    throw invalid("status");
+    // Le parole del server per una correzione (F4b): niente piano che aspetta.
+    throw invalid(c.serverFix ? "not_awaiting_approval" : "status");
   }
-  // Correzione di un server: server ancora del progetto e accesso di
-  // correzione usabile, ricontrollati qui (`serverFixBlock`); altrimenti
+  // Correzione di un server: server ancora del progetto e operazioni
+  // dell'agente accese, ricontrollati qui (`serverFixBlock`); altrimenti
   // niente approvazione, col motivo.
   if (decision === "approve" && !perms.canDecidePlan) {
-    const block = serverFixBlock(c);
-    throw invalid(block === "server_gone" ? "server_gone" : block ? "fix_access" : "status");
+    throw invalid(serverFixBlock(c) ?? "status");
+  }
+  // Il piano si rivalida all'approvazione (F4b): un container passato a un
+  // altro progetto, o sparito, lo rende vecchio.
+  if (decision === "approve" && c.serverFix && !serverPlanStillFits(c)) {
+    throw invalid("plan_stale");
   }
   const task = state.tasksById.get(c.taskId!)!;
   const note = instructions?.trim() || undefined;
-  // Un piano di correzione con l'approvazione spenta (revoca, accesso non
-  // verificato, server tolto): rifiutarlo chiude la correzione e libera il
+  // Un piano di correzione con l'approvazione spenta (operazioni spente,
+  // server tolto): rifiutarlo chiude la correzione e libera il
   // server, anche con indicazioni. Riscriverlo darebbe un piano di nuovo
   // bloccato e il server resterebbe occupato.
   const blocked = c.serverFix !== undefined && serverFixBlock(c) !== null;

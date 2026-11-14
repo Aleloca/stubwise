@@ -429,21 +429,29 @@ export interface ConversationPermissions {
   canStartNew: boolean;
   readOnlyReason: ReadOnlyReason | null;
   /**
-   * Correzione di un server (area 8b): perché il piano non si può approvare
-   * adesso, anche da chi ha `plans.approve` — il server non è più del
-   * progetto, o l'accesso di correzione è revocato o non verificato. `null`
-   * altrove, e per chi comunque non potrebbe decidere.
+   * Correzione di un server (area 8, F4b): perché il piano non si può
+   * approvare adesso, anche da chi ha `plans.approve` — il server non è più
+   * del progetto, o l'agente non ha le operazioni accese. `null` altrove, e
+   * per chi comunque non potrebbe decidere.
    */
   planBlockedReason: ServerFixBlock | null;
 }
 
-/** Perché una correzione di server non può eseguire comandi adesso (`serverFixBlock`). */
-export type ServerFixBlock = "server_gone" | "fix_access_revoked" | "fix_access_unverified";
+/** Perché una correzione di server non può eseguire azioni adesso (`serverFixBlock`). */
+export type ServerFixBlock = "server_gone" | "operations_off";
 
 export interface ConversationDetail extends ConversationRow, ConversationPermissions {
   /** Il flusso com'è adesso (proposte scadute già `expired`); dal vivo arriva dallo stream. */
   events: ConversationEvent[];
   planPreApproved: boolean;
+  /**
+   * Correzione di un server (area 8, F4b-8 = c; `pruneWarning` del
+   * server): con un piano che libera spazio, gli ALTRI progetti che usano
+   * il server — i nomi di quelli che chi guarda vede, gli altri contati. La
+   * scheda del piano lo dice prima di approvare. `null`/assente: nessun
+   * altro progetto, nessuna pulizia, o non è una correzione.
+   */
+  serverFixPruneWarning?: { projects: string[]; hiddenCount: number } | null;
   /**
    * La pubblica da cui continua, letta dal vivo (non copiata): titolo e
    * flusso visibile da mostrare in sola lettura in testa. Se l'originale non

@@ -5,7 +5,7 @@ import {
   registerAlertTypes,
   type AlertType,
 } from "../../domain/alerts/catalog";
-import { isReadCommand } from "../../domain/servers/commands";
+import { inClosedSet } from "../../domain/servers/commands";
 import { ANALYSIS_MAX_COST_USD, ANALYSIS_MAX_MINUTES } from "../../domain/servers/limits";
 import { whyReceives } from "../alerts/visibility";
 import {
@@ -98,12 +98,13 @@ describe("allarme con l'accesso di lettura: l'analisi apre la task", () => {
       analysisLimits: { maxMinutes: ANALYSIS_MAX_MINUTES, maxCostUsd: ANALYSIS_MAX_COST_USD },
     });
     expect(c.usage![0]!.costUsd).toBeLessThanOrEqual(ANALYSIS_MAX_COST_USD);
-    expect(actionsOf(c.id).map((x) => x.input)).toEqual([
-      "uptime",
-      "free -m",
-      "sudo docker stats --no-stream",
-      "ps aux --sort=-%mem",
-      "sudo docker logs --tail 200 postgres",
+    // Le letture degli insiemi chiusi (F4b): via SSH l'argv fisso di
+    // `SSH_READS`, i log del container via AGENTE (le operazioni di SRV-1
+    // sono accese), mai `sudo docker` via SSH.
+    expect(actionsOf(c.id).map((x) => [x.serverCommand?.via, x.input])).toEqual([
+      ["ssh", "cat /proc/meminfo"],
+      ["ssh", "ps -eo pid,user,pcpu,pmem,etime,comm --sort=-pcpu"],
+      ["agent", "container.logs container=postgres lines=200 sinceMinutes=60"],
     ]);
 
     const task = taskOf(a);
@@ -131,15 +132,13 @@ describe("allarme con l'accesso di lettura: l'analisi apre la task", () => {
     expect(ready).toMatchObject({ projectId: ACQ, link: `#/p/ACQ/tasks?task=${task.code}` });
   });
 
-  it("l'ultimo uso dell'accesso di lettura è la nuova analisi, quello di correzione non cambia", async () => {
-    const fixBefore = structuredClone(state.serverAccess.get("SRV-1")!.lastUse.fix);
+  it("l'ultimo uso dell'accesso di lettura è la nuova analisi", async () => {
     await servers.simulateServerAlert("SRV-1", "cpu");
     await whenAnalysesIdle();
     const a = onlyAnalysis("SRV-1");
     const lastUse = state.serverAccess.get("SRV-1")!.lastUse;
-    expect(lastUse.read!.ref).toEqual({ kind: "analysis", analysisId: a.id });
-    expect(lastUse.fix).toEqual(fixBefore);
-    expect((await servers.getServer("SRV-1")).access.lastUse.read!.label.kind).toBe("analysis");
+    expect(lastUse!.ref).toEqual({ kind: "analysis", analysisId: a.id });
+    expect((await servers.getServer("SRV-1")).access.lastUse!.label.kind).toBe("analysis");
   });
 
   it("limite di tempo: chiude `timed_out` e apre la task con ciò che ha visto", async () => {
@@ -175,7 +174,7 @@ describe("RF 4: episodi ai bordi", () => {
     expect(tasks[0]!.description).toMatch(/Memory on acq-prod-01.*94%/);
     expect(tasks[0]!.description).toMatch(/CPU on acq-prod-01.*97%/);
     // L'analisi in corso ha letto anche per il secondo motivo.
-    expect(actionsOf(a.conversationId).map((x) => x.input)).toContain("ps aux --sort=-%cpu");
+    expect(actionsOf(a.conversationId).map((x) => x.input)).toContain("uptime");
   });
 
   it("rientro durante l'analisi: finisce, la task lo dice, avviso di rientro", async () => {
@@ -351,7 +350,7 @@ describe("RF 4: episodi ai bordi", () => {
       environmentId: "env-stw-staging",
     });
     await servers.linkSshAccess(server.code);
-    expect((await servers.verifySshAccess(server.code)).usable.read).toBe(true);
+    expect((await servers.verifySshAccess(server.code)).usable).toBe(true);
     const before = state.notifications.length;
 
     const ep = await servers.simulateServerAlert(server.code, "cpu");
@@ -363,7 +362,7 @@ describe("RF 4: episodi ai bordi", () => {
 });
 
 describe("RF 3: l'analisi è in sola lettura", () => {
-  it("ogni azione delle sessioni d'analisi è `server.read` con un comando di lettura", async () => {
+  it("ogni azione delle sessioni d'analisi è `server.read`, una lettura degli insiemi chiusi", async () => {
     const reasons = ["cpu", "memory", "disk", "check", "agent_silent"] as const;
     for (const reason of reasons) {
       await servers.simulateServerAlert("SRV-1", reason);
@@ -385,17 +384,58 @@ describe("RF 3: l'analisi è in sola lettura", () => {
     expect(actions.length).toBeGreaterThan(20);
     for (const x of actions) {
       expect(x.tool, x.label).toBe("server.read");
-      expect(isReadCommand(x.input ?? ""), x.input).toBe(true);
-      // R-L5: journal e stato dei servizi senza sudo.
-      expect(x.input).not.toMatch(/^sudo (journalctl|systemctl)/);
+      expect(x.serverCommand, x.label).toMatchObject({ kind: "read", approvalId: null });
+      expect(inClosedSet(x.serverCommand!), x.input).toBe(true);
+      // Mai `sudo`, mai docker via SSH: i container li legge l'agente.
+      expect(x.input).not.toMatch(/\bsudo\b|\bdocker\b/);
     }
     // Le etichette sono frasi: si leggono nella lingua di chi guarda.
     const fresh = newAnalyses().flatMap((a) => actionsOf(a.conversationId));
     expect(fresh.every((x) => x.labelText?.key.startsWith("claude.serverAnalysis."))).toBe(true);
   });
 
-  it("con la lettura che scrive: nessuna analisi, e l'avviso lo dice", async () => {
-    await servers.simulateSshVerifyOutcome("SRV-1", "read_writes");
+  it("F4b-3: senza il gruppo del journal Claude non legge il journal, e lo dice", async () => {
+    await servers.simulateServerAlert("SRV-1", "agent_silent");
+    await whenAnalysesIdle();
+    const withJournal = onlyAnalysis("SRV-1");
+    expect(actionsOf(withJournal.conversationId).map((x) => x.serverCommand?.action)).toContain(
+      "journal_errors",
+    );
+    await servers.simulateServerRecovery("SRV-1");
+
+    await servers.simulateSshVerifyOutcome("SRV-1", "no_journal");
+    await servers.verifySshAccess("SRV-1");
+    await servers.simulateServerAlert("SRV-1", "agent_silent");
+    await whenAnalysesIdle();
+    const without = newAnalyses("SRV-1").find((a) => a.id !== withJournal.id)!;
+    const reads = actionsOf(without.conversationId).map((x) => x.serverCommand?.action);
+    expect(reads).not.toContain("journal_errors");
+    expect(reads.length).toBeGreaterThan(0);
+    const said = eventsOf(without.conversationId)
+      .filter((e) => e.type === "assistant")
+      .map((e) => (e.type === "assistant" ? e.text : ""))
+      .join("\n");
+    expect(said).toMatch(/can't read the system journal/);
+    expect(taskOf(without).description).toMatch(/couldn't read the system journal/);
+  });
+
+  it("con le operazioni dell'agente spente niente letture via agente, e lo dice", async () => {
+    state.servers.find((s) => s.code === "SRV-1")!.agentOperations = false;
+    await servers.simulateServerAlert("SRV-1", "memory");
+    await whenAnalysesIdle();
+    const a = onlyAnalysis("SRV-1");
+    const via = actionsOf(a.conversationId).map((x) => x.serverCommand?.via);
+    expect(via.length).toBeGreaterThan(0);
+    expect(via.every((v) => v === "ssh")).toBe(true);
+    const said = eventsOf(a.conversationId)
+      .filter((e) => e.type === "assistant")
+      .map((e) => (e.type === "assistant" ? e.text : ""))
+      .join("\n");
+    expect(said).toMatch(/can't read the containers' logs.*operations/);
+  });
+
+  it("con un utente che ha sudo: nessuna analisi, e l'avviso lo dice", async () => {
+    await servers.simulateSshVerifyOutcome("SRV-1", "sudo");
     await servers.verifySshAccess("SRV-1");
     const ep = await servers.simulateServerAlert("SRV-1", "memory");
     await whenAnalysesIdle();
@@ -672,13 +712,13 @@ describe("analisi ai bordi (fix round 1)", () => {
     expect(sessionOf(a)).toMatchObject({ state: "finished", outcome: "ok", projectId: null });
   });
 
-  it("una «lettura che scrive» durante l'analisi la ferma alla lettura successiva", async () => {
+  it("un utente con docker scoperto durante l'analisi la ferma alla lettura successiva", async () => {
     setStreamLatency(20);
     await servers.simulateServerAlert("SRV-1", "memory");
     await vi.waitFor(() => expect(newAnalyses("SRV-1")).toHaveLength(1), FAST);
     const a = onlyAnalysis("SRV-1");
     await vi.waitFor(() => expect(actionsOf(a.conversationId).length).toBeGreaterThan(0), FAST);
-    await servers.simulateSshVerifyOutcome("SRV-1", "read_writes");
+    await servers.simulateSshVerifyOutcome("SRV-1", "docker");
     await servers.verifySshAccess("SRV-1");
     await whenAnalysesIdle();
     expect(a.outcome).toBe("stopped");

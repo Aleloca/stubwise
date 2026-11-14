@@ -102,6 +102,8 @@ export async function createServer(
     disks: [],
     createdAt: now(),
     sshReachable: true,
+    // L'opzione «operazioni» dell'installazione è spenta di default (F4b).
+    agentOperations: false,
   };
   state.servers.push(server);
   env?.servers.push({ repositoryId: null, serverCode: code, reportedSha: null, reportedAt: null });

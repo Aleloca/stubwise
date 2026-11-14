@@ -82,7 +82,8 @@ describe("insertRequest", () => {
 });
 
 // Anti-obiettivo 3: le chiavi private stanno solo in `servers/secrets.ts`.
-// Lo importano solo gli accessi, l'analisi e la correzione; nessuna lettura
+// Lo importa solo l'accesso (l'analisi ci arriva attraverso `access.ts`; la
+// correzione passa dall'agente, area 8 F4b, e non lo raggiunge); nessuna lettura
 // dei server lo raggiunge, nemmeno di riflesso attraverso un altro modulo.
 // Limite: il risolutore segue solo gli import dentro `data/`; per `domain/`
 // (regole pure, che non devono toccare dati né segreti) c'è un controllo a
@@ -119,14 +120,15 @@ function reachable(start: string): Set<string> {
 }
 
 describe("chiavi private dei server", () => {
-  it("secrets.ts lo importano solo access.ts, analysis.ts e fix.ts", () => {
+  it("secrets.ts lo importa solo access.ts", () => {
     const importers = Object.keys(DATA_SOURCES).filter((p) => importsOf(p).includes(SECRETS));
-    expect(importers).toContain("./servers/access.ts");
-    expect(
-      importers.filter(
-        (p) => !["./servers/access.ts", "./servers/analysis.ts", "./servers/fix.ts"].includes(p),
-      ),
-    ).toEqual([]);
+    expect(importers).toEqual(["./servers/access.ts"]);
+  });
+
+  it("la correzione dei server non tocca chiavi né accessi SSH (F4b: passa dall'agente)", () => {
+    expect(importsOf("./servers/fix.ts")).not.toContain("./servers/access.ts");
+    expect(importsOf("./servers/fix.ts")).not.toContain(SECRETS);
+    expect(importsOf("./servers/fixScripts.ts")).not.toContain("./servers/access.ts");
   });
 
   it("le letture dei server non raggiungono secrets.ts", () => {

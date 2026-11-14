@@ -3,14 +3,19 @@ import { downsample } from "../../domain/servers/metrics";
 import { fixStartBlock, type FixStartBlock } from "../../domain/servers/fixGate";
 import { alertProjectsOf, serverInProject } from "../../domain/servers/projects";
 import { installScript, type ScriptLang } from "../../domain/servers/installScript";
-import { accessState, accessUsable, type AccessState } from "../../domain/servers/sshAccess";
+import {
+  accessState,
+  accessUsable,
+  journalReadable,
+  SSH_READ_USER,
+  type AccessState,
+} from "../../domain/servers/sshAccess";
 import { holds, sees } from "../access";
 import { latestRunOf, now, state, visibleProjectIds } from "../store";
 import type {
-  ServerSshAccess,
-  SshAccessKind,
   SshPublicKey,
   SshUse,
+  SshVerification,
   MonitoredServer,
   ProjectEnvironment,
   ServerAnalysis,
@@ -41,20 +46,22 @@ export { holds, sees };
  * può): la regola pura `fixStartBlock` coi fatti di adesso — il server di
  * `serverRef` ancora in un ambiente del progetto della task (R-L2: chi vede
  * la task lo vede, R-G5), una sessione viva sulla task, un'altra
- * correzione viva sullo stesso server. Una sola regola per l'avvio e per
- * il blocco «Server» della task.
+ * correzione viva sullo stesso server, le operazioni dell'agente (F4b: la
+ * correzione passa dall'agente, mai dall'SSH). Una sola regola per l'avvio
+ * e per il blocco «Server» della task.
  */
 export function serverFixStartBlock(me: string, task: Task): FixStartBlock | null {
   const code = task.serverRef?.serverCode;
   const live = latestRunOf(task.id);
+  const server = state.servers.find((s) => s.code === code);
   return fixStartBlock({
     hasOperate: can(viewerFor(me), "servers.operate", task.projectId),
     task,
     serverInProject:
       code !== undefined &&
-      state.servers.some((s) => s.code === code) &&
+      server !== undefined &&
       serverInProject(code, task.projectId, state.environments),
-    access: code ? state.serverAccess.get(code) : undefined,
+    operationsOn: server?.agentOperations ?? false,
     liveRun: live !== undefined && live.state !== "finished",
     serverBusy: state.conversations.some(
       (c) => c.serverFix !== undefined && c.serverFix.serverCode === code && c.state !== "finished",
@@ -183,6 +190,33 @@ export interface ServerRow {
 export const liveEnvironments = () =>
   state.environments.filter((e) => !state.projectsById.get(e.projectId)?.archived);
 
+/**
+ * L'avviso prima di approvare «libera spazio» (area 8, F4b-8 = c; la forma
+ * di `pruneWarning` del server): gli ALTRI progetti che usano il server,
+ * oltre a `projectId` — per nome solo quelli che chi guarda vede (R-G5),
+ * gli altri contati. `null` se nessun altro progetto lo usa.
+ */
+export interface PruneWarning {
+  projects: string[];
+  hiddenCount: number;
+}
+
+export function pruneWarningOf(me: string, code: string, projectId: string): PruneWarning | null {
+  const others = [
+    ...new Set(
+      liveEnvironments()
+        .filter((e) => e.projectId !== projectId && e.servers.some((x) => x.serverCode === code))
+        .map((e) => e.projectId),
+    ),
+  ];
+  if (others.length === 0) return null;
+  const seen = others.filter((id) => sees(me, id));
+  return {
+    projects: seen.map((id) => state.projectsById.get(id)!.name).sort((a, b) => a.localeCompare(b)),
+    hiddenCount: others.length - seen.length,
+  };
+}
+
 /** I punti di `code` dopo `fromMs` (escluso), in ordine. */
 export function metricsSince(code: string, fromMs: number) {
   return (state.serverMetrics.get(code) ?? []).filter((p) => Date.parse(p.ts) > fromMs);
@@ -299,6 +333,11 @@ export interface ServerDetail extends Omit<ServerRow, "access"> {
   /** Solo prototipo: se l'SSH risponde (il «Simula server irraggiungibile»). */
   sshReachable: boolean;
   /**
+   * L'agente ha le operazioni accese (area 8, F4b, `agentOperations` della
+   * vista): senza, nessun piano di correzione si esegue.
+   */
+  agentOperations: boolean;
+  /**
    * Nessun ambiente di nessun progetto lo usa (R-L7, area 9b): un server nato
    * da Amministrazione. Vale anche per chi non vede i progetti che lo usano:
    * un server di soli progetti invisibili NON è orfano.
@@ -378,6 +417,7 @@ export function serverDetail(me: string, s: MonitoredServer): ServerDetail {
       }),
     canManage: canMonitor(me),
     sshReachable: s.sshReachable,
+    agentOperations: s.agentOperations,
     orphan: environmentsOf(s.code).length === 0,
     inArchivedOnly: inArchivedOnlyOf(s.code),
   };
@@ -402,7 +442,7 @@ export function homeProjectCode(me: string, s: MonitoredServer): string | null {
 /** `servers.ssh.manage` (d'istanza): collegare, verificare, rigenerare, revocare. */
 export const canManageSsh = (me: string): boolean => can(viewerFor(me), "servers.ssh.manage");
 
-/** L'ultimo uso di un accesso: quando, e da quale analisi o task (il codice della task solo se chi guarda la vede). */
+/** L'ultimo uso dell'accesso: quando, e da quale analisi o task (il codice della task solo se chi guarda la vede). */
 export interface SshUseView {
   at: string;
   label: { kind: "analysis" | "task"; code: string | null };
@@ -410,27 +450,35 @@ export interface SshUseView {
   sessionId: string | null;
 }
 
+/**
+ * L'accesso SSH di un server per chi guarda (area 8, F4b; i concetti di
+ * `serverSshAccessViewSchema`): UNO, di sola lettura. Mai la privata.
+ */
 export interface SshAccessView {
   state: AccessState;
-  /** Le chiavi pubbliche in uso. */
-  read: SshPublicKey | null;
-  fix: SshPublicKey | null;
-  /** Le chiavi generate e non ancora verificate (collegamento o rigenerazione). */
-  pending: { read: SshPublicKey; fix: SshPublicKey } | null;
-  verification: ServerSshAccess["verification"];
+  /** L'utente sul server: sempre `stubwise-read`. */
+  username: string;
+  /** La chiave pubblica in uso. */
+  key: SshPublicKey | null;
+  /** La chiave generata e non ancora verificata (collegamento o rigenerazione). */
+  pending: SshPublicKey | null;
+  /** L'ultima verifica: i gruppi, `sudo`, `docker`, il journal, `ok`. */
+  verification: SshVerification | null;
   /**
-   * Se ciascun accesso si può usare adesso (`accessUsable`): durante una
-   * rigenerazione dipende anche dall'esito delle vecchie chiavi, che la
+   * Se l'accesso si può usare adesso (`accessUsable`): durante una
+   * rigenerazione dipende anche dall'esito della vecchia chiave, che la
    * vista non porta, quindi la UI non lo può ricavare da sé.
    */
-  usable: Record<SshAccessKind, boolean>;
-  lastUse: { read: SshUseView | null; fix: SshUseView | null };
+  usable: boolean;
+  /** Se Claude legge il journal di sistema adesso (`journalReadable`, F4b-3). */
+  journal: boolean;
+  lastUse: SshUseView | null;
   /** Quando è stato revocato («Revoked Oct 29», il comando di rimozione); `null` se non lo è. */
   revokedAt: string | null;
   canManage: boolean;
 }
 
-function useView(me: string, use: SshUse | undefined): SshUseView | null {
+function useView(me: string, use: SshUse | null | undefined): SshUseView | null {
   if (!use) return null;
   const ref = use.ref;
   const analysis =
@@ -449,34 +497,34 @@ export function sshAccessView(me: string, code: string): SshAccessView {
   const a = state.serverAccess.get(code);
   return structuredClone({
     state: accessState(a),
-    read: a?.keys?.read ?? null,
-    fix: a?.keys?.fix ?? null,
+    username: SSH_READ_USER,
+    key: a?.key ?? null,
     pending: a?.pending ?? null,
     verification: a?.verification ?? null,
-    usable: { read: accessUsable(a, "read"), fix: accessUsable(a, "fix") },
-    lastUse: { read: useView(me, a?.lastUse.read), fix: useView(me, a?.lastUse.fix) },
+    usable: accessUsable(a),
+    journal: journalReadable(a),
+    lastUse: useView(me, a?.lastUse),
     revokedAt: a?.revokedAt ?? null,
     canManage: canManageSsh(me),
   });
 }
 
 /**
- * Il comando da incollare sul server: lo script coi due accessi e le sole
- * chiavi PUBBLICHE — quelle in attesa se ce ne sono (collegamento o
- * rigenerazione), altrimenti quelle in uso. In rigenerazione (R-L8) ogni
- * utente riceve anche la chiave in uso, che resta valida finché la verifica
- * delle nuove non riesce. `null` senza chiavi. L'indirizzo dell'istanza nel
- * prototipo non è noto: niente `from=`.
+ * Il comando da incollare sul server: lo script dell'utente di sola lettura
+ * con la sola chiave PUBBLICA — quella in attesa se c'è (collegamento o
+ * rigenerazione), altrimenti quella in uso. In rigenerazione (R-L8) riceve
+ * anche la chiave in uso, che resta valida finché la verifica della nuova
+ * non riesce. `null` senza chiavi. L'indirizzo dell'istanza nel prototipo
+ * non è noto: niente `from=`.
  */
 export function installCommandOf(code: string, lang: ScriptLang = "en"): string | null {
   const a = state.serverAccess.get(code);
-  const keys = a?.pending ?? a?.keys;
-  if (!a || !keys) return null;
+  const key = a?.pending ?? a?.key;
+  if (!a || !key) return null;
   return installScript({
     serverCode: code,
-    read: keys.read,
-    fix: keys.fix,
-    previous: a.pending ? a.keys : null,
+    key,
+    previous: a.pending ? a.key : null,
     instanceAddress: null,
     lang,
   });
@@ -496,7 +544,7 @@ export function linkAccessHrefOf(
 ): string | null {
   if (n.kind !== "server.trouble" && n.kind !== "server.down") return null;
   if (!canManageSsh(me) || !serversVisibleTo(me).has(n.objectCode)) return null;
-  if (accessUsable(state.serverAccess.get(n.objectCode), "read")) return null;
+  if (accessUsable(state.serverAccess.get(n.objectCode))) return null;
   const server = state.servers.find((s) => s.code === n.objectCode);
   if (!server) return null;
   // Il progetto dell'avviso solo se il server ci sta ancora: altrimenti il

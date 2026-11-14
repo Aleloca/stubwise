@@ -1363,14 +1363,14 @@
         "stoppedBy": "Fix stopped by {{name}}",
         "resolved": "Fixed — the check after the fix passed",
         "not_resolved": "Not fixed — the check after the fix failed",
-        "closed": "Closed"
+        "closed": "Closed",
+        "no_plan": "No fix with the allowed actions"
       },
       "stoppedReasons": {
-        "fix_access_revoked": "Fix stopped: fix access was revoked",
-        "fix_access_unusable": "Fix stopped: fix access stopped working",
         "server_gone": "Fix stopped: the server is no longer in this project",
         "failed": "Fix stopped: it failed",
-        "timed_out": "Fix stopped: it ran out of time"
+        "timed_out": "Fix stopped: it ran out of time",
+        "operations_off": "Fix stopped: the agent's operations were turned off"
       },
       "suggested": "Suggested fix:",
       "more": "More",
@@ -1379,20 +1379,18 @@
       "start": "Start fix on the server",
       "startAgain": "Start fix again",
       "conditionOne": "1. Only people allowed to operate {{project}}'s servers can start it.",
-      "conditionTwo": "2. Claude writes a plan first. Nothing runs on {{code}} until someone who can approve plans in {{project}} approves it — even you.",
+      "conditionTwo": "2. Claude writes a plan of allowed actions first. Nothing runs on {{code}} until someone who can approve plans in {{project}} approves it — even you.",
       "blocks": {
         "no_permission": "Someone allowed to operate {{project}}'s servers can start the fix.",
-        "no_fix_access": "{{code}} has no fix access.",
-        "fix_access_unverified": "{{code}}'s fix access isn't verified.",
         "server_gone": "{{code}} is no longer in {{project}}'s environments: the fix can't start from here.",
-        "server_busy": "Another fix is running on {{code}}."
+        "server_busy": "Another fix is running on {{code}}.",
+        "operations_off": "The agent on {{code}} doesn't have operations on: re-run its install command with operations on to fix it from here."
       },
-      "linkAccess": "Link SSH access",
       "dialog": {
         "title": "Start a fix on {{code}}?",
-        "before": "Claude reads the server, then writes a plan. It runs commands as ",
-        "strong": "stubwise-fix, which can do anything on {{code}}",
-        "after": ", only after the plan is approved.",
+        "before": "Claude looks at the containers through the monitoring agent, then writes a plan. The agent runs ",
+        "strong": "only the allowed actions, one at a time",
+        "after": " — restart, stop or start a container, free up space — and only after the plan is approved.",
         "notes": "Notes for Claude",
         "notesPlaceholder": "Optional. What Claude should know before reading {{code}}.",
         "confirm": "Start fix",
@@ -1405,18 +1403,34 @@
       "loading": "Loading the server",
       "planCard": {
         "planTitle": "Fix plan for {{code}}",
-        "commands": "Commands to run on {{code}}",
-        "runsAs": "Runs as stubwise-fix: it can do anything on {{code}}.",
+        "commands": "Actions on {{code}}",
+        "steps": {
+          "container_restart": "Restart {{container}} (stopping it waits up to {{timeoutSeconds}} s)",
+          "container_stop": "Stop {{container}} (waits up to {{timeoutSeconds}} s)",
+          "container_start": "Start {{container}}",
+          "docker_prune": {
+            "images_unused": "Free up space: remove the images no container uses",
+            "build_cache": "Free up space: remove Docker's build cache",
+            "stopped_containers": "Free up space: remove the stopped containers"
+          }
+        },
+        "shared": {
+          "title": "{{code}} is shared",
+          "projects": "Freeing up space touches the whole server: {{code}} is also used by {{projects}}.",
+          "hidden_one": "Freeing up space touches the whole server: {{code}} is also used by {{count}} other project.",
+          "hidden_other": "Freeing up space touches the whole server: {{code}} is also used by {{count}} other projects.",
+          "both": "Freeing up space touches the whole server: {{code}} is also used by {{projects}} and {{count}} more."
+        },
+        "runsAs": "The monitoring agent on {{code}} runs these actions, one at a time. Nothing else can run.",
         "releaseRule": "A plan that releases — pull, image update, deploy — must be rejected. Releases go through Releases.",
         "approve": "Approve the plan",
         "rejectBlocked": "Reject the plan",
-        "youStarted": "You started this fix. Approving runs the commands on {{code}}.",
+        "youStarted": "You started this fix. Approving runs the actions on {{code}}.",
         "waitingFor": "Waiting for someone who can approve plans in {{project}}.",
         "waitingForAny": "Waiting for someone who can approve plans.",
         "blocked": {
-          "fix_access_revoked": "Fix access to {{code}} was revoked. Link it again to approve this plan.",
-          "fix_access_unverified": "{{code}}'s fix access isn't verified. Verify it to approve this plan.",
-          "server_gone": "{{code}} is no longer in this project's environments: this plan can't be approved."
+          "server_gone": "{{code}} is no longer in this project's environments: this plan can't be approved.",
+          "operations_off": "The agent on {{code}} doesn't have operations on. Re-run its install command with operations on to approve this plan."
         },
         "statusAwaiting": "Fix on {{code}} · waiting for approval",
         "statusAwaitingYou": "Fix on {{code}} · waiting for your approval",
@@ -1430,9 +1444,7 @@
         "title": "Commands on {{code}}",
         "count": "Commands on {{code}} · {{count}}",
         "read": "read",
-        "fix": "fix",
-        "readLabel": "Read command",
-        "fixLabel": "Fix command, run with the access that can do anything",
+        "readLabel": "Read, changes nothing",
         "ok": "OK",
         "failed": "Failed",
         "running": "Running",
@@ -1442,14 +1454,19 @@
         "lines_other": "{{total}} lines",
         "lastLines": "Showing the last {{n}} of {{total}} lines",
         "allLines": "All {{total}} lines",
-        "stoppedBy": "Stopped by {{name}} · {{time}}. No commands after this.",
+        "stoppedBy": "Stopped by {{name}} · {{time}}. No actions after this.",
         "stoppedReasons": {
-          "fix_access_revoked": "Stopped: fix access was revoked.",
-          "fix_access_unusable": "Stopped: fix access stopped working.",
           "server_gone": "Stopped: the server is no longer in this project.",
           "failed": "Stopped: the fix failed.",
-          "timed_out": "Stopped: the fix ran out of time."
-        }
+          "timed_out": "Stopped: the fix ran out of time.",
+          "operations_off": "Stopped: the agent's operations were turned off."
+        },
+        "change": "change",
+        "changeLabel": "Action that changes the server, run by the agent after the approved plan",
+        "agent": "agent",
+        "ssh": "SSH",
+        "viaAgent": "Through the monitoring agent",
+        "viaSsh": "Through the read-only SSH access"
       }
     }
   },
@@ -1545,9 +1562,8 @@
         "openTask": "Open the task",
         "rejectNow": "Reject",
         "blocked": {
-          "fix_access_revoked": "Can't be approved: fix access to {{code}} was revoked. Reject it to free {{code}}.",
-          "fix_access_unverified": "Can't be approved: {{code}}'s fix access isn't verified. Reject it to free {{code}}.",
-          "server_gone": "Can't be approved: {{code}} is no longer in this project. Reject it to free {{code}}."
+          "server_gone": "Can't be approved: {{code}} is no longer in this project. Reject it to free {{code}}.",
+          "operations_off": "Can't be approved: the agent on {{code}} doesn't have operations on. Reject it to free {{code}}."
         },
         "recommended": "Recommended",
         "planOptions": "Decide on the plan for {{code}}",
@@ -4000,9 +4016,8 @@
         "closedBy": "closed by {{name}}",
         "itemClosed": "closed · the request was turned into a task or archived",
         "reasons": {
-          "fix_access_revoked": "stopped · fix access was revoked",
-          "fix_access_unusable": "stopped · fix access stopped working",
-          "server_gone": "stopped · the server left the project"
+          "server_gone": "stopped · the server left the project",
+          "operations_off": "stopped · the agent's operations were turned off"
         }
       },
       "question": {
@@ -4607,27 +4622,27 @@
       "reads": {
         "uptime": "Read the uptime and load",
         "memory": "Read the memory",
-        "containers": "Read the container usage",
-        "processesCpu": "Read the processes by CPU",
-        "processesMem": "Read the processes by memory",
+        "processes": "Read the processes",
         "logs": "Read the log of {{service}}",
+        "containerState": "Read the state of {{service}}",
         "disk": "Read the disk usage",
-        "containerSizes": "Read the container sizes",
-        "journal": "Read the system journal",
-        "containerList": "Read the containers",
+        "journal": "Read the errors in the system journal",
         "ports": "Read the listening ports",
-        "agent": "Read the agent status",
-        "bootJournal": "Read the journal of the last boot",
+        "load": "Read the load",
+        "failedUnits": "Read the failed services",
         "attempt": "Tried to connect (attempt {{n}})"
       }
     },
     "serverFix": {
-      "commands": {
-        "restart": "Restarted {{service}}",
-        "limitMemory": "Capped the memory of {{service}}",
-        "pruneImages": "Removed the unused images",
-        "vacuumJournal": "Trimmed the system journal",
-        "restartAgent": "Restarted the monitoring agent"
+      "actions": {
+        "container_restart": "Restarted {{container}}",
+        "container_stop": "Stopped {{container}}",
+        "container_start": "Started {{container}}",
+        "docker_prune": {
+          "images_unused": "Removed the unused images",
+          "build_cache": "Removed the build cache",
+          "stopped_containers": "Removed the stopped containers"
+        }
       }
     },
     "executed": {
@@ -9401,7 +9416,7 @@
       "not_linked": "No SSH access",
       "awaiting_command": "SSH access waiting for the command",
       "verify_failed": "SSH access check failed",
-      "read_writes": "SSH access turned off: the read access can write",
+      "privileged": "SSH access turned off: stubwise-read can do more than read",
       "revoked": "SSH access revoked",
       "verified": "SSH access verified",
       "regenerating": "New SSH keys waiting for the command",
@@ -9720,25 +9735,22 @@
       "trouble_other": "{{count}} servers in trouble"
     },
     "ssh": {
-      "intro": "Two accesses let Claude look into {{code}}, and fix it from a task.",
+      "intro": "One read-only access lets Claude look into {{code}}. Fixes don't use SSH: they go through the monitoring agent.",
       "more": "More SSH access actions for {{code}}",
       "menu": {
         "showCommand": "Show command again",
         "hideCommand": "Hide command",
         "verifyAgain": "Verify again",
-        "regenerate": "Regenerate keys…",
+        "regenerate": "Regenerate key…",
         "revoke": "Revoke access…",
         "removal": "Show removal command"
       },
       "users": {
-        "label": "The two users the command creates",
+        "label": "The user the command creates",
         "user": "User",
         "does": "What it can do",
-        "read": "Reads logs, processes, disk and memory. Can't change anything.",
-        "readNote": "Not in the docker group; docker inspect isn't allowed (it shows secrets).",
-        "fix": "Can do anything on the server",
-        "fixSudo": "(passwordless sudo).",
-        "fixNote": "Used only by a fix that someone allowed started from a task, after its plan was approved."
+        "read": "Reads processes, disk, memory, load, listening ports and failed services. Can't change anything.",
+        "readNote": "No sudo, not in the docker group. Its only group is systemd-journal, to read the errors in the system journal."
       },
       "steps": {
         "label": "Steps to link SSH access to {{code}}",
@@ -9748,22 +9760,21 @@
       },
       "step1": {
         "title": "Link SSH access",
-        "body": "Stubwise creates two key pairs. Private keys are encrypted and never shown.",
-        "done": "Keys created {{date}}, {{time}}",
+        "body": "Stubwise creates a key pair. The private key is encrypted and never shown.",
+        "done": "Key created {{date}}, {{time}}",
         "action": "Link SSH access",
         "linking": "Linking…"
       },
       "step2": {
         "title": "Run this command on {{code}}",
-        "creates": "It creates two users:",
-        "runAs": "Run it as root on {{code}}. Read it first: it contains only public keys.",
-        "prototype": "Prototype: these keys are made up by the prototype.",
-        "fpRead": "read",
-        "fpFix": "fix"
+        "creates": "It creates one user:",
+        "runAs": "Run it as root on {{code}}. Read it first: it contains only a public key.",
+        "prototype": "Prototype: this key is made up by the prototype.",
+        "fingerprint": "Fingerprint"
       },
       "step3": {
         "title": "Verify",
-        "hint": "Stubwise signs in with each key, and checks that read access can't write.",
+        "hint": "Stubwise signs in with the key and checks what the user can do: no sudo, not in the docker group, and whether it can read the system journal.",
         "action": "Verify",
         "again": "Verify again",
         "verifying": "Verifying…"
@@ -9777,24 +9788,27 @@
         "copyError": "Couldn't copy. Select the text and copy it by hand.",
         "showAll": "Show all {{n}} lines",
         "showLess": "Show fewer lines",
-        "publicOnly": "The command contains only public keys. Private keys are encrypted and never shown.",
+        "publicOnly": "The command contains only the public key. The private key is encrypted and never shown.",
         "loadError": "Couldn't load the command.",
         "lines": "{{n}} lines"
       },
       "outcome": {
         "label": "Verification result",
-        "readOk": "Read access works, and it can't write.",
-        "fixOk": "Fix access works.",
-        "readFailed": "Read access failed: the server refused the key. Was the command run on {{code}}?",
-        "fixFailed": "Fix access failed: the server refused the key. Was the command run on {{code}}?",
-        "unreachable": "Couldn't reach {{code}} over SSH (port 22). Neither access could be checked.",
-        "readWrites": "Read access can write. That's an error: both accesses are off until a verification passes.",
-        "readWritesHint": "Check that stubwise-read isn't in the sudo or docker group, then verify again.",
-        "newInUse": "The new keys are in use. Stubwise forgot the old ones.",
-        "newFailedKept": "The new keys didn't pass. The current ones are still in use.",
-        "newFailedNone": "The new keys didn't pass, and the current ones aren't working either.",
-        "newFailedKeptRead": "The new keys didn't pass. The current read key is still in use; the fix key isn't working.",
-        "newFailedKeptFix": "The new keys didn't pass. The current fix key is still in use; the read key isn't working."
+        "unreachable": "Couldn't reach {{code}} over SSH (port 22). Nothing was checked.",
+        "newInUse": "The new key is in use. Stubwise forgot the old one.",
+        "newFailedKept": "The new key didn't pass. The current one is still in use.",
+        "newFailedNone": "The new key didn't pass, and the current one isn't working either.",
+        "login": "Signs in as stubwise-read.",
+        "denied": "The server refused the key. Was the command run on {{code}}?",
+        "noSudo": "No sudo.",
+        "sudo": "It can run sudo.",
+        "noDocker": "Not in the docker group.",
+        "docker": "It's in the docker group: it can control every container.",
+        "journal": "Reads the system journal (group {{group}}).",
+        "noJournal": "Can't read the system journal, so Claude won't read it. Add stubwise-read to systemd-journal or adm to let it.",
+        "groups": "Groups: {{groups}}",
+        "privileged": "stubwise-read can do more than read. That's an error: the access is off until a verification passes.",
+        "privilegedHint": "Take stubwise-read out of the sudo and docker groups (running the command again does it), then verify again."
       },
       "errors": {
         "verify": "Couldn't verify. Try again.",
@@ -9804,16 +9818,13 @@
       },
       "rows": {
         "label": "SSH access of {{code}}",
-        "read": "Read access",
-        "fix": "Fix access",
-        "fixWarning": "Can do anything on the server.",
+        "read": "Read-only access",
         "state": {
           "verified": "Verified {{date}}",
           "inUse": "In use",
           "failed": "Check failed: {{why}}",
           "waiting": "Waiting for the command",
-          "passed": "Passed, waiting for the other access",
-          "off": "Off: read access can write",
+          "off": "Off: stubwise-read can do more than read",
           "revoked": "Revoked {{date}}",
           "notLinked": "Not linked",
           "failedPlain": "Check failed"
@@ -9822,14 +9833,15 @@
           "refused": "the server refused the key",
           "unreachable": "couldn't reach the server"
         },
-        "newKeys": "New keys being set up.",
+        "newKeys": "New key being set up.",
         "used": {
           "never": "Not used yet",
           "analysis": "Used {{when}} by the analysis of {{code}}",
           "task": "Used {{when}} by",
           "hiddenTask": "Used {{when}} by a task you can't see"
         },
-        "openSession": "Open session"
+        "openSession": "Open session",
+        "journalOff": "Doesn't read the system journal (not in systemd-journal or adm)."
       },
       "when": {
         "now": "just now",
@@ -9841,31 +9853,26 @@
         "hint": "An admin who manages SSH access can link it."
       },
       "regenerating": {
-        "title": "New keys — not in use yet",
-        "keep": "Until they pass, Stubwise keeps using the current keys.",
-        "keepNone": "The current keys aren't working: the new ones take over once they pass.",
-        "command": "The command authorizes the current keys and the new ones. When the new ones pass, Stubwise forgets the old ones, and the next command carries only the new keys.",
-        "keepRead": "Until they pass, Stubwise keeps using the current read key. The current fix key isn't working.",
-        "keepFix": "Until they pass, Stubwise keeps using the current fix key. The current read key isn't working."
+        "title": "New key — not in use yet",
+        "keep": "Until it passes, Stubwise keeps using the current key.",
+        "keepNone": "The current key isn't working: the new one takes over once it passes.",
+        "command": "The command authorizes the current key and the new one. When the new one passes, Stubwise forgets the old one, and the next command carries only the new key."
       },
       "regenerate": {
-        "title": "Regenerate {{code}}'s keys?",
-        "body": "You get new keys and a new command. The current keys keep working until the new ones pass verification.",
-        "bodyNone": "You get new keys and a new command. The current keys aren't working now: the new ones take over once they pass verification.",
-        "confirm": "Regenerate",
-        "bodyRead": "You get new keys and a new command. The current read key keeps working until the new ones pass verification; the current fix key isn't working now.",
-        "bodyFix": "You get new keys and a new command. The current fix key keeps working until the new ones pass verification; the current read key isn't working now."
+        "title": "Regenerate {{code}}'s key?",
+        "body": "You get a new key and a new command. The current key keeps working until the new one passes verification.",
+        "bodyNone": "You get a new key and a new command. The current key isn't working now: the new one takes over once it passes verification.",
+        "confirm": "Regenerate"
       },
       "revoke": {
         "title": "Revoke SSH access to {{code}}?",
         "noLook": "Claude can't look into {{code}}'s problems any more.",
-        "fixStops": "A fix running on {{code}} stops.",
-        "planBlocked": "A fix plan waiting for approval can't be approved.",
-        "forget": "Stubwise forgets the keys. The users stay on the server until you remove them.",
+        "fixUnaffected": "A fix on {{code}} isn't affected: it goes through the monitoring agent.",
+        "forget": "Stubwise forgets the key. The user stays on the server until you remove it.",
         "confirm": "Revoke access"
       },
       "removal": {
-        "title": "Access revoked {{date}}, {{time}}. To remove the two users from {{code}}, run:",
+        "title": "Access revoked {{date}}, {{time}}. To remove stubwise-read from {{code}}, run:",
         "done": "Done"
       },
       "linkAgain": "Link again",
@@ -9875,10 +9882,11 @@
         "next": "Next verification:",
         "hint": "This decides what the next Verify answers. Nothing connects to a server.",
         "outcomes": {
-          "ok": "Works",
-          "read_fails": "Read access fails",
-          "fix_fails": "Fix access fails",
-          "read_writes": "Read access can write",
+          "ok": "Works (reads the journal)",
+          "no_journal": "Works, without the journal group",
+          "denied": "Key refused",
+          "sudo": "stubwise-read has sudo",
+          "docker": "stubwise-read is in the docker group",
           "unreachable": "Server unreachable"
         },
         "error": "The simulation didn't go through."

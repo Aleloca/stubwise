@@ -137,7 +137,7 @@ export function NowBox({ server }: { server: ServerDetail }) {
   const reasons = (open ? h.reasons : (episode?.reasons ?? [])).flatMap(
     (r) => reasonSentence(r, server.checks, t, lang, open ? open.startedAt : null) ?? [],
   );
-  const noRead = !server.access.usable.read;
+  const noRead = !server.access.usable;
   const inTrouble = h.health === "down" || h.health === "trouble";
   const work = <WorkLine server={server} episode={episode} />;
   // La frase del budget vale finché il budget è esaurito adesso: alzato, non

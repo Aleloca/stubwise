@@ -23,6 +23,7 @@ const server = (over: Partial<MonitoredServer> = {}): MonitoredServer => ({
   disks: [],
   createdAt: hoursAgo(1000),
   sshReachable: true,
+  agentOperations: false,
   ...over,
 });
 

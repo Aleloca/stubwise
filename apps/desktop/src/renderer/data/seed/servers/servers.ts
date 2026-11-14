@@ -14,6 +14,10 @@ import { TODAY } from "../dates";
 //   nessun altro progetto: archiviato il progetto, il server resta acceso.
 //
 // I server creati dall'app partono da SRV-6 (`serverCodeSeq`).
+//
+// Area 8, F4b: solo l'agente di SRV-1 ha le operazioni accese
+// (`agentOperations`): lì la correzione da task si esegue; altrove l'opzione
+// è spenta, come di default, e un piano non parte.
 
 /** Le soglie di base, quelle del web: CPU 95%, memoria 90%, disco 90%, per 5 minuti. */
 export const DEFAULT_THRESHOLDS: ServerThresholds = {
@@ -55,6 +59,7 @@ export const SERVERS: MonitoredServer[] = [
     ],
     createdAt: "2026-09-12T10:00:00Z",
     sshReachable: true,
+    agentOperations: true,
   },
   {
     id: "srv-2",
@@ -75,6 +80,7 @@ export const SERVERS: MonitoredServer[] = [
     disks: [{ mount: "/", usedBytes: 186 * GB, totalBytes: 200 * GB }],
     createdAt: "2026-08-03T09:00:00Z",
     sshReachable: true,
+    agentOperations: false,
   },
   {
     id: "srv-3",
@@ -95,6 +101,7 @@ export const SERVERS: MonitoredServer[] = [
     disks: [{ mount: "/", usedBytes: 58 * GB, totalBytes: 160 * GB }],
     createdAt: "2026-07-20T14:00:00Z",
     sshReachable: true,
+    agentOperations: false,
   },
   {
     id: "srv-4",
@@ -113,6 +120,7 @@ export const SERVERS: MonitoredServer[] = [
     disks: [{ mount: "/", usedBytes: 19 * GB, totalBytes: 80 * GB }],
     createdAt: "2026-09-30T11:00:00Z",
     sshReachable: true,
+    agentOperations: false,
   },
   {
     id: "srv-5",
@@ -131,6 +139,7 @@ export const SERVERS: MonitoredServer[] = [
     disks: [{ mount: "/", usedBytes: 9 * GB, totalBytes: 40 * GB }],
     createdAt: "2026-05-14T10:00:00Z",
     sshReachable: true,
+    agentOperations: false,
   },
 ];
 
