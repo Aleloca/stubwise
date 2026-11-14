@@ -1,8 +1,10 @@
 import { ApiError } from "@stubwise/api-client";
 import {
+  serverCheckViewSchema,
   serverDetailSchema,
   serverMetricsResponseSchema,
   serverViewSchema,
+  serverWithKeySchema,
 } from "@stubwise/shared";
 import { describe, expect, it } from "vitest";
 import { createRealServers, type ServersApi } from "./servers";
@@ -122,12 +124,53 @@ const detail = (over: Record<string, unknown> = {}) =>
     ...over,
   });
 
+const calls: unknown[][] = [];
+
 function fakeApi(over: Partial<ServersApi> = {}): ServersApi {
+  calls.length = 0;
+  const log =
+    <T>(name: string, out: T) =>
+    async (...args: unknown[]) => {
+      calls.push([name, ...args]);
+      return out;
+    };
+  const withKey = serverWithKeySchema.parse({
+    ...view({ code: "SRV-3" }),
+    key: "sk_new",
+    ingestUrl: null,
+  });
+  const check = serverCheckViewSchema.parse({
+    id: CHK,
+    serverId: S1,
+    type: "tcp",
+    name: "DB",
+    target: "db:5432",
+    hasDsn: false,
+    intervalSeconds: 30,
+    enabled: true,
+    lastStatus: "unknown",
+    lastCheckedAt: null,
+    lastLatencyMs: null,
+    lastError: null,
+    downSince: null,
+    createdAt: NOW,
+  });
   return {
     list: async () => [view()],
     byCode: async () => detail(),
     metrics: async () =>
       serverMetricsResponseSchema.parse({ resolution: "raw", truncated: false, points: [] }),
+    create: log("create", withKey),
+    update: log("update", view({ name: "renamed" })),
+    setThresholds: log(
+      "setThresholds",
+      view({ alertThresholds: { cpuPct: 80, memPct: 85, diskPct: 90, sustainedMinutes: 10 } }),
+    ),
+    regenerateKey: log("regenerateKey", { ...withKey, ingestUrl: "https://stubwise.acme.test" }),
+    delete: log("delete", undefined),
+    createCheck: log("createCheck", check),
+    updateCheck: log("updateCheck", check),
+    deleteCheck: log("deleteCheck", undefined),
     ...over,
   };
 }
@@ -330,5 +373,74 @@ describe("i Server dal server (area 8, F4a)", () => {
     const m = await createRealServers(fakeApi(), () => NOW).getServerMetrics("SRV-1", "24h");
     expect(m.averagedSeconds).toBeNull();
     expect(m.check).toBeNull();
+  });
+
+  it("le scritture: per id dal codice, il progetto principale non si manda, le soglie intere", async () => {
+    const servers = createRealServers(
+      fakeApi(),
+      () => NOW,
+      async () => "https://desk.acme.test",
+    );
+    await servers.getServer("SRV-1");
+    expect(
+      (await servers.updateServer("SRV-1", { name: "renamed", primaryProjectId: PRJ })).name,
+    ).toBe("renamed");
+    const t = { cpuPct: 80, memPct: 85, diskPct: 90, sustainedMinutes: 10 };
+    expect(await servers.setThresholds("SRV-1", t)).toEqual(t);
+    await servers.deleteServer("SRV-1");
+    expect(calls).toEqual([
+      ["update", S1, { name: "renamed" }],
+      ["setThresholds", S1, t],
+      ["delete", S1],
+    ]);
+  });
+
+  it("la chiave UNA volta, con l'indirizzo per il comando: quello del server, o l'istanza scelta", async () => {
+    const servers = createRealServers(
+      fakeApi(),
+      () => NOW,
+      async () => "https://desk.acme.test",
+    );
+    const created = await servers.createServer({ name: "new", environmentId: null });
+    expect(created).toMatchObject({
+      server: { code: "SRV-3" },
+      agentKey: "sk_new",
+      instanceUrl: "https://desk.acme.test",
+    });
+    expect(calls[0]).toEqual(["create", { name: "new" }]);
+    await servers.getServer("SRV-1");
+    expect(await servers.regenerateAgentKey("SRV-1")).toEqual({
+      agentKey: "sk_new",
+      instanceUrl: "https://stubwise.acme.test",
+    });
+  });
+
+  it("creare dentro un ambiente aspetta la decisione: `invalid: environment`, niente creato", async () => {
+    const servers = createRealServers(fakeApi(), () => NOW);
+    await expect(servers.createServer({ name: "x", environmentId: "env-1" })).rejects.toThrow(
+      "invalid: environment",
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it("i controlli: per server e controllo; un controllo mai letto è not_found", async () => {
+    const servers = createRealServers(fakeApi(), () => NOW);
+    await expect(servers.deleteCheck(CHK)).rejects.toThrow("not_found");
+    await servers.getServer("SRV-1");
+    const input = {
+      name: "DB",
+      type: "tcp" as const,
+      target: "db:5432",
+      intervalSeconds: 30,
+      enabled: true,
+    };
+    expect((await servers.createCheck("SRV-1", input)).serverCode).toBe("SRV-1");
+    await servers.updateCheck(CHK, { enabled: false });
+    await servers.deleteCheck(CHK);
+    expect(calls).toEqual([
+      ["createCheck", S1, input],
+      ["updateCheck", S1, CHK, { enabled: false }],
+      ["deleteCheck", S1, CHK],
+    ]);
   });
 });

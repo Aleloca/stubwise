@@ -135,7 +135,7 @@ export function createRealWidgets(api: WidgetsApi, instanceOrigin: () => Promise
 }
 
 /** L'indirizzo dell'istanza, per lo snippet: quella scelta sul desktop, o questa pagina nel browser. */
-async function instanceOrigin(): Promise<string> {
+export async function instanceOrigin(): Promise<string> {
   const chosen = await window.stubwise?.instance?.get?.().catch(() => null);
   if (chosen) {
     try {

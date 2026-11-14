@@ -1,10 +1,14 @@
 import {
   serverHealth,
   type Reader,
+  type AlertThresholds,
+  type CreateCheckInput,
   type ServerCheckView,
   type ServerDetail as ServerDetailShape,
   type ServerMetricsResponse,
   type ServerView,
+  type ServerWithKey,
+  type UpdateCheckInput,
 } from "@stubwise/shared";
 import { downsample, downsampleSamples } from "../../../domain/servers/metrics";
 import type {
@@ -13,11 +17,14 @@ import type {
   MetricPoint,
   ServerCheck,
   ServerService,
+  ServerThresholds,
 } from "../../model";
+import type { CheckInput, CreateServerInput, UpdateServerInput } from "../../servers/monitor";
 import type { InstanceServerRow, MetricRange, ServerMetrics } from "../../servers/reads";
 import type { ServerDetail, ServerRow, SshAccessView } from "../../servers/visibility";
 import { inPrototypeWords } from "./automationRefs";
 import { appClient } from "./client";
+import { instanceOrigin } from "./supportWidgets";
 
 // I Server della build app (area 8, F4a) sopra le rotte vere, con le firme
 // del prototipo (`data/servers/reads.ts`). Visibilità, salute (`serverHealth`
@@ -34,6 +41,21 @@ export interface ServersApi {
     serverId: string,
     range: { from: string; to: string; checkId?: string },
   ): Promise<Reader<ServerMetricsResponse>>;
+  create(input: { name: string }): Promise<Reader<ServerWithKey>>;
+  update(
+    serverId: string,
+    patch: { name?: string; sampleIntervalSeconds?: number },
+  ): Promise<Reader<ServerView>>;
+  setThresholds(serverId: string, thresholds: AlertThresholds): Promise<Reader<ServerView>>;
+  regenerateKey(serverId: string): Promise<Reader<ServerWithKey>>;
+  delete(serverId: string): Promise<void>;
+  createCheck(serverId: string, input: CreateCheckInput): Promise<Reader<ServerCheckView>>;
+  updateCheck(
+    serverId: string,
+    checkId: string,
+    patch: UpdateCheckInput,
+  ): Promise<Reader<ServerCheckView>>;
+  deleteCheck(serverId: string, checkId: string): Promise<void>;
 }
 
 const RANGE_MS: Record<MetricRange, number> = {
@@ -245,11 +267,24 @@ const byNumber = (a: { code: string }, b: { code: string }) =>
 export function createRealServers(
   api: ServersApi,
   now: () => string = () => new Date().toISOString(),
+  origin: () => Promise<string> = instanceOrigin,
 ) {
   /** L'id del server per codice (le metriche vanno per id): dall'ultimo dettaglio letto. */
   const ids = new Map<string, string>();
   const idOf = async (code: string) =>
     ids.get(code) ?? (await inPrototypeWords(() => api.byCode(code))).id;
+  /** Di quale server è un controllo (le rotte dei controlli vanno per server): dall'ultimo dettaglio. */
+  const checkHome = new Map<string, { serverId: string; code: string }>();
+  const homeOf = (checkId: string) => {
+    const home = checkHome.get(checkId);
+    if (!home) throw new Error("not_found");
+    return home;
+  };
+  /** La chiave UNA volta, con l'indirizzo dell'istanza per il comando d'installazione. */
+  const keyOf = async (r: Reader<ServerWithKey>) => ({
+    agentKey: r.key,
+    instanceUrl: r.ingestUrl ?? (await origin()),
+  });
   return {
     /** I server degli ambienti del progetto, in ordine di numero. */
     async listProjectServers(projectId: string): Promise<ServerRow[]> {
@@ -269,7 +304,80 @@ export function createRealServers(
       const out = detailOf(d, now());
       if (!out) throw new Error("not_found");
       ids.set(out.code, d.id);
+      for (const c of out.checks) checkHome.set(c.id, { serverId: d.id, code: out.code });
       return out;
+    },
+
+    /**
+     * Un server nuovo. Dall'Amministrazione nasce orfano (`environmentId:
+     * null`); dentro un ambiente di un progetto aspetta la decisione su come
+     * il server collega le repository (registro): finché non c'è, nella build
+     * app quel bottone non c'è, e qui è `invalid: environment`.
+     */
+    async createServer(
+      input: CreateServerInput,
+    ): Promise<{ server: ServerRow; agentKey: string; instanceUrl?: string }> {
+      if (input.environmentId !== null) throw new Error("invalid: environment");
+      const r = await inPrototypeWords(() => api.create({ name: input.name }));
+      const server = rowOf(r, now());
+      if (!server) throw new Error("not_found");
+      ids.set(server.code, r.id);
+      return { server, ...(await keyOf(r)) };
+    },
+
+    async regenerateAgentKey(code: string): Promise<{ agentKey: string; instanceUrl?: string }> {
+      const id = await idOf(code);
+      return keyOf(await inPrototypeWords(() => api.regenerateKey(id)));
+    },
+
+    /** Nome e intervallo; il progetto principale è della F4b (I1): non si manda. */
+    async updateServer(code: string, patch: UpdateServerInput): Promise<ServerRow> {
+      const id = await idOf(code);
+      const body = {
+        ...(patch.name !== undefined ? { name: patch.name } : {}),
+        ...(patch.sampleIntervalSeconds !== undefined
+          ? { sampleIntervalSeconds: patch.sampleIntervalSeconds }
+          : {}),
+      };
+      const row = rowOf(await inPrototypeWords(() => api.update(id, body)), now());
+      if (!row) throw new Error("not_found");
+      return row;
+    },
+
+    /** Le soglie: il server le SOSTITUISCE, si mandano intere. */
+    async setThresholds(code: string, t: ServerThresholds): Promise<ServerThresholds> {
+      const id = await idOf(code);
+      const v = await inPrototypeWords(() => api.setThresholds(id, { ...t }));
+      return { ...v.alertThresholds };
+    },
+
+    async deleteServer(code: string): Promise<void> {
+      const id = await idOf(code);
+      await inPrototypeWords(() => api.delete(id));
+      ids.delete(code);
+    },
+
+    async createCheck(code: string, input: CheckInput): Promise<ServerCheck> {
+      const id = await idOf(code);
+      const c = await inPrototypeWords(() => api.createCheck(id, { ...input }));
+      const out = checkOf(code, c);
+      if (!out) throw new Error("not_found");
+      checkHome.set(out.id, { serverId: id, code });
+      return out;
+    },
+
+    async updateCheck(checkId: string, patch: Partial<CheckInput>): Promise<ServerCheck> {
+      const home = homeOf(checkId);
+      const c = await inPrototypeWords(() => api.updateCheck(home.serverId, checkId, { ...patch }));
+      const out = checkOf(home.code, c);
+      if (!out) throw new Error("not_found");
+      return out;
+    },
+
+    async deleteCheck(checkId: string): Promise<void> {
+      const home = homeOf(checkId);
+      await inPrototypeWords(() => api.deleteCheck(home.serverId, checkId));
+      checkHome.delete(checkId);
     },
 
     /**
@@ -315,4 +423,12 @@ export const liveServers = createRealServers({
   list: (projectId) => appClient().servers.list(projectId),
   byCode: (code) => appClient().servers.byCode(code),
   metrics: (id, range) => appClient().servers.metrics(id, range),
+  create: (input) => appClient().servers.create(input),
+  update: (id, patch) => appClient().servers.update(id, patch),
+  setThresholds: (id, t) => appClient().servers.setThresholds(id, t),
+  regenerateKey: (id) => appClient().servers.regenerateKey(id),
+  delete: (id) => appClient().servers.delete(id),
+  createCheck: (id, input) => appClient().servers.createCheck(id, input),
+  updateCheck: (id, checkId, patch) => appClient().servers.updateCheck(id, checkId, patch),
+  deleteCheck: (id, checkId) => appClient().servers.deleteCheck(id, checkId),
 });

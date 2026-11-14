@@ -79,7 +79,7 @@ export interface CreateServerInput {
  */
 export async function createServer(
   input: CreateServerInput,
-): Promise<{ server: ServerRow; agentKey: string }> {
+): Promise<{ server: ServerRow; agentKey: string; instanceUrl?: string }> {
   const me = await writer("servers.createServer");
   // Senza ambiente non c'è un progetto da guardare: l'ordine resta not_found
   // (l'ambiente), forbidden, invalid.
@@ -112,7 +112,9 @@ export async function createServer(
 }
 
 /** Una chiave nuova per l'agente; la vecchia smette di valere (sul web: l'hash si sostituisce). */
-export async function regenerateAgentKey(code: string): Promise<{ agentKey: string }> {
+export async function regenerateAgentKey(
+  code: string,
+): Promise<{ agentKey: string; instanceUrl?: string }> {
   const me = await writer("servers.regenerateAgentKey");
   const server = managed(me, code);
   const agentKey = newAgentKey(server.code);
