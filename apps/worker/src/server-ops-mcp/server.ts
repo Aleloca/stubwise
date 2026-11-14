@@ -58,6 +58,12 @@ export const SERVER_OPS_TOOL_DEFS: { name: string; description: string; inputSch
   { name: "container_state", description: "State, restart count and image of one container, read by the agent. Read-only.", inputSchema: { container } },
   { name: "ssh_read", description: "A fixed read-only command over SSH, if an SSH read access is connected. Read-only.", inputSchema: { read: z.string(), params: z.record(z.string(), z.unknown()).optional() } },
   {
+    name: "propose_server_plan",
+    description:
+      "Propose the correction plan for this task: steps of the allowed actions only (container.restart, container.stop, container.start, docker.prune), on containers of this project. A person approves it before anything runs. Call it ONCE.",
+    inputSchema: { steps: z.array(z.object({ action: z.string(), params: z.record(z.string(), z.unknown()), why: z.string() })) },
+  },
+  {
     name: "report_server_diagnosis",
     description:
       "Finish the analysis: the diagnosis, the project that causes it (its code, or null if you cannot tell) with the containers that prove it, and optionally a fix as steps of the allowed actions only. Call it ONCE, at the end.",

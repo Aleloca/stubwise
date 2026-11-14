@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, gte } from "drizzle-orm";
-import { decrypt, serverCommands, serverEpisodes, serverMetrics, servers, serverSshAccess, serviceChecks, type Db } from "@stubwise/db";
+import { decrypt, serverCommands, serverEpisodes, serverFixes, serverMetrics, servers, serverSshAccess, serviceChecks, type Db } from "@stubwise/db";
 import { attributionContext, COMMAND_OUTPUT_MAX, issueServerCommand, ServerCommandError } from "@stubwise/notifications";
 import { SshHostKeyMismatchError, sshExec, type SshExec } from "./ssh.js";
 import {
@@ -8,7 +8,8 @@ import {
   serverActionSchema,
   serverDiagnosisReportSchema,
   type ServerAnalysisLimits,
-  type ServerAnalysisTool,
+  type ServerOpsTool,
+  validateServerPlan,
   type ServerDiagnosisReport,
 } from "@stubwise/shared";
 
@@ -26,7 +27,13 @@ import {
  */
 
 export interface AnalysisGrant {
-  analysisId: string;
+  /** `analysis` (S5: letture + resoconto) o `fix` (S6: letture + propose_server_plan). */
+  mode?: "analysis" | "fix";
+  /** Solo per `fix`: la correzione e il progetto della task. */
+  fixId?: string;
+  projectId?: string;
+  proposed?: boolean;
+  analysisId: string | null;
   serverId: string;
   sessionId: string | null;
   limits: ServerAnalysisLimits;
@@ -213,8 +220,34 @@ async function sshReadTool(deps: ToolDeps, grant: AnalysisGrant, args: unknown):
   }
 }
 
-/** Uno strumento dell'analisi. Il resoconto si scrive una volta sola. */
-export async function runAnalysisTool(deps: ToolDeps, grant: AnalysisGrant, tool: ServerAnalysisTool, args: unknown): Promise<ToolReply> {
+/**
+ * S6: il piano proposto da una sessione `server_fix`. Contenuto del modello:
+ * si VALIDA contro l'insieme chiuso e i container del progetto della task
+ * (`validateServerPlan`), con le operazioni dell'agente accese; valido → la
+ * correzione va in attesa d'approvazione. Mai eseguito qui; una volta sola.
+ */
+async function proposePlan(deps: ToolDeps, grant: AnalysisGrant, args: unknown): Promise<ToolReply> {
+  if (grant.proposed) return { ok: false, text: "A plan was already proposed: it is final." };
+  const { db } = deps;
+  const [server] = await db.select({ caps: servers.agentCapabilities }).from(servers).where(eq(servers.id, grant.serverId));
+  if (server?.caps.operations !== true) return { ok: false, text: "Not saved: the agent on this server has operations turned off." };
+  const ctx = await attributionContext(db, grant.serverId);
+  const check = validateServerPlan({ plan: args, projectId: grant.projectId!, serverProjects: ctx.serverProjects, seenContainers: ctx.seenContainers });
+  if (!check.ok) {
+    return { ok: false, text: `Not saved (${check.reason}${check.step !== null ? `, step ${check.step + 1}` : ""}): only the allowed actions, on containers of this project that the agent sees.` };
+  }
+  const saved = await db
+    .update(serverFixes)
+    .set({ status: "awaiting_approval", steps: check.plan.steps, planError: null, updatedAt: new Date() })
+    .where(and(eq(serverFixes.id, grant.fixId!), eq(serverFixes.status, "proposing")))
+    .returning({ id: serverFixes.id });
+  if (saved.length === 0) return { ok: false, text: "Not saved: the correction was stopped or changed meanwhile." };
+  grant.proposed = true;
+  return { ok: true, text: "Plan saved: it waits for a person's approval. Stop here." };
+}
+
+/** Uno strumento dell'analisi (o della correzione). Il resoconto si scrive una volta sola. */
+export async function runAnalysisTool(deps: ToolDeps, grant: AnalysisGrant, tool: ServerOpsTool, args: unknown): Promise<ToolReply> {
   const now = (deps.now ?? (() => new Date()))();
   switch (tool) {
     case "server_overview":
@@ -229,7 +262,11 @@ export async function runAnalysisTool(deps: ToolDeps, grant: AnalysisGrant, tool
       return agentRead(deps, grant, "container.state", args);
     case "ssh_read":
       return sshReadTool(deps, grant, args);
+    case "propose_server_plan":
+      if (grant.mode !== "fix") return { ok: false, text: "Not available in this session." };
+      return proposePlan(deps, grant, args);
     case "report_server_diagnosis": {
+      if (grant.mode === "fix") return { ok: false, text: "Not available in this session." };
       if (grant.report !== null) return { ok: false, text: "The diagnosis was already reported: it is final." };
       const parsed = serverDiagnosisReportSchema.safeParse(args);
       if (!parsed.success) return { ok: false, text: `Invalid report: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}` };

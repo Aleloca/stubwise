@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SERVER_ANALYSIS_TOOLS, SERVER_MCP_SERVER_NAME, type ServerAnalysisTool } from "@stubwise/shared";
+import { SERVER_ANALYSIS_TOOLS, SERVER_FIX_TOOLS, SERVER_MCP_SERVER_NAME, type ServerOpsTool } from "@stubwise/shared";
 import type { AgentMcpConfig } from "../agent/runner.js";
 import { runAnalysisTool, type AnalysisGrant, type ToolDeps } from "./tools.js";
 
@@ -30,7 +30,12 @@ export function serverOpsServerPath(): string {
 }
 
 /** La config MCP del run; `null` se l'entry compilata non c'è (fail-closed: nessun run). */
-export function buildServerOpsMcpConfig(bridge: ServerOpsBridge, secret: string, serverPath: string): { mcpConfig: AgentMcpConfig; tools: string[] } | null {
+export function buildServerOpsMcpConfig(
+  bridge: ServerOpsBridge,
+  secret: string,
+  serverPath: string,
+  mode: "analysis" | "fix" = "analysis",
+): { mcpConfig: AgentMcpConfig; tools: string[] } | null {
   if (!existsSync(serverPath)) return null;
   return {
     mcpConfig: {
@@ -38,7 +43,7 @@ export function buildServerOpsMcpConfig(bridge: ServerOpsBridge, secret: string,
         [SERVER_MCP_SERVER_NAME]: { command: process.execPath, args: [serverPath], env: { SERVER_OPS_BRIDGE_URL: bridge.url, SERVER_OPS_BRIDGE_SECRET: secret } },
       },
     },
-    tools: SERVER_ANALYSIS_TOOLS.map((t) => `mcp__${SERVER_MCP_SERVER_NAME}__${t}`),
+    tools: (mode === "fix" ? SERVER_FIX_TOOLS : SERVER_ANALYSIS_TOOLS).map((t) => `mcp__${SERVER_MCP_SERVER_NAME}__${t}`),
   };
 }
 
@@ -68,7 +73,8 @@ function readBody(req: IncomingMessage): Promise<string | "too_large"> {
 export async function startServerOpsBridge(deps: ToolDeps & { log?: (m: string) => void }): Promise<ServerOpsBridge> {
   const log = deps.log ?? ((m: string) => console.warn(m));
   const grants = new Map<string, AnalysisGrant>();
-  const tools = new Set<string>(SERVER_ANALYSIS_TOOLS);
+  // Ogni grant vede SOLO gli strumenti della sua modalità.
+  const toolsOf = (g: AnalysisGrant) => new Set<string>(g.mode === "fix" ? SERVER_FIX_TOOLS : SERVER_ANALYSIS_TOOLS);
 
   const grantOf = (header: string | undefined) => {
     const given = header?.startsWith("Bearer ") ? Buffer.from(header.slice(7)) : null;
@@ -83,9 +89,10 @@ export async function startServerOpsBridge(deps: ToolDeps & { log?: (m: string) 
 
   async function handle(req: IncomingMessage): Promise<Reply> {
     const tool = /^\/tools\/([a-z_]+)$/.exec(req.url ?? "")?.[1];
-    if (req.method !== "POST" || tool === undefined || !tools.has(tool)) return fail(404, "not_found");
+    if (req.method !== "POST" || tool === undefined) return fail(404, "not_found");
     const grant = grantOf(req.headers.authorization);
     if (grant === undefined) return fail(401, "unauthorized");
+    if (!toolsOf(grant).has(tool)) return fail(404, "not_found");
     const raw = await readBody(req);
     if (raw === "too_large") return fail(413, "too_large");
     let args: unknown;
@@ -94,7 +101,7 @@ export async function startServerOpsBridge(deps: ToolDeps & { log?: (m: string) 
     } catch {
       return fail(400, "invalid_input", "The body is not valid JSON.");
     }
-    const reply = await runAnalysisTool(deps, grant, tool as ServerAnalysisTool, args);
+    const reply = await runAnalysisTool(deps, grant, tool as ServerOpsTool, args);
     return { status: 200, body: { ok: reply.ok, message: reply.text } };
   }
 

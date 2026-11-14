@@ -112,7 +112,7 @@ export async function serverFixRoutes(instance: FastifyInstance): Promise<void> 
     if (server?.caps.operations !== true) return apiError(reply, 409, "operations_off", "The agent on this server has operations turned off");
     const updated = await app.db
       .update(serverFixes)
-      .set({ status: "proposing", steps: [], planError: null, approvalId: null, currentStep: null, stepCommands: {}, requestedByUserId: request.user!.id, rejectedAt: null, rejectedByUserId: null, rejectionNote: null, updatedAt: new Date(), finishedAt: null })
+      .set({ status: "proposing", sessionId: null, steps: [], planError: null, approvalId: null, currentStep: null, stepCommands: {}, requestedByUserId: request.user!.id, rejectedAt: null, rejectedByUserId: null, rejectionNote: null, updatedAt: new Date(), finishedAt: null })
       .where(and(eq(serverFixes.id, fix.id), inArray(serverFixes.status, [...OPEN_FOR_REQUEST])))
       .returning();
     if (updated.length === 0) return apiError(reply, 409, "fix_busy", "A plan is being proposed or run: stop it first");
