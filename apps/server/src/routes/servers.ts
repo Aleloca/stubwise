@@ -78,6 +78,13 @@ function toServerView(row: ServerRow, agg: ServerAggregates, now: Date): ServerV
     checksUp: agg.checksUp,
     checksDown: agg.checksDown,
     recentCpu: agg.recentCpu,
+    // Area 8, F4a: riempiti dai task del server (S2); qui i default dello schema.
+    code: null,
+    health: null,
+    environments: [],
+    work: "none",
+    orphan: false,
+    inArchivedOnly: false,
   };
 }
 
@@ -265,6 +272,10 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
         metricsAt: latest ? latest.ts.toISOString() : null,
         memUsedBytes: latest?.memUsedBytes ?? null,
         memTotalBytes: latest?.memTotalBytes ?? null,
+        checks: [],
+        episodes: [],
+        productionProjects: [],
+        canManage: false,
       };
     },
   );

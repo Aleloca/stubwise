@@ -3892,8 +3892,19 @@ export type {
  * `.default()` dello schema qui non gira mai. Un campo nuovo che questo bundle
  * legga va difeso nel punto di lettura (`?? null`, `?? []`).
  */
-export type { ServerDisk, ServerProjectSummary, ServerView } from "@stubwise/shared";
-import type { ServerDetail as SharedServerDetail, ServerView } from "@stubwise/shared";
+export type { ServerDisk, ServerProjectSummary } from "@stubwise/shared";
+import type { ServerDetail as SharedServerDetail, ServerView as SharedServerView } from "@stubwise/shared";
+
+/** I campi della F4a dell'area 8 (code, salute, ambienti…): additivi, il web non li legge. */
+type F4aViewFields = "code" | "health" | "environments" | "work" | "orphan" | "inArchivedOnly";
+type F4aDetailFields = F4aViewFields | "checks" | "episodes" | "productionProjects" | "canManage";
+
+/**
+ * La vista di un server COME LA VEDE IL WEB (cast, nessun parse): i campi
+ * nuovi dell'area 8, F4a, sono OPZIONALI qui, perché il `.default()` dello
+ * schema non gira e un server più vecchio non li manda.
+ */
+export type ServerView = Omit<SharedServerView, F4aViewFields> & Partial<Pick<SharedServerView, F4aViewFields>>;
 
 /**
  * Il dettaglio di un server COME LO VEDE IL WEB, che fa un cast e non un
@@ -3903,10 +3914,11 @@ import type { ServerDetail as SharedServerDetail, ServerView } from "@stubwise/s
  * li manda. Il tipo lo dice, così chi un giorno li leggesse da qui è
  * costretto dal compilatore al `?? null` nel punto di lettura.
  */
-export type ServerDetail = Omit<SharedServerDetail, "memUsedBytes" | "memTotalBytes"> & {
-  memUsedBytes?: number | null;
-  memTotalBytes?: number | null;
-};
+export type ServerDetail = Omit<SharedServerDetail, "memUsedBytes" | "memTotalBytes" | F4aDetailFields> &
+  Partial<Pick<SharedServerDetail, F4aDetailFields>> & {
+    memUsedBytes?: number | null;
+    memTotalBytes?: number | null;
+  };
 
 /**
  * Server con la chiave dell'agente (`sk_…`) in chiaro: restituito SOLO da
