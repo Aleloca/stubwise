@@ -622,6 +622,10 @@ una voce ti riguarda.
   - Lo stato della generazione dice solo ciò che il server sa: niente stime.
   - Il numero di un codice D lo dà `stubwise_ensure_doc_page_codes`; uno scrittore di `doc_pages` con una transazione lunga chiama `ensureDocPageCodes` PRIMA (il lock per progetto).
   - Embedding delle manuali: fail-open, chunk vecchi tolti, backfill all'avvio e ogni ora.
+- **Operazioni sui server → `docs/invariants/server-operations.md`** (area 8 F4b, 14 nov 2026):
+  - Solo l'insieme chiuso `SERVER_ACTIONS`, eseguito dall'agente con un comando firmato per passo approvato; mai via SSH.
+  - Ogni piano lo approva `plans.approve` nel progetto che l'analisi indica, prima di ogni comando; mai Claude, mai in anticipo.
+  - SSH solo letture, utente senza privilegi; tutto nel registro `server_commands`.
 - **Account e provider dell'agente → `docs/invariants/providers.md`**:
   - La scelta dell'account sta in `providers/select.ts`, e la ripresa usa la stessa funzione (15 ott 2026).
 - **Giro notturno → `docs/invariants/nightly.md`**:
@@ -675,9 +679,10 @@ una voce ti riguarda.
      **negativamente** (`release.test.ts`, Legacy Member e Developer): 403
      **e** nessun merge parte. La coda `/api/release-queue` mostra solo i
      progetti in cui chi guarda ha `release.merge`. Resta vero il confine di
-     prodotto: **l'unica azione è il merge di una PR già aperta**, mai un
-     deploy, mai un'esecuzione di ambiente (vedi l'invariante dedicata più
-     sotto). Chi aggiunge un'integrazione che esegue un DEPLOY rompe questa
+     prodotto: **l'unica azione di rilascio è il merge di una PR già
+     aperta**, mai un deploy; l'unica azione sull'ambiente è la correzione
+     di un server, che non rilascia, con `plans.approve` per approvarne
+     ogni piano (vedi l'invariante dedicata più sotto). Chi aggiunge un'integrazione che esegue un DEPLOY rompe questa
      frase, non solo il codice: è un cambio di prodotto.
      **Il divieto vale anche IN LETTURA**: il polso non dice a chi non può
      mergiare che una PR aspetta LUI. `waitingForMerge[].canMerge`
@@ -1065,23 +1070,58 @@ una voce ti riguarda.
   progetto), mai perché la pipeline le usi. Chi tocca questa funzione non
   allarghi il tipo del parametro "per generalità": un secondo chiamante che
   volesse un ambiente diverso da `test` starebbe chiedendo la cosa sbagliata.
-- **Stubwise non fa deploy: il merge è il confine (fase 8).** Scritto perché
-  non lo si superi "tanto manca poco". La coda di rilascio
-  (`/release`, `apps/server/src/services/release.ts`) offre **un'unica
-  azione**: il merge esplicito di una PR già aperta, con conferma a due
-  click nella UI. Non esiste — e non va aggiunto senza che sia una
-  decisione di prodotto nuova, non un dettaglio implementativo — nessun
-  codice che esegua un `docker compose up`, un riavvio di servizio, uno
-  script di deploy o qualunque azione sull'ambiente stesso: gli ambienti
-  (`project_environments`) sono **pura anagrafica** — dove sta un ambiente,
-  cosa ci gira secondo l'ultimo campione dell'agente di monitoraggio (Task
-  4) — mai un bersaglio che Stubwise esegue. "Già su staging?"
-  (`deployedOn` in `listReleaseQueue`) **legge**, non agisce: confronta
-  l'head sha della PR col commit che l'agente riporta (`sameCommit`, vedi
-  «Fase 8» più sopra), e un mancato match è
-  "non risulta", mai un'affermazione che Stubwise avrebbe potuto rendere
-  vera. Chi in futuro collega un ambiente a un'azione che lo TOCCA (un
-  trigger di deploy, un rollout) rompe questa frase, non solo il codice.
+- **Stubwise non fa deploy; il merge è il confine dei RILASCI (fase 8,
+  riscritta con l'area 8, F4b, 14 nov 2026, decisione del maintainer).**
+  Per i rilasci l'unica azione resta il merge esplicito di una PR già
+  aperta (`release.merge`, `apps/server/src/services/release.ts`): nessun
+  deploy, nessuna esecuzione di pipeline, nessun riavvio. Lo stato di un
+  rilascio si LEGGE (le run di CI, il commit che l'agente riporta,
+  `sameCommit`) e «non ancora in produzione» resta un'osservazione, mai
+  un'affermazione che Stubwise avrebbe potuto rendere vera.
+
+  Esiste **una sola azione sull'ambiente**: la **correzione di un problema
+  di un server**. Gli ambienti (`project_environments`) non sono più «pura
+  anagrafica» solo in questo senso: l'agente di un server collegato può
+  avere le operazioni accese.
+  - **Cosa fa**: SOLO le azioni dell'insieme CHIUSO dichiarato in
+    `@stubwise/shared` (`SERVER_ACTIONS`): riavviare, fermare o avviare un
+    container che l'agente riporta; liberare spazio (immagini non usate,
+    cache di build, container fermi: ognuno un passo a sé). Più le LETTURE
+    (le ultime righe del log e lo stato di un container dall'agente; via SSH
+    le letture dell'elenco chiuso), che non cambiano niente.
+  - **Da dove parte e chi la autorizza**: l'analisi parte dal SERVER (da
+    sola sull'allarme, se l'opzione è accesa, o da chi ha `servers.operate`
+    in un progetto del server) e fa solo letture; è l'analisi a individuare
+    QUALE progetto causa il problema, e il piano di correzione appartiene a
+    quel progetto. Il piano (una sequenza di azioni dell'insieme chiuso) lo
+    approva chi ha `plans.approve` in quel progetto, SEMPRE e PRIMA di ogni
+    comando, anche quando lo ha chiesto lui stesso (mai Claude, mai in
+    anticipo: la pre-approvazione dei piani dei ticket non vale qui).
+    `release.merge` non c'entra: la correzione non rilascia.
+  - **Come**: la esegue l'**agente di monitoraggio**, mai l'SSH. Il server
+    FIRMA un comando (Ed25519, chiave d'istanza) per ogni passo approvato,
+    uno alla volta, dopo i ricontrolli; l'agente esegue solo comandi firmati
+    con la chiave pubblica fissata alla sua installazione, una volta sola,
+    non scaduti, del suo server. Le operazioni sono un'opzione
+    dell'installazione, spenta di default.
+  - **Cosa resta VIETATO, per costruzione e non per convenzione**: deploy;
+    pull o aggiornamento di un'immagine; creare o ricreare un container;
+    `compose up`/`down`; `exec` in un container; qualunque comando o script
+    libero, sull'host o in un container; qualunque stringa che arrivi dal
+    modello e diventi un comando. Una correzione che «rilascia» è un piano
+    da rifiutare: il prompt lo dice, il gate lo controlla, un test lo prova.
+    Chi aggiunge un'azione all'insieme chiuso, o collega la correzione a un
+    rilascio, rompe questa frase, non solo il codice: è un cambio di
+    prodotto.
+  - **Via SSH solo LETTURE**: un accesso separato di sola lettura per
+    l'analisi, con un utente senza privilegi e senza il socket di Docker, un
+    elenco chiuso di letture con parametri numerici validati, uscite
+    troncate, delimitate e non fidate; mai una scrittura via SSH.
+  - **Tutto si registra**: ogni comando firmato, ogni lettura (agente o
+    SSH), ogni esito, con chi l'ha chiesto e quale approvazione lo copre
+    (`server_commands`), per 90 giorni.
+  Le regole di dettaglio stanno in `docs/invariants/server-operations.md`
+  (scritto con la F4b).
 - **Nei test del server una chiamata di rete reale FALLISCE il test (1 ott
   2026).** `apps/server/src/test/network-guard.ts` (`setupFiles` in
   `apps/server/vitest.config.ts`) avvolge `fetch`: verso un host non locale
