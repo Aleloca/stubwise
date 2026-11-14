@@ -83,6 +83,8 @@ describe("Support — l'elenco", () => {
       "In triage",
       "Not concluded",
       "Request open",
+      // Area 8, F3: la risposta del widget è bastata, in fondo.
+      "Answered",
     ]);
     // ACQ-S2 aspetta da più tempo di ACQ-S7 (5 nov 2026): è la prima.
     const waiting = within(groups[0]!).getAllByRole("option");

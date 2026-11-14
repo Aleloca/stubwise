@@ -808,8 +808,8 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
       for (const id of c.followerIds) expect(project.memberIds).toContain(id);
     }
     const acq = SUPPORT_CONVERSATIONS.filter((c) => c.projectId === ACQ);
-    // In triage: nessuna richiesta, il cliente non se n'è andato.
-    expect(acq.some((c) => c.channel === "widget" && !c.requestId && !c.leftAt)).toBe(true);
+    // In triage: nessuna richiesta, nessun giudizio dopo il silenzio.
+    expect(acq.some((c) => c.channel === "widget" && !c.requestId && !c.triage)).toBe(true);
     // Aspettano noi (richiesta aperta, l'ultimo messaggio è del cliente) in
     // due: ACQ-S2 con la bozza di Claude pronta, ACQ-S7 senza. La riga
     // «Claude can help you write the reply» si vede solo sulla seconda.
@@ -818,9 +818,12 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
       ["ACQ-S2", true],
       ["ACQ-S7", false],
     ]);
-    // Non conclusa: se n'è andato, nessuna richiesta.
-    const left = acq.find((c) => c.leftAt)!;
-    expect(left.requestId).toBeNull();
+    // Non conclusa e risposta bastata (area 8, F3): il giudizio del controllo, nessuna richiesta.
+    const judged = acq.filter((c) => c.triage);
+    expect(judged.map((c) => [c.code, c.triage!.outcome, c.triage!.byUserId, c.requestId])).toEqual([
+      ["ACQ-S3", "not_concluded", null, null],
+      ["ACQ-S8", "concluded", null, null],
+    ]);
     // Dal server MCP, con la conversazione allegata alla richiesta.
     const mcp = acq.find((c) => c.channel === "mcp")!;
     expect(mcp.requestId).not.toBeNull();
@@ -897,7 +900,7 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
     expect(state.notificationMarks.size).toBe(0);
     expect(state.releaseCodeSeq.get(AUD)).toBe(3);
     expect(state.releaseCodeSeq.get(STW)).toBe(2);
-    expect(state.supportCodeSeq.get(ACQ)).toBe(7);
+    expect(state.supportCodeSeq.get(ACQ)).toBe(8);
     // Copie: cambiare lo stato non tocca il seme.
     state.releases[0]!.title = "changed";
     expect(RELEASES[0]!.title).not.toBe("changed");

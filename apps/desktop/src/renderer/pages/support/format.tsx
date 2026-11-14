@@ -19,6 +19,8 @@ export const STATE_ORDER: readonly SupportState[] = [
   "not_concluded",
   "request_open",
   "reply_sent",
+  // Area 8, F3: la risposta del widget è bastata; in fondo, nessuna azione.
+  "answered",
 ];
 
 /** Oltre quante ore l'attesa si segnala (`warning` con icona) [A 4]. */

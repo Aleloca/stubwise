@@ -20,7 +20,7 @@ const conv = (over: Partial<SupportConversation> = {}): SupportConversation => (
   messages: [],
   rewrittenWish: null,
   requestId: null,
-  leftAt: null,
+  triage: null,
   confirmedAt: null,
   followerIds: [],
   claudeDraft: null,
@@ -28,12 +28,40 @@ const conv = (over: Partial<SupportConversation> = {}): SupportConversation => (
 });
 
 describe("supportState", () => {
-  it("senza richiesta: in triage, o non conclusa se il cliente se n'è andato", () => {
+  it("senza esito e senza giudizio: in triage", () => {
     expect(supportState(conv({ messages: [msg("customer", "1")] }))).toBe("triage");
     expect(supportState(conv())).toBe("triage");
-    expect(supportState(conv({ leftAt: "2", messages: [msg("customer", "1")] }))).toBe(
-      "not_concluded",
-    );
+  });
+
+  it("senza esito, il giudizio dopo il silenzio: non conclusa, o risposta bastata (answered)", () => {
+    const messages = [msg("customer", "1"), msg("triage", "2")];
+    expect(
+      supportState(
+        conv({ messages, triage: { outcome: "not_concluded", at: "3", byUserId: null } }),
+      ),
+    ).toBe("not_concluded");
+    expect(
+      supportState(conv({ messages, triage: { outcome: "concluded", at: "3", byUserId: null } })),
+    ).toBe("answered");
+  });
+
+  it("un messaggio del cliente dopo il giudizio lo rende vecchio: di nuovo in triage", () => {
+    const messages = [msg("customer", "1"), msg("triage", "2"), msg("customer", "4")];
+    expect(
+      supportState(conv({ messages, triage: { outcome: "concluded", at: "3", byUserId: null } })),
+    ).toBe("triage");
+    expect(
+      supportState(
+        conv({ messages, triage: { outcome: "not_concluded", at: "3", byUserId: null } }),
+      ),
+    ).toBe("triage");
+  });
+
+  it("un giudizio dato insieme all'ultimo messaggio del cliente vale (at uguale)", () => {
+    const messages = [msg("customer", "3")];
+    expect(
+      supportState(conv({ messages, triage: { outcome: "concluded", at: "3", byUserId: null } })),
+    ).toBe("answered");
   });
 
   it("con richiesta: l'ultimo messaggio decide (cliente → aspetta noi, team → risposta inviata)", () => {
@@ -48,10 +76,18 @@ describe("supportState", () => {
     expect(supportState(conv(base))).toBe("request_open");
   });
 
-  it("una richiesta aperta vince sull'abbandono (la «non conclusa» è solo senza richiesta)", () => {
-    expect(
-      supportState(conv({ requestId: "req-1", leftAt: "3", messages: [msg("triage", "1")] })),
-    ).toBe("request_open");
+  it("un esito vince sul giudizio (non conclusa e answered sono solo senza esito)", () => {
+    for (const outcome of ["concluded", "not_concluded"] as const) {
+      expect(
+        supportState(
+          conv({
+            requestId: "req-1",
+            triage: { outcome, at: "3", byUserId: null },
+            messages: [msg("triage", "1")],
+          }),
+        ),
+      ).toBe("request_open");
+    }
   });
 });
 

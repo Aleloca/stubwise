@@ -102,6 +102,8 @@ describe("letture e visibilità", () => {
       "ACQ-S6": "request_open",
       // 5 nov 2026: la seconda che aspetta noi, senza bozza di Claude.
       "ACQ-S7": "waiting_us",
+      // Area 8, F3: la risposta del widget è bastata (il controllo dopo il silenzio).
+      "ACQ-S8": "answered",
     });
     // Ordine dei gruppi: aspetta noi, in triage, non concluse, richiesta aperta (la più recente prima), risposte.
     expect(list.map((c) => c.code)).toEqual([
@@ -112,6 +114,8 @@ describe("letture e visibilità", () => {
       "ACQ-S6",
       "ACQ-S4",
       "ACQ-S5",
+      // `answered` in fondo: nessuna azione da fare.
+      "ACQ-S8",
     ]);
     expect(
       (await support.listSupportConversations(ACQ, { state: "triage" })).map((c) => c.code),
@@ -157,7 +161,7 @@ describe("letture e visibilità", () => {
     const list = await support.listWidgets(ACQ);
     expect(list.canManage).toBe(true);
     expect(list.widgets).toEqual([
-      expect.objectContaining({ id: "wdg-acq-portal", conversationCount: 6 }),
+      expect.objectContaining({ id: "wdg-acq-portal", conversationCount: 7 }),
     ]);
   });
 
@@ -442,7 +446,7 @@ describe("scritture", () => {
     expect((await support.updateWidget(w.id, { name: "Site 2" })).name).toBe("Site 2");
     await support.deleteWidget("wdg-acq-portal");
     expect(state.supportWidgets.map((x) => x.id)).toEqual([w.id]);
-    expect(state.supportConversations).toHaveLength(7);
+    expect(state.supportConversations).toHaveLength(8);
     const s1 = (await support.getSupportConversation("ACQ-S1"))!;
     expect(s1.widgetName).toBeNull();
   });

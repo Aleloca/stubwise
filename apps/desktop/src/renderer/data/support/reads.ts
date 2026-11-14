@@ -25,6 +25,8 @@ const STATE_ORDER: readonly SupportState[] = [
   "not_concluded",
   "request_open",
   "reply_sent",
+  // Area 8, F3: la risposta del widget è bastata; in fondo, nessuna azione.
+  "answered",
 ];
 
 const lastAt = (c: SupportConversation): string => c.messages.at(-1)?.at ?? "";

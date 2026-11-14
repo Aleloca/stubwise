@@ -39,8 +39,8 @@ export async function simulateCustomerMessage(
   const c = conversationFor(me, code);
   const text = body.trim();
   if (!text) throw invalid("body");
+  // Un messaggio nuovo rende vecchio il giudizio dopo il silenzio (lo stato lo deriva da sé).
   push(c, "customer", text);
-  if (c.requestId === null) c.leftAt = null;
   if (supportState(c) === "waiting_us") c.claudeDraft = draftText(c);
   publishAlert({
     kind: "support.customer_replied",
@@ -61,7 +61,8 @@ export async function simulateCustomerLeaves(code: string): Promise<SupportConve
   const me = await writer("support.simulateCustomerLeaves");
   const c = conversationFor(me, code);
   if (supportState(c) !== "triage") throw invalid("state");
-  c.leftAt = now();
+  // Area 8, F3: il controllo dopo il silenzio la giudica non conclusa.
+  c.triage = { outcome: "not_concluded", at: now(), byUserId: null };
   return conversationView(me, c);
 }
 

@@ -9175,7 +9175,8 @@
       "triage": "In triage",
       "not_concluded": "Not concluded",
       "request_open": "Request open",
-      "reply_sent": "Replied"
+      "reply_sent": "Replied",
+      "answered": "Answered"
     },
     "customerStatus": {
       "received": "Received",

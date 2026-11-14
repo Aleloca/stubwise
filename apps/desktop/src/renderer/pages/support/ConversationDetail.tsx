@@ -82,8 +82,8 @@ function useWriteByEmail() {
 /** Il cliente non è più sul sito: da quando, se è passato abbastanza. */
 function awaySince(conv: SupportConversationView, nowIso: string): string | null {
   if (conv.channel !== "widget") return null;
-  const lastCustomer = [...conv.messages].reverse().find((m) => m.from === "customer")?.at;
-  const since = conv.leftAt ?? lastCustomer;
+  // Dall'ultimo messaggio del cliente (area 8, F3: non c'è più un «se n'è andato»).
+  const since = [...conv.messages].reverse().find((m) => m.from === "customer")?.at;
   if (!since) return null;
   return (Date.parse(nowIso) - Date.parse(since)) / 60_000 >= AWAY_MINUTES ? since : null;
 }

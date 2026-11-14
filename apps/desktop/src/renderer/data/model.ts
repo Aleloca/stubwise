@@ -3548,8 +3548,13 @@ export interface SupportConversation {
   /** Il desiderio del cliente riscritto dal triage; `null` finché il triage non lo ha. */
   rewrittenWish: string | null;
   requestId: string | null;
-  /** Il cliente se n'è andato prima della fine del triage. */
-  leftAt: string | null;
+  /**
+   * Il giudizio dopo il silenzio (area 8, F3: il controllo del worker dopo
+   * `SUPPORT_TRIAGE_IDLE_MINUTES`): la risposta è bastata (`concluded`) o
+   * resta un bisogno (`not_concluded`). Vale finché il cliente non riscrive.
+   * `byUserId`: chi ha premuto «Not concluded» su una `answered`; `null` = il controllo.
+   */
+  triage: { outcome: "concluded" | "not_concluded"; at: string; byUserId: string | null } | null;
   /**
    * Quando il cliente ha confermato il desiderio riscritto, a fine triage
    * («Confirmed by the customer, …»); `null` se non l'ha confermato (una

@@ -7,11 +7,13 @@ import { daysFromToday } from "../dates";
 // - ACQ-S1: dal widget, il triage è ancora in corso.
 // - ACQ-S2: dal widget, la richiesta è aperta e il cliente ha riscritto:
 //   aspetta una nostra risposta, con la bozza di Claude pronta.
-// - ACQ-S3: dal widget, il cliente se n'è andato prima della fine del triage:
-//   non conclusa, nessuna richiesta.
+// - ACQ-S3: dal widget, il controllo dopo il silenzio l'ha giudicata non
+//   conclusa: resta un bisogno, nessuna richiesta.
 // - ACQ-S4: dal server MCP, la richiesta è nata con la conversazione allegata.
 // - ACQ-S5, ACQ-S6: dal widget, le due richieste in coda (area 10b).
 // - ACQ-S7: dal widget, aspetta una nostra risposta SENZA bozza di Claude.
+// - ACQ-S8: dal widget, la risposta è bastata (area 8, F3, `answered`): il
+//   controllo dopo il silenzio l'ha giudicata conclusa.
 
 /** Le richieste nate da una conversazione (in `requests.ts`, con `origin`). */
 export const SUPPORT_REQUEST_IDS = {
@@ -32,6 +34,7 @@ export const SUPPORT_CONVERSATION_IDS = {
   reminder: "sup-acq-5",
   dark: "sup-acq-6",
   billingEmail: "sup-acq-7",
+  answered: "sup-acq-8",
 } as const;
 
 const at = (days: number, hm: string) => `${daysFromToday(-days)}T${hm}:00Z`;
@@ -67,7 +70,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     ]),
     rewrittenWish: null,
     requestId: null,
-    leftAt: null,
+    triage: null,
     confirmedAt: null,
     followerIds: [],
     claudeDraft: null,
@@ -110,7 +113,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     rewrittenWish:
       "Pay the larger bills (like the yearly adjustment) in instalments from the customer portal.",
     requestId: SUPPORT_REQUEST_IDS.waiting,
-    leftAt: null,
+    triage: null,
     confirmedAt: at(4, "10:09"),
     followerIds: ["p-laura"],
     claudeDraft:
@@ -134,7 +137,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     ]),
     rewrittenWish: null,
     requestId: null,
-    leftAt: at(1, "18:20"),
+    triage: { outcome: "not_concluded", at: at(1, "18:20"), byUserId: null },
     confirmedAt: null,
     followerIds: [],
     claudeDraft: null,
@@ -170,7 +173,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     rewrittenWish:
       "Download the consumption history of the last two years for all the town buildings, in one spreadsheet.",
     requestId: SUPPORT_REQUEST_IDS.mcp,
-    leftAt: null,
+    triage: null,
     confirmedAt: at(2, "10:35"),
     followerIds: [],
     claudeDraft: null,
@@ -201,7 +204,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     ]),
     rewrittenWish: "Get a text message a few days before the water bill is due.",
     requestId: SUPPORT_REQUEST_IDS.reminder,
-    leftAt: null,
+    triage: null,
     confirmedAt: at(3, "09:16"),
     followerIds: [],
     claudeDraft: null,
@@ -231,7 +234,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     ]),
     rewrittenWish: "A dark appearance for the customer portal.",
     requestId: SUPPORT_REQUEST_IDS.dark,
-    leftAt: null,
+    triage: null,
     confirmedAt: at(1, "08:44"),
     followerIds: [],
     claudeDraft: null,
@@ -282,9 +285,35 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     ]),
     rewrittenWish: "Change the email address that receives the bills from the customer portal.",
     requestId: SUPPORT_REQUEST_IDS.billingEmail,
-    leftAt: null,
+    triage: null,
     confirmedAt: at(6, "09:25"),
     followerIds: ["p-davide"],
+    claudeDraft: null,
+  },
+  // Area 8, F3: la risposta del widget è bastata. In fondo all'elenco, nessuna
+  // azione; «Not concluded» la rimette fra quelle che aspettano il team.
+  {
+    id: SUPPORT_CONVERSATION_IDS.answered,
+    code: "ACQ-S8",
+    projectId: "prj-acq",
+    channel: "widget",
+    widgetId: "wdg-acq-portal",
+    customer: { name: "Giorgio Bassi", email: "giorgio.bassi@example.com" },
+    messages: messages(SUPPORT_CONVERSATION_IDS.answered, [
+      ["customer", null, "Where do I download last month's invoice?", at(1, "11:02")],
+      [
+        "triage",
+        null,
+        "You find it in the portal under Billing → Invoices: each month has a PDF to download.",
+        at(1, "11:03"),
+      ],
+      ["customer", null, "Found it, thanks.", at(1, "11:05")],
+    ]),
+    rewrittenWish: null,
+    requestId: null,
+    triage: { outcome: "concluded", at: at(1, "11:20"), byUserId: null },
+    confirmedAt: null,
+    followerIds: [],
     claudeDraft: null,
   },
 ];
