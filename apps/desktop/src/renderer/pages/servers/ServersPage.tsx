@@ -46,8 +46,9 @@ export function ServersPage({ projectCode }: { projectCode: string }) {
   const project = useProject(projectCode).data ?? undefined;
   const servers = useProjectServers(project?.id);
   const [creating, setCreating] = useState(false);
-  // Build app (area 8, F4a): creare non è ancora acceso (`servers-write`, I1).
-  const canCreate = can(viewer, "monitor.manage") && featureIntegrated("servers-write");
+  // Build app (area 8, F4a): creare DENTRO un ambiente aspetta la decisione su
+  // come il server collega le repository (`servers-create-in-env`, I1).
+  const canCreate = can(viewer, "monitor.manage") && featureIntegrated("servers-create-in-env");
   const newButton = canCreate ? (
     <button
       type="button"

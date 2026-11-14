@@ -438,6 +438,15 @@ const INTEGRATED_CALLS = new Set([
   "servers.listAllServers",
   "servers.getServer",
   "servers.getServerMetrics",
+  // Le scritture (`servers-write`); creare dentro un ambiente no.
+  "servers.createServer",
+  "servers.updateServer",
+  "servers.setThresholds",
+  "servers.deleteServer",
+  "servers.regenerateAgentKey",
+  "servers.createCheck",
+  "servers.updateCheck",
+  "servers.deleteCheck",
   // Area 8, F2 (R6): le iscrizioni agli avvisi.
   "alerts.subscriptionRows",
   "alerts.setSubscription",
@@ -721,7 +730,7 @@ describe("aree non integrate nella build app", () => {
 
   // Area 8, F4a: i Server in sola lettura (elenco, dettaglio, metriche, episodi).
   // Scritture, SSH, analisi e simulazioni restano fuori dalla build app (I1).
-  it("i Server del progetto: l'elenco legge solo chiamate integrate, senza «New server»", async () => {
+  it("i Server del progetto: l'elenco legge solo chiamate integrate, senza «New server» (dentro un ambiente aspetta la decisione)", async () => {
     // Roberta ha `monitor.manage`: nel prototipo vedrebbe «New server».
     signedInAs("p-roberta");
     renderRoute("/p/ACQ/servers");
@@ -733,28 +742,36 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("il dettaglio di un Server: metriche ed episodi in sola lettura; niente SSH, impostazioni, controlli in scrittura né simulazioni", async () => {
-    // Roberta ha `monitor.manage`: nel prototipo vedrebbe le scritture.
+  it("il dettaglio di un Server: metriche, episodi e scritture; niente SSH, progetto principale né simulazioni", async () => {
+    // Roberta ha `monitor.manage`: le scritture ci sono, la F4b no.
     signedInAs("p-roberta");
     renderRoute("/p/ACQ/servers/SRV-1");
     const index = await screen.findByRole("navigation", { name: "Parts of SRV-1" }, { timeout: 3000 });
     await waitFor(() => expect(calls).toContain("servers.getServer"));
     await waitFor(() => expect(calls).toContain("servers.getServerMetrics"));
     expect(within(index).queryByRole("button", { name: "SSH access" })).toBeNull();
-    expect(within(index).queryByRole("button", { name: "Settings" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Add check" })).toBeNull();
+    expect(within(index).getByRole("button", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add check" })).toBeInTheDocument();
+    // Il progetto principale (dell'analisi, F4b) non si offre.
+    expect(screen.queryByText("Primary project")).toBeNull();
     expect(screen.queryByRole("region", { name: "Prototype only: server signals" })).toBeNull();
     expect(document.querySelector("[data-prototype-only]")).toBeNull();
     await settle();
     expect(outside()).toEqual([]);
   });
 
-  it("l'Amministrazione dei Server: tutti i server, solo chiamate integrate, senza «New server»", async () => {
+  it("l'Amministrazione dei Server: tutti i server e «New server» (nasce orfano), la chiave una volta; solo chiamate integrate", async () => {
+    const user = userEvent.setup();
     signedInAs("p-roberta");
     renderRoute("/admin/servers");
     await waitFor(() => expect(calls).toContain("servers.listAllServers"));
     expect(screen.queryByText("Coming soon")).toBeNull();
-    expect(screen.queryByRole("button", { name: "New server" })).toBeNull();
+    await user.click(await screen.findByRole("button", { name: "New server" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByRole("textbox", { name: "Name" }), "edge-01");
+    await user.click(within(dialog).getByRole("button", { name: /^Create/ }));
+    await waitFor(() => expect(calls).toContain("servers.createServer"));
+    expect(await screen.findByText(/STUBWISE_SERVER_KEY=sk_/)).toBeInTheDocument();
     await settle();
     expect(outside()).toEqual([]);
   });

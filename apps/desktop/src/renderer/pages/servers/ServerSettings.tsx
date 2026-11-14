@@ -1,7 +1,9 @@
+import { featureIntegrated } from "../../data/integration";
 import { useNavigate } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useDeleteServer, useRegenerateAgentKey, useUpdateServer } from "../../data/queries";
+import { takeAgentKey } from "../../data/revealedAgentKey";
 import type { ServerDetail } from "../../data/servers";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
@@ -20,14 +22,15 @@ import { Part, SavedNote, shortInput } from "./Part";
 function RegenerateDialog({ server, onClose }: { server: ServerDetail; onClose: () => void }) {
   const { t } = useTranslation();
   const regenerate = useRegenerateAgentKey();
-  const [key, setKey] = useState<string | null>(null);
+  const [key, setKey] = useState<{ key: string; instanceUrl?: string } | null>(null);
   const [failed, setFailed] = useState(false);
   if (key) {
     return (
       <AgentKeyDialog
         title={t("servers.key.regeneratedTitle", { code: server.code })}
         code={server.code}
-        agentKey={key}
+        agentKey={key.key}
+        instanceUrl={key.instanceUrl}
         onDone={onClose}
       />
     );
@@ -49,7 +52,8 @@ function RegenerateDialog({ server, onClose }: { server: ServerDetail; onClose: 
             className={`${smallPrimary} h-8 px-3`}
             onClick={() =>
               regenerate.mutate(server.code, {
-                onSuccess: (r) => setKey(r.agentKey),
+                // La chiave si PRENDE dal suo posto (I2): da qui vive solo in questo stato.
+                onSuccess: () => setKey(takeAgentKey(server.code) ?? null),
                 onError: () => setFailed(true),
               })
             }
@@ -239,37 +243,40 @@ export function ServerSettings({
             </span>
           )}
         </DialogField>
-        <DialogField
-          label={t("servers.settings.primary")}
-          htmlFor={server.productionProjects.length > 1 ? ids.primary : undefined}
-          hint={
-            server.productionProjects.length > 0 ? t("servers.settings.primaryHint") : undefined
-          }
-        >
-          {server.productionProjects.length > 1 ? (
-            <select
-              id={ids.primary}
-              value={draft.primary}
-              onChange={(e) => edit({ primary: e.target.value })}
-              className={`${inputClass} h-8`}
-            >
-              {server.productionProjects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.code} · {p.name}
-                </option>
-              ))}
-            </select>
-          ) : server.productionProjects.length === 1 ? (
-            <p className="text-md text-ink">
-              {t("servers.settings.primaryOnly", { code: server.productionProjects[0]!.code })}
-            </p>
-          ) : server.analysisProject !== null ? (
-            // Le produzioni ci sono, ma in progetti che chi guarda non vede (area 9b, R-G5).
-            <p className="text-md text-ink-muted">{t("servers.settings.primaryHidden")}</p>
-          ) : (
-            <p className="text-md text-ink-muted">{t("servers.settings.primaryNone")}</p>
-          )}
-        </DialogField>
+        {/* Il progetto principale serve all'analisi (F4b): nella build app non si offre (I1). */}
+        {featureIntegrated("servers-analysis") && (
+          <DialogField
+            label={t("servers.settings.primary")}
+            htmlFor={server.productionProjects.length > 1 ? ids.primary : undefined}
+            hint={
+              server.productionProjects.length > 0 ? t("servers.settings.primaryHint") : undefined
+            }
+          >
+            {server.productionProjects.length > 1 ? (
+              <select
+                id={ids.primary}
+                value={draft.primary}
+                onChange={(e) => edit({ primary: e.target.value })}
+                className={`${inputClass} h-8`}
+              >
+                {server.productionProjects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.code} · {p.name}
+                  </option>
+                ))}
+              </select>
+            ) : server.productionProjects.length === 1 ? (
+              <p className="text-md text-ink">
+                {t("servers.settings.primaryOnly", { code: server.productionProjects[0]!.code })}
+              </p>
+            ) : server.analysisProject !== null ? (
+              // Le produzioni ci sono, ma in progetti che chi guarda non vede (area 9b, R-G5).
+              <p className="text-md text-ink-muted">{t("servers.settings.primaryHidden")}</p>
+            ) : (
+              <p className="text-md text-ink-muted">{t("servers.settings.primaryNone")}</p>
+            )}
+          </DialogField>
+        )}
         <div className="flex items-center gap-3">
           <button
             type="submit"

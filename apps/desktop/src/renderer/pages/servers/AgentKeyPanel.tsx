@@ -1,3 +1,4 @@
+import { agentInstallCommand } from "@stubwise/shared";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Dialog } from "../../tasks-ui/Dialog";
@@ -15,16 +16,12 @@ import { CommandBlock } from "./InstallCommand";
 /** L'indirizzo dell'istanza nel prototipo non è noto: un segnaposto che lo dice. */
 const INSTANCE_URL = "https://stubwise.example";
 
-/** Il comando che installa l'agente sul server (come il web, `dockerRunCommand`). */
-export function agentCommand(key: string): string {
-  return [
-    "docker run -d --name stubwise-agent --restart unless-stopped --user 0 \\",
-    '  --group-add "$(stat -c %g /var/run/docker.sock)" \\',
-    "  -v /proc:/host/proc:ro -v /sys:/host/sys:ro -v /:/host/root:ro \\",
-    "  -v /var/run/docker.sock:/var/run/docker.sock:ro \\",
-    `  -e STUBWISE_URL=${INSTANCE_URL} -e STUBWISE_SERVER_KEY=${key} \\`,
-    "  alelocadev/stubwise-agent",
-  ].join("\n");
+/**
+ * Il comando che installa l'agente sul server: quello di shared, lo stesso
+ * del web (area 8, F4a). Nella build app con l'indirizzo vero dell'istanza.
+ */
+export function agentCommand(key: string, instanceUrl: string = INSTANCE_URL): string {
+  return agentInstallCommand({ instanceUrl, key });
 }
 
 const copyButton =
@@ -34,11 +31,14 @@ export function AgentKeyDialog({
   title,
   code,
   agentKey,
+  instanceUrl,
   onDone,
 }: {
   title: string;
   code: string;
   agentKey: string;
+  /** L'indirizzo dell'istanza (dal server, o l'istanza scelta); assente: il segnaposto. */
+  instanceUrl?: string;
   onDone: () => void;
 }) {
   const { t } = useTranslation();
@@ -46,7 +46,7 @@ export function AgentKeyDialog({
   const keyId = useId();
   const [copied, setCopied] = useState<"key" | "command" | null>(null);
   const [asking, setAsking] = useState(false);
-  const command = agentCommand(agentKey);
+  const command = agentCommand(agentKey, instanceUrl);
 
   const copy = (what: "key" | "command", text: string) => {
     const clipboard = navigator.clipboard;

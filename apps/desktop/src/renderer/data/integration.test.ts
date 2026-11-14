@@ -78,6 +78,7 @@ const ALL: IntegrationTarget[] = [
       "servers-ssh",
       "servers-analysis",
       "servers-search",
+      "servers-create-in-env",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -118,6 +119,7 @@ describe("isIntegrated", () => {
         "projectSection:servers",
         "admin:servers",
         "feature:servers-monitor",
+        "feature:servers-write",
         "destination:projects",
         "projectSection:tasks",
         "projectSettings:statuses",

@@ -2,6 +2,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useCreateServer, useEnvironments } from "../../data/queries";
+import { takeAgentKey } from "../../data/revealedAgentKey";
 import type { CreateServerInput } from "../../data/servers";
 import type { Project } from "../../data/types";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
@@ -44,11 +45,19 @@ function useCreateServerFlow(onDone: (code: string) => void) {
   const { t } = useTranslation();
   const create = useCreateServer();
   const [error, setError] = useState<string | null>(null);
-  const [created, setCreated] = useState<{ code: string; agentKey: string } | null>(null);
+  const [created, setCreated] = useState<{
+    code: string;
+    agentKey: string;
+    instanceUrl?: string;
+  } | null>(null);
   const submit = (input: CreateServerInput) => {
     setError(null);
     create.mutate(input, {
-      onSuccess: (r) => setCreated({ code: r.server.code, agentKey: r.agentKey }),
+      // La chiave si PRENDE dal suo posto (I2): da qui vive solo in questo stato.
+      onSuccess: (r) => {
+        const k = takeAgentKey(r.server.code);
+        if (k) setCreated({ code: r.server.code, agentKey: k.key, instanceUrl: k.instanceUrl });
+      },
       onError: (e) => setError(createErrorMessage(e, t)),
     });
   };
@@ -57,6 +66,7 @@ function useCreateServerFlow(onDone: (code: string) => void) {
       title={t("servers.key.readyTitle", { code: created.code })}
       code={created.code}
       agentKey={created.agentKey}
+      instanceUrl={created.instanceUrl}
       onDone={() => onDone(created.code)}
     />
   ) : null;

@@ -97,10 +97,12 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // è da definire (decisione del maintainer); resta nel catalogo.
     "support",
     "support-widgets",
-    // Area 8, F4a: i Server in sola lettura. Restano spente le scritture
-    // (`servers-write`), l'SSH (`servers-ssh`), l'analisi (`servers-analysis`,
-    // F4b) e la ricerca ⌘K (`servers-search`).
+    // Area 8, F4a: i Server (letture e scritture, la chiave una volta).
+    // Restano spente: creare dentro un ambiente (`servers-create-in-env`,
+    // aspetta la decisione sulle repository), l'SSH (`servers-ssh`) e
+    // l'analisi (`servers-analysis`, F4b), la ricerca ⌘K (`servers-search`).
     "servers-monitor",
+    "servers-write",
     // «Don't alert me about this» dalla card (S6, `POST /api/inbox/:id/mute-type`),
     // con l'«Annulla» nel progetto della card; non su una card arrivata da obbligatorio.
     "alerts-mute",
