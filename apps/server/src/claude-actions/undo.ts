@@ -1,4 +1,5 @@
 import {
+  alertSubscriptions,
   attachments,
   backlogItems,
   claudeActionGroups,
@@ -63,6 +64,22 @@ async function laterChangeOf(
     const table = o.kind === "request" ? backlogItems : taskFilters;
     const [row] = await db.select({ at: table.updatedAt }).from(table).where(eq(table.id, o.id));
     if (row && row.at.toISOString() > o.stamp) return { byUserId: null };
+  }
+  // Le iscrizioni (S7): la riga di chi ha chiesto, riscritta dopo (dalle
+  // Preferenze, «Copia da», «Silenzia»). Solo lui le scrive.
+  for (const o of objects) {
+    if (o.kind !== "subscription" || !o.stamp || !o.projectId || !o.type) continue;
+    const [row] = await db
+      .select({ at: alertSubscriptions.updatedAt })
+      .from(alertSubscriptions)
+      .where(
+        and(
+          eq(alertSubscriptions.userId, group.requesterId),
+          eq(alertSubscriptions.projectId, o.projectId),
+          eq(alertSubscriptions.alertType, o.type),
+        ),
+      );
+    if (row && row.at.toISOString() > o.stamp) return { byUserId: group.requesterId };
   }
   const taskIds = objects.filter((o) => o.kind === "task").map((o) => o.id);
   if (taskIds.length === 0) return undefined;
