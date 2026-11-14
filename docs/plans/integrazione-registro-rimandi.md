@@ -744,6 +744,27 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     per ogni tipo vivo con un permesso d'iscrizione. Da raccogliere in una
     lettura per pagina se pesa.
 
+- F3 (Support) *(O, 46, 14 nov 2026)*:
+  - **Il triage rifatto nel widget** (domande una alla volta, desiderio
+    riscritto e confermato, una RICHIESTA invece di un ticket: decisione 5
+    del maintainer nel design del prototipo) e **la scala degli stati per il
+    cliente nel widget** (F3-1 = a): fuori dalla F3. Oggi il widget apre un
+    ticket, e lo stato della conversazione guarda l'esito (richiesta legata o
+    ticket).
+  - **Una richiesta fusa** in una che c'era (l'intake del ticket di un
+    widget, o del canale `mcp`) non si lega alla conversazione: la voce di
+    destinazione tiene la sua provenienza, e la conversazione resta senza
+    esito (il controllo la giudicherà).
+  - **Costo delle letture di Support**: la vista di ogni conversazione fa
+    qualche query (esito, stato delle PR della richiesta o della task);
+    l'elenco e «Clienti in attesa» la fanno per conversazione. Va bene per
+    0–80 per progetto; da raccogliere in blocco se pesa.
+  - **Le risposte del team via Claude Code**: `my_requests` mostra le ultime
+    tre, senza un «non lette».
+  - **S8** (la Home «Clienti in attesa»): nessun extra di `resolveHome` sul
+    server. Il blocco sta nel catalogo di chi ha `support.reply`, mai nelle
+    Home di default ([A 17]); il filtro è del renderer.
+
 - F2, S7, l'azione di Claude `setSubscription` *(O, 46, 14 nov 2026)*:
   - Golden: perimetro RIDOTTO autorizzato dal maintainer (perimetro (a)):
     `chat-subscription`, `chat-propose-not-execute` e `chat-never-catalog`,
