@@ -206,6 +206,7 @@ export function widgetStyles(accentColor: string): string {
 
 /* Markdown renderizzato dentro un messaggio assistant. Spaziatura sobria: i
    blocchi non devono introdurre margini a inizio/fine bolla. */
+.sw-msg-team-name { font-size: 11px; font-weight: 600; opacity: 0.7; margin-bottom: 4px; }
 .sw-msg-assistant .sw-md-p,
 .sw-msg-assistant .sw-md-heading,
 .sw-msg-assistant .sw-md-list,

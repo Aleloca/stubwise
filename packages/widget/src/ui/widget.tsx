@@ -131,6 +131,7 @@ export function WidgetRoot({ base, config, user }: WidgetRootProps) {
             strings={strings}
             welcomeMessage={config.welcomeMessage || strings.welcomeFallback}
             chatEnabled={config.chatEnabled}
+            teamName={config.title}
             initialConversationId={getConversationId(base.slug)}
             resetRef={resetRef}
           />

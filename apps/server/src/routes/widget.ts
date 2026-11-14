@@ -5,7 +5,7 @@ import {
   widgetSettingsSchema,
   widgetTicketConfirmBodySchema,
 } from "@stubwise/shared";
-import { and, asc, count, desc, eq, gte, isNotNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, isNotNull, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -288,7 +288,10 @@ export async function widgetRoutes(
           slug: z.string().min(1),
           conversationId: z.uuid(),
         }),
-        querystring: z.object({ userId: z.string().min(1) }),
+        // `after` (area 8, F3, S4): solo i messaggi DOPO quello dato, per leggere
+        // le risposte del team mentre il pannello è aperto. Un id che non è di
+        // questa conversazione dà la storia intera.
+        querystring: z.object({ userId: z.string().min(1), after: z.uuid().optional() }),
         response: {
           200: z.object({ messages: z.array(messageSchema) }),
           401: errorSchema,
@@ -302,7 +305,7 @@ export async function widgetRoutes(
         return apiError(reply, 404, "widget_disabled", "Widget not available");
       }
       const { conversationId } = request.params;
-      const { userId } = request.query;
+      const { userId, after } = request.query;
 
       const [conversation] = await app.db
         .select({ externalUserId: widgetConversations.externalUserId })
@@ -321,6 +324,15 @@ export async function widgetRoutes(
         return apiError(reply, 404, "conversation_not_found", "Conversation not found");
       }
 
+      // L'ancora di `after`, SOLO se è un messaggio di questa conversazione.
+      const [anchor] = after
+        ? await app.db
+            .select({ id: widgetMessages.id })
+            .from(widgetMessages)
+            .where(and(eq(widgetMessages.id, after), eq(widgetMessages.conversationId, conversationId)))
+        : [];
+      // L'autore di un messaggio del team non esce mai: il cliente vede il
+      // team come il widget, mai una persona.
       const rows = await app.db
         .select({
           id: widgetMessages.id,
@@ -331,7 +343,16 @@ export async function widgetRoutes(
           createdAt: widgetMessages.createdAt,
         })
         .from(widgetMessages)
-        .where(eq(widgetMessages.conversationId, conversationId))
+        .where(
+          and(
+            eq(widgetMessages.conversationId, conversationId),
+            anchor
+              ? // Il confronto col `created_at` dell'ancora letto in SQL: il DB tiene i
+                // microsecondi, un `Date` solo i millisecondi (l'ancora tornerebbe).
+                sql`(${widgetMessages.createdAt}, ${widgetMessages.id}) > (select a.created_at, a.id from ${widgetMessages} a where a.id = ${anchor.id})`
+              : undefined,
+          ),
+        )
         // Tiebreaker su `id`: due messaggi con lo stesso createdAt (user+assistant
         // ravvicinati) devono avere un ordine stabile e deterministico.
         .orderBy(asc(widgetMessages.createdAt), asc(widgetMessages.id));

@@ -1,4 +1,6 @@
 import {
+  widgetConversations,
+  widgetMessages,
   agentSessions,
   backlogItemRequesters,
   backlogItems,
@@ -238,6 +240,21 @@ describe("runIntake — nuova voce", () => {
       .where(eq(backlogItemTickets.ticketId, ticket.id));
     expect(link!.role).toBe("origin");
     expect(link!.itemId).toBe(item!.id);
+  });
+
+  it("area 8, F3, S6: una voce nata dal ticket di un widget si lega alla sua conversazione di Support", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const ticket = await createTicket(db, projectId, { title: "Titolo", body: "Corpo del feedback" });
+    const [conv] = await db.insert(widgetConversations).values({ projectId, externalUserId: "v-1" }).returning();
+    await db.insert(widgetMessages).values({ conversationId: conv!.id, role: "user", content: "vorrei", ticketId: ticket.id });
+    const deps = makeDeps(db, {
+      embeddingClient: embeddingClient({ "Titolo\n\nCorpo del feedback": vecOrtho }),
+      runner: fakeRunner(INTAKE_JSON),
+    });
+    await runIntake(deps, fakeJob(projectId), { ticketId: ticket.id });
+    const [item] = await db.select().from(backlogItems).where(eq(backlogItems.projectId, projectId));
+    expect(item!.supportConversationId).toBe(conv!.id);
   });
 
   it("(c) zona grigia (similarità tra le due soglie) → nuova voce con similarToId", async () => {

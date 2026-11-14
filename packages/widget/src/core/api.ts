@@ -134,13 +134,18 @@ export async function createConversation(
   return (await response.json()) as { conversationId: string };
 }
 
-/** GET /widget/:slug/conversations/:id/messages?userId= → storico cronologico. */
+/**
+ * GET /widget/:slug/conversations/:id/messages?userId= → storico cronologico.
+ * Con `after` (area 8, F3) solo i messaggi dopo quello dato: le risposte del
+ * team, lette mentre il pannello è aperto.
+ */
 export async function fetchMessages(
   base: WidgetApiBase,
   conversationId: string,
   userId: string,
+  after?: string,
 ): Promise<{ messages: WidgetMessage[] }> {
-  const query = new URLSearchParams({ userId });
+  const query = new URLSearchParams({ userId, ...(after ? { after } : {}) });
   const response = await fetch(
     url(base, `/conversations/${conversationId}/messages?${query.toString()}`),
     { method: "GET", headers: headers(base, false) },
