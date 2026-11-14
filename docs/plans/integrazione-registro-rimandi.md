@@ -727,12 +727,24 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `git_identities` non riceve nulla da obbligatorio, solo per iscrizione
   (`pr.corrected`, solo obbligatorio, non gli arriva affatto).
 
+- F2, S7, l'azione di Claude `setSubscription` *(O, 46, 14 nov 2026)*:
+  - Golden: perimetro RIDOTTO autorizzato dal maintainer (perimetro (a)):
+    `chat-subscription`, `chat-propose-not-execute` e `chat-never-catalog`,
+    3 volte ciascuno, CLI 2.1.322. **La serie intera della chat si rilancia
+    al prossimo aggiornamento del CLI** (insieme alle altre voci rimandate a
+    quel giro).
+  - «Annulla» riscrive i valori di prima come riga ESPLICITA: chi non aveva
+    mai toccato quel tipo (valore = default dai permessi) dopo l'Annulla ha
+    una riga coi valori di allora, e un cambio di permessi successivo non
+    sposta più il suo default. Accettato: è quello che fanno anche le
+    Preferenze dopo un interruttore toccato e rimesso com'era.
+
 - Blocchi della Home «Rilasci» (anche l'extra di `resolveHome` per
   `release.merge`) e «Clienti in attesa».
 - Origine di una richiesta da Support; «View conversation» delle task del widget.
 - Adozione delle PR e rilascio (merge) — confine di prodotto invariato.
-- Azioni di Claude: iscrizioni agli avvisi, bozze di risposta di supporto e
-  delle note di rilascio della PR.
+- Azioni di Claude: bozze di risposta di supporto e delle note di rilascio
+  della PR (le iscrizioni agli avvisi sono arrivate con la F2, S7).
 - L'evento `release_page` della Chat (area 4, fetta 4, [DECIDE] 1 = a): il
   «general» lo ha acceso (D8), ma non ha una fonte finché l'area 8 non
   definisce la pagina di Release. Nasce qui, con la sua scheda.
