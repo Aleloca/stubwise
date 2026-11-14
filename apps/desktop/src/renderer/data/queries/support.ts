@@ -169,8 +169,8 @@ export function useDeleteWidget() {
  * `writer` legge la sessione ora — a nome di chi ha cliccato «Invia». La
  * pagina della persona nuova si rilegge comunque da capo.
  */
-export function replyToCustomerNow(code: string, body: string) {
-  return api.support.replyToCustomer(code, body);
+export function replyToCustomerNow(code: string, body: string, clientId?: string) {
+  return api.support.replyToCustomer(code, body, clientId);
 }
 
 /** Ricarica Support (elenco, dettaglio, Home) dopo un invio fatto fuori da React Query. */

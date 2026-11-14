@@ -26,6 +26,8 @@ export interface PendingReply {
   personId: string;
   code: string;
   body: string;
+  /** L'id dell'invio (area 8, F3): il server scrive lo stesso invio una volta sola. */
+  clientId: string;
   /** Partito: l'id del messaggio vero (finché la rilettura non lo porta, resta «in invio»). */
   deliveredId?: string;
 }
@@ -61,6 +63,7 @@ export function pendingFor(personId: string, code: string): PendingReply | null 
         personId: p.personId,
         code: p.code,
         body: p.body,
+        clientId: p.clientId,
         ...(p.deliveredId ? { deliveredId: p.deliveredId } : {}),
       }
     : null;
@@ -83,7 +86,7 @@ async function deliver(k: string, onSent: () => Promise<void> | void): Promise<v
   if (!p) return;
   p.timer = null;
   try {
-    const view = await replyToCustomerNow(p.code, p.body);
+    const view = await replyToCustomerNow(p.code, p.body, p.clientId);
     p.deliveredId = view.messages.at(-1)?.id;
   } catch {
     giveBack(k, p);
@@ -109,7 +112,13 @@ export function scheduleReply(
   const personId = getSessionPersonId();
   const k = key(personId, code);
   if (pending.has(k)) return false;
-  const entry: PendingReply & { timer: number | null } = { personId, code, body, timer: null };
+  const entry: PendingReply & { timer: number | null } = {
+    personId,
+    code,
+    body,
+    clientId: crypto.randomUUID(),
+    timer: null,
+  };
   entry.timer = window.setTimeout(() => void deliver(k, onSent), REPLY_UNDO_MS);
   pending.set(k, entry);
   failed.delete(k);
@@ -160,7 +169,7 @@ onBeforePersonaChange(() => {
     if (p.personId !== me || p.timer === null) continue;
     window.clearTimeout(p.timer);
     p.timer = null;
-    void replyToCustomerNow(p.code, p.body).then(
+    void replyToCustomerNow(p.code, p.body, p.clientId).then(
       () => {
         if (pending.get(k) === p) pending.delete(k);
         emit();

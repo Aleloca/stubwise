@@ -58,6 +58,8 @@ function openReplyFor(me: string, code: string) {
 export async function replyToCustomer(
   code: string,
   body: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- l'id dell'invio è per il server (un doppio invio è uno solo): il prototipo non ne ha bisogno
+  _clientId?: string,
 ): Promise<SupportConversationView> {
   const me = await writer("support.replyToCustomer");
   const c = openReplyFor(me, code);

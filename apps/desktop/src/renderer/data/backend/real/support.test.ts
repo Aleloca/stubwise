@@ -73,6 +73,35 @@ function fakeApi(over: Partial<SupportApi> = {}) {
     },
     waitingCustomers: async () => ({ items: [view({ messages: [] })] }),
     get: async () => view(),
+    reply: async (code, body) => {
+      calls.push(`reply ${code} ${JSON.stringify(body)}`);
+      return view({ state: "reply_sent" });
+    },
+    follow: async (code, on) => {
+      calls.push(`follow ${code} ${on}`);
+      return view({ following: on });
+    },
+    openRequest: async (code, body) => {
+      calls.push(`request ${code} ${JSON.stringify(body)}`);
+      return {
+        conversation: view({ state: "request_open" }),
+        request: { id: REQ, code: "ACQ-R1" },
+      };
+    },
+    markNotConcluded: async (code) => {
+      calls.push(`notConcluded ${code}`);
+      return view({ state: "not_concluded", request: null });
+    },
+    requestDraft: async (code) => {
+      calls.push(`draft ${code}`);
+      return view({ claudeDraftPending: true });
+    },
+    emailDraft: async () => ({
+      slot: "support-ACQ-S1",
+      to: { name: "Lucia", email: "lucia@example.com" },
+      subject: "About your request ACQ-R1",
+      body: "Hi Lucia, …",
+    }),
     preview: async () => ({
       status: "received",
       messages: [
@@ -190,5 +219,93 @@ describe("le letture di Support dal server (area 8, F3)", () => {
       },
     });
     await expect(createRealSupport(api).listSupportConversations(PRJ)).rejects.toThrow();
+  });
+});
+
+describe("le scritture di Support sul server (area 8, F3)", () => {
+  const fail = (status: number, code: string) => async () => {
+    throw new ApiError(status, code, code);
+  };
+
+  it("«Send to customer»: il testo e il clientId dell'invio (un doppio invio è uno solo), e la vista del server", async () => {
+    const { api, calls } = fakeApi();
+    const c = await createRealSupport(api).replyToCustomer(
+      "ACQ-S1",
+      "Hi Lucia",
+      "66666666-6666-4666-8666-666666666666",
+    );
+    expect(calls).toEqual([
+      `reply ACQ-S1 {"body":"Hi Lucia","clientId":"66666666-6666-4666-8666-666666666666"}`,
+    ]);
+    expect(c.state).toBe("reply_sent");
+  });
+
+  it("segui, apri la richiesta, «Not concluded», «Ask Claude»: le rotte, e la vista che rispondono", async () => {
+    const { api, calls } = fakeApi();
+    const support = createRealSupport(api);
+    expect((await support.followConversation("ACQ-S1", true)).following).toBe(true);
+    expect(
+      (await support.openRequestFrom("ACQ-S1", { title: "Invoices", description: "x" })).state,
+    ).toBe("request_open");
+    expect((await support.markNotConcluded("ACQ-S1")).state).toBe("not_concluded");
+    expect((await support.draftReply("ACQ-S1")).claudeDraftPending).toBe(true);
+    expect(calls).toEqual([
+      "follow ACQ-S1 true",
+      'request ACQ-S1 {"title":"Invoices","description":"x"}',
+      "notConcluded ACQ-S1",
+      "draft ACQ-S1",
+    ]);
+  });
+
+  it("gli errori nelle parole del prototipo", async () => {
+    const words = (
+      over: Partial<SupportApi>,
+      run: (s: ReturnType<typeof createRealSupport>) => Promise<unknown>,
+    ) => run(createRealSupport(fakeApi(over).api)).catch((e: Error) => e.message);
+    expect(
+      await words({ reply: fail(409, "support_triage") }, (s) => s.replyToCustomer("ACQ-S1", "x")),
+    ).toBe("invalid: state");
+    expect(
+      await words({ reply: fail(403, "forbidden") }, (s) => s.replyToCustomer("ACQ-S1", "x")),
+    ).toBe("forbidden");
+    expect(
+      await words({ reply: fail(404, "not_found") }, (s) => s.replyToCustomer("ACQ-S1", "x")),
+    ).toBe("not_found");
+    expect(
+      await words({ openRequest: fail(409, "support_not_concluded") }, (s) =>
+        s.openRequestFrom("ACQ-S1", { title: "x", description: "" }),
+      ),
+    ).toBe("invalid: state");
+    expect(
+      await words({ markNotConcluded: fail(409, "support_not_answered") }, (s) =>
+        s.markNotConcluded("ACQ-S1"),
+      ),
+    ).toBe("invalid: state");
+    expect(
+      await words({ requestDraft: fail(409, "budget_exhausted") }, (s) => s.draftReply("ACQ-S1")),
+    ).toBe("budget_exhausted");
+  });
+
+  it("«Write to them by email»: la bozza nuova per la Posta, nello slot della conversazione, da chi scrive", async () => {
+    const { api } = fakeApi();
+    const out = await createRealSupport(api, () => "me-1").emailDraftFor("ACQ-S1");
+    expect(out.slot).toBe("support-ACQ-S1");
+    expect(out.draft).toMatchObject({
+      personId: "me-1",
+      threadId: null,
+      mode: "new",
+      slot: "support-ACQ-S1",
+      replyToMessageId: null,
+      to: [{ name: "Lucia", email: "lucia@example.com", personId: null }],
+      cc: [],
+      subject: "About your request ACQ-R1",
+      body: "Hi Lucia, …",
+      attachments: [],
+    });
+  });
+
+  it("l'email bloccata (409 support_triage, o senza email) nelle parole del prototipo", async () => {
+    const { api } = fakeApi({ emailDraft: fail(409, "support_triage") });
+    await expect(createRealSupport(api).emailDraftFor("ACQ-S1")).rejects.toThrow("invalid: state");
   });
 });

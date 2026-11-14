@@ -3,10 +3,13 @@ import type {
   Reader,
   SupportConversation as ServerConversation,
   SupportCustomerPreview,
+  SupportEmailDraft,
+  SupportOpenRequestBody,
+  SupportReplyBody,
 } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { CustomerPreview, SupportConversationView } from "../../support";
-import type { SupportMessage } from "../../model";
+import type { MailDraft, SupportMessage } from "../../model";
 import {
   CUSTOMER_STATUSES,
   SUPPORT_STATE_ORDER,
@@ -14,7 +17,7 @@ import {
   type SupportState,
 } from "@stubwise/shared";
 import { asPrototypeError } from "./automationRefs";
-import { appClient } from "./client";
+import { appClient, session } from "./client";
 
 // Support della build app (area 8, F3) sopra le rotte vere, con le firme del
 // prototipo (`data/support/reads.ts`). Lo stato, la richiesta o la task
@@ -33,6 +36,45 @@ export interface SupportApi {
   waitingCustomers(): Promise<Reader<{ items: ServerConversation[] }>>;
   get(code: string): Promise<Conversation>;
   preview(code: string): Promise<Reader<SupportCustomerPreview>>;
+  reply(code: string, body: SupportReplyBody): Promise<Conversation>;
+  follow(code: string, on: boolean): Promise<Conversation>;
+  openRequest(
+    code: string,
+    body: SupportOpenRequestBody,
+  ): Promise<Reader<{ conversation: ServerConversation; request: { id: string; code: string } }>>;
+  markNotConcluded(code: string): Promise<Conversation>;
+  /** «Ask Claude»: accoda la bozza (202, la vista con `claudeDraftPending`). */
+  requestDraft(code: string): Promise<Conversation>;
+  emailDraft(code: string): Promise<Reader<SupportEmailDraft>>;
+}
+
+/**
+ * Gli errori nelle parole del prototipo: uno stato che non lo permette (la
+ * conversazione è in triage, non è non conclusa, non è answered) è
+ * `invalid: state`, come lì; il budget di Claude finito è `budget_exhausted`.
+ */
+const STATE_CODES = new Set(["support_triage", "support_not_concluded", "support_not_answered"]);
+function words(error: unknown): unknown {
+  if (error instanceof ApiError && error.code && STATE_CODES.has(error.code))
+    return new Error("invalid: state");
+  if (error instanceof ApiError && error.code === "budget_exhausted")
+    return new Error("budget_exhausted");
+  return asPrototypeError(error);
+}
+
+async function call<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    throw words(error);
+  }
+}
+
+/** Una vista che un server più nuovo manda con uno stato sconosciuto: dopo una scrittura si rilegge. */
+function writtenViewOf(c: Conversation): SupportConversationView {
+  const v = viewOf(c);
+  if (!v) throw new Error("invalid: state");
+  return v;
 }
 
 const isNotFound = (error: unknown) => error instanceof ApiError && error.status === 404;
@@ -109,7 +151,10 @@ function viewOf(c: Conversation): SupportConversationView | null {
 
 const viewsOf = (items: readonly Conversation[]) => items.flatMap((c) => viewOf(c) ?? []);
 
-export function createRealSupport(api: SupportApi) {
+export function createRealSupport(
+  api: SupportApi,
+  me: () => string = () => session.personId ?? "",
+) {
   return {
     async listSupportConversations(
       projectId: string,
@@ -141,6 +186,69 @@ export function createRealSupport(api: SupportApi) {
       const out = await orNull(() => api.waitingCustomers());
       return out ? viewsOf(out.items) : [];
     },
+
+    /**
+     * «Send to customer», allo scadere dell'Undo del compositore. `clientId`
+     * è quello dell'invio: lo stesso invio ripetuto (un doppio clic, un
+     * nuovo tentativo della rete) il server lo scrive una volta sola.
+     */
+    async replyToCustomer(
+      code: string,
+      body: string,
+      clientId?: string,
+    ): Promise<SupportConversationView> {
+      return writtenViewOf(
+        await call(() => api.reply(code, { body, ...(clientId ? { clientId } : {}) })),
+      );
+    },
+
+    async followConversation(code: string, on: boolean): Promise<SupportConversationView> {
+      return writtenViewOf(await call(() => api.follow(code, on)));
+    },
+
+    async openRequestFrom(
+      code: string,
+      input: { title: string; description: string },
+    ): Promise<SupportConversationView> {
+      const out = await call(() => api.openRequest(code, input));
+      return writtenViewOf(out.conversation);
+    },
+
+    async markNotConcluded(code: string): Promise<SupportConversationView> {
+      return writtenViewOf(await call(() => api.markNotConcluded(code)));
+    },
+
+    /** «Ask Claude»: il server accoda la bozza; la vista dice `claudeDraftPending` finché non arriva. */
+    async draftReply(code: string): Promise<SupportConversationView> {
+      return writtenViewOf(await call(() => api.requestDraft(code)));
+    },
+
+    /**
+     * «Write to them by email»: la bozza NUOVA da aprire nella Posta, nello
+     * slot della conversazione, dalla casella di chi scrive. Il server non
+     * salva né invia: la manda una persona, dalla Posta.
+     */
+    async emailDraftFor(code: string): Promise<{ slot: string; draft: MailDraft }> {
+      const d = await call(() => api.emailDraft(code));
+      const personId = me();
+      return {
+        slot: d.slot,
+        draft: {
+          id: `md-${personId}-${d.slot}`,
+          personId,
+          threadId: null,
+          mode: "new",
+          slot: d.slot,
+          replyToMessageId: null,
+          to: [{ name: d.to.name ?? "", email: d.to.email, personId: null }],
+          cc: [],
+          subject: d.subject,
+          body: d.body,
+          attachments: [],
+          updatedAt: new Date().toISOString(),
+        },
+      };
+    },
   } satisfies Partial<typeof Fake.support>;
 }
 
@@ -150,4 +258,10 @@ export const liveSupport: Partial<typeof Fake.support> = createRealSupport({
   waitingCustomers: () => appClient().support.waitingCustomers(),
   get: (code) => appClient().support.get(code),
   preview: (code) => appClient().support.preview(code),
+  reply: (code, body) => appClient().support.reply(code, body),
+  follow: (code, on) => appClient().support.follow(code, on),
+  openRequest: (code, body) => appClient().support.openRequest(code, body),
+  markNotConcluded: (code) => appClient().support.markNotConcluded(code),
+  requestDraft: (code) => appClient().support.requestDraft(code),
+  emailDraft: (code) => appClient().support.emailDraft(code),
 });
