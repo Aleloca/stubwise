@@ -604,7 +604,7 @@ describe("dettaglio server — gestione (admin vs member)", () => {
     await waitFor(() => expect(deleteCalls).toBe(1));
   });
 
-  it("admin: il PATCH del server include i projectIds selezionati", async () => {
+  it("area 8, F4a: niente progetti da spuntare — si dice che vengono dagli ambienti; il PATCH non manda projectIds", async () => {
     const user = userEvent.setup();
     let patchBody: unknown;
     standardApi({
@@ -623,17 +623,21 @@ describe("dettaglio server — gestione (admin vs member)", () => {
 
     const panel = screen.getByText("Server settings").closest("section")!;
     await user.click(within(panel).getByRole("button", { name: "Edit" }));
-    // Aggiunge "Beta" al server (già associato ad Acme Platform).
-    await user.click(within(panel).getByRole("checkbox", { name: "Beta" }));
+    expect(within(panel).queryByRole("checkbox")).toBeNull();
+    expect(within(panel).getByText(/projects are the ones of its environments/)).toBeTruthy();
     await user.click(within(panel).getByRole("button", { name: "Save" }));
 
-    await waitFor(() =>
-      expect(patchBody).toEqual({
-        name: "Web One",
-        sampleIntervalSeconds: 30,
-        projectIds: ["p-1", "p-2"],
-      }),
-    );
+    await waitFor(() => expect(patchBody).toEqual({ name: "Web One", sampleIntervalSeconds: 30 }));
+  });
+
+  it("area 8, F4a: un server senza ambienti dice che nessun ambiente lo usa (fixture SENZA ambienti né progetti)", async () => {
+    const user = userEvent.setup();
+    standardApi({ server: detail({ projects: [] }) });
+    renderApp("/monitor/servers/s-1");
+    await screen.findByRole("heading", { name: "Web One" });
+    const panel = screen.getByText("Server settings").closest("section")!;
+    await user.click(within(panel).getByRole("button", { name: "Edit" }));
+    expect(within(panel).getByText("// no environment uses this server")).toBeTruthy();
   });
 
   it("admin: rigenera la chiave e riapre il sidepanel guida con la nuova chiave", async () => {

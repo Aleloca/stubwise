@@ -266,14 +266,17 @@ export function KeyPanel({ server, onClose }: { server: ServerWithKey; onClose: 
   );
 }
 
-/** Form di modifica: nome, intervallo di campionamento e progetti associati. */
+/**
+ * Form di modifica: nome e intervallo di campionamento. I progetti (area 8,
+ * F4a) vengono dagli ambienti e si mostrano in sola lettura; `projects` resta
+ * nella firma per i chiamanti, non si usa più.
+ */
 export function EditServerForm({
   server,
-  projects,
   onDone,
 }: {
   server: ServerView;
-  projects: ProjectListItem[];
+  projects?: ProjectListItem[];
   onDone: () => void;
 }) {
   const { t } = useTranslation();
@@ -283,7 +286,6 @@ export function EditServerForm({
   // sovrascrivere ciò che l'utente sta digitando.
   const [name, setName] = useState(server.name);
   const [interval, setInterval] = useState(String(server.sampleIntervalSeconds));
-  const [projectIds, setProjectIds] = useState<string[]>(server.projects.map((p) => p.id));
   const [intervalError, setIntervalError] = useState<string | null>(null);
 
   const mutation = useMutation({
@@ -291,7 +293,6 @@ export function EditServerForm({
       updateServer(server.id, {
         name: name.trim(),
         sampleIntervalSeconds,
-        projectIds,
       }),
     onSuccess: async () => {
       // Lista E dettaglio: dal Monitor l'header del dettaglio (nome/progetti)
@@ -303,12 +304,6 @@ export function EditServerForm({
       onDone();
     },
   });
-
-  function toggleProject(id: string, checked: boolean) {
-    setProjectIds((current) =>
-      checked ? [...current, id] : current.filter((value) => value !== id),
-    );
-  }
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -348,25 +343,18 @@ export function EditServerForm({
         <legend className="px-1.5 font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase">
           {t("monitor:servers.projects")}
         </legend>
-        {projects.length === 0 ? (
-          <p className="font-mono text-[11px] text-fg-faint">{t("monitor:servers.noProjects")}</p>
+        {/* Area 8, F4a (decisione del maintainer F4a-4 = b): i progetti di un
+            server vengono dai suoi AMBIENTI, non si spuntano più qui. Lo
+            diciamo, in sola lettura (`?? []`: il web fa un cast). */}
+        <p className="mb-2 font-mono text-[11px] text-fg-muted">{t("monitor:servers.projectsFromEnvironments")}</p>
+        {(server.projects ?? []).length === 0 ? (
+          <p className="font-mono text-[11px] text-fg-faint">{t("monitor:servers.noEnvironments")}</p>
         ) : (
-          <div className="flex flex-col gap-2">
-            {projects.map((project) => (
-              <label
-                key={project.id}
-                className="flex items-center gap-2 font-mono text-[12px] text-fg-muted"
-              >
-                <input
-                  type="checkbox"
-                  checked={projectIds.includes(project.id)}
-                  onChange={(event) => toggleProject(project.id, event.target.checked)}
-                  className="size-4 accent-signal"
-                />
-                {project.name}
-              </label>
+          <ul className="flex flex-col gap-1 font-mono text-[12px] text-fg-muted">
+            {(server.projects ?? []).map((project) => (
+              <li key={project.id}>{project.name}</li>
             ))}
-          </div>
+          </ul>
         )}
       </fieldset>
 
