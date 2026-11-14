@@ -1,4 +1,4 @@
-import { SUPPORT_STATE_ORDER } from "@stubwise/shared";
+import { SUPPORT_STATE_ORDER, supportFollowBodySchema, supportOpenRequestBodySchema, supportReplyBodySchema } from "@stubwise/shared";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -9,6 +9,7 @@ import {
   supportCustomerPreview,
   SupportError,
 } from "../services/support.js";
+import { followConversation, markNotConcluded, openRequestFrom, replyToCustomer } from "../services/support-writes.js";
 
 /**
  * Support (area 8, F3): le conversazioni coi clienti per i membri. I permessi
@@ -51,5 +52,31 @@ export async function supportRoutes(instance: FastifyInstance): Promise<void> {
   );
   app.get("/support/conversations/by-code/:code", { config: { access: { kind: "user" } }, schema: { params: codeParams } }, async (request, reply) =>
     handle(reply, () => getSupportConversation(app.db, request.user!, request.params.code)),
+  );
+  // S3: «Send to customer» (`support.reply`, ricontrollato nel servizio).
+  app.post(
+    "/support/conversations/by-code/:code/replies",
+    { config: { access: { kind: "user" } }, schema: { params: codeParams, body: supportReplyBodySchema } },
+    async (request, reply) => handle(reply, () => replyToCustomer(app.db, request.user!, request.params.code, request.body)),
+  );
+  // S5: «Segui».
+  app.put(
+    "/support/conversations/by-code/:code/follow",
+    { config: { access: { kind: "user" } }, schema: { params: codeParams, body: supportFollowBodySchema } },
+    async (request, reply) => handle(reply, () => followConversation(app.db, request.user!, request.params.code, request.body.on)),
+  );
+  // S6: «Apri la richiesta» (201 nuova, 200 quella che c'era).
+  app.post(
+    "/support/conversations/by-code/:code/request",
+    { config: { access: { kind: "user" } }, schema: { params: codeParams, body: supportOpenRequestBodySchema } },
+    async (request, reply) =>
+      handle(reply, async () => {
+        const out = await openRequestFrom(app.db, request.user!, request.params.code, request.body);
+        return reply.code(out.created ? 201 : 200).send({ conversation: out.conversation, request: out.request });
+      }),
+  );
+  // S15: «Non conclusa» (decisione del maintainer).
+  app.post("/support/conversations/by-code/:code/not-concluded", { config: { access: { kind: "user" } }, schema: { params: codeParams } }, async (request, reply) =>
+    handle(reply, () => markNotConcluded(app.db, request.user!, request.params.code)),
   );
 }

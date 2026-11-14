@@ -2903,10 +2903,15 @@ export const widgetMessages = pgTable(
     ticketId: uuid("ticket_id").references(() => tickets.id, { onDelete: "set null" }),
     /** Area 8, F3 (0179): chi del team ha scritto (`role: "team"`). */
     authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+    /** L'id che il client dà a una risposta: un doppio invio non manda due messaggi. */
+    clientId: uuid("client_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  // I messaggi si caricano sempre per conversazione, in ordine cronologico.
-  (table) => [index("widget_messages_conversation_idx").on(table.conversationId)],
+  (table) => [
+    // I messaggi si caricano sempre per conversazione, in ordine cronologico.
+    index("widget_messages_conversation_idx").on(table.conversationId),
+    uniqueIndex("widget_messages_client_id_idx").on(table.conversationId, table.clientId).where(sql`${table.clientId} IS NOT NULL`),
+  ],
 );
 
 /** Area 8, F3 (0179): chi segue una conversazione di Support (l'avviso obbligatorio `support.customer_replied`). */
