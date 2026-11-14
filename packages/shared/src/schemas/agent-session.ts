@@ -71,6 +71,9 @@ export const agentSegmentLabelSchema = z.enum([
   "refine",
   /** Il turno di una conversazione libera con Claude (chat, fetta 1). Additivo. */
   "chat",
+  /** Area 8, F4b: l'analisi di un server e la correzione (S5, S6). Additivi; non interattivi. */
+  "server_analysis",
+  "server_fix",
 ]);
 export type AgentSegmentLabel = z.infer<typeof agentSegmentLabelSchema>;
 

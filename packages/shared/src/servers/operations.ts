@@ -225,3 +225,52 @@ export function attributeServerCause(input: AttributionInput): Attribution {
   }
   return { kind: "attributed", projectId: project.projectId, projectCode: project.projectCode };
 }
+
+// --- L'analisi di un server: gli strumenti (area 8, F4b, S5) -----------------
+
+/** Il server MCP dell'analisi (e della correzione) di un server. */
+export const SERVER_MCP_SERVER_NAME = "stubwise_server";
+
+/**
+ * Gli strumenti dell'analisi: SOLE LETTURE più UNO strutturato finale. Nessuno
+ * strumento cambia qualcosa (un test lo verifica sull'elenco): le letture
+ * dell'agente diventano comandi `read` firmati e registrati.
+ */
+export const SERVER_ANALYSIS_READ_TOOLS = [
+  "server_overview",
+  "server_metrics",
+  "server_environments",
+  "container_logs",
+  "container_state",
+  "ssh_read",
+] as const;
+export const SERVER_ANALYSIS_TOOLS = [...SERVER_ANALYSIS_READ_TOOLS, "report_server_diagnosis"] as const;
+export type ServerAnalysisTool = (typeof SERVER_ANALYSIS_TOOLS)[number];
+
+/**
+ * L'unico strumento con cui l'analisi finisce. Contenuto del modello: NON
+ * fidato. Il progetto si valida (`attributeServerCause`), i passi del piano si
+ * validano contro l'insieme chiuso nella correzione (S6): qui si salvano come
+ * proposta grezza, mai come comando.
+ */
+export const serverDiagnosisReportSchema = z
+  .object({
+    summary: z.string().min(1).max(8000),
+    cause: z
+      .object({
+        projectCode: z.string().max(40).nullable(),
+        containers: z.array(z.string().max(128)).max(20).default([]),
+        why: z.string().max(4000).default(""),
+      })
+      .strict(),
+    fix: z
+      .object({
+        steps: z
+          .array(z.object({ action: z.string().max(64), params: z.record(z.string(), z.unknown()).default({}), why: z.string().max(2000).default("") }).strict())
+          .max(10),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type ServerDiagnosisReport = z.infer<typeof serverDiagnosisReportSchema>;

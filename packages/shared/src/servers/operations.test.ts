@@ -160,3 +160,29 @@ describe("readServerAnalysisLimits: i tetti salvati, o i default", () => {
     expect(readServerAnalysisLimits({ maxMinutes: 5 })).toEqual({ ...D, maxMinutes: 5 });
   });
 });
+
+describe("gli strumenti dell'analisi (S5)", () => {
+  it("nessuno strumento che cambia: solo letture più il resoconto finale", async () => {
+    const { SERVER_ANALYSIS_TOOLS } = await import("./operations.js");
+    expect([...SERVER_ANALYSIS_TOOLS]).toEqual([
+      "server_overview",
+      "server_metrics",
+      "server_environments",
+      "container_logs",
+      "container_state",
+      "ssh_read",
+      "report_server_diagnosis",
+    ]);
+  });
+
+  it("il resoconto: campi in più rifiutati; progetto null ammesso; al più 10 passi", async () => {
+    const { serverDiagnosisReportSchema } = await import("./operations.js");
+    const ok = { summary: "disco pieno", cause: { projectCode: null, containers: [], why: "" } };
+    expect(serverDiagnosisReportSchema.safeParse(ok).success).toBe(true);
+    expect(serverDiagnosisReportSchema.safeParse({ ...ok, command: "rm -rf /" }).success).toBe(false);
+    expect(serverDiagnosisReportSchema.safeParse({ ...ok, cause: { ...ok.cause, shell: "x" } }).success).toBe(false);
+    const step = { action: "container.restart", params: { container: "web" }, why: "x" };
+    expect(serverDiagnosisReportSchema.safeParse({ ...ok, fix: { steps: Array(11).fill(step) } }).success).toBe(false);
+    expect(serverDiagnosisReportSchema.safeParse({ ...ok, fix: { steps: [step] } }).success).toBe(true);
+  });
+});
