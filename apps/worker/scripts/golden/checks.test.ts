@@ -26,6 +26,7 @@ import {
   denialKind,
   SCENARIO_NAMES,
   mailClassifyChecks,
+  supportTriageChecks,
   selectScenarios,
   skillCallsFrom,
   chatChecks,
@@ -1274,5 +1275,17 @@ describe("chatToolsMissingFromDist (13 nov 2026)", () => {
   it("un dist più vecchio del tool nuovo: lo nomina, e il golden si ferma", () => {
     const stale = 'register("read_task", "…"); server.registerTool("propose_action", {})';
     expect(chatToolsMissingFromDist(stale, allowed)).toEqual(["read_release"]);
+  });
+});
+
+describe("supportTriageChecks (area 8, F3, S10)", () => {
+  const ok = { name: "a", expected: "concluded" as const, exitCode: 0, raw: '{"outcome":"concluded"}', outcome: "concluded" as const };
+  it("tutto verde: run riuscita, forma chiusa, giudizio atteso", () => {
+    expect(supportTriageChecks([ok]).every((c) => c.passed)).toBe(true);
+  });
+  it("un giudizio sbagliato, una forma diversa o una run fallita sono rossi", () => {
+    expect(supportTriageChecks([{ ...ok, outcome: "not_concluded" }]).every((c) => c.passed)).toBe(false);
+    expect(supportTriageChecks([{ ...ok, outcome: null, raw: "Direi concluso" }]).filter((c) => !c.passed).map((c) => c.name)).toEqual(["a: risposta nella forma chiusa", "a: giudizio concluded"]);
+    expect(supportTriageChecks([{ ...ok, exitCode: 1, raw: null, outcome: null }])[0]!.passed).toBe(false);
   });
 });
