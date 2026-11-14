@@ -751,15 +751,28 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     `appLinkFor` (`apps/desktop/src/renderer/data/backend/real/notifications.ts`)
     apre nell'app solo rilasci, pannello della PR e Docs;
   - **i permessi del catalogo condiviso** sono stringhe perché
-    `support.reply` e `servers.operate` vivono ancora solo nel prototipo:
-    quando entrano nel registro di `@stubwise/shared`, il catalogo si può
-    tipare sui permessi veri e il restringimento del prototipo
-    (`domain/alerts/catalog.ts`) sparisce;
+    `servers.operate` vive ancora solo nel prototipo (`support.reply` è nel
+    registro dalla F3): quando entra nel registro di `@stubwise/shared`, il
+    catalogo si può tipare sui permessi veri e il restringimento del
+    prototipo (`domain/alerts/catalog.ts`) sparisce;
   - **«Annulla» contro un server senza `saved`** (un rollback, un'istanza
     non aggiornata): il campo manca, vale `false`, e l'«Annulla» chiede il
     ritorno al default (`DELETE`), che quel server non ha (404, «Undo» non
     riesce e lo dice). Server e caddy escono insieme, quindi solo in un
     rilascio scompagnato; non si ripiega su `PUT`, che fisserebbe il default.
+
+- F3, lato renderer (94, 14 nov 2026), ciò che resta fuori dalla build app
+  (parità: `apps/desktop/docs/integration-area8-f3.md`):
+  - **la bozza di Claude** (`support-draft`): il renderer è pronto («Ask
+    Claude» aspetta la bozza accodata), il lavoro del worker aspetta il
+    [DECIDE] di 46 su cosa fa il widget dopo un esito;
+  - **i widget** (`support-widgets`): le rotte ci sono, manca
+    `client.widgets` in `@stubwise/api-client` (chiesto a 72);
+  - **la ricerca ⌘K delle conversazioni** (`support-search`): nessuna rotta,
+    fuori dalla F3;
+  - **una card `support.*` non rilegge Support**: nessun legame fra le card
+    dell'inbox e le aree; aprirla legge la conversazione, il ritmo (15 s /
+    30 s) copre il resto.
 
 - F2, S4, limite accettato *(O, 46, 14 nov 2026)*: l'obbligatorio
   `pr_author` di `pr.analysis_issues` e `pr.corrected` si risolve per una PR
