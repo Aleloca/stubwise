@@ -13,7 +13,33 @@
 > `pages/servers/`, `pages/admin/instance/ServersAdminPage.tsx`,
 > `pages/releases/Environments.tsx`) e la sua parità
 > (`apps/desktop/docs/area8-parity.md`, «Servers»).
-> **Domande al maintainer**: quattro, in «[DECIDE]» in fondo.
+> **Le risposte del maintainer** (14 nov 2026, via 46): F4a-1 = a, F4a-2 = a,
+> F4a-3 = a, **F4a-4 = b** (contano SOLO gli ambienti). Le domande restano in
+> fondo con la risposta; le conseguenze sono nei task.
+
+## Decisioni *(M, 14 nov 2026, via 46)*
+
+- **F4a-1 = a**: `monitor.view` esce dal preset `User` (anche il web: un
+  utente vede i server dei suoi progetti). La regola dei preset al
+  contrario per i ruoli già creati: un ruolo personalizzato d'istanza che
+  conteneva TUTTI i permessi di prima del preset `User` e NON ha
+  `monitor.manage` perde `monitor.view` come il preset (era il preset che
+  glielo dava); chi ha `monitor.manage` lo tiene (chi gestisce vede). Ruling
+  di 72: costa se sbagliato che un ruolo costruito a mano «User +
+  monitor.view» perda la vista; il deploy-log ha la query che li elenca
+  prima.
+- **F4a-2 = a**: `SRV-<n>`, contatore d'istanza.
+- **F4a-3 = a**: gli episodi nella F4a.
+- **F4a-4 = b**: un server si vede SOLO dagli ambienti dei progetti visibili
+  (e con `monitor.view`/`monitor.manage`). `server_projects` smette di
+  contare ovunque: visibilità, `?projectId=`, i progetti di un server
+  nell'elenco, l'ancora di progetto degli avvisi `monitor.*` (S10). Il web
+  (S11) e il deploy-log (S9) lo dicono.
+- **I due punti di sicurezza** (non dipendono dalle risposte): (1)
+  `monitor.view` nel preset `User` faceva vedere ogni server a ogni utente
+  (chiuso da F4a-1); (2) il `PATCH` di un ambiente accettava qualunque
+  server: con la visibilità dagli ambienti un collegamento la allargherebbe a
+  tutto il progetto (S3, approvato).
 
 ## Cosa entra
 
@@ -29,8 +55,7 @@
   già i server per repository (F1, 0175); la F4a dà al form l'elenco dei
   server collegabili e chiude il buco di permesso del collegamento (sotto,
   S3).
-- **Gli episodi** (dall'avviso al rientro) nel dettaglio del server, se il
-  maintainer dice sì ([DECIDE] F4a-3).
+- **Gli episodi** (dall'avviso al rientro) nel dettaglio del server.
 - I link dell'app sulle card `monitor.*` (la regola della F2: ogni fetta che
   porta pagine nuove dà il link alle sue card).
 
@@ -77,46 +102,46 @@
 
 ## Il modello dei dati (migrazione 0180, se le risposte la vogliono)
 
-- `servers.number` (un contatore d'ISTANZA, trigger come le conversazioni
-  della 0179, backfill per `created_at`) → il codice `SRV-<n>` del
-  prototipo ([DECIDE] F4a-2).
+- `servers.number` (un contatore d'ISTANZA in `instance_counters` o una
+  sequenza, assegnato all'insert, backfill per `created_at`) → il codice
+  `SRV-<n>` del prototipo (F4a-2 = a).
 - `server_episodes` (`server_id`, `kind` (`offline` | `metric` | `check`),
   `metric`/`check_id`, `started_at`, `ended_at`, `peak` jsonb): lo scrive il
   worker degli avvisi all'apertura e al rientro; la F4b ci aggiunge l'analisi
-  ([DECIDE] F4a-3).
-- Il preset `User` senza `monitor.view`, se il maintainer sceglie (a) in
-  F4a-1 (la regola dei preset vale al contrario: si toglie dal preset, i
-  ruoli personalizzati restano come sono).
+  (F4a-3 = a).
+- Il preset `User` senza `monitor.view` e i ruoli che lo seguivano
+  (Decisioni, F4a-1 = a).
 
 ## Task del SERVER (interfacce e test; l'implementazione è di 72)
 
 S1. **La visibilità dagli ambienti** (`monitor-access.ts`, UN posto):
-   un server si vede se (i) chi guarda ha `monitor.manage` o `monitor.view`,
-   oppure (ii) è in un `environment_servers` di un progetto visibile, oppure
-   (iii) è in `server_projects` di un progetto visibile — finché il web lo
-   scrive ([DECIDE] F4a-4). Elenchi filtrati nella WHERE; un server
-   invisibile risponde 404 come uno che non esiste.
+   un server si vede se chi guarda ha `monitor.manage` o `monitor.view`,
+   oppure se è in un `environment_servers` di un progetto visibile. NIENTE
+   `server_projects` (F4a-4 = b). `?projectId=` filtra dagli ambienti di quel
+   progetto. Elenchi filtrati nella WHERE; un server invisibile risponde 404
+   come uno che non esiste. Con la migrazione: `monitor.view` fuori dal
+   preset `User` e dai ruoli che lo seguivano (Decisioni).
    *Test*: visibile da un ambiente di un progetto visibile; non da uno di un
-   progetto invisibile; da `server_projects` (se F4a-4 = a); con
-   `monitor.view`/`monitor.manage` tutti; elenco e dettaglio d'accordo
-   (stessa funzione); un archiviato conta come oggi conta un progetto
-   archiviato per chi guarda.
+   progetto invisibile; **un server SOLO in `server_projects` è invisibile a
+   chi non ha `monitor.view`** (e 404 sul dettaglio, sulle metriche, sui
+   controlli); con `monitor.view`/`monitor.manage` tutti; un User (preset)
+   non ha più `monitor.view`; il ruolo personalizzato «User intero» lo perde,
+   quello con `monitor.manage` lo tiene; elenco e dettaglio d'accordo.
 
 S2. **Le letture nella forma del prototipo** (campi additivi con default,
    schemi in `@stubwise/shared`, `serverViewSchema` e `serverDetailSchema`
    ci passano dall'inline):
-   - in ogni riga: `code` (se F4a-2 = a), `health` (`ok` | `warning` |
+   - in ogni riga: `code`, `health` (`ok` | `warning` |
      `down` | `unknown`, derivata da `last_seen_at`, `active_alerts` e
      controlli giù, con UNA funzione pura in shared che usano server e
      renderer), `environments` (`{ projectCode, environmentName, kind,
      repositoryName }[]`, solo dei progetti visibili), `recentCpu` (gli ultimi
      punti, per la scintilla), `work` e `access` null (F4b);
-   - nell'elenco d'istanza (`monitor.manage`): `orphan` (nessun ambiente né
-     `server_projects`) e `inArchivedOnly`;
+   - nell'elenco d'istanza (`monitor.manage`): `orphan` (nessun ambiente) e
+     `inArchivedOnly`; `projects` di un server dagli ambienti;
    - nel dettaglio: i controlli con l'ultimo esito, `canManage` calcolato
-     dal server, gli episodi (F4a-3), `productionProjects`.
-   - `GET /api/servers/by-code/:code` (se F4a-2 = a), registrata prima di
-     `/:id`.
+     dal server, gli episodi, `productionProjects`.
+   - `GET /api/servers/by-code/:code`, registrata prima di `/:id`.
    *Test*: parse di una risposta SENZA i campi nuovi; `health` per ogni
    caso (silenzio oltre 3 intervalli, un avviso attivo, un controllo giù);
    gli ambienti di un progetto invisibile non escono.
@@ -155,7 +180,7 @@ S6. **Le metriche per gli intervalli lunghi**: `?from&to` resta; per
    *Test*: 90 giorni non tronca; la media del passo largo è quella dei
    rollup dentro il passo; 24 h come oggi.
 
-S7. **Gli episodi** (se F4a-3 = a): il worker degli avvisi
+S7. **Gli episodi**: il worker degli avvisi
    (`apps/worker/src/monitor/alerts.ts`) apre un episodio quando pubblica
    `monitor.alert` e lo chiude al `monitor.recovered`, nella stessa
    transazione della pubblicazione; nel dettaglio gli ultimi 20.
@@ -169,8 +194,31 @@ S8. **Il client** (`packages/api-client`): `servers` cresce con crea,
    (la scelta del mobile resta sua). Ogni campo nuovo facoltativo, con un
    test che parsa una risposta senza.
 
-S9. **Il deploy-log** (0180 se c'è, il preset `User` se cambia — con cosa
-   vedono gli utenti dopo —, server prima di worker e caddy) e il registro.
+S9. **Il deploy-log** (0180, il preset `User`, server prima di worker e
+   caddy) con, PRIMA del deploy, le query di sola lettura: (1) i server
+   collegati SOLO da `server_projects` (nessun `environment_servers`), coi
+   loro progetti, da mettere in un ambiente o lasciare al monitor; (2) i
+   ruoli personalizzati che perderanno `monitor.view`. E il registro.
+
+S10. **L'ancora degli avvisi dagli ambienti**: il worker
+   (`apps/worker/src/monitor/alerts.ts`, `serverRefs`) prende il progetto di
+   un `monitor.*` dai progetti DISTINTI degli ambienti del server (uno solo →
+   ancora, come oggi; zero o più → routing di `monitor.manage`, come oggi).
+   *Test*: un server in due ambienti dello stesso progetto ha l'ancora; in
+   due progetti no; uno solo in `server_projects` no.
+
+S11. **Il web, il minimo onesto**: nella pagina d'amministrazione del
+   server (`apps/web/src/routes/monitor/server-admin.tsx`) l'elenco dei
+   progetti da spuntare SPARISCE e al suo posto una riga dice da dove
+   vengono: «I progetti di un server sono quelli dei suoi ambienti» con i
+   progetti (sola lettura) dalla risposta. Il server continua ad accettare
+   `projectIds` nel `PATCH` (un web in cache non deve rompersi) ma lo ignora:
+   la colonna resta inerte per il rollback e si toglie in un rilascio dopo.
+   Il dettaglio di un progetto sul web (che legge `?projectId=`) mostra da
+   sé i server degli ambienti.
+   *Test*: il web non mostra le spunte e mostra la riga (fixture SENZA
+   ambienti: la riga dice «nessun ambiente»); `PATCH` con `projectIds` → 200
+   e nessun effetto sulla visibilità.
 
 ## Task del RENDERER (94; dal design, li rivede lui)
 
@@ -213,7 +261,7 @@ R5. I link delle card `monitor.*` alla pagina del server.
   lo regga (pagina monitor vuota, non rotta).
 - La chiave dell'agente non resta in nessuna risposta dopo la prima.
 
-## [DECIDE] Le domande al maintainer
+## Le domande al maintainer (risposte: 1 = a, 2 = a, 3 = a, 4 = b)
 
 **F4a-1. Chi vede tutti i server.** Oggi `monitor.view` è nel preset `User`:
 ogni utente vede ogni server dell'istanza (anche sul web). Il prototipo li
