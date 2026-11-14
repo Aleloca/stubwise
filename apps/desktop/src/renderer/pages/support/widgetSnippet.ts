@@ -64,12 +64,8 @@ export function widgetGuide(w: SupportWidget & Omit<SnippetWidget, "id" | "proje
     "## Key facts",
     "",
     `- DSN: \`${dsnOf(w)}\``,
-    // Il server non ha i siti ammessi (area 8, F3): nella build app la riga non c'è.
-    ...(w.key
-      ? []
-      : [
-          `- Allowed sites: ${w.origins.length ? w.origins.map((o) => `\`${o}\``).join(", ") : "none yet"}`,
-        ]),
+    // Elenco vuoto: qualunque sito lo carica (area 8, F3, decisione del maintainer).
+    `- Allowed sites: ${w.origins.length ? w.origins.map((o) => `\`${o}\``).join(", ") : "any site (the list is empty)"}`,
     `- Language: ${w.language === "it" ? "Italian" : "English"}`,
     `- Status: ${w.enabled ? "on" : "off (it accepts no new conversations)"}`,
     "",

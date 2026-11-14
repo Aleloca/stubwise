@@ -118,7 +118,7 @@ describe("i widget di Support dal server (area 8, F3)", () => {
     expect(body.repositoryFilters).toEqual({});
   });
 
-  it("creare: i campi del prototipo coi nomi del web, i siti ammessi no (il server non li ha)", async () => {
+  it("creare: i campi del prototipo coi nomi del web, coi siti ammessi (area 8, F3)", async () => {
     const { api, calls } = fakeApi();
     await createRealWidgets(api, origin).createWidget(PRJ, {
       name: "Site",
@@ -131,7 +131,23 @@ describe("i widget di Support dal server (area 8, F3)", () => {
       enabledRepositoryIds: [],
     });
     expect((calls[0]!.body as { repositoryFilters: object }).repositoryFilters).toEqual({});
+    expect(calls[0]!.body).toMatchObject({ origins: ["https://acq.test"] });
+  });
+
+  it("i siti ammessi: si leggono dal server; una modifica che non li tocca non li manda (il server li tiene)", async () => {
+    const { api, calls } = fakeApi({
+      list: async () => ({
+        widgets: [widget({ origins: ["https://shop.test"] })],
+        canManage: true,
+      }),
+    });
+    const widgets = createRealWidgets(api, origin);
+    const [w] = (await widgets.listWidgets(PRJ)).widgets;
+    expect(w!.origins).toEqual(["https://shop.test"]);
+    await widgets.updateWidget(W1, { title: "Ask us" });
     expect(calls[0]!.body).not.toHaveProperty("origins");
+    await widgets.updateWidget(W1, { origins: [] });
+    expect(calls[1]!.body).toMatchObject({ origins: [] });
   });
 
   it("eliminare usa il progetto del widget; un widget mai letto è not_found", async () => {

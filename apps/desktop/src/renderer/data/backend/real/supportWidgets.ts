@@ -7,9 +7,10 @@ import { appClient } from "./client";
 // I widget di Support nella build app (area 8, F3, R1/R2) sulle rotte di oggi
 // (quelle del web, `client.widgets`), con le firme del prototipo. Il server
 // chiama le cose coi nomi del web (`enabledRepositoryIds`, `dailyTicketCap`,
-// `repositoryFilters`) e non ha i «siti ammessi» (`origins`): nell'app quel
-// campo non c'è. La PUT è una SOSTITUZIONE: si manda il corpo intero, coi
+// `repositoryFilters`). La PUT è una SOSTITUZIONE: si manda il corpo intero, coi
 // filtri dei repository di prima (limitati a quelli ancora accesi, o 422).
+// L'unica eccezione sono i siti ammessi (`origins`, area 8 F3 S16): assenti
+// dal corpo, il server li tiene com'erano; si mandano solo quando cambiano.
 
 /** Le rotte (sul client vero: `client.widgets`). */
 export interface WidgetsApi {
@@ -31,8 +32,8 @@ function viewOf(projectId: string, w: Reader<WidgetAdmin>, origin: string): Supp
     name: w.name,
     enabled: w.enabled,
     sourceRepositoryIds: [...w.enabledRepositoryIds],
-    // Il server non ha i siti ammessi: nell'app il campo non si mostra.
-    origins: [],
+    // Un server di prima di S16 non li manda: il default è l'elenco vuoto.
+    origins: [...w.origins],
     title: w.title,
     welcomeMessage: w.welcomeMessage,
     instructions: w.instructions,
@@ -72,6 +73,7 @@ function bodyOf(
     ...((patch.welcomeMessage ?? before?.welcomeMessage)
       ? { welcomeMessage: patch.welcomeMessage ?? before!.welcomeMessage }
       : {}),
+    ...(patch.origins !== undefined ? { origins: [...patch.origins] } : {}),
     instructions: patch.instructions ?? before?.instructions ?? "",
     ...((patch.accentColor ?? before?.accentColor)
       ? { accentColor: patch.accentColor ?? before!.accentColor }

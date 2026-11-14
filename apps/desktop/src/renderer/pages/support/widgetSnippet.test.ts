@@ -36,8 +36,13 @@ describe("lo snippet di un widget", () => {
     expect(snippet).toContain('dsn: "https://stubwise.acme.test/widget/prj-1?key=wk_public_123"');
     expect(snippet).not.toContain("stubwise.example.com");
     expect(widgetGuide(w)).toContain("https://stubwise.acme.test/widget/prj-1?key=wk_public_123");
-    // Il server non ha i siti ammessi: la guida non li nomina.
-    expect(widgetGuide(w)).not.toContain("Allowed sites");
-    expect(widgetGuide(base)).toContain("Allowed sites");
+  });
+
+  it("i siti ammessi nella guida, anche nella build app (area 8, F3); elenco vuoto: qualunque sito", () => {
+    const w = { ...base, key: "wk_public_123", snippetOrigin: "https://stubwise.acme.test" };
+    expect(widgetGuide(w)).toContain("- Allowed sites: any site (the list is empty)");
+    expect(widgetGuide({ ...w, origins: ["https://shop.acme.test"] })).toContain(
+      "- Allowed sites: `https://shop.acme.test`",
+    );
   });
 });

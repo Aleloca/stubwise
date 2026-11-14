@@ -701,13 +701,13 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("i widget di Support (area 8, F3, support-widgets): elenco e pannello sulle chiamate integrate, senza i siti ammessi", async () => {
+  it("i widget di Support (area 8, F3, support-widgets): elenco e pannello sulle chiamate integrate, coi siti ammessi", async () => {
     signedInAs("p-matteo");
     renderRoute("/p/ACQ/support?view=widgets&widget=wdg-acq-portal");
     const panel = await screen.findByRole("complementary", { name: "Edit Customer portal help" }, { timeout: 3000 });
     await waitFor(() => expect(calls).toContain("support.listWidgets"));
-    // Il server non ha i siti ammessi: nella build app il campo non c'è.
-    expect(within(panel).queryByLabelText(/^Sites/)).toBeNull();
+    // I siti ammessi (`origins` del server): il campo c'è anche nella build app.
+    expect(within(panel).getByLabelText(/^Sites/)).toBeInTheDocument();
     await settle();
     expect(outside()).toEqual([]);
   });

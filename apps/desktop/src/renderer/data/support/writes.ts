@@ -1,3 +1,4 @@
+import { normalizeWidgetOrigin, WIDGET_MAX_ORIGINS } from "@stubwise/shared";
 // Le scritture usano `createRequestAs` solo dentro le funzioni: l'import
 // circolare con `api-mutations` è innocuo.
 import { createRequestAs } from "../api-mutations";
@@ -120,7 +121,6 @@ const WIDGET_DEFAULTS: Omit<WidgetFields, "name"> = {
   dailyRequestCap: null,
 };
 
-const ORIGIN = /^https?:\/\/[^\s/]+$/;
 const COLOR = /^#[0-9a-fA-F]{6}$/;
 /** Il tetto massimo di un limite giornaliero, come sul web. */
 const MAX_DAILY_CAP = 100_000;
@@ -161,10 +161,16 @@ function cleanWidget(projectId: string, patch: Partial<WidgetFields>): Partial<W
     out.sourceRepositoryIds = [...new Set(ids)];
   }
   if (patch.origins !== undefined) {
+    // Una regola sola col server (area 8, F3, S16): `https://host[:porta]`, `http`
+    // solo per localhost, niente percorso, al più 20; una voce cattiva rifiuta tutto.
     const list = patch.origins;
-    if (!Array.isArray(list) || list.some((o) => typeof o !== "string" || !ORIGIN.test(o.trim())))
-      throw invalid("origins");
-    out.origins = [...new Set(list.map((o) => o.trim()))];
+    const normal = Array.isArray(list)
+      ? list.map((o) => (typeof o === "string" ? normalizeWidgetOrigin(o) : null))
+      : null;
+    if (!normal || normal.some((o) => o === null)) throw invalid("origins");
+    const unique = [...new Set(normal as string[])];
+    if (unique.length > WIDGET_MAX_ORIGINS) throw invalid("origins");
+    out.origins = unique;
   }
   if (patch.title !== undefined) out.title = text(patch.title, "title", 80);
   if (patch.welcomeMessage !== undefined)

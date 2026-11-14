@@ -9299,7 +9299,7 @@
         "instructions": "The instructions can be at most 4000 characters.",
         "accentColor": "The colour must be like #22c55e.",
         "language": "Choose Italian or English.",
-        "origins": "Each site must be like https://example.com.",
+        "origins": "Each site must be like https://example.com (http only for localhost, no path), at most 20.",
         "sourceRepositoryIds": "Choose repositories of this project.",
         "dailyMessageCap": "Messages per day: a whole number from 1 to 100000, or empty.",
         "dailyRequestCap": "Requests per day: a whole number from 1 to 100000, or empty."
@@ -9310,7 +9310,8 @@
         "sources": "Documentation sources",
         "noSources": "This project has no repositories.",
         "origins": "Sites",
-        "originsHint": "One per line, like https://example.com",
+        "originsHint": "One per line, like https://example.com (http only for localhost). Empty: any site.",
+        "anySite": "Any site can load this widget.",
         "title": "Title",
         "welcome": "Welcome message",
         "instructions": "Instructions for the assistant",

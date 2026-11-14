@@ -9299,7 +9299,7 @@
         "instructions": "Le istruzioni possono avere al massimo 4000 caratteri.",
         "accentColor": "Il colore deve essere come #22c55e.",
         "language": "Scegli italiano o inglese.",
-        "origins": "Ogni sito deve essere come https://example.com.",
+        "origins": "Ogni sito deve essere come https://example.com (http solo per localhost, senza percorso), al massimo 20.",
         "sourceRepositoryIds": "Scegli repository di questo progetto.",
         "dailyMessageCap": "Messaggi al giorno: un numero intero da 1 a 100000, o vuoto.",
         "dailyRequestCap": "Richieste al giorno: un numero intero da 1 a 100000, o vuoto."
@@ -9310,7 +9310,8 @@
         "sources": "Fonti della documentazione",
         "noSources": "Questo progetto non ha repository.",
         "origins": "Siti",
-        "originsHint": "Uno per riga, come https://example.com",
+        "originsHint": "Uno per riga, come https://example.com (http solo per localhost). Vuoto: qualunque sito.",
+        "anySite": "Qualunque sito può caricare questo widget.",
         "title": "Titolo",
         "welcome": "Messaggio di benvenuto",
         "instructions": "Istruzioni per l'assistente",
