@@ -21,6 +21,7 @@ import { createDriveEndpoints } from "./endpoints/drive.js";
 import { createEnvironmentEndpoints, createReleaseEndpoints } from "./endpoints/releases.js";
 import { createAlertEndpoints } from "./endpoints/alerts.js";
 import { createSupportEndpoints } from "./endpoints/support.js";
+import { createWidgetEndpoints } from "./endpoints/widgets.js";
 import { createAutomationEndpoints, createAutomationSourceEndpoints, createClientLinkEndpoints } from "./endpoints/automations.js";
 import { createGoogleEndpoints } from "./endpoints/google.js";
 import { createClaudeEndpoints } from "./endpoints/claude.js";
@@ -177,6 +178,7 @@ export function createEndpoints(request: ApiRequest) {
     alerts: createAlertEndpoints(request),
     // Area 8, F3: Support, le conversazioni coi clienti.
     support: createSupportEndpoints(request),
+    widgets: createWidgetEndpoints(request),
   };
 }
 
