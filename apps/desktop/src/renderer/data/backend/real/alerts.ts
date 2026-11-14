@@ -7,10 +7,11 @@ import type {
 } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { ProjectSubscriptions, SubscriptionRow, Undoable } from "../../alerts";
-import { rowTypeOf, type AlertGroup } from "../../../domain/alerts/catalog";
+import { alertTypeOf, rowTypeOf } from "../../../domain/alerts/catalog";
 import type { MandatoryReason } from "../../model";
 import type { Permission } from "../../viewing";
 import { asPrototypeError } from "./automationRefs";
+import { MANDATORY_REASONS } from "./notifications";
 import { appClient } from "./client";
 
 // Le iscrizioni agli avvisi della build app (area 8, F2, R2) sopra le rotte
@@ -42,20 +43,24 @@ export interface AlertsApi {
 }
 
 /**
- * Una riga per le Preferenze, o `null` se il suo stato è sconosciuto (un
- * server più nuovo): non si mostra ciò che l'app non sa dire né se si possa
- * scrivere.
+ * Una riga per le Preferenze, o `null` se l'app non sa dirla (un server più
+ * nuovo): uno stato sconosciuto (non sa se si possa scrivere) o un tipo che
+ * il catalogo dell'app non conosce (non ha etichetta). Il gruppo è quello del
+ * catalogo dell'app, mai il nome nudo del server; dei motivi obbligatori
+ * restano quelli che l'app sa dire.
  */
 function rowOf(r: AlertSubscriptionRow): SubscriptionRow | null {
   if (r.state === "__unknown__") return null;
+  const def = alertTypeOf(r.type);
+  if (!def) return null;
   return {
     type: r.type,
-    group: r.group as AlertGroup,
+    group: def.group,
     labelKey: r.labelKey,
     app: r.app,
     phone: r.phone,
     state: r.state,
-    mandatory: r.mandatory as MandatoryReason[],
+    mandatory: r.mandatory.filter((m) => MANDATORY_REASONS.has(m)) as MandatoryReason[],
     ...(r.suspendedReason ? { suspendedReason: r.suspendedReason as Permission } : {}),
   };
 }
@@ -92,8 +97,9 @@ export function createRealAlerts(api: AlertsApi) {
 
   return {
     async subscriptionRows(): Promise<ProjectSubscriptions[]> {
+      // I seguiti decidono solo i fissati: se non si leggono, nessun fissato (la pagina e la campanella restano).
       const [{ items }, { projectIds }] = await call(() =>
-        Promise.all([api.list(), api.follows()]),
+        Promise.all([api.list(), api.follows().catch(() => ({ projectIds: [] as string[] }))]),
       );
       const pinned = projectIds.filter((id) => items.some((p) => p.projectId === id));
       const byId = new Map(items.map((p) => [p.projectId, p]));

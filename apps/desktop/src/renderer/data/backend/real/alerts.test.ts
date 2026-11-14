@@ -122,6 +122,41 @@ describe("le iscrizioni dal server (R2)", () => {
     expect(aud!.rows.map((r) => r.type)).toEqual(["release.failed"]);
   });
 
+  it("da un server più nuovo: un tipo, un motivo e un gruppo che l'app non conosce non si mostrano (review F2, m2)", async () => {
+    const { api } = fakeApi({
+      list: async () => ({
+        items: [
+          project(AUD, "AUD", "Audin", [
+            row({ mandatory: ["merged", "a_future_reason"] as never }),
+            row({ type: "a.future_type", group: "future" }),
+            row({ type: "release.merged", group: "a_future_group" }),
+          ]),
+        ],
+      }),
+      follows: async () => ({ projectIds: [] }),
+    });
+    const [aud] = await createRealAlerts(api).subscriptionRows();
+    expect(aud!.rows.map((r) => [r.type, r.group, r.mandatory])).toEqual([
+      ["release.failed", "releases", ["merged"]],
+      // Il gruppo di un tipo noto è quello del catalogo dell'app, non il nome nudo del server.
+      ["release.merged", "releases", ["merged", "task_author"]],
+    ]);
+  });
+
+  it("i seguiti che non si leggono non fermano le iscrizioni: nessun fissato (review F2, m4)", async () => {
+    const { api } = fakeApi({
+      follows: async () => {
+        throw new ApiError(500, "internal", "x");
+      },
+    });
+    const projects = await createRealAlerts(api).subscriptionRows();
+    expect(projects.map((p) => [p.code, p.pinned])).toEqual([
+      ["AUD", false],
+      ["BLD", false],
+      ["ZED", false],
+    ]);
+  });
+
   it("setSubscription scrive la RIGA: un kind di prima diventa il tipo della sua riga", async () => {
     const { api, calls } = fakeApi();
     const alerts = createRealAlerts(api);

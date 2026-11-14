@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forgetClaudeCaches, getConversation } from "./claude";
-import { claudeChatNamespace } from "./claudeChatActions";
+import { claudeChatNamespace, summaryOf } from "./claudeChatActions";
 import { setAppClientForTests } from "./client";
 import { installFakeServer, me, ME_ID, PROJECT_ID, serverProject, serverTicketDetail, TICKET_ID } from "./fakeServer";
 import { getSessionPerson } from "./session";
@@ -320,6 +320,21 @@ describe("setSubscription di Claude nella build app (area 8, F2, R5)", () => {
     expect(detail.undo?.[GROUP_S]).toEqual({ state: "available", needsReauth: false });
   });
 
+  it("i progetti illeggibili non fermano la conversazione: la riga c'è, senza il codice", async () => {
+    install({ ...subRoutes, "GET /api/projects": { status: 500, body: { code: "internal", message: "x" } } });
+    await getSessionPerson();
+    const detail = (await getConversation(CONV))!;
+    const executed = detail.events.find((e) => e.type === "executed")!;
+    expect(executed).toMatchObject({ groupId: GROUP_S, objectCodes: [null] });
+  });
+
+  it("il codice del progetto si legge dall'elenco, senza i membri di ogni progetto", async () => {
+    const { seen } = install({ ...subRoutes, "GET /api/projects": { body: [serverProject()] } });
+    await getSessionPerson();
+    await getConversation(CONV);
+    expect(seen.filter((r) => /\/members/.test(r.path))).toEqual([]);
+  });
+
   it("il riassunto dagli argomenti: progetto, tipo con la sua etichetta, solo i valori presenti", async () => {
     install(subRoutes);
     await getSessionPerson();
@@ -353,5 +368,13 @@ describe("un'azione che questa build non conosce (server più nuovo, area 8, F2,
     const detail = (await getConversation(CONV))!;
     const executed = detail.events.find((e) => e.type === "executed") as { actions: { summary: string }[] } | undefined;
     expect(executed?.actions.map((a) => a.summary)).toEqual(["A change"]);
+  });
+});
+
+describe("il riassunto di setSubscription senza canali (review F2, m3)", () => {
+  it("senza app né phone (il server non lo manda, il client si difende) non finisce con «: »", () => {
+    const args = { projectId: PROJECT_ID, type: "release.failed" };
+    expect(summaryOf("setSubscription", args, "AUD").summary).toBe("Change your “Release failed” alerts in AUD");
+    expect(summaryOf("setSubscription", args, null).summary).toBe("Change your “Release failed” alerts in a project");
   });
 });

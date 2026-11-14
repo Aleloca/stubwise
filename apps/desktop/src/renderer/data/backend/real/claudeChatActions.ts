@@ -7,7 +7,7 @@ import { appClient, session } from "./client";
 import { taskCodeOf } from "./claudeChat";
 import { knownTaskCode } from "./tasks";
 import { listPeople } from "./people";
-import { listProjects } from "./projects";
+import { projectCodesById } from "./projects";
 import { alertTypeOf } from "../../../domain/alerts/catalog";
 import { ACTIONS } from "../../../domain/access/actions";
 
@@ -86,12 +86,14 @@ export async function readChatActions(conversationId: string): Promise<ChatActio
       if (known) codes.set(id, known);
     }),
   );
-  // I progetti delle azioni sui progetti, solo se ce n'è una: un progetto che non si vede resta senza codice.
+  // I progetti delle azioni sui progetti, solo se ce n'è una: un progetto che
+  // non si vede resta senza codice, e un elenco che non si legge non ferma la
+  // conversazione (la riga si scrive senza il codice).
   const projectIds = [...proposals.flatMap((p) => p.actions), ...groups.flatMap((g) => g.actions)].flatMap(
     (a) => projectIdOf(a.fn, a.args) ?? [],
   );
   if (projectIds.length > 0) {
-    const byId = new Map((await listProjects()).map((p) => [p.id, p.code] as const));
+    const byId = await projectCodesById().catch(() => new Map<string, string>());
     for (const id of projectIds) {
       const code = byId.get(id);
       if (code) codes.set(id, code);
@@ -167,7 +169,9 @@ export function summaryOf(fn: string, args: Record<string, unknown>, code: strin
       break;
     }
   }
-  const own = `claude.chatActions.summary.${fn}${code === null && params["code"] === "" && needsCode(fn) ? "NoCode" : ""}`;
+  // `setSubscription` senza canali (il server ne vuole almeno uno, ma il client non lo dà per certo): la frase senza «: ».
+  const phrase = fn === "setSubscription" && params["channels"] === "" ? "setSubscriptionBare" : fn;
+  const own = `claude.chatActions.summary.${phrase}${code === null && params["code"] === "" && needsCode(fn) ? "NoCode" : ""}`;
   // Un'azione che questa build non conosce (un server più nuovo: `fn` è `__unknown__`) ha la frase generica.
   const key = i18n.exists(own) ? own : "claude.chatActions.summaryHidden.other";
   // `summary` è la resa al momento, per chi non sa leggere la frase (`spoken` la preferisce).

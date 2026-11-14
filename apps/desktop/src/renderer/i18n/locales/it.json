@@ -4822,7 +4822,9 @@
         "deleteTask": "Elimina {{code}}",
         "deleteTaskNoCode": "Elimina una task",
         "setSubscription": "Cambia i tuoi avvisi «{{type}}» in {{code}}: {{channels}}",
-        "setSubscriptionNoCode": "Cambia i tuoi avvisi «{{type}}» in un progetto: {{channels}}"
+        "setSubscriptionNoCode": "Cambia i tuoi avvisi «{{type}}» in un progetto: {{channels}}",
+        "setSubscriptionBare": "Cambia i tuoi avvisi «{{type}}» in {{code}}",
+        "setSubscriptionBareNoCode": "Cambia i tuoi avvisi «{{type}}» in un progetto"
       },
       "summaryHidden": {
         "createTask": "Crea una task",

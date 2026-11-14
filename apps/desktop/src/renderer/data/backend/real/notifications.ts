@@ -80,7 +80,7 @@ export function webHrefFor(
   return "/inbox";
 }
 
-const MANDATORY_REASONS: ReadonlySet<string> = new Set([
+export const MANDATORY_REASONS: ReadonlySet<string> = new Set([
   "merged",
   "pr_author",
   "follows_conversation",
