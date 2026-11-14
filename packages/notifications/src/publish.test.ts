@@ -742,7 +742,7 @@ describe("publishNotification", () => {
     } as unknown as Db;
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    await expect(publishNotification(broken, prOpened, {})).resolves.toEqual({ published: 0, notificationIds: [] });
+    await expect(publishNotification(broken, prOpened, {})).resolves.toEqual({ published: 0, notificationIds: [], failed: true });
 
     // Il valore di ritorno non lo guarda nessun chiamante: il log è l'UNICA
     // traccia che la notifica è sparita, e deve dire quale kind e perché.
@@ -766,7 +766,7 @@ describe("publishNotification", () => {
         projectId: projectIdFantasma,
         ticketId,
       });
-      expect(result).toEqual({ published: 0, notificationIds: [] });
+      expect(result).toEqual({ published: 0, notificationIds: [], failed: true });
       // La transazione del chiamante è ancora usabile: se il savepoint non ci
       // fosse, qui Postgres risponderebbe "current transaction is aborted".
       await tx

@@ -210,13 +210,13 @@ async function notifyOnce(
   // Senza radice pubblica il link resta RELATIVO (`/app/#/…`): l'app lo apre lo stesso (94).
   const url = `${base}/app/#/p/${proj?.code ?? ""}/releases/${release.code}`;
   const out = await publishNotification(deps.db, eventOf(url), { projectId: release.projectId, mandatory: await releaseMandatory(deps.db, release) });
-  // `publishNotification` non lancia: su un errore risponde `published: 0`.
-  // Un tipo spento di partenza (`release.succeeded`) può anche non avere
-  // destinatari: allora non si riprova all'infinito — si riprova solo se
-  // c'era qualcuno da avvisare (il segno resta per i tipi senza iscritti).
-  if (out.published === 0 && which === "failed") {
+  // `publishNotification` non lancia: su un errore risponde `failed`. Si
+  // riprova SOLO allora: «nessun destinatario» (tutti l'hanno spento, o un tipo
+  // spento di partenza) è un esito, e il segno resta — altrimenti il rilascio
+  // non si sistemerebbe mai (review F2, 46).
+  if (out.failed === true) {
     await deps.db.update(releases).set(unmark).where(eq(releases.id, release.id));
-    throw new Error("avviso release.failed non pubblicato: si riprova al giro dopo");
+    throw new Error(`avviso release.${which} non pubblicato: si riprova al giro dopo`);
   }
 }
 

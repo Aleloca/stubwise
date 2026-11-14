@@ -119,8 +119,9 @@ export const MANDATORY_KINDS: ReadonlySet<NotificationEvent["kind"]> = new Set<N
  *    successiva, cioè esattamente la rottura che l'inghiottimento vorrebbe
  *    evitare).
  *
- * @returns quante righe di inbox sono state scritte (destinatari raggiunti) e
- * i loro id.
+ * @returns quante righe di inbox sono state scritte (destinatari raggiunti),
+ * i loro id, e `failed`: vero SOLO se la pubblicazione è fallita (non per
+ * «nessun destinatario»).
  *
  * ⚠️ **`notificationIds` esiste per non far ritrovare a nessuno le righe
  * appena scritte cercandole** (18 set 2026). `publishProposal`
@@ -141,7 +142,7 @@ export async function publishNotification(
   db: DbOrTx,
   event: NotificationEvent,
   opts: PublishOpts,
-): Promise<{ published: number; notificationIds: string[] }> {
+): Promise<{ published: number; notificationIds: string[]; failed?: true }> {
   try {
     return await db.transaction(async (inner) => {
       // Il PROGETTO dell'evento: quello dichiarato, o in mancanza quello del
@@ -262,7 +263,9 @@ export async function publishNotification(
     // riceve nulla. `console` e non un logger perché il package non ne ha uno
     // fra le mani (stessa scelta di `slack-client.ts`).
     console.warn(`[notify] publish di ${event.kind} fallita, nessuna riga scritta:`, error);
-    return { published: 0, notificationIds: [] };
+    // `failed` distingue questo caso da «nessun destinatario» (anche quello è
+    // `published: 0`): chi deve riprovare riprova solo qui (review F2, 46).
+    return { published: 0, notificationIds: [], failed: true };
   }
 }
 
