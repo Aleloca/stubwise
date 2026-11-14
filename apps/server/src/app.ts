@@ -103,6 +103,7 @@ import { serverRoutes } from "./routes/servers.js";
 import { serverCheckRoutes } from "./routes/servers-checks.js";
 import { savedViewRoutes } from "./routes/saved-views.js";
 import { searchRoutes } from "./routes/search.js";
+import { serverAnalysisRoutes } from "./routes/server-analyses.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { modelSettingsRoutes } from "./routes/model-settings.js";
 import type { RateLimitConfig } from "./routes/shared.js";
@@ -736,6 +737,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Check di servizio e metriche time-series di un server: secondo plugin sullo
   // stesso prefix (i DSN dei check DB restano cifrati, mai in risposta).
   void app.register(serverCheckRoutes, { prefix: "/api/servers" });
+  // Area 8, F4b, S5: l'analisi a mano di un server.
+  void app.register(serverAnalysisRoutes, { prefix: "/api/servers" });
   void app.register(ticketRoutes, { prefix: "/api/tickets" });
   // Documentazione (non-chat): trigger/stato generazione, hub spazi, albero,
   // pagina, CRUD pagine manuali. Path interni completi (es.
