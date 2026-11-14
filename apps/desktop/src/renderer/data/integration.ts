@@ -86,6 +86,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // (righe e stati dal server), la campanella del progetto e il menu
     // degli avvisi nel pannello. «Don't alert me» dalla card è `alerts-mute`.
     "alerts",
+    // «Don't alert me about this» dalla card (S6, `POST /api/inbox/:id/mute-type`),
+    // con l'«Annulla» nel progetto della card; non su una card arrivata da obbligatorio.
+    "alerts-mute",
     "notifications",
     "search",
     "task-detail",

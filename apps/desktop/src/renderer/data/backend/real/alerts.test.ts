@@ -10,6 +10,7 @@ import { createRealAlerts, type AlertsApi } from "./alerts";
 const AUD = "11111111-1111-4111-8111-111111111111";
 const BLD = "22222222-2222-4222-8222-222222222222";
 const ZED = "33333333-3333-4333-8333-333333333333";
+const CARD = "44444444-4444-4444-8444-444444444444";
 
 const row = (over: Partial<AlertSubscriptionRow> = {}): AlertSubscriptionRow => ({
   type: "release.failed",
@@ -52,6 +53,14 @@ function fakeApi(over: Partial<AlertsApi> = {}) {
     mute: async (projectId) => {
       calls.push(`mute ${projectId}`);
       return { before: [] };
+    },
+    muteType: async (notificationId) => {
+      calls.push(`muteType ${notificationId}`);
+      return {
+        before: row({ type: "release.merged", app: true, phone: false }),
+        row: row({ type: "release.merged", app: false, phone: false, state: "off" }),
+        projectId: AUD,
+      };
     },
     ...over,
   };
@@ -181,5 +190,38 @@ describe("le iscrizioni dal server (R2)", () => {
     const alerts = createRealAlerts(fakeApi({ copy: notFound, mute: notFound }).api);
     await expect(alerts.copySubscriptions(BLD, AUD)).rejects.toThrow("not_found");
     await expect(alerts.muteProject(AUD)).rejects.toThrow("not_found");
+  });
+
+  it("«Don't alert me» dalla card: il mute del server, e l'«Annulla» riscrive la riga di prima nel progetto della card", async () => {
+    const { api, calls } = fakeApi();
+    const undo = await createRealAlerts(api).muteFromNotification(CARD);
+    expect(calls).toEqual([`muteType ${CARD}`]);
+    await undo.undo();
+    expect(calls[1]).toBe(`set ${AUD} release.merged {"app":true,"phone":false}`);
+  });
+
+  it("dalla card, gli errori nelle parole del prototipo", async () => {
+    const fail = (status: number, code: string) => async () => {
+      throw new ApiError(status, code, code);
+    };
+    const words = (status: number, code: string) =>
+      createRealAlerts(fakeApi({ muteType: fail(status, code) }).api)
+        .muteFromNotification(CARD)
+        .catch((e: Error) => e.message);
+    expect(await words(403, "alert_mandatory")).toBe("forbidden");
+    expect(await words(422, "not_a_catalog_alert")).toBe("invalid: kind");
+    expect(await words(404, "not_found")).toBe("not_found");
+  });
+
+  it("dalla card, senza il progetto nella risposta (server più vecchio) l'«Annulla» lo dice invece di scrivere", async () => {
+    const { api, calls } = fakeApi({
+      muteType: async () => ({
+        before: row({ type: "release.merged" }),
+        row: row({ state: "off" }),
+      }),
+    });
+    const undo = await createRealAlerts(api).muteFromNotification(CARD);
+    await expect(undo.undo()).rejects.toThrow();
+    expect(calls.filter((c) => c.startsWith("set"))).toEqual([]);
   });
 });

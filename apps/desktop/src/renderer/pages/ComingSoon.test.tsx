@@ -423,6 +423,7 @@ const INTEGRATED_CALLS = new Set([
   "alerts.setSubscription",
   "alerts.copySubscriptions",
   "alerts.muteProject",
+  "alerts.muteFromNotification",
   "releases.setReleasePipeline",
   // Area 8, F1 (`releases-explain`): «Spiega» apre una conversazione col contesto del rilascio.
   "releases.explainRelease",

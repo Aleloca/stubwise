@@ -35,6 +35,10 @@ export interface AlertsApi {
   ): Promise<AlertSubscriptionRow>;
   copy(projectId: string, fromProjectId: string): Promise<{ before: AlertSubscriptionRow[] }>;
   mute(projectId: string): Promise<{ before: AlertSubscriptionRow[] }>;
+  /** «Don't alert me» dalla card (S6): la riga di prima, quella di adesso e il progetto della card. */
+  muteType(
+    notificationId: string,
+  ): Promise<{ before: AlertSubscriptionRow; row: AlertSubscriptionRow; projectId?: string }>;
 }
 
 /**
@@ -58,6 +62,8 @@ function rowOf(r: AlertSubscriptionRow): SubscriptionRow | null {
 
 /** Gli errori nelle parole del prototipo; un tipo sconosciuto è `invalid: type`, come lì. */
 function words(error: unknown): unknown {
+  if (error instanceof ApiError && error.code === "not_a_catalog_alert")
+    return new Error("invalid: kind");
   if (error instanceof ApiError && error.code === "alert_type_not_found")
     return new Error("invalid: type");
   return asPrototypeError(error);
@@ -121,6 +127,22 @@ export function createRealAlerts(api: AlertsApi) {
       const { before } = await call(() => api.mute(projectId));
       return undoOf(projectId, before);
     },
+
+    /**
+     * «Non avvisarmi più di questo» dal pannello: il server spegne la riga del
+     * tipo della card nel suo progetto (403 su una card arrivata da
+     * obbligatorio). L'«Annulla» riscrive la riga di prima; senza il progetto
+     * nella risposta (un server più vecchio) non può, e lo dice.
+     */
+    async muteFromNotification(notificationId: string): Promise<Undoable> {
+      const { before, projectId } = await call(() => api.muteType(notificationId));
+      if (!projectId) {
+        return {
+          undo: () => Promise.reject(new Error("invalid: project")),
+        };
+      }
+      return undoOf(projectId, [before]);
+    },
   } satisfies Partial<typeof Fake.alerts>;
 }
 
@@ -131,4 +153,5 @@ export const liveAlerts: Partial<typeof Fake.alerts> = createRealAlerts({
   set: (projectId, type, patch) => appClient().alerts.set(projectId, type, patch),
   copy: (projectId, fromProjectId) => appClient().alerts.copy(projectId, fromProjectId),
   mute: (projectId) => appClient().alerts.mute(projectId),
+  muteType: (notificationId) => appClient().inbox.muteType(notificationId),
 });

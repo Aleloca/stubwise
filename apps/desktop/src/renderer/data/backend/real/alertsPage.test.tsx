@@ -210,63 +210,75 @@ describe("Preferenze → Notifiche nella build app (area 8, F2, R3)", () => {
     expect(seen.some((r) => r.path.startsWith(BASE))).toBe(false);
   });
 
-  it("una card del catalogo: «Alert settings» sì, «Don't alert me» no finché il server non ha il mute dalla card (S6)", async () => {
-    const card = {
-      id: "55555555-5555-4555-8555-555555555555",
-      kind: "release.failed",
-      status: "open",
-      text: "AUD-V3 failed in production",
-      actions: ["open"],
-      projectId: PROJECT_ID,
-      ticketId: null,
-      jobId: null,
-      url: "/app/#/p/AUD/releases/AUD-V3",
-      createdAt: "2026-11-14T10:00:00.000Z",
-      readAt: null,
-      snoozedUntil: null,
-      handledAt: null,
-      handledBy: null,
-    };
-    install({ "GET /api/inbox": inboxWith(card) });
-    renderRoute("/preferences/notifications");
-    await ready();
-    const user = userEvent.setup();
+  const CARD_ID = "55555555-5555-4555-8555-555555555555";
+  const cardOf = (over: Record<string, unknown> = {}) => ({
+    id: CARD_ID,
+    kind: "release.failed",
+    status: "open",
+    text: "AUD-V3 failed in production",
+    actions: ["open"],
+    projectId: PROJECT_ID,
+    ticketId: null,
+    jobId: null,
+    url: "/app/#/p/AUD/releases/AUD-V3",
+    createdAt: "2026-11-14T10:00:00.000Z",
+    readAt: null,
+    snoozedUntil: null,
+    handledAt: null,
+    handledBy: null,
+    ...over,
+  });
+
+  /** Apre il pannello e il menu «⋯» della card. */
+  async function openCardMenu(user: ReturnType<typeof userEvent.setup>) {
     await user.click(await screen.findByRole("button", { name: /^Notifications/ }));
     const panel = await screen.findByRole("dialog", { name: "Notifications" });
     const item = await waitFor(() => {
-      const el = panel.querySelector<HTMLElement>(`[data-notification="${card.id}"]`);
+      const el = panel.querySelector<HTMLElement>(`[data-notification="${CARD_ID}"]`);
       expect(el).not.toBeNull();
       return el!;
     });
     await user.click(within(item).getByRole("button", { name: "More actions" }));
-    expect(await screen.findByRole("menuitem", { name: "Alert settings for AUD" })).toBeTruthy();
-    expect(screen.queryByRole("menuitem", { name: "Don't alert me about this in AUD" })).toBeNull();
-  });
+    return panel;
+  }
 
-  it("una card arrivata da obbligatorio dice perché (alertMandatory)", async () => {
-    const card = {
-      id: "66666666-6666-4666-8666-666666666666",
-      kind: "release.failed",
-      status: "open",
-      text: "AUD-V3 failed in production",
-      actions: ["open"],
-      projectId: PROJECT_ID,
-      ticketId: null,
-      jobId: null,
-      url: "/app/#/p/AUD/releases/AUD-V3",
-      alertMandatory: "merged",
-      createdAt: "2026-11-14T10:00:00.000Z",
-      readAt: null,
-      snoozedUntil: null,
-      handledAt: null,
-      handledBy: null,
-    };
-    install({ "GET /api/inbox": inboxWith(card) });
+  it("«Don't alert me» dalla card: il mute del server (S6), e «Undo» riscrive la riga di prima", async () => {
+    install({
+      "GET /api/inbox": inboxWith(cardOf()),
+      [`POST /api/inbox/${CARD_ID}/mute-type`]: {
+        body: {
+          before: row(),
+          row: row({ app: false, phone: false, state: "off" }),
+          projectId: PROJECT_ID,
+        },
+      },
+    });
     renderRoute("/preferences/notifications");
     await ready();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /^Notifications/ }));
-    const panel = await screen.findByRole("dialog", { name: "Notifications" });
-    expect(await within(panel).findByText("You get this because you did the merge")).toBeTruthy();
+    await openCardMenu(user);
+    expect(screen.getByRole("menuitem", { name: "Alert settings for AUD" })).toBeTruthy();
+    await user.click(screen.getByRole("menuitem", { name: "Don't alert me about this in AUD" }));
+    await waitFor(() =>
+      expect(
+        seen.some((r) => r.method === "POST" && r.path === `/api/inbox/${CARD_ID}/mute-type`),
+      ).toBe(true),
+    );
+    await user.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(() =>
+      expect(seen.filter((r) => r.method === "PUT").map((r) => [r.path, r.body])).toEqual([
+        [`${BASE}/${PROJECT_ID}/release.failed`, { app: true, phone: true }],
+      ]),
+    );
+  });
+
+  it("una card arrivata da obbligatorio dice perché (alertMandatory) e non offre «Don't alert me»", async () => {
+    install({ "GET /api/inbox": inboxWith(cardOf({ alertMandatory: "merged" })) });
+    renderRoute("/preferences/notifications");
+    await ready();
+    const panel = await openCardMenu(userEvent.setup());
+    expect(within(panel).getByText("You get this because you did the merge")).toBeTruthy();
+    expect(await screen.findByRole("menuitem", { name: "Alert settings for AUD" })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: "Don't alert me about this in AUD" })).toBeNull();
   });
 });
