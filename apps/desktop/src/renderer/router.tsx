@@ -335,7 +335,6 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
       key === "repo" ||
       key === "thread" ||
       key === "message" ||
-      key === "pr" ||
       key === "widget" ||
       key === "check" ||
       key === "comment" ||
@@ -343,7 +342,11 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
       key === "history" ||
       key === "decision"
         ? /^[\w-]+$/.test(value)
-        : key === "range"
+        : // Releases: l'id della PR; nella build app è `<repository>#<numero>`
+          // (`data/backend/real/releasePrs.ts`).
+          key === "pr"
+          ? /^[\w-]+(#\d+)?$/.test(value)
+          : key === "range"
           ? /^(1h|24h|7d|30d|90d|month|custom)$/.test(value)
           : key === "section" || key === "tab" || key === "then"
             ? /^[a-z]+$/.test(value)
