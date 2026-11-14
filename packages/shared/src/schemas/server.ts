@@ -131,6 +131,12 @@ export const ingestBodySchema = z.object({
   agentVersion: z.string().min(1).max(50),
   samples: z.array(metricSampleSchema).min(1).max(300), // buffer 2h @30s ≈ 240
   checkResults: z.array(checkResultSchema).max(2000).default([]),
+  /**
+   * Area 8, F4b: ciò che l'agente dichiara (le operazioni accese). Facoltativo:
+   * un agente vecchio non lo manda, e vale «spente». Una dichiarazione, non un
+   * permesso: senza la firma del server l'agente non esegue niente comunque.
+   */
+  capabilities: z.object({ operations: z.boolean().default(false) }).optional(),
 });
 export type IngestBody = z.infer<typeof ingestBodySchema>;
 
