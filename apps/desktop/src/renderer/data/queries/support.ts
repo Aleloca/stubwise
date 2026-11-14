@@ -26,8 +26,8 @@ const supportRequestAreas = () => [...SUPPORT_AREAS, ...REQUEST_AREAS];
  * Ogni quanto Support si rilegge da solo (area 8, F3, R6): nella build app
  * non c'è uno stream. Il dettaglio aperto ogni 15 s finché la conversazione
  * è senza esito (un messaggio del cliente può riportarla in triage); chiusa
- * (`request_open`) non riceve più messaggi, e la successiva la mostra
- * l'elenco, ogni 30 s. Il prototipo cambia solo da sé: mai.
+ * (`request_open`) ogni 30 s, perché la richiesta e «Continued in» cambiano
+ * ancora; l'elenco ogni 30 s. Il prototipo cambia solo da sé: mai.
  */
 export function supportRefreshMs(
   kind: "detail" | "list",
@@ -35,7 +35,9 @@ export function supportRefreshMs(
 ): number | false {
   if (!isAppBuild()) return false;
   if (kind === "list") return 30_000;
-  return state !== undefined && state !== "request_open" ? 15_000 : false;
+  if (state === undefined) return false;
+  // Chiusa: la richiesta (lo stato per il cliente) e «Continued in» cambiano ancora, più piano.
+  return state === "request_open" ? 30_000 : 15_000;
 }
 
 /** Le conversazioni coi clienti del progetto, raggruppate per stato. */
@@ -105,24 +107,6 @@ export function useSupportSearch(q: string, enabled = true) {
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
   });
-}
-
-/** Lo stato di una richiesta come lo dice `my_requests` al cliente. */
-export function useMyRequestStatus(requestId: string | undefined) {
-  const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.myRequestStatus(me, requestId ?? ""),
-    queryFn: () => api.support.myRequestStatus(requestId!),
-    enabled: !!requestId,
-  });
-}
-
-/** La risposta al collaboratore (canale `mcp`): solo dal clic di chi ha `support.manage`. */
-export function useReplyToCustomer() {
-  return useWrite(
-    ({ code, body }: { code: string; body: string }) => api.support.replyToCollaborator(code, body),
-    SUPPORT_AREAS,
-  );
 }
 
 /** «Apri la richiesta» su una non conclusa (`backlog.create`). */

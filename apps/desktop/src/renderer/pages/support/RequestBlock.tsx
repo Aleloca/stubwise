@@ -12,6 +12,7 @@ import { formatDateTime } from "../../notifications/time";
 import { useToast } from "../../tasks-ui/Toast";
 import { primaryButton, secondaryButton, WorkingRing } from "../claude/conversation/parts";
 import { RequestStatusLabel } from "../requests/marks";
+import { WhoCanLink } from "../../components/WhoCanLink";
 
 // Il blocco della richiesta in testa al dettaglio (shape support.md §3, §5):
 // cosa vuole il cliente, come un'intestazione di scheda — il desiderio
@@ -266,6 +267,7 @@ export function RequestBlock({ conv }: { conv: SupportConversationView }) {
         <p className="text-md text-ink">{t("support.request.answered")}</p>
         <p className="text-sm text-ink-muted">
           {t("support.request.answeredWhy", { minutes: SUPPORT_TRIAGE_IDLE_MINUTES })}
+          {conv.canMarkNotConcluded && ` ${t("support.request.answeredMark")}`}
         </p>
         {conv.canMarkNotConcluded && <NotConcludedButton code={conv.code} />}
       </section>
@@ -282,7 +284,10 @@ export function RequestBlock({ conv }: { conv: SupportConversationView }) {
           </button>
         </div>
       ) : (
-        <p className="text-sm text-ink-muted">{t("support.request.cannotOpen")}</p>
+        <p className="text-sm text-ink-muted">
+          {t("support.request.cannotOpen")}{" "}
+          <WhoCanLink action="manageSupport" projectCode={conv.projectCode} />
+        </p>
       )}
       {dialog && (
         <OpenRequestDialog

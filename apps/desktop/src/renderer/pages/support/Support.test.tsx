@@ -482,13 +482,20 @@ describe("Support — «Apri la richiesta» su una non conclusa", () => {
     );
   });
 
-  it("senza backlog.create: nessun bottone, la frase", async () => {
-    await open("/p/ACQ/support/ACQ-S3", "p-silvia");
-    const d = await detail("ACQ-S3");
-    expect(within(d).queryByRole("button", { name: "Open the request" })).toBeNull();
-    expect(
-      within(d).getByText("Someone with permission to create requests can open it."),
-    ).toBeInTheDocument();
+  it("senza support.manage o backlog.create: nessun bottone, la frase col «Who?»", async () => {
+    for (const person of ["p-silvia", "p-sara"]) {
+      await open("/p/ACQ/support/ACQ-S3", person);
+      const d = await detail("ACQ-S3");
+      expect(within(d).queryByRole("button", { name: "Open the request" })).toBeNull();
+      const block = within(d).getByRole("region", { name: "Request" });
+      expect(block).toHaveTextContent(
+        "Someone who can manage Support conversations and create requests can open it.",
+      );
+      expect(
+        within(block).getByRole("button", { name: "Who can manage Support conversations?" }),
+      ).toBeInTheDocument();
+      document.body.replaceChildren();
+    }
   });
 });
 
@@ -525,6 +532,7 @@ describe("Support — «Not concluded» su una answered (area 8, F3)", () => {
     const block = within(d).getByRole("region", { name: "Request" });
     expect(block).toHaveTextContent("No request · the widget's answer was enough");
     expect(block).toHaveTextContent("No reply from the customer for 15 minutes");
+    expect(block).toHaveTextContent("If it isn't settled, mark it not concluded");
     expect(within(block).queryByRole("button", { name: "Open the request" })).toBeNull();
     await user.click(within(block).getByRole("button", { name: "Not concluded" }));
     expect(await within(d).findByRole("button", { name: "Open the request" })).toBeInTheDocument();
@@ -538,5 +546,9 @@ describe("Support — «Not concluded» su una answered (area 8, F3)", () => {
       "No request · the widget's answer was enough",
     );
     expect(within(d).queryByRole("button", { name: "Not concluded" })).toBeNull();
+    // Senza il bottone, nemmeno la frase che invita a premerlo.
+    expect(within(d).getByRole("region", { name: "Request" })).not.toHaveTextContent(
+      "mark it not concluded",
+    );
   });
 });

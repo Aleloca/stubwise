@@ -289,6 +289,20 @@ describe("scritture", () => {
     expect(conv("ACQ-S4").messages).toHaveLength(before);
   });
 
+  it("una richiesta con l'origine Support vuole support.manage anche da createRequest (review F3, m6)", async () => {
+    // Sara ha backlog.create ma non support.manage.
+    as("p-sara");
+    const before = state.requests.length;
+    await expect(
+      createRequest({
+        projectId: ACQ,
+        title: "From the conversation",
+        origin: { kind: "support", conversationId: conv("ACQ-S3").id },
+      }),
+    ).rejects.toThrow("forbidden");
+    expect(state.requests).toHaveLength(before);
+  });
+
   it("apri la richiesta da una non conclusa: support.manage e backlog.create, origine Support, una sola", async () => {
     as("p-silvia");
     await expect(

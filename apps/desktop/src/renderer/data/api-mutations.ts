@@ -988,6 +988,11 @@ export function checkNewRequest(
 
 export function createRequestAs(me: string, input: NewRequestInput): ProjectRequest {
   const project = checkNewRequest(me, input);
+  // Da una conversazione di Support: anche `support.manage` (review F3, m6),
+  // come «Apri la richiesta»; nessuna strada più larga.
+  if (input.origin?.kind === "support" && !can(viewerFor(me), "support.manage", project.id)) {
+    throw forbidden();
+  }
   // Dalla doc di prodotto (11b, P20): pagina e progetto si controllano a
   // parte, e la domanda (se c'è) si chiude nella stessa scrittura.
   const fromDoc = input.origin?.kind === "product_doc" ? input.origin : null;

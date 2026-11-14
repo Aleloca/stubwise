@@ -70,6 +70,12 @@ export function Widgets({
                   <span className={`text-sm ${w.enabled ? "text-ink" : "text-ink-muted"}`}>
                     {w.enabled ? t("support.widgets.on") : t("support.widgets.off")}
                   </span>
+                  {/* Elenco vuoto: qualunque sito lo carica (review F3, m1). */}
+                  {w.origins.length === 0 && (
+                    <span className="text-sm text-warning">
+                      {t("support.widgets.anySiteShort")}
+                    </span>
+                  )}
                   <span className="num text-sm text-ink-muted @[440px]:min-w-32 @[440px]:text-right">
                     {t("support.widgets.conversations", { count: w.conversationCount })}
                   </span>
