@@ -1,22 +1,17 @@
-import { SUPPORT_STATE_ORDER, supportFollowBodySchema, supportOpenRequestBodySchema, supportReplyBodySchema } from "@stubwise/shared";
+import { SUPPORT_STATE_ORDER, supportOpenRequestBodySchema, supportReplyBodySchema } from "@stubwise/shared";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import {
-  getSupportConversation,
-  listSupportConversations,
-  listWaitingCustomers,
-  supportCustomerPreview,
-  supportEmailDraft,
-  SupportError,
-} from "../services/support.js";
-import { followConversation, markNotConcluded, openRequestFrom, replyToCustomer } from "../services/support-writes.js";
+import { getSupportConversation, listSupportConversations, supportCustomerPreview, SupportError } from "../services/support.js";
+import { markNotConcluded, openRequestFrom, replyToCollaborator } from "../services/support-writes.js";
 
 /**
  * Support (area 8, F3): le conversazioni coi clienti per i membri. I permessi
  * li valuta il servizio (un progetto invisibile è 404, come una conversazione
- * che non esiste; `support.reply` per rispondere); le rotte dichiarano
- * `user`, come quelle dei rilasci.
+ * che non esiste; `support.manage` per le scritture); le rotte dichiarano
+ * `user`, come quelle dei rilasci. Il team non scrive MAI al cliente del
+ * widget (maintainer, 14 nov 2026): la risposta è solo per il collaboratore
+ * del canale `mcp`.
  */
 export async function supportRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -44,31 +39,19 @@ export async function supportRoutes(instance: FastifyInstance): Promise<void> {
         items: await listSupportConversations(app.db, request.user!, request.params.projectId, { ...(request.query.state ? { state: request.query.state } : {}) }),
       })),
   );
-  app.get("/me/waiting-customers", { config: { access: { kind: "user" } } }, async (request) => ({
-    items: await listWaitingCustomers(app.db, request.user!),
-  }));
   // Le rotte letterali (`/preview`) prima delle altre sullo stesso prefisso.
   app.get("/support/conversations/by-code/:code/preview", { config: { access: { kind: "user" } }, schema: { params: codeParams } }, async (request, reply) =>
     handle(reply, () => supportCustomerPreview(app.db, request.user!, request.params.code)),
   );
-  // S9: «Scrivigli anche per email» (i campi della Posta; il server non invia).
-  app.get("/support/conversations/by-code/:code/email-draft", { config: { access: { kind: "user" } }, schema: { params: codeParams } }, async (request, reply) =>
-    handle(reply, () => supportEmailDraft(app.db, request.user!, request.params.code)),
-  );
   app.get("/support/conversations/by-code/:code", { config: { access: { kind: "user" } }, schema: { params: codeParams } }, async (request, reply) =>
     handle(reply, () => getSupportConversation(app.db, request.user!, request.params.code)),
   );
-  // S3: «Send to customer» (`support.reply`, ricontrollato nel servizio).
+  // S3: la risposta al collaboratore, SOLO canale `mcp` (`support.manage`,
+  // ricontrollato nel servizio; una conversazione del widget → 409).
   app.post(
     "/support/conversations/by-code/:code/replies",
     { config: { access: { kind: "user" } }, schema: { params: codeParams, body: supportReplyBodySchema } },
-    async (request, reply) => handle(reply, () => replyToCustomer(app.db, request.user!, request.params.code, request.body)),
-  );
-  // S5: «Segui».
-  app.put(
-    "/support/conversations/by-code/:code/follow",
-    { config: { access: { kind: "user" } }, schema: { params: codeParams, body: supportFollowBodySchema } },
-    async (request, reply) => handle(reply, () => followConversation(app.db, request.user!, request.params.code, request.body.on)),
+    async (request, reply) => handle(reply, () => replyToCollaborator(app.db, request.user!, request.params.code, request.body)),
   );
   // S6: «Apri la richiesta» (201 nuova, 200 quella che c'era).
   app.post(

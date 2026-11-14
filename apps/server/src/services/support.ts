@@ -2,10 +2,8 @@ import {
   aiJobs,
   backlogItems,
   backlogItemTickets,
-  googleAccounts,
   projects,
   releases,
-  supportFollowers,
   ticketRepositories,
   tickets,
   widgetConversations,
@@ -13,28 +11,21 @@ import {
   widgets,
   type Db,
 } from "@stubwise/db";
-import { GMAIL_MODIFY_SCOPE } from "@stubwise/google";
-import { t } from "@stubwise/i18n";
-import { projectPermissionsByProject } from "@stubwise/notifications";
 import {
   customerStatus,
   supportState,
   SUPPORT_STATE_ORDER,
-  waitingSince,
   type CustomerStatus,
   type ProjectPermission,
   type ReleaseStatusKind,
   type SupportConversation,
   type SupportCustomerPreview,
-  type SupportEmailDraft,
-  supportMailSlot,
-  type Language,
   type SupportMessage,
   type SupportState,
   type SupportStateInput,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
-import { projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
+import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { projectPermissionsFor } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { releaseStatusById } from "./releases.js";
 
@@ -46,7 +37,10 @@ import { releaseStatusById } from "./releases.js";
  * calcola qui, una volta, per la vista (il client legge, non deduce).
  *
  * Il ruolo dei messaggi: `user` = il cliente, `assistant` = l'AI del widget
- * (il triage), `team` = una persona (S3).
+ * (il triage), `team` = una persona (S3, solo canale `mcp`: al cliente del
+ * widget il team non scrive mai, maintainer 14 nov 2026). Una conversazione
+ * con un esito è CHIUSA: i messaggi dopo vanno nella successiva
+ * (`continued_in_id`, S17).
  */
 
 type Viewer = Pick<SessionUser, "id" | "instancePermissions">;
@@ -147,16 +141,17 @@ function stateInput(c: ConversationRow, messages: readonly SupportMessage[], has
   };
 }
 
-async function hasMailbox(db: Db, userId: string): Promise<boolean> {
-  const accounts = await db.select({ scopes: googleAccounts.scopes }).from(googleAccounts).where(and(eq(googleAccounts.userId, userId), isNull(googleAccounts.disabledAt)));
-  return accounts.some((a) => a.scopes.includes(GMAIL_MODIFY_SCOPE));
-}
-
 interface ViewContext {
   viewer: Viewer;
   permissions: ReadonlySet<ProjectPermission>;
   projectCode: string;
-  mailbox: boolean;
+}
+
+/** Il codice di una conversazione dello stesso progetto, per id. */
+async function codeOf(db: Db, projectCode: string, id: string | null): Promise<{ code: string } | null> {
+  if (!id) return null;
+  const [r] = await db.select({ number: widgetConversations.number }).from(widgetConversations).where(eq(widgetConversations.id, id));
+  return r ? { code: `${projectCode}-S${r.number}` } : null;
 }
 
 /** La vista di UNA conversazione per chi guarda; `withMessages` = il dettaglio (l'elenco porta solo l'ultimo). */
@@ -167,21 +162,9 @@ async function viewOf(db: Db, c: ConversationRow, ctx: ViewContext, withMessages
   const outcome = await outcomeOf(db, c, ctx.projectCode, ticketId);
   const input = stateInput(c, messages, outcome.request !== null || outcome.task !== null);
   const state = supportState(input) as SupportState;
-  const reply = ctx.permissions.has("support.reply");
+  const manage = ctx.permissions.has("support.manage");
   const [widget] = c.widgetId ? await db.select({ name: widgets.name }).from(widgets).where(eq(widgets.id, c.widgetId)) : [];
-  const [follow] = await db
-    .select({ userId: supportFollowers.userId })
-    .from(supportFollowers)
-    .where(and(eq(supportFollowers.conversationId, c.id), eq(supportFollowers.userId, ctx.viewer.id)));
-  const emailBlocked: SupportConversation["emailBlocked"] = !reply
-    ? "no_permission"
-    : state === "triage"
-      ? "triage"
-      : !c.externalUserEmail
-        ? "no_email"
-        : !ctx.mailbox
-          ? "no_mailbox"
-          : null;
+  const [previous] = await db.select({ id: widgetConversations.id }).from(widgetConversations).where(eq(widgetConversations.continuedInId, c.id)).limit(1);
   return {
     id: c.id,
     code: `${ctx.projectCode}-S${c.number}`,
@@ -194,7 +177,6 @@ async function viewOf(db: Db, c: ConversationRow, ctx: ViewContext, withMessages
     messages: withMessages ? messages : [],
     lastMessage: messages.at(-1) ?? null,
     state,
-    waitingSince: waitingSince(input),
     rewrittenWish: null,
     confirmedAt: null,
     triage:
@@ -203,27 +185,21 @@ async function viewOf(db: Db, c: ConversationRow, ctx: ViewContext, withMessages
         : null,
     request: outcome.request,
     task: outcome.task,
-    // La bozza di Claude la vede solo chi può rispondere.
-    claudeDraft: reply ? c.claudeDraft : null,
-    claudeDraftAt: reply ? (c.claudeDraftAt?.toISOString() ?? null) : null,
-    claudeDraftPending: reply && c.draftDueAt !== null,
-    following: follow !== undefined,
-    canReply: reply,
-    replyClosed: state === "triage" ? "triage" : null,
-    canOpenRequest: state === "not_concluded" && ctx.permissions.has("backlog.create"),
-    canMarkNotConcluded: state === "answered" && reply,
-    emailBlocked,
+    canOpenRequest: state === "not_concluded" && manage && ctx.permissions.has("backlog.create"),
+    canMarkNotConcluded: state === "answered" && manage,
+    canReplyToCollaborator: c.channel === "mcp" && manage,
+    continuedIn: await codeOf(db, ctx.projectCode, c.continuedInId),
+    continuedFrom: await codeOf(db, ctx.projectCode, previous?.id ?? null),
     createdAt: c.createdAt.toISOString(),
     lastMessageAt: c.lastMessageAt.toISOString(),
   };
 }
 
-/** L'ordine dell'elenco: per gruppo, chi aspetta da più tempo in cima; negli altri gruppi la più recente. */
+/** L'ordine dell'elenco: per gruppo, e nel gruppo la più recente. */
 function byGroup(a: SupportConversation, b: SupportConversation): number {
   const ga = SUPPORT_STATE_ORDER.indexOf(a.state as SupportState);
   const gb = SUPPORT_STATE_ORDER.indexOf(b.state as SupportState);
   if (ga !== gb) return ga - gb;
-  if (a.state === "waiting_us") return (a.waitingSince ?? "").localeCompare(b.waitingSince ?? "") || a.code.localeCompare(b.code);
   return b.lastMessageAt.localeCompare(a.lastMessageAt) || a.code.localeCompare(b.code);
 }
 
@@ -241,7 +217,7 @@ async function projectCodeOf(db: Db, projectId: string): Promise<string> {
 export async function listSupportConversations(db: Db, viewer: Viewer, projectId: string, filter: { state?: string } = {}): Promise<SupportConversation[]> {
   const permissions = await projectPermissionsFor(db, viewer, projectId);
   if (!permissions) throw notFound();
-  const ctx: ViewContext = { viewer, permissions, projectCode: await projectCodeOf(db, projectId), mailbox: await hasMailbox(db, viewer.id) };
+  const ctx: ViewContext = { viewer, permissions, projectCode: await projectCodeOf(db, projectId) };
   const rows = await db.select().from(widgetConversations).where(eq(widgetConversations.projectId, projectId)).orderBy(desc(widgetConversations.lastMessageAt));
   const views: SupportConversation[] = [];
   for (const c of rows) {
@@ -263,7 +239,7 @@ export async function conversationByCode(db: Db, viewer: Viewer, code: string): 
   if (!found) throw notFound();
   const permissions = await projectPermissionsFor(db, viewer, found.c.projectId);
   if (!permissions) throw notFound();
-  return { row: found.c, ctx: { viewer, permissions, projectCode: found.projectCode, mailbox: await hasMailbox(db, viewer.id) } };
+  return { row: found.c, ctx: { viewer, permissions, projectCode: found.projectCode } };
 }
 
 /** Il dettaglio di una conversazione, coi messaggi. */
@@ -280,8 +256,8 @@ export async function supportView(db: Db, row: ConversationRow, ctx: ViewContext
 
 /**
  * «Anteprima del cliente»: ESATTAMENTE ciò che vede lui. I messaggi come
- * `customer` / `us` (il triage e il team sono «noi»: mai un nome, una bozza,
- * una stima, un commento), e lo stato in parole.
+ * `customer` / `us` (il triage, e sul canale `mcp` il team, sono «noi»: mai
+ * un nome, una stima, un commento), e lo stato in parole.
  */
 export async function supportCustomerPreview(db: Db, viewer: Viewer, code: string): Promise<SupportCustomerPreview> {
   const { row, ctx } = await conversationByCode(db, viewer, code);
@@ -291,75 +267,5 @@ export async function supportCustomerPreview(db: Db, viewer: Viewer, code: strin
   return {
     status: (outcome.request?.customerStatus ?? outcome.task?.customerStatus ?? "received") as SupportCustomerPreview["status"],
     messages: rows.map((m) => ({ from: m.role === "user" ? ("customer" as const) : ("us" as const), body: m.content, at: m.createdAt.toISOString() })),
-  };
-}
-
-/** «Clienti in attesa» (Home): le conversazioni che aspettano noi, nei progetti in cui chi guarda ha `support.reply`. */
-export async function listWaitingCustomers(db: Db, viewer: Viewer): Promise<SupportConversation[]> {
-  const visible = await visibleProjectIds(db, viewer);
-  const ids =
-    visible === "all"
-      ? (await db.select({ id: projects.id }).from(projects)).map((p) => p.id)
-      : [...visible];
-  if (ids.length === 0) return [];
-  const byProject = await projectPermissionsByProject(db, viewer.id, ids);
-  const replyIn = ids.filter((id) => byProject.get(id)?.has("support.reply"));
-  const out: SupportConversation[] = [];
-  const mailbox = await hasMailbox(db, viewer.id);
-  for (const projectId of replyIn) {
-    const permissions = byProject.get(projectId)!;
-    const ctx: ViewContext = { viewer, permissions, projectCode: await projectCodeOf(db, projectId), mailbox };
-    const rows = await db.select().from(widgetConversations).where(eq(widgetConversations.projectId, projectId));
-    for (const c of rows) {
-      const v = await viewOf(db, c, ctx, false);
-      if (v.state === "waiting_us") out.push(v);
-    }
-  }
-  return out.sort((a, b) => (a.waitingSince ?? "").localeCompare(b.waitingSince ?? "") || a.code.localeCompare(b.code));
-}
-
-/**
- * «Scrivigli anche per email» (S9, S-5): i campi da aprire nella Posta, dalla
- * casella di chi scrive. Il server NON salva né invia: l'invio è quello della
- * Posta (area 6). Il corpo è la bozza di Claude della conversazione se c'è,
- * altrimenti un testo di TEMPLATE nella lingua del widget (mai il modello):
- * nessun nome del team, nessuna stima. `emailBlocked` della vista dice perché
- * no.
- */
-export async function supportEmailDraft(db: Db, viewer: Viewer, code: string): Promise<SupportEmailDraft> {
-  const { row, ctx } = await conversationByCode(db, viewer, code);
-  const view = await viewOf(db, row, ctx, false);
-  switch (view.emailBlocked) {
-    case "no_permission":
-      throw new SupportError(403, "forbidden", "Writing to customers needs support.reply");
-    case "triage":
-      throw new SupportError(409, "support_triage", "The widget is still talking with the customer");
-    case "no_email":
-      throw new SupportError(409, "support_no_email", "The customer didn't leave an email address");
-    case "no_mailbox":
-      throw new SupportError(409, "support_no_mailbox", "Connect your Google account to write from Stubwise");
-    case null:
-      break;
-  }
-  const [widget] = row.widgetId ? await db.select({ language: widgets.language }).from(widgets).where(eq(widgets.id, row.widgetId)) : [];
-  const lang: Language = widget?.language === "it" ? "it" : "en";
-  const first = row.externalUserName?.trim().split(/\s+/)[0] ?? "";
-  const request = view.request;
-  const status = request
-    ? t(lang, `support.email.status.${request.customerStatus}`, { code: request.code })
-    : view.task
-      ? t(lang, `support.email.status.${view.task.customerStatus}`, { code: view.task.code })
-      : t(lang, "support.email.status.none");
-  const ref = request?.code ?? view.task?.code ?? null;
-  return {
-    slot: supportMailSlot(view.code),
-    to: { name: row.externalUserName, email: row.externalUserEmail! },
-    subject: ref ? t(lang, "support.email.subjectRequest", { code: ref }) : t(lang, "support.email.subjectMessage"),
-    body:
-      row.claudeDraft ??
-      t(lang, "support.email.body", {
-        greeting: first ? t(lang, "support.email.greeting", { name: first }) : t(lang, "support.email.greetingAnon"),
-        status,
-      }),
   };
 }

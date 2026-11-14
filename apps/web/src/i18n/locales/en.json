@@ -1730,8 +1730,7 @@
       "automationFailed": "Run failed",
       "automationNotify": "Automation",
       "automationPaused": "Automation paused",
-      "supportRequest": "Customer request",
-      "supportCustomerReplied": "Customer replied"
+      "supportRequest": "Customer request"
     },
     "actions": {
       "approvePlan": "Approve plan",
@@ -1906,8 +1905,7 @@
         "chat": "Docs chat",
         "claude_chat": "Private conversations with Claude",
         "backlog_merge": "Backlog document merge",
-        "support_triage_check": "Support: triage check",
-        "support_reply_draft": "Support: reply drafts"
+        "support_triage_check": "Support: triage check"
       }
     }
   },
@@ -3549,7 +3547,7 @@
         }
       },
       "support": {
-        "reply": "Reply to customers and see Claude's drafts"
+        "manage": "Manage Support conversations: open the request, mark them not concluded, reply to collaborators"
       }
     }
   },

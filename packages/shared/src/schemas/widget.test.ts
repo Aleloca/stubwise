@@ -5,6 +5,8 @@ import {
   widgetConversationCreateBodySchema,
   widgetSettingsSchema,
   widgetTicketConfirmBodySchema,
+  normalizeWidgetOrigin,
+  widgetAdminSchema,
   widgetUpsertBodySchema,
 } from "./widget.js";
 
@@ -165,5 +167,60 @@ describe("widget schemas", () => {
         repositoryFilters: { [repoId]: { paths: [], slugs: [], kinds: ["nope"] } },
       }),
     ).toThrow();
+  });
+});
+
+// Area 8, F3, S16: i siti ammessi del widget.
+describe("i siti ammessi", () => {
+  it("un'origine si normalizza come la manda il browser", () => {
+    expect(normalizeWidgetOrigin("https://Shop.Example.com/")).toBe("https://shop.example.com");
+    expect(normalizeWidgetOrigin(" https://a.com:443 ")).toBe("https://a.com");
+    expect(normalizeWidgetOrigin("https://a.com:8443")).toBe("https://a.com:8443");
+    expect(normalizeWidgetOrigin("http://localhost:5173")).toBe("http://localhost:5173");
+  });
+
+  it("non è un'origine: percorso, query, frammento, credenziali, http fuori da localhost, schema diverso", () => {
+    for (const bad of [
+      "https://a.com/shop",
+      "https://a.com/?x=1",
+      "https://a.com/#x",
+      "https://u:p@a.com",
+      "http://a.com",
+      "ftp://a.com",
+      "a.com",
+      "",
+    ]) {
+      expect(normalizeWidgetOrigin(bad), bad).toBeNull();
+    }
+  });
+
+  it("il corpo: facoltativo, normalizzato, senza doppioni, al più 20, una voce cattiva rifiuta tutto", () => {
+    const base = { name: "W" };
+    expect(widgetUpsertBodySchema.parse(base).origins).toBeUndefined();
+    expect(widgetUpsertBodySchema.parse({ ...base, origins: ["https://A.com/", "https://a.com"] }).origins).toEqual(["https://a.com"]);
+    expect(widgetUpsertBodySchema.safeParse({ ...base, origins: ["https://a.com", "https://a.com/x"] }).success).toBe(false);
+    const many = Array.from({ length: 21 }, (_, i) => `https://s${i}.com`);
+    expect(widgetUpsertBodySchema.safeParse({ ...base, origins: many }).success).toBe(false);
+  });
+
+  it("la vista di un server più vecchio, senza `origins`: elenco vuoto", () => {
+    const w = widgetAdminSchema.parse({
+      id: "11111111-1111-4111-8111-111111111111",
+      name: "W",
+      key: "k",
+      enabled: true,
+      enabledRepositoryIds: [],
+      repositoryFilters: {},
+      title: "t",
+      welcomeMessage: "w",
+      instructions: "",
+      accentColor: "#22c55e",
+      language: "it",
+      dailyMessageCap: null,
+      dailyTicketCap: null,
+      createdAt: "2026-11-14T10:00:00.000Z",
+      conversationCount: 0,
+    });
+    expect(w.origins).toEqual([]);
   });
 });

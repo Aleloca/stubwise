@@ -12375,8 +12375,7 @@
       "plugin_smoke": "Plugin smoke tests",
       "credential_test": "Account tests",
       "usage_probe": "Quota readings",
-      "support_triage_check": "Support: triage check",
-      "support_reply_draft": "Support: reply drafts"
+      "support_triage_check": "Support: triage check"
     }
   },
   "instanceEffects": {

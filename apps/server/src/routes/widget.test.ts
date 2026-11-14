@@ -11,7 +11,6 @@ import {
   notifications,
   projectMembers,
   roles,
-  supportFollowers,
   docChunks,
   docGenerations,
   docPages,
@@ -19,7 +18,6 @@ import {
   repoGraphs,
   repositories,
   tickets,
-  users,
   widgetConversations,
   widgetMessages,
   widgets,
@@ -727,67 +725,6 @@ describe("GET /widget/:slug/conversations/:conversationId/messages", () => {
     expect(res.statusCode).toBe(404);
     expect(res.json()).toMatchObject({ code: "widget_disabled" });
   });
-
-  it("area 8, F3, S4: `after` dà SOLO i messaggi dopo quello dato (la risposta del team), mai l'autore", async () => {
-    const project = await seedProjectWithKey(testDb.db);
-    const widget = await enableWidget(testDb.db, project.projectId, project.repositoryId);
-    const [conv] = await testDb.db
-      .insert(widgetConversations)
-      .values({ projectId: project.projectId, widgetId: widget.id, externalUserId: "visitor-1" })
-      .returning();
-    const [author] = await testDb.db.insert(users).values({ email: `t-${Date.now()}@x.it`, passwordHash: "x", role: "member" }).returning();
-    const [first] = await testDb.db
-      .insert(widgetMessages)
-      .values({ conversationId: conv!.id, role: "user", content: "Ciao", createdAt: new Date("2026-07-01T10:00:00Z") })
-      .returning();
-    await testDb.db.insert(widgetMessages).values([
-      { conversationId: conv!.id, role: "assistant", content: "Risposta AI", createdAt: new Date("2026-07-01T10:00:05Z") },
-      { conversationId: conv!.id, role: "team", content: "Risposta del team", authorId: author!.id, createdAt: new Date("2026-07-01T11:00:00Z") },
-    ]);
-    const get = (after: string) =>
-      app.inject({
-        method: "GET",
-        url: `/widget/${project.slug}/conversations/${conv!.id}/messages?userId=visitor-1&after=${after}`,
-        headers: { "x-stubwise-key": widget.key },
-      });
-    const res = await get(first!.id);
-    expect(res.statusCode).toBe(200);
-    expect(res.json().messages.map((m: { role: string }) => m.role)).toEqual(["assistant", "team"]);
-    // L'autore (una persona del team) non esce mai verso il cliente.
-    expect(res.body).not.toContain(author!.id);
-    // Un `after` che non è di questa conversazione: la storia intera.
-    expect((await get("00000000-0000-4000-8000-000000000000")).json().messages).toHaveLength(3);
-  });
-
-  it("area 8, F3, S4: col `created_at` del DB (microsecondi) l'ancora non torna", async () => {
-    const project = await seedProjectWithKey(testDb.db);
-    const widget = await enableWidget(testDb.db, project.projectId, project.repositoryId);
-    const [conv] = await testDb.db.insert(widgetConversations).values({ projectId: project.projectId, widgetId: widget.id, externalUserId: "visitor-1" }).returning();
-    // `created_at` dal default del DB: microsecondi che un `Date` non porta.
-    const [anchor] = await testDb.db.insert(widgetMessages).values({ conversationId: conv!.id, role: "user", content: "ancora" }).returning();
-    const res = await app.inject({
-      method: "GET",
-      url: `/widget/${project.slug}/conversations/${conv!.id}/messages?userId=visitor-1&after=${anchor!.id}`,
-      headers: { "x-stubwise-key": widget.key },
-    });
-    expect(res.json().messages).toEqual([]);
-  });
-
-  it("area 8, F3, S4: un `after` di un'ALTRA conversazione non apre niente di quella e non sposta niente della mia (storia intera)", async () => {
-    const project = await seedProjectWithKey(testDb.db);
-    const widget = await enableWidget(testDb.db, project.projectId, project.repositoryId);
-    const [mine] = await testDb.db.insert(widgetConversations).values({ projectId: project.projectId, widgetId: widget.id, externalUserId: "visitor-1" }).returning();
-    const [other] = await testDb.db.insert(widgetConversations).values({ projectId: project.projectId, widgetId: widget.id, externalUserId: "visitor-2" }).returning();
-    const [otherMsg] = await testDb.db.insert(widgetMessages).values({ conversationId: other!.id, role: "team", content: "per visitor-2", createdAt: new Date("2026-07-01T11:00:00Z") }).returning();
-    await testDb.db.insert(widgetMessages).values({ conversationId: mine!.id, role: "user", content: "mio", createdAt: new Date("2026-07-01T10:00:00Z") });
-    const res = await app.inject({
-      method: "GET",
-      url: `/widget/${project.slug}/conversations/${mine!.id}/messages?userId=visitor-1&after=${otherMsg!.id}`,
-      headers: { "x-stubwise-key": widget.key },
-    });
-    expect(res.json().messages.map((m: { content: string }) => m.content)).toEqual(["mio"]);
-    expect(res.body).not.toContain("per visitor-2");
-  });
 });
 
 describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
@@ -814,31 +751,6 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
       .returning();
     return { project, widget, conversationId: conv!.id, genId };
   }
-
-  it("area 8, F3, S7: un messaggio del cliente su una conversazione con un esito avvisa chi segue (obbligatorio); in triage nessun avviso", async () => {
-    const { project, widget, conversationId } = await setupChat(testDb.db);
-    const [follower] = await testDb.db.insert(users).values({ email: `f-${Date.now()}@x.it`, passwordHash: "x", role: "member" }).returning();
-    const [viewerRole] = await testDb.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "viewer"));
-    await testDb.db.insert(projectMembers).values({ projectId: project.projectId, userId: follower!.id, roleId: viewerRole!.id });
-    await testDb.db.insert(supportFollowers).values({ conversationId, userId: follower!.id });
-    const post = (content: string) =>
-      app.inject({
-        method: "POST",
-        url: `/widget/${project.slug}/conversations/${conversationId}/messages`,
-        headers: { "x-stubwise-key": widget.key },
-        payload: { content, userId: "visitor-1" },
-      });
-    const cardsOf = () => testDb.db.select().from(notifications).where(and(eq(notifications.userId, follower!.id), eq(notifications.kind, "support.customer_replied")));
-    // In triage (nessun esito): nessun avviso, risponde l'AI del widget.
-    await post("Una domanda");
-    expect(await cardsOf()).toEqual([]);
-    // Con un esito (una richiesta legata): chi segue lo riceve anche senza iscrizione.
-    await testDb.db.insert(backlogItems).values({ projectId: project.projectId, title: "R", source: "manual", supportConversationId: conversationId });
-    await post("Ci sono novità?");
-    const cards = await cardsOf();
-    expect(cards).toHaveLength(1);
-    expect(cards[0]!.event).toMatchObject({ kind: "support.customer_replied", title: "Ci sono novità?", alertMandatory: "follows_conversation" });
-  });
 
   it("stream normale → delta + done con citazioni; user+assistant persistiti; lastMessageAt aggiornato", async () => {
     const { project, widget, conversationId, genId } = await setupChat(testDb.db);

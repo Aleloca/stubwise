@@ -7,9 +7,11 @@ import { backlogItemStatusSchema } from "./backlog.js";
  * Support: le conversazioni coi clienti nell'app (area 8, F3; forme concordate
  * con 94). La VISTA è quella del prototipo (`SupportConversationView`) più ciò
  * che il server sa e il prototipo no (il giudizio del controllo, l'esito-task,
- * la bozza in arrivo). Lo stato e ciò che chi guarda PUÒ fare li calcola il
- * server; il client legge, non deduce. Ogni campo facoltativo nasce con un
- * default che non concede niente (un server più vecchio: nessuna azione).
+ * la successiva di una chiusa). Lo stato e ciò che chi guarda PUÒ fare li
+ * calcola il server; il client legge, non deduce. Ogni campo facoltativo nasce
+ * con un default che non concede niente (un server più vecchio: nessuna
+ * azione). La premessa (maintainer, 14 nov 2026): il team non scrive MAI al
+ * cliente del widget; risponde solo al collaboratore del canale `mcp`.
  */
 
 export const supportStateSchema = z.enum(SUPPORT_STATE_ORDER as [string, ...string[]]);
@@ -19,7 +21,7 @@ export const customerStatusSchema = z.enum(CUSTOMER_STATUSES as [string, ...stri
 
 export const supportMessageSchema = z.object({
   id: z.uuid(),
-  /** Il cliente, l'AI del widget (il triage) o una persona del team. */
+  /** Il cliente, l'AI del widget (il triage) o una persona del team (solo canale `mcp`). */
   from: supportMessageFromSchema,
   /** Chi del team ha scritto (`team`), per chi vede il progetto; null per gli altri. */
   authorId: z.uuid().nullable().default(null),
@@ -41,12 +43,10 @@ export const supportConversationSchema = z.object({
   customer: z
     .object({ name: z.string().nullable().default(null), email: z.string().nullable().default(null) })
     .default({ name: null, email: null }),
-  /** Pieni nel dettaglio; `[]` nell'elenco e in «Clienti in attesa» (c'è `lastMessage`). */
+  /** Pieni nel dettaglio; `[]` nell'elenco (c'è `lastMessage`). */
   messages: z.array(supportMessageSchema).default([]),
   lastMessage: supportMessageSchema.nullable().default(null),
   state: supportStateSchema,
-  /** Il primo messaggio del cliente rimasto senza risposta, se aspetta noi. */
-  waitingSince: z.iso.datetime().nullable().default(null),
   /** Del triage rifatto (fuori dalla F3): null dal server. */
   rewrittenWish: z.string().nullable().default(null),
   confirmedAt: z.iso.datetime().nullable().default(null),
@@ -76,21 +76,16 @@ export const supportConversationSchema = z.object({
     .object({ id: z.uuid(), code: z.string(), title: z.string(), customerStatus: customerStatusSchema })
     .nullable()
     .default(null),
-  /** La bozza di Claude della conversazione: solo per chi ha `support.reply`, mai inviata da sola. */
-  claudeDraft: z.string().nullable().default(null),
-  claudeDraftAt: z.iso.datetime().nullable().default(null),
-  /** Una bozza è in arrivo (una raffica del cliente, o «Ask Claude» accodato). */
-  claudeDraftPending: z.boolean().default(false),
-  following: z.boolean().default(false),
-  canReply: z.boolean().default(false),
-  /** La casella è chiusa anche a chi può rispondere: durante il triage risponde l'AI del widget (R-K15). */
-  replyClosed: z.enum(["triage"]).nullable().default(null),
-  /** «Apri la richiesta»: su una non conclusa, con `backlog.create`. */
+  /** «Apri la richiesta»: su una non conclusa, con `support.manage` e `backlog.create`. */
   canOpenRequest: z.boolean().default(false),
-  /** «Non conclusa»: su una `answered`, con `support.reply` (decisione del maintainer). */
+  /** «Non conclusa»: su una `answered`, con `support.manage` (decisione del maintainer). */
   canMarkNotConcluded: z.boolean().default(false),
-  /** «Scrivigli anche per email»: null se si può, altrimenti perché no. */
-  emailBlocked: z.enum(["no_permission", "triage", "no_email", "no_mailbox"]).nullable().default(null),
+  /** La risposta al collaboratore: SOLO sul canale `mcp`, con `support.manage`. */
+  canReplyToCollaborator: z.boolean().default(false),
+  /** Chiusa (un esito) e un messaggio dopo del cliente: la conversazione che l'ha seguita. */
+  continuedIn: z.object({ code: z.string() }).nullable().default(null),
+  /** La conversazione chiusa da cui questa è nata. */
+  continuedFrom: z.object({ code: z.string() }).nullable().default(null),
   createdAt: z.iso.datetime(),
   lastMessageAt: z.iso.datetime(),
 });
@@ -98,22 +93,19 @@ export type SupportConversation = z.infer<typeof supportConversationSchema>;
 
 export const supportConversationListSchema = z.object({ items: z.array(supportConversationSchema) });
 
-/** `GET …/by-code/:code/preview`: ESATTAMENTE ciò che vede il cliente. Mai un nome, una bozza, una stima, un commento. */
+/** `GET …/by-code/:code/preview`: ESATTAMENTE ciò che vede il cliente. Mai un nome, una stima, un commento. */
 export const supportCustomerPreviewSchema = z.object({
   status: customerStatusSchema,
   messages: z.array(z.object({ from: z.enum(["customer", "us"]), body: z.string(), at: z.iso.datetime() })),
 });
 export type SupportCustomerPreview = z.infer<typeof supportCustomerPreviewSchema>;
 
-/** `POST …/by-code/:code/replies`: «Send to customer». `clientId` rende un doppio invio uno solo. */
+/** `POST …/by-code/:code/replies`: la risposta al collaboratore (solo canale `mcp`). `clientId` rende un doppio invio uno solo. */
 export const supportReplyBodySchema = z.object({
   body: z.string().trim().min(1).max(20_000),
   clientId: z.uuid().optional(),
 });
 export type SupportReplyBody = z.infer<typeof supportReplyBodySchema>;
-
-/** `PUT …/by-code/:code/follow`. */
-export const supportFollowBodySchema = z.object({ on: z.boolean() });
 
 /** `POST …/by-code/:code/request`: «Apri la richiesta» su una non conclusa. */
 export const supportOpenRequestBodySchema = z.object({
@@ -126,12 +118,3 @@ export const supportOpenRequestResultSchema = z.object({
   conversation: supportConversationSchema,
   request: z.object({ id: z.uuid(), code: z.string() }),
 });
-
-/** `GET …/by-code/:code/email-draft`: i campi da aprire nella Posta. Il server non salva né invia. */
-export const supportEmailDraftSchema = z.object({
-  slot: z.string(),
-  to: z.object({ name: z.string().nullable().default(null), email: z.string() }),
-  subject: z.string(),
-  body: z.string(),
-});
-export type SupportEmailDraft = z.infer<typeof supportEmailDraftSchema>;

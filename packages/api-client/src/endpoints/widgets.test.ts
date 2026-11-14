@@ -40,7 +40,14 @@ describe("client.widgets", () => {
     const { c, fetchImpl } = client({ widgets: [widget] });
     const out = await c.widgets.list(P);
     expect(call(fetchImpl)).toMatchObject({ url: `https://x.test/api/projects/${P}/widgets`, method: "GET" });
-    expect(out).toMatchObject({ canManage: false, widgets: [{ id: W, conversationCount: 3 }] });
+    expect(out).toMatchObject({ canManage: false, widgets: [{ id: W, conversationCount: 3, origins: [] }] });
+  });
+
+  it("i siti ammessi (S16): nel corpo, facoltativi; nella risposta", async () => {
+    const { c, fetchImpl } = client({ widget: { ...widget, origins: ["https://shop.it"] } });
+    const out = await c.widgets.update(P, W, { ...body, origins: ["https://shop.it"] });
+    expect(call(fetchImpl).body).toMatchObject({ origins: ["https://shop.it"] });
+    expect(out.widget.origins).toEqual(["https://shop.it"]);
   });
 
   it("create, update (corpo INTERO: è una sostituzione), delete", async () => {

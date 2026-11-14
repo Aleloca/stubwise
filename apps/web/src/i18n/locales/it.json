@@ -1730,8 +1730,7 @@
       "automationFailed": "Esecuzione fallita",
       "automationNotify": "Automazione",
       "automationPaused": "Automazione in pausa",
-      "supportRequest": "Richiesta di un cliente",
-      "supportCustomerReplied": "Il cliente ha risposto"
+      "supportRequest": "Richiesta di un cliente"
     },
     "actions": {
       "approvePlan": "Approva piano",
@@ -1906,8 +1905,7 @@
         "chat": "Chat dei Docs",
         "claude_chat": "Conversazioni private con Claude",
         "backlog_merge": "Unione dei documenti del backlog",
-        "support_triage_check": "Supporto: giudizio sul triage",
-        "support_reply_draft": "Supporto: bozze di risposta"
+        "support_triage_check": "Supporto: giudizio sul triage"
       }
     }
   },
@@ -3549,7 +3547,7 @@
         }
       },
       "support": {
-        "reply": "Rispondere ai clienti e vedere le bozze di Claude"
+        "manage": "Gestire le conversazioni di Support: aprire la richiesta, segnarle non concluse, rispondere ai collaboratori"
       }
     }
   },

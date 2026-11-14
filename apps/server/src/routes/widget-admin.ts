@@ -32,6 +32,12 @@ const widgetSchema = widgetAdminSchema;
 
 type WidgetRow = typeof widgets.$inferSelect;
 
+/** Il corpo senza `origins`, che in tabella si chiama `allowed_origins`. */
+function withoutOrigins<T extends { origins?: unknown }>(body: T): Omit<T, "origins"> {
+  const { origins: _origins, ...rest } = body;
+  return rest;
+}
+
 /**
  * Proiezione di una riga widget + conteggio conversazioni verso lo schema
  * pubblico. `repositoryFilters` è ri-parsato con `widgetRepositoryFiltersSchema`:
@@ -56,6 +62,7 @@ function toPublicWidget(row: WidgetRow, conversationCount: number): z.infer<type
     dailyTicketCap: row.dailyTicketCap,
     createdAt: row.createdAt.toISOString(),
     conversationCount,
+    origins: row.allowedOrigins,
   };
 }
 
@@ -193,7 +200,8 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
         .insert(widgets)
         // body per primo: projectId e key non devono mai essere sovrascrivibili
         // dal client, nemmeno se lo schema diventasse passthrough.
-        .values({ ...body, projectId, key: generateIngestionKey() })
+        // `origins` (area 8, F3, S16) è la colonna `allowed_origins`; assente = vuoto.
+        .values({ ...withoutOrigins(body), allowedOrigins: body.origins ?? [], projectId, key: generateIngestionKey() })
         .returning();
       if (!row) throw new Error("insert del widget non ha restituito la riga");
       // Widget appena creato: nessuna conversazione ancora collegata.
@@ -248,7 +256,8 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
 
       const [row] = await app.db
         .update(widgets)
-        .set(body)
+        // `origins` assente (un client che non lo conosce) lascia l'elenco com'è.
+        .set({ ...withoutOrigins(body), ...(body.origins !== undefined ? { allowedOrigins: body.origins } : {}) })
         .where(and(eq(widgets.id, widgetId), eq(widgets.projectId, projectId)))
         .returning();
       if (!row) throw new Error("update del widget non ha restituito la riga");
