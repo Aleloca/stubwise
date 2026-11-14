@@ -418,6 +418,11 @@ const INTEGRATED_CALLS = new Set([
   // Area 8, F1 (`releases-repo-settings`): la sezione «Repositories» ridotta.
   "releases.getRepositorySettings",
   "releases.setRepoPrMode",
+  // Area 8, F2 (R6): le iscrizioni agli avvisi.
+  "alerts.subscriptionRows",
+  "alerts.setSubscription",
+  "alerts.copySubscriptions",
+  "alerts.muteProject",
   "releases.setReleasePipeline",
   // Area 8, F1 (`releases-explain`): «Spiega» apre una conversazione col contesto del rilascio.
   "releases.explainRelease",
@@ -624,6 +629,18 @@ describe("aree non integrate nella build app", () => {
   });
 
   // Area 8, F1 (`releases-prs` e `releases`): PR, coda e rilasci dal server; ambienti «in arrivo».
+  // Area 8, F2 (R6): Preferenze → Notifiche è accesa (`alerts`); legge le
+  // iscrizioni dal server e nient'altro di non integrato.
+  it("aprire Preferenze → Notifiche legge solo chiamate integrate", async () => {
+    renderRoute("/preferences/notifications");
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Notifications" }),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(calls).toContain("alerts.subscriptionRows"));
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
   it("aprire Releases legge solo chiamate integrate", async () => {
     renderRoute("/p/AUD/releases");
     expect(await screen.findByRole("region", { name: "Pull requests" })).toBeInTheDocument();

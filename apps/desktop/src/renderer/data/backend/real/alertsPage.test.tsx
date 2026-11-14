@@ -22,12 +22,13 @@ vi.mock("@backend/api", async () => await import("./index"));
 vi.mock("@backend/access", async () => await import("./accessFacts"));
 vi.mock("../../integration", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../integration")>();
-  const on = (name: string) => alertsOn && name === "alerts";
+  // `alerts` la decide il test (accesa o spenta, qualunque cosa dica la build); il resto è vero.
   return {
     ...actual,
     isIntegrated: (t: Parameters<typeof actual.isIntegrated>[0]) =>
-      (t.kind === "feature" && on(t.name)) || actual.isIntegrated(t),
-    featureIntegrated: (name: string) => on(name) || actual.featureIntegrated(name),
+      t.kind === "feature" && t.name === "alerts" ? alertsOn : actual.isIntegrated(t),
+    featureIntegrated: (name: string) =>
+      name === "alerts" ? alertsOn : actual.featureIntegrated(name),
   };
 });
 

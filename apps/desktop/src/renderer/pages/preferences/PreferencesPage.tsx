@@ -1,3 +1,4 @@
+import { integrationTargetOf, isIntegrated } from "../../data/integration";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { useMySecurity } from "../../data/queries";
@@ -25,6 +26,16 @@ export { PREFERENCE_SECTIONS, isPreferenceSection, type PreferenceSection };
  * «Off» accanto a Security quando il secondo fattore è spento [PR 6]: solo
  * testo, niente punto «ti aspetta» (non è una decisione).
  */
+/**
+ * Una sezione delle Preferenze accesa in questa build (nel prototipo tutte):
+ * nella build app «Security off» non si dice accanto a una sezione che è
+ * ancora «Coming soon» (area 9), anche se il dato è vero.
+ */
+function sectionIntegrated(section: string): boolean {
+  const found = integrationTargetOf(`/preferences/${section}`);
+  return found === null || isIntegrated(found.target);
+}
+
 function SecurityOff() {
   const { t } = useTranslation();
   const security = useMySecurity();
@@ -57,7 +68,7 @@ export function PreferencesColumn() {
               <span style={ONE_LINE} className="min-w-0">
                 {t(`prefs.sections.${section}`)}
               </span>
-              {section === "security" && <SecurityOff />}
+              {section === "security" && sectionIntegrated("security") && <SecurityOff />}
             </Link>
           </li>
         ))}
