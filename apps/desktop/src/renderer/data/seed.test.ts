@@ -805,7 +805,6 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
         expect(request.projectId).toBe(c.projectId);
         expect(request.origin).toEqual({ kind: "support", conversationId: c.id, conversationCode: c.code });
       }
-      for (const id of c.followerIds) expect(project.memberIds).toContain(id);
     }
     const acq = SUPPORT_CONVERSATIONS.filter((c) => c.projectId === ACQ);
     // In triage: nessuna richiesta, nessun giudizio dopo il silenzio.

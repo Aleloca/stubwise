@@ -652,7 +652,6 @@ export type ApiFnName =
   | "support.draftReply"
   | "support.openRequestFrom"
   | "support.markNotConcluded"
-  | "support.followConversation"
   | "support.createWidget"
   | "support.updateWidget"
   | "support.deleteWidget"

@@ -9212,8 +9212,6 @@
       "widgetChannel": "Widget · {{name}}",
       "started": "started {{date}}",
       "preview": "Customer preview",
-      "follow": "Follow",
-      "following": "Following",
       "more": "More actions",
       "copyLink": "Copy link",
       "linkCopied": "Link copied",

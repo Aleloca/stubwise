@@ -2,7 +2,6 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isAppBuild } from "../../data/build";
 import {
-  useFollowConversation,
   useSessionPersonId,
   useSimulateCustomerLeaves,
   useSimulateCustomerMessage,
@@ -62,7 +61,6 @@ function Header({
 }) {
   const { t, i18n } = useTranslation();
   const toast = useToast();
-  const follow = useFollowConversation();
   const message = useSimulateCustomerMessage();
   const leaves = useSimulateCustomerLeaves();
   const triage = useSimulateTriageDone();
@@ -115,17 +113,6 @@ function Header({
           className={`${secondaryButton} aria-pressed:bg-ink/10`}
         >
           {t("support.detail.preview")}
-        </button>
-        <button
-          type="button"
-          aria-pressed={conv.following}
-          disabled={follow.isPending}
-          onClick={() =>
-            follow.mutate({ code: conv.code, on: !conv.following }, { onError: failed })
-          }
-          className={quietButton}
-        >
-          {conv.following ? t("support.detail.following") : t("support.detail.follow")}
         </button>
         <MenuButton
           menuLabel={t("support.detail.more")}

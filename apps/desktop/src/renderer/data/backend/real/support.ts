@@ -36,7 +36,6 @@ export interface SupportApi {
   get(code: string): Promise<Conversation>;
   preview(code: string): Promise<Reader<SupportCustomerPreview>>;
   reply(code: string, body: SupportReplyBody): Promise<Conversation>;
-  follow(code: string, on: boolean): Promise<Conversation>;
   openRequest(
     code: string,
     body: SupportOpenRequestBody,
@@ -139,7 +138,6 @@ function viewOf(c: Conversation): SupportConversationView | null {
     task: c.task ? { ...c.task, customerStatus: customerStatusOf(c.task.customerStatus) } : null,
     claudeDraft: c.claudeDraft,
     claudeDraftPending: c.claudeDraftPending,
-    following: c.following,
     canReply: c.canReply,
     replyClosed: c.replyClosed === "triage" ? "triage" : null,
     canOpenRequest: c.canOpenRequest,
@@ -197,10 +195,6 @@ export function createRealSupport(api: SupportApi) {
       );
     },
 
-    async followConversation(code: string, on: boolean): Promise<SupportConversationView> {
-      return writtenViewOf(await call(() => api.follow(code, on)));
-    },
-
     async openRequestFrom(
       code: string,
       input: { title: string; description: string },
@@ -227,7 +221,6 @@ export const liveSupport: Partial<typeof Fake.support> = createRealSupport({
   get: (code) => appClient().support.get(code),
   preview: (code) => appClient().support.preview(code),
   reply: (code, body) => appClient().support.reply(code, body),
-  follow: (code, on) => appClient().support.follow(code, on),
   openRequest: (code, body) => appClient().support.openRequest(code, body),
   markNotConcluded: (code) => appClient().support.markNotConcluded(code),
   requestDraft: (code) => appClient().support.requestDraft(code),

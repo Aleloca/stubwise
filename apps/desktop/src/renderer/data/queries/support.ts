@@ -148,13 +148,6 @@ export function useMarkNotConcluded() {
   return useWrite((code: string) => api.support.markNotConcluded(code), SUPPORT_AREAS);
 }
 
-export function useFollowConversation() {
-  return useWrite(
-    ({ code, on }: { code: string; on: boolean }) => api.support.followConversation(code, on),
-    SUPPORT_AREAS,
-  );
-}
-
 export function useCreateWidget() {
   return useWrite(
     ({ projectId, input }: { projectId: string; input: api.support.WidgetInput }) =>

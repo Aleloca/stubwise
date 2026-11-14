@@ -1,9 +1,7 @@
 // L'import circolare con `api-mutations` è innocuo: `insertRequest` si usa
 // solo dentro le funzioni.
 import { insertRequest } from "../api-mutations";
-import { publishAlert } from "../alerts/publish";
 import { supportState, wishTitle } from "../../domain/support/state";
-import { CLAUDE_ID } from "../seed/people";
 import { newId, now, state } from "../store";
 import type { SupportConversation, SupportMessage } from "../types";
 import { invalid, writer } from "../writer";
@@ -12,14 +10,13 @@ import {
   conversationView,
   draftText,
   publishSupportRequest,
-  supportHref,
   type SupportConversationView,
 } from "./visibility";
 
 // SOLO PROTOTIPO: ciò che nel motore arriva dal canale (il widget, il server
 // MCP) e che qui si simula coi «Simula …» della UI: un messaggio del
-// cliente, il cliente che se ne va, il triage che finisce. Gli avvisi
-// passano tutti da `publishAlert`. Nessuna di queste funzioni scrive al
+// cliente, il cliente che se ne va, il triage che finisce. L'avviso della
+// richiesta passa da `publishSupportRequest`. Nessuna di queste funzioni scrive al
 // cliente né nella Posta.
 
 const push = (c: SupportConversation, from: SupportMessage["from"], body: string) =>
@@ -28,8 +25,8 @@ const push = (c: SupportConversation, from: SupportMessage["from"], body: string
 /**
  * «Simula un messaggio del cliente». Su una «non conclusa» il triage
  * riprende (shape [A 2]); su una conversazione con richiesta Claude prepara
- * la bozza della risposta (che non parte da sola). Avviso obbligatorio a chi
- * la segue.
+ * la bozza della risposta (che non parte da sola). Nessun avviso: non c'è
+ * più «Segui» (area 8, F3).
  */
 export async function simulateCustomerMessage(
   code: string,
@@ -42,17 +39,6 @@ export async function simulateCustomerMessage(
   // Un messaggio nuovo rende vecchio il giudizio dopo il silenzio (lo stato lo deriva da sé).
   push(c, "customer", text);
   if (supportState(c) === "waiting_us") c.claudeDraft = draftText(c);
-  publishAlert({
-    kind: "support.customer_replied",
-    projectId: c.projectId,
-    objectCode: c.code,
-    title: "The customer replied",
-    body: `${c.customer.name}: ${text}`,
-    link: supportHref(c.projectId, c.code),
-    mandatory: c.followerIds
-      .filter((id) => id !== CLAUDE_ID)
-      .map((personId) => ({ personId, reason: "follows_conversation" as const })),
-  });
   return conversationView(me, c);
 }
 

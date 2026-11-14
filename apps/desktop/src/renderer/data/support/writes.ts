@@ -63,7 +63,6 @@ export async function replyToCustomer(
   const text = body.trim();
   if (!text) throw invalid("body");
   c.messages.push({ id: newId("sup-m"), from: "team", authorId: me, body: text, at: now() });
-  if (!c.followerIds.includes(me)) c.followerIds.push(me);
   c.claudeDraft = null;
   return conversationView(me, c);
 }
@@ -116,22 +115,6 @@ export async function markNotConcluded(code: string): Promise<SupportConversatio
   if (st === "not_concluded") return conversationView(me, c);
   if (st !== "answered") throw invalid("state");
   c.triage = { outcome: "not_concluded", at: now(), byUserId: me };
-  return conversationView(me, c);
-}
-
-/**
- * «Segui»: l'avviso obbligatorio `support.customer_replied` a ogni messaggio
- * nuovo del cliente. Segue chiunque veda la conversazione, cioè ogni membro
- * del progetto (R-K12); rispondere resta a chi ha `support.reply`.
- */
-export async function followConversation(
-  code: string,
-  on: boolean,
-): Promise<SupportConversationView> {
-  const me = await writer("support.followConversation");
-  const c = conversationFor(me, code);
-  c.followerIds = c.followerIds.filter((id) => id !== me);
-  if (on) c.followerIds.push(me);
   return conversationView(me, c);
 }
 

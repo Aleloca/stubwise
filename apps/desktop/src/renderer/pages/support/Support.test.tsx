@@ -211,9 +211,8 @@ describe("Support — il dettaglio", () => {
     expect(screen.queryByText("Claude prepared a draft")).toBeNull();
     expect(screen.queryByText(conv("ACQ-S2").claudeDraft!)).toBeNull();
     expect(screen.queryByRole("button", { name: "Write to them by email" })).toBeNull();
-    // R-K12: può seguirla.
-    await userEvent.click(within(d).getByRole("button", { name: "Follow" }));
-    await waitFor(() => expect(conv("ACQ-S2").followerIds).toContain("p-sara"));
+    // «Segui» non c'è più (area 8, F3).
+    expect(within(d).queryByRole("button", { name: /^Follow/ })).toBeNull();
   });
 
   it("R-K15: in triage nessuna casella, nemmeno per chi risponde; su una non conclusa sì", async () => {
@@ -327,8 +326,6 @@ describe("Support — la bozza di Claude e l'invio", () => {
       authorId: "p-matteo",
       body: "We'll call you tomorrow.",
     });
-    // Chi risponde segue da sé [A 14]; nessuna email partita.
-    expect(conv("ACQ-S2").followerIds).toContain("p-matteo");
     const d = await detail("ACQ-S2");
     await waitFor(() => expect(within(d).queryByText("Sending…")).toBeNull());
   });

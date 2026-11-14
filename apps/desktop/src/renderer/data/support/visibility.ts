@@ -111,10 +111,7 @@ export interface SupportRequestView {
   customerStatus: CustomerStatus;
 }
 
-export interface SupportConversationView extends Omit<
-  SupportConversation,
-  "followerIds" | "claudeDraft"
-> {
+export interface SupportConversationView extends Omit<SupportConversation, "claudeDraft"> {
   projectCode: string;
   state: SupportState;
   /** Il primo messaggio del cliente rimasto senza risposta, se aspetta noi. */
@@ -134,7 +131,6 @@ export interface SupportConversationView extends Omit<
    * richiesta). Il prototipo non ne ha: assente.
    */
   task?: { id: string; code: string; title: string; customerStatus: CustomerStatus } | null;
-  following: boolean;
   /** Cosa può fare chi guarda, deciso qui (il client non lo deduce). */
   canReply: boolean;
   /**
@@ -152,7 +148,7 @@ export function conversationView(me: string, c: SupportConversation): SupportCon
   const reply = holds(me, "support.reply", c.projectId);
   const st = supportState(c);
   const req = requestOf(c);
-  const { followerIds, claudeDraft, ...rest } = structuredClone(c);
+  const { claudeDraft, ...rest } = structuredClone(c);
   return {
     ...rest,
     projectCode: projectCodeOf(c.projectId),
@@ -172,7 +168,6 @@ export function conversationView(me: string, c: SupportConversation): SupportCon
       : null,
     task: taskOutcomeOf(c),
     claudeDraft: reply ? claudeDraft : null,
-    following: followerIds.includes(me),
     canReply: reply,
     replyClosed: st === "triage" ? "triage" : null,
     canOpenRequest: st === "not_concluded" && holds(me, "backlog.create", c.projectId),

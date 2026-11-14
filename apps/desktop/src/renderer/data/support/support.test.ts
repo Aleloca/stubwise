@@ -3,7 +3,6 @@ import {
   convertRequest,
   createRequest,
   failNext,
-  listNotifications,
   resetApi,
   setLatency,
   startRefine,
@@ -49,7 +48,6 @@ describe("l'insieme esportato: nessuna richiesta da un'email", () => {
         "draftReply",
         "openRequestFrom",
         "markNotConcluded",
-        "followConversation",
         "createWidget",
         "updateWidget",
         "deleteWidget",
@@ -219,7 +217,6 @@ describe("Review Focus 4: il cliente vede solo il suo", () => {
     const notifications = state.notifications.length;
     const view = await support.replyToCustomer("ACQ-S2", "  Thanks Lucia.  ");
     expect(view.state).toBe("reply_sent");
-    expect(view.following).toBe(true);
     expect(view.claudeDraft).toBeNull();
     expect(conv("ACQ-S2").messages.at(-1)).toMatchObject({
       from: "team",
@@ -321,26 +318,12 @@ describe("scritture", () => {
     expect(alerts).toHaveLength(1);
   });
 
-  it("R-K12: segue chi vede la conversazione (ogni membro); rispondere resta a support.reply", async () => {
+  it("«Segui» non c'è più (area 8, F3): nessuna funzione, nessun campo, nessun follower", async () => {
     as("p-matteo");
-    expect((await support.followConversation("ACQ-S1", true)).following).toBe(true);
-    expect((await support.followConversation("ACQ-S1", false)).following).toBe(false);
-    as("p-sara");
-    const view = await support.followConversation("ACQ-S1", true);
-    expect(view.following).toBe(true);
-    expect(view.canReply).toBe(false);
-    expect(conv("ACQ-S1").followerIds).toContain("p-sara");
-    // Seguire serve: l'avviso del cliente le arriva, anche senza support.reply.
-    await support.simulateCustomerMessage("ACQ-S1", "From the portal.");
-    const n = state.notifications.at(-1)!;
-    expect((await listNotifications()).some((x) => x.id === n.id)).toBe(true);
-    // Senza seguirla, no: il default resta acceso solo per chi risponde.
-    await support.followConversation("ACQ-S1", false);
-    await support.simulateCustomerMessage("ACQ-S1", "Hello?");
-    const m = state.notifications.at(-1)!;
-    expect((await listNotifications()).some((x) => x.id === m.id)).toBe(false);
-    as(outsider());
-    await expect(support.followConversation("ACQ-S1", true)).rejects.toThrow("not_found");
+    expect("followConversation" in support).toBe(false);
+    const view = (await support.getSupportConversation("ACQ-S2"))!;
+    expect("following" in view).toBe(false);
+    expect(state.supportConversations.every((c) => !("followerIds" in c))).toBe(true);
   });
 
   it("R-K13: widget coi campi del web, default e validazione con codici", async () => {
@@ -422,18 +405,11 @@ describe("scritture", () => {
 });
 
 describe("simulazioni e avvisi", () => {
-  it("messaggio del cliente: avviso obbligatorio ai follower", async () => {
+  it("messaggio del cliente: nessun avviso (non c'è più «Segui» né support.customer_replied)", async () => {
     as("p-matteo");
+    const notifications = state.notifications.length;
     await support.simulateCustomerMessage("ACQ-S2", "Hello?");
-    const n = state.notifications.at(-1)!;
-    expect(n).toMatchObject({
-      kind: "support.customer_replied",
-      objectCode: "ACQ-S2",
-      link: "#/p/ACQ/support/ACQ-S2",
-      mandatory: [{ personId: "p-laura", reason: "follows_conversation" }],
-    });
-    as("p-laura");
-    expect((await listNotifications()).some((x) => x.id === n.id)).toBe(true);
+    expect(state.notifications).toHaveLength(notifications);
   });
 
   it("triage concluso: richiesta col desiderio riscritto e la conversazione, avviso", async () => {

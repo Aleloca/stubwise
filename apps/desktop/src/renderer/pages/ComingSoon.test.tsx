@@ -423,7 +423,6 @@ const INTEGRATED_CALLS = new Set([
   "support.getSupportConversation",
   "support.customerPreview",
   "support.replyToCustomer",
-  "support.followConversation",
   "support.openRequestFrom",
   "support.markNotConcluded",
   // I widget (support-widgets), sulle rotte di oggi.
@@ -676,6 +675,8 @@ describe("aree non integrate nella build app", () => {
     expect(within(detail).queryByRole("button", { name: /^Ask Claude/ })).toBeNull();
     // «Write to them by email» non c'è più (area 8, F3, decisione del maintainer).
     expect(within(detail).queryByRole("button", { name: "Write to them by email" })).toBeNull();
+    // «Segui» nemmeno.
+    expect(within(detail).queryByRole("button", { name: /^Follow/ })).toBeNull();
     // Nessuna simulazione del prototipo nel menu.
     await user.click(within(detail).getByRole("button", { name: "More actions" }));
     expect(screen.queryByRole("menuitem", { name: /^Simulate/ })).toBeNull();

@@ -77,10 +77,6 @@ function fakeApi(over: Partial<SupportApi> = {}) {
       calls.push(`reply ${code} ${JSON.stringify(body)}`);
       return view({ state: "reply_sent" });
     },
-    follow: async (code, on) => {
-      calls.push(`follow ${code} ${on}`);
-      return view({ following: on });
-    },
     openRequest: async (code, body) => {
       calls.push(`request ${code} ${JSON.stringify(body)}`);
       return {
@@ -234,17 +230,21 @@ describe("le scritture di Support sul server (area 8, F3)", () => {
     expect(c.state).toBe("reply_sent");
   });
 
-  it("segui, apri la richiesta, «Not concluded», «Ask Claude»: le rotte, e la vista che rispondono", async () => {
+  it("«Segui» non c'è più (area 8, F3): niente funzione, niente campo nella vista", async () => {
+    const support = createRealSupport(fakeApi().api);
+    expect("followConversation" in support).toBe(false);
+    expect("following" in (await support.getSupportConversation("ACQ-S1"))!).toBe(false);
+  });
+
+  it("apri la richiesta, «Not concluded», «Ask Claude»: le rotte, e la vista che rispondono", async () => {
     const { api, calls } = fakeApi();
     const support = createRealSupport(api);
-    expect((await support.followConversation("ACQ-S1", true)).following).toBe(true);
     expect(
       (await support.openRequestFrom("ACQ-S1", { title: "Invoices", description: "x" })).state,
     ).toBe("request_open");
     expect((await support.markNotConcluded("ACQ-S1")).state).toBe("not_concluded");
     expect((await support.draftReply("ACQ-S1")).claudeDraftPending).toBe(true);
     expect(calls).toEqual([
-      "follow ACQ-S1 true",
       'request ACQ-S1 {"title":"Invoices","description":"x"}',
       "notConcluded ACQ-S1",
       "draft ACQ-S1",

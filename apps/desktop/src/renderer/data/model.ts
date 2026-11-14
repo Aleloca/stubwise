@@ -3578,7 +3578,6 @@ export interface SupportConversation {
    * richiesta aperta dal team da una conversazione non conclusa).
    */
   confirmedAt: string | null;
-  followerIds: string[];
   /** La bozza di risposta di Claude: la vede solo chi ha `support.reply`, non parte mai da sola. */
   claudeDraft: string | null;
 }
