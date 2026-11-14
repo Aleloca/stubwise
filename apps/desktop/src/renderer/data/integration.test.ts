@@ -106,12 +106,11 @@ describe("isIntegrated", () => {
         "feature:releases",
         "feature:releases-repo-settings",
         "feature:releases-explain",
-        // Area 8, fetta 3: Support (letture e scritture); bozza, email, Home,
-        // widget e ricerca restano spenti finché non hanno le rotte.
+        // Area 8, fetta 3: Support (letture e scritture) e i widget; bozza e
+        // ricerca senza rotta, «Clienti in attesa» spento (fonte da definire).
         "projectSection:support",
         "feature:support",
         "feature:support-email",
-        "feature:support-home",
         "feature:support-widgets",
         "destination:projects",
         "projectSection:tasks",

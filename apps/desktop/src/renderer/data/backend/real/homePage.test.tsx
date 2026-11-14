@@ -21,8 +21,9 @@ import {
 // server, un filtro eliminato resta come blocco «non disponibile» e i blocchi
 // delle aree non integrate non si mostrano.
 vi.mock("@backend/api", async () => await import("./index"));
-// Un blocco di un'area spenta: dall'area 8, F3, «Clienti in attesa» è acceso;
-// qui lo si spegne per provare che personalizzare non cancella un blocco nascosto.
+// Un blocco di un'area spenta: «Clienti in attesa» (spento anche nella build,
+// area 8 F3); il test lo fissa da sé per provare che personalizzare non
+// cancella un blocco nascosto.
 vi.mock("../../integration", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../integration")>();
   return {

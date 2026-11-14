@@ -426,9 +426,8 @@ const INTEGRATED_CALLS = new Set([
   "support.followConversation",
   "support.openRequestFrom",
   "support.markNotConcluded",
-  // S9 e S8: «Write to them by email» e «Clienti in attesa».
+  // S9: «Write to them by email». «Clienti in attesa» (S8) è spento: la sua lettura no.
   "support.emailDraftFor",
-  "support.listWaitingCustomers",
   // I widget (support-widgets), sulle rotte di oggi.
   "support.listWidgets",
   "support.createWidget",
@@ -897,7 +896,11 @@ describe("le superfici della fetta 2 nella build app", () => {
 // «Upcoming» (gli appuntamenti) è acceso dall'area 6, fetta 1; «Important email» dalla fetta 2;
 // «Automations» dall'area 7, fetta 1.
 // Dall'area 8 (fetta 1) «Releases» è integrato: resta futuro «Customers waiting».
-/** «Clienti in attesa» (area 8, F3, S8): acceso, ma mai nelle Home di default ([A 17]). */
+/**
+ * «Clienti in attesa»: spento nella build app (area 8, F3, decisione del
+ * maintainer): la sua fonte non è il widget ma posta e automazioni, da definire.
+ * Resta nel catalogo: salvato in una Home non si mostra e non legge nulla.
+ */
 const WAITING_BLOCK = /^Customers waiting/;
 
 describe("le superfici della fetta 3 nella build app", () => {
@@ -924,13 +927,13 @@ describe("le superfici della fetta 3 nella build app", () => {
     renderRoute("/home");
     expect(await screen.findByRole("region", { name: /^My week/ })).toBeInTheDocument();
     expect(await screen.findByRole("region", { name: /^My tasks/ })).toBeInTheDocument();
-    // «Clienti in attesa» è acceso (area 8, F3) ma non entra da sé in una Home di default ([A 17]).
+    // «Clienti in attesa» è spento (area 8, F3, fonte da definire).
     expect(screen.queryByRole("region", { name: WAITING_BLOCK })).toBeNull();
     await settle();
     expect(outside()).toEqual([]);
   });
 
-  it("«Clienti in attesa» salvato nella Home personale si mostra e legge solo chiamate integrate (area 8, F3)", async () => {
+  it("«Clienti in attesa» salvato nella Home personale non si mostra e non legge nulla (area 8, F3: spento)", async () => {
     signedInAs("p-marco");
     const { setPersonalHome } = await import("../data/api");
     await setPersonalHome([
@@ -944,13 +947,13 @@ describe("le superfici della fetta 3 nella build app", () => {
     calls.length = 0;
     renderRoute("/home");
     expect(await screen.findByRole("region", { name: /^My tasks/ })).toBeInTheDocument();
-    expect(await screen.findByRole("region", { name: WAITING_BLOCK })).toBeInTheDocument();
-    await waitFor(() => expect(calls).toContain("support.listWaitingCustomers"));
     await settle();
+    expect(screen.queryByRole("region", { name: WAITING_BLOCK })).toBeNull();
+    expect(calls).not.toContain("support.listWaitingCustomers");
     expect(outside()).toEqual([]);
   });
 
-  it("il catalogo dei blocchi propone «Clienti in attesa» a chi risponde ai clienti (area 8, F3)", async () => {
+  it("il catalogo dei blocchi non propone «Clienti in attesa» nella build app (area 8, F3: spento)", async () => {
     signedInAs("p-marco");
     renderRoute("/home");
     await userEvent.click(await screen.findByRole("button", { name: "Customize" }));
@@ -959,7 +962,8 @@ describe("le superfici della fetta 3 nella build app", () => {
     const names = within(menu)
       .queryAllByRole("menuitem")
       .map((i) => i.textContent ?? "");
-    expect(names.some((n) => WAITING_BLOCK.test(n))).toBe(true);
+    expect(names.length).toBeGreaterThan(0);
+    expect(names.some((n) => WAITING_BLOCK.test(n))).toBe(false);
     await settle();
     expect(outside()).toEqual([]);
   });
