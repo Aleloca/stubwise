@@ -17,6 +17,7 @@ import {
   isCollaboratorRequest,
   projectPermissionsOfUser,
   publishRequestCreated,
+  publishSupportRequestAlert,
 } from "@stubwise/notifications";
 import {
   backlogRiskSchema,
@@ -468,6 +469,10 @@ export async function runIntake(
     await announceRequest(deps, projectId, requesterId, result, true);
   } else {
     result = await createNewItem(deps, job.id, projectId, input, vec, best, ticket, lang, requesterId);
+    // Area 8, F3 (S7): una richiesta nata dal ticket di un widget si annuncia
+    // (`support.request`, catalogo). Dopo il commit, come l'avviso agli admin:
+    // un avviso non fa fallire l'intake. Senza conversazione legata non fa niente.
+    await publishSupportRequestAlert(db, deps.publicUrl ?? null, result.itemId);
     await announceRequest(deps, projectId, requesterId, result, false);
   }
 

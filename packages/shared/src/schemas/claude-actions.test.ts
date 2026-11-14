@@ -29,7 +29,7 @@ describe("le firme delle azioni per il prompt della chat", () => {
     expect(sub).toContain("phone?: boolean");
     for (const t of liveRowTypes()) expect(sub).toContain(JSON.stringify(t));
     // Un tipo del catalogo non ancora vivo non si propone.
-    expect(sub).not.toContain('"support.request"');
+    expect(sub).not.toContain('"task.created"');
     expect(CLAUDE_DECLARED_CLASS.setSubscription).toBe("A");
   });
 

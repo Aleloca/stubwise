@@ -252,9 +252,16 @@ describe("runIntake — nuova voce", () => {
       embeddingClient: embeddingClient({ "Titolo\n\nCorpo del feedback": vecOrtho }),
       runner: fakeRunner(INTAKE_JSON),
     });
+    const [lead] = await db.insert(users).values({ email: `lead-${randomUUID()}@x.it`, passwordHash: "x", role: "member" }).returning();
+    const [leadRole] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "project_lead"));
+    await db.insert(projectMembers).values({ projectId, userId: lead!.id, roleId: leadRole!.id });
     await runIntake(deps, fakeJob(projectId), { ticketId: ticket.id });
     const [item] = await db.select().from(backlogItems).where(eq(backlogItems.projectId, projectId));
     expect(item!.supportConversationId).toBe(conv!.id);
+    // S7: la richiesta nata da una conversazione si annuncia (`support.request`), a chi ha backlog.edit.
+    const cards = await db.select().from(notifications).where(and(eq(notifications.userId, lead!.id), eq(notifications.kind, "support.request")));
+    expect(cards).toHaveLength(1);
+    expect(cards[0]!.event).toMatchObject({ title: "Voce generata", customerName: null });
   });
 
   it("(c) zona grigia (similarità tra le due soglie) → nuova voce con similarToId", async () => {

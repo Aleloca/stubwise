@@ -71,7 +71,7 @@ export async function supportRoutes(instance: FastifyInstance): Promise<void> {
     { config: { access: { kind: "user" } }, schema: { params: codeParams, body: supportOpenRequestBodySchema } },
     async (request, reply) =>
       handle(reply, async () => {
-        const out = await openRequestFrom(app.db, request.user!, request.params.code, request.body);
+        const out = await openRequestFrom(app.db, request.user!, request.params.code, request.body, { publicUrl: app.publicUrl });
         return reply.code(out.created ? 201 : 200).send({ conversation: out.conversation, request: out.request });
       }),
   );

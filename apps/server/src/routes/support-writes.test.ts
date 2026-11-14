@@ -147,6 +147,19 @@ describe("S6: «Apri la richiesta» da una non conclusa", () => {
     expect(await t.db.select().from(backlogItemRequesters).where(eq(backlogItemRequesters.itemId, item!.id))).toEqual([expect.objectContaining({ userId: dev.id })]);
   });
 
+  it("S7: la richiesta nata pubblica `support.request` (codice, titolo, cliente; il link alla richiesta) a chi la riceve di partenza", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const lead = await person("project_lead", projectId);
+    const dev = await person("developer", projectId);
+    const c = await conversation(projectId);
+    await customer(c.id, 1);
+    await judge(c.id, "not_concluded");
+    const out = (await send("POST", dev.headers, `${base(c.code)}/request`, { title: "Export PDF", description: "" })).json() as { request: { id: string; code: string } };
+    const cards = await t.db.select().from(notifications).where(and(eq(notifications.userId, lead.id), eq(notifications.kind, "support.request")));
+    expect(cards).toHaveLength(1);
+    expect(cards[0]!.event).toMatchObject({ requestCode: out.request.code, title: "Export PDF", customerName: "Mario", url: `https://s.example/app/#/p/${out.request.code.split("-R")[0]}/requests?request=${out.request.id}` });
+  });
+
   it("doppio clic (anche insieme): una richiesta sola, la seconda risposta 200 con la stessa", async () => {
     const { projectId } = await seedRepository(t.db);
     const dev = await person("developer", projectId);
