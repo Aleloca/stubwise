@@ -45,10 +45,41 @@ export interface WaitingCandidate {
   importance: "high" | "normal" | "low" | null;
   replyJudgment: { needsMyReply?: boolean; reason?: string; error?: string } | null;
   replyJudgmentAttempts: number;
+  /** Il segnale dell'ultima proposta del thread (v1 non lo scrive più sul messaggio). */
+  signal: string | null;
 }
 
-export async function waitingCandidates(db: Db, input: { accountIds: readonly string[]; cutoff: Date; limit?: number }): Promise<WaitingCandidate[]> {
-  if (input.accountIds.length === 0) return [];
+export interface WaitingCandidatesInput {
+  accountIds: readonly string[];
+  cutoff: Date;
+  limit?: number;
+  /**
+   * I progetti che chi guarda vede (la rotta): il progetto del thread è
+   * l'ultimo ammesso attribuito a uno di QUESTI, e un thread senza progetti
+   * visibili non c'è. Assente = tutti (il worker giudica la casella intera).
+   */
+  projects?: "all" | readonly string[];
+  /** La rotta: toglie i thread il cui ultimo messaggio è giudicato «no». */
+  shownOnly?: boolean;
+}
+
+export async function waitingCandidates(db: Db, input: WaitingCandidatesInput): Promise<WaitingCandidate[]> {
+  return (await waitingCandidatesPage(db, input)).items;
+}
+
+/** Come `waitingCandidates`, più `total`: quanti passano, oltre il `limit`. */
+export async function waitingCandidatesPage(db: Db, input: WaitingCandidatesInput): Promise<{ items: WaitingCandidate[]; total: number }> {
+  if (input.accountIds.length === 0) return { items: [], total: 0 };
+  const projects = input.projects ?? "all";
+  if (projects !== "all" && projects.length === 0) return { items: [], total: 0 };
+  const visibleProject =
+    projects === "all"
+      ? sql`true`
+      : sql`coalesce(project_id, scope_project_ids[1]) in (${sql.join(
+          projects.map((id) => sql`${id}::uuid`),
+          sql`, `,
+        )})`;
+  const shown = input.shownOnly ? sql`coalesce(last.reply_judgment->>'needsMyReply', '') <> 'false'` : sql`true`;
   const ids = sql.join(
     input.accountIds.map((id) => sql`${id}::uuid`),
     sql`, `,
@@ -67,6 +98,8 @@ export async function waitingCandidates(db: Db, input: { accountIds: readonly st
     importance: "high" | "normal" | "low" | null;
     reply_judgment: WaitingCandidate["replyJudgment"];
     reply_judgment_attempts: number;
+    signal: string | null;
+    total: number | string;
   }>(sql`
     with msgs as (
       select m.*, row_number() over (partition by m.account_id, m.thread_id order by m.received_at desc, m.id desc) as rn
@@ -86,7 +119,7 @@ export async function waitingCandidates(db: Db, input: { accountIds: readonly st
     adm as (
       select account_id, thread_id,
         (array_agg(coalesce(project_id, scope_project_ids[1]) order by received_at desc, id desc)
-          filter (where admitted and coalesce(project_id, scope_project_ids[1]) is not null))[1] as project_id,
+          filter (where admitted and coalesce(project_id, scope_project_ids[1]) is not null and ${visibleProject}))[1] as project_id,
         (array_agg(status order by received_at desc, id desc) filter (where admitted))[1] as status,
         (array_agg(importance order by received_at desc, id desc) filter (where admitted))[1] as importance,
         (array_agg(subject order by received_at desc, id desc) filter (where admitted))[1] as subject
@@ -97,7 +130,11 @@ export async function waitingCandidates(db: Db, input: { accountIds: readonly st
     )
     select last.account_id, a.email as account_email, last.thread_id, last.id as last_id, last.from_address as last_from,
       ext.at as waiting_since, ext.addr as customer_email, ext.name as customer_name, adm.subject, adm.project_id, adm.importance,
-      last.reply_judgment, last.reply_judgment_attempts
+      last.reply_judgment, last.reply_judgment_attempts,
+      (select p.classification->>'signal' from email_proposals p join email_messages pm on pm.id = p.email_message_id
+        where pm.account_id = last.account_id and pm.thread_id = last.thread_id
+        order by p.created_at desc, p.id desc limit 1) as signal,
+      count(*) over () as total
     from last
     join google_accounts a on a.id = last.account_id
     join adm on adm.account_id = last.account_id and adm.thread_id = last.thread_id
@@ -107,6 +144,7 @@ export async function waitingCandidates(db: Db, input: { accountIds: readonly st
       and adm.project_id is not null
       -- (e): new/failed (non classificato) e ogni stato non ignored passano; ignored solo con importanza alta.
       and (adm.status <> 'ignored' or adm.importance = 'high')
+      and ${shown}
       and not exists (
         select 1 from mail_outgoing o
         where o.account_id = last.account_id and o.state = 'sent'
@@ -116,7 +154,8 @@ export async function waitingCandidates(db: Db, input: { accountIds: readonly st
     order by ext.at asc, last.thread_id
     limit ${input.limit ?? 200}
   `);
-  return [...rows].map((r) => ({
+  const list = [...rows];
+  const items = list.map((r) => ({
     accountId: r.account_id,
     accountEmail: r.account_email,
     threadId: r.thread_id,
@@ -130,5 +169,7 @@ export async function waitingCandidates(db: Db, input: { accountIds: readonly st
     importance: r.importance,
     replyJudgment: r.reply_judgment,
     replyJudgmentAttempts: r.reply_judgment_attempts,
+    signal: r.signal,
   }));
+  return { items, total: list.length === 0 ? 0 : Number(list[0]!.total) };
 }
