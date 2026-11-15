@@ -176,9 +176,11 @@ export async function serverFixRoutes(instance: FastifyInstance): Promise<void> 
         .where(and(eq(serverFixes.id, fix.id), inArray(serverFixes.status, [...STOPPABLE])))
         .returning();
       if (rows.length === 0) return rows;
-      if (fix.approvalId) {
-        await tx.update(serverOperationApprovals).set({ revokedAt: new Date() }).where(eq(serverOperationApprovals.id, fix.approvalId));
-        await cancelServerCommands(tx as unknown as Db, { approvalId: fix.approvalId });
+      // L'approvazione della riga come è ADESSO (review F4b), non quella letta prima.
+      const approvalId = rows[0]!.approvalId;
+      if (approvalId) {
+        await tx.update(serverOperationApprovals).set({ revokedAt: new Date() }).where(eq(serverOperationApprovals.id, approvalId));
+        await cancelServerCommands(tx as unknown as Db, { approvalId });
       }
       return rows;
     });
