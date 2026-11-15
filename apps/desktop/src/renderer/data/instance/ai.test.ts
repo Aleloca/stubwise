@@ -414,8 +414,13 @@ describe("modelli per operazione", () => {
     // 21 con `automation_step` (un passo di Claude di un'automazione, area 7 F3, gruppo automations);
     // 22 con `support_triage_check` (il giudizio dopo il silenzio, area 8 F3, gruppo support:
     // la bozza della risposta `support_reply_draft` è uscita con la premessa corretta);
-    // 24 con `server_analysis` e `server_fix_plan` (area 8 F4b, gruppo servers).
-    expect(rows).toHaveLength(24);
+    // 24 con `server_analysis` e `server_fix_plan` (area 8 F4b, gruppo servers);
+    // 25 con `mail_reply_judgment` («serve una mia risposta?», «Clienti in attesa», gruppo mail).
+    expect(rows).toHaveLength(25);
+    expect(rows.find((r) => r.operation === "mail_reply_judgment")).toMatchObject({
+      group: "mail",
+    });
+    expect(en.usage.operations.mail_reply_judgment).toBe("Mail: does it need my reply?");
     expect(rows.filter((r) => r.group === "servers").map((r) => r.operation)).toEqual([
       "server_analysis",
       "server_fix_plan",
