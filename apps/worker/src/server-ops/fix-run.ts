@@ -1,9 +1,9 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lt } from "drizzle-orm";
 import { monthlyCostUsd, serverAnalyses, serverCommands, serverFixes, serverOperationApprovals, servers, tickets, type Db } from "@stubwise/db";
-import { aiBudgetState, attributionContext, issueServerCommand, ServerCommandError } from "@stubwise/notifications";
+import { aiBudgetState, attributionContext, cancelServerCommands, issueServerCommand, ServerCommandError } from "@stubwise/notifications";
 import { SERVER_ACTIONS, serverActionSchema, validateServerPlan, type ServerAction } from "@stubwise/shared";
 import { AgentTimeoutError, type AgentRunner } from "../agent/runner.js";
 import { chatDisallowedTools } from "../claude-chat/turn.js";
@@ -235,6 +235,31 @@ export async function runNextApprovedFix(deps: ServerFixDeps): Promise<boolean> 
   return true;
 }
 
+/**
+ * Review F4b: una correzione rimasta appesa dopo un crash del worker. Una
+ * `proposing` con la sessione già presa, o una `running`, ferma da 30 minuti
+ * (un passo aggiorna la riga e attende al più la scadenza di 10'): `failed`
+ * col motivo `worker_restart` (la proposta torna `none`); la sua
+ * approvazione si revoca e i comandi non consegnati si annullano.
+ */
+export async function recoverStaleFixes(db: Db, now = new Date()): Promise<void> {
+  const cutoff = new Date(now.getTime() - 30 * 60_000);
+  await db
+    .update(serverFixes)
+    .set({ status: "none", planError: "worker_restart", updatedAt: now })
+    .where(and(eq(serverFixes.status, "proposing"), isNotNull(serverFixes.sessionId), lt(serverFixes.updatedAt, cutoff)));
+  const stuck = await db
+    .update(serverFixes)
+    .set({ status: "failed", planError: "worker_restart", currentStep: null, updatedAt: now, finishedAt: now })
+    .where(and(eq(serverFixes.status, "running"), lt(serverFixes.updatedAt, cutoff)))
+    .returning({ approvalId: serverFixes.approvalId });
+  for (const { approvalId } of stuck) {
+    if (!approvalId) continue;
+    await db.update(serverOperationApprovals).set({ revokedAt: now }).where(eq(serverOperationApprovals.id, approvalId));
+    await cancelServerCommands(db, { approvalId });
+  }
+}
+
 export interface ServerFixPoller {
   stop(): void;
 }
@@ -247,6 +272,7 @@ export function startServerFixPoller(deps: ServerFixDeps, intervalMs = 10_000): 
     if (running || stopped) return;
     running = true;
     try {
+      await recoverStaleFixes(deps.db);
       await proposeNextServerFix(deps);
       await runNextApprovedFix(deps);
     } catch (error) {

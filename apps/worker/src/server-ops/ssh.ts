@@ -98,7 +98,8 @@ export const sshExec: SshExec = (target, argv, opts = {}) =>
       });
   });
 
-const PRIVILEGED_GROUPS = new Set(["sudo", "wheel", "docker", "admin", "root"]);
+// `lxd`/`lxc`/`disk` valgono root quanto `docker` (review F4b).
+const PRIVILEGED_GROUPS = new Set(["sudo", "wheel", "docker", "admin", "root", "lxd", "lxc", "disk"]);
 const JOURNAL_GROUPS = new Set(["systemd-journal", "adm"]);
 
 export function judgeSshUser(groups: readonly string[], sudoWithoutPassword: boolean) {
@@ -123,7 +124,9 @@ export async function verifyPendingSshAccess(db: Db, encryptionKey: Buffer, exec
     try {
       const id = await exec(target, ["id", "-Gn"]);
       if (id.exitCode !== 0) throw new Error(`id -Gn: uscita ${id.exitCode}`);
-      const sudo = await exec({ ...target, hostKey: id.hostKey }, ["sudo", "-n", "true"]);
+      // `sudo -n -l` riesce con QUALUNQUE regola senza password, anche limitata a
+      // un comando (review F4b): `sudo -n true` vedeva solo quella generale.
+      const sudo = await exec({ ...target, hostKey: id.hostKey }, ["sudo", "-n", "-l"]);
       const result = judgeSshUser(id.stdout.trim().split(/\s+/).filter(Boolean), sudo.exitCode === 0);
       await db
         .update(serverSshAccess)

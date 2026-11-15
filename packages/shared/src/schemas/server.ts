@@ -368,6 +368,14 @@ export const serverDetailSchema = serverViewSchema.extend({
    * Calcolato dal server. Additivo.
    */
   canStartAnalysis: z.boolean().default(false),
+  /**
+   * Area 8, F4b: lo STATO dell'accesso SSH di sola lettura, per chi vede il
+   * server (senza chiavi, comandi né esito della verifica: quelli restano a
+   * `servers.ssh.manage`, `GET /api/servers/:id/ssh`). Additivo.
+   */
+  ssh: z
+    .object({ status: z.enum(["none", "pending", "verified", "failed", "revoked"]), usable: z.boolean() })
+    .default({ status: "none", usable: false }),
 });
 export type ServerDetail = z.infer<typeof serverDetailSchema>;
 

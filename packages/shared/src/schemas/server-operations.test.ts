@@ -55,5 +55,6 @@ describe("review F4b: i campi additivi delle viste si leggono senza", () => {
     expect(serverAnalysisViewSchema.parse({ id: "00000000-0000-4000-8000-000000000001", serverId: "00000000-0000-4000-8000-000000000002", status: "done", startedAt: "2026-11-15T10:00:00.000Z" }).endedBy).toBeNull();
     const { serverDetailSchema } = await import("./server.js");
     expect(serverDetailSchema.shape.canStartAnalysis.parse(undefined)).toBe(false);
+    expect(serverDetailSchema.shape.ssh.parse(undefined)).toEqual({ status: "none", usable: false });
   });
 });

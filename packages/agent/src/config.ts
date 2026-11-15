@@ -59,7 +59,7 @@ export function loadAgentEnv(env: EnvRecord): LoadAgentEnvResult {
   return {
     ok: true,
     env: {
-      operations: operationsOn && publicKey ? { publicKey, nonceFile: cleaned(env.STUBWISE_NONCE_FILE) ?? "/var/tmp/stubwise-agent-nonces.json" } : null,
+      operations: operationsOn && publicKey ? { publicKey, nonceFile: cleaned(env.STUBWISE_NONCE_FILE) ?? "/var/lib/stubwise-agent/nonces.json" } : null,
       // Strip trailing slashes so `${baseUrl}/monitor/ingest` never doubles up.
       baseUrl: baseUrl.replace(/\/+$/, ""),
       serverKey,

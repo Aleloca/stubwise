@@ -66,7 +66,7 @@ describe("judgeSshUser", () => {
     expect(judgeSshUser(["stubwise-read"], false)).toMatchObject({ ok: true, journal: false, docker: false });
     expect(judgeSshUser(["stubwise-read", "adm"], false)).toMatchObject({ ok: true, journal: true });
     expect(judgeSshUser(["stubwise-read", "systemd-journal"], false)).toMatchObject({ ok: true, journal: true });
-    for (const g of ["sudo", "wheel", "docker", "admin", "root"]) expect(judgeSshUser(["stubwise-read", g], false).ok).toBe(false);
+    for (const g of ["sudo", "wheel", "docker", "admin", "root", "lxd", "lxc", "disk"]) expect(judgeSshUser(["stubwise-read", g], false).ok).toBe(false);
     expect(judgeSshUser(["stubwise-read"], true)).toMatchObject({ ok: false, sudo: true });
   });
 });
