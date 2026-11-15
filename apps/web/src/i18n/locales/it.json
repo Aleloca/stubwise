@@ -1912,7 +1912,8 @@
         "backlog_merge": "Unione dei documenti del backlog",
         "support_triage_check": "Supporto: giudizio sul triage",
         "server_analysis": "Server: analisi",
-        "server_fix_plan": "Server: piano di correzione"
+        "server_fix_plan": "Server: piano di correzione",
+        "mail_reply_judgment": "Posta: serve una mia risposta?"
       }
     }
   },
