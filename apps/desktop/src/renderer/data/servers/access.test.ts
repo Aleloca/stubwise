@@ -413,7 +413,7 @@ describe("ultimo uso", () => {
     state.conversations.find((c) => c.id === a.conversationId)!.projectId = aud.id;
     as("p-sara");
     const use = (await view("SRV-1")).lastUse!;
-    expect(use.label.kind).toBe("analysis");
+    expect(use.label!.kind).toBe("analysis");
     expect(use.sessionId).toBeNull();
     // Chi lo vede ha la sessione.
     as("p-roberta");

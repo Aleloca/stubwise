@@ -76,6 +76,7 @@ const ALL: IntegrationTarget[] = [
       "servers-monitor",
       "servers-write",
       "servers-ssh",
+      "servers-ssh-regenerate",
       "servers-analysis",
       "servers-search",
       "servers-create-in-env",
@@ -128,6 +129,7 @@ describe("isIntegrated", () => {
         // Area 8, F4b: le analisi lette sul server e i container degli ambienti;
         // i tetti (Amministrazione → AI non è ancora integrata), l'SSH e la ricerca no.
         "feature:servers-analysis",
+        "feature:servers-ssh",
         "feature:environment-containers",
         "destination:projects",
         "projectSection:tasks",

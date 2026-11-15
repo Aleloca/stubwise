@@ -98,7 +98,7 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "support",
     "support-widgets",
     // Area 8, F4a: i Server (letture e scritture, la chiave una volta).
-    // Restano spente: l'SSH (`servers-ssh`) e la ricerca ⌘K (`servers-search`).
+    // Resta spenta la ricerca ⌘K (`servers-search`).
     "servers-monitor",
     "servers-write",
     // «New server» dalla sezione di un progetto: dentro un ambiente, per tutto
@@ -109,6 +109,12 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // `canStartAnalysis` del server; la frase «niente letture SSH» aspetta
     // l'SSH (`servers-ssh`).
     "servers-analysis",
+    // Area 8, F4b: l'accesso SSH di sola lettura (`client.serverOps.ssh*`): lo
+    // stato a chi vede il server (il riassunto del dettaglio), la vista intera
+    // e le azioni a chi ha `servers.ssh.manage`. Resta spenta la rigenerazione
+    // (`servers-ssh-regenerate`): sul server la chiave vecchia smette subito di
+    // valere, il testo del prototipo promette la sovrapposizione (decisione a 46).
+    "servers-ssh",
     // Gli ambienti col form (spenti dalla F1): i server si scelgono fra quelli visibili.
     "environments",
     // Area 8, F4b (R0-D): i container di un ambiente su un suo server

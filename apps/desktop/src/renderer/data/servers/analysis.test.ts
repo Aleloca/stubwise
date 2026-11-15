@@ -140,7 +140,7 @@ describe("allarme con l'accesso di lettura: l'analisi apre la task", () => {
     const a = onlyAnalysis("SRV-1");
     const lastUse = state.serverAccess.get("SRV-1")!.lastUse;
     expect(lastUse!.ref).toEqual({ kind: "analysis", analysisId: a.id });
-    expect((await servers.getServer("SRV-1")).access.lastUse!.label.kind).toBe("analysis");
+    expect((await servers.getServer("SRV-1")).access.lastUse!.label!.kind).toBe("analysis");
   });
 
   it("limite di tempo: chiude `timed_out` e apre la task con ciò che ha visto", async () => {

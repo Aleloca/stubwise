@@ -9858,7 +9858,8 @@
           "never": "Not used yet",
           "analysis": "Used {{when}} by the analysis of {{code}}",
           "task": "Used {{when}} by",
-          "hiddenTask": "Used {{when}} by a task you can't see"
+          "hiddenTask": "Used {{when}} by a task you can't see",
+          "plain": "Used {{when}}"
         },
         "openSession": "Open session",
         "journalOff": "Doesn't read the system journal (not in systemd-journal or adm)."

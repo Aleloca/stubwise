@@ -4,6 +4,7 @@ import {
   type AlertThresholds,
   type CreateCheckInput,
   type ServerAnalysisView as ServerAnalysisWire,
+  type ServerSshAccessView as SshWire,
   type ServerCheckView,
   type ServerDetail as ServerDetailShape,
   type ServerMetricsResponse,
@@ -71,6 +72,65 @@ export interface ServersApi {
   analyses(serverId: string): Promise<{ analyses: Reader<ServerAnalysisWire>[] }>;
   /** L'analisi a mano (`client.serverOps.startAnalysis`): 409 `analysis_running`. */
   startAnalysis(serverId: string): Promise<Reader<ServerAnalysisWire>>;
+  /** L'accesso SSH di sola lettura (`client.serverOps.ssh*`), `servers.ssh.manage`. */
+  ssh(serverId: string): Promise<Reader<SshWire>>;
+  connectSsh(serverId: string, input: { host?: string; port?: number }): Promise<Reader<SshWire>>;
+  verifySsh(serverId: string): Promise<Reader<SshWire>>;
+  regenerateSsh(serverId: string): Promise<Reader<SshWire>>;
+  revokeSsh(serverId: string): Promise<Reader<SshWire>>;
+}
+
+/**
+ * L'accesso SSH del server nella forma del prototipo (area 8, F4b). Gli
+ * stati: `none` → non collegato, `pending` → in attesa del comando,
+ * `verified` → verificato; `failed` col risultato (sudo, docker…) →
+ * privilegiato, senza (connessione, comando, host key) → verifica fallita.
+ * Una chiave sola: nessuna «rigenerazione» con la vecchia ancora usabile.
+ * `usable` lo calcola il server; l'ultimo uso è solo la data.
+ */
+export function sshAccessOf(v: Reader<SshWire>): SshAccessView {
+  const status = v.status === "__unknown__" ? "none" : v.status;
+  const key =
+    v.publicKey && status !== "revoked"
+      ? { publicKey: v.publicKey, fingerprint: v.fingerprint ?? "", createdAt: v.verifiedAt ?? "" }
+      : null;
+  const r = v.verifyResult;
+  const state: SshAccessView["state"] =
+    status === "none"
+      ? "not_linked"
+      : status === "pending"
+        ? "awaiting_command"
+        : status === "verified"
+          ? "verified"
+          : status === "revoked"
+            ? "revoked"
+            : r && !r.ok
+              ? "privileged"
+              : "verify_failed";
+  return {
+    state,
+    username: v.username,
+    key: state === "awaiting_command" ? null : key,
+    pending: state === "awaiting_command" ? key : null,
+    verification: r
+      ? {
+          at: v.verifiedAt ?? "",
+          login: "ok",
+          groups: [...r.groups],
+          sudo: r.sudo,
+          docker: r.docker,
+          journal: r.journal,
+          ok: r.ok,
+          reason: null,
+          ofPending: false,
+        }
+      : null,
+    usable: v.usable,
+    journal: r?.journal ?? false,
+    lastUse: v.lastUsedAt ? { at: v.lastUsedAt, label: null, sessionId: null } : null,
+    revokedAt: v.revokedAt,
+    canManage: v.canManage,
+  };
 }
 
 /** Le parole dello stato del server nell'esito del prototipo (`done` è la diagnosi). */
@@ -271,7 +331,7 @@ export function instanceRowOf(v: View, now: string): InstanceServerRow | null {
   return { ...row, projects, orphan: v.orphan, inArchivedOnly: v.inArchivedOnly };
 }
 
-/** L'accesso SSH è della F4b: nella build app è sempre «non collegato», e il pannello non c'è. */
+/** La base dell'accesso, senza chiavi né azioni. */
 const NO_ACCESS: SshAccessView = {
   state: "not_linked",
   username: "stubwise-read",
@@ -284,6 +344,24 @@ const NO_ACCESS: SshAccessView = {
   revokedAt: null,
   canManage: false,
 };
+
+/**
+ * Per chi non gestisce l'SSH (403 su `GET /ssh`): lo stato dal riassunto del
+ * dettaglio (`ssh: { status, usable }`, 72), che vede chiunque veda il
+ * server. Una verifica fallita qui non dice se per privilegi: niente esito.
+ */
+function summaryAccess(s: Reader<ServerDetailShape>["ssh"]): SshAccessView {
+  const status = s.status === "__unknown__" ? "none" : s.status;
+  const state: SshAccessView["state"] =
+    status === "none"
+      ? "not_linked"
+      : status === "pending"
+        ? "awaiting_command"
+        : status === "failed"
+          ? "verify_failed"
+          : status;
+  return { ...NO_ACCESS, state, usable: s.usable };
+}
 
 /** Un controllo nella forma del prototipo (il DSN non esce mai: `hasDsn` resta del server). */
 function checkOf(serverCode: string, c: Reader<ServerCheckView>): ServerCheck | null {
@@ -414,7 +492,9 @@ export function createRealServers(
         (r) => r.analyses,
         () => [],
       );
-      const out = withAnalyses(base, wire);
+      // L'accesso SSH (F4b): chi lo gestisce legge la vista intera; gli altri il riassunto.
+      const access = await api.ssh(d.id).then(sshAccessOf, () => summaryAccess(d.ssh));
+      const out = { ...withAnalyses(base, wire), access };
       ids.set(out.code, d.id);
       intervals.set(out.code, d.sampleIntervalSeconds);
       for (const c of out.checks) checkHome.set(c.id, { serverId: d.id, code: out.code });
@@ -505,6 +585,46 @@ export function createRealServers(
      * le percentuali si calcolano qui dai byte, e il grafico non disegna più
      * di `METRIC_POINTS_MAX` punti.
      */
+    /** Collega l'accesso: host di base quello che l'agente riporta (`host_required` senza). */
+    async linkSshAccess(code: string): Promise<{ command: string }> {
+      const id = await idOf(code);
+      const v = await inPrototypeWords(() => api.connectSsh(id, {}));
+      return { command: v.setupCommand ?? "" };
+    },
+
+    async verifySshAccess(code: string): Promise<SshAccessView> {
+      const id = await idOf(code);
+      return sshAccessOf(await inPrototypeWords(() => api.verifySsh(id)));
+    },
+
+    /** Una coppia nuova: la vecchia smette subito di valere (sul server non esistono due chiavi). */
+    async regenerateSshAccess(code: string): Promise<{ command: string }> {
+      const id = await idOf(code);
+      const v = await inPrototypeWords(() => api.regenerateSsh(id));
+      return { command: v.setupCommand ?? "" };
+    },
+
+    async revokeSshAccess(code: string): Promise<{ removalCommand: string }> {
+      const id = await idOf(code);
+      const v = await inPrototypeWords(() => api.revokeSsh(id));
+      return { removalCommand: v.removeCommand ?? "" };
+    },
+
+    /** Il comando da (ri)vedere: quello del server (in inglese, senza la lingua del prototipo). */
+    async getInstallCommand(code: string): Promise<{ command: string }> {
+      const id = await idOf(code);
+      const v = await inPrototypeWords(() => api.ssh(id));
+      if (!v.setupCommand) throw new Error("invalid: state");
+      return { command: v.setupCommand };
+    },
+
+    async getRemovalCommand(code: string): Promise<{ command: string }> {
+      const id = await idOf(code);
+      const v = await inPrototypeWords(() => api.ssh(id));
+      if (!v.removeCommand) throw new Error("invalid: state");
+      return { command: v.removeCommand };
+    },
+
     /** «Ask Claude to look into it» (R0-A2): `POST /api/servers/:id/analyses`. */
     async startServerAnalysis(code: string): Promise<ServerAnalysisView> {
       const id = await idOf(code);
@@ -569,4 +689,10 @@ export const liveServers = createRealServers({
   deleteCheck: (id, checkId) => appClient().servers.deleteCheck(id, checkId),
   analyses: (id) => appClient().serverOps.analyses(id),
   startAnalysis: (id) => appClient().serverOps.startAnalysis(id),
+  ssh: (id) => appClient().serverOps.ssh(id),
+  connectSsh: (id, input) =>
+    appClient().serverOps.connectSsh(id, input as { host: string; port?: number }),
+  verifySsh: (id) => appClient().serverOps.verifySsh(id),
+  regenerateSsh: (id) => appClient().serverOps.regenerateSsh(id),
+  revokeSsh: (id) => appClient().serverOps.revokeSsh(id),
 });

@@ -507,7 +507,8 @@ export const canManageSsh = (me: string): boolean => can(viewerFor(me), "servers
 /** L'ultimo uso dell'accesso: quando, e da quale analisi o task (il codice della task solo se chi guarda la vede). */
 export interface SshUseView {
   at: string;
-  label: { kind: "analysis" | "task"; code: string | null };
+  /** Da quale analisi o task; `null` nella build app (il server dice solo quando). */
+  label: { kind: "analysis" | "task"; code: string | null } | null;
   /** La sessione dell'analisi («Open session», Task 8), con la regola di `analysisSessionOf`. */
   sessionId: string | null;
 }

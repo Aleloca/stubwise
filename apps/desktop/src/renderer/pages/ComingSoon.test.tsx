@@ -457,6 +457,12 @@ const INTEGRATED_CALLS = new Set([
   "releases.setEnvironmentContainers",
   // Area 8, F4b: l'analisi a mano («Ask Claude to look into it»), col permesso del server.
   "servers.startServerAnalysis",
+  // Area 8, F4b: l'accesso SSH di sola lettura (la rigenerazione resta spenta).
+  "servers.linkSshAccess",
+  "servers.verifySshAccess",
+  "servers.revokeSshAccess",
+  "servers.getInstallCommand",
+  "servers.getRemovalCommand",
   // Area 8, F2 (R6): le iscrizioni agli avvisi.
   "alerts.subscriptionRows",
   "alerts.setSubscription",
@@ -752,14 +758,15 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("il dettaglio di un Server: metriche, episodi e scritture; niente SSH, progetto principale né simulazioni", async () => {
+  it("il dettaglio di un Server: metriche, episodi, scritture e l'accesso SSH; niente progetto principale né simulazioni", async () => {
     // Roberta ha `monitor.manage`: le scritture ci sono, la F4b no.
     signedInAs("p-roberta");
     renderRoute("/p/ACQ/servers/SRV-1");
     const index = await screen.findByRole("navigation", { name: "Parts of SRV-1" }, { timeout: 3000 });
     await waitFor(() => expect(calls).toContain("servers.getServer"));
     await waitFor(() => expect(calls).toContain("servers.getServerMetrics"));
-    expect(within(index).queryByRole("button", { name: "SSH access" })).toBeNull();
+    // F4b: l'accesso SSH di sola lettura c'è.
+    expect(within(index).getByRole("button", { name: "SSH access" })).toBeInTheDocument();
     expect(within(index).getByRole("button", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add check" })).toBeInTheDocument();
     // Il progetto principale (dell'analisi, F4b) non si offre.
@@ -785,12 +792,18 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("F4b: «Now» di un server in difficoltà senza l'SSH integrato non dice che manca l'accesso", async () => {
+  it("F4b: l'accesso SSH: «Now» dice che mancano le letture SSH, e si collega dalla parte; solo chiamate integrate", async () => {
+    const user = userEvent.setup();
     signedInAs("p-roberta");
     renderRoute("/p/STW/servers/SRV-2");
     const now = await screen.findByRole("region", { name: "Now" }, { timeout: 3000 });
     expect(now).toHaveTextContent("In trouble since");
-    expect(within(now).queryByText(/SSH/)).toBeNull();
+    expect(
+      within(now).getByText("Claude's diagnosis won't include SSH reads: no SSH access."),
+    ).toBeInTheDocument();
+    const part = screen.getByRole("region", { name: "SSH access" });
+    await user.click(within(part).getByRole("button", { name: "Link SSH access" }));
+    await waitFor(() => expect(calls).toContain("servers.linkSshAccess"));
     await settle();
     expect(outside()).toEqual([]);
   });

@@ -2,6 +2,7 @@ import { ApiError } from "@stubwise/api-client";
 import {
   serverAnalysisViewSchema,
   serverCheckViewSchema,
+  serverSshAccessViewSchema,
   serverDetailSchema,
   serverMetricsResponseSchema,
   serverViewSchema,
@@ -138,6 +139,19 @@ const analysis = (over: Record<string, unknown> = {}) =>
     ...over,
   });
 
+const ssh = (over: Record<string, unknown> = {}) =>
+  serverSshAccessViewSchema.parse({ status: "none", canManage: true, ...over });
+const KEYS = {
+  publicKey: "ssh-ed25519 AAAAC3Nz stubwise-read",
+  fingerprint: "SHA256:abc",
+  authorizedKeysLine: "restrict ssh-ed25519 AAAAC3Nz stubwise-read",
+  setupCommand: "sudo useradd --create-home stubwise-read && echo …",
+};
+const VERIFIED = {
+  verifiedAt: NOW,
+  verifyResult: { groups: ["stubwise-read", "adm"], sudo: false, docker: false, journal: true, ok: true },
+};
+
 const calls: unknown[][] = [];
 
 function fakeApi(over: Partial<ServersApi> = {}): ServersApi {
@@ -186,6 +200,14 @@ function fakeApi(over: Partial<ServersApi> = {}): ServersApi {
     updateCheck: log("updateCheck", check),
     deleteCheck: log("deleteCheck", undefined),
     analyses: async () => ({ analyses: [] }),
+    ssh: async () => ssh(),
+    connectSsh: log("connectSsh", ssh({ status: "pending", ...KEYS })),
+    verifySsh: log("verifySsh", ssh({ status: "verified", usable: true, ...KEYS, ...VERIFIED })),
+    regenerateSsh: log("regenerateSsh", ssh({ status: "pending", ...KEYS })),
+    revokeSsh: log(
+      "revokeSsh",
+      ssh({ status: "revoked", revokedAt: NOW, removeCommand: "sudo userdel --remove stubwise-read" }),
+    ),
     startAnalysis: log("startAnalysis", analysis({ startedBy: { id: USER, name: "Marco" } })),
     ...over,
   };
@@ -593,5 +615,92 @@ describe("i Server dal server (area 8, F4a)", () => {
     expect(d.manualAnalysis?.outcome).toBe("timed_out");
     const off = await createRealServers(fakeApi(), () => NOW).getServer("SRV-1");
     expect(off.canStartAnalysis).toBe(false);
+  });
+
+  describe("F4b: l'accesso SSH nelle forme del prototipo", () => {
+    const real = async (over: Partial<ServersApi> = {}) => {
+      const r = createRealServers(fakeApi(over), () => NOW);
+      await r.getServer("SRV-1");
+      return r;
+    };
+
+    it("gli stati del server diventano quelli del prototipo", async () => {
+      const stateOf = async (v: ReturnType<typeof ssh>) =>
+        (await (await real({ ssh: async () => v })).getServer("SRV-1")).access;
+      expect((await stateOf(ssh())).state).toBe("not_linked");
+      const pending = await stateOf(ssh({ status: "pending", ...KEYS }));
+      expect(pending).toMatchObject({ state: "awaiting_command", key: null, usable: false });
+      expect(pending.pending).toMatchObject({ publicKey: KEYS.publicKey, fingerprint: "SHA256:abc" });
+      const ok = await stateOf(
+        ssh({ status: "verified", usable: true, lastUsedAt: NOW, ...KEYS, ...VERIFIED }),
+      );
+      expect(ok).toMatchObject({ state: "verified", usable: true, journal: true, pending: null });
+      expect(ok.key).toMatchObject({ fingerprint: "SHA256:abc" });
+      expect(ok.verification).toMatchObject({ login: "ok", groups: ["stubwise-read", "adm"], ok: true });
+      // L'ultimo uso c'è, ma il server non dice con quale analisi o task.
+      expect(ok.lastUse).toEqual({ at: NOW, label: null, sessionId: null });
+      // Entrato con più della lettura: la verifica fallisce col risultato.
+      const priv = await stateOf(
+        ssh({
+          status: "failed",
+          ...KEYS,
+          verifiedAt: NOW,
+          verifyResult: { groups: ["sudo"], sudo: true, docker: false, journal: false, ok: false },
+        }),
+      );
+      expect(priv.state).toBe("privileged");
+      // Fallita senza risultato (connessione, comando, host key): verify_failed.
+      expect((await stateOf(ssh({ status: "failed", ...KEYS }))).state).toBe("verify_failed");
+      const revoked = await stateOf(ssh({ status: "revoked", revokedAt: NOW }));
+      expect(revoked).toMatchObject({ state: "revoked", revokedAt: NOW, key: null });
+    });
+
+    it("chi non gestisce l'SSH (403): lo stato dal riassunto del dettaglio, senza chiavi né azioni", async () => {
+      const r = await real({
+        byCode: async () => detail({ ssh: { status: "verified", usable: true } }),
+        ssh: async () => {
+          throw new ApiError(403, "forbidden", "forbidden");
+        },
+      });
+      const a = (await r.getServer("SRV-1")).access;
+      expect(a).toMatchObject({
+        state: "verified",
+        usable: true,
+        canManage: false,
+        key: null,
+        pending: null,
+        verification: null,
+      });
+    });
+
+    it("collega (host di base: quello dell'agente), verifica, rigenera, revoca", async () => {
+      const r = await real();
+      expect(await r.linkSshAccess("SRV-1")).toEqual({ command: KEYS.setupCommand });
+      expect(calls).toContainEqual(["connectSsh", S1, {}]);
+      expect((await r.verifySshAccess("SRV-1")).state).toBe("verified");
+      expect(await r.regenerateSshAccess("SRV-1")).toEqual({ command: KEYS.setupCommand });
+      expect(await r.revokeSshAccess("SRV-1")).toEqual({
+        removalCommand: "sudo userdel --remove stubwise-read",
+      });
+    });
+
+    it("i comandi da rivedere: quello d'installazione e quello di rimozione", async () => {
+      const r = await real({ ssh: async () => ssh({ status: "pending", ...KEYS }) });
+      expect(await r.getInstallCommand("SRV-1")).toEqual({ command: KEYS.setupCommand });
+      await expect(r.getRemovalCommand("SRV-1")).rejects.toThrow("invalid: state");
+      const gone = await real({
+        ssh: async () => ssh({ status: "revoked", revokedAt: NOW, removeCommand: "sudo userdel x" }),
+      });
+      expect(await gone.getRemovalCommand("SRV-1")).toEqual({ command: "sudo userdel x" });
+    });
+
+    it("senza un hostname dall'agente il collegamento chiede l'host: `invalid: host_required`", async () => {
+      const r = await real({
+        connectSsh: async () => {
+          throw new ApiError(400, "bad_request", "host_required");
+        },
+      });
+      await expect(r.linkSshAccess("SRV-1")).rejects.toThrow("invalid: host_required");
+    });
   });
 });

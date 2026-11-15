@@ -24,6 +24,8 @@ import { RegenerateDialog, RevokeDialog, SshSimulateBox } from "./SshAccessDialo
 import { Step } from "./SshSteps";
 import { privileged, PrivilegedResult, VerifyResult } from "./VerifyResult";
 import { WhoCanLink } from "../../components/WhoCanLink";
+import { isAppBuild } from "../../data/build";
+import { featureIntegrated } from "../../data/integration";
 
 // La parte «SSH access» del dettaglio di un server (shape server-access.md;
 // area 8, F4b): UN accesso, di sola lettura (`stubwise-read`), per
@@ -279,7 +281,14 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
       });
     if (st === "verified")
       items.push({ key: "verify", label: t("servers.ssh.menu.verifyAgain"), run: doVerify });
-    if (["verified", "verify_failed", "privileged"].includes(st) && !regenerating)
+    // Nell'app la chiave vecchia smette subito di valere (una chiave sola sul
+    // server, 72): finché il prodotto non decide, «Regenerate» non c'è lì,
+    // perché il suo testo promette la sovrapposizione (registro dei rimandi).
+    if (
+      ["verified", "verify_failed", "privileged"].includes(st) &&
+      !regenerating &&
+      featureIntegrated("servers-ssh-regenerate")
+    )
       items.push({
         key: "regen",
         label: t("servers.ssh.menu.regenerate"),
@@ -460,8 +469,9 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
           />
         )}
       </Part>
-      {/* Revocato non c'è niente da verificare finché non si ricollega. */}
-      {manage && (a.state !== "revoked" || relinking) && (
+      {/* Revocato non c'è niente da verificare finché non si ricollega. La
+          simulazione è solo del prototipo: nell'app la verifica è vera. */}
+      {!isAppBuild() && manage && (a.state !== "revoked" || relinking) && (
         <SshSimulateBox
           value={next}
           onChange={(outcome) => {

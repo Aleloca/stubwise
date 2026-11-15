@@ -72,7 +72,10 @@ function LastUse({ use, code }: { use: SshUseView | null; code: string }) {
   const { t, i18n } = useTranslation();
   if (!use) return <span className="text-ink-faint">{t("servers.ssh.rows.used.never")}</span>;
   const when = usedWhen(use.at, t, i18n.language);
-  if (use.label.kind === "analysis")
+  // Build app: il server dice quando, non con quale analisi o task.
+  if (!use.label) return <span>{t("servers.ssh.rows.used.plain", { when })}</span>;
+  const label = use.label;
+  if (label.kind === "analysis")
     return (
       <span>
         {t("servers.ssh.rows.used.analysis", { when, code })}
@@ -88,16 +91,16 @@ function LastUse({ use, code }: { use: SshUseView | null; code: string }) {
         )}
       </span>
     );
-  if (!use.label.code) return <span>{t("servers.ssh.rows.used.hiddenTask", { when })}</span>;
+  if (!label.code) return <span>{t("servers.ssh.rows.used.hiddenTask", { when })}</span>;
   return (
     <span>
       {t("servers.ssh.rows.used.task", { when })}{" "}
       <Link
         to="."
-        search={((prev: Record<string, unknown>) => ({ ...prev, task: use.label.code })) as never}
+        search={((prev: Record<string, unknown>) => ({ ...prev, task: label.code })) as never}
         className={`${linkClass} num font-semibold`}
       >
-        {use.label.code}
+        {label.code}
       </Link>
     </span>
   );

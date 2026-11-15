@@ -917,8 +917,19 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - *(fatto: le analisi lette sul server, `servers-analysis`: l'analisi di
     ogni episodio e l'ultima a mano, da `serverOps.analyses`.)*
   - *(fatto: il bottone dell'analisi a mano, con `canStartAnalysis` del server.)*
-  - **la frase «niente letture SSH»** di «Now» aspetta l'SSH integrato
-    (`servers-ssh`): senza, l'app non sa se l'accesso c'è;
+  - *(fatto: l'accesso SSH di sola lettura, `servers-ssh`: lo stato a chi
+    vede il server dal riassunto `ssh` del dettaglio, la vista intera e le
+    azioni a chi ha `servers.ssh.manage`; host di base quello dell'agente.)*
+  - **la rigenerazione della chiave SSH** è spenta nell'app
+    (`servers-ssh-regenerate`): sul server la chiave vecchia smette subito di
+    valere, il prototipo la tiene finché la nuova non passa. Decisione a 46.
+  - **SSH, divergenze dichiarate nell'app**: il comando d'installazione è
+    quello del server (in inglese, senza i commenti nella lingua di chi
+    guarda); l'ultimo uso è solo la data (non con quale analisi o task: le
+    letture stanno nel registro dei comandi); a chi non gestisce l'SSH una
+    verifica fallita non dice se per privilegi; senza un hostname
+    dall'agente il collegamento risponde `invalid: host_required` e il
+    prototipo non ha un campo Host.
   - **`done` del server** si mostra come «Diagnosis ready», o come diagnosi
     parziale con `endedBy: "time"`; «irraggiungibile» e «fermata» del
     prototipo il server non li distingue (resta così);
