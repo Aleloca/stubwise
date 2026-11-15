@@ -888,6 +888,24 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     (`resetSubscription`, review F2): nessuna riga fissata, il Telefono segue
     di nuovo `push`.
 
+- F4b, le risposte del maintainer *(M, via 46, 15 nov 2026)* e i limiti
+  ACCETTATI:
+  - **Un server che va e viene, nessun limite**: un'analisi per episodio,
+    nel budget mensile dell'istanza. Ogni episodio apre la sua analisi, una
+    task se attribuita, un triage: il freno è il budget, non un tetto per
+    server. Limite accettato, non un buco da chiudere.
+  - **I container di nessuno** si legano come oggi, da chi ha
+    `environments.manage`: è il confine di fiducia DICHIARATO in
+    `docs/invariants/server-operations.md` («Chi, quando, dove»).
+  - «Non determinata» e «fallita» vanno anche agli iscritti delle produzioni
+    del server; la rigenerazione SSH spegne subito la chiave vecchia; il
+    piano si approva nella sezione Server della task, dalla vista della
+    correzione.
+  - I 4 *ruling* della review finale (tetto di costo come cancello, la
+    proposta di un piano non segue l'interruttore delle analisi, la diagnosi
+    nel testo della task, nessun controllo «progetto della task = progetto
+    della correzione») restano com'erano *(O, 46)*.
+
 - Blocchi della Home «Rilasci» (anche l'extra di `resolveHome` per
   `release.merge`) e «Clienti in attesa».
 - Origine di una richiesta da Support; «View conversation» delle task del widget.

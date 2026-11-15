@@ -17,7 +17,7 @@ import { ensureAgentSession } from "../sessions/store.js";
 import { getContentLanguage } from "../settings.js";
 import { chatDisallowedTools } from "../claude-chat/turn.js";
 import { buildServerOpsMcpConfig, serverOpsServerPath, type ServerOpsBridge } from "./bridge.js";
-import { notifyAnalysisRequester, openServerTask } from "./fix-task.js";
+import { notifyAnalysisOutcome, notifyAnalysisRequester, openServerTask } from "./fix-task.js";
 import { verifyPendingSshAccess, type SshExec } from "./ssh.js";
 import { attributionContext, type AnalysisGrant } from "./tools.js";
 
@@ -243,15 +243,25 @@ export async function runNextServerAnalysis(deps: ServerAnalysisDeps): Promise<b
       log(`[server-ops] task dell'analisi ${next.id} non aperta: ${describeError(error)}`);
     }
   }
-  // Decisione del maintainer (15 nov 2026): chi ha chiesto l'analisi ne riceve
-  // SEMPRE l'esito. Qui quando non gli è già arrivato con la diagnosi.
-  if (requesterId !== null && !(taskOpened && requesterSeesTask)) {
+  // Decisioni del maintainer (15 nov 2026): «non determinata» e «fallita»
+  // vanno anche alle PRODUZIONI del server (e a chi l'ha chiesta, una card
+  // sola); negli altri casi chi l'ha chiesta riceve SEMPRE l'esito, qui quando
+  // non gli è già arrivato con la diagnosi.
+  const outcome = grant.report === null ? "failed" : attributed ? "attributed" : "undetermined";
+  if (outcome !== "attributed") {
+    await notifyAnalysisOutcome(
+      db,
+      { serverId: server.id, requesterId, outcome, manual: next.episodeId === null, language: await getContentLanguage(db), publicUrl: deps.publicUrl },
+      deps.publish,
+      log,
+    );
+  } else if (requesterId !== null && !(taskOpened && requesterSeesTask)) {
     await notifyAnalysisRequester(
       db,
       {
         serverId: server.id,
         requesterId,
-        outcome: grant.report === null ? "failed" : attributed ? "attributed" : "undetermined",
+        outcome: "attributed",
         language: await getContentLanguage(db),
         publicUrl: deps.publicUrl,
       },

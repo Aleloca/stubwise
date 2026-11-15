@@ -459,11 +459,11 @@ describe("decisione del maintainer (15 nov 2026): l'esito di un'analisi a mano a
   const forRequester = (id: string) =>
     published.filter((p) => ((p.opts as { mandatory?: { userId: string }[] }).mandatory ?? []).some((m) => m.userId === id)) as { event: Record<string, unknown>; opts: Record<string, unknown> }[];
 
-  it("non determinata, fallita, bloccata: una card SOLO a lui, con l'esito", async () => {
+  it("non determinata e fallita: una card per PRODUZIONE (lui obbligatorio in quella del suo progetto); bloccata: SOLO a lui", async () => {
     // Le scene dei test prima: chiuse qui, senza esiti da contare.
     await queueEpisodeAnalyses(db);
     await drain(deps(new FakeAgentRunner({ output: "x" })));
-    const { server, b } = await scene();
+    const { server, a, b } = await scene();
     const requester = await operator(b.projectId);
     const manual = async () => (await db.insert(serverAnalyses).values({ serverId: server.id, startedByUserId: requester }).returning())[0]!.id;
     // Non determinata: un progetto dichiarato senza container suoi.
@@ -480,9 +480,15 @@ describe("decisione del maintainer (15 nov 2026): l'esito di un'analisi a mano a
     const cards = forRequester(requester);
     expect(cards.map((c) => c.event["outcome"])).toEqual(["undetermined", "failed", "blocked"]);
     for (const c of cards) {
-      expect(c.opts).toMatchObject({ projectId: b.projectId, mandatoryOnly: true, mandatory: [{ userId: requester, reason: "analysis_requester" }] });
+      expect(c.opts).toMatchObject({ projectId: b.projectId, mandatory: [{ userId: requester, reason: "analysis_requester" }] });
       expect(c.event).toMatchObject({ kind: "server.diagnosis_ready", taskCode: null, serverId: server.id });
     }
+    // Non determinata e fallita: card di PRODUZIONE (anche ad A, dove lui non è), non solo a lui.
+    expect(cards[0]!.opts["mandatoryOnly"]).toBeUndefined();
+    expect(cards[1]!.opts["mandatoryOnly"]).toBeUndefined();
+    expect(cards[2]!.opts["mandatoryOnly"]).toBe(true);
+    const toServer = published.filter((p) => (p.event as { serverId?: string }).serverId === server.id) as { event: Record<string, unknown>; opts: Record<string, unknown> }[];
+    expect(toServer.filter((p) => p.event["outcome"] === "undetermined").map((p) => p.opts["projectId"]).sort()).toEqual([a.projectId, b.projectId].sort());
   });
 
   it("attribuita a un progetto che vede: niente card a sé, è obbligatorio sulla diagnosi", async () => {

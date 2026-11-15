@@ -73,6 +73,19 @@ piano è `docs/plans/2026-11-14-integrazione-area8-fetta4b-plan.md`.
   operazioni accese. Un esito fallito ferma il piano.
 - Lo Stop (e la revoca) ferma la sessione e cancella i comandi non ancora
   consegnati.
+- **Confine di fiducia dichiarato** *(maintainer, 15 nov 2026)*: QUALI
+  container sono di un progetto lo dicono gli ambienti
+  (`environment_servers.containers`, o il container col nome dell'ambiente
+  se la lista è vuota), e li lega chi ha `environments.manage` nel progetto.
+  Un container già di un ALTRO progetto, anche per nome, non si lega (409);
+  uno che NESSUNO ha legato sì, da chi ha quel permesso. È quel legame a
+  decidere su quali container un piano del progetto può agire: chi lo dà
+  dà anche questo.
+- **Chi riceve l'esito** *(maintainer, 15 nov 2026)*: la diagnosi
+  attribuita va agli iscritti del progetto attribuito; «non determinata» e
+  «fallita» agli iscritti delle PRODUZIONI del server; chi ha chiesto
+  un'analisi a mano riceve SEMPRE l'esito (`analysis_requester`), in una
+  card sola anche se è già iscritto.
 
 ## L'SSH è solo lettura
 
