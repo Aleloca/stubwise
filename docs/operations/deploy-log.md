@@ -4749,9 +4749,13 @@ deploy o di un rollback che la tocca.
     (una card sola anche se è iscritto), altrimenti — non determinata,
     fallita, bloccata — una card SOLO per lui nel primo progetto del server
     in cui ha `servers.operate`. Nessun kind nuovo.
+  - Il comando d'installazione con le operazioni monta un volume
+    (`stubwise-agent-state` su `/var/lib/stubwise-agent`): lì stanno i nonce
+    dei comandi visti, che così sopravvivono a un container ricreato.
   - ⚠️ Un riavvio del worker a metà di un'analisi la lascia `failed` dopo
-    durata+15'; a metà di una correzione la lascia `running` con un comando
-    forse consegnato: prima di riavviare, sola lettura,
+    durata+15'; a metà di una correzione il giro la porta da solo a `failed`
+    (`worker_restart`, approvazione revocata) dopo 30' ferma, ma un comando
+    già consegnato può essere partito: prima di riavviare, sola lettura,
     `select id, status from server_fixes where status in ('proposing','running');`
     e `select count(*) from server_analyses where status = 'running' and session_id is not null;`
     devono essere vuoti/zero (come «Worker fail-on-restart»).
