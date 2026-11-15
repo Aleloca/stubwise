@@ -27,7 +27,9 @@ export type MandatoryReason =
   | "merged"
   | "pr_author"
   | "task_author"
-  | "assignee";
+  | "assignee"
+  /** Area 8, F4b: chi ha chiesto un'analisi a mano ne riceve SEMPRE l'esito (decisione del maintainer, 15 nov 2026). */
+  | "analysis_requester";
 
 /**
  * Il valore di partenza («App») per un membro che non ha toccato niente, dai
@@ -140,7 +142,7 @@ export const ALERT_TYPES: readonly AlertType[] = [
   serverRow("server.trouble", true),
   serverRow("server.down", true, { sameRowAs: "server.trouble" }),
   serverRow("server.recovered", true, { sameRowAs: "server.trouble" }),
-  serverRow("server.diagnosis_ready", true),
+  serverRow("server.diagnosis_ready", true, { mandatory: ["analysis_requester"] }),
 ];
 
 /**
@@ -166,6 +168,8 @@ export const LIVE_ALERT_TYPES: readonly string[] = [
   "monitor.recovered",
   // Area 8, F3, S7 (72): la richiesta nata da una conversazione.
   "support.request",
+  // Area 8, F4b, S6 (72): la diagnosi dell'analisi di un server, e l'esito per chi l'ha chiesta.
+  "server.diagnosis_ready",
 ];
 
 export const alertTypeOf = (kind: string): AlertType | undefined =>

@@ -47,6 +47,12 @@ export interface PublishOpts {
    * coi loro motivi. Contano solo i motivi che il tipo prevede.
    */
   mandatory?: { userId: string; reason: MandatoryReason }[];
+  /**
+   * Area 8, F4b: l'avviso va SOLO agli obbligatori, non agli iscritti del
+   * progetto (l'esito di un'analisi a mano per chi l'ha chiesta, quando non è
+   * la diagnosi del progetto attribuito).
+   */
+  mandatoryOnly?: boolean;
   /** Progetto dell'evento: instrada verso chi lo segue. */
   projectId?: string;
   /** Ticket dell'evento: instrada verso l'assegnatario. */
@@ -312,6 +318,7 @@ export async function resolveCatalogRecipients(
     subscriptions: new Map(rows.map((r) => [r.userId, { app: r.app, phone: r.phone }])),
     mandatory: opts.mandatory ?? [],
     pushPreference: (userId) => pushOn.has(userId),
+    mandatoryOnly: opts.mandatoryOnly === true,
   });
 }
 

@@ -385,8 +385,14 @@ export interface ServerDiagnosisReadyEvent {
   kind: "server.diagnosis_ready";
   projectId: string;
   serverName: string;
-  /** `<PRJ>-<n>` della task nata dalla diagnosi. */
-  taskCode: string;
+  /** `<PRJ>-<n>` della task nata dalla diagnosi; null senza task (analisi a mano non attribuita). */
+  taskCode: string | null;
+  /**
+   * L'esito (additivo; assente = `attributed`, le card di prima). Le card di
+   * un'analisi A MANO vanno anche a chi l'ha chiesta (`analysis_requester`),
+   * con ogni esito: non determinata, fallita, bloccata.
+   */
+  outcome?: "attributed" | "undetermined" | "failed" | "blocked";
   title: string;
   url: string;
   /** Il server (additivo): il client ne deriva il codice `SRV-<n>` a lettura. */
@@ -1473,6 +1479,9 @@ function templateKey(event: NotificationEvent): string {
     if (!keys) throw new Error(`soggetto di security.alert sconosciuto: ${String(event.subject)}`);
     return typeof event.actorEmail === "string" && event.actorEmail !== "" ? keys.withActor : keys.withoutActor;
   }
+  if (event.kind === "server.diagnosis_ready" && event.outcome !== undefined && event.outcome !== "attributed") {
+    return `notify.alert.serverAnalysis.${event.outcome}`;
+  }
   if (event.kind === "planning.changed") {
     // La riceve chi l'aveva: «data a un altro» se l'assegnatario è cambiato,
     // altrimenti è ancora sua, spostata o tolta dalla settimana.
@@ -1633,7 +1642,7 @@ function textParams(
       return { code: event.requestCode, title: event.title, customer: event.customerName ?? t(lang, "notify.alert.anonymousCustomer") };
     }
     if (event.kind === "server.diagnosis_ready") {
-      return { server: event.serverName, code: event.taskCode, title: event.title };
+      return { server: event.serverName, code: event.taskCode ?? "", title: event.title };
     }
     if (event.kind === "ticket.activity") {
       return {

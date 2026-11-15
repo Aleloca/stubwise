@@ -1,7 +1,7 @@
 import { eq, sql } from "drizzle-orm";
 import { aiJobs, projects, serverAnalyses, serverFixes, servers, tickets, type Db } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
-import { publishNotification, type NotificationEvent } from "@stubwise/notifications";
+import { attributionContext, publishNotification, userIdsWithPermission, type NotificationEvent } from "@stubwise/notifications";
 import { validateServerPlan, type AttributionInput, type ServerDiagnosisReport } from "@stubwise/shared";
 
 /**
@@ -29,6 +29,12 @@ export interface ServerTaskInput {
   language: Language;
   publicUrl: string;
   severity: "trouble" | "down" | null;
+  /**
+   * Chi ha chiesto l'analisi a mano (decisione del maintainer, 15 nov 2026):
+   * riceve la diagnosi da OBBLIGATORIO (`analysis_requester`) se vede il
+   * progetto attribuito; una card sola anche se è già iscritto.
+   */
+  requesterId?: string | null;
 }
 
 const FENCE = "~~~";
@@ -115,9 +121,65 @@ export async function openServerTask(
     url: `${input.publicUrl.replace(/\/+$/, "")}/app/#/p/${created.projectCode}/tasks/${created.taskCode}`,
   };
   try {
-    await publish(db, event, { projectId: input.projectId, ticketId: created.ticketId });
+    await publish(db, event, {
+      projectId: input.projectId,
+      ticketId: created.ticketId,
+      ...(input.requesterId ? { mandatory: [{ userId: input.requesterId, reason: "analysis_requester" as const }] } : {}),
+    });
   } catch (error) {
     log(`[server-ops] avviso della diagnosi ${input.analysisId} non pubblicato: ${error instanceof Error ? error.message : String(error)}`);
   }
   return { ticketId: created.ticketId, taskCode: created.taskCode };
+}
+
+/**
+ * L'esito di un'analisi A MANO per chi l'ha chiesta, quando non arriva già
+ * con la diagnosi del progetto attribuito (non determinata, fallita, bloccata,
+ * o attribuita a un progetto che lui non vede). La card è nel primo progetto
+ * del server in cui ha `servers.operate` (lo stesso criterio con cui ha potuto
+ * avviarla) e va SOLO a lui (`mandatoryOnly`): gli iscritti di quel progetto
+ * non ricevono l'esito di un'analisi che non hanno chiesto.
+ */
+export async function notifyAnalysisRequester(
+  db: Db,
+  input: {
+    serverId: string;
+    requesterId: string;
+    outcome: "attributed" | "undetermined" | "failed" | "blocked";
+    language: Language;
+    publicUrl: string;
+  },
+  publish: typeof publishNotification = publishNotification,
+  log: (m: string) => void = console.warn,
+): Promise<string | null> {
+  const [server] = await db.select().from(servers).where(eq(servers.id, input.serverId));
+  if (!server) return null;
+  const ctx = await attributionContext(db, input.serverId);
+  let projectId: string | null = null;
+  let projectCode = "";
+  for (const p of ctx.serverProjects) {
+    if ((await userIdsWithPermission(db, "servers.operate", p.projectId)).includes(input.requesterId)) {
+      projectId = p.projectId;
+      projectCode = p.projectCode;
+      break;
+    }
+  }
+  if (projectId === null) return null;
+  const code = `SRV-${server.number}`;
+  const event: NotificationEvent = {
+    kind: "server.diagnosis_ready",
+    projectId,
+    serverName: server.name,
+    serverId: server.id,
+    taskCode: null,
+    title: t(input.language, "server.taskTitleManual", { code, name: server.name }),
+    url: `${input.publicUrl.replace(/\/+$/, "")}/app/#/p/${projectCode}/servers/${code}`,
+    outcome: input.outcome,
+  };
+  try {
+    await publish(db, event, { projectId, mandatory: [{ userId: input.requesterId, reason: "analysis_requester" }], mandatoryOnly: true });
+  } catch (error) {
+    log(`[server-ops] esito dell'analisi per chi l'ha chiesta non pubblicato: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return projectId;
 }

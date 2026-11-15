@@ -4741,6 +4741,14 @@ deploy o di un rollback che la tocca.
     al deploy riceve la SUA analisi al primo giro.
   - `servers.operate` non è in nessun preset: va dato a mano in un ruolo di
     progetto. `servers.ssh.manage` è dell'Admin d'istanza.
+  - `server.diagnosis_ready` è un avviso del CATALOGO, vivo: lo ricevono gli
+    iscritti del progetto attribuito (di partenza chi ha `servers.operate` e
+    i full admin). Chi ha chiesto un'analisi a mano ne riceve SEMPRE l'esito
+    (decisione del maintainer, 15 nov 2026), da obbligatorio
+    (`analysis_requester`): sulla diagnosi del progetto attribuito se lo vede
+    (una card sola anche se è iscritto), altrimenti — non determinata,
+    fallita, bloccata — una card SOLO per lui nel primo progetto del server
+    in cui ha `servers.operate`. Nessun kind nuovo.
   - ⚠️ Un riavvio del worker a metà di un'analisi la lascia `failed` dopo
     durata+15'; a metà di una correzione la lascia `running` con un comando
     forse consegnato: prima di riavviare, sola lettura,

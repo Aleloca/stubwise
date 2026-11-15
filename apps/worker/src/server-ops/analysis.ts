@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { and, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { instanceSettings, monthlyCostUsd, serverAnalyses, serverCommands, serverEpisodes, servers, type Db } from "@stubwise/db";
-import { aiBudgetState, type publishNotification } from "@stubwise/notifications";
+import { aiBudgetState, projectViewerIds, type publishNotification } from "@stubwise/notifications";
 import {
   attributeServerCause,
   readServerAnalysisLimits,
@@ -17,7 +17,7 @@ import { ensureAgentSession } from "../sessions/store.js";
 import { getContentLanguage } from "../settings.js";
 import { chatDisallowedTools } from "../claude-chat/turn.js";
 import { buildServerOpsMcpConfig, serverOpsServerPath, type ServerOpsBridge } from "./bridge.js";
-import { openServerTask } from "./fix-task.js";
+import { notifyAnalysisRequester, openServerTask } from "./fix-task.js";
 import { verifyPendingSshAccess, type SshExec } from "./ssh.js";
 import { attributionContext, type AnalysisGrant } from "./tools.js";
 
@@ -134,6 +134,14 @@ export async function runNextServerAnalysis(deps: ServerAnalysisDeps): Promise<b
       .set({ status: "blocked", blockedBy: blocked, finishedAt: new Date() })
       .where(and(eq(serverAnalyses.id, next.id), isNull(serverAnalyses.sessionId)));
     log(`[server-ops] analisi ${next.id} bloccata: ${blocked}`);
+    if (next.startedByUserId) {
+      await notifyAnalysisRequester(
+        db,
+        { serverId: next.serverId, requesterId: next.startedByUserId, outcome: "blocked", language: await getContentLanguage(db), publicUrl: deps.publicUrl },
+        deps.publish,
+        log,
+      );
+    }
     return true;
   }
 
@@ -205,6 +213,11 @@ export async function runNextServerAnalysis(deps: ServerAnalysisDeps): Promise<b
     await rm(cwd, { recursive: true, force: true }).catch(() => undefined);
   }
   const attributed = await recordOutcome(db, next.id, server.id, grant.report, result, failure);
+  const requesterId = next.startedByUserId;
+  // Chi ha chiesto l'analisi a mano riceve la diagnosi del progetto attribuito
+  // da obbligatorio, se lo vede; altrimenti una card a sé (sotto).
+  const requesterSeesTask = attributed !== null && requesterId !== null && (await projectViewerIds(db, attributed.projectId)).includes(requesterId);
+  let taskOpened = false;
   // S6: un'attribuzione VALIDA apre la task nel progetto attribuito.
   if (attributed && grant.report) {
     try {
@@ -220,13 +233,31 @@ export async function runNextServerAnalysis(deps: ServerAnalysisDeps): Promise<b
           language: await getContentLanguage(db),
           publicUrl: deps.publicUrl,
           severity: episode?.severity ?? null,
+          requesterId: requesterSeesTask ? requesterId : null,
         },
         deps.publish,
         log,
       );
+      taskOpened = true;
     } catch (error) {
       log(`[server-ops] task dell'analisi ${next.id} non aperta: ${describeError(error)}`);
     }
+  }
+  // Decisione del maintainer (15 nov 2026): chi ha chiesto l'analisi ne riceve
+  // SEMPRE l'esito. Qui quando non gli è già arrivato con la diagnosi.
+  if (requesterId !== null && !(taskOpened && requesterSeesTask)) {
+    await notifyAnalysisRequester(
+      db,
+      {
+        serverId: server.id,
+        requesterId,
+        outcome: grant.report === null ? "failed" : attributed ? "attributed" : "undetermined",
+        language: await getContentLanguage(db),
+        publicUrl: deps.publicUrl,
+      },
+      deps.publish,
+      log,
+    );
   }
   if (failure) log(`[server-ops] analisi ${next.id} senza diagnosi: ${failure}`);
   return true;
