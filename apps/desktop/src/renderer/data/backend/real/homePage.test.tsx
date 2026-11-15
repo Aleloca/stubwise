@@ -94,6 +94,8 @@ beforeEach(() => {
     "GET /api/me/mail/threads": () => ({ body: { items: importantThreads, nextCursor: null } }),
     // Area 6, fetta 2: le proposte della Posta in «Da decidere».
     "GET /api/me/mail/proposals": { body: { items: [] } },
+    // Area 8: «Clienti in attesa» dalla posta (72, W2).
+    "GET /api/me/waiting-customers": { body: { items: [], total: 0 } },
     // Area 4, fetta 2: le domande della Chat in «Da decidere».
     "GET /api/chat/questions": () =>
       chatQuestionsMissing
@@ -185,12 +187,14 @@ afterEach(() => {
 });
 
 describe("la Home nella build app", () => {
-  it("la Home del reparto dal server; il filtro eliminato è «non disponibile»; i clienti in attesa (area 8) non ci sono", async () => {
+  it("la Home del reparto dal server; il filtro eliminato è «non disponibile»; i clienti in attesa (area 8) dalla posta", async () => {
     renderRoute("/home");
     const tasks = await screen.findByRole("region", { name: /^My tasks/ });
     expect(await within(tasks).findByText("Export the report")).toBeInTheDocument();
     expect(await screen.findByText("This filter is no longer available")).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: /^Customers waiting/ })).toBeNull();
+    const waiting = await screen.findByRole("region", { name: /^Customers waiting/ });
+    expect(await within(waiting).findByText("No customer is waiting")).toBeInTheDocument();
+    expect(seen.some((r) => r.path.startsWith("/api/me/waiting-customers"))).toBe(true);
   });
 
   it("«Da decidere»: una domanda della Chat a chi guarda, dal server (area 4, fetta 2)", async () => {
@@ -300,7 +304,7 @@ describe("la Home nella build app", () => {
     });
   });
 
-  it("personalizzare dall'app non cancella un blocco di un'area non integrata né un kind sconosciuto", async () => {
+  it("personalizzare dall'app non cancella un kind sconosciuto (e «Clienti in attesa», ora integrato, si elenca)", async () => {
     personalBlocks = [
       { kind: "decide" },
       { kind: "myWeek" },
@@ -312,8 +316,8 @@ describe("la Home nella build app", () => {
     await screen.findByRole("region", { name: /^My tasks/ });
     fireEvent.click(await screen.findByRole("button", { name: "Customize" }));
     const list = await screen.findByRole("list", { name: "Blocks of the Home" });
-    // L'editor non elenca ciò che questa build non mostra.
-    expect(within(list).queryByText("Customers waiting")).toBeNull();
+    // Area 8: «Clienti in attesa» è integrato (dalla posta), quindi si elenca.
+    expect(within(list).getByText("Customers waiting")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add block" }));
     const menu = await screen.findByRole("menu", { name: "Add block" });
     fireEvent.click(within(menu).getByRole("menuitem", { name: /Stalled in my projects/ }));

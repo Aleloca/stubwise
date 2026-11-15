@@ -215,6 +215,8 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Area 6, fetta 2: la classificazione nuova, cioè importanza e scadenza delle
     // conversazioni, «Importanti» e il blocco Home «Posta importante».
     "mail-importance",
+    // Area 8: «Clienti in attesa» della Home dalla posta delle mie caselle (72, W2–W3).
+    "mail-waiting",
     // Area 6, fetta 2: la proposta condivisa coi campi modificabili, la
     // conferma parziale e gli incaricati fuori dal progetto come Contributor.
     "mail-proposal-edit",

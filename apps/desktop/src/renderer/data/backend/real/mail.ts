@@ -1,4 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
+import { mailWaitingFunctions } from "./mailWaiting";
 import { meetingFunctions, meetingOfMessage } from "./meetings";
 import type { MailThreadQuery } from "@stubwise/api-client";
 import type { MailThreadDetail as ServerThread, MailThreadItem, MailThreadMessage } from "@stubwise/shared";
@@ -372,6 +373,8 @@ export const mailFunctions: Partial<Mail> = {
   syncMailbox,
   listMailThreads,
   listImportantMail,
+  // Area 8: «Clienti in attesa» della Home (`GET /api/me/waiting-customers`).
+  ...mailWaitingFunctions,
   getMailThread,
   searchMail,
   reproposeMessage,

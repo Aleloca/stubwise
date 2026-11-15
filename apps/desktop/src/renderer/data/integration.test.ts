@@ -58,6 +58,7 @@ const ALL: IntegrationTarget[] = [
       "mail",
       "mail-write",
       "mail-importance",
+      "mail-waiting",
       "mail-proposal-edit",
       "mail-contributors",
       "mail-claude-draft",
@@ -216,6 +217,7 @@ describe("isIntegrated", () => {
         "feature:mail",
         // Area 6, fetta 2: importanza, «Importanti» e «Posta importante».
         "feature:mail-importance",
+        "feature:mail-waiting",
         "feature:mail-proposal-edit",
         "feature:mail-contributors",
         "feature:mail-write",
