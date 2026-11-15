@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -8,9 +8,13 @@ import {
   useConversation,
   usePeople,
   useProjects,
+  useApproveServerFix,
+  useRejectServerFix,
   useServerTaskInfo,
   useStartServerFix,
+  useStopServerFix,
 } from "../../data/queries";
+import { PlanCard } from "../claude/conversation/PlanCard";
 import type { ServerTaskInfo } from "../../data/servers";
 import type { EpisodeReason, ServerEpisode, Task } from "../../data/types";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
@@ -308,6 +312,69 @@ function Proposal({ text }: { text: string }) {
   );
 }
 
+/**
+ * La scheda del piano della correzione, nella sezione Server (decisione del
+ * maintainer, 15 nov 2026): costruita dalla VISTA della correzione — i passi
+ * dell'insieme chiuso, l'avviso della pulizia, chi può decidere — e decisa
+ * con le azioni della correzione (Approva col digest della vista, Rifiuta
+ * con la nota). «Read the full plan» apre la sessione, dove si legge come
+ * Claude ci è arrivato.
+ */
+function FixPlan({
+  task,
+  info,
+  code,
+  project,
+}: {
+  task: Task;
+  info: ServerTaskInfo;
+  code: string;
+  project: string;
+}) {
+  const approve = useApproveServerFix();
+  const reject = useRejectServerFix();
+  const navigate = useNavigate();
+  const fix = info.fix!;
+  const digest = fix.planDigest!;
+  const event = {
+    id: `fix-plan-${digest}`,
+    at: "",
+    type: "plan" as const,
+    planText: "",
+    summary: "",
+    status: "pending" as const,
+    digest,
+    serverPlan: {
+      steps: fix.steps.map((s) => ({ action: s.action, params: s.params, why: s.why })),
+    } as never,
+  };
+  const sessionId = fix.sessionId;
+  return (
+    <PlanCard
+      conversationId={sessionId ?? ""}
+      event={event as never}
+      canDecidePlan={fix.canApprove}
+      projectCode={project || null}
+      statusShown
+      {...(sessionId
+        ? { onReadFull: () => void navigate({ to: "/claude/$id", params: { id: sessionId } }) }
+        : {})}
+      serverFix={{
+        code,
+        canReject: fix.canReject,
+        blockedReason: fix.operationsOn ? null : "operations_off",
+        startedByViewer: fix.startedByViewer,
+        pruneWarning: fix.pruneWarning,
+      }}
+      onDecide={(decision, instructions) =>
+        decision === "approve"
+          ? approve.mutateAsync({ taskId: task.id, planDigest: digest })
+          : reject.mutateAsync({ taskId: task.id, note: instructions ?? "" })
+      }
+    />
+  );
+}
+
 function ServerBody({ task, info }: { task: Task; info: ServerTaskInfo }) {
   const { t } = useTranslation();
   const project = useProjects().data?.find((p) => p.id === task.projectId)?.code ?? "";
@@ -316,6 +383,7 @@ function ServerBody({ task, info }: { task: Task; info: ServerTaskInfo }) {
   const [notes, setNotes] = useState("");
   const notesId = useId();
   const start = useStartServerFix();
+  const stopFix = useStopServerFix();
   const toast = useToast();
   const aiBlock = useAiBlock(task.projectId).data ?? null;
 
@@ -403,6 +471,22 @@ function ServerBody({ task, info }: { task: Task; info: ServerTaskInfo }) {
       )}
       {info.episode && <EpisodeLine episode={info.episode} info={info} />}
       <StateLine info={info} code={code} />
+      {info.state === "plan_awaiting" && info.fix?.planDigest && (
+        <FixPlan task={task} info={info} code={code} project={project} />
+      )}
+      {info.fix?.canStop && (
+        <button
+          type="button"
+          data-stop-fix
+          className={`${secondaryButton} self-start`}
+          disabled={stopFix.isPending}
+          onClick={() =>
+            stopFix.mutate(task.id, { onError: () => toast.error(t(`${K}.stopFailed`)) })
+          }
+        >
+          {t(`${K}.stop`)}
+        </button>
+      )}
 
       {outcomeKey && <p className="text-sm text-ink">{t(`servers.now.work.${outcomeKey}`)}</p>}
       {analysis?.proposal && <Proposal text={analysis.proposal} />}

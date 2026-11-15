@@ -860,6 +860,7 @@ function WithRun({
           onReadFull={toSession}
           statusShown
           serverFix={fixPlan}
+          decideElsewhere={!!detail?.serverFix}
         />
       )}
       {detail?.serverFix && (

@@ -1,5 +1,5 @@
 import { serverCommandsOf, type ServerCommandRow } from "../../domain/servers/commands";
-import { prunes } from "../../domain/servers/fixPlan";
+import { planDigest, prunes } from "../../domain/servers/fixPlan";
 import {
   fixSteps,
   serverFixStatus,
@@ -342,11 +342,22 @@ export interface ServerFixInfo {
   operationsOn: boolean;
   canRequestPlan: boolean;
   canApprove: boolean;
+  /** Rifiutare: anche con l'approvazione spenta (operazioni dell'agente spente). */
+  canReject: boolean;
   canStop: boolean;
+  /** L'ha chiesta chi guarda (la scheda dice che approvando partono i comandi). */
+  startedByViewer: boolean;
   /** I comandi della correzione, in ordine (letture e azioni; uscite NON fidate). */
   commands: ServerCommandRow[];
   /** Con un piano che libera spazio, gli altri progetti del server: l'avviso prima di approvare. */
   pruneWarning: PruneWarning | null;
+  /**
+   * L'impronta del piano che aspetta l'approvazione (decisione 3): Approva
+   * la rimanda così com'è (`approveServerFix`); `null` senza un piano che aspetta.
+   */
+  planDigest: string | null;
+  /** La sessione di Claude della correzione, da leggere (come ha ragionato). */
+  sessionId: string | null;
 }
 
 type PlanEvent = Extract<ReturnType<typeof eventsOf>[number], { type: "plan" }>;
@@ -400,8 +411,12 @@ function fixInfo(
     operationsOn: state.servers.find((x) => x.code === code)?.agentOperations ?? false,
     canRequestPlan: serverFixStartBlock(me, task) === null,
     canApprove: perms?.canDecidePlan ?? false,
+    canReject: perms?.canRejectPlan ?? false,
+    startedByViewer: run?.ownerId === me,
     canStop: live && (perms?.canInterrupt ?? false),
     commands: run ? serverCommandsOf(events, run.ownerId) : [],
+    planDigest: plan?.status === "pending" && plan.serverPlan ? planDigest(plan.serverPlan) : null,
+    sessionId: run?.id ?? null,
     pruneWarning:
       plan?.serverPlan &&
       prunes(plan.serverPlan) &&

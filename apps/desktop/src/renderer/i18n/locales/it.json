@@ -1434,7 +1434,8 @@
         },
         "statusAwaiting": "Correzione su {{code}} · da approvare",
         "statusAwaitingYou": "Correzione su {{code}} · aspetta la tua approvazione",
-        "codeOnly": "Questa esecuzione lavora sul codice, mai su {{code}}. Per correggere il server usa «Avvia la correzione» nella sezione Server qui sopra."
+        "codeOnly": "Questa esecuzione lavora sul codice, mai su {{code}}. Per correggere il server usa «Avvia la correzione» nella sezione Server qui sopra.",
+        "decideInServer": "Questo piano si decide nella sezione Server della task, dove vedi cosa esegue su {{code}}."
       },
       "check": {
         "resolved": "Controllo dopo la correzione: risolto",
@@ -1467,7 +1468,9 @@
         "ssh": "SSH",
         "viaAgent": "Attraverso l'agente di monitoraggio",
         "viaSsh": "Attraverso l'accesso SSH di sola lettura"
-      }
+      },
+      "stop": "Ferma la correzione",
+      "stopFailed": "Non è stato possibile fermare la correzione. Riprova."
     }
   },
   "newTask": {

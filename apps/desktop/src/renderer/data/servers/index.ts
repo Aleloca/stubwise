@@ -33,6 +33,7 @@ export {
   type ServerTaskInfo,
 } from "./reads";
 export { startServerFix } from "./fix";
+export { approveServerFix, rejectServerFix, stopServerFix } from "./fixDecide";
 export { startServerAnalysis } from "./operate";
 export {
   createCheck,

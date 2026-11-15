@@ -336,6 +336,30 @@ const FIX_AREAS = [
   "waitingOnMe",
 ] as const;
 
+/**
+ * Il piano della correzione deciso dalla task (decisione del maintainer, 15
+ * nov 2026): Approva col digest della vista, Rifiuta con la nota, Stop.
+ */
+export function useApproveServerFix() {
+  return useWrite(
+    ({ taskId, planDigest }: { taskId: string; planDigest: string }) =>
+      api.servers.approveServerFix(taskId, planDigest),
+    FIX_AREAS,
+  );
+}
+
+export function useRejectServerFix() {
+  return useWrite(
+    ({ taskId, note }: { taskId: string; note: string }) =>
+      api.servers.rejectServerFix(taskId, note),
+    FIX_AREAS,
+  );
+}
+
+export function useStopServerFix() {
+  return useWrite((taskId: string) => api.servers.stopServerFix(taskId), FIX_AREAS);
+}
+
 export function useStartServerFix() {
   return useWrite(
     ({ taskId, notes }: { taskId: string; notes?: string }) =>

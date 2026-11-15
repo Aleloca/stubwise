@@ -870,6 +870,10 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
   return {
     ...withVisibleContext(me, conversationRow(me, c)),
     ...conversationPermissions(me, c),
+    // La sessione di una correzione si legge (decisione del maintainer, 15 nov
+    // 2026): il piano si decide e la correzione si ferma dalla sezione Server
+    // della task; niente Stop né «Ferma e scrivi» nella sessione.
+    ...(c.serverFix ? { canInterrupt: false } : {}),
     events,
     planPreApproved: state.preApprovedPlans.has(id),
     serverFixPruneWarning: (() => {

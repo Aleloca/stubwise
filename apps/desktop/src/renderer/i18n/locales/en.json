@@ -1434,7 +1434,8 @@
         },
         "statusAwaiting": "Fix on {{code}} · waiting for approval",
         "statusAwaitingYou": "Fix on {{code}} · waiting for your approval",
-        "codeOnly": "This run works on the code, never on {{code}}. To fix the server, use Start fix in Server above."
+        "codeOnly": "This run works on the code, never on {{code}}. To fix the server, use Start fix in Server above.",
+        "decideInServer": "You decide this plan in the task's Server section, where you see what it runs on {{code}}."
       },
       "check": {
         "resolved": "Check after the fix: resolved",
@@ -1467,7 +1468,9 @@
         "ssh": "SSH",
         "viaAgent": "Through the monitoring agent",
         "viaSsh": "Through the read-only SSH access"
-      }
+      },
+      "stop": "Stop the fix",
+      "stopFailed": "Couldn't stop the fix. Try again."
     }
   },
   "newTask": {

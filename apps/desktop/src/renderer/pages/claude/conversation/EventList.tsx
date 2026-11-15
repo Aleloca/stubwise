@@ -200,6 +200,7 @@ export function EventList({
                     canDecidePlan={detail.canDecidePlan && item.event.status === "pending"}
                     projectCode={projectCode}
                     serverFix={fixPlan}
+                    decideElsewhere={!!detail.serverFix}
                   />
                 );
               case "proposal":

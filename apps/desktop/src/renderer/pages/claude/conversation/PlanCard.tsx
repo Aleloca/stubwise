@@ -50,6 +50,8 @@ export function PlanCard({
   onReadFull,
   statusShown = false,
   serverFix,
+  onDecide,
+  decideElsewhere = false,
 }: {
   conversationId: string;
   event: Ev<"plan">;
@@ -58,9 +60,22 @@ export function PlanCard({
   onReadFull?: () => void;
   statusShown?: boolean;
   serverFix?: ServerFixPlan | undefined;
+  /**
+   * La decisione passa da qui invece che dalla conversazione: la scheda di
+   * una correzione nella sezione Server della task (decisione del
+   * maintainer, 15 nov 2026), con le azioni della correzione.
+   */
+  onDecide?: (decision: "approve" | "reject", instructions?: string) => Promise<void>;
+  /**
+   * La sessione di una correzione: il piano si legge, ma si decide nella
+   * sezione Server della task (nessun bottone qui, la frase lo dice).
+   */
+  decideElsewhere?: boolean;
 }) {
   const { t } = useTranslation();
   const decide = useDecidePlan();
+  const [deciding, setDeciding] = useState(false);
+  const busy = decide.isPending || deciding;
   const [full, setFull] = useState(false);
   const [rejecting, setRejecting] = useState<string | null>(null);
   /** `changed`: 409 `plan_changed`, il piano è stato riscritto dopo che lo si è letto. */
@@ -134,6 +149,16 @@ export function PlanCard({
 
   const run = (decision: "approve" | "reject", instructions?: string) => {
     setFailed(false);
+    if (onDecide) {
+      setDeciding(true);
+      void onDecide(decision, instructions)
+        .then(() => setRejecting(null))
+        .catch((error: Error) =>
+          setFailed(/plan_changed/.test(error.message) ? "changed" : true),
+        )
+        .finally(() => setDeciding(false));
+      return;
+    }
     decide.mutate(
       {
         id: conversationId,
@@ -157,7 +182,7 @@ export function PlanCard({
 
   // Rifiutare resta possibile anche con l'approvazione spenta (correzione di server).
   const canReject = serverFix ? serverFix.canReject : canDecidePlan;
-  const decides = canDecidePlan || canReject;
+  const decides = !decideElsewhere && (canDecidePlan || canReject);
   const F = "taskDetail.server.planCard";
   return (
     <section
@@ -183,12 +208,15 @@ export function PlanCard({
           {t(`${F}.runsAs`, { code: serverFix.code })}
         </p>
       )}
-      <div className="flex min-w-0 flex-col gap-1">
-        <span className="text-xs font-semibold text-ink-muted">
-          {t("claude.conversation.plan.inBrief")}
-        </span>
-        <Markdown source={event.summary} className="max-w-[68ch]" />
-      </div>
+      {/* La scheda della sezione Server (dalla vista della correzione) non ha un riassunto. */}
+      {event.summary && (
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="text-xs font-semibold text-ink-muted">
+            {t("claude.conversation.plan.inBrief")}
+          </span>
+          <Markdown source={event.summary} className="max-w-[68ch]" />
+        </div>
+      )}
       {serverFix && event.serverPlan && event.serverPlan.steps.length > 0 && (
         // Chi approva legge il piano azione per azione, sempre a vista (shape
         // server-task §3): le azioni tradotte, il perché (del modello) come testo.
@@ -251,7 +279,7 @@ export function PlanCard({
             <button
               type="button"
               className={secondaryButton}
-              disabled={decide.isPending || lostTo !== null || !canReject}
+              disabled={busy || lostTo !== null || !canReject}
               // Approvazione spenta: il rifiuto chiude la correzione e libera il
               // server, senza indicazioni (un piano riscritto sarebbe bloccato uguale).
               onClick={() => (serverFix?.blockedReason ? run("reject") : setRejecting(""))}
@@ -263,7 +291,7 @@ export function PlanCard({
             <button
               type="button"
               className={primaryButton}
-              disabled={decide.isPending || lostTo !== null || !canDecidePlan}
+              disabled={busy || lostTo !== null || !canDecidePlan}
               onClick={() => run("approve")}
             >
               {serverFix ? t(`${F}.approve`) : t("claude.conversation.plan.approve")}
@@ -296,7 +324,7 @@ export function PlanCard({
               <button
                 type="submit"
                 className={primaryButton}
-                disabled={decide.isPending || lostTo !== null}
+                disabled={busy || lostTo !== null}
               >
                 {t("claude.conversation.plan.rejectAndSend")}
               </button>
@@ -304,6 +332,11 @@ export function PlanCard({
           </form>
         )
       ) : (
+        decideElsewhere ? (
+          <p data-plan-where className="text-sm text-ink-muted">
+            {t(`${F}.decideInServer`, { code: serverFix?.code ?? "" })}
+          </p>
+        ) : (
         // Al posto di Approve, dove chi può decidere trova i bottoni: chi decide.
         <p data-plan-who className="text-right text-sm text-ink-muted">
           {serverFix
@@ -320,6 +353,7 @@ export function PlanCard({
             </>
           )}
         </p>
+        )
       )}
       {serverFix && (
         <p data-release-rule className="text-xs text-ink-muted">

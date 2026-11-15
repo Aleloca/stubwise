@@ -15,7 +15,7 @@ import { createTaskAs } from "../../data/api-mutations";
 import { CLAUDE_ID } from "../../data/seed/people";
 import { whenFixesIdle } from "../../data/servers/fix";
 import { setSessionPersonId } from "../../data/session";
-import { eventsOf, state } from "../../data/store";
+import { eventsOf, setStreamLatency, state } from "../../data/store";
 import type { ConversationEvent } from "../../data/types";
 import { setLanguage } from "../../i18n";
 import { renderRoute } from "../../test/renderRoute";
@@ -156,7 +156,7 @@ describe("sezione Server", () => {
     await waitFor(() =>
       expect(serverSection()).toHaveTextContent("Fix plan waiting for your approval"),
     );
-    const plan = await within(claudeSection()).findByRole("region", { name: "Fix plan for SRV-1" });
+    const plan = await within(serverSection()).findByRole("region", { name: "Fix plan for SRV-1" });
     expect(plan).toHaveTextContent(
       "The monitoring agent on SRV-1 runs these actions, one at a time. Nothing else can run.",
     );
@@ -167,6 +167,11 @@ describe("sezione Server", () => {
     expect(within(plan).getByRole("button", { name: "Approve the plan" })).toBeEnabled();
     expect(within(plan).getByRole("button", { name: "Reject with instructions" })).toBeEnabled();
     expect(claudeSection()).toHaveTextContent("Fix on SRV-1 · waiting for your approval");
+    // Decisione del maintainer (15 nov 2026): nella sezione Claude il piano si
+    // legge, ma si decide nella sezione Server.
+    const readOnly = within(claudeSection()).getByRole("region", { name: "Fix plan for SRV-1" });
+    expect(within(readOnly).queryByRole("button", { name: "Approve the plan" })).toBeNull();
+    expect(readOnly).toHaveTextContent("You decide this plan in the task's Server section");
     // Nel «⋯» nessuna approvazione in anticipo.
     await user.click(
       within(claudeSection()).getByRole("button", { name: "More actions for Claude" }),
@@ -178,10 +183,34 @@ describe("sezione Server", () => {
     expect(fixCommands()).toBe(0);
   });
 
+  it("decisione 3: Approva dalla sezione Server fa partire i comandi; Stop la ferma da lì", async () => {
+    const user = userEvent.setup();
+    await startAs("p-marco");
+    // Lo stream rallentato: lo Stop arriva a correzione in corso.
+    setStreamLatency(40);
+    await openTask("p-laura");
+    const plan = await within(serverSection()).findByRole("region", { name: "Fix plan for SRV-1" });
+    expect(fixCommands()).toBe(0);
+    await user.click(within(plan).getByRole("button", { name: "Approve the plan" }));
+    await waitFor(() => expect(fixCommands()).toBeGreaterThan(0));
+    // Nella sessione nessuno Stop né «Ferma e scrivi»: si ferma dalla task.
+    const stop = await within(serverSection()).findByRole("button", { name: "Stop the fix" });
+    await user.click(stop);
+    await whenFixesIdle();
+    // Fermata da Laura, non finita da sola.
+    await waitFor(() =>
+      expect(
+        eventsOf(fixConversation())
+          .filter((e) => e.type === "phase" && e.outcome === "stopped")
+          .at(-1),
+      ).toMatchObject({ stoppedById: "p-laura" }),
+    );
+  });
+
   it("Marco avvia e legge chi deve approvare; nessun bottone d'approvazione", async () => {
     await startAs("p-marco");
     await openTask("p-marco");
-    const plan = await within(claudeSection()).findByRole("region", { name: "Fix plan for SRV-1" });
+    const plan = await within(serverSection()).findByRole("region", { name: "Fix plan for SRV-1" });
     expect(within(plan).queryByRole("button", { name: "Approve the plan" })).toBeNull();
     expect(plan).toHaveTextContent("Waiting for someone who can approve plans in ACQ.");
     expect(serverSection()).toHaveTextContent("Fix plan waiting for approval");
@@ -269,7 +298,7 @@ describe("sezione Server", () => {
     renderRoute(`/p/ACQ/tasks?task=${task.code}`, "p-roberta");
     const dialog = await screen.findByRole("dialog", { name: `Task ${task.code}` });
     const plan = await waitFor(() =>
-      within(within(dialog).getByRole("region", { name: "Claude" })).getByRole("region", {
+      within(within(dialog).getByRole("region", { name: "Server" })).getByRole("region", {
         name: "Fix plan for SRV-1",
       }),
     );
@@ -296,7 +325,7 @@ describe("sezione Server", () => {
     await startAs("p-marco");
     srv1().agentOperations = false;
     await openTask("p-laura");
-    const plan = await within(claudeSection()).findByRole("region", { name: "Fix plan for SRV-1" });
+    const plan = await within(serverSection()).findByRole("region", { name: "Fix plan for SRV-1" });
     expect(plan).toHaveTextContent(
       "The agent on SRV-1 doesn't have operations on. Re-run its install command with operations on to approve this plan.",
     );

@@ -18,3 +18,22 @@ export const prunes = (plan: ServerPlan): boolean =>
 
 /** La chiave dell'etichetta di un'azione (`container.restart` → `container_restart`). */
 export const actionKey = (action: string): string => action.replace(".", "_");
+
+/**
+ * L'impronta di un piano (area 8, F4b): chi approva manda quella del piano
+ * che ha VISTO; se nel frattempo il piano è cambiato non passa
+ * (`plan_changed`), come il `planDigest` del server. Nel prototipo è un
+ * hash stabile dei passi, non crittografico: lo calcola il livello dati e
+ * la UI lo rimanda così com'è, mai ricalcolato nel client.
+ */
+export function planDigest(plan: ServerPlan): string {
+  const text = JSON.stringify(plan.steps);
+  let a = 0x811c9dc5;
+  let b = 0x01000193;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193) >>> 0;
+    b = Math.imul(b ^ c, 0x811c9dc5) >>> 0;
+  }
+  return a.toString(16).padStart(8, "0") + b.toString(16).padStart(8, "0");
+}

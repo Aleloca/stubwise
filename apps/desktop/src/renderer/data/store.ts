@@ -688,6 +688,9 @@ export type ApiFnName =
   | "startServerFix"
   | "servers.startServerAnalysis"
   | "servers.getCommandKey"
+  | "servers.approveServerFix"
+  | "servers.rejectServerFix"
+  | "servers.stopServerFix"
   | "servers.getServerTaskInfo"
   | "servers.simulateFixCheck"
   // Registro delle modifiche e riconferma (area 9a, Task 3)
