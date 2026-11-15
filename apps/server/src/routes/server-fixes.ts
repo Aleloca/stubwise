@@ -55,7 +55,9 @@ const onTask = (permission: "member" | "plans.approve" | "servers.operate"): Rou
 
 type Fix = typeof serverFixes.$inferSelect;
 class ApproveRaceError extends Error {}
-const OPEN_FOR_REQUEST = new Set<Fix["status"]>(["none", "failed", "rejected", "done", "stopped", "awaiting_approval"]);
+// Review F4b (renderer): NON `awaiting_approval` — una richiesta nuova butterebbe
+// in silenzio il piano che aspetta l'approvazione; prima lo si rifiuta.
+const OPEN_FOR_REQUEST = new Set<Fix["status"]>(["none", "failed", "rejected", "done", "stopped"]);
 const STOPPABLE = new Set<Fix["status"]>(["proposing", "approved", "running"]);
 
 const nameOf = (u: { displayName: string | null; email: string }) => u.displayName?.trim() || u.email.split("@")[0]!;
@@ -70,7 +72,8 @@ async function pruneWarning(db: Db, user: SessionUser, fix: Fix): Promise<Server
   if (!fix.steps.some((s) => s.action === "docker.prune")) return null;
   const ctx = await attributionContext(db, fix.serverId);
   const others = ctx.serverProjects.filter((p) => p.projectId !== fix.projectId).map((p) => p.projectId);
-  if (others.length === 0) return { projects: [], hiddenCount: 0 };
+  // Un server di questo solo progetto: nessun avviso (review F4b, renderer).
+  if (others.length === 0) return null;
   const visible = await visibleProjectIds(db, user);
   const seen = visible === "all" ? others : others.filter((id) => visible.includes(id));
   const names = seen.length === 0 ? [] : (await db.select({ name: projects.name }).from(projects).where(inArray(projects.id, seen))).map((p) => p.name).sort();
@@ -102,7 +105,8 @@ async function viewOf(db: Db, user: SessionUser, perms: ReadonlySet<string>, fix
     rejection: fix.rejectedAt && rejectedBy ? { by: rejectedBy, at: fix.rejectedAt.toISOString(), note: fix.rejectionNote ?? "" } : null,
     operationsOn,
     canRequestPlan: perms.has("servers.operate") && operationsOn && OPEN_FOR_REQUEST.has(fix.status),
-    canApprove: perms.has("plans.approve") && fix.status === "awaiting_approval",
+    // Senza le operazioni dell'agente un'approvazione non può girare (review F4b, renderer).
+    canApprove: perms.has("plans.approve") && fix.status === "awaiting_approval" && operationsOn,
     canStop: (perms.has("servers.operate") || perms.has("plans.approve")) && STOPPABLE.has(fix.status),
     planError: fix.planError,
     planDigest: planDigest(fix.steps),
@@ -130,6 +134,7 @@ export async function serverFixRoutes(instance: FastifyInstance): Promise<void> 
     if (!fix) return apiError(reply, 404, "not_found", "This task has no server correction");
     const [server] = await app.db.select({ caps: servers.agentCapabilities }).from(servers).where(eq(servers.id, fix.serverId));
     if (server?.caps.operations !== true) return apiError(reply, 409, "operations_off", "The agent on this server has operations turned off");
+    if (fix.status === "awaiting_approval") return apiError(reply, 409, "plan_awaiting", "A plan is waiting for approval: reject it first");
     const updated = await app.db
       .update(serverFixes)
       .set({ status: "proposing", sessionId: null, steps: [], planError: null, approvalId: null, currentStep: null, stepCommands: {}, requestedByUserId: request.user!.id, rejectedAt: null, rejectedByUserId: null, rejectionNote: null, updatedAt: new Date(), finishedAt: null })
@@ -149,6 +154,8 @@ export async function serverFixRoutes(instance: FastifyInstance): Promise<void> 
     const fix = await fixOf(request.params.ticketId);
     if (!fix) return apiError(reply, 404, "not_found", "This task has no server correction");
     if (fix.status !== "awaiting_approval") return apiError(reply, 409, "not_awaiting_approval", "There is no plan waiting for approval");
+    const [agent] = await app.db.select({ caps: servers.agentCapabilities }).from(servers).where(eq(servers.id, fix.serverId));
+    if (agent?.caps.operations !== true) return apiError(reply, 409, "operations_off", "The agent on this server has operations turned off: nothing could run");
     // Si approva il piano che chi approva ha VISTO (review F4b, I6).
     if (planDigest(fix.steps) !== request.body.planDigest) return apiError(reply, 409, "plan_changed", "The plan changed since you saw it: look at it again");
     // Il piano si RIVALIDA sullo stato di adesso: un container slegato o sparito → stantio.
@@ -223,8 +230,10 @@ export async function serverFixRoutes(instance: FastifyInstance): Promise<void> 
             ? "server_not_in_project"
             : server.agentCapabilities.operations !== true
               ? "operations_off"
-              : !OPEN_FOR_REQUEST.has(fix.status)
-                ? "busy"
+              : fix.status === "awaiting_approval"
+                ? "plan_awaiting"
+                : !OPEN_FOR_REQUEST.has(fix.status)
+                  ? "busy"
                 : ticket?.status === "done" || ticket?.status === "closed"
                   ? "closed"
                   : (await aiBudgetState(app.db)).exhausted
