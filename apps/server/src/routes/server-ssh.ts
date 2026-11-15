@@ -4,10 +4,16 @@ import { serverSshAccessViewSchema, type ServerSshAccessView } from "@stubwise/s
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
-import { utils as sshUtils } from "ssh2";
+import ssh2 from "ssh2";
 import { z } from "zod";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
+
+// `ssh2` è CommonJS: sotto l'ESM vero di node espone come export con nome
+// solo ciò che `cjs-module-lexer` vede, e `utils` non c'è («Named export
+// 'utils' not found», il server non partiva). Si passa dal default.
+// Guardia: scripts/check-esm-named-imports.mjs.
+const { utils: sshUtils } = ssh2;
 
 /**
  * L'accesso SSH di SOLA LETTURA di un server (area 8, F4b, S7;

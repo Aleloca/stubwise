@@ -1,7 +1,10 @@
 import type { AddressInfo } from "node:net";
-import { Server, utils } from "ssh2";
+import ssh2, { type Server as SshServer } from "ssh2";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { judgeSshUser, sshExec, SshHostKeyMismatchError, type SshTarget } from "./ssh.js";
+
+// CommonJS: sotto l'ESM vero `Server` e `utils` non sono export con nome (vedi apps/server/src/routes/server-ssh.ts).
+const { Server, utils } = ssh2;
 
 /**
  * Area 8, F4b, S7: l'esecuzione SSH contro un server SSH VERO su loopback
@@ -11,7 +14,7 @@ import { judgeSshUser, sshExec, SshHostKeyMismatchError, type SshTarget } from "
 const hostKey = utils.generateKeyPairSync("ed25519").private;
 const clientKey = utils.generateKeyPairSync("ed25519").private;
 const commands: string[] = [];
-let server: Server;
+let server: SshServer;
 let port = 0;
 
 beforeAll(async () => {
