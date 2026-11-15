@@ -215,7 +215,7 @@ describe("RF 4: episodi ai bordi", () => {
     expect(task.description).not.toMatch(/\d{1,2}:\d{2}/);
   });
 
-  it("SRV-2 senza accesso: nessuna sessione, l'avviso dice che manca l'accesso", async () => {
+  it("SRV-2 senza accesso: l'analisi parte lo stesso (decisione del maintainer, 15 nov 2026), senza letture SSH, e l'avviso lo dice", async () => {
     // Il seme ha un episodio aperto su SRV-2: un allarme in più si aggiunge, senza avvisi.
     const open = await servers.simulateServerAlert("SRV-2", "cpu");
     expect(open.id).toBe("ep-srv-2-1");
@@ -223,13 +223,17 @@ describe("RF 4: episodi ai bordi", () => {
 
     await servers.simulateServerRecovery("SRV-2");
     const ep = await servers.simulateServerAlert("SRV-2", "disk");
-    await whenAnalysesIdle();
-    expect(ep.analysisId).toBeNull();
-    expect(newAnalyses("SRV-2")).toHaveLength(0);
-    expect(state.conversations.filter((c) => c.kind === "server_analysis")).toHaveLength(1);
     const [n] = published("server.trouble", "SRV-2");
     expect(n).toMatchObject({ projectId: "prj-stw" });
-    expect(n!.body).toMatch(/Claude can't look into it: no SSH access\./);
+    expect(n!.body).toMatch(/Claude is looking into it, without SSH reads\./);
+    expect(n!.body).not.toMatch(/can't look into it/);
+    await whenAnalysesIdle();
+    expect(ep.analysisId).not.toBeNull();
+    const a = onlyAnalysis("SRV-2");
+    // Nessuna lettura SSH; lo stato del server Claude lo legge comunque: diagnosi, non «rientrato».
+    expect(actionsOf(a.conversationId).filter((e) => e.serverCommand?.via === "ssh")).toEqual([]);
+    expect(a.outcome).toBe("diagnosed");
+    expect(a.taskId).not.toBeNull();
   });
 
   it("SSH irraggiungibile: tre tentativi, task lo stesso con «not reachable»", async () => {
@@ -440,23 +444,26 @@ describe("RF 3: l'analisi è in sola lettura", () => {
     expect(said).toMatch(/can't read the containers' logs.*operations/);
   });
 
-  it("con un utente che ha sudo: nessuna analisi, e l'avviso lo dice", async () => {
+  it("con un utente che ha sudo: l'accesso non si usa, l'analisi parte senza letture SSH e l'avviso lo dice", async () => {
     await servers.simulateSshVerifyOutcome("SRV-1", "sudo");
     await servers.verifySshAccess("SRV-1");
     const ep = await servers.simulateServerAlert("SRV-1", "memory");
     await whenAnalysesIdle();
-    expect(ep.analysisId).toBeNull();
-    expect(newAnalyses("SRV-1")).toHaveLength(0);
+    expect(ep.analysisId).not.toBeNull();
+    const a = onlyAnalysis("SRV-1");
+    expect(actionsOf(a.conversationId).filter((e) => e.serverCommand?.via === "ssh")).toEqual([]);
     expect(published("server.trouble", "SRV-1")[0]!.body).toMatch(
-      /read-only SSH access isn't usable/,
+      /Claude is looking into it, without SSH reads\./,
     );
   });
 
-  it("raiseEpisode su un server senza accesso di lettura non tocca le chiavi né l'ultimo uso", () => {
+  it("raiseEpisode su un server senza accesso di lettura non tocca le chiavi né l'ultimo uso (l'analisi parte senza SSH)", async () => {
     const before = structuredClone(state.serverAccess.get("SRV-3"));
     raiseEpisode("SRV-3", [{ kind: "cpu", valuePct: 99, thresholdPct: 95 }], "trouble");
+    await whenAnalysesIdle();
     expect(state.serverAccess.get("SRV-3")).toEqual(before);
-    expect(newAnalyses("SRV-3")).toHaveLength(0);
+    const a = onlyAnalysis("SRV-3");
+    expect(actionsOf(a.conversationId).filter((e) => e.serverCommand?.via === "ssh")).toEqual([]);
   });
 });
 

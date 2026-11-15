@@ -1,7 +1,7 @@
 import { attributeServerCause, serverAnalysisLimitsSchema } from "@stubwise/shared";
 import { alertProjectsOf, serverProjectsOf } from "../../domain/servers/projects";
 import { commandInput } from "../../domain/servers/commands";
-import { accessState, accessUsable, journalReadable } from "../../domain/servers/sshAccess";
+import { accessUsable, journalReadable } from "../../domain/servers/sshAccess";
 import { utterance } from "../../domain/claude/answers";
 import i18n from "../../i18n";
 import { publishAlert } from "../alerts/publish";
@@ -139,14 +139,6 @@ const recoveredLine = (ep: ServerEpisode): string =>
 
 // --- gli avvisi ---------------------------------------------------------------
 
-/** Perché Claude non guarda: nessun accesso, o un accesso di lettura non usabile. */
-function noAnalysisTail(code: string): string {
-  const s = accessState(state.serverAccess.get(code));
-  return s === "not_linked" || s === "revoked"
-    ? "Claude can't look into it: no SSH access."
-    : "Claude can't look into it: the read-only SSH access isn't usable.";
-}
-
 /**
  * La coda dell'avviso: cosa fa Claude adesso. Col budget raggiunto non
  * parte (revisione finale M4): l'avviso non dice «is looking into it» quando
@@ -155,14 +147,14 @@ function noAnalysisTail(code: string): string {
 function publishTrouble(s: MonitoredServer, ep: ServerEpisode, analyzes: boolean): void {
   const readable = accessUsable(state.serverAccess.get(s.code));
   const tail = analyzes
-    ? " Claude is looking into it with read-only access."
-    : !readable
-      ? ` ${noAnalysisTail(s.code)}`
-      : ep.analysisBlocked === "monthly_budget"
-        ? " Claude can't look into it: the monthly AI budget is used up."
-        : ep.analysisBlocked === "disabled"
-          ? " Claude doesn't look into alerts: the server analysis is turned off in Administration → AI."
-          : "";
+    ? readable
+      ? " Claude is looking into it with read-only access."
+      : " Claude is looking into it, without SSH reads."
+    : ep.analysisBlocked === "monthly_budget"
+      ? " Claude can't look into it: the monthly AI budget is used up."
+      : ep.analysisBlocked === "disabled"
+        ? " Claude doesn't look into alerts: the server analysis is turned off in Administration → AI."
+        : "";
   for (const to of alertProjectsOf(s.code, liveEnvironments())) {
     publishAlert({
       kind: ep.severity === "down" ? "server.down" : "server.trouble",
@@ -214,12 +206,11 @@ export function raiseEpisode(
   };
   state.serverEpisodes.push(episode);
   // Solo con una produzione (un server di solo staging non avvisa e non si
-  // analizza) e l'accesso di lettura usabile. Il budget è dell'istanza
+  // analizza). L'accesso di lettura NON serve (decisione del maintainer, 15
+  // nov 2026, come il worker): senza, niente letture SSH. Il budget è dell'istanza
   // (`aiBlockFor(null)`: nessuna pausa di progetto, F4b-4): esaurito,
   // l'analisi non parte e l'episodio lo ricorda (area 9b).
-  const eligible =
-    alertProjectsOf(serverCode, liveEnvironments()).length > 0 &&
-    accessUsable(state.serverAccess.get(serverCode));
+  const eligible = alertProjectsOf(serverCode, liveEnvironments()).length > 0;
   const block = aiBlockFor(null);
   // Spenta in Amministrazione → AI (R0-C): non parte, e l'episodio lo ricorda.
   const enabled = state.instance.serverAnalysis.enabled;
@@ -430,9 +421,9 @@ async function drive(
   const alive = () => gen === storeGeneration();
   let server = serverOf(a.serverCode);
   if (!server) return;
-  // Una a mano parte anche senza l'accesso di lettura (R0-A2, come sul
-  // server): allora niente letture SSH, solo quelle via agente e lo stato.
-  const manual = !!a.startedBy;
+  // Un'analisi parte anche senza l'accesso di lettura (R0-A2 e decisione
+  // del maintainer del 15 nov 2026, come sul server): niente letture SSH,
+  // solo quelle via agente e lo stato del server.
   const ssh = accessUsable(state.serverAccess.get(a.serverCode));
   await runScript(a.conversationId, openingOf(server, episode, a), gen);
   if (!alive()) return;
@@ -513,9 +504,11 @@ async function drive(
     await runScript(a.conversationId, readSteps([next]), gen);
     if (!alive()) return;
   }
-  // Senza letture un'automatica è rientrata prima di guardare; una a mano ha
-  // comunque guardato lo stato del server.
-  if (ending === "diagnosed" && ran.size === 0 && !manual) ending = "recovered_early";
+  // Senza letture perché il server è rientrato prima: «rientrato prima di
+  // guardare». Senza letture possibili (niente SSH né operazioni dell'agente),
+  // Claude ha comunque guardato lo stato del server: diagnosi.
+  if (ending === "diagnosed" && ran.size === 0 && episode.recoveredAt !== null)
+    ending = "recovered_early";
   return finish(a, episode, gen, ending, ran.size);
 }
 

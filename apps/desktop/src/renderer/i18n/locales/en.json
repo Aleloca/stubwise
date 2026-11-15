@@ -9491,7 +9491,6 @@
       "recovered": "Back to normal at {{time}} · after {{duration}}",
       "recoveredOn": "Back to normal on {{date}} at {{time}} · after {{duration}}",
       "openSession": "Open session",
-      "noAccess": "Claude can't look into it: no SSH access.",
       "noBudget": "Claude can't look into it: the monthly AI budget is used up.",
       "linkAccess": "Link SSH access",
       "work": {
@@ -9507,7 +9506,9 @@
       },
       "downDay": "Not responding since {{when}}",
       "troubleDay": "In trouble since {{when}}",
-      "analysisOff": "Claude doesn't look into alerts: the server analysis is turned off in Administration → AI."
+      "analysisOff": "Claude doesn't look into alerts: the server analysis is turned off in Administration → AI.",
+      "noSshReads": "Claude's diagnosis won't include SSH reads: no SSH access.",
+      "noSshReadsUnusable": "Claude's diagnosis won't include SSH reads: the read-only SSH access isn't usable."
     },
     "attribution": {
       "no_project": "the analysis didn't name a project.",

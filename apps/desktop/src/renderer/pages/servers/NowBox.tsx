@@ -21,7 +21,8 @@ import { HealthGlyph } from "./glyphs";
 // fondo della pagina. C'è solo con un episodio aperto, un rientro da meno
 // di 24 ore o una task di server aperta. Dice da quando, perché (i motivi
 // in frase) e chi ci lavora; senza accesso di lettura usabile dice che
-// Claude non può guardare, e a chi gestisce gli accessi porta lì.
+// la diagnosi sarà senza letture SSH (Claude guarda lo stesso), e a chi
+// gestisce gli accessi porta lì.
 // L'ora del rientro è nel fuso di chi guarda. L'analisi è del server (area
 // 8, F4b-4): nessun progetto «dell'analisi» prima; a fine analisi, se il
 // progetto non si è potuto dire, la riga lo dice col perché.
@@ -178,15 +179,22 @@ export function NowBox({ server }: { server: ServerDetail }) {
       {featureIntegrated("servers-analysis") && !server.orphan && !server.alerting && inTrouble && (
         <p className="text-md text-ink-muted">{t("servers.stagingOnly")}</p>
       )}
+      {/* Senza l'accesso di lettura Claude guarda lo stesso (decisione del
+          maintainer, 15 nov 2026, come il worker): la diagnosi è senza letture
+          SSH, e chi gestisce gli accessi può collegarlo da qui. */}
       {featureIntegrated("servers-analysis") &&
         inTrouble &&
         noRead &&
         !server.orphan &&
-        server.alerting &&
-        server.work === "none" &&
-        !episode?.analysis && (
-          <div className="flex flex-wrap items-center gap-3">
-            <p className="text-md text-ink">{t("servers.now.noAccess")}</p>
+        server.alerting && (
+          <div data-no-ssh-reads className="flex flex-wrap items-center gap-3">
+            <p className="text-md text-ink">
+              {t(
+                server.access.state === "not_linked" || server.access.state === "revoked"
+                  ? "servers.now.noSshReads"
+                  : "servers.now.noSshReadsUnusable",
+              )}
+            </p>
             {server.access.canManage && (
               // La stessa pagina, dal progetto o dall'Amministrazione: solo `?section=`.
               <Link

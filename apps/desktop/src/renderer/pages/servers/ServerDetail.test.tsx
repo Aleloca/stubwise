@@ -115,7 +115,7 @@ describe("testata e «Now»", () => {
     expect(now).not.toHaveTextContent("the monthly AI budget is used up");
   });
 
-  it("SRV-2: in difficoltà dalle 09:40, i motivi in frase, senza accesso e il rimando a chi lo collega", async () => {
+  it("SRV-2: in difficoltà dalle 09:40, i motivi in frase, senza letture SSH e il rimando a chi collega l'accesso", async () => {
     await open("/p/STW/servers/SRV-2", "p-roberta");
     const now = await screen.findByRole("region", { name: "Now" });
     expect(now).toHaveTextContent("In trouble since 09:40");
@@ -123,7 +123,12 @@ describe("testata e «Now»", () => {
     expect(
       within(now).getByText("Check “Replica port” is down: connection refused"),
     ).toBeInTheDocument();
-    expect(within(now).getByText("Claude can't look into it: no SSH access.")).toBeInTheDocument();
+    // Decisione del maintainer (15 nov 2026): l'analisi parte anche senza SSH,
+    // quindi «Now» non dice più «can't look into it», ma che le letture SSH mancano.
+    expect(within(now).queryByText(/can't look into it/)).toBeNull();
+    expect(
+      within(now).getByText("Claude's diagnosis won't include SSH reads: no SSH access."),
+    ).toBeInTheDocument();
     expect(within(now).getByRole("link", { name: "Link SSH access" })).toBeInTheDocument();
     // Nella riga del controllo il bersaglio resta accanto all'errore (T7 m9).
     const replica = part("Checks").querySelector("[data-check='Replica port'] [data-check-target]");

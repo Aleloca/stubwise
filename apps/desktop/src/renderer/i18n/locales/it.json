@@ -9491,7 +9491,6 @@
       "recovered": "Rientrato alle {{time}} · dopo {{duration}}",
       "recoveredOn": "Rientrato il {{date}} alle {{time}} · dopo {{duration}}",
       "openSession": "Apri la sessione",
-      "noAccess": "Claude non può guardarci: nessun accesso SSH.",
       "noBudget": "Claude non può guardarci: il budget AI del mese è esaurito.",
       "linkAccess": "Collega l'accesso SSH",
       "work": {
@@ -9507,7 +9506,9 @@
       },
       "downDay": "Non risponde dal {{when}}",
       "troubleDay": "In difficoltà dal {{when}}",
-      "analysisOff": "Claude non guarda gli avvisi: l'analisi dei server è spenta in Amministrazione → AI."
+      "analysisOff": "Claude non guarda gli avvisi: l'analisi dei server è spenta in Amministrazione → AI.",
+      "noSshReads": "La diagnosi di Claude non avrà letture SSH: manca l'accesso SSH.",
+      "noSshReadsUnusable": "La diagnosi di Claude non avrà letture SSH: l'accesso SSH in sola lettura non è usabile."
     },
     "attribution": {
       "no_project": "l'analisi non ha indicato un progetto.",

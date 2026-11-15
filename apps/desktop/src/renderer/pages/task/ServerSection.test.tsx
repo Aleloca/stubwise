@@ -585,7 +585,7 @@ describe("l'avviso di un server senza accesso", () => {
     });
     const { panel: notifications } = await openPanel("p-marco");
     await waitFor(() =>
-      expect(within(notifications).getAllByText(/can't look into it/).length).toBeGreaterThan(0),
+      expect(within(notifications).getAllByText(/without SSH reads/).length).toBeGreaterThan(0),
     );
     expect(within(notifications).queryByRole("button", { name: "Link SSH access" })).toBeNull();
     // Controllo positivo: lo stesso avviso, a Roberta, lo offre. Il primo
@@ -594,7 +594,7 @@ describe("l'avviso di un server senza accesso", () => {
     const roberta = await openPanel("p-roberta");
     const srv1 = (await within(roberta.panel).findAllByText("SRV-1"))
       .map((el) => el.closest("[data-notification]")!)
-      .find((li) => li.textContent!.includes("can't look into it"))!;
+      .find((li) => li.textContent!.includes("without SSH reads"))!;
     expect(
       within(srv1 as HTMLElement).getByRole("button", { name: "Link SSH access" }),
     ).toBeInTheDocument();
