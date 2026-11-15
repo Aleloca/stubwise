@@ -1,7 +1,8 @@
 import { projects, serverCommands, serverFixes, serverOperationApprovals, servers, users, type Db } from "@stubwise/db";
 import { attributionContext, cancelServerCommands } from "@stubwise/notifications";
 import { serverFixViewSchema, validateServerPlan, type ServerFixView } from "@stubwise/shared";
-import { and, eq, inArray } from "drizzle-orm";
+import { createHash } from "node:crypto";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -29,6 +30,21 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  */
 
 const params = z.object({ ticketId: z.uuid() });
+
+/** La versione del piano (review F4b, I6): l'hash dei passi nella forma canonica. */
+export function planDigest(steps: Fix["steps"]): string | null {
+  if (steps.length === 0) return null;
+  const canonical = (v: unknown): string =>
+    v === null || typeof v !== "object"
+      ? JSON.stringify(v)
+      : Array.isArray(v)
+        ? `[${v.map(canonical).join(",")}]`
+        : `{${Object.keys(v as object)
+            .sort()
+            .map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`)
+            .join(",")}}`;
+  return createHash("sha256").update(canonical(steps)).digest("hex");
+}
 const onTask = (permission: "member" | "plans.approve" | "servers.operate"): RouteAccess => ({
   kind: "project",
   permission,
@@ -37,6 +53,7 @@ const onTask = (permission: "member" | "plans.approve" | "servers.operate"): Rou
 });
 
 type Fix = typeof serverFixes.$inferSelect;
+class ApproveRaceError extends Error {}
 const OPEN_FOR_REQUEST = new Set<Fix["status"]>(["none", "failed", "rejected", "done", "stopped", "awaiting_approval"]);
 const STOPPABLE = new Set<Fix["status"]>(["proposing", "approved", "running"]);
 
@@ -87,6 +104,7 @@ async function viewOf(db: Db, user: SessionUser, perms: ReadonlySet<string>, fix
     canApprove: perms.has("plans.approve") && fix.status === "awaiting_approval",
     canStop: (perms.has("servers.operate") || perms.has("plans.approve")) && STOPPABLE.has(fix.status),
     planError: fix.planError,
+    planDigest: planDigest(fix.steps),
     pruneWarning: await pruneWarning(db, user, fix),
   };
 }
@@ -119,31 +137,46 @@ export async function serverFixRoutes(instance: FastifyInstance): Promise<void> 
     return viewOf(app.db, request.user!, perms, updated[0]!);
   });
 
-  app.post("/:ticketId/server-fix/approve", { config: { access: onTask("plans.approve") }, schema: { params, response } }, async (request, reply) => {
+  app.post(
+    "/:ticketId/server-fix/approve",
+    { config: { access: onTask("plans.approve") }, schema: { params, body: z.strictObject({ planDigest: z.string().min(1) }), response } },
+    async (request, reply) => {
     const perms = routePermissions(request);
     // Difesa in profondità, come resolvePlan: il permesso NEL PROGETTO DELLA TASK.
     if (!perms.has("plans.approve")) return apiError(reply, 403, "forbidden", "Approving needs plans.approve in this project");
     const fix = await fixOf(request.params.ticketId);
     if (!fix) return apiError(reply, 404, "not_found", "This task has no server correction");
     if (fix.status !== "awaiting_approval") return apiError(reply, 409, "not_awaiting_approval", "There is no plan waiting for approval");
+    // Si approva il piano che chi approva ha VISTO (review F4b, I6).
+    if (planDigest(fix.steps) !== request.body.planDigest) return apiError(reply, 409, "plan_changed", "The plan changed since you saw it: look at it again");
     // Il piano si RIVALIDA sullo stato di adesso: un container slegato o sparito → stantio.
     const ctx = await attributionContext(app.db, fix.serverId);
     const check = validateServerPlan({ plan: { steps: fix.steps }, projectId: fix.projectId, serverProjects: ctx.serverProjects, seenContainers: ctx.seenContainers });
     if (!check.ok) return apiError(reply, 409, "plan_stale", `The plan no longer holds (${check.reason}): ask for a new one`);
-    const approved = await app.db.transaction(async (tx) => {
-      const [approval] = await tx
-        .insert(serverOperationApprovals)
-        .values({ serverId: fix.serverId, taskId: fix.taskId, sessionId: fix.sessionId, steps: check.plan.steps, approvedByUserId: request.user!.id })
-        .returning();
-      return tx
-        .update(serverFixes)
-        .set({ status: "approved", approvalId: approval!.id, updatedAt: new Date() })
-        .where(and(eq(serverFixes.id, fix.id), eq(serverFixes.status, "awaiting_approval")))
-        .returning();
-    });
-    if (approved.length === 0) return apiError(reply, 409, "not_awaiting_approval", "There is no plan waiting for approval");
+    let approved: Fix[];
+    try {
+      approved = await app.db.transaction(async (tx) => {
+        const [approval] = await tx
+          .insert(serverOperationApprovals)
+          .values({ serverId: fix.serverId, taskId: fix.taskId, sessionId: fix.sessionId, steps: check.plan.steps, approvedByUserId: request.user!.id })
+          .returning();
+        // Guardata anche sui passi: un piano riscritto fra la lettura e qui non si approva.
+        const rows = await tx
+          .update(serverFixes)
+          .set({ status: "approved", approvalId: approval!.id, updatedAt: new Date() })
+          .where(and(eq(serverFixes.id, fix.id), eq(serverFixes.status, "awaiting_approval"), sql`${serverFixes.steps} = ${JSON.stringify(fix.steps)}::jsonb`))
+          .returning();
+        // Niente approvazione orfana: se la correzione non l'ha presa, si annulla tutto.
+        if (rows.length === 0) throw new ApproveRaceError();
+        return rows;
+      });
+    } catch (error) {
+      if (error instanceof ApproveRaceError) return apiError(reply, 409, "plan_changed", "The plan changed since you saw it: look at it again");
+      throw error;
+    }
     return viewOf(app.db, request.user!, perms, approved[0]!);
-  });
+    },
+  );
 
   app.post(
     "/:ticketId/server-fix/reject",

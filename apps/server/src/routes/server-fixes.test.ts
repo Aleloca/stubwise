@@ -98,6 +98,9 @@ async function scene(opts: { operations?: boolean; steps?: object[] } = {}) {
 
 const call = (method: "GET" | "POST", ticketId: string, path: string, headers: Record<string, string>, payload?: object) =>
   app.inject({ method, url: `/api/tasks/${ticketId}/server-fix${path}`, headers, ...(payload ? { payload } : {}) });
+/** Approva col digest della vista di chi approva (review F4b, I6). */
+const approve = async (ticketId: string, headers: Record<string, string>) =>
+  call("POST", ticketId, "/approve", headers, { planDigest: (await call("GET", ticketId, "", headers)).json().planDigest ?? "x" });
 const approvalsOf = (ticketId: string) => testDb.db.select().from(serverOperationApprovals).where(eq(serverOperationApprovals.taskId, ticketId));
 
 describe("la correzione: vista e approvazione", () => {
@@ -112,9 +115,9 @@ describe("la correzione: vista e approvazione", () => {
 
   it("NEGATIVO: un Developer, un Project Lead di un ALTRO progetto del server, un operatore senza plans.approve → nessuna approvazione", async () => {
     const s = await scene();
-    expect((await call("POST", s.ticketId, "/approve", s.devA.headers)).statusCode).toBe(403);
-    expect((await call("POST", s.ticketId, "/approve", s.leadB.headers)).statusCode).toBe(404);
-    expect((await call("POST", s.ticketId, "/approve", s.operA.headers)).statusCode).toBe(403);
+    expect((await approve(s.ticketId, s.devA.headers)).statusCode).toBe(403);
+    expect((await approve(s.ticketId, s.leadB.headers)).statusCode).toBe(404);
+    expect((await approve(s.ticketId, s.operA.headers)).statusCode).toBe(403);
     expect((await call("POST", s.ticketId, "/reject", s.devA.headers, { note: "no" })).statusCode).toBe(403);
     expect(await approvalsOf(s.ticketId)).toEqual([]);
     expect((await testDb.db.select().from(serverFixes).where(eq(serverFixes.id, s.fix.id)))[0]!.status).toBe("awaiting_approval");
@@ -122,21 +125,34 @@ describe("la correzione: vista e approvazione", () => {
 
   it("plans.approve nel progetto della task: approvato, la copia ESATTA dei passi; una seconda volta → 409", async () => {
     const s = await scene();
-    const res = await call("POST", s.ticketId, "/approve", s.leadA.headers);
+    const res = await approve(s.ticketId, s.leadA.headers);
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json()).toMatchObject({ status: "approved", approval: { by: { id: s.leadA.id } } });
     const [approval] = await approvalsOf(s.ticketId);
     expect(approval).toMatchObject({ serverId: s.serverId, approvedByUserId: s.leadA.id, revokedAt: null, steps: [restart] });
-    expect((await call("POST", s.ticketId, "/approve", s.leadA.headers)).statusCode).toBe(409);
+    expect((await approve(s.ticketId, s.leadA.headers)).statusCode).toBe(409);
   });
 
   it("un piano diventato stantio (il container ora è di un altro progetto) → 409 plan_stale, niente approvato", async () => {
     const s = await scene();
     await testDb.db.update(environmentServers).set({ containers: ["db-b", "web-a"] }).where(eq(environmentServers.environmentId, s.envs[1]!));
-    const res = await call("POST", s.ticketId, "/approve", s.leadA.headers);
+    const res = await approve(s.ticketId, s.leadA.headers);
     expect(res.statusCode).toBe(409);
     expect(res.json()).toMatchObject({ code: "plan_stale" });
     expect(await approvalsOf(s.ticketId)).toEqual([]);
+  });
+
+  it("review F4b, I6: si approva il piano VISTO; uno riscritto nel frattempo → 409 plan_changed, e nessuna approvazione orfana", async () => {
+    const s = await scene();
+    const seen = (await call("GET", s.ticketId, "", s.leadA.headers)).json().planDigest as string;
+    expect(seen).toMatch(/^[0-9a-f]{64}$/);
+    // Qualcuno fa proporre un piano diverso mentre la pagina è aperta.
+    await testDb.db.update(serverFixes).set({ steps: [{ ...restart, params: { container: "web-a", timeoutSeconds: 60 } }] as never }).where(eq(serverFixes.id, s.fix.id));
+    const res = await call("POST", s.ticketId, "/approve", s.leadA.headers, { planDigest: seen });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: "plan_changed" });
+    expect(await approvalsOf(s.ticketId)).toEqual([]);
+    expect((await call("POST", s.ticketId, "/approve", s.leadA.headers, {})).statusCode).toBe(400);
   });
 
   it("il rifiuto con indicazioni", async () => {
@@ -160,7 +176,7 @@ describe("la correzione: piano nuovo e Stop", () => {
 
   it("Stop: revoca l'approvazione e i comandi non consegnati non partono più; un Developer non può", async () => {
     const s = await scene();
-    await call("POST", s.ticketId, "/approve", s.leadA.headers);
+    await approve(s.ticketId, s.leadA.headers);
     const [approval] = await approvalsOf(s.ticketId);
     const cmd = await issueServerCommand(testDb.db, KEY, { serverId: s.serverId, action: { action: "container.restart", params: { container: "web-a", timeoutSeconds: 10 } }, approval: { id: approval!.id, stepIndex: 0 } });
     await testDb.db.update(serverFixes).set({ status: "running", stepCommands: { "0": cmd.id } }).where(eq(serverFixes.id, s.fix.id));
@@ -180,6 +196,6 @@ describe("F4b-8 = c: la pulizia agisce su tutto il server", () => {
     expect((await call("GET", s.ticketId, "", { cookie: users.adminCookie })).json().pruneWarning).toEqual({ projects: [nameB], hiddenCount: 0 });
     expect((await call("GET", s.ticketId, "", s.leadA.headers)).json().pruneWarning).toEqual({ projects: [], hiddenCount: 1 });
     // E si approva comunque, con plans.approve nel progetto della task.
-    expect((await call("POST", s.ticketId, "/approve", s.leadA.headers)).statusCode).toBe(200);
+    expect((await approve(s.ticketId, s.leadA.headers)).statusCode).toBe(200);
   });
 });

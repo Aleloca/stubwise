@@ -252,7 +252,8 @@ async function proposePlan(deps: ToolDeps, grant: AnalysisGrant, args: unknown):
   const saved = await db
     .update(serverFixes)
     .set({ status: "awaiting_approval", steps: check.plan.steps, planError: null, updatedAt: new Date() })
-    .where(and(eq(serverFixes.id, grant.fixId!), eq(serverFixes.status, "proposing")))
+    // Guardata sulla SESSIONE (review F4b): una sessione di prima (fermata e richiesta di nuovo) non scrive nella richiesta nuova.
+    .where(and(eq(serverFixes.id, grant.fixId!), eq(serverFixes.status, "proposing"), ...(grant.sessionId ? [eq(serverFixes.sessionId, grant.sessionId)] : [])))
     .returning({ id: serverFixes.id });
   if (saved.length === 0) return { ok: false, text: "Not saved: the correction was stopped or changed meanwhile." };
   grant.proposed = true;

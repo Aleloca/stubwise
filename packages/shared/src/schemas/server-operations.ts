@@ -88,6 +88,12 @@ export const serverFixViewSchema = z.object({
   canRequestPlan: z.boolean().default(false),
   canApprove: z.boolean().default(false),
   canStop: z.boolean().default(false),
+  /**
+   * La versione del piano mostrato (review F4b, I6): chi approva la rimanda, e
+   * se nel frattempo il piano è stato riscritto la risposta è 409
+   * `plan_changed`. Null senza piano. Additivo.
+   */
+  planDigest: z.string().nullable().default(null),
   /** Perché l'ultimo piano proposto non è stato salvato (`schema`, `container_of_other_project`, `operations_off`…). Additivo. */
   planError: z.string().nullable().default(null),
   /**

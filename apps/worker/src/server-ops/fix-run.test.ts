@@ -245,6 +245,23 @@ describe("un piano nuovo: la sessione server_fix", () => {
     expect(await commandsOf(s.serverId)).toEqual([]);
   });
 
+  it("review F4b: una sessione di prima (Stop e richiesta di nuovo mentre gira) non scrive nella richiesta nuova", async () => {
+    const s = await scene({ status: "proposing" });
+    const other = (await db.insert(agentSessions).values({ ownerKey: `x:${randomBytes(4).toString("hex")}`, kind: "server_fix", title: "nuova" }).returning())[0]!.id;
+    let reply: { ok?: boolean } = {};
+    await drainProposals(
+      deps({
+        runner: cli(async (tool) => {
+          // Nel frattempo: fermata e richiesta di nuovo, con una sessione nuova.
+          await db.update(serverFixes).set({ sessionId: other }).where(eq(serverFixes.id, s.fix.id));
+          reply = (await tool("propose_server_plan", { steps: [restart] })).body;
+        }),
+      }),
+    );
+    expect(reply.ok).toBe(false);
+    expect((await fixOf(s.fix.id)).steps).toEqual([]);
+  });
+
   it("budget mensile esaurito → nessun run, nessun piano", async () => {
     const s = await scene({ status: "proposing" });
     await db.update(instanceSettings).set({ monthlyBudgetUsd: "1" }).where(eq(instanceSettings.id, 1));

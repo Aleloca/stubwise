@@ -65,6 +65,12 @@ describe("endpoints serverOps", () => {
     expect(call(rej.fetchImpl)).toMatchObject({ url: `/api/tasks/${TICKET_ID}/server-fix/reject`, method: "POST", body: { note: "prima i log" } });
   });
 
+  it("approve manda la versione del piano visto (review F4b, I6)", async () => {
+    const r = clientReturning(FIX);
+    await r.client.serverOps.approve(TICKET_ID, "abc123");
+    expect(call(r.fetchImpl)).toMatchObject({ url: `/api/tasks/${TICKET_ID}/server-fix/approve`, method: "POST", body: { planDigest: "abc123" } });
+  });
+
   it("uno stato di correzione nuovo non rompe la lettura (enum aperto)", async () => {
     const r = clientReturning({ ...FIX, status: "quarantined" });
     expect(isUnknown((await r.client.serverOps.fix(TICKET_ID)).status)).toBe(true);
