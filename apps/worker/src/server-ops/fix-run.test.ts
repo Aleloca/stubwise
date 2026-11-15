@@ -229,6 +229,22 @@ describe("un piano nuovo: la sessione server_fix", () => {
     expect(await fixOf(s.fix.id)).toMatchObject({ status: "none", steps: [], planError: "no_plan" });
   });
 
+  it("review F4b, I3: nella correzione si leggono SOLO i container del progetto della task", async () => {
+    const s = await scene({ status: "proposing" });
+    const replies: { ok?: boolean; message?: string }[] = [];
+    await drainProposals(
+      deps({
+        runner: cli(async (tool) => {
+          replies.push((await tool("container_logs", { container: "db-b", lines: 20, sinceMinutes: 10 })).body);
+          replies.push((await tool("container_state", { container: "db-b" })).body);
+        }),
+      }),
+    );
+    for (const r of replies) expect(r).toMatchObject({ ok: false, message: expect.stringContaining("only containers of this task's project") });
+    // Nessun comando per il container dell'altro progetto (la lettura su web-a la coprono i test dell'analisi).
+    expect(await commandsOf(s.serverId)).toEqual([]);
+  });
+
   it("budget mensile esaurito → nessun run, nessun piano", async () => {
     const s = await scene({ status: "proposing" });
     await db.update(instanceSettings).set({ monthlyBudgetUsd: "1" }).where(eq(instanceSettings.id, 1));
