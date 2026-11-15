@@ -75,6 +75,10 @@ export function createServerOpsEndpoints(request: ApiRequest) {
     reject(ticketId: string, note = ""): Promise<Reader<ServerFixView>> {
       return request("POST", `${fix(ticketId)}/reject`, { note }, serverFixViewSchema);
     },
+    /** I comandi di questa correzione (passi e letture della sua sessione), con le uscite non fidate. */
+    fixCommands(ticketId: string): Promise<Reader<{ commands: ServerCommandView[] }>> {
+      return request("GET", `${fix(ticketId)}/commands`, undefined, operationsSchema);
+    },
     stop(ticketId: string): Promise<Reader<ServerFixView>> {
       return request("POST", `${fix(ticketId)}/stop`, undefined, serverFixViewSchema);
     },

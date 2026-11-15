@@ -1,8 +1,8 @@
 import { projects, serverCommands, serverFixes, serverOperationApprovals, servers, users, type Db } from "@stubwise/db";
 import { attributionContext, cancelServerCommands } from "@stubwise/notifications";
-import { serverFixViewSchema, validateServerPlan, type ServerFixView } from "@stubwise/shared";
+import { serverCommandViewSchema, serverFixViewSchema, validateServerPlan, type ServerFixView } from "@stubwise/shared";
 import { createHash } from "node:crypto";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -105,6 +105,7 @@ async function viewOf(db: Db, user: SessionUser, perms: ReadonlySet<string>, fix
     canStop: (perms.has("servers.operate") || perms.has("plans.approve")) && STOPPABLE.has(fix.status),
     planError: fix.planError,
     planDigest: planDigest(fix.steps),
+    sessionId: fix.sessionId,
     pruneWarning: await pruneWarning(db, user, fix),
   };
 }
@@ -193,6 +194,54 @@ export async function serverFixRoutes(instance: FastifyInstance): Promise<void> 
         .returning();
       if (updated.length === 0) return apiError(reply, 409, "not_awaiting_approval", "There is no plan waiting for approval");
       return viewOf(app.db, request.user!, perms, updated[0]!);
+    },
+  );
+
+  // I comandi di QUESTA correzione (i passi delle sue approvazioni e le letture
+  // della sua sessione), con le uscite. Il registro per task dell'invariante:
+  // chi vede la task e ha servers.operate nel suo progetto, o monitor.manage.
+  app.get(
+    "/:ticketId/server-fix/commands",
+    {
+      config: { access: onTask("member") },
+      schema: { params, response: { 200: z.object({ commands: z.array(serverCommandViewSchema) }), 404: errorSchema, ...authErrorResponses } },
+    },
+    async (request, reply) => {
+      const perms = routePermissions(request);
+      if (!perms.has("servers.operate") && !request.user!.instancePermissions.has("monitor.manage")) {
+        return apiError(reply, 403, "forbidden", "The commands of a correction need servers.operate in this project, or monitor.manage");
+      }
+      const fix = await fixOf(request.params.ticketId);
+      if (!fix) return apiError(reply, 404, "not_found", "This task has no server correction");
+      const approvals = (await app.db.select({ id: serverOperationApprovals.id }).from(serverOperationApprovals).where(eq(serverOperationApprovals.taskId, fix.taskId))).map((a) => a.id);
+      const owned = [
+        ...(approvals.length > 0 ? [inArray(serverCommands.approvalId, approvals)] : []),
+        ...(fix.sessionId ? [eq(serverCommands.sessionId, fix.sessionId)] : []),
+      ];
+      if (owned.length === 0) return { commands: [] };
+      const rows = await app.db
+        .select({ c: serverCommands, displayName: users.displayName, email: users.email })
+        .from(serverCommands)
+        .leftJoin(users, eq(users.id, serverCommands.requestedByUserId))
+        .where(and(eq(serverCommands.serverId, fix.serverId), or(...owned)))
+        .orderBy(desc(serverCommands.issuedAt))
+        .limit(200);
+      return {
+        commands: rows.map(({ c, displayName, email }) => ({
+          id: c.id,
+          action: c.action,
+          params: c.params,
+          kind: c.kind,
+          via: c.via,
+          status: c.status,
+          requestedBy: c.requestedByUserId && email ? { id: c.requestedByUserId, name: nameOf({ displayName, email }) } : null,
+          approvalId: c.approvalId,
+          issuedAt: c.issuedAt.toISOString(),
+          finishedAt: c.finishedAt?.toISOString() ?? null,
+          exitCode: c.exitCode,
+          output: c.output,
+        })),
+      };
     },
   );
 
