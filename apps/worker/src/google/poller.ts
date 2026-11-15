@@ -112,6 +112,7 @@ import {
   GMAIL_HISTORY_MAX_PAGES,
   GMAIL_RESYNC_MAX_MESSAGES,
   GMAIL_RESYNC_QUERY,
+  GMAIL_RESYNC_SENT_QUERY,
   isFromMailbox,
   isHistoryExpired,
   maxHistoryId,
@@ -753,25 +754,38 @@ async function collectMessageIds(
     }
   }
 
-  const ids: string[] = [];
-  let pageToken: string | null = null;
-  do {
-    const page: Awaited<ReturnType<typeof listMessages>> = await gmail.listMessages({
-      accessToken: ctx.accessToken,
-      q: GMAIL_RESYNC_QUERY,
-      pageToken,
-      maxResults: GMAIL_RESYNC_MAX_MESSAGES,
-    });
-    ids.push(...page.messageIds);
-    pageToken = page.nextPageToken;
-  } while (pageToken && ids.length < GMAIL_RESYNC_MAX_MESSAGES);
+  const listAll = async (q: string) => {
+    const found: string[] = [];
+    let token: string | null = null;
+    do {
+      const page: Awaited<ReturnType<typeof listMessages>> = await gmail.listMessages({
+        accessToken: ctx.accessToken,
+        q,
+        pageToken: token,
+        maxResults: GMAIL_RESYNC_MAX_MESSAGES,
+      });
+      found.push(...page.messageIds);
+      token = page.nextPageToken;
+    } while (token && found.length < GMAIL_RESYNC_MAX_MESSAGES);
+    return { found, token };
+  };
+  const received = await listAll(GMAIL_RESYNC_QUERY);
+  const ids = received.found;
+  const pageToken = received.token;
+  // Area 8, «Clienti in attesa»: poi la posta MANDATA, DOPO i ricevuti (un
+  // thread diventato noto in questo giro prende anche le risposte). Ogni id
+  // passa dalla regola di sempre per la posta mandata (thread noto o inviata
+  // da Stubwise, come contesto): qui si cambia solo COSA si raccoglie. Stesso
+  // tetto, a parte.
+  const sent = await listAll(GMAIL_RESYNC_SENT_QUERY);
+  const sentIds = sent.found.slice(0, GMAIL_RESYNC_MAX_MESSAGES).filter((id) => !ids.includes(id));
   // `messages.list` non dà mai un `historyId` (vedi sopra): il cursore finale
   // sarà comunque `seenHistoryId`, calcolato dai messaggi letti in `syncGmail`
   // — `truncated` non cambia quella scelta qui. Lo si calcola comunque, per
   // non lasciare un campo silenziosamente falso quando in futuro qualcosa ne
   // dipendesse.
   const truncated = pageToken !== null || ids.length > GMAIL_RESYNC_MAX_MESSAGES;
-  return { ids: ids.slice(0, GMAIL_RESYNC_MAX_MESSAGES), historyId: null, resynced: true, truncated, unreadChanges: [] };
+  return { ids: [...ids.slice(0, GMAIL_RESYNC_MAX_MESSAGES), ...sentIds], historyId: null, resynced: true, truncated, unreadChanges: [] };
 }
 
 /** I tipi di history che il giro chiede: i messaggi nuovi e i cambi di etichetta. */

@@ -44,6 +44,15 @@ export const SYNC_BACKOFF_MAX_EXPONENT = 6;
  * {@link isFromMailbox} rifà il controllo in codice per entrambi i percorsi.
  */
 export const GMAIL_RESYNC_QUERY = "newer_than:7d -from:me";
+/**
+ * Area 8, «Clienti in attesa»: al primo giro e al resync, DOPO la query di
+ * sempre, la posta MANDATA della casella negli stessi 7 giorni. Passa dalla
+ * STESSA regola del ramo History (si conserva solo su un thread noto, o se
+ * l'ha mandata Stubwise, come contesto): senza, una risposta mandata da Gmail
+ * mentre la history era scaduta non entrava mai, e il cliente risultava
+ * «in attesa» a torto.
+ */
+export const GMAIL_RESYNC_SENT_QUERY = "newer_than:7d from:me";
 
 /** Tetto di messaggi che un resync guarda: oltre, si aspetta il tick dopo. */
 export const GMAIL_RESYNC_MAX_MESSAGES = 200;

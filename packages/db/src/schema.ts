@@ -4770,6 +4770,13 @@ export const emailMessages = pgTable(
      * condizione della fase 6b e sarebbe il PRIMO a sparire, lasciando una
      * conversazione coi buchi (`pruneOldEmails`, Task 9).
      */
+    /**
+     * Area 8, «Clienti in attesa» (0183): il giudizio di Claude «serve una MIA
+     * risposta?» su questo messaggio come ULTIMO del thread, per questa
+     * casella. Null = non giudicato; vale solo finché il messaggio è l'ultimo.
+     */
+    replyJudgment: jsonb("reply_judgment").$type<{ needsMyReply: boolean; reason: string; model?: string; at: string } | { error: string; at: string }>(),
+    replyJudgmentAttempts: smallint("reply_judgment_attempts").notNull().default(0),
     admitted: boolean("admitted").notNull().default(true),
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
     candidateProjectIds: uuid("candidate_project_ids").array().notNull().default([]),
