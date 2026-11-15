@@ -2,6 +2,7 @@ import type { Reader, WaitingCustomersResponse } from "@stubwise/shared";
 import type { WaitingCustomer } from "../../mail";
 import { inPrototypeWords } from "./automationRefs";
 import { appClient } from "./client";
+import { threadKey } from "./mailKeys";
 
 // «Clienti in attesa» della build app (area 8, piano di 72): `GET
 // /api/me/waiting-customers` (`client.mail.waitingCustomers()`) nelle forme
@@ -25,7 +26,9 @@ export function createRealWaiting(api: WaitingApi) {
         items: r.items.map((x) => {
           const yes = x.judgment === "yes";
           return {
-            threadId: x.threadId,
+            // La Posta dell'app apre un thread per casella: `<accountId>_<gmailThreadId>`
+            // (review C1: il threadId nudo apriva «not found»).
+            threadId: threadKey(x.accountId, x.threadId),
             accountId: x.accountId,
             accountEmail: x.accountEmail,
             customer: { name: x.customer.name ?? null, email: x.customer.email },

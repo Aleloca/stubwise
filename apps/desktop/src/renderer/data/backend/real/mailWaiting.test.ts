@@ -30,7 +30,8 @@ const real = (body: unknown) =>
 describe("Clienti in attesa nell'app", () => {
   it("le righe nella forma del prototipo, col totale", async () => {
     const out = await real({ items: [ROW], total: 3 }).listWaitingCustomers();
-    expect(out).toEqual({ items: [ROW], total: 3 });
+    // Review C1: il thread si apre per casella, come le altre righe della Posta.
+    expect(out).toEqual({ items: [{ ...ROW, threadId: `${ROW.accountId}_th-1` }], total: 3 });
   });
 
   it("un giudizio ignoto vale «da valutare» e non porta motivo; `total` assente vale 0", async () => {

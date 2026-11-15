@@ -52,8 +52,11 @@ let seen: SeenRequest[] = [];
 let googleAccounts: unknown[] = [];
 let calendarItems: unknown[] = [];
 let importantThreads: unknown[] = [];
+/** Area 8: le righe di «Clienti in attesa». */
+let waitingItems: unknown[] = [];
 
 beforeEach(() => {
+  waitingItems = [];
   googleAccounts = [];
   calendarItems = [];
   importantThreads = [];
@@ -95,7 +98,9 @@ beforeEach(() => {
     // Area 6, fetta 2: le proposte della Posta in «Da decidere».
     "GET /api/me/mail/proposals": { body: { items: [] } },
     // Area 8: «Clienti in attesa» dalla posta (72, W2).
-    "GET /api/me/waiting-customers": { body: { items: [], total: 0 } },
+    "GET /api/me/waiting-customers": () => ({
+      body: { items: waitingItems, total: waitingItems.length },
+    }),
     // Area 4, fetta 2: le domande della Chat in «Da decidere».
     "GET /api/chat/questions": () =>
       chatQuestionsMissing
@@ -195,6 +200,31 @@ describe("la Home nella build app", () => {
     const waiting = await screen.findByRole("region", { name: /^Customers waiting/ });
     expect(await within(waiting).findByText("No customer is waiting")).toBeInTheDocument();
     expect(seen.some((r) => r.path.startsWith("/api/me/waiting-customers"))).toBe(true);
+  });
+
+  it("review C1: un clic su «Clienti in attesa» apre il thread della SUA casella (`<accountId>_<gmailId>`)", async () => {
+    const account = "aaaaaaaa-2222-4222-8222-222222222222";
+    personalBlocks = [{ kind: "waitingCustomers" }, { kind: "myTasks" }];
+    waitingItems = [
+      {
+        threadId: "18c0ffee",
+        accountId: account,
+        accountEmail: "ada@acme.test",
+        customer: { name: "Anna Verdi", email: "anna@cliente.test" },
+        subject: "Fattura di ottobre",
+        project: { id: "33333333-3333-4333-8333-333333333333", code: "AUD", name: "Audin" },
+        waitingSince: "2026-11-13T10:00:00.000Z",
+        judgment: "yes",
+        reason: "Asks for the invoice.",
+      },
+    ];
+    const router = renderRoute("/home");
+    const block = await screen.findByRole("region", { name: /^Customers waiting/ });
+    const link = await within(block).findByRole("link", { name: /Anna Verdi/ });
+    fireEvent.click(link);
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(`/mail/${account}_18c0ffee`),
+    );
   });
 
   it("«Da decidere»: una domanda della Chat a chi guarda, dal server (area 4, fetta 2)", async () => {
