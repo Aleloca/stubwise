@@ -186,3 +186,33 @@ describe("review F4b, I4: il registro come dice l'invariante", () => {
     expect(await ids({ cookie: users.adminCookie })).toEqual([onA, onB, noTask].sort());
   });
 });
+
+describe("review F4b: i campi della vista del server e dell'analisi calcolati dal server", () => {
+  it("canStartAnalysis: sì all'operatore, no al Project Lead e mentre una a mano è in corso; agentOperations dalle capacità dichiarate", async () => {
+    const { projectId, serverId } = await serverOfProject();
+    await testDb.db.update(servers).set({ agentCapabilities: { operations: true } }).where(eq(servers.id, serverId));
+    const op = await createUserWithPat(app, `cs-${randomBytes(3).toString("hex")}@acme.com`);
+    await testDb.db.insert(projectMembers).values({ projectId, userId: op.id, roleId: operateRoleId });
+    const lead = await createUserWithPat(app, `cl-${randomBytes(3).toString("hex")}@acme.com`);
+    await addMember(app, projectId, lead.id, "project_lead");
+    const detail = async (headers: Record<string, string>) => (await app.inject({ method: "GET", url: `/api/servers/${serverId}`, headers })).json();
+    expect(await detail(op.headers)).toMatchObject({ canStartAnalysis: true, agentOperations: true });
+    expect((await detail(lead.headers)).canStartAnalysis).toBe(false);
+    expect((await start(serverId, op.headers)).statusCode).toBe(202);
+    expect((await detail(op.headers)).canStartAnalysis).toBe(false);
+  });
+
+  it("endedBy `time` al tetto di durata; il codice di un progetto che chi guarda non vede non esce", async () => {
+    const { projectId: a, serverId } = await serverOfProject();
+    const { projectId: b, repositoryId: repoB } = await seedRepository(testDb.db);
+    const [envB] = await testDb.db.insert(projectEnvironments).values({ projectId: b, name: "staging", kind: "staging", serverId }).returning();
+    await testDb.db.insert(environmentServers).values({ environmentId: envB!.id, repositoryId: repoB, serverId });
+    const [slow] = await testDb.db.insert(serverAnalyses).values({ serverId, status: "failed", attribution: { error: "tetto di durata (10 min)" } }).returning();
+    const [toB] = await testDb.db.insert(serverAnalyses).values({ serverId, status: "done", attributedProjectId: b, attribution: { result: { kind: "attributed" } } }).returning();
+    const lead = await createUserWithPat(app, `la-${randomBytes(3).toString("hex")}@acme.com`);
+    await addMember(app, a, lead.id, "project_lead");
+    const list = new Map(((await app.inject({ method: "GET", url: `/api/servers/${serverId}/analyses`, headers: lead.headers })).json().analyses as { id: string }[]).map((x) => [x.id, x as Record<string, unknown>]));
+    expect(list.get(slow!.id)).toMatchObject({ endedBy: "time" });
+    expect(list.get(toB!.id)).toMatchObject({ attribution: { kind: "attributed", projectCode: null } });
+  });
+});

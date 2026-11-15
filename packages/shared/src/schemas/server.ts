@@ -362,6 +362,12 @@ export const serverDetailSchema = serverViewSchema.extend({
   productionProjects: z.array(z.object({ id: z.uuid(), code: z.string(), name: z.string() })).default([]),
   /** `monitor.manage`, calcolato dal server. */
   canManage: z.boolean().default(false),
+  /**
+   * Area 8, F4b: chi guarda può chiedere un'analisi a mano (`servers.operate`
+   * in un progetto il cui ambiente usa il server) e nessuna è in corso.
+   * Calcolato dal server. Additivo.
+   */
+  canStartAnalysis: z.boolean().default(false),
 });
 export type ServerDetail = z.infer<typeof serverDetailSchema>;
 

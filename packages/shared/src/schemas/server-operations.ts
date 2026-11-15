@@ -57,6 +57,8 @@ export const serverAnalysisViewSchema = z.object({
    * server; senza, `diagnosis` è null). Additivo.
    */
   canViewDiagnosis: z.boolean().default(false),
+  /** Perché è finita senza diagnosi: `time` = il tetto di durata di Impostazioni. Additivo. */
+  endedBy: z.enum(["time"]).nullable().default(null),
   /** La sessione di Claude dell'analisi, solo con `canViewDiagnosis`. Additivo. */
   sessionId: z.uuid().nullable().default(null),
   startedAt: z.iso.datetime(),

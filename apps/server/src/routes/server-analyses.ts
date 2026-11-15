@@ -92,6 +92,7 @@ export async function serverAnalysisRoutes(instance: FastifyInstance): Promise<v
         taskCode: null,
         blockedBy: null,
         canViewDiagnosis: false,
+        endedBy: null,
         sessionId: null,
         startedAt: row.startedAt.toISOString(),
         finishedAt: null,
@@ -134,6 +135,9 @@ export async function serverAnalysisRoutes(instance: FastifyInstance): Promise<v
       for (const { a, projectCode, ticketNumber, displayName, email } of rows) {
         const result = (a.attribution as { result?: { kind?: string; reason?: string } } | null)?.result;
         const canView = manage || (a.attributedProjectId !== null && (await reposViewIn(a.attributedProjectId)));
+        // Il codice di un progetto che chi guarda non vede non esce (review F4b).
+        const seesProject = a.attributedProjectId !== null && (manage || (await projectPermissionsFor(app.db, user, a.attributedProjectId)) !== null);
+        const error = (a.attribution as { error?: string } | null)?.error;
         analyses.push({
           id: a.id,
           serverId,
@@ -143,11 +147,12 @@ export async function serverAnalysisRoutes(instance: FastifyInstance): Promise<v
           diagnosis: canView ? a.diagnosis : null,
           attribution:
             result?.kind === "attributed" || result?.kind === "undetermined"
-              ? { kind: result.kind, projectCode: result.kind === "attributed" ? (projectCode ?? null) : null, reason: result.reason ?? null }
+              ? { kind: result.kind, projectCode: result.kind === "attributed" && seesProject ? (projectCode ?? null) : null, reason: result.reason ?? null }
               : null,
           taskCode: canView && projectCode && ticketNumber !== null ? `${projectCode}-${ticketNumber}` : null,
           blockedBy: a.blockedBy,
           canViewDiagnosis: canView,
+          endedBy: typeof error === "string" && error.startsWith("tetto di durata") ? "time" : null,
           sessionId: canView ? a.sessionId : null,
           startedAt: a.startedAt.toISOString(),
           finishedAt: a.finishedAt?.toISOString() ?? null,

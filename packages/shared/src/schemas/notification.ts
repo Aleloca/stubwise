@@ -82,8 +82,6 @@ export const notificationKindSchema = z.enum([
   "support.request",
   // Area 8, fetta 4b (0181): la diagnosi dell'analisi di un server, nel catalogo degli avvisi.
   "server.diagnosis_ready",
-  // Area 8, fetta 4b (0181): la diagnosi dell'analisi di un server, nel catalogo degli avvisi.
-  "server.diagnosis_ready",
 ]);
 
 /**
