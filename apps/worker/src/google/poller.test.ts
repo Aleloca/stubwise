@@ -45,7 +45,7 @@ import {
   type GmailClient,
   type GooglePollerDeps,
 } from "./poller.js";
-import { GMAIL_HISTORY_MAX_PAGES, GMAIL_MAX_SYNC_ATTEMPTS, GMAIL_RESYNC_MAX_MESSAGES, GMAIL_RESYNC_QUERY } from "./sync.js";
+import { GMAIL_HISTORY_MAX_PAGES, GMAIL_MAX_SYNC_ATTEMPTS, GMAIL_RESYNC_MAX_MESSAGES, GMAIL_RESYNC_QUERY, GMAIL_RESYNC_SENT_QUERY } from "./sync.js";
 
 /**
  * POLLER GMAIL (fase 6, Task 7).
@@ -214,6 +214,8 @@ function fakeGmail(setup: {
     | (() => never);
   historyError?: unknown;
   listed?: string[];
+  /** Area 8: gli id della query della posta MANDATA del resync (default nessuno). */
+  listedSent?: string[];
   messages?: Record<string, ReturnType<typeof message>>;
   refreshError?: unknown;
   metadataError?: unknown;
@@ -256,6 +258,7 @@ function fakeGmail(setup: {
     listMessages: async (input: { q?: string }) => {
       calls.push("list");
       listQueries.push(input.q ?? "");
+      if (input.q === GMAIL_RESYNC_SENT_QUERY) return { messageIds: setup.listedSent ?? [], nextPageToken: null };
       return { messageIds: setup.listed ?? [], nextPageToken: null };
     },
     getMessageMetadata: async (input: { id: string }) => {
@@ -378,14 +381,14 @@ describe("claim delle caselle", () => {
 
 describe("sincronizzazione Gmail", () => {
 
-  it("al primo giro (nessun cursore) fa il resync con newer_than:7d -from:me", async () => {
+  it("al primo giro (nessun cursore) fa il resync con newer_than:7d -from:me, POI la posta mandata (area 8)", async () => {
     const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
     const gmail = fakeGmail({ listed: [], messages: {} });
 
     await pollGoogleOnce(deps(account, gmail));
 
-    expect(gmail.calls).toEqual(["refresh", "list"]);
-    expect(gmail.listQueries).toEqual([GMAIL_RESYNC_QUERY]);
+    expect(gmail.calls).toEqual(["refresh", "list", "list"]);
+    expect(gmail.listQueries).toEqual([GMAIL_RESYNC_QUERY, GMAIL_RESYNC_SENT_QUERY]);
   });
 
   it("history scaduta (404) → ricade sul resync per query, senza contare un errore", async () => {
@@ -405,8 +408,8 @@ describe("sincronizzazione Gmail", () => {
 
     await pollGoogleOnce(deps(account, gmail));
 
-    expect(gmail.calls).toEqual(["refresh", "history", "list"]);
-    expect(gmail.listQueries).toEqual([GMAIL_RESYNC_QUERY]);
+    expect(gmail.calls).toEqual(["refresh", "history", "list", "list"]);
+    expect(gmail.listQueries).toEqual([GMAIL_RESYNC_QUERY, GMAIL_RESYNC_SENT_QUERY]);
     const reloaded = await reload(account.id);
     expect(reloaded.syncAttempts).toBe(0);
     expect(reloaded.disabledAt).toBeNull();
@@ -4057,6 +4060,49 @@ describe("la posta MANDATA nei thread che Stubwise ha (area 6, F3)", () => {
     expect(sent!.textExcerpt).toContain("Ecco l'export.");
     expect(rows.find((r) => r.gmailMessageId === "altra")).toBeUndefined();
     expect(runner.calls).toEqual([]);
+  });
+
+  it("area 8, «Clienti in attesa»: al RESYNC (history scaduta) la risposta mandata da Gmail su un thread noto entra come contesto; su un thread ignoto no; mai classificata", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    await db.insert(emailMessages).values({ accountId: account.id, gmailMessageId: "ricevuta", threadId: "thread-noto", fromAddress: "c@cliente.com", receivedAt: new Date(), status: "ignored", classificationState: "done" });
+    const runner = fakeRunner(IGNORED_OUTPUT);
+    const gmail = fakeGmail({
+      historyError: new GoogleApiError({ api: "gmail.history.list", status: 404, code: "history_expired", reason: "notFound" }),
+      listed: [],
+      listedSent: ["risposta", "altrove"],
+      messages: {
+        risposta: message({ id: "risposta", threadId: "thread-noto", from: `Io <${MAILBOX}>`, body: "Fatto, ecco il file." }),
+        altrove: message({ id: "altrove", threadId: "thread-ignoto", from: `Io <${MAILBOX}>` }),
+      },
+    });
+
+    await pollGoogleOnce({ ...deps(account, gmail), runner, classifyV2: true });
+
+    const rows = await db.select().from(emailMessages).where(eq(emailMessages.accountId, account.id));
+    expect(rows.find((r) => r.gmailMessageId === "risposta")).toMatchObject({ admitted: false, status: "ignored", threadId: "thread-noto" });
+    expect(rows.find((r) => r.gmailMessageId === "altrove")).toBeUndefined();
+    expect(runner.calls).toEqual([]);
+  });
+
+  it("area 8: al primo giro i ricevuti PRIMA dei mandati — un thread che diventa noto nel giro prende anche la risposta", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    const runner = fakeRunner(IGNORED_OUTPUT);
+    const gmail = fakeGmail({
+      listed: ["domanda"],
+      listedSent: ["risposta"],
+      messages: {
+        domanda: message({ id: "domanda", threadId: "thread-x", from: "Cliente <c@cliente.com>", body: "Mi mandate il preventivo?" }),
+        risposta: message({ id: "risposta", threadId: "thread-x", from: `Io <${MAILBOX}>`, body: "Eccolo." }),
+      },
+      // Il thread come lo vede Gmail al momento dell'ammissione: senza la
+      // risposta (mandata dopo), così è SOLO la lista dei mandati a portarla.
+      threads: { "thread-x": [message({ id: "domanda", threadId: "thread-x", from: "Cliente <c@cliente.com>", body: "Mi mandate il preventivo?" })] },
+    });
+
+    await pollGoogleOnce({ ...deps(account, gmail), runner, classifyV2: true });
+
+    const rows = await db.select().from(emailMessages).where(eq(emailMessages.accountId, account.id));
+    expect(rows.find((r) => r.gmailMessageId === "risposta")).toMatchObject({ admitted: false, threadId: "thread-x" });
   });
 
   it("un'email NUOVA mandata da Stubwise entra anche senza un thread noto (crea la sua conversazione)", async () => {
