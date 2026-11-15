@@ -1,6 +1,6 @@
 import { agentConfigSchema, ingestBodySchema } from "@stubwise/shared";
 import type { AgentCheckConfig } from "@stubwise/shared";
-import { checkSamples, decrypt, serverCommands, serverMetrics, servers, serviceChecks } from "@stubwise/db";
+import { checkSamples, decrypt, serverCommands, serverMetrics, serverOperationApprovals, servers, serviceChecks } from "@stubwise/db";
 import { and, eq, inArray, lt, sql } from "drizzle-orm";
 import { COMMAND_OUTPUT_MAX } from "../services/server-commands.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -315,6 +315,14 @@ export async function monitorRoutes(
         .update(serverCommands)
         .set({ status: "expired", finishedAt: now })
         .where(and(eq(serverCommands.serverId, server.id), eq(serverCommands.status, "pending"), lt(serverCommands.expiresAt, now)));
+      // Review F4b, I1: un `change` la cui approvazione è stata revocata (Stop,
+      // anche se è arrivato fra il ricontrollo e la firma) non si consegna: si
+      // annulla qui.
+      await app.db.execute(sql`
+        update ${serverCommands} c set status = 'cancelled', finished_at = now()
+        from ${serverOperationApprovals} a
+        where c.server_id = ${server.id} and c.status = 'pending' and c.approval_id = a.id and a.revoked_at is not null
+      `);
       if (server.agentCapabilities?.operations !== true) return { command: null };
       const claimed = await app.db.execute<{
         id: string;
@@ -329,6 +337,9 @@ export async function monitorRoutes(
         where id = (
           select id from ${serverCommands}
           where server_id = ${server.id} and status = 'pending' and expires_at > now() and signature is not null
+            and (approval_id is null or exists (
+              select 1 from ${serverOperationApprovals} a where a.id = approval_id and a.revoked_at is null
+            ))
           order by issued_at, id
           for update skip locked
           limit 1

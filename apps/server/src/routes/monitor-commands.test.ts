@@ -167,6 +167,16 @@ describe("il canale: GET /monitor/commands e l'esito", () => {
     expect(Object.fromEntries(rows.map((r) => [r.id, r.status]))).toEqual({ [old.id]: "expired", [stopped.id]: "cancelled" });
   });
 
+  it("review F4b, I1: un `change` già firmato la cui approvazione viene revocata dopo (Stop fra ricontrollo e firma) non si consegna MAI: diventa cancelled", async () => {
+    const { server, key } = await seedServer(true);
+    const step = { action: "container.restart" as const, params: { container: "web", timeoutSeconds: 10 } };
+    const a = await approval(server.id, [{ ...step, why: "riparte" }]);
+    const cmd = await issueServerCommand(db, ENCRYPTION_KEY, { serverId: server.id, action: step, approval: { id: a, stepIndex: 0 } });
+    await db.update(serverOperationApprovals).set({ revokedAt: new Date() }).where(eq(serverOperationApprovals.id, a));
+    expect((await pull(key)).json()).toEqual({ command: null });
+    expect((await db.select().from(serverCommands).where(eq(serverCommands.id, cmd.id)))[0]!.status).toBe("cancelled");
+  });
+
   it("l'ingest dichiara le operazioni (e senza il campo, spente)", async () => {
     const { server, key } = await seedServer(false);
     const sample = { ts: new Date().toISOString(), cpuPct: 1, load1m: 0, memUsedBytes: 1, memTotalBytes: 2, swapUsedBytes: 0, diskUsedBytes: 1, diskTotalBytes: 2, netRxBytes: 0, netTxBytes: 0, disks: [], services: [] };

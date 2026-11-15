@@ -55,18 +55,7 @@ export async function issueServerCommand(db: Db, encryptionKey: Buffer, input: I
   const action = parsed.data;
   const kind = serverActionKind(action.action)!;
 
-  if (kind === "change") {
-    if (!input.approval) throw new ServerCommandError(409, "not_approved", "A change needs an approved plan step");
-    const [approval] = await db.select().from(serverOperationApprovals).where(eq(serverOperationApprovals.id, input.approval.id));
-    if (!approval || approval.serverId !== input.serverId) throw new ServerCommandError(409, "not_approved", "Not an approved step of this server");
-    if (approval.revokedAt) throw new ServerCommandError(409, "approval_revoked", "The approval was revoked");
-    const step = approval.steps[input.approval.stepIndex];
-    const same =
-      step !== undefined &&
-      step.action === action.action &&
-      canonicalCommandPayload({ ...EMPTY, params: step.params }) === canonicalCommandPayload({ ...EMPTY, params: action.params });
-    if (!same) throw new ServerCommandError(409, "not_approved", "Not the approved step");
-  }
+  if (kind === "change" && !input.approval) throw new ServerCommandError(409, "not_approved", "A change needs an approved plan step");
 
   const container = (action.params as { container?: string }).container;
   if (container !== undefined && !(await seenContainers(db, input.serverId)).includes(container)) {
@@ -74,6 +63,21 @@ export async function issueServerCommand(db: Db, encryptionKey: Buffer, input: I
   }
 
   return db.transaction(async (tx) => {
+  if (kind === "change") {
+    // Review F4b, I1: l'approvazione si legge IN LOCK nella stessa
+    // transazione che firma. Lo Stop la aggiorna (revoca) in una sua
+    // transazione: le due si serializzano, e o la firma vede la revoca, o lo
+    // Stop trova il comando già scritto e lo annulla.
+    const [approval] = await tx.select().from(serverOperationApprovals).where(eq(serverOperationApprovals.id, input.approval!.id)).for("update");
+    if (!approval || approval.serverId !== input.serverId) throw new ServerCommandError(409, "not_approved", "Not an approved step of this server");
+    if (approval.revokedAt) throw new ServerCommandError(409, "approval_revoked", "The approval was revoked");
+    const step = approval.steps[input.approval!.stepIndex];
+    const same =
+      step !== undefined &&
+      step.action === action.action &&
+      canonicalCommandPayload({ ...EMPTY, params: step.params }) === canonicalCommandPayload({ ...EMPTY, params: action.params });
+    if (!same) throw new ServerCommandError(409, "not_approved", "Not the approved step");
+  }
     const issuedAt = new Date();
     const expiresAt = new Date(issuedAt.getTime() + COMMAND_TTL_MS);
     const [row] = await tx

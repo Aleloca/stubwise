@@ -57,6 +57,8 @@ export const serverAnalysisViewSchema = z.object({
    * server; senza, `diagnosis` è null). Additivo.
    */
   canViewDiagnosis: z.boolean().default(false),
+  /** Perché è finita senza diagnosi: `time` = il tetto di durata di Impostazioni. Additivo. */
+  endedBy: z.enum(["time"]).nullable().default(null),
   /** La sessione di Claude dell'analisi, solo con `canViewDiagnosis`. Additivo. */
   sessionId: z.uuid().nullable().default(null),
   startedAt: z.iso.datetime(),
@@ -88,6 +90,12 @@ export const serverFixViewSchema = z.object({
   canRequestPlan: z.boolean().default(false),
   canApprove: z.boolean().default(false),
   canStop: z.boolean().default(false),
+  /**
+   * La versione del piano mostrato (review F4b, I6): chi approva la rimanda, e
+   * se nel frattempo il piano è stato riscritto la risposta è 409
+   * `plan_changed`. Null senza piano. Additivo.
+   */
+  planDigest: z.string().nullable().default(null),
   /** Perché l'ultimo piano proposto non è stato salvato (`schema`, `container_of_other_project`, `operations_off`…). Additivo. */
   planError: z.string().nullable().default(null),
   /**
@@ -116,6 +124,14 @@ export const serverSshAccessViewSchema = z.object({
     .nullable()
     .default(null),
   canManage: z.boolean().default(false),
+  /** Claude può leggere ADESSO (verificato, senza privilegi, host key fissata): calcolato dal server. Additivo. */
+  usable: z.boolean().default(false),
+  /** `SHA256:<base64>` della chiave pubblica, come lo stampa `ssh-keygen -lf`. Additivo. */
+  fingerprint: z.string().nullable().default(null),
+  lastUsedAt: z.iso.datetime().nullable().default(null),
+  revokedAt: z.iso.datetime().nullable().default(null),
+  /** Dopo la revoca: il comando che toglie l'utente dal server. Additivo. */
+  removeCommand: z.string().nullable().default(null),
 });
 export type ServerSshAccessView = z.infer<typeof serverSshAccessViewSchema>;
 

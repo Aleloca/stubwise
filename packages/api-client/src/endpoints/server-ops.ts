@@ -68,8 +68,9 @@ export function createServerOpsEndpoints(request: ApiRequest) {
     requestPlan(ticketId: string): Promise<Reader<ServerFixView>> {
       return request("POST", fix(ticketId), undefined, serverFixViewSchema);
     },
-    approve(ticketId: string): Promise<Reader<ServerFixView>> {
-      return request("POST", `${fix(ticketId)}/approve`, undefined, serverFixViewSchema);
+    /** Approva il piano VISTO: `planDigest` è quello della vista (409 `plan_changed` se è stato riscritto). */
+    approve(ticketId: string, planDigest: string): Promise<Reader<ServerFixView>> {
+      return request("POST", `${fix(ticketId)}/approve`, { planDigest }, serverFixViewSchema);
     },
     reject(ticketId: string, note = ""): Promise<Reader<ServerFixView>> {
       return request("POST", `${fix(ticketId)}/reject`, { note }, serverFixViewSchema);

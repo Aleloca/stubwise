@@ -303,6 +303,20 @@ export type PlanValidation =
  * progetti toccati lo calcola il server nella vista della correzione). Il
  * testo libero non diventa mai un comando.
  */
+/**
+ * Di quali progetti è ogni container del server: la lista dell'ambiente, o —
+ * se è vuota — il container col NOME dell'ambiente (la regola della fase 8).
+ */
+export function containerOwners(serverProjects: AttributionInput["serverProjects"]): Map<string, Set<string>> {
+  const owners = new Map<string, Set<string>>();
+  for (const p of serverProjects) {
+    for (const env of p.environments) {
+      for (const c of env.containers.length > 0 ? env.containers : [env.name]) owners.set(c, (owners.get(c) ?? new Set()).add(p.projectId));
+    }
+  }
+  return owners;
+}
+
 export function validateServerPlan(input: {
   plan: unknown;
   projectId: string;
@@ -312,12 +326,7 @@ export function validateServerPlan(input: {
   const parsed = serverPlanSchema.safeParse(input.plan);
   if (!parsed.success) return { ok: false, reason: "schema", step: null };
   const seen = new Set(input.seenContainers);
-  const owners = new Map<string, Set<string>>();
-  for (const p of input.serverProjects) {
-    for (const env of p.environments) {
-      for (const c of env.containers.length > 0 ? env.containers : [env.name]) owners.set(c, (owners.get(c) ?? new Set()).add(p.projectId));
-    }
-  }
+  const owners = containerOwners(input.serverProjects);
   for (const [i, step] of parsed.data.steps.entries()) {
     if (step.action === "docker.prune") continue;
     const container = (step.params as { container: string }).container;

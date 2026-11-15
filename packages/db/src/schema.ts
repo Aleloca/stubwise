@@ -7122,9 +7122,8 @@ export const serverOperationApprovals = pgTable("server_operation_approvals", {
   serverId: uuid("server_id")
     .notNull()
     .references(() => servers.id, { onDelete: "cascade" }),
-  taskId: uuid("task_id")
-    .notNull()
-    .references(() => tickets.id, { onDelete: "cascade" }),
+  /** Null quando la task è sparita: l'approvazione resta, il registro la cita (review F4b, I5). */
+  taskId: uuid("task_id").references(() => tickets.id, { onDelete: "set null" }),
   sessionId: uuid("session_id").references((): AnyPgColumn => agentSessions.id, { onDelete: "set null" }),
   steps: jsonb("steps").$type<{ action: string; params: Record<string, unknown>; why: string }[]>().notNull(),
   approvedByUserId: uuid("approved_by_user_id").references(() => users.id, { onDelete: "set null" }),
@@ -7192,7 +7191,7 @@ export const serverCommands = pgTable(
       .references(() => servers.id, { onDelete: "cascade" }),
     sessionId: uuid("session_id").references((): AnyPgColumn => agentSessions.id, { onDelete: "set null" }),
     analysisId: uuid("analysis_id").references(() => serverAnalyses.id, { onDelete: "set null" }),
-    approvalId: uuid("approval_id").references(() => serverOperationApprovals.id, { onDelete: "restrict" }),
+    approvalId: uuid("approval_id").references(() => serverOperationApprovals.id, { onDelete: "no action" }),
     stepIndex: integer("step_index"),
     via: text("via").$type<"agent" | "ssh">().notNull().default("agent"),
     action: text("action").notNull(),

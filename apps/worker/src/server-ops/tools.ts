@@ -10,6 +10,7 @@ import {
   type ServerAnalysisLimits,
   type ServerOpsTool,
   validateServerPlan,
+  containerOwners,
   type ServerDiagnosisReport,
 } from "@stubwise/shared";
 
@@ -135,6 +136,18 @@ async function agentRead(deps: ToolDeps, grant: AnalysisGrant, action: "containe
   }
   const parsed = serverActionSchema.safeParse({ action, params: args ?? {} });
   if (!parsed.success) return { ok: false, text: `Invalid arguments: ${parsed.error.issues.map((i) => i.message).join("; ")}` };
+  // Review F4b, I3: la sessione di CORREZIONE è del progetto della task (la
+  // leggono i suoi membri): legge solo i container di QUEL progetto. L'analisi
+  // per server (sessione senza progetto) li legge tutti.
+  if (grant.mode === "fix") {
+    const container = (parsed.data.params as { container: string }).container;
+    const owners = containerOwners((await attributionContext(db, grant.serverId)).serverProjects).get(container);
+    if (!owners || owners.size !== 1 || !owners.has(grant.projectId!)) {
+      return { ok: false, text: "Not read: in a correction you can read only containers of this task's project." };
+    }
+  }
+  // Il tetto si consuma PRIMA dell'attesa: due letture in parallelo non lo superano.
+  grant.agentReads += 1;
   let issued: { id: string };
   try {
     issued = await issueServerCommand(db, deps.encryptionKey, {
@@ -147,7 +160,6 @@ async function agentRead(deps: ToolDeps, grant: AnalysisGrant, action: "containe
     if (error instanceof ServerCommandError) return { ok: false, text: `Not read: ${error.message}.` };
     throw error;
   }
-  grant.agentReads += 1;
   const sleep = deps.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
   const now = deps.now ?? (() => new Date());
   for (;;) {
@@ -181,6 +193,7 @@ async function sshReadTool(deps: ToolDeps, grant: AnalysisGrant, args: unknown):
   if (def.needsJournalGroup && access.verifyResult.journal !== true) {
     return { ok: false, text: "Not readable: the SSH user is not in the systemd-journal or adm group, so the journal cannot be read." };
   }
+  // Il tetto si consuma PRIMA dell'attesa (letture in parallelo); una lettura rifiutata qui sopra no.
   grant.sshReads += 1;
   const now = new Date();
   const [row] = await db
@@ -239,7 +252,8 @@ async function proposePlan(deps: ToolDeps, grant: AnalysisGrant, args: unknown):
   const saved = await db
     .update(serverFixes)
     .set({ status: "awaiting_approval", steps: check.plan.steps, planError: null, updatedAt: new Date() })
-    .where(and(eq(serverFixes.id, grant.fixId!), eq(serverFixes.status, "proposing")))
+    // Guardata sulla SESSIONE (review F4b): una sessione di prima (fermata e richiesta di nuovo) non scrive nella richiesta nuova.
+    .where(and(eq(serverFixes.id, grant.fixId!), eq(serverFixes.status, "proposing"), ...(grant.sessionId ? [eq(serverFixes.sessionId, grant.sessionId)] : [])))
     .returning({ id: serverFixes.id });
   if (saved.length === 0) return { ok: false, text: "Not saved: the correction was stopped or changed meanwhile." };
   grant.proposed = true;

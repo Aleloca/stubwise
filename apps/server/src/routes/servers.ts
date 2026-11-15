@@ -14,11 +14,12 @@ import {
   projectEnvironments,
   repositories,
   serverEpisodes,
+  serverAnalyses,
   serverMetrics,
   servers,
   serviceChecks,
 } from "@stubwise/db";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -26,6 +27,7 @@ import { projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
 import { canViewServer, serverIdsOfProjects, visibleServerIds } from "../auth/monitor-access.js";
 import { toCheckView } from "./servers-checks.js";
 import { commandPublicKey } from "../services/server-signing.js";
+import { operatorAccess } from "./server-analyses.js";
 import { apiError } from "../errors.js";
 import {
   authErrorResponses,
@@ -106,8 +108,8 @@ function toServerView(row: ServerRow, agg: ServerAggregates, now: Date): ServerV
     orphan: agg.orphan,
     // I progetti non hanno ancora un archivio sul server.
     inArchivedOnly: false,
-    // Area 8, F4b: lo dichiara l'ingest (S4); finché non c'è, spento.
-    agentOperations: false,
+    // Area 8, F4b: lo dichiara l'ingest (S4, `agent_capabilities`): una dichiarazione, non un permesso.
+    agentOperations: row.agentCapabilities?.operations === true,
   };
 }
 
@@ -391,6 +393,10 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
       episodes: agg.episodes,
       productionProjects,
       canManage: user.instancePermissions.has("monitor.manage"),
+      // Area 8, F4b: lo calcola il server, con la regola della POST …/analyses.
+      canStartAnalysis:
+        (await operatorAccess(app, user, row.id)).operate &&
+        (await app.db.select({ id: serverAnalyses.id }).from(serverAnalyses).where(and(eq(serverAnalyses.serverId, row.id), isNull(serverAnalyses.episodeId), eq(serverAnalyses.status, "running"))).limit(1)).length === 0,
     };
   }
 
