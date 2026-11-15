@@ -19,7 +19,11 @@ export function agentInstallCommand(input: { instanceUrl: string; key: string; o
     "  -v /var/run/docker.sock:/var/run/docker.sock:ro \\",
     `  -e STUBWISE_URL=${url} -e STUBWISE_SERVER_KEY=${input.key} \\`,
     ...(input.operations
-      ? [`  -e STUBWISE_OPERATIONS=1 -e STUBWISE_COMMAND_PUBLIC_KEY=${input.operations.publicKey} \\`]
+      ? [
+          `  -e STUBWISE_OPERATIONS=1 -e STUBWISE_COMMAND_PUBLIC_KEY=${input.operations.publicKey} \\`,
+          // I nonce dei comandi visti sopravvivono a un container ricreato (review F4b).
+          "  -v stubwise-agent-state:/var/lib/stubwise-agent \\",
+        ]
       : []),
     `  ${AGENT_IMAGE}`,
   ].join("\n");

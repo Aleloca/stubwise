@@ -161,3 +161,11 @@ describe("review F4b, I2: l'id del server si fissa anche dopo un avvio senza con
     expect(out).toBe("ran");
   });
 });
+
+describe("review F4b: un'azione che cambia senza approvazione si rifiuta", () => {
+  it("container.restart firmato ma con approvalId null → bad_action, nessuna chiamata", async () => {
+    const h = harness(signed({ action: "container.restart", params: { container: "web", timeoutSeconds: 10 }, approvalId: null }));
+    expect(await tick(h)).toBe("refused");
+    expect(h.calls).toHaveLength(0);
+  });
+});

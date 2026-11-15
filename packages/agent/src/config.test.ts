@@ -81,7 +81,7 @@ describe("area 8, F4b: the operations option", () => {
     const noKey = loadAgentEnv({ ...base, STUBWISE_OPERATIONS: "1" });
     expect(noKey.ok).toBe(false);
     const on = loadAgentEnv({ ...base, STUBWISE_OPERATIONS: "1", STUBWISE_COMMAND_PUBLIC_KEY: "PUB" });
-    expect(on.ok && on.env.operations).toEqual({ publicKey: "PUB", nonceFile: "/var/tmp/stubwise-agent-nonces.json" });
+    expect(on.ok && on.env.operations).toEqual({ publicKey: "PUB", nonceFile: "/var/lib/stubwise-agent/nonces.json" });
     const other = loadAgentEnv({ ...base, STUBWISE_OPERATIONS: "true", STUBWISE_COMMAND_PUBLIC_KEY: "PUB" });
     expect(other.ok && other.env.operations).toBeNull();
   });

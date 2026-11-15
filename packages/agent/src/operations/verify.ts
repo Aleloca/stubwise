@@ -1,5 +1,5 @@
 import { createPublicKey, verify as verifySignature } from "node:crypto";
-import { canonicalCommandPayload, serverActionSchema, type ServerAction, type ServerCommandPayload } from "@stubwise/shared";
+import { serverActionKind, canonicalCommandPayload, serverActionSchema, type ServerAction, type ServerCommandPayload } from "@stubwise/shared";
 
 /**
  * Area 8, F4b: the agent's gate. A command runs ONLY if it is signed by the
@@ -53,6 +53,10 @@ export function verifyCommand(cmd: SignedCommand, ctx: VerifyContext): VerifyRes
   if (ctx.nonces.has(cmd.payload.commandId)) return { ok: false, commandId: id, reason: "replayed" };
   const parsed = serverActionSchema.safeParse({ action: cmd.payload.action, params: cmd.payload.params });
   if (!parsed.success) return { ok: false, commandId: id, reason: "bad_action" };
+  // Review F4b (difesa in profondità): un'azione che CAMBIA arriva sempre con la sua approvazione.
+  if (serverActionKind(parsed.data.action) === "change" && (typeof cmd.payload.approvalId !== "string" || cmd.payload.approvalId === "")) {
+    return { ok: false, commandId: id, reason: "bad_action" };
+  }
   const container = (parsed.data.params as { container?: string }).container;
   if (container !== undefined && !ctx.seenContainers.includes(container)) return { ok: false, commandId: id, reason: "unknown_container" };
   // The nonce is spent BEFORE running: a crash mid-run never replays it.
