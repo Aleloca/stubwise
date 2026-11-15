@@ -15,6 +15,7 @@ import {
   mailRecipientSuggestionListSchema,
   mailDraftRestoreSchema,
   mailOutgoingSchema,
+  waitingCustomersResponseSchema,
 } from "@stubwise/shared";
 import type {
   Reader,
@@ -28,6 +29,7 @@ import type {
   MailSummary,
   MailThreadDetail,
   MailThreadPage,
+  WaitingCustomersResponse,
   MailImportance,
   MailProposal,
   MailProposalList,
@@ -119,6 +121,17 @@ export function createMailEndpoints(request: ApiRequest) {
         limit,
       });
       return request("GET", `/api/me/mail${query}`, undefined, mailPageSchema);
+    },
+
+    /**
+     * Area 8, «Clienti in attesa»: i thread delle MIE caselle in cui un
+     * cliente aspetta da più di 24 ore, dall'attesa più vecchia, al più 20
+     * (`total` per il «+N»). `judgment` è `yes` (con `reason`, testo del
+     * modello: NON FIDATO) o `pending`; un valore sconosciuto arriva come
+     * `UNKNOWN` (readerSchema) e va trattato come `pending`.
+     */
+    waitingCustomers(): Promise<Reader<WaitingCustomersResponse>> {
+      return request("GET", "/api/me/waiting-customers", undefined, waitingCustomersResponseSchema);
     },
 
     /**

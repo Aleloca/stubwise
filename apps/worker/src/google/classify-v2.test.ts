@@ -331,3 +331,24 @@ describe("il prompt della classificazione nuova (review F2, punti 9 e 10)", () =
   });
 });
 
+
+describe("area 8, «Clienti in attesa» (J1, classificazione nuova)", () => {
+  it("il `reply` nello schema si scrive sul messaggio; fuori schema no, e la classificazione va avanti", async () => {
+    const ada = await seedUser(`ada-${randomUUID()}@acme.com`);
+    const audin = await seedProject("Audin J1", [ada]);
+    const account = await seedAccount(ada, `ada-box-${randomUUID()}@acme.com`);
+    const ok = await seedMessage(account.id, { rfcMessageId: `<j1-${randomUUID()}@cliente.com>` });
+    const runner = new FakeRunner([
+      JSON.stringify({ importance: "normal", projects: [{ projectId: audin, proposals: [] }], reply: { needsMyReply: false, reason: "Il cliente ringrazia e chiude." } }),
+    ]);
+    await classifyNewMessagesV2(deps(runner), account.id);
+    expect((await db.select().from(emailMessages).where(eq(emailMessages.id, ok.id)))[0]!.replyJudgment).toMatchObject({ needsMyReply: false });
+    expect(runner.calls[0]!.prompt).toContain(account.email);
+
+    const bad = await seedMessage(account.id, { rfcMessageId: `<j1b-${randomUUID()}@cliente.com>` });
+    const runner2 = new FakeRunner([JSON.stringify({ importance: "normal", projects: [], reply: { needsMyReply: 1 } })]);
+    await classifyNewMessagesV2(deps(runner2), account.id);
+    const [row] = await db.select().from(emailMessages).where(eq(emailMessages.id, bad.id));
+    expect(row).toMatchObject({ classificationState: "done", replyJudgment: null });
+  });
+});
