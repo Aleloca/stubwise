@@ -307,6 +307,8 @@ const INTEGRATED_CALLS = new Set([
   "mail.listMailThreads",
   // Area 6, fetta 2: «Importanti» e il blocco Home «Posta importante».
   "mail.listImportantMail",
+  // Area 8: «Clienti in attesa» della Home, dalla posta delle mie caselle.
+  "mail.listWaitingCustomers",
   "mail.getMailThread",
   "mail.searchMail",
   "mail.reproposeMessage",
@@ -468,8 +470,6 @@ const INTEGRATED_CALLS = new Set([
   "servers.getCommandKey",
   // F4b: la sezione Server della task e la correzione.
   "servers.getServerTaskInfo",
-  // Area 8: «Clienti in attesa» della Home, dalla posta.
-  "mail.listWaitingCustomers",
   "servers.startServerFix",
   "servers.approveServerFix",
   "servers.rejectServerFix",

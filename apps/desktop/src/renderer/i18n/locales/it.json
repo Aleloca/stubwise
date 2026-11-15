@@ -1755,7 +1755,14 @@
     },
     "waitingCustomers": {
       "empty": "Nessun cliente in attesa",
-      "pending": "Da valutare: Claude non ha ancora detto se serve una tua risposta"
+      "pending": "Da valutare: Claude non ha ancora detto se serve una tua risposta",
+      "yesNoReason": "Claude dice che serve una tua risposta.",
+      "signals": {
+        "decision": "Decisione",
+        "request": "Richiesta",
+        "deadline": "Scadenza",
+        "blocker": "Bloccante"
+      }
     }
   },
   "week": {

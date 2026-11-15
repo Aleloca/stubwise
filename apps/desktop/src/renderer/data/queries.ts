@@ -281,6 +281,8 @@ export const queryKeys = {
   mailThread: (personId: string, threadId: string) =>
     ["as", personId, "mail", "thread", threadId] as const,
   mailboxes: (personId: string) => ["as", personId, "mail", "mailboxes"] as const,
+  /** Area 8: «Clienti in attesa» della Home, dalla posta delle mie caselle. */
+  mailWaitingCustomers: (personId: string) => ["as", personId, "mail", "waitingCustomers"] as const,
   importantMail: (personId: string) => ["as", personId, "mail", "important"] as const,
   mailSearch: (personId: string, q: string) => ["as", personId, "mail", "search", q] as const,
   mailProposals: (personId: string, filters: MailProposalFilters) =>
@@ -3129,7 +3131,7 @@ export function useImportantMail() {
 export function useMailWaitingCustomers() {
   const me = useSessionPersonId();
   return useQuery({
-    queryKey: ["as", me, "mail", "waitingCustomers"] as const,
+    queryKey: queryKeys.mailWaitingCustomers(me),
     queryFn: () => api.mail.listWaitingCustomers(),
     refetchInterval: 60_000,
   });

@@ -27,6 +27,11 @@ export interface BlockDef {
    * `useBlockContext`).
    */
   available(viewer: Viewer, ctx?: BlockContext): boolean;
+  /**
+   * Solo nella MIA Home (review M7): un blocco che legge ciò che è di chi
+   * guarda (la sua posta) non ha senso nella Home di un reparto.
+   */
+  personalOnly?: boolean;
   /** L'area del blocco, se non è dell'area 2: finché non è integrata il blocco è nascosto (`isHiddenBlock`). */
   area?: string;
 }
@@ -133,6 +138,7 @@ export const BLOCKS: Record<HomeBlockKind, BlockDef> = {
     titleKey: "home.blocks.waitingCustomers",
     component: WaitingCustomersBlock,
     ...ofArea("mail-waiting", always),
+    personalOnly: true,
   },
   filter: { titleKey: "home.blocks.filter", component: FilterBlock, available: always },
 };

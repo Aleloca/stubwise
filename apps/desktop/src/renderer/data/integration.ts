@@ -91,10 +91,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Area 8, fetta 3: Support — elenco, dettaglio, anteprima, risposta,
     // «Apri la richiesta», «Not concluded» e i widget (`support-widgets`, sulle
     // rotte di oggi). Email, «Segui» e la bozza di Claude non ci sono più
-    // (decisione del maintainer: il team non scrive al cliente). Restano
-    // spente: la ricerca ⌘K (`support-search`, fuori F3) e «Clienti in attesa» nella Home
-    // (`support-home`): la sua fonte è posta e automazioni, non il widget, ed
-    // è da definire (decisione del maintainer); resta nel catalogo.
+    // (decisione del maintainer: il team non scrive al cliente). Resta spenta
+    // la ricerca ⌘K (`support-search`, fuori F3). «Clienti in attesa» della
+    // Home è uscito da Support: viene dalla posta (`mail-waiting`).
     "support",
     "support-widgets",
     // Area 8, F4a: i Server (letture e scritture, la chiave una volta).

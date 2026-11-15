@@ -21,16 +21,17 @@ import {
 // server, un filtro eliminato resta come blocco «non disponibile» e i blocchi
 // delle aree non integrate non si mostrano.
 vi.mock("@backend/api", async () => await import("./index"));
-// Un blocco di un'area spenta: «Clienti in attesa» (spento anche nella build,
-// area 8 F3); il test lo fissa da sé per provare che personalizzare non
-// cancella un blocco nascosto.
+// Un blocco di un'area spenta: nella build ogni blocco della Home è ormai
+// integrato, quindi il test spegne da sé un'area (`hiddenArea`) per provare
+// che personalizzare non cancella un blocco nascosto (review M4).
+const hidden = vi.hoisted(() => ({ area: null as string | null }));
 vi.mock("../../integration", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../integration")>();
   return {
     ...actual,
     isIntegrated: (t: Parameters<typeof actual.isIntegrated>[0]) =>
-      !(t.kind === "feature" && t.name === "support-home") && actual.isIntegrated(t),
-    featureIntegrated: (name: string) => name !== "support-home" && actual.featureIntegrated(name),
+      !(t.kind === "feature" && t.name === hidden.area) && actual.isIntegrated(t),
+    featureIntegrated: (name: string) => name !== hidden.area && actual.featureIntegrated(name),
   };
 });
 
@@ -56,6 +57,7 @@ let importantThreads: unknown[] = [];
 let waitingItems: unknown[] = [];
 
 beforeEach(() => {
+  hidden.area = null;
   waitingItems = [];
   googleAccounts = [];
   calendarItems = [];
@@ -334,7 +336,9 @@ describe("la Home nella build app", () => {
     });
   });
 
-  it("personalizzare dall'app non cancella un kind sconosciuto (e «Clienti in attesa», ora integrato, si elenca)", async () => {
+  it("personalizzare dall'app non cancella un blocco di un'area spenta né un kind sconosciuto", async () => {
+    // L'area di «Clienti in attesa» spenta per questo test: il blocco è nascosto.
+    hidden.area = "mail-waiting";
     personalBlocks = [
       { kind: "decide" },
       { kind: "myWeek" },
@@ -346,8 +350,8 @@ describe("la Home nella build app", () => {
     await screen.findByRole("region", { name: /^My tasks/ });
     fireEvent.click(await screen.findByRole("button", { name: "Customize" }));
     const list = await screen.findByRole("list", { name: "Blocks of the Home" });
-    // Area 8: «Clienti in attesa» è integrato (dalla posta), quindi si elenca.
-    expect(within(list).getByText("Customers waiting")).toBeInTheDocument();
+    // L'editor non elenca ciò che questa build non mostra.
+    expect(within(list).queryByText("Customers waiting")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Add block" }));
     const menu = await screen.findByRole("menu", { name: "Add block" });
     fireEvent.click(within(menu).getByRole("menuitem", { name: /Stalled in my projects/ }));

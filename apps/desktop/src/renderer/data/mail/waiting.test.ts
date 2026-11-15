@@ -69,6 +69,13 @@ beforeEach(() => {
 afterEach(() => resetApi());
 
 describe("Clienti in attesa dalla posta (R3)", () => {
+  it("review M5: il seme ha un «sì» col motivo di Claude", async () => {
+    resetApi();
+    setSessionPersonId(ME);
+    const all = await rows();
+    expect(all.some((r) => r.judgment === "yes" && r.reason)).toBe(true);
+  });
+
   it("una riga per il thread che aspetta: giudicato sì, col motivo di Claude", async () => {
     const m = msg("t1");
     state.mailMessages.push(m);
@@ -96,21 +103,34 @@ describe("Clienti in attesa dalla posta (R3)", () => {
     expect(await rows()).toEqual([]);
   });
 
-  it("negativi: meno di 24 h, l'ultimo è mio, l'ultimo è di un collega con casella", async () => {
+  it("negativi: meno di 24 h dall'ultimo messaggio ESTERNO; dopo c'è un mio messaggio", async () => {
     state.mailMessages.push(msg("young", { at: hours(5) }));
     state.mailMessages.push(
       msg("mine"),
       msg("mine", { at: hours(26), from: { name: "Giulia", email: meEmail(), personId: ME } }),
     );
+    expect(await ids()).toEqual([]);
+  });
+
+  it("review I1: l'ultimo è di un COLLEGA con casella → candidato, e decide Claude; attesa e cliente dall'ultimo esterno", async () => {
     const colleague = state.mailboxes.find((b) => b.personId !== ME)!;
     const person = PEOPLE.find((p) => p.id === colleague.personId)!;
-    state.mailMessages.push(
-      msg("colleague"),
-      msg("colleague", {
-        at: hours(26),
-        from: { name: person.name, email: colleague.email, personId: person.id },
-      }),
-    );
+    const customerMsg = msg("colleague", { at: hours(40) });
+    const reply = msg("colleague", {
+      at: hours(2),
+      from: { name: person.name, email: colleague.email, personId: person.id },
+    });
+    state.mailMessages.push(customerMsg, reply);
+    const [row] = await rows();
+    expect(row).toMatchObject({
+      threadId: "colleague",
+      judgment: "pending",
+      customer: { email: "anna@cliente.test" },
+      // L'attesa conta dall'ultimo messaggio esterno, non dalla risposta del collega.
+      waitingSince: customerMsg.at,
+    });
+    // Il collega ha già risposto per intero: Claude dice no, e la riga sparisce.
+    judge(reply, "no");
     expect(await ids()).toEqual([]);
   });
 
@@ -125,7 +145,7 @@ describe("Clienti in attesa dalla posta (R3)", () => {
     expect(await ids()).toEqual(["sending"]);
   });
 
-  it("(a) solo contesto, o di un progetto che non vedo: niente; (e) il rumore (importanza bassa) niente", async () => {
+  it("(a) solo contesto, o di un progetto che non vedo: niente", async () => {
     state.mailMessages.push(msg("context", { context: true }));
     state.mailMessages.push(
       msg("hidden", {
@@ -138,18 +158,48 @@ describe("Clienti in attesa dalla posta (R3)", () => {
         },
       }),
     );
-    state.mailMessages.push(
-      msg("noise", {
-        classification: {
-          state: "done",
-          projectIds: [project().id],
-          importance: "low",
-          dueDate: null,
-          uncertainProjectIds: [],
-        },
-      }),
-    );
     expect(await ids()).toEqual([]);
+  });
+
+  it("review I2: rumore è solo «nessun progetto e importanza non alta» (l'`ignored` del server), non l'importanza bassa", async () => {
+    const base = msg("noise");
+    const noise = msg("noise", {
+      at: hours(28),
+      classification: {
+        state: "done",
+        projectIds: [],
+        importance: "normal",
+        dueDate: null,
+        uncertainProjectIds: [],
+      },
+    });
+    const low = msg("low", {
+      classification: {
+        state: "done",
+        projectIds: [project().id],
+        importance: "low",
+        dueDate: null,
+        uncertainProjectIds: [],
+      },
+    });
+    state.mailMessages.push(base, noise, low);
+    expect(await ids()).toEqual(["low"]);
+  });
+
+  it("review I2, W-3 = a: con le proposte spente l'ultimo messaggio non classificato passa (il progetto da un ammesso del thread)", async () => {
+    const box = state.mailboxes.find((b) => b.personId === ME)!;
+    box.proposalsEnabled = false;
+    state.mailMessages.push(
+      msg("off", { at: hours(60) }),
+      msg("off", { at: hours(30), classification: { state: "off" } }),
+    );
+    expect(await rows()).toEqual([
+      expect.objectContaining({
+        threadId: "off",
+        judgment: "pending",
+        project: expect.objectContaining({ id: project().id }),
+      }),
+    ]);
   });
 
   it("solo le MIE caselle: la casella di un collega non compare a me", async () => {

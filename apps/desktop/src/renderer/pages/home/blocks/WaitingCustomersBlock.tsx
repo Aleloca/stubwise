@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { useMailWaitingCustomers } from "../../../data/queries";
 import type { WaitingCustomer } from "../../../data/mail";
-import { WaitingSince } from "../../support/format";
+import { sinceWords } from "../../support/format";
 import { BlockSection, Capped, queryState, rowKeys } from "./BlockSection";
 
 /**
@@ -20,6 +20,11 @@ const rowClass =
 function Row({ row }: { row: WaitingCustomer }) {
   const { t } = useTranslation();
   const who = row.customer.name ?? row.customer.email;
+  // Il segnale della classificazione (R2): una parola; uno ignoto o «none» non si dice.
+  const signal =
+    row.signal && row.signal !== "none"
+      ? t(`home.waitingCustomers.signals.${row.signal}`, { defaultValue: "" })
+      : "";
   return (
     <li className="border-b border-rule" data-waiting-thread={row.threadId}>
       <Link
@@ -40,16 +45,23 @@ function Row({ row }: { row: WaitingCustomer }) {
         <span className="num text-xs text-ink-muted" title={row.project.name}>
           {row.project.code}
         </span>
-        <WaitingSince since={row.waitingSince} />
-        {row.judgment === "yes" && row.reason ? (
-          <span className="col-span-4 min-w-0 text-sm text-pretty text-ink-muted [overflow-wrap:anywhere]">
-            {row.reason}
-          </span>
-        ) : (
-          <span className="col-span-4 text-sm text-ink-faint" data-waiting-pending>
-            {t("home.waitingCustomers.pending")}
-          </span>
-        )}
+        {/* Neutro (review M3): oltre le 24 ore aspettano tutte, nessun colore d'allarme. */}
+        <span className="num text-xs text-ink-muted">
+          {t("support.waiting", { time: sinceWords(row.waitingSince, t) })}
+        </span>
+        <span className="col-span-4 flex min-w-0 flex-wrap items-baseline gap-x-2 text-sm">
+          {signal && <span className="shrink-0 font-medium text-ink">{signal}</span>}
+          {/* Il ramo è sul giudizio (review M1): un «sì» senza motivo non è «da valutare». */}
+          {row.judgment === "yes" ? (
+            <span className="min-w-0 text-pretty text-ink-muted [overflow-wrap:anywhere]">
+              {row.reason ?? t("home.waitingCustomers.yesNoReason")}
+            </span>
+          ) : (
+            <span className="text-ink-faint" data-waiting-pending>
+              {t("home.waitingCustomers.pending")}
+            </span>
+          )}
+        </span>
       </Link>
     </li>
   );

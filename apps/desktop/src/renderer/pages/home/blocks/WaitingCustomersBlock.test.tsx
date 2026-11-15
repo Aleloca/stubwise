@@ -5,6 +5,7 @@ import { resetApi, setLatency } from "../../../data/api";
 import { now, state, visibleProjectIds } from "../../../data/store";
 import type { MailMessage } from "../../../data/types";
 import { renderRoute } from "../../../test/renderRoute";
+import { accessState } from "../../../data/access/state";
 import { BLOCKS } from "./registry";
 
 // Area 8, «Clienti in attesa» (R1–R2): il blocco della Home legge la posta
@@ -50,6 +51,7 @@ beforeEach(() => {
   setLatency(0);
   resetApi();
   state.mailMessages = [];
+  state.mailReplyJudgments.clear();
   state.personalHomes = state.personalHomes.filter((h) => h.personId !== ME);
   state.personalHomes.push({
     personId: ME,
@@ -90,5 +92,52 @@ describe("il blocco «Clienti in attesa» (R1–R2)", () => {
     const block = await screen.findByRole("region", { name: "Customers waiting" });
     expect(await within(block).findByText("No customer is waiting")).toBeInTheDocument();
     expect(BLOCKS.waitingCustomers.area).toBe("mail-waiting");
+  });
+
+  it("review M1–M3: un «sì» senza motivo non è «To review»; nessun colore d'allarme su ogni riga", async () => {
+    const yes = thread("th-yes", "Fattura di ottobre");
+    state.mailMessages.push(yes);
+    const box = state.mailboxes.find((b) => b.personId === ME)!;
+    state.mailReplyJudgments.set(`${box.email}|${yes.id}`, { judgment: "yes", reason: null });
+    renderRoute("/home", ME);
+    const block = await screen.findByRole("region", { name: "Customers waiting" });
+    const row = await waitFor(() => {
+      const el = block.querySelector<HTMLElement>("[data-waiting-thread='th-yes']");
+      if (!el) throw new Error("no row");
+      return el;
+    });
+    expect(row).not.toHaveTextContent("To review");
+    expect(row).toHaveTextContent("Claude says it needs your reply");
+    expect(row.querySelector(".text-warning")).toBeNull();
+  });
+});
+
+describe("review M7: solo la MIA Home", () => {
+  /** Il catalogo «Add block» dell'editor aperto su `which` («My Home» o la Home del reparto). */
+  async function catalogFor(which: RegExp) {
+    const user = userEvent.setup();
+    // Giulia gestisce anche la Home di un suo reparto: «Customize» chiede quale Home.
+    // Nella Home personale il blocco non c'è ancora (il catalogo non ripropone i presenti).
+    state.personalHomes.find((h) => h.personId === ME)!.blocks = [{ kind: "myTasks" }];
+    const dep = accessState().departments.find((d) => d.memberIds.includes(ME))!;
+    if (!dep.homeManagerIds.includes(ME)) dep.homeManagerIds.push(ME);
+    renderRoute("/home", ME);
+    await user.click(await screen.findByRole("button", { name: "Customize" }));
+    await user.click(await screen.findByRole("menuitem", { name: which }));
+    await user.click(await screen.findByRole("button", { name: "Add block" }));
+    const menu = await screen.findByRole("menu", { name: "Add block" });
+    return within(menu)
+      .queryAllByRole("menuitem")
+      .map((i) => i.textContent ?? "");
+  }
+
+  it("nel catalogo della Home personale c'è", async () => {
+    expect((await catalogFor(/^My Home$/)).some((n) => /Customers waiting/.test(n))).toBe(true);
+  });
+
+  it("nel catalogo della Home di un reparto no (la posta è di chi guarda)", async () => {
+    const names = await catalogFor(/^(?!My Home$).+ Home$/);
+    expect(names.length).toBeGreaterThan(0);
+    expect(names.some((n) => /Customers waiting/.test(n))).toBe(false);
   });
 });

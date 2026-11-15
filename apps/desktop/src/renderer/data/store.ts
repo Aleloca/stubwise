@@ -1,4 +1,5 @@
 import { prLines, type PrLine } from "../domain/claude/taskWork";
+import { SEED_REPLY_JUDGMENTS } from "./seed/mail/replyJudgments";
 import { stallOf, type Stall } from "../domain/stalled";
 import { currentWeek } from "../domain/weeks";
 import { matches, type FilterContext } from "../domain/filters";
@@ -1425,7 +1426,7 @@ function freshState(): State {
     driveSeedWorkStarted: false,
     mailboxes: MAILBOXES.map(copy),
     mailMessages: MAIL_MESSAGES.map(copy),
-    mailReplyJudgments: new Map(),
+    mailReplyJudgments: new Map(SEED_REPLY_JUDGMENTS),
     meetingTranscripts: MEETING_TRANSCRIPTS.map(copy),
     mailProposals: [...MAIL_PROPOSALS, ...CALENDAR_PROPOSALS].map(copy),
     mailDrafts: MAIL_DRAFTS.map(copy),
