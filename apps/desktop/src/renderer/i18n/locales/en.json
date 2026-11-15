@@ -10032,7 +10032,8 @@
       "chat": "Chat",
       "drive": "Drive",
       "automations": "Automations",
-      "support": "Support"
+      "support": "Support",
+      "servers": "Servers"
     },
     "page": {
       "intro": "Find out who can do something in a project, or what someone can do — and why. You only see the projects and people you can see.",
