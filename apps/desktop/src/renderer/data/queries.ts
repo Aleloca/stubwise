@@ -160,7 +160,6 @@ export const queryKeys = {
     ["as", personId, "support", "conversation", code] as const,
   customerPreview: (personId: string, code: string) =>
     ["as", personId, "support", "preview", code] as const,
-  waitingCustomers: (personId: string) => ["as", personId, "support", "waiting"] as const,
   supportWidgets: (personId: string, projectId: string) =>
     ["as", personId, "support", "widgets", projectId] as const,
   myRequestStatus: (personId: string, requestId: string) =>
@@ -3119,6 +3118,20 @@ export function useImportantMail() {
   return useQuery({
     queryKey: queryKeys.importantMail(me),
     queryFn: () => api.mail.listImportantMail(),
+  });
+}
+
+/**
+ * «Clienti in attesa» della Home (area 8): dalla posta delle mie caselle,
+ * coi giudizi di Claude. Si rilegge ogni minuto (un thread «da valutare»
+ * diventa una riga col motivo, o sparisce).
+ */
+export function useMailWaitingCustomers() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "mail", "waitingCustomers"] as const,
+    queryFn: () => api.mail.listWaitingCustomers(),
+    refetchInterval: 60_000,
   });
 }
 

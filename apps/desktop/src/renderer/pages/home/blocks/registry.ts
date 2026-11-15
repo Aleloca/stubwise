@@ -126,12 +126,13 @@ export const BLOCKS: Record<HomeBlockKind, BlockDef> = {
     component: ReleasesBlock,
     ...ofArea("releases", (viewer) => can(viewer, "release.merge")),
   },
-  // Clienti in attesa (area 8a, shape support.md [A 17]): nel catalogo di chi
-  // può rispondere ai clienti in almeno un progetto, mai nelle Home di default.
+  // Clienti in attesa (area 8, piano di 72, [A 17]): dalla posta delle MIE
+  // caselle (W-3 = a, W-4 = b), non più Support; nel catalogo di tutti, mai
+  // nelle Home di default. Nell'app finché la rotta non è cablata, spento.
   waitingCustomers: {
     titleKey: "home.blocks.waitingCustomers",
     component: WaitingCustomersBlock,
-    ...ofArea("support-home", (viewer) => can(viewer, "support.manage")),
+    ...ofArea("mail-waiting", always),
   },
   filter: { titleKey: "home.blocks.filter", component: FilterBlock, available: always },
 };

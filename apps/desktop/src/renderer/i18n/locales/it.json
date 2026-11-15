@@ -1754,7 +1754,8 @@
       "empty": "Niente da rilasciare e nessun rilascio fallito."
     },
     "waitingCustomers": {
-      "empty": "Nessun cliente in attesa"
+      "empty": "Nessun cliente in attesa",
+      "pending": "Da valutare: Claude non ha ancora detto se serve una tua risposta"
     }
   },
   "week": {

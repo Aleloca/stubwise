@@ -1145,7 +1145,8 @@ describe("le superfici della fetta 3 nella build app", () => {
     expect(await screen.findByRole("region", { name: /^My tasks/ })).toBeInTheDocument();
     await settle();
     expect(screen.queryByRole("region", { name: WAITING_BLOCK })).toBeNull();
-    expect(calls).not.toContain("support.listWaitingCustomers");
+    // Dalla posta (area 8, «Clienti in attesa»): spento nell'app finché la rotta non è cablata.
+    expect(calls).not.toContain("mail.listWaitingCustomers");
     expect(outside()).toEqual([]);
   });
 
