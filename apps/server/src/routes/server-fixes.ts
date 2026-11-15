@@ -1,12 +1,13 @@
-import { projects, serverCommands, serverFixes, serverOperationApprovals, servers, users, type Db } from "@stubwise/db";
-import { attributionContext, cancelServerCommands } from "@stubwise/notifications";
-import { serverCommandViewSchema, serverFixViewSchema, validateServerPlan, type ServerFixView } from "@stubwise/shared";
+import { projects, serverAnalyses, serverCommands, serverEpisodes, serverFixes, serverOperationApprovals, servers, tickets, users, type Db } from "@stubwise/db";
+import { aiBudgetState, attributionContext, cancelServerCommands } from "@stubwise/notifications";
+import { serverCommandViewSchema, serverFixViewSchema, serverTaskViewSchema, validateServerPlan, type ServerFixView, type ServerTaskView } from "@stubwise/shared";
 import { createHash } from "node:crypto";
 import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { routePermissions, visibleProjectIds, type RouteAccess } from "../auth/access.js";
+import { canViewServer } from "../auth/monitor-access.js";
 import { fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import type { SessionUser } from "../auth/session.js";
 import { apiError } from "../errors.js";
@@ -194,6 +195,76 @@ export async function serverFixRoutes(instance: FastifyInstance): Promise<void> 
         .returning();
       if (updated.length === 0) return apiError(reply, 409, "not_awaiting_approval", "There is no plan waiting for approval");
       return viewOf(app.db, request.user!, perms, updated[0]!);
+    },
+  );
+
+  // La sezione Server della task (richiesta del renderer): server, episodio,
+  // analisi, correzione e perché chi guarda non può chiedere un piano.
+  app.get(
+    "/:ticketId/server",
+    { config: { access: onTask("member") }, schema: { params, response: { 200: serverTaskViewSchema, 404: errorSchema, ...authErrorResponses } } },
+    async (request, reply) => {
+      const user = request.user!;
+      const perms = routePermissions(request);
+      const fix = await fixOf(request.params.ticketId);
+      if (!fix) return apiError(reply, 404, "not_found", "This task did not come from a server");
+      const [server] = await app.db.select().from(servers).where(eq(servers.id, fix.serverId));
+      const [ticket] = await app.db.select({ status: tickets.status, projectCode: projects.code }).from(tickets).innerJoin(projects, eq(projects.id, tickets.projectId)).where(eq(tickets.id, fix.taskId));
+      const visible = server ? await canViewServer(app.db, user, server.id) : false;
+      const inProject = server ? (await attributionContext(app.db, server.id)).serverProjects.some((p) => p.projectId === fix.projectId) : false;
+      const [analysis] = fix.analysisId ? await app.db.select().from(serverAnalyses).where(eq(serverAnalyses.id, fix.analysisId)) : [];
+      const [episode] = analysis?.episodeId ? await app.db.select().from(serverEpisodes).where(eq(serverEpisodes.id, analysis.episodeId)) : [];
+      const fixView = await viewOf(app.db, user, perms, fix);
+      const startBlock = !perms.has("servers.operate")
+        ? "no_permission"
+        : !server
+          ? "server_gone"
+          : !inProject
+            ? "server_not_in_project"
+            : server.agentCapabilities.operations !== true
+              ? "operations_off"
+              : !OPEN_FOR_REQUEST.has(fix.status)
+                ? "busy"
+                : ticket?.status === "done" || ticket?.status === "closed"
+                  ? "closed"
+                  : (await aiBudgetState(app.db)).exhausted
+                    ? "monthly_budget"
+                    : null;
+      // La diagnosi della task: chi vede la task la legge già nel testo (ruling F4b-6); qui con la regola dell'analisi.
+      const canViewDiagnosis = user.instancePermissions.has("monitor.manage") || perms.has("repos.view");
+      const view: ServerTaskView = {
+        server: {
+          id: fix.serverId,
+          code: server && visible ? `SRV-${server.number}` : null,
+          name: server && visible ? server.name : null,
+          projectCode: ticket?.projectCode ?? "",
+          gone: !server || !inProject,
+        },
+        episode: episode
+          ? { severity: episode.severity, reasons: episode.reasons, startedAt: episode.startedAt.toISOString(), recoveredAt: episode.recoveredAt?.toISOString() ?? null }
+          : null,
+        analysis: analysis
+          ? {
+              id: analysis.id,
+              serverId: analysis.serverId,
+              episodeId: analysis.episodeId,
+              status: analysis.status,
+              startedBy: await userRef(app.db, analysis.startedByUserId),
+              diagnosis: canViewDiagnosis ? analysis.diagnosis : null,
+              attribution: { kind: "attributed" as const, projectCode: ticket?.projectCode ?? null, reason: null },
+              taskCode: null,
+              blockedBy: analysis.blockedBy,
+              canViewDiagnosis,
+              endedBy: null,
+              sessionId: canViewDiagnosis ? analysis.sessionId : null,
+              startedAt: analysis.startedAt.toISOString(),
+              finishedAt: analysis.finishedAt?.toISOString() ?? null,
+            }
+          : null,
+        fix: fixView,
+        startBlock,
+      };
+      return view;
     },
   );
 

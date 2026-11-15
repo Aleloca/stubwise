@@ -4746,9 +4746,11 @@ deploy o di un rollback che la tocca.
     i full admin). Chi ha chiesto un'analisi a mano ne riceve SEMPRE l'esito
     (decisione del maintainer, 15 nov 2026), da obbligatorio
     (`analysis_requester`): sulla diagnosi del progetto attribuito se lo vede
-    (una card sola anche se è iscritto), altrimenti — non determinata,
-    fallita, bloccata — una card SOLO per lui nel primo progetto del server
-    in cui ha `servers.operate`. Nessun kind nuovo.
+    (una card sola anche se è iscritto), altrimenti una card SOLO per lui nel
+    primo progetto del server in cui ha `servers.operate`. «Non determinata»
+    e «fallita» vanno ANCHE agli iscritti delle produzioni del server (lui
+    obbligatorio in quella del suo progetto, se è una di loro). Nessun kind
+    nuovo.
   - Il comando d'installazione con le operazioni monta un volume
     (`stubwise-agent-state` su `/var/lib/stubwise-agent`): lì stanno i nonce
     dei comandi visti, che così sopravvivono a un container ricreato.

@@ -1,5 +1,5 @@
-import { eq, sql } from "drizzle-orm";
-import { aiJobs, projects, serverAnalyses, serverFixes, servers, tickets, type Db } from "@stubwise/db";
+import { and, eq, sql } from "drizzle-orm";
+import { aiJobs, environmentServers, projectEnvironments, projects, serverAnalyses, serverFixes, servers, tickets, type Db } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
 import { attributionContext, publishNotification, userIdsWithPermission, type NotificationEvent } from "@stubwise/notifications";
 import { validateServerPlan, type AttributionInput, type ServerDiagnosisReport } from "@stubwise/shared";
@@ -154,17 +154,9 @@ export async function notifyAnalysisRequester(
 ): Promise<string | null> {
   const [server] = await db.select().from(servers).where(eq(servers.id, input.serverId));
   if (!server) return null;
-  const ctx = await attributionContext(db, input.serverId);
-  let projectId: string | null = null;
-  let projectCode = "";
-  for (const p of ctx.serverProjects) {
-    if ((await userIdsWithPermission(db, "servers.operate", p.projectId)).includes(input.requesterId)) {
-      projectId = p.projectId;
-      projectCode = p.projectCode;
-      break;
-    }
-  }
-  if (projectId === null) return null;
+  const target = await requesterProjectOf(db, input.serverId, input.requesterId);
+  if (target === null) return null;
+  const { projectId, projectCode } = target;
   const code = `SRV-${server.number}`;
   const event: NotificationEvent = {
     kind: "server.diagnosis_ready",
@@ -182,4 +174,77 @@ export async function notifyAnalysisRequester(
     log(`[server-ops] esito dell'analisi per chi l'ha chiesta non pubblicato: ${error instanceof Error ? error.message : String(error)}`);
   }
   return projectId;
+}
+
+/**
+ * Decisione del maintainer (15 nov 2026, risposta c): l'esito «non
+ * determinata» — e, come per una fallita, «fallita» — va anche agli ISCRITTI
+ * delle PRODUZIONI del server (i progetti con un ambiente `production` che lo
+ * usa), oltre a chi l'ha chiesta. Una card per produzione; chi l'ha chiesta,
+ * se il suo progetto è una di quelle produzioni, sta fra gli obbligatori di
+ * QUELLA card (una sola); altrimenti la sua card a sé (`notifyAnalysisRequester`).
+ */
+export async function notifyAnalysisOutcome(
+  db: Db,
+  input: {
+    serverId: string;
+    requesterId: string | null;
+    outcome: "undetermined" | "failed";
+    manual: boolean;
+    language: Language;
+    publicUrl: string;
+  },
+  publish: typeof publishNotification = publishNotification,
+  log: (m: string) => void = console.warn,
+): Promise<void> {
+  const [server] = await db.select().from(servers).where(eq(servers.id, input.serverId));
+  if (!server) return;
+  const productions = await db
+    .selectDistinct({ projectId: projects.id, code: projects.code })
+    .from(environmentServers)
+    .innerJoin(projectEnvironments, eq(projectEnvironments.id, environmentServers.environmentId))
+    .innerJoin(projects, eq(projects.id, projectEnvironments.projectId))
+    .where(and(eq(environmentServers.serverId, input.serverId), eq(projectEnvironments.kind, "production")));
+  const requesterProject = input.requesterId ? await requesterProjectOf(db, input.serverId, input.requesterId) : null;
+  const code = `SRV-${server.number}`;
+  const title = t(input.language, input.manual ? "server.taskTitleManual" : "server.taskTitle", { code, name: server.name });
+  let requesterServed = false;
+  for (const p of productions) {
+    const withRequester = input.requesterId !== null && requesterProject?.projectId === p.projectId;
+    if (withRequester) requesterServed = true;
+    const event: NotificationEvent = {
+      kind: "server.diagnosis_ready",
+      projectId: p.projectId,
+      serverName: server.name,
+      serverId: server.id,
+      taskCode: null,
+      title,
+      url: `${input.publicUrl.replace(/\/+$/, "")}/app/#/p/${p.code}/servers/${code}`,
+      outcome: input.outcome,
+    };
+    try {
+      await publish(db, event, {
+        projectId: p.projectId,
+        ...(withRequester ? { mandatory: [{ userId: input.requesterId!, reason: "analysis_requester" as const }] } : {}),
+      });
+    } catch (error) {
+      log(`[server-ops] esito dell'analisi per la produzione ${p.code} non pubblicato: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  if (input.requesterId && !requesterServed) {
+    await notifyAnalysisRequester(
+      db,
+      { serverId: input.serverId, requesterId: input.requesterId, outcome: input.outcome, language: input.language, publicUrl: input.publicUrl },
+      publish,
+      log,
+    );
+  }
+}
+
+/** Il primo progetto del server in cui chi ha chiesto l'analisi ha `servers.operate`. */
+async function requesterProjectOf(db: Db, serverId: string, requesterId: string): Promise<{ projectId: string; projectCode: string } | null> {
+  for (const p of (await attributionContext(db, serverId)).serverProjects) {
+    if ((await userIdsWithPermission(db, "servers.operate", p.projectId)).includes(requesterId)) return { projectId: p.projectId, projectCode: p.projectCode };
+  }
+  return null;
 }

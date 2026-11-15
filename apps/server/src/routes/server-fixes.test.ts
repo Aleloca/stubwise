@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { environmentServers, projectEnvironments, projectMembers, projects, roles, serverCommands, serverFixes, serverMetrics, serverOperationApprovals, servers } from "@stubwise/db";
+import { environmentServers, projectEnvironments, projectMembers, projects, roles, serverCommands, serverFixes, serverMetrics, serverOperationApprovals, servers, tickets } from "@stubwise/db";
 import { seedRepository, seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { issueServerCommand } from "@stubwise/notifications";
 import { addMember, createUserWithPat, seedUsers, type SeededUsers } from "../test/fixtures.js";
@@ -202,6 +202,35 @@ describe("i comandi di una correzione, per task (richiesta del renderer)", () =>
     expect((await call("GET", s.ticketId, "/commands", s.leadA.headers)).statusCode).toBe(403);
     expect((await call("GET", other.ticketId, "/commands", other.operA.headers)).json().commands).toEqual([]);
     expect((await call("GET", s.ticketId, "", s.devA.headers)).json()).toHaveProperty("sessionId", null);
+  });
+});
+
+describe("la sezione Server della task (GET /api/tasks/:id/server, richiesta del renderer)", () => {
+  const section = async (ticketId: string, headers: Record<string, string>) => app.inject({ method: "GET", url: `/api/tasks/${ticketId}/server`, headers });
+
+  it("server, correzione e startBlock calcolati dal server", async () => {
+    const s = await scene();
+    const op = (await section(s.ticketId, s.operA.headers)).json();
+    expect(op).toMatchObject({ server: { id: s.serverId, code: expect.stringMatching(/^SRV-\d+$/), gone: false }, fix: { status: "awaiting_approval" }, startBlock: null });
+    expect((await section(s.ticketId, s.devA.headers)).json().startBlock).toBe("no_permission");
+    // Una correzione in corso.
+    await testDb.db.update(serverFixes).set({ status: "proposing" }).where(eq(serverFixes.id, s.fix.id));
+    expect((await section(s.ticketId, s.operA.headers)).json().startBlock).toBe("busy");
+    await testDb.db.update(serverFixes).set({ status: "none" }).where(eq(serverFixes.id, s.fix.id));
+    // Task chiusa.
+    await testDb.db.update(tickets).set({ status: "done" }).where(eq(tickets.id, s.ticketId));
+    expect((await section(s.ticketId, s.operA.headers)).json().startBlock).toBe("closed");
+  });
+
+  it("operazioni spente; server non più nel progetto (gone); una task non da server → 404", async () => {
+    const off = await scene({ operations: false });
+    expect((await section(off.ticketId, off.operA.headers)).json().startBlock).toBe("operations_off");
+    const s = await scene();
+    await testDb.db.delete(environmentServers).where(eq(environmentServers.environmentId, s.envs[0]!));
+    const gone = (await section(s.ticketId, s.operA.headers)).json();
+    expect(gone).toMatchObject({ server: { gone: true }, startBlock: "server_not_in_project" });
+    await testDb.db.delete(serverFixes).where(eq(serverFixes.id, s.fix.id));
+    expect((await section(s.ticketId, s.operA.headers)).statusCode).toBe(404);
   });
 });
 

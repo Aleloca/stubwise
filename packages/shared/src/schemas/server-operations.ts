@@ -139,3 +139,39 @@ export type ServerSshAccessView = z.infer<typeof serverSshAccessViewSchema>;
 
 /** `GET/PUT /api/settings/server-analysis` (S11). */
 export const serverAnalysisSettingsSchema = serverAnalysisLimitsSchema;
+
+/**
+ * La sezione Server di una task nata da un server (`source = server`),
+ * `GET /api/tasks/:id/server` (richiesta del renderer). Tutto calcolato dal
+ * server: chi guarda non deduce permessi né stati.
+ */
+export const serverTaskViewSchema = z.object({
+  server: z.object({
+    id: z.uuid(),
+    /** Null se chi guarda non vede il server. */
+    code: z.string().nullable().default(null),
+    name: z.string().nullable().default(null),
+    /** Il progetto della task, da cui aprire la pagina del server. */
+    projectCode: z.string(),
+    /** Il server non c'è più, o non è più in un ambiente del progetto. */
+    gone: z.boolean().default(false),
+  }),
+  episode: z
+    .object({
+      severity: z.enum(["trouble", "down"]),
+      reasons: z.array(z.object({ kind: z.string(), valuePct: z.number().optional(), thresholdPct: z.number().optional(), since: z.string().optional() })),
+      startedAt: z.iso.datetime(),
+      recoveredAt: z.iso.datetime().nullable().default(null),
+    })
+    .nullable()
+    .default(null),
+  analysis: serverAnalysisViewSchema.nullable().default(null),
+  fix: serverFixViewSchema.nullable().default(null),
+  /**
+   * Perché chi guarda NON può chiedere un piano adesso (null = può):
+   * `no_permission`, `server_gone`, `server_not_in_project`, `operations_off`,
+   * `busy` (una correzione in corso), `closed` (task chiusa), `monthly_budget`.
+   */
+  startBlock: z.enum(["no_permission", "server_gone", "server_not_in_project", "operations_off", "busy", "closed", "monthly_budget"]).nullable().default(null),
+});
+export type ServerTaskView = z.infer<typeof serverTaskViewSchema>;
