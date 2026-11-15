@@ -316,6 +316,12 @@ export interface ServerAnalysisView {
   diagnosis: string | null;
   /** La task nata nel progetto attribuito, se chi guarda la vede. */
   taskCode: string | null;
+  /**
+   * Bloccata prima di partire (build app: il cancello del worker): il
+   * budget del mese, l'analisi spenta, o il tetto. Il prototipo rifiuta
+   * prima, quindi non lo scrive mai.
+   */
+  blockedBy?: "monthly_budget" | "disabled" | "cap";
 }
 
 export interface ServerEpisodeView extends ServerEpisode {

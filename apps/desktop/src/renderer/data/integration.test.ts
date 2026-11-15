@@ -80,6 +80,8 @@ const ALL: IntegrationTarget[] = [
       "servers-search",
       "servers-create-in-env",
       "environments",
+      "environment-containers",
+      "servers-analysis-limits",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -123,6 +125,10 @@ describe("isIntegrated", () => {
         "feature:servers-write",
         "feature:servers-create-in-env",
         "feature:environments",
+        // Area 8, F4b: le analisi lette sul server e i container degli ambienti;
+        // i tetti (Amministrazione → AI non è ancora integrata), l'SSH e la ricerca no.
+        "feature:servers-analysis",
+        "feature:environment-containers",
         "destination:projects",
         "projectSection:tasks",
         "projectSettings:statuses",

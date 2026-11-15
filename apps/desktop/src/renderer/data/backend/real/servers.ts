@@ -3,6 +3,7 @@ import {
   type Reader,
   type AlertThresholds,
   type CreateCheckInput,
+  type ServerAnalysisView as ServerAnalysisWire,
   type ServerCheckView,
   type ServerDetail as ServerDetailShape,
   type ServerMetricsResponse,
@@ -22,7 +23,13 @@ import type {
 } from "../../model";
 import type { CheckInput, CreateServerInput, UpdateServerInput } from "../../servers/monitor";
 import type { InstanceServerRow, MetricRange, ServerMetrics } from "../../servers/reads";
-import type { ServerDetail, ServerRow, SshAccessView } from "../../servers/visibility";
+import type {
+  ServerAnalysisView,
+  ServerAttributionView,
+  ServerDetail,
+  ServerRow,
+  SshAccessView,
+} from "../../servers/visibility";
 import { inPrototypeWords } from "./automationRefs";
 import { appClient } from "./client";
 import { instanceOrigin } from "./supportWidgets";
@@ -60,6 +67,80 @@ export interface ServersApi {
     patch: UpdateCheckInput,
   ): Promise<Reader<ServerCheckView>>;
   deleteCheck(serverId: string, checkId: string): Promise<void>;
+  /** Area 8, F4b: le ultime analisi del server (`client.serverOps.analyses`). */
+  analyses(serverId: string): Promise<{ analyses: Reader<ServerAnalysisWire>[] }>;
+  /** L'analisi a mano (`client.serverOps.startAnalysis`): 409 `analysis_running`. */
+  startAnalysis(serverId: string): Promise<Reader<ServerAnalysisWire>>;
+}
+
+/** Le parole dello stato del server nell'esito del prototipo (`done` è la diagnosi). */
+const OUTCOME: Record<string, ServerAnalysisView["outcome"]> = {
+  running: "running",
+  done: "diagnosed",
+  failed: "failed",
+  // Bloccata prima di partire: nessuna diagnosi; il perché è `blockedBy`.
+  blocked: "stopped",
+};
+
+/**
+ * Un'analisi del server nella forma del prototipo (area 8, F4b). Diagnosi e
+ * sessione le dà il server solo con `canViewDiagnosis`; il client non le
+ * deduce. Un esito che l'app non conosce non si inventa: `stopped`.
+ */
+export function analysisOf(v: Reader<ServerAnalysisWire>, serverCode: string): ServerAnalysisView {
+  const at = v.attribution;
+  const attribution: ServerAttributionView | null =
+    at === null || at.kind === "__unknown__"
+      ? null
+      : at.kind === "attributed"
+        ? { kind: "attributed", projectCode: at.projectCode }
+        : {
+            kind: "undetermined",
+            reason: (at.reason ?? "no_project") as Extract<
+              ServerAttributionView,
+              { kind: "undetermined" }
+            >["reason"],
+          };
+  return {
+    id: v.id,
+    serverCode,
+    episodeId: v.episodeId,
+    outcome: OUTCOME[v.status] ?? "stopped",
+    startedBy: v.startedBy ? { id: v.startedBy.id, name: v.startedBy.name } : null,
+    startedAt: v.startedAt,
+    endedAt: v.finishedAt,
+    canViewDiagnosis: v.canViewDiagnosis,
+    sessionId: v.canViewDiagnosis ? v.sessionId : null,
+    attribution,
+    diagnosis: v.canViewDiagnosis ? v.diagnosis : null,
+    taskCode: v.taskCode,
+    ...(v.status === "blocked" && v.blockedBy && v.blockedBy !== "__unknown__"
+      ? { blockedBy: v.blockedBy }
+      : {}),
+  };
+}
+
+/** Le analisi lette sul dettaglio: l'analisi di ogni episodio e l'ultima a mano. */
+function withAnalyses(d: ServerDetail, wire: Reader<ServerAnalysisWire>[]): ServerDetail {
+  const all = wire.map((w) => analysisOf(w, d.code));
+  const newest = (xs: ServerAnalysisView[]) =>
+    [...xs].sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0] ?? null;
+  return {
+    ...d,
+    episodes: d.episodes.map((e) => {
+      const mine = newest(all.filter((a) => a.episodeId === e.id));
+      // Bloccata all'allarme: nessuna analisi, l'episodio lo ricorda (come il prototipo).
+      if (mine?.blockedBy) {
+        const blocked =
+          mine.blockedBy === "monthly_budget" || mine.blockedBy === "disabled"
+            ? mine.blockedBy
+            : null;
+        return { ...e, analysis: null, analysisBlocked: blocked };
+      }
+      return { ...e, analysis: mine, taskCode: mine?.taskCode ?? e.taskCode };
+    }),
+    manualAnalysis: newest(all.filter((a) => a.startedBy !== null)),
+  };
 }
 
 const RANGE_MS: Record<MetricRange, number> = {
@@ -324,8 +405,14 @@ export function createRealServers(
     /** Il dettaglio per codice (`SRV-1`); `not_found` se invisibile o inesistente (R-G5). */
     async getServer(code: string): Promise<ServerDetail> {
       const d = await inPrototypeWords(() => api.byCode(code));
-      const out = detailOf(d, now());
-      if (!out) throw new Error("not_found");
+      const base = detailOf(d, now());
+      if (!base) throw new Error("not_found");
+      // Le analisi (F4b): una lettura che non riesce non toglie la pagina.
+      const wire = await api.analyses(d.id).then(
+        (r) => r.analyses,
+        () => [],
+      );
+      const out = withAnalyses(base, wire);
       ids.set(out.code, d.id);
       intervals.set(out.code, d.sampleIntervalSeconds);
       for (const c of out.checks) checkHome.set(c.id, { serverId: d.id, code: out.code });
@@ -416,6 +503,12 @@ export function createRealServers(
      * le percentuali si calcolano qui dai byte, e il grafico non disegna più
      * di `METRIC_POINTS_MAX` punti.
      */
+    /** «Ask Claude to look into it» (R0-A2): `POST /api/servers/:id/analyses`. */
+    async startServerAnalysis(code: string): Promise<ServerAnalysisView> {
+      const id = await idOf(code);
+      return analysisOf(await inPrototypeWords(() => api.startAnalysis(id)), code);
+    },
+
     async getServerMetrics(
       code: string,
       range: MetricRange,
@@ -472,4 +565,6 @@ export const liveServers = createRealServers({
   createCheck: (id, input) => appClient().servers.createCheck(id, input),
   updateCheck: (id, checkId, patch) => appClient().servers.updateCheck(id, checkId, patch),
   deleteCheck: (id, checkId) => appClient().servers.deleteCheck(id, checkId),
+  analyses: (id) => appClient().serverOps.analyses(id),
+  startAnalysis: (id) => appClient().serverOps.startAnalysis(id),
 });

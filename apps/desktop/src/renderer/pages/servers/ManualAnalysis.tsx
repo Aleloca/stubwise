@@ -58,6 +58,9 @@ function AnalysisLine({ analysis }: { analysis: ServerAnalysisView }) {
     );
   const extra = (...xs: (ReactNode | null)[]) => xs.filter((x) => x !== null);
 
+  // Bloccata prima di partire (build app: budget, analisi spenta, tetto): il perché.
+  if (analysis.blockedBy)
+    return <Line ring={false} text={t(`servers.manual.blocked.${analysis.blockedBy}`, { name })} />;
   if (analysis.outcome === "running")
     return <Line ring text={t("servers.manual.running", { name })} extra={extra(session)} />;
   if (analysis.attribution?.kind === "undetermined")

@@ -763,7 +763,20 @@ describe("aree non integrate nella build app", () => {
     // Il progetto principale (dell'analisi, F4b) non si offre.
     expect(screen.queryByText("Primary project")).toBeNull();
     expect(screen.queryByRole("region", { name: "Prototype only: server signals" })).toBeNull();
+    // F4b: l'analisi è accesa (letta sugli episodi); senza l'SSH integrato non si
+    // dice che manca l'accesso, e il bottone dell'analisi a mano segue il server.
+    expect(screen.queryByText(/won't include SSH reads/)).toBeNull();
     expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("F4b: «Now» di un server in difficoltà senza l'SSH integrato non dice che manca l'accesso", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/p/STW/servers/SRV-2");
+    const now = await screen.findByRole("region", { name: "Now" }, { timeout: 3000 });
+    expect(now).toHaveTextContent("In trouble since");
+    expect(within(now).queryByText(/SSH/)).toBeNull();
     await settle();
     expect(outside()).toEqual([]);
   });

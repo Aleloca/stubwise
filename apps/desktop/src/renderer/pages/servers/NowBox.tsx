@@ -183,6 +183,8 @@ export function NowBox({ server }: { server: ServerDetail }) {
           maintainer, 15 nov 2026, come il worker): la diagnosi è senza letture
           SSH, e chi gestisce gli accessi può collegarlo da qui. */}
       {featureIntegrated("servers-analysis") &&
+        // Senza l'SSH integrato (build app) lo stato dell'accesso non si sa: niente frase.
+        featureIntegrated("servers-ssh") &&
         inTrouble &&
         noRead &&
         !server.orphan &&

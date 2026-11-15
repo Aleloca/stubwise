@@ -1,5 +1,6 @@
 import { ApiError } from "@stubwise/api-client";
 import {
+  serverAnalysisViewSchema,
   serverCheckViewSchema,
   serverDetailSchema,
   serverMetricsResponseSchema,
@@ -124,6 +125,19 @@ const detail = (over: Record<string, unknown> = {}) =>
     ...over,
   });
 
+const USER = "99999999-9999-4999-8999-999999999999";
+const AN = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const SESSION = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const analysis = (over: Record<string, unknown> = {}) =>
+  serverAnalysisViewSchema.parse({
+    id: AN,
+    serverId: S1,
+    episodeId: null,
+    status: "running",
+    startedAt: "2026-11-14T11:30:00.000Z",
+    ...over,
+  });
+
 const calls: unknown[][] = [];
 
 function fakeApi(over: Partial<ServersApi> = {}): ServersApi {
@@ -171,6 +185,8 @@ function fakeApi(over: Partial<ServersApi> = {}): ServersApi {
     createCheck: log("createCheck", check),
     updateCheck: log("updateCheck", check),
     deleteCheck: log("deleteCheck", undefined),
+    analyses: async () => ({ analyses: [] }),
+    startAnalysis: log("startAnalysis", analysis({ startedBy: { id: USER, name: "Marco" } })),
     ...over,
   };
 }
@@ -475,5 +491,87 @@ describe("i Server dal server (area 8, F4a)", () => {
       ["updateCheck", S1, CHK, { enabled: false }],
       ["deleteCheck", S1, CHK],
     ]);
+  });
+
+  it("F4b: l'analisi dell'episodio e l'ultima a mano, nelle forme del prototipo (`serverOps.analyses`)", async () => {
+    const api = fakeApi({
+      analyses: async () => ({
+        analyses: [
+          analysis({
+            id: AN,
+            startedBy: { id: USER, name: "Marco" },
+            status: "done",
+            attribution: { kind: "undetermined", reason: "no_containers" },
+            canViewDiagnosis: true,
+            sessionId: SESSION,
+            diagnosis: "Memory grows",
+            finishedAt: "2026-11-14T11:40:00.000Z",
+          }),
+          analysis({
+            id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            episodeId: EP,
+            status: "done",
+            attribution: { kind: "attributed", projectCode: "ACQ" },
+            taskCode: "ACQ-9",
+            startedAt: "2026-11-14T11:01:00.000Z",
+          }),
+        ],
+      }),
+    });
+    const d = await createRealServers(api, () => NOW).getServer("SRV-1");
+    expect(d.episodes[0]).toMatchObject({
+      taskCode: "ACQ-9",
+      analysis: {
+        episodeId: EP,
+        outcome: "diagnosed",
+        attribution: { kind: "attributed", projectCode: "ACQ" },
+        sessionId: null,
+        canViewDiagnosis: false,
+        diagnosis: null,
+        startedBy: null,
+      },
+    });
+    expect(d.manualAnalysis).toEqual({
+      id: AN,
+      serverCode: "SRV-1",
+      episodeId: null,
+      outcome: "diagnosed",
+      startedBy: { id: USER, name: "Marco" },
+      startedAt: "2026-11-14T11:30:00.000Z",
+      endedAt: "2026-11-14T11:40:00.000Z",
+      canViewDiagnosis: true,
+      sessionId: SESSION,
+      attribution: { kind: "undetermined", reason: "no_containers" },
+      diagnosis: "Memory grows",
+      taskCode: null,
+    });
+  });
+
+  it("F4b: una bloccata all'allarme diventa `analysisBlocked` dell'episodio, senza analisi", async () => {
+    const api = fakeApi({
+      analyses: async () => ({
+        analyses: [analysis({ episodeId: EP, status: "blocked", blockedBy: "monthly_budget" })],
+      }),
+    });
+    const d = await createRealServers(api, () => NOW).getServer("SRV-1");
+    expect(d.episodes[0]).toMatchObject({ analysis: null, analysisBlocked: "monthly_budget" });
+  });
+
+  it("F4b: avviare l'analisi a mano per codice; una in corso è `invalid: analysis_running`", async () => {
+    const real = createRealServers(fakeApi(), () => NOW);
+    await real.getServer("SRV-1");
+    const v = await real.startServerAnalysis("SRV-1");
+    expect(calls).toContainEqual(["startAnalysis", S1]);
+    expect(v).toMatchObject({ outcome: "running", startedBy: { id: USER, name: "Marco" } });
+    const busy = createRealServers(
+      fakeApi({
+        startAnalysis: async () => {
+          throw new ApiError(409, "conflict", "analysis_running");
+        },
+      }),
+      () => NOW,
+    );
+    await busy.getServer("SRV-1");
+    await expect(busy.startServerAnalysis("SRV-1")).rejects.toThrow("invalid: analysis_running");
   });
 });

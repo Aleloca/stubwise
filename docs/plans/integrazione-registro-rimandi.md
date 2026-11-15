@@ -912,14 +912,21 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     - M5: il link di una card è quello del momento della lettura, e due
       persone che modificano lo stesso ambiente insieme: vince l'ultima (il
       PATCH non ha una precondizione di versione).
-- F4b, lato renderer (94, 14 nov 2026): nel prototipo, spenti nell'app
-  finché non si collegano a `client.serverOps` / `client.environments`
-  (cablaggio F4b, il pezzo successivo):
-  - **l'analisi a mano** («Ask Claude to look into it», R0-A2): nell'app
-    `canStartAnalysis` è `false` e `manualAnalysis` `null`;
-  - **i container degli ambienti** (R0-D, feature `environment-containers`);
-  - **i tetti dell'analisi** in Amministrazione → AI (R0-C, feature
-    `servers-analysis-limits`).
+- F4b, lato renderer (94, 14–15 nov 2026), cablaggio sull'app:
+  - *(fatto: i container degli ambienti, `environment-containers`, ad69d9a8e.)*
+  - *(fatto: le analisi lette sul server, `servers-analysis`: l'analisi di
+    ogni episodio e l'ultima a mano, da `serverOps.analyses`.)*
+  - **il bottone dell'analisi a mano** resta nascosto nell'app finché il
+    dettaglio del server non porta `canStartAnalysis` (chiesto a 72): il
+    client non deduce il permesso; `startServerAnalysis` è già sull'adattatore;
+  - **la frase «niente letture SSH»** di «Now» aspetta l'SSH integrato
+    (`servers-ssh`): senza, l'app non sa se l'accesso c'è;
+  - **`blockedBy: "cap"`**: la frase è provvisoria finché 72 non dice cos'è
+    il tetto;
+  - **`done` del server** si mostra come «Diagnosis ready»: il prototipo
+    distingue anche tempo scaduto, irraggiungibile e fermata (chiesto a 72);
+  - **i tetti dell'analisi** (R0-C, `servers-analysis-limits`): restano
+    spenti finché Amministrazione → AI non è integrata (area 9).
   - Divergenze del prototipo dal server, dichiarate: col budget esaurito o
     l'analisi spenta il prototipo rifiuta l'analisi a mano SUBITO
     (`invalid: monthly_budget` / `invalid: disabled`), il server la accoda
