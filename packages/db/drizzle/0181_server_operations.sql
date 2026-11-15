@@ -54,7 +54,9 @@ CREATE UNIQUE INDEX "server_analyses_running_manual_idx" ON "server_analyses" US
 CREATE TABLE "server_operation_approvals" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"server_id" uuid NOT NULL REFERENCES "servers"("id") ON DELETE CASCADE,
-	"task_id" uuid NOT NULL REFERENCES "tickets"("id") ON DELETE CASCADE,
+	-- La task può sparire (eliminata, o col suo progetto): l'approvazione resta,
+	-- perché il registro dei comandi la cita (review F4b, I5).
+	"task_id" uuid REFERENCES "tickets"("id") ON DELETE SET NULL,
 	"session_id" uuid REFERENCES "agent_sessions"("id") ON DELETE SET NULL,
 	"steps" jsonb NOT NULL,
 	"approved_by_user_id" uuid REFERENCES "users"("id") ON DELETE SET NULL,
@@ -68,7 +70,9 @@ CREATE TABLE "server_commands" (
 	"server_id" uuid NOT NULL REFERENCES "servers"("id") ON DELETE CASCADE,
 	"session_id" uuid REFERENCES "agent_sessions"("id") ON DELETE SET NULL,
 	"analysis_id" uuid REFERENCES "server_analyses"("id") ON DELETE SET NULL,
-	"approval_id" uuid REFERENCES "server_operation_approvals"("id") ON DELETE RESTRICT,
+	-- NO ACTION (controllata a fine statement), non RESTRICT: togliere un server
+	-- toglie in cascata comandi e approvazioni nello stesso statement (review F4b, I5).
+	"approval_id" uuid REFERENCES "server_operation_approvals"("id") ON DELETE NO ACTION,
 	"step_index" integer,
 	"via" text DEFAULT 'agent' NOT NULL,
 	"action" text NOT NULL,

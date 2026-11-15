@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { agentRuns, instanceSigningKeys, serverAnalyses, serverCommands, serverEpisodes, serverOperationApprovals, servers, serverSshAccess } from "./schema.js";
+import { agentRuns, instanceSigningKeys, projects, serverAnalyses, serverCommands, serverEpisodes, serverOperationApprovals, servers, serverSshAccess, tickets } from "./schema.js";
 import { expectSqlState, seedRepository, seedTicket, startTestDb, type TestDb } from "./testing.js";
 
 /**
@@ -69,5 +69,31 @@ describe("0181: i guardiani nel DB", () => {
     const checks = await t.db.execute<{ def: string }>(sql`select pg_get_constraintdef(oid) as def from pg_constraint where conname = 'agent_sessions_kind_chk'`);
     expect(checks[0]!.def).toContain("server_analysis");
     expect(checks[0]!.def).toContain("server_fix");
+  });
+});
+
+describe("review F4b, I5: dopo un passo eseguito si cancellano ancora task, progetto e server", () => {
+  async function executed() {
+    const s = await server();
+    const { projectId } = await seedRepository(t.db);
+    const { ticketId } = await seedTicket(t.db, { projectId });
+    const [a] = await t.db.insert(serverOperationApprovals).values({ serverId: s.id, taskId: ticketId, steps: [{ action: "container.start", params: { container: "web" }, why: "x" }] }).returning();
+    const [c] = await t.db.insert(serverCommands).values({ serverId: s.id, action: "container.start", kind: "change", approvalId: a!.id, stepIndex: 0, expiresAt: later(), status: "done" }).returning();
+    return { serverId: s.id, projectId, ticketId, approvalId: a!.id, commandId: c!.id };
+  }
+
+  it("la task: l'approvazione resta (task null) e il registro la cita ancora", async () => {
+    const x = await executed();
+    await t.db.delete(tickets).where(eq(tickets.id, x.ticketId));
+    expect((await t.db.select().from(serverOperationApprovals).where(eq(serverOperationApprovals.id, x.approvalId)))[0]!.taskId).toBeNull();
+    expect((await t.db.select().from(serverCommands).where(eq(serverCommands.id, x.commandId)))[0]!.approvalId).toBe(x.approvalId);
+  });
+
+  it("il progetto (le task in cascata) e il server (comandi e approvazioni in cascata, nello stesso statement)", async () => {
+    const x = await executed();
+    await t.db.delete(projects).where(eq(projects.id, x.projectId));
+    await t.db.delete(servers).where(eq(servers.id, x.serverId));
+    expect(await t.db.select().from(serverCommands).where(eq(serverCommands.id, x.commandId))).toEqual([]);
+    expect(await t.db.select().from(serverOperationApprovals).where(eq(serverOperationApprovals.id, x.approvalId))).toEqual([]);
   });
 });
