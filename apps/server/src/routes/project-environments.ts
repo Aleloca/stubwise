@@ -8,7 +8,7 @@ import {
   type DiscoveredService,
   type ProjectEnvironment,
 } from "@stubwise/shared";
-import { and, arrayOverlaps, asc, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, arrayOverlaps, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -466,6 +466,23 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
           .where(and(eq(environmentServers.serverId, serverId), ne(projectEnvironments.projectId, projectId), arrayOverlaps(environmentServers.containers, containers)))
           .limit(1);
         if (clash) return apiError(reply, 409, "container_of_other_project", "A container belongs to another project on this server");
+        // Review F4b, I7: anche il possesso IMPLICITO conta — un ambiente di un
+        // altro progetto su questo server con la lista vuota possiede il
+        // container col suo NOME (la regola della fase 8 e dell'attribuzione).
+        const [implicit] = await app.db
+          .select({ id: environmentServers.environmentId })
+          .from(environmentServers)
+          .innerJoin(projectEnvironments, eq(projectEnvironments.id, environmentServers.environmentId))
+          .where(
+            and(
+              eq(environmentServers.serverId, serverId),
+              ne(projectEnvironments.projectId, projectId),
+              sql`cardinality(${environmentServers.containers}) = 0`,
+              inArray(projectEnvironments.name, containers),
+            ),
+          )
+          .limit(1);
+        if (implicit) return apiError(reply, 409, "container_of_other_project", "A container belongs to another project on this server");
       }
       await app.db
         .update(environmentServers)

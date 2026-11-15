@@ -632,6 +632,18 @@ describe("area 8, F4b, S12: i container di un ambiente su un server (l'attribuzi
     expect((await put(b, envB, { serverId: srv, containers: ["web-b"] })).statusCode).toBe(200);
   });
 
+  it("review F4b, I7: anche il possesso IMPLICITO conta (ambiente di un altro progetto a lista vuota, col nome del container) → 409", async () => {
+    const srv = await serverWith(["acme-web", "staging"]);
+    const { projectId: a } = await seedRepository(testDb.db);
+    const { projectId: b } = await seedRepository(testDb.db);
+    await envOf(a, "staging", srv); // A: lista vuota, quindi `staging` è suo per nome.
+    const envB = await envOf(b, "prod-b", srv);
+    const res = await put(b, envB, { serverId: srv, containers: ["staging"] });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: "container_of_other_project" });
+    expect((await put(b, envB, { serverId: srv, containers: ["acme-web"] })).statusCode).toBe(200);
+  });
+
   it("un server che l'ambiente non usa → 422; senza environments.manage → 403; ambiente di un altro progetto → 404", async () => {
     const srv = await serverWith(["web"]);
     const other = await serverWith(["web"]);
