@@ -928,8 +928,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - **Correzione, divergenze dichiarate nell'app**: le «note per Claude»
     all'avvio il server non le prende (il campo non c'è nell'app); la riga
     «You started this fix» non c'è (il server non dice chi l'ha chiesta); lo
-    stato «risolta / non risolta» si deriva da `done` e da `planError`
-    (`recheck:…`); la salute del server nella riga del server non arriva;
+    stato si deriva dalla correzione (72): `done` = risolta (il rientro lo
+    dice l'episodio), `failed` con `step_failed`/`step_expired` = non
+    risolta, con gli altri motivi = fermata, `none` con un motivo = nessun
+    piano; la salute del server nella riga del server non arriva;
     il dettaglio del controllo finale resta nella sessione. Nel prototipo i
     passi approvati girano ancora dentro la sessione di Claude (sul server
     sono deterministici): per chi guarda conta la sezione Server.

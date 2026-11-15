@@ -141,10 +141,18 @@ describe("la sezione Server della task nell'app (F4b)", () => {
     expect(await stateOf({ status: "running" })).toBe("fixing");
     expect(await stateOf({ status: "rejected" })).toBe("plan_rejected");
     expect(await stateOf({ status: "stopped" })).toBe("stopped");
-    expect(await stateOf({ status: "failed", planError: "no_plan" })).toBe("no_plan");
-    expect(await stateOf({ status: "failed", planError: "step_failed:1" })).toBe("stopped");
+    // Le parole di 72 (fix-run.ts): una proposta senza piano è `none` + `planError`.
+    expect(await stateOf({ status: "none", planError: "no_plan" })).toBe("no_plan");
+    expect(await stateOf({ status: "none", planError: "timeout" })).toBe("no_plan");
+    // `done`: ogni passo ha avuto esito positivo (il rientro lo dice l'episodio).
     expect(await stateOf({ status: "done" })).toBe("resolved");
-    expect(await stateOf({ status: "done", planError: "recheck:still_high" })).toBe("not_resolved");
+    // `failed`: un passo andato male o scaduto è «non risolta»; un ricontrollo che non tiene è «fermata».
+    expect(await stateOf({ status: "failed", planError: "step_failed:1" })).toBe("not_resolved");
+    expect(await stateOf({ status: "failed", planError: "step_expired:0" })).toBe("not_resolved");
+    expect(await stateOf({ status: "failed", planError: "recheck:container_unbound" })).toBe(
+      "stopped",
+    );
+    expect(await stateOf({ status: "failed", planError: "worker_restart" })).toBe("stopped");
   });
 
   it("un server sparito dal progetto: «deleted» col codice; uno che non si vede: nessun server", async () => {
@@ -208,5 +216,21 @@ describe("la sezione Server della task nell'app (F4b)", () => {
       }).api,
     );
     expect(await real.getServerTaskInfo(TICKET)).toBeNull();
+  });
+
+  it("fermata da un ricontrollo: il motivo che il prototipo sa dire", async () => {
+    const stopOf = async (planError: string) =>
+      (await createRealServerTask(
+        fakeApi({
+          taskServer: async () => taskView({ fix: fixView({ status: "failed", planError }) }),
+        }).api,
+      ).getServerTaskInfo(TICKET))!.stop;
+    expect(await stopOf("operations_off")).toEqual({
+      byId: null,
+      reason: "operations_off",
+      outcome: "failed",
+    });
+    expect(await stopOf("server_not_in_project")).toMatchObject({ reason: "server_gone" });
+    expect(await stopOf("approval_revoked")).toMatchObject({ reason: null, outcome: "failed" });
   });
 });

@@ -51,6 +51,9 @@ function taskState(fix: Fix | null, startBlock: string | null): ServerTaskState 
   const status = fix ? statusOf(fix.status) : "none";
   switch (status) {
     case "none":
+      // Una proposta che non ha dato un piano (`no_plan`, `timeout`,
+      // `monthly_budget`, `no_provider:*`, un piano scartato…): «no plan».
+      if (fix?.planError) return "no_plan";
       return startBlock === "closed" ? "closed" : "diagnosis_ready";
     case "proposing":
       return "fix_planning";
@@ -64,10 +67,13 @@ function taskState(fix: Fix | null, startBlock: string | null): ServerTaskState 
     case "stopped":
       return "stopped";
     case "failed":
-      return fix?.planError === "no_plan" ? "no_plan" : "stopped";
+      // Un passo con esito negativo o scaduto: «non risolta»; un ricontrollo
+      // che non tiene (`recheck:…`, revoca, operazioni spente…) o il worker
+      // riavviato: «fermata».
+      return /^step_(failed|expired):/.test(fix?.planError ?? "") ? "not_resolved" : "stopped";
     case "done":
-      // Il controllo dopo la correzione: un `recheck:<motivo>` è «non risolta».
-      return fix?.planError?.startsWith("recheck") ? "not_resolved" : "resolved";
+      // Ogni passo con esito positivo: se il server è rientrato lo dice l'episodio.
+      return "resolved";
   }
 }
 
@@ -211,7 +217,7 @@ export function serverTaskInfoOf(
             reason:
               fix?.planError === "operations_off"
                 ? "operations_off"
-                : fix?.planError === "server_gone"
+                : fix?.planError === "server_not_in_project"
                   ? "server_gone"
                   : null,
             outcome: fix?.status === "failed" ? "failed" : "stopped",
