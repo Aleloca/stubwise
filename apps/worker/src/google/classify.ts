@@ -1,3 +1,4 @@
+import { REPLY_FIELD_SHAPE, replyContext, replyInstruction, storedJudgmentFrom } from "./reply-judgment.js";
 import { monthlyBudgetLimitUsd } from "@stubwise/notifications";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -248,6 +249,12 @@ export const emailSignalsSchema = z.object({
    * fallire il parse dell'intera classificazione.
    */
   threadRelation: z.enum(THREAD_RELATIONS).catch(DEFAULT_THREAD_RELATION).default(DEFAULT_THREAD_RELATION),
+  /**
+   * Area 8, «Clienti in attesa» (J1): il giudizio «serve una mia risposta?»,
+   * nello STESSO run. Tollerato assente o malformato: non fa MAI fallire la
+   * classificazione (lo si valida a parte, `storedJudgmentFrom`).
+   */
+  reply: z.unknown().optional(),
 });
 
 export type EmailSignalsOutput = z.infer<typeof emailSignalsSchema>;
@@ -370,6 +377,12 @@ export interface EmailSignalsInput {
    * un messaggio solo, che è il caso della grande maggioranza.
    */
   threadMessages?: { fromAddress: string; receivedAt: Date; text: string }[];
+  /**
+   * Area 8, «Clienti in attesa» (J1): la casella giudicata e quelle dei
+   * colleghi dell'istanza, per il giudizio «serve una mia risposta?». Assente
+   * = nessuna istruzione del giudizio (il campo resta tollerato).
+   */
+  reply?: { mailbox: string; colleagues: readonly string[] };
   /**
    * Le proposte GIÀ APERTE su questo thread (design §3, Task 11): il
    * modello deve dire che rapporto ha il messaggio nuovo con esse. Assente o
@@ -636,6 +649,7 @@ export function buildEmailSignalsPrompt(lang: Language, input: EmailSignalsInput
     t(lang, "email.signals.instructions"),
     "",
     `OUTPUT (JSON only): ${OUTPUT_SHAPE}`,
+    ...(input.reply ? ["", replyInstruction({ ...input.reply, language: lang === "it" ? "it" : "en" })] : []),
     ...projectBlocks,
     "",
     `${t(lang, "email.input.cited")}: ${
@@ -691,7 +705,9 @@ const OUTPUT_SHAPE =
   '"proposals":[{"type":"create_backlog_item|create_milestone|update_ticket|comment_ticket|record_decision",' +
   '"projectId":"<id from the list>","title":"…","body":"…","name":"…","dueDate":"YYYY-MM-DD",' +
   '"ticketNumber":123,"status":"open|triaged|in_progress|in_review|done|closed",' +
-  '"priority":"low|medium|high|urgent","decision":"…","consequence":"…"}],"recommendedIndex":0}';
+  '"priority":"low|medium|high|urgent","decision":"…","consequence":"…"}],"recommendedIndex":0,' +
+  REPLY_FIELD_SHAPE +
+  "}";
 
 /** Il contesto DI UN progetto: ticket aperti (per numero) e titoli di backlog. */
 interface ProjectContext {
@@ -1811,11 +1827,13 @@ export async function classifyEmail(
     const raw = message.textExcerpt ?? "";
     const truncated = raw.length > CLASSIFY_TEXT_MAX_CHARS;
     const text = capText(raw, CLASSIFY_TEXT_MAX_CHARS, t(deps.lang, "email.input.truncated"));
+    const reply = await replyContext(deps.db, message.accountId);
     const prompt = buildEmailSignalsPrompt(deps.lang, {
       fromAddress: message.fromAddress,
       fromName: message.fromName,
       subject: message.subject,
       text,
+      ...(reply ? { reply } : {}),
       // Fase 6b: un blocco di contesto PER OGNI progetto del perimetro.
       projects: ctx.projects.map((p) => {
         const projectCtx = ctx.contextByProject.get(p.id);
@@ -1895,6 +1913,13 @@ export async function classifyEmail(
       // schema è il modo di pagare lo stesso run all'infinito.
       await markFailed(deps.db, message.id, "classificazione: output non parsabile o fuori schema");
       return "failed";
+    }
+    // Area 8, «Clienti in attesa» (J1): il giudizio del run, se è nello
+    // schema, sul messaggio classificato (l'ultimo ammesso del thread). Uno
+    // fuori schema non c'è: lo farà J2 dopo il taglio.
+    const judgment = storedJudgmentFrom(parsed.reply, deps.model, now);
+    if (judgment !== null) {
+      await deps.db.update(emailMessages).set({ replyJudgment: judgment }).where(eq(emailMessages.id, message.id));
     }
 
     const classification = revalidateClassification(
