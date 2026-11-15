@@ -21,7 +21,9 @@ import type {
   ServerEpisode,
   Task,
 } from "../types";
+import { sees } from "../access";
 import { PEOPLE } from "../seed/people";
+import { can, viewerFor } from "../viewer";
 import { invalid, notFound } from "../writer";
 import { markUsed, onAccessRevoked } from "./access";
 import {
@@ -346,6 +348,49 @@ function startAnalysis(
  * motivi di un episodio che non c'è.
  */
 const looks = new WeakSet<ServerEpisode>();
+
+/**
+ * Il progetto della card di chi ha chiesto un'analisi a mano (decisione del
+ * maintainer, 15 nov 2026, la forma di 72): il primo progetto, nell'ordine
+ * degli ambienti, che vede, in cui ha `servers.operate` e un ambiente usa il
+ * server — lo stesso criterio con cui l'ha potuta chiedere.
+ */
+function requesterProjectOf(a: ServerAnalysis): string | null {
+  if (!a.startedBy) return null;
+  const viewer = viewerFor(a.startedBy);
+  const env = liveEnvironments().find(
+    (e) =>
+      e.servers.some((x) => x.serverCode === a.serverCode) &&
+      sees(a.startedBy!, e.projectId) &&
+      can(viewer, "servers.operate", e.projectId),
+  );
+  return env?.projectId ?? null;
+}
+
+/** Chi l'ha chiesta, fra gli obbligatori di una card: riceve sempre l'esito. */
+const requesterMandatory = (a: ServerAnalysis) =>
+  a.startedBy ? [{ personId: a.startedBy, reason: "analysis_requester" as const }] : [];
+
+/**
+ * L'esito a chi l'ha chiesta, in una card SOLO per lui (`mandatoryOnly`), nel
+ * suo progetto: quando nessuna card che riceverebbe comunque lo porta
+ * (causa non determinata fuori dalle produzioni, progetto attribuito che
+ * non vede, analisi fallita).
+ */
+function notifyRequester(a: ServerAnalysis, s: MonitoredServer, title: string, body: string): void {
+  const projectId = requesterProjectOf(a);
+  if (!projectId) return;
+  publishAlert({
+    kind: "server.diagnosis_ready",
+    projectId,
+    objectCode: s.code,
+    title,
+    body,
+    link: serverHref(projectCode(projectId), s.code),
+    mandatory: requesterMandatory(a),
+    mandatoryOnly: true,
+  });
+}
 
 /** Chi ha chiesto un'analisi a mano, per nome. */
 const askedBy = (a: ServerAnalysis): string | null =>
@@ -688,6 +733,14 @@ async function failAnalysis(a: ServerAnalysis, gen: number, e: unknown): Promise
       });
     }
   }
+  // Chi l'ha chiesta a mano lo sa sempre, in una card solo per lui.
+  if (s && a.startedBy)
+    notifyRequester(
+      a,
+      s,
+      "Claude couldn't finish the analysis",
+      `Claude looked into ${s.name} but couldn't open the task (${reason}), so there is no diagnosis.`,
+    );
   await runScript(
     a.conversationId,
     [
@@ -774,6 +827,9 @@ async function finish(
   }
   const code = projectCode(projectId);
   const link = `#/p/${code}/tasks?task=${task.code}`;
+  // Chi l'ha chiesta a mano: obbligatorio sulla card del progetto attribuito
+  // se lo vede (una card sola anche se è iscritto); se no, una card sua.
+  const requesterSees = !!a.startedBy && sees(a.startedBy, projectId);
   publishAlert({
     kind: "server.diagnosis_ready",
     projectId,
@@ -781,7 +837,15 @@ async function finish(
     title: "Diagnosis ready",
     body: `${READY_BODY[outcome](s.name)}: ${task.code} ${task.title}.`,
     link,
+    ...(requesterSees ? { mandatory: requesterMandatory(a) } : {}),
   });
+  if (a.startedBy && !requesterSees)
+    notifyRequester(
+      a,
+      s,
+      "Diagnosis ready",
+      `${READY_BODY[outcome](s.name)}: the diagnosis is in a task of a project you can't see.`,
+    );
   const said: Record<Ending, string> = {
     unreachable: `I couldn't reach ${s.name} over SSH after ${ATTEMPTS} attempts. I opened ${task.code} anyway, with what we know.`,
     timed_out: `I stopped after ${limitsOf(a).maxMinutes} minutes, the analysis limit. I wrote what I saw so far in ${task.code}.`,
@@ -832,16 +896,24 @@ async function finishUndetermined(
   a.proposal = null;
   a.diagnosis = undeterminedDiagnosisOf(s, ep, outcome, reads, a);
   a.endedAt = now();
-  for (const to of alertProjectsOf(s.code, liveEnvironments())) {
+  const body = `${READY_BODY[outcome](s.name)}, but couldn't tell which project is causing it: ${why}. No task was opened.`;
+  // Chi l'ha chiesta a mano riceve sempre l'esito (decisione del maintainer,
+  // 15 nov 2026): sulla card del suo progetto, se è fra le produzioni
+  // avvisate; se no (un server di solo staging), in una card solo per lui.
+  const mine = requesterProjectOf(a);
+  const productions = alertProjectsOf(s.code, liveEnvironments());
+  for (const to of productions) {
     publishAlert({
       kind: "server.diagnosis_ready",
       projectId: to,
       objectCode: s.code,
       title: "Cause not determined",
-      body: `${READY_BODY[outcome](s.name)}, but couldn't tell which project is causing it: ${why}. No task was opened.`,
+      body,
       link: serverHref(projectCode(to), s.code),
+      ...(to === mine ? { mandatory: requesterMandatory(a) } : {}),
     });
   }
+  if (mine && !productions.includes(mine)) notifyRequester(a, s, "Cause not determined", body);
   const phaseOutcome = SESSION_OUTCOME[outcome];
   await runScript(
     a.conversationId,

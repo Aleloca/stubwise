@@ -1,4 +1,10 @@
-import type { Attribution, ServerPlan, StallReason, TicketPriority } from "@stubwise/shared";
+import type {
+  Attribution,
+  MandatoryReason as SharedMandatoryReason,
+  ServerPlan,
+  StallReason,
+  TicketPriority,
+} from "@stubwise/shared";
 import type {
   ClaudeActionFn,
   ClaudeBusyReason,
@@ -106,6 +112,13 @@ export interface AppNotification {
   recipientIds: string[];
   /** Kind del catalogo: chi lo riceve senza iscrizione, col perché (chiave i18n). */
   mandatory?: { personId: string; reason: MandatoryReason }[];
+  /**
+   * Solo per gli obbligatori (area 8, F4b, `mandatoryOnly` della publish sul
+   * server): gli iscritti del progetto non la ricevono. È l'esito di
+   * un'analisi a mano per chi l'ha chiesta, in un progetto che non è quello
+   * della causa: per gli altri sarebbe rumore, o una fuga d'informazioni.
+   */
+  mandatoryOnly?: true;
   title: string;
   body: string;
   createdAt: string;
@@ -272,11 +285,12 @@ export interface ProductCardView {
 }
 
 /** Perché un avviso del catalogo arriva a qualcuno senza iscrizione (area 8a). */
-export type MandatoryReason =
-  | "merged"
-  | "pr_author"
-  | "task_author"
-  | "assignee";
+/**
+ * Perché un avviso arriva senza iscrizione: il tipo del catalogo condiviso
+ * (`@stubwise/shared`), mai una copia. `analysis_requester` (area 8, F4b): chi
+ * ha chiesto a mano un'analisi riceve sempre il suo esito.
+ */
+export type MandatoryReason = SharedMandatoryReason;
 
 export type StatusFamily = "todo" | "active" | "closed";
 

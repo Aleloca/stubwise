@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { releases, resetApi, servers, setLatency } from "../api";
+import { whyReceives } from "../alerts/visibility";
+import { createProject, releases, resetApi, servers, setLatency } from "../api";
 import { setSessionPersonId } from "../session";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { eventsOf, state, visibleProjectIds } from "../store";
@@ -162,5 +163,96 @@ describe("la vista dell'analisi: `sessionId` e `canViewDiagnosis` (regola del se
     const after = (await servers.getServer(code)).manualAnalysis!;
     expect(after.canViewDiagnosis).toBe(true);
     expect(after.sessionId).not.toBeNull();
+  });
+});
+
+describe("l'esito «non determinata» a chi l'ha chiesta (decisione del maintainer, 15 nov 2026)", () => {
+  /** Le card nate nel test per un server. */
+  const cards = (code: string) =>
+    state.notifications.filter(
+      (n) =>
+        n.id.startsWith("n-alert") && n.kind === "server.diagnosis_ready" && n.objectCode === code,
+    );
+
+  it("su un server di solo staging: nessuna produzione da avvisare, ma Marco riceve l'esito, e resta sulla pagina", async () => {
+    const code = await stagingServer();
+    // Un secondo progetto sullo stesso server: senza container la causa non si dice.
+    const other = await createProject({ code: "STGX", name: "Other", template: "software" });
+    await releases.createEnvironment(other.id, {
+      name: "Staging",
+      kind: "staging",
+      url: null,
+      servers: [{ repositoryId: null, serverCode: code }],
+    });
+    as("p-marco");
+    const view = await servers.startServerAnalysis(code);
+    await whenAnalysesIdle();
+    const a = state.serverAnalyses.find((x) => x.id === view.id)!;
+    expect(a.attribution?.kind).toBe("undetermined");
+    const [card, ...more] = cards(code);
+    expect(more).toEqual([]);
+    expect(card).toMatchObject({
+      projectId: ACQ,
+      title: "Cause not determined",
+      link: `#/p/ACQ/servers/${code}`,
+    });
+    expect(whyReceives("p-marco", card!)).toBe("analysis_requester");
+    // Solo per lui (`mandatoryOnly`): gli iscritti del progetto non la ricevono.
+    expect(whyReceives("p-roberta", card!)).toBeNull();
+    // E resta visibile sulla pagina del server, col perché.
+    const last = (await servers.getServer(code)).manualAnalysis!;
+    expect(last.attribution).toMatchObject({ kind: "undetermined" });
+  });
+
+  it("su un server di produzione la card del suo progetto lo porta fra gli obbligatori, senza doppioni", async () => {
+    as("p-roberta");
+    const other = await createProject({ code: "SRVX", name: "Second", template: "software" });
+    await releases.createEnvironment(other.id, {
+      name: "Production",
+      kind: "production",
+      url: null,
+      servers: [{ repositoryId: null, serverCode: "SRV-1" }],
+    });
+    // Senza i container di ACQ la causa (`postgres`) non è di nessuno.
+    state.environments.find((e) => e.id === "env-acq-prod")!.servers[0]!.containers = [];
+    as("p-marco");
+    await servers.startServerAnalysis("SRV-1");
+    await whenAnalysesIdle();
+    const acq = cards("SRV-1").filter((n) => n.projectId === ACQ);
+    expect(acq).toHaveLength(1);
+    expect(acq[0]!.mandatory).toEqual([{ personId: "p-marco", reason: "analysis_requester" }]);
+    expect(whyReceives("p-marco", acq[0]!)).toBe("analysis_requester");
+    expect(cards("SRV-1").filter((n) => n.projectId === other.id)).toHaveLength(1);
+  });
+
+  it("attribuita a un progetto che vede: obbligatoria sulla diagnosi di quel progetto, una card sola", async () => {
+    as("p-marco");
+    await servers.startServerAnalysis("SRV-1");
+    await whenAnalysesIdle();
+    const [card, ...more] = cards("SRV-1");
+    expect(more).toEqual([]);
+    expect(card).toMatchObject({ projectId: ACQ, title: "Diagnosis ready" });
+    expect(card!.mandatory).toEqual([{ personId: "p-marco", reason: "analysis_requester" }]);
+    expect(whyReceives("p-marco", card!)).toBe("analysis_requester");
+  });
+
+  it("fallita (la task non si apre): l'esito a lui solo, nel suo progetto", async () => {
+    // Nessuno stato «da fare» in ACQ: `createTaskAs` rifiuta.
+    state.statuses = state.statuses.filter((x) => !(x.projectId === ACQ && x.family === "todo"));
+    as("p-marco");
+    const view = await servers.startServerAnalysis("SRV-1");
+    await whenAnalysesIdle();
+    expect(state.serverAnalyses.find((x) => x.id === view.id)!.outcome).toBe("failed");
+    const mine = state.notifications.filter(
+      (n) => n.id.startsWith("n-alert") && n.objectCode === "SRV-1" && n.mandatoryOnly,
+    );
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toMatchObject({
+      kind: "server.diagnosis_ready",
+      projectId: ACQ,
+      title: "Claude couldn't finish the analysis",
+    });
+    expect(whyReceives("p-marco", mine[0]!)).toBe("analysis_requester");
+    expect(whyReceives("p-roberta", mine[0]!)).toBeNull();
   });
 });

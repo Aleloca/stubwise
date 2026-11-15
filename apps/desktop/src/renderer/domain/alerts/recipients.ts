@@ -142,7 +142,7 @@ export function whyFor(
   }
   if (!allowedNow(def, perms, ctx.seesProject(personId))) return null;
   if (mandatory) return mandatory.reason;
-  if (def.mandatoryOnly) return null;
+  if (def.mandatoryOnly || n.mandatoryOnly) return null;
   const member = defaultApplies(def, personId, ctx);
   const sub = ctx.subs.find((s) => s.personId === personId && s.type === n.kind);
   if (!member && !sub) return null;
