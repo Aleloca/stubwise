@@ -687,6 +687,7 @@ export type ApiFnName =
   | "servers.simulateSshUnreachable"
   | "startServerFix"
   | "servers.startServerAnalysis"
+  | "servers.getCommandKey"
   | "servers.getServerTaskInfo"
   | "servers.simulateFixCheck"
   // Registro delle modifiche e riconferma (area 9a, Task 3)

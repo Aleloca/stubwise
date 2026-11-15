@@ -229,6 +229,20 @@ export function useInstallCommand(code: string | undefined, enabled: boolean) {
   });
 }
 
+/**
+ * La chiave pubblica d'istanza dei comandi (R3, `monitor.manage`): per il
+ * comando d'installazione con le operazioni accese. Letta solo quando serve.
+ */
+export function useCommandKey(enabled: boolean) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "servers", "commandKey"] as const,
+    queryFn: () => api.servers.getCommandKey(),
+    enabled,
+    staleTime: Infinity,
+  });
+}
+
 /** Il comando di rimozione dopo una revoca (solo `servers.ssh.manage`, solo `revoked`). */
 export function useRemovalCommand(code: string | undefined, enabled: boolean) {
   const me = useSessionPersonId();

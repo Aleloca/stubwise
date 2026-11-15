@@ -215,6 +215,21 @@ export interface ServerSearchResult {
   projectCode: string;
 }
 
+/** La chiave pubblica d'istanza del prototipo: finta, stabile (il server la genera una volta). */
+const PROTOTYPE_COMMAND_KEY =
+  "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPr0t0typeC0mmandKeyN0tReal0000000000000 stubwise-commands";
+
+/**
+ * La chiave pubblica d'istanza che verifica i comandi dell'agente (area 8,
+ * F4b, R3; `GET /api/servers/command-key`): va nel comando d'installazione
+ * con le operazioni accese, e l'agente la fissa. `monitor.manage`.
+ */
+export async function getCommandKey(): Promise<{ publicKey: string }> {
+  const me = await gate("servers.getCommandKey");
+  if (!canMonitor(me)) throw forbidden();
+  return { publicKey: PROTOTYPE_COMMAND_KEY };
+}
+
 /**
  * Il comando dell'accesso SSH, da rivedere (contiene solo chiavi pubbliche):
  * quello delle chiavi in attesa se ce ne sono, altrimenti di quelle in uso.

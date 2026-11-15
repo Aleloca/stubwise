@@ -463,6 +463,8 @@ const INTEGRATED_CALLS = new Set([
   "servers.revokeSshAccess",
   "servers.getInstallCommand",
   "servers.getRemovalCommand",
+  // R3: la chiave dei comandi, per il comando d'installazione con le operazioni.
+  "servers.getCommandKey",
   // Area 8, F2 (R6): le iscrizioni agli avvisi.
   "alerts.subscriptionRows",
   "alerts.setSubscription",
@@ -820,6 +822,9 @@ describe("aree non integrate nella build app", () => {
     await user.click(within(dialog).getByRole("button", { name: /^Create/ }));
     await waitFor(() => expect(calls).toContain("servers.createServer"));
     expect(await screen.findByText(/STUBWISE_SERVER_KEY=sk_/)).toBeInTheDocument();
+    // R3: le operazioni dell'agente accese mettono nel comando la chiave dei comandi.
+    await user.click(screen.getByRole("checkbox", { name: "Let the agent run fix actions" }));
+    await waitFor(() => expect(calls).toContain("servers.getCommandKey"));
     // La chiave è vera: niente nota del prototipo (review F4a, I4).
     expect(screen.queryByText(/Prototype: this key is made up/)).toBeNull();
     await settle();

@@ -9732,7 +9732,9 @@
       "done": "Fatto",
       "closeWithout": "Chiudere senza aver copiato la chiave? Puoi rigenerarla più tardi dalle Impostazioni.",
       "keepOpen": "Tienilo aperto",
-      "closeAnyway": "Chiudi"
+      "closeAnyway": "Chiudi",
+      "operations": "Lascia che l'agente esegua le correzioni",
+      "operationsHint": "Riavviare, fermare o avviare un container, liberare spazio: solo i passi di un piano approvato da una persona, firmati da questo Stubwise. Spente, Claude legge e propone, ma nessun piano si esegue."
     },
     "simulate": {
       "label": "Solo prototipo: segnali del server",

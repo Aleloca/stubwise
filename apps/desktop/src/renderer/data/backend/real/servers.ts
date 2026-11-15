@@ -78,6 +78,8 @@ export interface ServersApi {
   verifySsh(serverId: string): Promise<Reader<SshWire>>;
   regenerateSsh(serverId: string): Promise<Reader<SshWire>>;
   revokeSsh(serverId: string): Promise<Reader<SshWire>>;
+  /** La chiave pubblica d'istanza dei comandi (R3, `monitor.manage`). */
+  commandKey(): Promise<{ publicKey: string }>;
 }
 
 /**
@@ -625,6 +627,12 @@ export function createRealServers(
       return { command: v.removeCommand };
     },
 
+    /** La chiave dei comandi per il comando d'installazione con le operazioni (R3). */
+    async getCommandKey(): Promise<{ publicKey: string }> {
+      const r = await inPrototypeWords(() => api.commandKey());
+      return { publicKey: r.publicKey };
+    },
+
     /** «Ask Claude to look into it» (R0-A2): `POST /api/servers/:id/analyses`. */
     async startServerAnalysis(code: string): Promise<ServerAnalysisView> {
       const id = await idOf(code);
@@ -695,4 +703,5 @@ export const liveServers = createRealServers({
   verifySsh: (id) => appClient().serverOps.verifySsh(id),
   regenerateSsh: (id) => appClient().serverOps.regenerateSsh(id),
   revokeSsh: (id) => appClient().serverOps.revokeSsh(id),
+  commandKey: () => appClient().serverOps.commandKey(),
 });

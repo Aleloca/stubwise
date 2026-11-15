@@ -9732,7 +9732,9 @@
       "done": "Done",
       "closeWithout": "Close without copying the key? You can regenerate it later from Settings.",
       "keepOpen": "Keep it open",
-      "closeAnyway": "Close"
+      "closeAnyway": "Close",
+      "operations": "Let the agent run fix actions",
+      "operationsHint": "Restart, stop or start a container, or free up space — only the steps of a plan a person approved, signed by this Stubwise. Off, Claude can still read and propose, but no plan runs."
     },
     "simulate": {
       "label": "Prototype only: server signals",

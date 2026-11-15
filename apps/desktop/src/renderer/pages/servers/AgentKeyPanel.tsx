@@ -2,6 +2,7 @@ import { agentInstallCommand } from "@stubwise/shared";
 import { useId, useState } from "react";
 import { isAppBuild } from "../../data/build";
 import { useTranslation } from "react-i18next";
+import { useCommandKey } from "../../data/queries";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
 import { primaryButton, secondaryButton } from "../tasks/controls";
@@ -21,8 +22,16 @@ const INSTANCE_URL = "https://stubwise.example";
  * Il comando che installa l'agente sul server: quello di shared, lo stesso
  * del web (area 8, F4a). Nella build app con l'indirizzo vero dell'istanza.
  */
-export function agentCommand(key: string, instanceUrl: string = INSTANCE_URL): string {
-  return agentInstallCommand({ instanceUrl, key });
+export function agentCommand(
+  key: string,
+  instanceUrl: string = INSTANCE_URL,
+  commandKey?: string,
+): string {
+  return agentInstallCommand({
+    instanceUrl,
+    key,
+    ...(commandKey ? { operations: { publicKey: commandKey } } : {}),
+  });
 }
 
 const copyButton =
@@ -47,7 +56,12 @@ export function AgentKeyDialog({
   const keyId = useId();
   const [copied, setCopied] = useState<"key" | "command" | null>(null);
   const [asking, setAsking] = useState(false);
-  const command = agentCommand(agentKey, instanceUrl);
+  // Le operazioni dell'agente (R3): spente di base; accese, il comando porta
+  // la chiave pubblica d'istanza che verifica i comandi.
+  const [operations, setOperations] = useState(false);
+  const opsId = useId();
+  const commandKey = useCommandKey(operations).data?.publicKey;
+  const command = agentCommand(agentKey, instanceUrl, operations ? commandKey : undefined);
 
   const copy = (what: "key" | "command", text: string) => {
     const clipboard = navigator.clipboard;
@@ -140,6 +154,28 @@ export function AgentKeyDialog({
           command={command}
           onCopied={() => setCopied("command")}
         />
+      </div>
+      <div className="flex items-start gap-2">
+        <input
+          id={opsId}
+          type="checkbox"
+          checked={operations}
+          onChange={(e) => {
+            setOperations(e.target.checked);
+            // Cambia il comando: va copiato di nuovo.
+            if (copied === "command") setCopied(null);
+          }}
+          aria-describedby={`${opsId}-hint`}
+          className="mt-0.5"
+        />
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <label htmlFor={opsId} className="text-sm font-medium text-ink">
+            {t("servers.key.operations")}
+          </label>
+          <span id={`${opsId}-hint`} className="text-xs text-pretty text-ink-muted">
+            {t("servers.key.operationsHint")}
+          </span>
+        </div>
       </div>
     </Dialog>
   );

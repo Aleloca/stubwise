@@ -15,6 +15,7 @@
 // `analysis.ts` (episodi e analisi automatica) non è una funzione dell'API:
 // ci arrivano i «Simula …» di `simulate.ts`.
 export {
+  getCommandKey,
   getInstallCommand,
   getRemovalCommand,
   getServer,

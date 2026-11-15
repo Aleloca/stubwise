@@ -204,6 +204,7 @@ function fakeApi(over: Partial<ServersApi> = {}): ServersApi {
     connectSsh: log("connectSsh", ssh({ status: "pending", ...KEYS })),
     verifySsh: log("verifySsh", ssh({ status: "verified", usable: true, ...KEYS, ...VERIFIED })),
     regenerateSsh: log("regenerateSsh", ssh({ status: "pending", ...KEYS })),
+    commandKey: log("commandKey", { publicKey: "ssh-ed25519 AAAAREAL stubwise-commands" }),
     revokeSsh: log(
       "revokeSsh",
       ssh({ status: "revoked", revokedAt: NOW, removeCommand: "sudo userdel --remove stubwise-read" }),
@@ -702,5 +703,11 @@ describe("i Server dal server (area 8, F4a)", () => {
       });
       await expect(r.linkSshAccess("SRV-1")).rejects.toThrow("invalid: host_required");
     });
+  });
+
+  it("R3: la chiave dei comandi dal server", async () => {
+    const r = createRealServers(fakeApi(), () => NOW);
+    expect(await r.getCommandKey()).toEqual({ publicKey: "ssh-ed25519 AAAAREAL stubwise-commands" });
+    expect(calls).toContainEqual(["commandKey"]);
   });
 });
