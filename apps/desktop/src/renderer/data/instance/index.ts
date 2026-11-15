@@ -41,6 +41,7 @@ export {
   type ModelSource,
 } from "./models";
 export { getAutomation, saveAutomation, type AutomationSettings } from "./automation";
+export { getServerAnalysisSettings, saveServerAnalysisSettings } from "./serverAnalysis";
 export {
   budgetReached,
   getBudget,

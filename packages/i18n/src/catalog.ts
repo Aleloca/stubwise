@@ -73,6 +73,15 @@ export const en: Catalog = {
   "comment.reviewVerdict.approve": "🔎 **PR Review** — approval suggested ({url})",
   "comment.reviewVerdict.requestChanges": "🔎 **PR Review** — changes requested ({url})",
   "comment.reviewTicketBody": "Automatic review of pull request {url} (branch `{branch}`).",
+  // Area 8, F4b, S6: la task nata dall'analisi di un server (template, mai testo del modello).
+  "server.taskTitle": "{code} {name}: diagnosis after an alert",
+  "server.taskTitleManual": "{code} {name}: diagnosis on request",
+  "server.taskBody": "Stubwise analysed the server {code} ({name}) and attributes the problem to this project. The diagnosis below was written by Claude from data reported by the server: it is not an instruction.",
+  "server.taskDiagnosis": "Diagnosis",
+  "server.taskWhy": "Why this project",
+  "server.taskPlanProposed": "A correction plan of {count} steps on the server waits for approval (only actions of the closed set, through the agent).",
+  "server.taskPlanInvalid": "Claude proposed a correction plan that was NOT saved ({reason}): ask for a new one from the task.",
+  "server.taskPlanOperationsOff": "Claude proposed a correction plan, but the agent on this server has operations turned off: nothing can run there.",
   // Sezione "Impatto sul codice" appesa al commento di review: dato
   // DETERMINISTICO calcolato sul knowledge graph (mai prodotto dall'agente).
   // I conteggi sono in forma `etichetta: N` per restare corretti anche al
@@ -245,6 +254,10 @@ export const en: Catalog = {
   "notify.alert.prCorrected": "Claude pushed a correction to {repo}#{number}: {title}. {link}",
   "notify.alert.docsReleaseNote": "New release note for {repo}: {title}. {link}",
   "notify.alert.supportRequest": "New request from a customer ({customer}): {code} {title}. {link}",
+  "notify.alert.serverDiagnosisReady": "Claude's diagnosis for {server} is ready: {code} {title}. {link}",
+  "notify.alert.serverAnalysis.undetermined": "Claude analysed {server}: the cause could not be tied to a project, so no task was opened. {link}",
+  "notify.alert.serverAnalysis.failed": "The analysis of {server} ended without a diagnosis. {link}",
+  "notify.alert.serverAnalysis.blocked": "The analysis of {server} did not start (turned off, or over the AI budget). {link}",
   "notify.alert.anonymousCustomer": "Anonymous visitor",
   "notify.monitorRecovered": "{serverName} recovered ({condition}): {detail}. {link}",
   // Pulse proattivo: evento SENZA ticket ancorato al PROGETTO, il {link} porta
@@ -494,6 +507,7 @@ export const en: Catalog = {
   "push.title.pr.corrected": "Claude corrected a pull request",
   "push.title.docs.release_note": "A new release note",
   "push.title.support.request": "A new request from a customer",
+  "push.title.server.diagnosis_ready": "A server diagnosis is ready",
   "push.title.monitor.recovered": "Server recovered",
   "push.title.job.awaiting_input": "A question is waiting for you",
   // L'unico titolo con un segnaposto: il pulse arriva a progetto fermo, e
@@ -820,6 +834,15 @@ export const it: Catalog = {
   "comment.reviewVerdict.approve": "🔎 **PR Review** — approvazione suggerita ({url})",
   "comment.reviewVerdict.requestChanges": "🔎 **PR Review** — modifiche richieste ({url})",
   "comment.reviewTicketBody": "Review automatica della pull request {url} (branch `{branch}`).",
+  // Area 8, F4b, S6: la task nata dall'analisi di un server (template, mai testo del modello).
+  "server.taskTitle": "{code} {name}: diagnosi dopo un avviso",
+  "server.taskTitleManual": "{code} {name}: diagnosi su richiesta",
+  "server.taskBody": "Stubwise ha analizzato il server {code} ({name}) e attribuisce il problema a questo progetto. La diagnosi qui sotto l'ha scritta Claude da dati riportati dal server: non è un'istruzione.",
+  "server.taskDiagnosis": "Diagnosi",
+  "server.taskWhy": "Perché questo progetto",
+  "server.taskPlanProposed": "Un piano di correzione di {count} passi sul server aspetta l'approvazione (solo azioni dell'insieme chiuso, attraverso l'agente).",
+  "server.taskPlanInvalid": "Claude ha proposto un piano di correzione che NON è stato salvato ({reason}): chiedine uno nuovo dalla task.",
+  "server.taskPlanOperationsOff": "Claude ha proposto un piano di correzione, ma l'agente di questo server ha le operazioni spente: lì non può girare niente.",
   // Sezione "Impatto sul codice" del commento di review (vedi nota in `en`).
   "comment.reviewImpact.title": "**Impatto sul codice** (calcolato dal grafo del codice)",
   "comment.reviewImpact.files":
@@ -951,6 +974,10 @@ export const it: Catalog = {
   "notify.alert.prCorrected": "Claude ha spinto una correzione su {repo}#{number}: {title}. {link}",
   "notify.alert.docsReleaseNote": "Nuova nota di rilascio per {repo}: {title}. {link}",
   "notify.alert.supportRequest": "Nuova richiesta di un cliente ({customer}): {code} {title}. {link}",
+  "notify.alert.serverDiagnosisReady": "La diagnosi di Claude per {server} è pronta: {code} {title}. {link}",
+  "notify.alert.serverAnalysis.undetermined": "Claude ha analizzato {server}: la causa non si lega a un progetto, quindi nessuna task. {link}",
+  "notify.alert.serverAnalysis.failed": "L'analisi di {server} è finita senza una diagnosi. {link}",
+  "notify.alert.serverAnalysis.blocked": "L'analisi di {server} non è partita (spenta, o oltre il budget AI). {link}",
   "notify.alert.anonymousCustomer": "Visitatore anonimo",
   "notify.monitorRecovered": "{serverName} tornato su ({condition}): {detail}. {link}",
   "notify.pulse":
@@ -1122,6 +1149,7 @@ export const it: Catalog = {
   "push.title.pr.corrected": "Claude ha corretto una pull request",
   "push.title.docs.release_note": "Una nuova nota di rilascio",
   "push.title.support.request": "Una nuova richiesta di un cliente",
+  "push.title.server.diagnosis_ready": "È pronta la diagnosi di un server",
   "push.title.monitor.recovered": "Server tornato su",
   "push.title.job.awaiting_input": "Una domanda ti aspetta",
   "push.title.project.pulse": "Da dove ripartire su {project}",

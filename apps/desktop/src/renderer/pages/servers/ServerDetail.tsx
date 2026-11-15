@@ -11,6 +11,7 @@ import { DisksPanel } from "./DisksPanel";
 import { healthParts, lastReport, whereLine } from "./format";
 import { HealthGlyph } from "./glyphs";
 import { MetricsCharts, RANGES } from "./MetricsCharts";
+import { ManualAnalysis } from "./ManualAnalysis";
 import { NowBox, showsNow } from "./NowBox";
 import { ServerSettings } from "./ServerSettings";
 import { ServicesTable } from "./ServicesTable";
@@ -242,6 +243,8 @@ function Page({ server, projectCode }: { server: Detail; projectCode: string | n
         </nav>
         <div className="flex flex-col gap-10 pt-6">
           {showsNow(server) && <NowBox server={server} />}
+          {/* L'analisi a mano (R0-A2): con l'analisi, accesa insieme a lei. */}
+          {featureIntegrated("servers-analysis") && <ManualAnalysis server={server} />}
           <MetricsCharts
             server={server}
             range={range}

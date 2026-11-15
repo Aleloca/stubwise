@@ -40,6 +40,8 @@ export const AI_OPERATIONS = [
   "usage_probe",
   // Area 8, F3: il giudizio sul triage dopo il silenzio (Haiku) e la bozza della risposta al cliente.
   "support_triage_check",
+  "server_analysis",
+  "server_fix_plan",
 ] as const;
 
 export type AiOperation = (typeof AI_OPERATIONS)[number];
@@ -55,6 +57,7 @@ export type AiOperationGroupKey =
   | "mail"
   | "automations"
   | "support"
+  | "servers"
   | "chat"
   | "technical";
 
@@ -71,6 +74,7 @@ export const AI_OPERATION_GROUPS: {
   { group: "mail", operations: ["mail_classify", "mail_draft", "meeting_summary"] },
   { group: "automations", operations: ["automation_step"] },
   { group: "support", operations: ["support_triage_check"] },
+  { group: "servers", operations: ["server_analysis", "server_fix_plan"] },
   { group: "chat", operations: ["chat", "claude_chat", "backlog_merge"] },
   { group: "technical", operations: ["plugin_smoke", "credential_test", "usage_probe"] },
 ];

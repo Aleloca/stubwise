@@ -531,31 +531,17 @@ describe("revisione finale M4: l'avviso e il riquadro dicono perché Claude non 
       (n) => n.id.startsWith("n-alert") && n.kind === kind && n.objectCode === "SRV-1",
     )[0]?.body ?? "";
 
-  it("coda in pausa: l'avviso non dice che Claude sta guardando", async () => {
+  it("F4b-4: la pausa della coda di un progetto non ferma l'analisi di un server (è del server, nel budget dell'istanza)", async () => {
     await instance.pauseQueue(ACQ);
     await servers.simulateServerRecovery("SRV-1").catch(() => undefined);
     await servers.simulateServerAlert("SRV-1", "memory");
     const body = alertBody("server.trouble");
-    expect(body).not.toContain("Claude is looking into it");
-    expect(body).toContain("Claude looks into it when ACQ's queue resumes.");
-  });
-
-  it("residuo N1 (R-G5): un server in due produzioni: l'avviso all'altro progetto non nomina quello dell'analisi", async () => {
-    // SRV-1 anche nella produzione di STW: l'analisi resta in ACQ (il principale).
-    state.environments
-      .find((e) => e.id === "env-stw-prod")!
-      .servers.push({ repositoryId: null, serverCode: "SRV-1", reportedSha: null } as never);
-    await instance.pauseQueue(ACQ);
-    await servers.simulateServerRecovery("SRV-1").catch(() => undefined);
-    await servers.simulateServerAlert("SRV-1", "memory");
-    const alerts = state.notifications.filter(
-      (n) => n.id.startsWith("n-alert") && n.kind === "server.trouble" && n.objectCode === "SRV-1",
-    );
-    const toStw = alerts.find((n) => n.projectId === STW)!;
-    const toAcq = alerts.find((n) => n.projectId === ACQ)!;
-    expect(toAcq.body).toContain("Claude looks into it when ACQ's queue resumes.");
-    expect(toStw.body).not.toContain("ACQ");
-    expect(toStw.body).toContain("Claude looks into it when the queue resumes.");
+    expect(body).toContain("Claude is looking into it with read-only access.");
+    expect(body).not.toContain("queue resumes");
+    const episode = (await servers.getServer("SRV-1")).episodes[0]!;
+    expect(episode.analysis?.outcome).toBe("running");
+    expect(conv(episode.analysis!.sessionId!).waiting ?? null).toBeNull();
+    await whenAnalysesIdle();
   });
 
   it("budget raggiunto: l'avviso lo dice, e l'episodio ricorda perché non c'è analisi", async () => {
@@ -568,27 +554,6 @@ describe("revisione finale M4: l'avviso e il riquadro dicono perché Claude non 
     const episode = (await servers.getServer("SRV-1")).episodes[0]!;
     expect(episode.analysis).toBeNull();
     expect(episode.analysisBlocked).toBe("monthly_budget");
-  });
-});
-
-describe("l'analisi di un server con la coda in pausa", () => {
-  it("nasce in attesa; il dettaglio del server lo dice; alla ripresa parte", async () => {
-    await instance.pauseQueue(ACQ);
-    await servers.simulateServerRecovery("SRV-1").catch(() => undefined);
-    await servers.simulateServerAlert("SRV-1", "agent_silent");
-    const detail = await servers.getServer("SRV-1");
-    const episode = detail.episodes[0]!;
-    expect(episode.analysis?.outcome).toBe("running");
-    expect(episode.analysisWaiting).toMatchObject({
-      reason: "queue_paused",
-      byName: "Roberta Fontana",
-    });
-    const id = episode.analysis!.conversationId;
-    expect(eventsOf(id)).toEqual([]);
-    await instance.resumeQueue(ACQ);
-    await whenAnalysesIdle();
-    expect(eventsOf(id).length).toBeGreaterThan(0);
-    expect((await servers.getServer("SRV-1")).episodes[0]!.analysisWaiting ?? null).toBeNull();
   });
 });
 

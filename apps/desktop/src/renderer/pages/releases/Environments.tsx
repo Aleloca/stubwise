@@ -1,6 +1,8 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isAppBuild } from "../../data/build";
+import { featureIntegrated } from "../../data/integration";
+import { ContainersDialog, containersOn } from "./EnvironmentContainers";
 import { environmentPatch } from "./environmentPatch";
 import {
   useCreateEnvironment,
@@ -349,14 +351,22 @@ function DeleteDialog({
   );
 }
 
+/** I server di un ambiente, una volta ciascuno, nell'ordine delle righe. */
+const serverCodesOf = (environment: ProjectEnvironment): string[] => [
+  ...new Set(environment.servers.map((s) => s.serverCode)),
+];
+
 function RowMenu({
   environment,
   onEdit,
   onDelete,
+  onContainers,
 }: {
   environment: ProjectEnvironment;
   onEdit: () => void;
   onDelete: () => void;
+  /** I container su un server dell'ambiente (R0-D); assente = la voce non c'è. */
+  onContainers?: (code: string) => void;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -386,6 +396,22 @@ function RowMenu({
           >
             {t("releases.environments.edit")}
           </button>
+          {onContainers &&
+            serverCodesOf(environment).map((code) => (
+              <button
+                key={code}
+                type="button"
+                role="menuitem"
+                tabIndex={-1}
+                className={itemClass}
+                onClick={() => {
+                  setOpen(false);
+                  onContainers(code);
+                }}
+              >
+                {t("releases.environments.containers.menu", { code })}
+              </button>
+            ))}
           <button
             type="button"
             role="menuitem"
@@ -423,6 +449,9 @@ export function Environments({
   const { t, i18n } = useTranslation();
   const [editing, setEditing] = useState<ProjectEnvironment | "new" | null>(null);
   const [deleting, setDeleting] = useState<ProjectEnvironment | null>(null);
+  const [containers, setContainers] = useState<{ env: EnvironmentView; code: string } | null>(null);
+  // I container degli ambienti (area 8, F4b, R0-D): nell'app finché non è cablato, spenti.
+  const withContainers = featureIntegrated("environment-containers");
   const runsLine = (s: EnvironmentView["servers"][number]) => {
     if (!s.reportedSha) return null;
     // Il rilascio che combacia lo dice il livello dati (R-L2: della stessa
@@ -491,6 +520,9 @@ export function Environments({
                   environment={e}
                   onEdit={() => setEditing(e)}
                   onDelete={() => setDeleting(e)}
+                  onContainers={
+                    withContainers ? (code) => setContainers({ env: e, code }) : undefined
+                  }
                 />
               )}
               {!inline(e) && e.servers.length > 0 && (
@@ -510,9 +542,34 @@ export function Environments({
                   ))}
                 </ul>
               )}
+              {withContainers &&
+                serverCodesOf(e).flatMap((code) => {
+                  const list = containersOn(e, code);
+                  return list.length === 0
+                    ? []
+                    : [
+                        <p
+                          key={code}
+                          data-environment-containers={code}
+                          className="num basis-full text-sm text-ink-muted"
+                        >
+                          {t("releases.environments.containers.line", {
+                            code,
+                            list: list.join(", "),
+                          })}
+                        </p>,
+                      ];
+                })}
             </li>
           ))}
         </ul>
+      )}
+      {containers && (
+        <ContainersDialog
+          environment={containers.env}
+          code={containers.code}
+          onClose={() => setContainers(null)}
+        />
       )}
       {editing && (
         <EnvironmentDialog

@@ -23,7 +23,8 @@ import { can, viewerFor } from "./viewer";
 import { presentChatNotification } from "./chat/reads";
 import { deliveredTo } from "./alerts/reads";
 import { whyReceives } from "./alerts/visibility";
-import { linkAccessHrefOf } from "./servers/visibility";
+import { prunes } from "../domain/servers/fixPlan";
+import { linkAccessHrefOf, pruneWarningOf } from "./servers/visibility";
 import { presentProductQuestion, presentProductUpdate } from "./productDocs/claudeReads";
 import { productOriginOf } from "./productDocs/backlog";
 import { presentProductMention } from "./productDocs/comments";
@@ -871,6 +872,15 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
     ...conversationPermissions(me, c),
     events,
     planPreApproved: state.preApprovedPlans.has(id),
+    serverFixPruneWarning: (() => {
+      // Solo per un piano che libera spazio (F4b-8 = c).
+      const plan = events.filter((e) => e.type === "plan").at(-1);
+      return c.serverFix && c.projectId !== null && plan?.type === "plan" && plan.serverPlan
+        ? prunes(plan.serverPlan)
+          ? pruneWarningOf(me, c.serverFix.serverCode, c.projectId)
+          : null
+        : null;
+    })(),
     continuesFrom: originOf(me, c),
     undo: undoOfEvents(me, events),
     reauthPhrases: reauthPhrasesOf(me, events),

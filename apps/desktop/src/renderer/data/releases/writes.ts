@@ -13,7 +13,6 @@ import { recordChange } from "../changelog/index";
 import { changedFields } from "../changelog/settingValues";
 // Per effetto: registra i tipi di voce di progetto (`recordChange` lancia su uno ignoto).
 import "../projectSettings/changeTypes";
-import { alertProjectsOf } from "../../domain/servers/projects";
 import { publishAlert } from "../alerts/publish";
 import { aiBlockFor } from "../instance/blocks";
 import { noteProductSource } from "../productDocs/sourceEvents";
@@ -29,6 +28,7 @@ import type {
   Repository,
   Task,
 } from "../types";
+import { CONTAINER_NAME_RE } from "@stubwise/shared";
 import { forbidden, invalid, notFound, writer } from "../writer";
 import { assertServerCodesVisible } from "../servers/visibility";
 import {
@@ -591,7 +591,6 @@ export async function updateEnvironment(
   if (patch.kind !== undefined) env.kind = patch.kind;
   if (patch.url !== undefined) env.url = patch.url?.trim() || null;
   if (patch.servers !== undefined) env.servers = serverRows(env.servers, patch.servers);
-  dropStalePrimaries();
   // I server collegati non hanno un prima/dopo: se cambiano solo loro c'è la frase.
   const diff = changedFields(before, { name: env.name, kind: env.kind, url: env.url });
   recordChange({
@@ -604,6 +603,54 @@ export async function updateEnvironment(
   return copy(env);
 }
 
+/**
+ * I container di un ambiente su uno dei suoi server (area 8, F4b, R0-D: PUT
+ * …/environments/:id/containers sul server). Solo nomi che l'agente
+ * riporta per quel server (`unknown_container`), mai di un ALTRO progetto
+ * sullo stesso server (`container_of_other_project`); sostituisce l'elenco
+ * su ogni riga dell'ambiente con quel server. Chi scrive ha
+ * `environments.manage` nel progetto: non serve che veda il server.
+ */
+export async function setEnvironmentContainers(
+  id: string,
+  input: { serverCode: string; containers: string[] },
+): Promise<{ serverCode: string; containers: string[] }> {
+  const me = await writer("releases.setEnvironmentContainers");
+  const env = environmentFor(me, id);
+  if (!holds(me, "environments.manage", env.projectId)) throw forbidden();
+  const serverCode = input.serverCode.trim().toUpperCase();
+  const rows = env.servers.filter((s) => s.serverCode === serverCode);
+  if (rows.length === 0) throw invalid("server_not_in_environment");
+  const containers = [...new Set(input.containers)];
+  if (containers.length > 50 || containers.some((c) => !CONTAINER_NAME_RE.test(c)))
+    throw invalid("containers");
+  const server = state.servers.find((s) => s.code === serverCode);
+  const seen = new Set(
+    (server?.services ?? []).filter((x) => x.source === "docker").map((x) => x.name),
+  );
+  if (containers.some((c) => !seen.has(c))) throw invalid("unknown_container");
+  // Di un altro progetto: fra i suoi container su quel server, o col NOME
+  // di un suo ambiente senza container (la regola di shared, 72 review).
+  const clash = state.environments.some(
+    (e) =>
+      e.projectId !== env.projectId &&
+      e.servers.some((s) => {
+        if (s.serverCode !== serverCode) return false;
+        const own = s.containers?.length ? s.containers : [e.name];
+        return own.some((c) => containers.includes(c));
+      }),
+  );
+  if (clash) throw invalid("container_of_other_project");
+  for (const r of rows) r.containers = [...containers];
+  recordChange({
+    kind: "environment.updated",
+    actorId: me,
+    projectId: env.projectId,
+    object: environmentObject(env),
+  });
+  return { serverCode, containers };
+}
+
 export async function deleteEnvironment(id: string): Promise<void> {
   const me = await writer("releases.deleteEnvironment");
   const env = environmentFor(me, id);
@@ -611,23 +658,10 @@ export async function deleteEnvironment(id: string): Promise<void> {
   state.environments = state.environments.filter((e) => e.id !== id);
   // I suoi file d'ambiente (area 9c) se ne vanno con lui, segreti compresi.
   dropEnvironmentFiles(id);
-  dropStalePrimaries();
   recordChange({
     kind: "environment.deleted",
     actorId: me,
     projectId: env.projectId,
     object: environmentObject(env),
   });
-}
-
-/**
- * Il progetto principale di un server è una delle produzioni che lo usano:
- * tolto il server da quella produzione (riga o ambiente), il principale si
- * azzera e l'analisi ricade sulla prima produzione rimasta (`analysisProjectOf`).
- */
-function dropStalePrimaries(): void {
-  for (const s of state.servers) {
-    if (s.primaryProjectId && !alertProjectsOf(s.code, state.environments).includes(s.primaryProjectId))
-      s.primaryProjectId = null;
-  }
 }

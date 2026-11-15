@@ -3,18 +3,19 @@
 // pure di `domain/servers`; `monitor.ts` sono le scritture della sezione
 // Monitor del web (`monitor.manage`); `access.ts` gli accessi SSH
 // (`servers.ssh.manage`), `simulate.ts` i «Simula …» del solo prototipo.
-// `secrets.ts` (le chiavi private) NON si esporta: lo importano `access.ts`
-// e `fix.ts` (che chiede solo se la chiave di correzione c'è, `hasKey`).
-// L'analisi non lo importa: legge solo con l'accesso di lettura, attraverso
-// `accessUsable` e `markUsed`. `fix.ts` è la correzione da task
-// (`startServerFix`); il resto del suo percorso (decidere il piano, Stop)
-// passa dalle scritture delle conversazioni.
+// `secrets.ts` (le chiavi private) NON si esporta: lo importa solo
+// `access.ts`. L'analisi non lo importa: legge solo con l'accesso di
+// lettura, attraverso `accessUsable` e `markUsed`. `fix.ts` è la correzione
+// da task (`startServerFix`): passa dall'AGENTE, mai dall'SSH, quindi non
+// tocca né chiavi né accessi; il resto del suo percorso (decidere il piano,
+// Stop) passa dalle scritture delle conversazioni.
 //
 // Gli avvisi dei server stanno nel catalogo condiviso (`@stubwise/shared`,
 // F2 dell'integrazione: prima li registrava qui `alertTypes.ts`).
 // `analysis.ts` (episodi e analisi automatica) non è una funzione dell'API:
 // ci arrivano i «Simula …» di `simulate.ts`.
 export {
+  getCommandKey,
   getInstallCommand,
   getRemovalCommand,
   getServer,
@@ -27,10 +28,13 @@ export {
   type InstanceServerRow,
   type MetricRange,
   type ServerMetrics,
+  type ServerFixInfo,
   type ServerSearchResult,
   type ServerTaskInfo,
 } from "./reads";
 export { startServerFix } from "./fix";
+export { approveServerFix, rejectServerFix, stopServerFix } from "./fixDecide";
+export { startServerAnalysis } from "./operate";
 export {
   createCheck,
   createServer,
@@ -55,9 +59,11 @@ export {
 export {
   RECENT_CPU_POINTS,
   serverHref,
+  type ServerAnalysisView,
   type ServerDetail,
   type ServerEpisodeView,
   type ServerRow,
+  type PruneWarning,
   type SshAccessView,
   type SshUseView,
 } from "./visibility";

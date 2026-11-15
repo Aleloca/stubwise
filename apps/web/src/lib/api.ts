@@ -3896,8 +3896,9 @@ export type { ServerDisk, ServerProjectSummary } from "@stubwise/shared";
 import type { ServerDetail as SharedServerDetail, ServerView as SharedServerView } from "@stubwise/shared";
 
 /** I campi della F4a dell'area 8 (code, salute, ambienti…): additivi, il web non li legge. */
-type F4aViewFields = "code" | "health" | "environments" | "work" | "orphan" | "inArchivedOnly";
-type F4aDetailFields = F4aViewFields | "checks" | "episodes" | "productionProjects" | "canManage";
+type F4aViewFields = "code" | "health" | "environments" | "work" | "orphan" | "inArchivedOnly" | "agentOperations";
+/** Più `canStartAnalysis` (area 8, F4b): additivo, il web non lo legge. */
+type F4aDetailFields = F4aViewFields | "checks" | "episodes" | "productionProjects" | "canManage" | "canStartAnalysis" | "ssh";
 
 /**
  * La vista di un server COME LA VEDE IL WEB (cast, nessun parse): i campi

@@ -1579,7 +1579,8 @@
         "departmentHome": "Home del reparto",
         "drive": "Drive",
         "automations": "Automazioni",
-        "support": "Supporto"
+        "support": "Supporto",
+        "servers": "Server"
       },
       "fullAdminHint": "L'amministrazione completa comprende ogni permesso, su ogni progetto.",
       "save": "Salva il ruolo",
@@ -1732,7 +1733,8 @@
       "automationFailed": "Esecuzione fallita",
       "automationNotify": "Automazione",
       "automationPaused": "Automazione in pausa",
-      "supportRequest": "Richiesta di un cliente"
+      "supportRequest": "Richiesta di un cliente",
+      "serverDiagnosisReady": "Diagnosi di un server"
     },
     "actions": {
       "approvePlan": "Approva piano",
@@ -1883,6 +1885,7 @@
         "mail": "Posta",
         "automations": "Automazioni",
         "support": "Supporto",
+        "servers": "Server",
         "chat": "Chat"
       },
       "ops": {
@@ -1907,7 +1910,9 @@
         "chat": "Chat dei Docs",
         "claude_chat": "Conversazioni private con Claude",
         "backlog_merge": "Unione dei documenti del backlog",
-        "support_triage_check": "Supporto: giudizio sul triage"
+        "support_triage_check": "Supporto: giudizio sul triage",
+        "server_analysis": "Server: analisi",
+        "server_fix_plan": "Server: piano di correzione"
       }
     }
   },
@@ -1990,7 +1995,8 @@
       "webhook": "Webhook",
       "widget": "Widget",
       "email": "Email",
-      "automation": "Automazione"
+      "automation": "Automazione",
+      "server": "Server"
     },
     "effort": {
       "1": "Banale",
@@ -3550,6 +3556,12 @@
       },
       "support": {
         "manage": "Gestire le conversazioni di Support: aprire la richiesta, segnarle non concluse, rispondere ai collaboratori"
+      },
+      "servers": {
+        "operate": "Avviare l'analisi di un server e chiedere un piano di correzione (l'approvazione resta di plans.approve)",
+        "ssh": {
+          "manage": "Gestire l'accesso SSH di sola lettura dei server"
+        }
       }
     }
   },

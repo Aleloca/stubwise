@@ -1,4 +1,5 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import type { ScriptLang } from "../../domain/servers/installScript";
 import * as api from "@backend/api";
@@ -228,6 +229,20 @@ export function useInstallCommand(code: string | undefined, enabled: boolean) {
   });
 }
 
+/**
+ * La chiave pubblica d'istanza dei comandi (R3, `monitor.manage`): per il
+ * comando d'installazione con le operazioni accese. Letta solo quando serve.
+ */
+export function useCommandKey(enabled: boolean) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "servers", "commandKey"] as const,
+    queryFn: () => api.servers.getCommandKey(),
+    enabled,
+    staleTime: Infinity,
+  });
+}
+
 /** Il comando di rimozione dopo una revoca (solo `servers.ssh.manage`, solo `revoked`). */
 export function useRemovalCommand(code: string | undefined, enabled: boolean) {
   const me = useSessionPersonId();
@@ -303,7 +318,16 @@ export function useServerTaskInfo(taskId: string) {
   return useQuery({
     queryKey: queryKeys.serverTaskInfo(me, taskId),
     queryFn: () => api.servers.getServerTaskInfo(taskId),
+    // Review F4b I3: nell'app la sezione non sente le sessioni (l'esecuzione
+    // è deterministica, senza Claude): mentre la correzione pianifica o gira
+    // si rilegge ogni pochi secondi.
+    refetchInterval: (q) => serverTaskRefetch(q.state.data?.state),
   });
+}
+
+/** Ogni quanto rileggere la sezione Server: solo mentre la correzione è viva. */
+export function serverTaskRefetch(state: string | undefined): number | false {
+  return state === "fix_planning" || state === "fixing" ? 4000 : false;
 }
 
 /**
@@ -321,12 +345,62 @@ const FIX_AREAS = [
   "waitingOnMe",
 ] as const;
 
+/**
+ * Il piano della correzione deciso dalla task (decisione del maintainer, 15
+ * nov 2026): Approva col digest della vista, Rifiuta con la nota, Stop.
+ */
+export function useApproveServerFix() {
+  return useWrite(
+    ({ taskId, planDigest }: { taskId: string; planDigest: string }) =>
+      api.servers.approveServerFix(taskId, planDigest),
+    FIX_AREAS,
+  );
+}
+
+export function useRejectServerFix() {
+  return useWrite(
+    ({ taskId, note }: { taskId: string; note: string }) =>
+      api.servers.rejectServerFix(taskId, note),
+    FIX_AREAS,
+  );
+}
+
+export function useStopServerFix() {
+  return useWrite((taskId: string) => api.servers.stopServerFix(taskId), FIX_AREAS);
+}
+
 export function useStartServerFix() {
   return useWrite(
     ({ taskId, notes }: { taskId: string; notes?: string }) =>
       api.servers.startServerFix(taskId, { notes }),
     FIX_AREAS,
   );
+}
+
+/**
+ * «Ask Claude to look into it» (R0-A2): l'analisi a mano di un server. Nasce
+ * una sessione di Claude; cambia il server e le conversazioni.
+ */
+export function useStartServerAnalysis() {
+  return useWrite((code: string) => api.servers.startServerAnalysis(code), FIX_AREAS);
+}
+
+/**
+ * Mentre un'analisi gira, il dettaglio del server si rilegge a ogni cambio
+ * delle sessioni (solo il dettaglio: non grafici né elenchi), così la riga
+ * dell'analisi a mano arriva alla fine da sola.
+ */
+export function useServerFollowsAnalysis(code: string, running: boolean) {
+  const client = useQueryClient();
+  const me = useSessionPersonId();
+  useEffect(() => {
+    if (!running) return undefined;
+    const reread = () => void client.invalidateQueries({ queryKey: queryKeys.server(me, code) });
+    const off = api.onConversationChange(reread);
+    // Un cambio arrivato fra la lettura e l'iscrizione non si perde: si rilegge subito.
+    reread();
+    return off;
+  }, [client, me, code, running]);
 }
 
 /** Solo prototipo: l'esito del prossimo controllo dopo la correzione. */

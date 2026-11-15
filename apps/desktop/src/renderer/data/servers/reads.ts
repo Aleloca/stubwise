@@ -1,16 +1,39 @@
+import { serverCommandsOf, type ServerCommandRow } from "../../domain/servers/commands";
+import { planDigest, prunes } from "../../domain/servers/fixPlan";
+import { canStopServerFix } from "./fixDecide";
 import {
+  fixSteps,
+  serverFixStatus,
   serverTaskState,
   type FixStartBlock,
+  type FixStep,
+  type ServerFixStatus,
   type ServerTaskState,
 } from "../../domain/servers/fixGate";
 import { serverHealth, type ServerHealth } from "../../domain/servers/health";
 import { downsample, downsampleByTime, downsampleSamples } from "../../domain/servers/metrics";
 import { removalScript, type ScriptLang } from "../../domain/servers/installScript";
 import { serverInProject } from "../../domain/servers/projects";
-import { accessState, type AccessState } from "../../domain/servers/sshAccess";
+import { accessState } from "../../domain/servers/sshAccess";
 import { fold } from "../../domain/textSearch";
-import { canSeeConversation, copy, eventsOf, gate, now, state, visibleProjectIds } from "../store";
-import type { CheckSample, MetricPoint, ServerAnalysis, ServerEpisode } from "../types";
+import {
+  canSeeConversation,
+  conversationPermissions,
+  copy,
+  eventsOf,
+  gate,
+  now,
+  state,
+  visibleProjectIds,
+} from "../store";
+import type {
+  CheckSample,
+  Conversation,
+  MetricPoint,
+  ServerAnalysis,
+  ServerEpisode,
+  Task,
+} from "../types";
 import { forbidden, invalid, notFound } from "../writer";
 import {
   canManageSsh,
@@ -27,6 +50,8 @@ import {
   serverFor,
   serverRow,
   serversVisibleTo,
+  pruneWarningOf,
+  type PruneWarning,
   type ServerDetail,
   type ServerRow,
 } from "./visibility";
@@ -191,6 +216,21 @@ export interface ServerSearchResult {
   projectCode: string;
 }
 
+/** La chiave pubblica d'istanza del prototipo: finta, stabile (il server la genera una volta). */
+const PROTOTYPE_COMMAND_KEY =
+  "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPr0t0typeC0mmandKeyN0tReal0000000000000 stubwise-commands";
+
+/**
+ * La chiave pubblica d'istanza che verifica i comandi dell'agente (area 8,
+ * F4b, R3; `GET /api/servers/command-key`): va nel comando d'installazione
+ * con le operazioni accese, e l'agente la fissa. `monitor.manage`.
+ */
+export async function getCommandKey(): Promise<{ publicKey: string }> {
+  const me = await gate("servers.getCommandKey");
+  if (!canMonitor(me)) throw forbidden();
+  return { publicKey: PROTOTYPE_COMMAND_KEY };
+}
+
 /**
  * Il comando dell'accesso SSH, da rivedere (contiene solo chiavi pubbliche):
  * quello delle chiavi in attesa se ce ne sono, altrimenti di quelle in uso.
@@ -210,7 +250,7 @@ export async function getInstallCommand(
 }
 
 /**
- * Il comando che toglie i due utenti dal server, da rivedere dopo una
+ * Il comando che toglie l'utente di lettura dal server, da rivedere dopo una
  * revoca (il «⋯» della parte, Task 8): la stessa fonte del risultato di
  * `revokeSshAccess`. `servers.ssh.manage`; `invalid: state` se l'accesso
  * non è revocato.
@@ -246,8 +286,12 @@ export interface ServerTaskInfo {
   state: ServerTaskState;
   /** Perché chi guarda non può avviare la correzione adesso; `null` se può. */
   startBlock: FixStartBlock | null;
-  /** Lo stato dell'accesso di correzione; `null` con `server` nullo (R-G5). */
-  fixAccess: AccessState | null;
+  /**
+   * La correzione come la dice `serverFixViewSchema` (area 8, F4b): il
+   * piano coi passi, l'approvazione, cosa può fare chi guarda, il registro
+   * dei comandi. `null` con `server` nullo (R-G5).
+   */
+  fix: ServerFixInfo | null;
   /** L'ultima sessione di correzione della task (la scheda del piano, i comandi). */
   fixConversationId: string | null;
   /** La salute del server adesso (la riga del server); `null` con `server` nullo. */
@@ -264,6 +308,11 @@ export interface ServerTaskInfo {
   } | null;
   /** I nomi dei controlli nominati dai motivi dell'episodio (id → nome). */
   checkNames: Record<string, string>;
+  /**
+   * Build app: il codice del server sparito (o tolto dal progetto), per
+   * «SRV-n · deleted» quando la task non lo porta.
+   */
+  goneCode?: string;
   /** Quando la correzione è arrivata allo stato di adesso (l'ultimo cambio della sessione). */
   stateAt: string | null;
   /**
@@ -273,9 +322,114 @@ export interface ServerTaskInfo {
    */
   stop: {
     byId: string | null;
-    reason: "fix_access_revoked" | "fix_access_unusable" | "server_gone" | null;
+    reason: "operations_off" | "server_gone" | null;
     outcome: "stopped" | "failed" | "timed_out" | "ok";
   } | null;
+}
+
+/**
+ * La correzione di una task di server per chi guarda (area 8, F4b): i
+ * concetti di `serverFixViewSchema` e, per il registro, di
+ * `serverCommandViewSchema`, così l'adattatore dell'app li mappa.
+ */
+export interface ServerFixInfo {
+  status: ServerFixStatus;
+  /**
+   * Perché non c'è un piano, o perché si è fermata: un CODICE come quello
+   * del server (`no_plan`, `schema`, `container_of_other_project`,
+   * `operations_off`, `step_failed:<n>`), mai testo del modello.
+   */
+  planError: string | null;
+  /** I passi dell'ultimo piano (azioni dell'insieme chiuso), con lo stato. */
+  steps: FixStep[];
+  approval: { byId: string; at: string } | null;
+  rejection: { byId: string; at: string; note: string } | null;
+  /** L'agente ha le operazioni accese: senza, nessun piano si esegue. */
+  operationsOn: boolean;
+  canRequestPlan: boolean;
+  canApprove: boolean;
+  /** Rifiutare: anche con l'approvazione spenta (operazioni dell'agente spente). */
+  canReject: boolean;
+  canStop: boolean;
+  /** L'ha chiesta chi guarda (la scheda dice che approvando partono i comandi). */
+  startedByViewer: boolean;
+  /** I comandi della correzione, in ordine (letture e azioni; uscite NON fidate). */
+  commands: ServerCommandRow[];
+  /** Con un piano che libera spazio, gli altri progetti del server: l'avviso prima di approvare. */
+  pruneWarning: PruneWarning | null;
+  /**
+   * L'impronta del piano che aspetta l'approvazione (decisione 3): Approva
+   * la rimanda così com'è (`approveServerFix`); `null` senza un piano che aspetta.
+   */
+  planDigest: string | null;
+  /** La sessione di Claude della correzione, da leggere (come ha ragionato). */
+  sessionId: string | null;
+}
+
+type PlanEvent = Extract<ReturnType<typeof eventsOf>[number], { type: "plan" }>;
+
+/** La correzione di `task` per chi guarda, dall'ultima sessione (`run`). */
+function fixInfo(
+  me: string,
+  task: Task,
+  code: string,
+  run: Conversation | null,
+): ServerFixInfo {
+  const events = run ? eventsOf(run.id) : [];
+  const fixRun = run ? { c: run, events } : null;
+  const plan = events.filter((e): e is PlanEvent => e.type === "plan").at(-1);
+  // Quando: dal registro decisioni (stessa scrittura della decisione).
+  const decidedAt = (outcome: "approved" | "rejected") =>
+    state.decisionLog
+      .filter(
+        (d) =>
+          d.taskId === task.id &&
+          d.source === "plan_review" &&
+          d.planOutcome === outcome &&
+          d.decidedById === plan?.decidedById,
+      )
+      .at(-1)?.decidedAt ?? run?.updatedAt ?? now();
+  const perms = run ? conversationPermissions(me, run) : null;
+  const live = run !== null && run.state !== "finished";
+  const steps = fixSteps(fixRun);
+  const lastPhase = events.filter((e) => e.type === "phase").at(-1);
+  const failedStep = steps.find((x) => x.status === "failed");
+  const planError =
+    lastPhase?.type === "phase" && lastPhase.planError
+      ? lastPhase.planError
+      : lastPhase?.type === "phase" && lastPhase.reason === "operations_off"
+        ? "operations_off"
+        : failedStep
+          ? `step_failed:${failedStep.index}`
+          : null;
+  return {
+    status: serverFixStatus(task, fixRun),
+    planError,
+    steps,
+    approval:
+      plan?.status === "approved" && plan.decidedById
+        ? { byId: plan.decidedById, at: decidedAt("approved") }
+        : null,
+    rejection:
+      plan?.status === "rejected" && plan.decidedById
+        ? { byId: plan.decidedById, at: decidedAt("rejected"), note: plan.instructions ?? "" }
+        : null,
+    operationsOn: state.servers.find((x) => x.code === code)?.agentOperations ?? false,
+    canRequestPlan: serverFixStartBlock(me, task) === null,
+    canApprove: perms?.canDecidePlan ?? false,
+    canReject: perms?.canRejectPlan ?? false,
+    startedByViewer: run?.ownerId === me,
+    canStop: live && canStopServerFix(me, task.projectId),
+    commands: run ? serverCommandsOf(events, run.ownerId) : [],
+    planDigest: plan?.status === "pending" && plan.serverPlan ? planDigest(plan.serverPlan) : null,
+    sessionId: run?.id ?? null,
+    pruneWarning:
+      plan?.serverPlan &&
+      prunes(plan.serverPlan) &&
+      serverInProject(code, task.projectId, state.environments)
+        ? pruneWarningOf(me, code, task.projectId)
+        : null,
+  };
 }
 
 /**
@@ -297,7 +451,6 @@ export async function getServerTaskInfo(taskId: string): Promise<ServerTaskInfo 
   const run = state.conversations
     .filter((c) => c.kind === "task_run" && c.taskId === task.id && c.serverFix)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))[0];
-  const access = state.serverAccess.get(code);
   // Solo col server visibile: l'analisi e i controlli dicono del server.
   const analysis = s ? state.serverAnalyses.find((a) => a.taskId === task.id) : undefined;
   const session = analysis
@@ -320,9 +473,11 @@ export async function getServerTaskInfo(taskId: string): Promise<ServerTaskInfo 
       ? {
           byId: lastPhase?.type === "phase" ? (lastPhase.stoppedById ?? null) : null,
           reason:
-            lastPhase?.type === "phase" && lastPhase.reason && lastPhase.reason !== "item_closed"
-              ? lastPhase.reason
-              : null,
+            lastPhase?.type !== "phase"
+              ? null
+              : lastPhase.reason === "operations_off" || lastPhase.reason === "server_gone"
+                ? lastPhase.reason
+                : null,
           outcome: run.outcome ?? "stopped",
         }
       : null;
@@ -346,7 +501,7 @@ export async function getServerTaskInfo(taskId: string): Promise<ServerTaskInfo 
     episode,
     state: taskState,
     startBlock: serverFixStartBlock(me, task),
-    fixAccess: s ? accessState(access) : null,
+    fix: s ? fixInfo(me, task, s.code, run ?? null) : null,
     fixConversationId: run?.id ?? null,
     health: s ? serverHealth(s, state.serverEpisodes, now()) : null,
     analysis: analysis

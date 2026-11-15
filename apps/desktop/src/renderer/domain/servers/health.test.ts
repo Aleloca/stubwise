@@ -21,9 +21,9 @@ const server = (over: Partial<MonitoredServer> = {}): MonitoredServer => ({
   thresholds: { cpuPct: 95, memPct: 90, diskPct: 90, sustainedMinutes: 5 },
   services: [],
   disks: [],
-  primaryProjectId: null,
   createdAt: hoursAgo(1000),
   sshReachable: true,
+  agentOperations: false,
   ...over,
 });
 
@@ -119,8 +119,8 @@ const analysis = (outcome: ServerAnalysis["outcome"]): ServerAnalysis => ({
   id: "an",
   serverCode: "SRV-9",
   episodeId: "ep",
-  projectId: "p1",
   conversationId: "cv",
+  attribution: null,
   outcome,
   taskId: null,
   startedAt: hoursAgo(1),

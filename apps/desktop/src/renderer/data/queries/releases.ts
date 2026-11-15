@@ -227,6 +227,15 @@ export function useUpdateEnvironment() {
   );
 }
 
+/** I container di un ambiente su un suo server (R0-D): cambiano gli ambienti e l'analisi dei server. */
+export function useSetEnvironmentContainers() {
+  return useWrite(
+    ({ id, serverCode, containers }: { id: string; serverCode: string; containers: string[] }) =>
+      api.releases.setEnvironmentContainers(id, { serverCode, containers }),
+    ENVIRONMENT_AREAS,
+  );
+}
+
 export function useDeleteEnvironment() {
   return useWrite((id: string) => api.releases.deleteEnvironment(id), ENVIRONMENT_AREAS);
 }

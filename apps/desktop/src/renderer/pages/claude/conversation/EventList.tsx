@@ -137,7 +137,7 @@ export function EventList({
   const viewerName = usePersonName(viewerId);
   // I comandi su un server (correzione o analisi) sono righe del registro.
   const serverCode = detail.serverFix?.serverCode ?? detail.serverAnalysis?.serverCode ?? null;
-  const fixPlan = useServerFixPlan(detail, projectCode);
+  const fixPlan = useServerFixPlan(detail);
   const lastAssistant = [...items].reverse().find((i) => i.kind === "assistant")?.key;
   // La fase in corso: l'ultima aperta, se la conversazione sta lavorando.
   const lastPhase = [...items].reverse().find((i) => i.kind === "phase");
@@ -200,6 +200,7 @@ export function EventList({
                     canDecidePlan={detail.canDecidePlan && item.event.status === "pending"}
                     projectCode={projectCode}
                     serverFix={fixPlan}
+                    decideElsewhere={!!detail.serverFix}
                   />
                 );
               case "proposal":

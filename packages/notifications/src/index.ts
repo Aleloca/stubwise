@@ -333,3 +333,17 @@ export { productionForStatus, releaseProductionOf, type ReleaseProduction } from
 export { resolveCatalogRecipients } from "./publish.js";
 export { publishSupportRequestAlert } from "./support-alerts.js";
 export { catalogRecipients, type CatalogRecipients, type CatalogRecipientsContext } from "./alert-recipients.js";
+
+// Area 8, F4b: i comandi firmati verso l'agente (server e worker; UN posto che firma).
+export { commandPublicKey, signCommand } from "./server-ops/signing.js";
+export {
+  cancelServerCommands,
+  COMMAND_OUTPUT_MAX,
+  COMMAND_TTL_MS,
+  commandsByIds,
+  issueServerCommand,
+  ServerCommandError,
+  seenContainers,
+  type IssueServerCommandInput,
+} from "./server-ops/commands.js";
+export { attributionContext } from "./server-ops/context.js";

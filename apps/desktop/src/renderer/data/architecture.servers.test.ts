@@ -34,6 +34,22 @@ describe("comandi di correzione dei server", () => {
     ).toEqual([]);
   });
 
+  it('un comando che cambia (`kind: "change"`) lo scrive solo la correzione dei server', () => {
+    const where = Object.entries(SOURCES)
+      .filter(([, source]) => /kind: "change"(?!\s*\|)/.test(source))
+      .map(([path]) => (path.startsWith("./") ? `../data/${path.slice(2)}` : path));
+    expect(
+      where.filter((p) => !p.startsWith("../data/servers/") && !p.startsWith("../domain/servers/")),
+    ).toEqual([]);
+  });
+
+  it("F4b: nessuna traccia della coppia SSH di correzione (`stubwise-fix`) nei sorgenti", () => {
+    const where = Object.entries(SOURCES)
+      .filter(([, source]) => source.includes("stubwise-fix"))
+      .map(([path]) => path);
+    expect(where).toEqual([]);
+  });
+
   it("nel seme nessun comando di correzione precede un piano approvato", () => {
     for (const c of state.conversations)
       expect(fixCommandsBeforeApproval(eventsOf(c.id)), c.id).toBe(0);

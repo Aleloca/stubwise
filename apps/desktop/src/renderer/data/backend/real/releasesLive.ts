@@ -76,6 +76,8 @@ const environments = createRealEnvironments({
   create: (projectId, body) => appClient().environments.create(projectId, body),
   update: (projectId, id, patch) => appClient().environments.update(projectId, id, patch),
   remove: (projectId, id) => appClient().environments.remove(projectId, id),
+  setContainers: (projectId, id, body) =>
+    appClient().environments.setContainers(projectId, id, body),
 });
 
 // «Spiega»: una conversazione con Claude col contesto del rilascio (il tool `read_release` di 72).
@@ -112,6 +114,8 @@ export const liveReleases: Partial<typeof Fake.releases> = {
   createEnvironment: environments.createEnvironment,
   updateEnvironment: environments.updateEnvironment,
   deleteEnvironment: environments.deleteEnvironment,
+  // `environment-containers` (area 8, F4b, R0-D): i container di un ambiente su un suo server.
+  setEnvironmentContainers: environments.setEnvironmentContainers,
 };
 
 /** La bozza delle note della PR per il riquadro di Claude (calcolata dal server). */

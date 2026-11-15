@@ -18,3 +18,13 @@ describe("agentInstallCommand", () => {
     );
   });
 });
+
+describe("agentInstallCommand con le operazioni (area 8, F4b)", () => {
+  it("accende l'opzione e fissa la chiave pubblica; senza, il comando di prima", () => {
+    const withOps = agentInstallCommand({ instanceUrl: "https://s.example", key: "sk_abc", operations: { publicKey: "PUBKEY" } });
+    expect(withOps).toContain("-e STUBWISE_OPERATIONS=1 -e STUBWISE_COMMAND_PUBLIC_KEY=PUBKEY");
+    // I nonce su un volume: un container ricreato non riaccetta un comando già visto.
+    expect(withOps).toContain("-v stubwise-agent-state:/var/lib/stubwise-agent");
+    expect(agentInstallCommand({ instanceUrl: "https://s.example", key: "sk_abc" })).not.toContain("STUBWISE_OPERATIONS");
+  });
+});

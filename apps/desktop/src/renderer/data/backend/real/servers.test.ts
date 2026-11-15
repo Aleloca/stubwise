@@ -1,6 +1,8 @@
 import { ApiError } from "@stubwise/api-client";
 import {
+  serverAnalysisViewSchema,
   serverCheckViewSchema,
+  serverSshAccessViewSchema,
   serverDetailSchema,
   serverMetricsResponseSchema,
   serverViewSchema,
@@ -124,6 +126,32 @@ const detail = (over: Record<string, unknown> = {}) =>
     ...over,
   });
 
+const USER = "99999999-9999-4999-8999-999999999999";
+const AN = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const SESSION = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const analysis = (over: Record<string, unknown> = {}) =>
+  serverAnalysisViewSchema.parse({
+    id: AN,
+    serverId: S1,
+    episodeId: null,
+    status: "running",
+    startedAt: "2026-11-14T11:30:00.000Z",
+    ...over,
+  });
+
+const ssh = (over: Record<string, unknown> = {}) =>
+  serverSshAccessViewSchema.parse({ status: "none", canManage: true, ...over });
+const KEYS = {
+  publicKey: "ssh-ed25519 AAAAC3Nz stubwise-read",
+  fingerprint: "SHA256:abc",
+  authorizedKeysLine: "restrict ssh-ed25519 AAAAC3Nz stubwise-read",
+  setupCommand: "sudo useradd --create-home stubwise-read && echo …",
+};
+const VERIFIED = {
+  verifiedAt: NOW,
+  verifyResult: { groups: ["stubwise-read", "adm"], sudo: false, docker: false, journal: true, ok: true },
+};
+
 const calls: unknown[][] = [];
 
 function fakeApi(over: Partial<ServersApi> = {}): ServersApi {
@@ -171,6 +199,17 @@ function fakeApi(over: Partial<ServersApi> = {}): ServersApi {
     createCheck: log("createCheck", check),
     updateCheck: log("updateCheck", check),
     deleteCheck: log("deleteCheck", undefined),
+    analyses: async () => ({ analyses: [] }),
+    ssh: async () => ssh(),
+    connectSsh: log("connectSsh", ssh({ status: "pending", ...KEYS })),
+    verifySsh: log("verifySsh", ssh({ status: "verified", usable: true, ...KEYS, ...VERIFIED })),
+    regenerateSsh: log("regenerateSsh", ssh({ status: "pending", ...KEYS })),
+    commandKey: log("commandKey", { publicKey: "ssh-ed25519 AAAAREAL stubwise-commands" }),
+    revokeSsh: log(
+      "revokeSsh",
+      ssh({ status: "revoked", revokedAt: NOW, removeCommand: "sudo userdel --remove stubwise-read" }),
+    ),
+    startAnalysis: log("startAnalysis", analysis({ startedBy: { id: USER, name: "Marco" } })),
     ...over,
   };
 }
@@ -192,8 +231,7 @@ describe("i Server dal server (area 8, F4a)", () => {
       workTaskCode: null,
       access: "not_linked",
       environments: [{ projectCode: "ACQ", name: "Production", kind: "production" }],
-      primaryProjectCode: null,
-      analysisProject: null,
+      alerting: true,
       recentCpu: [10, 20],
     });
   });
@@ -411,7 +449,7 @@ describe("i Server dal server (area 8, F4a)", () => {
     expect(m.check).toBeNull();
   });
 
-  it("le scritture: per id dal codice, il progetto principale non si manda, le soglie intere", async () => {
+  it("le scritture: per id dal codice, le soglie intere", async () => {
     const servers = createRealServers(
       fakeApi(),
       () => NOW,
@@ -419,7 +457,7 @@ describe("i Server dal server (area 8, F4a)", () => {
     );
     await servers.getServer("SRV-1");
     expect(
-      (await servers.updateServer("SRV-1", { name: "renamed", primaryProjectId: PRJ })).name,
+      (await servers.updateServer("SRV-1", { name: "renamed" })).name,
     ).toBe("renamed");
     const t = { cpuPct: 80, memPct: 85, diskPct: 90, sustainedMinutes: 10 };
     expect(await servers.setThresholds("SRV-1", t)).toEqual(t);
@@ -476,5 +514,200 @@ describe("i Server dal server (area 8, F4a)", () => {
       ["updateCheck", S1, CHK, { enabled: false }],
       ["deleteCheck", S1, CHK],
     ]);
+  });
+
+  it("F4b: l'analisi dell'episodio e l'ultima a mano, nelle forme del prototipo (`serverOps.analyses`)", async () => {
+    const api = fakeApi({
+      analyses: async () => ({
+        analyses: [
+          analysis({
+            id: AN,
+            startedBy: { id: USER, name: "Marco" },
+            status: "done",
+            attribution: { kind: "undetermined", reason: "no_containers" },
+            canViewDiagnosis: true,
+            sessionId: SESSION,
+            diagnosis: "Memory grows",
+            finishedAt: "2026-11-14T11:40:00.000Z",
+          }),
+          analysis({
+            id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            episodeId: EP,
+            status: "done",
+            attribution: { kind: "attributed", projectCode: "ACQ" },
+            taskCode: "ACQ-9",
+            startedAt: "2026-11-14T11:01:00.000Z",
+          }),
+        ],
+      }),
+    });
+    const d = await createRealServers(api, () => NOW).getServer("SRV-1");
+    expect(d.episodes[0]).toMatchObject({
+      taskCode: "ACQ-9",
+      analysis: {
+        episodeId: EP,
+        outcome: "diagnosed",
+        attribution: { kind: "attributed", projectCode: "ACQ" },
+        sessionId: null,
+        canViewDiagnosis: false,
+        diagnosis: null,
+        startedBy: null,
+      },
+    });
+    expect(d.manualAnalysis).toEqual({
+      id: AN,
+      serverCode: "SRV-1",
+      episodeId: null,
+      outcome: "diagnosed",
+      startedBy: { id: USER, name: "Marco" },
+      startedAt: "2026-11-14T11:30:00.000Z",
+      endedAt: "2026-11-14T11:40:00.000Z",
+      canViewDiagnosis: true,
+      sessionId: SESSION,
+      attribution: { kind: "undetermined", reason: "no_containers" },
+      diagnosis: "Memory grows",
+      taskCode: null,
+    });
+  });
+
+  it("F4b: una bloccata all'allarme diventa `analysisBlocked` dell'episodio, senza analisi", async () => {
+    const api = fakeApi({
+      analyses: async () => ({
+        analyses: [analysis({ episodeId: EP, status: "blocked", blockedBy: "monthly_budget" })],
+      }),
+    });
+    const d = await createRealServers(api, () => NOW).getServer("SRV-1");
+    expect(d.episodes[0]).toMatchObject({ analysis: null, analysisBlocked: "monthly_budget" });
+  });
+
+  it("F4b: avviare l'analisi a mano per codice; una in corso è `invalid: analysis_running`", async () => {
+    const real = createRealServers(fakeApi(), () => NOW);
+    await real.getServer("SRV-1");
+    const v = await real.startServerAnalysis("SRV-1");
+    expect(calls).toContainEqual(["startAnalysis", S1]);
+    expect(v).toMatchObject({ outcome: "running", startedBy: { id: USER, name: "Marco" } });
+    const busy = createRealServers(
+      fakeApi({
+        startAnalysis: async () => {
+          throw new ApiError(409, "conflict", "analysis_running");
+        },
+      }),
+      () => NOW,
+    );
+    await busy.getServer("SRV-1");
+    await expect(busy.startServerAnalysis("SRV-1")).rejects.toThrow("invalid: analysis_running");
+  });
+
+  it("F4b: `canStartAnalysis` lo dice il server; `endedBy: time` è il tempo scaduto", async () => {
+    const api = fakeApi({
+      byCode: async () => detail({ canStartAnalysis: true }),
+      analyses: async () => ({
+        analyses: [
+          analysis({
+            startedBy: { id: USER, name: "Marco" },
+            status: "done",
+            endedBy: "time",
+          }),
+        ],
+      }),
+    });
+    const d = await createRealServers(api, () => NOW).getServer("SRV-1");
+    expect(d.canStartAnalysis).toBe(true);
+    expect(d.manualAnalysis?.outcome).toBe("timed_out");
+    const off = await createRealServers(fakeApi(), () => NOW).getServer("SRV-1");
+    expect(off.canStartAnalysis).toBe(false);
+  });
+
+  describe("F4b: l'accesso SSH nelle forme del prototipo", () => {
+    const real = async (over: Partial<ServersApi> = {}) => {
+      const r = createRealServers(fakeApi(over), () => NOW);
+      await r.getServer("SRV-1");
+      return r;
+    };
+
+    it("gli stati del server diventano quelli del prototipo", async () => {
+      const stateOf = async (v: ReturnType<typeof ssh>) =>
+        (await (await real({ ssh: async () => v })).getServer("SRV-1")).access;
+      expect((await stateOf(ssh())).state).toBe("not_linked");
+      const pending = await stateOf(ssh({ status: "pending", ...KEYS }));
+      expect(pending).toMatchObject({ state: "awaiting_command", key: null, usable: false });
+      expect(pending.pending).toMatchObject({ publicKey: KEYS.publicKey, fingerprint: "SHA256:abc" });
+      const ok = await stateOf(
+        ssh({ status: "verified", usable: true, lastUsedAt: NOW, ...KEYS, ...VERIFIED }),
+      );
+      expect(ok).toMatchObject({ state: "verified", usable: true, journal: true, pending: null });
+      expect(ok.key).toMatchObject({ fingerprint: "SHA256:abc" });
+      expect(ok.verification).toMatchObject({ login: "ok", groups: ["stubwise-read", "adm"], ok: true });
+      // L'ultimo uso c'è, ma il server non dice con quale analisi o task.
+      expect(ok.lastUse).toEqual({ at: NOW, label: null, sessionId: null });
+      // Entrato con più della lettura: la verifica fallisce col risultato.
+      const priv = await stateOf(
+        ssh({
+          status: "failed",
+          ...KEYS,
+          verifiedAt: NOW,
+          verifyResult: { groups: ["sudo"], sudo: true, docker: false, journal: false, ok: false },
+        }),
+      );
+      expect(priv.state).toBe("privileged");
+      // Fallita senza risultato (connessione, comando, host key): verify_failed.
+      expect((await stateOf(ssh({ status: "failed", ...KEYS }))).state).toBe("verify_failed");
+      const revoked = await stateOf(ssh({ status: "revoked", revokedAt: NOW }));
+      expect(revoked).toMatchObject({ state: "revoked", revokedAt: NOW, key: null });
+    });
+
+    it("chi non gestisce l'SSH (403): lo stato dal riassunto del dettaglio, senza chiavi né azioni", async () => {
+      const r = await real({
+        byCode: async () => detail({ ssh: { status: "verified", usable: true } }),
+        ssh: async () => {
+          throw new ApiError(403, "forbidden", "forbidden");
+        },
+      });
+      const a = (await r.getServer("SRV-1")).access;
+      expect(a).toMatchObject({
+        state: "verified",
+        usable: true,
+        canManage: false,
+        key: null,
+        pending: null,
+        verification: null,
+      });
+    });
+
+    it("collega (host di base: quello dell'agente), verifica, rigenera, revoca", async () => {
+      const r = await real();
+      expect(await r.linkSshAccess("SRV-1")).toEqual({ command: KEYS.setupCommand });
+      expect(calls).toContainEqual(["connectSsh", S1, {}]);
+      expect((await r.verifySshAccess("SRV-1")).state).toBe("verified");
+      expect(await r.regenerateSshAccess("SRV-1")).toEqual({ command: KEYS.setupCommand });
+      expect(await r.revokeSshAccess("SRV-1")).toEqual({
+        removalCommand: "sudo userdel --remove stubwise-read",
+      });
+    });
+
+    it("i comandi da rivedere: quello d'installazione e quello di rimozione", async () => {
+      const r = await real({ ssh: async () => ssh({ status: "pending", ...KEYS }) });
+      expect(await r.getInstallCommand("SRV-1")).toEqual({ command: KEYS.setupCommand });
+      await expect(r.getRemovalCommand("SRV-1")).rejects.toThrow("invalid: state");
+      const gone = await real({
+        ssh: async () => ssh({ status: "revoked", revokedAt: NOW, removeCommand: "sudo userdel x" }),
+      });
+      expect(await gone.getRemovalCommand("SRV-1")).toEqual({ command: "sudo userdel x" });
+    });
+
+    it("senza un hostname dall'agente il collegamento chiede l'host: `invalid: host_required`", async () => {
+      const r = await real({
+        connectSsh: async () => {
+          throw new ApiError(400, "bad_request", "host_required");
+        },
+      });
+      await expect(r.linkSshAccess("SRV-1")).rejects.toThrow("invalid: host_required");
+    });
+  });
+
+  it("R3: la chiave dei comandi dal server", async () => {
+    const r = createRealServers(fakeApi(), () => NOW);
+    expect(await r.getCommandKey()).toEqual({ publicKey: "ssh-ed25519 AAAAREAL stubwise-commands" });
+    expect(calls).toContainEqual(["commandKey"]);
   });
 });

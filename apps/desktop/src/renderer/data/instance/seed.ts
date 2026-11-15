@@ -1,4 +1,4 @@
-import type { AiModelChoice, AiOperation } from "@stubwise/shared";
+import { serverAnalysisLimitsSchema, type AiModelChoice, type AiOperation } from "@stubwise/shared";
 import { TODAY, daysFromToday } from "../seed/dates";
 import { NIGHTLY_ROWS } from "../seed/nightly";
 import { seedUsage } from "../seed/usage";
@@ -89,6 +89,7 @@ export function seedInstanceState(): InstanceState {
       prReview: { enabled: true, maxCostUsd: 2 },
     },
     budget: { monthlyUsd: 600, contentLanguage: "en" },
+    serverAnalysis: serverAnalysisLimitsSchema.parse({}),
     gitAccounts: [
       {
         id: SEED_GIT_ACCOUNT_IDS.bitbucketAudin,
@@ -240,6 +241,7 @@ export function emptyInstanceState(): InstanceState {
     models: {},
     automation: { rules: defaultRules(), prReview: { enabled: false, maxCostUsd: null } },
     budget: { monthlyUsd: null, contentLanguage: "en" },
+    serverAnalysis: serverAnalysisLimitsSchema.parse({}),
     gitAccounts: [],
     plugins: [],
     storage: {

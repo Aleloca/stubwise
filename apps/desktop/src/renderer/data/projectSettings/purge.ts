@@ -196,7 +196,6 @@ export function purgeProject(project: Project, me: string): number {
   }
   for (const e of [...state.calendarEvents, ...state.calendarSeries])
     if (e.projectId === id) e.projectId = null;
-  for (const s of state.servers) if (s.primaryProjectId === id) s.primaryProjectId = null;
   for (const [person, pinned] of state.pinned)
     state.pinned.set(
       person,

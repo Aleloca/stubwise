@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeAccess } from "../access/index";
-import { changelog, instance, resetApi, setLatency, startRun } from "../api";
+import { changelog, instance, resetApi, servers, setLatency, startRun } from "../api";
+import { whenAnalysesIdle } from "../servers/analysis";
 import { setSessionPersonId } from "../session";
-import { advanceNow, now, state } from "../store";
+import { advanceNow, now, setStreamLatency, state } from "../store";
 import { whenIdle } from "../stream";
 import {
   grantInstancePermission,
@@ -169,6 +170,29 @@ describe("lo Stato dell'istanza del seme", () => {
     // Area 10b: più BSC-1, la sessione viva del progetto inattivo.
     expect(view.otherProjects).toEqual({ running: 3, waiting: 1, failed: 0 });
     expect(view.jobs.some((j) => j.state === "waiting")).toBe(false);
+  });
+});
+
+describe("F4b-4: l'analisi di un server, che non è di un progetto finché non lo dice", () => {
+  it("in corso: un lavoro senza progetto, aperto dall'Amministrazione, solo per chi legge la sessione; fuori dalle code", async () => {
+    setStreamLatency(20);
+    await servers.simulateServerRecovery("SRV-1").catch(() => undefined);
+    await servers.simulateServerAlert("SRV-1", "memory");
+    const job = (await status()).jobs.find((j) => j.kind === "server_analysis")!;
+    expect(job).toMatchObject({
+      projectId: null,
+      projectCode: "",
+      code: "SRV-1",
+      state: "running",
+      href: "#/admin/servers/SRV-1",
+    });
+    expect((await status()).queues.find((q) => q.code === "ACQ")?.running ?? 0).toBe(0);
+    // Laura legge lo Stato ma non gestisce il monitor: la sessione non la vede, il lavoro nemmeno.
+    give(LAURA, "instance.status.view");
+    as(LAURA);
+    expect((await status()).jobs.some((j) => j.kind === "server_analysis")).toBe(false);
+    as(ROBERTA);
+    await whenAnalysesIdle();
   });
 });
 

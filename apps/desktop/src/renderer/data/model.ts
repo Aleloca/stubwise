@@ -1,4 +1,10 @@
-import type { StallReason, TicketPriority } from "@stubwise/shared";
+import type {
+  Attribution,
+  MandatoryReason as SharedMandatoryReason,
+  ServerPlan,
+  StallReason,
+  TicketPriority,
+} from "@stubwise/shared";
 import type {
   ClaudeActionFn,
   ClaudeBusyReason,
@@ -106,6 +112,13 @@ export interface AppNotification {
   recipientIds: string[];
   /** Kind del catalogo: chi lo riceve senza iscrizione, col perché (chiave i18n). */
   mandatory?: { personId: string; reason: MandatoryReason }[];
+  /**
+   * Solo per gli obbligatori (area 8, F4b, `mandatoryOnly` della publish sul
+   * server): gli iscritti del progetto non la ricevono. È l'esito di
+   * un'analisi a mano per chi l'ha chiesta, in un progetto che non è quello
+   * della causa: per gli altri sarebbe rumore, o una fuga d'informazioni.
+   */
+  mandatoryOnly?: true;
   title: string;
   body: string;
   createdAt: string;
@@ -272,11 +285,12 @@ export interface ProductCardView {
 }
 
 /** Perché un avviso del catalogo arriva a qualcuno senza iscrizione (area 8a). */
-export type MandatoryReason =
-  | "merged"
-  | "pr_author"
-  | "task_author"
-  | "assignee";
+/**
+ * Perché un avviso arriva senza iscrizione: il tipo del catalogo condiviso
+ * (`@stubwise/shared`), mai una copia. `analysis_requester` (area 8, F4b): chi
+ * ha chiesto a mano un'analisi riceve sempre il suo esito.
+ */
+export type MandatoryReason = SharedMandatoryReason;
 
 export type StatusFamily = "todo" | "active" | "closed";
 
@@ -1260,11 +1274,12 @@ export type ConversationEvent =
       state: "running" | "done" | "failed";
       truncated?: boolean;
       /**
-       * Solo un comando su un server (area 8b): con quale accesso SSH è
-       * girato. La UI lo legge per dire «read»/«fix» (mai il nome dello
-       * strumento) e per disegnarlo come riga del registro dei comandi.
+       * Solo un comando su un server (area 8, F4b): quale azione, con quali
+       * parametri, se cambia o legge e per quale via. La UI lo legge per
+       * disegnarlo come riga del registro dei comandi (mai dal nome dello
+       * strumento), e la vista del registro (`serverCommandsOf`) da qui.
        */
-      access?: "read" | "fix";
+      serverCommand?: ServerCommandMeta;
     }
   | {
       id: string;
@@ -1277,15 +1292,25 @@ export type ConversationEvent =
       closedById?: string;
       /**
        * `item_closed`: il refine si è chiuso perché la richiesta è stata
-       * trasformata, archiviata o fusa. Correzione di un server (area 8b),
-       * fase fermata SENZA una persona: `fix_access_revoked` (l'accesso di
-       * correzione è stato revocato) o `fix_access_unusable` (non è più
-       * usabile: verifica fallita, lettura che scrive) o `server_gone` (il
-       * server non è più in un ambiente del progetto). Lo Stop di una
-       * persona porta `stoppedById`; tempo scaduto ed errore hanno il loro
-       * `outcome` (`timed_out`, `failed`).
+       * trasformata, archiviata o fusa. Correzione di un server (area 8,
+       * F4b), fase fermata SENZA una persona: `server_gone` (il server non
+       * è più in un ambiente del progetto) o `operations_off` (le
+       * operazioni dell'agente spente). Lo Stop di una persona porta
+       * `stoppedById`; tempo scaduto ed errore hanno il loro `outcome`
+       * (`timed_out`, `failed`).
        */
-      reason?: "item_closed" | "fix_access_revoked" | "fix_access_unusable" | "server_gone";
+      reason?: "item_closed" | "server_gone" | "operations_off";
+      /**
+       * Correzione di un server chiusa SENZA piano (area 8, F4b): perché, un
+       * codice come `planError` del server (`no_plan`, `schema`,
+       * `container_of_other_project`), mai testo del modello.
+       */
+      planError?:
+        | "no_plan"
+        | "schema"
+        | "unknown_container"
+        | "container_of_other_project"
+        | "container_not_of_project";
       /** Solo una fase `correction`: la PR che corregge (il job del server la conosce). */
       pr?: PrRef;
     }
@@ -1318,10 +1343,13 @@ export type ConversationEvent =
       planText: string;
       summary: string;
       /**
-       * Correzione di un server (area 8b): i comandi previsti, uno per riga
-       * col perché, come li legge chi approva. Scritti col piano.
+       * Correzione di un server (area 8, F4b): il piano strutturato, 1–10
+       * passi, ognuno un'azione dell'insieme CHIUSO (`SERVER_ACTIONS`) coi
+       * suoi parametri e il perché, validato con `serverPlanSchema` di
+       * `@stubwise/shared` prima di essere scritto. Chi approva legge le
+       * azioni tradotte, mai un comando libero.
        */
-      commands?: { input: string; why: string }[];
+      serverPlan?: ServerPlan;
       /** `undecided` (build app): nessun esito verificabile — il piano non è stato deciso. */
       status: "pending" | "approved" | "rejected" | "pre_approved" | "undecided";
       decidedById?: string;
@@ -1558,8 +1586,8 @@ export type ScriptStep =
       resultText?: Utterance;
       outcome?: "done" | "failed";
       truncated?: boolean;
-      /** Un comando su un server: con quale accesso (lo copia nell'azione). */
-      access?: "read" | "fix";
+      /** Un comando su un server (lo copia nell'azione). */
+      serverCommand?: ServerCommandMeta;
     }
   | { step: "finish_action"; result?: string; outcome?: "done" | "failed" }
   | { step: "deliver" }
@@ -3311,6 +3339,13 @@ export interface EnvironmentServer {
   /** Il commit che l'agente riporta per quella repository (o per il progetto). */
   reportedSha: string | null;
   reportedAt: string | null;
+  /**
+   * Area 8, F4b (R0-D, R7): i container di QUESTO server che appartengono
+   * all'ambiente — dicono quale progetto possiede un container (attribuzione
+   * di un guasto, piano di correzione). Vuoto o assente: vale il container
+   * col NOME dell'ambiente (la regola di `@stubwise/shared`).
+   */
+  containers?: string[];
 }
 
 /**
@@ -3409,11 +3444,15 @@ export interface MonitoredServer {
   thresholds: ServerThresholds;
   services: ServerService[];
   disks: ServerDisk[];
-  /** Dove si apre la diagnosi quando il server è in produzione di più progetti. */
-  primaryProjectId: string | null;
   createdAt: string;
   /** Solo prototipo: se l'SSH risponde («Simula server irraggiungibile»). */
   sshReachable: boolean;
+  /**
+   * L'agente ha le operazioni accese (area 8, F4b, `agentOperations` della
+   * vista; un'opzione dell'installazione, spenta di default): senza, nessun
+   * piano di correzione si esegue e l'agente non fa letture per l'analisi.
+   */
+  agentOperations: boolean;
 }
 
 /** Perché un server è in difficoltà o non risponde. */
@@ -3436,23 +3475,55 @@ export interface ServerEpisode {
    * mese raggiunto all'apertura dell'episodio. Il riquadro «Now» lo dice;
    * l'analisi non riparte da sola quando il budget torna.
    */
-  analysisBlocked?: "monthly_budget" | null;
+  analysisBlocked?: "monthly_budget" | "disabled" | null;
 }
 
 /** L'analisi automatica di un episodio, in sola lettura: una sessione e, alla fine, una task. */
+/**
+ * L'attribuzione del guasto a un progetto (area 8, F4b-4): l'esito di
+ * `attributeServerCause` di `@stubwise/shared`, la regola pura che il
+ * prototipo USA (mai una copia).
+ */
+export type ServerAttribution = Attribution;
+
+/**
+ * L'analisi automatica di un episodio: è del SERVER (F4b-4), nel budget
+ * mensile dell'istanza; nessun progetto scelto prima. È lei a dire quale
+ * progetto è la causa (`attribution`): attribuita, la task nasce in QUEL
+ * progetto; non determinata, nessuna task e nessuna proposta.
+ */
 export interface ServerAnalysis {
   id: string;
   serverCode: string;
-  episodeId: string;
-  projectId: string;
+  /** L'episodio che l'ha fatta partire; `null` per una a mano (R0-A2, come sul server). */
+  episodeId: string | null;
+  /** Chi l'ha chiesta a mano («Ask Claude to look into it»); `null`/assente = all'allarme. */
+  startedBy?: string | null;
+  /**
+   * I tetti con cui è partita (R0-C, Amministrazione → AI): un cambio dopo
+   * non la tocca. Assenti (il seme): i default di `@stubwise/shared`.
+   */
+  limits?: { maxMinutes: number; maxCostUsd: number; maxAgentReads: number; maxSshReads: number };
   conversationId: string;
+  /**
+   * Scritta a fine analisi; `null` mentre gira, o se si è fermata prima di
+   * concludere (il server tolto, `failed` per la task che non si apre resta
+   * attribuita: l'attribuzione viene prima).
+   */
+  attribution: ServerAttribution | null;
+  /**
+   * La diagnosi (testo dell'analisi, non fidato), solo quando la causa NON è
+   * determinata: senza task resta qui, sull'episodio, e la legge chi ha
+   * `monitor.manage` (piano F4b, S5b). Con una task la diagnosi sta nella task.
+   */
+  diagnosis?: string | null;
   /**
    * `stopped`: finita senza diagnosi, perché il server è rientrato prima
    * della prima lettura o perché l'accesso di lettura ha smesso di essere
-   * usabile (revoca, lettura che scrive); la task c'è e lo dice. Anche
-   * quando il server è stato tolto dal progetto a metà: lì senza task
-   * (`taskId` null), lo dice la sessione. `failed`:
-   * la task non si è potuta aprire (la sessione dice perché).
+   * usabile (revoca, lettura che scrive); la task, se c'è un progetto
+   * attribuito, lo dice. `failed`: la task non si è potuta aprire (la
+   * sessione dice perché). Con la causa non determinata `taskId` resta
+   * `null` qualunque sia l'esito.
    */
   outcome: "running" | "diagnosed" | "unreachable" | "timed_out" | "stopped" | "failed";
   taskId: string | null;
@@ -3465,8 +3536,24 @@ export interface ServerAnalysis {
   proposal?: string | null;
 }
 
-/** I due accessi SSH di un server: lettura (`stubwise-read`) e correzione (`stubwise-fix`). */
-export type SshAccessKind = "read" | "fix";
+/**
+ * Un comando su un server, come lo scrive il flusso (area 8, F4b; la forma
+ * di `serverCommandViewSchema`): un'azione dell'insieme chiuso dell'agente
+ * (`SERVER_ACTIONS`, `via: "agent"`) o una lettura dell'elenco chiuso SSH
+ * (`SSH_READS`, `via: "ssh"`). Mai un comando libero. L'uscita (il
+ * `result` dell'azione) è contenuto NON fidato: si mostra come testo.
+ */
+export interface ServerCommandMeta {
+  action: string;
+  params: Record<string, unknown>;
+  kind: "change" | "read";
+  via: "agent" | "ssh";
+  /** Il piano approvato che lo copre (l'id del suo evento); `null` per una lettura. */
+  approvalId: string | null;
+  exitCode: number | null;
+  /** Build app: mai eseguito — annullato (approvazione revocata) o scaduto. */
+  ended?: "cancelled" | "expired";
+}
 
 /** Una chiave pubblica (`ssh-ed25519 AAAA… stubwise-read@SRV-1`); la privata sta solo in `data/servers/secrets.ts`. */
 export interface SshPublicKey {
@@ -3475,48 +3562,62 @@ export interface SshPublicKey {
   createdAt: string;
 }
 
-/** L'ultimo uso di un accesso: quando, e da quale analisi o task. */
+/** L'ultimo uso dell'accesso: quando, e da quale analisi o task. */
 export interface SshUse {
   at: string;
   ref: { kind: "analysis"; analysisId: string } | { kind: "task"; taskId: string };
 }
 
-/** L'esito di una «Verifica» dei due accessi SSH. */
+/**
+ * L'esito di una «Verifica» dell'accesso (area 8, F4b, la forma di
+ * `verifyResult` di `serverSshAccessViewSchema`): il login con la chiave e
+ * che cosa l'utente può fare sul server. `ok` solo col login riuscito e
+ * NÉ `sudo` NÉ il gruppo `docker` (che vale root): un utente con più della
+ * lettura non si usa. `journal`: è in `systemd-journal` o `adm`, quindi
+ * `journalctl -p err` è una lettura (F4b-3 = a); senza, Claude non la fa.
+ */
 export interface SshVerification {
   at: string;
-  read: "ok" | "failed" | "writes";
-  fix: "ok" | "failed";
+  login: "ok" | "denied" | "unreachable";
+  /** I gruppi dell'utente sul server; vuoto senza login. */
+  groups: string[];
+  sudo: boolean;
+  docker: boolean;
+  journal: boolean;
+  ok: boolean;
   reason: string | null;
-  /** La verifica era delle chiavi in `pending`. */
+  /** La verifica era della chiave in `pending`. */
   ofPending: boolean;
 }
 
 /**
- * Lo stato degli accessi SSH di un server (nessuna riga = non collegato).
- * `pending`: chiavi generate e non ancora verificate — le prime (in attesa
- * del comando, `keys` nullo) o quelle di una rigenerazione (le vecchie in
- * `keys` restano valide finché la verifica delle nuove non riesce, ma solo
- * se lo erano prima di «Rigenera»).
+ * L'accesso SSH di un server (nessuna riga = non collegato): UNO, di sola
+ * LETTURA, l'utente `stubwise-read` (area 8, F4b, Q3 = b). Nessun accesso
+ * di correzione: la correzione passa dall'agente, mai dall'SSH.
+ * `pending`: una chiave generata e non ancora verificata — la prima (in
+ * attesa del comando, `key` nulla) o quella di una rigenerazione (la
+ * vecchia in `key` resta valida finché la verifica della nuova non
+ * riesce, ma solo se lo era prima di «Rigenera»).
  */
 export interface ServerSshAccess {
   serverCode: string;
-  keys: Record<SshAccessKind, SshPublicKey> | null;
-  pending: Record<SshAccessKind, SshPublicKey> | null;
-  /** L'ultima verifica: delle chiavi in `keys`, o di quelle in `pending` (`ofPending`). */
+  key: SshPublicKey | null;
+  pending: SshPublicKey | null;
+  /** L'ultima verifica: della chiave in `key`, o di quella in `pending` (`ofPending`). */
   verification: SshVerification | null;
   /**
-   * L'esito delle chiavi in `keys` quando `verification` riguarda quelle in
+   * L'esito della chiave in `key` quando `verification` riguarda quella in
    * `pending` (una rigenerazione la cui verifica non è riuscita): senza,
-   * l'esito delle vecchie andrebbe perso e un accesso che non passava
+   * l'esito della vecchia andrebbe perso e un accesso che non passava
    * tornerebbe usabile. `null` in ogni altro caso.
    */
-  keysVerification: SshVerification | null;
-  lastUse: Partial<Record<SshAccessKind, SshUse>>;
+  keyVerification: SshVerification | null;
+  lastUse: SshUse | null;
   revokedAt: string | null;
 }
 
-/** L'esito simulato della prossima «Verifica» di un accesso (solo prototipo). */
-export type VerifyOutcome = "ok" | "read_fails" | "fix_fails" | "read_writes" | "unreachable";
+/** L'esito simulato della prossima «Verifica» dell'accesso (solo prototipo). */
+export type VerifyOutcome = "ok" | "no_journal" | "denied" | "sudo" | "docker" | "unreachable";
 
 /**
  * Un'iscrizione a un tipo di avviso in un progetto. Nessuna riga = il

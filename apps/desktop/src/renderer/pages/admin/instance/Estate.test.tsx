@@ -312,9 +312,7 @@ describe("New server dall'Amministrazione", () => {
     const key = (within(panel).getByRole("textbox", { name: "Agent key" }) as HTMLInputElement)
       .value;
     expect(key).toMatch(KEY_RE);
-    // Nato orfano: nessun ambiente e nessun progetto principale (environmentId: null).
-    const created = state.servers.find((s) => s.code === "SRV-6")!;
-    expect(created.primaryProjectId).toBeNull();
+    // Nato orfano: nessun ambiente (environmentId: null).
     expect(state.environments.some((e) => e.servers.some((s) => s.serverCode === "SRV-6"))).toBe(
       false,
     );

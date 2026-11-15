@@ -17,7 +17,9 @@ import { ReadError, refusalOf, useFlash } from "../../preferences/parts";
 import { Switch } from "../../preferences/SubscriptionRow";
 import { primaryButton } from "../../tasks/controls";
 import { usd } from "../../../i18n/money";
+import { featureIntegrated } from "../../../data/integration";
 import { AiSkeleton, AiWhoCan, ReadOnlyLine, useAiRefusalWords } from "./parts";
+import { ServerAnalysisPanel } from "./ServerAnalysisPanel";
 
 // Budget & language (shape admin-ai.md «Budget & language»): il budget
 // mensile col misuratore («$412 spent in October · 69% of $600»), le righe
@@ -45,6 +47,8 @@ export function BudgetPanel({ canWrite }: { canWrite: boolean }) {
       ) : (
         <BudgetForm view={budget.data} canWrite={canWrite} />
       )}
+      {/* I tetti dell'analisi dei server (R0-C): la rotta li chiede con settings.manage anche in lettura. */}
+      {canWrite && featureIntegrated("servers-analysis-limits") && <ServerAnalysisPanel />}
     </>
   );
 }

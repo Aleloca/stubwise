@@ -3,11 +3,12 @@ import {
   createEnvironmentSchema,
   patchEnvironmentSchema,
   projectEnvironmentSchema,
+  setEnvironmentContainersSchema,
   sameCommit,
   type DiscoveredService,
   type ProjectEnvironment,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, arrayOverlaps, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -16,6 +17,7 @@ import { visibleServerIds } from "../auth/monitor-access.js";
 import { fromParam } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
 import { loadLatestServicesByServer } from "../services/server-samples.js";
+import { seenContainers } from "../services/server-commands.js";
 import { authErrorResponses, errorSchema, isUniqueViolation, uniqueViolationConstraint } from "./shared.js";
 
 const projectParamsSchema = z.object({ projectId: z.uuid() });
@@ -92,17 +94,20 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
     return visible === "all" || wanted.every((id) => visible.includes(id));
   }
 
+  /** Le risposte di POST/PATCH restano quelle di prima: i container sono dell'elenco (S12). */
+  const bare = (xs: { repositoryId: string; serverId: string }[] | undefined) => (xs ?? []).map(({ repositoryId, serverId }) => ({ repositoryId, serverId }));
+
   async function serverExists(serverId: string): Promise<boolean> {
     const [row] = await app.db.select({ id: servers.id }).from(servers).where(eq(servers.id, serverId));
     return row !== undefined;
   }
 
   /** I server per repository (R-L2) di un insieme di ambienti. */
-  async function serversOf(environmentIds: string[]): Promise<Map<string, { repositoryId: string; serverId: string }[]>> {
-    const out = new Map<string, { repositoryId: string; serverId: string }[]>();
+  async function serversOf(environmentIds: string[]): Promise<Map<string, { repositoryId: string; serverId: string; containers: string[] }[]>> {
+    const out = new Map<string, { repositoryId: string; serverId: string; containers: string[] }[]>();
     if (environmentIds.length === 0) return out;
     const rows = await app.db.select().from(environmentServers).where(inArray(environmentServers.environmentId, environmentIds));
-    for (const r of rows) out.set(r.environmentId, [...(out.get(r.environmentId) ?? []), { repositoryId: r.repositoryId, serverId: r.serverId }]);
+    for (const r of rows) out.set(r.environmentId, [...(out.get(r.environmentId) ?? []), { repositoryId: r.repositoryId, serverId: r.serverId, containers: r.containers }]);
     return out;
   }
 
@@ -125,16 +130,24 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
       const found = await tx.select({ id: servers.id }).from(servers).where(inArray(servers.id, wanted));
       if (found.length !== wanted.length) return "server_not_found";
     }
+    // Area 8, F4b (S12): una riga riscritta con lo STESSO server tiene i suoi container.
+    const before = new Map(
+      (await tx.select().from(environmentServers).where(eq(environmentServers.environmentId, env.id))).map((r) => [r.repositoryId, r]),
+    );
+    const kept = (repositoryId: string, serverId: string) => {
+      const prev = before.get(repositoryId);
+      return prev && prev.serverId === serverId ? prev.containers : [];
+    };
     if (input.serverId !== undefined) {
       await tx.delete(environmentServers).where(eq(environmentServers.environmentId, env.id));
       if (input.serverId) {
         const sid = input.serverId;
-        if (repoIds.size > 0) await tx.insert(environmentServers).values([...repoIds].map((repositoryId) => ({ environmentId: env.id, repositoryId, serverId: sid })));
+        if (repoIds.size > 0) await tx.insert(environmentServers).values([...repoIds].map((repositoryId) => ({ environmentId: env.id, repositoryId, serverId: sid, containers: kept(repositoryId, sid) })));
       }
     }
     for (const sv of input.servers ?? []) {
       await tx.delete(environmentServers).where(and(eq(environmentServers.environmentId, env.id), eq(environmentServers.repositoryId, sv.repositoryId)));
-      if (sv.serverId) await tx.insert(environmentServers).values({ environmentId: env.id, repositoryId: sv.repositoryId, serverId: sv.serverId });
+      if (sv.serverId) await tx.insert(environmentServers).values({ environmentId: env.id, repositoryId: sv.repositoryId, serverId: sv.serverId, containers: kept(sv.repositoryId, sv.serverId) });
     }
     return "ok";
   }
@@ -147,7 +160,7 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
   async function listExtras(
     projectId: string,
     rows: EnvironmentRow[],
-    byEnv: Map<string, { repositoryId: string; serverId: string }[]>,
+    byEnv: Map<string, { repositoryId: string; serverId: string; containers: string[] }[]>,
   ): Promise<{ servers: Map<string, ProjectEnvironment["servers"]>; onlyHere: Set<string> }> {
     const pairs = rows.flatMap((r) => (byEnv.get(r.id) ?? []).map((s) => ({ env: r, ...s })));
     const serverIds = [...new Set(pairs.map((p) => p.serverId))];
@@ -195,6 +208,7 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
         reportedSha,
         reportedAt: sample ? sample.ts.toISOString() : null,
         releaseCode,
+        containers: p.containers,
       });
       out.set(p.env.id, list);
     }
@@ -305,7 +319,7 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
         });
         if (!result) return apiError(reply, 400, "bad_servers", "A repository is not in this project, or a server doesn't exist");
         const byEnv = await serversOf([result.created.id]);
-        return await reply.code(201).send(toPublic(result.created, new Map(), byEnv.get(result.created.id) ?? []));
+        return await reply.code(201).send(toPublic(result.created, new Map(), bare(byEnv.get(result.created.id))));
       } catch (error) {
         if (uniqueViolationConstraint(error) === "project_environments_one_production_idx") {
           return apiError(reply, 409, "production_environment_exists", "This project already has a production environment — only one is allowed");
@@ -396,7 +410,7 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
           });
         if (!result) return apiError(reply, 400, "bad_servers", "A repository is not in this project, or a server doesn't exist");
         const byEnv = await serversOf([result.id]);
-        return toPublic(result, new Map(), byEnv.get(result.id) ?? []);
+        return toPublic(result, new Map(), bare(byEnv.get(result.id)));
       } catch (error) {
         if (isUniqueViolation(error)) {
           return apiError(
@@ -408,6 +422,73 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
         }
         throw error;
       }
+    },
+  );
+
+  // Area 8, F4b (S12): i container di QUEL server che sono di questo ambiente.
+  // Servono all'attribuzione di un guasto (docs/invariants/server-operations.md):
+  // solo nomi che l'agente riporta, mai un container di un altro progetto.
+  app.put(
+    "/:projectId/environments/:environmentId/containers",
+    {
+      config: { access: MANAGE_ACCESS },
+      schema: {
+        params: environmentParamsSchema,
+        body: setEnvironmentContainersSchema,
+        response: {
+          200: setEnvironmentContainersSchema,
+          400: errorSchema,
+          404: errorSchema,
+          409: errorSchema,
+          422: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { projectId, environmentId } = request.params;
+      const { serverId } = request.body;
+      const containers = [...new Set(request.body.containers)];
+      const env = await findEnvironment(projectId, environmentId);
+      if (!env) return apiError(reply, 404, "not_found", "Environment not found");
+      const rows = await app.db
+        .select({ repositoryId: environmentServers.repositoryId })
+        .from(environmentServers)
+        .where(and(eq(environmentServers.environmentId, env.id), eq(environmentServers.serverId, serverId)));
+      if (rows.length === 0) return apiError(reply, 422, "server_not_in_environment", "This environment does not use that server");
+      const seen = new Set(await seenContainers(app.db, serverId));
+      if (containers.some((c) => !seen.has(c))) return apiError(reply, 422, "unknown_container", "The agent has not reported this container");
+      if (containers.length > 0) {
+        const [clash] = await app.db
+          .select({ id: environmentServers.environmentId })
+          .from(environmentServers)
+          .innerJoin(projectEnvironments, eq(projectEnvironments.id, environmentServers.environmentId))
+          .where(and(eq(environmentServers.serverId, serverId), ne(projectEnvironments.projectId, projectId), arrayOverlaps(environmentServers.containers, containers)))
+          .limit(1);
+        if (clash) return apiError(reply, 409, "container_of_other_project", "A container belongs to another project on this server");
+        // Review F4b, I7: anche il possesso IMPLICITO conta — un ambiente di un
+        // altro progetto su questo server con la lista vuota possiede il
+        // container col suo NOME (la regola della fase 8 e dell'attribuzione).
+        const [implicit] = await app.db
+          .select({ id: environmentServers.environmentId })
+          .from(environmentServers)
+          .innerJoin(projectEnvironments, eq(projectEnvironments.id, environmentServers.environmentId))
+          .where(
+            and(
+              eq(environmentServers.serverId, serverId),
+              ne(projectEnvironments.projectId, projectId),
+              sql`cardinality(${environmentServers.containers}) = 0`,
+              inArray(projectEnvironments.name, containers),
+            ),
+          )
+          .limit(1);
+        if (implicit) return apiError(reply, 409, "container_of_other_project", "A container belongs to another project on this server");
+      }
+      await app.db
+        .update(environmentServers)
+        .set({ containers })
+        .where(and(eq(environmentServers.environmentId, env.id), eq(environmentServers.serverId, serverId)));
+      return { serverId, containers };
     },
   );
 

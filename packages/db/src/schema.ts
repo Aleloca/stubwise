@@ -1815,6 +1815,8 @@ export const notificationKind = pgEnum("notification_kind", [
   "docs.release_note",
   // Area 8, fetta 3 (0179): Support.
   "support.request",
+  // Area 8, fetta 4b (0181): la diagnosi dell'analisi di un server.
+  "server.diagnosis_ready",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),
@@ -1909,6 +1911,8 @@ export const instanceSettings = pgTable("instance_settings", {
   // Budget di costo mensile complessivo in USD per l'intera istanza. Stesso
   // tipo di agentRuns.costUsd. null = nessun limite (default).
   monthlyBudgetUsd: numeric("monthly_budget_usd", { precision: 12, scale: 6 }),
+  // Area 8, F4b (0181): i tetti dell'analisi dei server (F4b-2 = b); null = i default del codice.
+  serverAnalysisLimits: jsonb("server_analysis_limits").$type<Record<string, unknown>>(),
   // Modelli di default EFFETTIVI del worker per operazione
   // (`Record<AiOperation, string>`), scritti dal worker all'avvio: il server
   // non li conosce altrimenti e la UI li mostra come «predefinito».
@@ -2951,6 +2955,8 @@ export const servers = pgTable("servers", {
     .notNull()
     .default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Area 8, F4b (0181): ciò che l'agente dichiara nell'ingest (versione, operazioni accese). Una dichiarazione, non un permesso. */
+  agentCapabilities: jsonb("agent_capabilities").$type<{ version?: string; operations?: boolean }>().notNull().default({}),
   /** Area 8, F4a (0180): il numero d'istanza del codice `SRV-<n>`, da una sequenza, mai riusato. */
   number: integer("number").notNull().default(sql`nextval('servers_number_seq')`).unique("servers_number_unique"),
 });
@@ -7057,6 +7063,175 @@ export const environmentServers = pgTable(
     serverId: uuid("server_id")
       .notNull()
       .references(() => servers.id, { onDelete: "cascade" }),
+    /** Area 8, F4b (0181): i container di quell'ambiente su QUEL server (l'attribuzione); vuoto = il container col nome dell'ambiente. */
+    containers: text("containers").array().notNull().default(sql`'{}'::text[]`),
   },
   (table) => [primaryKey({ name: "environment_servers_pk", columns: [table.environmentId, table.repositoryId] }), index("environment_servers_server_idx").on(table.serverId)],
 );
+
+// ---------------------------------------------------------------------------
+// Area 8, F4b (0181): le operazioni sui server. Le regole stanno in CLAUDE.md
+// («Stubwise non fa deploy») e in docs/invariants/server-operations.md.
+// ---------------------------------------------------------------------------
+
+/** La chiave Ed25519 d'istanza che firma i comandi; la privata cifrata a riposo, decifrata solo per firmare. */
+export const instanceSigningKeys = pgTable(
+  "instance_signing_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    publicKey: text("public_key").notNull(),
+    privateKeyEncrypted: text("private_key_encrypted").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
+  },
+  (table) => [uniqueIndex("instance_signing_keys_active_idx").on(sql`(true)`).where(sql`${table.retiredAt} IS NULL`)],
+);
+
+/** Un'analisi per SERVER (F4b-4) e la sua attribuzione validata. */
+export const serverAnalyses = pgTable(
+  "server_analyses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+    episodeId: uuid("episode_id").references(() => serverEpisodes.id, { onDelete: "set null" }),
+    sessionId: uuid("session_id").references((): AnyPgColumn => agentSessions.id, { onDelete: "set null" }),
+    startedByUserId: uuid("started_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    status: text("status").$type<"running" | "done" | "failed" | "blocked">().notNull().default("running"),
+    blockedBy: text("blocked_by").$type<"monthly_budget" | "cap" | "disabled">(),
+    diagnosis: text("diagnosis"),
+    attributedProjectId: uuid("attributed_project_id").references(() => projects.id, { onDelete: "set null" }),
+    attribution: jsonb("attribution").$type<Record<string, unknown>>(),
+    taskId: uuid("task_id").references(() => tickets.id, { onDelete: "set null" }),
+    costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("server_analyses_episode_idx").on(table.episodeId).where(sql`${table.episodeId} IS NOT NULL`),
+    uniqueIndex("server_analyses_running_manual_idx").on(table.serverId).where(sql`${table.episodeId} IS NULL AND ${table.status} = 'running'`),
+    check("server_analyses_status_chk", sql`${table.status} in ('running', 'done', 'failed', 'blocked')`),
+    check("server_analyses_blocked_chk", sql`${table.blockedBy} is null or ${table.blockedBy} in ('monthly_budget', 'cap', 'disabled')`),
+  ],
+);
+
+/** Il piano approvato (copia ESATTA dei passi), chi e quando; un `change` si firma solo per un passo di uno non revocato. */
+export const serverOperationApprovals = pgTable("server_operation_approvals", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  serverId: uuid("server_id")
+    .notNull()
+    .references(() => servers.id, { onDelete: "cascade" }),
+  /** Null quando la task è sparita: l'approvazione resta, il registro la cita (review F4b, I5). */
+  taskId: uuid("task_id").references(() => tickets.id, { onDelete: "set null" }),
+  sessionId: uuid("session_id").references((): AnyPgColumn => agentSessions.id, { onDelete: "set null" }),
+  steps: jsonb("steps").$type<{ action: string; params: Record<string, unknown>; why: string }[]>().notNull(),
+  approvedByUserId: uuid("approved_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  approvedAt: timestamp("approved_at", { withTimezone: true }).notNull().defaultNow(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+});
+
+/**
+ * Area 8, F4b, S6 (0182): la correzione di un server, UNA per task, nel
+ * progetto ATTRIBUITO. Il piano (validato) sta qui, MAI nel piano del ticket
+ * (F4b-7): la pipeline del codice non lo vede.
+ */
+export const serverFixes = pgTable(
+  "server_fixes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    analysisId: uuid("analysis_id").references(() => serverAnalyses.id, { onDelete: "set null" }),
+    status: text("status")
+      .$type<"none" | "proposing" | "awaiting_approval" | "approved" | "running" | "done" | "failed" | "stopped" | "rejected">()
+      .notNull()
+      .default("none"),
+    steps: jsonb("steps").$type<{ action: string; params: Record<string, unknown>; why: string }[]>().notNull().default([]),
+    planError: text("plan_error"),
+    sessionId: uuid("session_id").references((): AnyPgColumn => agentSessions.id, { onDelete: "set null" }),
+    approvalId: uuid("approval_id").references(() => serverOperationApprovals.id, { onDelete: "set null" }),
+    currentStep: integer("current_step"),
+    stepCommands: jsonb("step_commands").$type<Record<string, string>>().notNull().default({}),
+    requestedByUserId: uuid("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    rejectedByUserId: uuid("rejected_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    rejectedAt: timestamp("rejected_at", { withTimezone: true }),
+    rejectionNote: text("rejection_note"),
+    stoppedByUserId: uuid("stopped_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("server_fixes_task_idx").on(table.taskId),
+    index("server_fixes_server_idx").on(table.serverId),
+    check(
+      "server_fixes_status_chk",
+      sql`${table.status} in ('none', 'proposing', 'awaiting_approval', 'approved', 'running', 'done', 'failed', 'stopped', 'rejected')`,
+    ),
+    check("server_fixes_awaiting_has_steps_chk", sql`${table.status} <> 'awaiting_approval' or jsonb_array_length(${table.steps}) between 1 and 10`),
+    check("server_fixes_approved_chk", sql`${table.status} not in ('approved', 'running') or ${table.approvalId} is not null`),
+  ],
+);
+
+/** Il registro: ogni comando dell'agente e ogni lettura SSH. `id` è il nonce. */
+export const serverCommands = pgTable(
+  "server_commands",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+    sessionId: uuid("session_id").references((): AnyPgColumn => agentSessions.id, { onDelete: "set null" }),
+    analysisId: uuid("analysis_id").references(() => serverAnalyses.id, { onDelete: "set null" }),
+    approvalId: uuid("approval_id").references(() => serverOperationApprovals.id, { onDelete: "no action" }),
+    stepIndex: integer("step_index"),
+    via: text("via").$type<"agent" | "ssh">().notNull().default("agent"),
+    action: text("action").notNull(),
+    params: jsonb("params").$type<Record<string, unknown>>().notNull().default({}),
+    kind: text("kind").$type<"change" | "read">().notNull(),
+    requestedByUserId: uuid("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    signature: text("signature"),
+    status: text("status").$type<"pending" | "delivered" | "done" | "failed" | "expired" | "cancelled">().notNull().default("pending"),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    output: text("output"),
+    exitCode: integer("exit_code"),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("server_commands_pending_idx").on(table.serverId, table.issuedAt).where(sql`${table.status} = 'pending'`),
+    index("server_commands_server_idx").on(table.serverId, table.issuedAt),
+    check("server_commands_kind_chk", sql`${table.kind} in ('change', 'read')`),
+    check("server_commands_via_chk", sql`${table.via} in ('agent', 'ssh')`),
+    check("server_commands_status_chk", sql`${table.status} in ('pending', 'delivered', 'done', 'failed', 'expired', 'cancelled')`),
+  ],
+);
+
+/** L'accesso SSH di SOLA lettura (Q3 = b): la privata cifrata, mai in una risposta. */
+export const serverSshAccess = pgTable("server_ssh_access", {
+  serverId: uuid("server_id")
+    .primaryKey()
+    .references(() => servers.id, { onDelete: "cascade" }),
+  kind: text("kind").$type<"read">().notNull().default("read"),
+  username: text("username").notNull().default("stubwise-read"),
+  host: text("host").notNull(),
+  port: integer("port").notNull().default(22),
+  hostKey: text("host_key"),
+  publicKey: text("public_key").notNull(),
+  privateKeyEncrypted: text("private_key_encrypted").notNull(),
+  status: text("status").$type<"pending" | "verified" | "failed" | "revoked">().notNull().default("pending"),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  verifyResult: jsonb("verify_result").$type<{ groups: string[]; sudo: boolean; docker: boolean; journal: boolean; ok: boolean }>(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

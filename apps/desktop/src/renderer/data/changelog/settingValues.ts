@@ -115,13 +115,16 @@ export const SETTING_KINDS: Readonly<Record<string, SettingValue["type"]>> = {
   "model.changed": "model",
   "budget.changed": "budget",
   "content_language.changed": "language",
+  // R0-C: i tetti dell'analisi dei server (`analysisEnabled`, `maxMinutes`,
+  // `maxCostUsd`, `maxAgentReads`, `maxSshReads`).
+  "server_analysis.changed": "fields",
   "automation.changed": "automation",
   "git_account.updated": "fields",
   "google_app.updated": "fields",
   "storage.changed": "fields",
   "webhook.changed": "fields",
-  // Task 7: i server. Chiavi dei campi: `name`, `sampleInterval`,
-  // `primaryProject` (il codice del progetto); `cpu`/`mem`/`disk` (la soglia
+  // Task 7: i server. Chiavi dei campi: `name`, `sampleInterval` (il
+  // progetto principale non c'è più, F4b-4); `cpu`/`mem`/`disk` (la soglia
   // come numero, `null` = spenta) e `sustained` (minuti); `name`,
   // `checkType`, `target`, `interval` (secondi) e `checkEnabled`.
   "server.updated": "fields",

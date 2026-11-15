@@ -38,7 +38,7 @@ async function openSection(person: string, code: string) {
 }
 
 describe("Servers — l'elenco", () => {
-  it("ACQ (Marco): SRV-1 in «Running fine», in salute, con la diagnosi pronta e il progetto principale", async () => {
+  it("ACQ (Marco): SRV-1 in «Running fine», in salute, con la diagnosi pronta e il suo ambiente", async () => {
     await openSection("p-marco", "ACQ");
     expect(
       screen.getByText(
@@ -49,7 +49,9 @@ describe("Servers — l'elenco", () => {
     expect(within(fine).getAllByRole("listitem")).toHaveLength(1);
     expect(row("SRV-1")).toHaveTextContent("acq-prod-01");
     expect(row("SRV-1")).toHaveTextContent("Healthy");
-    expect(row("SRV-1")).toHaveTextContent("Production · ACQ (primary)");
+    expect(row("SRV-1")).toHaveTextContent("Production · ACQ");
+    // F4b-4: nessun progetto principale.
+    expect(row("SRV-1")).not.toHaveTextContent("primary");
     expect(row("SRV-1")).toHaveTextContent("Diagnosis ready · ACQ-6");
     expect(screen.queryByRole("list", { name: "Needs attention" })).toBeNull();
     // Il mini-grafico è decorativo: la salute è già in parole.

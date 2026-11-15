@@ -55,6 +55,7 @@ export const INBOX_KIND_LABEL_KEYS: Record<InboxItem["kind"], string> = {
   "pr.corrected": "inbox:kinds.prCorrected",
   "docs.release_note": "inbox:kinds.docsReleaseNote",
   "support.request": "inbox:kinds.supportRequest",
+  "server.diagnosis_ready": "inbox:kinds.serverDiagnosisReady",
   "monitor.recovered": "inbox:kinds.monitorRecovered",
   "job.awaiting_input": "inbox:kinds.awaitingInput",
   "project.pulse": "inbox:kinds.pulse",

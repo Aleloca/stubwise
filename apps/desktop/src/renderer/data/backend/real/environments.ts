@@ -29,6 +29,12 @@ export interface EnvironmentsApi {
   create(projectId: string, body: CreateEnvironmentInput): Promise<Env>;
   update(projectId: string, environmentId: string, patch: PatchEnvironmentInput): Promise<Env>;
   remove(projectId: string, environmentId: string): Promise<void>;
+  /** I container di un ambiente su un suo server (R0-D, `PUT …/containers`). */
+  setContainers(
+    projectId: string,
+    environmentId: string,
+    body: { serverId: string; containers: string[] },
+  ): Promise<{ serverId: string; containers: string[] }>;
 }
 
 /** Gli errori nelle parole del prototipo: un server che chi scrive non vede è un codice sbagliato. */
@@ -69,6 +75,8 @@ export function environmentOf(e: Env): EnvironmentView | null {
               reportedSha: sample?.reportedSha ?? e.runningCommitSha ?? null,
               reportedAt: sample?.reportedAt ?? null,
               releaseCode: sample?.releaseCode ?? null,
+              // I container stanno sulle righe per repository: il server li stende tutte uguali.
+              containers: sample?.containers ?? [],
             },
           ]
         : []),
@@ -81,6 +89,7 @@ export function environmentOf(e: Env): EnvironmentView | null {
           reportedSha: s.reportedSha ?? null,
           reportedAt: s.reportedAt ?? null,
           releaseCode: s.releaseCode ?? null,
+          containers: s.containers ?? [],
         })),
     ],
   };
@@ -177,6 +186,28 @@ export function createRealEnvironments(api: EnvironmentsApi) {
       const view = environmentOf(e);
       if (!view) throw new Error("not_found");
       return view;
+    },
+
+    /**
+     * I container di un ambiente su un suo server (R0-D): il server per
+     * codice, fra quelli dell'ambiente letto; uno che non usa è
+     * `server_not_in_environment` prima di scrivere, come il 422 del server.
+     */
+    async setEnvironmentContainers(
+      id: string,
+      input: { serverCode: string; containers: string[] },
+    ): Promise<{ serverCode: string; containers: string[] }> {
+      const before = known.get(id);
+      if (!before) throw new Error("not_found");
+      const code = input.serverCode.trim().toUpperCase();
+      const serverId =
+        (before.serverCode === code ? before.serverId : null) ??
+        before.servers.find((s) => s.serverCode === code)?.serverId;
+      if (!serverId) throw new Error("invalid: server_not_in_environment");
+      const saved = await call(() =>
+        api.setContainers(before.projectId, id, { serverId, containers: input.containers }),
+      );
+      return { serverCode: code, containers: saved.containers };
     },
 
     async deleteEnvironment(id: string): Promise<void> {

@@ -1,13 +1,17 @@
-import type { ServerAnalysis, Task } from "../../types";
+import { commandInput } from "../../../domain/servers/commands";
+import type { ServerAnalysis, ServerCommandMeta, Task } from "../../types";
 import { at, done, says, seeded, type Seeded } from "../conversations/helpers";
 import { PROJECTS } from "../projects";
 import { statusIdOf } from "../statuses";
 import { SRV1_MEMORY_EPISODE } from "./episodes";
 
-// L'analisi dell'allarme di memoria di SRV-1 (ACQ): Claude guarda il server
-// con l'accesso di LETTURA (solo comandi di lettura, `tool: "server.read"`),
-// scrive la diagnosi e apre la task. Nessuno l'ha chiesta: la sessione è di
-// Claude, e si legge come le altre sessioni automatiche.
+// L'analisi dell'allarme di memoria di SRV-1: Claude guarda il server con
+// l'accesso di LETTURA e, con le operazioni dell'agente accese, legge il log
+// del container via agente (solo letture degli insiemi chiusi, F4b,
+// `tool: "server.read"`),
+// scrive la diagnosi, la attribuisce ad ACQ (l'unico progetto del server) e
+// apre lì la task. Nessuno l'ha chiesta: la sessione è di Claude, entrata in
+// ACQ con l'attribuzione, e si legge come le altre sessioni automatiche.
 //
 // Il codice della task è il prossimo libero di ACQ (5 task generate, quindi
 // ACQ-6): `seed.test.ts` lo verifica.
@@ -22,15 +26,18 @@ const STARTED = at(2, "18:01");
 const ENDED = at(2, "18:09");
 const TASK_LINK = `#/p/ACQ/tasks?task=${SERVER_TASK_CODE}`;
 const PROPOSAL =
-  "Limit the `portale-import` container to 2 GB of memory and restart it, so an import can't starve the portal; then commit the readings in batches of 5,000 rows instead of all at the end.";
+  "Restart the `portale-import` container so the memory comes back now; then commit the readings in batches of 5,000 rows instead of all at the end, so an import can't starve the portal again.";
 
 export const SERVER_ANALYSES: ServerAnalysis[] = [
   {
     id: ANALYSIS_ID,
     serverCode: "SRV-1",
     episodeId: SRV1_MEMORY_EPISODE.id,
-    projectId: ACQ.id,
     conversationId: CONVERSATION_ID,
+    // Area 8, F4b-4: l'analisi è del server e dice il progetto; SRV-1 lo usa
+    // solo ACQ, quindi la regola di shared lo attribuisce ad ACQ (il test del
+    // seme lo ricalcola con `attributeServerCause`).
+    attribution: { kind: "attributed", projectId: ACQ.id, projectCode: ACQ.code },
     outcome: "diagnosed",
     taskId: TASK_ID,
     startedAt: STARTED,
@@ -40,8 +47,21 @@ export const SERVER_ANALYSES: ServerAnalysis[] = [
   },
 ];
 
-const read = (hm: string, label: string, input: string, result: string) =>
-  done(at(2, hm), "server.read", label, { input, result, access: "read" });
+/** Una lettura del seme: un comando degli insiemi chiusi (F4b), la riga com'è nel registro. */
+const read = (hm: string, label: string, command: ServerCommandMeta, result: string) =>
+  done(at(2, hm), "server.read", label, {
+    input: commandInput(command),
+    result,
+    serverCommand: command,
+  });
+const ssh = (action: string, params: Record<string, unknown> = {}): ServerCommandMeta => ({
+  action,
+  params,
+  kind: "read",
+  via: "ssh",
+  approvalId: null,
+  exitCode: 0,
+});
 
 const analysis = seeded(
   {
@@ -61,39 +81,40 @@ const analysis = seeded(
       STARTED,
       "Memory on acq-prod-01 is at 94%, above the 90% alert. Looking into it with the read-only access.",
     ),
-    read(
-      "18:02",
-      "Reads the uptime and load",
-      "uptime",
-      " 18:02:11 up 41 days,  3:12,  0 users,  load average: 2.84, 2.41, 1.97",
-    ),
+    read("18:02", "Reads the load", ssh("load"), "2.84 2.41 1.97 3/412 22141"),
     read(
       "18:03",
       "Reads the memory",
-      "free -m",
+      ssh("memory"),
       [
-        "               total        used        free      shared  buff/cache   available",
-        "Mem:            7940        7466         112          38         361         246",
-        "Swap:           2047        1630         417",
+        "MemTotal:        8130560 kB",
+        "MemFree:          114688 kB",
+        "MemAvailable:     251904 kB",
+        "SwapTotal:       2096124 kB",
+        "SwapFree:         427008 kB",
       ].join("\n"),
     ),
     read(
       "18:04",
-      "Reads the container usage",
-      "sudo docker stats --no-stream",
+      "Reads the processes",
+      ssh("processes", { top: 10 }),
       [
-        "NAME             CPU %     MEM USAGE / LIMIT     MEM %",
-        "portale-import   1.9%      5.12GiB / 7.75GiB     66.1%",
-        "postgres         4.2%      1.61GiB / 7.75GiB     20.8%",
-        "portale-api      6.3%      648MiB / 7.75GiB      8.2%",
-        "portale-web      2.8%      212MiB / 7.75GiB      2.7%",
-        "caddy            0.3%      38MiB / 7.75GiB       0.5%",
+        "  PID USER     %CPU %MEM     ELAPSED COMMAND",
+        " 2214 app       1.8 66.0       41:58 node",
+        " 1033 999       4.1 20.7 41-03:12:10 postgres",
       ].join("\n"),
     ),
     read(
       "18:05",
-      "Reads the import worker log",
-      "sudo docker logs --tail 200 portale-import",
+      "Reads the log of portale-import",
+      {
+        action: "container.logs",
+        params: { container: "portale-import", lines: 200, sinceMinutes: 60 },
+        kind: "read",
+        via: "agent",
+        approvalId: null,
+        exitCode: 0,
+      },
       [
         "17:20:02 nightly import started: readings_2026-10-21.csv",
         "17:20:03 parsing 1,412,906 rows",
@@ -102,19 +123,9 @@ const analysis = seeded(
       ].join("\n"),
     ),
     read(
-      "18:06",
-      "Reads the processes by memory",
-      "ps aux --sort=-%mem",
-      [
-        "USER   PID  %CPU %MEM    VSZ   RSS COMMAND",
-        "app   2214   1.8 66.0 6012332 5368812 node dist/import.js",
-        "pg    1033   4.1 20.7 2213104 1688520 postgres: checkpointer",
-      ].join("\n"),
-    ),
-    read(
       "18:07",
-      "Reads the system journal",
-      "journalctl -u docker --since -30min --no-pager",
+      "Reads the errors in the system journal",
+      ssh("journal_errors", { lines: 50 }),
       "-- No entries --",
     ),
     says(

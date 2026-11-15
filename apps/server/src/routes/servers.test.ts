@@ -660,7 +660,7 @@ describe("area 8, F4a, S4: crea con un ambiente", () => {
     expect(body.code).toMatch(/^SRV-\d+$/);
     expect(body.environments.map((e) => e.environmentId)).toEqual([env!.id]);
     const links = await testDb.db.select().from(environmentServers).where(eq(environmentServers.serverId, body.id));
-    expect(links).toEqual([{ environmentId: env!.id, repositoryId, serverId: body.id }]);
+    expect(links).toEqual([expect.objectContaining({ environmentId: env!.id, repositoryId, serverId: body.id })]);
   });
 
   it("senza environments.manage in quel progetto: 403; progetto invisibile o ambiente inesistente: 404; repository di un altro progetto: 400 — sempre nessun server", async () => {
@@ -733,5 +733,20 @@ describe("review F4a: ?projectId= di un progetto invisibile", () => {
     // Senza filtro il server lo vede (monitor.view), ma senza gli ambienti di P.
     const all = (await app.inject({ method: "GET", url: "/api/servers", headers: u.headers })).json() as ServerView[];
     expect(all.find((s) => s.id === id)).toMatchObject({ environments: [], projects: [] });
+  });
+});
+
+// Area 8, F4b, S2: la chiave pubblica d'istanza per il comando
+// d'installazione con le operazioni (monitor.manage). Mai la privata.
+describe("area 8, F4b: GET /api/servers/command-key", () => {
+  it("monitor.manage: la pubblica (sempre la stessa), mai la privata; senza permesso 403", async () => {
+    const a = await app.inject({ method: "GET", url: "/api/servers/command-key", headers: { cookie: adminCookie } });
+    expect(a.statusCode, a.body).toBe(200);
+    const { publicKey } = a.json() as { publicKey: string };
+    expect(publicKey).toMatch(/^[A-Za-z0-9+/=]{40,}$/);
+    expect(a.body).not.toContain("PRIVATE");
+    const b = await app.inject({ method: "GET", url: "/api/servers/command-key", headers: { cookie: adminCookie } });
+    expect((b.json() as { publicKey: string }).publicKey).toBe(publicKey);
+    expect((await app.inject({ method: "GET", url: "/api/servers/command-key", headers: { cookie: memberCookie } })).statusCode).toBe(403);
   });
 });

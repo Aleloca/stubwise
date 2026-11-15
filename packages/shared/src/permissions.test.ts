@@ -95,7 +95,8 @@ describe("catalogo dei permessi", () => {
       expect(perms).not.toContain(p);
     // Le sette di prima, planning.others (fetta 2), chat.channels.manage (area 4)
     // drive.manage, drive.history (area 5) e automations.manage (area 7).
-    expect(perms).toHaveLength(PROJECT_PERMISSIONS.length - 12);
+    // E servers.operate (area 8, F4b): in nessun preset.
+    expect(perms).toHaveLength(PROJECT_PERMISSIONS.length - 13);
     expect(perms).not.toContain("automations.manage");
     expect(perms).toContain("docs.generate");
     expect(perms).toContain("prs.adopt");
@@ -129,6 +130,8 @@ describe("catalogo dei permessi", () => {
     const missing = PROJECT_PERMISSIONS.filter((p) => !perms.includes(p)).sort();
     expect(missing).toEqual(
       [
+        // Area 8, F4b: in nessun preset (S-7).
+        "servers.operate",
         "plans.approve",
         "release.merge",
         "project.settings.manage",
@@ -238,5 +241,12 @@ describe("permessi di reparto (integrazione area 2, fetta 3)", () => {
   it("un livello nuovo con department.home.manage, che nessun preset di ruolo contiene", () => {
     expect(DEPARTMENT_PERMISSIONS).toEqual(["department.home.manage"]);
     for (const role of PRESET_ROLES) expect(role.permissions, role.key).not.toContain("department.home.manage");
+  });
+});
+
+describe("area 8, F4b: servers.operate in NESSUN preset (S-7)", () => {
+  it("nessun preset di progetto lo contiene; il full admin sì", () => {
+    for (const r of PRESET_ROLES.filter((r) => r.scope === "project")) expect(r.permissions, r.key).not.toContain("servers.operate");
+    expect(effectiveProjectPermissions(effectiveInstancePermissions(["instance.full_admin"]), null)?.has("servers.operate")).toBe(true);
   });
 });

@@ -98,15 +98,31 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "support",
     "support-widgets",
     // Area 8, F4a: i Server (letture e scritture, la chiave una volta).
-    // Restano spente: l'SSH (`servers-ssh`) e
-    // l'analisi (`servers-analysis`, F4b), la ricerca ⌘K (`servers-search`).
+    // Resta spenta la ricerca ⌘K (`servers-search`).
     "servers-monitor",
     "servers-write",
     // «New server» dalla sezione di un progetto: dentro un ambiente, per tutto
     // il progetto (decisione c di 46: l'ambiente senza repository).
     "servers-create-in-env",
+    // Area 8, F4b: l'analisi del server (le analisi lette da `serverOps.analyses`
+    // sugli episodi e l'ultima a mano). Il bottone dell'analisi a mano segue
+    // `canStartAnalysis` del server; la frase «niente letture SSH» aspetta
+    // l'SSH (`servers-ssh`).
+    "servers-analysis",
+    // Area 8, F4b: l'accesso SSH di sola lettura (`client.serverOps.ssh*`): lo
+    // stato a chi vede il server (il riassunto del dettaglio), la vista intera
+    // e le azioni a chi ha `servers.ssh.manage`, rigenerazione compresa (una
+    // chiave sola: la vecchia smette subito, decisione del maintainer).
+    "servers-ssh",
+    // Area 8, F4b: la sezione Server della task e la correzione (piano dalla
+    // vista, approva col digest, rifiuta con la nota, stop, il registro dei
+    // comandi), su `GET /api/tasks/:id/server` e `client.serverOps`.
+    "servers",
     // Gli ambienti col form (spenti dalla F1): i server si scelgono fra quelli visibili.
     "environments",
+    // Area 8, F4b (R0-D): i container di un ambiente su un suo server
+    // (`PUT …/environments/:id/containers`), scelti dal catalogo del server.
+    "environment-containers",
     // «Don't alert me about this» dalla card (S6, `POST /api/inbox/:id/mute-type`),
     // con l'«Annulla» nel progetto della card; non su una card arrivata da obbligatorio.
     "alerts-mute",

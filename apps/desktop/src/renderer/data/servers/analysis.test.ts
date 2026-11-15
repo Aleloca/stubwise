@@ -5,8 +5,8 @@ import {
   registerAlertTypes,
   type AlertType,
 } from "../../domain/alerts/catalog";
-import { isReadCommand } from "../../domain/servers/commands";
-import { ANALYSIS_MAX_COST_USD, ANALYSIS_MAX_MINUTES } from "../../domain/servers/limits";
+import { inClosedSet } from "../../domain/servers/commands";
+import { serverAnalysisLimitsSchema } from "@stubwise/shared";
 import { whyReceives } from "../alerts/visibility";
 import {
   alerts,
@@ -20,11 +20,12 @@ import {
 } from "../api";
 import { SERVER_ALERT_NOTIFICATIONS } from "../seed/servers/alerts";
 import { setSessionPersonId } from "../session";
-import { eventsOf, setStreamLatency, state } from "../store";
+import { canSeeConversation, eventsOf, setStreamLatency, state } from "../store";
 import type { AppNotification, ConversationEvent, ServerAnalysis } from "../types";
 import { raiseEpisode, whenAnalysesIdle } from "./analysis";
 
 const ACQ = "prj-acq";
+const LIMITS = serverAnalysisLimitsSchema.parse({});
 const as = (personId: string) => setSessionPersonId(personId);
 const message = (p: Promise<unknown>) =>
   p.then(
@@ -78,7 +79,12 @@ describe("allarme con l'accesso di lettura: l'analisi apre la task", () => {
 
     await whenAnalysesIdle();
     const a = onlyAnalysis("SRV-1");
-    expect(a).toMatchObject({ projectId: ACQ, outcome: "diagnosed", episodeId: ep.id });
+    // F4b-4: è l'analisi a dire il progetto; SRV-1 lo usa solo ACQ.
+    expect(a).toMatchObject({
+      attribution: { kind: "attributed", projectId: ACQ, projectCode: "ACQ" },
+      outcome: "diagnosed",
+      episodeId: ep.id,
+    });
     expect(state.serverEpisodes.find((e) => e.id === ep.id)!.analysisId).toBe(a.id);
 
     const c = sessionOf(a);
@@ -90,15 +96,17 @@ describe("allarme con l'accesso di lettura: l'analisi apre la task", () => {
       taskId: a.taskId,
       state: "finished",
       outcome: "ok",
-      analysisLimits: { maxMinutes: ANALYSIS_MAX_MINUTES, maxCostUsd: ANALYSIS_MAX_COST_USD },
+      // I tetti di base di Amministrazione → AI (R0-C): quelli di shared.
+      analysisLimits: { maxMinutes: LIMITS.maxMinutes, maxCostUsd: LIMITS.maxCostUsd },
     });
-    expect(c.usage![0]!.costUsd).toBeLessThanOrEqual(ANALYSIS_MAX_COST_USD);
-    expect(actionsOf(c.id).map((x) => x.input)).toEqual([
-      "uptime",
-      "free -m",
-      "sudo docker stats --no-stream",
-      "ps aux --sort=-%mem",
-      "sudo docker logs --tail 200 postgres",
+    expect(c.usage![0]!.costUsd).toBeLessThanOrEqual(LIMITS.maxCostUsd);
+    // Le letture degli insiemi chiusi (F4b): via SSH l'argv fisso di
+    // `SSH_READS`, i log del container via AGENTE (le operazioni di SRV-1
+    // sono accese), mai `sudo docker` via SSH.
+    expect(actionsOf(c.id).map((x) => [x.serverCommand?.via, x.input])).toEqual([
+      ["ssh", "cat /proc/meminfo"],
+      ["ssh", "ps -eo pid,user,pcpu,pmem,etime,comm --sort=-pcpu"],
+      ["agent", "container.logs container=postgres lines=200 sinceMinutes=60"],
     ]);
 
     const task = taskOf(a);
@@ -126,15 +134,13 @@ describe("allarme con l'accesso di lettura: l'analisi apre la task", () => {
     expect(ready).toMatchObject({ projectId: ACQ, link: `#/p/ACQ/tasks?task=${task.code}` });
   });
 
-  it("l'ultimo uso dell'accesso di lettura è la nuova analisi, quello di correzione non cambia", async () => {
-    const fixBefore = structuredClone(state.serverAccess.get("SRV-1")!.lastUse.fix);
+  it("l'ultimo uso dell'accesso di lettura è la nuova analisi", async () => {
     await servers.simulateServerAlert("SRV-1", "cpu");
     await whenAnalysesIdle();
     const a = onlyAnalysis("SRV-1");
     const lastUse = state.serverAccess.get("SRV-1")!.lastUse;
-    expect(lastUse.read!.ref).toEqual({ kind: "analysis", analysisId: a.id });
-    expect(lastUse.fix).toEqual(fixBefore);
-    expect((await servers.getServer("SRV-1")).access.lastUse.read!.label.kind).toBe("analysis");
+    expect(lastUse!.ref).toEqual({ kind: "analysis", analysisId: a.id });
+    expect((await servers.getServer("SRV-1")).access.lastUse!.label!.kind).toBe("analysis");
   });
 
   it("limite di tempo: chiude `timed_out` e apre la task con ciò che ha visto", async () => {
@@ -144,7 +150,9 @@ describe("allarme con l'accesso di lettura: l'analisi apre la task", () => {
     expect(a.outcome).toBe("timed_out");
     expect(sessionOf(a)).toMatchObject({ state: "finished", outcome: "timed_out" });
     expect(actionsOf(a.conversationId).length).toBeLessThan(5);
-    expect(taskOf(a).description).toMatch(/Partial diagnosis.*20 minutes/);
+    expect(taskOf(a).description).toMatch(
+      new RegExp(`Partial diagnosis.*${LIMITS.maxMinutes} minutes`),
+    );
   });
 });
 
@@ -170,7 +178,7 @@ describe("RF 4: episodi ai bordi", () => {
     expect(tasks[0]!.description).toMatch(/Memory on acq-prod-01.*94%/);
     expect(tasks[0]!.description).toMatch(/CPU on acq-prod-01.*97%/);
     // L'analisi in corso ha letto anche per il secondo motivo.
-    expect(actionsOf(a.conversationId).map((x) => x.input)).toContain("ps aux --sort=-%cpu");
+    expect(actionsOf(a.conversationId).map((x) => x.input)).toContain("uptime");
   });
 
   it("rientro durante l'analisi: finisce, la task lo dice, avviso di rientro", async () => {
@@ -207,7 +215,7 @@ describe("RF 4: episodi ai bordi", () => {
     expect(task.description).not.toMatch(/\d{1,2}:\d{2}/);
   });
 
-  it("SRV-2 senza accesso: nessuna sessione, l'avviso dice che manca l'accesso", async () => {
+  it("SRV-2 senza accesso: l'analisi parte lo stesso (decisione del maintainer, 15 nov 2026), senza letture SSH, e l'avviso lo dice", async () => {
     // Il seme ha un episodio aperto su SRV-2: un allarme in più si aggiunge, senza avvisi.
     const open = await servers.simulateServerAlert("SRV-2", "cpu");
     expect(open.id).toBe("ep-srv-2-1");
@@ -215,13 +223,17 @@ describe("RF 4: episodi ai bordi", () => {
 
     await servers.simulateServerRecovery("SRV-2");
     const ep = await servers.simulateServerAlert("SRV-2", "disk");
-    await whenAnalysesIdle();
-    expect(ep.analysisId).toBeNull();
-    expect(newAnalyses("SRV-2")).toHaveLength(0);
-    expect(state.conversations.filter((c) => c.kind === "server_analysis")).toHaveLength(1);
     const [n] = published("server.trouble", "SRV-2");
     expect(n).toMatchObject({ projectId: "prj-stw" });
-    expect(n!.body).toMatch(/Claude can't look into it: no SSH access\./);
+    expect(n!.body).toMatch(/Claude is looking into it, without SSH reads\./);
+    expect(n!.body).not.toMatch(/can't look into it/);
+    await whenAnalysesIdle();
+    expect(ep.analysisId).not.toBeNull();
+    const a = onlyAnalysis("SRV-2");
+    // Nessuna lettura SSH; lo stato del server Claude lo legge comunque: diagnosi, non «rientrato».
+    expect(actionsOf(a.conversationId).filter((e) => e.serverCommand?.via === "ssh")).toEqual([]);
+    expect(a.outcome).toBe("diagnosed");
+    expect(a.taskId).not.toBeNull();
   });
 
   it("SSH irraggiungibile: tre tentativi, task lo stesso con «not reachable»", async () => {
@@ -249,7 +261,8 @@ describe("RF 4: episodi ai bordi", () => {
     expect(newAnalyses("SRV-1").map((x) => x.outcome)).toEqual(["unreachable", "diagnosed"]);
   });
 
-  it("SRV-1 anche nella produzione di un secondo progetto: task nel principale, avviso in entrambi", async () => {
+  /** SRV-1 anche nella produzione di un secondo progetto, che viene PRIMA di ACQ negli ambienti. */
+  async function sharedSrv1() {
     const other = await createProject({
       code: "SRVX",
       name: "Second production",
@@ -261,10 +274,34 @@ describe("RF 4: episodi ai bordi", () => {
       url: null,
       servers: [{ repositoryId: null, serverCode: "SRV-1" }],
     });
-    // La produzione nuova viene PRIMA di quella di ACQ: vince il principale, non il primo.
     state.environments.unshift(state.environments.pop()!);
     expect(state.environments[0]!.projectId).toBe(other.id);
+    return other;
+  }
+  const serverTasksOf = (episodeId: string) =>
+    state.tasks.filter((t) => t.serverRef?.episodeId === episodeId);
+
+  it("F4b-4: l'analisi parte dal SERVER: mentre guarda non è di nessun progetto, la sessione la vede chi gestisce il monitor", async () => {
+    setStreamLatency(20);
     await servers.simulateServerAlert("SRV-1", "memory");
+    await vi.waitFor(() => expect(newAnalyses("SRV-1")).toHaveLength(1), FAST);
+    const a = onlyAnalysis("SRV-1");
+    expect(a.attribution).toBeNull();
+    expect(sessionOf(a).projectId).toBeNull();
+    // Roberta ha `monitor.manage`; Marco (ACQ) no: prima dell'attribuzione non la vede.
+    expect(canSeeConversation("p-roberta", sessionOf(a))).toBe(true);
+    expect(canSeeConversation("p-marco", sessionOf(a))).toBe(false);
+    await whenAnalysesIdle();
+    // Attribuita ad ACQ: la sessione entra in ACQ, e chi lo legge la vede.
+    expect(sessionOf(a).projectId).toBe(ACQ);
+    expect(canSeeConversation("p-marco", sessionOf(a))).toBe(true);
+  });
+
+  it("F4b-4: server condiviso senza container che dimostrino il progetto: «non determinato», nessuna task né proposta, avviso in entrambi", async () => {
+    const other = await sharedSrv1();
+    // Senza i container di ACQ (R0-D) vale il nome dell'ambiente, «Production»: `postgres` non è di nessuno.
+    state.environments.find((e) => e.id === "env-acq-prod")!.servers[0]!.containers = [];
+    const ep = await servers.simulateServerAlert("SRV-1", "memory");
     await whenAnalysesIdle();
 
     expect(
@@ -273,10 +310,48 @@ describe("RF 4: episodi ai bordi", () => {
         .sort(),
     ).toEqual([ACQ, other.id].sort());
     const a = onlyAnalysis("SRV-1");
-    expect(a.projectId).toBe(ACQ);
-    expect(taskOf(a).projectId).toBe(ACQ);
-    expect(state.tasks.some((t) => t.projectId === other.id && t.source === "server")).toBe(false);
+    // L'analisi nomina il primo progetto, ma `postgres` non è legato ai suoi ambienti.
+    expect(a.attribution).toEqual({ kind: "undetermined", reason: "no_container_of_project" });
+    expect(a).toMatchObject({ outcome: "diagnosed", taskId: null, proposal: null });
+    // La diagnosi resta sull'analisi (sull'episodio), senza task.
+    expect(a.diagnosis).toMatch(/Memory on acq-prod-01/);
+    expect(serverTasksOf(ep.id)).toEqual([]);
+    expect(sessionOf(a)).toMatchObject({ projectId: null, state: "finished", outcome: "ok" });
+    const ready = published("server.diagnosis_ready", "SRV-1");
+    expect(ready.map((n) => n.projectId).sort()).toEqual([ACQ, other.id].sort());
+    for (const n of ready) {
+      expect(n.title).toBe("Cause not determined");
+      expect(n.body).toMatch(/couldn't tell which project is causing it/);
+      expect(n.link).toMatch(/^#\/p\/(ACQ|SRVX)\/servers\/SRV-1$/);
+    }
+  });
+
+  it("F4b-4: su un server condiviso la task nasce nel progetto del container della causa, non nel primo", async () => {
+    const other = await sharedSrv1();
+    // `postgres` è fra i container della produzione di ACQ su SRV-1 (R0-D, seme).
+    const ep = await servers.simulateServerAlert("SRV-1", "memory");
+    await whenAnalysesIdle();
+    const a = onlyAnalysis("SRV-1");
+    expect(a.attribution).toEqual({ kind: "attributed", projectId: ACQ, projectCode: "ACQ" });
+    expect(serverTasksOf(ep.id).map((t) => t.projectId)).toEqual([ACQ]);
+    expect(a.proposal).toMatch(/postgres/);
+    expect(a.diagnosis ?? null).toBeNull();
     expect(published("server.diagnosis_ready", "SRV-1").map((n) => n.projectId)).toEqual([ACQ]);
+    expect(state.tasks.some((t) => t.projectId === other.id && t.source === "server")).toBe(false);
+  });
+
+  it("F4b-4: un container legato a DUE progetti non attribuisce a nessuno", async () => {
+    const other = await sharedSrv1();
+    // ACQ ha `postgres` fra i suoi container (seme); l'altro progetto, senza
+    // container, vale col nome dell'ambiente.
+    state.environments.find((e) => e.projectId === other.id)!.name = "postgres";
+    const ep = await servers.simulateServerAlert("SRV-1", "memory");
+    await whenAnalysesIdle();
+    expect(onlyAnalysis("SRV-1").attribution).toEqual({
+      kind: "undetermined",
+      reason: "containers_of_other_project",
+    });
+    expect(serverTasksOf(ep.id)).toEqual([]);
   });
 
   it("server solo di staging: nessun avviso del catalogo, nessuna analisi (anche con l'accesso)", async () => {
@@ -285,7 +360,7 @@ describe("RF 4: episodi ai bordi", () => {
       environmentId: "env-stw-staging",
     });
     await servers.linkSshAccess(server.code);
-    expect((await servers.verifySshAccess(server.code)).usable.read).toBe(true);
+    expect((await servers.verifySshAccess(server.code)).usable).toBe(true);
     const before = state.notifications.length;
 
     const ep = await servers.simulateServerAlert(server.code, "cpu");
@@ -297,7 +372,7 @@ describe("RF 4: episodi ai bordi", () => {
 });
 
 describe("RF 3: l'analisi è in sola lettura", () => {
-  it("ogni azione delle sessioni d'analisi è `server.read` con un comando di lettura", async () => {
+  it("ogni azione delle sessioni d'analisi è `server.read`, una lettura degli insiemi chiusi", async () => {
     const reasons = ["cpu", "memory", "disk", "check", "agent_silent"] as const;
     for (const reason of reasons) {
       await servers.simulateServerAlert("SRV-1", reason);
@@ -319,32 +394,76 @@ describe("RF 3: l'analisi è in sola lettura", () => {
     expect(actions.length).toBeGreaterThan(20);
     for (const x of actions) {
       expect(x.tool, x.label).toBe("server.read");
-      expect(isReadCommand(x.input ?? ""), x.input).toBe(true);
-      // R-L5: journal e stato dei servizi senza sudo.
-      expect(x.input).not.toMatch(/^sudo (journalctl|systemctl)/);
+      expect(x.serverCommand, x.label).toMatchObject({ kind: "read", approvalId: null });
+      expect(inClosedSet(x.serverCommand!), x.input).toBe(true);
+      // Mai `sudo`, mai docker via SSH: i container li legge l'agente.
+      expect(x.input).not.toMatch(/\bsudo\b|\bdocker\b/);
     }
     // Le etichette sono frasi: si leggono nella lingua di chi guarda.
     const fresh = newAnalyses().flatMap((a) => actionsOf(a.conversationId));
     expect(fresh.every((x) => x.labelText?.key.startsWith("claude.serverAnalysis."))).toBe(true);
   });
 
-  it("con la lettura che scrive: nessuna analisi, e l'avviso lo dice", async () => {
-    await servers.simulateSshVerifyOutcome("SRV-1", "read_writes");
+  it("F4b-3: senza il gruppo del journal Claude non legge il journal, e lo dice", async () => {
+    await servers.simulateServerAlert("SRV-1", "agent_silent");
+    await whenAnalysesIdle();
+    const withJournal = onlyAnalysis("SRV-1");
+    expect(actionsOf(withJournal.conversationId).map((x) => x.serverCommand?.action)).toContain(
+      "journal_errors",
+    );
+    await servers.simulateServerRecovery("SRV-1");
+
+    await servers.simulateSshVerifyOutcome("SRV-1", "no_journal");
+    await servers.verifySshAccess("SRV-1");
+    await servers.simulateServerAlert("SRV-1", "agent_silent");
+    await whenAnalysesIdle();
+    const without = newAnalyses("SRV-1").find((a) => a.id !== withJournal.id)!;
+    const reads = actionsOf(without.conversationId).map((x) => x.serverCommand?.action);
+    expect(reads).not.toContain("journal_errors");
+    expect(reads.length).toBeGreaterThan(0);
+    const said = eventsOf(without.conversationId)
+      .filter((e) => e.type === "assistant")
+      .map((e) => (e.type === "assistant" ? e.text : ""))
+      .join("\n");
+    expect(said).toMatch(/can't read the system journal/);
+    expect(taskOf(without).description).toMatch(/couldn't read the system journal/);
+  });
+
+  it("con le operazioni dell'agente spente niente letture via agente, e lo dice", async () => {
+    state.servers.find((s) => s.code === "SRV-1")!.agentOperations = false;
+    await servers.simulateServerAlert("SRV-1", "memory");
+    await whenAnalysesIdle();
+    const a = onlyAnalysis("SRV-1");
+    const via = actionsOf(a.conversationId).map((x) => x.serverCommand?.via);
+    expect(via.length).toBeGreaterThan(0);
+    expect(via.every((v) => v === "ssh")).toBe(true);
+    const said = eventsOf(a.conversationId)
+      .filter((e) => e.type === "assistant")
+      .map((e) => (e.type === "assistant" ? e.text : ""))
+      .join("\n");
+    expect(said).toMatch(/can't read the containers' logs.*operations/);
+  });
+
+  it("con un utente che ha sudo: l'accesso non si usa, l'analisi parte senza letture SSH e l'avviso lo dice", async () => {
+    await servers.simulateSshVerifyOutcome("SRV-1", "sudo");
     await servers.verifySshAccess("SRV-1");
     const ep = await servers.simulateServerAlert("SRV-1", "memory");
     await whenAnalysesIdle();
-    expect(ep.analysisId).toBeNull();
-    expect(newAnalyses("SRV-1")).toHaveLength(0);
+    expect(ep.analysisId).not.toBeNull();
+    const a = onlyAnalysis("SRV-1");
+    expect(actionsOf(a.conversationId).filter((e) => e.serverCommand?.via === "ssh")).toEqual([]);
     expect(published("server.trouble", "SRV-1")[0]!.body).toMatch(
-      /read-only SSH access isn't usable/,
+      /Claude is looking into it, without SSH reads\./,
     );
   });
 
-  it("raiseEpisode su un server senza accesso di lettura non tocca le chiavi né l'ultimo uso", () => {
+  it("raiseEpisode su un server senza accesso di lettura non tocca le chiavi né l'ultimo uso (l'analisi parte senza SSH)", async () => {
     const before = structuredClone(state.serverAccess.get("SRV-3"));
     raiseEpisode("SRV-3", [{ kind: "cpu", valuePct: 99, thresholdPct: 95 }], "trouble");
+    await whenAnalysesIdle();
     expect(state.serverAccess.get("SRV-3")).toEqual(before);
-    expect(newAnalyses("SRV-3")).toHaveLength(0);
+    const a = onlyAnalysis("SRV-3");
+    expect(actionsOf(a.conversationId).filter((e) => e.serverCommand?.via === "ssh")).toEqual([]);
   });
 });
 
@@ -520,7 +639,10 @@ describe("R-L9: Claude lavora in ogni progetto, anche in quelli creati dall'app"
     await servers.simulateServerAlert(server.code, "cpu");
     await whenAnalysesIdle();
     const a = onlyAnalysis(server.code);
-    expect(a).toMatchObject({ projectId: p.id, outcome: "diagnosed" });
+    expect(a).toMatchObject({
+      attribution: { kind: "attributed", projectId: p.id, projectCode: "NEWP" },
+      outcome: "diagnosed",
+    });
     expect(taskOf(a)).toMatchObject({ projectId: p.id, createdById: "p-claude", source: "server" });
     expect(published("server.trouble", server.code)[0]!.body).toMatch(/Claude is looking into it/);
     // La membership mostrata non cambia: Claude è membro implicito, non scritto.
@@ -582,7 +704,7 @@ describe("analisi ai bordi (fix round 1)", () => {
     expect(taskOf(a).description).toMatch(/\*\*Stopped\*\* — the read-only SSH access stopped/);
   });
 
-  it("tolto dal progetto durante l'analisi → si ferma: nessuna lettura dopo, nessuna task lì", async () => {
+  it("tolto da ogni ambiente durante l'analisi: finisce (è del server), ma nessun progetto la può avere: nessuna task", async () => {
     setStreamLatency(20);
     await servers.simulateServerAlert("SRV-1", "memory");
     await vi.waitFor(() => expect(newAnalyses("SRV-1")).toHaveLength(1), FAST);
@@ -591,22 +713,25 @@ describe("analisi ai bordi (fix round 1)", () => {
     const tasksBefore = state.tasks.length;
     for (const env of state.environments)
       if (env.projectId === ACQ) env.servers = env.servers.filter((s) => s.serverCode !== "SRV-1");
-    const readsAtDetach = actionsOf(a.conversationId).length;
     await whenAnalysesIdle();
-    expect(actionsOf(a.conversationId).length).toBe(readsAtDetach);
-    expect(a).toMatchObject({ outcome: "stopped", taskId: null });
+    expect(a).toMatchObject({
+      outcome: "diagnosed",
+      taskId: null,
+      attribution: { kind: "undetermined", reason: "no_project" },
+    });
     expect(state.tasks.length).toBe(tasksBefore);
+    // Nessuna produzione lo usa più: nessun avviso, nemmeno «non determinato».
     expect(published("server.diagnosis_ready", "SRV-1")).toHaveLength(0);
-    expect(sessionOf(a)).toMatchObject({ state: "finished", outcome: "failed" });
+    expect(sessionOf(a)).toMatchObject({ state: "finished", outcome: "ok", projectId: null });
   });
 
-  it("una «lettura che scrive» durante l'analisi la ferma alla lettura successiva", async () => {
+  it("un utente con docker scoperto durante l'analisi la ferma alla lettura successiva", async () => {
     setStreamLatency(20);
     await servers.simulateServerAlert("SRV-1", "memory");
     await vi.waitFor(() => expect(newAnalyses("SRV-1")).toHaveLength(1), FAST);
     const a = onlyAnalysis("SRV-1");
     await vi.waitFor(() => expect(actionsOf(a.conversationId).length).toBeGreaterThan(0), FAST);
-    await servers.simulateSshVerifyOutcome("SRV-1", "read_writes");
+    await servers.simulateSshVerifyOutcome("SRV-1", "docker");
     await servers.verifySshAccess("SRV-1");
     await whenAnalysesIdle();
     expect(a.outcome).toBe("stopped");

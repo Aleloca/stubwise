@@ -300,6 +300,24 @@ export function useSaveBudget() {
   );
 }
 
+/** I tetti dell'analisi dei server (area 8, F4b, R0-C), `settings.manage`. */
+export function useServerAnalysisSettings() {
+  const me = useSessionPersonId();
+  useInstanceChanges();
+  return useQuery({
+    queryKey: ["as", me, "instance", "serverAnalysis"] as const,
+    queryFn: () => api.instance.getServerAnalysisSettings(),
+  });
+}
+
+export function useSaveServerAnalysisSettings() {
+  return useWrite(
+    (input: Parameters<typeof api.instance.saveServerAnalysisSettings>[0]) =>
+      api.instance.saveServerAnalysisSettings(input),
+    ["instance", "changelog"] as const,
+  );
+}
+
 /** SOLO PROTOTIPO: il budget raggiunto, nel riquadro. */
 export function useSimulateBudgetReached() {
   return useWrite(

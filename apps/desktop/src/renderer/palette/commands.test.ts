@@ -109,12 +109,11 @@ describe("comandi dei server (area 8b)", () => {
       "not_linked",
       "awaiting_command",
       "verify_failed",
-      "read_writes",
+      "privileged",
       "revoked",
     ])
       expect(linkSsh(ssh, state), state).toBe(true);
     expect(linkSsh(ssh, "verified")).toBe(false);
-    expect(linkSsh(ssh, "regenerating")).toBe(false);
     expect(linkSsh(ssh, undefined)).toBe(false);
     expect(linkSsh(ssh, "not_linked", "")).toBe(false);
     expect(linkSsh(viewerWith([]), "not_linked")).toBe(false);

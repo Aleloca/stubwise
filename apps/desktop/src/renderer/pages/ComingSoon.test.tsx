@@ -453,6 +453,25 @@ const INTEGRATED_CALLS = new Set([
   "releases.updateEnvironment",
   "releases.deleteEnvironment",
   "servers.listLinkableServers",
+  // Area 8, F4b (R0-D): i container di un ambiente.
+  "releases.setEnvironmentContainers",
+  // Area 8, F4b: l'analisi a mano («Ask Claude to look into it»), col permesso del server.
+  "servers.startServerAnalysis",
+  // Area 8, F4b: l'accesso SSH di sola lettura, rigenerazione compresa.
+  "servers.linkSshAccess",
+  "servers.regenerateSshAccess",
+  "servers.verifySshAccess",
+  "servers.revokeSshAccess",
+  "servers.getInstallCommand",
+  "servers.getRemovalCommand",
+  // R3: la chiave dei comandi, per il comando d'installazione con le operazioni.
+  "servers.getCommandKey",
+  // F4b: la sezione Server della task e la correzione.
+  "servers.getServerTaskInfo",
+  "servers.startServerFix",
+  "servers.approveServerFix",
+  "servers.rejectServerFix",
+  "servers.stopServerFix",
   // Area 8, F2 (R6): le iscrizioni agli avvisi.
   "alerts.subscriptionRows",
   "alerts.setSubscription",
@@ -748,20 +767,70 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("il dettaglio di un Server: metriche, episodi e scritture; niente SSH, progetto principale né simulazioni", async () => {
+  it("il dettaglio di un Server: metriche, episodi, scritture e l'accesso SSH; niente progetto principale né simulazioni", async () => {
     // Roberta ha `monitor.manage`: le scritture ci sono, la F4b no.
     signedInAs("p-roberta");
     renderRoute("/p/ACQ/servers/SRV-1");
     const index = await screen.findByRole("navigation", { name: "Parts of SRV-1" }, { timeout: 3000 });
     await waitFor(() => expect(calls).toContain("servers.getServer"));
     await waitFor(() => expect(calls).toContain("servers.getServerMetrics"));
-    expect(within(index).queryByRole("button", { name: "SSH access" })).toBeNull();
+    // F4b: l'accesso SSH di sola lettura c'è.
+    expect(within(index).getByRole("button", { name: "SSH access" })).toBeInTheDocument();
     expect(within(index).getByRole("button", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add check" })).toBeInTheDocument();
     // Il progetto principale (dell'analisi, F4b) non si offre.
     expect(screen.queryByText("Primary project")).toBeNull();
     expect(screen.queryByRole("region", { name: "Prototype only: server signals" })).toBeNull();
+    // F4b: l'analisi è accesa (letta sugli episodi); senza l'SSH integrato non si
+    // dice che manca l'accesso, e il bottone dell'analisi a mano segue il server.
+    expect(screen.queryByText(/won't include SSH reads/)).toBeNull();
     expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("F4b: la sezione Server di una task e la scheda del piano, solo chiamate integrate", async () => {
+    const user = userEvent.setup();
+    signedInAs("p-roberta");
+    renderRoute("/p/ACQ/tasks?task=ACQ-6");
+    const panel = await screen.findByRole("dialog", { name: "Task ACQ-6" }, { timeout: 3000 });
+    const section = () => within(panel).getByRole("region", { name: "Server" });
+    await waitFor(() => expect(calls).toContain("servers.getServerTaskInfo"));
+    await waitFor(() => expect(section()).toHaveTextContent("SRV-1"), { timeout: 5000 });
+    await user.click(await within(section()).findByRole("button", { name: /^Start fix/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Start a fix on SRV-1?" });
+    // Le note per Claude il server non le prende: nell'app il campo non c'è.
+    expect(within(dialog).queryByRole("textbox")).toBeNull();
+    await user.click(within(dialog).getByRole("button", { name: "Start fix" }));
+    await waitFor(() => expect(calls).toContain("servers.startServerFix"));
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("F4b: l'analisi a mano dal dettaglio del server, solo chiamate integrate", async () => {
+    const user = userEvent.setup();
+    signedInAs("p-marco");
+    renderRoute("/p/ACQ/servers/SRV-1");
+    await user.click(
+      await screen.findByRole("button", { name: "Ask Claude to look into it" }, { timeout: 3000 }),
+    );
+    await waitFor(() => expect(calls).toContain("servers.startServerAnalysis"));
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("F4b: l'accesso SSH: «Now» dice che mancano le letture SSH, e si collega dalla parte; solo chiamate integrate", async () => {
+    const user = userEvent.setup();
+    signedInAs("p-roberta");
+    renderRoute("/p/STW/servers/SRV-2");
+    const now = await screen.findByRole("region", { name: "Now" }, { timeout: 3000 });
+    expect(now).toHaveTextContent("In trouble since");
+    expect(
+      within(now).getByText("Claude's diagnosis won't include SSH reads: no SSH access."),
+    ).toBeInTheDocument();
+    const part = screen.getByRole("region", { name: "SSH access" });
+    await user.click(within(part).getByRole("button", { name: "Link SSH access" }));
+    await waitFor(() => expect(calls).toContain("servers.linkSshAccess"));
     await settle();
     expect(outside()).toEqual([]);
   });
@@ -778,6 +847,9 @@ describe("aree non integrate nella build app", () => {
     await user.click(within(dialog).getByRole("button", { name: /^Create/ }));
     await waitFor(() => expect(calls).toContain("servers.createServer"));
     expect(await screen.findByText(/STUBWISE_SERVER_KEY=sk_/)).toBeInTheDocument();
+    // R3: le operazioni dell'agente accese mettono nel comando la chiave dei comandi.
+    await user.click(screen.getByRole("checkbox", { name: "Let the agent run fix actions" }));
+    await waitFor(() => expect(calls).toContain("servers.getCommandKey"));
     // La chiave è vera: niente nota del prototipo (review F4a, I4).
     expect(screen.queryByText(/Prototype: this key is made up/)).toBeNull();
     await settle();
@@ -807,6 +879,23 @@ describe("aree non integrate nella build app", () => {
     expect(
       within(edit).getByText("The type can't change: for another type, add a new environment."),
     ).toBeInTheDocument();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("i container di un ambiente (area 8, F4b, R0-D): si leggono e si scelgono dal catalogo del server, solo chiamate integrate", async () => {
+    const user = userEvent.setup();
+    signedInAs("p-roberta");
+    renderRoute("/p/ACQ/releases");
+    const part = await screen.findByRole("region", { name: /^Environments/ }, { timeout: 3000 });
+    expect(await within(part).findByText(/^Containers on SRV-1: /)).toBeInTheDocument();
+    await user.click(within(part).getByRole("button", { name: "More for Production" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Containers on SRV-1" }));
+    const dialog = await screen.findByRole("dialog", { name: "Containers of Production on SRV-1" });
+    await waitFor(() => expect(calls).toContain("servers.getServer"));
+    await user.click(await within(dialog).findByRole("checkbox", { name: "caddy" }));
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(calls).toContain("releases.setEnvironmentContainers"));
     await settle();
     expect(outside()).toEqual([]);
   });

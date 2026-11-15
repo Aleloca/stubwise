@@ -912,6 +912,50 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     - M5: il link di una card è quello del momento della lettura, e due
       persone che modificano lo stesso ambiente insieme: vince l'ultima (il
       PATCH non ha una precondizione di versione).
+- F4b, lato renderer (94, 14–15 nov 2026), cablaggio sull'app:
+  - *(fatto: i container degli ambienti, `environment-containers`, ad69d9a8e.)*
+  - *(fatto: le analisi lette sul server, `servers-analysis`: l'analisi di
+    ogni episodio e l'ultima a mano, da `serverOps.analyses`.)*
+  - *(fatto: il bottone dell'analisi a mano, con `canStartAnalysis` del server.)*
+  - *(fatto: l'accesso SSH di sola lettura, `servers-ssh`: lo stato a chi
+    vede il server dal riassunto `ssh` del dettaglio, la vista intera e le
+    azioni a chi ha `servers.ssh.manage`; host di base quello dell'agente.)*
+  - *(fatto: la rigenerazione della chiave SSH, una chiave sola: la vecchia
+    smette subito, prototipo allineato; decisione del maintainer, 15 nov 2026.)*
+  - *(fatto: la sezione Server della task e la correzione, `servers`: la
+    scheda del piano dalla vista, approva col digest, rifiuta con la nota,
+    stop, il registro dei comandi per task; decisione 3 del maintainer.)*
+  - **Correzione, divergenze dichiarate nell'app**: le «note per Claude»
+    all'avvio il server non le prende (il campo non c'è nell'app); la riga
+    «You started this fix» non c'è (il server non dice chi l'ha chiesta); lo
+    stato si deriva dalla correzione (72): `done` = risolta (il rientro lo
+    dice l'episodio), `failed` con `step_failed`/`step_expired` = non
+    risolta, con gli altri motivi = fermata, `none` con un motivo = nessun
+    piano; la salute del server nella riga del server non arriva;
+    il dettaglio del controllo finale resta nella sessione. Nel prototipo i
+    passi approvati girano ancora dentro la sessione di Claude (sul server
+    sono deterministici): per chi guarda conta la sezione Server.
+  - **SSH, divergenze dichiarate nell'app**: il comando d'installazione è
+    quello del server (in inglese, senza i commenti nella lingua di chi
+    guarda); l'ultimo uso è solo la data (non con quale analisi o task: le
+    letture stanno nel registro dei comandi); a chi non gestisce l'SSH una
+    verifica fallita non dice se per privilegi; senza un hostname
+    dall'agente il collegamento risponde `invalid: host_required` e il
+    prototipo non ha un campo Host.
+  - **`done` del server** si mostra come «Diagnosis ready», o come diagnosi
+    parziale con `endedBy: "time"`; «irraggiungibile» e «fermata» del
+    prototipo il server non li distingue (resta così);
+  - **i tetti dell'analisi** (R0-C, `servers-analysis-limits`): restano
+    spenti finché Amministrazione → AI non è integrata (area 9).
+  - Divergenze del prototipo dal server, dichiarate: col budget esaurito o
+    l'analisi spenta il prototipo rifiuta l'analisi a mano SUBITO
+    (`invalid: monthly_budget` / `invalid: disabled`), il server la accoda
+    e la segna `blocked`; un «Cause not determined» su un server di solo
+    staging non arriva a nessuno (gli avvisi vanno alle produzioni).
+  - **Da decidere (46)**: l'analisi AUTOMATICA senza l'accesso SSH. Il
+    worker la fa partire comunque (con stato, metriche, controlli, episodi
+    e ambienti); il prototipo no («Claude can't look into it: no SSH
+    access»).
 - **L'API per i siti** *(M, 14 nov 2026; fetta a sé DOPO la F3)*: il cliente
   segue sul sito che ospita il widget le sue richieste e i suoi ticket.
   Note di 72 per il design:
@@ -973,6 +1017,24 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - «Annulla» di una riga senza scelta salvata la riporta al DEFAULT
     (`resetSubscription`, review F2): nessuna riga fissata, il Telefono segue
     di nuovo `push`.
+
+- F4b, le risposte del maintainer *(M, via 46, 15 nov 2026)* e i limiti
+  ACCETTATI:
+  - **Un server che va e viene, nessun limite**: un'analisi per episodio,
+    nel budget mensile dell'istanza. Ogni episodio apre la sua analisi, una
+    task se attribuita, un triage: il freno è il budget, non un tetto per
+    server. Limite accettato, non un buco da chiudere.
+  - **I container di nessuno** si legano come oggi, da chi ha
+    `environments.manage`: è il confine di fiducia DICHIARATO in
+    `docs/invariants/server-operations.md` («Chi, quando, dove»).
+  - «Non determinata» e «fallita» vanno anche agli iscritti delle produzioni
+    del server; la rigenerazione SSH spegne subito la chiave vecchia; il
+    piano si approva nella sezione Server della task, dalla vista della
+    correzione.
+  - I 4 *ruling* della review finale (tetto di costo come cancello, la
+    proposta di un piano non segue l'interruttore delle analisi, la diagnosi
+    nel testo della task, nessun controllo «progetto della task = progetto
+    della correzione») restano com'erano *(O, 46)*.
 
 - Blocchi della Home «Rilasci» (anche l'extra di `resolveHome` per
   `release.merge`) e «Clienti in attesa».

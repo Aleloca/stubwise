@@ -9,9 +9,9 @@ import { shortInput } from "./Part";
 // e Revoca, 440px) e il riquadro «Prototype only» della verifica.
 
 /**
- * «Regenerate SRV-1's keys?». `body` lo sceglie la parte accesso per
- * accesso da `usable` (R-L8: una chiave attuale resta valida fino alla
- * verifica delle nuove solo se funziona già).
+ * «Regenerate SRV-1's key?». `body` lo sceglie la parte da `usable` (R-L8:
+ * la chiave attuale resta valida fino alla verifica della nuova solo se
+ * funziona già).
  */
 export function RegenerateDialog({
   code,
@@ -88,7 +88,8 @@ export function RevokeDialog({
       }
     >
       <ul className="flex flex-col gap-1.5 text-md text-ink">
-        {(["noLook", "fixStops", "planBlocked", "forget"] as const).map((k) => (
+        {/* Una correzione non cambia: passa dall'agente, non dall'SSH (F4b). */}
+        {(["noLook", "fixUnaffected", "forget"] as const).map((k) => (
           <li key={k} className="flex gap-2">
             <span aria-hidden="true" className="text-ink-faint">
               –
@@ -103,9 +104,10 @@ export function RevokeDialog({
 
 const OUTCOMES: readonly VerifyOutcome[] = [
   "ok",
-  "read_fails",
-  "fix_fails",
-  "read_writes",
+  "no_journal",
+  "denied",
+  "sudo",
+  "docker",
   "unreachable",
 ];
 

@@ -3,7 +3,6 @@ import { stallOf, type Stall } from "../domain/stalled";
 import { currentWeek } from "../domain/weeks";
 import { matches, type FilterContext } from "../domain/filters";
 import { serverInProject } from "../domain/servers/projects";
-import { accessState, accessUsable } from "../domain/servers/sshAccess";
 import { ACTIVITY } from "./seed/activity";
 import { BRIEFS } from "./seed/briefs";
 import {
@@ -633,6 +632,9 @@ export type ApiFnName =
   | "releases.explainRelease"
   | "releases.createEnvironment"
   | "releases.updateEnvironment"
+  | "releases.setEnvironmentContainers"
+  | "instance.getServerAnalysisSettings"
+  | "instance.saveServerAnalysisSettings"
   | "releases.deleteEnvironment"
   /** Solo prototipo: l'esito di una run di CI, la comparsa sul server, il push dell'autore. */
   | "releases.simulateRunOutcome"
@@ -684,6 +686,11 @@ export type ApiFnName =
   | "servers.simulateServerRecovery"
   | "servers.simulateSshUnreachable"
   | "startServerFix"
+  | "servers.startServerAnalysis"
+  | "servers.getCommandKey"
+  | "servers.approveServerFix"
+  | "servers.rejectServerFix"
+  | "servers.stopServerFix"
   | "servers.getServerTaskInfo"
   | "servers.simulateFixCheck"
   // Registro delle modifiche e riconferma (area 9a, Task 3)
@@ -1837,7 +1844,8 @@ export function knownDeletedProject(
  * Chi vede una conversazione con Claude — l'unica regola, per le letture e
  * per lo stream. Libera privata: chi l'ha aperta; pubblica: anche chi ha
  * `claude.public.view`. Sessioni di lavoro: `repos.view` nel progetto (il
- * refine `backlog.edit`). Posta: solo il titolare, mai gli admin.
+ * refine `backlog.edit`; l'analisi di un server anche `monitor.manage`).
+ * Posta: solo il titolare, mai gli admin.
  */
 export function canSeeConversation(personId: string, c: Conversation): boolean {
   const viewer = viewerFor(personId);
@@ -1850,6 +1858,14 @@ export function canSeeConversation(personId: string, c: Conversation): boolean {
       return c.ownerId === personId;
     case "refine":
       return c.projectId !== null && can(viewer, "backlog.edit", c.projectId);
+    case "server_analysis":
+      // Del server, non di un progetto (area 8, F4b-4): chi gestisce il
+      // monitor; e, attribuita, chi legge il progetto attribuito (dove la
+      // sessione entra a fine analisi, `data/servers/analysis.ts`).
+      return (
+        can(viewer, "monitor.manage") ||
+        (c.projectId !== null && can(viewer, "repos.view", c.projectId))
+      );
     default:
       return c.projectId !== null && can(viewer, "repos.view", c.projectId);
   }
@@ -1967,22 +1983,21 @@ export function currentPhase(log: readonly ConversationEvent[]): string | null {
 }
 
 /**
- * Perché una correzione di server non può eseguire comandi adesso (`null`
+ * Perché una correzione di server non può eseguire azioni adesso (`null`
  * se può, o se `c` non è una correzione): il server non esiste più o non è
  * più in un ambiente del progetto della sessione (R-L2, R-G5), oppure
- * l'accesso di correzione non è usabile (mai il solo stato). Una regola
- * sola per l'approvazione (`conversationPermissions`, `decidePlan`) e per
- * l'esecuzione (`data/servers/fix.ts`, che in più chiede la chiave).
+ * l'agente non ha le operazioni accese (area 8, F4b: la correzione passa
+ * dall'agente, mai dall'SSH). Una regola sola per l'approvazione
+ * (`conversationPermissions`, `decidePlan`) e per l'esecuzione
+ * (`data/servers/fix.ts`).
  */
 export function serverFixBlock(c: Conversation): ServerFixBlock | null {
   if (!c.serverFix) return null;
   const code = c.serverFix.serverCode;
-  const exists = state.servers.some((s) => s.code === code);
-  if (!exists || c.projectId === null || !serverInProject(code, c.projectId, state.environments))
+  const server = state.servers.find((s) => s.code === code);
+  if (!server || c.projectId === null || !serverInProject(code, c.projectId, state.environments))
     return "server_gone";
-  const access = state.serverAccess.get(code);
-  if (accessUsable(access, "fix")) return null;
-  return accessState(access) === "revoked" ? "fix_access_revoked" : "fix_access_unverified";
+  return server.agentOperations ? null : "operations_off";
 }
 
 /**
@@ -2034,6 +2049,16 @@ export function conversationPermissions(
     }
   }
 
+  // La sessione di una correzione di server propone soltanto (decisione del
+  // maintainer, 15 nov 2026, review F4b I4): non ci si scrive, non si ferma
+  // da qui né «Ferma e scrivi»; piano e Stop stanno nella sezione Server
+  // della task (`fixDecide.ts`).
+  if (c.serverFix && live) {
+    canWrite = false;
+    canInterrupt = false;
+    readOnlyReason = "server_fix";
+  }
+
   const question = openQuestion(log);
   const plan = pendingPlan(log);
   const preApproved = state.preApprovedPlans.has(c.id);
@@ -2047,9 +2072,9 @@ export function conversationPermissions(
     ["new", "ready", "refining"].includes(request.status) &&
     request.mergedIntoId === null;
   const decidable = plan !== undefined && approver && c.state === "awaiting_approval";
-  // Correzione di un server (area 8b): il piano che aspetta non si approva
-  // se il server non è più del progetto o l'accesso di correzione non è
-  // usabile adesso (`serverFixBlock`). La ragione la riceve solo chi
+  // Correzione di un server (area 8, F4b): il piano che aspetta non si
+  // approva se il server non è più del progetto o l'agente non ha le
+  // operazioni accese adesso (`serverFixBlock`). La ragione la riceve solo chi
   // altrimenti potrebbe decidere: per lui il rifiuto resta (`canRejectPlan`).
   const planBlockedReason = decidable ? serverFixBlock(c) : null;
   // Niente approvazione in anticipo per una correzione di server.

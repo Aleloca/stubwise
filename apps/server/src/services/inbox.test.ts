@@ -16,6 +16,7 @@ import {
   projectMembers,
   repositories,
   roles,
+  serverFixes,
   servers,
   users,
   type Db,
@@ -3151,5 +3152,25 @@ describe("area 8, F4a, S12: il codice del server sulle card monitor.*", () => {
     expect(byId(card).serverCode).toBe(`SRV-${srv!.number}`);
     expect(byId(goneCard).serverCode).toBeNull();
     expect(byId(other).serverCode).toBeNull();
+  });
+});
+
+// Area 8, F4b, S9: la card della diagnosi porta il codice del server, DERIVATO
+// a lettura dal DATABASE (ticket della card → server_fixes → server), non
+// dall'evento: vale anche per un evento senza `serverId`.
+describe("area 8, F4b, S9: il codice del server sulla card server.diagnosis_ready", () => {
+  it("dal ticket della card; un evento SENZA serverId lo ha lo stesso; una card senza correzione → null", async () => {
+    const user = await seedUser("member");
+    const [srv] = await db.insert(servers).values({ name: "web-prod-1", keyHash: `h-${randomUUID()}` }).returning();
+    const ticketId = await seedTicket();
+    await db.insert(serverFixes).values({ taskId: ticketId, serverId: srv!.id, projectId });
+    const orphan = await seedTicket();
+    const event = { kind: "server.diagnosis_ready", projectId, serverName: "web-prod-1", taskCode: "P-1", title: "t", url: "https://x" };
+    const card = await seedRawNotification({ userId: user.id, kind: "server.diagnosis_ready", event, ticketId });
+    const noFix = await seedRawNotification({ userId: user.id, kind: "server.diagnosis_ready", event, ticketId: orphan });
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const byId = (id: string) => items.find((i) => i.id === id)!;
+    expect(byId(card).serverCode).toBe(`SRV-${srv!.number}`);
+    expect(byId(noFix).serverCode).toBeNull();
   });
 });

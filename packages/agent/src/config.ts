@@ -16,6 +16,12 @@ export interface AgentEnv {
   dockerSocket: string;
   /** Agent version string, baked in at build time (default `dev`). */
   agentVersion: string;
+  /**
+   * Area 8, F4b: the operations option (`STUBWISE_OPERATIONS=1`), OFF by
+   * default. With it, `commandPublicKey` is required: the instance public key
+   * pinned at install time (never fetched from the server).
+   */
+  operations: { publicKey: string; nonceFile: string } | null;
 }
 
 export type LoadAgentEnvResult =
@@ -44,9 +50,16 @@ export function loadAgentEnv(env: EnvRecord): LoadAgentEnvResult {
     };
   }
 
+  const operationsOn = cleaned(env.STUBWISE_OPERATIONS) === "1";
+  const publicKey = cleaned(env.STUBWISE_COMMAND_PUBLIC_KEY);
+  if (operationsOn && !publicKey) {
+    return { ok: false, error: "STUBWISE_OPERATIONS=1 needs STUBWISE_COMMAND_PUBLIC_KEY (the public key shown with the install command)" };
+  }
+
   return {
     ok: true,
     env: {
+      operations: operationsOn && publicKey ? { publicKey, nonceFile: cleaned(env.STUBWISE_NONCE_FILE) ?? "/var/lib/stubwise-agent/nonces.json" } : null,
       // Strip trailing slashes so `${baseUrl}/monitor/ingest` never doubles up.
       baseUrl: baseUrl.replace(/\/+$/, ""),
       serverKey,

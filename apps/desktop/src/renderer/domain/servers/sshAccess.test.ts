@@ -1,125 +1,132 @@
 import { describe, expect, it } from "vitest";
-import type { ServerSshAccess } from "../../data/model";
-import { access, hoursAgo, pair, STATES } from "./fixtures";
-import { accessState, accessUsable, verifyFailure } from "./sshAccess";
+import { access, DENIED, hoursAgo, key, STATES, SUDO, verification } from "./fixtures";
+import { accessState, accessUsable, journalReadable, verifyFailure } from "./sshAccess";
+
+// L'accesso SSH di un server è UNO, di sola lettura (`stubwise-read`, area
+// 8, F4b, Q3 = b): niente coppia di correzione, la correzione passa
+// dall'agente.
 
 describe("accessState e accessUsable", () => {
-  it("i sette stati", () => {
+  it("i sei stati (una chiave sola: niente «in rigenerazione», decisione del maintainer)", () => {
     for (const [state, a] of Object.entries(STATES)) {
       expect(accessState(a), state).toBe(state);
     }
   });
 
-  it("chi è usabile in ogni stato", () => {
-    const usable = (a: ServerSshAccess | undefined) => [
-      accessUsable(a, "read"),
-      accessUsable(a, "fix"),
-    ];
-    expect(usable(STATES.not_linked)).toEqual([false, false]);
-    expect(usable(STATES.awaiting_command)).toEqual([false, false]);
-    expect(usable(STATES.verified)).toEqual([true, true]);
-    expect(usable(STATES.verify_failed)).toEqual([true, false]);
-    // Scelta del piano: una lettura che scrive spegne ENTRAMBI.
-    expect(usable(STATES.read_writes)).toEqual([false, false]);
-    // Rigenerazione: le vecchie restano usabili finché le nuove non sono verificate.
-    expect(usable(STATES.regenerating)).toEqual([true, true]);
-    expect(usable(STATES.revoked)).toEqual([false, false]);
+  it("usabile solo verificato", () => {
+    expect(accessUsable(STATES.not_linked)).toBe(false);
+    expect(accessUsable(STATES.awaiting_command)).toBe(false);
+    expect(accessUsable(STATES.verified)).toBe(true);
+    expect(accessUsable(STATES.verify_failed)).toBe(false);
+    expect(accessUsable(STATES.privileged)).toBe(false);
+    expect(accessUsable(STATES.revoked)).toBe(false);
   });
 
-  it("verify_failed dice quale accesso e perché", () => {
+  it("un utente nel gruppo docker non è di sola lettura: spento come con sudo", () => {
+    const docker = access({
+      verification: verification({
+        groups: ["stubwise-read", "docker"],
+        docker: true,
+        journal: false,
+        ok: false,
+      }),
+    });
+    expect(accessState(docker)).toBe("privileged");
+    expect(accessUsable(docker)).toBe(false);
+  });
+
+  it("verify_failed dice perché", () => {
     expect(verifyFailure(STATES.verify_failed)).toEqual({
-      read: false,
-      fix: true,
+      login: "denied",
       reason: "Permission denied (publickey)",
     });
     expect(verifyFailure(STATES.verified)).toBeNull();
+    // Un utente con sudo non è un login fallito: è `privileged`, un'altra frase.
+    expect(verifyFailure(STATES.privileged)).toBeNull();
   });
 
-  it("la prima verifica fallita (chiavi in attesa) → verify_failed, niente di usabile", () => {
+  it("la prima verifica fallita (chiave in attesa) → verify_failed, niente di usabile", () => {
     const a = access({
-      keys: null,
-      pending: pair(1),
-      verification: {
-        at: hoursAgo(1),
-        read: "failed",
-        fix: "failed",
-        reason: "Connection timed out",
-        ofPending: true,
-      },
+      key: null,
+      pending: key(1),
+      verification: { ...DENIED, login: "unreachable", ofPending: true },
     });
     expect(accessState(a)).toBe("verify_failed");
-    expect(accessUsable(a, "read")).toBe(false);
-    expect(verifyFailure(a)).toEqual({ read: true, fix: true, reason: "Connection timed out" });
+    expect(accessUsable(a)).toBe(false);
   });
 
-  const OLD_OK = {
-    at: hoursAgo(5),
-    read: "ok",
-    fix: "ok",
-    reason: null,
-    ofPending: false,
-  } as const;
-
-  it("rigenerazione con verifica delle nuove fallita: le vecchie restano usabili", () => {
+  it("rigenerazione con verifica della nuova fallita: la vecchia resta usabile", () => {
     const a = access({
-      pending: pair(2),
-      verification: { at: hoursAgo(1), read: "failed", fix: "ok", reason: "x", ofPending: true },
-      keysVerification: OLD_OK,
+      pending: key(2),
+      verification: { ...DENIED, ofPending: true },
+      keyVerification: verification({ at: hoursAgo(5) }),
     });
     expect(accessState(a)).toBe("verify_failed");
-    expect(accessUsable(a, "read")).toBe(true);
-    expect(accessUsable(a, "fix")).toBe(true);
+    expect(accessUsable(a)).toBe(true);
   });
 
-  // Minor 4 della revisione del Task 2: le vecchie chiavi restano usabili
-  // durante «Rigenera» SOLO se lo erano prima.
-  it("rigenerazione partita con la fix vecchia fallita: dopo una verifica fallita delle nuove la fix resta spenta", () => {
+  it("rigenerazione partita con la vecchia fallita: resta spenta", () => {
     const a = access({
-      pending: pair(2),
-      verification: { at: hoursAgo(1), read: "failed", fix: "ok", reason: "x", ofPending: true },
-      keysVerification: { ...OLD_OK, fix: "failed", reason: "Permission denied (publickey)" },
+      pending: key(2),
+      verification: { ...DENIED, ofPending: true },
+      keyVerification: DENIED,
     });
-    expect([accessUsable(a, "read"), accessUsable(a, "fix")]).toEqual([true, false]);
+    expect(accessUsable(a)).toBe(false);
   });
 
-  it("rigenerazione partita da una lettura che scrive: niente torna usabile finché una verifica non riesce", () => {
+  it("rigenerazione partita da un utente con sudo: niente torna usabile finché una verifica non riesce", () => {
     const a = access({
-      pending: pair(2),
-      verification: { at: hoursAgo(1), read: "failed", fix: "ok", reason: "x", ofPending: true },
-      keysVerification: { ...OLD_OK, read: "writes", reason: "sudo -n true succeeded" },
+      pending: key(2),
+      verification: { ...DENIED, ofPending: true },
+      keyVerification: SUDO,
     });
-    expect(accessState(a)).toBe("read_writes");
-    expect([accessUsable(a, "read"), accessUsable(a, "fix")]).toEqual([false, false]);
+    expect(accessState(a)).toBe("privileged");
+    expect(accessUsable(a)).toBe(false);
   });
 
-  it("verifica delle nuove senza l'esito delle vecchie: niente di usabile (prudenza)", () => {
+  it("verifica della nuova senza l'esito della vecchia: niente di usabile (prudenza)", () => {
     const a = access({
-      pending: pair(2),
-      verification: { at: hoursAgo(1), read: "failed", fix: "ok", reason: "x", ofPending: true },
-      keysVerification: null,
+      pending: key(2),
+      verification: { ...DENIED, ofPending: true },
+      keyVerification: null,
     });
-    expect([accessUsable(a, "read"), accessUsable(a, "fix")]).toEqual([false, false]);
+    expect(accessUsable(a)).toBe(false);
   });
 
-  it("rigenerazione partita da una verifica fallita: finché le nuove non si verificano vale l'esito di prima", () => {
-    const a = access({
-      pending: pair(2),
-      verification: { at: hoursAgo(1), read: "ok", fix: "failed", reason: "x", ofPending: false },
-    });
-    expect([accessUsable(a, "read"), accessUsable(a, "fix")]).toEqual([true, false]);
-  });
-
-  it("rigenerazione con le nuove che scrivono: nessuno dei due", () => {
-    const a = access({
-      pending: pair(2),
-      verification: { at: hoursAgo(1), read: "writes", fix: "ok", reason: "x", ofPending: true },
-    });
-    expect(accessState(a)).toBe("read_writes");
-    expect([accessUsable(a, "read"), accessUsable(a, "fix")]).toEqual([false, false]);
+  it("rigenerazione con la nuova che ha sudo: spento", () => {
+    const a = access({ pending: key(2), verification: { ...SUDO, ofPending: true } });
+    expect(accessState(a)).toBe("privileged");
+    expect(accessUsable(a)).toBe(false);
   });
 
   it("ricollegato dopo la revoca → in attesa del comando", () => {
-    const a = access({ keys: null, pending: pair(2), verification: null, revokedAt: hoursAgo(5) });
+    const a = access({ key: null, pending: key(2), verification: null, revokedAt: hoursAgo(5) });
     expect(accessState(a)).toBe("awaiting_command");
+  });
+});
+
+describe("journalReadable (F4b-3 = a)", () => {
+  it("il journal si legge solo se la verifica ha trovato il gruppo", () => {
+    expect(journalReadable(STATES.verified)).toBe(true);
+    const noGroup = access({
+      verification: verification({ groups: ["stubwise-read"], journal: false }),
+    });
+    expect(accessUsable(noGroup)).toBe(true);
+    expect(journalReadable(noGroup)).toBe(false);
+  });
+
+  it("mai con l'accesso non usabile", () => {
+    expect(journalReadable(STATES.privileged)).toBe(false);
+    expect(journalReadable(STATES.not_linked)).toBe(false);
+  });
+
+  it("in rigenerazione vale l'esito della chiave in uso", () => {
+    const a = access({
+      pending: key(2),
+      verification: { ...DENIED, ofPending: true },
+      keyVerification: verification({ groups: ["stubwise-read"], journal: false }),
+    });
+    expect(accessUsable(a)).toBe(true);
+    expect(journalReadable(a)).toBe(false);
   });
 });

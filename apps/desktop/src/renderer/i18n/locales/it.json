@@ -1363,14 +1363,14 @@
         "stoppedBy": "Correzione fermata da {{name}}",
         "resolved": "Risolto: il controllo dopo la correzione è passato",
         "not_resolved": "Non risolto: il controllo dopo la correzione non è passato",
-        "closed": "Chiusa"
+        "closed": "Chiusa",
+        "no_plan": "Nessuna correzione con le azioni ammesse"
       },
       "stoppedReasons": {
-        "fix_access_revoked": "Correzione fermata: l'accesso di correzione è stato revocato",
-        "fix_access_unusable": "Correzione fermata: l'accesso di correzione ha smesso di funzionare",
         "server_gone": "Correzione fermata: il server non è più in questo progetto",
         "failed": "Correzione fermata: non è riuscita",
-        "timed_out": "Correzione fermata: è finito il tempo"
+        "timed_out": "Correzione fermata: è finito il tempo",
+        "operations_off": "Correzione fermata: le operazioni dell'agente sono state spente"
       },
       "suggested": "Correzione proposta:",
       "more": "Altro",
@@ -1379,20 +1379,18 @@
       "start": "Avvia la correzione sul server",
       "startAgain": "Avvia di nuovo la correzione",
       "conditionOne": "1. Può avviarla solo chi può operare sui server di {{project}}.",
-      "conditionTwo": "2. Claude scrive prima un piano. Su {{code}} non gira nulla finché chi può approvare i piani in {{project}} non lo approva, anche se l'hai avviata tu.",
+      "conditionTwo": "2. Claude scrive prima un piano di azioni ammesse. Su {{code}} non gira nulla finché chi può approvare i piani in {{project}} non lo approva, anche se l'hai avviata tu.",
       "blocks": {
         "no_permission": "La correzione la avvia chi può operare sui server di {{project}}.",
-        "no_fix_access": "{{code}} non ha un accesso di correzione.",
-        "fix_access_unverified": "L'accesso di correzione di {{code}} non è verificato.",
         "server_gone": "{{code}} non è più negli ambienti di {{project}}: la correzione non può partire da qui.",
-        "server_busy": "Su {{code}} c'è già un'altra correzione in corso."
+        "server_busy": "Su {{code}} c'è già un'altra correzione in corso.",
+        "operations_off": "L'agente di {{code}} non ha le operazioni accese: rifai il suo comando d'installazione con le operazioni accese per correggerlo da qui."
       },
-      "linkAccess": "Collega l'accesso SSH",
       "dialog": {
         "title": "Avviare una correzione su {{code}}?",
-        "before": "Claude legge il server, poi scrive un piano. Esegue i comandi come ",
-        "strong": "stubwise-fix, che su {{code}} può fare tutto",
-        "after": ", solo dopo che il piano è stato approvato.",
+        "before": "Claude guarda i container attraverso l'agente di monitoraggio, poi scrive un piano. L'agente esegue ",
+        "strong": "solo le azioni ammesse, una alla volta",
+        "after": " (riavviare, fermare o avviare un container, liberare spazio) e solo dopo che il piano è stato approvato.",
         "notes": "Note per Claude",
         "notesPlaceholder": "Facoltative. Cosa deve sapere Claude prima di leggere {{code}}.",
         "confirm": "Avvia la correzione",
@@ -1405,22 +1403,41 @@
       "loading": "Caricamento del server",
       "planCard": {
         "planTitle": "Piano di correzione di {{code}}",
-        "commands": "Comandi da eseguire su {{code}}",
-        "runsAs": "Gira come stubwise-fix: su {{code}} può fare tutto.",
+        "commands": "Azioni su {{code}}",
+        "steps": {
+          "container_restart": "Riavvia {{container}} (per fermarlo aspetta fino a {{timeoutSeconds}} s)",
+          "container_stop": "Ferma {{container}} (aspetta fino a {{timeoutSeconds}} s)",
+          "container_start": "Avvia {{container}}",
+          "docker_prune": {
+            "images_unused": "Libera spazio: togli le immagini che nessun container usa",
+            "build_cache": "Libera spazio: togli la cache di build di Docker",
+            "stopped_containers": "Libera spazio: togli i container fermi",
+            "other": "Libera spazio"
+          }
+        },
+        "shared": {
+          "title": "{{code}} è condiviso",
+          "projects": "Liberare spazio tocca tutto il server: {{code}} è usato anche da {{projects}}.",
+          "hidden_one": "Liberare spazio tocca tutto il server: {{code}} è usato anche da un altro progetto.",
+          "hidden_other": "Liberare spazio tocca tutto il server: {{code}} è usato anche da altri {{count}} progetti.",
+          "both": "Liberare spazio tocca tutto il server: {{code}} è usato anche da {{projects}} e da altri {{count}}."
+        },
+        "runsAs": "L'agente di monitoraggio di {{code}} esegue queste azioni, una alla volta. Nient'altro può girare.",
         "releaseRule": "Un piano che rilascia (pull, aggiornamento d'immagine, deploy) va rifiutato. I rilasci passano da Rilasci.",
         "approve": "Approva il piano",
         "rejectBlocked": "Rifiuta il piano",
-        "youStarted": "Hai avviato tu questa correzione. Approvando, i comandi girano su {{code}}.",
+        "youStarted": "Hai avviato tu questa correzione. Approvando, le azioni girano su {{code}}.",
         "waitingFor": "Aspetta chi può approvare i piani in {{project}}.",
         "waitingForAny": "Aspetta chi può approvare i piani.",
         "blocked": {
-          "fix_access_revoked": "L'accesso di correzione a {{code}} è stato revocato. Collegalo di nuovo per approvare questo piano.",
-          "fix_access_unverified": "L'accesso di correzione di {{code}} non è verificato. Verificalo per approvare questo piano.",
-          "server_gone": "{{code}} non è più negli ambienti di questo progetto: questo piano non si può approvare."
+          "server_gone": "{{code}} non è più negli ambienti di questo progetto: questo piano non si può approvare.",
+          "operations_off": "L'agente di {{code}} non ha le operazioni accese. Rifai il suo comando d'installazione con le operazioni accese per approvare questo piano."
         },
         "statusAwaiting": "Correzione su {{code}} · da approvare",
         "statusAwaitingYou": "Correzione su {{code}} · aspetta la tua approvazione",
-        "codeOnly": "Questa esecuzione lavora sul codice, mai su {{code}}. Per correggere il server usa «Avvia la correzione» nella sezione Server qui sopra."
+        "codeOnly": "Questa esecuzione lavora sul codice, mai su {{code}}. Per correggere il server usa «Avvia la correzione» nella sezione Server qui sopra.",
+        "decideInServer": "Questo piano si decide nella sezione Server della task, dove vedi cosa esegue su {{code}}.",
+        "stale": "Il piano non è più adatto al server: chiedine uno nuovo a Claude."
       },
       "check": {
         "resolved": "Controllo dopo la correzione: risolto",
@@ -1430,9 +1447,7 @@
         "title": "Comandi su {{code}}",
         "count": "Comandi su {{code}} · {{count}}",
         "read": "lettura",
-        "fix": "correzione",
-        "readLabel": "Comando di lettura",
-        "fixLabel": "Comando di correzione, eseguito con l'accesso che può fare tutto",
+        "readLabel": "Lettura, non cambia nulla",
         "ok": "OK",
         "failed": "Non riuscito",
         "running": "In corso",
@@ -1442,15 +1457,40 @@
         "lines_other": "{{total}} righe",
         "lastLines": "Ultime {{n}} di {{total}} righe",
         "allLines": "Tutte le {{total}} righe",
-        "stoppedBy": "Fermata da {{name}} · {{time}}. Nessun comando dopo questo punto.",
+        "stoppedBy": "Fermata da {{name}} · {{time}}. Nessuna azione dopo questo punto.",
         "stoppedReasons": {
-          "fix_access_revoked": "Fermata: l'accesso di correzione è stato revocato.",
-          "fix_access_unusable": "Fermata: l'accesso di correzione ha smesso di funzionare.",
           "server_gone": "Fermata: il server non è più in questo progetto.",
           "failed": "Fermata: la correzione non è riuscita.",
-          "timed_out": "Fermata: la correzione ha finito il tempo."
-        }
-      }
+          "timed_out": "Fermata: la correzione ha finito il tempo.",
+          "operations_off": "Fermata: le operazioni dell'agente sono state spente."
+        },
+        "change": "modifica",
+        "changeLabel": "Azione che cambia il server, eseguita dall'agente dopo il piano approvato",
+        "agent": "agente",
+        "ssh": "SSH",
+        "viaAgent": "Attraverso l'agente di monitoraggio",
+        "viaSsh": "Attraverso l'accesso SSH di sola lettura",
+        "actions": {
+          "container_restart": "Riavviato {{container}}",
+          "container_stop": "Fermato {{container}}",
+          "container_start": "Avviato {{container}}",
+          "docker_prune": "Liberato spazio",
+          "container_logs": "Letti i log di {{container}}",
+          "container_state": "Letto lo stato di {{container}}",
+          "processes": "Letti i processi più pesanti",
+          "disk": "Letto l'uso del disco",
+          "memory": "Letto l'uso della memoria",
+          "load": "Letto il carico",
+          "uptime": "Letto da quanto è acceso",
+          "listening": "Lette le porte in ascolto",
+          "failed_units": "Letti i servizi falliti",
+          "journal_errors": "Letti gli errori del journal di sistema"
+        },
+        "cancelled": "Annullato",
+        "expired": "Scaduto"
+      },
+      "stop": "Ferma la correzione",
+      "stopFailed": "Non è stato possibile fermare la correzione. Riprova."
     }
   },
   "newTask": {
@@ -1545,9 +1585,8 @@
         "openTask": "Apri la task",
         "rejectNow": "Rifiuta",
         "blocked": {
-          "fix_access_revoked": "Non si può approvare: l'accesso di correzione a {{code}} è stato revocato. Rifiutalo per liberare {{code}}.",
-          "fix_access_unverified": "Non si può approvare: l'accesso di correzione di {{code}} non è verificato. Rifiutalo per liberare {{code}}.",
-          "server_gone": "Non si può approvare: {{code}} non è più in questo progetto. Rifiutalo per liberare {{code}}."
+          "server_gone": "Non si può approvare: {{code}} non è più in questo progetto. Rifiutalo per liberare {{code}}.",
+          "operations_off": "Non si può approvare: l'agente di {{code}} non ha le operazioni accese. Rifiutalo per liberare {{code}}."
         },
         "recommended": "Consigliata",
         "planOptions": "Decidi sul piano di {{code}}",
@@ -4000,9 +4039,8 @@
         "closedBy": "chiusa da {{name}}",
         "itemClosed": "chiusa · la richiesta è diventata una task o è stata archiviata",
         "reasons": {
-          "fix_access_revoked": "fermata · l'accesso di correzione è stato revocato",
-          "fix_access_unusable": "fermata · l'accesso di correzione ha smesso di funzionare",
-          "server_gone": "fermata · il server ha lasciato il progetto"
+          "server_gone": "fermata · il server ha lasciato il progetto",
+          "operations_off": "fermata · le operazioni dell'agente sono state spente"
         }
       },
       "question": {
@@ -4220,7 +4258,8 @@
         },
         "refineClosed": "Questa rifinitura è chiusa.",
         "refineItemClosed": "La richiesta è diventata una task o è stata archiviata: questa rifinitura è chiusa.",
-        "automaticServer": "Questa sessione va da sola con l'accesso in sola lettura a {{code}}: si può solo guardare."
+        "automaticServer": "Questa sessione va da sola con l'accesso in sola lettura a {{code}}: si può solo guardare.",
+        "serverFix": "Questa sessione propone soltanto la correzione su {{code}}: il piano si decide, e la correzione si ferma, dalla sezione Server della task."
       },
       "executed": {
         "verb": {
@@ -4607,27 +4646,27 @@
       "reads": {
         "uptime": "Letti uptime e carico",
         "memory": "Letta la memoria",
-        "containers": "Letto l'uso dei container",
-        "processesCpu": "Letti i processi per CPU",
-        "processesMem": "Letti i processi per memoria",
+        "processes": "Letti i processi",
         "logs": "Letto il log di {{service}}",
+        "containerState": "Letto lo stato di {{service}}",
         "disk": "Letto l'uso del disco",
-        "containerSizes": "Lette le dimensioni dei container",
-        "journal": "Letto il journal di sistema",
-        "containerList": "Letti i container",
+        "journal": "Letti gli errori nel journal di sistema",
         "ports": "Lette le porte in ascolto",
-        "agent": "Letto lo stato dell'agente",
-        "bootJournal": "Letto il journal dell'ultimo avvio",
+        "load": "Letto il carico",
+        "failedUnits": "Letti i servizi non riusciti",
         "attempt": "Tentata la connessione ({{n}}° tentativo)"
       }
     },
     "serverFix": {
-      "commands": {
-        "restart": "Riavviato {{service}}",
-        "limitMemory": "Limitata la memoria di {{service}}",
-        "pruneImages": "Tolte le immagini non usate",
-        "vacuumJournal": "Ridotto il journal di sistema",
-        "restartAgent": "Riavviato l'agente di monitoraggio"
+      "actions": {
+        "container_restart": "Riavviato {{container}}",
+        "container_stop": "Fermato {{container}}",
+        "container_start": "Avviato {{container}}",
+        "docker_prune": {
+          "images_unused": "Tolte le immagini non usate",
+          "build_cache": "Tolta la cache di build",
+          "stopped_containers": "Tolti i container fermi"
+        }
       }
     },
     "executed": {
@@ -8685,7 +8724,8 @@
       "merged": "Sempre se il merge l'hai fatto tu",
       "pr_author": "Sempre per chi ha aperto la PR",
       "task_author": "Sempre per l'autore della task, se il merge è arrivato da fuori Stubwise",
-      "assignee": "Sempre per chi ha la task assegnata"
+      "assignee": "Sempre per chi ha la task assegnata",
+      "analysis_requester": "Sempre per chi ha chiesto a Claude di guardare il server"
     },
     "mandatoryStill": {
       "app": "Quando ti riguarda ti arriva lo stesso nell'app",
@@ -8761,7 +8801,8 @@
         "merged": "Lo ricevi perché il merge l'hai fatto tu",
         "pr_author": "Lo ricevi perché questa PR l'hai aperta tu",
         "task_author": "Lo ricevi perché la PR viene da una tua task",
-        "assignee": "Lo ricevi perché la task è assegnata a te"
+        "assignee": "Lo ricevi perché la task è assegnata a te",
+        "analysis_requester": "Ti arriva perché hai chiesto a Claude di guardare questo server"
       }
     },
     "pausedShort": "Sospeso",
@@ -9047,7 +9088,23 @@
       },
       "orphanWarning_one": "{{codes}} non sarà più in nessun ambiente. Solo chi gestisce il monitoraggio potrà ricollegarlo.",
       "orphanWarning_other": "{{codes}} non saranno più in nessun ambiente. Solo chi gestisce il monitoraggio potrà ricollegarli.",
-      "kindLocked": "Il tipo non cambia: per un altro tipo, aggiungi un ambiente nuovo."
+      "kindLocked": "Il tipo non cambia: per un altro tipo, aggiungi un ambiente nuovo.",
+      "containers": {
+        "line": "Container su {{code}}: {{list}}",
+        "menu": "Container su {{code}}",
+        "title": "Container di {{name}} su {{code}}",
+        "body": "Scegli i container su {{code}} che appartengono a {{name}}. Claude li usa per capire da quale progetto viene un problema sul server, e una correzione tocca solo loro. Senza nessuno scelto vale il container col nome dell'ambiente.",
+        "loading": "Carico i container che l'agente riporta…",
+        "none": "L'agente non riporta nessun container su {{code}}.",
+        "unseen": "Non vedi {{code}}, quindi qui non si possono elencare i suoi container. Può sceglierli chi gestisce il monitoraggio.",
+        "save": "Salva",
+        "errors": {
+          "container_of_other_project": "Un container che hai scelto appartiene a un altro progetto su questo server.",
+          "unknown_container": "L'agente non riporta più uno di questi container. Riapri l'elenco e riprova.",
+          "server_not_in_environment": "Questo ambiente non usa più {{code}}.",
+          "generic": "Non è stato possibile salvare i container. Riprova."
+        }
+      }
     },
     "panel": {
       "label": "Pull request {{pr}}",
@@ -9360,10 +9417,7 @@
     "notFound": "Questo server non esiste, o non puoi vederlo.",
     "noEnvironments": "In nessun ambiente",
     "envLine": "{{kind}} · {{code}}",
-    "envPrimary": "{{env}} (principale)",
     "stagingOnly": "Solo staging: niente avvisi, niente analisi",
-    "diagnosesGoTo": "Le diagnosi vanno in {{code}}",
-    "diagnosesGoElsewhere": "Le diagnosi vanno in un altro progetto",
     "errors": {
       "list": "Non è stato possibile caricare i server di {{code}}",
       "detail": "Non è stato possibile caricare questo server",
@@ -9404,7 +9458,7 @@
       "not_linked": "Nessun accesso SSH",
       "awaiting_command": "Accesso SSH in attesa del comando",
       "verify_failed": "Verifica dell'accesso SSH non riuscita",
-      "read_writes": "Accesso SSH spento: l'accesso di lettura può scrivere",
+      "privileged": "Accesso SSH spento: stubwise-read può fare più che leggere",
       "revoked": "Accesso SSH revocato",
       "verified": "Accesso SSH verificato",
       "regenerating": "Nuove chiavi SSH in attesa del comando",
@@ -9463,10 +9517,8 @@
       "recovered": "Rientrato alle {{time}} · dopo {{duration}}",
       "recoveredOn": "Rientrato il {{date}} alle {{time}} · dopo {{duration}}",
       "openSession": "Apri la sessione",
-      "noAccess": "Claude non può guardarci: nessun accesso SSH.",
       "noBudget": "Claude non può guardarci: il budget AI del mese è esaurito.",
       "linkAccess": "Collega l'accesso SSH",
-      "primary": "La diagnosi si apre in {{code}}, il progetto principale.",
       "work": {
         "analyzing": "Claude ci sta guardando con l'accesso in sola lettura",
         "diagnosed": "Diagnosi pronta",
@@ -9474,11 +9526,24 @@
         "unreachable": "Claude non è riuscito a raggiungere il server",
         "stopped": "Claude si è fermato prima di una diagnosi",
         "failed": "L'analisi di Claude non è riuscita: la task non si è potuta aprire",
+        "undetermined": "Claude non è riuscito a dire quale progetto causa il problema: {{reason}} Nessuna task aperta.",
         "fixing": "Correzione in corso",
         "hiddenTask": "La diagnosi è in un progetto che non vedi."
       },
       "downDay": "Non risponde dal {{when}}",
-      "troubleDay": "In difficoltà dal {{when}}"
+      "troubleDay": "In difficoltà dal {{when}}",
+      "analysisOff": "Claude non guarda gli avvisi: l'analisi dei server è spenta in Amministrazione → AI.",
+      "noSshReads": "La diagnosi di Claude non avrà letture SSH: manca l'accesso SSH.",
+      "noSshReadsUnusable": "La diagnosi di Claude non avrà letture SSH: l'accesso SSH in sola lettura non è usabile."
+    },
+    "attribution": {
+      "no_project": "l'analisi non ha indicato un progetto.",
+      "project_not_on_server": "il progetto indicato non usa questo server.",
+      "no_containers": "non ha indicato un container, e questo server lo usano più progetti.",
+      "unknown_container": "ha indicato un container che l'agente non riporta su questo server.",
+      "no_container_of_project": "nessuno dei container indicati appartiene agli ambienti di quel progetto.",
+      "containers_of_other_project": "ha indicato un container che appartiene a un altro progetto.",
+      "other": "questa app non conosce ancora il motivo."
     },
     "charts": {
       "rangeLabel": "Intervallo",
@@ -9631,14 +9696,9 @@
       "name": "Nome",
       "interval": "Riporta ogni (secondi)",
       "intervalHint": "Da 10 a 300 secondi.",
-      "primary": "Progetto principale",
-      "primaryOnly": "{{code}}: l'unica produzione che usa questo server",
-      "primaryNone": "Nessuna produzione usa questo server: niente avvisi, niente analisi.",
-      "primaryHint": "Le diagnosi di Claude si aprono qui come task.",
       "errors": {
         "name": "Dai un nome al server.",
         "sampleIntervalSeconds": "Usa un numero intero di secondi da 10 a 300.",
-        "primaryProjectId": "Scegli un progetto la cui produzione usa questo server.",
         "generic": "Non è stato possibile salvare le impostazioni. Riprova."
       },
       "key": {
@@ -9660,8 +9720,7 @@
         "busy": "Claude sta lavorando su {{code}} in questo momento. Eliminalo quando l'analisi o la correzione è finita.",
         "error": "Non è stato possibile eliminare {{code}}. Riprova.",
         "done": "{{code}} eliminato"
-      },
-      "primaryHidden": "Le produzioni che usano questo server sono in progetti che non vedi."
+      }
     },
     "create": {
       "title": "Nuovo server in {{code}}",
@@ -9698,7 +9757,11 @@
       "done": "Fatto",
       "closeWithout": "Chiudere senza aver copiato la chiave? Puoi rigenerarla più tardi dalle Impostazioni.",
       "keepOpen": "Tienilo aperto",
-      "closeAnyway": "Chiudi"
+      "closeAnyway": "Chiudi",
+      "operations": "Lascia che l'agente esegua le correzioni",
+      "operationsHint": "Riavviare, fermare o avviare un container, liberare spazio: solo i passi di un piano approvato da una persona, firmati da questo Stubwise. Spente, Claude legge e propone, ma nessun piano si esegue.",
+      "commandKeyLoading": "Carico la chiave dei comandi…",
+      "commandKeyError": "Non è stato possibile caricare la chiave che firma le azioni dell'agente. Togli l'opzione, o riprova."
     },
     "simulate": {
       "label": "Solo prototipo: segnali del server",
@@ -9721,25 +9784,22 @@
       "trouble_other": "{{count}} server in difficoltà"
     },
     "ssh": {
-      "intro": "Due accessi permettono a Claude di guardare dentro {{code}}, e di correggerlo da una task.",
+      "intro": "Un accesso di sola lettura permette a Claude di guardare dentro {{code}}. Le correzioni non usano l'SSH: passano dall'agente di monitoraggio.",
       "more": "Altre azioni sull'accesso SSH di {{code}}",
       "menu": {
         "showCommand": "Mostra di nuovo il comando",
         "hideCommand": "Nascondi il comando",
         "verifyAgain": "Verifica di nuovo",
-        "regenerate": "Rigenera le chiavi…",
+        "regenerate": "Rigenera la chiave…",
         "revoke": "Revoca l'accesso…",
         "removal": "Mostra il comando di rimozione"
       },
       "users": {
-        "label": "I due utenti che il comando crea",
+        "label": "L'utente che il comando crea",
         "user": "Utente",
         "does": "Cosa può fare",
-        "read": "Legge log, processi, disco e memoria. Non può cambiare nulla.",
-        "readNote": "Non è nel gruppo docker; docker inspect non è ammesso (mostra i segreti).",
-        "fix": "Può fare tutto sul server",
-        "fixSudo": "(sudo senza password).",
-        "fixNote": "Lo usa solo una correzione che una persona autorizzata ha avviato da una task, dopo che il suo piano è stato approvato."
+        "read": "Legge processi, disco, memoria, carico, porte in ascolto e servizi non riusciti. Non può cambiare nulla.",
+        "readNote": "Niente sudo, non è nel gruppo docker. Il suo unico gruppo è systemd-journal, per leggere gli errori nel journal di sistema."
       },
       "steps": {
         "label": "Passi per collegare l'accesso SSH a {{code}}",
@@ -9749,22 +9809,21 @@
       },
       "step1": {
         "title": "Collega l'accesso SSH",
-        "body": "Stubwise crea due coppie di chiavi. Le chiavi private sono cifrate e non si vedono mai.",
-        "done": "Chiavi create il {{date}}, {{time}}",
+        "body": "Stubwise crea una coppia di chiavi. La chiave privata è cifrata e non si vede mai.",
+        "done": "Chiave creata il {{date}}, {{time}}",
         "action": "Collega l'accesso SSH",
         "linking": "Collegamento…"
       },
       "step2": {
         "title": "Esegui questo comando su {{code}}",
-        "creates": "Crea due utenti:",
-        "runAs": "Eseguilo come root su {{code}}. Leggilo prima: contiene solo chiavi pubbliche.",
-        "prototype": "Prototipo: queste chiavi le ha inventate il prototipo.",
-        "fpRead": "lettura",
-        "fpFix": "correzione"
+        "creates": "Crea un utente:",
+        "runAs": "Eseguilo come root su {{code}}. Leggilo prima: contiene solo una chiave pubblica.",
+        "prototype": "Prototipo: questa chiave l'ha inventata il prototipo.",
+        "fingerprint": "Impronta"
       },
       "step3": {
         "title": "Verifica",
-        "hint": "Stubwise entra con ciascuna chiave e controlla che l'accesso di lettura non possa scrivere.",
+        "hint": "Stubwise entra con la chiave e controlla cosa può fare l'utente: niente sudo, non nel gruppo docker, e se può leggere il journal di sistema.",
         "action": "Verifica",
         "again": "Verifica di nuovo",
         "verifying": "Verifica in corso…"
@@ -9778,24 +9837,27 @@
         "copyError": "Non è stato possibile copiare. Seleziona il testo e copialo a mano.",
         "showAll": "Mostra tutte le {{n}} righe",
         "showLess": "Mostra meno righe",
-        "publicOnly": "Il comando contiene solo chiavi pubbliche. Le chiavi private sono cifrate e non si vedono mai.",
+        "publicOnly": "Il comando contiene solo la chiave pubblica. La chiave privata è cifrata e non si vede mai.",
         "loadError": "Non è stato possibile caricare il comando.",
         "lines": "{{n}} righe"
       },
       "outcome": {
         "label": "Esito della verifica",
-        "readOk": "L'accesso di lettura funziona, e non può scrivere.",
-        "fixOk": "L'accesso di correzione funziona.",
-        "readFailed": "Accesso di lettura non riuscito: il server ha rifiutato la chiave. Il comando è stato eseguito su {{code}}?",
-        "fixFailed": "Accesso di correzione non riuscito: il server ha rifiutato la chiave. Il comando è stato eseguito su {{code}}?",
-        "unreachable": "Non è stato possibile raggiungere {{code}} via SSH (porta 22). Nessuno dei due accessi è stato controllato.",
-        "readWrites": "L'accesso di lettura può scrivere. È un errore: entrambi gli accessi sono spenti finché una verifica non riesce.",
-        "readWritesHint": "Controlla che stubwise-read non sia nel gruppo sudo o docker, poi verifica di nuovo.",
-        "newInUse": "Le nuove chiavi sono in uso. Stubwise ha dimenticato quelle vecchie.",
-        "newFailedKept": "Le nuove chiavi non hanno passato la verifica. Quelle attuali restano in uso.",
-        "newFailedNone": "Le nuove chiavi non hanno passato la verifica, e nemmeno quelle attuali funzionano.",
-        "newFailedKeptRead": "Le nuove chiavi non hanno passato la verifica. La chiave di lettura attuale resta in uso; quella di correzione non funziona.",
-        "newFailedKeptFix": "Le nuove chiavi non hanno passato la verifica. La chiave di correzione attuale resta in uso; quella di lettura non funziona."
+        "unreachable": "Non è stato possibile raggiungere {{code}} via SSH (porta 22). Non è stato controllato nulla.",
+        "newInUse": "La nuova chiave è in uso. Stubwise ha dimenticato quella vecchia.",
+        "newFailedKept": "La nuova chiave non ha passato la verifica. Quella attuale resta in uso.",
+        "newFailedNone": "La nuova chiave non ha passato la verifica, e nemmeno quella attuale funziona.",
+        "login": "Entra come stubwise-read.",
+        "denied": "Il server ha rifiutato la chiave. Il comando è stato eseguito su {{code}}?",
+        "noSudo": "Niente sudo.",
+        "sudo": "Può usare sudo.",
+        "noDocker": "Non è nel gruppo docker.",
+        "docker": "È nel gruppo docker: può comandare ogni container.",
+        "journal": "Legge il journal di sistema (gruppo {{group}}).",
+        "noJournal": "Non legge il journal di sistema, quindi Claude non lo leggerà. Aggiungi stubwise-read a systemd-journal o adm per permetterlo.",
+        "groups": "Gruppi: {{groups}}",
+        "privileged": "stubwise-read può fare più che leggere. È un errore: l'accesso è spento finché una verifica non riesce.",
+        "privilegedHint": "Togli stubwise-read dai gruppi sudo e docker (rieseguire il comando lo fa), poi verifica di nuovo."
       },
       "errors": {
         "verify": "Non è stato possibile verificare. Riprova.",
@@ -9805,16 +9867,13 @@
       },
       "rows": {
         "label": "Accesso SSH di {{code}}",
-        "read": "Accesso di lettura",
-        "fix": "Accesso di correzione",
-        "fixWarning": "Può fare tutto sul server.",
+        "read": "Accesso di sola lettura",
         "state": {
           "verified": "Verificato il {{date}}",
           "inUse": "In uso",
           "failed": "Verifica non riuscita: {{why}}",
           "waiting": "In attesa del comando",
-          "passed": "Riuscito, in attesa dell'altro accesso",
-          "off": "Spento: l'accesso di lettura può scrivere",
+          "off": "Spento: stubwise-read può fare più che leggere",
           "revoked": "Revocato il {{date}}",
           "notLinked": "Non collegato",
           "failedPlain": "Verifica non riuscita"
@@ -9823,14 +9882,16 @@
           "refused": "il server ha rifiutato la chiave",
           "unreachable": "server non raggiungibile"
         },
-        "newKeys": "Nuove chiavi in preparazione.",
+        "newKeys": "Nuova chiave in preparazione.",
         "used": {
           "never": "Mai usato",
           "analysis": "Usato {{when}} dall'analisi di {{code}}",
           "task": "Usato {{when}} da",
-          "hiddenTask": "Usato {{when}} da una task che non puoi vedere"
+          "hiddenTask": "Usato {{when}} da una task che non puoi vedere",
+          "plain": "Usato {{when}}"
         },
-        "openSession": "Apri la sessione"
+        "openSession": "Apri la sessione",
+        "journalOff": "Non legge il journal di sistema (non è in systemd-journal né in adm)."
       },
       "when": {
         "now": "adesso",
@@ -9841,32 +9902,20 @@
         "title": "Non collegato. Claude non può guardare i problemi di questo server.",
         "hint": "Può collegarlo un admin che gestisce gli accessi SSH."
       },
-      "regenerating": {
-        "title": "Nuove chiavi — non ancora in uso",
-        "keep": "Finché non passano, Stubwise continua a usare le chiavi attuali.",
-        "keepNone": "Le chiavi attuali non funzionano: le nuove subentrano appena passano.",
-        "command": "Il comando autorizza sia le chiavi attuali sia le nuove. Quando le nuove passano, Stubwise dimentica le vecchie, e il comando successivo porta solo le nuove.",
-        "keepRead": "Finché non passano, Stubwise continua a usare la chiave di lettura attuale. Quella di correzione attuale non funziona.",
-        "keepFix": "Finché non passano, Stubwise continua a usare la chiave di correzione attuale. Quella di lettura attuale non funziona."
-      },
       "regenerate": {
-        "title": "Rigenerare le chiavi di {{code}}?",
-        "body": "Ricevi chiavi nuove e un comando nuovo. Le chiavi attuali continuano a funzionare finché le nuove non passano la verifica.",
-        "bodyNone": "Ricevi chiavi nuove e un comando nuovo. Le chiavi attuali ora non funzionano: le nuove subentrano appena passano la verifica.",
-        "confirm": "Rigenera",
-        "bodyRead": "Ricevi chiavi nuove e un comando nuovo. La chiave di lettura attuale continua a funzionare finché le nuove non passano la verifica; quella di correzione attuale ora non funziona.",
-        "bodyFix": "Ricevi chiavi nuove e un comando nuovo. La chiave di correzione attuale continua a funzionare finché le nuove non passano la verifica; quella di lettura attuale ora non funziona."
+        "title": "Rigenerare la chiave di {{code}}?",
+        "body": "Ricevi una chiave nuova e un comando nuovo. La chiave attuale smette subito di funzionare: finché la nuova non passa la verifica, Claude guarda i problemi senza letture SSH.",
+        "confirm": "Rigenera"
       },
       "revoke": {
         "title": "Revocare l'accesso SSH a {{code}}?",
         "noLook": "Claude non potrà più guardare i problemi di {{code}}.",
-        "fixStops": "Una correzione in corso su {{code}} si ferma.",
-        "planBlocked": "Un piano di correzione in attesa di approvazione non potrà essere approvato.",
-        "forget": "Stubwise dimentica le chiavi. Gli utenti restano sul server finché non li togli.",
+        "fixUnaffected": "Una correzione su {{code}} non cambia: passa dall'agente di monitoraggio.",
+        "forget": "Stubwise dimentica la chiave. L'utente resta sul server finché non lo togli.",
         "confirm": "Revoca l'accesso"
       },
       "removal": {
-        "title": "Accesso revocato il {{date}}, {{time}}. Per togliere i due utenti da {{code}}, esegui:",
+        "title": "Accesso revocato il {{date}}, {{time}}. Per togliere stubwise-read da {{code}}, esegui:",
         "done": "Fatto"
       },
       "linkAgain": "Collega di nuovo",
@@ -9876,10 +9925,11 @@
         "next": "Prossima verifica:",
         "hint": "Decide cosa risponde la prossima «Verifica». Nessuna connessione a un server.",
         "outcomes": {
-          "ok": "Riesce",
-          "read_fails": "Fallisce la lettura",
-          "fix_fails": "Fallisce la correzione",
-          "read_writes": "La lettura può scrivere",
+          "ok": "Riesce (legge il journal)",
+          "no_journal": "Riesce, senza il gruppo del journal",
+          "denied": "Chiave rifiutata",
+          "sudo": "stubwise-read ha sudo",
+          "docker": "stubwise-read è nel gruppo docker",
           "unreachable": "Server irraggiungibile"
         },
         "error": "La simulazione non è andata a buon fine."
@@ -9889,7 +9939,32 @@
     "hiddenProjects": "In progetti che non vedi",
     "projectsLabel": "Progetti: {{codes}}",
     "projectsMore": "+{{count}}",
-    "orphanNoClaude": "Collega prima il server a un progetto: Claude lavora dentro un progetto."
+    "orphanNoClaude": "Collega prima il server a un progetto: Claude lavora dentro un progetto.",
+    "manual": {
+      "label": "Claude su questo server",
+      "start": "Chiedi a Claude di guardarci",
+      "hint": "Claude guarda il server con l'accesso in sola lettura e scrive cosa trova, come dopo un avviso.",
+      "running": "{{name}} ha chiesto a Claude di guardarci: Claude sta guardando in sola lettura",
+      "diagnosed": "Diagnosi pronta, chiesta da {{name}}",
+      "timed_out": "Diagnosi parziale, chiesta da {{name}}: Claude ha finito il tempo",
+      "unreachable": "Claude non è riuscito a raggiungere il server (chiesto da {{name}})",
+      "stopped": "Claude si è fermato prima di una diagnosi (chiesto da {{name}})",
+      "failed": "L'analisi di Claude non è riuscita (chiesta da {{name}}): la task non si è aperta",
+      "undetermined": "Claude non è riuscito a capire quale progetto ne è la causa: {{reason}} Nessuna task aperta.",
+      "hiddenTask": "La diagnosi è in un progetto che non vedi.",
+      "errors": {
+        "analysis_running": "Claude sta già guardando questo server.",
+        "access": "Claude non può guardarci: l'accesso SSH in sola lettura non è usabile.",
+        "monthly_budget": "Claude non può guardarci: il budget AI del mese è esaurito.",
+        "forbidden": "Non puoi chiedere a Claude di guardare questo server.",
+        "generic": "Non è stato possibile chiederlo a Claude. Riprova."
+      },
+      "blocked": {
+        "monthly_budget": "Claude non ci ha guardato (chiesto da {{name}}): il budget AI del mese è esaurito.",
+        "disabled": "Claude non ci ha guardato (chiesto da {{name}}): l'analisi dei server è spenta in Amministrazione → AI.",
+        "cap": "Claude non ci ha guardato (chiesto da {{name}}): non c'è abbastanza budget AI per un'analisi."
+      }
+    }
   },
   "whoCan": {
     "actions": {
@@ -10894,6 +10969,7 @@
           "mail": "Posta",
           "automations": "Automazioni",
           "support": "Supporto",
+          "servers": "Server",
           "chat": "Chat"
         },
         "source": {
@@ -10983,6 +11059,23 @@
         "replace": "Sostituisci",
         "replaceOf": "Sostituisci {{label}}",
         "saved": "{{label}}: finisce con {{last4}}"
+      },
+      "serverAnalysis": {
+        "title": "Analisi dei server",
+        "intro": "Quando un server monitorato manda un avviso, Claude ci guarda con l'accesso in sola lettura e scrive una diagnosi. Questi limiti valgono per ogni analisi, automatica o chiesta a mano, e contano nel budget del mese.",
+        "enabled": "Claude guarda gli avvisi dei server",
+        "off": "Spenta: gli avvisi arrivano comunque, ma Claude non ci guarda, e nessuno glielo può chiedere.",
+        "maxMinutes": "Minuti al massimo",
+        "maxCostUsd": "Costo massimo ($)",
+        "maxSshReads": "Letture SSH al massimo",
+        "maxAgentReads": "Letture via agente al massimo",
+        "errors": {
+          "maxMinutes": "Da 1 a 60 minuti.",
+          "maxCostUsd": "Da 0,10 $ a 20 $.",
+          "maxSshReads": "Da 0 a 200 letture.",
+          "maxAgentReads": "Da 0 a 200 letture."
+        },
+        "save": "Salva i limiti"
       }
     },
     "integrations": {
@@ -12137,6 +12230,9 @@
       },
       "task": {
         "deleted": "<actor>{{actor}}</actor> ha eliminato la task <strong>{{object}}</strong> «{{title}}»."
+      },
+      "server_analysis": {
+        "changed": "<actor>{{actor}}</actor> ha cambiato i limiti dell'analisi dei server."
       }
     },
     "groups": {
@@ -12323,7 +12419,6 @@
       "url": "Indirizzo",
       "events": "Eventi",
       "sampleInterval": "Campione ogni (s)",
-      "primaryProject": "Progetto principale",
       "cpu": "CPU %",
       "mem": "Memoria %",
       "disk": "Disco %",
@@ -12347,7 +12442,12 @@
       "pipeline": "Pipeline dei rilasci",
       "branch": "Ramo di rilascio",
       "statusFamilies": "Famiglia degli stati",
-      "kind": "Tipo"
+      "kind": "Tipo",
+      "analysisEnabled": "Analisi accesa",
+      "maxMinutes": "Minuti al massimo",
+      "maxCostUsd": "Costo massimo ($)",
+      "maxAgentReads": "Letture via agente al massimo",
+      "maxSshReads": "Letture SSH al massimo"
     },
     "via": {
       "actor": "Claude per conto di {{name}}",
@@ -12383,7 +12483,9 @@
       "plugin_smoke": "Smoke test dei plugin",
       "credential_test": "Prove degli account",
       "usage_probe": "Letture della quota",
-      "support_triage_check": "Supporto: giudizio sul triage"
+      "support_triage_check": "Supporto: giudizio sul triage",
+      "server_analysis": "Server: analisi",
+      "server_fix_plan": "Server: piano di correzione"
     }
   },
   "instanceEffects": {

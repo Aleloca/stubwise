@@ -1,7 +1,8 @@
 import { agentConfigSchema, ingestBodySchema } from "@stubwise/shared";
 import type { AgentCheckConfig } from "@stubwise/shared";
-import { checkSamples, decrypt, serverMetrics, servers, serviceChecks } from "@stubwise/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { checkSamples, decrypt, serverCommands, serverMetrics, serverOperationApprovals, servers, serviceChecks } from "@stubwise/db";
+import { and, eq, inArray, lt, sql } from "drizzle-orm";
+import { COMMAND_OUTPUT_MAX } from "../services/server-commands.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -100,7 +101,7 @@ export async function monitorRoutes(
     },
     async (request) => {
       const server = request.monitorServer!;
-      const { hostname, agentVersion, samples, checkResults } = request.body;
+      const { hostname, agentVersion, samples, checkResults, capabilities } = request.body;
 
       // Campioni host: ts (ISO) → Date. onConflictDoNothing su (server_id, ts)
       // rende il re-invio dello stesso batch un no-op (idempotenza).
@@ -127,7 +128,8 @@ export async function monitorRoutes(
       // Il server ha appena parlato: aggiorna heartbeat e identità dichiarata.
       await app.db
         .update(servers)
-        .set({ lastSeenAt: new Date(), hostname, agentVersion })
+        // Area 8, F4b: la dichiarazione dell'agente (senza il campo: spente).
+        .set({ lastSeenAt: new Date(), hostname, agentVersion, agentCapabilities: { version: agentVersion, operations: capabilities?.operations === true } })
         .where(eq(servers.id, server.id));
 
       let checkResultsAccepted = 0;
@@ -271,7 +273,135 @@ export async function monitorRoutes(
         });
       }
 
-      return { sampleIntervalSeconds: server.sampleIntervalSeconds, checks };
+      return { sampleIntervalSeconds: server.sampleIntervalSeconds, checks, serverId: server.id };
+    },
+  );
+
+  /**
+   * Area 8, F4b, S3: il canale dei comandi. L'agente TIRA (nessuna porta
+   * aperta sull'host) con la sua chiave `sk_…`, che lo autentica ma non
+   * autorizza niente: l'agente esegue solo comandi FIRMATI dal server e li
+   * verifica con la pubblica fissata alla sua installazione. Al più UN comando
+   * per richiesta, consegnato UNA volta (UPDATE guardato con SKIP LOCKED); uno
+   * scaduto diventa `expired` e non si consegna mai. Un agente che non
+   * dichiara le operazioni non riceve niente.
+   */
+  const commandPayloadSchema = z.object({
+    v: z.literal(1),
+    serverId: z.uuid(),
+    commandId: z.uuid(),
+    action: z.string(),
+    params: z.record(z.string(), z.unknown()),
+    approvalId: z.uuid().nullable(),
+    issuedAt: z.string(),
+    expiresAt: z.string(),
+  });
+  app.get(
+    "/commands",
+    {
+      config: { rateLimit, access: { kind: "public" } },
+      preValidation: authenticateServer,
+      schema: {
+        response: {
+          200: z.object({ command: z.object({ payload: commandPayloadSchema, signature: z.string() }).nullable() }),
+          401: errorSchema,
+        },
+      },
+    },
+    async (request) => {
+      const server = request.monitorServer!;
+      const now = new Date();
+      await app.db
+        .update(serverCommands)
+        .set({ status: "expired", finishedAt: now })
+        .where(and(eq(serverCommands.serverId, server.id), eq(serverCommands.status, "pending"), lt(serverCommands.expiresAt, now)));
+      // Review F4b, I1: un `change` la cui approvazione è stata revocata (Stop,
+      // anche se è arrivato fra il ricontrollo e la firma) non si consegna: si
+      // annulla qui.
+      await app.db.execute(sql`
+        update ${serverCommands} c set status = 'cancelled', finished_at = now()
+        from ${serverOperationApprovals} a
+        where c.server_id = ${server.id} and c.status = 'pending' and c.approval_id = a.id and a.revoked_at is not null
+      `);
+      if (server.agentCapabilities?.operations !== true) return { command: null };
+      const claimed = await app.db.execute<{
+        id: string;
+        action: string;
+        params: Record<string, unknown>;
+        approval_id: string | null;
+        issued_at: Date | string;
+        expires_at: Date | string;
+        signature: string | null;
+      }>(sql`
+        update ${serverCommands} set status = 'delivered', delivered_at = now()
+        where id = (
+          select id from ${serverCommands}
+          where server_id = ${server.id} and status = 'pending' and expires_at > now() and signature is not null
+            and (approval_id is null or exists (
+              select 1 from ${serverOperationApprovals} a where a.id = approval_id and a.revoked_at is null
+            ))
+          order by issued_at, id
+          for update skip locked
+          limit 1
+        )
+        returning id, action, params, approval_id, issued_at, expires_at, signature
+      `);
+      const row = claimed[0];
+      if (!row) return { command: null };
+      const iso = (v: Date | string) => new Date(v).toISOString();
+      return {
+        command: {
+          payload: {
+            v: 1 as const,
+            serverId: server.id,
+            commandId: row.id,
+            action: row.action,
+            params: row.params,
+            approvalId: row.approval_id,
+            issuedAt: iso(row.issued_at),
+            expiresAt: iso(row.expires_at),
+          },
+          signature: row.signature!,
+        },
+      };
+    },
+  );
+
+  /** L'esito di un comando consegnato, UNA volta; l'uscita è non fidata e troncata. */
+  app.post(
+    "/commands/:commandId/result",
+    {
+      config: { rateLimit, access: { kind: "public" } },
+      preValidation: authenticateServer,
+      schemaErrorFormatter: unprocessableEntityFormatter,
+      schema: {
+        params: z.object({ commandId: z.uuid() }),
+        body: z.object({ exitCode: z.number().int(), output: z.string().max(1_000_000).default("") }),
+        response: { 200: z.object({ ok: z.literal(true) }), 401: errorSchema, 404: errorSchema, 409: errorSchema },
+      },
+    },
+    async (request, reply) => {
+      const server = request.monitorServer!;
+      const { commandId } = request.params;
+      const { exitCode, output } = request.body;
+      const [updated] = await app.db
+        .update(serverCommands)
+        .set({
+          status: exitCode === 0 ? "done" : "failed",
+          exitCode,
+          output: output.slice(0, COMMAND_OUTPUT_MAX),
+          finishedAt: new Date(),
+        })
+        .where(and(eq(serverCommands.id, commandId), eq(serverCommands.serverId, server.id), eq(serverCommands.status, "delivered")))
+        .returning({ id: serverCommands.id });
+      if (updated) return { ok: true as const };
+      const [exists] = await app.db
+        .select({ id: serverCommands.id })
+        .from(serverCommands)
+        .where(and(eq(serverCommands.id, commandId), eq(serverCommands.serverId, server.id)));
+      return exists
+        ? apiError(reply, 409, "command_not_delivered", "This command is not waiting for a result")
+        : apiError(reply, 404, "command_not_found", "Command not found");
     },
   );
 }

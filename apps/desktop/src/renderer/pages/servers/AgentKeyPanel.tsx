@@ -2,6 +2,7 @@ import { agentInstallCommand } from "@stubwise/shared";
 import { useId, useState } from "react";
 import { isAppBuild } from "../../data/build";
 import { useTranslation } from "react-i18next";
+import { useCommandKey } from "../../data/queries";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
 import { primaryButton, secondaryButton } from "../tasks/controls";
@@ -21,8 +22,16 @@ const INSTANCE_URL = "https://stubwise.example";
  * Il comando che installa l'agente sul server: quello di shared, lo stesso
  * del web (area 8, F4a). Nella build app con l'indirizzo vero dell'istanza.
  */
-export function agentCommand(key: string, instanceUrl: string = INSTANCE_URL): string {
-  return agentInstallCommand({ instanceUrl, key });
+export function agentCommand(
+  key: string,
+  instanceUrl: string = INSTANCE_URL,
+  commandKey?: string,
+): string {
+  return agentInstallCommand({
+    instanceUrl,
+    key,
+    ...(commandKey ? { operations: { publicKey: commandKey } } : {}),
+  });
 }
 
 const copyButton =
@@ -47,7 +56,16 @@ export function AgentKeyDialog({
   const keyId = useId();
   const [copied, setCopied] = useState<"key" | "command" | null>(null);
   const [asking, setAsking] = useState(false);
-  const command = agentCommand(agentKey, instanceUrl);
+  // Le operazioni dell'agente (R3): spente di base; accese, il comando porta
+  // la chiave pubblica d'istanza che verifica i comandi.
+  const [operations, setOperations] = useState(false);
+  const opsId = useId();
+  const keyQuery = useCommandKey(operations);
+  const commandKey = keyQuery.data?.publicKey;
+  // Con le operazioni accese il comando senza la chiave dei comandi sarebbe
+  // sbagliato: finché non c'è, niente comando da copiare (review F4b).
+  const waitingKey = operations && !commandKey;
+  const command = agentCommand(agentKey, instanceUrl, operations ? commandKey : undefined);
 
   const copy = (what: "key" | "command", text: string) => {
     const clipboard = navigator.clipboard;
@@ -135,11 +153,47 @@ export function AgentKeyDialog({
           <span className="text-xs text-ink-muted">{t("servers.key.commandHint", { code })}</span>
         </div>
         {/* Lo stesso blocco del comando SSH: monospace, Copy, scorrimento dentro. */}
-        <CommandBlock
-          label={t("servers.key.command")}
-          command={command}
-          onCopied={() => setCopied("command")}
+        {waitingKey ? (
+          keyQuery.isError ? (
+            <p role="alert" data-command-key-error className="text-sm text-critical">
+              {t("servers.key.commandKeyError")}
+            </p>
+          ) : (
+            <span
+              role="status"
+              aria-label={t("servers.key.commandKeyLoading")}
+              className="skeleton-breathe h-24 max-w-[760px] rounded-md bg-ink/6"
+            />
+          )
+        ) : (
+          <CommandBlock
+            label={t("servers.key.command")}
+            command={command}
+            onCopied={() => setCopied("command")}
+          />
+        )}
+      </div>
+      <div className="flex items-start gap-2">
+        <input
+          id={opsId}
+          type="checkbox"
+          checked={operations}
+          onChange={(e) => {
+            setOperations(e.target.checked);
+            // Cambia il comando: va copiato di nuovo.
+            if (copied === "command") setCopied(null);
+          }}
+          aria-describedby={`${opsId}-hint`}
+          className="mt-0.5"
         />
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <label htmlFor={opsId} className="text-sm font-medium text-ink">
+            {t("servers.key.operations")}
+          </label>
+          <span id={`${opsId}-hint`} className="text-xs text-pretty text-ink-muted">
+            {t("servers.key.operationsHint")}
+          </span>
+        </div>
       </div>
     </Dialog>
   );

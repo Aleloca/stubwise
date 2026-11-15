@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CONTAINER_NAME_RE } from "../servers/operations.js";
 
 /**
  * Schemi degli AMBIENTI di progetto (fase 8 — ambienti e coda di rilascio).
@@ -57,6 +58,12 @@ export const projectEnvironmentSchema = z.object({
         reportedSha: z.string().nullable().optional(),
         reportedAt: z.iso.datetime().nullable().optional(),
         releaseCode: z.string().nullable().optional(),
+        /**
+         * Area 8, F4b (S12): i container di QUEL server che appartengono a
+         * questo ambiente (l'attribuzione di un guasto a un progetto).
+         * Facoltativo: un server più vecchio non lo manda.
+         */
+        containers: z.array(z.string()).optional(),
       }),
     )
     .default([]),
@@ -102,3 +109,15 @@ export const patchEnvironmentSchema = z.object({
   servers: z.array(z.object({ repositoryId: z.uuid(), serverId: z.uuid().nullable() })).max(200).optional(),
 });
 export type PatchEnvironmentInput = z.infer<typeof patchEnvironmentSchema>;
+
+/**
+ * Area 8, F4b (S12): i container di un ambiente su uno dei suoi server. Solo
+ * nomi che l'agente riporta per quel server (422 altrimenti), mai di un altro
+ * progetto (409). Sostituisce l'elenco su ogni repository dell'ambiente che
+ * usa quel server.
+ */
+export const setEnvironmentContainersSchema = z.object({
+  serverId: z.uuid(),
+  containers: z.array(z.string().regex(CONTAINER_NAME_RE)).max(50),
+});
+export type SetEnvironmentContainers = z.infer<typeof setEnvironmentContainersSchema>;

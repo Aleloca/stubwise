@@ -11,6 +11,7 @@
     "smoke": "tsx scripts/smoke.ts",
     "golden": "tsx scripts/golden/run.ts",
     "golden:nightly": "tsx scripts/golden/nightly.ts",
+    "golden:server-ops": "tsx scripts/golden/server-ops.ts",
     "typecheck": "tsc --noEmit && tsc -p scripts/tsconfig.json",
     "nightly:once": "node dist/nightly/once.js"
   },
@@ -29,11 +30,13 @@
     "execa": "^9.5.0",
     "fflate": "0.8.3",
     "node-pty": "^1.1.0",
+    "ssh2": "1.17.0",
     "zod": "^4.1.5"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "^12.0.1",
     "@types/node": "^22.0.0",
+    "@types/ssh2": "1.15.5",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "vitest": "^3.2.0"

@@ -80,6 +80,8 @@ export const notificationKindSchema = z.enum([
   // Area 8, fetta 3 (0179): Support. Una richiesta nata da una conversazione,
   // nel catalogo degli avvisi.
   "support.request",
+  // Area 8, fetta 4b (0181): la diagnosi dell'analisi di un server, nel catalogo degli avvisi.
+  "server.diagnosis_ready",
 ]);
 
 /**

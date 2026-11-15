@@ -1,22 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { CheckSample, MetricPoint, ProjectEnvironment } from "../../data/model";
-import {
-  ANALYSIS_MAX_COST_USD,
-  ANALYSIS_MAX_MINUTES,
-  COMMAND_OUTPUT_MAX_LINES,
-  METRIC_POINTS_MAX,
-  RECOVERED_SHOWN_HOURS,
-} from "./limits";
+import { COMMAND_OUTPUT_MAX_LINES, METRIC_POINTS_MAX, RECOVERED_SHOWN_HOURS } from "./limits";
 import { downsample, downsampleSamples } from "./metrics";
-import { alertProjectsOf, analysisProjectOf } from "./projects";
+import { alertProjectsOf, serverProjectsOf } from "./projects";
 
 // Limiti, metriche e progetti; salute, accessi, comandi e correzione hanno
 // ciascuno il suo file di test accanto al sorgente.
 
 describe("limiti", () => {
   it("sono quelli del piano", () => {
-    expect(ANALYSIS_MAX_MINUTES).toBe(20);
-    expect(ANALYSIS_MAX_COST_USD).toBe(2);
     expect(COMMAND_OUTPUT_MAX_LINES).toBe(40);
     expect(RECOVERED_SHOWN_HOURS).toBe(24);
     expect(METRIC_POINTS_MAX).toBe(300);
@@ -110,28 +102,39 @@ describe("downsampleSamples (R-L1)", () => {
   });
 });
 
-describe("alertProjectsOf e analysisProjectOf", () => {
+describe("alertProjectsOf e serverProjectsOf", () => {
   const envs = [
     env("e1", "p-a", "staging", ["SRV-1"]),
     env("e2", "p-b", "production", ["SRV-2", "SRV-1"]),
     env("e3", "p-c", "production", ["SRV-1"]),
     env("e4", "p-d", "production", ["SRV-3"]),
+    env("e5", "p-b", "test", ["SRV-1"]),
   ];
+  const codeOf = (id: string) => id.toUpperCase();
 
   it("solo le produzioni che usano il server, una volta per progetto", () => {
     expect(alertProjectsOf("SRV-1", envs)).toEqual(["p-b", "p-c"]);
     expect(alertProjectsOf("SRV-9", envs)).toEqual([]);
   });
 
-  it("due produzioni: il principale se c'è, altrimenti il primo", () => {
-    expect(analysisProjectOf("SRV-1", envs, "p-c")).toBe("p-c");
-    expect(analysisProjectOf("SRV-1", envs, "p-a")).toBe("p-b");
-    expect(analysisProjectOf("SRV-1", envs, null)).toBe("p-b");
-  });
-
-  it("solo staging → null (niente analisi)", () => {
+  it("solo staging → nessun progetto che riceve gli avvisi", () => {
     const staging = [env("e1", "p-a", "staging", ["SRV-5"])];
     expect(alertProjectsOf("SRV-5", staging)).toEqual([]);
-    expect(analysisProjectOf("SRV-5", staging, "p-a")).toBeNull();
+  });
+
+  it("i progetti del server per l'attribuzione: ogni ambiente che lo usa, raggruppati per progetto; senza container il NOME dell'ambiente", () => {
+    expect(serverProjectsOf("SRV-1", envs, codeOf)).toEqual([
+      { projectId: "p-a", projectCode: "P-A", environments: [{ name: "e1", containers: [] }] },
+      {
+        projectId: "p-b",
+        projectCode: "P-B",
+        environments: [
+          { name: "e2", containers: [] },
+          { name: "e5", containers: [] },
+        ],
+      },
+      { projectId: "p-c", projectCode: "P-C", environments: [{ name: "e3", containers: [] }] },
+    ]);
+    expect(serverProjectsOf("SRV-9", envs, codeOf)).toEqual([]);
   });
 });

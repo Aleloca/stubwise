@@ -226,6 +226,37 @@ describe("le card dell'inbox", () => {
       );
     });
 
+    it("F4b: server.diagnosis_ready apre la task, o senza task la pagina del server", () => {
+      const withTask = inboxItemSchema.parse({
+        ...base,
+        kind: "server.diagnosis_ready",
+        url: "/app/#/p/AUD/servers/SRV-4",
+        serverCode: "SRV-4",
+      });
+      expect(presentInboxItem(withTask, origin).link).toBe("#/p/AUD/tasks?task=AUD-12");
+      const noTask = inboxItemSchema.parse({
+        ...base,
+        kind: "server.diagnosis_ready",
+        ticketId: null,
+        url: "/app/#/p/AUD/servers/SRV-4",
+        serverCode: "SRV-4",
+      });
+      expect(presentInboxItem(noTask, origin).link).toBe("#/p/AUD/servers/SRV-4");
+    });
+
+    it("F4b: chi ha chiesto l'analisi a mano porta il motivo `analysis_requester`", () => {
+      const item = inboxItemSchema.parse({
+        ...base,
+        kind: "server.diagnosis_ready",
+        ticketId: null,
+        serverCode: "SRV-4",
+        alertMandatory: "analysis_requester",
+      });
+      expect(presentInboxItem(item, { ...origin, viewerId: ME_ID }).mandatory).toEqual([
+        { personId: ME_ID, reason: "analysis_requester" },
+      ]);
+    });
+
     it("un /app/# di un'altra origine non apre mai una pagina dell'app", () => {
       const n = presentInboxItem(catalogCard("release.merged", "https://evil.example.com/app/#/p/AUD/docs"), origin);
       expect(n.link).toBe("");

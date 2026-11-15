@@ -53,7 +53,6 @@ import { MenuButton } from "../tasks/controls";
 import { useInlineUpdate, useProjectMembers } from "../tasks/pickers";
 import { MoreIcon, Section, ghostButton, smallPrimary, smallSecondary } from "./parts";
 import { FailureBlock, PrRows, ProviderLine, SkillsInRun, UsageDisclosure } from "./ClaudeRunParts";
-import { FixCommandLog } from "./FixCommandLog";
 import { WorkStory, phaseName } from "./WorkStory";
 
 const K = "taskDetail.claude";
@@ -599,7 +598,7 @@ function WithRun({
   const [form, setForm] = useState<Form>(null);
   const [cancelling, setCancelling] = useState(false);
   const sectionRef = useRef<HTMLElement>(null);
-  const fixPlan = useServerFixPlan(detail, code || null);
+  const fixPlan = useServerFixPlan(detail);
 
   // Dal vivo quando lo stream ha dato qualcosa; stato ed esito dal dettaglio.
   const events: ConversationEvent[] = stream.events.length > 0 ? stream.events : run.events;
@@ -860,13 +859,7 @@ function WithRun({
           onReadFull={toSession}
           statusShown
           serverFix={fixPlan}
-        />
-      )}
-      {detail?.serverFix && (
-        <FixCommandLog
-          events={events}
-          serverCode={detail.serverFix.serverCode}
-          live={status.kind === "working"}
+          decideElsewhere={!!detail?.serverFix}
         />
       )}
 

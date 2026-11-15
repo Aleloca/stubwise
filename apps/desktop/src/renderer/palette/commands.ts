@@ -160,7 +160,6 @@ export const COMMANDS: readonly Command[] = [
       !!scope.serverCode &&
       scope.serverAccessState !== undefined &&
       scope.serverAccessState !== "verified" &&
-      scope.serverAccessState !== "regenerating" &&
       can(viewer, "servers.ssh.manage"),
   },
   {

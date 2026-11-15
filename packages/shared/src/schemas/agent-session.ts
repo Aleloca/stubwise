@@ -37,6 +37,9 @@ export const agentSessionKindSchema = z.enum([
    * riga in `claude_conversations`); la risposta è un messaggio della Chat.
    */
   "chat_mention",
+  /** Area 8, F4b: l'analisi di un server (sole letture) e la correzione da una task (il piano). */
+  "server_analysis",
+  "server_fix",
 ]);
 export type AgentSessionKind = z.infer<typeof agentSessionKindSchema>;
 
@@ -68,6 +71,9 @@ export const agentSegmentLabelSchema = z.enum([
   "refine",
   /** Il turno di una conversazione libera con Claude (chat, fetta 1). Additivo. */
   "chat",
+  /** Area 8, F4b: l'analisi di un server e la correzione (S5, S6). Additivi; non interattivi. */
+  "server_analysis",
+  "server_fix",
 ]);
 export type AgentSegmentLabel = z.infer<typeof agentSegmentLabelSchema>;
 

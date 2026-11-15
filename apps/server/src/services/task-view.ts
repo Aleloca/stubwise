@@ -204,6 +204,8 @@ const SOURCE: Record<TicketSource, NonNullable<TaskViewData["source"]>> = {
   widget: "widget",
   email: "email",
   automation: "automation",
+  // Area 8, F4b (0182): una task nata dall'analisi di un server.
+  server: "server",
 };
 
 /** Lo stato del lavoro di Claude dall'ultimo job della task. */
