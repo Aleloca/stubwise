@@ -114,6 +114,10 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // e le azioni a chi ha `servers.ssh.manage`, rigenerazione compresa (una
     // chiave sola: la vecchia smette subito, decisione del maintainer).
     "servers-ssh",
+    // Area 8, F4b: la sezione Server della task e la correzione (piano dalla
+    // vista, approva col digest, rifiuta con la nota, stop, il registro dei
+    // comandi), su `GET /api/tasks/:id/server` e `client.serverOps`.
+    "servers",
     // Gli ambienti col form (spenti dalla F1): i server si scelgono fra quelli visibili.
     "environments",
     // Area 8, F4b (R0-D): i container di un ambiente su un suo server

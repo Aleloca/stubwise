@@ -466,6 +466,12 @@ const INTEGRATED_CALLS = new Set([
   "servers.getRemovalCommand",
   // R3: la chiave dei comandi, per il comando d'installazione con le operazioni.
   "servers.getCommandKey",
+  // F4b: la sezione Server della task e la correzione.
+  "servers.getServerTaskInfo",
+  "servers.startServerFix",
+  "servers.approveServerFix",
+  "servers.rejectServerFix",
+  "servers.stopServerFix",
   // Area 8, F2 (R6): le iscrizioni agli avvisi.
   "alerts.subscriptionRows",
   "alerts.setSubscription",
@@ -779,6 +785,24 @@ describe("aree non integrate nella build app", () => {
     // dice che manca l'accesso, e il bottone dell'analisi a mano segue il server.
     expect(screen.queryByText(/won't include SSH reads/)).toBeNull();
     expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("F4b: la sezione Server di una task e la scheda del piano, solo chiamate integrate", async () => {
+    const user = userEvent.setup();
+    signedInAs("p-roberta");
+    renderRoute("/p/ACQ/tasks?task=ACQ-6");
+    const panel = await screen.findByRole("dialog", { name: "Task ACQ-6" }, { timeout: 3000 });
+    const section = () => within(panel).getByRole("region", { name: "Server" });
+    await waitFor(() => expect(calls).toContain("servers.getServerTaskInfo"));
+    await waitFor(() => expect(section()).toHaveTextContent("SRV-1"), { timeout: 5000 });
+    await user.click(await within(section()).findByRole("button", { name: /^Start fix/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Start a fix on SRV-1?" });
+    // Le note per Claude il server non le prende: nell'app il campo non c'è.
+    expect(within(dialog).queryByRole("textbox")).toBeNull();
+    await user.click(within(dialog).getByRole("button", { name: "Start fix" }));
+    await waitFor(() => expect(calls).toContain("servers.startServerFix"));
     await settle();
     expect(outside()).toEqual([]);
   });

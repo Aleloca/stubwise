@@ -3,6 +3,7 @@ import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { AiBlockLine } from "../../components/InstanceBlock";
+import { isAppBuild } from "../../data/build";
 import {
   useAiBlock,
   useConversation,
@@ -379,7 +380,7 @@ function FixPlan({
 function ServerBody({ task, info }: { task: Task; info: ServerTaskInfo }) {
   const { t } = useTranslation();
   const project = useProjects().data?.find((p) => p.id === task.projectId)?.code ?? "";
-  const code = info.server?.code ?? task.serverRef?.serverCode ?? "";
+  const code = info.server?.code ?? info.goneCode ?? task.serverRef?.serverCode ?? "";
   const [confirming, setConfirming] = useState(false);
   const [notes, setNotes] = useState("");
   const notesId = useId();
@@ -552,16 +553,19 @@ function ServerBody({ task, info }: { task: Task; info: ServerTaskInfo }) {
             <strong className="font-semibold">{t(`${K}.dialog.strong`, { code })}</strong>
             {t(`${K}.dialog.after`)}
           </p>
-          <DialogField label={t(`${K}.dialog.notes`)} htmlFor={notesId}>
-            <textarea
-              id={notesId}
-              rows={3}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder={t(`${K}.dialog.notesPlaceholder`, { code })}
-              className={`${inputClass} resize-y`}
-            />
-          </DialogField>
+          {/* Le note per Claude il server non le prende ancora: solo nel prototipo. */}
+          {!isAppBuild() && (
+            <DialogField label={t(`${K}.dialog.notes`)} htmlFor={notesId}>
+              <textarea
+                id={notesId}
+                rows={3}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder={t(`${K}.dialog.notesPlaceholder`, { code })}
+                className={`${inputClass} resize-y`}
+              />
+            </DialogField>
+          )}
         </Dialog>
       )}
     </Section>

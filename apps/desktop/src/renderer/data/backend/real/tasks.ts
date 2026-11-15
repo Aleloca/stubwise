@@ -81,6 +81,9 @@ export function toTask(view: TaskViewData): Task {
     lastActivityAt: view.lastActivityAt,
     occurrences: view.occurrences,
     ...(view.source ? { source: view.source } : {}),
+    // Area 8, F4b: una task nata da un server mostra la sezione Server; il
+    // server e l'episodio li legge la sezione (`GET /api/tasks/:id/server`).
+    ...(view.source === "server" ? { serverRef: { serverCode: "", episodeId: null } } : {}),
     // Area 7, F1: la riga «Created by automation …» la risolve il server
     // (`/api/automation-origin`), qui serve solo il segno; solo se la task
     // l'ha creata un'automazione e la destinazione è accesa.

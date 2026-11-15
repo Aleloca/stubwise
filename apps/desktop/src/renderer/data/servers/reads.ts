@@ -307,6 +307,11 @@ export interface ServerTaskInfo {
   } | null;
   /** I nomi dei controlli nominati dai motivi dell'episodio (id → nome). */
   checkNames: Record<string, string>;
+  /**
+   * Build app: il codice del server sparito (o tolto dal progetto), per
+   * «SRV-n · deleted» quando la task non lo porta.
+   */
+  goneCode?: string;
   /** Quando la correzione è arrivata allo stato di adesso (l'ultimo cambio della sessione). */
   stateAt: string | null;
   /**

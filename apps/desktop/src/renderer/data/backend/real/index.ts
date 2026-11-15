@@ -9,6 +9,7 @@ import { liveAlerts } from "./alerts";
 import { liveSupport } from "./support";
 import { liveWidgets } from "./supportWidgets";
 import { liveServers } from "./servers";
+import { liveServerTask } from "./serverTask";
 import { liveAutomations } from "./automationsLive";
 import { liveReleases } from "./releasesLive";
 import { adminDepartments } from "./departments";
@@ -80,10 +81,11 @@ export const support: typeof Fake.support = partialNamespace<typeof Fake.support
  * (elenchi, dettaglio, metriche, episodi). Scritture, SSH, analisi e
  * correzione restano «non integrati».
  */
-export const servers: typeof Fake.servers = partialNamespace<typeof Fake.servers>(
-  "servers",
-  liveServers,
-);
+export const servers: typeof Fake.servers = partialNamespace<typeof Fake.servers>("servers", {
+  ...liveServers,
+  // Area 8, F4b: la sezione Server della task (`GET /api/tasks/:id/server`) e la correzione.
+  ...liveServerTask,
+});
 export const chat: typeof Fake.chat = partialNamespace<typeof Fake.chat>("chat", {
   ...chatFunctions,
   channelStream,

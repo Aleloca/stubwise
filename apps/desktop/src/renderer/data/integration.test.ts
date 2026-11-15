@@ -76,6 +76,7 @@ const ALL: IntegrationTarget[] = [
       "servers-monitor",
       "servers-write",
       "servers-ssh",
+      "servers",
       "servers-analysis",
       "servers-search",
       "servers-create-in-env",
@@ -129,6 +130,7 @@ describe("isIntegrated", () => {
         // i tetti (Amministrazione → AI non è ancora integrata), l'SSH e la ricerca no.
         "feature:servers-analysis",
         "feature:servers-ssh",
+        "feature:servers",
         "feature:environment-containers",
         "destination:projects",
         "projectSection:tasks",

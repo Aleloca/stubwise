@@ -922,6 +922,17 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     azioni a chi ha `servers.ssh.manage`; host di base quello dell'agente.)*
   - *(fatto: la rigenerazione della chiave SSH, una chiave sola: la vecchia
     smette subito, prototipo allineato; decisione del maintainer, 15 nov 2026.)*
+  - *(fatto: la sezione Server della task e la correzione, `servers`: la
+    scheda del piano dalla vista, approva col digest, rifiuta con la nota,
+    stop, il registro dei comandi per task; decisione 3 del maintainer.)*
+  - **Correzione, divergenze dichiarate nell'app**: le «note per Claude»
+    all'avvio il server non le prende (il campo non c'è nell'app); la riga
+    «You started this fix» non c'è (il server non dice chi l'ha chiesta); lo
+    stato «risolta / non risolta» si deriva da `done` e da `planError`
+    (`recheck:…`); la salute del server nella riga del server non arriva;
+    il dettaglio del controllo finale resta nella sessione. Nel prototipo i
+    passi approvati girano ancora dentro la sessione di Claude (sul server
+    sono deterministici): per chi guarda conta la sezione Server.
   - **SSH, divergenze dichiarate nell'app**: il comando d'installazione è
     quello del server (in inglese, senza i commenti nella lingua di chi
     guarda); l'ultimo uso è solo la data (non con quale analisi o task: le
