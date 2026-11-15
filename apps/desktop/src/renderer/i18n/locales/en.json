@@ -9939,7 +9939,7 @@
       "blocked": {
         "monthly_budget": "Claude didn't look into it (asked by {{name}}): the monthly AI budget is used up.",
         "disabled": "Claude didn't look into it (asked by {{name}}): the server analysis is turned off in Administration → AI.",
-        "cap": "Claude didn't look into it (asked by {{name}}): the analysis limit was reached."
+        "cap": "Claude didn't look into it (asked by {{name}}): there isn't enough AI budget left for an analysis."
       }
     }
   },

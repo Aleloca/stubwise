@@ -105,7 +105,9 @@ export function analysisOf(v: Reader<ServerAnalysisWire>, serverCode: string): S
     id: v.id,
     serverCode,
     episodeId: v.episodeId,
-    outcome: OUTCOME[v.status] ?? "stopped",
+    // `done` al tetto dei minuti (`endedBy: "time"`) è la diagnosi parziale del prototipo.
+    outcome:
+      v.status === "done" && v.endedBy === "time" ? "timed_out" : (OUTCOME[v.status] ?? "stopped"),
     startedBy: v.startedBy ? { id: v.startedBy.id, name: v.startedBy.name } : null,
     startedAt: v.startedAt,
     endedAt: v.finishedAt,
@@ -350,8 +352,8 @@ export function detailOf(d: Reader<ServerDetailShape>, now: string): ServerDetai
     sshReachable: false,
     orphan: d.orphan,
     inArchivedOnly: d.inArchivedOnly,
-    // L'analisi a mano arriva col cablaggio di F4b (`client.serverOps.startAnalysis`).
-    canStartAnalysis: false,
+    // Il permesso lo calcola il server (servers.operate in un progetto del server, nessuna in corso).
+    canStartAnalysis: d.canStartAnalysis,
     manualAnalysis: null,
   };
 }

@@ -9939,7 +9939,7 @@
       "blocked": {
         "monthly_budget": "Claude non ci ha guardato (chiesto da {{name}}): il budget AI del mese è esaurito.",
         "disabled": "Claude non ci ha guardato (chiesto da {{name}}): l'analisi dei server è spenta in Amministrazione → AI.",
-        "cap": "Claude non ci ha guardato (chiesto da {{name}}): è stato raggiunto il limite delle analisi."
+        "cap": "Claude non ci ha guardato (chiesto da {{name}}): non c'è abbastanza budget AI per un'analisi."
       }
     }
   },

@@ -916,15 +916,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - *(fatto: i container degli ambienti, `environment-containers`, ad69d9a8e.)*
   - *(fatto: le analisi lette sul server, `servers-analysis`: l'analisi di
     ogni episodio e l'ultima a mano, da `serverOps.analyses`.)*
-  - **il bottone dell'analisi a mano** resta nascosto nell'app finché il
-    dettaglio del server non porta `canStartAnalysis` (chiesto a 72): il
-    client non deduce il permesso; `startServerAnalysis` è già sull'adattatore;
+  - *(fatto: il bottone dell'analisi a mano, con `canStartAnalysis` del server.)*
   - **la frase «niente letture SSH»** di «Now» aspetta l'SSH integrato
     (`servers-ssh`): senza, l'app non sa se l'accesso c'è;
-  - **`blockedBy: "cap"`**: la frase è provvisoria finché 72 non dice cos'è
-    il tetto;
-  - **`done` del server** si mostra come «Diagnosis ready»: il prototipo
-    distingue anche tempo scaduto, irraggiungibile e fermata (chiesto a 72);
+  - **`done` del server** si mostra come «Diagnosis ready», o come diagnosi
+    parziale con `endedBy: "time"`; «irraggiungibile» e «fermata» del
+    prototipo il server non li distingue (resta così);
   - **i tetti dell'analisi** (R0-C, `servers-analysis-limits`): restano
     spenti finché Amministrazione → AI non è integrata (area 9).
   - Divergenze del prototipo dal server, dichiarate: col budget esaurito o

@@ -574,4 +574,24 @@ describe("i Server dal server (area 8, F4a)", () => {
     await busy.getServer("SRV-1");
     await expect(busy.startServerAnalysis("SRV-1")).rejects.toThrow("invalid: analysis_running");
   });
+
+  it("F4b: `canStartAnalysis` lo dice il server; `endedBy: time` è il tempo scaduto", async () => {
+    const api = fakeApi({
+      byCode: async () => detail({ canStartAnalysis: true }),
+      analyses: async () => ({
+        analyses: [
+          analysis({
+            startedBy: { id: USER, name: "Marco" },
+            status: "done",
+            endedBy: "time",
+          }),
+        ],
+      }),
+    });
+    const d = await createRealServers(api, () => NOW).getServer("SRV-1");
+    expect(d.canStartAnalysis).toBe(true);
+    expect(d.manualAnalysis?.outcome).toBe("timed_out");
+    const off = await createRealServers(fakeApi(), () => NOW).getServer("SRV-1");
+    expect(off.canStartAnalysis).toBe(false);
+  });
 });

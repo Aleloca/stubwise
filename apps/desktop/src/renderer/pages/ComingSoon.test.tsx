@@ -455,6 +455,8 @@ const INTEGRATED_CALLS = new Set([
   "servers.listLinkableServers",
   // Area 8, F4b (R0-D): i container di un ambiente.
   "releases.setEnvironmentContainers",
+  // Area 8, F4b: l'analisi a mano («Ask Claude to look into it»), col permesso del server.
+  "servers.startServerAnalysis",
   // Area 8, F2 (R6): le iscrizioni agli avvisi.
   "alerts.subscriptionRows",
   "alerts.setSubscription",
@@ -767,6 +769,18 @@ describe("aree non integrate nella build app", () => {
     // dice che manca l'accesso, e il bottone dell'analisi a mano segue il server.
     expect(screen.queryByText(/won't include SSH reads/)).toBeNull();
     expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("F4b: l'analisi a mano dal dettaglio del server, solo chiamate integrate", async () => {
+    const user = userEvent.setup();
+    signedInAs("p-marco");
+    renderRoute("/p/ACQ/servers/SRV-1");
+    await user.click(
+      await screen.findByRole("button", { name: "Ask Claude to look into it" }, { timeout: 3000 }),
+    );
+    await waitFor(() => expect(calls).toContain("servers.startServerAnalysis"));
     await settle();
     expect(outside()).toEqual([]);
   });

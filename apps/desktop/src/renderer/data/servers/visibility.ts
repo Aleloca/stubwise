@@ -318,8 +318,9 @@ export interface ServerAnalysisView {
   taskCode: string | null;
   /**
    * Bloccata prima di partire (build app: il cancello del worker): il
-   * budget del mese, l'analisi spenta, o il tetto. Il prototipo rifiuta
-   * prima, quindi non lo scrive mai.
+   * budget del mese, l'analisi spenta, o `cap` (il budget che resta è sotto
+   * il tetto di costo di UNA analisi). Il prototipo rifiuta prima, quindi
+   * non lo scrive mai.
    */
   blockedBy?: "monthly_budget" | "disabled" | "cap";
 }
