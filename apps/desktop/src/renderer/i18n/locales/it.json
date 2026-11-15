@@ -1467,7 +1467,23 @@
         "agent": "agente",
         "ssh": "SSH",
         "viaAgent": "Attraverso l'agente di monitoraggio",
-        "viaSsh": "Attraverso l'accesso SSH di sola lettura"
+        "viaSsh": "Attraverso l'accesso SSH di sola lettura",
+        "actions": {
+          "container_restart": "Riavviato {{container}}",
+          "container_stop": "Fermato {{container}}",
+          "container_start": "Avviato {{container}}",
+          "docker_prune": "Liberato spazio",
+          "container_logs": "Letti i log di {{container}}",
+          "container_state": "Letto lo stato di {{container}}",
+          "processes": "Letti i processi più pesanti",
+          "disk": "Letto l'uso del disco",
+          "memory": "Letto l'uso della memoria",
+          "load": "Letto il carico",
+          "uptime": "Letto da quanto è acceso",
+          "listening": "Lette le porte in ascolto",
+          "failed_units": "Letti i servizi falliti",
+          "journal_errors": "Letti gli errori del journal di sistema"
+        }
       },
       "stop": "Ferma la correzione",
       "stopFailed": "Non è stato possibile fermare la correzione. Riprova."

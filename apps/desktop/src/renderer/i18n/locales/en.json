@@ -1467,7 +1467,23 @@
         "agent": "agent",
         "ssh": "SSH",
         "viaAgent": "Through the monitoring agent",
-        "viaSsh": "Through the read-only SSH access"
+        "viaSsh": "Through the read-only SSH access",
+        "actions": {
+          "container_restart": "Restarted {{container}}",
+          "container_stop": "Stopped {{container}}",
+          "container_start": "Started {{container}}",
+          "docker_prune": "Freed up space",
+          "container_logs": "Read the logs of {{container}}",
+          "container_state": "Read the state of {{container}}",
+          "processes": "Read the busiest processes",
+          "disk": "Read disk usage",
+          "memory": "Read memory use",
+          "load": "Read the load",
+          "uptime": "Read the uptime",
+          "listening": "Read the listening ports",
+          "failed_units": "Read the failed services",
+          "journal_errors": "Read the system journal's errors"
+        }
       },
       "stop": "Stop the fix",
       "stopFailed": "Couldn't stop the fix. Try again."

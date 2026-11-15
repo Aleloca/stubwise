@@ -15,7 +15,7 @@ import { createTaskAs } from "../../data/api-mutations";
 import { CLAUDE_ID } from "../../data/seed/people";
 import { whenFixesIdle } from "../../data/servers/fix";
 import { setSessionPersonId } from "../../data/session";
-import { eventsOf, setStreamLatency, state } from "../../data/store";
+import { eventsOf, state } from "../../data/store";
 import type { ConversationEvent } from "../../data/types";
 import { setLanguage } from "../../i18n";
 import { renderRoute } from "../../test/renderRoute";
@@ -353,18 +353,17 @@ describe("sezione Server", () => {
       expect(serverSection()).toHaveTextContent("Fixed — the check after the fix passed"),
     );
     expect(serverSection()).toHaveTextContent("Close the task if the problem is gone.");
-    const log = within(claudeSection()).getByRole("button", { name: /Commands on SRV-1/ });
+    const log = within(serverSection()).getByRole("button", { name: /Commands on SRV-1/ });
     // Chiuso dopo la correzione.
     expect(log).toHaveAttribute("aria-expanded", "false");
     await userEvent.click(log);
-    const list = within(claudeSection()).getByRole("list", { name: "Commands on SRV-1" });
+    const list = within(serverSection()).getByRole("list", { name: "Commands on SRV-1" });
     expect(within(list).getAllByText("change").length).toBe(1);
     expect(within(list).getAllByText("read").length).toBeGreaterThan(0);
     // Ogni riga dice la sua azione tradotta e per quale via: l'agente.
     expect(list).toHaveTextContent("Restarted portale-import");
     expect(within(list).getAllByText("agent").length).toBeGreaterThan(0);
     expect(within(list).queryByText("SSH")).toBeNull();
-    expect(claudeSection()).toHaveTextContent(/Check after the fix: resolved/);
   });
 
   it("controllo finale non risolto: «Not fixed» in parole e «Start fix again»", async () => {
@@ -378,10 +377,9 @@ describe("sezione Server", () => {
       expect(section).toHaveTextContent("Not fixed — the check after the fix failed"),
     );
     expect(within(section).getByRole("button", { name: "Start fix again" })).toBeInTheDocument();
-    expect(claudeSection()).toHaveTextContent(/Check after the fix: not resolved/);
   });
 
-  it("d3: in italiano l'intestazione del controllo finale è tradotta; il dettaglio di Claude resta", async () => {
+  it("d3: in italiano l'esito del controllo finale è tradotto nella sezione Server", async () => {
     const id = await startAs("p-marco");
     setSessionPersonId("p-laura");
     await decidePlan(id, "approve");
@@ -389,15 +387,11 @@ describe("sezione Server", () => {
     act(() => setLanguage("it"));
     try {
       renderRoute(`/p/ACQ/tasks?task=${CODE}`, "p-laura");
-      const check = await waitFor(() => {
-        const el = document.querySelector("[data-server-check]");
-        expect(el).not.toBeNull();
-        return el!;
-      });
-      expect(check).toHaveTextContent(/^Controllo dopo la correzione: risolto — /);
-      expect(check).not.toHaveTextContent("Check after the fix");
-      const row = document.querySelector("[data-work-result='server_check']");
-      if (row) expect(row).toHaveTextContent(/^Controllo dopo la correzione: risolto/);
+      await waitFor(() =>
+        expect(document.querySelector("[data-server-task-state]")).toHaveTextContent(
+          "Risolto: il controllo dopo la correzione è passato",
+        ),
+      );
     } finally {
       act(() => setLanguage("en"));
     }
@@ -423,9 +417,8 @@ describe("sezione Server", () => {
     await waitFor(() => expect(section).toHaveTextContent(/Fix stopped by Roberta/));
     expect(within(section).getByRole("button", { name: "Start fix again" })).toBeInTheDocument();
     await userEvent.click(
-      within(claudeSection()).getByRole("button", { name: /Commands on SRV-1/ }),
+      within(serverSection()).getByRole("button", { name: /Commands on SRV-1/ }),
     );
-    expect(claudeSection()).toHaveTextContent(/Stopped by Roberta .* No actions after this\./);
   });
 
   it("«More» compare quando la proposta è tagliata davvero, anche se è corta", async () => {
@@ -455,10 +448,8 @@ describe("sezione Server", () => {
     );
     expect(section).not.toHaveTextContent(/stopped by/i);
     await userEvent.click(
-      within(claudeSection()).getByRole("button", { name: /Commands on SRV-1/ }),
+      within(serverSection()).getByRole("button", { name: /Commands on SRV-1/ }),
     );
-    expect(claudeSection()).toHaveTextContent("Stopped: the agent's operations were turned off.");
-    expect(claudeSection()).not.toHaveTextContent(/stopped by/i);
   });
 
   it("RF 5: un'uscita di 5000 righe si apre con le ultime 40, «Show all» disegna una finestra", async () => {
@@ -472,10 +463,10 @@ describe("sezione Server", () => {
     fix.truncated = true;
     const user = userEvent.setup();
     await openTask("p-laura");
-    await user.click(within(claudeSection()).getByRole("button", { name: /Commands on SRV-1/ }));
-    const row = within(claudeSection()).getByRole("button", { name: /Restarted portale-import/ });
+    await user.click(within(serverSection()).getByRole("button", { name: /Commands on SRV-1/ }));
+    const row = within(serverSection()).getByRole("button", { name: /Restarted portale-import/ });
     await user.click(row);
-    const out = await within(claudeSection()).findByRole("region", { name: /Output of/ });
+    const out = await within(serverSection()).findByRole("region", { name: /Output of/ });
     expect(out).toHaveTextContent("Showing the last 40 of 5,000 lines");
     expect(out.querySelectorAll("[data-log-line]")).toHaveLength(40);
     expect(out).toHaveTextContent("line 5000");
@@ -494,11 +485,11 @@ describe("sezione Server", () => {
     fix.result = "NAME   CPU %   MEM USAGE\nportale   12.0%   210MiB / 1GiB";
     const user = userEvent.setup();
     await openTask("p-laura");
-    await user.click(within(claudeSection()).getByRole("button", { name: /Commands on SRV-1/ }));
+    await user.click(within(serverSection()).getByRole("button", { name: /Commands on SRV-1/ }));
     await user.click(
-      within(claudeSection()).getByRole("button", { name: /Restarted portale-import/ }),
+      within(serverSection()).getByRole("button", { name: /Restarted portale-import/ }),
     );
-    const out = await within(claudeSection()).findByRole("region", { name: /Output of/ });
+    const out = await within(serverSection()).findByRole("region", { name: /Output of/ });
     expect(out).toHaveTextContent("2 lines");
     expect(out).not.toHaveTextContent(/Showing the last/);
     expect(out.querySelector("[data-log-line]")!.className).toMatch(/(^| )whitespace-pre( |$)/);
@@ -513,11 +504,11 @@ describe("sezione Server", () => {
     fix.result = "[Open the dashboard](https://evil.example) **now** <img src=x onerror=alert(1)>";
     const user = userEvent.setup();
     await openTask("p-laura");
-    await user.click(within(claudeSection()).getByRole("button", { name: /Commands on SRV-1/ }));
+    await user.click(within(serverSection()).getByRole("button", { name: /Commands on SRV-1/ }));
     await user.click(
-      within(claudeSection()).getByRole("button", { name: /Restarted portale-import/ }),
+      within(serverSection()).getByRole("button", { name: /Restarted portale-import/ }),
     );
-    const out = await within(claudeSection()).findByRole("region", { name: /Output of/ });
+    const out = await within(serverSection()).findByRole("region", { name: /Output of/ });
     expect(out).toHaveTextContent("[Open the dashboard](https://evil.example) **now**");
     expect(out.querySelector("a[href*='evil'], img, strong")).toBeNull();
   });

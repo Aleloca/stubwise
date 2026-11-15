@@ -53,7 +53,6 @@ import { MenuButton } from "../tasks/controls";
 import { useInlineUpdate, useProjectMembers } from "../tasks/pickers";
 import { MoreIcon, Section, ghostButton, smallPrimary, smallSecondary } from "./parts";
 import { FailureBlock, PrRows, ProviderLine, SkillsInRun, UsageDisclosure } from "./ClaudeRunParts";
-import { FixCommandLog } from "./FixCommandLog";
 import { WorkStory, phaseName } from "./WorkStory";
 
 const K = "taskDetail.claude";
@@ -861,13 +860,6 @@ function WithRun({
           statusShown
           serverFix={fixPlan}
           decideElsewhere={!!detail?.serverFix}
-        />
-      )}
-      {detail?.serverFix && (
-        <FixCommandLog
-          events={events}
-          serverCode={detail.serverFix.serverCode}
-          live={status.kind === "working"}
         />
       )}
 

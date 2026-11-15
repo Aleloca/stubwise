@@ -15,6 +15,7 @@ import {
   useStopServerFix,
 } from "../../data/queries";
 import { PlanCard } from "../claude/conversation/PlanCard";
+import { ServerCommandLog } from "./ServerCommandLog";
 import type { ServerTaskInfo } from "../../data/servers";
 import type { EpisodeReason, ServerEpisode, Task } from "../../data/types";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
@@ -473,6 +474,13 @@ function ServerBody({ task, info }: { task: Task; info: ServerTaskInfo }) {
       <StateLine info={info} code={code} />
       {info.state === "plan_awaiting" && info.fix?.planDigest && (
         <FixPlan task={task} info={info} code={code} project={project} />
+      )}
+      {info.fix && info.fix.commands.length > 0 && (
+        <ServerCommandLog
+          commands={info.fix.commands}
+          serverCode={code}
+          live={info.state === "fixing" || info.state === "fix_planning"}
+        />
       )}
       {info.fix?.canStop && (
         <button
