@@ -1,8 +1,8 @@
 import { planDigest } from "../../domain/servers/fixPlan";
 import { decidePlan } from "../api-mutations";
 import { eventsOf, gate, state, storeGeneration, visibleProjectIds } from "../store";
-import { can, viewerFor } from "../viewer";
 import { stopServerFixAs } from "./fix";
+import { canStopServerFix } from "./fixPermissions";
 import type { Conversation, ConversationEvent, Task } from "../types";
 import { forbidden, invalid, notFound } from "../writer";
 
@@ -53,15 +53,6 @@ export async function rejectServerFix(taskId: string, note: string): Promise<voi
   const { plan } = pendingOf(run);
   await decidePlan(run!.id, "reject", note.trim() || undefined, plan.id);
 }
-
-/**
- * Chi ferma una correzione: `servers.operate` o `plans.approve` nel progetto
- * della task (review F4b I5, come il server).
- */
-export const canStopServerFix = (me: string, projectId: string): boolean => {
-  const viewer = viewerFor(me);
-  return can(viewer, "servers.operate", projectId) || can(viewer, "plans.approve", projectId);
-};
 
 /** «Stop»: ferma la correzione; una già chiusa è `not_running`. */
 export async function stopServerFix(taskId: string): Promise<void> {

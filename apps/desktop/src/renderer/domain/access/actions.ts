@@ -47,14 +47,14 @@ export const INSTANCE_GROUPS: readonly PermissionGroup[] = [
       "mail_admission.view",
     ],
   },
-  { key: "monitoring", permissions: ["monitor.view", "monitor.manage", "usage.view"] },
+  // `servers.ssh.manage` (area 8, F4b) è nel registro condiviso: nel gruppo del monitor, come il web.
+  {
+    key: "monitoring",
+    permissions: ["monitor.view", "monitor.manage", "servers.ssh.manage", "usage.view"],
+  },
   {
     key: "prototype",
-    permissions: [
-      "servers.ssh.manage",
-      "instance.status.view",
-      "changelog.view",
-    ],
+    permissions: ["instance.status.view", "changelog.view"],
   },
 ];
 
@@ -94,10 +94,8 @@ export const PROJECT_GROUPS: readonly PermissionGroup[] = [
     key: "code",
     permissions: ["repos.view", "repos.manage", "environments.manage", "widget.manage"],
   },
-  {
-    key: "prototype",
-    permissions: ["servers.operate"],
-  },
+  // Area 8, F4b: `servers.operate` è nel registro condiviso, nel gruppo «servers» come il web.
+  { key: "servers", permissions: ["servers.operate"] },
   // La cassaforte delle credenziali (main, 23 ott 2026): lo stesso gruppo del web.
   { key: "credentials", permissions: ["credentials.create", "credentials.edit", "credentials.share"] },
   // Area 4, Chat: i canali del progetto (registro condiviso, come il web).

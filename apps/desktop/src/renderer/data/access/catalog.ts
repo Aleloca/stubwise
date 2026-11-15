@@ -8,7 +8,6 @@ import type { LocalInstancePermission, LocalProjectPermission } from "../types";
 
 /** I permessi d'istanza del prototipo, nell'ordine in cui si mostrano. */
 export const LOCAL_INSTANCE_PERMISSIONS: readonly LocalInstancePermission[] = [
-  "servers.ssh.manage",
   "instance.status.view",
   "changelog.view",
 ];
@@ -28,8 +27,9 @@ export const INSTANCE_SET: ReadonlySet<string> = new Set<string>([
  * `drive.history`) dalla fetta 2, `automations.manage` di progetto (area 7,
  * del Project Lead) dalla fetta 1 dell'area 7, `support.manage` (Project Lead,
  * Developer e Legacy Member, area 8a) dalla fetta 3 dell'area 8: qui
- * resterebbero due volte nel ruolo. `servers.operate` (area 8b) non è di
- * nessun preset: si dà persona per persona (`SEED_PROJECT_GRANTS`).
+ * resterebbero due volte nel ruolo. `servers.operate` (area 8, F4b) è nel
+ * registro condiviso, in nessun preset: si dà persona per persona
+ * (`SEED_PROJECT_GRANTS`).
  */
 export const LOCAL_PROJECT_PERMISSIONS: Readonly<
   Record<string, readonly LocalProjectPermission[]>
@@ -37,7 +37,8 @@ export const LOCAL_PROJECT_PERMISSIONS: Readonly<
 
 /** Ogni permesso di progetto, del registro condiviso e del prototipo (quelli che il full admin ha ovunque). */
 // Un Set su TUTTO: un permesso del prototipo che entra nel registro condiviso
-// (es. `servers.operate`, area 8 F4b) non deve comparire due volte.
+// non deve comparire due volte. `servers.operate` (area 8, F4b) è nel registro
+// condiviso, in nessun preset (`PRESETLESS_PROJECT_PERMISSIONS`).
 export const ALL_PROJECT_PERMISSIONS: readonly string[] = [
-  ...new Set([...PROJECT_PERMISSIONS, ...Object.values(LOCAL_PROJECT_PERMISSIONS).flat(), "servers.operate"]),
+  ...new Set([...PROJECT_PERMISSIONS, ...Object.values(LOCAL_PROJECT_PERMISSIONS).flat()]),
 ];

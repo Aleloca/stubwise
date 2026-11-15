@@ -336,11 +336,13 @@ describe("ACTIONS e gruppi", () => {
   });
 
   it("un permesso locale del prototipo non è già nel registro condiviso (si toglie dai locali quando ci entra)", () => {
-    // I locali presi dagli elenchi COMPLETI (anche `servers.operate`, che non è
-    // di nessun preset): ciò che sta oltre il registro condiviso.
+    // I locali presi dagli elenchi COMPLETI: ciò che sta oltre il registro
+    // condiviso. `servers.operate` (area 8, F4b) ora è nel registro condiviso,
+    // quindi non è più un locale (né compare due volte).
     const projectLocals = ALL_PROJECT_PERMISSIONS.slice(PROJECT_PERMISSIONS.length);
     expect(ALL_PROJECT_PERMISSIONS.slice(0, PROJECT_PERMISSIONS.length)).toEqual([...PROJECT_PERMISSIONS]);
-    expect(projectLocals).toContain("servers.operate");
+    expect(projectLocals).not.toContain("servers.operate");
+    expect(PROJECT_PERMISSIONS as readonly string[]).toContain("servers.operate");
     const instanceLocals = LOCAL_INSTANCE_PERMISSIONS;
     expect([...INSTANCE_SET].filter((p) => !(INSTANCE_PERMISSIONS as readonly string[]).includes(p)).sort()).toEqual(
       [...instanceLocals].sort(),
@@ -364,7 +366,7 @@ describe("ACTIONS e gruppi", () => {
     check(PROJECT_GROUPS, ALL_PROJECT_PERMISSIONS);
     // I 14 gruppi del web (con «credentials» della cassaforte e, dall'area 4,
     // «chat», dall'area 5 «drive», dall'area 7 «automations», dall'area 8 F3
-    // «support»), più «prototype» a ogni livello.
+    // «support», dalla F4b «servers»), più «prototype» d'istanza.
     expect(INSTANCE_GROUPS.length + PROJECT_GROUPS.length).toBe(18);
     expect(INSTANCE_GROUPS.at(-1)!.permissions).toEqual(LOCAL_INSTANCE_PERMISSIONS);
     for (const p of INSTANCE_PERMISSIONS) expect(groupOf("instance", p)).not.toBe("prototype");

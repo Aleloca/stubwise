@@ -1,6 +1,6 @@
 import { serverCommandsOf, type ServerCommandRow } from "../../domain/servers/commands";
 import { planDigest, prunes } from "../../domain/servers/fixPlan";
-import { canStopServerFix } from "./fixDecide";
+import { canStopServerFix } from "./fixPermissions";
 import {
   fixSteps,
   serverFixStatus,
