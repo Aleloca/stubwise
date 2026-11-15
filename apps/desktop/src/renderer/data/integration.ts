@@ -107,6 +107,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "servers-create-in-env",
     // Gli ambienti col form (spenti dalla F1): i server si scelgono fra quelli visibili.
     "environments",
+    // Area 8, F4b (R0-D): i container di un ambiente su un suo server
+    // (`PUT …/environments/:id/containers`), scelti dal catalogo del server.
+    "environment-containers",
     // «Don't alert me about this» dalla card (S6, `POST /api/inbox/:id/mute-type`),
     // con l'«Annulla» nel progetto della card; non su una card arrivata da obbligatorio.
     "alerts-mute",

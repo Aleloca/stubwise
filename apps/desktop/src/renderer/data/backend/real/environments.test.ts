@@ -35,6 +35,7 @@ const env = (over: Record<string, unknown> = {}) =>
         reportedSha: "f2a4c6e",
         reportedAt: NOW,
         releaseCode: "AUD-V2",
+        containers: ["audin-app", "audin-worker"],
       },
       {
         repositoryId: R_ADMIN,
@@ -76,6 +77,10 @@ function fakeApi(over: Partial<EnvironmentsApi> = {}): EnvironmentsApi {
     remove: async (projectId, id) => {
       calls.push(["remove", projectId, id]);
     },
+    setContainers: async (projectId, id, body) => {
+      calls.push(["setContainers", projectId, id, body]);
+      return body;
+    },
     ...over,
   };
 }
@@ -96,6 +101,7 @@ describe("gli ambienti dal server (area 8, F4a)", () => {
         reportedSha: "f2a4c6e",
         reportedAt: NOW,
         releaseCode: "AUD-V2",
+        containers: ["audin-app", "audin-worker"],
       },
       {
         repositoryId: R_ADMIN,
@@ -103,6 +109,7 @@ describe("gli ambienti dal server (area 8, F4a)", () => {
         reportedSha: null,
         reportedAt: null,
         releaseCode: null,
+        containers: [],
       },
     ]);
   });
@@ -194,5 +201,37 @@ describe("gli ambienti dal server (area 8, F4a)", () => {
     await envs.listEnvironments(PRJ);
     await envs.deleteEnvironment(ENV);
     expect(calls).toEqual([["remove", PRJ, ENV]]);
+  });
+
+  it("R0-D: i container per riga; la riga di tutto il progetto li prende dalle sue repository", async () => {
+    const list = await createRealEnvironments(fakeApi()).listEnvironments(PRJ);
+    expect(list.environments[0]!.servers.map((s) => s.containers)).toEqual([
+      ["audin-app", "audin-worker"],
+      [],
+    ]);
+  });
+
+  it("R0-D: scrivere i container: codice → id del server dell'ambiente; gli errori nelle parole del prototipo", async () => {
+    const envs = createRealEnvironments(fakeApi());
+    await envs.listEnvironments(PRJ);
+    expect(
+      await envs.setEnvironmentContainers(ENV, { serverCode: "srv-4", containers: ["redis"] }),
+    ).toEqual({ serverCode: "SRV-4", containers: ["redis"] });
+    expect(calls).toEqual([["setContainers", PRJ, ENV, { serverId: SRV4, containers: ["redis"] }]]);
+    // Un server che l'ambiente non usa: prima di scrivere.
+    await expect(
+      envs.setEnvironmentContainers(ENV, { serverCode: "SRV-9", containers: [] }),
+    ).rejects.toThrow("invalid: server_not_in_environment");
+    const refused = createRealEnvironments(
+      fakeApi({
+        setContainers: async () => {
+          throw new ApiError(409, "conflict", "container_of_other_project");
+        },
+      }),
+    );
+    await refused.listEnvironments(PRJ);
+    await expect(
+      refused.setEnvironmentContainers(ENV, { serverCode: "SRV-3", containers: ["redis"] }),
+    ).rejects.toThrow("invalid: container_of_other_project");
   });
 });

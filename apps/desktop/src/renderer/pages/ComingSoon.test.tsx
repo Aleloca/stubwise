@@ -453,6 +453,8 @@ const INTEGRATED_CALLS = new Set([
   "releases.updateEnvironment",
   "releases.deleteEnvironment",
   "servers.listLinkableServers",
+  // Area 8, F4b (R0-D): i container di un ambiente.
+  "releases.setEnvironmentContainers",
   // Area 8, F2 (R6): le iscrizioni agli avvisi.
   "alerts.subscriptionRows",
   "alerts.setSubscription",
@@ -807,6 +809,23 @@ describe("aree non integrate nella build app", () => {
     expect(
       within(edit).getByText("The type can't change: for another type, add a new environment."),
     ).toBeInTheDocument();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("i container di un ambiente (area 8, F4b, R0-D): si leggono e si scelgono dal catalogo del server, solo chiamate integrate", async () => {
+    const user = userEvent.setup();
+    signedInAs("p-roberta");
+    renderRoute("/p/ACQ/releases");
+    const part = await screen.findByRole("region", { name: /^Environments/ }, { timeout: 3000 });
+    expect(await within(part).findByText(/^Containers on SRV-1: /)).toBeInTheDocument();
+    await user.click(within(part).getByRole("button", { name: "More for Production" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Containers on SRV-1" }));
+    const dialog = await screen.findByRole("dialog", { name: "Containers of Production on SRV-1" });
+    await waitFor(() => expect(calls).toContain("servers.getServer"));
+    await user.click(await within(dialog).findByRole("checkbox", { name: "caddy" }));
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(calls).toContain("releases.setEnvironmentContainers"));
     await settle();
     expect(outside()).toEqual([]);
   });
