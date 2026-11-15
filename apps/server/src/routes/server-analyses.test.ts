@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { environmentServers, projectEnvironments, projectMembers, roles, serverAnalyses, serverCommands, serverOperationApprovals, servers } from "@stubwise/db";
+import { environmentServers, projectEnvironments, projectMembers, roles, serverAnalyses, serverCommands, serverOperationApprovals, servers, serverSshAccess } from "@stubwise/db";
 import { seedRepository, seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { addMember, createUserWithPat, seedUsers, type SeededUsers } from "../test/fixtures.js";
 
@@ -214,5 +214,27 @@ describe("review F4b: i campi della vista del server e dell'analisi calcolati da
     const list = new Map(((await app.inject({ method: "GET", url: `/api/servers/${serverId}/analyses`, headers: lead.headers })).json().analyses as { id: string }[]).map((x) => [x.id, x as Record<string, unknown>]));
     expect(list.get(slow!.id)).toMatchObject({ endedBy: "time" });
     expect(list.get(toB!.id)).toMatchObject({ attribution: { kind: "attributed", projectCode: null } });
+  });
+});
+
+describe("lo stato SSH nel dettaglio del server (richiesta del renderer)", () => {
+  it("chiunque veda il server ne vede stato e usable, mai chiavi né verifica; senza accesso none", async () => {
+    const { projectId, serverId } = await serverOfProject();
+    const lead = await createUserWithPat(app, `sh-${randomBytes(3).toString("hex")}@acme.com`);
+    await addMember(app, projectId, lead.id, "project_lead");
+    const detail = async () => (await app.inject({ method: "GET", url: `/api/servers/${serverId}`, headers: lead.headers })).json();
+    expect((await detail()).ssh).toEqual({ status: "none", usable: false });
+    await testDb.db.insert(serverSshAccess).values({
+      serverId,
+      host: "h.example",
+      publicKey: "ssh-ed25519 AAAA x",
+      privateKeyEncrypted: "cifrata",
+      status: "verified",
+      hostKey: "SHA256:x",
+      verifyResult: { groups: ["stubwise-read"], sudo: false, docker: false, journal: false, ok: true },
+    });
+    const body = await detail();
+    expect(body.ssh).toEqual({ status: "verified", usable: true });
+    expect(JSON.stringify(body)).not.toMatch(/ssh-ed25519|cifrata|stubwise-read/);
   });
 });

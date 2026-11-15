@@ -17,6 +17,7 @@ import {
   serverAnalyses,
   serverMetrics,
   servers,
+  serverSshAccess,
   serviceChecks,
 } from "@stubwise/db";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
@@ -355,6 +356,12 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
   );
 
   /** Il dettaglio di un server visibile (per id o per codice): la vista più lo snapshot, i controlli, gli episodi. */
+  async function sshSummary(serverId: string) {
+    const [a] = await app.db.select().from(serverSshAccess).where(eq(serverSshAccess.serverId, serverId));
+    if (!a) return { status: "none" as const, usable: false };
+    return { status: a.status, usable: a.status === "verified" && a.verifyResult?.ok === true && a.hostKey !== null && a.privateKeyEncrypted !== "" };
+  }
+
   async function detailOf(row: ServerRow, user: NonNullable<FastifyRequest["user"]>) {
     const now = new Date();
     const visibleProjects = await visibleProjectIds(app.db, user);
@@ -393,6 +400,8 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
       episodes: agg.episodes,
       productionProjects,
       canManage: user.instancePermissions.has("monitor.manage"),
+      // Area 8, F4b: lo stato dell'accesso SSH, senza niente di segreto (la regola di `usable` è quella di ssh_read).
+      ssh: await sshSummary(row.id),
       // Area 8, F4b: lo calcola il server, con la regola della POST …/analyses.
       canStartAnalysis:
         (await operatorAccess(app, user, row.id)).operate &&
