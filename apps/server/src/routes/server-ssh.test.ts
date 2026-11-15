@@ -90,6 +90,9 @@ describe("/api/servers/:id/ssh", () => {
       .set({ status: "verified", hostKey: "SHA256:x", lastUsedAt: used, verifyResult: { groups: [], sudo: false, docker: false, journal: false, ok: true } })
       .where(eq(serverSshAccess.serverId, id));
     expect((await call("GET", `/${id}/ssh`, users.adminCookie)).json()).toMatchObject({ usable: true, lastUsedAt: used.toISOString() });
+    // Sospeso dal worker per una host key cambiata: la verifica di prima diceva ok, ma non si usa.
+    await testDb.db.update(serverSshAccess).set({ status: "failed" }).where(eq(serverSshAccess.serverId, id));
+    expect((await call("GET", `/${id}/ssh`, users.adminCookie)).json()).toMatchObject({ usable: false });
     const revoked = (await call("DELETE", `/${id}/ssh`, users.adminCookie)).json();
     expect(revoked).toMatchObject({ status: "revoked", usable: false, fingerprint: null, removeCommand: "sudo userdel --remove stubwise-read" });
     expect(revoked.revokedAt).not.toBeNull();
