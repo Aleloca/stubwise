@@ -347,3 +347,4 @@ export {
   type IssueServerCommandInput,
 } from "./server-ops/commands.js";
 export { attributionContext } from "./server-ops/context.js";
+export { waitingCandidates, type WaitingCandidate } from "./waiting-customers.js";

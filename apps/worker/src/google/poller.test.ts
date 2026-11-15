@@ -1992,12 +1992,20 @@ describe("più caselle nello stesso tick", () => {
 // ---------------------------------------------------------------------------
 
 /** Runner finto: il contenuto del run è affare di classify.test.ts, qui conta
- * solo che il tick lo chiami (e quante volte). */
-function fakeRunner(reply: string | Error): AgentRunner & { calls: AgentRunOptions[] } {
+ * solo che il tick lo chiami (e quante volte). `calls` sono le
+ * CLASSIFICAZIONI; il giudizio di «Clienti in attesa» (J2, che gira anche
+ * con le proposte spente) finisce in `judgeCalls`, contato a parte. */
+function fakeRunner(reply: string | Error): AgentRunner & { calls: AgentRunOptions[]; judgeCalls: AgentRunOptions[] } {
   const calls: AgentRunOptions[] = [];
+  const judgeCalls: AgentRunOptions[] = [];
   return {
     calls,
+    judgeCalls,
     async run(opts: AgentRunOptions): Promise<AgentRunResult> {
+      if (opts.usage?.operation === "mail_reply_judgment") {
+        judgeCalls.push(opts);
+        return { output: JSON.stringify({ needsMyReply: true, reason: "Aspetta una risposta." }), exitCode: 0 };
+      }
       calls.push(opts);
       if (reply instanceof Error) throw reply;
       return { output: reply, exitCode: 0 };
@@ -3794,6 +3802,21 @@ describe("proposte spente: si legge, non si propone", () => {
     expect(await db.select().from(notifications)).toEqual([]);
     expect(stats.proposed).toBe(0);
     expect((await reload(account.id)).lastSyncAt).not.toBeNull();
+  });
+
+  it("«Clienti in attesa» (W-3 = a): con le proposte spente il giudizio sul thread in attesa gira lo stesso, e nessuna classificazione", async () => {
+    const projectId = await routed();
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), proposalsEnabled: false });
+    const [waiting] = await db
+      .insert(emailMessages)
+      .values({ accountId: account.id, gmailMessageId: "m-attesa", threadId: "t-attesa", fromAddress: "a@cliente.com", receivedAt: new Date(Date.now() - 2 * 86_400_000), projectId, admitted: true })
+      .returning({ id: emailMessages.id });
+    const runner = fakeRunner(IGNORED_OUTPUT);
+    await pollGoogleOnce({ ...deps(account, fakeGmail({ listed: [] })), runner });
+    expect(runner.calls).toEqual([]);
+    expect(runner.judgeCalls).toHaveLength(1);
+    const [row] = await db.select().from(emailMessages).where(eq(emailMessages.id, waiting!.id));
+    expect(row!.replyJudgment).toMatchObject({ needsMyReply: true });
   });
 
   it("NEGATIVO: un figlio già classificato prima di spegnerle non viene pubblicato", async () => {

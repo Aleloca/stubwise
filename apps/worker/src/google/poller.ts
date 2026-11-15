@@ -88,6 +88,7 @@ import {
 } from "./calendar.js";
 import { executeAutoCalendarAction } from "./calendar-auto.js";
 import { classifyNewMessagesV2 } from "./classify-v2.js";
+import { judgeWaitingThreads } from "./reply-judge.js";
 import { publishSharedProposals } from "./publish-shared.js";
 import {
   classifyNewMessages,
@@ -2601,6 +2602,28 @@ async function runAccountTick(
   const classify = account.proposalsEnabled
     ? await runClassifyPhase(deps, account)
     : { classified: 0, ignored: 0, failed: 0 };
+
+  // Fase 2b — area 8, «Clienti in attesa» (J2): il giudizio «serve una mia
+  // risposta?» sui thread che passano il taglio (24 ore) e non ce l'hanno
+  // ancora. Anche con le proposte spente (W-3 = a): non è una proposta né una
+  // card. Fail-open: un guasto qui non tocca il resto del giro.
+  if (deps.runner && deps.select) {
+    try {
+      await judgeWaitingThreads(
+        {
+          db: deps.db,
+          runner: deps.runner,
+          select: deps.select,
+          ...(deps.lang ? { lang: deps.lang === "it" ? "it" : "en" } : {}),
+          ...(deps.now ? { now: deps.now } : {}),
+          log: (m) => (deps.logger ?? defaultLogger).warn(m),
+        },
+        account.id,
+      );
+    } catch (err) {
+      (deps.logger ?? defaultLogger).error(`google: giudizio dei clienti in attesa di ${account.email}: ${errText(err)}`);
+    }
+  }
 
   // Fase 3 — calendario `primary` → righe candidate a una proposta di
   // milestone. Se lancia, il chiamante mette la casella in backoff e il
