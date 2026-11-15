@@ -920,9 +920,8 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - *(fatto: l'accesso SSH di sola lettura, `servers-ssh`: lo stato a chi
     vede il server dal riassunto `ssh` del dettaglio, la vista intera e le
     azioni a chi ha `servers.ssh.manage`; host di base quello dell'agente.)*
-  - **la rigenerazione della chiave SSH** è spenta nell'app
-    (`servers-ssh-regenerate`): sul server la chiave vecchia smette subito di
-    valere, il prototipo la tiene finché la nuova non passa. Decisione a 46.
+  - *(fatto: la rigenerazione della chiave SSH, una chiave sola: la vecchia
+    smette subito, prototipo allineato; decisione del maintainer, 15 nov 2026.)*
   - **SSH, divergenze dichiarate nell'app**: il comando d'installazione è
     quello del server (in inglese, senza i commenti nella lingua di chi
     guarda); l'ultimo uso è solo la data (non con quale analisi o task: le

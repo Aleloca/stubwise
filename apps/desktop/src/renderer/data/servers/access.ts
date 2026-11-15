@@ -184,19 +184,21 @@ export async function verifySshAccess(code: string): Promise<SshAccessView> {
 }
 
 /**
- * «Rigenera»: una chiave nuova in attesa e il suo comando; la vecchia resta
- * in uso (se lo era) finché la verifica della nuova non riesce. Della
- * chiave in attesa di prima, se c'era, non resta nulla.
+ * «Rigenera»: una coppia nuova in attesa e il suo comando. La vecchia smette
+ * SUBITO di valere (decisione del maintainer, 15 nov 2026, come il server:
+ * mai due chiavi insieme): la sua privata si dimentica adesso, e finché la
+ * nuova non passa la verifica Claude analizza senza letture SSH.
  */
 export async function regenerateSshAccess(code: string): Promise<{ command: string }> {
   const me = await writer("servers.regenerateSshAccess");
   const server = managed(me, code);
   stateOf(server.code, ["verified", "verify_failed", "privileged"]);
   const a = state.serverAccess.get(server.code)!;
+  forget(server.code);
+  a.key = null;
   a.pending = newPendingKey(server.code);
-  // La verifica corrente torna a essere quella della chiave in uso (o
-  // nessuna, se non c'è): la nuova non è ancora stata provata.
-  if (a.verification?.ofPending) a.verification = a.keyVerification;
+  // La nuova non è ancora stata provata: nessuna verifica vale.
+  a.verification = null;
   a.keyVerification = null;
   recordServerChange(me, "server.ssh_access_changed", server);
   return { command: commandOf(server.code) };
@@ -210,13 +212,7 @@ export async function regenerateSshAccess(code: string): Promise<{ command: stri
 export async function revokeSshAccess(code: string): Promise<{ removalCommand: string }> {
   const me = await writer("servers.revokeSshAccess");
   const server = managed(me, code);
-  stateOf(server.code, [
-    "awaiting_command",
-    "verified",
-    "verify_failed",
-    "privileged",
-    "regenerating",
-  ]);
+  stateOf(server.code, ["awaiting_command", "verified", "verify_failed", "privileged"]);
   const a = state.serverAccess.get(server.code)!;
   forget(server.code);
   a.key = null;

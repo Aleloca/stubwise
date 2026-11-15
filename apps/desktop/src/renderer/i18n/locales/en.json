@@ -9875,16 +9875,9 @@
         "title": "Not linked. Claude can't look into this server's problems.",
         "hint": "An admin who manages SSH access can link it."
       },
-      "regenerating": {
-        "title": "New key — not in use yet",
-        "keep": "Until it passes, Stubwise keeps using the current key.",
-        "keepNone": "The current key isn't working: the new one takes over once it passes.",
-        "command": "The command authorizes the current key and the new one. When the new one passes, Stubwise forgets the old one, and the next command carries only the new key."
-      },
       "regenerate": {
         "title": "Regenerate {{code}}'s key?",
-        "body": "You get a new key and a new command. The current key keeps working until the new one passes verification.",
-        "bodyNone": "You get a new key and a new command. The current key isn't working now: the new one takes over once it passes verification.",
+        "body": "You get a new key and a new command. The current key stops working now: until the new one passes verification, Claude looks into problems without SSH reads.",
         "confirm": "Regenerate"
       },
       "revoke": {

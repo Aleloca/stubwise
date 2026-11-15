@@ -25,7 +25,6 @@ import { Step } from "./SshSteps";
 import { privileged, PrivilegedResult, VerifyResult } from "./VerifyResult";
 import { WhoCanLink } from "../../components/WhoCanLink";
 import { isAppBuild } from "../../data/build";
-import { featureIntegrated } from "../../data/integration";
 
 // La parte «SSH access» del dettaglio di un server (shape server-access.md;
 // area 8, F4b): UN accesso, di sola lettura (`stubwise-read`), per
@@ -74,7 +73,7 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
   useEffect(() => {
     if (!focus) return;
     // Il passo 2 si apre solo con la vista nuova: prima c'è ancora il passo «dopo».
-    if (focus === "step2" && a.state !== "awaiting_command" && a.state !== "regenerating") return;
+    if (focus === "step2" && a.state !== "awaiting_command") return;
     const el = { step2: step2Ref, result: resultRef, removal: removalRef }[focus].current;
     if (el) {
       el.focus();
@@ -84,10 +83,6 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
 
   const hasKeys = a.key !== null;
   const v = a.verification;
-  const regenerating = hasKeys && a.pending !== null;
-  // La chiave attuale resta valida mentre si rigenera (R-L8) solo se
-  // funzionava già: altrimenti non si promette niente.
-  const keptText = (kept: string, none: string) => t(`servers.ssh.${a.usable ? kept : none}`);
 
   const doLink = () =>
     link.mutate(code, {
@@ -99,12 +94,12 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
       onError: () => toast.error(t("servers.ssh.errors.link")),
     });
   const doVerify = () => {
-    const wasRegen = regenerating;
     verifyM.mutate(code, {
       onSuccess: (view) => {
         setNext("ok");
         setShowCommand(false);
-        setJustVerified(view.state === "verified" ? { regen: wasRegen } : null);
+        // Una chiave sola (decisione del maintainer): niente «la vecchia dimenticata» qui.
+        setJustVerified(view.state === "verified" ? { regen: false } : null);
         setFocus("result");
       },
       onError: () =>
@@ -158,11 +153,7 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
     if (a.state === "privileged" && !(v && privileged(v)))
       return <PrivilegedResult ref={resultRef} />;
     if (!v || (forNew && !v.ofPending)) return null;
-    const summary =
-      forNew && regenerating
-        ? { ok: false, text: keptText("outcome.newFailedKept", "outcome.newFailedNone") }
-        : null;
-    return <VerifyResult ref={resultRef} code={code} verification={v} summary={summary} />;
+    return <VerifyResult ref={resultRef} code={code} verification={v} />;
   };
 
   /** La procedura in tre passi: per il primo collegamento o per le chiavi nuove. */
@@ -173,16 +164,6 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
     const commandOpen = current === 2 || showCommand;
     return (
       <div className="flex flex-col gap-1">
-        {regenerating && (
-          <div className="flex flex-col gap-0.5 pb-1">
-            <h3 className="text-md font-semibold text-ink">
-              {t("servers.ssh.regenerating.title")}
-            </h3>
-            <p className="text-sm text-ink-muted">
-              {keptText("regenerating.keep", "regenerating.keepNone")}
-            </p>
-          </div>
-        )}
         <ol aria-label={t("servers.ssh.steps.label", { code })} className="flex flex-col">
           <Step
             n={1}
@@ -241,9 +222,6 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
           >
             {current > 1 && commandOpen && (
               <>
-                {regenerating && (
-                  <p className="text-sm text-ink-muted">{t("servers.ssh.regenerating.command")}</p>
-                )}
                 <InstallStep code={code} access={a} />
               </>
             )}
@@ -270,10 +248,7 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
   const items: { key: string; label: string; danger?: boolean; run: () => void }[] = [];
   if (manage) {
     const st = a.state;
-    if (
-      ["verified", "privileged"].includes(st) ||
-      (st === "verify_failed" && hasKeys && !regenerating)
-    )
+    if (["verified", "privileged"].includes(st) || (st === "verify_failed" && hasKeys))
       items.push({
         key: "command",
         label: showCommand ? t("servers.ssh.menu.hideCommand") : t("servers.ssh.menu.showCommand"),
@@ -281,14 +256,7 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
       });
     if (st === "verified")
       items.push({ key: "verify", label: t("servers.ssh.menu.verifyAgain"), run: doVerify });
-    // Nell'app la chiave vecchia smette subito di valere (una chiave sola sul
-    // server, 72): finché il prodotto non decide, «Regenerate» non c'è lì,
-    // perché il suo testo promette la sovrapposizione (registro dei rimandi).
-    if (
-      ["verified", "verify_failed", "privileged"].includes(st) &&
-      !regenerating &&
-      featureIntegrated("servers-ssh-regenerate")
-    )
+    if (["verified", "verify_failed", "privileged"].includes(st))
       items.push({
         key: "regen",
         label: t("servers.ssh.menu.regenerate"),
@@ -391,14 +359,14 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
         </span>
       </>
     );
-  } else if (a.state === "awaiting_command" || a.state === "regenerating") {
+  } else if (a.state === "awaiting_command") {
     body = (
       <>
         {hasKeys && <AccessRows access={a} code={code} />}
         {procedure(2)}
       </>
     );
-  } else if (a.state === "verify_failed" && (!hasKeys || regenerating)) {
+  } else if (a.state === "verify_failed" && !hasKeys) {
     body = (
       <>
         {hasKeys && <AccessRows access={a} code={code} />}
@@ -454,7 +422,7 @@ export function SshAccessPanel({ server }: { server: ServerDetail }) {
         {confirm === "regenerate" && (
           <RegenerateDialog
             code={code}
-            body={keptText("regenerate.body", "regenerate.bodyNone")}
+            body={t("servers.ssh.regenerate.body")}
             pending={regen.isPending}
             onConfirm={doRegenerate}
             onClose={() => setConfirm(null)}

@@ -111,9 +111,8 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "servers-analysis",
     // Area 8, F4b: l'accesso SSH di sola lettura (`client.serverOps.ssh*`): lo
     // stato a chi vede il server (il riassunto del dettaglio), la vista intera
-    // e le azioni a chi ha `servers.ssh.manage`. Resta spenta la rigenerazione
-    // (`servers-ssh-regenerate`): sul server la chiave vecchia smette subito di
-    // valere, il testo del prototipo promette la sovrapposizione (decisione a 46).
+    // e le azioni a chi ha `servers.ssh.manage`, rigenerazione compresa (una
+    // chiave sola: la vecchia smette subito, decisione del maintainer).
     "servers-ssh",
     // Gli ambienti col form (spenti dalla F1): i server si scelgono fra quelli visibili.
     "environments",

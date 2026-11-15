@@ -9875,16 +9875,9 @@
         "title": "Non collegato. Claude non può guardare i problemi di questo server.",
         "hint": "Può collegarlo un admin che gestisce gli accessi SSH."
       },
-      "regenerating": {
-        "title": "Nuova chiave — non ancora in uso",
-        "keep": "Finché non passa, Stubwise continua a usare la chiave attuale.",
-        "keepNone": "La chiave attuale non funziona: la nuova subentra appena passa.",
-        "command": "Il comando autorizza sia la chiave attuale sia la nuova. Quando la nuova passa, Stubwise dimentica la vecchia, e il comando successivo porta solo la nuova."
-      },
       "regenerate": {
         "title": "Rigenerare la chiave di {{code}}?",
-        "body": "Ricevi una chiave nuova e un comando nuovo. La chiave attuale continua a funzionare finché la nuova non passa la verifica.",
-        "bodyNone": "Ricevi una chiave nuova e un comando nuovo. La chiave attuale ora non funziona: la nuova subentra appena passa la verifica.",
+        "body": "Ricevi una chiave nuova e un comando nuovo. La chiave attuale smette subito di funzionare: finché la nuova non passa la verifica, Claude guarda i problemi senza letture SSH.",
         "confirm": "Rigenera"
       },
       "revoke": {

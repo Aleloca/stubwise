@@ -67,7 +67,6 @@ export const STATES = {
   verified: access(),
   verify_failed: access({ verification: DENIED }),
   privileged: access({ verification: SUDO }),
-  regenerating: access({ pending: key(2) }),
   revoked: access({ key: null, pending: null, verification: null, revokedAt: hoursAgo(1) }),
 } as const;
 

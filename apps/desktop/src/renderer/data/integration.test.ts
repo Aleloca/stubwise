@@ -76,7 +76,6 @@ const ALL: IntegrationTarget[] = [
       "servers-monitor",
       "servers-write",
       "servers-ssh",
-      "servers-ssh-regenerate",
       "servers-analysis",
       "servers-search",
       "servers-create-in-env",

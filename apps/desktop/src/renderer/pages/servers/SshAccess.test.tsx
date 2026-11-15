@@ -186,89 +186,27 @@ describe("i tre passi (Roberta, servers.ssh.manage)", () => {
 });
 
 describe("Rigenera e Revoca", () => {
-  it("Rigenera: la vecchia resta valida fino alla verifica della nuova", async () => {
+  it("Rigenera (decisione del maintainer, 15 nov 2026): la vecchia smette subito, si torna al comando", async () => {
     const user = userEvent.setup();
     await open("/p/ACQ/servers/SRV-1", "p-roberta");
     const menu = await openMenu(user, "SRV-1");
     await user.click(within(menu).getByRole("menuitem", { name: "Regenerate key…" }));
     const dialog = await screen.findByRole("dialog", { name: "Regenerate SRV-1's key?" });
     expect(dialog).toHaveTextContent(
-      "You get a new key and a new command. The current key keeps working until the new one passes verification.",
+      "You get a new key and a new command. The current key stops working now: until the new one passes verification, Claude looks into problems without SSH reads.",
     );
+    expect(dialog).not.toHaveTextContent(/keeps working/);
     await user.click(within(dialog).getByRole("button", { name: "Regenerate" }));
 
-    expect(
-      await within(access()).findByRole("heading", { name: "New key — not in use yet" }),
-    ).toBeInTheDocument();
-    expect(access()).toHaveTextContent("The command authorizes the current key and the new one.");
-    // La riga in uso resta, col suo ultimo uso.
-    const rows = within(access()).getByRole("list", { name: "SSH access of SRV-1" });
-    expect(within(rows).getAllByText("In use")).toHaveLength(1);
-    expect(rows).toHaveTextContent("by the analysis of SRV-1");
-
-    // La nuova non passa: la vecchia (che funzionava) resta in uso.
-    await simulate(user, "Key refused");
-    await user.click(within(access()).getByRole("button", { name: "Verify" }));
-    await waitFor(() =>
-      expect(access()).toHaveTextContent(
-        "The new key didn't pass. The current one is still in use.",
-      ),
-    );
-    expect(within(rows).getAllByText("In use")).toHaveLength(1);
-
-    await user.click(within(access()).getByRole("button", { name: "Verify again" }));
-    await waitFor(() =>
-      expect(access()).toHaveTextContent("The new key is in use. Stubwise forgot the old one."),
-    );
+    // Come un collegamento nuovo: il comando con la sola chiave nuova, poi la verifica.
+    await within(access()).findByRole("region", { name: "Command for SRV-1" });
     expect(
       within(access()).queryByRole("heading", { name: "New key — not in use yet" }),
     ).toBeNull();
-  });
-
-  it("Rigenera con la chiave attuale che non funziona: nessuna promessa (R-L8)", async () => {
-    const user = userEvent.setup();
-    await open("/p/ACQ/servers/SRV-1", "p-roberta");
-    await simulate(user, "Key refused");
-    let menu = await openMenu(user, "SRV-1");
-    await user.click(within(menu).getByRole("menuitem", { name: "Verify again" }));
-    const rows = within(access()).getByRole("list", { name: "SSH access of SRV-1" });
-    await waitFor(() => expect(rows).toHaveTextContent("Check failed: the server refused the key"));
-
-    menu = await openMenu(user, "SRV-1");
-    await user.click(within(menu).getByRole("menuitem", { name: "Regenerate key…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Regenerate SRV-1's key?" });
-    expect(dialog).toHaveTextContent(
-      "The current key isn't working now: the new one takes over once it passes verification.",
-    );
-    await user.click(within(dialog).getByRole("button", { name: "Regenerate" }));
-    await within(access()).findByRole("heading", { name: "New key — not in use yet" });
-    expect(access()).toHaveTextContent(
-      "The current key isn't working: the new one takes over once it passes.",
-    );
-
-    await simulate(user, "Key refused");
     await user.click(within(access()).getByRole("button", { name: "Verify" }));
-    await waitFor(() =>
-      expect(access()).toHaveTextContent(
-        "The new key didn't pass, and the current one isn't working either.",
-      ),
-    );
-  });
-
-  it("Laura durante la rigenerazione: nessuna promessa sulla chiave attuale (R-L8)", async () => {
-    const user = userEvent.setup();
-    await open("/p/ACQ/servers/SRV-1", "p-roberta");
-    const menu = await openMenu(user, "SRV-1");
-    await user.click(within(menu).getByRole("menuitem", { name: "Regenerate key…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Regenerate SRV-1's key?" });
-    await user.click(within(dialog).getByRole("button", { name: "Regenerate" }));
-    await within(access()).findByRole("heading", { name: "New key — not in use yet" });
-
-    await user.click(screen.getByRole("button", { name: /^Profile and settings/ }));
-    await user.click(screen.getByRole("radio", { name: /Laura Costa/ }));
-    await waitFor(() => expect(access()).toHaveTextContent("New key being set up."));
-    expect(access()).not.toHaveTextContent("keeps using");
-    expect(within(access()).queryByRole("button")).toBeNull();
+    expect(
+      await within(access()).findByRole("list", { name: "SSH access of SRV-1" }),
+    ).toBeInTheDocument();
   });
 
   it("Revoca con conferma, poi il comando di rimozione fino a «Done», poi «Link again»", async () => {
@@ -426,9 +364,8 @@ describe("verità del prototipo", () => {
     await user.click(
       within(await screen.findByRole("dialog")).getByRole("button", { name: "Regenerate" }),
     );
-    await within(access()).findByRole("heading", { name: "New key — not in use yet" });
     await within(access()).findByRole("region", { name: "Command for SRV-4" });
-    noPrivate(); // in rigenerazione: comando con la vecchia e la nuova pubblica
+    noPrivate(); // rigenerata: comando con la sola nuova pubblica
     menu = await openMenu(user, "SRV-4");
     await user.click(within(menu).getByRole("menuitem", { name: "Revoke access…" }));
     await user.click(

@@ -187,7 +187,7 @@ export function whereLine(
 
 /** Lo stato dell'accesso SSH da dire in una riga, solo se NON è a posto; `null` se lo è. */
 export function accessProblem(row: Pick<ServerRow, "access">, t: TFunction): string | null {
-  if (row.access === "verified" || row.access === "regenerating") return null;
+  if (row.access === "verified") return null;
   return t(`servers.access.${row.access}`);
 }
 

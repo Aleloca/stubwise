@@ -16,7 +16,6 @@ export const JOURNAL_GROUPS: readonly string[] = ["systemd-journal", "adm"];
  * - `verify_failed`: l'ultima verifica non è entrata (`verifyFailure` dice perché);
  * - `privileged`: l'utente ha `sudo` o il gruppo `docker` — non è di sola
  *   lettura, quindi è un errore e l'accesso è spento;
- * - `regenerating`: chiave nuova in `pending`, la vecchia resta in uso;
  * - `revoked`: revocato, nessuna chiave.
  */
 export type AccessState =
@@ -25,7 +24,6 @@ export type AccessState =
   | "verified"
   | "verify_failed"
   | "privileged"
-  | "regenerating"
   | "revoked";
 
 /** Entrato, ma con più della lettura: `sudo` o il socket di Docker (il gruppo `docker` vale root). */
@@ -44,7 +42,8 @@ export function accessState(a: ServerSshAccess | undefined): AccessState {
   if ((v && isPrivileged(v)) || (a.keyVerification && isPrivileged(a.keyVerification)))
     return "privileged";
   if (a.key === null) return v && v.ofPending && failed(v) ? "verify_failed" : "awaiting_command";
-  if (a.pending !== null) return v && v.ofPending && failed(v) ? "verify_failed" : "regenerating";
+  // Una chiave sola (decisione del maintainer, 15 nov 2026): rigenerare
+  // dimentica la vecchia, quindi una chiave in uso non ha mai una in attesa.
   return v && failed(v) ? "verify_failed" : "verified";
 }
 

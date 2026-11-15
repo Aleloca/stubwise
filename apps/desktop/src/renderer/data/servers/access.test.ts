@@ -3,9 +3,10 @@ import type { VerifyOutcome } from "../../domain/servers/sshAccess";
 import { failNext, listNotifications, resetApi, servers, setLatency } from "../api";
 import { PROJECTS } from "../seed/projects";
 import { setSessionPersonId } from "../session";
-import { state } from "../store";
+import { eventsOf, state } from "../store";
 import { grantInstancePermission } from "../viewer";
 import { markUsed, onAccessRevoked } from "./access";
+import { whenAnalysesIdle } from "./analysis";
 import { __privateValuesForTest, hasKey } from "./secrets";
 import { serversVisibleTo } from "./visibility";
 
@@ -161,65 +162,54 @@ describe("esiti della verifica (prototipo)", () => {
   });
 });
 
-describe("rigenera (RF 5)", () => {
-  it("la vecchia vale durante la rigenerazione; fallita resta, riuscita la nuova e la vecchia dimenticata", async () => {
+describe("rigenera (RF 5; decisione del maintainer, 15 nov 2026: una chiave sola)", () => {
+  it("la vecchia smette SUBITO di valere: in attesa del comando, non usabile, la privata dimenticata; verificata la nuova vale", async () => {
     as("p-roberta");
     const before = await view("SRV-1");
     const oldSecrets = __privateValuesForTest().filter((x) => x.slot.startsWith("SRV-1|"));
     const { command } = await servers.regenerateSshAccess("SRV-1");
 
-    const regenerating = await view("SRV-1");
-    expect(regenerating.state).toBe("regenerating");
-    expect(regenerating.usable).toBe(true);
-    expect(regenerating.key).toEqual(before.key);
-    // R-L8: il comando autorizza la vecchia E la nuova, così incollarlo non
-    // toglie la chiave che il modello dà ancora usabile.
-    const newKey = regenerating.pending!.publicKey;
-    for (const k of [before.key!.publicKey, newKey]) expect(command).toContain(k);
+    const regenerated = await view("SRV-1");
+    expect(regenerated.state).toBe("awaiting_command");
+    expect(regenerated.usable).toBe(false);
+    expect(regenerated.key).toBeNull();
+    // Il comando scrive solo la nuova: la vecchia non vale più.
+    const newKey = regenerated.pending!.publicKey;
+    expect(command).toContain(newKey);
+    expect(command).not.toContain(before.key!.publicKey);
     expect(command).not.toContain("PRIVATE KEY");
     expect((await servers.getInstallCommand("SRV-1")).command).toBe(command);
+    // La vecchia privata non c'è più già adesso.
+    const now = secretValues();
+    for (const v of oldSecrets.flatMap((x) => x.values)) expect(now).not.toContain(v);
+    expect(hasKey("SRV-1")).toBe(false);
 
     const failed = await verifyWith("SRV-1", "denied");
     expect(failed.state).toBe("verify_failed");
-    expect(failed.key).toEqual(before.key);
-    expect(failed.usable).toBe(true);
-    expect(secretValues()).toEqual(expect.arrayContaining(oldSecrets.flatMap((x) => x.values)));
-    expect((await servers.getInstallCommand("SRV-1")).command).toBe(command);
+    expect(failed.usable).toBe(false);
 
     const ok = await servers.verifySshAccess("SRV-1");
     expect(ok.state).toBe("verified");
-    expect(ok.key).toEqual(regenerating.pending);
+    expect(ok.key).toEqual(regenerated.pending);
     expect(ok.pending).toBeNull();
-    // Riuscita: la vecchia privata distrutta.
-    const now = secretValues();
-    for (const v of oldSecrets.flatMap((x) => x.values)) expect(now).not.toContain(v);
-    expect(__privateValuesForTest().filter((x) => x.slot.startsWith("SRV-1|"))).toHaveLength(1);
+    expect(ok.usable).toBe(true);
     expect(hasKey("SRV-1")).toBe(true);
-    // Il comando dopo scrive solo la chiave corrente.
-    const after = (await servers.getInstallCommand("SRV-1")).command;
-    expect(after).toContain(newKey);
-    expect(after).not.toContain(before.key!.publicKey);
-    // La Rigenera successiva: corrente + nuovissima, mai la dimenticata.
-    const next = (await servers.regenerateSshAccess("SRV-1")).command;
-    const third = (await view("SRV-1")).pending!;
-    for (const k of [newKey, third.publicKey]) expect(next).toContain(k);
-    expect(next).not.toContain(before.key!.publicKey);
+    expect(__privateValuesForTest().filter((x) => x.slot.startsWith("SRV-1|"))).toHaveLength(1);
   });
 
-  it("una seconda Rigenera scarta la nuova mai verificata, anche dal comando", async () => {
+  it("finché la nuova non passa, l'analisi gira senza letture SSH", async () => {
     as("p-roberta");
-    const before = await view("SRV-1");
     await servers.regenerateSshAccess("SRV-1");
-    await verifyWith("SRV-1", "denied");
-    const discarded = (await view("SRV-1")).pending!;
-    const { command } = await servers.regenerateSshAccess("SRV-1");
-    expect(command).toContain(before.key!.publicKey);
-    expect(command).not.toContain(discarded.publicKey);
-    // In vault: la corrente e la nuova in attesa, niente della scartata.
-    expect(__privateValuesForTest().filter((x) => x.slot.startsWith("SRV-1|"))).toHaveLength(2);
+    await servers.simulateServerAlert("SRV-1", "memory");
+    await whenAnalysesIdle();
+    const a = state.serverAnalyses.find((x) => x.id.includes("-new-") && x.serverCode === "SRV-1")!;
+    const reads = eventsOf(a.conversationId).filter(
+      (e) => e.type === "action" && e.serverCommand?.via === "ssh",
+    );
+    expect(reads).toEqual([]);
   });
 
-  it("una chiave nuova il cui utente ha sudo: spento; la verifica riuscita dopo la promuove", async () => {
+  it("una chiave nuova il cui utente ha sudo: spento; la verifica riuscita dopo la accende", async () => {
     as("p-roberta");
     await servers.regenerateSshAccess("SRV-1");
     const pending = (await view("SRV-1")).pending!;
@@ -230,36 +220,6 @@ describe("rigenera (RF 5)", () => {
     expect(ok.state).toBe("verified");
     expect(ok.key).toEqual(pending);
     expect(ok.usable).toBe(true);
-  });
-
-  it("una chiave già fallita non torna usabile rigenerando, nemmeno dopo una verifica fallita della nuova", async () => {
-    as("p-roberta");
-    await verifyWith("SRV-1", "denied");
-    expect(await usable("SRV-1")).toBe(false);
-    await servers.regenerateSshAccess("SRV-1");
-    expect(await usable("SRV-1")).toBe(false);
-    await verifyWith("SRV-1", "denied");
-    expect(await usable("SRV-1")).toBe(false);
-    await verifyWith("SRV-1", "unreachable");
-    expect(await usable("SRV-1")).toBe(false);
-    // Rigenerare di nuovo riporta la verifica sulla chiave in uso (fallita).
-    await servers.regenerateSshAccess("SRV-1");
-    const again = await view("SRV-1");
-    expect(again.state).toBe("regenerating");
-    expect(again.verification).toMatchObject({ login: "denied", ofPending: false });
-    expect(await usable("SRV-1")).toBe(false);
-    await servers.verifySshAccess("SRV-1");
-    expect(await usable("SRV-1")).toBe(true);
-  });
-
-  it("un utente con docker resta spento durante la rigenerazione finché una verifica non riesce", async () => {
-    as("p-roberta");
-    await verifyWith("SRV-1", "docker");
-    await servers.regenerateSshAccess("SRV-1");
-    await verifyWith("SRV-1", "denied");
-    expect((await view("SRV-1")).state).toBe("privileged");
-    expect(await usable("SRV-1")).toBe(false);
-    expect((await servers.verifySshAccess("SRV-1")).state).toBe("verified");
   });
 
   it("si rigenera solo da verificato, verifica fallita o utente con più della lettura", async () => {

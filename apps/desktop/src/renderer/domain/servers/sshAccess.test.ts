@@ -7,19 +7,18 @@ import { accessState, accessUsable, journalReadable, verifyFailure } from "./ssh
 // dall'agente.
 
 describe("accessState e accessUsable", () => {
-  it("i sette stati", () => {
+  it("i sei stati (una chiave sola: niente «in rigenerazione», decisione del maintainer)", () => {
     for (const [state, a] of Object.entries(STATES)) {
       expect(accessState(a), state).toBe(state);
     }
   });
 
-  it("usabile solo verificato (o in rigenerazione con la chiave in uso verificata)", () => {
+  it("usabile solo verificato", () => {
     expect(accessUsable(STATES.not_linked)).toBe(false);
     expect(accessUsable(STATES.awaiting_command)).toBe(false);
     expect(accessUsable(STATES.verified)).toBe(true);
     expect(accessUsable(STATES.verify_failed)).toBe(false);
     expect(accessUsable(STATES.privileged)).toBe(false);
-    expect(accessUsable(STATES.regenerating)).toBe(true);
     expect(accessUsable(STATES.revoked)).toBe(false);
   });
 

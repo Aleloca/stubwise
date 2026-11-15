@@ -457,8 +457,9 @@ const INTEGRATED_CALLS = new Set([
   "releases.setEnvironmentContainers",
   // Area 8, F4b: l'analisi a mano («Ask Claude to look into it»), col permesso del server.
   "servers.startServerAnalysis",
-  // Area 8, F4b: l'accesso SSH di sola lettura (la rigenerazione resta spenta).
+  // Area 8, F4b: l'accesso SSH di sola lettura, rigenerazione compresa.
   "servers.linkSshAccess",
+  "servers.regenerateSshAccess",
   "servers.verifySshAccess",
   "servers.revokeSshAccess",
   "servers.getInstallCommand",
