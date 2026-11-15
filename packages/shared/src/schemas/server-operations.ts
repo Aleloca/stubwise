@@ -124,6 +124,14 @@ export const serverSshAccessViewSchema = z.object({
     .nullable()
     .default(null),
   canManage: z.boolean().default(false),
+  /** Claude può leggere ADESSO (verificato, senza privilegi, host key fissata): calcolato dal server. Additivo. */
+  usable: z.boolean().default(false),
+  /** `SHA256:<base64>` della chiave pubblica, come lo stampa `ssh-keygen -lf`. Additivo. */
+  fingerprint: z.string().nullable().default(null),
+  lastUsedAt: z.iso.datetime().nullable().default(null),
+  revokedAt: z.iso.datetime().nullable().default(null),
+  /** Dopo la revoca: il comando che toglie l'utente dal server. Additivo. */
+  removeCommand: z.string().nullable().default(null),
 });
 export type ServerSshAccessView = z.infer<typeof serverSshAccessViewSchema>;
 

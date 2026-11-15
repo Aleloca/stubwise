@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { encrypt, serverSshAccess, servers } from "@stubwise/db";
 import { serverSshAccessViewSchema, type ServerSshAccessView } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
@@ -25,7 +26,8 @@ const USERNAME = "stubwise-read";
 const idParamsSchema = z.object({ id: z.uuid() });
 // Un nome host o un indirizzo: niente spazi, `;`, e mai un `-` iniziale (un'opzione di ssh).
 const hostSchema = z.string().min(1).max(253).regex(/^[A-Za-z0-9][A-Za-z0-9.:-]*$/);
-const connectBodySchema = z.strictObject({ host: hostSchema, port: z.number().int().min(1).max(65535).default(22) });
+// L'host è facoltativo: senza, l'hostname che l'agente riporta (richiesta del renderer).
+const connectBodySchema = z.strictObject({ host: hostSchema.optional(), port: z.number().int().min(1).max(65535).default(22) });
 const access = { kind: "instance", permission: "servers.ssh.manage" } as const;
 
 function keyPair() {
@@ -47,7 +49,23 @@ type Row = typeof serverSshAccess.$inferSelect;
 
 function viewOf(row: Row | undefined): ServerSshAccessView {
   if (!row) {
-    return { status: "none", username: USERNAME, host: null, port: 22, publicKey: null, authorizedKeysLine: null, setupCommand: null, verifiedAt: null, verifyResult: null, canManage: true };
+    return {
+      status: "none",
+      username: USERNAME,
+      host: null,
+      port: 22,
+      publicKey: null,
+      authorizedKeysLine: null,
+      setupCommand: null,
+      verifiedAt: null,
+      verifyResult: null,
+      canManage: true,
+      usable: false,
+      fingerprint: null,
+      lastUsedAt: null,
+      revokedAt: null,
+      removeCommand: null,
+    };
   }
   const line = row.status === "revoked" ? null : `restrict ${row.publicKey}`;
   return {
@@ -61,7 +79,20 @@ function viewOf(row: Row | undefined): ServerSshAccessView {
     verifiedAt: row.verifiedAt?.toISOString() ?? null,
     verifyResult: row.verifyResult ?? null,
     canManage: true,
+    // La stessa regola di `ssh_read` nel worker.
+    usable: row.status === "verified" && row.verifyResult?.ok === true && row.hostKey !== null && row.privateKeyEncrypted !== "",
+    fingerprint: row.status === "revoked" ? null : fingerprintOf(row.publicKey),
+    lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
+    revokedAt: row.revokedAt?.toISOString() ?? null,
+    removeCommand: row.status === "revoked" ? `sudo userdel --remove ${row.username}` : null,
   };
+}
+
+/** `SHA256:<base64 senza padding>` della chiave pubblica (`ssh-keygen -lf`). */
+function fingerprintOf(publicKey: string): string | null {
+  const blob = publicKey.split(/\s+/)[1];
+  if (!blob) return null;
+  return `SHA256:${createHash("sha256").update(Buffer.from(blob, "base64")).digest("base64").replace(/=+$/, "")}`;
 }
 
 export async function serverSshRoutes(instance: FastifyInstance): Promise<void> {
@@ -82,7 +113,9 @@ export async function serverSshRoutes(instance: FastifyInstance): Promise<void> 
     async (request, reply) => {
       const { id } = request.params;
       if (!(await serverExists(id))) return apiError(reply, 404, "not_found", "Server not found");
-      const { host, port } = request.body;
+      const { port } = request.body;
+      const host = request.body.host ?? (await app.db.select({ hostname: servers.hostname }).from(servers).where(eq(servers.id, id)))[0]?.hostname ?? null;
+      if (!host || !hostSchema.safeParse(host).success) return apiError(reply, 400, "host_required", "The agent has not reported a hostname: give the host");
       const pair = keyPair();
       const values = {
         host,

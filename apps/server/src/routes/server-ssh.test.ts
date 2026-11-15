@@ -77,6 +77,24 @@ describe("/api/servers/:id/ssh", () => {
     expect((await call("GET", `/00000000-0000-4000-8000-000000000000/ssh`, users.adminCookie)).statusCode).toBe(404);
   });
 
+  it("richieste del renderer: host facoltativo (l'hostname dell'agente), usable, fingerprint come ssh-keygen, lastUsedAt, revokedAt e il comando di rimozione", async () => {
+    const id = await newServer();
+    expect((await call("PUT", `/${id}/ssh`, users.adminCookie, {})).json()).toMatchObject({ code: "host_required" });
+    await testDb.db.update(servers).set({ hostname: "web1.acme.test" }).where(eq(servers.id, id));
+    const view = (await call("PUT", `/${id}/ssh`, users.adminCookie, {})).json();
+    expect(view).toMatchObject({ host: "web1.acme.test", port: 22, usable: false, lastUsedAt: null, revokedAt: null, removeCommand: null });
+    expect(view.fingerprint).toMatch(/^SHA256:[A-Za-z0-9+/]{43}$/);
+    const used = new Date("2026-11-15T09:00:00Z");
+    await testDb.db
+      .update(serverSshAccess)
+      .set({ status: "verified", hostKey: "SHA256:x", lastUsedAt: used, verifyResult: { groups: [], sudo: false, docker: false, journal: false, ok: true } })
+      .where(eq(serverSshAccess.serverId, id));
+    expect((await call("GET", `/${id}/ssh`, users.adminCookie)).json()).toMatchObject({ usable: true, lastUsedAt: used.toISOString() });
+    const revoked = (await call("DELETE", `/${id}/ssh`, users.adminCookie)).json();
+    expect(revoked).toMatchObject({ status: "revoked", usable: false, fingerprint: null, removeCommand: "sudo userdel --remove stubwise-read" });
+    expect(revoked.revokedAt).not.toBeNull();
+  });
+
   it("un host che non è un host → 400", async () => {
     const id = await newServer();
     for (const host of ["a b", "x;rm -rf /", "-oProxyCommand=sh", ""]) expect((await call("PUT", `/${id}/ssh`, users.adminCookie, { host })).statusCode).toBe(400);
