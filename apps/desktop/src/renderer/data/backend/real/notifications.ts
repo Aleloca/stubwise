@@ -88,6 +88,8 @@ export const MANDATORY_REASONS: ReadonlySet<string> = new Set([
   "pr_author",
   "task_author",
   "assignee",
+  // Area 8, F4b: chi ha chiesto a mano un'analisi riceve sempre il suo esito.
+  "analysis_requester",
 ] satisfies MandatoryReason[]);
 
 /**
@@ -219,8 +221,17 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
   // (derivato a lettura dal server): nel progetto dell'ancora, o
   // nell'Amministrazione senza ancora (zero o più progetti: `monitor.manage`).
   // Senza codice (un server rimosso) resta «Open in web» (I1).
+  // Area 8, F4b: «Diagnosis ready» apre la sua task; senza task (causa non
+  // determinata, fallita, bloccata, o una task che chi legge non vede) la
+  // pagina del server, come le card del monitor.
+  const diagnosis = item.kind === "server.diagnosis_ready";
+  const diagnosisTask = diagnosis && item.ticketId ? ctx.taskCodes.get(item.ticketId) : undefined;
   const serverLink =
-    MONITOR_KINDS.has(item.kind) && item.serverCode && isIntegrated({ kind: "projectSection", name: "servers" })
+    diagnosisTask && projectCode
+      ? `#/p/${projectCode}/tasks?task=${diagnosisTask}`
+      : (MONITOR_KINDS.has(item.kind) || diagnosis) &&
+          item.serverCode &&
+          isIntegrated({ kind: "projectSection", name: "servers" })
       ? projectCode
         ? `#/p/${projectCode}/servers/${item.serverCode}`
         : item.projectId === null && isIntegrated({ kind: "admin", name: "servers" })
