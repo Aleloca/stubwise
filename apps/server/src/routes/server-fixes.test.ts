@@ -110,7 +110,8 @@ describe("la correzione: vista e approvazione", () => {
     expect(dev).toMatchObject({ status: "awaiting_approval", canApprove: false, canStop: false, canRequestPlan: false, operationsOn: true, pruneWarning: null });
     expect(dev.steps).toEqual([expect.objectContaining({ index: 0, action: "container.restart", status: "waiting" })]);
     expect((await call("GET", s.ticketId, "", s.leadA.headers)).json()).toMatchObject({ canApprove: true, canRequestPlan: false });
-    expect((await call("GET", s.ticketId, "", s.operA.headers)).json()).toMatchObject({ canApprove: false, canRequestPlan: true });
+    // Un piano aspetta l'approvazione: niente richiesta nuova finché non lo si rifiuta (review F4b).
+    expect((await call("GET", s.ticketId, "", s.operA.headers)).json()).toMatchObject({ canApprove: false, canRequestPlan: false });
   });
 
   it("NEGATIVO: un Developer, un Project Lead di un ALTRO progetto del server, un operatore senza plans.approve → nessuna approvazione", async () => {
@@ -165,6 +166,12 @@ describe("la correzione: vista e approvazione", () => {
 describe("la correzione: piano nuovo e Stop", () => {
   it("un piano nuovo lo chiede chi ha servers.operate nel progetto; un Project Lead no; operazioni spente → 409", async () => {
     const s = await scene();
+    // Con un piano che aspetta l'approvazione: 409 plan_awaiting, e il piano resta (review F4b).
+    const awaiting = await call("POST", s.ticketId, "", s.operA.headers);
+    expect(awaiting.statusCode).toBe(409);
+    expect(awaiting.json()).toMatchObject({ code: "plan_awaiting" });
+    expect((await testDb.db.select().from(serverFixes).where(eq(serverFixes.id, s.fix.id)))[0]!.steps).toEqual([restart]);
+    await call("POST", s.ticketId, "/reject", s.leadA.headers, { note: "rifai" });
     expect((await call("POST", s.ticketId, "", s.leadA.headers)).statusCode).toBe(403);
     const res = await call("POST", s.ticketId, "", s.operA.headers);
     expect(res.statusCode, res.body).toBe(200);
@@ -172,6 +179,12 @@ describe("la correzione: piano nuovo e Stop", () => {
     expect((await call("POST", s.ticketId, "", s.operA.headers)).statusCode).toBe(409);
     const off = await scene({ operations: false });
     expect((await call("POST", off.ticketId, "", off.operA.headers)).json()).toMatchObject({ code: "operations_off" });
+    // Operazioni spente: nessuna approvazione (canApprove falso, approve 409), e niente registrato (review F4b).
+    expect((await call("GET", off.ticketId, "", off.leadA.headers)).json().canApprove).toBe(false);
+    const offApprove = await approve(off.ticketId, off.leadA.headers);
+    expect(offApprove.statusCode).toBe(409);
+    expect(offApprove.json()).toMatchObject({ code: "operations_off" });
+    expect(await approvalsOf(off.ticketId)).toEqual([]);
   });
 
   it("Stop: revoca l'approvazione e i comandi non consegnati non partono più; un Developer non può", async () => {
@@ -211,7 +224,9 @@ describe("la sezione Server della task (GET /api/tasks/:id/server, richiesta del
   it("server, correzione e startBlock calcolati dal server", async () => {
     const s = await scene();
     const op = (await section(s.ticketId, s.operA.headers)).json();
-    expect(op).toMatchObject({ server: { id: s.serverId, code: expect.stringMatching(/^SRV-\d+$/), gone: false }, fix: { status: "awaiting_approval" }, startBlock: null });
+    expect(op).toMatchObject({ server: { id: s.serverId, code: expect.stringMatching(/^SRV-\d+$/), gone: false }, fix: { status: "awaiting_approval" }, startBlock: "plan_awaiting" });
+    await testDb.db.update(serverFixes).set({ status: "rejected" }).where(eq(serverFixes.id, s.fix.id));
+    expect((await section(s.ticketId, s.operA.headers)).json().startBlock).toBeNull();
     expect((await section(s.ticketId, s.devA.headers)).json().startBlock).toBe("no_permission");
     // Una correzione in corso.
     await testDb.db.update(serverFixes).set({ status: "proposing" }).where(eq(serverFixes.id, s.fix.id));
@@ -240,6 +255,9 @@ describe("F4b-8 = c: la pulizia agisce su tutto il server", () => {
     const nameB = (await testDb.db.select({ name: projects.name }).from(projects).where(eq(projects.id, s.b.projectId)))[0]!.name;
     expect((await call("GET", s.ticketId, "", { cookie: users.adminCookie })).json().pruneWarning).toEqual({ projects: [nameB], hiddenCount: 0 });
     expect((await call("GET", s.ticketId, "", s.leadA.headers)).json().pruneWarning).toEqual({ projects: [], hiddenCount: 1 });
+    // Un server di questo SOLO progetto: nessun avviso, null (review F4b, renderer).
+    await testDb.db.delete(environmentServers).where(eq(environmentServers.environmentId, s.envs[1]!));
+    expect((await call("GET", s.ticketId, "", s.leadA.headers)).json().pruneWarning).toBeNull();
     // E si approva comunque, con plans.approve nel progetto della task.
     expect((await approve(s.ticketId, s.leadA.headers)).statusCode).toBe(200);
   });

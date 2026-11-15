@@ -170,8 +170,12 @@ export const serverTaskViewSchema = z.object({
   /**
    * Perché chi guarda NON può chiedere un piano adesso (null = può):
    * `no_permission`, `server_gone`, `server_not_in_project`, `operations_off`,
+   * `plan_awaiting` (un piano aspetta l'approvazione: prima si rifiuta),
    * `busy` (una correzione in corso), `closed` (task chiusa), `monthly_budget`.
    */
-  startBlock: z.enum(["no_permission", "server_gone", "server_not_in_project", "operations_off", "busy", "closed", "monthly_budget"]).nullable().default(null),
+  startBlock: z
+    .enum(["no_permission", "server_gone", "server_not_in_project", "operations_off", "plan_awaiting", "busy", "closed", "monthly_budget"])
+    .nullable()
+    .default(null),
 });
 export type ServerTaskView = z.infer<typeof serverTaskViewSchema>;
