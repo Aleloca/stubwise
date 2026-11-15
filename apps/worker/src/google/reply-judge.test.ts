@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { emailMessages, googleAccounts, googleWorkspaces, instanceSettings, mailOutgoing, users, type Db } from "@stubwise/db";
+import { agentRuns, emailMessages, googleAccounts, googleWorkspaces, instanceSettings, mailOutgoing, users, type Db } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { AgentRunner, AgentRunOptions, AgentRunResult } from "../agent/runner.js";
 import { fakeSelect } from "../providers/select-fake.js";
@@ -31,10 +31,11 @@ afterAll(async () => {
 
 class FakeRunner implements AgentRunner {
   calls: AgentRunOptions[] = [];
-  constructor(private readonly replies: string[]) {}
+  constructor(private readonly replies: (string | AgentRunResult)[]) {}
   async run(opts: AgentRunOptions): Promise<AgentRunResult> {
     this.calls.push(opts);
-    return { output: this.replies.shift() ?? "{}", exitCode: 0 };
+    const next = this.replies.shift() ?? "{}";
+    return typeof next === "string" ? { output: next, exitCode: 0 } : next;
   }
 }
 
@@ -177,3 +178,82 @@ describe("J2: privacy, tentativi, budget, un messaggio nuovo", () => {
     expect((await judgmentOf(again.id)).replyJudgment).toMatchObject({ needsMyReply: true });
   });
 });
+
+describe("J2: review finale (15 nov 2026)", () => {
+  it("più di 200 thread GIÀ giudicati e più vecchi non affamano un thread nuovo: si giudica comunque", async () => {
+    const box = await mailbox();
+    const judged = { needsMyReply: false, reason: "Ringrazia.", at: NOW.toISOString() };
+    await db.insert(emailMessages).values(
+      Array.from({ length: 205 }, (_, i) => ({
+        accountId: box.id,
+        gmailMessageId: randomUUID(),
+        threadId: `th-${randomUUID()}`,
+        fromAddress: "cliente@cliente.it",
+        receivedAt: new Date(OLD.getTime() - (i + 1) * 60_000),
+        status: "classified" as const,
+        admitted: true,
+        projectId,
+        replyJudgment: judged,
+      })),
+    );
+    const { message } = await waitingThread(box.id);
+    const runner = new FakeRunner([yes]);
+    expect(await judgeWaitingThreads(deps(runner), box.id)).toBe(1);
+    expect(runner.calls.map((c) => c.usage.emailMessageId)).toEqual([message.id]);
+  });
+
+  it("un limite del provider non consuma il tentativo e ferma il giro: nessun `error`, si riprova dopo", async () => {
+    const box = await mailbox();
+    const a = await waitingThread(box.id);
+    const b = await waitingThread(box.id);
+    const runner = new FakeRunner([{ output: "You've hit your session limit · resets 6pm (UTC)", exitCode: 1 }]);
+    expect(await judgeWaitingThreads(deps(runner), box.id)).toBe(0);
+    expect(runner.calls).toHaveLength(1);
+    for (const m of [a.message, b.message]) {
+      const row = await judgmentOf(m.id);
+      expect(row.replyJudgment).toBeNull();
+      expect(row.replyJudgmentAttempts).toBe(0);
+    }
+  });
+
+  it("il tetto giornaliero della casella: le classificazioni lo riempiono e J2 non parte; J2 si ferma al tetto anche da solo", async () => {
+    const box = await mailbox();
+    const { message } = await waitingThread(box.id);
+    await db.insert(agentRuns).values({ operation: "mail_classify", phase: "email_classify", emailMessageId: message.id, model: "haiku" });
+    const full = new FakeRunner([yes]);
+    await judgeWaitingThreads(deps(full, { maxPerDay: 1 }), box.id);
+    expect(full.calls).toEqual([]);
+
+    const other = await mailbox();
+    await waitingThread(other.id);
+    await waitingThread(other.id);
+    const runner = new FakeRunner([yes, yes]);
+    await judgeWaitingThreads(deps(runner, { maxPerDay: 1 }), other.id);
+    expect(runner.calls).toHaveLength(1);
+  });
+
+  it("il budget si guarda a OGNI run: esaurito a metà giro, il giro si ferma", async () => {
+    const box = await mailbox();
+    await waitingThread(box.id);
+    await waitingThread(box.id);
+    await db.update(instanceSettings).set({ monthlyBudgetUsd: "1" }).where(eq(instanceSettings.id, 1));
+    let spent = 0;
+    const runner = new FakeRunner([yes, yes]);
+    try {
+      await judgeWaitingThreads(
+        deps(runner, {
+          monthlyCostUsdFn: async () => {
+            const now = spent;
+            spent = 5;
+            return now;
+          },
+        }),
+        box.id,
+      );
+    } finally {
+      await db.update(instanceSettings).set({ monthlyBudgetUsd: null }).where(eq(instanceSettings.id, 1));
+    }
+    expect(runner.calls).toHaveLength(1);
+  });
+});
+

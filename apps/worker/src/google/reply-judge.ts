@@ -6,9 +6,9 @@ import { emailMessages, monthlyCostUsd, type Db } from "@stubwise/db";
 import { aiBudgetState, waitingCandidates } from "@stubwise/notifications";
 import { NATIVE_TOOLS } from "../agent/native-tools.js";
 import type { AgentRunner } from "../agent/runner.js";
-import { limitTextOfRun, runWithProviders, type SelectDeps } from "../providers/select.js";
+import { isQuotaWait, limitTextOfRun, runWithProviders, type SelectDeps } from "../providers/select.js";
 import { parseAgentJson, textFromRun } from "../agent/text.js";
-import { EMAIL_DELIMITER_END, EMAIL_DELIMITER_START } from "./classify.js";
+import { countClassifyRunsSince, DEFAULT_GMAIL_MAX_PER_DAY, EMAIL_DELIMITER_END, EMAIL_DELIMITER_START } from "./classify.js";
 import { replyContext, replyInstruction, replyJudgmentOutputSchema, REPLY_FIELD_SHAPE } from "./reply-judgment.js";
 
 /**
@@ -41,6 +41,12 @@ export interface ReplyJudgeDeps {
   lang?: "it" | "en";
   now?: () => Date;
   maxPerTick?: number;
+  /**
+   * Il tetto giornaliero della casella (`GMAIL_MAX_PER_DAY`), CONDIVISO con
+   * la classificazione (`countClassifyRunsSince` conta entrambe); omesso =
+   * {@link DEFAULT_GMAIL_MAX_PER_DAY}, `0` = nessun tetto.
+   */
+  maxPerDay?: number;
   monthlyCostUsdFn?: (db: Db) => Promise<number>;
   log?: (m: string) => void;
 }
@@ -71,15 +77,25 @@ export function buildReplyJudgmentPrompt(input: {
 export async function judgeWaitingThreads(deps: ReplyJudgeDeps, accountId: string): Promise<number> {
   const { db } = deps;
   const now = (deps.now ?? (() => new Date()))();
-  const candidates = (await waitingCandidates(db, { accountIds: [accountId], cutoff: new Date(now.getTime() - CUTOFF_MS) })).filter(
-    (c) => c.replyJudgment === null && c.replyJudgmentAttempts < REPLY_JUDGMENT_MAX_ATTEMPTS,
-  );
+  const candidates = await waitingCandidates(db, {
+    accountIds: [accountId],
+    cutoff: new Date(now.getTime() - CUTOFF_MS),
+    unjudgedBelowAttempts: REPLY_JUDGMENT_MAX_ATTEMPTS,
+    limit: deps.maxPerTick ?? REPLY_JUDGMENT_MAX_PER_TICK,
+  });
   if (candidates.length === 0) return 0;
-  if ((await aiBudgetState(db, deps.monthlyCostUsdFn ?? monthlyCostUsd)).exhausted) return 0;
   const ctx = await replyContext(db, accountId);
   if (!ctx) return 0;
+  // Il tetto giornaliero della casella, insieme alla classificazione: quanti
+  // run restano oggi (i run di questo giro li conta `left`, perché un runner
+  // che non registra consumi non li farebbe vedere alla query).
+  const maxPerDay = deps.maxPerDay ?? DEFAULT_GMAIL_MAX_PER_DAY;
+  let left = maxPerDay > 0 ? maxPerDay - (await countClassifyRunsSince(db, accountId, 24)) : Number.POSITIVE_INFINITY;
   let written = 0;
-  for (const c of candidates.slice(0, deps.maxPerTick ?? REPLY_JUDGMENT_MAX_PER_TICK)) {
+  for (const c of candidates) {
+    if (left <= 0) break;
+    // Il budget a OGNI run: esaurito a metà giro, il giro si ferma.
+    if ((await aiBudgetState(db, deps.monthlyCostUsdFn ?? monthlyCostUsd)).exhausted) break;
     // Il tentativo si consuma PRIMA del run (guardato sull'ultimo messaggio ancora senza giudizio).
     const claimed = await db
       .update(emailMessages)
@@ -102,6 +118,7 @@ export async function judgeWaitingThreads(deps: ReplyJudgeDeps, accountId: strin
     });
     const cwd = await mkdtemp(join(tmpdir(), "stubwise-reply-judgment-"));
     let stored: Record<string, unknown> | null = null;
+    let limited = false;
     try {
       const run = await runWithProviders(
         deps.select,
@@ -120,7 +137,13 @@ export async function judgeWaitingThreads(deps: ReplyJudgeDeps, accountId: strin
           }),
         limitTextOfRun,
       );
-      if (run.kind === "done" || run.kind === "legacy_limited") {
+      left -= 1;
+      // Un limite del provider non è colpa del messaggio: il tentativo si
+      // restituisce e il giro si ferma (come il `deferred` della
+      // classificazione). Altrimenti due tick al limite lasciavano un `error`
+      // permanente su ogni candidato.
+      limited = run.kind === "legacy_limited" || (run.kind === "unavailable" && isQuotaWait(run.reason));
+      if (run.kind === "done") {
         const value = "value" in run ? run.value : undefined;
         const parsed = value ? parseAgentJson(replyJudgmentOutputSchema, textFromRun(value) ?? "") : null;
         if (parsed) stored = { needsMyReply: parsed.needsMyReply, reason: parsed.reason, ...(deps.model ? { model: deps.model } : {}), at: now.toISOString() };
@@ -129,6 +152,14 @@ export async function judgeWaitingThreads(deps: ReplyJudgeDeps, accountId: strin
       deps.log?.(`google: giudizio sulla risposta del thread ${c.threadId} fallito: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       await rm(cwd, { recursive: true, force: true });
+    }
+    if (limited) {
+      await db
+        .update(emailMessages)
+        .set({ replyJudgmentAttempts: sql`greatest(${emailMessages.replyJudgmentAttempts} - 1, 0)` })
+        .where(and(eq(emailMessages.id, c.lastMessageId), sql`${emailMessages.replyJudgment} is null`));
+      deps.log?.(`google: giudizio sulla risposta rimandato (provider al limite), riprendo al prossimo giro`);
+      break;
     }
     if (stored === null && claimed[0]!.attempts >= REPLY_JUDGMENT_MAX_ATTEMPTS) stored = { error: "invalid_or_failed", at: now.toISOString() };
     if (stored !== null) {

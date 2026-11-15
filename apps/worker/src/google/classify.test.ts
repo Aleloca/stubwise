@@ -945,6 +945,19 @@ describe("classifyNewMessages: difese di costo (fase 6c, Task 6)", () => {
     expect((await reload(pending.id)).status).toBe("new");
   });
 
+  it("tetto giornaliero: i giudizi a parte di «Clienti in attesa» (J2) della casella contano insieme alla classificazione", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale J2");
+    const judged = await seedMessage(account.id, { projectId, status: "classified" });
+    await db.insert(agentRuns).values({ operation: "mail_reply_judgment", emailMessageId: judged.id, model: "haiku" });
+    await db.insert(agentRuns).values({ operation: "mail_reply_judgment", emailMessageId: judged.id, model: "haiku" });
+    const pending = await seedMessage(account.id, { projectId });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+    await classifyNewMessages({ ...deps(runner), maxPerTick: 20, maxPerDay: 2 }, account.id);
+    expect(runner.calls).toEqual([]);
+    expect((await reload(pending.id)).status).toBe("new");
+  });
+
   it("tetto giornaliero: le righe di consumo NON di classificazione non lo erodono", async () => {
     const account = await seedAccount();
     const projectId = await seedProject("Portale");

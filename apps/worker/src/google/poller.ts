@@ -2616,6 +2616,7 @@ async function runAccountTick(
           select: deps.select,
           ...(deps.lang ? { lang: deps.lang === "it" ? "it" : "en" } : {}),
           ...(deps.now ? { now: deps.now } : {}),
+          ...(deps.gmailMaxPerDay !== undefined ? { maxPerDay: deps.gmailMaxPerDay } : {}),
           log: (m) => (deps.logger ?? defaultLogger).warn(m),
         },
         account.id,

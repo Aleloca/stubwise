@@ -22,7 +22,7 @@ import {
   type TicketPriority,
   type TicketStatus,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, inArray, lte, ne, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lte, ne, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRunner, AgentRunResult, UsageTag } from "../agent/runner.js";
 import { capText, parseAgentJson, textFromRun } from "../agent/text.js";
@@ -1997,7 +1997,9 @@ export async function countClassifyRunsSince(db: Db, accountId: string, hours: n
     .innerJoin(emailMessages, eq(agentRuns.emailMessageId, emailMessages.id))
     .where(
       and(
-        eq(agentRuns.phase, "email_classify"),
+        // La classificazione E il giudizio a parte di «Clienti in attesa»
+        // (J2): il tetto giornaliero della casella è uno solo.
+        or(eq(agentRuns.phase, "email_classify"), eq(agentRuns.operation, "mail_reply_judgment")),
         eq(emailMessages.accountId, accountId),
         sql`${agentRuns.createdAt} >= now() - make_interval(hours => ${Math.trunc(hours)})`,
       ),

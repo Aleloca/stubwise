@@ -61,6 +61,13 @@ export interface WaitingCandidatesInput {
   projects?: "all" | readonly string[];
   /** La rotta: toglie i thread il cui ultimo messaggio è giudicato «no». */
   shownOnly?: boolean;
+  /**
+   * Il worker (J2): solo i thread il cui ultimo messaggio NON ha un giudizio
+   * e ha meno di questi tentativi. Nella WHERE, prima del `limit`: filtrarli
+   * dopo lasciava una casella con 200 thread già giudicati (e più vecchi)
+   * senza più nessun candidato (review finale, 15 nov 2026).
+   */
+  unjudgedBelowAttempts?: number;
 }
 
 export async function waitingCandidates(db: Db, input: WaitingCandidatesInput): Promise<WaitingCandidate[]> {
@@ -80,6 +87,10 @@ export async function waitingCandidatesPage(db: Db, input: WaitingCandidatesInpu
           sql`, `,
         )})`;
   const shown = input.shownOnly ? sql`coalesce(last.reply_judgment->>'needsMyReply', '') <> 'false'` : sql`true`;
+  const unjudged =
+    input.unjudgedBelowAttempts !== undefined
+      ? sql`last.reply_judgment is null and last.reply_judgment_attempts < ${input.unjudgedBelowAttempts}`
+      : sql`true`;
   const ids = sql.join(
     input.accountIds.map((id) => sql`${id}::uuid`),
     sql`, `,
@@ -145,6 +156,7 @@ export async function waitingCandidatesPage(db: Db, input: WaitingCandidatesInpu
       -- (e): new/failed (non classificato) e ogni stato non ignored passano; ignored solo con importanza alta.
       and (adm.status <> 'ignored' or adm.importance = 'high')
       and ${shown}
+      and ${unjudged}
       and not exists (
         select 1 from mail_outgoing o
         where o.account_id = last.account_id and o.state = 'sent'
