@@ -32,6 +32,8 @@ export interface CatalogRecipientsContext {
   mandatory: readonly { userId: string; reason: MandatoryReason }[];
   /** L'interruttore `push` di oggi della persona: vale SOLO senza una riga d'iscrizione. */
   pushPreference: (userId: string) => boolean;
+  /** Area 8, F4b: questo evento va SOLO agli obbligatori (un esito per chi ha chiesto un'analisi). */
+  mandatoryOnly?: boolean;
 }
 
 export interface CatalogRecipients {
@@ -60,7 +62,7 @@ export function catalogRecipients(type: AlertType, ctx: CatalogRecipientsContext
     add(m.userId, ctx.subscriptions.get(m.userId)?.phone ?? defaultPhone(m.userId));
     if (app.includes(m.userId) && !mandatory.has(m.userId)) mandatory.set(m.userId, m.reason);
   }
-  if (type.mandatoryOnly) return { app, phone, mandatory };
+  if (type.mandatoryOnly || ctx.mandatoryOnly === true) return { app, phone, mandatory };
   const rule = type.appDefaultOn ?? type.defaultOn;
   for (const userId of ctx.members) {
     const canSubscribe = type.subscribe.perm === "member" || ctx.holds(userId, type.subscribe.perm);

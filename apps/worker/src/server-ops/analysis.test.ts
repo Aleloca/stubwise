@@ -15,6 +15,9 @@ import {
   servers,
   serverSshAccess,
   encrypt,
+  projectMembers,
+  roles,
+  users,
   type Db,
 } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
@@ -441,5 +444,58 @@ describe("S7: l'SSH di sola lettura", () => {
     expect((await db.select().from(serverSshAccess).where(eq(serverSshAccess.serverId, server.id)))[0]!.status).toBe("failed");
     const rows = await db.select().from(serverCommands).where(eq(serverCommands.analysisId, (await analysisOf(episode.id)).id));
     expect(rows.map((r) => r.status)).toEqual(["failed"]);
+  });
+});
+
+describe("decisione del maintainer (15 nov 2026): l'esito di un'analisi a mano a chi l'ha chiesta", () => {
+  async function operator(projectId: string) {
+    const [u] = await db.insert(users).values({ email: `r-${randomBytes(4).toString("hex")}@x.it`, passwordHash: "x", role: "member" }).returning();
+    const [role] = await db.insert(roles).values({ name: `r-${randomBytes(3).toString("hex")}`, scope: "project", permissions: ["servers.operate"] }).returning();
+    await db.insert(projectMembers).values({ projectId, userId: u!.id, roleId: role!.id });
+    return u!.id;
+  }
+  const forRequester = (id: string) =>
+    published.filter((p) => ((p.opts as { mandatory?: { userId: string }[] }).mandatory ?? []).some((m) => m.userId === id)) as { event: Record<string, unknown>; opts: Record<string, unknown> }[];
+
+  it("non determinata, fallita, bloccata: una card SOLO a lui, con l'esito", async () => {
+    // Le scene dei test prima: chiuse qui, senza esiti da contare.
+    await queueEpisodeAnalyses(db);
+    await drain(deps(new FakeAgentRunner({ output: "x" })));
+    const { server, b } = await scene();
+    const requester = await operator(b.projectId);
+    const manual = async () => (await db.insert(serverAnalyses).values({ serverId: server.id, startedByUserId: requester }).returning())[0]!.id;
+    // Non determinata: un progetto dichiarato senza container suoi.
+    await manual();
+    await drain(deps(cliCalling(async (tool) => void (await tool("report_server_diagnosis", { summary: "boh", cause: { projectCode: null, containers: [], why: "" } })))));
+    // Fallita: nessun resoconto.
+    await manual();
+    await drain(deps(cliCalling(async () => undefined)));
+    // Bloccata: spenta in Impostazioni.
+    await setLimits({ enabled: false });
+    await manual();
+    await drain(deps(cliCalling(async () => undefined)));
+    await setLimits(null);
+    const cards = forRequester(requester);
+    expect(cards.map((c) => c.event["outcome"])).toEqual(["undetermined", "failed", "blocked"]);
+    for (const c of cards) {
+      expect(c.opts).toMatchObject({ projectId: b.projectId, mandatoryOnly: true, mandatory: [{ userId: requester, reason: "analysis_requester" }] });
+      expect(c.event).toMatchObject({ kind: "server.diagnosis_ready", taskCode: null, serverId: server.id });
+    }
+  });
+
+  it("attribuita a un progetto che vede: niente card a sé, è obbligatorio sulla diagnosi", async () => {
+    const { server, a } = await scene();
+    const requester = await operator(a.projectId);
+    await db.insert(serverAnalyses).values({ serverId: server.id, startedByUserId: requester });
+    // L'episodio della scena resta in coda: si svuota prima, senza conteggio.
+    await drain(
+      deps(
+        cliCalling(async (tool) => void (await tool("report_server_diagnosis", { summary: "web-a OOM", cause: { projectCode: a.code, containers: ["web-a"], why: "OOM" } }))),
+      ),
+    );
+    const cards = forRequester(requester);
+    expect(cards).toHaveLength(1);
+    expect(cards[0]!.opts).toMatchObject({ projectId: a.projectId, ticketId: expect.any(String) });
+    expect(cards[0]!.opts["mandatoryOnly"]).toBeUndefined();
   });
 });

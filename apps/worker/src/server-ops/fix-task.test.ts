@@ -1,11 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { aiJobs, environmentServers, projectEnvironments, projects, serverAnalyses, serverFixes, serverMetrics, servers, tickets, type Db } from "@stubwise/db";
+import { aiJobs, environmentServers, notifications, projectEnvironments, projectMembers, projects, roles, serverAnalyses, serverFixes, serverMetrics, servers, tickets, users, type Db } from "@stubwise/db";
+import { publishNotification } from "@stubwise/notifications";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { ServerDiagnosisReport } from "@stubwise/shared";
 import { buildFixPlanPrompt } from "../pipeline/prompts.js";
-import { openServerTask } from "./fix-task.js";
+import { notifyAnalysisRequester, openServerTask } from "./fix-task.js";
 import { attributionContext } from "./tools.js";
 
 /**
@@ -150,5 +151,61 @@ describe("la task dell'analisi attribuita", () => {
     expect(block.match(/<ticket_content>/g)).toHaveLength(1);
     expect(block.match(/<\/ticket_content>/g)).toHaveLength(1);
     expect(block).toContain("[/ticket_content>");
+  });
+});
+
+describe("decisione del maintainer (15 nov 2026): chi ha chiesto un'analisi a mano ne riceve SEMPRE l'esito", () => {
+  /** Un utente con servers.operate nel progetto (ruolo fatto a mano: nessun preset lo dà). */
+  async function operator(projectId: string) {
+    const [u] = await db.insert(users).values({ email: `op-${randomBytes(4).toString("hex")}@x.it`, passwordHash: "x", role: "member" }).returning();
+    const [role] = await db.insert(roles).values({ name: `op-${randomBytes(3).toString("hex")}`, scope: "project", permissions: ["repos.view", "tickets.view_all", "servers.operate"] }).returning();
+    await db.insert(projectMembers).values({ projectId, userId: u!.id, roleId: role!.id });
+    return u!.id;
+  }
+  const cardsOf = (userId: string) => db.select().from(notifications).where(eq(notifications.userId, userId));
+
+  it("attribuita a un progetto che vede: UNA card sola (la diagnosi), da obbligatorio, anche se è già iscritto di partenza", async () => {
+    const s = await scene();
+    const requester = await operator(s.a.projectId);
+    const out = await openServerTask(
+      db,
+      {
+        analysisId: s.analysisId,
+        serverId: s.server.id,
+        projectId: s.a.projectId,
+        manual: true,
+        report: { summary: "x", cause: { projectCode: null, containers: [], why: "" } },
+        context: await attributionContext(db, s.server.id),
+        language: "it",
+        publicUrl: "https://stubwise.example.com",
+        severity: null,
+        requesterId: requester,
+      },
+      publishNotification,
+      () => undefined,
+    );
+    const cards = await cardsOf(requester);
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({ kind: "server.diagnosis_ready", ticketId: out!.ticketId });
+    expect((cards[0]!.event as { alertMandatory?: string }).alertMandatory).toBe("analysis_requester");
+  });
+
+  it("non determinata: una card SOLO a lui, nel primo progetto del server in cui ha servers.operate; gli altri operatori non la ricevono", async () => {
+    const s = await scene();
+    const requester = await operator(s.b.projectId);
+    const other = await operator(s.b.projectId);
+    const projectId = await notifyAnalysisRequester(db, { serverId: s.server.id, requesterId: requester, outcome: "undetermined", language: "it", publicUrl: "https://x/" }, publishNotification, () => undefined);
+    expect(projectId).toBe(s.b.projectId);
+    const [card] = await cardsOf(requester);
+    expect(card).toMatchObject({ kind: "server.diagnosis_ready", projectId: s.b.projectId });
+    expect(card!.event).toMatchObject({ outcome: "undetermined", taskCode: null, serverId: s.server.id, alertMandatory: "analysis_requester" });
+    expect(await cardsOf(other)).toEqual([]);
+  });
+
+  it("senza servers.operate in nessun progetto del server (perso nel frattempo): nessuna card", async () => {
+    const s = await scene();
+    const [u] = await db.insert(users).values({ email: `x-${randomBytes(4).toString("hex")}@x.it`, passwordHash: "x", role: "member" }).returning();
+    expect(await notifyAnalysisRequester(db, { serverId: s.server.id, requesterId: u!.id, outcome: "failed", language: "it", publicUrl: "https://x" }, publishNotification, () => undefined)).toBeNull();
+    expect(await cardsOf(u!.id)).toEqual([]);
   });
 });

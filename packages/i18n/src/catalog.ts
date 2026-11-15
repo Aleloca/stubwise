@@ -255,6 +255,9 @@ export const en: Catalog = {
   "notify.alert.docsReleaseNote": "New release note for {repo}: {title}. {link}",
   "notify.alert.supportRequest": "New request from a customer ({customer}): {code} {title}. {link}",
   "notify.alert.serverDiagnosisReady": "Claude's diagnosis for {server} is ready: {code} {title}. {link}",
+  "notify.alert.serverAnalysis.undetermined": "Claude analysed {server}: the cause could not be tied to a project, so no task was opened. {link}",
+  "notify.alert.serverAnalysis.failed": "The analysis of {server} ended without a diagnosis. {link}",
+  "notify.alert.serverAnalysis.blocked": "The analysis of {server} did not start (turned off, or over the AI budget). {link}",
   "notify.alert.anonymousCustomer": "Anonymous visitor",
   "notify.monitorRecovered": "{serverName} recovered ({condition}): {detail}. {link}",
   // Pulse proattivo: evento SENZA ticket ancorato al PROGETTO, il {link} porta
@@ -972,6 +975,9 @@ export const it: Catalog = {
   "notify.alert.docsReleaseNote": "Nuova nota di rilascio per {repo}: {title}. {link}",
   "notify.alert.supportRequest": "Nuova richiesta di un cliente ({customer}): {code} {title}. {link}",
   "notify.alert.serverDiagnosisReady": "La diagnosi di Claude per {server} è pronta: {code} {title}. {link}",
+  "notify.alert.serverAnalysis.undetermined": "Claude ha analizzato {server}: la causa non si lega a un progetto, quindi nessuna task. {link}",
+  "notify.alert.serverAnalysis.failed": "L'analisi di {server} è finita senza una diagnosi. {link}",
+  "notify.alert.serverAnalysis.blocked": "L'analisi di {server} non è partita (spenta, o oltre il budget AI). {link}",
   "notify.alert.anonymousCustomer": "Visitatore anonimo",
   "notify.monitorRecovered": "{serverName} tornato su ({condition}): {detail}. {link}",
   "notify.pulse":
