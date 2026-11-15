@@ -116,6 +116,20 @@ describe("i container di un ambiente (R0-D)", () => {
     ]);
   });
 
+  it("72, review: un container col NOME di un ambiente di un altro progetto senza container è suo", async () => {
+    const { env } = await secondOnSrv1();
+    // L'altro ambiente non ha container: vale il suo nome; rinominato come un container di SRV-1.
+    state.environments.find((e) => e.id === env.id)!.name = "caddy";
+    expect(
+      await message(
+        releases.setEnvironmentContainers("env-acq-prod", {
+          serverCode: "SRV-1",
+          containers: ["caddy"],
+        }),
+      ),
+    ).toBe("invalid: container_of_other_project");
+  });
+
   it("chi non ha environments.manage: forbidden; un ambiente invisibile: not_found", async () => {
     // Chi legge ACQ senza poterne gestire gli ambienti.
     as(

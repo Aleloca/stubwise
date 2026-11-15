@@ -629,12 +629,16 @@ export async function setEnvironmentContainers(
     (server?.services ?? []).filter((x) => x.source === "docker").map((x) => x.name),
   );
   if (containers.some((c) => !seen.has(c))) throw invalid("unknown_container");
+  // Di un altro progetto: fra i suoi container su quel server, o col NOME
+  // di un suo ambiente senza container (la regola di shared, 72 review).
   const clash = state.environments.some(
     (e) =>
       e.projectId !== env.projectId &&
-      e.servers.some(
-        (s) => s.serverCode === serverCode && (s.containers ?? []).some((c) => containers.includes(c)),
-      ),
+      e.servers.some((s) => {
+        if (s.serverCode !== serverCode) return false;
+        const own = s.containers?.length ? s.containers : [e.name];
+        return own.some((c) => containers.includes(c));
+      }),
   );
   if (clash) throw invalid("container_of_other_project");
   for (const r of rows) r.containers = [...containers];
