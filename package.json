@@ -8,7 +8,8 @@
   },
   "scripts": {
     "test": "pnpm -r test",
-    "build": "pnpm -r build",
+    "build": "pnpm -r build && pnpm check:dist",
+    "check:dist": "node scripts/check-esm-named-imports.mjs && node scripts/smoke-server-dist.mjs",
     "lint": "eslint .",
     "typecheck": "pnpm -r typecheck",
     "version-packages": "changeset version && node packages/mcp/scripts/sync-plugin-version.mjs"
