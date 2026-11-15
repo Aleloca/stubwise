@@ -189,6 +189,21 @@ describe("la correzione: piano nuovo e Stop", () => {
   });
 });
 
+describe("i comandi di una correzione, per task (richiesta del renderer)", () => {
+  it("i passi delle sue approvazioni, con le uscite, a chi ha servers.operate nel progetto; un Project Lead senza → 403; vista con sessionId", async () => {
+    const s = await scene();
+    await approve(s.ticketId, s.leadA.headers);
+    const [approval] = await approvalsOf(s.ticketId);
+    const cmd = await issueServerCommand(testDb.db, KEY, { serverId: s.serverId, action: { action: "container.restart", params: { container: "web-a", timeoutSeconds: 10 } }, approval: { id: approval!.id, stepIndex: 0 } });
+    // Un comando di un'altra task sullo stesso server non c'entra.
+    const other = await scene();
+    expect((await call("GET", s.ticketId, "/commands", s.operA.headers)).json().commands.map((c: { id: string }) => c.id)).toEqual([cmd.id]);
+    expect((await call("GET", s.ticketId, "/commands", s.leadA.headers)).statusCode).toBe(403);
+    expect((await call("GET", other.ticketId, "/commands", other.operA.headers)).json().commands).toEqual([]);
+    expect((await call("GET", s.ticketId, "", s.devA.headers)).json()).toHaveProperty("sessionId", null);
+  });
+});
+
 describe("F4b-8 = c: la pulizia agisce su tutto il server", () => {
   it("l'avviso dice gli ALTRI progetti: il nome a chi li vede, il numero a chi no", async () => {
     const s = await scene({ steps: [{ action: "docker.prune", params: { what: "build_cache" }, why: "disco pieno" }] });

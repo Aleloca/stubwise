@@ -96,6 +96,8 @@ export const serverFixViewSchema = z.object({
    * `plan_changed`. Null senza piano. Additivo.
    */
   planDigest: z.string().nullable().default(null),
+  /** La sessione di Claude che ha proposto il piano (kind `server_fix`). Additivo. */
+  sessionId: z.uuid().nullable().default(null),
   /** Perché l'ultimo piano proposto non è stato salvato (`schema`, `container_of_other_project`, `operations_off`…). Additivo. */
   planError: z.string().nullable().default(null),
   /**
