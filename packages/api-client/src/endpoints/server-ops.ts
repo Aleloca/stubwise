@@ -4,8 +4,9 @@ import {
   serverCommandViewSchema,
   serverFixViewSchema,
   serverSshAccessViewSchema,
+  serverTaskViewSchema,
 } from "@stubwise/shared";
-import type { Reader, ServerAnalysisView, ServerCommandView, ServerFixView, ServerSshAccessView } from "@stubwise/shared";
+import type { Reader, ServerAnalysisView, ServerCommandView, ServerFixView, ServerSshAccessView, ServerTaskView } from "@stubwise/shared";
 import { z } from "zod";
 import type { ApiRequest } from "../client.js";
 import { seg, toQuery } from "../query.js";
@@ -74,6 +75,10 @@ export function createServerOpsEndpoints(request: ApiRequest) {
     },
     reject(ticketId: string, note = ""): Promise<Reader<ServerFixView>> {
       return request("POST", `${fix(ticketId)}/reject`, { note }, serverFixViewSchema);
+    },
+    /** La sezione Server di una task nata da un server (server, episodio, analisi, correzione, startBlock). */
+    taskServer(ticketId: string): Promise<Reader<ServerTaskView>> {
+      return request("GET", `/api/tasks/${seg(ticketId)}/server`, undefined, serverTaskViewSchema);
     },
     /** I comandi di questa correzione (passi e letture della sua sessione), con le uscite non fidate. */
     fixCommands(ticketId: string): Promise<Reader<{ commands: ServerCommandView[] }>> {
