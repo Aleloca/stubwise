@@ -139,3 +139,25 @@ describe("the fixed table", () => {
     expect(out.output).not.toContain("SECRET");
   });
 });
+
+describe("review F4b, I2: l'id del server si fissa anche dopo un avvio senza config", () => {
+  it("senza id all'inizio, il giro lo chiede PRIMA di verificare: il comando valido gira", async () => {
+    const h = harness(signed());
+    let serverId: string | null = null;
+    const out = await operationsTick({
+      baseUrl: "https://s.example",
+      serverKey: "sk_x",
+      publicKey: PUBLIC,
+      nonces: memoryNonces(),
+      docker: h.docker,
+      seenContainers: () => ["web", "db"],
+      serverId: () => serverId,
+      refreshServerId: async () => {
+        serverId = SERVER;
+      },
+      fetchFn: h.fetchFn,
+      now: () => NOW,
+    });
+    expect(out).toBe("ran");
+  });
+});

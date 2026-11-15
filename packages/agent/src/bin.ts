@@ -87,12 +87,13 @@ async function bootstrap(): Promise<void> {
       publicKey: env.operations.publicKey,
       nonces: fileNonceStore(env.operations.nonceFile),
       docker: async (call) => {
-        await pinServerId();
-        const { statusCode, body } = await pool.request({ method: call.method, path: call.path, signal: AbortSignal.timeout(60_000) });
+        // Oltre il `timeoutSeconds` più lungo ammesso (120 s) per uno stop/restart.
+        const { statusCode, body } = await pool.request({ method: call.method, path: call.path, signal: AbortSignal.timeout(180_000) });
         return { statusCode, body: await body.text() };
       },
       seenContainers: () => seen,
       serverId: () => serverId,
+      refreshServerId: pinServerId,
       log: (msg) => consoleLogger.info(msg),
     });
     consoleLogger.info("operations enabled: only signed commands of the closed set");

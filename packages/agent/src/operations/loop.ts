@@ -17,6 +17,12 @@ export interface OperationsDeps {
   docker: DockerRequest;
   seenContainers: () => readonly string[];
   serverId: () => string | null;
+  /**
+   * Review F4b, I2: fissa l'id del server se non lo è ancora (una config
+   * mancata all'avvio). Chiamata a ogni giro PRIMA della verifica: senza,
+   * un agente partito con Stubwise irraggiungibile rifiuterebbe per sempre.
+   */
+  refreshServerId?: () => Promise<void>;
   fetchFn?: typeof fetch;
   now?: () => Date;
   log?: (msg: string) => void;
@@ -29,6 +35,7 @@ export async function operationsTick(deps: OperationsDeps): Promise<"idle" | "ra
   if (!res.ok) return "idle";
   const body = (await res.json()) as { command: SignedCommand | null };
   if (!body.command) return "idle";
+  if (deps.serverId() === null) await deps.refreshServerId?.().catch(() => undefined);
   const now = deps.now?.() ?? new Date();
   const verdict = verifyCommand(body.command, {
     publicKey: deps.publicKey,
