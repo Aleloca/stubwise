@@ -25,7 +25,7 @@ import { SERVER_ANALYSIS_TOOLS, SERVER_MCP_SERVER_NAME } from "@stubwise/shared"
 import { FakeAgentRunner } from "../agent/fake.js";
 import { AgentTimeoutError, type AgentRunOptions, type AgentRunResult } from "../agent/runner.js";
 import type { SelectDeps } from "../providers/select.js";
-import { analysisGate, pruneServerCommands, queueEpisodeAnalyses, runNextServerAnalysis, type ServerAnalysisDeps } from "./analysis.js";
+import { analysisGate, expireStaleCommands, pruneServerCommands, queueEpisodeAnalyses, runNextServerAnalysis, type ServerAnalysisDeps } from "./analysis.js";
 import { startServerOpsBridge, type ServerOpsBridge } from "./bridge.js";
 import { SshHostKeyMismatchError, verifyPendingSshAccess, type SshExec } from "./ssh.js";
 
@@ -371,6 +371,8 @@ describe("S7: l'SSH di sola lettura", () => {
     const exec: SshExec = async (t, argv) => {
       if (t.host === "down.example") throw new Error("connessione rifiutata");
       if (argv[0] === "id") return { exitCode: 0, stdout: t.host === "docker.example" ? "stubwise-read docker\n" : "stubwise-read adm\n", stderr: "", hostKey: "SHA256:abc" };
+      // Il controllo di sudo è `sudo -n -l` (ogni regola senza password, anche limitata).
+      expect(argv).toEqual(["sudo", "-n", "-l"]);
       return { exitCode: 1, stdout: "", stderr: "sudo: a password is required", hostKey: "SHA256:abc" };
     };
     await verifyPendingSshAccess(db, ENCRYPTION_KEY, exec, () => undefined);
@@ -497,5 +499,21 @@ describe("decisione del maintainer (15 nov 2026): l'esito di un'analisi a mano a
     expect(cards).toHaveLength(1);
     expect(cards[0]!.opts).toMatchObject({ projectId: a.projectId, ticketId: expect.any(String) });
     expect(cards[0]!.opts["mandatoryOnly"]).toBeUndefined();
+  });
+});
+
+describe("review F4b: i comandi che nessuno chiude", () => {
+  it("pending oltre la scadenza → expired; delivered senza esito 15' dopo la scadenza → failed; il resto resta", async () => {
+    const { server } = await scene();
+    const now = new Date("2026-11-15T12:00:00Z");
+    const insert = async (status: "pending" | "delivered", expiresAt: Date) =>
+      (await db.insert(serverCommands).values({ serverId: server.id, action: "container.state", params: { container: "web-a" }, kind: "read", issuedAt: new Date(expiresAt.getTime() - 600_000), expiresAt, status }).returning())[0]!.id;
+    const oldPending = await insert("pending", new Date(now.getTime() - 1000));
+    const freshPending = await insert("pending", new Date(now.getTime() + 60_000));
+    const lostDelivered = await insert("delivered", new Date(now.getTime() - 16 * 60_000));
+    const recentDelivered = await insert("delivered", new Date(now.getTime() - 5 * 60_000));
+    await expireStaleCommands(db, now);
+    const status = async (id: string) => (await db.select().from(serverCommands).where(eq(serverCommands.id, id)))[0]!.status;
+    expect([await status(oldPending), await status(freshPending), await status(lostDelivered), await status(recentDelivered)]).toEqual(["expired", "pending", "failed", "delivered"]);
   });
 });

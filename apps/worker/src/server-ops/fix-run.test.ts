@@ -20,7 +20,7 @@ import { FakeAgentRunner } from "../agent/fake.js";
 import type { AgentRunOptions, AgentRunResult } from "../agent/runner.js";
 import type { SelectDeps } from "../providers/select.js";
 import { startServerOpsBridge, type ServerOpsBridge } from "./bridge.js";
-import { proposeNextServerFix, runNextApprovedFix, type ServerFixDeps } from "./fix-run.js";
+import { proposeNextServerFix, recoverStaleFixes, runNextApprovedFix, type ServerFixDeps } from "./fix-run.js";
 
 /**
  * Area 8, F4b, S6: la correzione nel worker. Un passo alla volta, coi
@@ -273,3 +273,17 @@ describe("un piano nuovo: la sessione server_fix", () => {
   });
 });
 
+
+describe("review F4b: una correzione appesa dopo un crash del worker", () => {
+  it("running ferma da 30' → failed (worker_restart), approvazione revocata; una recente resta", async () => {
+    const old = await scene();
+    const fresh = await scene();
+    const now = new Date();
+    await db.update(serverFixes).set({ status: "running", updatedAt: new Date(now.getTime() - 31 * 60_000) }).where(eq(serverFixes.id, old.fix.id));
+    await db.update(serverFixes).set({ status: "running", updatedAt: new Date(now.getTime() - 60_000) }).where(eq(serverFixes.id, fresh.fix.id));
+    await recoverStaleFixes(db, now);
+    expect(await fixOf(old.fix.id)).toMatchObject({ status: "failed", planError: "worker_restart" });
+    expect((await db.select().from(serverOperationApprovals).where(eq(serverOperationApprovals.id, old.approvalId!)))[0]!.revokedAt).not.toBeNull();
+    expect((await fixOf(fresh.fix.id)).status).toBe("running");
+  });
+});

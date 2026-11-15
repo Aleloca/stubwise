@@ -320,6 +320,24 @@ export async function pruneServerCommands(db: Db, now = new Date()): Promise<num
   return rows.length;
 }
 
+/**
+ * Review F4b: i comandi che nessuno chiude. Uno `pending` oltre la scadenza
+ * diventa `expired` anche se l'agente non interroga più (prima lo faceva
+ * solo GET /monitor/commands); uno `delivered` senza esito 15 minuti dopo la
+ * scadenza diventa `failed` («nessun esito dall'agente»). Così il registro
+ * non mente e la potatura a 90 giorni li prende.
+ */
+export async function expireStaleCommands(db: Db, now = new Date()): Promise<void> {
+  await db
+    .update(serverCommands)
+    .set({ status: "expired", finishedAt: now })
+    .where(and(eq(serverCommands.status, "pending"), lt(serverCommands.expiresAt, now)));
+  await db
+    .update(serverCommands)
+    .set({ status: "failed", output: "no result from the agent", finishedAt: now })
+    .where(and(eq(serverCommands.status, "delivered"), lt(serverCommands.expiresAt, new Date(now.getTime() - 15 * 60_000))));
+}
+
 export interface ServerAnalysisPoller {
   stop(): void;
 }
@@ -338,6 +356,7 @@ export function startServerAnalysisPoller(deps: ServerAnalysisDeps, intervalMs =
         await pruneServerCommands(deps.db);
       }
       await recoverStaleAnalyses(deps.db, await loadLimits(deps.db));
+      await expireStaleCommands(deps.db);
       // S7: la verifica degli accessi SSH in attesa (fissa la host key, rifiuta i privilegi).
       await verifyPendingSshAccess(deps.db, deps.encryptionKey, deps.sshExec, deps.log);
       await queueEpisodeAnalyses(deps.db);
