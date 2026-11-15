@@ -97,7 +97,9 @@ function WorkLine({
     return line(
       false,
       t("servers.now.work.undetermined", {
-        reason: t(`servers.attribution.${analysis.attribution.reason}`),
+        reason: t(`servers.attribution.${analysis.attribution.reason}`, {
+          defaultValue: t("servers.attribution.other"),
+        }),
       }),
       session(analysis.sessionId),
     );

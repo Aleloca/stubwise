@@ -38,6 +38,9 @@ export function useServerFixPlan(detail: ConversationDetail | null): ServerFixPl
 export function stepLabel(t: TFunction, step: ServerPlan["steps"][number]): string {
   const K = "taskDetail.server.planCard.steps";
   const params = step.params as Record<string, string | number>;
-  if (step.action === "docker.prune") return t(`${K}.docker_prune.${String(params["what"])}`);
-  return t(`${K}.${actionKey(step.action)}`, params);
+  if (step.action === "docker.prune")
+    return t(`${K}.docker_prune.${String(params["what"])}`, {
+      defaultValue: t(`${K}.docker_prune.other`),
+    });
+  return t(`${K}.${actionKey(step.action)}`, { ...params, defaultValue: step.action });
 }

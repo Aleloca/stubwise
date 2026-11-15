@@ -14,6 +14,7 @@ import {
   startRun,
   stop,
   stopAndSend,
+  getConversation,
 } from "../api";
 import { createTaskAs } from "../api-mutations";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
@@ -549,13 +550,15 @@ describe("F4b: il piano è dell'insieme chiuso, e «libera spazio» su un server
 });
 
 describe("RF 1: fermare, e i percorsi che non sono la correzione", () => {
-  it("lo Stop di una persona → fermata da lei, nessuna azione dopo", async () => {
+  it("lo Stop di una persona (dalla task) → fermata da lei, nessuna azione dopo; dalla sessione no", async () => {
     const c = await started("p-roberta", threeStepTask());
     setStreamLatency(20);
     as("p-roberta");
     await decidePlan(c.id, "approve");
     await expect.poll(() => actions(c.id, "server.fix").length, FAST).toBeGreaterThan(0);
-    await stop(c.id);
+    // Review F4b I4: la sessione di una correzione non si ferma da sé.
+    expect(await message(stop(c.id))).toBe("forbidden");
+    await servers.stopServerFix(c.taskId!);
     const atStop = actions(c.id, "server.fix").length;
     await whenFixesIdle();
     await sleep(80);
@@ -572,26 +575,52 @@ describe("RF 1: fermare, e i percorsi che non sono la correzione", () => {
     expect(info.fix!.steps.map((x) => x.status)).toContain("skipped");
   });
 
-  it("«Ferma e scrivi» → si ferma e il piano si riscrive, di nuovo da approvare", async () => {
+  it("review F4b I4: nella sessione di una correzione non si scrive e non c'è «Ferma e scrivi»", async () => {
     const c = await started("p-roberta", threeStepTask());
     setStreamLatency(20);
     as("p-roberta");
     await decidePlan(c.id, "approve");
     await expect.poll(() => actions(c.id, "server.fix").length, FAST).toBeGreaterThan(0);
-    await stopAndSend(c.id, "Only free up space, nothing else.");
-    const atStop = actions(c.id, "server.fix").length;
-    await whenFixesIdle();
-    expect(actions(c.id, "server.fix").length).toBe(atStop);
-    expect(plans(c.id).at(-1)).toMatchObject({ status: "pending" });
-    expect(plans(c.id).at(-1)!.planText).toContain("Only free up space, nothing else.");
-    expect(session(c.id).state).toBe("awaiting_approval");
-    // I comandi ripartono solo dopo la nuova approvazione.
-    await sleep(60);
-    expect(actions(c.id, "server.fix").length).toBe(atStop);
+    expect(await message(stopAndSend(c.id, "Only free up space, nothing else."))).toBe(
+      "forbidden",
+    );
+    const detail = await getConversation(c.id);
+    expect(detail).toMatchObject({
+      canWrite: false,
+      canInterrupt: false,
+      readOnlyReason: "server_fix",
+    });
     setStreamLatency(0);
-    await approved(c, "p-roberta");
-    expect(actions(c.id, "server.fix").length).toBe(atStop + 3);
-    expect(plans(c.id).at(-1)).toMatchObject({ status: "approved", decidedById: "p-roberta" });
+    await whenFixesIdle();
+  });
+
+  it("review F4b I5: Stop dalla task con servers.operate o plans.approve, non senza", async () => {
+    const c = await started("p-roberta", threeStepTask());
+    setStreamLatency(20);
+    as("p-roberta");
+    await decidePlan(c.id, "approve");
+    await expect.poll(() => actions(c.id, "server.fix").length, FAST).toBeGreaterThan(0);
+    // Marco ha servers.operate in ACQ (senza plans.approve): può fermare.
+    as("p-marco");
+    expect((await servers.getServerTaskInfo(c.taskId!))!.fix!.canStop).toBe(true);
+    // Chi legge ACQ senza nessuno dei due: no.
+    const reader = PEOPLE.find(
+      (p) =>
+        p.id !== CLAUDE_ID &&
+        visibleProjectIds(p.id).has(ACQ) &&
+        !can(viewerFor(p.id), "servers.operate", ACQ) &&
+        !can(viewerFor(p.id), "plans.approve", ACQ),
+    );
+    if (reader) {
+      as(reader.id);
+      expect((await servers.getServerTaskInfo(c.taskId!))!.fix!.canStop).toBe(false);
+      expect(await message(servers.stopServerFix(c.taskId!))).toBe("forbidden");
+    }
+    as("p-marco");
+    await servers.stopServerFix(c.taskId!);
+    setStreamLatency(0);
+    await whenFixesIdle();
+    expect(session(c.id)).toMatchObject({ state: "finished", outcome: "stopped" });
   });
 
   it("task senza serverRef → not_server_task; un server con le operazioni spente → operations_off", async () => {

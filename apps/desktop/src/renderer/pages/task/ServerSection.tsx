@@ -20,7 +20,6 @@ import { ServerCommandLog } from "./ServerCommandLog";
 import type { ServerTaskInfo } from "../../data/servers";
 import type { EpisodeReason, ServerEpisode, Task } from "../../data/types";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
-import { Markdown } from "../../tasks-ui/Markdown";
 import { useToast } from "../../tasks-ui/Toast";
 import { CheckGlyph, CrossGlyph, WorkingRing } from "../claude/conversation/parts";
 import { clockLocal, dayLocal, isToday, sinceWhen } from "../servers/format";
@@ -298,7 +297,8 @@ function Proposal({ text }: { text: string }) {
     <div className="flex min-w-0 flex-col gap-0.5 text-sm">
       <div ref={box} className={`min-w-0 text-ink ${!all ? "line-clamp-4" : ""}`}>
         <span className="font-semibold">{t(`${K}.suggested`)}</span>{" "}
-        <Markdown source={text} className="inline [&>*]:inline" />
+        {/* Testo del modello: si mostra come testo, mai come markup né link (review F4b). */}
+        <span className="[overflow-wrap:anywhere] whitespace-pre-wrap">{text}</span>
       </div>
       {long && (
         <button

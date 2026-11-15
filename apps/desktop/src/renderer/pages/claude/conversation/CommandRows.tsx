@@ -58,7 +58,12 @@ function CommandRow({ action }: { action: Action }) {
           {label}
         </span>
         <span className="flex shrink-0 items-center gap-1.5 text-xs">
-          {action.state === "running" ? (
+          {action.serverCommand?.ended ? (
+            // Mai eseguito: né riuscito né fallito (review F4b).
+            <span className="text-ink-muted">
+              {t(`taskDetail.server.log.${action.serverCommand.ended}`)}
+            </span>
+          ) : action.state === "running" ? (
             <>
               <WorkingRing />
               <span className="text-ink-muted">{t("taskDetail.server.log.running")}</span>

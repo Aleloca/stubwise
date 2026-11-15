@@ -3551,6 +3551,8 @@ export interface ServerCommandMeta {
   /** Il piano approvato che lo copre (l'id del suo evento); `null` per una lettura. */
   approvalId: string | null;
   exitCode: number | null;
+  /** Build app: mai eseguito — annullato (approvazione revocata) o scaduto. */
+  ended?: "cancelled" | "expired";
 }
 
 /** Una chiave pubblica (`ssh-ed25519 AAAA… stubwise-read@SRV-1`); la privata sta solo in `data/servers/secrets.ts`. */

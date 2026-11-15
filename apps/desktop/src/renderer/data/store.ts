@@ -2049,6 +2049,16 @@ export function conversationPermissions(
     }
   }
 
+  // La sessione di una correzione di server propone soltanto (decisione del
+  // maintainer, 15 nov 2026, review F4b I4): non ci si scrive, non si ferma
+  // da qui né «Ferma e scrivi»; piano e Stop stanno nella sezione Server
+  // della task (`fixDecide.ts`).
+  if (c.serverFix && live) {
+    canWrite = false;
+    canInterrupt = false;
+    readOnlyReason = "server_fix";
+  }
+
   const question = openQuestion(log);
   const plan = pendingPlan(log);
   const preApproved = state.preApprovedPlans.has(c.id);

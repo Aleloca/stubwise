@@ -1,5 +1,6 @@
 import { useState, type Ref } from "react";
 import { useTranslation } from "react-i18next";
+import { isAppBuild } from "../../data/build";
 import { useInstallCommand, useRemovalCommand } from "../../data/queries";
 import type { SshAccessView } from "../../data/servers";
 import { useToast } from "../../tasks-ui/Toast";
@@ -178,7 +179,10 @@ export function InstallStep({ code, access }: { code: string; access: Access }) 
             {t("servers.ssh.step2.fingerprint")} <Fingerprint value={key.fingerprint} />
           </p>
         )}
-        <p className="text-xs text-ink-faint">{t("servers.ssh.step2.prototype")}</p>
+        {/* Solo nel prototipo le chiavi sono finte (review F4b). */}
+        {!isAppBuild() && (
+          <p className="text-xs text-ink-faint">{t("servers.ssh.step2.prototype")}</p>
+        )}
       </div>
     </>
   );

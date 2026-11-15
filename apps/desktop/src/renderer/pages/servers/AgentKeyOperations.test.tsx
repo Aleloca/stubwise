@@ -1,7 +1,7 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resetApi, setLatency } from "../../data/api";
+import { failNext, resetApi, setLatency } from "../../data/api";
 import { renderWithData } from "../../test/renderWithData";
 import { AgentKeyDialog } from "./AgentKeyPanel";
 
@@ -32,5 +32,18 @@ describe("le operazioni dell'agente nel comando (R3)", () => {
     await waitFor(() => expect(command()).toContain("STUBWISE_OPERATIONS=1"));
     expect(command()).toMatch(/STUBWISE_COMMAND_PUBLIC_KEY=ssh-ed25519 \S+/);
     expect(command()).toContain("-v stubwise-agent-state:/var/lib/stubwise-agent");
+  });
+
+  it("senza la chiave dei comandi (errore) niente comando da copiare, e lo dice", async () => {
+    failNext("servers.getCommandKey");
+    renderWithData(
+      <AgentKeyDialog title="Agent key" code="SRV-1" agentKey="sk_test" onDone={() => {}} />,
+      { personId: "p-roberta" },
+    );
+    await userEvent.click(screen.getByRole("checkbox", { name: "Let the agent run fix actions" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Couldn't load the key that signs the agent's actions.",
+    );
+    expect(document.querySelector("[data-command]")).toBeNull();
   });
 });

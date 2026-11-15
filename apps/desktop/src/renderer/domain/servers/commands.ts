@@ -52,7 +52,8 @@ export interface ServerCommandRow {
   params: Record<string, unknown>;
   kind: "change" | "read";
   via: "agent" | "ssh";
-  status: "delivered" | "done" | "failed";
+  /** `cancelled`/`expired` (build app): un comando mai eseguito, non un errore. */
+  status: "delivered" | "done" | "failed" | "cancelled" | "expired";
   requestedById: string | null;
   approvalId: string | null;
   issuedAt: string;

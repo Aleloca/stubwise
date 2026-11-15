@@ -17,12 +17,14 @@ type Action = Extract<ConversationEvent, { type: "action" }>;
 
 /** L'azione di un comando in parole, al passato, coi parametri come valori. */
 export function commandLabel(t: TFunction, row: ServerCommandRow): string {
-  const params = row.params as Record<string, string | number>;
+  // Solo i parametri noti entrano nella frase, come valori (review F4b).
+  const params = row.params as Record<string, unknown>;
+  const known: Record<string, string> = {};
+  for (const k of ["container", "what", "timeoutSeconds"])
+    if (typeof params[k] === "string" || typeof params[k] === "number")
+      known[k] = String(params[k]);
   const key = row.action.replace(".", "_");
-  return t(`taskDetail.server.log.actions.${key}`, {
-    ...params,
-    defaultValue: row.action,
-  });
+  return t(`taskDetail.server.log.actions.${key}`, { ...known, defaultValue: row.action });
 }
 
 /** Una riga del registro come l'azione che `CommandRows` sa disegnare. */
@@ -36,7 +38,12 @@ function asAction(t: TFunction, row: ServerCommandRow): Action {
     label,
     input: label,
     ...(row.output !== null ? { result: row.output } : {}),
-    state: row.status === "delivered" ? "running" : row.status,
+    state:
+      row.status === "delivered"
+        ? "running"
+        : row.status === "cancelled" || row.status === "expired"
+          ? "done"
+          : row.status,
     serverCommand: {
       action: row.action,
       params: row.params,
@@ -44,6 +51,7 @@ function asAction(t: TFunction, row: ServerCommandRow): Action {
       via: row.via,
       approvalId: row.approvalId,
       exitCode: row.exitCode,
+      ...(row.status === "cancelled" || row.status === "expired" ? { ended: row.status } : {}),
     },
   };
 }

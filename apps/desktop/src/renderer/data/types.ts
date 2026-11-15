@@ -393,7 +393,9 @@ export type ReadOnlyReason =
   | "not_interactive"
   | "no_permission"
   /** Area 9b: la sessione è nata ma aspetta un blocco d'istanza (la coda in pausa). */
-  | "waiting";
+  | "waiting"
+  /** Area 8, F4b: la sessione di una correzione di server; si decide dalla task. */
+  | "server_fix";
 
 /** Quello che chi guarda può fare in una conversazione: lo calcola il livello dati, mai la UI. */
 export interface ConversationPermissions {

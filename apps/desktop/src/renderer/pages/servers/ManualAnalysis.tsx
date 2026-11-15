@@ -68,7 +68,9 @@ function AnalysisLine({ analysis }: { analysis: ServerAnalysisView }) {
       <Line
         ring={false}
         text={t("servers.manual.undetermined", {
-          reason: t(`servers.attribution.${analysis.attribution.reason}`),
+          reason: t(`servers.attribution.${analysis.attribution.reason}`, {
+            defaultValue: t("servers.attribution.other"),
+          }),
         })}
         extra={extra(session)}
       />

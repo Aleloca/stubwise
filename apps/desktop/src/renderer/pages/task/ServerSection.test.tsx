@@ -9,7 +9,6 @@ import {
   servers,
   setLatency,
   setStreamLatency,
-  stop,
 } from "../../data/api";
 import { createTaskAs } from "../../data/api-mutations";
 import { CLAUDE_ID } from "../../data/seed/people";
@@ -93,7 +92,7 @@ describe("sezione Server", () => {
     expect(section).toHaveTextContent(/Memory above 90% · .*18:00 → 20:00 \(back to normal\)/);
     expect(section).toHaveTextContent("Diagnosis ready");
     expect(section).toHaveTextContent("Suggested fix:");
-    expect(section).toHaveTextContent(/Restart the portale-import container/);
+    expect(section).toHaveTextContent(/Restart the `portale-import` container/);
     expect(within(section).getByRole("link", { name: /Read the analysis/ })).toHaveAttribute(
       "href",
       expect.stringContaining("/claude/cv-srv-1-analysis"),
@@ -181,6 +180,14 @@ describe("sezione Server", () => {
     expect(within(menu).getByRole("menuitem", { name: "Open session" })).toBeInTheDocument();
     expect(within(menu).queryByRole("menuitem", { name: /advance|Pre-approve/i })).toBeNull();
     expect(fixCommands()).toBe(0);
+  });
+
+  it("review F4b: la proposta di Claude è testo, mai un link", async () => {
+    const a = state.serverAnalyses.find((x) => x.taskId === TASK)!;
+    a.proposal = "Restart it, see [the runbook](https://evil.example.com).";
+    await openTask("p-roberta");
+    await waitFor(() => expect(serverSection()).toHaveTextContent("see [the runbook]"));
+    expect(within(serverSection()).queryByRole("link", { name: "the runbook" })).toBeNull();
   });
 
   it("decisione 3: Approva dalla sezione Server fa partire i comandi; Stop la ferma da lì", async () => {
@@ -411,7 +418,7 @@ describe("sezione Server", () => {
 
   it("uno Stop di una persona dice chi: «Fix stopped by Roberta Fontana»", async () => {
     let id = "";
-    id = await haltAfterFirstCommand(() => stop(fixConversation()));
+    id = await haltAfterFirstCommand(() => servers.stopServerFix(TASK));
     expect(id).toBeTruthy();
     const section = await openTask("p-roberta");
     await waitFor(() => expect(section).toHaveTextContent(/Fix stopped by Roberta/));

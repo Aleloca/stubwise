@@ -318,7 +318,16 @@ export function useServerTaskInfo(taskId: string) {
   return useQuery({
     queryKey: queryKeys.serverTaskInfo(me, taskId),
     queryFn: () => api.servers.getServerTaskInfo(taskId),
+    // Review F4b I3: nell'app la sezione non sente le sessioni (l'esecuzione
+    // è deterministica, senza Claude): mentre la correzione pianifica o gira
+    // si rilegge ogni pochi secondi.
+    refetchInterval: (q) => serverTaskRefetch(q.state.data?.state),
   });
+}
+
+/** Ogni quanto rileggere la sezione Server: solo mentre la correzione è viva. */
+export function serverTaskRefetch(state: string | undefined): number | false {
+  return state === "fix_planning" || state === "fixing" ? 4000 : false;
 }
 
 /**

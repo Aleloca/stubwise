@@ -1411,7 +1411,8 @@
           "docker_prune": {
             "images_unused": "Libera spazio: togli le immagini che nessun container usa",
             "build_cache": "Libera spazio: togli la cache di build di Docker",
-            "stopped_containers": "Libera spazio: togli i container fermi"
+            "stopped_containers": "Libera spazio: togli i container fermi",
+            "other": "Libera spazio"
           }
         },
         "shared": {
@@ -1435,7 +1436,8 @@
         "statusAwaiting": "Correzione su {{code}} · da approvare",
         "statusAwaitingYou": "Correzione su {{code}} · aspetta la tua approvazione",
         "codeOnly": "Questa esecuzione lavora sul codice, mai su {{code}}. Per correggere il server usa «Avvia la correzione» nella sezione Server qui sopra.",
-        "decideInServer": "Questo piano si decide nella sezione Server della task, dove vedi cosa esegue su {{code}}."
+        "decideInServer": "Questo piano si decide nella sezione Server della task, dove vedi cosa esegue su {{code}}.",
+        "stale": "Il piano non è più adatto al server: chiedine uno nuovo a Claude."
       },
       "check": {
         "resolved": "Controllo dopo la correzione: risolto",
@@ -1483,7 +1485,9 @@
           "listening": "Lette le porte in ascolto",
           "failed_units": "Letti i servizi falliti",
           "journal_errors": "Letti gli errori del journal di sistema"
-        }
+        },
+        "cancelled": "Annullato",
+        "expired": "Scaduto"
       },
       "stop": "Ferma la correzione",
       "stopFailed": "Non è stato possibile fermare la correzione. Riprova."
@@ -4254,7 +4258,8 @@
         },
         "refineClosed": "Questa rifinitura è chiusa.",
         "refineItemClosed": "La richiesta è diventata una task o è stata archiviata: questa rifinitura è chiusa.",
-        "automaticServer": "Questa sessione va da sola con l'accesso in sola lettura a {{code}}: si può solo guardare."
+        "automaticServer": "Questa sessione va da sola con l'accesso in sola lettura a {{code}}: si può solo guardare.",
+        "serverFix": "Questa sessione propone soltanto la correzione su {{code}}: il piano si decide, e la correzione si ferma, dalla sezione Server della task."
       },
       "executed": {
         "verb": {
@@ -9537,7 +9542,8 @@
       "no_containers": "non ha indicato un container, e questo server lo usano più progetti.",
       "unknown_container": "ha indicato un container che l'agente non riporta su questo server.",
       "no_container_of_project": "nessuno dei container indicati appartiene agli ambienti di quel progetto.",
-      "containers_of_other_project": "ha indicato un container che appartiene a un altro progetto."
+      "containers_of_other_project": "ha indicato un container che appartiene a un altro progetto.",
+      "other": "questa app non conosce ancora il motivo."
     },
     "charts": {
       "rangeLabel": "Intervallo",
@@ -9753,7 +9759,9 @@
       "keepOpen": "Tienilo aperto",
       "closeAnyway": "Chiudi",
       "operations": "Lascia che l'agente esegua le correzioni",
-      "operationsHint": "Riavviare, fermare o avviare un container, liberare spazio: solo i passi di un piano approvato da una persona, firmati da questo Stubwise. Spente, Claude legge e propone, ma nessun piano si esegue."
+      "operationsHint": "Riavviare, fermare o avviare un container, liberare spazio: solo i passi di un piano approvato da una persona, firmati da questo Stubwise. Spente, Claude legge e propone, ma nessun piano si esegue.",
+      "commandKeyLoading": "Carico la chiave dei comandi…",
+      "commandKeyError": "Non è stato possibile caricare la chiave che firma le azioni dell'agente. Togli l'opzione, o riprova."
     },
     "simulate": {
       "label": "Solo prototipo: segnali del server",

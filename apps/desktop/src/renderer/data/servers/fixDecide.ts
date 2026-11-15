@@ -1,8 +1,10 @@
 import { planDigest } from "../../domain/servers/fixPlan";
-import { decidePlan, stop } from "../api-mutations";
-import { eventsOf, gate, state, visibleProjectIds } from "../store";
+import { decidePlan } from "../api-mutations";
+import { eventsOf, gate, state, storeGeneration, visibleProjectIds } from "../store";
+import { can, viewerFor } from "../viewer";
+import { stopServerFixAs } from "./fix";
 import type { Conversation, ConversationEvent, Task } from "../types";
-import { invalid, notFound } from "../writer";
+import { forbidden, invalid, notFound } from "../writer";
 
 // Il piano di una correzione si decide dalla task (area 8, F4b, decisione
 // del maintainer del 15 nov 2026): la sezione Server legge la vista della
@@ -15,13 +17,14 @@ type PlanEvent = Extract<ConversationEvent, { type: "plan" }>;
 
 /** La task, vista da chi chiama, e la sua ultima sessione di correzione. */
 async function fixOf(fn: Parameters<typeof gate>[0], taskId: string) {
+  const gen = storeGeneration();
   const me = await gate(fn);
   const task: Task | undefined = state.tasksById.get(taskId);
   if (!task || !visibleProjectIds(me).has(task.projectId) || !task.serverRef) throw notFound();
   const run: Conversation | undefined = state.conversations
     .filter((c) => c.kind === "task_run" && c.taskId === task.id && c.serverFix)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))[0];
-  return { run };
+  return { me, task, run, gen };
 }
 
 /** Il piano che aspetta, o `not_awaiting_approval`. */
@@ -51,9 +54,19 @@ export async function rejectServerFix(taskId: string, note: string): Promise<voi
   await decidePlan(run!.id, "reject", note.trim() || undefined, plan.id);
 }
 
+/**
+ * Chi ferma una correzione: `servers.operate` o `plans.approve` nel progetto
+ * della task (review F4b I5, come il server).
+ */
+export const canStopServerFix = (me: string, projectId: string): boolean => {
+  const viewer = viewerFor(me);
+  return can(viewer, "servers.operate", projectId) || can(viewer, "plans.approve", projectId);
+};
+
 /** «Stop»: ferma la correzione; una già chiusa è `not_running`. */
 export async function stopServerFix(taskId: string): Promise<void> {
-  const { run } = await fixOf("servers.stopServerFix", taskId);
+  const { me, task, run, gen } = await fixOf("servers.stopServerFix", taskId);
   if (!run || run.state === "finished") throw invalid("not_running");
-  await stop(run.id);
+  if (!canStopServerFix(me, task.projectId)) throw forbidden();
+  await stopServerFixAs(me, run, gen);
 }

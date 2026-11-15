@@ -233,4 +233,18 @@ describe("la sezione Server della task nell'app (F4b)", () => {
     expect(await stopOf("server_not_in_project")).toMatchObject({ reason: "server_gone" });
     expect(await stopOf("approval_revoked")).toMatchObject({ reason: null, outcome: "failed" });
   });
+
+  it("review: un avviso della pulizia vuoto non c'è; un piano in attesa blocca l'avvio", async () => {
+    const info = (await createRealServerTask(
+      fakeApi({
+        taskServer: async () =>
+          taskView({
+            fix: fixView({ pruneWarning: { projects: [], hiddenCount: 0 } }),
+            startBlock: "plan_awaiting",
+          }),
+      }).api,
+    ).getServerTaskInfo(TICKET))!;
+    expect(info.fix!.pruneWarning).toBeNull();
+    expect(info.startBlock).toBe("run_live");
+  });
 });

@@ -1,5 +1,6 @@
 import { serverCommandsOf, type ServerCommandRow } from "../../domain/servers/commands";
 import { planDigest, prunes } from "../../domain/servers/fixPlan";
+import { canStopServerFix } from "./fixDecide";
 import {
   fixSteps,
   serverFixStatus,
@@ -418,7 +419,7 @@ function fixInfo(
     canApprove: perms?.canDecidePlan ?? false,
     canReject: perms?.canRejectPlan ?? false,
     startedByViewer: run?.ownerId === me,
-    canStop: live && (perms?.canInterrupt ?? false),
+    canStop: live && canStopServerFix(me, task.projectId),
     commands: run ? serverCommandsOf(events, run.ownerId) : [],
     planDigest: plan?.status === "pending" && plan.serverPlan ? planDigest(plan.serverPlan) : null,
     sessionId: run?.id ?? null,

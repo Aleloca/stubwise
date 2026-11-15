@@ -1411,7 +1411,8 @@
           "docker_prune": {
             "images_unused": "Free up space: remove the images no container uses",
             "build_cache": "Free up space: remove Docker's build cache",
-            "stopped_containers": "Free up space: remove the stopped containers"
+            "stopped_containers": "Free up space: remove the stopped containers",
+            "other": "Free up space"
           }
         },
         "shared": {
@@ -1435,7 +1436,8 @@
         "statusAwaiting": "Fix on {{code}} · waiting for approval",
         "statusAwaitingYou": "Fix on {{code}} · waiting for your approval",
         "codeOnly": "This run works on the code, never on {{code}}. To fix the server, use Start fix in Server above.",
-        "decideInServer": "You decide this plan in the task's Server section, where you see what it runs on {{code}}."
+        "decideInServer": "You decide this plan in the task's Server section, where you see what it runs on {{code}}.",
+        "stale": "The plan no longer fits the server: ask Claude for a new plan."
       },
       "check": {
         "resolved": "Check after the fix: resolved",
@@ -1483,7 +1485,9 @@
           "listening": "Read the listening ports",
           "failed_units": "Read the failed services",
           "journal_errors": "Read the system journal's errors"
-        }
+        },
+        "cancelled": "Cancelled",
+        "expired": "Expired"
       },
       "stop": "Stop the fix",
       "stopFailed": "Couldn't stop the fix. Try again."
@@ -4254,7 +4258,8 @@
         },
         "refineClosed": "This refinement is closed.",
         "refineItemClosed": "The request was turned into a task or archived: this refinement is closed.",
-        "automaticServer": "This session runs on its own with read-only access to {{code}}: it can only be watched."
+        "automaticServer": "This session runs on its own with read-only access to {{code}}: it can only be watched.",
+        "serverFix": "This session only proposes the fix on {{code}}: you decide the plan, and stop the fix, from the task's Server section."
       },
       "executed": {
         "verb": {
@@ -9537,7 +9542,8 @@
       "no_containers": "it didn't name a container, and more than one project uses this server.",
       "unknown_container": "it named a container the agent doesn't report on this server.",
       "no_container_of_project": "none of the containers it named belongs to that project's environments.",
-      "containers_of_other_project": "it named a container that belongs to another project."
+      "containers_of_other_project": "it named a container that belongs to another project.",
+      "other": "this app doesn't know the reason yet."
     },
     "charts": {
       "rangeLabel": "Time range",
@@ -9753,7 +9759,9 @@
       "keepOpen": "Keep it open",
       "closeAnyway": "Close",
       "operations": "Let the agent run fix actions",
-      "operationsHint": "Restart, stop or start a container, or free up space — only the steps of a plan a person approved, signed by this Stubwise. Off, Claude can still read and propose, but no plan runs."
+      "operationsHint": "Restart, stop or start a container, or free up space — only the steps of a plan a person approved, signed by this Stubwise. Off, Claude can still read and propose, but no plan runs.",
+      "commandKeyLoading": "Loading the command key…",
+      "commandKeyError": "Couldn't load the key that signs the agent's actions. Untick the option, or try again."
     },
     "simulate": {
       "label": "Prototype only: server signals",

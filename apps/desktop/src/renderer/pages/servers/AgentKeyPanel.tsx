@@ -60,7 +60,11 @@ export function AgentKeyDialog({
   // la chiave pubblica d'istanza che verifica i comandi.
   const [operations, setOperations] = useState(false);
   const opsId = useId();
-  const commandKey = useCommandKey(operations).data?.publicKey;
+  const keyQuery = useCommandKey(operations);
+  const commandKey = keyQuery.data?.publicKey;
+  // Con le operazioni accese il comando senza la chiave dei comandi sarebbe
+  // sbagliato: finché non c'è, niente comando da copiare (review F4b).
+  const waitingKey = operations && !commandKey;
   const command = agentCommand(agentKey, instanceUrl, operations ? commandKey : undefined);
 
   const copy = (what: "key" | "command", text: string) => {
@@ -149,11 +153,25 @@ export function AgentKeyDialog({
           <span className="text-xs text-ink-muted">{t("servers.key.commandHint", { code })}</span>
         </div>
         {/* Lo stesso blocco del comando SSH: monospace, Copy, scorrimento dentro. */}
-        <CommandBlock
-          label={t("servers.key.command")}
-          command={command}
-          onCopied={() => setCopied("command")}
-        />
+        {waitingKey ? (
+          keyQuery.isError ? (
+            <p role="alert" data-command-key-error className="text-sm text-critical">
+              {t("servers.key.commandKeyError")}
+            </p>
+          ) : (
+            <span
+              role="status"
+              aria-label={t("servers.key.commandKeyLoading")}
+              className="skeleton-breathe h-24 max-w-[760px] rounded-md bg-ink/6"
+            />
+          )
+        ) : (
+          <CommandBlock
+            label={t("servers.key.command")}
+            command={command}
+            onCopied={() => setCopied("command")}
+          />
+        )}
       </div>
       <div className="flex items-start gap-2">
         <input

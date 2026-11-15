@@ -88,6 +88,8 @@ function startBlockOf(b: string | null): FixStartBlock | null {
     case "server_not_in_project":
       return "server_gone";
     case "busy":
+    // Un piano che aspetta l'approvazione: prima si decide quello (72, 94be88606).
+    case "plan_awaiting":
       return "run_live";
     default:
       return null;
@@ -105,11 +107,12 @@ export function commandRowOf(c: Reader<ServerCommandView>): ServerCommandRow {
     kind: c.kind === "change" ? "change" : "read",
     via: c.via === "ssh" ? "ssh" : "agent",
     status:
-      c.status === "done"
-        ? "done"
-        : c.status === "pending" || c.status === "delivered"
-          ? "delivered"
-          : "failed",
+      c.status === "done" ||
+      c.status === "failed" ||
+      c.status === "cancelled" ||
+      c.status === "expired"
+        ? c.status
+        : "delivered",
     requestedById: c.requestedBy?.id ?? null,
     approvalId: c.approvalId,
     issuedAt: c.issuedAt,
@@ -144,9 +147,11 @@ function fixInfoOf(fix: Fix, commands: ServerCommandRow[]): ServerFixInfo {
     // Chi l'ha chiesta il server non lo dice: niente «You started this fix».
     startedByViewer: false,
     commands,
-    pruneWarning: fix.pruneWarning
-      ? { projects: [...fix.pruneWarning.projects], hiddenCount: fix.pruneWarning.hiddenCount }
-      : null,
+    // Un avviso senza altri progetti non dice niente (review F4b I2).
+    pruneWarning:
+      fix.pruneWarning && (fix.pruneWarning.projects.length > 0 || fix.pruneWarning.hiddenCount > 0)
+        ? { projects: [...fix.pruneWarning.projects], hiddenCount: fix.pruneWarning.hiddenCount }
+        : null,
     planDigest: fix.planDigest,
     sessionId: fix.sessionId,
   };

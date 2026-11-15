@@ -79,7 +79,7 @@ export function PlanCard({
   const [full, setFull] = useState(false);
   const [rejecting, setRejecting] = useState<string | null>(null);
   /** `changed`: 409 `plan_changed`, il piano è stato riscritto dopo che lo si è letto. */
-  const [failed, setFailed] = useState<boolean | "changed">(false);
+  const [failed, setFailed] = useState<boolean | "changed" | "stale">(false);
   const [lostTo, setLostTo] = useState<string | null>(null);
   const decidedBy = usePersonName(event.decidedById);
   const lostToName = usePersonName(lostTo);
@@ -99,6 +99,8 @@ export function PlanCard({
   );
   // Un'apertura come quella dei gruppi d'azione: in inchiostro, con la freccia
   // che gira (o che porta alla sessione, nel pannello della task).
+  // Senza testo del piano né sessione da aprire non c'è niente da leggere (review F4b).
+  const readable = event.planText !== "" || onReadFull !== undefined;
   const toggle = (
     <button
       type="button"
@@ -154,7 +156,13 @@ export function PlanCard({
       void onDecide(decision, instructions)
         .then(() => setRejecting(null))
         .catch((error: Error) =>
-          setFailed(/plan_changed/.test(error.message) ? "changed" : true),
+          setFailed(
+            /plan_changed/.test(error.message)
+              ? "changed"
+              : /plan_stale/.test(error.message)
+                ? "stale"
+                : true,
+          ),
         )
         .finally(() => setDeciding(false));
       return;
@@ -256,7 +264,7 @@ export function PlanCard({
           <span>{sharedLine(t, serverFix.code, serverFix.pruneWarning)}</span>
         </div>
       )}
-      {toggle}
+      {readable && toggle}
       {fullPlan}
       {serverFix &&
         decides &&
@@ -291,7 +299,9 @@ export function PlanCard({
             <button
               type="button"
               className={primaryButton}
-              disabled={busy || lostTo !== null || !canDecidePlan}
+              // Review F4b I1: con l'approvazione spenta (operazioni dell'agente
+              // spente, server tolto) Approve resta spento anche se il permesso c'è.
+              disabled={busy || lostTo !== null || !canDecidePlan || !!serverFix?.blockedReason}
               onClick={() => run("approve")}
             >
               {serverFix ? t(`${F}.approve`) : t("claude.conversation.plan.approve")}
@@ -367,7 +377,13 @@ export function PlanCard({
       )}
       {failed && (
         <p role="alert" className="text-sm text-critical">
-          {t(failed === "changed" ? "claude.conversation.plan.changed" : "claude.conversation.plan.failed")}
+          {t(
+            failed === "changed"
+              ? "claude.conversation.plan.changed"
+              : failed === "stale"
+                ? "taskDetail.server.planCard.stale"
+                : "claude.conversation.plan.failed",
+          )}
         </p>
       )}
     </section>
