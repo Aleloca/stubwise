@@ -58,7 +58,7 @@ export function buildReplyJudgmentPrompt(input: {
     "You read ONE email conversation of a mailbox and answer with JSON only, no prose.",
     `OUTPUT (JSON only): {${REPLY_FIELD_SHAPE.replace(/^"reply":/, "").slice(1, -1)}}`,
     "",
-    replyInstruction(input),
+    replyInstruction({ ...input, target: "whole" }),
     "",
     EMAIL_DELIMITER_START,
     "The conversation (oldest first):",

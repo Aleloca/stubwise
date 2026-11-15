@@ -5,7 +5,7 @@ import { emailMessages, googleAccounts, googleWorkspaces, instanceSettings, mail
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { AgentRunner, AgentRunOptions, AgentRunResult } from "../agent/runner.js";
 import { fakeSelect } from "../providers/select-fake.js";
-import { judgeWaitingThreads, type ReplyJudgeDeps } from "./reply-judge.js";
+import { buildReplyJudgmentPrompt, judgeWaitingThreads, type ReplyJudgeDeps } from "./reply-judge.js";
 
 /**
  * Area 8, «Clienti in attesa» (J2): il giudizio a parte, SOLO sui thread che
@@ -70,6 +70,15 @@ const deps = (runner: AgentRunner, over: Partial<ReplyJudgeDeps> = {}): ReplyJud
   ...over,
 });
 const judgmentOf = async (id: string) => (await db.select().from(emailMessages).where(eq(emailMessages.id, id)))[0]!;
+
+describe("J2: il prompt", () => {
+  it("chiede ESATTAMENTE i due campi, e non nomina il campo `reply` della classificazione (golden reply-thanks, 15 nov 2026: il modello aggiungeva `\"reply\":false`, fuori schema)", () => {
+    const prompt = buildReplyJudgmentPrompt({ mailbox: "marco@acme.com", colleagues: ["giulia@acme.com"], language: "it", messages: [{ from: "c@cliente.it", at: OLD, text: "Grazie, tutto chiaro." }] });
+    expect(prompt).toContain('{"needsMyReply":true,"reason":"<=300 chars"}');
+    expect(prompt).not.toContain('"reply"');
+    expect(prompt).toMatch(/exactly these two keys/i);
+  });
+});
 
 describe("J2: cosa si giudica", () => {
   it("un thread che passa il taglio: UN run con la sua operazione, il giudizio scritto; un secondo giro non rifà niente", async () => {
