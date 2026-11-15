@@ -165,9 +165,11 @@ Com'è oggi (mappa di `apps/worker/src/google/poller.ts`, `sync.ts`):
   `config.access: { kind: "user" }` e la WHERE su `google_accounts.user_id =
   me` — mai le caselle dei colleghi, mai agli admin per ruolo, la regola
   `mailbox_owner`). Senza caselle: lista vuota.
-- **Il giudizio decide**: una riga esiste SOLO se l'ultimo messaggio del
-  thread ha `reply_judgment.needsMyReply = true` (W-4 per i casi senza
-  giudizio). La riga porta `reason` (la ragione di Claude, testo).
+- **Il giudizio decide**: una riga c'è se l'ultimo messaggio del thread ha
+  `reply_judgment.needsMyReply = true` (con `reason`, la ragione di Claude,
+  testo) OPPURE non ha ancora un giudizio (W-4 = b: `judgment: "pending"`,
+  senza ragione); un giudizio «no» la toglie. Con `error` dopo 2 tentativi
+  resta «da valutare».
 - **La query**, accanto a quella di `GET /me/mail/threads`
   (`apps/server/src/routes/me-mail.ts:1252-1438`, che raggruppa già per
   `(thread_id, account_id)` con l'ultimo mittente), con le condizioni (a)–(e):
@@ -178,7 +180,8 @@ Com'è oggi (mappa di `apps/worker/src/google/poller.ts`, `sync.ts`):
     con `received_at < now() - 24h`;
   - nessun `mail_outgoing` `sent` della mia casella sullo stesso thread con
     `sent_at` dopo l'ultimo messaggio;
-  - `reply_judgment.needsMyReply = true` sull'ultimo messaggio;
+  - `reply_judgment.needsMyReply = true` sull'ultimo messaggio, oppure
+    nessun giudizio (W-4 = b);
   - almeno un messaggio ammesso, attribuito a un progetto visibile (la
     `visibleScopeSql` di me-mail.ts:207-240);
   - (e) dal messaggio ammesso classificato più recente: `signal <> 'none'` o
@@ -188,7 +191,8 @@ Com'è oggi (mappa di `apps/worker/src/google/poller.ts`, `sync.ts`):
   additivi con default): `threadId`, `accountId`, `accountEmail`,
   `customer: { name, email }`, `subject`, `project: { id, code, name }`,
   `waitingSince` (l'ultimo messaggio ESTERNO), `signal`, `importance`,
-  `reason` (la ragione del giudizio, testo non fidato). Il clic apre
+  `reason` (la ragione del giudizio, testo non fidato), `judgment`
+  (`yes` | `pending`). Il clic apre
   il thread nella Posta (`/mail/threads/:threadId`, come oggi).
 - **Indici**: la query usa `(account_id, thread_id)` e `received_at`; se
   l'EXPLAIN su un dataset realistico lo chiede, un indice parziale nella
@@ -285,16 +289,10 @@ Com'è oggi (mappa di `apps/worker/src/google/poller.ts`, `sync.ts`):
 ## Le domande al maintainer
 
 - ~~W-1, W-2~~: decide Claude (risposte del 15 nov 2026, sopra).
-- **[DECIDE] W-3 — Il giudizio con le proposte SPENTE.** Con le proposte
-  spente una casella si LEGGE e non si classifica (invariante): niente J1.
-  - **a (consigliata)**: J2 gira lo stesso, perché il blocco è della persona
-    e non è una proposta (nessuna card); il costo resta nel tetto e nel
-    budget.
-  - b: niente giudizio con le proposte spente, quindi quella casella non ha
-    «Clienti in attesa» (e lo si dice nel blocco).
-- **[DECIDE] W-4 — Un thread che passa il taglio ma NON ha (ancora) un
-  giudizio** (in coda, budget esaurito, 2 tentativi falliti).
-  - **a (consigliata)**: non compare (la regola «la riga c'è solo col sì»
-    vale alla lettera); il blocco dice in fondo «N conversazioni da valutare»
-    se ce ne sono, senza mostrarle.
-  - b: compare come «da valutare», senza ragione.
+- **W-3 = a** *(M, 15 nov 2026)*: J2 gira anche con le proposte spente, nel
+  tetto e nel budget (il blocco è della persona, non è una proposta).
+- **W-4 = b** *(M, 15 nov 2026)*: un thread che passa il taglio ma non ha
+  ancora un giudizio COMPARE come «da valutare», senza ragione; sparisce se
+  il giudizio dice no.
+- **Golden**: 20 corse autorizzate *(M)*, come proposte; pre-flight di
+  sempre; un rosso o un avvio che non parte → fermarsi e chiedere.
