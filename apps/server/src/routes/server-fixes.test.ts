@@ -195,7 +195,8 @@ describe("i comandi di una correzione, per task (richiesta del renderer)", () =>
     await approve(s.ticketId, s.leadA.headers);
     const [approval] = await approvalsOf(s.ticketId);
     const cmd = await issueServerCommand(testDb.db, KEY, { serverId: s.serverId, action: { action: "container.restart", params: { container: "web-a", timeoutSeconds: 10 } }, approval: { id: approval!.id, stepIndex: 0 } });
-    // Un comando di un'altra task sullo stesso server non c'entra.
+    // Una lettura di un'analisi sullo STESSO server non è di questa correzione.
+    await issueServerCommand(testDb.db, KEY, { serverId: s.serverId, action: { action: "container.state", params: { container: "web-a" } } });
     const other = await scene();
     expect((await call("GET", s.ticketId, "/commands", s.operA.headers)).json().commands.map((c: { id: string }) => c.id)).toEqual([cmd.id]);
     expect((await call("GET", s.ticketId, "/commands", s.leadA.headers)).statusCode).toBe(403);
