@@ -401,7 +401,8 @@ describe("permessi dei server (area 8b)", () => {
   });
 
   it("servers.ssh.manage: d'istanza, del solo preset Admin", () => {
-    expect(LOCAL_INSTANCE_PERMISSIONS).toContain("servers.ssh.manage");
+    // Dall'area 8, F4b è nel registro condiviso: non più un permesso locale.
+    expect(LOCAL_INSTANCE_PERMISSIONS).not.toContain("servers.ssh.manage");
     expect(byPerson("p-roberta").instancePermissions).toContain("servers.ssh.manage");
     for (const id of ["p-giulia", "p-marco", "p-laura", "p-sara", "p-matteo", "p-elena"]) {
       expect(can(byPerson(id), "servers.ssh.manage"), id).toBe(false);
