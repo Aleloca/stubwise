@@ -1,6 +1,6 @@
-import { environmentServers, projectEnvironments, projects, serverAnalyses, serverCommands, servers, tickets, users } from "@stubwise/db";
+import { environmentServers, projectEnvironments, projects, serverAnalyses, serverCommands, serverFixes, serverOperationApprovals, servers, tickets, users } from "@stubwise/db";
 import { serverAnalysisViewSchema, serverCommandViewSchema, type ServerAnalysisView, type ServerCommandView } from "@stubwise/shared";
-import { and, desc, eq, lt } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, or, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -31,9 +31,9 @@ export async function operatorAccess(
   app: FastifyInstance,
   user: SessionUser,
   serverId: string,
-): Promise<{ visible: boolean; visibleInAProject: boolean; operate: boolean }> {
+): Promise<{ visible: boolean; visibleInAProject: boolean; operate: boolean; projectIds: string[] }> {
   const [server] = await app.db.select({ id: servers.id }).from(servers).where(eq(servers.id, serverId));
-  if (!server || !(await canViewServer(app.db, user, serverId))) return { visible: false, visibleInAProject: false, operate: false };
+  if (!server || !(await canViewServer(app.db, user, serverId))) return { visible: false, visibleInAProject: false, operate: false, projectIds: [] };
   const projectIds = [
     ...new Set(
       (
@@ -52,7 +52,7 @@ export async function operatorAccess(
     if (perms) visibleInAProject = true;
     if (perms?.has("servers.operate")) operate = true;
   }
-  return { visible: true, visibleInAProject, operate };
+  return { visible: true, visibleInAProject, operate, projectIds };
 }
 
 const listQuerySchema = z.object({ before: z.iso.datetime().optional(), limit: z.coerce.number().int().min(1).max(200).default(50) });
@@ -179,11 +179,35 @@ export async function serverAnalysisRoutes(instance: FastifyInstance): Promise<v
         return apiError(reply, 403, "forbidden", "The operations log needs servers.operate in a project of this server, or monitor.manage");
       }
       const { before, limit } = request.query;
+      // Review F4b, I4 — l'invariante: chi ha `monitor.manage` legge tutto; gli
+      // altri SOLO i comandi legati a una task che vedono (`tickets.view_all`
+      // nel suo progetto, o ne sono i richiedenti) in un progetto dove hanno
+      // `servers.operate`. Il filtro sta nella WHERE, prima della paginazione.
+      let scope: SQL | undefined;
+      if (!user.instancePermissions.has("monitor.manage")) {
+        const all: string[] = [];
+        const own: string[] = [];
+        for (const projectId of access.projectIds) {
+          const perms = await projectPermissionsFor(app.db, user, projectId);
+          if (!perms?.has("servers.operate")) continue;
+          (perms.has("tickets.view_all") ? all : own).push(projectId);
+        }
+        const visible = [
+          ...(all.length > 0 ? [inArray(tickets.projectId, all)] : []),
+          ...(own.length > 0 ? [and(inArray(tickets.projectId, own), eq(tickets.requestedByUserId, user.id))!] : []),
+        ];
+        scope = visible.length > 0 ? or(...visible) : sql`false`;
+      }
+      const taskId = sql`coalesce(${serverOperationApprovals.taskId}, ${serverFixes.taskId}, ${serverAnalyses.taskId})`;
       const rows = await app.db
         .select({ c: serverCommands, displayName: users.displayName, email: users.email })
         .from(serverCommands)
         .leftJoin(users, eq(users.id, serverCommands.requestedByUserId))
-        .where(and(eq(serverCommands.serverId, serverId), ...(before ? [lt(serverCommands.issuedAt, new Date(before))] : [])))
+        .leftJoin(serverOperationApprovals, eq(serverOperationApprovals.id, serverCommands.approvalId))
+        .leftJoin(serverFixes, eq(serverFixes.sessionId, serverCommands.sessionId))
+        .leftJoin(serverAnalyses, eq(serverAnalyses.id, serverCommands.analysisId))
+        .leftJoin(tickets, eq(tickets.id, taskId))
+        .where(and(eq(serverCommands.serverId, serverId), ...(before ? [lt(serverCommands.issuedAt, new Date(before))] : []), ...(scope ? [scope] : [])))
         .orderBy(desc(serverCommands.issuedAt))
         .limit(limit);
       const commands: ServerCommandView[] = rows.map(({ c, displayName, email }) => ({
