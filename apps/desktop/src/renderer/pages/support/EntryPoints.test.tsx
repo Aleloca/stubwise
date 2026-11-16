@@ -3,17 +3,16 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetApi, setLatency } from "../../data/api";
 import { state } from "../../data/store";
-import { resetViewerGrants, viewerFor } from "../../data/viewer";
+import { resetViewerGrants } from "../../data/viewer";
 import { setLanguage } from "../../i18n";
 import { renderRoute } from "../../test/renderRoute";
 import { setMatchMedia } from "../../test/setup";
-import { BLOCKS } from "../home/blocks/registry";
 import { SUPPORT_TWO_UP_QUERY } from "./format";
 import { clearReplyStore } from "./replyStore";
 
-// Le porte d'ingresso di Support (Task 9): il blocco Home «Clienti in
-// attesa» ([A 17]: nel catalogo di chi ha `support.manage`, mai nelle Home
-// di default) e ⌘K (le conversazioni per codice, «New widget»).
+// Le porte d'ingresso di Support (Task 9): ⌘K (le conversazioni per codice,
+// «New widget»). Il blocco Home «Clienti in attesa» non è più di Support
+// (area 8: sta sulla posta, `WaitingCustomersBlock.test.tsx`).
 
 beforeEach(() => {
   setLatency(0);
@@ -25,31 +24,6 @@ beforeEach(() => {
 afterEach(() => {
   resetViewerGrants();
   act(() => setLanguage("en"));
-});
-
-/** La Home di `personId` con il solo blocco «Clienti in attesa». */
-function homeWithWaiting(personId: string) {
-  state.personalHomes = [
-    ...state.personalHomes.filter((h) => h.personId !== personId),
-    { personId, blocks: [{ kind: "waitingCustomers" }], seenDepartmentUpdates: {} },
-  ];
-}
-
-describe("Home — «Customers waiting»", () => {
-  it("nel catalogo di chi ha support.manage, non di Sara; mai nelle Home di default", async () => {
-    expect(BLOCKS.waitingCustomers.available(viewerFor("p-matteo"))).toBe(true);
-    expect(BLOCKS.waitingCustomers.available(viewerFor("p-sara"))).toBe(false);
-    renderRoute("/home", "p-laura");
-    await screen.findByRole("heading", { name: "Home", level: 1 });
-    expect(screen.queryByRole("region", { name: /^Customers waiting/ })).toBeNull();
-  });
-
-  it("nel prototipo il blocco è vuoto finché la fetta delle email non ne dà la fonte (area 8, F3)", async () => {
-    homeWithWaiting("p-matteo");
-    renderRoute("/home", "p-matteo");
-    const block = await screen.findByRole("region", { name: /^Customers waiting/ });
-    expect(await within(block).findByText("No customer is waiting")).toBeInTheDocument();
-  });
 });
 
 describe("⌘K — conversazioni di Support", () => {
