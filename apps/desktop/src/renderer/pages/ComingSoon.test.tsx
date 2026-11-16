@@ -151,6 +151,15 @@ const INTEGRATED_CALLS = new Set([
   "admin.updateRole",
   "admin.deleteRole",
   "admin.viewerLosesIf",
+  // Area 9, F1, R8: Members.
+  "admin.listProjectMembers",
+  "admin.previewMember",
+  "admin.saveMember",
+  "admin.addMember",
+  "admin.setMemberRole",
+  "admin.removeMember",
+  "admin.grantMemberPermission",
+  "admin.revokeMemberPermission",
   // Area 9, F1, R9: «Chi può farlo?».
   "access.whoCan",
   "access.whatCan",
@@ -804,6 +813,16 @@ describe("aree non integrate nella build app", () => {
     signedInAs("p-roberta");
     renderRoute(path);
     expect(await screen.findByRole("heading", { level: 1, name: title })).toBeInTheDocument();
+    await settle();
+    expect(screen.queryByText(/Coming soon/)).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F1, R8: Progetto → Settings → Members accesa.
+  it("aprire Members di un progetto legge solo chiamate integrate", async () => {
+    signedInAs("p-laura");
+    renderRoute("/p/ACQ/settings/members");
+    await waitFor(() => expect(calls).toContain("admin.listProjectMembers"));
     await settle();
     expect(screen.queryByText(/Coming soon/)).toBeNull();
     expect(outside()).toEqual([]);

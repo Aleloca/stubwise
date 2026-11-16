@@ -55,7 +55,8 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   projectSection: new Set(["overview", "tasks", "requests", "planning", "chat", "docs", "drive", "automations", "releases", "support", "servers"]),
   // Stati e soglie del progetto.
   // Area 8, fetta 1 (46): «Repositories» ridotta al solo blocco «Releases» (`releases-repo-settings`).
-  projectSettings: new Set(["statuses", "repositories"]),
+  // Area 9, F1, R8: Members sulle letture calcolate del server.
+  projectSettings: new Set(["statuses", "repositories", "members"]),
   // Area 9, F1, R9: «Who can?» sulle rotte del server.
   // Area 9, F1, R7: People e Roles sulle letture calcolate del server.
   admin: new Set(["departments", "servers", "who-can", "people", "roles"]),

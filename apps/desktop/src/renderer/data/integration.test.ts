@@ -155,6 +155,8 @@ describe("isIntegrated", () => {
         "destination:projects",
         "projectSection:tasks",
         "projectSettings:statuses",
+        // Area 9, F1, R8: Members.
+        "projectSettings:members",
         // Area 8, fetta 1: «Repositories» ridotta al blocco «Releases».
         "projectSettings:repositories",
         "admin:departments",

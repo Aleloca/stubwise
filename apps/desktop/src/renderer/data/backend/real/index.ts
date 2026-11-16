@@ -15,6 +15,7 @@ import { liveReleases } from "./releasesLive";
 import { adminDepartments } from "./departments";
 import { liveWhoCan } from "./whoCan";
 import { liveAdminPeople } from "./adminPeople";
+import { liveMembers } from "./adminMembers";
 import { partialNamespace } from "./notIntegrated";
 import { chatFunctions } from "./chat";
 import { channelStream, onChatChange, subscribeChat, threadStream } from "./chatStream";
@@ -39,6 +40,8 @@ export const admin: typeof Fake.admin = partialNamespace<typeof Fake.admin>("adm
   ...adminDepartments,
   // Area 9, F1, R7: People, inviti e Roles.
   ...liveAdminPeople,
+  // Area 9, F1, R8: Members del progetto.
+  ...liveMembers,
 });
 // Area 9, F1, R9: «Chi può farlo?» (prevale sullo stub generato).
 export const access: typeof Fake.access = partialNamespace<typeof Fake.access>("access", liveWhoCan);
