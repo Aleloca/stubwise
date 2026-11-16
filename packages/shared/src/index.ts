@@ -75,6 +75,7 @@ export * from "./schemas/claude-conversation.js";
 export * from "./schemas/chat.js";
 export * from "./schemas/access-query.js";
 export * from "./schemas/account-area9.js";
+export * from "./schemas/admin-area9.js";
 export * from "./schemas/people-activity.js";
 export * from "./schemas/overview.js";
 export * from "./session-end.js";

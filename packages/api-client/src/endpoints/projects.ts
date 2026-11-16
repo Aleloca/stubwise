@@ -1,4 +1,6 @@
 import {
+  memberPreviewSchema,
+  projectMembersViewSchema,
   projectMemberSchema,
   milestoneWithCountsSchema,
   prReviewSummarySchema,
@@ -12,6 +14,8 @@ import {
   weeklyBriefViewSchema,
 } from "@stubwise/shared";
 import type {
+  MemberPreview,
+  ProjectMembersView,
   ProjectMember,
   PutProjectMemberInput,
   ChronologyPage,
@@ -290,6 +294,16 @@ export function createProjectsEndpoints(request: ApiRequest) {
     /** Toglie un membro (riconferma): 204. 409 `last_manager`. */
     removeMember(projectId: string, userId: string): Promise<void> {
       return request("DELETE", `/api/projects/${seg(projectId)}/members/${seg(userId)}`);
+    },
+
+    /** Area 9, F1 (R8): la vista di gestione dei membri, coi campi calcolati. */
+    membersView(projectId: string): Promise<Reader<ProjectMembersView>> {
+      return request("GET", `/api/projects/${seg(projectId)}/members/view`, undefined, projectMembersViewSchema);
+    },
+
+    /** Il giudizio di una bozza del pannello del membro, lo stesso del salvataggio. */
+    previewMember(projectId: string, userId: string, draft: { roleId: string; granted: string[] }): Promise<Reader<MemberPreview>> {
+      return request("POST", `/api/projects/${seg(projectId)}/members/${seg(userId)}/preview`, draft, memberPreviewSchema);
     },
   };
 }

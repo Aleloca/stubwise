@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { personalAccessTokens, sessions, userBackupCodes, userPasskeys, users, userTotp, type Db } from "@stubwise/db";
 import { publishSecurityAlert } from "./alerts.js";
 import { recordSecurityEvent } from "./security-events.js";
@@ -15,6 +15,18 @@ import { recordSecurityEvent } from "./security-events.js";
  * del registro e avviso stanno nella stessa transazione: nascono o non
  * nascono insieme.
  */
+/**
+ * La persona ha un secondo fattore da azzerare: un'app CONFERMATA o una
+ * passkey (area 9, F1). La stessa domanda per la rotta del reset (409
+ * `no_second_factor`) e per la pagina della persona (`actions.resetSecondFactor`).
+ */
+export async function hasSecondFactor(db: Pick<Db, "select">, userId: string): Promise<boolean> {
+  const [totp] = await db.select({ userId: userTotp.userId }).from(userTotp).where(and(eq(userTotp.userId, userId), isNotNull(userTotp.confirmedAt)));
+  if (totp) return true;
+  const [passkey] = await db.select({ userId: userPasskeys.userId }).from(userPasskeys).where(eq(userPasskeys.userId, userId)).limit(1);
+  return passkey !== undefined;
+}
+
 export async function resetSecondFactor(
   db: Db,
   target: { id: string; email: string },

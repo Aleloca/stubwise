@@ -70,17 +70,25 @@ export function assertNoEscalation(
   permissions: Iterable<string>,
   held: ReadonlySet<string> = actor.instancePermissions,
 ): void {
-  if (isFullAdmin(actor)) return;
-  for (const p of permissions) {
-    if (!held.has(p)) {
-      throw new RoleRuleError(
-        403,
-        "escalation",
-        `You cannot grant a permission you do not have (${p})`,
-        { permission: p },
-      );
-    }
+  const [p] = missingToGrant(actor, permissions, held);
+  if (p !== undefined) {
+    throw new RoleRuleError(403, "escalation", `You cannot grant a permission you do not have (${p})`, { permission: p });
   }
+}
+
+/**
+ * Ciò che a chi agisce manca per dare `permissions` (vuoto = si può): la regola
+ * di {@link assertNoEscalation}, in UN posto. Le letture calcolate dell'area 9
+ * (`missing` dei ruoli, delle scelte, delle bozze) la usano tale e quale, così
+ * il client non la deduce e la lettura non diverge dalla scrittura.
+ */
+export function missingToGrant(
+  actor: Actor,
+  permissions: Iterable<string>,
+  held: ReadonlySet<string> = actor.instancePermissions,
+): string[] {
+  if (isFullAdmin(actor)) return [];
+  return [...new Set(permissions)].filter((p) => !held.has(p));
 }
 
 
@@ -102,7 +110,18 @@ export async function assertFullAdminRemains(
   opts: { excludingRoleId?: string } = {},
 ): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(${FULL_ADMIN_LOCK_KEY})`);
-  const [row] = await tx
+  if ((await fullAdminCount(tx, opts)) === 0) {
+    throw new RoleRuleError(
+      409,
+      "last_full_admin",
+      "At least one user must keep full administration",
+    );
+  }
+}
+
+/** Quanti full admin ATTIVI che possono entrare, con le esclusioni date: il conteggio di {@link assertFullAdminRemains}. */
+async function fullAdminCount(db: DbOrTx, opts: { excludingRoleId?: string; excludingUserId?: string } = {}): Promise<number> {
+  const [row] = await db
     .select({ value: count() })
     .from(users)
     .innerJoin(roles, eq(roles.id, users.instanceRoleId))
@@ -116,15 +135,25 @@ export async function assertFullAdminRemains(
         // Area 9, F1: un full admin disattivato non entra, quindi non conta.
         isNull(users.deactivatedAt),
         opts.excludingRoleId ? sql`${roles.id} <> ${opts.excludingRoleId}` : undefined,
+        opts.excludingUserId ? sql`${users.id} <> ${opts.excludingUserId}` : undefined,
       ),
     );
-  if ((row?.value ?? 0) === 0) {
-    throw new RoleRuleError(
-      409,
-      "last_full_admin",
-      "At least one user must keep full administration",
-    );
-  }
+  return Number(row?.value ?? 0);
+}
+
+/**
+ * Area 9, F1 (le letture calcolate): toglierle l'amministrazione (cambio di
+ * ruolo, disattivazione) lascerebbe l'istanza senza full admin? La stessa
+ * regola di {@link assertFullAdminRemains}, letta senza scrivere.
+ */
+export async function isLastActiveFullAdmin(db: DbOrTx, userId: string): Promise<boolean> {
+  const [me] = await db
+    .select({ permissions: roles.permissions })
+    .from(users)
+    .innerJoin(roles, eq(roles.id, users.instanceRoleId))
+    .where(and(eq(users.id, userId), isNull(users.deactivatedAt), eq(users.isAgent, false)));
+  if (!me || !me.permissions.includes("instance.full_admin")) return false;
+  return (await fullAdminCount(db, { excludingUserId: userId })) === 0;
 }
 
 // ── Ruoli ────────────────────────────────────────────────────────────────
@@ -198,7 +227,7 @@ function assertKnownPermissions(scope: RoleScope, permissions: readonly string[]
  * effettivo da nessuna parte: bastano i permessi che ha in almeno un progetto
  * — assegnarlo poi richiederà comunque di averli nel progetto dell'assegnazione.
  */
-async function heldForProjectRole(
+export async function heldForProjectRole(
   db: DbOrTx,
   actor: Actor,
   roleId: string | null,
@@ -519,7 +548,7 @@ export async function listProjectMembers(db: DbOrTx, projectId: string): Promise
 const membersLock = (projectId: string) => sql`select pg_advisory_xact_lock(hashtext(${`members:${projectId}`}))`;
 
 /** Quanti gestori dei membri (ruolo o personale) ha il progetto, fuori dai full admin. */
-async function managerCount(tx: Tx, projectId: string): Promise<number> {
+async function managerCount(tx: DbOrTx, projectId: string, excludingUserId?: string): Promise<number> {
   const [row] = await tx.execute<{ n: number }>(sql`
     select count(*)::int as n
     from ${projectMembers} lm_pm
@@ -529,6 +558,7 @@ async function managerCount(tx: Tx, projectId: string): Promise<number> {
     where lm_pm.project_id = ${projectId}
       -- Solo i gestori ATTIVI (review di F1, m4): un disattivato non gestisce.
       and lm_u.deactivated_at is null
+      and (${excludingUserId ?? null}::uuid is null or lm_pm.user_id <> ${excludingUserId ?? null}::uuid)
       and not (lm_ir.permissions @> array['instance.full_admin']::text[])
       and ${memberPermissionsSql(sql`lm_r.permissions`, sql`lm_pm.project_id`, sql`lm_pm.user_id`)} @> array['project.members.manage']::text[]
   `);
@@ -541,6 +571,22 @@ async function managerCount(tx: Tx, projectId: string): Promise<number> {
  * porta da almeno uno a zero. Un progetto che non ne aveva (lo gestivano i soli
  * full admin) non si blocca.
  */
+/**
+ * Area 9, F1 (le letture calcolate): il primo progetto (per id) che
+ * resterebbe senza un gestore attivo se `userId` smettesse di gestirlo, o
+ * `null`. La regola di {@link keepingManagersIn}, letta senza scrivere.
+ */
+export async function lastManagerProjectOf(db: DbOrTx, userId: string, onlyProjectIds?: readonly string[]): Promise<string | null> {
+  const mine = await db
+    .select({ projectId: projectMembers.projectId })
+    .from(projectMembers)
+    .where(and(eq(projectMembers.userId, userId), ...(onlyProjectIds ? [inArray(projectMembers.projectId, [...onlyProjectIds])] : [])));
+  for (const projectId of mine.map((m) => m.projectId).sort()) {
+    if ((await managerCount(db, projectId)) > 0 && (await managerCount(db, projectId, userId)) === 0) return projectId;
+  }
+  return null;
+}
+
 /**
  * La stessa regola per una scrittura che tocca PIÙ progetti insieme (la
  * disattivazione di una persona, review di F1, m4): lock in ordine di id, poi
