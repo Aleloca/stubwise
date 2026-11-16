@@ -116,9 +116,10 @@ parole del cliente (`customerStatus`), e niente altro.
   cliente non vede MAI altro che le sue righe.
 - **Una riga** (`siteRequestSchema` in `@stubwise/shared`, campi additivi con
   default, `readerSchema` per gli enum):
-  - `code`: il riferimento che il cliente vede (D-3);
+  - `code`: il codice della conversazione, `<PRJ>-S<n>` (D-3);
   - `kind`: `request` | `ticket`;
-  - `label`: cosa ha chiesto (D-2), testo NON FIDATO per il sito;
+  - `label`: il primo messaggio del cliente, al più 140 caratteri (D-2),
+    testo NON FIDATO per il sito;
   - `status`: `customerStatus` (l'enum) e `statusLabel` (la frase nella lingua
     del widget, da un **template i18n**, mai un testo del team);
   - `openedAt`: l'inizio della conversazione.
@@ -158,51 +159,45 @@ parole del cliente (`customerStatus`), e niente altro.
 | Minaccia | Cosa la ferma | Cosa resta (accettato) |
 |---|---|---|
 | **Identità falsificata**: chi ha la chiave pubblica del widget si dichiara un altro cliente | La lettura vuole un token HS256 firmato col segreto, che sta solo nel backend del sito. La chiave pubblica non basta, e il `user.id` del body non dà mai lettura. `alg` fisso, `aud` = widget, `exp` obbligatorio. Le conversazioni dichiarate non entrano nell'elenco (D-1). Con `identity_required` nemmeno la chat accetta un cliente dichiarato. | Un token rubato vale fino alla sua `exp` (D-6). Senza `identity_required`, chiunque può ancora CHATTARE a nome di un altro (com'è oggi), ma non leggere. |
-| **Enumerazione dei codici**: i codici `S<n>`, `R<n>` e dei ticket sono sequenziali | Nessuna rotta accetta un codice come chiave di lettura: l'elenco è per identità, e un dettaglio (se D-4 = b) cerca il codice DENTRO le righe di quel `sub` e dà lo stesso 404 per «non esiste» e «non è tuo». La stessa 401 per slug, chiave e token sbagliati. Rate limit per chiave e per `sub`. | Un `S<n>` mostrato al cliente rivela l'ordine di grandezza delle conversazioni del progetto (D-3). |
+| **Enumerazione dei codici**: i codici `S<n>`, `R<n>` e dei ticket sono sequenziali | Nessuna rotta accetta un codice come chiave di lettura: l'elenco è per identità, e il dettaglio cerca il codice DENTRO le righe di quel `sub` e dà lo stesso 404 per «non esiste» e «non è tuo». La stessa 401 per slug, chiave e token sbagliati. Rate limit per chiave e per `sub`. | Un `S<n>` mostrato al cliente rivela l'ordine di grandezza delle conversazioni del progetto (D-3). |
 | **I dati di un altro cliente** | La WHERE su progetto del widget + `sub` + verificata + canale `widget`. Una fusione dà lo stato della destinazione, mai titolo o codice. Lo schema della risposta è chiuso (test sulle chiavi), e un test negativo semina un commento, una stima e un assegnatario e verifica che non escano. | — |
 | **Chiave del widget rubata** | È pubblica per design: da sola non legge niente. Con `allowed_origins`, un browser su un altro sito è rifiutato. | Fuori dal browser l'`Origin` si falsifica: la chiave resta un'autenticazione del widget, non della persona. |
 | **Segreto d'identità rubato** | Rigenerarlo spegne il vecchio subito (D-5), e la data della rotazione resta. Il danno è confinato a UN widget e a UN progetto, in sola LETTURA (l'API non scrive). | Finché non si rigenera, chi lo ha può leggere gli esiti di qualunque cliente di quel widget e, con `identity_required`, chattare a suo nome (nei tetti giornalieri). |
 | **Il token nei log** | Solo nell'header, mai nella query; il logger non registra gli header. | — |
 | **CSRF, cookie** | L'API non usa cookie né credenziali del browser: un sito terzo non può far leggere qualcosa a nome dell'utente. | — |
 
-## [DECIDE]
+## Le decisioni *(M, via 46, 16 nov 2026)*
 
-- **D-1 — Le conversazioni DICHIARATE nell'elenco.**
-  - **a (consigliata)**: solo quelle verificate. Una conversazione aperta prima
-    dell'integrazione, o senza token, non compare: dopo l'integrazione il
-    cliente vede ciò che apre da lì in poi.
-  - **b**: anche quelle dichiarate con lo stesso id. Così chiunque abbia la
-    chiave pubblica può infilare nella lista di un cliente una «richiesta»
-    col testo che vuole.
-- **D-2 — Cosa dice la riga (`label`).**
-  - **a (consigliata)**: le parole del CLIENTE, il suo primo messaggio della
-    conversazione, troncato a 140 caratteri. È suo, quindi non rivela niente.
-  - **b**: il titolo della richiesta o del ticket. Lo scrive il team o l'AI,
-    può essere interno, e cambia nel refinement.
-  - **c**: entrambi.
-- **D-3 — Il codice mostrato.**
-  - **a (consigliata)**: il codice della conversazione `<PRJ>-S<n>`, il
-    riferimento del cliente, quello con cui scriverebbe al team.
-  - **b**: il codice della richiesta o del ticket (`R<n>` o del ticket):
-    interno, e dopo una fusione punterebbe a una richiesta altrui.
-  - **c**: nessun codice.
-- **D-4 — Il dettaglio.**
-  - **a (consigliata)**: solo l'elenco nella v1.
-  - **b**: anche `GET …/me/requests/:code`, con i messaggi della SUA
-    conversazione (solo i suoi e quelli dell'AI del widget, mai del team: per
-    costruzione il canale `widget` non ne ha).
-- **D-5 — La rotazione del segreto.**
-  - **a (consigliata)**: il vecchio smette subito.
-  - **b**: valgono tutti e due per 24 ore, così il sito cambia il segreto
-    senza un buco.
-- **D-6 — La durata del token.**
-  - **a (consigliata)**: `exp` obbligatorio, al più 24 ore accettate; la
-    guida consiglia 1 ora.
-  - **b**: al più 1 ora, imposto dal server.
-- **D-7 — Cosa conta come «una richiesta» del cliente.**
-  - **a (consigliata)**: solo le conversazioni con un ESITO (una richiesta o
-    un ticket).
-  - **b**: anche quelle ancora in triage o non concluse, come «ricevuta».
+- **D-1 = a**: nell'elenco (e nel dettaglio) solo le conversazioni VERIFICATE.
+- **D-2 = a**: la `label` sono le parole del cliente, il suo primo messaggio,
+  troncato a 140 caratteri.
+- **D-3 = a**: il codice mostrato è quello della conversazione, `<PRJ>-S<n>`.
+- **D-4 = b**: c'è anche il DETTAGLIO, con i messaggi della SUA conversazione
+  col widget (cliente ↔ AI). Vedi S4b.
+- **D-5 = a**: rigenerare il segreto spegne il vecchio subito.
+- **D-6 = a**: `exp` obbligatorio, al più 24 ore accettate.
+- **D-7 = a**: solo le conversazioni con un esito (una richiesta o un ticket).
+
+### S4b. Il dettaglio: `GET /widget/:slug/me/requests/:code`
+
+- Le stesse regole dell'elenco, nella stessa WHERE:
+  - progetto del widget, canale `widget`;
+  - `external_user_id = sub`, `identity_verified`, con un esito.
+- Il `code` (`<PRJ>-S<n>`) si cerca SOLO fra le righe di quel `sub`. Un codice
+  inesistente, malformato, di un altro cliente, di un altro progetto, non
+  verificato o senza esito danno lo stesso 404 `not_found`.
+- **La riga dell'elenco** più `messages`: i messaggi della conversazione,
+  `{ from: "customer" | "assistant", body, at }`, in ordine.
+  - Si leggono SOLO i ruoli `user` e `assistant`: un messaggio con un altro
+    ruolo, o con un autore del team (`author_id` non nullo), non esce, anche
+    se sul canale `widget` non ce ne sono per costruzione.
+  - Niente citazioni, niente id dei ticket.
+- Le conversazioni successive (`continued_in_id`) sono righe A SÉ, ognuna col
+  suo codice e i suoi messaggi: il dettaglio di una non include quelli
+  dell'altra.
+- Dopo una fusione: lo STATO della destinazione, MAI il suo titolo o il suo
+  codice. Sono le stesse regole dell'elenco, con la stessa funzione.
+- **Schema chiuso** (`siteRequestDetailSchema`), con un test sulle chiavi.
 
 ## Fuori dalla fetta
 
@@ -241,6 +236,13 @@ parole del cliente (`customerStatus`), e niente altro.
     cliente, nessun testo della destinazione;
   - lo schema chiuso, e il negativo con commento, stima e assegnatario
     seminati;
+  - il dettaglio (S4b):
+    - i messaggi del cliente e dell'AI, in ordine;
+    - NEGATIVI: un messaggio con un ruolo diverso o con un autore del team;
+      il codice di un altro cliente, uno inesistente, uno non verificato o
+      senza esito → lo stesso 404;
+    - la conversazione successiva è una riga a sé;
+    - lo schema chiuso;
   - i siti ammessi; il rate limit per `sub`;
   - nessun token nei log: un test sul serializzatore con l'header.
 - **Il segreto**:
