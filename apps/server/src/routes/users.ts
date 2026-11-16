@@ -18,6 +18,7 @@ import { securityEventsResponseSchema, updateInstanceRoleSchema } from "@stubwis
 import { userIsFullAdmin } from "@stubwise/notifications";
 import { setInstanceRole } from "../services/roles.js";
 import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
+import { deactivateUser, reactivateUser } from "../services/user-deactivation.js";
 import { authErrorResponses, errorSchema, rejectAgentUserParam } from "./shared.js";
 
 /** Identità pubblica di un utente: mai hash o altri campi sensibili. */
@@ -50,6 +51,8 @@ export const teamUserSchema = publicUserSchema.extend({
   gitIdentities: z.array(
     z.object({ id: z.uuid(), email: z.string(), authorName: z.string().nullable() }),
   ),
+  // Area 9, F1 (additivo): disattivata da chi ha `users.manage` (D-6).
+  status: z.enum(["active", "deactivated"]).default("active"),
 });
 
 /**
@@ -94,6 +97,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
           avatarUrl: users.slackAvatarUrl,
           slackUserId: users.slackUserId,
           bitbucketUsername: users.bitbucketUsername,
+          deactivatedAt: users.deactivatedAt,
         })
         .from(users)
         // L'utente di sistema «Claude» non è nel Team.
@@ -124,10 +128,11 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
         identitiesByUser.set(row.userId, list);
       }
 
-      return rows.map((row) => ({
+      return rows.map(({ deactivatedAt, ...row }) => ({
         ...row,
         createdAt: row.createdAt.toISOString(),
         gitIdentities: identitiesByUser.get(row.id) ?? [],
+        status: deactivatedAt ? ("deactivated" as const) : ("active" as const),
       }));
     },
   );
@@ -347,6 +352,54 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
       if (!target) return apiError(reply, 404, "user_not_found", "User not found");
       await resetSecondFactor(app.db, target, request.user!);
       return reply.code(204).send(null);
+    },
+  );
+
+  // Area 9, F1 (D-6): disattivare e riattivare una persona. Le regole stanno in
+  // `services/user-deactivation.ts` (docs/invariants/permissions.md).
+  app.post(
+    "/:id/deactivate",
+    {
+      config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
+      schema: {
+        params: z.object({ id: z.uuid() }),
+        body: z.object({ reassign: z.record(z.uuid(), z.uuid().nullable()).optional() }).default({}),
+        response: {
+          204: z.null(),
+          ...authErrorResponses,
+          400: roleRuleErrorSchema,
+          404: roleRuleErrorSchema,
+          409: roleRuleErrorSchema,
+          422: roleRuleErrorSchema.extend({ taskId: z.uuid().optional() }),
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        await deactivateUser(app.db, request.user!, request.params.id, request.body.reassign ?? {});
+        return reply.code(204).send(null);
+      } catch (error) {
+        return sendRoleRuleError(reply, error);
+      }
+    },
+  );
+
+  app.post(
+    "/:id/reactivate",
+    {
+      config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
+      schema: {
+        params: z.object({ id: z.uuid() }),
+        response: { 204: z.null(), ...authErrorResponses, 404: roleRuleErrorSchema },
+      },
+    },
+    async (request, reply) => {
+      try {
+        await reactivateUser(app.db, request.user!, request.params.id);
+        return reply.code(204).send(null);
+      } catch (error) {
+        return sendRoleRuleError(reply, error);
+      }
     },
   );
 

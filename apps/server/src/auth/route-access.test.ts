@@ -146,8 +146,11 @@ describe("rotte con riconferma recente", () => {
       "POST /api/projects/:projectId/widgets/:widgetId/identity-secret",
       "POST /api/roles",
       "POST /api/roles/:id/duplicate",
+      // Area 9, F1: disattivare e riattivare una persona.
+      "POST /api/users/:id/deactivate",
       "POST /api/users/:id/git-identities",
       "POST /api/users/:id/password-reset",
+      "POST /api/users/:id/reactivate",
       "POST /api/vault/activate",
       "POST /api/vault/keys",
       "POST /api/vault/keys/:id/seals",

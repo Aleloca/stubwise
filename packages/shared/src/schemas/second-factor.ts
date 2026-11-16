@@ -155,6 +155,11 @@ export const securityEventKindSchema = z.enum([
   // Riconferma dal desktop (10 nov 2026): un secondo fattore fatto dentro
   // l'app desktop col suo PAT (`POST /api/auth/desktop-reauth`).
   "reauth_desktop",
+  // Area 9, F1: disattivata e riattivata da chi ha `users.manage`; il cambio
+  // dell'email di login (`docs/invariants/identity.md`).
+  "deactivated",
+  "reactivated",
+  "email_changed",
 ]);
 export type SecurityEventKind = z.infer<typeof securityEventKindSchema>;
 

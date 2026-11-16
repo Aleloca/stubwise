@@ -65,7 +65,7 @@ export async function peopleRoutes(instance: FastifyInstance): Promise<void> {
       // task assegnata a lui ne vede il nome. Dove chi guarda può assegnarlo lo
       // dice `claudeAssignableProjectIds` (i progetti visibili con `runs.start`).
       const people = await app.db
-        .select({ id: users.id, email: users.email, displayName: users.displayName, isAgent: users.isAgent })
+        .select({ id: users.id, email: users.email, displayName: users.displayName, isAgent: users.isAgent, deactivatedAt: users.deactivatedAt })
         .from(users)
         .where(ids === "all" ? undefined : or(inArray(users.id, ids), eq(users.isAgent, true)))
         .orderBy(asc(users.email));
@@ -90,7 +90,8 @@ export async function peopleRoutes(instance: FastifyInstance): Promise<void> {
           initials: initialsOf(name),
           departmentIds: deptsOf.get(p.id) ?? [],
           email: p.email,
-          deactivated: false,
+          // Area 9, F1 (D-6): il campo c'era già, ora dice il vero.
+          deactivated: p.deactivatedAt !== null,
           isClaude: p.isAgent,
           claudeAssignableProjectIds: p.isAgent ? assignable : [],
         };

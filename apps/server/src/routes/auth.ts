@@ -146,7 +146,9 @@ async function verifyCredentials(
     .innerJoin(roles, eq(roles.id, users.instanceRoleId))
     // L'utente di sistema «Claude» (area 3, fetta 3e) non entra MAI: è un
     // utente che non c'è, con la stessa verifica a vuoto (tempo costante).
-    .where(and(eq(users.email, email), eq(users.isAgent, false)));
+    // Area 9, F1: una persona disattivata è come una che non c'è (stessa
+    // verifica a vuoto, stesso errore di una password sbagliata).
+    .where(and(eq(users.email, email), eq(users.isAgent, false), isNull(users.deactivatedAt)));
   if (!user) {
     await verifyPassword(await getDummyHash(), password);
     return null;

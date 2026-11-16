@@ -1,0 +1,161 @@
+import { randomUUID } from "node:crypto";
+import { deviceTokens, invites, personalAccessTokens, roles, securityEvents, sessions, tickets, users, type Db } from "@stubwise/db";
+import { seedRepository, seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { and, eq } from "drizzle-orm";
+import type { FastifyInstance } from "fastify";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { buildApp } from "../app.js";
+import { hashPassword } from "../auth/password.js";
+import { generatePat, hashServerKey } from "./shared.js";
+import { addMember, fullSessionCookie, seedUsers } from "../test/fixtures.js";
+
+/**
+ * Area 9, F1, Task 4: disattivare e riattivare una persona (D-6;
+ * docs/invariants/permissions.md, «Una persona disattivata non entra da
+ * nessuna porta, e non si disattiva l'ultimo full admin»).
+ */
+
+let testDb: TestDb;
+let db: Db;
+let app: FastifyInstance;
+let adminCookie: string;
+let adminId: string;
+
+beforeAll(async () => {
+  testDb = await startTestDb();
+  db = testDb.db;
+  app = buildApp({ db, sessionSecret: "segreto-di-test-lungo-almeno-32-caratteri!!", encryptionKey: Buffer.alloc(32, 4).toString("base64") });
+  ({ adminCookie, adminId } = await seedUsers(app));
+}, 120_000);
+afterAll(async () => {
+  await app.close();
+  await testDb.stop();
+});
+
+const PASSWORD = "password-della-persona";
+let n = 0;
+async function person() {
+  const email = `p-${++n}-${randomUUID().slice(0, 6)}@acme.com`;
+  const [u] = await db.insert(users).values({ email, passwordHash: await hashPassword(PASSWORD), role: "member" }).returning({ id: users.id });
+  const cookie = await fullSessionCookie(app, u!.id);
+  const token = generatePat();
+  const [pat] = await db.insert(personalAccessTokens).values({ userId: u!.id, name: "pat", tokenHash: hashServerKey(token) }).returning({ id: personalAccessTokens.id });
+  await db.insert(deviceTokens).values({ userId: u!.id, patId: pat!.id, platform: "ios", token: `dev-${randomUUID()}` });
+  return { id: u!.id, email, cookie, token };
+}
+const admin = () => ({ cookie: adminCookie });
+const deactivate = (id: string, body: Record<string, unknown> = {}, as: { cookie: string } = admin()) =>
+  app.inject({ method: "POST", url: `/api/users/${id}/deactivate`, headers: { cookie: as.cookie }, payload: body });
+const reactivate = (id: string) => app.inject({ method: "POST", url: `/api/users/${id}/reactivate`, headers: { cookie: adminCookie } });
+const login = (email: string, password = PASSWORD) => app.inject({ method: "POST", url: "/api/auth/login", payload: { email, password } });
+const me = (headers: Record<string, string>) => app.inject({ method: "GET", url: "/api/auth/me", headers });
+
+describe("disattivare una persona", () => {
+  it("dopo: il login risponde COME una password sbagliata, la sessione e il PAT sono 401, i device spenti; nel registro di sicurezza", async () => {
+    const p = await person();
+    const wrong = await login(p.email, "sbagliata");
+    expect((await me({ cookie: p.cookie })).statusCode).toBe(200);
+    expect((await deactivate(p.id)).statusCode).toBe(204);
+    const after = await login(p.email);
+    expect(after.statusCode).toBe(wrong.statusCode);
+    expect(after.body).toBe(wrong.body);
+    expect((await me({ cookie: p.cookie })).statusCode).toBe(401);
+    expect((await me({ authorization: `Bearer ${p.token}` })).statusCode).toBe(401);
+    expect(await db.select().from(sessions).where(eq(sessions.userId, p.id))).toEqual([]);
+    expect(await db.select().from(personalAccessTokens).where(eq(personalAccessTokens.userId, p.id))).toEqual([]);
+    // I device si SPENGONO (non si cancellano: la traccia del perché resta), come alla revoca di un PAT.
+    const devices = await db.select().from(deviceTokens).where(eq(deviceTokens.userId, p.id));
+    expect(devices.length).toBeGreaterThan(0);
+    expect(devices.every((d) => d.disabledAt !== null && d.disabledReason === "user_deactivated")).toBe(true);
+    const [event] = await db.select().from(securityEvents).where(and(eq(securityEvents.userId, p.id), eq(securityEvents.kind, "deactivated")));
+    expect(event).toBeDefined();
+    const list = (await app.inject({ method: "GET", url: "/api/users", headers: { cookie: adminCookie } })).json() as { id: string; status?: string }[];
+    expect(list.find((u) => u.id === p.id)?.status).toBe("deactivated");
+    const people = (await app.inject({ method: "GET", url: "/api/people", headers: { cookie: adminCookie } })).json() as { id: string; deactivated: boolean }[];
+    expect(people.find((x) => x.id === p.id)?.deactivated).toBe(true);
+  });
+
+  it("una sessione o un PAT sopravvissuti a una corsa (re-inseriti DOPO) non entrano: il controllo è anche a lettura", async () => {
+    const p = await person();
+    await deactivate(p.id);
+    const cookie = await fullSessionCookie(app, p.id);
+    expect((await me({ cookie })).statusCode).toBe(401);
+    const token = generatePat();
+    await db.insert(personalAccessTokens).values({ userId: p.id, name: "dopo", tokenHash: hashServerKey(token) });
+    expect((await me({ authorization: `Bearer ${token}` })).statusCode).toBe(401);
+  });
+
+  it("le task aperte si riassegnano PER TASK; quelle senza riga restano sue; gli inviti che ha mandato si revocano", async () => {
+    const { projectId, repositoryId } = await seedRepository(db);
+    const { projectId: other, repositoryId: otherRepo } = await seedRepository(db);
+    const p = await person();
+    const a = await person();
+    const b = await person();
+    await addMember(app, projectId, a.id, "developer");
+    await addMember(app, other, b.id, "developer");
+    const t1 = (await seedTicket(db, { projectId, repositoryId, number: 7001 })).ticketId;
+    const t2 = (await seedTicket(db, { projectId: other, repositoryId: otherRepo, number: 7002 })).ticketId;
+    const t3 = (await seedTicket(db, { projectId, repositoryId, number: 7003 })).ticketId;
+    for (const t of [t1, t2, t3]) await db.update(tickets).set({ assigneeId: p.id }).where(eq(tickets.id, t));
+    await db.insert(invites).values({ token: `inv-${randomUUID()}`, email: `x-${randomUUID()}@acme.com`, expiresAt: new Date(Date.now() + 86_400_000), invitedByUserId: p.id });
+    const res = await deactivate(p.id, { reassign: { [t1]: a.id, [t2]: b.id } });
+    expect(res.statusCode).toBe(204);
+    const assignee = async (id: string) => (await db.select({ a: tickets.assigneeId }).from(tickets).where(eq(tickets.id, id)))[0]!.a;
+    expect(await assignee(t1)).toBe(a.id);
+    expect(await assignee(t2)).toBe(b.id);
+    expect(await assignee(t3)).toBe(p.id);
+    expect(await db.select().from(invites).where(eq(invites.invitedByUserId, p.id))).toEqual([]);
+  });
+
+  it("NEGATIVI della riassegnazione: un destinatario che non vede il progetto della SUA task, una task non sua → 422 e NIENTE cambiato", async () => {
+    const { projectId, repositoryId } = await seedRepository(db);
+    const p = await person();
+    const outsider = await person();
+    const t1 = (await seedTicket(db, { projectId, repositoryId, number: 7101 })).ticketId;
+    const notHis = (await seedTicket(db, { projectId, repositoryId, number: 7102 })).ticketId;
+    await db.update(tickets).set({ assigneeId: p.id }).where(eq(tickets.id, t1));
+    const bad = await deactivate(p.id, { reassign: { [t1]: outsider.id } });
+    expect(bad.statusCode).toBe(422);
+    expect(bad.json()).toMatchObject({ code: "invalid_reassignment", taskId: t1 });
+    const notOwn = await deactivate(p.id, { reassign: { [notHis]: adminId } });
+    expect(notOwn.statusCode).toBe(422);
+    expect(notOwn.json()).toMatchObject({ code: "invalid_reassignment", taskId: notHis });
+    // Niente cambiato: è ancora attiva, con la sua sessione.
+    expect((await me({ cookie: p.cookie })).statusCode).toBe(200);
+    expect((await db.select({ a: tickets.assigneeId }).from(tickets).where(eq(tickets.id, t1)))[0]!.a).toBe(p.id);
+  });
+
+  it("NEGATIVI: sé stessi (400), Claude (404), senza users.manage (403), l'ultimo full admin ATTIVO (409)", async () => {
+    expect((await deactivate(adminId)).json()).toMatchObject({ code: "cannot_deactivate_self" });
+    // Claude c'è già (un solo utente di sistema, `users_single_agent`).
+    const [agent] = await db.select({ id: users.id }).from(users).where(eq(users.isAgent, true));
+    expect((await deactivate(agent!.id)).statusCode).toBe(404);
+    const plain = await person();
+    expect((await deactivate(plain.id, {}, { cookie: plain.cookie })).statusCode).toBe(403);
+    // Un gestore delle persone (non full admin) e un secondo full admin.
+    const lone = await person();
+    const [mgrRole] = await db.insert(roles).values({ name: `Gestore ${randomUUID()}`, scope: "instance", permissions: ["users.manage", "users.view_all"] }).returning({ id: roles.id });
+    await db.update(users).set({ instanceRoleId: mgrRole!.id }).where(eq(users.id, lone.id));
+    const loneCookie = await fullSessionCookie(app, lone.id);
+    const second = await person();
+    const [adminRole] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "admin"));
+    await db.update(users).set({ instanceRoleId: adminRole!.id }).where(eq(users.id, second.id));
+    expect((await deactivate(second.id, {}, { cookie: loneCookie })).statusCode).toBe(204);
+    // Ora l'unico full admin ATTIVO è il primo: un disattivato non conta.
+    const last = await deactivate(adminId, {}, { cookie: loneCookie });
+    expect(last.statusCode).toBe(409);
+    expect(last.json()).toMatchObject({ code: "last_full_admin" });
+    expect((await me({ cookie: adminCookie })).statusCode).toBe(200);
+  });
+
+  it("riattivare la riporta, senza le sessioni né i token di prima", async () => {
+    const p = await person();
+    await deactivate(p.id);
+    expect((await reactivate(p.id)).statusCode).toBe(204);
+    expect((await login(p.email)).statusCode).not.toBe(401);
+    expect((await me({ authorization: `Bearer ${p.token}` })).statusCode).toBe(401);
+    expect((await me({ cookie: p.cookie })).statusCode).toBe(401);
+    const [event] = await db.select().from(securityEvents).where(and(eq(securityEvents.userId, p.id), eq(securityEvents.kind, "reactivated")));
+    expect(event).toBeDefined();
+  });
+});

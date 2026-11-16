@@ -15,7 +15,7 @@
  * Gli errori di regola escono come {@link RoleRuleError}: le rotte li
  * traducono in risposta, la transazione intanto è già annullata.
  */
-import { and, count, eq, inArray, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "@stubwise/db";
 import { inviteProjects, memberPermissionsSql, projectMemberPermissions, projectMembers, projects, roles, users } from "@stubwise/db";
 import {
@@ -113,6 +113,8 @@ export async function assertFullAdminRemains(
         // (non entra mai): anche con un preset User allargato non conta (review
         // dell'area 3, punto 9).
         eq(users.isAgent, false),
+        // Area 9, F1: un full admin disattivato non entra, quindi non conta.
+        isNull(users.deactivatedAt),
         opts.excludingRoleId ? sql`${roles.id} <> ${opts.excludingRoleId}` : undefined,
       ),
     );
