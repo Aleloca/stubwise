@@ -160,6 +160,9 @@ describe("isIntegrated", () => {
         "admin:departments",
         // Area 9, F1, R9: «Chi può farlo?».
         "admin:who-can",
+        // Area 9, F1, R7: People e Roles.
+        "admin:people",
+        "admin:roles",
         "taskView:list",
         "taskView:board",
         "feature:notifications",

@@ -127,6 +127,30 @@ const INTEGRATED_CALLS = new Set([
   "me.addPasskey",
   "me.renamePasskey",
   "me.removePasskey",
+  // Area 9, F1, R7: People, inviti e Roles.
+  "admin.listPeople",
+  "admin.getPerson",
+  "admin.listSecurityEvents",
+  "admin.listObservedAuthors",
+  "admin.setInstanceRole",
+  "admin.createPasswordResetLink",
+  "admin.resetSecondFactor",
+  "admin.deactivatePerson",
+  "admin.reactivatePerson",
+  "admin.changeEmail",
+  "admin.linkGitIdentity",
+  "admin.unlinkGitIdentity",
+  "admin.setBitbucketUsername",
+  "admin.listInvites",
+  "admin.getInviteChoices",
+  "admin.createInvite",
+  "admin.revokeInvite",
+  "admin.listRoles",
+  "admin.createRole",
+  "admin.duplicateRole",
+  "admin.updateRole",
+  "admin.deleteRole",
+  "admin.viewerLosesIf",
   // Area 9, F1, R9: «Chi può farlo?».
   "access.whoCan",
   "access.whatCan",
@@ -769,6 +793,20 @@ describe("aree non integrate nella build app", () => {
     } finally {
       delete (window.stubwise as { api?: unknown } | undefined)?.api;
     }
+  });
+
+  // Area 9, F1, R7: People e Roles accese, sulle letture calcolate del server.
+  it.each([
+    ["/admin/people", "People"],
+    ["/admin/people/p-marco", "Marco Bellini"],
+    ["/admin/roles", "Roles"],
+  ])("aprire %s legge solo chiamate integrate", async (path, title) => {
+    signedInAs("p-roberta");
+    renderRoute(path);
+    expect(await screen.findByRole("heading", { level: 1, name: title })).toBeInTheDocument();
+    await settle();
+    expect(screen.queryByText(/Coming soon/)).toBeNull();
+    expect(outside()).toEqual([]);
   });
 
   // Area 9, F1, R9: Amministrazione → Who can? accesa, sulle rotte del server.
