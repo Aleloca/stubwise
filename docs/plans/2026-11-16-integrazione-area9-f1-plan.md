@@ -125,12 +125,15 @@ backend.*
 
 ### Task 4 — Disattivare e riattivare (design 1.3)
 
-- **Rotte**: `POST /api/users/:id/deactivate` (`{ reassignTasksTo? }`) e
-  `/reactivate`, `inst:users.manage` + `reauth`, nel registro.
+- **Rotte**: `POST /api/users/:id/deactivate` (`{ reassign?: { [taskId]:
+  userId | null } }`, la riassegnazione PER TASK) e `/reactivate`,
+  `inst:users.manage` + `reauth`, nel registro.
 - **La transazione**:
   - cancella sessioni, PAT e `device_tokens`;
   - revoca gli inviti pendenti mandati da lei (`invites.invited_by_user_id`);
-  - riassegna le task aperte, se richiesto e visibili a chi le riceve;
+  - riassegna ogni task aperta come dice la sua riga di `reassign`. Il
+    destinatario deve vedere il progetto di QUELLA task; una riga non valida
+    dà `422 invalid_reassignment` con l'id della task, e non cambia niente;
   - scrive `security_events.kind = "deactivated"`, e alla riattivazione
     `"reactivated"`.
 - **La lettura dell'identità**: login, sessione e PAT rifiutano una persona
@@ -142,10 +145,12 @@ backend.*
 - **Test** (`routes/users.deactivate.test.ts`):
   - dopo: login rifiutato come una password sbagliata (stesso codice e
     corpo), la sessione vecchia 401, il PAT 401, i `device_tokens` spenti;
-  - le task riassegnate; gli inviti revocati;
+  - le task riassegnate per riga (due task di progetti diversi a due persone
+    diverse; una senza riga resta sua); gli inviti revocati;
   - riattivare non riporta né i token né le sessioni;
-  - NEGATIVI: sé stessi, l'ultimo full admin, Claude, `reassignTasksTo` che
-    non vede un progetto, senza riconferma, senza `users.manage`.
+  - NEGATIVI: sé stessi, l'ultimo full admin, Claude, un destinatario che
+    non vede il progetto della sua task (422, NIENTE cambiato), una task non
+    sua, senza riconferma, senza `users.manage`.
 - **Mutazione**: togliere il controllo a lettura e lasciare la
   cancellazione. Il test della «corsa» (una sessione re-inserita dopo la
   disattivazione) diventa rosso.
@@ -222,9 +227,15 @@ backend.*
 - **Rotte**: `POST /api/me/email-change` (`reauth`), `DELETE
   /api/me/email-change`, `POST /api/auth/email-change/confirm` (`public`,
   `credentialDoor`, il rate limit del login).
-  - Senza trasporto: `409 email_transport_unavailable`, e il cambio fatto da
-    un admin, `PATCH /api/users/:id/email` (`inst:users.manage` +
-    `reauth`), registrato e avvisato.
+  - Senza trasporto: `409 email_transport_unavailable`.
+  - Il cambio fatto da un admin, `PATCH /api/users/:id/email` (`{ email }`,
+    `inst:users.manage` + `reauth`), c'è SEMPRE:
+    - mai su sé stessi;
+    - `email_taken` come la richiesta personale;
+    - cambia subito; sessioni e 2FA intatti; annulla una richiesta
+      personale pendente;
+    - `email_changed` in `security_events` con chi ha agito, e il
+      `security.alert` che lo nomina.
 - **Le regole del design**: 24 ore, monouso, hash, la vecchia fino al clic,
   sessioni e secondo fattore intatti, `email_changed` in `security_events`,
   `security.alert`, un'email presa (anche da un invito) con lo stesso errore.
@@ -234,13 +245,18 @@ backend.*
   - sessioni e secondo fattore intatti;
   - NEGATIVI: scaduto, annullato, già usato, la seconda richiesta che
     sostituisce la prima, un'email presa, senza riconferma, senza trasporto
-    (409), il token sbagliato (lo stesso 400 degli altri casi).
+    (409), il token sbagliato (lo stesso 400 degli altri casi);
+  - il ramo admin: cambia subito, annulla la pendente, l'avviso nomina
+    l'admin; NEGATIVI: su sé stessi, senza `users.manage`, senza riconferma,
+    un'email presa.
 - **Commit**: `feat(server): il cambio dell'email di login con la verifica
   (area 9, F1)`.
 
 ### Task 9 — «Chi può farlo?» (design 1.7)
 
-- **Rotte**: `GET /api/access/who-can` e `GET /api/access/what-can` (`user`),
+- **Rotte**: `GET /api/access/who-can` (`projectId` facoltativo: assente =
+  un permesso d'istanza; uno di progetto senza, o uno d'istanza con, `422`) e
+  `GET /api/access/what-can` (`user`),
   sopra le funzioni di `access.ts`. Lo schema della risposta è in shared, coi
   motivi `full_admin | role | grant` (`department` con F8, già nell'enum
   tramite `readerSchema`).
@@ -249,8 +265,10 @@ backend.*
     coppia, `who-can` ⇔ `can()`;
   - i motivi;
   - Claude con la sua riga solo per i permessi del suo insieme;
+  - i permessi d'istanza senza `projectId` (chi ha `users.manage`);
   - NEGATIVI: un progetto invisibile (404, e assente da `what-can`), una
-    persona invisibile, una disattivata (assente).
+    persona invisibile, una disattivata (assente), il 422 di un ambito
+    sbagliato.
 - **Mutazione**: dimenticare i personali in `who-can` fa rompere
   l'accordo.
 - **Commit**: `feat(server): «Chi può farlo?» (area 9, F1)`.
@@ -263,6 +281,15 @@ backend.*
   sbagliato (409 `invalid_state`).
 - **Commit**: `feat(server): Inbox, ripristinare, rimettere fra le nuove,
   segnare non letta (area 9, F1)`.
+
+### Task 10b — Il token nelle risposte che danno un link (design 1.9)
+
+- `POST /api/users/:id/password-reset` aggiunge `token` (additivo) accanto a
+  `url`; l'invito lo dà già. Così il renderer della web «app» costruisce
+  `${origin}/app/#/reset-password/<token>` e `…/register/<token>`.
+- **Test**: il `token` è quello che `url` contiene, e funziona sulla rotta di
+  reset; il parse senza il campo.
+- **Commit**: insieme al Task 10.
 
 ### Task 11 — Il client
 

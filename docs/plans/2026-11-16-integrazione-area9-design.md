@@ -142,14 +142,20 @@ Ogni fetta dopo F2 scrive le sue voci nel registro.
 
 - **Colonne**: `users.deactivated_at`, `users.deactivated_by_user_id`.
 - **Rotte**, `inst:users.manage` con la riconferma:
-  - `POST /api/users/:id/deactivate`, corpo `{ reassignTasksTo?: userId }`;
+  - `POST /api/users/:id/deactivate`, corpo `{ reassign?: { [taskId]: userId
+    | null } }`: la riassegnazione PER TASK, come il dialogo del prototipo
+    (94, review del 16 nov);
   - `POST /api/users/:id/reactivate`.
 - **Disattivare**, in UNA transazione:
   - si cancellano sessioni, PAT (di ogni `kind`) e `device_tokens`;
   - si revocano gli inviti che la persona ha mandato e che sono ancora
     pendenti;
-  - le task aperte assegnate a lei vanno a `reassignTasksTo` se c'è (che
-    deve vedere il progetto di ciascuna), altrimenti restano sue;
+  - ogni task aperta assegnata a lei va a chi indica `reassign` per QUELLA
+    task, che deve essere membro (o full admin) del progetto della task.
+    `null`, o una task assente dalla mappa, = resta sua. Una riga non valida
+    (task non sua o non aperta, destinatario che non vede il progetto) fa
+    fallire tutto con `422 invalid_reassignment`, con l'id della task: niente
+    a metà;
   - una riga in `security_events` (`deactivated`);
   - nessun `security.alert`: la persona non entra più a leggerlo.
 - **I rifiuti**: su sé stessi `self`; sull'ultimo full admin `last_full_admin`;
@@ -166,11 +172,11 @@ Ogni fetta dopo F2 scrive le sue voci nel registro.
 - *Test*:
   - dopo la disattivazione il login, la sessione, un PAT e il push
     falliscono;
-  - le task passano a chi è indicato;
+  - ogni task passa a chi è indicato per lei, e le altre restano sue;
   - gli inviti sono revocati;
   - riattivare non riporta i token di prima;
-  - NEGATIVI: sé stessi, l'ultimo full admin, Claude, un `reassignTasksTo`
-    che non vede il progetto.
+  - NEGATIVI: sé stessi, l'ultimo full admin, Claude, un destinatario che
+    non vede il progetto della SUA task (`422`, niente cambiato).
 
 ### 1.4 Le sessioni (D-9)
 
@@ -259,6 +265,21 @@ Ogni fetta dopo F2 scrive le sue voci nel registro.
 - **La consegna del link e l'avviso alla vecchia email**: Stubwise oggi non
   manda email (CLAUDE.md, `second-factor.md`: «Niente email: Stubwise non
   ne manda»), quindi serve un trasporto. **E-1** (in fondo).
+- **Il cambio fatto da un admin**: `PATCH /api/users/:id/email`, corpo
+  `{ email }`, `inst:users.manage` con la riconferma. Esiste sempre, con o
+  senza trasporto: senza, è l'unica strada; con, resta per chi ha perso
+  l'accesso alla vecchia.
+  - Mai su sé stessi (`self`: la propria passa dalla verifica).
+  - Stesse regole di normalizzazione e di `email_taken` della richiesta
+    personale.
+  - Cambia SUBITO, senza verifica: è un atto amministrativo.
+  - Sessioni, token e secondo fattore intatti; annulla un'eventuale
+    richiesta personale pendente.
+  - `security_events` (`email_changed`, con chi ha agito), `security.alert`
+    all'interessato (nominando l'admin), e con il trasporto un avviso alla
+    vecchia email. Con F2, la voce `person.email_changed`.
+  - Non c'è il bersaglio protetto (D-2): è il rischio accettato
+    dell'invariante, come il reset.
 - **Il prototipo cambia** (94): uno stato «in attesa di conferma su
   <nuova>», con la vecchia ancora valida per il login; «Annulla»; il link
   simulato nel riquadro «Prototype only»; la riconferma prima di chiedere.
@@ -273,9 +294,15 @@ Ogni fetta dopo F2 scrive le sue voci nel registro.
 
 ### 1.7 «Chi può farlo?» (D-11)
 
-- **`GET /api/access/who-can?permission=<p>&projectId=<id>`** (`user`, per
-  un progetto che chi guarda vede; `404` altrimenti): le persone che hanno
-  quel permesso lì, ciascuna coi motivi.
+- **`GET /api/access/who-can?permission=<p>&projectId=<id>?`** (`user`): le
+  persone che hanno quel permesso, ciascuna coi motivi.
+  - `projectId` è FACOLTATIVO (94, review del 16 nov). Assente, vale per un
+    permesso D'ISTANZA (`users.manage`, `settings.manage`…). Un permesso di
+    progetto senza `projectId`, o uno d'istanza con, dà `422`.
+  - Con `projectId`, il progetto deve essere visibile a chi guarda (`404`
+    altrimenti).
+  - La mappa azione → permesso (il prototipo parte da un'azione) è del
+    client: catalogo e testo, non calcolo.
   - I motivi: `full_admin`, `role` (con l'id), `grant` (personale), e con
     F8 `department`.
   - Le persone disattivate no.
@@ -309,9 +336,14 @@ invalid_state`).
   passkey, `register`, reset, `setup` (`apps/server/src/routes/auth.ts`,
   `docs/invariants/second-factor.md`). Il lavoro è del renderer: collegare
   `pages/entry/` alle rotte vere nella build web «app».
-- **Il server**: nessuna rotta nuova. Una cosa da verificare: l'`rpID` e
-  l'`origin` delle passkey valgono per `/app` come per il web (stessa
-  origine, `app.publicUrl`).
+- **Il server**: nessuna rotta nuova. Le risposte che danno un link portano
+  anche il TOKEN, così il renderer costruisce `${origin}/app/#/…` (94, review
+  del 16 nov):
+  - `POST /api/auth/invites` lo dà già (`token`);
+  - `POST /api/users/:id/password-reset` aggiunge `token` (additivo) accanto
+    a `url`, che resta quello del web vecchio.
+  - Da verificare: l'`rpID` e l'`origin` delle passkey valgono per `/app`
+    come per il web (stessa origine, `app.publicUrl`).
 - **Le invarianti valgono identiche**: ogni porta passa dal secondo fattore,
   una sessione parziale apre solo le rotte `second_factor`, il tetto per
   account.
