@@ -55,6 +55,8 @@ import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js"
 import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
 import { avatarUrlsFor } from "../services/avatars.js";
+import { confirmEmailChange } from "../services/email-change.js";
+import { sendEmailChangeError } from "./me-email-change.js";
 import {
   loadSlackCreds,
   defaultSlackClientFactory,
@@ -446,6 +448,29 @@ export async function authRoutes(
   // Best effort, senza requireAuth: il logout deve riuscire anche con cookie
   // assente, manomesso o già scaduto. Si elimina la riga solo se il cookie
   // si risolve; in ogni caso si pulisce il cookie e si risponde 204.
+  // Area 9, F1 (D-13): la conferma del cambio dell'email di login, dal link
+  // mandato alla NUOVA. Pubblica (la prova è aver ricevuto il link), col tetto
+  // dei tentativi del login. Non dà né sessione né token: non è una «porta»
+  // (`credentialDoor`). docs/invariants/identity.md.
+  app.post(
+    "/email-change/confirm",
+    {
+      onRequest: credentialsRateLimit,
+      config: { access: { kind: "public" } },
+      schema: {
+        body: z.object({ token: z.string().min(1).max(200) }),
+        response: { 200: z.object({ email: z.string() }), 400: errorSchema, 409: errorSchema },
+      },
+    },
+    async (request, reply) => {
+      try {
+        return await confirmEmailChange(app.db, app.mailTransport, request.body.token);
+      } catch (error) {
+        return sendEmailChangeError(reply, error);
+      }
+    },
+  );
+
   app.post("/logout", { config: { access: { kind: "public" } } }, async (request, reply) => {
     const sessionId = sessionIdFromRequest(request);
     if (sessionId) await deleteSession(app.db, sessionId);

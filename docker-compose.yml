@@ -96,6 +96,10 @@ services:
       # Per questo la sostituzione usa `-` e non `:-`: con `:-` una variabile
       # definita ma vuota ricadrebbe sul default e lo spegnimento non funzionerebbe.
       GRAPHIFY_MCP_URL: ${GRAPHIFY_MCP_URL-http://graphify:8080/mcp}
+      # Area 9, F1: SMTP d'istanza FACOLTATIVO, solo per il cambio dell'email
+      # di login (link alla nuova, avviso alla vecchia). Vuote = non disponibile.
+      SMTP_URL: ${SMTP_URL:-}
+      MAIL_FROM: ${MAIL_FROM:-}
       # Mirror git del worker: il server ci legge i blob citati dal sottografo
       # per allegare gli snippet di codice. Deve coincidere col path del worker
       # e col mount qui sotto.

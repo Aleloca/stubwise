@@ -20,6 +20,8 @@ import { setInstanceRole } from "../services/roles.js";
 import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
 import { deactivateUser, reactivateUser } from "../services/user-deactivation.js";
 import { avatarUrlsFor } from "../services/avatars.js";
+import { adminChangeEmail } from "../services/email-change.js";
+import { sendEmailChangeError } from "./me-email-change.js";
 import { authErrorResponses, errorSchema, rejectAgentUserParam } from "./shared.js";
 
 /** Identità pubblica di un utente: mai hash o altri campi sensibili. */
@@ -403,6 +405,28 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
         return reply.code(204).send(null);
       } catch (error) {
         return sendRoleRuleError(reply, error);
+      }
+    },
+  );
+
+  // Area 9, F1 (D-13): il cambio dell'email di login di un ALTRO, fatto da chi
+  // gestisce le persone: subito, senza verifica, mai su sé stessi; c'è sempre,
+  // e senza trasporto email è l'unica strada (docs/invariants/identity.md).
+  app.patch(
+    "/:id/email",
+    {
+      config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
+      schema: {
+        params: z.object({ id: z.uuid() }),
+        body: z.object({ email: z.email().max(320) }),
+        response: { 200: z.object({ email: z.string() }), ...authErrorResponses, 400: errorSchema, 404: errorSchema, 409: errorSchema },
+      },
+    },
+    async (request, reply) => {
+      try {
+        return await adminChangeEmail(app.db, app.mailTransport, request.user!, request.params.id, request.body.email);
+      } catch (error) {
+        return sendEmailChangeError(reply, error);
       }
     },
   );

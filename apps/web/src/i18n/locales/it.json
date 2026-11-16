@@ -310,8 +310,6 @@
     "invalid_permissions": "Alcuni permessi non valgono per questo tipo di ruolo.",
     "escalation": "Non puoi concedere permessi che non hai.",
     "escalation_permission": "Non puoi concedere un permesso che non hai: «{{permission}}».",
-    "target_above": "Non puoi cambiare qualcuno che ha più permessi di te.",
-    "target_above_permission": "Non puoi cambiare qualcuno che ha più permessi di te: «{{permission}}».",
     "invalid_second_factor": "Il codice non è valido",
     "second_factor_locked": "Troppi codici sbagliati: la verifica in due passaggi è bloccata per qualche minuto",
     "second_factor_busy": "C'è già un tentativo in corso: riprova fra un attimo",
@@ -1144,7 +1142,10 @@
           "vault_activated": "Cassaforte attivata",
           "vault_seal_replaced": "Sigillo di una passkey della cassaforte sostituito",
           "vault_recovery_key_rotated": "Kit di recupero della cassaforte rigenerato",
-          "reauth_desktop": "Identità confermata nell'app desktop"
+          "reauth_desktop": "Identità confermata nell'app desktop",
+          "deactivated": "Account disattivato",
+          "reactivated": "Account riattivato",
+          "email_changed": "Email di accesso cambiata"
         }
       }
     },
