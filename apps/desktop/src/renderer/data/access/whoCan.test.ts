@@ -192,7 +192,7 @@ describe("whoCan: Claude", () => {
     for (const action of ACTIONS) {
       const r = whoCan("p-roberta", action.id, action.scope === "project" ? ACQ : null);
       if (!r.visible) continue;
-      expect(r.claude, action.id).toEqual({ actsFor: "confirmer" });
+      expect(r.agent, action.id).toEqual({ actsFor: "confirmer" });
     }
   });
 

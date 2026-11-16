@@ -23,7 +23,7 @@ export type WhoCanResult =
        * di chi lo assegna o conferma la sua azione. Una risposta fissa, come
        * `agent` della rotta `who-can`.
        */
-      claude: { actsFor: "confirmer" };
+      agent: { actsFor: "confirmer" };
     };
 
 export type WhatCanResult =
@@ -76,7 +76,7 @@ export function whoCan(viewerId: string, actionId: string, projectId: string | n
   return {
     visible: true,
     people: orderHolders(people, nameOf),
-    claude: { actsFor: "confirmer" },
+    agent: { actsFor: "confirmer" },
   };
 }
 

@@ -41,7 +41,7 @@ export type WhoCanView =
       people: WhoCanPerson[];
       /** Claude, sempre a parte: lavora, non decide (R-L9). */
       /** Area 9 (decisione (a)): Claude agisce con i permessi di chi assegna o conferma. */
-      claude: { actsFor: "confirmer" };
+      agent: { actsFor: "confirmer" };
     };
 
 export interface WhatCanPermission {
@@ -130,7 +130,7 @@ export async function whoCan(actionId: string, projectId: string | null): Promis
         reasons: reasonsOf(p.sources),
       };
     }),
-    claude: raw.claude,
+    agent: raw.agent,
   };
 }
 
