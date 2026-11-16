@@ -4775,3 +4775,50 @@ deploy o di un rollback che la tocca.
   mostra senza sorgente (il web fa un cast). Per fermare tutto senza
   rollback: analisi spente in Impostazioni e `update server_fixes set
   status = 'stopped' where status in ('proposing','approved','running');`.
+- **«Integrazione area 8: Clienti in attesa»** *(15 nov 2026)*: branch
+  `feat/area8-waiting` (da `feat/area8-f4b`: si deploya DOPO la F4b), piano
+  `docs/plans/2026-11-15-integrazione-area8-clienti-in-attesa-plan.md`. Il
+  blocco della Home «Clienti in attesa»: i thread delle MIE caselle in cui
+  un cliente aspetta da più di 24 ore. Il taglio è meccanico
+  (`waitingCandidates` in `@stubwise/notifications`, uno solo per la rotta e
+  per il worker), e Claude giudica se serve davvero una MIA risposta
+  (`email_messages.reply_judgment`, sull'ultimo messaggio del thread). Il
+  giudizio arriva per due strade: dentro la classificazione (J1, v1 e v2) e
+  in un run Haiku a parte (J2, `mail_reply_judgment`) sui thread che passano
+  il taglio senza giudizio.
+  Migrazione **0183** (`email_messages.reply_judgment jsonb`,
+  `reply_judgment_attempts smallint default 0`; `mail_reply_judgment` nei
+  CHECK di `agent_runs` e `ai_model_settings`). Nessuna env nuova. Rotta
+  nuova `GET /api/me/waiting-customers`.
+
+  **ORDINE**: **server** (healthy, 0183 applicata), poi **worker** (W1: la
+  posta mandata anche al primo giro e al resync, `newer_than:7d from:me`; J1
+  e J2), poi **caddy** (il blocco nel renderer, quando la parte di 94 è
+  dentro). Il worker vecchio contro il server nuovo: nessun giudizio, il
+  blocco mostra tutto «da valutare».
+
+  **Da sapere subito**:
+  - J2 gira a ogni tick della casella ANCHE con le proposte spente (W-3 = a):
+    al più 10 giudizi per tick e 2 tentativi per messaggio, nel budget
+    mensile dell'istanza. Dopo il deploy smaltisce i thread già in attesa,
+    10 per tick per casella: un picco di run Haiku nelle prime ore, poi solo
+    i messaggi nuovi. Si vede in
+    Amministrazione → AI, operazione «mail_reply_judgment».
+  - Un thread che passa il taglio e non ha ancora un giudizio COMPARE «da
+    valutare» (W-4 = b), e sparisce quando il giudizio dice no. Un giudizio
+    fallito due volte resta «da valutare» per sempre: è voluto. Controllo,
+    sola lettura: `select count(*) from email_messages where reply_judgment ? 'error';`.
+  - Il resync cattura ora anche gli inviati degli ultimi 7 giorni: senza,
+    una risposta mandata durante un buco del poller lasciava il cliente «in
+    attesa».
+  - Mai la casella di un collega, nemmeno a un full admin: la rotta legge
+    solo `google_accounts.user_id = me` (la regola `mailbox_owner`).
+
+  **Rollback** (il server scende **insieme** al caddy; 0183 non si annulla,
+  e le colonne in più sono innocue per il codice di prima): il worker di
+  prima ignora `reply_judgment` e non cattura gli inviati al resync (le
+  righe già catturate restano contesto); il server di prima non ha la rotta
+  (il blocco mostra l'errore come ogni blocco della Home). Nessun kind
+  nuovo, quindi la discesa d'immagine è sicura. Per fermare i giudizi senza
+  rollback: il budget mensile dell'istanza (J2 non parte oltre il tetto;
+  J1 vive dentro la classificazione e si ferma con lei).

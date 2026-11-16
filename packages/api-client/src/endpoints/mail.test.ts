@@ -179,6 +179,26 @@ describe("endpoints mail", () => {
     expect(fetchImpl.mock.calls.at(-1)![0]).toBe("/api/me/mail/threads");
   });
 
+  it("waitingCustomers (area 8): GET /api/me/waiting-customers; una riga senza i campi facoltativi si parsa, `total` assente vale 0, un giudizio ignoto è UNKNOWN", async () => {
+    const { c, fetchImpl } = clientReturning(200, {
+      items: [
+        {
+          threadId: "t1",
+          accountId: ID,
+          accountEmail: "ops@example.com",
+          customer: { email: "cliente@example.com" },
+          project: { id: ID, code: "AUD", name: "Audin" },
+          waitingSince: "2026-11-13T09:00:00.000Z",
+          judgment: "maybe",
+        },
+      ],
+    });
+    const page = await c.mail.waitingCustomers();
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe("/api/me/waiting-customers");
+    expect(page.total).toBe(0);
+    expect(page.items[0]).toMatchObject({ customer: { name: null }, subject: null, signal: null, importance: null, reason: null, judgment: UNKNOWN });
+  });
+
   it("threads: una riga coi soli campi obbligatori si parsa (tutto il resto ha un default)", async () => {
     const { c } = clientReturning(200, {
       items: [

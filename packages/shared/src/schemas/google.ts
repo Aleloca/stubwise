@@ -624,6 +624,38 @@ export const mailThreadPageSchema = z.object({
 export type MailThreadPage = z.infer<typeof mailThreadPageSchema>;
 
 /**
+ * Area 8, «Clienti in attesa» (`GET /api/me/waiting-customers`): un thread
+ * della MIA casella in cui l'ultimo messaggio esterno aspetta da più di 24
+ * ore e nessuno ha risposto. `judgment` è `yes` (Claude dice che serve una
+ * mia risposta, con la `reason`) o `pending` (non ancora giudicato, o il
+ * giudizio è fallito: W-4 = b). Un «no» non arriva mai. `reason` è testo
+ * scritto dal modello: NON FIDATO, si rende come testo. I campi senza
+ * `.default` sono quelli che la rotta manda dal primo giorno.
+ */
+export const waitingCustomerSchema = z.object({
+  threadId: z.string(),
+  accountId: z.uuid(),
+  accountEmail: z.string(),
+  customer: z.object({ name: z.string().nullable().default(null), email: z.string() }),
+  subject: z.string().nullable().default(null),
+  project: z.object({ id: z.uuid(), code: z.string(), name: z.string() }),
+  /** L'ultimo messaggio ESTERNO del thread: da quando aspetta. */
+  waitingSince: z.iso.datetime(),
+  signal: mailSignalSchema.nullable().default(null),
+  importance: mailImportanceSchema.nullable().default(null),
+  judgment: z.enum(["yes", "pending"]),
+  reason: z.string().nullable().default(null),
+});
+export type WaitingCustomer = z.infer<typeof waitingCustomerSchema>;
+
+export const waitingCustomersResponseSchema = z.object({
+  items: z.array(waitingCustomerSchema),
+  /** Tutti quelli che aspettano (per il «+N»), anche oltre i 20 di `items`. */
+  total: z.number().int().default(0),
+});
+export type WaitingCustomersResponse = z.infer<typeof waitingCustomersResponseSchema>;
+
+/**
  * UN messaggio dentro il dettaglio di una conversazione.
  *
  * `admitted: false` è un messaggio tirato dentro come CONTESTO del thread

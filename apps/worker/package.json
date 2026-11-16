@@ -12,6 +12,7 @@
     "golden": "tsx scripts/golden/run.ts",
     "golden:nightly": "tsx scripts/golden/nightly.ts",
     "golden:server-ops": "tsx scripts/golden/server-ops.ts",
+    "golden:mail-reply": "tsx scripts/golden/mail-reply.ts",
     "typecheck": "tsc --noEmit && tsc -p scripts/tsconfig.json",
     "nightly:once": "node dist/nightly/once.js"
   },

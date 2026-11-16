@@ -945,6 +945,19 @@ describe("classifyNewMessages: difese di costo (fase 6c, Task 6)", () => {
     expect((await reload(pending.id)).status).toBe("new");
   });
 
+  it("tetto giornaliero: i giudizi a parte di «Clienti in attesa» (J2) della casella contano insieme alla classificazione", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale J2");
+    const judged = await seedMessage(account.id, { projectId, status: "classified" });
+    await db.insert(agentRuns).values({ operation: "mail_reply_judgment", emailMessageId: judged.id, model: "haiku" });
+    await db.insert(agentRuns).values({ operation: "mail_reply_judgment", emailMessageId: judged.id, model: "haiku" });
+    const pending = await seedMessage(account.id, { projectId });
+    const runner = new FakeRunner([modelOutput({ signal: "none" })]);
+    await classifyNewMessages({ ...deps(runner), maxPerTick: 20, maxPerDay: 2 }, account.id);
+    expect(runner.calls).toEqual([]);
+    expect((await reload(pending.id)).status).toBe("new");
+  });
+
   it("tetto giornaliero: le righe di consumo NON di classificazione non lo erodono", async () => {
     const account = await seedAccount();
     const projectId = await seedProject("Portale");
@@ -2585,5 +2598,37 @@ describe("classificazione della posta: scelta dell'account", () => {
 
     expect(outcome).toBe("ignored");
     expect(runner.calls.map((c) => c.provider?.id)).toEqual(["acc-1", "acc-2"]);
+  });
+});
+
+describe("area 8, «Clienti in attesa» (J1): il giudizio dentro la classificazione", () => {
+  it("un `reply` nello schema si scrive sul messaggio classificato; il prompt nomina la casella e i colleghi", async () => {
+    const account = await seedAccount();
+    const colleague = await seedAccount();
+    const projectId = await seedProject("Portale J1");
+    const message = await seedMessage(account.id, { projectId });
+    const output = JSON.parse(modelOutput({})) as Record<string, unknown>;
+    const runner = new FakeRunner([JSON.stringify({ ...output, reply: { needsMyReply: true, reason: "Chiede una data di consegna." } })]);
+
+    await classifyEmail(deps(runner), message);
+
+    expect((await reload(message.id)).replyJudgment).toMatchObject({ needsMyReply: true, reason: "Chiede una data di consegna.", model: "haiku" });
+    const prompt = runner.calls[0]!.prompt;
+    expect(prompt).toContain(account.email);
+    expect(prompt).toContain(colleague.email);
+    expect(prompt).toContain('"reply":{"needsMyReply"');
+  });
+
+  it("un `reply` fuori schema (campo in più, tipo sbagliato) non è un giudizio, e la classificazione va avanti lo stesso", async () => {
+    const account = await seedAccount();
+    const projectId = await seedProject("Portale J1b");
+    for (const reply of [{ needsMyReply: "yes", reason: "x" }, { needsMyReply: false, reason: "ok", run: "rm -rf" }, "sì"]) {
+      const message = await seedMessage(account.id, { projectId });
+      const output = JSON.parse(modelOutput({ signal: "none" })) as Record<string, unknown>;
+      const runner = new FakeRunner([JSON.stringify({ ...output, reply })]);
+      const outcome = await classifyEmail(deps(runner), message);
+      expect(outcome).not.toBe("failed");
+      expect((await reload(message.id)).replyJudgment).toBeNull();
+    }
   });
 });

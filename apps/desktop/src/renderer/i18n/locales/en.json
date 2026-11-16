@@ -12486,7 +12486,8 @@
       "usage_probe": "Quota readings",
       "support_triage_check": "Support: triage check",
       "server_analysis": "Servers: analysis",
-      "server_fix_plan": "Servers: fix plan"
+      "server_fix_plan": "Servers: fix plan",
+      "mail_reply_judgment": "Mail: does it need my reply?"
     }
   },
   "instanceEffects": {

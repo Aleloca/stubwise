@@ -15,12 +15,13 @@ describe("catalogo operazioni AI", () => {
     expect(new Set(all).size).toBe(all.length);
   });
 
-  it("le configurabili escludono le tre tecniche e contengono le altre 24 (con `automation_step`, area 7 F3, quella di Support, area 8 F3, e le due dei server, area 8 F4b)", () => {
+  it("le configurabili escludono le tre tecniche e contengono le altre 25 (con `automation_step`, area 7 F3, quella di Support, area 8 F3, le due dei server, area 8 F4b, e il giudizio della posta, «Clienti in attesa»)", () => {
     for (const op of ["plugin_smoke", "credential_test", "usage_probe"] as const) {
       expect(CONFIGURABLE_AI_OPERATIONS).not.toContain(op);
       expect(isConfigurableAiOperation(op)).toBe(false);
     }
-    expect(CONFIGURABLE_AI_OPERATIONS).toHaveLength(24);
+    expect(CONFIGURABLE_AI_OPERATIONS).toHaveLength(25);
+    expect(isConfigurableAiOperation("mail_reply_judgment")).toBe(true);
     expect(isConfigurableAiOperation("support_triage_check")).toBe(true);
     expect(isConfigurableAiOperation("triage")).toBe(true);
   });
@@ -44,7 +45,7 @@ describe("catalogo operazioni AI", () => {
       { group: "nightly", operations: ["commit_summary", "release_notes", "docs_nightly"] },
       { group: "docs", operations: ["docs_generation", "drive_summary"] },
       { group: "reports", operations: ["daily_report", "weekly_brief"] },
-      { group: "mail", operations: ["mail_classify", "mail_draft", "meeting_summary"] },
+      { group: "mail", operations: ["mail_classify", "mail_draft", "meeting_summary", "mail_reply_judgment"] },
       { group: "automations", operations: ["automation_step"] },
       { group: "support", operations: ["support_triage_check"] },
       { group: "servers", operations: ["server_analysis", "server_fix_plan"] },

@@ -937,6 +937,7 @@ describe("effectiveModelDefaults", () => {
       support_triage_check: "haiku",
       server_analysis: "sonnet",
       server_fix_plan: "sonnet",
+      mail_reply_judgment: "haiku",
       chat: "claude-opus-4-8",
       claude_chat: config.backlogModel,
       backlog_merge: "claude-opus-4-8",

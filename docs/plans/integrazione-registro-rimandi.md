@@ -1038,6 +1038,37 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 - Blocchi della Home «Rilasci» (anche l'extra di `resolveHome` per
   `release.merge`) e «Clienti in attesa».
+- «Clienti in attesa» *(O, 72, review finale, 15 nov 2026)*, i minori
+  rimandati. Branch `feat/area8-waiting`; gli Important sono corretti in
+  8c51606b8.
+  - **Alias di invio** (`send-as`): `from:me` del resync (W1) porta anche la
+    posta mandata da un alias, ma `isFromMailbox` (`apps/worker/src/google/sync.ts`)
+    confronta solo l'indirizzo primario. Quel messaggio passa come ricevuto
+    (automazioni in arrivo, ammissione, classificazione), e nel taglio
+    l'alias conta come esterno, cioè la mia risposta sembra il cliente che
+    aspetta. Il percorso incrementale (History) lo faceva già: W1 lo allarga
+    al resync. È stantio il commento in `poller.ts` («il resync per query la
+    esclude già con -from:me»). La correzione vera è leggere gli alias
+    (`users.settings.sendAs`, uno scope in più).
+  - **Colleghi disattivati**: il CTE `instance` del taglio
+    (`packages/notifications/src/waiting-customers.ts`) prende anche le caselle
+    disattivate, `replyContext` no. L'indirizzo di un collega con la casella
+    spenta è «non esterno» nel taglio, ma il prompt non lo nomina come collega.
+  - **Campi della riga e visibilità**: oggetto, stato e importanza vengono
+    dall'ultimo messaggio ammesso, anche se è di un progetto che chi guarda
+    non vede; si filtra solo il progetto. È la casella di chi guarda, quindi
+    nessuna fuga: solo un'incoerenza. Va insieme al *ruling* del primo di
+    `scope_project_ids`.
+  - **Claim del tentativo**: la WHERE è solo `reply_judgment is null`, senza
+    `attempts < 2`. Due tick sovrapposti sulla stessa casella potrebbero
+    giudicarla due volte. Oggi il claim per casella del poller li serializza.
+  - **Piccole**:
+    - la rotta salta una riga il cui progetto manca, ma `total` la conta
+      ancora;
+    - J2 non scrive `model` nel giudizio, perché il modello lo risolve il
+      `TrackingAgentRunner` per operazione;
+    - `OUTPUT_SHAPE` di J1 chiede `reply` anche quando `replyContext` è null
+      (innocuo: senza istruzione il campo, se arriva, si scarta per schema).
 - Origine di una richiesta da Support; «View conversation» delle task del widget.
 - Adozione delle PR e rilascio (merge) — confine di prodotto invariato.
 - Azioni di Claude: bozze di risposta di supporto e delle note di rilascio
