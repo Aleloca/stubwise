@@ -151,6 +151,15 @@ describe("buildApp — log della richiesta al callback OAuth Google", () => {
     expect(logged).not.toContain("SEGRETOWEBHOOK");
   });
 
+  it("area 8, «L'API per i siti»: il token d'identità del cliente (header Authorization) non finisce MAI nel log", async () => {
+    const { app, lines } = capturingApp();
+    // Senza DB la rotta fallisce: copre la riga «incoming request» e quella dell'errore.
+    await app.inject({ method: "GET", url: "/widget/sito/me/requests", headers: { "x-stubwise-key": "k", authorization: "Bearer eyJTOKENSEGRETO.abc.def" } });
+    const logged = lines.join("\n");
+    expect(logged).toContain("/widget/sito/me/requests");
+    expect(logged).not.toContain("TOKENSEGRETO");
+  });
+
   it("una richiesta su un'altra rotta continua a loggare la query per intero", async () => {
     const { app, lines } = capturingApp();
     await app.inject({ method: "GET", url: "/health?foo=bar" });
