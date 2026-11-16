@@ -130,6 +130,8 @@ describe("isIntegrated", () => {
         "feature:support-identity",
         // Area 9, F1, R4a: Preferenze → Account (le caselle Google no: stanno nel cassetto).
         "feature:prefs-account",
+        // Area 9, F1, R4b: Preferenze → Security.
+        "feature:prefs-security",
         // Area 8, F4a: i Server in sola lettura; scritture, SSH, analisi e ricerca spente.
         "projectSection:servers",
         "admin:servers",

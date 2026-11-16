@@ -529,7 +529,8 @@
         "removed": "Passkey “{{name}}” removed.",
         "removeFailed": "Couldn't remove the passkey. Try again.",
         "lastNeedsApp": "Set up the authenticator app first: two-step verification can't be turned off.",
-        "empty": "No passkeys yet. A passkey signs you in with your fingerprint, face or a security key."
+        "empty": "No passkeys yet. A passkey signs you in with your fingerprint, face or a security key.",
+        "desktopNote": "Passkeys live in your browser: add or remove them from Stubwise in the browser."
       },
       "backup": {
         "title": "Backup codes",
@@ -582,7 +583,14 @@
           "token_created": "Access token created",
           "token_revoked": "Access token revoked",
           "registered": "Account created",
-          "email_changed": "Sign-in email changed"
+          "email_changed": "Sign-in email changed",
+          "vault_key_created": "Vault key created",
+          "vault_recovery_used": "Vault recovery kit used",
+          "vault_activated": "Vault activated",
+          "vault_seal_replaced": "Vault seal replaced",
+          "vault_recovery_key_rotated": "Vault recovery key changed",
+          "reauth_desktop": "Confirmed it's you in the desktop app",
+          "other": "Other security event"
         }
       }
     },

@@ -529,7 +529,8 @@
         "removed": "Passkey «{{name}}» tolta.",
         "removeFailed": "Non è stato possibile togliere la passkey. Riprova.",
         "lastNeedsApp": "Configura prima l'app di autenticazione: la verifica in due passaggi non si può spegnere.",
-        "empty": "Ancora nessuna passkey. Una passkey ti fa entrare con l'impronta, il volto o una chiave di sicurezza."
+        "empty": "Ancora nessuna passkey. Una passkey ti fa entrare con l'impronta, il volto o una chiave di sicurezza.",
+        "desktopNote": "Le passkey stanno nel browser: aggiungile o toglile da Stubwise nel browser."
       },
       "backup": {
         "title": "Codici di backup",
@@ -582,7 +583,14 @@
           "token_created": "Token di accesso creato",
           "token_revoked": "Token di accesso revocato",
           "registered": "Account creato",
-          "email_changed": "Email di accesso cambiata"
+          "email_changed": "Email di accesso cambiata",
+          "vault_key_created": "Chiave della cassaforte creata",
+          "vault_recovery_used": "Kit di recupero della cassaforte usato",
+          "vault_activated": "Cassaforte attivata",
+          "vault_seal_replaced": "Sigillo della cassaforte sostituito",
+          "vault_recovery_key_rotated": "Chiave di recupero della cassaforte cambiata",
+          "reauth_desktop": "Identità confermata nell'app desktop",
+          "other": "Altro evento di sicurezza"
         }
       }
     },

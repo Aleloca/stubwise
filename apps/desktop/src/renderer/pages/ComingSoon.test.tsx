@@ -117,6 +117,15 @@ const INTEGRATED_CALLS = new Set([
   "me.getEmailChangeLink",
   "me.confirmEmailChange",
   "me.changePassword",
+  // Area 9, F1, R4b: Preferenze → Security.
+  "me.getMySecurity",
+  "me.endSession",
+  "me.startTotpSetup",
+  "me.confirmTotp",
+  "me.regenerateBackupCodes",
+  "me.addPasskey",
+  "me.renamePasskey",
+  "me.removePasskey",
   // Task 16: sessione, persone, progetti, notifiche, ricerca, reparti.
   "getViewer",
   "getSessionPerson",
@@ -721,8 +730,33 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("Preferenze → Security resta «Coming soon» (area 9, R4b)", async () => {
+  // Area 9, F1, R4b: Preferenze → Security è accesa (`prefs-security`).
+  it("aprire Preferenze → Security legge solo chiamate integrate, senza riquadro del prototipo", async () => {
     renderRoute("/preferences/security");
+    expect(await screen.findByRole("heading", { level: 1, name: "Security" })).toBeInTheDocument();
+    await waitFor(() => expect(calls).toContain("me.getMySecurity"));
+    await settle();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  it("sul desktop le passkey sono del browser: la nota, niente «Add passkey» (area 9, R4b)", async () => {
+    window.stubwise = { ...(window.stubwise ?? {}), api: { request: async () => ({}) } } as never;
+    try {
+      renderRoute("/preferences/security");
+      expect(
+        await screen.findByText(
+          "Passkeys live in your browser: add or remove them from Stubwise in the browser.",
+        ),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Add passkey" })).toBeNull();
+    } finally {
+      delete (window.stubwise as { api?: unknown } | undefined)?.api;
+    }
+  });
+
+  it("Preferenze → Tokens resta «Coming soon» (area 9, R4c)", async () => {
+    renderRoute("/preferences/tokens");
     expect(await screen.findByText(/Coming soon/)).toBeInTheDocument();
     await settle();
     expect(outside()).toEqual([]);

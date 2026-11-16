@@ -13,3 +13,12 @@ export function buildMode(): BuildMode {
 export function isAppBuild(): boolean {
   return buildMode() === "app";
 }
+
+/**
+ * L'app desktop (build app col ponte del preload): area 9, R4b. Lì le
+ * passkey non ci sono (vivono sul dominio dell'istanza, cioè nel browser).
+ * Letto a ogni chiamata, come `buildMode`.
+ */
+export function isDesktopApp(): boolean {
+  return isAppBuild() && typeof window !== "undefined" && !!window.stubwise?.api;
+}

@@ -1,6 +1,6 @@
 import { startAuthentication } from "@simplewebauthn/browser";
 import { ApiError } from "@stubwise/api-client";
-import { accountSecurityResponseSchema, passkeyAuthenticationOptionsSchema } from "@stubwise/shared";
+import { passkeyAuthenticationOptionsSchema } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import { SECOND_FACTOR_MAX_FAILURES } from "../../auth/constants";
 import type { Viewer } from "../../types";
@@ -21,6 +21,7 @@ import { forgetHomeCaches } from "./home";
 import { forgetTaskCodes } from "./tasks";
 import * as web from "./webLogin";
 import { liveMeAccount } from "./meAccount";
+import { liveMeSecurity } from "./meSecurity";
 
 // La sessione della build app (integrazione area 2, fetta 1): chi è dentro e
 // cosa può fare lo dice il server (`GET /api/auth/me`), mai il client. Sul
@@ -275,15 +276,11 @@ type Me = typeof Fake.me;
  */
 const getMySecurity: Me["getMySecurity"] = async () => {
   try {
-    const s = await appClient().request("GET", "/api/me/security", undefined, accountSecurityResponseSchema);
-    return {
-      on: s.totp.configured,
-      // Nell'app desktop la passkey non c'è: vive sul dominio dell'istanza,
-      // cioè nel browser. La riconferma lì è il codice (decisione del
-      // maintainer, 10 nov 2026), e il dialogo non offre «Use a passkey».
-      passkeys: window.stubwise?.api ? [] : s.passkeys,
-      backupCodesLeft: s.backupCodesRemaining,
-    } as unknown as Awaited<ReturnType<Me["getMySecurity"]>>;
+    // Area 9, R4b: la sicurezza intera (Preferenze → Security), che serve anche
+    // al secondo passo del login e al dialogo di riconferma. Sul desktop le
+    // passkey sono vuote: vivono nel browser, e il dialogo non offre «Use a
+    // passkey» (decisione del maintainer, 10 nov 2026).
+    return await liveMeSecurity.getMySecurity();
   } catch (error) {
     // Un login a metà (401) o una lettura che non riesce: l'ultimo ingresso.
     if (!(error instanceof ApiError)) throw error;
@@ -305,4 +302,12 @@ export const me: Me = partialNamespace<Me>("me", {
   getEmailChangeLink: liveMeAccount.getEmailChangeLink,
   confirmEmailChange: liveMeAccount.confirmEmailChange,
   changePassword: liveMeAccount.changePassword,
+  // Area 9, F1, R4b: Preferenze → Security.
+  endSession: liveMeSecurity.endSession,
+  startTotpSetup: liveMeSecurity.startTotpSetup,
+  confirmTotp: liveMeSecurity.confirmTotp,
+  regenerateBackupCodes: liveMeSecurity.regenerateBackupCodes,
+  addPasskey: liveMeSecurity.addPasskey,
+  renamePasskey: liveMeSecurity.renamePasskey,
+  removePasskey: liveMeSecurity.removePasskey,
 });

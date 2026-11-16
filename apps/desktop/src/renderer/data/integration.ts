@@ -102,6 +102,8 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Area 9, F1, R4a: Preferenze → Account (profilo, foto, email, password).
     // Le caselle Google (`prefs-mailboxes`) restano nel cassetto Google.
     "prefs-account",
+    // Area 9, F1, R4b: Preferenze → Security (sul desktop le passkey restano del browser).
+    "prefs-security",
     // Area 8, F4a: i Server (letture e scritture, la chiave una volta).
     // Resta spenta la ricerca ⌘K (`servers-search`).
     "servers-monitor",
