@@ -2,7 +2,7 @@ import { unsign } from "@fastify/cookie";
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { buildApp } from "../app.js";
 import { hashPassword } from "../auth/password.js";
 import {
@@ -983,18 +983,17 @@ describe("register concorrente", () => {
   it("due register concorrenti con lo stesso token: esattamente un 201 e un 410", async () => {
     const token = await createInvite("conteso@example.com");
 
+    // Dall'area 9 (F1) l'email è quella dell'invito: i due contendenti la
+    // mandano entrambi (uno con le maiuscole), e la gara resta sul consumo.
     const [a, b] = await Promise.all([
-      register(token, "conteso-uno@example.com"),
-      register(token, "conteso-due@example.com"),
+      register(token, "conteso@example.com"),
+      register(token, "CONTESO@example.com"),
     ]);
 
     expect([a.statusCode, b.statusCode].sort((x, y) => x - y)).toEqual([201, 410]);
 
     // Un solo account creato: l'invito è stato consumato esattamente una volta.
-    const created = await testDb.db
-      .select()
-      .from(users)
-      .where(inArray(users.email, ["conteso-uno@example.com", "conteso-due@example.com"]));
+    const created = await testDb.db.select().from(users).where(eq(users.email, "conteso@example.com"));
     expect(created).toHaveLength(1);
   });
 

@@ -5,6 +5,7 @@ import {
   desktopHandoffResponseSchema,
   emailChangedSchema,
   emailChangeLinkSchema,
+  inviteLinkSchema,
   mobileLoginResponseSchema,
   sessionResponseSchema,
   setupStatusSchema,
@@ -14,6 +15,7 @@ import type {
   DesktopHandoffInput,
   EmailChanged,
   EmailChangeLink,
+  InviteLink,
   Reader,
   AuthUserResponse,
   Language,
@@ -105,6 +107,25 @@ export function createAuthEndpoints(request: ApiRequest) {
     },
     confirmEmailChange(token: string): Promise<Reader<EmailChanged>> {
       return request("POST", "/api/auth/email-change/confirm", { token }, emailChangedSchema);
+    },
+
+    /**
+     * Area 9, F1: la pagina dell'invito LEGGE l'invito prima di registrarsi.
+     * I dettagli solo su `valid`; scaduto, usato, revocato o sbagliato danno
+     * solo lo stato (usato e revocato il server li dice `invalid`).
+     */
+    inviteLink(token: string): Promise<Reader<InviteLink>> {
+      return request("GET", `/api/auth/invites/${seg(token)}`, undefined, inviteLinkSchema);
+    },
+
+    /**
+     * Registrazione da un invito: apre la sessione. `email` facoltativa (vale
+     * quella dell'invito; se mandata deve coincidere, 400
+     * `invite_email_mismatch`). 410 `invite_invalid`/`invite_expired`, 409
+     * `email_already_exists`. Il nome si mette dopo, con `PATCH /api/auth/me`.
+     */
+    register(body: { token: string; password: string; email?: string }): Promise<Reader<AuthUserResponse>> {
+      return request("POST", "/api/auth/register", body, authUserResponseSchema);
     },
   };
 }

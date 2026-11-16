@@ -35,6 +35,7 @@ import {
   mobileLoginResponseSchema,
   sessionResponseSchema,
   setupStatusSchema,
+  inviteLinkSchema,
 } from "@stubwise/shared";
 import { createPatForUser, revokeMobilePats } from "./pat.js";
 import { secondFactorLoginRoutes } from "./second-factor-login.js";
@@ -56,6 +57,7 @@ import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
 import { avatarUrlsFor } from "../services/avatars.js";
 import { confirmEmailChange, peekEmailChange } from "../services/email-change.js";
+import { readInvite } from "../services/invite-link.js";
 import { sendEmailChangeError } from "./me-email-change.js";
 import {
   loadSlackCreds,
@@ -709,14 +711,33 @@ export async function authRoutes(
     },
   );
 
+  // Area 9, F1 (decisione del maintainer): la lettura pubblica dell'invito,
+  // prima di registrarsi. Col tetto del login; non dà sessioni (non è una
+  // `credentialDoor`) e non cambia niente. Dettagli solo su un invito valido.
+  app.get(
+    "/invites/:token",
+    {
+      onRequest: credentialsRateLimit,
+      config: { access: { kind: "public" } },
+      schema: {
+        params: z.object({ token: z.string().min(1).max(200) }),
+        response: { 200: inviteLinkSchema },
+      },
+    },
+    async (request) => readInvite(app.db, request.params.token),
+  );
+
   app.post(
     "/register",
     {
       config: { rateLimit: opts.rateLimit, access: { kind: "public" } },
       schema: {
-        body: credentialsSchema.extend({ token: z.string().min(1) }),
+        // Area 9, F1: `email` facoltativa, vale quella dell'invito; se mandata
+        // deve coincidere (400 `invite_email_mismatch`).
+        body: z.object({ email: z.email().optional(), password: newPasswordSchema, token: z.string().min(1) }),
         response: {
           201: authUserResponseSchema,
+          400: errorSchema,
           409: errorSchema,
           410: errorSchema,
         },
@@ -736,11 +757,16 @@ export async function authRoutes(
         await app.db.delete(invites).where(eq(invites.token, invite.token));
         return apiError(reply, 410, "invite_expired", "Invite expired");
       }
+      // L'email è quella dell'invito: se il client la manda, deve coincidere.
+      if (request.body.email !== undefined && request.body.email.trim().toLowerCase() !== invite.email.trim().toLowerCase()) {
+        return apiError(reply, 400, "invite_email_mismatch", "The email is not the one this invite was sent to");
+      }
+      const email = invite.email;
 
       const [existing] = await app.db
         .select({ id: users.id })
         .from(users)
-        .where(eq(users.email, request.body.email));
+        .where(eq(users.email, email));
       if (existing) {
         return apiError(
           reply,
@@ -789,7 +815,7 @@ export async function authRoutes(
           const [created] = await tx
             .insert(users)
             .values({
-              email: request.body.email,
+              email,
               passwordHash,
               // `role` è derivato dal ruolo d'istanza (trigger della 0097):
               // senza ruolo nell'invito, il trigger dà il preset `User`.
