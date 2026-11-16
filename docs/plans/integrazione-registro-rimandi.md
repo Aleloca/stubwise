@@ -1146,6 +1146,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - una **chiave del Mac** (Keychain / Touch ID) iscritta dal browser, col
     secondo fattore come prova in più. Cambia l'invariante «non esiste un
     secondo meccanismo».
+- **Gli insiemi `CLAUDE_*_PERMISSIONS` del prototipo** *(S, 94, 16 nov 2026,
+  decisione (a) di 46 su «Chi può farlo?»)*: il server non dà permessi a
+  Claude, che agisce con quelli di chi lo assegna o conferma la sua azione.
+  «Chi può farlo?» non li usa più (5d29b8c19). Restano in
+  `data/viewing.ts` (`claudeCan`, il `can()` di Claude come chi agisce) e in
+  `data/viewer.ts`. Dove servono a dire COSA Claude può proporre, vanno
+  ridotti a un elenco di azioni proponibili che coincida col catalogo del
+  server (`claudeActionSignatures`), non a permessi. Con F7 (azioni di Claude
+  dell'area 9) o con l'area 10.
 
 ## Area 10 — Integrazione di Claude
 
