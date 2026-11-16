@@ -12,9 +12,15 @@ export interface SessionState {
   personId: string | null;
   /** A metà del login: manca il secondo fattore. */
   partial: boolean;
+  /**
+   * Area 9, R5: l'istanza non ha ancora nessuno (`GET /api/auth/setup`,
+   * `needed`): la web «app» porta al primo avvio. Sul desktop un'istanza
+   * scelta ha sempre qualcuno.
+   */
+  empty: boolean;
 }
 
-export const session: SessionState = { personId: null, partial: false };
+export const session: SessionState = { personId: null, partial: false, empty: false };
 
 
 /**

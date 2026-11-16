@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { auth as fakeAuth } from "../data/api";
 import { renderRoute } from "../test/renderRoute";
 import { closeGoogleAccount } from "./drive/GoogleAccountCard";
 import { REPLY_UNDO_MS } from "./support/replyStore";
@@ -126,6 +127,10 @@ const INTEGRATED_CALLS = new Set([
   "me.addPasskey",
   "me.renamePasskey",
   "me.removePasskey",
+  // Area 9, F1, R5: le pagine d'ingresso della web «app».
+  "auth.getResetLink",
+  "auth.resetPassword",
+  "auth.createFirstAdmin",
   // Area 9, F1, R4c: Tokens e Claude Code.
   "me.listTokens",
   "me.createToken",
@@ -758,6 +763,27 @@ describe("aree non integrate nella build app", () => {
     } finally {
       delete (window.stubwise as { api?: unknown } | undefined)?.api;
     }
+  });
+
+  // Area 9, F1, R5: le pagine d'ingresso della web «app» (reset e primo avvio),
+  // senza i riquadri del prototipo.
+  it("il link di reset nella web «app» legge solo chiamate integrate", async () => {
+    renderRoute("/reset-password/made-up-token");
+    await waitFor(() => expect(calls).toContain("auth.getResetLink"));
+    await settle();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  it("il primo avvio nella web «app»: il modulo, senza «Reset to empty instance»", async () => {
+    // L'istanza senza nessuno: una preparazione del test, non una chiamata della pagina.
+    await fakeAuth.resetToEmptyInstance();
+    calls.length = 0;
+    renderRoute("/setup");
+    expect(await screen.findByRole("heading", { level: 1 })).toBeInTheDocument();
+    await settle();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
   });
 
   // Area 9, F1, R4c e R4d: Tokens, Claude Code e Language & theme accese.

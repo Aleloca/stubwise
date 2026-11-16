@@ -9,6 +9,7 @@ import {
   useResetPrototype,
 } from "../../data/queries";
 import { useToast } from "../../tasks-ui/Toast";
+import { isAppBuild } from "../../data/build";
 import { PrototypeBox } from "../automations/shared";
 import { primaryButton, secondaryButton } from "../tasks/controls";
 import { BusyLabel, EntryColumn, EntryField, EntryHeading, ErrorLine, textButton } from "./parts";
@@ -124,23 +125,26 @@ export function SetupPage() {
           </button>
         </div>
       </form>
-      <div className="mt-10">
-        <PrototypeBox>
-          <p className="text-sm text-ink">{t("entry.prototype.emptyInstance")}</p>
-          <div>
-            <button
-              type="button"
-              className={secondaryButton}
-              onClick={() => {
-                resetPrototype();
-                void navigate({ to: "/home", search: landingSearch(), replace: true });
-              }}
-            >
-              {t("entry.menu.resetPrototype")}
-            </button>
-          </div>
-        </PrototypeBox>
-      </div>
+      {/* Nella web «app» l'istanza è vera: niente «Reset to empty instance». */}
+      {!isAppBuild() && (
+        <div className="mt-10">
+          <PrototypeBox>
+            <p className="text-sm text-ink">{t("entry.prototype.emptyInstance")}</p>
+            <div>
+              <button
+                type="button"
+                className={secondaryButton}
+                onClick={() => {
+                  resetPrototype();
+                  void navigate({ to: "/home", search: landingSearch(), replace: true });
+                }}
+              >
+                {t("entry.menu.resetPrototype")}
+              </button>
+            </div>
+          </PrototypeBox>
+        </div>
+      )}
     </EntryColumn>
   );
 }

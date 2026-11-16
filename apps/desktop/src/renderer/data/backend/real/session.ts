@@ -23,6 +23,7 @@ import * as web from "./webLogin";
 import { liveMeAccount } from "./meAccount";
 import { liveMeSecurity } from "./meSecurity";
 import { liveMeTokens } from "./meTokens";
+import { liveEntry } from "./entry";
 
 // La sessione della build app (integrazione area 2, fetta 1): chi è dentro e
 // cosa può fare lo dice il server (`GET /api/auth/me`), mai il client. Sul
@@ -64,6 +65,14 @@ export const getSessionPerson: typeof Fake.getSessionPerson = async () => {
     if (before !== null) forgetClientCaches();
     lastPerson = null;
     session.personId = null;
+    // Area 9, R5: fuori, nella web «app», un'istanza senza nessuno porta al
+    // primo avvio. Sul desktop un'istanza scelta ha sempre qualcuno.
+    session.empty = window.stubwise?.api
+      ? false
+      : await appClient()
+          .auth.setupStatus()
+          .then((s) => s.needed)
+          .catch(() => false);
     return null;
   }
 };
@@ -111,8 +120,8 @@ type Auth = typeof Fake.auth;
 
 const readEntry: Auth["readEntry"] = () => ({
   stage: session.personId !== null ? "in" : session.partial ? "second_factor" : "out",
-  // Il primo avvio di un'istanza vuota si fa dal web: qui un'istanza c'è sempre.
-  empty: false,
+  // Area 9, R5: il primo avvio nella web «app» (`GET /api/auth/setup`, letto da `getSessionPerson`).
+  empty: session.empty,
 });
 
 const logout: Auth["logout"] = async () => {
@@ -256,6 +265,10 @@ const reauthenticate: Auth["reauthenticate"] = async (input: ReauthInput) => {
 
 export const auth: Auth = partialNamespace<Auth>("auth", {
   readEntry,
+  // Area 9, F1, R5: le pagine d'ingresso della web «app».
+  getResetLink: liveEntry.getResetLink,
+  resetPassword: liveEntry.resetPassword,
+  createFirstAdmin: liveEntry.createFirstAdmin,
   logout,
   login,
   loginStage,
