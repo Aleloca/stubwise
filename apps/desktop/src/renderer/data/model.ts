@@ -3681,6 +3681,12 @@ export interface SupportConversation {
    * nuovo del cliente apre la successiva; qui il suo id. Assente: nessuna.
    */
   continuedInId?: string;
+  /**
+   * API per i siti (S6): il cliente è arrivato con un token d'identità valido
+   * (verificato) o il sito lo ha solo dichiarato. La successiva NON lo
+   * eredita: è verificata solo se nasce con un token valido dello stesso `sub`.
+   */
+  identityVerified: boolean;
 }
 
 /**
@@ -3707,6 +3713,15 @@ export interface SupportWidget {
   /** Tetti giornalieri; `null` = il default d'istanza. */
   dailyMessageCap: number | null;
   dailyRequestCap: number | null;
+  /**
+   * API per i siti (S6): c'è un segreto d'identità dei clienti, e da quando.
+   * Il segreto non sta mai qui: esce una volta sola da
+   * `regenerateIdentitySecret`, poi lo custodisce `admin/secrets`.
+   */
+  identitySecretSet: boolean;
+  identitySecretRotatedAt: string | null;
+  /** «Solo clienti verificati»: senza un token d'identità il widget non accetta il cliente. */
+  identityRequired: boolean;
   createdAt: string;
 }
 

@@ -79,6 +79,9 @@ const EXPECTED_REAUTH: readonly ApiFnName[] = [
   "projectSettings.deleteEnvFile",
   "projectSettings.deleteProject",
   "instance.deleteDetachedRepository",
+  // API per i siti (S6): il segreto d'identità dei clienti di un widget, una
+  // credenziale (piano 2026-11-15, S1: `config.reauth` sul server).
+  "support.regenerateIdentitySecret",
 ];
 
 const as = (personId: string) => setSessionPersonId(personId);

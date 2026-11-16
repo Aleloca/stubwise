@@ -29,6 +29,7 @@ const view = (over: Partial<SupportConversation> = {}): SupportConversation => (
   channel: "widget",
   widgetId: null,
   widgetName: "Portal",
+  identityVerified: false,
   customer: { name: "Lucia", email: "lucia@example.com" },
   messages: [message()],
   lastMessage: message(),
@@ -113,6 +114,27 @@ describe("le letture di Support dal server (area 8, F3)", () => {
       continuedIn: null,
       continuedFrom: null,
     });
+  });
+
+  it("API per i siti (S6): verificato o dichiarato viene dal server, nel dettaglio e nell'elenco", async () => {
+    const { api } = fakeApi({ get: async () => view({ identityVerified: true }) });
+    expect((await createRealSupport(api).getSupportConversation("ACQ-S1"))!.identityVerified).toBe(
+      true,
+    );
+    const declared = fakeApi({ get: async () => view({ identityVerified: false }) });
+    expect(
+      (await createRealSupport(declared.api).getSupportConversation("ACQ-S1"))!.identityVerified,
+    ).toBe(false);
+    const listed = fakeApi({
+      list: async () => ({
+        items: [
+          view({ messages: [], identityVerified: true }),
+          view({ id: "x", code: "ACQ-S2", messages: [] }),
+        ],
+      }),
+    });
+    const items = await createRealSupport(listed.api).listSupportConversations(PRJ);
+    expect(items.map((c) => c.identityVerified)).toEqual([true, false]);
   });
 
   it("un cliente senza nome (il widget non l'ha detto) diventa il nome vuoto: la pagina dice «Anonymous visitor»", async () => {

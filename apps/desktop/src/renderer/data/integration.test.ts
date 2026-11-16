@@ -73,6 +73,7 @@ const ALL: IntegrationTarget[] = [
       "support",
       "support-widgets",
       "support-search",
+      "support-identity",
       "servers-monitor",
       "servers-write",
       "servers-ssh",
@@ -119,6 +120,8 @@ describe("isIntegrated", () => {
         "projectSection:support",
         "feature:support",
         "feature:support-widgets",
+        // API per i siti (S6): l'identità dei clienti del widget.
+        "feature:support-identity",
         // Area 8, F4a: i Server in sola lettura; scritture, SSH, analisi e ricerca spente.
         "projectSection:servers",
         "admin:servers",

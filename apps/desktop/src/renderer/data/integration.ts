@@ -96,6 +96,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Home è uscito da Support: viene dalla posta (`mail-waiting`).
     "support",
     "support-widgets",
+    // API per i siti (S6): il segreto d'identità dei clienti e «Solo clienti
+    // verificati» nei widget, «verificato» / «dichiarato» nel dettaglio.
+    "support-identity",
     // Area 8, F4a: i Server (letture e scritture, la chiave una volta).
     // Resta spenta la ricerca ⌘K (`servers-search`).
     "servers-monitor",

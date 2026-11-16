@@ -129,6 +129,16 @@ export function useUpdateWidget() {
   );
 }
 
+/**
+ * API per i siti (S6): il segreto d'identità dei clienti, con la riconferma.
+ * `secret: true`: il valore non entra mai nella cache (I2).
+ */
+export function useRegenerateIdentitySecret() {
+  return useWrite((id: string) => api.support.regenerateIdentitySecret(id), SUPPORT_AREAS, {
+    secret: true,
+  });
+}
+
 export function useDeleteWidget() {
   return useWrite((id: string) => api.support.deleteWidget(id), SUPPORT_AREAS);
 }

@@ -20,6 +20,7 @@ export {
 export {
   createWidget,
   deleteWidget,
+  regenerateIdentitySecret,
   openRequestFrom,
   markNotConcluded,
   replyToCollaborator,

@@ -9268,7 +9268,9 @@
       "simulatedText": "Hello, is there any news?",
       "actionFailed": "Something went wrong. Nothing changed.",
       "continuedIn": "Continued in",
-      "continuedFrom": "Follow-up of"
+      "continuedFrom": "Follow-up of",
+      "verified": "Verified customer",
+      "declared": "Declared by the site"
     },
     "request": {
       "label": "Request",
@@ -9368,7 +9370,8 @@
         "origins": "Each site must be like https://example.com (http only for localhost, no path), at most 20.",
         "sourceRepositoryIds": "Choose repositories of this project.",
         "dailyMessageCap": "Messages per day: a whole number from 1 to 100000, or empty.",
-        "dailyRequestCap": "Requests per day: a whole number from 1 to 100000, or empty."
+        "dailyRequestCap": "Requests per day: a whole number from 1 to 100000, or empty.",
+        "identityRequired": "Make a secret first."
       },
       "fields": {
         "name": "Name",
@@ -9388,7 +9391,10 @@
         "languageEn": "English",
         "messageCap": "Messages per day",
         "requestCap": "Requests per day",
-        "capHint": "Empty: the instance default"
+        "capHint": "Empty: the instance default",
+        "identityRequired": "Only verified customers",
+        "identityRequiredHint": "Without a valid identity token from your site, the widget refuses the customer.",
+        "identityRequiredNoSecret": "Make a secret first."
       },
       "snippet": "Snippet",
       "copySnippet": "Copy snippet",
@@ -9402,7 +9408,29 @@
       "deleteConfirm": "Delete",
       "deleted": "{{name}} deleted",
       "deleteError": "Couldn't delete the widget.",
-      "anySiteShort": "Any site"
+      "anySiteShort": "Any site",
+      "identity": {
+        "title": "Customer identity",
+        "about": "Your site's backend signs a token for each signed-in customer with this secret: then the widget knows who they really are.",
+        "madeOn": "Secret made on {{date}}.",
+        "none": "No secret yet.",
+        "make": "Make a secret…",
+        "regenerate": "Regenerate secret…",
+        "dialogMake": "Make an identity secret for {{name}}?",
+        "dialogReplace": "Make a new identity secret for {{name}}?",
+        "stops": "The current secret stops working now: tokens signed with it are refused.",
+        "backendOnly": "Put it in your site's backend, never in the page.",
+        "once": "The new secret is shown only once.",
+        "confirmMake": "Make secret",
+        "confirmReplace": "Regenerate",
+        "secretTitle": "This secret is shown only now.",
+        "secretLabel": "Identity secret",
+        "reauthAction": "make an identity secret for {{name}}",
+        "error": "The secret couldn't be made. Try again.",
+        "widgetId": "Widget id (the token's aud)",
+        "copyWidgetId": "Copy widget id",
+        "copy": "Copy"
+      }
     },
     "origin": {
       "title": "Where it comes from",

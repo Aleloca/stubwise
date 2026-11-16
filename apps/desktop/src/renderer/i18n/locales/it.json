@@ -9268,7 +9268,9 @@
       "simulatedText": "Buongiorno, ci sono novità?",
       "actionFailed": "Qualcosa non è andato. Non è cambiato nulla.",
       "continuedIn": "Continua in",
-      "continuedFrom": "Seguito di"
+      "continuedFrom": "Seguito di",
+      "verified": "Cliente verificato",
+      "declared": "Dichiarato dal sito"
     },
     "request": {
       "label": "Richiesta",
@@ -9368,7 +9370,8 @@
         "origins": "Ogni sito deve essere come https://example.com (http solo per localhost, senza percorso), al massimo 20.",
         "sourceRepositoryIds": "Scegli repository di questo progetto.",
         "dailyMessageCap": "Messaggi al giorno: un numero intero da 1 a 100000, o vuoto.",
-        "dailyRequestCap": "Richieste al giorno: un numero intero da 1 a 100000, o vuoto."
+        "dailyRequestCap": "Richieste al giorno: un numero intero da 1 a 100000, o vuoto.",
+        "identityRequired": "Crea prima un segreto."
       },
       "fields": {
         "name": "Nome",
@@ -9388,7 +9391,10 @@
         "languageEn": "Inglese",
         "messageCap": "Messaggi al giorno",
         "requestCap": "Richieste al giorno",
-        "capHint": "Vuoto: il default dell'istanza"
+        "capHint": "Vuoto: il default dell'istanza",
+        "identityRequired": "Solo clienti verificati",
+        "identityRequiredHint": "Senza un token d'identità valido dal tuo sito, il widget non accetta il cliente.",
+        "identityRequiredNoSecret": "Prima crea un segreto."
       },
       "snippet": "Snippet",
       "copySnippet": "Copia lo snippet",
@@ -9402,7 +9408,29 @@
       "deleteConfirm": "Elimina",
       "deleted": "{{name}} eliminato",
       "deleteError": "Non è stato possibile eliminare il widget.",
-      "anySiteShort": "Qualunque sito"
+      "anySiteShort": "Qualunque sito",
+      "identity": {
+        "title": "Identità dei clienti",
+        "about": "Il backend del tuo sito firma con questo segreto un token per ogni cliente che ha fatto l'accesso: così il widget sa chi è davvero.",
+        "madeOn": "Segreto creato il {{date}}.",
+        "none": "Nessun segreto, per ora.",
+        "make": "Crea un segreto…",
+        "regenerate": "Rigenera il segreto…",
+        "dialogMake": "Creare un segreto d'identità per {{name}}?",
+        "dialogReplace": "Creare un nuovo segreto d'identità per {{name}}?",
+        "stops": "Il segreto di adesso smette di valere subito: i token firmati con lui vengono rifiutati.",
+        "backendOnly": "Mettilo nel backend del tuo sito, mai nella pagina.",
+        "once": "Il segreto nuovo si vede una volta sola.",
+        "confirmMake": "Crea il segreto",
+        "confirmReplace": "Rigenera",
+        "secretTitle": "Questo segreto si vede solo adesso.",
+        "secretLabel": "Segreto d'identità",
+        "reauthAction": "creare un segreto d'identità per {{name}}",
+        "error": "Non è stato possibile creare il segreto. Riprova.",
+        "widgetId": "Id del widget (l'aud del token)",
+        "copyWidgetId": "Copia l'id del widget",
+        "copy": "Copia"
+      }
     },
     "origin": {
       "title": "Da dove nasce",

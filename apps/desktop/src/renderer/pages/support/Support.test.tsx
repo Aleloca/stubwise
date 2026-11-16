@@ -203,6 +203,22 @@ describe("Support — il dettaglio", () => {
     expect(list.querySelectorAll("[data-support-message]")).toHaveLength(200);
   });
 
+  it("API per i siti (S6): nella riga del dettaglio, cliente verificato o dichiarato dal sito; sul canale mcp nessuno dei due", async () => {
+    await open("/p/ACQ/support/ACQ-S5");
+    const verified = await detail("ACQ-S5");
+    expect(within(verified).getByText(/Verified customer/)).toBeInTheDocument();
+    expect(within(verified).queryByText(/Declared by the site/)).toBeNull();
+    document.body.replaceChildren();
+    await open("/p/ACQ/support/ACQ-S1");
+    const declared = await detail("ACQ-S1");
+    expect(within(declared).getByText(/Declared by the site/)).toBeInTheDocument();
+    expect(within(declared).queryByText(/Verified customer/)).toBeNull();
+    document.body.replaceChildren();
+    await open("/p/ACQ/support/ACQ-S4");
+    const mcp = await detail("ACQ-S4");
+    expect(within(mcp).queryByText(/Verified customer|Declared by the site/)).toBeNull();
+  });
+
   it("Sara vede la conversazione e la richiesta; sul canale mcp la riga «solo chi gestisce», nessuna casella", async () => {
     await open("/p/ACQ/support/ACQ-S4", "p-sara");
     const mcp = await detail("ACQ-S4");
