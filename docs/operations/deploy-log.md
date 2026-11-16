@@ -4908,6 +4908,11 @@ deploy o di un rollback che la tocca.
     all'interessato. Chi ha solo `integrations.manage` collega solo il suo.
   - «Restore» nell'inbox vale solo sulle card ARCHIVIATE dopo il deploy: le
     card chiuse prima (`handled_action` null) non si ripristinano (409).
+  - Le letture calcolate dell'amministrazione (`/api/admin/people`, `/roles`,
+    `/invites`, `/invite-choices`, `…/members/view`, `…/members/:userId/preview`):
+    nessuna scrittura. Una sola scrittura cambia: azzerare il secondo fattore
+    di chi non ne ha dà ora 409 `no_second_factor` (prima chiudeva comunque le
+    sue sessioni).
   Controllo, sola lettura: `select count(*) from project_member_permissions;`,
   `select count(*) from users where deactivated_at is not null;`,
   `select count(*) from email_changes where confirmed_at is null and

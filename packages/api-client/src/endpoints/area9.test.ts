@@ -126,3 +126,38 @@ describe("area 9: la lettura dell'invito e register", () => {
     expect([call(fetchImpl).method, call(fetchImpl).url, call(fetchImpl).body]).toEqual(["POST", "/api/auth/register", JSON.stringify({ token: "tok", password: "una-password-lunga" })]);
   });
 });
+
+describe("area 9: le letture calcolate dell'amministrazione", () => {
+  it("admin.person: senza i facoltativi i default; un motivo è una stringa qualunque; uno status ignoto è __unknown__", async () => {
+    const { client, fetchImpl } = clientWith({
+      personId: U1, name: "a", email: "a@acme.com", status: "suspended", isSelf: false, isFullAdmin: false, hasSecondFactor: false,
+      actions: { setInstanceRole: null, resetPassword: "self", resetSecondFactor: null, deactivate: "last_full_admin", reactivate: "status", identities: null },
+    });
+    const p = await client.admin.person(U1);
+    expect(call(fetchImpl).url).toBe(`/api/admin/people/${U1}`);
+    expect(p.status).toBe("__unknown__");
+    expect(p.actions.changeEmail).toBe("forbidden");
+    expect(p).toMatchObject({ projects: [], openTasks: [], instanceRoleChoices: [], peer: false, identities: { gitEmails: [], bitbucketUsername: null } });
+  });
+
+  it("admin.roles / invites / inviteChoices / revokeInvite: path e default", async () => {
+    const roles = clientWith([{ id: U1, name: "R", scope: "project", permissions: [], reach: "anywhere" }]);
+    expect((await roles.client.admin.roles())[0]).toMatchObject({ missing: [], deleteBlock: null, holders: [] });
+    const inv = clientWith([{ id: "i_x", email: "x@acme.com", createdAt: "2026-11-16T10:00:00.000Z", expiresAt: "2026-11-17T10:00:00.000Z", expired: false }]);
+    expect((await inv.client.admin.invites())[0]).toMatchObject({ projects: [], instanceRole: null });
+    const ch = clientWith({});
+    expect(await ch.client.admin.inviteChoices()).toEqual({ instanceRoles: [], defaultInstanceRoleId: null, projects: [] });
+    const del = clientWith(null, 204);
+    await del.client.admin.revokeInvite("i_abc");
+    expect([call(del.fetchImpl).method, call(del.fetchImpl).url]).toEqual(["DELETE", "/api/admin/invites/i_abc"]);
+  });
+
+  it("projects.membersView / previewMember: path, corpo, default", async () => {
+    const view = clientWith({ projectId: P1, members: [], canManage: false });
+    expect(await view.client.projects.membersView(P1)).toMatchObject({ roleChoices: [], grantable: [], addable: [], addableMissing: {}, fullAdminNote: true });
+    expect(call(view.fetchImpl).url).toBe(`/api/projects/${P1}/members/view`);
+    const pre = clientWith({});
+    expect(await pre.client.projects.previewMember(P1, U1, { roleId: P1, granted: ["x"] })).toMatchObject({ missing: [], block: null, removing: [] });
+    expect([call(pre.fetchImpl).method, call(pre.fetchImpl).url, call(pre.fetchImpl).body]).toEqual(["POST", `/api/projects/${P1}/members/${U1}/preview`, JSON.stringify({ roleId: P1, granted: ["x"] })]);
+  });
+});

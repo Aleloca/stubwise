@@ -5,7 +5,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { issuePasswordResetToken } from "../auth/password-reset.js";
 import { publishSecurityAlert } from "../auth/second-factor/alerts.js";
-import { resetSecondFactor } from "../auth/second-factor/reset.js";
+import { hasSecondFactor, resetSecondFactor } from "../auth/second-factor/reset.js";
 import {
   listSecurityEvents,
   recordSecurityEvent,
@@ -343,6 +343,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
           400: errorSchema,
           403: roleRuleErrorSchema,
           404: errorSchema,
+          409: errorSchema,
         },
       },
     },
@@ -358,6 +359,11 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
       }
       const target = await userIdentity(id);
       if (!target) return apiError(reply, 404, "user_not_found", "User not found");
+      // Area 9, F1: niente da azzerare, niente azzeramento (che chiuderebbe
+      // comunque le sessioni). La pagina della persona lo dice prima.
+      if (!(await hasSecondFactor(app.db, id))) {
+        return apiError(reply, 409, "no_second_factor", "This person has no second factor to reset");
+      }
       await resetSecondFactor(app.db, target, request.user!);
       return reply.code(204).send(null);
     },
