@@ -1814,6 +1814,38 @@ export { unreadCount } from "@stubwise/notifications";
  * {@link executeAction}, elenca le righe il cui stato è cambiato davvero, così
  * il chiamante sa se c'è qualcosa da rispecchiare altrove.
  */
+/**
+ * Area 9, F1 (design 1.8): i passaggi personali di una card, solo sulle
+ * proprie (`not_found` altrimenti, come se non esistesse):
+ * - `restore`: da `handled` torna `open`, senza la chiusura;
+ * - `move_to_new`: da `snoozed` torna `open`, senza il rinvio;
+ * - `unread`: `read_at` torna null, in qualunque stato (idempotente).
+ * Uno stato da cui il passaggio non ha senso: `invalid_state`. Il conteggio
+ * della campanella conta lo stato (`unreadCount`), quindi segue da sé.
+ */
+export type InboxTransition = "restore" | "move_to_new" | "unread";
+
+export async function transitionNotification(
+  db: Db,
+  args: { notificationId: string; userId: string; transition: InboxTransition },
+): Promise<{ ok: true } | { ok: false; error: "not_found" | "invalid_state" }> {
+  const own = and(eq(notifications.id, args.notificationId), eq(notifications.userId, args.userId), notificationVisibleToRecipient());
+  const [row] = await db.select({ id: notifications.id, status: notifications.status }).from(notifications).where(own);
+  if (!row) return { ok: false, error: "not_found" };
+  if (args.transition === "unread") {
+    await db.update(notifications).set({ readAt: null }).where(eq(notifications.id, row.id));
+    return { ok: true };
+  }
+  const from = args.transition === "restore" ? "handled" : "snoozed";
+  // La WHERE sullo stato chiude la corsa con un altro passaggio concorrente.
+  const updated = await db
+    .update(notifications)
+    .set({ status: "open", handledAt: null, handledByUserId: null, snoozedUntil: null })
+    .where(and(eq(notifications.id, row.id), eq(notifications.status, from)))
+    .returning({ id: notifications.id });
+  return updated.length > 0 ? { ok: true } : { ok: false, error: "invalid_state" };
+}
+
 export async function markRead(
   db: Db,
   args: { notificationId: string; userId: string },

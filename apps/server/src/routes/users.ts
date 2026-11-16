@@ -265,7 +265,9 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         params: z.object({ id: z.uuid() }),
         response: {
-          201: z.object({ url: z.string(), expiresAt: z.iso.datetime() }),
+          // `token` (area 9, F1, additivo): il renderer della web «app» compone
+          // `${origin}/app/#/reset-password/<token>`; `url` resta quello del web vecchio.
+          201: z.object({ url: z.string(), token: z.string(), expiresAt: z.iso.datetime() }),
           ...authErrorResponses,
           400: errorSchema,
           403: roleRuleErrorSchema,
@@ -318,7 +320,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
       const base = publicUrlOrUndefined(instance);
       return reply
         .code(201)
-        .send({ url: base ? `${base}${path}` : path, expiresAt: issued.expiresAt.toISOString() });
+        .send({ url: base ? `${base}${path}` : path, token: issued.token, expiresAt: issued.expiresAt.toISOString() });
     },
   );
 

@@ -474,4 +474,14 @@ describe("POST /api/users/:id/password-reset", () => {
       expect.objectContaining({ subject: "password_reset_link", actorEmail: "admin@example.com" }),
     ]);
   });
+
+  it("area 9, F1: la risposta porta anche il `token`, lo stesso dell'url, e funziona sulla rotta di reset", async () => {
+    const target = await targetWithSecondFactor();
+    const res = await app.inject({ method: "POST", url: `/api/users/${target.id}/password-reset`, headers: { cookie: adminCookie } });
+    const body = res.json() as { url: string; token: string };
+    expect(body.token.length).toBeGreaterThan(20);
+    expect(body.url.endsWith(`/reset-password/${body.token}`)).toBe(true);
+    const reset = await app.inject({ method: "POST", url: `/api/auth/password-reset/${body.token}`, payload: { password: "una-password-nuova-lunga" } });
+    expect(reset.statusCode).toBe(204);
+  });
 });
