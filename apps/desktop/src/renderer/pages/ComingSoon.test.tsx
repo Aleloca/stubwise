@@ -435,6 +435,8 @@ const INTEGRATED_CALLS = new Set([
   "support.createWidget",
   "support.updateWidget",
   "support.deleteWidget",
+  // API per i siti (S6).
+  "support.regenerateIdentitySecret",
   // Area 8, F4a: i Server in sola lettura.
   "servers.listProjectServers",
   "servers.listAllServers",

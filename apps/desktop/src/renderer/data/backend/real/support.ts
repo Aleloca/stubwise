@@ -113,9 +113,8 @@ function viewOf(c: Conversation): SupportConversationView | null {
     state: c.state as SupportState,
     rewrittenWish: c.rewrittenWish,
     confirmedAt: c.confirmedAt,
-    // TODO(S6): il campo del server (72); finché non c'è, la funzione
-    // `support-identity` è spenta e questo valore non si mostra.
-    identityVerified: false,
+    // API per i siti (S6): un server di prima non lo manda, il default è «dichiarato».
+    identityVerified: c.identityVerified,
     triage: c.triage
       ? {
           outcome: c.triage.outcome === "concluded" ? "concluded" : "not_concluded",
