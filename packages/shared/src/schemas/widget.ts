@@ -136,6 +136,12 @@ export const widgetUpsertBodySchema = widgetSettingsSchema.extend({
    * assente nella modifica = l'elenco resta com'è; nella creazione = vuoto.
    */
   origins: widgetOriginsSchema.optional(),
+  /**
+   * Area 8, «L'API per i siti»: «Solo clienti verificati». FACOLTATIVO come
+   * `origins`: assente nella modifica = resta com'è; nella creazione = spento.
+   * Acceso senza un segreto d'identità: 422 `identity_secret_missing`.
+   */
+  identityRequired: z.boolean().optional(),
 });
 export type WidgetUpsertBody = z.infer<typeof widgetUpsertBodySchema>;
 export type WidgetUpsertInput = z.input<typeof widgetUpsertBodySchema>;
@@ -165,6 +171,14 @@ export const widgetAdminSchema = z.object({
   conversationCount: z.number().int(),
   /** I siti ammessi (area 8, F3, S16, additivo): vuoto = qualunque sito. */
   origins: z.array(z.string()).default([]),
+  /**
+   * Area 8, «L'API per i siti» (additivi): se il widget ha un segreto
+   * d'identità (il segreto non esce MAI da una lettura), quando è stato
+   * generato l'ultima volta, e «Solo clienti verificati».
+   */
+  identitySecretSet: z.boolean().default(false),
+  identitySecretRotatedAt: z.iso.datetime().nullable().default(null),
+  identityRequired: z.boolean().default(false),
 });
 export type WidgetAdmin = z.infer<typeof widgetAdminSchema>;
 
@@ -175,6 +189,14 @@ export type WidgetAdmin = z.infer<typeof widgetAdminSchema>;
  */
 export const widgetListSchema = z.object({ widgets: z.array(widgetAdminSchema), canManage: z.boolean().default(false) });
 export const widgetResultSchema = z.object({ widget: widgetAdminSchema });
+
+/**
+ * `POST /api/projects/:projectId/widgets/:widgetId/identity-secret` (area 8,
+ * «L'API per i siti»): il segreto NUOVO, mostrato questa volta sola. Il
+ * vecchio smette subito (D-5).
+ */
+export const widgetIdentitySecretResultSchema = z.object({ secret: z.string(), rotatedAt: z.iso.datetime() });
+export type WidgetIdentitySecretResult = z.infer<typeof widgetIdentitySecretResultSchema>;
 
 export const widgetConversationCreateBodySchema = z.object({
   user: z.object({

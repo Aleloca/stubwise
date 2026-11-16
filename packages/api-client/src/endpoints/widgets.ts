@@ -1,8 +1,10 @@
 import {
+  widgetIdentitySecretResultSchema,
   widgetListSchema,
   widgetResultSchema,
   type Reader,
   type WidgetAdmin,
+  type WidgetIdentitySecretResult,
   type WidgetUpsertInput,
 } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
@@ -27,6 +29,14 @@ export function createWidgetEndpoints(request: ApiRequest) {
     },
     update(projectId: string, widgetId: string, body: WidgetUpsertInput): Promise<Reader<{ widget: WidgetAdmin }>> {
       return request("PUT", `${base(projectId)}/${seg(widgetId)}`, body, widgetResultSchema);
+    },
+    /**
+     * Area 8, «L'API per i siti»: genera o RIGENERA il segreto d'identità,
+     * mostrato QUESTA volta sola (il vecchio smette subito). Vuole
+     * `widget.manage` e la riconferma recente: senza, 403 `reauth_required`.
+     */
+    regenerateIdentitySecret(projectId: string, widgetId: string): Promise<Reader<WidgetIdentitySecretResult>> {
+      return request("POST", `${base(projectId)}/${seg(widgetId)}/identity-secret`, undefined, widgetIdentitySecretResultSchema);
     },
     /** Le sue conversazioni restano in Support. */
     delete(projectId: string, widgetId: string): Promise<void> {

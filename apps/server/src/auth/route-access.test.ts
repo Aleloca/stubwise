@@ -142,6 +142,8 @@ describe("rotte con riconferma recente", () => {
       "POST /api/me/security/totp/setup (setup_allowed)",
       "POST /api/me/security/totp/setup/confirm (setup_allowed)",
       "POST /api/pats",
+      // Area 8, «L'API per i siti»: il segreto d'identità del widget è una credenziale.
+      "POST /api/projects/:projectId/widgets/:widgetId/identity-secret",
       "POST /api/roles",
       "POST /api/roles/:id/duplicate",
       "POST /api/users/:id/git-identities",
