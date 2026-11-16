@@ -13,6 +13,7 @@ import { liveServerTask } from "./serverTask";
 import { liveAutomations } from "./automationsLive";
 import { liveReleases } from "./releasesLive";
 import { adminDepartments } from "./departments";
+import { liveWhoCan } from "./whoCan";
 import { partialNamespace } from "./notIntegrated";
 import { chatFunctions } from "./chat";
 import { channelStream, onChatChange, subscribeChat, threadStream } from "./chatStream";
@@ -34,6 +35,8 @@ export { search } from "./search";
 
 /** Amministrazione: solo Reparti (e le persone che la pagina legge) nella fetta 1. */
 export const admin: typeof Fake.admin = partialNamespace<typeof Fake.admin>("admin", adminDepartments);
+// Area 9, F1, R9: «Chi può farlo?» (prevale sullo stub generato).
+export const access: typeof Fake.access = partialNamespace<typeof Fake.access>("access", liveWhoCan);
 // Chat, fetta 3: le decisioni sulle proposte di Claude e «Undo» dei suoi gruppi.
 export { cancelProposal, confirmProposal, editProposal, settlePageEvent } from "./claudeChatActions";
 import { claudeChatNamespace } from "./claudeChatActions";

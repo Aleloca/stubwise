@@ -127,6 +127,10 @@ const INTEGRATED_CALLS = new Set([
   "me.addPasskey",
   "me.renamePasskey",
   "me.removePasskey",
+  // Area 9, F1, R9: «Chi può farlo?».
+  "access.whoCan",
+  "access.whatCan",
+  "access.whoCanChoices",
   // Area 9, F1, R5: le pagine d'ingresso della web «app».
   "auth.getResetLink",
   "auth.resetPassword",
@@ -765,6 +769,16 @@ describe("aree non integrate nella build app", () => {
     } finally {
       delete (window.stubwise as { api?: unknown } | undefined)?.api;
     }
+  });
+
+  // Area 9, F1, R9: Amministrazione → Who can? accesa, sulle rotte del server.
+  it("aprire «Who can?» legge solo chiamate integrate", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/who-can?action=approvePlan&project=ACQ");
+    await waitFor(() => expect(calls).toContain("access.whoCan"));
+    await settle();
+    expect(screen.queryByText(/Coming soon/)).toBeNull();
+    expect(outside()).toEqual([]);
   });
 
   // Area 9, F1, R5: le pagine d'ingresso della web «app» (reset e primo avvio),

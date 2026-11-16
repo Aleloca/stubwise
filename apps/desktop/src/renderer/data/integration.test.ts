@@ -158,6 +158,8 @@ describe("isIntegrated", () => {
         // Area 8, fetta 1: «Repositories» ridotta al blocco «Releases».
         "projectSettings:repositories",
         "admin:departments",
+        // Area 9, F1, R9: «Chi può farlo?».
+        "admin:who-can",
         "taskView:list",
         "taskView:board",
         "feature:notifications",
