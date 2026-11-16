@@ -394,6 +394,18 @@ export async function accessPreHandler(
  * - Secondo fattore mai usato in questa sessione, o più vecchio della
  *   finestra: 403 `reauth_required`.
  */
+/**
+ * Area 9, F1: fino a quando vale la riconferma di chi chiede, con la STESSA
+ * regola di {@link applyReauth} (sessione del browser: il suo secondo fattore;
+ * PAT `desktop`: il suo; ogni altro PAT: mai). `null` se non c'è o è scaduta.
+ */
+export function reauthUntilOf(user: SessionUser): string | null {
+  const at = isDesktopPat(user) ? user.patSecondFactorAt : user.patId === undefined && user.sessionId !== undefined ? user.secondFactorAt : null;
+  if (!at) return null;
+  const until = at.getTime() + REAUTH_WINDOW_MS;
+  return until > Date.now() ? new Date(until).toISOString() : null;
+}
+
 async function applyReauth(
   request: FastifyRequest,
   reply: FastifyReply,

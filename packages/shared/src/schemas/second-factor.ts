@@ -33,6 +33,11 @@ export const secondFactorStatusSchema = z.object({
   passkeys: z.boolean(),
   backupCodesRemaining: z.number().int().nonnegative(),
   lockedUntil: z.iso.datetime().nullable(),
+  /**
+   * Area 9, F1 (additivo): i codici che restano prima del blocco, per
+   * l'account; null da un server di prima (il client non mostra il contatore).
+   */
+  attemptsLeft: z.number().int().nonnegative().nullable().default(null),
 });
 export type SecondFactorStatus = z.infer<typeof secondFactorStatusSchema>;
 
@@ -201,6 +206,13 @@ export const accountSecurityResponseSchema = z.object({
   passkeys: z.array(passkeyViewSchema),
   backupCodesRemaining: z.number().int().nonnegative(),
   events: z.array(securityEventViewSchema),
+  /**
+   * Area 9, F1 (additivi): fino a quando vale la riconferma di QUESTA sessione
+   * (o del token desktop), null se è scaduta o non c'è; i codici del secondo
+   * fattore che restano prima del blocco.
+   */
+  reauthUntil: z.iso.datetime().nullable().default(null),
+  attemptsLeft: z.number().int().nonnegative().nullable().default(null),
 });
 export type AccountSecurityResponse = z.infer<typeof accountSecurityResponseSchema>;
 

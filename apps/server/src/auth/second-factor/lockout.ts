@@ -14,6 +14,22 @@ export async function lockedUntil(db: Db, userId: string): Promise<Date | null> 
 }
 
 /**
+ * Area 9, F1: quanti codici restano prima del blocco, per l'account (non per la
+ * sessione): `SECOND_FACTOR_MAX_FAILURES` meno quelli già contati (anche
+ * prenotati), 0 se il passo è bloccato. Lo legge solo chi ha già dato la
+ * password (lo stato del login parziale) o chi è dentro (`/api/me/security`).
+ */
+export async function attemptsLeft(db: Db, userId: string): Promise<number> {
+  const [row] = await db
+    .select({ failures: users.secondFactorFailures, until: users.secondFactorLockedUntil })
+    .from(users)
+    .where(eq(users.id, userId));
+  if (!row) return 0;
+  if (row.until && row.until.getTime() > Date.now()) return 0;
+  return Math.max(0, SECOND_FACTOR_MAX_FAILURES - row.failures);
+}
+
+/**
  * Registra un codice sbagliato. UN solo UPDATE incrementa il contatore e, al
  * quinto, imposta il blocco e azzera il contatore: due richieste in corsa non
  * possono sorpassare il tetto.
