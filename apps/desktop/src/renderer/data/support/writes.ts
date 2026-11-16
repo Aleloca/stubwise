@@ -1,7 +1,9 @@
 import { normalizeWidgetOrigin, WIDGET_MAX_ORIGINS } from "@stubwise/shared";
 // Le scritture usano `createRequestAs` solo dentro le funzioni: l'import
 // circolare con `api-mutations` è innocuo.
+import { forgetSecret, secretIdsOf, storeSecret } from "../admin/secrets";
 import { createRequestAs } from "../api-mutations";
+import { requireReauth } from "../auth/reauth";
 import { recordChange } from "../changelog/index";
 import { changedFields } from "../changelog/settingValues";
 // Per effetto: registra i tipi di voce di progetto (`recordChange` lancia su uno ignoto).
@@ -104,7 +106,10 @@ export async function markNotConcluded(code: string): Promise<SupportConversatio
 // --- widget -------------------------------------------------------------------
 
 /** I campi che si scrivono (R-K13): quelli del web. Nuovo: solo il nome è obbligatorio. */
-export type WidgetFields = Omit<SupportWidget, "id" | "projectId" | "createdAt">;
+export type WidgetFields = Omit<
+  SupportWidget,
+  "id" | "projectId" | "createdAt" | "identitySecretSet" | "identitySecretRotatedAt"
+>;
 export type WidgetInput = Pick<WidgetFields, "name"> & Partial<WidgetFields>;
 
 /** I default del web (`widgetSettingsSchema`), coi testi in inglese del prototipo. */
@@ -119,6 +124,7 @@ const WIDGET_DEFAULTS: Omit<WidgetFields, "name"> = {
   language: "it",
   dailyMessageCap: null,
   dailyRequestCap: null,
+  identityRequired: false,
 };
 
 const COLOR = /^#[0-9a-fA-F]{6}$/;
@@ -144,7 +150,11 @@ function cap(value: number | null, field: string): number | null {
  * (`widgetUpsertBodySchema`). Gli errori sono codici: `invalid: <campo>`.
  * Le fonti della documentazione sono repository dello stesso progetto.
  */
-function cleanWidget(projectId: string, patch: Partial<WidgetFields>): Partial<WidgetFields> {
+function cleanWidget(
+  projectId: string,
+  patch: Partial<WidgetFields>,
+  secretSet: boolean,
+): Partial<WidgetFields> {
   const out: Partial<WidgetFields> = {};
   if (patch.name !== undefined) out.name = text(patch.name, "name", 80);
   if (patch.enabled !== undefined) {
@@ -190,6 +200,13 @@ function cleanWidget(projectId: string, patch: Partial<WidgetFields>): Partial<W
     out.dailyMessageCap = cap(patch.dailyMessageCap, "dailyMessageCap");
   if (patch.dailyRequestCap !== undefined)
     out.dailyRequestCap = cap(patch.dailyRequestCap, "dailyRequestCap");
+  if (patch.identityRequired !== undefined) {
+    // Senza un segreto nessun sito può firmare un token: acceso, il widget
+    // non accetterebbe più nessuno.
+    if (typeof patch.identityRequired !== "boolean" || (patch.identityRequired && !secretSet))
+      throw invalid("identityRequired");
+    out.identityRequired = patch.identityRequired;
+  }
   return out;
 }
 
@@ -204,13 +221,15 @@ export async function createWidget(projectId: string, input: WidgetInput): Promi
   const me = await writer("support.createWidget");
   if (!sees(me, projectId)) throw notFound();
   if (!holds(me, "widget.manage", projectId)) throw forbidden();
-  const fields = cleanWidget(projectId, { ...input, name: input.name ?? "" });
+  const fields = cleanWidget(projectId, { ...input, name: input.name ?? "" }, false);
   const w: SupportWidget = {
     id: newId("wdg"),
     projectId,
     ...WIDGET_DEFAULTS,
     ...fields,
     name: fields.name!,
+    identitySecretSet: false,
+    identitySecretRotatedAt: null,
     createdAt: now(),
   };
   state.supportWidgets.push(w);
@@ -225,7 +244,7 @@ export async function updateWidget(
 ): Promise<SupportWidget> {
   const me = await writer("support.updateWidget");
   const w = widgetFor(me, id);
-  const fields = cleanWidget(w.projectId, patch);
+  const fields = cleanWidget(w.projectId, patch, w.identitySecretSet);
   const before = { name: w.name };
   Object.assign(w, fields);
   // Del widget il registro dice il nome; gli altri campi hanno la frase.
@@ -238,6 +257,28 @@ export async function updateWidget(
     ...(diff ? { before: diff.before, after: diff.after } : {}),
   });
   return copy(w);
+}
+
+/**
+ * API per i siti (S6): un segreto d'identità dei clienti nuovo (+R,
+ * `widget.manage`). Il valore esce qui e mai più; quello di prima smette di
+ * valere SUBITO (D-5). La traccia è la data, mai il segreto.
+ */
+export async function regenerateIdentitySecret(
+  id: string,
+): Promise<
+  { ok: true; secret: string; rotatedAt: string } | { ok: false; error: "reauth_required" }
+> {
+  const me = await writer("support.regenerateIdentitySecret");
+  const w = widgetFor(me, id);
+  if (requireReauth(me, "support.regenerateIdentitySecret")) {
+    return { ok: false, error: "reauth_required" };
+  }
+  for (const old of secretIdsOf("widget_identity_secret", w.id)) forgetSecret(old);
+  const secret = storeSecret("widget_identity_secret", w.id);
+  w.identitySecretSet = true;
+  w.identitySecretRotatedAt = now();
+  return { ok: true, secret: secret.value, rotatedAt: w.identitySecretRotatedAt };
 }
 
 /** Elimina il widget; le sue conversazioni restano in Support. */

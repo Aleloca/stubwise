@@ -19,6 +19,9 @@ const base = {
   language: "en" as const,
   dailyMessageCap: null,
   dailyRequestCap: null,
+  identitySecretSet: false,
+  identitySecretRotatedAt: null,
+  identityRequired: false,
   createdAt: "2026-11-01T09:00:00.000Z",
 };
 

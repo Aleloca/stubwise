@@ -59,6 +59,10 @@ function receiverOf(c: SupportConversation): SupportConversation {
       taskId: null,
       triage: null,
       confirmedAt: null,
+      // API per i siti (S6, 72): la catena non promuove. La successiva è
+      // verificata solo se nasce con un token valido, e il messaggio simulato
+      // non ne porta.
+      identityVerified: false,
     };
     state.supportConversations.push(fresh);
     cur.continuedInId = fresh.id;

@@ -73,6 +73,7 @@ const ALL: IntegrationTarget[] = [
       "support",
       "support-widgets",
       "support-search",
+      "support-identity",
       "servers-monitor",
       "servers-write",
       "servers-ssh",

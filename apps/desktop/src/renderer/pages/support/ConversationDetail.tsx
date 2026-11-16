@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isAppBuild } from "../../data/build";
+import { featureIntegrated } from "../../data/integration";
 import {
   useSessionPersonId,
   useSimulateCustomerLeaves,
@@ -101,6 +102,12 @@ function Header({
                 ? t("support.detail.widgetChannel", { name: conv.widgetName })
                 : t("support.channel.widget")
               : t("support.channel.mcp"),
+            // API per i siti (S6): chi è il cliente lo dice un token firmato, o solo il sito.
+            conv.channel === "widget" && featureIntegrated("support-identity")
+              ? conv.identityVerified
+                ? t("support.detail.verified")
+                : t("support.detail.declared")
+              : null,
             conv.customer.email,
             started
               ? t("support.detail.started", { date: dayLabel(started, i18n.language) })

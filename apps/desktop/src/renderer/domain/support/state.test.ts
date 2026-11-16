@@ -22,6 +22,7 @@ const conv = (over: Partial<SupportConversation> = {}): SupportConversation => (
   channel: "widget",
   widgetId: null,
   customer: { name: "Mario", email: null },
+  identityVerified: false,
   messages: [],
   rewrittenWish: null,
   requestId: null,

@@ -62,6 +62,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
   {
     id: SUPPORT_CONVERSATION_IDS.triage,
     code: "ACQ-S1",
+    identityVerified: false,
     projectId: "prj-acq",
     channel: "widget",
     widgetId: "wdg-acq-portal",
@@ -85,6 +86,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
   {
     id: SUPPORT_CONVERSATION_IDS.waiting,
     code: "ACQ-S2",
+    identityVerified: true,
     projectId: "prj-acq",
     channel: "widget",
     widgetId: "wdg-acq-portal",
@@ -116,6 +118,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
   {
     id: SUPPORT_CONVERSATION_IDS.left,
     code: "ACQ-S3",
+    identityVerified: false,
     projectId: "prj-acq",
     channel: "widget",
     widgetId: "wdg-acq-portal",
@@ -138,6 +141,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
   {
     id: SUPPORT_CONVERSATION_IDS.mcp,
     code: "ACQ-S4",
+    identityVerified: false,
     projectId: "prj-acq",
     channel: "mcp",
     widgetId: null,
@@ -174,6 +178,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
   {
     id: SUPPORT_CONVERSATION_IDS.reminder,
     code: "ACQ-S5",
+    identityVerified: true,
     projectId: "prj-acq",
     channel: "widget",
     widgetId: "wdg-acq-portal",
@@ -198,6 +203,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
   {
     id: SUPPORT_CONVERSATION_IDS.dark,
     code: "ACQ-S6",
+    identityVerified: false,
     projectId: "prj-acq",
     channel: "widget",
     widgetId: "wdg-acq-portal",
@@ -231,6 +237,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
   {
     id: SUPPORT_CONVERSATION_IDS.billingEmail,
     code: "ACQ-S7",
+    identityVerified: false,
     projectId: "prj-acq",
     channel: "widget",
     widgetId: "wdg-acq-portal",
@@ -262,6 +269,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
   {
     id: SUPPORT_CONVERSATION_IDS.answered,
     code: "ACQ-S8",
+    identityVerified: false,
     projectId: "prj-acq",
     channel: "widget",
     widgetId: "wdg-acq-portal",
@@ -287,6 +295,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
   {
     id: SUPPORT_CONVERSATION_IDS.ticket,
     code: "AUD-S1",
+    identityVerified: false,
     projectId: "prj-aud",
     channel: "widget",
     widgetId: "wdg-aud-help",
@@ -316,6 +325,7 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
   {
     id: SUPPORT_CONVERSATION_IDS.followUp,
     code: "ACQ-S9",
+    identityVerified: true,
     projectId: "prj-acq",
     channel: "widget",
     widgetId: "wdg-acq-portal",

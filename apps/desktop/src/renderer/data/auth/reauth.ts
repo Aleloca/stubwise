@@ -104,6 +104,9 @@ export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
   "projectSettings.deleteEnvFile",
   "projectSettings.deleteProject",
   "instance.deleteDetachedRepository",
+  // API per i siti (S6): il segreto d'identità dei clienti di un widget, una
+  // credenziale (piano 2026-11-15, S1: `config.reauth` sul server).
+  "support.regenerateIdentitySecret",
 ]);
 
 const MINUTE = 60_000;

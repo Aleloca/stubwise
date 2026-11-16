@@ -38,7 +38,9 @@ type GeneratedSecretKind =
   // Area 9c: la chiave d'ingestione di un progetto e il secret del webhook
   // git di un repository, generati da Stubwise e mostrati una volta.
   | "ingestion_key"
-  | "git_webhook_secret";
+  | "git_webhook_secret"
+  // API per i siti (S6): il segreto d'identità dei clienti di un widget.
+  | "widget_identity_secret";
 
 /**
  * I segreti scritti da chi amministra (area 9b). Un tipo a parte: `valueOf`
@@ -68,6 +70,7 @@ let counter = 0;
 const ALNUM = "abcdefghijkmnpqrstuvwxyz23456789";
 const HEX = "0123456789abcdef";
 const BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+const BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
 function chars(seed: string, alphabet: string, n: number): string {
   const rnd = seededRandom(hashOf(seed));
@@ -122,6 +125,9 @@ function valueOf(kind: GeneratedSecretKind, ownerId: string, n: number): string 
       return chars(seed, HEX, 32);
     case "git_webhook_secret":
       return chars(seed, HEX, 40);
+    // Come sul server: 32 byte casuali in base64url (43 caratteri, senza `=`).
+    case "widget_identity_secret":
+      return chars(seed, BASE64URL, 43);
   }
 }
 

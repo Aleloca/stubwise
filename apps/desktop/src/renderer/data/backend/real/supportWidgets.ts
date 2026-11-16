@@ -41,6 +41,11 @@ function viewOf(projectId: string, w: Reader<WidgetAdmin>, origin: string): Supp
     language: w.language === "en" ? "en" : "it",
     dailyMessageCap: w.dailyMessageCap,
     dailyRequestCap: w.dailyTicketCap,
+    // TODO(S6): i campi del server (72); finché non ci sono, la funzione
+    // `support-identity` è spenta e questi valori non si mostrano.
+    identitySecretSet: false,
+    identitySecretRotatedAt: null,
+    identityRequired: false,
     createdAt: w.createdAt,
     conversationCount: w.conversationCount,
     key: w.key,

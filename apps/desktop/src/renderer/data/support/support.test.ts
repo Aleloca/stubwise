@@ -10,7 +10,9 @@ import {
 } from "../api";
 import { PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
-import { advanceNow, state, visibleProjectIds } from "../store";
+import { __secretValuesForTest } from "../admin/secrets";
+import { markReauthenticated, REAUTH_REQUIRED } from "../auth/reauth";
+import { advanceNow, now, state, visibleProjectIds } from "../store";
 import type { SupportConversation } from "../types";
 
 const ACQ = "prj-acq";
@@ -49,6 +51,7 @@ describe("l'insieme esportato: nessuna richiesta da un'email", () => {
         "createWidget",
         "updateWidget",
         "deleteWidget",
+        "regenerateIdentitySecret",
         "simulateCustomerMessage",
         "simulateCustomerLeaves",
         "simulateTriageDone",
@@ -629,5 +632,91 @@ describe("l'esito che è un ticket del widget (area 8, F3)", () => {
     expect(c.request).toBeNull();
     expect(c.task).toMatchObject({ code: "AUD-6", title: "Speed up the dashboard of large accounts" });
     expect(c.task!.customerStatus).toBe("planned");
+  });
+});
+
+describe("l'identità dei clienti del widget (API per i siti, S6)", () => {
+  const secretValues = () => __secretValuesForTest().flatMap((s) => s.values);
+
+  it("rigenerare il segreto chiede la riconferma: senza, niente cambia", async () => {
+    as("p-matteo");
+    const before = structuredClone(state.supportWidgets.find((w) => w.id === "wdg-aud-help"));
+    expect(await support.regenerateIdentitySecret("wdg-aud-help")).toEqual({
+      ok: false,
+      error: "reauth_required",
+    });
+    expect(state.supportWidgets.find((w) => w.id === "wdg-aud-help")).toEqual(before);
+    expect(REAUTH_REQUIRED.has("support.regenerateIdentitySecret")).toBe(true);
+  });
+
+  it("il segreto esce una volta sola, 32 byte in base64url; le letture dicono solo se c'è e da quando", async () => {
+    as("p-matteo");
+    markReauthenticated("p-matteo");
+    const r = await support.regenerateIdentitySecret("wdg-acq-portal");
+    if (!r.ok) throw new Error(r.error);
+    expect(r.secret).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(r.rotatedAt).toBe(now());
+    const { widgets } = await support.listWidgets(ACQ);
+    const w = widgets.find((x) => x.id === "wdg-acq-portal")!;
+    expect(w).toMatchObject({ identitySecretSet: true, identitySecretRotatedAt: now() });
+    expect(JSON.stringify(widgets)).not.toContain(r.secret);
+    expect(JSON.stringify(state.supportWidgets)).not.toContain(r.secret);
+    expect(JSON.stringify(state.changelog)).not.toContain(r.secret);
+  });
+
+  it("rigenerare spegne il vecchio SUBITO: il valore di prima non è più custodito", async () => {
+    as("p-matteo");
+    markReauthenticated("p-matteo");
+    const first = await support.regenerateIdentitySecret("wdg-aud-help");
+    const second = await support.regenerateIdentitySecret("wdg-aud-help");
+    if (!first.ok || !second.ok) throw new Error("reauth");
+    expect(second.secret).not.toBe(first.secret);
+    expect(secretValues()).toContain(second.secret);
+    expect(secretValues()).not.toContain(first.secret);
+  });
+
+  it("solo con widget.manage; chi non vede il progetto riceve not_found", async () => {
+    as("p-sara");
+    markReauthenticated("p-sara");
+    await expect(support.regenerateIdentitySecret("wdg-acq-portal")).rejects.toThrow("forbidden");
+    const out = outsider();
+    as(out);
+    markReauthenticated(out);
+    await expect(support.regenerateIdentitySecret("wdg-acq-portal")).rejects.toThrow("not_found");
+  });
+
+  it("«Solo clienti verificati» si accende solo con un segreto, ed è un booleano", async () => {
+    as("p-matteo");
+    await expect(support.updateWidget("wdg-aud-help", { identityRequired: true })).rejects.toThrow(
+      "invalid: identityRequired",
+    );
+    await expect(
+      support.updateWidget("wdg-acq-portal", { identityRequired: "yes" as never }),
+    ).rejects.toThrow("invalid: identityRequired");
+    expect((await support.updateWidget("wdg-acq-portal", { identityRequired: true })).identityRequired).toBe(
+      true,
+    );
+    expect((await support.updateWidget("wdg-acq-portal", { identityRequired: false })).identityRequired).toBe(
+      false,
+    );
+    // Un widget nuovo nasce senza segreto e col toggle spento.
+    expect(await support.createWidget(ACQ, { name: "New" })).toMatchObject({
+      identitySecretSet: false,
+      identitySecretRotatedAt: null,
+      identityRequired: false,
+    });
+  });
+
+  it("la conversazione dice se il cliente è verificato; la successiva NON lo eredita (72: la catena non promuove)", async () => {
+    as("p-matteo");
+    expect((await support.getSupportConversation("ACQ-S5"))!.identityVerified).toBe(true);
+    expect((await support.getSupportConversation("ACQ-S1"))!.identityVerified).toBe(false);
+    const next = await support.simulateCustomerMessage("ACQ-S5", "One more thing");
+    expect(next.code).not.toBe("ACQ-S5");
+    // Verificata solo se nasce con un token valido: il messaggio simulato non ne ha.
+    expect(next.identityVerified).toBe(false);
+    const declared = await support.simulateCustomerMessage("ACQ-S7", "Hello again");
+    expect(declared.code).not.toBe("ACQ-S7");
+    expect(declared.identityVerified).toBe(false);
   });
 });

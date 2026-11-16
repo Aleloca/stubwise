@@ -19,6 +19,8 @@ import {
   secondaryButton,
 } from "../claude/conversation/parts";
 import { inputClass } from "../../tasks-ui/Dialog";
+import { featureIntegrated } from "../../data/integration";
+import { WidgetIdentity } from "./WidgetIdentity";
 import { widgetGuide, widgetGuideFile, widgetSnippet } from "./widgetSnippet";
 
 // Il pannello di un widget (nuovo o in modifica), agganciato a destra nella
@@ -75,6 +77,7 @@ const fieldsOf = (w: SupportWidgetView | null): Fields => ({
   language: w?.language ?? "it",
   dailyMessageCap: w?.dailyMessageCap?.toString() ?? "",
   dailyRequestCap: w?.dailyRequestCap?.toString() ?? "",
+  identityRequired: w?.identityRequired ?? false,
 });
 
 /** Un tetto scritto: vuoto = il default d'istanza; un testo non numerico lo ferma il livello dati. */
@@ -151,6 +154,7 @@ export function WidgetPanel({
   const firstRef = useRef<HTMLInputElement>(null);
   useEffect(() => firstRef.current?.focus(), []);
   const set = (patch: Partial<Fields>) => setF((old) => ({ ...old, ...patch }));
+  const identity = featureIntegrated("support-identity");
 
   // I siti si mandano solo se li ho cambiati (review F3, m2): un salvataggio
   // d'altro non riscrive quelli che un collega ha messo nel frattempo.
@@ -166,6 +170,8 @@ export function WidgetPanel({
   };
   const input = (): WidgetInput => ({
     ...f,
+    // Spenta la funzione (build app prima di S6), il campo non parte.
+    identityRequired: identity ? f.identityRequired : undefined,
     ...(!widget || originsChanged() ? { origins: originList() } : {}),
     dailyMessageCap: capOf(f.dailyMessageCap),
     dailyRequestCap: capOf(f.dailyRequestCap),
@@ -308,6 +314,26 @@ export function WidgetPanel({
             <p className="text-xs text-warning">{t("support.widgets.fields.anySite")}</p>
           )}
         </Field>
+        {/* API per i siti (S6): si accende solo con un segreto (il livello dati lo rifiuta). */}
+        {identity && (
+          <div className="flex flex-col gap-1">
+            <label className="flex items-center gap-2 text-sm text-ink">
+              <input
+                type="checkbox"
+                checked={f.identityRequired}
+                disabled={!f.identityRequired && !widget?.identitySecretSet}
+                onChange={(e) => set({ identityRequired: e.target.checked })}
+                className="size-4 accent-ink"
+              />
+              {t("support.widgets.fields.identityRequired")}
+            </label>
+            <p className="text-xs text-ink-muted">
+              {widget?.identitySecretSet
+                ? t("support.widgets.fields.identityRequiredHint")
+                : t("support.widgets.fields.identityRequiredNoSecret")}
+            </p>
+          </div>
+        )}
         <Field label={t("support.widgets.fields.title")} htmlFor={`${id}-title-f`}>
           <input
             id={`${id}-title-f`}
@@ -428,6 +454,7 @@ export function WidgetPanel({
                 {t("support.widgets.copySnippet")}
               </button>
             </CopyBlock>
+            {identity && <WidgetIdentity widget={widget} />}
             <CopyBlock title={t("support.widgets.guide")}>
               <button type="button" className={secondaryButton} onClick={() => void copy(guide)}>
                 {t("support.widgets.copyGuide")}

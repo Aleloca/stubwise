@@ -657,6 +657,8 @@ export type ApiFnName =
   | "support.createWidget"
   | "support.updateWidget"
   | "support.deleteWidget"
+  /** API per i siti (S6): il segreto d'identità dei clienti (+R). */
+  | "support.regenerateIdentitySecret"
   /** Solo prototipo: un messaggio del cliente, il cliente che se ne va, il triage concluso. */
   | "support.simulateCustomerMessage"
   | "support.simulateCustomerLeaves"

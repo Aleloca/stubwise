@@ -21,6 +21,10 @@ export const SUPPORT_WIDGETS: SupportWidget[] = [
     language: "it",
     dailyMessageCap: null,
     dailyRequestCap: null,
+    // API per i siti (S6): il portale firma già i suoi clienti; il toggle è spento.
+    identitySecretSet: true,
+    identitySecretRotatedAt: `${daysFromToday(-12)}T15:20:00Z`,
+    identityRequired: false,
     createdAt: `${daysFromToday(-40)}T09:00:00Z`,
   },
   // Area 8, F3: il widget di Audin, da cui è arrivata AUD-S1 (il ticket AUD-6).
@@ -38,6 +42,9 @@ export const SUPPORT_WIDGETS: SupportWidget[] = [
     language: "en",
     dailyMessageCap: null,
     dailyRequestCap: null,
+    identitySecretSet: false,
+    identitySecretRotatedAt: null,
+    identityRequired: false,
     createdAt: `${daysFromToday(-60)}T09:00:00Z`,
   },
 ];
