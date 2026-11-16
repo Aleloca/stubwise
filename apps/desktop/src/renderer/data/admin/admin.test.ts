@@ -805,10 +805,7 @@ describe("disattivare e riattivare", () => {
       expect(await admin.deactivatePerson("p-laura", {})).toMatchObject({ ok: true });
       expect(state.invites.find((i) => i.id === made.inviteId)!.revokedAt).not.toBeNull();
       // Come un invito revocato a mano (`getInvite` e `register`).
-      expect(await auth.getInvite(made.link)).toEqual({
-        status: "revoked",
-        invitedByName: "Laura Costa",
-      });
+      expect(await auth.getInvite(made.link)).toEqual({ status: "revoked" });
       expect(await auth.register(made.link, { name: "Nora", password: "a-long-one" })).toEqual({
         ok: false,
         error: "revoked",

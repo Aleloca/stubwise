@@ -190,16 +190,15 @@ describe("registrazione su invito", () => {
     expect(await screen.findByText("Welcome, Nora. You're in ACQ.")).toBeInTheDocument();
   });
 
-  it("uno scaduto lo dice, con chi l'aveva mandato; nessun modulo", async () => {
+  it("uno scaduto lo dice, senza nomi né date (area 9, decisione del maintainer); nessun modulo", async () => {
     const token = await inviteLink();
     advanceNow(8 * DAY);
     renderRoute(`/register/${token}`);
     expect(
       await screen.findByRole("heading", { level: 1, name: "This invite has expired" }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Roberta Fontana invited you on .*Ask Roberta for a new one\./),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Ask whoever invited you for a new one.")).toBeInTheDocument();
+    expect(screen.queryByText(/Roberta/)).toBeNull();
     expect(screen.queryByLabelText("Password")).toBeNull();
     expect(screen.getByRole("link", { name: "Go to sign in" })).toBeInTheDocument();
   });

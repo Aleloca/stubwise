@@ -3,7 +3,6 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { MIN_PASSWORD_LENGTH, useInvite, useRegister, type InviteLookup } from "../../data/queries";
-import { formatDate } from "../../notifications/time";
 import { useToast } from "../../tasks-ui/Toast";
 import { primaryButton } from "../tasks/controls";
 import { BusyLabel, EntryColumn, EntryField, EntryHeading, ErrorLine, textButton } from "./parts";
@@ -55,24 +54,13 @@ export function RegisterPage({ token }: { token: string }) {
 }
 
 function NotValid({ invite }: { invite: Exclude<InviteLookup, { status: "valid" }> }) {
-  const { t, i18n } = useTranslation();
-  const first = (name: string) => name.split(" ")[0] ?? name;
+  const { t } = useTranslation();
+  // Area 9 (decisione del maintainer): senza nomi né date, come il server.
   const [title, body] =
     invite.status === "expired"
-      ? [
-          t("entry.register.expiredTitle"),
-          t("entry.register.expiredBody", {
-            name: invite.invitedByName,
-            first: first(invite.invitedByName),
-            invited: formatDate(invite.invitedAt, i18n.language),
-            expired: formatDate(invite.expiresAt, i18n.language),
-          }),
-        ]
+      ? [t("entry.register.expiredTitle"), t("entry.register.expiredBody")]
       : invite.status === "revoked"
-        ? [
-            t("entry.register.revokedTitle"),
-            t("entry.register.revokedBody", { name: invite.invitedByName }),
-          ]
+        ? [t("entry.register.revokedTitle"), t("entry.register.revokedBody")]
         : invite.status === "used"
           ? [t("entry.register.usedTitle"), t("entry.register.usedBody")]
           : [t("entry.register.revokedTitle"), t("entry.register.invalidBody")];

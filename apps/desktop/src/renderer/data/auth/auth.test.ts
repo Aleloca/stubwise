@@ -257,12 +257,8 @@ describe("registrazione su invito", () => {
   it("uno scaduto non registra e lo dice", async () => {
     const link = await invite();
     advanceNow(8 * 24 * 60 * MINUTE);
-    expect(await auth.getInvite(link)).toEqual({
-      status: "expired",
-      invitedByName: "Roberta Fontana",
-      invitedAt: state.invites.at(-1)!.createdAt,
-      expiresAt: state.invites.at(-1)!.expiresAt,
-    });
+    // Area 9, decisione del maintainer: su uno non valido solo lo stato, senza nomi né date.
+    expect(await auth.getInvite(link)).toEqual({ status: "expired" });
     const people = PEOPLE.length;
     const access = JSON.stringify(accessState());
     expect(await auth.register(link, { name: "Nora", password: "a-long-one" })).toEqual({
@@ -277,10 +273,7 @@ describe("registrazione su invito", () => {
     const link = await invite();
     const id = state.invites.at(-1)!.id;
     expect(await admin.revokeInvite(id)).toEqual({ ok: true });
-    expect(await auth.getInvite(link)).toEqual({
-      status: "revoked",
-      invitedByName: "Roberta Fontana",
-    });
+    expect(await auth.getInvite(link)).toEqual({ status: "revoked" });
     expect(await auth.register(link, { name: "Nora", password: "a-long-one" })).toEqual({
       ok: false,
       error: "revoked",
@@ -346,10 +339,7 @@ describe("ingresso: le aggiunte del Task 6", () => {
       email: "ines.ricci@example.com",
     });
     const expired = await auth.simulateInviteLink("expired");
-    expect(await auth.getInvite(expired!.token)).toMatchObject({
-      status: "expired",
-      invitedByName: "Roberta Fontana",
-    });
+    expect(await auth.getInvite(expired!.token)).toEqual({ status: "expired" });
     // Un secondo link per lo stesso invito sostituisce il primo.
     const again = await auth.simulateInviteLink("pending");
     expect(await auth.getInvite(pending!.token)).toEqual({ status: "invalid" });
