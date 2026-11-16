@@ -29,6 +29,9 @@ const widget = (over: Partial<WidgetAdmin> = {}): WidgetAdmin => ({
   origins: [],
   createdAt: "2026-11-01T09:00:00.000Z",
   conversationCount: 3,
+  identitySecretSet: false,
+  identitySecretRotatedAt: null,
+  identityRequired: false,
   ...over,
 });
 
@@ -49,6 +52,7 @@ function fakeApi(over: Partial<WidgetsApi> = {}) {
     remove: async (projectId, widgetId) => {
       calls.push({ op: `delete ${projectId} ${widgetId}` });
     },
+    regenerateIdentitySecret: async () => ({ secret: "x", rotatedAt: "2026-11-16T10:00:00.000Z" }),
     ...over,
   };
   return { api, calls };
@@ -168,5 +172,90 @@ describe("i widget di Support dal server (area 8, F3)", () => {
     await expect(createRealWidgets(api, origin).createWidget(PRJ, { name: "x" })).rejects.toThrow(
       "invalid",
     );
+  });
+});
+
+describe("l'identità dei clienti dal server (API per i siti, S6)", () => {
+  const SECRET = "s".repeat(43);
+  const ROTATED = "2026-11-16T10:00:00.000Z";
+
+  it("la vista porta se c'è il segreto, da quando, e il toggle", async () => {
+    const { api } = fakeApi({
+      list: async () => ({
+        widgets: [
+          widget({
+            identitySecretSet: true,
+            identitySecretRotatedAt: ROTATED,
+            identityRequired: true,
+          }),
+        ],
+        canManage: true,
+      }),
+    });
+    const [w] = (await createRealWidgets(api, origin).listWidgets(PRJ)).widgets;
+    expect(w).toMatchObject({
+      identitySecretSet: true,
+      identitySecretRotatedAt: ROTATED,
+      identityRequired: true,
+    });
+  });
+
+  it("il toggle parte nel corpo solo quando lo si cambia; il 422 identity_secret_missing è l'errore del campo", async () => {
+    const { api, calls } = fakeApi();
+    const widgets = createRealWidgets(api, origin);
+    await widgets.listWidgets(PRJ);
+    await widgets.updateWidget(W1, { name: "x" });
+    expect(calls.at(-1)!.body).not.toHaveProperty("identityRequired");
+    await widgets.updateWidget(W1, { identityRequired: true });
+    expect(calls.at(-1)!.body).toMatchObject({ identityRequired: true });
+    const refusing = fakeApi({
+      update: async () => {
+        throw new ApiError(422, "No identity secret", "identity_secret_missing");
+      },
+    });
+    const w2 = createRealWidgets(refusing.api, origin);
+    await w2.listWidgets(PRJ);
+    await expect(w2.updateWidget(W1, { identityRequired: true })).rejects.toThrow(
+      "invalid: identityRequired",
+    );
+  });
+
+  it("rigenerare: il segreto una volta; la riconferma mancante torna come reauth_required", async () => {
+    const calls: string[] = [];
+    let ask = true;
+    const { api } = fakeApi({
+      regenerateIdentitySecret: async (projectId, widgetId) => {
+        calls.push(`${projectId} ${widgetId}`);
+        if (ask) {
+          ask = false;
+          throw new ApiError(403, "Confirm it's you", "reauth_required");
+        }
+        return { secret: SECRET, rotatedAt: ROTATED };
+      },
+    });
+    const widgets = createRealWidgets(api, origin);
+    await widgets.listWidgets(PRJ);
+    expect(await widgets.regenerateIdentitySecret(W1)).toEqual({
+      ok: false,
+      error: "reauth_required",
+    });
+    expect(await widgets.regenerateIdentitySecret(W1)).toEqual({
+      ok: true,
+      secret: SECRET,
+      rotatedAt: ROTATED,
+    });
+    expect(calls).toEqual([`${PRJ} ${W1}`, `${PRJ} ${W1}`]);
+  });
+
+  it("rigenerare senza permesso è forbidden, su un widget sconosciuto not_found", async () => {
+    const { api } = fakeApi({
+      regenerateIdentitySecret: async () => {
+        throw new ApiError(403, "Forbidden", "forbidden");
+      },
+    });
+    const widgets = createRealWidgets(api, origin);
+    await expect(widgets.regenerateIdentitySecret(W1)).rejects.toThrow("not_found");
+    await widgets.listWidgets(PRJ);
+    await expect(widgets.regenerateIdentitySecret(W1)).rejects.toThrow("forbidden");
   });
 });
