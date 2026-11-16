@@ -1,13 +1,14 @@
-import { departmentMembers, projectMembers, projects, users } from "@stubwise/db";
+import { departmentMembers, projects, users } from "@stubwise/db";
 import { peopleActivityQuerySchema, personDayActivitySchema, personViewSchema, type PersonView } from "@stubwise/shared";
 import { asc, eq, inArray, or } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { userIdsWithPermission } from "@stubwise/notifications";
-import { projectIdsWithPermission, visibleProjectIds } from "../auth/access.js";
+import { projectIdsWithPermission } from "../auth/access.js";
 import { initialsOf, personName } from "../services/people.js";
 import { peopleActivity } from "../services/people-activity.js";
+import { avatarUrlsFor } from "../services/avatars.js";
+import { visiblePersonIds } from "../services/people-visibility.js";
 import { authErrorResponses } from "./shared.js";
 
 /**
@@ -46,26 +47,13 @@ export async function peopleRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request): Promise<PersonView[]> => {
       const viewer = request.user!;
-      const visible = await visibleProjectIds(app.db, viewer);
-      let ids: string[] | "all" = "all";
-      if (visible !== "all") {
-        const rows =
-          visible.length > 0
-            ? await app.db
-                .selectDistinct({ userId: projectMembers.userId })
-                .from(projectMembers)
-                .where(inArray(projectMembers.projectId, visible))
-            : [];
-        // I full admin sono membri impliciti di ogni progetto: chi vede almeno
-        // un progetto li vede (la regola di `projectViewerIds`).
-        const admins = visible.length > 0 ? await userIdsWithPermission(app.db, null, null) : [];
-        ids = [...new Set([viewer.id, ...rows.map((r) => r.userId), ...admins])];
-      }
+      // La regola di chi si vede sta in UN posto (la usa anche la foto, area 9).
+      const ids = await visiblePersonIds(app.db, viewer);
       // L'utente di sistema «Claude» (area 3, fetta 3e) c'è SEMPRE: chi legge una
       // task assegnata a lui ne vede il nome. Dove chi guarda può assegnarlo lo
       // dice `claudeAssignableProjectIds` (i progetti visibili con `runs.start`).
       const people = await app.db
-        .select({ id: users.id, email: users.email, displayName: users.displayName, isAgent: users.isAgent })
+        .select({ id: users.id, email: users.email, displayName: users.displayName, isAgent: users.isAgent, deactivatedAt: users.deactivatedAt })
         .from(users)
         .where(ids === "all" ? undefined : or(inArray(users.id, ids), eq(users.isAgent, true)))
         .orderBy(asc(users.email));
@@ -82,6 +70,7 @@ export async function peopleRoutes(instance: FastifyInstance): Promise<void> {
         canRun === "all"
           ? (await app.db.select({ id: projects.id }).from(projects).orderBy(asc(projects.name))).map((p) => p.id)
           : canRun;
+      const avatars = await avatarUrlsFor(app.db, people.map((p) => p.id));
       return people.map((p) => {
         const name = personName(p);
         return {
@@ -90,9 +79,11 @@ export async function peopleRoutes(instance: FastifyInstance): Promise<void> {
           initials: initialsOf(name),
           departmentIds: deptsOf.get(p.id) ?? [],
           email: p.email,
-          deactivated: false,
+          // Area 9, F1 (D-6): il campo c'era già, ora dice il vero.
+          deactivated: p.deactivatedAt !== null,
           isClaude: p.isAgent,
           claudeAssignableProjectIds: p.isAgent ? assignable : [],
+          avatarUrl: avatars.get(p.id) ?? null,
         };
       });
     },

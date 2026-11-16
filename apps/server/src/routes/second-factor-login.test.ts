@@ -160,7 +160,7 @@ describe("utente senza secondo fattore: configurazione obbligatoria", () => {
       stage: "enrollment",
       passkeys: false,
       backupCodesRemaining: 0,
-      lockedUntil: null,
+      lockedUntil: null, attemptsLeft: 5,
     });
 
     const verify = await post("/verify", cookie, { code: "123456" });
@@ -289,7 +289,7 @@ describe("utente con l'app configurata", () => {
       stage: "second_factor",
       passkeys: false,
       backupCodesRemaining: 10,
-      lockedUntil: null,
+      lockedUntil: null, attemptsLeft: 5,
     });
 
     const res = await post("/verify", cookie, { code: generateSync({ secret: user.secret }) });
@@ -609,3 +609,26 @@ describe("passkey come secondo fattore del login", () => {
     expect(res.json()).toMatchObject({ code: "second_factor_stage_mismatch" });
   });
 });
+
+describe("area 9, F1: i tentativi rimasti del secondo fattore", () => {
+  const status = async (cookie: string) =>
+    (await app.inject({ method: "GET", url: "/api/auth/second-factor", headers: { cookie } })).json() as { attemptsLeft: number | null; lockedUntil: string | null };
+
+  it("partono da 5, scendono a ogni codice sbagliato, tornano a 5 dopo un codice giusto; bloccati: 0", async () => {
+    const user = await createUserWithTotp();
+    const first = sessionCookie(await login(user.email));
+    expect((await status(first)).attemptsLeft).toBe(5);
+    await post("/verify", first, { code: "000000" });
+    expect((await status(first)).attemptsLeft).toBe(4);
+    await post("/verify", first, { code: "000001" });
+    expect((await status(first)).attemptsLeft).toBe(3);
+    expect((await post("/verify", first, { code: generateSync({ secret: user.secret }) })).statusCode).toBe(200);
+    const second = sessionCookie(await login(user.email));
+    expect((await status(second)).attemptsLeft).toBe(5);
+    for (let i = 0; i < 5; i++) await post("/verify", second, { code: `00000${i}` });
+    const locked = await status(second);
+    expect(locked.lockedUntil).not.toBeNull();
+    expect(locked.attemptsLeft).toBe(0);
+  });
+});
+

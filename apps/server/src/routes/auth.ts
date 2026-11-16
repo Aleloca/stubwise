@@ -54,6 +54,9 @@ import { departmentPermissionsMap } from "../services/home.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
+import { avatarUrlsFor } from "../services/avatars.js";
+import { confirmEmailChange, peekEmailChange } from "../services/email-change.js";
+import { sendEmailChangeError } from "./me-email-change.js";
 import {
   loadSlackCreds,
   defaultSlackClientFactory,
@@ -146,7 +149,9 @@ async function verifyCredentials(
     .innerJoin(roles, eq(roles.id, users.instanceRoleId))
     // L'utente di sistema «Claude» (area 3, fetta 3e) non entra MAI: è un
     // utente che non c'è, con la stessa verifica a vuoto (tempo costante).
-    .where(and(eq(users.email, email), eq(users.isAgent, false)));
+    // Area 9, F1: una persona disattivata è come una che non c'è (stessa
+    // verifica a vuoto, stesso errore di una password sbagliata).
+    .where(and(eq(users.email, email), eq(users.isAgent, false), isNull(users.deactivatedAt)));
   if (!user) {
     await verifyPassword(await getDummyHash(), password);
     return null;
@@ -443,6 +448,49 @@ export async function authRoutes(
   // Best effort, senza requireAuth: il logout deve riuscire anche con cookie
   // assente, manomesso o già scaduto. Si elimina la riga solo se il cookie
   // si risolve; in ogni caso si pulisce il cookie e si risponde 204.
+  // Area 9, F1 (D-13): la conferma del cambio dell'email di login, dal link
+  // mandato alla NUOVA. Pubblica (la prova è aver ricevuto il link), col tetto
+  // dei tentativi del login. Non dà né sessione né token: non è una «porta»
+  // (`credentialDoor`). docs/invariants/identity.md.
+  // La LETTURA del link, che non conferma niente: la pagina mostra la nuova
+  // email e conferma solo col bottone (gli scanner della posta aprono i link).
+  app.get(
+    "/email-change/:token",
+    {
+      onRequest: credentialsRateLimit,
+      config: { access: { kind: "public" } },
+      schema: {
+        params: z.object({ token: z.string().min(1).max(200) }),
+        response: {
+          200: z.union([
+            z.object({ status: z.literal("valid"), newEmail: z.string() }),
+            z.object({ status: z.literal("invalid") }),
+          ]),
+        },
+      },
+    },
+    async (request) => peekEmailChange(app.db, request.params.token),
+  );
+
+  app.post(
+    "/email-change/confirm",
+    {
+      onRequest: credentialsRateLimit,
+      config: { access: { kind: "public" } },
+      schema: {
+        body: z.object({ token: z.string().min(1).max(200) }),
+        response: { 200: z.object({ email: z.string() }), 400: errorSchema, 409: errorSchema },
+      },
+    },
+    async (request, reply) => {
+      try {
+        return await confirmEmailChange(app.db, app.mailTransport, request.body.token);
+      } catch (error) {
+        return sendEmailChangeError(reply, error);
+      }
+    },
+  );
+
   app.post("/logout", { config: { access: { kind: "public" } } }, async (request, reply) => {
     const sessionId = sessionIdFromRequest(request);
     if (sessionId) await deleteSession(app.db, sessionId);
@@ -458,7 +506,8 @@ export async function authRoutes(
       },
     },
     async (request) => ({
-      user: request.user!,
+      // Area 9, F1: la foto caricata vince sull'avatar di Slack.
+      user: { ...request.user!, avatarUrl: (await avatarUrlsFor(app.db, [request.user!.id])).get(request.user!.id) ?? request.user!.avatarUrl },
       instancePermissions: [...request.user!.instancePermissions],
       projectPermissions: await projectPermissionsMap(app.db, request.user!),
       departmentPermissions: await departmentPermissionsMap(app.db, request.user!.id),

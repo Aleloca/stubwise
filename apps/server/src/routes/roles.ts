@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import {
@@ -10,7 +10,6 @@ import {
 } from "@stubwise/shared";
 import { projectIdsWithPermission } from "../auth/access.js";
 import {
-  assertCanActOnUser,
   createRole,
   deleteRole,
   duplicateRole,
@@ -24,9 +23,9 @@ import { apiError } from "../errors.js";
 
 /**
  * Errore di regola con i campi in più: `count` di `role_in_use`, e
- * `permission` — la chiave che manca a chi agisce — dei 403 `escalation`
- * (dare permessi che non si hanno) e `target_above` (toccare utente, membro o
- * ruolo con più permessi dei propri), ruling R44.
+ * `permission` — la chiave che manca a chi agisce — del 403 `escalation`
+ * (dare permessi che non si hanno), ruling R44. Il bersaglio non è più
+ * protetto (area 9, D-2): `target_above` non esiste più.
  */
 export const roleRuleErrorSchema = errorSchema.extend({
   count: z.number().int().optional(),
@@ -39,22 +38,6 @@ export function sendRoleRuleError(reply: FastifyReply, error: unknown): FastifyR
   return reply
     .code(error.status)
     .send({ code: error.code, message: error.message, ...error.extra });
-}
-
-/**
- * `preHandler` delle rotte di `users.manage` che agiscono su un altro utente
- * (`:id` del path): applica {@link assertCanActOnUser} (ruling R31). Gira dopo
- * l'hook globale di `config.access`, quindi `request.user` c'è.
- */
-export function targetUserNotAbove(param = "id") {
-  return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-    const userId = (request.params as Record<string, string>)[param]!;
-    try {
-      await assertCanActOnUser(request.server.db, request.user!, userId);
-    } catch (error) {
-      await sendRoleRuleError(reply, error);
-    }
-  };
 }
 
 export function toRoleView(row: RoleRow): z.infer<typeof roleSchema> {

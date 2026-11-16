@@ -17,7 +17,18 @@ import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 function toMemberView(row: MemberRow): z.infer<typeof projectMemberSchema> {
-  return { ...row, createdAt: row.createdAt.toISOString() };
+  return {
+    ...row,
+    createdAt: row.createdAt.toISOString(),
+    permissions: row.permissions.map((p) => ({
+      permission: p.permission,
+      sources: p.sources.map((src) =>
+        src.kind === "role"
+          ? { kind: "role" as const, roleId: src.roleId, byUserId: null, at: null, departmentId: null }
+          : { kind: "grant" as const, roleId: null, byUserId: src.byUserId, at: src.at, departmentId: null },
+      ),
+    })),
+  };
 }
 
 const projectParamsSchema = z.object({ projectId: z.uuid() });
@@ -68,6 +79,9 @@ export async function projectMemberRoutes(instance: FastifyInstance): Promise<vo
           400: roleRuleErrorSchema,
           403: roleRuleErrorSchema,
           404: roleRuleErrorSchema,
+          // Area 9, F1: l'ultimo gestore (409) e un permesso fuori catalogo (422).
+          409: roleRuleErrorSchema,
+          422: roleRuleErrorSchema,
         },
       },
     },
@@ -84,6 +98,7 @@ export async function projectMemberRoutes(instance: FastifyInstance): Promise<vo
           request.params.projectId,
           request.params.userId,
           request.body.roleId,
+          request.body.permissions,
         );
         return reply.code(200).send(toMemberView(member));
       } catch (error) {
@@ -110,6 +125,7 @@ export async function projectMemberRoutes(instance: FastifyInstance): Promise<vo
           ...authErrorResponses,
           403: roleRuleErrorSchema,
           404: roleRuleErrorSchema,
+          409: roleRuleErrorSchema,
         },
       },
     },

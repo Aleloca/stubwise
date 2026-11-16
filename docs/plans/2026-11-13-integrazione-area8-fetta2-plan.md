@@ -42,6 +42,13 @@
   (vedi M-1 per i `monitor.*`), con un test che lo prova.
 - **M3 = a** *(M)*: i tipi nuovi non vanno su Slack; i `monitor.*` smettono
   di andarci quando passano al catalogo, e la nota di rilascio lo dice.
+  **M3 riscritta il 16 nov 2026** *(M, area 9, E-2 = a)*: per i WEBHOOK IN
+  USCITA (dall'area 9 più d'uno, ciascuno con i suoi eventi) gli 8 tipi del
+  catalogo degli avvisi delle aree 8a/8b POSSONO entrare, uno per uno, in un
+  webhook che li sceglie, spenti di default; sempre col testo dei template,
+  mai la risposta di un cliente né il testo di una conversazione. Il DM Slack
+  resta com'era: i tipi del catalogo non ci vanno. Design:
+  `docs/plans/2026-11-16-integrazione-area9-design.md`, §3.2.
 - **R-5 = a** *(O)*: il catalogo è codice in shared, nessuna tabella.
 - **M-1 = a** *(M, 14 nov 2026)*: i `monitor.*` nel catalogo partono accesi
   per chi ha `monitor.manage` nel progetto e spenti per gli altri membri, che

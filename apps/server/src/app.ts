@@ -42,6 +42,11 @@ import { googleWorkspaceRoutes } from "./routes/google-workspaces.js";
 import { meGoogleRoutes } from "./routes/me-google.js";
 import { meCalendarRoutes } from "./routes/me-calendar.js";
 import { meMeetingsRoutes } from "./routes/me-meetings.js";
+import { meSessionsRoutes } from "./routes/me-sessions.js";
+import { avatarRoutes } from "./routes/avatars.js";
+import { meEmailChangeRoutes } from "./routes/me-email-change.js";
+import { accessRoutes } from "./routes/access.js";
+import { smtpTransport, type MailTransport } from "./mail/transport.js";
 import { meWaitingCustomersRoutes } from "./routes/me-waiting-customers.js";
 import { meMailDraftsRoutes, meMailOutgoingRoutes, meMailRecipientsRoutes } from "./routes/me-mail-drafts.js";
 import { meMailProposalsRoutes } from "./routes/me-mail-proposals.js";
@@ -150,6 +155,8 @@ declare module "fastify" {
     storage(): Promise<ObjectStorage | null>;
     /** Il client delle bozze di Gmail (area 6, F3): reale, o il doppio dei test (`mailComposeClient`). */
     mailComposeClient: MailComposeClient;
+    /** Area 9, F1: il trasporto email d'istanza (solo il cambio dell'email). */
+    mailTransport: MailTransport;
     /**
      * Client di embedding (OpenAI-compatibile) per la ricerca semantica e la
      * chat RAG sui Docs. Iniettabile nei test via BuildAppOptions.embeddingClient
@@ -307,6 +314,14 @@ export interface BuildAppOptions {
   mailGoogleClient?: MailOriginalClient;
   /** Area 6, F3: il client Gmail delle bozze, iniettabile nei test. */
   mailComposeClient?: MailComposeClient;
+  /**
+   * Area 9, F1 (E-1 = a): il trasporto email d'istanza per il cambio
+   * dell'email di login. Iniettabile nei test; altrimenti da `smtpUrl` e
+   * `mailFrom`, e senza è «non configurato».
+   */
+  mailTransport?: MailTransport;
+  smtpUrl?: string;
+  mailFrom?: string;
   /** Area 6, F4: il client delle scritture di Calendar, iniettabile nei test. */
   calendarWriteClient?: CalendarWriteClient;
   /** Area 6, F5b: il client di Drive (picker, cartelle), iniettabile nei test. */
@@ -567,6 +582,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   };
   app.decorate("chatLlm", chatLlm);
   app.decorate("mailComposeClient", opts.mailComposeClient ?? realMailComposeClient);
+  app.decorate("mailTransport", opts.mailTransport ?? smtpTransport(opts.smtpUrl, opts.mailFrom));
 
   // Retrieval dal knowledge graph nelle chat INTERNE (fase 2b). Il client MCP
   // nasce UNA volta per processo (la connessione dentro al client è pigra e
@@ -920,6 +936,14 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Sicurezza del PROPRIO account: riconferma recente e configurazione
   // dell'app (secondo fattore). Prefisso a sé come le altre `/api/me/*`.
   void app.register(meSecurityRoutes, { prefix: "/api/me/security" });
+  // Area 9, F1 (D-9): le mie sessioni, del browser e dei token di desktop e telefono.
+  void app.register(meSessionsRoutes, { prefix: "/api/me" });
+  // Area 9, F1 (D-13): la foto del profilo (`/api/me/avatar`, `/api/users/:id/avatar`).
+  void app.register(avatarRoutes, { prefix: "/api" });
+  // Area 9, F1 (D-13): il cambio della propria email di login.
+  void app.register(meEmailChangeRoutes, { prefix: "/api/me" });
+  // Area 9, F1 (D-11): «Chi può farlo?» e «Cosa può fare?».
+  void app.register(accessRoutes, { prefix: "/api/access" });
   // Cassaforte delle credenziali: attivazione, chiavi delle persone, kit di recupero.
   void app.register(vaultRoutes, { prefix: "/api/vault" });
   // Credenziali della cassaforte: `/api/projects/:projectId/credentials...`,

@@ -246,7 +246,8 @@ export async function findSessionUser(db: Db, sessionId: string): Promise<Sessio
     .innerJoin(users, eq(sessions.userId, users.id))
     .innerJoin(roles, eq(roles.id, users.instanceRoleId))
     // L'utente di sistema «Claude» non ha sessioni valide, per costruzione (fetta 3e).
-    .where(and(eq(sessions.id, sessionId), eq(users.isAgent, false)));
+    // Area 9, F1: una persona disattivata non entra (anche se una sessione sopravvivesse a una corsa).
+    .where(and(eq(sessions.id, sessionId), eq(users.isAgent, false), isNull(users.deactivatedAt)));
 
   if (!row) return null;
   if (row.expiresAt.getTime() <= Date.now()) {
@@ -311,7 +312,7 @@ export async function findPatUser(
     .innerJoin(users, eq(personalAccessTokens.userId, users.id))
     .innerJoin(roles, eq(roles.id, users.instanceRoleId))
     // Né PAT: l'utente di sistema «Claude» non agisce mai via API (fetta 3e).
-    .where(and(eq(personalAccessTokens.tokenHash, tokenHash), eq(users.isAgent, false)));
+    .where(and(eq(personalAccessTokens.tokenHash, tokenHash), eq(users.isAgent, false), isNull(users.deactivatedAt)));
   if (!row) return null;
   if (row.expiresAt && row.expiresAt.getTime() <= Date.now()) return null;
   await db
@@ -373,6 +374,7 @@ export async function findChatToolUser(
         isNull(claudeChatToolTokens.revokedAt),
         gt(claudeChatToolTokens.expiresAt, sql`now()`),
         eq(users.isAgent, false),
+        isNull(users.deactivatedAt),
       ),
     );
   if (!row) return null;
@@ -422,5 +424,18 @@ export async function requireAuth(
     await apiError(reply, 401, "second_factor_required", "Second factor required");
     return;
   }
+  if (user.sessionStage === "full") await touchSession(request.server.db, user.sessionId!, request.headers["user-agent"]);
   request.user = user;
+}
+
+/**
+ * Area 9, F1 (D-9): l'ultimo uso e lo user agent di una sessione, per «le mie
+ * sessioni». Una UPDATE sola che scrive SOLO se l'ultimo uso è vecchio di più
+ * di 5 minuti: mai una scrittura per richiesta.
+ */
+async function touchSession(db: Db, sessionId: string, userAgent: string | undefined): Promise<void> {
+  await db
+    .update(sessions)
+    .set({ lastSeenAt: sql`now()`, userAgent: sql`coalesce(${userAgent?.slice(0, 300) ?? null}, ${sessions.userAgent})` })
+    .where(and(eq(sessions.id, sessionId), or(isNull(sessions.lastSeenAt), lt(sessions.lastSeenAt, sql`now() - interval '5 minutes'`))));
 }
