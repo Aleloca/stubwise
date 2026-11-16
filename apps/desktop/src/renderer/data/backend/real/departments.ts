@@ -1,7 +1,7 @@
 import { ApiError } from "@stubwise/api-client";
 import type { DepartmentView as ServerDepartment } from "@stubwise/shared";
 import type * as Fake from "../../api";
-import type { AdminRefusal, DepartmentView, PersonRow } from "../../admin/types";
+import type { AdminRefusal, DepartmentView } from "../../admin/types";
 import { appClient } from "./client";
 import { countTasks } from "./tasks";
 
