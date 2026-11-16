@@ -1038,6 +1038,23 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 - Blocchi della Home «Rilasci» (anche l'extra di `resolveHome` per
   `release.merge`) e «Clienti in attesa».
+- «L'API per i siti» *(O, 72, review finale, 16 nov 2026)*, i minori
+  rimandati. Branch `feat/area8-site-api`; l'Important (la catena delle
+  conversazioni senza token) e quattro minori sono corretti nel giro della
+  review.
+  - **Costo dell'elenco**: `listSiteRequests`
+    (`apps/server/src/services/site-requests.ts`) legge TUTTE le conversazioni
+    verificate del `sub` e per ognuna calcola l'esito (fusioni, task,
+    rilasci); il tetto di 50 viene dopo. Un cliente col token può aprire
+    conversazioni senza un tetto giornaliero, quindi ogni lettura può costare
+    migliaia di query. La correzione vera è un tetto alle conversazioni
+    aperte per `sub` al giorno, o l'esito calcolato in SQL.
+  - **Rate limit «per cliente»**: il bucket è la chiave più l'hash dell'header
+    `Authorization` grezzo, non il `sub` (il `keyGenerator` gira prima della
+    verifica). Header inventati aprono bucket nuovi, e ognuno costa una
+    decifratura e un HMAC prima del 401. Lo stesso vale già oggi per
+    `X-Stubwise-Key` inventate sul limitatore per chiave. La correzione vera è
+    un limitatore DOPO `identify`, per `sub` verificato.
 - «Clienti in attesa» *(O, 72, review finale, 15 nov 2026)*, i minori
   rimandati. Branch `feat/area8-waiting`; gli Important sono corretti in
   8c51606b8.

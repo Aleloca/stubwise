@@ -61,3 +61,20 @@ describe("client.widgets", () => {
     expect(call(del.fetchImpl)).toMatchObject({ url: `https://x.test/api/projects/${P}/widgets/${W}`, method: "DELETE" });
   });
 });
+
+describe("widgets: l'identità dei clienti (area 8, «L'API per i siti»)", () => {
+  it("un widget di un server più vecchio, senza i campi d'identità: segreto assente, data null, obbligo spento", async () => {
+    const { c } = client({ widgets: [widget], canManage: true });
+    const res = await c.widgets.list(P);
+    expect(res.widgets[0]).toMatchObject({ identitySecretSet: false, identitySecretRotatedAt: null, identityRequired: false });
+  });
+
+  it("regenerateIdentitySecret: POST …/identity-secret, il segreto e la data", async () => {
+    const { c, fetchImpl } = client({ secret: "s3gr3t0", rotatedAt: "2026-11-16T09:00:00.000Z" });
+    const res = await c.widgets.regenerateIdentitySecret(P, W);
+    expect(fetchImpl.mock.calls[0]![0]).toBe(`https://x.test/api/projects/${P}/widgets/${W}/identity-secret`);
+    expect(fetchImpl.mock.calls[0]![1]!.method).toBe("POST");
+    expect(res).toEqual({ secret: "s3gr3t0", rotatedAt: "2026-11-16T09:00:00.000Z" });
+  });
+});
+

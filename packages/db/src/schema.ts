@@ -2828,6 +2828,13 @@ export const widgets = pgTable(
      * rifiutano un'`Origin` assente o fuori elenco.
      */
     allowedOrigins: text("allowed_origins").array().notNull().default(sql`'{}'::text[]`),
+    // Area 8, «L'API per i siti» (0184): il segreto con cui il sito firma
+    // l'identità dei suoi clienti (JWT HS256), cifrato con la chiave
+    // d'istanza; null = nessun segreto. Non esce MAI da una lettura.
+    identitySecretEncrypted: text("identity_secret_encrypted"),
+    identitySecretRotatedAt: timestamp("identity_secret_rotated_at", { withTimezone: true }),
+    /** Solo clienti verificati: la chat senza un token valido è rifiutata. */
+    identityRequired: boolean("identity_required").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   // Elenco dei widget di un progetto.
@@ -2879,6 +2886,8 @@ export const widgetConversations = pgTable(
      * esito): un messaggio del cliente su una chiusa va lì (F3, S17).
      */
     continuedInId: uuid("continued_in_id").references((): AnyPgColumn => widgetConversations.id, { onDelete: "set null" }),
+    /** Area 8, «L'API per i siti» (0184): aperta con un token d'identità valido del sito. */
+    identityVerified: boolean("identity_verified").notNull().default(false),
   },
   (table) => [
     // Elenco delle conversazioni di un progetto, le più recenti prima.

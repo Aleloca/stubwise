@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fastifyCors from "@fastify/cors";
 import {
   normalizeWidgetOrigin,
@@ -5,23 +6,28 @@ import {
   widgetConversationCreateBodySchema,
   widgetSettingsSchema,
   widgetTicketConfirmBodySchema,
+  siteRequestDetailSchema,
+  siteRequestListSchema,
 } from "@stubwise/shared";
 import { and, asc, count, desc, eq, gte, isNotNull } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import {
+  decrypt,
   projects,
   widgetConversations,
   widgetMessages,
   widgets,
 } from "@stubwise/db";
 import { keysMatch } from "../ingest/shared.js";
+import { verifyWidgetIdentity, type WidgetIdentity } from "../auth/widget-identity.js";
 import { maybeEnqueueBacklogIntake } from "../backlog/enqueue.js";
 import { createTicket } from "../db/tickets.js";
 import { errorSchema, unprocessableEntityFormatter } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 import { openConversationFor } from "../services/support-continuation.js";
+import { listSiteRequests, siteRequestDetail } from "../services/site-requests.js";
 import { apiError } from "../errors.js";
 import { retrieveChunksForProject } from "./docs-retrieval.js";
 import { buildCitations, CHAT_RETRIEVAL_K } from "./docs-rag.js";
@@ -102,7 +108,8 @@ export async function widgetRoutes(
   await app.register(fastifyCors, {
     origin: "*",
     methods: ["GET", "POST"],
-    allowedHeaders: ["content-type", "x-stubwise-key"],
+    // `authorization`: il token d'identità del cliente (area 8, «L'API per i siti»).
+    allowedHeaders: ["content-type", "x-stubwise-key", "authorization"],
   });
 
   /**
@@ -153,6 +160,63 @@ export async function widgetRoutes(
     request.widgetProject = { id: project.id, name: project.name };
   };
 
+  /**
+   * Area 8, «L'API per i siti» (S3): l'identità del cliente FIRMATA dal sito,
+   * dopo `authenticateWidget`, sulle rotte della conversazione (non sulla
+   * config: il widget si monta anche con un token scaduto). Un header
+   * `Authorization: Bearer` presente va verificato col segreto del widget:
+   * non valido, o widget senza segreto, è la stessa 401 `invalid_identity`.
+   * Assente: identità null, e con «Solo clienti verificati» 401
+   * `identity_required`.
+   */
+  const identify = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const widget = request.widget!;
+    request.widgetIdentity = null;
+    const header = request.headers.authorization;
+    if (typeof header === "string" && header.trim() !== "") {
+      const token = /^Bearer\s+(\S+)$/i.exec(header.trim())?.[1];
+      let identity: WidgetIdentity | null = null;
+      if (token && widget.identitySecretEncrypted) {
+        try {
+          identity = verifyWidgetIdentity(token, { secret: decrypt(widget.identitySecretEncrypted, app.encryptionKey), widgetId: widget.id });
+        } catch {
+          identity = null;
+        }
+      }
+      if (!identity) {
+        await apiError(reply, 401, "invalid_identity", "Invalid customer identity");
+        return;
+      }
+      request.widgetIdentity = identity;
+      return;
+    }
+    if (widget.identityRequired) {
+      await apiError(reply, 401, "identity_required", "This site requires a verified customer identity");
+    }
+  };
+
+  /**
+   * Il cliente della richiesta: col token è il suo `sub`, e un id dichiarato
+   * diverso è un mismatch (null = la rotta risponde 401 `identity_mismatch`);
+   * senza, l'id dichiarato, come prima.
+   */
+  const customerOf = (request: FastifyRequest, declared: string): string | null => {
+    const identity = request.widgetIdentity;
+    if (!identity) return declared;
+    return identity.sub === declared ? identity.sub : null;
+  };
+  /**
+   * Una conversazione è di chi chiede: lo stesso cliente E, se è VERIFICATA,
+   * solo con un token (dichiararne il cliente non basta più).
+   */
+  const owns = (request: FastifyRequest, customer: string, row: { externalUserId: string; identityVerified: boolean }): boolean =>
+    row.externalUserId === customer && (!row.identityVerified || request.widgetIdentity !== null);
+
+  /** Le letture del cliente vogliono SEMPRE il token, anche se la chat non lo chiede. */
+  const requireIdentity = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    if (!request.widgetIdentity) await apiError(reply, 401, "identity_required", "A verified customer identity is required");
+  };
+
   const ownOrigin = (() => {
     try {
       return new URL(app.publicUrl).origin;
@@ -172,6 +236,15 @@ export async function widgetRoutes(
     ...opts.rateLimit,
     keyGenerator: (request: FastifyRequest) =>
       (request.headers["x-stubwise-key"] as string | undefined) ?? request.ip,
+  };
+
+  // Area 8, «L'API per i siti»: le letture del cliente hanno anche un bucket
+  // per chiave E token (cioè per cliente), così un cliente insistente non
+  // consuma il budget del widget intero.
+  const rateLimitPerCustomer = {
+    ...opts.rateLimit,
+    keyGenerator: (request: FastifyRequest) =>
+      `${(request.headers["x-stubwise-key"] as string | undefined) ?? request.ip}:${createHash("sha256").update(String(request.headers.authorization ?? "")).digest("hex").slice(0, 32)}`,
   };
 
   const configResponseSchema = z.union([
@@ -252,7 +325,7 @@ export async function widgetRoutes(
     "/:slug/conversations",
     {
       config: { rateLimit, access: { kind: "public" } },
-      preValidation: authenticateWidget,
+      preValidation: [authenticateWidget, identify],
       schemaErrorFormatter: unprocessableEntityFormatter,
       schema: {
         params: z.object({ slug: z.string().min(1) }),
@@ -271,14 +344,19 @@ export async function widgetRoutes(
         return apiError(reply, 404, "widget_disabled", "Widget not available");
       }
       const { user } = request.body;
+      const customer = customerOf(request, user.id);
+      if (customer === null) return apiError(reply, 401, "identity_mismatch", "The declared customer is not the signed one");
+      const identity = request.widgetIdentity;
       const [conversation] = await app.db
         .insert(widgetConversations)
         .values({
           projectId: widget.projectId,
           widgetId: widget.id,
-          externalUserId: user.id,
-          externalUserEmail: user.email ?? null,
-          externalUserName: user.name ?? null,
+          externalUserId: customer,
+          // Col token, email e nome FIRMATI vincono su quelli dichiarati.
+          externalUserEmail: identity ? (identity.email ?? user.email ?? null) : (user.email ?? null),
+          externalUserName: identity ? (identity.name ?? user.name ?? null) : (user.name ?? null),
+          identityVerified: identity !== null,
         })
         .returning({ id: widgetConversations.id });
       return { conversationId: conversation!.id };
@@ -308,7 +386,7 @@ export async function widgetRoutes(
     "/:slug/conversations/:conversationId/messages",
     {
       config: { rateLimit, access: { kind: "public" } },
-      preValidation: authenticateWidget,
+      preValidation: [authenticateWidget, identify],
       schema: {
         params: z.object({
           slug: z.string().min(1),
@@ -329,10 +407,11 @@ export async function widgetRoutes(
         return apiError(reply, 404, "widget_disabled", "Widget not available");
       }
       const { conversationId } = request.params;
-      const { userId } = request.query;
+      const customer = customerOf(request, request.query.userId);
+      if (customer === null) return apiError(reply, 401, "identity_mismatch", "The declared customer is not the signed one");
 
       const [conversation] = await app.db
-        .select({ externalUserId: widgetConversations.externalUserId })
+        .select({ externalUserId: widgetConversations.externalUserId, identityVerified: widgetConversations.identityVerified })
         .from(widgetConversations)
         .where(
           and(
@@ -344,7 +423,7 @@ export async function widgetRoutes(
       // Conversazione inesistente, di un altro progetto/widget, o di un altro
       // utente: 404 indistinguibile (anti-lettura cross-utente/cross-widget con
       // id conversazione rubato).
-      if (!conversation || conversation.externalUserId !== userId) {
+      if (!conversation || !owns(request, customer, conversation)) {
         return apiError(reply, 404, "conversation_not_found", "Conversation not found");
       }
 
@@ -391,7 +470,7 @@ export async function widgetRoutes(
     "/:slug/conversations/:conversationId/messages",
     {
       config: { rateLimit, access: { kind: "public" } },
-      preValidation: authenticateWidget,
+      preValidation: [authenticateWidget, identify],
       schemaErrorFormatter: unprocessableEntityFormatter,
       schema: {
         params: z.object({
@@ -424,13 +503,15 @@ export async function widgetRoutes(
         return apiError(reply, 404, "widget_disabled", "Widget not available");
       }
       const { conversationId } = request.params;
-      const { content, userId } = request.body;
+      const { content } = request.body;
+      const userId = customerOf(request, request.body.userId);
+      if (userId === null) return apiError(reply, 401, "identity_mismatch", "The declared customer is not the signed one");
 
       // Ownership: la conversazione deve essere del progetto e del widget
       // autenticati E del `userId` dichiarato (id conversazione rubato o chiave di
       // un altro widget → 404 indistinguibile).
       const [conversation] = await app.db
-        .select({ externalUserId: widgetConversations.externalUserId })
+        .select({ externalUserId: widgetConversations.externalUserId, identityVerified: widgetConversations.identityVerified })
         .from(widgetConversations)
         .where(
           and(
@@ -439,7 +520,7 @@ export async function widgetRoutes(
             eq(widgetConversations.widgetId, widget.id),
           ),
         );
-      if (!conversation || conversation.externalUserId !== userId) {
+      if (!conversation || !owns(request, userId, conversation)) {
         return apiError(reply, 404, "conversation_not_found", "Conversation not found");
       }
 
@@ -493,7 +574,9 @@ export async function widgetRoutes(
       // Area 8, F3, S17: una conversazione con un esito è CHIUSA; il messaggio
       // va nella sua successiva (creata se manca, una sola). Dopo la proprietà,
       // il cap e il pre-flight: è la prima scrittura.
-      const targetId = await openConversationFor(app.db, conversationId);
+      const targetId = await openConversationFor(app.db, conversationId, { identityVerified: request.widgetIdentity !== null });
+      // Una catena che, senza token, porterebbe in una conversazione verificata: non è sua.
+      if (targetId === null) return apiError(reply, 404, "conversation_not_found", "Conversation not found");
 
       // Persiste il messaggio utente PRIMA del retrieval/streaming, aggiorna il
       // last_message_at (ordina l'elenco viewer + alimenta il cap del giorno).
@@ -571,11 +654,57 @@ export async function widgetRoutes(
    * possibile anche a chat spenta: NON si richiede `enabledRepositoryIds.length`.
    * Body invalido → 422.
    */
+  /**
+   * Area 8, «L'API per i siti» (S4): le richieste e i ticket del cliente
+   * FIRMATO dal sito. Le regole stanno in `services/site-requests.ts`.
+   */
+  app.get(
+    "/:slug/me/requests",
+    {
+      config: { rateLimit: rateLimitPerCustomer, access: { kind: "public" } },
+      preValidation: [authenticateWidget, identify, requireIdentity],
+      schema: {
+        params: z.object({ slug: z.string().min(1) }),
+        response: { 200: siteRequestListSchema, 401: errorSchema, 403: errorSchema, 404: errorSchema },
+      },
+    },
+    async (request, reply) => {
+      reply.header("cache-control", "no-store");
+      // Widget spento = spento anche per il sito (review finale): come la chat.
+      if (!request.widget!.enabled) return apiError(reply, 404, "widget_disabled", "Widget not available");
+      return listSiteRequests(app.db, request.widget!, request.widgetIdentity!.sub);
+    },
+  );
+
+  /**
+   * S4b: il dettaglio, coi messaggi della SUA conversazione col widget. Il
+   * codice si cerca solo fra le sue: «non esiste» e «non è tua» sono lo
+   * stesso 404.
+   */
+  app.get(
+    "/:slug/me/requests/:code",
+    {
+      config: { rateLimit: rateLimitPerCustomer, access: { kind: "public" } },
+      preValidation: [authenticateWidget, identify, requireIdentity],
+      schema: {
+        params: z.object({ slug: z.string().min(1), code: z.string().min(1).max(40) }),
+        response: { 200: siteRequestDetailSchema, 401: errorSchema, 403: errorSchema, 404: errorSchema },
+      },
+    },
+    async (request, reply) => {
+      reply.header("cache-control", "no-store");
+      if (!request.widget!.enabled) return apiError(reply, 404, "widget_disabled", "Widget not available");
+      const detail = await siteRequestDetail(app.db, request.widget!, request.widgetIdentity!.sub, request.params.code);
+      if (!detail) return apiError(reply, 404, "not_found", "Not found");
+      return detail;
+    },
+  );
+
   app.post(
     "/:slug/conversations/:conversationId/tickets",
     {
       config: { rateLimit, access: { kind: "public" } },
-      preValidation: authenticateWidget,
+      preValidation: [authenticateWidget, identify],
       schemaErrorFormatter: unprocessableEntityFormatter,
       schema: {
         params: z.object({
@@ -601,7 +730,9 @@ export async function widgetRoutes(
         return apiError(reply, 404, "widget_disabled", "Widget not available");
       }
       const { conversationId } = request.params;
-      const { title, body: proposalBody, type, userId } = request.body;
+      const { title, body: proposalBody, type } = request.body;
+      const userId = customerOf(request, request.body.userId);
+      if (userId === null) return apiError(reply, 401, "identity_mismatch", "The declared customer is not the signed one");
 
       // Ownership: la conversazione deve essere del progetto e del widget
       // autenticati E del `userId` dichiarato (id conversazione rubato o chiave di
@@ -611,6 +742,7 @@ export async function widgetRoutes(
           externalUserId: widgetConversations.externalUserId,
           externalUserEmail: widgetConversations.externalUserEmail,
           externalUserName: widgetConversations.externalUserName,
+          identityVerified: widgetConversations.identityVerified,
         })
         .from(widgetConversations)
         .where(
@@ -620,7 +752,7 @@ export async function widgetRoutes(
             eq(widgetConversations.widgetId, widget.id),
           ),
         );
-      if (!conversation || conversation.externalUserId !== userId) {
+      if (!conversation || !owns(request, userId, conversation)) {
         return apiError(reply, 404, "conversation_not_found", "Conversation not found");
       }
 
@@ -660,7 +792,9 @@ export async function widgetRoutes(
       const lang = language.success ? language.data : "it";
 
       // Area 8, F3, S17: su una conversazione chiusa la conferma va alla successiva.
-      const targetId = await openConversationFor(app.db, conversationId);
+      const targetId = await openConversationFor(app.db, conversationId, { identityVerified: request.widgetIdentity !== null });
+      // Una catena che, senza token, porterebbe in una conversazione verificata: non è sua.
+      if (targetId === null) return apiError(reply, 404, "conversation_not_found", "Conversation not found");
 
       // Ultimi N messaggi PRIMA della conferma, in ordine cronologico (DESC +
       // reverse per l'indice, tiebreaker su id come lo storico).
@@ -821,5 +955,7 @@ declare module "fastify" {
     widget?: WidgetRow;
     /** Progetto del widget autenticato (id/nome, comodo per i log). */
     widgetProject?: { id: string; name: string };
+    /** Area 8, «L'API per i siti»: il cliente firmato dal sito (null = dichiarato). */
+    widgetIdentity?: WidgetIdentity | null;
   }
 }

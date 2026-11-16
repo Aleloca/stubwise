@@ -4822,3 +4822,42 @@ deploy o di un rollback che la tocca.
   nuovo, quindi la discesa d'immagine è sicura. Per fermare i giudizi senza
   rollback: il budget mensile dell'istanza (J2 non parte oltre il tetto;
   J1 vive dentro la classificazione e si ferma con lei).
+- **«Integrazione area 8: l'API per i siti»** *(16 nov 2026)*: branch
+  `feat/area8-site-api` (da `feat/area8-waiting`: si deploya DOPO «Clienti in
+  attesa»), piano `docs/plans/2026-11-15-integrazione-area8-api-siti-plan.md`.
+  Il cliente di un sito che ospita il widget segue sul sito le richieste e i
+  ticket che ha aperto dal widget. Il sito ne FIRMA l'identità (JWT HS256 col
+  segreto d'identità del widget, generato in Amministrazione del widget con
+  la riconferma); il widget passa il token (`identityToken`); il sito legge
+  `GET /widget/:slug/me/requests` e il dettaglio `/me/requests/:code`.
+  Migrazione **0184** (`widgets.identity_secret_encrypted`,
+  `identity_secret_rotated_at`, `identity_required` default false;
+  `widget_conversations.identity_verified` default false). Nessuna env
+  nuova; nessuna modifica al worker.
+
+  **ORDINE**: **server** (healthy, 0184 applicata), poi **caddy** (il bundle
+  del widget con `identityToken`, il renderer, la guida «Show customers their
+  requests»).
+
+  **Da sapere subito**:
+  - Niente cambia per i widget installati: senza segreto e senza token tutto
+    funziona come prima. Le conversazioni di prima restano «dichiarate» e
+    non entrano mai nella lettura del sito (D-1).
+  - Il segreto si vede UNA volta; rigenerarlo spegne il vecchio subito
+    (D-5): il sito va aggiornato nello stesso momento.
+  - «Solo clienti verificati» si accende solo con un segreto (422
+    `identity_secret_missing` altrimenti).
+  - Una conversazione VERIFICATA si legge e si scrive solo col token del suo
+    cliente: un widget installato SENZA token che riprende una conversazione
+    nata verificata riceve 404 e ne apre una nuova.
+  Controllo, sola lettura: `select count(*) from widgets where
+  identity_secret_encrypted is not null;` e `select count(*) from
+  widget_conversations where identity_verified;`.
+
+  **Rollback** (il server scende **insieme** al caddy; 0184 non si annulla, le
+  colonne con default sono innocue per il codice di prima): ⚠️ un server
+  vecchio IGNORA il token e «Solo clienti verificati»: la chat torna ad
+  accettare i clienti dichiarati, e le conversazioni verificate tornano
+  leggibili dichiarandone il cliente (com'era prima). Avvisare chi ha acceso
+  la protezione. La pagina del sito riceve 404 sulle letture e mostra il suo
+  errore. Nessun kind nuovo.

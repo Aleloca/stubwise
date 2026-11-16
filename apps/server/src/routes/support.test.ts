@@ -164,6 +164,20 @@ describe("Support, le letture (area 8, F3, S2)", () => {
     expect(v).toMatchObject({ widgetName: "Sito Acquaviva", state: "request_open", canReplyToCollaborator: true, customer: { name: "Mario Bianchi", email: null } });
   });
 
+  it("area 8, «L'API per i siti»: il cliente FIRMATO dal sito si vede (`identityVerified`); dichiarato no", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const dev = await person("developer", projectId);
+    const signed = await conversation(projectId);
+    await t.db.update(widgetConversations).set({ identityVerified: true }).where(eq(widgetConversations.id, signed.id));
+    const declared = await conversation(projectId);
+    await message(signed.id, "user", 1);
+    await message(declared.id, "user", 2);
+    expect((await detail(dev.headers, signed.code)).identityVerified).toBe(true);
+    expect((await detail(dev.headers, declared.code)).identityVerified).toBe(false);
+    const rows = await list(dev.headers, projectId);
+    expect(Object.fromEntries(rows.map((r) => [r.code, r.identityVerified]))).toEqual({ [signed.code]: true, [declared.code]: false });
+  });
+
   it("un progetto invisibile risponde come inesistente; un codice storto o assente è 404", async () => {
     const { projectId } = await seedRepository(t.db);
     const { projectId: other } = await seedRepository(t.db);
@@ -191,10 +205,17 @@ describe("Support, le letture (area 8, F3, S2)", () => {
     expect(p.status).toBe("received");
   });
 
-  it("«Clienti in attesa» non è più di Support (premessa corretta): la rotta non c'è", async () => {
+  it("«Clienti in attesa» non è più di Support (premessa corretta): la rotta legge le CASELLE, una conversazione del widget che aspetta non c'entra", async () => {
+    // Da «Clienti in attesa» (area 8, 15 nov 2026) `/api/me/waiting-customers`
+    // esiste di nuovo, ma sulla posta delle mie caselle
+    // (`apps/server/src/routes/me-waiting-customers.ts`): il widget non la alimenta.
     const { projectId } = await seedRepository(t.db);
     const dev = await person("developer", projectId);
-    expect((await get(dev.headers, "/api/me/waiting-customers")).statusCode).toBe(404);
+    const c = await conversation(projectId, { name: "Cliente in attesa" });
+    await message(c.id, "user", 1);
+    const res = await get(dev.headers, "/api/me/waiting-customers");
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ items: [], total: 0 });
   });
 
   it("S6: la provenienza di una richiesta e la conversazione di una task del widget si DERIVANO a lettura (null per le altre)", async () => {

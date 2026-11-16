@@ -39,6 +39,11 @@ export const supportConversationSchema = z.object({
   channel: supportChannelSchema,
   widgetId: z.uuid().nullable().default(null),
   widgetName: z.string().nullable().default(null),
+  /**
+   * Area 8, «L'API per i siti» (additivo): il cliente è FIRMATO dal sito
+   * (token d'identità valido all'apertura) e non solo dichiarato.
+   */
+  identityVerified: z.boolean().default(false),
   /** L'identità che il sito ha dichiarato; senza nome: «Anonymous visitor». */
   customer: z
     .object({ name: z.string().nullable().default(null), email: z.string().nullable().default(null) })
@@ -118,3 +123,33 @@ export const supportOpenRequestResultSchema = z.object({
   conversation: supportConversationSchema,
   request: z.object({ id: z.uuid(), code: z.string() }),
 });
+
+/**
+ * Area 8, «L'API per i siti» (`GET /widget/:slug/me/requests`): una richiesta
+ * o un ticket del cliente FIRMATO dal sito, come lo vede lui. La forma è
+ * CHIUSA (un test ne fissa le chiavi): mai nomi del team, stime, commenti,
+ * titoli o codici interni. `label` sono le parole del cliente (il suo primo
+ * messaggio, al più 140 caratteri), testo NON FIDATO per il sito; `code` è
+ * quello della sua conversazione (`<PRJ>-S<n>`).
+ */
+export const siteRequestSchema = z.object({
+  code: z.string(),
+  kind: z.enum(["request", "ticket"]),
+  label: z.string(),
+  status: customerStatusSchema,
+  statusLabel: z.string(),
+  openedAt: z.iso.datetime(),
+});
+export type SiteRequest = z.infer<typeof siteRequestSchema>;
+
+export const siteRequestListSchema = z.object({
+  items: z.array(siteRequestSchema),
+  total: z.number().int().default(0),
+});
+export type SiteRequestList = z.infer<typeof siteRequestListSchema>;
+
+/** Il dettaglio: la riga e i messaggi della SUA conversazione col widget (cliente ↔ AI). */
+export const siteRequestDetailSchema = siteRequestSchema.extend({
+  messages: z.array(z.object({ from: z.enum(["customer", "assistant"]), body: z.string(), at: z.iso.datetime() })),
+});
+export type SiteRequestDetail = z.infer<typeof siteRequestDetailSchema>;

@@ -1275,6 +1275,13 @@
       "when": 1800230400000,
       "tag": "0183_mail_reply_judgment",
       "breakpoints": true
+    },
+    {
+      "idx": 184,
+      "version": "7",
+      "when": 1800316800000,
+      "tag": "0184_widget_identity",
+      "breakpoints": true
     }
   ]
 }

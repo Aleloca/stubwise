@@ -132,6 +132,7 @@ export default defineConfig({
             { label: "Claude Code (MCP)", slug: "integrations/claude-code-mcp" },
             { label: "Inbound webhook", slug: "integrations/inbound-webhook" },
             { label: "Customer service widget", slug: "integrations/widget" },
+            { label: "Show customers their requests", slug: "integrations/widget-customer-requests" },
             { label: "Slack", slug: "integrations/slack" },
             { label: "Google Workspace", slug: "integrations/google-workspace" },
             { label: "Gmail and Calendar", slug: "integrations/gmail-calendar" },
