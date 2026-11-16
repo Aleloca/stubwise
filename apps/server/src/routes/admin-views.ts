@@ -4,6 +4,8 @@ import { eq } from "drizzle-orm";
 import { adminRoleViews, inviteChoices, inviteTokenOf, inviteViews } from "../services/admin-roles.js";
 import { projectIdsWithPermission } from "../auth/access.js";
 import { apiError } from "../errors.js";
+import { recordChange } from "../services/change-log.js";
+import { inviteObject } from "../services/invite-change.js";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -71,7 +73,12 @@ export async function adminViewRoutes(instance: FastifyInstance): Promise<void> 
     async (request, reply) => {
       const token = await inviteTokenOf(app.db, request.params.id);
       if (!token) return apiError(reply, 404, "invite_not_found", "Invite not found");
-      await app.db.delete(invites).where(eq(invites.token, token));
+      const deleted = await app.db.transaction(async (tx) => {
+        const [row] = await tx.delete(invites).where(eq(invites.token, token)).returning({ token: invites.token, email: invites.email });
+        if (row) await recordChange(tx, { type: "invite.revoked", actor: request.user!, projectId: null, data: { object: inviteObject(row.token, row.email) } });
+        return row;
+      });
+      if (!deleted) return apiError(reply, 404, "invite_not_found", "Invite not found");
       return reply.code(204).send(null);
     },
   );
