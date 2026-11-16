@@ -142,6 +142,20 @@ describe("la persona cambia la sua email", () => {
     });
   });
 
+  it("la lettura del link (getEmailChangeLink) dice la nuova email e NON conferma; un link non valido è «invalid»", async () => {
+    as(SARA);
+    markReauthenticated(SARA);
+    await me.requestEmailChange(NEW);
+    const token = __secretValuesForTest()
+      .find((s) => s.kind === "email_change_link")!
+      .values.at(-1)!;
+    expect(await me.getEmailChangeLink(token)).toEqual({ status: "valid", email: NEW });
+    expect((await me.getMyProfile()).email).toBe(OLD);
+    expect(await me.getEmailChangeLink("nope")).toEqual({ status: "invalid" });
+    advanceNow((24 * 60 + 1) * 60_000);
+    expect(await me.getEmailChangeLink(token)).toEqual({ status: "invalid" });
+  });
+
   it("l'email non cambia più da updateProfile", async () => {
     as(SARA);
     await me.updateProfile({ email: NEW } as never);

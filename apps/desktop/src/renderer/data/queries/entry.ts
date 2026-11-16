@@ -147,8 +147,18 @@ export function useResetLink(token: string) {
  * La password nuova da un link di reset. Non porta dentro: le sessioni della
  * persona si chiudono, e si entra dal login con la password nuova.
  */
+/** Area 9, R2: la lettura del link del cambio d'email (non conferma niente). */
+export function useEmailChangeLink(token: string) {
+  return useQuery({
+    queryKey: ["entry", "emailChangeLink", token],
+    queryFn: () => api.me.getEmailChangeLink(token),
+    // Come il reset: dopo l'uso il link non vale più, si rilegge a ogni visita.
+    gcTime: 0,
+  });
+}
+
 /**
- * Area 9, R2: la pagina del link del cambio d'email lo conferma da sola,
+ * Area 9, R2: la conferma del cambio d'email, al CLIC sulla pagina del link,
  * senza sessione. Poi si rilegge tutto (chi è dentro vede l'email nuova).
  */
 export function useConfirmEmailChange() {

@@ -10394,13 +10394,17 @@
     },
     "emailChange": {
       "title": "Email di accesso cambiata",
-      "confirming": "Conferma della nuova email…",
+      "confirming": "Lettura del link…",
       "done": "Da ora entri con {{email}}.",
       "failed": "Non è stato possibile confermare la nuova email. Riapri il link.",
       "invalidTitle": "Questo link non vale",
       "invalidBody": "Può essere scaduto, già usato o annullato. Chiedine uno nuovo dalle tue preferenze.",
       "takenTitle": "Quell'email è già presa",
-      "takenBody": "Ora la usa un'altra persona in Stubwise. La tua email di accesso non è cambiata."
+      "takenBody": "Ora la usa un'altra persona in Stubwise. La tua email di accesso non è cambiata.",
+      "confirmTitle": "Conferma la nuova email di accesso",
+      "confirmBody": "La tua email di accesso diventerà {{email}}.",
+      "confirm": "Conferma il cambio dell'email",
+      "confirmingButton": "Conferma…"
     }
   },
   "admin": {

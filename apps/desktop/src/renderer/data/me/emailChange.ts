@@ -131,7 +131,24 @@ function confirm(change: EmailChange | undefined): MeResult<{ email: string }> {
   return { ok: true, email };
 }
 
-/** La pagina pubblica del link (`<PUBLIC_URL>/app/#/email-change/<token>`). */
+/**
+ * La pagina del link lo LEGGE prima di confermare: aprirlo non cambia
+ * niente (gli scanner della posta aprono i link ed eseguono il JS), si
+ * conferma solo col clic. Sbagliato, scaduto, usato o annullato: `invalid`,
+ * senza dire quale né di chi.
+ */
+export async function getEmailChangeLink(
+  token: string,
+): Promise<{ status: "valid"; email: string } | { status: "invalid" }> {
+  await gate("auth.getEmailChangeLink");
+  const hit = matchSecret("email_change_link", token.trim());
+  const change = hit ? state.emailChanges.find((c) => c.secretId === hit.id) : undefined;
+  return change && change.expiresAt > now()
+    ? { status: "valid", email: change.email }
+    : { status: "invalid" };
+}
+
+/** La conferma, col clic sulla pagina del link (`<PUBLIC_URL>/app/#/email-change/<token>`). */
 export async function confirmEmailChange(token: string): Promise<MeResult<{ email: string }>> {
   await gate("auth.confirmEmailChange");
   const hit = matchSecret("email_change_link", token.trim());

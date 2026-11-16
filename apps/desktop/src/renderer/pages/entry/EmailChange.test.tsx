@@ -1,4 +1,5 @@
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { auth, me, resetApi, setLatency } from "../../data/api";
 import { __secretValuesForTest } from "../../data/admin/secrets";
@@ -7,8 +8,9 @@ import { setSessionPersonId } from "../../data/session";
 import { renderRoute } from "../../test/renderRoute";
 
 // La pagina del link del cambio d'email (area 9, R2; il server la serve a
-// `<PUBLIC_URL>/app/#/email-change/<token>`): pubblica, senza sessione, si
-// conferma da sola all'apertura e dice com'è andata. Un link sbagliato,
+// `<PUBLIC_URL>/app/#/email-change/<token>`): pubblica, senza sessione. NON
+// si conferma all'apertura (gli scanner della posta aprono i link ed
+// eseguono il JS): mostra la nuova email e conferma solo al clic. Un link sbagliato,
 // scaduto, usato o annullato dà UNA frase sola, come il server.
 
 const SARA = "p-sara";
@@ -33,9 +35,26 @@ async function linkForSara(email = NEW): Promise<string> {
 }
 
 describe("/email-change/$token", () => {
-  it("un link valido conferma da solo, anche senza sessione: la nuova email e il login", async () => {
+  it("aprirlo NON conferma (gli scanner della posta aprono i link): mostra la nuova email e il bottone", async () => {
     const token = await linkForSara();
     renderRoute(`/email-change/${token}`);
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Confirm your new sign-in email" }),
+    ).toBeVisible();
+    expect(screen.getByText(`Your sign-in email will become ${NEW}.`)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Confirm email change" })).toBeVisible();
+    // Niente è cambiato: si entra ancora con la vecchia.
+    expect(
+      (await auth.login({ email: "sara.montanari@example.com", password: "stubwise" })).ok,
+    ).toBe(true);
+    expect((await auth.login({ email: NEW, password: "stubwise" })).ok).toBe(false);
+  });
+
+  it("il clic conferma: la nuova email e il login", async () => {
+    const user = userEvent.setup();
+    const token = await linkForSara();
+    renderRoute(`/email-change/${token}`);
+    await user.click(await screen.findByRole("button", { name: "Confirm email change" }));
     expect(
       await screen.findByRole("heading", { level: 1, name: "Sign-in email changed" }),
     ).toBeVisible();
@@ -44,7 +63,7 @@ describe("/email-change/$token", () => {
     expect((await auth.login({ email: NEW, password: "stubwise" })).ok).toBe(true);
   });
 
-  it("un link usato, annullato o inventato: una frase sola, senza nomi", async () => {
+  it("un link usato, annullato o inventato: una frase sola, senza nomi e senza bottone", async () => {
     const token = await linkForSara();
     expect((await me.confirmEmailChange(token)).ok).toBe(true);
     for (const t of [token, "made-up-token"]) {
@@ -53,15 +72,18 @@ describe("/email-change/$token", () => {
       expect(
         await screen.findByRole("heading", { level: 1, name: "This link isn't valid" }),
       ).toBeVisible();
-      expect(screen.queryByText(NEW)).toBeNull();
+      expect(screen.queryByText(new RegExp(NEW))).toBeNull();
+      expect(screen.queryByRole("button", { name: "Confirm email change" })).toBeNull();
     }
   });
 
-  it("l'indirizzo preso nel frattempo da un'altra persona: lo dice, e l'email resta quella di prima", async () => {
+  it("l'indirizzo preso nel frattempo da un'altra persona: al clic lo dice, e l'email resta quella di prima", async () => {
+    const user = userEvent.setup();
     const token = await linkForSara("taken-later@example.com");
     const { PEOPLE } = await import("../../data/seed/people");
     PEOPLE.find((p) => p.id === "p-marco")!.email = "taken-later@example.com";
     renderRoute(`/email-change/${token}`);
+    await user.click(await screen.findByRole("button", { name: "Confirm email change" }));
     expect(
       await screen.findByRole("heading", { level: 1, name: "That email is taken" }),
     ).toBeVisible();

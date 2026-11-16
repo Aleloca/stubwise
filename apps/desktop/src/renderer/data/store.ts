@@ -777,6 +777,7 @@ export type ApiFnName =
   | "me.cancelEmailChange"
   | "me.simulateEmailChangeLink"
   | "auth.confirmEmailChange"
+  | "auth.getEmailChangeLink"
   // Ingresso (area 9a, Task 5): login, invito, primo avvio, uscita
   | "auth.getEntry"
   | "auth.login"

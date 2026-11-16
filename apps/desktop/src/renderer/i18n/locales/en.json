@@ -10394,13 +10394,17 @@
     },
     "emailChange": {
       "title": "Sign-in email changed",
-      "confirming": "Confirming the new email…",
+      "confirming": "Reading the link…",
       "done": "From now on you sign in with {{email}}.",
       "failed": "Couldn't confirm the new email. Open the link again.",
       "invalidTitle": "This link isn't valid",
       "invalidBody": "It may have expired, been used already or been cancelled. Ask for a new one from your preferences.",
       "takenTitle": "That email is taken",
-      "takenBody": "Someone else in Stubwise uses it now. Your sign-in email hasn't changed."
+      "takenBody": "Someone else in Stubwise uses it now. Your sign-in email hasn't changed.",
+      "confirmTitle": "Confirm your new sign-in email",
+      "confirmBody": "Your sign-in email will become {{email}}.",
+      "confirm": "Confirm email change",
+      "confirmingButton": "Confirming…"
     }
   },
   "admin": {

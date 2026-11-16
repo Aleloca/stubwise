@@ -33,6 +33,7 @@ export { createToken, listTokens, revokeToken } from "./tokens";
 export {
   cancelEmailChange,
   confirmEmailChange,
+  getEmailChangeLink,
   requestEmailChange,
   setEmailTransportForPrototype,
   simulateEmailChangeLink,
