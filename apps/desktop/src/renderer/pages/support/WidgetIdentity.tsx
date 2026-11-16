@@ -4,6 +4,7 @@ import { useRegenerateIdentitySecret, type SupportWidgetView } from "../../data/
 import { useReauth } from "../../layout/useReauth";
 import { formatDate } from "../../notifications/time";
 import { Dialog } from "../../tasks-ui/Dialog";
+import { copyText } from "../../tasks-ui/exportFile";
 import { useToast } from "../../tasks-ui/Toast";
 import { SecretOnce } from "../preferences/SecretOnce";
 import { dangerSolidButton, secondaryButton } from "../tasks/controls";
@@ -21,6 +22,7 @@ export function WidgetIdentity({ widget }: { widget: SupportWidgetView }) {
   const [open, setOpen] = useState(false);
   const opener = useRef<HTMLButtonElement>(null);
   const set = widget.identitySecretSet;
+  const toast = useToast();
   return (
     <section
       aria-labelledby={`${id}-title`}
@@ -37,6 +39,24 @@ export function WidgetIdentity({ widget }: { widget: SupportWidgetView }) {
             })
           : t("support.widgets.identity.none")}
       </p>
+      {/* L'id del widget è il claim `aud` del token: chi lo firma lo vuole accanto al segreto. */}
+      <div className="flex flex-wrap items-center gap-2 text-sm text-ink">
+        <span className="text-ink-muted">{t("support.widgets.identity.widgetId")}</span>
+        <code className="font-code [overflow-wrap:anywhere]">{widget.id}</code>
+        <button
+          type="button"
+          className={secondaryButton}
+          aria-label={t("support.widgets.identity.copyWidgetId")}
+          onClick={() =>
+            void copyText(widget.id).then(
+              () => toast.show(t("support.widgets.copied")),
+              () => toast.error(t("support.widgets.copyError")),
+            )
+          }
+        >
+          {t("support.widgets.identity.copy")}
+        </button>
+      </div>
       <button ref={opener} type="button" className={secondaryButton} onClick={() => setOpen(true)}>
         {set ? t("support.widgets.identity.regenerate") : t("support.widgets.identity.make")}
       </button>

@@ -189,6 +189,9 @@ describe("Support — Widget", () => {
     const panel = await screen.findByRole("complementary", { name: "Edit Customer portal help" });
     const identity = within(panel).getByRole("region", { name: "Customer identity" });
     expect(identity).toHaveTextContent(/Secret made on/);
+    // L'id del widget è il claim `aud` del token: accanto al segreto, copiabile.
+    expect(within(identity).getByText("wdg-acq-portal")).toBeInTheDocument();
+    expect(within(identity).getByRole("button", { name: "Copy widget id" })).toBeInTheDocument();
     await user.click(within(identity).getByRole("button", { name: "Regenerate secret…" }));
     const dialog = await screen.findByRole("dialog", {
       name: "Make a new identity secret for Customer portal help?",

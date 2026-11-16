@@ -9425,7 +9425,10 @@
         "secretTitle": "Questo segreto si vede solo adesso.",
         "secretLabel": "Segreto d'identità",
         "reauthAction": "creare un segreto d'identità per {{name}}",
-        "error": "Non è stato possibile creare il segreto. Riprova."
+        "error": "Non è stato possibile creare il segreto. Riprova.",
+        "widgetId": "Id del widget (l'aud del token)",
+        "copyWidgetId": "Copia l'id del widget",
+        "copy": "Copia"
       }
     },
     "origin": {

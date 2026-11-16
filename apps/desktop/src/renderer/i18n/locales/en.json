@@ -9425,7 +9425,10 @@
         "secretTitle": "This secret is shown only now.",
         "secretLabel": "Identity secret",
         "reauthAction": "make an identity secret for {{name}}",
-        "error": "The secret couldn't be made. Try again."
+        "error": "The secret couldn't be made. Try again.",
+        "widgetId": "Widget id (the token's aud)",
+        "copyWidgetId": "Copy widget id",
+        "copy": "Copy"
       }
     },
     "origin": {
