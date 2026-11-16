@@ -1136,6 +1136,16 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     meccanismo»), da decidere col maintainer.
   Con l'una o l'altra servono anche le sfide legate al PAT (`pat_id` in
   alternativa a `session_id`, con un CHECK) e la rimozione di `browserOnly`.
+  **Aggiornamento del 16 nov 2026** *(M, via 46, D-12 = a dell'area 9)*:
+  resta FUORI dall'area 9, con un design a sé dopo. Il maintainer ha chiesto
+  se l'app possa chiedere il secondo fattore: no, il TOTP non apre la chiave
+  senza rompere «il server non decifra mai». Le due strade candidate per
+  quel design:
+  - la **passkey del browser che consegna lo sblocco all'app** (il
+    passaggio come il login del desktop);
+  - una **chiave del Mac** (Keychain / Touch ID) iscritta dal browser, col
+    secondo fattore come prova in più. Cambia l'invariante «non esiste un
+    secondo meccanismo».
 
 ## Area 10 — Integrazione di Claude
 
