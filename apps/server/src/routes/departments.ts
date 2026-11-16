@@ -1,4 +1,4 @@
-import { departmentMembers, departmentRoles, departments, tickets, users } from "@stubwise/db";
+import { departmentMembers, departmentRoles, departments, tickets, users, type Db } from "@stubwise/db";
 import {
   DEPARTMENT_PERMISSIONS,
   departmentColorTokenSchema,
@@ -12,6 +12,27 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { RouteAccess } from "../auth/access.js";
 import { apiError } from "../errors.js";
+import { recordChange } from "../services/change-log.js";
+
+type DepartmentTx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+/** L'oggetto «reparto» di una voce, col nome di ora. */
+async function departmentObject(tx: DepartmentTx, id: string) {
+  const [d] = await tx.select({ name: departments.name }).from(departments).where(eq(departments.id, id));
+  return { type: "department", id, label: d?.name ?? "" };
+}
+
+/**
+ * Le persone entrate e uscite di una voce di reparto: gli id (la lettura toglie
+ * quelle che chi guarda non vede) e, in parallelo, le email di allora.
+ */
+async function peopleParams(tx: DepartmentTx, added: string[], removed: string[]) {
+  const ids = [...added, ...removed];
+  const emails = new Map(
+    ids.length ? (await tx.select({ id: users.id, email: users.email }).from(users).where(inArray(users.id, ids))).map((u) => [u.id, u.email]) : [],
+  );
+  return { added, removed, addedNames: added.map((u) => emails.get(u) ?? ""), removedNames: removed.map((u) => emails.get(u) ?? "") };
+}
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -148,7 +169,17 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
             .insert(departmentRoles)
             .values(rows.map(([userId, permissions]) => ({ departmentId: id, userId, permissions })));
         }
-        return { before, after: await rolesOf(tx, id) };
+        const after = await rolesOf(tx, id);
+        // Area 9, F2: chi è entrato e chi è uscito fra i gestori della Home.
+        const managers = (list: { userId: string; permissions: string[] }[]) =>
+          new Set(list.filter((r) => r.permissions.includes("department.home.manage")).map((r) => r.userId));
+        const [was, now] = [managers(before), managers(after)];
+        const added = [...now].filter((u) => !was.has(u));
+        const removed = [...was].filter((u) => !now.has(u));
+        if (added.length || removed.length) {
+          await recordChange(tx, { type: "department.home_managers_changed", actor: request.user!, projectId: null, data: { object: await departmentObject(tx, id), params: await peopleParams(tx, added, removed) } });
+        }
+        return { before, after };
       });
       if (outcome === "not_found") return apiError(reply, 404, "not_found", "Department not found");
       if (outcome === "invalid_person") {
@@ -185,8 +216,12 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
       if (await nameTaken(name)) {
         return apiError(reply, 409, "department_name_taken", "A department with this name already exists");
       }
-      const [row] = await app.db.insert(departments).values({ name, colorToken }).returning();
-      return reply.code(201).send(toView(row!));
+      const row = await app.db.transaction(async (tx) => {
+        const [created] = await tx.insert(departments).values({ name, colorToken }).returning();
+        await recordChange(tx, { type: "department.created", actor: request.user!, projectId: null, data: { object: { type: "department", id: created!.id, label: name } } });
+        return created!;
+      });
+      return reply.code(201).send(toView(row));
     },
   );
 
@@ -234,6 +269,18 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
           Object.keys(patch).length > 0
             ? await tx.update(departments).set(patch).where(eq(departments.id, id)).returning()
             : [current];
+        // Area 9, F2: il nome (e il colore) prima e dopo.
+        if (Object.keys(patch).length > 0) {
+          await recordChange(tx, {
+            type: "department.updated",
+            actor: request.user!,
+            projectId: null,
+            data: { object: { type: "department", id, label: row!.name }, before: current.name, after: row!.name, params: { color: row!.colorToken } },
+          });
+        }
+        const membersBefore = next
+          ? new Set((await tx.select({ userId: departmentMembers.userId }).from(departmentMembers).where(eq(departmentMembers.departmentId, id))).map((m) => m.userId))
+          : null;
         if (next) {
           // Chi esce dal reparto perde anche i suoi ruoli lì (fix fetta 3).
           await tx
@@ -259,6 +306,11 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
               from "department_members" where "user_id" = ${userId}
               on conflict do nothing
             `);
+          }
+          const added = next.filter((u) => !membersBefore!.has(u));
+          const removed = [...membersBefore!].filter((u) => !next.includes(u));
+          if (added.length || removed.length) {
+            await recordChange(tx, { type: "department.members_changed", actor: request.user!, projectId: null, data: { object: { type: "department", id, label: row!.name }, params: await peopleParams(tx, added, removed) } });
           }
         }
         return row!;
@@ -306,6 +358,7 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
           await tx.execute(sql`update "tickets" set "department_id" = ${moveTasksTo} where "department_id" = ${id}`);
         }
         await tx.delete(departments).where(eq(departments.id, id));
+        await recordChange(tx, { type: "department.deleted", actor: request.user!, projectId: null, data: { object: { type: "department", id, label: current.name } } });
         return null;
       });
       if (outcome === "department_has_tasks") {

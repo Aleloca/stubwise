@@ -285,11 +285,23 @@ function nameTaken(): RoleRuleError {
 
 async function insertRole(
   db: Db,
+  actor: Actor & { email: string },
   values: { name: string; scope: RoleScope; permissions: string[] },
+  from?: string,
 ): Promise<RoleRow> {
   try {
-    const [created] = await db.insert(roles).values(values).returning({ id: roles.id });
-    return (await roleById(db, created!.id))!;
+    // Area 9, F2: il ruolo e la sua voce nascono insieme.
+    const created = await db.transaction(async (tx) => {
+      const [row] = await tx.insert(roles).values(values).returning({ id: roles.id });
+      await recordChange(tx, {
+        type: "role.created",
+        actor,
+        projectId: null,
+        data: { object: { type: "role", id: row!.id, label: values.name }, params: { scope: values.scope, permissions: values.permissions, ...(from ? { from } : {}) } },
+      });
+      return row!;
+    });
+    return (await roleById(db, created.id))!;
   } catch (error) {
     if (isUniqueViolation(error)) throw nameTaken();
     throw error;
@@ -298,29 +310,30 @@ async function insertRole(
 
 export async function createRole(
   db: Db,
-  actor: Actor,
+  actor: Actor & { email: string },
   input: { name: string; scope: RoleScope; permissions: string[] },
 ): Promise<RoleRow> {
   const permissions = [...new Set(input.permissions)];
   assertKnownPermissions(input.scope, permissions);
   await assertCanGrantInRole(db, actor, input.scope, null, permissions);
-  return insertRole(db, { name: input.name, scope: input.scope, permissions });
+  return insertRole(db, actor, { name: input.name, scope: input.scope, permissions });
 }
 
 export async function duplicateRole(
   db: Db,
-  actor: Actor,
+  actor: Actor & { email: string },
   id: string,
   name: string | undefined,
 ): Promise<RoleRow> {
   const source = await roleById(db, id);
   if (!source) throw new RoleRuleError(404, "role_not_found", "Role not found");
   await assertCanGrantInRole(db, actor, source.scope, null, source.permissions);
-  return insertRole(db, {
-    name: name ?? `${source.name} (copy)`,
-    scope: source.scope,
-    permissions: source.permissions,
-  });
+  return insertRole(
+    db,
+    actor,
+    { name: name ?? `${source.name} (copy)`, scope: source.scope, permissions: source.permissions },
+    source.name,
+  );
 }
 
 /**
@@ -331,7 +344,7 @@ export async function duplicateRole(
  */
 export async function updateRole(
   db: Db,
-  actor: Actor,
+  actor: Actor & { email: string },
   id: string,
   input: { name?: string; permissions?: string[] },
 ): Promise<RoleRow> {
@@ -352,6 +365,21 @@ export async function updateRole(
           updatedAt: new Date(),
         })
         .where(eq(roles.id, id));
+      // Area 9, F2: prima e dopo del nome; i permessi aggiunti e tolti.
+      await recordChange(tx, {
+        type: "role.updated",
+        actor,
+        projectId: null,
+        data: {
+          object: { type: "role", id: role.id, label: input.name ?? role.name },
+          before: role.name,
+          after: input.name ?? role.name,
+          params: {
+            added: permissions ? permissions.filter((p) => !role.permissions.includes(p)) : [],
+            removed: permissions ? role.permissions.filter((p) => !permissions.includes(p)) : [],
+          },
+        },
+      });
       if (permissions && role.scope === "instance") await assertFullAdminRemains(tx);
       return (await roleById(tx, id))!;
     });
@@ -368,7 +396,7 @@ export async function updateRole(
  */
 const SYSTEM_PRESET_KEYS: ReadonlySet<string> = new Set(["admin", "user"]);
 
-export async function deleteRole(db: Db, actor: Actor, id: string): Promise<void> {
+export async function deleteRole(db: Db, actor: Actor & { email: string }, id: string): Promise<void> {
   await db
     .transaction(async (tx) => {
       const role = await lockedRole(tx, id);
@@ -386,6 +414,7 @@ export async function deleteRole(db: Db, actor: Actor, id: string): Promise<void
         });
       }
       await tx.delete(roles).where(eq(roles.id, id));
+      await recordChange(tx, { type: "role.deleted", actor, projectId: null, data: { object: { type: "role", id: role.id, label: role.name }, params: { scope: role.scope } } });
     })
     .catch((error: unknown) => {
       // Un'assegnazione arrivata fra il conteggio e il delete: la ferma il
