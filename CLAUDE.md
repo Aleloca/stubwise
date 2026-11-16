@@ -466,6 +466,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 8, fetta 3: Support» (14 nov 2026; migrazione 0179, server → worker → caddy col bundle del widget, rilascio del plugin MCP col changeset)
   - «Integrazione area 8, fetta 4a: Servers, monitor e ambienti» (14 nov 2026; migrazione 0180, PRIMA del deploy la query dei server legati solo da `server_projects`, DOPO il controllo dei ruoli con `monitor.view`)
   - «Integrazione area 8, fetta 4b: le operazioni sui server» (15 nov 2026; migrazioni 0181–0183, le operazioni dell'agente spente di default, rilascio dell'immagine dell'agente)
+  - «Integrazione area 8: Clienti in attesa» (15 nov 2026; migrazione 0183, server → worker → caddy, picco del giudizio di Claude sulle caselle dopo il deploy)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
