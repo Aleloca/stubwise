@@ -1,8 +1,8 @@
 import { normalizeWidgetOrigin, WIDGET_MAX_ORIGINS } from "@stubwise/shared";
 // Le scritture usano `createRequestAs` solo dentro le funzioni: l'import
 // circolare con `api-mutations` è innocuo.
-import { forgetSecret, secretIdsOf, storeSecret } from "../admin/secrets";
 import { createRequestAs } from "../api-mutations";
+import { rotateWidgetIdentitySecret } from "../projectSettings/widgetIdentity";
 import { requireReauth } from "../auth/reauth";
 import { recordChange } from "../changelog/index";
 import { changedFields } from "../changelog/settingValues";
@@ -274,11 +274,10 @@ export async function regenerateIdentitySecret(
   if (requireReauth(me, "support.regenerateIdentitySecret")) {
     return { ok: false, error: "reauth_required" };
   }
-  for (const old of secretIdsOf("widget_identity_secret", w.id)) forgetSecret(old);
-  const secret = storeSecret("widget_identity_secret", w.id);
+  const secret = rotateWidgetIdentitySecret(w.id);
   w.identitySecretSet = true;
   w.identitySecretRotatedAt = now();
-  return { ok: true, secret: secret.value, rotatedAt: w.identitySecretRotatedAt };
+  return { ok: true, secret, rotatedAt: w.identitySecretRotatedAt };
 }
 
 /** Elimina il widget; le sue conversazioni restano in Support. */
