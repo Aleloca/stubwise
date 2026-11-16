@@ -34,7 +34,6 @@ import { AdminAvatar, capitalized, usePermissionHint, usePermissionWords } from 
 // menu offrono solo progetti e persone che chi guarda vede (R-G5): un
 // indirizzo con un progetto invisibile torna su «Choose a project».
 
-const CLAUDE = "p-claude";
 
 interface Search {
   view?: string;
@@ -496,12 +495,7 @@ function WhoAnswer({
       )}
       <div data-claude-row className="mt-4 border-t border-rule pt-3">
         <p className="text-md text-ink">
-          <span className="font-medium">Claude</span> — {t("whoCan.page.claudeLine")}
-        </p>
-        <p className="mt-0.5 text-sm text-ink-muted">
-          {answer.claude.allowed
-            ? t("whoCan.page.claudeCan", { action: actionWords })
-            : t("whoCan.page.claudeCant", { action: actionWords })}
+          <span className="font-medium">Claude</span> {t("whoCan.page.claudeLine")}
         </p>
       </div>
     </div>
@@ -520,8 +514,8 @@ function WhatQuestion({
 }) {
   const { t } = useTranslation();
   const personOptions: PickerOption[] = [
+    // Area 9 (decisione (a)): Claude non ha permessi suoi, non è una persona da chiedere.
     ...choices.people.map((p) => ({ id: p.personId, label: p.name })),
-    { id: CLAUDE, label: "Claude" },
   ];
   const person = personOptions.find((p) => p.id === search.person);
   // Senza progetto (o con `instance`) la domanda è sull'istanza intera.
@@ -600,35 +594,6 @@ function WhatAnswer({ answer }: { answer: WhatCanView }) {
     return <p className="mt-6 text-md text-ink-muted">{t("whoCan.page.pickPerson")}</p>;
   const all = answer.groups.flatMap((g) => g.permissions);
   const held = all.filter((p) => p.held);
-
-  if (answer.isClaude)
-    return (
-      <div aria-live="polite" className="mt-6">
-        <p className="text-lg font-semibold text-ink">{t("whoCan.page.claudeWhat")}</p>
-        {(["can", "never"] as const).map((side) => {
-          const list = all.filter((p) => p.held === (side === "can"));
-          if (list.length === 0) return null;
-          return (
-            <section key={side} className="mt-5">
-              <h2 className="heading-group border-b border-rule pb-1.5">
-                {t(`whoCan.page.${side}`)}
-              </h2>
-              <ul>
-                {list.map((p) => (
-                  <ReadRow
-                    key={p.permission}
-                    permission={p.permission}
-                    name={capitalized(words(p.permission), i18n.language)}
-                    hint={hint(p.permission)}
-                    faint={side === "never"}
-                  />
-                ))}
-              </ul>
-            </section>
-          );
-        })}
-      </div>
-    );
 
   return (
     <div aria-live="polite" className="mt-6">
