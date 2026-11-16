@@ -18,11 +18,15 @@ describe("ingresso, i percorsi veri", () => {
     await api.resetPassword("tok", "a-long-one");
     await api.setup("r@example.com", "a-long-one");
     await api.setDisplayName("Roberta");
+    await api.invite("inv");
+    await api.register("inv", "a-long-one");
     expect(request.mock.calls).toEqual([
       ["GET", "/api/auth/password-reset/tok"],
       ["POST", "/api/auth/password-reset/tok", { password: "a-long-one" }],
       ["POST", "/api/auth/setup", { email: "r@example.com", password: "a-long-one" }],
       ["PATCH", "/api/auth/me", { displayName: "Roberta" }],
+      ["GET", "/api/auth/invites/inv"],
+      ["POST", "/api/auth/register", { token: "inv", password: "a-long-one" }],
     ]);
   });
 });

@@ -269,6 +269,8 @@ export const auth: Auth = partialNamespace<Auth>("auth", {
   getResetLink: liveEntry.getResetLink,
   resetPassword: liveEntry.resetPassword,
   createFirstAdmin: liveEntry.createFirstAdmin,
+  getInvite: liveEntry.getInvite,
+  register: liveEntry.register,
   logout,
   login,
   loginStage,

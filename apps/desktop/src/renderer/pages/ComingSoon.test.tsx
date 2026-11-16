@@ -131,6 +131,8 @@ const INTEGRATED_CALLS = new Set([
   "auth.getResetLink",
   "auth.resetPassword",
   "auth.createFirstAdmin",
+  "auth.getInvite",
+  "auth.register",
   // Area 9, F1, R4c: Tokens e Claude Code.
   "me.listTokens",
   "me.createToken",
@@ -770,6 +772,14 @@ describe("aree non integrate nella build app", () => {
   it("il link di reset nella web «app» legge solo chiamate integrate", async () => {
     renderRoute("/reset-password/made-up-token");
     await waitFor(() => expect(calls).toContain("auth.getResetLink"));
+    await settle();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  it("l'invito nella web «app» legge solo chiamate integrate", async () => {
+    renderRoute("/register/made-up-token");
+    await waitFor(() => expect(calls).toContain("auth.getInvite"));
     await settle();
     expect(document.querySelector("[data-prototype-only]")).toBeNull();
     expect(outside()).toEqual([]);

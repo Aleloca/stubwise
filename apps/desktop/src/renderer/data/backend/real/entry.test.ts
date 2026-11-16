@@ -26,6 +26,18 @@ function fakeApi(over: Partial<EntryApi> = {}) {
     entered: (id) => {
       calls.push(`entered ${id}`);
     },
+    invite: async () => ({
+      status: "valid",
+      email: "nora@example.com",
+      invitedByName: "Roberta Fontana",
+      projects: [{ code: "ACQ", name: "Acquedotto", roleName: "Developer" }],
+      instanceRoleName: null,
+      expiresAt: "2026-11-23T09:00:00.000Z",
+    }),
+    register: async (token, password) => {
+      calls.push(`register ${token} ${password}`);
+      return { user: { id: ME } };
+    },
     ...over,
   };
   return { api, calls };
@@ -95,5 +107,41 @@ describe("l'ingresso della web «app» dal server (area 9, R5)", () => {
     expect(
       await bad.createFirstAdmin({ name: "R", email: "r@example.com", password: "x" }),
     ).toEqual({ ok: false, error: "invalid_input", reason: "password" });
+  });
+
+  it("l'invito: i dettagli solo se valido; scaduto o non valido, solo lo stato", async () => {
+    expect(await createRealEntry(fakeApi().api).getInvite("t")).toEqual({
+      status: "valid",
+      email: "nora@example.com",
+      invitedByName: "Roberta Fontana",
+      projects: [{ projectId: "ACQ", code: "ACQ", name: "Acquedotto", roleName: "Developer" }],
+      instanceRoleName: null,
+      expiresAt: "2026-11-23T09:00:00.000Z",
+    });
+    const expired = createRealEntry(fakeApi({ invite: async () => ({ status: "expired" }) }).api);
+    expect(await expired.getInvite("t")).toEqual({ status: "expired" });
+    const odd = createRealEntry(fakeApi({ invite: async () => ({ status: "__unknown__" }) }).api);
+    expect(await odd.getInvite("t")).toEqual({ status: "invalid" });
+  });
+
+  it("la registrazione: token e password, poi il nome; gli errori nelle parole del prototipo", async () => {
+    const { api, calls } = fakeApi();
+    expect(
+      await createRealEntry(api).register("t", { name: "Nora Bassi", password: "a-long-one" }),
+    ).toEqual({ ok: true, personId: ME });
+    expect(calls).toEqual(["register t a-long-one", `entered ${ME}`, "name Nora Bassi"]);
+    const cases: [number, string, unknown][] = [
+      [410, "invite_expired", { ok: false, error: "expired" }],
+      [410, "invite_invalid", { ok: false, error: "invalid" }],
+      [409, "email_already_exists", { ok: false, error: "invalid_input", reason: "email_taken" }],
+      [400, "validation", { ok: false, error: "invalid_input", reason: "password" }],
+    ];
+    for (const [status, code, expected] of cases) {
+      const e = createRealEntry(fakeApi({ register: refusing(status, code) }).api);
+      expect(await e.register("t", { name: "N", password: "x" }), code).toEqual(expected);
+    }
+    expect(
+      await createRealEntry(api).register("t", { name: "  ", password: "a-long-one" }),
+    ).toEqual({ ok: false, error: "invalid_input", reason: "name" });
   });
 });
