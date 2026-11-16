@@ -547,6 +547,45 @@ server oggi applica la versione di prima:
 12. Fuori per decisione del maintainer (29 ott): Slack in ogni forma, la
     posta ammessa, le regole della posta del progetto, «Rigenera il brief».
 
+### Cosa cambiano nel renderer le risposte del lato server
+
+Il prototipo ha più del server in questi punti, e nell'app ognuno resta
+spento (I1) finché la sua decisione non lo copre:
+- **Account** (D-13 = a): nell'app restano nome e lingua; la foto e il
+  cambio dell'email si nascondono, non si mostrano «in arrivo».
+- **Security**: l'elenco delle sessioni c'è solo con D-9 = a. Senza, la
+  sezione mostra TOTP, codici e passkey, e la riga «registro e sessioni»
+  perde le sessioni. Le passkey dal desktop rimandano al browser (D1). I
+  «tentativi rimasti» restano fuori finché il server non li manda, e
+  l'errore dice solo «codice sbagliato».
+- **Look**: lingua e tema sono locali, salvo la lingua del profilo. È
+  accendibile subito, senza aspettare il resto di F1.
+- **Webhook in uscita** (D-10 = a): il prototipo passa dai 21 eventi ai 15
+  del server più gli 8 degli avvisi; i gruppi e l'anteprima seguono
+  l'elenco vero.
+- **Riconferma** (D-5): con a il renderer non cambia (`REAUTH_REQUIRED` è
+  già la lista). Con b l'app chiederebbe la riconferma dove il server non la
+  vuole, e il web no: due regole diverse per la stessa rotta. Per questo
+  consiglio a anch'io.
+- **«Who can?»** (D-11 = a): il prototipo calcola in locale, e nell'app
+  legge la rotta. Il calcolo non si duplica nel client.
+- **Archivio** (D-8): finché manca, `#/archived/<CODE>` e la scheda Archived
+  restano «in arrivo», e «Elimina il progetto» non si mostra.
+
+### Le fette viste dal renderer
+
+- **F1 è grande per il renderer**: cinque sezioni di Preferenze più People,
+  Roles, Members e Who can. Propongo di farla in due consegne sullo stesso
+  backend: **F1a**, le Preferenze, e **F1b**, People, Roles, Members e Who
+  can. Look può uscire anche prima, da sola.
+- **F2 prima di F3–F6** va bene: il registro del prototipo ha già il punto
+  d'estensione (`changelog/record.ts` più i tipi di ciascuna area), quindi
+  ogni fetta dopo ci aggiunge i suoi tipi senza toccare la pagina.
+- **F4 (Stato dell'istanza)** sblocca anche `queue_paused` nelle automazioni
+  (area 7, F3), lato renderer.
+- **I tetti dell'analisi dei server** (`servers-analysis-limits`, area 8)
+  entrano con F3, insieme ad Amministrazione → AI.
+
 ### L'ingresso nella web «app»
 
 Nel desktop il login passa dal browser, quindi le pagine d'ingresso del
