@@ -74,7 +74,8 @@ function messageOf(m: MessageRow, showAuthor: boolean): SupportMessage {
 }
 
 /** I fatti per lo stato per il cliente di una task: chiusa, Claude al lavoro, i rilasci delle sue PR. */
-async function taskFacts(db: Db, ticketIds: readonly string[]): Promise<{ tasks: { closed: boolean; claudeActive: boolean }[]; releases: ReleaseStatusKind[] }> {
+/** I fatti delle task che decidono lo stato per il cliente. Esportata per l'API per i siti (area 8). */
+export async function taskFacts(db: Db, ticketIds: readonly string[]): Promise<{ tasks: { closed: boolean; claudeActive: boolean }[]; releases: ReleaseStatusKind[] }> {
   if (ticketIds.length === 0) return { tasks: [], releases: [] };
   const rows = await db.select({ id: tickets.id, closedAt: tickets.closedAt }).from(tickets).where(inArray(tickets.id, [...ticketIds]));
   const jobs = await db.selectDistinct({ ticketId: aiJobs.ticketId }).from(aiJobs).where(inArray(aiJobs.ticketId, [...ticketIds]));

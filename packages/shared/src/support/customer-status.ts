@@ -64,3 +64,27 @@ export function customerStatus(
   if (tasks.some((t) => !t.closed && t.claudeActive)) return "in_progress";
   return "planned";
 }
+
+/**
+ * Area 8, «L'API per i siti»: lo stato in parole per il SITO, nella lingua del
+ * widget. Sono template fissi (le stesse parole dell'app, `customerStatus` di
+ * `apps/desktop/.../locales`), mai un testo del team.
+ */
+export const CUSTOMER_STATUS_LABELS: Readonly<Record<"it" | "en", Readonly<Record<CustomerStatus, string>>>> = {
+  it: {
+    received: "Ricevuta",
+    evaluating: "In valutazione",
+    planned: "Pianificata",
+    in_progress: "In lavorazione",
+    released: "Rilasciata",
+    not_proceeding: "Non procediamo",
+  },
+  en: {
+    received: "Received",
+    evaluating: "In evaluation",
+    planned: "Planned",
+    in_progress: "In progress",
+    released: "Released",
+    not_proceeding: "We're not going ahead",
+  },
+};

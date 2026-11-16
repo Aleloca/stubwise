@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fastifyCors from "@fastify/cors";
 import {
   normalizeWidgetOrigin,
@@ -5,6 +6,8 @@ import {
   widgetConversationCreateBodySchema,
   widgetSettingsSchema,
   widgetTicketConfirmBodySchema,
+  siteRequestDetailSchema,
+  siteRequestListSchema,
 } from "@stubwise/shared";
 import { and, asc, count, desc, eq, gte, isNotNull } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -24,6 +27,7 @@ import { createTicket } from "../db/tickets.js";
 import { errorSchema, unprocessableEntityFormatter } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 import { openConversationFor } from "../services/support-continuation.js";
+import { listSiteRequests, siteRequestDetail } from "../services/site-requests.js";
 import { apiError } from "../errors.js";
 import { retrieveChunksForProject } from "./docs-retrieval.js";
 import { buildCitations, CHAT_RETRIEVAL_K } from "./docs-rag.js";
@@ -208,6 +212,11 @@ export async function widgetRoutes(
   const owns = (request: FastifyRequest, customer: string, row: { externalUserId: string; identityVerified: boolean }): boolean =>
     row.externalUserId === customer && (!row.identityVerified || request.widgetIdentity !== null);
 
+  /** Le letture del cliente vogliono SEMPRE il token, anche se la chat non lo chiede. */
+  const requireIdentity = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    if (!request.widgetIdentity) await apiError(reply, 401, "identity_required", "A verified customer identity is required");
+  };
+
   const ownOrigin = (() => {
     try {
       return new URL(app.publicUrl).origin;
@@ -227,6 +236,15 @@ export async function widgetRoutes(
     ...opts.rateLimit,
     keyGenerator: (request: FastifyRequest) =>
       (request.headers["x-stubwise-key"] as string | undefined) ?? request.ip,
+  };
+
+  // Area 8, «L'API per i siti»: le letture del cliente hanno anche un bucket
+  // per chiave E token (cioè per cliente), così un cliente insistente non
+  // consuma il budget del widget intero.
+  const rateLimitPerCustomer = {
+    ...opts.rateLimit,
+    keyGenerator: (request: FastifyRequest) =>
+      `${(request.headers["x-stubwise-key"] as string | undefined) ?? request.ip}:${createHash("sha256").update(String(request.headers.authorization ?? "")).digest("hex").slice(0, 32)}`,
   };
 
   const configResponseSchema = z.union([
@@ -634,6 +652,49 @@ export async function widgetRoutes(
    * possibile anche a chat spenta: NON si richiede `enabledRepositoryIds.length`.
    * Body invalido → 422.
    */
+  /**
+   * Area 8, «L'API per i siti» (S4): le richieste e i ticket del cliente
+   * FIRMATO dal sito. Le regole stanno in `services/site-requests.ts`.
+   */
+  app.get(
+    "/:slug/me/requests",
+    {
+      config: { rateLimit: rateLimitPerCustomer, access: { kind: "public" } },
+      preValidation: [authenticateWidget, identify, requireIdentity],
+      schema: {
+        params: z.object({ slug: z.string().min(1) }),
+        response: { 200: siteRequestListSchema, 401: errorSchema, 403: errorSchema },
+      },
+    },
+    async (request, reply) => {
+      reply.header("cache-control", "no-store");
+      return listSiteRequests(app.db, request.widget!, request.widgetIdentity!.sub);
+    },
+  );
+
+  /**
+   * S4b: il dettaglio, coi messaggi della SUA conversazione col widget. Il
+   * codice si cerca solo fra le sue: «non esiste» e «non è tua» sono lo
+   * stesso 404.
+   */
+  app.get(
+    "/:slug/me/requests/:code",
+    {
+      config: { rateLimit: rateLimitPerCustomer, access: { kind: "public" } },
+      preValidation: [authenticateWidget, identify, requireIdentity],
+      schema: {
+        params: z.object({ slug: z.string().min(1), code: z.string().min(1).max(40) }),
+        response: { 200: siteRequestDetailSchema, 401: errorSchema, 403: errorSchema, 404: errorSchema },
+      },
+    },
+    async (request, reply) => {
+      reply.header("cache-control", "no-store");
+      const detail = await siteRequestDetail(app.db, request.widget!, request.widgetIdentity!.sub, request.params.code);
+      if (!detail) return apiError(reply, 404, "not_found", "Not found");
+      return detail;
+    },
+  );
+
   app.post(
     "/:slug/conversations/:conversationId/tickets",
     {
