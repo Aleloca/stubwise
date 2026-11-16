@@ -8,7 +8,6 @@ export {
   customerPreview,
   getSupportConversation,
   listSupportConversations,
-  listWaitingCustomers,
   listWidgets,
   myRequestStatus,
   searchSupport,

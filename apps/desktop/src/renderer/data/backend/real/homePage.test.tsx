@@ -21,16 +21,17 @@ import {
 // server, un filtro eliminato resta come blocco «non disponibile» e i blocchi
 // delle aree non integrate non si mostrano.
 vi.mock("@backend/api", async () => await import("./index"));
-// Un blocco di un'area spenta: «Clienti in attesa» (spento anche nella build,
-// area 8 F3); il test lo fissa da sé per provare che personalizzare non
-// cancella un blocco nascosto.
+// Un blocco di un'area spenta: nella build ogni blocco della Home è ormai
+// integrato, quindi il test spegne da sé un'area (`hiddenArea`) per provare
+// che personalizzare non cancella un blocco nascosto (review M4).
+const hidden = vi.hoisted(() => ({ area: null as string | null }));
 vi.mock("../../integration", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../integration")>();
   return {
     ...actual,
     isIntegrated: (t: Parameters<typeof actual.isIntegrated>[0]) =>
-      !(t.kind === "feature" && t.name === "support-home") && actual.isIntegrated(t),
-    featureIntegrated: (name: string) => name !== "support-home" && actual.featureIntegrated(name),
+      !(t.kind === "feature" && t.name === hidden.area) && actual.isIntegrated(t),
+    featureIntegrated: (name: string) => name !== hidden.area && actual.featureIntegrated(name),
   };
 });
 
@@ -52,8 +53,12 @@ let seen: SeenRequest[] = [];
 let googleAccounts: unknown[] = [];
 let calendarItems: unknown[] = [];
 let importantThreads: unknown[] = [];
+/** Area 8: le righe di «Clienti in attesa». */
+let waitingItems: unknown[] = [];
 
 beforeEach(() => {
+  hidden.area = null;
+  waitingItems = [];
   googleAccounts = [];
   calendarItems = [];
   importantThreads = [];
@@ -94,6 +99,10 @@ beforeEach(() => {
     "GET /api/me/mail/threads": () => ({ body: { items: importantThreads, nextCursor: null } }),
     // Area 6, fetta 2: le proposte della Posta in «Da decidere».
     "GET /api/me/mail/proposals": { body: { items: [] } },
+    // Area 8: «Clienti in attesa» dalla posta (72, W2).
+    "GET /api/me/waiting-customers": () => ({
+      body: { items: waitingItems, total: waitingItems.length },
+    }),
     // Area 4, fetta 2: le domande della Chat in «Da decidere».
     "GET /api/chat/questions": () =>
       chatQuestionsMissing
@@ -185,12 +194,39 @@ afterEach(() => {
 });
 
 describe("la Home nella build app", () => {
-  it("la Home del reparto dal server; il filtro eliminato è «non disponibile»; i clienti in attesa (area 8) non ci sono", async () => {
+  it("la Home del reparto dal server; il filtro eliminato è «non disponibile»; i clienti in attesa (area 8) dalla posta", async () => {
     renderRoute("/home");
     const tasks = await screen.findByRole("region", { name: /^My tasks/ });
     expect(await within(tasks).findByText("Export the report")).toBeInTheDocument();
     expect(await screen.findByText("This filter is no longer available")).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: /^Customers waiting/ })).toBeNull();
+    const waiting = await screen.findByRole("region", { name: /^Customers waiting/ });
+    expect(await within(waiting).findByText("No customer is waiting")).toBeInTheDocument();
+    expect(seen.some((r) => r.path.startsWith("/api/me/waiting-customers"))).toBe(true);
+  });
+
+  it("review C1: un clic su «Clienti in attesa» apre il thread della SUA casella (`<accountId>_<gmailId>`)", async () => {
+    const account = "aaaaaaaa-2222-4222-8222-222222222222";
+    personalBlocks = [{ kind: "waitingCustomers" }, { kind: "myTasks" }];
+    waitingItems = [
+      {
+        threadId: "18c0ffee",
+        accountId: account,
+        accountEmail: "ada@acme.test",
+        customer: { name: "Anna Verdi", email: "anna@cliente.test" },
+        subject: "Fattura di ottobre",
+        project: { id: "33333333-3333-4333-8333-333333333333", code: "AUD", name: "Audin" },
+        waitingSince: "2026-11-13T10:00:00.000Z",
+        judgment: "yes",
+        reason: "Asks for the invoice.",
+      },
+    ];
+    const router = renderRoute("/home");
+    const block = await screen.findByRole("region", { name: /^Customers waiting/ });
+    const link = await within(block).findByRole("link", { name: /Anna Verdi/ });
+    fireEvent.click(link);
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(`/mail/${account}_18c0ffee`),
+    );
   });
 
   it("«Da decidere»: una domanda della Chat a chi guarda, dal server (area 4, fetta 2)", async () => {
@@ -300,7 +336,9 @@ describe("la Home nella build app", () => {
     });
   });
 
-  it("personalizzare dall'app non cancella un blocco di un'area non integrata né un kind sconosciuto", async () => {
+  it("personalizzare dall'app non cancella un blocco di un'area spenta né un kind sconosciuto", async () => {
+    // L'area di «Clienti in attesa» spenta per questo test: il blocco è nascosto.
+    hidden.area = "mail-waiting";
     personalBlocks = [
       { kind: "decide" },
       { kind: "myWeek" },

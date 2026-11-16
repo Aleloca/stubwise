@@ -75,16 +75,6 @@ export function useCustomerPreview(code: string | undefined) {
   });
 }
 
-/** Il blocco «Clienti in attesa» della Home. */
-export function useWaitingCustomers() {
-  const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.waitingCustomers(me),
-    queryFn: () => api.support.listWaitingCustomers(),
-    refetchInterval: supportRefreshMs("list"),
-  });
-}
-
 export function useSupportWidgets(projectId: string | undefined) {
   const me = useSessionPersonId();
   return useQuery({

@@ -16,9 +16,10 @@ interni) è l'eccezione: lì il team risponde. Il prototipo, che è la specifica
 
 Nella build app sono ACCESE la sezione `support` e le funzioni `support` e
 `support-widgets`, con le loro chiamate in `INTEGRATED_CALLS` (regola I3).
-Restano SPENTE: «Clienti in attesa» nella Home (`support-home`: la sua fonte
-sarà la posta delle caselle, fetta a sé dopo la F3) e la ricerca ⌘K
-(`support-search`, fuori dalla F3). Sono USCITE, dal prototipo e dall'app: la
+Resta SPENTA la ricerca ⌘K
+(`support-search`, fuori dalla F3). «Clienti in attesa» nella Home non è più
+di Support: viene dalla posta delle caselle (piano di 72, `mail-waiting`).
+Sono USCITE, dal prototipo e dall'app: la
 risposta al cliente nel widget, la bozza di Claude («Ask Claude», la bozza
 pronta, l'intento del riquadro e la riga di suggerimento), «Segui» e
 `support.customer_replied`, «Scrivigli per email», gli stati `waiting_us` e

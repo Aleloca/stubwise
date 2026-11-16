@@ -40,7 +40,6 @@ describe("l'insieme esportato: nessuna richiesta da un'email", () => {
         "listSupportConversations",
         "getSupportConversation",
         "customerPreview",
-        "listWaitingCustomers",
         "listWidgets",
         "myRequestStatus",
         "searchSupport",
@@ -175,12 +174,6 @@ describe("letture e visibilità", () => {
       ["ACQ-S9", "#/p/ACQ/support/ACQ-S9"],
     ]);
     expect((await support.searchSupport("acq-s3")).map((x) => x.code)).toEqual(["ACQ-S3"]);
-  });
-
-  it("Clienti in attesa (prototipo): vuoto finché la fetta delle email non ne dà la fonte (area 8, F3)", async () => {
-    // Con un esito la conversazione è chiusa: il cliente non aspetta più lì.
-    as("p-matteo");
-    expect(await support.listWaitingCustomers()).toEqual([]);
   });
 });
 

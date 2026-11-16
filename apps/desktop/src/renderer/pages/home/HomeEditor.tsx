@@ -122,6 +122,7 @@ export function HomeEditor({
   const catalog = CATALOG_KINDS.filter(
     (kind) =>
       !FIXED_BLOCKS.includes(kind) &&
+      (target.kind === "mine" || !BLOCKS[kind].personalOnly) &&
       BLOCKS[kind].available(viewer, { seesAutomations: blockCtx.seesAutomations ?? false }) &&
       !draft.some((b) => b.kind === kind),
   );

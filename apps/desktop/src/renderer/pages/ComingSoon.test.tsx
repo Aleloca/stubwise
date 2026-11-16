@@ -307,6 +307,8 @@ const INTEGRATED_CALLS = new Set([
   "mail.listMailThreads",
   // Area 6, fetta 2: «Importanti» e il blocco Home «Posta importante».
   "mail.listImportantMail",
+  // Area 8: «Clienti in attesa» della Home, dalla posta delle mie caselle.
+  "mail.listWaitingCustomers",
   "mail.getMailThread",
   "mail.searchMail",
   "mail.reproposeMessage",
@@ -1123,33 +1125,25 @@ describe("le superfici della fetta 3 nella build app", () => {
     renderRoute("/home");
     expect(await screen.findByRole("region", { name: /^My week/ })).toBeInTheDocument();
     expect(await screen.findByRole("region", { name: /^My tasks/ })).toBeInTheDocument();
-    // «Clienti in attesa» è spento (area 8, F3, fonte da definire).
+    // «Clienti in attesa» non è nelle Home di default [A 17].
     expect(screen.queryByRole("region", { name: WAITING_BLOCK })).toBeNull();
     await settle();
     expect(outside()).toEqual([]);
   });
 
-  it("«Clienti in attesa» salvato nella Home personale non si mostra e non legge nulla (area 8, F3: spento)", async () => {
+  it("«Clienti in attesa» nella Home personale legge la posta (area 8): solo chiamate integrate", async () => {
     signedInAs("p-marco");
     const { setPersonalHome } = await import("../data/api");
-    await setPersonalHome([
-      { kind: "decide" },
-      { kind: "myWeek" },
-      { kind: "releases" },
-      { kind: "automations" },
-      { kind: "waitingCustomers" },
-      { kind: "myTasks" },
-    ]);
+    await setPersonalHome([{ kind: "waitingCustomers" }, { kind: "myTasks" }]);
     calls.length = 0;
     renderRoute("/home");
-    expect(await screen.findByRole("region", { name: /^My tasks/ })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: WAITING_BLOCK })).toBeInTheDocument();
+    await waitFor(() => expect(calls).toContain("mail.listWaitingCustomers"));
     await settle();
-    expect(screen.queryByRole("region", { name: WAITING_BLOCK })).toBeNull();
-    expect(calls).not.toContain("support.listWaitingCustomers");
     expect(outside()).toEqual([]);
   });
 
-  it("il catalogo dei blocchi non propone «Clienti in attesa» nella build app (area 8, F3: spento)", async () => {
+  it("il catalogo dei blocchi propone «Clienti in attesa» nella build app (area 8, dalla posta)", async () => {
     signedInAs("p-marco");
     renderRoute("/home");
     await userEvent.click(await screen.findByRole("button", { name: "Customize" }));
@@ -1158,8 +1152,7 @@ describe("le superfici della fetta 3 nella build app", () => {
     const names = within(menu)
       .queryAllByRole("menuitem")
       .map((i) => i.textContent ?? "");
-    expect(names.length).toBeGreaterThan(0);
-    expect(names.some((n) => WAITING_BLOCK.test(n))).toBe(false);
+    expect(names.some((n) => WAITING_BLOCK.test(n))).toBe(true);
     await settle();
     expect(outside()).toEqual([]);
   });

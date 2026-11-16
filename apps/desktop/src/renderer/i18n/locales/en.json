@@ -1754,7 +1754,15 @@
       "empty": "Nothing to release and no failed releases."
     },
     "waitingCustomers": {
-      "empty": "No customer is waiting"
+      "empty": "No customer is waiting",
+      "pending": "To review: Claude hasn't said yet whether it needs your reply",
+      "yesNoReason": "Claude says it needs your reply.",
+      "signals": {
+        "decision": "Decision",
+        "request": "Request",
+        "deadline": "Deadline",
+        "blocker": "Blocker"
+      }
     }
   },
   "week": {

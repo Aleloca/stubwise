@@ -1,4 +1,5 @@
 import { prLines, type PrLine } from "../domain/claude/taskWork";
+import { SEED_REPLY_JUDGMENTS } from "./seed/mail/replyJudgments";
 import { stallOf, type Stall } from "../domain/stalled";
 import { currentWeek } from "../domain/weeks";
 import { matches, type FilterContext } from "../domain/filters";
@@ -490,6 +491,7 @@ export type ApiFnName =
   | "mail.threadOfMessage"
   | "mail.listMailboxes"
   | "mail.listImportantMail"
+  | "mail.listWaitingCustomers"
   | "mail.searchMail"
   | "mail.markRead"
   | "mail.markUnread"
@@ -646,7 +648,6 @@ export type ApiFnName =
   | "support.listSupportConversations"
   | "support.getSupportConversation"
   | "support.customerPreview"
-  | "support.listWaitingCustomers"
   | "support.listWidgets"
   | "support.myRequestStatus"
   | "support.searchSupport"
@@ -1171,6 +1172,12 @@ interface State {
   mailboxes: Mailbox[];
   /** Tutti i messaggi, una riga per Message-ID anche se è in più caselle. */
   mailMessages: MailMessage[];
+  /**
+   * Il giudizio di Claude «serve una mia risposta?» (area 8, «Clienti in
+   * attesa»), per `<email della casella>|<id dell'ultimo messaggio>`: vale
+   * solo finché quel messaggio è l'ultimo del thread. Assente = da valutare.
+   */
+  mailReplyJudgments: Map<string, { judgment: "yes" | "no"; reason: string | null }>;
   /** Le note delle riunioni registrate, per id del messaggio di Gemini. */
   meetingTranscripts: MeetingTranscript[];
   /** Le proposte della posta, condivise fra i destinatari membri del progetto. */
@@ -1419,6 +1426,7 @@ function freshState(): State {
     driveSeedWorkStarted: false,
     mailboxes: MAILBOXES.map(copy),
     mailMessages: MAIL_MESSAGES.map(copy),
+    mailReplyJudgments: new Map(SEED_REPLY_JUDGMENTS),
     meetingTranscripts: MEETING_TRANSCRIPTS.map(copy),
     mailProposals: [...MAIL_PROPOSALS, ...CALENDAR_PROPOSALS].map(copy),
     mailDrafts: MAIL_DRAFTS.map(copy),
