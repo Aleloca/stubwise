@@ -1,4 +1,5 @@
 import {
+  projectMemberSchema,
   milestoneWithCountsSchema,
   prReviewSummarySchema,
   projectBriefWeeklySchema,
@@ -11,6 +12,8 @@ import {
   weeklyBriefViewSchema,
 } from "@stubwise/shared";
 import type {
+  ProjectMember,
+  PutProjectMemberInput,
   ChronologyPage,
   CreateProjectInput,
   DecisionDraft,
@@ -265,6 +268,28 @@ export function createProjectsEndpoints(request: ApiRequest) {
         body,
         projectDecisionSchema,
       );
+    },
+
+    /**
+     * Area 9, F1: i membri espliciti coi permessi EFFETTIVI e la loro
+     * provenienza (`permissions[].sources`); i full admin sono impliciti.
+     */
+    members(projectId: string): Promise<Reader<ProjectMember>[]> {
+      return request("GET", `/api/projects/${seg(projectId)}/members`, undefined, z.array(projectMemberSchema));
+    },
+
+    /**
+     * Aggiunge o cambia un membro (riconferma). `permissions` sono i
+     * personali e, se mandato, SOSTITUISCE l'insieme; assente li lascia.
+     * Errori: 403 `escalation`, 409 `last_manager`, 422 `unknown_permission`.
+     */
+    putMember(projectId: string, userId: string, body: PutProjectMemberInput): Promise<Reader<ProjectMember>> {
+      return request("PUT", `/api/projects/${seg(projectId)}/members/${seg(userId)}`, body, projectMemberSchema);
+    },
+
+    /** Toglie un membro (riconferma): 204. 409 `last_manager`. */
+    removeMember(projectId: string, userId: string): Promise<void> {
+      return request("DELETE", `/api/projects/${seg(projectId)}/members/${seg(userId)}`);
     },
   };
 }

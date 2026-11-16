@@ -3,6 +3,7 @@ import { deviceTokens, personalAccessTokens, sessions } from "@stubwise/db";
 import { and, desc, eq, gt, inArray, isNull, or } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
+import { meSessionSchema } from "@stubwise/shared";
 import { z } from "zod";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -19,15 +20,7 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  * per i token `t_` + l'id del PAT, che non è un segreto.
  */
 
-const sessionRowSchema = z.object({
-  id: z.string(),
-  kind: z.enum(["browser", "desktop", "mobile"]),
-  userAgent: z.string().nullable(),
-  label: z.string().nullable().default(null),
-  createdAt: z.iso.datetime(),
-  lastSeenAt: z.iso.datetime().nullable(),
-  current: z.boolean(),
-});
+const sessionRowSchema = meSessionSchema;
 
 export async function meSessionsRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();

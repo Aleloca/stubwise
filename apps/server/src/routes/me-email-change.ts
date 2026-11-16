@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
+import { emailChangeStatusSchema } from "@stubwise/shared";
 import { z } from "zod";
 import { apiError } from "../errors.js";
 import { cancelEmailChange, EmailChangeError, emailChangeStatus, requestEmailChange } from "../services/email-change.js";
@@ -11,10 +12,7 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  * tetto dei tentativi del login; il cambio fatto da un admin in `routes/users.ts`.
  * Le regole: `services/email-change.ts`, docs/invariants/identity.md.
  */
-export const emailChangeStatusSchema = z.object({
-  available: z.boolean(),
-  pending: z.object({ newEmail: z.string(), expiresAt: z.iso.datetime() }).nullable(),
-});
+
 
 export function sendEmailChangeError(reply: FastifyReply, error: unknown): FastifyReply {
   if (!(error instanceof EmailChangeError)) throw error;

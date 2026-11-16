@@ -3,6 +3,8 @@ import {
   languageResponseSchema,
   desktopExchangeResponseSchema,
   desktopHandoffResponseSchema,
+  emailChangedSchema,
+  emailChangeLinkSchema,
   mobileLoginResponseSchema,
   sessionResponseSchema,
   setupStatusSchema,
@@ -10,6 +12,8 @@ import {
 import type {
   DesktopExchangeInput,
   DesktopHandoffInput,
+  EmailChanged,
+  EmailChangeLink,
   Reader,
   AuthUserResponse,
   Language,
@@ -20,6 +24,7 @@ import type {
   SetupStatus,
 } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
+import { seg } from "../query.js";
 
 export interface Credentials {
   email: string;
@@ -88,6 +93,18 @@ export function createAuthEndpoints(request: ApiRequest) {
     /** L'id lo ricava il server dalla sessione: si manda solo la lingua. */
     setLanguage(language: Language): Promise<Reader<LanguageResponse>> {
       return request("PATCH", "/api/auth/me", { language }, languageResponseSchema);
+    },
+
+    /**
+     * Area 9, F1: la pagina del link del cambio dell'email. `emailChangeLink`
+     * LEGGE e non conferma (gli scanner della posta aprono i link); conferma
+     * solo `confirmEmailChange`, dal bottone: 400 `invalid_token`, 409 `email_taken`.
+     */
+    emailChangeLink(token: string): Promise<Reader<EmailChangeLink>> {
+      return request("GET", `/api/auth/email-change/${seg(token)}`, undefined, emailChangeLinkSchema);
+    },
+    confirmEmailChange(token: string): Promise<Reader<EmailChanged>> {
+      return request("POST", "/api/auth/email-change/confirm", { token }, emailChangedSchema);
     },
   };
 }
