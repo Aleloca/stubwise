@@ -115,7 +115,7 @@ export async function cancelEmailChange(): Promise<MeResult> {
 }
 
 /** Il clic sul link: valido, non scaduto, una volta. Non serve una sessione. */
-function confirm(change: EmailChange | undefined): MeResult {
+function confirm(change: EmailChange | undefined): MeResult<{ email: string }> {
   if (!change || change.expiresAt <= now()) return refuse.invalid("link");
   const { personId, email } = change;
   dropPending(personId);
@@ -128,18 +128,18 @@ function confirm(change: EmailChange | undefined): MeResult {
     "Sign-in email changed",
     `Your sign-in email is now ${email}. If it wasn't you, contact an administrator.`,
   );
-  return { ok: true };
+  return { ok: true, email };
 }
 
-/** La pagina pubblica del link (`/app/#/confirm-email/<token>`). */
-export async function confirmEmailChange(token: string): Promise<MeResult> {
+/** La pagina pubblica del link (`<PUBLIC_URL>/app/#/email-change/<token>`). */
+export async function confirmEmailChange(token: string): Promise<MeResult<{ email: string }>> {
   await gate("auth.confirmEmailChange");
   const hit = matchSecret("email_change_link", token.trim());
   return confirm(hit ? state.emailChanges.find((c) => c.secretId === hit.id) : undefined);
 }
 
 /** SOLO PROTOTIPO: «Apri il link di conferma» dal riquadro, per chi guarda. */
-export async function simulateEmailChangeLink(): Promise<MeResult> {
+export async function simulateEmailChangeLink(): Promise<MeResult<{ email: string }>> {
   const me = await writer("me.simulateEmailChangeLink");
   return confirm(pendingOf(me));
 }

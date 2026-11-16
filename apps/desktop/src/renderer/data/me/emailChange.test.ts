@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { admin, auth, me, resetApi, setLatency } from "../api";
+import { __secretValuesForTest } from "../admin/secrets";
 import { markReauthenticated } from "../auth/reauth";
 import { setSessionPersonId } from "../session";
 import { advanceNow, state } from "../store";
@@ -42,7 +43,7 @@ describe("la persona cambia la sua email", () => {
     expect(await loginOk(NEW)).toBe(false);
 
     as(SARA);
-    expect(await me.simulateEmailChangeLink()).toEqual({ ok: true });
+    expect(await me.simulateEmailChangeLink()).toEqual({ ok: true, email: NEW });
     // Una volta sola.
     expect(await me.simulateEmailChangeLink()).toEqual({
       ok: false,
@@ -118,6 +119,26 @@ describe("la persona cambia la sua email", () => {
     expect(await me.requestEmailChange(NEW)).toEqual({
       ok: false,
       error: "email_transport_unavailable",
+    });
+  });
+
+  it("la pagina del link: confirmEmailChange(token) dice la nuova email; un token sbagliato o usato è «link»", async () => {
+    as(SARA);
+    markReauthenticated(SARA);
+    await me.requestEmailChange(NEW);
+    const token = __secretValuesForTest()
+      .find((s) => s.kind === "email_change_link")!
+      .values.at(-1)!;
+    expect(await me.confirmEmailChange("nope")).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "link",
+    });
+    expect(await me.confirmEmailChange(token)).toEqual({ ok: true, email: NEW });
+    expect(await me.confirmEmailChange(token)).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "link",
     });
   });
 

@@ -10391,6 +10391,16 @@
         "title": "This sign-in link doesn't work",
         "lead": "Start again from the Stubwise app on your Mac: it opens a new link."
       }
+    },
+    "emailChange": {
+      "title": "Sign-in email changed",
+      "confirming": "Confirming the new email…",
+      "done": "From now on you sign in with {{email}}.",
+      "failed": "Couldn't confirm the new email. Open the link again.",
+      "invalidTitle": "This link isn't valid",
+      "invalidBody": "It may have expired, been used already or been cancelled. Ask for a new one from your preferences.",
+      "takenTitle": "That email is taken",
+      "takenBody": "Someone else in Stubwise uses it now. Your sign-in email hasn't changed."
     }
   },
   "admin": {

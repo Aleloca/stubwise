@@ -1,0 +1,72 @@
+import { screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { auth, me, resetApi, setLatency } from "../../data/api";
+import { __secretValuesForTest } from "../../data/admin/secrets";
+import { markReauthenticated } from "../../data/auth/reauth";
+import { setSessionPersonId } from "../../data/session";
+import { renderRoute } from "../../test/renderRoute";
+
+// La pagina del link del cambio d'email (area 9, R2; il server la serve a
+// `<PUBLIC_URL>/app/#/email-change/<token>`): pubblica, senza sessione, si
+// conferma da sola all'apertura e dice com'è andata. Un link sbagliato,
+// scaduto, usato o annullato dà UNA frase sola, come il server.
+
+const SARA = "p-sara";
+const NEW = "sara@new.example.com";
+
+beforeEach(() => {
+  setLatency(0);
+  resetApi();
+});
+afterEach(() => resetApi());
+
+async function linkForSara(email = NEW): Promise<string> {
+  setSessionPersonId(SARA);
+  markReauthenticated(SARA);
+  const r = await me.requestEmailChange(email);
+  if (!r.ok) throw new Error(r.error);
+  const token = __secretValuesForTest()
+    .find((s) => s.kind === "email_change_link")!
+    .values.at(-1)!;
+  await auth.logout();
+  return token;
+}
+
+describe("/email-change/$token", () => {
+  it("un link valido conferma da solo, anche senza sessione: la nuova email e il login", async () => {
+    const token = await linkForSara();
+    renderRoute(`/email-change/${token}`);
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Sign-in email changed" }),
+    ).toBeVisible();
+    expect(screen.getByText(`From now on you sign in with ${NEW}.`)).toBeVisible();
+    expect(screen.getByRole("link", { name: "Go to sign in" })).toBeVisible();
+    expect((await auth.login({ email: NEW, password: "stubwise" })).ok).toBe(true);
+  });
+
+  it("un link usato, annullato o inventato: una frase sola, senza nomi", async () => {
+    const token = await linkForSara();
+    expect((await me.confirmEmailChange(token)).ok).toBe(true);
+    for (const t of [token, "made-up-token"]) {
+      document.body.replaceChildren();
+      renderRoute(`/email-change/${t}`);
+      expect(
+        await screen.findByRole("heading", { level: 1, name: "This link isn't valid" }),
+      ).toBeVisible();
+      expect(screen.queryByText(NEW)).toBeNull();
+    }
+  });
+
+  it("l'indirizzo preso nel frattempo da un'altra persona: lo dice, e l'email resta quella di prima", async () => {
+    const token = await linkForSara("taken-later@example.com");
+    const { PEOPLE } = await import("../../data/seed/people");
+    PEOPLE.find((p) => p.id === "p-marco")!.email = "taken-later@example.com";
+    renderRoute(`/email-change/${token}`);
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "That email is taken" }),
+    ).toBeVisible();
+    expect(
+      (await auth.login({ email: "sara.montanari@example.com", password: "stubwise" })).ok,
+    ).toBe(true);
+  });
+});

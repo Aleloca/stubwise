@@ -10391,6 +10391,16 @@
         "title": "Questo link di accesso non funziona",
         "lead": "Ricomincia dall'app Stubwise sul Mac: apre un link nuovo."
       }
+    },
+    "emailChange": {
+      "title": "Email di accesso cambiata",
+      "confirming": "Conferma della nuova email…",
+      "done": "Da ora entri con {{email}}.",
+      "failed": "Non è stato possibile confermare la nuova email. Riapri il link.",
+      "invalidTitle": "Questo link non vale",
+      "invalidBody": "Può essere scaduto, già usato o annullato. Chiedine uno nuovo dalle tue preferenze.",
+      "takenTitle": "Quell'email è già presa",
+      "takenBody": "Ora la usa un'altra persona in Stubwise. La tua email di accesso non è cambiata."
     }
   },
   "admin": {
