@@ -68,6 +68,7 @@ describe("il segreto d'identità del widget", () => {
     expect(res.statusCode).toBe(200);
     const { secret, rotatedAt } = res.json() as { secret: string; rotatedAt: string };
     expect(Buffer.from(secret, "base64url")).toHaveLength(32);
+    expect(res.headers["cache-control"]).toBe("no-store");
 
     const [row] = await db.select().from(widgets).where(eq(widgets.id, widget.id));
     expect(row!.identitySecretEncrypted).not.toContain(secret);

@@ -1,6 +1,6 @@
 import { createHmac, randomUUID } from "node:crypto";
-import { encrypt, projects, widgetConversations, widgets, type Db } from "@stubwise/db";
-import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { backlogItems, encrypt, projects, tickets, widgetConversations, widgetMessages, widgets, type Db } from "@stubwise/db";
+import { seedBacklogItem, seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -134,6 +134,26 @@ describe("S3: la conversazione col token", () => {
     const id = (await s.create("anna")).json().conversationId as string;
     expect((await s.history(id, "anna")).statusCode).toBe(200);
     expect((await s.history(id, "anna", s.token("anna"))).statusCode).toBe(200);
+  });
+
+  it("review finale: una conversazione DICHIARATA chiusa che continua in una VERIFICATA non fa entrare nessuno senza token (404, niente scritto)", async () => {
+    const s = await scene();
+    const [p] = await db.select({ projectId: widgets.projectId }).from(widgets).where(eq(widgets.id, s.widget.id));
+    const declared = (await s.create("anna")).json().conversationId as string;
+    const { itemId } = await seedBacklogItem(db, { projectId: p!.projectId });
+    await db.update(backlogItems).set({ supportConversationId: declared }).where(eq(backlogItems.id, itemId));
+    const [verified] = await db.insert(widgetConversations).values({ projectId: p!.projectId, widgetId: s.widget.id, externalUserId: "anna", identityVerified: true }).returning();
+    await db.update(widgetConversations).set({ continuedInId: verified!.id }).where(eq(widgetConversations.id, declared));
+    const ticketsBefore = (await db.select().from(tickets)).length;
+    const res = await app.inject({
+      method: "POST",
+      url: `/widget/${s.slug}/conversations/${declared}/tickets`,
+      headers: s.headers(),
+      payload: { title: "Iniettato", body: "Testo di qualcun altro", type: "bug", userId: "anna" },
+    });
+    expect(res.statusCode).toBe(404);
+    expect((await db.select().from(tickets)).length).toBe(ticketsBefore);
+    expect(await db.select().from(widgetMessages).where(eq(widgetMessages.conversationId, verified!.id))).toEqual([]);
   });
 
   it("CORS: la preflight ammette l'header authorization", async () => {

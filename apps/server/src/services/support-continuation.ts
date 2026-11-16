@@ -41,7 +41,16 @@ async function hasOutcome(tx: Tx, conversationId: string): Promise<boolean> {
  * L'id della conversazione in cui scrivere adesso: questa, se è aperta;
  * altrimenti la prima aperta della catena, creata se manca.
  */
-export async function openConversationFor(db: Db, conversationId: string, opts: { identityVerified?: boolean } = {}): Promise<string> {
+export async function openConversationFor(db: Db, conversationId: string, opts: { identityVerified?: boolean } = {}): Promise<string | null> {
+  // Area 8, «L'API per i siti» (review finale): chi scrive è FIRMATO o no.
+  // - Senza token, la catena non entra MAI in un anello verificato: null (la
+  //   rotta risponde 404, come una conversazione non sua). Altrimenti una
+  //   dichiarata chiusa farebbe arrivare nella successiva verificata il testo
+  //   di chiunque conosca l'id del cliente.
+  // - Col token, una dichiarata si tratta come chiusa: le parole firmate vanno
+  //   in una successiva verificata, mai in una dichiarata (che non entra nella
+  //   lettura del sito, D-1).
+  const signed = opts.identityVerified ?? false;
   return db.transaction(async (tx) => {
     let id = conversationId;
     for (let i = 0; i < MAX_CHAIN; i++) {
@@ -51,7 +60,9 @@ export async function openConversationFor(db: Db, conversationId: string, opts: 
         .where(eq(widgetConversations.id, id))
         .for("update");
       if (!row) return id;
-      if (!(await hasOutcome(tx, id))) return id;
+      if (row.identityVerified && !signed) return null;
+      const closed = (signed && !row.identityVerified) || (await hasOutcome(tx, id));
+      if (!closed) return id;
       if (row.continuedInId) {
         id = row.continuedInId;
         continue;
@@ -67,7 +78,7 @@ export async function openConversationFor(db: Db, conversationId: string, opts: 
           channel: row.channel,
           // Area 8, «L'API per i siti»: la successiva è verificata solo se nasce
           // da una richiesta col token; la catena non promuove a verificato.
-          identityVerified: opts.identityVerified ?? false,
+          identityVerified: signed,
           lastMessageAt: sql`now()`,
         })
         .returning({ id: widgetConversations.id });

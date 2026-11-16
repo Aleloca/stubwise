@@ -144,6 +144,14 @@ describe("S4: l'elenco", () => {
     expect(page.items.map((i) => i.code).sort()).toEqual([first.code, second.code].sort());
   });
 
+  it("review finale: a widget SPENTO anche le letture del sito sono spente (404 widget_disabled), elenco e dettaglio", async () => {
+    const s = await site();
+    const r = await s.withRequest("anna", "Mia");
+    await db.update(widgets).set({ enabled: false }).where(eq(widgets.id, s.widget.id));
+    expect((await s.get("", "anna")).json()).toMatchObject({ code: "widget_disabled" });
+    expect((await s.get(`/${r.code}`, "anna")).json()).toMatchObject({ code: "widget_disabled" });
+  });
+
   it("senza token: 401 identity_required anche su un widget che non lo chiede per la chat", async () => {
     const s = await site();
     const res = await s.get("");

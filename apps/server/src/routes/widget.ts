@@ -575,6 +575,8 @@ export async function widgetRoutes(
       // va nella sua successiva (creata se manca, una sola). Dopo la proprietà,
       // il cap e il pre-flight: è la prima scrittura.
       const targetId = await openConversationFor(app.db, conversationId, { identityVerified: request.widgetIdentity !== null });
+      // Una catena che, senza token, porterebbe in una conversazione verificata: non è sua.
+      if (targetId === null) return apiError(reply, 404, "conversation_not_found", "Conversation not found");
 
       // Persiste il messaggio utente PRIMA del retrieval/streaming, aggiorna il
       // last_message_at (ordina l'elenco viewer + alimenta il cap del giorno).
@@ -663,11 +665,13 @@ export async function widgetRoutes(
       preValidation: [authenticateWidget, identify, requireIdentity],
       schema: {
         params: z.object({ slug: z.string().min(1) }),
-        response: { 200: siteRequestListSchema, 401: errorSchema, 403: errorSchema },
+        response: { 200: siteRequestListSchema, 401: errorSchema, 403: errorSchema, 404: errorSchema },
       },
     },
     async (request, reply) => {
       reply.header("cache-control", "no-store");
+      // Widget spento = spento anche per il sito (review finale): come la chat.
+      if (!request.widget!.enabled) return apiError(reply, 404, "widget_disabled", "Widget not available");
       return listSiteRequests(app.db, request.widget!, request.widgetIdentity!.sub);
     },
   );
@@ -689,6 +693,7 @@ export async function widgetRoutes(
     },
     async (request, reply) => {
       reply.header("cache-control", "no-store");
+      if (!request.widget!.enabled) return apiError(reply, 404, "widget_disabled", "Widget not available");
       const detail = await siteRequestDetail(app.db, request.widget!, request.widgetIdentity!.sub, request.params.code);
       if (!detail) return apiError(reply, 404, "not_found", "Not found");
       return detail;
@@ -788,6 +793,8 @@ export async function widgetRoutes(
 
       // Area 8, F3, S17: su una conversazione chiusa la conferma va alla successiva.
       const targetId = await openConversationFor(app.db, conversationId, { identityVerified: request.widgetIdentity !== null });
+      // Una catena che, senza token, porterebbe in una conversazione verificata: non è sua.
+      if (targetId === null) return apiError(reply, 404, "conversation_not_found", "Conversation not found");
 
       // Ultimi N messaggi PRIMA della conferma, in ordine cronologico (DESC +
       // reverse per l'indice, tiebreaker su id come lo storico).

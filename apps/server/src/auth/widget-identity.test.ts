@@ -28,6 +28,12 @@ describe("verifyWidgetIdentity", () => {
     expect(verify(sign(good()))).toEqual({ sub: "cliente-42", email: null, name: null });
   });
 
+  it("review finale: `email` e `name` nulli o vuoti sono ASSENTI (le librerie serializzano null), un'email malformata no", () => {
+    expect(verify(sign(good({ email: null, name: null })))).toEqual({ sub: "cliente-42", email: null, name: null });
+    expect(verify(sign(good({ email: "", name: "" })))).toEqual({ sub: "cliente-42", email: null, name: null });
+    expect(verify(sign(good({ email: "non-email" })))).toBeNull();
+  });
+
   it("anche un `typ` assente si accetta (molte librerie lo omettono), ma nient'altro nell'header", () => {
     expect(verify(sign(good(), { header: { alg: "HS256" } }))).not.toBeNull();
     expect(verify(sign(good(), { header: { alg: "HS256", typ: "JWT", kid: "x" } }))).toBeNull();

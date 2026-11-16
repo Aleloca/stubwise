@@ -34,8 +34,10 @@ const payloadSchema = z.object({
   aud: z.string(),
   iat: z.number().int(),
   exp: z.number().int(),
-  email: z.email().max(320).optional(),
-  name: z.string().min(1).max(200).optional(),
+  // null o "" = assente (molte librerie serializzano un campo vuoto così);
+  // un'email malformata resta un errore di chi firma.
+  email: z.union([z.literal(""), z.email().max(320)]).nullable().optional(),
+  name: z.string().max(200).nullable().optional(),
 });
 
 /** 32 byte casuali, base64url: il segreto d'identità di un widget. */
@@ -70,5 +72,5 @@ export function verifyWidgetIdentity(token: string, input: { secret: string; wid
   if (p.exp <= now) return null;
   if (p.iat > now + CLOCK_SKEW_S) return null;
   if (p.exp - p.iat > WIDGET_IDENTITY_MAX_LIFETIME_S) return null;
-  return { sub: p.sub, email: p.email ?? null, name: p.name ?? null };
+  return { sub: p.sub, email: p.email || null, name: p.name?.trim() || null };
 }

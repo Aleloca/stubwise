@@ -71,7 +71,11 @@ claims:
 | `email` | no  | The customer's email. |
 | `name`  | no  | The customer's display name. |
 
-Any JWT library works. With no library, it is a few lines.
+Any JWT library that produces a plain HS256 token works. The header must be
+exactly `{"alg":"HS256","typ":"JWT"}` (or without `typ`): a token whose header
+carries anything else, such as a `kid`, is refused. An empty or `null` `email`
+or `name` counts as absent; a malformed email makes the token invalid. With no
+library, it is a few lines.
 
 **Node.js**
 
@@ -126,7 +130,8 @@ regenerate it at once.
 
 Add `identityToken` to `initWidget`. It takes the token itself, or a function
 that fetches a fresh one from your backend. The widget calls the function
-once, and again only when the token expires.
+once, and calls it again only when Stubwise refuses the token
+(`invalid_identity`: expired, or signed with a replaced secret).
 
 ```js
 Stubwise.initWidget({
@@ -140,7 +145,10 @@ Stubwise.initWidget({
 With a token, the email and name in the token win over the ones in `user`.
 
 Only conversations opened **with a token** appear on the requests page. The
-ones opened before you added it stay in your team's Support view.
+ones opened before you added it stay in your team's Support view. A customer
+who comes back signed, to a conversation the widget remembers from before,
+continues in a new conversation: what they write signed is always on the
+requests page.
 
 ## 4. Read the requests
 
@@ -195,8 +203,19 @@ The detail adds the customer's conversation with the widget:
 }
 ```
 
-If you use the npm package, `fetchMyRequests(base)` and
-`fetchMyRequest(base, code)` call these endpoints for you.
+If you use the npm package, `fetchMyRequests` and `fetchMyRequest` call these
+endpoints for you:
+
+```js
+import { createIdentitySource, fetchMyRequest, fetchMyRequests, parseWidgetDsn } from "@stubwise/widget";
+
+const base = { ...parseWidgetDsn("https://WIDGET_KEY@host/p/slug"), identity: createIdentitySource(getToken) };
+const { items } = await fetchMyRequests(base);
+const detail = await fetchMyRequest(base, items[0].code);
+```
+
+The `<script>` bundle exposes only `initWidget`: from a plain script, call the
+endpoints with `fetch`.
 
 :::caution[Render the text as text]
 `label` and the message `body` are what your customer (and the AI) wrote.
@@ -208,6 +227,7 @@ Insert them as **text**, never as HTML.
 | Status | Code | Meaning |
 | ------ | ---- | ------- |
 | 401 | `identity_required` | No token, or the widget requires verified customers. |
+| 404 | `widget_disabled` | The widget is switched off: the requests page is off too. |
 | 401 | `invalid_identity` | The token is not valid: wrong signature, expired, for another widget, or signed with a replaced secret. The widget asks your function for a new token once. |
 | 401 | `identity_mismatch` | `user.id` is not the token's `sub`. |
 | 404 | `not_found` | This customer has no request with that code. A code that does not exist and a code of another customer look the same. |

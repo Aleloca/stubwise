@@ -289,7 +289,7 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
   // del widget, col quale il backend del sito firma i suoi clienti. Il
   // segreto si mostra QUESTA volta sola e si salva cifrato; il vecchio smette
   // subito (D-5). È una credenziale: `widget.manage` più la riconferma recente
-  // (un PAT non la soddisfa mai).
+  // (`config.reauth`, con le sue regole: vedi `applyReauth`).
   app.post(
     "/:projectId/widgets/:widgetId/identity-secret",
     {
@@ -310,6 +310,8 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
         .returning({ id: widgets.id });
       // Widget inesistente o di un altro progetto: 404 (isolamento), niente scritto.
       if (!row) return apiError(reply, 404, "widget_not_found", "Widget not found");
+      // Il segreto non resta in nessuna cache intermedia.
+      reply.header("cache-control", "no-store");
       return { secret, rotatedAt: rotatedAt.toISOString() };
     },
   );
