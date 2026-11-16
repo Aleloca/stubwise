@@ -54,6 +54,7 @@ import { departmentPermissionsMap } from "../services/home.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
+import { avatarUrlsFor } from "../services/avatars.js";
 import {
   loadSlackCreds,
   defaultSlackClientFactory,
@@ -460,7 +461,8 @@ export async function authRoutes(
       },
     },
     async (request) => ({
-      user: request.user!,
+      // Area 9, F1: la foto caricata vince sull'avatar di Slack.
+      user: { ...request.user!, avatarUrl: (await avatarUrlsFor(app.db, [request.user!.id])).get(request.user!.id) ?? request.user!.avatarUrl },
       instancePermissions: [...request.user!.instancePermissions],
       projectPermissions: await projectPermissionsMap(app.db, request.user!),
       departmentPermissions: await departmentPermissionsMap(app.db, request.user!.id),

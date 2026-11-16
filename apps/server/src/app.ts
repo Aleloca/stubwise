@@ -43,6 +43,7 @@ import { meGoogleRoutes } from "./routes/me-google.js";
 import { meCalendarRoutes } from "./routes/me-calendar.js";
 import { meMeetingsRoutes } from "./routes/me-meetings.js";
 import { meSessionsRoutes } from "./routes/me-sessions.js";
+import { avatarRoutes } from "./routes/avatars.js";
 import { meWaitingCustomersRoutes } from "./routes/me-waiting-customers.js";
 import { meMailDraftsRoutes, meMailOutgoingRoutes, meMailRecipientsRoutes } from "./routes/me-mail-drafts.js";
 import { meMailProposalsRoutes } from "./routes/me-mail-proposals.js";
@@ -923,6 +924,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(meSecurityRoutes, { prefix: "/api/me/security" });
   // Area 9, F1 (D-9): le mie sessioni, del browser e dei token di desktop e telefono.
   void app.register(meSessionsRoutes, { prefix: "/api/me" });
+  // Area 9, F1 (D-13): la foto del profilo (`/api/me/avatar`, `/api/users/:id/avatar`).
+  void app.register(avatarRoutes, { prefix: "/api" });
   // Cassaforte delle credenziali: attivazione, chiavi delle persone, kit di recupero.
   void app.register(vaultRoutes, { prefix: "/api/vault" });
   // Credenziali della cassaforte: `/api/projects/:projectId/credentials...`,

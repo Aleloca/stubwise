@@ -73,6 +73,8 @@ export const personViewSchema = z.object({
    * assegnatari solo lì, senza dedurre la regola.
    */
   claudeAssignableProjectIds: z.array(z.string().uuid()).default([]),
+  /** Area 9, F1 (additivo): la foto del profilo (`/api/users/:id/avatar?v=…`), null senza. */
+  avatarUrl: z.string().nullable().default(null),
 });
 export type PersonView = z.infer<typeof personViewSchema>;
 

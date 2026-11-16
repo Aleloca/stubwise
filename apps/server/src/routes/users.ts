@@ -19,6 +19,7 @@ import { userIsFullAdmin } from "@stubwise/notifications";
 import { setInstanceRole } from "../services/roles.js";
 import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
 import { deactivateUser, reactivateUser } from "../services/user-deactivation.js";
+import { avatarUrlsFor } from "../services/avatars.js";
 import { authErrorResponses, errorSchema, rejectAgentUserParam } from "./shared.js";
 
 /** Identità pubblica di un utente: mai hash o altri campi sensibili. */
@@ -128,8 +129,11 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
         identitiesByUser.set(row.userId, list);
       }
 
+      const avatars = await avatarUrlsFor(app.db, rows.map((r) => r.id));
       return rows.map(({ deactivatedAt, ...row }) => ({
         ...row,
+        // Area 9, F1: la foto caricata vince sull'avatar di Slack.
+        avatarUrl: avatars.get(row.id) ?? row.avatarUrl,
         createdAt: row.createdAt.toISOString(),
         gitIdentities: identitiesByUser.get(row.id) ?? [],
         status: deactivatedAt ? ("deactivated" as const) : ("active" as const),
