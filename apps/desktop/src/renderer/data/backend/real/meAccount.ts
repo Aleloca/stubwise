@@ -14,7 +14,7 @@ import { authedDataUrl } from "./transport";
 //   `<img src>`), e torna come data URL;
 // - il cambio d'email e la pagina del link (`/api/me/email-change`,
 //   `/api/auth/email-change/...`): la lettura del link non conferma;
-// - la password (`POST /api/me/password`, con la riconferma): il server non
+// - la password (`POST /api/auth/me/password`, con la riconferma): il server non
 //   dice quante sessioni ha chiuso, si contano prima.
 
 interface SessionUserLike {
@@ -180,7 +180,7 @@ export function createRealMeAccount(api: MeAccountApi) {
 }
 
 /** Sul client vero (il client si legge a ogni chiamata). */
-export const liveMeAccount = createRealMeAccount({
+const liveApi: MeAccountApi = {
   me: () => appClient().auth.me(),
   setDisplayName: async (name) => {
     await appClient().request("PATCH", "/api/auth/me", { displayName: name });
@@ -194,10 +194,15 @@ export const liveMeAccount = createRealMeAccount({
   emailChangeLink: (token) => appClient().auth.emailChangeLink(token),
   confirmEmailChange: (token) => appClient().auth.confirmEmailChange(token),
   changePassword: async (current, next) => {
-    await appClient().request("POST", "/api/me/password", {
+    await appClient().request("POST", "/api/auth/me/password", {
       currentPassword: current,
       newPassword: next,
     });
   },
   sessions: () => appClient().me.sessions(),
-});
+};
+
+/** SOLO TEST: le rotte vere, per controllarne i percorsi. */
+export const liveMeAccountApiForTest = liveApi;
+
+export const liveMeAccount = createRealMeAccount(liveApi);

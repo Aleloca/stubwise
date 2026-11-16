@@ -125,7 +125,7 @@ export async function changePassword(input: {
 }): Promise<MeResult<{ signedOut: number }>> {
   const me = await writer("me.changePassword");
   if (!isHumanId(me)) return refuse.forbidden();
-  // Area 9: la riconferma, come `config.reauth` di `POST /api/me/password`.
+  // Area 9: la riconferma, come `config.reauth` di `POST /api/auth/me/password`.
   const reauth = reauthRefusal(me, "me.changePassword");
   if (reauth) return reauth;
   if (input.current !== passwordOf(me)) return refuse.invalid("wrong_password");
