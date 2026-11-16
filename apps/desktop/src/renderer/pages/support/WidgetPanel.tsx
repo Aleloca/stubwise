@@ -149,6 +149,8 @@ export function WidgetPanel({
   const [origins, setOrigins] = useState(() => (widget?.origins ?? []).join("\n"));
   /** I siti com'erano all'apertura: si mandano solo se cambiano rispetto a questi. */
   const [openedOrigins] = useState(() => [...(widget?.origins ?? [])]);
+  /** Il toggle com'era all'apertura: come i siti, parte solo se l'ho cambiato (review S6). */
+  const [openedIdentityRequired] = useState(() => widget?.identityRequired ?? false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const firstRef = useRef<HTMLInputElement>(null);
@@ -171,7 +173,10 @@ export function WidgetPanel({
   const input = (): WidgetInput => ({
     ...f,
     // Spenta la funzione (build app prima di S6), il campo non parte.
-    identityRequired: identity ? f.identityRequired : undefined,
+    identityRequired:
+      identity && (!widget || f.identityRequired !== openedIdentityRequired)
+        ? f.identityRequired
+        : undefined,
     ...(!widget || originsChanged() ? { origins: originList() } : {}),
     dailyMessageCap: capOf(f.dailyMessageCap),
     dailyRequestCap: capOf(f.dailyRequestCap),

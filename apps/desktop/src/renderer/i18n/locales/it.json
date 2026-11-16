@@ -9370,7 +9370,8 @@
         "origins": "Ogni sito deve essere come https://example.com (http solo per localhost, senza percorso), al massimo 20.",
         "sourceRepositoryIds": "Scegli repository di questo progetto.",
         "dailyMessageCap": "Messaggi al giorno: un numero intero da 1 a 100000, o vuoto.",
-        "dailyRequestCap": "Richieste al giorno: un numero intero da 1 a 100000, o vuoto."
+        "dailyRequestCap": "Richieste al giorno: un numero intero da 1 a 100000, o vuoto.",
+        "identityRequired": "Crea prima un segreto."
       },
       "fields": {
         "name": "Nome",

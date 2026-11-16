@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetApi, setLatency } from "../../data/api";
 import { __secretValuesForTest } from "../../data/admin/secrets";
+import { markReauthenticated } from "../../data/auth/reauth";
 import { state } from "../../data/store";
 import { resetViewerGrants } from "../../data/viewer";
 import { setLanguage } from "../../i18n";
@@ -241,5 +242,45 @@ describe("Support — Widget", () => {
     await user.click(toggle);
     await user.click(within(panel).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(state.supportWidgets[0]!.identityRequired).toBe(true));
+  });
+
+  it("review S6 (1): salvare solo il nome non rispegne «Only verified customers» acceso nel frattempo da un collega", async () => {
+    const user = userEvent.setup();
+    await open("/p/ACQ/support?view=widgets&widget=wdg-acq-portal");
+    const panel = await screen.findByRole("complementary", { name: "Edit Customer portal help" });
+    state.supportWidgets[0]!.identityRequired = true; // un collega, a pannello aperto
+    const name = within(panel).getByLabelText("Name");
+    await user.clear(name);
+    await user.type(name, "Portal help");
+    await user.click(within(panel).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(state.supportWidgets[0]!.name).toBe("Portal help"));
+    expect(state.supportWidgets[0]!.identityRequired).toBe(true);
+  });
+
+  it("review S6 (3): acceso quando il segreto non c'è più, l'errore del campo è «Make a secret first.»", async () => {
+    const user = userEvent.setup();
+    await open("/p/ACQ/support?view=widgets&widget=wdg-acq-portal");
+    const panel = await screen.findByRole("complementary", { name: "Edit Customer portal help" });
+    await user.click(within(panel).getByRole("checkbox", { name: "Only verified customers" }));
+    state.supportWidgets[0]!.identitySecretSet = false;
+    await user.click(within(panel).getByRole("button", { name: "Save" }));
+    expect(await within(panel).findByRole("alert")).toHaveTextContent("Make a secret first.");
+  });
+
+  it("review S6 (2): mentre il segreto si crea il dialogo non si chiude, e il segreto nuovo si vede", async () => {
+    const user = userEvent.setup();
+    markReauthenticated("p-matteo");
+    await open("/p/ACQ/support?view=widgets&widget=wdg-acq-portal");
+    const panel = await screen.findByRole("complementary", { name: "Edit Customer portal help" });
+    await user.click(within(panel).getByRole("button", { name: "Regenerate secret…" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Make a new identity secret for Customer portal help?",
+    });
+    setLatency(300);
+    await user.click(within(dialog).getByRole("button", { name: "Regenerate" }));
+    await user.keyboard("{Escape}");
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(dialog).toBeInTheDocument();
+    expect(await within(dialog).findByTestId("secret-once")).toBeInTheDocument();
   });
 });

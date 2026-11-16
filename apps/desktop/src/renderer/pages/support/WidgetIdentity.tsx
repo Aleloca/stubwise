@@ -85,22 +85,32 @@ function IdentitySecretDialog({
   const reauth = useReauth();
   const regenerate = useRegenerateIdentitySecret();
   const [busy, setBusy] = useState(false);
+  // Mentre il segreto si crea il dialogo non si chiude (review S6): il
+  // vecchio è già spento, e chiudere ora perderebbe il nuovo per sempre.
+  const busyRef = useRef(false);
+  const close = () => {
+    if (!busyRef.current) onClose();
+  };
   // Il valore vive solo qui: «Done» chiude il dialogo e lo butta.
   const [secret, setSecret] = useState<string | null>(null);
   const name = widget.name;
   const replacing = widget.identitySecretSet;
 
   async function submit() {
-    if (busy) return;
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     try {
       const r = await reauth(() => regenerate.mutateAsync(widget.id), {
         action: t("support.widgets.identity.reauthAction", { name }),
       });
       if (r.ok) setSecret(r.secret);
+      // Chiuso il dialogo della riconferma lo dice lui; ogni altro rifiuto qui.
+      else if (r.error !== "reauth_cancelled") toast.error(t("support.widgets.identity.error"));
     } catch {
       toast.error(t("support.widgets.identity.error"));
     }
+    busyRef.current = false;
     setBusy(false);
   }
 
@@ -117,12 +127,17 @@ function IdentitySecretDialog({
           ? t("support.widgets.identity.dialogReplace", { name })
           : t("support.widgets.identity.dialogMake", { name })
       }
-      onClose={onClose}
+      onClose={close}
       width={480}
       footer={
         secret ? undefined : (
           <>
-            <button type="button" className={secondaryButton} onClick={onClose}>
+            <button
+              type="button"
+              className={secondaryButton}
+              aria-disabled={busy || undefined}
+              onClick={close}
+            >
               {t("support.widgets.cancel")}
             </button>
             <button

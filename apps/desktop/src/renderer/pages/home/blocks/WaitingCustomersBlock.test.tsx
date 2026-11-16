@@ -94,6 +94,12 @@ describe("il blocco «Clienti in attesa» (R1–R2)", () => {
     expect(BLOCKS.waitingCustomers.area).toBe("mail-waiting");
   });
 
+  it("mai nelle Home di default: la Home di p-laura non ha il blocco", async () => {
+    renderRoute("/home", "p-laura");
+    await screen.findByRole("heading", { name: "Home", level: 1 });
+    expect(screen.queryByRole("region", { name: /^Customers waiting/ })).toBeNull();
+  });
+
   it("review M1–M3: un «sì» senza motivo non è «To review»; nessun colore d'allarme su ogni riga", async () => {
     const yes = thread("th-yes", "Fattura di ottobre");
     state.mailMessages.push(yes);

@@ -125,6 +125,16 @@ describe("le letture di Support dal server (area 8, F3)", () => {
     expect(
       (await createRealSupport(declared.api).getSupportConversation("ACQ-S1"))!.identityVerified,
     ).toBe(false);
+    const listed = fakeApi({
+      list: async () => ({
+        items: [
+          view({ messages: [], identityVerified: true }),
+          view({ id: "x", code: "ACQ-S2", messages: [] }),
+        ],
+      }),
+    });
+    const items = await createRealSupport(listed.api).listSupportConversations(PRJ);
+    expect(items.map((c) => c.identityVerified)).toEqual([true, false]);
   });
 
   it("un cliente senza nome (il widget non l'ha detto) diventa il nome vuoto: la pagina dice «Anonymous visitor»", async () => {
