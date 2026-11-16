@@ -1,3 +1,4 @@
+import { ApiError } from "@stubwise/api-client";
 import type { InboxItem, SnoozeUntil } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import { featureIntegrated, isIntegrated } from "../../integration";
@@ -353,13 +354,23 @@ function snoozeOption(until: string): SnoozeUntil {
 }
 
 /**
- * Letta, archiviata, rinviata. Il server non sa togliere «letta» né
- * ripristinare un'archiviata o una rinviata: quei cambi non si scrivono (il
- * pannello rilegge l'inbox e mostra lo stato vero).
+ * Letta, archiviata, rinviata; dall'area 9 (F1, R10) anche il ritorno:
+ * «non letta» (`unread`), da archiviata a nuova (`restore`), da rinviata a
+ * nuova (`move-to-new`). Un passaggio che dallo stato di adesso non ha senso
+ * (409 `invalid_state`, per esempio una card chiusa da una decisione) non si
+ * scrive: il pannello rilegge l'inbox e mostra lo stato vero.
  */
 export const markNotification: typeof Fake.markNotification = async (id, change) => {
   const inbox = appClient().inbox;
-  if (change.read === true) await inbox.read(id);
-  if (change.archived === true) await inbox.handled(id);
-  if (typeof change.snoozedUntil === "string") await inbox.snooze(id, snoozeOption(change.snoozedUntil));
+  try {
+    if (change.read === true) await inbox.read(id);
+    if (change.read === false) await inbox.unread(id);
+    if (change.archived === true) await inbox.handled(id);
+    if (change.archived === false) await inbox.restore(id);
+    if (typeof change.snoozedUntil === "string") await inbox.snooze(id, snoozeOption(change.snoozedUntil));
+    if (change.snoozedUntil === null) await inbox.moveToNew(id);
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "invalid_state") return;
+    throw error;
+  }
 };

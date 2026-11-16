@@ -80,6 +80,7 @@ const ALL: IntegrationTarget[] = [
       "prefs-claude-code",
       "prefs-look",
       "prefs-mailboxes",
+      "notification-restore",
       "servers-monitor",
       "servers-write",
       "servers-ssh",
@@ -136,6 +137,8 @@ describe("isIntegrated", () => {
         "feature:prefs-tokens",
         "feature:prefs-claude-code",
         "feature:prefs-look",
+        // Area 9, F1, R10: «Restore» e «Move to New» dell'Inbox.
+        "feature:notification-restore",
         // Area 8, F4a: i Server in sola lettura; scritture, SSH, analisi e ricerca spente.
         "projectSection:servers",
         "admin:servers",

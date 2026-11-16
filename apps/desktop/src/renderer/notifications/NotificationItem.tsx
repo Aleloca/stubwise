@@ -279,13 +279,15 @@ export function NotificationItem({
             )}
           </div>
         )}
-        {/* Build app: il server non sa rimettere in elenco un'archiviata o una
-            rinviata, e un comando che non scrive nulla non si mostra. */}
+        {/* Area 9, R10: da archiviata il ritorno è «restore», da rinviata «move
+            to New» (sul server due rotte diverse): il cambio dice quale. */}
         {tab !== "new" && featureIntegrated("notification-restore") && (
           <button
             type="button"
             className={actionClass}
-            onClick={() => onChange({ archived: false, snoozedUntil: null })}
+            onClick={() =>
+              onChange(tab === "archived" ? { archived: false } : { snoozedUntil: null })
+            }
           >
             {t(
               tab === "archived"

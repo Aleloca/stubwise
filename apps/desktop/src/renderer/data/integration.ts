@@ -109,6 +109,8 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "prefs-tokens",
     "prefs-claude-code",
     "prefs-look",
+    // Area 9, F1, R10: «Restore» e «Move to New» dell'Inbox.
+    "notification-restore",
     // Area 8, F4a: i Server (letture e scritture, la chiave una volta).
     // Resta spenta la ricerca ⌘K (`servers-search`).
     "servers-monitor",
