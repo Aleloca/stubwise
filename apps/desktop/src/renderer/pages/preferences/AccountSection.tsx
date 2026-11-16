@@ -2,7 +2,6 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  EMAIL_RE,
   MIN_PASSWORD_LENGTH,
   useChangePassword,
   useConnectMailbox,
@@ -40,6 +39,7 @@ import {
 } from "./parts";
 import { Switch } from "./SubscriptionRow";
 import { WhoCanLink } from "../../components/WhoCanLink";
+import { LoginEmail } from "./LoginEmail";
 
 // Preferenze → Account (shape preferences-account.md): profilo (nome, email,
 // foto), password, progetti seguiti, caselle Google. Le caselle sono le
@@ -99,65 +99,63 @@ function ProfilePart({ profile }: { profile: MyProfile }) {
   const { t } = useTranslation();
   const update = useUpdateProfile();
   const [name, setName] = useState(profile.name);
-  const [email, setEmail] = useState(profile.email);
   const [nameError, setNameError] = useState<string | null>(null);
-  const [emailError, setEmailError] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const [saved, flashSaved] = useFlash();
   const file = useRef<HTMLInputElement>(null);
-  const dirty = name !== profile.name || email !== profile.email;
+  const dirty = name !== profile.name;
 
   // Il profilo cambiato altrove (la foto, un'altra scheda) entra nei campi non toccati.
   useEffect(() => {
-    if (!dirty) {
-      setName(profile.name);
-      setEmail(profile.email);
-    }
-  }, [profile.name, profile.email]);
+    if (!dirty) setName(profile.name);
+  }, [profile.name]);
 
   const cancel = () => {
     setName(profile.name);
-    setEmail(profile.email);
     setNameError(null);
-    setEmailError(null);
   };
 
   function save(e?: FormEvent) {
     e?.preventDefault();
     setNameError(null);
-    setEmailError(null);
     setFailed(false);
     if (!name.trim()) return setNameError(t("prefs.account.profile.nameEmpty"));
-    if (!EMAIL_RE.test(email.trim())) return setEmailError(t("prefs.account.profile.invalidEmail"));
-    const input = {
-      ...(name !== profile.name ? { name } : {}),
-      ...(email !== profile.email ? { email } : {}),
-    };
+    const input = name !== profile.name ? { name } : {};
     update.mutate(input, {
       onSuccess: (r) => {
         const refusal = refusalOf(r);
         if (!refusal) return flashSaved();
         if (refusal.reason === "name") setNameError(t("prefs.account.profile.nameEmpty"));
-        else if (refusal.reason === "email") setEmailError(t("prefs.account.profile.invalidEmail"));
-        else if (refusal.reason === "email_taken")
-          setEmailError(t("prefs.account.profile.emailTaken"));
         else setFailed(true);
       },
       onError: () => setFailed(true),
     });
   }
 
-  /** La foto si sceglie da un file locale e resta in memoria: nessun caricamento. */
+  /**
+   * La foto si sceglie da un file locale. Il tipo e la dimensione li decide
+   * il livello dati (area 9, R1: i primi byte, non il nome né il tipo
+   * dichiarato), e i suoi rifiuti si dicono qui.
+   */
   function pickPhoto(picked: File | undefined) {
     setPhotoError(null);
     if (!picked) return;
-    if (!picked.type.startsWith("image/"))
-      return setPhotoError(t("prefs.account.profile.notImage"));
     const reader = new FileReader();
     reader.onload = () => {
-      if (typeof reader.result === "string")
-        update.mutate({ avatar: reader.result }, { onError: () => setFailed(true) });
+      if (typeof reader.result !== "string") return;
+      update.mutate(
+        { avatar: reader.result },
+        {
+          onSuccess: (r) => {
+            const reason = refusalOf(r)?.reason;
+            if (reason === "avatar_type") setPhotoError(t("prefs.account.profile.notImage"));
+            else if (reason === "avatar_size") setPhotoError(t("prefs.account.profile.tooLarge"));
+            else if (reason) setFailed(true);
+          },
+          onError: () => setFailed(true),
+        },
+      );
     };
     reader.readAsDataURL(picked);
   }
@@ -182,7 +180,7 @@ function ProfilePart({ profile }: { profile: MyProfile }) {
           <input
             ref={file}
             type="file"
-            accept="image/png,image/jpeg,image/gif,image/webp"
+            accept="image/png,image/jpeg,image/webp"
             hidden
             onChange={(e) => {
               pickPhoto(e.target.files?.[0]);
@@ -204,14 +202,6 @@ function ProfilePart({ profile }: { profile: MyProfile }) {
             onChange={(e) => setName(e.target.value)}
             error={nameError}
             autoComplete="name"
-          />
-          <EntryField
-            label={t("prefs.account.profile.email")}
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            error={emailError}
-            autoComplete="email"
           />
         </div>
         {failed && (
@@ -244,6 +234,7 @@ function ProfilePart({ profile }: { profile: MyProfile }) {
           </div>
         )}
       </form>
+      <LoginEmail profile={profile} />
     </Part>
   );
 }

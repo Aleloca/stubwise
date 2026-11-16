@@ -37,6 +37,8 @@ export type SecurityEventKind =
   | "backup_codes_regenerated"
   | "backup_code_used"
   | "second_factor_locked"
+  // Area 9, R2: l'email di login cambiata (dalla persona col link, o da un admin).
+  | "email_changed"
   | "token_created"
   | "token_revoked"
   | "registered";
@@ -246,6 +248,8 @@ export interface PersonDetail {
   actions: {
     setInstanceRole: ActionBlock;
     resetPassword: ActionBlock;
+    /** Area 9, R2: cambiare l'email di login (non su sé stessi, non a un disattivato). */
+    changeEmail: ActionBlock;
     resetSecondFactor: ActionBlock;
     deactivate: ActionBlock;
     reactivate: ActionBlock;

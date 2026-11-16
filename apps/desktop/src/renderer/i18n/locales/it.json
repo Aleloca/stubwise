@@ -369,13 +369,14 @@
         "title": "Profilo",
         "changePhoto": "Cambia foto",
         "removePhoto": "Togli la foto",
-        "notImage": "Quel file non è un'immagine. Scegli un PNG, un JPEG o un GIF.",
+        "notImage": "Scegli un'immagine PNG, JPEG o WebP.",
         "name": "Nome",
         "email": "Email",
         "nameEmpty": "Scrivi il tuo nome.",
         "invalidEmail": "Scrivi un indirizzo email completo.",
         "emailTaken": "Quell'email è già di un'altra persona in Stubwise.",
-        "saveFailed": "Non è stato possibile salvare il profilo. Riprova."
+        "saveFailed": "Non è stato possibile salvare il profilo. Riprova.",
+        "tooLarge": "La foto supera i 512 KB."
       },
       "password": {
         "title": "Password",
@@ -400,6 +401,21 @@
         "body_other": "Segui {{count}} progetti: sono fissati nel binario.",
         "none": "Non segui ancora nessun progetto. Fissane uno in Tutti i progetti per tenerlo nel binario.",
         "manage": "Gestisci in Tutti i progetti"
+      },
+      "email": {
+        "label": "Email di accesso",
+        "change": "Cambia email…",
+        "unavailable": "Su questa istanza non puoi cambiare l'email di accesso: chiedi a un amministratore.",
+        "pending": "In attesa di conferma su {{next}}. Fino ad allora entri con {{current}}.",
+        "cancel": "Annulla il cambio",
+        "openLink": "Apri il link di conferma",
+        "failed": "Non è stato possibile cambiare l'email di accesso. Riprova.",
+        "dialogTitle": "Cambia l'email di accesso",
+        "dialogAbout": "Mandiamo un link al nuovo indirizzo. L'email cambia solo quando lo apri, entro 24 ore.",
+        "newLabel": "Nuova email",
+        "send": "Manda il link",
+        "sending": "Invio…",
+        "reauthAction": "cambiare l'email di accesso"
       }
     },
     "google": {
@@ -563,7 +579,8 @@
           "second_factor_locked": "Bloccato dopo troppi codici sbagliati",
           "token_created": "Token di accesso creato",
           "token_revoked": "Token di accesso revocato",
-          "registered": "Account creato"
+          "registered": "Account creato",
+          "email_changed": "Email di accesso cambiata"
         }
       }
     },
@@ -10511,7 +10528,8 @@
         "cancel": "Annulla"
       },
       "securityLog": "Registro di sicurezza",
-      "securityLogError": "Non è stato possibile caricare il registro di sicurezza."
+      "securityLogError": "Non è stato possibile caricare il registro di sicurezza.",
+      "changeEmail": "Cambia email…"
     },
     "resetPassword": {
       "title": "Creare un link per reimpostare la password di {{name}}?",
@@ -11750,6 +11768,16 @@
         "note": "Solo da leggere: il giro notturno riprende da dove si è fermato.",
         "empty": "Stanotte non è girato niente nei progetti che vedi."
       }
+    },
+    "changeEmail": {
+      "title": "Cambiare l'email di accesso di {{name}}?",
+      "now": "Cambia subito, senza link di conferma.",
+      "keeps": "{{name}} tiene le sessioni e la verifica in due passaggi.",
+      "alert": "{{name}} riceve un avviso di sicurezza.",
+      "newLabel": "Nuova email",
+      "change": "Cambia email",
+      "done": "Ora {{name}} entra con {{email}}.",
+      "reauthAction": "cambiare l'email di accesso di {{name}}"
     }
   },
   "permissions": {
@@ -12114,7 +12142,8 @@
         "git_identity_unlinked": "<actor>{{actor}}</actor> ha scollegato un'identità git da <object>{{object}}</object>.",
         "bitbucket_username_set": "<actor>{{actor}}</actor> ha cambiato lo username Bitbucket di <object>{{object}}</object>.",
         "deactivated": "<actor>{{actor}}</actor> ha disattivato <object>{{object}}</object>.",
-        "reactivated": "<actor>{{actor}}</actor> ha riattivato <object>{{object}}</object>."
+        "reactivated": "<actor>{{actor}}</actor> ha riattivato <object>{{object}}</object>.",
+        "email_changed": "<actor>{{actor}}</actor> ha cambiato l'email di accesso di <object>{{object}}</object>."
       },
       "invite": {
         "created": "<actor>{{actor}}</actor> ha invitato <object>{{object}}</object> come {{role}}.",

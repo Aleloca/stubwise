@@ -125,6 +125,8 @@ const SENSITIVE: Record<string, { setup?: () => void; call: () => Promise<AdminR
     "admin.setInstanceRole": { call: () => admin.setInstanceRole("p-marco", roleIdOf("au-1")) },
     "admin.createPasswordResetLink": { call: () => admin.createPasswordResetLink("p-marco") },
     "admin.resetSecondFactor": { call: () => admin.resetSecondFactor("p-marco") },
+    // Area 9, R2.
+    "admin.changeEmail": { call: () => admin.changeEmail("p-marco", "marco@new.example.com") },
     "admin.unlinkGitIdentity": {
       setup: () => state.commitAuthorLinks.set("kevin.ortega", "p-marco"),
       call: () => admin.unlinkGitIdentity("p-marco", "kevin.ortega"),
@@ -216,6 +218,7 @@ describe("senza permesso: forbidden, stato invariato, nessuna voce", () => {
     ["setInstanceRole", () => admin.setInstanceRole("p-marco", roleIdOf("au-1"))],
     ["createPasswordResetLink", () => admin.createPasswordResetLink("p-marco")],
     ["resetSecondFactor", () => admin.resetSecondFactor("p-marco")],
+    ["changeEmail", () => admin.changeEmail("p-marco", "marco@new.example.com")],
     ["linkGitIdentity", () => admin.linkGitIdentity("p-marco", "kevin.ortega")],
     ["unlinkGitIdentity", () => admin.unlinkGitIdentity("p-marco", "kevin.ortega")],
     ["setBitbucketUsername", () => admin.setBitbucketUsername("p-marco", "marcob")],

@@ -16,6 +16,7 @@ export {
   listSecurityEvents,
   reactivatePerson,
   resetSecondFactor,
+  changeEmail,
   setBitbucketUsername,
   setInstanceRole,
   unlinkGitIdentity,

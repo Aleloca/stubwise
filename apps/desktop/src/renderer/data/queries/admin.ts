@@ -359,6 +359,8 @@ export const useCreatePasswordResetLink = adminWrite(api.admin.createPasswordRes
   secret: true,
 });
 export const useResetSecondFactor = adminWrite(api.admin.resetSecondFactor);
+/** Area 9, R2: l'email di login di un'altra persona, subito (+R). */
+export const useAdminChangeEmail = adminWrite(api.admin.changeEmail);
 export const useLinkGitIdentity = adminWrite(api.admin.linkGitIdentity);
 export const useUnlinkGitIdentity = adminWrite(api.admin.unlinkGitIdentity);
 export const useSetBitbucketUsername = adminWrite(api.admin.setBitbucketUsername);

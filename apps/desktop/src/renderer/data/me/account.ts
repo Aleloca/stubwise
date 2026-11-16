@@ -6,7 +6,8 @@ import { writer } from "../writer";
 import { forgetResetLinksOf } from "../auth/resetPassword";
 import { logSecurity } from "./securityLog";
 import type { MeResult } from "./types";
-import { EMAIL_RE, MIN_PASSWORD_LENGTH } from "./accountRules";
+import { MIN_PASSWORD_LENGTH } from "./accountRules";
+import { emailChangeAvailable, pendingEmailOf, type PendingEmail } from "./emailChange";
 
 export { EMAIL_RE, MIN_PASSWORD_LENGTH } from "./accountRules";
 
@@ -40,6 +41,10 @@ export interface MyProfile {
   /** Un data URL, o `null` = le iniziali sul colore del reparto. */
   photo: string | null;
   departmentId: string | null;
+  /** Area 9, R2: la richiesta di cambio in attesa di conferma, o `null`. */
+  pendingEmail: PendingEmail | null;
+  /** Area 9, R2: l'istanza può mandare il link (senza, cambia un admin). */
+  emailChangeAvailable: boolean;
 }
 
 export async function getMyProfile(): Promise<MyProfile> {
@@ -51,20 +56,45 @@ export async function getMyProfile(): Promise<MyProfile> {
     email: loginEmailOf(me),
     photo: person.photo ?? null,
     departmentId: person.departmentIds[0] ?? null,
+    pendingEmail: pendingEmailOf(me),
+    emailChangeAvailable: emailChangeAvailable(),
   };
+}
+
+/** Il limite della foto, come sul server (design area 9, 1.6). */
+export const AVATAR_MAX_BYTES = 512 * 1024;
+
+/**
+ * Perché una foto non va, o `null` se va (design area 9, 1.6, come
+ * `PUT /api/me/avatar`): il TIPO si deduce dai primi byte, PNG, JPEG o WebP
+ * soli; quello dichiarato nel data URL non conta. Mai SVG, mai GIF.
+ */
+export function avatarRefusal(dataUrl: string): "avatar_type" | "avatar_size" | null {
+  const m = /^data:[^;,]*;base64,([A-Za-z0-9+/=]*)$/.exec(dataUrl);
+  if (!m) return "avatar_type";
+  let bytes: string;
+  try {
+    bytes = atob(m[1]!);
+  } catch {
+    return "avatar_type";
+  }
+  const png = bytes.startsWith("\x89PNG\r\n\x1a\n");
+  const jpeg = bytes.startsWith("\xff\xd8\xff");
+  const webp = bytes.startsWith("RIFF") && bytes.slice(8, 12) === "WEBP";
+  if (!png && !jpeg && !webp) return "avatar_type";
+  return bytes.length > AVATAR_MAX_BYTES ? "avatar_size" : null;
 }
 
 export interface ProfileInput {
   name?: string;
-  email?: string;
   /** Un data URL (scelto da un file locale, mai caricato); `null` toglie la foto. */
   avatar?: string | null;
 }
 
 /**
- * Cambia nome, email o foto. Un campo assente resta com'è. L'email nuova
- * dev'essere valida e di nessun altro; diventa quella d'accesso. Il nome si
- * vede subito ovunque (task, registro, «vedi come»).
+ * Cambia nome o foto. Un campo assente resta com'è. Il nome si vede subito
+ * ovunque (task, registro, «vedi come»). L'email d'accesso NON cambia da qui
+ * (area 9, R2): passa dalla richiesta col link (`emailChange.ts`).
  */
 export async function updateProfile(input: ProfileInput): Promise<MeResult> {
   const me = await writer("me.updateProfile");
@@ -72,16 +102,13 @@ export async function updateProfile(input: ProfileInput): Promise<MeResult> {
   const person = PEOPLE.find((p) => p.id === me)!;
   const name = input.name?.trim();
   if (input.name !== undefined && !name) return refuse.invalid("name");
-  const email = input.email?.trim().toLowerCase();
-  if (input.email !== undefined) {
-    if (!email || !EMAIL_RE.test(email)) return refuse.invalid("email");
-    const owner = personByEmail(email);
-    if (owner && owner !== me) return refuse.invalid("email_taken");
+  if (typeof input.avatar === "string") {
+    const bad = avatarRefusal(input.avatar);
+    if (bad) return refuse.invalid(bad);
   }
   // L'email del seme può derivare dal nome: si fissa prima di cambiarlo.
   person.email ??= addressOf(me).email;
   if (name) Object.assign(person, { name, initials: initials(name) });
-  if (email) person.email = email;
   if (input.avatar === null) delete person.photo;
   else if (input.avatar !== undefined) person.photo = input.avatar;
   return { ok: true };

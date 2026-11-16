@@ -1,3 +1,4 @@
+import { adminChangeEmail } from "../me/emailChange";
 import {
   accessState,
   isFullAdmin,
@@ -254,6 +255,8 @@ export async function getPerson(personId: string): Promise<PersonDetail> {
       setInstanceRole,
       resetPassword:
         blockFor(me, personId, { notSelf: true }) ?? (access.status !== "active" ? "status" : null),
+      changeEmail:
+        blockFor(me, personId, { notSelf: true }) ?? (access.status !== "active" ? "status" : null),
       resetSecondFactor:
         blockFor(me, personId, { notSelf: true }) ??
         (access.secondFactor === null ? "no_second_factor" : null),
@@ -422,6 +425,17 @@ export async function createPasswordResetLink(
  * prossimo accesso e riceve `security.alert`, solo lei. Fra pari grado
  * (un full admin su un altro) è accettato, registrato e avvisato.
  */
+/**
+ * Area 9, R2: cambia l'email di login di un'altra persona (+R,
+ * `users.manage`), subito e senza verifica (`me/emailChange.ts`).
+ */
+export async function changeEmail(personId: string, email: string): Promise<AdminResult> {
+  const me = await writer("admin.changeEmail");
+  const blocked = target(me, personId);
+  if (blocked) return blocked;
+  return (await adminChangeEmail(me, personId, email)) as AdminResult;
+}
+
 export async function resetSecondFactor(personId: string): Promise<AdminResult> {
   const me = await writer("admin.resetSecondFactor");
   const blocked = target(me, personId);

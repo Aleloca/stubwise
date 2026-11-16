@@ -55,6 +55,25 @@ export function useUpdateProfile() {
   });
 }
 
+/**
+ * Area 9, R2: il cambio dell'email di login. La richiesta (con la
+ * riconferma), «Annulla» e, nel prototipo, il link simulato: tutto ricarica
+ * il profilo (l'email e la richiesta in attesa).
+ */
+export function useEmailChange() {
+  const client = useQueryClient();
+  const me = useSessionPersonId();
+  const onSettled = () => client.invalidateQueries({ queryKey: queryKeys.all(me) });
+  return {
+    request: useMutation({
+      mutationFn: (email: string) => api.me.requestEmailChange(email),
+      onSettled,
+    }),
+    cancel: useMutation({ mutationFn: () => api.me.cancelEmailChange(), onSettled }),
+    simulateLink: useMutation({ mutationFn: () => api.me.simulateEmailChangeLink(), onSettled }),
+  };
+}
+
 /** Cambia la password: chiude le altre sessioni (Security le rilegge). */
 export function useChangePassword() {
   return useMeWrite((input: { current: string; next: string }) => api.me.changePassword(input));

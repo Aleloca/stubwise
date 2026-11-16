@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { admin, failNext, resetApi, setLatency } from "../../data/api";
+import { admin, auth, failNext, resetApi, setLatency } from "../../data/api";
 import { markReauthenticated } from "../../data/auth/reauth";
 import { setSessionPersonId } from "../../data/session";
 import { accessState, writeAccess } from "../../data/access/index";
@@ -237,6 +237,7 @@ describe("la pagina di una persona", () => {
     const menu = screen.getByRole("menu");
     expect(within(menu).getAllByRole("menuitem").map((i) => i.textContent)).toEqual([
       "Reset password…",
+      "Change email…",
       "Reset two-step verification…",
       "Deactivate…",
     ]);
@@ -375,6 +376,31 @@ describe("la pagina di una persona", () => {
       await screen.findByText("Two-step verification reset for Marco Bellini."),
     ).toBeVisible();
     expect(alerts()).toBe(before + 1);
+  });
+
+  it("area 9, R2: «Change email…» cambia SUBITO l'email di login, con la riconferma; un indirizzo preso si dice", async () => {
+    const user = userEvent.setup();
+    renderRoute("/admin/people/p-marco", ROBERTA);
+    await heading("Marco Bellini");
+    await user.click(screen.getByRole("button", { name: "More actions for Marco Bellini" }));
+    await user.click(screen.getByRole("menuitem", { name: "Change email…" }));
+    const dialog = screen.getByRole("dialog", { name: "Change Marco Bellini's sign-in email?" });
+    expect(dialog).toHaveTextContent("It changes now, without a confirmation link.");
+    expect(dialog).toHaveTextContent("Marco Bellini gets a security alert.");
+    // Un indirizzo preso si dice subito, prima della riconferma.
+    await user.type(within(dialog).getByLabelText("New email"), "laura.costa@example.com");
+    await user.click(within(dialog).getByRole("button", { name: "Change email" }));
+    expect(
+      await within(dialog).findByText("That email already belongs to someone else in Stubwise."),
+    ).toBeVisible();
+    await user.clear(within(dialog).getByLabelText("New email"));
+    await user.type(within(dialog).getByLabelText("New email"), "marco@new.example.com");
+    await user.click(within(dialog).getByRole("button", { name: "Change email" }));
+    await confirmItsYou(user);
+    expect(await screen.findByText("Marco Bellini now signs in with marco@new.example.com.")).toBeVisible();
+    expect(
+      (await auth.login({ email: "marco@new.example.com", password: "stubwise" })).ok,
+    ).toBe(true);
   });
 
   it("Sara senza secondo fattore: la voce è spenta col motivo", async () => {
