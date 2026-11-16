@@ -416,7 +416,8 @@
         "newLabel": "Nuova email",
         "send": "Manda il link",
         "sending": "Invio…",
-        "reauthAction": "cambiare l'email di accesso"
+        "reauthAction": "cambiare l'email di accesso",
+        "sendFailed": "Non è stato possibile mandare il link. Riprova."
       }
     },
     "google": {

@@ -20,6 +20,7 @@ import { forgetFilterCaches } from "./filters";
 import { forgetHomeCaches } from "./home";
 import { forgetTaskCodes } from "./tasks";
 import * as web from "./webLogin";
+import { liveMeAccount } from "./meAccount";
 
 // La sessione della build app (integrazione area 2, fetta 1): chi è dentro e
 // cosa può fare lo dice il server (`GET /api/auth/me`), mai il client. Sul
@@ -294,4 +295,14 @@ const getMySecurity: Me["getMySecurity"] = async () => {
   }
 };
 
-export const me: Me = partialNamespace<Me>("me", { getMySecurity });
+export const me: Me = partialNamespace<Me>("me", {
+  getMySecurity,
+  // Area 9, F1, R4a: Preferenze → Account.
+  getMyProfile: liveMeAccount.getMyProfile,
+  updateProfile: liveMeAccount.updateProfile,
+  requestEmailChange: liveMeAccount.requestEmailChange,
+  cancelEmailChange: liveMeAccount.cancelEmailChange,
+  getEmailChangeLink: liveMeAccount.getEmailChangeLink,
+  confirmEmailChange: liveMeAccount.confirmEmailChange,
+  changePassword: liveMeAccount.changePassword,
+});

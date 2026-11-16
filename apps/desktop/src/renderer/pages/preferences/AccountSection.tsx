@@ -20,6 +20,7 @@ import {
 } from "../../data/queries";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { useReauth } from "../../layout/useReauth";
+import { featureIntegrated } from "../../data/integration";
 import { useToast } from "../../tasks-ui/Toast";
 import { PrototypeBox } from "../automations/shared";
 import { BusyLabel, EntryField, ErrorLine } from "../entry/parts";
@@ -63,7 +64,8 @@ export function AccountSection() {
         <ProfilePart profile={profile.data} />
         <PasswordPart />
         <FollowsPart />
-        <MailboxesPart />
+        {/* Nella build app le caselle stanno nel cassetto Google (area 6). */}
+        {featureIntegrated("prefs-mailboxes") && <MailboxesPart />}
       </>
     );
   }

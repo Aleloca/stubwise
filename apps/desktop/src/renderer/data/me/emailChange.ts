@@ -74,16 +74,19 @@ export function emailChangeAvailable(): boolean {
   return state.emailTransport;
 }
 
-/** Senza trasporto email l'istanza non può mandare il link (E-1 = a). */
-export interface TransportUnavailable {
+/**
+ * Senza trasporto email l'istanza non può mandare il link (E-1 = a); con il
+ * trasporto, l'invio può non riuscire (502 sul server; nel prototipo no).
+ */
+export interface MailRefusal {
   ok: false;
-  error: "email_transport_unavailable";
+  error: "email_transport_unavailable" | "email_send_failed";
 }
 
 /** La persona chiede il cambio (+R): il link parte verso il nuovo indirizzo. */
 export async function requestEmailChange(
   newEmail: string,
-): Promise<MeResult<{ pending: PendingEmail }> | TransportUnavailable> {
+): Promise<MeResult<{ pending: PendingEmail }> | MailRefusal> {
   const me = await writer("me.requestEmailChange");
   if (!isHumanId(me)) return refuse.forbidden();
   const email = normal(newEmail);

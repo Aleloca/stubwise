@@ -74,6 +74,12 @@ const ALL: IntegrationTarget[] = [
       "support-widgets",
       "support-search",
       "support-identity",
+      "prefs-account",
+      "prefs-security",
+      "prefs-tokens",
+      "prefs-claude-code",
+      "prefs-look",
+      "prefs-mailboxes",
       "servers-monitor",
       "servers-write",
       "servers-ssh",
@@ -122,6 +128,8 @@ describe("isIntegrated", () => {
         "feature:support-widgets",
         // API per i siti (S6): l'identità dei clienti del widget.
         "feature:support-identity",
+        // Area 9, F1, R4a: Preferenze → Account (le caselle Google no: stanno nel cassetto).
+        "feature:prefs-account",
         // Area 8, F4a: i Server in sola lettura; scritture, SSH, analisi e ricerca spente.
         "projectSection:servers",
         "admin:servers",

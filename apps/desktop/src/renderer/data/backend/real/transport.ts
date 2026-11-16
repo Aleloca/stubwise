@@ -91,3 +91,28 @@ export function createAppClient(options: { onUnauthorized?: () => void } = {}): 
     getAuthHeader: () => null,
   });
 }
+
+/**
+ * Area 9, R4a: un'immagine protetta dell'API (la foto di `avatarUrl`) come
+ * data URL. Sul desktop il token lo aggiunge il processo main e un `<img src>`
+ * non lo porterebbe; nel browser parte il cookie. Una risposta non riuscita
+ * (o non un'immagine) è `null`: si tornano a mostrare le iniziali.
+ */
+export async function authedDataUrl(path: string): Promise<string | null> {
+  try {
+    const res = window.stubwise?.api
+      ? await ipcFetch(path)
+      : await globalThis.fetch(path, { credentials: "include" });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    if (!blob.type.startsWith("image/")) return null;
+    return await new Promise<string | null>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}

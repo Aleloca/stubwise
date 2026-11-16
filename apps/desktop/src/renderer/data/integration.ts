@@ -99,6 +99,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // API per i siti (S6): il segreto d'identità dei clienti e «Solo clienti
     // verificati» nei widget, «verificato» / «dichiarato» nel dettaglio.
     "support-identity",
+    // Area 9, F1, R4a: Preferenze → Account (profilo, foto, email, password).
+    // Le caselle Google (`prefs-mailboxes`) restano nel cassetto Google.
+    "prefs-account",
     // Area 8, F4a: i Server (letture e scritture, la chiave una volta).
     // Resta spenta la ricerca ⌘K (`servers-search`).
     "servers-monitor",
@@ -338,6 +341,11 @@ export function integrationTargetOf(
   // sezioni delle Preferenze restano della loro area.
   if (first === "preferences" && (!second || second === "notifications")) {
     return { target: { kind: "feature", name: "alerts" }, titleKey: "prefs.sections.notifications" };
+  }
+  // Area 9, F1: ogni altra sezione delle Preferenze ha la sua funzione
+  // (`prefs-account`, `prefs-security`, …), accesa quando è collegata.
+  if (first === "preferences" && second) {
+    return { target: { kind: "feature", name: `prefs-${second}` }, titleKey: `prefs.sections.${second}` };
   }
   if (first === "home" && search.view === "week") {
     return { target: { kind: "feature", name: "my-week" }, titleKey: "column.subviews.home.week" };

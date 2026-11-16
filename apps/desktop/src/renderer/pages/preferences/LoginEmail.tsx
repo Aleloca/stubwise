@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { isAppBuild } from "../../data/build";
 import { EMAIL_RE } from "../../data/me/accountRules";
 import { useEmailChange, type MyProfile } from "../../data/queries";
 import { useReauth } from "../../layout/useReauth";
@@ -54,22 +55,24 @@ export function LoginEmail({ profile }: { profile: MyProfile }) {
           >
             {t("prefs.account.email.cancel")}
           </button>
-          <PrototypeBox>
-            <button
-              type="button"
-              className={secondaryButton}
-              onClick={() =>
-                change.simulateLink.mutate(undefined, {
-                  onSuccess: (r) => {
-                    if (refusalOf(r)) failed();
-                  },
-                  onError: failed,
-                })
-              }
-            >
-              {t("prefs.account.email.openLink")}
-            </button>
-          </PrototypeBox>
+          {!isAppBuild() && (
+            <PrototypeBox>
+              <button
+                type="button"
+                className={secondaryButton}
+                onClick={() =>
+                  change.simulateLink.mutate(undefined, {
+                    onSuccess: (r) => {
+                      if (refusalOf(r)) failed();
+                    },
+                    onError: failed,
+                  })
+                }
+              >
+                {t("prefs.account.email.openLink")}
+              </button>
+            </PrototypeBox>
+          )}
         </div>
       )}
       {open && <ChangeEmailDialog onClose={() => setOpen(false)} />}

@@ -109,6 +109,14 @@ beforeEach(() => {
  * altra chiamata, nella build app vera, sarebbe uno stub «non integrato».
  */
 const INTEGRATED_CALLS = new Set([
+  // Area 9, F1, R4a: Preferenze → Account.
+  "me.getMyProfile",
+  "me.updateProfile",
+  "me.requestEmailChange",
+  "me.cancelEmailChange",
+  "me.getEmailChangeLink",
+  "me.confirmEmailChange",
+  "me.changePassword",
   // Task 16: sessione, persone, progetti, notifiche, ricerca, reparti.
   "getViewer",
   "getSessionPerson",
@@ -696,6 +704,26 @@ describe("aree non integrate nella build app", () => {
       await screen.findByRole("heading", { level: 1, name: "Notifications" }),
     ).toBeInTheDocument();
     await waitFor(() => expect(calls).toContain("alerts.subscriptionRows"));
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F1, R4a: Preferenze → Account è accesa (`prefs-account`): profilo,
+  // email e password dal server; le caselle Google stanno nel cassetto Google
+  // (`prefs-mailboxes` spenta), e il riquadro «Prototype only» non c'è.
+  it("aprire Preferenze → Account legge solo chiamate integrate, senza caselle né riquadro del prototipo", async () => {
+    renderRoute("/preferences/account");
+    expect(await screen.findByRole("heading", { level: 1, name: "Account" })).toBeInTheDocument();
+    await waitFor(() => expect(calls).toContain("me.getMyProfile"));
+    await settle();
+    expect(calls).not.toContain("me.listMyMailboxes");
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  it("Preferenze → Security resta «Coming soon» (area 9, R4b)", async () => {
+    renderRoute("/preferences/security");
+    expect(await screen.findByText(/Coming soon/)).toBeInTheDocument();
     await settle();
     expect(outside()).toEqual([]);
   });

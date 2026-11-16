@@ -416,7 +416,8 @@
         "newLabel": "New email",
         "send": "Send the link",
         "sending": "Sending…",
-        "reauthAction": "change your sign-in email"
+        "reauthAction": "change your sign-in email",
+        "sendFailed": "Couldn't send the link. Try again."
       }
     },
     "google": {
