@@ -104,22 +104,30 @@ describe("migrazione 0113: settimana pianificata e slittamento", () => {
   });
 
   it("cambiare settimana o assegnatario cancella le sistemazioni; un altro campo no", async () => {
+    // «Oggi» fissato DENTRO la settimana del 9 nov: con la data vera, dopo
+    // quella settimana la task del 9 è già slittata alla corrente, e spostarla
+    // lì non cambierebbe la settimana EFFETTIVA (rosso dal 16 nov 2026).
+    const write = (fn: (tx: Parameters<Parameters<typeof t.db.transaction>[0]>[0]) => Promise<unknown>) =>
+      t.db.transaction(async (tx) => {
+        await tx.execute(sql`select set_config('stubwise.today', '2026-11-10', true)`);
+        await fn(tx);
+      });
     const { ticketId } = await seedTicket(t.db);
     const a = await user();
     const b = await user();
-    await t.db.update(tickets).set({ plannedWeek: "2026-11-09", assigneeId: a }).where(eq(tickets.id, ticketId));
+    await write((tx) => tx.update(tickets).set({ plannedWeek: "2026-11-09", assigneeId: a }).where(eq(tickets.id, ticketId)));
     const arrange = () =>
-      t.db.insert(taskDayArrangements).values({ ticketId, userId: a, week: "2026-11-09", day: 2 }).onConflictDoNothing();
+      write((tx) => tx.insert(taskDayArrangements).values({ ticketId, userId: a, week: "2026-11-09", day: 2 }).onConflictDoNothing());
     const count = async () =>
       (await t.db.select().from(taskDayArrangements).where(eq(taskDayArrangements.ticketId, ticketId))).length;
     await arrange();
-    await t.db.update(tickets).set({ title: "Altro titolo" }).where(eq(tickets.id, ticketId));
+    await write((tx) => tx.update(tickets).set({ title: "Altro titolo" }).where(eq(tickets.id, ticketId)));
     expect(await count()).toBe(1);
-    await t.db.update(tickets).set({ plannedWeek: "2026-11-16" }).where(eq(tickets.id, ticketId));
+    await write((tx) => tx.update(tickets).set({ plannedWeek: "2026-11-16" }).where(eq(tickets.id, ticketId)));
     expect(await count()).toBe(0);
-    await t.db.update(tickets).set({ plannedWeek: "2026-11-09" }).where(eq(tickets.id, ticketId));
+    await write((tx) => tx.update(tickets).set({ plannedWeek: "2026-11-09" }).where(eq(tickets.id, ticketId)));
     await arrange();
-    await t.db.update(tickets).set({ assigneeId: b }).where(eq(tickets.id, ticketId));
+    await write((tx) => tx.update(tickets).set({ assigneeId: b }).where(eq(tickets.id, ticketId)));
     expect(await count()).toBe(0);
   });
 
