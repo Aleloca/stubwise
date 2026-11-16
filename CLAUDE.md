@@ -560,13 +560,21 @@ una voce ti riguarda.
   - Un progetto invisibile risponde 404 `not_found`, come uno che non esiste.
   - Gli elenchi filtrano nella WHERE, prima di paginazione e conteggi.
   - Il client legge i permessi calcolati dal server, non li deduce.
-  - Nessuna escalation, e il bersaglio è protetto (`escalation`, `target_above`).
+  - Nessuna escalation sul DARE; nessuna gerarchia fra persone (area 9, 16 nov 2026: `target_above` tolto, il rischio accettato è scritto lì).
+  - I permessi effettivi in un progetto sono UNA funzione (ruolo ∪ personali ∪ reparto).
+  - Una persona disattivata non entra da nessuna porta; mai l'ultimo full admin.
+  - Un progetto archiviato è come uno che non c'è, tranne per chi lo legge di proposito; si elimina solo archiviato, solo da un full admin.
   - Resta sempre un full admin; i preset Admin e User non si eliminano finché esiste `users.role`.
   - La revoca si applica a lettura, senza riscrivere righe.
   - I full admin sono membri impliciti di ogni progetto.
   - Un permesso nuovo dato a un preset si dà anche ai ruoli che lo contenevano (10 nov 2026, decisione del maintainer: 0133, 0135).
   - `users.role` è DERIVATA (trigger), e la sua rimozione è un rilascio successivo.
   - L'utente di sistema Claude (10 nov 2026): uno per istanza, nessun accesso né notifiche, assegnarlo avvia il lavoro con `runs.start`.
+- **Identità: email di login e foto → `docs/invariants/identity.md`** (area 9, 16 nov 2026):
+  - L'email di login cambia solo dopo il clic sul link mandato alla NUOVA (o da un admin con riconferma).
+  - La foto è un'immagine, mai un documento (PNG/JPEG/WebP dai magic bytes, ≤ 512 KB).
+- **Registro delle modifiche → `docs/invariants/change-log.md`** (area 9, 16 nov 2026):
+  - Si scrive nella transazione della modifica, non si modifica né si cancella mai; tipi dichiarati, mai un segreto, lettura filtrata nella WHERE.
 - **Secondo fattore sul login → `docs/invariants/second-factor.md`** (23 ott 2026):
   - Una sessione parziale apre SOLO le rotte `second_factor` (test del registro).
   - Ogni porta che dà una sessione o un token passa dal secondo fattore (`/login`, `/mobile-login`).
@@ -1127,6 +1135,12 @@ una voce ti riguarda.
   - **Tutto si registra**: ogni comando firmato, ogni lettura (agente o
     SSH), ogni esito, con chi l'ha chiesto e quale approvazione lo copre
     (`server_commands`), per 90 giorni.
+  La pausa della coda di un progetto (area 9, F4) e il rilancio di un lavoro
+  fallito dallo Stato dell'istanza NON toccano un ambiente, un server o un
+  processo: agiscono solo sulla coda di Stubwise. Una coda in pausa non
+  reclama lavoro nuovo (la WHERE del claim di ogni coda), il lavoro già partito
+  finisce, la chat e «Chiedi a Claude» non si fermano. Lo Stato dell'istanza
+  non ha riavvii né azioni sui server, per costruzione.
   Le regole di dettaglio stanno in `docs/invariants/server-operations.md`
   (scritto con la F4b).
 - **Nei test del server una chiamata di rete reale FALLISCE il test (1 ott
