@@ -1174,6 +1174,17 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   server (`claudeActionSignatures`), non a permessi. Con F7 (azioni di Claude
   dell'area 9) o con l'area 10.
 
+- **F1 renderer, ciò che resta** *(94, 16 nov 2026)*:
+  - gli autori git osservati arrivano dal server senza commit né progetti
+    (`GET /api/git/observed-authors` dà email, nome visto e data): le righe
+    di «Link a git email» non dicono «N commit in ACQ» *(S)*;
+  - le caselle Google in Preferenze → Account restano spente nell'app
+    (`prefs-mailboxes`): stanno nel cassetto Google *(S, scelta di 94 da
+    confermare con 46)*;
+  - il colore delle iniziali nel profilo è neutro: `/api/auth/me` non dice
+    il reparto *(S)*;
+  - `department` fra le fonti dei permessi dei membri arriva con F8.
+
 ## Area 10 — Integrazione di Claude
 
 - Le citazioni di file del repository (`kind file`, `<repo>:<path>`, visibili

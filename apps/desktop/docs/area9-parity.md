@@ -23,6 +23,28 @@ controller che le fanno divergere dal web sono scritte nella riga e, per
 esteso, in `ossatura-follow-ups.md` («Area 9b — minori aperti», «Area 9c —
 minori aperti»).
 
+## Integrazione, F1: nella build app (area 9, 16 nov 2026)
+
+Le voci A e B nella build app, sulle rotte del server (piano
+`docs/plans/2026-11-16-integrazione-area9-f1-renderer-plan.md`). Ogni
+adattatore ha i suoi test (`data/backend/real/<nome>.test.ts`), quelli dei
+percorsi veri (`<nome>Live.test.ts`) e la sua riga in `pages/ComingSoon.test.tsx`
+(la pagina legge solo chiamate integrate). Il prototipo resta la specifica: le
+modifiche fatte PRIMA del collegamento sono in fondo alla tabella.
+
+| Voci | Adattatore | Funzione accesa | Differenze dichiarate |
+|---|---|---|---|
+| Account: nome, foto, email di login, password | `meAccount.ts` | `prefs-account` | La foto si legge con l'autenticazione (`authedDataUrl`): sul desktop un `<img src>` non porta il token. Le caselle Google restano nel cassetto Google (`prefs-mailboxes` spenta). Il colore delle iniziali è neutro (manca il reparto nel profilo). |
+| Security: TOTP, codici, passkey, sessioni, registro | `meSecurity.ts` | `prefs-security` | Sul desktop le passkey sono del browser: la sezione lo dice, senza «Add passkey». I tentativi rimasti si rileggono dopo un codice sbagliato (non sono nel 401). Tipi del registro del server tradotti, con frasi nuove per cassaforte e riconferma dal desktop. |
+| Tokens e Claude Code | `meTokens.ts` | `prefs-tokens`, `prefs-claude-code` | L'elenco ha anche i token del desktop e del mobile, come sul web. |
+| Language & theme | (i controlli del menu del profilo) | `prefs-look` | — |
+| Ingresso nella web «app»: invito, reset, primo avvio | `entry.ts` (+ il login di `session.ts`) | (rotte d'ingresso) | Il 410 unico del reset è «spent». Un invito usato o revocato è «invalid» (il server lo cancella); i dettagli solo sull'invito valido. |
+| «Chi può farlo?» | `whoCan.ts` | `admin:who-can` | Claude non ha permessi suoi (decisione (a)): una frase fissa. |
+| People, persona, inviti, Roles | `adminPeople.ts` | `admin:people`, `admin:roles` | Azioni, `missing`, portata e blocchi sono calcolati dal server. L'id dell'invito è opaco (`i_` + sha256 del token). Gli autori git osservati arrivano senza commit né progetti. |
+| Members del progetto | `adminMembers.ts` | `projectSettings:members` | `department` fra le fonti arriva con F8. |
+| Inbox: «Restore», «Move to New», «Mark as unread» | `notifications.ts` | `notification-restore` | Un 409 `invalid_state` non si scrive: il pannello rilegge. |
+| Prototipo cambiato prima del collegamento | — | — | Foto (tipi dai primi byte, 512 KB); cambio d'email con l'attesa e il ramo admin; pagina del link che conferma solo al clic; password con la riconferma; disattivazione con `invalid_reassignment` per task e senza Claude; «Chi può farlo?» con Claude senza permessi; invito non valido senza nomi né date; «Mark as unread». |
+
 ## A. Personale → Preferenze
 
 | Voce | Dove vive ora | Test |
