@@ -472,6 +472,31 @@ describe("RF 4: disattiva con riassegnazione, poi riattiva", () => {
     expect(accessState().people.find((p) => p.personId === MARCO)!.status).toBe("active");
   });
 
+  it("area 9, R6: una riga che non vale più (la task è passata ad altri nel frattempo) si segna, e niente cambia", async () => {
+    const user = userEvent.setup();
+    renderRoute("/admin/people/p-marco", ROBERTA);
+    await heading("Marco Bellini");
+    await user.click(screen.getByRole("button", { name: "More actions for Marco Bellini" }));
+    await user.click(screen.getByRole("menuitem", { name: "Deactivate…" }));
+    const dialog = screen.getByRole("dialog", { name: "Deactivate Marco Bellini?" });
+    const rows = within(dialog).getAllByRole("button", { name: /^Reassign .+ to:/ });
+    const code = /^Reassign (\S+) to:/.exec(rows[0]!.getAttribute("aria-label")!)![1]!;
+    await user.click(rows[0]!);
+    await user.click(screen.getAllByRole("menuitemradio")[1]!);
+    // Nel frattempo la task passa a un altro.
+    const task = state.tasks.find((x) => x.code === code)!;
+    state.tasksById.get(task.id)!.assigneeId = "p-federico";
+    // Le righe si controllano prima della riconferma: nessun dialogo.
+    await user.click(within(dialog).getByRole("button", { name: "Deactivate" }));
+    // La lista si rilegge (la task non è più di Marco), e il messaggio la nomina.
+    expect(
+      await within(dialog).findByText(
+        `${code} can't be reassigned any more: it changed meanwhile. The list is up to date.`,
+      ),
+    ).toBeVisible();
+    expect(accessState().people.find((p) => p.personId === MARCO)!.status).toBe("active");
+  });
+
   it("disattivare revoca i suoi inviti in attesa: la riga dell'invito non è più «Invited»", async () => {
     // Laura invita qualcuno, poi Roberta la disattiva da People.
     for (const p of ["users.invite", "users.manage"]) give(LAURA, p);

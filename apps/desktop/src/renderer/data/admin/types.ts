@@ -74,6 +74,8 @@ export type AdminRefusal =
       reason: string;
       /** Solo `in_use`: chi ha il ruolo, fra le persone e i progetti che chi guarda vede. */
       usedBy?: { personId: string; projectId: string | null }[];
+      /** Area 9, R6: solo `invalid_reassignment`, la task della riga che non vale. */
+      taskId?: string;
     };
 
 export type AdminResult<T extends object = object> = ({ ok: true } & T) | AdminRefusal;

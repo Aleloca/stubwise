@@ -10570,7 +10570,8 @@
       "doneOne_one": "{{name}} è stata disattivata. {{count}} task riassegnata a {{to}}.",
       "doneOne_other": "{{name}} è stata disattivata. {{count}} task riassegnate a {{to}}.",
       "doneMany": "{{name}} è stata disattivata. {{count}} task riassegnate.",
-      "reauthAction": "disattivare {{name}}"
+      "reauthAction": "disattivare {{name}}",
+      "rowChanged": "{{code}} non si può più riassegnare: nel frattempo è cambiata. L'elenco è aggiornato."
     },
     "invite": {
       "title": "Invita qualcuno",

@@ -94,7 +94,7 @@ function snapshot(): string {
 /** Il rifiuto atteso, con lo stato e il registro invariati. */
 async function refused(
   call: () => Promise<AdminResult<object>>,
-  expected: Partial<{ error: string; reason: string; missing: string[] }>,
+  expected: Partial<{ error: string; reason: string; missing: string[]; taskId: string }>,
 ) {
   const before = snapshot();
   const entries = state.changelog.length;
@@ -875,13 +875,37 @@ describe("disattivare e riattivare", () => {
         !state.projectsById.get(task!.projectId)!.memberIds.includes(p.personId),
     )!.personId;
     await refused(() => admin.deactivatePerson("p-marco", { [task!.id]: outsider }), {
-      reason: "assignee",
+      reason: "invalid_reassignment",
+      taskId: task!.id,
     });
     const stw = openTasksOf("p-marco").find((t) => t.projectId === "prj-stw");
     if (stw)
       await refused(() => admin.deactivatePerson("p-marco", { [stw.id]: "p-simone" }), {
-        reason: "assignee",
+        reason: "invalid_reassignment",
+        taskId: stw.id,
       });
+  });
+
+  it("area 9, R6: una riga non valida fa fallire tutto, con l'id della sua task (invalid_reassignment)", async () => {
+    const [good, bad] = openTasksOf("p-marco");
+    const to = state.projectsById
+      .get(good!.projectId)!
+      .memberIds.find(
+        (id) =>
+          id !== "p-marco" &&
+          accessState().people.some((p) => p.personId === id && p.status === "active"),
+      )!;
+    // `bad` non è più di Marco: una riga non valida.
+    state.tasksById.get(bad!.id)!.assigneeId = to;
+    const result = await admin.deactivatePerson("p-marco", { [good!.id]: to, [bad!.id]: null });
+    expect(result).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "invalid_reassignment",
+      taskId: bad!.id,
+    });
+    expect(state.tasksById.get(good!.id)!.assigneeId).toBe("p-marco");
+    expect(accessState().people.find((p) => p.personId === "p-marco")!.status).toBe("active");
   });
 });
 

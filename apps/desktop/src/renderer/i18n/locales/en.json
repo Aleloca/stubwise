@@ -10570,7 +10570,8 @@
       "doneOne_one": "{{name}} was deactivated. {{count}} task reassigned to {{to}}.",
       "doneOne_other": "{{name}} was deactivated. {{count}} tasks reassigned to {{to}}.",
       "doneMany": "{{name}} was deactivated. {{count}} tasks reassigned.",
-      "reauthAction": "deactivate {{name}}"
+      "reauthAction": "deactivate {{name}}",
+      "rowChanged": "{{code}} can't be reassigned any more: it changed meanwhile. The list is up to date."
     },
     "invite": {
       "title": "Invite someone",

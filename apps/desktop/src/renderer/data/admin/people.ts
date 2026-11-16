@@ -574,11 +574,14 @@ export async function deactivatePerson(
   for (const [taskId, to] of Object.entries(reassignTo)) {
     const task = state.tasksById.get(taskId);
     if (!task || !visible.has(task.projectId)) return refuse.notFound();
-    if (task.assigneeId !== personId || !isOpen(task)) return refuse.invalid("task");
+    // Area 9, R6 (come il server): una riga non valida fa fallire tutto, e
+    // dice quale task — niente a metà.
+    const badRow = { ok: false, error: "invalid", reason: "invalid_reassignment", taskId } as const;
+    if (task.assigneeId !== personId || !isOpen(task)) return badRow;
     if (to === null) continue;
     const members = state.projectsById.get(task.projectId)?.memberIds ?? [];
     if (to === personId || !members.includes(to) || (to !== CLAUDE_ID && !isActive(to)))
-      return refuse.invalid("assignee");
+      return badRow;
     moves.push([task, to]);
   }
   const mutate = deactivateMutation(personId);
