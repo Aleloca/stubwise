@@ -253,6 +253,7 @@
     "invite_not_found": "Invito non trovato",
     "invite_invalid": "Invito non valido o già usato",
     "invite_expired": "Invito scaduto",
+    "invite_email_mismatch": "Usa l'indirizzo email a cui è stato mandato l'invito.",
     "email_already_exists": "Esiste già un utente con questa email",
     "view_exists": "Esiste già una vista salvata con questo nome",
     "slack_not_configured": "L'integrazione Slack non è configurata",
@@ -1145,7 +1146,9 @@
           "reauth_desktop": "Identità confermata nell'app desktop",
           "deactivated": "Account disattivato",
           "reactivated": "Account riattivato",
-          "email_changed": "Email di accesso cambiata"
+          "email_changed": "Email di accesso cambiata",
+          "slack_linked": "Account Slack collegato da un altro",
+          "bitbucket_linked": "Utente Bitbucket collegato da un altro"
         }
       }
     },

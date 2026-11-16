@@ -1107,8 +1107,26 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   widget, regole mail, server, ambienti, plugin, elimina).
 - Preferenze, persone e accessi, istanza (compresa la pagina Google, con
   l'origine vera dell'istanza al posto di `INSTANCE_ORIGIN` finto).
-- Inbox: «Restore», «Move to New» e «segna come non letta» *(S)*.
-- Tentativi rimasti del secondo fattore *(S)*.
+- ~~Inbox: «Restore», «Move to New» e «segna come non letta» *(S)*.~~
+  Fatto in F1 (12bf4d6a9, 759d917ac): «Restore» vale solo su una card
+  ARCHIVIATA da chi chiama (`handled_action`, 0186).
+- ~~Tentativi rimasti del secondo fattore *(S)*.~~ Fatto in F1 (691f356e8).
+- **Card chiuse da altri scrittori: non ripristinabili** *(S, 72, review di
+  F1, 16 nov 2026)*: `handled_action` lo scrivono l'archiviazione
+  (`archive`) e `propagateHandled` (`decision`). Gli altri scrittori che
+  chiudono una card (poller Google e classificazione del worker, calendario,
+  `mail-proposals-decide`, pulse del worker, il claim della `google.proposal`
+  vecchia) la lasciano NULL, cioè «non ripristinabile». È il lato sicuro;
+  se un giorno servisse ripristinarle, ognuno va guardato per il suo claim.
+- **`assignee.deactivated` sulla task: non necessario** *(S, 72 con 94,
+  16 nov 2026)*: il design §1.3 lo nominava, ma l'app legge «(deactivated)»
+  da `/api/people`.`deactivated`. Si chiude se nessuno lo chiede.
+- **`touchSession` e l'id opaco delle sessioni** *(S, review di F1, 16 nov
+  2026)*: `touchSession` fa un UPDATE condizionale a ogni richiesta con una
+  sessione completa (scrive al più ogni 5′, ma il viaggio c'è sempre); l'id
+  opaco `b_` è un HMAC con `ENCRYPTION_KEY` (separato solo dal prefisso
+  `session:`). Né l'uno né l'altro è un difetto; da rivedere se il carico o
+  una rotazione della chiave lo chiedono.
 - Permessi di progetto dati da un reparto (`department-permissions`): non
   previsti dal server, da decidere col maintainer se servono.
 - Azioni di Claude dell'area 9 (membri, ruoli, impostazioni senza segreti), con
@@ -1172,6 +1190,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - Azioni di Claude dell'area 11.
 
 ## Trasversali
+
+- **Togliere Slack dal server** *(M, maintainer via 46, 16 nov 2026)*: Slack
+  è fuori dall'app nuova e va tolto dal server, INSIEME al ritiro del web
+  vecchio: rotte `/api/slack/*` e `/slack/*`, collegamento delle identità
+  (`PUT /api/users/:id/slack`, che dalla review di F1 chiede `users.manage`
+  sul collegamento di un altro), `resolveSlackActor`, i DM dell'inbox del
+  worker, `slack_user_id`/`slack_avatar_url`, le preferenze DM. Con la
+  migrazione che toglie le colonne in un rilascio successivo, come per
+  `users.role`.
 
 - **Gli `idx` del journal di drizzle sono sfasati da 0158 in poi** *(S,
   72, 13 nov 2026)*: in `packages/db/drizzle/meta/_journal.json` manca la

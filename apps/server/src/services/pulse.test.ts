@@ -45,7 +45,7 @@ vi.mock("./jobs.js", async (importOriginal) => {
   };
 });
 
-import { executeAction } from "./inbox.js";
+import { executeAction, transitionNotification } from "./inbox.js";
 import { proceedWithProposal } from "./pulse.js";
 
 let testDb: TestDb;
@@ -693,5 +693,36 @@ describe("proceedWithProposal — registro decisioni", () => {
     });
     expect(result).toMatchObject({ ok: false, error: "proposal_stale" });
     expect(await readPulseDecisions()).toHaveLength(before);
+  });
+});
+
+describe("«Restore» non riarma una decisione (review di F1, I3)", () => {
+  it("chi ha proceduto non ripristina la sua card, e un secondo Procedi non crea niente", async () => {
+    const item = await seedItem({ title: "Restore dopo Procedi" });
+    const { ids } = await seedPulse([maintainer], [item]);
+    const first = await proceedWithProposal(db, { notificationId: ids[0]!, actor: maintainer, optionIndex: 0 });
+    expect(first.ok).toBe(true);
+    const restore = await transitionNotification(db, { notificationId: ids[0]!, userId: maintainer.id, transition: "restore" });
+    expect(restore).toEqual({ ok: false, error: "invalid_state" });
+    const again = await proceedWithProposal(db, { notificationId: ids[0]!, actor: maintainer, optionIndex: 0 });
+    expect(again.ok).toBe(false);
+    const created = await db.select({ id: tickets.id }).from(tickets).where(eq(tickets.title, "Restore dopo Procedi"));
+    expect(created).toHaveLength(1);
+  });
+
+  it("una copia ARCHIVIATA, poi decisa da un altro, non si ripristina più; una solo archiviata sì", async () => {
+    const item = await seedItem({ title: "Archiviata poi decisa" });
+    const { ids } = await seedPulse([maintainer, operator], [item]);
+    const archived = await executeAction(db, { notificationId: ids[1]!, action: "handled", actor: operator });
+    expect(archived.ok).toBe(true);
+    expect((await proceedWithProposal(db, { notificationId: ids[0]!, actor: maintainer, optionIndex: 0 })).ok).toBe(true);
+    expect(await transitionNotification(db, { notificationId: ids[1]!, userId: operator.id, transition: "restore" })).toEqual({
+      ok: false,
+      error: "invalid_state",
+    });
+    const other = await seedItem({ title: "Solo archiviata" });
+    const only = await seedPulse([operator], [other]);
+    await executeAction(db, { notificationId: only.ids[0]!, action: "handled", actor: operator });
+    expect(await transitionNotification(db, { notificationId: only.ids[0]!, userId: operator.id, transition: "restore" })).toEqual({ ok: true });
   });
 });

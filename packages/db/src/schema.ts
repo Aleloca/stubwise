@@ -3893,6 +3893,9 @@ export const notifications = pgTable(
     handledByUserId: uuid("handled_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
+    // Area 9, F1 (0186): `archive` = archiviata dal destinatario (la sola che
+    // si ripristina), `decision` = chiusa da una decisione; NULL = altro.
+    handledAction: text("handled_action").$type<"archive" | "decision">(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

@@ -40,10 +40,20 @@ const pendingWhere = (userId: string) => and(eq(emailChanges.userId, userId), is
 
 type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
 
+const isUniqueViolation = (error: unknown): boolean => {
+  const e = error as { code?: unknown; cause?: { code?: unknown } } | null;
+  return e?.code === "23505" || e?.cause?.code === "23505";
+};
+
 async function emailInUse(db: DbOrTx, email: string, exceptUserId: string): Promise<boolean> {
   const [user] = await db.select({ id: users.id }).from(users).where(and(sql`lower(${users.email}) = ${email}`, ne(users.id, exceptUserId))).limit(1);
   if (user) return true;
-  const [invite] = await db.select({ token: invites.token }).from(invites).where(sql`lower(${invites.email}) = ${email}`).limit(1);
+  // Solo un invito ANCORA valido tiene l'indirizzo: uno scaduto no.
+  const [invite] = await db
+    .select({ token: invites.token })
+    .from(invites)
+    .where(and(sql`lower(${invites.email}) = ${email}`, gt(invites.expiresAt, new Date())))
+    .limit(1);
   return invite !== undefined;
 }
 
@@ -136,7 +146,14 @@ export async function confirmEmailChange(db: Db, transport: MailTransport, token
     if (!user) throw invalidToken();
     // Fra la richiesta e il clic qualcun altro può aver preso l'indirizzo.
     if (await emailInUse(tx, change.newEmail, user.id)) throw taken();
-    await tx.update(users).set({ email: change.newEmail }).where(eq(users.id, user.id));
+    try {
+      // Un savepoint: un'altra conferma sullo stesso indirizzo può vincere la
+      // corsa fra il controllo qui sopra e l'UPDATE (l'indice unico la ferma).
+      await tx.transaction(async (sp) => sp.update(users).set({ email: change.newEmail }).where(eq(users.id, user.id)));
+    } catch (error) {
+      if (isUniqueViolation(error)) throw taken();
+      throw error;
+    }
     await tx.update(emailChanges).set({ confirmedAt: new Date() }).where(eq(emailChanges.id, change.id));
     await recordSecurityEvent(tx, { kind: "email_changed", user: { id: user.id, email: change.newEmail }, detail: `${user.email} → ${change.newEmail}` });
     await publishSecurityAlert(tx, user.id, "email_changed", null);

@@ -43,3 +43,23 @@ export const passwordResetLinkSchema = z.object({
   expiresAt: z.iso.datetime(),
 });
 export type PasswordResetLink = z.infer<typeof passwordResetLinkSchema>;
+
+/**
+ * `GET /api/auth/invites/:token` (area 9, F1, decisione del maintainer): la
+ * lettura pubblica dell'invito prima di registrarsi. I dettagli SOLO su un
+ * invito valido (chi ha il token è il destinatario); su scaduto, usato,
+ * revocato o sbagliato solo lo stato. Un invito usato o revocato è cancellato,
+ * quindi il server risponde `invalid` per entrambi: `used` e `revoked` restano
+ * nell'enum per i client.
+ */
+export const inviteLinkSchema = z.object({
+  status: z.enum(["valid", "expired", "revoked", "used", "invalid"]),
+  email: z.string().nullable().default(null),
+  invitedByName: z.string().nullable().default(null),
+  projects: z
+    .array(z.object({ code: z.string().nullable().default(null), name: z.string(), roleName: z.string() }))
+    .default([]),
+  instanceRoleName: z.string().nullable().default(null),
+  expiresAt: z.iso.datetime().nullable().default(null),
+});
+export type InviteLink = z.infer<typeof inviteLinkSchema>;

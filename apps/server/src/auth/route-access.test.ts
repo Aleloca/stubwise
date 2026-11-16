@@ -162,6 +162,7 @@ describe("rotte con riconferma recente", () => {
       "POST /api/vault/recovery/confirm/:personKeyId",
       "POST /api/vault/recovery/pending",
       "PUT /api/projects/:projectId/members/:userId",
+      "PUT /api/users/:id/bitbucket",
       "PUT /api/users/:id/slack",
     ]);
   });

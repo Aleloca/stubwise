@@ -112,3 +112,17 @@ describe("area 9 nel client", () => {
     expect([call(fetchImpl).method, call(fetchImpl).url]).toEqual(["POST", "/api/inbox/n1/unread"]);
   });
 });
+
+describe("area 9: la lettura dell'invito e register", () => {
+  it("auth.inviteLink: GET col token; uno scaduto senza i campi li ha a null/[]", async () => {
+    const { client, fetchImpl } = clientWith({ status: "expired" });
+    expect(await client.auth.inviteLink("tok")).toEqual({ status: "expired", email: null, invitedByName: null, projects: [], instanceRoleName: null, expiresAt: null });
+    expect([call(fetchImpl).method, call(fetchImpl).url]).toEqual(["GET", "/api/auth/invites/tok"]);
+  });
+
+  it("auth.register: l'email è facoltativa (vale quella dell'invito)", async () => {
+    const { client, fetchImpl } = clientWith({ user: { id: U1, email: "a@acme.com", role: "member" } }, 201);
+    await client.auth.register({ token: "tok", password: "una-password-lunga" });
+    expect([call(fetchImpl).method, call(fetchImpl).url, call(fetchImpl).body]).toEqual(["POST", "/api/auth/register", JSON.stringify({ token: "tok", password: "una-password-lunga" })]);
+  });
+});

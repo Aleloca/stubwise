@@ -42,7 +42,7 @@ async function card(userId: string, status: Status) {
       event: { kind: "security.alert", subject: "passkey_added", actorEmail: null },
       projectId: null,
       status,
-      ...(status === "handled" ? { handledAt: new Date(), handledByUserId: userId } : {}),
+      ...(status === "handled" ? { handledAt: new Date(), handledByUserId: userId, handledAction: "archive" as const } : {}),
       ...(status === "snoozed" ? { snoozedUntil: new Date(Date.now() + 3_600_000) } : {}),
       readAt: new Date(),
     })
@@ -98,6 +98,13 @@ describe("Inbox: ripristinare, rimettere fra le nuove, segnare non letta", () =>
     const open = await card(p.id, "open");
     expect((await post(p.cookie, open, "restore")).json()).toMatchObject({ code: "invalid_state" });
     expect((await post(p.cookie, open, "move-to-new")).statusCode).toBe(409);
+    // Chiusa da una decisione (o prima della 0186): non si ripristina.
+    const decided = await card(p.id, "handled");
+    await db.update(notifications).set({ handledAction: "decision" }).where(eq(notifications.id, decided));
+    expect((await post(p.cookie, decided, "restore")).statusCode).toBe(409);
+    const legacy = await card(p.id, "handled");
+    await db.update(notifications).set({ handledAction: null }).where(eq(notifications.id, legacy));
+    expect((await post(p.cookie, legacy, "restore")).statusCode).toBe(409);
     const snoozed = await card(p.id, "snoozed");
     expect((await post(p.cookie, snoozed, "restore")).statusCode).toBe(409);
     expect((await row(snoozed)).status).toBe("snoozed");

@@ -33,7 +33,7 @@ import { projectIdsWithPermission, projectPermissionsFor, projectPermissionsOfUs
 import { backlogVisibleSql } from "./backlog-visibility.js";
 import { closeRefineSessionForItem } from "./backlog-refine.js";
 import { createTicket, type Ticket } from "../db/tickets.js";
-import { diffTicketEvents, userExists } from "./tickets.js";
+import { assigneeState, diffTicketEvents } from "./tickets.js";
 import { loadTaskViews, visibleTasksCondition, type TaskViewer } from "./task-view.js";
 import { personName } from "./people.js";
 import { notifyTaskActivity, notifyTaskPeople } from "./task-notify.js";
@@ -59,6 +59,8 @@ export type TaskWriteError =
   | "status_not_in_project"
   | "department_not_found"
   | "assignee_not_found"
+  /** Review di F1 (m9): l'assegnatario è disattivato (422). */
+  | "user_deactivated"
   | "milestone_cross_project"
   | "request_not_found"
   | "request_not_convertible"
@@ -140,7 +142,11 @@ async function validateRefs(
 ): Promise<TaskWriteError | null> {
   if (refs.statusId && !(await statusInProject(db, refs.statusId, projectId))) return "status_not_in_project";
   if (refs.departmentId && !(await departmentExists(db, refs.departmentId))) return "department_not_found";
-  if (typeof refs.assigneeId === "string" && !(await userExists(db, refs.assigneeId))) return "assignee_not_found";
+  if (typeof refs.assigneeId === "string") {
+    const state = await assigneeState(db, refs.assigneeId);
+    if (state === "missing") return "assignee_not_found";
+    if (state === "deactivated") return "user_deactivated";
+  }
   if (typeof refs.milestoneId === "string" && !(await milestoneInProject(db, refs.milestoneId, projectId))) {
     return "milestone_cross_project";
   }

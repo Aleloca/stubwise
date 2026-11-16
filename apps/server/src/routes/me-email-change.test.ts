@@ -178,4 +178,22 @@ describe("il cambio dell'email di login", () => {
     const plain = await person();
     expect((await app.inject({ method: "PATCH", url: `/api/users/${p.id}/email`, headers: { cookie: plain.cookie }, payload: { email: "z@acme.com" } })).statusCode).toBe(403);
   });
+
+  it("review I/m7: un invito SCADUTO non blocca l'indirizzo; due conferme sullo stesso indirizzo danno 200 e 409, mai 500", async () => {
+    const p = await person();
+    const expiredInvite = `exp-${randomUUID().slice(0, 6)}@acme.com`;
+    await db.insert(invites).values({ token: `t-${randomUUID()}`, email: expiredInvite, expiresAt: new Date(Date.now() - 60_000) });
+    expect((await request(app, p.cookie, expiredInvite)).statusCode).toBe(202);
+    const a = await person();
+    const b = await person();
+    const same = `same-${randomUUID().slice(0, 6)}@acme.com`;
+    sent.length = 0;
+    await request(app, a.cookie, same);
+    const tokenA = tokenFrom(sent.find((m) => m.to === same)!);
+    sent.length = 0;
+    await request(app, b.cookie, same);
+    const tokenB = tokenFrom(sent.find((m) => m.to === same)!);
+    const statuses = (await Promise.all([confirm(tokenA), confirm(tokenB)])).map((r) => r.statusCode).sort();
+    expect(statuses).toEqual([200, 409]);
+  });
 });

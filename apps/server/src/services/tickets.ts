@@ -46,7 +46,7 @@ export type TicketPatch = Partial<
   >
 >;
 
-export type PatchTicketError = "assignee_not_found" | "ticket_not_found" | "milestone_cross_project";
+export type PatchTicketError = "assignee_not_found" | "user_deactivated" | "ticket_not_found" | "milestone_cross_project";
 
 export type PatchTicketResult =
   | { ok: true; ticket: Ticket; events: PendingEvent[] }
@@ -57,6 +57,17 @@ export interface PatchTicketInput {
   /** Chi sta modificando: finisce in `ticket_events.actor_id`. */
   actorId: string;
   patch: TicketPatch;
+}
+
+/**
+ * Lo stato di un assegnatario (review di F1, m9): una persona disattivata non
+ * riceve task. `missing` dà `assignee_not_found`, `deactivated` dà 422
+ * `user_deactivated`.
+ */
+export async function assigneeState(db: DbOrTx, userId: string): Promise<"ok" | "missing" | "deactivated"> {
+  const [row] = await db.select({ deactivatedAt: users.deactivatedAt }).from(users).where(eq(users.id, userId));
+  if (!row) return "missing";
+  return row.deactivatedAt ? "deactivated" : "ok";
 }
 
 /** True se l'id corrisponde a un utente esistente (per validare assigneeId). */
@@ -143,7 +154,9 @@ export async function patchTicket(
   tx: DbOrTx,
   { ticketId, actorId, patch }: PatchTicketInput,
 ): Promise<PatchTicketResult> {
-  if (typeof patch.assigneeId === "string" && !(await userExists(tx, patch.assigneeId))) {
+  const assignee = typeof patch.assigneeId === "string" ? await assigneeState(tx, patch.assigneeId) : "ok";
+  if (assignee === "deactivated") return { ok: false, error: "user_deactivated" };
+  if (assignee === "missing") {
     return { ok: false, error: "assignee_not_found" };
   }
 

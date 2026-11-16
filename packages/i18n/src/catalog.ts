@@ -324,6 +324,12 @@ export const en: Catalog = {
   "notify.securityAlert.email_changed":
     "The sign-in email of your account was changed. If it was not you, tell an admin.",
   "notify.securityAlert.email_changed.actor": "The sign-in email of your account was changed by {actor}.",
+  "notify.securityAlert.slack_linked":
+    "A Slack account was linked to your account: its messages and clicks now count as yours. If it was not you, tell an admin.",
+  "notify.securityAlert.slack_linked.actor":
+    "A Slack account was linked to your account by {actor}: its messages and clicks now count as yours.",
+  "notify.securityAlert.bitbucket_linked": "A Bitbucket username was linked to your account. If it was not you, tell an admin.",
+  "notify.securityAlert.bitbucket_linked.actor": "A Bitbucket username was linked to your account by {actor}.",
   "notify.securityAlert.passkey_added":
     "A passkey was added to your account. If it was not you, tell an admin.",
   "notify.securityAlert.passkey_added.actor": "A passkey was added to your account by {actor}.",
@@ -1024,6 +1030,12 @@ export const it: Catalog = {
   "notify.securityAlert.email_changed":
     "L'email di accesso del tuo account è stata cambiata. Se non sei stato tu, avvisa un admin.",
   "notify.securityAlert.email_changed.actor": "L'email di accesso del tuo account è stata cambiata da {actor}.",
+  "notify.securityAlert.slack_linked":
+    "Al tuo account è stato collegato un account Slack: i suoi messaggi e i suoi clic ora valgono come tuoi. Se non sei stato tu, avvisa un admin.",
+  "notify.securityAlert.slack_linked.actor":
+    "Al tuo account è stato collegato un account Slack da {actor}: i suoi messaggi e i suoi clic ora valgono come tuoi.",
+  "notify.securityAlert.bitbucket_linked": "Al tuo account è stato collegato un utente Bitbucket. Se non sei stato tu, avvisa un admin.",
+  "notify.securityAlert.bitbucket_linked.actor": "Al tuo account è stato collegato un utente Bitbucket da {actor}.",
   "notify.securityAlert.passkey_added":
     "Al tuo account è stata aggiunta una passkey. Se non sei stato tu, avvisa un admin.",
   "notify.securityAlert.passkey_added.actor": "Al tuo account è stata aggiunta una passkey da {actor}.",
