@@ -1,4 +1,4 @@
-import { isHumanId, refuse } from "../admin/common";
+import { isHumanId, reauthRefusal, refuse } from "../admin/common";
 import { person as addressOf } from "../seed/mail/helpers";
 import { PEOPLE, initials } from "../seed/people";
 import { gate, state } from "../store";
@@ -125,6 +125,9 @@ export async function changePassword(input: {
 }): Promise<MeResult<{ signedOut: number }>> {
   const me = await writer("me.changePassword");
   if (!isHumanId(me)) return refuse.forbidden();
+  // Area 9: la riconferma, come `config.reauth` di `POST /api/me/password`.
+  const reauth = reauthRefusal(me, "me.changePassword");
+  if (reauth) return reauth;
   if (input.current !== passwordOf(me)) return refuse.invalid("wrong_password");
   if (input.next.length < MIN_PASSWORD_LENGTH) return refuse.invalid("too_short");
   state.passwords.set(me, input.next);

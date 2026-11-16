@@ -82,6 +82,8 @@ describe("Account", () => {
     await user.type(screen.getByLabelText("New password"), "a-new-password");
     await user.type(screen.getByLabelText("Confirm new password"), "a-new-password");
     await user.click(screen.getByRole("button", { name: "Change password" }));
+    // Area 9: la riconferma, come sul server.
+    await confirmItsYou(user);
     expect(await screen.findByText("The current password is wrong.")).toBeVisible();
     expect(state.sessions.filter((s) => s.personId === GIULIA)).toHaveLength(3);
 

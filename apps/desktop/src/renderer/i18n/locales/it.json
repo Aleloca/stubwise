@@ -393,7 +393,8 @@
         "done_other": "Password cambiata. Sono state chiuse {{count}} altre sessioni.",
         "doneNone": "Password cambiata. Non c'erano altre sessioni da chiudere.",
         "seeSessions": "Vedi le sessioni",
-        "failed": "Non è stato possibile cambiare la password. Riprova."
+        "failed": "Non è stato possibile cambiare la password. Riprova.",
+        "reauthAction": "cambiare la password"
       },
       "follows": {
         "title": "Progetti seguiti",

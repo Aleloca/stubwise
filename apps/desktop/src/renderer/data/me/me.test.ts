@@ -345,8 +345,20 @@ describe("Account", () => {
     expect(PEOPLE.find((p) => p.id === "p-sara")!.photo).toBeUndefined();
   });
 
+  it("area 9: cambiare la password chiede la riconferma, come sul server (config.reauth)", async () => {
+    as("p-giulia");
+    state.reauth.delete("p-giulia");
+    expect(REAUTH_REQUIRED.has("me.changePassword")).toBe(true);
+    expect(await me.changePassword({ current: "stubwise", next: "a-long-one" })).toEqual({
+      ok: false,
+      error: "reauth_required",
+    });
+    expect((await me.getMySecurity()).sessions).toHaveLength(3);
+  });
+
   it("cambiare la password chiude le altre sessioni (la lista torna a 1) e vale al login", async () => {
     as("p-giulia");
+    reauth("p-giulia");
     expect((await me.getMySecurity()).sessions).toHaveLength(3);
     expect(await me.changePassword({ current: "wrong", next: "a-long-one" })).toMatchObject({
       reason: "wrong_password",

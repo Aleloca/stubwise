@@ -393,7 +393,8 @@
         "done_other": "Password changed. {{count}} other sessions were signed out.",
         "doneNone": "Password changed. There were no other sessions to sign out.",
         "seeSessions": "See sessions",
-        "failed": "Couldn't change the password. Try again."
+        "failed": "Couldn't change the password. Try again.",
+        "reauthAction": "change your password"
       },
       "follows": {
         "title": "Followed projects",

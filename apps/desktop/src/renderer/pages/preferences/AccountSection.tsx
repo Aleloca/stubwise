@@ -19,6 +19,7 @@ import {
   type MyProfile,
 } from "../../data/queries";
 import { Dialog } from "../../tasks-ui/Dialog";
+import { useReauth } from "../../layout/useReauth";
 import { useToast } from "../../tasks-ui/Toast";
 import { PrototypeBox } from "../automations/shared";
 import { BusyLabel, EntryField, ErrorLine } from "../entry/parts";
@@ -244,6 +245,7 @@ function ProfilePart({ profile }: { profile: MyProfile }) {
 function PasswordPart() {
   const { t } = useTranslation();
   const change = useChangePassword();
+  const reauth = useReauth();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -267,29 +269,26 @@ function PasswordPart() {
         field: "next",
         text: t("prefs.account.password.short", { count: MIN_PASSWORD_LENGTH }),
       });
-    change.mutate(
-      { current, next },
-      {
-        onSuccess: (r) => {
-          const refusal = refusalOf(r);
-          if (!refusal) {
-            setCurrent("");
-            setNext("");
-            setConfirm("");
-            return setDone((r as { signedOut: number }).signedOut);
-          }
-          if (refusal.reason === "wrong_password")
-            setError({ field: "current", text: t("prefs.account.password.wrong") });
-          else if (refusal.reason === "too_short")
-            setError({
-              field: "next",
-              text: t("prefs.account.password.short", { count: MIN_PASSWORD_LENGTH }),
-            });
-          else setFailed(true);
-        },
-        onError: () => setFailed(true),
-      },
-    );
+    void reauth(() => change.mutateAsync({ current, next }), {
+      action: t("prefs.account.password.reauthAction"),
+    }).then((r) => {
+      if (!r.ok && r.error === "reauth_cancelled") return;
+      const refusal = refusalOf(r);
+      if (!refusal) {
+        setCurrent("");
+        setNext("");
+        setConfirm("");
+        return setDone((r as { signedOut: number }).signedOut);
+      }
+      if (refusal.reason === "wrong_password")
+        setError({ field: "current", text: t("prefs.account.password.wrong") });
+      else if (refusal.reason === "too_short")
+        setError({
+          field: "next",
+          text: t("prefs.account.password.short", { count: MIN_PASSWORD_LENGTH }),
+        });
+      else setFailed(true);
+    }, () => setFailed(true));
   }
 
   const errorOf = (field: "current" | "next" | "confirm") =>
