@@ -1,11 +1,13 @@
-import { widgetAdminSchema, widgetRepositoryFiltersSchema, widgetUpsertBodySchema } from "@stubwise/shared";
+import { widgetAdminSchema, widgetIdentitySecretResultSchema, widgetRepositoryFiltersSchema, widgetUpsertBodySchema } from "@stubwise/shared";
 import { and, asc, desc, eq, exists, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { projectPermissionsFor, type RouteAccess } from "../auth/access.js";
+import { generateWidgetIdentitySecret } from "../auth/widget-identity.js";
 import { fromParam } from "../auth/project-resolvers.js";
 import {
+  encrypt,
   repositories,
   widgetConversations,
   widgetMessages,
@@ -64,6 +66,10 @@ function toPublicWidget(row: WidgetRow, conversationCount: number): z.infer<type
     createdAt: row.createdAt.toISOString(),
     conversationCount,
     origins: row.allowedOrigins,
+    // Il segreto non esce mai: solo se c'è e quando è nato.
+    identitySecretSet: row.identitySecretEncrypted !== null,
+    identitySecretRotatedAt: row.identitySecretRotatedAt?.toISOString() ?? null,
+    identityRequired: row.identityRequired,
   };
 }
 
@@ -196,6 +202,11 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
           "repositoryFilters keys must be a subset of enabledRepositoryIds",
         );
       }
+      // Un widget nuovo non ha ancora un segreto: «Solo clienti verificati»
+      // lo renderebbe inutilizzabile.
+      if (body.identityRequired === true) {
+        return apiError(reply, 422, "identity_secret_missing", "Generate the identity secret before requiring verified customers");
+      }
 
       const [row] = await app.db
         .insert(widgets)
@@ -231,7 +242,7 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
       const body = request.body;
 
       const [existing] = await app.db
-        .select({ id: widgets.id })
+        .select({ id: widgets.id, identitySecretEncrypted: widgets.identitySecretEncrypted })
         .from(widgets)
         .where(and(eq(widgets.id, widgetId), eq(widgets.projectId, projectId)));
       // Widget inesistente o di un altro progetto: 404 (isolamento).
@@ -254,6 +265,9 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
           "repositoryFilters keys must be a subset of enabledRepositoryIds",
         );
       }
+      if (body.identityRequired === true && existing.identitySecretEncrypted === null) {
+        return apiError(reply, 422, "identity_secret_missing", "Generate the identity secret before requiring verified customers");
+      }
 
       const [row] = await app.db
         .update(widgets)
@@ -268,6 +282,35 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
         .from(widgetConversations)
         .where(eq(widgetConversations.widgetId, widgetId));
       return { widget: toPublicWidget(row, count?.conversationCount ?? 0) };
+    },
+  );
+
+  // Area 8, «L'API per i siti» (S1): genera o RIGENERA il segreto d'identità
+  // del widget, col quale il backend del sito firma i suoi clienti. Il
+  // segreto si mostra QUESTA volta sola e si salva cifrato; il vecchio smette
+  // subito (D-5). È una credenziale: `widget.manage` più la riconferma recente
+  // (un PAT non la soddisfa mai).
+  app.post(
+    "/:projectId/widgets/:widgetId/identity-secret",
+    {
+      config: { access: MANAGE_ACCESS, reauth: true },
+      schema: {
+        params: widgetParamsSchema,
+        response: { 200: widgetIdentitySecretResultSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { projectId, widgetId } = request.params;
+      const secret = generateWidgetIdentitySecret();
+      const rotatedAt = new Date();
+      const [row] = await app.db
+        .update(widgets)
+        .set({ identitySecretEncrypted: encrypt(secret, app.encryptionKey), identitySecretRotatedAt: rotatedAt })
+        .where(and(eq(widgets.id, widgetId), eq(widgets.projectId, projectId)))
+        .returning({ id: widgets.id });
+      // Widget inesistente o di un altro progetto: 404 (isolamento), niente scritto.
+      if (!row) return apiError(reply, 404, "widget_not_found", "Widget not found");
+      return { secret, rotatedAt: rotatedAt.toISOString() };
     },
   );
 
