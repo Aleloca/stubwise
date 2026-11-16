@@ -337,44 +337,6 @@ export const PRESET_ROLES: readonly PresetRole[] = [
   },
 ];
 
-/**
- * I permessi di Claude (R-L9; area 9, F1): un insieme FISSO, in ogni progetto,
- * membro o no — vedere, aprire task, avviare i run, leggere i repository —
- * senza nessun permesso di gestione. Non deriva da un preset (i preset si
- * modificano, e cambiarne uno cambierebbe Claude in silenzio) e Claude non
- * riceve permessi personali. È la fonte di `GET /api/access/who-can` per la
- * riga di Claude; il prototipo del desktop ne ha la sua copia
- * (`apps/desktop/src/renderer/data/viewing.ts`), da cui è stato preso.
- */
-export const AGENT_PROJECT_PERMISSIONS: readonly ProjectPermission[] = [
-  "tickets.view_all",
-  "tickets.create",
-  "tickets.edit",
-  "tickets.comment",
-  "runs.start",
-  "corrections.request",
-  "backlog.view_all",
-  "backlog.create",
-  "backlog.edit",
-  "docs.view",
-  "docs.edit",
-  "repos.view",
-  "agent_sessions.intervene",
-  "project.usage.view",
-  "docs.generate",
-  "chat.channels.create",
-  "drive.upload",
-];
-
-export const AGENT_INSTANCE_PERMISSIONS: readonly InstancePermission[] = [
-  "monitor.view",
-  "users.view_all",
-  "git_accounts.view",
-  "mail_admission.view",
-  "claude.public.view",
-  "chat.general.create",
-];
-
 /** Permessi d'istanza effettivi di un ruolo; `instance.full_admin` li ha tutti. */
 export function effectiveInstancePermissions(
   rolePerms: readonly string[],

@@ -1,7 +1,5 @@
 import { memberPermissionsSql, projectMemberPermissions, projectMembers, projects, roles, users, type Db } from "@stubwise/db";
 import {
-  AGENT_INSTANCE_PERMISSIONS,
-  AGENT_PROJECT_PERMISSIONS,
   effectiveInstancePermissions,
   effectiveProjectPermissions,
   INSTANCE_PERMISSIONS,
@@ -173,7 +171,7 @@ export async function whoCan(db: Db, viewer: Viewer, permission: AnyPermission, 
   if (instance) {
     for (const person of people) {
       const entry = instanceWithReasons(person).find((p) => p.permission === permission);
-      if (entry) rows.push({ userId: person.id, email: person.email, displayName: person.displayName, agent: false, reasons: entry.reasons });
+      if (entry) rows.push({ userId: person.id, email: person.email, displayName: person.displayName, reasons: entry.reasons });
     }
   } else {
     const byUser = new Map((await memberships(db, [projectId!])).map((m) => [m.userId, m]));
@@ -182,17 +180,13 @@ export async function whoCan(db: Db, viewer: Viewer, permission: AnyPermission, 
       const entry = projectWithReasons(person, byUser.get(person.id), grants.filter((g) => g.userId === person.id))?.find(
         (p) => p.permission === permission,
       );
-      if (entry) rows.push({ userId: person.id, email: person.email, displayName: person.displayName, agent: false, reasons: entry.reasons });
+      if (entry) rows.push({ userId: person.id, email: person.email, displayName: person.displayName, reasons: entry.reasons });
     }
   }
 
-  // Claude: la sua riga fissa, solo se il permesso è nel suo insieme (R-L9).
-  const agentSet: readonly string[] = instance ? AGENT_INSTANCE_PERMISSIONS : AGENT_PROJECT_PERMISSIONS;
-  if (agentSet.includes(permission)) {
-    const [agent] = await db.select({ id: users.id, email: users.email, displayName: users.displayName }).from(users).where(eq(users.isAgent, true));
-    if (agent) rows.push({ userId: agent.id, email: agent.email, displayName: agent.displayName, agent: true, reasons: [] });
-  }
-  return { permission, projectId, people: rows };
+  // Claude non ha una riga: non ha permessi suoi (agisce con quelli di chi
+  // assegna o conferma), e il server non gliene applica nessuno.
+  return { permission, projectId, people: rows, agent: { actsFor: "confirmer" } };
 }
 
 export async function whatCan(db: Db, viewer: Viewer, userId: string, projectId: string | null): Promise<WhatCanResponse> {

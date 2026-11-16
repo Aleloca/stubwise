@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { projectMemberPermissions, roles, users, type Db } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import {
-  AGENT_PROJECT_PERMISSIONS,
   INSTANCE_PERMISSIONS,
   PROJECT_PERMISSIONS,
   type WhatCanResponse,
@@ -81,7 +80,7 @@ describe("«Chi può farlo?»", () => {
       const instance = (INSTANCE_PERMISSIONS as readonly string[]).includes(permission);
       const res = await whoCan(adminCookie, permission, instance ? undefined : projectA);
       expect(res.statusCode, permission).toBe(200);
-      const listed = new Set((res.json() as WhoCanResponse).people.filter((p) => !p.agent).map((p) => p.userId));
+      const listed = new Set((res.json() as WhoCanResponse).people.map((p) => p.userId));
       for (const user of sessionUsers) {
         const expected = await can(db, user, permission, instance ? undefined : projectA);
         expect(listed.has(user.id), `${user.email} / ${permission}`).toBe(expected);
@@ -100,14 +99,13 @@ describe("«Chi può farlo?»", () => {
     expect(manage.people.find((p) => p.userId === seed.manager)!.reasons).toEqual([expect.objectContaining({ kind: "role", roleName: expect.stringMatching(/^Gestore/) })]);
   });
 
-  it("Claude: la sua riga solo per i permessi del suo insieme", async () => {
-    const inSet = AGENT_PROJECT_PERMISSIONS[0]!;
-    const yes = (await whoCan(adminCookie, inSet, projectA)).json() as WhoCanResponse;
-    expect(yes.people.filter((p) => p.agent)).toHaveLength(1);
-    const notInSet = PROJECT_PERMISSIONS.find((p) => !AGENT_PROJECT_PERMISSIONS.includes(p))!;
-    const no = (await whoCan(adminCookie, notInSet, projectA)).json() as WhoCanResponse;
-    expect(no.people.filter((p) => p.agent)).toHaveLength(0);
-    expect((await whoCan(adminCookie, "users.manage")).json().people.filter((p: { agent: boolean }) => p.agent)).toHaveLength(0);
+  it("Claude: nessuna riga (non ha permessi suoi), e il fatto fisso «agisce per chi conferma»", async () => {
+    const [agent] = await db.select({ id: users.id }).from(users).where(eq(users.isAgent, true));
+    for (const [permission, projectId] of [["runs.start", projectA], ["tickets.create", projectA], ["users.view_all", undefined]] as const) {
+      const body = (await whoCan(adminCookie, permission, projectId)).json() as WhoCanResponse;
+      expect(body.people.map((p) => p.userId)).not.toContain(agent!.id);
+      expect(body.agent).toEqual({ actsFor: "confirmer" });
+    }
   });
 
   it("NEGATIVI: ambito sbagliato (422), progetto invisibile (404), chi guarda vede solo le persone che vede", async () => {

@@ -19,23 +19,28 @@ export const accessReasonSchema = z.object({
 });
 export type AccessReason = z.infer<typeof accessReasonSchema>;
 
-/**
- * Una riga di «Chi può farlo?». Claude ha la sua riga (`agent: true`, senza
- * motivi) solo se il permesso è nel suo insieme fisso.
- */
+/** Una riga di «Chi può farlo?»: una persona attiva, coi motivi. */
 export const whoCanPersonSchema = z.object({
   userId: z.uuid(),
   email: z.string(),
   displayName: z.string().nullable().default(null),
-  agent: z.boolean().default(false),
   reasons: z.array(accessReasonSchema).default([]),
 });
 export type WhoCanPerson = z.infer<typeof whoCanPersonSchema>;
+
+/**
+ * Claude non ha permessi suoi, e il server non gliene applica nessuno: agisce
+ * sempre con quelli di chi lo assegna (`runs.start`) o di chi conferma
+ * l'azione. Per questo non ha una riga, ma questo fatto fisso, che il client
+ * dice con una frase di catalogo (una sola verità, quella del server).
+ */
+export const agentAccessSchema = z.object({ actsFor: z.enum(["confirmer"]) });
 
 export const whoCanResponseSchema = z.object({
   permission: z.string(),
   projectId: z.uuid().nullable(),
   people: z.array(whoCanPersonSchema),
+  agent: agentAccessSchema.default({ actsFor: "confirmer" }),
 });
 export type WhoCanResponse = z.infer<typeof whoCanResponseSchema>;
 
