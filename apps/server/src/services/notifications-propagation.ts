@@ -144,9 +144,16 @@ export async function propagateHandled(
       handledAt: sql`now()`,
       handledByUserId: actorId,
       snoozedUntil: null,
+      handledAction: "decision",
     })
     .where(and(targetWhere(target), ne(notifications.status, "handled")))
     .returning({ id: notifications.id });
+  // Area 9, F1 (review, I3): una copia già ARCHIVIATA resta chiusa com'è, ma
+  // diventa decisa: «Restore» non deve riaprirla su una decisione già presa.
+  await db
+    .update(notifications)
+    .set({ handledAction: "decision" })
+    .where(and(targetWhere(target), eq(notifications.status, "handled"), eq(notifications.handledAction, "archive")));
   return closed.map((row) => row.id);
 }
 
