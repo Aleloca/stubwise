@@ -424,5 +424,18 @@ export async function requireAuth(
     await apiError(reply, 401, "second_factor_required", "Second factor required");
     return;
   }
+  if (user.sessionStage === "full") await touchSession(request.server.db, user.sessionId!, request.headers["user-agent"]);
   request.user = user;
+}
+
+/**
+ * Area 9, F1 (D-9): l'ultimo uso e lo user agent di una sessione, per «le mie
+ * sessioni». Una UPDATE sola che scrive SOLO se l'ultimo uso è vecchio di più
+ * di 5 minuti: mai una scrittura per richiesta.
+ */
+async function touchSession(db: Db, sessionId: string, userAgent: string | undefined): Promise<void> {
+  await db
+    .update(sessions)
+    .set({ lastSeenAt: sql`now()`, userAgent: sql`coalesce(${userAgent?.slice(0, 300) ?? null}, ${sessions.userAgent})` })
+    .where(and(eq(sessions.id, sessionId), or(isNull(sessions.lastSeenAt), lt(sessions.lastSeenAt, sql`now() - interval '5 minutes'`))));
 }

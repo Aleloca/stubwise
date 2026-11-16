@@ -42,6 +42,7 @@ import { googleWorkspaceRoutes } from "./routes/google-workspaces.js";
 import { meGoogleRoutes } from "./routes/me-google.js";
 import { meCalendarRoutes } from "./routes/me-calendar.js";
 import { meMeetingsRoutes } from "./routes/me-meetings.js";
+import { meSessionsRoutes } from "./routes/me-sessions.js";
 import { meWaitingCustomersRoutes } from "./routes/me-waiting-customers.js";
 import { meMailDraftsRoutes, meMailOutgoingRoutes, meMailRecipientsRoutes } from "./routes/me-mail-drafts.js";
 import { meMailProposalsRoutes } from "./routes/me-mail-proposals.js";
@@ -920,6 +921,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Sicurezza del PROPRIO account: riconferma recente e configurazione
   // dell'app (secondo fattore). Prefisso a sé come le altre `/api/me/*`.
   void app.register(meSecurityRoutes, { prefix: "/api/me/security" });
+  // Area 9, F1 (D-9): le mie sessioni, del browser e dei token di desktop e telefono.
+  void app.register(meSessionsRoutes, { prefix: "/api/me" });
   // Cassaforte delle credenziali: attivazione, chiavi delle persone, kit di recupero.
   void app.register(vaultRoutes, { prefix: "/api/vault" });
   // Credenziali della cassaforte: `/api/projects/:projectId/credentials...`,
