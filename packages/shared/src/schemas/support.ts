@@ -39,6 +39,11 @@ export const supportConversationSchema = z.object({
   channel: supportChannelSchema,
   widgetId: z.uuid().nullable().default(null),
   widgetName: z.string().nullable().default(null),
+  /**
+   * Area 8, «L'API per i siti» (additivo): il cliente è FIRMATO dal sito
+   * (token d'identità valido all'apertura) e non solo dichiarato.
+   */
+  identityVerified: z.boolean().default(false),
   /** L'identità che il sito ha dichiarato; senza nome: «Anonymous visitor». */
   customer: z
     .object({ name: z.string().nullable().default(null), email: z.string().nullable().default(null) })

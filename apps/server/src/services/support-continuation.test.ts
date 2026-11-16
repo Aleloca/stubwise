@@ -36,6 +36,18 @@ describe("openConversationFor", () => {
     expect(await openConversationFor(t.db, c.id)).toBe(next);
   });
 
+  it("area 8, «L'API per i siti»: la successiva è verificata SOLO se nasce con un token; da una verificata, senza token, nasce dichiarata", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const verified = await closed(projectId);
+    await t.db.update(widgetConversations).set({ identityVerified: true }).where(eq(widgetConversations.id, verified.id));
+    const plain = await openConversationFor(t.db, verified.id);
+    expect((await t.db.select().from(widgetConversations).where(eq(widgetConversations.id, plain)))[0]!.identityVerified).toBe(false);
+
+    const other = await closed(projectId);
+    const signed = await openConversationFor(t.db, other.id, { identityVerified: true });
+    expect((await t.db.select().from(widgetConversations).where(eq(widgetConversations.id, signed)))[0]!.identityVerified).toBe(true);
+  });
+
   it("cinque chiamate INSIEME sulla stessa chiusa: una successiva sola", async () => {
     const { projectId } = await seedRepository(t.db);
     const c = await closed(projectId);

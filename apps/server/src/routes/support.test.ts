@@ -164,6 +164,20 @@ describe("Support, le letture (area 8, F3, S2)", () => {
     expect(v).toMatchObject({ widgetName: "Sito Acquaviva", state: "request_open", canReplyToCollaborator: true, customer: { name: "Mario Bianchi", email: null } });
   });
 
+  it("area 8, «L'API per i siti»: il cliente FIRMATO dal sito si vede (`identityVerified`); dichiarato no", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const dev = await person("developer", projectId);
+    const signed = await conversation(projectId);
+    await t.db.update(widgetConversations).set({ identityVerified: true }).where(eq(widgetConversations.id, signed.id));
+    const declared = await conversation(projectId);
+    await message(signed.id, "user", 1);
+    await message(declared.id, "user", 2);
+    expect((await detail(dev.headers, signed.code)).identityVerified).toBe(true);
+    expect((await detail(dev.headers, declared.code)).identityVerified).toBe(false);
+    const rows = await list(dev.headers, projectId);
+    expect(Object.fromEntries(rows.map((r) => [r.code, r.identityVerified]))).toEqual({ [signed.code]: true, [declared.code]: false });
+  });
+
   it("un progetto invisibile risponde come inesistente; un codice storto o assente è 404", async () => {
     const { projectId } = await seedRepository(t.db);
     const { projectId: other } = await seedRepository(t.db);
