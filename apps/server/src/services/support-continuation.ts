@@ -41,7 +41,7 @@ async function hasOutcome(tx: Tx, conversationId: string): Promise<boolean> {
  * L'id della conversazione in cui scrivere adesso: questa, se è aperta;
  * altrimenti la prima aperta della catena, creata se manca.
  */
-export async function openConversationFor(db: Db, conversationId: string): Promise<string> {
+export async function openConversationFor(db: Db, conversationId: string, opts: { identityVerified?: boolean } = {}): Promise<string> {
   return db.transaction(async (tx) => {
     let id = conversationId;
     for (let i = 0; i < MAX_CHAIN; i++) {
@@ -65,6 +65,9 @@ export async function openConversationFor(db: Db, conversationId: string): Promi
           externalUserEmail: row.externalUserEmail,
           externalUserName: row.externalUserName,
           channel: row.channel,
+          // Area 8, «L'API per i siti»: la successiva è verificata solo se nasce
+          // da una richiesta col token; la catena non promuove a verificato.
+          identityVerified: opts.identityVerified ?? false,
           lastMessageAt: sql`now()`,
         })
         .returning({ id: widgetConversations.id });

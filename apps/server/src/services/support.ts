@@ -184,6 +184,7 @@ async function viewOf(db: Db, c: ConversationRow, ctx: ViewContext, withMessages
     widgetId: c.widgetId,
     widgetName: widget?.name ?? null,
     customer: { name: c.externalUserName, email: c.externalUserEmail },
+    identityVerified: c.identityVerified,
     messages: withMessages ? messages : [],
     lastMessage: messages.at(-1) ?? null,
     state,
