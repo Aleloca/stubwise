@@ -237,3 +237,20 @@ describe("passkey", () => {
     expect(await eventKinds(intruder.id)).toEqual([]);
   });
 });
+
+describe("area 9, F1: la scadenza della riconferma e i tentativi rimasti", () => {
+  it("`reauthUntil`: dieci minuti dopo l'ultimo secondo fattore della sessione; null se è passata; `attemptsLeft` c'è", async () => {
+    const fresh = await newUser();
+    const res = (await app.inject({ method: "GET", url: "/api/me/security", headers: { cookie: fresh.cookie } })).json() as { reauthUntil: string | null; attemptsLeft: number | null };
+    expect(res.reauthUntil).not.toBeNull();
+    const until = new Date(res.reauthUntil!).getTime();
+    expect(until).toBeGreaterThan(Date.now() + 9 * 60_000);
+    expect(until).toBeLessThanOrEqual(Date.now() + 10 * 60_000);
+    expect(res.attemptsLeft).toBe(5);
+    const old = await createSession(app.db, fresh.id, { stage: "full", secondFactorAt: new Date(Date.now() - 20 * 60_000) });
+    const cookie = `stubwise_session=${encodeURIComponent(app.signCookie(old.id))}`;
+    const stale = (await app.inject({ method: "GET", url: "/api/me/security", headers: { cookie } })).json() as { reauthUntil: string | null };
+    expect(stale.reauthUntil).toBeNull();
+  });
+});
+

@@ -11,7 +11,7 @@
  * modifica. Il server ri-usa queste funzioni (`projectPermissionsOfUser` in
  * `access.ts` le delega).
  */
-import { projectMembers, roles, tickets, users } from "@stubwise/db";
+import { memberPermissionsSql, projectMembers, roles, tickets, users } from "@stubwise/db";
 import {
   effectiveInstancePermissions,
   effectiveProjectPermissions,
@@ -20,7 +20,7 @@ import {
   type InstancePermission,
   type ProjectPermission,
 } from "@stubwise/shared";
-import { and, eq, inArray, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { DbOrTx } from "./dispatch.js";
 
@@ -67,7 +67,7 @@ export async function instancePermissionsOfUser(db: DbOrTx, userId: string): Pro
     .select({ permissions: roles.permissions })
     .from(users)
     .innerJoin(roles, eq(roles.id, users.instanceRoleId))
-    .where(eq(users.id, userId));
+    .where(and(eq(users.id, userId), isNull(users.deactivatedAt)));
   return effectiveInstancePermissions(row?.permissions ?? []);
 }
 
@@ -103,7 +103,8 @@ export async function projectPermissionsByProject(
     .select({
       instancePermissions: roles.permissions,
       projectId: projectMembers.projectId,
-      memberPermissions: memberRoles.permissions,
+      // Ruolo ∪ permessi personali (area 9, F1): la regola di `memberPermissionsSql`.
+      memberPermissions: memberPermissionsSql(memberRoles.permissions, projectMembers.projectId, projectMembers.userId),
     })
     .from(users)
     .innerJoin(roles, eq(roles.id, users.instanceRoleId))
@@ -112,7 +113,9 @@ export async function projectPermissionsByProject(
       and(eq(projectMembers.userId, users.id), inArray(projectMembers.projectId, unique)),
     )
     .leftJoin(memberRoles, eq(memberRoles.id, projectMembers.roleId))
-    .where(eq(users.id, userId));
+    // Una persona disattivata non ha permessi (area 9, F1): chi agisce per
+    // conto di un id (Slack, inbox, automazioni) la trova come inesistente.
+    .where(and(eq(users.id, userId), isNull(users.deactivatedAt)));
   if (rows.length === 0) {
     for (const id of unique) result.set(id, null);
     return result;
@@ -295,7 +298,7 @@ export async function userIdsWithPermission(
     .where(
       and(
         eq(projectMembers.projectId, projectId),
-        sql`${roles.permissions} @> array[${permission}]::text[]`,
+        sql`${memberPermissionsSql(roles.permissions, projectMembers.projectId, projectMembers.userId)} @> array[${permission}]::text[]`,
       ),
     );
   return [...new Set([...ids, ...rows.map((row) => row.id)])];

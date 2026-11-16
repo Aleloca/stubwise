@@ -2,9 +2,11 @@ import { eq, isNotNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { roleRuleErrorSchema, targetUserNotAbove } from "../routes/roles.js";
+import { roleRuleErrorSchema } from "../routes/roles.js";
 import { users } from "@stubwise/db";
 import { apiError } from "../errors.js";
+import { publishSecurityAlert } from "../auth/second-factor/alerts.js";
+import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
 import { authErrorResponses, errorSchema, isUniqueViolation, rejectAgentUserParam } from "../routes/shared.js";
 import { publicUserSchema } from "../routes/users.js";
 import { loadSlackCreds, defaultSlackClientFactory, type SlackClientFactory } from "./creds.js";
@@ -67,7 +69,6 @@ export async function slackIdentityRoutes(
     "/users/:id/slack",
     {
       config: { access: { kind: "instance", permission: "integrations.manage" }, reauth: true },
-      preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),
         body: z.object({ slackUserId: z.string().min(1) }),
@@ -77,7 +78,8 @@ export async function slackIdentityRoutes(
           404: errorSchema,
           409: errorSchema,
           ...authErrorResponses,
-          // Bersaglio con più permessi (R31): porta `permission`.
+          // Gli errori di regola (`permission` incluso). Il bersaglio non è più
+          // protetto (area 9, D-2): resta lo schema, per i client.
           403: roleRuleErrorSchema,
         },
       },
@@ -88,7 +90,14 @@ export async function slackIdentityRoutes(
         return apiError(reply, 400, "slack_not_configured", "Slack integration is not configured");
       }
       const { id } = request.params;
-      const [existing] = await app.db.select({ id: users.id }).from(users).where(eq(users.id, id));
+      // Review di F1 (I2): lo Slack di UN ALTRO fa valere i suoi clic come i
+      // suoi; chi lo collega deve poter gestire le persone (la D-2 estesa),
+      // e resta traccia con l'avviso. Il proprio resta com'era.
+      const other = id !== request.user!.id;
+      if (other && !request.user!.instancePermissions.has("users.manage")) {
+        return reply.code(403).send({ code: "forbidden", message: "Linking someone else's Slack needs users.manage", permission: "users.manage" });
+      }
+      const [existing] = await app.db.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, id));
       if (!existing) {
         return apiError(reply, 404, "user_not_found", "User not found");
       }
@@ -127,6 +136,10 @@ export async function slackIdentityRoutes(
         // Race: l'utente è sparito tra il pre-check e l'update.
         return apiError(reply, 404, "user_not_found", "User not found");
       }
+      if (other) {
+        await recordSecurityEvent(app.db, { kind: "slack_linked", user: existing, actor: request.user! });
+        await publishSecurityAlert(app.db, id, "slack_linked", request.user!.email);
+      }
       return reply.code(200).send(toPublicUser(updated));
     },
   );
@@ -136,14 +149,14 @@ export async function slackIdentityRoutes(
     "/users/:id/slack",
     {
       config: { access: { kind: "instance", permission: "integrations.manage" }, reauth: true },
-      preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),
         response: {
           204: z.null(),
           404: errorSchema,
           ...authErrorResponses,
-          // Bersaglio con più permessi (R31): porta `permission`.
+          // Gli errori di regola (`permission` incluso). Il bersaglio non è più
+          // protetto (area 9, D-2): resta lo schema, per i client.
           403: roleRuleErrorSchema,
         },
       },

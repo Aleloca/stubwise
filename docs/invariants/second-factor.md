@@ -217,12 +217,18 @@ obbligatorio per tutti e non si disattiva; le passkey sono un di più.
   dentro. Il bucket per IP (`credentialsRateLimit`) resta, ma da solo non
   basta: il tetto per account è ciò che ferma chi prova da molti IP.
 - **`security.alert` ignora le preferenze e va solo all'interessato.** Inbox
-  + push + DM Slack (mai email: Stubwise non ne manda), non spegnibile dalle
+  + push + DM Slack (mai email, salvo l'eccezione del cambio d'email qui
+  sotto), non spegnibile dalle
   preferenze, audience = la persona colpita. Si pubblica per: 2FA azzerato da
   un altro, link di reset della password generato da un altro, passkey
   aggiunta, codici rigenerati, blocco. Il link «Apri» NON sta nell'evento: si
   deriva a lettura da `PUBLIC_URL` (inbox del server e poller consegne del
   worker), perché un campo scritto nel jsonb esiste solo sulle card nuove.
+- «Niente email: Stubwise non ne manda» diventa: Stubwise manda UN tipo di
+  email, il link di conferma del cambio dell'email (e l'avviso alla vecchia),
+  col trasporto SMTP d'istanza facoltativo (`SMTP_URL`, `MAIL_FROM`; area 9,
+  E-1 = a); nient'altro passa di lì. Senza trasporto il cambio lo fa un
+  admin (`identity.md`).
 - **Il registro di sicurezza (`security_events`) è solo in aggiunta.** Chi
   agisce e chi subisce si salvano come id **e** email in testo (le colonne
   d'autore altrove sono `ON DELETE SET NULL`); conservazione un anno.

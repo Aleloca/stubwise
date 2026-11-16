@@ -122,6 +122,19 @@ const envSchema = z.object({
   // "feature spenta" → è il ROLLBACK SWITCH del retrieval dal grafo: basta
   // `GRAPHIFY_MCP_URL=` nel .env e le chat tornano al solo retrieval pgvector,
   // senza ridistribuire nulla.
+  // Area 9, F1 (E-1 = a): il trasporto SMTP d'istanza, FACOLTATIVO, solo per
+  // il link del cambio dell'email di login e l'avviso alla vecchia
+  // (docs/invariants/identity.md). Assente o vuoto: il cambio dalle
+  // Preferenze dice «non disponibile», e resta il cambio fatto da un admin.
+  // `smtp://utente:password@host:587` (STARTTLS) o `smtps://…:465`.
+  SMTP_URL: z
+    .string()
+    .optional()
+    .transform((value) => (value === undefined || value.trim() === "" ? undefined : value.trim())),
+  MAIL_FROM: z
+    .string()
+    .optional()
+    .transform((value) => (value === undefined || value.trim() === "" ? undefined : value.trim())),
   GRAPHIFY_MCP_URL: z
     .string({ error: "deve essere l'URL del server MCP graphify (vuota per disattivare)" })
     .default("http://graphify:8080/mcp")
@@ -196,6 +209,9 @@ export interface Config {
    * `undefined` = feature spenta (variabile impostata a stringa vuota).
    */
   graphifyMcpUrl?: string;
+  /** Area 9, F1 (E-1 = a): SMTP facoltativo per il cambio dell'email. */
+  smtpUrl?: string;
+  mailFrom?: string;
   /** Budget di token del sottografo chiesto a `query_graph` (default 1200). */
   graphChatTokenBudget: number;
   /** Tetto dei caratteri di codice allegati a una risposta (default 6000). */
@@ -241,6 +257,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     widgetDailyTicketCap: parsed.WIDGET_DAILY_TICKET_CAP,
     graphsDir: parsed.GRAPHS_DIR,
     graphifyMcpUrl: parsed.GRAPHIFY_MCP_URL,
+    ...(parsed.SMTP_URL !== undefined ? { smtpUrl: parsed.SMTP_URL } : {}),
+    ...(parsed.MAIL_FROM !== undefined ? { mailFrom: parsed.MAIL_FROM } : {}),
     graphChatTokenBudget: parsed.GRAPH_CHAT_TOKEN_BUDGET,
     graphChatSnippetMaxChars: parsed.GRAPH_CHAT_SNIPPET_MAX_CHARS,
     graphChatSnippetNodes: parsed.GRAPH_CHAT_SNIPPET_NODES,

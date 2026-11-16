@@ -179,20 +179,16 @@ describe("membri di progetto: anti-escalation", () => {
     expect(await memberRole(projectId, target.id)).toBe(contributor);
   });
 
-  it("R28: senza release.merge non si cambia né si toglie un Project Lead → 403, invariato", async () => {
+  it("area 9 (D-2, era R28): chi ha project.members.manage cambia e toglie anche un Project Lead, pur senza release.merge", async () => {
     const lead = await createUserWithSession(app, "members-lead@example.com");
     await addMember(app, projectId, lead.id, "project_lead");
-    const leadRole = await presetRoleId(app, "project_lead");
-    const change = await call(manager, "PUT", `/api/projects/${projectId}/members/${lead.id}`, {
-      roleId: await presetRoleId(app, "contributor"),
-    });
-    expect(change.statusCode).toBe(403);
-    expect(change.json()).toMatchObject({ code: "target_above", permission: expect.any(String) });
-    expect(await memberRole(projectId, lead.id)).toBe(leadRole);
+    const contributor = await presetRoleId(app, "contributor");
+    const change = await call(manager, "PUT", `/api/projects/${projectId}/members/${lead.id}`, { roleId: contributor });
+    expect(change.statusCode).toBe(200);
+    expect(await memberRole(projectId, lead.id)).toBe(contributor);
     const remove = await call(manager, "DELETE", `/api/projects/${projectId}/members/${lead.id}`);
-    expect(remove.statusCode).toBe(403);
-    expect(remove.json()).toMatchObject({ code: "target_above" });
-    expect(await memberRole(projectId, lead.id)).toBe(leadRole);
+    expect(remove.statusCode).toBe(204);
+    expect(await memberRole(projectId, lead.id)).toBeNull();
   });
 
   it("R28: un Project Lead (non full admin) cambia il ruolo di un Developer → 200", async () => {
@@ -262,21 +258,23 @@ describe("ruoli: anti-escalation di chi ha roles.manage senza full admin", () =>
     ownRoleId = (await instanceRoleOf(rolesManager.id))!;
   });
 
-  it("R30: non toglie permessi ad Admin né a Project Lead (né li elimina) → 403, invariati", async () => {
-    for (const key of ["admin", "project_lead"]) {
-      const id = await presetRoleId(app, key);
-      const before = await roleRow(id);
-      const strip = await call(rolesManager, "PATCH", `/api/roles/${id}`, { permissions: [] });
-      expect(strip.statusCode).toBe(403);
-      expect(strip.json()).toMatchObject({ code: "target_above" });
-      const rename = await call(rolesManager, "PATCH", `/api/roles/${id}`, { name: `${key} x` });
-      expect(rename.statusCode).toBe(403);
-      expect(rename.json()).toMatchObject({ code: "target_above" });
-      const removed = await call(rolesManager, "DELETE", `/api/roles/${id}`);
-      expect(removed.statusCode).toBe(403);
-      expect(removed.json()).toMatchObject({ code: "target_above" });
-      expect(await roleRow(id)).toEqual(before);
-    }
+  it("area 9 (D-2, era R30): toglie permessi e rinomina anche un ruolo con più permessi dei suoi; dall'Admin no, perché resta sempre un full admin", async () => {
+    // Un ruolo di progetto con TUTTI i permessi, che chi agisce non ha.
+    const high = await createRole("Tutto", "project", [...PROJECT_PERMISSIONS]);
+    const strip = await call(rolesManager, "PATCH", `/api/roles/${high}`, { permissions: ["docs.view"] });
+    expect(strip.statusCode).toBe(200);
+    expect((await roleRow(high))!.permissions).toEqual(["docs.view"]);
+    const rename = await call(rolesManager, "PATCH", `/api/roles/${high}`, { name: "Tutto x" });
+    expect(rename.statusCode).toBe(200);
+    const removed = await call(rolesManager, "DELETE", `/api/roles/${high}`);
+    expect(removed.statusCode).toBe(204);
+    // L'Admin: togliergli i permessi lascerebbe l'istanza senza full admin.
+    const adminRole = await presetRoleId(app, "admin");
+    const before = await roleRow(adminRole);
+    const stripAdmin = await call(rolesManager, "PATCH", `/api/roles/${adminRole}`, { permissions: [] });
+    expect(stripAdmin.statusCode).toBe(409);
+    expect(stripAdmin.json()).toMatchObject({ code: "last_full_admin" });
+    expect(await roleRow(adminRole)).toEqual(before);
   });
 
   it("un ruolo promesso da un invito pendente conta come assegnato: non lo si allarga oltre i propri permessi lì → 403", async () => {
@@ -294,8 +292,9 @@ describe("ruoli: anti-escalation di chi ha roles.manage senza full admin", () =>
       permissions: [...PROJECT_PERMISSIONS],
     });
     expect(res.statusCode).toBe(403);
-    // Il ruolo, promesso in B, ha già permessi che lì chi agisce non ha (R30).
-    expect(res.json()).toMatchObject({ code: "target_above" });
+    // Allargarlo è DARE: in B chi agisce non ha quei permessi (l'escalation
+    // resta sul dare, area 9 D-2).
+    expect(res.json()).toMatchObject({ code: "escalation" });
     expect((await roleRow(roleR))!.permissions).toEqual(["docs.view"]);
   });
 
@@ -526,13 +525,22 @@ describe("ultimo full admin", () => {
     expect(await instanceRoleOf(admin.id)).toBe(adminRoleId);
   });
 
-  it("R28: chi ha solo users.manage non declassa un full admin → 403, ruolo intatto", async () => {
-    const res = await call(usersManager, "PATCH", `/api/users/${admin.id}/instance-role`, {
+  it("area 9 (D-2, era R28): chi ha users.manage può declassare un full admin; lo ferma solo «resta sempre un full admin»", async () => {
+    // L'unico full admin: resta.
+    const lone = await call(usersManager, "PATCH", `/api/users/${admin.id}/instance-role`, {
       roleId: await presetRoleId(app, "user"),
     });
-    expect(res.statusCode).toBe(403);
-    expect(res.json()).toMatchObject({ code: "target_above", permission: "instance.full_admin" });
+    expect(lone.statusCode).toBe(409);
+    expect(lone.json()).toMatchObject({ code: "last_full_admin" });
     expect(await instanceRoleOf(admin.id)).toBe(adminRoleId);
+    // Con un secondo full admin, il declassamento passa.
+    const second = await createUserWithSession(app, "second-admin@example.com");
+    await testDb.db.update(users).set({ instanceRoleId: adminRoleId }).where(eq(users.id, second.id));
+    const ok = await call(usersManager, "PATCH", `/api/users/${second.id}/instance-role`, {
+      roleId: await presetRoleId(app, "user"),
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(await instanceRoleOf(second.id)).toBe(await presetRoleId(app, "user"));
   });
 
   it("R28: chi ha users.manage cambia il ruolo di un utente che non gli sta sopra → 200", async () => {
@@ -552,32 +560,29 @@ describe("ultimo full admin", () => {
     expect(await instanceRoleOf(admin.id)).toBe(adminRoleId);
   });
 
-  it("R31: chi ha solo users.manage non crea un link di reset per un full admin → 403, nessun token", async () => {
+  it("area 9 (D-2, era R31): chi ha users.manage crea il link di reset anche per un full admin (il rischio accettato) → 201, il token c'è", async () => {
     const res = await call(usersManager, "POST", `/api/users/${admin.id}/password-reset`);
-    expect(res.statusCode).toBe(403);
-    expect(res.json()).toMatchObject({ code: "target_above" });
+    expect(res.statusCode).toBe(201);
     const tokens = await testDb.db
       .select()
       .from(passwordResetTokens)
       .where(eq(passwordResetTokens.userId, admin.id));
-    expect(tokens).toEqual([]);
+    expect(tokens).toHaveLength(1);
   });
 
-  it("R31: né collega un'identità git a un full admin → 403, nessuna riga", async () => {
+  it("area 9 (D-2, era R31): e collega un'identità git a un full admin → la riga c'è", async () => {
     const res = await call(usersManager, "POST", `/api/users/${admin.id}/git-identities`, {
       email: "someone@git.example.com",
     });
-    expect(res.statusCode).toBe(403);
-    // `permission` arriva: la rotta dichiara lo schema degli errori di regola.
-    expect(res.json()).toMatchObject({ code: "target_above", permission: "instance.full_admin" });
+    expect(res.statusCode).toBeLessThan(300);
     const rows = await testDb.db
       .select()
       .from(gitIdentities)
       .where(eq(gitIdentities.userId, admin.id));
-    expect(rows).toEqual([]);
+    expect(rows).toHaveLength(1);
   });
 
-  it("R50: users.manage d'istanza non resetta la password di un Project Lead di un progetto dove non ha nulla → 403, nessun token", async () => {
+  it("area 9 (D-2, era R50): users.manage d'istanza resetta la password di un Project Lead anche in un progetto dove non ha nulla → 201", async () => {
     const { projectId: leadProject } = await seedRepository(testDb.db);
     // Stessi permessi d'istanza del manager: la regola d'istanza (R31) passa,
     // a fermarlo è solo il progetto.
@@ -588,24 +593,18 @@ describe("ultimo full admin", () => {
       .where(eq(users.id, lead.id));
     await addMember(app, leadProject, lead.id, "project_lead");
     const res = await call(usersManager, "POST", `/api/users/${lead.id}/password-reset`);
-    expect(res.statusCode).toBe(403);
-    expect(res.json()).toMatchObject({ code: "target_above" });
+    expect(res.statusCode).toBe(201);
     const tokens = await testDb.db
       .select()
       .from(passwordResetTokens)
       .where(eq(passwordResetTokens.userId, lead.id));
-    expect(tokens).toEqual([]);
-    // Né gli cambia il ruolo d'istanza.
+    expect(tokens).toHaveLength(1);
+    // E gli cambia il ruolo d'istanza.
     const before = await instanceRoleOf(lead.id);
     const role = await call(usersManager, "PATCH", `/api/users/${lead.id}/instance-role`, {
       roleId: before!,
     });
-    expect(role.statusCode).toBe(403);
-    expect(role.json()).toMatchObject({ code: "target_above" });
-    // Con lo stesso ruolo nel progetto, invece, il reset passa.
-    await addMember(app, leadProject, usersManager.id, "project_lead");
-    const ok = await call(usersManager, "POST", `/api/users/${lead.id}/password-reset`);
-    expect(ok.statusCode).toBe(201);
+    expect(role.statusCode).toBe(200);
   });
 
   it("chi non è full admin non assegna Admin (403) né un ruolo con permessi che non ha", async () => {

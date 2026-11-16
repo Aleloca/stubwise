@@ -337,3 +337,9 @@ motore condiviso (`packages/shared/src/automations/`).
   nasconde ciò che Claude ne ricava. Origine della posta e segno si decidono
   dall'INIZIO della madre, mai dalla forma dell'evento (un webhook può avere
   un campo `email`).
+
+## Il budget e i passi tenuti (area 9, F4, 16 nov 2026)
+
+- **Un passo tenuto per il budget riparte da solo quando il budget torna**
+  (mese nuovo o tetto alzato), al giro del consumatore. Diverso dal
+  `budget_held` dei job delle task, che resta com'è.

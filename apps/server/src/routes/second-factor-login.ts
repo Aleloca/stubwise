@@ -14,7 +14,7 @@ import {
 } from "@stubwise/shared";
 import { regenerateBackupCodes, remainingBackupCodes } from "../auth/second-factor/backup-codes.js";
 import { attemptSecondFactor, verifySecondFactorCode } from "../auth/second-factor/index.js";
-import { lockedUntil } from "../auth/second-factor/lockout.js";
+import { attemptsLeft, lockedUntil } from "../auth/second-factor/lockout.js";
 import {
   authenticationOptions,
   finishAuthentication,
@@ -155,6 +155,7 @@ export function secondFactorLoginRoutes(
         passkeys: passkey !== undefined,
         backupCodesRemaining: await remainingBackupCodes(app.db, user.id),
         lockedUntil: until?.toISOString() ?? null,
+        attemptsLeft: await attemptsLeft(app.db, user.id),
       };
     },
   );

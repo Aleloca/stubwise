@@ -81,32 +81,51 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   trasversali (ruling R43); nell'app i bottoni restano nascosti mentre `/me`
   carica o fallisce (fail-closed, ruling R46). I campi nuovi delle risposte
   nascono `.default([])` (regola dell'app in CLAUDE.md).
-- **Nessuna escalation, e il BERSAGLIO è protetto.** In
-  `apps/server/src/services/roles.ts`, in UN posto:
-  - si assegna un ruolo — o lo si rende effettivo modificandone i permessi —
-    solo se i suoi permessi sono inclusi nei propri (nel progetto, per un
-    ruolo di progetto; d'istanza, per uno d'istanza): `assertNoEscalation`,
-    403 **`escalation`** con la chiave mancante in `permission`;
-  - si cambia o toglie il ruolo d'istanza di un utente, o il ruolo o
-    l'appartenenza di un membro, solo se i permessi del suo ruolo ATTUALE
-    sono inclusi nei propri (ruling R28): `assertTargetNotAbove`, 403
-    **`target_above`**. Vale per ogni azione di `users.manage` su un altro
-    utente — reset della password (che restituisce l'URL, e permetterebbe di
-    prendere l'account di un full admin), collegamento delle identità git,
-    Bitbucket e Slack (ruling R31). E il confronto vale anche nei PROGETTI
-    (ruling R50, `assertTargetProjectsNotAbove`): in ogni progetto dove il
-    bersaglio è membro, o ha un invito pendente per la sua email, i permessi
-    del suo ruolo lì devono stare in quelli di chi agisce NELLO STESSO
-    progetto — altrimenti un `users.manage` d'istanza senza ruoli nei
-    progetti prenderebbe l'account di un `Project Lead`;
-  - si modifica o elimina un ruolo solo se i suoi permessi ATTUALI sono
-    inclusi nei propri in ogni progetto dove è assegnato o promesso da un
-    invito pendente (ruling R30): chiude il declassamento in blocco che R28
-    vieta utente per utente.
+- **Nessuna escalation sul DARE; nessuna gerarchia fra persone** *(maintainer,
+  30 ott 2026, confermato il 16 nov)*. In `apps/server/src/services/roles.ts`,
+  in UN posto, `assertNoEscalation` (403 **`escalation`**, con la chiave
+  mancante in `permission`): si assegna un ruolo, si rende effettivo un ruolo
+  modificandone i permessi, si dà un permesso personale a un membro (o, con
+  F8, a un reparto per un progetto), si invita, solo se ciò che si dà è
+  incluso nei propri permessi nello stesso ambito. TOGLIERE non chiede
+  niente: chi ha il permesso di gestione (`users.manage`,
+  `project.members.manage`, `roles.manage`, `departments.manage`) modifica
+  chiunque, anche chi ha più permessi di lui. Restano il rifiuto su sé stessi
+  (ruolo d'istanza, reset, disattivazione) e «resta sempre un full admin».
+  **Rischio accettato, scritto apposta**: chi ha `users.manage` può
+  azzerare il secondo fattore di un full admin e generarne il link di reset,
+  e quindi prenderne il posto. La difesa è la traccia, non il divieto:
+  entrambe le azioni chiedono la riconferma, lasciano la voce nel registro
+  delle modifiche (`person.second_factor_reset`,
+  `person.password_reset_link`) e in `security_events`, e mandano un
+  `security.alert` all'interessato. Chi dà `users.manage` a qualcuno sta
+  dando questo potere.
 
-  Un full admin passa sempre. I codici sono dedicati (ruling R44) perché la
-  UI legge il codice, non il testo inglese. Un selettore che offre un ruolo
-  che darà `escalation` è coerente con «il client non deduce», non un bug.
+  Un full admin passa sempre. Il codice è dedicato (ruling R44) perché la UI
+  legge il codice, non il testo inglese. Un selettore che offre un ruolo che
+  darà `escalation` è coerente con «il client non deduce», non un bug.
+- **I permessi effettivi in un progetto sono UNA funzione**: ruolo ∪
+  permessi personali (`project_member_permissions`) ∪ permessi del reparto
+  per quel progetto (F8), più l'implicito del full admin. La calcolano
+  `effectiveProjectPermissions` (`@stubwise/shared`) e
+  `projectPermissionsFor` (`apps/server/src/auth/access.ts`). Ogni gate, ogni
+  WHERE, `/api/auth/me` e «Chi può farlo?» passano da lì, e un test d'accordo
+  lega `who-can` a `can()`. Un permesso personale vale esattamente come uno
+  del ruolo; togliere un membro toglie i suoi permessi personali (cascade);
+  Claude non ne riceve mai (insieme fisso). Un progetto non resta senza un
+  `project.members.manage` fuori dai full admin (`last_manager`).
+- **Una persona disattivata non entra da nessuna porta, e non si
+  disattiva l'ultimo full admin.** Disattivare cancella nella stessa
+  transazione sessioni, PAT e `device_tokens`, e revoca gli inviti
+  pendenti che ha mandato; la lettura dell'identità la tratta come assente
+  anche se una sessione sopravvivesse a una corsa. Il login risponde come a
+  una password sbagliata. Riattivare non riporta i token di prima.
+- **Un progetto archiviato è come uno che non c'è, tranne che per chi lo
+  legge DI PROPOSITO.** `visibleProjectIds` e le WHERE lo escludono; lo
+  leggono in sola lettura i suoi membri e i full admin solo dalle letture
+  `archived=true`; nessuna scrittura (`409 archived`); il worker non reclama
+  il suo lavoro. Si elimina SOLO un archiviato, SOLO un full admin, con la
+  riconferma e il codice digitato; i suoi repository restano staccati.
 - **Un invito non dà mai più di quanto ha chi invita, nemmeno per omissione
   né col passare del tempo** (ruling R51, `assertInviteGrants` e
   `applyInviteGrants` in `services/roles.ts`). Senza `instanceRoleId` il
@@ -306,7 +325,9 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
 
 - **Un permesso nuovo dato a un preset si dà anche ai ruoli che lo
   contenevano (decisione del maintainer, 10 nov 2026).** La guardia
-  anti-escalation (`target_above`, R28) confronta i permessi. Se una
+  anti-escalation confronta i permessi (dal 16 nov 2026, area 9, solo sul
+  DARE: la guardia sul bersaglio, `target_above` R28, non c'è più; la regola
+  resta perché tiene i ruoli fatti a mano coerenti coi preset). Se una
   migrazione dà un permesso nuovo al solo preset, un ruolo fatto a mano che
   stava SOPRA quel preset (per esempio il preset User più `users.manage`) si
   ritrova sotto, e non gestisce più chi ha il preset.

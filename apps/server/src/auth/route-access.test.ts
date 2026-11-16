@@ -130,11 +130,14 @@ describe("rotte con riconferma recente", () => {
       "DELETE /api/users/:id/second-factor",
       "DELETE /api/users/:id/slack",
       "PATCH /api/roles/:id",
+      "PATCH /api/users/:id/email",
       "PATCH /api/users/:id/instance-role",
       "PATCH /api/users/:id/role",
       "POST /api/auth/desktop-handoff",
       "POST /api/auth/invites",
       "POST /api/auth/me/password",
+      // Area 9, F1: il cambio della propria email di login.
+      "POST /api/me/email-change",
       "POST /api/me/mail/proposals/:id/confirm-with-members",
       "POST /api/me/security/backup-codes",
       "POST /api/me/security/passkeys",
@@ -146,8 +149,11 @@ describe("rotte con riconferma recente", () => {
       "POST /api/projects/:projectId/widgets/:widgetId/identity-secret",
       "POST /api/roles",
       "POST /api/roles/:id/duplicate",
+      // Area 9, F1: disattivare e riattivare una persona.
+      "POST /api/users/:id/deactivate",
       "POST /api/users/:id/git-identities",
       "POST /api/users/:id/password-reset",
+      "POST /api/users/:id/reactivate",
       "POST /api/vault/activate",
       "POST /api/vault/keys",
       "POST /api/vault/keys/:id/seals",
@@ -156,6 +162,7 @@ describe("rotte con riconferma recente", () => {
       "POST /api/vault/recovery/confirm/:personKeyId",
       "POST /api/vault/recovery/pending",
       "PUT /api/projects/:projectId/members/:userId",
+      "PUT /api/users/:id/bitbucket",
       "PUT /api/users/:id/slack",
     ]);
   });

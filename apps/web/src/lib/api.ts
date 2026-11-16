@@ -711,7 +711,7 @@ export function postTotpSetupConfirm(code: string): Promise<TotpSetupConfirmResp
 
 /**
  * Azzera il secondo fattore di un altro utente (`users.manage`, riconferma):
- * 204. Errori attesi: 400 `cannot_reset_own_second_factor`, 403 `target_above`.
+ * 204. Errori attesi: 400 `cannot_reset_own_second_factor`.
  */
 export function deleteUserSecondFactor(userId: string): Promise<void> {
   return api.delete(`/api/users/${encodeURIComponent(userId)}/second-factor`);

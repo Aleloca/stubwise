@@ -78,6 +78,13 @@ import {
  * deve mai scriverlo (è GENERATED ALWAYS), serve solo a dichiararne il tipo
  * nello schema così che lo snapshot e l'indice GIN risultino coerenti.
  */
+/** `bytea` di Postgres come Buffer (area 9, F1: la foto del profilo). */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
+
 const tsvector = customType<{ data: string }>({
   dataType() {
     return "tsvector";
@@ -331,6 +338,10 @@ export const users = pgTable("users", {
   // Fetta 3e (0125): l'utente di SISTEMA «Claude», uno per istanza, senza
   // accesso né notifiche. Vedi la migrazione e `docs/invariants/agent-sessions.md`.
   isAgent: boolean("is_agent").notNull().default(false),
+  // Area 9, F1 (0185, D-6): una persona disattivata non entra da nessuna porta
+  // (docs/invariants/permissions.md); riattivarla non riporta i token di prima.
+  deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
+  deactivatedByUserId: uuid("deactivated_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
   // Tetto per account del secondo fattore (0100): codici sbagliati DI FILA,
   // da qualunque IP (il bucket per IP non basta: chi prova da tanti indirizzi
   // non ne supera nessuno). Un codice giusto lo azzera; al tetto il passo del
@@ -394,6 +405,10 @@ export const sessions = pgTable(
     // monouso, la verifica la cancella sempre.
     webauthnChallenge: text("webauthn_challenge"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // Area 9, F1 (0185, D-9): «le mie sessioni». `last_seen_at` si aggiorna al
+    // più ogni 5 minuti, mai una scrittura per richiesta.
+    userAgent: text("user_agent"),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   },
   (table) => [
     // Lookup delle sessioni di un utente (logout globale, pulizia in cascata).
@@ -3878,6 +3893,9 @@ export const notifications = pgTable(
     handledByUserId: uuid("handled_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
+    // Area 9, F1 (0186): `archive` = archiviata dal destinatario (la sola che
+    // si ripristina), `decision` = chiusa da una decisione; NULL = altro.
+    handledAction: text("handled_action").$type<"archive" | "decision">(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -4020,6 +4038,79 @@ export const projectMembers = pgTable(
     primaryKey({ columns: [table.projectId, table.userId] }),
     // Progetti di UN utente: la PK (project_id, user_id) non la serve.
     index("project_members_user_id_idx").on(table.userId),
+  ],
+);
+
+/**
+ * Area 9, F1 (0185): i permessi PERSONALI di un membro, oltre al suo ruolo.
+ * Cadono col membro (FK composta, cascade). I permessi effettivi sono UNA
+ * funzione (docs/invariants/permissions.md): ruolo ∪ questi (∪ reparto, F8).
+ * Il permesso si valida nel codice, come `roles.permissions`.
+ */
+export const projectMemberPermissions = pgTable(
+  "project_member_permissions",
+  {
+    projectId: uuid("project_id").notNull(),
+    userId: uuid("user_id").notNull(),
+    permission: text("permission").notNull(),
+    grantedByUserId: uuid("granted_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "project_member_permissions_pkey", columns: [table.projectId, table.userId, table.permission] }),
+    foreignKey({
+      name: "project_member_permissions_member_fk",
+      columns: [table.projectId, table.userId],
+      foreignColumns: [projectMembers.projectId, projectMembers.userId],
+    }).onDelete("cascade"),
+    index("project_member_permissions_user_idx").on(table.userId),
+  ],
+);
+
+/**
+ * Area 9, F1 (0185, D-13): la foto del profilo, nel DB (lo storage può essere
+ * spento). PNG, JPEG o WebP, al più 512 KB (CHECK); il tipo lo DEDUCE il
+ * server dai magic bytes (docs/invariants/identity.md).
+ */
+export const userAvatars = pgTable(
+  "user_avatars",
+  {
+    userId: uuid("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    contentType: text("content_type").$type<"image/png" | "image/jpeg" | "image/webp">().notNull(),
+    bytes: bytea("bytes").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("user_avatars_type_chk", sql`${table.contentType} in ('image/png', 'image/jpeg', 'image/webp')`),
+    check("user_avatars_size_chk", sql`octet_length(${table.bytes}) <= 524288`),
+  ],
+);
+
+/**
+ * Area 9, F1 (0185, D-13): il cambio dell'email di login, con la verifica del
+ * nuovo indirizzo. Al più UNA richiesta pendente per persona; il token si
+ * salva come hash (docs/invariants/identity.md).
+ */
+export const emailChanges = pgTable(
+  "email_changes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    newEmail: text("new_email").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("email_changes_one_pending_idx")
+      .on(table.userId)
+      .where(sql`${table.confirmedAt} IS NULL AND ${table.cancelledAt} IS NULL`),
   ],
 );
 

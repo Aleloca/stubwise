@@ -56,11 +56,13 @@ export async function issuePasswordResetToken(
   const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MS);
   return db.transaction(async (tx) => {
     const [target] = await tx
-      .select({ id: users.id })
+      .select({ id: users.id, deactivatedAt: users.deactivatedAt })
       .from(users)
       .where(eq(users.id, userId))
       .for("update");
-    if (!target) return null;
+    // Una persona disattivata non riceve un link (review di F1, m6): non
+    // entrerebbe, e la lettura del link ne rivelerebbe l'email.
+    if (!target || target.deactivatedAt) return null;
     await revokePendingResetTokens(tx, userId);
     await tx.insert(passwordResetTokens).values({
       userId,

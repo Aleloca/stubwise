@@ -49,6 +49,8 @@ const app = buildApp({
   graphChatSnippetMaxChars: config.graphChatSnippetMaxChars,
   graphChatSnippetNodes: config.graphChatSnippetNodes,
   mirrorsDir: config.mirrorsDir,
+  ...(config.smtpUrl !== undefined ? { smtpUrl: config.smtpUrl } : {}),
+  ...(config.mailFrom !== undefined ? { mailFrom: config.mailFrom } : {}),
   sessionBus,
   chatBus,
 });

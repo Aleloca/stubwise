@@ -26,6 +26,7 @@ import {
   listInbox,
   markRead,
   unreadCount,
+  transitionNotification,
   type ExecuteActionResult,
   type InboxItem as ServiceInboxItem,
 } from "../services/inbox.js";
@@ -297,6 +298,37 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
       return reply.code(204).send(null);
     },
   );
+
+  // Area 9, F1 (design 1.8): «Restore», «Move to New», «segna non letta».
+  for (const [path, transition] of [
+    ["/:id/restore", "restore"],
+    ["/:id/move-to-new", "move_to_new"],
+    ["/:id/unread", "unread"],
+  ] as const) {
+    app.post(
+      path,
+      {
+        config: { access: { kind: "user" } },
+        schema: {
+          params: idParamsSchema,
+          response: { 204: z.null(), 404: errorSchema, 409: errorSchema, ...authErrorResponses },
+        },
+      },
+      async (request, reply) => {
+        const result = await transitionNotification(app.db, {
+          notificationId: request.params.id,
+          userId: request.user!.id,
+          transition,
+        });
+        if (!result.ok) {
+          return result.error === "not_found"
+            ? apiError(reply, 404, "not_found", "Notification not found")
+            : apiError(reply, 409, "invalid_state", "The card is not in a state this applies to");
+        }
+        return reply.code(204).send(null);
+      },
+    );
+  }
 
   /**
    * Rinvia la notifica: sparisce dall'inbox aperta fino alla scadenza, che si

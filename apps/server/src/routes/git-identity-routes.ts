@@ -2,9 +2,11 @@ import { and, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { roleRuleErrorSchema, targetUserNotAbove } from "./roles.js";
+import { roleRuleErrorSchema } from "./roles.js";
 import { gitAuthorsSeen, gitIdentities, users } from "@stubwise/db";
 import { apiError } from "../errors.js";
+import { publishSecurityAlert } from "../auth/second-factor/alerts.js";
+import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
 import {
   authErrorResponses,
   errorSchema,
@@ -66,7 +68,6 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
     "/users/:id/git-identities",
     {
       config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
-      preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),
         body: z.object({ email: z.string().trim().min(1), authorName: z.string().optional() }),
@@ -75,7 +76,8 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
           404: errorSchema,
           409: errorSchema,
           ...authErrorResponses,
-          // Bersaglio con più permessi (R31): porta `permission`.
+          // Gli errori di regola (`permission` incluso). Il bersaglio non è più
+          // protetto (area 9, D-2): resta lo schema, per i client.
           403: roleRuleErrorSchema,
         },
       },
@@ -119,14 +121,14 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
     "/users/:id/git-identities/:email",
     {
       config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
-      preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid(), email: z.string() }),
         response: {
           204: z.null(),
           404: errorSchema,
           ...authErrorResponses,
-          // Bersaglio con più permessi (R31): porta `permission`.
+          // Gli errori di regola (`permission` incluso). Il bersaglio non è più
+          // protetto (area 9, D-2): resta lo schema, per i client.
           403: roleRuleErrorSchema,
         },
       },
@@ -155,8 +157,8 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
   app.put(
     "/users/:id/bitbucket",
     {
-      config: { access: { kind: "instance", permission: "users.manage" } },
-      preHandler: targetUserNotAbove(),
+      // Review di F1 (I2): con la riconferma, come le identità git.
+      config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
       schema: {
         params: z.object({ id: z.uuid() }),
         body: z.object({ username: z.string().trim().min(1) }),
@@ -165,7 +167,8 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
           404: errorSchema,
           409: errorSchema,
           ...authErrorResponses,
-          // Bersaglio con più permessi (R31): porta `permission`.
+          // Gli errori di regola (`permission` incluso). Il bersaglio non è più
+          // protetto (area 9, D-2): resta lo schema, per i client.
           403: roleRuleErrorSchema,
         },
       },
@@ -177,7 +180,7 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
           .update(users)
           .set({ bitbucketUsername: request.body.username })
           .where(eq(users.id, request.params.id))
-          .returning({ id: users.id, bitbucketUsername: users.bitbucketUsername });
+          .returning({ id: users.id, email: users.email, bitbucketUsername: users.bitbucketUsername });
       } catch (err) {
         // bitbucketUsername è unique: se è già di un altro membro, 409 anziché 500.
         if (isUniqueViolation(err)) {
@@ -193,7 +196,11 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
       if (!updated) {
         return apiError(reply, 404, "user_not_found", "User not found");
       }
-      return reply.code(200).send(updated);
+      if (updated.id !== request.user!.id) {
+        await recordSecurityEvent(app.db, { kind: "bitbucket_linked", user: updated, actor: request.user! });
+        await publishSecurityAlert(app.db, updated.id, "bitbucket_linked", request.user!.email);
+      }
+      return reply.code(200).send({ id: updated.id, bitbucketUsername: updated.bitbucketUsername });
     },
   );
 
@@ -202,14 +209,14 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
     "/users/:id/bitbucket",
     {
       config: { access: { kind: "instance", permission: "users.manage" } },
-      preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),
         response: {
           204: z.null(),
           404: errorSchema,
           ...authErrorResponses,
-          // Bersaglio con più permessi (R31): porta `permission`.
+          // Gli errori di regola (`permission` incluso). Il bersaglio non è più
+          // protetto (area 9, D-2): resta lo schema, per i client.
           403: roleRuleErrorSchema,
         },
       },

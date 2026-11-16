@@ -47,6 +47,8 @@ import {
 import type { SessionUser } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import { lockedErrorSchema, rejectAttempt } from "./second-factor-replies.js";
+import { attemptsLeft } from "../auth/second-factor/lockout.js";
+import { reauthUntilOf } from "../auth/access.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -325,6 +327,8 @@ export async function meSecurityRoutes(instance: FastifyInstance): Promise<void>
         passkeys: passkeys.map(passkeyView),
         backupCodesRemaining: await remainingBackupCodes(app.db, userId),
         events: (await listSecurityEvents(app.db, userId)).map(toSecurityEventView),
+        reauthUntil: reauthUntilOf(request.user!),
+        attemptsLeft: await attemptsLeft(app.db, userId),
       };
     },
   );

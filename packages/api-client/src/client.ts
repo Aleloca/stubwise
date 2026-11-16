@@ -1,3 +1,4 @@
+import { createAccessEndpoints } from "./endpoints/access.js";
 import { createServerOpsEndpoints } from "./endpoints/server-ops.js";
 import { readerSchema } from "@stubwise/shared";
 import type { Reader } from "@stubwise/shared";
@@ -182,6 +183,8 @@ export function createEndpoints(request: ApiRequest) {
     widgets: createWidgetEndpoints(request),
     // Area 8, F4b: analisi, correzione, registro e SSH di sola lettura dei server.
     serverOps: createServerOpsEndpoints(request),
+    // Area 9, F1: «Chi può farlo?» e «Cosa può fare?».
+    access: createAccessEndpoints(request),
   };
 }
 
@@ -238,6 +241,15 @@ export function createStubwiseClient(options: StubwiseClientOptions): StubwiseCl
       // Un multipart (gli allegati) passa così com'è: il content-type col
       // boundary lo mette fetch.
       init.body = body;
+    } else if (
+      (typeof Blob !== "undefined" && body instanceof Blob) ||
+      body instanceof ArrayBuffer ||
+      body instanceof Uint8Array
+    ) {
+      // Un corpo BINARIO (la foto del profilo, area 9): grezzo, come
+      // `octet-stream` — il server deduce il tipo dai byte, non dall'header.
+      headers["content-type"] = "application/octet-stream";
+      init.body = body as BodyInit;
     } else if (body !== undefined) {
       headers["content-type"] = "application/json";
       init.body = JSON.stringify(body);

@@ -30,7 +30,7 @@
  * il `badge` delle push del worker — la campanella e il telefono devono dire
  * lo stesso numero (vedi `unread.ts`).
  */
-import { notifications, projectMembers, roles, tickets } from "@stubwise/db";
+import { memberPermissionsSql, notifications, projectMembers, roles, tickets } from "@stubwise/db";
 import { ALERT_TYPES, isLiveAlertType, type AlertType } from "@stubwise/shared";
 import { sql, type SQL } from "drizzle-orm";
 import { userIsFullAdmin } from "./project-access.js";
@@ -82,7 +82,7 @@ export function catalogPermissionVisible(types: readonly AlertType[]): SQL {
         inner join ${roles} cr on cr.id = cm.role_id
         where cm.project_id = ${cardProjectId()}
           and cm.user_id = ${notifications.userId}
-          and cr.permissions @> array[${t.subscribe.perm}]::text[]
+          and ${memberPermissionsSql(sql`cr.permissions`, sql`cm.project_id`, sql`cm.user_id`)} @> array[${t.subscribe.perm}]::text[]
       )
     )`,
   );

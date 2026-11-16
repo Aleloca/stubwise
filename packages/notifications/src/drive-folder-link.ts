@@ -1,4 +1,4 @@
-import { googleAccounts, projectMembers, roles } from "@stubwise/db";
+import { googleAccounts, memberPermissionsSql, projectMembers, roles } from "@stubwise/db";
 import { sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { userIsFullAdmin } from "./project-access.js";
 
@@ -37,7 +37,7 @@ export function folderLinkExpiredSql(link: { accountId: AnyColumn | SQL; linkedB
         inner join ${roles} fl_r on fl_r.id = fl_pm.role_id
         where fl_pm.user_id = ${link.linkedBy}
           and fl_pm.project_id = ${link.projectId}
-          and fl_r.permissions @> array['drive.manage']::text[]
+          and ${memberPermissionsSql(sql`fl_r.permissions`, sql`fl_pm.project_id`, sql`fl_pm.user_id`)} @> array['drive.manage']::text[]
       )
     )
   )`;

@@ -4861,3 +4861,78 @@ deploy o di un rollback che la tocca.
   leggibili dichiarandone il cliente (com'era prima). Avvisare chi ha acceso
   la protezione. La pagina del sito riceve 404 sulle letture e mostra il suo
   errore. Nessun kind nuovo.
+- **«Integrazione area 9, F1: gli accessi»** *(16 nov 2026)*: branch
+  `feat/area9-f1` (da `feat/integrazione-area9`), piano
+  `docs/plans/2026-11-16-integrazione-area9-f1-plan.md`, design
+  `…-area9-design.md`. Permessi personali sui membri, disattivare e
+  riattivare, le mie sessioni, tentativi rimasti e scadenza della
+  riconferma, la foto del profilo, il cambio dell'email di login, «Chi può
+  farlo?», Inbox (ripristina, rimetti fra le nuove, non letta), `token` nel
+  link di reset. Migrazioni **0185** (additiva: `project_member_permissions`;
+  `users.deactivated_at`/`deactivated_by_user_id`; `sessions.user_agent`/
+  `last_seen_at`; `user_avatars`; `email_changes`) e **0186** (additiva:
+  `notifications.handled_action`, `archive` | `decision`, dalla review).
+  Nessuna modifica al worker (il pacchetto `notifications` cambia: i permessi
+  di un disattivato sono vuoti, ma il worker non va ribuildato per F1). Dipendenza nuova del server: `nodemailer` 10.3.1.
+
+  **ORDINE**: **server** (healthy, 0185 e 0186 applicate), poi **caddy** (il
+  renderer dell'app su `/app`). Il worker non va toccato.
+
+  **Env nuove, FACOLTATIVE** (E-1 = a): `SMTP_URL`
+  (`smtp://utente:password@host:587` o `smtps://…:465`) e `MAIL_FROM`. Servono
+  SOLO al cambio dell'email di login dalle Preferenze (link alla nuova, avviso
+  alla vecchia). Senza, quel cambio dice «non disponibile» e resta il cambio
+  fatto da un admin (`PATCH /api/users/:id/email`). Il compose le passa già
+  (vuote di default).
+
+  **Da sapere subito**:
+  - **`target_above` non esiste più** (D-2): chi ha `users.manage` agisce
+    anche su chi ha più permessi (azzerare il secondo fattore, il link di
+    reset, disattivare), con la riconferma, la traccia e l'avviso
+    all'interessato. Un client vecchio non se ne accorge: smette solo di
+    ricevere quel 403. Il web vecchio ha perso la chiave morta.
+  - Una persona **disattivata** non entra da nessuna porta (login, sessione,
+    PAT, desktop, chat tool): sessioni, PAT, passaggi del desktop e link di
+    reset si cancellano, i device si spengono, gli inviti che aveva mandato
+    si revocano. Riattivarla non le ridà nulla di tutto ciò. Claude non è
+    mai un destinatario della riassegnazione.
+  - `sessions.last_seen_at` si scrive al più ogni 5 minuti per sessione.
+  - «Chi può farlo?» non ha una riga per Claude: Claude agisce coi permessi
+    di chi lo assegna o conferma (`agent.actsFor`).
+  - Dalla review: una persona disattivata non agisce nemmeno da Slack, non
+    entra in un progetto né riceve task (422 `user_deactivated`), non riceve
+    un link di reset; non si disattiva l'ultimo gestore ATTIVO di un
+    progetto (409 `last_manager` col `projectId`).
+  - Collegare lo Slack o il Bitbucket di UN ALTRO chiede `users.manage` e la
+    riconferma, e lascia `slack_linked` / `bitbucket_linked` con l'avviso
+    all'interessato. Chi ha solo `integrations.manage` collega solo il suo.
+  - «Restore» nell'inbox vale solo sulle card ARCHIVIATE dopo il deploy: le
+    card chiuse prima (`handled_action` null) non si ripristinano (409).
+  Controllo, sola lettura: `select count(*) from project_member_permissions;`,
+  `select count(*) from users where deactivated_at is not null;`,
+  `select count(*) from email_changes where confirmed_at is null and
+  cancelled_at is null and expires_at > now();`.
+
+  **Rollback** (il server scende **insieme** al caddy; 0185 non si annulla,
+  le colonne e le tabelle in più sono innocue per il codice di prima):
+  - ⚠️ un server vecchio **ignora i permessi personali**: chi li aveva li
+    PERDE finché non si torna avanti (le righe restano e tornano a valere).
+  - ⚠️ un server vecchio **non conosce la disattivazione**: una persona
+    disattivata non ha più sessioni né PAT (cancellati), ma con la sua
+    password **rientra**. Prima di scendere, cambiarle la password a mano o
+    accettarlo.
+  - Il registro di sicurezza di chi ha righe `deactivated`, `reactivated`,
+    `email_changed`, `slack_linked` o `bitbucket_linked` dà **500** sul
+    server vecchio (il tipo è un enum nella risposta): la pagina di quella
+    persona, non le altre. Sola lettura: `select count(*) from
+    security_events where kind in ('deactivated', 'reactivated',
+    'email_changed', 'slack_linked', 'bitbucket_linked');`.
+  - ⚠️ un server vecchio torna a permettere a chi ha solo
+    `integrations.manage` di collegare lo Slack di chiunque, senza traccia.
+    (Le rotte di «Restore» invece non ci sono proprio: nessun rischio.)
+  - Una card `security.alert` coi soggetti nuovi si degrada al suo
+    `kind` sul server vecchio (il recinto di chi rende la card la prende):
+    nessun 500 sull'inbox. Nessun `notification_kind` nuovo.
+  - Un cambio dell'email in attesa resta in `email_changes`: il server
+    vecchio non ha la rotta di conferma, quindi il link non funziona finché
+    non si torna avanti.

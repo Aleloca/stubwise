@@ -112,7 +112,8 @@ export function desktopHandoffRoutes(instance: FastifyInstance, credentialsRateL
         .select(sessionUserSelection)
         .from(users)
         .innerJoin(roles, eq(roles.id, users.instanceRoleId))
-        .where(eq(users.id, handoff.userId));
+        // Area 9, F1: una persona disattivata dopo il passaggio non riceve il token.
+        .where(and(eq(users.id, handoff.userId), isNull(users.deactivatedAt)));
       if (!user) return invalid();
       // Riuscito: il codice ha fatto il suo lavoro, la riga non serve più.
       await app.db.delete(desktopHandoffs).where(eq(desktopHandoffs.id, handoff.id));

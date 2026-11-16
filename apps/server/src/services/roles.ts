@@ -15,9 +15,9 @@
  * Gli errori di regola escono come {@link RoleRuleError}: le rotte li
  * traducono in risposta, la transazione intanto è già annullata.
  */
-import { and, count, eq, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "@stubwise/db";
-import { inviteProjects, invites, projectMembers, projects, roles, users } from "@stubwise/db";
+import { inviteProjects, memberPermissionsSql, projectMemberPermissions, projectMembers, projects, roles, users } from "@stubwise/db";
 import {
   effectiveInstancePermissions,
   PROJECT_PERMISSIONS,
@@ -37,7 +37,7 @@ type Actor = Pick<SessionUser, "id" | "instancePermissions">;
 /** Un rifiuto di regola, con lo status e il codice della risposta. */
 export class RoleRuleError extends Error {
   constructor(
-    readonly status: 400 | 403 | 404 | 409,
+    readonly status: 400 | 403 | 404 | 409 | 422,
     readonly code: string,
     message: string,
     /** Campi in più della risposta (es. `count` di `role_in_use`). */
@@ -83,31 +83,6 @@ export function assertNoEscalation(
   }
 }
 
-/**
- * Protezione del bersaglio (ruling R28): si cambia o si toglie il ruolo di
- * qualcuno solo se i permessi del suo ruolo ATTUALE sono inclusi in quelli di
- * chi agisce (`held`, default i permessi d'istanza). Altrimenti chi gestisce
- * utenti o membri potrebbe declassare chi sta sopra di lui. 403
- * `target_above` con la chiave in `permission` (ruling R44); un full admin
- * passa sempre.
- */
-export function assertTargetNotAbove(
-  actor: Actor,
-  targetPermissions: Iterable<string>,
-  held: ReadonlySet<string> = actor.instancePermissions,
-): void {
-  if (isFullAdmin(actor)) return;
-  for (const p of targetPermissions) {
-    if (!held.has(p)) {
-      throw new RoleRuleError(
-        403,
-        "target_above",
-        `You cannot change a role with more permissions than yours (${p})`,
-        { permission: p },
-      );
-    }
-  }
-}
 
 /**
  * 409 `last_full_admin` se, dentro `tx`, non resta nessun utente con
@@ -138,6 +113,8 @@ export async function assertFullAdminRemains(
         // (non entra mai): anche con un preset User allargato non conta (review
         // dell'area 3, punto 9).
         eq(users.isAgent, false),
+        // Area 9, F1: un full admin disattivato non entra, quindi non conta.
+        isNull(users.deactivatedAt),
         opts.excludingRoleId ? sql`${roles.id} <> ${opts.excludingRoleId}` : undefined,
       ),
     );
@@ -227,7 +204,10 @@ async function heldForProjectRole(
   roleId: string | null,
 ): Promise<Set<string>> {
   const mine = await db
-    .select({ projectId: projectMembers.projectId, permissions: roles.permissions })
+    .select({
+      projectId: projectMembers.projectId,
+      permissions: sql<string[]>`${memberPermissionsSql(roles.permissions, projectMembers.projectId, projectMembers.userId)}`,
+    })
     .from(projectMembers)
     .innerJoin(roles, eq(roles.id, projectMembers.roleId))
     .where(eq(projectMembers.userId, actor.id));
@@ -268,20 +248,6 @@ async function assertCanGrantInRole(
   assertNoEscalation(actor, granted, held);
 }
 
-/**
- * Ruling R30: un ruolo si modifica o si elimina solo se i suoi permessi
- * attuali sono inclusi in quelli di chi agisce (per un ruolo di progetto, in
- * ogni progetto dove è assegnato o promesso da un invito). 403, come
- * l'escalation; un full admin passa sempre.
- */
-async function assertRoleNotAbove(tx: Tx, actor: Actor, role: RoleRow): Promise<void> {
-  if (isFullAdmin(actor) || role.permissions.length === 0) return;
-  const held =
-    role.scope === "instance"
-      ? actor.instancePermissions
-      : await heldForProjectRole(tx, actor, role.id);
-  assertTargetNotAbove(actor, role.permissions, held);
-}
 
 function nameTaken(): RoleRuleError {
   return new RoleRuleError(409, "role_name_taken", "A role with this name already exists");
@@ -328,11 +294,10 @@ export async function duplicateRole(
 }
 
 /**
- * Rinomina e/o cambia i permessi. Chi non è full admin tocca solo un ruolo
- * i cui permessi ATTUALI sono inclusi nei suoi (ruling R30: niente
- * declassamenti di chi sta sopra), e i permessi aggiunti passano dal
- * controllo anti-escalation. Togliere un permesso può togliere l'ultimo full
- * admin: lì c'è la guardia.
+ * Rinomina e/o cambia i permessi. I permessi AGGIUNTI passano dal controllo
+ * anti-escalation; togliere non chiede niente (area 9, D-2: niente gerarchia
+ * fra persone, R30 non c'è più). Togliere un permesso può togliere l'ultimo
+ * full admin: lì c'è la guardia.
  */
 export async function updateRole(
   db: Db,
@@ -343,7 +308,6 @@ export async function updateRole(
   try {
     return await db.transaction(async (tx) => {
       const role = await lockedRole(tx, id);
-      await assertRoleNotAbove(tx, actor, role);
       const permissions = input.permissions ? [...new Set(input.permissions)] : undefined;
       if (permissions) {
         assertKnownPermissions(role.scope, permissions);
@@ -378,7 +342,6 @@ export async function deleteRole(db: Db, actor: Actor, id: string): Promise<void
   await db
     .transaction(async (tx) => {
       const role = await lockedRole(tx, id);
-      await assertRoleNotAbove(tx, actor, role);
       if (role.scope === "instance") await assertFullAdminRemains(tx, { excludingRoleId: id });
       if (role.presetKey && SYSTEM_PRESET_KEYS.has(role.presetKey)) {
         throw new RoleRuleError(
@@ -452,17 +415,14 @@ export async function setInstanceRole(
   await db.transaction(async (tx) => {
     const role = await sharedRole(tx, roleId, "instance");
     assertNoEscalation(actor, effectiveInstancePermissions(role.permissions));
-    // Protezione del bersaglio (ruling R28): non si tocca chi ha più di te.
-    // La riga si blocca, così il ruolo letto è quello che si sostituisce.
+    // Niente bersaglio protetto (area 9, D-2): la riga si blocca solo perché
+    // il cambio e la guardia dell'ultimo full admin leggano lo stesso stato.
     const [target] = await tx
-      .select({ permissions: roles.permissions })
+      .select({ id: users.id })
       .from(users)
-      .innerJoin(roles, eq(roles.id, users.instanceRoleId))
       .where(eq(users.id, userId))
-      .for("update", { of: users });
+      .for("update");
     if (!target) throw new RoleRuleError(404, "user_not_found", "User not found");
-    assertTargetNotAbove(actor, effectiveInstancePermissions(target.permissions));
-    if (!isFullAdmin(actor)) await assertTargetProjectsNotAbove(tx, actor, userId);
     await tx.update(users).set({ instanceRoleId: roleId }).where(eq(users.id, userId));
     try {
       await assertFullAdminRemains(tx);
@@ -481,24 +441,13 @@ export async function setInstanceRole(
 /**
  * Elimina un utente (non sé stessi), senza mai lasciare l'istanza senza full
  * admin. Nessuna rotta la espone ancora (ruling R27): esiste perché la guardia
- * copra anche l'eliminazione quando ci sarà, e la protezione del bersaglio vale
- * come per il cambio di ruolo.
+ * copra anche l'eliminazione quando ci sarà.
  */
 export async function deleteUser(db: Db, actor: Actor, userId: string): Promise<void> {
   if (userId === actor.id) {
     throw new RoleRuleError(400, "cannot_delete_self", "You cannot delete your own account");
   }
   await db.transaction(async (tx) => {
-    const [target] = await tx
-      .select({ permissions: roles.permissions })
-      .from(users)
-      .innerJoin(roles, eq(roles.id, users.instanceRoleId))
-      .where(eq(users.id, userId))
-      .for("update", { of: users });
-    if (target) {
-      assertTargetNotAbove(actor, effectiveInstancePermissions(target.permissions));
-      if (!isFullAdmin(actor)) await assertTargetProjectsNotAbove(tx, actor, userId);
-    }
     const [deleted] = await tx
       .delete(users)
       .where(eq(users.id, userId))
@@ -508,65 +457,12 @@ export async function deleteUser(db: Db, actor: Actor, userId: string): Promise<
   });
 }
 
-/**
- * Ruling R31: ogni azione di `users.manage` su UN ALTRO utente (reset della
- * password, identità git/Bitbucket/Slack) vale solo se i suoi permessi
- * d'istanza effettivi sono inclusi in quelli di chi agisce — la stessa regola
- * del cambio di ruolo (R28) — e, ruling R50, se in ogni suo progetto i suoi
- * permessi stanno in quelli di chi agisce lì. Un utente che non esiste passa:
- * la rotta risponde da sé il suo 404.
- */
-export async function assertCanActOnUser(db: Db, actor: Actor, userId: string): Promise<void> {
-  if (isFullAdmin(actor) || userId === actor.id) return;
-  const [target] = await db
-    .select({ permissions: roles.permissions })
-    .from(users)
-    .innerJoin(roles, eq(roles.id, users.instanceRoleId))
-    .where(eq(users.id, userId));
-  if (!target) return;
-  assertTargetNotAbove(actor, effectiveInstancePermissions(target.permissions));
-  await assertTargetProjectsNotAbove(db, actor, userId);
-}
-
-/**
- * Ruling R50: la protezione del bersaglio guarda anche i PROGETTI. In ogni
- * progetto dove il bersaglio è membro — o ha un invito pendente, per la sua
- * email — i permessi del suo ruolo lì devono stare in quelli di chi agisce
- * NELLO STESSO progetto (nessuno, se non lo vede). Altrimenti chi ha
- * `users.manage` d'istanza, senza alcun ruolo in un progetto, resetterebbe la
- * password di un Project Lead di quel progetto e ne prenderebbe l'account.
- * Un full admin passa sempre (lo filtra chi chiama).
- */
-async function assertTargetProjectsNotAbove(
-  db: DbOrTx,
-  actor: Actor,
-  userId: string,
-): Promise<void> {
-  const targetRows = await db.execute<{ project_id: string; permissions: string[] }>(sql`
-    select pm.project_id, r.permissions
-    from ${projectMembers} pm
-    join ${roles} r on r.id = pm.role_id
-    where pm.user_id = ${userId}
-    union all
-    select ip.project_id, r.permissions
-    from ${inviteProjects} ip
-    join ${invites} i on i.token = ip.invite_token
-    join ${users} u on lower(u.email) = lower(i.email)
-    join ${roles} r on r.id = ip.role_id
-    where u.id = ${userId}
-  `);
-  if (targetRows.length === 0) return;
-  const held = await projectPermissionsByProject(
-    db,
-    actor.id,
-    targetRows.map((r) => r.project_id),
-  );
-  for (const row of targetRows) {
-    assertTargetNotAbove(actor, row.permissions, held.get(row.project_id) ?? new Set());
-  }
-}
-
 // ── Membri di progetto ──────────────────────────────────────────────────
+
+/** Da dove viene un permesso effettivo di un membro (area 9, F1). */
+export type MemberPermissionSourceRow =
+  | { kind: "role"; roleId: string }
+  | { kind: "grant"; byUserId: string | null; at: string };
 
 export interface MemberRow {
   userId: string;
@@ -575,6 +471,8 @@ export interface MemberRow {
   roleId: string;
   roleName: string;
   createdAt: Date;
+  /** I permessi EFFETTIVI nel progetto (ruolo ∪ personali), con la provenienza. */
+  permissions: { permission: string; sources: MemberPermissionSourceRow[] }[];
 }
 
 const memberSelection = {
@@ -583,17 +481,94 @@ const memberSelection = {
   avatarUrl: users.slackAvatarUrl,
   roleId: projectMembers.roleId,
   roleName: roles.name,
+  rolePermissions: roles.permissions,
   createdAt: projectMembers.createdAt,
 };
 
-export async function listProjectMembers(db: DbOrTx, projectId: string): Promise<MemberRow[]> {
-  return db
+/** I membri di un progetto (o uno solo), coi permessi effettivi e la loro provenienza. */
+async function membersWithPermissions(db: DbOrTx, projectId: string, onlyUserId?: string): Promise<MemberRow[]> {
+  const rows = await db
     .select(memberSelection)
     .from(projectMembers)
     .innerJoin(users, eq(users.id, projectMembers.userId))
     .innerJoin(roles, eq(roles.id, projectMembers.roleId))
-    .where(eq(projectMembers.projectId, projectId))
+    .where(and(eq(projectMembers.projectId, projectId), ...(onlyUserId ? [eq(projectMembers.userId, onlyUserId)] : [])))
     .orderBy(users.email);
+  const grants = await db
+    .select()
+    .from(projectMemberPermissions)
+    .where(and(eq(projectMemberPermissions.projectId, projectId), ...(onlyUserId ? [eq(projectMemberPermissions.userId, onlyUserId)] : [])));
+  const known = new Set<string>(PROJECT_PERMISSIONS);
+  return rows.map(({ rolePermissions, ...row }) => {
+    const sources = new Map<string, MemberPermissionSourceRow[]>();
+    const add = (permission: string, source: MemberPermissionSourceRow) => {
+      if (!known.has(permission)) return;
+      sources.set(permission, [...(sources.get(permission) ?? []), source]);
+    };
+    for (const p of rolePermissions) add(p, { kind: "role", roleId: row.roleId });
+    for (const g of grants) if (g.userId === row.userId) add(g.permission, { kind: "grant", byUserId: g.grantedByUserId, at: g.grantedAt.toISOString() });
+    return { ...row, permissions: PROJECT_PERMISSIONS.filter((p) => sources.has(p)).map((p) => ({ permission: p, sources: sources.get(p)! })) };
+  });
+}
+
+export async function listProjectMembers(db: DbOrTx, projectId: string): Promise<MemberRow[]> {
+  return membersWithPermissions(db, projectId);
+}
+
+/** Una chiave del lock advisory per i membri di UN progetto (la regola dell'ultimo gestore). */
+const membersLock = (projectId: string) => sql`select pg_advisory_xact_lock(hashtext(${`members:${projectId}`}))`;
+
+/** Quanti gestori dei membri (ruolo o personale) ha il progetto, fuori dai full admin. */
+async function managerCount(tx: Tx, projectId: string): Promise<number> {
+  const [row] = await tx.execute<{ n: number }>(sql`
+    select count(*)::int as n
+    from ${projectMembers} lm_pm
+    join ${roles} lm_r on lm_r.id = lm_pm.role_id
+    join ${users} lm_u on lm_u.id = lm_pm.user_id
+    join ${roles} lm_ir on lm_ir.id = lm_u.instance_role_id
+    where lm_pm.project_id = ${projectId}
+      -- Solo i gestori ATTIVI (review di F1, m4): un disattivato non gestisce.
+      and lm_u.deactivated_at is null
+      and not (lm_ir.permissions @> array['instance.full_admin']::text[])
+      and ${memberPermissionsSql(sql`lm_r.permissions`, sql`lm_pm.project_id`, sql`lm_pm.user_id`)} @> array['project.members.manage']::text[]
+  `);
+  return Number(row?.n ?? 0);
+}
+
+/**
+ * Un progetto non resta senza un gestore dei membri fuori dai full admin
+ * (area 9, F1, `last_manager`): la scrittura fatta in `write` si annulla se
+ * porta da almeno uno a zero. Un progetto che non ne aveva (lo gestivano i soli
+ * full admin) non si blocca.
+ */
+/**
+ * La stessa regola per una scrittura che tocca PIÙ progetti insieme (la
+ * disattivazione di una persona, review di F1, m4): lock in ordine di id, poi
+ * la scrittura, poi il controllo. Il 409 porta il `projectId` che resterebbe
+ * senza gestori.
+ */
+export async function keepingManagersIn(tx: Tx, projectIds: readonly string[], write: () => Promise<void>): Promise<void> {
+  const ordered = [...new Set(projectIds)].sort();
+  const before = new Map<string, number>();
+  for (const projectId of ordered) {
+    await tx.execute(membersLock(projectId));
+    before.set(projectId, await managerCount(tx, projectId));
+  }
+  await write();
+  for (const projectId of ordered) {
+    if (before.get(projectId)! > 0 && (await managerCount(tx, projectId)) === 0) {
+      throw new RoleRuleError(409, "last_manager", "The project would be left without anyone who manages its members", { projectId });
+    }
+  }
+}
+
+async function keepingAManager(tx: Tx, projectId: string, write: () => Promise<void>): Promise<void> {
+  await tx.execute(membersLock(projectId));
+  const before = await managerCount(tx, projectId);
+  await write();
+  if (before > 0 && (await managerCount(tx, projectId)) === 0) {
+    throw new RoleRuleError(409, "last_manager", "The project would be left without anyone who manages its members");
+  }
 }
 
 /**
@@ -607,36 +582,67 @@ export async function putProjectMember(
   projectId: string,
   userId: string,
   roleId: string,
+  permissions?: readonly string[],
 ): Promise<MemberRow> {
+  const wanted = permissions ? [...new Set(permissions)] : undefined;
+  if (wanted) {
+    const unknown = unknownPermissionsFor("project", wanted);
+    if (unknown.length > 0) {
+      throw new RoleRuleError(422, "unknown_permission", `Not a project permission: ${unknown[0]}`, { permission: unknown[0]! });
+    }
+  }
   await db.transaction(async (tx) => {
     const role = await sharedRole(tx, roleId, "project");
     assertNoEscalation(actor, role.permissions, held);
     const [user] = await tx
-      .select({ id: users.id })
+      .select({ id: users.id, deactivatedAt: users.deactivatedAt })
       .from(users)
       .where(eq(users.id, userId))
       .for("share");
     if (!user) throw new RoleRuleError(404, "user_not_found", "User not found");
-    const current = await lockedMemberPermissions(tx, projectId, userId);
-    if (current) assertTargetNotAbove(actor, current, held);
-    await tx
-      .insert(projectMembers)
-      .values({ projectId, userId, roleId })
-      .onConflictDoUpdate({
-        target: [projectMembers.projectId, projectMembers.userId],
-        set: { roleId },
-      });
+    // Review di F1 (m9): una persona disattivata non entra in un progetto.
+    if (user.deactivatedAt) throw new RoleRuleError(422, "user_deactivated", "This person is deactivated");
+    await keepingAManager(tx, projectId, async () => {
+      // La riga (se c'è) si blocca: niente bersaglio protetto (area 9, D-2).
+      await lockedMemberPermissions(tx, projectId, userId);
+      await tx
+        .insert(projectMembers)
+        .values({ projectId, userId, roleId })
+        .onConflictDoUpdate({
+          target: [projectMembers.projectId, projectMembers.userId],
+          set: { roleId },
+        });
+      if (!wanted) return;
+      // I permessi personali: l'insieme COMPLETO dopo il salvataggio. Si dà solo
+      // ciò che si ha (escalation sugli AGGIUNTI); togliere non chiede niente.
+      const current = await tx
+        .select({ permission: projectMemberPermissions.permission })
+        .from(projectMemberPermissions)
+        .where(and(eq(projectMemberPermissions.projectId, projectId), eq(projectMemberPermissions.userId, userId)));
+      const had = new Set(current.map((c) => c.permission));
+      const added = wanted.filter((p) => !had.has(p));
+      assertNoEscalation(actor, added, held);
+      const removed = [...had].filter((p) => !wanted.includes(p));
+      if (removed.length > 0) {
+        await tx
+          .delete(projectMemberPermissions)
+          .where(
+            and(
+              eq(projectMemberPermissions.projectId, projectId),
+              eq(projectMemberPermissions.userId, userId),
+              inArray(projectMemberPermissions.permission, removed),
+            ),
+          );
+      }
+      if (added.length > 0) {
+        await tx.insert(projectMemberPermissions).values(added.map((permission) => ({ projectId, userId, permission, grantedByUserId: actor.id })));
+      }
+    });
   });
-  const [row] = await db
-    .select(memberSelection)
-    .from(projectMembers)
-    .innerJoin(users, eq(users.id, projectMembers.userId))
-    .innerJoin(roles, eq(roles.id, projectMembers.roleId))
-    .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)));
-  return row!;
+  return (await membersWithPermissions(db, projectId, userId))[0]!;
 }
 
-/** Toglie un membro; come per il cambio di ruolo, mai uno con più permessi di chi agisce lì. */
+/** Toglie un membro. Togliere non chiede niente (area 9, D-2: niente gerarchia fra persone). */
 export async function removeProjectMember(
   db: Db,
   actor: Actor,
@@ -645,12 +651,13 @@ export async function removeProjectMember(
   userId: string,
 ): Promise<void> {
   await db.transaction(async (tx) => {
-    const current = await lockedMemberPermissions(tx, projectId, userId);
-    if (!current) throw new RoleRuleError(404, "member_not_found", "Member not found");
-    assertTargetNotAbove(actor, current, held);
-    await tx
-      .delete(projectMembers)
-      .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)));
+    await keepingAManager(tx, projectId, async () => {
+      const current = await lockedMemberPermissions(tx, projectId, userId);
+      if (!current) throw new RoleRuleError(404, "member_not_found", "Member not found");
+      await tx
+        .delete(projectMembers)
+        .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)));
+    });
   });
 }
 

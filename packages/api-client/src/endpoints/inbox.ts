@@ -115,6 +115,21 @@ export function createInboxEndpoints(request: ApiRequest) {
       return request("POST", `/api/inbox/${seg(id)}/handled`);
     },
 
+    /**
+     * Area 9, F1: igiene personale, 204. `restore` da handled a open,
+     * `moveToNew` da snoozed a open, `unread` rimette `read_at` a null.
+     * Errori: 404 `not_found` (non è tua), 409 `invalid_state`.
+     */
+    restore(id: string): Promise<void> {
+      return request("POST", `/api/inbox/${seg(id)}/restore`);
+    },
+    moveToNew(id: string): Promise<void> {
+      return request("POST", `/api/inbox/${seg(id)}/move-to-new`);
+    },
+    unread(id: string): Promise<void> {
+      return request("POST", `/api/inbox/${seg(id)}/unread`);
+    },
+
     act,
 
     /**

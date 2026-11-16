@@ -820,7 +820,12 @@ export type SecurityAlertSubject =
   | "locked"
   | "vault_key_created"
   | "vault_recovery_used"
-  | "vault_recovery_key_rotated";
+  | "vault_recovery_key_rotated"
+  // Area 9, F1: l'email di login è cambiata (docs/invariants/identity.md).
+  | "email_changed"
+  // Review di F1 (I2): un'identità esterna collegata da un altro.
+  | "slack_linked"
+  | "bitbucket_linked";
 
 /**
  * AVVISO DI SICUREZZA all'interessato (secondo fattore, 23 ott 2026): sul suo
@@ -1417,6 +1422,18 @@ const SECURITY_ALERT_KEY: Record<SecurityAlertSubject, { withActor: string; with
   vault_recovery_key_rotated: {
     withActor: "notify.securityAlert.vault_recovery_key_rotated.actor",
     withoutActor: "notify.securityAlert.vault_recovery_key_rotated",
+  },
+  email_changed: {
+    withActor: "notify.securityAlert.email_changed.actor",
+    withoutActor: "notify.securityAlert.email_changed",
+  },
+  slack_linked: {
+    withActor: "notify.securityAlert.slack_linked.actor",
+    withoutActor: "notify.securityAlert.slack_linked",
+  },
+  bitbucket_linked: {
+    withActor: "notify.securityAlert.bitbucket_linked.actor",
+    withoutActor: "notify.securityAlert.bitbucket_linked",
   },
 };
 

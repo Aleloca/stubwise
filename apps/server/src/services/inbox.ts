@@ -535,6 +535,8 @@ export async function executeAction(
         handledAt: sql`now()`,
         handledByUserId: actor.id,
         snoozedUntil: null,
+        // Area 9, F1 (0186): un'ARCHIVIAZIONE, la sola che «Restore» riapre.
+        handledAction: "archive",
       })
       .where(and(eq(notifications.id, row.id), ne(notifications.status, "handled")))
       .returning({ id: notifications.id });
@@ -1814,6 +1816,48 @@ export { unreadCount } from "@stubwise/notifications";
  * {@link executeAction}, elenca le righe il cui stato è cambiato davvero, così
  * il chiamante sa se c'è qualcosa da rispecchiare altrove.
  */
+/**
+ * Area 9, F1 (design 1.8): i passaggi personali di una card, solo sulle
+ * proprie (`not_found` altrimenti, come se non esistesse):
+ * - `restore`: da `handled` torna `open`, senza la chiusura — SOLO una card
+ *   che chi chiama ha ARCHIVIATO (`handled_action = 'archive'`, review di F1,
+ *   I3): una chiusa da una decisione, sua o di un altro, riarmerebbe azioni il
+ *   cui unico claim è lo stato della notifica (un secondo «Procedi»);
+ * - `move_to_new`: da `snoozed` torna `open`, senza il rinvio;
+ * - `unread`: `read_at` torna null, in qualunque stato (idempotente).
+ * Uno stato da cui il passaggio non ha senso: `invalid_state`. Il conteggio
+ * della campanella conta lo stato (`unreadCount`), quindi segue da sé.
+ */
+export type InboxTransition = "restore" | "move_to_new" | "unread";
+
+export async function transitionNotification(
+  db: Db,
+  args: { notificationId: string; userId: string; transition: InboxTransition },
+): Promise<{ ok: true } | { ok: false; error: "not_found" | "invalid_state" }> {
+  const own = and(eq(notifications.id, args.notificationId), eq(notifications.userId, args.userId), notificationVisibleToRecipient());
+  const [row] = await db.select({ id: notifications.id, status: notifications.status }).from(notifications).where(own);
+  if (!row) return { ok: false, error: "not_found" };
+  if (args.transition === "unread") {
+    await db.update(notifications).set({ readAt: null }).where(eq(notifications.id, row.id));
+    return { ok: true };
+  }
+  const fromState =
+    args.transition === "restore"
+      ? and(
+          eq(notifications.status, "handled"),
+          eq(notifications.handledAction, "archive"),
+          eq(notifications.handledByUserId, args.userId),
+        )
+      : eq(notifications.status, "snoozed");
+  // La WHERE sullo stato chiude la corsa con un altro passaggio concorrente.
+  const updated = await db
+    .update(notifications)
+    .set({ status: "open", handledAt: null, handledByUserId: null, handledAction: null, snoozedUntil: null })
+    .where(and(eq(notifications.id, row.id), fromState))
+    .returning({ id: notifications.id });
+  return updated.length > 0 ? { ok: true } : { ok: false, error: "invalid_state" };
+}
+
 export async function markRead(
   db: Db,
   args: { notificationId: string; userId: string },
