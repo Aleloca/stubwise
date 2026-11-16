@@ -3424,6 +3424,9 @@
         "manage": "Manage users",
         "view_all": "View the team list"
       },
+      "changelog": {
+        "view": "View the change log"
+      },
       "departments": {
         "manage": "Manage departments"
       },

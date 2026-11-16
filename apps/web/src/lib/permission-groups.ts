@@ -17,7 +17,7 @@ export interface PermissionGroup<P extends string> {
 }
 
 export const INSTANCE_PERMISSION_GROUPS: readonly PermissionGroup<InstancePermission>[] = [
-  { id: "administration", permissions: ["instance.full_admin", "roles.manage", "settings.manage"] },
+  { id: "administration", permissions: ["instance.full_admin", "roles.manage", "settings.manage", "changelog.view"] },
   {
     id: "people",
     permissions: [
