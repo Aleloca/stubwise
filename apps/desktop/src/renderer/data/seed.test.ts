@@ -883,6 +883,10 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
           "language",
           "dailyMessageCap",
           "dailyRequestCap",
+          // API per i siti (S6): l'identità dei clienti.
+          "identitySecretSet",
+          "identitySecretRotatedAt",
+          "identityRequired",
           "createdAt",
         ].sort(),
       );
