@@ -5,6 +5,8 @@ import { z } from "zod";
 import { roleRuleErrorSchema } from "./roles.js";
 import { gitAuthorsSeen, gitIdentities, users } from "@stubwise/db";
 import { apiError } from "../errors.js";
+import { publishSecurityAlert } from "../auth/second-factor/alerts.js";
+import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
 import {
   authErrorResponses,
   errorSchema,
@@ -155,7 +157,8 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
   app.put(
     "/users/:id/bitbucket",
     {
-      config: { access: { kind: "instance", permission: "users.manage" } },
+      // Review di F1 (I2): con la riconferma, come le identità git.
+      config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
       schema: {
         params: z.object({ id: z.uuid() }),
         body: z.object({ username: z.string().trim().min(1) }),
@@ -177,7 +180,7 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
           .update(users)
           .set({ bitbucketUsername: request.body.username })
           .where(eq(users.id, request.params.id))
-          .returning({ id: users.id, bitbucketUsername: users.bitbucketUsername });
+          .returning({ id: users.id, email: users.email, bitbucketUsername: users.bitbucketUsername });
       } catch (err) {
         // bitbucketUsername è unique: se è già di un altro membro, 409 anziché 500.
         if (isUniqueViolation(err)) {
@@ -193,7 +196,11 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
       if (!updated) {
         return apiError(reply, 404, "user_not_found", "User not found");
       }
-      return reply.code(200).send(updated);
+      if (updated.id !== request.user!.id) {
+        await recordSecurityEvent(app.db, { kind: "bitbucket_linked", user: updated, actor: request.user! });
+        await publishSecurityAlert(app.db, updated.id, "bitbucket_linked", request.user!.email);
+      }
+      return reply.code(200).send({ id: updated.id, bitbucketUsername: updated.bitbucketUsername });
     },
   );
 

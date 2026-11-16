@@ -165,6 +165,10 @@ export const securityEventKindSchema = z.enum([
   "deactivated",
   "reactivated",
   "email_changed",
+  // Review di F1 (I2): lo Slack o il Bitbucket di UN ALTRO collegato da chi
+  // ha `users.manage` (il proprio non lascia traccia).
+  "slack_linked",
+  "bitbucket_linked",
 ]);
 export type SecurityEventKind = z.infer<typeof securityEventKindSchema>;
 

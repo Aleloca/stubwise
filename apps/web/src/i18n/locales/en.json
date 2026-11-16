@@ -1145,7 +1145,9 @@
           "reauth_desktop": "Identity confirmed in the desktop app",
           "deactivated": "Account deactivated",
           "reactivated": "Account reactivated",
-          "email_changed": "Sign-in email changed"
+          "email_changed": "Sign-in email changed",
+          "slack_linked": "Slack account linked by someone else",
+          "bitbucket_linked": "Bitbucket username linked by someone else"
         }
       }
     },

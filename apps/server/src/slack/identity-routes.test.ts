@@ -1,12 +1,12 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { encrypt, instanceSettings, users } from "@stubwise/db";
+import { encrypt, instanceSettings, notifications, roles, securityEvents, users } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
-import { seedUsers } from "../test/fixtures.js";
+import { fullSessionCookie, seedUsers } from "../test/fixtures.js";
 import type { SlackClient, SlackWorkspaceUser } from "./api.js";
 import type { SlackClientFactory } from "./creds.js";
 
@@ -347,5 +347,46 @@ describe("proiezione utente estesa", () => {
     };
     expect(user.avatarUrl).toBe("https://a/self.png");
     expect(user.slackUserId).toBe("Uself");
+  });
+});
+
+describe("collegare lo Slack o il Bitbucket di UN ALTRO (review di F1, I2)", () => {
+  async function integrator() {
+    const [role] = await testDb.db.insert(roles).values({ name: `Integrazioni ${randomUUID().slice(0, 4)}`, scope: "instance", permissions: ["integrations.manage"] }).returning({ id: roles.id });
+    const [u] = await testDb.db.insert(users).values({ email: `int-${randomUUID().slice(0, 6)}@acme.com`, passwordHash: "x", role: "member" }).returning({ id: users.id });
+    await testDb.db.update(users).set({ instanceRoleId: role!.id }).where(eq(users.id, u!.id));
+    return { id: u!.id, cookie: await fullSessionCookie(app, u!.id) };
+  }
+  const link = (cookie: string, id: string, slackUserId: string) =>
+    app.inject({ method: "PUT", url: `/api/users/${id}/slack`, headers: { cookie }, payload: { slackUserId } });
+  const events = (userId: string, kind: string) =>
+    testDb.db.select().from(securityEvents).where(and(eq(securityEvents.userId, userId), eq(securityEvents.kind, kind)));
+  const alerts = (userId: string, subject: string) =>
+    testDb.db.select().from(notifications).where(and(eq(notifications.userId, userId), sql`${notifications.event}->>'subject' = ${subject}`));
+
+  it("con integrations.manage ma senza users.manage: lo Slack di un altro → 403 (niente scritto), il proprio sì e senza traccia", async () => {
+    const i = await integrator();
+    const res = await link(i.cookie, memberId, "Uother1");
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ permission: "users.manage" });
+    const [row] = await testDb.db.select({ slackUserId: users.slackUserId }).from(users).where(eq(users.id, memberId));
+    expect(row!.slackUserId).toBeNull();
+    expect((await link(i.cookie, i.id, `Uself${randomUUID().slice(0, 4)}`)).statusCode).toBe(200);
+    expect(await events(i.id, "slack_linked")).toHaveLength(0);
+  });
+
+  it("chi ha users.manage collega lo Slack di un altro: riga slack_linked e avviso all'interessato", async () => {
+    // Il member è condiviso dai casi sopra: si conta ciò che QUESTO collegamento aggiunge.
+    const [e0, a0] = [(await events(memberId, "slack_linked")).length, (await alerts(memberId, "slack_linked")).length];
+    expect((await link(adminCookie, memberId, "Ulinked1")).statusCode).toBe(200);
+    expect(await events(memberId, "slack_linked")).toHaveLength(e0 + 1);
+    expect(await alerts(memberId, "slack_linked")).toHaveLength(a0 + 1);
+  });
+
+  it("Bitbucket di un altro: riga bitbucket_linked e avviso", async () => {
+    const res = await app.inject({ method: "PUT", url: `/api/users/${memberId}/bitbucket`, headers: { cookie: adminCookie }, payload: { username: `bb-${randomUUID().slice(0, 6)}` } });
+    expect(res.statusCode).toBe(200);
+    expect(await events(memberId, "bitbucket_linked")).toHaveLength(1);
+    expect(await alerts(memberId, "bitbucket_linked")).toHaveLength(1);
   });
 });
