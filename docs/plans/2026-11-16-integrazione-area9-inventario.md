@@ -647,6 +647,17 @@ L'ordine segue le dipendenze: 9b e 9c usano il registro e la riconferma di
 - **A parte, se D-1 = a**: i permessi di progetto dei reparti. E la
   cassaforte dal desktop (D-12).
 
+## Le risposte del maintainer *(via 46, 16 nov 2026)*
+
+D-1 = a, D-2 = a, D-3 = a, D-4 = a, D-5 = a, D-6 = a, D-7 = a, D-8 = a,
+D-9 = a, **D-10 = b** (più webhook in uscita, ciascuno con URL, formato,
+eventi e segreto suoi), D-11 = a, D-12 = a (la cassaforte dal desktop in un
+design a sé, voce nel registro), **D-13 = b** (il profilo tutto ora: foto e
+cambio dell'email con la verifica), D-14 = a, **D-15 = b** (la web «app» usa
+le pagine d'ingresso del prototipo). Il seguito, con le fette riviste, le
+invarianti riscritte e le domande nuove (E-n), è nel design:
+`docs/plans/2026-11-16-integrazione-area9-design.md`.
+
 ## [DECIDE]
 
 La prima opzione è la consigliata.
