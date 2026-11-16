@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { deviceTokens, invites, personalAccessTokens, roles, securityEvents, sessions, tickets, users, type Db } from "@stubwise/db";
+import { deviceTokens, emailChanges, invites, personalAccessTokens, roles, securityEvents, sessions, tickets, users, type Db } from "@stubwise/db";
 import { seedRepository, seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
+import { instancePermissionsOfUser, projectPermissionsOfUser } from "@stubwise/notifications";
+import { resolveReporter, resolveReporterBySlackId } from "../ingest/reporter.js";
+import { resolveSlackActor } from "../slack/inbox-actions.js";
 import { hashPassword } from "../auth/password.js";
 import { generatePat, hashServerKey } from "./shared.js";
 import { addMember, fullSessionCookie, seedUsers } from "../test/fixtures.js";
@@ -157,5 +160,38 @@ describe("disattivare una persona", () => {
     expect((await me({ cookie: p.cookie })).statusCode).toBe(401);
     const [event] = await db.select().from(securityEvents).where(and(eq(securityEvents.userId, p.id), eq(securityEvents.kind, "reactivated")));
     expect(event).toBeDefined();
+  });
+});
+
+describe("le porte LATERALI di una persona disattivata (review di F1, I1)", () => {
+  it("Slack (per id collegato o per email), l'attribuzione dei ticket esterni e i permessi per conto di un id: tutto come se non ci fosse", async () => {
+    const { projectId } = await seedRepository(db);
+    const p = await person();
+    await addMember(app, projectId, p.id, "project_lead");
+    const slackId = `U${randomUUID().slice(0, 8).toUpperCase()}`;
+    await db.update(users).set({ slackUserId: slackId }).where(eq(users.id, p.id));
+    const profile = { getUserProfile: async () => ({ email: p.email }) };
+    // Prima: c'è.
+    expect((await resolveSlackActor(db, profile, slackId))?.id).toBe(p.id);
+    expect((await projectPermissionsOfUser(db, p.id, projectId))?.has("plans.approve")).toBe(true);
+    expect((await deactivate(p.id)).statusCode).toBe(204);
+    // Dopo: da nessuna di queste strade.
+    expect(await resolveSlackActor(db, profile, slackId)).toBeNull();
+    expect(await resolveSlackActor(db, profile, "U-NON-COLLEGATO")).toBeNull();
+    expect(await resolveReporterBySlackId(db, slackId)).toBeNull();
+    expect(await resolveReporter(db, p.email)).toBeNull();
+    expect(await projectPermissionsOfUser(db, p.id, projectId)).toBeNull();
+    expect((await instancePermissionsOfUser(db, p.id)).size).toBe(0);
+  });
+});
+
+describe("la disattivazione annulla il cambio dell'email in attesa (review di F1, m5)", () => {
+  it("dopo disattivazione e riattivazione il vecchio link non vale più", async () => {
+    const p = await person();
+    await db.insert(emailChanges).values({ userId: p.id, newEmail: `n-${randomUUID().slice(0, 6)}@acme.com`, tokenHash: "h".repeat(64), expiresAt: new Date(Date.now() + 3_600_000) });
+    expect((await deactivate(p.id)).statusCode).toBe(204);
+    expect((await reactivate(p.id)).statusCode).toBe(204);
+    const pending = await db.select().from(emailChanges).where(and(eq(emailChanges.userId, p.id), isNull(emailChanges.cancelledAt)));
+    expect(pending).toHaveLength(0);
   });
 });

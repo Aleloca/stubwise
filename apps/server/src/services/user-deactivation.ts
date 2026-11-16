@@ -1,6 +1,7 @@
 import {
   desktopHandoffs,
   deviceTokens,
+  emailChanges,
   invites,
   passwordResetTokens,
   personalAccessTokens,
@@ -74,6 +75,12 @@ export async function deactivateUser(db: Db, actor: Actor, userId: string, reass
     await tx.delete(personalAccessTokens).where(eq(personalAccessTokens.userId, userId));
     await tx.delete(desktopHandoffs).where(eq(desktopHandoffs.userId, userId));
     await tx.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, userId));
+    // Un cambio dell'email in attesa non sopravvive (review di F1): sennò il
+    // link tornerebbe buono a una riattivazione entro le 24 ore.
+    await tx
+      .update(emailChanges)
+      .set({ cancelledAt: new Date() })
+      .where(and(eq(emailChanges.userId, userId), isNull(emailChanges.confirmedAt), isNull(emailChanges.cancelledAt)));
     await tx.delete(invites).where(eq(invites.invitedByUserId, userId));
     for (const [taskId, toUserId] of rows) {
       await tx.update(tickets).set({ assigneeId: toUserId }).where(eq(tickets.id, taskId));
