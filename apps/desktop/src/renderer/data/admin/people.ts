@@ -283,8 +283,10 @@ export async function getPerson(personId: string): Promise<PersonDetail> {
         code: t.code,
         title: t.title,
         projectId: t.projectId,
+        // Mai Claude (decisione del maintainer, area 9): assegnargli una task
+        // avvia il lavoro, e la disattivazione non lo fa.
         reassignTo: (state.projectsById.get(t.projectId)?.memberIds ?? []).filter(
-          (id) => id !== personId && (id === CLAUDE_ID || isActive(id)),
+          (id) => id !== personId && id !== CLAUDE_ID && isActive(id),
         ),
       })),
   };
@@ -555,7 +557,8 @@ export async function setBitbucketUsername(
  * Disattiva una persona (+R, mai sé stessi, mai l'ultimo full admin): non
  * entra più e sparisce da chi si assegna; il suo lavoro resta. `reassignTo`
  * dice, per ogni task aperta che si vuole riassegnare, a chi (una persona
- * attiva del progetto della task, o Claude se ne è membro); le task non
+ * attiva del progetto della task, mai Claude: assegnargli una task avvia il
+ * lavoro, decisione del maintainer dell'area 9); le task non
  * nominate, o con `null`, restano sue con «(deactivated)». Gli inviti che
  * aveva mandato e ancora in attesa si revocano, una voce `invite.revoked`
  * ciascuno.
@@ -580,7 +583,7 @@ export async function deactivatePerson(
     if (task.assigneeId !== personId || !isOpen(task)) return badRow;
     if (to === null) continue;
     const members = state.projectsById.get(task.projectId)?.memberIds ?? [];
-    if (to === personId || !members.includes(to) || (to !== CLAUDE_ID && !isActive(to)))
+    if (to === personId || to === CLAUDE_ID || !members.includes(to) || !isActive(to))
       return badRow;
     moves.push([task, to]);
   }

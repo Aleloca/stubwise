@@ -886,6 +886,24 @@ describe("disattivare e riattivare", () => {
       });
   });
 
+  it("area 9 (decisione del maintainer): Claude non è fra i destinatari, nemmeno dove è membro; una sua riga è invalid_reassignment", async () => {
+    // Assegnare a Claude AVVIA il lavoro (chiede `runs.start`): la
+    // disattivazione è una transazione amministrativa, e non lo fa.
+    const task = openTasksOf("p-marco").find((t) =>
+      state.projectsById.get(t.projectId)!.memberIds.includes(CLAUDE_ID),
+    )!;
+    expect(task).toBeTruthy();
+    const detail = await admin.getPerson("p-marco");
+    expect(detail.openTasks.find((t) => t.taskId === task.id)!.reassignTo).not.toContain(CLAUDE_ID);
+    expect(await admin.deactivatePerson("p-marco", { [task.id]: CLAUDE_ID })).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "invalid_reassignment",
+      taskId: task.id,
+    });
+    expect(state.tasksById.get(task.id)!.assigneeId).toBe("p-marco");
+  });
+
   it("area 9, R6: una riga non valida fa fallire tutto, con l'id della sua task (invalid_reassignment)", async () => {
     const [good, bad] = openTasksOf("p-marco");
     const to = state.projectsById
