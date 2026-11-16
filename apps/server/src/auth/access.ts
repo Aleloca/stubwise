@@ -18,7 +18,7 @@ import { CHAT_TOOL_READ_ROUTES, CHAT_TOOL_WRITE_ROUTES } from "./chat-tool-route
 import { and, eq, inArray, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
-import { projectMembers, projects, roles } from "@stubwise/db";
+import { memberPermissionsSql, projectMembers, projects, roles } from "@stubwise/db";
 import {
   effectiveProjectPermissions,
   INSTANCE_PERMISSIONS,
@@ -141,7 +141,7 @@ export async function projectPermissionsFor(
   projectId: string,
 ): Promise<ReadonlySet<ProjectPermission> | null> {
   const [row] = await db
-    .select({ memberRolePermissions: roles.permissions })
+    .select({ memberRolePermissions: memberPermissionsSql(roles.permissions, projectMembers.projectId, projectMembers.userId) })
     .from(projects)
     .leftJoin(
       projectMembers,
@@ -183,7 +183,10 @@ export async function projectIdsWithPermission(
     .from(projectMembers)
     .innerJoin(roles, eq(roles.id, projectMembers.roleId))
     .where(
-      and(eq(projectMembers.userId, user.id), sql`${roles.permissions} @> array[${permission}]::text[]`),
+      and(
+        eq(projectMembers.userId, user.id),
+        sql`${memberPermissionsSql(roles.permissions, projectMembers.projectId, projectMembers.userId)} @> array[${permission}]::text[]`,
+      ),
     );
   return rows.map((r) => r.projectId);
 }
@@ -261,7 +264,10 @@ export async function projectPermissionsMap(
         permissions: [] as string[],
       }))
     : await db
-        .select({ projectId: projectMembers.projectId, permissions: roles.permissions })
+        .select({
+          projectId: projectMembers.projectId,
+          permissions: sql<string[]>`${memberPermissionsSql(roles.permissions, projectMembers.projectId, projectMembers.userId)}`,
+        })
         .from(projectMembers)
         .innerJoin(roles, eq(roles.id, projectMembers.roleId))
         .where(eq(projectMembers.userId, user.id));

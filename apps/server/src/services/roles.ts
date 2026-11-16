@@ -15,9 +15,9 @@
  * Gli errori di regola escono come {@link RoleRuleError}: le rotte li
  * traducono in risposta, la transazione intanto è già annullata.
  */
-import { and, count, eq, sql } from "drizzle-orm";
+import { and, count, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "@stubwise/db";
-import { inviteProjects, projectMembers, projects, roles, users } from "@stubwise/db";
+import { inviteProjects, memberPermissionsSql, projectMemberPermissions, projectMembers, projects, roles, users } from "@stubwise/db";
 import {
   effectiveInstancePermissions,
   PROJECT_PERMISSIONS,
@@ -37,7 +37,7 @@ type Actor = Pick<SessionUser, "id" | "instancePermissions">;
 /** Un rifiuto di regola, con lo status e il codice della risposta. */
 export class RoleRuleError extends Error {
   constructor(
-    readonly status: 400 | 403 | 404 | 409,
+    readonly status: 400 | 403 | 404 | 409 | 422,
     readonly code: string,
     message: string,
     /** Campi in più della risposta (es. `count` di `role_in_use`). */
@@ -202,7 +202,10 @@ async function heldForProjectRole(
   roleId: string | null,
 ): Promise<Set<string>> {
   const mine = await db
-    .select({ projectId: projectMembers.projectId, permissions: roles.permissions })
+    .select({
+      projectId: projectMembers.projectId,
+      permissions: sql<string[]>`${memberPermissionsSql(roles.permissions, projectMembers.projectId, projectMembers.userId)}`,
+    })
     .from(projectMembers)
     .innerJoin(roles, eq(roles.id, projectMembers.roleId))
     .where(eq(projectMembers.userId, actor.id));
@@ -454,6 +457,11 @@ export async function deleteUser(db: Db, actor: Actor, userId: string): Promise<
 
 // ── Membri di progetto ──────────────────────────────────────────────────
 
+/** Da dove viene un permesso effettivo di un membro (area 9, F1). */
+export type MemberPermissionSourceRow =
+  | { kind: "role"; roleId: string }
+  | { kind: "grant"; byUserId: string | null; at: string };
+
 export interface MemberRow {
   userId: string;
   email: string;
@@ -461,6 +469,8 @@ export interface MemberRow {
   roleId: string;
   roleName: string;
   createdAt: Date;
+  /** I permessi EFFETTIVI nel progetto (ruolo ∪ personali), con la provenienza. */
+  permissions: { permission: string; sources: MemberPermissionSourceRow[] }[];
 }
 
 const memberSelection = {
@@ -469,17 +479,71 @@ const memberSelection = {
   avatarUrl: users.slackAvatarUrl,
   roleId: projectMembers.roleId,
   roleName: roles.name,
+  rolePermissions: roles.permissions,
   createdAt: projectMembers.createdAt,
 };
 
-export async function listProjectMembers(db: DbOrTx, projectId: string): Promise<MemberRow[]> {
-  return db
+/** I membri di un progetto (o uno solo), coi permessi effettivi e la loro provenienza. */
+async function membersWithPermissions(db: DbOrTx, projectId: string, onlyUserId?: string): Promise<MemberRow[]> {
+  const rows = await db
     .select(memberSelection)
     .from(projectMembers)
     .innerJoin(users, eq(users.id, projectMembers.userId))
     .innerJoin(roles, eq(roles.id, projectMembers.roleId))
-    .where(eq(projectMembers.projectId, projectId))
+    .where(and(eq(projectMembers.projectId, projectId), ...(onlyUserId ? [eq(projectMembers.userId, onlyUserId)] : [])))
     .orderBy(users.email);
+  const grants = await db
+    .select()
+    .from(projectMemberPermissions)
+    .where(and(eq(projectMemberPermissions.projectId, projectId), ...(onlyUserId ? [eq(projectMemberPermissions.userId, onlyUserId)] : [])));
+  const known = new Set<string>(PROJECT_PERMISSIONS);
+  return rows.map(({ rolePermissions, ...row }) => {
+    const sources = new Map<string, MemberPermissionSourceRow[]>();
+    const add = (permission: string, source: MemberPermissionSourceRow) => {
+      if (!known.has(permission)) return;
+      sources.set(permission, [...(sources.get(permission) ?? []), source]);
+    };
+    for (const p of rolePermissions) add(p, { kind: "role", roleId: row.roleId });
+    for (const g of grants) if (g.userId === row.userId) add(g.permission, { kind: "grant", byUserId: g.grantedByUserId, at: g.grantedAt.toISOString() });
+    return { ...row, permissions: PROJECT_PERMISSIONS.filter((p) => sources.has(p)).map((p) => ({ permission: p, sources: sources.get(p)! })) };
+  });
+}
+
+export async function listProjectMembers(db: DbOrTx, projectId: string): Promise<MemberRow[]> {
+  return membersWithPermissions(db, projectId);
+}
+
+/** Una chiave del lock advisory per i membri di UN progetto (la regola dell'ultimo gestore). */
+const membersLock = (projectId: string) => sql`select pg_advisory_xact_lock(hashtext(${`members:${projectId}`}))`;
+
+/** Quanti gestori dei membri (ruolo o personale) ha il progetto, fuori dai full admin. */
+async function managerCount(tx: Tx, projectId: string): Promise<number> {
+  const [row] = await tx.execute<{ n: number }>(sql`
+    select count(*)::int as n
+    from ${projectMembers} lm_pm
+    join ${roles} lm_r on lm_r.id = lm_pm.role_id
+    join ${users} lm_u on lm_u.id = lm_pm.user_id
+    join ${roles} lm_ir on lm_ir.id = lm_u.instance_role_id
+    where lm_pm.project_id = ${projectId}
+      and not (lm_ir.permissions @> array['instance.full_admin']::text[])
+      and ${memberPermissionsSql(sql`lm_r.permissions`, sql`lm_pm.project_id`, sql`lm_pm.user_id`)} @> array['project.members.manage']::text[]
+  `);
+  return Number(row?.n ?? 0);
+}
+
+/**
+ * Un progetto non resta senza un gestore dei membri fuori dai full admin
+ * (area 9, F1, `last_manager`): la scrittura fatta in `write` si annulla se
+ * porta da almeno uno a zero. Un progetto che non ne aveva (lo gestivano i soli
+ * full admin) non si blocca.
+ */
+async function keepingAManager(tx: Tx, projectId: string, write: () => Promise<void>): Promise<void> {
+  await tx.execute(membersLock(projectId));
+  const before = await managerCount(tx, projectId);
+  await write();
+  if (before > 0 && (await managerCount(tx, projectId)) === 0) {
+    throw new RoleRuleError(409, "last_manager", "The project would be left without anyone who manages its members");
+  }
 }
 
 /**
@@ -493,7 +557,15 @@ export async function putProjectMember(
   projectId: string,
   userId: string,
   roleId: string,
+  permissions?: readonly string[],
 ): Promise<MemberRow> {
+  const wanted = permissions ? [...new Set(permissions)] : undefined;
+  if (wanted) {
+    const unknown = unknownPermissionsFor("project", wanted);
+    if (unknown.length > 0) {
+      throw new RoleRuleError(422, "unknown_permission", `Not a project permission: ${unknown[0]}`, { permission: unknown[0]! });
+    }
+  }
   await db.transaction(async (tx) => {
     const role = await sharedRole(tx, roleId, "project");
     assertNoEscalation(actor, role.permissions, held);
@@ -503,23 +575,44 @@ export async function putProjectMember(
       .where(eq(users.id, userId))
       .for("share");
     if (!user) throw new RoleRuleError(404, "user_not_found", "User not found");
-    // La riga (se c'è) si blocca: niente bersaglio protetto (area 9, D-2).
-    await lockedMemberPermissions(tx, projectId, userId);
-    await tx
-      .insert(projectMembers)
-      .values({ projectId, userId, roleId })
-      .onConflictDoUpdate({
-        target: [projectMembers.projectId, projectMembers.userId],
-        set: { roleId },
-      });
+    await keepingAManager(tx, projectId, async () => {
+      // La riga (se c'è) si blocca: niente bersaglio protetto (area 9, D-2).
+      await lockedMemberPermissions(tx, projectId, userId);
+      await tx
+        .insert(projectMembers)
+        .values({ projectId, userId, roleId })
+        .onConflictDoUpdate({
+          target: [projectMembers.projectId, projectMembers.userId],
+          set: { roleId },
+        });
+      if (!wanted) return;
+      // I permessi personali: l'insieme COMPLETO dopo il salvataggio. Si dà solo
+      // ciò che si ha (escalation sugli AGGIUNTI); togliere non chiede niente.
+      const current = await tx
+        .select({ permission: projectMemberPermissions.permission })
+        .from(projectMemberPermissions)
+        .where(and(eq(projectMemberPermissions.projectId, projectId), eq(projectMemberPermissions.userId, userId)));
+      const had = new Set(current.map((c) => c.permission));
+      const added = wanted.filter((p) => !had.has(p));
+      assertNoEscalation(actor, added, held);
+      const removed = [...had].filter((p) => !wanted.includes(p));
+      if (removed.length > 0) {
+        await tx
+          .delete(projectMemberPermissions)
+          .where(
+            and(
+              eq(projectMemberPermissions.projectId, projectId),
+              eq(projectMemberPermissions.userId, userId),
+              inArray(projectMemberPermissions.permission, removed),
+            ),
+          );
+      }
+      if (added.length > 0) {
+        await tx.insert(projectMemberPermissions).values(added.map((permission) => ({ projectId, userId, permission, grantedByUserId: actor.id })));
+      }
+    });
   });
-  const [row] = await db
-    .select(memberSelection)
-    .from(projectMembers)
-    .innerJoin(users, eq(users.id, projectMembers.userId))
-    .innerJoin(roles, eq(roles.id, projectMembers.roleId))
-    .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)));
-  return row!;
+  return (await membersWithPermissions(db, projectId, userId))[0]!;
 }
 
 /** Toglie un membro. Togliere non chiede niente (area 9, D-2: niente gerarchia fra persone). */
@@ -531,11 +624,13 @@ export async function removeProjectMember(
   userId: string,
 ): Promise<void> {
   await db.transaction(async (tx) => {
-    const current = await lockedMemberPermissions(tx, projectId, userId);
-    if (!current) throw new RoleRuleError(404, "member_not_found", "Member not found");
-    await tx
-      .delete(projectMembers)
-      .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)));
+    await keepingAManager(tx, projectId, async () => {
+      const current = await lockedMemberPermissions(tx, projectId, userId);
+      if (!current) throw new RoleRuleError(404, "member_not_found", "Member not found");
+      await tx
+        .delete(projectMembers)
+        .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)));
+    });
   });
 }
 

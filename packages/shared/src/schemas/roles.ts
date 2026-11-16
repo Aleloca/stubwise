@@ -79,6 +79,21 @@ export type UpdateRoleInput = z.infer<typeof updateRoleSchema>;
 export const duplicateRoleSchema = z.object({ name: roleNameSchema.optional() });
 export type DuplicateRoleInput = z.infer<typeof duplicateRoleSchema>;
 
+/**
+ * Da dove viene un permesso di un membro (area 9, F1): dal suo ruolo, dato a
+ * lui da qualcuno (`grant`, con chi e quando), o (F8) da un suo reparto. Un
+ * oggetto piatto, non un'unione discriminata: i campi che non c'entrano sono
+ * null, e `kind` lo apre `readerSchema` sui client.
+ */
+export const memberPermissionSourceSchema = z.object({
+  kind: z.enum(["role", "grant", "department"]),
+  roleId: z.uuid().nullable().default(null),
+  byUserId: z.uuid().nullable().default(null),
+  at: z.iso.datetime().nullable().default(null),
+  departmentId: z.uuid().nullable().default(null),
+});
+export type MemberPermissionSource = z.infer<typeof memberPermissionSourceSchema>;
+
 /** Un membro esplicito di un progetto (i full admin lo sono implicitamente e non compaiono). */
 export const projectMemberSchema = z.object({
   userId: z.uuid(),
@@ -87,11 +102,22 @@ export const projectMemberSchema = z.object({
   roleId: z.uuid(),
   roleName: z.string(),
   createdAt: z.iso.datetime(),
+  /**
+   * Area 9, F1 (additivo): i permessi EFFETTIVI del membro nel progetto, ruolo
+   * ∪ personali, ognuno con la sua provenienza. Un server di prima non li
+   * manda.
+   */
+  permissions: z.array(z.object({ permission: z.string(), sources: z.array(memberPermissionSourceSchema) })).default([]),
 });
 export type ProjectMember = z.infer<typeof projectMemberSchema>;
 
-/** Corpo di `PUT /api/projects/:projectId/members/:userId`: aggiunge o cambia il ruolo. */
-export const putProjectMemberSchema = z.object({ roleId: z.uuid() });
+/**
+ * Corpo di `PUT /api/projects/:projectId/members/:userId`: aggiunge o cambia il
+ * ruolo. `permissions` (area 9, F1, FACOLTATIVO come una patch: assente = i
+ * personali restano com'erano) è l'insieme COMPLETO dei permessi personali dopo
+ * il salvataggio; un permesso d'istanza o sconosciuto è 422.
+ */
+export const putProjectMemberSchema = z.object({ roleId: z.uuid(), permissions: z.array(z.string().min(1).max(80)).max(64).optional() });
 export type PutProjectMemberInput = z.infer<typeof putProjectMemberSchema>;
 
 /** Corpo di `PATCH /api/users/:id/instance-role`. */
