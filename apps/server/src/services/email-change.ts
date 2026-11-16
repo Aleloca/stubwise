@@ -100,6 +100,28 @@ export async function cancelEmailChange(db: Db, userId: string): Promise<void> {
   await db.update(emailChanges).set({ cancelledAt: new Date() }).where(pendingWhere(userId));
 }
 
+/**
+ * Legge un link senza confermarlo (gli scanner della posta aprono i link ed
+ * eseguono il JS: la pagina conferma solo col bottone). Una sola risposta per
+ * sbagliato, scaduto, usato o annullato, e non dice di chi è.
+ */
+export async function peekEmailChange(db: Db, token: string): Promise<{ status: "valid"; newEmail: string } | { status: "invalid" }> {
+  const [row] = await db
+    .select({ newEmail: emailChanges.newEmail })
+    .from(emailChanges)
+    .innerJoin(users, eq(users.id, emailChanges.userId))
+    .where(
+      and(
+        eq(emailChanges.tokenHash, hashToken(token)),
+        isNull(emailChanges.confirmedAt),
+        isNull(emailChanges.cancelledAt),
+        gt(emailChanges.expiresAt, new Date()),
+        isNull(users.deactivatedAt),
+      ),
+    );
+  return row ? { status: "valid", newEmail: row.newEmail } : { status: "invalid" };
+}
+
 const invalidToken = () => new EmailChangeError(400, "invalid_token", "Invalid or expired link");
 
 export async function confirmEmailChange(db: Db, transport: MailTransport, token: string): Promise<{ email: string }> {

@@ -45,7 +45,12 @@ async function person() {
 }
 const request = (on: FastifyInstance, cookie: string, newEmail: string) =>
   on.inject({ method: "POST", url: "/api/me/email-change", headers: { cookie }, payload: { newEmail } });
-const confirm = (token: string) => app.inject({ method: "POST", url: "/api/auth/email-change/confirm", payload: { token } });
+// Le rotte pubbliche hanno il tetto dei tentativi del login, per IP: ogni chiamata
+// del test arriva da un indirizzo suo, così il tetto non decide l'esito.
+let ip = 0;
+const fromNewIp = () => `10.9.${Math.floor(++ip / 250)}.${ip % 250}`;
+const confirm = (token: string) => app.inject({ method: "POST", url: "/api/auth/email-change/confirm", payload: { token }, remoteAddress: fromNewIp() });
+const peekLink = (token: string) => app.inject({ method: "GET", url: `/api/auth/email-change/${token}`, remoteAddress: fromNewIp() });
 const tokenFrom = (m: MailMessage) => /#\/email-change\/([A-Za-z0-9_-]+)/.exec(m.text)![1]!;
 const emailOf = async (id: string) => (await db.select({ e: users.email }).from(users).where(eq(users.id, id)))[0]!.e;
 
@@ -65,6 +70,10 @@ describe("il cambio dell'email di login", () => {
     expect(await emailOf(p.id)).toBe(p.email);
     const status = (await app.inject({ method: "GET", url: "/api/me/email-change", headers: { cookie: p.cookie } })).json();
     expect(status).toMatchObject({ available: true, pending: { newEmail } });
+    // La lettura del link NON conferma: dice la nuova email e basta.
+    const peek = await peekLink(tokenFrom(toNew));
+    expect(peek.json()).toEqual({ status: "valid", newEmail });
+    expect(await emailOf(p.id)).toBe(p.email);
     const sessionsBefore = (await db.select().from(sessions).where(eq(sessions.userId, p.id))).length;
     const ok = await confirm(tokenFrom(toNew));
     expect(ok.statusCode).toBe(200);
@@ -117,6 +126,10 @@ describe("il cambio dell'email di login", () => {
     expect(cancelled.statusCode).toBe(400);
     bodies.add(cancelled.body);
     expect([...bodies]).toHaveLength(1);
+    // La lettura: lo stesso «invalid» per sbagliato, usato, scaduto, annullato.
+    for (const t of ["token-inventato", first, secondToken]) {
+      expect((await peekLink(t)).json()).toEqual({ status: "invalid" });
+    }
     expect(await emailOf(p.id)).toBe(second);
   });
 

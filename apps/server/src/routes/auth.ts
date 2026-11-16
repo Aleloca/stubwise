@@ -55,7 +55,7 @@ import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js"
 import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
 import { avatarUrlsFor } from "../services/avatars.js";
-import { confirmEmailChange } from "../services/email-change.js";
+import { confirmEmailChange, peekEmailChange } from "../services/email-change.js";
 import { sendEmailChangeError } from "./me-email-change.js";
 import {
   loadSlackCreds,
@@ -452,6 +452,26 @@ export async function authRoutes(
   // mandato alla NUOVA. Pubblica (la prova è aver ricevuto il link), col tetto
   // dei tentativi del login. Non dà né sessione né token: non è una «porta»
   // (`credentialDoor`). docs/invariants/identity.md.
+  // La LETTURA del link, che non conferma niente: la pagina mostra la nuova
+  // email e conferma solo col bottone (gli scanner della posta aprono i link).
+  app.get(
+    "/email-change/:token",
+    {
+      onRequest: credentialsRateLimit,
+      config: { access: { kind: "public" } },
+      schema: {
+        params: z.object({ token: z.string().min(1).max(200) }),
+        response: {
+          200: z.union([
+            z.object({ status: z.literal("valid"), newEmail: z.string() }),
+            z.object({ status: z.literal("invalid") }),
+          ]),
+        },
+      },
+    },
+    async (request) => peekEmailChange(app.db, request.params.token),
+  );
+
   app.post(
     "/email-change/confirm",
     {
