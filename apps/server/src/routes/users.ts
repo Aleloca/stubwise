@@ -377,7 +377,8 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
           ...authErrorResponses,
           400: roleRuleErrorSchema,
           404: roleRuleErrorSchema,
-          409: roleRuleErrorSchema,
+          // `last_manager` porta il progetto che resterebbe senza gestori (review di F1, m4).
+          409: roleRuleErrorSchema.extend({ projectId: z.uuid().optional() }),
           422: roleRuleErrorSchema.extend({ taskId: z.uuid().optional() }),
         },
       },

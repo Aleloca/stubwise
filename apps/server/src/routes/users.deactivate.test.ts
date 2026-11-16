@@ -168,6 +168,8 @@ describe("le porte LATERALI di una persona disattivata (review di F1, I1)", () =
     const { projectId } = await seedRepository(db);
     const p = await person();
     await addMember(app, projectId, p.id, "project_lead");
+    // Un secondo gestore attivo: sennò l'ultimo gestore non si disattiva (m4).
+    await addMember(app, projectId, (await person()).id, "project_lead");
     const slackId = `U${randomUUID().slice(0, 8).toUpperCase()}`;
     await db.update(users).set({ slackUserId: slackId }).where(eq(users.id, p.id));
     const profile = { getUserProfile: async () => ({ email: p.email }) };
@@ -193,5 +195,48 @@ describe("la disattivazione annulla il cambio dell'email in attesa (review di F1
     expect((await reactivate(p.id)).statusCode).toBe(204);
     const pending = await db.select().from(emailChanges).where(and(eq(emailChanges.userId, p.id), isNull(emailChanges.cancelledAt)));
     expect(pending).toHaveLength(0);
+  });
+});
+
+describe("gli altri bordi della disattivazione (review di F1, m4, m6, m9)", () => {
+  it("m4: disattivare l'ultimo gestore ATTIVO di un progetto → 409 last_manager col projectId, niente cambiato; un gestore disattivato non conta", async () => {
+    const { projectId } = await seedRepository(db);
+    const lead = await person();
+    await addMember(app, projectId, lead.id, "project_lead");
+    const res = await deactivate(lead.id);
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: "last_manager", projectId });
+    expect((await db.select({ d: users.deactivatedAt }).from(users).where(eq(users.id, lead.id)))[0]!.d).toBeNull();
+    // Con un secondo gestore attivo si disattiva; poi il secondo è l'ultimo ATTIVO.
+    const second = await person();
+    await addMember(app, projectId, second.id, "project_lead");
+    expect((await deactivate(lead.id)).statusCode).toBe(204);
+    const again = await deactivate(second.id);
+    expect(again.statusCode).toBe(409);
+    expect(again.json()).toMatchObject({ code: "last_manager", projectId });
+  });
+
+  it("m6: niente link di reset per una persona disattivata (404)", async () => {
+    const p = await person();
+    expect((await deactivate(p.id)).statusCode).toBe(204);
+    const res = await app.inject({ method: "POST", url: `/api/users/${p.id}/password-reset`, headers: { cookie: adminCookie } });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("m9: una persona disattivata non entra in un progetto né riceve una task (422 user_deactivated)", async () => {
+    const { projectId, repositoryId } = await seedRepository(db);
+    const p = await person();
+    expect((await deactivate(p.id)).statusCode).toBe(204);
+    const [dev] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "developer"));
+    const put = await app.inject({ method: "PUT", url: `/api/projects/${projectId}/members/${p.id}`, headers: { cookie: adminCookie }, payload: { roleId: dev!.id } });
+    expect(put.statusCode).toBe(422);
+    expect(put.json()).toMatchObject({ code: "user_deactivated" });
+    const { ticketId } = await seedTicket(db, { projectId, repositoryId, number: 7301 });
+    const viaTask = await app.inject({ method: "PATCH", url: `/api/tasks/${ticketId}`, headers: { cookie: adminCookie }, payload: { assigneeId: p.id } });
+    expect(viaTask.statusCode).toBe(422);
+    expect(viaTask.json()).toMatchObject({ code: "user_deactivated" });
+    const viaTicket = await app.inject({ method: "PATCH", url: `/api/tickets/${ticketId}`, headers: { cookie: adminCookie }, payload: { assigneeId: p.id } });
+    expect(viaTicket.statusCode).toBe(422);
+    expect((await db.select({ a: tickets.assigneeId }).from(tickets).where(eq(tickets.id, ticketId)))[0]!.a).toBeNull();
   });
 });

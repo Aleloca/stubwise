@@ -527,6 +527,8 @@ async function managerCount(tx: Tx, projectId: string): Promise<number> {
     join ${users} lm_u on lm_u.id = lm_pm.user_id
     join ${roles} lm_ir on lm_ir.id = lm_u.instance_role_id
     where lm_pm.project_id = ${projectId}
+      -- Solo i gestori ATTIVI (review di F1, m4): un disattivato non gestisce.
+      and lm_u.deactivated_at is null
       and not (lm_ir.permissions @> array['instance.full_admin']::text[])
       and ${memberPermissionsSql(sql`lm_r.permissions`, sql`lm_pm.project_id`, sql`lm_pm.user_id`)} @> array['project.members.manage']::text[]
   `);
@@ -539,6 +541,27 @@ async function managerCount(tx: Tx, projectId: string): Promise<number> {
  * porta da almeno uno a zero. Un progetto che non ne aveva (lo gestivano i soli
  * full admin) non si blocca.
  */
+/**
+ * La stessa regola per una scrittura che tocca PIÙ progetti insieme (la
+ * disattivazione di una persona, review di F1, m4): lock in ordine di id, poi
+ * la scrittura, poi il controllo. Il 409 porta il `projectId` che resterebbe
+ * senza gestori.
+ */
+export async function keepingManagersIn(tx: Tx, projectIds: readonly string[], write: () => Promise<void>): Promise<void> {
+  const ordered = [...new Set(projectIds)].sort();
+  const before = new Map<string, number>();
+  for (const projectId of ordered) {
+    await tx.execute(membersLock(projectId));
+    before.set(projectId, await managerCount(tx, projectId));
+  }
+  await write();
+  for (const projectId of ordered) {
+    if (before.get(projectId)! > 0 && (await managerCount(tx, projectId)) === 0) {
+      throw new RoleRuleError(409, "last_manager", "The project would be left without anyone who manages its members", { projectId });
+    }
+  }
+}
+
 async function keepingAManager(tx: Tx, projectId: string, write: () => Promise<void>): Promise<void> {
   await tx.execute(membersLock(projectId));
   const before = await managerCount(tx, projectId);
@@ -572,11 +595,13 @@ export async function putProjectMember(
     const role = await sharedRole(tx, roleId, "project");
     assertNoEscalation(actor, role.permissions, held);
     const [user] = await tx
-      .select({ id: users.id })
+      .select({ id: users.id, deactivatedAt: users.deactivatedAt })
       .from(users)
       .where(eq(users.id, userId))
       .for("share");
     if (!user) throw new RoleRuleError(404, "user_not_found", "User not found");
+    // Review di F1 (m9): una persona disattivata non entra in un progetto.
+    if (user.deactivatedAt) throw new RoleRuleError(422, "user_deactivated", "This person is deactivated");
     await keepingAManager(tx, projectId, async () => {
       // La riga (se c'è) si blocca: niente bersaglio protetto (area 9, D-2).
       await lockedMemberPermissions(tx, projectId, userId);

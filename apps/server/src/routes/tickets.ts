@@ -72,7 +72,7 @@ import {
 } from "../services/jobs.js";
 import { loadPrAdoption } from "../services/pr-adoption.js";
 import { answerQuestion, type AnswerQuestionResult } from "../services/questions.js";
-import { diffTicketEvents, patchTicket, userExists } from "../services/tickets.js";
+import { assigneeState, diffTicketEvents, patchTicket } from "../services/tickets.js";
 import {
   authErrorResponses,
   errorSchema,
@@ -554,8 +554,10 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const { projectId, title, body, type, priority, assigneeId, labels } = request.body;
-      if (assigneeId !== undefined && !(await userExists(app.db, assigneeId))) {
-        return apiError(reply, 400, "assignee_not_found", "Assignee not found");
+      if (assigneeId !== undefined) {
+        const state = await assigneeState(app.db, assigneeId);
+        if (state === "missing") return apiError(reply, 400, "assignee_not_found", "Assignee not found");
+        if (state === "deactivated") return apiError(reply, 422, "user_deactivated", "This person is deactivated");
       }
       // Claude come assegnatario: la regola delle rotte nuove (review dell'area
       // 3, punto 3). Assegnarlo avvia il lavoro, quindi chiede `runs.start`.
@@ -1365,6 +1367,9 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         if (!result.ok) {
           if (result.error === "assignee_not_found") {
             return apiError(reply, 400, "assignee_not_found", "Assignee not found");
+          }
+          if (result.error === "user_deactivated") {
+            return apiError(reply, 422, "user_deactivated", "This person is deactivated");
           }
           if (result.error === "ticket_not_found") {
             return apiError(reply, 404, "ticket_not_found", "Ticket not found");

@@ -14,7 +14,7 @@ import {
 } from "@stubwise/db";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
-import { assertFullAdminRemains, RoleRuleError } from "./roles.js";
+import { assertFullAdminRemains, keepingManagersIn, RoleRuleError } from "./roles.js";
 
 /**
  * Area 9, F1 (D-6; docs/invariants/permissions.md, «Una persona disattivata
@@ -31,7 +31,8 @@ import { assertFullAdminRemains, RoleRuleError } from "./roles.js";
  *   fallire tutto (`422 invalid_reassignment`, con l'id della task): niente a
  *   metà;
  * - una riga in `security_events`.
- * Mai sé stessi, mai l'ultimo full admin ATTIVO, mai Claude.
+ * Mai sé stessi, mai l'ultimo full admin ATTIVO, mai Claude, mai l'ultimo
+ * gestore ATTIVO dei membri di un progetto (`409 last_manager` col `projectId`).
  */
 
 type Actor = { id: string; email: string };
@@ -64,7 +65,15 @@ export async function deactivateUser(db: Db, actor: Actor, userId: string, reass
       if (!(await canReceive(tx, toUserId, projectOf.get(taskId)!)) || toUserId === userId) throw invalidReassignment(taskId);
     }
 
-    await tx.update(users).set({ deactivatedAt: new Date(), deactivatedByUserId: actor.id }).where(eq(users.id, userId));
+    // Nessun progetto resta senza un gestore ATTIVO (review di F1, m4).
+    const memberOf = await tx.select({ projectId: projectMembers.projectId }).from(projectMembers).where(eq(projectMembers.userId, userId));
+    await keepingManagersIn(
+      tx,
+      memberOf.map((m) => m.projectId),
+      async () => {
+        await tx.update(users).set({ deactivatedAt: new Date(), deactivatedByUserId: actor.id }).where(eq(users.id, userId));
+      },
+    );
     await assertFullAdminRemains(tx);
 
     await tx

@@ -83,6 +83,7 @@ const WRITE_ERRORS: Record<TaskWriteError, string> = {
   status_not_in_project: "The status does not belong to the task's project",
   department_not_found: "Department not found",
   assignee_not_found: "Assignee not found",
+  user_deactivated: "This person is deactivated",
   milestone_cross_project: "The milestone belongs to another project",
   request_not_found: "Request not found in this project",
   request_not_convertible: "The request is already converted or archived",
@@ -93,7 +94,8 @@ const WRITE_ERRORS: Record<TaskWriteError, string> = {
 
 /** Un errore di scrittura: 403 per «assegnare Claude» senza `runs.start`, altrimenti lo status dato. */
 function writeError(reply: FastifyReply, error: TaskWriteError, status: 400 | 409): FastifyReply {
-  return apiError(reply, error === "claude_assign_forbidden" ? 403 : status, error, WRITE_ERRORS[error]);
+  const code = error === "claude_assign_forbidden" ? 403 : error === "user_deactivated" ? 422 : status;
+  return apiError(reply, code, error, WRITE_ERRORS[error]);
 }
 
 const bulkForbiddenSchema = z.object({ code: z.string(), message: z.string(), codes: z.array(z.string()) });
