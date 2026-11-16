@@ -132,6 +132,10 @@ describe("isIntegrated", () => {
         "feature:prefs-account",
         // Area 9, F1, R4b: Preferenze → Security.
         "feature:prefs-security",
+        // Area 9, F1, R4c e R4d: Tokens, Claude Code, Language & theme.
+        "feature:prefs-tokens",
+        "feature:prefs-claude-code",
+        "feature:prefs-look",
         // Area 8, F4a: i Server in sola lettura; scritture, SSH, analisi e ricerca spente.
         "projectSection:servers",
         "admin:servers",

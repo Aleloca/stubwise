@@ -126,6 +126,11 @@ const INTEGRATED_CALLS = new Set([
   "me.addPasskey",
   "me.renamePasskey",
   "me.removePasskey",
+  // Area 9, F1, R4c: Tokens e Claude Code.
+  "me.listTokens",
+  "me.createToken",
+  "me.revokeToken",
+  "me.createClaudeCodeCommand",
   // Task 16: sessione, persone, progetti, notifiche, ricerca, reparti.
   "getViewer",
   "getSessionPerson",
@@ -755,10 +760,17 @@ describe("aree non integrate nella build app", () => {
     }
   });
 
-  it("Preferenze → Tokens resta «Coming soon» (area 9, R4c)", async () => {
-    renderRoute("/preferences/tokens");
-    expect(await screen.findByText(/Coming soon/)).toBeInTheDocument();
+  // Area 9, F1, R4c e R4d: Tokens, Claude Code e Language & theme accese.
+  it.each([
+    ["/preferences/tokens", "Tokens", "me.listTokens"],
+    ["/preferences/claude-code", "Claude Code", null],
+    ["/preferences/look", "Language & theme", null],
+  ])("aprire %s legge solo chiamate integrate", async (path, title, read) => {
+    renderRoute(path);
+    expect(await screen.findByRole("heading", { level: 1, name: title })).toBeInTheDocument();
+    if (read) await waitFor(() => expect(calls).toContain(read));
     await settle();
+    expect(screen.queryByText(/Coming soon/)).toBeNull();
     expect(outside()).toEqual([]);
   });
 

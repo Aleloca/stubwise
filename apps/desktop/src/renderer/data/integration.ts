@@ -104,6 +104,11 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "prefs-account",
     // Area 9, F1, R4b: Preferenze → Security (sul desktop le passkey restano del browser).
     "prefs-security",
+    // Area 9, F1, R4c e R4d: Tokens e Claude Code (`/api/pats`), Language &
+    // theme (gli stessi controlli del menu del profilo).
+    "prefs-tokens",
+    "prefs-claude-code",
+    "prefs-look",
     // Area 8, F4a: i Server (letture e scritture, la chiave una volta).
     // Resta spenta la ricerca ⌘K (`servers-search`).
     "servers-monitor",

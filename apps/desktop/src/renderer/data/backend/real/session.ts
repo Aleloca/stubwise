@@ -22,6 +22,7 @@ import { forgetTaskCodes } from "./tasks";
 import * as web from "./webLogin";
 import { liveMeAccount } from "./meAccount";
 import { liveMeSecurity } from "./meSecurity";
+import { liveMeTokens } from "./meTokens";
 
 // La sessione della build app (integrazione area 2, fetta 1): chi è dentro e
 // cosa può fare lo dice il server (`GET /api/auth/me`), mai il client. Sul
@@ -310,4 +311,9 @@ export const me: Me = partialNamespace<Me>("me", {
   addPasskey: liveMeSecurity.addPasskey,
   renamePasskey: liveMeSecurity.renamePasskey,
   removePasskey: liveMeSecurity.removePasskey,
+  // Area 9, F1, R4c: Tokens e Claude Code.
+  listTokens: liveMeTokens.listTokens,
+  createToken: liveMeTokens.createToken,
+  revokeToken: liveMeTokens.revokeToken,
+  createClaudeCodeCommand: liveMeTokens.createClaudeCodeCommand,
 });
