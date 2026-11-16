@@ -34,21 +34,28 @@ token signed with the secret, and the secret only lives on your server.
 
 ## 1. Generate the identity secret
 
-In **Support → Widgets → your widget → Customer identity**, choose **Generate
-secret**. Stubwise asks you to confirm your second factor. The secret appears
-once; store it like any other credential, for example in an environment
-variable.
+In **Support → Widgets**, open your widget with **Edit …** and go to the
+**Customer identity** section. Choose **Make a secret…**, then **Make secret**;
+Stubwise asks you to confirm your second factor. The secret is shown only
+then ("This secret is shown only now."): **Copy** it, store it like any other
+credential (for example in an environment variable), and press **Done**. The
+same section shows the **Widget id (the token's aud)**, with **Copy widget
+id**: you need it to sign tokens.
 
 :::caution[Regenerating replaces the secret immediately]
-**Regenerate** creates a new secret and the old one stops working at once.
+**Regenerate secret…** (then **Regenerate**) creates a new secret, and the old
+one stops working at once.
 Update your backend in the same moment, or the requests page and the verified
 chat stop until you do.
 :::
 
-**Verified customers only** (same section) makes the widget refuse a chat
-without a valid token. Turn it on once your site always passes the token: from
-then on, nobody can chat while claiming to be another customer. You can turn it
-on only after generating the secret.
+**Only verified customers** (same section, saved with **Save**) makes the
+widget refuse a chat without a valid token. Turn it on once your site always
+passes the token: from then on, nobody can chat while claiming to be another
+customer. Without a secret the switch is disabled ("Make a secret first.").
+
+In a conversation's detail, your team sees whether the customer is a
+**Verified customer** or was **Declared by the site**.
 
 ## 2. Sign the token on your backend
 
@@ -58,7 +65,7 @@ claims:
 | Claim   | Required | Value |
 | ------- | -------- | ----- |
 | `sub`   | yes | Your stable id for the customer (1–200 characters). The same value you pass as `user.id`. |
-| `aud`   | yes | The **widget id**, shown next to the secret. A token for one widget is not valid on another. |
+| `aud`   | yes | The **widget id**, shown in **Customer identity** ("Widget id (the token's aud)"). A token for one widget is not valid on another. |
 | `iat`   | yes | Issued at, in seconds. |
 | `exp`   | yes | Expiry, in seconds. At most **24 hours** after `iat`; **1 hour** is a good choice. |
 | `email` | no  | The customer's email. |
