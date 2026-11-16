@@ -2,7 +2,7 @@ import { eq, isNotNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { roleRuleErrorSchema, targetUserNotAbove } from "../routes/roles.js";
+import { roleRuleErrorSchema } from "../routes/roles.js";
 import { users } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema, isUniqueViolation, rejectAgentUserParam } from "../routes/shared.js";
@@ -67,7 +67,6 @@ export async function slackIdentityRoutes(
     "/users/:id/slack",
     {
       config: { access: { kind: "instance", permission: "integrations.manage" }, reauth: true },
-      preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),
         body: z.object({ slackUserId: z.string().min(1) }),
@@ -77,7 +76,8 @@ export async function slackIdentityRoutes(
           404: errorSchema,
           409: errorSchema,
           ...authErrorResponses,
-          // Bersaglio con più permessi (R31): porta `permission`.
+          // Gli errori di regola (`permission` incluso). Il bersaglio non è più
+          // protetto (area 9, D-2): resta lo schema, per i client.
           403: roleRuleErrorSchema,
         },
       },
@@ -136,14 +136,14 @@ export async function slackIdentityRoutes(
     "/users/:id/slack",
     {
       config: { access: { kind: "instance", permission: "integrations.manage" }, reauth: true },
-      preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),
         response: {
           204: z.null(),
           404: errorSchema,
           ...authErrorResponses,
-          // Bersaglio con più permessi (R31): porta `permission`.
+          // Gli errori di regola (`permission` incluso). Il bersaglio non è più
+          // protetto (area 9, D-2): resta lo schema, per i client.
           403: roleRuleErrorSchema,
         },
       },

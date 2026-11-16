@@ -17,7 +17,7 @@ import { publicUrlOrUndefined } from "../ingest/shared.js";
 import { securityEventsResponseSchema, updateInstanceRoleSchema } from "@stubwise/shared";
 import { userIsFullAdmin } from "@stubwise/notifications";
 import { setInstanceRole } from "../services/roles.js";
-import { roleRuleErrorSchema, sendRoleRuleError, targetUserNotAbove } from "./roles.js";
+import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
 import { authErrorResponses, errorSchema, rejectAgentUserParam } from "./shared.js";
 
 /** Identità pubblica di un utente: mai hash o altri campi sensibili. */
@@ -248,9 +248,9 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
     "/:id/password-reset",
     {
       config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
-      // Mai su chi ha più permessi di te (ruling R31): un link di reset è
-      // l'account intero.
-      preHandler: targetUserNotAbove(),
+      // Un link di reset è l'account intero: anche su chi ha più permessi
+      // (area 9, D-2, il rischio accettato in docs/invariants/permissions.md),
+      // con la riconferma, la traccia e il `security.alert` all'interessato.
       schema: {
         params: z.object({ id: z.uuid() }),
         response: {
@@ -314,15 +314,14 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
   // DELETE /api/users/:id/second-factor — azzera il secondo fattore di un
   // altro utente (design «Recupero»): app, passkey, codici e tutte le sue
   // sessioni; i token restano. Al login successivo la persona riconfigura.
-  // Stesse protezioni del link di reset: mai su chi sta sopra (R31), mai su
-  // sé stessi (400: con la propria sessione si riconfigura dalle
+  // Come il link di reset: anche su chi ha più permessi (area 9, D-2, il
+  // rischio accettato), mai su sé stessi (400: con la propria sessione si riconfigura dalle
   // Impostazioni, e una sessione admin rubata non deve poter togliere il
   // secondo fattore al proprio account).
   app.delete(
     "/:id/second-factor",
     {
       config: { access: { kind: "instance", permission: "users.manage" }, reauth: true },
-      preHandler: targetUserNotAbove(),
       schema: {
         params: z.object({ id: z.uuid() }),
         response: {

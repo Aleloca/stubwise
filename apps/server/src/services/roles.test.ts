@@ -163,16 +163,15 @@ describe("deleteUser", () => {
     expect(await exists(only)).toBe(true);
   });
 
-  it("R28: chi ha solo users.manage non elimina un full admin → 403, utente ancora lì", async () => {
+  it("area 9 (D-2, era R28): chi ha users.manage elimina anche un full admin, se ne resta un altro", async () => {
+    await seed("keeper-admin@example.com", "admin");
     const admin = await seed("victim-admin@example.com", "admin");
     const actor = {
       id: await seed("users-manager@example.com", "member"),
       instancePermissions: effectiveInstancePermissions(["users.manage"]),
     };
-    const error = await ruleError(deleteUser(testDb.db, actor, admin));
-    expect(error.status).toBe(403);
-    expect(error.code).toBe("target_above");
-    expect(await exists(admin)).toBe(true);
+    await deleteUser(testDb.db, actor, admin);
+    expect(await exists(admin)).toBe(false);
   });
 
   it("non sé stessi (400); un utente qualunque sì", async () => {

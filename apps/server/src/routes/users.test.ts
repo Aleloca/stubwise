@@ -365,18 +365,22 @@ describe("DELETE /api/users/:id/second-factor", () => {
     expect(await secondFactorRows(adminId)).toEqual(before);
   });
 
-  it("su chi sta sopra → 403 target_above, niente toccato (Review Focus 5)", async () => {
+  it("area 9 (D-2): niente più bersaglio protetto, users.manage azzera anche un full admin → 204, e l'avviso arriva (il rischio accettato)", async () => {
     const manager = await usersManager();
-    const before = await secondFactorRows(adminId);
+    // Un SECONDO full admin, non quello del file: l'azzeramento chiude le sue sessioni.
+    const target = await targetWithSecondFactor();
+    const [adminRole] = await testDb.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "admin"));
+    await testDb.db.update(users).set({ instanceRoleId: adminRole!.id }).where(eq(users.id, target.id));
+    const before = await secondFactorRows(target.id);
     const res = await app.inject({
       method: "DELETE",
-      url: `/api/users/${adminId}/second-factor`,
+      url: `/api/users/${target.id}/second-factor`,
       headers: { cookie: manager.cookie },
     });
-    expect(res.statusCode).toBe(403);
-    expect(res.json()).toMatchObject({ code: "target_above" });
-    expect(await secondFactorRows(adminId)).toEqual(before);
-    expect(await alertsOf(adminId)).toEqual([]);
+    expect(res.statusCode).toBe(204);
+    expect(await secondFactorRows(target.id)).not.toEqual(before);
+    // La difesa è la traccia: l'interessato riceve `security.alert`.
+    expect((await alertsOf(target.id)).length).toBeGreaterThan(0);
   });
 
   it("chi ha users.manage azzera chi non gli sta sopra → 204", async () => {
