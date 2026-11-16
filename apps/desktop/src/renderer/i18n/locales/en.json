@@ -207,7 +207,8 @@
       "restore": "Restore",
       "unsnooze": "Move to New",
       "linkAccess": "Link SSH access",
-      "openInWeb": "Open in web"
+      "openInWeb": "Open in web",
+      "markUnread": "Mark as unread"
     },
     "snooze": {
       "hour": "1 hour",
