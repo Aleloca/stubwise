@@ -24,6 +24,9 @@ export interface ChangeInput {
   data: { object: { type: string; id: string; label: string }; before?: string | null; after?: string | null; params?: ChangeData["params"] };
 }
 
+/** L'oggetto «persona» di una voce: l'email di ALLORA come etichetta. */
+export const personObject = (user: { id: string; email: string }) => ({ type: "person", id: user.id, label: user.email });
+
 export async function recordChange(tx: Tx | Db, entry: ChangeInput): Promise<void> {
   const type = changeLogTypeOf(entry.type);
   if (!type) throw new Error(`tipo del registro sconosciuto: ${entry.type}`);

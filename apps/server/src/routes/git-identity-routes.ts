@@ -7,6 +7,7 @@ import { gitAuthorsSeen, gitIdentities, users } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { publishSecurityAlert } from "../auth/second-factor/alerts.js";
 import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
+import { personObject, recordChange } from "../services/change-log.js";
 import {
   authErrorResponses,
   errorSchema,
@@ -84,15 +85,17 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
     },
     async (request, reply) => {
       const { id } = request.params;
-      const [existing] = await app.db.select({ id: users.id }).from(users).where(eq(users.id, id));
+      const [existing] = await app.db.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, id));
       if (!existing) {
         return apiError(reply, 404, "user_not_found", "User not found");
       }
       const email = request.body.email.trim().toLowerCase();
       try {
-        await app.db
-          .insert(gitIdentities)
-          .values({ userId: id, email, authorName: request.body.authorName ?? null });
+        // Area 9, F2: l'identità e la sua voce nascono insieme.
+        await app.db.transaction(async (tx) => {
+          await tx.insert(gitIdentities).values({ userId: id, email, authorName: request.body.authorName ?? null });
+          await recordChange(tx, { type: "person.git_identity_linked", actor: request.user!, projectId: null, data: { object: personObject(existing), params: { email } } });
+        });
       } catch (err) {
         // Email unique (case-sensitive nel DB, ma noi lowercasiamo): se è già
         // linkata a QUESTO o a un ALTRO membro, 409 anziché 500.
@@ -142,10 +145,16 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
         // non è un'associazione esistente → 404, non un 500 grezzo.
         return apiError(reply, 404, "git_identity_not_found", "Git identity not found");
       }
-      const [deleted] = await app.db
-        .delete(gitIdentities)
-        .where(and(eq(gitIdentities.userId, request.params.id), eq(gitIdentities.email, email)))
-        .returning({ id: gitIdentities.id });
+      const deleted = await app.db.transaction(async (tx) => {
+        const [row] = await tx
+          .delete(gitIdentities)
+          .where(and(eq(gitIdentities.userId, request.params.id), eq(gitIdentities.email, email)))
+          .returning({ id: gitIdentities.id });
+        if (!row) return null;
+        const [owner] = await tx.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, request.params.id));
+        await recordChange(tx, { type: "person.git_identity_unlinked", actor: request.user!, projectId: null, data: { object: personObject(owner!), params: { email } } });
+        return row;
+      });
       if (!deleted) {
         return apiError(reply, 404, "git_identity_not_found", "Git identity not found");
       }
@@ -176,11 +185,18 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
     async (request, reply) => {
       let updated;
       try {
-        [updated] = await app.db
-          .update(users)
-          .set({ bitbucketUsername: request.body.username })
-          .where(eq(users.id, request.params.id))
-          .returning({ id: users.id, email: users.email, bitbucketUsername: users.bitbucketUsername });
+        updated = await app.db.transaction(async (tx) => {
+          const [before] = await tx.select({ bitbucketUsername: users.bitbucketUsername }).from(users).where(eq(users.id, request.params.id)).for("update");
+          const [row] = await tx
+            .update(users)
+            .set({ bitbucketUsername: request.body.username })
+            .where(eq(users.id, request.params.id))
+            .returning({ id: users.id, email: users.email, bitbucketUsername: users.bitbucketUsername });
+          if (row) {
+            await recordChange(tx, { type: "person.bitbucket_username_set", actor: request.user!, projectId: null, data: { object: personObject(row), before: before?.bitbucketUsername ?? null, after: row.bitbucketUsername } });
+          }
+          return row;
+        });
       } catch (err) {
         // bitbucketUsername è unique: se è già di un altro membro, 409 anziché 500.
         if (isUniqueViolation(err)) {
@@ -222,11 +238,15 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
       },
     },
     async (request, reply) => {
-      const [updated] = await app.db
-        .update(users)
-        .set({ bitbucketUsername: null })
-        .where(eq(users.id, request.params.id))
-        .returning({ id: users.id });
+      const updated = await app.db.transaction(async (tx) => {
+        const [before] = await tx.select({ bitbucketUsername: users.bitbucketUsername }).from(users).where(eq(users.id, request.params.id)).for("update");
+        const [row] = await tx.update(users).set({ bitbucketUsername: null }).where(eq(users.id, request.params.id)).returning({ id: users.id, email: users.email });
+        // Area 9, F2: azzerarlo è un «impostato a niente», con il prima.
+        if (row && before?.bitbucketUsername) {
+          await recordChange(tx, { type: "person.bitbucket_username_set", actor: request.user!, projectId: null, data: { object: personObject(row), before: before.bitbucketUsername, after: null } });
+        }
+        return row;
+      });
       if (!updated) {
         return apiError(reply, 404, "user_not_found", "User not found");
       }

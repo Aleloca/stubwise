@@ -28,6 +28,7 @@ import {
 import { projectPermissionsByProject } from "@stubwise/notifications";
 import { projectPermissionsFor } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
+import { personObject, recordChange } from "./change-log.js";
 import { isForeignKeyViolation, isUniqueViolation } from "../routes/shared.js";
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -408,9 +409,9 @@ async function sharedRole(
   tx: Tx,
   roleId: string,
   scope: RoleScope,
-): Promise<{ id: string; permissions: string[] }> {
+): Promise<{ id: string; name: string; permissions: string[] }> {
   const [role] = await tx
-    .select({ id: roles.id, scope: roles.scope, permissions: roles.permissions })
+    .select({ id: roles.id, name: roles.name, scope: roles.scope, permissions: roles.permissions })
     .from(roles)
     .where(eq(roles.id, roleId))
     .for("share");
@@ -436,7 +437,7 @@ async function sharedRole(
  */
 export async function setInstanceRole(
   db: Db,
-  actor: Actor,
+  actor: Actor & { email: string },
   userId: string,
   roleId: string,
   opts: { lastAdminCode?: string } = {},
@@ -447,12 +448,21 @@ export async function setInstanceRole(
     // Niente bersaglio protetto (area 9, D-2): la riga si blocca solo perché
     // il cambio e la guardia dell'ultimo full admin leggano lo stesso stato.
     const [target] = await tx
-      .select({ id: users.id })
+      .select({ id: users.id, email: users.email, roleName: roles.name })
       .from(users)
+      .leftJoin(roles, eq(roles.id, users.instanceRoleId))
       .where(eq(users.id, userId))
-      .for("update");
+      .for("update", { of: users });
     if (!target) throw new RoleRuleError(404, "user_not_found", "User not found");
     await tx.update(users).set({ instanceRoleId: roleId }).where(eq(users.id, userId));
+    // Area 9, F2: la voce del registro, nella stessa transazione (un 409 o un
+    // 400 più sotto la annulla con la modifica).
+    await recordChange(tx, {
+      type: "person.instance_role_changed",
+      actor,
+      projectId: null,
+      data: { object: personObject(target), before: target.roleName, after: role.name },
+    });
     try {
       await assertFullAdminRemains(tx);
     } catch (error) {
