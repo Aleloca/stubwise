@@ -4868,12 +4868,14 @@ deploy o di un rollback che la tocca.
   riattivare, le mie sessioni, tentativi rimasti e scadenza della
   riconferma, la foto del profilo, il cambio dell'email di login, «Chi può
   farlo?», Inbox (ripristina, rimetti fra le nuove, non letta), `token` nel
-  link di reset. Migrazione **0185** (additiva: `project_member_permissions`;
+  link di reset. Migrazioni **0185** (additiva: `project_member_permissions`;
   `users.deactivated_at`/`deactivated_by_user_id`; `sessions.user_agent`/
-  `last_seen_at`; `user_avatars`; `email_changes`). Nessuna modifica al
-  worker. Dipendenza nuova del server: `nodemailer` 10.3.1.
+  `last_seen_at`; `user_avatars`; `email_changes`) e **0186** (additiva:
+  `notifications.handled_action`, `archive` | `decision`, dalla review).
+  Nessuna modifica al worker (il pacchetto `notifications` cambia: i permessi
+  di un disattivato sono vuoti, ma il worker non va ribuildato per F1). Dipendenza nuova del server: `nodemailer` 10.3.1.
 
-  **ORDINE**: **server** (healthy, 0185 applicata), poi **caddy** (il
+  **ORDINE**: **server** (healthy, 0185 e 0186 applicate), poi **caddy** (il
   renderer dell'app su `/app`). Il worker non va toccato.
 
   **Env nuove, FACOLTATIVE** (E-1 = a): `SMTP_URL`
@@ -4897,6 +4899,15 @@ deploy o di un rollback che la tocca.
   - `sessions.last_seen_at` si scrive al più ogni 5 minuti per sessione.
   - «Chi può farlo?» non ha una riga per Claude: Claude agisce coi permessi
     di chi lo assegna o conferma (`agent.actsFor`).
+  - Dalla review: una persona disattivata non agisce nemmeno da Slack, non
+    entra in un progetto né riceve task (422 `user_deactivated`), non riceve
+    un link di reset; non si disattiva l'ultimo gestore ATTIVO di un
+    progetto (409 `last_manager` col `projectId`).
+  - Collegare lo Slack o il Bitbucket di UN ALTRO chiede `users.manage` e la
+    riconferma, e lascia `slack_linked` / `bitbucket_linked` con l'avviso
+    all'interessato. Chi ha solo `integrations.manage` collega solo il suo.
+  - «Restore» nell'inbox vale solo sulle card ARCHIVIATE dopo il deploy: le
+    card chiuse prima (`handled_action` null) non si ripristinano (409).
   Controllo, sola lettura: `select count(*) from project_member_permissions;`,
   `select count(*) from users where deactivated_at is not null;`,
   `select count(*) from email_changes where confirmed_at is null and
@@ -4910,12 +4921,16 @@ deploy o di un rollback che la tocca.
     disattivata non ha più sessioni né PAT (cancellati), ma con la sua
     password **rientra**. Prima di scendere, cambiarle la password a mano o
     accettarlo.
-  - Il registro di sicurezza di chi ha righe `deactivated`, `reactivated` o
-    `email_changed` dà **500** sul server vecchio (il tipo è un enum nella
-    risposta): la pagina di quella persona, non le altre. Sola lettura:
-    `select count(*) from security_events where kind in ('deactivated',
-    'reactivated', 'email_changed');`.
-  - Una card `security.alert` col soggetto `email_changed` si degrada al suo
+  - Il registro di sicurezza di chi ha righe `deactivated`, `reactivated`,
+    `email_changed`, `slack_linked` o `bitbucket_linked` dà **500** sul
+    server vecchio (il tipo è un enum nella risposta): la pagina di quella
+    persona, non le altre. Sola lettura: `select count(*) from
+    security_events where kind in ('deactivated', 'reactivated',
+    'email_changed', 'slack_linked', 'bitbucket_linked');`.
+  - ⚠️ un server vecchio torna a permettere a chi ha solo
+    `integrations.manage` di collegare lo Slack di chiunque, senza traccia.
+    (Le rotte di «Restore» invece non ci sono proprio: nessun rischio.)
+  - Una card `security.alert` coi soggetti nuovi si degrada al suo
     `kind` sul server vecchio (il recinto di chi rende la card la prende):
     nessun 500 sull'inbox. Nessun `notification_kind` nuovo.
   - Un cambio dell'email in attesa resta in `email_changes`: il server
