@@ -5,6 +5,7 @@ import { liveModels } from "./aiModels";
 import { liveGitAccounts } from "./gitAccounts";
 import { liveGoogleApps } from "./googleApps";
 import { livePlugins } from "./plugins";
+import { liveStorage } from "./storage";
 import { liveProviders } from "./aiProviders";
 import { liveAutomation } from "./automation";
 import { liveWebhooks } from "./webhooks";
@@ -29,4 +30,6 @@ export const instance: typeof Fake.instance = partialNamespace<typeof Fake.insta
   ...liveGitAccounts,
   // Area 9, F3: Plugins.
   ...livePlugins,
+  // Area 9, F3: Storage.
+  ...liveStorage,
 });

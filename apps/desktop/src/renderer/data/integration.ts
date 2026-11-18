@@ -76,6 +76,7 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "google",
     "git-accounts",
     "plugins",
+    "storage",
   ]),
   taskView: new Set(["list", "board", "timeline"]),
   feature: new Set([

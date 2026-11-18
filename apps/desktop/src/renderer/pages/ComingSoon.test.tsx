@@ -160,6 +160,9 @@ const INTEGRATED_CALLS = new Set([
   "instance.testProvider",
   "instance.replaceProviderCredential",
   "instance.deleteProvider",
+  // Area 9, F3: Storage.
+  "instance.getStorage",
+  "instance.saveStorage",
   // Area 9, F3: Plugins.
   "instance.listPlugins",
   "instance.getPlugin",
@@ -878,6 +881,20 @@ describe("aree non integrate nella build app", () => {
     await settle();
     expect(document.querySelector("[data-coming-soon]")).toBeNull();
     expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F3: Amministrazione → Storage, su `/api/settings/instance`; senza
+  // la prova e l'interruttore degli allegati (il server non li ha).
+  it("aprire Storage legge solo chiamate integrate, senza prova né interruttore degli allegati", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/storage");
+    await waitFor(() => expect(calls).toContain("instance.getStorage"));
+    await settle();
+    expect(document.querySelector("[data-coming-soon]")).toBeNull();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Check connection" })).toBeNull();
+    expect(screen.queryByRole("switch", { name: "Attachments" })).toBeNull();
     expect(outside()).toEqual([]);
   });
 

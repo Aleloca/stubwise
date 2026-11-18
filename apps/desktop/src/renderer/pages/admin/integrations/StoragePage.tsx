@@ -13,6 +13,7 @@ import {
 } from "../../../data/queries";
 import { useReauth } from "../../../layout/useReauth";
 import { useToast } from "../../../tasks-ui/Toast";
+import { isAppBuild } from "../../../data/build";
 import { PrototypeBox } from "../../automations/shared";
 import { Segmented } from "../../automations/builder/controls";
 import { ErrorLine } from "../../entry/parts";
@@ -253,6 +254,9 @@ function StorageForm({ storage: s }: { storage: StorageView }) {
         </div>
       </div>
 
+      {/* Il server non ha la prova né l'interruttore degli allegati (li deriva
+          dalla configurazione, F3): nell'app il blocco non c'è. */}
+      {!isAppBuild() && (
       <div className="mt-8 flex max-w-[560px] flex-col gap-5 border-t border-rule pt-5">
         <div className="flex flex-col gap-2">
           <div className="flex items-start gap-3">
@@ -301,8 +305,9 @@ function StorageForm({ storage: s }: { storage: StorageView }) {
           {errors.check && <ErrorLine>{errors.check}</ErrorLine>}
         </div>
       </div>
+      )}
 
-      <NextCheckBox />
+      {!isAppBuild() && <NextCheckBox />}
     </>
   );
 }
