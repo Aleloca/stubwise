@@ -8,6 +8,7 @@ import {
   instanceSettings,
   projectEnvironments,
   serverCommands,
+  projects,
   serverFixes,
   serverMetrics,
   serverOperationApprovals,
@@ -190,6 +191,24 @@ async function drainProposals(d: ServerFixDeps) {
 }
 
 describe("un piano nuovo: la sessione server_fix", () => {
+  it("area 9, F4 (46): con la coda del progetto attribuito in pausa la proposta aspetta (nessuna sessione); alla ripresa parte", async () => {
+    const s = await scene({ status: "proposing" });
+    const seen: AgentRunOptions[] = [];
+    const runner = cli(async (tool) => {
+      await tool("propose_server_plan", { steps: [restart] });
+    }, seen);
+    await db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, s.projectId));
+    try {
+      expect(await proposeNextServerFix(deps({ runner }))).toBe(false);
+      expect(seen).toHaveLength(0);
+      expect(await fixOf(s.fix.id)).toMatchObject({ status: "proposing", sessionId: null });
+    } finally {
+      await db.update(projects).set({ queuePausedAt: null }).where(eq(projects.id, s.projectId));
+    }
+    await drainProposals(deps({ runner }));
+    expect((await fixOf(s.fix.id)).status).toBe("awaiting_approval");
+  });
+
   it("sole letture e propose_server_plan; un piano valido va in attesa d'approvazione; il resoconto dell'analisi qui non esiste", async () => {
     const s = await scene({ status: "proposing" });
     const seen: AgentRunOptions[] = [];

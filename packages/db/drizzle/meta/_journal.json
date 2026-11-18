@@ -1324,6 +1324,13 @@
       "when": 1800835200000,
       "tag": "0190_ai_provider_secret_last4",
       "breakpoints": true
+    },
+    {
+      "idx": 191,
+      "version": "7",
+      "when": 1800921600000,
+      "tag": "0191_instance_status",
+      "breakpoints": true
     }
   ]
 }

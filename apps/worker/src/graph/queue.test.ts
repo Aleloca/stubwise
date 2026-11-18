@@ -98,6 +98,19 @@ describe("claimNextGraphJob", () => {
     expect(claimed?.attempts).toBe(0);
   });
 
+  it("area 9, F4: la coda del progetto in pausa non dà grafi nuovi; un altro progetto sì; alla ripresa riparte", async () => {
+    const db = testDb.db;
+    const paused = await seedRepository(db);
+    const other = await seedRepository(db);
+    const p = await insertJob(db, { repositoryId: paused.repositoryId });
+    const o = await insertJob(db, { repositoryId: other.repositoryId });
+    await db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, paused.projectId));
+    expect((await claimNextGraphJob(db))?.id).toBe(o);
+    expect(await claimNextGraphJob(db)).toBeNull();
+    await db.update(projects).set({ queuePausedAt: null }).where(eq(projects.id, paused.projectId));
+    expect((await claimNextGraphJob(db))?.id).toBe(p);
+  });
+
   it("è FIFO su created_at e restituisce null a coda vuota", async () => {
     const db = testDb.db;
     const { projectId, repositoryId } = await seedRepository(db);

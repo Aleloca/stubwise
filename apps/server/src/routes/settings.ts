@@ -2,7 +2,7 @@ import { automationRuleSettingSchema, automationSettingsSchema, instanceSettings
 import { legacySaveChangesUrl, loadLegacyWebhook, saveLegacyWebhook, testLegacyWebhook } from "../services/legacy-webhook.js";
 import { sendRoleRuleError } from "./roles.js";
 import { changedFields, recordChange, stableAmount } from "../services/change-log.js";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   mailAdmissionPatchSchema,
   mailAdmissionSchema,
@@ -15,7 +15,8 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
-import { automationRules, encrypt, instanceSettings } from "@stubwise/db";
+import { automationRules, automationRuns, encrypt, instanceSettings, monthlyCostUsd } from "@stubwise/db";
+import { aiBudgetState } from "@stubwise/notifications";
 import { s3ConfigFromSettings } from "../storage/index.js";
 import { requireReauth } from "../auth/access.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -186,7 +187,18 @@ async function loadInstanceSettings(
     slackSigningSecretSet: row?.slackSigningSecretEncrypted != null,
     slackBotTokenSet: row?.slackBotTokenEncrypted != null,
     slackEnabled: row?.slackSigningSecretEncrypted != null && row?.slackBotTokenEncrypted != null,
+    // Il budget con la regola del worker (`aiBudgetState`): una sola definizione di «raggiunto».
+    spentUsd: await monthlyCostUsd(db),
+    budgetReached: (await aiBudgetState(db)).exhausted,
+    budgetEffect: null,
   };
+}
+
+/** Cosa ha fatto un salvataggio al budget (94: la frase dopo «Save»). */
+function budgetEffectOf(before: boolean, after: boolean): "released" | "now_reached" | "still_reached" | null {
+  if (before && !after) return "released";
+  if (!before && after) return "now_reached";
+  return before && after ? "still_reached" : null;
 }
 
 /**
@@ -551,6 +563,7 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
           body.slackBotToken === "" ? null : encrypt(body.slackBotToken, app.encryptionKey);
       }
 
+      const reachedBefore = (await aiBudgetState(app.db)).exhausted;
       await app.db.transaction(async (tx) => {
         const [before] = await tx.select().from(instanceSettings).where(eq(instanceSettings.id, 1)).for("update");
         const [after] = await tx
@@ -566,8 +579,19 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
           })
           .returning();
         await recordInstanceChanges(tx, request.user!, before ?? null, after!, body.s3SecretKey !== undefined);
+        // Area 9, F4 (invariante 5): il budget torna disponibile per questo
+        // salvataggio → i passi delle automazioni fermi per il budget ripartono
+        // SUBITO, nella stessa transazione (il mese nuovo li trova al giro dei
+        // 15′). Il `budget_held` dei job delle task resta com'è.
+        if (reachedBefore && !(await aiBudgetState(tx as unknown as Db)).exhausted) {
+          await tx
+            .update(automationRuns)
+            .set({ dueAt: sql`now()` })
+            .where(and(eq(automationRuns.status, "running"), sql`${automationRuns.cursor} -> 'aiWaiting' ->> 'reason' = 'monthly_budget'`));
+        }
       });
-      return loadInstanceSettings(app.db, app.encryptionKey);
+      const view = await loadInstanceSettings(app.db, app.encryptionKey);
+      return { ...view, budgetEffect: budgetEffectOf(reachedBefore, view.budgetReached) };
     },
   );
 

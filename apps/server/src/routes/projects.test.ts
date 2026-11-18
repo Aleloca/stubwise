@@ -74,6 +74,7 @@ describe("POST /api/projects", () => {
     expect(res.statusCode).toBe(201);
     expect(res.json()).toEqual({
       id: expect.any(String),
+      queuePause: null,
       name: "Prodotto Acme",
       slug: "prodotto-acme",
       description: null,

@@ -1,4 +1,4 @@
-import { docGenerationJobs, type Db } from "@stubwise/db";
+import { repositoryQueueRunnable, docGenerationJobs, type Db } from "@stubwise/db";
 import type { HeldReason } from "@stubwise/shared";
 import { and, eq, sql } from "drizzle-orm";
 
@@ -31,7 +31,9 @@ export async function claimNextDocJob(db: Db): Promise<DocJob | null> {
     .where(
       eq(
         docGenerationJobs.id,
-        sql`(SELECT id FROM doc_generation_jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED)`,
+        // Area 9, F4: una coda in pausa non fa partire generazioni nuove (i nodi
+        // di una generazione GIÀ partita continuano: il lavoro partito finisce).
+        sql`(SELECT id FROM doc_generation_jobs WHERE status = 'queued' AND ${repositoryQueueRunnable(sql`doc_generation_jobs.repository_id`)} ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED)`,
       ),
     )
     .returning();

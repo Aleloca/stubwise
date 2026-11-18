@@ -3,6 +3,7 @@ import {
   docPagePendingCommits,
   docPages,
   nightlyItems,
+  projects,
   type Db,
 } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
@@ -117,6 +118,18 @@ describe("claimNext (lease)", () => {
     // Lo stato resta pending: un riavvio non perde niente.
     expect((await getItem(db, a!.id)).status).toBe("pending");
     expect(a!.claimedAt).not.toBeNull();
+  });
+
+  it("area 9, F4: la coda del progetto in pausa: nessun elemento reclamato (resta pending); alla ripresa sì", async () => {
+    const { db } = testDb;
+    await enqueueOne(db, "summary", "paused-one");
+    await db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, projectId));
+    try {
+      expect(await claimNext(db, repositoryId, "summary")).toBeNull();
+    } finally {
+      await db.update(projects).set({ queuePausedAt: null }).where(eq(projects.id, projectId));
+    }
+    expect((await claimNext(db, repositoryId, "summary"))?.key).toBe("paused-one");
   });
 
   it("claim CONCORRENTI: nessun elemento consegnato due volte", async () => {

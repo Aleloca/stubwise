@@ -83,7 +83,7 @@ describe("googleApps e instanceSettings", () => {
     expect((await g.client.googleApps.list())[0]).toMatchObject({ accountCount: 0 });
     expect(last(g.fetchImpl).url).toBe("/api/settings/google-workspaces");
     const i = clientWith({ contentLanguage: "it", monthlyBudgetUsd: null });
-    expect(await i.client.instanceSettings.get()).toMatchObject({ s3Endpoint: null, s3SecretKeySet: false, attachmentsEnabled: false, slackEnabled: false });
+    expect(await i.client.instanceSettings.get()).toMatchObject({ s3Endpoint: null, s3SecretKeySet: false, attachmentsEnabled: false, slackEnabled: false, spentUsd: 0, budgetReached: false, budgetEffect: null });
     await i.client.instanceSettings.save({ contentLanguage: "it", monthlyBudgetUsd: 600, s3Bucket: "b" });
     expect(last(i.fetchImpl)).toEqual({ method: "PUT", url: "/api/settings/instance", body: { contentLanguage: "it", monthlyBudgetUsd: 600, s3Bucket: "b" } });
     // Una PATCH (review F3, critico): il solo storage, senza budget né lingua.
@@ -104,3 +104,75 @@ describe("aiUsage", () => {
     expect((await v.client.aiProviders.list())[0]!.quotaBand).toBe("__unknown__");
   });
 });
+
+describe("instance.status (area 9, F4)", () => {
+  it("senza i facoltativi: blocchi, worker, quota, errori e notte ai default; un kind ignoto è __unknown__", async () => {
+    const { client, fetchImpl } = clientWith({
+      queues: [{ projectId: "p", code: "ACQ", name: "Acquisti", running: 1, waiting: 0, failed: 0 }],
+      jobs: [{ id: "j", kind: "lavoro_futuro", projectId: "p", state: "running", since: "2026-11-18T10:00:00.000Z" }],
+      refreshedAt: "2026-11-18T10:00:00.000Z",
+    });
+    const s = await client.instance.status();
+    expect(last(fetchImpl)).toMatchObject({ method: "GET", url: "/api/instance/status" });
+    expect(s).toMatchObject({ otherProjects: null, workers: [], quota: [], errors: [], nightly: [] });
+    expect(s.queues[0]).toMatchObject({ paused: null, pause: "forbidden", budgetAfterResume: 0 });
+    expect(s.jobs[0]).toMatchObject({ kind: "__unknown__", waiting: null, workerId: null, retry: "unavailable", retryNeeds: null, retryBlock: null, retryStopsAtPlan: false, href: null, superseded: false });
+  });
+});
+
+describe("la coda di un progetto (area 9, F4)", () => {
+  it("pauseQueue e resumeQueue: verbi e path", async () => {
+    const { client, fetchImpl } = clientWith(null, 204);
+    await client.projects.pauseQueue("p/1");
+    expect(last(fetchImpl)).toMatchObject({ method: "POST", url: "/api/projects/p%2F1/queue/pause" });
+    await client.projects.resumeQueue("p");
+    expect(last(fetchImpl)).toMatchObject({ method: "POST", url: "/api/projects/p/queue/resume" });
+  });
+});
+
+describe("usage.summary (area 9, F4)", () => {
+  it("i tre intervalli diventano i parametri; senza i facoltativi: cache 0, figli vuoti, codice null", async () => {
+    const { client, fetchImpl } = clientWith({ totals: { costUsd: 1, inputTokens: 2, outputTokens: 3, runs: 1 }, byDay: [], rows: [{ key: "other", label: "other", costUsd: 1, tokens: 5, runs: 1 }] });
+    const s = await client.usage.summary({ range: { days: 30 }, groupBy: "project", thenBy: "model" });
+    expect(last(fetchImpl).url).toBe("/api/ai-usage/summary?days=30&groupBy=project&thenBy=model");
+    expect(s.totals.cacheReadTokens).toBe(0);
+    expect(s.rows[0]).toMatchObject({ code: null, children: [] });
+    await client.usage.summary({ range: { month: true }, groupBy: "day" });
+    expect(last(fetchImpl).url).toBe("/api/ai-usage/summary?month=1&groupBy=day");
+    await client.usage.summary({ range: { from: "2026-11-01", to: "2026-11-10" }, groupBy: "operation" });
+    expect(last(fetchImpl).url).toBe("/api/ai-usage/summary?from=2026-11-01&to=2026-11-10&groupBy=operation");
+  });
+});
+
+describe("instance.retryJob (area 9, F4)", () => {
+  it("verbo e path; senza stopsAtPlan vale false", async () => {
+    const { client, fetchImpl } = clientWith({ jobId: "j2", status: "queued" }, 202);
+    expect(await client.instance.retryJob("j/1")).toEqual({ jobId: "j2", status: "queued", stopsAtPlan: false });
+    expect(last(fetchImpl)).toMatchObject({ method: "POST", url: "/api/instance/jobs/j%2F1/retry" });
+  });
+});
+
+describe("queuePause nella vista di progetto (area 9, F4, J-6)", () => {
+  it("senza il campo (un server di prima) vale null", async () => {
+    const { client } = clientWith({ id: "40000000-0000-4000-8000-000000000001", name: "Acquisti", slug: "acquisti", description: null, aiProviderId: null, aiProviderExclusive: false, docAutoUpdate: false, dailyReportEnabled: false, backlogEnabled: false, pulseEnabled: false, pulseEveryDays: 7, weeklyBriefEnabled: false, prCorrectionMaxRounds: 0, ingestionKey: "k", nextTicketNumber: 1, createdAt: "2026-11-18T10:00:00.000Z", code: "ACQ" });
+    const p = await client.request("GET", "/api/projects/x", undefined, (await import("@stubwise/shared")).projectSchema);
+    expect(p.queuePause).toBeNull();
+  });
+});
+
+describe("aiBlockSchema aperto (area 9, F4)", () => {
+  it("un motivo d'attesa ignoto (un server più nuovo) è __unknown__, non fa fallire la vista; il budget senza i campi della pausa", async () => {
+    const { client } = clientWith({
+      queues: [],
+      jobs: [
+        { id: "a", kind: "task_run", projectId: "p", state: "waiting", since: "2026-11-18T10:00:00.000Z", waiting: { reason: "motivo_futuro" } },
+        { id: "b", kind: "automation", projectId: "p", state: "waiting", since: "2026-11-18T10:00:00.000Z", waiting: { reason: "monthly_budget" } },
+      ],
+      refreshedAt: "2026-11-18T10:00:00.000Z",
+    });
+    const s = await client.instance.status();
+    expect(s.jobs[0]!.waiting).toMatchObject({ reason: "__unknown__" });
+    expect(s.jobs[1]!.waiting).toEqual({ reason: "monthly_budget", byId: null, byName: "", since: null });
+  });
+});
+

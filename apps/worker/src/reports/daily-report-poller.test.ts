@@ -417,6 +417,17 @@ describe("pollDailyReportsOnce", () => {
     expect(await testDb.db.select().from(activityReports)).toHaveLength(0);
   });
 
+  it("area 9, F4: un progetto in pausa lascia il report `queued`; alla ripresa si genera", async () => {
+    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: true });
+    await testDb.db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, projectId));
+    const paused = makeDeps({ commitsByCall: [[commit({})]] });
+    expect(await pollDailyReportsOnce(paused.deps)).toBe(0);
+    expect(paused.runSpy).not.toHaveBeenCalled();
+    expect((await testDb.db.select().from(activityReports))[0]!.status).toBe("queued");
+    await testDb.db.update(projects).set({ queuePausedAt: null }).where(eq(projects.id, projectId));
+    expect(await pollDailyReportsOnce(makeDeps({ commitsByCall: [[commit({})]] }).deps)).toBe(1);
+  });
+
   it("è idempotente: un secondo tick non crea un secondo report", async () => {
     await createProject(testDb.db, { dailyReportEnabled: true });
     const first = makeDeps({ commitsByCall: [[commit({})]] });

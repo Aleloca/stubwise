@@ -174,6 +174,29 @@ describe("il budget prima di OGNI passo (D1, test NEGATIVO)", () => {
   });
 });
 
+describe("area 9, F4: la coda del progetto in pausa ferma il passo di Claude", () => {
+  it("in pausa: nessuna chiamata, `aiWaiting` queue_paused (chi e da quando), una riga sola; alla ripresa riparte", async () => {
+    const { run } = await runOf([claude({ branches: {} })]);
+    const pausedAt = new Date("2026-11-18T10:00:00.000Z");
+    await t.db.update(projects).set({ queuePausedAt: pausedAt, queuePausedByUserId: ownerId }).where(eq(projects.id, projectId));
+    const { runner, calls } = fakeRunner(['{"outcome":"normale","reason":"ok"}']);
+    await executeDueRuns({ db: t.db, runner });
+    expect(calls).toHaveLength(0);
+    const waiting = await reload(run.id);
+    expect(waiting.status).toBe("running");
+    expect((waiting.cursor as { aiWaiting?: unknown }).aiWaiting).toEqual({ reason: "queue_paused", byId: ownerId, since: pausedAt.toISOString() });
+    await due(run.id);
+    await executeDueRuns({ db: t.db, runner });
+    expect(calls).toHaveLength(0);
+    expect((await logOf(run.id)).filter((e) => e.outcome === "waiting")).toHaveLength(1);
+    await t.db.update(projects).set({ queuePausedAt: null, queuePausedByUserId: null }).where(eq(projects.id, projectId));
+    await due(run.id);
+    await executeDueRuns({ db: t.db, runner });
+    expect(calls).toHaveLength(1);
+    expect((await reload(run.id)).status).toBe("done");
+  });
+});
+
 describe("review F3: gli account e gli errori del provider", () => {
   const provider = { id: "p-1", kind: "api_key" as const, secret: "s" };
   const select = (seen: { workClass?: string }[]) => ({

@@ -205,6 +205,25 @@ describe("runNight: riassunti a turno", () => {
     expect(h.ensureMirror).toHaveBeenCalledTimes(2);
   });
 
+  it("area 9, F4 (review I1): un progetto con la coda in pausa resta FUORI dal giro (niente mirror, niente Claude, niente pagine pianificate a metà); l'altro va; i suoi elementi non fanno ripartire il giro", async () => {
+    const paused = await seedNightRepo("pausato", { dailyReport: true });
+    const b = await seedNightRepo("attivo", { dailyReport: true });
+    await db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, paused.projectId));
+    try {
+      const h = harness({ commitsByUrl: { [paused.url]: [commit("1", "p1")], [b.url]: [commit("5", "b1")] } });
+      const res = await runNight(h.deps, NOW);
+      const order = h.run.mock.calls.map(([opts]) => subjectOf((opts as AgentRunOptions).prompt));
+      expect(order).toEqual(["b1"]);
+      expect(res).toMatchObject({ repositories: 1 });
+      expect(h.ensureMirror).toHaveBeenCalledTimes(1);
+      expect((await db.select().from(nightlyItems).where(eq(nightlyItems.projectId, paused.projectId))).filter((i) => i.phase.startsWith("page"))).toEqual([]);
+      await db.insert(nightlyItems).values({ repositoryId: paused.repositoryId, projectId: paused.projectId, phase: "summary", key: sha("9"), night: NIGHT });
+      expect(await hasPendingNightWork({ db }, NIGHT)).toBe(false);
+    } finally {
+      await db.update(projects).set({ queuePausedAt: null }).where(eq(projects.id, paused.projectId));
+    }
+  });
+
   it("quota finita al 2° elemento → giro fermo; la ripresa continua senza rifare nulla; un riavvio non rifà niente", async () => {
     const a = await seedNightRepo("alpha");
     const b = await seedNightRepo("beta");

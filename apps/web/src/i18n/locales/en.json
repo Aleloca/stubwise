@@ -3415,7 +3415,10 @@
   "permissions": {
     "label": {
       "instance": {
-        "full_admin": "Full administration"
+        "full_admin": "Full administration",
+        "status": {
+          "view": "View the instance status"
+        }
       },
       "projects": {
         "create": "Create projects"

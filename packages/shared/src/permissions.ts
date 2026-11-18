@@ -46,6 +46,9 @@ export const INSTANCE_PERMISSIONS = [
   // gestisce un oggetto ne legge già le voci col `readPermission` del tipo).
   // Nessun preset: il full admin l'ha implicito.
   "changelog.view",
+  // Area 9, F4: lo Stato dell'istanza (code, worker, errori). Nessun preset
+  // oltre l'Admin, che l'ha implicito col full admin.
+  "instance.status.view",
   // Integrazione area 3 (10 nov 2026, decisione del maintainer): l'attività del
   // giorno per persona (lo standup). Nessun preset la riceve: il full admin
   // l'ha implicita, agli altri si assegna con un ruolo.

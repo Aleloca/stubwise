@@ -1,4 +1,4 @@
-import { backlogItems, widgetConversations, widgetMessages, type Db } from "@stubwise/db";
+import { projectQueueRunnable, backlogItems, widgetConversations, widgetMessages, type Db } from "@stubwise/db";
 import { aiBudgetState } from "@stubwise/notifications";
 import { SUPPORT_TRIAGE_IDLE_MINUTES } from "@stubwise/shared";
 import { and, asc, eq, isNull, lt, notExists, or, sql } from "drizzle-orm";
@@ -121,6 +121,8 @@ async function dueConversations(db: Db, now: Date) {
             .where(and(eq(widgetMessages.conversationId, widgetConversations.id), sql`${widgetMessages.ticketId} is not null`)),
         ),
         sql`exists (select 1 from ${widgetMessages} m where m.conversation_id = ${widgetConversations.id} and m.role = 'user')`,
+        // Area 9, F4: un progetto in pausa: il giudizio aspetta la ripresa.
+        projectQueueRunnable(sql`${widgetConversations.projectId}`),
       ),
     )
     .orderBy(asc(widgetConversations.lastMessageAt))

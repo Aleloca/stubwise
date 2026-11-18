@@ -1,4 +1,4 @@
-import { agentRuns, aiJobs, CANCEL_REQUEST_CLEARED, type Db } from "@stubwise/db";
+import { agentRuns, aiJobs, CANCEL_REQUEST_CLEARED, projectQueueRunnable, type Db } from "@stubwise/db";
 import {
   completeCorrection,
   promoteStalePendings as promoteStalePendingsImpl,
@@ -127,14 +127,14 @@ export async function claimNextJob(
     excludeProjectIds.map((id) => sql`${id}`),
     sql`, `,
   );
-  const subquery =
-    excludeProjectIds.length === 0
-      ? sql`(SELECT id FROM ai_jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED)`
-      : sql`(
+  // Area 9, F4: un progetto con la coda in pausa non dà lavoro nuovo
+  // (`projectQueueRunnable`, il progetto del ticket).
+  const excluded = excludeProjectIds.length === 0 ? sql`` : sql` AND t.project_id NOT IN (${excludeTuple})`;
+  const subquery = sql`(
           SELECT j.id FROM ai_jobs j
           JOIN tickets t ON t.id = j.ticket_id
-          WHERE j.status = 'queued'
-            AND t.project_id NOT IN (${excludeTuple})
+          WHERE j.status = 'queued'${excluded}
+            AND ${projectQueueRunnable(sql`t.project_id`)}
           ORDER BY j.created_at LIMIT 1 FOR UPDATE OF j SKIP LOCKED
         )`;
   const [job] = await db

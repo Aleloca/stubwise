@@ -1,7 +1,8 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Db } from "@stubwise/db";
+import { projects, type Db } from "@stubwise/db";
+import { eq } from "drizzle-orm";
 import { aiBudgetState } from "@stubwise/notifications";
 import { buildClaudePrompt, parseClaudeAnswer, untrustedText, type Step } from "@stubwise/shared";
 import { NATIVE_TOOLS } from "../agent/native-tools.js";
@@ -45,6 +46,8 @@ export type ClaudeStepOutcome =
   | { kind: "invalid"; reason: string }
   /** Il budget del mese è finito: nessuna chiamata. */
   | { kind: "budget" }
+  /** Area 9, F4: la coda del progetto è in pausa: nessuna chiamata, si aspetta la ripresa. */
+  | { kind: "paused"; byId: string | null; since: string }
   /**
    * Il provider non ha risposto: si riprova (con un tetto, nell'esecutore).
    * Solo un CODICE (review F3, M12): il testo grezzo dell'errore può contenere
@@ -121,6 +124,12 @@ export async function runClaudeStep(
   deps: ClaudeStepDeps,
   input: { step: ClaudeStep; inputs: Record<string, unknown>; projectId: string | null; automationId: string; automationRunId: string | null },
 ): Promise<ClaudeStepOutcome> {
+  // Area 9, F4 (D-7): la coda del progetto in pausa ferma anche il passo di
+  // Claude di un'automazione di progetto (una generale, senza progetto, no).
+  if (input.projectId) {
+    const [p] = await deps.db.select({ at: projects.queuePausedAt, by: projects.queuePausedByUserId }).from(projects).where(eq(projects.id, input.projectId));
+    if (p?.at) return { kind: "paused", byId: p.by, since: p.at.toISOString() };
+  }
   if ((await aiBudgetState(deps.db, deps.monthlyCostUsdFn)).exhausted) return { kind: "budget" };
   const { raw: _raw, usage: _usage, ...out } = await callClaudeModel(deps.runner, {
     step: input.step,

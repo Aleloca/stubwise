@@ -4,10 +4,12 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
 import { agentRuns, aiJobs, aiProviders, projects } from "@stubwise/db";
-import { inProjects, projectIdsWithPermission } from "../auth/access.js";
+import { inProjects, projectIdsWithPermission, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { apiError } from "../errors.js";
-import { authErrorResponses } from "./shared.js";
+import { authErrorResponses, errorSchema } from "./shared.js";
+import { usageDimensionSchema, usageSummarySchema, type UsageRange } from "@stubwise/shared";
+import { usageSummary } from "../services/usage-summary.js";
 
 /**
  * Range temporale (default: ultimi 30 giorni) della dashboard consumi. `from`/
@@ -423,6 +425,40 @@ async function requireUsageScope(
  */
 export async function aiUsageCostsRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+
+  // Area 9, F4: AI → Usage nell'app, nella forma della scheda del prototipo
+  // (`services/usage-summary.ts`). Stessa regola d'accesso delle rotte qui sotto.
+  app.get(
+    "/summary",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        querystring: z.object({
+          days: z.enum(["7", "30", "90"]).optional(),
+          month: z.enum(["1", "true"]).optional(),
+          from: z.iso.date().optional(),
+          to: z.iso.date().optional(),
+          groupBy: usageDimensionSchema,
+          thenBy: usageDimensionSchema.optional(),
+        }),
+        response: { 200: usageSummarySchema, 400: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const scope = await requireUsageScope(request, reply);
+      if (scope === null) return reply;
+      const q = request.query;
+      const range: UsageRange | null = q.days ? { days: Number(q.days) as 7 | 30 | 90 } : q.month ? { month: true } : q.from && q.to ? { from: q.from, to: q.to } : null;
+      if (!range) return apiError(reply, 400, "invalid_range", "Give days, month or from and to");
+      try {
+        return await usageSummary(app.db, { range, groupBy: q.groupBy, thenBy: q.thenBy ?? null, scope, visibleProjectIds: await visibleProjectIds(app.db, request.user!) });
+      } catch (error) {
+        const code = (error as Error).message;
+        if (code === "invalid_range" || code === "range_too_long") return apiError(reply, 400, code, "Invalid date range");
+        throw error;
+      }
+    },
+  );
 
   app.get(
     "/costs",

@@ -102,7 +102,7 @@ interface SavedCursor {
    * budget del mese. L'esecuzione resta `running` e si riprova da sola.
    * `providerError`: il provider non ha risposto (si riprova uguale).
    */
-  aiWaiting?: { reason: "monthly_budget" } | null;
+  aiWaiting?: { reason: "monthly_budget" } | { reason: "queue_paused"; byId: string | null; since: string } | null;
   providerError?: string | null;
 }
 
@@ -481,7 +481,7 @@ async function claudeStep(turn: Turn, eff: Extract<EngineStep["effects"][number]
     { db: turn.deps.db, runner: turn.deps.runner, ...(turn.deps.monthlyCostUsdFn ? { monthlyCostUsdFn: turn.deps.monthlyCostUsdFn } : {}), ...(turn.deps.select ? { select: turn.deps.select } : {}) },
     { step: eff.step, inputs: eff.vars, projectId: turn.automation.projectId, automationId: turn.automation.id, automationRunId: turn.run.id },
   );
-  if (out.kind === "budget" || out.kind === "provider_error") {
+  if (out.kind === "budget" || out.kind === "provider_error" || out.kind === "paused") {
     await waitForAi(turn, out);
     return null;
   }
@@ -498,8 +498,17 @@ async function claudeStep(turn: Turn, eff: Extract<EngineStep["effects"][number]
  * si riprova fra 15′ (il passo si riesegue da capo, budget compreso). La prima
  * volta, una riga nel registro e — per il budget — l'avviso al proprietario.
  */
-async function waitForAi(turn: Turn, out: { kind: "budget" } | { kind: "provider_error"; code: string }): Promise<void> {
+async function waitForAi(turn: Turn, out: { kind: "budget" } | { kind: "provider_error"; code: string } | { kind: "paused"; byId: string | null; since: string }): Promise<void> {
   const c = cursorOf(turn.run);
+  if (out.kind === "paused") {
+    // Area 9, F4: come il budget, l'esecuzione resta sul passo e riprova fra
+    // 15′; la ripresa della coda la sveglia subito (`dueAt = now()`).
+    const last = turn.log.at(-1);
+    const first = !(last && last.outcome === "waiting" && last.path === c.path && last.why?.code === "queuePaused");
+    await setRun(turn, { cursor: { ...c, aiWaiting: { reason: "queue_paused", byId: out.byId, since: out.since }, providerError: null }, dueAt: new Date(Date.parse(turn.now) + AI_RETRY_MS) });
+    if (first) await note(turn, { outcome: "waiting", reason: "La coda del progetto è in pausa: il passo di Claude riparte alla ripresa.", why: { code: "queuePaused" } });
+    return;
+  }
   if (out.kind === "budget") {
     // «La prima volta» dal registro: il cursore si riscrive a ogni giro, l'ultima riga d'attesa sullo stesso passo no.
     const last = turn.log.at(-1);

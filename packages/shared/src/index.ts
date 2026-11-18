@@ -77,6 +77,8 @@ export * from "./schemas/access-query.js";
 export * from "./change-log.js";
 export * from "./outgoing-webhooks.js";
 export * from "./instance-admin.js";
+export * from "./instance-status.js";
+export * from "./usage-summary.js";
 export * from "./schemas/account-area9.js";
 export * from "./schemas/admin-area9.js";
 export * from "./schemas/people-activity.js";

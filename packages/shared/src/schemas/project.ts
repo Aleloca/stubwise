@@ -277,6 +277,11 @@ export const projectSchema = z.object({
   stallThresholds: z
     .object({ activeDays: z.number().int(), todoDays: z.number().int() })
     .optional(),
+  /**
+   * Area 9, F4 (J-6 = a): la coda del progetto è in pausa — chi l'ha messa
+   * (`byName` calcolato dal server) e da quando. null = la coda va. Additivo.
+   */
+  queuePause: z.object({ byId: z.string().nullable(), byName: z.string(), since: z.string() }).nullable().default(null),
   // Fetta 4: modello, moduli accesi (nell'ordine di `MODULE_ORDER`), cliente
   // e `kind` derivato («client» se c'è un cliente). `.optional()`: un server
   // più vecchio non li manda.

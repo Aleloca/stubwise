@@ -3415,7 +3415,10 @@
   "permissions": {
     "label": {
       "instance": {
-        "full_admin": "Amministrazione completa"
+        "full_admin": "Amministrazione completa",
+        "status": {
+          "view": "Vedere lo stato dell'istanza"
+        }
       },
       "projects": {
         "create": "Creare progetti"

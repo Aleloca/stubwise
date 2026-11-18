@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDb } from "@stubwise/db";
 import { createEmbeddingClient } from "@stubwise/embeddings";
@@ -32,6 +33,7 @@ import { requeueWaitingReviewsAtStartup, startPrReviewPoller } from "./review/po
 import { createDocHandler, failDocJobOnError } from "./docs/handler.js";
 import { dispatchNode } from "./docs/recursive/node-dispatch.js";
 import { createGenerationWorktreeRegistry } from "./docs/recursive/registry.js";
+import { startHeartbeat } from "./heartbeat.js";
 import { MirrorManager } from "./git/mirrors.js";
 import { createGraphifyRunner } from "./graph/graphify-cli.js";
 import { startGraphPoller } from "./graph/poller.js";
@@ -1044,6 +1046,17 @@ console.error(
   "[stubwise-worker] doc-generation a DAG ATTIVA: priorità ai fix; job-nodo e trigger di generazione solo con capacità libera e nessun fix in coda. " +
     "Mutua esclusione fix↔generazione: i fix dei progetti con un worktree di generazione aperto sono esclusi dal claim (invariante del mirror).",
 );
+// Area 9, F4: l'heartbeat per lo Stato dell'istanza (J-2 = a: coi lavori in mano).
+const heartbeat = startHeartbeat({
+  db,
+  workerId: `${hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`,
+  concurrency: config.concurrency,
+  running: () => [
+    ...cancels.ids().map((id) => ({ kind: "ai_job", id })),
+    ...generationRegistry.activeGenerationIds().map((id) => ({ kind: "doc_generation", id })),
+  ],
+});
+controller.signal.addEventListener("abort", () => heartbeat.stop(), { once: true });
 await runWorker({
   db,
   handler,
