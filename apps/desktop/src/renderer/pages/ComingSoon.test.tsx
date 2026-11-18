@@ -831,6 +831,19 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
+  // Area 9, F3: la voce AI accesa scheda per scheda (`ai-<tab>`): una scheda
+  // non ancora collegata è «Coming soon» dentro la pagina, senza letture.
+  it("aprire una scheda AI non collegata: «Coming soon» al posto del pannello, nessuna chiamata", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/ai?tab=usage");
+    expect(await screen.findByRole("heading", { level: 1, name: "AI" })).toBeInTheDocument();
+    await settle();
+    // La pagina c'è, con le sue schede: il «Coming soon» è solo del pannello.
+    expect(screen.getByRole("tablist")).toBeInTheDocument();
+    expect(document.querySelector("[data-coming-soon]")).not.toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
   // Area 9, F3: Outgoing webhooks accesi, sulle rotte del server; senza il
   // riquadro «Prototype only» (l'esito della prossima prova è del prototipo).
   it.each([

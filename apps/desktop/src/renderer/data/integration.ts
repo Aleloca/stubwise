@@ -62,7 +62,17 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   // Area 9, F1, R7: People e Roles sulle letture calcolate del server.
   // Area 9, F2: Change log.
   // Area 9, F3: Outgoing webhooks sulle rotte del server.
-  admin: new Set(["departments", "servers", "who-can", "people", "roles", "changelog", "webhooks"]),
+  // Area 9, F3: la voce AI, scheda per scheda (`ai-<tab>` fra le funzioni).
+  admin: new Set([
+    "departments",
+    "servers",
+    "who-can",
+    "people",
+    "roles",
+    "changelog",
+    "webhooks",
+    "ai",
+  ]),
   taskView: new Set(["list", "board", "timeline"]),
   feature: new Set([
     // Area 7, fetta 1: le Automations (Home, «Da decidere», ⌘K, righe d'origine).

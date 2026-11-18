@@ -171,6 +171,8 @@ describe("isIntegrated", () => {
         "admin:changelog",
         // Area 9, F3: i webhook in uscita.
         "admin:webhooks",
+        // Area 9, F3: la voce AI, scheda per scheda (le schede in \`feature\`).
+        "admin:ai",
         "taskView:list",
         "taskView:board",
         "feature:notifications",
