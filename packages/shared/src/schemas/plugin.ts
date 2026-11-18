@@ -316,9 +316,29 @@ export type PutProjectPluginsInput = z.infer<typeof putProjectPluginsSchema>;
  * da un server che non la manda ancora: in quel caso il client non manda
  * `ifMatch`, e il salvataggio funziona come prima.
  */
+/**
+ * Area 9, F5: una riga del registro vista da chi gestisce il PROGETTO (che
+ * non ha `plugins.manage` d'istanza): quanto serve a scegliere, niente di
+ * più (nessun URL, sha né comando di hook). Tutti gli stati: un plugin non
+ * `ready` non entra nei run, e la pagina lo dice.
+ */
+export const projectPluginRegistryRowSchema = z.object({
+  pluginId: z.uuid(),
+  slug: z.string(),
+  name: z.string(),
+  status: pluginStatusSchema,
+  skills: z.array(z.string()).default([]),
+  hookGroups: z.array(z.string()).default([]),
+  /** Il preset consigliato (`RECOMMENDED_DISABLED_SKILLS`, per nome del manifest), ristretto alle skill che ci sono. */
+  recommendedDisabledSkills: z.array(z.string()).default([]),
+});
+export type ProjectPluginRegistryRow = z.infer<typeof projectPluginRegistryRowSchema>;
+
 export const projectPluginsViewSchema = z.object({
   plugins: z.array(projectPluginSchema),
   version: z.string().nullable().default(null),
+  /** Vuoto da un server che non lo manda ancora. */
+  registry: z.array(projectPluginRegistryRowSchema).default([]),
 });
 export type ProjectPluginsView = z.infer<typeof projectPluginsViewSchema>;
 

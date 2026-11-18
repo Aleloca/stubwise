@@ -1,17 +1,17 @@
-import { projectPluginSchema, putProjectPluginsSchema } from "@stubwise/shared";
+import { projectPluginRegistryRowSchema, projectPluginSchema, putProjectPluginsSchema } from "@stubwise/shared";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { RouteAccess } from "../auth/access.js";
 import { fromParam } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
-import { getProjectPlugins, projectPluginsVersion, putProjectPlugins } from "../services/plugins.js";
+import { getProjectPlugins, projectPluginRegistry, projectPluginsVersion, putProjectPlugins } from "../services/plugins.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 const paramsSchema = z.object({ projectId: z.uuid() });
 
 /** Risposta di GET e PUT: la stessa forma del body del PUT, così fa round-trip. */
-const projectPluginsSchema = z.object({ plugins: z.array(projectPluginSchema), version: z.string() });
+const projectPluginsSchema = z.object({ plugins: z.array(projectPluginSchema), version: z.string(), registry: z.array(projectPluginRegistryRowSchema) });
 /** Area 9, F5: `ifMatch` facoltativo (il web vecchio non lo manda: per lui resta l'ultima scrittura che vince). */
 const putBodySchema = putProjectPluginsSchema.extend({ ifMatch: z.string().min(1).optional() });
 const staleSchema = errorSchema.extend({ version: z.string(), plugins: z.array(projectPluginSchema) });
@@ -48,7 +48,8 @@ export async function projectPluginRoutes(instance: FastifyInstance): Promise<vo
     async (request) => {
       const { projectId } = request.params;
       const plugins = await getProjectPlugins(app.db, projectId);
-      return { plugins, version: projectPluginsVersion(plugins) };
+      // Area 9, F5: anche il registro, per chi non ha `plugins.manage` d'istanza.
+      return { plugins, version: projectPluginsVersion(plugins), registry: await projectPluginRegistry(app.db) };
     },
   );
 
@@ -86,7 +87,7 @@ export async function projectPluginRoutes(instance: FastifyInstance): Promise<vo
               : `Unknown hook in the plugin inventory (${result.detail})`;
         return apiError(reply, 400, result.error, message);
       }
-      return { plugins: result.plugins, version: projectPluginsVersion(result.plugins) };
+      return { plugins: result.plugins, version: projectPluginsVersion(result.plugins), registry: await projectPluginRegistry(app.db) };
     },
   );
 }

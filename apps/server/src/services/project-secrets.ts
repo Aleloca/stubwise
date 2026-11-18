@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { decrypt, gitAccounts, projects, repositories, type Db } from "@stubwise/db";
+import { decrypt, gitAccounts, projects, repositories, users, type Db } from "@stubwise/db";
+import type { ProjectIntegration } from "@stubwise/shared";
 import { getProvider, GitProviderError } from "@stubwise/git";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { generateIngestionKey } from "../routes/shared.js";
 import { recordChange } from "./change-log.js";
@@ -19,7 +20,7 @@ type Actor = { id: string; email: string };
 export async function regenerateIngestionKey(db: Db, actor: Actor, projectId: string): Promise<{ ingestionKey: string }> {
   const ingestionKey = generateIngestionKey();
   await db.transaction(async (tx) => {
-    const [p] = await tx.update(projects).set({ ingestionKey }).where(eq(projects.id, projectId)).returning({ id: projects.id, code: projects.code });
+    const [p] = await tx.update(projects).set({ ingestionKey, ingestionKeyCreatedAt: new Date(), ingestionKeyCreatedByUserId: actor.id }).where(eq(projects.id, projectId)).returning({ id: projects.id, code: projects.code });
     if (!p) throw new RoleRuleError(404, "not_found", "Project not found");
     await recordChange(tx, { type: "project.ingestion_key_regenerated", actor, projectId, data: { object: { type: "project", id: p.id, label: p.code } } });
   });
@@ -101,4 +102,48 @@ export async function regenerateWebhookSecret(db: Db, key: Buffer, actor: Actor,
       return { mode: "rollback", platformRestored: false };
     }
   }
+}
+
+const last4 = (value: string) => (value.length >= 4 ? value.slice(-4) : value);
+
+/**
+ * L'Integrazione in lettura (I2): le ultime 4 della chiave, quando e da chi,
+ * il DSN senza chiave, l'URL in entrata; i webhook git (le ultime 4 del
+ * segreto) solo a chi vede i repository. I permessi calcolati qui.
+ */
+export async function projectIntegration(db: Db, projectId: string, permissions: ReadonlySet<string>, publicUrl: string): Promise<ProjectIntegration> {
+  const [p] = await db
+    .select({ slug: projects.slug, key: projects.ingestionKey, at: projects.ingestionKeyCreatedAt, byId: projects.ingestionKeyCreatedByUserId, byName: users.displayName, byEmail: users.email })
+    .from(projects)
+    .leftJoin(users, eq(users.id, projects.ingestionKeyCreatedByUserId))
+    .where(eq(projects.id, projectId));
+  if (!p) throw new RoleRuleError(404, "not_found", "Project not found");
+  const base = new URL(publicUrl);
+  const seesRepos = permissions.has("repos.view") || permissions.has("repos.manage");
+  const repos = seesRepos
+    ? await db
+        .select({ id: repositories.id, slug: repositories.slug, name: repositories.name, secret: repositories.webhookSecret, configuredAt: repositories.webhookConfiguredAt })
+        .from(repositories)
+        .where(eq(repositories.projectId, projectId))
+        .orderBy(asc(repositories.name))
+    : [];
+  return {
+    ingestion: {
+      last4: last4(p.key),
+      createdAt: p.at ? p.at.toISOString() : null,
+      createdBy: p.byId ? { id: p.byId, name: p.byName ?? p.byEmail ?? "" } : null,
+      dsnBase: `${base.protocol}//${base.host}/p/${p.slug}`,
+    },
+    inbound: { url: `${base.protocol}//${base.host}/api/inbound/${p.slug}/ticket` },
+    gitWebhooks: repos.map((r) => ({
+      repositoryId: r.id,
+      slug: r.slug,
+      name: r.name,
+      url: `${base.protocol}//${base.host}/webhooks/git/${r.slug}`,
+      secretLast4: r.secret ? last4(r.secret) : null,
+      configured: r.configuredAt !== null,
+    })),
+    canRegenerateKey: permissions.has("project.settings.manage"),
+    canRegenerateWebhookSecret: permissions.has("repos.manage"),
+  };
 }

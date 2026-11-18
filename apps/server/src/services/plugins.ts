@@ -27,6 +27,8 @@ import {
 import {
   pluginInventorySchema,
   pluginSlugSchema,
+  RECOMMENDED_DISABLED_SKILLS,
+  type ProjectPluginRegistryRow,
   type CreatePluginInput,
   type PluginJobKind,
   type ProjectPlugin,
@@ -392,6 +394,30 @@ function pluginEntryFields(list: (ProjectPlugin & { slug: string })[]) {
 
 /** La riga senza lo slug (che serve solo alla voce). */
 const plain = (p: ProjectPlugin & { slug: string }): ProjectPlugin => ({ pluginId: p.pluginId, enabled: p.enabled, disabledSkills: p.disabledSkills, disabledHooks: p.disabledHooks });
+
+/**
+ * Area 9, F5: il registro per chi gestisce il progetto (vedi
+ * `projectPluginRegistryRowSchema`): skill e gruppi di hook dall'inventario
+ * (letto in modo difensivo), il preset consigliato per nome del manifest.
+ */
+export async function projectPluginRegistry(db: Db): Promise<ProjectPluginRegistryRow[]> {
+  const rows = await db.select().from(plugins).orderBy(asc(plugins.slug));
+  return rows.map((row) => {
+    const parsed = pluginInventorySchema.safeParse(row.inventory);
+    const skills = parsed.success ? parsed.data.skills.map((s) => s.name) : [];
+    const hookGroups = parsed.success ? [...new Set(parsed.data.hooks.map((h) => h.key))] : [];
+    const recommended = parsed.success ? (RECOMMENDED_DISABLED_SKILLS[parsed.data.name] ?? []) : [];
+    return {
+      pluginId: row.id,
+      slug: row.slug,
+      name: row.name,
+      status: row.status,
+      skills,
+      hookGroups,
+      recommendedDisabledSkills: recommended.filter((s) => skills.includes(s)),
+    };
+  });
+}
 
 /** Abilitazioni correnti del progetto. Un plugin assente = non abilitato. */
 export async function getProjectPlugins(db: Db, projectId: string): Promise<ProjectPlugin[]> {

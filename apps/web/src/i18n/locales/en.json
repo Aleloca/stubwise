@@ -2450,7 +2450,18 @@
     "configureAuto": "Configure automatically",
     "webhookUpdated": "Webhook updated on {{url}}",
     "webhookConfigured": "Webhook configured on {{url}}",
-    "configureFailed": "Webhook configuration failed"
+    "configureFailed": "Webhook configuration failed",
+    "keyMaskedHint": "For security the full key is shown only once, right after it is regenerated. Regenerate it to copy the key, the DSN and the snippet.",
+    "keyMaskedHintReadOnly": "For security the full key is shown only once, when it is regenerated: ask whoever manages the project.",
+    "keyCreated": "Created {{date}} by {{name}}",
+    "keyCreatedAt": "Created {{date}}",
+    "regenerateKey": "Regenerate key",
+    "regenerateKeyConfirm": "Regenerate: the current key stops working now",
+    "regenerateKeyCancel": "Cancel",
+    "regenerateKeyWarning": "Every site and script using the current key stops sending until you replace it.",
+    "regenerating": "Regenerating…",
+    "keyRevealed": "This is the only time you will see the new key: copy it now.",
+    "regenerateFailed": "The key could not be regenerated. Try again."
   },
   "jobStatus": {
     "notes": {

@@ -92,7 +92,8 @@ describe("POST /api/projects", () => {
       prCorrectionMaxRounds: 3,
       // Fase 3: il progetto nasce con la chiave di ingestion (32 hex) e il
       // contatore ticket per-progetto a 1.
-      ingestionKey: expect.stringMatching(/^[0-9a-f]{32}$/),
+      // Area 9, F5 (I2): la chiave non esce da nessuna lettura, nemmeno dalla creazione.
+      ingestionKey: null,
       nextTicketNumber: 1,
       createdAt: expect.any(String),
       code: expect.stringMatching(/^[A-Z][A-Z0-9]{1,5}$/),
@@ -120,11 +121,13 @@ describe("POST /api/projects", () => {
     expect(environments[0]).toMatchObject({ name: "test", kind: "test" });
   });
 
-  it("due progetti ricevono ingestionKey diverse (uniche)", async () => {
+  it("due progetti ricevono ingestionKey diverse (uniche), che non escono dalla risposta", async () => {
     const a = await createProject({ name: "Ingest A" });
     const b = await createProject({ name: "Ingest B" });
-    const keyA = (a.json() as { ingestionKey: string }).ingestionKey;
-    const keyB = (b.json() as { ingestionKey: string }).ingestionKey;
+    expect((a.json() as { ingestionKey: unknown }).ingestionKey).toBeNull();
+    const keyOf = async (res: typeof a) => (await testDb.db.select({ k: projects.ingestionKey }).from(projects).where(eq(projects.id, (res.json() as { id: string }).id)))[0]!.k;
+    const keyA = await keyOf(a);
+    const keyB = await keyOf(b);
     expect(keyA).toMatch(/^[0-9a-f]{32}$/);
     expect(keyB).toMatch(/^[0-9a-f]{32}$/);
     expect(keyA).not.toBe(keyB);

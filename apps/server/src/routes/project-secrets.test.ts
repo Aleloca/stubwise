@@ -1,4 +1,5 @@
-import { changeLog, encrypt, gitAccounts, projects, repositories, users, type Db } from "@stubwise/db";
+import { randomUUID } from "node:crypto";
+import { changeLog, encrypt, gitAccounts, projectMembers, projects, repositories, roles, users, type Db } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { GitHubProvider, GitProviderError } from "@stubwise/git";
 import { and, eq, sql } from "drizzle-orm";
@@ -6,7 +7,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
 import { createSession, SESSION_COOKIE } from "../auth/session.js";
-import { seedUsers } from "../test/fixtures.js";
+import { fullSessionCookie, seedUsers } from "../test/fixtures.js";
 
 /** Area 9, F5, Task 3: le rigenerazioni della chiave d'ingestione e del segreto del webhook git. */
 const KEY = Buffer.alloc(32, 11);
@@ -142,3 +143,43 @@ describe("il segreto del webhook git (K-5)", () => {
   });
 });
 
+describe("l'Integrazione in lettura (I2)", () => {
+  async function member(projectId: string, preset: string) {
+    const [u] = await db.insert(users).values({ email: `i-${randomUUID().slice(0, 6)}@acme.com`, passwordHash: "x", role: "member" }).returning({ id: users.id });
+    const [r] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, preset));
+    await db.insert(projectMembers).values({ projectId, userId: u!.id, roleId: r!.id });
+    return fullSessionCookie(app, u!.id);
+  }
+  const read = (projectId: string, cookie = adminCookie) => app.inject({ method: "GET", url: `/api/projects/${projectId}/integration`, headers: { cookie } });
+
+  it("le ultime 4, MAI la chiave intera (né qui né nella vista del progetto); dopo la rigenerazione quando e da chi", async () => {
+    const { projectId } = await seedRepository(db);
+    const key = (await db.select().from(projects).where(eq(projects.id, projectId)))[0]!.ingestionKey;
+    const before = await read(projectId);
+    expect(before.statusCode).toBe(200);
+    expect(before.json()).toMatchObject({ ingestion: { last4: key.slice(-4), createdAt: null, createdBy: null, dsnBase: expect.stringMatching(/^https:\/\/s\.example\.com\/p\//) }, canRegenerateKey: true, canRegenerateWebhookSecret: true });
+    expect(before.body).not.toContain(key);
+    const view = await app.inject({ method: "GET", url: `/api/projects/${projectId}`, headers: { cookie: adminCookie } });
+    expect(view.body).not.toContain(key);
+    expect((view.json() as { ingestionKey: unknown }).ingestionKey).toBeNull();
+    const fresh = ((await post(`/api/projects/${projectId}/ingestion-key`)).json() as { ingestionKey: string }).ingestionKey;
+    const after = (await read(projectId)).json() as { ingestion: { last4: string; createdAt: string | null; createdBy: { name: string } | null } };
+    expect(after.ingestion.last4).toBe(fresh.slice(-4));
+    expect(after.ingestion.createdAt).not.toBeNull();
+    expect(after.ingestion.createdBy).not.toBeNull();
+  });
+
+  it("i webhook git (ultime 4 del segreto, l'URL, configurato) solo a chi vede i repository; i permessi calcolati dal server", async () => {
+    const { projectId, repositoryId } = await seedRepository(db);
+    await db.update(repositories).set({ webhookSecret: "b".repeat(28) + "wxyz" }).where(eq(repositories.id, repositoryId));
+    const admin = (await read(projectId)).json() as { gitWebhooks: { repositoryId: string; secretLast4: string; url: string; configured: boolean }[] };
+    expect(admin.gitWebhooks).toEqual([expect.objectContaining({ repositoryId, secretLast4: "wxyz", configured: false, url: expect.stringContaining("/webhooks/git/") })]);
+    expect(JSON.stringify(admin)).not.toContain("b".repeat(28));
+    const contributor = await read(projectId, await member(projectId, "contributor"));
+    expect(contributor.statusCode).toBe(200);
+    expect(contributor.json()).toMatchObject({ gitWebhooks: [], canRegenerateKey: false, canRegenerateWebhookSecret: false });
+    const lead = (await read(projectId, await member(projectId, "project_lead"))).json() as { gitWebhooks: unknown[]; canRegenerateKey: boolean };
+    expect(lead.canRegenerateKey).toBe(true);
+    expect(lead.gitWebhooks).toHaveLength(1);
+  });
+});
