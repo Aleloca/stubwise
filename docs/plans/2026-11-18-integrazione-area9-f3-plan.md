@@ -168,6 +168,29 @@
   plugin; parse senza i facoltativi.
 - Il web vecchio: la pagina Notifiche di oggi (H-4) e il `trust` dei plugin.
 
+### Task 8b — Le pagine d'istanza della 9b nel client
+
+*(Aggiunto il 18 nov 2026 su richiesta di 46: l'app fa tutto ciò che fa il
+sito, quindi le pagine 9b del prototipo devono potersi collegare in F3. I gesti
+li ha elencati 94; quelli che il server non ha li dichiara la parità.)*
+
+- `packages/api-client`, coi gesti che il server ha già:
+  - `aiProviders`: list, create, update (anche il nome), reorder, test, remove;
+  - `gitAccounts`: list, create, update, validate, setDefaultReviewer,
+    unsetDefaultReviewer, remove;
+  - `plugins`: list, get, register e updateRef con `trust: true`, rerunSmoke,
+    remove;
+  - `googleApps`: list (con `accountCount`), create, update, remove;
+  - `instanceSettings`: get, save (lingua, budget, archiviazione), automation,
+    saveAutomation.
+- Le forme passano dalle rotte del server a `@stubwise/shared`
+  (`instance-admin.ts`), e il server le importa: una sola copia.
+- I segreti si mandano e non tornano mai: le risposte portano solo i flag.
+- Non c'è nel server, e la parità lo dichiara: la prova dell'archiviazione,
+  l'interruttore degli allegati (derivato dalla config).
+- *Test*: url, verbo e corpo di ogni metodo; il parse SENZA i facoltativi
+  (`readerSchema`).
+
 ### Task 9 — Deploy-log, build e review
 
 - **La voce di deploy-log**: ordine **server** (0188) → **worker** (il poller
