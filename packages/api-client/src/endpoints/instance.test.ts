@@ -120,3 +120,13 @@ describe("instance.status (area 9, F4)", () => {
   });
 });
 
+describe("la coda di un progetto (area 9, F4)", () => {
+  it("pauseQueue e resumeQueue: verbi e path", async () => {
+    const { client, fetchImpl } = clientWith(null, 204);
+    await client.projects.pauseQueue("p/1");
+    expect(last(fetchImpl)).toMatchObject({ method: "POST", url: "/api/projects/p%2F1/queue/pause" });
+    await client.projects.resumeQueue("p");
+    expect(last(fetchImpl)).toMatchObject({ method: "POST", url: "/api/projects/p/queue/resume" });
+  });
+});
+
