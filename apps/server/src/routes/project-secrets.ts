@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
+import { ingestionKeyResultSchema, webhookSecretResultSchema } from "@stubwise/shared";
 import { z } from "zod";
 import { fromParam, repositoryAccess } from "../auth/project-resolvers.js";
 import { regenerateIngestionKey, regenerateWebhookSecret } from "../services/project-secrets.js";
@@ -17,7 +18,7 @@ export async function projectSecretRoutes(instance: FastifyInstance): Promise<vo
     "/projects/:projectId/ingestion-key",
     {
       config: { access: { kind: "project", permission: "project.settings.manage", project: fromParam("projectId") }, reauth: true },
-      schema: { params: z.object({ projectId: z.uuid() }), response: { 200: z.object({ ingestionKey: z.string() }), 404: roleRuleErrorSchema, ...authErrorResponses } },
+      schema: { params: z.object({ projectId: z.uuid() }), response: { 200: ingestionKeyResultSchema, 404: roleRuleErrorSchema, ...authErrorResponses } },
     },
     async (request, reply) => {
       try {
@@ -35,7 +36,7 @@ export async function projectSecretRoutes(instance: FastifyInstance): Promise<vo
       schema: {
         params: z.object({ slug: z.string().min(1) }),
         response: {
-          200: z.object({ mode: z.enum(["manual", "platform", "rollback"]), webhookSecret: z.string().optional(), platformRestored: z.boolean().optional() }),
+          200: webhookSecretResultSchema,
           400: roleRuleErrorSchema,
           404: roleRuleErrorSchema,
           422: roleRuleErrorSchema,

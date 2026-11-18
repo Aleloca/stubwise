@@ -309,3 +309,18 @@ export const putProjectPluginsSchema = z.object({
     ),
 });
 export type PutProjectPluginsInput = z.infer<typeof putProjectPluginsSchema>;
+
+/**
+ * Area 9, F5: GET e PUT delle abilitazioni di un progetto, con la versione
+ * (un'impronta dello stato) da rimandare come `ifMatch`. `version` è `null`
+ * da un server che non la manda ancora: in quel caso il client non manda
+ * `ifMatch`, e il salvataggio funziona come prima.
+ */
+export const projectPluginsViewSchema = z.object({
+  plugins: z.array(projectPluginSchema),
+  version: z.string().nullable().default(null),
+});
+export type ProjectPluginsView = z.infer<typeof projectPluginsViewSchema>;
+
+/** Il 409 `stale` del PUT: in `ApiError.details`, la versione e lo stato di adesso. */
+export const projectPluginsStaleSchema = z.object({ version: z.string(), plugins: z.array(projectPluginSchema) });

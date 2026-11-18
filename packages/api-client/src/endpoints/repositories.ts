@@ -1,6 +1,6 @@
-import { releasePipelineSchema, repositorySchema } from "@stubwise/shared";
+import { releasePipelineSchema, repositorySchema, webhookSecretResultSchema } from "@stubwise/shared";
 import { z } from "zod";
-import type { Reader, Repository } from "@stubwise/shared";
+import type { Reader, Repository, WebhookSecretResult } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
 import { seg } from "../query.js";
 
@@ -12,10 +12,12 @@ import { seg } from "../query.js";
  * `projects.get` — chiedere una seconda lista sarebbe una richiesta in più
  * per gli stessi dati.
  *
- * ⚠️ **Nessun metodo di scrittura, ed è una scelta di prodotto**: configurare
- * un repository (credenziali, webhook, comandi, grafo) si fa da un computer.
- * Chi aggiunge qui una `create`/`patch` stia aggiungendo una superficie
- * nuova, non completando questa.
+ * ⚠️ **Le scritture sono poche e nominate, ed è una scelta di prodotto**:
+ * l'app mobile non configura un repository (credenziali, webhook, comandi,
+ * grafo). Le eccezioni servono all'app desktop e hanno un metodo ciascuna:
+ * le impostazioni di rilascio (area 8) e la rigenerazione del segreto del
+ * webhook (area 9, F5). Chi aggiunge qui una `create`/`patch` generica stia
+ * aggiungendo una superficie nuova, non completando questa.
  *
  * ⚠️ **Il segreto HMAC del webhook NON è in `repositorySchema`** e non passa
  * di qui: permetterebbe di forgiare webhook di merge e forzare i ticket a
@@ -63,6 +65,16 @@ export function createRepositoriesEndpoints(request: ApiRequest) {
       },
     ): Promise<Reader<Repository>> {
       return request("PATCH", `/api/repositories/${seg(slug)}`, patch, repositorySchema);
+    },
+    /**
+     * Area 9, F5: un segreto del webhook git nuovo (`repos.manage`,
+     * riconferma). Il segreto si legge solo qui (`manual` e `platform`); con
+     * `rollback` resta il vecchio. 422 `webhook_scope_missing`, 502
+     * `platform_update_failed`: resta il vecchio. Il segreto ATTUALE non passa
+     * mai di qui (vedi sopra).
+     */
+    regenerateWebhookSecret(slug: string): Promise<Reader<WebhookSecretResult>> {
+      return request("POST", `/api/repositories/${seg(slug)}/webhook-secret`, undefined, webhookSecretResultSchema);
     },
   };
 }

@@ -1,4 +1,4 @@
-import { changeLog, encrypt, gitAccounts, repositories, type Db } from "@stubwise/db";
+import { changeLog, encrypt, gitAccounts, projectEnvironments, repositories, type Db } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { GitHubProvider, GitProviderError } from "@stubwise/git";
 import { and, eq, sql } from "drizzle-orm";
@@ -130,5 +130,13 @@ describe("ambienti e widget", () => {
     expect((await call("DELETE", `/api/projects/${projectId}/widgets/${w.id}`)).statusCode).toBe(204);
     expect(dataOf(await entries(projectId, "widget.deleted"))).toEqual([expect.objectContaining({ object: { type: "widget", id: w.id, label: "Assistenza" } })]);
     expect(JSON.stringify(await db.select().from(changeLog).where(eq(changeLog.projectId, projectId)))).not.toContain(w.key);
+  });
+
+  it("ambiente: se la voce della creazione fallisce, l'ambiente non c'è (la voce è nella transazione)", async () => {
+    const { projectId } = await seedRepository(db);
+    await failingEntry("environment.created", async () => {
+      expect((await call("POST", `/api/projects/${projectId}/environments`, { name: "mai-nato", kind: "staging" })).statusCode).toBe(500);
+    });
+    expect(await db.select().from(projectEnvironments).where(and(eq(projectEnvironments.projectId, projectId), eq(projectEnvironments.name, "mai-nato")))).toHaveLength(0);
   });
 });

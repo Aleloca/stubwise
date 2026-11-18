@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { projectPluginsStaleSchema } from "@stubwise/shared";
 import { createStubwiseClient } from "../index.js";
 
 /**
@@ -164,7 +165,7 @@ describe("area 9: le letture calcolate dell'amministrazione", () => {
 
 describe("area 9, F2: il registro delle modifiche", () => {
   it("changeLog.list / listProject / filters: path, querystring, e una voce di tipo ignoto è __unknown__", async () => {
-    const entry = { id: U1, type: "queue.paused", at: "2026-11-18T10:00:00.000Z", actor: { name: "Ada", kind: "user" }, scope: "instance", group: "queue", data: { object: { type: "x", id: "y", label: "Z" } } };
+    const entry = { id: U1, type: "future.unknown_kind", at: "2026-11-18T10:00:00.000Z", actor: { name: "Ada", kind: "user" }, scope: "instance", group: "queue", data: { object: { type: "x", id: "y", label: "Z" } } };
     const { client, fetchImpl } = clientWith({ entries: [entry] });
     const page = await client.changeLog.list({ project: "instance", group: "roles", cursor: "abc" });
     expect(call(fetchImpl).url).toBe("/api/change-log?project=instance&group=roles&cursor=abc");
@@ -176,5 +177,38 @@ describe("area 9, F2: il registro delle modifiche", () => {
     const f = clientWith({ everything: false });
     expect(await f.client.changeLog.filters(P1)).toEqual({ everything: false, people: [], projects: [], groups: [] });
     expect(call(f.fetchImpl).url).toBe(`/api/change-log/filters?project=${P1}`);
+  });
+});
+
+describe("area 9, F5 nel client", () => {
+  it("projects.regenerateIngestionKey e repositories.regenerateWebhookSecret: verbo, path, e un mode ignoto è __unknown__", async () => {
+    const k = clientWith({ ingestionKey: "k-nuova" });
+    expect(await k.client.projects.regenerateIngestionKey(P1)).toEqual({ ingestionKey: "k-nuova" });
+    expect([call(k.fetchImpl).method, call(k.fetchImpl).url]).toEqual(["POST", `/api/projects/${P1}/ingestion-key`]);
+    const w = clientWith({ mode: "rollback", platformRestored: false });
+    expect(await w.client.repositories.regenerateWebhookSecret("web/app")).toEqual({ mode: "rollback", platformRestored: false });
+    expect([call(w.fetchImpl).method, call(w.fetchImpl).url]).toEqual(["POST", "/api/repositories/web%2Fapp/webhook-secret"]);
+    expect(await clientWith({ mode: "futuro" }).client.repositories.regenerateWebhookSecret("web")).toMatchObject({ mode: "__unknown__" });
+  });
+
+  it("projects.plugins senza version (server vecchio) → null; setPlugins manda ifMatch solo se c'è", async () => {
+    const plugin = { pluginId: "50000000-0000-4000-8000-000000000001", enabled: true, disabledSkills: [], disabledHooks: [] };
+    const old = clientWith({ plugins: [plugin] });
+    expect(await old.client.projects.plugins(P1)).toEqual({ plugins: [plugin], version: null });
+    expect(call(old.fetchImpl).url).toBe(`/api/projects/${P1}/plugins`);
+    const put = clientWith({ plugins: [plugin], version: "v2" });
+    await put.client.projects.setPlugins(P1, [plugin], "v1");
+    expect(JSON.parse(String(call(put.fetchImpl).body))).toEqual({ plugins: [plugin], ifMatch: "v1" });
+    await put.client.projects.setPlugins(P1, [plugin], null);
+    expect(JSON.parse(String(call(put.fetchImpl).body))).toEqual({ plugins: [plugin] });
+    expect(call(put.fetchImpl).method).toBe("PUT");
+  });
+
+  it("il 409 stale porta versione e stato in ApiError.details", async () => {
+    const plugin = { pluginId: "50000000-0000-4000-8000-000000000001", enabled: true, disabledSkills: ["x"], disabledHooks: [] };
+    const { client } = clientWith({ code: "stale", message: "changed", version: "v3", plugins: [plugin] }, 409);
+    const err = (await client.projects.setPlugins(P1, [], "v1").catch((e: unknown) => e)) as { status: number; code: string; details: unknown };
+    expect(err).toMatchObject({ status: 409, code: "stale" });
+    expect(projectPluginsStaleSchema.parse(err.details)).toEqual({ version: "v3", plugins: [plugin] });
   });
 });

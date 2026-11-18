@@ -5121,3 +5121,59 @@ deploy o di un rollback che la tocca.
   - `instance.status.view` dato a un ruolo resta nella riga e il server
     vecchio lo ignora;
   - il registro ha un buco per il tempo del rollback (come F2 e F3).
+
+- **«Integrazione area 9, F5: impostazioni del progetto»** *(18 nov 2026)*:
+  branch `feat/area9-f5` (da `feat/integrazione-area9`), piano
+  `docs/plans/2026-11-18-integrazione-area9-f5-plan.md` (K-1…K-5 = a). Il
+  registro della 9c (29 tipi di progetto più `repository.deleted` d'istanza,
+  senza scrittore sul server), la riconferma dei file d'ambiente, le
+  rigenerazioni della chiave d'ingestione e del segreto del webhook git, i
+  plugin del progetto con la versione, la regola del pulse. **Nessuna
+  migrazione**, nessuna env nuova, nessun `notification_kind` nuovo, nessun
+  permesso nuovo. Tutte le risposte cambiate sono additive (`version` nei
+  plugin del progetto).
+
+  **ORDINE**: solo **server**. Caddy solo se nello stesso rilascio entra il
+  renderer del desktop che usa queste rotte. Worker invariato.
+
+  **Da sapere subito**:
+  - **Rigenerazioni** (riconferma):
+    `POST /api/projects/:projectId/ingestion-key` (`project.settings.manage`)
+    e `POST /api/repositories/:slug/webhook-secret` (`repos.manage`). La
+    chiave o il segreto VECCHI smettono subito: chi li usa (l'SDK nei siti, il
+    webhook su un repository configurato a mano) va avvisato PRIMA. Il
+    segreto del webhook configurato da Stubwise va prima sulla piattaforma
+    (scope controllati prima: 422 `webhook_scope_missing`; rifiuto: 502
+    `platform_update_failed`, resta il vecchio), poi nel DB. Se la scrittura
+    nel DB fallisce, il vecchio torna sulla piattaforma (`rollback`, con
+    `platformRestored`).
+  - **File d'ambiente**: importare, impostare, togliere una variabile ed
+    eliminare un file chiedono la riconferma recente (403 `reauth_required`;
+    il web vecchio la gestisce col suo dialogo). Creare un file vuoto no (D-5).
+  - **Plugin del progetto**: GET e PUT rispondono `version`; il PUT con
+    `ifMatch` vecchio risponde 409 `stale` e non scrive. Il limite v1 «una
+    persona per volta» è chiuso per chi manda `ifMatch` (l'app); il web
+    vecchio non lo manda e per lui l'ultimo salvataggio vince ancora.
+  - **Pulse**: `PATCH /api/projects/:projectId` rifiuta il pulse acceso senza
+    la discovery del backlog (400 `pulse_needs_backlog`), e spegnere la
+    discovery spegne il pulse nello stesso salvataggio. Il web vecchio già
+    disabilita la casella. I progetti che oggi hanno pulse acceso e backlog
+    spento restano così finché qualcuno non salva la discovery.
+  - **Registro**: ogni scrittura delle impostazioni del progetto (generali,
+    AI, interruttori, stati, soglie, plugin, repository, ambienti, widget,
+    file d'ambiente) lascia la sua voce nella sua transazione; mai un valore
+    di una variabile, una chiave o un segreto.
+  Controllo, sola lettura: `select type, count(*) from change_log where type
+  like 'project.%' or type like 'repository.%' or type like 'env_%' or type
+  like 'environment.%' or type like 'widget.%' group by type;`.
+
+  **Rollback** (il server scende **insieme** al caddy se il renderer è
+  salito con lui; nessuna migrazione da annullare):
+  - le rotte nuove spariscono; le chiavi e i segreti rigenerati nel
+    frattempo restano quelli VALIDI (sono nel DB), quindi non serve
+    riavvisare nessuno;
+  - il server vecchio non manda `version` dei plugin: l'app la legge `null` e
+    salva senza `ifMatch`;
+  - le voci della 9c già scritte restano; il server vecchio non le mostra
+    (legge solo i tipi che conosce, nella WHERE) e il registro ha un buco per
+    il tempo del rollback (come F2–F4).
