@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import { AiBlockLine, usePauserName, waitingText } from "../../../components/InstanceBlock";
 import { WhoCanLink } from "../../../components/WhoCanLink";
 import { aiTabsFor } from "../../../data/adminSections";
+import { isAppBuild } from "../../../data/build";
 import {
   useInstanceStatus,
   useRetryJob,
@@ -591,6 +592,7 @@ function WorkSection({ view }: { view: View }) {
               key={r.job.id}
               presence={r}
               reference={view.refreshedAt}
+              workers={view.workers}
               onRetry={() =>
                 setRetrying({
                   job: r.job,
@@ -624,16 +626,27 @@ function WorkSection({ view }: { view: View }) {
 }
 
 /** Lo stato in parole, seconda riga della riga di un lavoro. */
-function StateWords({ job, reference }: { job: Job; reference: string }) {
+function StateWords({
+  job,
+  reference,
+  workers,
+}: {
+  job: Job;
+  reference: string;
+  workers: { id: string }[];
+}) {
   const { t, i18n } = useTranslation();
+  // «Worker 2»: la posizione nell'elenco, come nella sezione Workers (F4: gli
+  // id sono gli slot del server, `<processo>:<n>`).
+  const workerNumber = (id: string) => workers.findIndex((w) => w.id === id) + 1;
   // «(deactivated)» come nella testata, nella coda e nella task (Review Focus 3).
   const pauser = usePauserName(job.waiting);
   if (job.state === "running") {
     return (
       <span className="inline-flex items-center gap-1.5 text-ink">
         <RunningGlyph />
-        {job.workerId
-          ? t("admin.status.work.state.running", { n: job.workerId.slice(-1) })
+        {job.workerId && workerNumber(job.workerId) > 0
+          ? t("admin.status.work.state.running", { n: workerNumber(job.workerId) })
           : t("admin.status.work.state.runningUnassigned")}
       </span>
     );
@@ -666,11 +679,14 @@ function StateWords({ job, reference }: { job: Job; reference: string }) {
 function JobRow({
   presence: { job, fresh, leaving },
   reference,
+  workers,
   onRetry,
   onLostFocus,
 }: {
   presence: Presence;
   reference: string;
+  /** Per il numero del worker: la sua posizione nell'elenco (gli id sono del server). */
+  workers: { id: string }[];
   onRetry: () => void;
   onLostFocus: () => void;
 }) {
@@ -727,7 +743,7 @@ function JobRow({
       <div className="flex min-w-0 flex-col gap-1.5 @min-[680px]:flex-row @min-[680px]:items-center @min-[680px]:gap-3">
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <p className="min-w-0 text-sm text-pretty">
-            <StateWords job={job} reference={reference} />
+            <StateWords job={job} reference={reference} workers={workers} />
             <span className="num float-right ml-3 text-xs text-ink-faint @min-[680px]:hidden">
               {age}
             </span>
@@ -891,7 +907,9 @@ function Workers({ view }: { view: View }) {
           );
         })}
       </ul>
-      <p className="mt-2 text-xs text-ink-faint">{t("admin.status.workers.prototype")}</p>
+      {!isAppBuild() && (
+        <p className="mt-2 text-xs text-ink-faint">{t("admin.status.workers.prototype")}</p>
+      )}
     </Part>
   );
 }

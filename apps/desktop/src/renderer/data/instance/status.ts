@@ -122,7 +122,7 @@ export interface InstanceStatusView {
   otherProjects: { running: number; waiting: number; failed: number } | null;
   jobs: InstanceJob[];
   /** ruling del controller (pre-flight): `hidden` = occupato in un progetto che chi guarda non vede, e allora `jobId` è null (R-G5). */
-  workers: { id: "worker-1" | "worker-2"; jobId: string | null; hidden: boolean }[];
+  workers: { id: string; jobId: string | null; hidden: boolean }[];
   /** Tutti gli account della catena; `quota` è `null` per una chiave API (non ha quota). */
   quota: {
     providerId: string;
