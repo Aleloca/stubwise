@@ -604,6 +604,15 @@ function RegenerateKeyDialog({
   );
 }
 
+/** I rifiuti della rigenerazione che il dialogo sa dire (area 9, F5). */
+const REFUSALS = new Set([
+  "webhook_scope_missing",
+  "platform_update_failed",
+  "webhook_rollback",
+  "webhook_split",
+  "webhook_unknown",
+]);
+
 function RegenerateSecretDialog({
   project,
   repositoryId,
@@ -628,16 +637,19 @@ function RegenerateSecretDialog({
   const [busy, setBusy] = useState(false);
   const [secret, setSecret] = useState<string | null>(null);
   const [mode, setMode] = useState<"manual" | "platform">("manual");
+  // F5: i rifiuti che solo il server dà (scope, piattaforma, rollback).
+  const [refused, setRefused] = useState<string | null>(null);
 
   async function submit() {
     if (busy) return;
     setBusy(true);
+    setRefused(null);
     await write.run(
       () =>
         reauth(() => regenerate.mutateAsync(repositoryId), {
           action: t("settings.integration.regenerateSecret.reauthAction", { name }),
         }),
-      () => undefined,
+      (reason) => setRefused(REFUSALS.has(reason) ? reason : "webhook_unknown"),
       (r) => {
         if (r.ok) {
           setSecret(r.secret);
@@ -698,6 +710,11 @@ function RegenerateSecretDialog({
                 : t("settings.integration.regenerateSecret.platformFallback"),
             })}
           </p>
+          {refused && (
+            <p role="alert" className="text-sm text-pretty text-critical">
+              {t(`settings.integration.regenerateSecret.refused.${refused}`)}
+            </p>
+          )}
           {write.message}
         </>
       )}

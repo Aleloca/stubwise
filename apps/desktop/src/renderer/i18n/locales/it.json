@@ -3268,7 +3268,14 @@
         "secretLabel": "Secret",
         "reauthAction": "creare un nuovo secret del webhook per {{name}}",
         "platform": "Già aggiornato su {{platform}}: non c'è niente da copiare.",
-        "manual": "Incollalo nelle impostazioni del webhook su {{platform}}: quello vecchio ha smesso di valere."
+        "manual": "Incollalo nelle impostazioni del webhook su {{platform}}: quello vecchio ha smesso di valere.",
+        "refused": {
+          "webhook_scope_missing": "Il token dell'account git non può gestire i webhook. Non è cambiato niente.",
+          "platform_update_failed": "La piattaforma git ha rifiutato il segreto nuovo. Quello vecchio vale ancora.",
+          "webhook_rollback": "Non è stato possibile salvare il segreto nuovo. Quello vecchio vale ancora, anche sulla piattaforma.",
+          "webhook_split": "Non è stato possibile salvare il segreto nuovo, e la piattaforma ha tenuto quello nuovo. Riprova per riallinearli.",
+          "webhook_unknown": "Non è stato possibile creare un segreto nuovo. Riprova."
+        }
       }
     },
     "plugins": {

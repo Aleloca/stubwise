@@ -538,6 +538,38 @@ describe("Integration", () => {
     expect(once.querySelector("[data-secret-value]")).toHaveTextContent(secret);
   });
 
+  // Area 9, F5: i rifiuti che solo il server dà (lo scope del token, la
+  // piattaforma che rifiuta, il rollback) si dicono nel dialogo, che resta.
+  it.each([
+    ["webhook_scope_missing", "The git account's token can't manage webhooks. Nothing changed."],
+    ["platform_update_failed", "The git platform refused the new secret. The old one still works."],
+    [
+      "webhook_rollback",
+      "Couldn't save the new secret. The old one still works, on the platform too.",
+    ],
+    [
+      "webhook_split",
+      "Couldn't save the new secret, and the platform kept the new one. Try again to line them up.",
+    ],
+    ["webhook_unknown", "Couldn't make a new secret. Try again."],
+  ])("il rifiuto %s si dice nel dialogo", async (reason, sentence) => {
+    const user = userEvent.setup();
+    await openIntegration(LAURA);
+    const hooks = await screen.findByRole("region", { name: "Git webhooks" });
+    const row = within(hooks).getByRole("listitem", { name: "portale-utenti" });
+    await user.click(within(row).getByRole("button", { name: "Regenerate secret…" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Make a new webhook secret for portale-utenti?",
+    });
+    const spy = vi
+      .spyOn(projectSettings, "regenerateWebhookSecret")
+      .mockResolvedValue({ ok: false, error: "invalid", reason } as never);
+    await user.click(within(dialog).getByRole("button", { name: "Regenerate" }));
+    expect(await within(dialog).findByText(sentence)).toBeInTheDocument();
+    expect(within(dialog).queryByTestId("secret-once")).toBeNull();
+    spy.mockRestore();
+  });
+
   it("il secret del webhook di un repository: Laura lo rigenera; Marco lo vede spento con «Who?»", async () => {
     const user = userEvent.setup();
     await openIntegration(LAURA);

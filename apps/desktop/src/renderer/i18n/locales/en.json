@@ -3268,7 +3268,14 @@
         "secretLabel": "Secret",
         "reauthAction": "make a new webhook secret for {{name}}",
         "platform": "Already updated on {{platform}}: nothing to copy.",
-        "manual": "Paste it in the webhook settings on {{platform}}: the old one stopped working."
+        "manual": "Paste it in the webhook settings on {{platform}}: the old one stopped working.",
+        "refused": {
+          "webhook_scope_missing": "The git account's token can't manage webhooks. Nothing changed.",
+          "platform_update_failed": "The git platform refused the new secret. The old one still works.",
+          "webhook_rollback": "Couldn't save the new secret. The old one still works, on the platform too.",
+          "webhook_split": "Couldn't save the new secret, and the platform kept the new one. Try again to line them up.",
+          "webhook_unknown": "Couldn't make a new secret. Try again."
+        }
       }
     },
     "plugins": {
