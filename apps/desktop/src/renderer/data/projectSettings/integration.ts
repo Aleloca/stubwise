@@ -191,11 +191,12 @@ export async function regenerateIngestionKey(
 
 /**
  * Un secret nuovo per il webhook git del repository (+R, `repos.manage`):
- * il valore esce qui e mai più; quello di prima smette di valere.
+ * il valore esce qui e mai più; quello di prima smette di valere. `mode`
+ * dice se è già sulla piattaforma o va copiato a mano.
  */
 export async function regenerateWebhookSecret(
   repositoryId: string,
-): Promise<ProjectResult<{ secret: string }>> {
+): Promise<ProjectResult<{ secret: string; mode: "manual" | "platform" }>> {
   const me = await writer("projectSettings.regenerateWebhookSecret");
   const managed = managedRepository(me, repositoryId);
   if ("refusal" in managed) return managed.refusal;
@@ -204,6 +205,9 @@ export async function regenerateWebhookSecret(
 
   const { repository: r, project } = managed;
   const webhook = r.webhook ?? notConfiguredWebhook();
+  // Come il server (F5): se il webhook l'ha configurato Stubwise, il segreto
+  // nuovo va anche sulla piattaforma («platform»); altrimenti si copia a mano.
+  const mode = webhook.state === "configured" ? "platform" : "manual";
   if (webhook.secretId) forgetSecret(webhook.secretId);
   const secret = storeSecret("git_webhook_secret", r.id);
   webhook.secretId = secret.id;
@@ -215,5 +219,5 @@ export async function regenerateWebhookSecret(
     projectId: project.id,
     object: repositoryObject(r),
   });
-  return { ok: true, secret: secret.value };
+  return { ok: true, secret: secret.value, mode };
 }

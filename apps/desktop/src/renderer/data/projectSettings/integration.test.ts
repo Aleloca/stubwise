@@ -187,6 +187,25 @@ describe("la rigenerazione del secret del webhook git", () => {
     });
   });
 
+  it("il modo, come il server (F5): «platform» se il webhook l'ha configurato Stubwise, altrimenti «manual»", async () => {
+    as(LAURA);
+    markReauthenticated(LAURA);
+    const repo = state.repositories.find((r) => r.id === "repo-acq")!;
+    repo.webhook = {
+      ...(repo.webhook ?? { configuredAt: null, secretId: null, last4: null }),
+      state: "configured",
+    };
+    expect(await projectSettings.regenerateWebhookSecret("repo-acq")).toMatchObject({
+      ok: true,
+      mode: "platform",
+    });
+    repo.webhook = { ...repo.webhook!, state: "not_configured" };
+    expect(await projectSettings.regenerateWebhookSecret("repo-acq")).toMatchObject({
+      ok: true,
+      mode: "manual",
+    });
+  });
+
   it("con repos.manage senza project.settings.manage si rigenera il secret, non la chiave", async () => {
     as(SARA);
     grantProjectPermission(SARA, ACQ, "repos.manage" as never);

@@ -3266,7 +3266,9 @@
         "platformFallback": "The git platform",
         "secretTitle": "This secret is shown only now.",
         "secretLabel": "Secret",
-        "reauthAction": "make a new webhook secret for {{name}}"
+        "reauthAction": "make a new webhook secret for {{name}}",
+        "platform": "Already updated on {{platform}}: nothing to copy.",
+        "manual": "Paste it in the webhook settings on {{platform}}: the old one stopped working."
       }
     },
     "plugins": {

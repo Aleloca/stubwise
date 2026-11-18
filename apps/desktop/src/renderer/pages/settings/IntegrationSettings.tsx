@@ -627,6 +627,7 @@ function RegenerateSecretDialog({
   )?.provider;
   const [busy, setBusy] = useState(false);
   const [secret, setSecret] = useState<string | null>(null);
+  const [mode, setMode] = useState<"manual" | "platform">("manual");
 
   async function submit() {
     if (busy) return;
@@ -638,7 +639,10 @@ function RegenerateSecretDialog({
         }),
       () => undefined,
       (r) => {
-        if (r.ok) setSecret(r.secret);
+        if (r.ok) {
+          setSecret(r.secret);
+          setMode(r.mode ?? "manual");
+        }
       },
     );
     setBusy(false);
@@ -675,7 +679,16 @@ function RegenerateSecretDialog({
           label={t("settings.integration.regenerateSecret.secretLabel")}
           value={secret}
           onDone={onClose}
-        />
+        >
+          {/* F5: già sulla piattaforma, o da copiare a mano. */}
+          <p className="text-sm text-pretty text-ink-muted">
+            {t(`settings.integration.regenerateSecret.${mode}`, {
+              platform: provider
+                ? t(`settings.repos.platforms.${provider}`)
+                : t("settings.integration.regenerateSecret.platformFallback"),
+            })}
+          </p>
+        </SecretOnce>
       ) : (
         <>
           <p className="text-sm text-pretty text-ink">
