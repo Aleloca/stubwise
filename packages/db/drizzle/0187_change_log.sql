@@ -33,11 +33,14 @@ CREATE INDEX "change_log_actor_at_idx" ON "change_log" USING btree ("actor_user_
 CREATE INDEX "change_log_type_at_idx" ON "change_log" USING btree ("type", "at" DESC);
 --> statement-breakpoint
 -- Solo in aggiunta. Un UPDATE passa SOLO se l'unico cambio è il riferimento
--- all'attore o al progetto che va a NULL: sono le `ON DELETE SET NULL` delle
--- due FK, che Postgres esegue come UPDATE.
+-- all'attore o al progetto che va a NULL E viene dall'azione della FK (le
+-- `ON DELETE SET NULL`, che Postgres esegue come UPDATE annidato in un suo
+-- trigger: `pg_trigger_depth() > 1`). Un UPDATE a mano che azzera attore o
+-- progetto per nascondere chi ha agito si rifiuta come gli altri.
 CREATE FUNCTION "change_log_append_only"() RETURNS trigger AS $$
 BEGIN
 	IF TG_OP = 'UPDATE'
+		AND pg_trigger_depth() > 1
 		AND (NEW."id", NEW."at", NEW."actor_email", NEW."actor_kind", NEW."type", NEW."subject_kind", NEW."subject_id", NEW."data")
 			IS NOT DISTINCT FROM (OLD."id", OLD."at", OLD."actor_email", OLD."actor_kind", OLD."type", OLD."subject_kind", OLD."subject_id", OLD."data")
 		AND (NEW."actor_user_id" IS NOT DISTINCT FROM OLD."actor_user_id" OR NEW."actor_user_id" IS NULL)

@@ -65,12 +65,18 @@ export function forbiddenChangeLogKeys(source: string): string[] {
       if (c === "(") depth++;
       else if (c === ")" && --depth === 0) break;
     }
-    const call = source.slice(at, end + 1);
-    for (const m of call.matchAll(/([A-Za-z_$][\w$]*)\s*:/g)) {
-      const key = m[1]!;
-      if (key !== "keyLast4" && /secret|token|password|key/i.test(key)) found.push(key);
-    }
+    found.push(...forbiddenKeysIn(source.slice(at, end + 1)));
     at = source.indexOf("recordChange(", end);
+  }
+  return found;
+}
+
+/** Le chiavi proibite in un pezzo di sorgente qualunque (un helper che costruisce `data`). */
+export function forbiddenKeysIn(text: string): string[] {
+  const found: string[] = [];
+  for (const m of text.matchAll(/([A-Za-z_$][\w$]*)\s*:/g)) {
+    const key = m[1]!;
+    if (key !== "keyLast4" && /secret|token|password|key/i.test(key)) found.push(key);
   }
   return found;
 }

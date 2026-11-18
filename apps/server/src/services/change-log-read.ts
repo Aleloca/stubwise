@@ -1,0 +1,260 @@
+import { changeLog, departments, projects, roles, users, type Db } from "@stubwise/db";
+import {
+  CHANGE_LOG_TYPES,
+  changeLogTypeOf,
+  type ChangeEntry,
+  type ChangeLogFilters,
+  type ChangeLogPage,
+  type ChangeLogType,
+} from "@stubwise/shared";
+import { and, asc, desc, eq, gte, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
+import { projectPermissionsFor, projectPermissionsMap } from "../auth/access.js";
+import type { SessionUser } from "../auth/session.js";
+import { adminVisiblePersonIds } from "./admin-people.js";
+import { RoleRuleError } from "./roles.js";
+
+/**
+ * Area 9, F2 (D-3; docs/invariants/change-log.md, «La lettura è filtrata
+ * nella WHERE»): chi legge cosa, in UN posto, SEMPRE nella WHERE e prima della
+ * paginazione (G-3 = a, la regola del prototipo):
+ * - una voce d'istanza: `changelog.view`, oppure il `readPermission` del suo
+ *   tipo (chi gestisce l'oggetto);
+ * - una voce di progetto: il progetto è visibile, E chi guarda ha
+ *   `changelog.view`, oppure gestisce il progetto (`project.settings.manage`
+ *   o `project.members.manage`), oppure ha lì il `readPermission` del tipo;
+ * - una voce che parla di una PERSONA che chi guarda non vede non esiste per
+ *   lui; dai `params` che elencano persone si tolgono quelle che non vede, e
+ *   dai progetti di un invito quelli che non vede.
+ * Il server non compone prosa (G-4 = a).
+ */
+
+type Viewer = Pick<SessionUser, "id" | "instancePermissions">;
+
+/** I permessi di progetto di chi guarda, per ogni progetto che vede (la regola di `/api/auth/me`). */
+async function projectPermissionsMapFor(db: Db, viewer: Viewer): Promise<Map<string, ReadonlySet<string>>> {
+  return new Map(Object.entries(await projectPermissionsMap(db, viewer)).map(([id, perms]) => [id, new Set<string>(perms)]));
+}
+export const PAGE_SIZE = 50;
+const MANAGE_PROJECT = ["project.settings.manage", "project.members.manage"] as const;
+const PERSON_SUBJECTS = new Set(["person", "member"]);
+
+export interface ChangeLogFilter {
+  person?: string;
+  /** Un progetto, o `"instance"` per le sole voci d'istanza. */
+  project?: string;
+  type?: string;
+  group?: string;
+  from?: string;
+  to?: string;
+  withinDays?: number;
+  cursor?: string;
+}
+
+interface Readable {
+  where: SQL;
+  readableProjects: string[];
+  instanceTypes: ChangeLogType[];
+  visiblePeople: "all" | string[];
+}
+
+/** La condizione di lettura di chi guarda: il cuore della regola. */
+async function readableBy(db: Db, viewer: Viewer): Promise<Readable> {
+  const instance = viewer.instancePermissions;
+  const everything = instance.has("changelog.view") || instance.has("instance.full_admin");
+  const instanceTypes = CHANGE_LOG_TYPES.filter((t) => t.scope === "instance" && (everything || instance.has(t.readPermission as never)));
+  const perProject = await projectPermissionsMapFor(db, viewer);
+  const projectTypes = CHANGE_LOG_TYPES.filter((t) => t.scope === "project");
+  const branches: SQL[] = [];
+  if (instanceTypes.length) {
+    branches.push(and(isNull(changeLog.projectId), inArray(changeLog.type, instanceTypes.map((t) => t.kind)))!);
+  }
+  const fullProjects: string[] = [];
+  const byType = new Map<string, string[]>();
+  for (const [projectId, held] of perProject) {
+    if (everything || MANAGE_PROJECT.some((p) => held.has(p))) {
+      fullProjects.push(projectId);
+      continue;
+    }
+    for (const t of projectTypes) if (held.has(t.readPermission as never)) byType.set(t.kind, [...(byType.get(t.kind) ?? []), projectId]);
+  }
+  if (fullProjects.length) branches.push(and(inArray(changeLog.projectId, fullProjects), inArray(changeLog.type, projectTypes.map((t) => t.kind)))!);
+  for (const [kind, ids] of byType) branches.push(and(eq(changeLog.type, kind), inArray(changeLog.projectId, ids))!);
+  const visiblePeople = await adminVisiblePersonIds(db, viewer);
+  // Review di F2 (I2): la guardia sulle PERSONE vale per le voci d'istanza su
+  // una persona (`person.*`). Una voce di progetto (`member.*`) la protegge già
+  // la visibilità del progetto: chi lo gestisce legge anche chi ne è uscito.
+  const personTypes = CHANGE_LOG_TYPES.filter((t) => t.kind.startsWith("person.")).map((t) => t.kind);
+  const peopleGuard: SQL | undefined =
+    visiblePeople === "all"
+      ? undefined
+      : or(sql`not (${inArray(changeLog.type, personTypes)})`, visiblePeople.length ? inArray(changeLog.subjectId, visiblePeople) : sql`false`);
+  const where = branches.length ? and(or(...branches)!, peopleGuard)! : sql`false`;
+  return { where, readableProjects: [...perProject.keys()], instanceTypes, visiblePeople };
+}
+
+/**
+ * Il cursore è l'id dell'ultima voce della pagina: il confronto si fa sulla
+ * tupla (`at`, `id`) letta DAL DB, perché `at` ha i microsecondi e un `Date`
+ * del JS no (le voci di una stessa transazione hanno lo stesso `at`).
+ */
+const encodeCursor = (id: string) => Buffer.from(id).toString("base64url");
+function decodeCursor(cursor: string): string | null {
+  const id = Buffer.from(cursor, "base64url").toString();
+  return /^[0-9a-f-]{36}$/i.test(id) ? id : null;
+}
+
+function filterWhere(filter: ChangeLogFilter): SQL[] {
+  const out: SQL[] = [];
+  if (filter.person) out.push(eq(changeLog.actorUserId, filter.person));
+  if (filter.project === "instance") out.push(isNull(changeLog.projectId));
+  else if (filter.project) out.push(eq(changeLog.projectId, filter.project));
+  if (filter.type) out.push(eq(changeLog.type, filter.type));
+  if (filter.group) {
+    const kinds = CHANGE_LOG_TYPES.filter((t) => t.group === filter.group).map((t) => t.kind);
+    out.push(kinds.length ? inArray(changeLog.type, kinds) : sql`false`);
+  }
+  if (filter.from) out.push(gte(changeLog.at, new Date(filter.from)));
+  if (filter.to) out.push(lte(changeLog.at, new Date(filter.to)));
+  if (filter.withinDays !== undefined) out.push(gte(changeLog.at, new Date(Date.now() - filter.withinDays * 86_400_000)));
+  if (filter.cursor) {
+    const id = decodeCursor(filter.cursor);
+    if (!id) throw new RoleRuleError(400, "invalid_cursor", "Invalid cursor");
+    out.push(sql`(${changeLog.at}, ${changeLog.id}) < (select c.at, c.id from ${changeLog} c where c.id = ${id}::uuid)`);
+  }
+  return out;
+}
+
+export async function listChanges(db: Db, viewer: Viewer, filter: ChangeLogFilter): Promise<ChangeLogPage> {
+  const readable = await readableBy(db, viewer);
+  const rows = await db
+    .select({
+      id: changeLog.id,
+      at: changeLog.at,
+      actorUserId: changeLog.actorUserId,
+      actorEmail: changeLog.actorEmail,
+      actorKind: changeLog.actorKind,
+      actorName: users.displayName,
+      type: changeLog.type,
+      projectId: changeLog.projectId,
+      projectCode: projects.code,
+      subjectKind: changeLog.subjectKind,
+      subjectId: changeLog.subjectId,
+      data: changeLog.data,
+    })
+    .from(changeLog)
+    .leftJoin(users, eq(users.id, changeLog.actorUserId))
+    .leftJoin(projects, eq(projects.id, changeLog.projectId))
+    .where(and(readable.where, ...filterWhere(filter)))
+    .orderBy(desc(changeLog.at), desc(changeLog.id))
+    .limit(PAGE_SIZE + 1);
+  const page = rows.slice(0, PAGE_SIZE);
+  const existing = await existingObjects(db, page);
+  const visibleCodes = new Set(
+    readable.readableProjects.length
+      ? (await db.select({ code: projects.code }).from(projects).where(inArray(projects.id, readable.readableProjects))).map((p) => p.code)
+      : [],
+  );
+  const allProjectsVisible = viewer.instancePermissions.has("instance.full_admin");
+  const entries: ChangeEntry[] = page.map((r) => {
+    const type = changeLogTypeOf(r.type)!;
+    const data = r.data as ChangeEntry["data"];
+    return {
+      id: r.id,
+      type: r.type as ChangeEntry["type"],
+      at: r.at.toISOString(),
+      actor: {
+        id: r.actorUserId,
+        name: r.actorKind === "system" ? "Stubwise" : (r.actorName ?? r.actorEmail.split("@")[0]!),
+        kind: r.actorKind,
+      },
+      projectId: r.projectId,
+      projectCode: r.projectCode,
+      scope: type.scope,
+      group: type.group,
+      data: redact(r.type, data, readable.visiblePeople, allProjectsVisible ? null : visibleCodes),
+      objectDeleted: !existing.has(`${r.subjectKind}:${r.subjectId}`),
+    };
+  });
+  const last = page.at(-1);
+  return { entries, nextCursor: rows.length > PAGE_SIZE && last ? encodeCursor(last.id) : null };
+}
+
+/**
+ * Le persone e i progetti che chi guarda non vede escono dai `params`: dalle
+ * liste di un reparto (id e nomi in parallelo) e dai progetti di un invito
+ * («CODICE · Ruolo»). Il conteggio non li tradisce: si tolgono, non si contano.
+ */
+/** I tipi i cui `added`/`removed` sono PERSONE (negli altri sono chiavi, es. i permessi di un ruolo). */
+const PEOPLE_LIST_TYPES: ReadonlySet<string> = new Set(["department.members_changed", "department.home_managers_changed"]);
+
+function redact(type: string, data: ChangeEntry["data"], people: "all" | string[], codes: Set<string> | null): ChangeEntry["data"] {
+  const params = { ...(data.params ?? {}) };
+  if (people !== "all" && PEOPLE_LIST_TYPES.has(type)) {
+    for (const side of ["added", "removed"] as const) {
+      const ids = params[side];
+      const names = params[`${side}Names`];
+      if (!Array.isArray(ids)) continue;
+      const keep = ids.map((id, i) => ({ id, name: Array.isArray(names) ? names[i] : undefined })).filter((p) => people.includes(p.id));
+      params[side] = keep.map((p) => p.id);
+      if (Array.isArray(names)) params[`${side}Names`] = keep.map((p) => p.name ?? "");
+    }
+  }
+  if (codes && Array.isArray(params.projects)) {
+    params.projects = params.projects.filter((p) => codes.has(p.split(" · ")[0] ?? ""));
+  }
+  return { ...data, params };
+}
+
+/** Quali oggetti esistono ancora: ruoli, reparti, persone (`objectDeleted`). */
+async function existingObjects(db: Db, rows: { subjectKind: string; subjectId: string }[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  const ids = (kind: string) => [...new Set(rows.filter((r) => r.subjectKind === kind).map((r) => r.subjectId))];
+  const uuidish = (xs: string[]) => xs.filter((x) => /^[0-9a-f-]{36}$/i.test(x));
+  const r = uuidish(ids("role"));
+  if (r.length) for (const x of await db.select({ id: roles.id }).from(roles).where(inArray(roles.id, r))) out.add(`role:${x.id}`);
+  const d = uuidish(ids("department"));
+  if (d.length) for (const x of await db.select({ id: departments.id }).from(departments).where(inArray(departments.id, d))) out.add(`department:${x.id}`);
+  for (const kind of PERSON_SUBJECTS) {
+    const p = uuidish(ids(kind));
+    if (p.length) for (const x of await db.select({ id: users.id }).from(users).where(inArray(users.id, p))) out.add(`${kind}:${x.id}`);
+  }
+  // Gli inviti e il resto non si eliminano come oggetto da aprire: restano «presenti».
+  for (const row of rows) if (!["role", "department", ...PERSON_SUBJECTS].includes(row.subjectKind)) out.add(`${row.subjectKind}:${row.subjectId}`);
+  return out;
+}
+
+/** `GET /api/projects/:projectId/change-log`: invisibile → 404 (lo fa la rotta), senza gestione → 403. */
+export async function listProjectChanges(db: Db, viewer: Viewer, projectId: string, filter: Omit<ChangeLogFilter, "project">): Promise<ChangeLogPage> {
+  const held = await projectPermissionsFor(db, viewer, projectId);
+  if (!held) throw new RoleRuleError(404, "not_found", "Project not found");
+  if (!MANAGE_PROJECT.some((p) => held.has(p))) throw new RoleRuleError(403, "forbidden", "Missing permission");
+  return listChanges(db, viewer, { ...filter, project: projectId });
+}
+
+/** `GET /api/change-log/filters`: le persone e i progetti visibili, i gruppi che si leggono. */
+export async function changeLogFilters(db: Db, viewer: Viewer, projectId?: string): Promise<ChangeLogFilters> {
+  const readable = await readableBy(db, viewer);
+  if (projectId && !readable.readableProjects.includes(projectId)) throw new RoleRuleError(404, "not_found", "Project not found");
+  const people = await db
+    .select({ id: users.id, email: users.email, displayName: users.displayName })
+    .from(users)
+    .where(and(eq(users.isAgent, false), ...(readable.visiblePeople === "all" ? [] : [readable.visiblePeople.length ? inArray(users.id, readable.visiblePeople) : sql`false`])))
+    .orderBy(asc(users.email));
+  const list = readable.readableProjects.length
+    ? await db.select({ id: projects.id, code: projects.code, name: projects.name }).from(projects).where(inArray(projects.id, readable.readableProjects)).orderBy(asc(projects.code))
+    : [];
+  const perProject = await projectPermissionsMapFor(db, viewer);
+  const everything = viewer.instancePermissions.has("changelog.view") || viewer.instancePermissions.has("instance.full_admin");
+  const projectReadable = [...perProject].some(([id, held]) => (!projectId || id === projectId) && (everything || MANAGE_PROJECT.some((p) => held.has(p))));
+  const groups = new Set<string>([
+    ...(projectId ? [] : readable.instanceTypes.map((t) => t.group)),
+    ...(projectReadable ? CHANGE_LOG_TYPES.filter((t) => t.scope === "project").map((t) => t.group) : []),
+  ]);
+  return {
+    everything,
+    people: people.map((p) => ({ personId: p.id, name: p.displayName ?? p.email.split("@")[0]! })),
+    projects: list.map((p) => ({ projectId: p.id, code: p.code, name: p.name })),
+    groups: [...groups],
+  };
+}
+

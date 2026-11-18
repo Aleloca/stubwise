@@ -4941,3 +4941,41 @@ deploy o di un rollback che la tocca.
   - Un cambio dell'email in attesa resta in `email_changes`: il server
     vecchio non ha la rotta di conferma, quindi il link non funziona finché
     non si torna avanti.
+- **«Integrazione area 9, F2: il registro delle modifiche»** *(18 nov 2026)*:
+  branch `feat/area9-f2` (da `feat/integrazione-area9`, con F1 unita), piano
+  `docs/plans/2026-11-16-integrazione-area9-f2-plan.md`, invariante
+  `docs/invariants/change-log.md`. Un registro tipizzato delle modifiche
+  d'amministrazione, scritto nella transazione di ogni modifica e tenuto PER
+  SEMPRE (D-3, D-4): persone, inviti e primo avvio, ruoli, reparti, membri dei
+  progetti. Migrazione **0187** (additiva: `change_log`, quattro indici, il
+  trigger solo-aggiunta). Permesso d'istanza nuovo `changelog.view`, senza
+  preset (il full admin l'ha implicito). Nessuna env nuova; il worker non
+  cambia.
+
+  **ORDINE**: **server** (healthy, 0187 applicata), poi **caddy** (le pagine
+  Change log del renderer).
+
+  **Da sapere subito**:
+  - Il registro parte dal deploy: le modifiche di prima non ci sono e non si
+    ricostruiscono.
+  - Non si modifica né si cancella: un trigger rifiuta UPDATE, DELETE e
+    TRUNCATE (passano solo le `SET NULL` quando si elimina un utente o un
+    progetto). Nessun job lo pota.
+  - Chi legge: chi ha `changelog.view` tutto ciò che vede; chi gestisce un
+    oggetto le voci di quel tipo (es. `users.manage` le persone,
+    `roles.manage` i ruoli); chi gestisce un progetto le voci del progetto.
+    Mai le voci su persone o progetti che chi guarda non vede.
+  - Mai un segreto in una voce (un test di sorgente lo verifica): degli
+    inviti l'id è opaco, il token non entra.
+  - Qualche scrittura prima senza transazione ora lo è: identità git e
+    Bitbucket, revoca degli inviti, creazione di un ruolo, la rimozione dei
+    Contributor quando la conferma di una proposta della posta non riesce.
+  Controllo, sola lettura: `select type, count(*) from change_log group by
+  type order by 2 desc;`.
+
+  **Rollback** (il server scende **insieme** al caddy; 0187 non si annulla, e
+  la tabella resta: D-4): un server vecchio non scrive voci, quindi il registro
+  ha un BUCO per il tempo del rollback — annotarne inizio e fine. Il trigger
+  resta e non disturba il codice di prima (che non tocca la tabella).
+  `changelog.view` dato a un ruolo resta nella riga del ruolo e il server
+  vecchio lo ignora. Nessun `notification_kind` nuovo.

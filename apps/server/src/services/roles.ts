@@ -233,6 +233,13 @@ export async function heldForProjectRole(
   actor: Actor,
   roleId: string | null,
 ): Promise<Set<string>> {
+  const byProject = await actorProjectPermissions(db, actor);
+  const assigned = roleId ? await projectsOfRole(db, roleId) : [];
+  return heldOver(byProject, assigned);
+}
+
+/** I permessi di progetto di chi agisce, progetto per progetto (ruolo ∪ personali). */
+export async function actorProjectPermissions(db: DbOrTx, actor: Actor): Promise<Map<string, Set<string>>> {
   const mine = await db
     .select({
       projectId: projectMembers.projectId,
@@ -241,26 +248,27 @@ export async function heldForProjectRole(
     .from(projectMembers)
     .innerJoin(roles, eq(roles.id, projectMembers.roleId))
     .where(eq(projectMembers.userId, actor.id));
-  const byProject = new Map(mine.map((m) => [m.projectId, new Set(m.permissions)]));
-  const assigned = roleId
-    ? [
-        ...new Set([
-          ...(
-            await db
-              .selectDistinct({ projectId: projectMembers.projectId })
-              .from(projectMembers)
-              .where(eq(projectMembers.roleId, roleId))
-          ).map((r) => r.projectId),
-          ...(
-            await db
-              .selectDistinct({ projectId: inviteProjects.projectId })
-              .from(inviteProjects)
-              .where(eq(inviteProjects.roleId, roleId))
-          ).map((r) => r.projectId),
-        ]),
-      ]
-    : [];
-  if (assigned.length === 0) return new Set(mine.flatMap((m) => m.permissions));
+  return new Map(mine.map((m) => [m.projectId, new Set(m.permissions)]));
+}
+
+/** I progetti dove un ruolo è assegnato O promesso da un invito pendente. */
+async function projectsOfRole(db: DbOrTx, roleId: string): Promise<string[]> {
+  return [
+    ...new Set([
+      ...(await db.selectDistinct({ projectId: projectMembers.projectId }).from(projectMembers).where(eq(projectMembers.roleId, roleId))).map((r) => r.projectId),
+      ...(await db.selectDistinct({ projectId: inviteProjects.projectId }).from(inviteProjects).where(eq(inviteProjects.roleId, roleId))).map((r) => r.projectId),
+    ]),
+  ];
+}
+
+/**
+ * La regola di {@link heldForProjectRole}, pura: i permessi tenuti in OGNI
+ * progetto dove il ruolo vale; un ruolo che non vale da nessuna parte vuole i
+ * permessi di almeno un progetto. Le letture calcolate la chiamano con i dati
+ * già caricati (niente query per ruolo).
+ */
+export function heldOver(byProject: ReadonlyMap<string, ReadonlySet<string>>, assigned: readonly string[]): Set<string> {
+  if (assigned.length === 0) return new Set([...byProject.values()].flatMap((p) => [...p]));
   const [first, ...rest] = assigned.map((p) => byProject.get(p) ?? new Set<string>());
   return new Set([...first!].filter((p) => rest.every((there) => there.has(p))));
 }

@@ -1202,6 +1202,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Trasversali
 
+- **`affectedCount` dei ruoli conta anche chi chi guarda non vede** *(S,
+  accettato, review di F1, 18 nov 2026)*: in `GET /api/admin/roles` è un
+  NUMERO («salvare cambia ciò che possono fare N persone»), non nomina
+  nessuno, e serve proprio perché la modifica tocca anche progetti che chi
+  guarda non vede; `holders` resta coi soli visibili. È il comportamento del
+  prototipo (`RoleView.affectedCount`).
 - **Il token degli inviti in chiaro in `GET /api/auth/invites`** *(S, 94 e
   72, 16 nov 2026)*: il token è il segreto della registrazione, ma quella
   rotta lo dà a chiunque abbia `users.invite` (lo usa la pagina Team del web
