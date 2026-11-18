@@ -180,6 +180,7 @@ describe("isIntegrated", () => {
         // Area 9, F3: la voce AI, scheda per scheda (le schede in \`feature\`).
         "admin:ai",
         "feature:ai-automation",
+        "feature:ai-providers",
         "taskView:list",
         "taskView:board",
         "feature:notifications",

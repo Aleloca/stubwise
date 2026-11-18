@@ -119,6 +119,7 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Le caselle Google (`prefs-mailboxes`) restano nel cassetto Google.
     // Area 9, F3: le schede della voce AI accese (`AiPage`).
     "ai-automation",
+    "ai-providers",
     "prefs-account",
     // Area 9, F1, R4b: Preferenze → Security (sul desktop le passkey restano del browser).
     "prefs-security",

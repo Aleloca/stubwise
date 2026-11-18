@@ -22,7 +22,8 @@ import { inputClass } from "../tasks-ui/Dialog";
 // sotto: non viene ricaricato da nessuna parte.
 
 /** «•••• 7f3a»: la sola forma in cui un segreto salvato si mostra. */
-export const maskedSecret = (last4: string): string => `•••• ${last4}`;
+/** «•••• 9e2b»; senza le ultime 4 (un segreto corto, o salvato prima che il server le tenesse) «••••». */
+export const maskedSecret = (last4: string): string => (last4 ? `•••• ${last4}` : "••••");
 
 /** Il campo password con Show/Hide e la riga sotto: il pezzo che scrive. */
 export function SecretInput({

@@ -151,6 +151,15 @@ const INTEGRATED_CALLS = new Set([
   "admin.updateRole",
   "admin.deleteRole",
   "admin.viewerLosesIf",
+  // Area 9, F3: AI → Providers.
+  "instance.listProviders",
+  "instance.createProvider",
+  "instance.renameProvider",
+  "instance.setProviderEnabled",
+  "instance.moveProvider",
+  "instance.testProvider",
+  "instance.replaceProviderCredential",
+  "instance.deleteProvider",
   // Area 9, F3: AI → Automation.
   "instance.getAutomation",
   "instance.saveAutomation",
@@ -831,6 +840,19 @@ describe("aree non integrate nella build app", () => {
     expect(await screen.findByRole("heading", { level: 1, name: title })).toBeInTheDocument();
     await settle();
     expect(screen.queryByText(/Coming soon/)).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F3: AI → Providers acceso, sulle rotte dell'8c di 72; senza il
+  // riquadro «Prototype only» (l'esito della prossima prova è del prototipo).
+  it("aprire AI → Providers legge solo chiamate integrate, senza riquadro del prototipo", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/ai?tab=providers");
+    await waitFor(() => expect(calls).toContain("instance.listProviders"));
+    expect(await screen.findByRole("list", { name: "AI accounts" })).toBeInTheDocument();
+    await settle();
+    expect(document.querySelector("[data-coming-soon]")).toBeNull();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
     expect(outside()).toEqual([]);
   });
 

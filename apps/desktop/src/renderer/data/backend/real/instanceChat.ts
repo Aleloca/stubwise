@@ -1,6 +1,7 @@
 import type * as Fake from "../../api";
 import { chatAiBlock } from "./claudeChat";
 import { partialNamespace } from "./notIntegrated";
+import { liveProviders } from "./aiProviders";
 import { liveAutomation } from "./automation";
 import { liveWebhooks } from "./webhooks";
 
@@ -14,4 +15,6 @@ export const instance: typeof Fake.instance = partialNamespace<typeof Fake.insta
   ...liveWebhooks,
   // Area 9, F3: AI → Automation.
   ...liveAutomation,
+  // Area 9, F3: AI → Providers (8c di 72).
+  ...liveProviders,
 });

@@ -11,6 +11,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-
 import { useEffect, useId, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { SecretInput, maskedSecret } from "../../../components/SecretField";
+import { isAppBuild } from "../../../data/build";
 import { now } from "../../../data/dates";
 import {
   BACKGROUND_WEEKLY_THRESHOLD,
@@ -244,7 +245,8 @@ export function ProvidersPanel({ canWrite }: { canWrite: boolean }) {
         </QuietNote>
         {subscriptions >= 2 && <QuietNote>{t("admin.ai.providers.terms")}</QuietNote>}
       </div>
-      {canWrite && list.length > 0 && <NextTestBox providers={list} />}
+      {/* L'esito della prossima prova si sceglie solo nel prototipo. */}
+      {canWrite && list.length > 0 && !isAppBuild() && <NextTestBox providers={list} />}
       {adding && (
         <AddProviderDialog
           count={total}

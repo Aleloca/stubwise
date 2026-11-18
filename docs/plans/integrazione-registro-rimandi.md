@@ -1202,6 +1202,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - il server non ricorda l'ultima prova di un webhook (`POST …/test` dice
     solo com'è andata): l'app la tiene per la sessione, e ricaricando torna
     «not tested yet» *(S, serve `lastTest` nella vista del server)*;
+  - AI → Providers: la prova la fa il worker (si rilegge finché non è più
+    `pending`, al più ~60 s, poi «prova ancora in corso»); `failed` non
+    distingue la credenziale sbagliata dalla rete e si dice «credenziale
+    non valida»; le credenziali salvate prima della 0190 non hanno le
+    ultime 4 («••••»); la riga della quota la vede solo chi ha
+    `usage.view` *(dichiarato; S per distinguere l'errore di rete)*;
+  - AI → Automation: le regole di `feedback` e `review` non si modificano
+    nell'app (la pagina ha le tre righe delle task) e si rimandano com'erano
+    *(S, se servono due righe in più)*;
   - «Load more» del registro e «Undid…» (area 10a, F7): la data della riga
     porta alla voce annullata solo se è fra le pagine già lette *(S, da
     rivedere con F7)*.
