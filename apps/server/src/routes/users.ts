@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { requireBrowserOrConfirmedDesktop } from "../auth/access.js";
+import { projectPermissionsFor, requireBrowserOrConfirmedDesktop } from "../auth/access.js";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -16,7 +16,7 @@ import { apiError } from "../errors.js";
 import { publicUrlOrUndefined } from "../ingest/shared.js";
 import { securityEventsResponseSchema, updateInstanceRoleSchema } from "@stubwise/shared";
 import { userIsFullAdmin } from "@stubwise/notifications";
-import { setInstanceRole } from "../services/roles.js";
+import { RoleRuleError, setInstanceRole } from "../services/roles.js";
 import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
 import { deactivateUser, reactivateUser } from "../services/user-deactivation.js";
 import { avatarUrlsFor } from "../services/avatars.js";
@@ -394,6 +394,13 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
         await deactivateUser(app.db, request.user!, request.params.id, request.body.reassign ?? {});
         return reply.code(204).send(null);
       } catch (error) {
+        // Review (M5): il progetto che resterebbe senza gestori si nomina solo a
+        // chi lo vede (R-G5); agli altri il 409 senza `projectId`.
+        if (error instanceof RoleRuleError && error.code === "last_manager" && typeof error.extra?.projectId === "string") {
+          if ((await projectPermissionsFor(app.db, request.user!, error.extra.projectId)) === null) {
+            return sendRoleRuleError(reply, new RoleRuleError(409, "last_manager", error.message));
+          }
+        }
         return sendRoleRuleError(reply, error);
       }
     },

@@ -19,6 +19,12 @@ export const roleChoiceSchema = z.object({
   name: z.string(),
   permissionCount: z.number().int().nonnegative(),
   missing: z.array(z.string()).default([]),
+  /**
+   * Un motivo per cui QUESTA scelta non si può fare anche senza escalation
+   * (review: `last_full_admin` sulla scelta che toglierebbe l'amministrazione
+   * all'ultimo full admin), o null.
+   */
+  block: z.string().nullable().default(null),
 });
 export type RoleChoice = z.infer<typeof roleChoiceSchema>;
 
@@ -85,7 +91,8 @@ export const personDetailSchema = z.object({
   deactivatedAt: z.iso.datetime().nullable().default(null),
   isSelf: z.boolean(),
   isFullAdmin: z.boolean(),
-  hasSecondFactor: z.boolean(),
+  /** Solo a chi gestisce le persone o alla persona stessa (review, I1); null agli altri. */
+  hasSecondFactor: z.boolean().nullable().default(null),
   peer: z.boolean().default(false),
   instanceRole: z.object({ id: z.uuid(), name: z.string() }).nullable().default(null),
   projects: z.array(personProjectViewSchema).default([]),

@@ -225,7 +225,10 @@ export function redactGoogleOauthCallbackUrl(url: string): string {
  * prefisso diventa `[redacted]`; il resto dell'URL, query compresa, resta
  * com'è.
  */
-const PATH_TOKEN_PREFIXES = ["/api/auth/password-reset/", "/api/auth/invites/", "/webhooks/in/"];
+// Area 9, F1 (review): anche il link del cambio dell'email (`GET
+// /api/auth/email-change/:token`); il letterale `confirm` si oscura con lui ed
+// è innocuo (lì il token sta nel corpo).
+const PATH_TOKEN_PREFIXES = ["/api/auth/password-reset/", "/api/auth/invites/", "/api/auth/email-change/", "/webhooks/in/"];
 
 /**
  * L'URL come finisce nel log della richiesta: token nel path oscurati e

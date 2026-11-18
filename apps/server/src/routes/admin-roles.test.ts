@@ -103,8 +103,8 @@ describe("Members: la vista e l'anteprima d'accordo con putProjectMember", () =>
     await db.delete(projectMembers).where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, small.id)));
     // L'ultimo gestore che perderebbe la gestione: bloccato, e il PUT dà 409.
     const last = await preview(adminCookie, lead.id, await preset("developer"), []);
-    expect(last.block).toBe("last_members_manager");
-    expect(last.removeBlock).toBe("last_members_manager");
+    expect(last.block).toBe("last_manager");
+    expect(last.removeBlock).toBe("last_manager");
     const putRes = await app.inject({ method: "PUT", url: `/api/projects/${projectId}/members/${lead.id}`, headers: { cookie: adminCookie }, payload: { roleId: await preset("developer") } });
     expect(putRes.statusCode).toBe(409);
   });
@@ -155,5 +155,33 @@ describe("Roles, inviti, scelte", () => {
     const ok = choices.instanceRoles.find((r) => r.missing.length === 0);
     if (ok) expect((await create(ok.roleId)).statusCode).toBe(201);
     expect(choices.projects).toEqual([]);
+  });
+});
+
+describe("Roles e anteprima: i rilievi della review", () => {
+  it("M4: un ruolo d'istanza col full admin conta i permessi EFFETTIVI (missing pieno, notGivable vuoto)", async () => {
+    const [mgrRole] = await db.insert(roles).values({ name: `M4 ${randomUUID().slice(0, 4)}`, scope: "instance", permissions: ["roles.manage"] }).returning({ id: roles.id });
+    const m = await person("m4");
+    await db.update(users).set({ instanceRoleId: mgrRole!.id }).where(eq(users.id, m.id));
+    const admin = (await get<AdminRoleView[]>(m.cookie, "/api/admin/roles")).find((v) => v.presetKey === "admin")!;
+    expect(admin.missing).toEqual(expect.arrayContaining(["instance.full_admin", "settings.manage", "users.manage"]));
+    expect(admin.notGivable).toEqual([]);
+  });
+
+  it("M1: l'anteprima rifiuta come il salvataggio — disattivato (blocco e 422), Claude (404), permesso sconosciuto (422)", async () => {
+    const { projectId } = await seedRepository(db);
+    const gone = await person("gone");
+    await db.update(users).set({ deactivatedAt: new Date() }).where(eq(users.id, gone.id));
+    const draft = { roleId: await preset("developer"), granted: [] as string[] };
+    const preview = (userId: string, body = draft) => app.inject({ method: "POST", url: `/api/projects/${projectId}/members/${userId}/preview`, headers: { cookie: adminCookie }, payload: body });
+    expect(((await preview(gone.id)).json() as MemberPreview).block).toBe("user_deactivated");
+    expect((await app.inject({ method: "PUT", url: `/api/projects/${projectId}/members/${gone.id}`, headers: { cookie: adminCookie }, payload: { roleId: draft.roleId } })).statusCode).toBe(422);
+    const [claude] = await db.select({ id: users.id }).from(users).where(eq(users.isAgent, true));
+    expect((await preview(claude!.id)).statusCode).toBe(404);
+    expect((await app.inject({ method: "PUT", url: `/api/projects/${projectId}/members/${claude!.id}`, headers: { cookie: adminCookie }, payload: { roleId: draft.roleId } })).statusCode).toBe(404);
+    const someone = await person("x");
+    const bad = await preview(someone.id, { roleId: draft.roleId, granted: ["non.esiste"] });
+    expect(bad.statusCode).toBe(422);
+    expect(bad.json()).toMatchObject({ code: "unknown_permission" });
   });
 });
