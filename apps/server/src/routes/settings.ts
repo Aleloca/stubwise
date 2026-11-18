@@ -16,6 +16,7 @@ import { z } from "zod";
 import type { Db } from "@stubwise/db";
 import { automationRules, encrypt, instanceSettings, notificationSettings } from "@stubwise/db";
 import { s3ConfigFromSettings } from "../storage/index.js";
+import { requireReauth } from "../auth/access.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -603,7 +604,7 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
   app.put(
     "/instance",
     {
-      config: { access: { kind: "instance", permission: "settings.manage" } },
+      config: { access: { kind: "instance", permission: "settings.manage" }, partialReauth: true },
       schema: {
         body: updateInstanceBodySchema,
         response: {
@@ -613,8 +614,12 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
         },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const body = request.body;
+      // Area 9, F3 (D-5): la riconferma solo quando il corpo porta un segreto
+      // (sostituito o azzerato), con la regola del gate (`requireReauth`).
+      const touchesSecret = [body.s3SecretKey, body.slackSigningSecret, body.slackBotToken].some((v) => v !== undefined);
+      if (touchesSecret && !(await requireReauth(request, reply))) return reply;
       // Upsert sul singleton (id=1): la migrazione seeda la riga, ma onConflict
       // la rende idempotente anche se mancasse. updatedAt va impostato a mano
       // nel `set`: il $onUpdate di drizzle NON scatta su onConflictDoUpdate.

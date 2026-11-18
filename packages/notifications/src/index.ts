@@ -348,3 +348,16 @@ export {
 } from "./server-ops/commands.js";
 export { attributionContext } from "./server-ops/context.js";
 export { waitingCandidates, waitingCandidatesPage, type WaitingCandidate, type WaitingCandidatesInput } from "./waiting-customers.js";
+// Area 9, F3: i webhook in uscita (firma, invio, chi riceve cosa, esempi).
+export {
+  contentLanguageOf,
+  sampleEventFor,
+  sendableWebhook,
+  sendToWebhook,
+  webhookBody,
+  webhookIdsForKind,
+  webhookSignature,
+  type SendableWebhook,
+  type WebhookFormat,
+  type WebhookSendOptions,
+} from "./webhooks.js";

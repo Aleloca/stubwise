@@ -10,6 +10,7 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { apiError } from "../errors.js";
+import { requireReauth } from "../auth/access.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -112,7 +113,7 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
   app.post(
     "/",
     {
-      config: { access: { kind: "instance", permission: "integrations.manage" } },
+      config: { access: { kind: "instance", permission: "integrations.manage" }, reauth: true },
       schema: {
         body: googleWorkspaceDraftSchema,
         response: { 201: googleWorkspaceSchema, 400: errorSchema, ...authErrorResponses },
@@ -137,7 +138,7 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
   app.patch(
     "/:id",
     {
-      config: { access: { kind: "instance", permission: "integrations.manage" } },
+      config: { access: { kind: "instance", permission: "integrations.manage" }, partialReauth: true },
       schema: {
         params: idParamsSchema,
         body: googleWorkspacePatchSchema,
@@ -151,6 +152,9 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
     },
     async (request, reply) => {
       const { name, domains, clientId, clientSecret } = request.body;
+      // Area 9, F3 (D-5): la riconferma solo quando il corpo porta un segreto
+      // (sostituito o azzerato), con la regola del gate (`requireReauth`).
+      if (clientSecret !== undefined && !(await requireReauth(request, reply))) return reply;
       const updates: Partial<GoogleWorkspaceRow> = {};
       if (name !== undefined) updates.name = name;
       if (domains !== undefined) updates.domains = domains;
@@ -185,7 +189,7 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
   app.delete(
     "/:id",
     {
-      config: { access: { kind: "instance", permission: "integrations.manage" } },
+      config: { access: { kind: "instance", permission: "integrations.manage" }, reauth: true },
       schema: {
         params: idParamsSchema,
         response: {

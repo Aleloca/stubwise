@@ -271,12 +271,16 @@ async function postWebhook(
  * Secondo fattore: e per `account_owner` (`security.alert`). Un avviso sul
  * secondo fattore di una persona riguarda lei sola, non un canale del team.
  */
-export function shouldSendWebhook(
-  settings: NotificationSettingsRow | null,
-  kind: NotificationKind,
-): boolean {
+/**
+ * Il kind va a un'audience PERSONALE (la casella di qualcuno, chi decide, il
+ * titolare dell'account, una decisione chiesta o risposta, l'attività di una
+ * task seguita): non va MAI in un webhook d'istanza, qualunque cosa questo
+ * abbia scelto. Una regola sola per il webhook di oggi e per quelli nuovi
+ * (area 9, F3).
+ */
+export function isPersonalWebhookAudience(kind: NotificationKind): boolean {
   const audience = audienceFor(kind);
-  if (
+  return (
     audience === "mailbox_owner" ||
     audience === "project_deciders" ||
     audience === "account_owner" ||
@@ -286,9 +290,14 @@ export function shouldSendWebhook(
     audience === "decision_asker" ||
     audience === "ticket_followers" ||
     audience === "task_people"
-  ) {
-    return false;
-  }
+  );
+}
+
+export function shouldSendWebhook(
+  settings: NotificationSettingsRow | null,
+  kind: NotificationKind,
+): boolean {
+  if (isPersonalWebhookAudience(kind)) return false;
   if (!settings || !settings.enabled || !settings.webhookUrl) return false;
   return settings[TOGGLE_FOR_KIND[kind]] === true;
 }

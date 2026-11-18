@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { authErrorResponses, errorSchema } from "./shared.js";
+import { requireReauth } from "../auth/access.js";
 import { apiError } from "../errors.js";
 
 // Tipo di credenziale del provider: definito in `@stubwise/shared`, da cui
@@ -90,7 +91,7 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/",
     {
-      config: { access: { kind: "instance", permission: "ai_providers.manage" } },
+      config: { access: { kind: "instance", permission: "ai_providers.manage" }, reauth: true },
       schema: {
         body: createProviderSchema,
         response: { 201: publicProviderSchema, ...authErrorResponses },
@@ -189,7 +190,7 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
   app.patch(
     "/:id",
     {
-      config: { access: { kind: "instance", permission: "ai_providers.manage" } },
+      config: { access: { kind: "instance", permission: "ai_providers.manage" }, partialReauth: true },
       schema: {
         params: idParamsSchema,
         body: updateProviderSchema,
@@ -198,6 +199,9 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
     },
     async (request, reply) => {
       const { label, secret, enabled, position } = request.body;
+      // Area 9, F3 (D-5): la riconferma solo quando il corpo porta un segreto
+      // (sostituito o azzerato), con la regola del gate (`requireReauth`).
+      if (secret !== undefined && !(await requireReauth(request, reply))) return reply;
       const updates: Partial<AiProviderRow> = {};
       if (label !== undefined) updates.label = label;
       if (enabled !== undefined) updates.enabled = enabled;
@@ -254,7 +258,7 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
   app.delete(
     "/:id",
     {
-      config: { access: { kind: "instance", permission: "ai_providers.manage" } },
+      config: { access: { kind: "instance", permission: "ai_providers.manage" }, reauth: true },
       schema: {
         params: idParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },

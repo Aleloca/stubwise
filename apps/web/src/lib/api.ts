@@ -2814,7 +2814,9 @@ export function getPlugins(): Promise<PluginRegistry> {
  * Registra un plugin: 201 con la riga appena creata, ancora `status: "none"` —
  * la materializzazione la fa il worker quando claima il job accodato qui.
  */
-export function createPlugin(input: CreatePluginInput): Promise<Plugin> {
+export function createPlugin(input: CreatePluginInput & { trust: boolean }): Promise<Plugin> {
+  // Area 9, F3: «Mi fido» lo dice la persona nel modulo (registrare ne esegue
+  // il codice); senza, il server risponde 422 `trust_required`.
   return api.post("/api/plugins", input);
 }
 
@@ -2822,8 +2824,8 @@ export function createPlugin(input: CreatePluginInput): Promise<Plugin> {
  * Cambia il ref pinnato e riaccoda la materializzazione: 202, il lavoro lo fa
  * il worker. 409 `plugin_job_pending` se ce n'è già uno in volo.
  */
-export function updatePluginRef(id: string, ref: string): Promise<{ queued: true }> {
-  return api.post(`/api/plugins/${encodeURIComponent(id)}/update`, { ref });
+export function updatePluginRef(id: string, ref: string, trust: boolean): Promise<{ queued: true }> {
+  return api.post(`/api/plugins/${encodeURIComponent(id)}/update`, { ref, trust });
 }
 
 /**

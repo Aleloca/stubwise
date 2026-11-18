@@ -110,6 +110,7 @@ function NewPluginForm({ onDone }: { onDone: () => void }) {
   const [sourceUrl, setSourceUrl] = useState("");
   const [ref, setRef] = useState("");
   const [sourceSubdir, setSourceSubdir] = useState("");
+  const [trust, setTrust] = useState(false);
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -118,6 +119,7 @@ function NewPluginForm({ onDone }: { onDone: () => void }) {
         sourceUrl: sourceUrl.trim(),
         ref: ref.trim(),
         ...(subdir === "" ? {} : { sourceSubdir: subdir }),
+        trust,
       });
     },
     onSuccess: async () => {
@@ -159,10 +161,11 @@ function NewPluginForm({ onDone }: { onDone: () => void }) {
         />
         <p className="font-mono text-[11px] text-fg-faint">{t("settings:plugins.addHint")}</p>
       </div>
+      <TrustCheckbox id="new-plugin-trust" checked={trust} onChange={setTrust} />
 
       <FormError message={creationErrorMessage(mutation.error, t)} />
       <div className="flex flex-wrap items-center gap-3">
-        <SubmitButton pending={mutation.isPending}>
+        <SubmitButton pending={mutation.isPending} disabled={!trust}>
           {mutation.isPending ? t("settings:plugins.creating") : t("settings:plugins.create")}
         </SubmitButton>
         <button
@@ -196,7 +199,7 @@ function PluginRow({ plugin }: { plugin: Plugin }) {
     queryClient.invalidateQueries({ queryKey: pluginsQueryOptions.queryKey });
 
   const update = useMutation({
-    mutationFn: (ref: string) => updatePluginRef(plugin.id, ref),
+    mutationFn: ({ ref, trust }: { ref: string; trust: boolean }) => updatePluginRef(plugin.id, ref, trust),
     onSuccess: async () => {
       await invalidate();
       setUpdating(false);
@@ -291,7 +294,7 @@ function PluginRow({ plugin }: { plugin: Plugin }) {
           plugin={plugin}
           pending={update.isPending}
           jobPending={jobPending}
-          onSubmit={(ref) => update.mutate(ref)}
+          onSubmit={(ref, trust) => update.mutate({ ref, trust })}
           onCancel={() => setUpdating(false)}
         />
       )}
@@ -354,11 +357,12 @@ function UpdateRefForm({
   plugin: Plugin;
   pending: boolean;
   jobPending: boolean;
-  onSubmit: (ref: string) => void;
+  onSubmit: (ref: string, trust: boolean) => void;
   onCancel: () => void;
 }) {
   const { t } = useTranslation();
   const [ref, setRef] = useState(plugin.ref);
+  const [trust, setTrust] = useState(false);
 
   return (
     <form
@@ -366,7 +370,7 @@ function UpdateRefForm({
       noValidate
       onSubmit={(event) => {
         event.preventDefault();
-        onSubmit(ref.trim());
+        onSubmit(ref.trim(), trust);
       }}
     >
       <TextField
@@ -376,15 +380,31 @@ function UpdateRefForm({
         value={ref}
         onChange={(event) => setRef(event.target.value)}
       />
+      <TrustCheckbox id={`plugin-${plugin.id}-trust`} checked={trust} onChange={setTrust} />
       <div className="flex items-center gap-2 pb-1">
         <RowButton
           type="submit"
-          disabled={pending || jobPending || ref.trim() === ""}
+          disabled={pending || jobPending || ref.trim() === "" || !trust}
           label={t("settings:plugins.updateSubmit")}
         />
         <RowButton onClick={onCancel} label={t("common:cancel")} />
       </div>
     </form>
+  );
+}
+
+/**
+ * Area 9, F3 ([IN 2]): «Mi fido». Registrare un plugin o cambiarne il ref ne
+ * ESEGUE il codice coi permessi del worker (lo smoke run parte da solo), prima
+ * di ogni abilitazione: la persona lo dice, il server lo pretende.
+ */
+function TrustCheckbox({ id, checked, onChange }: { id: string; checked: boolean; onChange: (v: boolean) => void }) {
+  const { t } = useTranslation();
+  return (
+    <label htmlFor={id} className="flex items-start gap-2 font-mono text-[12px] text-fg-muted">
+      <input id={id} type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="mt-0.5" />
+      <span>{t("settings:plugins.trust")}</span>
+    </label>
   );
 }
 

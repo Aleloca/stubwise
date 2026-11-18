@@ -1228,6 +1228,23 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   in chiaro di `invites`. Le viste nuove (`/api/admin/invites`, People) usano
   un id OPACO (`i_` + sha256) e revocano con quello. Da togliere col ritiro
   del web vecchio: la rotta, e il token salvato come hash come i link di reset.
+- **Il webhook non riceve più le proposte della posta** *(S, 46, area 9 F3,
+  18 nov 2026)*: il catalogo dei 21 eventi del prototipo esclude la posta, e
+  la 0188 scarta `notify_google_proposal` migrando il webhook di oggi. Dove
+  era acceso, dopo il deploy il webhook smette di mandarle, in silenzio (la
+  voce di deploy-log lo dice, con la query di controllo). Da rimettere solo
+  se qualcuno lo chiede: un evento `google.proposal` nel catalogo, nel CHECK
+  della tabella e nella mappa dei kind.
+- **Un webhook in uscita può puntare alla rete interna (SSRF), limite
+  accettato** *(S, 46, area 9 F3, 18 nov 2026)*: l'URL deve essere https, ma
+  nessun controllo rifiuta un host interno (`localhost`, `10.x`,
+  `169.254.169.254`…). Chi ha `integrations.manage` può quindi far chiamare
+  al worker (consegne) e al server (prova) un indirizzo della rete interna.
+  È come oggi col webhook unico, e su un'istanza self-hosted può essere
+  legittimo (un servizio interno che riceve gli eventi). Opzione futura:
+  rifiutare IP privati e link-local, risolti al momento dell'invio e non solo
+  alla creazione (sennò un DNS che cambia li aggira), dietro un interruttore
+  d'istanza per chi li vuole.
 - **Togliere Slack dal server** *(M, maintainer via 46, 16 nov 2026)*: Slack
   è fuori dall'app nuova e va tolto dal server, INSIEME al ritiro del web
   vecchio: rotte `/api/slack/*` e `/slack/*`, collegamento delle identità

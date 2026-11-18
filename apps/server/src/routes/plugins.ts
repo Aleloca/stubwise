@@ -7,7 +7,7 @@ import {
   RECOMMENDED_DISABLED_SKILLS,
   type Plugin,
 } from "@stubwise/shared";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { apiError } from "../errors.js";
@@ -67,6 +67,15 @@ function toPublicPlugin(row: PluginWithPendingJob): Plugin {
 }
 
 /**
+ * Area 9, F3 ([IN 2]): registrare un plugin o cambiarne il ref ne ESEGUE il
+ * codice (lo smoke run parte da solo), quindi il corpo dice «Mi fido»
+ * (`trust: true`). Senza: 422, e niente registrato.
+ */
+function trustRequired(reply: FastifyReply) {
+  return apiError(reply, 422, "trust_required", "Registering a plugin runs its code: confirm you trust it");
+}
+
+/**
  * Route del REGISTRO PLUGIN d'istanza, sotto /api/plugins. Tutte solo admin:
  * un plugin è codice di terze parti che finisce nei run dell'agente, quindi
  * anche solo LEGGERE il registro (che mostra i comandi degli hook) è
@@ -96,21 +105,25 @@ export async function pluginRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/",
     {
-      config: { access: { kind: "instance", permission: "plugins.manage" } },
+      config: { access: { kind: "instance", permission: "plugins.manage" }, reauth: true },
       schema: {
         // Validazione dallo schema condiviso: un URL malformato o con
         // credenziali è un 400 di Fastify, mai un 500 di un `parse` a mano.
-        body: createPluginSchema,
+        // Area 9, F3 ([IN 2]): «Mi fido» — registrare ne ESEGUE il codice.
+        body: createPluginSchema.extend({ trust: z.boolean().optional() }),
         response: {
           201: pluginSchema,
           400: errorSchema,
           409: errorSchema,
+          422: errorSchema,
           ...authErrorResponses,
         },
       },
     },
     async (request, reply) => {
-      const result = await createPlugin(app.db, request.body);
+      if (request.body.trust !== true) return trustRequired(reply);
+      const { sourceUrl, ref, sourceSubdir } = request.body;
+      const result = await createPlugin(app.db, { sourceUrl, ref, ...(sourceSubdir !== undefined ? { sourceSubdir } : {}) });
       if (!result.ok) {
         if (result.error === "invalid_slug") {
           return apiError(
@@ -152,19 +165,22 @@ export async function pluginRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/:id/update",
     {
-      config: { access: { kind: "instance", permission: "plugins.manage" } },
+      config: { access: { kind: "instance", permission: "plugins.manage" }, reauth: true },
       schema: {
         params: idParamsSchema,
-        body: updatePluginRefSchema,
+        body: updatePluginRefSchema.extend({ trust: z.boolean().optional() }),
         response: {
           202: z.object({ queued: z.literal(true) }),
           404: errorSchema,
           409: errorSchema,
+          422: errorSchema,
           ...authErrorResponses,
         },
       },
     },
     async (request, reply) => {
+      // Un ref nuovo è codice nuovo che il worker eseguirà: «Mi fido» anche qui.
+      if (request.body.trust !== true) return trustRequired(reply);
       const result = await requestUpdate(app.db, request.params.id, request.body.ref);
       if (!result.ok) {
         if (result.error === "not_found") {

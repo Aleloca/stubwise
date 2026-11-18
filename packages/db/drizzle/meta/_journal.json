@@ -1303,6 +1303,13 @@
       "when": 1800576000000,
       "tag": "0187_change_log",
       "breakpoints": true
+    },
+    {
+      "idx": 188,
+      "version": "7",
+      "when": 1800662400000,
+      "tag": "0188_outgoing_webhooks",
+      "breakpoints": true
     }
   ]
 }

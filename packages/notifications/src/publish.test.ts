@@ -10,7 +10,9 @@ import {
   tickets,
   users,
   type Db,
+  outgoingWebhooks,
 } from "@stubwise/db";
+import { OUTGOING_WEBHOOK_EVENT_IDS } from "@stubwise/shared";
 import { seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -55,8 +57,16 @@ describe("publishNotification", () => {
     // hanno un utente dietro, quindi si cancellano a parte.
     await db.delete(users);
     await db.delete(notificationDeliveries);
+    await db.delete(outgoingWebhooks);
     await db.update(notificationSettings).set({ webhookUrl: null, notifyPrOpened: true });
   });
+
+  /** Area 9, F3: un webhook in uscita con gli eventi dati. */
+  async function webhook(events: string[], enabled = true) {
+    const [row] = await db.insert(outgoingWebhooks).values({ name: `W ${randomUUID().slice(0, 4)}`, url: "https://hooks.example.com/abc", events, enabled }).returning();
+    return row!.id;
+  }
+  const webhookDeliveries = () => db.select().from(notificationDeliveries).where(eq(notificationDeliveries.channel, "webhook"));
 
   /** Crea un utente col ruolo dato; email univoca per chiamata. */
   async function seedUser(opts: {
@@ -393,49 +403,39 @@ describe("publishNotification", () => {
     expect(deliveries[0]?.notificationId).toBe(withDeviceNotification?.id);
   });
 
-  it("crea una sola consegna webhook per evento quando il webhook è configurato", async () => {
+  it("area 9, F3: DUE webhook con eventi diversi — ognuno riceve solo i suoi, una consegna per webhook", async () => {
     const { projectId, ticketId } = await seedScenario();
-    await db.update(notificationSettings).set({ webhookUrl: "https://hooks.example.com/abc" });
+    const prs = await webhook(["job.pr_opened"]);
+    const failures = await webhook(["job.failed"]);
+    const both = await webhook(["job.failed", "job.pr_opened"]);
 
     await publishNotification(db, prOpened, { projectId, ticketId });
 
-    const webhooks = await db
-      .select()
-      .from(notificationDeliveries)
-      .where(eq(notificationDeliveries.channel, "webhook"));
-    expect(webhooks).toHaveLength(1);
-    expect(webhooks[0]?.notificationId).toBeNull();
-    expect(webhooks[0]?.event).toEqual(prOpened);
-    expect(webhooks[0]?.status).toBe("pending");
+    const rows = await webhookDeliveries();
+    expect(rows.map((r) => r.webhookId).sort()).toEqual([prs, both].sort());
+    expect(rows.map((r) => r.webhookId)).not.toContain(failures);
+    for (const r of rows) {
+      expect(r.notificationId).toBeNull();
+      expect(r.event).toEqual(prOpened);
+      expect(r.status).toBe("pending");
+    }
   });
 
-  it("non crea la consegna webhook se il toggle del kind è spento", async () => {
+  it("un webhook spento non riceve niente; senza webhook nessuna consegna (il webhook di prima non conta più)", async () => {
     const { projectId, ticketId } = await seedScenario();
-    await db
-      .update(notificationSettings)
-      .set({ webhookUrl: "https://hooks.example.com/abc", notifyPrOpened: false });
+    await webhook(["job.pr_opened"], false);
+    await db.update(notificationSettings).set({ webhookUrl: "https://hooks.example.com/old" });
 
     await publishNotification(db, prOpened, { projectId, ticketId });
 
-    expect(
-      await db
-        .select()
-        .from(notificationDeliveries)
-        .where(eq(notificationDeliveries.channel, "webhook")),
-    ).toHaveLength(0);
+    expect(await webhookDeliveries()).toHaveLength(0);
   });
 
-  it("non crea la consegna webhook senza URL configurato", async () => {
-    const { projectId, ticketId } = await seedScenario();
-
-    await publishNotification(db, prOpened, { projectId, ticketId });
-
-    expect(
-      await db
-        .select()
-        .from(notificationDeliveries)
-        .where(eq(notificationDeliveries.channel, "webhook")),
-    ).toHaveLength(0);
+  it("un evento PERSONALE non va mai in un webhook, nemmeno uno che ha scelto tutto", async () => {
+    const { adminId } = await seedScenario();
+    await webhook([...OUTGOING_WEBHOOK_EVENT_IDS]);
+    await publishNotification(db, { kind: "security.alert", subject: "passkey_added", actorEmail: null }, { accountUserId: adminId });
+    expect(await webhookDeliveries()).toHaveLength(0);
   });
 
   it("manda job.plan_review ai soli admin, non ai follower", async () => {
@@ -460,7 +460,7 @@ describe("publishNotification", () => {
       .values({ ticketId, requestedByUserId: outsiderId })
       .returning();
     if (!job) throw new Error("insert del job di test non ha restituito la riga");
-    await db.update(notificationSettings).set({ webhookUrl: "https://hooks.example.com/abc" });
+    await webhook(["job.awaiting_input"]);
 
     const result = await publishNotification(db, awaitingInput, {
       projectId,
@@ -484,7 +484,7 @@ describe("publishNotification", () => {
       expect(row.jobId).toBe(job.id);
     }
     // Outbox: il DM Slack del solo admin (l'unico con identità Slack) e la
-    // consegna webhook d'istanza, che il toggle `notifyAwaitingInput` consente.
+    // consegna del webhook che ha scelto `job.awaiting_input`.
     const deliveries = await db.select().from(notificationDeliveries);
     const slackDm = deliveries.filter((row) => row.channel === "slack_dm");
     expect(slackDm).toHaveLength(1);
@@ -638,6 +638,7 @@ describe("publishNotification", () => {
       // webhook configurato (canale condiviso: mai un avviso di sicurezza).
       const { adminId, followerId, outsiderId } = await seedScenario();
       await db.update(notificationSettings).set({ webhookUrl: "https://hooks.example.com/abc" });
+      await webhook([...OUTGOING_WEBHOOK_EVENT_IDS]);
 
       const result = await publishNotification(db, securityAlert, { accountUserId: followerId });
 
@@ -830,7 +831,7 @@ describe("publishNotification", () => {
 
   it("scrive comunque la consegna webhook quando non c'è nessun destinatario", async () => {
     const { projectId, ticketId } = await seedTicket(db);
-    await db.update(notificationSettings).set({ webhookUrl: "https://hooks.example.com/abc" });
+    await webhook(["job.pr_opened"]);
 
     const result = await publishNotification(db, prOpened, { projectId, ticketId });
 
