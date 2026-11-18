@@ -92,10 +92,31 @@
   (l'ingestion la rifiuta al prossimo invio). Voce
   `project.ingestion_key_regenerated`, mai la chiave.
 - `POST /api/repositories/:slug/webhook-secret` (`repos.manage` nel progetto,
-  riconferma): un segreto nuovo (32 hex), mostrato una volta; il vecchio smette
-  subito (la verifica HMAC del webhook git lo rifiuta). K-5 decide se si
-  aggiorna anche il webhook sulla piattaforma. Voce
-  `repository.webhook_secret_regenerated`.
+  riconferma): un segreto nuovo (32 hex), mostrato una volta. Voce
+  `repository.webhook_secret_regenerated`. **L'ordine (K-5 = a, 46, 18 nov)**,
+  perché il segreto salvato e quello della piattaforma non divergano mai:
+  1. **webhook NON configurato da Stubwise** (lo stato non è `configured`): si
+     scrive il segreto nuovo e lo si mostra; la risposta dice `mode: "manual"`
+     — va copiato a mano sulla piattaforma, e il vecchio smette subito (è chi
+     rigenera a sceglierlo, sapendo che va copiato);
+  2. **webhook configurato da Stubwise**, in quest'ordine:
+     1. si controllano PRIMA gli scope del token dell'account git (gestire i
+        webhook): mancano → `422 webhook_scope_missing`, niente cambia, né qui
+        né sulla piattaforma;
+     2. si genera il segreto nuovo IN MEMORIA e si aggiorna il webhook sulla
+        piattaforma (lo stesso client della configurazione);
+     3. la piattaforma rifiuta o non risponde → `502 platform_update_failed`, il
+        segreto salvato resta il VECCHIO (che continua a valere), la risposta
+        lo dice; nessuna voce;
+     4. la piattaforma accetta → si scrive il segreto nuovo nel DB con la voce,
+        in una transazione: da qui il vecchio smette;
+     5. se proprio quella scrittura fallisce (la piattaforma ha già il nuovo),
+        si prova a rimettere il vecchio sulla piattaforma e la risposta dice
+        l'esito (`mode: "rollback"`, con `platformRestored: true|false`): è
+        l'unico punto in cui i due possono restare divisi, e chi rigenera lo
+        sa e può riprovare.
+     Esito felice: `mode: "platform"`, il segreto mostrato una volta (per chi
+     lo vuole annotare), nessuna copia a mano.
 - *Test*: la riconferma (negativi), il nuovo valore una volta, la vecchia
   chiave o firma rifiutata subito, la nuova accettata, la voce senza segreti.
 
