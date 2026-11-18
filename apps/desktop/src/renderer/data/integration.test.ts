@@ -183,6 +183,7 @@ describe("isIntegrated", () => {
         "admin:git-accounts",
         "admin:plugins",
         "admin:storage",
+        "admin:status",
         "feature:ai-automation",
         "feature:ai-providers",
         "feature:ai-models",

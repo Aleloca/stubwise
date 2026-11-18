@@ -1,3 +1,4 @@
+import { ApiError } from "@stubwise/api-client";
 import { describe, expect, it } from "vitest";
 import { createRealInstanceStatus, type InstanceStatusApi } from "./instanceStatus";
 
@@ -60,10 +61,24 @@ const status = () => ({
   refreshedAt: "2026-11-18T09:05:00.000Z",
 });
 
+const calls: string[] = [];
 const fake = (over: Partial<InstanceStatusApi> = {}): InstanceStatusApi => ({
   status: async () => status(),
+  pauseQueue: async (id) => {
+    calls.push(`pause ${id}`);
+  },
+  resumeQueue: async (id) => {
+    calls.push(`resume ${id}`);
+  },
+  retryJob: async (id) => {
+    calls.push(`retry ${id}`);
+    return { jobId: "new-job", status: "queued", stopsAtPlan: true };
+  },
   ...over,
 });
+const refusing = (status: number, code: string) => async () => {
+  throw new ApiError(status, code, code);
+};
 
 describe("lo Stato dell'istanza dal server (area 9, F4)", () => {
   it("i link li compone il client da tipo, progetto e codice (il server non conosce le rotte)", async () => {
@@ -86,5 +101,30 @@ describe("lo Stato dell'istanza dal server (area 9, F4)", () => {
       ["4821:1", "j1"],
     ]);
     expect(v.refreshedAt).toBe("2026-11-18T09:05:00.000Z");
+  });
+
+  it("pausa, ripresa e rilancio sulle rotte del server; i rifiuti nelle parole della pagina", async () => {
+    calls.splice(0);
+    const st = createRealInstanceStatus(fake());
+    expect(await st.pauseQueue("p1")).toEqual({ ok: true });
+    expect(await st.resumeQueue("p1")).toEqual({ ok: true });
+    expect(await st.retryJob("j9")).toEqual({ ok: true, conversationId: "new-job" });
+    expect(calls).toEqual(["pause p1", "resume p1", "retry j9"]);
+    const paused = createRealInstanceStatus(fake({ pauseQueue: refusing(409, "already_paused") }));
+    expect(await paused.pauseQueue("p1")).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "already_paused",
+    });
+    const stale = createRealInstanceStatus(fake({ retryJob: refusing(409, "conflict") }));
+    expect(await stale.retryJob("j9")).toEqual({ ok: false, error: "conflict" });
+    const budget = createRealInstanceStatus(fake({ retryJob: refusing(422, "monthly_budget") }));
+    expect(await budget.retryJob("j9")).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "monthly_budget",
+    });
+    const no = createRealInstanceStatus(fake({ resumeQueue: refusing(403, "forbidden") }));
+    expect(await no.resumeQueue("p1")).toEqual({ ok: false, error: "forbidden" });
   });
 });

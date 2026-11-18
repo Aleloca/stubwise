@@ -77,6 +77,8 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "git-accounts",
     "plugins",
     "storage",
+    // Area 9, F4: lo Stato dell'istanza, con pausa, ripresa e rilancio.
+    "status",
   ]),
   taskView: new Set(["list", "board", "timeline"]),
   feature: new Set([

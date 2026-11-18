@@ -1,4 +1,6 @@
+import { ApiError } from "@stubwise/api-client";
 import type { InstanceStatusView } from "../../instance/status";
+import type { InstanceResult } from "../../instance/types";
 import { appClient } from "./client";
 
 // Amministrazione → Instance status nella build app (area 9, F4) su
@@ -12,9 +14,35 @@ import { appClient } from "./client";
 /* eslint-disable @typescript-eslint/no-explicit-any -- forme del server lette dai Reader */
 type Any = any;
 
-/** La rotta (sul client vero: `client.instance`). */
+/** Le rotte (sul client vero: `client.instance`, `client.projects`). */
 export interface InstanceStatusApi {
   status(): Promise<Any>;
+  pauseQueue(projectId: string): Promise<void>;
+  resumeQueue(projectId: string): Promise<void>;
+  retryJob(jobId: string): Promise<{ jobId: string; status: string; stopsAtPlan: boolean }>;
+}
+
+/**
+ * I rifiuti di pausa, ripresa e rilancio nelle parole della pagina:
+ * `already_paused`, `not_paused`, `not_retryable`, `monthly_budget` col loro
+ * codice; 409 `conflict` (già ripartito, o superato da lavoro vivo).
+ */
+function refusalOf(error: unknown): Extract<InstanceResult, { ok: false }> {
+  if (!(error instanceof ApiError)) throw error;
+  const code = error.code ?? "";
+  if (code === "conflict") return { ok: false, error: "conflict" };
+  if (error.status === 404) return { ok: false, error: "not_found" };
+  if (error.status === 403) return { ok: false, error: "forbidden" };
+  if (code) return { ok: false, error: "invalid", reason: code };
+  throw error;
+}
+
+async function attempt<T extends object>(call: () => Promise<T>): Promise<InstanceResult<T>> {
+  try {
+    return { ok: true, ...(await call()) } as InstanceResult<T>;
+  } catch (error) {
+    return refusalOf(error);
+  }
 }
 
 /** Dove porta un lavoro, per tipo; `null` se non ha una pagina sua. */
@@ -52,12 +80,31 @@ export function createRealInstanceStatus(api: InstanceStatusApi) {
         })),
       } as InstanceStatusView;
     },
+
+    pauseQueue: (projectId: string) =>
+      attempt(async () => {
+        await api.pauseQueue(projectId);
+        return {};
+      }),
+
+    resumeQueue: (projectId: string) =>
+      attempt(async () => {
+        await api.resumeQueue(projectId);
+        return {};
+      }),
+
+    /** Il rilancio: il lavoro nuovo lo dice il server (`jobId`). */
+    retryJob: (jobId: string) =>
+      attempt(async () => ({ conversationId: (await api.retryJob(jobId)).jobId })),
   };
 }
 
 /** Sul client vero (il client si legge a ogni chiamata). */
 const liveApi: InstanceStatusApi = {
   status: () => appClient().instance.status(),
+  pauseQueue: (projectId) => appClient().projects.pauseQueue(projectId),
+  resumeQueue: (projectId) => appClient().projects.resumeQueue(projectId),
+  retryJob: (jobId) => appClient().instance.retryJob(jobId) as Promise<Any>,
 };
 
 /** SOLO TEST: la rotta vera. */

@@ -185,6 +185,11 @@ const INTEGRATED_CALLS = new Set([
   "instance.updateGoogleApp",
   "instance.replaceGoogleSecret",
   "instance.deleteGoogleApp",
+  // Area 9, F4: Instance status.
+  "instance.getInstanceStatus",
+  "instance.pauseQueue",
+  "instance.resumeQueue",
+  "instance.retryJob",
   // Area 9, F4: AI → Usage.
   "instance.getUsage",
   // Area 9, F4: AI → Budget & language.
@@ -970,6 +975,18 @@ describe("aree non integrate nella build app", () => {
     signedInAs("p-roberta");
     renderRoute("/admin/ai?tab=automation");
     await waitFor(() => expect(calls).toContain("instance.getAutomation"));
+    await settle();
+    expect(document.querySelector("[data-coming-soon]")).toBeNull();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F4: Amministrazione → Instance status, su `GET /api/instance/status`,
+  // con pausa, ripresa e rilancio di 72.
+  it("aprire Instance status legge solo chiamate integrate, senza riquadro del prototipo", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/status");
+    await waitFor(() => expect(calls).toContain("instance.getInstanceStatus"));
     await settle();
     expect(document.querySelector("[data-coming-soon]")).toBeNull();
     expect(document.querySelector("[data-prototype-only]")).toBeNull();
