@@ -9,6 +9,7 @@ export { s3ConfigFromSettings, type S3Config, type S3SettingsLike } from "./stor
 export { ensureDocPageCodes } from "./doc-page-codes.js";
 // Area 9, F1: ruolo ∪ permessi personali di un membro, come SQL (una regola).
 export { memberPermissionsSql } from "./member-permissions.js";
+export { projectQueueRunnable } from "./queue-pause.js";
 export {
   CHAT_TOOL_TOKEN_PREFIX,
   hashChatToolToken,
