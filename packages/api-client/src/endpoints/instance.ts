@@ -1,5 +1,6 @@
 import {
   aiProviderViewSchema,
+  aiUsageSnapshotsSchema,
   automationSettingsSchema,
   defaultReviewerResponseSchema,
   gitAccountSchema,
@@ -11,6 +12,7 @@ import {
 } from "@stubwise/shared";
 import type {
   AiProviderView,
+  AiUsageSnapshot,
   AutomationSettings,
   CreateAiProviderInput,
   CreateGitAccountInput,
@@ -151,8 +153,12 @@ export function createInstanceSettingsEndpoints(request: ApiRequest) {
     get(): Promise<Reader<InstanceSettingsView>> {
       return request("GET", "/api/settings/instance", undefined, instanceSettingsViewSchema);
     },
-    /** `contentLanguage` sempre; i campi S3 presenti aggiornano; `s3SecretKey` solo se cambia. */
-    save(input: UpdateInstanceSettingsInput): Promise<Reader<InstanceSettingsView>> {
+    /**
+     * `contentLanguage` e `monthlyBudgetUsd` SEMPRE: il server tratta un budget
+     * assente come «nessun budget» (e lo registra), quindi non è una patch. I
+     * campi S3 presenti aggiornano; `s3SecretKey` solo se cambia.
+     */
+    save(input: UpdateInstanceSettingsInput & { monthlyBudgetUsd: number | null }): Promise<Reader<InstanceSettingsView>> {
       return request("PUT", "/api/settings/instance", input, instanceSettingsViewSchema);
     },
     automation(): Promise<Reader<AutomationSettings>> {
@@ -160,6 +166,19 @@ export function createInstanceSettingsEndpoints(request: ApiRequest) {
     },
     saveAutomation(input: UpdateAutomationSettingsInput): Promise<Reader<AutomationSettings>> {
       return request("PUT", "/api/settings/automation", input, automationSettingsSchema);
+    },
+  };
+}
+
+/**
+ * La quota degli account (`GET /api/ai-usage/snapshots`, `usage.view`):
+ * l'ultimo campione per provider. La BANDA (ok, near, limited) la calcola il
+ * server e sta nella vista del provider (`quotaBand`), non qui.
+ */
+export function createAiUsageEndpoints(request: ApiRequest) {
+  return {
+    snapshots(): Promise<Reader<AiUsageSnapshot>[]> {
+      return request("GET", "/api/ai-usage/snapshots", undefined, aiUsageSnapshotsSchema);
     },
   };
 }

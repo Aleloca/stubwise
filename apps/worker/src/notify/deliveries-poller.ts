@@ -296,12 +296,15 @@ async function processDelivery(
   // consegna è già sparita in cascata). Un errore ritenta SOLO questa
   // consegna, così un webhook che fallisce non ferma gli altri.
   if (row.webhookId) {
-    const webhook = await sendableWebhook(db, row.webhookId, deps.encryptionKey);
-    if (!webhook) {
-      await finish(db, row.id, "skipped", "webhook_disabled");
-      return;
-    }
+    // Tutto dentro il try, lettura e decifratura comprese (review di F3): un
+    // segreto che non si decifra o un errore del DB ritentano e, al tetto,
+    // chiudono la consegna `failed`, invece di lasciarla pending per sempre.
     try {
+      const webhook = await sendableWebhook(db, row.webhookId, deps.encryptionKey);
+      if (!webhook) {
+        await finish(db, row.id, "skipped", "webhook_disabled");
+        return;
+      }
       await (deps.sendToWebhook ?? sendToWebhook)(webhook, event, await contentLanguageOf(db));
       await finish(db, row.id, "sent", null);
     } catch (err) {

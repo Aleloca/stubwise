@@ -163,7 +163,8 @@ export async function publishNotification(
       const agentIds = await agentUserIds(inner);
       // Area 8, F2 (S2): un avviso del CATALOGO, vivo e con un progetto, ha i
       // destinatari del catalogo (iscrizioni, obbligatori, default); niente
-      // Slack né webhook (M3); il push segue il Telefono del tipo, non
+      // Slack (M3); il webhook SOLO dove l'evento è scelto (E-2, area 9 F3,
+      // più sotto); il push segue il Telefono del tipo, non
       // l'interruttore `push` della persona (M-2 = b). Tutto il resto (anche un
       // `monitor.*` senza progetto) resta sul routing di oggi (S-4).
       const alertType = projectId !== null && isLiveAlertType(event.kind) ? alertTypeOf(event.kind) : undefined;

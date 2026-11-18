@@ -130,6 +130,10 @@ describe("/api/settings/models", () => {
     expect(sourceOf("triage")).toBe("setting");
     expect(sourceOf("pr_review")).toBe("env");
     expect(sourceOf("fix_plan")).toBe("default");
+    // Dove riporta «Use default» (94): la fonte senza l'impostazione.
+    const fallbackOf = (op: string) => (ops.find((o) => o.operation === op) as unknown as { fallbackSource: string }).fallbackSource;
+    expect(fallbackOf("triage")).toBe("default");
+    expect(fallbackOf("pr_review")).toBe("env");
   });
 
   it("area 9, F3: model.changed per ogni operazione che cambia, col modello effettivo in valore stabile", async () => {

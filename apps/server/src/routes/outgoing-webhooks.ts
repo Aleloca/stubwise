@@ -11,7 +11,8 @@ import {
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { createWebhook, deleteWebhook, listWebhooks, previewWebhook, rotateWebhookSecret, testWebhook, updateWebhook } from "../services/outgoing-webhooks.js";
+import { requireReauth } from "../auth/access.js";
+import { changesWebhookUrl, createWebhook, deleteWebhook, listWebhooks, previewWebhook, rotateWebhookSecret, testWebhook, updateWebhook, webhookUrlOf } from "../services/outgoing-webhooks.js";
 import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -61,10 +62,15 @@ export async function outgoingWebhookRoutes(instance: FastifyInstance): Promise<
   app.patch(
     "/:id",
     {
-      config: { access: MANAGE },
+      config: { access: MANAGE, partialReauth: true },
       schema: { params: idParams, body: updateOutgoingWebhookSchema, response: { 200: outgoingWebhookViewSchema, 404: errorSchema, ...authErrorResponses } },
     },
-    async (request, reply) => guard(reply, () => updateWebhook(app.db, request.user!, request.params.id, request.body)),
+    async (request, reply) => {
+      // Cambiare l'URL chiede la riconferma; nome, formato, eventi e interruttore no.
+      const current = await webhookUrlOf(app.db, request.params.id);
+      if (current !== null && changesWebhookUrl(current, request.body.url) && !(await requireReauth(request, reply))) return reply;
+      return guard(reply, () => updateWebhook(app.db, request.user!, request.params.id, request.body));
+    },
   );
 
   app.post(

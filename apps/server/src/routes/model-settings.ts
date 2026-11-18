@@ -52,6 +52,7 @@ async function loadModelSettings(db: DbOrTx): Promise<z.infer<typeof modelSettin
         model: model !== undefined && known.has(model) ? (model as AiModelChoice) : null,
         workerDefault: defaults[operation] ?? null,
         source: aiModelSourceOf(operation, model, settings?.envOperations),
+        fallbackSource: aiModelSourceOf(operation, null, settings?.envOperations) as "env" | "default",
       };
     }),
     choices: [...AI_MODEL_CHOICES],

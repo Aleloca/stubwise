@@ -1,5 +1,5 @@
 import { automationRuleSettingSchema, automationSettingsSchema, instanceSettingsViewSchema, prReviewSettingsSchema, updateAutomationSettingsSchema, updateInstanceSettingsSchema } from "@stubwise/shared";
-import { loadLegacyWebhook, saveLegacyWebhook, testLegacyWebhook } from "../services/legacy-webhook.js";
+import { legacySaveChangesUrl, loadLegacyWebhook, saveLegacyWebhook, testLegacyWebhook } from "../services/legacy-webhook.js";
 import { sendRoleRuleError } from "./roles.js";
 import { changedFields, recordChange, stableAmount } from "../services/change-log.js";
 import { eq } from "drizzle-orm";
@@ -441,7 +441,7 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
   app.put(
     "/notifications",
     {
-      config: { access: { kind: "instance", permission: "integrations.manage" } },
+      config: { access: { kind: "instance", permission: "integrations.manage" }, partialReauth: true },
       schema: {
         body: updateNotificationsBodySchema,
         response: {
@@ -454,6 +454,8 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
     async (request, reply) => {
       // Area 9, F3 (H-4): sul webhook più vecchio, con le regole di
       // `services/legacy-webhook.ts` (un URL vuoto spegne, non elimina).
+      // Un URL nuovo chiede la riconferma, come sulla rotta nuova.
+      if ((await legacySaveChangesUrl(app.db, request.body.webhookUrl)) && !(await requireReauth(request, reply))) return reply;
       try {
         return await saveLegacyWebhook(app.db, request.user!, request.body);
       } catch (error) {

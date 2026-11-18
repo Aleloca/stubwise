@@ -42,6 +42,22 @@ const webhookObject = (row: { id: string; name: string }) => ({ type: "webhook",
 const newSecret = () => randomBytes(32).toString("base64url");
 const notFound = () => new RoleRuleError(404, "webhook_not_found", "Webhook not found");
 
+/**
+ * Decisione del maintainer (review di F3): un URL NUOVO chiede la riconferma,
+ * perché portare gli invii firmati verso un host proprio è il modo di
+ * raccoglierne i corpi. Vero quando `url` è dato e diverso da quello salvato
+ * (`current` null = il webhook non c'è ancora: anche crearlo è un URL nuovo).
+ */
+export function changesWebhookUrl(current: string | null, url: string | undefined): boolean {
+  return url !== undefined && url !== "" && url !== current;
+}
+
+/** L'URL salvato di un webhook (null se non esiste: allora decide il 404). */
+export async function webhookUrlOf(db: Db, id: string): Promise<string | null> {
+  const [row] = await db.select({ url: outgoingWebhooks.url }).from(outgoingWebhooks).where(eq(outgoingWebhooks.id, id));
+  return row?.url ?? null;
+}
+
 export async function listWebhooks(db: Db): Promise<OutgoingWebhookView[]> {
   return (await db.select().from(outgoingWebhooks).orderBy(asc(outgoingWebhooks.createdAt))).map(toWebhookView);
 }
@@ -66,6 +82,8 @@ export async function updateWebhook(db: Db, actor: Actor, id: string, patch: Upd
   return db.transaction(async (tx) => {
     const [before] = await tx.select().from(outgoingWebhooks).where(eq(outgoingWebhooks.id, id)).for("update");
     if (!before) throw notFound();
+    // Una patch vuota è una lettura (drizzle rifiuta un update senza colonne).
+    if (Object.keys(patch).length === 0) return toWebhookView(before);
     const [after] = await tx.update(outgoingWebhooks).set(patch).where(eq(outgoingWebhooks.id, id)).returning();
     // Come il prototipo (`webhook.ts`, voce `fields`): i soli campi cambiati,
     // l'URL com'è (non è un segreto, [IN 4]), gli eventi come lista di id

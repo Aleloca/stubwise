@@ -152,6 +152,12 @@ export const modelSettingsViewSchema = z.object({
       workerDefault: z.string().nullable(),
       /** Da dove viene il modello che il worker userebbe ora (`aiModelSourceOf`). */
       source: z.enum(["setting", "env", "default"]).default("default"),
+      /**
+       * Dove riporta «Use default»: la fonte SENZA l'impostazione, cioè l'env
+       * del worker o il default di codice (il modello è `workerDefault`, la
+       * stringa dell'env com'è: un alias o un id intero). Additivo.
+       */
+      fallbackSource: z.enum(["env", "default"]).default("default"),
     }),
   ),
   choices: z.array(aiModelChoiceSchema),

@@ -68,6 +68,10 @@ describe("i webhook in uscita", () => {
     const fresh = rotated.json() as OutgoingWebhookWithSecret;
     expect(fresh.secret).not.toBe(w.secret);
     expect(fresh.secretRotatedAt).not.toBeNull();
+    // Review F3: una patch vuota è una lettura (200, nessuna voce), non un 500.
+    const empty = await call("PATCH", `/api/settings/webhooks/${w.id}`, {}, stale);
+    expect(empty.statusCode).toBe(200);
+    expect(empty.json()).toMatchObject({ id: w.id, enabled: true });
     const patched = await call("PATCH", `/api/settings/webhooks/${w.id}`, { name: "Rinominato", events: ["job.failed", "release.failed"], enabled: false }, stale);
     expect(patched.statusCode).toBe(200);
     expect(patched.json()).toMatchObject({ name: "Rinominato", enabled: false, events: ["job.failed", "release.failed"] });
@@ -91,6 +95,17 @@ describe("i webhook in uscita", () => {
     const [r] = await db.insert(roles).values({ name: `S ${randomUUID().slice(0, 4)}`, scope: "instance", permissions: ["settings.manage"] }).returning({ id: roles.id });
     const [u] = await db.insert(users).values({ email: `s-${randomUUID().slice(0, 6)}@acme.com`, passwordHash: "x", role: "member", instanceRoleId: r!.id }).returning({ id: users.id });
     expect((await call("GET", "/api/settings/webhooks", undefined, await fullSessionCookie(app, u!.id))).statusCode).toBe(403);
+    await db.delete(outgoingWebhooks);
+  });
+
+  it("decisione del maintainer: cambiare l'URL chiede la riconferma; nome, formato, eventi, interruttore no; lo stesso URL non è un cambio", async () => {
+    const w = (await call("POST", "/api/settings/webhooks", body())).json() as OutgoingWebhookWithSecret;
+    const moved = await call("PATCH", `/api/settings/webhooks/${w.id}`, { url: "https://attacker.example.com/in" }, stale);
+    expect(moved.statusCode).toBe(403);
+    const [row] = await db.select().from(outgoingWebhooks).where(eq(outgoingWebhooks.id, w.id));
+    expect(row!.url).toBe("https://hooks.example.com/in");
+    expect((await call("PATCH", `/api/settings/webhooks/${w.id}`, { url: "https://hooks.example.com/in", name: "Stesso URL", format: "slack", events: ["release.failed"], enabled: false }, stale)).statusCode).toBe(200);
+    expect((await call("PATCH", `/api/settings/webhooks/${w.id}`, { url: "https://nuovo.example.com/in" })).statusCode).toBe(200);
     await db.delete(outgoingWebhooks);
   });
 
