@@ -143,7 +143,7 @@ export function ChangeLogPage() {
         />
         <ChangeJournal
           state={journalState(choices, changes)}
-          entries={changes.data ?? []}
+          {...journalPages(changes)}
           onRetry={() => void (choices.isError ? choices.refetch() : changes.refetch())}
           filtered={hasFilters(search, choices.data)}
           onClear={() => set(CLEARED)}
@@ -462,9 +462,12 @@ export function ChangeJournal({
   onClear,
   empty,
   showProject,
+  more,
 }: {
   state: "loading" | "error" | "ready";
   entries: ChangeEntryView[];
+  /** «Load more» (decisione del maintainer): c'è finché il server ha altre voci. */
+  more?: { onMore: () => void; loading: boolean } | null;
   onRetry: () => void;
   filtered: boolean;
   onClear: () => void;
@@ -545,8 +548,35 @@ export function ChangeJournal({
           ))}
         </DaySection>
       ))}
+      {more && (
+        <div className="py-4">
+          <button
+            type="button"
+            className={secondaryButton}
+            disabled={more.loading}
+            onClick={more.onMore}
+          >
+            {more.loading ? t("changelog.loadingMore") : t("changelog.loadMore")}
+          </button>
+        </div>
+      )}
     </div>
   );
+}
+
+/** Le voci di tutte le pagine lette, e il «Load more» se ce ne sono altre. */
+export function journalPages(changes: {
+  data?: { pages: { entries: ChangeEntryView[] }[] };
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  fetchNextPage: () => unknown;
+}) {
+  return {
+    entries: changes.data?.pages.flatMap((p) => p.entries) ?? [],
+    more: changes.hasNextPage
+      ? { onMore: () => void changes.fetchNextPage(), loading: changes.isFetchingNextPage }
+      : null,
+  };
 }
 
 function DaySection({ label, day, children }: { label: string; day: string; children: ReactNode }) {

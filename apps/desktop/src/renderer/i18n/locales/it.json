@@ -12400,6 +12400,8 @@
     },
     "noMatch": "Nessuna modifica corrisponde a questi filtri.",
     "nothing": "Ancora nessuna modifica registrata.",
+    "loadMore": "Carica altre",
+    "loadingMore": "Caricamento…",
     "projectEmpty": "Ancora nessuna modifica a {{code}}.",
     "error": "Non è stato possibile caricare il registro delle modifiche.",
     "loading": "Caricamento del registro…",

@@ -9,7 +9,6 @@ import type { LocalInstancePermission, LocalProjectPermission } from "../types";
 /** I permessi d'istanza del prototipo, nell'ordine in cui si mostrano. */
 export const LOCAL_INSTANCE_PERMISSIONS: readonly LocalInstancePermission[] = [
   "instance.status.view",
-  "changelog.view",
 ];
 
 /** Ogni permesso d'istanza, del registro condiviso e del prototipo. */

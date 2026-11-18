@@ -157,6 +157,8 @@ describe("isIntegrated", () => {
         "projectSettings:statuses",
         // Area 9, F1, R8: Members.
         "projectSettings:members",
+        // Area 9, F2: il registro delle modifiche.
+        "projectSettings:changelog",
         // Area 8, fetta 1: «Repositories» ridotta al blocco «Releases».
         "projectSettings:repositories",
         "admin:departments",
@@ -165,6 +167,8 @@ describe("isIntegrated", () => {
         // Area 9, F1, R7: People e Roles.
         "admin:people",
         "admin:roles",
+        // Area 9, F2: il registro delle modifiche.
+        "admin:changelog",
         "taskView:list",
         "taskView:board",
         "feature:notifications",

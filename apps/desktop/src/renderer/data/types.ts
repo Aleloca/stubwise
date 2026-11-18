@@ -51,11 +51,11 @@ export type LocalProjectPermission = "servers.operate";
  * (area 7: stesso nome del permesso di progetto, vedi `can`), collegare,
  * verificare, rigenerare e revocare gli accessi SSH dei server (area 8b,
  * separato da `monitor.manage`), dall'area 9a vedere lo stato dell'istanza
- * e leggere il registro delle modifiche (entrambi del preset Admin, mai di
- * Claude). `departments.manage` è già nel registro (integrazione area 2). Entrano nel registro di `@stubwise/shared`
+ * (del preset Admin, mai di Claude). `changelog.view` è nel registro dalla
+ * F2 dell'integrazione area 9. `departments.manage` è già nel registro (integrazione area 2). Entrano nel registro di `@stubwise/shared`
  * quando si costruisce il backend.
  */
-export type LocalInstancePermission = "instance.status.view" | "changelog.view";
+export type LocalInstancePermission = "instance.status.view";
 
 export interface Viewer {
   personId: string;

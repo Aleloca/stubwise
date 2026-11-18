@@ -395,11 +395,13 @@ describe("una voce non si tocca", () => {
     expect(
       names.filter((n) => /update|edit|delete|remove|clear|set|undo|forget|replace/i.test(n)),
     ).toEqual([]);
-    // Solo letture: le voci e le scelte dei filtri (Task 11).
+    // Solo letture: le voci (anche a pagine, «Load more») e le scelte dei filtri (Task 11).
     expect(Object.keys(changelog).sort()).toEqual([
       "listChangeFilterChoices",
       "listChanges",
+      "listChangesPage",
       "listProjectChanges",
+      "listProjectChangesPage",
     ]);
   });
 
@@ -443,5 +445,37 @@ describe("R-G5 nelle persone di una voce", () => {
     const [entry] = await changelog.listChanges({ kind: "department.members_changed" });
     expect(entry!.diff).toEqual({ kind: "people", added: [nameOf(seen)], removed: [] });
     expect(JSON.stringify(entry!.diff)).not.toContain(nameOf(hidden));
+  });
+});
+
+describe("le pagine del registro (decisione del maintainer: «Load more»)", () => {
+  it("50 voci per volta, più recenti prima; il cursore porta alle successive; i filtri restano", async () => {
+    as("p-roberta");
+    for (let i = 0; i < 70; i++) {
+      advanceNow(60_000);
+      instanceEntry();
+    }
+    const all = await changelog.listChanges({ group: "test" });
+    expect(all.length).toBeGreaterThanOrEqual(70);
+    const first = await changelog.listChangesPage({ group: "test" });
+    expect(first.entries.map((e) => e.id)).toEqual(all.slice(0, 50).map((e) => e.id));
+    expect(first.nextCursor).not.toBeNull();
+    const second = await changelog.listChangesPage({ group: "test" }, first.nextCursor!);
+    expect(second.entries.map((e) => e.id)).toEqual(all.slice(50, 100).map((e) => e.id));
+    expect(second.nextCursor).toBeNull();
+  });
+
+  it("anche nel registro del progetto", async () => {
+    as("p-roberta");
+    for (let i = 0; i < 55; i++) {
+      advanceNow(60_000);
+      projectEntry(ACQ);
+    }
+    const all = await changelog.listProjectChanges(ACQ);
+    const first = await changelog.listProjectChangesPage(ACQ);
+    expect(first.entries).toHaveLength(50);
+    const second = await changelog.listProjectChangesPage(ACQ, {}, first.nextCursor!);
+    expect([...first.entries, ...second.entries].map((e) => e.id)).toEqual(all.map((e) => e.id));
+    expect(second.nextCursor).toBeNull();
   });
 });

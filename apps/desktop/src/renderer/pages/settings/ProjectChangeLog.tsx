@@ -8,6 +8,7 @@ import {
   ChangeJournal,
   filterOf,
   hasFilters,
+  journalPages,
   journalState,
   type ChangeLogSearch,
 } from "../admin/ChangeLogPage";
@@ -41,7 +42,7 @@ export function ProjectChangeLog({ project }: { project: Project }) {
       <ChangeFilters search={search} choices={choices.data} withProject={false} onChange={set} />
       <ChangeJournal
         state={journalState(choices, changes)}
-        entries={changes.data ?? []}
+        {...journalPages(changes)}
         onRetry={() => void (choices.isError ? choices.refetch() : changes.refetch())}
         filtered={filtered}
         onClear={() => set(CLEARED)}

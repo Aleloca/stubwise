@@ -43,6 +43,28 @@ const entries = () => [...document.querySelectorAll<HTMLElement>("[data-change-e
 const sentences = () => entries().map((e) => e.querySelector("p")!.textContent ?? "");
 const nameOf = (id: string) => PEOPLE.find((p) => p.id === id)!.name;
 
+describe("«Load more» (decisione del maintainer)", () => {
+  it("le prime 50; il bottone porta le successive; finite, il bottone sparisce", async () => {
+    const user = userEvent.setup();
+    for (let i = 0; i < 30; i++)
+      recordChange({
+        kind: "role.updated",
+        actorId: ROBERTA,
+        projectId: null,
+        object: { type: "role", id: "r-x", label: `Role ${i}` },
+        before: null,
+        after: null,
+        params: {},
+      });
+    renderRoute("/admin/changelog", ROBERTA);
+    await heading("Change log");
+    await waitFor(() => expect(entries()).toHaveLength(50));
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+    await waitFor(() => expect(entries()).toHaveLength(state.changelog.length));
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+  });
+});
+
 describe("i template del registro", () => {
   it("ogni tipo registrato ha la sua frase e il suo gruppo in inglese e in italiano", () => {
     const types = changeTypes();

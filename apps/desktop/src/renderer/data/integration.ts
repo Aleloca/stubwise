@@ -56,10 +56,12 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   // Stati e soglie del progetto.
   // Area 8, fetta 1 (46): «Repositories» ridotta al solo blocco «Releases» (`releases-repo-settings`).
   // Area 9, F1, R8: Members sulle letture calcolate del server.
-  projectSettings: new Set(["statuses", "repositories", "members"]),
+  // Area 9, F2: Change log sulla lettura del server.
+  projectSettings: new Set(["statuses", "repositories", "members", "changelog"]),
   // Area 9, F1, R9: «Who can?» sulle rotte del server.
   // Area 9, F1, R7: People e Roles sulle letture calcolate del server.
-  admin: new Set(["departments", "servers", "who-can", "people", "roles"]),
+  // Area 9, F2: Change log.
+  admin: new Set(["departments", "servers", "who-can", "people", "roles", "changelog"]),
   taskView: new Set(["list", "board", "timeline"]),
   feature: new Set([
     // Area 7, fetta 1: le Automations (Home, «Da decidere», ⌘K, righe d'origine).
