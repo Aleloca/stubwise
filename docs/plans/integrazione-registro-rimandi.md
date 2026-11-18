@@ -1230,6 +1230,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - «Load more» del registro e «Undid…» (area 10a, F7): la data della riga
     porta alla voce annullata solo se è fra le pagine già lette *(S, da
     rivedere con F7)*.
+  - Progetto → Settings → Integration (F5): il server non manda la
+    piattaforma dei webhook git (`gitWebhooks[].provider`), quindi nell'app
+    il dialogo del segreto dice «la piattaforma git» e non «GitHub» o
+    «Bitbucket»; lo stato è solo configurato/non configurato (niente
+    `failed`) *(S)*;
+  - Integration: il segreto del webhook si rigenera per slug, che
+    l'adattatore ricorda dall'ultima lettura della pagina (la rigenerazione
+    passa solo l'id del repository) *(S, se il server accetta l'id)*.
 
 ## Area 10 — Integrazione di Claude
 
