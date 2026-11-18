@@ -18,10 +18,11 @@ const view = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+// `ApiError(status, message, code)`: il messaggio porta il campo della validazione.
 const refusing =
   (status: number, code: string, message = code) =>
   async () => {
-    throw new ApiError(status, code, message);
+    throw new ApiError(status, message, code);
   };
 
 function fakeApi(over: Partial<WebhooksApi> = {}) {
@@ -102,6 +103,18 @@ describe("i webhook in uscita dal server (area 9, F3)", () => {
     ).toMatchObject({
       reason: "url",
     });
+    const name = createRealWebhooks(
+      fakeApi({
+        create: refusing(
+          400,
+          "FST_ERR_VALIDATION",
+          "body/name must NOT have fewer than 1 characters",
+        ),
+      }).api,
+    );
+    expect(
+      await name.createWebhook({ name: "", url: "https://x.test", format: "slack", events: [] }),
+    ).toMatchObject({ reason: "name" });
     const reauth = createRealWebhooks(fakeApi({ create: refusing(403, "reauth_required") }).api);
     expect(
       await reauth.createWebhook({ name: "X", url: "https://x.test", format: "slack", events: [] }),

@@ -91,6 +91,12 @@ const ALL: IntegrationTarget[] = [
       "environments",
       "environment-containers",
       "servers-analysis-limits",
+      // Area 9, F3: le schede della voce AI, una funzione ciascuna.
+      "ai-providers",
+      "ai-models",
+      "ai-automation",
+      "ai-budget",
+      "ai-usage",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -173,6 +179,7 @@ describe("isIntegrated", () => {
         "admin:webhooks",
         // Area 9, F3: la voce AI, scheda per scheda (le schede in \`feature\`).
         "admin:ai",
+        "feature:ai-automation",
         "taskView:list",
         "taskView:board",
         "feature:notifications",

@@ -151,6 +151,9 @@ const INTEGRATED_CALLS = new Set([
   "admin.updateRole",
   "admin.deleteRole",
   "admin.viewerLosesIf",
+  // Area 9, F3: AI → Automation.
+  "instance.getAutomation",
+  "instance.saveAutomation",
   // Area 9, F3: i webhook in uscita.
   "instance.listWebhooks",
   "instance.getWebhook",
@@ -828,6 +831,17 @@ describe("aree non integrate nella build app", () => {
     expect(await screen.findByRole("heading", { level: 1, name: title })).toBeInTheDocument();
     await settle();
     expect(screen.queryByText(/Coming soon/)).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F3: AI → Automation accesa, su `/api/settings/automation`.
+  it("aprire AI → Automation legge solo chiamate integrate", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/ai?tab=automation");
+    await waitFor(() => expect(calls).toContain("instance.getAutomation"));
+    await settle();
+    expect(document.querySelector("[data-coming-soon]")).toBeNull();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
     expect(outside()).toEqual([]);
   });
 
