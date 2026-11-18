@@ -1,3 +1,4 @@
+import { changedFields, recordChange } from "../services/change-log.js";
 import { gitAccountSchema, gitProviderKindSchema } from "@stubwise/shared";
 import { BITBUCKET_REVIEWER_SCOPES, GitProviderError, bitbucketRequiredScopes, getProvider } from "@stubwise/git";
 import { decrypt, encrypt, gitAccounts, repositories } from "@stubwise/db";
@@ -257,6 +258,10 @@ async function accountReviewRole(
  * creando un progetto); creazione, modifica, eliminazione e operazioni che
  * decifrano le credenziali (validazione, elenco repo/branch) `git_accounts.manage`.
  */
+/** Area 9, F3: l'oggetto delle voci (l'account col nome dato da una persona) e il nome della piattaforma (un marchio, non una parola). */
+const gitAccountObject = (row: { id: string; name: string }) => ({ type: "git_account", id: row.id, label: row.name });
+const PLATFORM_NAME: Record<string, string> = { github: "GitHub", bitbucket: "Bitbucket" };
+
 export async function gitAccountRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
@@ -272,11 +277,15 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
     async (request, reply) => {
       const { name, provider, credentials, workspace } = request.body;
       const encryptedCredentials = encrypt(JSON.stringify(credentials), app.encryptionKey);
-      const [created] = await app.db
-        .insert(gitAccounts)
-        .values({ name, provider, encryptedCredentials, workspace: workspace ?? null })
-        .returning();
-      if (!created) throw new Error("insert dell'account non ha restituito la riga");
+      const created = await app.db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(gitAccounts)
+          .values({ name, provider, encryptedCredentials, workspace: workspace ?? null })
+          .returning();
+        if (!row) throw new Error("insert dell'account non ha restituito la riga");
+        await recordChange(tx, { type: "git_account.created", actor: request.user!, projectId: null, data: { object: gitAccountObject(row), params: { provider: PLATFORM_NAME[row.provider] ?? row.provider } } });
+        return row;
+      });
       return reply.code(201).send(toPublicAccount(created));
     },
   );
@@ -359,14 +368,22 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
             );
 
       // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una lettura.
-      const [row] =
-        Object.keys(updates).length === 0
-          ? await app.db.select().from(gitAccounts).where(eq(gitAccounts.id, request.params.id))
-          : await app.db
-              .update(gitAccounts)
-              .set(updates)
-              .where(and(eq(gitAccounts.id, request.params.id), workspaceGuard))
-              .returning();
+      const row = await app.db.transaction(async (tx) => {
+        const [before] = await tx.select().from(gitAccounts).where(eq(gitAccounts.id, request.params.id)).for("update");
+        if (!before || Object.keys(updates).length === 0) return before;
+        const [after] = await tx
+          .update(gitAccounts)
+          .set(updates)
+          .where(and(eq(gitAccounts.id, request.params.id), workspaceGuard))
+          .returning();
+        if (!after) return undefined;
+        // Area 9, F3: come il prototipo (`git.ts`), i soli campi cambiati; il
+        // token solo «sostituito».
+        const diff = changedFields({ name: before.name, workspace: before.workspace }, { name: after.name, workspace: after.workspace });
+        if (diff) await recordChange(tx, { type: "git_account.updated", actor: request.user!, projectId: null, data: { object: gitAccountObject(after), ...diff } });
+        if (credentials !== undefined) await recordChange(tx, { type: "git_account.token_replaced", actor: request.user!, projectId: null, data: { object: gitAccountObject(after) } });
+        return after;
+      });
       if (!row) {
         if (workspaceGuard !== undefined) {
           const [exists] = await app.db
@@ -413,10 +430,11 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
       if (used) {
         return apiError(reply, 409, "git_account_in_use", "Git account in use by one or more repositories: unlink it before deleting");
       }
-      const deleted = await app.db
-        .delete(gitAccounts)
-        .where(eq(gitAccounts.id, request.params.id))
-        .returning({ id: gitAccounts.id });
+      const deleted = await app.db.transaction(async (tx) => {
+        const gone = await tx.delete(gitAccounts).where(eq(gitAccounts.id, request.params.id)).returning();
+        for (const g of gone) await recordChange(tx, { type: "git_account.deleted", actor: request.user!, projectId: null, data: { object: gitAccountObject(g) } });
+        return gone;
+      });
       if (deleted.length === 0) return apiError(reply, 404, "git_account_not_found", "Git account not found");
       return reply.code(204).send(null);
     },
@@ -538,6 +556,11 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
             const [exists] = await tx.select({ id: gitAccounts.id }).from(gitAccounts).where(eq(gitAccounts.id, id));
             throw exists ? new DefaultReviewerAccountChanged() : new DefaultReviewerAccountGone();
           }
+          // Area 9, F3: come il prototipo, il predecessore e il nuovo per nome;
+          // un account che era già il predefinito non scrive niente.
+          if (!row.isDefaultReviewer) {
+            await recordChange(tx, { type: "git_account.default_reviewer_changed", actor: request.user!, projectId: null, data: { object: gitAccountObject(account), before: replaced[0]?.name ?? null, after: account.name } });
+          }
           return { account, replaced: replaced[0] ?? null };
         });
       } catch (error) {
@@ -579,11 +602,16 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
       },
     },
     async (request, reply) => {
-      const [row] = await app.db
-        .update(gitAccounts)
-        .set({ isDefaultReviewer: false })
-        .where(eq(gitAccounts.id, request.params.id))
-        .returning({ id: gitAccounts.id });
+      const row = await app.db.transaction(async (tx) => {
+        const [before] = await tx.select().from(gitAccounts).where(eq(gitAccounts.id, request.params.id)).for("update");
+        if (!before) return undefined;
+        const [after] = await tx.update(gitAccounts).set({ isDefaultReviewer: false }).where(eq(gitAccounts.id, request.params.id)).returning();
+        // Come il prototipo: togliere il predefinito è un `updated` sul campo.
+        if (before.isDefaultReviewer) {
+          await recordChange(tx, { type: "git_account.updated", actor: request.user!, projectId: null, data: { object: gitAccountObject(after!), ...changedFields({ defaultReviewer: true }, { defaultReviewer: false })! } });
+        }
+        return after;
+      });
       if (!row) return apiError(reply, 404, "git_account_not_found", "Git account not found");
       return reply.code(204).send(null);
     },

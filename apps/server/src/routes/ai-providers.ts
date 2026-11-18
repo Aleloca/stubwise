@@ -1,3 +1,4 @@
+import { recordChange } from "../services/change-log.js";
 import { aiProviders, encrypt, projects } from "@stubwise/db";
 import { aiProviderKindSchema } from "@stubwise/shared";
 import { asc, eq, sql } from "drizzle-orm";
@@ -85,6 +86,9 @@ function toPublicProvider(row: AiProviderRow): z.infer<typeof publicProviderSche
  * L'ordine di failover è dato da `position`; il riordino è applicativo
  * (riscrittura delle position in transazione via POST /reorder).
  */
+/** L'oggetto delle voci del registro: l'account col nome dato da una persona. */
+const providerObject = (row: { id: string; label: string }) => ({ type: "provider", id: row.id, label: row.label });
+
 export async function aiProviderRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
@@ -111,11 +115,15 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
         resolvedPosition = agg?.max === null || agg?.max === undefined ? 0 : agg.max + 1;
       }
 
-      const [created] = await app.db
-        .insert(aiProviders)
-        .values({ kind, label, secretEncrypted, position: resolvedPosition })
-        .returning();
-      if (!created) throw new Error("insert del provider non ha restituito la riga");
+      const created = await app.db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(aiProviders)
+          .values({ kind, label, secretEncrypted, position: resolvedPosition })
+          .returning();
+        if (!row) throw new Error("insert del provider non ha restituito la riga");
+        await recordChange(tx, { type: "provider.created", actor: request.user!, projectId: null, data: { object: providerObject(row), params: { kind: row.kind } } });
+        return row;
+      });
       return reply.code(201).send(toPublicProvider(created));
     },
   );
@@ -157,7 +165,8 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
       }
 
       const rows = await app.db.transaction(async (tx) => {
-        const existing = await tx.select({ id: aiProviders.id }).from(aiProviders);
+        const beforeRows = await tx.select().from(aiProviders).orderBy(asc(aiProviders.position), asc(aiProviders.createdAt));
+        const existing = beforeRows.map((r) => ({ id: r.id }));
         const existingIds = new Set(existing.map((r) => r.id));
         if (existingIds.size !== unique.size || [...unique].some((id) => !existingIds.has(id))) {
           // Lancia per rollback; il chiamante traduce in 400.
@@ -166,10 +175,18 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
         for (const [index, id] of orderedIds.entries()) {
           await tx.update(aiProviders).set({ position: index }).where(eq(aiProviders.id, id));
         }
-        return tx
+        const afterRows = await tx
           .select()
           .from(aiProviders)
           .orderBy(asc(aiProviders.position), asc(aiProviders.createdAt));
+        // Come il prototipo: la catena dei nomi prima e dopo, e come oggetto
+        // il primo account che ha cambiato posto. Un riordino uguale non scrive.
+        const chain = (list: AiProviderRow[]) => list.map((r) => r.label).join(", ");
+        const moved = afterRows.find((r, i) => beforeRows[i]?.id !== r.id);
+        if (moved) {
+          await recordChange(tx, { type: "provider.reordered", actor: request.user!, projectId: null, data: { object: providerObject(moved), before: chain(beforeRows), after: chain(afterRows) } });
+        }
+        return afterRows;
       }).catch((error: unknown) => {
         if (error instanceof ReorderMismatchError) return null;
         throw error;
@@ -209,14 +226,25 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
       if (secret !== undefined) updates.secretEncrypted = encrypt(secret, app.encryptionKey);
 
       // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una lettura.
-      const [row] =
-        Object.keys(updates).length === 0
-          ? await app.db.select().from(aiProviders).where(eq(aiProviders.id, request.params.id))
-          : await app.db
-              .update(aiProviders)
-              .set(updates)
-              .where(eq(aiProviders.id, request.params.id))
-              .returning();
+      const row = await app.db.transaction(async (tx) => {
+        const [before] = await tx.select().from(aiProviders).where(eq(aiProviders.id, request.params.id)).for("update");
+        if (!before || Object.keys(updates).length === 0) return before;
+        const [after] = await tx.update(aiProviders).set(updates).where(eq(aiProviders.id, request.params.id)).returning();
+        const object = providerObject(after!);
+        // Area 9, F3: le voci del prototipo. L'interruttore con on/off; la
+        // credenziale «sostituita», mai un valore; un nome nuovo (il prototipo
+        // non rinomina) con prima e dopo com'è dato da una persona.
+        if (before.enabled !== after!.enabled) {
+          await recordChange(tx, { type: "provider.updated", actor: request.user!, projectId: null, data: { object, before: before.enabled ? "on" : "off", after: after!.enabled ? "on" : "off" } });
+        }
+        if (before.label !== after!.label) {
+          await recordChange(tx, { type: "provider.updated", actor: request.user!, projectId: null, data: { object, before: before.label, after: after!.label, params: { field: "name" } } });
+        }
+        if (secret !== undefined) {
+          await recordChange(tx, { type: "provider.credential_replaced", actor: request.user!, projectId: null, data: { object } });
+        }
+        return after;
+      });
       if (!row) return apiError(reply, 404, "ai_provider_not_found", "AI provider not found");
       return toPublicProvider(row);
     },
@@ -272,10 +300,9 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
           .update(projects)
           .set({ aiProviderExclusive: false })
           .where(eq(projects.aiProviderId, request.params.id));
-        return tx
-          .delete(aiProviders)
-          .where(eq(aiProviders.id, request.params.id))
-          .returning({ id: aiProviders.id });
+        const gone = await tx.delete(aiProviders).where(eq(aiProviders.id, request.params.id)).returning();
+        for (const row of gone) await recordChange(tx, { type: "provider.deleted", actor: request.user!, projectId: null, data: { object: providerObject(row) } });
+        return gone;
       });
       if (deleted.length === 0) {
         return apiError(reply, 404, "ai_provider_not_found", "AI provider not found");

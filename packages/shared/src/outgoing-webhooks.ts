@@ -71,17 +71,27 @@ export type OutgoingWebhookWithSecret = z.infer<typeof outgoingWebhookWithSecret
 
 const urlSchema = z.url().max(2000).refine((u) => u.startsWith("https://"), { message: "Webhook URL must use https" });
 
-export const createOutgoingWebhookSchema = z.object({
+const webhookFieldsSchema = z.object({
   name: z.string().trim().min(1).max(80),
   url: urlSchema,
   format: webhookFormatSchema,
-  enabled: z.boolean().default(true),
-  events: z.array(z.enum(OUTGOING_WEBHOOK_EVENT_IDS)).max(OUTGOING_WEBHOOK_EVENTS.length).default([]),
+  enabled: z.boolean(),
+  events: z.array(z.enum(OUTGOING_WEBHOOK_EVENT_IDS)).max(OUTGOING_WEBHOOK_EVENTS.length),
+});
+
+export const createOutgoingWebhookSchema = webhookFieldsSchema.extend({
+  enabled: webhookFieldsSchema.shape.enabled.default(true),
+  events: webhookFieldsSchema.shape.events.default([]),
 });
 export type CreateOutgoingWebhookInput = z.infer<typeof createOutgoingWebhookSchema>;
 
-/** Una patch: i campi assenti restano. */
-export const updateOutgoingWebhookSchema = createOutgoingWebhookSchema.partial();
+/**
+ * Una patch: i campi assenti RESTANO. Viene dalla base SENZA default, non dal
+ * `.partial()` della creazione: Zod applicherebbe i default anche a un campo
+ * assente, e una patch col solo nome riaccenderebbe il webhook svuotandone
+ * gli eventi.
+ */
+export const updateOutgoingWebhookSchema = webhookFieldsSchema.partial();
 export type UpdateOutgoingWebhookInput = z.infer<typeof updateOutgoingWebhookSchema>;
 
 /** L'esito di una prova d'invio. */
