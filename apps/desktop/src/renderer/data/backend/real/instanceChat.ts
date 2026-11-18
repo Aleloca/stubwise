@@ -2,6 +2,7 @@ import type * as Fake from "../../api";
 import { chatAiBlock } from "./claudeChat";
 import { partialNamespace } from "./notIntegrated";
 import { liveModels } from "./aiModels";
+import { liveGitAccounts } from "./gitAccounts";
 import { liveGoogleApps } from "./googleApps";
 import { liveProviders } from "./aiProviders";
 import { liveAutomation } from "./automation";
@@ -23,4 +24,6 @@ export const instance: typeof Fake.instance = partialNamespace<typeof Fake.insta
   ...liveModels,
   // Area 9, F3: Google Workspace.
   ...liveGoogleApps,
+  // Area 9, F3: Git accounts.
+  ...liveGitAccounts,
 });

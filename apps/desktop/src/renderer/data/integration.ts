@@ -72,8 +72,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "changelog",
     "webhooks",
     "ai",
-    // Area 9, F3: Google Workspace sulle rotte del server.
+    // Area 9, F3: Google Workspace e Git accounts sulle rotte del server.
     "google",
+    "git-accounts",
   ]),
   taskView: new Set(["list", "board", "timeline"]),
   feature: new Set([

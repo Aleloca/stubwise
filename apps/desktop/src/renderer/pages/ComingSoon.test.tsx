@@ -160,6 +160,14 @@ const INTEGRATED_CALLS = new Set([
   "instance.testProvider",
   "instance.replaceProviderCredential",
   "instance.deleteProvider",
+  // Area 9, F3: Git accounts.
+  "instance.listGitAccounts",
+  "instance.createGitAccount",
+  "instance.updateGitAccount",
+  "instance.replaceGitToken",
+  "instance.validateGitAccount",
+  "instance.setDefaultReviewer",
+  "instance.deleteGitAccount",
   // Area 9, F3: Google Workspace.
   "instance.listGoogleApps",
   "instance.getGoogleRedirectUri",
@@ -860,6 +868,17 @@ describe("aree non integrate nella build app", () => {
     renderRoute("/admin/ai?tab=providers");
     await waitFor(() => expect(calls).toContain("instance.listProviders"));
     expect(await screen.findByRole("list", { name: "AI accounts" })).toBeInTheDocument();
+    await settle();
+    expect(document.querySelector("[data-coming-soon]")).toBeNull();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F3: Amministrazione → Git accounts, su `/api/git-accounts`.
+  it("aprire Git accounts legge solo chiamate integrate, senza riquadro del prototipo", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/git-accounts");
+    await waitFor(() => expect(calls).toContain("instance.listGitAccounts"));
     await settle();
     expect(document.querySelector("[data-coming-soon]")).toBeNull();
     expect(document.querySelector("[data-prototype-only]")).toBeNull();

@@ -1208,6 +1208,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     non valida»; le credenziali salvate prima della 0190 non hanno le
     ultime 4 («••••»); la riga della quota la vede solo chi ha
     `usage.view` *(dichiarato; S per distinguere l'errore di rete)*;
+  - Git accounts: niente ultime 4 del token («••••»); la validazione non
+    resta sul server (la ricorda la sessione); i repository che usano un
+    account non arrivano, né nella riga né nel rifiuto `in_use`; chi
+    verrebbe sostituito come revisore predefinito si sa solo dopo, dalla
+    risposta *(S per ciascuno)*;
   - Google Workspace: il server non tiene le ultime 4 del client secret
     («••••»), e delle caselle collegate dà solo il numero: il dialogo di
     un'app in uso le dice contate, senza i nomi *(S)*;
