@@ -100,7 +100,7 @@ describe("chi elimina", () => {
     const who = await access.whoCan("deleteTasks", ACQ);
     if (!who.visible) throw new Error("invisibile");
     expect(who.permission).toBe("tickets.moderate");
-    expect(who.claude.allowed).toBe(false);
+    expect(who.agent).toEqual({ actsFor: "confirmer" });
     expect(who.people.map((p) => p.personId)).not.toContain(CLAUDE_ID);
     expect(who.people.map((p) => p.personId)).toContain("p-laura");
   });

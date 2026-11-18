@@ -4,14 +4,7 @@ import { resetApi } from "../api";
 import { visibleProjectIds } from "../store";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { PROJECTS } from "../seed/projects";
-import {
-  CLAUDE_INSTANCE_PERMISSIONS,
-  CLAUDE_PROJECT_PERMISSIONS,
-  can,
-  grantProjectPermission,
-  viewerFor,
-  type Permission,
-} from "../viewer";
+import { can, grantProjectPermission, viewerFor, type Permission } from "../viewer";
 import { accessState, isMember, roleIdOf, writeAccess } from "./index";
 import { visiblePeopleFor, whatCan, whoCan } from "./whoCan";
 
@@ -195,28 +188,18 @@ describe("whoCan: visibilità (R-G5)", () => {
 });
 
 describe("whoCan: Claude", () => {
-  it("non approva un piano, avvia un run", () => {
-    const approve = whoCan("p-roberta", "approvePlan", ACQ);
-    const start = whoCan("p-roberta", "startRun", ACQ);
-    expect(approve.visible && approve.claude).toEqual({ allowed: false });
-    expect(start.visible && start.claude).toEqual({ allowed: true });
+  it("area 9 (decisione (a)): Claude non ha permessi suoi, agisce con quelli di chi assegna o conferma", () => {
+    for (const action of ACTIONS) {
+      const r = whoCan("p-roberta", action.id, action.scope === "project" ? ACQ : null);
+      if (!r.visible) continue;
+      expect(r.agent, action.id).toEqual({ actsFor: "confirmer" });
+    }
   });
 
   it("non sta mai fra le persone", () => {
     for (const action of ACTIONS) {
       const r = whoCan("p-roberta", action.id, action.scope === "project" ? ACQ : null);
       expect(peopleOf(r)).not.toContain(CLAUDE_ID);
-    }
-  });
-
-  it("claude.allowed è can(Claude) per ogni azione", () => {
-    for (const action of ACTIONS) {
-      const projectId = action.scope === "project" ? ACQ : undefined;
-      const r = whoCan("p-sara", action.id, projectId ?? null);
-      if (!r.visible) continue;
-      expect(r.claude.allowed, action.id).toBe(
-        can(viewerFor(CLAUDE_ID), action.permission as Permission, projectId),
-      );
     }
   });
 });
@@ -258,15 +241,11 @@ describe("whatCan", () => {
     expect(whatCan("p-roberta", "p-marco", notMarcos)).toEqual({ visible: true, groups: [] });
   });
 
-  it("Claude: sempre visibile, i suoi permessi di lavoro, senza fonti", () => {
-    const inProject = flat(whatCan("p-sara", CLAUDE_ID, [...visibleProjectIds("p-sara")][0]!));
-    expect(new Set(inProject)).toEqual(new Set(CLAUDE_PROJECT_PERMISSIONS));
-    expect(new Set(flat(whatCan("p-sara", CLAUDE_ID, null)))).toEqual(
-      new Set(CLAUDE_INSTANCE_PERMISSIONS),
-    );
-    const r = whatCan("p-sara", CLAUDE_ID, null);
-    if (!r.visible) throw new Error("invisibile");
-    for (const g of r.groups) for (const p of g.permissions) expect(p.sources).toEqual([]);
+  it("area 9 (decisione (a)): «cosa può fare» Claude non ha risposta, come il 404 del server", () => {
+    expect(whatCan("p-sara", CLAUDE_ID, [...visibleProjectIds("p-sara")][0]!)).toEqual({
+      visible: false,
+    });
+    expect(whatCan("p-sara", CLAUDE_ID, null)).toEqual({ visible: false });
   });
 
   it("R-G5: un progetto o una persona che chi guarda non vede", () => {

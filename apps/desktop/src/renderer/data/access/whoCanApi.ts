@@ -40,13 +40,14 @@ export type WhoCanView =
       projectCode: string | null;
       people: WhoCanPerson[];
       /** Claude, sempre a parte: lavora, non decide (R-L9). */
-      claude: { allowed: boolean };
+      /** Area 9 (decisione (a)): Claude agisce con i permessi di chi assegna o conferma. */
+      agent: { actsFor: "confirmer" };
     };
 
 export interface WhatCanPermission {
   permission: string;
   held: boolean;
-  /** Vuoto per Claude (è una regola, non una concessione) e per ciò che non ha. */
+  /** Vuoto per ciò che non ha. */
   reasons: WhoCanReason[];
 }
 
@@ -56,10 +57,9 @@ export type WhatCanView =
       visible: true;
       personId: string;
       name: string;
-      isClaude: boolean;
       /** Il codice del progetto, `null` per l'istanza. */
       projectCode: string | null;
-      /** Se la persona è membro del progetto (sempre vero per Claude, R-L9); `null` per l'istanza. */
+      /** Se la persona è membro del progetto; `null` per l'istanza. */
       member: boolean | null;
       groups: { groupKey: string; permissions: WhatCanPermission[] }[];
     };
@@ -130,7 +130,7 @@ export async function whoCan(actionId: string, projectId: string | null): Promis
         reasons: reasonsOf(p.sources),
       };
     }),
-    claude: raw.claude,
+    agent: raw.agent,
   };
 }
 
@@ -146,7 +146,6 @@ export async function whatCan(personId: string, projectId: string | null): Promi
   if (me === CLAUDE_ID) return { visible: false };
   const raw = whatCanRaw(me, personId, projectId);
   if (!raw.visible) return raw;
-  const isClaude = personId === CLAUDE_ID;
   const held = new Map(raw.groups.flatMap((g) => g.permissions).map((p) => [p.permission, p]));
   const scope: AccessScope = projectId === null ? "instance" : "project";
   const universe = new Set<string>(projectId === null ? [...INSTANCE_SET] : ALL_PROJECT_PERMISSIONS);
@@ -160,7 +159,7 @@ export async function whatCan(personId: string, projectId: string | null): Promi
           return {
             permission,
             held: !!h,
-            reasons: h && !isClaude ? reasonsOf(h.sources) : [],
+            reasons: h ? reasonsOf(h.sources) : [],
           };
         }),
     }))
@@ -168,10 +167,9 @@ export async function whatCan(personId: string, projectId: string | null): Promi
   return {
     visible: true,
     personId,
-    name: isClaude ? "Claude" : (personOf(personId)?.name ?? personId),
-    isClaude,
+    name: personOf(personId)?.name ?? personId,
     projectCode: codeOf(projectId),
-    member: projectId === null ? null : isClaude || isMember(personId, projectId),
+    member: projectId === null ? null : isMember(personId, projectId),
     groups,
   };
 }

@@ -48,7 +48,7 @@ import {
   useSourceWords,
   type UiRefusal,
 } from "./parts";
-import { ResetPasswordDialog, ResetSecondFactorDialog } from "./ResetDialogs";
+import { ChangeEmailDialog, ResetPasswordDialog, ResetSecondFactorDialog } from "./ResetDialogs";
 
 // La pagina di una persona (shape admin-people.md, «La pagina di una
 // persona», [PE 2]): testata con le azioni rare nel «⋯», poi le parti in
@@ -57,7 +57,7 @@ import { ResetPasswordDialog, ResetSecondFactorDialog } from "./ResetDialogs";
 // fare, e i motivi delle scelte spente li dice il livello dati
 // (`actions`, `instanceRoleChoices`): qui non si ricalcola nessuna regola.
 
-type Dialog = "resetPassword" | "resetSecondFactor" | "deactivate" | null;
+type Dialog = "resetPassword" | "changeEmail" | "resetSecondFactor" | "deactivate" | null;
 
 export function PersonDetail({ personId }: { personId: string }) {
   const { t } = useTranslation();
@@ -154,6 +154,7 @@ function PersonBody({ person }: { person: Person }) {
       <IdentitiesPart person={person} manages={manages} />
       {manages && <SecurityLogPart personId={person.personId} />}
       {dialog === "resetPassword" && <ResetPasswordDialog person={person} onClose={closeDialog} />}
+      {dialog === "changeEmail" && <ChangeEmailDialog person={person} onClose={closeDialog} />}
       {dialog === "resetSecondFactor" && (
         <ResetSecondFactorDialog
           person={person}
@@ -236,6 +237,11 @@ function MoreMenu({
             {a.resetPassword === null && (
               <button type="button" role="menuitem" className={itemClass} onClick={() => pick("resetPassword")}>
                 {t("admin.person.resetPassword")}
+              </button>
+            )}
+            {a.changeEmail === null && (
+              <button type="button" role="menuitem" className={itemClass} onClick={() => pick("changeEmail")}>
+                {t("admin.person.changeEmail")}
               </button>
             )}
             {a.resetSecondFactor !== "status" && (
@@ -335,6 +341,7 @@ function InstanceRolePart({ person, manages }: { person: Person; manages: boolea
             {(close) => (
               <RoleOptions
                 roles={person.instanceRoleChoices}
+                blockName={name}
                 value={current?.id ?? ""}
                 onPick={(roleId) => {
                   close();

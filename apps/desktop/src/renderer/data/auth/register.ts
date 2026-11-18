@@ -30,8 +30,10 @@ export type InviteLookup =
       instanceRoleName: string | null;
       expiresAt: string;
     }
-  | { status: "expired"; invitedByName: string; invitedAt: string; expiresAt: string }
-  | { status: "revoked"; invitedByName: string }
+  // Area 9 (decisione del maintainer, come `GET /api/auth/invites/:token`):
+  // su un invito non valido solo lo stato, senza nomi né date.
+  | { status: "expired" }
+  | { status: "revoked" }
   /** Già accettato: si entra dal login. Senza nomi. */
   | { status: "used" }
   /** Link sconosciuto. */
@@ -61,16 +63,8 @@ export async function getInvite(token: string): Promise<InviteLookup> {
   await gate("auth.getInvite");
   const invite = inviteOf(token);
   const status = statusOf(invite);
-  if (status === "invalid" || status === "used") return { status };
+  if (status !== "valid") return { status };
   const invitedByName = nameOf(invite!.invitedById) ?? "";
-  if (status === "revoked") return { status, invitedByName };
-  if (status === "expired")
-    return {
-      status,
-      invitedByName,
-      invitedAt: invite!.createdAt,
-      expiresAt: invite!.expiresAt,
-    };
   const instanceRole = roleById(invite!.instanceRoleId);
   return {
     status,

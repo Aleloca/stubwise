@@ -81,6 +81,8 @@ describe("link di reset", () => {
   it("cambiare la propria password annulla il link di reset aperto (come il server)", async () => {
     const token = await linkForMarco();
     setSessionPersonId(MARCO);
+    // Area 9: cambiare la password chiede la riconferma, come sul server.
+    markReauthenticated(MARCO);
     expect(await me.changePassword({ current: "stubwise", next: "brand-new-pass" })).toMatchObject({
       ok: true,
     });

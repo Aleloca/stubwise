@@ -1,6 +1,6 @@
 import { startAuthentication } from "@simplewebauthn/browser";
 import { ApiError } from "@stubwise/api-client";
-import { accountSecurityResponseSchema, passkeyAuthenticationOptionsSchema } from "@stubwise/shared";
+import { passkeyAuthenticationOptionsSchema } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import { SECOND_FACTOR_MAX_FAILURES } from "../../auth/constants";
 import type { Viewer } from "../../types";
@@ -20,6 +20,10 @@ import { forgetFilterCaches } from "./filters";
 import { forgetHomeCaches } from "./home";
 import { forgetTaskCodes } from "./tasks";
 import * as web from "./webLogin";
+import { liveMeAccount } from "./meAccount";
+import { liveMeSecurity } from "./meSecurity";
+import { liveMeTokens } from "./meTokens";
+import { liveEntry } from "./entry";
 
 // La sessione della build app (integrazione area 2, fetta 1): chi è dentro e
 // cosa può fare lo dice il server (`GET /api/auth/me`), mai il client. Sul
@@ -61,6 +65,14 @@ export const getSessionPerson: typeof Fake.getSessionPerson = async () => {
     if (before !== null) forgetClientCaches();
     lastPerson = null;
     session.personId = null;
+    // Area 9, R5: fuori, nella web «app», un'istanza senza nessuno porta al
+    // primo avvio. Sul desktop un'istanza scelta ha sempre qualcuno.
+    session.empty = window.stubwise?.api
+      ? false
+      : await appClient()
+          .auth.setupStatus()
+          .then((s) => s.needed)
+          .catch(() => false);
     return null;
   }
 };
@@ -108,8 +120,8 @@ type Auth = typeof Fake.auth;
 
 const readEntry: Auth["readEntry"] = () => ({
   stage: session.personId !== null ? "in" : session.partial ? "second_factor" : "out",
-  // Il primo avvio di un'istanza vuota si fa dal web: qui un'istanza c'è sempre.
-  empty: false,
+  // Area 9, R5: il primo avvio nella web «app» (`GET /api/auth/setup`, letto da `getSessionPerson`).
+  empty: session.empty,
 });
 
 const logout: Auth["logout"] = async () => {
@@ -253,6 +265,12 @@ const reauthenticate: Auth["reauthenticate"] = async (input: ReauthInput) => {
 
 export const auth: Auth = partialNamespace<Auth>("auth", {
   readEntry,
+  // Area 9, F1, R5: le pagine d'ingresso della web «app».
+  getResetLink: liveEntry.getResetLink,
+  resetPassword: liveEntry.resetPassword,
+  createFirstAdmin: liveEntry.createFirstAdmin,
+  getInvite: liveEntry.getInvite,
+  register: liveEntry.register,
   logout,
   login,
   loginStage,
@@ -274,15 +292,11 @@ type Me = typeof Fake.me;
  */
 const getMySecurity: Me["getMySecurity"] = async () => {
   try {
-    const s = await appClient().request("GET", "/api/me/security", undefined, accountSecurityResponseSchema);
-    return {
-      on: s.totp.configured,
-      // Nell'app desktop la passkey non c'è: vive sul dominio dell'istanza,
-      // cioè nel browser. La riconferma lì è il codice (decisione del
-      // maintainer, 10 nov 2026), e il dialogo non offre «Use a passkey».
-      passkeys: window.stubwise?.api ? [] : s.passkeys,
-      backupCodesLeft: s.backupCodesRemaining,
-    } as unknown as Awaited<ReturnType<Me["getMySecurity"]>>;
+    // Area 9, R4b: la sicurezza intera (Preferenze → Security), che serve anche
+    // al secondo passo del login e al dialogo di riconferma. Sul desktop le
+    // passkey sono vuote: vivono nel browser, e il dialogo non offre «Use a
+    // passkey» (decisione del maintainer, 10 nov 2026).
+    return await liveMeSecurity.getMySecurity();
   } catch (error) {
     // Un login a metà (401) o una lettura che non riesce: l'ultimo ingresso.
     if (!(error instanceof ApiError)) throw error;
@@ -294,4 +308,27 @@ const getMySecurity: Me["getMySecurity"] = async () => {
   }
 };
 
-export const me: Me = partialNamespace<Me>("me", { getMySecurity });
+export const me: Me = partialNamespace<Me>("me", {
+  getMySecurity,
+  // Area 9, F1, R4a: Preferenze → Account.
+  getMyProfile: liveMeAccount.getMyProfile,
+  updateProfile: liveMeAccount.updateProfile,
+  requestEmailChange: liveMeAccount.requestEmailChange,
+  cancelEmailChange: liveMeAccount.cancelEmailChange,
+  getEmailChangeLink: liveMeAccount.getEmailChangeLink,
+  confirmEmailChange: liveMeAccount.confirmEmailChange,
+  changePassword: liveMeAccount.changePassword,
+  // Area 9, F1, R4b: Preferenze → Security.
+  endSession: liveMeSecurity.endSession,
+  startTotpSetup: liveMeSecurity.startTotpSetup,
+  confirmTotp: liveMeSecurity.confirmTotp,
+  regenerateBackupCodes: liveMeSecurity.regenerateBackupCodes,
+  addPasskey: liveMeSecurity.addPasskey,
+  renamePasskey: liveMeSecurity.renamePasskey,
+  removePasskey: liveMeSecurity.removePasskey,
+  // Area 9, F1, R4c: Tokens e Claude Code.
+  listTokens: liveMeTokens.listTokens,
+  createToken: liveMeTokens.createToken,
+  revokeToken: liveMeTokens.revokeToken,
+  createClaudeCodeCommand: liveMeTokens.createClaudeCodeCommand,
+});

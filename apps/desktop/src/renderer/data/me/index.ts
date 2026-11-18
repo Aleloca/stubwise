@@ -30,5 +30,14 @@ export {
   type ConfirmTotpResult,
 } from "./security";
 export { createToken, listTokens, revokeToken } from "./tokens";
+export {
+  cancelEmailChange,
+  confirmEmailChange,
+  getEmailChangeLink,
+  requestEmailChange,
+  setEmailTransportForPrototype,
+  simulateEmailChangeLink,
+  type PendingEmail,
+} from "./emailChange";
 export { createClaudeCodeCommand } from "./claudeCode";
 export type * from "./types";

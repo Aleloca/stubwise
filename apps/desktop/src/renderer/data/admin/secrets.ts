@@ -40,7 +40,9 @@ type GeneratedSecretKind =
   | "ingestion_key"
   | "git_webhook_secret"
   // API per i siti (S6): il segreto d'identità dei clienti di un widget.
-  | "widget_identity_secret";
+  | "widget_identity_secret"
+  // Area 9, R2: il link di conferma del cambio dell'email di login.
+  | "email_change_link";
 
 /**
  * I segreti scritti da chi amministra (area 9b). Un tipo a parte: `valueOf`
@@ -127,6 +129,8 @@ function valueOf(kind: GeneratedSecretKind, ownerId: string, n: number): string 
       return chars(seed, HEX, 40);
     // Come sul server: 32 byte casuali in base64url (43 caratteri, senza `=`).
     case "widget_identity_secret":
+      return chars(seed, BASE64URL, 43);
+    case "email_change_link":
       return chars(seed, BASE64URL, 43);
   }
 }

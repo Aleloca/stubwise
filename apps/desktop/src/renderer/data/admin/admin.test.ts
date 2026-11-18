@@ -94,7 +94,7 @@ function snapshot(): string {
 /** Il rifiuto atteso, con lo stato e il registro invariati. */
 async function refused(
   call: () => Promise<AdminResult<object>>,
-  expected: Partial<{ error: string; reason: string; missing: string[] }>,
+  expected: Partial<{ error: string; reason: string; missing: string[]; taskId: string }>,
 ) {
   const before = snapshot();
   const entries = state.changelog.length;
@@ -125,6 +125,8 @@ const SENSITIVE: Record<string, { setup?: () => void; call: () => Promise<AdminR
     "admin.setInstanceRole": { call: () => admin.setInstanceRole("p-marco", roleIdOf("au-1")) },
     "admin.createPasswordResetLink": { call: () => admin.createPasswordResetLink("p-marco") },
     "admin.resetSecondFactor": { call: () => admin.resetSecondFactor("p-marco") },
+    // Area 9, R2.
+    "admin.changeEmail": { call: () => admin.changeEmail("p-marco", "marco@new.example.com") },
     "admin.unlinkGitIdentity": {
       setup: () => state.commitAuthorLinks.set("kevin.ortega", "p-marco"),
       call: () => admin.unlinkGitIdentity("p-marco", "kevin.ortega"),
@@ -216,6 +218,7 @@ describe("senza permesso: forbidden, stato invariato, nessuna voce", () => {
     ["setInstanceRole", () => admin.setInstanceRole("p-marco", roleIdOf("au-1"))],
     ["createPasswordResetLink", () => admin.createPasswordResetLink("p-marco")],
     ["resetSecondFactor", () => admin.resetSecondFactor("p-marco")],
+    ["changeEmail", () => admin.changeEmail("p-marco", "marco@new.example.com")],
     ["linkGitIdentity", () => admin.linkGitIdentity("p-marco", "kevin.ortega")],
     ["unlinkGitIdentity", () => admin.unlinkGitIdentity("p-marco", "kevin.ortega")],
     ["setBitbucketUsername", () => admin.setBitbucketUsername("p-marco", "marcob")],
@@ -802,10 +805,7 @@ describe("disattivare e riattivare", () => {
       expect(await admin.deactivatePerson("p-laura", {})).toMatchObject({ ok: true });
       expect(state.invites.find((i) => i.id === made.inviteId)!.revokedAt).not.toBeNull();
       // Come un invito revocato a mano (`getInvite` e `register`).
-      expect(await auth.getInvite(made.link)).toEqual({
-        status: "revoked",
-        invitedByName: "Laura Costa",
-      });
+      expect(await auth.getInvite(made.link)).toEqual({ status: "revoked" });
       expect(await auth.register(made.link, { name: "Nora", password: "a-long-one" })).toEqual({
         ok: false,
         error: "revoked",
@@ -872,13 +872,55 @@ describe("disattivare e riattivare", () => {
         !state.projectsById.get(task!.projectId)!.memberIds.includes(p.personId),
     )!.personId;
     await refused(() => admin.deactivatePerson("p-marco", { [task!.id]: outsider }), {
-      reason: "assignee",
+      reason: "invalid_reassignment",
+      taskId: task!.id,
     });
     const stw = openTasksOf("p-marco").find((t) => t.projectId === "prj-stw");
     if (stw)
       await refused(() => admin.deactivatePerson("p-marco", { [stw.id]: "p-simone" }), {
-        reason: "assignee",
+        reason: "invalid_reassignment",
+        taskId: stw.id,
       });
+  });
+
+  it("area 9 (decisione del maintainer): Claude non è fra i destinatari, nemmeno dove è membro; una sua riga è invalid_reassignment", async () => {
+    // Assegnare a Claude AVVIA il lavoro (chiede `runs.start`): la
+    // disattivazione è una transazione amministrativa, e non lo fa.
+    const task = openTasksOf("p-marco").find((t) =>
+      state.projectsById.get(t.projectId)!.memberIds.includes(CLAUDE_ID),
+    )!;
+    expect(task).toBeTruthy();
+    const detail = await admin.getPerson("p-marco");
+    expect(detail.openTasks.find((t) => t.taskId === task.id)!.reassignTo).not.toContain(CLAUDE_ID);
+    expect(await admin.deactivatePerson("p-marco", { [task.id]: CLAUDE_ID })).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "invalid_reassignment",
+      taskId: task.id,
+    });
+    expect(state.tasksById.get(task.id)!.assigneeId).toBe("p-marco");
+  });
+
+  it("area 9, R6: una riga non valida fa fallire tutto, con l'id della sua task (invalid_reassignment)", async () => {
+    const [good, bad] = openTasksOf("p-marco");
+    const to = state.projectsById
+      .get(good!.projectId)!
+      .memberIds.find(
+        (id) =>
+          id !== "p-marco" &&
+          accessState().people.some((p) => p.personId === id && p.status === "active"),
+      )!;
+    // `bad` non è più di Marco: una riga non valida.
+    state.tasksById.get(bad!.id)!.assigneeId = to;
+    const result = await admin.deactivatePerson("p-marco", { [good!.id]: to, [bad!.id]: null });
+    expect(result).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "invalid_reassignment",
+      taskId: bad!.id,
+    });
+    expect(state.tasksById.get(good!.id)!.assigneeId).toBe("p-marco");
+    expect(accessState().people.find((p) => p.personId === "p-marco")!.status).toBe("active");
   });
 });
 

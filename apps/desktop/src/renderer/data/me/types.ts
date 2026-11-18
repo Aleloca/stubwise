@@ -119,5 +119,17 @@ export interface TokenView {
   lastUsedAt: string | null;
 }
 
+/**
+ * Area 9, R2: una richiesta di cambio dell'email di login in attesa
+ * (`emailChange.ts`). Il link sta in `admin/secrets`: qui solo il suo id.
+ */
+export interface EmailChange {
+  personId: string;
+  email: string;
+  secretId: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
 /** I rifiuti delle Preferenze: gli stessi dell'Amministrazione (dati, mai eccezioni). */
 export type MeResult<T extends object = object> = ({ ok: true } & T) | AdminRefusal;

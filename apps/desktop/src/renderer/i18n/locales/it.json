@@ -207,7 +207,8 @@
       "restore": "Ripristina",
       "unsnooze": "Sposta in Nuove",
       "linkAccess": "Collega l'accesso SSH",
-      "openInWeb": "Apri nel web"
+      "openInWeb": "Apri nel web",
+      "markUnread": "Segna come non letta"
     },
     "snooze": {
       "hour": "1 ora",
@@ -369,13 +370,14 @@
         "title": "Profilo",
         "changePhoto": "Cambia foto",
         "removePhoto": "Togli la foto",
-        "notImage": "Quel file non è un'immagine. Scegli un PNG, un JPEG o un GIF.",
+        "notImage": "Scegli un'immagine PNG, JPEG o WebP.",
         "name": "Nome",
         "email": "Email",
         "nameEmpty": "Scrivi il tuo nome.",
         "invalidEmail": "Scrivi un indirizzo email completo.",
         "emailTaken": "Quell'email è già di un'altra persona in Stubwise.",
-        "saveFailed": "Non è stato possibile salvare il profilo. Riprova."
+        "saveFailed": "Non è stato possibile salvare il profilo. Riprova.",
+        "tooLarge": "La foto supera i 512 KB."
       },
       "password": {
         "title": "Password",
@@ -392,7 +394,8 @@
         "done_other": "Password cambiata. Sono state chiuse {{count}} altre sessioni.",
         "doneNone": "Password cambiata. Non c'erano altre sessioni da chiudere.",
         "seeSessions": "Vedi le sessioni",
-        "failed": "Non è stato possibile cambiare la password. Riprova."
+        "failed": "Non è stato possibile cambiare la password. Riprova.",
+        "reauthAction": "cambiare la password"
       },
       "follows": {
         "title": "Progetti seguiti",
@@ -400,6 +403,22 @@
         "body_other": "Segui {{count}} progetti: sono fissati nel binario.",
         "none": "Non segui ancora nessun progetto. Fissane uno in Tutti i progetti per tenerlo nel binario.",
         "manage": "Gestisci in Tutti i progetti"
+      },
+      "email": {
+        "label": "Email di accesso",
+        "change": "Cambia email…",
+        "unavailable": "Su questa istanza non puoi cambiare l'email di accesso: chiedi a un amministratore.",
+        "pending": "In attesa di conferma su {{next}}. Fino ad allora entri con {{current}}.",
+        "cancel": "Annulla il cambio",
+        "openLink": "Apri il link di conferma",
+        "failed": "Non è stato possibile cambiare l'email di accesso. Riprova.",
+        "dialogTitle": "Cambia l'email di accesso",
+        "dialogAbout": "Mandiamo un link al nuovo indirizzo. L'email cambia solo quando lo apri, entro 24 ore.",
+        "newLabel": "Nuova email",
+        "send": "Manda il link",
+        "sending": "Invio…",
+        "reauthAction": "cambiare l'email di accesso",
+        "sendFailed": "Non è stato possibile mandare il link. Riprova."
       }
     },
     "google": {
@@ -511,7 +530,8 @@
         "removed": "Passkey «{{name}}» tolta.",
         "removeFailed": "Non è stato possibile togliere la passkey. Riprova.",
         "lastNeedsApp": "Configura prima l'app di autenticazione: la verifica in due passaggi non si può spegnere.",
-        "empty": "Ancora nessuna passkey. Una passkey ti fa entrare con l'impronta, il volto o una chiave di sicurezza."
+        "empty": "Ancora nessuna passkey. Una passkey ti fa entrare con l'impronta, il volto o una chiave di sicurezza.",
+        "desktopNote": "Le passkey stanno nel browser: aggiungile o toglile da Stubwise nel browser."
       },
       "backup": {
         "title": "Codici di backup",
@@ -563,7 +583,15 @@
           "second_factor_locked": "Bloccato dopo troppi codici sbagliati",
           "token_created": "Token di accesso creato",
           "token_revoked": "Token di accesso revocato",
-          "registered": "Account creato"
+          "registered": "Account creato",
+          "email_changed": "Email di accesso cambiata",
+          "vault_key_created": "Chiave della cassaforte creata",
+          "vault_recovery_used": "Kit di recupero della cassaforte usato",
+          "vault_activated": "Cassaforte attivata",
+          "vault_seal_replaced": "Sigillo della cassaforte sostituito",
+          "vault_recovery_key_rotated": "Chiave di recupero della cassaforte cambiata",
+          "reauth_desktop": "Identità confermata nell'app desktop",
+          "other": "Altro evento di sicurezza"
         }
       }
     },
@@ -10098,10 +10126,7 @@
       "none": "Nessuna delle persone che vedi può {{action}} in {{code}}.",
       "noneInstance": "Nessuna delle persone che vedi può {{action}}.",
       "answers": "Chi può {{action}}",
-      "claudeLine": "lavora, non decide.",
-      "claudeCan": "Claude può {{action}}.",
-      "claudeCant": "Claude non può {{action}}.",
-      "claudeWhat": "Claude lavora ma non decide.",
+      "claudeLine": "non ha permessi suoi: agisce con quelli di chi lo assegna o conferma la sua azione.",
       "can": "Può",
       "never": "Mai",
       "notMember": "{{name}} non è membro di {{code}}.",
@@ -10226,16 +10251,18 @@
       "welcome": "Benvenuto, {{name}}. Sei in {{projects}}.",
       "welcomeNoProjects": "Benvenuto, {{name}}.",
       "expiredTitle": "Questo invito è scaduto",
-      "expiredBody": "{{name}} ti ha invitato il {{invited}}. L'invito è scaduto il {{expired}}. Chiedine uno nuovo a {{first}}.",
+      "expiredBody": "Chiedine uno nuovo a chi ti ha invitato.",
       "revokedTitle": "Questo invito non è più valido",
-      "revokedBody": "{{name}} lo ha ritirato. Se ti serve ancora l'accesso, chiediglielo.",
+      "revokedBody": "Se ti serve ancora l'accesso, chiedilo a chi ti ha invitato.",
       "invalidBody": "Questo link d'invito non è valido. Chiedine uno nuovo a chi te l'ha mandato.",
       "goToSignIn": "Vai all'accesso",
       "loadFailed": "Non è stato possibile caricare l'invito.",
       "usedTitle": "Questo invito è già stato usato",
       "usedBody": "Questo invito è già stato usato. Accedi invece.",
       "emailTaken": "Esiste già un account con questa email. Accedi invece.",
-      "createdSignIn": "Il tuo account è pronto. Accedi con la nuova password."
+      "createdSignIn": "Il tuo account è pronto. Accedi con la nuova password.",
+      "signedInAs": "Sei dentro come {{name}}. Esci prima di creare un account nuovo.",
+      "signOutFirst": "Esci prima"
     },
     "setup": {
       "title": "Configura Stubwise",
@@ -10374,6 +10401,20 @@
         "title": "Questo link di accesso non funziona",
         "lead": "Ricomincia dall'app Stubwise sul Mac: apre un link nuovo."
       }
+    },
+    "emailChange": {
+      "title": "Email di accesso cambiata",
+      "confirming": "Lettura del link…",
+      "done": "Da ora entri con {{email}}.",
+      "failed": "Non è stato possibile confermare la nuova email. Riapri il link.",
+      "invalidTitle": "Questo link non vale",
+      "invalidBody": "Può essere scaduto, già usato o annullato. Chiedine uno nuovo dalle tue preferenze.",
+      "takenTitle": "Quell'email è già presa",
+      "takenBody": "Ora la usa un'altra persona in Stubwise. La tua email di accesso non è cambiata.",
+      "confirmTitle": "Conferma la nuova email di accesso",
+      "confirmBody": "La tua email di accesso diventerà {{email}}.",
+      "confirm": "Conferma il cambio dell'email",
+      "confirmingButton": "Conferma…"
     }
   },
   "admin": {
@@ -10511,7 +10552,8 @@
         "cancel": "Annulla"
       },
       "securityLog": "Registro di sicurezza",
-      "securityLogError": "Non è stato possibile caricare il registro di sicurezza."
+      "securityLogError": "Non è stato possibile caricare il registro di sicurezza.",
+      "changeEmail": "Cambia email…"
     },
     "resetPassword": {
       "title": "Creare un link per reimpostare la password di {{name}}?",
@@ -10552,7 +10594,8 @@
       "doneOne_one": "{{name}} è stata disattivata. {{count}} task riassegnata a {{to}}.",
       "doneOne_other": "{{name}} è stata disattivata. {{count}} task riassegnate a {{to}}.",
       "doneMany": "{{name}} è stata disattivata. {{count}} task riassegnate.",
-      "reauthAction": "disattivare {{name}}"
+      "reauthAction": "disattivare {{name}}",
+      "rowChanged": "{{code}} non si può più riassegnare: nel frattempo è cambiata. L'elenco è aggiornato."
     },
     "invite": {
       "title": "Invita qualcuno",
@@ -11750,6 +11793,16 @@
         "note": "Solo da leggere: il giro notturno riprende da dove si è fermato.",
         "empty": "Stanotte non è girato niente nei progetti che vedi."
       }
+    },
+    "changeEmail": {
+      "title": "Cambiare l'email di accesso di {{name}}?",
+      "now": "Cambia subito, senza link di conferma.",
+      "keeps": "{{name}} tiene le sessioni e la verifica in due passaggi.",
+      "alert": "{{name}} riceve un avviso di sicurezza.",
+      "newLabel": "Nuova email",
+      "change": "Cambia email",
+      "done": "Ora {{name}} entra con {{email}}.",
+      "reauthAction": "cambiare l'email di accesso di {{name}}"
     }
   },
   "permissions": {
@@ -12114,7 +12167,8 @@
         "git_identity_unlinked": "<actor>{{actor}}</actor> ha scollegato un'identità git da <object>{{object}}</object>.",
         "bitbucket_username_set": "<actor>{{actor}}</actor> ha cambiato lo username Bitbucket di <object>{{object}}</object>.",
         "deactivated": "<actor>{{actor}}</actor> ha disattivato <object>{{object}}</object>.",
-        "reactivated": "<actor>{{actor}}</actor> ha riattivato <object>{{object}}</object>."
+        "reactivated": "<actor>{{actor}}</actor> ha riattivato <object>{{object}}</object>.",
+        "email_changed": "<actor>{{actor}}</actor> ha cambiato l'email di accesso di <object>{{object}}</object>."
       },
       "invite": {
         "created": "<actor>{{actor}}</actor> ha invitato <object>{{object}}</object> come {{role}}.",

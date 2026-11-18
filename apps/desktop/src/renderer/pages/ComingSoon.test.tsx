@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { auth as fakeAuth } from "../data/api";
 import { renderRoute } from "../test/renderRoute";
 import { closeGoogleAccount } from "./drive/GoogleAccountCard";
 import { REPLY_UNDO_MS } from "./support/replyStore";
@@ -109,6 +110,71 @@ beforeEach(() => {
  * altra chiamata, nella build app vera, sarebbe uno stub «non integrato».
  */
 const INTEGRATED_CALLS = new Set([
+  // Area 9, F1, R4a: Preferenze → Account.
+  "me.getMyProfile",
+  "me.updateProfile",
+  "me.requestEmailChange",
+  "me.cancelEmailChange",
+  "me.getEmailChangeLink",
+  "me.confirmEmailChange",
+  "me.changePassword",
+  // Area 9, F1, R4b: Preferenze → Security.
+  "me.getMySecurity",
+  "me.endSession",
+  "me.startTotpSetup",
+  "me.confirmTotp",
+  "me.regenerateBackupCodes",
+  "me.addPasskey",
+  "me.renamePasskey",
+  "me.removePasskey",
+  // Area 9, F1, R7: People, inviti e Roles.
+  "admin.listPeople",
+  "admin.getPerson",
+  "admin.listSecurityEvents",
+  "admin.listObservedAuthors",
+  "admin.setInstanceRole",
+  "admin.createPasswordResetLink",
+  "admin.resetSecondFactor",
+  "admin.deactivatePerson",
+  "admin.reactivatePerson",
+  "admin.changeEmail",
+  "admin.linkGitIdentity",
+  "admin.unlinkGitIdentity",
+  "admin.setBitbucketUsername",
+  "admin.listInvites",
+  "admin.getInviteChoices",
+  "admin.createInvite",
+  "admin.revokeInvite",
+  "admin.listRoles",
+  "admin.createRole",
+  "admin.duplicateRole",
+  "admin.updateRole",
+  "admin.deleteRole",
+  "admin.viewerLosesIf",
+  // Area 9, F1, R8: Members.
+  "admin.listProjectMembers",
+  "admin.previewMember",
+  "admin.saveMember",
+  "admin.addMember",
+  "admin.setMemberRole",
+  "admin.removeMember",
+  "admin.grantMemberPermission",
+  "admin.revokeMemberPermission",
+  // Area 9, F1, R9: «Chi può farlo?».
+  "access.whoCan",
+  "access.whatCan",
+  "access.whoCanChoices",
+  // Area 9, F1, R5: le pagine d'ingresso della web «app».
+  "auth.getResetLink",
+  "auth.resetPassword",
+  "auth.createFirstAdmin",
+  "auth.getInvite",
+  "auth.register",
+  // Area 9, F1, R4c: Tokens e Claude Code.
+  "me.listTokens",
+  "me.createToken",
+  "me.revokeToken",
+  "me.createClaudeCodeCommand",
   // Task 16: sessione, persone, progetti, notifiche, ricerca, reparti.
   "getViewer",
   "getSessionPerson",
@@ -697,6 +763,121 @@ describe("aree non integrate nella build app", () => {
     ).toBeInTheDocument();
     await waitFor(() => expect(calls).toContain("alerts.subscriptionRows"));
     await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F1, R4a: Preferenze → Account è accesa (`prefs-account`): profilo,
+  // email e password dal server; le caselle Google stanno nel cassetto Google
+  // (`prefs-mailboxes` spenta), e il riquadro «Prototype only» non c'è.
+  it("aprire Preferenze → Account legge solo chiamate integrate, senza caselle né riquadro del prototipo", async () => {
+    renderRoute("/preferences/account");
+    expect(await screen.findByRole("heading", { level: 1, name: "Account" })).toBeInTheDocument();
+    await waitFor(() => expect(calls).toContain("me.getMyProfile"));
+    await settle();
+    expect(calls).not.toContain("me.listMyMailboxes");
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F1, R4b: Preferenze → Security è accesa (`prefs-security`).
+  it("aprire Preferenze → Security legge solo chiamate integrate, senza riquadro del prototipo", async () => {
+    renderRoute("/preferences/security");
+    expect(await screen.findByRole("heading", { level: 1, name: "Security" })).toBeInTheDocument();
+    await waitFor(() => expect(calls).toContain("me.getMySecurity"));
+    await settle();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  it("sul desktop le passkey sono del browser: la nota, niente «Add passkey» (area 9, R4b)", async () => {
+    window.stubwise = { ...(window.stubwise ?? {}), api: { request: async () => ({}) } } as never;
+    try {
+      renderRoute("/preferences/security");
+      expect(
+        await screen.findByText(
+          "Passkeys live in your browser: add or remove them from Stubwise in the browser.",
+        ),
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Add passkey" })).toBeNull();
+    } finally {
+      delete (window.stubwise as { api?: unknown } | undefined)?.api;
+    }
+  });
+
+  // Area 9, F1, R7: People e Roles accese, sulle letture calcolate del server.
+  it.each([
+    ["/admin/people", "People"],
+    ["/admin/people/p-marco", "Marco Bellini"],
+    ["/admin/roles", "Roles"],
+  ])("aprire %s legge solo chiamate integrate", async (path, title) => {
+    signedInAs("p-roberta");
+    renderRoute(path);
+    expect(await screen.findByRole("heading", { level: 1, name: title })).toBeInTheDocument();
+    await settle();
+    expect(screen.queryByText(/Coming soon/)).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F1, R8: Progetto → Settings → Members accesa.
+  it("aprire Members di un progetto legge solo chiamate integrate", async () => {
+    signedInAs("p-laura");
+    renderRoute("/p/ACQ/settings/members");
+    await waitFor(() => expect(calls).toContain("admin.listProjectMembers"));
+    await settle();
+    expect(screen.queryByText(/Coming soon/)).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F1, R9: Amministrazione → Who can? accesa, sulle rotte del server.
+  it("aprire «Who can?» legge solo chiamate integrate", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/who-can?action=approvePlan&project=ACQ");
+    await waitFor(() => expect(calls).toContain("access.whoCan"));
+    await settle();
+    expect(screen.queryByText(/Coming soon/)).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F1, R5: le pagine d'ingresso della web «app» (reset e primo avvio),
+  // senza i riquadri del prototipo.
+  it("il link di reset nella web «app» legge solo chiamate integrate", async () => {
+    renderRoute("/reset-password/made-up-token");
+    await waitFor(() => expect(calls).toContain("auth.getResetLink"));
+    await settle();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  it("l'invito nella web «app» legge solo chiamate integrate", async () => {
+    renderRoute("/register/made-up-token");
+    await waitFor(() => expect(calls).toContain("auth.getInvite"));
+    await settle();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  it("il primo avvio nella web «app»: il modulo, senza «Reset to empty instance»", async () => {
+    // L'istanza senza nessuno: una preparazione del test, non una chiamata della pagina.
+    await fakeAuth.resetToEmptyInstance();
+    calls.length = 0;
+    renderRoute("/setup");
+    expect(await screen.findByRole("heading", { level: 1 })).toBeInTheDocument();
+    await settle();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F1, R4c e R4d: Tokens, Claude Code e Language & theme accese.
+  it.each([
+    ["/preferences/tokens", "Tokens", "me.listTokens"],
+    ["/preferences/claude-code", "Claude Code", null],
+    ["/preferences/look", "Language & theme", null],
+  ])("aprire %s legge solo chiamate integrate", async (path, title, read) => {
+    renderRoute(path);
+    expect(await screen.findByRole("heading", { level: 1, name: title })).toBeInTheDocument();
+    if (read) await waitFor(() => expect(calls).toContain(read));
+    await settle();
+    expect(screen.queryByText(/Coming soon/)).toBeNull();
     expect(outside()).toEqual([]);
   });
 

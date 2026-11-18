@@ -279,13 +279,15 @@ export function NotificationItem({
             )}
           </div>
         )}
-        {/* Build app: il server non sa rimettere in elenco un'archiviata o una
-            rinviata, e un comando che non scrive nulla non si mostra. */}
+        {/* Area 9, R10: da archiviata il ritorno è «restore», da rinviata «move
+            to New» (sul server due rotte diverse): il cambio dice quale. */}
         {tab !== "new" && featureIntegrated("notification-restore") && (
           <button
             type="button"
             className={actionClass}
-            onClick={() => onChange({ archived: false, snoozedUntil: null })}
+            onClick={() =>
+              onChange(tab === "archived" ? { archived: false } : { snoozedUntil: null })
+            }
           >
             {t(
               tab === "archived"
@@ -294,7 +296,9 @@ export function NotificationItem({
             )}
           </button>
         )}
-        {alert && (
+        {/* Il «⋯»: sugli avvisi le loro voci; su una card letta anche «Mark as
+            unread» (area 9, decisione del maintainer). */}
+        {(alert || n.read) && (
           <div className="relative">
             <button
               ref={moreButton}
@@ -319,8 +323,9 @@ export function NotificationItem({
               </svg>
             </button>
             {moreOpen && (
-              <AlertMenu
+              <MoreMenu
                 alert={alert}
+                onMarkUnread={n.read ? () => onChange({ read: false }) : undefined}
                 mandatory={why !== undefined}
                 // Sotto coprirebbe il perché dell'obbligo, scritto sotto il
                 // corpo: allora si apre sopra, se c'è posto.
@@ -551,15 +556,45 @@ function UndoneGlyph() {
  * in AUD» (non sugli obbligatori [A 16]; da già spento diventa «Alerts like
  * this are off» + «Turn back on» [A 17]) e «Alert settings for AUD».
  */
-function AlertMenu({
+function MoreMenu({
   alert,
   mandatory,
   placement,
+  onMarkUnread,
+  onClose,
+}: {
+  alert: AlertOfNotification | null | undefined;
+  mandatory: boolean;
+  placement: "above" | "below";
+  /** Area 9: una card letta torna non letta (sul server `POST /api/inbox/:id/unread`). */
+  onMarkUnread?: () => void;
+  onClose: (restoreFocus: boolean) => void;
+}) {
+  const { t } = useTranslation();
+  const run = (action: () => void) => () => {
+    onClose(true);
+    action();
+  };
+  return (
+    <Menu label={t("alerts.panel.more")} onClose={onClose} align="right" placement={placement}>
+      {onMarkUnread && (
+        <button type="button" role="menuitem" className={itemClass} onClick={run(onMarkUnread)}>
+          {t("notifications.actions.markUnread")}
+        </button>
+      )}
+      {alert && <AlertItems alert={alert} mandatory={mandatory} onClose={onClose} />}
+    </Menu>
+  );
+}
+
+/** Le voci di un avviso nel «⋯»: spento o acceso, «Don't alert me», le impostazioni. */
+function AlertItems({
+  alert,
+  mandatory,
   onClose,
 }: {
   alert: AlertOfNotification;
   mandatory: boolean;
-  placement: "above" | "below";
   onClose: (restoreFocus: boolean) => void;
 }) {
   const { t } = useTranslation();
@@ -569,7 +604,7 @@ function AlertMenu({
     action();
   };
   return (
-    <Menu label={t("alerts.panel.more")} onClose={onClose} align="right" placement={placement}>
+    <>
       {!mandatory && alert.state === "off" && (
         <>
           <p
@@ -606,6 +641,6 @@ function AlertMenu({
       >
         {t("alerts.panel.settings", { code })}
       </button>
-    </Menu>
+    </>
   );
 }

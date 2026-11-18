@@ -50,6 +50,21 @@ describe("sessione e permessi dal server", () => {
     expect(peekRevealedAddress("src-1")).toBeUndefined();
   });
 
+  it("area 9, R5: fuori, su un'istanza senza nessuno (setup needed) il cancello porta al primo avvio", async () => {
+    installFakeServer({
+      "GET /api/auth/me": { status: 401, body: { code: "unauthenticated" } },
+      "GET /api/auth/setup": { body: { needed: true } },
+    });
+    expect(await getSessionPerson()).toBeNull();
+    expect(auth.readEntry()).toEqual({ stage: "out", empty: true });
+    installFakeServer({
+      "GET /api/auth/me": { status: 401, body: { code: "unauthenticated" } },
+      "GET /api/auth/setup": { body: { needed: false } },
+    });
+    expect(await getSessionPerson()).toBeNull();
+    expect(auth.readEntry()).toEqual({ stage: "out", empty: false });
+  });
+
   it("dentro, il cancello dice «in»", async () => {
     installFakeServer({ "GET /api/auth/me": { body: me() } });
     expect(await getSessionPerson()).toBe(ME_ID);

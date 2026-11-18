@@ -232,7 +232,13 @@ describe("il contesto", () => {
     await waitFor(() => expect(chip()).toBeNull());
     expect(within(panel()).queryByText("You're looking at:")).toBeNull();
     await user.type(box(), "Summarize ACQ-3{Enter}");
-    expect(await within(panel()).findByText(/can't find ACQ-3/i)).toBeInTheDocument();
+    // Il messaggio, non l'annuncio per i lettori di schermo (`aria-live`), che
+    // porta lo stesso testo: sotto carico ci sono tutti e due quando si cerca.
+    expect(
+      await within(panel()).findByText(/can't find ACQ-3/i, {
+        ignore: "script, style, [aria-live]",
+      }),
+    ).toBeInTheDocument();
     expect(panel().querySelector("[data-message-context]")).toBeNull();
   });
 

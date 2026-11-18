@@ -18,7 +18,12 @@ export type WhoCanResult =
   | {
       visible: true;
       people: { personId: string; sources: PermissionSource[] }[];
-      claude: { allowed: boolean };
+      /**
+       * Area 9 (decisione (a)): Claude non ha permessi suoi, agisce con quelli
+       * di chi lo assegna o conferma la sua azione. Una risposta fissa, come
+       * `agent` della rotta `who-can`.
+       */
+      agent: { actsFor: "confirmer" };
     };
 
 export type WhatCanResult =
@@ -71,7 +76,7 @@ export function whoCan(viewerId: string, actionId: string, projectId: string | n
   return {
     visible: true,
     people: orderHolders(people, nameOf),
-    claude: { allowed: can(viewerFor(CLAUDE_ID), perm, scoped) },
+    agent: { actsFor: "confirmer" },
   };
 }
 
@@ -87,7 +92,9 @@ export function whatCan(
   projectId: string | null,
 ): WhatCanResult {
   if (projectId !== null && !visibleProjectIds(viewerId).has(projectId)) return { visible: false };
-  if (personId !== CLAUDE_ID && !visiblePeopleFor(viewerId).has(personId))
+  // Area 9 (decisione (a)): Claude non ha permessi suoi, quindi non ha
+  // risposta, come il 404 di `what-can` sul server.
+  if (personId === CLAUDE_ID || !visiblePeopleFor(viewerId).has(personId))
     return { visible: false };
   const scoped = projectId ?? undefined;
   const universe = projectId === null ? [...INSTANCE_SET] : ALL_PROJECT_PERMISSIONS;

@@ -74,6 +74,13 @@ const ALL: IntegrationTarget[] = [
       "support-widgets",
       "support-search",
       "support-identity",
+      "prefs-account",
+      "prefs-security",
+      "prefs-tokens",
+      "prefs-claude-code",
+      "prefs-look",
+      "prefs-mailboxes",
+      "notification-restore",
       "servers-monitor",
       "servers-write",
       "servers-ssh",
@@ -122,6 +129,16 @@ describe("isIntegrated", () => {
         "feature:support-widgets",
         // API per i siti (S6): l'identità dei clienti del widget.
         "feature:support-identity",
+        // Area 9, F1, R4a: Preferenze → Account (le caselle Google no: stanno nel cassetto).
+        "feature:prefs-account",
+        // Area 9, F1, R4b: Preferenze → Security.
+        "feature:prefs-security",
+        // Area 9, F1, R4c e R4d: Tokens, Claude Code, Language & theme.
+        "feature:prefs-tokens",
+        "feature:prefs-claude-code",
+        "feature:prefs-look",
+        // Area 9, F1, R10: «Restore» e «Move to New» dell'Inbox.
+        "feature:notification-restore",
         // Area 8, F4a: i Server in sola lettura; scritture, SSH, analisi e ricerca spente.
         "projectSection:servers",
         "admin:servers",
@@ -138,9 +155,16 @@ describe("isIntegrated", () => {
         "destination:projects",
         "projectSection:tasks",
         "projectSettings:statuses",
+        // Area 9, F1, R8: Members.
+        "projectSettings:members",
         // Area 8, fetta 1: «Repositories» ridotta al blocco «Releases».
         "projectSettings:repositories",
         "admin:departments",
+        // Area 9, F1, R9: «Chi può farlo?».
+        "admin:who-can",
+        // Area 9, F1, R7: People e Roles.
+        "admin:people",
+        "admin:roles",
         "taskView:list",
         "taskView:board",
         "feature:notifications",

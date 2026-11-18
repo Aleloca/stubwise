@@ -143,7 +143,7 @@ describe("le sezioni di Progetto → Settings, per persona", () => {
     ).map((p) => p.id);
     expect(r.people.map((p) => p.personId).sort()).toEqual(admins.sort());
     expect(r.people.map((p) => p.personId)).toEqual([ROBERTA]);
-    expect(r.claude.allowed).toBe(false);
+    expect(r.agent).toEqual({ actsFor: "confirmer" });
   });
 });
 

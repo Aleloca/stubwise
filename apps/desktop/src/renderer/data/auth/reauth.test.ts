@@ -25,6 +25,7 @@ const EXPECTED_REAUTH: readonly ApiFnName[] = [
   "admin.setInstanceRole",
   "admin.createPasswordResetLink",
   "admin.resetSecondFactor",
+  "admin.changeEmail",
   "admin.unlinkGitIdentity",
   "admin.deactivatePerson",
   "admin.reactivatePerson",
@@ -50,6 +51,10 @@ const EXPECTED_REAUTH: readonly ApiFnName[] = [
   "me.regenerateBackupCodes",
   "me.createToken",
   "me.createClaudeCodeCommand",
+  // Area 9, R2: l'email di login è l'identità (design integrazione area 9, 1.6).
+  "me.requestEmailChange",
+  // Area 9: come `POST /api/me/password` del server (config.reauth).
+  "me.changePassword",
   // Area 9b: chi crea, sostituisce o cancella un segreto scritto da chi
   // amministra, più registrare e aggiornare un plugin (eseguono codice).
   // `saveStorage` lo chiede solo con una chiave nuova; `saveWebhook` mai

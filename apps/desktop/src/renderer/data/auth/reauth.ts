@@ -44,6 +44,7 @@ export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
   "admin.setInstanceRole",
   "admin.createPasswordResetLink",
   "admin.resetSecondFactor",
+  "admin.changeEmail",
   "admin.unlinkGitIdentity",
   "admin.deactivatePerson",
   // Riattivare rende l'account intero (I2 della revisione finale, 30 ott).
@@ -73,6 +74,10 @@ export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
   "me.createToken",
   // Crea un token, quindi come `createToken` (maintainer, 29 ott 2026).
   "me.createClaudeCodeCommand",
+  // Area 9, R2: l'email di login è l'identità (design integrazione area 9, 1.6).
+  "me.requestEmailChange",
+  // Area 9: come `POST /api/me/password` del server (config.reauth).
+  "me.changePassword",
   // Area 9b, Task 1: chi crea, sostituisce o cancella un segreto scritto da
   // chi amministra (chiave o setup-token, token git, client secret, chiave
   // S3), più registrare e aggiornare un plugin, che ne esegue il codice

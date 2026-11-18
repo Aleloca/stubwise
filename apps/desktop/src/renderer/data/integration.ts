@@ -55,8 +55,11 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   projectSection: new Set(["overview", "tasks", "requests", "planning", "chat", "docs", "drive", "automations", "releases", "support", "servers"]),
   // Stati e soglie del progetto.
   // Area 8, fetta 1 (46): «Repositories» ridotta al solo blocco «Releases» (`releases-repo-settings`).
-  projectSettings: new Set(["statuses", "repositories"]),
-  admin: new Set(["departments", "servers"]),
+  // Area 9, F1, R8: Members sulle letture calcolate del server.
+  projectSettings: new Set(["statuses", "repositories", "members"]),
+  // Area 9, F1, R9: «Who can?» sulle rotte del server.
+  // Area 9, F1, R7: People e Roles sulle letture calcolate del server.
+  admin: new Set(["departments", "servers", "who-can", "people", "roles"]),
   taskView: new Set(["list", "board", "timeline"]),
   feature: new Set([
     // Area 7, fetta 1: le Automations (Home, «Da decidere», ⌘K, righe d'origine).
@@ -99,6 +102,18 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // API per i siti (S6): il segreto d'identità dei clienti e «Solo clienti
     // verificati» nei widget, «verificato» / «dichiarato» nel dettaglio.
     "support-identity",
+    // Area 9, F1, R4a: Preferenze → Account (profilo, foto, email, password).
+    // Le caselle Google (`prefs-mailboxes`) restano nel cassetto Google.
+    "prefs-account",
+    // Area 9, F1, R4b: Preferenze → Security (sul desktop le passkey restano del browser).
+    "prefs-security",
+    // Area 9, F1, R4c e R4d: Tokens e Claude Code (`/api/pats`), Language &
+    // theme (gli stessi controlli del menu del profilo).
+    "prefs-tokens",
+    "prefs-claude-code",
+    "prefs-look",
+    // Area 9, F1, R10: «Restore» e «Move to New» dell'Inbox.
+    "notification-restore",
     // Area 8, F4a: i Server (letture e scritture, la chiave una volta).
     // Resta spenta la ricerca ⌘K (`servers-search`).
     "servers-monitor",
@@ -338,6 +353,11 @@ export function integrationTargetOf(
   // sezioni delle Preferenze restano della loro area.
   if (first === "preferences" && (!second || second === "notifications")) {
     return { target: { kind: "feature", name: "alerts" }, titleKey: "prefs.sections.notifications" };
+  }
+  // Area 9, F1: ogni altra sezione delle Preferenze ha la sua funzione
+  // (`prefs-account`, `prefs-security`, …), accesa quando è collegata.
+  if (first === "preferences" && second) {
+    return { target: { kind: "feature", name: `prefs-${second}` }, titleKey: `prefs.sections.${second}` };
   }
   if (first === "home" && search.view === "week") {
     return { target: { kind: "feature", name: "my-week" }, titleKey: "column.subviews.home.week" };

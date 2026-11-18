@@ -199,6 +199,7 @@ import { DEPARTMENTS } from "./seed/departments";
 import { INVITES, SECURITY_EVENTS } from "./seed/invites";
 import { seedGoogleWorkspaces, seedPasskeys, seedSessions, seedTokens } from "./seed/me";
 import type {
+  EmailChange,
   EntryState,
   GoogleWorkspace,
   Passkey,
@@ -712,6 +713,8 @@ export type ApiFnName =
   | "admin.setInstanceRole"
   | "admin.createPasswordResetLink"
   | "admin.resetSecondFactor"
+  /** Area 9, R2: un admin cambia l'email di login di un'altra persona (+R). */
+  | "admin.changeEmail"
   | "admin.listSecurityEvents"
   | "admin.listObservedAuthors"
   | "admin.linkGitIdentity"
@@ -769,6 +772,12 @@ export type ApiFnName =
   | "me.createToken"
   | "me.revokeToken"
   | "me.createClaudeCodeCommand"
+  /** Area 9, R2: il cambio dell'email di login (+R sulla richiesta). */
+  | "me.requestEmailChange"
+  | "me.cancelEmailChange"
+  | "me.simulateEmailChangeLink"
+  | "auth.confirmEmailChange"
+  | "auth.getEmailChangeLink"
   // Ingresso (area 9a, Task 5): login, invito, primo avvio, uscita
   | "auth.getEntry"
   | "auth.login"
@@ -1014,6 +1023,10 @@ interface State {
   confirmedTotp: Map<string, string>;
   /** I token personali, senza valore. */
   tokens: PersonalToken[];
+  /** Area 9, R2: le richieste di cambio dell'email di login in attesa (`me/emailChange.ts`). */
+  emailChanges: EmailChange[];
+  /** Area 9, R2 (SOLO PROTOTIPO): l'istanza ha un trasporto email (SMTP facoltativo). */
+  emailTransport: boolean;
   /**
    * Lo stato d'istanza dell'area 9b (`instance/state.ts`): provider dell'AI,
    * modelli, automazione, budget, account git, plugin, archiviazione,
@@ -1347,6 +1360,8 @@ function freshState(): State {
     passkeys: seedPasskeys(),
     confirmedTotp: new Map(),
     tokens: seedTokens(),
+    emailChanges: [],
+    emailTransport: true,
     instance: seedInstanceState(),
     googleWorkspaces: seedGoogleWorkspaces(),
     proposalsBeforeUnlink: new Map(),

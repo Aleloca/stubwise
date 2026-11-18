@@ -21,6 +21,7 @@ import { DesktopLoginPage, type DesktopLoginParams } from "./pages/entry/Desktop
 import { LoginPage } from "./pages/entry/LoginPage";
 import { RegisterPage } from "./pages/entry/RegisterPage";
 import { ResetPasswordPage } from "./pages/entry/ResetPasswordPage";
+import { EmailChangePage } from "./pages/entry/EmailChangePage";
 import { SetupPage } from "./pages/entry/SetupPage";
 import {
   APP_ROUTES,
@@ -377,7 +378,8 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
 const ASK_MAX = 2000;
 
 /** Le rotte d'ingresso: fuori dall'intelaiatura (niente binario né colonna). */
-const ENTRY_PATH = /^\/(login|setup|desktop-login|register\/[^/]+|reset-password\/[^/]+)\/?$/;
+const ENTRY_PATH =
+  /^\/(login|setup|desktop-login|register\/[^/]+|reset-password\/[^/]+|email-change\/[^/]+)\/?$/;
 
 /**
  * Il cancello dell'ingresso (area 9a, shape `entry.md`). Con l'istanza vuota
@@ -452,6 +454,18 @@ const resetPasswordRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/reset-password/$token",
   component: ResetPasswordRoutePage,
+});
+
+function EmailChangeRoutePage() {
+  const { token } = emailChangeRoute.useParams();
+  return <EmailChangePage key={token} token={token} />;
+}
+
+/** Area 9, R2: il link del cambio dell'email di login, pubblico come il reset. */
+const emailChangeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/email-change/$token",
+  component: EmailChangeRoutePage,
 });
 
 const setupRoute = createRoute({
@@ -1384,6 +1398,7 @@ const routeTree = rootRoute.addChildren([
   desktopLoginRoute,
   registerRoute,
   resetPasswordRoute,
+  emailChangeRoute,
   setupRoute,
   ...appRoutes.map((r) => (r === mailRoute ? mailRoute.addChildren([mailThreadRoute]) : r)),
   conversationRoute,

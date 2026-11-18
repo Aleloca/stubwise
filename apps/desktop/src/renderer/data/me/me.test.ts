@@ -65,6 +65,14 @@ const SENSITIVE: [ApiFnName, () => Promise<{ ok: boolean }>][] = [
   ["me.createClaudeCodeCommand", () => me.createClaudeCodeCommand()],
 ];
 
+/** Un data URL coi byte dati (una stringa binaria, un carattere per byte). */
+const dataUrl = (type: string, bytes: string) => `data:${type};base64,${btoa(bytes)}`;
+const PNG = dataUrl("image/png", "\x89PNG\r\n\x1a\n\x00\x00");
+const JPEG = dataUrl("image/jpeg", "\xff\xd8\xff\xe0\x00\x10");
+const WEBP = dataUrl("image/webp", "RIFF\x00\x00\x00\x00WEBPVP8 ");
+/** Un PNG di `n` byte esatti. */
+const bigPng = (n: number) => dataUrl("image/png", "\x89PNG\r\n\x1a\n" + "\x00".repeat(n - 8));
+
 describe("riconferma", () => {
   it("le funzioni +R del Task 5 sono tutte dichiarate", () => {
     for (const [name] of SENSITIVE) expect(REAUTH_REQUIRED.has(name), name).toBe(true);
@@ -269,12 +277,11 @@ describe("Account", () => {
       email: "sara.montanari@example.com",
       photo: null,
       departmentId: PEOPLE.find((p) => p.id === "p-sara")!.departmentIds[0],
+      pendingEmail: null,
+      emailChangeAvailable: true,
     });
-    await me.updateProfile({ email: "sara@example.com", avatar: "data:image/png;base64,AA" });
-    expect(await me.getMyProfile()).toMatchObject({
-      email: "sara@example.com",
-      photo: "data:image/png;base64,AA",
-    });
+    await me.updateProfile({ avatar: PNG });
+    expect(await me.getMyProfile()).toMatchObject({ photo: PNG });
   });
 
   it("il nome cambia ovunque (persone, «vedi come»), l'email d'accesso no se non la si cambia", async () => {
@@ -296,42 +303,62 @@ describe("Account", () => {
     });
   });
 
-  it("email non valida o già di un altro: rifiutata, niente cambia", async () => {
+  it("la foto (area 9, R1): PNG, JPEG e WebP entrano, riconosciuti dai primi byte", async () => {
+    as("p-sara");
+    for (const photo of [PNG, JPEG, WEBP]) {
+      expect(await me.updateProfile({ avatar: photo })).toEqual({ ok: true });
+      expect((await me.getMyProfile()).photo).toBe(photo);
+    }
+  });
+
+  it("la foto (area 9, R1): SVG (anche dichiarato PNG), GIF, HTML e oltre 512 KB sono rifiutati, niente cambia", async () => {
+    as("p-sara");
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg"></svg>`;
+    const cases: [string, string][] = [
+      [dataUrl("image/svg+xml", svg), "avatar_type"],
+      [dataUrl("image/png", svg), "avatar_type"],
+      [dataUrl("image/gif", "GIF89a\x01\x00"), "avatar_type"],
+      [dataUrl("image/png", "<html></html>"), "avatar_type"],
+      ["not a data url", "avatar_type"],
+      [bigPng(512 * 1024 + 1), "avatar_size"],
+    ];
+    for (const [avatar, reason] of cases) {
+      expect(await me.updateProfile({ avatar })).toEqual({ ok: false, error: "invalid", reason });
+      expect((await me.getMyProfile()).photo).toBeNull();
+    }
+    // Il limite è compreso.
+    expect(await me.updateProfile({ avatar: bigPng(512 * 1024) })).toEqual({ ok: true });
+  });
+
+  it("un nome vuoto è rifiutato, niente cambia (l'email: emailChange.test.ts)", async () => {
     as("p-sara");
     const before = JSON.stringify(PEOPLE);
-    expect(await me.updateProfile({ email: "not-an-email" })).toEqual({
-      ok: false,
-      error: "invalid",
-      reason: "email",
-    });
-    expect(await me.updateProfile({ email: "Laura.Costa@example.com", name: "X" })).toEqual({
-      ok: false,
-      error: "invalid",
-      reason: "email_taken",
-    });
     expect(await me.updateProfile({ name: "  " })).toMatchObject({ reason: "name" });
     expect(JSON.stringify(PEOPLE)).toBe(before);
   });
 
-  it("l'email nuova diventa quella d'accesso; la foto si mette e si toglie", async () => {
+  it("la foto si mette e si toglie", async () => {
     as("p-sara");
-    expect(
-      await me.updateProfile({ email: "sara@example.com", avatar: "data:image/png;base64,AAA" }),
-    ).toEqual({ ok: true });
-    expect(PEOPLE.find((p) => p.id === "p-sara")!.photo).toBe("data:image/png;base64,AAA");
-    expect((await auth.login({ email: "sara@example.com", password: "stubwise" })).ok).toBe(true);
-    expect(await auth.login({ email: "sara.montanari@example.com", password: "stubwise" })).toEqual(
-      {
-        ok: false,
-        error: "invalid_credentials",
-      },
-    );
+    expect(await me.updateProfile({ avatar: PNG })).toEqual({ ok: true });
+    expect(PEOPLE.find((p) => p.id === "p-sara")!.photo).toBe(PNG);
     expect(await me.updateProfile({ avatar: null })).toEqual({ ok: true });
     expect(PEOPLE.find((p) => p.id === "p-sara")!.photo).toBeUndefined();
   });
 
+  it("area 9: cambiare la password chiede la riconferma, come sul server (config.reauth)", async () => {
+    as("p-giulia");
+    state.reauth.delete("p-giulia");
+    expect(REAUTH_REQUIRED.has("me.changePassword")).toBe(true);
+    expect(await me.changePassword({ current: "stubwise", next: "a-long-one" })).toEqual({
+      ok: false,
+      error: "reauth_required",
+    });
+    expect((await me.getMySecurity()).sessions).toHaveLength(3);
+  });
+
   it("cambiare la password chiude le altre sessioni (la lista torna a 1) e vale al login", async () => {
     as("p-giulia");
+    reauth("p-giulia");
     expect((await me.getMySecurity()).sessions).toHaveLength(3);
     expect(await me.changePassword({ current: "wrong", next: "a-long-one" })).toMatchObject({
       reason: "wrong_password",

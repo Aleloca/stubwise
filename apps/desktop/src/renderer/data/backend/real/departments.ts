@@ -1,7 +1,7 @@
 import { ApiError } from "@stubwise/api-client";
 import type { DepartmentView as ServerDepartment } from "@stubwise/shared";
 import type * as Fake from "../../api";
-import type { AdminRefusal, DepartmentView, PersonRow } from "../../admin/types";
+import type { AdminRefusal, DepartmentView } from "../../admin/types";
 import { appClient } from "./client";
 import { countTasks } from "./tasks";
 
@@ -182,40 +182,6 @@ const deleteDepartment: Admin["deleteDepartment"] = async (id, moveTasksTo) => {
   }
 };
 
-/**
- * Le persone come le legge l'amministrazione (`useAdminPeople`), dalle
- * persone che chi guarda vede: nome, iniziali, reparti, attiva o
- * disattivata. Ruolo d'istanza, progetti e inviti arrivano con
- * l'amministrazione delle persone (in arrivo).
- */
-const listPeople: Admin["listPeople"] = async (filter = {}) => {
-  const [people, departments] = await Promise.all([
-    appClient().people.list(),
-    appClient().departments.list(),
-  ]);
-  const byId = new Map(departments.map((d) => [d.id, d]));
-  const q = filter.q?.trim().toLowerCase();
-  return people
-    .map<PersonRow>((p) => ({
-      personId: p.id,
-      name: p.name,
-      email: p.email,
-      avatar: p.initials,
-      instanceRole: null,
-      departments: p.departmentIds.flatMap((id) => {
-        const d = byId.get(id);
-        return d ? [{ id: d.id, name: d.name, colorToken: d.colorToken }] : [];
-      }),
-      projects: [],
-      status: p.deactivated ? "deactivated" : "active",
-      deactivatedAt: null,
-      invite: null,
-    }))
-    .filter((row) => !filter.statuses || filter.statuses.includes(row.status))
-    .filter((row) => !filter.departmentIds || row.departments.some((d) => filter.departmentIds!.includes(d.id)))
-    .filter((row) => !q || row.name.toLowerCase().includes(q) || row.email.toLowerCase().includes(q));
-};
-
 export const adminDepartments: Partial<Admin> = {
   listDepartments,
   previewDepartment,
@@ -223,5 +189,5 @@ export const adminDepartments: Partial<Admin> = {
   updateDepartment,
   saveDepartment,
   deleteDepartment,
-  listPeople,
+  // `listPeople` dall'area 9, R7: la lettura calcolata di `adminPeople.ts`.
 };

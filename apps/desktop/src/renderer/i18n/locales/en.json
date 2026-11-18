@@ -207,7 +207,8 @@
       "restore": "Restore",
       "unsnooze": "Move to New",
       "linkAccess": "Link SSH access",
-      "openInWeb": "Open in web"
+      "openInWeb": "Open in web",
+      "markUnread": "Mark as unread"
     },
     "snooze": {
       "hour": "1 hour",
@@ -369,13 +370,14 @@
         "title": "Profile",
         "changePhoto": "Change photo",
         "removePhoto": "Remove photo",
-        "notImage": "That file isn't an image. Pick a PNG, JPEG or GIF.",
+        "notImage": "Pick a PNG, JPEG or WebP image.",
         "name": "Name",
         "email": "Email",
         "nameEmpty": "Enter your name.",
         "invalidEmail": "Enter a full email address.",
         "emailTaken": "That email already belongs to someone else in Stubwise.",
-        "saveFailed": "Couldn't save your profile. Try again."
+        "saveFailed": "Couldn't save your profile. Try again.",
+        "tooLarge": "The photo is larger than 512 KB."
       },
       "password": {
         "title": "Password",
@@ -392,7 +394,8 @@
         "done_other": "Password changed. {{count}} other sessions were signed out.",
         "doneNone": "Password changed. There were no other sessions to sign out.",
         "seeSessions": "See sessions",
-        "failed": "Couldn't change the password. Try again."
+        "failed": "Couldn't change the password. Try again.",
+        "reauthAction": "change your password"
       },
       "follows": {
         "title": "Followed projects",
@@ -400,6 +403,22 @@
         "body_other": "You follow {{count}} projects: they're pinned in the rail.",
         "none": "You don't follow any project yet. Pin one in All projects to keep it in the rail.",
         "manage": "Manage in All projects"
+      },
+      "email": {
+        "label": "Sign-in email",
+        "change": "Change email…",
+        "unavailable": "Changing your sign-in email isn't available on this instance: ask an administrator.",
+        "pending": "Waiting for confirmation at {{next}}. Until then you sign in with {{current}}.",
+        "cancel": "Cancel change",
+        "openLink": "Open the confirmation link",
+        "failed": "Couldn't change your sign-in email. Try again.",
+        "dialogTitle": "Change your sign-in email",
+        "dialogAbout": "We send a link to the new address. Your email changes only when you open it, within 24 hours.",
+        "newLabel": "New email",
+        "send": "Send the link",
+        "sending": "Sending…",
+        "reauthAction": "change your sign-in email",
+        "sendFailed": "Couldn't send the link. Try again."
       }
     },
     "google": {
@@ -511,7 +530,8 @@
         "removed": "Passkey “{{name}}” removed.",
         "removeFailed": "Couldn't remove the passkey. Try again.",
         "lastNeedsApp": "Set up the authenticator app first: two-step verification can't be turned off.",
-        "empty": "No passkeys yet. A passkey signs you in with your fingerprint, face or a security key."
+        "empty": "No passkeys yet. A passkey signs you in with your fingerprint, face or a security key.",
+        "desktopNote": "Passkeys live in your browser: add or remove them from Stubwise in the browser."
       },
       "backup": {
         "title": "Backup codes",
@@ -563,7 +583,15 @@
           "second_factor_locked": "Locked after too many wrong codes",
           "token_created": "Access token created",
           "token_revoked": "Access token revoked",
-          "registered": "Account created"
+          "registered": "Account created",
+          "email_changed": "Sign-in email changed",
+          "vault_key_created": "Vault key created",
+          "vault_recovery_used": "Vault recovery kit used",
+          "vault_activated": "Vault activated",
+          "vault_seal_replaced": "Vault seal replaced",
+          "vault_recovery_key_rotated": "Vault recovery key changed",
+          "reauth_desktop": "Confirmed it's you in the desktop app",
+          "other": "Other security event"
         }
       }
     },
@@ -10098,10 +10126,7 @@
       "none": "No one you can see can {{action}} in {{code}}.",
       "noneInstance": "No one you can see can {{action}}.",
       "answers": "Who can {{action}}",
-      "claudeLine": "can work, doesn't decide.",
-      "claudeCan": "Claude can {{action}}.",
-      "claudeCant": "Claude can't {{action}}.",
-      "claudeWhat": "Claude can work but doesn't decide.",
+      "claudeLine": "has no permissions of its own: it acts with those of whoever assigns it or confirms its action.",
       "can": "Can",
       "never": "Never",
       "notMember": "{{name}} isn't a member of {{code}}.",
@@ -10226,16 +10251,18 @@
       "welcome": "Welcome, {{name}}. You're in {{projects}}.",
       "welcomeNoProjects": "Welcome, {{name}}.",
       "expiredTitle": "This invite has expired",
-      "expiredBody": "{{name}} invited you on {{invited}}. The invite expired on {{expired}}. Ask {{first}} for a new one.",
+      "expiredBody": "Ask whoever invited you for a new one.",
       "revokedTitle": "This invite is no longer valid",
-      "revokedBody": "{{name}} withdrew it. If you still need access, ask them.",
+      "revokedBody": "If you still need access, ask whoever invited you.",
       "invalidBody": "This invite link isn't valid. Ask whoever sent it for a new one.",
       "goToSignIn": "Go to sign in",
       "loadFailed": "Couldn't load the invite.",
       "usedTitle": "This invite was already used",
       "usedBody": "This invite was already used. Sign in instead.",
       "emailTaken": "There's already an account with this email. Sign in instead.",
-      "createdSignIn": "Your account is ready. Sign in with your new password."
+      "createdSignIn": "Your account is ready. Sign in with your new password.",
+      "signedInAs": "You're signed in as {{name}}. Sign out first to create a new account.",
+      "signOutFirst": "Sign out first"
     },
     "setup": {
       "title": "Set up Stubwise",
@@ -10374,6 +10401,20 @@
         "title": "This sign-in link doesn't work",
         "lead": "Start again from the Stubwise app on your Mac: it opens a new link."
       }
+    },
+    "emailChange": {
+      "title": "Sign-in email changed",
+      "confirming": "Reading the link…",
+      "done": "From now on you sign in with {{email}}.",
+      "failed": "Couldn't confirm the new email. Open the link again.",
+      "invalidTitle": "This link isn't valid",
+      "invalidBody": "It may have expired, been used already or been cancelled. Ask for a new one from your preferences.",
+      "takenTitle": "That email is taken",
+      "takenBody": "Someone else in Stubwise uses it now. Your sign-in email hasn't changed.",
+      "confirmTitle": "Confirm your new sign-in email",
+      "confirmBody": "Your sign-in email will become {{email}}.",
+      "confirm": "Confirm email change",
+      "confirmingButton": "Confirming…"
     }
   },
   "admin": {
@@ -10511,7 +10552,8 @@
         "cancel": "Cancel"
       },
       "securityLog": "Security log",
-      "securityLogError": "Couldn't load the security log."
+      "securityLogError": "Couldn't load the security log.",
+      "changeEmail": "Change email…"
     },
     "resetPassword": {
       "title": "Create a password reset link for {{name}}?",
@@ -10552,7 +10594,8 @@
       "doneOne_one": "{{name}} was deactivated. {{count}} task reassigned to {{to}}.",
       "doneOne_other": "{{name}} was deactivated. {{count}} tasks reassigned to {{to}}.",
       "doneMany": "{{name}} was deactivated. {{count}} tasks reassigned.",
-      "reauthAction": "deactivate {{name}}"
+      "reauthAction": "deactivate {{name}}",
+      "rowChanged": "{{code}} can't be reassigned any more: it changed meanwhile. The list is up to date."
     },
     "invite": {
       "title": "Invite someone",
@@ -11750,6 +11793,16 @@
         "note": "Read only: the nightly run picks up where it stopped.",
         "empty": "Nothing ran last night in the projects you can see."
       }
+    },
+    "changeEmail": {
+      "title": "Change {{name}}'s sign-in email?",
+      "now": "It changes now, without a confirmation link.",
+      "keeps": "{{name}} keeps their sessions and two-step verification.",
+      "alert": "{{name}} gets a security alert.",
+      "newLabel": "New email",
+      "change": "Change email",
+      "done": "{{name}} now signs in with {{email}}.",
+      "reauthAction": "change {{name}}'s sign-in email"
     }
   },
   "permissions": {
@@ -12114,7 +12167,8 @@
         "git_identity_unlinked": "<actor>{{actor}}</actor> unlinked a git identity from <object>{{object}}</object>.",
         "bitbucket_username_set": "<actor>{{actor}}</actor> changed <object>{{object}}</object>'s Bitbucket username.",
         "deactivated": "<actor>{{actor}}</actor> deactivated <object>{{object}}</object>.",
-        "reactivated": "<actor>{{actor}}</actor> reactivated <object>{{object}}</object>."
+        "reactivated": "<actor>{{actor}}</actor> reactivated <object>{{object}}</object>.",
+        "email_changed": "<actor>{{actor}}</actor> changed <object>{{object}}</object>'s sign-in email."
       },
       "invite": {
         "created": "<actor>{{actor}}</actor> invited <object>{{object}}</object> as {{role}}.",

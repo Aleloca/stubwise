@@ -34,6 +34,23 @@ beforeEach(() => {
     "GET /api/people": {
       body: [{ id: ME_ID, name: "Ada", initials: "AD", departmentIds: [DEPT_ID], email: "ada@example.com" }],
     },
+    // Area 9, R7: le persone dell'amministrazione vengono dalla lettura calcolata.
+    "GET /api/admin/people": {
+      body: [
+        {
+          personId: ME_ID,
+          name: "Ada",
+          email: "ada@example.com",
+          avatarUrl: null,
+          instanceRole: null,
+          departments: [{ id: DEPT_ID, name: "General", colorToken: "--dept-1" }],
+          projects: [],
+          status: "active",
+          deactivatedAt: null,
+          invite: null,
+        },
+      ],
+    },
     "GET /api/departments": { body: [{ id: DEPT_ID, name: "General", colorToken: "--dept-1", isDefault: true }] },
     "GET /api/departments/roles": () => ({
       body: (deptPerms[DEPT_ID] ?? []).length
