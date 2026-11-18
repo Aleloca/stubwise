@@ -1,6 +1,6 @@
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as api from "../../data/api";
 import { projectSettings, resetApi, setLatency } from "../../data/api";
 import { setSessionPersonId } from "../../data/session";
@@ -169,43 +169,55 @@ describe("Plugins: la pagina", () => {
     ]);
   });
 
-  it("la casella del plugin spegne tutte le sue righe, e il conteggio lo dice", async () => {
+  it("la casella del plugin lo spegne sul progetto (F5, opt-in): le scelte dentro restano", async () => {
     const user = userEvent.setup();
     await open(LAURA);
     const superpowers = await block("superpowers");
-    const all = within(superpowers).getByRole("checkbox", {
+    const plugin = within(superpowers).getByRole("checkbox", {
       name: "Use superpowers in STW's runs",
     });
+    expect(plugin).toBeChecked();
     await user.click(skill("brainstorming"));
-    expect((all as HTMLInputElement).indeterminate).toBe(true);
-    // In parte → tutto acceso; tutto acceso → tutto spento.
-    await user.click(all);
-    expect(skill("brainstorming")).toBeChecked();
-    expect(saveBar()).toBeNull();
-    await user.click(all);
-    expect(superpowers).toHaveTextContent("Not in runs: everything is off");
-    expect(saveBar()).toHaveTextContent("10 changes");
+    await user.click(plugin);
+    expect(plugin).not.toBeChecked();
+    expect(superpowers).toHaveTextContent("Not turned on for this project: it doesn't enter runs.");
+    expect(superpowers).not.toHaveTextContent("in runs");
+    // Spento, le sue righe non si scelgono; la bozza le tiene.
+    expect(skill("brainstorming")).toBeDisabled();
+    expect(skill("brainstorming")).not.toBeChecked();
+    expect(saveBar()).toHaveTextContent("2 changes");
+    await user.click(within(saveBar()!).getByRole("button", { name: "Save" }));
+    await screen.findByText(/^Saved\./);
+    expect(choicesOf(STW)).toMatchObject({
+      enabled: [],
+      disabled: [{ plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] }],
+    });
+    expect(projectSettings.skillsForRun(STW).some((s) => s.plugin === "superpowers")).toBe(false);
   });
 });
 
-// Area 9, F5: sul server un plugin pronto entra nei run solo se è acceso sul
-// progetto (`inRuns` dalla lettura). Uno pronto ma non acceso non dice
-// «in runs»: lo dice spento, con le sue caselle.
+// Area 9, F5 (decisione del maintainer: opt-in, come il server): un plugin
+// pronto entra nei run solo se è acceso sul progetto. Uno non acceso lo dice,
+// e la sua casella lo accende.
 describe("Plugins: un plugin pronto ma non acceso sul progetto", () => {
-  it("dice che non entra nei run, non il conteggio", async () => {
-    const real = projectSettings.getProjectPlugins;
-    const spy = vi.spyOn(projectSettings, "getProjectPlugins").mockImplementation(async (id) => {
-      const view = (await real(id))!;
-      return {
-        ...view,
-        plugins: view.plugins.map((p) => (p.name === "superpowers" ? { ...p, inRuns: false } : p)),
-      };
-    });
+  it("dice che non entra nei run; acceso e salvato, entra con tutte le sue righe", async () => {
+    choicesOf(STW).enabled = [];
+    const user = userEvent.setup();
     await open(LAURA);
     const superpowers = await block("superpowers");
     expect(superpowers).toHaveTextContent("Not turned on for this project: it doesn't enter runs.");
     expect(superpowers).not.toHaveTextContent("in runs");
-    spy.mockRestore();
+    const plugin = within(superpowers).getByRole("checkbox", {
+      name: "Use superpowers in STW's runs",
+    });
+    expect(plugin).not.toBeChecked();
+    await user.click(plugin);
+    expect(superpowers).toHaveTextContent("9 of 9 skills · 1 of 1 hooks in runs");
+    expect(saveBar()).toHaveTextContent("1 change");
+    await user.click(within(saveBar()!).getByRole("button", { name: "Save" }));
+    await screen.findByText(/^Saved\./);
+    expect(choicesOf(STW).enabled).toEqual(["superpowers"]);
+    expect(projectSettings.skillsForRun(STW).map((s) => s.skill)).toContain("brainstorming");
   });
 });
 

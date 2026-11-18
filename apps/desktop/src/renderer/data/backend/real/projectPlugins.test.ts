@@ -71,7 +71,13 @@ describe("i plugin del progetto dal server", () => {
     expect(view.version).toBe("v7");
     expect(view.canEdit).toBe(true);
     const [sp, lh, nuovo] = view.plugins;
-    expect(sp).toMatchObject({ name: "superpowers", status: "ready", base: false, inRuns: true });
+    expect(sp).toMatchObject({
+      name: "superpowers",
+      status: "ready",
+      base: false,
+      on: true,
+      inRuns: true,
+    });
     expect(sp!.skills).toEqual([
       { name: "brainstorming", description: "", enabled: false },
       { name: "writing-plans", description: "", enabled: true },
@@ -81,9 +87,9 @@ describe("i plugin del progetto dal server", () => {
       { key: "SessionStart#0", event: "SessionStart", command: "", enabled: true },
     ]);
     expect(sp!.preset).toEqual(["using-git-worktrees"]);
-    expect(lh).toMatchObject({ status: "failed", inRuns: false, preset: null });
+    expect(lh).toMatchObject({ status: "failed", on: true, inRuns: false, preset: null });
     // Un plugin nuovo, mai acceso sul progetto, sul server non entra nei run.
-    expect(nuovo).toMatchObject({ status: "ready", inRuns: false });
+    expect(nuovo).toMatchObject({ status: "ready", on: false, inRuns: false });
   });
 
   it("un progetto che non si vede, o senza il permesso: null", async () => {
@@ -139,6 +145,54 @@ describe("i plugin del progetto dal server", () => {
       disabledSkills: ["one"],
       disabledHooks: [],
     });
+  });
+
+  it("F5, opt-in: `enabled` accende i pronti nominati e spegne gli altri; un non pronto resta com'era", async () => {
+    const { api, puts } = fake();
+    await createRealProjectPlugins(api).saveProjectPlugins("p1", {
+      version: "v7",
+      enabled: ["nuovo"],
+      disabled: [
+        { plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] },
+        { plugin: "nuovo", skills: [], hookGroups: [] },
+      ],
+    });
+    expect(puts[0]!.plugins).toEqual([
+      { pluginId: SP, enabled: false, disabledSkills: ["brainstorming"], disabledHooks: [] },
+      { pluginId: LH, enabled: true, disabledSkills: ["fix-lint"], disabledHooks: [] },
+      { pluginId: NEW, enabled: true, disabledSkills: [], disabledHooks: [] },
+    ]);
+    // Acceso senza una riga fra gli spenti: si salva lo stesso, tutto acceso dentro.
+    await createRealProjectPlugins(api).saveProjectPlugins("p1", {
+      version: "v7",
+      enabled: ["superpowers", "nuovo"],
+      disabled: [],
+    });
+    expect(puts[1]!.plugins).toContainEqual({
+      pluginId: NEW,
+      enabled: true,
+      disabledSkills: [],
+      disabledHooks: [],
+    });
+    expect(puts[1]!.plugins).toContainEqual({
+      pluginId: SP,
+      enabled: true,
+      disabledSkills: [],
+      disabledHooks: [],
+    });
+  });
+
+  it("F5: un nome acceso fuori dal registro (anche il plugin base) → invalid, niente scritto", async () => {
+    const { api, puts } = fake();
+    for (const name of ["stubwise", "inventato"])
+      expect(
+        await createRealProjectPlugins(api).saveProjectPlugins("p1", {
+          version: "v7",
+          enabled: [name],
+          disabled: [],
+        }),
+      ).toMatchObject({ ok: false, error: "invalid", reason: "plugin" });
+    expect(puts).toEqual([]);
   });
 
   it("409 stale → conflict; un nome sconosciuto → invalid", async () => {

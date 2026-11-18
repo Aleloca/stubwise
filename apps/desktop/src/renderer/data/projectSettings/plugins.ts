@@ -23,7 +23,9 @@ export {
   pluginChangedKeys,
   pluginChoosable,
   pluginDisabledInput,
+  pluginEnabledInput,
   pluginHookKey,
+  pluginKey,
   pluginOffKeys,
   pluginPresetApplied,
   pluginSkillKey,
@@ -33,9 +35,12 @@ export {
 
 // Progetto → Settings → Plugins (area 9c, Task 4): quali skill e quali
 // gruppi di hook dei plugin del registro d'istanza entrano nei run del
-// progetto. Per sottrazione, come sul web: di base tutto acceso, si
-// salva ciò che è spento, per `name` del manifest. Si scrive con
-// `project.settings.manage`.
+// progetto. Si scrive con `project.settings.manage`.
+// - Un plugin del registro entra nei run solo se è ACCESO sul progetto
+//   (area 9, F5, decisione del maintainer: opt-in, come il server): uno
+//   registrato dopo non entra da solo. Dentro un plugin acceso, per
+//   sottrazione: skill e gruppi di hook partono accesi, si salva ciò che è
+//   spento, per `name` del manifest.
 // - Il plugin base `stubwise` (le skill di Stubwise in «/») sta fuori dal
 //   registro e non si spegne, come `stubwise-base` del worker (scelta del
 //   controller): fra gli spenti è `invalid: "base_plugin"`.
@@ -60,6 +65,7 @@ const baseRow = (): ProjectPluginsView["plugins"][number] => ({
   slug: BASE_PLUGIN_SEED.name,
   status: "ready",
   base: true,
+  on: true,
   inRuns: true,
   skills: BASE_PLUGIN_SEED.skills.map((s) => ({ ...s, enabled: true })),
   hooks: [],
@@ -71,6 +77,7 @@ function registryRow(
   choices: ProjectPluginChoices,
 ): ProjectPluginsView["plugins"][number] {
   const off = disabledOf(choices, p.name);
+  const on = choices.enabled.includes(p.name);
   const skills = p.inventory?.skills ?? [];
   const hooks = p.inventory?.hooks ?? [];
   return {
@@ -78,7 +85,8 @@ function registryRow(
     slug: p.slug,
     status: p.status,
     base: false,
-    inRuns: p.status === "ready",
+    on,
+    inRuns: p.status === "ready" && on,
     skills: [
       ...skills.map((s) => ({
         name: s.name,
@@ -167,14 +175,26 @@ function normalized(
   };
 }
 
+/** Il rifiuto dei plugin accesi dati: il plugin base, o un nome fuori dal registro. */
+function enabledReason(enabled: unknown): string | null {
+  if (enabled === undefined) return null;
+  if (!Array.isArray(enabled) || enabled.some((n) => typeof n !== "string")) return "enabled";
+  for (const name of enabled as string[]) {
+    if (name === BASE_PLUGIN) return "base_plugin";
+    if (!state.instance.plugins.some((p) => p.name === name)) return "plugin";
+  }
+  return null;
+}
+
 /**
- * Salva le scelte (ciò che è spento). `conflict` se `version` non è quella
+ * Salva le scelte: quali plugin sono accesi (`enabled`, assente = com'era)
+ * e, dentro, ciò che è spento. `conflict` se `version` non è quella
  * di adesso; se va bene, e qualcosa cambia, la versione sale di uno e si
  * scrive una voce sola.
  */
 export async function saveProjectPlugins(
   projectId: string,
-  input: { version: string; disabled: ProjectPluginChoices["disabled"] },
+  input: { version: string; enabled?: string[]; disabled: ProjectPluginChoices["disabled"] },
 ): Promise<ProjectResult<{ version: string }>> {
   const me = await writer("projectSettings.saveProjectPlugins");
   const managed = managedProject(me, projectId);
@@ -183,6 +203,8 @@ export async function saveProjectPlugins(
   const choices = settingsOf(project).plugins;
   const clean = normalized(input.disabled, choices.disabled);
   if ("reason" in clean) return refuse.invalid(clean.reason);
+  const badEnabled = enabledReason(input.enabled);
+  if (badEnabled) return refuse.invalid(badEnabled);
   if (input.version !== String(choices.version)) return refuse.conflict();
 
   // [PG 4]: le scelte di un plugin non `ready` che l'input non nomina restano.
@@ -192,8 +214,24 @@ export async function saveProjectPlugins(
     ...clean.disabled,
     ...choices.disabled.filter((d) => !clean.named.has(d.plugin) && !ready(d.plugin)),
   ].sort((a, b) => a.plugin.localeCompare(b.plugin));
-  const diff = changedFields(disabledKeys(choices.disabled), disabledKeys(disabled));
+  // F5: un pronto è acceso se l'input lo nomina; un non pronto resta com'era
+  // finché l'input non lo nomina (la pagina non lo sceglie, [PG 4]).
+  const wanted = input.enabled;
+  const enabled = wanted
+    ? state.instance.plugins
+        .filter(
+          (p) =>
+            wanted.includes(p.name) || (p.status !== "ready" && choices.enabled.includes(p.name)),
+        )
+        .map((p) => p.name)
+    : choices.enabled;
+  const fields = (on: string[], off: ProjectPluginChoices["disabled"]) => ({
+    enabledPlugins: [...on].sort(),
+    ...disabledKeys(off),
+  });
+  const diff = changedFields(fields(choices.enabled, choices.disabled), fields(enabled, disabled));
   if (!diff) return { ok: true, version: String(choices.version) };
+  choices.enabled = enabled;
   choices.disabled = disabled;
   choices.version += 1;
   recordChange({
@@ -208,7 +246,7 @@ export async function saveProjectPlugins(
 
 /**
  * Le skill che entrano nei run (e in «/») di un progetto: quelle dei plugin
- * `ready` del registro, meno le spente, poi il plugin base. Non guarda chi
+ * `ready` del registro accesi sul progetto, meno le spente, poi il plugin base. Non guarda chi
  * chiede: è il lavoro di Claude a chiederlo. Un progetto inesistente non ne
  * ha.
  */
@@ -219,7 +257,7 @@ export function skillsForRun(
   if (!project) return [];
   const choices = settingsOf(project).plugins;
   const chosen = state.instance.plugins
-    .filter((p) => p.status === "ready")
+    .filter((p) => p.status === "ready" && choices.enabled.includes(p.name))
     .flatMap((p) => {
       const off = disabledOf(choices, p.name);
       return (p.inventory?.skills ?? [])

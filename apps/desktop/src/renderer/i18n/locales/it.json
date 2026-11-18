@@ -12596,6 +12596,7 @@
       "activeDays": "Ferma se attiva, dopo (giorni)",
       "todoDays": "Ferma se da fare, dopo (giorni)",
       "statuses": "Stati",
+      "enabledPlugins": "Plugin accesi",
       "disabledSkills": "Skill spente",
       "disabledHooks": "Hook spenti",
       "installCommand": "Comando di install",

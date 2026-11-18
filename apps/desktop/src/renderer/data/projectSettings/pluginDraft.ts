@@ -31,6 +31,9 @@ export interface ProjectPluginsView {
     slug: string;
     status: "ready" | "materializing" | "failed";
     base: boolean;
+    /** Acceso per questo progetto (F5, opt-in); il plugin base sempre. */
+    on: boolean;
+    /** Entra nei run: pronto e acceso. */
     inRuns: boolean;
     skills: { name: string; description: string; enabled: boolean }[];
     hooks: { key: string; event: string; command: string; enabled: boolean }[];
@@ -39,6 +42,12 @@ export interface ProjectPluginsView {
 }
 
 export const pluginSkillKey = (plugin: string, skill: string) => `${plugin}:${skill}`;
+/**
+ * La chiave di un plugin non acceso sul progetto (F5, opt-in): il suo nome,
+ * nello stesso insieme delle chiavi spente, così bozza, conflitto e
+ * riconciliazione la trattano come una riga qualunque.
+ */
+export const pluginKey = (plugin: string) => plugin;
 /** La chiave stabile di un gruppo di hook: `<plugin>#<Evento>#<i>`. */
 export const pluginHookKey = (plugin: string, hookGroup: string) => `${plugin}#${hookGroup}`;
 
@@ -72,6 +81,7 @@ export const pluginChoosable = (p: PluginRow): boolean => !p.base && p.status ==
 /** Le chiavi spente di un plugin della vista. */
 function offKeysOfPlugin(p: PluginRow): string[] {
   return [
+    ...(p.on ? [] : [pluginKey(p.name)]),
     ...p.skills.filter((s) => !s.enabled).map((s) => pluginSkillKey(p.name, s.name)),
     ...p.hooks.filter((h) => !h.enabled).map((h) => pluginHookKey(p.name, h.key)),
   ];
@@ -96,6 +106,13 @@ export function pluginDisabledInput(
     skills: p.skills.filter((s) => keys.has(pluginSkillKey(p.name, s.name))).map((s) => s.name),
     hookGroups: p.hooks.filter((h) => keys.has(pluginHookKey(p.name, h.key))).map((h) => h.key),
   }));
+}
+
+/** I plugin da accendere, da una bozza: i `ready` del registro la cui chiave non è fra le spente. */
+export function pluginEnabledInput(view: ProjectPluginsView, keys: ReadonlySet<string>): string[] {
+  return view.plugins
+    .filter((p) => pluginChoosable(p) && !keys.has(pluginKey(p.name)))
+    .map((p) => p.name);
 }
 
 /** Le chiavi del preset di un plugin che il suo inventario ha davvero. */

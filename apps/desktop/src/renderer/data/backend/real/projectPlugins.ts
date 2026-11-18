@@ -8,14 +8,14 @@ import { appClient } from "./client";
 // `/api/projects/:id/plugins` (72, f5677875b e a19c56d09): le scelte del
 // progetto, il registro (ogni plugin, in ogni stato, senza URL, sha né
 // comandi degli hook) e la versione opaca per `ifMatch`.
-// La regola del server: un plugin entra nei run solo se è acceso sul
-// progetto (`enabled`) e pronto; dentro, per sottrazione (skill e gruppi di
-// hook spenti). La pagina (fatta sul prototipo) sceglie solo le liste di
-// spenti, quindi il salvataggio rimanda ogni riga com'era, `enabled`
-// compreso, con le liste nuove; un plugin pronto mai salvato sul progetto
-// si salva spento (le scelte restano, non entra nei run). Il PUT sostituisce
-// l'insieme intero: nessuna riga si perde. Il plugin base sta fuori dal
-// registro e qui non c'è.
+// La regola (del server e, dalla decisione del maintainer in F5, anche del
+// prototipo): un plugin entra nei run solo se è acceso sul progetto
+// (`enabled`) e pronto; dentro, per sottrazione (skill e gruppi di hook
+// spenti). Il salvataggio accende i plugin che `enabled` nomina e spegne gli
+// altri pronti; senza `enabled` ogni riga tiene il suo. Un non pronto resta
+// com'era (la pagina non lo sceglie, [PG 4]). Il PUT sostituisce l'insieme
+// intero: nessuna riga si perde. Il plugin base sta fuori dal registro e qui
+// non c'è.
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- forme del server lette dai Reader */
 type Any = any;
@@ -75,6 +75,7 @@ export function createRealProjectPlugins(api: ProjectPluginsApi) {
             slug: r.slug,
             status,
             base: false,
+            on: !!c?.enabled,
             inRuns: status === "ready" && !!c?.enabled,
             skills: [
               ...r.skills.map((name: string) => ({
@@ -105,7 +106,7 @@ export function createRealProjectPlugins(api: ProjectPluginsApi) {
 
     async saveProjectPlugins(
       projectId: string,
-      input: { version: string; disabled: ProjectPluginChoices["disabled"] },
+      input: { version: string; enabled?: string[]; disabled: ProjectPluginChoices["disabled"] },
     ): Promise<ProjectResult<{ version: string }>> {
       const v = await read(projectId);
       if (!v) return { ok: false, error: "not_found" };
@@ -113,6 +114,14 @@ export function createRealProjectPlugins(api: ProjectPluginsApi) {
       const current = new Map<string, ServerChoice>(
         (v.plugins as ServerChoice[]).map((c) => [c.pluginId, c]),
       );
+      const wanted = input.enabled;
+      if (wanted?.some((name) => !registry.has(name))) return invalid("plugin");
+      const nameOf = new Map<string, string>(
+        [...registry.values()].map((r) => [r.pluginId, r.name]),
+      );
+      /** Acceso dopo il salvataggio: quello che `enabled` dice, o com'era. */
+      const onAfter = (id: string, was: boolean) =>
+        wanted ? wanted.includes(nameOf.get(id) ?? "") : was;
       const named = new Map<string, ServerChoice>();
       for (const d of input.disabled) {
         const r = registry.get(d.plugin);
@@ -126,7 +135,7 @@ export function createRealProjectPlugins(api: ProjectPluginsApi) {
           return invalid("hook");
         named.set(r.pluginId, {
           pluginId: r.pluginId,
-          enabled: before?.enabled ?? false,
+          enabled: onAfter(r.pluginId, before?.enabled ?? false),
           disabledSkills: [...d.skills],
           disabledHooks: [...d.hookGroups],
         });
@@ -135,17 +144,34 @@ export function createRealProjectPlugins(api: ProjectPluginsApi) {
         [...registry.values()].some((r) => r.pluginId === id && statusOf(r.status) === "ready");
       const plugins: ServerChoice[] = [];
       for (const c of current.values()) {
-        // Un pronto non nominato torna tutto acceso (come nel prototipo); un
-        // non pronto resta com'era.
+        // Un pronto non nominato: dentro tutto acceso (come nel prototipo),
+        // acceso o no come dice `enabled`. Un non pronto resta com'era.
         plugins.push(
           named.get(c.pluginId) ??
-            (ready(c.pluginId) ? { ...c, disabledSkills: [], disabledHooks: [] } : c),
+            (ready(c.pluginId)
+              ? {
+                  ...c,
+                  enabled: onAfter(c.pluginId, c.enabled),
+                  disabledSkills: [],
+                  disabledHooks: [],
+                }
+              : c),
         );
         named.delete(c.pluginId);
       }
-      // Un pronto mai salvato: si salva (spento) solo se qualcosa è spento.
+      // Un pronto mai salvato: si salva se qualcosa è spento, o (sotto) se si accende.
       for (const c of named.values())
         if (c.disabledSkills.length || c.disabledHooks.length) plugins.push(c);
+      for (const name of wanted ?? []) {
+        const r = registry.get(name)!;
+        if (!plugins.some((c) => c.pluginId === r.pluginId))
+          plugins.push({
+            pluginId: r.pluginId,
+            enabled: true,
+            disabledSkills: [],
+            disabledHooks: [],
+          });
+      }
       try {
         const r = await api.put(projectId, plugins, input.version);
         return { ok: true, version: r.version ?? "" };

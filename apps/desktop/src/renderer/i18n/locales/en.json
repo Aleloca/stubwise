@@ -12596,6 +12596,7 @@
       "activeDays": "Stalled when active, after (days)",
       "todoDays": "Stalled when to do, after (days)",
       "statuses": "Statuses",
+      "enabledPlugins": "Plugins on",
       "disabledSkills": "Skills off",
       "disabledHooks": "Hooks off",
       "installCommand": "Install command",
