@@ -86,10 +86,9 @@ describe("googleApps e instanceSettings", () => {
     expect(await i.client.instanceSettings.get()).toMatchObject({ s3Endpoint: null, s3SecretKeySet: false, attachmentsEnabled: false, slackEnabled: false, spentUsd: 0, budgetReached: false, budgetEffect: null });
     await i.client.instanceSettings.save({ contentLanguage: "it", monthlyBudgetUsd: 600, s3Bucket: "b" });
     expect(last(i.fetchImpl)).toEqual({ method: "PUT", url: "/api/settings/instance", body: { contentLanguage: "it", monthlyBudgetUsd: 600, s3Bucket: "b" } });
-    // Review F3: il server tratta un budget ASSENTE come «nessun budget» (e lo
-    // registra): chi salva deve dirlo, sempre — il tipo lo pretende.
-    // @ts-expect-error monthlyBudgetUsd è obbligatorio
-    void (() => i.client.instanceSettings.save({ contentLanguage: "it", s3Bucket: "b" }));
+    // Una PATCH (review F3, critico): il solo storage, senza budget né lingua.
+    await i.client.instanceSettings.save({ s3Bucket: "c" });
+    expect(last(i.fetchImpl).body).toEqual({ s3Bucket: "c" });
     const a = clientWith({ rules: [{ type: "bug", autoFix: true, maxEffort: 2 }], prReview: { enabled: false } });
     expect(await a.client.instanceSettings.automation()).toMatchObject({ rules: [{ planApprovalMinEffort: null, maxCostUsd: null }], prReview: { maxCostUsd: null } });
   });
@@ -105,3 +104,29 @@ describe("aiUsage", () => {
     expect((await v.client.aiProviders.list())[0]!.quotaBand).toBe("__unknown__");
   });
 });
+
+describe("instance.status (area 9, F4)", () => {
+  it("senza i facoltativi: blocchi, worker, quota, errori e notte ai default; un kind ignoto è __unknown__", async () => {
+    const { client, fetchImpl } = clientWith({
+      queues: [{ projectId: "p", code: "ACQ", name: "Acquisti", running: 1, waiting: 0, failed: 0 }],
+      jobs: [{ id: "j", kind: "lavoro_futuro", projectId: "p", state: "running", since: "2026-11-18T10:00:00.000Z" }],
+      refreshedAt: "2026-11-18T10:00:00.000Z",
+    });
+    const s = await client.instance.status();
+    expect(last(fetchImpl)).toMatchObject({ method: "GET", url: "/api/instance/status" });
+    expect(s).toMatchObject({ otherProjects: null, workers: [], quota: [], errors: [], nightly: [] });
+    expect(s.queues[0]).toMatchObject({ paused: null, pause: "forbidden", budgetAfterResume: 0 });
+    expect(s.jobs[0]).toMatchObject({ kind: "__unknown__", waiting: null, workerId: null, retry: "unavailable", retryNeeds: null, retryBlock: null, retryStopsAtPlan: false, href: null, superseded: false });
+  });
+});
+
+describe("la coda di un progetto (area 9, F4)", () => {
+  it("pauseQueue e resumeQueue: verbi e path", async () => {
+    const { client, fetchImpl } = clientWith(null, 204);
+    await client.projects.pauseQueue("p/1");
+    expect(last(fetchImpl)).toMatchObject({ method: "POST", url: "/api/projects/p%2F1/queue/pause" });
+    await client.projects.resumeQueue("p");
+    expect(last(fetchImpl)).toMatchObject({ method: "POST", url: "/api/projects/p/queue/resume" });
+  });
+});
+

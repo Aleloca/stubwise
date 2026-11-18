@@ -59,6 +59,17 @@ const milestonesSchema = z.array(milestoneWithCountsSchema);
  */
 export function createProjectsEndpoints(request: ApiRequest) {
   return {
+    /**
+     * Area 9, F4: la pausa della coda (chi gestisce il progetto). Solo la coda
+     * di Stubwise: il lavoro nuovo aspetta, quello partito finisce. 409
+     * `already_paused` / `not_paused`.
+     */
+    pauseQueue(projectId: string): Promise<void> {
+      return request("POST", `/api/projects/${seg(projectId)}/queue/pause`);
+    },
+    resumeQueue(projectId: string): Promise<void> {
+      return request("POST", `/api/projects/${seg(projectId)}/queue/resume`);
+    },
     list(): Promise<Reader<ProjectListItem>[]> {
       return request("GET", "/api/projects", undefined, projectListSchema);
     },
