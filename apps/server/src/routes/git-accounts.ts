@@ -1,5 +1,5 @@
 import { changedFields, recordChange } from "../services/change-log.js";
-import { gitAccountSchema, gitProviderKindSchema } from "@stubwise/shared";
+import { createGitAccountSchema, defaultReviewerResponseSchema, gitCredentialsSchema, defaultReviewerWarningSchema, gitAccountSchema, gitValidateResponseSchema, updateGitAccountSchema } from "@stubwise/shared";
 import { BITBUCKET_REVIEWER_SCOPES, GitProviderError, bitbucketRequiredScopes, getProvider } from "@stubwise/git";
 import { decrypt, encrypt, gitAccounts, repositories } from "@stubwise/db";
 import { resolveProviderUserId, resolveReviewAccounts } from "@stubwise/notifications";
@@ -20,43 +20,15 @@ import { checkReviewAccount, logIdentityError } from "../services/review-account
  * agli API token di Bitbucket. Serializzate in JSON e cifrate prima di toccare
  * il DB; non compaiono mai in nessuna risposta.
  */
-const gitCredentialsSchema = z.object({
-  username: z.string().min(1).optional(),
-  email: z.string().min(1).optional(),
-  token: z.string().min(1),
-});
 
-const createAccountSchema = z.object({
-  name: z.string().min(1).max(200),
-  provider: gitProviderKindSchema,
-  credentials: gitCredentialsSchema,
-  // Slug del workspace Bitbucket: di fatto richiesto per usare le feature repo
-  // di un account Bitbucket (vedi gitAccountSchema), ma non blocchiamo la
-  // creazione — la validazione/elenco segnalerà l'eventuale mancanza.
-  workspace: z.string().min(1).max(200).optional(),
-});
 
 // In modifica: nome, credenziali e/o workspace. Credenziali assenti = invariate
 // (non si possono "svuotare": un account senza credenziali non avrebbe senso).
-const updateAccountSchema = z.object({
-  name: z.string().min(1).max(200).optional(),
-  credentials: gitCredentialsSchema.optional(),
-  workspace: z.string().min(1).max(200).optional(),
-});
 
 const idParamsSchema = z.object({ id: z.uuid() });
 
-const credentialCheckSchema = z.object({
-  name: z.string(),
-  ok: z.boolean(),
-  detail: z.string(),
-});
 
 /** Risultato della validazione: `ok` riassume i singoli check (tutti ok). */
-const validateResponseSchema = z.object({
-  ok: z.boolean(),
-  checks: z.array(credentialCheckSchema),
-});
 
 const repoSummarySchema = z.object({
   fullName: z.string(),
@@ -83,18 +55,7 @@ type GitAccountRow = typeof gitAccounts.$inferSelect;
  * (es. `review_account_no_write_permission`). Mai un blocco: il predefinito è
  * già impostato quando si leggono.
  */
-const defaultReviewerWarningSchema = z.object({
-  repositoryId: z.uuid(),
-  repositoryName: z.string(),
-  code: z.string(),
-});
 
-const defaultReviewerResponseSchema = z.object({
-  account: gitAccountSchema,
-  /** Il predefinito precedente dello stesso ambito, tolto nella STESSA transazione; null = nessuno. */
-  replaced: z.object({ id: z.uuid(), name: z.string() }).nullable(),
-  warnings: z.array(defaultReviewerWarningSchema),
-});
 
 type DefaultReviewerWarning = z.infer<typeof defaultReviewerWarningSchema>;
 
@@ -270,7 +231,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
     {
       config: { access: { kind: "instance", permission: "git_accounts.manage" }, reauth: true },
       schema: {
-        body: createAccountSchema,
+        body: createGitAccountSchema,
         response: { 201: gitAccountSchema, ...authErrorResponses },
       },
     },
@@ -327,7 +288,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
       config: { access: { kind: "instance", permission: "git_accounts.manage" }, partialReauth: true },
       schema: {
         params: idParamsSchema,
-        body: updateAccountSchema,
+        body: updateGitAccountSchema,
         response: { 200: gitAccountSchema, 404: errorSchema, 409: errorSchema, ...authErrorResponses },
       },
     },
@@ -630,7 +591,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
       config: { access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
-        response: { 200: validateResponseSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
+        response: { 200: gitValidateResponseSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
@@ -668,7 +629,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
       schema: {
         params: idParamsSchema,
         querystring: validateRepoQuerySchema,
-        response: { 200: validateResponseSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
+        response: { 200: gitValidateResponseSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
