@@ -64,7 +64,7 @@ export async function projectMemberRoutes(instance: FastifyInstance): Promise<vo
       schema: {
         params: z.object({ projectId: z.uuid(), userId: z.uuid() }),
         body: memberDraftSchema,
-        response: { 200: memberPreviewSchema, 404: errorSchema, ...authErrorResponses },
+        response: { 200: memberPreviewSchema, 404: errorSchema, 422: roleRuleErrorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {

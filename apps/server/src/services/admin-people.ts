@@ -161,18 +161,24 @@ export async function listPeopleRows(db: Db, viewer: Viewer): Promise<PersonRow[
 }
 
 /** I ruoli d'istanza con ciò che manca a chi guarda per darli (la regola di `setInstanceRole`). */
-export async function instanceRoleChoicesFor(db: Db, viewer: Viewer): Promise<RoleChoice[]> {
+export async function instanceRoleChoicesFor(db: Db, viewer: Viewer, opts: { lastFullAdmin?: boolean } = {}): Promise<RoleChoice[]> {
   const rows = await db.select({ id: roles.id, name: roles.name, permissions: roles.permissions }).from(roles).where(eq(roles.scope, "instance")).orderBy(asc(roles.name));
-  return rows.map((r) => ({
-    roleId: r.id,
-    name: r.name,
-    permissionCount: r.permissions.length,
-    missing: missingToGrant(viewer, effectiveInstancePermissions(r.permissions)),
-  }));
+  return rows.map((r) => {
+    const effective = effectiveInstancePermissions(r.permissions);
+    return {
+      roleId: r.id,
+      name: r.name,
+      permissionCount: r.permissions.length,
+      missing: missingToGrant(viewer, effective),
+      // Review (M3): per SCELTA, non per azione — all'ultimo full admin si può
+      // dare un altro ruolo col full admin, non uno senza (`assertFullAdminRemains`).
+      block: opts.lastFullAdmin && !effective.has("instance.full_admin") ? "last_full_admin" : null,
+    };
+  });
 }
 
 /** `GET /api/admin/people/:id`. Persona invisibile o Claude: 404, come se non esistesse. */
-export async function personDetail(db: Db, viewer: Viewer, personId: string): Promise<PersonDetail> {
+export async function personDetail(db: Db, viewer: Viewer, personId: string, opts: { browserOk?: boolean } = {}): Promise<PersonDetail> {
   const visible = await adminVisiblePersonIds(db, viewer);
   if (visible !== "all" && !visible.includes(personId)) throw new RoleRuleError(404, "user_not_found", "User not found");
   const [p] = await db
@@ -196,7 +202,10 @@ export async function personDetail(db: Db, viewer: Viewer, personId: string): Pr
   const isFullAdmin = targetInstance.has("instance.full_admin");
   const viewerFullAdmin = viewer.instancePermissions.has("instance.full_admin");
   const deactivated = p.deactivatedAt !== null;
-  const secondFactor = await hasSecondFactor(db, p.id);
+  // Review (I1): se una persona ha il secondo fattore lo sa solo chi gestisce le
+  // persone o lei stessa — sennò chi vede un full admin saprebbe se è senza.
+  const manage = viewer.instancePermissions.has("users.manage");
+  const secondFactor = manage || isSelf ? await hasSecondFactor(db, p.id) : null;
 
   // I progetti: quelli di lei che chi guarda vede, coi permessi dati a mano.
   const projectIds = await visibleProjectList(db, viewer);
@@ -257,16 +266,18 @@ export async function personDetail(db: Db, viewer: Viewer, personId: string): Pr
   const gitEmails = (await db.select({ email: gitIdentities.email }).from(gitIdentities).where(eq(gitIdentities.userId, p.id)).orderBy(asc(gitIdentities.email))).map((g) => g.email);
 
   // Le azioni: `null` = si può, sennò il motivo. Le stesse guardie delle rotte.
-  const manage = viewer.instancePermissions.has("users.manage");
   const gate = (extra: () => string | null): string | null => (!manage ? "forbidden" : isSelf ? "self" : extra());
-  const lastAdmin = isFullAdmin ? await isLastActiveFullAdmin(db, p.id) : false;
-  const lastManager = deactivated ? null : await lastManagerProjectOf(db, p.id);
+  // Solo per chi gestisce le persone: agli altri le azioni sono già `forbidden` (M6).
+  const lastAdmin = manage && isFullAdmin ? await isLastActiveFullAdmin(db, p.id) : false;
+  const lastManager = manage && !deactivated ? await lastManagerProjectOf(db, p.id) : null;
   const actions = {
-    setInstanceRole: gate(() => (lastAdmin ? "last_full_admin" : null)),
-    resetPassword: gate(() => (deactivated ? "status" : null)),
+    setInstanceRole: gate(() => null),
+    // Review (M2): la rotta vuole il browser o il desktop riconfermato.
+    resetPassword: gate(() => (deactivated ? "status" : opts.browserOk === false ? "browser_only" : null)),
     changeEmail: gate(() => null),
     resetSecondFactor: gate(() => (secondFactor ? null : "no_second_factor")),
-    deactivate: gate(() => (deactivated ? "status" : lastAdmin ? "last_full_admin" : lastManager ? "last_members_manager" : null)),
+    // Un codice solo, quello della scrittura (M7): `last_manager`.
+    deactivate: gate(() => (deactivated ? "status" : lastAdmin ? "last_full_admin" : lastManager ? "last_manager" : null)),
     reactivate: gate(() => (deactivated ? null : "status")),
     identities: manage ? null : "forbidden",
   };
@@ -291,7 +302,7 @@ export async function personDetail(db: Db, viewer: Viewer, personId: string): Pr
     departments: depts.map((d) => ({ id: d.id, name: d.name, colorToken: d.colorToken, managesHome: (d.permissions ?? []).includes("department.home.manage") })),
     identities: { gitEmails, bitbucketUsername: p.bitbucketUsername },
     actions,
-    instanceRoleChoices: manage ? await instanceRoleChoicesFor(db, viewer) : [],
+    instanceRoleChoices: manage ? await instanceRoleChoicesFor(db, viewer, { lastFullAdmin: lastAdmin }) : [],
     openTasks,
   };
 }

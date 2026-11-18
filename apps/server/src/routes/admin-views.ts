@@ -2,7 +2,7 @@ import { adminRoleViewSchema, inviteChoicesSchema, inviteViewSchema, personDetai
 import { invites } from "@stubwise/db";
 import { eq } from "drizzle-orm";
 import { adminRoleViews, inviteChoices, inviteTokenOf, inviteViews } from "../services/admin-roles.js";
-import { projectIdsWithPermission } from "../auth/access.js";
+import { browserOrConfirmedDesktop, projectIdsWithPermission } from "../auth/access.js";
 import { apiError } from "../errors.js";
 import { recordChange } from "../services/change-log.js";
 import { inviteObject } from "../services/invite-change.js";
@@ -35,7 +35,7 @@ export async function adminViewRoutes(instance: FastifyInstance): Promise<void> 
     },
     async (request, reply) => {
       try {
-        return await personDetail(app.db, request.user!, request.params.id);
+        return await personDetail(app.db, request.user!, request.params.id, { browserOk: browserOrConfirmedDesktop(request.user!).ok });
       } catch (error) {
         return sendRoleRuleError(reply, error);
       }
