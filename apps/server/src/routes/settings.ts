@@ -517,7 +517,11 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
       // la rende idempotente anche se mancasse. updatedAt va impostato a mano
       // nel `set`: il $onUpdate di drizzle NON scatta su onConflictDoUpdate.
       // numeric(12,6): drizzle scrive una STRINGA. number → stringa, null resta null.
-      const monthlyBudgetUsd = body.monthlyBudgetUsd != null ? String(body.monthlyBudgetUsd) : null;
+      // Una PATCH (review di F3, critico): budget e lingua ASSENTI restano;
+      // `monthlyBudgetUsd: null` esplicito toglie il tetto.
+      const base: Record<string, string | null> = {};
+      if (body.contentLanguage !== undefined) base.contentLanguage = body.contentLanguage;
+      if (body.monthlyBudgetUsd !== undefined) base.monthlyBudgetUsd = body.monthlyBudgetUsd !== null ? String(body.monthlyBudgetUsd) : null;
 
       // Campi S3 non-secret: presenti → aggiorna ("" azzera a null); assenti →
       // invariati. Raccolti in `set` solo se nel body, così onConflict non
@@ -551,12 +555,11 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
         const [before] = await tx.select().from(instanceSettings).where(eq(instanceSettings.id, 1)).for("update");
         const [after] = await tx
           .insert(instanceSettings)
-          .values({ id: 1, contentLanguage: body.contentLanguage, monthlyBudgetUsd, ...s3Set })
+          .values({ id: 1, ...base, ...s3Set })
           .onConflictDoUpdate({
             target: instanceSettings.id,
             set: {
-              contentLanguage: body.contentLanguage,
-              monthlyBudgetUsd,
+              ...base,
               ...s3Set,
               updatedAt: new Date(),
             },
