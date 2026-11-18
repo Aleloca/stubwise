@@ -7,6 +7,7 @@ import { advanceNow, now, setStreamLatency, state } from "../store";
 import { whenIdle } from "../stream";
 import {
   grantInstancePermission,
+  grantProjectPermission,
   resetViewerGrants,
   revokeProjectPermission,
   type LocalInstancePermission,
@@ -219,10 +220,16 @@ describe("aiBlockFor", () => {
 });
 
 describe("Pause e Resume", () => {
-  it("chiedono settings.manage su un progetto visibile; una pausa già messa è already_paused", async () => {
+  it("chiedono project.settings.manage NEL progetto (F4); una pausa già messa è already_paused", async () => {
+    // Laura è Project Lead di ACQ: la pausa di ACQ la mette lei.
     as(LAURA);
+    expect(await instance.pauseQueue(ACQ)).toEqual({ ok: true });
+    expect(await instance.resumeQueue(ACQ)).toEqual({ ok: true });
+    // Marco no, nemmeno con settings.manage d'istanza (prima bastava).
+    give(MARCO, "settings.manage");
+    as(MARCO);
     expect(await instance.pauseQueue(ACQ)).toEqual({ ok: false, error: "forbidden" });
-    expect(await instance.resumeQueue(STW)).toEqual({ ok: false, error: "forbidden" });
+    state.changelog.splice(0);
     give(CHIARA, "settings.manage");
     as(CHIARA);
     expect(await instance.resumeQueue(STW)).toEqual({ ok: false, error: "not_found" });
@@ -450,8 +457,9 @@ describe("Retry (RF 5)", () => {
     expect(await instance.retryJob("cv-run-acq-3")).toEqual({ ok: false, error: "not_found" });
   });
 
-  it("Marco con settings.manage riprova: parte a suo nome e si ferma al gate del piano", async () => {
+  it("Marco, che gestisce ACQ (F4), riprova: parte a suo nome e si ferma al gate del piano", async () => {
     give(MARCO, "settings.manage");
+    grantProjectPermission(MARCO, ACQ, "project.settings.manage" as never);
     as(MARCO);
     expect((await status()).jobs.find((j) => j.id === "cv-run-acq-3")!.retry).toBe("allowed");
     const result = await instance.retryJob("cv-run-acq-3");
@@ -520,8 +528,9 @@ describe("lo Stato dell'istanza per la pagina (Task 13)", () => {
     as(SARA);
     expect(await acq3()).toMatchObject({ retry: "forbidden", retryNeeds: "manageSettings" });
 
-    // Ruling 2: Marco, con settings.manage, ha runs.start in ACQ ma non plans.approve.
+    // Ruling 2: Marco gestisce ACQ (F4: nel progetto), ha runs.start ma non plans.approve.
     give(MARCO, "settings.manage");
+    grantProjectPermission(MARCO, ACQ, "project.settings.manage" as never);
     as(MARCO);
     expect(await acq3()).toMatchObject({
       retry: "allowed",

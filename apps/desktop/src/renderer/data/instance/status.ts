@@ -60,7 +60,8 @@ export interface InstanceJob {
   /** Il blocco, solo per `waiting`; `null` su una correzione ferma (aspetta una persona). */
   waiting: AiBlock | null;
   since: string;
-  workerId: "worker-1" | "worker-2" | null;
+  /** Lo slot del worker (nel prototipo `worker-1`/`worker-2`, sul server `<processo>:<n>`). */
+  workerId: string | null;
   retry: ActionAvailability;
   /**
    * Con `retry` `forbidden`, il permesso che manca (Task 13: la pagina mette
@@ -336,8 +337,6 @@ export async function getInstanceStatus(): Promise<InstanceStatusView> {
   const me = await gate("instance.getInstanceStatus");
   if (!canI(me, "instance.status.view") && !canI(me, "settings.manage")) throw forbidden();
   const visible = visibleProjectIds(me);
-  const manages = canI(me, "settings.manage");
-
   const all = allJobs().sort(byStateThenAge);
   // Un lavoro senza progetto (un passo d'automazione generale fermo per il
   // budget) lo vede chi vede l'esecuzione; l'analisi di un server non ancora
@@ -364,7 +363,9 @@ export async function getInstanceStatus(): Promise<InstanceStatusView> {
   const permittedOf = (j: Job): ActionAvailability => {
     const c = conversations.get(j.id);
     if (j.state !== "failed" || !c || !isRetryable(c) || j.projectId === null) return "unavailable";
-    return manages && canI(me, "runs.start", j.projectId) ? "allowed" : "forbidden";
+    return canI(me, "project.settings.manage", j.projectId) && canI(me, "runs.start", j.projectId)
+      ? "allowed"
+      : "forbidden";
   };
   // Il budget vale per tutti i progetti: una lettura sola per la vista.
   const budget = budgetReached();
@@ -384,7 +385,12 @@ export async function getInstanceStatus(): Promise<InstanceStatusView> {
       ...j,
       workerId: workerOf(j),
       retry,
-      retryNeeds: permitted !== "forbidden" ? null : manages ? "startRun" : "manageSettings",
+      retryNeeds:
+        permitted !== "forbidden"
+          ? null
+          : j.projectId !== null && canI(me, "project.settings.manage", j.projectId)
+            ? "startRun"
+            : "manageSettings",
       retryBlock,
       retryStopsAtPlan:
         retry === "allowed" && j.projectId !== null && !canI(me, "plans.approve", j.projectId),
@@ -407,7 +413,10 @@ export async function getInstanceStatus(): Promise<InstanceStatusView> {
         name: project.name,
         paused: pause ? { byId: pause.byId, byName: pauserNameOf(pause.byId), at: pause.at } : null,
         ...counts(shown.filter((j) => j.projectId === projectId)),
-        pause: (manages ? "allowed" : "forbidden") as ActionAvailability,
+        // F4: la pausa la mette chi gestisce QUEL progetto (come il server).
+        pause: (canI(me, "project.settings.manage", projectId)
+          ? "allowed"
+          : "forbidden") as ActionAvailability,
         // Alla ripresa un lavoro riparte solo senza altri blocchi (`release`):
         // col budget raggiunto non riparte niente — né quelli fermi per la
         // pausa né quelli arrivati dopo il budget, già fermi per lui (I2).

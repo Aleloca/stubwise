@@ -19,6 +19,7 @@ import { setSessionPersonId } from "../../../data/session";
 import { state } from "../../../data/store";
 import {
   grantInstancePermission,
+  grantProjectPermission,
   resetViewerGrants,
   revokeProjectPermission,
   type LocalInstancePermission,
@@ -252,8 +253,9 @@ describe("lo Stato dell'istanza del seme", () => {
     expect(failed.querySelector("[data-who-can='manageSettings']")).not.toBeNull();
   });
 
-  it("con settings.manage ma senza runs.start nel progetto, Retry è spento col «Who?» di startRun", async () => {
+  it("gestisce ACQ ma senza runs.start lì, Retry è spento col «Who?» di startRun", async () => {
     give(MARCO, "settings.manage");
+    grantProjectPermission(MARCO, ACQ, "project.settings.manage" as never);
     revokeProjectPermission(MARCO, ACQ, "runs.start" as never);
     await openStatus(MARCO);
     const failed = jobRow("cv-run-acq-3")!;
@@ -263,7 +265,7 @@ describe("lo Stato dell'istanza del seme", () => {
     );
     expect(failed.querySelector("[data-who-can='startRun']")).not.toBeNull();
     expect(failed.querySelector("[data-who-can='manageSettings']")).toBeNull();
-    // Pause è acceso: settings.manage basta.
+    // Pause è acceso: gestisce ACQ (F4: project.settings.manage nel progetto).
     expect(
       within(queueRow("ACQ")).getByRole("button", { name: "Pause ACQ's queue" }),
     ).toBeEnabled();
@@ -454,8 +456,9 @@ describe("Rimetti in coda", () => {
     expect(screen.getByRole("button", { name: "Open task" })).toBeVisible();
   });
 
-  it("senza plans.approve il dialogo dice che si ferma al piano (ruling 2: Marco con settings.manage)", async () => {
+  it("senza plans.approve il dialogo dice che si ferma al piano (ruling 2: Marco gestisce ACQ)", async () => {
     give(MARCO, "settings.manage");
+    grantProjectPermission(MARCO, ACQ, "project.settings.manage" as never);
     const user = userEvent.setup();
     await openStatus(MARCO);
     await user.click(within(jobRow("cv-run-acq-3")!).getByRole("button", { name: "Retry ACQ-3" }));
