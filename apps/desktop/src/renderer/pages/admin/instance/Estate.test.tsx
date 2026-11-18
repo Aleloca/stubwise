@@ -2,6 +2,7 @@ import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failNext, releases, resetApi, servers, setLatency } from "../../../data/api";
+import { markReauthenticated } from "../../../data/auth/reauth";
 import { setSessionPersonId } from "../../../data/session";
 import { state } from "../../../data/store";
 import {
@@ -186,7 +187,9 @@ describe("Servers dell'istanza", () => {
     setSessionPersonId(ROBERTA);
     // SRV-2 è in difficoltà: senza il suo ambiente diventa un orfano in difficoltà.
     const env = state.environments.find((e) => e.servers.some((s) => s.serverCode === "SRV-2"))!;
-    await releases.deleteEnvironment(env.id);
+    // È un ambiente di STW con file d'ambiente: si elimina riconfermati (F5).
+    markReauthenticated(ROBERTA);
+    expect(await releases.deleteEnvironment(env.id)).toEqual({ ok: true });
     renderRoute("/admin/servers/SRV-2", ROBERTA);
     expect(await heading(/db-stw-01/)).toBeVisible();
     expect(await screen.findByRole("region", { name: "Now" })).toBeVisible();

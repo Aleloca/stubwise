@@ -9125,6 +9125,8 @@
       "deleteTitle": "Eliminare {{name}}?",
       "deleteProduction": "I rilasci senza pipeline mostreranno «Stato non disponibile» finché un altro ambiente di produzione non avrà un server per la loro repository.",
       "deleteError": "Non è stato possibile eliminare {{name}}.",
+      "deleteReauthAction": "eliminare {{name}} e i suoi file d'ambiente",
+      "deleteReauthCancelled": "Non è stato eliminato niente.",
       "errors": {
         "name": "Dai un nome all'ambiente.",
         "url": "L'URL deve cominciare con http:// o https://.",

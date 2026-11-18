@@ -315,4 +315,35 @@ describe("I5: eliminare un ambiente toglie i suoi file e i loro segreti (RF 2)",
     expect(values()).toContain("test-redis-0006");
     expect(fileOf(STW_TEST_FILE)).toBeDefined();
   });
+
+  // Area 9, F5 (decisione del maintainer): un ambiente con file d'ambiente
+  // si elimina con la riconferma, e ogni file eliminato lascia la sua voce.
+  it("con file e senza riconferma → reauth_required, niente cambia", async () => {
+    state.reauth.clear();
+    const before = snapshot();
+    const environments = state.environments.length;
+    expect(await releases.deleteEnvironment("env-stw-prod")).toEqual({
+      ok: false,
+      error: "reauth_required",
+    });
+    expect(snapshot()).toBe(before);
+    expect(state.environments).toHaveLength(environments);
+    expect(entries()).toHaveLength(0);
+  });
+
+  it("riconfermata: una voce env_file.deleted per file, poi environment.deleted", async () => {
+    expect(await releases.deleteEnvironment("env-stw-prod")).toEqual({ ok: true });
+    expect(entries().map((e) => e.kind)).toEqual(["env_file.deleted", "environment.deleted"]);
+    expect(entries("env_file.deleted")[0]).toMatchObject({
+      actorId: ROBERTA,
+      object: { id: STW_PROD_FILE },
+      params: { environment: "Production", repository: "stubwise" },
+    });
+  });
+
+  it("un ambiente senza file non chiede la riconferma", async () => {
+    state.reauth.clear();
+    expect(await releases.deleteEnvironment("env-acq-prod")).toEqual({ ok: true });
+    expect(entries().map((e) => e.kind)).toEqual(["environment.deleted"]);
+  });
 });

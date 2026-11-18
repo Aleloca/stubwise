@@ -389,6 +389,26 @@ describe("Releases — ambienti", () => {
     expect(offered).toContain("SRV-3");
   });
 
+  it("F5: eliminare un ambiente con file d'ambiente chiede la riconferma, poi se ne vanno insieme", async () => {
+    const user = userEvent.setup();
+    state.reauth.clear();
+    renderRoute("/p/STW/releases", "p-laura");
+    const part = await screen.findByRole("region", { name: /^Environments/ });
+    await user.click(within(part).getByRole("button", { name: "More for Production" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete Production?" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+    const confirm = await screen.findByRole("dialog", { name: "Confirm it's you" });
+    expect(confirm).toHaveTextContent("delete Production and its environment files");
+    expect(state.environments.some((e) => e.id === "env-stw-prod")).toBe(true);
+    await user.type(within(confirm).getByLabelText("Code"), "123456");
+    await waitFor(() =>
+      expect(state.environments.some((e) => e.id === "env-stw-prod")).toBe(false),
+    );
+    expect(state.envFiles.some((f) => f.environmentId === "env-stw-prod")).toBe(false);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
   it("senza environments.manage (Elena, Legacy Member): sola lettura", async () => {
     await openSection("p-elena");
     const part = screen.getByRole("region", { name: /^Environments/ });

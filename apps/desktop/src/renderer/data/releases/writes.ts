@@ -8,7 +8,8 @@ import {
   startRunAs,
 } from "../api-mutations";
 import { shortRepo } from "../../domain/releases/repo";
-import { dropEnvironmentFiles } from "../projectSettings/envFiles";
+import { requireReauth } from "../auth/reauth";
+import { dropEnvironmentFiles, environmentHasFiles } from "../projectSettings/envFiles";
 import { recordChange } from "../changelog/index";
 import { changedFields } from "../changelog/settingValues";
 // Per effetto: registra i tipi di voce di progetto (`recordChange` lancia su uno ignoto).
@@ -651,17 +652,26 @@ export async function setEnvironmentContainers(
   return { serverCode, containers };
 }
 
-export async function deleteEnvironment(id: string): Promise<void> {
+/**
+ * Elimina un ambiente. I suoi file d'ambiente (area 9c) se ne vanno con lui,
+ * segreti compresi: se ne ha, serve la riconferma (+R) e ogni file lascia la
+ * sua voce (area 9, F5, decisione del maintainer). Senza file, niente +R.
+ */
+export async function deleteEnvironment(
+  id: string,
+): Promise<{ ok: true } | { ok: false; error: "reauth_required" }> {
   const me = await writer("releases.deleteEnvironment");
   const env = environmentFor(me, id);
   if (!holds(me, "environments.manage", env.projectId)) throw forbidden();
+  if (environmentHasFiles(id) && requireReauth(me, "releases.deleteEnvironment"))
+    return { ok: false, error: "reauth_required" };
+  dropEnvironmentFiles(id, me, env.projectId);
   state.environments = state.environments.filter((e) => e.id !== id);
-  // I suoi file d'ambiente (area 9c) se ne vanno con lui, segreti compresi.
-  dropEnvironmentFiles(id);
   recordChange({
     kind: "environment.deleted",
     actorId: me,
     projectId: env.projectId,
     object: environmentObject(env),
   });
+  return { ok: true };
 }
