@@ -76,7 +76,9 @@ const read = async (cookie: string, query = "") => {
 /** La regola, riscritta qui a mano: chi legge quale voce del seme. */
 function expected(who: keyof typeof cast | "admin", e: ChangeEntry): boolean {
   if (who === "admin") return true;
-  if (who === "viewerAll") return e.projectId === null; // changelog.view, ma nessun progetto visibile
+  // changelog.view ma nessun progetto: le voci d'istanza, tranne quelle su
+  // persone che non vede (R-G5: devA e l'outsider non condividono nulla con lui).
+  if (who === "viewerAll") return e.projectId === null && !(e.type.startsWith("person.") && [cast.devA.id, cast.outsider.id].includes(e.data.object.id));
   if (who === "rolesMgr") return e.type === "role.created";
   if (who === "leadA") return e.projectId === projectA; // gestisce A
   if (who === "devA") return false; // né changelog.view né la gestione

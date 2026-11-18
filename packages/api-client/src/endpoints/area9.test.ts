@@ -161,3 +161,20 @@ describe("area 9: le letture calcolate dell'amministrazione", () => {
     expect([call(pre.fetchImpl).method, call(pre.fetchImpl).url, call(pre.fetchImpl).body]).toEqual(["POST", `/api/projects/${P1}/members/${U1}/preview`, JSON.stringify({ roleId: P1, granted: ["x"] })]);
   });
 });
+
+describe("area 9, F2: il registro delle modifiche", () => {
+  it("changeLog.list / listProject / filters: path, querystring, e una voce di tipo ignoto è __unknown__", async () => {
+    const entry = { id: U1, type: "queue.paused", at: "2026-11-18T10:00:00.000Z", actor: { name: "Ada", kind: "user" }, scope: "instance", group: "queue", data: { object: { type: "x", id: "y", label: "Z" } } };
+    const { client, fetchImpl } = clientWith({ entries: [entry] });
+    const page = await client.changeLog.list({ project: "instance", group: "roles", cursor: "abc" });
+    expect(call(fetchImpl).url).toBe("/api/change-log?project=instance&group=roles&cursor=abc");
+    expect(page.nextCursor).toBeNull();
+    expect(page.entries[0]).toMatchObject({ type: "__unknown__", projectId: null, objectDeleted: false, data: { params: {} } });
+    const proj = clientWith({ entries: [] });
+    await proj.client.changeLog.listProject(P1, { withinDays: 7 });
+    expect(call(proj.fetchImpl).url).toBe(`/api/projects/${P1}/change-log?withinDays=7`);
+    const f = clientWith({ everything: false });
+    expect(await f.client.changeLog.filters(P1)).toEqual({ everything: false, people: [], projects: [], groups: [] });
+    expect(call(f.fetchImpl).url).toBe(`/api/change-log/filters?project=${P1}`);
+  });
+});

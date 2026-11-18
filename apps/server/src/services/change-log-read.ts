@@ -89,11 +89,15 @@ async function readableBy(db: Db, viewer: Viewer): Promise<Readable> {
   return { where, readableProjects: [...perProject.keys()], instanceTypes, visiblePeople };
 }
 
-const encodeCursor = (at: Date, id: string) => Buffer.from(`${at.toISOString()}|${id}`).toString("base64url");
-function decodeCursor(cursor: string): { at: Date; id: string } | null {
-  const [at, id] = Buffer.from(cursor, "base64url").toString().split("|");
-  if (!at || !id || Number.isNaN(Date.parse(at))) return null;
-  return { at: new Date(at), id };
+/**
+ * Il cursore è l'id dell'ultima voce della pagina: il confronto si fa sulla
+ * tupla (`at`, `id`) letta DAL DB, perché `at` ha i microsecondi e un `Date`
+ * del JS no (le voci di una stessa transazione hanno lo stesso `at`).
+ */
+const encodeCursor = (id: string) => Buffer.from(id).toString("base64url");
+function decodeCursor(cursor: string): string | null {
+  const id = Buffer.from(cursor, "base64url").toString();
+  return /^[0-9a-f-]{36}$/i.test(id) ? id : null;
 }
 
 function filterWhere(filter: ChangeLogFilter): SQL[] {
@@ -110,9 +114,9 @@ function filterWhere(filter: ChangeLogFilter): SQL[] {
   if (filter.to) out.push(lte(changeLog.at, new Date(filter.to)));
   if (filter.withinDays !== undefined) out.push(gte(changeLog.at, new Date(Date.now() - filter.withinDays * 86_400_000)));
   if (filter.cursor) {
-    const c = decodeCursor(filter.cursor);
-    if (!c) throw new RoleRuleError(400, "invalid_cursor", "Invalid cursor");
-    out.push(or(sql`${changeLog.at} < ${c.at.toISOString()}::timestamptz`, and(sql`${changeLog.at} = ${c.at.toISOString()}::timestamptz`, sql`${changeLog.id} < ${c.id}::uuid`))!);
+    const id = decodeCursor(filter.cursor);
+    if (!id) throw new RoleRuleError(400, "invalid_cursor", "Invalid cursor");
+    out.push(sql`(${changeLog.at}, ${changeLog.id}) < (select c.at, c.id from ${changeLog} c where c.id = ${id}::uuid)`);
   }
   return out;
 }
@@ -169,7 +173,7 @@ export async function listChanges(db: Db, viewer: Viewer, filter: ChangeLogFilte
     };
   });
   const last = page.at(-1);
-  return { entries, nextCursor: rows.length > PAGE_SIZE && last ? encodeCursor(last.at, last.id) : null };
+  return { entries, nextCursor: rows.length > PAGE_SIZE && last ? encodeCursor(last.id) : null };
 }
 
 /**
