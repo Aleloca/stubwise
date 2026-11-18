@@ -75,6 +75,7 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Area 9, F3: Google Workspace e Git accounts sulle rotte del server.
     "google",
     "git-accounts",
+    "plugins",
   ]),
   taskView: new Set(["list", "board", "timeline"]),
   feature: new Set([

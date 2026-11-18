@@ -4,6 +4,7 @@ import { partialNamespace } from "./notIntegrated";
 import { liveModels } from "./aiModels";
 import { liveGitAccounts } from "./gitAccounts";
 import { liveGoogleApps } from "./googleApps";
+import { livePlugins } from "./plugins";
 import { liveProviders } from "./aiProviders";
 import { liveAutomation } from "./automation";
 import { liveWebhooks } from "./webhooks";
@@ -26,4 +27,6 @@ export const instance: typeof Fake.instance = partialNamespace<typeof Fake.insta
   ...liveGoogleApps,
   // Area 9, F3: Git accounts.
   ...liveGitAccounts,
+  // Area 9, F3: Plugins.
+  ...livePlugins,
 });

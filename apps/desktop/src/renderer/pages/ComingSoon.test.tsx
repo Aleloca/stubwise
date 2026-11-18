@@ -160,6 +160,13 @@ const INTEGRATED_CALLS = new Set([
   "instance.testProvider",
   "instance.replaceProviderCredential",
   "instance.deleteProvider",
+  // Area 9, F3: Plugins.
+  "instance.listPlugins",
+  "instance.getPlugin",
+  "instance.registerPlugin",
+  "instance.updatePluginRef",
+  "instance.rerunSmoke",
+  "instance.removePlugin",
   // Area 9, F3: Git accounts.
   "instance.listGitAccounts",
   "instance.createGitAccount",
@@ -868,6 +875,20 @@ describe("aree non integrate nella build app", () => {
     renderRoute("/admin/ai?tab=providers");
     await waitFor(() => expect(calls).toContain("instance.listProviders"));
     expect(await screen.findByRole("list", { name: "AI accounts" })).toBeInTheDocument();
+    await settle();
+    expect(document.querySelector("[data-coming-soon]")).toBeNull();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F3: Amministrazione → Plugins, su `/api/plugins`.
+  it.each([
+    ["/admin/plugins", "instance.listPlugins"],
+    ["/admin/plugins/plg-superpowers", "instance.getPlugin"],
+  ])("aprire %s legge solo chiamate integrate, senza riquadro del prototipo", async (path, call) => {
+    signedInAs("p-roberta");
+    renderRoute(path);
+    await waitFor(() => expect(calls).toContain(call));
     await settle();
     expect(document.querySelector("[data-coming-soon]")).toBeNull();
     expect(document.querySelector("[data-prototype-only]")).toBeNull();

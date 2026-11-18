@@ -1208,6 +1208,8 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     non valida»; le credenziali salvate prima della 0190 non hanno le
     ultime 4 («••••»); la riga della quota la vede solo chi ha
     `usage.view` *(dichiarato; S per distinguere l'errore di rete)*;
+  - Plugins: il server non dice chi ha registrato o aggiornato un plugin
+    («updated … by» senza nome) *(S)*;
   - Git accounts: niente ultime 4 del token («••••»); la validazione non
     resta sul server (la ricorda la sessione); i repository che usano un
     account non arrivano, né nella riga né nel rifiuto `in_use`; chi

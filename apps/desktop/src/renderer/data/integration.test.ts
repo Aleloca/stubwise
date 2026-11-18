@@ -181,6 +181,7 @@ describe("isIntegrated", () => {
         "admin:ai",
         "admin:google",
         "admin:git-accounts",
+        "admin:plugins",
         "feature:ai-automation",
         "feature:ai-providers",
         "feature:ai-models",
