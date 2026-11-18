@@ -1208,6 +1208,9 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     non valida»; le credenziali salvate prima della 0190 non hanno le
     ultime 4 («••••»); la riga della quota la vede solo chi ha
     `usage.view` *(dichiarato; S per distinguere l'errore di rete)*;
+  - AI → Usage resta «Coming soon»: il server ha `/api/usage-costs` (del
+    web vecchio) ma non c'è nel client, e la forma non è quella della scheda
+    (gruppi, sotto-gruppi, giorni) *(M, non era nel piano di F3)*;
   - Storage: il server non ha la prova dell'archiviazione né l'interruttore
     degli allegati (li deriva dalla configurazione), quindi nell'app quei due
     comandi non ci sono; niente ultime 4 della chiave («••••») *(S)*;
