@@ -7,9 +7,8 @@ import type { LocalInstancePermission, LocalProjectPermission } from "../types";
 // ma non lo stato finto (integrazione area 2, fetta 1).
 
 /** I permessi d'istanza del prototipo, nell'ordine in cui si mostrano. */
-export const LOCAL_INSTANCE_PERMISSIONS: readonly LocalInstancePermission[] = [
-  "instance.status.view",
-];
+// `instance.status.view` è nel registro condiviso dalla F4 dell'area 9.
+export const LOCAL_INSTANCE_PERMISSIONS: readonly LocalInstancePermission[] = [];
 
 /** Ogni permesso d'istanza, del registro condiviso e del prototipo. */
 export const INSTANCE_SET: ReadonlySet<string> = new Set<string>([

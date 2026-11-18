@@ -51,7 +51,7 @@ describe("il catalogo del registro: server, prototipo e frasi (area 9, F2)", () 
   });
 
   // F3: i tipi d'istanza della 9b. Quelli che il server non scrive ancora
-  // (i server e la coda: aree 8 e 9c) sono un elenco DICHIARATO, così un tipo
+  // (i server: area 8) sono un elenco DICHIARATO, così un tipo
   // nuovo solo nel prototipo si nota.
   it("i tipi d'istanza del prototipo: o il server li conosce, o sono fra quelli dichiarati", () => {
     const server = new Set<string>(CHANGE_LOG_TYPES.map((t) => t.kind));
@@ -61,9 +61,6 @@ describe("il catalogo del registro: server, prototipo e frasi (area 9, F2)", () 
         .sort(),
     ).toEqual(
       [
-        "job.retried",
-        "queue.paused",
-        "queue.resumed",
         "server.agent_key_regenerated",
         "server.check_changed",
         "server.created",
