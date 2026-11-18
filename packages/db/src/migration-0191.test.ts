@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { projects, users, workerHeartbeats } from "./schema.js";
 import { seedRepository, startTestDb, type TestDb } from "./testing.js";
@@ -37,5 +38,20 @@ describe("migrazione 0191", () => {
     expect(row!.seenAt).toBeInstanceOf(Date);
     expect(row!.startedAt).toBeInstanceOf(Date);
     await expect(t.db.insert(workerHeartbeats).values({ workerId: "w-1", concurrency: 1 })).rejects.toThrow();
+  });
+
+  it("il migratore ha applicato 0188, 0189, 0190 e 0191, in ordine, e la 0191 è l'ultima", async () => {
+    const journal = JSON.parse(readFileSync(new URL("../drizzle/meta/_journal.json", import.meta.url), "utf8")) as { entries: { tag: string; when: number }[] };
+    const last4 = journal.entries.slice(-4);
+    expect(last4.map((e) => e.tag)).toEqual(["0188_outgoing_webhooks", "0189_worker_model_env", "0190_ai_provider_secret_last4", "0191_instance_status"]);
+    const applied = (await t.db.execute(sql`select created_at from drizzle.__drizzle_migrations order by created_at desc limit 4`)) as unknown as { rows?: { created_at: string }[] } & { created_at: string }[];
+    const rows = (applied.rows ?? applied) as { created_at: string }[];
+    expect(rows.map((r) => Number(r.created_at)).reverse()).toEqual(last4.map((e) => e.when));
+    const res = (await t.db.execute(sql`select
+      exists(select 1 from information_schema.tables where table_name = 'outgoing_webhooks') as w,
+      exists(select 1 from information_schema.columns where table_name = 'instance_settings' and column_name = 'worker_model_env_operations') as m,
+      exists(select 1 from information_schema.columns where table_name = 'ai_providers' and column_name = 'secret_last4') as l,
+      exists(select 1 from information_schema.tables where table_name = 'worker_heartbeats') as h`)) as unknown as { rows?: unknown[] } & unknown[];
+    expect((res.rows ?? res)[0]).toEqual({ w: true, m: true, l: true, h: true });
   });
 });
