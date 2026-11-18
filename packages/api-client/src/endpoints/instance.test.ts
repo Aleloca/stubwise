@@ -152,3 +152,27 @@ describe("instance.retryJob (area 9, F4)", () => {
   });
 });
 
+describe("queuePause nella vista di progetto (area 9, F4, J-6)", () => {
+  it("senza il campo (un server di prima) vale null", async () => {
+    const { client } = clientWith({ id: "40000000-0000-4000-8000-000000000001", name: "Acquisti", slug: "acquisti", description: null, aiProviderId: null, aiProviderExclusive: false, docAutoUpdate: false, dailyReportEnabled: false, backlogEnabled: false, pulseEnabled: false, pulseEveryDays: 7, weeklyBriefEnabled: false, prCorrectionMaxRounds: 0, ingestionKey: "k", nextTicketNumber: 1, createdAt: "2026-11-18T10:00:00.000Z", code: "ACQ" });
+    const p = await client.request("GET", "/api/projects/x", undefined, (await import("@stubwise/shared")).projectSchema);
+    expect(p.queuePause).toBeNull();
+  });
+});
+
+describe("aiBlockSchema aperto (area 9, F4)", () => {
+  it("un motivo d'attesa ignoto (un server più nuovo) è __unknown__, non fa fallire la vista; il budget senza i campi della pausa", async () => {
+    const { client } = clientWith({
+      queues: [],
+      jobs: [
+        { id: "a", kind: "task_run", projectId: "p", state: "waiting", since: "2026-11-18T10:00:00.000Z", waiting: { reason: "motivo_futuro" } },
+        { id: "b", kind: "automation", projectId: "p", state: "waiting", since: "2026-11-18T10:00:00.000Z", waiting: { reason: "monthly_budget" } },
+      ],
+      refreshedAt: "2026-11-18T10:00:00.000Z",
+    });
+    const s = await client.instance.status();
+    expect(s.jobs[0]!.waiting).toMatchObject({ reason: "__unknown__" });
+    expect(s.jobs[1]!.waiting).toEqual({ reason: "monthly_budget", byId: null, byName: "", since: null });
+  });
+});
+

@@ -97,6 +97,8 @@ export const IN_FLIGHT = IN_FLIGHT_JOB_STATUSES;
 export type StartRunResult =
   | { ok: true; jobId: string; status: "queued" | "awaiting_plan_approval" }
   | { ok: false; error: "ticket_not_found" | "job_in_flight"; jobStatus?: string }
+  // Area 9, F4: l'ultimo job del ticket non è più quello atteso (`expectLatestJobId`).
+  | { ok: false; error: "latest_changed"; jobStatus?: undefined }
   // Senza `runs.start` nel progetto del ticket. Le guardie stanno già prima
   // (hook della rotta, `actorAllows` dell'inbox e del pulse): questa è la
   // difesa in profondità, come `plans.approve` nelle funzioni sul piano.
@@ -136,6 +138,11 @@ export interface StartRunInput {
    * si annulla: niente ripartenza.
    */
   afterInTx?: (tx: Parameters<Parameters<Db["transaction"]>[0]>[0], jobId: string) => Promise<void>;
+  /**
+   * Area 9, F4: l'ultimo job del ticket che il chiamante ha visto. Verificato
+   * sotto il lock: diverso → `latest_changed`, niente scritto.
+   */
+  expectLatestJobId?: string;
   actor: ProjectActor;
   /**
    * `"ai_plan"` forza il flusso normale (triage + pianificazione) anche se il
@@ -297,6 +304,14 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
         .where(eq(aiJobs.ticketId, ticketId))
         .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id))
         .limit(1);
+
+      // Area 9, F4 (review M1): il rilancio dallo Stato dell'istanza chiede di
+      // rimettere in coda QUEL job fallito. Se sotto il lock l'ultimo job del
+      // ticket è un altro (nato nel frattempo, magari una correzione ferma), non
+      // si tocca niente: il rilancio generico non forza mai una correzione.
+      if (input.expectLatestJobId !== undefined && latest?.id !== input.expectLatestJobId) {
+        return { ok: false, error: "latest_changed" };
+      }
 
       // «Riprendi» chiede QUELLA correzione ferma, non un rilancio qualunque.
       // Una schermata vecchia può mostrarla `held` quando nel frattempo è stata

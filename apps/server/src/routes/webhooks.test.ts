@@ -14,6 +14,7 @@ import {
   notificationDeliveries,
   notifications,
   notificationSettings,
+  outgoingWebhooks,
   prReviewJobs,
   prReviews,
   projects,
@@ -64,6 +65,8 @@ afterEach(async () => {
     .update(notificationSettings)
     .set({ webhookUrl: null })
     .where(eq(notificationSettings.id, 1));
+  // Area 9, F3: i webhook in uscita creati da un test non restano ai successivi.
+  await testDb.db.delete(outgoingWebhooks);
   // Ripristina le impostazioni d'istanza ai default (riga singleton id=1
   // condivisa tra i test): un test che cambia lingua o toggle PR review non
   // deve influenzare i successivi.
@@ -293,21 +296,20 @@ function sign(secret: string, rawBody: string): string {
 const NOTIFY_WEBHOOK_URL = "https://hooks.example.com/stubwise";
 
 /**
- * Configura il singleton `notification_settings` (id=1, seedato dalla
- * migrazione): webhook URL + formato `generic` e gating del solo toggle
- * `notifyPrClosed`, che decide se la publish scrive la consegna webhook in
- * outbox. enabled=true, gli altri toggle off (irrilevanti qui).
+ * Area 9, F3: un webhook in uscita ACCESO (formato `generic`), iscritto
+ * all'evento `job.pr_closed` oppure no. Dalla 0188 `notification_settings` non
+ * decide più niente: è la scelta degli eventi del webhook a decidere se la
+ * publish scrive la consegna in outbox.
  */
-async function configureNotifications(notifyPrClosed: boolean): Promise<void> {
-  await testDb.db
-    .update(notificationSettings)
-    .set({
-      webhookUrl: NOTIFY_WEBHOOK_URL,
-      format: "generic",
-      enabled: true,
-      notifyPrClosed,
-    })
-    .where(eq(notificationSettings.id, 1));
+async function configureNotifications(subscribedToPrClosed: boolean): Promise<void> {
+  await testDb.db.delete(outgoingWebhooks);
+  await testDb.db.insert(outgoingWebhooks).values({
+    name: "Notifiche",
+    url: NOTIFY_WEBHOOK_URL,
+    format: "generic",
+    enabled: true,
+    events: subscribedToPrClosed ? ["job.pr_closed"] : ["job.pr_opened"],
+  });
 }
 
 /**
@@ -997,21 +999,21 @@ describe("POST /webhooks/git/:projectSlug", () => {
       ticketUrl: `${PUBLIC_URL}/tickets/${ticketId}`,
     });
 
-    // OUTBOX: col toggle acceso nasce la consegna webhook d'istanza (una per
-    // evento, con l'evento copiato sulla riga).
+    // OUTBOX: il webhook che ha scelto `job.pr_closed` riceve la sua consegna
+    // (una per webhook, con l'evento copiato sulla riga).
     const webhookDeliveries = await webhookDeliveriesForTicket(ticketId);
     expect(webhookDeliveries).toHaveLength(1);
     expect(webhookDeliveries[0]!.event).toMatchObject({ kind: "job.pr_closed" });
   });
 
-  it("toggle notifyPrClosed off → inbox comunque scritta, nessuna consegna webhook", async () => {
+  it("un webhook acceso SENZA l'evento job.pr_closed → inbox comunque scritta, nessuna consegna webhook", async () => {
     const project = await createProject({
       name: "Webhook Notify Off",
       provider: "github",
       repoUrl: "https://github.com/acme/webhook-notify-off",
       credentials: { token: "tok" },
     });
-    // Gating: toggle del singolo evento disattivato.
+    // Gating: un webhook acceso che NON ha scelto `job.pr_closed` non riceve la consegna.
     await configureNotifications(false);
     const calls = captureNotificationPosts();
     const ticketId = await insertTicket(project.id, 1, "in_review");

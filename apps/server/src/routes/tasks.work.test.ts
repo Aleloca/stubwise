@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { agentSessions, aiJobs, planDigest, prCorrections, prReviews, projectDecisions, ticketRepositories, tickets } from "@stubwise/db";
+import { agentSessions, aiJobs, planDigest, prCorrections, prReviews, projectDecisions, projects, ticketRepositories, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, seedRepositoryInProject, startTestDb } from "@stubwise/db/testing";
 import { taskWorkViewSchema, type TaskWorkView } from "@stubwise/shared";
@@ -300,6 +300,38 @@ describe("actions: le calcola il server coi permessi di chi guarda", () => {
   it("blocked: un avvio a mano scavalca il budget sul server, quindi null", async () => {
     const t = await task();
     expect((await work(t, developer)).blocked).toBeNull();
+  });
+
+  it("area 9, F4 (J-6): il job della task in coda su una coda in pausa → blocked queue_paused con chi e da quando; ripresa → null; un job in corso non è bloccato", async () => {
+    const t = await task();
+    const [j] = await testDb.db.insert(aiJobs).values({ ticketId: t, status: "queued" }).returning();
+    const since = new Date("2026-11-18T10:00:00.000Z");
+    await testDb.db.update(projects).set({ queuePausedAt: since, queuePausedByUserId: users.adminId }).where(eq(projects.id, projectId));
+    try {
+      expect((await work(t, developer)).blocked).toMatchObject({ reason: "queue_paused", byId: users.adminId, since: since.toISOString() });
+      expect(((await work(t, developer)).blocked as { byName?: string }).byName).toBeTruthy();
+      await testDb.db.update(aiJobs).set({ status: "fixing" }).where(eq(aiJobs.id, j!.id));
+      expect((await work(t, developer)).blocked).toBeNull();
+      await testDb.db.update(aiJobs).set({ status: "queued" }).where(eq(aiJobs.id, j!.id));
+    } finally {
+      await testDb.db.update(projects).set({ queuePausedAt: null, queuePausedByUserId: null }).where(eq(projects.id, projectId));
+    }
+    expect((await work(t, developer)).blocked).toBeNull();
+  });
+
+  it("area 9, F4: la vista del progetto dice la pausa (queuePause), nell'elenco e nel dettaglio; senza pausa null", async () => {
+    const since = new Date("2026-11-18T11:00:00.000Z");
+    const get = (url: string) => app.inject({ method: "GET", url, headers: { cookie: users.adminCookie } });
+    await testDb.db.update(projects).set({ queuePausedAt: since, queuePausedByUserId: users.adminId }).where(eq(projects.id, projectId));
+    try {
+      const detail = (await get(`/api/projects/${projectId}`)).json() as { queuePause: unknown };
+      expect(detail.queuePause).toMatchObject({ byId: users.adminId, since: since.toISOString() });
+      const list = (await get("/api/projects")).json() as { id: string; queuePause: unknown }[];
+      expect(list.find((p) => p.id === projectId)!.queuePause).toMatchObject({ byId: users.adminId });
+    } finally {
+      await testDb.db.update(projects).set({ queuePausedAt: null, queuePausedByUserId: null }).where(eq(projects.id, projectId));
+    }
+    expect(((await get(`/api/projects/${projectId}`)).json() as { queuePause: unknown }).queuePause).toBeNull();
   });
 });
 

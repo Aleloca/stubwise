@@ -7,11 +7,19 @@ import { z } from "zod";
  * permessi, blocchi né visibilità. Solo letture: nessuna azione sui server.
  */
 
-/** Perché un lavoro aspetta: il budget del mese o la coda del progetto in pausa. */
-export const aiBlockSchema = z.discriminatedUnion("reason", [
-  z.object({ reason: z.literal("monthly_budget") }),
-  z.object({ reason: z.literal("queue_paused"), byId: z.string().nullable().default(null), byName: z.string().default(""), since: z.string() }),
-]);
+/**
+ * Perché un lavoro aspetta: il budget del mese o la coda del progetto in pausa
+ * (chi e da quando, solo per `queue_paused`). Un oggetto con `reason` enum, non
+ * una `discriminatedUnion`: `readerSchema` apre l'enum, quindi un motivo nuovo
+ * da un server più recente arriva `__unknown__` invece di far fallire il parse
+ * dell'intera vista (pagina bianca su un client vecchio).
+ */
+export const aiBlockSchema = z.object({
+  reason: z.enum(["monthly_budget", "queue_paused"]),
+  byId: z.string().nullable().default(null),
+  byName: z.string().default(""),
+  since: z.string().nullable().default(null),
+});
 export type AiBlockView = z.infer<typeof aiBlockSchema>;
 
 const availabilitySchema = z.enum(["allowed", "forbidden", "unavailable"]);

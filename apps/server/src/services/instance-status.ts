@@ -74,6 +74,27 @@ export function retryCheck(
   return { retry: "allowed", retryNeeds: null, retryBlock: null, retryStopsAtPlan: !(perms?.has("plans.approve") ?? false), reason: null };
 }
 
+/** La pausa della coda di un progetto come la dicono le letture: chi (col nome) e da quando. */
+export type QueuePause = { byId: string | null; byName: string; since: string };
+
+/**
+ * J-6 (a), UNA regola per lo Stato dell'istanza e per la vista del lavoro di
+ * una task: un job IN CODA su una coda in pausa è fermo per la pausa.
+ */
+export function queuedJobBlock(status: string, pause: QueuePause | null): AiBlockView | null {
+  return status === "queued" && pause ? { reason: "queue_paused", byId: pause.byId, byName: pause.byName, since: pause.since } : null;
+}
+
+/** La pausa della coda di UN progetto, col nome di chi l'ha messa; null = la coda va. */
+export async function queuePauseOf(db: Db, projectId: string): Promise<QueuePause | null> {
+  const [p] = await db
+    .select({ at: projects.queuePausedAt, by: projects.queuePausedByUserId, name: users.displayName, email: users.email })
+    .from(projects)
+    .leftJoin(users, eq(users.id, projects.queuePausedByUserId))
+    .where(eq(projects.id, projectId));
+  return p?.at ? { byId: p.by, byName: p.name ?? p.email ?? "", since: p.at.toISOString() } : null;
+}
+
 /** La fase del giro notturno come la mostra la pagina; null = non si mostra (il daily report ha la sua pagina). */
 export function nightlyPhaseOf(phase: string): "commit_summary" | "release_note" | "docs" | null {
   if (phase === "summary") return "commit_summary";
@@ -128,10 +149,11 @@ export async function instanceStatus(db: Db, viewer: Viewer, now = new Date()): 
     const p = projectId ? projectById.get(projectId) : undefined;
     return p?.pausedAt ? { byId: p.pausedBy, byName: p.pauserName ?? p.pauserEmail ?? "", at: p.pausedAt.toISOString() } : null;
   };
-  const pausedBlock = (projectId: string | null): AiBlockView | null => {
+  const pausedOf = (projectId: string | null): QueuePause | null => {
     const p = pauseOf(projectId);
-    return p ? { reason: "queue_paused", byId: p.byId, byName: p.byName, since: p.at } : null;
+    return p ? { byId: p.byId, byName: p.byName, since: p.at } : null;
   };
+  const pausedBlock = (projectId: string | null): AiBlockView | null => queuedJobBlock("queued", pausedOf(projectId));
   const codeOf = (projectId: string | null) => (projectId ? (projectById.get(projectId)?.code ?? "") : "");
 
   type Raw = Omit<InstanceJob, "workerId" | "retry" | "retryNeeds" | "retryBlock" | "retryStopsAtPlan"> & { retryFacts?: RetryFacts };
@@ -183,7 +205,7 @@ export async function instanceStatus(db: Db, viewer: Viewer, now = new Date()): 
       title: j.ticketTitle,
       code,
       state,
-      waiting: j.status === "queued" ? pausedBlock(j.projectId) : null,
+      waiting: queuedJobBlock(j.status, pausedOf(j.projectId)),
       since: (state === "failed" ? (j.finishedAt ?? j.createdAt) : state === "running" ? (j.startedAt ?? j.createdAt) : j.createdAt).toISOString(),
       href: null,
       summary: state === "failed" ? j.failureSummary : null,
@@ -207,7 +229,7 @@ export async function instanceStatus(db: Db, viewer: Viewer, now = new Date()): 
     .where(and(eq(automationRuns.status, "running"), isNotNull(automations.projectId), sql`${automationRuns.cursor} -> 'aiWaiting' IS NOT NULL AND ${automationRuns.cursor} -> 'aiWaiting' <> 'null'::jsonb`));
   for (const r of waitingRuns) {
     const w = (r.cursor as { aiWaiting?: { reason: string; byId?: string | null; since?: string } }).aiWaiting;
-    const block: AiBlockView | null = w?.reason === "monthly_budget" ? { reason: "monthly_budget" } : w?.reason === "queue_paused" ? (pausedBlock(r.projectId) ?? { reason: "queue_paused", byId: w.byId ?? null, byName: "", since: w.since ?? now.toISOString() }) : null;
+    const block: AiBlockView | null = w?.reason === "monthly_budget" ? { reason: "monthly_budget", byId: null, byName: "", since: null } : w?.reason === "queue_paused" ? (pausedBlock(r.projectId) ?? { reason: "queue_paused", byId: w.byId ?? null, byName: "", since: w.since ?? now.toISOString() }) : null;
     raw.push({ id: r.id, kind: "automation", projectId: r.projectId, projectCode: codeOf(r.projectId), title: r.title, code: `${r.code} #${r.n}`, state: "waiting", waiting: block, since: (r.startedAt ?? now).toISOString(), href: null, summary: null, startFailed: false, superseded: false });
   }
 

@@ -44,6 +44,7 @@ import {
   projectStatuses,
   projects,
   repositories,
+  users,
   roles,
   type Db,
 } from "@stubwise/db";
@@ -176,8 +177,22 @@ async function effectiveMemberIds(db: Db, projectIds: string[]): Promise<Map<str
  * mai spread della riga. Porta le impostazioni di prodotto (provider AI,
  * auto-update docs) che valgono per tutti i repository del progetto.
  */
-function toPublicProject(row: ProjectRow): z.infer<typeof projectSchema> {
+/**
+ * Area 9, F4 (J-6 = a): i nomi di chi ha messo in pausa le code di questi
+ * progetti, in UNA query (la `toPublicProject` resta sincrona).
+ */
+async function pauserNames(db: Db, rows: ProjectRow[]): Promise<Map<string, string>> {
+  const ids = [...new Set(rows.flatMap((r) => (r.queuePausedAt && r.queuePausedByUserId ? [r.queuePausedByUserId] : [])))];
+  if (ids.length === 0) return new Map();
+  const found = await db.select({ id: users.id, name: users.displayName, email: users.email }).from(users).where(inArray(users.id, ids));
+  return new Map(found.map((u) => [u.id, u.name ?? u.email]));
+}
+
+function toPublicProject(row: ProjectRow, pausers: Map<string, string> = new Map()): z.infer<typeof projectSchema> {
   return {
+    queuePause: row.queuePausedAt
+      ? { byId: row.queuePausedByUserId, byName: row.queuePausedByUserId ? (pausers.get(row.queuePausedByUserId) ?? "") : "", since: row.queuePausedAt.toISOString() }
+      : null,
     id: row.id,
     name: row.name,
     slug: row.slug,
@@ -413,8 +428,9 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         .groupBy(repositories.projectId);
       const countByProject = new Map(counts.map((c) => [c.projectId, c.count]));
       const membersOf = await effectiveMemberIds(app.db, rows.map((r) => r.id));
+      const pausers = await pauserNames(app.db, rows);
       return rows.map((row) => ({
-        ...toPublicProject(row),
+        ...toPublicProject(row, pausers),
         repositoryCount: countByProject.get(row.id) ?? 0,
         memberIds: membersOf.get(row.id) ?? [],
       }));
@@ -934,7 +950,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(repositories.projectId, row.id))
         .orderBy(repositories.createdAt);
       return {
-        ...toPublicProject(row),
+        ...toPublicProject(row, await pauserNames(app.db, [row])),
         repositories: repos,
         myPermissions: [...routePermissions(request)],
         memberIds: (await effectiveMemberIds(app.db, [row.id])).get(row.id) ?? [],

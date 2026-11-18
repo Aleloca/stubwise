@@ -1,3 +1,4 @@
+import { queuedJobBlock, queuePauseOf } from "./instance-status.js";
 import {
   agentQuestions,
   agentSessions,
@@ -361,6 +362,13 @@ export async function loadTaskWorkExtras(
     waitsOnViewer,
     actions,
     requestChangesPerPr,
-    blocked: null,
+    // Area 9, F4 (J-6 = a): il job della task è in coda su una coda in pausa.
+    // La regola è quella dello Stato dell'istanza (`queuedJobBlock`).
+    blocked: await (async () => {
+      const block = latest ? queuedJobBlock(latest.status, await queuePauseOf(db, ticket!.projectId)) : null;
+      // Lo schema della vista vuole `byId` assente, non null (persona eliminata).
+      if (!block) return null;
+      return { reason: block.reason, byName: block.byName, ...(block.since ? { since: block.since } : {}), ...(block.byId ? { byId: block.byId } : {}) };
+    })(),
   };
 }

@@ -271,6 +271,18 @@ describe("il rilancio (Task 6)", () => {
     expect(await entriesFor(boom.ticketId)).toHaveLength(1);
   });
 
+  it("review M1: sotto il lock l'ultimo job del ticket dev'essere QUELLO chiesto — se nel frattempo ne è nato un altro, latest_changed e niente cambia", async () => {
+    const s = await seedTicket(db);
+    const old = await job(s.ticketId, { status: "failed", finishedAt: minutesAgo(10), createdAt: minutesAgo(20) });
+    const newer = await job(s.ticketId, { status: "failed", finishedAt: minutesAgo(1), createdAt: minutesAgo(5) });
+    const actor = { id: adminId, permissions: new Set(["runs.start", "plans.approve"]) as never };
+    const r = await startRun(db, { ticketId: s.ticketId, actor, expectLatestJobId: old.id });
+    expect(r).toMatchObject({ ok: false, error: "latest_changed" });
+    expect((await jobsOf(s.ticketId)).map((j) => [j.id, j.status]).sort()).toEqual([[old.id, "failed"], [newer.id, "failed"]].sort());
+    // Con l'id giusto riparte.
+    expect((await startRun(db, { ticketId: s.ticketId, actor, expectLatestJobId: newer.id })).ok).toBe(true);
+  });
+
   it("il rilancio passa da startRun: la rotta non scrive ai_jobs da sé (test di sorgente)", async () => {
     const { readFileSync } = await import("node:fs");
     const source = readFileSync(new URL("./instance-status.ts", import.meta.url), "utf8");
