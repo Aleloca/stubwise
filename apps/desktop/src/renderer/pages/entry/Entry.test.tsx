@@ -211,6 +211,26 @@ describe("registrazione su invito", () => {
     expect(screen.queryByText(/Roberta/)).toBeNull();
   });
 
+  it("con qualcuno già dentro: avvisa e propone di uscire prima; chi era dentro non cambia nome (review F1, C1)", async () => {
+    const token = await inviteLink();
+    const giulia = PEOPLE.find((p) => p.id === "p-giulia")!.name;
+    renderRoute(`/register/${token}`);
+    expect(
+      await screen.findByText(
+        `You're signed in as ${giulia}. Sign out first to create a new account.`,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Create account" })).toBeNull();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Sign out first" }));
+    await user.type(await screen.findByLabelText("Your name"), "Nora Nuova");
+    await user.type(screen.getByLabelText("Password"), "a-long-one");
+    await user.type(screen.getByLabelText("Confirm password"), "a-long-one");
+    await user.click(screen.getByRole("button", { name: "Create account" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
+    expect(PEOPLE.find((p) => p.id === "p-giulia")!.name).toBe(giulia);
+  });
+
   it("se il login dopo la registrazione non riesce, l'account c'è e si va al login", async () => {
     const token = await inviteLink();
     await signedOut();

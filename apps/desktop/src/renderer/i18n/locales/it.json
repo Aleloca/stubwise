@@ -10260,7 +10260,9 @@
       "usedTitle": "Questo invito è già stato usato",
       "usedBody": "Questo invito è già stato usato. Accedi invece.",
       "emailTaken": "Esiste già un account con questa email. Accedi invece.",
-      "createdSignIn": "Il tuo account è pronto. Accedi con la nuova password."
+      "createdSignIn": "Il tuo account è pronto. Accedi con la nuova password.",
+      "signedInAs": "Sei dentro come {{name}}. Esci prima di creare un account nuovo.",
+      "signOutFirst": "Esci prima"
     },
     "setup": {
       "title": "Configura Stubwise",

@@ -10,11 +10,12 @@ import { appClient, session } from "./client";
 //   risponde 410 per ogni link non usabile (usato, scaduto, inesistente),
 //   e diventa «spent», una frase sola;
 // - il primo avvio (`/api/auth/setup`): email e password, poi il nome con
-//   `PATCH /api/auth/me` (la risposta apre già la sessione).
+//   il nome nel corpo (review F1, C1: mai un `PATCH /api/auth/me` col cookie
+//   che il browser ha già, che rinominerebbe chi è dentro).
 // - l'invito (`GET /api/auth/invites/:token`, decisione del maintainer): i
 //   dettagli solo se valido; il server non distingue un invito usato o
 //   revocato da uno sbagliato (è cancellato). La registrazione manda token e
-//   password (l'email è quella dell'invito), poi il nome con `PATCH`.
+//   password (l'email è quella dell'invito) e il nome nel corpo.
 
 /** Le rotte (sul client vero). */
 export interface EntryApi {
@@ -24,13 +25,14 @@ export interface EntryApi {
   signedInBefore(): boolean;
   /** Se la sessione di questa app regge ancora (il reset chiude quelle della persona). */
   stillSignedIn(): Promise<boolean>;
-  setup(email: string, password: string): Promise<{ user: { id: string } }>;
-  setDisplayName(name: string): Promise<void>;
-  /** Si è dentro come questa persona (lo stato della sessione dell'app). */
-  entered(personId: string): void;
+  /**
+   * Il nome va nel CORPO (review F1, C1): un `PATCH /api/auth/me` dopo
+   * userebbe il cookie che il browser ha già, e rinominerebbe chi è dentro.
+   */
+  setup(email: string, password: string, displayName: string): Promise<{ user: { id: string } }>;
   /** La lettura pubblica dell'invito (`GET /api/auth/invites/:token`). */
   invite(token: string): Promise<{ status: string } & Partial<ServerInvite>>;
-  register(token: string, password: string): Promise<{ user: { id: string } }>;
+  register(token: string, password: string, displayName: string): Promise<{ user: { id: string } }>;
 }
 
 type ServerInvite = {
@@ -94,7 +96,7 @@ export function createRealEntry(api: EntryApi) {
       if (!input.name.trim()) return { ok: false, error: "invalid_input", reason: "name" };
       let id: string;
       try {
-        id = (await api.register(token, input.password)).user.id;
+        id = (await api.register(token, input.password, input.name.trim())).user.id;
       } catch (error) {
         const code = error instanceof ApiError ? error.code : null;
         if (code === "invite_expired") return { ok: false, error: "expired" };
@@ -105,8 +107,7 @@ export function createRealEntry(api: EntryApi) {
         if (badInput(error)) return { ok: false, error: "invalid_input", reason: "password" };
         throw error;
       }
-      api.entered(id);
-      await api.setDisplayName(input.name.trim()).catch(() => undefined);
+      // Si entra col login che segue (`useRegister`), con la persona nuova.
       return { ok: true, personId: id };
     },
 
@@ -118,15 +119,13 @@ export function createRealEntry(api: EntryApi) {
       if (!input.name.trim()) return { ok: false, error: "invalid_input", reason: "name" };
       let id: string;
       try {
-        id = (await api.setup(input.email.trim(), input.password)).user.id;
+        id = (await api.setup(input.email.trim(), input.password, input.name.trim())).user.id;
       } catch (error) {
         if (error instanceof ApiError && error.status === 403)
           return { ok: false, error: "not_empty" };
         if (badInput(error)) return { ok: false, error: "invalid_input", reason: "password" };
         throw error;
       }
-      api.entered(id);
-      await api.setDisplayName(input.name.trim()).catch(() => undefined);
       return { ok: true, personId: id };
     },
   };
@@ -152,26 +151,18 @@ const liveApi: EntryApi = {
       .auth.me()
       .then(() => true)
       .catch(() => false),
-  setup: (email, password) =>
-    appClient().request("POST", `${AUTH}/setup`, { email, password }) as Promise<{
+  setup: (email, password, displayName) =>
+    appClient().request("POST", `${AUTH}/setup`, { email, password, displayName }) as Promise<{
       user: { id: string };
     }>,
-  setDisplayName: async (name) => {
-    await appClient().request("PATCH", `${AUTH}/me`, { displayName: name });
-  },
   invite: (token) =>
     appClient().request("GET", `${AUTH}/invites/${encodeURIComponent(token)}`) as Promise<
       { status: string } & Partial<ServerInvite>
     >,
-  register: (token, password) =>
-    appClient().request("POST", `${AUTH}/register`, { token, password }) as Promise<{
+  register: (token, password, displayName) =>
+    appClient().request("POST", `${AUTH}/register`, { token, password, displayName }) as Promise<{
       user: { id: string };
     }>,
-  entered: (personId) => {
-    session.personId = personId;
-    session.partial = false;
-    session.empty = false;
-  },
 };
 
 /** SOLO TEST: le rotte vere, per controllarne i percorsi. */

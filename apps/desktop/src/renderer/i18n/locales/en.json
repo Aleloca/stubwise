@@ -10260,7 +10260,9 @@
       "usedTitle": "This invite was already used",
       "usedBody": "This invite was already used. Sign in instead.",
       "emailTaken": "There's already an account with this email. Sign in instead.",
-      "createdSignIn": "Your account is ready. Sign in with your new password."
+      "createdSignIn": "Your account is ready. Sign in with your new password.",
+      "signedInAs": "You're signed in as {{name}}. Sign out first to create a new account.",
+      "signOutFirst": "Sign out first"
     },
     "setup": {
       "title": "Set up Stubwise",

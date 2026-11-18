@@ -16,17 +16,19 @@ describe("ingresso, i percorsi veri", () => {
     const { liveEntryApiForTest: api } = await import("./entry");
     await api.resetLink("tok");
     await api.resetPassword("tok", "a-long-one");
-    await api.setup("r@example.com", "a-long-one");
-    await api.setDisplayName("Roberta");
+    await api.setup("r@example.com", "a-long-one", "Roberta");
     await api.invite("inv");
-    await api.register("inv", "a-long-one");
+    await api.register("inv", "a-long-one", "Nora");
     expect(request.mock.calls).toEqual([
       ["GET", "/api/auth/password-reset/tok"],
       ["POST", "/api/auth/password-reset/tok", { password: "a-long-one" }],
-      ["POST", "/api/auth/setup", { email: "r@example.com", password: "a-long-one" }],
-      ["PATCH", "/api/auth/me", { displayName: "Roberta" }],
+      [
+        "POST",
+        "/api/auth/setup",
+        { email: "r@example.com", password: "a-long-one", displayName: "Roberta" },
+      ],
       ["GET", "/api/auth/invites/inv"],
-      ["POST", "/api/auth/register", { token: "inv", password: "a-long-one" }],
+      ["POST", "/api/auth/register", { token: "inv", password: "a-long-one", displayName: "Nora" }],
     ]);
   });
 });
