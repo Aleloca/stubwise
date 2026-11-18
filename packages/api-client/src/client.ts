@@ -5,6 +5,7 @@ import {
   createGoogleAppEndpoints,
   createInstanceSettingsEndpoints,
   createInstanceStatusEndpoints,
+  createUsageEndpoints,
   createPluginEndpoints,
 } from "./endpoints/instance.js";
 import { createSettingsEndpoints, createWebhookEndpoints } from "./endpoints/settings.js";
@@ -213,6 +214,8 @@ export function createEndpoints(request: ApiRequest) {
     aiUsage: createAiUsageEndpoints(request),
     // Area 9, F4: lo Stato dell'istanza.
     instance: createInstanceStatusEndpoints(request),
+    // Area 9, F4: AI → Usage.
+    usage: createUsageEndpoints(request),
   };
 }
 
