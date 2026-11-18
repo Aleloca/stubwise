@@ -15,7 +15,8 @@ export interface PermissionGroup {
 export const INSTANCE_GROUPS: readonly PermissionGroup[] = [
   {
     key: "administration",
-    permissions: ["instance.full_admin", "roles.manage", "settings.manage"],
+    // `changelog.view` è nel registro condiviso dalla F2 dell'area 9 (come il web).
+    permissions: ["instance.full_admin", "roles.manage", "settings.manage", "changelog.view"],
   },
   {
     key: "people",
@@ -54,7 +55,7 @@ export const INSTANCE_GROUPS: readonly PermissionGroup[] = [
   },
   {
     key: "prototype",
-    permissions: ["instance.status.view", "changelog.view"],
+    permissions: ["instance.status.view"],
   },
 ];
 
