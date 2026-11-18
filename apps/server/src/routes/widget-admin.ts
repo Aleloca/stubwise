@@ -1,3 +1,5 @@
+import { changedFields, recordChange } from "../services/change-log.js";
+import { widgetObject } from "../services/settings-entries.js";
 import { widgetAdminSchema, widgetIdentitySecretResultSchema, widgetRepositoryFiltersSchema, widgetUpsertBodySchema } from "@stubwise/shared";
 import { and, asc, desc, eq, exists, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -208,14 +210,19 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
         return apiError(reply, 422, "identity_secret_missing", "Generate the identity secret before requiring verified customers");
       }
 
-      const [row] = await app.db
-        .insert(widgets)
-        // body per primo: projectId e key non devono mai essere sovrascrivibili
-        // dal client, nemmeno se lo schema diventasse passthrough.
-        // `origins` (area 8, F3, S16) è la colonna `allowed_origins`; assente = vuoto.
-        .values({ ...withoutOrigins(body), allowedOrigins: body.origins ?? [], projectId, key: generateIngestionKey() })
-        .returning();
-      if (!row) throw new Error("insert del widget non ha restituito la riga");
+      const row = await app.db.transaction(async (tx) => {
+        const [created] = await tx
+          .insert(widgets)
+          // body per primo: projectId e key non devono mai essere sovrascrivibili
+          // dal client, nemmeno se lo schema diventasse passthrough.
+          // `origins` (area 8, F3, S16) è la colonna `allowed_origins`; assente = vuoto.
+          .values({ ...withoutOrigins(body), allowedOrigins: body.origins ?? [], projectId, key: generateIngestionKey() })
+          .returning();
+        if (!created) throw new Error("insert del widget non ha restituito la riga");
+        // Area 9, F5: la voce nella transazione; mai la chiave.
+        await recordChange(tx, { type: "widget.created", actor: request.user!, projectId, data: { object: widgetObject(created) } });
+        return created;
+      });
       // Widget appena creato: nessuna conversazione ancora collegata.
       return { widget: toPublicWidget(row, 0) };
     },
@@ -242,7 +249,7 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
       const body = request.body;
 
       const [existing] = await app.db
-        .select({ id: widgets.id, identitySecretEncrypted: widgets.identitySecretEncrypted })
+        .select({ id: widgets.id, name: widgets.name, identitySecretEncrypted: widgets.identitySecretEncrypted })
         .from(widgets)
         .where(and(eq(widgets.id, widgetId), eq(widgets.projectId, projectId)));
       // Widget inesistente o di un altro progetto: 404 (isolamento).
@@ -269,13 +276,19 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
         return apiError(reply, 422, "identity_secret_missing", "Generate the identity secret before requiring verified customers");
       }
 
-      const [row] = await app.db
-        .update(widgets)
-        // `origins` assente (un client che non lo conosce) lascia l'elenco com'è.
-        .set({ ...withoutOrigins(body), ...(body.origins !== undefined ? { allowedOrigins: body.origins } : {}) })
-        .where(and(eq(widgets.id, widgetId), eq(widgets.projectId, projectId)))
-        .returning();
-      if (!row) throw new Error("update del widget non ha restituito la riga");
+      const row = await app.db.transaction(async (tx) => {
+        const [updated] = await tx
+          .update(widgets)
+          // `origins` assente (un client che non lo conosce) lascia l'elenco com'è.
+          .set({ ...withoutOrigins(body), ...(body.origins !== undefined ? { allowedOrigins: body.origins } : {}) })
+          .where(and(eq(widgets.id, widgetId), eq(widgets.projectId, projectId)))
+          .returning();
+        if (!updated) throw new Error("update del widget non ha restituito la riga");
+        // Come il prototipo: la voce c'è sempre, col prima/dopo del solo nome.
+        const diff = changedFields({ name: existing.name }, { name: updated.name });
+        await recordChange(tx, { type: "widget.updated", actor: request.user!, projectId, data: { object: widgetObject(updated), ...(diff ?? {}) } });
+        return updated;
+      });
 
       const [count] = await app.db
         .select({ conversationCount: sql<number>`count(*)::int` })
@@ -333,10 +346,14 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
       const { projectId, widgetId } = request.params;
       // La FK widget_conversations.widget_id fa SET NULL: lo storico resta
       // consultabile come "widget eliminato".
-      const deleted = await app.db
-        .delete(widgets)
-        .where(and(eq(widgets.id, widgetId), eq(widgets.projectId, projectId)))
-        .returning({ id: widgets.id });
+      const deleted = await app.db.transaction(async (tx) => {
+        const gone = await tx
+          .delete(widgets)
+          .where(and(eq(widgets.id, widgetId), eq(widgets.projectId, projectId)))
+          .returning({ id: widgets.id, name: widgets.name });
+        if (gone[0]) await recordChange(tx, { type: "widget.deleted", actor: request.user!, projectId, data: { object: widgetObject(gone[0]) } });
+        return gone;
+      });
       if (deleted.length === 0) {
         return apiError(reply, 404, "widget_not_found", "Widget not found");
       }

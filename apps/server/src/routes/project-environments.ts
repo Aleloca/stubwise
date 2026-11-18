@@ -1,3 +1,5 @@
+import { changedFields, recordChange } from "../services/change-log.js";
+import { environmentObject } from "../services/settings-entries.js";
 import { environmentServers, projectEnvironments, releases, repositories, serverMetrics, servers } from "@stubwise/db";
 import {
   createEnvironmentSchema,
@@ -312,6 +314,8 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
           if (written !== "ok") {
             tx.rollback();
           }
+          // Area 9, F5: dopo l'ultima cosa che può annullare la transazione.
+          await recordChange(tx, { type: "environment.created", actor: request.user!, projectId, data: { object: environmentObject(created) } });
           return { created, written };
         }).catch((e: unknown) => {
           if (e instanceof Error && e.message === "Rollback") return null;
@@ -402,6 +406,11 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
               const written = await writeServers(tx, updated, { ...(serverId !== undefined ? { serverId } : {}), ...(perRepo ? { servers: perRepo } : {}) });
               if (written !== "ok") tx.rollback();
             }
+            // Area 9, F5, come il prototipo: la voce c'è sempre (i server
+            // collegati non hanno un prima/dopo), col prima/dopo di nome e URL
+            // quando cambiano (il tipo non si cambia da qui).
+            const diff = changedFields({ name: existing.name, url: existing.url }, { name: updated.name, url: updated.url });
+            await recordChange(tx, { type: "environment.updated", actor: request.user!, projectId, data: { object: environmentObject(updated), ...(diff ?? {}) } });
             return updated;
           })
           .catch((e: unknown) => {
@@ -484,10 +493,13 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
           .limit(1);
         if (implicit) return apiError(reply, 409, "container_of_other_project", "A container belongs to another project on this server");
       }
-      await app.db
-        .update(environmentServers)
-        .set({ containers })
-        .where(and(eq(environmentServers.environmentId, env.id), eq(environmentServers.serverId, serverId)));
+      await app.db.transaction(async (tx) => {
+        await tx
+          .update(environmentServers)
+          .set({ containers })
+          .where(and(eq(environmentServers.environmentId, env.id), eq(environmentServers.serverId, serverId)));
+        await recordChange(tx, { type: "environment.updated", actor: request.user!, projectId, data: { object: environmentObject(env) } });
+      });
       return { serverId, containers };
     },
   );
@@ -520,7 +532,10 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
       }
 
       // Le var/file d'ambiente collegati sono cancellati in cascata dal FK.
-      await app.db.delete(projectEnvironments).where(eq(projectEnvironments.id, environmentId));
+      await app.db.transaction(async (tx) => {
+        await tx.delete(projectEnvironments).where(eq(projectEnvironments.id, environmentId));
+        await recordChange(tx, { type: "environment.deleted", actor: request.user!, projectId, data: { object: environmentObject(existing) } });
+      });
       return reply.code(204).send(null);
     },
   );

@@ -113,7 +113,7 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
   app.post(
     "/:id/env-files",
     {
-      config: { access: REPOS_MANAGE, reauth: true },
+      config: { access: REPOS_MANAGE }, // D-5: niente riconferma per un file VUOTO (il prototipo lo esclude apposta)
       schema: {
         params: projectParamsSchema,
         body: createFileSchema,
