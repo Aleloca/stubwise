@@ -1208,6 +1208,9 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     non valida»; le credenziali salvate prima della 0190 non hanno le
     ultime 4 («••••»); la riga della quota la vede solo chi ha
     `usage.view` *(dichiarato; S per distinguere l'errore di rete)*;
+  - Google Workspace: il server non tiene le ultime 4 del client secret
+    («••••»), e delle caselle collegate dà solo il numero: il dialogo di
+    un'app in uso le dice contate, senza i nomi *(S)*;
   - AI → Automation: le regole di `feedback` e `review` non si modificano
     nell'app (la pagina ha le tre righe delle task) e si rimandano com'erano
     *(S, se servono due righe in più)*;

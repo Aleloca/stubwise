@@ -485,6 +485,15 @@ export function useGoogleApps() {
   });
 }
 
+/** L'indirizzo di ritorno OAuth da dare a Google (F3: nella build app è del server). */
+export function useGoogleRedirectUri() {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "instance", "google-redirect-uri"] as const,
+    queryFn: () => api.instance.getGoogleRedirectUri(),
+  });
+}
+
 /** Aggiunge un'app (+R). Il client secret sta negli argomenti. */
 export function useCreateGoogleApp() {
   return useWrite(

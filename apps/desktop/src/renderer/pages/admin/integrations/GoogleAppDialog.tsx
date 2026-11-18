@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { SecretInput } from "../../../components/SecretField";
 import {
   GOOGLE_SETUP,
+  useGoogleRedirectUri,
   useCreateGoogleApp,
   useDeleteGoogleApp,
   useReplaceGoogleSecret,
@@ -207,9 +208,13 @@ function CopyValue({ label, value }: { label: string; value: string }) {
 /** La sezione chiusa «How to set it up in Google Cloud» (parità col web). */
 function SetupGuide() {
   const { t } = useTranslation();
+  // L'indirizzo di ritorno lo dà il livello dati: nella build app è del server (F3).
+  const redirect = useGoogleRedirectUri();
   return (
     <Disclosure title={t("admin.google.dialog.setupTitle")}>
-      <CopyValue label={t("admin.google.dialog.redirectUri")} value={GOOGLE_SETUP.redirectUri} />
+      {redirect.data && (
+        <CopyValue label={t("admin.google.dialog.redirectUri")} value={redirect.data} />
+      )}
       <CopyValue label={t("admin.google.dialog.scopes")} value={GOOGLE_SETUP.scopes.join(" ")} />
       <p className="text-sm text-pretty text-ink-muted">{t("admin.google.dialog.internalHint")}</p>
       <p className="text-sm text-pretty text-ink-muted">{t("admin.google.dialog.apisHint")}</p>

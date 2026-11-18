@@ -830,6 +830,7 @@ export type ApiFnName =
   | "instance.rerunSmoke"
   | "instance.removePlugin"
   | "instance.simulateNextPluginOutcome"
+  | "instance.getGoogleRedirectUri"
   | "instance.listGoogleApps"
   | "instance.createGoogleApp"
   | "instance.updateGoogleApp"

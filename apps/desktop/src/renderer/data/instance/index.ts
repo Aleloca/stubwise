@@ -79,6 +79,7 @@ export {
   createGoogleApp,
   deleteGoogleApp,
   listGoogleApps,
+  getGoogleRedirectUri,
   replaceGoogleSecret,
   updateGoogleApp,
   type GoogleAppView,

@@ -179,6 +179,7 @@ describe("isIntegrated", () => {
         "admin:webhooks",
         // Area 9, F3: la voce AI, scheda per scheda (le schede in \`feature\`).
         "admin:ai",
+        "admin:google",
         "feature:ai-automation",
         "feature:ai-providers",
         "feature:ai-models",

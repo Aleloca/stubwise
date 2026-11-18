@@ -160,6 +160,13 @@ const INTEGRATED_CALLS = new Set([
   "instance.testProvider",
   "instance.replaceProviderCredential",
   "instance.deleteProvider",
+  // Area 9, F3: Google Workspace.
+  "instance.listGoogleApps",
+  "instance.getGoogleRedirectUri",
+  "instance.createGoogleApp",
+  "instance.updateGoogleApp",
+  "instance.replaceGoogleSecret",
+  "instance.deleteGoogleApp",
   // Area 9, F3: AI → Models.
   "instance.listModels",
   "instance.setModel",
@@ -853,6 +860,21 @@ describe("aree non integrate nella build app", () => {
     renderRoute("/admin/ai?tab=providers");
     await waitFor(() => expect(calls).toContain("instance.listProviders"));
     expect(await screen.findByRole("list", { name: "AI accounts" })).toBeInTheDocument();
+    await settle();
+    expect(document.querySelector("[data-coming-soon]")).toBeNull();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F3: Amministrazione → Google Workspace, su `/api/settings/google-workspaces`.
+  it("aprire Google Workspace e il suo dialogo legge solo chiamate integrate", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/google");
+    await waitFor(() => expect(calls).toContain("instance.listGoogleApps"));
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Add an app" }));
+    await user.click(await screen.findByRole("button", { name: "How to set it up in Google Cloud" }));
+    await waitFor(() => expect(calls).toContain("instance.getGoogleRedirectUri"));
     await settle();
     expect(document.querySelector("[data-coming-soon]")).toBeNull();
     expect(document.querySelector("[data-prototype-only]")).toBeNull();
