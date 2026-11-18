@@ -43,6 +43,7 @@ modifiche fatte PRIMA del collegamento sono in fondo alla tabella.
 | People, persona, inviti, Roles | `adminPeople.ts` | `admin:people`, `admin:roles` | Azioni, `missing`, portata e blocchi sono calcolati dal server. L'id dell'invito è opaco (`i_` + sha256 del token). Gli autori git osservati arrivano senza commit né progetti. |
 | Members del progetto | `adminMembers.ts` | `projectSettings:members` | `department` fra le fonti arriva con F8. |
 | Inbox: «Restore», «Move to New», «Mark as unread» | `notifications.ts` | `notification-restore` | Un 409 `invalid_state` non si scrive: il pannello rilegge. |
+| Registro delle modifiche (Amministrazione e Progetto → Settings) — F2 | `changelog.ts` | `admin:changelog`, `projectSettings:changelog` | Solo i tipi dell'area 9 finché F3 (9b) e la 9c non scrivono i loro. Tutte le pagine fino a 2.000 voci, senza «Load more». «By Claude» e «Undid…» spenti fino a F7. Nessun link alle voci d'invito. `person.email_changed` nel gruppo «security», come sul server (test di parità del catalogo). |
 | Prototipo cambiato prima del collegamento | — | — | Foto (tipi dai primi byte, 512 KB); cambio d'email con l'attesa e il ramo admin; pagina del link che conferma solo al clic; password con la riconferma; disattivazione con `invalid_reassignment` per task e senza Claude; «Chi può farlo?» con Claude senza permessi; invito non valido senza nomi né date; «Mark as unread». |
 
 ## A. Personale → Preferenze
