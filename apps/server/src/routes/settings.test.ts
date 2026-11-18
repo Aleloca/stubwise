@@ -4,7 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { mailAdmissionSchema } from "@stubwise/shared";
 import { buildApp } from "../app.js";
-import { automationRules, decrypt, instanceSettings, notificationSettings, outgoingWebhooks, roles, users as usersTable } from "@stubwise/db";
+import { agentRuns, automationRules, decrypt, instanceSettings, notificationSettings, outgoingWebhooks, roles, users as usersTable } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
@@ -796,6 +796,22 @@ describe("POST /api/settings/notifications/test", () => {
     expect((await testNotification(cookie)).statusCode).toBe(403);
   });
 
+  it("94: lo speso del mese, «raggiunto» e l'effetto del salvataggio (released, now_reached, still_reached)", async () => {
+    const [spent] = await app.db.insert(agentRuns).values({ phase: "triage", operation: "triage", model: "claude-sonnet-5-5", costUsd: "412" } as typeof agentRuns.$inferInsert).returning({ id: agentRuns.id });
+    const put = (monthlyBudgetUsd: number | null) =>
+      app.inject({ method: "PUT", url: "/api/settings/instance", headers: { cookie: users.adminCookie }, payload: { contentLanguage: "en", monthlyBudgetUsd } });
+    expect((await put(null)).json()).toMatchObject({ budgetReached: false, budgetEffect: null });
+    const view = (await app.inject({ method: "GET", url: "/api/settings/instance", headers: { cookie: users.adminCookie } })).json() as { spentUsd: number; budgetEffect: unknown };
+    expect(view.spentUsd).toBeGreaterThanOrEqual(412);
+    expect(view.budgetEffect).toBeNull();
+    expect((await put(100)).json()).toMatchObject({ budgetReached: true, budgetEffect: "now_reached" });
+    expect((await put(200)).json()).toMatchObject({ budgetReached: true, budgetEffect: "still_reached" });
+    expect((await put(100_000)).json()).toMatchObject({ budgetReached: false, budgetEffect: "released" });
+    expect((await put(200_000)).json()).toMatchObject({ budgetEffect: null });
+    await put(null);
+    await app.db.delete(agentRuns).where(eq(agentRuns.id, spent!.id));
+  });
+
   it("decisione del maintainer: dal web vecchio, un URL NUOVO (cambiato o un webhook creato) chiede la riconferma; lo stesso URL no", async () => {
     await app.db.delete(outgoingWebhooks);
     const old = await createSession(app.db, users.adminId, { stage: "full", secondFactorAt: new Date(Date.now() - 11 * 60_000) });
@@ -899,6 +915,9 @@ describe("PUT /api/settings/instance", () => {
       slackSigningSecretSet: false,
       slackBotTokenSet: false,
       slackEnabled: false,
+      spentUsd: expect.any(Number),
+      budgetReached: false,
+      budgetEffect: null,
     });
 
     // Ripristina il default per non sporcare gli altri test.
