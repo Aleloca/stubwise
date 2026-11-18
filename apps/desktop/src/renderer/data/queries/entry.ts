@@ -143,17 +143,15 @@ export function useResetLink(token: string) {
   });
 }
 
-/**
- * La password nuova da un link di reset. Non porta dentro: le sessioni della
- * persona si chiudono, e si entra dal login con la password nuova.
- */
 /** Area 9, R2: la lettura del link del cambio d'email (non conferma niente). */
 export function useEmailChangeLink(token: string) {
   return useQuery({
     queryKey: ["entry", "emailChangeLink", token],
     queryFn: () => api.me.getEmailChangeLink(token),
-    // Come il reset: dopo l'uso il link non vale più, si rilegge a ogni visita.
+    // Come il reset: dopo l'uso il link non vale più, si rilegge a ogni visita;
+    // e solo a ogni visita (review F1, M3), non a ogni ritorno sulla finestra.
     gcTime: 0,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -165,10 +163,16 @@ export function useConfirmEmailChange() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (token: string) => api.me.confirmEmailChange(token),
+    // L'esito (con l'email nuova) non resta in cache dopo la pagina (M3).
+    gcTime: 0,
     onSettled: () => client.invalidateQueries(),
   });
 }
 
+/**
+ * La password nuova da un link di reset. Non porta dentro: le sessioni della
+ * persona si chiudono, e si entra dal login con la password nuova.
+ */
 export function useResetPassword() {
   const enter = useEnterAs();
   return useMutation({

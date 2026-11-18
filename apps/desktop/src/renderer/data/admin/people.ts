@@ -435,6 +435,8 @@ export async function changeEmail(personId: string, email: string): Promise<Admi
   const me = await writer("admin.changeEmail");
   const blocked = target(me, personId);
   if (blocked) return blocked;
+  // Review F1, M7: come l'azione spenta della pagina, mai su un disattivato.
+  if (personId !== me && accessOf(personId)!.status !== "active") return refuse.invalid("status");
   return (await adminChangeEmail(me, personId, email)) as AdminResult;
 }
 

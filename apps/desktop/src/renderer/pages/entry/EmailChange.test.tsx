@@ -1,6 +1,7 @@
-import { screen } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
+import { focusManager } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { auth, me, resetApi, setLatency } from "../../data/api";
 import { __secretValuesForTest } from "../../data/admin/secrets";
 import { markReauthenticated } from "../../data/auth/reauth";
@@ -61,6 +62,24 @@ describe("/email-change/$token", () => {
     expect(screen.getByText(`From now on you sign in with ${NEW}.`)).toBeVisible();
     expect(screen.getByRole("link", { name: "Go to sign in" })).toBeVisible();
     expect((await auth.login({ email: NEW, password: "stubwise" })).ok).toBe(true);
+  });
+
+  it("tornare alla finestra non rilegge il link (review F1, M3): una lettura per visita", async () => {
+    const token = await linkForSara();
+    const reads = vi.spyOn(me, "getEmailChangeLink");
+    renderRoute(`/email-change/${token}`);
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Confirm your new sign-in email" }),
+    ).toBeVisible();
+    expect(reads).toHaveBeenCalledTimes(1);
+    act(() => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(reads).toHaveBeenCalledTimes(1);
+    focusManager.setFocused(undefined);
+    reads.mockRestore();
   });
 
   it("un link usato, annullato o inventato: una frase sola, senza nomi e senza bottone", async () => {

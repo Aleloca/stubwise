@@ -59,11 +59,25 @@ function initialsOf(name: string): string {
 }
 
 export function createRealWhoCan(api: WhoCanApi) {
+  /**
+   * Persone e reparti letti al più UNA volta per chiamata (review F1, M2),
+   * e solo se servono: ogni chiamata ne apre uno nuovo.
+   */
+  function lookup() {
+    let people: ReturnType<WhoCanApi["people"]> | undefined;
+    let departments: ReturnType<WhoCanApi["departments"]> | undefined;
+    return {
+      people: () => (people ??= api.people()),
+      departments: () => (departments ??= api.departments()),
+    };
+  }
+  type Lookup = ReturnType<typeof lookup>;
+
   /** I motivi del server in parole del prototipo; un tipo ignoto (server più nuovo) si salta. */
-  async function reasonsOf(reasons: ServerReason[]): Promise<WhoCanReason[]> {
+  async function reasonsOf(reasons: ServerReason[], names: Lookup): Promise<WhoCanReason[]> {
     const needNames = reasons.some((r) => r.kind === "grant" || r.kind === "department");
     const [people, departments] = needNames
-      ? await Promise.all([api.people(), api.departments()])
+      ? await Promise.all([names.people(), names.departments()])
       : [[], []];
     return reasons.flatMap((r): WhoCanReason[] => {
       if (r.kind === "full_admin") return [{ kind: "full_admin" }];
@@ -103,7 +117,8 @@ export function createRealWhoCan(api: WhoCanApi) {
       }
       // I nomi come li dice `/api/people` (come altrove nell'app); senza, il
       // nome visualizzato o l'email del server.
-      const known = await api.people();
+      const names = lookup();
+      const known = await names.people();
       const people = await Promise.all(
         r.people.map(async (p) => {
           const person = known.find((k) => k.id === p.userId);
@@ -112,7 +127,7 @@ export function createRealWhoCan(api: WhoCanApi) {
             personId: p.userId,
             name,
             initials: person?.initials ?? initialsOf(name),
-            reasons: await reasonsOf(p.reasons),
+            reasons: await reasonsOf(p.reasons, names),
           };
         }),
       );
@@ -135,6 +150,7 @@ export function createRealWhoCan(api: WhoCanApi) {
         if (notFound(error)) return invisible;
         throw error;
       }
+      const names = lookup();
       const scope: AccessScope = projectId === null ? "instance" : "project";
       const project = projectId ? r.projects.find((p) => p.projectId === projectId) : undefined;
       const held = new Map(
@@ -149,12 +165,12 @@ export function createRealWhoCan(api: WhoCanApi) {
           permissions: await Promise.all(
             g.permissions.map(async (permission) => {
               const h = held.get(permission);
-              return { permission, held: !!h, reasons: h ? await reasonsOf(h.reasons) : [] };
+              return { permission, held: !!h, reasons: h ? await reasonsOf(h.reasons, names) : [] };
             }),
           ),
         })),
       );
-      const person = (await api.people()).find((p) => p.id === personId);
+      const person = (await names.people()).find((p) => p.id === personId);
       return {
         visible: true,
         personId,

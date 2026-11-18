@@ -1184,6 +1184,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - il colore delle iniziali nel profilo è neutro: `/api/auth/me` non dice
     il reparto *(S)*;
   - `department` fra le fonti dei permessi dei membri arriva con F8.
+  - Roles, «you'd lose»: cosa perde chi guarda salvando un ruolo lo compone
+    ancora il CLIENT dai motivi di `access.whatCan` (i permessi che gli
+    vengono solo da quel ruolo). Il server ha i motivi, non la risposta:
+    serve una lettura calcolata (come l'anteprima dei membri) che dica cosa
+    perde chi guarda con la bozza del ruolo *(S, review F1, M1 di 46)*.
 
 ## Area 10 — Integrazione di Claude
 

@@ -429,8 +429,13 @@ const liveApi: AdminPeopleApi = {
   deleteRole: async (roleId) => {
     await appClient().request("DELETE", `/api/roles/${seg(roleId)}`);
   },
-  myPermissions: () =>
-    appClient().access.whatCan({ userId: session.personId ?? "" }) as Promise<Any>,
+  // Review F1, M1: senza persona in sessione non si chiede niente (un
+  // `userId` vuoto non è nessuno): «cosa perdi» resta senza risposta.
+  myPermissions: async () => {
+    const userId = session.personId;
+    if (!userId) throw new Error("no_session");
+    return (await appClient().access.whatCan({ userId })) as Any;
+  },
   origin: instanceOrigin,
 };
 
