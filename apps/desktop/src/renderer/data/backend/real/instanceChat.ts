@@ -8,6 +8,7 @@ import { livePlugins } from "./plugins";
 import { liveStorage } from "./storage";
 import { liveProviders } from "./aiProviders";
 import { liveAutomation } from "./automation";
+import { liveBudget } from "./budget";
 import { liveWebhooks } from "./webhooks";
 
 /**
@@ -32,4 +33,6 @@ export const instance: typeof Fake.instance = partialNamespace<typeof Fake.insta
   ...livePlugins,
   // Area 9, F3: Storage.
   ...liveStorage,
+  // Area 9, F4: AI → Budget & language.
+  ...liveBudget,
 });

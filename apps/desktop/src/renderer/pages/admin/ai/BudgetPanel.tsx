@@ -10,6 +10,7 @@ import {
   type ContentLanguage,
 } from "../../../data/queries";
 import { useToast } from "../../../tasks-ui/Toast";
+import { isAppBuild } from "../../../data/build";
 import { PrototypeBox } from "../../automations/shared";
 import { RadioRow, smallInput } from "../../automations/builder/controls";
 import { ErrorLine } from "../../entry/parts";
@@ -203,7 +204,8 @@ function BudgetForm({ view, canWrite }: { view: BudgetView; canWrite: boolean })
         </div>
       )}
 
-      {canWrite && <SimulateBox simulated={view.simulated} />}
+      {/* Il budget raggiunto si simula solo nel prototipo. */}
+      {canWrite && !isAppBuild() && <SimulateBox simulated={view.simulated} />}
     </>
   );
 }

@@ -185,6 +185,9 @@ const INTEGRATED_CALLS = new Set([
   "instance.updateGoogleApp",
   "instance.replaceGoogleSecret",
   "instance.deleteGoogleApp",
+  // Area 9, F4: AI → Budget & language.
+  "instance.getBudget",
+  "instance.saveBudget",
   // Area 9, F3: AI → Models.
   "instance.listModels",
   "instance.setModel",
@@ -932,6 +935,18 @@ describe("aree non integrate nella build app", () => {
     await user.click(await screen.findByRole("button", { name: "Add an app" }));
     await user.click(await screen.findByRole("button", { name: "How to set it up in Google Cloud" }));
     await waitFor(() => expect(calls).toContain("instance.getGoogleRedirectUri"));
+    await settle();
+    expect(document.querySelector("[data-coming-soon]")).toBeNull();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F4: AI → Budget & language, su `/api/settings/instance`; senza
+  // la simulazione del budget raggiunto (solo prototipo).
+  it("aprire AI → Budget legge solo chiamate integrate, senza riquadro del prototipo", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/ai?tab=budget");
+    await waitFor(() => expect(calls).toContain("instance.getBudget"));
     await settle();
     expect(document.querySelector("[data-coming-soon]")).toBeNull();
     expect(document.querySelector("[data-prototype-only]")).toBeNull();
