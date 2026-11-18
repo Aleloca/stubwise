@@ -16,6 +16,7 @@ import { adminDepartments } from "./departments";
 import { liveWhoCan } from "./whoCan";
 import { liveAdminPeople } from "./adminPeople";
 import { liveMembers } from "./adminMembers";
+import { liveChangelog } from "./changelog";
 import { partialNamespace } from "./notIntegrated";
 import { chatFunctions } from "./chat";
 import { channelStream, onChatChange, subscribeChat, threadStream } from "./chatStream";
@@ -45,6 +46,12 @@ export const admin: typeof Fake.admin = partialNamespace<typeof Fake.admin>("adm
 });
 // Area 9, F1, R9: «Chi può farlo?» (prevale sullo stub generato).
 export const access: typeof Fake.access = partialNamespace<typeof Fake.access>("access", liveWhoCan);
+
+// Area 9, F2: il registro delle modifiche sulla lettura del server.
+export const changelog: typeof Fake.changelog = partialNamespace<typeof Fake.changelog>(
+  "changelog",
+  liveChangelog,
+);
 // Chat, fetta 3: le decisioni sulle proposte di Claude e «Undo» dei suoi gruppi.
 export { cancelProposal, confirmProposal, editProposal, settlePageEvent } from "./claudeChatActions";
 import { claudeChatNamespace } from "./claudeChatActions";
