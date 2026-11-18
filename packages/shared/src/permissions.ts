@@ -42,6 +42,10 @@ export const INSTANCE_PERMISSIONS = [
   "mail_admission.view",
   // Integrazione area 2 (9 nov 2026): la pagina Reparti dell'amministrazione.
   "departments.manage",
+  // Area 9, F2: leggere TUTTO il registro delle modifiche dell'istanza (chi
+  // gestisce un oggetto ne legge già le voci col `readPermission` del tipo).
+  // Nessun preset: il full admin l'ha implicito.
+  "changelog.view",
   // Integrazione area 3 (10 nov 2026, decisione del maintainer): l'attività del
   // giorno per persona (lo standup). Nessun preset la riceve: il full admin
   // l'ha implicita, agli altri si assegna con un ruolo.

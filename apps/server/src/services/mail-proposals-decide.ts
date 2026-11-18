@@ -18,7 +18,8 @@ import { ticketPrioritySchema, ticketStatusSchema, type MailProposal, type Proje
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { SessionUser } from "../auth/session.js";
 import { decideLegacy } from "./mail-proposals-legacy.js";
-import { putProjectMember, RoleRuleError } from "./roles.js";
+import { memberObject, putProjectMember, RoleRuleError } from "./roles.js";
+import { recordChange } from "./change-log.js";
 import { createTicket } from "../db/tickets.js";
 import { enqueueBacklogIntake } from "./backlog-intake.js";
 import { addSystemComment } from "./comments.js";
@@ -521,7 +522,7 @@ export async function chooseMailProposalProject(db: Db, viewer: Viewer, id: stri
  */
 export async function confirmMailProposalWithMembers(
   db: Db,
-  viewer: Pick<SessionUser, "id" | "instancePermissions">,
+  viewer: Pick<SessionUser, "id" | "email" | "instancePermissions">,
   id: string,
   input: { indices?: number[] | undefined; edits?: Record<string, Record<string, unknown>> | undefined; addOutsiders: string[] },
   lang: Language,
@@ -547,18 +548,27 @@ export async function confirmMailProposalWithMembers(
   const added: { userId: string; createdAt: Date }[] = [];
   const undo = async () => {
     for (const row of added) {
-      const removed = await db
-        .delete(projectMembers)
-        .where(
-          and(
-            eq(projectMembers.projectId, proposal.projectId),
-            eq(projectMembers.userId, row.userId),
-            eq(projectMembers.roleId, contributor),
-            // Al millisecondo: `Date` non porta i µs di Postgres.
-            sql`date_trunc('milliseconds', ${projectMembers.createdAt}) = ${row.createdAt.toISOString()}::timestamptz`,
-          ),
-        )
-        .returning({ userId: projectMembers.userId });
+      // Area 9, F2: la rimozione e la sua voce insieme (chiude «Audit vera
+      // dei membri di progetto» del registro dei rimandi).
+      const removed = await db.transaction(async (tx) => {
+        const gone = await tx
+          .delete(projectMembers)
+          .where(
+            and(
+              eq(projectMembers.projectId, proposal.projectId),
+              eq(projectMembers.userId, row.userId),
+              eq(projectMembers.roleId, contributor),
+              // Al millisecondo: `Date` non porta i µs di Postgres.
+              sql`date_trunc('milliseconds', ${projectMembers.createdAt}) = ${row.createdAt.toISOString()}::timestamptz`,
+            ),
+          )
+          .returning({ userId: projectMembers.userId });
+        if (gone.length > 0) {
+          const [who] = await tx.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, row.userId));
+          await recordChange(tx, { type: "member.removed", actor: viewer, projectId: proposal.projectId, data: { object: memberObject(who!), before: "Contributor", params: { via: "mail_proposal" } } });
+        }
+        return gone;
+      });
       log(
         removed.length > 0
           ? "posta: Contributor tolto, la conferma della proposta non è riuscita"

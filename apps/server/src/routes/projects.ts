@@ -44,6 +44,7 @@ import {
   projectStatuses,
   projects,
   repositories,
+  roles,
   type Db,
 } from "@stubwise/db";
 import { leadRoleId } from "../services/roles.js";
@@ -69,6 +70,8 @@ import {
   listProjectDecisions,
   patchDecision,
 } from "../services/project-decisions.js";
+import { recordChange } from "../services/change-log.js";
+import { memberObject } from "../services/roles.js";
 import {
   listEmailRoutes,
   listObservedEmailLabels,
@@ -364,6 +367,9 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
               await tx
                 .insert(projectMembers)
                 .values({ projectId: created.id, userId: request.user!.id, roleId: leadRole });
+              // Area 9, F2: chi crea il progetto ne entra come lead.
+              const [lead] = await tx.select({ name: roles.name }).from(roles).where(eq(roles.id, leadRole));
+              await recordChange(tx, { type: "member.added", actor: request.user!, projectId: created.id, data: { object: memberObject(request.user!), after: lead?.name ?? null } });
             }
             return created;
           });

@@ -298,7 +298,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
           "Use the password change in your account settings",
         );
       }
-      const issued = await issuePasswordResetToken(app.db, id, request.user!.id);
+      const issued = await issuePasswordResetToken(app.db, id, request.user!);
       if (!issued) {
         return apiError(reply, 404, "user_not_found", "User not found");
       }

@@ -2,6 +2,7 @@ import { and, eq, isNotNull } from "drizzle-orm";
 import { personalAccessTokens, sessions, userBackupCodes, userPasskeys, users, userTotp, type Db } from "@stubwise/db";
 import { publishSecurityAlert } from "./alerts.js";
 import { recordSecurityEvent } from "./security-events.js";
+import { personObject, recordChange } from "../../services/change-log.js";
 
 /**
  * Azzera il secondo fattore di `target` per conto di `actor`: app, passkey,
@@ -52,6 +53,13 @@ export async function resetSecondFactor(
       })
       .where(eq(users.id, target.id));
     await recordSecurityEvent(tx, { kind: "second_factor_reset", user: target, actor });
+    // Area 9, F2: la voce del registro; lo script di recupero (senza id) è il sistema.
+    await recordChange(tx, {
+      type: "person.second_factor_reset",
+      actor: actor.id ? { id: actor.id, email: actor.email } : "system",
+      projectId: null,
+      data: { object: personObject(target) },
+    });
     await publishSecurityAlert(tx, target.id, "second_factor_reset", actor.email);
   });
 }

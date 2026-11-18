@@ -3,6 +3,7 @@ import { emailChanges, invites, users, type Db } from "@stubwise/db";
 import { and, eq, gt, isNull, ne, sql } from "drizzle-orm";
 import { publishSecurityAlert } from "../auth/second-factor/alerts.js";
 import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
+import { personObject, recordChange } from "./change-log.js";
 import type { MailTransport } from "../mail/transport.js";
 
 /**
@@ -156,6 +157,8 @@ export async function confirmEmailChange(db: Db, transport: MailTransport, token
     }
     await tx.update(emailChanges).set({ confirmedAt: new Date() }).where(eq(emailChanges.id, change.id));
     await recordSecurityEvent(tx, { kind: "email_changed", user: { id: user.id, email: change.newEmail }, detail: `${user.email} → ${change.newEmail}` });
+    // Area 9, F2: l'attore è la persona stessa, che ha aperto il link.
+    await recordChange(tx, { type: "person.email_changed", actor: { id: user.id, email: change.newEmail }, projectId: null, data: { object: personObject(user), before: user.email, after: change.newEmail } });
     await publishSecurityAlert(tx, user.id, "email_changed", null);
     return { oldEmail: user.email, email: change.newEmail };
   });
@@ -179,6 +182,7 @@ export async function adminChangeEmail(
     await tx.update(users).set({ email }).where(eq(users.id, user.id));
     await tx.update(emailChanges).set({ cancelledAt: new Date() }).where(pendingWhere(user.id));
     await recordSecurityEvent(tx, { kind: "email_changed", user: { id: user.id, email }, actor, detail: `${user.email} → ${email}` });
+    await recordChange(tx, { type: "person.email_changed", actor, projectId: null, data: { object: personObject(user), before: user.email, after: email } });
     await publishSecurityAlert(tx, user.id, "email_changed", actor.email);
     return { oldEmail: user.email, email };
   });
