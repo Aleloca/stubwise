@@ -39,6 +39,8 @@ describe("le voci AI del registro, in inglese e in italiano", () => {
     await instance.saveBudget({ monthlyUsd: null, contentLanguage: "it" });
     await instance.saveBudget({ monthlyUsd: 800, contentLanguage: "it" });
     await instance.setProviderEnabled("prv-backup-max", false);
+    // F3: la rinomina, come il server (`params.field: "name"`).
+    await instance.renameProvider("prv-backup-max", "Spare Max");
     const { rules, prReview } = await instance.getAutomation();
     await instance.saveAutomation({
       rules: rules.map((r) => (r.taskType === "bug" ? { ...r, maxEffort: 3 as const } : r)),
@@ -53,12 +55,14 @@ describe("le voci AI del registro, in inglese e in italiano", () => {
       ["content_language.changed", "content_language", "en", "it"],
       ["budget.changed", "budget", null, "800"],
       ["provider.updated", "Backup Max", "on", "off"],
+      ["provider.updated", "Spare Max", "Backup Max", "Spare Max"],
       ["automation.changed", "automation", expect.any(String), expect.any(String)],
     ]);
 
     const expected = {
       en: [
         "Roberta Fontana changed the AI automation. | Bug: auto-fix up to effort 2 · PR review cap $2 → Bug: auto-fix up to effort 3 · PR review cap $3",
+        "Roberta Fontana changed the AI account Spare Max. | Name: Backup Max → Spare Max",
         "Roberta Fontana changed the AI account Backup Max. | On → Off",
         "Roberta Fontana changed the monthly AI budget. | No budget → $800",
         "Roberta Fontana changed the language of generated content. | English → Italiano",
@@ -68,6 +72,7 @@ describe("le voci AI del registro, in inglese e in italiano", () => {
       ],
       it: [
         "Roberta Fontana ha cambiato l'automazione AI. | Bug: auto-fix fino all'effort 2 · tetto della revisione delle PR $2 → Bug: auto-fix fino all'effort 3 · tetto della revisione delle PR $3",
+        "Roberta Fontana ha modificato l'account AI Spare Max. | Nome: Backup Max → Spare Max",
         "Roberta Fontana ha modificato l'account AI Backup Max. | Acceso → Spento",
         "Roberta Fontana ha cambiato il budget AI mensile. | Nessun budget → $800",
         "Roberta Fontana ha cambiato la lingua dei contenuti generati. | English → Italiano",

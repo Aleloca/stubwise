@@ -381,6 +381,31 @@ describe("Providers", () => {
     expect(provider("Billing key").lastTest?.outcome).toBe("invalid_credentials");
   });
 
+  it("rinomina un account senza riconferma (F3); un nome già usato lo dice nel dialogo", async () => {
+    const user = userEvent.setup();
+    renderRoute("/admin/ai", ROBERTA);
+    await screen.findByRole("list", { name: "AI accounts" });
+    await user.click(
+      within(row("Backup Max")).getByRole("button", { name: "More for Backup Max" }),
+    );
+    await user.click(screen.getByRole("menuitem", { name: "Rename…" }));
+    const dialog = screen.getByRole("dialog", { name: "Rename Backup Max" });
+    const field = within(dialog).getByLabelText("Name");
+    expect(field).toHaveValue("Backup Max");
+    await user.clear(field);
+    await user.type(field, "Team Max");
+    await user.click(within(dialog).getByRole("button", { name: "Rename" }));
+    expect(
+      await within(dialog).findByText("Another AI account already has this name."),
+    ).toBeVisible();
+    await user.clear(field);
+    await user.type(field, "Spare Max");
+    await user.click(within(dialog).getByRole("button", { name: "Rename" }));
+    expect(screen.queryByRole("dialog", { name: "Confirm it's you" })).toBeNull();
+    expect(await screen.findByText("Renamed to Spare Max.")).toBeVisible();
+    expect(provider("Spare Max").id).toBe("prv-backup-max");
+  });
+
   it("sostituisce la chiave ed elimina un account, con la riconferma", async () => {
     const user = userEvent.setup();
     renderRoute("/admin/ai", ROBERTA);

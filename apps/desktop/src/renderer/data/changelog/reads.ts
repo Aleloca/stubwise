@@ -320,6 +320,15 @@ function withAccountName(
  */
 function diffOf(entry: ChangeEntry, people: Set<string>): ChangeDiff | null {
   const p = entry.params;
+  // F3, come il server: un account AI RINOMINATO è `provider.updated` coi
+  // nomi e `params.field: "name"` (l'interruttore ha `on`/`off`): si legge
+  // «Name: X → Y», nella forma dei campi.
+  if (entry.kind === "provider.updated" && p.field === "name")
+    return {
+      kind: "setting",
+      before: { type: "fields", fields: { name: entry.before } },
+      after: { type: "fields", fields: { name: entry.after } },
+    };
   if (SETTING_KINDS[entry.kind]) {
     // I valori stabili del 9b (Ruling T3): in forma di dato, le parole sono della pagina.
     const before = withAccountName(decodeSetting(entry.kind, entry.before), p.accountBefore);

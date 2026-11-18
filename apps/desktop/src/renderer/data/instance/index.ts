@@ -24,6 +24,7 @@ export {
   moveProvider,
   pickProvider,
   replaceProviderCredential,
+  renameProvider,
   setProviderEnabled,
   simulateNextTest,
   testProvider,

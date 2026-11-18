@@ -210,6 +210,14 @@ export function useCreateProvider() {
   );
 }
 
+/** Rinomina un account, senza riconferma (F3, come il server). */
+export function useRenameProvider() {
+  return useWrite(
+    ([id, name]: [string, string]) => api.instance.renameProvider(id, name),
+    AI_WRITE_AREAS,
+  );
+}
+
 export function useSetProviderEnabled() {
   return useWrite(
     ([id, enabled]: [string, boolean]) => api.instance.setProviderEnabled(id, enabled),

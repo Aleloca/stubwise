@@ -353,6 +353,36 @@ describe("la catena dei provider", () => {
   });
 });
 
+describe("rinominare un provider (F3, come il server)", () => {
+  it("il nome cambia senza riconferma; la voce è provider.updated coi nomi e params.field «name»", async () => {
+    expect(state.reauth.has(ROBERTA)).toBe(false);
+    expect(await instance.renameProvider("prv-backup-max", "  Spare Max  ")).toEqual({ ok: true });
+    expect(byName("Spare Max").id).toBe("prv-backup-max");
+    expect(state.changelog.at(-1)).toMatchObject({
+      kind: "provider.updated",
+      object: { type: "provider", id: "prv-backup-max", label: "Spare Max" },
+      before: "Backup Max",
+      after: "Spare Max",
+      params: { field: "name" },
+    });
+  });
+
+  it("un nome vuoto o già usato è invalid; lo stesso nome non scrive niente; senza permesso forbidden", async () => {
+    await refused(() => instance.renameProvider("prv-backup-max", "   "), {
+      error: "invalid",
+      reason: "name",
+    });
+    await refused(() => instance.renameProvider("prv-backup-max", "team max"), {
+      error: "invalid",
+      reason: "name_taken",
+    });
+    expect(await instance.renameProvider("prv-backup-max", "Backup Max")).toEqual({ ok: true });
+    expect(kinds()).toEqual([]);
+    as(MARCO);
+    await refused(() => instance.renameProvider("prv-backup-max", "X"), { error: "forbidden" });
+  });
+});
+
 describe("testProvider", () => {
   it("dà l'esito simulato, lo salva in lastTest, poi torna a ok", async () => {
     expect(await instance.simulateNextTest("prv-backup-max", "invalid_credentials")).toMatchObject({

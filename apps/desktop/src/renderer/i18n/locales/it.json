@@ -11036,6 +11036,17 @@
           "submit": "Elimina",
           "done": "{{name}} eliminato.",
           "action": "eliminare l'account AI {{name}}"
+        },
+        "rename": "Rinomina…",
+        "renameDialog": {
+          "title": "Rinomina {{name}}",
+          "name": "Nome",
+          "submit": "Rinomina",
+          "done": "Rinominato in {{name}}.",
+          "errors": {
+            "name": "Dai un nome all'account.",
+            "taken": "Un altro account AI ha già questo nome."
+          }
         }
       },
       "models": {

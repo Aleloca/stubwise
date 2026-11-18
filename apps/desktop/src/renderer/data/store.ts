@@ -800,6 +800,7 @@ export type ApiFnName =
   // AI (area 9b, Task 3): provider, modelli, automazione, budget e lingua
   | "instance.listProviders"
   | "instance.createProvider"
+  | "instance.renameProvider"
   | "instance.setProviderEnabled"
   | "instance.moveProvider"
   | "instance.testProvider"

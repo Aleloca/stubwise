@@ -11036,6 +11036,17 @@
           "submit": "Delete",
           "done": "{{name}} deleted.",
           "action": "delete the AI account {{name}}"
+        },
+        "rename": "Rename…",
+        "renameDialog": {
+          "title": "Rename {{name}}",
+          "name": "Name",
+          "submit": "Rename",
+          "done": "Renamed to {{name}}.",
+          "errors": {
+            "name": "Give the account a name.",
+            "taken": "Another AI account already has this name."
+          }
         }
       },
       "models": {
