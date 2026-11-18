@@ -55,13 +55,19 @@ export async function instanceStatusRoutes(instance: FastifyInstance): Promise<v
       if (check.reason === "not_retryable") return apiError(reply, 422, "not_retryable", "Only a failed run of a task, in the last 7 days, can be retried");
       if (check.retryBlock) return apiError(reply, 422, "monthly_budget", "The monthly AI budget is used up");
       if (check.retry !== "allowed") return apiError(reply, 403, "forbidden", "Missing permission");
-      const result = await startRun(app.db, { ticketId: facts.ticketId, actor: { id: request.user!.id, permissions: perms as never }, publicUrl: publicUrlOrUndefined(app) });
+      // La voce `job.retried` nella transazione di `startRun` (change-log.md):
+      // esiste esattamente quando il job riparte.
+      const result = await startRun(app.db, {
+        ticketId: facts.ticketId,
+        actor: { id: request.user!.id, permissions: perms as never },
+        publicUrl: publicUrlOrUndefined(app),
+        afterInTx: (tx) => recordChange(tx, { type: "job.retried", actor: request.user!, projectId: facts.projectId, data: { object: { type: "task", id: facts.ticketId, label: facts.code } } }),
+      });
       if (!result.ok) {
         if (result.error === "job_in_flight") return apiError(reply, 409, "conflict", "The task already has newer work running");
         if (result.error === "forbidden") return apiError(reply, 403, "forbidden", "Missing permission");
         return apiError(reply, 409, result.error, "The run could not start");
       }
-      await recordChange(app.db, { type: "job.retried", actor: request.user!, projectId: facts.projectId, data: { object: { type: "task", id: facts.ticketId, label: facts.code } } });
       return reply.code(202).send({ jobId: result.jobId, status: result.status, stopsAtPlan: check.retryStopsAtPlan });
     },
   );

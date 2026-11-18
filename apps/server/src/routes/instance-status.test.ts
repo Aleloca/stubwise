@@ -8,6 +8,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { fullSessionCookie, seedUsers } from "../test/fixtures.js";
 import { nightlyRows, retryCheck } from "../services/instance-status.js";
+import { recordChange } from "../services/change-log.js";
+import { startRun } from "../services/jobs.js";
 
 /**
  * Area 9, F4, Task 4: lo Stato dell'istanza. La forma del prototipo,
@@ -241,10 +243,41 @@ describe("il rilancio (Task 6)", () => {
     expect((await jobsOf(s.ticketId))[0]!.status).toBe("failed");
   });
 
+  it("change-log.md: la voce si scrive nella transazione di startRun (afterInTx) — c'è esattamente quando il job riparte", async () => {
+    const actor = { id: adminId, permissions: new Set(["runs.start", "plans.approve"]) as never };
+    const entriesFor = async (ticketId: string) => (await db.select().from(changeLog).where(eq(changeLog.type, "job.retried"))).filter((e) => (e.data as { object: { id: string } }).object.id === ticketId);
+    const entry = (tx: Parameters<NonNullable<Parameters<typeof startRun>[1]["afterInTx"]>>[0], ticketId: string, projectId: string) =>
+      recordChange(tx, { type: "job.retried", actor: { id: adminId, email: "admin@example.com" }, projectId, data: { object: { type: "task", id: ticketId, label: "X-1" } } });
+
+    // Non riparte (un job in volo): la callback non gira, nessuna voce.
+    const busy = await seedTicket(db);
+    await job(busy.ticketId, { status: "fixing" });
+    let called = 0;
+    const r1 = await startRun(db, { ticketId: busy.ticketId, actor, afterInTx: async (tx) => { called++; await entry(tx, busy.ticketId, busy.projectId); } });
+    expect(r1.ok).toBe(false);
+    expect(called).toBe(0);
+    expect(await entriesFor(busy.ticketId)).toHaveLength(0);
+
+    // Un errore DOPO la voce, dentro la transazione: né voce né ripartenza.
+    const boom = await seedTicket(db);
+    const failedJob = await job(boom.ticketId, { status: "failed", finishedAt: minutesAgo(1) });
+    await expect(startRun(db, { ticketId: boom.ticketId, actor, afterInTx: async (tx) => { await entry(tx, boom.ticketId, boom.projectId); throw new Error("dopo la voce"); } })).rejects.toThrow("dopo la voce");
+    expect((await jobsOf(boom.ticketId)).find((j) => j.id === failedJob.id)!.status).toBe("failed");
+    expect(await entriesFor(boom.ticketId)).toHaveLength(0);
+
+    // Riparte: la voce c'è, una.
+    const r3 = await startRun(db, { ticketId: boom.ticketId, actor, afterInTx: (tx) => entry(tx, boom.ticketId, boom.projectId) });
+    expect(r3.ok).toBe(true);
+    expect(await entriesFor(boom.ticketId)).toHaveLength(1);
+  });
+
   it("il rilancio passa da startRun: la rotta non scrive ai_jobs da sé (test di sorgente)", async () => {
     const { readFileSync } = await import("node:fs");
     const source = readFileSync(new URL("./instance-status.ts", import.meta.url), "utf8");
     expect(source).toContain("startRun(");
     expect(source).not.toMatch(/insert\(aiJobs\)|update\(aiJobs\)/);
+    // La voce nella transazione di startRun, con la SUA tx (change-log.md).
+    expect(source).toMatch(/afterInTx: \(tx\) => recordChange\(tx,/);
+    expect(source).not.toMatch(/recordChange\(app\.db/);
   });
 });
