@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { addMember, fullSessionCookie, seedUsers } from "../test/fixtures.js";
+import { addMember, createUserWithPat, fullSessionCookie, seedUsers } from "../test/fixtures.js";
 
 /**
  * Area 9, F1 (aggiunta per R7): le letture calcolate di People. Il test
@@ -99,7 +99,7 @@ describe("People: le azioni d'accordo con le scritture", () => {
     const { projectId } = await seedRepository(db);
     const lead = await person("lead");
     await addMember(app, projectId, lead.id, "project_lead");
-    expect((await detail(adminCookie, lead.id)).body.actions.deactivate).toBe("last_members_manager");
+    expect((await detail(adminCookie, lead.id)).body.actions.deactivate).toBe("last_manager");
     expect((await app.inject({ method: "POST", url: `/api/users/${lead.id}/deactivate`, headers: { cookie: adminCookie }, payload: {} })).statusCode).toBe(409);
   });
 
@@ -167,5 +167,60 @@ describe("People: l'elenco e la visibilità", () => {
     expect(asAdmin.body).not.toContain(token);
     const invited = (asAdmin.json() as PersonRow[]).find((r) => r.status === "invited" && r.invite)!;
     expect(invited.invite!.id).toMatch(/^i_[0-9a-f]{32}$/);
+  });
+});
+
+describe("People: i rilievi della review", () => {
+  it("I1: il secondo fattore lo vede solo chi gestisce le persone o la persona stessa (null agli altri)", async () => {
+    const { projectId } = await seedRepository(db);
+    const dev = await person("dev");
+    await addMember(app, projectId, dev.id, "developer");
+    const asDev = await detail(dev.cookie, adminId);
+    expect(asDev.status).toBe(200);
+    expect(asDev.body.hasSecondFactor).toBeNull();
+    expect((await detail(dev.cookie, dev.id)).body.hasSecondFactor).toBe(true);
+    expect((await detail(adminCookie, dev.id)).body.hasSecondFactor).toBe(true);
+  });
+
+  it("M2: da un token che non è il browser né il desktop riconfermato, il reset è `browser_only` (e la scrittura dice di no)", async () => {
+    const pat = await createUserWithPat(app, `pat-${randomUUID().slice(0, 6)}@acme.com`);
+    const [r] = await db.insert(roles).values({ name: `Pat ${randomUUID().slice(0, 4)}`, scope: "instance", permissions: ["users.manage", "users.view_all"] }).returning({ id: roles.id });
+    await db.update(users).set({ instanceRoleId: r!.id }).where(eq(users.id, pat.id));
+    const target = await person();
+    const res = await app.inject({ method: "GET", url: `/api/admin/people/${target.id}`, headers: pat.headers });
+    expect((res.json() as PersonDetail).actions.resetPassword).toBe("browser_only");
+    const write = await app.inject({ method: "POST", url: `/api/users/${target.id}/password-reset`, headers: pat.headers });
+    expect(write.statusCode).toBeGreaterThanOrEqual(400);
+    expect((await detail(adminCookie, target.id)).body.actions.resetPassword).toBeNull();
+  });
+
+  it("M3: l'ultimo full admin — l'azione resta aperta, ma le SCELTE che gli toglierebbero l'amministrazione sono bloccate (⇔ 409)", async () => {
+    const [mgrRole] = await db.insert(roles).values({ name: `M3 ${randomUUID().slice(0, 4)}`, scope: "instance", permissions: ["users.manage", "users.view_all"] }).returning({ id: roles.id });
+    const m = await person("m3");
+    await db.update(users).set({ instanceRoleId: mgrRole!.id }).where(eq(users.id, m.id));
+    const { body } = await detail(m.cookie, adminId);
+    expect(body.actions.setInstanceRole).toBeNull();
+    const small = body.instanceRoleChoices.find((c) => c.roleId === mgrRole!.id)!;
+    expect(small.block).toBe("last_full_admin");
+    expect(body.instanceRoleChoices.find((c) => c.name === "Admin")!.block).toBeNull();
+    // D'accordo con la scrittura: la scelta bloccata dà 409 last_full_admin.
+    const res = await app.inject({ method: "PATCH", url: `/api/users/${adminId}/instance-role`, headers: { cookie: m.cookie }, payload: { roleId: mgrRole!.id } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: "last_full_admin" });
+  });
+
+  it("M5: il 409 last_manager della disattivazione non nomina un progetto che chi agisce non vede", async () => {
+    const { projectId } = await seedRepository(db);
+    const lead = await person("hidden-lead");
+    await addMember(app, projectId, lead.id, "project_lead");
+    const [mgrRole] = await db.insert(roles).values({ name: `M5 ${randomUUID().slice(0, 4)}`, scope: "instance", permissions: ["users.manage", "users.view_all"] }).returning({ id: roles.id });
+    const m = await person("m5");
+    await db.update(users).set({ instanceRoleId: mgrRole!.id }).where(eq(users.id, m.id));
+    const res = await app.inject({ method: "POST", url: `/api/users/${lead.id}/deactivate`, headers: { cookie: m.cookie }, payload: {} });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: "last_manager" });
+    expect(res.json()).not.toHaveProperty("projectId");
+    const asAdmin = await app.inject({ method: "POST", url: `/api/users/${lead.id}/deactivate`, headers: { cookie: adminCookie }, payload: {} });
+    expect(asAdmin.json()).toMatchObject({ code: "last_manager", projectId });
   });
 });

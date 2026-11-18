@@ -1,5 +1,6 @@
 import { inviteProjects, invites, projectMemberPermissions, projectMembers, projects, roles, users, type Db } from "@stubwise/db";
 import {
+  effectiveInstancePermissions,
   INSTANCE_PERMISSIONS,
   PROJECT_PERMISSIONS,
   type AdminRoleView,
@@ -11,13 +12,13 @@ import {
   type SourceView,
 } from "@stubwise/shared";
 import { alias } from "drizzle-orm/pg-core";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
-import { projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { projectPermissionsFor, projectPermissionsMap, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { instanceRoleChoicesFor, inviteIdOf, managedProjectIds, nameOf } from "./admin-people.js";
 import { avatarUrlsFor } from "./avatars.js";
 import { visiblePersonIds } from "./people-visibility.js";
-import { heldForProjectRole, lastManagerProjectOf, listRoles, missingToGrant, RoleRuleError } from "./roles.js";
+import { actorProjectPermissions, heldOver, lastManagerProjectOf, listRoles, missingToGrant, RoleRuleError } from "./roles.js";
 
 /**
  * Area 9, F1 (aggiunta per R7 e R8): ruoli, inviti, membri e l'anteprima di
@@ -44,8 +45,10 @@ export async function adminRoleViews(db: Db, viewer: Viewer): Promise<AdminRoleV
   const seesPerson = (id: string) => visiblePeople === "all" || visiblePeople.includes(id);
   const instanceHolders = await db.select({ userId: users.id, roleId: users.instanceRoleId }).from(users).where(and(eq(users.isAgent, false)));
   const projectHolders = await db.select({ userId: projectMembers.userId, projectId: projectMembers.projectId, roleId: projectMembers.roleId }).from(projectMembers);
-  const promised = await db.selectDistinct({ roleId: inviteProjects.roleId }).from(inviteProjects);
-  const heldForNew = await heldForProjectRole(db, viewer, null);
+  const promised = await db.selectDistinct({ roleId: inviteProjects.roleId, projectId: inviteProjects.projectId }).from(inviteProjects);
+  // Review (M6): i permessi di chi guarda progetto per progetto, letti UNA volta.
+  const byProject = await actorProjectPermissions(db, viewer);
+  const heldForNew = heldOver(byProject, []);
   const views: AdminRoleView[] = [];
   for (const role of all) {
     const isInstance = role.scope === "instance";
@@ -53,9 +56,14 @@ export async function adminRoleViews(db: Db, viewer: Viewer): Promise<AdminRoleV
       ? instanceHolders.filter((h) => h.roleId === role.id).map((h) => ({ personId: h.userId, projectId: null as string | null }))
       : projectHolders.filter((h) => h.roleId === role.id).map((h) => ({ personId: h.userId, projectId: h.projectId as string | null }));
     const holders = holdersAll.filter((h) => seesPerson(h.personId) && (h.projectId === null || visibleProjects.has(h.projectId)));
-    const applies = !isInstance && (holdersAll.length > 0 || promised.some((p) => p.roleId === role.id));
-    const held = isInstance ? viewer.instancePermissions : await heldForProjectRole(db, viewer, role.id);
+    const assigned = isInstance
+      ? []
+      : [...new Set([...holdersAll.map((h) => h.projectId!), ...promised.filter((p) => p.roleId === role.id).map((p) => p.projectId)])];
+    const applies = !isInstance && assigned.length > 0;
+    const held = isInstance ? viewer.instancePermissions : heldOver(byProject, assigned);
     const catalog: readonly string[] = isInstance ? INSTANCE_PERMISSIONS : PROJECT_PERMISSIONS;
+    // Review (M4): un ruolo d'istanza vale per i suoi permessi EFFETTIVI (il full admin li ha tutti).
+    const content: string[] = isInstance ? [...effectiveInstancePermissions(role.permissions)] : role.permissions;
     views.push({
       id: role.id,
       name: role.name,
@@ -64,10 +72,10 @@ export async function adminRoleViews(db: Db, viewer: Viewer): Promise<AdminRoleV
       presetKey: role.presetKey,
       peopleCount: holders.length,
       holders,
-      missing: missingToGrant(viewer, role.permissions, held),
+      missing: missingToGrant(viewer, content, held),
       reach: isInstance ? "instance" : applies ? "projects" : "anywhere",
-      notGivable: catalog.filter((p) => !role.permissions.includes(p) && missingToGrant(viewer, [p], held).length > 0),
-      copyMissing: missingToGrant(viewer, role.permissions, isInstance ? viewer.instancePermissions : heldForNew),
+      notGivable: catalog.filter((p) => !content.includes(p) && missingToGrant(viewer, [p], held).length > 0),
+      copyMissing: missingToGrant(viewer, content, isInstance ? viewer.instancePermissions : heldForNew),
       affectedCount: holdersAll.length,
       fullAdminImplies: isInstance ? INSTANCE_PERMISSIONS.filter((p) => p !== "instance.full_admin") : [],
       deleteBlock: role.presetKey && SYSTEM_PRESET_KEYS.has(role.presetKey) ? "preset" : role.assignmentCount > 0 ? "in_use" : null,
@@ -80,8 +88,16 @@ export async function adminRoleViews(db: Db, viewer: Viewer): Promise<AdminRoleV
 /** I ruoli di progetto con ciò che manca a chi guarda per darli NEL progetto (la regola di `putProjectMember`). */
 async function projectRoleChoices(db: Db, viewer: Viewer, held: ReadonlySet<string>): Promise<RoleChoice[]> {
   const rows = await db.select({ id: roles.id, name: roles.name, permissions: roles.permissions }).from(roles).where(eq(roles.scope, "project")).orderBy(asc(roles.name));
-  return rows.map((r) => ({ roleId: r.id, name: r.name, permissionCount: r.permissions.length, missing: missingToGrant(viewer, r.permissions, held) }));
+  return rows.map((r) => roleChoiceOf(viewer, r, held));
 }
+
+const roleChoiceOf = (viewer: Viewer, r: { id: string; name: string; permissions: string[] }, held: ReadonlySet<string>): RoleChoice => ({
+  roleId: r.id,
+  name: r.name,
+  permissionCount: r.permissions.length,
+  missing: missingToGrant(viewer, r.permissions, held),
+  block: null,
+});
 
 /** `GET /api/admin/invites`: gli inviti pendenti, coi soli progetti visibili; l'id è opaco. */
 export async function inviteViews(db: Db, viewer: Viewer): Promise<InviteView[]> {
@@ -116,8 +132,12 @@ export async function inviteViews(db: Db, viewer: Viewer): Promise<InviteView[]>
 
 /** Il token di un invito dal suo id opaco (la revoca da `DELETE /api/admin/invites/:id`), o null. */
 export async function inviteTokenOf(db: Db, id: string): Promise<string | null> {
-  const rows = await db.select({ token: invites.token }).from(invites);
-  return rows.find((r) => inviteIdOf(r.token) === id)?.token ?? null;
+  // Review (M6): la stessa derivazione di `inviteIdOf`, nella WHERE.
+  const [row] = await db
+    .select({ token: invites.token })
+    .from(invites)
+    .where(sql`'i_' || left(encode(sha256(('invite:' || ${invites.token})::bytea), 'hex'), 32) = ${id}`);
+  return row && inviteIdOf(row.token) === id ? row.token : null;
 }
 
 /** `GET /api/admin/invite-choices`: le scelte del dialogo, con la regola di `assertInviteGrants`. */
@@ -126,11 +146,13 @@ export async function inviteChoices(db: Db, viewer: Viewer): Promise<InviteChoic
   const managed = await managedProjectIds(db, viewer, projectIds);
   const [userPreset] = await db.select({ id: roles.id }).from(roles).where(and(eq(roles.presetKey, "user"), eq(roles.scope, "instance")));
   const list = managed.size ? await db.select({ id: projects.id, code: projects.code, name: projects.name }).from(projects).where(inArray(projects.id, [...managed])).orderBy(asc(projects.code)) : [];
-  const projectsChoices = [];
-  for (const p of list) {
-    const held = (await projectPermissionsFor(db, viewer, p.id)) ?? new Set<string>();
-    projectsChoices.push({ projectId: p.id, code: p.code, name: p.name, roles: await projectRoleChoices(db, viewer, held) });
-  }
+  // Review (M6): i ruoli e i permessi per progetto letti UNA volta.
+  const projectRoles = await db.select({ id: roles.id, name: roles.name, permissions: roles.permissions }).from(roles).where(eq(roles.scope, "project")).orderBy(asc(roles.name));
+  const perProject = await projectPermissionsMap(db, viewer);
+  const projectsChoices = list.map((p) => {
+    const held = new Set<string>(perProject[p.id] ?? []);
+    return { projectId: p.id, code: p.code, name: p.name, roles: projectRoles.map((r) => roleChoiceOf(viewer, r, held)) };
+  });
   return { instanceRoles: await instanceRoleChoicesFor(db, viewer), defaultInstanceRoleId: userPreset?.id ?? null, projects: projectsChoices };
 }
 
@@ -217,11 +239,16 @@ export async function previewMember(db: Db, viewer: Viewer, projectId: string, u
   const held = (await projectPermissionsFor(db, viewer, projectId)) ?? new Set<string>();
   const [role] = await db.select({ id: roles.id, name: roles.name, permissions: roles.permissions, scope: roles.scope }).from(roles).where(eq(roles.id, draft.roleId));
   if (!role || role.scope !== "project") throw new RoleRuleError(404, "role_not_found", "Role not found");
-  const [target] = await db.select({ id: users.id, deactivatedAt: users.deactivatedAt }).from(users).where(eq(users.id, userId));
-  if (!target) throw new RoleRuleError(404, "user_not_found", "User not found");
+  // Review (M1): gli stessi rifiuti del salvataggio — Claude non esiste come
+  // membro (404, come la rotta), un permesso sconosciuto è 422, e un
+  // disattivato non entra (`block: user_deactivated`, la 422 del PUT).
+  const [target] = await db.select({ id: users.id, deactivatedAt: users.deactivatedAt, isAgent: users.isAgent }).from(users).where(eq(users.id, userId));
+  if (!target || target.isAgent) throw new RoleRuleError(404, "user_not_found", "User not found");
+  const unknown = [...new Set(draft.granted)].filter((p) => !(PROJECT_PERMISSIONS as readonly string[]).includes(p));
+  if (unknown.length > 0) throw new RoleRuleError(422, "unknown_permission", `Not a project permission: ${unknown[0]}`, { permission: unknown[0]! });
   const saved = await grantsIn(db, projectId, userId);
   const had = new Set(saved.map((g) => g.permission));
-  const wanted = [...new Set(draft.granted)].filter((p) => (PROJECT_PERMISSIONS as readonly string[]).includes(p));
+  const wanted = [...new Set(draft.granted)];
   const added = wanted.filter((p) => !had.has(p));
   const sourcesOf = new Map<string, SourceView[]>();
   const push = (p: string, s: SourceView) => sourcesOf.set(p, [...(sourcesOf.get(p) ?? []), s]);
@@ -239,8 +266,9 @@ export async function previewMember(db: Db, viewer: Viewer, projectId: string, u
     removing: saved.filter((g) => !wanted.includes(g.permission)).map((g) => ({ permission: g.permission, source: grantSource(g) })),
     roleChoices: await projectRoleChoices(db, viewer, held),
     missing: [...new Set([...missingToGrant(viewer, role.permissions, held), ...missingToGrant(viewer, added, held)])],
-    block: losesManage ? "last_members_manager" : null,
-    removeBlock: !target.deactivatedAt && (await lastManagerProjectOf(db, userId, [projectId])) !== null ? "last_members_manager" : null,
+    // Un codice solo, quello della scrittura (M7).
+    block: target.deactivatedAt ? "user_deactivated" : losesManage ? "last_manager" : null,
+    removeBlock: !target.deactivatedAt && (await lastManagerProjectOf(db, userId, [projectId])) !== null ? "last_manager" : null,
     viewerLoses: viewerHas,
   };
 }

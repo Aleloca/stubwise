@@ -6,6 +6,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { seedUsers } from "../test/fixtures.js";
+import { inviteIdOf } from "../services/admin-people.js";
 
 /**
  * Area 9, F1 (decisione del maintainer): la lettura pubblica dell'invito e
@@ -94,5 +95,47 @@ describe("register con l'email dell'invito", () => {
     expect(wrong.json()).toMatchObject({ code: "invite_email_mismatch" });
     expect(await db.select().from(users).where(eq(users.email, "altro@acme.com"))).toHaveLength(0);
     expect(await db.select().from(invites).where(eq(invites.token, c.token))).toHaveLength(1);
+  });
+});
+
+describe("il nome nel corpo di register e setup (review di F1, C1) e l'id dell'invito (I2)", () => {
+  it("register con `displayName`: lo scrive sulla persona NUOVA, e il cookie di un'altra nel browser non la tocca", async () => {
+    const [adminBefore] = await db.select({ displayName: users.displayName }).from(users).where(eq(users.id, adminId));
+    const { fullSessionCookie } = await import("../test/fixtures.js");
+    const adminSession = await fullSessionCookie(app, adminId);
+    const i = await invite();
+    const res = await app.inject({ method: "POST", url: "/api/auth/register", headers: { cookie: adminSession }, payload: { token: i.token, password: "una-password-lunga-123", displayName: "Bea Nuova" }, remoteAddress: fromNewIp() });
+    expect(res.statusCode).toBe(201);
+    const [created] = await db.select({ displayName: users.displayName }).from(users).where(eq(users.email, i.email));
+    expect(created!.displayName).toBe("Bea Nuova");
+    const [adminAfter] = await db.select({ displayName: users.displayName }).from(users).where(eq(users.id, adminId));
+    expect(adminAfter!.displayName).toBe(adminBefore!.displayName);
+    // Le regole di PATCH /api/auth/me: niente a capo.
+    const j = await invite();
+    expect((await register({ token: j.token, password: "una-password-lunga-123", displayName: "Bea\nX" })).statusCode).toBe(400);
+  });
+
+  it("setup con `displayName`, su un'istanza vergine", async () => {
+    const fresh = await startTestDb();
+    const freshApp = buildApp({ db: fresh.db, sessionSecret: "segreto-di-test-lungo-almeno-32-caratteri!!", encryptionKey: Buffer.alloc(32, 6).toString("base64") });
+    try {
+      const res = await freshApp.inject({ method: "POST", url: "/api/auth/setup", payload: { email: "first@acme.com", password: "una-password-lunga-123", displayName: "Ada Prima" }, remoteAddress: fromNewIp() });
+      expect(res.statusCode).toBe(201);
+      const [u] = await fresh.db.select({ displayName: users.displayName }).from(users).where(eq(users.email, "first@acme.com"));
+      expect(u!.displayName).toBe("Ada Prima");
+    } finally {
+      await freshApp.close();
+      await fresh.stop();
+    }
+  }, 120_000);
+
+  it("la creazione dell'invito restituisce l'id OPACO del server", async () => {
+    const { fullSessionCookie } = await import("../test/fixtures.js");
+    const cookie = await fullSessionCookie(app, adminId);
+    const res = await app.inject({ method: "POST", url: "/api/auth/invites", headers: { cookie }, payload: { email: `id-${randomUUID().slice(0, 6)}@acme.com` } });
+    expect(res.statusCode).toBe(201);
+    const body = res.json() as { id: string; token: string };
+    expect(body.id).toBe(inviteIdOf(body.token));
+    expect(body.id).toMatch(/^i_[0-9a-f]{32}$/);
   });
 });
