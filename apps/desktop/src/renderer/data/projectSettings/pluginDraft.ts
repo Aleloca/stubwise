@@ -23,7 +23,8 @@ export const RECOMMENDED_PRESETS: Readonly<Record<string, readonly string[]>> = 
 };
 
 export interface ProjectPluginsView {
-  version: number;
+  /** Opaca, come quella del server (F5, `ifMatch`): si rimanda così com'è. */
+  version: string;
   canEdit: boolean;
   plugins: {
     name: string;

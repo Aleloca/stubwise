@@ -54,7 +54,7 @@ interface Edits {
   /** Le chiavi spente della versione da cui la bozza è partita. */
   start: Set<string>;
   /** La `version` letta: quella che «Save» manda. */
-  version: number;
+  version: string;
   keys: Set<string>;
 }
 

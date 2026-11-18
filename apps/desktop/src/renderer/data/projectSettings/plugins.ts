@@ -112,7 +112,7 @@ export async function getProjectPlugins(projectId: string): Promise<ProjectPlugi
   if (!project) return null;
   const choices = settingsOf(project).plugins;
   return {
-    version: choices.version,
+    version: String(choices.version),
     canEdit: canI(me, MANAGE_SETTINGS, project.id),
     plugins: [baseRow(), ...state.instance.plugins.map((p) => registryRow(p, choices))],
   };
@@ -174,8 +174,8 @@ function normalized(
  */
 export async function saveProjectPlugins(
   projectId: string,
-  input: { version: number; disabled: ProjectPluginChoices["disabled"] },
-): Promise<ProjectResult<{ version: number }>> {
+  input: { version: string; disabled: ProjectPluginChoices["disabled"] },
+): Promise<ProjectResult<{ version: string }>> {
   const me = await writer("projectSettings.saveProjectPlugins");
   const managed = managedProject(me, projectId);
   if ("refusal" in managed) return managed.refusal;
@@ -183,7 +183,7 @@ export async function saveProjectPlugins(
   const choices = settingsOf(project).plugins;
   const clean = normalized(input.disabled, choices.disabled);
   if ("reason" in clean) return refuse.invalid(clean.reason);
-  if (input.version !== choices.version) return refuse.conflict();
+  if (input.version !== String(choices.version)) return refuse.conflict();
 
   // [PG 4]: le scelte di un plugin non `ready` che l'input non nomina restano.
   const ready = (name: string) =>
@@ -193,7 +193,7 @@ export async function saveProjectPlugins(
     ...choices.disabled.filter((d) => !clean.named.has(d.plugin) && !ready(d.plugin)),
   ].sort((a, b) => a.plugin.localeCompare(b.plugin));
   const diff = changedFields(disabledKeys(choices.disabled), disabledKeys(disabled));
-  if (!diff) return { ok: true, version: choices.version };
+  if (!diff) return { ok: true, version: String(choices.version) };
   choices.disabled = disabled;
   choices.version += 1;
   recordChange({
@@ -203,7 +203,7 @@ export async function saveProjectPlugins(
     object: projectObject(project),
     ...diff,
   });
-  return { ok: true, version: choices.version };
+  return { ok: true, version: String(choices.version) };
 }
 
 /**

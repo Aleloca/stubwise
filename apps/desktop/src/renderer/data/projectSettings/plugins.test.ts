@@ -37,7 +37,8 @@ describe("la lettura dei plugin del progetto", () => {
     as(LAURA);
     const view = (await projectSettings.getProjectPlugins(ACQ))!;
     expect(view.canEdit).toBe(true);
-    expect(view.version).toBe(1);
+    // F5: la versione è opaca, come quella del server (una stringa).
+    expect(view.version).toBe("1");
     expect(view.plugins.map((p) => [p.name, p.base, p.status, p.inRuns])).toEqual([
       ["stubwise", true, "ready", true],
       ["superpowers", false, "ready", true],
@@ -130,10 +131,10 @@ describe("skillsForRun e «/»", () => {
     expect((await listCommands(ACQ)).map((c) => c.label)).toContain("/superpowers:brainstorming");
     expect(
       await projectSettings.saveProjectPlugins(ACQ, {
-        version: 1,
+        version: "1",
         disabled: [{ plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] }],
       }),
-    ).toEqual({ ok: true, version: 2 });
+    ).toEqual({ ok: true, version: "2" });
     expect(runSkills(ACQ)).not.toContain("superpowers:brainstorming");
     const labels = (await listCommands(ACQ)).map((c) => c.label);
     expect(labels).not.toContain("/superpowers:brainstorming");
@@ -159,14 +160,14 @@ describe("il salvataggio dei plugin", () => {
         version: view.version,
         disabled: projectSettings.pluginDisabledInput(view, keys),
       }),
-    ).toEqual({ ok: true, version: view.version + 1 });
+    ).toEqual({ ok: true, version: String(Number(view.version) + 1) });
     expect(choicesOf(ACQ).disabled).toEqual([
       { plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] },
     ]);
     // Un nome inventato, che non era fra le scelte salvate, resta un invalid.
     expect(
       await projectSettings.saveProjectPlugins(ACQ, {
-        version: view.version + 1,
+        version: String(Number(view.version) + 1),
         disabled: [{ plugin: "superpowers", skills: ["nope"], hookGroups: [] }],
       }),
     ).toMatchObject({ error: "invalid", reason: "skill" });
@@ -177,13 +178,13 @@ describe("il salvataggio dei plugin", () => {
     as(LAURA);
     const first = (await projectSettings.getProjectPlugins(ACQ))!;
     const second = (await projectSettings.getProjectPlugins(ACQ))!;
-    expect([first.version, second.version]).toEqual([3, 3]);
+    expect([first.version, second.version]).toEqual(["3", "3"]);
     expect(
       await projectSettings.saveProjectPlugins(ACQ, {
         version: first.version,
         disabled: [{ plugin: "superpowers", skills: ["writing-plans"], hookGroups: [] }],
       }),
-    ).toEqual({ ok: true, version: 4 });
+    ).toEqual({ ok: true, version: "4" });
     const after = JSON.stringify(choicesOf(ACQ));
     const written = entries().length;
     expect(
@@ -202,7 +203,7 @@ describe("il salvataggio dei plugin", () => {
   it("una voce sola, con le skill e i gruppi di hook spenti prima e dopo, chiavi stabili", async () => {
     as(LAURA);
     await projectSettings.saveProjectPlugins(ACQ, {
-      version: 1,
+      version: "1",
       disabled: [
         {
           plugin: "superpowers",
@@ -226,7 +227,7 @@ describe("il salvataggio dei plugin", () => {
     as(LAURA);
     const preset = projectSettings.RECOMMENDED_PRESETS.superpowers!;
     await projectSettings.saveProjectPlugins(ACQ, {
-      version: 1,
+      version: "1",
       disabled: [{ plugin: "superpowers", skills: [...preset], hookGroups: [] }],
     });
     const sp = (await projectSettings.getProjectPlugins(ACQ))!.plugins.find(
@@ -243,10 +244,10 @@ describe("il salvataggio dei plugin", () => {
     // valgono quando sarà pronto.
     expect(
       await projectSettings.saveProjectPlugins(ACQ, {
-        version: 1,
+        version: "1",
         disabled: [{ plugin: "lint-helpers", skills: ["fix-lint"], hookGroups: ["Stop#0"] }],
       }),
-    ).toEqual({ ok: true, version: 2 });
+    ).toEqual({ ok: true, version: "2" });
     const lint = () =>
       projectSettings
         .getProjectPlugins(ACQ)
@@ -260,10 +261,10 @@ describe("il salvataggio dei plugin", () => {
     // Una pagina che non le rimanda (salva solo superpowers) non le cancella.
     expect(
       await projectSettings.saveProjectPlugins(ACQ, {
-        version: 2,
+        version: "2",
         disabled: [{ plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] }],
       }),
-    ).toEqual({ ok: true, version: 3 });
+    ).toEqual({ ok: true, version: "3" });
     expect(choicesOf(ACQ).disabled).toEqual([
       { plugin: "lint-helpers", skills: ["fix-lint"], hookGroups: ["Stop#0"] },
       { plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] },
@@ -275,21 +276,21 @@ describe("il salvataggio dei plugin", () => {
     // Nominarlo con le liste vuote lo riaccende, quello sì.
     expect(
       await projectSettings.saveProjectPlugins(ACQ, {
-        version: 3,
+        version: "3",
         disabled: [
           { plugin: "lint-helpers", skills: [], hookGroups: [] },
           { plugin: "superpowers", skills: ["brainstorming"], hookGroups: [] },
         ],
       }),
-    ).toEqual({ ok: true, version: 4 });
+    ).toEqual({ ok: true, version: "4" });
     expect(choicesOf(ACQ).disabled.map((d) => d.plugin)).toEqual(["superpowers"]);
   });
 
   it("salvare senza cambiare niente non scrive voci né cambia versione", async () => {
     as(LAURA);
-    expect(await projectSettings.saveProjectPlugins(ACQ, { version: 1, disabled: [] })).toEqual({
+    expect(await projectSettings.saveProjectPlugins(ACQ, { version: "1", disabled: [] })).toEqual({
       ok: true,
-      version: 1,
+      version: "1",
     });
     expect(entries()).toHaveLength(0);
   });
@@ -297,7 +298,7 @@ describe("il salvataggio dei plugin", () => {
   it("i rifiuti: base_plugin, plugin/skill/hook sconosciuti, forbidden, not_found", async () => {
     as(LAURA);
     const save = (disabled: Parameters<typeof projectSettings.saveProjectPlugins>[1]["disabled"]) =>
-      projectSettings.saveProjectPlugins(ACQ, { version: 1, disabled });
+      projectSettings.saveProjectPlugins(ACQ, { version: "1", disabled });
     expect(await save([{ plugin: "stubwise", skills: ["init"], hookGroups: [] }])).toEqual({
       ok: false,
       error: "invalid",
@@ -316,7 +317,7 @@ describe("il salvataggio dei plugin", () => {
     as(SARA);
     expect(await save([])).toEqual({ ok: false, error: "forbidden" });
     as(ROBERTA);
-    expect(await projectSettings.saveProjectPlugins(RNC, { version: 1, disabled: [] })).toEqual({
+    expect(await projectSettings.saveProjectPlugins(RNC, { version: "1", disabled: [] })).toEqual({
       ok: false,
       error: "not_found",
     });
