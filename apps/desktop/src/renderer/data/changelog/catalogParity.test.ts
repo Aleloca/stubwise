@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import en from "../../i18n/locales/en.json";
 import it_ from "../../i18n/locales/it.json";
 import { ADMIN_CHANGE_TYPES } from "../admin/changeTypes";
+import { INSTANCE_CHANGE_TYPES } from "../instance/changeTypes";
 
 // Area 9, F2: la terza gamba della parità del registro delle modifiche. Il
 // catalogo del server (`CHANGE_LOG_TYPES` di `@stubwise/shared`) ha i tipi del
@@ -21,7 +22,7 @@ function at(tree: unknown, path: string): unknown {
 
 describe("il catalogo del registro: server, prototipo e frasi (area 9, F2)", () => {
   it.each(CHANGE_LOG_TYPES.map((t) => [t.kind, t] as const))("%s", (kind, server) => {
-    const proto = ADMIN_CHANGE_TYPES.find((t) => t.kind === kind);
+    const proto = [...ADMIN_CHANGE_TYPES, ...INSTANCE_CHANGE_TYPES].find((t) => t.kind === kind);
     expect(proto, `${kind} manca nel prototipo`).toBeDefined();
     expect({
       scope: proto!.scope,
@@ -47,5 +48,30 @@ describe("il catalogo del registro: server, prototipo e frasi (area 9, F2)", () 
   it("il prototipo non ha tipi d'amministrazione che il server non conosce", () => {
     const server = new Set<string>(CHANGE_LOG_TYPES.map((t) => t.kind));
     expect(ADMIN_CHANGE_TYPES.map((t) => t.kind).filter((k) => !server.has(k))).toEqual([]);
+  });
+
+  // F3: i tipi d'istanza della 9b. Quelli che il server non scrive ancora
+  // (i server e la coda: aree 8 e 9c) sono un elenco DICHIARATO, così un tipo
+  // nuovo solo nel prototipo si nota.
+  it("i tipi d'istanza del prototipo: o il server li conosce, o sono fra quelli dichiarati", () => {
+    const server = new Set<string>(CHANGE_LOG_TYPES.map((t) => t.kind));
+    expect(
+      INSTANCE_CHANGE_TYPES.map((t) => t.kind)
+        .filter((k) => !server.has(k))
+        .sort(),
+    ).toEqual(
+      [
+        "job.retried",
+        "queue.paused",
+        "queue.resumed",
+        "server.agent_key_regenerated",
+        "server.check_changed",
+        "server.created",
+        "server.deleted",
+        "server.ssh_access_changed",
+        "server.thresholds_changed",
+        "server.updated",
+      ].sort(),
+    );
   });
 });
