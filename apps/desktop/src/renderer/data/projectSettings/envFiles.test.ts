@@ -162,8 +162,9 @@ describe("le scritture dei file d'ambiente", () => {
     expect(values()).toContain("second-prototype-value-0007");
     expect(values()).not.toContain("first-prototype-value-0006");
     expect(entries("env_var.set").map((e) => e.params)).toEqual([
-      { environment: "Production", repository: "stubwise", key: "SENTRY_DSN" },
-      { environment: "Production", repository: "stubwise", key: "SENTRY_DSN" },
+      // F5 (K-3): il nome della variabile in `variable`, come il server.
+      { environment: "Production", repository: "stubwise", variable: "SENTRY_DSN" },
+      { environment: "Production", repository: "stubwise", variable: "SENTRY_DSN" },
     ]);
     expect(await projectSettings.removeEnvVar(STW_PROD_FILE, "SENTRY_DSN")).toEqual({ ok: true });
     expect(values()).not.toContain("second-prototype-value-0007");
@@ -171,7 +172,7 @@ describe("le scritture dei file d'ambiente", () => {
     expect(entries("env_var.removed")[0]!.params).toEqual({
       environment: "Production",
       repository: "stubwise",
-      key: "SENTRY_DSN",
+      variable: "SENTRY_DSN",
     });
 
     await projectSettings.setEnvVar(STW_PROD_FILE, "OTHER", "third-prototype-value-0008");

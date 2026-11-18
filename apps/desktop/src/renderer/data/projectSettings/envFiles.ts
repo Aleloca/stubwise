@@ -19,7 +19,7 @@ import type { ProjectRefusal, ProjectResult } from "./types";
 //   `CLAUDE.md`): gli altri si conservano per essere sostituiti.
 // - Importare, impostare, rimuovere una variabile ed eliminare un file
 //   chiedono la riconferma (+R); creare un file vuoto no.
-// - Le voci dicono il nome della variabile (`params.key`), mai il valore;
+// - Le voci dicono il nome della variabile (`params.variable`, F5 K-3), mai il valore;
 //   `env_file.imported` dice quante (`params.count`). L'oggetto è il file,
 //   col percorso come etichetta (un nome dato da una persona).
 
@@ -258,7 +258,7 @@ export async function setEnvVar(
     actorId: me,
     projectId,
     object: fileObject(file),
-    params: { ...fileParams(file), key },
+    params: { ...fileParams(file), variable: key },
   });
   return { ok: true };
 }
@@ -281,7 +281,7 @@ export async function removeEnvVar(fileId: string, key: string): Promise<Project
     actorId: me,
     projectId,
     object: fileObject(file),
-    params: { ...fileParams(file), key },
+    params: { ...fileParams(file), variable: key },
   });
   return { ok: true };
 }

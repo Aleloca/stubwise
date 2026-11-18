@@ -12369,8 +12369,8 @@
         "imported_other": "<actor>{{actor}}</actor> ha importato {{count}} variabili in <object>{{object}}</object> (<strong>{{environment}}</strong>)."
       },
       "env_var": {
-        "set": "<actor>{{actor}}</actor> ha impostato <strong>{{key}}</strong> in <object>{{object}}</object> (<strong>{{environment}}</strong>).",
-        "removed": "<actor>{{actor}}</actor> ha rimosso <strong>{{key}}</strong> da <object>{{object}}</object> (<strong>{{environment}}</strong>)."
+        "set": "<actor>{{actor}}</actor> ha impostato <strong>{{variable}}</strong> in <object>{{object}}</object> (<strong>{{environment}}</strong>).",
+        "removed": "<actor>{{actor}}</actor> ha rimosso <strong>{{variable}}</strong> da <object>{{object}}</object> (<strong>{{environment}}</strong>)."
       },
       "environment": {
         "created": "<actor>{{actor}}</actor> ha creato l'ambiente <object>{{object}}</object> in {{project}}.",
