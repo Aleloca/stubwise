@@ -31,6 +31,10 @@ import {
   type PushRelayClient,
   type SlackBlock,
   type SlackMessenger,
+  contentLanguageOf,
+  sendableWebhook,
+  sendToWebhook,
+  type SendableWebhook,
 } from "@stubwise/notifications";
 import type { PushPlatform, PushRelaySendResponse } from "@stubwise/shared";
 import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
@@ -137,6 +141,11 @@ export interface DeliveriesPollerDeps {
   encryptionKey: Buffer;
   /** Invio webhook iniettabile nei test. Default sendWebhookEvent. */
   sendWebhook?: SendWebhookFn;
+  /**
+   * Area 9, F3: l'invio a UN webhook (col suo formato e la sua firma),
+   * iniettabile nei test. Default `sendToWebhook` di `@stubwise/notifications`.
+   */
+  sendToWebhook?: (webhook: SendableWebhook, event: NotificationEvent, lang: "en" | "it") => Promise<unknown>;
   /** Caricamento del bot token iniettabile nei test. Default loadSlackBotToken. */
   loadSlackBotToken?: LoadSlackBotTokenFn;
   /** Client Slack iniettabile nei test. Default createSlackClient (rete vera). */
@@ -278,10 +287,34 @@ async function processDelivery(
     return;
   }
 
-  const send = deps.sendWebhook ?? sendWebhookEvent;
   // Il cast è il punto in cui il jsonb torna il tipo forte dell'unione: è
   // `publishNotification` ad averlo scritto da un NotificationEvent.
   const event = row.event as unknown as NotificationEvent;
+
+  // Area 9, F3: la consegna di UN webhook (dalla 0188), col suo formato e il
+  // suo segreto. Spento nel frattempo: si chiude senza invio (eliminato: la
+  // consegna è già sparita in cascata). Un errore ritenta SOLO questa
+  // consegna, così un webhook che fallisce non ferma gli altri.
+  if (row.webhookId) {
+    // Tutto dentro il try, lettura e decifratura comprese (review di F3): un
+    // segreto che non si decifra o un errore del DB ritentano e, al tetto,
+    // chiudono la consegna `failed`, invece di lasciarla pending per sempre.
+    try {
+      const webhook = await sendableWebhook(db, row.webhookId, deps.encryptionKey);
+      if (!webhook) {
+        await finish(db, row.id, "skipped", "webhook_disabled");
+        return;
+      }
+      await (deps.sendToWebhook ?? sendToWebhook)(webhook, event, await contentLanguageOf(db));
+      await finish(db, row.id, "sent", null);
+    } catch (err) {
+      await retryOrFail(deps, row, errText(err));
+    }
+    return;
+  }
+
+  // Una consegna di PRIMA della 0188 (senza webhook): il percorso di allora.
+  const send = deps.sendWebhook ?? sendWebhookEvent;
   try {
     await send(db, event);
     await finish(db, row.id, "sent", null);

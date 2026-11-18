@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { aiProviders, decrypt, projects } from "@stubwise/db";
+import { aiProviders, aiUsageSnapshots, decrypt, projects } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
@@ -65,6 +65,10 @@ describe("POST /api/ai-providers", () => {
       testRequestedAt: null,
       testCheckedAt: null,
       testError: null,
+      lastEnabled: expect.any(Boolean),
+      last4: PLAINTEXT_SECRET.slice(-4),
+      limitedUntil: null,
+      quotaBand: "ok",
     });
     expect(res.body).not.toContain("secret_encrypted");
     expect(res.body).not.toContain("secretEncrypted");
@@ -462,5 +466,57 @@ describe("POST /api/ai-providers/reorder", () => {
       payload: { orderedIds: [] },
     });
     expect(res.statusCode).toBe(403);
+  });
+});
+
+describe("area 9, F3, Task 8c: l'ultimo acceso, le ultime 4 cifre, la banda della quota", () => {
+  const patch = (id: string, payload: object) => app.inject({ method: "PATCH", url: `/api/ai-providers/${id}`, headers: { cookie: adminCookie }, payload });
+  const del = (id: string) => app.inject({ method: "DELETE", url: `/api/ai-providers/${id}`, headers: { cookie: adminCookie } });
+  const list = async () => (await app.inject({ method: "GET", url: "/api/ai-providers", headers: { cookie: adminCookie } })).json() as Record<string, unknown>[];
+
+  it("l'unico acceso non si spegne né si elimina (409 last_enabled_provider), e la vista lo dice; con un secondo acceso sì", async () => {
+    await testDb.db.update(projects).set({ aiProviderId: null });
+    await testDb.db.delete(aiProviders);
+    const a = (await createProvider({ ...basePayload, label: "A" })).json() as { id: string };
+    expect((await list())[0]).toMatchObject({ id: a.id, lastEnabled: true });
+    const off = await patch(a.id, { enabled: false });
+    expect(off.statusCode).toBe(409);
+    expect(off.json()).toMatchObject({ code: "last_enabled_provider" });
+    expect((await del(a.id)).statusCode).toBe(409);
+    const [still] = await testDb.db.select().from(aiProviders).where(eq(aiProviders.id, a.id));
+    expect(still!.enabled).toBe(true);
+
+    const b = (await createProvider({ ...basePayload, label: "B" })).json() as { id: string };
+    expect((await list()).map((p) => p.lastEnabled)).toEqual([false, false]);
+    expect((await patch(a.id, { enabled: false })).statusCode).toBe(200);
+    expect((await list()).find((p) => p.id === b.id)).toMatchObject({ lastEnabled: true });
+    // Un account SPENTO si elimina anche se ne resta uno solo acceso.
+    expect((await del(a.id)).statusCode).toBe(204);
+    expect((await del(b.id)).statusCode).toBe(409);
+  });
+
+  it("le ultime 4 cifre: alla creazione e alla sostituzione; una riga di prima resta null; mai il segreto", async () => {
+    const p = (await createProvider({ ...basePayload, label: "C", secret: "sk-ant-1234567890abcd" })).json() as { id: string; last4: string };
+    expect(p.last4).toBe("abcd");
+    const replaced = await patch(p.id, { secret: "sk-ant-0000000000wxyz" });
+    expect(replaced.json()).toMatchObject({ last4: "wxyz" });
+    expect(replaced.body).not.toContain("sk-ant-0000000000wxyz");
+    await testDb.db.update(aiProviders).set({ secretLast4: null }).where(eq(aiProviders.id, p.id));
+    expect((await list()).find((x) => x.id === p.id)).toMatchObject({ last4: null });
+  });
+
+  it("la banda: limited se fermo per il limite, near dall'80% (sessione o settimana), altrimenti ok", async () => {
+    const p = (await createProvider({ ...basePayload, kind: "account", label: "Abbonamento" })).json() as { id: string };
+    const band = async () => (await list()).find((x) => x.id === p.id)!.quotaBand;
+    expect(await band()).toBe("ok");
+    await testDb.db.insert(aiUsageSnapshots).values({ providerId: p.id, sessionRemaining: { percentUsed: 20, percentRemaining: 80 }, weeklyRemaining: { percentUsed: 79, percentRemaining: 21 }, source: "deterministic", parseOk: true, capturedAt: new Date(Date.now() - 60_000) });
+    expect(await band()).toBe("ok");
+    await testDb.db.insert(aiUsageSnapshots).values({ providerId: p.id, sessionRemaining: { percentUsed: 10, percentRemaining: 90 }, weeklyRemaining: { percentUsed: 80, percentRemaining: 20 }, source: "deterministic", parseOk: true });
+    expect(await band()).toBe("near");
+    const until = new Date(Date.now() + 3_600_000);
+    await testDb.db.update(aiProviders).set({ limitedUntil: until }).where(eq(aiProviders.id, p.id));
+    expect((await list()).find((x) => x.id === p.id)).toMatchObject({ quotaBand: "limited", limitedUntil: until.toISOString() });
+    await testDb.db.update(aiProviders).set({ limitedUntil: new Date(Date.now() - 1000) }).where(eq(aiProviders.id, p.id));
+    expect(await band()).toBe("near");
   });
 });

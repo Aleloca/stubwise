@@ -1,10 +1,10 @@
 import { randomBytes } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
 import { BitbucketProvider } from "@stubwise/git";
-import { decrypt, gitAccounts, projects, repositories } from "@stubwise/db";
+import { changeLog, decrypt, gitAccounts, projects, repositories } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { resolveProviderUserId, type FetchPlatformIdentity } from "@stubwise/notifications";
@@ -810,6 +810,21 @@ describe("PUT/DELETE /api/git-accounts/:id/default-reviewer", () => {
     expect(await flagOf(first)).toBe(false);
     expect(await flagOf(second)).toBe(true);
     expect(await flagOf(elsewhere)).toBe(true);
+
+    // Area 9, F3: il registro, come il prototipo: il predecessore e il nuovo
+    // per nome; rimarcare chi è già il predefinito non scrive; toglierlo è un
+    // `updated` sul campo.
+    const entriesOf = (type: string) =>
+      app.db.select().from(changeLog).where(and(eq(changeLog.type, type), eq(changeLog.subjectId, second)));
+    expect((await entriesOf("git_account.default_reviewer_changed")).map((e) => e.data)).toEqual([
+      expect.objectContaining({ before: "primo", after: "secondo" }),
+    ]);
+    expect((await put(second)).statusCode).toBe(200);
+    expect(await entriesOf("git_account.default_reviewer_changed")).toHaveLength(1);
+    expect((await app.inject({ method: "DELETE", url: `/api/git-accounts/${second}/default-reviewer`, headers: { cookie: adminCookie } })).statusCode).toBe(204);
+    expect((await entriesOf("git_account.updated")).map((e) => e.data)).toEqual([
+      expect.objectContaining({ before: JSON.stringify({ defaultReviewer: true }), after: JSON.stringify({ defaultReviewer: false }) }),
+    ]);
   });
 
   it("identità non leggibile: 422 e NESSUNA scrittura, nemmeno sul predefinito precedente", async () => {

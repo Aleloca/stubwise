@@ -50,8 +50,8 @@ export async function recordChange(tx: Tx | Db, entry: ChangeInput): Promise<voi
 /**
  * Le chiavi PROIBITE dentro le chiamate a `recordChange` di un sorgente: un
  * nome che contiene `secret`, `token`, `password` o `key` (eccetto
- * `keyLast4`). Per un segreto si scrive solo «sostituito». Lo usa il test di
- * sorgente sugli scrittori.
+ * `ALLOWED_KEY_NAMES`). Per un segreto si scrive solo «sostituito». Lo usa il
+ * test di sorgente sugli scrittori.
  */
 export function forbiddenChangeLogKeys(source: string): string[] {
   const found: string[] = [];
@@ -71,12 +71,44 @@ export function forbiddenChangeLogKeys(source: string): string[] {
   return found;
 }
 
+/**
+ * Le eccezioni DICHIARATE, che non sono segreti: le ultime 4 cifre di una
+ * chiave, e l'id della chiave d'accesso S3 (il nome dell'utente S3, la chiave
+ * del campo `storage.changed` nel prototipo; il secret ha la sua voce
+ * «sostituito»). Una nuova eccezione si aggiunge qui, mai aggirando il test.
+ */
+const ALLOWED_KEY_NAMES: ReadonlySet<string> = new Set(["keyLast4", "accessKeyId"]);
+
 /** Le chiavi proibite in un pezzo di sorgente qualunque (un helper che costruisce `data`). */
 export function forbiddenKeysIn(text: string): string[] {
   const found: string[] = [];
   for (const m of text.matchAll(/([A-Za-z_$][\w$]*)\s*:/g)) {
     const key = m[1]!;
-    if (key !== "keyLast4" && /secret|token|password|key/i.test(key)) found.push(key);
+    if (!ALLOWED_KEY_NAMES.has(key) && /secret|token|password|key/i.test(key)) found.push(key);
   }
   return found;
 }
+
+/** Il valore di un campo di una voce `fields` (area 9, F3): com'è dato da una persona, un booleano, una lista di id. */
+export type ChangeFieldValue = string | boolean | string[] | null;
+
+/**
+ * Il prima e dopo di una voce `fields`, con la regola del prototipo
+ * (`settingValues.ts`, `changedFields`): i SOLI campi che cambiano, in JSON;
+ * `null` se non cambia niente (e allora non si scrive nessuna voce). Le liste
+ * si confrontano nell'ordine dato: chi scrive le passa già ordinate.
+ */
+export function changedFields(
+  before: Record<string, ChangeFieldValue>,
+  after: Record<string, ChangeFieldValue>,
+): { before: string; after: string } | null {
+  const same = (a: ChangeFieldValue | undefined, b: ChangeFieldValue | undefined) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  const keys = Object.keys(after).filter((k) => !same(before[k], after[k]));
+  if (keys.length === 0) return null;
+  const pick = (src: Record<string, ChangeFieldValue>) => JSON.stringify(Object.fromEntries(keys.map((k) => [k, src[k] ?? null])));
+  return { before: pick(before), after: pick(after) };
+}
+
+/** Un importo come valore stabile (Ruling T3): il numero in stringa (`"600"`, `"12.5"`), `null` = nessun budget. */
+export const stableAmount = (value: string | number | null | undefined): string | null =>
+  value === null || value === undefined ? null : String(Number(value));

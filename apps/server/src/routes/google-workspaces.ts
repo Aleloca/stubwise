@@ -1,3 +1,4 @@
+import { changedFields, recordChange } from "../services/change-log.js";
 import { encrypt, googleAccounts, googleWorkspaces } from "@stubwise/db";
 import {
   GOOGLE_OAUTH_CALLBACK_PATH,
@@ -10,6 +11,7 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { apiError } from "../errors.js";
+import { requireReauth } from "../auth/access.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -85,6 +87,9 @@ async function countAccounts(db: FastifyInstance["db"], workspaceId: string): Pr
   return row?.count ?? 0;
 }
 
+/** Area 9, F3: l'oggetto delle voci del registro (l'app col nome dato da una persona). */
+const googleAppObject = (row: { id: string; name: string }) => ({ type: "google_app", id: row.id, label: row.name });
+
 export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
@@ -112,7 +117,7 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
   app.post(
     "/",
     {
-      config: { access: { kind: "instance", permission: "integrations.manage" } },
+      config: { access: { kind: "instance", permission: "integrations.manage" }, reauth: true },
       schema: {
         body: googleWorkspaceDraftSchema,
         response: { 201: googleWorkspaceSchema, 400: errorSchema, ...authErrorResponses },
@@ -120,16 +125,20 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
     },
     async (request, reply) => {
       const { name, domains, clientId, clientSecret } = request.body;
-      const [created] = await app.db
-        .insert(googleWorkspaces)
-        .values({
-          name,
-          domains,
-          clientId,
-          clientSecretEncrypted: encrypt(clientSecret, app.encryptionKey),
-        })
-        .returning();
-      if (!created) throw new Error("insert del Workspace non ha restituito la riga");
+      const created = await app.db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(googleWorkspaces)
+          .values({
+            name,
+            domains,
+            clientId,
+            clientSecretEncrypted: encrypt(clientSecret, app.encryptionKey),
+          })
+          .returning();
+        if (!row) throw new Error("insert del Workspace non ha restituito la riga");
+        await recordChange(tx, { type: "google_app.created", actor: request.user!, projectId: null, data: { object: googleAppObject(row) } });
+        return row;
+      });
       return reply.code(201).send(toPublicWorkspace(created, 0, redirectUri()));
     },
   );
@@ -137,7 +146,7 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
   app.patch(
     "/:id",
     {
-      config: { access: { kind: "instance", permission: "integrations.manage" } },
+      config: { access: { kind: "instance", permission: "integrations.manage" }, partialReauth: true },
       schema: {
         params: idParamsSchema,
         body: googleWorkspacePatchSchema,
@@ -151,6 +160,9 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
     },
     async (request, reply) => {
       const { name, domains, clientId, clientSecret } = request.body;
+      // Area 9, F3 (D-5): la riconferma solo quando il corpo porta un segreto
+      // (sostituito o azzerato), con la regola del gate (`requireReauth`).
+      if (clientSecret !== undefined && !(await requireReauth(request, reply))) return reply;
       const updates: Partial<GoogleWorkspaceRow> = {};
       if (name !== undefined) updates.name = name;
       if (domains !== undefined) updates.domains = domains;
@@ -164,17 +176,18 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
       }
 
       // Drizzle rifiuta un update senza colonne: una patch vuota è una lettura.
-      const [row] =
-        Object.keys(updates).length === 0
-          ? await app.db
-              .select()
-              .from(googleWorkspaces)
-              .where(eq(googleWorkspaces.id, request.params.id))
-          : await app.db
-              .update(googleWorkspaces)
-              .set(updates)
-              .where(eq(googleWorkspaces.id, request.params.id))
-              .returning();
+      const row = await app.db.transaction(async (tx) => {
+        const [before] = await tx.select().from(googleWorkspaces).where(eq(googleWorkspaces.id, request.params.id)).for("update");
+        if (!before || Object.keys(updates).length === 0) return before;
+        const [after] = await tx.update(googleWorkspaces).set(updates).where(eq(googleWorkspaces.id, request.params.id)).returning();
+        // Area 9, F3: come il prototipo (`google.ts`), i soli campi cambiati;
+        // il secret solo «sostituito».
+        const fields = (w: GoogleWorkspaceRow) => ({ name: w.name, domains: w.domains, clientId: w.clientId });
+        const diff = changedFields(fields(before), fields(after!));
+        if (diff) await recordChange(tx, { type: "google_app.updated", actor: request.user!, projectId: null, data: { object: googleAppObject(after!), ...diff } });
+        if (clientSecret !== undefined) await recordChange(tx, { type: "google_app.secret_replaced", actor: request.user!, projectId: null, data: { object: googleAppObject(after!) } });
+        return after;
+      });
       if (!row) {
         return apiError(reply, 404, "google_workspace_not_found", "Google Workspace not found");
       }
@@ -185,7 +198,7 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
   app.delete(
     "/:id",
     {
-      config: { access: { kind: "instance", permission: "integrations.manage" } },
+      config: { access: { kind: "instance", permission: "integrations.manage" }, reauth: true },
       schema: {
         params: idParamsSchema,
         response: {
@@ -218,7 +231,10 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
         );
       }
 
-      await app.db.delete(googleWorkspaces).where(eq(googleWorkspaces.id, row.id));
+      await app.db.transaction(async (tx) => {
+        const gone = await tx.delete(googleWorkspaces).where(eq(googleWorkspaces.id, row.id)).returning();
+        for (const g of gone) await recordChange(tx, { type: "google_app.deleted", actor: request.user!, projectId: null, data: { object: googleAppObject(g) } });
+      });
       return reply.code(204).send(null);
     },
   );

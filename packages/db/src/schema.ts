@@ -1696,6 +1696,8 @@ export const aiProviders = pgTable("ai_providers", {
   // Credenziale cifrata AES-256-GCM (chiave API o blob di login dell'account).
   // Non esce MAI dall'API: si legge solo per decifrare lato worker.
   secretEncrypted: text("secret_encrypted").notNull(),
+  // Area 9, F3: le ultime 4 cifre della credenziale, scritte con lei (0190).
+  secretLast4: text("secret_last4"),
   enabled: boolean("enabled").notNull().default(true),
   // Al limite fino a: nessun run lo sceglie prima di questo istante; lo azzera
   // uno snapshot fresco con margine.
@@ -1892,6 +1894,26 @@ export const deliveryChannel = pgEnum("delivery_channel", [
 export const deliveryStatus = pgEnum("delivery_status", ["pending", "sent", "failed", "skipped"]);
 
 /**
+ * Area 9, F3 (0188; D-10 = b): i webhook in uscita, ognuno coi suoi eventi
+ * (`OUTGOING_WEBHOOK_EVENTS` di `@stubwise/shared`, ricopiato nel CHECK), il suo
+ * formato e il suo segreto (cifrato, mai in una lettura). Le consegne sono una
+ * PER WEBHOOK (`notification_deliveries.webhook_id`). Prende il posto di
+ * `notification_settings`, che resta per il rollback.
+ */
+export const outgoingWebhooks = pgTable("outgoing_webhooks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  url: text("url").notNull(),
+  format: notificationFormat("format").notNull().default("slack"),
+  enabled: boolean("enabled").notNull().default(true),
+  events: text("events").array().notNull().default(sql`'{}'::text[]`),
+  secretEncrypted: text("secret_encrypted"),
+  secretRotatedAt: timestamp("secret_rotated_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+});
+
+/**
  * Configurazione (riga singola) del webhook di notifica in uscita: Stubwise
  * posta un messaggio su eventi chiave (nuovo ticket SDK, PR aperta, job in
  * attesa, fix fallito). È un singleton: l'id è fissato a 1 e la migrazione
@@ -1963,6 +1985,8 @@ export const instanceSettings = pgTable("instance_settings", {
   // (`Record<AiOperation, string>`), scritti dal worker all'avvio: il server
   // non li conosce altrimenti e la UI li mostra come «predefinito».
   workerModelDefaults: jsonb("worker_model_defaults").$type<Record<string, string>>(),
+  // Area 9, F3: le operazioni il cui modello viene da un'env del worker (la fonte `env`).
+  workerModelEnvOperations: text("worker_model_env_operations").array(),
   // Automazione PR Review: interruttore globale (default spento) e tetto di
   // costo USD per singola review (null = nessun limite). Il gate vive nel
   // webhook (accodamento) e nel worker (claim + verifica post-run del cap).
@@ -3984,6 +4008,9 @@ export const notificationDeliveries = pgTable(
     // Stesso tipo forte (`NotificationEvent`) e stesso cast lato consumatore.
     event: jsonb("event").$type<Record<string, unknown>>(),
     channel: deliveryChannel("channel").notNull(),
+    // Area 9, F3 (0188): il webhook di QUESTA consegna (una per webhook); null
+    // per gli altri canali e per le consegne di prima.
+    webhookId: uuid("webhook_id").references((): AnyPgColumn => outgoingWebhooks.id, { onDelete: "cascade" }),
     status: deliveryStatus("status").notNull().default("pending"),
     attempts: integer("attempts").notNull().default(0),
     // Non prima di questo istante: il backoff dei ritentativi lo sposta in

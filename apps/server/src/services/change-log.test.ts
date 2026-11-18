@@ -84,6 +84,7 @@ const HELPERS: [file: string, name: string][] = [
   ["services/change-log.ts", "personObject"],
   ["services/roles.ts", "memberObject"],
   ["routes/departments.ts", "peopleParams"],
+  ["routes/settings.ts", "recordInstanceChanges"],
 ];
 
 /**
@@ -121,6 +122,8 @@ describe("un segreto non entra nel registro (test di sorgente)", () => {
     expect(forbiddenChangeLogKeys(`recordChange(tx, { type: "x", data: { object, params: { tokenHash: h, keyLast4: k } } })`)).toEqual(["tokenHash"]);
     expect(forbiddenChangeLogKeys(`recordChange(tx, { data: { params: { webhookSecret: s } } })`)).toEqual(["webhookSecret"]);
     expect(forbiddenChangeLogKeys(`recordChange(tx, { data: { object, params: { role: r, keyLast4: k } } })`)).toEqual([]);
+    // L'id della chiave d'accesso S3 è un'eccezione dichiarata; la chiave segreta no.
+    expect(forbiddenKeysIn("const f = { accessKeyId: a, secretAccessKey: s }")).toEqual(["secretAccessKey"]);
   });
 
   it("nemmeno gli helper che costruiscono oggetto e params", () => {

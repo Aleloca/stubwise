@@ -24,7 +24,8 @@ async function post(payload: Record<string, unknown>) {
     method: "POST",
     url: "/api/plugins",
     headers: { cookie: adminCookie },
-    payload,
+    // Area 9, F3: «Mi fido» (il suo caso negativo sta in instance-secrets-reauth.test.ts).
+    payload: { trust: true, ...payload },
   });
 }
 
@@ -92,10 +93,10 @@ describe("autorizzazione", () => {
       {
         method: "POST" as const,
         url: "/api/plugins",
-        payload: { sourceUrl: "https://github.com/obra/superpowers", ref: "v1" },
+        payload: { sourceUrl: "https://github.com/obra/superpowers", ref: "v1", trust: true },
       },
       { method: "GET" as const, url: `/api/plugins/${id}`, payload: undefined },
-      { method: "POST" as const, url: `/api/plugins/${id}/update`, payload: { ref: "v1" } },
+      { method: "POST" as const, url: `/api/plugins/${id}/update`, payload: { ref: "v1", trust: true } },
       { method: "POST" as const, url: `/api/plugins/${id}/smoke`, payload: undefined },
       { method: "DELETE" as const, url: `/api/plugins/${id}`, payload: undefined },
     ];
@@ -119,9 +120,9 @@ describe("autorizzazione", () => {
     const withBody = [
       {
         url: "/api/plugins",
-        payload: { sourceUrl: "https://github.com/obra/superpowers", ref: "v4.0.3" },
+        payload: { sourceUrl: "https://github.com/obra/superpowers", ref: "v4.0.3", trust: true },
       },
-      { url: `/api/plugins/${id}/update`, payload: { ref: "v4.0.3" } },
+      { url: `/api/plugins/${id}/update`, payload: { ref: "v4.0.3", trust: true } },
       { url: `/api/plugins/${id}/smoke`, payload: undefined },
     ];
     for (const call of withBody) {
@@ -380,7 +381,7 @@ describe("pendingJobKind", () => {
       method: "POST",
       url: `/api/plugins/${id}/update`,
       headers: { cookie: adminCookie },
-      payload: { ref: "v2" },
+      payload: { ref: "v2", trust: true },
     });
     // `status` è ancora `ready` (il worker non ha claimato): è esattamente il
     // caso in cui pollare su `status` non funzionerebbe.
@@ -405,7 +406,7 @@ describe("POST /api/plugins/:id/update", () => {
       method: "POST",
       url: `/api/plugins/${id}/update`,
       headers: { cookie: adminCookie },
-      payload: { ref: "v2" },
+      payload: { ref: "v2", trust: true },
     });
     expect(res.statusCode).toBe(202);
     expect(res.json()).toEqual({ queued: true });
@@ -428,7 +429,7 @@ describe("POST /api/plugins/:id/update", () => {
       method: "POST",
       url: `/api/plugins/${id}/update`,
       headers: { cookie: adminCookie },
-      payload: { ref: "v2" },
+      payload: { ref: "v2", trust: true },
     });
     expect(res.statusCode).toBe(409);
     expect((res.json() as { code: string }).code).toBe("plugin_job_pending");
@@ -443,7 +444,7 @@ describe("POST /api/plugins/:id/update", () => {
       method: "POST",
       url: `/api/plugins/${randomUUID()}/update`,
       headers: { cookie: adminCookie },
-      payload: { ref: "v2" },
+      payload: { ref: "v2", trust: true },
     });
     expect(missing.statusCode).toBe(404);
 

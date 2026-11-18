@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  aiModelSourceOf,
+  isKnownModelChoice,
   AI_OPERATIONS,
   AI_OPERATION_GROUPS,
   CONFIGURABLE_AI_OPERATIONS,
@@ -52,5 +54,16 @@ describe("catalogo operazioni AI", () => {
       { group: "chat", operations: ["chat", "claude_chat", "backlog_merge"] },
       { group: "technical", operations: ["plugin_smoke", "credential_test", "usage_probe"] },
     ]);
+  });
+});
+
+describe("aiModelSourceOf (area 9, F3: la fonte del modello)", () => {
+  it("un'impostazione vince solo se è nel catalogo; poi l'env; poi il default", () => {
+    expect(aiModelSourceOf("fix_plan", "opus", ["fix_plan"])).toBe("setting");
+    expect(aiModelSourceOf("fix_plan", "gpt-9", ["fix_plan"])).toBe("env");
+    expect(aiModelSourceOf("fix_plan", "gpt-9", null)).toBe("default");
+    expect(aiModelSourceOf("fix_plan", null, ["pr_review"])).toBe("default");
+    expect(isKnownModelChoice("sonnet")).toBe(true);
+    expect(isKnownModelChoice(undefined)).toBe(false);
   });
 });

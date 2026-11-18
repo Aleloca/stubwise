@@ -1,5 +1,5 @@
 import { aiModelSettings, instanceSettings, type Db } from "@stubwise/db";
-import { AI_MODEL_CHOICES, type AiOperation } from "@stubwise/shared";
+import { isKnownModelChoice, type AiOperation } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 
 /**
@@ -26,8 +26,6 @@ export interface ModelResolver {
 
 /** Legge il valore grezzo della riga (undefined = nessuna riga). */
 export type ReadModelSetting = (operation: AiOperation) => Promise<string | undefined>;
-
-const KNOWN_MODELS: ReadonlySet<string> = new Set(AI_MODEL_CHOICES);
 
 /**
  * Resolver che legge `ai_model_settings` a OGNI chiamata, senza cache: un
@@ -65,7 +63,7 @@ export function createModelResolver(
         return fallback;
       }
       if (value === undefined) return fallback;
-      if (!KNOWN_MODELS.has(value)) {
+      if (!isKnownModelChoice(value)) {
         log.warn(
           `[stubwise-worker] modello per ${operation}: "${value}" non è nel catalogo, uso il default`,
         );
@@ -87,11 +85,13 @@ export async function writeWorkerModelDefaults(
   db: Db,
   defaults: Record<AiOperation, string>,
   log: ModelSettingsLogger = console,
+  /** Area 9, F3: le operazioni il cui modello viene da un'env (la fonte `env`). */
+  envOperations: AiOperation[] = [],
 ): Promise<void> {
   try {
     await db
       .update(instanceSettings)
-      .set({ workerModelDefaults: defaults })
+      .set({ workerModelDefaults: defaults, workerModelEnvOperations: envOperations })
       .where(eq(instanceSettings.id, 1));
   } catch (err) {
     log.warn(`[stubwise-worker] worker_model_defaults non scritti: ${String(err)}`);

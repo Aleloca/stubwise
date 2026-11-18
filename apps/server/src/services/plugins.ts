@@ -13,6 +13,7 @@
  * esclusione dei job, plugin in uso, coerenza degli spegnimenti con
  * l'inventario.
  */
+import { recordChange } from "./change-log.js";
 import {
   pluginJobs,
   plugins,
@@ -194,7 +195,14 @@ export type CreatePluginResult =
  * dall'URL creerebbe una seconda verità destinata a divergere da quella del
  * manifest.
  */
-export async function createPlugin(db: Db, input: CreatePluginInput): Promise<CreatePluginResult> {
+/**
+ * Area 9, F3: chi fa il gesto, per la voce del registro scritta nella stessa
+ * transazione. Assente (un chiamante interno, un test vecchio) = nessuna voce.
+ */
+type ChangeActor = { id: string; email: string } | undefined;
+const pluginObject = (row: { id: string; name: string }) => ({ type: "plugin", id: row.id, label: row.name });
+
+export async function createPlugin(db: Db, input: CreatePluginInput, actor?: ChangeActor): Promise<CreatePluginResult> {
   const slug = derivePluginSlug(input.sourceUrl, input.sourceSubdir);
   if (slug === null) return { ok: false, error: "invalid_slug" };
 
@@ -212,6 +220,7 @@ export async function createPlugin(db: Db, input: CreatePluginInput): Promise<Cr
         .returning();
       if (!created) throw new Error("insert del plugin non ha restituito la riga");
       await tx.insert(pluginJobs).values({ pluginId: created.id, kind: "materialize" });
+      if (actor) await recordChange(tx, { type: "plugin.registered", actor, projectId: null, data: { object: pluginObject(created), params: { ref: created.ref } } });
       // `pendingJobKind` senza rileggere: il job lo abbiamo appena inserito in
       // questa stessa transazione, è un fatto, non una stima.
       return { ok: true as const, plugin: { ...created, pendingJobKind: "materialize" as const } };
@@ -240,19 +249,21 @@ export type RequestUpdateResult =
  * `plugin_jobs_active_unique`, NON da una select preventiva: fra una select e
  * l'insert ci starebbe comodamente la richiesta di un altro admin.
  */
-export async function requestUpdate(db: Db, id: string, ref: string): Promise<RequestUpdateResult> {
+export async function requestUpdate(db: Db, id: string, ref: string, actor?: ChangeActor): Promise<RequestUpdateResult> {
   try {
     return await db.transaction(async (tx) => {
+      const [before] = await tx.select({ ref: plugins.ref }).from(plugins).where(eq(plugins.id, id)).for("update");
       // `updatedAt` esplicito: la colonna non ha `$onUpdate` (scelta coerente
       // con `repo_graphs`), quindi ogni scrittura se lo porta dietro.
       const [updated] = await tx
         .update(plugins)
         .set({ ref, updatedAt: new Date() })
         .where(eq(plugins.id, id))
-        .returning({ id: plugins.id });
+        .returning({ id: plugins.id, name: plugins.name });
       // Nessuna riga toccata: niente da annullare, si esce prima dell'insert.
       if (!updated) return { ok: false as const, error: "not_found" as const };
       await tx.insert(pluginJobs).values({ pluginId: id, kind: "materialize" });
+      if (actor) await recordChange(tx, { type: "plugin.ref_updated", actor, projectId: null, data: { object: pluginObject(updated), before: before?.ref ?? null, after: ref } });
       return { ok: true as const };
     });
   } catch (error) {
@@ -273,7 +284,7 @@ export type RequestSmokeResult =
  * `resolvedSha` il job fallirebbe con certezza sul worker (che compone
  * `<slug>/<sha>`), e un fallimento annunciato è meglio darlo subito all'admin.
  */
-export async function requestSmoke(db: Db, id: string): Promise<RequestSmokeResult> {
+export async function requestSmoke(db: Db, id: string, actor?: ChangeActor): Promise<RequestSmokeResult> {
   const plugin = await getPlugin(db, id);
   if (!plugin) return { ok: false, error: "not_found" };
   if (plugin.status !== "ready" || !plugin.resolvedSha) return { ok: false, error: "not_ready" };
@@ -287,6 +298,7 @@ export async function requestSmoke(db: Db, id: string): Promise<RequestSmokeResu
         .update(plugins)
         .set({ smokeStatus: "pending", smokeError: null, updatedAt: new Date() })
         .where(eq(plugins.id, id));
+      if (actor) await recordChange(tx, { type: "plugin.smoke_rerun", actor, projectId: null, data: { object: pluginObject(plugin) } });
       return { ok: true as const };
     });
   } catch (error) {
@@ -316,16 +328,20 @@ export type DeletePluginResult =
  * nulla si guarda dopo il perché — a quel punto è solo per scegliere il
  * messaggio, non per decidere.
  */
-export async function deletePlugin(db: Db, id: string): Promise<DeletePluginResult> {
-  const deleted = await db
-    .delete(plugins)
-    .where(
-      and(
-        eq(plugins.id, id),
-        sql`NOT EXISTS (SELECT 1 FROM ${projectPlugins} WHERE ${projectPlugins.pluginId} = ${plugins.id} AND ${projectPlugins.enabled})`,
-      ),
-    )
-    .returning({ id: plugins.id });
+export async function deletePlugin(db: Db, id: string, actor?: ChangeActor): Promise<DeletePluginResult> {
+  const deleted = await db.transaction(async (tx) => {
+    const gone = await tx
+      .delete(plugins)
+      .where(
+        and(
+          eq(plugins.id, id),
+          sql`NOT EXISTS (SELECT 1 FROM ${projectPlugins} WHERE ${projectPlugins.pluginId} = ${plugins.id} AND ${projectPlugins.enabled})`,
+        ),
+      )
+      .returning({ id: plugins.id, name: plugins.name });
+    if (actor) for (const g of gone) await recordChange(tx, { type: "plugin.removed", actor, projectId: null, data: { object: pluginObject(g) } });
+    return gone;
+  });
   if (deleted.length > 0) return { ok: true };
   return (await getPlugin(db, id))
     ? { ok: false, error: "plugin_in_use" }
