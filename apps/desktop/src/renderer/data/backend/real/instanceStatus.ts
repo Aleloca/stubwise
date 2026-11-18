@@ -20,6 +20,7 @@ export interface InstanceStatusApi {
   pauseQueue(projectId: string): Promise<void>;
   resumeQueue(projectId: string): Promise<void>;
   retryJob(jobId: string): Promise<{ jobId: string; status: string; stopsAtPlan: boolean }>;
+  project(projectId: string): Promise<Any>;
 }
 
 /**
@@ -102,6 +103,26 @@ export function createRealInstanceStatus(api: InstanceStatusApi) {
         return {};
       }),
 
+    /**
+     * La pausa della coda di un progetto (la colonna, Tutti i progetti): dalla
+     * vista del progetto (72, 5713037b2), con `byName` del server. Un
+     * progetto che non si vede non dice niente.
+     */
+    async getQueuePause(
+      projectId: string,
+    ): Promise<{ byId: string; byName: string; since: string } | null> {
+      let project: Any;
+      try {
+        project = await api.project(projectId);
+      } catch (error) {
+        if (error instanceof ApiError && (error.status === 404 || error.status === 403))
+          return null;
+        throw error;
+      }
+      const pause = project?.queuePause ?? null;
+      return pause ? { byId: pause.byId ?? "", byName: pause.byName, since: pause.since } : null;
+    },
+
     /** Il rilancio: il lavoro nuovo lo dice il server (`jobId`). */
     retryJob: (jobId: string) =>
       attempt(async () => ({ conversationId: (await api.retryJob(jobId)).jobId })),
@@ -114,6 +135,7 @@ const liveApi: InstanceStatusApi = {
   pauseQueue: (projectId) => appClient().projects.pauseQueue(projectId),
   resumeQueue: (projectId) => appClient().projects.resumeQueue(projectId),
   retryJob: (jobId) => appClient().instance.retryJob(jobId) as Promise<Any>,
+  project: (projectId) => appClient().projects.get(projectId),
 };
 
 /** SOLO TEST: la rotta vera. */

@@ -185,6 +185,8 @@ const INTEGRATED_CALLS = new Set([
   "instance.updateGoogleApp",
   "instance.replaceGoogleSecret",
   "instance.deleteGoogleApp",
+  // Area 9, F4: la pausa della coda fuori dallo Stato.
+  "instance.getQueuePause",
   // Area 9, F4: Instance status.
   "instance.getInstanceStatus",
   "instance.pauseQueue",
@@ -978,6 +980,17 @@ describe("aree non integrate nella build app", () => {
     await settle();
     expect(document.querySelector("[data-coming-soon]")).toBeNull();
     expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F4 (72, 5713037b2): la pausa della coda nella colonna del
+  // progetto, dalla vista del progetto (`queuePause`).
+  it("la colonna di un progetto in pausa lo dice, con chiamate integrate", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/p/STW/overview");
+    await waitFor(() => expect(calls).toContain("instance.getQueuePause"));
+    await waitFor(() => expect(document.querySelector("[data-queue-paused]")).not.toBeNull());
+    await settle();
     expect(outside()).toEqual([]);
   });
 

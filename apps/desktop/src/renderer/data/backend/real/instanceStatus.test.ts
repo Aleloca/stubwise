@@ -74,6 +74,7 @@ const fake = (over: Partial<InstanceStatusApi> = {}): InstanceStatusApi => ({
     calls.push(`retry ${id}`);
     return { jobId: "new-job", status: "queued", stopsAtPlan: true };
   },
+  project: async () => ({ id: "p1", queuePause: null }),
   ...over,
 });
 const refusing = (status: number, code: string) => async () => {
@@ -153,5 +154,23 @@ describe("lo Stato dell'istanza dal server (area 9, F4)", () => {
       }),
     ).getInstanceStatus();
     expect(v.jobs.map((j) => j.href)).toEqual([null, null]);
+  });
+
+  it("la pausa di un progetto dalla sua vista; invisibile o senza pausa, niente (72, 5713037b2)", async () => {
+    const paused = createRealInstanceStatus(
+      fake({
+        project: async () => ({
+          queuePause: { byId: null, byName: "Roberta Fontana", since: "2026-11-18T08:00:00.000Z" },
+        }),
+      }),
+    );
+    expect(await paused.getQueuePause("p1")).toEqual({
+      byId: "",
+      byName: "Roberta Fontana",
+      since: "2026-11-18T08:00:00.000Z",
+    });
+    expect(await createRealInstanceStatus(fake()).getQueuePause("p1")).toBeNull();
+    const hidden = createRealInstanceStatus(fake({ project: refusing(404, "not_found") }));
+    expect(await hidden.getQueuePause("p1")).toBeNull();
   });
 });

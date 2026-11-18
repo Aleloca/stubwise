@@ -130,6 +130,8 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "ai-models",
     "ai-budget",
     "ai-usage",
+    // Area 9, F4: la pausa della coda nella colonna e in Tutti i progetti.
+    "queue-pause",
     "prefs-account",
     // Area 9, F1, R4b: Preferenze → Security (sul desktop le passkey restano del browser).
     "prefs-security",

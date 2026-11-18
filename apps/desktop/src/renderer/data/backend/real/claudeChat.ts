@@ -342,9 +342,23 @@ export async function sendFreeMessage(id: string, text: string, context: Context
 
 /** Il budget del mese (la sola cosa del blocco d'istanza che la chat legge). */
 export async function chatAiBlock(projectId: string | null): Promise<AiBlock | null> {
-  if (projectId !== null) return null;
   const status = await appClient().claude.status();
-  return status.budgetExhausted ? { reason: "monthly_budget" } : null;
+  // Il budget del mese vince sugli avvii, ovunque.
+  if (status.budgetExhausted) return { reason: "monthly_budget" };
+  if (projectId === null) return null;
+  // Area 9, F4: la coda del progetto in pausa, dalla vista del progetto
+  // (72, 5713037b2), con il nome calcolato dal server.
+  let project: { queuePause?: { byId: string | null; byName: string; since: string } | null };
+  try {
+    project = await appClient().projects.get(projectId);
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 404 || error.status === 403)) return null;
+    throw error;
+  }
+  const pause = project.queuePause ?? null;
+  return pause
+    ? { reason: "queue_paused", byId: pause.byId ?? "", byName: pause.byName, since: pause.since }
+    : null;
 }
 
 // --- «/», «#», «@» e i codici nei testi -------------------------------------------
