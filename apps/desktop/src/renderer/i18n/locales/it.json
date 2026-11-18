@@ -10934,7 +10934,8 @@
         "otherProjectsHint": "Progetti che non vedi, sommati.",
         "tokensTitle": "{{tokens}} token",
         "empty": "Nessun consumo AI in questo periodo.",
-        "loadError": "Impossibile caricare i consumi."
+        "loadError": "Impossibile caricare i consumi.",
+        "noProvider": "Nessun account (configurazione del server)"
       },
       "prototype": {
         "label": "Solo prototipo"

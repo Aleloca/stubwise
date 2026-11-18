@@ -127,6 +127,7 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "ai-providers",
     "ai-models",
     "ai-budget",
+    "ai-usage",
     "prefs-account",
     // Area 9, F1, R4b: Preferenze → Security (sul desktop le passkey restano del browser).
     "prefs-security",

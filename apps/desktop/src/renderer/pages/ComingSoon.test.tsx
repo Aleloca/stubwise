@@ -185,6 +185,8 @@ const INTEGRATED_CALLS = new Set([
   "instance.updateGoogleApp",
   "instance.replaceGoogleSecret",
   "instance.deleteGoogleApp",
+  // Area 9, F4: AI → Usage.
+  "instance.getUsage",
   // Area 9, F4: AI → Budget & language.
   "instance.getBudget",
   "instance.saveBudget",
@@ -974,16 +976,13 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  // Area 9, F3: la voce AI accesa scheda per scheda (`ai-<tab>`): una scheda
-  // non ancora collegata è «Coming soon» dentro la pagina, senza letture.
-  it("aprire una scheda AI non collegata: «Coming soon» al posto del pannello, nessuna chiamata", async () => {
+  // Area 9, F4: AI → Usage, su `GET /api/ai-usage/summary`.
+  it("aprire AI → Usage legge solo chiamate integrate", async () => {
     signedInAs("p-roberta");
     renderRoute("/admin/ai?tab=usage");
-    expect(await screen.findByRole("heading", { level: 1, name: "AI" })).toBeInTheDocument();
+    await waitFor(() => expect(calls).toContain("instance.getUsage"));
     await settle();
-    // La pagina c'è, con le sue schede: il «Coming soon» è solo del pannello.
-    expect(screen.getByRole("tablist")).toBeInTheDocument();
-    expect(document.querySelector("[data-coming-soon]")).not.toBeNull();
+    expect(document.querySelector("[data-coming-soon]")).toBeNull();
     expect(outside()).toEqual([]);
   });
 

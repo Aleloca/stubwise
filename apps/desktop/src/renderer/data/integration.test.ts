@@ -187,6 +187,7 @@ describe("isIntegrated", () => {
         "feature:ai-providers",
         "feature:ai-models",
         "feature:ai-budget",
+        "feature:ai-usage",
         "taskView:list",
         "taskView:board",
         "feature:notifications",

@@ -725,6 +725,8 @@ function RowName({ row, dim }: { row: UsageRow; dim: UsageDimension }) {
   else if (dim === "operation")
     text = t(`usage.operations.${row.key}`, { defaultValue: row.label });
   else if (dim === "day") text = row.key ? f.day(row.key) : row.label;
+  // Area 9, F4: sul server ci sono corse senza account (la credenziale del worker).
+  else if (dim === "provider" && row.key === null) text = t("admin.ai.usage.noProvider");
   else text = row.label;
   return <span className="block min-w-0 truncate">{text}</span>;
 }

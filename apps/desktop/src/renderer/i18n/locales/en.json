@@ -10934,7 +10934,8 @@
         "otherProjectsHint": "Projects you can't see, added together.",
         "tokensTitle": "{{tokens}} tokens",
         "empty": "No AI usage in this period.",
-        "loadError": "Couldn't load the usage."
+        "loadError": "Couldn't load the usage.",
+        "noProvider": "No account (server configuration)"
       },
       "prototype": {
         "label": "Prototype only"
