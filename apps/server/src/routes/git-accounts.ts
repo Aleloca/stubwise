@@ -9,6 +9,7 @@ import { z } from "zod";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import { apiError } from "../errors.js";
 import { fetchPlatformIdentity } from "../services/platform-identity.js";
+import { requireReauth } from "../auth/access.js";
 import { checkReviewAccount, logIdentityError } from "../services/review-account-check.js";
 
 /**
@@ -262,7 +263,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/",
     {
-      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
+      config: { access: { kind: "instance", permission: "git_accounts.manage" }, reauth: true },
       schema: {
         body: createAccountSchema,
         response: { 201: gitAccountSchema, ...authErrorResponses },
@@ -314,7 +315,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.patch(
     "/:id",
     {
-      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
+      config: { access: { kind: "instance", permission: "git_accounts.manage" }, partialReauth: true },
       schema: {
         params: idParamsSchema,
         body: updateAccountSchema,
@@ -323,6 +324,9 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
     },
     async (request, reply) => {
       const { name, credentials, workspace } = request.body;
+      // Area 9, F3 (D-5): la riconferma solo quando il corpo porta un segreto
+      // (sostituito o azzerato), con la regola del gate (`requireReauth`).
+      if (credentials !== undefined && !(await requireReauth(request, reply))) return reply;
       const updates: Partial<GitAccountRow> = {};
       if (name !== undefined) updates.name = name;
       if (workspace !== undefined) updates.workspace = workspace;
@@ -387,7 +391,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.delete(
     "/:id",
     {
-      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
+      config: { access: { kind: "instance", permission: "git_accounts.manage" }, reauth: true },
       schema: {
         params: idParamsSchema,
         response: {

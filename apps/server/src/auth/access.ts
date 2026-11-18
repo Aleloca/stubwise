@@ -123,6 +123,12 @@ declare module "fastify" {
      * {@link browserOrConfirmedDesktop}.
      */
     browserOnly?: true;
+    /**
+     * Area 9, F3: la rotta chiede la riconferma solo per UNA PARTE del corpo
+     * (un segreto nuovo): la verifica l'handler con {@link requireReauth}. È
+     * una dichiarazione, così il test del registro ne tiene l'elenco chiuso.
+     */
+    partialReauth?: true;
   }
   interface FastifyRequest {
     /** Impostato dall'hook globale sulle rotte `project`. */
@@ -434,6 +440,16 @@ async function applyReauth(
     return;
   }
   if (desktopPat) markDesktopReauthUse(request);
+}
+
+/**
+ * Area 9, F3: la riconferma chiesta da un handler per una PARTE del corpo
+ * (`config.partialReauth`): la STESSA regola del gate ({@link applyReauth}),
+ * mai una copia. `false` se ha già risposto (403), e l'handler esce.
+ */
+export async function requireReauth(request: FastifyRequest, reply: FastifyReply): Promise<boolean> {
+  await applyReauth(request, reply, request.user!, true);
+  return !reply.sent;
 }
 
 /** Il PAT dell'app desktop (`kind = 'desktop'`, dal login nel browser). */

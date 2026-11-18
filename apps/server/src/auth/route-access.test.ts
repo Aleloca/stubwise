@@ -21,6 +21,8 @@ interface CollectedRoute {
   reauth?: true | "setup_allowed";
   /** `config.credentialDoor`, se dichiarato. */
   credentialDoor?: true;
+  /** `config.partialReauth`, se dichiarato (area 9, F3). */
+  partialReauth?: true;
 }
 
 /**
@@ -45,6 +47,7 @@ function collect(route: RouteOptions, into: Map<string, CollectedRoute>): void {
       kind: access?.kind ?? prev?.kind,
       reauth: route.config?.reauth ?? prev?.reauth,
       credentialDoor: route.config?.credentialDoor ?? prev?.credentialDoor,
+      partialReauth: route.config?.partialReauth ?? prev?.partialReauth,
     });
   }
 }
@@ -123,9 +126,12 @@ describe("rotte con riconferma recente", () => {
       .filter((r) => r.reauth !== undefined)
       .map((r) => (r.reauth === true ? r.key : `${r.key} (${r.reauth})`));
     expect(reauthRoutes.sort()).toEqual([
+      "DELETE /api/ai-providers/:id",
+      "DELETE /api/git-accounts/:id",
       "DELETE /api/me/security/passkeys/:id",
       "DELETE /api/projects/:projectId/members/:userId",
       "DELETE /api/roles/:id",
+      "DELETE /api/settings/google-workspaces/:id",
       "DELETE /api/users/:id/git-identities/:email",
       "DELETE /api/users/:id/second-factor",
       "DELETE /api/users/:id/slack",
@@ -133,10 +139,12 @@ describe("rotte con riconferma recente", () => {
       "PATCH /api/users/:id/email",
       "PATCH /api/users/:id/instance-role",
       "PATCH /api/users/:id/role",
+      "POST /api/ai-providers",
       "POST /api/auth/desktop-handoff",
       "POST /api/auth/invites",
       "POST /api/auth/me/password",
       // Area 9, F1: il cambio della propria email di login.
+      "POST /api/git-accounts",
       "POST /api/me/email-change",
       "POST /api/me/mail/proposals/:id/confirm-with-members",
       "POST /api/me/security/backup-codes",
@@ -146,10 +154,13 @@ describe("rotte con riconferma recente", () => {
       "POST /api/me/security/totp/setup/confirm (setup_allowed)",
       "POST /api/pats",
       // Area 8, «L'API per i siti»: il segreto d'identità del widget è una credenziale.
+      "POST /api/plugins",
+      "POST /api/plugins/:id/update",
       "POST /api/projects/:projectId/widgets/:widgetId/identity-secret",
       "POST /api/roles",
       "POST /api/roles/:id/duplicate",
       // Area 9, F1: disattivare e riattivare una persona.
+      "POST /api/settings/google-workspaces",
       "POST /api/users/:id/deactivate",
       "POST /api/users/:id/git-identities",
       "POST /api/users/:id/password-reset",
@@ -164,6 +175,20 @@ describe("rotte con riconferma recente", () => {
       "PUT /api/projects/:projectId/members/:userId",
       "PUT /api/users/:id/bitbucket",
       "PUT /api/users/:id/slack",
+    ]);
+  });
+
+  /**
+   * Area 9, F3 (D-5): le rotte che chiedono la riconferma solo per una PARTE
+   * del corpo (un segreto nuovo), verificata dall'handler con `requireReauth`.
+   */
+  it("le rotte con riconferma PARZIALE sono ESATTAMENTE queste", async () => {
+    const partial = (await registeredRoutes()).filter((r) => r.partialReauth).map((r) => r.key);
+    expect(partial.sort()).toEqual([
+      "PATCH /api/ai-providers/:id",
+      "PATCH /api/git-accounts/:id",
+      "PATCH /api/settings/google-workspaces/:id",
+      "PUT /api/settings/instance",
     ]);
   });
 });
