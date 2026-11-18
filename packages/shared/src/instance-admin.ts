@@ -145,13 +145,15 @@ export const instanceSettingsViewSchema = z.object({
 export type InstanceSettingsView = z.infer<typeof instanceSettingsViewSchema>;
 
 /**
- * Il corpo del `PUT`: `contentLanguage` obbligatorio; i campi S3 presenti
- * aggiornano ("" azzera), assenti restano; `s3SecretKey` presente sostituisce
- * o azzera il secret (chiede la riconferma).
+ * Il corpo del `PUT`, una PATCH (review di F3, critico): ogni campo ASSENTE
+ * resta com'è. `monthlyBudgetUsd: null` esplicito toglie il tetto, assente non
+ * lo tocca (un salvataggio del solo storage cancellava il budget). I campi S3
+ * presenti aggiornano ("" azzera); `s3SecretKey` presente sostituisce o azzera
+ * il secret (chiede la riconferma).
  */
 export const updateInstanceSettingsSchema = z.object({
-  contentLanguage: languageSchema,
-  monthlyBudgetUsd: z.number().nonnegative().nullable().default(null),
+  contentLanguage: languageSchema.optional(),
+  monthlyBudgetUsd: z.number().nonnegative().nullable().optional(),
   s3Endpoint: z.string().optional(),
   s3Region: z.string().optional(),
   s3Bucket: z.string().optional(),

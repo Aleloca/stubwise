@@ -154,11 +154,11 @@ export function createInstanceSettingsEndpoints(request: ApiRequest) {
       return request("GET", "/api/settings/instance", undefined, instanceSettingsViewSchema);
     },
     /**
-     * `contentLanguage` e `monthlyBudgetUsd` SEMPRE: il server tratta un budget
-     * assente come «nessun budget» (e lo registra), quindi non è una patch. I
-     * campi S3 presenti aggiornano; `s3SecretKey` solo se cambia.
+     * Una PATCH: un campo assente resta com'è (`monthlyBudgetUsd: null`
+     * esplicito toglie il tetto). I campi S3 presenti aggiornano;
+     * `s3SecretKey` solo se cambia (chiede la riconferma).
      */
-    save(input: UpdateInstanceSettingsInput & { monthlyBudgetUsd: number | null }): Promise<Reader<InstanceSettingsView>> {
+    save(input: UpdateInstanceSettingsInput): Promise<Reader<InstanceSettingsView>> {
       return request("PUT", "/api/settings/instance", input, instanceSettingsViewSchema);
     },
     automation(): Promise<Reader<AutomationSettings>> {
