@@ -1892,6 +1892,26 @@ export const deliveryChannel = pgEnum("delivery_channel", [
 export const deliveryStatus = pgEnum("delivery_status", ["pending", "sent", "failed", "skipped"]);
 
 /**
+ * Area 9, F3 (0188; D-10 = b): i webhook in uscita, ognuno coi suoi eventi
+ * (`OUTGOING_WEBHOOK_EVENTS` di `@stubwise/shared`, ricopiato nel CHECK), il suo
+ * formato e il suo segreto (cifrato, mai in una lettura). Le consegne sono una
+ * PER WEBHOOK (`notification_deliveries.webhook_id`). Prende il posto di
+ * `notification_settings`, che resta per il rollback.
+ */
+export const outgoingWebhooks = pgTable("outgoing_webhooks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  url: text("url").notNull(),
+  format: notificationFormat("format").notNull().default("slack"),
+  enabled: boolean("enabled").notNull().default(true),
+  events: text("events").array().notNull().default(sql`'{}'::text[]`),
+  secretEncrypted: text("secret_encrypted"),
+  secretRotatedAt: timestamp("secret_rotated_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+});
+
+/**
  * Configurazione (riga singola) del webhook di notifica in uscita: Stubwise
  * posta un messaggio su eventi chiave (nuovo ticket SDK, PR aperta, job in
  * attesa, fix fallito). È un singleton: l'id è fissato a 1 e la migrazione
@@ -3984,6 +4004,9 @@ export const notificationDeliveries = pgTable(
     // Stesso tipo forte (`NotificationEvent`) e stesso cast lato consumatore.
     event: jsonb("event").$type<Record<string, unknown>>(),
     channel: deliveryChannel("channel").notNull(),
+    // Area 9, F3 (0188): il webhook di QUESTA consegna (una per webhook); null
+    // per gli altri canali e per le consegne di prima.
+    webhookId: uuid("webhook_id").references((): AnyPgColumn => outgoingWebhooks.id, { onDelete: "cascade" }),
     status: deliveryStatus("status").notNull().default("pending"),
     attempts: integer("attempts").notNull().default(0),
     // Non prima di questo istante: il backoff dei ritentativi lo sposta in
