@@ -380,35 +380,35 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         const slug = attempt === 1 ? baseSlug : `${baseSlug}-${attempt}`;
         try {
           const created = await app.db.transaction(async (tx) => {
-          const [row] = await tx
-            .insert(repositories)
-            .values({
-              projectId,
-              name,
-              slug,
-              // Provider denormalizzato dall'account: fonte di verità è l'account.
-              provider: account.provider,
-              gitAccountId: account.id,
-              // Omesso → null: nessun account revisore.
-              reviewGitAccountId: reviewGitAccountId ?? null,
-              repoUrl,
-              defaultBranch,
-              // Omesso → null: nessun comando di test configurato alla creazione.
-              testCommand: testCommand ?? null,
-              // Omesso → null: nessun comando di installazione alla creazione.
-              installCommand: installCommand ?? null,
-              protectedBranches: protectedBranches ?? [],
-              // Segreto HMAC del webhook git: 32 hex. Sempre valorizzato alla
-              // creazione, così nessun repository nuovo nasce con webhook non
-              // verificabili. L'ingestionKey NON vive più qui (salita al
-              // progetto, Fase 3): il repo eredita l'ingestion del suo progetto.
-              webhookSecret: randomBytes(16).toString("hex"),
-            })
-            .returning();
-          if (!row) throw new Error("insert del repository non ha restituito la riga");
-          // Area 9, F5: la voce nella transazione dell'insert.
-          await recordChange(tx, { type: "repository.created", actor: request.user!, projectId, data: { object: repositoryObject(row) } });
-          return row;
+            const [row] = await tx
+              .insert(repositories)
+              .values({
+                projectId,
+                name,
+                slug,
+                // Provider denormalizzato dall'account: fonte di verità è l'account.
+                provider: account.provider,
+                gitAccountId: account.id,
+                // Omesso → null: nessun account revisore.
+                reviewGitAccountId: reviewGitAccountId ?? null,
+                repoUrl,
+                defaultBranch,
+                // Omesso → null: nessun comando di test configurato alla creazione.
+                testCommand: testCommand ?? null,
+                // Omesso → null: nessun comando di installazione alla creazione.
+                installCommand: installCommand ?? null,
+                protectedBranches: protectedBranches ?? [],
+                // Segreto HMAC del webhook git: 32 hex. Sempre valorizzato alla
+                // creazione, così nessun repository nuovo nasce con webhook non
+                // verificabili. L'ingestionKey NON vive più qui (salita al
+                // progetto, Fase 3): il repo eredita l'ingestion del suo progetto.
+                webhookSecret: randomBytes(16).toString("hex"),
+              })
+              .returning();
+            if (!row) throw new Error("insert del repository non ha restituito la riga");
+            // Area 9, F5: la voce nella transazione dell'insert.
+            await recordChange(tx, { type: "repository.created", actor: request.user!, projectId, data: { object: repositoryObject(row) } });
+            return row;
           });
           // L'account può aver appena salvato la sua identità in
           // `checkReviewAccount`: si rilegge, così l'avviso guarda la cache vera.
@@ -554,58 +554,69 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
       },
     },
     async (request, reply) => {
-      const [row] = await app.db
-        .select({ repository: repositories, account: gitAccounts })
-        .from(repositories)
-        .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
-        .where(eq(repositories.slug, request.params.slug));
-      if (!row) return apiError(reply, 404, "repository_not_found", "Repository not found");
-      const { repository, account } = row;
-
-      // Decifratura delle credenziali dell'ACCOUNT con la chiave dell'app
-      // (stesso percorso del worker). Un fallimento qui è un errore di
-      // configurazione: messaggio esplicito, MAI il payload cifrato.
-      let credentials: z.infer<typeof gitCredentialsSchema>;
-      try {
-        credentials = gitCredentialsSchema.parse(
-          JSON.parse(decrypt(account.encryptedCredentials, app.encryptionKey)),
-        );
-      } catch {
-        return apiError(reply, 400, "credentials_undecryptable", "Git account credentials cannot be decrypted");
-      }
-
       const url = `${app.publicUrl}/webhooks/git/${request.params.slug}`;
-      try {
-        const result = await getProvider(repository.provider).ensureWebhook(
-          { repoUrl: repository.repoUrl, defaultBranch: repository.defaultBranch, credentials },
-          { url, secret: repository.webhookSecret },
-          { fetchImpl: fetch },
-        );
-        // Registra lo stato "configurato": la proiezione pubblica lo espone
-        // come webhookConfiguredAt e la UI collassa l'azione di configurazione.
-        // Area 9, F5: lo stato di prima e di dopo (`not_configured`/`configured`/`failed`, il prototipo).
-        await app.db.transaction(async (tx) => {
+      type Outcome =
+        | { kind: "ok"; created: boolean; updated: boolean; detail: string }
+        | { kind: "not_found" }
+        | { kind: "undecryptable" }
+        | { kind: "provider_error"; message: string; repository: RepositoryRow };
+      // Area 9, F5 (review I2): la riga del repository BLOCCATA mentre il
+      // segreto va alla piattaforma, come nella rigenerazione: una «configura»
+      // e una rigenerazione insieme non lasciano la piattaforma su un segreto
+      // e il DB su un altro.
+      const outcome = await app.db.transaction(async (tx): Promise<Outcome> => {
+        const [row] = await tx
+          .select({ repository: repositories, account: gitAccounts })
+          .from(repositories)
+          .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
+          .where(eq(repositories.slug, request.params.slug))
+          .for("update", { of: repositories });
+        if (!row) return { kind: "not_found" };
+        const { repository, account } = row;
+
+        // Decifratura delle credenziali dell'ACCOUNT con la chiave dell'app
+        // (stesso percorso del worker). Un fallimento qui è un errore di
+        // configurazione: messaggio esplicito, MAI il payload cifrato.
+        let credentials: z.infer<typeof gitCredentialsSchema>;
+        try {
+          credentials = gitCredentialsSchema.parse(JSON.parse(decrypt(account.encryptedCredentials, app.encryptionKey)));
+        } catch {
+          return { kind: "undecryptable" };
+        }
+        try {
+          const result = await getProvider(repository.provider).ensureWebhook(
+            { repoUrl: repository.repoUrl, defaultBranch: repository.defaultBranch, credentials },
+            { url, secret: repository.webhookSecret },
+            { fetchImpl: fetch },
+          );
+          // Registra lo stato "configurato": la proiezione pubblica lo espone
+          // come webhookConfiguredAt e la UI collassa l'azione di configurazione.
+          // Area 9, F5: lo stato di prima e di dopo (`not_configured`/`configured`/`failed`, il prototipo).
           await tx.update(repositories).set({ webhookConfiguredAt: new Date() }).where(eq(repositories.id, repository.id));
           await recordChange(tx, { type: "repository.webhook_configured", actor: request.user!, projectId: repository.projectId, data: { object: repositoryObject(repository), before: repository.webhookConfiguredAt ? "configured" : "not_configured", after: "configured" } });
-        });
-        return {
-          ok: true as const,
-          created: result.created,
-          updated: result.updated,
-          detail: result.detail,
-          url,
-        };
-      } catch (error) {
-        if (error instanceof GitProviderError) {
-          // Il tentativo fallito resta nel registro, come nel prototipo; il
-          // server non salva uno stato «fallito», quindi niente altro cambia.
-          await recordChange(app.db, { type: "repository.webhook_configured", actor: request.user!, projectId: repository.projectId, data: { object: repositoryObject(repository), before: repository.webhookConfiguredAt ? "configured" : "not_configured", after: "failed" } });
-          // 422: la richiesta è valida ma il provider la rifiuta (es. scope
-          // webhook mancante). Il messaggio < 500 passa intatto al client.
-          return apiError(reply, 422, "git_provider_error", error.message);
+          return { kind: "ok", created: result.created, updated: result.updated, detail: result.detail };
+        } catch (error) {
+          if (error instanceof GitProviderError) return { kind: "provider_error", message: error.message, repository };
+          throw error;
         }
-        throw error;
+      });
+      if (outcome.kind === "not_found") return apiError(reply, 404, "repository_not_found", "Repository not found");
+      if (outcome.kind === "undecryptable") return apiError(reply, 400, "credentials_undecryptable", "Git account credentials cannot be decrypted");
+      if (outcome.kind === "provider_error") {
+        // Il tentativo fallito resta nel registro, come nel prototipo; il
+        // server non salva uno stato «fallito», quindi niente altro cambia.
+        // Una voce che non si scrive non trasforma il 422 in un 500.
+        const { repository } = outcome;
+        try {
+          await recordChange(app.db, { type: "repository.webhook_configured", actor: request.user!, projectId: repository.projectId, data: { object: repositoryObject(repository), before: repository.webhookConfiguredAt ? "configured" : "not_configured", after: "failed" } });
+        } catch (error) {
+          request.log.warn({ err: error }, "configure-webhook: la voce del tentativo fallito non si è scritta");
+        }
+        // 422: la richiesta è valida ma il provider la rifiuta (es. scope
+        // webhook mancante). Il messaggio < 500 passa intatto al client.
+        return apiError(reply, 422, "git_provider_error", outcome.message);
       }
+      return { ok: true as const, created: outcome.created, updated: outcome.updated, detail: outcome.detail, url };
     },
   );
 

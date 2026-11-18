@@ -194,7 +194,7 @@ describe("area 9, F5 nel client", () => {
   it("projects.plugins senza version (server vecchio) → null; setPlugins manda ifMatch solo se c'è", async () => {
     const plugin = { pluginId: "50000000-0000-4000-8000-000000000001", enabled: true, disabledSkills: [], disabledHooks: [] };
     const old = clientWith({ plugins: [plugin] });
-    expect(await old.client.projects.plugins(P1)).toEqual({ plugins: [plugin], version: null });
+    expect(await old.client.projects.plugins(P1)).toEqual({ plugins: [plugin], version: null, registry: [] });
     expect(call(old.fetchImpl).url).toBe(`/api/projects/${P1}/plugins`);
     const put = clientWith({ plugins: [plugin], version: "v2" });
     await put.client.projects.setPlugins(P1, [plugin], "v1");
@@ -211,4 +211,22 @@ describe("area 9, F5 nel client", () => {
     expect(err).toMatchObject({ status: 409, code: "stale" });
     expect(projectPluginsStaleSchema.parse(err.details)).toEqual({ version: "v3", plugins: [plugin] });
   });
+
+  it("projects.integration: path, e da un server senza createdAt/createdBy/gitWebhooks/permessi valgono null, [] e false", async () => {
+    const { client, fetchImpl } = clientWith({ ingestion: { last4: "9f3a", dsnBase: "https://s/p/demo" }, inbound: { url: "https://s/api/inbound/demo/ticket" } });
+    expect(await client.projects.integration(P1)).toEqual({
+      ingestion: { last4: "9f3a", createdAt: null, createdBy: null, dsnBase: "https://s/p/demo" },
+      inbound: { url: "https://s/api/inbound/demo/ticket" },
+      gitWebhooks: [],
+      canRegenerateKey: false,
+      canRegenerateWebhookSecret: false,
+    });
+    expect([call(fetchImpl).method, call(fetchImpl).url]).toEqual(["GET", `/api/projects/${P1}/integration`]);
+  });
+
+  it("projects.plugins: il registro, [] da un server che non lo manda", async () => {
+    const { client } = clientWith({ plugins: [], version: "v1" });
+    expect((await client.projects.plugins(P1)).registry).toEqual([]);
+  });
 });
+

@@ -5128,13 +5128,15 @@ deploy o di un rollback che la tocca.
   registro della 9c (29 tipi di progetto più `repository.deleted` d'istanza,
   senza scrittore sul server), la riconferma dei file d'ambiente, le
   rigenerazioni della chiave d'ingestione e del segreto del webhook git, i
-  plugin del progetto con la versione, la regola del pulse. **Nessuna
-  migrazione**, nessuna env nuova, nessun `notification_kind` nuovo, nessun
-  permesso nuovo. Tutte le risposte cambiate sono additive (`version` nei
-  plugin del progetto).
+  plugin del progetto con la versione e il registro, la regola del pulse, e
+  la chiave d'ingestione che non esce più da nessuna lettura (I2).
+  Migrazione **0192** (additiva: `projects.ingestion_key_created_at` e
+  `ingestion_key_created_by_user_id`, null per le chiavi di prima). Nessuna
+  env nuova, nessun `notification_kind` nuovo, nessun permesso nuovo.
 
-  **ORDINE**: solo **server**. Caddy solo se nello stesso rilascio entra il
-  renderer del desktop che usa queste rotte. Worker invariato.
+  **ORDINE**: **server** (healthy, 0192 applicata), poi **caddy** (il web
+  vecchio legge l'Integrazione dalla rotta nuova; col caddy vecchio il
+  pannello mostrerebbe una chiave vuota). Worker invariato.
 
   **Da sapere subito**:
   - **Rigenerazioni** (riconferma):
@@ -5154,11 +5156,24 @@ deploy o di un rollback che la tocca.
     `ifMatch` vecchio risponde 409 `stale` e non scrive. Il limite v1 «una
     persona per volta» è chiuso per chi manda `ifMatch` (l'app); il web
     vecchio non lo manda e per lui l'ultimo salvataggio vince ancora.
+  - **Chiave d'ingestione (I2)**: la vista del progetto (lista, dettaglio,
+    creazione) manda `ingestionKey: null`; la chiave intera esce solo dalla
+    rigenerazione, una volta. `GET /api/projects/:projectId/integration` ne dà
+    le ultime 4, quando e da chi. **Cambio di prodotto**: prima ogni membro del
+    progetto vedeva e copiava la chiave dal web; ora chi integra l'SDK la
+    chiede a chi ha `project.settings.manage`, che la rigenera (anche su un
+    progetto appena creato). La chiave in uso non cambia col deploy.
+  - **Webhook git**: rigenerazione e «configura» bloccano la riga del
+    repository per tutta la sequenza piattaforma → DB (due operazioni insieme
+    si mettono in fila).
   - **Pulse**: `PATCH /api/projects/:projectId` rifiuta il pulse acceso senza
     la discovery del backlog (400 `pulse_needs_backlog`), e spegnere la
-    discovery spegne il pulse nello stesso salvataggio. Il web vecchio già
-    disabilita la casella. I progetti che oggi hanno pulse acceso e backlog
-    spento restano così finché qualcuno non salva la discovery.
+    discovery spegne il pulse nello stesso salvataggio. Il web vecchio
+    disabilita la casella quando la discovery è spenta, ma non la toglie: chi
+    accende il pulse e POI spegne la discovery nello stesso form manda
+    `{backlogEnabled: false, pulseEnabled: true}` e riceve il 400 (rifà il
+    salvataggio togliendo il pulse). I progetti che oggi hanno pulse acceso e
+    backlog spento restano così finché qualcuno non salva la discovery.
   - **Registro**: ogni scrittura delle impostazioni del progetto (generali,
     AI, interruttori, stati, soglie, plugin, repository, ambienti, widget,
     file d'ambiente) lascia la sua voce nella sua transazione; mai un valore
@@ -5172,6 +5187,11 @@ deploy o di un rollback che la tocca.
   - le rotte nuove spariscono; le chiavi e i segreti rigenerati nel
     frattempo restano quelli VALIDI (sono nel DB), quindi non serve
     riavvisare nessuno;
+  - ⚠️ il server vecchio torna a mandare la chiave d'ingestione INTERA nella
+    vista del progetto a ogni membro (l'esposizione che I2 chiude): il
+    rollback la riapre per il suo tempo;
+  - la 0192 non si annulla: le due colonne restano, il server vecchio le
+    ignora;
   - il server vecchio non manda `version` dei plugin: l'app la legge `null` e
     salva senza `ifMatch`;
   - le voci della 9c già scritte restano; il server vecchio non le mostra

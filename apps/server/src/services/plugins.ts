@@ -518,7 +518,7 @@ async function writeProjectPlugins(
   return db.transaction(async (tx): Promise<PutProjectPluginsResult> => {
     // Il progetto bloccato: due salvataggi con la stessa `ifMatch` non passano
     // entrambi, il secondo legge lo stato del primo e risponde `stale`.
-    const [project] = await tx.select({ id: projects.id, code: projects.code }).from(projects).where(eq(projects.id, projectId)).for("update");
+    const [project] = await tx.select({ id: projects.id, code: projects.code }).from(projects).where(eq(projects.id, projectId)).for("no key update");
     const current = () =>
       tx
         .select({ row: projectPlugins, slug: plugins.slug })

@@ -1059,7 +1059,8 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       let outcome: Outcome;
       try {
         outcome = await app.db.transaction(async (tx): Promise<Outcome> => {
-          const [current] = await tx.select().from(projects).where(eq(projects.id, request.params.projectId)).for("update");
+          // NO KEY UPDATE: mette in fila i salvataggi senza fermare chi inserisce righe che referenziano il progetto.
+          const [current] = await tx.select().from(projects).where(eq(projects.id, request.params.projectId)).for("no key update");
           if (!current) return { error: "not_found" };
           // K-2, la regola del prototipo: il pulse propone dal backlog, quindi
           // acceso senza la discovery è rifiutato; spegnere la discovery lo
