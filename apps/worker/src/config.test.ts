@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { effectiveModelDefaults, loadWorkerConfig } from "./config.js";
+import { effectiveModelDefaults, loadWorkerConfig, MODEL_ENV_OPERATIONS, modelEnvOperations } from "./config.js";
 import { DEFAULT_AGENT_QUESTION_MAX_ROUNDS } from "./pipeline/ask-user.js";
 
 const VALID = {
@@ -904,6 +904,23 @@ describe("chat con Claude", () => {
     ]);
     expect(() => loadWorkerConfig({ ...VALID, CHAT_SERVER_URL: "non un url" })).toThrow(/CHAT_SERVER_URL/);
     expect(() => loadWorkerConfig({ ...VALID, CHAT_TURN_TIMEOUT_MS: "1000" })).toThrow(/CHAT_TURN_TIMEOUT_MS/);
+  });
+});
+
+describe("modelEnvOperations (area 9, F3: la fonte `env` dei modelli)", () => {
+  it("per ogni variabile, le operazioni che dichiara sono ESATTAMENTE quelle che cambiano in effectiveModelDefaults", () => {
+    const base = effectiveModelDefaults(loadWorkerConfig({ ...VALID }));
+    for (const name of Object.keys(MODEL_ENV_OPERATIONS)) {
+      const probe = effectiveModelDefaults(loadWorkerConfig({ ...VALID, [name]: "probe-model" }));
+      const moved = Object.keys(probe).filter((op) => probe[op as keyof typeof probe] !== base[op as keyof typeof base]).sort();
+      expect(modelEnvOperations({ [name]: "probe-model" }), name).toEqual(moved);
+    }
+  });
+
+  it("nessuna env (o vuota): nessuna operazione; SUMMARY_MODEL impostato non si porta dietro la PR review", () => {
+    expect(modelEnvOperations({})).toEqual([]);
+    expect(modelEnvOperations({ FIX_PLAN_MODEL: "  " })).toEqual([]);
+    expect(modelEnvOperations({ SUMMARY_MODEL: "haiku" })).toEqual(["summary", "weekly_brief"]);
   });
 });
 

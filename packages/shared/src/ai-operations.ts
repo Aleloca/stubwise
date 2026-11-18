@@ -115,3 +115,26 @@ const ALIAS_TO_ID: Record<(typeof AI_MODEL_ALIASES)[number], string> = {
 export function resolveApiModelId(choice: AiModelChoice): string {
   return choice in ALIAS_TO_ID ? ALIAS_TO_ID[choice as keyof typeof ALIAS_TO_ID] : choice;
 }
+
+/**
+ * Un valore di `ai_model_settings` vale SOLO se è nel catalogo: una riga
+ * fuori catalogo (scritta prima di un deploy che l'ha ristretto) non arriva
+ * mai al CLI. UNA regola per il resolver del worker e per la fonte che il
+ * server mostra (area 9, F3, Task 7).
+ */
+export function isKnownModelChoice(value: string | null | undefined): value is AiModelChoice {
+  return value != null && (AI_MODEL_CHOICES as readonly string[]).includes(value);
+}
+
+/** Da dove viene il modello di un'operazione: l'impostazione, un'env del worker, il default di codice. */
+export type AiModelSource = "setting" | "env" | "default";
+
+/**
+ * La fonte del modello, con la precedenza del worker: un'impostazione valida
+ * vince, poi l'env (le operazioni che il worker pubblica in
+ * `worker_model_env_operations`), poi il default.
+ */
+export function aiModelSourceOf(operation: AiOperation, setting: string | null | undefined, envOperations: readonly string[] | null | undefined): AiModelSource {
+  if (isKnownModelChoice(setting)) return "setting";
+  return envOperations?.includes(operation) ? "env" : "default";
+}

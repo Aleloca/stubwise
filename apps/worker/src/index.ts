@@ -25,7 +25,7 @@ import { turnDispatcher } from "./sessions/turn-dispatch.js";
 import { runChatTurn } from "./claude-chat/turn.js";
 import { startCredentialTester } from "./agent/credential-tester.js";
 import { startUsagePoller } from "./agent/usage-poller.js";
-import { effectiveModelDefaults, loadWorkerConfig, type WorkerConfig } from "./config.js";
+import { effectiveModelDefaults, loadWorkerConfig, modelEnvOperations, type WorkerConfig } from "./config.js";
 import { createModelResolver, writeWorkerModelDefaults } from "./agent/model-settings.js";
 import { TrackingAgentRunner } from "./agent/tracking-runner.js";
 import { requeueWaitingReviewsAtStartup, startPrReviewPoller } from "./review/poller.js";
@@ -251,7 +251,7 @@ const runner: AgentRunner = new TrackingAgentRunner({
 });
 // Default effettivi (env + codice) per la UI delle impostazioni: best-effort,
 // un errore non ferma l'avvio.
-await writeWorkerModelDefaults(db, effectiveModelDefaults(config));
+await writeWorkerModelDefaults(db, effectiveModelDefaults(config), console, modelEnvOperations(process.env));
 const mirrors = new MirrorManager({ mirrorsDir: config.mirrorsDir });
 
 // Serializzatore per-progetto CONDIVISO fra fix e doc-generation: un doc-job e

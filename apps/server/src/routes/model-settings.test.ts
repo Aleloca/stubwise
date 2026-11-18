@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AI_OPERATIONS } from "@stubwise/shared";
-import { aiModelSettings, instanceSettings } from "@stubwise/db";
+import { aiModelSettings, changeLog, instanceSettings } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
@@ -32,7 +32,7 @@ afterAll(async () => {
 
 afterEach(async () => {
   await testDb.db.delete(aiModelSettings);
-  await testDb.db.update(instanceSettings).set({ workerModelDefaults: null });
+  await testDb.db.update(instanceSettings).set({ workerModelDefaults: null, workerModelEnvOperations: null });
 });
 
 const get = (cookie?: string) =>
@@ -120,5 +120,32 @@ describe("/api/settings/models", () => {
       (await patch({ fix_execute: "opus", credential_test: "opus" }, users.adminCookie)).statusCode,
     ).toBe(400);
     expect(await testDb.db.select().from(aiModelSettings)).toHaveLength(0);
+  });
+
+  it("area 9, F3: la fonte del modello — impostazione, env del worker, default di codice", async () => {
+    await testDb.db.update(instanceSettings).set({ workerModelDefaults: { fix_plan: "opus", pr_review: "haiku" }, workerModelEnvOperations: ["pr_review"] });
+    await patch({ triage: "sonnet" }, users.adminCookie);
+    const ops = (await get(users.adminCookie)).json().operations as { operation: string; source: string }[];
+    const sourceOf = (op: string) => ops.find((o) => o.operation === op)!.source;
+    expect(sourceOf("triage")).toBe("setting");
+    expect(sourceOf("pr_review")).toBe("env");
+    expect(sourceOf("fix_plan")).toBe("default");
+  });
+
+  it("area 9, F3: model.changed per ogni operazione che cambia, col modello effettivo in valore stabile", async () => {
+    await testDb.db.update(instanceSettings).set({ workerModelDefaults: { fix_plan: "opus", pr_review: "haiku" }, workerModelEnvOperations: ["pr_review"] });
+    // Il registro è append-only: si guardano le sole voci nuove.
+    const seen = new Set((await testDb.db.select({ id: changeLog.id }).from(changeLog)).map((r) => r.id));
+    const fresh = async () => (await testDb.db.select().from(changeLog).where(eq(changeLog.type, "model.changed"))).filter((r) => !seen.has(r.id));
+    expect((await patch({ pr_review: "opus", fix_plan: "opus" }, users.adminCookie)).statusCode).toBe(200);
+    const rows = (await fresh()).map((r) => r.data as { object: { id: string }; before: string; after: string });
+    expect(rows.map((r) => [r.object.id, r.before, r.after]).sort()).toEqual([
+      ["fix_plan", "default:opus", "set:opus"],
+      ["pr_review", "env:haiku", "set:opus"],
+    ]);
+    expect((await patch({ pr_review: null }, users.adminCookie)).statusCode).toBe(200);
+    const back = (await fresh()).map((r) => r.data as { before: string; after: string });
+    expect(back).toContainEqual(expect.objectContaining({ before: "set:opus", after: "env:haiku" }));
+    expect(back).toHaveLength(3);
   });
 });

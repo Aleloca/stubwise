@@ -1,9 +1,11 @@
+import { recordChange } from "../services/change-log.js";
 import { eq, inArray } from "drizzle-orm";
 import {
   AI_MODEL_CHOICES,
   AI_OPERATIONS,
   aiModelChoiceSchema,
   aiOperationSchema,
+  aiModelSourceOf,
   isConfigurableAiOperation,
   type AiModelChoice,
   type AiOperation,
@@ -28,6 +30,11 @@ const modelSettingsSchema = z.object({
       configurable: z.boolean(),
       model: aiModelChoiceSchema.nullable(),
       workerDefault: z.string().nullable(),
+      /**
+       * Area 9, F3: da dove viene il modello che il worker userebbe ora
+       * (`aiModelSourceOf`, la precedenza del worker). Additivo, col default.
+       */
+      source: z.enum(["setting", "env", "default"]).default("default"),
     }),
   ),
   choices: z.array(aiModelChoiceSchema),
@@ -37,10 +44,12 @@ const patchBodySchema = z.object({
   models: z.partialRecord(aiOperationSchema, aiModelChoiceSchema.nullable()),
 });
 
-async function loadModelSettings(db: Db): Promise<z.infer<typeof modelSettingsSchema>> {
+type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+async function loadModelSettings(db: DbOrTx): Promise<z.infer<typeof modelSettingsSchema>> {
   const rows = await db.select().from(aiModelSettings);
   const [settings] = await db
-    .select({ defaults: instanceSettings.workerModelDefaults })
+    .select({ defaults: instanceSettings.workerModelDefaults, envOperations: instanceSettings.workerModelEnvOperations })
     .from(instanceSettings)
     .where(eq(instanceSettings.id, 1));
   const chosen = new Map(rows.map((r) => [r.operation, r.model]));
@@ -55,10 +64,22 @@ async function loadModelSettings(db: Db): Promise<z.infer<typeof modelSettingsSc
         // Una riga con un valore fuori catalogo (lista cambiata in un deploy) si mostra come "predefinito".
         model: model !== undefined && known.has(model) ? (model as AiModelChoice) : null,
         workerDefault: defaults[operation] ?? null,
+        source: aiModelSourceOf(operation, model, settings?.envOperations),
       };
     }),
     choices: [...AI_MODEL_CHOICES],
   };
+}
+
+/**
+ * Il modello effettivo come valore stabile del registro (Ruling T3):
+ * `<fonte>:<modello>`, fonte `set`, `env` o `default`. Senza un default
+ * pubblicato dal worker (mai partito) il modello non si sa: `null`.
+ */
+function stableModel(row: { model: string | null; workerDefault: string | null; source: "setting" | "env" | "default" }): string | null {
+  const model = row.source === "setting" ? row.model : row.workerDefault;
+  if (model === null) return null;
+  return `${row.source === "setting" ? "set" : row.source}:${model}`;
 }
 
 export async function modelSettingsRoutes(instance: FastifyInstance): Promise<void> {
@@ -99,6 +120,7 @@ export async function modelSettingsRoutes(instance: FastifyInstance): Promise<vo
         AiModelChoice,
       ][];
       await app.db.transaction(async (tx) => {
+        const before = await loadModelSettings(tx);
         if (toDelete.length > 0) {
           await tx.delete(aiModelSettings).where(inArray(aiModelSettings.operation, toDelete));
         }
@@ -110,6 +132,18 @@ export async function modelSettingsRoutes(instance: FastifyInstance): Promise<vo
               target: aiModelSettings.operation,
               set: { model, updatedAt: new Date(), updatedByUserId: request.user!.id },
             });
+        }
+        // Area 9, F3: come il prototipo (`models.ts`), una voce per operazione
+        // che CAMBIA, col modello effettivo prima e dopo in valore stabile
+        // (`set:opus`, `env:haiku`, `default:sonnet`); l'oggetto è l'id
+        // dell'operazione, il nome lo traduce la pagina.
+        const after = await loadModelSettings(tx);
+        for (const row of after.operations) {
+          const old = before.operations.find((o) => o.operation === row.operation)!;
+          const a = stableModel(old);
+          const b = stableModel(row);
+          if (a === b) continue;
+          await recordChange(tx, { type: "model.changed", actor: request.user!, projectId: null, data: { object: { type: "ai_settings", id: row.operation, label: row.operation }, before: a, after: b } });
         }
       });
       return loadModelSettings(app.db);
