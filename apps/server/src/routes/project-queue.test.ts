@@ -79,6 +79,20 @@ describe("la coda di un progetto", () => {
     expect(again.json()).toMatchObject({ code: "not_paused" });
   });
 
+  it("J-6 (a): l'esecuzione ferma per la pausa dice chi (col nome) e da quando, e il codice del progetto; ripresa → null", async () => {
+    const { projectId } = await seedRepository(db);
+    const run = await waitingRun(projectId, "queue_paused");
+    const [a] = await db.select({ code: automations.code }).from(automations).where(eq(automations.id, run.automationId));
+    await post(projectId, "pause");
+    const read = async () => (await app.inject({ method: "GET", url: `/api/automations/${a!.code}/runs/1`, headers: { cookie: adminCookie } })).json() as { aiWaiting: unknown; aiWaitingCode?: string | null };
+    const paused = await read();
+    expect(paused.aiWaiting).toMatchObject({ reason: "queue_paused", byId: adminId });
+    expect((paused.aiWaiting as { byName: string }).byName).toBeTruthy();
+    expect(paused.aiWaitingCode).toBe((await projectOf(projectId)).code);
+    await post(projectId, "resume");
+    expect((await read()).aiWaiting).toBeNull();
+  });
+
   it("NEGATIVI: un Developer (senza gestione) 403 e niente cambia; chi non vede il progetto 404", async () => {
     const { projectId } = await seedRepository(db);
     const dev = await member(projectId, "developer");

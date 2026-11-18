@@ -1,3 +1,4 @@
+import { queuePauseOf } from "../services/instance-status.js";
 import { automationRunInputs, automationRunLog, automationRuns, automations, automationVersions, googleAccounts, projects, type Db } from "@stubwise/db";
 import { approversFor, loadPlanWorld } from "@stubwise/notifications";
 import {
@@ -116,6 +117,17 @@ async function logFor(db: Db, runId: string, visible: "all" | ReadonlySet<string
  * registro di ogni riga pesa, e lo legge il dettaglio. `log` resta (vuoto) per
  * non togliere un campo a un client che lo legge.
  */
+/** L'attesa del passo di Claude come la legge il client (`aiWaiting`, `aiWaitingCode`). */
+async function aiWaitingOf(db: Db, w: { reason: string } | null, projectId: string | null): Promise<Pick<AutomationRunRow, "aiWaiting" | "aiWaitingCode">> {
+  if (!w) return { aiWaiting: null };
+  if (w.reason === "monthly_budget") return { aiWaiting: { reason: "monthly_budget" } };
+  if (w.reason !== "queue_paused" || !projectId) return { aiWaiting: null };
+  const pause = await queuePauseOf(db, projectId);
+  if (!pause) return { aiWaiting: null };
+  const [p] = await db.select({ code: projects.code }).from(projects).where(eq(projects.id, projectId));
+  return { aiWaiting: { reason: "queue_paused", byId: pause.byId ?? "", byName: pause.byName, since: pause.since }, aiWaitingCode: p?.code ?? null };
+}
+
 export async function runRowOf(db: Db, viewer: Viewer, r: RunRecord, a: AutomationRecord, visible?: "all" | ReadonlySet<string>, opts: { withLog?: boolean; decider?: boolean } = {}): Promise<AutomationRunRow> {
   const v = visible ?? (await seen(db, viewer));
   const c = cursorOf(r);
@@ -141,7 +153,10 @@ export async function runRowOf(db: Db, viewer: Viewer, r: RunRecord, a: Automati
     origin: r.origin,
     ...(r.status === "suspended" && c.suspendedFrom ? { suspendedFrom: c.suspendedFrom as AutomationRun["suspendedFrom"] } : {}),
     // F3 (C-F3-4): ferma al passo di Claude per il budget del mese; riparte da sola.
-    aiWaiting: (c as { aiWaiting?: { reason: "monthly_budget" } | null }).aiWaiting ?? null,
+    // Area 9, F4 (J-6 = a): o per la coda del progetto in pausa — chi (col nome,
+    // calcolato qui) e da quando, dalla pausa ATTUALE (`queuePauseOf`, la stessa
+    // regola della vista della task); ripresa nel frattempo → null.
+    ...(await aiWaitingOf(db, (c as { aiWaiting?: { reason: string } | null }).aiWaiting ?? null, a.projectId)),
   };
   if (pending && typeof pending.preview.progetto === "string" && v !== "all") hideProject(run.pending!.preview, v);
   // R-J16 (area 7, F2): il testo della risposta del cliente lo vede solo il proprietario; chi decide ne vede l'anteprima intera (R-J14).
