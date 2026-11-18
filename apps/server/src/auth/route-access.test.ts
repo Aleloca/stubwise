@@ -132,6 +132,7 @@ describe("rotte con riconferma recente", () => {
       "DELETE /api/projects/:projectId/members/:userId",
       "DELETE /api/roles/:id",
       "DELETE /api/settings/google-workspaces/:id",
+      "DELETE /api/settings/webhooks/:id",
       "DELETE /api/users/:id/git-identities/:email",
       "DELETE /api/users/:id/second-factor",
       "DELETE /api/users/:id/slack",
@@ -161,6 +162,8 @@ describe("rotte con riconferma recente", () => {
       "POST /api/roles/:id/duplicate",
       // Area 9, F1: disattivare e riattivare una persona.
       "POST /api/settings/google-workspaces",
+      "POST /api/settings/webhooks",
+      "POST /api/settings/webhooks/:id/secret",
       "POST /api/users/:id/deactivate",
       "POST /api/users/:id/git-identities",
       "POST /api/users/:id/password-reset",
