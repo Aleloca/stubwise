@@ -5066,3 +5066,58 @@ deploy o di un rollback che la tocca.
   - il registro ha un buco per il tempo del rollback (come F2);
   - le rotte con riconferma, il «Mi fido» e il blocco dell'ultimo account AI
     acceso tornano come prima (la 0190 resta, il server vecchio la ignora).
+- **«Integrazione area 9, F4: lo Stato dell'istanza»** *(18 nov 2026)*:
+  branch `feat/area9-f4` (da `feat/integrazione-area9`, con F3 unita), piano
+  `docs/plans/2026-11-18-integrazione-area9-f4-plan.md` (D-7 = a, J-1…J-6 =
+  a). La pausa della coda di un progetto, lo Stato dell'istanza
+  (`GET /api/instance/status`), il rilancio di un lavoro fallito, il budget che
+  torna, l'heartbeat dei worker e AI → Usage per l'app
+  (`GET /api/ai-usage/summary`). Migrazione **0191** (additiva:
+  `projects.queue_paused_at` e `queue_paused_by_user_id`, la tabella
+  `worker_heartbeats`). Permesso d'istanza nuovo `instance.status.view`
+  (implicito nel full admin, nessun altro preset). Nessuna env nuova, nessun
+  `notification_kind` nuovo. In `PUT /api/settings/instance` anche lo speso del
+  mese (`spentUsd`, `budgetReached`, `budgetEffect`), tutto additivo.
+
+  **ORDINE**: **server** (healthy, 0191 applicata), poi **SUBITO il worker**,
+  poi **caddy**. ⚠️ Un worker vecchio IGNORA la pausa (le WHERE dei claim sono
+  nel worker nuovo): fra il deploy del server e quello del worker mettere in
+  pausa una coda non ferma niente. Non usare la pausa in quella finestra.
+
+  **Da sapere subito**:
+  - La pausa agisce SOLO sulla coda di Stubwise: in pausa, il lavoro NUOVO di
+    Claude del progetto non parte (job delle task, correzioni, review, intake e
+    stime, Docs, giro notturno, grafo, Drive, daily report, brief, giudizio
+    del support, passo di Claude delle automazioni di progetto, la proposta di
+    correzione di un server); il lavoro già partito finisce; niente si cancella.
+    Non si fermano chat, «Chiedi a Claude», le sessioni interattive, la posta,
+    le analisi dei server. Nessun riavvio né azione su un server, per
+    costruzione (un test di sorgente lo verifica).
+  - La mette e la toglie chi ha `project.settings.manage` nel progetto
+    (`POST /api/projects/:projectId/queue/pause` e `/resume`); la ripresa fa
+    ripartire subito le automazioni ferme per la pausa. Registro:
+    `queue.paused`, `queue.resumed`.
+  - Il rilancio (`POST /api/instance/jobs/:id/retry`) chiede
+    `project.settings.manage` e `runs.start`, solo su un job di una task
+    fallito negli ultimi 7 giorni, mai una correzione; riparte con `startRun`
+    (gate del piano compreso). Registro: `job.retried`, nella transazione di
+    `startRun`.
+  - Alzare il tetto mensile sopra lo speso fa ripartire subito i passi delle
+    automazioni fermi per il budget; il mese nuovo li trova al giro dei 15′.
+  - Gli heartbeat dei worker si potano da soli dopo un giorno.
+  Controlli, sola lettura: `select code, queue_paused_at from projects where
+  queue_paused_at is not null;` e `select worker_id, seen_at, concurrency,
+  jsonb_array_length(running) from worker_heartbeats order by seen_at desc;`.
+
+  **Rollback** (il server scende **insieme** al caddy, il worker con loro; la
+  0191 non si annulla, le colonne e la tabella restano):
+  - PRIMA di scendere, togli le pause (`select code from projects where
+    queue_paused_at is not null;` e riprendile dall'app): un worker vecchio le
+    ignora, quindi dopo il rollback quei progetti ripartirebbero comunque, ma
+    al ritorno in avanti ripartirebbero in pausa senza che nessuno se lo
+    ricordi;
+  - un worker vecchio non scrive l'heartbeat: lo Stato dell'istanza (che il
+    server vecchio non ha) non ne ha bisogno;
+  - `instance.status.view` dato a un ruolo resta nella riga e il server
+    vecchio lo ignora;
+  - il registro ha un buco per il tempo del rollback (come F2 e F3).
