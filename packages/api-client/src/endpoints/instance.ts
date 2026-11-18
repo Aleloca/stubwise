@@ -8,6 +8,7 @@ import {
   googleWorkspaceSchema,
   instanceSettingsViewSchema,
   instanceStatusSchema,
+  usageSummarySchema,
   pluginRegistrySchema,
   pluginSchema,
 } from "@stubwise/shared";
@@ -25,6 +26,9 @@ import type {
   GoogleWorkspacePatch,
   InstanceSettingsView,
   InstanceStatus,
+  UsageDimension,
+  UsageRange,
+  UsageSummary,
   Plugin,
   PluginRegistry,
   Reader,
@@ -35,7 +39,7 @@ import type {
 } from "@stubwise/shared";
 import { z } from "zod";
 import type { ApiRequest } from "../client.js";
-import { seg } from "../query.js";
+import { seg, toQuery } from "../query.js";
 
 /**
  * Area 9, F3, Task 8b: le pagine d'istanza della 9b nell'app nuova. I segreti
@@ -194,6 +198,30 @@ export function createInstanceStatusEndpoints(request: ApiRequest) {
   return {
     status(): Promise<Reader<InstanceStatus>> {
       return request("GET", "/api/instance/status", undefined, instanceStatusSchema);
+    },
+    /**
+     * Task 6: rimette in coda un job fallito di una task (`project.settings.manage`
+     * + `runs.start`). 409 `conflict` (già ripartito o superato da lavoro vivo),
+     * 422 `not_retryable` / `monthly_budget`. `stopsAtPlan`: Claude si fermerà al piano.
+     */
+    retryJob(jobId: string) {
+      return request("POST", `/api/instance/jobs/${seg(jobId)}/retry`, undefined, z.object({ jobId: z.string(), status: z.string(), stopsAtPlan: z.boolean().default(false) }));
+    },
+  };
+}
+
+/**
+ * Area 9, F4: AI → Usage (`usage.view`, o `project.usage.view` per i propri
+ * progetti). Il raggruppamento, i giorni a zero e R-G5 li fa il server: la
+ * riga `other` (progetti che chi guarda non vede) e `none` (righe senza
+ * progetto o provider) hanno la chiave come etichetta, le parole le mette la UI.
+ */
+export function createUsageEndpoints(request: ApiRequest) {
+  return {
+    summary(input: { range: UsageRange; groupBy: UsageDimension; thenBy?: UsageDimension }): Promise<Reader<UsageSummary>> {
+      const r = input.range;
+      const range = "days" in r ? { days: String(r.days) } : "month" in r ? { month: "1" } : { from: r.from, to: r.to };
+      return request("GET", `/api/ai-usage/summary${toQuery({ ...range, groupBy: input.groupBy, thenBy: input.thenBy })}`, undefined, usageSummarySchema);
     },
   };
 }

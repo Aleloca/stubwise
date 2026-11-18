@@ -17,7 +17,7 @@ import {
 } from "@stubwise/db";
 import { aiBudgetState, CLOSED_TICKET_STATUSES } from "@stubwise/notifications";
 import { PROJECT_PERMISSIONS, type AiBlockView, type InstanceJob, type InstanceStatus } from "@stubwise/shared";
-import { and, desc, eq, gte, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
 import { projectPermissionsMap } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 
@@ -52,6 +52,8 @@ export interface RetryFacts {
   newer: { live: boolean } | null;
 }
 
+const LIVE_STATUSES = new Set(["queued", "triaging", "fixing", "held", "awaiting_plan_approval", "awaiting_input"]);
+
 /** La disponibilità del Retry di un job, per chi guarda: UNA regola per la vista e per la rotta. */
 export function retryCheck(
   facts: RetryFacts,
@@ -60,6 +62,8 @@ export function retryCheck(
   now: Date,
 ): Pick<InstanceJob, "retry" | "retryNeeds" | "retryBlock" | "retryStopsAtPlan"> & { reason: "not_retryable" | "conflict" | null } {
   const off = { retry: "unavailable" as const, retryNeeds: null, retryBlock: null, retryStopsAtPlan: false };
+  // Il job è già ripartito (`startRun` ricicla l'ultimo job concluso): è in volo.
+  if (LIVE_STATUSES.has(facts.status)) return { ...off, reason: "conflict" };
   const fresh = facts.finishedAt !== null && now.getTime() - facts.finishedAt.getTime() <= FAILED_WINDOW_MS;
   if (facts.status !== "failed" || facts.isCorrection || facts.ticketClosed || !fresh) return { ...off, reason: "not_retryable" };
   if (facts.newer) return { ...off, reason: facts.newer.live ? "conflict" : "not_retryable" };
@@ -328,5 +332,35 @@ export async function instanceStatus(db: Db, viewer: Viewer, now = new Date()): 
     errors,
     nightly,
     refreshedAt: now.toISOString(),
+  };
+}
+
+/**
+ * Task 6: i fatti di UN job per il rilancio, letti dal DB con le stesse regole
+ * della vista (`retryCheck` decide). null se il job non c'è.
+ */
+export async function retryFactsOf(db: Db, jobId: string): Promise<(RetryFacts & { ticketId: string; projectId: string; code: string }) | null> {
+  const [j] = await db
+    .select({ status: aiJobs.status, correctionId: aiJobs.correctionId, finishedAt: aiJobs.finishedAt, createdAt: aiJobs.createdAt, ticketId: aiJobs.ticketId, ticketStatus: tickets.status, ticketNumber: tickets.number, projectId: tickets.projectId, projectCode: projects.code })
+    .from(aiJobs)
+    .innerJoin(tickets, eq(tickets.id, aiJobs.ticketId))
+    .innerJoin(projects, eq(projects.id, tickets.projectId))
+    .where(eq(aiJobs.id, jobId));
+  if (!j) return null;
+  // Il confronto nel DB (microsecondi), mai con una data di JS (millisecondi).
+  const later = await db
+    .select({ status: aiJobs.status })
+    .from(aiJobs)
+    .where(and(eq(aiJobs.ticketId, j.ticketId), ne(aiJobs.id, jobId), sql`${aiJobs.createdAt} > (SELECT created_at FROM ai_jobs WHERE id = ${jobId})`));
+  const TERMINAL = new Set(["failed", "pr_opened", "pr_merged", "pr_closed", "skipped"]);
+  return {
+    status: j.status,
+    isCorrection: j.correctionId !== null,
+    finishedAt: j.finishedAt,
+    ticketClosed: (CLOSED_TICKET_STATUSES as readonly string[]).includes(j.ticketStatus),
+    newer: later.length ? { live: later.some((o) => !TERMINAL.has(o.status)) } : null,
+    ticketId: j.ticketId,
+    projectId: j.projectId,
+    code: `${j.projectCode}-${j.ticketNumber}`,
   };
 }

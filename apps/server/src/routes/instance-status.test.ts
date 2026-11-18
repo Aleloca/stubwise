@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { aiJobs, instanceSettings, projectMembers, projects, roles, tickets, users, workerHeartbeats, type Db, agentRuns } from "@stubwise/db";
+import { aiJobs, changeLog, instanceSettings, projectMembers, projects, roles, tickets, users, workerHeartbeats, type Db, agentRuns } from "@stubwise/db";
 import { seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { InstanceStatus } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
@@ -170,5 +170,81 @@ describe("le regole pure", () => {
       ["commit_summary", "running", null],
       ["docs", "failed", "boom"],
     ]);
+  });
+});
+
+describe("il rilancio (Task 6)", () => {
+  const retry = (id: string, cookie = adminCookie) => app.inject({ method: "POST", url: `/api/instance/jobs/${id}/retry`, headers: { cookie } });
+  const jobsOf = (ticketId: string) => db.select().from(aiJobs).where(eq(aiJobs.ticketId, ticketId));
+
+  it("un fallito si rimette in coda a nome di chi preme, con startRun; la voce job.retried; di nuovo → 409 (superato e vivo)", async () => {
+    const s = await seedTicket(db);
+    const f = await job(s.ticketId, { status: "failed", finishedAt: minutesAgo(1), createdAt: minutesAgo(5) });
+    const res = await retry(f.id);
+    expect(res.statusCode).toBe(202);
+    const body = res.json() as { jobId: string; status: string; stopsAtPlan: boolean };
+    expect(body).toMatchObject({ status: "queued", stopsAtPlan: false });
+    // `startRun` ricicla l'ultimo job concluso del ticket: la stessa riga, rimessa in coda.
+    const rows = await jobsOf(s.ticketId);
+    expect(rows.find((r) => r.id === body.jobId)).toMatchObject({ status: "queued", requestedByUserId: adminId });
+    const entries = await db.select().from(changeLog).where(eq(changeLog.type, "job.retried"));
+    expect(entries.at(-1)!.data).toMatchObject({ object: { type: "task", id: s.ticketId } });
+    expect((await retry(f.id)).statusCode).toBe(409);
+  });
+
+  it("NEGATIVI (la correzione: il test puro di retryCheck): un ticket chiuso 422; più vecchio di 7 giorni 422; un Developer 403 e nessun job nuovo; il budget raggiunto 422", async () => {
+    const s = await seedTicket(db);
+    const c2 = await seedTicket(db, { projectId: s.projectId, repositoryId: s.repositoryId, number: 21 });
+    const old = await job(c2.ticketId, { status: "failed", finishedAt: new Date(Date.now() - 8 * 86_400_000) });
+    expect((await retry(old.id)).statusCode).toBe(422);
+    const c3 = await seedTicket(db, { projectId: s.projectId, repositoryId: s.repositoryId, number: 22 });
+    const closedJob = await job(c3.ticketId, { status: "failed", finishedAt: minutesAgo(1) });
+    await db.update(tickets).set({ status: "done" }).where(eq(tickets.id, c3.ticketId));
+    expect((await retry(closedJob.id)).statusCode).toBe(422);
+    const c4 = await seedTicket(db, { projectId: s.projectId, repositoryId: s.repositoryId, number: 23 });
+    const f = await job(c4.ticketId, { status: "failed", finishedAt: minutesAgo(1) });
+    const dev = await person([{ projectId: s.projectId, preset: "developer" }], []);
+    expect((await retry(f.id, dev.cookie)).statusCode).toBe(403);
+    expect(await jobsOf(c4.ticketId)).toHaveLength(1);
+    await db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "1" }).onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "1" } });
+    const [spent] = await db.insert(agentRuns).values({ phase: "triage", operation: "triage", model: "claude-sonnet-5-5", costUsd: "5" } as typeof agentRuns.$inferInsert).returning({ id: agentRuns.id });
+    try {
+      const res = await retry(f.id);
+      expect(res.statusCode).toBe(422);
+      expect(res.json()).toMatchObject({ code: "monthly_budget" });
+    } finally {
+      await db.delete(agentRuns).where(eq(agentRuns.id, spent!.id));
+      await db.update(instanceSettings).set({ monthlyBudgetUsd: null });
+    }
+  });
+
+  it("chi gestisce e avvia ma non approva i piani: il rilancio si ferma al piano (il gate di startRun)", async () => {
+    const s = await seedTicket(db);
+    const f = await job(s.ticketId, { status: "failed", finishedAt: minutesAgo(1) });
+    const [role] = await db.insert(roles).values({ name: `Gestore ${randomUUID().slice(0, 4)}`, scope: "project", permissions: ["project.settings.manage", "runs.start", "tickets.view_all"] }).returning({ id: roles.id });
+    const [u] = await db.insert(users).values({ email: `g-${randomUUID().slice(0, 6)}@acme.com`, passwordHash: "x", role: "member" }).returning({ id: users.id });
+    await db.insert(projectMembers).values({ projectId: s.projectId, userId: u!.id, roleId: role!.id });
+    const res = await retry(f.id, await fullSessionCookie(app, u!.id));
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toMatchObject({ stopsAtPlan: true });
+    const fresh = (await jobsOf(s.ticketId)).find((r) => r.id === (res.json() as { jobId: string }).jobId)!;
+    expect(fresh.planApprovalRequired).toBe(true);
+  });
+
+  it("chi gestisce il progetto ma non ha runs.start: 403 e nessun job ripartito", async () => {
+    const s = await seedTicket(db);
+    const f = await job(s.ticketId, { status: "failed", finishedAt: minutesAgo(1) });
+    const [role] = await db.insert(roles).values({ name: `Solo gestione ${randomUUID().slice(0, 4)}`, scope: "project", permissions: ["project.settings.manage", "tickets.view_all"] }).returning({ id: roles.id });
+    const [u] = await db.insert(users).values({ email: `m-${randomUUID().slice(0, 6)}@acme.com`, passwordHash: "x", role: "member" }).returning({ id: users.id });
+    await db.insert(projectMembers).values({ projectId: s.projectId, userId: u!.id, roleId: role!.id });
+    expect((await retry(f.id, await fullSessionCookie(app, u!.id))).statusCode).toBe(403);
+    expect((await jobsOf(s.ticketId))[0]!.status).toBe("failed");
+  });
+
+  it("il rilancio passa da startRun: la rotta non scrive ai_jobs da sé (test di sorgente)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync(new URL("./instance-status.ts", import.meta.url), "utf8");
+    expect(source).toContain("startRun(");
+    expect(source).not.toMatch(/insert\(aiJobs\)|update\(aiJobs\)/);
   });
 });

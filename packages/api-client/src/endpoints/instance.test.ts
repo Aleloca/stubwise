@@ -130,3 +130,25 @@ describe("la coda di un progetto (area 9, F4)", () => {
   });
 });
 
+describe("usage.summary (area 9, F4)", () => {
+  it("i tre intervalli diventano i parametri; senza i facoltativi: cache 0, figli vuoti, codice null", async () => {
+    const { client, fetchImpl } = clientWith({ totals: { costUsd: 1, inputTokens: 2, outputTokens: 3, runs: 1 }, byDay: [], rows: [{ key: "other", label: "other", costUsd: 1, tokens: 5, runs: 1 }] });
+    const s = await client.usage.summary({ range: { days: 30 }, groupBy: "project", thenBy: "model" });
+    expect(last(fetchImpl).url).toBe("/api/ai-usage/summary?days=30&groupBy=project&thenBy=model");
+    expect(s.totals.cacheReadTokens).toBe(0);
+    expect(s.rows[0]).toMatchObject({ code: null, children: [] });
+    await client.usage.summary({ range: { month: true }, groupBy: "day" });
+    expect(last(fetchImpl).url).toBe("/api/ai-usage/summary?month=1&groupBy=day");
+    await client.usage.summary({ range: { from: "2026-11-01", to: "2026-11-10" }, groupBy: "operation" });
+    expect(last(fetchImpl).url).toBe("/api/ai-usage/summary?from=2026-11-01&to=2026-11-10&groupBy=operation");
+  });
+});
+
+describe("instance.retryJob (area 9, F4)", () => {
+  it("verbo e path; senza stopsAtPlan vale false", async () => {
+    const { client, fetchImpl } = clientWith({ jobId: "j2", status: "queued" }, 202);
+    expect(await client.instance.retryJob("j/1")).toEqual({ jobId: "j2", status: "queued", stopsAtPlan: false });
+    expect(last(fetchImpl)).toMatchObject({ method: "POST", url: "/api/instance/jobs/j%2F1/retry" });
+  });
+});
+
