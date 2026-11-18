@@ -138,7 +138,8 @@ describe("leggere il registro", () => {
   it("le scelte dei filtri: everything, i gruppi che si leggono, solo i progetti visibili", async () => {
     const f = (await app.inject({ method: "GET", url: "/api/change-log/filters", headers: { cookie: cast.leadA.cookie } })).json() as ChangeLogFilters;
     expect(f.everything).toBe(false);
-    expect(f.groups).toEqual(["members"]);
+    // Il Project Lead gestisce membri, coda (F4), impostazioni e repository (F5): non ambienti né widget.
+    expect(f.groups).toEqual(["members", "queue", "project", "repositories"]);
     expect(f.projects.map((p) => p.projectId)).toEqual([projectA]);
     const v = (await app.inject({ method: "GET", url: "/api/change-log/filters", headers: { cookie: cast.viewerAll.cookie } })).json() as ChangeLogFilters;
     expect(v.everything).toBe(true);

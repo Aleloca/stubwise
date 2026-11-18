@@ -362,7 +362,7 @@ describe("PATCH /api/projects/:projectId", () => {
       method: "PATCH",
       url: `/api/projects/${id}`,
       headers: { cookie: adminCookie },
-      payload: { pulseEnabled: true, pulseEveryDays: 7 },
+      payload: { backlogEnabled: true, pulseEnabled: true, pulseEveryDays: 7 },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ pulseEnabled: true, pulseEveryDays: 7 });

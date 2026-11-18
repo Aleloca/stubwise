@@ -1,3 +1,5 @@
+import { changedFields, recordChange } from "../services/change-log.js";
+import { projectObject } from "../services/project-settings-log.js";
 import { projectStatuses, projects, ticketEvents, tickets, type Db } from "@stubwise/db";
 import { projectStatusViewSchema, statusFamilySchema, type ProjectStatusView, type StatusFamily } from "@stubwise/shared";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
@@ -126,9 +128,9 @@ export async function projectStatusRoutes(instance: FastifyInstance): Promise<vo
         // (`docs/invariants/automations.md`, le due GUC).
         await tx.execute(sql`select set_config('stubwise.automation_events', 'off', true)`);
         const current = (await tx.execute(sql`
-          select "id", "family", "legacy_status" from "project_statuses"
+          select "id", "name", "family", "legacy_status" from "project_statuses"
           where "project_id" = ${projectId} order by "position" for update
-        `)) as unknown as { id: string; family: string; legacy_status: string }[];
+        `)) as unknown as { id: string; name: string; family: string; legacy_status: string }[];
         const currentById = new Map(current.map((c) => [c.id, c]));
         const keptIds = statuses.flatMap((st) => (st.id ? [st.id] : []));
         if (new Set(keptIds).size !== keptIds.length || keptIds.some((id) => !currentById.has(id))) {
@@ -210,6 +212,21 @@ export async function projectStatusRoutes(instance: FastifyInstance): Promise<vo
                 or (s."family" <> 'todo' and t."status" <> s."legacy_status"))
           `);
         }
+        // Area 9, F5: i valori stabili del prototipo — l'elenco dei nomi
+        // nell'ordine, e «nome:famiglia» dei soli stati rimasti che hanno
+        // cambiato famiglia. Un salvataggio uguale non scrive.
+        const moved = statuses.flatMap((st) => {
+          const was = st.id ? currentById.get(st.id) : undefined;
+          return was && was.family !== st.family ? [{ was, now: st }] : [];
+        });
+        const diff = changedFields(
+          { statuses: current.map((c) => c.name), statusFamilies: moved.map((m) => `${m.was.name}:${m.was.family}`) },
+          { statuses: statuses.map((st) => st.name), statusFamilies: moved.map((m) => `${m.now.name}:${m.now.family}`) },
+        );
+        if (diff) {
+          const [project] = await tx.select({ id: projects.id, code: projects.code }).from(projects).where(eq(projects.id, projectId));
+          await recordChange(tx, { type: "project.statuses_changed", actor: request.user!, projectId, data: { object: projectObject(project!), ...diff } });
+        }
         return { error: null };
       });
       if (outcome.error === "status_not_found") {
@@ -242,14 +259,26 @@ export async function projectStatusRoutes(instance: FastifyInstance): Promise<vo
         },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { activeDays, todoDays } = request.body;
-      const [row] = await app.db
-        .update(projects)
-        .set({ stallActiveDays: activeDays, stallTodoDays: todoDays })
-        .where(eq(projects.id, request.params.projectId))
-        .returning({ activeDays: projects.stallActiveDays, todoDays: projects.stallTodoDays });
-      return row!;
+      // Area 9, F5: la voce con `changedFields` (i numeri in stringa), nella transazione.
+      const row = await app.db.transaction(async (tx) => {
+        const [current] = await tx
+          .select({ id: projects.id, code: projects.code, activeDays: projects.stallActiveDays, todoDays: projects.stallTodoDays })
+          .from(projects)
+          .where(eq(projects.id, request.params.projectId))
+          .for("update");
+        if (!current) return null;
+        await tx.update(projects).set({ stallActiveDays: activeDays, stallTodoDays: todoDays }).where(eq(projects.id, current.id));
+        const diff = changedFields(
+          { activeDays: String(current.activeDays), todoDays: String(current.todoDays) },
+          { activeDays: String(activeDays), todoDays: String(todoDays) },
+        );
+        if (diff) await recordChange(tx, { type: "project.stall_thresholds_changed", actor: request.user!, projectId: current.id, data: { object: projectObject(current), ...diff } });
+        return { activeDays, todoDays };
+      });
+      if (!row) return apiError(reply, 404, "project_not_found", "Project not found");
+      return row;
     },
   );
 }
