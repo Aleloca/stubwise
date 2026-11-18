@@ -1212,6 +1212,16 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   rifiutare IP privati e link-local, risolti al momento dell'invio e non solo
   alla creazione (sennò un DNS che cambia li aggira), dietro un interruttore
   d'istanza per chi li vuole.
+- **I segreti Slack non lasciano voce nel registro** *(S, review di F3, 18
+  nov 2026)*: sostituirli o azzerarli con `PUT /api/settings/instance` chiede
+  la riconferma ma non scrive nessuna voce (il registro della 9b non ha un
+  tipo per Slack, che esce dall'app nuova). Si chiude col ritiro di Slack dal
+  server (la voce «Togliere Slack dal server»), non con un tipo nuovo.
+- **Una consegna già in coda parte anche se il webhook ha tolto l'evento**
+  *(S, review di F3, 18 nov 2026)*: il poller controlla solo che il webhook
+  esista e sia acceso, non che abbia ancora scelto l'evento. Il danno è un
+  invio residuo, quello già accodato. Da chiudere se qualcuno se ne lamenta:
+  ricontrollare `events` al momento dell'invio e chiudere `skipped`.
 - **Togliere Slack dal server** *(M, maintainer via 46, 16 nov 2026)*: Slack
   è fuori dall'app nuova e va tolto dal server, INSIEME al ritiro del web
   vecchio: rotte `/api/slack/*` e `/slack/*`, collegamento delle identità

@@ -9,6 +9,7 @@ import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
 import { fullSessionCookie, seedUsers } from "../test/fixtures.js";
+import { createSession, SESSION_COOKIE } from "../auth/session.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32).toString("base64");
@@ -793,6 +794,21 @@ describe("POST /api/settings/notifications/test", () => {
     expect((await getNotifications(cookie)).statusCode).toBe(403);
     expect((await putNotifications({ webhookUrl: "", format: "slack", enabled: true, notifyTicketCreated: true, notifyPrOpened: true, notifyJobHeld: true, notifyJobFailed: true }, cookie)).statusCode).toBe(403);
     expect((await testNotification(cookie)).statusCode).toBe(403);
+  });
+
+  it("decisione del maintainer: dal web vecchio, un URL NUOVO (cambiato o un webhook creato) chiede la riconferma; lo stesso URL no", async () => {
+    await app.db.delete(outgoingWebhooks);
+    const old = await createSession(app.db, users.adminId, { stage: "full", secondFactorAt: new Date(Date.now() - 11 * 60_000) });
+    const stale = `${SESSION_COOKIE}=${encodeURIComponent(app.signCookie(old.id))}`;
+    const toggles = { format: "slack", enabled: true, notifyTicketCreated: true, notifyPrOpened: true, notifyJobHeld: true, notifyJobFailed: true };
+    expect((await putNotifications({ webhookUrl: "https://hooks.example.com/a", ...toggles }, stale)).statusCode).toBe(403);
+    expect(await app.db.select().from(outgoingWebhooks)).toHaveLength(0);
+    expect((await putNotifications({ webhookUrl: "https://hooks.example.com/a", ...toggles }, users.adminCookie)).statusCode).toBe(200);
+    expect((await putNotifications({ webhookUrl: "https://hooks.example.com/a", ...toggles, notifyJobFailed: false }, stale)).statusCode).toBe(200);
+    expect((await putNotifications({ webhookUrl: "https://altro.example.com/b", ...toggles }, stale)).statusCode).toBe(403);
+    expect((await putNotifications({ webhookUrl: "", ...toggles }, stale)).statusCode).toBe(200);
+    const [row] = await app.db.select().from(outgoingWebhooks);
+    expect(row).toMatchObject({ url: "https://hooks.example.com/a", enabled: false });
   });
 
   it("admin: ok=false quando nessun webhook è configurato", async () => {

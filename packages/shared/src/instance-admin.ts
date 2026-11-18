@@ -31,6 +31,19 @@ export const aiProviderViewSchema = z.object({
   testRequestedAt: z.string().nullable().default(null),
   testCheckedAt: z.string().nullable().default(null),
   testError: z.string().nullable().default(null),
+  // Area 9, F3, Task 8c (tutti additivi):
+  /** È l'unico account acceso: non si spegne né si elimina (409 `last_enabled_provider`). Lo calcola il server. */
+  lastEnabled: z.boolean().default(false),
+  /** Le ultime 4 cifre della credenziale; null per le righe di prima della 0190. */
+  last4: z.string().nullable().default(null),
+  /** Fermo per il limite del provider fino a qui (ISO); null = no. */
+  limitedUntil: z.string().nullable().default(null),
+  /**
+   * La banda della quota, calcolata dal server: `limited` se è fermo per il
+   * limite, `near` se l'ultimo campione dice ≥ 80% usato (sessione o
+   * settimana), altrimenti `ok`. I numeri stanno in `aiUsage.snapshots()`.
+   */
+  quotaBand: z.enum(["ok", "near", "limited"]).default("ok"),
 });
 export type AiProviderView = z.infer<typeof aiProviderViewSchema>;
 
@@ -166,3 +179,31 @@ export const updateAutomationSettingsSchema = z.object({
   prReview: prReviewSettingsSchema,
 });
 export type UpdateAutomationSettingsInput = z.input<typeof updateAutomationSettingsSchema>;
+
+// --- La quota degli account (`GET /api/ai-usage/snapshots`, `usage.view`) ---
+
+/** Una finestra della quota (sessione di 5 ore o settimana); null = non letta. */
+export const aiUsageWindowSchema = z
+  .object({
+    percentUsed: z.number(),
+    percentRemaining: z.number(),
+    resetsLabel: z.string().nullable().optional(),
+  })
+  .nullable()
+  .default(null);
+
+/** L'ultimo campione per provider, come lo legge il worker dal CLI. */
+export const aiUsageSnapshotSchema = z.object({
+  providerId: z.uuid(),
+  providerLabel: z.string(),
+  capturedAt: z.iso.datetime(),
+  sessionRemaining: aiUsageWindowSchema,
+  weeklyRemaining: aiUsageWindowSchema,
+  sessionResetAt: z.iso.datetime().nullable().default(null),
+  weeklyResetAt: z.iso.datetime().nullable().default(null),
+  source: z.enum(["deterministic", "llm_fallback"]),
+  parseOk: z.boolean(),
+  rawText: z.string().nullable().optional(),
+});
+export type AiUsageSnapshot = z.infer<typeof aiUsageSnapshotSchema>;
+export const aiUsageSnapshotsSchema = z.array(aiUsageSnapshotSchema);

@@ -1696,6 +1696,8 @@ export const aiProviders = pgTable("ai_providers", {
   // Credenziale cifrata AES-256-GCM (chiave API o blob di login dell'account).
   // Non esce MAI dall'API: si legge solo per decifrare lato worker.
   secretEncrypted: text("secret_encrypted").notNull(),
+  // Area 9, F3: le ultime 4 cifre della credenziale, scritte con lei (0190).
+  secretLast4: text("secret_last4"),
   enabled: boolean("enabled").notNull().default(true),
   // Al limite fino a: nessun run lo sceglie prima di questo istante; lo azzera
   // uno snapshot fresco con margine.

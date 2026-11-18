@@ -2,7 +2,7 @@ import { outgoingWebhooks, type Db } from "@stubwise/db";
 import { LEGACY_WEBHOOK_TOGGLES, OUTGOING_WEBHOOK_LIMIT, type LegacyWebhookToggle, type OutgoingWebhookEvent } from "@stubwise/shared";
 import { asc, count, sql } from "drizzle-orm";
 import { recordChange } from "./change-log.js";
-import { testWebhook, updateWebhook } from "./outgoing-webhooks.js";
+import { changesWebhookUrl, testWebhook, updateWebhook } from "./outgoing-webhooks.js";
 import { RoleRuleError } from "./roles.js";
 
 /**
@@ -31,6 +31,11 @@ const LEGACY_EVENTS = new Set<string>(Object.values(LEGACY_WEBHOOK_TOGGLES));
 async function oldest(db: Db | Parameters<Parameters<Db["transaction"]>[0]>[0]) {
   const [row] = await db.select().from(outgoingWebhooks).orderBy(asc(outgoingWebhooks.createdAt), asc(outgoingWebhooks.id)).limit(1);
   return row ?? null;
+}
+
+/** Il salvataggio dal web vecchio porta un URL NUOVO (cambiato, o un webhook creato)? Allora chiede la riconferma. */
+export async function legacySaveChangesUrl(db: Db, url: string): Promise<boolean> {
+  return changesWebhookUrl((await oldest(db))?.url ?? null, url);
 }
 
 export async function loadLegacyWebhook(db: Db): Promise<LegacyWebhookView> {

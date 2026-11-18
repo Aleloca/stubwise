@@ -1,7 +1,28 @@
 import { aiProviderViewSchema, createAiProviderSchema, updateAiProviderSchema } from "@stubwise/shared";
 import { recordChange } from "../services/change-log.js";
-import { aiProviders, encrypt, projects } from "@stubwise/db";
-import { asc, eq, sql } from "drizzle-orm";
+import { aiProviders, aiUsageSnapshots, encrypt, projects, type Db } from "@stubwise/db";
+import { and, asc, count, desc, eq, ne, sql } from "drizzle-orm";
+
+type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+/** Area 9, F3, Task 8c: le ultime 4 cifre di una credenziale (la vista le mostra; null se più corta di 8). */
+const last4Of = (secret: string): string | null => (secret.length >= 8 ? secret.slice(-4) : null);
+
+/** Spegnere o eliminare l'ULTIMO account acceso: senza, il worker non lavora (decisione del maintainer, 18 nov 2026). */
+class LastEnabledProvider extends Error {}
+const LAST_ENABLED = Symbol("last_enabled_provider");
+const lastEnabledOrThrow = (error: unknown): typeof LAST_ENABLED => {
+  if (error instanceof LastEnabledProvider) return LAST_ENABLED;
+  throw error;
+};
+const lastEnabledError = (reply: Parameters<typeof apiError>[0]) =>
+  apiError(reply, 409, "last_enabled_provider", "This is the only enabled AI account: enable another one first");
+
+/** Gli ALTRI account accesi, bloccati per la transazione: due spegnimenti in corsa non lasciano zero accesi. */
+async function otherEnabled(tx: DbOrTx, id: string): Promise<number> {
+  const rows = await tx.select({ id: aiProviders.id }).from(aiProviders).where(and(eq(aiProviders.enabled, true), ne(aiProviders.id, id))).for("update");
+  return rows.length;
+}
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -31,8 +52,38 @@ const idParamsSchema = z.object({ id: z.uuid() });
 
 type AiProviderRow = typeof aiProviders.$inferSelect;
 
-function toPublicProvider(row: AiProviderRow): z.infer<typeof aiProviderViewSchema> {
+/** Il contesto della vista (Task 8c): quanti account sono accesi, l'uso dell'ultimo campione per provider. */
+interface ProviderViewContext {
+  enabledCount: number;
+  usedPct: Map<string, number>;
+  now: Date;
+}
+
+/** La soglia di «vicino al limite» (Task 8c): come il prototipo, dall'80% usato. */
+export const QUOTA_NEAR_PCT = 80;
+
+async function providerViewContext(db: DbOrTx): Promise<ProviderViewContext> {
+  const [{ n }] = (await db.select({ n: count() }).from(aiProviders).where(eq(aiProviders.enabled, true))) as [{ n: number }];
+  const snaps = await db
+    .selectDistinctOn([aiUsageSnapshots.providerId], { providerId: aiUsageSnapshots.providerId, session: aiUsageSnapshots.sessionRemaining, weekly: aiUsageSnapshots.weeklyRemaining })
+    .from(aiUsageSnapshots)
+    .orderBy(aiUsageSnapshots.providerId, desc(aiUsageSnapshots.capturedAt));
+  const pct = (w: unknown) => (w && typeof w === "object" && typeof (w as { percentUsed?: unknown }).percentUsed === "number" ? (w as { percentUsed: number }).percentUsed : 0);
+  return { enabledCount: Number(n), usedPct: new Map(snaps.map((s) => [s.providerId, Math.max(pct(s.session), pct(s.weekly))])), now: new Date() };
+}
+
+async function providerViews(db: DbOrTx, rows: AiProviderRow[]) {
+  const ctx = await providerViewContext(db);
+  return rows.map((r) => toPublicProvider(r, ctx));
+}
+
+function toPublicProvider(row: AiProviderRow, ctx: ProviderViewContext): z.infer<typeof aiProviderViewSchema> {
+  const limited = row.limitedUntil !== null && row.limitedUntil > ctx.now;
   return {
+    lastEnabled: row.enabled && ctx.enabledCount === 1,
+    last4: row.secretLast4,
+    limitedUntil: row.limitedUntil?.toISOString() ?? null,
+    quotaBand: limited ? "limited" : (ctx.usedPct.get(row.id) ?? 0) >= QUOTA_NEAR_PCT ? "near" : "ok",
     id: row.id,
     kind: row.kind,
     label: row.label,
@@ -87,13 +138,13 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
       const created = await app.db.transaction(async (tx) => {
         const [row] = await tx
           .insert(aiProviders)
-          .values({ kind, label, secretEncrypted, position: resolvedPosition })
+          .values({ kind, label, secretEncrypted, secretLast4: last4Of(secret), position: resolvedPosition })
           .returning();
         if (!row) throw new Error("insert del provider non ha restituito la riga");
         await recordChange(tx, { type: "provider.created", actor: request.user!, projectId: null, data: { object: providerObject(row), params: { kind: row.kind } } });
         return row;
       });
-      return reply.code(201).send(toPublicProvider(created));
+      return reply.code(201).send((await providerViews(app.db, [created]))[0]!);
     },
   );
 
@@ -108,7 +159,7 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
         .select()
         .from(aiProviders)
         .orderBy(asc(aiProviders.position), asc(aiProviders.createdAt));
-      return rows.map(toPublicProvider);
+      return providerViews(app.db, rows);
     },
   );
 
@@ -169,7 +220,7 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
           "orderedIds must list exactly all existing providers",
         );
       }
-      return rows.map(toPublicProvider);
+      return providerViews(app.db, rows);
     },
   );
 
@@ -180,7 +231,7 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
       schema: {
         params: idParamsSchema,
         body: updateAiProviderSchema,
-        response: { 200: aiProviderViewSchema, 404: errorSchema, ...authErrorResponses },
+        response: { 200: aiProviderViewSchema, 404: errorSchema, 409: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
@@ -192,12 +243,17 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
       if (label !== undefined) updates.label = label;
       if (enabled !== undefined) updates.enabled = enabled;
       if (position !== undefined) updates.position = position;
-      if (secret !== undefined) updates.secretEncrypted = encrypt(secret, app.encryptionKey);
+      if (secret !== undefined) {
+        updates.secretEncrypted = encrypt(secret, app.encryptionKey);
+        updates.secretLast4 = last4Of(secret);
+      }
 
       // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una lettura.
       const row = await app.db.transaction(async (tx) => {
         const [before] = await tx.select().from(aiProviders).where(eq(aiProviders.id, request.params.id)).for("update");
         if (!before || Object.keys(updates).length === 0) return before;
+        // Task 8c: l'ultimo account acceso non si spegne.
+        if (before.enabled && updates.enabled === false && (await otherEnabled(tx, before.id)) === 0) throw new LastEnabledProvider();
         const [after] = await tx.update(aiProviders).set(updates).where(eq(aiProviders.id, request.params.id)).returning();
         const object = providerObject(after!);
         // Area 9, F3: le voci del prototipo. L'interruttore con on/off; la
@@ -213,9 +269,10 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
           await recordChange(tx, { type: "provider.credential_replaced", actor: request.user!, projectId: null, data: { object } });
         }
         return after;
-      });
+      }).catch(lastEnabledOrThrow);
+      if (row === LAST_ENABLED) return lastEnabledError(reply);
       if (!row) return apiError(reply, 404, "ai_provider_not_found", "AI provider not found");
-      return toPublicProvider(row);
+      return (await providerViews(app.db, [row]))[0]!;
     },
   );
 
@@ -248,7 +305,7 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
         .where(eq(aiProviders.id, request.params.id))
         .returning();
       if (!row) return apiError(reply, 404, "ai_provider_not_found", "AI provider not found");
-      return toPublicProvider(row);
+      return (await providerViews(app.db, [row]))[0]!;
     },
   );
 
@@ -258,13 +315,16 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
       config: { access: { kind: "instance", permission: "ai_providers.manage" }, reauth: true },
       schema: {
         params: idParamsSchema,
-        response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
+        response: { 204: z.null(), 404: errorSchema, 409: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
       // L'ON DELETE SET NULL azzera l'id sui progetti, non il flag: lo si azzera
       // qui, nella stessa transazione e PRIMA della cancellazione.
       const deleted = await app.db.transaction(async (tx) => {
+        // Task 8c: l'ultimo account acceso non si elimina.
+        const [target] = await tx.select({ enabled: aiProviders.enabled }).from(aiProviders).where(eq(aiProviders.id, request.params.id)).for("update");
+        if (target?.enabled && (await otherEnabled(tx, request.params.id)) === 0) throw new LastEnabledProvider();
         await tx
           .update(projects)
           .set({ aiProviderExclusive: false })
@@ -272,7 +332,8 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
         const gone = await tx.delete(aiProviders).where(eq(aiProviders.id, request.params.id)).returning();
         for (const row of gone) await recordChange(tx, { type: "provider.deleted", actor: request.user!, projectId: null, data: { object: providerObject(row) } });
         return gone;
-      });
+      }).catch(lastEnabledOrThrow);
+      if (deleted === LAST_ENABLED) return lastEnabledError(reply);
       if (deleted.length === 0) {
         return apiError(reply, 404, "ai_provider_not_found", "AI provider not found");
       }

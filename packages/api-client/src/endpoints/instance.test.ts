@@ -26,7 +26,8 @@ const plugin = { id: ID, slug: "log", name: "log", sourceUrl: "https://github.co
 describe("aiProviders", () => {
   it("list senza gli esiti della prova; create, update (rinomina), reorder, test, remove", async () => {
     const { client, fetchImpl } = clientWith([provider]);
-    expect((await client.aiProviders.list())[0]).toMatchObject({ testRequestedAt: null, testCheckedAt: null, testError: null });
+    // Senza i campi dell'8c (un server di prima): né ultimo acceso, né cifre, né limite.
+    expect((await client.aiProviders.list())[0]).toMatchObject({ testRequestedAt: null, testCheckedAt: null, testError: null, lastEnabled: false, last4: null, limitedUntil: null, quotaBand: "ok" });
     await client.aiProviders.reorder([ID]);
     expect(last(fetchImpl)).toEqual({ method: "POST", url: "/api/ai-providers/reorder", body: { orderedIds: [ID] } });
     const one = clientWith(provider);
@@ -91,5 +92,16 @@ describe("googleApps e instanceSettings", () => {
     void (() => i.client.instanceSettings.save({ contentLanguage: "it", s3Bucket: "b" }));
     const a = clientWith({ rules: [{ type: "bug", autoFix: true, maxEffort: 2 }], prReview: { enabled: false } });
     expect(await a.client.instanceSettings.automation()).toMatchObject({ rules: [{ planApprovalMinEffort: null, maxCostUsd: null }], prReview: { maxCostUsd: null } });
+  });
+});
+
+describe("aiUsage", () => {
+  it("snapshots: senza i reset e con una finestra assente; una banda ignota da un server nuovo nella vista è __unknown__", async () => {
+    const { client, fetchImpl } = clientWith([{ providerId: ID, providerLabel: "Abbonamento", capturedAt: "2026-11-18T10:00:00.000Z", sessionRemaining: { percentUsed: 30, percentRemaining: 70 }, source: "deterministic", parseOk: true }]);
+    const [snap] = await client.aiUsage.snapshots();
+    expect(last(fetchImpl)).toMatchObject({ method: "GET", url: "/api/ai-usage/snapshots" });
+    expect(snap).toMatchObject({ weeklyRemaining: null, sessionResetAt: null, weeklyResetAt: null });
+    const v = clientWith([{ ...provider, quotaBand: "molto_vicino" }]);
+    expect((await v.client.aiProviders.list())[0]!.quotaBand).toBe("__unknown__");
   });
 });

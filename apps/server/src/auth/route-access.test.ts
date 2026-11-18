@@ -191,7 +191,9 @@ describe("rotte con riconferma recente", () => {
       "PATCH /api/ai-providers/:id",
       "PATCH /api/git-accounts/:id",
       "PATCH /api/settings/google-workspaces/:id",
+      "PATCH /api/settings/webhooks/:id",
       "PUT /api/settings/instance",
+      "PUT /api/settings/notifications",
     ]);
   });
 });

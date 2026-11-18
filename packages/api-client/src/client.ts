@@ -1,5 +1,6 @@
 import {
   createAiProviderEndpoints,
+  createAiUsageEndpoints,
   createGitAccountEndpoints,
   createGoogleAppEndpoints,
   createInstanceSettingsEndpoints,
@@ -208,6 +209,7 @@ export function createEndpoints(request: ApiRequest) {
     plugins: createPluginEndpoints(request),
     googleApps: createGoogleAppEndpoints(request),
     instanceSettings: createInstanceSettingsEndpoints(request),
+    aiUsage: createAiUsageEndpoints(request),
   };
 }
 

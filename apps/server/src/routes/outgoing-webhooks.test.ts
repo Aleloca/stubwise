@@ -98,6 +98,17 @@ describe("i webhook in uscita", () => {
     await db.delete(outgoingWebhooks);
   });
 
+  it("decisione del maintainer: cambiare l'URL chiede la riconferma; nome, formato, eventi, interruttore no; lo stesso URL non è un cambio", async () => {
+    const w = (await call("POST", "/api/settings/webhooks", body())).json() as OutgoingWebhookWithSecret;
+    const moved = await call("PATCH", `/api/settings/webhooks/${w.id}`, { url: "https://attacker.example.com/in" }, stale);
+    expect(moved.statusCode).toBe(403);
+    const [row] = await db.select().from(outgoingWebhooks).where(eq(outgoingWebhooks.id, w.id));
+    expect(row!.url).toBe("https://hooks.example.com/in");
+    expect((await call("PATCH", `/api/settings/webhooks/${w.id}`, { url: "https://hooks.example.com/in", name: "Stesso URL", format: "slack", events: ["release.failed"], enabled: false }, stale)).statusCode).toBe(200);
+    expect((await call("PATCH", `/api/settings/webhooks/${w.id}`, { url: "https://nuovo.example.com/in" })).statusCode).toBe(200);
+    await db.delete(outgoingWebhooks);
+  });
+
   it("la prova parte FIRMATA col segreto del webhook, nel suo formato; senza segreto, senza firma", async () => {
     const seen: { headers: Headers; body: string }[] = [];
     vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
