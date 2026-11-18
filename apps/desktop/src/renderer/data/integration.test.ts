@@ -181,6 +181,7 @@ describe("isIntegrated", () => {
         "admin:ai",
         "feature:ai-automation",
         "feature:ai-providers",
+        "feature:ai-models",
         "taskView:list",
         "taskView:board",
         "feature:notifications",

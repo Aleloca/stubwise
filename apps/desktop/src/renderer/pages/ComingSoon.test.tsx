@@ -160,6 +160,9 @@ const INTEGRATED_CALLS = new Set([
   "instance.testProvider",
   "instance.replaceProviderCredential",
   "instance.deleteProvider",
+  // Area 9, F3: AI → Models.
+  "instance.listModels",
+  "instance.setModel",
   // Area 9, F3: AI → Automation.
   "instance.getAutomation",
   "instance.saveAutomation",
@@ -853,6 +856,16 @@ describe("aree non integrate nella build app", () => {
     await settle();
     expect(document.querySelector("[data-coming-soon]")).toBeNull();
     expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F3: AI → Models acceso, su `/api/settings/models`.
+  it("aprire AI → Models legge solo chiamate integrate", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/ai?tab=models");
+    await waitFor(() => expect(calls).toContain("instance.listModels"));
+    await settle();
+    expect(document.querySelector("[data-coming-soon]")).toBeNull();
     expect(outside()).toEqual([]);
   });
 
