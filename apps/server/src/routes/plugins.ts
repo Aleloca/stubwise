@@ -1,8 +1,8 @@
+import { pluginRegistrySchema } from "@stubwise/shared";
 import {
   pluginInventorySchema,
   pluginSchema,
   createPluginSchema,
-  pluginRecommendationsSchema,
   updatePluginRefSchema,
   RECOMMENDED_DISABLED_SKILLS,
   type Plugin,
@@ -25,15 +25,6 @@ import { authErrorResponses, errorSchema } from "./shared.js";
 const idParamsSchema = z.object({ id: z.uuid() });
 
 /** Elenco del registro + i preset consigliati (statici, li usa la UI). */
-const registrySchema = z.object({
-  plugins: z.array(pluginSchema),
-  /**
-   * Raccomandazioni per plugin noti, indicizzate per `inventory.name`. Viaggiano
-   * col GET invece di stare in un endpoint suo: sono poche righe statiche e la
-   * pagina che le usa è la stessa che carica il registro.
-   */
-  recommendations: pluginRecommendationsSchema,
-});
 
 /**
  * Proiezione pubblica di un plugin: campi elencati esplicitamente (mai spread
@@ -94,7 +85,7 @@ export async function pluginRoutes(instance: FastifyInstance): Promise<void> {
     "/",
     {
       config: { access: { kind: "instance", permission: "plugins.manage" } },
-      schema: { response: { 200: registrySchema, ...authErrorResponses } },
+      schema: { response: { 200: pluginRegistrySchema, ...authErrorResponses } },
     },
     async () => ({
       plugins: (await listPlugins(app.db)).map(toPublicPlugin),

@@ -1,10 +1,9 @@
+import { automationRuleSettingSchema, automationSettingsSchema, instanceSettingsViewSchema, prReviewSettingsSchema, updateAutomationSettingsSchema, updateInstanceSettingsSchema } from "@stubwise/shared";
 import { loadLegacyWebhook, saveLegacyWebhook, testLegacyWebhook } from "../services/legacy-webhook.js";
 import { sendRoleRuleError } from "./roles.js";
 import { changedFields, recordChange, stableAmount } from "../services/change-log.js";
 import { eq } from "drizzle-orm";
 import {
-  effortSchema,
-  languageSchema,
   mailAdmissionPatchSchema,
   mailAdmissionSchema,
   readServerAnalysisLimits,
@@ -43,43 +42,13 @@ const DEFAULT_RULE = {
 const defaultRuleFor = (type: TicketType): Omit<AutomationRule, "type"> =>
   type === "review" ? { ...DEFAULT_RULE, autoFix: false } : DEFAULT_RULE;
 
-const automationRuleSchema = z.object({
-  type: ticketTypeSchema,
-  autoFix: z.boolean(),
-  maxEffort: effortSchema,
-  // Soglia 1–5 oltre la quale (effort >= soglia) il fix richiede approvazione
-  // umana del piano. null = mai (nessun gate di approvazione). Default null per
-  // i client legacy che non inviano il campo.
-  planApprovalMinEffort: effortSchema.nullable().default(null),
-  // Tetto di costo per-ticket (USD) per questo tipo: oltre questa soglia il job
-  // viene messo in hold. null = nessun tetto. Colonna numeric(12,6) → drizzle la
-  // legge/scrive come STRINGA, qui l'API la espone come number. Default null per
-  // i client legacy che non inviano il campo.
-  maxCostUsd: z.number().nonnegative().nullable().default(null),
-});
 
 // Automazione PR Review d'istanza (singleton instance_settings): se attiva, il
 // worker recensisce le PR esterne dei progetti abilitati.
-const prReviewSettingsSchema = z.object({
-  enabled: z.boolean(),
-  // Tetto di costo per-review (USD). null = nessun tetto. Colonna numeric(12,6)
-  // in drizzle → stringa; l'API la espone come number.
-  maxCostUsd: z.number().nonnegative().nullable().default(null),
-});
 
-const automationSettingsSchema = z.object({
-  rules: z.array(automationRuleSchema),
-  prReview: prReviewSettingsSchema,
-});
 
-const updateAutomationBodySchema = z.object({
-  // Almeno una regola; ogni tipo al più una volta è una garanzia debole qui
-  // (l'upsert è idempotente), ma lo schema valida tipo/effort di ciascuna.
-  rules: z.array(automationRuleSchema).min(1),
-  prReview: prReviewSettingsSchema,
-});
 
-type AutomationRule = z.infer<typeof automationRuleSchema>;
+type AutomationRule = z.infer<typeof automationRuleSettingSchema>;
 
 /**
  * Impostazioni del webhook di notifica in uscita (riga singleton id=1). La
@@ -178,50 +147,7 @@ const testNotificationResponseSchema = z.object({
  * messaggi di notifica) — distinta dalla lingua dell'interfaccia del singolo
  * utente. La migrazione seeda la riga id=1; il PUT fa upsert idempotente.
  */
-const instanceSettingsResponseSchema = z.object({
-  contentLanguage: languageSchema,
-  // Tetto di spesa mensile (USD) dell'istanza: oltre questa soglia i nuovi job
-  // vengono messi in hold. null = nessun tetto. Colonna numeric(12,6) → drizzle
-  // la legge/scrive come STRINGA, qui l'API la espone come number.
-  monthlyBudgetUsd: z.number().nonnegative().nullable(),
-  // Storage S3-compatibile per gli allegati: i campi non-secret sono esposti in
-  // chiaro (null se non impostati); la secret NON viene MAI restituita, solo il
-  // flag `s3SecretKeySet`. `attachmentsEnabled` riassume se la config è completa
-  // e valida (secret decifrabile).
-  s3Endpoint: z.string().nullable(),
-  s3Region: z.string().nullable(),
-  s3Bucket: z.string().nullable(),
-  s3AccessKey: z.string().nullable(),
-  s3SecretKeySet: z.boolean(),
-  attachmentsEnabled: z.boolean(),
-  // Credenziali Slack write-only: i segreti NON sono MAI restituiti, solo i flag
-  // che dicono SE sono impostati. `slackEnabled` riassume che entrambi i segreti
-  // (signing secret + bot token) sono presenti → l'integrazione è completa.
-  slackSigningSecretSet: z.boolean(),
-  slackBotTokenSet: z.boolean(),
-  slackEnabled: z.boolean(),
-});
 
-const updateInstanceBodySchema = z.object({
-  contentLanguage: languageSchema,
-  // Default null per i client legacy che non inviano il campo.
-  monthlyBudgetUsd: z.number().nonnegative().nullable().default(null),
-  // Campi S3 opzionali. Semantica: campo non-secret PRESENTE → aggiorna (la
-  // stringa vuota azzera → null); ASSENTE → invariato. Per la secret vedi sotto.
-  s3Endpoint: z.string().optional(),
-  s3Region: z.string().optional(),
-  s3Bucket: z.string().optional(),
-  s3AccessKey: z.string().optional(),
-  // s3SecretKey: ASSENTE (undefined) → non tocca la colonna; stringa NON vuota →
-  // cifra e salva; stringa VUOTA esplicita "" → azzera (disabilita lo storage).
-  s3SecretKey: z.string().optional(),
-  // Segreti Slack: stessa semantica write-only della secret S3. ASSENTE
-  // (undefined) → non tocca la colonna; stringa NON vuota → cifra e salva;
-  // stringa VUOTA esplicita "" → azzera (null). .optional() per distinguere
-  // undefined da "".
-  slackSigningSecret: z.string().optional(),
-  slackBotToken: z.string().optional(),
-});
 
 /**
  * Legge la riga singleton delle impostazioni d'istanza. La migrazione seeda
@@ -231,7 +157,7 @@ const updateInstanceBodySchema = z.object({
 async function loadInstanceSettings(
   db: Db,
   encryptionKey: Buffer,
-): Promise<z.infer<typeof instanceSettingsResponseSchema>> {
+): Promise<z.infer<typeof instanceSettingsViewSchema>> {
   const [row] = await db.select().from(instanceSettings).limit(1);
   // attachmentsEnabled = config S3 completa E valida. s3ConfigFromSettings può
   // LANCIARE se la secret cifrata è corrotta o la chiave è errata: il try/catch
@@ -380,7 +306,7 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
     {
       config: { access: { kind: "instance", permission: "settings.manage" } },
       schema: {
-        body: updateAutomationBodySchema,
+        body: updateAutomationSettingsSchema,
         response: { 200: automationSettingsSchema, 400: errorSchema, ...authErrorResponses },
       },
     },
@@ -558,7 +484,7 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
     {
       config: { access: { kind: "instance", permission: "settings.manage" } },
       schema: {
-        response: { 200: instanceSettingsResponseSchema, ...authErrorResponses },
+        response: { 200: instanceSettingsViewSchema, ...authErrorResponses },
       },
     },
     async () => {
@@ -571,9 +497,9 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
     {
       config: { access: { kind: "instance", permission: "settings.manage" }, partialReauth: true },
       schema: {
-        body: updateInstanceBodySchema,
+        body: updateInstanceSettingsSchema,
         response: {
-          200: instanceSettingsResponseSchema,
+          200: instanceSettingsViewSchema,
           400: errorSchema,
           ...authErrorResponses,
         },

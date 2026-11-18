@@ -1,6 +1,6 @@
+import { aiProviderViewSchema, createAiProviderSchema, updateAiProviderSchema } from "@stubwise/shared";
 import { recordChange } from "../services/change-log.js";
 import { aiProviders, encrypt, projects } from "@stubwise/db";
-import { aiProviderKindSchema } from "@stubwise/shared";
 import { asc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -12,24 +12,10 @@ import { apiError } from "../errors.js";
 // Tipo di credenziale del provider: definito in `@stubwise/shared`, da cui
 // deriva anche l'enum ai_provider_kind del DB.
 
-const createProviderSchema = z.object({
-  kind: aiProviderKindSchema,
-  label: z.string().min(1).max(100),
-  // La secret in chiaro: cifrata prima di toccare il DB, non torna mai indietro.
-  secret: z.string().min(1),
-  // Posizione di failover esplicita; assente = append in coda.
-  position: z.int().optional(),
-});
 
 // In modifica: la secret presente (min 1) viene ricifrata; assente = invariata.
 // Non si può svuotare una secret (un provider senza credenziale non ha senso):
 // per rimuoverla si elimina il provider. La validazione min(1) rifiuta "" con 400.
-const updateProviderSchema = z.object({
-  label: z.string().min(1).max(100).optional(),
-  secret: z.string().min(1).optional(),
-  enabled: z.boolean().optional(),
-  position: z.int().optional(),
-});
 
 const reorderSchema = z.object({ orderedIds: z.array(z.uuid()) });
 
@@ -41,28 +27,11 @@ const idParamsSchema = z.object({ id: z.uuid() });
  * cambiasse. La secret è write-only: si espone solo il flag `secretSet`.
  */
 // Stato del test della credenziale, allineato all'enum ai_provider_test_status.
-const aiProviderTestStatusSchema = z.enum(["idle", "pending", "passed", "failed"]);
 
-const publicProviderSchema = z.object({
-  id: z.uuid(),
-  kind: aiProviderKindSchema,
-  label: z.string(),
-  position: z.int(),
-  enabled: z.boolean(),
-  secretSet: z.literal(true),
-  createdAt: z.string(),
-  // Esito dell'ultimo test della credenziale (lo esegue il worker, vedi
-  // POST /:id/test e apps/worker/src/agent/credential-tester.ts). `testError`
-  // è il messaggio dell'ultimo fallimento (mai il segreto); le date sono ISO.
-  testStatus: aiProviderTestStatusSchema,
-  testRequestedAt: z.string().nullable(),
-  testCheckedAt: z.string().nullable(),
-  testError: z.string().nullable(),
-});
 
 type AiProviderRow = typeof aiProviders.$inferSelect;
 
-function toPublicProvider(row: AiProviderRow): z.infer<typeof publicProviderSchema> {
+function toPublicProvider(row: AiProviderRow): z.infer<typeof aiProviderViewSchema> {
   return {
     id: row.id,
     kind: row.kind,
@@ -97,8 +66,8 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
     {
       config: { access: { kind: "instance", permission: "ai_providers.manage" }, reauth: true },
       schema: {
-        body: createProviderSchema,
-        response: { 201: publicProviderSchema, ...authErrorResponses },
+        body: createAiProviderSchema,
+        response: { 201: aiProviderViewSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
@@ -132,7 +101,7 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
     "/",
     {
       config: { access: { kind: "instance", permission: "ai_providers.manage" } },
-      schema: { response: { 200: z.array(publicProviderSchema), ...authErrorResponses } },
+      schema: { response: { 200: z.array(aiProviderViewSchema), ...authErrorResponses } },
     },
     async () => {
       const rows = await app.db
@@ -154,7 +123,7 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
       config: { access: { kind: "instance", permission: "ai_providers.manage" } },
       schema: {
         body: reorderSchema,
-        response: { 200: z.array(publicProviderSchema), 400: errorSchema, ...authErrorResponses },
+        response: { 200: z.array(aiProviderViewSchema), 400: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
@@ -210,8 +179,8 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
       config: { access: { kind: "instance", permission: "ai_providers.manage" }, partialReauth: true },
       schema: {
         params: idParamsSchema,
-        body: updateProviderSchema,
-        response: { 200: publicProviderSchema, 404: errorSchema, ...authErrorResponses },
+        body: updateAiProviderSchema,
+        response: { 200: aiProviderViewSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
@@ -264,7 +233,7 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
       config: { access: { kind: "instance", permission: "ai_providers.manage" } },
       schema: {
         params: idParamsSchema,
-        response: { 200: publicProviderSchema, 404: errorSchema, ...authErrorResponses },
+        response: { 200: aiProviderViewSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
