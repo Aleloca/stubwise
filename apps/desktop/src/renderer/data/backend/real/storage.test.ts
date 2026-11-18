@@ -17,8 +17,8 @@ const settings = (over: Record<string, unknown> = {}) => ({
 });
 
 /**
- * Il server finto fedele alla regola del PUT di oggi: un campo che manca è
- * azzerato (review F3, C1: il budget spariva salvando l'archiviazione).
+ * Il server finto fedele alla regola del PUT: una patch (72, F4), un campo
+ * che manca resta com'era. Prima un budget che mancava si azzerava (review F3, C1).
  */
 function fakeApi(over: Partial<StorageApi> = {}) {
   const saved: unknown[] = [];
@@ -27,11 +27,8 @@ function fakeApi(over: Partial<StorageApi> = {}) {
     get: async () => current,
     save: async (input) => {
       saved.push(input);
-      current = {
-        ...current,
-        ...input,
-        monthlyBudgetUsd: (input as { monthlyBudgetUsd?: number | null }).monthlyBudgetUsd ?? null,
-      };
+      // Il PUT è una patch (72, F4): un campo che manca resta com'era.
+      current = { ...current, ...input };
       return current;
     },
     ...over,
@@ -61,7 +58,7 @@ describe("l'archiviazione dal server (area 9, F3)", () => {
     expect(empty).toMatchObject({ bucket: "", last4: null, status: "not_set_up" });
   });
 
-  it("salvare: la lingua e il budget di adesso (review F3, C1: il budget resta), i campi, la chiave solo se nuova", async () => {
+  it("salvare: solo i campi dell'archiviazione (review F4, I3), la chiave solo se nuova; il budget resta", async () => {
     const { api, saved, now } = fakeApi();
     const st = createRealStorage(api);
     const fields = { endpoint: "https://e", region: "r", bucket: "b", accessKeyId: "k" };
@@ -69,16 +66,12 @@ describe("l'archiviazione dal server (area 9, F3)", () => {
     expect(await st.saveStorage({ ...fields, secretAccessKey: "sec" })).toEqual({ ok: true });
     expect(saved).toEqual([
       {
-        contentLanguage: "it",
-        monthlyBudgetUsd: 600,
         s3Endpoint: "https://e",
         s3Region: "r",
         s3Bucket: "b",
         s3AccessKey: "k",
       },
       {
-        contentLanguage: "it",
-        monthlyBudgetUsd: 600,
         s3Endpoint: "https://e",
         s3Region: "r",
         s3Bucket: "b",

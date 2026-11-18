@@ -10935,7 +10935,9 @@
         "tokensTitle": "{{tokens}} token",
         "empty": "Nessun consumo AI in questo periodo.",
         "loadError": "Impossibile caricare i consumi.",
-        "noProvider": "Nessun account (configurazione del server)"
+        "noProvider": "Nessun account, o un account rimosso",
+        "rangeTooLong": "Scegli al più un anno.",
+        "invalidRange": "La data d'inizio viene dopo quella di fine."
       },
       "prototype": {
         "label": "Solo prototipo"
@@ -11726,7 +11728,7 @@
         "resume": "Riprendi",
         "pauseOf": "Metti in pausa la coda di {{code}}",
         "resumeOf": "Riprendi la coda di {{code}}",
-        "forbidden": "Solo chi gestisce le impostazioni mette in pausa o riprende una coda.",
+        "forbidden": "Solo le persone che gestiscono {{code}} mettono in pausa o riprendono la sua coda.",
         "announce": "{{code}}: {{counts}}",
         "pauseDialog": {
           "title": "Mettere in pausa la coda di {{code}}?",
@@ -11773,7 +11775,8 @@
           "server_fix": "Correzione del server",
           "automation": "Automazione",
           "product_doc_update": "Aggiornamento della doc di prodotto",
-          "nightly": "Giro notturno"
+          "nightly": "Giro notturno",
+          "other": "Lavoro"
         },
         "state": {
           "running": "In corso · worker {{n}}",
@@ -11784,8 +11787,9 @@
         "retry": "Rimetti in coda",
         "retryOf": "Rimetti in coda {{code}}",
         "retryNeeds": {
-          "manageSettings": "Solo chi gestisce le impostazioni rimette in coda un lavoro.",
-          "startRun": "Solo chi può avviare Claude in {{code}} rimette in coda un lavoro."
+          "manageSettings": "Solo le persone che gestiscono {{code}} rimettono in coda il suo lavoro.",
+          "startRun": "Solo chi può avviare Claude in {{code}} rimette in coda un lavoro.",
+          "other": "Non puoi rimettere in coda questo lavoro."
         },
         "correctionNote": "Le correzioni si riprendono dalla task.",
         "superseded": "Su {{code}} c'è un lavoro più recente: non c'è niente da rimettere in coda.",
@@ -11815,7 +11819,8 @@
         "name": "Worker {{n}}",
         "idle": "libero",
         "hidden": "occupato in un progetto che non vedi",
-        "prototype": "Prototipo: due worker simulati."
+        "prototype": "Prototipo: due worker simulati.",
+        "empty": "Nessun worker in funzione."
       },
       "accounts": {
         "heading": "Account AI",
@@ -11836,7 +11841,8 @@
         "phases": {
           "commit_summary": "Riassunti dei commit",
           "release_note": "Nota di rilascio",
-          "docs": "Docs"
+          "docs": "Docs",
+          "other": "Passo"
         },
         "states": {
           "done": "fatto",

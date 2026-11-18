@@ -49,6 +49,8 @@ async function attempt<T extends object>(call: () => Promise<T>): Promise<Instan
 function hrefOf(j: Any): string | null {
   const code: string | null = j.code ?? null;
   if (!code) return null;
+  // Un progetto senza codice non fa un link rotto (review F4, M5).
+  if (j.projectId && !j.projectCode) return null;
   switch (j.kind) {
     case "task_run":
     case "correction":
@@ -68,7 +70,14 @@ function hrefOf(j: Any): string | null {
 export function createRealInstanceStatus(api: InstanceStatusApi) {
   return {
     async getInstanceStatus(): Promise<InstanceStatusView> {
-      const s = await api.status();
+      let s: Any;
+      try {
+        s = await api.status();
+      } catch (error) {
+        // Senza instance.status.view: la pagina dice «not found» (review F4, I2).
+        if (error instanceof ApiError && error.status === 403) throw new Error("forbidden");
+        throw error;
+      }
       const jobs = (s.jobs as Any[]).map((j) => ({ ...j, href: j.href ?? hrefOf(j) }));
       const byId = new Map(jobs.map((j) => [j.id, j]));
       return {

@@ -500,14 +500,6 @@ function WorkSection({ view }: { view: View }) {
 
   return (
     <Part title={t("admin.status.work.heading")} headingRef={heading}>
-      {/* Senza settings.manage: la frase una volta sotto il titolo (Impeccable
-          8); la riga tiene solo il «Who?» accanto al bottone spento. */}
-      {view.jobs.some((j) => j.retryNeeds === "manageSettings") && (
-        <p className="pb-3 text-sm text-pretty text-ink-muted">
-          {t("admin.status.work.retryNeeds.manageSettings")}{" "}
-          <WhoCanLink action="manageSettings" projectId={null} />
-        </p>
-      )}
       <div
         role="group"
         aria-label={t("admin.status.work.filters")}
@@ -731,7 +723,11 @@ function JobRow({
               {code}
             </span>
           )}
-          <span className="shrink-0 text-ink">{t(`admin.status.work.kinds.${job.kind}`)}</span>
+          <span className="shrink-0 text-ink">
+            {t(`admin.status.work.kinds.${job.kind}`, {
+              defaultValue: t("admin.status.work.kinds.other"),
+            })}
+          </span>
           <span title={job.title} className="min-w-0 truncate text-ink-muted">
             {job.title}
           </span>
@@ -753,16 +749,16 @@ function JobRow({
         </div>
         {job.state === "failed" && job.retry !== "unavailable" && (
           <span className="flex shrink-0 items-center gap-2 self-start">
-            {job.retryNeeds === "manageSettings" && (
-              <WhoCanLink action="manageSettings" projectId={null} />
-            )}
             <button
               type="button"
               disabled={job.retry !== "allowed"}
               aria-label={t("admin.status.work.retryOf", { code })}
               title={
                 job.retryNeeds
-                  ? t(`admin.status.work.retryNeeds.${job.retryNeeds}`, { code: job.projectCode })
+                  ? t(`admin.status.work.retryNeeds.${job.retryNeeds}`, {
+                      code: job.projectCode,
+                      defaultValue: t("admin.status.work.retryNeeds.other"),
+                    })
                   : undefined
               }
               onClick={onRetry}
@@ -773,6 +769,17 @@ function JobRow({
           </span>
         )}
       </div>
+      {/* Review F4, I1: chi gestisce QUESTO progetto, sulla riga. */}
+      {job.retryNeeds === "manageSettings" && job.projectId !== null && (
+        <p className="text-xs text-pretty text-ink-muted">
+          {t("admin.status.work.retryNeeds.manageSettings", { code: job.projectCode })}{" "}
+          <WhoCanLink
+            action="manageProjectSettings"
+            projectId={job.projectId}
+            projectCode={job.projectCode}
+          />
+        </p>
+      )}
       {job.retryNeeds === "startRun" && (
         <p className="text-xs text-pretty text-ink-muted">
           {t("admin.status.work.retryNeeds.startRun", { code: job.projectCode })}{" "}
@@ -876,6 +883,12 @@ function Workers({ view }: { view: View }) {
   const { t } = useTranslation();
   return (
     <Part title={t("admin.status.workers.heading")}>
+      {/* Review F4, M1: nessun worker in funzione (heartbeat negli ultimi 2′). */}
+      {view.workers.length === 0 && (
+        <p className="border-t border-rule py-3 text-sm text-ink-muted">
+          {t("admin.status.workers.empty")}
+        </p>
+      )}
       <ul className="border-t border-rule">
         {view.workers.map((w, i) => {
           const job = w.jobId ? view.jobs.find((j) => j.id === w.jobId) : undefined;
@@ -893,7 +906,9 @@ function Workers({ view }: { view: View }) {
                     <span className="num text-xs font-semibold tracking-[0.02em] text-ink">
                       {job.code ?? job.projectCode}
                     </span>{" "}
-                    {t(`admin.status.work.kinds.${job.kind}`)}
+                    {t(`admin.status.work.kinds.${job.kind}`, {
+                      defaultValue: t("admin.status.work.kinds.other"),
+                    })}
                     <span className="text-ink-faint"> · </span>
                     <span className="num">{ageWords(t, job.since, view.refreshedAt)}</span>
                   </>
@@ -1041,7 +1056,9 @@ function Nightly({ view }: { view: View }) {
                 <span className="font-medium text-ink">{r.repositoryName}</span>
                 <span className="text-ink-faint">·</span>
                 <span className="text-ink-muted">
-                  {t(`admin.status.nightly.phases.${r.phase}`)}
+                  {t(`admin.status.nightly.phases.${r.phase}`, {
+                    defaultValue: t("admin.status.nightly.phases.other"),
+                  })}
                 </span>
                 <span className="text-ink-faint">·</span>
                 <span

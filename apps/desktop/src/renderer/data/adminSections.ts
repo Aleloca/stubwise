@@ -77,7 +77,8 @@ function sees(viewer: Viewer, section: AdminSection): boolean {
       // Senza progetto: in almeno uno.
       return can(viewer, "repos.manage");
     case "status":
-      return can(viewer, "instance.status.view") || can(viewer, "settings.manage");
+      // Review F4, I2: come il server, solo instance.status.view.
+      return can(viewer, "instance.status.view");
   }
 }
 

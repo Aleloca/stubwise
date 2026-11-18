@@ -128,8 +128,11 @@ describe("lo Stato dell'istanza del seme", () => {
     expect(view.nightly.filter((r) => r.state === "failed")).toHaveLength(1);
   });
 
-  it("si legge con instance.status.view o settings.manage, non senza", async () => {
+  it("si legge SOLO con instance.status.view (review F4, I2: come il server)", async () => {
     as(SARA);
+    await expect(status()).rejects.toThrow("forbidden");
+    // settings.manage da solo non basta più.
+    give(SARA, "settings.manage");
     await expect(status()).rejects.toThrow("forbidden");
     give(SARA, "instance.status.view");
     const view = await status();
@@ -446,19 +449,19 @@ describe("Retry (RF 5)", () => {
   });
 
   it("con settings.manage ma senza runs.start → forbidden", async () => {
-    give(SARA, "settings.manage");
+    give(SARA, "instance.status.view");
     as(SARA);
     expect((await status()).jobs.find((j) => j.id === "cv-run-acq-3")!.retry).toBe("forbidden");
     expect(await instance.retryJob("cv-run-acq-3")).toEqual({ ok: false, error: "forbidden" });
     as(MARCO);
     expect(await instance.retryJob("cv-run-acq-3")).toEqual({ ok: false, error: "forbidden" });
     as(CHIARA);
-    give(CHIARA, "settings.manage");
+    give(CHIARA, "instance.status.view");
     expect(await instance.retryJob("cv-run-acq-3")).toEqual({ ok: false, error: "not_found" });
   });
 
   it("Marco, che gestisce ACQ (F4), riprova: parte a suo nome e si ferma al gate del piano", async () => {
-    give(MARCO, "settings.manage");
+    give(MARCO, "instance.status.view");
     grantProjectPermission(MARCO, ACQ, "project.settings.manage" as never);
     as(MARCO);
     expect((await status()).jobs.find((j) => j.id === "cv-run-acq-3")!.retry).toBe("allowed");
@@ -500,7 +503,7 @@ describe("le voci del registro della coda", () => {
       "running",
     ]);
 
-    give(CHIARA, "settings.manage");
+    give(CHIARA, "instance.status.view");
     as(CHIARA);
     expect((await changelog.listChanges()).filter((e) => kinds.includes(e.kind))).toEqual([]);
   });
@@ -529,7 +532,7 @@ describe("lo Stato dell'istanza per la pagina (Task 13)", () => {
     expect(await acq3()).toMatchObject({ retry: "forbidden", retryNeeds: "manageSettings" });
 
     // Ruling 2: Marco gestisce ACQ (F4: nel progetto), ha runs.start ma non plans.approve.
-    give(MARCO, "settings.manage");
+    give(MARCO, "instance.status.view");
     grantProjectPermission(MARCO, ACQ, "project.settings.manage" as never);
     as(MARCO);
     expect(await acq3()).toMatchObject({

@@ -114,14 +114,6 @@ export function QueueTable({ view }: { view: InstanceStatusView }) {
       <h2 id={headingId} tabIndex={-1} className="heading-group pb-2 outline-none">
         {t("admin.status.queues.heading")}
       </h2>
-      {/* Sola lettura: la frase una volta sotto il titolo, non sotto ogni coda
-          (Impeccable 8); ogni bottone spento tiene il suo «Who?». */}
-      {view.queues.some((q) => q.pause === "forbidden") && (
-        <p className="pb-2 text-sm text-pretty text-ink-muted">
-          {t("admin.status.queues.forbidden")}{" "}
-          <WhoCanLink action="manageSettings" projectId={null} />
-        </p>
-      )}
       {view.queues.length === 0 && view.otherProjects === null ? (
         <p className="border-t border-rule py-4 text-md text-ink-muted">
           {t("admin.status.queues.empty")}
@@ -188,9 +180,19 @@ function QueueRow({
             <span className="num">{countsWords(t, q)}</span>
             {q.paused && <PausedLine paused={q.paused} reference={reference} />}
           </span>
+          {/* Review F4, I1: la pausa la mette chi gestisce QUESTO progetto. */}
+          {!allowed && (
+            <span className="text-xs text-pretty text-ink-muted">
+              {t("admin.status.queues.forbidden", { code: q.code })}{" "}
+              <WhoCanLink
+                action="manageProjectSettings"
+                projectId={q.projectId}
+                projectCode={q.code}
+              />
+            </span>
+          )}
         </div>
         <span className="flex shrink-0 items-center gap-2">
-          {!allowed && <WhoCanLink action="manageSettings" projectId={null} />}
           <PauseButton queue={q} kind={kind} allowed={allowed} onOpen={onOpen} />
         </span>
       </div>

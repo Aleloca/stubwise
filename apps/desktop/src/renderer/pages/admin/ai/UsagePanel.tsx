@@ -173,7 +173,13 @@ function UsageLayout<D extends UsageDimension>({
 }: {
   nav: UsageNav<D>;
   dimensions: readonly D[];
-  usage: { isPending: boolean; isError: boolean; data?: UsageView | null; refetch: () => unknown };
+  usage: {
+    isPending: boolean;
+    isError: boolean;
+    error?: unknown;
+    data?: UsageView | null;
+    refetch: () => unknown;
+  };
   texts: UsageTexts;
   children?: ReactNode;
 }) {
@@ -198,7 +204,14 @@ function UsageLayout<D extends UsageDimension>({
         <UsageSkeleton />
       ) : usage.isError ? (
         <ReadError
-          message={texts.loadError ?? t("admin.ai.usage.loadError")}
+          message={
+            // Review F4, M4: un intervallo che il server rifiuta lo dice.
+            (usage.error as Error | null)?.message === "range_too_long"
+              ? t("admin.ai.usage.rangeTooLong")
+              : (usage.error as Error | null)?.message === "invalid_range"
+                ? t("admin.ai.usage.invalidRange")
+                : (texts.loadError ?? t("admin.ai.usage.loadError"))
+          }
           onRetry={() => void usage.refetch()}
         />
       ) : usage.data ? (

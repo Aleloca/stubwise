@@ -127,4 +127,31 @@ describe("lo Stato dell'istanza dal server (area 9, F4)", () => {
     const no = createRealInstanceStatus(fake({ resumeQueue: refusing(403, "forbidden") }));
     expect(await no.resumeQueue("p1")).toEqual({ ok: false, error: "forbidden" });
   });
+
+  it("senza instance.status.view il server dice 403: la lettura è forbidden (review F4, I2)", async () => {
+    const no = createRealInstanceStatus(
+      fake({
+        status: async () => {
+          throw new ApiError(403, "Missing permission instance.status.view", "forbidden");
+        },
+      }),
+    );
+    await expect(no.getInstanceStatus()).rejects.toThrow("forbidden");
+  });
+
+  it("un codice di progetto vuoto non fa un link rotto (review F4, M5)", async () => {
+    const v = await createRealInstanceStatus(
+      fake({
+        status: async () => ({
+          ...status(),
+          jobs: [
+            job({ projectCode: "" }),
+            job({ id: "j2", kind: "server_fix", code: "SRV-4", projectCode: "" }),
+          ],
+          errors: [],
+        }),
+      }),
+    ).getInstanceStatus();
+    expect(v.jobs.map((j) => j.href)).toEqual([null, null]);
+  });
 });

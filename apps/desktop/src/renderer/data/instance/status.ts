@@ -332,10 +332,10 @@ const counts = (jobs: Job[]) => ({
   failed: jobs.filter((j) => j.state === "failed").length,
 });
 
-/** Cosa sta facendo Stubwise adesso, nei progetti che chi guarda vede (`instance.status.view` o `settings.manage`). */
+/** Cosa sta facendo Stubwise adesso, nei progetti che chi guarda vede (solo `instance.status.view`, come il server). */
 export async function getInstanceStatus(): Promise<InstanceStatusView> {
   const me = await gate("instance.getInstanceStatus");
-  if (!canI(me, "instance.status.view") && !canI(me, "settings.manage")) throw forbidden();
+  if (!canI(me, "instance.status.view")) throw forbidden();
   const visible = visibleProjectIds(me);
   const all = allJobs().sort(byStateThenAge);
   // Un lavoro senza progetto (un passo d'automazione generale fermo per il
