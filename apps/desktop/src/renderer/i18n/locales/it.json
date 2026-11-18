@@ -11474,18 +11474,18 @@
     },
     "webhooks": {
       "title": "Webhook in uscita",
-      "intro": "Manda un messaggio a un canale di chat o a un endpoint quando succede qualcosa in un progetto.",
-      "loadError": "Impossibile caricare il webhook.",
+      "intro": "Manda messaggi a canali di chat o a endpoint quando succede qualcosa in un progetto. Ogni webhook ha il suo indirizzo, formato ed eventi.",
+      "loadError": "Impossibile caricare i webhook.",
       "send": "Manda i messaggi",
       "off": "I messaggi sono spenti.",
       "format": "Formato",
       "formats": {
         "slack": "Slack",
         "discord": "Discord",
-        "generic": "JSON generico"
+        "generic": "JSON"
       },
       "address": "Indirizzo",
-      "addressNote": "Chi può cambiare le impostazioni dell'istanza può leggere questo indirizzo.",
+      "addressNote": "Chi può gestire le integrazioni può leggere questo indirizzo.",
       "howTo": "Come ottenere l'indirizzo",
       "steps": {
         "slack": {
@@ -11553,8 +11553,11 @@
       },
       "errors": {
         "https": "Usa un indirizzo https.",
-        "missing": "Aggiungi l'indirizzo, o spegni i messaggi.",
-        "testNeedsAddress": "Prima salva un indirizzo."
+        "missing": "Aggiungi l'indirizzo.",
+        "testNeedsAddress": "Prima salva un indirizzo.",
+        "name": "Dai un nome al webhook.",
+        "webhook_limit": "Puoi avere al più 20 webhook.",
+        "events": "Uno degli eventi non è più disponibile."
       },
       "preview": "Anteprima",
       "example": "Dati d'esempio",
@@ -11566,6 +11569,40 @@
         "ok": "Consegnata",
         "invalid_credentials": "Errore dall'indirizzo",
         "unreachable": "Non raggiungibile"
+      },
+      "new": "Nuovo webhook",
+      "limit": "Puoi avere al più {{count}} webhook.",
+      "empty": "Nessun webhook per ora.",
+      "eventCount": "{{count}} eventi su {{total}}",
+      "offBadge": "Spento",
+      "back": "Webhook in uscita",
+      "newTitle": "Nuovo webhook",
+      "name": "Nome",
+      "create": "Crea il webhook",
+      "creating": "Creazione…",
+      "notFound": "Questo webhook non c'è più.",
+      "loadOneError": "Impossibile caricare il webhook.",
+      "createAction": "creare il webhook {{name}}",
+      "createdTitle": "Webhook creato. Copia il suo segreto di firma:",
+      "secret": {
+        "title": "Segreto di firma",
+        "set": "Impostato · rigenerato il {{date}}",
+        "none": "Non ancora impostato. Rigeneralo per firmare i messaggi.",
+        "note": "Ogni messaggio porta un'intestazione X-Stubwise-Signature firmata con questo segreto. Slack e Discord la ignorano.",
+        "regenerate": "Rigenera il segreto",
+        "action": "rigenerare il segreto di firma di {{name}}",
+        "dialogTitle": "Rigenerare il segreto di firma di {{name}}?",
+        "dialogBody": "Il segreto di adesso smette subito di valere. Aggiorna chi riceve con quello nuovo.",
+        "submit": "Rigenera",
+        "shownTitle": "Il nuovo segreto di firma"
+      },
+      "delete": {
+        "button": "Elimina il webhook",
+        "title": "Eliminare {{name}}?",
+        "body": "Smette subito di ricevere messaggi. Il registro delle modifiche ne tiene la storia.",
+        "submit": "Elimina",
+        "action": "eliminare il webhook {{name}}",
+        "done": "{{name}} eliminato."
       }
     },
     "servers": {
@@ -12241,7 +12278,10 @@
         "secret_replaced": "<actor>{{actor}}</actor> ha sostituito la chiave segreta dell'archiviazione."
       },
       "webhook": {
-        "changed": "<actor>{{actor}}</actor> ha cambiato il webhook in uscita."
+        "created": "<actor>{{actor}}</actor> ha aggiunto il webhook in uscita <object>{{object}}</object>.",
+        "updated": "<actor>{{actor}}</actor> ha cambiato il webhook in uscita <object>{{object}}</object>.",
+        "secret_replaced": "<actor>{{actor}}</actor> ha rigenerato il segreto di firma del webhook in uscita <object>{{object}}</object>.",
+        "deleted": "<actor>{{actor}}</actor> ha eliminato il webhook in uscita <object>{{object}}</object>."
       },
       "server": {
         "created": "<actor>{{actor}}</actor> ha creato il server <object>{{object}}</object>$t(changelog.params.serverScope.{{scope}}).",
@@ -12460,7 +12500,7 @@
       "webhookFormat": {
         "slack": "Slack",
         "discord": "Discord",
-        "generic": "JSON generico"
+        "generic": "JSON"
       },
       "webhookEvents": {
         "ticket_created": "Nuova task dall'SDK o dal widget",

@@ -838,8 +838,12 @@ export type ApiFnName =
   | "instance.saveStorage"
   | "instance.setAttachments"
   | "instance.testStorage"
+  | "instance.listWebhooks"
   | "instance.getWebhook"
-  | "instance.saveWebhook"
+  | "instance.createWebhook"
+  | "instance.updateWebhook"
+  | "instance.regenerateWebhookSecret"
+  | "instance.deleteWebhook"
   | "instance.testWebhook"
   // Coda e Stato dell'istanza (area 9b, Task 5)
   | "instance.getInstanceStatus"

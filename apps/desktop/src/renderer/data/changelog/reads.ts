@@ -156,7 +156,11 @@ const INSTANCE_OBJECTS: Record<
     exists: (id) => state.googleWorkspaces.some((w) => w.id === id),
   },
   storage: { section: "storage" },
-  webhook: { section: "webhooks" },
+  // F3: i webhook sono un elenco; la voce porta al suo, se c'è ancora.
+  webhook: {
+    section: "webhooks",
+    exists: (id) => state.instance.webhooks.some((w) => w.id === id),
+  },
 };
 
 /** Il server di una voce `server.*`, se esiste ancora (l'id dell'oggetto è il codice, `SRV-2`). */
@@ -283,7 +287,7 @@ const INSTANCE_VALUE_KINDS: ReadonlySet<string> = new Set([
   "plugin.ref_updated",
   "google_app.updated",
   "storage.changed",
-  "webhook.changed",
+  "webhook.updated",
   "server.updated",
   "server.thresholds_changed",
   "server.check_changed",

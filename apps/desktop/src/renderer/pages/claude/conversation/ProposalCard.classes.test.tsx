@@ -203,7 +203,7 @@ describe("i bottoni per classe (maintainer)", () => {
       args: { projectId: OLV, personId: LAURA, roleId: "role-developer" },
       edit: false,
     },
-    { fn: "saveWebhook", args: { url: "https://example.com/hook" }, edit: false },
+    { fn: "updateWebhook", args: { id: "wh-seed", url: "https://example.com/hook" }, edit: false },
   ];
 
   for (const c of CARDS) {

@@ -93,13 +93,19 @@ export {
 } from "./storage";
 export {
   WEBHOOK_EVENTS,
+  WEBHOOK_LIMIT,
+  createWebhook,
+  deleteWebhook,
   getWebhook,
+  listWebhooks,
   previewWebhook,
-  saveWebhook,
+  regenerateWebhookSecret,
   testWebhook,
+  updateWebhook,
   type WebhookEventId,
   type WebhookFormat,
   type WebhookGroup,
+  type WebhookInput,
   type WebhookView,
 } from "./webhook";
 export { getAiBlock, getQueuePause, getUploadsAllowed } from "./blocks";

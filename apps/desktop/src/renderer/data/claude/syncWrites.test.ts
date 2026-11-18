@@ -30,7 +30,7 @@ import { moveProviderAs, setProviderEnabledAs } from "../instance/providers";
 import { pauseQueueAs, resumeQueueAs } from "../instance/queue";
 import { retryJobAs } from "../instance/retry";
 import { saveStorageAs, setAttachmentsAs } from "../instance/storage";
-import { saveWebhookAs } from "../instance/webhook";
+import { updateWebhookAs } from "../instance/webhook";
 import { setProjectAiAs } from "../projectSettings/ai";
 import { archiveProjectAs, reopenProjectAs } from "../projectSettings/archive";
 import { saveProjectAutomationsAs } from "../projectSettings/automations";
@@ -169,7 +169,7 @@ const storage = (over: { bucket?: string; endpoint?: string; secretAccessKey?: s
   accessKeyId: state.instance.storage.accessKeyId,
   ...(over.secretAccessKey ? { secretAccessKey: over.secretAccessKey } : {}),
 });
-const webhook = { enabled: false, format: "discord" as const, url: null, events: {} };
+const webhook = { enabled: false, format: "discord" as const, events: [] as string[] };
 
 /** Una richiesta di STW archiviata da Laura. */
 async function archivedRequest(): Promise<Ctx> {
@@ -654,24 +654,24 @@ const CASES: Case[] = [
     expected: "forbidden",
   },
   {
-    name: "saveWebhook",
+    name: "updateWebhook",
     who: ROBERTA,
-    pub: () => instance.saveWebhook(webhook),
-    sync: (me) => saveWebhookAs(me, webhook),
+    pub: () => instance.updateWebhook("wh-seed", webhook),
+    sync: (me) => updateWebhookAs(me, "wh-seed", webhook),
     expected: "ok",
   },
   {
-    name: "saveWebhook acceso senza indirizzo",
+    name: "updateWebhook con un indirizzo non https",
     who: ROBERTA,
-    pub: () => instance.saveWebhook({ ...webhook, enabled: true }),
-    sync: (me) => saveWebhookAs(me, { ...webhook, enabled: true }),
+    pub: () => instance.updateWebhook("wh-seed", { url: "http://x.test/a" }),
+    sync: (me) => updateWebhookAs(me, "wh-seed", { url: "http://x.test/a" }),
     expected: "invalid",
   },
   {
-    name: "saveWebhook senza permesso",
+    name: "updateWebhook senza permesso",
     who: MARCO,
-    pub: () => instance.saveWebhook(webhook),
-    sync: (me) => saveWebhookAs(me, webhook),
+    pub: () => instance.updateWebhook("wh-seed", webhook),
+    sync: (me) => updateWebhookAs(me, "wh-seed", webhook),
     expected: "forbidden",
   },
   // --- Avvisi ----------------------------------------------------------------

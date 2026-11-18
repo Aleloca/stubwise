@@ -46,6 +46,7 @@ import {
   AdminInvitePage,
   AdminPersonPage,
   AdminPluginPage,
+  AdminWebhookPage,
   AdminRolePage,
   AdminServerPage,
 } from "./pages/admin/AdminLayout";
@@ -1317,6 +1318,18 @@ const adminPluginRoute = createRoute({
   component: AdminPluginRoutePage,
 });
 
+/** La pagina di un webhook in uscita (`/admin/webhooks/$webhookId`, F3), dentro Outgoing webhooks. */
+function AdminWebhookRoutePage() {
+  const { webhookId } = adminWebhookRoute.useParams();
+  return <AdminWebhookPage webhookId={webhookId} />;
+}
+
+const adminWebhookRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/webhooks/$webhookId",
+  component: AdminWebhookRoutePage,
+});
+
 /**
  * Il dettaglio di un server dall'Amministrazione (`/admin/servers/SRV-2`,
  * area 9b), dentro Servers, con `monitor.manage`: lo stesso dell'8b.
@@ -1408,6 +1421,7 @@ const routeTree = rootRoute.addChildren([
   adminInviteRoute,
   adminRoleRoute,
   adminPluginRoute,
+  adminWebhookRoute,
   adminServerRoute,
   automationSourcesRoute,
   automationRoute,

@@ -14,6 +14,7 @@ import { DepartmentsPage } from "./DepartmentsPage";
 import { GitAccountsPage } from "./integrations/GitAccountsPage";
 import { GooglePage } from "./integrations/GooglePage";
 import { PluginPage } from "./integrations/PluginPage";
+import { WebhookPage } from "./integrations/WebhooksPage";
 import { PluginsPage } from "./integrations/PluginsPage";
 import { StoragePage } from "./integrations/StoragePage";
 import { WebhooksPage } from "./integrations/WebhooksPage";
@@ -135,6 +136,13 @@ export function AdminRolePage({ roleId }: { roleId: string }) {
 }
 
 /** La pagina di un plugin (`/admin/plugins/$pluginId`): dentro Plugins, con `plugins.manage`. */
+/** La pagina di un webhook in uscita (`/admin/webhooks/$webhookId`, `new` per crearne uno; F3). */
+export function AdminWebhookPage({ webhookId }: { webhookId: string }) {
+  const { viewer } = useViewer();
+  if (!canSeeAdminSection(viewer, "webhooks")) return <NotFound />;
+  return <WebhookPage key={`${viewer.personId}:${webhookId}`} webhookId={webhookId} />;
+}
+
 export function AdminPluginPage({ pluginId }: { pluginId: string }) {
   const { viewer } = useViewer();
   if (!canSeeAdminSection(viewer, "plugins")) return <NotFound />;

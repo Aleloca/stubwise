@@ -223,7 +223,7 @@ describe("classOf: le altre voci", () => {
   });
 
   it("le righe d'istanza: B, o C con la riconferma; registerPlugin e retryJob non si annullano", () => {
-    for (const fn of ["setModel", "saveWebhook", "pauseQueue"] as const)
+    for (const fn of ["setModel", "updateWebhook", "pauseQueue"] as const)
       expect(classOf(ROBERTA, { fn, args: {} }), fn).toEqual({ cls: "B", reasons: [] });
     expect(classOf(ROBERTA, { fn: "updatePluginRef", args: {} })).toEqual({
       cls: "C",

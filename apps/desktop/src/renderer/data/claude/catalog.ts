@@ -36,7 +36,7 @@ import { moveProviderAs, setProviderEnabledAs } from "../instance/providers";
 import { pauseQueueAs, resumeQueueAs } from "../instance/queue";
 import { retryJobAs } from "../instance/retry";
 import { saveStorageAs, setAttachmentsAs } from "../instance/storage";
-import { saveWebhookAs, type WebhookFormat } from "../instance/webhook";
+import { updateWebhookAs, type WebhookFormat } from "../instance/webhook";
 import type { MilestoneInput, NewTaskInput, Task, TaskPatch } from "../model";
 import { setProjectAiAs } from "../projectSettings/ai";
 import { archiveProjectAs, reopenProjectAs } from "../projectSettings/archive";
@@ -780,23 +780,39 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
       return onSetting("attachments", { fn: "setAttachments", args: { on: was } });
     },
   },
-  saveWebhook: {
-    apiFn: "instance.saveWebhook",
+  // F3 (design §F7, «webhook (senza segreto)»): solo la modifica di un
+  // webhook che c'è. Crearlo, rigenerarne il segreto o eliminarlo vogliono
+  // la riconferma e toccano un segreto: non passano da Claude.
+  updateWebhook: {
+    apiFn: "instance.updateWebhook",
     baseClass: "B",
     undoable: true,
-    whoAction: "manageSettings",
+    whoAction: "manageIntegrations",
     run(me, args) {
-      const w = state.instance.webhook;
-      const was = { enabled: w.enabled, format: w.format, url: w.url, events: { ...w.events } };
+      const id = args.id as string;
+      const w = state.instance.webhooks.find((x) => x.id === id);
+      const was = {
+        id,
+        name: w?.name,
+        url: w?.url,
+        format: w?.format,
+        enabled: w?.enabled,
+        events: [...(w?.events ?? [])],
+      };
       done(
-        saveWebhookAs(me, {
-          enabled: args.enabled === true,
-          format: args.format as WebhookFormat,
-          url: (args.url as string | null | undefined) ?? null,
-          events: (args.events ?? {}) as Record<string, boolean>,
-        }),
+        updateWebhookAs(
+          me,
+          id,
+          present(args, ["name", "url", "format", "enabled", "events"] as const) as {
+            name?: string;
+            url?: string;
+            format?: WebhookFormat;
+            enabled?: boolean;
+            events?: string[];
+          },
+        ),
       );
-      return onSetting("webhook", { fn: "saveWebhook", args: was });
+      return onSetting(`webhook:${id}`, { fn: "updateWebhook", args: was });
     },
   },
 

@@ -122,7 +122,8 @@ export const SETTING_KINDS: Readonly<Record<string, SettingValue["type"]>> = {
   "git_account.updated": "fields",
   "google_app.updated": "fields",
   "storage.changed": "fields",
-  "webhook.changed": "fields",
+  // F3: i campi cambiati di UN webhook (`name`, `url`, `format`, `enabled`, `events`).
+  "webhook.updated": "fields",
   // Task 7: i server. Chiavi dei campi: `name`, `sampleInterval` (il
   // progetto principale non c'è più, F4b-4); `cpu`/`mem`/`disk` (la soglia
   // come numero, `null` = spenta) e `sustained` (minuti); `name`,

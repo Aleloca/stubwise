@@ -83,7 +83,9 @@ export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
   // S3), più registrare e aggiornare un plugin, che ne esegue il codice
   // (scelta del controller). `saveStorage` chiede la riconferma solo quando
   // porta una chiave nuova (`secretAccessKey`): lo decide la funzione.
-  // `saveWebhook` non c'è: l'URL non è un segreto (maintainer, 30 ott 2026).
+  // Dei webhook in uscita (F3) la chiedono creare e rigenerare il segreto
+  // (nasce un segreto) ed eliminare; `updateWebhook` no: l'URL non è un
+  // segreto (maintainer, 30 ott 2026).
   "instance.createProvider",
   "instance.replaceProviderCredential",
   "instance.deleteProvider",
@@ -96,6 +98,9 @@ export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
   "instance.replaceGoogleSecret",
   "instance.deleteGoogleApp",
   "instance.saveStorage",
+  "instance.createWebhook",
+  "instance.regenerateWebhookSecret",
+  "instance.deleteWebhook",
   // Area 9c: chi crea, sostituisce o cancella un segreto di un progetto
   // (chiave d'ingestione, secret del webhook git, file e valori
   // d'ambiente), più eliminare un progetto e un repository senza progetto

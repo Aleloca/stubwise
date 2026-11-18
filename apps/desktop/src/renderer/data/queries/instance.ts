@@ -27,6 +27,7 @@ export type {
   WebhookEventId,
   WebhookFormat,
   WebhookGroup,
+  WebhookInput,
   WebhookView,
   DetachedRepositoryRow,
   InstanceRepositoryGroup,
@@ -40,7 +41,7 @@ export type {
 } from "../instance";
 export { BACKGROUND_WEEKLY_THRESHOLD } from "../instance/constants";
 export { GOOGLE_SETUP } from "../instance/constants";
-export { WEBHOOK_EVENTS } from "../instance/constants";
+export { WEBHOOK_EVENTS, WEBHOOK_LIMIT } from "../instance/constants";
 
 /**
  * I repository dei progetti dove chi guarda ha `repos.view`, per progetto
@@ -536,25 +537,58 @@ export function useTestStorage() {
   return useWrite(() => api.instance.testStorage(), STORAGE_WRITE_AREAS);
 }
 
-/** Il webhook in uscita, con l'URL in chiaro e i 21 eventi. */
-export function useWebhook() {
+/** I webhook in uscita (F3: un elenco), con l'URL in chiaro; mai il segreto. */
+export function useWebhooks() {
   const me = useSessionPersonId();
   return useQuery({
-    queryKey: ["as", me, "instance", "webhook"] as const,
-    queryFn: () => api.instance.getWebhook(),
+    queryKey: ["as", me, "instance", "webhooks"] as const,
+    queryFn: () => api.instance.listWebhooks(),
   });
 }
 
-/** Salva tutto il modulo, senza riconferma. */
-export function useSaveWebhook() {
+/** Un webhook (la sua pagina); errore `not_found` se non c'è. */
+export function useWebhook(id: string | undefined) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "instance", "webhooks", id ?? ""] as const,
+    queryFn: () => api.instance.getWebhook(id!),
+    enabled: !!id,
+  });
+}
+
+/** Un webhook nuovo, con la riconferma: il risultato porta il segreto, una volta. */
+export function useCreateWebhook() {
   return useWrite(
-    (input: Parameters<typeof api.instance.saveWebhook>[0]) => api.instance.saveWebhook(input),
+    (input: api.instance.WebhookInput) => api.instance.createWebhook(input),
     INTEGRATION_WRITE_AREAS,
   );
 }
 
+/** Cambia un webhook, senza riconferma. */
+export function useUpdateWebhook() {
+  return useWrite(
+    ([id, patch]: [string, Partial<api.instance.WebhookInput>]) =>
+      api.instance.updateWebhook(id, patch),
+    INTEGRATION_WRITE_AREAS,
+  );
+}
+
+/** Un segreto nuovo, con la riconferma: il risultato lo porta, una volta. */
+export function useRegenerateOutgoingWebhookSecret() {
+  return useWrite(
+    (id: string) => api.instance.regenerateWebhookSecret(id),
+    INTEGRATION_WRITE_AREAS,
+  );
+}
+
+/** Elimina un webhook, con la riconferma. */
+export function useDeleteWebhook() {
+  return useWrite((id: string) => api.instance.deleteWebhook(id), INTEGRATION_WRITE_AREAS);
+}
+
+/** Una prova a un webhook, anche spento. */
 export function useTestWebhook() {
-  return useWrite(() => api.instance.testWebhook(), INTEGRATION_WRITE_AREAS);
+  return useWrite((id: string) => api.instance.testWebhook(id), INTEGRATION_WRITE_AREAS);
 }
 
 /**
