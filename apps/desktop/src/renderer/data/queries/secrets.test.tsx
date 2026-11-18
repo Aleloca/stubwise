@@ -10,6 +10,8 @@ import {
   useCreateInvite,
   useCreatePasswordResetLink,
   useCreateProvider,
+  useCreateWebhook,
+  useRegenerateOutgoingWebhookSecret,
   useDeleteEnvFile,
   useEnrollDuringReauth,
   useImportEnvFile,
@@ -50,6 +52,10 @@ const SECRET_HOOKS: Record<string, () => { mutateAsync: (v: never) => Promise<un
   useDeleteEnvFile: () => useDeleteEnvFile(),
   useRegenerateIngestionKey: () => useRegenerateIngestionKey(),
   useRegenerateWebhookSecret: () => useRegenerateWebhookSecret(),
+  // Integrazione area 9, F3 (review, I1): il segreto di firma di un webhook in
+  // uscita nel risultato, alla creazione e alla rigenerazione.
+  useCreateWebhook: () => useCreateWebhook(),
+  useRegenerateOutgoingWebhookSecret: () => useRegenerateOutgoingWebhookSecret(),
 };
 
 describe("segreti nelle mutazioni d'amministrazione e della riconferma", () => {

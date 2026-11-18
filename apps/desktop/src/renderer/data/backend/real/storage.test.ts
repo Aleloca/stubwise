@@ -16,17 +16,27 @@ const settings = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+/**
+ * Il server finto fedele alla regola del PUT di oggi: un campo che manca è
+ * azzerato (review F3, C1: il budget spariva salvando l'archiviazione).
+ */
 function fakeApi(over: Partial<StorageApi> = {}) {
   const saved: unknown[] = [];
+  let current: Record<string, unknown> = settings();
   const api: StorageApi = {
-    get: async () => settings(),
+    get: async () => current,
     save: async (input) => {
       saved.push(input);
-      return settings();
+      current = {
+        ...current,
+        ...input,
+        monthlyBudgetUsd: (input as { monthlyBudgetUsd?: number | null }).monthlyBudgetUsd ?? null,
+      };
+      return current;
     },
     ...over,
   };
-  return { api, saved };
+  return { api, saved, now: () => current };
 }
 
 describe("l'archiviazione dal server (area 9, F3)", () => {
@@ -51,8 +61,8 @@ describe("l'archiviazione dal server (area 9, F3)", () => {
     expect(empty).toMatchObject({ bucket: "", last4: null, status: "not_set_up" });
   });
 
-  it("salvare: la lingua di adesso (obbligatoria sul server), i campi, la chiave solo se nuova", async () => {
-    const { api, saved } = fakeApi();
+  it("salvare: la lingua e il budget di adesso (review F3, C1: il budget resta), i campi, la chiave solo se nuova", async () => {
+    const { api, saved, now } = fakeApi();
     const st = createRealStorage(api);
     const fields = { endpoint: "https://e", region: "r", bucket: "b", accessKeyId: "k" };
     expect(await st.saveStorage(fields)).toEqual({ ok: true });
@@ -60,6 +70,7 @@ describe("l'archiviazione dal server (area 9, F3)", () => {
     expect(saved).toEqual([
       {
         contentLanguage: "it",
+        monthlyBudgetUsd: 600,
         s3Endpoint: "https://e",
         s3Region: "r",
         s3Bucket: "b",
@@ -67,6 +78,7 @@ describe("l'archiviazione dal server (area 9, F3)", () => {
       },
       {
         contentLanguage: "it",
+        monthlyBudgetUsd: 600,
         s3Endpoint: "https://e",
         s3Region: "r",
         s3Bucket: "b",
@@ -74,6 +86,7 @@ describe("l'archiviazione dal server (area 9, F3)", () => {
         s3SecretKey: "sec",
       },
     ]);
+    expect(now().monthlyBudgetUsd).toBe(600);
     const reauth = createRealStorage(
       fakeApi({
         save: async () => {

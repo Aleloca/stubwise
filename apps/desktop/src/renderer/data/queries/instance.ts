@@ -578,6 +578,8 @@ export function useCreateWebhook() {
   return useWrite(
     (input: api.instance.WebhookInput) => api.instance.createWebhook(input),
     INTEGRATION_WRITE_AREAS,
+    // Il segreto nel risultato: la cache delle mutazioni non lo tiene (review F3, I1).
+    { secret: true },
   );
 }
 
@@ -595,6 +597,8 @@ export function useRegenerateOutgoingWebhookSecret() {
   return useWrite(
     (id: string) => api.instance.regenerateWebhookSecret(id),
     INTEGRATION_WRITE_AREAS,
+    // Il segreto nel risultato: la cache delle mutazioni non lo tiene (review F3, I1).
+    { secret: true },
   );
 }
 

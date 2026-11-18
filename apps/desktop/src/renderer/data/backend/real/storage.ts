@@ -5,7 +5,8 @@ import { appClient } from "./client";
 
 // Amministrazione → Storage nella build app (area 9, F3) su
 // `/api/settings/instance` (72), lo stesso PUT di lingua e budget: per questo
-// ogni salvataggio rimanda la lingua di adesso (sul server è obbligatoria).
+// ogni salvataggio rimanda la lingua E il budget di adesso (sul server la
+// lingua è obbligatoria, e un budget che manca si azzerava: review F3, C1).
 // La chiave S3 si manda solo se è nuova, e allora il server chiede la
 // riconferma. Il segreto non torna mai: la vista dice solo se c'è.
 //
@@ -71,6 +72,9 @@ export function createRealStorage(api: StorageApi) {
         const current = await api.get();
         await api.save({
           contentLanguage: current.contentLanguage,
+          // Review F3, C1: il PUT azzera un campo che manca, quindi il budget
+          // di adesso si rimanda sempre (72 lo rende anche una patch).
+          monthlyBudgetUsd: current.monthlyBudgetUsd ?? null,
           s3Endpoint: input.endpoint.trim(),
           s3Region: input.region.trim(),
           s3Bucket: input.bucket.trim(),

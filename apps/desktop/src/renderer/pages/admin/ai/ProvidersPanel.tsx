@@ -330,6 +330,9 @@ function ProviderRow({
     const [result] = await Promise.all([test.mutateAsync(p.id).catch(() => null), wait(TEST_MS)]);
     setTesting(false);
     const refusal = result === null ? { error: "failed" } : refusalOf(result);
+    // La prova la fa il worker: dopo un minuto ancora in corso (review F3, M1).
+    if (refusal?.error === "invalid" && refusal.reason === "test_pending")
+      return setError(t("admin.ai.providers.testPending"));
     if (refusal) return setError(refusalWords(refusal.error));
     const outcome = (result as { outcome: TestOutcome }).outcome;
     if (outcome !== "ok")

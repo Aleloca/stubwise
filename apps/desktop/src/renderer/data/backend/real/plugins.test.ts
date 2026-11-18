@@ -92,6 +92,14 @@ describe("i plugin dal server (area 9, F3)", () => {
     });
   });
 
+  it("uno stato che il client non conosce non è «in corso» (review F3, M3: niente letture all'infinito)", async () => {
+    const odd = createRealPlugins(
+      fakeApi({ get: async () => plugin({ status: "__unknown__", smokeStatus: "__unknown__" }) })
+        .api,
+    );
+    expect(await odd.getPlugin(P)).toMatchObject({ busy: false, smoke: null });
+  });
+
   it("registrare e aggiornare mandano «Mi fido»; smoke e rimozione; il nome del nuovo", async () => {
     const { api, calls } = fakeApi();
     const p = createRealPlugins(api);

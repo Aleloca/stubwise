@@ -98,6 +98,14 @@ describe("i provider AI dal server (area 9, F3)", () => {
     expect(only[0]).toMatchObject({ lastEnabled: true, quota: null });
   });
 
+  it("un tipo che il client non conosce si legge come chiave API (review F3, M4)", async () => {
+    const [p] = await createRealProviders(
+      fakeApi({ list: async () => [view(A, { kind: "__unknown__" })], snapshots: async () => [] })
+        .api,
+    ).listProviders();
+    expect(p!.kind).toBe("api_key");
+  });
+
   it("le scritture: crea col tipo del server, rinomina, accende, sostituisce, elimina; riordina con TUTTI gli id", async () => {
     const { api, calls } = fakeApi();
     const p = createRealProviders(api);

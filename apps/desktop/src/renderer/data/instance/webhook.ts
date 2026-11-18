@@ -55,6 +55,13 @@ export interface WebhookView {
   secretRotatedAt: string | null;
   createdAt: string;
   lastTest: { at: string; outcome: TestOutcome } | null;
+  /**
+   * Nella build app (review F3, I2): il server ha un formato o eventi che il
+   * client non conosce. La pagina non lo modifica (o non ne cambia gli eventi)
+   * per non toglierglieli. Nel prototipo non capita.
+   */
+  formatUnknown?: boolean;
+  unknownEvents?: boolean;
 }
 
 export interface WebhookInput {
