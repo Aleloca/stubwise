@@ -22,15 +22,7 @@ function at(tree: unknown, path: string): unknown {
 }
 
 describe("il catalogo del registro: server, prototipo e frasi (area 9, F2)", () => {
-  /**
-   * In attesa di 72 (decisione del maintainer del 31 ott 2026: è d'istanza): il
-   * catalogo del server lo ha ancora di progetto. Si toglie quando 72 allinea.
-   */
-  const AWAITING_SERVER = new Set(["repository.deleted"]);
-
-  it.each(
-    CHANGE_LOG_TYPES.filter((t) => !AWAITING_SERVER.has(t.kind)).map((t) => [t.kind, t] as const),
-  )("%s", (kind, server) => {
+  it.each(CHANGE_LOG_TYPES.map((t) => [t.kind, t] as const))("%s", (kind, server) => {
     // F5: anche i tipi delle impostazioni di progetto (9c).
     const proto = [...ADMIN_CHANGE_TYPES, ...INSTANCE_CHANGE_TYPES, ...PROJECT_CHANGE_TYPES].find(
       (t) => t.kind === kind,
