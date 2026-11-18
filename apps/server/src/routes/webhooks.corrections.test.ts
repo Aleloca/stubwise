@@ -153,12 +153,8 @@ async function seedFixture(
   );
   if (created.statusCode !== 201) throw new Error(`repository: ${created.statusCode} ${created.body}`);
   const repo = created.json() as { id: string; slug: string };
-  const hook = await app.inject({
-    method: "GET",
-    url: `/api/repositories/${repo.slug}/webhook`,
-    headers: { cookie: adminCookie },
-  });
-  const { webhookSecret } = hook.json() as { webhookSecret: string };
+  // Il segreto intero esce solo dalla creazione (area 9, F5, decisione C).
+  const { webhookSecret } = created.json() as { webhookSecret: string };
 
   await testDb.db
     .update(repositories)

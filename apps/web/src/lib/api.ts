@@ -105,6 +105,7 @@ import type {
   ProjectFollows,
   ProjectIntegration,
   IngestionKeyResult,
+  WebhookSecretResult,
   ProjectPlugin,
   ProjectPulseSummary,
   ProjectTimeline,
@@ -1968,6 +1969,8 @@ export interface Repository {
  */
 export interface RepositorySaveResponse extends Repository {
   warnings?: RepositoryWarning[];
+  /** Solo dalla creazione (area 9, F5, decisione C): il segreto del webhook intero, una volta. */
+  webhookSecret?: string;
 }
 
 /**
@@ -2034,18 +2037,31 @@ export function getRepository(slug: string): Promise<Repository> {
 }
 
 /**
- * Config del webhook git di un repository: segreto HMAC + path su cui il
- * provider consegna gli eventi di merge. Endpoint solo admin: i member
- * ricevono 403. Il segreto permette di forgiare webhook, quindi non compare
- * mai nella proiezione pubblica del repository.
+ * Config del webhook git di un repository: il path su cui il provider
+ * consegna gli eventi di merge e le ultime 4 del segreto HMAC. Endpoint
+ * `repos.manage`: gli altri ricevono 403. Area 9, F5 (decisione C): il
+ * segreto INTERO non esce da qui; lo dà una volta la creazione del
+ * repository o la rigenerazione ({@link regenerateWebhookSecret}).
  */
 export interface RepositoryWebhook {
-  webhookSecret: string;
   webhookPath: string;
+  /** Assente da un server di prima di F5, che mandava il segreto intero. */
+  secretLast4?: string;
+  configured?: boolean;
 }
 
 export function getRepositoryWebhook(slug: string): Promise<RepositoryWebhook> {
   return api.get(`/api/repositories/${encodeURIComponent(slug)}/webhook`);
+}
+
+/**
+ * Area 9, F5: un segreto del webhook git nuovo (`repos.manage`, riconferma:
+ * un 403 `reauth_required` apre il dialogo e la richiesta riparte). Il
+ * segreto si legge solo qui, una volta (`manual` e `platform`); con
+ * `rollback` resta il vecchio.
+ */
+export function regenerateWebhookSecret(slug: string): Promise<WebhookSecretResult> {
+  return api.post(`/api/repositories/${encodeURIComponent(slug)}/webhook-secret`);
 }
 
 export function postRepository(draft: RepositoryDraft): Promise<RepositorySaveResponse> {
@@ -2236,8 +2252,11 @@ export interface Project {
    * Chiave di ingestion del progetto (Fase 3): gli SDK e i webhook inbound la
    * usano per autenticare l'invio di errori/ticket. Salita dal repository al
    * progetto; tutti i repo del gruppo condividono questa chiave.
+   *
+   * Area 9, F5 (I2): `null` da ogni lettura; intera solo dalla creazione
+   * (decisione D), una volta.
    */
-  ingestionKey: string;
+  ingestionKey: string | null;
   /** Prossimo numero di ticket del progetto (numerazione per-progetto). */
   nextTicketNumber: number;
   createdAt: string;

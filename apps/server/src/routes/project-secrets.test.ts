@@ -66,6 +66,15 @@ describe("il segreto del webhook git (K-5)", () => {
   const secretOf = async (id: string) => (await db.select({ s: repositories.webhookSecret }).from(repositories).where(eq(repositories.id, id)))[0]!.s;
   const scopes = (ok: boolean) => vi.spyOn(GitHubProvider.prototype, "validateCredentials").mockResolvedValue([{ name: "Webhook", ok, detail: ok ? "ok" : "Serve lo scope admin:repo_hook", purpose: "webhook" }]);
 
+  it("la lettura del webhook (decisione C): le ultime 4 e il path, MAI il segreto intero; per intero esce solo dalla rigenerazione", async () => {
+    const r = await repo(true);
+    await db.update(repositories).set({ webhookSecret: "c".repeat(28) + "k9z2" }).where(eq(repositories.id, r.id));
+    const res = await app.inject({ method: "GET", url: `/api/repositories/${r.slug}/webhook`, headers: { cookie: adminCookie } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ webhookPath: `/webhooks/git/${r.slug}`, secretLast4: "k9z2", configured: true });
+    expect(res.body).not.toContain("c".repeat(28));
+  });
+
   it("NON configurato da Stubwise: si scrive il nuovo, da copiare a mano (manual); la piattaforma non si tocca; riconferma", async () => {
     const r = await repo(false);
     const ensure = vi.spyOn(GitHubProvider.prototype, "ensureWebhook");

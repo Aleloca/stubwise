@@ -2461,7 +2461,16 @@
     "regenerateKeyWarning": "Every site and script using the current key stops sending until you replace it.",
     "regenerating": "Regenerating…",
     "keyRevealed": "This is the only time you will see the new key: copy it now.",
-    "regenerateFailed": "The key could not be regenerated. Try again."
+    "regenerateFailed": "The key could not be regenerated. Try again.",
+    "secretMaskedHint": "For security the full secret is shown only once: when the repository is created or right after it is regenerated. Regenerate it to configure the webhook by hand.",
+    "regenerateSecret": "Regenerate secret",
+    "regenerateSecretConfirm": "Regenerate: the current secret stops working",
+    "regenerateSecretWarning": "If Stubwise configured the webhook, the new secret is sent to the git provider first; otherwise merges are rejected until you paste the new one there.",
+    "secretRevealedManual": "This is the only time you will see the new secret: copy it into the git provider now.",
+    "secretRevealedPlatform": "The git provider already has the new secret. This is the only time you will see it.",
+    "secretRollback": "The secret could not be saved: the previous one is still in use, on Stubwise and on the git provider.",
+    "secretScopeMissing": "The git account token cannot manage webhooks (missing scope): update it, then try again.",
+    "regenerateSecretFailed": "The secret could not be regenerated: the previous one is still in use. Try again."
   },
   "jobStatus": {
     "notes": {

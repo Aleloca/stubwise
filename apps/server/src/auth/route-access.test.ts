@@ -194,6 +194,7 @@ describe("rotte con riconferma recente", () => {
   it("le rotte con riconferma PARZIALE sono ESATTAMENTE queste", async () => {
     const partial = (await registeredRoutes()).filter((r) => r.partialReauth).map((r) => r.key);
     expect(partial.sort()).toEqual([
+      "DELETE /api/projects/:projectId/environments/:environmentId",
       "PATCH /api/ai-providers/:id",
       "PATCH /api/git-accounts/:id",
       "PATCH /api/settings/google-workspaces/:id",

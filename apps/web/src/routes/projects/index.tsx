@@ -4,6 +4,7 @@ import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-quer
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { postProject, type ProjectDraft, type ProjectPulseSummary } from "../../lib/api";
+import { stashOneTimeSecret } from "../../lib/one-time-secrets";
 import { meQueryOptions } from "../../lib/auth";
 import { useCan } from "../../lib/permissions";
 import { formatRelativeTime } from "../../lib/format";
@@ -129,7 +130,10 @@ export function ProjectsPage() {
     setPending(true);
     try {
       const draft: ProjectDraft = { name: name.trim() };
-      const project = await postProject(draft);
+      // La chiave d'ingestione intera arriva solo dalla creazione: non va in
+      // cache, passa al dettaglio in memoria, una volta (area 9, F5, decisione D).
+      const { ingestionKey, ...project } = await postProject(draft);
+      stashOneTimeSecret(`ingestion-key:${project.id}`, ingestionKey);
       // La lista è cambiata; exact per non rimarcare stantio un eventuale dettaglio.
       await queryClient.invalidateQueries({ queryKey: ["projects"], exact: true });
       // Chi crea un progetto ne diventa Project Lead: i suoi permessi di
@@ -137,6 +141,7 @@ export function ProjectsPage() {
       await queryClient.invalidateQueries({ queryKey: meQueryOptions.queryKey });
       queryClient.setQueryData(projectQueryOptions(project.id).queryKey, {
         ...project,
+        ingestionKey: null,
         repositories: [],
       });
       await navigate({ to: "/projects/$projectId", params: { projectId: project.id } });

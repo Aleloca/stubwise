@@ -3,6 +3,7 @@ import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { RepositoryWizard } from "../../components/repository-wizard";
 import { postRepository, type RepositoryDraft } from "../../lib/api";
+import { stashOneTimeSecret } from "../../lib/one-time-secrets";
 import { withRepositoryWarnings } from "../../lib/repository-warnings";
 import { projectQueryOptions, repositoryQueryOptions } from "../../lib/queries";
 
@@ -24,7 +25,10 @@ export function NewRepositoryPage() {
   async function handleSubmit(draft: RepositoryDraft) {
     // Gli avvisi del salvataggio non vanno in cache con la repository: viaggiano
     // con la navigazione fino al dettaglio, che li mostra.
-    const { warnings, ...repository } = await postRepository(draft);
+    // Il segreto del webhook (solo dalla creazione) non va in cache: passa al
+    // dettaglio in memoria, una volta (area 9, F5, decisione C).
+    const { warnings, webhookSecret, ...repository } = await postRepository(draft);
+    stashOneTimeSecret(`webhook-secret:${repository.slug}`, webhookSecret);
     queryClient.setQueryData(repositoryQueryOptions(repository.slug).queryKey, repository);
     // Il progetto ora ha un repo in più: invalida liste e dettaglio del gruppo.
     await queryClient.invalidateQueries({ queryKey: ["projects"] });

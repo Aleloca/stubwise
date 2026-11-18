@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { peekOneTimeSecret, stashOneTimeSecret } from "../lib/one-time-secrets";
 import { ProjectIntegrationSection } from "./project-integration-section";
 
 /**
@@ -44,6 +45,18 @@ function renderSection() {
 }
 
 describe("ProjectIntegrationSection", () => {
+  it("decisione D: la chiave data dalla creazione si vede intera UNA volta; rimontato, torna mascherata", async () => {
+    mockApi(false);
+    stashOneTimeSecret(`ingestion-key:${PROJECT_ID}`, "fedcba9876543210fedcba9876543210");
+    const first = renderSection();
+    expect(await screen.findByText("fedcba9876543210fedcba9876543210")).toBeInTheDocument();
+    expect(peekOneTimeSecret(`ingestion-key:${PROJECT_ID}`)).toBeNull();
+    first.unmount();
+    renderSection();
+    expect(await screen.findByText("••••••••9f3a")).toBeInTheDocument();
+    expect(screen.queryByText("fedcba9876543210fedcba9876543210")).not.toBeInTheDocument();
+  });
+
   it("senza permesso: le ultime 4 mascherate, nessuna copia della chiave né guida, nessuna rigenerazione", async () => {
     mockApi(false);
     renderSection();

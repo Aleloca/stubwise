@@ -143,15 +143,8 @@ async function createProject(payload: Record<string, unknown>): Promise<CreatedP
   }
   const repository = res.json() as { id: string; slug: string; provider: string };
 
-  const webhookRes = await app.inject({
-    method: "GET",
-    url: `/api/repositories/${repository.slug}/webhook`,
-    headers: { cookie: adminCookie },
-  });
-  if (webhookRes.statusCode !== 200) {
-    throw new Error(`lettura webhookSecret fallita: ${webhookRes.statusCode} ${webhookRes.body}`);
-  }
-  const { webhookSecret } = webhookRes.json() as { webhookSecret: string };
+  // Il segreto intero esce solo dalla creazione (area 9, F5, decisione C).
+  const { webhookSecret } = res.json() as { webhookSecret: string };
   return { ...repository, projectId: group!.id, webhookSecret };
 }
 
@@ -196,15 +189,8 @@ async function addRepository(
   }
   const repository = res.json() as { id: string; slug: string; provider: string };
 
-  const webhookRes = await app.inject({
-    method: "GET",
-    url: `/api/repositories/${repository.slug}/webhook`,
-    headers: { cookie: adminCookie },
-  });
-  if (webhookRes.statusCode !== 200) {
-    throw new Error(`lettura webhookSecret fallita: ${webhookRes.statusCode} ${webhookRes.body}`);
-  }
-  const { webhookSecret } = webhookRes.json() as { webhookSecret: string };
+  // Il segreto intero esce solo dalla creazione (area 9, F5, decisione C).
+  const { webhookSecret } = res.json() as { webhookSecret: string };
   return { ...repository, projectId: project.projectId, webhookSecret };
 }
 

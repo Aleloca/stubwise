@@ -1,10 +1,11 @@
-import { changeLog, encrypt, gitAccounts, projectEnvironments, repositories, type Db } from "@stubwise/db";
+import { changeLog, encrypt, gitAccounts, projectEnvFiles, projectEnvironments, repositories, users, type Db } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { GitHubProvider, GitProviderError } from "@stubwise/git";
 import { and, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
+import { createSession, SESSION_COOKIE } from "../auth/session.js";
 import { seedUsers } from "../test/fixtures.js";
 
 /** Area 9, F5, Task 6: le voci di repository, ambienti e widget, ciascuna nella transazione della sua scrittura. */
@@ -61,6 +62,8 @@ describe("repository", () => {
     const res = await call("POST", "/api/repositories", { projectId, name: "Sito nuovo", gitAccountId: acct.id, repoUrl: "https://github.com/acme/sito-nuovo" });
     expect(res.statusCode).toBe(201);
     const id = (res.json() as { id: string }).id;
+    // Decisione C: il segreto del webhook intero esce UNA volta, alla creazione (e alla rigenerazione).
+    expect((res.json() as { webhookSecret: string }).webhookSecret).toBe((await db.select({ s: repositories.webhookSecret }).from(repositories).where(eq(repositories.id, id)))[0]!.s);
     expect(dataOf(await entries(projectId, "repository.created"))).toEqual([expect.objectContaining({ object: { type: "repository", id, label: "Sito nuovo" } })]);
     await failingEntry("repository.created", async () => {
       expect((await call("POST", "/api/repositories", { projectId, name: "Mai nato", gitAccountId: acct.id, repoUrl: "https://github.com/acme/mai-nato" })).statusCode).toBe(500);
@@ -138,5 +141,44 @@ describe("ambienti e widget", () => {
       expect((await call("POST", `/api/projects/${projectId}/environments`, { name: "mai-nato", kind: "staging" })).statusCode).toBe(500);
     });
     expect(await db.select().from(projectEnvironments).where(and(eq(projectEnvironments.projectId, projectId), eq(projectEnvironments.name, "mai-nato")))).toHaveLength(0);
+  });
+
+  it("ambiente con file: la riconferma (solo se ha file) e una voce env_file.deleted per ogni file cancellato in cascata", async () => {
+    const { projectId, repositoryId } = await seedRepository(db);
+    const adminId = (await db.select({ id: users.id }).from(users).where(eq(users.email, "admin@example.com")))[0]!.id;
+    const old = await createSession(db, adminId, { stage: "full", secondFactorAt: new Date(Date.now() - 11 * 60_000) });
+    const stale = `${SESSION_COOKIE}=${encodeURIComponent(app.signCookie(old.id))}`;
+    const del = (cookie: string, id: string) => app.inject({ method: "DELETE", url: `/api/projects/${projectId}/environments/${id}`, headers: { cookie } });
+
+    // Senza file: passa anche con la riconferma scaduta.
+    const empty = ((await call("POST", `/api/projects/${projectId}/environments`, { name: "vuoto", kind: "staging" })).json() as { id: string }).id;
+    expect((await del(stale, empty)).statusCode).toBe(204);
+
+    const envId = ((await call("POST", `/api/projects/${projectId}/environments`, { name: "prod", kind: "production" })).json() as { id: string }).id;
+    const files: string[] = [];
+    for (const path of [".env", "apps/api/.env"]) {
+      const res = await call("POST", `/api/repositories/${repositoryId}/env-files`, { path, environmentId: envId });
+      expect(res.statusCode).toBe(201);
+      files.push((res.json() as { id: string }).id);
+    }
+    const res = await del(stale, envId);
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: "reauth_required" });
+    expect(await db.select().from(projectEnvironments).where(eq(projectEnvironments.id, envId))).toHaveLength(1);
+    expect(await entries(projectId, "env_file.deleted")).toHaveLength(0);
+
+    // Se una voce fallisce, ambiente e file restano.
+    await failingEntry("env_file.deleted", async () => {
+      expect((await call("DELETE", `/api/projects/${projectId}/environments/${envId}`)).statusCode).toBe(500);
+    });
+    expect(await db.select().from(projectEnvFiles).where(eq(projectEnvFiles.environmentId, envId))).toHaveLength(2);
+
+    expect((await call("DELETE", `/api/projects/${projectId}/environments/${envId}`)).statusCode).toBe(204);
+    const repoName = (await db.select({ name: repositories.name }).from(repositories).where(eq(repositories.id, repositoryId)))[0]!.name;
+    expect(dataOf(await entries(projectId, "env_file.deleted")).map((d) => [d.object, d.params]).sort((a, b) => (a[0] as { label: string }).label.localeCompare((b[0] as { label: string }).label))).toEqual([
+      [{ type: "env_file", id: files[0], label: ".env" }, { environment: "prod", repository: repoName }],
+      [{ type: "env_file", id: files[1], label: "apps/api/.env" }, { environment: "prod", repository: repoName }],
+    ]);
+    expect(await entries(projectId, "environment.deleted")).toHaveLength(2);
   });
 });

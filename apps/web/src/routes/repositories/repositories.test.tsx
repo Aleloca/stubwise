@@ -123,7 +123,7 @@ describe("dettaglio repository", () => {
         jsonResponse(200, { branches: ["main", "develop"], defaultBranch: "main" }),
       [`GET /api/repositories/${REPO_ID}/env-files`]: () => jsonResponse(200, []),
       "GET /api/repositories/demo-shop/webhook": () =>
-        jsonResponse(200, { webhookSecret: "s3cr3t", webhookPath: "/webhooks/git/demo-shop" }),
+        jsonResponse(200, { webhookPath: "/webhooks/git/demo-shop", secretLast4: "cr3t", configured: false }),
       "PATCH /api/repositories/demo-shop": (_url, init) => {
         patchBody = JSON.parse(String(init?.body));
         // SENZA `warnings`, apposta: è un server più vecchio (il web fa un
@@ -176,7 +176,7 @@ describe("dettaglio repository", () => {
         jsonResponse(200, { branches: ["main"], defaultBranch: "main" }),
       [`GET /api/repositories/${REPO_ID}/env-files`]: () => jsonResponse(200, []),
       "GET /api/repositories/demo-shop/webhook": () =>
-        jsonResponse(200, { webhookSecret: "s3cr3t", webhookPath: "/webhooks/git/demo-shop" }),
+        jsonResponse(200, { webhookPath: "/webhooks/git/demo-shop", secretLast4: "cr3t", configured: false }),
       "PATCH /api/repositories/demo-shop": (_url, init) => {
         patchBody = JSON.parse(String(init?.body));
         return jsonResponse(200, { ...repo, graphEnabled: false });
@@ -213,7 +213,7 @@ describe("dettaglio repository", () => {
         jsonResponse(200, { branches: ["main"], defaultBranch: "main" }),
       [`GET /api/repositories/${REPO_ID}/env-files`]: () => jsonResponse(200, []),
       "GET /api/repositories/demo-shop/webhook": () =>
-        jsonResponse(200, { webhookSecret: "s3cr3t", webhookPath: "/webhooks/git/demo-shop" }),
+        jsonResponse(200, { webhookPath: "/webhooks/git/demo-shop", secretLast4: "cr3t", configured: false }),
     });
 
     renderApp("/repositories/demo-shop");
@@ -223,7 +223,9 @@ describe("dettaglio repository", () => {
     );
     // Il webhook git (per-repo) è qui; l'ingestion NON più (salita al progetto).
     expect(await screen.findByTestId("webhook-config")).toBeInTheDocument();
-    expect(screen.getByText("s3cr3t")).toBeInTheDocument();
+    // Area 9, F5 (decisione C): le ultime 4, mai il segreto intero.
+    expect(screen.getByTestId("webhook-secret-masked")).toHaveTextContent("••••••••cr3t");
+    expect(screen.queryByRole("button", { name: "Copy webhook secret" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("init-snippet")).not.toBeInTheDocument();
     // Link allo spazio Docs del repository.
     expect(screen.getByRole("link", { name: /open documentation/i })).toHaveAttribute(
@@ -246,7 +248,7 @@ describe("dettaglio repository", () => {
         jsonResponse(200, { branches: ["main"], defaultBranch: "main" }),
       [`GET /api/repositories/${REPO_ID}/env-files`]: () => jsonResponse(200, []),
       "GET /api/repositories/demo-shop/webhook": () =>
-        jsonResponse(200, { webhookSecret: "s3cr3t", webhookPath: "/webhooks/git/demo-shop" }),
+        jsonResponse(200, { webhookPath: "/webhooks/git/demo-shop", secretLast4: "cr3t", configured: false }),
       "PATCH /api/repositories/demo-shop": () =>
         jsonResponse(200, { ...repo, warnings }),
     });
@@ -321,7 +323,7 @@ describe("dettaglio repository", () => {
       if (path === `/api/repositories/${other.id}/env-files`) return Promise.resolve(jsonResponse(200, []));
       if (path === "/api/repositories/other-shop/webhook")
         return Promise.resolve(
-          jsonResponse(200, { webhookSecret: "s3cr3t", webhookPath: "/webhooks/git/other-shop" }),
+          jsonResponse(200, { webhookPath: "/webhooks/git/other-shop", secretLast4: "cr3t", configured: false }),
         );
       return base(input, init);
     });
@@ -356,7 +358,7 @@ describe("dettaglio repository", () => {
         jsonResponse(200, { branches: ["main"], defaultBranch: "main" }),
       [`GET /api/repositories/${REPO_ID}/env-files`]: () => jsonResponse(200, []),
       "GET /api/repositories/demo-shop/webhook": () =>
-        jsonResponse(200, { webhookSecret: "s3cr3t", webhookPath: "/webhooks/git/demo-shop" }),
+        jsonResponse(200, { webhookPath: "/webhooks/git/demo-shop", secretLast4: "cr3t", configured: false }),
     });
 
     renderApp("/repositories/demo-shop");
@@ -456,7 +458,7 @@ describe("aggiunta repository (wizard)", () => {
       "GET /api/projects": () => jsonResponse(200, []),
       [`GET /api/repositories/${REPO_ID}/env-files`]: () => jsonResponse(200, []),
       "GET /api/repositories/demo-shop/webhook": () =>
-        jsonResponse(200, { webhookSecret: "s3cr3t", webhookPath: "/webhooks/git/demo-shop" }),
+        jsonResponse(200, { webhookPath: "/webhooks/git/demo-shop", secretLast4: "cr3t", configured: false }),
     });
 
     const router = renderApp(`/projects/${PROJECT_ID}/repositories/new`);
@@ -512,7 +514,7 @@ describe("aggiunta repository (wizard)", () => {
       "GET /api/projects": () => jsonResponse(200, []),
       [`GET /api/repositories/${REPO_ID}/env-files`]: () => jsonResponse(200, []),
       "GET /api/repositories/demo-shop/webhook": () =>
-        jsonResponse(200, { webhookSecret: "s3cr3t", webhookPath: "/webhooks/git/demo-shop" }),
+        jsonResponse(200, { webhookPath: "/webhooks/git/demo-shop", secretLast4: "cr3t", configured: false }),
     });
 
     const router = renderApp(`/projects/${PROJECT_ID}/repositories/new`);
@@ -556,7 +558,7 @@ describe("aggiunta repository (wizard)", () => {
       "GET /api/projects": () => jsonResponse(200, []),
       [`GET /api/repositories/${REPO_ID}/env-files`]: () => jsonResponse(200, []),
       "GET /api/repositories/demo-shop/webhook": () =>
-        jsonResponse(200, { webhookSecret: "s3cr3t", webhookPath: "/webhooks/git/demo-shop" }),
+        jsonResponse(200, { webhookPath: "/webhooks/git/demo-shop", secretLast4: "cr3t", configured: false }),
     });
 
     const router = renderApp(`/projects/${PROJECT_ID}/repositories/new`);
@@ -620,7 +622,7 @@ describe("aggiunta repository (wizard)", () => {
       "GET /api/repositories/demo-shop": () => jsonResponse(200, created),
       [`GET /api/repositories/${REPO_ID}/env-files`]: () => jsonResponse(200, []),
       "GET /api/repositories/demo-shop/webhook": () =>
-        jsonResponse(200, { webhookSecret: "s3cr3t", webhookPath: "/webhooks/git/demo-shop" }),
+        jsonResponse(200, { webhookPath: "/webhooks/git/demo-shop", secretLast4: "cr3t", configured: false }),
     });
 
     const router = renderApp("/repositories/new");

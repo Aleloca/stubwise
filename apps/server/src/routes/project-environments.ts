@@ -1,6 +1,6 @@
 import { changedFields, recordChange } from "../services/change-log.js";
 import { environmentObject } from "../services/settings-entries.js";
-import { environmentServers, projectEnvironments, releases, repositories, serverMetrics, servers } from "@stubwise/db";
+import { environmentServers, projectEnvFiles, projectEnvironments, releases, repositories, serverMetrics, servers } from "@stubwise/db";
 import {
   createEnvironmentSchema,
   patchEnvironmentSchema,
@@ -14,7 +14,7 @@ import { and, arrayOverlaps, asc, desc, eq, inArray, ne, sql } from "drizzle-orm
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import type { RouteAccess } from "../auth/access.js";
+import { requireReauth, type RouteAccess } from "../auth/access.js";
 import { visibleServerIds } from "../auth/monitor-access.js";
 import { fromParam } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
@@ -507,7 +507,9 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
   app.delete(
     "/:projectId/environments/:environmentId",
     {
-      config: { access: MANAGE_ACCESS },
+      // Area 9, F5 (decisione B): la riconferma solo se l'ambiente ha file
+      // d'ambiente, che la cascata cancellerebbe con lui.
+      config: { access: MANAGE_ACCESS, partialReauth: true },
       schema: {
         params: environmentParamsSchema,
         response: { 204: z.null(), 404: errorSchema, 409: errorSchema, ...authErrorResponses },
@@ -531,12 +533,36 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
         );
       }
 
-      // Le var/file d'ambiente collegati sono cancellati in cascata dal FK.
-      await app.db.transaction(async (tx) => {
-        await tx.delete(projectEnvironments).where(eq(projectEnvironments.id, environmentId));
-        await recordChange(tx, { type: "environment.deleted", actor: request.user!, projectId, data: { object: environmentObject(existing) } });
-      });
-      return reply.code(204).send(null);
+      // Le var/file d'ambiente collegati sono cancellati in cascata dal FK:
+      // ognuno lascia la sua voce `env_file.deleted`, nella stessa transazione.
+      // Il FOR UPDATE sull'ambiente mette in fila la creazione di un file
+      // (l'insert prende il FOR KEY SHARE della riga), così l'elenco letto
+      // qui è quello che la cascata cancella. Se ci sono file e la riconferma
+      // non c'è ancora, si esce dalla transazione e si chiede.
+      let reauthed = false;
+      for (;;) {
+        const outcome = await app.db.transaction(async (tx) => {
+          const [locked] = await tx.select({ id: projectEnvironments.id }).from(projectEnvironments).where(eq(projectEnvironments.id, environmentId)).for("update");
+          if (!locked) return "gone" as const;
+          const files = await tx
+            .select({ id: projectEnvFiles.id, path: projectEnvFiles.path, repository: repositories.name })
+            .from(projectEnvFiles)
+            .innerJoin(repositories, eq(repositories.id, projectEnvFiles.repositoryId))
+            .where(eq(projectEnvFiles.environmentId, environmentId))
+            .orderBy(asc(projectEnvFiles.path));
+          if (files.length > 0 && !reauthed) return "needs_reauth" as const;
+          for (const f of files) {
+            await recordChange(tx, { type: "env_file.deleted", actor: request.user!, projectId, data: { object: { type: "env_file", id: f.id, label: f.path }, params: { environment: existing.name, repository: f.repository } } });
+          }
+          await tx.delete(projectEnvironments).where(eq(projectEnvironments.id, environmentId));
+          await recordChange(tx, { type: "environment.deleted", actor: request.user!, projectId, data: { object: environmentObject(existing) } });
+          return "deleted" as const;
+        });
+        if (outcome === "gone") return apiError(reply, 404, "environment_not_found", "Environment not found");
+        if (outcome === "deleted") return reply.code(204).send(null);
+        if (!(await requireReauth(request, reply))) return reply;
+        reauthed = true;
+      }
     },
   );
 }

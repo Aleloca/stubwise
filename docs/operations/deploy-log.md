@@ -5152,20 +5152,38 @@ deploy o di un rollback che la tocca.
   - **File d'ambiente**: importare, impostare, togliere una variabile ed
     eliminare un file chiedono la riconferma recente (403 `reauth_required`;
     il web vecchio la gestisce col suo dialogo). Creare un file vuoto no (D-5).
-  - **Plugin del progetto**: GET e PUT rispondono `version`; il PUT con
+    **Eliminare un ambiente** (decisione B) la chiede solo se l'ambiente ha
+    file d'ambiente (`partialReauth`), e lascia una voce `env_file.deleted`
+    per ogni file che la cascata cancella, nella stessa transazione; un
+    ambiente senza file si elimina come prima.
+  - **Plugin del progetto (decisione A)**: un plugin resta **opt-in** per
+    progetto, come oggi (il worker prende solo `project_plugins.enabled`,
+    con stato `ready`); lo spegnimento «per sottrazione» di skill e hook vale
+    DENTRO un plugin acceso. Il prototipo si allinea con un interruttore per
+    plugin. GET e PUT rispondono `version`; il PUT con
     `ifMatch` vecchio risponde 409 `stale` e non scrive. Il limite v1 «una
     persona per volta» è chiuso per chi manda `ifMatch` (l'app); il web
     vecchio non lo manda e per lui l'ultimo salvataggio vince ancora.
-  - **Chiave d'ingestione (I2)**: la vista del progetto (lista, dettaglio,
-    creazione) manda `ingestionKey: null`; la chiave intera esce solo dalla
-    rigenerazione, una volta. `GET /api/projects/:projectId/integration` ne dà
-    le ultime 4, quando e da chi. **Cambio di prodotto**: prima ogni membro del
-    progetto vedeva e copiava la chiave dal web; ora chi integra l'SDK la
-    chiede a chi ha `project.settings.manage`, che la rigenera (anche su un
-    progetto appena creato). La chiave in uso non cambia col deploy.
+  - **Chiave d'ingestione (I2)**: le LETTURE del progetto (lista, dettaglio)
+    mandano `ingestionKey: null`. La chiave intera esce una volta sola: dalla
+    **creazione** del progetto, a chi crea (decisione D), e dalla
+    rigenerazione; entrambe con `cache-control: no-store`.
+    `GET /api/projects/:projectId/integration` ne dà le ultime 4, quando e da
+    chi. **Cambio di prodotto**: prima ogni membro del progetto vedeva e
+    copiava la chiave dal web; ora la vede chi crea il progetto, al momento,
+    e poi chi ha `project.settings.manage` rigenerandola. Gli altri la
+    chiedono a loro. La chiave in uso non cambia col deploy.
   - **Webhook git**: rigenerazione e «configura» bloccano la riga del
     repository per tutta la sequenza piattaforma → DB (due operazioni insieme
-    si mettono in fila).
+    si mettono in fila). **Il segreto intero non si legge più** (decisione
+    C): `GET /api/repositories/:slug/webhook` risponde `{ webhookPath,
+    secretLast4, configured }`, senza `webhookSecret`. Esce una volta dalla
+    creazione del repository (`webhookSecret` nella risposta 201, `no-store`)
+    e dalla rigenerazione. Chi configura a mano un webhook già esistente lo
+    rigenera dal pannello del web vecchio («Rigenera secret»), che lo
+    mostra una volta. ⚠️ Rigenerare un segreto configurato a mano rompe il
+    webhook finché non si incolla il nuovo sul provider: lo dice il pannello.
+    I webhook già configurati non cambiano col deploy.
   - **Pulse**: `PATCH /api/projects/:projectId` rifiuta il pulse acceso senza
     la discovery del backlog (400 `pulse_needs_backlog`), e spegnere la
     discovery spegne il pulse nello stesso salvataggio. Il web vecchio
@@ -5188,8 +5206,11 @@ deploy o di un rollback che la tocca.
     frattempo restano quelli VALIDI (sono nel DB), quindi non serve
     riavvisare nessuno;
   - ⚠️ il server vecchio torna a mandare la chiave d'ingestione INTERA nella
-    vista del progetto a ogni membro (l'esposizione che I2 chiude): il
-    rollback la riapre per il suo tempo;
+    vista del progetto a ogni membro (l'esposizione che I2 chiude), e il
+    segreto del webhook intero a chi ha `repos.manage` (decisione C): il
+    rollback le riapre per il suo tempo;
+  - il server vecchio elimina un ambiente con file senza riconferma e senza
+    le voci `env_file.deleted` (come prima di F5);
   - la 0192 non si annulla: le due colonne restano, il server vecchio le
     ignora;
   - il server vecchio non manda `version` dei plugin: l'app la legge `null` e

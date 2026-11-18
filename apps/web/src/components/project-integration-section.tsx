@@ -1,13 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getProjectIntegration, regenerateIngestionKey } from "../lib/api";
+import { dropOneTimeSecret, peekOneTimeSecret } from "../lib/one-time-secrets";
 import { IntegrationPanel } from "./integration-panel";
 
 /**
  * Area 9, F5 (I2): l'Integrazione del progetto con la chiave d'ingestione
  * MASCHERATA. La chiave intera non esce da nessuna lettura: la si vede solo
- * subito dopo averla rigenerata (chi ha `project.settings.manage`, con la
+ * alla creazione del progetto (decisione D) o subito dopo averla rigenerata (chi ha `project.settings.manage`, con la
  * riconferma), in questo componente e finché la pagina resta aperta.
  */
 export function ProjectIntegrationSection({ projectId, slug, projectName }: { projectId: string; slug: string; projectName: string }) {
@@ -15,7 +16,13 @@ export function ProjectIntegrationSection({ projectId, slug, projectName }: { pr
   const queryClient = useQueryClient();
   const queryKey = ["project-integration", projectId];
   const integration = useQuery({ queryKey, queryFn: () => getProjectIntegration(projectId) });
-  const [revealed, setRevealed] = useState<string | null>(null);
+  // La chiave intera che la creazione del progetto ha appena dato (decisione
+  // D), una volta; altrimenti solo dopo una rigenerazione.
+  const createdKey = `ingestion-key:${projectId}`;
+  const [revealed, setRevealed] = useState<string | null>(() => peekOneTimeSecret(createdKey));
+  useEffect(() => {
+    dropOneTimeSecret(createdKey);
+  }, [createdKey]);
   const [confirming, setConfirming] = useState(false);
   const regenerate = useMutation({
     mutationFn: () => regenerateIngestionKey(projectId),

@@ -394,7 +394,9 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
             }
             return created;
           });
-          return await reply.code(201).send(toPublicProject(created));
+          // Area 9, F5 (decisione D): la chiave d'ingestione intera, UNA volta,
+          // a chi crea (come una rigenerazione); ogni lettura poi la tace.
+          return await reply.code(201).header("cache-control", "no-store").send({ ...toPublicProject(created), ingestionKey: created.ingestionKey });
         } catch (error) {
           if (!isUniqueViolation(error)) throw error;
           // Il codice preso da una richiesta concorrente: niente di creato (transazione), 409.
