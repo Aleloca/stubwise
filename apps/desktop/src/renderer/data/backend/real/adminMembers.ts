@@ -4,7 +4,7 @@ import type {
   MemberPreview,
   ProjectMembersView,
 } from "../../admin/types";
-import { extraOf, refusalOf, sourceOf } from "./adminPeople";
+import { blockOf, extraOf, refusalOf, sourceOf, sourcesOf } from "./adminPeople";
 import { appClient } from "./client";
 
 // Progetto → Settings → Members nella build app (area 9, F1, R8) sulle letture
@@ -102,16 +102,17 @@ export function createRealMembers(api: MembersApi) {
         ...p,
         permissions: (p.permissions ?? []).map((x: Any) => ({
           permission: x.permission,
-          sources: (x.sources ?? []).map(sourceOf),
+          sources: sourcesOf(x.sources),
         })),
-        removing: (p.removing ?? []).map((x: Any) => ({
-          permission: x.permission,
-          source: sourceOf(x.source),
-        })),
+        // Una fonte sconosciuta si salta (review F1, I3), con la sua riga.
+        removing: (p.removing ?? []).flatMap((x: Any) => {
+          const source = sourceOf(x.source);
+          return source ? [{ permission: x.permission, source }] : [];
+        }),
         roleChoices: p.roleChoices ?? [],
         missing: p.missing ?? [],
-        block: p.block ?? null,
-        removeBlock: p.removeBlock ?? null,
+        block: blockOf(p.block),
+        removeBlock: blockOf(p.removeBlock),
         viewerLoses: p.viewerLoses ?? [],
       } as MemberPreview;
     },

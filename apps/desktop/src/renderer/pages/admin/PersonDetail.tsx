@@ -341,6 +341,7 @@ function InstanceRolePart({ person, manages }: { person: Person; manages: boolea
             {(close) => (
               <RoleOptions
                 roles={person.instanceRoleChoices}
+                blockName={name}
                 value={current?.id ?? ""}
                 onPick={(roleId) => {
                   close();

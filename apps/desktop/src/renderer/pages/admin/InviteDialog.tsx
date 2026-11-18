@@ -14,7 +14,7 @@ import { ErrorLine } from "../entry/parts";
 import { SecretOnce } from "../preferences/SecretOnce";
 import { Chevron, MenuButton, primaryButton, secondaryButton } from "../tasks/controls";
 import { refusalOf, rowButton } from "../preferences/parts";
-import { useMissingWords, useRefusalWords, useShortDate, type UiRefusal } from "./parts";
+import { reasonWords, useMissingWords, useRefusalWords, useShortDate, type UiRefusal } from "./parts";
 
 // «Invite someone» (shape admin-people.md, «Inviti»): email, ruolo d'istanza
 // (di base User) e i progetti, ognuno col suo ruolo. Si offrono solo i
@@ -366,18 +366,23 @@ export function RoleOptions({
   value,
   onPick,
   footer,
+  blockName,
 }: {
   roles: RoleChoice[];
   value: string;
   onPick: (roleId: string) => void;
   footer?: ReactNode;
+  /** Il nome della persona per il motivo di una scelta bloccata (`RoleChoice.block`). */
+  blockName?: string;
 }) {
   const { t } = useTranslation();
   const missingWords = useMissingWords();
   return (
     <>
       {roles.map((r) => {
-        const blocked = r.missing.length > 0;
+        // Il blocco della scelta lo calcola il server (review F1): qui si legge.
+        const reason = r.block ? reasonWords(t, r.block, { name: blockName }) : null;
+        const blocked = r.missing.length > 0 || reason !== null;
         return (
           <button
             key={r.roleId}
@@ -386,7 +391,7 @@ export function RoleOptions({
             aria-checked={r.roleId === value}
             aria-disabled={blocked || undefined}
             tabIndex={-1}
-            title={blocked ? missingWords(r.missing) : undefined}
+            title={reason ?? (blocked ? missingWords(r.missing) : undefined)}
             onClick={() => {
               if (!blocked) onPick(r.roleId);
             }}
@@ -402,7 +407,7 @@ export function RoleOptions({
               </span>
               {blocked && (
                 <span className="text-xs text-ink-muted">
-                  {t("admin.person.instanceRole.beyond")}
+                  {reason ?? t("admin.person.instanceRole.beyond")}
                 </span>
               )}
             </span>

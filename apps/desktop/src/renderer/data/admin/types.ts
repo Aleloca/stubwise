@@ -113,6 +113,12 @@ export interface RoleChoice {
   name: string;
   permissionCount: number;
   missing: string[];
+  /**
+   * Area 9, review F1: il blocco di QUESTA scelta, calcolato dal server
+   * (`last_full_admin` sui ruoli senza full admin per l'ultimo full admin
+   * attivo). Assente nel prototipo, che blocca l'azione intera.
+   */
+  block?: ActionBlock;
 }
 
 export interface MemberRow {
@@ -232,7 +238,8 @@ export interface PersonDetail {
   deactivatedAt: string | null;
   isSelf: boolean;
   isFullAdmin: boolean;
-  hasSecondFactor: boolean;
+  /** `null` sul server per chi non gestisce le persone e non è la persona stessa. */
+  hasSecondFactor: boolean | null;
   /** Chi guarda e la persona sono entrambi full admin: il reset del secondo fattore lo dice. */
   peer: boolean;
   instanceRole: { id: string; name: string } | null;
