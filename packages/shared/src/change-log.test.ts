@@ -18,6 +18,13 @@ describe("il catalogo del registro delle modifiche", () => {
     expect(INSTANCE_PERMISSIONS).toContain("changelog.view");
   });
 
+  it("area 9, F4: la coda di un progetto — pausa, ripresa, rilancio — di progetto, letti da chi gestisce il progetto", () => {
+    for (const kind of ["queue.paused", "queue.resumed", "job.retried"]) {
+      expect(CHANGE_LOG_TYPES.find((t) => t.kind === kind), kind).toMatchObject({ scope: "project", group: "queue", readPermission: "project.settings.manage" });
+    }
+    expect(INSTANCE_PERMISSIONS).toContain("instance.status.view");
+  });
+
   it("uno schema per tipo pretende i `params` che la sua frase nomina", () => {
     const object = { type: "member", id: "x", label: "Bea" };
     expect(CHANGE_DATA_SCHEMAS["member.permission_granted"]!.safeParse({ object }).success).toBe(false);

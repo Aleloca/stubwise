@@ -1303,6 +1303,13 @@
       "when": 1800576000000,
       "tag": "0187_change_log",
       "breakpoints": true
+    },
+    {
+      "idx": 191,
+      "version": "7",
+      "when": 1800921600000,
+      "tag": "0191_instance_status",
+      "breakpoints": true
     }
   ]
 }
