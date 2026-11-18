@@ -282,7 +282,16 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
           ? new Set((await tx.select({ userId: departmentMembers.userId }).from(departmentMembers).where(eq(departmentMembers.departmentId, id))).map((m) => m.userId))
           : null;
         if (next) {
-          // Chi esce dal reparto perde anche i suoi ruoli lì (fix fetta 3).
+          // Chi esce dal reparto perde anche i suoi ruoli lì (fix fetta 3): se
+          // gestiva la Home, lo dice anche la voce dei gestori (review di F2, m5).
+          const losingHome = (
+            await tx.select({ userId: departmentRoles.userId, permissions: departmentRoles.permissions }).from(departmentRoles).where(eq(departmentRoles.departmentId, id))
+          )
+            .filter((r) => !next.includes(r.userId) && r.permissions.includes("department.home.manage"))
+            .map((r) => r.userId);
+          if (losingHome.length) {
+            await recordChange(tx, { type: "department.home_managers_changed", actor: request.user!, projectId: null, data: { object: { type: "department", id, label: row!.name }, params: await peopleParams(tx, [], losingHome) } });
+          }
           await tx
             .delete(departmentRoles)
             .where(

@@ -15,6 +15,7 @@ import {
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
 import { personObject, recordChange } from "./change-log.js";
+import { inviteObject } from "./invite-change.js";
 import { assertFullAdminRemains, keepingManagersIn, RoleRuleError } from "./roles.js";
 
 /**
@@ -91,7 +92,11 @@ export async function deactivateUser(db: Db, actor: Actor, userId: string, reass
       .update(emailChanges)
       .set({ cancelledAt: new Date() })
       .where(and(eq(emailChanges.userId, userId), isNull(emailChanges.confirmedAt), isNull(emailChanges.cancelledAt)));
-    await tx.delete(invites).where(eq(invites.invitedByUserId, userId));
+    // Review di F2 (m5): ogni invito revocato lascia la sua voce.
+    const revoked = await tx.delete(invites).where(eq(invites.invitedByUserId, userId)).returning({ token: invites.token, email: invites.email });
+    for (const invite of revoked) {
+      await recordChange(tx, { type: "invite.revoked", actor, projectId: null, data: { object: inviteObject(invite.token, invite.email), params: { via: "deactivation" } } });
+    }
     for (const [taskId, toUserId] of rows) {
       await tx.update(tickets).set({ assigneeId: toUserId }).where(eq(tickets.id, taskId));
     }

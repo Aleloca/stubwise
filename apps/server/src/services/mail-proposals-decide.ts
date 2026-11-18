@@ -565,7 +565,8 @@ export async function confirmMailProposalWithMembers(
           .returning({ userId: projectMembers.userId });
         if (gone.length > 0) {
           const [who] = await tx.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, row.userId));
-          await recordChange(tx, { type: "member.removed", actor: viewer, projectId: proposal.projectId, data: { object: memberObject(who!), before: "Contributor", params: { via: "mail_proposal" } } });
+          const [roleRow] = await tx.select({ name: roles.name }).from(roles).where(eq(roles.id, contributor));
+          await recordChange(tx, { type: "member.removed", actor: viewer, projectId: proposal.projectId, data: { object: memberObject(who!), before: roleRow?.name ?? null, params: { via: "mail_proposal" } } });
         }
         return gone;
       });

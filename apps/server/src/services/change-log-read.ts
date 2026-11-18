@@ -80,7 +80,10 @@ async function readableBy(db: Db, viewer: Viewer): Promise<Readable> {
   if (fullProjects.length) branches.push(and(inArray(changeLog.projectId, fullProjects), inArray(changeLog.type, projectTypes.map((t) => t.kind)))!);
   for (const [kind, ids] of byType) branches.push(and(eq(changeLog.type, kind), inArray(changeLog.projectId, ids))!);
   const visiblePeople = await adminVisiblePersonIds(db, viewer);
-  const personTypes = CHANGE_LOG_TYPES.filter((t) => t.kind.startsWith("person.") || t.kind.startsWith("member.")).map((t) => t.kind);
+  // Review di F2 (I2): la guardia sulle PERSONE vale per le voci d'istanza su
+  // una persona (`person.*`). Una voce di progetto (`member.*`) la protegge già
+  // la visibilità del progetto: chi lo gestisce legge anche chi ne è uscito.
+  const personTypes = CHANGE_LOG_TYPES.filter((t) => t.kind.startsWith("person.")).map((t) => t.kind);
   const peopleGuard: SQL | undefined =
     visiblePeople === "all"
       ? undefined
@@ -168,7 +171,7 @@ export async function listChanges(db: Db, viewer: Viewer, filter: ChangeLogFilte
       projectCode: r.projectCode,
       scope: type.scope,
       group: type.group,
-      data: redact(data, readable.visiblePeople, allProjectsVisible ? null : visibleCodes),
+      data: redact(r.type, data, readable.visiblePeople, allProjectsVisible ? null : visibleCodes),
       objectDeleted: !existing.has(`${r.subjectKind}:${r.subjectId}`),
     };
   });
@@ -181,9 +184,12 @@ export async function listChanges(db: Db, viewer: Viewer, filter: ChangeLogFilte
  * liste di un reparto (id e nomi in parallelo) e dai progetti di un invito
  * («CODICE · Ruolo»). Il conteggio non li tradisce: si tolgono, non si contano.
  */
-function redact(data: ChangeEntry["data"], people: "all" | string[], codes: Set<string> | null): ChangeEntry["data"] {
+/** I tipi i cui `added`/`removed` sono PERSONE (negli altri sono chiavi, es. i permessi di un ruolo). */
+const PEOPLE_LIST_TYPES: ReadonlySet<string> = new Set(["department.members_changed", "department.home_managers_changed"]);
+
+function redact(type: string, data: ChangeEntry["data"], people: "all" | string[], codes: Set<string> | null): ChangeEntry["data"] {
   const params = { ...(data.params ?? {}) };
-  if (people !== "all") {
+  if (people !== "all" && PEOPLE_LIST_TYPES.has(type)) {
     for (const side of ["added", "removed"] as const) {
       const ids = params[side];
       const names = params[`${side}Names`];

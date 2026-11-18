@@ -149,4 +149,32 @@ describe("leggere il registro", () => {
     await expect(db.execute(sql`update change_log set data = '{}' where id = ${row!.id}`)).rejects.toThrow();
     await expect(db.execute(sql`delete from change_log where id = ${row!.id}`)).rejects.toThrow();
   });
+
+  it("review I1: i permessi di un ruolo restano nei `params` anche per chi non ha users.manage", async () => {
+    const role = { type: "role", id: randomUUID(), label: "Rel" };
+    await db.transaction((tx) => recordChange(tx, { type: "role.updated", actor: admin, projectId: null, data: { object: role, before: "Rel", after: "Rel", params: { added: ["release.merge"], removed: ["tickets.view_all"] } } }));
+    const e = (await read(cast.rolesMgr.cookie, "?type=role.updated&withinDays=1")).entries.find((x) => x.data.object.id === role.id)!;
+    expect(e.data.params).toMatchObject({ added: ["release.merge"], removed: ["tickets.view_all"] });
+  });
+
+  it("review I2: chi gestisce il progetto legge le voci di chi ne è USCITO", async () => {
+    const { projectId } = await seedRepository(db);
+    const lead = await person("lead2");
+    await addMember(app, projectId, lead.id, "project_lead");
+    const gone = await person("gone");
+    await addMember(app, projectId, gone.id, "developer");
+    const res = await app.inject({ method: "DELETE", url: `/api/projects/${projectId}/members/${gone.id}`, headers: { cookie: lead.cookie } });
+    expect(res.statusCode).toBe(204);
+    const page = (await app.inject({ method: "GET", url: `/api/projects/${projectId}/change-log`, headers: { cookie: lead.cookie } })).json() as ChangeLogPage;
+    expect(page.entries.some((e) => e.type === "member.removed" && e.data.object.id === gone.id)).toBe(true);
+  });
+
+  it("review I4 (decisione b): l'attore si mostra per nome anche a chi non lo vede altrove", async () => {
+    const [r] = await db.insert(roles).values({ name: `Att ${randomUUID().slice(0, 4)}`, scope: "instance", permissions: ["roles.manage"] }).returning({ id: roles.id });
+    await db.update(users).set({ instanceRoleId: r!.id, displayName: "Fuori Vista" }).where(eq(users.id, cast.outsider.id));
+    const role = { type: "role", id: randomUUID(), label: "Da fuori" };
+    await db.transaction((tx) => recordChange(tx, { type: "role.created", actor: { id: cast.outsider.id, email: cast.outsider.email }, projectId: null, data: { object: role } }));
+    const e = (await read(cast.rolesMgr.cookie, "?type=role.created&withinDays=1")).entries.find((x) => x.data.object.id === role.id)!;
+    expect(e.actor).toMatchObject({ id: cast.outsider.id, name: "Fuori Vista", kind: "user" });
+  });
 });

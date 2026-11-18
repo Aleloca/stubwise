@@ -54,6 +54,8 @@ describe("0187: il registro delle modifiche", () => {
     await rejectedAppendOnly(() => t.db.update(changeLog).set({ data: { forged: true } }).where(eq(changeLog.id, row.id)));
     await rejectedAppendOnly(() => t.db.update(changeLog).set({ actorEmail: "altro@acme.com" }).where(eq(changeLog.id, row.id)));
     await rejectedAppendOnly(() => t.db.delete(changeLog).where(eq(changeLog.id, row.id)));
+    // Review di F2 (m7): azzerare a mano attore o progetto non è un'azione della FK.
+    await rejectedAppendOnly(() => t.db.update(changeLog).set({ actorUserId: null }).where(eq(changeLog.id, row.id)));
     await rejectedAppendOnly(() => t.db.execute(sql`truncate change_log`));
     const [still] = await t.db.select().from(changeLog).where(eq(changeLog.id, row.id));
     expect(still!.data).toEqual(row.data);

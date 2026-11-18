@@ -158,7 +158,7 @@ export type ChangeLogPage = z.infer<typeof changeLogPageSchema>;
 
 /** Le scelte dei filtri per chi guarda (solo persone, progetti e gruppi che vede). */
 export const changeLogFiltersSchema = z.object({
-  everything: z.boolean(),
+  everything: z.boolean().default(false),
   people: z.array(z.object({ personId: z.uuid(), name: z.string() })).default([]),
   projects: z.array(z.object({ projectId: z.uuid(), code: z.string(), name: z.string() })).default([]),
   groups: z.array(z.string()).default([]),

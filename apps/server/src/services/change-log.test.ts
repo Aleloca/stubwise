@@ -5,7 +5,7 @@ import { changeLog, users, type Db } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { forbiddenChangeLogKeys, recordChange } from "./change-log.js";
+import { forbiddenChangeLogKeys, forbiddenKeysIn, recordChange } from "./change-log.js";
 
 /** Area 9, F2, Task 3: lo scrittore del registro e il controllo sui segreti. */
 
@@ -72,13 +72,46 @@ describe("recordChange", () => {
   });
 });
 
+const WRITER_FILE = join(import.meta.dirname, "change-log.ts");
+
+/**
+ * Gli helper che COSTRUISCONO oggetto e `params` fuori dalla chiamata (review
+ * di F2, m6): il controllo dentro `recordChange(...)` non li vedrebbe.
+ */
+const HELPERS: [file: string, name: string][] = [
+  ["services/invite-change.ts", "inviteObject"],
+  ["services/invite-change.ts", "inviteParams"],
+  ["services/change-log.ts", "personObject"],
+  ["services/roles.ts", "memberObject"],
+  ["routes/departments.ts", "peopleParams"],
+];
+
+/**
+ * Il corpo di un helper, SENZA la lista dei parametri (un parametro `token`
+ * che l'helper riceve per derivarne l'id opaco non è una chiave della voce):
+ * da dopo la parentesi che chiude i parametri alla riga vuota o alla graffa di
+ * chiusura.
+ */
+function helperBody(source: string, name: string): string {
+  const start = source.search(new RegExp(`(function ${name}\\(|const ${name} =)`));
+  if (start === -1) throw new Error(`helper ${name} non trovato: aggiorna HELPERS`);
+  let i = source.indexOf("(", start);
+  for (let depth = 0; i < source.length; i++) {
+    if (source[i] === "(") depth++;
+    else if (source[i] === ")" && --depth === 0) break;
+  }
+  const end = source.indexOf("\n}\n", i);
+  const blank = source.indexOf("\n\n", i);
+  return source.slice(i + 1, Math.min(...[end, blank].filter((x) => x !== -1)));
+}
+
 /** I moduli del server che scrivono nel registro: si trovano, così uno nuovo è coperto senza toccare il test. */
 function writers(dir: string): string[] {
   const out: string[] = [];
   for (const name of readdirSync(dir)) {
     const path = join(dir, name);
     if (statSync(path).isDirectory()) out.push(...writers(path));
-    else if (path.endsWith(".ts") && !path.endsWith(".test.ts") && !path.endsWith("change-log.ts") && readFileSync(path, "utf8").includes("recordChange(")) out.push(path);
+    else if (path.endsWith(".ts") && !path.endsWith(".test.ts") && path !== WRITER_FILE && readFileSync(path, "utf8").includes("recordChange(")) out.push(path);
   }
   return out;
 }
@@ -88,6 +121,14 @@ describe("un segreto non entra nel registro (test di sorgente)", () => {
     expect(forbiddenChangeLogKeys(`recordChange(tx, { type: "x", data: { object, params: { tokenHash: h, keyLast4: k } } })`)).toEqual(["tokenHash"]);
     expect(forbiddenChangeLogKeys(`recordChange(tx, { data: { params: { webhookSecret: s } } })`)).toEqual(["webhookSecret"]);
     expect(forbiddenChangeLogKeys(`recordChange(tx, { data: { object, params: { role: r, keyLast4: k } } })`)).toEqual([]);
+  });
+
+  it("nemmeno gli helper che costruiscono oggetto e params", () => {
+    const root = join(import.meta.dirname, "..");
+    for (const [file, name] of HELPERS) {
+      expect(forbiddenKeysIn(helperBody(readFileSync(join(root, file), "utf8"), name)), `${file}#${name}`).toEqual([]);
+    }
+    expect(forbiddenKeysIn("const x = { inviteToken: t, label: l }")).toEqual(["inviteToken"]);
   });
 
   it("nessuno scrittore del server passa al registro un campo il cui nome sa di segreto", () => {
