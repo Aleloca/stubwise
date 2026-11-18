@@ -202,6 +202,7 @@ describe("putProjectMember sotto concorrenza", () => {
       .returning({ id: roles.id });
     const actor = {
       id: user!.id,
+      email: "assigner@example.com",
       instancePermissions: new Set<InstancePermission>(INSTANCE_PERMISSIONS),
     };
 

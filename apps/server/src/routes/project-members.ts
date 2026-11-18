@@ -14,6 +14,8 @@ import {
   type MemberRow,
 } from "../services/roles.js";
 import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
+import { memberDraftSchema, memberPreviewSchema, projectMembersViewSchema } from "@stubwise/shared";
+import { previewMember, projectMembersView } from "../services/admin-roles.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 function toMemberView(row: MemberRow): z.infer<typeof projectMemberSchema> {
@@ -43,6 +45,36 @@ const memberParamsSchema = projectParamsSchema.extend({ userId: z.uuid() });
  */
 export async function projectMemberRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+
+  // Area 9, F1 (R8): la vista di gestione coi campi calcolati, e il giudizio
+  // di una bozza del pannello del membro. Letterali PRIMA delle parametriche.
+  app.get(
+    "/:projectId/members/view",
+    {
+      config: { access: { kind: "project", permission: "member", project: fromParam("projectId") } },
+      schema: { params: projectParamsSchema, response: { 200: projectMembersViewSchema, 404: errorSchema, ...authErrorResponses } },
+    },
+    async (request) => projectMembersView(app.db, request.user!, request.params.projectId),
+  );
+
+  app.post(
+    "/:projectId/members/:userId/preview",
+    {
+      config: { access: { kind: "project", permission: "project.members.manage", project: fromParam("projectId") } },
+      schema: {
+        params: z.object({ projectId: z.uuid(), userId: z.uuid() }),
+        body: memberDraftSchema,
+        response: { 200: memberPreviewSchema, 404: errorSchema, 422: roleRuleErrorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      try {
+        return await previewMember(app.db, request.user!, request.params.projectId, request.params.userId, request.body);
+      } catch (error) {
+        return sendRoleRuleError(reply, error);
+      }
+    },
+  );
 
   app.get(
     "/:projectId/members",

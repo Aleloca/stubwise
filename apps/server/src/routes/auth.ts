@@ -59,6 +59,9 @@ import { avatarUrlsFor } from "../services/avatars.js";
 import { confirmEmailChange, peekEmailChange } from "../services/email-change.js";
 import { readInvite } from "../services/invite-link.js";
 import { sendEmailChangeError } from "./me-email-change.js";
+import { personObject, recordChange } from "../services/change-log.js";
+import { inviteObject, inviteParams } from "../services/invite-change.js";
+import { inviteIdOf } from "../services/admin-people.js";
 import {
   loadSlackCreds,
   defaultSlackClientFactory,
@@ -202,6 +205,22 @@ export function credentialsBucketViolation(
   );
 }
 
+/**
+ * Il nome da mostrare, con le stesse regole ovunque si scriva: `PATCH
+ * /api/auth/me`, e (review di F1, C1) i corpi di `register` e `setup`, così il
+ * nome si scrive sulla persona NUOVA e non su chi ha già un cookie nel browser.
+ */
+const displayNameSchema = z
+  .string()
+  .trim()
+  .max(80)
+  .refine((v) => !DEVICE_NAME_FORBIDDEN.test(v), {
+    message: "displayName must not contain line breaks or bidirectional formatting characters",
+  })
+  .nullable()
+  .optional();
+const displayNameValue = (v: string | null | undefined) => (v === undefined || v === null || v === "" ? null : v);
+
 const credentialsSchema = z.object({
   email: z.email(),
   password: newPasswordSchema,
@@ -291,7 +310,7 @@ export async function authRoutes(
     {
       config: { access: { kind: "public" } },
       schema: {
-        body: credentialsSchema,
+        body: credentialsSchema.extend({ displayName: displayNameSchema }),
         response: { 201: authUserResponseSchema, 403: errorSchema },
       },
     },
@@ -312,9 +331,11 @@ export async function authRoutes(
         if ((recount?.value ?? 0) > 0) return null;
         const [created] = await tx
           .insert(users)
-          .values({ email: request.body.email, passwordHash, role: "admin" })
+          .values({ email: request.body.email, passwordHash, role: "admin", displayName: displayNameValue(request.body.displayName) })
           .returning();
         if (!created) throw new Error("insert dell'admin non ha restituito la riga");
+        // Area 9, F2: la prima voce del registro, del sistema.
+        await recordChange(tx, { type: "instance.first_admin_created", actor: "system", projectId: null, data: { object: personObject(created) } });
         return created;
       });
       if (!user) {
@@ -529,15 +550,7 @@ export async function authRoutes(
           language: languageSchema.optional(),
           // Le regole del nome di un dispositivo: niente a-capo, caratteri di
           // controllo o di direzione del testo (un nome si mostra ovunque).
-          displayName: z
-            .string()
-            .trim()
-            .max(80)
-            .refine((v) => !DEVICE_NAME_FORBIDDEN.test(v), {
-              message: "displayName must not contain line breaks or bidirectional formatting characters",
-            })
-            .nullable()
-            .optional(),
+          displayName: displayNameSchema,
         }),
         response: {
           200: languageResponseSchema.extend({ displayName: z.string().nullable().optional() }),
@@ -587,7 +600,8 @@ export async function authRoutes(
           projects: z.array(inviteProjectSchema).max(200).optional(),
         }),
         response: {
-          201: z.object({ token: z.string(), expiresAt: z.iso.datetime() }),
+          // `id` (review di F1, I2): l'id OPACO dell'invito, quello delle viste.
+          201: z.object({ id: z.string(), token: z.string(), expiresAt: z.iso.datetime() }),
           ...authErrorResponses,
           400: roleRuleErrorSchema,
           403: roleRuleErrorSchema,
@@ -634,11 +648,13 @@ export async function authRoutes(
             invitedByUserId: request.user!.id,
           });
           await saveInviteGrants(tx, token, grants);
+          // Area 9, F2: con l'id opaco e i nomi, mai il token.
+          await recordChange(tx, { type: "invite.created", actor: request.user!, projectId: null, data: { object: inviteObject(token, email), params: await inviteParams(tx, roleId, grants) } });
         });
       } catch (error) {
         return sendRoleRuleError(reply, error);
       }
-      return reply.code(201).send({ token, expiresAt: expiresAt.toISOString() });
+      return reply.code(201).send({ id: inviteIdOf(token), token, expiresAt: expiresAt.toISOString() });
     },
   );
 
@@ -700,10 +716,11 @@ export async function authRoutes(
       },
     },
     async (request, reply) => {
-      const [deleted] = await app.db
-        .delete(invites)
-        .where(eq(invites.token, request.params.token))
-        .returning({ token: invites.token });
+      const deleted = await app.db.transaction(async (tx) => {
+        const [row] = await tx.delete(invites).where(eq(invites.token, request.params.token)).returning({ token: invites.token, email: invites.email });
+        if (row) await recordChange(tx, { type: "invite.revoked", actor: request.user!, projectId: null, data: { object: inviteObject(row.token, row.email) } });
+        return row;
+      });
       if (!deleted) {
         return apiError(reply, 404, "invite_not_found", "Invite not found");
       }
@@ -734,7 +751,7 @@ export async function authRoutes(
       schema: {
         // Area 9, F1: `email` facoltativa, vale quella dell'invito; se mandata
         // deve coincidere (400 `invite_email_mismatch`).
-        body: z.object({ email: z.email().optional(), password: newPasswordSchema, token: z.string().min(1) }),
+        body: z.object({ email: z.email().optional(), password: newPasswordSchema, token: z.string().min(1), displayName: displayNameSchema }),
         response: {
           201: authUserResponseSchema,
           400: errorSchema,
@@ -817,6 +834,7 @@ export async function authRoutes(
             .values({
               email,
               passwordHash,
+              displayName: displayNameValue(request.body.displayName),
               // `role` è derivato dal ruolo d'istanza (trigger della 0097):
               // senza ruolo nell'invito, il trigger dà il preset `User`.
               role: "member",
@@ -826,6 +844,8 @@ export async function authRoutes(
             })
             .returning();
           if (!created) throw new Error("insert del member non ha restituito la riga");
+          // Area 9, F2: l'attore è chi entra.
+          await recordChange(tx, { type: "invite.accepted", actor: { id: created.id, email: created.email }, projectId: null, data: { object: inviteObject(invite.token, invite.email) } });
           // Riverificati coi permessi ATTUALI di chi ha invitato (R51).
           await applyInviteGrants(tx, created.id, grants, invite.invitedByUserId, (grant, reason) =>
             request.log.warn(

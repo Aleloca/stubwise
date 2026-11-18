@@ -3424,6 +3424,9 @@
         "manage": "Gestire gli utenti",
         "view_all": "Vedere l'elenco del team"
       },
+      "changelog": {
+        "view": "Vedere il registro delle modifiche"
+      },
       "departments": {
         "manage": "Gestire i reparti"
       },

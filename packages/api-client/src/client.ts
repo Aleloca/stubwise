@@ -1,3 +1,5 @@
+import { createChangeLogEndpoints } from "./endpoints/change-log.js";
+import { createAdminEndpoints } from "./endpoints/admin.js";
 import { createAccessEndpoints } from "./endpoints/access.js";
 import { createServerOpsEndpoints } from "./endpoints/server-ops.js";
 import { readerSchema } from "@stubwise/shared";
@@ -185,6 +187,10 @@ export function createEndpoints(request: ApiRequest) {
     serverOps: createServerOpsEndpoints(request),
     // Area 9, F1: «Chi può farlo?» e «Cosa può fare?».
     access: createAccessEndpoints(request),
+    // Area 9, F1 (R7): le letture calcolate dell'amministrazione.
+    admin: createAdminEndpoints(request),
+    // Area 9, F2: il registro delle modifiche.
+    changeLog: createChangeLogEndpoints(request),
   };
 }
 

@@ -1,11 +1,11 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { requireBrowserOrConfirmedDesktop } from "../auth/access.js";
+import { projectPermissionsFor, requireBrowserOrConfirmedDesktop } from "../auth/access.js";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { issuePasswordResetToken } from "../auth/password-reset.js";
 import { publishSecurityAlert } from "../auth/second-factor/alerts.js";
-import { resetSecondFactor } from "../auth/second-factor/reset.js";
+import { hasSecondFactor, resetSecondFactor } from "../auth/second-factor/reset.js";
 import {
   listSecurityEvents,
   recordSecurityEvent,
@@ -16,7 +16,7 @@ import { apiError } from "../errors.js";
 import { publicUrlOrUndefined } from "../ingest/shared.js";
 import { securityEventsResponseSchema, updateInstanceRoleSchema } from "@stubwise/shared";
 import { userIsFullAdmin } from "@stubwise/notifications";
-import { setInstanceRole } from "../services/roles.js";
+import { RoleRuleError, setInstanceRole } from "../services/roles.js";
 import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
 import { deactivateUser, reactivateUser } from "../services/user-deactivation.js";
 import { avatarUrlsFor } from "../services/avatars.js";
@@ -298,7 +298,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
           "Use the password change in your account settings",
         );
       }
-      const issued = await issuePasswordResetToken(app.db, id, request.user!.id);
+      const issued = await issuePasswordResetToken(app.db, id, request.user!);
       if (!issued) {
         return apiError(reply, 404, "user_not_found", "User not found");
       }
@@ -343,6 +343,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
           400: errorSchema,
           403: roleRuleErrorSchema,
           404: errorSchema,
+          409: errorSchema,
         },
       },
     },
@@ -358,6 +359,11 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
       }
       const target = await userIdentity(id);
       if (!target) return apiError(reply, 404, "user_not_found", "User not found");
+      // Area 9, F1: niente da azzerare, niente azzeramento (che chiuderebbe
+      // comunque le sessioni). La pagina della persona lo dice prima.
+      if (!(await hasSecondFactor(app.db, id))) {
+        return apiError(reply, 409, "no_second_factor", "This person has no second factor to reset");
+      }
       await resetSecondFactor(app.db, target, request.user!);
       return reply.code(204).send(null);
     },
@@ -388,6 +394,13 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
         await deactivateUser(app.db, request.user!, request.params.id, request.body.reassign ?? {});
         return reply.code(204).send(null);
       } catch (error) {
+        // Review (M5): il progetto che resterebbe senza gestori si nomina solo a
+        // chi lo vede (R-G5); agli altri il 409 senza `projectId`.
+        if (error instanceof RoleRuleError && error.code === "last_manager" && typeof error.extra?.projectId === "string") {
+          if ((await projectPermissionsFor(app.db, request.user!, error.extra.projectId)) === null) {
+            return sendRoleRuleError(reply, new RoleRuleError(409, "last_manager", error.message));
+          }
+        }
         return sendRoleRuleError(reply, error);
       }
     },

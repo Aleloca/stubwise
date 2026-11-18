@@ -552,6 +552,37 @@ export const securityEvents = pgTable(
 );
 
 /**
+ * Area 9, F2 (0187; docs/invariants/change-log.md): il registro delle
+ * modifiche. Si scrive SOLO con `recordChange(tx, …)` nella transazione della
+ * modifica; un trigger rifiuta UPDATE, DELETE e TRUNCATE (lascia passare le
+ * sole `SET NULL` delle due FK), e nessun job lo pota (D-4: per sempre).
+ * `type` è testo, l'elenco chiuso è `CHANGE_LOG_TYPES` di `@stubwise/shared`;
+ * `data` è `{ object, before, after, params }`, coi nomi fissati al momento.
+ */
+export const changeLog = pgTable(
+  "change_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorEmail: text("actor_email").notNull(),
+    actorKind: text("actor_kind").$type<"user" | "agent" | "system">().notNull(),
+    type: text("type").notNull(),
+    projectId: uuid("project_id").references((): AnyPgColumn => projects.id, { onDelete: "set null" }),
+    subjectKind: text("subject_kind").notNull(),
+    subjectId: text("subject_id").notNull(),
+    data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+  },
+  (table) => [
+    check("change_log_actor_kind_chk", sql`${table.actorKind} in ('user', 'agent', 'system')`),
+    index("change_log_at_idx").on(table.at.desc(), table.id.desc()),
+    index("change_log_project_at_idx").on(table.projectId, table.at.desc()),
+    index("change_log_actor_at_idx").on(table.actorUserId, table.at.desc()),
+    index("change_log_type_at_idx").on(table.type, table.at.desc()),
+  ],
+);
+
+/**
  * Link monouso di reimpostazione della password, emessi da un admin per un
  * utente (`POST /api/users/:id/password-reset`, 21 ott 2026).
  *

@@ -92,6 +92,11 @@ describe("redactRequestUrl", () => {
     );
   });
 
+  it("oscura il token del link del cambio dell'email (area 9, F1), ma non la rotta di conferma", () => {
+    expect(redactRequestUrl("/api/auth/email-change/SEGRETO-xyz")).toBe("/api/auth/email-change/[redacted]");
+    expect(redactRequestUrl("/api/auth/email-change/confirm")).toBe("/api/auth/email-change/[redacted]");
+  });
+
   it("oscura il token di un invito, conservando la query", () => {
     expect(redactRequestUrl("/api/auth/invites/SEGRETO?x=1")).toBe(
       "/api/auth/invites/[redacted]?x=1",
