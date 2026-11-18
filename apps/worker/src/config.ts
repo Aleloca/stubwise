@@ -1388,6 +1388,35 @@ export function effectiveModelDefaults(
 }
 
 /**
+ * Area 9, F3, Task 7: le operazioni il cui modello in `effectiveModelDefaults`
+ * viene da una variabile d'ambiente IMPOSTATA (non vuota), cioè la fonte `env`
+ * della pagina dei modelli; le altre hanno il default di codice. Va tenuta
+ * allineata a `effectiveModelDefaults` (lo verifica il test accanto).
+ */
+export const MODEL_ENV_OPERATIONS: Readonly<Record<string, readonly AiOperation[]>> = {
+  FIX_PLAN_MODEL: ["fix_plan"],
+  FIX_EXECUTE_MODEL: ["fix_execute"],
+  PR_REVIEW_MODEL: ["pr_review"],
+  // SUMMARY_MODEL assente = quello della PR review: anche PR_REVIEW_MODEL la decide.
+  SUMMARY_MODEL: ["summary", "weekly_brief"],
+  BACKLOG_MODEL: ["backlog_intake", "backlog_refine", "claude_chat"],
+  COMMIT_SUMMARY_MODEL: ["commit_summary"],
+  RELEASE_NOTES_MODEL: ["release_notes"],
+  DOCS_NIGHTLY_MODEL: ["docs_nightly"],
+  DOC_GENERATION_MODEL: ["docs_generation"],
+  DAILY_REPORT_MODEL: ["daily_report"],
+  GMAIL_MODEL: ["mail_classify"],
+};
+
+export function modelEnvOperations(env: Record<string, string | undefined>): AiOperation[] {
+  const set = (name: string) => (env[name] ?? "").trim() !== "";
+  const ops = new Set<AiOperation>();
+  for (const [name, operations] of Object.entries(MODEL_ENV_OPERATIONS)) if (set(name)) operations.forEach((o) => ops.add(o));
+  if (set("PR_REVIEW_MODEL") && !set("SUMMARY_MODEL")) MODEL_ENV_OPERATIONS.SUMMARY_MODEL!.forEach((o) => ops.add(o));
+  return [...ops].sort();
+}
+
+/**
  * Valida le variabili d'ambiente e restituisce la configurazione del worker.
  * Lancia un errore con un messaggio leggibile che elenca ogni variabile
  * mancante o non valida.

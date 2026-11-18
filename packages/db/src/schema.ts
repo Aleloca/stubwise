@@ -1983,6 +1983,8 @@ export const instanceSettings = pgTable("instance_settings", {
   // (`Record<AiOperation, string>`), scritti dal worker all'avvio: il server
   // non li conosce altrimenti e la UI li mostra come «predefinito».
   workerModelDefaults: jsonb("worker_model_defaults").$type<Record<string, string>>(),
+  // Area 9, F3: le operazioni il cui modello viene da un'env del worker (la fonte `env`).
+  workerModelEnvOperations: text("worker_model_env_operations").array(),
   // Automazione PR Review: interruttore globale (default spento) e tetto di
   // costo USD per singola review (null = nessun limite). Il gate vive nel
   // webhook (accodamento) e nel worker (claim + verifica post-run del cap).

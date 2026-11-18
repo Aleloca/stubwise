@@ -123,7 +123,7 @@ export async function pluginRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       if (request.body.trust !== true) return trustRequired(reply);
       const { sourceUrl, ref, sourceSubdir } = request.body;
-      const result = await createPlugin(app.db, { sourceUrl, ref, ...(sourceSubdir !== undefined ? { sourceSubdir } : {}) });
+      const result = await createPlugin(app.db, { sourceUrl, ref, ...(sourceSubdir !== undefined ? { sourceSubdir } : {}) }, request.user!);
       if (!result.ok) {
         if (result.error === "invalid_slug") {
           return apiError(
@@ -181,7 +181,7 @@ export async function pluginRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       // Un ref nuovo è codice nuovo che il worker eseguirà: «Mi fido» anche qui.
       if (request.body.trust !== true) return trustRequired(reply);
-      const result = await requestUpdate(app.db, request.params.id, request.body.ref);
+      const result = await requestUpdate(app.db, request.params.id, request.body.ref, request.user!);
       if (!result.ok) {
         if (result.error === "not_found") {
           return apiError(reply, 404, "plugin_not_found", "Plugin not found");
@@ -212,7 +212,7 @@ export async function pluginRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const result = await requestSmoke(app.db, request.params.id);
+      const result = await requestSmoke(app.db, request.params.id, request.user!);
       if (!result.ok) {
         if (result.error === "not_found") {
           return apiError(reply, 404, "plugin_not_found", "Plugin not found");
@@ -246,7 +246,7 @@ export async function pluginRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const result = await deletePlugin(app.db, request.params.id);
+      const result = await deletePlugin(app.db, request.params.id, request.user!);
       if (!result.ok) {
         if (result.error === "not_found") {
           return apiError(reply, 404, "plugin_not_found", "Plugin not found");

@@ -71,17 +71,27 @@ export type OutgoingWebhookWithSecret = z.infer<typeof outgoingWebhookWithSecret
 
 const urlSchema = z.url().max(2000).refine((u) => u.startsWith("https://"), { message: "Webhook URL must use https" });
 
-export const createOutgoingWebhookSchema = z.object({
+const webhookFieldsSchema = z.object({
   name: z.string().trim().min(1).max(80),
   url: urlSchema,
   format: webhookFormatSchema,
-  enabled: z.boolean().default(true),
-  events: z.array(z.enum(OUTGOING_WEBHOOK_EVENT_IDS)).max(OUTGOING_WEBHOOK_EVENTS.length).default([]),
+  enabled: z.boolean(),
+  events: z.array(z.enum(OUTGOING_WEBHOOK_EVENT_IDS)).max(OUTGOING_WEBHOOK_EVENTS.length),
+});
+
+export const createOutgoingWebhookSchema = webhookFieldsSchema.extend({
+  enabled: webhookFieldsSchema.shape.enabled.default(true),
+  events: webhookFieldsSchema.shape.events.default([]),
 });
 export type CreateOutgoingWebhookInput = z.infer<typeof createOutgoingWebhookSchema>;
 
-/** Una patch: i campi assenti restano. */
-export const updateOutgoingWebhookSchema = createOutgoingWebhookSchema.partial();
+/**
+ * Una patch: i campi assenti RESTANO. Viene dalla base SENZA default, non dal
+ * `.partial()` della creazione: Zod applicherebbe i default anche a un campo
+ * assente, e una patch col solo nome riaccenderebbe il webhook svuotandone
+ * gli eventi.
+ */
+export const updateOutgoingWebhookSchema = webhookFieldsSchema.partial();
 export type UpdateOutgoingWebhookInput = z.infer<typeof updateOutgoingWebhookSchema>;
 
 /** L'esito di una prova d'invio. */
@@ -97,3 +107,26 @@ export const outgoingWebhookPreviewSchema = z.object({
   event: z.enum(OUTGOING_WEBHOOK_EVENT_IDS),
   body: z.unknown(),
 });
+
+/**
+ * Area 9, F3 (H-4 = a): gli interruttori della pagina Notifiche del web
+ * vecchio, e l'evento che ognuno accende. È la mappa con cui la 0188 ha
+ * migrato `notification_settings` (un test la confronta col SQL), e la
+ * vista di compatibilità la usa sul webhook più vecchio.
+ */
+export const LEGACY_WEBHOOK_TOGGLES = {
+  notifyTicketCreated: "ticket.created",
+  notifyPlanReview: "job.plan_review",
+  notifyAwaitingInput: "job.awaiting_input",
+  notifyJobHeld: "job.held",
+  notifyBudgetHeld: "job.budget_held",
+  notifyJobFailed: "job.failed",
+  notifyPrOpened: "job.pr_opened",
+  notifyPrClosed: "job.pr_closed",
+  notifyReviewCompleted: "review.completed",
+  notifyDocsLimitPaused: "docs.limit_paused",
+  notifyMonitor: "monitor",
+  notifyPulse: "project.pulse",
+  notifyBrief: "project.brief",
+} as const satisfies Record<string, OutgoingWebhookEvent>;
+export type LegacyWebhookToggle = keyof typeof LEGACY_WEBHOOK_TOGGLES;

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readerSchema } from "./reader.js";
-import { OUTGOING_WEBHOOK_EVENT_IDS, OUTGOING_WEBHOOK_EVENTS, outgoingWebhookViewSchema, webhookEventsOfKind } from "./outgoing-webhooks.js";
+import { createOutgoingWebhookSchema, LEGACY_WEBHOOK_TOGGLES, OUTGOING_WEBHOOK_EVENT_IDS, OUTGOING_WEBHOOK_EVENTS, outgoingWebhookViewSchema, updateOutgoingWebhookSchema, webhookEventsOfKind } from "./outgoing-webhooks.js";
 
 /** Area 9, F3, Task 2: il catalogo degli eventi dei webhook. */
 describe("il catalogo dei webhook in uscita", () => {
@@ -34,5 +34,17 @@ describe("il catalogo dei webhook in uscita", () => {
     expect(parsed).not.toHaveProperty("secret");
     expect(parsed.events).toEqual(["job.failed", "__unknown__"]);
     expect(parsed).toMatchObject({ secretSet: false, secretRotatedAt: null });
+  });
+
+  it("una patch col solo nome resta col solo nome (nessun default che riaccende o svuota); la creazione ha i default", () => {
+    expect(updateOutgoingWebhookSchema.parse({ name: "Solo nome" })).toEqual({ name: "Solo nome" });
+    expect(createOutgoingWebhookSchema.parse({ name: "N", url: "https://h.example.com", format: "generic" })).toMatchObject({ enabled: true, events: [] });
+  });
+
+  it("H-4: gli interruttori del web vecchio sono ESATTAMENTE la mappa della 0188", () => {
+    const sql = readFileSync(join(import.meta.dirname, "../../db/drizzle/0188_outgoing_webhooks.sql"), "utf8");
+    const pairs = [...sql.matchAll(/CASE WHEN ns\."notify_([a-z_]+)" THEN '([a-z._]+)' END/g)].map(([, col, ev]) => [col!.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()), ev]);
+    const camel = (k: string) => k.replace(/^notify/, "").replace(/^./, (c) => c.toLowerCase());
+    expect(Object.fromEntries(pairs)).toEqual(Object.fromEntries(Object.entries(LEGACY_WEBHOOK_TOGGLES).map(([k, v]) => [camel(k), v])));
   });
 });

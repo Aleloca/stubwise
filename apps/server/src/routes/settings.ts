@@ -1,3 +1,6 @@
+import { loadLegacyWebhook, saveLegacyWebhook, testLegacyWebhook } from "../services/legacy-webhook.js";
+import { sendRoleRuleError } from "./roles.js";
+import { changedFields, recordChange, stableAmount } from "../services/change-log.js";
 import { eq } from "drizzle-orm";
 import {
   effortSchema,
@@ -9,12 +12,11 @@ import {
   ticketTypeSchema,
   type TicketType,
 } from "@stubwise/shared";
-import { sendTest } from "@stubwise/notifications";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
-import { automationRules, encrypt, instanceSettings, notificationSettings } from "@stubwise/db";
+import { automationRules, encrypt, instanceSettings } from "@stubwise/db";
 import { s3ConfigFromSettings } from "../storage/index.js";
 import { requireReauth } from "../auth/access.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -222,57 +224,6 @@ const updateInstanceBodySchema = z.object({
 });
 
 /**
- * Legge la riga di configurazione delle notifiche. La migrazione seeda la riga
- * id=1, ma per robustezza (DB ripristinato senza seed) si ripiega su default.
- */
-async function loadNotificationSettings(
-  db: Db,
-): Promise<z.infer<typeof notificationSettingsResponseSchema>> {
-  const [row] = await db.select().from(notificationSettings).limit(1);
-  if (!row) {
-    return {
-      webhookUrl: null,
-      format: "slack",
-      enabled: true,
-      notifyTicketCreated: true,
-      notifyPrOpened: true,
-      notifyPrClosed: true,
-      notifyJobHeld: true,
-      notifyPlanReview: true,
-      notifyBudgetHeld: true,
-      notifyReviewCompleted: true,
-      notifyDocsLimitPaused: true,
-      notifyJobFailed: true,
-      notifyMonitor: true,
-      notifyAwaitingInput: true,
-      notifyPulse: true,
-      notifyBrief: true,
-    };
-  }
-  return {
-    webhookUrl: row.webhookUrl,
-    format: row.format,
-    enabled: row.enabled,
-    notifyTicketCreated: row.notifyTicketCreated,
-    notifyPrOpened: row.notifyPrOpened,
-    notifyPrClosed: row.notifyPrClosed,
-    notifyJobHeld: row.notifyJobHeld,
-    notifyPlanReview: row.notifyPlanReview,
-    notifyBudgetHeld: row.notifyBudgetHeld,
-    notifyReviewCompleted: row.notifyReviewCompleted,
-    notifyDocsLimitPaused: row.notifyDocsLimitPaused,
-    notifyJobFailed: row.notifyJobFailed,
-    notifyMonitor: row.notifyMonitor,
-    notifyAwaitingInput: row.notifyAwaitingInput,
-    notifyPulse: row.notifyPulse,
-    notifyBrief: row.notifyBrief,
-    // `row.notifyGoogleProposal` esiste ancora in DB (colonna innocua) ma non
-    // entra più nella proiezione pubblica: vedi il commento su
-    // `notificationSettingsResponseSchema`.
-  };
-}
-
-/**
  * Legge la riga singleton delle impostazioni d'istanza. La migrazione seeda
  * id=1 con default 'en', ma per robustezza (DB ripristinato senza seed) si
  * ripiega sul default dell'enum.
@@ -383,6 +334,31 @@ async function loadMailAdmission(db: Db): Promise<Omit<z.infer<typeof mailAdmiss
  * renderebbe la sezione "Posta" del progetto incomprensibile a chi non è
  * admin. La scrittura resta `settings.manage`, come per le regole di progetto.
  */
+type InstanceRow = typeof instanceSettings.$inferSelect;
+
+/**
+ * Area 9, F3: le voci del registro di `PUT /instance`, coi valori stabili del
+ * prototipo (`budget.ts`, `storage.ts`): l'importo come numero, il locale,
+ * i soli campi dell'archiviazione che cambiano; il secret solo «sostituito».
+ * (L'id della chiave d'accesso non è un segreto: è il nome dell'utente S3.)
+ */
+async function recordInstanceChanges(tx: Parameters<Parameters<Db["transaction"]>[0]>[0], actor: { id: string; email: string }, before: InstanceRow | null, after: InstanceRow, secretTouched: boolean) {
+  const ai = (id: string) => ({ type: "ai_settings", id, label: id });
+  const storage = { type: "storage", id: "storage", label: "storage" };
+  const budgetBefore = stableAmount(before?.monthlyBudgetUsd);
+  const budgetAfter = stableAmount(after.monthlyBudgetUsd);
+  if (budgetBefore !== budgetAfter) {
+    await recordChange(tx, { type: "budget.changed", actor, projectId: null, data: { object: ai("budget"), before: budgetBefore, after: budgetAfter } });
+  }
+  if ((before?.contentLanguage ?? null) !== after.contentLanguage) {
+    await recordChange(tx, { type: "content_language.changed", actor, projectId: null, data: { object: ai("content_language"), before: before?.contentLanguage ?? null, after: after.contentLanguage } });
+  }
+  const s3Fields = (row: InstanceRow | null) => ({ endpoint: row?.s3Endpoint ?? null, region: row?.s3Region ?? null, bucket: row?.s3Bucket ?? null, accessKeyId: row?.s3AccessKey ?? null });
+  const diff = changedFields(s3Fields(before), s3Fields(after));
+  if (diff) await recordChange(tx, { type: "storage.changed", actor, projectId: null, data: { object: storage, ...diff } });
+  if (secretTouched) await recordChange(tx, { type: "storage.secret_replaced", actor, projectId: null, data: { object: storage } });
+}
+
 export async function settingsRoutes(instance: FastifyInstance, opts: { mailClassifyV2?: boolean } = {}): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
@@ -412,6 +388,8 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
       // Upsert di ciascuna regola sul tipo (PK). In transazione: o passano
       // tutte o nessuna, così la lettura successiva è sempre coerente.
       await app.db.transaction(async (tx) => {
+        const rulesBefore = await loadAllRules(tx as unknown as Db);
+        const reviewBefore = await loadPrReviewSettings(tx as unknown as Db);
         for (const rule of request.body.rules) {
           // numeric(12,6): drizzle scrive una STRINGA. number → stringa, null resta null.
           const maxCostUsd = rule.maxCostUsd != null ? String(rule.maxCostUsd) : null;
@@ -454,6 +432,26 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
               updatedAt: new Date(),
             },
           });
+        // Area 9, F3: come il prototipo (`automation.ts`), le SOLE righe
+        // cambiate e la review solo se cambia, in JSON di valori stabili.
+        const rulesAfter = await loadAllRules(tx as unknown as Db);
+        const reviewAfter = await loadPrReviewSettings(tx as unknown as Db);
+        const value = (r: AutomationRule) => ({ taskType: r.type, autoFix: r.autoFix, maxEffort: r.maxEffort, planApprovalMinEffort: r.planApprovalMinEffort, maxCostUsd: r.maxCostUsd });
+        const changed = rulesAfter.filter((r) => JSON.stringify(value(r)) !== JSON.stringify(value(rulesBefore.find((b) => b.type === r.type)!)));
+        const reviewChanged = JSON.stringify(reviewBefore) !== JSON.stringify(reviewAfter);
+        if (changed.length > 0 || reviewChanged) {
+          const encode = (rules: AutomationRule[], review: typeof reviewAfter) => JSON.stringify({ rules: rules.map(value), prReview: reviewChanged ? review : null });
+          await recordChange(tx, {
+            type: "automation.changed",
+            actor: request.user!,
+            projectId: null,
+            data: {
+              object: { type: "ai_settings", id: "automation", label: "automation" },
+              before: encode(changed.map((r) => rulesBefore.find((b) => b.type === r.type)!), reviewBefore),
+              after: encode(changed, reviewAfter),
+            },
+          });
+        }
       });
       return { rules: await loadAllRules(app.db), prReview: await loadPrReviewSettings(app.db) };
     },
@@ -478,10 +476,26 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
     },
     async (request) => {
       const limits = request.body;
-      await app.db
-        .insert(instanceSettings)
-        .values({ id: 1, serverAnalysisLimits: limits })
-        .onConflictDoUpdate({ target: instanceSettings.id, set: { serverAnalysisLimits: limits, updatedAt: new Date() } });
+      await app.db.transaction(async (tx) => {
+        const [row] = await tx.select({ limits: instanceSettings.serverAnalysisLimits }).from(instanceSettings).where(eq(instanceSettings.id, 1)).for("update");
+        await tx
+          .insert(instanceSettings)
+          .values({ id: 1, serverAnalysisLimits: limits })
+          .onConflictDoUpdate({ target: instanceSettings.id, set: { serverAnalysisLimits: limits, updatedAt: new Date() } });
+        // Area 9, F3: le chiavi del prototipo (`serverAnalysis.ts`): l'interruttore
+        // come booleano, i numeri come testo, i soli campi che cambiano.
+        const fields = (l: z.infer<typeof serverAnalysisSettingsSchema>) => ({
+          analysisEnabled: l.enabled,
+          maxMinutes: String(l.maxMinutes),
+          maxCostUsd: String(l.maxCostUsd),
+          maxAgentReads: String(l.maxAgentReads),
+          maxSshReads: String(l.maxSshReads),
+        });
+        const diff = changedFields(fields(readServerAnalysisLimits(row?.limits)), fields(limits));
+        if (diff) {
+          await recordChange(tx, { type: "server_analysis.changed", actor: request.user!, projectId: null, data: { object: { type: "ai_settings", id: "server_analysis", label: "server_analysis" }, ...diff } });
+        }
+      });
       return limits;
     },
   );
@@ -489,20 +503,19 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
   app.get(
     "/notifications",
     {
-      config: { access: { kind: "instance", permission: "settings.manage" } },
+      config: { access: { kind: "instance", permission: "integrations.manage" } },
       schema: {
         response: { 200: notificationSettingsResponseSchema, ...authErrorResponses },
       },
     },
-    async () => {
-      return loadNotificationSettings(app.db);
-    },
+    // Area 9, F3 (H-4): sul webhook più vecchio (`services/legacy-webhook.ts`).
+    async () => loadLegacyWebhook(app.db),
   );
 
   app.put(
     "/notifications",
     {
-      config: { access: { kind: "instance", permission: "settings.manage" } },
+      config: { access: { kind: "instance", permission: "integrations.manage" } },
       schema: {
         body: updateNotificationsBodySchema,
         response: {
@@ -512,79 +525,31 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
         },
       },
     },
-    async (request) => {
-      const body = request.body;
-      // Stringa vuota → null: "nessun webhook configurato".
-      const webhookUrl = body.webhookUrl === "" ? null : body.webhookUrl;
-      // Upsert sul singleton (id=1): la migrazione seeda la riga, ma onConflict
-      // la rende idempotente anche se mancasse. updatedAt va impostato a mano
-      // nel `set`: il $onUpdate di drizzle NON scatta su onConflictDoUpdate.
-      await app.db
-        .insert(notificationSettings)
-        .values({
-          id: 1,
-          webhookUrl,
-          format: body.format,
-          enabled: body.enabled,
-          notifyTicketCreated: body.notifyTicketCreated,
-          notifyPrOpened: body.notifyPrOpened,
-          notifyPrClosed: body.notifyPrClosed,
-          notifyJobHeld: body.notifyJobHeld,
-          notifyPlanReview: body.notifyPlanReview,
-          notifyBudgetHeld: body.notifyBudgetHeld,
-          notifyReviewCompleted: body.notifyReviewCompleted,
-          notifyDocsLimitPaused: body.notifyDocsLimitPaused,
-          notifyJobFailed: body.notifyJobFailed,
-          notifyMonitor: body.notifyMonitor,
-          notifyAwaitingInput: body.notifyAwaitingInput,
-          notifyPulse: body.notifyPulse,
-          notifyBrief: body.notifyBrief,
-          // Niente `notifyGoogleProposal` nel `set`: la colonna resta com'è
-          // (default `true` all'insert iniziale, la migrazione l'ha già
-          // seedata) — nessun body la può più toccare, vedi il commento sullo
-          // schema del body qui sopra.
-        })
-        .onConflictDoUpdate({
-          target: notificationSettings.id,
-          set: {
-            webhookUrl,
-            format: body.format,
-            enabled: body.enabled,
-            notifyTicketCreated: body.notifyTicketCreated,
-            notifyPrOpened: body.notifyPrOpened,
-            notifyPrClosed: body.notifyPrClosed,
-            notifyJobHeld: body.notifyJobHeld,
-            notifyPlanReview: body.notifyPlanReview,
-            notifyBudgetHeld: body.notifyBudgetHeld,
-            notifyReviewCompleted: body.notifyReviewCompleted,
-            notifyDocsLimitPaused: body.notifyDocsLimitPaused,
-            notifyJobFailed: body.notifyJobFailed,
-            notifyMonitor: body.notifyMonitor,
-            notifyAwaitingInput: body.notifyAwaitingInput,
-            notifyPulse: body.notifyPulse,
-            notifyBrief: body.notifyBrief,
-            // Niente `notifyGoogleProposal`: vedi il commento sull'insert
-            // sopra, stessa ragione.
-            updatedAt: new Date(),
-          },
-        });
-      return loadNotificationSettings(app.db);
+    async (request, reply) => {
+      // Area 9, F3 (H-4): sul webhook più vecchio, con le regole di
+      // `services/legacy-webhook.ts` (un URL vuoto spegne, non elimina).
+      try {
+        return await saveLegacyWebhook(app.db, request.user!, request.body);
+      } catch (error) {
+        return sendRoleRuleError(reply, error);
+      }
     },
   );
 
   app.post(
     "/notifications/test",
     {
-      config: { access: { kind: "instance", permission: "settings.manage" } },
+      config: { access: { kind: "instance", permission: "integrations.manage" } },
       schema: {
         response: { 200: testNotificationResponseSchema, ...authErrorResponses },
       },
     },
     async () => {
-      // sendTest fa emergere l'esito (a differenza del dispatch best-effort):
+      // La prova fa emergere l'esito (a differenza del dispatch best-effort):
       // l'admin deve sapere se il webhook è corretto. Usa il format salvato e
       // un evento ticket.created fittizio con link a ${publicUrl}/tickets/test.
-      return sendTest(app.db, app.publicUrl);
+      // Area 9, F3 (H-4): la prova del webhook più vecchio, col suo formato e la sua firma.
+      return testLegacyWebhook(app.db, app.encryptionKey, app.publicUrl);
     },
   );
 
@@ -654,18 +619,23 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
           body.slackBotToken === "" ? null : encrypt(body.slackBotToken, app.encryptionKey);
       }
 
-      await app.db
-        .insert(instanceSettings)
-        .values({ id: 1, contentLanguage: body.contentLanguage, monthlyBudgetUsd, ...s3Set })
-        .onConflictDoUpdate({
-          target: instanceSettings.id,
-          set: {
-            contentLanguage: body.contentLanguage,
-            monthlyBudgetUsd,
-            ...s3Set,
-            updatedAt: new Date(),
-          },
-        });
+      await app.db.transaction(async (tx) => {
+        const [before] = await tx.select().from(instanceSettings).where(eq(instanceSettings.id, 1)).for("update");
+        const [after] = await tx
+          .insert(instanceSettings)
+          .values({ id: 1, contentLanguage: body.contentLanguage, monthlyBudgetUsd, ...s3Set })
+          .onConflictDoUpdate({
+            target: instanceSettings.id,
+            set: {
+              contentLanguage: body.contentLanguage,
+              monthlyBudgetUsd,
+              ...s3Set,
+              updatedAt: new Date(),
+            },
+          })
+          .returning();
+        await recordInstanceChanges(tx, request.user!, before ?? null, after!, body.s3SecretKey !== undefined);
+      });
       return loadInstanceSettings(app.db, app.encryptionKey);
     },
   );

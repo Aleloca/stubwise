@@ -10,7 +10,7 @@ import {
   type UpdateOutgoingWebhookInput,
 } from "@stubwise/shared";
 import { asc, count, eq, sql } from "drizzle-orm";
-import { recordChange } from "./change-log.js";
+import { changedFields, recordChange } from "./change-log.js";
 import { RoleRuleError } from "./roles.js";
 
 /**
@@ -67,17 +67,12 @@ export async function updateWebhook(db: Db, actor: Actor, id: string, patch: Upd
     const [before] = await tx.select().from(outgoingWebhooks).where(eq(outgoingWebhooks.id, id)).for("update");
     if (!before) throw notFound();
     const [after] = await tx.update(outgoingWebhooks).set(patch).where(eq(outgoingWebhooks.id, id)).returning();
-    await recordChange(tx, {
-      type: "webhook.updated",
-      actor,
-      projectId: null,
-      data: {
-        object: webhookObject(after!),
-        before: before.name,
-        after: after!.name,
-        params: { changed: Object.keys(patch).sort(), enabled: after!.enabled ? "on" : "off", events: after!.events },
-      },
-    });
+    // Come il prototipo (`webhook.ts`, voce `fields`): i soli campi cambiati,
+    // l'URL com'è (non è un segreto, [IN 4]), gli eventi come lista di id
+    // ordinata. Una modifica che non cambia niente non scrive.
+    const fields = (w: Row) => ({ name: w.name, url: w.url, format: w.format, enabled: w.enabled, events: [...w.events].sort() });
+    const diff = changedFields(fields(before), fields(after!));
+    if (diff) await recordChange(tx, { type: "webhook.updated", actor, projectId: null, data: { object: webhookObject(after!), ...diff } });
     return toWebhookView(after!);
   });
 }
