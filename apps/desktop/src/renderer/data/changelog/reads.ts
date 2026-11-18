@@ -156,7 +156,11 @@ const INSTANCE_OBJECTS: Record<
     exists: (id) => state.googleWorkspaces.some((w) => w.id === id),
   },
   storage: { section: "storage" },
-  webhook: { section: "webhooks" },
+  // F3: i webhook sono un elenco; la voce porta al suo, se c'è ancora.
+  webhook: {
+    section: "webhooks",
+    exists: (id) => state.instance.webhooks.some((w) => w.id === id),
+  },
 };
 
 /** Il server di una voce `server.*`, se esiste ancora (l'id dell'oggetto è il codice, `SRV-2`). */
@@ -283,7 +287,7 @@ const INSTANCE_VALUE_KINDS: ReadonlySet<string> = new Set([
   "plugin.ref_updated",
   "google_app.updated",
   "storage.changed",
-  "webhook.changed",
+  "webhook.updated",
   "server.updated",
   "server.thresholds_changed",
   "server.check_changed",
@@ -316,6 +320,15 @@ function withAccountName(
  */
 function diffOf(entry: ChangeEntry, people: Set<string>): ChangeDiff | null {
   const p = entry.params;
+  // F3, come il server: un account AI RINOMINATO è `provider.updated` coi
+  // nomi e `params.field: "name"` (l'interruttore ha `on`/`off`): si legge
+  // «Name: X → Y», nella forma dei campi.
+  if (entry.kind === "provider.updated" && p.field === "name")
+    return {
+      kind: "setting",
+      before: { type: "fields", fields: { name: entry.before } },
+      after: { type: "fields", fields: { name: entry.after } },
+    };
   if (SETTING_KINDS[entry.kind]) {
     // I valori stabili del 9b (Ruling T3): in forma di dato, le parole sono della pagina.
     const before = withAccountName(decodeSetting(entry.kind, entry.before), p.accountBefore);

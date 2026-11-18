@@ -45,7 +45,7 @@ export type ClaudeActionFn =
   | "retryJob"
   | "saveStorage"
   | "setAttachments"
-  | "saveWebhook"
+  | "updateWebhook"
   | "setSubscription"
   // Le bozze di automazione (area 10b): mai accenderle né pubblicarle (maintainer).
   | "createAutomation"
@@ -80,7 +80,7 @@ export type ObjectRef =
    * Un'impostazione d'istanza: "budget", "model:<operation>", "automation",
    * "providers" (abilitazione e ordine), "gitAccount:<id>", "reviewer",
    * "googleApp:<id>", "plugin:<id>", "queue:<projectId>", "storage",
-   * "attachments", "webhook". Il «com'era» la confronta con le voci del
+   * "attachments", "webhook:<id>". Il «com'era» la confronta con le voci del
    * registro sullo stesso oggetto.
    */
   | { kind: "instanceSetting"; key: string }

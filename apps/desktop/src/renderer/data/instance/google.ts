@@ -9,6 +9,7 @@ import { forbidden, writer } from "../writer";
 import { canI, nameOf, reauthRefusal, refuse } from "./common";
 import type { InstanceRefusal, InstanceResult } from "./types";
 
+import { GOOGLE_SETUP } from "./constants";
 export { GOOGLE_SETUP } from "./constants";
 
 // Le app Google d'istanza (area 9b, Task 4): ognuna copre uno o più domini
@@ -120,6 +121,15 @@ const nameTaken = (name: string, exceptId: string | null) =>
   state.googleWorkspaces.some(
     (w) => w.id !== exceptId && w.name.toLowerCase() === name.toLowerCase(),
   );
+
+/**
+ * L'indirizzo di ritorno OAuth da dare a Google (F3): nel prototipo la
+ * costante di sempre; nella build app quello del server (`redirectUri`).
+ */
+export async function getGoogleRedirectUri(): Promise<string> {
+  await gate("instance.getGoogleRedirectUri");
+  return GOOGLE_SETUP.redirectUri;
+}
 
 /** Le app, con quante caselle sono collegate. */
 export async function listGoogleApps(): Promise<GoogleAppView[]> {

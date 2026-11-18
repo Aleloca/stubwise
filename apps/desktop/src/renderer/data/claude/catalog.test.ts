@@ -118,6 +118,8 @@ describe("il registro del catalogo", () => {
         "saveStorage",
         "setMemberRole",
         "updatePluginRef",
+        // Cambiare l'URL di un webhook vuole la riconferma (maintainer, 18 nov 2026).
+        "updateWebhook",
       ].sort(),
     );
   });
@@ -220,7 +222,7 @@ const SCENARIOS: Partial<Record<ClaudeActionFn, () => Record<string, unknown>>> 
   retryJob: () => ({ jobId: FAILED_RUN }),
   saveStorage: () => ({ ...storageArgs(), bucket: "stubwise-files-2" }),
   setAttachments: () => ({ on: false }),
-  saveWebhook: () => ({ ...webhookArgs(), enabled: false }),
+  updateWebhook: () => ({ ...webhookArgs(), enabled: false }),
   setSubscription: () => ({ projectId: "prj-aud", type: "task.created", app: true }),
   // Le bozze di automazione (area 10b, Task 3): una bozza di STW c'è già.
   createAutomation: () => ({ projectId: ACQ, name: "Prova", flow: draftFlow() }),
@@ -261,8 +263,8 @@ const storageArgs = () => {
   return { endpoint: s.endpoint, region: s.region, bucket: s.bucket, accessKeyId: s.accessKeyId };
 };
 const webhookArgs = () => {
-  const w = state.instance.webhook;
-  return { enabled: w.enabled, format: w.format, url: w.url, events: { ...w.events } };
+  const w = state.instance.webhooks[0]!;
+  return { id: w.id, enabled: w.enabled, format: w.format, url: w.url, events: [...w.events] };
 };
 
 describe("gli inversi", () => {

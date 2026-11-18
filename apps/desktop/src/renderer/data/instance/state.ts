@@ -86,12 +86,21 @@ export interface StorageSettings {
   lastTest: { at: string; outcome: TestOutcome } | null;
 }
 
+/** Un webhook in uscita (integrazione area 9, F3, D-10 = b: uno di un elenco). */
 export interface OutgoingWebhook {
-  enabled: boolean;
-  format: "slack" | "discord" | "generic";
+  id: string;
+  name: string;
   /** In chiaro: non è un segreto (maintainer, 30 ott 2026). */
-  url: string | null;
-  events: Record<string, boolean>;
+  url: string;
+  /** `generic` si chiama «JSON» nell'app (H-2). */
+  format: "slack" | "discord" | "generic";
+  enabled: boolean;
+  /** Gli id degli eventi scelti. */
+  events: string[];
+  /** Il segreto della firma, in `admin/secrets.ts`: qui solo l'id. */
+  secretId: string | null;
+  secretRotatedAt: string | null;
+  createdAt: string;
   lastTest: { at: string; outcome: TestOutcome } | null;
 }
 
@@ -141,7 +150,8 @@ export interface InstanceState {
   gitAccounts: GitAccount[];
   plugins: RegisteredPlugin[];
   storage: StorageSettings;
-  webhook: OutgoingWebhook;
+  /** Al più 20 (`WEBHOOK_LIMIT`). */
+  webhooks: OutgoingWebhook[];
   queuePauses: QueuePause[];
   /** Seme nel Task 2. */
   usage: UsageRecord[];

@@ -46,6 +46,28 @@ modifiche fatte PRIMA del collegamento sono in fondo alla tabella.
 | Registro delle modifiche (Amministrazione e Progetto → Settings) — F2 | `changelog.ts` | `admin:changelog`, `projectSettings:changelog` | Solo i tipi dell'area 9 finché F3 (9b) e la 9c non scrivono i loro. Le prime 50 voci e «Load more» col cursore del server (decisione del maintainer, 18 nov 2026; anche nel prototipo). «By Claude» e «Undid…» spenti fino a F7. Nessun link alle voci d'invito. `person.email_changed` nel gruppo «security», come sul server (test di parità del catalogo). |
 | Prototipo cambiato prima del collegamento | — | — | Foto (tipi dai primi byte, 512 KB); cambio d'email con l'attesa e il ramo admin; pagina del link che conferma solo al clic; password con la riconferma; disattivazione con `invalid_reassignment` per task e senza Claude; «Chi può farlo?» con Claude senza permessi; invito non valido senza nomi né date; «Mark as unread». |
 
+## Integrazione, F3: l'istanza nella build app (area 9, 18 nov 2026)
+
+La 9b nella build app, sulle rotte di 72 (`feat/area9-f3`). Piano:
+`docs/plans/2026-11-18-integrazione-area9-f3-renderer-plan.md`. Prima del
+collegamento il prototipo è cambiato: i webhook in uscita sono un elenco
+(D-10 = b) con `integrations.manage` (H-1), i tipi `webhook.*` (H-3), «JSON»
+(H-2); la rinomina di un provider; cambiare l'URL di un webhook chiede la
+riconferma (maintainer); la voce AI si accende scheda per scheda.
+
+| Voci | Adattatore | Funzione accesa | Differenze dichiarate |
+|---|---|---|---|
+| Outgoing webhooks | `webhooks.ts` | `admin:webhooks` | Il server non ricorda l'ultima prova: la tiene la sessione. Niente riquadro «Prototype only». |
+| AI → Providers | `aiProviders.ts` | `ai-providers` | La prova la fa il worker (si rilegge finché è `pending`); `failed` non distingue credenziale e rete; senza ultime 4 per le credenziali di prima della 0190; la quota la vede chi ha `usage.view`. |
+| AI → Models | `aiModels.ts` | `ai-models` | `workerDefault` com'è (un id intero non si traduce); «—» se il worker non ha mai pubblicato i default. |
+| AI → Automation | `automation.ts` | `ai-automation` | Tre righe (le task); le regole di `feedback` e `review` restano com'erano. |
+| AI → Budget, Usage | — | (spente) | Budget arriva con F4 (`spentUsd`, `budgetReached`, `budgetEffect`); Usage non ha ancora una lettura nel client. |
+| Google Workspace | `googleApps.ts` | `admin:google` | Senza ultime 4 del secret; le caselle collegate solo contate. L'indirizzo di ritorno OAuth è quello del server. |
+| Git accounts | `gitAccounts.ts` | `admin:git-accounts` | Senza ultime 4; validazione ricordata dalla sessione; nessun elenco dei repository che usano un account; il revisore sostituito si sa dopo. |
+| Plugins | `plugins.ts` | `admin:plugins` | Chi ha registrato o aggiornato non arriva. |
+| Storage | `storage.ts` | `admin:storage` | Né prova né interruttore degli allegati (il server li deriva). |
+| Registro: tipi della 9b | `catalogParity.test.ts` | — | Server, coda e `job.retried` sono un elenco dichiarato di tipi solo del prototipo. |
+
 ## A. Personale → Preferenze
 
 | Voce | Dove vive ora | Test |

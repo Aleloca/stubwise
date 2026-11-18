@@ -1,34 +1,37 @@
-import { INSTANCE_ORIGIN } from "../admin/secrets";
+import { INSTANCE_ORIGIN, forgetSecret, storeSecret } from "../admin/secrets";
 import { recordChange } from "../changelog/index";
 import { changedFields } from "../changelog/settingValues";
 import { gate, now, state } from "../store";
-import { forbidden, writer } from "../writer";
-import { canI, refuse } from "./common";
+import { forbidden, notFound, writer } from "../writer";
+import { canI, reauthRefusal, refuse } from "./common";
 import type { OutgoingWebhook, TestOutcome } from "./state";
 import type { InstanceResult } from "./types";
-import { WEBHOOK_EVENTS } from "./constants";
+import { WEBHOOK_EVENTS, WEBHOOK_LIMIT } from "./constants";
 
 export { WEBHOOK_EVENTS } from "./constants";
 
-// Il webhook in uscita (area 9b, Task 4): un messaggio a un canale di chat
-// o a un endpoint quando succede qualcosa in un progetto. Si legge e si
-// scrive con `settings.manage`. L'URL NON è un segreto (maintainer, 30 ott
-// 2026): si rilegge in chiaro, entra nel prima/dopo del registro e salvarlo
-// non chiede la riconferma; il webhook non ha altri segreti (niente chiave
-// di firma, come sul web).
+// I webhook in uscita (area 9b, Task 4; integrazione area 9, F3, D-10 = b):
+// un ELENCO, ognuno col suo nome, indirizzo, formato, eventi e segreto. Un
+// webhook non riceve mai un evento che non ha scelto. Si leggono e si
+// scrivono con `integrations.manage` (H-1). L'URL NON è un segreto
+// (maintainer, 30 ott 2026): si rilegge in chiaro, entra nel prima/dopo del
+// registro e cambiarlo non chiede la riconferma. Il SEGRETO (la firma
+// `X-Stubwise-Signature` degli invii) lo genera Stubwise: si vede una volta,
+// alla creazione e alla rigenerazione, entrambe con la riconferma, come
+// l'eliminazione; nessuna lettura lo riporta (`secretSet`, `secretRotatedAt`).
+// Al più 20 webhook (`webhook_limit`), come il server.
 //
-// Gli eventi sono i 13 del web più 8 del catalogo 8a/8b, 21 in tutto, nei
-// sei gruppi dello shape `admin-integrations.md` [IN 4] (confermata dal
-// maintainer il 30 ott 2026). Fuori, col motivo: `pr.opened` (rumore, e
-// quella di Claude è già `job.pr_opened`), `task.created` (coincide con
-// `ticket.created`), `pr.corrected` (avviso personale), le risposte dei
-// clienti (allora `support.customer_replied`, uscito nell'area 8 F3: porterebbe fuori le parole di un
-// cliente, maintainer), `google.proposal`, la posta e `security.alert`.
-// `saveWebhook` rifiuta un id che non è qui: un evento escluso non si
-// accende nemmeno per sbaglio.
+// Gli eventi sono i 21 di `WEBHOOK_EVENTS` (13 del web più 8 del catalogo
+// 8a/8b, shape `admin-integrations.md` [IN 4], confermata dal maintainer il
+// 30 ott 2026). Fuori, col motivo: `pr.opened` (rumore, e quella di Claude è
+// già `job.pr_opened`), `task.created` (coincide con `ticket.created`),
+// `pr.corrected` (avviso personale), le risposte dei clienti (porterebbero
+// fuori le parole di un cliente, maintainer), `google.proposal`, la posta e
+// `security.alert`. Un id che non è qui si rifiuta (`invalid: "events"`).
 
-const MANAGE = "settings.manage";
-const OBJECT = { type: "webhook", id: "webhook", label: "webhook" };
+const MANAGE = "integrations.manage";
+
+export { WEBHOOK_LIMIT } from "./constants";
 
 export type WebhookGroup = "tasks" | "work" | "prs" | "docs" | "servers" | "project";
 export type WebhookFormat = OutgoingWebhook["format"];
@@ -38,25 +41,40 @@ export type WebhookEventId = (typeof WEBHOOK_EVENTS)[number]["id"];
 const EVENT_IDS: ReadonlySet<string> = new Set(WEBHOOK_EVENTS.map((e) => e.id));
 const FORMATS: ReadonlySet<string> = new Set(["slack", "discord", "generic"]);
 
+/** Un webhook come lo legge chi lo gestisce: mai il segreto. */
 export interface WebhookView {
-  enabled: boolean;
+  id: string;
+  name: string;
+  /** In chiaro: non è un segreto. */
+  url: string;
   format: WebhookFormat;
-  /** In chiaro: lo legge chi ha `settings.manage`. */
-  url: string | null;
-  /** Ognuno dei 21 eventi, acceso o spento. */
-  events: Record<WebhookEventId, boolean>;
+  enabled: boolean;
+  /** Gli eventi scelti, nell'ordine dello shape. */
+  events: WebhookEventId[];
+  secretSet: boolean;
+  secretRotatedAt: string | null;
+  createdAt: string;
   lastTest: { at: string; outcome: TestOutcome } | null;
+  /**
+   * Nella build app (review F3, I2): il server ha un formato o eventi che il
+   * client non conosce. La pagina non lo modifica (o non ne cambia gli eventi)
+   * per non toglierglieli. Nel prototipo non capita.
+   */
+  formatUnknown?: boolean;
+  unknownEvents?: boolean;
 }
 
-const allEvents = (from: Record<string, boolean>): Record<WebhookEventId, boolean> =>
-  Object.fromEntries(WEBHOOK_EVENTS.map((e) => [e.id, from[e.id] === true])) as Record<
-    WebhookEventId,
-    boolean
-  >;
+export interface WebhookInput {
+  name: string;
+  url: string;
+  format: WebhookFormat;
+  enabled?: boolean;
+  events: string[];
+}
 
-/** Gli eventi accesi, nell'ordine dello shape: è il valore della voce del registro. */
-const onEvents = (from: Record<string, boolean>): string[] =>
-  WEBHOOK_EVENTS.filter((e) => from[e.id] === true).map((e) => e.id);
+/** Gli eventi scelti, senza doppi, nell'ordine dello shape. */
+const ordered = (ids: readonly string[]): WebhookEventId[] =>
+  WEBHOOK_EVENTS.filter((e) => ids.includes(e.id)).map((e) => e.id);
 
 const isHttps = (value: string): boolean => {
   try {
@@ -67,80 +85,190 @@ const isHttps = (value: string): boolean => {
   }
 };
 
-/** Il webhook, con l'URL in chiaro e tutti gli eventi. */
-export async function getWebhook(): Promise<WebhookView> {
+const viewOf = (w: OutgoingWebhook): WebhookView => ({
+  id: w.id,
+  name: w.name,
+  url: w.url,
+  format: w.format,
+  enabled: w.enabled,
+  events: ordered(w.events),
+  secretSet: w.secretId !== null,
+  secretRotatedAt: w.secretRotatedAt,
+  createdAt: w.createdAt,
+  lastTest: w.lastTest ? { ...w.lastTest } : null,
+});
+
+const objectOf = (w: OutgoingWebhook) => ({ type: "webhook", id: w.id, label: w.name });
+
+/** Il motivo di un campo che non va, o `null`. */
+function invalidOf(input: Partial<WebhookInput>): string | null {
+  if (input.name !== undefined && !input.name.trim()) return "name";
+  if (input.url !== undefined && !isHttps(input.url.trim())) return "url";
+  if (input.format !== undefined && !FORMATS.has(input.format)) return "format";
+  if (input.events !== undefined && !input.events.every((id) => EVENT_IDS.has(id))) return "events";
+  return null;
+}
+
+/** I webhook, in ordine di creazione. */
+export async function listWebhooks(): Promise<WebhookView[]> {
+  const me = await gate("instance.listWebhooks");
+  if (!canI(me, MANAGE)) throw forbidden();
+  return state.instance.webhooks.map(viewOf);
+}
+
+/** Un webhook (la sua pagina). `not_found` se non c'è. */
+export async function getWebhook(id: string): Promise<WebhookView> {
   const me = await gate("instance.getWebhook");
   if (!canI(me, MANAGE)) throw forbidden();
-  const w = state.instance.webhook;
-  return {
-    enabled: w.enabled,
-    format: w.format,
-    url: w.url,
-    events: allEvents(w.events),
-    lastTest: w.lastTest ? { ...w.lastTest } : null,
+  const w = state.instance.webhooks.find((x) => x.id === id);
+  if (!w) throw notFound();
+  return viewOf(w);
+}
+
+let counter = 0;
+
+/**
+ * Un webhook nuovo, con la riconferma (nasce un segreto): la vista più
+ * `secret`, l'UNICA volta che esce. Al più `WEBHOOK_LIMIT`.
+ */
+export async function createWebhook(
+  input: WebhookInput,
+): Promise<InstanceResult<{ webhook: WebhookView; secret: string }>> {
+  const me = await writer("instance.createWebhook");
+  if (!canI(me, MANAGE)) return refuse.forbidden();
+  const bad = invalidOf(input);
+  if (bad) return refuse.invalid(bad);
+  if (state.instance.webhooks.length >= WEBHOOK_LIMIT) return refuse.invalid("webhook_limit");
+  const reauth = reauthRefusal(me, "instance.createWebhook");
+  if (reauth) return reauth;
+  const id = `wh-${++counter}-${Date.parse(now())}`;
+  const secret = storeSecret("outgoing_webhook_secret", id);
+  const w: OutgoingWebhook = {
+    id,
+    name: input.name.trim(),
+    url: input.url.trim(),
+    format: input.format,
+    enabled: input.enabled ?? true,
+    events: ordered(input.events),
+    secretId: secret.id,
+    secretRotatedAt: now(),
+    createdAt: now(),
+    lastTest: null,
   };
+  state.instance.webhooks.push(w);
+  recordChange({
+    kind: "webhook.created",
+    actorId: me,
+    projectId: null,
+    object: objectOf(w),
+    // Come il server: il formato e gli eventi scelti (valori stabili).
+    params: { format: w.format, events: w.events.join(",") },
+  });
+  return { ok: true, webhook: viewOf(w), secret: secret.value };
 }
 
 /**
- * Salva tutto il modulo, senza riconferma. `invalid: "url"` per un
- * indirizzo non https, o mancante coi messaggi accesi; `invalid: "events"`
- * per un evento che non è fra i 21. La voce `webhook.changed` ha i soli
- * campi cambiati, l'URL compreso. Cambiare indirizzo o formato rimette la
- * prova a «non ancora provata».
+ * Cambia nome, indirizzo, formato, eventi o stato. Solo un indirizzo nuovo
+ * chiede la riconferma (maintainer, 18 nov 2026). La voce `webhook.updated` ha i soli campi cambiati;
+ * cambiare indirizzo o formato rimette la prova a «non ancora provata».
  */
-export async function saveWebhook(input: {
-  enabled: boolean;
-  format: WebhookFormat;
-  url: string | null;
-  events: Record<string, boolean>;
-}): Promise<InstanceResult> {
-  return saveWebhookAs(await writer("instance.saveWebhook"), input);
+export async function updateWebhook(
+  id: string,
+  patch: Partial<WebhookInput>,
+): Promise<InstanceResult> {
+  return updateWebhookAs(await writer("instance.updateWebhook"), id, patch);
 }
 
-/** La forma sincrona di `saveWebhook` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
-export function saveWebhookAs(
+/** La forma sincrona di `updateWebhook` per chi ha già passato il cancello (il catalogo di Claude, area 10a). */
+export function updateWebhookAs(
   me: string,
-  input: {
-    enabled: boolean;
-    format: WebhookFormat;
-    url: string | null;
-    events: Record<string, boolean>;
-  },
+  id: string,
+  patch: Partial<WebhookInput>,
 ): InstanceResult {
   if (!canI(me, MANAGE)) return refuse.forbidden();
-  if (!FORMATS.has(input.format)) return refuse.invalid("format");
-  const url = input.url?.trim() || null;
-  if (url !== null && !isHttps(url)) return refuse.invalid("url");
-  if (input.enabled && url === null) return refuse.invalid("url");
-  if (!Object.keys(input.events).every((id) => EVENT_IDS.has(id))) return refuse.invalid("events");
-
-  const w = state.instance.webhook;
-  const events = allEvents(input.events);
+  const w = state.instance.webhooks.find((x) => x.id === id);
+  if (!w) return refuse.notFound();
+  const bad = invalidOf(patch);
+  if (bad) return refuse.invalid(bad);
+  const next = {
+    name: patch.name?.trim() ?? w.name,
+    url: patch.url?.trim() ?? w.url,
+    format: patch.format ?? w.format,
+    enabled: patch.enabled ?? w.enabled,
+    events: patch.events ? ordered(patch.events) : ordered(w.events),
+  };
+  // Un indirizzo NUOVO vuole la riconferma (maintainer, 18 nov 2026): dove
+  // vanno i messaggi. Il resto della patch no.
+  if (next.url !== w.url) {
+    const reauth = reauthRefusal(me, "instance.updateWebhook");
+    if (reauth) return reauth;
+  }
   const diff = changedFields(
-    { enabled: w.enabled, format: w.format, url: w.url, events: onEvents(w.events) },
-    { enabled: input.enabled, format: input.format, url, events: onEvents(events) },
+    { name: w.name, url: w.url, format: w.format, enabled: w.enabled, events: ordered(w.events) },
+    next,
   );
   if (!diff) return { ok: true };
-  const retest = w.url !== url || w.format !== input.format;
-  w.enabled = input.enabled;
-  w.format = input.format;
-  w.url = url;
-  w.events = events;
+  const retest = w.url !== next.url || w.format !== next.format;
+  Object.assign(w, next);
   if (retest) w.lastTest = null;
-  recordChange({ kind: "webhook.changed", actorId: me, projectId: null, object: OBJECT, ...diff });
+  recordChange({
+    kind: "webhook.updated",
+    actorId: me,
+    projectId: null,
+    object: objectOf(w),
+    ...diff,
+  });
+  return { ok: true };
+}
+
+/** Un segreto nuovo, con la riconferma: il vecchio smette di firmare; il nuovo si vede una volta. */
+export async function regenerateWebhookSecret(
+  id: string,
+): Promise<InstanceResult<{ secret: string; secretRotatedAt: string }>> {
+  const me = await writer("instance.regenerateWebhookSecret");
+  if (!canI(me, MANAGE)) return refuse.forbidden();
+  const w = state.instance.webhooks.find((x) => x.id === id);
+  if (!w) return refuse.notFound();
+  const reauth = reauthRefusal(me, "instance.regenerateWebhookSecret");
+  if (reauth) return reauth;
+  if (w.secretId) forgetSecret(w.secretId);
+  const secret = storeSecret("outgoing_webhook_secret", id);
+  w.secretId = secret.id;
+  w.secretRotatedAt = now();
+  // La voce non porta valori: «sostituito», mai il segreto.
+  recordChange({
+    kind: "webhook.secret_replaced",
+    actorId: me,
+    projectId: null,
+    object: objectOf(w),
+  });
+  return { ok: true, secret: secret.value, secretRotatedAt: w.secretRotatedAt };
+}
+
+/** Elimina un webhook, con la riconferma: non riceve più niente, il segreto si dimentica. */
+export async function deleteWebhook(id: string): Promise<InstanceResult> {
+  const me = await writer("instance.deleteWebhook");
+  if (!canI(me, MANAGE)) return refuse.forbidden();
+  const w = state.instance.webhooks.find((x) => x.id === id);
+  if (!w) return refuse.notFound();
+  const reauth = reauthRefusal(me, "instance.deleteWebhook");
+  if (reauth) return reauth;
+  if (w.secretId) forgetSecret(w.secretId);
+  state.instance.webhooks = state.instance.webhooks.filter((x) => x.id !== id);
+  recordChange({ kind: "webhook.deleted", actorId: me, projectId: null, object: objectOf(w) });
   return { ok: true };
 }
 
 /**
- * Manda una prova: l'esito scelto nel riquadro «Prototype only»
- * (`simulateNextTest("webhook", …)`, vale una volta), altrimenti `ok`. Non
- * si contatta niente di vero; nessuna voce.
+ * Manda una prova a un webhook, anche spento: l'esito scelto nel riquadro
+ * «Prototype only» (`simulateNextTest("webhook", …)`, vale una volta),
+ * altrimenti `ok`. Non si contatta niente di vero; nessuna voce.
  */
-export async function testWebhook(): Promise<InstanceResult<{ outcome: TestOutcome }>> {
+export async function testWebhook(id: string): Promise<InstanceResult<{ outcome: TestOutcome }>> {
   const me = await writer("instance.testWebhook");
   if (!canI(me, MANAGE)) return refuse.forbidden();
-  const w = state.instance.webhook;
-  if (w.url === null) return refuse.invalid("url");
+  const w = state.instance.webhooks.find((x) => x.id === id);
+  if (!w) return refuse.notFound();
   const next = state.instance.simulate.nextTest;
   const outcome = next.webhook ?? "ok";
   delete next.webhook;
@@ -360,7 +488,10 @@ const PREVIEW: Record<WebhookEventId, Sample> = {
  * Dati d'esempio fittizi; nessuna lettura di dati veri, quindi nessun
  * cancello.
  */
-export function previewWebhook(eventId: WebhookEventId, format: WebhookFormat): string {
+export async function previewWebhook(
+  eventId: WebhookEventId,
+  format: WebhookFormat,
+): Promise<string> {
   const sample = PREVIEW[eventId];
   if (!sample) throw new Error(`invalid: event`);
   const lang: Lang = state.instance.budget.contentLanguage;

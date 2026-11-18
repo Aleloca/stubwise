@@ -188,9 +188,9 @@ const CASES: Case[] = [
   },
   { path: "/admin/google", empty: "admin.google.empty" },
   { path: "/admin/storage", empty: "admin.storage.status.not_set_up" },
-  // L'anteprima mostra dati d'esempio dichiarati («Example data», ACQ-42):
-  // quel codice non è un dato dell'istanza.
-  { path: "/admin/webhooks", empty: "admin.webhooks.off", examples: ["ACQ"] },
+  // F3: i webhook sono un elenco; vuoto, «No webhooks yet.» (l'anteprima coi
+  // dati d'esempio sta nella pagina di un webhook).
+  { path: "/admin/webhooks", empty: "admin.webhooks.empty" },
   // Area 9b, Task 12: nessun server e nessun repository nell'istanza vuota.
   { path: "/admin/servers", empty: "admin.servers.empty" },
   { path: "/admin/repositories", empty: "admin.repositories.empty" },

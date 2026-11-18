@@ -30,8 +30,8 @@ import { can, type Permission } from "./viewing";
 // - AI: `ai_providers.manage` o `settings.manage` (Providers, Models,
 //   Automation, Budget & language), `usage.view` (la sola Usage).
 // - Git accounts: `git_accounts.view` o `.manage`. Plugins:
-//   `plugins.manage`. Google Workspace: `integrations.manage`. Storage e
-//   Outgoing webhooks: `settings.manage`.
+//   `plugins.manage`. Google Workspace e Outgoing webhooks (F3, H-1):
+//   `integrations.manage`. Storage: `settings.manage`.
 // - Servers: `monitor.manage`. Repositories: `repos.manage` in almeno un
 //   progetto. Instance status: `instance.status.view` o `settings.manage`.
 
@@ -67,9 +67,9 @@ function sees(viewer: Viewer, section: AdminSection): boolean {
     case "plugins":
       return can(viewer, "plugins.manage");
     case "google":
+    case "webhooks":
       return can(viewer, "integrations.manage");
     case "storage":
-    case "webhooks":
       return can(viewer, "settings.manage");
     case "servers":
       return can(viewer, "monitor.manage");

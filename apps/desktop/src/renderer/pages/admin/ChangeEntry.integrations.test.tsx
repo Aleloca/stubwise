@@ -41,11 +41,9 @@ describe("le voci delle integrazioni, in inglese e in italiano", () => {
     await instance.setDefaultReviewer("git-github-stubwise", true);
     await instance.updateGoogleApp("gw-example", { domains: ["example.com", "example.org"] });
     await instance.setAttachments(false);
-    const w = await instance.getWebhook();
-    await instance.saveWebhook({
-      ...w,
+    await instance.updateWebhook("wh-seed", {
       format: "discord",
-      events: { ...w.events, "job.pr_opened": false, "release.failed": true },
+      events: ["ticket.created", "job.failed", "release.failed", "monitor"],
     });
     await instance.updatePluginRef("plg-superpowers", { ref: "v4.1.0", trusted: true });
 
@@ -61,7 +59,7 @@ describe("le voci delle integrazioni, in inglese e in italiano", () => {
       ],
       ["storage.changed", '{"attachments":true}', '{"attachments":false}'],
       [
-        "webhook.changed",
+        "webhook.updated",
         '{"format":"slack","events":["ticket.created","job.failed","job.pr_opened","monitor"]}',
         '{"format":"discord","events":["ticket.created","job.failed","release.failed","monitor"]}',
       ],
@@ -71,7 +69,7 @@ describe("le voci delle integrazioni, in inglese e in italiano", () => {
     const expected = {
       en: [
         "Roberta Fontana updated superpowers to a new ref. | v4.0.3 → v4.1.0",
-        "Roberta Fontana changed the outgoing webhook. | Format: Slack → Discord · Events: + Release failed, − Pull request opened by Claude",
+        "Roberta Fontana changed the outgoing webhook Webhook. | Format: Slack → Discord · Events: + Release failed, − Pull request opened by Claude",
         "Roberta Fontana changed the storage settings. | Attachments: On → Off",
         "Roberta Fontana changed the Google app Example. | Email domains: + example.org",
         "Roberta Fontana changed the default reviewer to GitHub Stubwise. | none → GitHub Stubwise",
@@ -80,7 +78,7 @@ describe("le voci delle integrazioni, in inglese e in italiano", () => {
       ],
       it: [
         "Roberta Fontana ha aggiornato superpowers a un nuovo ref. | v4.0.3 → v4.1.0",
-        "Roberta Fontana ha cambiato il webhook in uscita. | Formato: Slack → Discord · Eventi: + Rilascio non riuscito, − Pull request aperta da Claude",
+        "Roberta Fontana ha cambiato il webhook in uscita Webhook. | Formato: Slack → Discord · Eventi: + Rilascio non riuscito, − Pull request aperta da Claude",
         "Roberta Fontana ha cambiato le impostazioni dell'archiviazione. | Allegati: Acceso → Spento",
         "Roberta Fontana ha modificato l'app Google Example. | Domini email: + example.org",
         "Roberta Fontana ha reso GitHub Stubwise il revisore predefinito. | nessuno → GitHub Stubwise",

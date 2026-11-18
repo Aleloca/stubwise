@@ -53,3 +53,6 @@ export const GOOGLE_SETUP = {
   redirectUri: `${INSTANCE_ORIGIN}${GOOGLE_OAUTH_CALLBACK_PATH}`,
   scopes: googleOauthScopes,
 } as const;
+
+/** Quanti webhook in uscita al più (integrazione area 9, F3; come il server). */
+export const WEBHOOK_LIMIT = 20;

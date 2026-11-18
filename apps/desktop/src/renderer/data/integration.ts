@@ -61,7 +61,23 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   // Area 9, F1, R9: «Who can?» sulle rotte del server.
   // Area 9, F1, R7: People e Roles sulle letture calcolate del server.
   // Area 9, F2: Change log.
-  admin: new Set(["departments", "servers", "who-can", "people", "roles", "changelog"]),
+  // Area 9, F3: Outgoing webhooks sulle rotte del server.
+  // Area 9, F3: la voce AI, scheda per scheda (`ai-<tab>` fra le funzioni).
+  admin: new Set([
+    "departments",
+    "servers",
+    "who-can",
+    "people",
+    "roles",
+    "changelog",
+    "webhooks",
+    "ai",
+    // Area 9, F3: Google Workspace e Git accounts sulle rotte del server.
+    "google",
+    "git-accounts",
+    "plugins",
+    "storage",
+  ]),
   taskView: new Set(["list", "board", "timeline"]),
   feature: new Set([
     // Area 7, fetta 1: le Automations (Home, «Da decidere», ⌘K, righe d'origine).
@@ -106,6 +122,10 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "support-identity",
     // Area 9, F1, R4a: Preferenze → Account (profilo, foto, email, password).
     // Le caselle Google (`prefs-mailboxes`) restano nel cassetto Google.
+    // Area 9, F3: le schede della voce AI accese (`AiPage`).
+    "ai-automation",
+    "ai-providers",
+    "ai-models",
     "prefs-account",
     // Area 9, F1, R4b: Preferenze → Security (sul desktop le passkey restano del browser).
     "prefs-security",

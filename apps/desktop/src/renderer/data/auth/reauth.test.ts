@@ -57,7 +57,8 @@ const EXPECTED_REAUTH: readonly ApiFnName[] = [
   "me.changePassword",
   // Area 9b: chi crea, sostituisce o cancella un segreto scritto da chi
   // amministra, più registrare e aggiornare un plugin (eseguono codice).
-  // `saveStorage` lo chiede solo con una chiave nuova; `saveWebhook` mai
+  // `saveStorage` lo chiede solo con una chiave nuova. Dei webhook in uscita
+  // (F3) creare, rigenerare il segreto ed eliminare; `updateWebhook` mai
   // (l'URL non è un segreto, maintainer 30 ott 2026).
   "instance.createProvider",
   "instance.replaceProviderCredential",
@@ -71,6 +72,10 @@ const EXPECTED_REAUTH: readonly ApiFnName[] = [
   "instance.replaceGoogleSecret",
   "instance.deleteGoogleApp",
   "instance.saveStorage",
+  "instance.createWebhook",
+  "instance.updateWebhook",
+  "instance.regenerateWebhookSecret",
+  "instance.deleteWebhook",
   // Area 9c: chi crea, sostituisce o cancella un segreto di un progetto
   // (chiave d'ingestione, secret del webhook git, file e valori
   // d'ambiente), più eliminare un progetto e un repository senza progetto

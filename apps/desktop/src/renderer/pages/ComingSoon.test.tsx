@@ -151,6 +151,55 @@ const INTEGRATED_CALLS = new Set([
   "admin.updateRole",
   "admin.deleteRole",
   "admin.viewerLosesIf",
+  // Area 9, F3: AI → Providers.
+  "instance.listProviders",
+  "instance.createProvider",
+  "instance.renameProvider",
+  "instance.setProviderEnabled",
+  "instance.moveProvider",
+  "instance.testProvider",
+  "instance.replaceProviderCredential",
+  "instance.deleteProvider",
+  // Area 9, F3: Storage.
+  "instance.getStorage",
+  "instance.saveStorage",
+  // Area 9, F3: Plugins.
+  "instance.listPlugins",
+  "instance.getPlugin",
+  "instance.registerPlugin",
+  "instance.updatePluginRef",
+  "instance.rerunSmoke",
+  "instance.removePlugin",
+  // Area 9, F3: Git accounts.
+  "instance.listGitAccounts",
+  "instance.createGitAccount",
+  "instance.updateGitAccount",
+  "instance.replaceGitToken",
+  "instance.validateGitAccount",
+  "instance.setDefaultReviewer",
+  "instance.deleteGitAccount",
+  // Area 9, F3: Google Workspace.
+  "instance.listGoogleApps",
+  "instance.getGoogleRedirectUri",
+  "instance.createGoogleApp",
+  "instance.updateGoogleApp",
+  "instance.replaceGoogleSecret",
+  "instance.deleteGoogleApp",
+  // Area 9, F3: AI → Models.
+  "instance.listModels",
+  "instance.setModel",
+  // Area 9, F3: AI → Automation.
+  "instance.getAutomation",
+  "instance.saveAutomation",
+  // Area 9, F3: i webhook in uscita.
+  "instance.listWebhooks",
+  "instance.getWebhook",
+  "instance.createWebhook",
+  "instance.updateWebhook",
+  "instance.regenerateWebhookSecret",
+  "instance.deleteWebhook",
+  "instance.testWebhook",
+  "instance.previewWebhook",
   // Area 9, F2: il registro delle modifiche.
   "changelog.listChangesPage",
   "changelog.listProjectChangesPage",
@@ -819,6 +868,122 @@ describe("aree non integrate nella build app", () => {
     expect(await screen.findByRole("heading", { level: 1, name: title })).toBeInTheDocument();
     await settle();
     expect(screen.queryByText(/Coming soon/)).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F3: AI → Providers acceso, sulle rotte dell'8c di 72; senza il
+  // riquadro «Prototype only» (l'esito della prossima prova è del prototipo).
+  it("aprire AI → Providers legge solo chiamate integrate, senza riquadro del prototipo", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/ai?tab=providers");
+    await waitFor(() => expect(calls).toContain("instance.listProviders"));
+    expect(await screen.findByRole("list", { name: "AI accounts" })).toBeInTheDocument();
+    await settle();
+    expect(document.querySelector("[data-coming-soon]")).toBeNull();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F3: Amministrazione → Storage, su `/api/settings/instance`; senza
+  // la prova e l'interruttore degli allegati (il server non li ha).
+  it("aprire Storage legge solo chiamate integrate, senza prova né interruttore degli allegati", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/storage");
+    await waitFor(() => expect(calls).toContain("instance.getStorage"));
+    await settle();
+    expect(document.querySelector("[data-coming-soon]")).toBeNull();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Check connection" })).toBeNull();
+    expect(screen.queryByRole("switch", { name: "Attachments" })).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F3: Amministrazione → Plugins, su `/api/plugins`.
+  it.each([
+    ["/admin/plugins", "instance.listPlugins"],
+    ["/admin/plugins/plg-superpowers", "instance.getPlugin"],
+  ])("aprire %s legge solo chiamate integrate, senza riquadro del prototipo", async (path, call) => {
+    signedInAs("p-roberta");
+    renderRoute(path);
+    await waitFor(() => expect(calls).toContain(call));
+    await settle();
+    expect(document.querySelector("[data-coming-soon]")).toBeNull();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F3: Amministrazione → Git accounts, su `/api/git-accounts`.
+  it("aprire Git accounts legge solo chiamate integrate, senza riquadro del prototipo", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/git-accounts");
+    await waitFor(() => expect(calls).toContain("instance.listGitAccounts"));
+    await settle();
+    expect(document.querySelector("[data-coming-soon]")).toBeNull();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F3: Amministrazione → Google Workspace, su `/api/settings/google-workspaces`.
+  it("aprire Google Workspace e il suo dialogo legge solo chiamate integrate", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/google");
+    await waitFor(() => expect(calls).toContain("instance.listGoogleApps"));
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Add an app" }));
+    await user.click(await screen.findByRole("button", { name: "How to set it up in Google Cloud" }));
+    await waitFor(() => expect(calls).toContain("instance.getGoogleRedirectUri"));
+    await settle();
+    expect(document.querySelector("[data-coming-soon]")).toBeNull();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F3: AI → Models acceso, su `/api/settings/models`.
+  it("aprire AI → Models legge solo chiamate integrate", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/ai?tab=models");
+    await waitFor(() => expect(calls).toContain("instance.listModels"));
+    await settle();
+    expect(document.querySelector("[data-coming-soon]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F3: AI → Automation accesa, su `/api/settings/automation`.
+  it("aprire AI → Automation legge solo chiamate integrate", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/ai?tab=automation");
+    await waitFor(() => expect(calls).toContain("instance.getAutomation"));
+    await settle();
+    expect(document.querySelector("[data-coming-soon]")).toBeNull();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F3: la voce AI accesa scheda per scheda (`ai-<tab>`): una scheda
+  // non ancora collegata è «Coming soon» dentro la pagina, senza letture.
+  it("aprire una scheda AI non collegata: «Coming soon» al posto del pannello, nessuna chiamata", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/ai?tab=usage");
+    expect(await screen.findByRole("heading", { level: 1, name: "AI" })).toBeInTheDocument();
+    await settle();
+    // La pagina c'è, con le sue schede: il «Coming soon» è solo del pannello.
+    expect(screen.getByRole("tablist")).toBeInTheDocument();
+    expect(document.querySelector("[data-coming-soon]")).not.toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F3: Outgoing webhooks accesi, sulle rotte del server; senza il
+  // riquadro «Prototype only» (l'esito della prossima prova è del prototipo).
+  it.each([
+    ["/admin/webhooks", "Outgoing webhooks"],
+    ["/admin/webhooks/wh-seed", "Webhook"],
+  ])("aprire %s legge solo chiamate integrate, senza riquadro del prototipo", async (path, title) => {
+    signedInAs("p-roberta");
+    renderRoute(path);
+    expect(await screen.findByRole("heading", { level: 1, name: title })).toBeInTheDocument();
+    await settle();
+    expect(screen.queryByText(/Coming soon/)).toBeNull();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
     expect(outside()).toEqual([]);
   });
 

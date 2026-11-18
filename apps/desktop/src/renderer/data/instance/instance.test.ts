@@ -104,9 +104,10 @@ describe("le voci dell'istanza, per permesso", () => {
   it("ogni voce col suo permesso", () => {
     const cases: [string, string[]][] = [
       ["ai_providers.manage", ["ai"]],
-      ["settings.manage", ["ai", "storage", "webhooks", "status"]],
+      ["settings.manage", ["ai", "storage", "status"]],
       ["plugins.manage", ["plugins"]],
-      ["integrations.manage", ["google"]],
+      // F3 (H-1): i webhook in uscita con `integrations.manage`.
+      ["integrations.manage", ["google", "webhooks"]],
       ["monitor.manage", ["servers"]],
       ["instance.status.view", ["status"]],
     ];
@@ -135,9 +136,18 @@ describe("il registro delle modifiche del 9b", () => {
     expect([...new Set(INSTANCE_CHANGE_TYPES.map((t) => t.group))]).toEqual(GROUPS);
     for (const t of INSTANCE_CHANGE_TYPES)
       expect(t.scope, t.kind).toBe(t.group === "queue" ? "project" : "instance");
-    expect(INSTANCE_CHANGE_TYPES.map((t) => t.kind)).toContain("webhook.changed");
-    // ai 10 (R0-C: i tetti dell'analisi dei server), integrations 16, servers 7, queue 3.
-    expect(INSTANCE_CHANGE_TYPES).toHaveLength(36);
+    // F3 (H-3): i quattro tipi del webhook al posto di `webhook.changed`.
+    expect(INSTANCE_CHANGE_TYPES.map((t) => t.kind)).toEqual(
+      expect.arrayContaining([
+        "webhook.created",
+        "webhook.updated",
+        "webhook.secret_replaced",
+        "webhook.deleted",
+      ]),
+    );
+    expect(INSTANCE_CHANGE_TYPES.map((t) => t.kind)).not.toContain("webhook.changed");
+    // ai 10 (R0-C: i tetti dell'analisi dei server), integrations 19, servers 7, queue 3.
+    expect(INSTANCE_CHANGE_TYPES).toHaveLength(39);
   });
 
   /** Una voce per tipo, scritta come la scriveranno i Task 3–7. */
@@ -338,10 +348,11 @@ describe("il seme dell'istanza", () => {
       bucket: "stubwise-files",
     });
     expect(storageAllowsUploads()).toBe(true);
-    const webhook = state.instance.webhook;
-    expect(webhook).toMatchObject({ enabled: true, format: "slack" });
-    expect(webhook.url).toMatch(/^https:\/\/hooks\.slack\.com\//);
-    expect(Object.values(webhook.events).filter(Boolean)).toHaveLength(4);
+    const [webhook, ...more] = state.instance.webhooks;
+    expect(more).toEqual([]);
+    expect(webhook).toMatchObject({ name: "Webhook", enabled: true, format: "slack" });
+    expect(webhook!.url).toMatch(/^https:\/\/hooks\.slack\.com\//);
+    expect(webhook!.events).toHaveLength(4);
   });
 
   it("la coda di STW in pausa da Roberta, ieri alle 18:00; le altre no", () => {
@@ -394,8 +405,7 @@ describe("l'istanza vuota", () => {
     expect(i.automation.prReview.enabled).toBe(false);
     expect(i.storage).toMatchObject({ secretId: null, last4: null, attachmentsEnabled: false });
     expect(storageAllowsUploads()).toBe(false);
-    expect(i.webhook).toMatchObject({ enabled: false, url: null });
-    expect(Object.values(i.webhook.events).some(Boolean)).toBe(false);
+    expect(i.webhooks).toEqual([]);
     resetApi();
     expect(state.instance.providers).toHaveLength(3);
     expect(queuePauseOf(STW)).not.toBeNull();

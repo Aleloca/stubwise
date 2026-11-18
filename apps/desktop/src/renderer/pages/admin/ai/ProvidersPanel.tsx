@@ -11,12 +11,14 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-
 import { useEffect, useId, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { SecretInput, maskedSecret } from "../../../components/SecretField";
+import { isAppBuild } from "../../../data/build";
 import { now } from "../../../data/dates";
 import {
   BACKGROUND_WEEKLY_THRESHOLD,
   useDeleteProvider,
   useMoveProvider,
   useProviders,
+  useRenameProvider,
   useReplaceProviderCredential,
   useSetProviderEnabled,
   useSimulateNextTest,
@@ -35,7 +37,7 @@ import { ErrorLine } from "../../entry/parts";
 import { TriangleGlyph } from "../../preferences/glyphs";
 import { ReadError, RowMenu, refusalOf } from "../../preferences/parts";
 import { ago } from "../../releases/format";
-import { CrossGlyph, MetaLine, QuietNote } from "../integrations/parts";
+import { CrossGlyph, MetaLine, QuietNote, TextField } from "../integrations/parts";
 import { Switch } from "../../preferences/SubscriptionRow";
 import { dangerSolidButton, primaryButton, secondaryButton } from "../../tasks/controls";
 import { AddProviderDialog } from "./AddProviderDialog";
@@ -63,6 +65,7 @@ export function ProvidersPanel({ canWrite }: { canWrite: boolean }) {
   const refusalWords = useAiRefusalWords();
   const [adding, setAdding] = useState(false);
   const [replacing, setReplacing] = useState<ProviderView | null>(null);
+  const [renaming, setRenaming] = useState<ProviderView | null>(null);
   const [deleting, setDeleting] = useState<ProviderView | null>(null);
   const [added, setAdded] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
@@ -223,6 +226,7 @@ export function ProvidersPanel({ canWrite }: { canWrite: boolean }) {
                   onMove={(to) => void moveTo(p, to)}
                   index={index}
                   onReplace={() => setReplacing(p)}
+                  onRename={() => setRenaming(p)}
                   onDelete={() => setDeleting(p)}
                 />
               ))}
@@ -241,7 +245,8 @@ export function ProvidersPanel({ canWrite }: { canWrite: boolean }) {
         </QuietNote>
         {subscriptions >= 2 && <QuietNote>{t("admin.ai.providers.terms")}</QuietNote>}
       </div>
-      {canWrite && list.length > 0 && <NextTestBox providers={list} />}
+      {/* L'esito della prossima prova si sceglie solo nel prototipo. */}
+      {canWrite && list.length > 0 && !isAppBuild() && <NextTestBox providers={list} />}
       {adding && (
         <AddProviderDialog
           count={total}
@@ -250,6 +255,7 @@ export function ProvidersPanel({ canWrite }: { canWrite: boolean }) {
         />
       )}
       {replacing && <ReplaceDialog provider={replacing} onClose={() => setReplacing(null)} />}
+      {renaming && <RenameDialog provider={renaming} onClose={() => setRenaming(null)} />}
       {deleting && <DeleteDialog provider={deleting} onClose={() => setDeleting(null)} />}
     </>
   );
@@ -273,6 +279,7 @@ function ProviderRow({
   describedBy,
   onMove,
   onReplace,
+  onRename,
   onDelete,
 }: {
   provider: ProviderView;
@@ -286,6 +293,7 @@ function ProviderRow({
   describedBy: string;
   onMove: (to: number) => void;
   onReplace: () => void;
+  onRename: () => void;
   onDelete: () => void;
 }) {
   const { t, i18n } = useTranslation();
@@ -322,6 +330,9 @@ function ProviderRow({
     const [result] = await Promise.all([test.mutateAsync(p.id).catch(() => null), wait(TEST_MS)]);
     setTesting(false);
     const refusal = result === null ? { error: "failed" } : refusalOf(result);
+    // La prova la fa il worker: dopo un minuto ancora in corso (review F3, M1).
+    if (refusal?.error === "invalid" && refusal.reason === "test_pending")
+      return setError(t("admin.ai.providers.testPending"));
     if (refusal) return setError(refusalWords(refusal.error));
     const outcome = (result as { outcome: TestOutcome }).outcome;
     if (outcome !== "ok")
@@ -484,6 +495,9 @@ function ProviderRow({
                     </MenuItem>
                     <MenuItem disabled={last} onSelect={() => (close(true), onMove(index + 1))}>
                       {t("admin.ai.providers.moveDown")}
+                    </MenuItem>
+                    <MenuItem onSelect={() => (close(false), onRename())}>
+                      {t("admin.ai.providers.rename")}
                     </MenuItem>
                     <MenuItem onSelect={() => (close(false), onReplace())}>
                       {p.kind === "subscription"
@@ -687,6 +701,69 @@ function ReplaceDialog({ provider: p, onClose }: { provider: ProviderView; onClo
         autoFocus
       />
       <p className="text-sm text-ink-muted">{t("admin.ai.providers.replaceDialog.running")}</p>
+    </Dialog>
+  );
+}
+
+/** Rinomina un account (F3): senza riconferma, il nome non è un segreto. */
+function RenameDialog({ provider: p, onClose }: { provider: ProviderView; onClose: () => void }) {
+  const { t } = useTranslation();
+  const rename = useRenameProvider();
+  const toast = useToast();
+  const refusalWords = useAiRefusalWords();
+  const [name, setName] = useState(p.name);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    if (!name.trim()) return setError(t("admin.ai.providers.renameDialog.errors.name"));
+    setBusy(true);
+    const result = await rename.mutateAsync([p.id, name]).catch(() => null);
+    setBusy(false);
+    const refusal = result === null ? { error: "failed" } : refusalOf(result);
+    if (refusal) {
+      if (
+        refusal.error === "invalid" &&
+        (refusal.reason === "name" || refusal.reason === "name_taken")
+      )
+        return setError(
+          t(
+            `admin.ai.providers.renameDialog.errors.${refusal.reason === "name" ? "name" : "taken"}`,
+          ),
+        );
+      return setError(refusalWords(refusal.error) || null);
+    }
+    toast.show(t("admin.ai.providers.renameDialog.done", { name: name.trim() }));
+    onClose();
+  }
+
+  return (
+    <Dialog
+      title={t("admin.ai.providers.renameDialog.title", { name: p.name })}
+      onClose={onClose}
+      width={440}
+      footer={
+        <>
+          <button type="button" className={secondaryButton} onClick={onClose}>
+            {t("admin.ai.cancel")}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            className={`${primaryButton} disabled:opacity-40`}
+            onClick={() => void submit()}
+          >
+            {t("admin.ai.providers.renameDialog.submit")}
+          </button>
+        </>
+      }
+    >
+      <TextField
+        label={t("admin.ai.providers.renameDialog.name")}
+        value={name}
+        onChange={setName}
+        error={error ?? undefined}
+      />
     </Dialog>
   );
 }

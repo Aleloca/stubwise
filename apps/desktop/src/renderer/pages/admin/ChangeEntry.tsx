@@ -114,6 +114,11 @@ export function ObjectLink({ link, children }: { link: ChangeObjectLink; childre
         <Link to="/admin/plugins/$pluginId" params={{ pluginId: link.id }} className={linkClass}>
           {children}
         </Link>
+      ) : link.section === "webhooks" && link.id ? (
+        // F3: un webhook ha la sua pagina.
+        <Link to="/admin/webhooks/$webhookId" params={{ webhookId: link.id }} className={linkClass}>
+          {children}
+        </Link>
       ) : (
         <Link to="/admin/$section" params={{ section: link.section }} className={linkClass}>
           {children}

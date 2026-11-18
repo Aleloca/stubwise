@@ -72,7 +72,12 @@ export const INSTANCE_CHANGE_TYPES: readonly ChangeType[] = [
   google("google_app.deleted"),
   settings("storage.changed"),
   settings("storage.secret_replaced"),
-  settings("webhook.changed"),
+  // Integrazione area 9, F3 (H-3): una voce per azione su UN webhook, con
+  // `integrations.manage` (H-1), come il catalogo del server.
+  google("webhook.created"),
+  google("webhook.updated"),
+  google("webhook.secret_replaced"),
+  google("webhook.deleted"),
   servers("server.created"),
   servers("server.updated"),
   servers("server.deleted"),

@@ -1198,6 +1198,39 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     loro fette (F3 per la 9b): fino ad allora il registro dell'app ha solo i
     tipi dell'area 9 *(dichiarato)*.
 
+- **F3 renderer, i webhook in uscita nell'app** *(94, 18 nov 2026)*:
+  - il server non ricorda l'ultima prova di un webhook (`POST …/test` dice
+    solo com'è andata): l'app la tiene per la sessione, e ricaricando torna
+    «not tested yet» *(S, serve `lastTest` nella vista del server)*;
+  - AI → Providers: la prova la fa il worker (si rilegge finché non è più
+    `pending`, al più ~60 s, poi «prova ancora in corso»); `failed` non
+    distingue la credenziale sbagliata dalla rete e si dice «credenziale
+    non valida»; le credenziali salvate prima della 0190 non hanno le
+    ultime 4 («••••»); la riga della quota la vede solo chi ha
+    `usage.view` *(dichiarato; S per distinguere l'errore di rete)*;
+  - AI → Usage resta «Coming soon»: il server ha `/api/usage-costs` (del
+    web vecchio) ma non c'è nel client, e la forma non è quella della scheda
+    (gruppi, sotto-gruppi, giorni) *(M, non era nel piano di F3)*;
+  - Storage: il server non ha la prova dell'archiviazione né l'interruttore
+    degli allegati (li deriva dalla configurazione), quindi nell'app quei due
+    comandi non ci sono; niente ultime 4 della chiave («••••») *(S)*;
+  - Plugins: il server non dice chi ha registrato o aggiornato un plugin
+    («updated … by» senza nome) *(S)*;
+  - Git accounts: niente ultime 4 del token («••••»); la validazione non
+    resta sul server (la ricorda la sessione); i repository che usano un
+    account non arrivano, né nella riga né nel rifiuto `in_use`; chi
+    verrebbe sostituito come revisore predefinito si sa solo dopo, dalla
+    risposta *(S per ciascuno)*;
+  - Google Workspace: il server non tiene le ultime 4 del client secret
+    («••••»), e delle caselle collegate dà solo il numero: il dialogo di
+    un'app in uso le dice contate, senza i nomi *(S)*;
+  - AI → Automation: le regole di `feedback` e `review` non si modificano
+    nell'app (la pagina ha le tre righe delle task) e si rimandano com'erano
+    *(S, se servono due righe in più)*;
+  - «Load more» del registro e «Undid…» (area 10a, F7): la data della riga
+    porta alla voce annullata solo se è fra le pagine già lette *(S, da
+    rivedere con F7)*.
+
 ## Area 10 — Integrazione di Claude
 
 - Le citazioni di file del repository (`kind file`, `<repo>:<path>`, visibili

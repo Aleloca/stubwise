@@ -1,26 +1,37 @@
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useId, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   WEBHOOK_EVENTS,
-  useSaveWebhook,
+  WEBHOOK_LIMIT,
+  useCreateWebhook,
+  useDeleteWebhook,
+  useRegenerateOutgoingWebhookSecret,
   useSimulateNextTest,
   useTestWebhook,
+  useUpdateWebhook,
   useWebhook,
   useWebhookPreview,
+  useWebhooks,
   type TestOutcome,
   type WebhookEventId,
   type WebhookFormat,
   type WebhookGroup,
   type WebhookView,
 } from "../../../data/queries";
+import { isAppBuild } from "../../../data/build";
+import { editBlockOf, patchOf } from "./webhookPatch";
+import { useReauth } from "../../../layout/useReauth";
 import { formatDate } from "../../../notifications/time";
+import { Dialog } from "../../../tasks-ui/Dialog";
 import { useToast } from "../../../tasks-ui/Toast";
 import { PrototypeBox } from "../../automations/shared";
 import { Segmented } from "../../automations/builder/controls";
 import { ErrorLine } from "../../entry/parts";
 import { ReadError, refusalOf } from "../../preferences/parts";
+import { SecretOnce } from "../../preferences/SecretOnce";
 import { Switch } from "../../preferences/SubscriptionRow";
-import { primaryButton, quietButton, secondaryButton } from "../../tasks/controls";
+import { dangerSolidButton, primaryButton, quietButton, secondaryButton } from "../../tasks/controls";
 import { AiSkeleton } from "../ai/parts";
 import {
   CHECK_MS,
@@ -34,16 +45,19 @@ import {
   wait,
 } from "./parts";
 
-// Outgoing webhooks (shape admin-integrations.md «Outgoing webhooks»): un
-// messaggio a un canale di chat o a un endpoint quando succede qualcosa in
-// un progetto. La voce c'è solo con `settings.manage`. L'indirizzo NON è un
-// segreto (maintainer, 30 ott 2026): campo di testo normale, sempre riletto
-// col valore salvato, e salvarlo non chiede la riconferma. Gli eventi sono i
-// 21 di `WEBHOOK_EVENTS`, nei sei gruppi dello shape, un interruttore
-// ciascuno; le risposte dei clienti non ci sono mai (maintainer). A 1440 il
+// Outgoing webhooks (shape admin-integrations.md «Outgoing webhooks»;
+// integrazione area 9, F3, D-10 = b): un ELENCO di webhook, ognuno col suo
+// nome, indirizzo, formato, eventi e segreto di firma. La voce c'è con
+// `integrations.manage` (H-1). L'indirizzo NON è un segreto (maintainer, 30
+// ott 2026): campo di testo normale, riletto col valore salvato, e cambiarlo
+// non chiede la riconferma. Il segreto di firma lo genera Stubwise: si vede
+// UNA volta, alla creazione e alla rigenerazione (con la riconferma), in un
+// `SecretOnce` che vive solo nello stato del componente; eliminare chiede la
+// riconferma. Gli eventi sono i 21 di `WEBHOOK_EVENTS`, nei sei gruppi dello
+// shape; le risposte dei clienti non ci sono mai (maintainer). A 1440 il
 // modulo sta a sinistra e l'anteprima a destra; a 1024 l'anteprima scende
 // sotto gli eventi, chiusa dietro «Show preview». La prova va all'indirizzo
-// salvato.
+// salvato, anche con i messaggi spenti.
 
 const FORMATS: readonly WebhookFormat[] = ["slack", "discord", "generic"];
 const GROUPS: readonly WebhookGroup[] = ["tasks", "work", "prs", "docs", "servers", "project"];
@@ -52,156 +66,508 @@ const STEPS: Record<WebhookFormat, number> = { slack: 5, discord: 5, generic: 3 
 /** L'evento d'esempio di partenza: «New task in ACQ». */
 const FIRST_EVENT: WebhookEventId = "ticket.created";
 
+/** `/admin/webhooks`: l'elenco e «New webhook». */
 export function WebhooksPage() {
   const { t } = useTranslation();
-  const webhook = useWebhook();
+  const webhooks = useWebhooks();
+  const full = (webhooks.data?.length ?? 0) >= WEBHOOK_LIMIT;
   return (
-    <IntegrationPage title={t("admin.webhooks.title")} intro={t("admin.webhooks.intro")} wide>
-      {webhook.isPending ? (
-        <div className="@container">
-          <div className="mt-6 grid gap-10 @min-[960px]:grid-cols-[560px_minmax(0,1fr)]">
-            <AiSkeleton rows={6} height={44} />
-            <AiSkeleton rows={1} height={160} />
-          </div>
+    <IntegrationPage
+      title={t("admin.webhooks.title")}
+      intro={t("admin.webhooks.intro")}
+      action={
+        webhooks.data && (
+          <Link
+            to="/admin/webhooks/$webhookId"
+            params={{ webhookId: "new" }}
+            aria-disabled={full || undefined}
+            title={full ? t("admin.webhooks.limit", { count: WEBHOOK_LIMIT }) : undefined}
+            onClick={(e) => full && e.preventDefault()}
+            className={`${primaryButton} ${full ? "opacity-40" : ""}`}
+          >
+            {t("admin.webhooks.new")}
+          </Link>
+        )
+      }
+    >
+      {webhooks.isPending ? (
+        <div className="mt-6">
+          <AiSkeleton rows={3} height={52} />
         </div>
-      ) : webhook.isError ? (
-        <ReadError message={t("admin.webhooks.loadError")} onRetry={() => void webhook.refetch()} />
+      ) : webhooks.isError ? (
+        <ReadError message={t("admin.webhooks.loadError")} onRetry={() => void webhooks.refetch()} />
+      ) : webhooks.data.length === 0 ? (
+        <p className="mt-6 border-t border-rule pt-6 text-md text-ink">{t("admin.webhooks.empty")}</p>
       ) : (
-        <div className="@container">
-          <WebhookForm webhook={webhook.data} />
-        </div>
+        <>
+          <ul className="mt-6 border-t border-rule">
+            {webhooks.data.map((w) => (
+              <WebhookRow key={w.id} webhook={w} />
+            ))}
+          </ul>
+          {full && (
+            <div className="mt-3">
+              <QuietNote>{t("admin.webhooks.limit", { count: WEBHOOK_LIMIT })}</QuietNote>
+            </div>
+          )}
+        </>
       )}
     </IntegrationPage>
   );
 }
 
-function WebhookForm({ webhook: w }: { webhook: WebhookView }) {
+function WebhookRow({ webhook: w }: { webhook: WebhookView }) {
   const { t } = useTranslation();
-  const save = useSaveWebhook();
+  return (
+    <li data-webhook-row className="border-b border-rule py-3">
+      <div className="flex items-baseline gap-3">
+        <Link
+          to="/admin/webhooks/$webhookId"
+          params={{ webhookId: w.id }}
+          className="min-w-0 truncate text-md font-medium text-ink underline-offset-4 hover:underline"
+        >
+          {w.name}
+        </Link>
+        <span className="text-sm text-ink-muted">{t(`admin.webhooks.formats.${w.format}`)}</span>
+        {!w.enabled && (
+          <span className="rounded-sm bg-ink/6 px-1.5 text-xs text-ink-muted">
+            {t("admin.webhooks.offBadge")}
+          </span>
+        )}
+        <span className="num ml-auto shrink-0 text-sm text-ink-muted">
+          {t("admin.webhooks.eventCount", { count: w.events.length, total: WEBHOOK_EVENTS.length })}
+        </span>
+      </div>
+      <p className="mt-0.5 truncate text-sm text-ink-muted">{w.url}</p>
+      <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-sm text-ink-muted">
+        <TestWords sending={false} last={w.lastTest} />
+      </p>
+    </li>
+  );
+}
+
+/** `/admin/webhooks/$webhookId` (e `new`): il modulo, il segreto, l'eliminazione, l'anteprima. */
+export function WebhookPage({ webhookId }: { webhookId: string }) {
+  const { t } = useTranslation();
+  const isNew = webhookId === "new";
+  const webhook = useWebhook(isNew ? undefined : webhookId);
+  return (
+    <section className="page-header pb-16 pl-8 [--page-header-pr:32px] [--page-header-pt:32px]">
+      <div className="max-w-[1040px]">
+        <Link
+          to="/admin/$section"
+          params={{ section: "webhooks" }}
+          data-back-link
+          className="inline-flex items-center gap-1 rounded-sm text-sm text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:text-ink"
+        >
+          <span aria-hidden="true">←</span>
+          <span>{t("admin.webhooks.back")}</span>
+        </Link>
+        {isNew ? (
+          <NewWebhook />
+        ) : webhook.isPending ? (
+          <div className="mt-6 grid gap-10">
+            <AiSkeleton rows={6} height={44} />
+          </div>
+        ) : webhook.isError ? (
+          (webhook.error as Error).message === "not_found" ? (
+            <p className="mt-4 text-md text-ink">{t("admin.webhooks.notFound")}</p>
+          ) : (
+            <ReadError
+              message={t("admin.webhooks.loadOneError")}
+              onRetry={() => void webhook.refetch()}
+            />
+          )
+        ) : (
+          <WebhookForm key={webhook.data.id} webhook={webhook.data} />
+        )}
+      </div>
+    </section>
+  );
+}
+
+const BLANK: WebhookView = {
+  id: "",
+  name: "",
+  url: "",
+  format: "slack",
+  enabled: true,
+  events: [],
+  secretSet: false,
+  secretRotatedAt: null,
+  createdAt: "",
+  lastTest: null,
+};
+
+/** Un webhook nuovo: creato (con la riconferma), il segreto si vede qui, una volta. */
+function NewWebhook() {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const [created, setCreated] = useState<{ id: string; secret: string } | null>(null);
+  if (created)
+    return (
+      <div className="mt-6 max-w-[560px]">
+        <SecretOnce
+          title={t("admin.webhooks.createdTitle")}
+          value={created.secret}
+          onDone={() =>
+            void navigate({ to: "/admin/webhooks/$webhookId", params: { webhookId: created.id } })
+          }
+        >
+          <p className="text-sm text-ink-muted">{t("admin.webhooks.secret.note")}</p>
+        </SecretOnce>
+      </div>
+    );
+  return <WebhookForm webhook={BLANK} onCreated={setCreated} />;
+}
+
+function WebhookForm({
+  webhook: w,
+  onCreated,
+}: {
+  webhook: WebhookView;
+  /** Solo per un webhook nuovo: il segreto appena nato. */
+  onCreated?: (r: { id: string; secret: string }) => void;
+}) {
+  const { t } = useTranslation();
+  const isNew = onCreated !== undefined;
+  const create = useCreateWebhook();
+  const update = useUpdateWebhook();
+  const reauth = useReauth();
   const toast = useToast();
   const refusalWords = useRefusalWords();
+  const [name, setName] = useState(w.name);
   const [enabled, setEnabled] = useState(w.enabled);
   const [format, setFormat] = useState<WebhookFormat>(w.format);
-  const [url, setUrl] = useState(w.url ?? "");
-  const [events, setEvents] = useState<Record<WebhookEventId, boolean>>(w.events);
+  const [url, setUrl] = useState(w.url);
+  const [events, setEvents] = useState<WebhookEventId[]>(w.events);
   const [previewEvent, setPreviewEvent] = useState<WebhookEventId>(FIRST_EVENT);
   const [showPreview, setShowPreview] = useState(false);
-  const [errors, setErrors] = useState<{ url?: string; form?: string }>({});
+  const [errors, setErrors] = useState<{ name?: string; url?: string; form?: string }>({});
   const [busy, setBusy] = useState(false);
   const previewId = useId();
-  const onCount = WEBHOOK_EVENTS.filter((e) => events[e.id]).length;
+  const on = new Set(events);
+  // Review F3, I2: un formato o eventi che il client non conosce.
+  const block = editBlockOf(w);
   // La prova va all'indirizzo salvato: lo si dice se quello scritto è un altro.
-  const unsavedTarget = url.trim() !== (w.url ?? "") || format !== w.format;
+  const unsavedTarget = url.trim() !== w.url || format !== w.format;
 
   async function submit() {
     setErrors({});
+    if (!name.trim()) return setErrors({ name: t("admin.webhooks.errors.name") });
+    if (!url.trim()) return setErrors({ url: t("admin.webhooks.errors.missing") });
     setBusy(true);
-    const result = await save
-      .mutateAsync({ enabled, format, url: url.trim() || null, events })
-      .catch(() => null);
+    const input = { name: name.trim(), url: url.trim(), format, enabled, events };
+    // Review F3, I2: modificando, solo i campi cambiati.
+    const patch = isNew ? {} : patchOf(w, input);
+    if (!isNew && Object.keys(patch).length === 0) {
+      setBusy(false);
+      return toast.show(t("admin.integrations.saved"));
+    }
+    const result = await (
+      isNew
+        ? reauth(() => create.mutateAsync(input), {
+            action: t("admin.webhooks.createAction", { name: input.name }),
+          })
+        : patch.url !== undefined
+          ? // Un indirizzo nuovo chiede la riconferma (maintainer, 18 nov 2026).
+            reauth(() => update.mutateAsync([w.id, patch]), {
+              action: t("admin.webhooks.urlAction", { name: w.name }),
+            })
+          : update.mutateAsync([w.id, patch])
+    ).catch(() => null);
     setBusy(false);
     if (result === null) return setErrors({ form: t("admin.integrations.saveFailed") });
     const refusal = refusalOf(result);
     if (refusal) {
       if (refusal.error === "invalid" && refusal.reason === "url")
-        return setErrors({
-          url: url.trim() ? t("admin.webhooks.errors.https") : t("admin.webhooks.errors.missing"),
-        });
+        return setErrors({ url: t("admin.webhooks.errors.https") });
+      if (refusal.error === "invalid" && refusal.reason === "name")
+        return setErrors({ name: t("admin.webhooks.errors.name") });
+      if (
+        refusal.error === "invalid" &&
+        (refusal.reason === "webhook_limit" || refusal.reason === "events")
+      )
+        return setErrors({ form: t(`admin.webhooks.errors.${refusal.reason}`) });
       const form = refusalWords(refusal.error);
       return setErrors(form ? { form } : {});
+    }
+    if (isNew && "webhook" in result) {
+      const created = result as unknown as { webhook: WebhookView; secret: string };
+      onCreated({ id: created.webhook.id, secret: created.secret });
+      return;
     }
     toast.show(t("admin.integrations.saved"));
   }
 
   return (
-    <div className="mt-6 grid gap-x-10 gap-y-8 border-t border-rule pt-6 @min-[960px]:grid-cols-[560px_minmax(0,1fr)]">
-      <div className="flex min-w-0 flex-col gap-6">
-        <div className="flex flex-col gap-1.5">
-          <span className="flex items-center gap-2.5 text-md font-medium text-ink">
-            <Switch checked={enabled} label={t("admin.webhooks.send")} onChange={setEnabled} />
-            <span aria-hidden="true">{t("admin.webhooks.send")}</span>
-          </span>
-          {!enabled && (
-            <div className="pl-[42px]">
-              <QuietNote>{t("admin.webhooks.off")}</QuietNote>
-            </div>
-          )}
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <span aria-hidden="true" className="text-sm font-medium text-ink">
-            {t("admin.webhooks.format")}
-          </span>
-          <Segmented<WebhookFormat>
-            label={t("admin.webhooks.format")}
-            value={format}
-            options={FORMATS.map((f) => ({ value: f, label: t(`admin.webhooks.formats.${f}`) }))}
-            onChange={setFormat}
+    <div className="@container">
+      <h1 tabIndex={-1} className="mt-4 text-2xl font-semibold tracking-[-0.01em] text-ink outline-none">
+        {isNew ? t("admin.webhooks.newTitle") : w.name}
+      </h1>
+      <div className="mt-6 grid gap-x-10 gap-y-8 border-t border-rule pt-6 @min-[960px]:grid-cols-[560px_minmax(0,1fr)]">
+        <div className="flex min-w-0 flex-col gap-6">
+          <TextField
+            label={t("admin.webhooks.name")}
+            value={name}
+            onChange={setName}
+            error={errors.name}
           />
-        </div>
 
-        <TextField
-          label={t("admin.webhooks.address")}
-          value={url}
-          onChange={setUrl}
-          placeholder={format === "slack" ? "https://hooks.slack.com/services/…" : "https://…"}
-          hint={t("admin.webhooks.addressNote")}
-          error={errors.url}
-        />
-
-        <Disclosure title={t("admin.webhooks.howTo")}>
-          <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-sm text-pretty text-ink marker:text-ink-muted">
-            {Array.from({ length: STEPS[format] }, (_, i) => (
-              <li key={i}>{t(`admin.webhooks.steps.${format}.s${i + 1}`)}</li>
-            ))}
-          </ol>
-        </Disclosure>
-
-        <EventsSection
-          events={events}
-          onCount={onCount}
-          onToggle={(id, on) => setEvents((e) => ({ ...e, [id]: on }))}
-          onPoint={setPreviewEvent}
-        />
-
-        <div className="flex flex-col gap-2 border-t border-rule pt-5">
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void submit()}
-              className={`${primaryButton} disabled:opacity-40`}
-            >
-              {t("admin.webhooks.save")}
-            </button>
-            <TestButton webhook={w} unsavedTarget={unsavedTarget} />
+          <div className="flex flex-col gap-1.5">
+            <span className="flex items-center gap-2.5 text-md font-medium text-ink">
+              <Switch checked={enabled} label={t("admin.webhooks.send")} onChange={setEnabled} />
+              <span aria-hidden="true">{t("admin.webhooks.send")}</span>
+            </span>
+            {!enabled && (
+              <div className="pl-[42px]">
+                <QuietNote>{t("admin.webhooks.off")}</QuietNote>
+              </div>
+            )}
           </div>
-          {errors.form && <ErrorLine>{errors.form}</ErrorLine>}
+
+          <div className="flex flex-col gap-1.5">
+            <span aria-hidden="true" className="text-sm font-medium text-ink">
+              {t("admin.webhooks.format")}
+            </span>
+            <Segmented<WebhookFormat>
+              label={t("admin.webhooks.format")}
+              value={format}
+              options={FORMATS.map((f) => ({ value: f, label: t(`admin.webhooks.formats.${f}`) }))}
+              onChange={setFormat}
+            />
+          </div>
+
+          <TextField
+            label={t("admin.webhooks.address")}
+            value={url}
+            onChange={setUrl}
+            placeholder={format === "slack" ? "https://hooks.slack.com/services/…" : "https://…"}
+            hint={t("admin.webhooks.addressNote")}
+            error={errors.url}
+          />
+
+          <Disclosure title={t("admin.webhooks.howTo")}>
+            <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-sm text-pretty text-ink marker:text-ink-muted">
+              {Array.from({ length: STEPS[format] }, (_, i) => (
+                <li key={i}>{t(`admin.webhooks.steps.${format}.s${i + 1}`)}</li>
+              ))}
+            </ol>
+          </Disclosure>
+
+          {block.events && <QuietNote>{t("admin.webhooks.unknownEvents")}</QuietNote>}
+          <EventsSection
+            events={on}
+            disabled={block.events}
+            onToggle={(id, value) =>
+              setEvents((list) =>
+                value ? [...list.filter((e) => e !== id), id] : list.filter((e) => e !== id),
+              )
+            }
+            onPoint={setPreviewEvent}
+          />
+
+          <div className="flex flex-col gap-2 border-t border-rule pt-5">
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                disabled={busy || block.form}
+                onClick={() => void submit()}
+                className={`${primaryButton} disabled:opacity-40`}
+              >
+                {isNew
+                  ? busy
+                    ? t("admin.webhooks.creating")
+                    : t("admin.webhooks.create")
+                  : t("admin.webhooks.save")}
+              </button>
+              {!isNew && <TestButton webhook={w} unsavedTarget={unsavedTarget} />}
+            </div>
+            {errors.form && <ErrorLine>{errors.form}</ErrorLine>}
+            {block.form && <QuietNote>{t("admin.webhooks.unknownFormat")}</QuietNote>}
+          </div>
+
+          {!isNew && <SecretSection webhook={w} />}
+          {!isNew && <DeleteSection webhook={w} />}
+
+          {/* A 1024: l'anteprima scende qui, chiusa di default. */}
+          <button
+            type="button"
+            aria-expanded={showPreview}
+            aria-controls={previewId}
+            onClick={() => setShowPreview((s) => !s)}
+            className={`${quietButton} self-start @min-[960px]:hidden`}
+          >
+            {showPreview ? t("admin.webhooks.hidePreview") : t("admin.webhooks.showPreview")}
+          </button>
         </div>
 
-        {/* A 1024: l'anteprima scende qui, chiusa di default. */}
-        <button
-          type="button"
-          aria-expanded={showPreview}
-          aria-controls={previewId}
-          onClick={() => setShowPreview((s) => !s)}
-          className={`${quietButton} self-start @min-[960px]:hidden`}
+        <div
+          id={previewId}
+          className={`${showPreview ? "" : "hidden"} min-w-0 @min-[960px]:sticky @min-[960px]:top-8 @min-[960px]:block @min-[960px]:self-start @min-[960px]:border-l @min-[960px]:border-rule @min-[960px]:pl-10`}
         >
-          {showPreview ? t("admin.webhooks.hidePreview") : t("admin.webhooks.showPreview")}
-        </button>
-      </div>
+          <Preview eventId={previewEvent} format={format} />
+        </div>
 
-      <div
-        id={previewId}
-        className={`${showPreview ? "" : "hidden"} min-w-0 @min-[960px]:sticky @min-[960px]:top-8 @min-[960px]:block @min-[960px]:self-start @min-[960px]:border-l @min-[960px]:border-rule @min-[960px]:pl-10`}
-      >
-        <Preview eventId={previewEvent} format={format} />
-      </div>
-
-      <div className="max-w-[560px] @min-[960px]:col-span-2">
-        <NextTestBox />
+        {/* L'esito della prossima prova si sceglie solo nel prototipo. */}
+        {!isNew && !isAppBuild() && (
+          <div className="max-w-[560px] @min-[960px]:col-span-2">
+            <NextTestBox />
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+/** Il segreto di firma: impostato e quando; «Regenerate secret» con la riconferma, il nuovo una volta. */
+function SecretSection({ webhook: w }: { webhook: WebhookView }) {
+  const { t, i18n } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const titleId = useId();
+  return (
+    <section aria-labelledby={titleId} className="flex flex-col gap-2 border-t border-rule pt-5">
+      <h2 id={titleId} className="text-xl font-semibold text-ink">
+        {t("admin.webhooks.secret.title")}
+      </h2>
+      <p className="text-md text-ink">
+        {w.secretSet && w.secretRotatedAt ? (
+          <span className="num">
+            {t("admin.webhooks.secret.set", { date: formatDate(w.secretRotatedAt, i18n.language) })}
+          </span>
+        ) : (
+          t("admin.webhooks.secret.none")
+        )}
+      </p>
+      <p className="text-sm text-pretty text-ink-muted">{t("admin.webhooks.secret.note")}</p>
+      <div>
+        <button type="button" className={secondaryButton} onClick={() => setOpen(true)}>
+          {t("admin.webhooks.secret.regenerate")}
+        </button>
+      </div>
+      {open && <RegenerateDialog webhook={w} onClose={() => setOpen(false)} />}
+    </section>
+  );
+}
+
+function RegenerateDialog({ webhook: w, onClose }: { webhook: WebhookView; onClose: () => void }) {
+  const { t } = useTranslation();
+  const regenerate = useRegenerateOutgoingWebhookSecret();
+  const reauth = useReauth();
+  const refusalWords = useRefusalWords();
+  // Il valore vive solo qui: «Done» chiude il dialogo e lo butta.
+  const [secret, setSecret] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    if (busy) return;
+    setBusy(true);
+    const result = await reauth(() => regenerate.mutateAsync(w.id), {
+      action: t("admin.webhooks.secret.action", { name: w.name }),
+    }).catch(() => null);
+    setBusy(false);
+    const refusal = result === null ? { error: "failed" } : refusalOf(result);
+    if (refusal) return setError(refusalWords(refusal.error) || null);
+    if (result && result.ok) setSecret(result.secret);
+  }
+
+  return (
+    <Dialog
+      title={t("admin.webhooks.secret.dialogTitle", { name: w.name })}
+      onClose={onClose}
+      width={480}
+      footer={
+        secret ? undefined : (
+          <>
+            <button type="button" className={secondaryButton} onClick={onClose}>
+              {t("admin.integrations.cancel")}
+            </button>
+            <button
+              type="button"
+              aria-disabled={busy || undefined}
+              className={dangerSolidButton}
+              onClick={() => void submit()}
+            >
+              {t("admin.webhooks.secret.submit")}
+            </button>
+          </>
+        )
+      }
+    >
+      {secret ? (
+        <SecretOnce title={t("admin.webhooks.secret.shownTitle")} value={secret} onDone={onClose} />
+      ) : (
+        <>
+          <p className="text-md text-pretty text-ink">{t("admin.webhooks.secret.dialogBody")}</p>
+          {error && <ErrorLine>{error}</ErrorLine>}
+        </>
+      )}
+    </Dialog>
+  );
+}
+
+/** «Delete webhook», con la riconferma; poi si torna all'elenco. */
+function DeleteSection({ webhook: w }: { webhook: WebhookView }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border-t border-rule pt-5">
+      <button type="button" className={secondaryButton} onClick={() => setOpen(true)}>
+        {t("admin.webhooks.delete.button")}
+      </button>
+      {open && <DeleteDialog webhook={w} onClose={() => setOpen(false)} />}
+    </div>
+  );
+}
+
+function DeleteDialog({ webhook: w, onClose }: { webhook: WebhookView; onClose: () => void }) {
+  const { t } = useTranslation();
+  const remove = useDeleteWebhook();
+  const reauth = useReauth();
+  const toast = useToast();
+  const navigate = useNavigate();
+  const refusalWords = useRefusalWords();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    setBusy(true);
+    const result = await reauth(() => remove.mutateAsync(w.id), {
+      action: t("admin.webhooks.delete.action", { name: w.name }),
+    }).catch(() => null);
+    setBusy(false);
+    const refusal = result === null ? { error: "failed" } : refusalOf(result);
+    if (refusal) return setError(refusalWords(refusal.error) || null);
+    toast.show(t("admin.webhooks.delete.done", { name: w.name }));
+    onClose();
+    void navigate({ to: "/admin/$section", params: { section: "webhooks" } });
+  }
+
+  return (
+    <Dialog
+      title={t("admin.webhooks.delete.title", { name: w.name })}
+      onClose={onClose}
+      width={440}
+      footer={
+        <>
+          <button type="button" className={secondaryButton} onClick={onClose}>
+            {t("admin.integrations.cancel")}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            className={`${dangerSolidButton} disabled:opacity-40`}
+            onClick={() => void submit()}
+          >
+            {t("admin.webhooks.delete.submit")}
+          </button>
+        </>
+      }
+    >
+      <p className="text-md text-pretty text-ink">{t("admin.webhooks.delete.body")}</p>
+      {error && <ErrorLine>{error}</ErrorLine>}
+    </Dialog>
   );
 }
 
@@ -211,12 +577,13 @@ function WebhookForm({ webhook: w }: { webhook: WebhookView }) {
  */
 function EventsSection({
   events,
-  onCount,
   onToggle,
   onPoint,
+  disabled = false,
 }: {
-  events: Record<WebhookEventId, boolean>;
-  onCount: number;
+  events: ReadonlySet<WebhookEventId>;
+  /** Review F3, I2: eventi che il client non conosce, non si cambiano da qui. */
+  disabled?: boolean;
   onToggle: (id: WebhookEventId, on: boolean) => void;
   onPoint: (id: WebhookEventId) => void;
 }) {
@@ -229,7 +596,7 @@ function EventsSection({
           {t("admin.webhooks.events")}
         </h2>
         <span className="num text-sm text-ink-muted">
-          {t("admin.webhooks.onCount", { on: onCount, total: WEBHOOK_EVENTS.length })}
+          {t("admin.webhooks.onCount", { on: events.size, total: WEBHOOK_EVENTS.length })}
         </span>
       </div>
       {GROUPS.map((group) => (
@@ -253,9 +620,10 @@ function EventsSection({
                   className="flex min-h-9 items-center gap-2.5 border-b border-rule py-1.5 last:border-b-0"
                 >
                   <Switch
-                    checked={events[e.id]}
+                    checked={events.has(e.id)}
                     label={label}
-                    onChange={(on) => onToggle(e.id, on)}
+                    disabledReason={disabled ? t("admin.webhooks.unknownEvents") : undefined}
+                    onChange={(on) => !disabled && onToggle(e.id, on)}
                   />
                   <span aria-hidden="true" className="min-w-0 text-md text-pretty text-ink">
                     {label}
@@ -270,7 +638,7 @@ function EventsSection({
   );
 }
 
-/** «Send a test» e il suo esito: la prova va all'indirizzo salvato. */
+/** «Send a test» e il suo esito: la prova va all'indirizzo salvato, anche con i messaggi spenti. */
 function TestButton({ webhook: w, unsavedTarget }: { webhook: WebhookView; unsavedTarget: boolean }) {
   const { t } = useTranslation();
   const test = useTestWebhook();
@@ -281,18 +649,11 @@ function TestButton({ webhook: w, unsavedTarget }: { webhook: WebhookView; unsav
   async function send() {
     setError(null);
     setSending(true);
-    const [result] = await Promise.all([
-      test.mutateAsync(undefined).catch(() => null),
-      wait(CHECK_MS),
-    ]);
+    const [result] = await Promise.all([test.mutateAsync(w.id).catch(() => null), wait(CHECK_MS)]);
     setSending(false);
     const refusal = result === null ? { error: "failed" } : refusalOf(result);
     if (!refusal) return;
-    setError(
-      refusal.error === "invalid" && refusal.reason === "url"
-        ? t("admin.webhooks.errors.testNeedsAddress")
-        : refusalWords(refusal.error) || null,
-    );
+    setError(refusalWords(refusal.error) || null);
   }
 
   return (

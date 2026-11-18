@@ -169,6 +169,42 @@ export function setProviderEnabledAs(me: string, id: string, enabled: boolean): 
   return { ok: true };
 }
 
+/**
+ * Rinomina un account (F3, come il server: senza riconferma, il nome non è
+ * un segreto). La voce è `provider.updated` coi nomi prima e dopo e
+ * `params.field: "name"`: la stessa del server, che la pagina legge come
+ * «nome: X → Y» (l'interruttore ha `on`/`off` e niente `field`).
+ */
+export async function renameProvider(id: string, name: string): Promise<InstanceResult> {
+  return renameProviderAs(await writer("instance.renameProvider"), id, name);
+}
+
+/** La forma sincrona di `renameProvider` per chi ha già passato il cancello. */
+export function renameProviderAs(me: string, id: string, name: string): InstanceResult {
+  const found = managed(me, id);
+  if ("refusal" in found) return found.refusal;
+  const { provider } = found;
+  const next = name.trim();
+  if (!next) return refuse.invalid("name");
+  if (next === provider.name) return { ok: true };
+  const taken = state.instance.providers.some(
+    (p) => p.id !== id && p.name.toLowerCase() === next.toLowerCase(),
+  );
+  if (taken) return refuse.invalid("name_taken");
+  const before = provider.name;
+  provider.name = next;
+  recordChange({
+    kind: "provider.updated",
+    actorId: me,
+    projectId: null,
+    object: objectOf(provider),
+    before,
+    after: next,
+    params: { field: "name" },
+  });
+  return { ok: true };
+}
+
 /** Sposta un account al posto `toIndex` della catena (da 0). */
 export async function moveProvider(id: string, toIndex: number): Promise<InstanceResult> {
   return moveProviderAs(await writer("instance.moveProvider"), id, toIndex);
