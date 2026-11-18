@@ -46,6 +46,22 @@ modifiche fatte PRIMA del collegamento sono in fondo alla tabella.
 | Registro delle modifiche (Amministrazione e Progetto → Settings) — F2 | `changelog.ts` | `admin:changelog`, `projectSettings:changelog` | Solo i tipi dell'area 9 finché F3 (9b) e la 9c non scrivono i loro. Le prime 50 voci e «Load more» col cursore del server (decisione del maintainer, 18 nov 2026; anche nel prototipo). «By Claude» e «Undid…» spenti fino a F7. Nessun link alle voci d'invito. `person.email_changed` nel gruppo «security», come sul server (test di parità del catalogo). |
 | Prototipo cambiato prima del collegamento | — | — | Foto (tipi dai primi byte, 512 KB); cambio d'email con l'attesa e il ramo admin; pagina del link che conferma solo al clic; password con la riconferma; disattivazione con `invalid_reassignment` per task e senza Claude; «Chi può farlo?» con Claude senza permessi; invito non valido senza nomi né date; «Mark as unread». |
 
+## Integrazione, F4: Stato dell'istanza, budget e consumi nella build app (area 9, 18 nov 2026)
+
+Sulle rotte di 72 (`feat/area9-f4`). Prima del collegamento il prototipo è
+cambiato: pausa e ripresa della coda chiedono `project.settings.manage` NEL
+progetto, il rilancio quello più `runs.start` nel progetto del lavoro (design
+§F4).
+
+| Voci | Adattatore | Funzione accesa | Differenze dichiarate |
+|---|---|---|---|
+| Instance status (code, lavori, worker, errori, quota, notte) | `instanceStatus.ts` | `admin:status` | I link li compone il client da tipo, progetto e codice; i worker sono gli slot dell'heartbeat, numerati dalla posizione. |
+| Pausa, ripresa, rilancio | `instanceStatus.ts` | (con lo Stato) | — |
+| AI → Budget & language | `budget.ts` | `ai-budget` | Niente simulazione del budget raggiunto. |
+| AI → Usage | `usage.ts` | `ai-usage` | Le righe `none` del server sono `key: null`; c'è «nessun account» per le corse senza provider. |
+| Automazioni: la coda in pausa | (frase `queuePaused`) | — | — |
+| La pausa nella colonna del progetto e in Tutti i progetti | — | (spenta) | Il server non la espone nelle letture di progetto (chiesta a 72). |
+
 ## Integrazione, F3: l'istanza nella build app (area 9, 18 nov 2026)
 
 La 9b nella build app, sulle rotte di 72 (`feat/area9-f3`). Piano:
