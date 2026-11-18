@@ -161,7 +161,6 @@ describe("rotte con riconferma recente", () => {
       "POST /api/plugins/:id/update",
       "POST /api/projects/:projectId/ingestion-key",
       "POST /api/projects/:projectId/widgets/:widgetId/identity-secret",
-      "POST /api/repositories/:id/env-files",
       "POST /api/repositories/:id/env-files/:fileId/import",
       "POST /api/repositories/:slug/webhook-secret",
       "POST /api/roles",

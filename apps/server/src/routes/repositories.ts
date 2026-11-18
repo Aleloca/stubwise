@@ -1,3 +1,5 @@
+import { recordChange } from "../services/change-log.js";
+import { recordRepositoryChanges, repositoryObject } from "../services/settings-entries.js";
 import { randomBytes } from "node:crypto";
 import {
   protectedBranchesInputSchema,
@@ -377,7 +379,8 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
       for (let attempt = 1; attempt <= MAX_SLUG_ATTEMPTS; attempt++) {
         const slug = attempt === 1 ? baseSlug : `${baseSlug}-${attempt}`;
         try {
-          const [created] = await app.db
+          const created = await app.db.transaction(async (tx) => {
+          const [row] = await tx
             .insert(repositories)
             .values({
               projectId,
@@ -402,7 +405,11 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
               webhookSecret: randomBytes(16).toString("hex"),
             })
             .returning();
-          if (!created) throw new Error("insert del repository non ha restituito la riga");
+          if (!row) throw new Error("insert del repository non ha restituito la riga");
+          // Area 9, F5: la voce nella transazione dell'insert.
+          await recordChange(tx, { type: "repository.created", actor: request.user!, projectId, data: { object: repositoryObject(row) } });
+          return row;
+          });
           // L'account può aver appena salvato la sua identità in
           // `checkReviewAccount`: si rilegge, così l'avviso guarda la cache vera.
           const [mainAccount] = await app.db.select().from(gitAccounts).where(eq(gitAccounts.id, account.id));
@@ -576,10 +583,11 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         );
         // Registra lo stato "configurato": la proiezione pubblica lo espone
         // come webhookConfiguredAt e la UI collassa l'azione di configurazione.
-        await app.db
-          .update(repositories)
-          .set({ webhookConfiguredAt: new Date() })
-          .where(eq(repositories.id, repository.id));
+        // Area 9, F5: lo stato di prima e di dopo (`not_configured`/`configured`/`failed`, il prototipo).
+        await app.db.transaction(async (tx) => {
+          await tx.update(repositories).set({ webhookConfiguredAt: new Date() }).where(eq(repositories.id, repository.id));
+          await recordChange(tx, { type: "repository.webhook_configured", actor: request.user!, projectId: repository.projectId, data: { object: repositoryObject(repository), before: repository.webhookConfiguredAt ? "configured" : "not_configured", after: "configured" } });
+        });
         return {
           ok: true as const,
           created: result.created,
@@ -589,6 +597,9 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         };
       } catch (error) {
         if (error instanceof GitProviderError) {
+          // Il tentativo fallito resta nel registro, come nel prototipo; il
+          // server non salva uno stato «fallito», quindi niente altro cambia.
+          await recordChange(app.db, { type: "repository.webhook_configured", actor: request.user!, projectId: repository.projectId, data: { object: repositoryObject(repository), before: repository.webhookConfiguredAt ? "configured" : "not_configured", after: "failed" } });
           // 422: la richiesta è valida ma il provider la rifiuta (es. scope
           // webhook mancante). Il messaggio < 500 passa intatto al client.
           return apiError(reply, 422, "git_provider_error", error.message);
@@ -746,11 +757,18 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         if (updates.reviewGitAccountId != null && updates.gitAccountId === undefined) {
           guards.push(ne(repositories.gitAccountId, updates.reviewGitAccountId));
         }
-        const [updated] = await app.db
-          .update(repositories)
-          .set(updates)
-          .where(and(eq(repositories.slug, request.params.slug), ...guards))
-          .returning();
+        // Area 9, F5: la riga di prima bloccata, l'update e le voci nella stessa transazione.
+        const updated = await app.db.transaction(async (tx) => {
+          const [before] = await tx.select().from(repositories).where(eq(repositories.slug, request.params.slug)).for("update");
+          if (!before) return undefined;
+          const [row] = await tx
+            .update(repositories)
+            .set(updates)
+            .where(and(eq(repositories.slug, request.params.slug), ...guards))
+            .returning();
+          if (row) await recordRepositoryChanges(tx, request.user!, before, row);
+          return row;
+        });
         if (!updated) {
           if (guards.length > 0) {
             const [exists] = await app.db

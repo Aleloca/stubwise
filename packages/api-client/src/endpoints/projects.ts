@@ -11,6 +11,8 @@ import {
   projectPulseSummarySchema,
   projectSchema,
   chronologyPageSchema,
+  ingestionKeyResultSchema,
+  projectPluginsViewSchema,
   weeklyBriefViewSchema,
 } from "@stubwise/shared";
 import type {
@@ -36,6 +38,9 @@ import type {
   Reader,
   UpdateProjectInput,
   WeeklyBriefView,
+  IngestionKeyResult,
+  ProjectPlugin,
+  ProjectPluginsView,
 } from "@stubwise/shared";
 import { z } from "zod";
 import type { ApiRequest } from "../client.js";
@@ -69,6 +74,27 @@ export function createProjectsEndpoints(request: ApiRequest) {
     },
     resumeQueue(projectId: string): Promise<void> {
       return request("POST", `/api/projects/${seg(projectId)}/queue/resume`);
+    },
+    /**
+     * Area 9, F5: una chiave d'ingestione nuova (`project.settings.manage`,
+     * riconferma: 403 `reauth_required`). La nuova si legge solo qui; la
+     * vecchia smette subito.
+     */
+    regenerateIngestionKey(projectId: string): Promise<Reader<IngestionKeyResult>> {
+      return request("POST", `/api/projects/${seg(projectId)}/ingestion-key`, undefined, ingestionKeyResultSchema);
+    },
+    /** Area 9, F5: le abilitazioni dei plugin, con la `version` da rimandare come `ifMatch`. */
+    plugins(projectId: string): Promise<Reader<ProjectPluginsView>> {
+      return request("GET", `/api/projects/${seg(projectId)}/plugins`, undefined, projectPluginsViewSchema);
+    },
+    /**
+     * L'insieme COMPLETO delle abilitazioni. Con `ifMatch` (la `version`
+     * letta): se nel frattempo qualcuno ha salvato, 409 `stale` con la
+     * versione e lo stato di adesso in `ApiError.details`
+     * (`projectPluginsStaleSchema`), e niente è scritto.
+     */
+    setPlugins(projectId: string, plugins: ProjectPlugin[], ifMatch?: string | null): Promise<Reader<ProjectPluginsView>> {
+      return request("PUT", `/api/projects/${seg(projectId)}/plugins`, { plugins, ...(ifMatch ? { ifMatch } : {}) }, projectPluginsViewSchema);
     },
     list(): Promise<Reader<ProjectListItem>[]> {
       return request("GET", "/api/projects", undefined, projectListSchema);

@@ -406,10 +406,10 @@ describe("area 9, F5: la riconferma e il registro dei file d'ambiente", () => {
     app.inject({ method, url, headers: { cookie }, ...(payload ? { payload } : {}) });
   const entries = async (type: string) => testDb.db.select().from(changeLog).where(eq(changeLog.type, type)).orderBy(changeLog.at, changeLog.id);
 
-  it("NEGATIVI: senza una riconferma recente ogni scrittura è 403 reauth_required e niente cambia; la lettura dei nomi no", async () => {
+  it("NEGATIVI: senza una riconferma recente import, imposta, togli ed elimina sono 403 e niente cambia; creare un file VUOTO e leggere i nomi no (D-5)", async () => {
     const created = (await createEnvFile(".env.f5")).json() as { id: string };
     const base = `/api/repositories/${projectId}/env-files`;
-    expect((await call("POST", base, stale, { path: ".env.altro", environmentId })).statusCode).toBe(403);
+    expect((await call("POST", base, stale, { path: ".env.altro", environmentId })).statusCode).toBe(201);
     expect((await call("POST", `${base}/${created.id}/import`, stale, { content: "A=1" })).statusCode).toBe(403);
     expect((await call("PUT", `${base}/${created.id}/vars/API_URL`, stale, { value: SECRET_VALUE })).statusCode).toBe(403);
     expect((await call("DELETE", `${base}/${created.id}/vars/API_URL`, stale)).statusCode).toBe(403);
