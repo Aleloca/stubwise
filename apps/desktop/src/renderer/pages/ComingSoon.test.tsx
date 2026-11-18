@@ -191,6 +191,9 @@ const INTEGRATED_CALLS = new Set([
   "projectSettings.getIntegration",
   "projectSettings.regenerateIngestionKey",
   "projectSettings.regenerateWebhookSecret",
+  // Area 9, F5: i plugin del progetto, con ifMatch.
+  "projectSettings.getProjectPlugins",
+  "projectSettings.saveProjectPlugins",
   // Area 9, F4: Instance status.
   "instance.getInstanceStatus",
   "instance.pauseQueue",
@@ -787,7 +790,7 @@ describe("aree non integrate nella build app", () => {
 
   it("una pagina di progetto non integrata mostra «Coming soon»", async () => {
     // Dall'area 8, F4a, ogni sezione di progetto è accesa: resta una voce delle impostazioni.
-    renderRoute("/p/AUD/settings/plugins");
+    renderRoute("/p/AUD/settings/archive");
     expect(await screen.findByText("Coming soon")).toBeInTheDocument();
     await settle();
     expect(outside()).toEqual([]);
@@ -1059,6 +1062,16 @@ describe("aree non integrate nella build app", () => {
     signedInAs("p-laura");
     renderRoute("/p/ACQ/settings/integration");
     await waitFor(() => expect(calls).toContain("projectSettings.getIntegration"));
+    await settle();
+    expect(screen.queryByText(/Coming soon/)).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F5: Progetto → Settings → Plugins accesa.
+  it("aprire Plugins di un progetto legge solo chiamate integrate", async () => {
+    signedInAs("p-laura");
+    renderRoute("/p/ACQ/settings/plugins");
+    await waitFor(() => expect(calls).toContain("projectSettings.getProjectPlugins"));
     await settle();
     expect(screen.queryByText(/Coming soon/)).toBeNull();
     expect(outside()).toEqual([]);

@@ -1238,6 +1238,18 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - Integration: il segreto del webhook si rigenera per slug, che
     l'adattatore ricorda dall'ultima lettura della pagina (la rigenerazione
     passa solo l'id del repository) *(S, se il server accetta l'id)*.
+  - Progetto → Settings → Plugins (F5): **la semantica è da decidere (46)**.
+    Sul server un plugin entra nei run solo se acceso sul progetto
+    (`enabled`), nel prototipo ogni pronto è acceso. Finché non si decide,
+    l'app rimanda `enabled` com'era, salva spento un pronto mai salvato (le
+    scelte restano) e lo dice «Non acceso per questo progetto»; la pagina
+    non ha un comando per accenderlo *(M, dipende dalla decisione)*;
+  - Plugins: il plugin base non c'è (sta fuori dal registro del server, nel
+    prototipo viene dal seme); le skill non hanno descrizione e i gruppi di
+    hook non hanno comando (il registro del progetto non li manda) *(S)*;
+  - Plugins: la lettura è sotto `project.settings.manage`, quindi un membro
+    senza quel permesso non vede la pagina in sola lettura come nel
+    prototipo (la trova «non disponibile») *(S, se il server apre la GET)*.
 
 ## Area 10 — Integrazione di Claude
 

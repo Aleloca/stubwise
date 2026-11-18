@@ -170,6 +170,7 @@ describe("isIntegrated", () => {
         "projectSettings:repositories",
         // Area 9, F5: Integration.
         "projectSettings:integration",
+        "projectSettings:plugins",
         "admin:departments",
         // Area 9, F1, R9: «Chi può farlo?».
         "admin:who-can",

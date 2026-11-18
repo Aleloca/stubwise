@@ -1,6 +1,6 @@
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../../data/api";
 import { projectSettings, resetApi, setLatency } from "../../data/api";
 import { setSessionPersonId } from "../../data/session";
@@ -185,6 +185,27 @@ describe("Plugins: la pagina", () => {
     await user.click(all);
     expect(superpowers).toHaveTextContent("Not in runs: everything is off");
     expect(saveBar()).toHaveTextContent("10 changes");
+  });
+});
+
+// Area 9, F5: sul server un plugin pronto entra nei run solo se è acceso sul
+// progetto (`inRuns` dalla lettura). Uno pronto ma non acceso non dice
+// «in runs»: lo dice spento, con le sue caselle.
+describe("Plugins: un plugin pronto ma non acceso sul progetto", () => {
+  it("dice che non entra nei run, non il conteggio", async () => {
+    const real = projectSettings.getProjectPlugins;
+    const spy = vi.spyOn(projectSettings, "getProjectPlugins").mockImplementation(async (id) => {
+      const view = (await real(id))!;
+      return {
+        ...view,
+        plugins: view.plugins.map((p) => (p.name === "superpowers" ? { ...p, inRuns: false } : p)),
+      };
+    });
+    await open(LAURA);
+    const superpowers = await block("superpowers");
+    expect(superpowers).toHaveTextContent("Not turned on for this project: it doesn't enter runs.");
+    expect(superpowers).not.toHaveTextContent("in runs");
+    spy.mockRestore();
   });
 });
 

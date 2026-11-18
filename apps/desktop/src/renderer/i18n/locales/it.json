@@ -3342,7 +3342,8 @@
         "Stop": "Quando Claude si ferma",
         "SubagentStop": "Quando un subagente si ferma",
         "PreCompact": "Prima di compattare"
-      }
+      },
+      "notTurnedOn": "Non acceso per questo progetto: non entra nei run."
     },
     "archive": {
       "intro": "Archivia {{code}} quando il lavoro è finito. Si può riaprire in ogni momento; solo un full admin può eliminarlo per sempre, e solo dopo averlo archiviato.",

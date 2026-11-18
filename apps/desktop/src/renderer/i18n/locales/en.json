@@ -3342,7 +3342,8 @@
         "Stop": "When Claude stops",
         "SubagentStop": "When a subagent stops",
         "PreCompact": "Before compacting"
-      }
+      },
+      "notTurnedOn": "Not turned on for this project: it doesn't enter runs."
     },
     "archive": {
       "intro": "Archive {{code}} when the work is over. It can be reopened at any time; only a full admin can delete it for good, and only once it's archived.",

@@ -509,8 +509,11 @@ function ReadyPlugin({
   const parts = [t("settings.plugins.skillsOf", { on: skillsOn, count: p.skills.length })];
   if (p.hooks.length > 0)
     parts.push(t("settings.plugins.hooksOf", { on: hooksOn, count: p.hooks.length }));
-  const count =
-    onCount === 0
+  // Area 9, F5: sul server un plugin pronto entra nei run solo se è acceso
+  // sul progetto; uno non acceso non dice «in runs».
+  const count = !p.inRuns
+    ? t("settings.plugins.notTurnedOn")
+    : onCount === 0
       ? t("settings.plugins.nothingInRuns")
       : t("settings.plugins.inRuns", { parts: parts.join(" · ") });
 
