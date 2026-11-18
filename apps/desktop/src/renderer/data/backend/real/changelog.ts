@@ -5,6 +5,7 @@ import type {
   ChangeFilter,
   ChangeFilterChoices,
   ChangeObjectLink,
+  ChangePage,
 } from "../../changelog/types";
 import { CLAUDE_ID } from "../../ids";
 import type { Viewer } from "../../types";
@@ -22,14 +23,10 @@ import { appClient } from "./client";
 // - `via: "claude"` e `undoOf` sono di F7: «By Claude» e «Undid…» restano
 //   spenti (nessuna voce, `claude: false`, `undoOf: null`);
 // - un invito non ha link: il server cancella gli inviti usati e revocati;
-// - le pagine (50 voci) si leggono tutte, fino a `MAX_PAGES`: la pagina del
-//   prototipo non ha «Load more».
+// - le pagine sono quelle del server (50 voci, `nextCursor`): «Load more».
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- forme del server lette dai Reader */
 type Any = any;
-
-/** Fin dove si legge, in pagine da 50 (2.000 voci). */
-const MAX_PAGES = 40;
 
 export interface ChangelogQuery {
   person?: string;
@@ -176,46 +173,34 @@ function queryOf(filter: ChangeFilter): ChangelogQuery {
 }
 
 export function createRealChangelog(api: ChangelogApi) {
-  /** Tutte le pagine, fino a `MAX_PAGES`. */
-  async function allPages(
-    read: (cursor?: string) => Promise<{ entries: Any[]; nextCursor: string | null }>,
-  ): Promise<Any[]> {
-    const out: Any[] = [];
-    let cursor: string | undefined;
-    for (let i = 0; i < MAX_PAGES; i++) {
-      const page = await read(cursor);
-      out.push(...page.entries);
-      if (!page.nextCursor) break;
-      cursor = page.nextCursor;
-    }
-    return out;
-  }
-
   const withCursor = <T extends object>(q: T, cursor?: string) => (cursor ? { ...q, cursor } : q);
 
   return {
-    async listChanges(filter: ChangeFilter = {}): Promise<ChangeEntryView[]> {
-      if (filter.via === "claude") return [];
-      const q = queryOf(filter);
-      const [entries, viewer] = await Promise.all([
-        allPages((c) => api.list(withCursor(q, c))),
+    /** Una pagina (50 voci) e il cursore della dopo: «Load more» (decisione del maintainer). */
+    async listChangesPage(filter: ChangeFilter = {}, cursor?: string): Promise<ChangePage> {
+      if (filter.via === "claude") return { entries: [], nextCursor: null };
+      const [page, viewer] = await Promise.all([
+        api.list(withCursor(queryOf(filter), cursor)),
         api.viewer(),
       ]);
-      return entries.map((e) => viewOf(e, viewer));
+      return { entries: page.entries.map((e) => viewOf(e, viewer)), nextCursor: page.nextCursor };
     },
 
-    async listProjectChanges(
+    async listProjectChangesPage(
       projectId: string,
       filter: Omit<ChangeFilter, "projectId"> = {},
-    ): Promise<ChangeEntryView[]> {
-      if (filter.via === "claude") return [];
-      const q = queryOf(filter);
+      cursor?: string,
+    ): Promise<ChangePage> {
+      if (filter.via === "claude") return { entries: [], nextCursor: null };
       try {
-        const [entries, viewer] = await Promise.all([
-          allPages((c) => api.listProject(projectId, withCursor(q, c))),
+        const [page, viewer] = await Promise.all([
+          api.listProject(projectId, withCursor(queryOf(filter), cursor)),
           api.viewer(),
         ]);
-        return entries.map((e) => viewOf(e, viewer));
+        return {
+          entries: page.entries.map((e) => viewOf(e, viewer)),
+          nextCursor: page.nextCursor,
+        };
       } catch (error) {
         if (error instanceof ApiError && error.status === 404) throw new Error("not_found");
         if (error instanceof ApiError && error.status === 403) throw new Error("forbidden");

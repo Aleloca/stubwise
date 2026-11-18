@@ -700,6 +700,8 @@ export type ApiFnName =
   // Registro delle modifiche e riconferma (area 9a, Task 3)
   | "changelog.listChanges"
   | "changelog.listProjectChanges"
+  | "changelog.listChangesPage"
+  | "changelog.listProjectChangesPage"
   | "changelog.listChangeFilterChoices"
   // «Chi può farlo?» (area 9a, Task 11)
   | "access.whoCan"

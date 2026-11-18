@@ -25,6 +25,7 @@ import type {
   ChangeFilter,
   ChangeFilterChoices,
   ChangeObjectLink,
+  ChangePage,
 } from "./types";
 
 // Le letture del registro (area 9a). Chi legge cosa, in UN posto
@@ -471,6 +472,41 @@ export async function listProjectChanges(
   if (!visibleProjectIds(me).has(projectId)) throw notFound();
   if (!managesProject(me, projectId)) throw forbidden();
   return changesReadableBy(me, { ...filter, projectId });
+}
+
+/** Quante voci per pagina (come il server). */
+const CHANGES_PAGE = 50;
+
+/** Le 50 voci dopo `cursor` (l'id dell'ultima voce della pagina prima). */
+function pageOf(all: ChangeEntryView[], cursor?: string): ChangePage {
+  const start = cursor ? all.findIndex((e) => e.id === cursor) + 1 : 0;
+  const entries = all.slice(start, start + CHANGES_PAGE);
+  const more = start + CHANGES_PAGE < all.length;
+  return { entries, nextCursor: more ? entries.at(-1)!.id : null };
+}
+
+/**
+ * Il registro a pagine (decisione del maintainer, 18 nov 2026: «Load more»,
+ * i filtri invariati): le pagine leggono questo, non `listChanges`.
+ */
+export async function listChangesPage(
+  filter: ChangeFilter = {},
+  cursor?: string,
+): Promise<ChangePage> {
+  const me = await gate("changelog.listChangesPage");
+  return pageOf(changesReadableBy(me, filter), cursor);
+}
+
+/** Il registro di un progetto a pagine; `not_found` e `forbidden` come `listProjectChanges`. */
+export async function listProjectChangesPage(
+  projectId: string,
+  filter: Omit<ChangeFilter, "projectId"> = {},
+  cursor?: string,
+): Promise<ChangePage> {
+  const me = await gate("changelog.listProjectChangesPage");
+  if (!visibleProjectIds(me).has(projectId)) throw notFound();
+  if (!managesProject(me, projectId)) throw forbidden();
+  return pageOf(changesReadableBy(me, { ...filter, projectId }), cursor);
 }
 
 /**

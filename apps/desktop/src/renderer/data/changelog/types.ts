@@ -198,3 +198,9 @@ export interface ChangeFilter {
   /** Area 10a: solo le voci scritte da Claude per qualcuno. */
   via?: "claude";
 }
+
+/** Una pagina del registro: le voci e il cursore della pagina dopo (`null` = finite). */
+export interface ChangePage {
+  entries: ChangeEntryView[];
+  nextCursor: string | null;
+}

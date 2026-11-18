@@ -75,7 +75,7 @@ describe("il registro delle modifiche dal server (area 9, F2)", () => {
         },
       }),
     );
-    const [v] = await createRealChangelog(api).listChanges();
+    const [v] = (await createRealChangelog(api).listChangesPage()).entries;
     expect(v).toMatchObject({
       kind: "role.updated",
       templateKey: "changelog.kinds.role.updated",
@@ -97,8 +97,8 @@ describe("il registro delle modifiche dal server (area 9, F2)", () => {
   it("il link solo se l'oggetto c'è ancora e chi guarda lo gestisce", async () => {
     const deleted = await createRealChangelog(
       withEntries(entry({ objectDeleted: true })).api,
-    ).listChanges();
-    expect(deleted[0]).toMatchObject({ objectDeleted: true, objectLink: null });
+    ).listChangesPage();
+    expect(deleted.entries[0]).toMatchObject({ objectDeleted: true, objectLink: null });
     const noManage = await createRealChangelog(
       fakeApi({
         list: async () => ({ entries: [entry({})], nextCursor: null }) as never,
@@ -109,8 +109,8 @@ describe("il registro delle modifiche dal server (area 9, F2)", () => {
           departmentPermissions: {},
         }),
       }).api,
-    ).listChanges();
-    expect(noManage[0]!.objectLink).toBeNull();
+    ).listChangesPage();
+    expect(noManage.entries[0]!.objectLink).toBeNull();
   });
 
   it("i membri di un reparto per nome (quelli di allora, già senza gli invisibili)", async () => {
@@ -131,7 +131,7 @@ describe("il registro delle modifiche dal server (area 9, F2)", () => {
         },
       }),
     );
-    const [v] = await createRealChangelog(api).listChanges();
+    const [v] = (await createRealChangelog(api).listChangesPage()).entries;
     expect(v!.diff).toEqual({ kind: "people", added: ["marco@example.com"], removed: [] });
   });
 
@@ -152,37 +152,32 @@ describe("il registro delle modifiche dal server (area 9, F2)", () => {
       });
     const views = await createRealChangelog(
       withEntries(member("member.permission_granted"), member("member.removed")).api,
-    ).listChanges();
-    expect(views[0]).toMatchObject({
+    ).listChangesPage();
+    expect(views.entries[0]).toMatchObject({
       projectCode: "ACQ",
       objectLink: { to: "member", projectCode: "ACQ", personId: MARCO },
       diff: { kind: "permissions", added: ["release.merge"], removed: [] },
     });
-    expect(views[1]!.objectLink).toEqual({ to: "person", personId: MARCO });
+    expect(views.entries[1]!.objectLink).toEqual({ to: "person", personId: MARCO });
   });
 
-  it("i filtri nella query; le voci d'istanza con project=instance; si leggono le pagine fino all'ultima", async () => {
+  it("i filtri nella query (project=instance per le voci d'istanza); una pagina per volta, col cursore del server", async () => {
     const queries: unknown[] = [];
-    const pages: Record<string, { entries: unknown[]; nextCursor: string | null }> = {
-      first: { entries: [entry({ id: "a1111111-1111-4111-8111-111111111111" })], nextCursor: "c2" },
-      c2: { entries: [entry({ id: "a2222222-2222-4222-8222-222222222222" })], nextCursor: null },
-    };
     const { api } = fakeApi({
       list: async (q) => {
         queries.push(q);
-        return pages[(q as { cursor?: string }).cursor ?? "first"] as never;
+        return {
+          entries: [entry({})],
+          nextCursor: (q as { cursor?: string }).cursor ? null : "c2",
+        } as never;
       },
     });
-    const v = await createRealChangelog(api).listChanges({
-      personId: MARCO,
-      projectId: null,
-      group: "roles",
-      withinDays: 30,
-    });
-    expect(v.map((e) => e.id)).toEqual([
-      "a1111111-1111-4111-8111-111111111111",
-      "a2222222-2222-4222-8222-222222222222",
-    ]);
+    const log = createRealChangelog(api);
+    const filter = { personId: MARCO, projectId: null, group: "roles", withinDays: 30 };
+    const first = await log.listChangesPage(filter);
+    expect(first.nextCursor).toBe("c2");
+    const second = await log.listChangesPage(filter, "c2");
+    expect(second.nextCursor).toBeNull();
     expect(queries).toEqual([
       { person: MARCO, project: "instance", group: "roles", withinDays: 30 },
       { person: MARCO, project: "instance", group: "roles", withinDays: 30, cursor: "c2" },
@@ -191,7 +186,10 @@ describe("il registro delle modifiche dal server (area 9, F2)", () => {
 
   it("«By Claude» non ha ancora voci sul server (F7): nessuna chiamata, nessuna voce", async () => {
     const { api, queries } = fakeApi();
-    expect(await createRealChangelog(api).listChanges({ via: "claude" })).toEqual([]);
+    expect(await createRealChangelog(api).listChangesPage({ via: "claude" })).toEqual({
+      entries: [],
+      nextCursor: null,
+    });
     expect(queries).toEqual([]);
   });
 
@@ -204,8 +202,12 @@ describe("il registro delle modifiche dal server (area 9, F2)", () => {
           },
         }).api,
       );
-    await expect(refusing(404, "not_found").listProjectChanges(PRJ)).rejects.toThrow("not_found");
-    await expect(refusing(403, "forbidden").listProjectChanges(PRJ)).rejects.toThrow("forbidden");
+    await expect(refusing(404, "not_found").listProjectChangesPage(PRJ)).rejects.toThrow(
+      "not_found",
+    );
+    await expect(refusing(403, "forbidden").listProjectChangesPage(PRJ)).rejects.toThrow(
+      "forbidden",
+    );
   });
 
   it("le scelte dei filtri: dal server, «By Claude» spento finché non c'è (F7)", async () => {

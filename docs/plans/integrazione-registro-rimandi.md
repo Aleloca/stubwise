@@ -1191,10 +1191,6 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     perde chi guarda con la bozza del ruolo *(S, review F1, M1 di 46)*.
 
 - **F2 renderer, il registro delle modifiche nell'app** *(94, 18 nov 2026)*:
-  - la pagina legge TUTTE le pagine del server (50 voci l'una) fino a 2.000
-    voci (`MAX_PAGES` in `data/backend/real/changelog.ts`): il prototipo non
-    ha «Load more». Oltre, le voci più vecchie non si vedono *(M, serve una
-    decisione su «Load more» o su un tetto per periodo)*;
   - una voce d'invito non ha link: il server cancella gli inviti usati e
     revocati, e la voce non dice se l'invito è ancora aperto *(S)*;
   - «By Claude» e la riga «Undid…» restano spenti fino a F7 (`via`,

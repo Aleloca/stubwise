@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as api from "@backend/api";
 import type { MemberDraft, PeopleFilter } from "../admin/types";
 import type { ChangeFilter } from "../changelog/types";
@@ -50,9 +50,12 @@ export function useCanSeeAiTab(tab: (typeof AI_TABS)[number]): boolean {
 /** Il registro delle modifiche in Amministrazione: le voci che chi guarda legge. */
 export function useChanges(filter: ChangeFilter = {}) {
   const me = useSessionPersonId();
-  return useQuery({
+  // «Load more» (decisione del maintainer): 50 voci per pagina, il cursore della pagina dopo.
+  return useInfiniteQuery({
     queryKey: queryKeys.changes(me, filter),
-    queryFn: () => api.changelog.listChanges(filter),
+    queryFn: ({ pageParam }) => api.changelog.listChangesPage(filter, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
   });
 }
 
@@ -65,9 +68,11 @@ export function useProjectChanges(
   filter: Omit<ChangeFilter, "projectId"> = {},
 ) {
   const me = useSessionPersonId();
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: queryKeys.projectChanges(me, projectId ?? "", filter),
-    queryFn: () => api.changelog.listProjectChanges(projectId!, filter),
+    queryFn: ({ pageParam }) => api.changelog.listProjectChangesPage(projectId!, filter, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     enabled: !!projectId,
   });
 }

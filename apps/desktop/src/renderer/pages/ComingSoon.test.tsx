@@ -152,8 +152,8 @@ const INTEGRATED_CALLS = new Set([
   "admin.deleteRole",
   "admin.viewerLosesIf",
   // Area 9, F2: il registro delle modifiche.
-  "changelog.listChanges",
-  "changelog.listProjectChanges",
+  "changelog.listChangesPage",
+  "changelog.listProjectChangesPage",
   "changelog.listChangeFilterChoices",
   // Area 9, F1, R8: Members.
   "admin.listProjectMembers",
@@ -826,7 +826,7 @@ describe("aree non integrate nella build app", () => {
   it("aprire Amministrazione → Change log legge solo chiamate integrate", async () => {
     signedInAs("p-roberta");
     renderRoute("/admin/changelog");
-    await waitFor(() => expect(calls).toContain("changelog.listChanges"));
+    await waitFor(() => expect(calls).toContain("changelog.listChangesPage"));
     await settle();
     expect(screen.queryByText(/Coming soon/)).toBeNull();
     expect(outside()).toEqual([]);
@@ -835,7 +835,7 @@ describe("aree non integrate nella build app", () => {
   it("aprire Change log di un progetto legge solo chiamate integrate", async () => {
     signedInAs("p-laura");
     renderRoute("/p/ACQ/settings/changelog");
-    await waitFor(() => expect(calls).toContain("changelog.listProjectChanges"));
+    await waitFor(() => expect(calls).toContain("changelog.listProjectChangesPage"));
     await settle();
     expect(screen.queryByText(/Coming soon/)).toBeNull();
     expect(outside()).toEqual([]);

@@ -12400,6 +12400,8 @@
     },
     "noMatch": "No changes match these filters.",
     "nothing": "Nothing recorded yet.",
+    "loadMore": "Load more",
+    "loadingMore": "Loading…",
     "projectEmpty": "No changes to {{code}} yet.",
     "error": "Couldn't load the change log.",
     "loading": "Loading the change log…",
