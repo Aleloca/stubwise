@@ -7442,7 +7442,8 @@
       "aiQueueBackStillBudget": "Queue resumed · still waiting: monthly AI budget reached",
       "projectUnavailable": "The project isn't available anymore.",
       "projectUnavailable_would": "The project isn't available anymore: the step would fail.",
-      "noDepartmentRecipient": "Nobody in the department sees the project: there's nobody to notify."
+      "noDepartmentRecipient": "Nobody in the department sees the project: there's nobody to notify.",
+      "queuePaused": "Waiting: the project's queue is paused. It starts again on its own when the queue is resumed."
     },
     "created": {
       "task_one": "{{count}} task",

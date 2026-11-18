@@ -272,6 +272,40 @@ describe("le esecuzioni con Claude (F3, R4)", () => {
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   });
 
+  // Area 9, F4 (72, af17d96da): la coda del progetto in pausa ferma il passo
+  // di Claude; riparte da solo alla ripresa.
+  it("ferma per la coda in pausa: lo dice, e non offre «Retry»", async () => {
+    install({
+      "GET /api/automations/AUD-A1/runs/8": {
+        body: run({
+          status: "running",
+          cursor: "0",
+          aiWaiting: { reason: "queue_paused", byId: null, since: "2026-11-13T08:00:00.000Z" },
+          log: [
+            {
+              at: "2026-11-13T09:00:00.000Z",
+              stepId: "c1",
+              path: "0",
+              kind: "claude",
+              outcome: "waiting",
+              input: {},
+              output: {},
+              reason: null,
+              why: { code: "queuePaused" },
+              byId: null,
+              effects: [],
+            },
+          ],
+        }),
+      },
+    });
+    renderRoute("/automations/AUD-A1/runs/8");
+    expect(
+      await screen.findAllByText(/project's queue is paused/, {}, { timeout: 3000 }),
+    ).not.toHaveLength(0);
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
   it("la motivazione di Claude che cita un'email che non vedo: la riga lo dice", async () => {
     install({
       "GET /api/automations/AUD-A1/runs/8": {

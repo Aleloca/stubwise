@@ -7442,7 +7442,8 @@
       "aiQueueBackStillBudget": "Coda ripresa · ancora in attesa: budget AI del mese raggiunto",
       "projectUnavailable": "Il progetto non è più disponibile.",
       "projectUnavailable_would": "Il progetto non è più disponibile: il passo fallirebbe.",
-      "noDepartmentRecipient": "Nessuno del reparto vede il progetto: non c'è nessuno da avvisare."
+      "noDepartmentRecipient": "Nessuno del reparto vede il progetto: non c'è nessuno da avvisare.",
+      "queuePaused": "In attesa: la coda del progetto è in pausa. Riparte da sola alla ripresa."
     },
     "created": {
       "task_one": "{{count}} task",

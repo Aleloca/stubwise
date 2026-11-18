@@ -46,6 +46,9 @@ const AI_WAIT_CODES = new Set([
   // Il blocco è cambiato ma il passo resta fermo (due blocchi, shape EF).
   "aiBudgetBackStillQueue",
   "aiQueueBackStillBudget",
+  // Quelli del server (area 9, F3/F4): il budget del mese, la coda in pausa.
+  "monthlyBudget",
+  "queuePaused",
 ]);
 
 /** Il codice di una cosa creata, come link: la task nel pannello, l'esecuzione, la Posta. */
