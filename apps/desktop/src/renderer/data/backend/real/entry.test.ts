@@ -16,15 +16,9 @@ function fakeApi(over: Partial<EntryApi> = {}) {
     },
     stillSignedIn: async () => true,
     signedInBefore: () => false,
-    setup: async (email, password) => {
-      calls.push(`setup ${email} ${password}`);
+    setup: async (email, password, displayName) => {
+      calls.push(`setup ${email} ${password} ${displayName}`);
       return { user: { id: ME } };
-    },
-    setDisplayName: async (name) => {
-      calls.push(`name ${name}`);
-    },
-    entered: (id) => {
-      calls.push(`entered ${id}`);
     },
     invite: async () => ({
       status: "valid",
@@ -34,8 +28,8 @@ function fakeApi(over: Partial<EntryApi> = {}) {
       instanceRoleName: null,
       expiresAt: "2026-11-23T09:00:00.000Z",
     }),
-    register: async (token, password) => {
-      calls.push(`register ${token} ${password}`);
+    register: async (token, password, displayName) => {
+      calls.push(`register ${token} ${password} ${displayName}`);
       return { user: { id: ME } };
     },
     ...over,
@@ -85,7 +79,7 @@ describe("l'ingresso della web «app» dal server (area 9, R5)", () => {
     });
   });
 
-  it("il primo avvio: email e password al server, poi il nome; si è dentro come full admin", async () => {
+  it("il primo avvio: email, password e nome nel corpo; nessun PATCH col cookie del browser (review F1, C1)", async () => {
     const { api, calls } = fakeApi();
     expect(
       await createRealEntry(api).createFirstAdmin({
@@ -94,11 +88,7 @@ describe("l'ingresso della web «app» dal server (area 9, R5)", () => {
         password: "a-long-one",
       }),
     ).toEqual({ ok: true, personId: ME });
-    expect(calls).toEqual([
-      "setup roberta@example.com a-long-one",
-      `entered ${ME}`,
-      "name Roberta Fontana",
-    ]);
+    expect(calls).toEqual(["setup roberta@example.com a-long-one Roberta Fontana"]);
     const full = createRealEntry(fakeApi({ setup: refusing(403, "setup_done") }).api);
     expect(
       await full.createFirstAdmin({ name: "R", email: "r@example.com", password: "a-long-one" }),
@@ -124,12 +114,12 @@ describe("l'ingresso della web «app» dal server (area 9, R5)", () => {
     expect(await odd.getInvite("t")).toEqual({ status: "invalid" });
   });
 
-  it("la registrazione: token e password, poi il nome; gli errori nelle parole del prototipo", async () => {
+  it("la registrazione: token, password e nome nel corpo, nessun PATCH (chi è già dentro non si rinomina, C1); gli errori", async () => {
     const { api, calls } = fakeApi();
     expect(
       await createRealEntry(api).register("t", { name: "Nora Bassi", password: "a-long-one" }),
     ).toEqual({ ok: true, personId: ME });
-    expect(calls).toEqual(["register t a-long-one", `entered ${ME}`, "name Nora Bassi"]);
+    expect(calls).toEqual(["register t a-long-one Nora Bassi"]);
     const cases: [number, string, unknown][] = [
       [410, "invite_expired", { ok: false, error: "expired" }],
       [410, "invite_invalid", { ok: false, error: "invalid" }],

@@ -8,7 +8,11 @@ const request = vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
   expiresAt: "x",
   events: [],
 }));
-vi.mock("./client", () => ({ appClient: () => ({ request }), session: { personId: "me" } }));
+const { session, whatCan } = vi.hoisted(() => ({
+  session: { personId: "me" as string | null },
+  whatCan: vi.fn(async () => ({ instance: [], projects: [] })),
+}));
+vi.mock("./client", () => ({ appClient: () => ({ request, access: { whatCan } }), session }));
 
 beforeEach(() => request.mockClear());
 
@@ -43,5 +47,17 @@ describe("People e Roles, i percorsi veri", () => {
       "PATCH /api/roles/r1",
       "DELETE /api/roles/r1",
     ]);
+  });
+
+  it("cosa perde chi guarda: i permessi di chi è in sessione; senza sessione nessuna chiamata con userId vuoto (review F1, M1)", async () => {
+    const { liveAdminPeopleApiForTest: api } = await import("./adminPeople");
+    session.personId = "me";
+    await api.myPermissions();
+    expect(whatCan).toHaveBeenCalledWith({ userId: "me" });
+    whatCan.mockClear();
+    session.personId = null;
+    await expect(api.myPermissions()).rejects.toThrow("no_session");
+    expect(whatCan).not.toHaveBeenCalled();
+    session.personId = "me";
   });
 });

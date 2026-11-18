@@ -100,6 +100,41 @@ describe("Preferenze → Account dal server (area 9, R4a)", () => {
     expect(await big.updateProfile({ avatar: PNG })).toMatchObject({ reason: "avatar_size" });
   });
 
+  it("una foto troppo grande o di un tipo sbagliato si rifiuta PRIMA di mandarla (review F1, M5)", async () => {
+    const { api, calls } = fakeApi();
+    const account = createRealMeAccount(api);
+    const bigPng = `data:image/png;base64,${btoa("\x89PNG\r\n\x1a\n" + "x".repeat(600 * 1024))}`;
+    expect(await account.updateProfile({ avatar: bigPng })).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "avatar_size",
+    });
+    const gif = `data:image/gif;base64,${btoa("GIF89a....")}`;
+    expect(await account.updateProfile({ avatar: gif })).toMatchObject({ reason: "avatar_type" });
+    expect(calls).toEqual([]);
+  });
+
+  it("una foto fuori dall'istanza (Slack) si usa così com'è; quella dell'istanza si legge con l'autenticazione (M5)", async () => {
+    const read: string[] = [];
+    const base = fakeApi().api;
+    const withUrl = (avatarUrl: string) =>
+      createRealMeAccount({
+        ...base,
+        me: async () => ({ user: { ...(await base.me()).user, avatarUrl } }),
+        avatarDataUrl: async (url) => {
+          read.push(url);
+          return `data:image/png;base64,from:${url}`;
+        },
+      });
+    const slack = "https://avatars.slack-edge.com/2026-11/sara_192.png";
+    expect((await withUrl(slack).getMyProfile()).photo).toBe(slack);
+    expect(read).toEqual([]);
+    expect((await withUrl("/api/me/avatar").getMyProfile()).photo).toBe(
+      "data:image/png;base64,from:/api/me/avatar",
+    );
+    expect(read).toEqual(["/api/me/avatar"]);
+  });
+
   it("il cambio d'email: la richiesta, gli errori nelle parole del prototipo, l'annullo", async () => {
     const { api, calls } = fakeApi();
     const account = createRealMeAccount(api);

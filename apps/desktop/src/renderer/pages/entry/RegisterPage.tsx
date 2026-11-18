@@ -1,11 +1,50 @@
 import { landingSearch } from "../../data/integration";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { MIN_PASSWORD_LENGTH, useInvite, useRegister, type InviteLookup } from "../../data/queries";
+import {
+  MIN_PASSWORD_LENGTH,
+  useInvite,
+  useLogout,
+  useMyProfile,
+  useEntryGate,
+  useRegister,
+  type InviteLookup,
+} from "../../data/queries";
 import { useToast } from "../../tasks-ui/Toast";
 import { primaryButton } from "../tasks/controls";
 import { BusyLabel, EntryColumn, EntryField, EntryHeading, ErrorLine, textButton } from "./parts";
+
+/**
+ * Review F1, C1: un invito aperto con qualcuno già dentro (un admin che prova
+ * il link) non registra sopra quella sessione. Lo dice e propone di uscire
+ * prima; il modulo arriva dopo l'uscita.
+ */
+function SignedOutFirst({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
+  // Letto all'apertura: dopo la registrazione si è dentro come la persona
+  // nuova, e il modulo deve restare montato per portarla alla Home.
+  const [signedIn, setSignedIn] = useState(useEntryGate().stage === "in");
+  const profile = useMyProfile();
+  const logout = useLogout();
+  if (!signedIn) return <>{children}</>;
+  return (
+    <>
+      <EntryHeading title={t("entry.register.title")} />
+      <p className="mb-4 text-sm text-ink/80">
+        {t("entry.register.signedInAs", { name: profile.data?.name ?? "" })}
+      </p>
+      <button
+        type="button"
+        className={primaryButton}
+        disabled={logout.isPending}
+        onClick={() => logout.mutate(undefined, { onSuccess: () => setSignedIn(false) })}
+      >
+        {t("entry.register.signOutFirst")}
+      </button>
+    </>
+  );
+}
 
 /** Fino a tanti progetti offerti in elenco; oltre, i primi 6 e «and N more». */
 const ALL_UNTIL = 8;
@@ -45,7 +84,9 @@ export function RegisterPage({ token }: { token: string }) {
           </ErrorLine>
         </>
       ) : invite.data.status === "valid" ? (
-        <ValidInvite token={token} invite={invite.data} />
+        <SignedOutFirst>
+          <ValidInvite token={token} invite={invite.data} />
+        </SignedOutFirst>
       ) : (
         <NotValid invite={invite.data} />
       )}

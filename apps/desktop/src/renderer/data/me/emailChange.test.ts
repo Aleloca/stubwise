@@ -199,4 +199,17 @@ describe("un admin cambia l'email di un'altra persona", () => {
     markReauthenticated(SARA);
     expect(await admin.changeEmail("p-marco", NEW)).toMatchObject({ error: "forbidden" });
   });
+
+  it("mai su una persona disattivata (review F1, M7): l'email resta quella", async () => {
+    as("p-roberta");
+    markReauthenticated("p-roberta");
+    expect(await admin.deactivatePerson(SARA, {})).toMatchObject({ ok: true });
+    markReauthenticated("p-roberta");
+    expect(await admin.changeEmail(SARA, NEW)).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "status",
+    });
+    expect(state.securityEvents.some((e) => e.kind === "email_changed")).toBe(false);
+  });
 });

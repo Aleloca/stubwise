@@ -104,7 +104,11 @@ function fakeApi(over: Partial<AdminPeopleApi> = {}) {
     invites: async () => [],
     inviteChoices: async () => ({ instanceRoles: [], defaultInstanceRoleId: ROLE, projects: [] }),
     revokeInvite: log("revoke"),
-    createInvite: async () => ({ token: "tok123", expiresAt: "2026-11-23T09:00:00.000Z" }),
+    createInvite: async () => ({
+      id: "i_0123456789abcdef0123456789abcdef",
+      token: "tok123",
+      expiresAt: "2026-11-23T09:00:00.000Z",
+    }),
     setInstanceRole: log("role"),
     passwordReset: async () => ({ token: "rst456", expiresAt: "2026-11-17T09:00:00.000Z" }),
     resetSecondFactor: log("2fa"),
@@ -217,8 +221,74 @@ describe("People, inviti e Roles dal server (area 9, R7)", () => {
     });
     if (!r.ok) throw new Error(r.error);
     expect(r.link).toBe("https://stubwise.acme.test/app/#/register/tok123");
-    expect(r.inviteId).toMatch(/^i_[0-9a-f]{32}$/);
-    expect(r.inviteId).not.toContain("tok123");
+    // Review F1, I2: l'id è quello del server, non una formula del client.
+    expect(r.inviteId).toBe("i_0123456789abcdef0123456789abcdef");
+  });
+
+  it("una fonte di tipo sconosciuto si salta: non diventa «full admin» (review F1, I3)", async () => {
+    const d = await createRealAdminPeople(
+      fakeApi({
+        person: async () => ({
+          personId: MARCO,
+          name: "Marco Bellini",
+          email: "marco@example.com",
+          projects: [
+            {
+              projectId: "p1",
+              code: "ACQ",
+              name: "Acquedotto",
+              role: { id: ROLE, name: "Developer" },
+              extra: [
+                {
+                  permission: "servers.operate",
+                  granted: false,
+                  sources: [{ kind: "something_new" }, { kind: "full_admin" }],
+                },
+              ],
+              canManage: true,
+            },
+          ],
+          actions: {},
+        }),
+      }).api,
+    ).getPerson(MARCO);
+    expect(d.projects[0]!.extra[0]!.sources).toEqual([{ kind: "full_admin" }]);
+  });
+
+  it("il codice unico del server last_manager è last_members_manager del prototipo, nelle azioni e nelle scelte", async () => {
+    const d = await createRealAdminPeople(
+      fakeApi({
+        person: async () => ({
+          personId: MARCO,
+          name: "Marco Bellini",
+          email: "marco@example.com",
+          projects: [],
+          actions: { deactivate: "last_manager", resetPassword: null },
+          instanceRoleChoices: [
+            {
+              roleId: ROLE,
+              name: "User",
+              permissionCount: 3,
+              missing: [],
+              block: "last_full_admin",
+            },
+          ],
+        }),
+      }).api,
+    ).getPerson(MARCO);
+    expect(d.actions.deactivate).toBe("last_members_manager");
+    expect(d.instanceRoleChoices[0]!.block).toBe("last_full_admin");
+  });
+
+  it("un link di reset senza token è un errore visibile, non /reset-password/null (review F1, M6)", async () => {
+    const people = createRealAdminPeople(
+      fakeApi({ passwordReset: async () => ({ token: null, expiresAt: null }) as never }).api,
+    );
+    expect(await people.createPasswordResetLink(MARCO)).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "reset_link_unavailable",
+    });
   });
 
   it("i rifiuti del server nelle parole del prototipo: escalation col permesso, riconferma, regole", async () => {

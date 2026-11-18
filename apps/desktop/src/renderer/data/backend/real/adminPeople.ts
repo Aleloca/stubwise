@@ -39,7 +39,7 @@ export interface AdminPeopleApi {
     email: string;
     instanceRoleId: string;
     projects: { projectId: string; roleId: string }[];
-  }): Promise<{ token: string; expiresAt: string }>;
+  }): Promise<{ id: string; token: string; expiresAt: string }>;
   setInstanceRole(userId: string, roleId: string): Promise<void>;
   passwordReset(userId: string): Promise<{ token: string; expiresAt: string }>;
   resetSecondFactor(userId: string): Promise<void>;
@@ -74,8 +74,12 @@ const initialsOf = (name: string) =>
     .slice(0, 2)
     .toUpperCase();
 
-/** La fonte PIATTA del server come l'unione del prototipo. */
-export function sourceOf(s: Any): SourceView {
+/**
+ * La fonte PIATTA del server come l'unione del prototipo; `null` per un tipo
+ * che il client non conosce (review F1, I3: mai «full admin» per ripiego, che
+ * affermerebbe un permesso che non c'è). Chi la usa la salta: `sourcesOf`.
+ */
+export function sourceOf(s: Any): SourceView | null {
   if (s.kind === "role")
     return { kind: "role", roleId: s.roleId ?? "", roleName: s.roleName ?? "" };
   if (s.kind === "grant")
@@ -92,17 +96,34 @@ export function sourceOf(s: Any): SourceView {
       departmentId: s.departmentId ?? "",
       departmentName: s.departmentName ?? "",
     };
-  return { kind: "full_admin" };
+  if (s.kind === "full_admin") return { kind: "full_admin" };
+  return null;
 }
+
+/** Le fonti conosciute, nell'ordine del server. */
+export const sourcesOf = (list: Any[] | undefined): SourceView[] =>
+  (list ?? []).map(sourceOf).filter((s): s is SourceView => s !== null);
+
+/**
+ * I blocchi del server nelle parole del prototipo: il server ha UN codice,
+ * `last_manager`; il prototipo lo chiama `last_members_manager`.
+ */
+export const blockOf = (b: string | null | undefined): string | null =>
+  b === "last_manager" ? "last_members_manager" : (b ?? null);
 
 export const extraOf = (e: Any): ExtraPermission => ({
   permission: e.permission,
-  sources: (e.sources ?? []).map(sourceOf),
+  sources: sourcesOf(e.sources),
   granted: !!e.granted,
 });
 
+/** Il server ha risposto senza token di reset: un errore che si vede (review F1, M6). */
+class ResetLinkUnavailable extends Error {}
+
 /** Un rifiuto del server nelle parole dell'Amministrazione del prototipo. */
 export function refusalOf(error: unknown): Extract<AdminResult, { ok: false }> {
+  if (error instanceof ResetLinkUnavailable)
+    return { ok: false, error: "invalid", reason: "reset_link_unavailable" };
   if (!(error instanceof ApiError)) throw error;
   const code = error.code ?? "";
   if (code === "reauth_required") return { ok: false, error: "reauth_required" };
@@ -185,7 +206,16 @@ export function createRealAdminPeople(api: AdminPeopleApi) {
         identities: d.identities ?? { gitEmails: [], bitbucketUsername: null },
         openTasks: d.openTasks ?? [],
         addableTo: d.addableTo ?? [],
-        instanceRoleChoices: d.instanceRoleChoices ?? [],
+        actions: Object.fromEntries(
+          Object.entries((d.actions ?? {}) as Record<string, string | null>).map(([k, v]) => [
+            k,
+            blockOf(v),
+          ]),
+        ),
+        instanceRoleChoices: (d.instanceRoleChoices ?? []).map((c: Any) => ({
+          ...c,
+          block: blockOf(c.block),
+        })),
       } as PersonDetail;
     },
 
@@ -219,6 +249,8 @@ export function createRealAdminPeople(api: AdminPeopleApi) {
     ): Promise<AdminResult<{ link: string; expiresAt: string }>> {
       return attempt(async () => {
         const r = await api.passwordReset(personId);
+        // Review F1, M6: senza token non c'è link (mai `/reset-password/null`).
+        if (!r.token) throw new ResetLinkUnavailable();
         // Il link della web «app» dal token (Task 10b del server).
         return {
           link: `${await api.origin()}/app/#/reset-password/${r.token}`,
@@ -281,14 +313,9 @@ export function createRealAdminPeople(api: AdminPeopleApi) {
           instanceRoleId: input.instanceRoleId,
           projects: input.projects,
         });
-        // L'id opaco dell'elenco (`i_` + sha256 del token, come il server):
-        // l'id non è il token, che resta solo nel link mostrato una volta.
-        const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(r.token));
-        const hex = [...new Uint8Array(digest)]
-          .map((b) => b.toString(16).padStart(2, "0"))
-          .join("");
+        // Review F1, I2: l'id opaco lo dà il server; il token resta solo nel link.
         return {
-          inviteId: `i_${hex.slice(0, 32)}`,
+          inviteId: r.id,
           link: `${await api.origin()}/app/#/register/${r.token}`,
           expiresAt: r.expiresAt,
         };
@@ -358,6 +385,7 @@ const liveApi: AdminPeopleApi = {
   revokeInvite: (id) => appClient().admin.revokeInvite(id),
   createInvite: (body) =>
     appClient().request("POST", "/api/auth/invites", body) as Promise<{
+      id: string;
       token: string;
       expiresAt: string;
     }>,
@@ -401,8 +429,13 @@ const liveApi: AdminPeopleApi = {
   deleteRole: async (roleId) => {
     await appClient().request("DELETE", `/api/roles/${seg(roleId)}`);
   },
-  myPermissions: () =>
-    appClient().access.whatCan({ userId: session.personId ?? "" }) as Promise<Any>,
+  // Review F1, M1: senza persona in sessione non si chiede niente (un
+  // `userId` vuoto non è nessuno): «cosa perdi» resta senza risposta.
+  myPermissions: async () => {
+    const userId = session.personId;
+    if (!userId) throw new Error("no_session");
+    return (await appClient().access.whatCan({ userId })) as Any;
+  },
   origin: instanceOrigin,
 };
 

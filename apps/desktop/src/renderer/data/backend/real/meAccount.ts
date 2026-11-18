@@ -1,5 +1,6 @@
 import { ApiError } from "@stubwise/api-client";
 import type { MyProfile, ProfileInput } from "../../me/account";
+import { avatarRefusal } from "../../me/accountRules";
 import type { MailRefusal, PendingEmail } from "../../me/emailChange";
 import type { MeResult } from "../../me/types";
 import { appClient } from "./client";
@@ -78,6 +79,17 @@ const pendingOf = (s: EmailChangeStatus): PendingEmail | null =>
   s.pending ? { email: s.pending.newEmail, expiresAt: s.pending.expiresAt } : null;
 
 export function createRealMeAccount(api: MeAccountApi) {
+  /**
+   * Una foto dell'istanza (percorso relativo) si legge con l'autenticazione;
+   * una fuori dall'istanza (Slack, review F1, M5) si usa così com'è: non
+   * vuole il nostro token, e non deve riceverlo.
+   */
+  async function photoOf(url: string | null): Promise<string | null> {
+    if (!url) return null;
+    if (/^https?:\/\//i.test(url)) return url;
+    return api.avatarDataUrl(url);
+  }
+
   return {
     async getMyProfile(): Promise<MyProfile> {
       const [{ user }, change] = await Promise.all([api.me(), api.emailChange()]);
@@ -86,7 +98,7 @@ export function createRealMeAccount(api: MeAccountApi) {
         name,
         initials: initialsOf(name),
         email: user.email,
-        photo: user.avatarUrl ? await api.avatarDataUrl(user.avatarUrl) : null,
+        photo: await photoOf(user.avatarUrl),
         // Il colore delle iniziali viene dal reparto: qui il neutro.
         departmentId: null,
         pendingEmail: pendingOf(change),
@@ -102,6 +114,10 @@ export function createRealMeAccount(api: MeAccountApi) {
         }
         if (input.avatar === null) await api.deleteAvatar();
         else if (input.avatar !== undefined) {
+          // Review F1, M5: tipo (dai primi byte) e 512 KB PRIMA di mandarla,
+          // con le parole del prototipo; il 415/413 del server resta la rete.
+          const refusal = avatarRefusal(input.avatar);
+          if (refusal) return invalid(refusal);
           const bytes = bytesOf(input.avatar);
           if (!bytes) return invalid("avatar_type");
           await api.putAvatar(bytes);

@@ -182,6 +182,29 @@ describe("«Chi può farlo?» dal server (area 9, R9)", () => {
     });
   });
 
+  it("persone e reparti si leggono UNA volta per chiamata, non una per riga (review F1, M2)", async () => {
+    const reads = { people: 0, departments: 0 };
+    const base = fakeApi().api;
+    const counted = createRealWhoCan({
+      ...base,
+      people: async () => {
+        reads.people++;
+        return base.people();
+      },
+      departments: async () => {
+        reads.departments++;
+        return base.departments();
+      },
+    });
+    await counted.whoCan("approvePlan", PRJ);
+    expect(reads).toEqual({ people: 1, departments: 1 });
+    reads.people = 0;
+    reads.departments = 0;
+    await counted.whatCan(MARCO, PRJ);
+    expect(reads.people).toBe(1);
+    expect(reads.departments).toBeLessThanOrEqual(1);
+  });
+
   it("le scelte: i progetti visibili e le persone, senza Claude", async () => {
     expect(await createRealWhoCan(fakeApi().api).whoCanChoices()).toEqual({
       projects: [{ projectId: PRJ, code: "ACQ", name: "Acquedotto" }],
