@@ -19,6 +19,7 @@ import {
   notConfiguredWebhook,
   repositoryObject,
 } from "./repositories";
+import { dsnWithKey, guideText, maskKey, snippetOf } from "./integrationText";
 import type { ProjectResult } from "./types";
 
 // Progetto → Settings → Integration (area 9c, Task 4): come gli altri
@@ -35,63 +36,21 @@ import type { ProjectResult } from "./types";
 // Le forme degli indirizzi sono quelle del web, sull'origine finta
 // dell'istanza.
 
-const mask = (last4: string) => `••••${last4}`;
+const mask = maskKey;
 
 const dsnOf = (key: string, project: Project) =>
-  `https://${key}@${new URL(INSTANCE_ORIGIN).host}/ingest/${project.code}`;
-
-/** Lo snippet `init()` dell'SDK, sei righe. */
-const snippetOf = (dsn: string) =>
-  [
-    'import { init } from "@stubwise/sdk/browser";',
-    "",
-    "init({",
-    `  dsn: "${dsn}",`,
-    '  environment: "production",',
-    "});",
-  ].join("\n");
+  dsnWithKey(`https://${new URL(INSTANCE_ORIGIN).host}/ingest/${project.code}`, key);
 
 const inboundUrlOf = (project: Project) => `${INSTANCE_ORIGIN}/api/inbound/${project.code}/ticket`;
 const gitWebhookUrlOf = (r: Repository) => `${INSTANCE_ORIGIN}/webhooks/git/${r.id}`;
 
-/**
- * La guida passo passo dell'SDK (in inglese, come sul web: è un documento
- * tecnico da dare a chi integra), con la chiave che le si passa.
- */
-function guideOf(project: Project, key: string): string {
-  const dsn = dsnOf(key, project);
-  return [
-    `# Send ${project.name}'s errors to Stubwise`,
-    "",
-    "## 1. Install",
-    "",
-    "```sh",
-    "npm install @stubwise/sdk",
-    "```",
-    "",
-    "## 2. Init, as early as possible",
-    "",
-    "```ts",
-    snippetOf(dsn),
-    "```",
-    "",
-    "## 3. Test",
-    "",
-    "```ts",
-    'import { captureError } from "@stubwise/sdk/browser";',
-    'captureError(new Error("Stubwise test error"));',
-    "```",
-    "",
-    `The error appears in ${project.code} within a minute. Requests with a`,
-    `missing or old key are refused: the ingestion key is \`${key}\`.`,
-    "",
-  ].join("\n");
-}
+const guideOf = (project: Project, key: string) => guideText(project, dsnOf(key, project), key);
 
 export interface IntegrationView {
   ingestion: {
     last4: string;
-    createdAt: string;
+    /** `null` per una chiave fatta prima che il server lo registrasse (F5). */
+    createdAt: string | null;
     /**
      * Chi l'ha creata («made Oct 2 by Laura Costa»); `null` nel seme o se
      * chi guarda non vede quella persona (R-G5).

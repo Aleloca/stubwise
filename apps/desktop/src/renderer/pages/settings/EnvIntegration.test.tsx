@@ -519,6 +519,21 @@ describe("Integration", () => {
     ).toHaveLength(1);
   });
 
+  // Area 9, F5: una chiave fatta prima che il server registrasse quando e
+  // chi (`createdAt` null) non dice una data inventata.
+  it("una chiave senza data: solo le ultime 4, niente «made»", async () => {
+    const real = projectSettings.getIntegration;
+    const spy = vi.spyOn(projectSettings, "getIntegration").mockImplementation(async (id) => {
+      const view = (await real(id))!;
+      return { ...view, ingestion: { ...view.ingestion, createdAt: null, createdBy: null } };
+    });
+    await openIntegration(LAURA);
+    const key = await screen.findByRole("region", { name: "Ingestion key" });
+    expect(key).toHaveTextContent(/••••/);
+    expect(key).not.toHaveTextContent(/· made|made [A-Z0-9]/);
+    spy.mockRestore();
+  });
+
   it("un errore, poi Retry: il secret del webhook compare in SecretOnce", async () => {
     const user = userEvent.setup();
     await openIntegration(LAURA);
