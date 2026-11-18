@@ -1,4 +1,4 @@
-import { docPagePendingCommits, nightlyItems, type Db, type NightlyPhase } from "@stubwise/db";
+import { projectQueueRunnable, docPagePendingCommits, nightlyItems, type Db, type NightlyPhase } from "@stubwise/db";
 import { and, asc, count, eq, sql } from "drizzle-orm";
 
 /**
@@ -181,6 +181,7 @@ export async function claimNext(
           AND phase = ${phase}
           AND (claimed_at IS NULL OR claimed_at < now() - ${NIGHTLY_ITEM_LEASE_MS} * interval '1 millisecond')
           ${notFailed}
+          AND ${projectQueueRunnable(sql`nightly_items.project_id`)}
         ORDER BY created_at
         LIMIT 1
         FOR UPDATE SKIP LOCKED

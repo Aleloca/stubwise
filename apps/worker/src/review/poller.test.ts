@@ -181,6 +181,21 @@ describe("pollPrReviewsOnce", () => {
     expect(calls).toEqual([projectId]);
   });
 
+  it("area 9, F4: la coda del progetto in pausa lascia il job in coda; un altro progetto va; alla ripresa riparte", async () => {
+    const paused = await createRepository(testDb.db);
+    const other = await createRepository(testDb.db);
+    await insertJob(testDb.db, paused.repositoryId, 11, -60_000);
+    await insertJob(testDb.db, other.repositoryId, 12, -60_000);
+    await testDb.db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, paused.projectId));
+    const spy = vi.fn(async () => {});
+    const { serializer } = makeSerializer();
+    expect(await pollPrReviewsOnce(makeDeps(serializer, spy))).toBe(1);
+    expect((await testDb.db.select().from(prReviewJobs).where(eq(prReviewJobs.repositoryId, paused.repositoryId))).map((j) => j.prNumber)).toEqual([11]);
+    await testDb.db.update(projects).set({ queuePausedAt: null }).where(eq(projects.id, paused.projectId));
+    expect(await pollPrReviewsOnce(makeDeps(serializer, spy))).toBe(1);
+    expect(await testDb.db.select().from(prReviewJobs).where(eq(prReviewJobs.repositoryId, paused.repositoryId))).toHaveLength(0);
+  });
+
   it("un job che lancia non blocca gli altri e non propaga", async () => {
     const { repositoryId } = await createRepository(testDb.db);
     await insertJob(testDb.db, repositoryId, 1, -60_000);

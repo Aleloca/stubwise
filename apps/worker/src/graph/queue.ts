@@ -1,4 +1,4 @@
-import { graphJobs, repoGraphs, type Db, type GraphJob } from "@stubwise/db";
+import { repositoryQueueRunnable, graphJobs, repoGraphs, type Db, type GraphJob } from "@stubwise/db";
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 
 /**
@@ -75,7 +75,8 @@ async function markRepoGraphFailed(db: Db, repositoryId: string, error: string):
  * stesso istante hanno comunque un ordine stabile.
  */
 export async function claimNextGraphJob(db: Db): Promise<GraphJob | null> {
-  const subquery = sql`(SELECT id FROM graph_jobs WHERE status = 'queued' AND (not_before IS NULL OR not_before <= now()) ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED)`;
+  // Area 9, F4: una coda in pausa non dà lavoro nuovo (il progetto del repository).
+  const subquery = sql`(SELECT id FROM graph_jobs WHERE status = 'queued' AND (not_before IS NULL OR not_before <= now()) AND ${repositoryQueueRunnable(sql`graph_jobs.repository_id`)} ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED)`;
   const [job] = await db
     .update(graphJobs)
     .set({ status: "running", claimedAt: sql`now()`, updatedAt: sql`now()` })

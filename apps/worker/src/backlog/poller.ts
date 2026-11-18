@@ -1,4 +1,4 @@
-import { backlogJobs, type Db } from "@stubwise/db";
+import { projectQueueRunnable, backlogJobs, type Db } from "@stubwise/db";
 import {
   backlogEstimatePayloadSchema,
   backlogIntakePayloadSchema,
@@ -170,7 +170,9 @@ export async function claimNextBacklogJob(
           excludeIds.map((id) => sql`${id}`),
           sql`, `,
         )})`;
-  const subquery = sql`(SELECT id FROM backlog_jobs WHERE status = 'queued' AND kind IN ('intake', 'estimate')${exclude} ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED)`;
+  // Area 9, F4: una coda in pausa non dà intake né stime nuove (i turni di
+  // refinement, interattivi, non passano di qui).
+  const subquery = sql`(SELECT id FROM backlog_jobs WHERE status = 'queued' AND kind IN ('intake', 'estimate')${exclude} AND ${projectQueueRunnable(sql`backlog_jobs.project_id`)} ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED)`;
   const [job] = await db
     .update(backlogJobs)
     .set({

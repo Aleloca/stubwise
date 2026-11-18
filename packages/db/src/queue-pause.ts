@@ -15,3 +15,8 @@ import { sql, type SQL } from "drizzle-orm";
 export function projectQueueRunnable(projectId: SQL): SQL {
   return sql`NOT EXISTS (SELECT 1 FROM projects qp WHERE qp.id = ${projectId} AND qp.queue_paused_at IS NOT NULL)`;
 }
+
+/** La stessa regola per una coda che conosce il REPOSITORY: il progetto è quello del repository. */
+export function repositoryQueueRunnable(repositoryId: SQL): SQL {
+  return projectQueueRunnable(sql`(SELECT qr.project_id FROM repositories qr WHERE qr.id = ${repositoryId})`);
+}

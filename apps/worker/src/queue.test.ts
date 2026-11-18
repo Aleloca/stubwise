@@ -1,4 +1,4 @@
-import { aiJobs, prCorrections, type Db } from "@stubwise/db";
+import { aiJobs, prCorrections, projects, type Db } from "@stubwise/db";
 import { seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -147,6 +147,21 @@ describe("claimNextJob", () => {
     await db.update(aiJobs).set({ status: "queued", startedAt: null }).where(eq(aiJobs.id, otherJob.id));
     const claimed2 = await claimNextJob(db, []);
     expect(claimed2?.id).toBe(excludedJob.id);
+  });
+
+  it("area 9, F4: un progetto con la coda in pausa non dà lavoro nuovo; un altro sì; alla ripresa riparte; un job partito non cambia", async () => {
+    const { db } = testDb;
+    const other = await seedTicket(db);
+    const running = await enqueueJob(db, { createdAt: minutesAgo(9) });
+    await db.update(aiJobs).set({ status: "fixing" }).where(eq(aiJobs.id, running.id));
+    const paused = await enqueueJob(db, { createdAt: minutesAgo(5) });
+    const [otherJob] = await db.insert(aiJobs).values({ ticketId: other.ticketId, createdAt: minutesAgo(1) }).returning();
+    await db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, seededProjectId));
+    expect((await claimNextJob(db))?.id).toBe(otherJob!.id);
+    expect(await claimNextJob(db)).toBeNull();
+    expect((await db.select().from(aiJobs).where(eq(aiJobs.id, running.id)))[0]!.status).toBe("fixing");
+    await db.update(projects).set({ queuePausedAt: null }).where(eq(projects.id, seededProjectId));
+    expect((await claimNextJob(db))?.id).toBe(paused.id);
   });
 });
 

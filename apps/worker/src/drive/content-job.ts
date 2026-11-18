@@ -1,7 +1,7 @@
 import { createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { chunkMarkdown, DOC_CHUNK_OVERLAP_WORDS, DOC_CHUNK_TARGET_TOKENS } from "@stubwise/docs-engine";
-import { driveContentJobs, driveFileChunks, driveFiles, type Db } from "@stubwise/db";
+import { projectQueueRunnable, driveContentJobs, driveFileChunks, driveFiles, type Db } from "@stubwise/db";
 import type { EmbeddingClient } from "@stubwise/embeddings";
 import { GOOGLE_EXPORT_MIME } from "@stubwise/google";
 import { driveContentKindOf } from "@stubwise/shared";
@@ -88,7 +88,8 @@ export async function claimNextDriveContentJob(db: Db, exclude: readonly string[
   const [job] = await db
     .update(driveContentJobs)
     .set({ status: "running", claimedAt: sql`now()`, updatedAt: sql`now()` })
-    .where(eq(driveContentJobs.id, sql`(select id from drive_content_jobs where status = 'queued' ${skip} order by created_at, id limit 1 for update skip locked)`))
+    // Area 9, F4: una coda in pausa non dà riassunti nuovi (il progetto del file).
+    .where(eq(driveContentJobs.id, sql`(select id from drive_content_jobs where status = 'queued' ${skip} and ${projectQueueRunnable(sql`(select df.project_id from drive_files df where df.id = drive_content_jobs.file_id)`)} order by created_at, id limit 1 for update skip locked)`))
     .returning();
   return job ?? null;
 }

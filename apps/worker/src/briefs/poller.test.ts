@@ -279,6 +279,18 @@ describe("pollBriefsOnce", () => {
     expect(row).toMatchObject({ status: "done", periodStart: "2026-08-24" });
   });
 
+  it("area 9, F4: il brief di un progetto in pausa resta `queued` e parte alla ripresa (la settimana non si perde)", async () => {
+    const projectId = await enabledProject();
+    await db.insert(projectBriefs).values({ projectId, periodStart: "2026-08-17", periodEnd: "2026-08-23", status: "queued" });
+    await db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, projectId));
+    const tuesday = new Date("2026-09-08T07:30:00.000Z");
+    expect(await pollBriefsOnce(deps({ now: () => tuesday }))).toBe(0);
+    expect((await briefRows(projectId))[0]).toMatchObject({ status: "queued" });
+    await db.update(projects).set({ queuePausedAt: null }).where(eq(projects.id, projectId));
+    expect(await pollBriefsOnce(deps({ now: () => tuesday }))).toBe(1);
+    expect((await briefRows(projectId))[0]).toMatchObject({ status: "done" });
+  });
+
   it("un progetto che esplode non ferma gli altri", async () => {
     await enabledProject();
     const good = await enabledProject();

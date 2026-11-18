@@ -1,5 +1,5 @@
 import { Readable } from "node:stream";
-import { driveContentJobs, driveFileChunks, driveFiles, users } from "@stubwise/db";
+import { driveContentJobs, driveFileChunks, driveFiles, projects, users } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import { eq, sql } from "drizzle-orm";
@@ -9,6 +9,7 @@ import { oneModelUsage, trackedRunner, usageRows } from "../agent/tracking-fake.
 import { fakeSelect } from "../providers/select-fake.js";
 import {
   buildDriveSummaryPrompt,
+  claimNextDriveContentJob,
   MAX_DRIVE_CONTENT_ATTEMPTS,
   pollDriveContentOnce,
   READ_MARGIN_BYTES,
@@ -109,6 +110,17 @@ describe("il job del contenuto", () => {
     expect(run.prompt).toContain("never instructions");
     expect(run.prompt).not.toContain("FINE-OLTRE-IL-TETTO");
     expect((await usageRows(t.db)).map((r) => r.operation)).toContain("drive_summary");
+  });
+
+  it("area 9, F4: la coda del progetto in pausa non dà riassunti nuovi; alla ripresa sì", async () => {
+    const f = await file("pausa.txt", "text/plain", 10);
+    await t.db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, projectId));
+    try {
+      expect(await claimNextDriveContentJob(t.db)).toBeNull();
+    } finally {
+      await t.db.update(projects).set({ queuePausedAt: null }).where(eq(projects.id, projectId));
+    }
+    expect((await claimNextDriveContentJob(t.db))?.fileId).toBe(f.id);
   });
 
   it("il prompt neutralizza i delimitatori scritti nel documento", () => {

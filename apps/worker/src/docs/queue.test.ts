@@ -1,4 +1,4 @@
-import { docGenerationJobs, docGenerations, type Db } from "@stubwise/db";
+import { docGenerationJobs, docGenerations, projects, repositories, type Db } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -77,6 +77,19 @@ describe("claimNextDocJob", () => {
     const persisted = await getDocJob(db, oldest.id);
     expect(persisted.status).toBe("running");
     expect(persisted.startedAt).not.toBeNull();
+  });
+
+  it("area 9, F4: la coda del progetto in pausa non fa partire generazioni nuove; alla ripresa sì", async () => {
+    const { db } = testDb;
+    const [repo] = await db.select({ projectId: repositories.projectId }).from(repositories).where(eq(repositories.id, repositoryId));
+    const job = await enqueueDocJob(db);
+    await db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, repo!.projectId!));
+    try {
+      expect(await claimNextDocJob(db)).toBeNull();
+    } finally {
+      await db.update(projects).set({ queuePausedAt: null }).where(eq(projects.id, repo!.projectId!));
+    }
+    expect((await claimNextDocJob(db))?.id).toBe(job.id);
   });
 
   it("restituisce null se non ci sono job queued", async () => {

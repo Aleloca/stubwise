@@ -5,7 +5,7 @@ import {
   truncateText,
   type ProjectBriefEvent,
 } from "@stubwise/notifications";
-import { and, asc, eq, lt, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, lt, sql } from "drizzle-orm";
 import type { AgentRunner } from "../agent/runner.js";
 import { runAgentTextRaw, textFromRun } from "../agent/text.js";
 import { projectBriefSession, sessionOption } from "../sessions/owners.js";
@@ -571,6 +571,9 @@ export async function pollBriefsOnce(deps: BriefPollerDeps): Promise<number> {
         and(
           eq(projectBriefs.status, "queued"),
           sql`${projectBriefs.attempts} < ${BRIEF_MAX_ATTEMPTS}`,
+          // Area 9, F4: il brief di un progetto in pausa resta `queued` (si
+          // accoda lo stesso, per non perdere la settimana) e parte alla ripresa.
+          isNull(projects.queuePausedAt),
         ),
       );
   } catch (err) {
