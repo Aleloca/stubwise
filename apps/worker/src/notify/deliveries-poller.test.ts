@@ -4,6 +4,8 @@ import {
   notificationDeliveries,
   notificationSettings,
   notifications,
+  outgoingWebhooks,
+  encrypt,
   projectMembers,
   roles,
   tickets,
@@ -27,7 +29,7 @@ import type {
   PushRelayToken,
 } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   backoffMs,
@@ -457,6 +459,72 @@ describe("processDeliveriesOnce", () => {
     const row = await readDelivery(id);
     expect(row.status).toBe("pending");
     expect(row.attempts).toBe(0);
+  });
+});
+
+describe("webhook in uscita (area 9, F3)", () => {
+  async function hook(opts: { url: string; secret?: string; enabled?: boolean; format?: "slack" | "discord" | "generic" }) {
+    const [row] = await db
+      .insert(outgoingWebhooks)
+      .values({
+        name: `W ${randomUUID().slice(0, 4)}`,
+        url: opts.url,
+        format: opts.format ?? "generic",
+        events: ["ticket.created"],
+        enabled: opts.enabled ?? true,
+        secretEncrypted: opts.secret ? encrypt(opts.secret, encryptionKey) : null,
+      })
+      .returning({ id: outgoingWebhooks.id });
+    return row!.id;
+  }
+  async function deliveryFor(webhookId: string) {
+    const [row] = await db
+      .insert(notificationDeliveries)
+      .values({ channel: "webhook", event: sampleEvent("Per webhook") as unknown as Record<string, unknown>, webhookId })
+      .returning({ id: notificationDeliveries.id });
+    return row!.id;
+  }
+
+  it("ogni consegna parte verso il SUO webhook, firmata col suo segreto; uno che fallisce non ferma l'altro", async () => {
+    const good = await hook({ url: "https://good.example.test/in", secret: "segreto-buono" });
+    const bad = await hook({ url: "https://bad.example.test/in", secret: "segreto-altro" });
+    const goodId = await deliveryFor(good);
+    const badId = await deliveryFor(bad);
+    const seen: { url: string; headers: Headers; body: string }[] = [];
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      seen.push({ url, headers: new Headers(init.headers), body: String(init.body) });
+      return new Response(null, { status: url.includes("bad") ? 500 : 200 });
+    });
+    try {
+      const legacy = vi.fn(async () => {});
+      await processDeliveriesOnce(deps(legacy));
+      expect(legacy).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect((await readDelivery(goodId)).status).toBe("sent");
+    const failed = await readDelivery(badId);
+    expect(failed.status).toBe("pending");
+    expect(failed.attempts).toBe(1);
+    const sent = seen.find((s) => s.url.includes("good"))!;
+    const [, t, v1] = /^t=(\d+),v1=([0-9a-f]{64})$/.exec(sent.headers.get("x-stubwise-signature")!)!;
+    expect(createHmac("sha256", "segreto-buono").update(`${t}.${sent.body}`).digest("hex")).toBe(v1);
+    await db.delete(outgoingWebhooks);
+  });
+
+  it("un webhook spento nel frattempo: la consegna si chiude senza invio", async () => {
+    const off = await hook({ url: "https://off.example.test/in", enabled: false });
+    const id = await deliveryFor(off);
+    const fetcher = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetcher);
+    try {
+      await processDeliveriesOnce(deps(async () => {}));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(await readDelivery(id)).toMatchObject({ status: "skipped", error: "webhook_disabled" });
+    await db.delete(outgoingWebhooks);
   });
 });
 
