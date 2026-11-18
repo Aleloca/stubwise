@@ -4,7 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { mailAdmissionSchema } from "@stubwise/shared";
 import { buildApp } from "../app.js";
-import { automationRules, decrypt, instanceSettings, notificationSettings, outgoingWebhooks, roles, users as usersTable } from "@stubwise/db";
+import { automationRules, changeLog, decrypt, instanceSettings, notificationSettings, outgoingWebhooks, roles, users as usersTable } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
@@ -794,6 +794,18 @@ describe("POST /api/settings/notifications/test", () => {
     expect((await getNotifications(cookie)).statusCode).toBe(403);
     expect((await putNotifications({ webhookUrl: "", format: "slack", enabled: true, notifyTicketCreated: true, notifyPrOpened: true, notifyJobHeld: true, notifyJobFailed: true }, cookie)).statusCode).toBe(403);
     expect((await testNotification(cookie)).statusCode).toBe(403);
+  });
+
+  it("CRITICO (review F3): un PUT col solo storage NON tocca budget e lingua (assenti = invariati); null esplicito azzera il budget", async () => {
+    const put = (payload: object) => app.inject({ method: "PUT", url: "/api/settings/instance", headers: { cookie: users.adminCookie }, payload });
+    expect((await put({ contentLanguage: "it", monthlyBudgetUsd: 600 })).statusCode).toBe(200);
+    const onlyS3 = await put({ s3Bucket: "solo-storage" });
+    expect(onlyS3.statusCode).toBe(200);
+    expect(onlyS3.json()).toMatchObject({ contentLanguage: "it", monthlyBudgetUsd: 600, s3Bucket: "solo-storage" });
+    const budgetEntries = (await app.db.select().from(changeLog).where(eq(changeLog.type, "budget.changed"))).map((r) => (r.data as { after: string | null }).after);
+    expect(budgetEntries.at(-1)).toBe("600");
+    expect((await put({ monthlyBudgetUsd: null })).json()).toMatchObject({ contentLanguage: "it", monthlyBudgetUsd: null });
+    await put({ contentLanguage: "en", monthlyBudgetUsd: null, s3Bucket: "" });
   });
 
   it("decisione del maintainer: dal web vecchio, un URL NUOVO (cambiato o un webhook creato) chiede la riconferma; lo stesso URL no", async () => {
