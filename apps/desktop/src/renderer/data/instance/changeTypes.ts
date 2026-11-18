@@ -44,7 +44,8 @@ const plugins = instance("integrations", "plugins.manage");
 const google = instance("integrations", "integrations.manage");
 const settings = instance("integrations", "settings.manage");
 const servers = instance("servers", "monitor.manage");
-const queue = project("queue", "settings.manage");
+// F4: come il server, la coda la legge chi gestisce il progetto.
+const queue = project("queue", "project.settings.manage");
 
 export const INSTANCE_CHANGE_TYPES: readonly ChangeType[] = [
   providers("provider.created"),

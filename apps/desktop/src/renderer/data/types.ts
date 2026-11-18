@@ -55,7 +55,7 @@ export type LocalProjectPermission = "servers.operate";
  * F2 dell'integrazione area 9. `departments.manage` è già nel registro (integrazione area 2). Entrano nel registro di `@stubwise/shared`
  * quando si costruisce il backend.
  */
-export type LocalInstancePermission = "instance.status.view";
+export type LocalInstancePermission = never;
 
 export interface Viewer {
   personId: string;

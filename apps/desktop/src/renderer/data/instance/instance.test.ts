@@ -104,7 +104,8 @@ describe("le voci dell'istanza, per permesso", () => {
   it("ogni voce col suo permesso", () => {
     const cases: [string, string[]][] = [
       ["ai_providers.manage", ["ai"]],
-      ["settings.manage", ["ai", "storage", "status"]],
+      // Review F4, I2: lo Stato solo con instance.status.view.
+      ["settings.manage", ["ai", "storage"]],
       ["plugins.manage", ["plugins"]],
       // F3 (H-1): i webhook in uscita con `integrations.manage`.
       ["integrations.manage", ["google", "webhooks"]],

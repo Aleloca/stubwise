@@ -151,7 +151,11 @@ export function useAiBlock(projectId: string | null) {
     queryKey: ["as", me, "instance", "ai-block", projectId] as const,
     queryFn: () => api.instance.getAiBlock(projectId),
     // Il budget del mese lo legge anche la chat con Claude (che ha solo quello: `projectId` null).
-    enabled: featureIntegrated("instance") || (projectId === null && featureIntegrated("claude-chat")),
+    // Area 9, F4: per un progetto anche con `queue-pause` (budget e coda dal server).
+    enabled:
+      featureIntegrated("instance") ||
+      featureIntegrated("queue-pause") ||
+      (projectId === null && featureIntegrated("claude-chat")),
   });
 }
 
@@ -166,7 +170,9 @@ export function useQueuePause(projectId: string) {
   return useQuery({
     queryKey: ["as", me, "instance", "queue-pause", projectId] as const,
     queryFn: () => api.instance.getQueuePause(projectId),
-    enabled: featureIntegrated("instance"),
+    // Area 9, F4: la pausa arriva dalla vista del progetto (`queue-pause`),
+    // prima del resto dello stato dell'istanza.
+    enabled: featureIntegrated("instance") || featureIntegrated("queue-pause"),
   });
 }
 

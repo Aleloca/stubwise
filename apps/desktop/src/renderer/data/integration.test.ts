@@ -97,6 +97,7 @@ const ALL: IntegrationTarget[] = [
       "ai-automation",
       "ai-budget",
       "ai-usage",
+      "queue-pause",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -183,9 +184,13 @@ describe("isIntegrated", () => {
         "admin:git-accounts",
         "admin:plugins",
         "admin:storage",
+        "admin:status",
         "feature:ai-automation",
         "feature:ai-providers",
         "feature:ai-models",
+        "feature:ai-budget",
+        "feature:ai-usage",
+        "feature:queue-pause",
         "taskView:list",
         "taskView:board",
         "feature:notifications",

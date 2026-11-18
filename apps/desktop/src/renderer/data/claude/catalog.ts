@@ -700,7 +700,7 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
     apiFn: "instance.pauseQueue",
     baseClass: "B",
     undoable: true,
-    whoAction: "manageSettings",
+    whoAction: "manageProjectSettings",
     run(me, args) {
       const projectId = args.projectId as string;
       done(pauseQueueAs(me, projectId));
@@ -713,7 +713,7 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
     apiFn: "instance.resumeQueue",
     baseClass: "B",
     undoable: true,
-    whoAction: "manageSettings",
+    whoAction: "manageProjectSettings",
     run(me, args) {
       const projectId = args.projectId as string;
       done(resumeQueueAs(me, projectId));
@@ -724,11 +724,11 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
   },
   retryJob: {
     apiFn: "instance.retryJob",
-    // La funzione chiede `settings.manage` E `runs.start` nel progetto: il
-    // «Who?» nomina il primo, il rifiuto vale per entrambi.
+    // La funzione chiede `project.settings.manage` E `runs.start` nel progetto
+    // (F4): il «Who?» nomina il primo, il rifiuto vale per entrambi.
     baseClass: "B",
     undoable: false,
-    whoAction: "manageSettings",
+    whoAction: "manageProjectSettings",
     run(me, args) {
       // Il budget si controlla qui (`openRunAs`, rifiuto sincrono dentro il
       // gruppo, ruling (T4)); la sessione aperta parte solo a gruppo riuscito.

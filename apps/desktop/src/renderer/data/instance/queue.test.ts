@@ -7,6 +7,7 @@ import { advanceNow, now, setStreamLatency, state } from "../store";
 import { whenIdle } from "../stream";
 import {
   grantInstancePermission,
+  grantProjectPermission,
   resetViewerGrants,
   revokeProjectPermission,
   type LocalInstancePermission,
@@ -127,8 +128,11 @@ describe("lo Stato dell'istanza del seme", () => {
     expect(view.nightly.filter((r) => r.state === "failed")).toHaveLength(1);
   });
 
-  it("si legge con instance.status.view o settings.manage, non senza", async () => {
+  it("si legge SOLO con instance.status.view (review F4, I2: come il server)", async () => {
     as(SARA);
+    await expect(status()).rejects.toThrow("forbidden");
+    // settings.manage da solo non basta più.
+    give(SARA, "settings.manage");
     await expect(status()).rejects.toThrow("forbidden");
     give(SARA, "instance.status.view");
     const view = await status();
@@ -219,10 +223,16 @@ describe("aiBlockFor", () => {
 });
 
 describe("Pause e Resume", () => {
-  it("chiedono settings.manage su un progetto visibile; una pausa già messa è already_paused", async () => {
+  it("chiedono project.settings.manage NEL progetto (F4); una pausa già messa è already_paused", async () => {
+    // Laura è Project Lead di ACQ: la pausa di ACQ la mette lei.
     as(LAURA);
+    expect(await instance.pauseQueue(ACQ)).toEqual({ ok: true });
+    expect(await instance.resumeQueue(ACQ)).toEqual({ ok: true });
+    // Marco no, nemmeno con settings.manage d'istanza (prima bastava).
+    give(MARCO, "settings.manage");
+    as(MARCO);
     expect(await instance.pauseQueue(ACQ)).toEqual({ ok: false, error: "forbidden" });
-    expect(await instance.resumeQueue(STW)).toEqual({ ok: false, error: "forbidden" });
+    state.changelog.splice(0);
     give(CHIARA, "settings.manage");
     as(CHIARA);
     expect(await instance.resumeQueue(STW)).toEqual({ ok: false, error: "not_found" });
@@ -439,19 +449,20 @@ describe("Retry (RF 5)", () => {
   });
 
   it("con settings.manage ma senza runs.start → forbidden", async () => {
-    give(SARA, "settings.manage");
+    give(SARA, "instance.status.view");
     as(SARA);
     expect((await status()).jobs.find((j) => j.id === "cv-run-acq-3")!.retry).toBe("forbidden");
     expect(await instance.retryJob("cv-run-acq-3")).toEqual({ ok: false, error: "forbidden" });
     as(MARCO);
     expect(await instance.retryJob("cv-run-acq-3")).toEqual({ ok: false, error: "forbidden" });
     as(CHIARA);
-    give(CHIARA, "settings.manage");
+    give(CHIARA, "instance.status.view");
     expect(await instance.retryJob("cv-run-acq-3")).toEqual({ ok: false, error: "not_found" });
   });
 
-  it("Marco con settings.manage riprova: parte a suo nome e si ferma al gate del piano", async () => {
-    give(MARCO, "settings.manage");
+  it("Marco, che gestisce ACQ (F4), riprova: parte a suo nome e si ferma al gate del piano", async () => {
+    give(MARCO, "instance.status.view");
+    grantProjectPermission(MARCO, ACQ, "project.settings.manage" as never);
     as(MARCO);
     expect((await status()).jobs.find((j) => j.id === "cv-run-acq-3")!.retry).toBe("allowed");
     const result = await instance.retryJob("cv-run-acq-3");
@@ -492,7 +503,7 @@ describe("le voci del registro della coda", () => {
       "running",
     ]);
 
-    give(CHIARA, "settings.manage");
+    give(CHIARA, "instance.status.view");
     as(CHIARA);
     expect((await changelog.listChanges()).filter((e) => kinds.includes(e.kind))).toEqual([]);
   });
@@ -520,8 +531,9 @@ describe("lo Stato dell'istanza per la pagina (Task 13)", () => {
     as(SARA);
     expect(await acq3()).toMatchObject({ retry: "forbidden", retryNeeds: "manageSettings" });
 
-    // Ruling 2: Marco, con settings.manage, ha runs.start in ACQ ma non plans.approve.
-    give(MARCO, "settings.manage");
+    // Ruling 2: Marco gestisce ACQ (F4: nel progetto), ha runs.start ma non plans.approve.
+    give(MARCO, "instance.status.view");
+    grantProjectPermission(MARCO, ACQ, "project.settings.manage" as never);
     as(MARCO);
     expect(await acq3()).toMatchObject({
       retry: "allowed",

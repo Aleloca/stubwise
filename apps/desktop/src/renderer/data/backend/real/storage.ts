@@ -4,9 +4,8 @@ import type { InstanceResult } from "../../instance/types";
 import { appClient } from "./client";
 
 // Amministrazione → Storage nella build app (area 9, F3) su
-// `/api/settings/instance` (72), lo stesso PUT di lingua e budget: per questo
-// ogni salvataggio rimanda la lingua E il budget di adesso (sul server la
-// lingua è obbligatoria, e un budget che manca si azzerava: review F3, C1).
+// `/api/settings/instance` (72), lo stesso PUT di lingua e budget, che è una
+// patch (F4): si mandano solo i campi dell'archiviazione.
 // La chiave S3 si manda solo se è nuova, e allora il server chiede la
 // riconferma. Il segreto non torna mai: la vista dice solo se c'è.
 //
@@ -69,12 +68,9 @@ export function createRealStorage(api: StorageApi) {
       secretAccessKey?: string;
     }): Promise<InstanceResult> {
       try {
-        const current = await api.get();
+        // Il PUT è una patch (72, F4): solo i campi dell'archiviazione; lingua
+        // e budget restano com'erano (review F4, I3; prima review F3, C1).
         await api.save({
-          contentLanguage: current.contentLanguage,
-          // Review F3, C1: il PUT azzera un campo che manca, quindi il budget
-          // di adesso si rimanda sempre (72 lo rende anche una patch).
-          monthlyBudgetUsd: current.monthlyBudgetUsd ?? null,
           s3Endpoint: input.endpoint.trim(),
           s3Region: input.region.trim(),
           s3Bucket: input.bucket.trim(),

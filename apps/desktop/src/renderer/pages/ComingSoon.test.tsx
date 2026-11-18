@@ -185,6 +185,18 @@ const INTEGRATED_CALLS = new Set([
   "instance.updateGoogleApp",
   "instance.replaceGoogleSecret",
   "instance.deleteGoogleApp",
+  // Area 9, F4: la pausa della coda fuori dallo Stato.
+  "instance.getQueuePause",
+  // Area 9, F4: Instance status.
+  "instance.getInstanceStatus",
+  "instance.pauseQueue",
+  "instance.resumeQueue",
+  "instance.retryJob",
+  // Area 9, F4: AI → Usage.
+  "instance.getUsage",
+  // Area 9, F4: AI → Budget & language.
+  "instance.getBudget",
+  "instance.saveBudget",
   // Area 9, F3: AI → Models.
   "instance.listModels",
   "instance.setModel",
@@ -938,6 +950,18 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
+  // Area 9, F4: AI → Budget & language, su `/api/settings/instance`; senza
+  // la simulazione del budget raggiunto (solo prototipo).
+  it("aprire AI → Budget legge solo chiamate integrate, senza riquadro del prototipo", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/ai?tab=budget");
+    await waitFor(() => expect(calls).toContain("instance.getBudget"));
+    await settle();
+    expect(document.querySelector("[data-coming-soon]")).toBeNull();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
   // Area 9, F3: AI → Models acceso, su `/api/settings/models`.
   it("aprire AI → Models legge solo chiamate integrate", async () => {
     signedInAs("p-roberta");
@@ -959,16 +983,36 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  // Area 9, F3: la voce AI accesa scheda per scheda (`ai-<tab>`): una scheda
-  // non ancora collegata è «Coming soon» dentro la pagina, senza letture.
-  it("aprire una scheda AI non collegata: «Coming soon» al posto del pannello, nessuna chiamata", async () => {
+  // Area 9, F4 (72, 5713037b2): la pausa della coda nella colonna del
+  // progetto, dalla vista del progetto (`queuePause`).
+  it("la colonna di un progetto in pausa lo dice, con chiamate integrate", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/p/STW/overview");
+    await waitFor(() => expect(calls).toContain("instance.getQueuePause"));
+    await waitFor(() => expect(document.querySelector("[data-queue-paused]")).not.toBeNull());
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F4: Amministrazione → Instance status, su `GET /api/instance/status`,
+  // con pausa, ripresa e rilancio di 72.
+  it("aprire Instance status legge solo chiamate integrate, senza riquadro del prototipo", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/status");
+    await waitFor(() => expect(calls).toContain("instance.getInstanceStatus"));
+    await settle();
+    expect(document.querySelector("[data-coming-soon]")).toBeNull();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F4: AI → Usage, su `GET /api/ai-usage/summary`.
+  it("aprire AI → Usage legge solo chiamate integrate", async () => {
     signedInAs("p-roberta");
     renderRoute("/admin/ai?tab=usage");
-    expect(await screen.findByRole("heading", { level: 1, name: "AI" })).toBeInTheDocument();
+    await waitFor(() => expect(calls).toContain("instance.getUsage"));
     await settle();
-    // La pagina c'è, con le sue schede: il «Coming soon» è solo del pannello.
-    expect(screen.getByRole("tablist")).toBeInTheDocument();
-    expect(document.querySelector("[data-coming-soon]")).not.toBeNull();
+    expect(document.querySelector("[data-coming-soon]")).toBeNull();
     expect(outside()).toEqual([]);
   });
 

@@ -4,10 +4,13 @@ import { partialNamespace } from "./notIntegrated";
 import { liveModels } from "./aiModels";
 import { liveGitAccounts } from "./gitAccounts";
 import { liveGoogleApps } from "./googleApps";
+import { liveInstanceStatus } from "./instanceStatus";
 import { livePlugins } from "./plugins";
 import { liveStorage } from "./storage";
+import { liveUsage } from "./usage";
 import { liveProviders } from "./aiProviders";
 import { liveAutomation } from "./automation";
+import { liveBudget } from "./budget";
 import { liveWebhooks } from "./webhooks";
 
 /**
@@ -32,4 +35,10 @@ export const instance: typeof Fake.instance = partialNamespace<typeof Fake.insta
   ...livePlugins,
   // Area 9, F3: Storage.
   ...liveStorage,
+  // Area 9, F4: AI → Budget & language.
+  ...liveBudget,
+  // Area 9, F4: lo Stato dell'istanza (la voce si accende con pausa e rilancio).
+  ...liveInstanceStatus,
+  // Area 9, F4: AI → Usage.
+  ...liveUsage,
 });

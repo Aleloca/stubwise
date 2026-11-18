@@ -7442,7 +7442,8 @@
       "aiQueueBackStillBudget": "Queue resumed · still waiting: monthly AI budget reached",
       "projectUnavailable": "The project isn't available anymore.",
       "projectUnavailable_would": "The project isn't available anymore: the step would fail.",
-      "noDepartmentRecipient": "Nobody in the department sees the project: there's nobody to notify."
+      "noDepartmentRecipient": "Nobody in the department sees the project: there's nobody to notify.",
+      "queuePaused": "Waiting: the project's queue is paused. It starts again on its own when the queue is resumed."
     },
     "created": {
       "task_one": "{{count}} task",
@@ -10933,7 +10934,10 @@
         "otherProjectsHint": "Projects you can't see, added together.",
         "tokensTitle": "{{tokens}} tokens",
         "empty": "No AI usage in this period.",
-        "loadError": "Couldn't load the usage."
+        "loadError": "Couldn't load the usage.",
+        "noProvider": "No account, or an account that was removed",
+        "rangeTooLong": "Choose at most a year.",
+        "invalidRange": "The start date comes after the end date."
       },
       "prototype": {
         "label": "Prototype only"
@@ -11724,7 +11728,7 @@
         "resume": "Resume",
         "pauseOf": "Pause {{code}}'s queue",
         "resumeOf": "Resume {{code}}'s queue",
-        "forbidden": "Only people who can manage settings pause or resume a queue.",
+        "forbidden": "Only people who manage {{code}} pause or resume its queue.",
         "announce": "{{code}}: {{counts}}",
         "pauseDialog": {
           "title": "Pause {{code}}'s queue?",
@@ -11771,7 +11775,8 @@
           "server_fix": "Server fix",
           "automation": "Automation",
           "product_doc_update": "Product doc update",
-          "nightly": "Nightly run"
+          "nightly": "Nightly run",
+          "other": "Work"
         },
         "state": {
           "running": "Running · worker {{n}}",
@@ -11782,8 +11787,9 @@
         "retry": "Retry",
         "retryOf": "Retry {{code}}",
         "retryNeeds": {
-          "manageSettings": "Only people who can manage settings put work back in the queue.",
-          "startRun": "Only people who can start Claude in {{code}} put work back in the queue."
+          "manageSettings": "Only people who manage {{code}} put its work back in the queue.",
+          "startRun": "Only people who can start Claude in {{code}} put work back in the queue.",
+          "other": "You can't put this work back in the queue."
         },
         "correctionNote": "Corrections are resumed from the task.",
         "superseded": "A newer run of {{code}} has taken its place: nothing to put back.",
@@ -11813,7 +11819,8 @@
         "name": "Worker {{n}}",
         "idle": "idle",
         "hidden": "busy in a project you can't see",
-        "prototype": "Prototype: two simulated workers."
+        "prototype": "Prototype: two simulated workers.",
+        "empty": "No worker running."
       },
       "accounts": {
         "heading": "AI accounts",
@@ -11834,7 +11841,8 @@
         "phases": {
           "commit_summary": "Commit summaries",
           "release_note": "Release note",
-          "docs": "Docs"
+          "docs": "Docs",
+          "other": "Step"
         },
         "states": {
           "done": "done",
