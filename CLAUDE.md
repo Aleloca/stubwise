@@ -225,7 +225,7 @@ percorso sul volume.
   `compact` non è di troppo: i run lunghi auto-compattano e il contratto va
   re-iniettato.
 - **Abilitazioni per progetto** (Progetto → Plugin, permesso `project.settings.manage` nel progetto): per
-  **sottrazione** (default tutto acceso), per singola skill e per gruppo di hook
+  **sottrazione** DENTRO un plugin acceso sul progetto (un plugin entra nei run solo se il progetto lo accende: opt-in, decisione del maintainer del 19 nov 2026; poi skill e hook sono tutti accesi di default), per singola skill e per gruppo di hook
   (`<Evento>#<indice>`). Il CLI non sa disabilitare una skill di plugin
   (`skillOverrides` ignora `source: "plugin"`), quindi ogni run riceve una
   **copia filtrata** della dir in una tmp fuori dalla cwd, più la deny rule
