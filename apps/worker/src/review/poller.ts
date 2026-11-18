@@ -1,4 +1,4 @@
-import { prReviewJobs, prReviews, repositories, type Db } from "@stubwise/db";
+import { repositoryQueueRunnable, prReviewJobs, prReviews, repositories, type Db } from "@stubwise/db";
 import { and, desc, eq, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import type { ProjectSerializer } from "../handler.js";
 import {
@@ -106,7 +106,8 @@ export async function pollPrReviewsOnce(deps: PollPrReviewsDeps): Promise<number
     claimed = await deps.db.transaction(async (tx) => {
       const rows = await tx
         .delete(prReviewJobs)
-        .where(lte(prReviewJobs.notBefore, sql`now()`))
+        // Area 9, F4: una coda in pausa non dà review nuove (il progetto del repository).
+        .where(and(lte(prReviewJobs.notBefore, sql`now()`), repositoryQueueRunnable(sql`${prReviewJobs.repositoryId}`)))
         .returning({
           repositoryId: prReviewJobs.repositoryId,
           prNumber: prReviewJobs.prNumber,

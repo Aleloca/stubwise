@@ -15,7 +15,8 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
-import { automationRules, encrypt, instanceSettings } from "@stubwise/db";
+import { automationRules, encrypt, instanceSettings, monthlyCostUsd } from "@stubwise/db";
+import { aiBudgetState } from "@stubwise/notifications";
 import { s3ConfigFromSettings } from "../storage/index.js";
 import { requireReauth } from "../auth/access.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -186,7 +187,18 @@ async function loadInstanceSettings(
     slackSigningSecretSet: row?.slackSigningSecretEncrypted != null,
     slackBotTokenSet: row?.slackBotTokenEncrypted != null,
     slackEnabled: row?.slackSigningSecretEncrypted != null && row?.slackBotTokenEncrypted != null,
+    // Il budget con la regola del worker (`aiBudgetState`): una sola definizione di «raggiunto».
+    spentUsd: await monthlyCostUsd(db),
+    budgetReached: (await aiBudgetState(db)).exhausted,
+    budgetEffect: null,
   };
+}
+
+/** Cosa ha fatto un salvataggio al budget (94: la frase dopo «Save»). */
+function budgetEffectOf(before: boolean, after: boolean): "released" | "now_reached" | "still_reached" | null {
+  if (before && !after) return "released";
+  if (!before && after) return "now_reached";
+  return before && after ? "still_reached" : null;
 }
 
 /**
@@ -547,6 +559,7 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
           body.slackBotToken === "" ? null : encrypt(body.slackBotToken, app.encryptionKey);
       }
 
+      const reachedBefore = (await aiBudgetState(app.db)).exhausted;
       await app.db.transaction(async (tx) => {
         const [before] = await tx.select().from(instanceSettings).where(eq(instanceSettings.id, 1)).for("update");
         const [after] = await tx
@@ -564,7 +577,8 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
           .returning();
         await recordInstanceChanges(tx, request.user!, before ?? null, after!, body.s3SecretKey !== undefined);
       });
-      return loadInstanceSettings(app.db, app.encryptionKey);
+      const view = await loadInstanceSettings(app.db, app.encryptionKey);
+      return { ...view, budgetEffect: budgetEffectOf(reachedBefore, view.budgetReached) };
     },
   );
 

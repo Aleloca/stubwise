@@ -130,6 +130,17 @@ export const instanceSettingsViewSchema = z.object({
   slackSigningSecretSet: z.boolean().default(false),
   slackBotTokenSet: z.boolean().default(false),
   slackEnabled: z.boolean().default(false),
+  // Il budget, calcolato dal server con la regola del worker (`aiBudgetState`):
+  /** Lo speso del mese corrente (USD), anche senza un tetto. */
+  spentUsd: z.number().nonnegative().default(0),
+  /** Il tetto del mese è raggiunto: il lavoro di Claude che lo rispetta è fermo. */
+  budgetReached: z.boolean().default(false),
+  /**
+   * Solo nella risposta del `PUT`: cosa ha fatto il salvataggio al budget.
+   * `released` (era raggiunto, non più), `now_reached` (non lo era, ora sì),
+   * `still_reached` (lo era e lo resta); null = niente da dire.
+   */
+  budgetEffect: z.enum(["released", "now_reached", "still_reached"]).nullable().default(null),
 });
 export type InstanceSettingsView = z.infer<typeof instanceSettingsViewSchema>;
 

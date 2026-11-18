@@ -470,6 +470,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 8: l'API per i siti» (16 nov 2026; migrazione 0184, server → caddy; ⚠️ un rollback del server ignora token e «Solo clienti verificati»: avvisare chi li ha accesi)
   - «Integrazione area 9, F1: gli accessi» (16 nov 2026; migrazione 0185, server → caddy, SMTP facoltativo; ⚠️ in un rollback un disattivato rientra con la sua password)
   - «Integrazione area 9, F2: il registro delle modifiche» (18 nov 2026; migrazione 0187, server → caddy; il registro parte dal deploy, e un rollback lascia un buco da annotare)
+  - «Integrazione area 9, F3: integrazioni, segreti e registro della 9b» (18 nov 2026; migrazioni 0188–0190, server → worker → caddy; PRIMA la query delle proposte della posta sul webhook e dei ruoli che perdono la pagina Notifiche; il webhook migrato va rigenerato per la firma; nel rollback chiudere le consegne con `webhook_id` PRIMA di scendere col worker)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.

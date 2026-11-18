@@ -25,7 +25,9 @@ export interface ChangeLogType {
 }
 
 const instance = (kind: string, readPermission: string, group: string): ChangeLogType => ({ kind, scope: "instance", group, readPermission });
-const project = (kind: string): ChangeLogType => ({ kind, scope: "project", group: "members", readPermission: "project.members.manage" });
+const project = (kind: string, group = "members", readPermission = "project.members.manage"): ChangeLogType => ({ kind, scope: "project", group, readPermission });
+// Area 9, F4: la coda di un progetto (J-1 = a: la gestisce chi gestisce il progetto).
+const queue = (kind: string): ChangeLogType => project(kind, "queue", "project.settings.manage");
 
 export const CHANGE_LOG_TYPES = [
   instance("person.instance_role_changed", "users.manage", "people"),
@@ -87,6 +89,10 @@ export const CHANGE_LOG_TYPES = [
   instance("webhook.updated", "integrations.manage", "integrations"),
   instance("webhook.secret_replaced", "integrations.manage", "integrations"),
   instance("webhook.deleted", "integrations.manage", "integrations"),
+  // Area 9, F4: lo Stato dell'istanza (solo la coda di Stubwise, mai un server).
+  queue("queue.paused"),
+  queue("queue.resumed"),
+  queue("job.retried"),
 ] as const satisfies readonly ChangeLogType[];
 
 export type ChangeLogKind = (typeof CHANGE_LOG_TYPES)[number]["kind"];
@@ -184,6 +190,10 @@ export const CHANGE_DATA_SCHEMAS: Record<ChangeLogKind, z.ZodType<ChangeData>> =
   "webhook.updated": changeDataSchema,
   "webhook.secret_replaced": changeDataSchema,
   "webhook.deleted": changeDataSchema,
+  "queue.paused": changeDataSchema,
+  // Prima e dopo: `paused:<ISO>` → `running` (encodeQueue del prototipo).
+  "queue.resumed": changeDataSchema,
+  "job.retried": changeDataSchema,
 };
 
 /**

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { backlogItems, instanceSettings, widgetConversations, widgetMessages } from "@stubwise/db";
+import { backlogItems, instanceSettings, projects, widgetConversations, widgetMessages } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { SUPPORT_TRIAGE_IDLE_MINUTES } from "@stubwise/shared";
 import { eq, sql } from "drizzle-orm";
@@ -118,6 +118,20 @@ describe("il controllo dopo il silenzio (S10)", () => {
     await t.db.update(widgetConversations).set({ triageOutcome: "not_concluded", triageOutcomeAt: ago(10), triageCheckedAt: ago(10) }).where(eq(widgetConversations.id, id));
     const d = deps('{"outcome":"concluded"}');
     expect(await checkIdleConversationsOnce(d)).toBe(0);
+  });
+
+  it("area 9, F4: la coda del progetto in pausa: nessun giudizio (niente reclamato); alla ripresa sì", async () => {
+    const id = await conversation(60);
+    await t.db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, projectId));
+    const d = deps('{"outcome":"concluded"}');
+    try {
+      expect(await checkIdleConversationsOnce(d)).toBe(0);
+      expect(d.runs).toEqual([]);
+      expect((await rowOf(id)).triageCheckedAt).toBeNull();
+    } finally {
+      await t.db.update(projects).set({ queuePausedAt: null }).where(eq(projects.id, projectId));
+    }
+    expect(await checkIdleConversationsOnce(d)).toBe(1);
   });
 
   it("budget mensile esaurito: nessuna run e niente reclamato (si riprova quando torna)", async () => {

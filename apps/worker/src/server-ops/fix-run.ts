@@ -1,8 +1,8 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { and, eq, inArray, isNotNull, isNull, lt } from "drizzle-orm";
-import { monthlyCostUsd, serverAnalyses, serverCommands, serverFixes, serverOperationApprovals, servers, tickets, type Db } from "@stubwise/db";
+import { and, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { monthlyCostUsd, projectQueueRunnable, serverAnalyses, serverCommands, serverFixes, serverOperationApprovals, servers, tickets, type Db } from "@stubwise/db";
 import { aiBudgetState, attributionContext, cancelServerCommands, issueServerCommand, ServerCommandError } from "@stubwise/notifications";
 import { SERVER_ACTIONS, serverActionSchema, validateServerPlan, type ServerAction } from "@stubwise/shared";
 import { AgentTimeoutError, type AgentRunner } from "../agent/runner.js";
@@ -76,7 +76,15 @@ export function buildServerFixPrompt(input: { serverCode: string; language: stri
 export async function proposeNextServerFix(deps: ServerFixDeps): Promise<boolean> {
   const { db, log } = deps;
   // In coda = `proposing` senza sessione (la rotta che chiede un piano la azzera).
-  const [fix] = await db.select().from(serverFixes).where(and(eq(serverFixes.status, "proposing"), isNull(serverFixes.sessionId))).orderBy(serverFixes.updatedAt).limit(1);
+  // Area 9, F4 (46): la PROPOSTA è lavoro di Claude nel progetto attribuito:
+  // con la sua coda in pausa aspetta. L'esecuzione dei passi già approvati no
+  // (deterministica, lavoro già partito: finisce).
+  const [fix] = await db
+    .select()
+    .from(serverFixes)
+    .where(and(eq(serverFixes.status, "proposing"), isNull(serverFixes.sessionId), projectQueueRunnable(sql`${serverFixes.projectId}`)))
+    .orderBy(serverFixes.updatedAt)
+    .limit(1);
   if (!fix) return false;
   if ((await aiBudgetState(db, deps.monthlyCostUsdFn ?? monthlyCostUsd)).exhausted) {
     await finish(db, fix.id, "none", "monthly_budget", ["proposing"]);

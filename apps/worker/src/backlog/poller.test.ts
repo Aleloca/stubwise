@@ -137,6 +137,20 @@ describe("claimNextBacklogJob", () => {
     expect(c).toBeNull();
   });
 
+  it("area 9, F4: la coda del progetto in pausa non dà intake né stime nuove; un altro progetto sì; alla ripresa sì", async () => {
+    const db = testDb.db;
+    const paused = await createProject(db);
+    const other = await createProject(db);
+    const p = await insertJob(db, { projectId: paused });
+    await new Promise((r) => setTimeout(r, 5));
+    const o = await insertJob(db, { projectId: other });
+    await db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, paused));
+    expect((await claimNextBacklogJob(db))?.id).toBe(o);
+    expect(await claimNextBacklogJob(db)).toBeNull();
+    await db.update(projects).set({ queuePausedAt: null }).where(eq(projects.id, paused));
+    expect((await claimNextBacklogJob(db))?.id).toBe(p);
+  });
+
   it("due claim concorrenti su due job prendono righe diverse (SKIP LOCKED)", async () => {
     const db = testDb.db;
     const projectId = await createProject(db);

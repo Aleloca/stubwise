@@ -696,6 +696,10 @@ export const projects = pgTable(
     // true = il provider del progetto è esclusivo, niente passaggio ad altri
     // account; false = preferito.
     aiProviderExclusive: boolean("ai_provider_exclusive").notNull().default(false),
+    // Area 9, F4: la pausa della coda (0191). Nulla = la coda va. Solo la
+    // coda di Stubwise: il claim di ogni coda esclude un progetto in pausa.
+    queuePausedAt: timestamp("queue_paused_at", { withTimezone: true }),
+    queuePausedByUserId: uuid("queue_paused_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
     // Aggiornamento automatico della documentazione ai push (changelog/release):
     // false = disattivo (i push non innescano nulla). Toggle per-progetto, vale
     // per tutti i repository del progetto.
@@ -7400,3 +7404,17 @@ export const serverSshAccess = pgTable("server_ssh_access", {
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Area 9, F4 (0191): l'heartbeat dei worker, una riga per processo, riscritta
+ * a ogni giro del loop. «Attivo» = `seen_at` negli ultimi 2′. `running`: i
+ * lavori in mano (J-2 = a), `{ kind, id }`.
+ */
+export const workerHeartbeats = pgTable("worker_heartbeats", {
+  workerId: text("worker_id").primaryKey(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  seenAt: timestamp("seen_at", { withTimezone: true }).notNull().defaultNow(),
+  concurrency: integer("concurrency").notNull(),
+  running: jsonb("running").$type<{ kind: string; id: string }[]>().notNull().default([]),
+});
+export type WorkerHeartbeat = typeof workerHeartbeats.$inferSelect;

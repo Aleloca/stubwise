@@ -83,7 +83,7 @@ describe("googleApps e instanceSettings", () => {
     expect((await g.client.googleApps.list())[0]).toMatchObject({ accountCount: 0 });
     expect(last(g.fetchImpl).url).toBe("/api/settings/google-workspaces");
     const i = clientWith({ contentLanguage: "it", monthlyBudgetUsd: null });
-    expect(await i.client.instanceSettings.get()).toMatchObject({ s3Endpoint: null, s3SecretKeySet: false, attachmentsEnabled: false, slackEnabled: false });
+    expect(await i.client.instanceSettings.get()).toMatchObject({ s3Endpoint: null, s3SecretKeySet: false, attachmentsEnabled: false, slackEnabled: false, spentUsd: 0, budgetReached: false, budgetEffect: null });
     await i.client.instanceSettings.save({ contentLanguage: "it", monthlyBudgetUsd: 600, s3Bucket: "b" });
     expect(last(i.fetchImpl)).toEqual({ method: "PUT", url: "/api/settings/instance", body: { contentLanguage: "it", monthlyBudgetUsd: 600, s3Bucket: "b" } });
     // Review F3: il server tratta un budget ASSENTE come «nessun budget» (e lo
