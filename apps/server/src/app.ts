@@ -47,6 +47,7 @@ import { avatarRoutes } from "./routes/avatars.js";
 import { meEmailChangeRoutes } from "./routes/me-email-change.js";
 import { accessRoutes } from "./routes/access.js";
 import { adminViewRoutes } from "./routes/admin-views.js";
+import { changeLogRoutes } from "./routes/change-log.js";
 import { smtpTransport, type MailTransport } from "./mail/transport.js";
 import { meWaitingCustomersRoutes } from "./routes/me-waiting-customers.js";
 import { meMailDraftsRoutes, meMailOutgoingRoutes, meMailRecipientsRoutes } from "./routes/me-mail-drafts.js";
@@ -947,6 +948,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(accessRoutes, { prefix: "/api/access" });
   // Area 9, F1 (R7, R8): le letture calcolate dell'amministrazione.
   void app.register(adminViewRoutes, { prefix: "/api/admin" });
+  // Area 9, F2: il registro delle modifiche.
+  void app.register(changeLogRoutes, { prefix: "/api" });
   // Cassaforte delle credenziali: attivazione, chiavi delle persone, kit di recupero.
   void app.register(vaultRoutes, { prefix: "/api/vault" });
   // Credenziali della cassaforte: `/api/projects/:projectId/credentials...`,
