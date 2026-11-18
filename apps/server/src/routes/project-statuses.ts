@@ -267,7 +267,7 @@ export async function projectStatusRoutes(instance: FastifyInstance): Promise<vo
           .select({ id: projects.id, code: projects.code, activeDays: projects.stallActiveDays, todoDays: projects.stallTodoDays })
           .from(projects)
           .where(eq(projects.id, request.params.projectId))
-          .for("update");
+          .for("no key update");
         if (!current) return null;
         await tx.update(projects).set({ stallActiveDays: activeDays, stallTodoDays: todoDays }).where(eq(projects.id, current.id));
         const diff = changedFields(

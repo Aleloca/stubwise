@@ -40,6 +40,8 @@ export async function projectSecretRoutes(instance: FastifyInstance): Promise<vo
     },
     async (request, reply) => {
       try {
+        // Il valore nuovo non resta in nessuna cache intermedia.
+        reply.header("cache-control", "no-store");
         return await regenerateIngestionKey(app.db, request.user!, request.params.projectId);
       } catch (error) {
         return sendRoleRuleError(reply, error);
@@ -65,7 +67,11 @@ export async function projectSecretRoutes(instance: FastifyInstance): Promise<vo
     },
     async (request, reply) => {
       try {
-        return await regenerateWebhookSecret(app.db, app.encryptionKey, request.user!, request.params.slug, app.publicUrl);
+        reply.header("cache-control", "no-store");
+        return await regenerateWebhookSecret(app.db, app.encryptionKey, request.user!, request.params.slug, app.publicUrl, (error) =>
+          // Il messaggio dell'errore del DB, mai il segreto (non ci passa).
+          request.log.error({ err: error }, "webhook secret: la scrittura nel DB è fallita dopo l'aggiornamento della piattaforma"),
+        );
       } catch (error) {
         return sendRoleRuleError(reply, error);
       }

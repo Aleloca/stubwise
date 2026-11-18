@@ -82,8 +82,6 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
     return rows.map((r) => ({ key: r.key, valueSet: true as const }));
   }
 
-  // Verifica che il file esista E appartenga al repository dell'URL: evita di
-  // operare su file di altri repository tramite fileId indovinati.
   /**
    * Area 9, F5: l'oggetto e i `params` di una voce su un file d'ambiente, come
    * il prototipo (`envFiles.ts`): il percorso, il NOME dell'ambiente e del
@@ -100,6 +98,8 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
     return { projectId: row.projectId, object: { type: "env_file", id: row.id, label: row.path }, params: { environment: row.environment, repository: row.repository } };
   }
 
+  // Verifica che il file esista E appartenga al repository dell'URL: evita di
+  // operare su file di altri repository tramite fileId indovinati.
   async function findFile(repositoryId: string, fileId: string) {
     // Solo guard di esistenza/ownership: ai chiamanti basta sapere se la riga
     // esiste, quindi proiettiamo solo l'id (niente select dell'intera riga).
@@ -236,9 +236,10 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
               set: { valueEncrypted, updatedAt: sql`now()` },
             });
         }
-        // Area 9, F5: quante variabili, mai quali valori.
-        const ctx = (await envFileContext(tx, fileId))!;
-        await recordChange(tx, { type: "env_file.imported", actor: request.user!, projectId: ctx.projectId, data: { object: ctx.object, params: { ...ctx.params, count: String(valid.length) } } });
+        // Area 9, F5: quante variabili, mai quali valori. Un import senza
+        // righe valide non ha scritto niente, quindi niente voce.
+        const ctx = valid.length > 0 ? await envFileContext(tx, fileId) : null;
+        if (ctx) await recordChange(tx, { type: "env_file.imported", actor: request.user!, projectId: ctx.projectId, data: { object: ctx.object, params: { ...ctx.params, count: String(valid.length) } } });
       });
       const imported = valid.map((v) => v.key);
       return { count: imported.length, imported };

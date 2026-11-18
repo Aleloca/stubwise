@@ -120,6 +120,39 @@ describe("il segreto del webhook git (K-5)", () => {
     expect(await entries("repository.webhook_secret_regenerated", r.projectId)).toHaveLength(1);
   });
 
+  it("CONCORRENZA (review I2): due rigenerazioni insieme lasciano DB e piattaforma sullo STESSO segreto", async () => {
+    const r = await repo(true);
+    scopes(true);
+    const pushed: string[] = [];
+    vi.spyOn(GitHubProvider.prototype, "ensureWebhook").mockImplementation(async (_p, hook) => {
+      pushed.push(hook.secret);
+      // La prima arriva alla piattaforma e poi si attarda: senza blocco la seconda la scavalca.
+      await new Promise((resolve) => setTimeout(resolve, pushed.length === 1 ? 150 : 0));
+      return { created: false, updated: true, id: "1", detail: "ok" };
+    });
+    const [a, b] = await Promise.all([post(`/api/repositories/${r.slug}/webhook-secret`), post(`/api/repositories/${r.slug}/webhook-secret`)]);
+    expect([a.statusCode, b.statusCode]).toEqual([200, 200]);
+    expect(pushed).toHaveLength(2);
+    expect(await secretOf(r.id)).toBe(pushed.at(-1));
+  });
+
+  it("CONCORRENZA (review I2): «configura» e rigenerazione insieme lasciano DB e piattaforma sullo STESSO segreto", async () => {
+    const r = await repo(true);
+    scopes(true);
+    const landed: string[] = [];
+    let calls = 0;
+    vi.spyOn(GitHubProvider.prototype, "ensureWebhook").mockImplementation(async (_p, hook) => {
+      // La prima chiamata arriva alla piattaforma in ritardo: senza blocco, il segreto vecchio di «configura» scavalca quello nuovo.
+      const delay = calls++ === 0 ? 150 : 0;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      landed.push(hook.secret);
+      return { created: false, updated: true, id: "1", detail: "ok" };
+    });
+    const [c, g] = await Promise.all([post(`/api/repositories/${r.slug}/configure-webhook`), post(`/api/repositories/${r.slug}/webhook-secret`)]);
+    expect([c.statusCode, g.statusCode]).toEqual([200, 200]);
+    expect(await secretOf(r.id)).toBe(landed.at(-1));
+  });
+
   it("la scrittura fallisce DOPO che la piattaforma ha accettato: si rimette il vecchio sulla piattaforma (rollback), il DB resta col vecchio", async () => {
     const r = await repo(true);
     scopes(true);

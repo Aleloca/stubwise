@@ -45,63 +45,81 @@ export type WebhookSecretOutcome =
  *   il vecchio sulla piattaforma (`rollback`, con l'esito): l'unico punto in
  *   cui i due possono restare divisi.
  */
-export async function regenerateWebhookSecret(db: Db, key: Buffer, actor: Actor, slug: string, publicUrl: string): Promise<WebhookSecretOutcome> {
-  const [row] = await db
-    .select({ repository: repositories, account: gitAccounts })
-    .from(repositories)
-    .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
-    .where(eq(repositories.slug, slug));
-  if (!row) throw new RoleRuleError(404, "repository_not_found", "Repository not found");
-  const { repository, account } = row;
-  const fresh = randomBytes(16).toString("hex");
-  const write = () =>
-    db.transaction(async (tx) => {
-      await tx.update(repositories).set({ webhookSecret: fresh }).where(eq(repositories.id, repository.id));
-      await recordChange(tx, { type: "repository.webhook_secret_regenerated", actor, projectId: repository.projectId, data: { object: { type: "repository", id: repository.id, label: repository.name } } });
-    });
+export async function regenerateWebhookSecret(
+  db: Db,
+  key: Buffer,
+  actor: Actor,
+  slug: string,
+  publicUrl: string,
+  onWriteError?: (error: unknown) => void,
+): Promise<WebhookSecretOutcome> {
+  // Review I2: la riga del repository resta BLOCCATA per tutta la sequenza
+  // (scope → piattaforma → DB). Due rigenerazioni insieme (un doppio click), o
+  // una rigenerazione e una «configura», si mettono in fila: senza, la
+  // piattaforma poteva finire sul segreto dell'una e il DB su quello dell'altra.
+  return db.transaction(async (tx): Promise<WebhookSecretOutcome> => {
+    const [row] = await tx
+      .select({ repository: repositories, account: gitAccounts })
+      .from(repositories)
+      .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
+      .where(eq(repositories.slug, slug))
+      .for("update", { of: repositories });
+    if (!row) throw new RoleRuleError(404, "repository_not_found", "Repository not found");
+    const { repository, account } = row;
+    const fresh = randomBytes(16).toString("hex");
+    const write = (t: typeof tx) =>
+      // Un savepoint: se la scrittura fallisce, la transazione esterna resta
+      // valida e il vecchio può tornare sulla piattaforma (passo 5).
+      t.transaction(async (sp) => {
+        await sp.update(repositories).set({ webhookSecret: fresh }).where(eq(repositories.id, repository.id));
+        await recordChange(sp, { type: "repository.webhook_secret_regenerated", actor, projectId: repository.projectId, data: { object: { type: "repository", id: repository.id, label: repository.name } } });
+      });
 
-  if (!repository.webhookConfiguredAt) {
-    await write();
-    return { mode: "manual", webhookSecret: fresh };
-  }
-
-  let credentials: z.infer<typeof gitCredentialsSchema>;
-  try {
-    credentials = gitCredentialsSchema.parse(JSON.parse(decrypt(account.encryptedCredentials, key)));
-  } catch {
-    throw new RoleRuleError(400, "credentials_undecryptable", "Git account credentials cannot be decrypted");
-  }
-  const provider = getProvider(repository.provider);
-  const config = { repoUrl: repository.repoUrl, defaultBranch: repository.defaultBranch, credentials };
-
-  // 1. Gli scope PRIMA di toccare qualunque cosa.
-  const checks = await provider.validateCredentials(config, { fetchImpl: fetch });
-  const webhookCheck = checks.find((c) => c.purpose === "webhook");
-  if (!webhookCheck?.ok) throw new RoleRuleError(422, "webhook_scope_missing", webhookCheck?.detail ?? "The git token cannot manage webhooks");
-
-  // 2. Il nuovo, in memoria, sulla piattaforma.
-  const url = `${publicUrl}/webhooks/git/${slug}`;
-  try {
-    await provider.ensureWebhook(config, { url, secret: fresh }, { fetchImpl: fetch });
-  } catch (error) {
-    // 3. Rifiutato: resta il vecchio, che continua a valere.
-    const detail = error instanceof GitProviderError ? error.message : "The platform did not answer";
-    throw new RoleRuleError(502, "platform_update_failed", detail);
-  }
-
-  // 4. Accettato: si scrive il nuovo, con la voce.
-  try {
-    await write();
-    return { mode: "platform", webhookSecret: fresh };
-  } catch {
-    // 5. La scrittura è fallita con la piattaforma già sul nuovo: si prova a rimettere il vecchio.
-    try {
-      await provider.ensureWebhook(config, { url, secret: repository.webhookSecret }, { fetchImpl: fetch });
-      return { mode: "rollback", platformRestored: true };
-    } catch {
-      return { mode: "rollback", platformRestored: false };
+    if (!repository.webhookConfiguredAt) {
+      await write(tx);
+      return { mode: "manual", webhookSecret: fresh };
     }
-  }
+
+    let credentials: z.infer<typeof gitCredentialsSchema>;
+    try {
+      credentials = gitCredentialsSchema.parse(JSON.parse(decrypt(account.encryptedCredentials, key)));
+    } catch {
+      throw new RoleRuleError(400, "credentials_undecryptable", "Git account credentials cannot be decrypted");
+    }
+    const provider = getProvider(repository.provider);
+    const config = { repoUrl: repository.repoUrl, defaultBranch: repository.defaultBranch, credentials };
+
+    // 1. Gli scope PRIMA di toccare qualunque cosa.
+    const checks = await provider.validateCredentials(config, { fetchImpl: fetch });
+    const webhookCheck = checks.find((c) => c.purpose === "webhook");
+    if (!webhookCheck?.ok) throw new RoleRuleError(422, "webhook_scope_missing", webhookCheck?.detail ?? "The git token cannot manage webhooks");
+
+    // 2. Il nuovo, in memoria, sulla piattaforma.
+    const url = `${publicUrl}/webhooks/git/${slug}`;
+    try {
+      await provider.ensureWebhook(config, { url, secret: fresh }, { fetchImpl: fetch });
+    } catch (error) {
+      // 3. Rifiutato: resta il vecchio, che continua a valere.
+      const detail = error instanceof GitProviderError ? error.message : "The platform did not answer";
+      throw new RoleRuleError(502, "platform_update_failed", detail);
+    }
+
+    // 4. Accettato: si scrive il nuovo, con la voce.
+    try {
+      await write(tx);
+      return { mode: "platform", webhookSecret: fresh };
+    } catch (error) {
+      // 5. La scrittura è fallita con la piattaforma già sul nuovo: si prova a
+      // rimettere il vecchio. La causa al chiamante, che la registra (mai il segreto).
+      onWriteError?.(error);
+      try {
+        await provider.ensureWebhook(config, { url, secret: repository.webhookSecret }, { fetchImpl: fetch });
+        return { mode: "rollback", platformRestored: true };
+      } catch {
+        return { mode: "rollback", platformRestored: false };
+      }
+    }
+  });
 }
 
 const last4 = (value: string) => (value.length >= 4 ? value.slice(-4) : value);

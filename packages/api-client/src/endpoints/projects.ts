@@ -12,6 +12,7 @@ import {
   projectSchema,
   chronologyPageSchema,
   ingestionKeyResultSchema,
+  projectIntegrationSchema,
   projectPluginsViewSchema,
   weeklyBriefViewSchema,
 } from "@stubwise/shared";
@@ -39,6 +40,7 @@ import type {
   UpdateProjectInput,
   WeeklyBriefView,
   IngestionKeyResult,
+  ProjectIntegration,
   ProjectPlugin,
   ProjectPluginsView,
 } from "@stubwise/shared";
@@ -83,7 +85,15 @@ export function createProjectsEndpoints(request: ApiRequest) {
     regenerateIngestionKey(projectId: string): Promise<Reader<IngestionKeyResult>> {
       return request("POST", `/api/projects/${seg(projectId)}/ingestion-key`, undefined, ingestionKeyResultSchema);
     },
-    /** Area 9, F5: le abilitazioni dei plugin, con la `version` da rimandare come `ifMatch`. */
+    /**
+     * Area 9, F5 (I2): l'Integrazione in lettura — le ultime 4 della chiave
+     * (mai intera), quando e da chi, il DSN senza chiave, l'URL in entrata, i
+     * webhook git a chi vede i repository, i permessi calcolati dal server.
+     */
+    integration(projectId: string): Promise<Reader<ProjectIntegration>> {
+      return request("GET", `/api/projects/${seg(projectId)}/integration`, undefined, projectIntegrationSchema);
+    },
+    /** Area 9, F5: le abilitazioni dei plugin, con la `version` da rimandare come `ifMatch`, e il registro. */
     plugins(projectId: string): Promise<Reader<ProjectPluginsView>> {
       return request("GET", `/api/projects/${seg(projectId)}/plugins`, undefined, projectPluginsViewSchema);
     },
