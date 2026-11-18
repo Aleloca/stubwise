@@ -587,6 +587,8 @@ describe("publishNotification", () => {
     await db
       .update(notificationSettings)
       .set({ webhookUrl: "https://hooks.example.com/abc", notifyGoogleProposal: true });
+    // Area 9, F3: un webhook iscritto a TUTTO: la posta non ci arriva comunque.
+    await webhook([...OUTGOING_WEBHOOK_EVENT_IDS]);
 
     const result = await publishNotification(db, googleProposal, {
       projectId,
@@ -616,6 +618,8 @@ describe("publishNotification", () => {
     await db
       .update(notificationSettings)
       .set({ webhookUrl: "https://hooks.example.com/abc", notifyGoogleProposal: true });
+    // Area 9, F3: un webhook iscritto a TUTTO: la posta non ci arriva comunque.
+    await webhook([...OUTGOING_WEBHOOK_EVENT_IDS]);
 
     const result = await publishNotification(db, googleProposal, {});
 
@@ -1029,6 +1033,8 @@ describe("publishNotification", () => {
       await db
         .update(notificationSettings)
         .set({ webhookUrl: "https://hooks.example.com/abc", notifyGoogleProposal: true });
+      // Area 9, F3: un webhook iscritto a TUTTO: la posta non ci arriva comunque.
+      await webhook([...OUTGOING_WEBHOOK_EVENT_IDS]);
 
       await publishNotification(db, sample("google.proposal_handed"), {
         projectId,
