@@ -56,7 +56,7 @@ describe("settings.models nel client", () => {
   it("senza `source` (un server di prima) vale default; setModels manda la patch", async () => {
     const { client, fetchImpl } = clientWith({ operations: [{ operation: "fix_plan", configurable: true, model: null, workerDefault: "opus" }], choices: ["opus"] });
     const res = await client.settings.models();
-    expect(res.operations[0]).toMatchObject({ source: "default" });
+    expect(res.operations[0]).toMatchObject({ source: "default", fallbackSource: "default" });
     await client.settings.setModels({ fix_plan: "opus", pr_review: null });
     expect(last(fetchImpl)).toEqual({ method: "PATCH", url: "/api/settings/models", body: { models: { fix_plan: "opus", pr_review: null } } });
   });
