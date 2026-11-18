@@ -7,6 +7,7 @@ import {
   aiOperationSchema,
   aiModelSourceOf,
   isConfigurableAiOperation,
+  modelSettingsViewSchema,
   type AiModelChoice,
   type AiOperation,
 } from "@stubwise/shared";
@@ -23,22 +24,8 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  * senza riavvio. `null` nel PATCH cancella la riga (torna al predefinito).
  */
 
-const modelSettingsSchema = z.object({
-  operations: z.array(
-    z.object({
-      operation: aiOperationSchema,
-      configurable: z.boolean(),
-      model: aiModelChoiceSchema.nullable(),
-      workerDefault: z.string().nullable(),
-      /**
-       * Area 9, F3: da dove viene il modello che il worker userebbe ora
-       * (`aiModelSourceOf`, la precedenza del worker). Additivo, col default.
-       */
-      source: z.enum(["setting", "env", "default"]).default("default"),
-    }),
-  ),
-  choices: z.array(aiModelChoiceSchema),
-});
+// Area 9, F3: lo schema sta in `@stubwise/shared`, lo legge anche il client.
+const modelSettingsSchema = modelSettingsViewSchema;
 
 const patchBodySchema = z.object({
   models: z.partialRecord(aiOperationSchema, aiModelChoiceSchema.nullable()),

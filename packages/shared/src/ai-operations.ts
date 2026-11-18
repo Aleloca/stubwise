@@ -138,3 +138,22 @@ export function aiModelSourceOf(operation: AiOperation, setting: string | null |
   if (isKnownModelChoice(setting)) return "setting";
   return envOperations?.includes(operation) ? "env" : "default";
 }
+
+/**
+ * `GET`/`PATCH /api/settings/models` (area 9, F3: qui perché lo leggono
+ * server e client). `source` è additivo, col default.
+ */
+export const modelSettingsViewSchema = z.object({
+  operations: z.array(
+    z.object({
+      operation: aiOperationSchema,
+      configurable: z.boolean(),
+      model: aiModelChoiceSchema.nullable(),
+      workerDefault: z.string().nullable(),
+      /** Da dove viene il modello che il worker userebbe ora (`aiModelSourceOf`). */
+      source: z.enum(["setting", "env", "default"]).default("default"),
+    }),
+  ),
+  choices: z.array(aiModelChoiceSchema),
+});
+export type ModelSettingsView = z.infer<typeof modelSettingsViewSchema>;

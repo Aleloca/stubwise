@@ -107,3 +107,26 @@ export const outgoingWebhookPreviewSchema = z.object({
   event: z.enum(OUTGOING_WEBHOOK_EVENT_IDS),
   body: z.unknown(),
 });
+
+/**
+ * Area 9, F3 (H-4 = a): gli interruttori della pagina Notifiche del web
+ * vecchio, e l'evento che ognuno accende. È la mappa con cui la 0188 ha
+ * migrato `notification_settings` (un test la confronta col SQL), e la
+ * vista di compatibilità la usa sul webhook più vecchio.
+ */
+export const LEGACY_WEBHOOK_TOGGLES = {
+  notifyTicketCreated: "ticket.created",
+  notifyPlanReview: "job.plan_review",
+  notifyAwaitingInput: "job.awaiting_input",
+  notifyJobHeld: "job.held",
+  notifyBudgetHeld: "job.budget_held",
+  notifyJobFailed: "job.failed",
+  notifyPrOpened: "job.pr_opened",
+  notifyPrClosed: "job.pr_closed",
+  notifyReviewCompleted: "review.completed",
+  notifyDocsLimitPaused: "docs.limit_paused",
+  notifyMonitor: "monitor",
+  notifyPulse: "project.pulse",
+  notifyBrief: "project.brief",
+} as const satisfies Record<string, OutgoingWebhookEvent>;
+export type LegacyWebhookToggle = keyof typeof LEGACY_WEBHOOK_TOGGLES;

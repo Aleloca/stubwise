@@ -1,3 +1,5 @@
+import { loadLegacyWebhook, saveLegacyWebhook, testLegacyWebhook } from "../services/legacy-webhook.js";
+import { sendRoleRuleError } from "./roles.js";
 import { changedFields, recordChange, stableAmount } from "../services/change-log.js";
 import { eq } from "drizzle-orm";
 import {
@@ -10,12 +12,11 @@ import {
   ticketTypeSchema,
   type TicketType,
 } from "@stubwise/shared";
-import { sendTest } from "@stubwise/notifications";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
-import { automationRules, encrypt, instanceSettings, notificationSettings } from "@stubwise/db";
+import { automationRules, encrypt, instanceSettings } from "@stubwise/db";
 import { s3ConfigFromSettings } from "../storage/index.js";
 import { requireReauth } from "../auth/access.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -221,57 +222,6 @@ const updateInstanceBodySchema = z.object({
   slackSigningSecret: z.string().optional(),
   slackBotToken: z.string().optional(),
 });
-
-/**
- * Legge la riga di configurazione delle notifiche. La migrazione seeda la riga
- * id=1, ma per robustezza (DB ripristinato senza seed) si ripiega su default.
- */
-async function loadNotificationSettings(
-  db: Db,
-): Promise<z.infer<typeof notificationSettingsResponseSchema>> {
-  const [row] = await db.select().from(notificationSettings).limit(1);
-  if (!row) {
-    return {
-      webhookUrl: null,
-      format: "slack",
-      enabled: true,
-      notifyTicketCreated: true,
-      notifyPrOpened: true,
-      notifyPrClosed: true,
-      notifyJobHeld: true,
-      notifyPlanReview: true,
-      notifyBudgetHeld: true,
-      notifyReviewCompleted: true,
-      notifyDocsLimitPaused: true,
-      notifyJobFailed: true,
-      notifyMonitor: true,
-      notifyAwaitingInput: true,
-      notifyPulse: true,
-      notifyBrief: true,
-    };
-  }
-  return {
-    webhookUrl: row.webhookUrl,
-    format: row.format,
-    enabled: row.enabled,
-    notifyTicketCreated: row.notifyTicketCreated,
-    notifyPrOpened: row.notifyPrOpened,
-    notifyPrClosed: row.notifyPrClosed,
-    notifyJobHeld: row.notifyJobHeld,
-    notifyPlanReview: row.notifyPlanReview,
-    notifyBudgetHeld: row.notifyBudgetHeld,
-    notifyReviewCompleted: row.notifyReviewCompleted,
-    notifyDocsLimitPaused: row.notifyDocsLimitPaused,
-    notifyJobFailed: row.notifyJobFailed,
-    notifyMonitor: row.notifyMonitor,
-    notifyAwaitingInput: row.notifyAwaitingInput,
-    notifyPulse: row.notifyPulse,
-    notifyBrief: row.notifyBrief,
-    // `row.notifyGoogleProposal` esiste ancora in DB (colonna innocua) ma non
-    // entra più nella proiezione pubblica: vedi il commento su
-    // `notificationSettingsResponseSchema`.
-  };
-}
 
 /**
  * Legge la riga singleton delle impostazioni d'istanza. La migrazione seeda
@@ -553,20 +503,19 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
   app.get(
     "/notifications",
     {
-      config: { access: { kind: "instance", permission: "settings.manage" } },
+      config: { access: { kind: "instance", permission: "integrations.manage" } },
       schema: {
         response: { 200: notificationSettingsResponseSchema, ...authErrorResponses },
       },
     },
-    async () => {
-      return loadNotificationSettings(app.db);
-    },
+    // Area 9, F3 (H-4): sul webhook più vecchio (`services/legacy-webhook.ts`).
+    async () => loadLegacyWebhook(app.db),
   );
 
   app.put(
     "/notifications",
     {
-      config: { access: { kind: "instance", permission: "settings.manage" } },
+      config: { access: { kind: "instance", permission: "integrations.manage" } },
       schema: {
         body: updateNotificationsBodySchema,
         response: {
@@ -576,79 +525,31 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
         },
       },
     },
-    async (request) => {
-      const body = request.body;
-      // Stringa vuota → null: "nessun webhook configurato".
-      const webhookUrl = body.webhookUrl === "" ? null : body.webhookUrl;
-      // Upsert sul singleton (id=1): la migrazione seeda la riga, ma onConflict
-      // la rende idempotente anche se mancasse. updatedAt va impostato a mano
-      // nel `set`: il $onUpdate di drizzle NON scatta su onConflictDoUpdate.
-      await app.db
-        .insert(notificationSettings)
-        .values({
-          id: 1,
-          webhookUrl,
-          format: body.format,
-          enabled: body.enabled,
-          notifyTicketCreated: body.notifyTicketCreated,
-          notifyPrOpened: body.notifyPrOpened,
-          notifyPrClosed: body.notifyPrClosed,
-          notifyJobHeld: body.notifyJobHeld,
-          notifyPlanReview: body.notifyPlanReview,
-          notifyBudgetHeld: body.notifyBudgetHeld,
-          notifyReviewCompleted: body.notifyReviewCompleted,
-          notifyDocsLimitPaused: body.notifyDocsLimitPaused,
-          notifyJobFailed: body.notifyJobFailed,
-          notifyMonitor: body.notifyMonitor,
-          notifyAwaitingInput: body.notifyAwaitingInput,
-          notifyPulse: body.notifyPulse,
-          notifyBrief: body.notifyBrief,
-          // Niente `notifyGoogleProposal` nel `set`: la colonna resta com'è
-          // (default `true` all'insert iniziale, la migrazione l'ha già
-          // seedata) — nessun body la può più toccare, vedi il commento sullo
-          // schema del body qui sopra.
-        })
-        .onConflictDoUpdate({
-          target: notificationSettings.id,
-          set: {
-            webhookUrl,
-            format: body.format,
-            enabled: body.enabled,
-            notifyTicketCreated: body.notifyTicketCreated,
-            notifyPrOpened: body.notifyPrOpened,
-            notifyPrClosed: body.notifyPrClosed,
-            notifyJobHeld: body.notifyJobHeld,
-            notifyPlanReview: body.notifyPlanReview,
-            notifyBudgetHeld: body.notifyBudgetHeld,
-            notifyReviewCompleted: body.notifyReviewCompleted,
-            notifyDocsLimitPaused: body.notifyDocsLimitPaused,
-            notifyJobFailed: body.notifyJobFailed,
-            notifyMonitor: body.notifyMonitor,
-            notifyAwaitingInput: body.notifyAwaitingInput,
-            notifyPulse: body.notifyPulse,
-            notifyBrief: body.notifyBrief,
-            // Niente `notifyGoogleProposal`: vedi il commento sull'insert
-            // sopra, stessa ragione.
-            updatedAt: new Date(),
-          },
-        });
-      return loadNotificationSettings(app.db);
+    async (request, reply) => {
+      // Area 9, F3 (H-4): sul webhook più vecchio, con le regole di
+      // `services/legacy-webhook.ts` (un URL vuoto spegne, non elimina).
+      try {
+        return await saveLegacyWebhook(app.db, request.user!, request.body);
+      } catch (error) {
+        return sendRoleRuleError(reply, error);
+      }
     },
   );
 
   app.post(
     "/notifications/test",
     {
-      config: { access: { kind: "instance", permission: "settings.manage" } },
+      config: { access: { kind: "instance", permission: "integrations.manage" } },
       schema: {
         response: { 200: testNotificationResponseSchema, ...authErrorResponses },
       },
     },
     async () => {
-      // sendTest fa emergere l'esito (a differenza del dispatch best-effort):
+      // La prova fa emergere l'esito (a differenza del dispatch best-effort):
       // l'admin deve sapere se il webhook è corretto. Usa il format salvato e
       // un evento ticket.created fittizio con link a ${publicUrl}/tickets/test.
-      return sendTest(app.db, app.publicUrl);
+      // Area 9, F3 (H-4): la prova del webhook più vecchio, col suo formato e la sua firma.
+      return testLegacyWebhook(app.db, app.encryptionKey, app.publicUrl);
     },
   );
 
