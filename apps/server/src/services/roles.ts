@@ -38,7 +38,7 @@ type Actor = Pick<SessionUser, "id" | "instancePermissions">;
 /** Un rifiuto di regola, con lo status e il codice della risposta. */
 export class RoleRuleError extends Error {
   constructor(
-    readonly status: 400 | 403 | 404 | 409 | 422,
+    readonly status: 400 | 403 | 404 | 409 | 422 | 502,
     readonly code: string,
     message: string,
     /** Campi in più della risposta (es. `count` di `role_in_use`). */

@@ -3,7 +3,8 @@ import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { decrypt, projectEnvVars, repositories } from "@stubwise/db";
+import { changeLog, decrypt, projectEnvVars, repositories, users } from "@stubwise/db";
+import { createSession, SESSION_COOKIE } from "../auth/session.js";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedEnvironment, seedRepository, startTestDb } from "@stubwise/db/testing";
 import { addMember, seedUsers } from "../test/fixtures.js";
@@ -390,5 +391,45 @@ describe("DELETE var e file", () => {
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(403);
+  });
+});
+
+describe("area 9, F5: la riconferma e il registro dei file d'ambiente", () => {
+  const SECRET_VALUE = "valore-segretissimo-9c";
+  let stale: string;
+  beforeAll(async () => {
+    const adminId = (await testDb.db.select({ id: users.id }).from(users).where(eq(users.email, "admin@example.com")))[0]!.id;
+    const old = await createSession(testDb.db, adminId, { stage: "full", secondFactorAt: new Date(Date.now() - 11 * 60_000) });
+    stale = `${SESSION_COOKIE}=${encodeURIComponent(app.signCookie(old.id))}`;
+  });
+  const call = (method: "POST" | "PUT" | "DELETE", url: string, cookie: string, payload?: object) =>
+    app.inject({ method, url, headers: { cookie }, ...(payload ? { payload } : {}) });
+  const entries = async (type: string) => testDb.db.select().from(changeLog).where(eq(changeLog.type, type)).orderBy(changeLog.at, changeLog.id);
+
+  it("NEGATIVI: senza una riconferma recente ogni scrittura è 403 reauth_required e niente cambia; la lettura dei nomi no", async () => {
+    const created = (await createEnvFile(".env.f5")).json() as { id: string };
+    const base = `/api/repositories/${projectId}/env-files`;
+    expect((await call("POST", base, stale, { path: ".env.altro", environmentId })).statusCode).toBe(403);
+    expect((await call("POST", `${base}/${created.id}/import`, stale, { content: "A=1" })).statusCode).toBe(403);
+    expect((await call("PUT", `${base}/${created.id}/vars/API_URL`, stale, { value: SECRET_VALUE })).statusCode).toBe(403);
+    expect((await call("DELETE", `${base}/${created.id}/vars/API_URL`, stale)).statusCode).toBe(403);
+    expect((await call("DELETE", `${base}/${created.id}`, stale)).statusCode).toBe(403);
+    expect(await testDb.db.select().from(projectEnvVars).where(eq(projectEnvVars.fileId, created.id))).toHaveLength(0);
+    expect((await app.inject({ method: "GET", url: base, headers: { cookie: stale } })).statusCode).toBe(200);
+  });
+
+  it("le voci: creato, importato (quante), variabile impostata e tolta (il NOME, mai il valore), eliminato", async () => {
+    const base = `/api/repositories/${projectId}/env-files`;
+    const created = (await createEnvFile(".env.registro")).json() as { id: string };
+    expect((await entries("env_file.created")).find((e) => e.subjectId === created.id)!.data).toMatchObject({ object: { type: "env_file", id: created.id, label: ".env.registro" }, params: { repository: expect.any(String), environment: expect.any(String) } });
+    await call("POST", `${base}/${created.id}/import`, adminCookie, { content: `A=${SECRET_VALUE}\nB=2` });
+    expect((await entries("env_file.imported")).at(-1)!.data).toMatchObject({ params: { count: "2" } });
+    await call("PUT", `${base}/${created.id}/vars/API_URL`, adminCookie, { value: SECRET_VALUE });
+    expect((await entries("env_var.set")).at(-1)!.data).toMatchObject({ params: { variable: "API_URL" } });
+    expect((await call("DELETE", `${base}/${created.id}/vars/API_URL`, adminCookie)).statusCode).toBe(204);
+    expect((await entries("env_var.removed")).at(-1)!.data).toMatchObject({ params: { variable: "API_URL" } });
+    expect((await call("DELETE", `${base}/${created.id}`, adminCookie)).statusCode).toBe(204);
+    expect((await entries("env_file.deleted")).at(-1)!.data).toMatchObject({ object: { id: created.id } });
+    expect(JSON.stringify(await testDb.db.select().from(changeLog))).not.toContain(SECRET_VALUE);
   });
 });
