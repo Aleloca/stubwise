@@ -50,7 +50,12 @@ export async function enqueueItems(db: Db, items: NewNightlyItem[], night: strin
   const inserted = await db
     .insert(nightlyItems)
     .values(
-      items.map((i) => ({
+      items.map((i, n) => ({
+        // L'ordine dell'array È l'ordine della coda («il più vecchio per primo»):
+        // un `created_at` crescente per elemento, così il claim non dipende dal
+        // piano della query (con `now()` uguale per tutti, l'ordine fra pari lo
+        // decideva la scansione dell'indice, e la WHERE della pausa lo cambiava).
+        createdAt: sql`now() + ${n} * interval '1 microsecond'`,
         repositoryId: i.repositoryId,
         projectId: i.projectId,
         phase: i.phase,
