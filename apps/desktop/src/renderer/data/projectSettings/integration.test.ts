@@ -59,6 +59,9 @@ describe("la lettura di Integration", () => {
         url: "https://stubwise.example.test/webhooks/git/repo-acq",
         secretLast4: null,
         canRegenerate: true,
+        // F5: stato e piattaforma nella vista, la pagina non legge Repositories.
+        state: "not_configured",
+        provider: "bitbucket",
       },
     ]);
     expect(view.canRegenerateKey).toBe(true);

@@ -5,7 +5,6 @@ import { maskedSecret } from "../../components/SecretField";
 import { WhoCanLink } from "../../components/WhoCanLink";
 import {
   useProjectIntegration,
-  useProjectRepositories,
   useProjectSettingsAccess,
   useRegenerateIngestionKey,
   useRegenerateWebhookSecret,
@@ -360,13 +359,6 @@ function GitPart({
   onRegenerate: (repositoryId: string, name: string) => void;
 }) {
   const { t } = useTranslation();
-  // Lo stato del webhook di ogni repository, letto dove lo legge Repositories.
-  const states = new Map(
-    (useProjectRepositories(project.id).data?.repositories ?? []).map((r) => [
-      r.id,
-      r.webhook.state,
-    ]),
-  );
   return (
     <Part title={t("settings.integration.git.title")}>
       <p className="max-w-[72ch] text-sm text-pretty text-ink-muted">
@@ -390,7 +382,7 @@ function GitPart({
               key={w.repositoryId}
               project={project}
               webhook={w}
-              state={states.get(w.repositoryId) ?? null}
+              state={w.state}
               onRegenerate={() => onRegenerate(w.repositoryId, w.name)}
             />
           ))}
@@ -637,8 +629,9 @@ function RegenerateSecretDialog({
   const regenerate = useRegenerateWebhookSecret();
   const write = useSettingsWrite(project.code, onReload);
   // La piattaforma del repository, per la frase («Bitbucket's pushes…»).
-  const provider = useProjectRepositories(project.id).data?.repositories.find(
-    (r) => r.id === repositoryId,
+  // Area 9, F5: la piattaforma dalla vista di Integration (una fonte sola).
+  const provider = useProjectIntegration(project.id).data?.gitWebhooks.find(
+    (w) => w.repositoryId === repositoryId,
   )?.provider;
   const [busy, setBusy] = useState(false);
   const [secret, setSecret] = useState<string | null>(null);

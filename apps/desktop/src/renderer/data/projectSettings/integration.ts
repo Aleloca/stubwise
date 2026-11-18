@@ -15,6 +15,7 @@ import {
 import { openProject, settingsOf } from "./reads";
 import {
   MANAGE_REPOS,
+  accountOf,
   managedRepository,
   notConfiguredWebhook,
   repositoryObject,
@@ -66,6 +67,13 @@ export interface IntegrationView {
     url: string;
     secretLast4: string | null;
     canRegenerate: boolean;
+    /**
+     * Lo stato del webhook e la piattaforma (area 9, F5): stanno nella vista,
+     * così la pagina legge una fonte sola. `provider` è `null` se non si sa
+     * (la build app: il server non lo manda), e la frase dice «la piattaforma».
+     */
+    state: "not_configured" | "configured" | "failed";
+    provider: "github" | "bitbucket" | null;
   }[];
   canRegenerateKey: boolean;
   guide: string;
@@ -107,6 +115,8 @@ export async function getIntegration(projectId: string): Promise<IntegrationView
               url: gitWebhookUrlOf(r),
               secretLast4: r.webhook?.last4 ?? null,
               canRegenerate: canManageRepos,
+              state: r.webhook?.state ?? "not_configured",
+              provider: accountOf(r.gitAccountId)?.provider ?? null,
             }))
         : [],
     canRegenerateKey: canI(me, MANAGE_SETTINGS, project.id),

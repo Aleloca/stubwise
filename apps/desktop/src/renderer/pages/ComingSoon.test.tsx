@@ -187,6 +187,10 @@ const INTEGRATED_CALLS = new Set([
   "instance.deleteGoogleApp",
   // Area 9, F4: la pausa della coda fuori dallo Stato.
   "instance.getQueuePause",
+  // Area 9, F5: Integration (lettura e le due rigenerazioni).
+  "projectSettings.getIntegration",
+  "projectSettings.regenerateIngestionKey",
+  "projectSettings.regenerateWebhookSecret",
   // Area 9, F4: Instance status.
   "instance.getInstanceStatus",
   "instance.pauseQueue",
@@ -1045,6 +1049,16 @@ describe("aree non integrate nella build app", () => {
     signedInAs("p-laura");
     renderRoute("/p/ACQ/settings/changelog");
     await waitFor(() => expect(calls).toContain("changelog.listProjectChangesPage"));
+    await settle();
+    expect(screen.queryByText(/Coming soon/)).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F5: Progetto → Settings → Integration accesa.
+  it("aprire Integration di un progetto legge solo chiamate integrate", async () => {
+    signedInAs("p-laura");
+    renderRoute("/p/ACQ/settings/integration");
+    await waitFor(() => expect(calls).toContain("projectSettings.getIntegration"));
     await settle();
     expect(screen.queryByText(/Coming soon/)).toBeNull();
     expect(outside()).toEqual([]);

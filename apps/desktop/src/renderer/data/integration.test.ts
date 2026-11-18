@@ -168,6 +168,8 @@ describe("isIntegrated", () => {
         "projectSettings:changelog",
         // Area 8, fetta 1: «Repositories» ridotta al blocco «Releases».
         "projectSettings:repositories",
+        // Area 9, F5: Integration.
+        "projectSettings:integration",
         "admin:departments",
         // Area 9, F1, R9: «Chi può farlo?».
         "admin:who-can",

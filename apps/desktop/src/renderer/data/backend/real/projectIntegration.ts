@@ -2,6 +2,7 @@ import { ApiError } from "@stubwise/api-client";
 import type { IntegrationView } from "../../projectSettings/integration";
 import { dsnWithKey, guideText, maskKey, snippetOf } from "../../projectSettings/integrationText";
 import type { ProjectRefusal, ProjectResult } from "../../projectSettings/types";
+import { appClient } from "./client";
 import { webhookSecretOutcome, webhookSecretRefusal } from "./webhookSecret";
 
 // Progetto → Settings → Integration nella build app (area 9, F5) su
@@ -78,6 +79,9 @@ export function createRealIntegration(api: IntegrationApi) {
           url: w.url,
           secretLast4: w.secretLast4 ?? null,
           canRegenerate: !!v.canRegenerateWebhookSecret,
+          // Il server dice solo se è configurato; la piattaforma non la manda.
+          state: w.configured ? "configured" : "not_configured",
+          provider: null,
         })),
         canRegenerateKey: !!v.canRegenerateKey,
         guide: guideText({ name: project.name, code: project.code ?? "" }, maskedDsn, masked),
@@ -111,3 +115,16 @@ export function createRealIntegration(api: IntegrationApi) {
     },
   };
 }
+
+/** Sul client vero (il client si legge a ogni chiamata). */
+const liveApi: IntegrationApi = {
+  integration: (projectId) => appClient().projects.integration(projectId),
+  project: (projectId) => appClient().projects.get(projectId) as Promise<Any>,
+  regenerateIngestionKey: (projectId) => appClient().projects.regenerateIngestionKey(projectId),
+  regenerateWebhookSecret: (slug) => appClient().repositories.regenerateWebhookSecret(slug),
+};
+
+/** SOLO TEST: le rotte vere. */
+export const liveIntegrationApiForTest = liveApi;
+
+export const liveIntegration = createRealIntegration(liveApi);

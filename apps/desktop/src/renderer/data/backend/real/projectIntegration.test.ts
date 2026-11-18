@@ -75,6 +75,8 @@ describe("Integration dal server", () => {
         url: "https://stubwise.example.test/webhooks/github/portale-utenti",
         secretLast4: "9f0a",
         canRegenerate: false,
+        state: "configured",
+        provider: null,
       },
     ]);
     expect(view.canRegenerateKey).toBe(true);
