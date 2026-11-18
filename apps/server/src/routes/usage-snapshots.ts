@@ -2,8 +2,8 @@ import { aiProviders, aiUsageSnapshots } from "@stubwise/db";
 import { desc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
-import { z } from "zod";
 import { authErrorResponses } from "./shared.js";
+import { aiUsageSnapshotsSchema } from "@stubwise/shared";
 
 /**
  * Finestra di consumo normalizzata (formato del parser del worker): percentuale
@@ -12,36 +12,8 @@ import { authErrorResponses } from "./shared.js";
  * lo snapshot la conserva come jsonb libero e uno snapshot con parse fallito
  * potrebbe non averla.
  */
-const usageWindowSchema = z
-  .object({
-    percentUsed: z.number(),
-    percentRemaining: z.number(),
-    resetsLabel: z.string().nullable().optional(),
-  })
-  .nullable();
-
-/**
- * Ultimo snapshot di consumo di una credenziale `account`. `rawText` è incluso
- * SOLO quando `parseOk=false` (admin-only, serve al banner di diagnosi del
- * parser): con parse riuscito non lo conserviamo nemmeno a DB, quindi resta
- * assente/null.
- */
-const snapshotItemSchema = z.object({
-  providerId: z.uuid(),
-  providerLabel: z.string(),
-  capturedAt: z.iso.datetime(),
-  sessionRemaining: usageWindowSchema,
-  weeklyRemaining: usageWindowSchema,
-  sessionResetAt: z.iso.datetime().nullable(),
-  weeklyResetAt: z.iso.datetime().nullable(),
-  source: z.enum(["deterministic", "llm_fallback"]),
-  parseOk: z.boolean(),
-  rawText: z.string().nullable().optional(),
-});
-
-export const aiUsageSnapshotsSchema = z.array(snapshotItemSchema);
-
-export type AiUsageSnapshot = z.infer<typeof snapshotItemSchema>;
+// Area 9, F3, Task 8c: le forme stanno in `@stubwise/shared` (le legge il client).
+export { aiUsageSnapshotsSchema, type AiUsageSnapshot } from "@stubwise/shared";
 
 /**
  * Route dell'usage residuo dell'abbonamento (ultimo snapshot per credenziale

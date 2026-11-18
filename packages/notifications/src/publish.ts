@@ -13,7 +13,8 @@ import {
 import { alertTypeOf, isLiveAlertType, type AlertType, type MandatoryReason } from "@stubwise/shared";
 import { and, eq, exists, inArray, isNotNull, isNull } from "drizzle-orm";
 import { catalogRecipients } from "./alert-recipients.js";
-import { loadSettings, shouldSendWebhook, type DbOrTx } from "./dispatch.js";
+import { isPersonalWebhookAudience, type DbOrTx } from "./dispatch.js";
+import { webhookIdsForKind } from "./webhooks.js";
 import type { NotificationEvent } from "./format.js";
 import { projectViewerIds, userIdsWithPermission } from "./project-access.js";
 import {
@@ -162,7 +163,8 @@ export async function publishNotification(
       const agentIds = await agentUserIds(inner);
       // Area 8, F2 (S2): un avviso del CATALOGO, vivo e con un progetto, ha i
       // destinatari del catalogo (iscrizioni, obbligatori, default); niente
-      // Slack né webhook (M3); il push segue il Telefono del tipo, non
+      // Slack (M3); il webhook SOLO dove l'evento è scelto (E-2, area 9 F3,
+      // più sotto); il push segue il Telefono del tipo, non
       // l'interruttore `push` della persona (M-2 = b). Tutto il resto (anche un
       // `monitor.*` senza progetto) resta sul routing di oggi (S-4).
       const alertType = projectId !== null && isLiveAlertType(event.kind) ? alertTypeOf(event.kind) : undefined;
@@ -171,14 +173,14 @@ export async function publishNotification(
         (id) => !agentIds.has(id),
       );
 
-      const settings = await loadSettings(inner);
-      // `shouldSendWebhook` è l'UNICO punto in cui vive il gating del webhook,
-      // guardia sull'audience `mailbox_owner` inclusa (privacy by
-      // construction, fase 6 — vedi il docblock in `dispatch.ts`): per un
-      // kind come `google.proposal` questo è sempre `false`, qualunque sia il
-      // toggle o la config del webhook d'istanza, quindi il push in
-      // `deliveries` più sotto non scatta mai per quel kind.
-      const withWebhook = catalog === null && shouldSendWebhook(settings, event.kind);
+      // Area 9, F3 (D-10 = b, E-2 = a): una consegna PER WEBHOOK acceso che ha
+      // scelto un evento coperto da questo kind (`webhookIdsForKind`). Un kind
+      // d'audience personale non va MAI in un webhook (`isPersonalWebhookAudience`:
+      // la guardia `mailbox_owner` della fase 6 compresa); gli avvisi del
+      // catalogo ci vanno solo dove scelti (la regola M3 dell'area 8, che li
+      // teneva sempre fuori, è riscritta da E-2).
+      const webhookIds = isPersonalWebhookAudience(event.kind) ? [] : await webhookIdsForKind(inner, event.kind);
+      const withWebhook = webhookIds.length > 0;
       if (recipients.length === 0 && !withWebhook) return { published: 0, notificationIds: [] };
 
       // Le colonne jsonb sono tipizzate `Record<string, unknown>` perché `db`
@@ -243,10 +245,11 @@ export async function publishNotification(
         ...perRecipient(slackReady, "slack_dm"),
         ...perRecipient(pushReady, "push"),
       ];
-      if (withWebhook) {
+      for (const webhookId of webhookIds) {
         deliveries.push({
           channel: "webhook" as const,
           event: payload,
+          webhookId,
         });
       }
       if (deliveries.length > 0) {

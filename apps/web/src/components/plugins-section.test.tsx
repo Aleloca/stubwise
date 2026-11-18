@@ -294,6 +294,7 @@ describe("PluginsSection — registrazione", () => {
     await user.type(screen.getByLabelText("Source URL"), "https://github.com/obra/superpowers");
     await user.type(screen.getByLabelText("Ref"), "v4.0.3");
     await user.type(screen.getByLabelText(/subdirectory/i), "plugins/superpowers");
+    await user.click(screen.getByRole("checkbox", { name: /I trust this repository/ }));
     await user.click(screen.getByRole("button", { name: "Register plugin" }));
 
     await waitFor(() =>
@@ -301,6 +302,7 @@ describe("PluginsSection — registrazione", () => {
         sourceUrl: "https://github.com/obra/superpowers",
         ref: "v4.0.3",
         sourceSubdir: "plugins/superpowers",
+        trust: true,
       }),
     );
   });
@@ -320,12 +322,14 @@ describe("PluginsSection — registrazione", () => {
     await user.click(await screen.findByRole("button", { name: /add plugin/i }));
     await user.type(screen.getByLabelText("Source URL"), "https://github.com/obra/superpowers");
     await user.type(screen.getByLabelText("Ref"), "main");
+    await user.click(screen.getByRole("checkbox", { name: /I trust this repository/ }));
     await user.click(screen.getByRole("button", { name: "Register plugin" }));
 
     await waitFor(() =>
       expect(postBody).toEqual({
         sourceUrl: "https://github.com/obra/superpowers",
         ref: "main",
+        trust: true,
       }),
     );
   });
@@ -345,6 +349,7 @@ describe("PluginsSection — registrazione", () => {
     await user.click(await screen.findByRole("button", { name: /add plugin/i }));
     await user.type(screen.getByLabelText("Source URL"), "https://github.com/obra/superpowers");
     await user.type(screen.getByLabelText("Ref"), "main");
+    await user.click(screen.getByRole("checkbox", { name: /I trust this repository/ }));
     await user.click(screen.getByRole("button", { name: "Register plugin" }));
 
     const alert = await screen.findByRole("alert");
@@ -371,6 +376,7 @@ describe("PluginsSection — registrazione", () => {
     await user.click(await screen.findByRole("button", { name: /add plugin/i }));
     await user.type(screen.getByLabelText("Source URL"), "https://github.com/obra/superpowers");
     await user.type(screen.getByLabelText("Ref"), "main");
+    await user.click(screen.getByRole("checkbox", { name: /I trust this repository/ }));
     await user.click(screen.getByRole("button", { name: "Register plugin" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -390,6 +396,7 @@ describe("PluginsSection — registrazione", () => {
     await user.click(await screen.findByRole("button", { name: /add plugin/i }));
     await user.type(screen.getByLabelText("Source URL"), "https://github.com/obra/");
     await user.type(screen.getByLabelText("Ref"), "main");
+    await user.click(screen.getByRole("checkbox", { name: /I trust this repository/ }));
     await user.click(screen.getByRole("button", { name: "Register plugin" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -417,9 +424,10 @@ describe("PluginsSection — azioni", () => {
     const field = within(row).getByLabelText("New ref");
     await user.clear(field);
     await user.type(field, "v4.1.0");
+    await user.click(within(row).getByRole("checkbox", { name: /I trust this repository/ }));
     await user.click(within(row).getByRole("button", { name: "Update" }));
 
-    await waitFor(() => expect(updateBody).toEqual({ ref: "v4.1.0" }));
+    await waitFor(() => expect(updateBody).toEqual({ ref: "v4.1.0", trust: true }));
   });
 
   it("Riprova smoke invia POST /smoke", async () => {
@@ -471,6 +479,9 @@ describe("PluginsSection — azioni", () => {
     renderSection();
     const row = await rowOf("superpowers");
     await user.click(within(row).getByRole("button", { name: /update to ref/i }));
+    // Senza «Mi fido» il submit è spento (area 9, F3): lo si spunta prima.
+    expect(within(row).getByRole("button", { name: "Update" })).toBeDisabled();
+    await user.click(within(row).getByRole("checkbox", { name: /I trust this repository/ }));
     expect(within(row).getByRole("button", { name: "Update" })).toBeEnabled();
 
     // Il job entra in coda e il refetch lo porta in pagina col form ancora aperto.
@@ -626,6 +637,7 @@ describe("PluginsSection — diff dell'inventario dopo un aggiornamento", () => 
     renderSection();
     const row = await rowOf("superpowers");
     await user.click(within(row).getByRole("button", { name: /update to ref/i }));
+    await user.click(within(row).getByRole("checkbox", { name: /I trust this repository/ }));
     await user.click(within(row).getByRole("button", { name: "Update" }));
 
     expect(await within(row).findByText(/Skills added: writing-plans/)).toBeInTheDocument();
@@ -646,6 +658,7 @@ describe("PluginsSection — diff dell'inventario dopo un aggiornamento", () => 
     renderSection();
     const row = await rowOf("superpowers");
     await user.click(within(row).getByRole("button", { name: /update to ref/i }));
+    await user.click(within(row).getByRole("checkbox", { name: /I trust this repository/ }));
     await user.click(within(row).getByRole("button", { name: "Update" }));
 
     await waitFor(() =>

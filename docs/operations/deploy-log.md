@@ -4979,3 +4979,90 @@ deploy o di un rollback che la tocca.
   resta e non disturba il codice di prima (che non tocca la tabella).
   `changelog.view` dato a un ruolo resta nella riga del ruolo e il server
   vecchio lo ignora. Nessun `notification_kind` nuovo.
+- **«Integrazione area 9, F3: integrazioni, segreti e registro della 9b»**
+  *(18 nov 2026)*: branch `feat/area9-f3` (da `feat/integrazione-area9`), piano
+  `docs/plans/2026-11-18-integrazione-area9-f3-plan.md`. Più webhook in uscita
+  (fino a 20), ognuno col suo formato, i suoi eventi e un segreto che firma gli
+  invii (`X-Stubwise-Signature: t=<unix>,v1=<HMAC-SHA256 di "<t>.<body>">`);
+  la riconferma sulle rotte che toccano un segreto; le voci del registro per
+  provider, modelli, automazione, budget, lingua, analisi dei server, account
+  git, plugin, app Google, archiviazione e webhook; la fonte del modello nella
+  pagina dei modelli. Migrazioni **0188** (`outgoing_webhooks`,
+  `notification_deliveries.webhook_id`, e il webhook di oggi migrato) e
+  **0189** (`instance_settings.worker_model_env_operations`) e **0190**
+  (`ai_providers.secret_last4`), tutte additive. Nessuna env nuova, nessun
+  `notification_kind` nuovo.
+
+  **ORDINE**: **server** (healthy, 0188, 0189 e 0190 applicate), poi **worker** (il
+  poller che manda una consegna per webhook, firmata, e la colonna dei
+  modelli), poi **caddy**. Il worker subito dopo il server: nel mezzo il worker
+  vecchio manda le consegne nuove all'URL di `notification_settings`, che alla
+  migrazione è lo stesso del webhook migrato (nessun doppione), ma senza
+  leggere le modifiche fatte nel frattempo dall'app nuova.
+
+  **Da sapere subito**:
+  - **Il webhook di oggi diventa il primo dei webhook** (nome «Webhook», stesso
+    URL, formato, acceso e gli eventi dei suoi interruttori), **senza
+    segreto**: gli invii partono SENZA firma finché non lo si rigenera.
+    **Rigeneralo per avere la firma** (Impostazioni → Webhook, chiede la
+    riconferma) e avvisa i destinatari JSON che verificano la firma: il
+    segreto si vede una volta sola. Il formato «generic» si chiama ora «JSON».
+  - ⚠️ **Il webhook non riceve più le proposte della posta.** La 0188 scarta
+    `notify_google_proposal`: il catalogo dei 21 eventi non ha la posta. Dove
+    era acceso, dopo il deploy smette di mandarle, in silenzio. Controllo,
+    PRIMA del deploy, sola lettura: `select webhook_url is not null as
+    configured, enabled, notify_google_proposal from notification_settings;`
+    — se `configured` e `notify_google_proposal` sono veri, avvisa chi ci
+    contava (registro dei rimandi: «Il webhook non riceve più le proposte
+    della posta»).
+  - **I webhook li gestisce chi ha `integrations.manage`** (H-1), anche dalla
+    pagina Notifiche del web vecchio, che prima chiedeva `settings.manage`: un
+    ruolo con `settings.manage` e senza `integrations.manage` non la vede più.
+    Controllo, sola lettura: `select name from roles where permissions @>
+    array['settings.manage'] and not permissions @> array['integrations.manage'];`.
+  - La pagina Notifiche del web vecchio lavora sul webhook PIÙ VECCHIO; un URL
+    svuotato lì lo SPEGNE, non lo elimina (eliminare chiede la riconferma).
+    ⚠️ Per chi la usa: dopo averlo svuotato l'URL RICOMPARE (spento), e
+    «Prova» continua a chiamarlo. Per toglierlo davvero, eliminalo dall'app
+    nuova (Impostazioni → Webhook).
+  - **Cambiare l'URL di un webhook chiede la riconferma** (decisione del
+    maintainer), dall'app nuova e dalla pagina Notifiche vecchia (anche
+    crearne uno da lì); nome, formato, eventi e interruttore no.
+  - **L'ultimo account AI acceso non si spegne né si elimina** (409
+    `last_enabled_provider`, decisione del maintainer), anche dal web vecchio:
+    senza un account acceso il worker non lavora. Per cambiarlo, accendine
+    prima un altro.
+  - Le ultime 4 cifre della credenziale di un provider (0190) compaiono solo
+    dopo averla creata o sostituita: le righe di prima restano senza.
+    La banda della quota (`ok`, `near` dall'80% usato, `limited`) la calcola
+    il server dall'ultimo campione e da `limited_until`.
+  - **Registrare un plugin dal web ora chiede la casella «Mi fido»**:
+    registrarlo ne esegue già il codice (lo smoke run).
+  - La riconferma recente (10′) serve ora per creare ed eliminare provider AI,
+    account git, app Google e webhook, per registrare un plugin o cambiarne il
+    ref, per rigenerare il segreto di un webhook, e per un `PATCH`/`PUT` che
+    sostituisce o azzera un segreto (provider, account git, app Google,
+    archiviazione, Slack).
+  - Un webhook può puntare alla rete interna (SSRF): limite accettato e
+    dichiarato nel registro dei rimandi, come col webhook unico di prima.
+  - La fonte del modello («env» o «default») la pubblica il worker
+    all'avvio: finché gira il worker vecchio, la pagina dei modelli dice
+    «default» anche dove c'è un'env. Innocuo; il riavvio del worker la sistema.
+  Controllo, sola lettura: `select name, format, enabled,
+  secret_encrypted is null as unsigned, cardinality(events) from
+  outgoing_webhooks;` e `select type, count(*) from change_log where type like
+  'webhook.%' or type like 'provider.%' group by type;`.
+
+  **Rollback** (il server scende **insieme** al caddy, il worker con loro; 0188
+  e 0189 non si annullano, le tabelle restano):
+  - un server o worker vecchio legge `notification_settings`, ferma all'ultimo
+    stato PRIMA del deploy: i webhook aggiunti e le modifiche fatte dopo non
+    valgono più (si perdono, finché non si torna avanti);
+  - le consegne con `webhook_id` il worker vecchio non le capisce: le
+    manderebbe tutte all'URL di `notification_settings`, una per webhook.
+    PRIMA di far scendere il worker, chiudi quelle in attesa:
+    `update notification_deliveries set status = 'skipped', error =
+    'rollback area 9 F3' where status = 'pending' and webhook_id is not null;`;
+  - il registro ha un buco per il tempo del rollback (come F2);
+  - le rotte con riconferma, il «Mi fido» e il blocco dell'ultimo account AI
+    acceso tornano come prima (la 0190 resta, il server vecchio la ignora).

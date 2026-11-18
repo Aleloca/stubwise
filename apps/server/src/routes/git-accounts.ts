@@ -1,4 +1,5 @@
-import { gitAccountSchema, gitProviderKindSchema } from "@stubwise/shared";
+import { changedFields, recordChange } from "../services/change-log.js";
+import { createGitAccountSchema, defaultReviewerResponseSchema, gitCredentialsSchema, defaultReviewerWarningSchema, gitAccountSchema, gitValidateResponseSchema, updateGitAccountSchema } from "@stubwise/shared";
 import { BITBUCKET_REVIEWER_SCOPES, GitProviderError, bitbucketRequiredScopes, getProvider } from "@stubwise/git";
 import { decrypt, encrypt, gitAccounts, repositories } from "@stubwise/db";
 import { resolveProviderUserId, resolveReviewAccounts } from "@stubwise/notifications";
@@ -9,6 +10,7 @@ import { z } from "zod";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import { apiError } from "../errors.js";
 import { fetchPlatformIdentity } from "../services/platform-identity.js";
+import { requireReauth } from "../auth/access.js";
 import { checkReviewAccount, logIdentityError } from "../services/review-account-check.js";
 
 /**
@@ -18,43 +20,15 @@ import { checkReviewAccount, logIdentityError } from "../services/review-account
  * agli API token di Bitbucket. Serializzate in JSON e cifrate prima di toccare
  * il DB; non compaiono mai in nessuna risposta.
  */
-const gitCredentialsSchema = z.object({
-  username: z.string().min(1).optional(),
-  email: z.string().min(1).optional(),
-  token: z.string().min(1),
-});
 
-const createAccountSchema = z.object({
-  name: z.string().min(1).max(200),
-  provider: gitProviderKindSchema,
-  credentials: gitCredentialsSchema,
-  // Slug del workspace Bitbucket: di fatto richiesto per usare le feature repo
-  // di un account Bitbucket (vedi gitAccountSchema), ma non blocchiamo la
-  // creazione — la validazione/elenco segnalerà l'eventuale mancanza.
-  workspace: z.string().min(1).max(200).optional(),
-});
 
 // In modifica: nome, credenziali e/o workspace. Credenziali assenti = invariate
 // (non si possono "svuotare": un account senza credenziali non avrebbe senso).
-const updateAccountSchema = z.object({
-  name: z.string().min(1).max(200).optional(),
-  credentials: gitCredentialsSchema.optional(),
-  workspace: z.string().min(1).max(200).optional(),
-});
 
 const idParamsSchema = z.object({ id: z.uuid() });
 
-const credentialCheckSchema = z.object({
-  name: z.string(),
-  ok: z.boolean(),
-  detail: z.string(),
-});
 
 /** Risultato della validazione: `ok` riassume i singoli check (tutti ok). */
-const validateResponseSchema = z.object({
-  ok: z.boolean(),
-  checks: z.array(credentialCheckSchema),
-});
 
 const repoSummarySchema = z.object({
   fullName: z.string(),
@@ -81,18 +55,7 @@ type GitAccountRow = typeof gitAccounts.$inferSelect;
  * (es. `review_account_no_write_permission`). Mai un blocco: il predefinito è
  * già impostato quando si leggono.
  */
-const defaultReviewerWarningSchema = z.object({
-  repositoryId: z.uuid(),
-  repositoryName: z.string(),
-  code: z.string(),
-});
 
-const defaultReviewerResponseSchema = z.object({
-  account: gitAccountSchema,
-  /** Il predefinito precedente dello stesso ambito, tolto nella STESSA transazione; null = nessuno. */
-  replaced: z.object({ id: z.uuid(), name: z.string() }).nullable(),
-  warnings: z.array(defaultReviewerWarningSchema),
-});
 
 type DefaultReviewerWarning = z.infer<typeof defaultReviewerWarningSchema>;
 
@@ -256,26 +219,34 @@ async function accountReviewRole(
  * creando un progetto); creazione, modifica, eliminazione e operazioni che
  * decifrano le credenziali (validazione, elenco repo/branch) `git_accounts.manage`.
  */
+/** Area 9, F3: l'oggetto delle voci (l'account col nome dato da una persona) e il nome della piattaforma (un marchio, non una parola). */
+const gitAccountObject = (row: { id: string; name: string }) => ({ type: "git_account", id: row.id, label: row.name });
+const PLATFORM_NAME: Record<string, string> = { github: "GitHub", bitbucket: "Bitbucket" };
+
 export async function gitAccountRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
   app.post(
     "/",
     {
-      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
+      config: { access: { kind: "instance", permission: "git_accounts.manage" }, reauth: true },
       schema: {
-        body: createAccountSchema,
+        body: createGitAccountSchema,
         response: { 201: gitAccountSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
       const { name, provider, credentials, workspace } = request.body;
       const encryptedCredentials = encrypt(JSON.stringify(credentials), app.encryptionKey);
-      const [created] = await app.db
-        .insert(gitAccounts)
-        .values({ name, provider, encryptedCredentials, workspace: workspace ?? null })
-        .returning();
-      if (!created) throw new Error("insert dell'account non ha restituito la riga");
+      const created = await app.db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(gitAccounts)
+          .values({ name, provider, encryptedCredentials, workspace: workspace ?? null })
+          .returning();
+        if (!row) throw new Error("insert dell'account non ha restituito la riga");
+        await recordChange(tx, { type: "git_account.created", actor: request.user!, projectId: null, data: { object: gitAccountObject(row), params: { provider: PLATFORM_NAME[row.provider] ?? row.provider } } });
+        return row;
+      });
       return reply.code(201).send(toPublicAccount(created));
     },
   );
@@ -314,15 +285,18 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.patch(
     "/:id",
     {
-      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
+      config: { access: { kind: "instance", permission: "git_accounts.manage" }, partialReauth: true },
       schema: {
         params: idParamsSchema,
-        body: updateAccountSchema,
+        body: updateGitAccountSchema,
         response: { 200: gitAccountSchema, 404: errorSchema, 409: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
       const { name, credentials, workspace } = request.body;
+      // Area 9, F3 (D-5): la riconferma solo quando il corpo porta un segreto
+      // (sostituito o azzerato), con la regola del gate (`requireReauth`).
+      if (credentials !== undefined && !(await requireReauth(request, reply))) return reply;
       const updates: Partial<GitAccountRow> = {};
       if (name !== undefined) updates.name = name;
       if (workspace !== undefined) updates.workspace = workspace;
@@ -355,14 +329,22 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
             );
 
       // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una lettura.
-      const [row] =
-        Object.keys(updates).length === 0
-          ? await app.db.select().from(gitAccounts).where(eq(gitAccounts.id, request.params.id))
-          : await app.db
-              .update(gitAccounts)
-              .set(updates)
-              .where(and(eq(gitAccounts.id, request.params.id), workspaceGuard))
-              .returning();
+      const row = await app.db.transaction(async (tx) => {
+        const [before] = await tx.select().from(gitAccounts).where(eq(gitAccounts.id, request.params.id)).for("update");
+        if (!before || Object.keys(updates).length === 0) return before;
+        const [after] = await tx
+          .update(gitAccounts)
+          .set(updates)
+          .where(and(eq(gitAccounts.id, request.params.id), workspaceGuard))
+          .returning();
+        if (!after) return undefined;
+        // Area 9, F3: come il prototipo (`git.ts`), i soli campi cambiati; il
+        // token solo «sostituito».
+        const diff = changedFields({ name: before.name, workspace: before.workspace }, { name: after.name, workspace: after.workspace });
+        if (diff) await recordChange(tx, { type: "git_account.updated", actor: request.user!, projectId: null, data: { object: gitAccountObject(after), ...diff } });
+        if (credentials !== undefined) await recordChange(tx, { type: "git_account.token_replaced", actor: request.user!, projectId: null, data: { object: gitAccountObject(after) } });
+        return after;
+      });
       if (!row) {
         if (workspaceGuard !== undefined) {
           const [exists] = await app.db
@@ -387,7 +369,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
   app.delete(
     "/:id",
     {
-      config: { access: { kind: "instance", permission: "git_accounts.manage" } },
+      config: { access: { kind: "instance", permission: "git_accounts.manage" }, reauth: true },
       schema: {
         params: idParamsSchema,
         response: {
@@ -409,10 +391,11 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
       if (used) {
         return apiError(reply, 409, "git_account_in_use", "Git account in use by one or more repositories: unlink it before deleting");
       }
-      const deleted = await app.db
-        .delete(gitAccounts)
-        .where(eq(gitAccounts.id, request.params.id))
-        .returning({ id: gitAccounts.id });
+      const deleted = await app.db.transaction(async (tx) => {
+        const gone = await tx.delete(gitAccounts).where(eq(gitAccounts.id, request.params.id)).returning();
+        for (const g of gone) await recordChange(tx, { type: "git_account.deleted", actor: request.user!, projectId: null, data: { object: gitAccountObject(g) } });
+        return gone;
+      });
       if (deleted.length === 0) return apiError(reply, 404, "git_account_not_found", "Git account not found");
       return reply.code(204).send(null);
     },
@@ -534,6 +517,11 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
             const [exists] = await tx.select({ id: gitAccounts.id }).from(gitAccounts).where(eq(gitAccounts.id, id));
             throw exists ? new DefaultReviewerAccountChanged() : new DefaultReviewerAccountGone();
           }
+          // Area 9, F3: come il prototipo, il predecessore e il nuovo per nome;
+          // un account che era già il predefinito non scrive niente.
+          if (!row.isDefaultReviewer) {
+            await recordChange(tx, { type: "git_account.default_reviewer_changed", actor: request.user!, projectId: null, data: { object: gitAccountObject(account), before: replaced[0]?.name ?? null, after: account.name } });
+          }
           return { account, replaced: replaced[0] ?? null };
         });
       } catch (error) {
@@ -575,11 +563,16 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
       },
     },
     async (request, reply) => {
-      const [row] = await app.db
-        .update(gitAccounts)
-        .set({ isDefaultReviewer: false })
-        .where(eq(gitAccounts.id, request.params.id))
-        .returning({ id: gitAccounts.id });
+      const row = await app.db.transaction(async (tx) => {
+        const [before] = await tx.select().from(gitAccounts).where(eq(gitAccounts.id, request.params.id)).for("update");
+        if (!before) return undefined;
+        const [after] = await tx.update(gitAccounts).set({ isDefaultReviewer: false }).where(eq(gitAccounts.id, request.params.id)).returning();
+        // Come il prototipo: togliere il predefinito è un `updated` sul campo.
+        if (before.isDefaultReviewer) {
+          await recordChange(tx, { type: "git_account.updated", actor: request.user!, projectId: null, data: { object: gitAccountObject(after!), ...changedFields({ defaultReviewer: true }, { defaultReviewer: false })! } });
+        }
+        return after;
+      });
       if (!row) return apiError(reply, 404, "git_account_not_found", "Git account not found");
       return reply.code(204).send(null);
     },
@@ -598,7 +591,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
       config: { access: { kind: "instance", permission: "git_accounts.manage" } },
       schema: {
         params: idParamsSchema,
-        response: { 200: validateResponseSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
+        response: { 200: gitValidateResponseSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
@@ -636,7 +629,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
       schema: {
         params: idParamsSchema,
         querystring: validateRepoQuerySchema,
-        response: { 200: validateResponseSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
+        response: { 200: gitValidateResponseSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {

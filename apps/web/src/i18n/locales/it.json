@@ -1478,6 +1478,7 @@
       "sourceSubdir": "Sottocartella (opzionale)",
       "sourceSubdirPlaceholder": "Es. plugins/superpowers",
       "addHint": "// lo slug è derivato dall'URL sorgente; il plugin viene pinnato al commit a cui il ref si risolve.",
+      "trust": "Mi fido di questo repository e di questo commit: registrarlo ne esegue il codice coi permessi del worker, prima di ogni abilitazione.",
       "create": "Registra plugin",
       "creating": "Registrazione…",
       "slugTaken": "Esiste già un plugin con slug \"{{slug}}\". Lo slug è derivato dall'URL sorgente e non si può scegliere: rimuovi il plugin esistente prima di registrare di nuovo questa sorgente.",

@@ -75,6 +75,13 @@ describe("writeWorkerModelDefaults", () => {
     expect(row!.value).toEqual(defaults);
   });
 
+  it("area 9, F3: scrive anche le operazioni che vengono da un'env (la fonte `env`)", async () => {
+    const defaults = Object.fromEntries(AI_OPERATIONS.map((op) => [op, "haiku"])) as Record<AiOperation, string>;
+    await writeWorkerModelDefaults(testDb.db, defaults, console, ["fix_plan", "pr_review"]);
+    const [row] = await testDb.db.select({ ops: instanceSettings.workerModelEnvOperations }).from(instanceSettings).where(eq(instanceSettings.id, 1));
+    expect(row!.ops).toEqual(["fix_plan", "pr_review"]);
+  });
+
   it("è best-effort: un errore non lancia", async () => {
     const broken = {
       update: () => {

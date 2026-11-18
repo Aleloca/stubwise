@@ -1478,6 +1478,7 @@
       "sourceSubdir": "Subdirectory (optional)",
       "sourceSubdirPlaceholder": "E.g. plugins/superpowers",
       "addHint": "// the slug is derived from the source URL; the plugin is pinned to the commit the ref resolves to.",
+      "trust": "I trust this repository and this commit: registering it runs its code with the worker's permissions, before anything is enabled.",
       "create": "Register plugin",
       "creating": "Registering…",
       "slugTaken": "A plugin with slug \"{{slug}}\" is already registered. The slug is derived from the source URL and cannot be chosen: remove the existing plugin before registering this source again.",

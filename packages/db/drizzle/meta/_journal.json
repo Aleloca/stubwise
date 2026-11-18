@@ -1305,6 +1305,27 @@
       "breakpoints": true
     },
     {
+      "idx": 188,
+      "version": "7",
+      "when": 1800662400000,
+      "tag": "0188_outgoing_webhooks",
+      "breakpoints": true
+    },
+    {
+      "idx": 189,
+      "version": "7",
+      "when": 1800748800000,
+      "tag": "0189_worker_model_env",
+      "breakpoints": true
+    },
+    {
+      "idx": 190,
+      "version": "7",
+      "when": 1800835200000,
+      "tag": "0190_ai_provider_secret_last4",
+      "breakpoints": true
+    },
+    {
       "idx": 191,
       "version": "7",
       "when": 1800921600000,

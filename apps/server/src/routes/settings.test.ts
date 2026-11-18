@@ -1,14 +1,15 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { mailAdmissionSchema } from "@stubwise/shared";
 import { buildApp } from "../app.js";
-import { automationRules, decrypt, instanceSettings, notificationSettings } from "@stubwise/db";
+import { automationRules, decrypt, instanceSettings, notificationSettings, outgoingWebhooks, roles, users as usersTable } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
-import { seedUsers } from "../test/fixtures.js";
+import { fullSessionCookie, seedUsers } from "../test/fixtures.js";
+import { createSession, SESSION_COOKIE } from "../auth/session.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32).toString("base64");
@@ -411,7 +412,9 @@ describe("PUT /api/settings/notifications", () => {
   it("il toggle del brief settimanale si spegne e resta spento", async () => {
     const res = await putNotifications(
       {
-        webhookUrl: "",
+        // Area 9, F3 (H-4): gli interruttori sono gli eventi del webhook più
+        // vecchio, quindi serve un webhook.
+        webhookUrl: "https://hooks.example.com/brief",
         format: "slack",
         enabled: true,
         notifyTicketCreated: true,
@@ -660,7 +663,13 @@ describe("PUT /api/settings/notifications", () => {
     expect((res.json() as NotificationSettings).notifyMonitor).toBe(true);
   });
 
-  it("webhookUrl vuoto è ammesso (disattiva il webhook) e salvato come null", async () => {
+  it("area 9, F3 (H-4): webhookUrl vuoto SPEGNE il webhook più vecchio (non lo elimina: eliminare chiede la riconferma); senza webhook resta null", async () => {
+    await app.db.delete(outgoingWebhooks);
+    const none = await putNotifications({ webhookUrl: "", format: "slack", enabled: true, notifyTicketCreated: true, notifyPrOpened: true, notifyJobHeld: true, notifyJobFailed: true }, users.adminCookie);
+    expect(none.statusCode).toBe(200);
+    expect((none.json() as NotificationSettings).webhookUrl).toBeNull();
+    expect(await app.db.select().from(outgoingWebhooks)).toHaveLength(0);
+    await putNotifications({ webhookUrl: "https://hooks.example.com/x", format: "slack", enabled: true, notifyTicketCreated: true, notifyPrOpened: true, notifyJobHeld: true, notifyJobFailed: true }, users.adminCookie);
     const res = await putNotifications(
       {
         webhookUrl: "",
@@ -674,7 +683,23 @@ describe("PUT /api/settings/notifications", () => {
       users.adminCookie,
     );
     expect(res.statusCode).toBe(200);
-    expect((res.json() as NotificationSettings).webhookUrl).toBeNull();
+    expect(res.json()).toMatchObject({ webhookUrl: "https://hooks.example.com/x", enabled: false });
+    const [kept] = await app.db.select().from(outgoingWebhooks);
+    expect(kept).toMatchObject({ enabled: false, secretEncrypted: null });
+  });
+
+  it("area 9, F3 (H-4): gli interruttori sono gli eventi del webhook più vecchio; gli eventi scelti dall'app nuova restano", async () => {
+    await app.db.delete(outgoingWebhooks);
+    await putNotifications({ webhookUrl: "https://hooks.example.com/a", format: "discord", enabled: true, notifyTicketCreated: true, notifyPrOpened: false, notifyJobHeld: false, notifyJobFailed: true }, users.adminCookie);
+    const [row] = await app.db.select().from(outgoingWebhooks);
+    expect(row!.events.sort()).toEqual(["docs.limit_paused", "job.awaiting_input", "job.budget_held", "job.failed", "job.plan_review", "job.pr_closed", "monitor", "project.brief", "project.pulse", "review.completed", "ticket.created"]);
+    expect(row!.format).toBe("discord");
+    await app.db.update(outgoingWebhooks).set({ events: [...row!.events, "release.failed"] });
+    await putNotifications({ webhookUrl: "https://hooks.example.com/a", format: "discord", enabled: true, notifyTicketCreated: false, notifyPrOpened: false, notifyJobHeld: false, notifyJobFailed: true }, users.adminCookie);
+    const [after] = await app.db.select().from(outgoingWebhooks);
+    expect(after!.events).toContain("release.failed");
+    expect(after!.events).not.toContain("ticket.created");
+    expect(((await getNotifications(users.adminCookie)).json() as NotificationSettings).notifyTicketCreated).toBe(false);
   });
 
   it("webhookUrl non-https → 400", async () => {
@@ -762,7 +787,32 @@ describe("POST /api/settings/notifications/test", () => {
     expect(body.detail).toContain("500");
   });
 
+  it("area 9, F3 (H-1): la pagina Notifiche del web vecchio chiede integrations.manage — settings.manage da solo non basta", async () => {
+    const [role] = await app.db.insert(roles).values({ name: `Solo impostazioni ${randomUUID().slice(0, 4)}`, scope: "instance", permissions: ["settings.manage"] }).returning({ id: roles.id });
+    const [u] = await app.db.insert(usersTable).values({ email: `imp-${randomUUID().slice(0, 6)}@acme.com`, passwordHash: "x", role: "member", instanceRoleId: role!.id }).returning({ id: usersTable.id });
+    const cookie = await fullSessionCookie(app, u!.id);
+    expect((await getNotifications(cookie)).statusCode).toBe(403);
+    expect((await putNotifications({ webhookUrl: "", format: "slack", enabled: true, notifyTicketCreated: true, notifyPrOpened: true, notifyJobHeld: true, notifyJobFailed: true }, cookie)).statusCode).toBe(403);
+    expect((await testNotification(cookie)).statusCode).toBe(403);
+  });
+
+  it("decisione del maintainer: dal web vecchio, un URL NUOVO (cambiato o un webhook creato) chiede la riconferma; lo stesso URL no", async () => {
+    await app.db.delete(outgoingWebhooks);
+    const old = await createSession(app.db, users.adminId, { stage: "full", secondFactorAt: new Date(Date.now() - 11 * 60_000) });
+    const stale = `${SESSION_COOKIE}=${encodeURIComponent(app.signCookie(old.id))}`;
+    const toggles = { format: "slack", enabled: true, notifyTicketCreated: true, notifyPrOpened: true, notifyJobHeld: true, notifyJobFailed: true };
+    expect((await putNotifications({ webhookUrl: "https://hooks.example.com/a", ...toggles }, stale)).statusCode).toBe(403);
+    expect(await app.db.select().from(outgoingWebhooks)).toHaveLength(0);
+    expect((await putNotifications({ webhookUrl: "https://hooks.example.com/a", ...toggles }, users.adminCookie)).statusCode).toBe(200);
+    expect((await putNotifications({ webhookUrl: "https://hooks.example.com/a", ...toggles, notifyJobFailed: false }, stale)).statusCode).toBe(200);
+    expect((await putNotifications({ webhookUrl: "https://altro.example.com/b", ...toggles }, stale)).statusCode).toBe(403);
+    expect((await putNotifications({ webhookUrl: "", ...toggles }, stale)).statusCode).toBe(200);
+    const [row] = await app.db.select().from(outgoingWebhooks);
+    expect(row).toMatchObject({ url: "https://hooks.example.com/a", enabled: false });
+  });
+
   it("admin: ok=false quando nessun webhook è configurato", async () => {
+    await app.db.delete(outgoingWebhooks);
     await putNotifications(
       {
         webhookUrl: "",

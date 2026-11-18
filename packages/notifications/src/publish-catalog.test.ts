@@ -1,4 +1,4 @@
-import { alertSubscriptions, deviceTokens, notificationDeliveries, notifications, projectMembers, roles, users, type Db } from "@stubwise/db";
+import { alertSubscriptions, deviceTokens, notificationDeliveries, notifications, outgoingWebhooks, projectMembers, roles, users, type Db } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -61,7 +61,7 @@ const failed = (projectId: string): NotificationEvent => ({
 const monitor = (): NotificationEvent => ({ kind: "monitor.alert", serverName: "web-1", condition: "disk", detail: "disco al 95%", url: "https://s.example/monitor/servers/x" });
 const cardsOf = async (kind: string) => (await db.select({ userId: notifications.userId }).from(notifications).where(eq(notifications.kind, kind as never))).map((r) => r.userId).sort();
 const deliveriesOf = async (channel: "push" | "slack_dm" | "webhook") =>
-  db.select({ id: notificationDeliveries.id, notificationId: notificationDeliveries.notificationId }).from(notificationDeliveries).where(eq(notificationDeliveries.channel, channel));
+  db.select({ id: notificationDeliveries.id, notificationId: notificationDeliveries.notificationId, webhookId: notificationDeliveries.webhookId }).from(notificationDeliveries).where(eq(notificationDeliveries.channel, channel));
 
 async function scenario() {
   const { projectId } = await seedRepository(db);
@@ -97,7 +97,18 @@ describe("avvisi del catalogo alla pubblicazione (area 8, F2)", () => {
     expect(await cardsOf("monitor.alert")).toEqual([s.admin]);
   });
 
-  it("M3: un avviso del catalogo non va mai su Slack (DM) né sul webhook; senza progetto il monitor ci va come oggi", async () => {
+  it("E-2 (area 9, F3): un avviso del catalogo va SOLO al webhook che lo ha scelto (la regola M3 sul webhook è riscritta)", async () => {
+    const s = await scenario();
+    await db.delete(outgoingWebhooks);
+    const [chosen] = await db.insert(outgoingWebhooks).values({ name: "Rilasci", url: "https://hooks.example.com/r", events: ["release.failed"] }).returning();
+    await db.insert(outgoingWebhooks).values({ name: "Altro", url: "https://hooks.example.com/o", events: ["job.failed"] });
+    await publishNotification(db, failed(s.projectId), { projectId: s.projectId });
+    const hooks = await deliveriesOf("webhook");
+    expect(hooks.map((d) => d.webhookId)).toEqual([chosen!.id]);
+    await db.delete(outgoingWebhooks);
+  });
+
+  it("M3: un avviso del catalogo non va mai su Slack (DM); senza progetto il monitor ci va come oggi", async () => {
     const s = await scenario();
     await publishNotification(db, failed(s.projectId), { projectId: s.projectId });
     expect(await deliveriesOf("slack_dm")).toEqual([]);

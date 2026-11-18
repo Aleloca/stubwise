@@ -1,3 +1,12 @@
+import {
+  createAiProviderEndpoints,
+  createAiUsageEndpoints,
+  createGitAccountEndpoints,
+  createGoogleAppEndpoints,
+  createInstanceSettingsEndpoints,
+  createPluginEndpoints,
+} from "./endpoints/instance.js";
+import { createSettingsEndpoints, createWebhookEndpoints } from "./endpoints/settings.js";
 import { createChangeLogEndpoints } from "./endpoints/change-log.js";
 import { createAdminEndpoints } from "./endpoints/admin.js";
 import { createAccessEndpoints } from "./endpoints/access.js";
@@ -191,6 +200,16 @@ export function createEndpoints(request: ApiRequest) {
     admin: createAdminEndpoints(request),
     // Area 9, F2: il registro delle modifiche.
     changeLog: createChangeLogEndpoints(request),
+    // Area 9, F3: i webhook in uscita e i modelli per operazione.
+    webhooks: createWebhookEndpoints(request),
+    settings: createSettingsEndpoints(request),
+    // Area 9, F3, Task 8b: le pagine d'istanza della 9b.
+    aiProviders: createAiProviderEndpoints(request),
+    gitAccounts: createGitAccountEndpoints(request),
+    plugins: createPluginEndpoints(request),
+    googleApps: createGoogleAppEndpoints(request),
+    instanceSettings: createInstanceSettingsEndpoints(request),
+    aiUsage: createAiUsageEndpoints(request),
   };
 }
 
