@@ -662,7 +662,7 @@ async function keepingAManager(tx: Tx, projectId: string, write: () => Promise<v
  */
 export async function putProjectMember(
   db: Db,
-  actor: Actor,
+  actor: Actor & { email: string },
   held: ReadonlySet<string>,
   projectId: string,
   userId: string,
@@ -680,7 +680,7 @@ export async function putProjectMember(
     const role = await sharedRole(tx, roleId, "project");
     assertNoEscalation(actor, role.permissions, held);
     const [user] = await tx
-      .select({ id: users.id, deactivatedAt: users.deactivatedAt })
+      .select({ id: users.id, email: users.email, deactivatedAt: users.deactivatedAt })
       .from(users)
       .where(eq(users.id, userId))
       .for("share");
@@ -689,7 +689,7 @@ export async function putProjectMember(
     if (user.deactivatedAt) throw new RoleRuleError(422, "user_deactivated", "This person is deactivated");
     await keepingAManager(tx, projectId, async () => {
       // La riga (se c'è) si blocca: niente bersaglio protetto (area 9, D-2).
-      await lockedMemberPermissions(tx, projectId, userId);
+      const before = await lockedMember(tx, projectId, userId);
       await tx
         .insert(projectMembers)
         .values({ projectId, userId, roleId })
@@ -697,6 +697,13 @@ export async function putProjectMember(
           target: [projectMembers.projectId, projectMembers.userId],
           set: { roleId },
         });
+      // Area 9, F2: chi entra, o il ruolo che cambia (niente se è lo stesso).
+      const object = memberObject(user);
+      if (!before) {
+        await recordChange(tx, { type: "member.added", actor, projectId, data: { object, after: role.name } });
+      } else if (before.roleId !== roleId) {
+        await recordChange(tx, { type: "member.role_changed", actor, projectId, data: { object, before: before.roleName, after: role.name } });
+      }
       if (!wanted) return;
       // I permessi personali: l'insieme COMPLETO dopo il salvataggio. Si dà solo
       // ciò che si ha (escalation sugli AGGIUNTI); togliere non chiede niente.
@@ -722,6 +729,13 @@ export async function putProjectMember(
       if (added.length > 0) {
         await tx.insert(projectMemberPermissions).values(added.map((permission) => ({ projectId, userId, permission, grantedByUserId: actor.id })));
       }
+      // Una voce per permesso, come il prototipo.
+      for (const permission of added) {
+        await recordChange(tx, { type: "member.permission_granted", actor, projectId, data: { object, params: { permission } } });
+      }
+      for (const permission of removed) {
+        await recordChange(tx, { type: "member.permission_revoked", actor, projectId, data: { object, params: { permission } } });
+      }
     });
   });
   return (await membersWithPermissions(db, projectId, userId))[0]!;
@@ -730,36 +744,39 @@ export async function putProjectMember(
 /** Toglie un membro. Togliere non chiede niente (area 9, D-2: niente gerarchia fra persone). */
 export async function removeProjectMember(
   db: Db,
-  actor: Actor,
+  actor: Actor & { email: string },
   held: ReadonlySet<string>,
   projectId: string,
   userId: string,
 ): Promise<void> {
   await db.transaction(async (tx) => {
     await keepingAManager(tx, projectId, async () => {
-      const current = await lockedMemberPermissions(tx, projectId, userId);
+      const current = await lockedMember(tx, projectId, userId);
       if (!current) throw new RoleRuleError(404, "member_not_found", "Member not found");
       await tx
         .delete(projectMembers)
         .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)));
+      await recordChange(tx, { type: "member.removed", actor, projectId, data: { object: memberObject(current), before: current.roleName } });
     });
   });
 }
 
 /** I permessi del ruolo attuale di un membro, con la riga bloccata; `null` se non è membro. */
-async function lockedMemberPermissions(
-  tx: Tx,
-  projectId: string,
-  userId: string,
-): Promise<string[] | null> {
+/** L'oggetto «membro» di una voce: la persona, con l'email di allora. */
+export const memberObject = (user: { id?: string; userId?: string; email: string }) => ({ type: "member", id: (user.id ?? user.userId)!, label: user.email });
+
+/** Il membro con la riga bloccata (ruolo, nome del ruolo, email), o `null`. */
+async function lockedMember(tx: Tx, projectId: string, userId: string) {
   const [row] = await tx
-    .select({ permissions: roles.permissions })
+    .select({ userId: projectMembers.userId, roleId: projectMembers.roleId, roleName: roles.name, permissions: roles.permissions, email: users.email })
     .from(projectMembers)
     .innerJoin(roles, eq(roles.id, projectMembers.roleId))
+    .innerJoin(users, eq(users.id, projectMembers.userId))
     .where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)))
     .for("update", { of: projectMembers });
-  return row?.permissions ?? null;
+  return row ?? null;
 }
+
 
 /**
  * Il ruolo che riceve chi crea un progetto: il preset `Project Lead` o, se è
@@ -911,4 +928,10 @@ export async function applyInviteGrants(
   await tx
     .insert(projectMembers)
     .values(valid.map((g) => ({ projectId: g.projectId, userId, roleId: g.roleId })));
+  // Area 9, F2: entrare da un invito è un'aggiunta; l'attore è chi entra.
+  const [me] = await tx.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, userId));
+  const names = new Map((await tx.select({ id: roles.id, name: roles.name }).from(roles).where(inArray(roles.id, valid.map((g) => g.roleId)))).map((r) => [r.id, r.name]));
+  for (const g of valid) {
+    await recordChange(tx, { type: "member.added", actor: me!, projectId: g.projectId, data: { object: memberObject(me!), after: names.get(g.roleId) ?? null, params: { via: "invite" } } });
+  }
 }

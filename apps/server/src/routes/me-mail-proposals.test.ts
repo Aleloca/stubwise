@@ -604,7 +604,7 @@ describe("Contributor: la guardia «cambiato nel frattempo» (review della secon
     const [developer] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "developer"));
     const result = await confirmMailProposalWithMembers(
       db,
-      { id: lead.id, instancePermissions: new Set() },
+      { id: lead.id, email: "lead@example.com", instancePermissions: new Set() },
       proposal.id,
       { addOutsiders: [outsider.id] },
       "it",
@@ -670,7 +670,7 @@ describe("review F2, punto 6 e review del renderer F2: outsiders e Contributor",
     const { projectMembers } = await import("@stubwise/db");
     const { confirmMailProposalWithMembers } = await import("../services/mail-proposals-decide.js");
     await expect(
-      confirmMailProposalWithMembers(db, { id: lead.id, instancePermissions: new Set() }, proposal.id, { addOutsiders: [outsider.id] }, "it", () => {}, async () => {
+      confirmMailProposalWithMembers(db, { id: lead.id, email: "lead@example.com", instancePermissions: new Set() }, proposal.id, { addOutsiders: [outsider.id] }, "it", () => {}, async () => {
         throw new Error("boom");
       }),
     ).rejects.toThrow("boom");
