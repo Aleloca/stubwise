@@ -7,6 +7,7 @@ import {
   gitValidateResponseSchema,
   googleWorkspaceSchema,
   instanceSettingsViewSchema,
+  instanceStatusSchema,
   pluginRegistrySchema,
   pluginSchema,
 } from "@stubwise/shared";
@@ -23,6 +24,7 @@ import type {
   GoogleWorkspaceDraft,
   GoogleWorkspacePatch,
   InstanceSettingsView,
+  InstanceStatus,
   Plugin,
   PluginRegistry,
   Reader,
@@ -179,6 +181,19 @@ export function createAiUsageEndpoints(request: ApiRequest) {
   return {
     snapshots(): Promise<Reader<AiUsageSnapshot>[]> {
       return request("GET", "/api/ai-usage/snapshots", undefined, aiUsageSnapshotsSchema);
+    },
+  };
+}
+
+/**
+ * Area 9, F4: lo Stato dell'istanza (`instance.status.view`). Tutto calcolato
+ * dal server; `href` arriva null: il link lo compone la pagina da `kind`,
+ * `projectCode` e `code`.
+ */
+export function createInstanceStatusEndpoints(request: ApiRequest) {
+  return {
+    status(): Promise<Reader<InstanceStatus>> {
+      return request("GET", "/api/instance/status", undefined, instanceStatusSchema);
     },
   };
 }

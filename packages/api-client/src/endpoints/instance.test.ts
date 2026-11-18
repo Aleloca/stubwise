@@ -104,3 +104,19 @@ describe("aiUsage", () => {
     expect((await v.client.aiProviders.list())[0]!.quotaBand).toBe("__unknown__");
   });
 });
+
+describe("instance.status (area 9, F4)", () => {
+  it("senza i facoltativi: blocchi, worker, quota, errori e notte ai default; un kind ignoto è __unknown__", async () => {
+    const { client, fetchImpl } = clientWith({
+      queues: [{ projectId: "p", code: "ACQ", name: "Acquisti", running: 1, waiting: 0, failed: 0 }],
+      jobs: [{ id: "j", kind: "lavoro_futuro", projectId: "p", state: "running", since: "2026-11-18T10:00:00.000Z" }],
+      refreshedAt: "2026-11-18T10:00:00.000Z",
+    });
+    const s = await client.instance.status();
+    expect(last(fetchImpl)).toMatchObject({ method: "GET", url: "/api/instance/status" });
+    expect(s).toMatchObject({ otherProjects: null, workers: [], quota: [], errors: [], nightly: [] });
+    expect(s.queues[0]).toMatchObject({ paused: null, pause: "forbidden", budgetAfterResume: 0 });
+    expect(s.jobs[0]).toMatchObject({ kind: "__unknown__", waiting: null, workerId: null, retry: "unavailable", retryNeeds: null, retryBlock: null, retryStopsAtPlan: false, href: null, superseded: false });
+  });
+});
+
