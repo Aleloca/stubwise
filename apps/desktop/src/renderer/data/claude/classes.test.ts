@@ -223,13 +223,18 @@ describe("classOf: le altre voci", () => {
   });
 
   it("le righe d'istanza: B, o C con la riconferma; registerPlugin e retryJob non si annullano", () => {
-    for (const fn of ["setModel", "updateWebhook", "pauseQueue"] as const)
+    for (const fn of ["setModel", "pauseQueue"] as const)
       expect(classOf(ROBERTA, { fn, args: {} }), fn).toEqual({ cls: "B", reasons: [] });
     expect(classOf(ROBERTA, { fn: "updatePluginRef", args: {} })).toEqual({
       cls: "C",
       reasons: [{ kind: "irreversible" }, { kind: "reauth" }],
     });
     expect(classOf(ROBERTA, { fn: "saveStorage", args: {} })).toEqual({
+      cls: "C",
+      reasons: [{ kind: "reauth" }],
+    });
+    // Cambiare l'URL di un webhook vuole la riconferma (maintainer, 18 nov 2026), come la chiave di saveStorage.
+    expect(classOf(ROBERTA, { fn: "updateWebhook", args: {} })).toEqual({
       cls: "C",
       reasons: [{ kind: "reauth" }],
     });

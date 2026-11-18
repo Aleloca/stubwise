@@ -118,6 +118,8 @@ describe("il registro del catalogo", () => {
         "saveStorage",
         "setMemberRole",
         "updatePluginRef",
+        // Cambiare l'URL di un webhook vuole la riconferma (maintainer, 18 nov 2026).
+        "updateWebhook",
       ].sort(),
     );
   });

@@ -11614,7 +11614,8 @@
         "submit": "Delete",
         "action": "delete the webhook {{name}}",
         "done": "{{name}} deleted."
-      }
+      },
+      "urlAction": "change the address of {{name}}"
     },
     "servers": {
       "title": "Servers",

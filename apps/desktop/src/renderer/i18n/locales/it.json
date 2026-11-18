@@ -11614,7 +11614,8 @@
         "submit": "Elimina",
         "action": "eliminare il webhook {{name}}",
         "done": "{{name}} eliminato."
-      }
+      },
+      "urlAction": "cambiare l'indirizzo di {{name}}"
     },
     "servers": {
       "title": "Server",

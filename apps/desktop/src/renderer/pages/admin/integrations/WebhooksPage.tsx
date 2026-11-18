@@ -260,7 +260,12 @@ function WebhookForm({
         ? reauth(() => create.mutateAsync(input), {
             action: t("admin.webhooks.createAction", { name: input.name }),
           })
-        : update.mutateAsync([w.id, input])
+        : input.url !== w.url
+          ? // Un indirizzo nuovo chiede la riconferma (maintainer, 18 nov 2026).
+            reauth(() => update.mutateAsync([w.id, input]), {
+              action: t("admin.webhooks.urlAction", { name: w.name }),
+            })
+          : update.mutateAsync([w.id, input])
     ).catch(() => null);
     setBusy(false);
     if (result === null) return setErrors({ form: t("admin.integrations.saveFailed") });
@@ -279,7 +284,8 @@ function WebhookForm({
       return setErrors(form ? { form } : {});
     }
     if (isNew && "webhook" in result) {
-      onCreated({ id: result.webhook.id, secret: result.secret });
+      const created = result as unknown as { webhook: WebhookView; secret: string };
+      onCreated({ id: created.webhook.id, secret: created.secret });
       return;
     }
     toast.show(t("admin.integrations.saved"));

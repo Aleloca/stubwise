@@ -308,7 +308,7 @@ describe("Outgoing webhooks", () => {
     expect(await screen.findByLabelText("Address")).toHaveValue(SEED_URL);
   });
 
-  it("formato e indirizzo: salvati senza riconferma, riaprendo la pagina l'indirizzo si rilegge in chiaro", async () => {
+  it("formato e indirizzo: l'indirizzo nuovo con la riconferma; riaprendo la pagina si rilegge in chiaro", async () => {
     const user = userEvent.setup();
     renderRoute(`/admin/webhooks/${SEED}`, ROBERTA);
     const address = await screen.findByLabelText("Address");
@@ -333,8 +333,9 @@ describe("Outgoing webhooks", () => {
     await user.type(address, url);
     await user.click(screen.getByRole("radio", { name: "Discord" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
+    // Un indirizzo nuovo chiede la riconferma (maintainer, 18 nov 2026).
+    await confirmItsYou(user);
     expect(await screen.findByText("Saved.")).toBeVisible();
-    expect(screen.queryByRole("dialog", { name: "Confirm it's you" })).toBeNull();
     expect(state.instance.webhooks[0]).toMatchObject({ url, format: "discord" });
 
     cleanup();

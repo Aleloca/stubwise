@@ -73,6 +73,7 @@ const EXPECTED_REAUTH: readonly ApiFnName[] = [
   "instance.deleteGoogleApp",
   "instance.saveStorage",
   "instance.createWebhook",
+  "instance.updateWebhook",
   "instance.regenerateWebhookSecret",
   "instance.deleteWebhook",
   // Area 9c: chi crea, sostituisce o cancella un segreto di un progetto

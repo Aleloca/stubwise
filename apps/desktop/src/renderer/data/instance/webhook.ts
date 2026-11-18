@@ -161,8 +161,8 @@ export async function createWebhook(
 }
 
 /**
- * Cambia nome, indirizzo, formato, eventi o stato, senza riconferma (l'URL
- * non è un segreto). La voce `webhook.updated` ha i soli campi cambiati;
+ * Cambia nome, indirizzo, formato, eventi o stato. Solo un indirizzo nuovo
+ * chiede la riconferma (maintainer, 18 nov 2026). La voce `webhook.updated` ha i soli campi cambiati;
  * cambiare indirizzo o formato rimette la prova a «non ancora provata».
  */
 export async function updateWebhook(
@@ -190,6 +190,12 @@ export function updateWebhookAs(
     enabled: patch.enabled ?? w.enabled,
     events: patch.events ? ordered(patch.events) : ordered(w.events),
   };
+  // Un indirizzo NUOVO vuole la riconferma (maintainer, 18 nov 2026): dove
+  // vanno i messaggi. Il resto della patch no.
+  if (next.url !== w.url) {
+    const reauth = reauthRefusal(me, "instance.updateWebhook");
+    if (reauth) return reauth;
+  }
   const diff = changedFields(
     { name: w.name, url: w.url, format: w.format, enabled: w.enabled, events: ordered(w.events) },
     next,

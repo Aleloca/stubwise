@@ -890,9 +890,26 @@ describe("webhook in uscita", () => {
     });
   });
 
-  it("modificare: senza riconferma; la voce ha i soli campi cambiati, l'URL compreso", async () => {
+  it("modificare: l'URL vuole la riconferma (maintainer, 18 nov 2026); nome, formato, eventi e stato no", async () => {
     expect(state.reauth.has(ROBERTA)).toBe(false);
     const url = "https://hooks.slack.com/services/T02NEW/B08NEW/another";
+    await refused(() => instance.updateWebhook(SEED_WEBHOOK, { url }), {
+      error: "reauth_required",
+    });
+    expect(
+      await instance.updateWebhook(SEED_WEBHOOK, {
+        name: "Slack #ops",
+        format: "discord",
+        enabled: false,
+      }),
+    ).toEqual({ ok: true });
+    // Lo stesso URL di adesso non è un cambio: niente riconferma.
+    expect(
+      await instance.updateWebhook(SEED_WEBHOOK, {
+        url: "https://hooks.slack.com/services/T01AUDIN/B07STUB/prototype",
+      }),
+    ).toEqual({ ok: true });
+    reauth(ROBERTA);
     expect(await instance.updateWebhook(SEED_WEBHOOK, { url })).toEqual({ ok: true });
     expect((await instance.getWebhook(SEED_WEBHOOK)).url).toBe(url);
     expect(last()).toMatchObject({ kind: "webhook.updated" });
