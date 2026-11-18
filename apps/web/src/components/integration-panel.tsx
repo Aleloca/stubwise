@@ -1,11 +1,22 @@
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { downloadTextFile } from "../lib/install-guide-shared";
 import { buildSdkInstallGuide, sdkGuideFilename } from "../lib/sdk-install-guide";
 import { CopyButton } from "./copy-button";
 
 interface IntegrationPanelProps {
-  /** Chiave di ingestion del PROGETTO (Fase 3): condivisa da tutti i suoi repo. */
-  ingestionKey: string;
+  /**
+   * Chiave di ingestion del PROGETTO (Fase 3): condivisa da tutti i suoi repo.
+   * Area 9, F5 (I2): c'è SOLO subito dopo una rigenerazione (la chiave non
+   * esce da nessuna lettura); altrimenti `null`, e il pannello mostra le
+   * ultime 4 (`last4`) mascherate, senza copie né guida.
+   */
+  ingestionKey: string | null;
+  last4?: string;
+  /** Sotto il campo della chiave: la data, chi l'ha fatta, la rigenerazione. */
+  keyFooter?: ReactNode;
+  /** Chi guarda può rigenerare la chiave (lo calcola il server): cambia il suggerimento. */
+  canRegenerate?: boolean;
   /**
    * Slug del PROGETTO: entra nel DSN (`…@host/p/<slug>`) e nell'URL del webhook
    * inbound. In Fase 3 l'ingestion è di progetto: gli endpoint risolvono per
@@ -25,12 +36,13 @@ interface IntegrationPanelProps {
  * la chiave e gli endpoint valgono per tutti i repository del gruppo. Visibile
  * anche ai member: integrare l'SDK non richiede privilegi admin.
  */
-export function IntegrationPanel({ ingestionKey, slug, projectName, origin }: IntegrationPanelProps) {
+export function IntegrationPanel({ ingestionKey, last4 = "", keyFooter, canRegenerate = false, slug, projectName, origin }: IntegrationPanelProps) {
   const { t } = useTranslation();
 
   const resolvedOrigin = origin ?? window.location.origin;
   const url = new URL(resolvedOrigin);
-  const dsn = `${url.protocol}//${ingestionKey}@${url.host}/p/${slug}`;
+  const shownKey = ingestionKey ?? `••••••••${last4}`;
+  const dsn = `${url.protocol}//${shownKey}@${url.host}/p/${slug}`;
   // Webhook generico in ingresso: stesso schema URL del DSN (origin corrente),
   // crea un ticket a ogni chiamata. La chiave non si ri-espone qui: l'header
   // rimanda alla chiave di ingestion già mostrata sopra.
@@ -70,10 +82,18 @@ export function IntegrationPanel({ ingestionKey, slug, projectName, origin }: In
           <IntegrationRow
             label={t("integration:ingestionKey")}
             copyLabel={t("integration:copyIngestionKey")}
-            text={ingestionKey}
+            text={shownKey}
+            copyable={ingestionKey !== null}
           />
-          <IntegrationRow label={t("integration:dsn")} copyLabel={t("integration:copyDsn")} text={dsn} />
+          {keyFooter}
+          <IntegrationRow label={t("integration:dsn")} copyLabel={t("integration:copyDsn")} text={dsn} copyable={ingestionKey !== null} />
 
+          {ingestionKey === null ? (
+            <p data-testid="key-masked-hint" className="font-mono text-[11px] text-fg-faint">
+              {t(canRegenerate ? "integration:keyMaskedHint" : "integration:keyMaskedHintReadOnly")}
+            </p>
+          ) : (
+          <>
           <div>
             <div className="mb-1.5 flex items-center justify-between gap-3">
               <span className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
@@ -98,6 +118,8 @@ export function IntegrationPanel({ ingestionKey, slug, projectName, origin }: In
             projectName={projectName}
             origin={resolvedOrigin}
           />
+          </>
+          )}
         </div>
 
         <div
@@ -195,10 +217,12 @@ function IntegrationRow({
   label,
   copyLabel,
   text,
+  copyable = true,
 }: {
   label: string;
   copyLabel: string;
   text: string;
+  copyable?: boolean;
 }) {
   return (
     <div>
@@ -209,7 +233,7 @@ function IntegrationRow({
         <code className="min-w-0 flex-1 truncate rounded-sm border border-line bg-ink-950/70 px-3 py-1.5 font-mono text-[12px] text-signal">
           {text}
         </code>
-        <CopyButton text={text} label={copyLabel} />
+        {copyable && <CopyButton text={text} label={copyLabel} />}
       </div>
     </div>
   );

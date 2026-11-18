@@ -1,9 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
-import { ingestionKeyResultSchema, webhookSecretResultSchema } from "@stubwise/shared";
+import { ingestionKeyResultSchema, projectIntegrationSchema, webhookSecretResultSchema } from "@stubwise/shared";
 import { z } from "zod";
 import { fromParam, repositoryAccess } from "../auth/project-resolvers.js";
-import { regenerateIngestionKey, regenerateWebhookSecret } from "../services/project-secrets.js";
+import { projectIntegration, regenerateIngestionKey, regenerateWebhookSecret } from "../services/project-secrets.js";
+import { routePermissions } from "../auth/access.js";
 import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
 import { authErrorResponses } from "./shared.js";
 
@@ -13,6 +14,23 @@ import { authErrorResponses } from "./shared.js";
  */
 export async function projectSecretRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+
+  // L'Integrazione in lettura (I2): chi vede il progetto, come la sezione del
+  // web vecchio; nessun valore intero.
+  app.get(
+    "/projects/:projectId/integration",
+    {
+      config: { access: { kind: "project", permission: "member", project: fromParam("projectId") } },
+      schema: { params: z.object({ projectId: z.uuid() }), response: { 200: projectIntegrationSchema, 404: roleRuleErrorSchema, ...authErrorResponses } },
+    },
+    async (request, reply) => {
+      try {
+        return await projectIntegration(app.db, request.params.projectId, routePermissions(request), app.publicUrl);
+      } catch (error) {
+        return sendRoleRuleError(reply, error);
+      }
+    },
+  );
 
   app.post(
     "/projects/:projectId/ingestion-key",

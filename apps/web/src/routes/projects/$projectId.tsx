@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tansta
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { ProviderBadge } from "../../components/badges";
-import { IntegrationPanel } from "../../components/integration-panel";
+import { ProjectIntegrationSection } from "../../components/project-integration-section";
 import { MilestoneManager } from "../../components/milestone-manager";
 import { ProjectForm } from "../../components/project-form";
 import { ProjectMembersSection } from "../../components/project-members-section";
@@ -236,11 +236,7 @@ export function ProjectDetailPage() {
         className="mt-8 border-t border-line pt-6"
       >
         <h2 className={sectionTitleClass}>{t("integration:title")}</h2>
-        <IntegrationPanel
-          ingestionKey={project.ingestionKey}
-          slug={project.slug}
-          projectName={project.name}
-        />
+        <ProjectIntegrationSection projectId={project.id} slug={project.slug} projectName={project.name} />
       </section>
 
       {/*

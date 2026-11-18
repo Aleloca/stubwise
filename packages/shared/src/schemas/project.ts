@@ -265,8 +265,11 @@ export const projectSchema = z.object({
   // un tetto più alto non deve far fallire il parse della lista progetti.
   prCorrectionMaxRounds: z.number().int().default(3),
   // Chiave di ingestion del progetto: gli SDK la usano per inviare errori e
-  // feedback (l'ingestion è di prodotto, non di repo — Fase 3).
-  ingestionKey: z.string().min(1),
+  // feedback (l'ingestion è di prodotto, non di repo — Fase 3). Area 9, F5
+  // (I2): il server manda sempre `null` — la chiave si legge solo dalla
+  // rigenerazione, una volta, e l'Integrazione (`GET …/integration`) ne dà le
+  // ultime 4. Nullable col default, non tolta: i client la nominano ancora.
+  ingestionKey: z.string().nullable().default(null),
   // Prossimo numero ticket sequenziale del progetto (per-progetto, Fase 3).
   nextTicketNumber: z.number().int().min(1),
   createdAt: z.iso.datetime(),

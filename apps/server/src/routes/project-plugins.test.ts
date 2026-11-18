@@ -51,8 +51,9 @@ async function seedPlugin(slug: string): Promise<string> {
 
 /** La risposta senza `version` (area 9, F5): il resto si confronta esatto. */
 function withoutVersion(body: unknown) {
-  const { version, ...rest } = body as { version: unknown };
+  const { version, registry, ...rest } = body as { version: unknown; registry: unknown };
   expect(typeof version).toBe("string");
+  expect(Array.isArray(registry)).toBe(true);
   return rest;
 }
 
@@ -352,5 +353,19 @@ describe("area 9, F5: la versione, ifMatch e la voce", () => {
     });
     await put({ plugins: [{ pluginId: id, enabled: true, disabledSkills: ["writing-plans"], disabledHooks: ["SessionStart#0"] }] });
     expect(await entries()).toHaveLength(2);
+  });
+});
+
+describe("area 9, F5: il registro per chi gestisce il progetto", () => {
+  it("ogni plugin del registro con stato, skill, gruppi di hook e il preset consigliato (ristretto alle skill che ci sono); niente URL né comandi", async () => {
+    const id = await seedPlugin("superpowers");
+    await testDb.db.insert(plugins).values({ slug: "rotto", name: "rotto", sourceUrl: "https://github.com/acme/rotto", ref: "v1", status: "failed" });
+    const body = (await get()).json() as { registry: Record<string, unknown>[] };
+    expect(body.registry).toEqual([
+      { pluginId: expect.any(String), slug: "rotto", name: "rotto", status: "failed", skills: [], hookGroups: [], recommendedDisabledSkills: [] },
+      { pluginId: id, slug: "superpowers", name: "superpowers", status: "ready", skills: ["writing-plans", "using-git-worktrees"], hookGroups: ["SessionStart#0"], recommendedDisabledSkills: ["using-git-worktrees"] },
+    ]);
+    expect(JSON.stringify(body.registry)).not.toContain("echo ciao");
+    expect(JSON.stringify(body.registry)).not.toContain("github.com");
   });
 });

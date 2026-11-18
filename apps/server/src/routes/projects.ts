@@ -220,9 +220,11 @@ function toPublicProject(row: ProjectRow, pausers: Map<string, string> = new Map
     // Ciclo di correzione (30 set 2026): tetto delle correzioni automatiche
     // per tornata; 0 = ciclo automatico spento.
     prCorrectionMaxRounds: row.prCorrectionMaxRounds,
-    // Ingestion di prodotto (Fase 3): la chiave con cui gli SDK inviano
-    // errori/feedback e il contatore ticket per-progetto, saliti dal repo.
-    ingestionKey: row.ingestionKey,
+    // Area 9, F5 (I2): la chiave d'ingestione NON esce più da una lettura
+    // (la vedeva ogni membro del progetto). Si legge solo dalla rigenerazione,
+    // una volta; l'Integrazione (`GET …/integration`) ne dà le ultime 4. Il
+    // campo resta, `null`, per i client che lo nominano.
+    ingestionKey: null,
     nextTicketNumber: row.nextTicketNumber,
     createdAt: row.createdAt.toISOString(),
     // Integrazione area 2: il codice (le task sono `<CODICE>-<number>`) e le
@@ -344,6 +346,9 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
                 // di collisione (astronomicamente improbabile) l'insert rilancia e
                 // il giro dopo ne genera un'altra insieme allo slug.
                 ingestionKey: generateIngestionKey(),
+                // Area 9, F5 (I2): quando e da chi, per l'Integrazione.
+                ingestionKeyCreatedAt: new Date(),
+                ingestionKeyCreatedByUserId: request.user!.id,
                 ...(code !== undefined ? { code } : {}),
                 ...(template !== undefined ? { template } : {}),
                 ...(clientName != null ? { clientName } : {}),

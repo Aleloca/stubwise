@@ -103,6 +103,8 @@ import type {
   ProjectDecision,
   ProjectEnvironment,
   ProjectFollows,
+  ProjectIntegration,
+  IngestionKeyResult,
   ProjectPlugin,
   ProjectPulseSummary,
   ProjectTimeline,
@@ -2308,6 +2310,23 @@ export function getProjects(): Promise<ProjectListItem[]> {
 
 export function getProject(projectId: string): Promise<ProjectDetail> {
   return api.get(`/api/projects/${encodeURIComponent(projectId)}`);
+}
+
+/**
+ * Area 9, F5 (I2): l'Integrazione del progetto, SENZA la chiave intera (le
+ * ultime 4, quando, da chi) e coi permessi calcolati dal server.
+ */
+export function getProjectIntegration(projectId: string): Promise<ProjectIntegration> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/integration`);
+}
+
+/**
+ * Una chiave d'ingestione nuova: si legge solo qui, una volta; la vecchia
+ * smette subito. Chiede la riconferma: un 403 `reauth_required` apre il
+ * dialogo e la richiesta riparte.
+ */
+export function regenerateIngestionKey(projectId: string): Promise<IngestionKeyResult> {
+  return api.post(`/api/projects/${encodeURIComponent(projectId)}/ingestion-key`);
 }
 
 export function postProject(draft: ProjectDraft): Promise<Project> {

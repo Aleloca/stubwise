@@ -700,6 +700,10 @@ export const projects = pgTable(
     // coda di Stubwise: il claim di ogni coda esclude un progetto in pausa.
     queuePausedAt: timestamp("queue_paused_at", { withTimezone: true }),
     queuePausedByUserId: uuid("queue_paused_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+    // Area 9, F5 (I2): quando e da chi è stata fatta la chiave d'ingestione
+    // (creazione del progetto o rigenerazione); null per le chiavi di prima.
+    ingestionKeyCreatedAt: timestamp("ingestion_key_created_at", { withTimezone: true }),
+    ingestionKeyCreatedByUserId: uuid("ingestion_key_created_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
     // Aggiornamento automatico della documentazione ai push (changelog/release):
     // false = disattivo (i push non innescano nulla). Toggle per-progetto, vale
     // per tutti i repository del progetto.
