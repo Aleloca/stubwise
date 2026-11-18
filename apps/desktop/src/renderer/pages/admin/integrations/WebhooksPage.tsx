@@ -20,6 +20,7 @@ import {
   type WebhookView,
 } from "../../../data/queries";
 import { isAppBuild } from "../../../data/build";
+import { editBlockOf, patchOf } from "./webhookPatch";
 import { useReauth } from "../../../layout/useReauth";
 import { formatDate } from "../../../notifications/time";
 import { Dialog } from "../../../tasks-ui/Dialog";
@@ -246,6 +247,8 @@ function WebhookForm({
   const [busy, setBusy] = useState(false);
   const previewId = useId();
   const on = new Set(events);
+  // Review F3, I2: un formato o eventi che il client non conosce.
+  const block = editBlockOf(w);
   // La prova va all'indirizzo salvato: lo si dice se quello scritto è un altro.
   const unsavedTarget = url.trim() !== w.url || format !== w.format;
 
@@ -255,17 +258,23 @@ function WebhookForm({
     if (!url.trim()) return setErrors({ url: t("admin.webhooks.errors.missing") });
     setBusy(true);
     const input = { name: name.trim(), url: url.trim(), format, enabled, events };
+    // Review F3, I2: modificando, solo i campi cambiati.
+    const patch = isNew ? {} : patchOf(w, input);
+    if (!isNew && Object.keys(patch).length === 0) {
+      setBusy(false);
+      return toast.show(t("admin.integrations.saved"));
+    }
     const result = await (
       isNew
         ? reauth(() => create.mutateAsync(input), {
             action: t("admin.webhooks.createAction", { name: input.name }),
           })
-        : input.url !== w.url
+        : patch.url !== undefined
           ? // Un indirizzo nuovo chiede la riconferma (maintainer, 18 nov 2026).
-            reauth(() => update.mutateAsync([w.id, input]), {
+            reauth(() => update.mutateAsync([w.id, patch]), {
               action: t("admin.webhooks.urlAction", { name: w.name }),
             })
-          : update.mutateAsync([w.id, input])
+          : update.mutateAsync([w.id, patch])
     ).catch(() => null);
     setBusy(false);
     if (result === null) return setErrors({ form: t("admin.integrations.saveFailed") });
@@ -346,8 +355,10 @@ function WebhookForm({
             </ol>
           </Disclosure>
 
+          {block.events && <QuietNote>{t("admin.webhooks.unknownEvents")}</QuietNote>}
           <EventsSection
             events={on}
+            disabled={block.events}
             onToggle={(id, value) =>
               setEvents((list) =>
                 value ? [...list.filter((e) => e !== id), id] : list.filter((e) => e !== id),
@@ -360,7 +371,7 @@ function WebhookForm({
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || block.form}
                 onClick={() => void submit()}
                 className={`${primaryButton} disabled:opacity-40`}
               >
@@ -373,6 +384,7 @@ function WebhookForm({
               {!isNew && <TestButton webhook={w} unsavedTarget={unsavedTarget} />}
             </div>
             {errors.form && <ErrorLine>{errors.form}</ErrorLine>}
+            {block.form && <QuietNote>{t("admin.webhooks.unknownFormat")}</QuietNote>}
           </div>
 
           {!isNew && <SecretSection webhook={w} />}
@@ -567,8 +579,11 @@ function EventsSection({
   events,
   onToggle,
   onPoint,
+  disabled = false,
 }: {
   events: ReadonlySet<WebhookEventId>;
+  /** Review F3, I2: eventi che il client non conosce, non si cambiano da qui. */
+  disabled?: boolean;
   onToggle: (id: WebhookEventId, on: boolean) => void;
   onPoint: (id: WebhookEventId) => void;
 }) {
@@ -607,7 +622,8 @@ function EventsSection({
                   <Switch
                     checked={events.has(e.id)}
                     label={label}
-                    onChange={(on) => onToggle(e.id, on)}
+                    disabledReason={disabled ? t("admin.webhooks.unknownEvents") : undefined}
+                    onChange={(on) => !disabled && onToggle(e.id, on)}
                   />
                   <span aria-hidden="true" className="min-w-0 text-md text-pretty text-ink">
                     {label}

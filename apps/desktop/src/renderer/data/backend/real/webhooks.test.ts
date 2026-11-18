@@ -74,6 +74,18 @@ describe("i webhook in uscita dal server (area 9, F3)", () => {
     await expect(w.getWebhook("nope")).rejects.toThrow("not_found");
   });
 
+  it("un formato o eventi che il client non conosce si segnano nella vista (review F3, I2)", async () => {
+    const w = createRealWebhooks(
+      fakeApi({
+        list: async () => [view({ format: "__unknown__", events: ["job.failed", "__unknown__"] })],
+      }).api,
+    );
+    const [one] = await w.listWebhooks();
+    expect(one).toMatchObject({ formatUnknown: true, unknownEvents: true, events: ["job.failed"] });
+    const [plain] = await createRealWebhooks(fakeApi().api).listWebhooks();
+    expect(plain).toMatchObject({ formatUnknown: false, unknownEvents: false });
+  });
+
   it("creare: la vista e il segreto UNA volta; i rifiuti nelle parole del prototipo", async () => {
     const { api, calls } = fakeApi();
     const r = await createRealWebhooks(api).createWebhook({

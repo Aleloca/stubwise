@@ -68,7 +68,10 @@ export function createRealWebhooks(api: WebhooksApi) {
     id: w.id,
     name: w.name,
     url: w.url,
-    format: w.format,
+    // Un formato che il client non conosce: la pagina non lo modifica (I2).
+    format: w.format === "__unknown__" ? "generic" : w.format,
+    formatUnknown: w.format === "__unknown__",
+    unknownEvents: (w.events ?? []).includes("__unknown__"),
     enabled: !!w.enabled,
     events: (w.events ?? []).filter((e: string) => e !== "__unknown__"),
     secretSet: !!w.secretSet,

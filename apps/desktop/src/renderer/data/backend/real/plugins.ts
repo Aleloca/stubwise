@@ -48,8 +48,11 @@ function refusalOf(error: unknown): Extract<InstanceResult, { ok: false }> {
   throw error;
 }
 
+// `none` (in coda) e `materializing` sono la preparazione; uno stato che il
+// client non conosce si legge «pronto», non «in corso»: altrimenti la pagina
+// rileggerebbe all'infinito (review F3, M3).
 const statusOf = (s: string): RegisteredPlugin["status"] =>
-  s === "ready" ? "ready" : s === "failed" ? "failed" : "materializing";
+  s === "failed" ? "failed" : s === "none" || s === "materializing" ? "materializing" : "ready";
 const smokeOf = (s: string): RegisteredPlugin["smoke"] =>
   s === "pending" ? "running" : s === "passed" ? "passed" : s === "failed" ? "failed" : null;
 

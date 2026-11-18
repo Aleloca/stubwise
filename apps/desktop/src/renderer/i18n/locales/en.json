@@ -11047,7 +11047,8 @@
             "name": "Give the account a name.",
             "taken": "Another AI account already has this name."
           }
-        }
+        },
+        "testPending": "The test is still running. Check back in a minute."
       },
       "models": {
         "intro": "Which model does each kind of work. A change applies from the next run: work in progress finishes with the model it started with.",
@@ -11615,7 +11616,9 @@
         "action": "delete the webhook {{name}}",
         "done": "{{name}} deleted."
       },
-      "urlAction": "change the address of {{name}}"
+      "urlAction": "change the address of {{name}}",
+      "unknownEvents": "This webhook also has events this app doesn't know yet: change its events from the web.",
+      "unknownFormat": "This webhook uses a format this app doesn't know yet: change it from the web."
     },
     "servers": {
       "title": "Servers",

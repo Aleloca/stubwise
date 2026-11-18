@@ -11047,7 +11047,8 @@
             "name": "Dai un nome all'account.",
             "taken": "Un altro account AI ha già questo nome."
           }
-        }
+        },
+        "testPending": "La prova è ancora in corso. Ricontrolla fra un minuto."
       },
       "models": {
         "intro": "Quale modello fa ogni tipo di lavoro. Un cambio vale dalla prossima esecuzione: il lavoro in corso finisce col modello con cui è partito.",
@@ -11615,7 +11616,9 @@
         "action": "eliminare il webhook {{name}}",
         "done": "{{name}} eliminato."
       },
-      "urlAction": "cambiare l'indirizzo di {{name}}"
+      "urlAction": "cambiare l'indirizzo di {{name}}",
+      "unknownEvents": "Questo webhook ha anche eventi che questa app non conosce ancora: cambiane gli eventi dal web.",
+      "unknownFormat": "Questo webhook usa un formato che questa app non conosce ancora: cambialo dal web."
     },
     "servers": {
       "title": "Server",
