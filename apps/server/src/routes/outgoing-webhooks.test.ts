@@ -68,6 +68,10 @@ describe("i webhook in uscita", () => {
     const fresh = rotated.json() as OutgoingWebhookWithSecret;
     expect(fresh.secret).not.toBe(w.secret);
     expect(fresh.secretRotatedAt).not.toBeNull();
+    // Review F3: una patch vuota è una lettura (200, nessuna voce), non un 500.
+    const empty = await call("PATCH", `/api/settings/webhooks/${w.id}`, {}, stale);
+    expect(empty.statusCode).toBe(200);
+    expect(empty.json()).toMatchObject({ id: w.id, enabled: true });
     const patched = await call("PATCH", `/api/settings/webhooks/${w.id}`, { name: "Rinominato", events: ["job.failed", "release.failed"], enabled: false }, stale);
     expect(patched.statusCode).toBe(200);
     expect(patched.json()).toMatchObject({ name: "Rinominato", enabled: false, events: ["job.failed", "release.failed"] });

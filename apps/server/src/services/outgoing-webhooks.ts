@@ -66,6 +66,8 @@ export async function updateWebhook(db: Db, actor: Actor, id: string, patch: Upd
   return db.transaction(async (tx) => {
     const [before] = await tx.select().from(outgoingWebhooks).where(eq(outgoingWebhooks.id, id)).for("update");
     if (!before) throw notFound();
+    // Una patch vuota è una lettura (drizzle rifiuta un update senza colonne).
+    if (Object.keys(patch).length === 0) return toWebhookView(before);
     const [after] = await tx.update(outgoingWebhooks).set(patch).where(eq(outgoingWebhooks.id, id)).returning();
     // Come il prototipo (`webhook.ts`, voce `fields`): i soli campi cambiati,
     // l'URL com'è (non è un segreto, [IN 4]), gli eventi come lista di id

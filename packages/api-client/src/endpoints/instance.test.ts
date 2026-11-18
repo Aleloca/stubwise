@@ -83,8 +83,12 @@ describe("googleApps e instanceSettings", () => {
     expect(last(g.fetchImpl).url).toBe("/api/settings/google-workspaces");
     const i = clientWith({ contentLanguage: "it", monthlyBudgetUsd: null });
     expect(await i.client.instanceSettings.get()).toMatchObject({ s3Endpoint: null, s3SecretKeySet: false, attachmentsEnabled: false, slackEnabled: false });
-    await i.client.instanceSettings.save({ contentLanguage: "it", s3Bucket: "b" });
-    expect(last(i.fetchImpl)).toEqual({ method: "PUT", url: "/api/settings/instance", body: { contentLanguage: "it", s3Bucket: "b" } });
+    await i.client.instanceSettings.save({ contentLanguage: "it", monthlyBudgetUsd: 600, s3Bucket: "b" });
+    expect(last(i.fetchImpl)).toEqual({ method: "PUT", url: "/api/settings/instance", body: { contentLanguage: "it", monthlyBudgetUsd: 600, s3Bucket: "b" } });
+    // Review F3: il server tratta un budget ASSENTE come «nessun budget» (e lo
+    // registra): chi salva deve dirlo, sempre — il tipo lo pretende.
+    // @ts-expect-error monthlyBudgetUsd è obbligatorio
+    void (() => i.client.instanceSettings.save({ contentLanguage: "it", s3Bucket: "b" }));
     const a = clientWith({ rules: [{ type: "bug", autoFix: true, maxEffort: 2 }], prReview: { enabled: false } });
     expect(await a.client.instanceSettings.automation()).toMatchObject({ rules: [{ planApprovalMinEffort: null, maxCostUsd: null }], prReview: { maxCostUsd: null } });
   });

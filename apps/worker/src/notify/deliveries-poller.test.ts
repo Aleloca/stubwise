@@ -512,6 +512,20 @@ describe("webhook in uscita (area 9, F3)", () => {
     await db.delete(outgoingWebhooks);
   });
 
+  it("review F3: un segreto che non si decifra NON lascia la consegna pending per sempre — ritenta, e al tetto è failed", async () => {
+    const id0 = await hook({ url: "https://broken.example.test/in" });
+    await db.update(outgoingWebhooks).set({ secretEncrypted: "non-decifrabile" }).where(eq(outgoingWebhooks.id, id0));
+    const [d] = await db
+      .insert(notificationDeliveries)
+      .values({ channel: "webhook", event: sampleEvent("Rotto") as unknown as Record<string, unknown>, webhookId: id0, attempts: 4 })
+      .returning({ id: notificationDeliveries.id });
+    await processDeliveriesOnce(deps(async () => {}));
+    const row = await readDelivery(d!.id);
+    expect(row.status).toBe("failed");
+    expect(row.error).not.toBeNull();
+    await db.delete(outgoingWebhooks);
+  });
+
   it("un webhook spento nel frattempo: la consegna si chiude senza invio", async () => {
     const off = await hook({ url: "https://off.example.test/in", enabled: false });
     const id = await deliveryFor(off);
