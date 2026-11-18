@@ -4,9 +4,9 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { mailAdmissionSchema } from "@stubwise/shared";
 import { buildApp } from "../app.js";
-import { agentRuns, automationRules, changeLog, decrypt, instanceSettings, notificationSettings, outgoingWebhooks, roles, users as usersTable } from "@stubwise/db";
+import { agentRuns, aiJobs, automationRules, automationRuns, automations, changeLog, decrypt, instanceSettings, notificationSettings, outgoingWebhooks, roles, users as usersTable } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { startTestDb } from "@stubwise/db/testing";
+import { seedTicket, startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
 import { fullSessionCookie, seedUsers } from "../test/fixtures.js";
 import { createSession, SESSION_COOKIE } from "../auth/session.js";
@@ -806,6 +806,29 @@ describe("POST /api/settings/notifications/test", () => {
     expect(budgetEntries.at(-1)).toBe("600");
     expect((await put({ monthlyBudgetUsd: null })).json()).toMatchObject({ contentLanguage: "it", monthlyBudgetUsd: null });
     await put({ contentLanguage: "en", monthlyBudgetUsd: null, s3Bucket: "" });
+  });
+
+  it("area 9, F4 (Task 7): alzare il tetto sopra lo speso fa ripartire SUBITO i passi delle automazioni fermi per il budget; abbassarlo no; un job budget_held non cambia", async () => {
+    const [spent] = await app.db.insert(agentRuns).values({ phase: "triage", operation: "triage", model: "claude-sonnet-5-5", costUsd: "50" } as typeof agentRuns.$inferInsert).returning({ id: agentRuns.id });
+    const { projectId, ticketId } = await seedTicket(testDb.db);
+    const [a] = await app.db.insert(automations).values({ code: `B${Date.now() % 100000}-A1`, seq: 900 + (Date.now() % 1000), name: "Budget", projectId, ownerId: users.adminId, status: "active", activeSince: new Date() }).returning();
+    const later = new Date(Date.now() + 15 * 60_000);
+    const [run] = await app.db.insert(automationRuns).values({ automationId: a!.id, n: 1, version: 1, title: "Run", origin: "manual", event: {}, projectIds: [projectId], status: "running", cursor: { path: [0], aiWaiting: { reason: "monthly_budget" } }, dueAt: later }).returning();
+    const [held] = await app.db.insert(aiJobs).values({ ticketId, status: "held", heldReason: "budget" }).returning();
+    const put = (monthlyBudgetUsd: number | null) => app.inject({ method: "PUT", url: "/api/settings/instance", headers: { cookie: users.adminCookie }, payload: { monthlyBudgetUsd } });
+    const dueOf = async () => (await app.db.select().from(automationRuns).where(eq(automationRuns.id, run!.id)))[0]!.dueAt!.getTime();
+    try {
+      await put(10);
+      expect(await dueOf()).toBe(later.getTime());
+      await put(20); // ancora raggiunto
+      expect(await dueOf()).toBe(later.getTime());
+      expect((await put(1000)).json()).toMatchObject({ budgetEffect: "released" });
+      expect(await dueOf()).toBeLessThanOrEqual(Date.now());
+      expect((await app.db.select().from(aiJobs).where(eq(aiJobs.id, held!.id)))[0]).toMatchObject({ status: "held", heldReason: "budget" });
+    } finally {
+      await put(null);
+      await app.db.delete(agentRuns).where(eq(agentRuns.id, spent!.id));
+    }
   });
 
   it("94: lo speso del mese, «raggiunto» e l'effetto del salvataggio (released, now_reached, still_reached)", async () => {
