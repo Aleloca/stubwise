@@ -475,7 +475,10 @@ const PREVIEW: Record<WebhookEventId, Sample> = {
  * Dati d'esempio fittizi; nessuna lettura di dati veri, quindi nessun
  * cancello.
  */
-export function previewWebhook(eventId: WebhookEventId, format: WebhookFormat): string {
+export async function previewWebhook(
+  eventId: WebhookEventId,
+  format: WebhookFormat,
+): Promise<string> {
   const sample = PREVIEW[eventId];
   if (!sample) throw new Error(`invalid: event`);
   const lang: Lang = state.instance.budget.contentLanguage;

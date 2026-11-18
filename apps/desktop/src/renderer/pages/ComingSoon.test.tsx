@@ -151,6 +151,15 @@ const INTEGRATED_CALLS = new Set([
   "admin.updateRole",
   "admin.deleteRole",
   "admin.viewerLosesIf",
+  // Area 9, F3: i webhook in uscita.
+  "instance.listWebhooks",
+  "instance.getWebhook",
+  "instance.createWebhook",
+  "instance.updateWebhook",
+  "instance.regenerateWebhookSecret",
+  "instance.deleteWebhook",
+  "instance.testWebhook",
+  "instance.previewWebhook",
   // Area 9, F2: il registro delle modifiche.
   "changelog.listChangesPage",
   "changelog.listProjectChangesPage",
@@ -819,6 +828,21 @@ describe("aree non integrate nella build app", () => {
     expect(await screen.findByRole("heading", { level: 1, name: title })).toBeInTheDocument();
     await settle();
     expect(screen.queryByText(/Coming soon/)).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F3: Outgoing webhooks accesi, sulle rotte del server; senza il
+  // riquadro «Prototype only» (l'esito della prossima prova è del prototipo).
+  it.each([
+    ["/admin/webhooks", "Outgoing webhooks"],
+    ["/admin/webhooks/wh-seed", "Webhook"],
+  ])("aprire %s legge solo chiamate integrate, senza riquadro del prototipo", async (path, title) => {
+    signedInAs("p-roberta");
+    renderRoute(path);
+    expect(await screen.findByRole("heading", { level: 1, name: title })).toBeInTheDocument();
+    await settle();
+    expect(screen.queryByText(/Coming soon/)).toBeNull();
+    expect(document.querySelector("[data-prototype-only]")).toBeNull();
     expect(outside()).toEqual([]);
   });
 

@@ -19,6 +19,7 @@ import {
   type WebhookGroup,
   type WebhookView,
 } from "../../../data/queries";
+import { isAppBuild } from "../../../data/build";
 import { useReauth } from "../../../layout/useReauth";
 import { formatDate } from "../../../notifications/time";
 import { Dialog } from "../../../tasks-ui/Dialog";
@@ -390,7 +391,8 @@ function WebhookForm({
           <Preview eventId={previewEvent} format={format} />
         </div>
 
-        {!isNew && (
+        {/* L'esito della prossima prova si sceglie solo nel prototipo. */}
+        {!isNew && !isAppBuild() && (
           <div className="max-w-[560px] @min-[960px]:col-span-2">
             <NextTestBox />
           </div>

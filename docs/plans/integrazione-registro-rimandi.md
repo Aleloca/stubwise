@@ -1198,6 +1198,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     loro fette (F3 per la 9b): fino ad allora il registro dell'app ha solo i
     tipi dell'area 9 *(dichiarato)*.
 
+- **F3 renderer, i webhook in uscita nell'app** *(94, 18 nov 2026)*:
+  - il server non ricorda l'ultima prova di un webhook (`POST …/test` dice
+    solo com'è andata): l'app la tiene per la sessione, e ricaricando torna
+    «not tested yet» *(S, serve `lastTest` nella vista del server)*;
+  - «Load more» del registro e «Undid…» (area 10a, F7): la data della riga
+    porta alla voce annullata solo se è fra le pagine già lette *(S, da
+    rivedere con F7)*.
+
 ## Area 10 — Integrazione di Claude
 
 - Le citazioni di file del repository (`kind file`, `<repo>:<path>`, visibili

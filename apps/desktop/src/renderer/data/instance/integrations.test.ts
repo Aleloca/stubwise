@@ -979,17 +979,17 @@ describe("webhook in uscita", () => {
     await refused(() => instance.testWebhook("wh-nope"), { error: "not_found" });
   });
 
-  it("l'anteprima per Slack, Discord e JSON, nella lingua dei contenuti", () => {
-    const slack = instance.previewWebhook("ticket.created", "slack");
+  it("l'anteprima per Slack, Discord e JSON, nella lingua dei contenuti", async () => {
+    const slack = await instance.previewWebhook("ticket.created", "slack");
     expect(slack).toMatch(/New task in ACQ/);
     expect(slack).toMatch(/\*ACQ-\d+\*/);
     expect(slack).toMatch(/<https:\/\/[^|]+\|Open>/);
 
-    const discord = instance.previewWebhook("ticket.created", "discord");
+    const discord = await instance.previewWebhook("ticket.created", "discord");
     expect(discord).toMatch(/\*\*ACQ-\d+\*\*/);
     expect(discord).toMatch(/\[Open\]\(https:\/\/[^)]+\)/);
 
-    const json = JSON.parse(instance.previewWebhook("ticket.created", "generic")) as Record<
+    const json = JSON.parse(await instance.previewWebhook("ticket.created", "generic")) as Record<
       string,
       unknown
     >;
@@ -998,9 +998,9 @@ describe("webhook in uscita", () => {
 
     for (const e of instance.WEBHOOK_EVENTS)
       for (const f of ["slack", "discord", "generic"] as const)
-        expect(instance.previewWebhook(e.id, f).length).toBeGreaterThan(10);
+        expect((await instance.previewWebhook(e.id, f)).length).toBeGreaterThan(10);
 
     state.instance.budget.contentLanguage = "it";
-    expect(instance.previewWebhook("ticket.created", "slack")).toMatch(/Nuova task in ACQ/);
+    expect(await instance.previewWebhook("ticket.created", "slack")).toMatch(/Nuova task in ACQ/);
   });
 });

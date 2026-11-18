@@ -610,7 +610,7 @@ export function useWebhookPreview(
   const me = useSessionPersonId();
   return useQuery({
     queryKey: ["as", me, "instance", "webhook-preview", eventId, format] as const,
-    queryFn: () => Promise.resolve(api.instance.previewWebhook(eventId, format)),
+    queryFn: () => api.instance.previewWebhook(eventId, format),
     // Passando da un evento all'altro l'anteprima non si svuota.
     placeholderData: (previous) => previous,
   });

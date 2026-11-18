@@ -169,6 +169,8 @@ describe("isIntegrated", () => {
         "admin:roles",
         // Area 9, F2: il registro delle modifiche.
         "admin:changelog",
+        // Area 9, F3: i webhook in uscita.
+        "admin:webhooks",
         "taskView:list",
         "taskView:board",
         "feature:notifications",

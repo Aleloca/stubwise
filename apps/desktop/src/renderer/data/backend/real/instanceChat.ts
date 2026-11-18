@@ -1,12 +1,14 @@
 import type * as Fake from "../../api";
 import { chatAiBlock } from "./claudeChat";
 import { partialNamespace } from "./notIntegrated";
+import { liveWebhooks } from "./webhooks";
 
 /**
- * L'istanza nella build app: della sua area (9) c'è solo ciò che la chat con
- * Claude legge, il budget AI del mese (`getAiBlock(null)`). La pausa della
- * coda e tutto il resto restano «in arrivo».
+ * L'istanza nella build app: il budget AI del mese che la chat con Claude
+ * legge (`getAiBlock(null)`) e, dall'area 9 F3, Outgoing webhooks sulle rotte
+ * del server. La pausa della coda e il resto della 9b restano «in arrivo».
  */
 export const instance: typeof Fake.instance = partialNamespace<typeof Fake.instance>("instance", {
   getAiBlock: chatAiBlock,
+  ...liveWebhooks,
 });
