@@ -396,6 +396,8 @@ describe("GET /api/users", () => {
         slackUserId: null,
         bitbucketUsername: null,
         gitIdentities: [],
+        // Area 9, F1 (Task 4): lo stato della persona.
+        status: "active",
       },
       {
         id: users.memberId,
@@ -407,6 +409,8 @@ describe("GET /api/users", () => {
         slackUserId: null,
         bitbucketUsername: null,
         gitIdentities: [],
+        // Area 9, F1 (Task 4): lo stato della persona.
+        status: "active",
       },
     ]);
     // Nessun campo sensibile trapela.
