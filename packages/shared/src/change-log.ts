@@ -127,7 +127,12 @@ export const CHANGE_LOG_TYPES = [
   widget9c("widget.created"),
   widget9c("widget.updated"),
   widget9c("widget.deleted"),
-  repos9c("repository.deleted"),
+  // D'istanza come nel prototipo (maintainer, 31 ott 2026, domanda 4 (b)):
+  // l'eliminazione da Amministrazione di un repository SENZA progetto. Sul
+  // server un repository ha sempre un progetto (`project_id NOT NULL`, va via
+  // in cascata col progetto) e nessuna rotta lo elimina da solo: oggi è un
+  // tipo dichiarato senza scrittore.
+  instance("repository.deleted", "instance.full_admin", "projects"),
 ] as const satisfies readonly ChangeLogType[];
 
 export type ChangeLogKind = (typeof CHANGE_LOG_TYPES)[number]["kind"];

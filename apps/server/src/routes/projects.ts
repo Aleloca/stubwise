@@ -1,3 +1,4 @@
+import { recordProjectChanges } from "../services/project-settings-log.js";
 import {
   createProjectSchema,
   decisionDraftSchema,
@@ -1047,31 +1048,36 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         updates.aiProviderExclusive = aiProviderExclusive;
       }
 
-      // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una lettura.
-      if (Object.keys(updates).length > 0) {
-        let updated: ProjectRow | undefined;
-        try {
-          [updated] = await app.db
-            .update(projects)
-            .set(updates)
-            .where(eq(projects.id, request.params.projectId))
-            .returning();
-        } catch (error) {
-          if (code !== undefined && isUniqueViolation(error)) {
-            return apiError(reply, 409, "code_taken", "Another project already uses this code");
-          }
-          throw error;
-        }
-        if (!updated) return apiError(reply, 404, "project_not_found", "Project not found");
-        return toPublicProject(updated);
+      // Area 9, F5: lettura, regola del pulse, scrittura e voci nella STESSA
+      // transazione, con la riga bloccata (due salvataggi si mettono in fila).
+      type Outcome = { row: ProjectRow } | { error: "not_found" | "pulse_needs_backlog" | "code_taken" };
+      let outcome: Outcome;
+      try {
+        outcome = await app.db.transaction(async (tx): Promise<Outcome> => {
+          const [current] = await tx.select().from(projects).where(eq(projects.id, request.params.projectId)).for("update");
+          if (!current) return { error: "not_found" };
+          // K-2, la regola del prototipo: il pulse propone dal backlog, quindi
+          // acceso senza la discovery è rifiutato; spegnere la discovery lo
+          // spegne nello stesso salvataggio.
+          const backlogAfter = updates.backlogEnabled ?? current.backlogEnabled;
+          if (pulseEnabled === true && !backlogAfter) return { error: "pulse_needs_backlog" };
+          if (updates.backlogEnabled === false && current.pulseEnabled) updates.pulseEnabled = false;
+          // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una lettura.
+          if (Object.keys(updates).length === 0) return { row: current };
+          const [updated] = await tx.update(projects).set(updates).where(eq(projects.id, current.id)).returning();
+          await recordProjectChanges(tx, request.user!, current, updated!);
+          return { row: updated! };
+        });
+      } catch (error) {
+        if (code !== undefined && isUniqueViolation(error)) outcome = { error: "code_taken" };
+        else throw error;
       }
-
-      const [row] = await app.db
-        .select()
-        .from(projects)
-        .where(eq(projects.id, request.params.projectId));
-      if (!row) return apiError(reply, 404, "project_not_found", "Project not found");
-      return toPublicProject(row);
+      if ("error" in outcome) {
+        if (outcome.error === "not_found") return apiError(reply, 404, "project_not_found", "Project not found");
+        if (outcome.error === "code_taken") return apiError(reply, 409, "code_taken", "Another project already uses this code");
+        return apiError(reply, 400, "pulse_needs_backlog", "The pulse proposes from the backlog: turn on backlog discovery first");
+      }
+      return toPublicProject(outcome.row);
     },
   );
 

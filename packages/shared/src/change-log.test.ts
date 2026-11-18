@@ -28,12 +28,18 @@ describe("il catalogo del registro delle modifiche", () => {
   it("area 9, F5: i tipi della 9c sono ESATTAMENTE quelli del prototipo, tranne F6 (archivio, eliminazione) e 10a (task.deleted)", async () => {
     const { readFileSync } = await import("node:fs");
     const proto = readFileSync(new URL("../../../apps/desktop/src/renderer/data/projectSettings/changeTypes.ts", import.meta.url), "utf8");
-    const kinds = [...proto.matchAll(/^\s+(?:settings|tasks|repos|environments|widget|projects)\("([a-z_.]+)"\)/gm)].map((m) => m[1]!);
+    // Nel prototipo `projects(...)` è una voce d'ISTANZA (gruppo `projects`, `instance.full_admin`), le altre di progetto.
+    const entries = [...proto.matchAll(/^\s+(settings|tasks|repos|environments|widget|projects)\("([a-z_.]+)"\)/gm)].map((m) => ({ kind: m[2]!, scope: m[1] === "projects" ? "instance" : "project" }));
     const notF5 = new Set(["project.archived", "project.reopened", "project.deleted", "repository.linked", "task.deleted"]);
-    const expected = kinds.filter((k) => !notF5.has(k)).sort();
+    const expected = entries.filter((e) => !notF5.has(e.kind)).sort((a, b) => a.kind.localeCompare(b.kind));
     expect(expected.length).toBeGreaterThan(20);
-    const ours = CHANGE_LOG_TYPES.filter((t) => t.scope === "project" && !t.kind.startsWith("member.") && !t.kind.startsWith("queue.") && t.kind !== "job.retried").map((t) => t.kind).sort();
+    const instanceKinds = new Set(expected.filter((e) => e.scope === "instance").map((e) => e.kind));
+    const ours = CHANGE_LOG_TYPES.filter((t) => (t.scope === "project" && !t.kind.startsWith("member.") && !t.kind.startsWith("queue.") && t.kind !== "job.retried") || instanceKinds.has(t.kind))
+      .map((t) => ({ kind: t.kind, scope: t.scope }))
+      .sort((a, b) => a.kind.localeCompare(b.kind));
     expect(ours).toEqual(expected);
+    // `repository.deleted`: d'istanza (maintainer, 31 ott 2026, domanda 4 (b)).
+    expect(CHANGE_LOG_TYPES.find((t) => t.kind === "repository.deleted")).toMatchObject({ scope: "instance", group: "projects", readPermission: "instance.full_admin" });
   });
 
   it("area 9, F5: i params obbligatori della 9c; il nome della variabile è `variable` (K-3), mai `key`", () => {
