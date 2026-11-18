@@ -144,3 +144,11 @@ describe("usage.summary (area 9, F4)", () => {
   });
 });
 
+describe("instance.retryJob (area 9, F4)", () => {
+  it("verbo e path; senza stopsAtPlan vale false", async () => {
+    const { client, fetchImpl } = clientWith({ jobId: "j2", status: "queued" }, 202);
+    expect(await client.instance.retryJob("j/1")).toEqual({ jobId: "j2", status: "queued", stopsAtPlan: false });
+    expect(last(fetchImpl)).toMatchObject({ method: "POST", url: "/api/instance/jobs/j%2F1/retry" });
+  });
+});
+

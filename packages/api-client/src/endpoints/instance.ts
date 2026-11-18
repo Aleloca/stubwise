@@ -199,6 +199,14 @@ export function createInstanceStatusEndpoints(request: ApiRequest) {
     status(): Promise<Reader<InstanceStatus>> {
       return request("GET", "/api/instance/status", undefined, instanceStatusSchema);
     },
+    /**
+     * Task 6: rimette in coda un job fallito di una task (`project.settings.manage`
+     * + `runs.start`). 409 `conflict` (già ripartito o superato da lavoro vivo),
+     * 422 `not_retryable` / `monthly_budget`. `stopsAtPlan`: Claude si fermerà al piano.
+     */
+    retryJob(jobId: string) {
+      return request("POST", `/api/instance/jobs/${seg(jobId)}/retry`, undefined, z.object({ jobId: z.string(), status: z.string(), stopsAtPlan: z.boolean().default(false) }));
+    },
   };
 }
 
