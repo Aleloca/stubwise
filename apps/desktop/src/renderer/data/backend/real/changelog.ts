@@ -8,6 +8,7 @@ import type {
   ChangePage,
 } from "../../changelog/types";
 import { projectSettingsAccess } from "../../adminSections";
+import { isIntegrated } from "../../integration";
 import { SETTING_KINDS, decodeSetting } from "../../changelog/settingValues";
 import { CLAUDE_ID } from "../../ids";
 import { SECTION_OF_KIND } from "../../projectSettings/changeTypes";
@@ -128,6 +129,15 @@ function diffOf(e: Any): ChangeDiff | null {
 
 /** Dove porta l'oggetto: solo se c'è ancora e chi guarda lo apre. */
 function linkOf(e: Any, viewer: Viewer): ChangeObjectLink | null {
+  if (e.hidden) return null;
+  // F6: un progetto eliminato che ha lasciato repository senza progetto porta
+  // ad Amministrazione → Repositories, se chi guarda la apre (e se c'è).
+  if (e.type === "project.deleted")
+    return Number(e.data.params?.detachedRepositories ?? 0) > 0 &&
+      can(viewer, "repos.manage") &&
+      isIntegrated({ kind: "admin", name: "repositories" })
+      ? { to: "admin", section: "repositories" }
+      : null;
   if (e.objectDeleted) return null;
   // F5: una voce della 9c porta alla sezione di Settings del progetto, se chi
   // guarda la vede (permessi dal server, `projectSettingsAccess`).
@@ -165,7 +175,10 @@ function viewOf(e: Any, viewer: Viewer): ChangeEntryView {
     before: e.data.before ?? null,
     after: e.data.after ?? null,
     undoOf: null,
-    object: { ...e.data.object },
+    // F6: una voce che chi guarda non deve leggere (un progetto eliminato che
+    // non conosceva) arriva `hidden`: niente id (il server ci mette un
+    // segnaposto), la chiave «un progetto che non vedi».
+    object: e.hidden ? { type: e.data.object.type, id: "", label: "" } : { ...e.data.object },
     params: paramsOf(e.data.params),
     templateKey: `changelog.kinds.${e.type}`,
     scope: e.scope,
@@ -174,7 +187,7 @@ function viewOf(e: Any, viewer: Viewer): ChangeEntryView {
     projectCode: e.projectCode ?? null,
     objectDeleted: !!e.objectDeleted,
     objectLink: linkOf(e, viewer),
-    objectLabelKey: null,
+    objectLabelKey: e.hidden ? "changelog.values.hiddenProject" : null,
     diff: diffOf(e),
   } as ChangeEntryView;
 }

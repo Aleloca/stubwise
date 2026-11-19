@@ -105,6 +105,13 @@ function fake(over: Partial<ProjectArchiveApi> = {}) {
       calls.push(`view ${id}`);
       return VIEW;
     },
+    deletionPreview: async (id) => {
+      calls.push(`deletion ${id}`);
+      return { counts: COUNTS, orphanServers: ["SRV-2"], detachedRepositories: ["web"] };
+    },
+    remove: async (id, confirmCode) => {
+      calls.push(`delete ${id} ${confirmCode}`);
+    },
     ...over,
   };
   return { api, calls };
@@ -234,5 +241,55 @@ describe("archiviare e riaprire un progetto dal server", () => {
   it("la vista risponde 404 (riaperto nel frattempo, o estraneo): null", async () => {
     const { api } = fake({ archivedView: async () => Promise.reject(apiError(404, "not_found")) });
     expect(await createRealProjectArchive(api).getArchivedProject("RNC")).toBeNull();
+  });
+
+  it("l'anteprima di Delete: conteggi, server e repository che restano senza progetto", async () => {
+    const r = await createRealProjectArchive(fake().api).getDeletionPreview("p1");
+    expect(r).toEqual({
+      ok: true,
+      counts: COUNTS,
+      orphanServers: ["SRV-2"],
+      detachedRepositories: ["web"],
+    });
+  });
+
+  it("l'anteprima di Delete: 409 not_archived è invalid, 403 forbidden", async () => {
+    const na = fake({ deletionPreview: async () => Promise.reject(apiError(409, "not_archived")) });
+    expect(await createRealProjectArchive(na.api).getDeletionPreview("p1")).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "not_archived",
+    });
+    const fb = fake({ deletionPreview: async () => Promise.reject(apiError(403, "forbidden")) });
+    expect(await createRealProjectArchive(fb.api).getDeletionPreview("p1")).toEqual({
+      ok: false,
+      error: "forbidden",
+    });
+  });
+
+  it("Delete manda il codice scritto; 204 è ok", async () => {
+    const { api, calls } = fake();
+    expect(await createRealProjectArchive(api).deleteProject("p1", { confirmCode: "RNC" })).toEqual(
+      {
+        ok: true,
+      },
+    );
+    expect(calls).toEqual(["delete p1 RNC"]);
+  });
+
+  it("Delete: code_mismatch, not_archived, reauth_required e forbidden", async () => {
+    const cases: [ApiError, object][] = [
+      [apiError(400, "code_mismatch"), { ok: false, error: "invalid", reason: "code_mismatch" }],
+      [apiError(409, "not_archived"), { ok: false, error: "invalid", reason: "not_archived" }],
+      [apiError(403, "reauth_required"), { ok: false, error: "reauth_required" }],
+      [apiError(403, "forbidden"), { ok: false, error: "forbidden" }],
+      [apiError(404, "not_found"), { ok: false, error: "not_found" }],
+    ];
+    for (const [err, want] of cases) {
+      const { api } = fake({ remove: async () => Promise.reject(err) });
+      expect(
+        await createRealProjectArchive(api).deleteProject("p1", { confirmCode: "RNC" }),
+      ).toEqual(want);
+    }
   });
 });

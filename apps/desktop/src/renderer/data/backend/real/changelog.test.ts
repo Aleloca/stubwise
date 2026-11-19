@@ -279,4 +279,83 @@ describe("il registro delle modifiche dal server (area 9, F2)", () => {
     const [v] = (await createRealChangelog(withEntries(pulse).api).listChangesPage()).entries;
     expect(v!.objectLink).toBeNull();
   });
+
+  it("F6: project.deleted per chi non lo conosceva: «un progetto che non vedi», senza id né link", async () => {
+    // Anche a chi apre Repositories: il link direbbe che quel progetto c'era.
+    const { api } = fakeApi({
+      viewer: async () => ({
+        personId: ME,
+        instancePermissions: ["changelog.view"],
+        projectPermissions: { [PRJ]: ["repos.manage"] },
+        departmentPermissions: {},
+      }),
+      list: async () =>
+        ({
+          nextCursor: null,
+          entries: [
+            entry({
+              type: "project.deleted",
+              group: "project",
+              hidden: true,
+              data: {
+                object: { type: "project", id: "hidden", label: "" },
+                before: null,
+                after: null,
+                params: { detachedRepositories: "1" },
+              },
+            }),
+          ],
+        }) as never,
+    });
+    const [v] = (await createRealChangelog(api).listChangesPage()).entries;
+    expect(v).toMatchObject({
+      kind: "project.deleted",
+      object: { type: "project", id: "", label: "" },
+      objectLabelKey: "changelog.values.hiddenProject",
+      objectLink: null,
+    });
+  });
+
+  it("F6: project.deleted per chi lo conosceva: «CODICE · Nome», e Repositories se ne restano senza progetto", async () => {
+    const known = (detached: string) =>
+      entry({
+        type: "project.deleted",
+        group: "project",
+        data: {
+          object: { type: "project", id: PRJ, label: "RNC · Vetrina" },
+          before: null,
+          after: null,
+          params: { detachedRepositories: detached },
+        },
+      });
+    const withRepos = fakeApi({
+      list: async () => ({ entries: [known("2"), known("0")], nextCursor: null }) as never,
+      viewer: async () => ({
+        personId: ME,
+        instancePermissions: ["changelog.view"],
+        // repos.manage è di progetto: la sezione si vede con almeno uno.
+        projectPermissions: { [PRJ]: ["repos.manage"] },
+        departmentPermissions: {},
+      }),
+    });
+    const [two, zero] = (await createRealChangelog(withRepos.api).listChangesPage()).entries;
+    expect(two).toMatchObject({
+      object: { id: PRJ, label: "RNC · Vetrina" },
+      objectLabelKey: null,
+      objectLink: { to: "admin", section: "repositories" },
+    });
+    expect(zero!.objectLink).toBeNull();
+    // Nella build app, finché Amministrazione → Repositories è «in arrivo»: niente link (I1).
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    try {
+      const [inApp] = (await createRealChangelog(withRepos.api).listChangesPage()).entries;
+      expect(inApp!.objectLink).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    // Senza repos.manage la sezione non si apre: niente link.
+    const [noManage] = (await createRealChangelog(withEntries(known("2")).api).listChangesPage())
+      .entries;
+    expect(noManage!.objectLink).toBeNull();
+  });
 });

@@ -1,6 +1,10 @@
 import { ApiError } from "@stubwise/api-client";
 import { archiveBusyErrorSchema, archivePreviewSchema, readerSchema } from "@stubwise/shared";
-import type { ArchivedProjectRow, ArchivedProjectView } from "../../projectSettings/archive";
+import type {
+  ArchivedProjectRow,
+  ArchivedProjectView,
+  DeletionCounts,
+} from "../../projectSettings/archive";
 import type { BusyReason, ProjectResult } from "../../projectSettings/types";
 import { appClient } from "./client";
 
@@ -18,6 +22,8 @@ export interface ProjectArchiveApi {
   reopen(projectId: string): Promise<void>;
   archived(): Promise<unknown[]>;
   archivedView(projectId: string): Promise<unknown>;
+  deletionPreview(projectId: string): Promise<unknown>;
+  remove(projectId: string, confirmCode: string): Promise<void>;
 }
 
 const previewReader = readerSchema(archivePreviewSchema);
@@ -117,6 +123,59 @@ export function createRealProjectArchive(api: ProjectArchiveApi) {
       }
     },
 
+    /** Cosa toglie Delete e cosa resta senza progetto (Task 5 di 72): solo il full admin, solo su un archiviato. */
+    async getDeletionPreview(projectId: string): Promise<
+      ProjectResult<{
+        counts: DeletionCounts;
+        orphanServers: string[];
+        detachedRepositories: string[];
+      }>
+    > {
+      try {
+        const v = (await api.deletionPreview(projectId)) as {
+          counts: DeletionCounts;
+          orphanServers: string[];
+          detachedRepositories: string[];
+        };
+        return {
+          ok: true,
+          counts: v.counts,
+          orphanServers: v.orphanServers,
+          detachedRepositories: v.detachedRepositories,
+        };
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 409 && error.code === "not_archived")
+          return { ok: false, error: "invalid", reason: "not_archived" };
+        const refused = common(error);
+        if (refused) return refused as ProjectResult<never>;
+        throw error;
+      }
+    },
+
+    /**
+     * Elimina per sempre (+R): il codice scritto va al server, che lo
+     * confronta esatto (`code_mismatch`). `reauth_required` lo chiede la
+     * pagina con la riconferma; `second_factor_setup_required` resta un
+     * `forbidden`, come in F5.
+     */
+    async deleteProject(projectId: string, input: { confirmCode: string }): Promise<ProjectResult> {
+      try {
+        await api.remove(projectId, input.confirmCode);
+        return { ok: true };
+      } catch (error) {
+        if (error instanceof ApiError) {
+          if (error.code === "code_mismatch")
+            return { ok: false, error: "invalid", reason: "code_mismatch" };
+          if (error.status === 409 && error.code === "not_archived")
+            return { ok: false, error: "invalid", reason: "not_archived" };
+          if (error.code === "reauth_required") return { ok: false, error: "reauth_required" };
+        }
+        const refused = common(error);
+        if (refused) return refused;
+        throw error;
+      }
+    },
+
     async reopenProject(projectId: string): Promise<ProjectResult> {
       try {
         await api.reopen(projectId);
@@ -139,6 +198,8 @@ const liveApi: ProjectArchiveApi = {
   reopen: (projectId) => appClient().projects.reopen(projectId),
   archived: () => appClient().projects.archived(),
   archivedView: (projectId) => appClient().projects.archivedView(projectId),
+  deletionPreview: (projectId) => appClient().projects.deletionPreview(projectId),
+  remove: (projectId, confirmCode) => appClient().projects.delete(projectId, confirmCode),
 };
 
 export const liveProjectArchive = createRealProjectArchive(liveApi);
