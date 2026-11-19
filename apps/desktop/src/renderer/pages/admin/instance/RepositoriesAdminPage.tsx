@@ -253,7 +253,8 @@ function DetachedRow({
   const { t, i18n } = useTranslation();
   const whyId = useId();
   const canLink = r.linkTargets.length > 0;
-  const date = formatDate(r.detachedAt, i18n.language);
+  // Senza data (il server la dà nullable): la riga dice la provenienza e basta.
+  const date = r.detachedAt ? formatDate(r.detachedAt, i18n.language) : null;
   const account = (
     <span
       className={`min-w-0 truncate text-sm ${r.gitAccountName ? "text-ink-muted" : "text-ink-faint"}`}
@@ -281,12 +282,18 @@ function DetachedRow({
           <span className="num min-w-0">
             {r.formerProject ? (
               <Trans
-                i18nKey="admin.repositories.detached.from"
+                i18nKey={
+                  date
+                    ? "admin.repositories.detached.from"
+                    : "admin.repositories.detached.fromNoDate"
+                }
                 values={{ code: r.formerProject.code, name: r.formerProject.name, date }}
                 components={{ b: <span className="font-semibold text-ink" /> }}
               />
-            ) : (
+            ) : date ? (
               t("admin.repositories.detached.since", { date })
+            ) : (
+              t("admin.repositories.detached.sinceNoDate")
             )}
           </span>
           <span aria-hidden="true" className="text-ink-faint @min-[760px]:hidden">

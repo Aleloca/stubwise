@@ -11671,7 +11671,9 @@
       "detached": {
         "group": "Not in any project",
         "from": "From <b>{{code}}</b> · {{name}}, deleted {{date}}",
+        "fromNoDate": "From <b>{{code}}</b> · {{name}}",
         "since": "Without a project since {{date}}",
+        "sinceNoDate": "Without a project",
         "link": "Link to a project…",
         "noTargets": "None of your projects can take it: you need to manage repositories in an active project.",
         "more": "More for {{name}}",

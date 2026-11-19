@@ -58,6 +58,7 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   // Area 9, F1, R8: Members sulle letture calcolate del server.
   // Area 9, F2: Change log sulla lettura del server.
   // Area 9, F5: Integration (chiave d'ingestione, webhook git) e Plugins dal server.
+  // Area 9, F6: Archive (anteprima e archiviazione), con la funzione `archive`.
   projectSettings: new Set([
     "statuses",
     "repositories",
@@ -65,6 +66,7 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "changelog",
     "integration",
     "plugins",
+    "archive",
   ]),
   // Area 9, F1, R9: «Who can?» sulle rotte del server.
   // Area 9, F1, R7: People e Roles sulle letture calcolate del server.
@@ -87,9 +89,15 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "storage",
     // Area 9, F4: lo Stato dell'istanza, con pausa, ripresa e rilancio.
     "status",
+    // Area 9, F6: Repositories (collegati e senza progetto), accesa con Archive:
+    // il toast di Delete porta lì.
+    "repositories",
   ]),
   taskView: new Set(["list", "board", "timeline"]),
   feature: new Set([
+    // Area 9, F6: archiviare, riaprire ed eliminare un progetto (la scheda
+    // Archived di All projects, la pagina dell'archiviato, Delete).
+    "archive",
     // Area 7, fetta 1: le Automations (Home, «Da decidere», ⌘K, righe d'origine).
     "automations",
     // Area 7, fetta 2: email e attese (passo «Manda email», attese, «ripeti

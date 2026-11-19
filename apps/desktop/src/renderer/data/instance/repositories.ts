@@ -93,7 +93,8 @@ export interface DetachedRepositoryRow {
   gitAccountName: string | null;
   /** La piattaforma dell'account git («The repository on GitHub isn't touched»); `null` senza account. */
   gitAccountProvider: GitAccount["provider"] | null;
-  detachedAt: string;
+  /** `null` se il server non la sa (F6: nullable). */
+  detachedAt: string | null;
   /** Da quale progetto eliminato viene: solo a chi ne era membro e al full admin, altrimenti null (R-G5). */
   formerProject: { code: string; name: string } | null;
   /** Dove chi guarda può collegarlo: progetti visibili, non archiviati, con `repos.manage` (tutti per il full admin). */

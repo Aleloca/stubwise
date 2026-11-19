@@ -87,6 +87,19 @@ describe("il gruppo «Not in any project»", () => {
     expect(regions.at(-1)).toBe(g);
   });
 
+  it("senza la data di distacco (il server la dà nullable, F6): la riga non la dice", async () => {
+    state.detachedRepositories[0]!.detachedAt = null as never;
+    await open(ROBERTA);
+    const row = within(await group()).getByRole("listitem");
+    expect(row).toHaveTextContent("From RNC · Vetrina online Tenuta Ronchi");
+    expect(row).not.toHaveTextContent(/deleted|Invalid/);
+    cleanup();
+    await open(LAURA);
+    const laura = within(await group()).getByRole("listitem");
+    expect(laura).toHaveTextContent("Without a project");
+    expect(laura).not.toHaveTextContent(/since|Invalid/);
+  });
+
   it("Laura legge la riga senza «from», e il DOM non nomina RNC (RF 3)", async () => {
     // Un workspace che nomina il cliente (I3, ruling T11): a Laura solo il nome.
     secondDetached();

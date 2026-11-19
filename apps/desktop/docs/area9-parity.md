@@ -84,6 +84,20 @@ riconferma (maintainer); la voce AI si accende scheda per scheda.
 | Storage | `storage.ts` | `admin:storage` | Né prova né interruttore degli allegati (il server li deriva). |
 | Registro: tipi della 9b | `catalogParity.test.ts` | — | Server, coda e `job.retried` sono un elenco dichiarato di tipi solo del prototipo. |
 
+## Integrazione, F6: archiviare, eliminare, Repositories nella build app (area 9, 19 nov 2026)
+
+Sulle rotte di 72 (`feat/area9-f6`, Task 3–6). Archive e Amministrazione →
+Repositories si accendono insieme: il toast di Delete porta a Repositories.
+
+| Voci | Adattatore | Funzione accesa | Differenze dichiarate |
+|---|---|---|---|
+| Archive: anteprima e archiviazione, `busy` in parole | `projectArchive.ts` | `projectSettings:archive`, `archive` | Errori piatti: le ragioni del 409 `busy` dal body. Una ragione di tipo ignoto si dice come lavoro che non vedi. `waiting` per ora è sempre falso (L-5 = a). |
+| All projects → Archived, la pagina dell'archiviato, Reopen | `projectArchive.ts` | `archive` | La pagina si apre per codice: il codice si cerca fra gli archiviati, la vista si chiede per id. Chi ha archiviato può non esserci più: solo la data (anche nel prototipo). |
+| Delete: anteprima, codice esatto, riconferma | `projectArchive.ts` | `archive` | `second_factor_setup_required` è un `forbidden`, come in F5. |
+| Registro: `project.deleted` e `repository.deleted` | `changelog.ts` | — | La voce `hidden` del server perde il segnaposto dell'id. Il link a Repositories c'è solo se la sezione è accesa. |
+| Amministrazione → Repositories: collegati, senza progetto, collega, elimina | `instanceRepositories.ts` | `admin:repositories` | I collegati si compongono da `repositories.list()` (righe con `config`, cioè `repos.view`) e `projects.list()`; `owner/nome` dall'URL con la regola del server. `not_detached` si legge come «non c'è più». La data di distacco può mancare: la riga dice la provenienza e basta (anche nel prototipo). |
+| Le voci del registro di un archiviato portano a `/archived/<CODE>` | — | (no) | Nell'app non hanno link: vedi il registro dei rimandi. |
+
 ## A. Personale → Preferenze
 
 | Voce | Dove vive ora | Test |

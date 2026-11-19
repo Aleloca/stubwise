@@ -1252,6 +1252,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - ~~Plugins: la lettura è sotto `project.settings.manage`.~~ **Chiuso
     (review di F5)**: la GET risponde a chi vede il progetto, con `canEdit`
     del server (72, f480e527b); la pagina è in sola lettura per gli altri.
+  - Archivio (F6): nell'app una voce del registro di un progetto archiviato
+    non porta a `/archived/<CODE>` come nel prototipo. Il link di una voce
+    di Settings passa da `projectSettingsAccess`, che per un archiviato non
+    dà sezioni visibili; serve sapere dalla voce che il progetto è
+    archiviato (un campo del server, o la lista degli archiviati) *(S)*;
+  - Archivio (F6): archiviare, riaprire ed eliminare dal riquadro di Claude
+    (le azioni del catalogo dell'area 10) arrivano con F7.
 
 ## Area 10 — Integrazione di Claude
 

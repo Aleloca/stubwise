@@ -345,11 +345,12 @@ describe("il registro delle modifiche dal server (area 9, F2)", () => {
       objectLink: { to: "admin", section: "repositories" },
     });
     expect(zero!.objectLink).toBeNull();
-    // Nella build app, finché Amministrazione → Repositories è «in arrivo»: niente link (I1).
+    // Nella build app il link c'è perché Amministrazione → Repositories è accesa
+    // (F6): l'adattatore lo dà solo a sezione accesa (I1).
     vi.stubEnv("VITE_STUBWISE_BUILD", "app");
     try {
       const [inApp] = (await createRealChangelog(withRepos.api).listChangesPage()).entries;
-      expect(inApp!.objectLink).toBeNull();
+      expect(inApp!.objectLink).toEqual({ to: "admin", section: "repositories" });
     } finally {
       vi.unstubAllEnvs();
     }
