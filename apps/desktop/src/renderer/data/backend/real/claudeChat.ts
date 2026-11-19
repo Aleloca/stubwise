@@ -27,6 +27,7 @@ import { listProjects } from "./projects";
 import { getRequest, getRequestByCode } from "./requests";
 import { getTaskByCode, listTasks } from "./tasks";
 import { featureIntegrated } from "../../integration";
+import { splitThreadKey } from "./mailKeys";
 import { drive } from "./drive";
 
 // La chat con Claude nella build app (integrazione «Chat con Claude», fetta 2):
@@ -84,6 +85,47 @@ export async function taskCodeOf(taskId: string): Promise<{ code: string; projec
   }
 }
 
+/** 404 (o 400 di validazione) = l'oggetto non c'è per chi guarda: `null`. */
+async function seenOrNull<T>(call: () => Promise<T>): Promise<T | null> {
+  try {
+    return await call();
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 404 || error.status === 400)) return null;
+    throw error;
+  }
+}
+
+/**
+ * Area 10, F1: un'automazione che chi guarda vede, per id o per codice
+ * (l'elenco del server è già filtrato coi suoi permessi).
+ */
+async function visibleAutomation(match: { id?: string; code?: string }) {
+  if (!featureIntegrated("automations")) return null;
+  const list = await seenOrNull(() => appClient().automations.list({}));
+  return (
+    list?.items.find((a) => (match.id !== undefined ? a.id === match.id : a.code === match.code)) ?? null
+  );
+}
+
+/** Area 10, F1: una conversazione di supporto che chi guarda vede, per codice. */
+async function visibleSupport(code: string | undefined) {
+  if (!code || !featureIntegrated("support")) return null;
+  return seenOrNull(() => appClient().support.get(code));
+}
+
+/**
+ * Area 10, F1: una conversazione della PROPRIA posta (`mailbox_owner`: il
+ * server risponde 404 a chiunque altro, admin compresi). La chiave dell'app
+ * è `<casella>_<thread>`; al server il contesto è `<casella>/<thread>`, il
+ * `ref` di `read_mail_thread` (72).
+ */
+async function ownMailThread(key: string | null) {
+  const parts = key ? splitThreadKey(key) : null;
+  if (!parts || !featureIntegrated("mail")) return null;
+  const t = await seenOrNull(() => appClient().mail.thread(parts.threadId, parts.accountId));
+  return t ? parts : null;
+}
+
 /**
  * Il contesto di una pagina come lo legge il server: `tipo: id`, dove l'id è
  * ciò con cui il modello lo rilegge coi suoi tool — il CODICE di una task o di
@@ -105,6 +147,19 @@ export async function serverContextOf(ref: ContextRef): Promise<ClaudeConversati
       return ref.projectId ? { kind: "project", id: ref.projectId } : { kind: "page", id: ref.route };
     case "settings":
       return ref.projectId ? { kind: "project", id: ref.projectId } : null;
+    // Area 10, F1: gli oggetti che Claude rilegge coi tool nuovi.
+    case "automation": {
+      const a = await visibleAutomation({ id: ref.automationId });
+      return a ? { kind: "automation", id: a.code } : null;
+    }
+    case "support": {
+      const c = await visibleSupport(codeOfObjectFor().get(ref.conversationId));
+      return c ? { kind: "support", id: c.code } : null;
+    }
+    case "mail": {
+      const parts = await ownMailThread(ref.threadId);
+      return parts ? { kind: "mail", id: `${parts.accountId}/${parts.threadId}` } : null;
+    }
     default:
       return null;
   }
@@ -144,14 +199,34 @@ export const describeContext: typeof Fake.describeContext = async (ref) => {
           }
         : null;
     }
+    // Area 10, F1: automazioni, supporto e la propria posta.
+    case "automation": {
+      const a = await visibleAutomation({ id: ref.automationId });
+      return a ? { code: a.code, labelKey: `${K}.kind.automation`, projectId: a.projectId } : null;
+    }
+    case "support": {
+      const c = await visibleSupport(codeOfObjectFor().get(ref.conversationId));
+      return c ? { code: c.code, labelKey: `${K}.kind.support`, projectId: c.projectId } : null;
+    }
+    case "mail":
+      return (await ownMailThread(ref.threadId))
+        ? { code: null, labelKey: `${K}.kind.mail`, projectId: null }
+        : null;
     default:
-      // Le aree non integrate: nessun chip.
+      // Le aree non integrate (rilasci, PR): nessun chip.
       return null;
   }
 };
 
-/** L'id dell'oggetto che l'indirizzo nomina col codice: solo le task (le altre aree non sono integrate). */
+/** L'id dell'oggetto che l'indirizzo nomina col codice: task, automazioni e supporto (area 10, F1). */
 export const contextIdOf: typeof Fake.contextIdOf = async (kind, code) => {
+  if (kind === "automation") return (await visibleAutomation({ code }))?.id ?? null;
+  if (kind === "support") {
+    const c = await visibleSupport(code);
+    if (!c) return null;
+    codeOfObjectFor().set(c.id, c.code);
+    return c.id;
+  }
   if (kind !== "task") return null;
   const task = await getTaskByCode(code);
   if (!task) return null;
