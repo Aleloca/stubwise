@@ -19,6 +19,7 @@ export type RefusedTopic =
   | "record_decision"
   | "activate_automation"
   | "secret"
+  | "webhook_url"
   | "server"
   | "send";
 
@@ -86,6 +87,15 @@ const RULES: Rule[] = [
     verb: /^(record|log|write down|note down|registra|annota|scrivi|segna)\b/,
     infinitive: /^(registrare|annotare|scrivere|segnare)\b/,
     about: /\b(decision|decisione)\b/,
+  },
+  // L'indirizzo di un webhook: lo cambia la persona dalla pagina, con la
+  // riconferma; da Claude non entra (F7, M-4, come il server).
+  {
+    topic: "webhook_url",
+    verb: /^(change|set|update|move|point|cambia|cambiami|imposta|aggiorna|sposta|punta)\b/,
+    infinitive: /^(cambiare|impostare|aggiornare|spostare|puntare)\b/,
+    about:
+      /\bwebhooks?\b.*\b(url|address|endpoint|indirizzo)\b|\b(url|address|endpoint|indirizzo)\b.*\bwebhooks?\b/,
   },
   {
     topic: "secret",
@@ -355,6 +365,11 @@ const PLACES: Record<RefusedTopic, Place> = {
   },
 
   /** Il dialogo vero, aperto dal link: mai un valore nella conversazione. */
+  /** Amministrazione → Outgoing webhooks: l'indirizzo si cambia lì, con la riconferma. */
+  async webhook_url(_text, ctx) {
+    return line(ctx, "webhookUrl", "#/admin/webhooks", "webhookUrlLink");
+  },
+
   async secret(text, ctx) {
     const plain = normalize(text);
     if (/\b(invite|invitation|invito|inviti)\b/.test(plain))

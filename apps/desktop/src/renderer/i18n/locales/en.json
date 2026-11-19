@@ -3610,6 +3610,8 @@
         "secretTokens": "Open Preferences → Tokens →",
         "secretInvite": "Open Administration → People → Invite →",
         "secretIntegration": "Open Settings → Integration of **{{code}}** →",
+        "webhookUrl": "Changing where a webhook sends its messages asks for your code: it's yours to do, from its page.",
+        "webhookUrlLink": "Open Administration → Outgoing webhooks →",
         "server": "I don't act on servers.",
         "serverLink": "Open **{{code}}** →",
         "serverProject": "Open the servers of **{{code}}** →",

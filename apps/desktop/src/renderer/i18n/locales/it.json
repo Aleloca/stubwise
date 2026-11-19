@@ -3610,6 +3610,8 @@
         "secretTokens": "Apri Preferenze → Token →",
         "secretInvite": "Apri Amministrazione → Persone → Invita →",
         "secretIntegration": "Apri Impostazioni → Integrazione di **{{code}}** →",
+        "webhookUrl": "Cambiare dove un webhook manda i messaggi chiede il tuo codice: lo fai tu, dalla sua pagina.",
+        "webhookUrlLink": "Apri Amministrazione → Webhook in uscita →",
         "server": "Non agisco sui server.",
         "serverLink": "Apri **{{code}}** →",
         "serverProject": "Apri i server di **{{code}}** →",
