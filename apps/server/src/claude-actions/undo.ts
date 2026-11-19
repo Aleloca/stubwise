@@ -89,7 +89,7 @@ async function laterChangeOf(
   // voce arrivata DOPO l'istante della scrittura di Claude (`stamp`, ai
   // microsecondi) vuol dire che qualcuno ci ha scritto.
   for (const o of objects) {
-    if (o.kind !== "member" || !o.stamp) continue;
+    if ((o.kind !== "member" && o.kind !== "project") || !o.stamp) continue;
     const [later] = await db
       .select({ by: changeLog.actorUserId })
       .from(changeLog)
@@ -99,6 +99,7 @@ async function laterChangeOf(
           eq(changeLog.subjectId, o.id),
           o.projectId ? eq(changeLog.projectId, o.projectId) : undefined,
           sql`${changeLog.at} > ${o.stamp}::timestamptz`,
+          o.changeTypes ? inArray(changeLog.type, [...o.changeTypes]) : undefined,
         ),
       )
       .limit(1);

@@ -57,6 +57,14 @@ export const PROPOSABLE_FNS = [
   "setMemberRole",
   "registerPlugin",
   "updatePluginRef",
+  "archiveProject",
+  "reopenProject",
+  "updateProjectGeneral",
+  "setProjectAi",
+  "saveProjectAutomations",
+  "pauseQueue",
+  "resumeQueue",
+  "retryJob",
 ] as const;
 
 /** La chiave con cui il CLI (2.1.322) passa l'id del `tool_use` nel `_meta` di `tools/call`. */

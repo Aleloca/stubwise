@@ -11,15 +11,16 @@ import { SERVER_CATALOG } from "./catalog.js";
  * rotta), e questo test le tiene uguali. Una rotta a riconferma PARZIALE
  * (`partialReauth`) non fa C: i segreti non stanno negli argomenti (M-4).
  */
-async function routeConfigs(): Promise<Map<string, { reauth?: unknown; partialReauth?: unknown }>> {
-  const routes = new Map<string, { reauth?: unknown; partialReauth?: unknown }>();
+type RouteConfig = { reauth?: unknown; partialReauth?: unknown; archived?: unknown; access?: { kind?: string; permission?: string } };
+async function routeConfigs(): Promise<Map<string, RouteConfig>> {
+  const routes = new Map<string, RouteConfig>();
   const app = buildApp({
     onRoute: (route: RouteOptions) => {
       const methods = Array.isArray(route.method) ? route.method : [route.method];
       const url = route.url.length > 1 ? route.url.replace(/\/$/, "") : route.url;
       for (const m of methods) {
         if (m === "HEAD" || m === "OPTIONS") continue;
-        routes.set(`${m} ${url}`, { reauth: route.config?.reauth, partialReauth: route.config?.partialReauth });
+        routes.set(`${m} ${url}`, { reauth: route.config?.reauth, partialReauth: route.config?.partialReauth, archived: route.config?.archived, access: route.config?.access });
       }
     },
   });
@@ -47,6 +48,13 @@ describe("la classe C segue la rotta (area 9, F7, M-1 = a)", () => {
       const wantsC = route.reauth !== undefined;
       const isC = CLAUDE_DECLARED_CLASS[fn] === "C";
       if (wantsC !== isC) mismatches.push(`${fn}: dichiarata ${CLAUDE_DECLARED_CLASS[fn]}, la rotta ${entry.route} ${wantsC ? "chiede" : "non chiede"} la riconferma`);
+      // Area 9, F7: l'eccezione all'archivio e il permesso sono quelli della rotta.
+      if (entry.archived !== route.archived) mismatches.push(`${fn}: archived ${String(entry.archived)}, la rotta ${String(route.archived)}`);
+      const want = route.access;
+      const has = entry.access as { kind: string; permission?: string };
+      if (want && (want.kind !== has.kind || want.permission !== has.permission)) {
+        mismatches.push(`${fn}: accesso ${has.kind}/${String(has.permission)}, la rotta ${String(want.kind)}/${String(want.permission)}`);
+      }
     }
     expect(mismatches).toEqual([]);
     // Il test non gira a vuoto.
