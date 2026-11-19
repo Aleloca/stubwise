@@ -381,6 +381,10 @@ export function integrationTargetOf(
       if (!name) return null;
       return { target: { kind: "projectSettings", name }, titleKey: `settings.sections.${name}` };
     }
+    // Area 11 (D-7 = a): lo spazio della doc di prodotto sta nella sezione Docs,
+    // accesa, ma il server non lo ha ancora: la sua funzione, spenta.
+    if (third === "docs" && parts[3] === "product")
+      return { target: { kind: "feature", name: "product-space" }, titleKey: "productDocs.space.title" };
     return { target: { kind: "projectSection", name: third }, titleKey: `project.sections.${third}` };
   }
   if (first === "admin") {
