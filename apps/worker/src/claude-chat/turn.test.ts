@@ -171,6 +171,9 @@ describe("il turno della chat", () => {
     expect(o.resumeSessionId).toBeUndefined();
     expect(o.prompt).toContain("DO things only by PROPOSING them with propose_action");
     expect(o.prompt).toContain("- updateTask({ id: uuid, patch: {");
+    // Area 9, F7: Ada non ha permessi d'istanza, le voci d'istanza non le vede.
+    expect(o.prompt).not.toMatch(/^- setModel\(/m);
+    expect(o.prompt).toMatch(/^- addMember\(/m);
     expect(o.prompt).toContain("Ada");
     expect(cwdEmpty).toBe(true);
     // La cwd resta fra i turni: è quella con cui il CLI ritrova la sessione.

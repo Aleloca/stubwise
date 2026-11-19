@@ -70,3 +70,18 @@ describe("la proposta di un server di prima (area 9, F7: campi additivi)", () =>
     expect(parsed.actions[0]).toMatchObject({ reauth: false, labels: { person: null, role: null } });
   });
 });
+
+describe("le firme coi permessi d'istanza di chi chiede (area 9, F7)", () => {
+  it("senza il permesso le voci d'istanza non compaiono; quelle di progetto sì; senza permessi passati, tutte", () => {
+    const fns = (text: string) => text.split("\n").map((l) => /^- (\w+)\(/.exec(l)?.[1]);
+    const none = fns(claudeActionSignatures(new Set()));
+    expect(none).not.toContain("setModel");
+    expect(none).not.toContain("registerPlugin");
+    expect(none).toContain("addMember");
+    expect(none).toContain("updateTask");
+    const settings = fns(claudeActionSignatures(new Set(["settings.manage"])));
+    expect(settings).toContain("setModel");
+    expect(settings).not.toContain("removePlugin");
+    expect(fns(claudeActionSignatures())).toEqual([...CLAUDE_PROPOSABLE_FNS]);
+  });
+});

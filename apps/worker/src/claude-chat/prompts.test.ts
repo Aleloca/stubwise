@@ -74,3 +74,15 @@ describe("il contratto di @Claude nella Chat (review della fetta 3)", () => {
     expect(c).toContain("at most the latest 40 messages (12,000 characters)");
   });
 });
+
+describe("le voci d'istanza solo a chi può proporle (area 9, F7)", () => {
+  it("la conversazione e la Chat: senza il permesso d'istanza, setModel non è fra le firme; col permesso sì", () => {
+    const build = (perms: ReadonlySet<string>) =>
+      buildChatPrimingPrompt({ language: "en", authorName: "Ada", context: null, toolsAvailable: true, recentTranscript: [], instancePermissions: perms }, "ciao");
+    expect(build(new Set())).not.toMatch(/^- setModel\(/m);
+    expect(build(new Set())).toMatch(/^- addMember\(/m);
+    expect(build(new Set(["settings.manage"]))).toMatch(/^- setModel\(/m);
+    expect(chatMentionContract(new Set())).not.toMatch(/^- updateWebhook\(/m);
+    expect(chatMentionContract(new Set(["integrations.manage"]))).toMatch(/^- updateWebhook\(/m);
+  });
+});

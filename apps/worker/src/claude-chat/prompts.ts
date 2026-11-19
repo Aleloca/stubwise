@@ -17,6 +17,12 @@ import { claudeActionSignatures, type ClaudeConversationContext, type Language }
  */
 export interface ChatPromptContext {
   language: Language;
+  /**
+   * Area 9, F7: i permessi d'istanza di chi chiede (l'autore, o chi chiama
+   * nella Chat): le voci d'istanza che non può proporre non compaiono fra le
+   * firme. Assente = tutte (i test di prima).
+   */
+  instancePermissions?: ReadonlySet<string>;
   authorName: string;
   /** Il contesto della pagina da cui nasce la conversazione, se c'è. */
   context: ClaudeConversationContext | null;
@@ -40,10 +46,10 @@ const LANGUAGE_NAME: Record<Language, string> = { en: "English", it: "Italian" }
  */
 export const CHAT_UNDO_LABEL: Record<Language, string> = { en: "Undo", it: "Annulla l'azione" };
 
-export const chatContract = (language: Language): string => [
+export const chatContract = (language: Language, instancePermissions?: ReadonlySet<string>): string => [
   "HOW THIS CONVERSATION WORKS",
   "- This is a PRIVATE conversation with one person. You act in Stubwise ON THEIR BEHALF: the stubwise_chat tools see exactly what this person can see and may do, nothing more.",
-  "- READ with the tools: list projects and people, search and read tasks, read requests, search a project's docs and read a whole docs page, read a project's weekly brief and decision log. Ground every answer in real data, and cite codes (e.g. AUD-12, or AUD-D3 for a docs page) and page titles you actually read.",
+  "- READ with the tools: list projects and people, search and read tasks, read requests, search a project's docs and read a whole docs page, read a project's weekly brief and decision log, read a project's members and roles, and read the instance settings the person may manage. Ground every answer in real data, and cite codes (e.g. AUD-12, or AUD-D3 for a docs page) and page titles you actually read.",
   "- DO things only by PROPOSING them with propose_action: one call with the actions (in order, they succeed or fail together) and a one-line summary in the person's language. Use only the actions listed below, with ids you read with the tools (a task's id from read_task, a person's id from list_people, a project's id from list_projects). Weeks are ISO weeks like 2026-W46.",
   "- Stubwise decides what happens to a proposal, never you. Read its answer: EXECUTED means it is done (cite the codes it gives); NOT DONE YET means the person must confirm it on the card in the conversation, so say you are asking them to confirm and never that it is done; REFUSED means nothing changed, say why. Never write that something is done before Stubwise says EXECUTED.",
   `- Undo is the person's gesture: the «${CHAT_UNDO_LABEL[language]}» button under what was executed. If asked to undo, do NOT propose the opposite action: point them to that button in the conversation, calling it «${CHAT_UNDO_LABEL[language]}».`,
@@ -54,7 +60,7 @@ export const chatContract = (language: Language): string => [
   "- Weekly briefs are generated text: cite them as such. The decision log records facts written by people.",
   "",
   "ACTIONS YOU CAN PROPOSE (fn and args of propose_action)",
-  claudeActionSignatures(),
+  claudeActionSignatures(instancePermissions),
 ].join("\n");
 
 const block = (label: string, body: string) => `--- ${label} ---\n${body}`;
@@ -75,7 +81,7 @@ export function buildChatPrimingPrompt(ctx: ChatPromptContext, openingText: stri
     "",
     `Always answer in ${LANGUAGE_NAME[ctx.language]}, in short Markdown prose, unless the person writes in another language.`,
     "",
-    chatContract(ctx.language),
+    chatContract(ctx.language, ctx.instancePermissions),
     "",
   ];
   if (!ctx.toolsAvailable) {
@@ -139,7 +145,7 @@ export function buildChatResumePrompt(openingText: string, context: ClaudeConver
  * Il thread arriva nel primo messaggio, costruito dal server con ciò che chi
  * chiama legge: è DATO scritto da altre persone, mai istruzioni.
  */
-export const chatMentionContract = (): string => [
+export const chatMentionContract = (instancePermissions?: ReadonlySet<string>): string => [
   "HOW THIS CALL WORKS",
   "- A person called you with «@Claude» in a thread of a team chat channel. You answer IN THAT THREAD, and EVERY member of the channel reads your answer: keep it short, useful to the thread, and never paste data the thread does not need.",
   "- You act ON BEHALF OF the person who called you: the stubwise_chat tools see exactly what this person can see and may do, nothing more. The others in the thread may see less: be careful, the person who called you is responsible for what you write.",
@@ -156,16 +162,19 @@ export const chatMentionContract = (): string => [
   "- There are no files, shell or web here: only the stubwise_chat tools.",
   "",
   "ACTIONS YOU CAN PROPOSE (fn and args of propose_action)",
-  claudeActionSignatures(),
+  claudeActionSignatures(instancePermissions),
 ].join("\n");
 
-export function buildChatMentionPrimingPrompt(ctx: { language: Language; callerName: string }, openingText: string): string {
+export function buildChatMentionPrimingPrompt(
+  ctx: { language: Language; callerName: string; instancePermissions?: ReadonlySet<string> },
+  openingText: string,
+): string {
   return [
     `You are Claude, the assistant inside Stubwise. ${ctx.callerName} called you in a chat thread.`,
     "",
     `Always answer in ${LANGUAGE_NAME[ctx.language]}, in short Markdown prose, unless the thread is in another language.`,
     "",
-    chatMentionContract(),
+    chatMentionContract(ctx.instancePermissions),
     "",
     block(`CALL FROM ${ctx.callerName.toUpperCase()}`, openingText),
   ].join("\n");

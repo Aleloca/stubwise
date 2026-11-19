@@ -78,6 +78,9 @@ export const PROPOSABLE_FNS = [
   "updateWebhook",
 ] as const;
 
+/** Copia di `CHAT_INSTANCE_SECTIONS` (area 9, F7; test d'allineamento): le sezioni di `read_instance_settings`. */
+export const INSTANCE_SECTIONS = ["providers", "git_accounts", "google_apps", "webhooks", "plugins", "models", "automation", "instance"] as const;
+
 /** La chiave con cui il CLI (2.1.322) passa l'id del `tool_use` nel `_meta` di `tools/call`. */
 const TOOL_USE_META = "claudecode/toolUseId";
 
@@ -157,6 +160,16 @@ export function buildChatMcpServer(config: ChatMcpConfig, fetchImpl: typeof fetc
     projectId: z.string().min(1),
     query: z.string().min(1),
   });
+  register(
+    "read_project_members",
+    "Read the members of a project the user can see: each person's id, name and role (id and name), and the roles that can be chosen (roleId, name, and a reason when a choice is blocked). Use these ids for addMember, removeMember and setMemberRole.",
+    { projectId: z.string().min(1).describe("A project id from list_projects") },
+  );
+  register(
+    "read_instance_settings",
+    "Read one section of the instance settings the user may manage (never a secret): providers (AI accounts and their failover order), git_accounts, google_apps, webhooks (without their url), plugins, models (the model of each operation), automation (rules and PR review), instance (budget, content language, storage without keys). A section the user may not manage is not visible.",
+    { section: z.enum(INSTANCE_SECTIONS) },
+  );
   register(
     "read_doc_page",
     "Read a whole documentation page: use the repositoryId and slug of a result of search_docs. The page has a code (e.g. AUD-D12) you can cite.",
