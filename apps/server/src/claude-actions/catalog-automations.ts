@@ -1,7 +1,7 @@
 import { automations, type Db } from "@stubwise/db";
 import type { AutomationFlow } from "@stubwise/shared";
-import { eq } from "drizzle-orm";
-import { AutomationError, configErrorsOf, latestVersion, notFound, seen, sees } from "../automations/model.js";
+import { eq, sql } from "drizzle-orm";
+import { AutomationError, configErrorsOf, latestVersion, managedAutomation, notFound, seen, sees, type AutomationRecord } from "../automations/model.js";
 import { createAutomation, deleteDraft, saveDraft } from "../automations/writes.js";
 import type { ActionObject, CatalogEntry, CatalogRefusal } from "./catalog.js";
 
@@ -28,10 +28,37 @@ function automationRefusal(error: unknown): { ok: false; refusal: CatalogRefusal
   return refused(code, `${error.code}${issues}`);
 }
 
-/** Lo stato dell'ultima versione, come `stamp` di «Annulla»: `n:rev:bozza|pubblicata`. */
+/**
+ * Lo stato di un'automazione come `stamp` di «Annulla»: l'ultima versione
+ * (`n:rev:bozza|pubblicata`) più nome e descrizione (review di F2, M3: un
+ * cambio di nome dopo Claude fa cadere l'«Annulla» come un salvataggio).
+ */
 export async function automationStamp(tx: Db, automationId: string): Promise<string | null> {
   const last = await latestVersion(tx, automationId);
-  return last ? `${last.n}:${last.rev}:${last.publishedAt === null ? "draft" : "published"}` : null;
+  if (!last) return null;
+  const [a] = await tx.select({ name: automations.name, description: automations.description }).from(automations).where(eq(automations.id, automationId));
+  return `${last.n}:${last.rev}:${last.publishedAt === null ? "draft" : "published"}:${JSON.stringify([a?.name ?? "", a?.description ?? ""])}`;
+}
+
+/**
+ * Review di F2 (I2, M2): l'automazione di chi chiede, PRIMA di ogni altro
+ * controllo — 404 se non la vede (niente oracolo su esistenza o rev di un
+ * progetto nascosto), 403 senza `automations.manage`, `project_only` per una
+ * generale (Claude scrive solo bozze di progetto) — e bloccata `FOR UPDATE`
+ * come la pubblicazione, così rev e flusso si leggono sotto il lock.
+ */
+async function lockedProjectAutomation(tx: Db, user: Parameters<typeof managedAutomation>[1], code: string): Promise<AutomationRecord> {
+  const visible = await managedAutomation(tx, user, code);
+  if (visible.projectId === null) throw new AutomationError(422, "project_only", "Claude writes only project automations");
+  const [locked] = await tx.select().from(automations).where(eq(automations.id, visible.id)).for("update");
+  if (!locked) throw notFound();
+  return locked;
+}
+
+/** L'esecuzione in corso è l'inverso di un «Annulla»? (L'esecutore imposta la variabile.) */
+async function isUndo(tx: Db): Promise<boolean> {
+  const [row] = await tx.execute<{ id: string | null }>(sql`select nullif(current_setting('stubwise.undo_of_claude_action_id', true), '') as id`);
+  return (row?.id ?? null) !== null;
 }
 
 async function automationObject(tx: Db, a: { id: string; code: string }): Promise<ActionObject> {
@@ -78,16 +105,24 @@ export const AUTOMATION_ENTRIES: CatalogEntry[] = [
     async run(tx, user, args) {
       const input = args as { code: string; flow: AutomationFlow; expectedRev: number | null; name?: string; description?: string };
       try {
-        const [a] = await tx.select().from(automations).where(eq(automations.code, input.code.toUpperCase()));
-        if (!a) throw notFound();
+        const a = await lockedProjectAutomation(tx, user, input.code);
         const was = await latestVersion(tx, a.id);
         // `saveDraft` lascia salvare sopra la PROPRIA bozza con una rev vecchia
         // (il costruttore della stessa persona in due schede); da Claude no: la
         // rev letta è quella di adesso, o niente.
         const current = was && was.publishedAt === null ? was.rev : null;
         if (current !== input.expectedRev) throw new AutomationError(409, "stale", "Someone changed the draft", { rev: current });
-        const issues = await configErrorsOf(tx, a, input.flow, user.id);
-        if (issues.length > 0) throw new AutomationError(422, "flow_errors", "The flow has configuration errors", { issues });
+        // Review di F2 (M3): nome e descrizione sono dell'automazione, non della
+        // bozza: su un'accesa senza bozza Claude non li cambia.
+        if (current === null && (input.name !== undefined || input.description !== undefined)) {
+          throw new AutomationError(422, "not_a_draft", "Name and description change only on a draft");
+        }
+        // Review di F2 (M1): l'inverso rimette il flusso di PRIMA, anche se aveva
+        // errori (una bozza può averne): non si rivalida.
+        if (!(await isUndo(tx))) {
+          const issues = await configErrorsOf(tx, a, input.flow, user.id);
+          if (issues.length > 0) throw new AutomationError(422, "flow_errors", "The flow has configuration errors", { issues });
+        }
         await saveDraft(tx, user, input.code, {
           flow: input.flow,
           expectedRev: input.expectedRev,
@@ -124,8 +159,7 @@ export const AUTOMATION_ENTRIES: CatalogEntry[] = [
     async run(tx, user, args) {
       const input = args as { code: string; expectedRev: number };
       try {
-        const [a] = await tx.select({ id: automations.id, code: automations.code }).from(automations).where(eq(automations.code, input.code.toUpperCase()));
-        if (!a) throw notFound();
+        const a = await lockedProjectAutomation(tx, user, input.code);
         // `deleteDraft` lascia passare una bozza di chi la elimina anche con una
         // rev diversa; da Claude no: la rev letta deve essere quella di adesso.
         const last = await latestVersion(tx, a.id);

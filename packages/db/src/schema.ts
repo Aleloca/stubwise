@@ -5691,7 +5691,7 @@ export const agentSessionEvents = pgTable(
       .where(sql`type in ('tool_use','assistant_text')`),
     check(
       "agent_session_events_type_chk",
-      sql`type in ('segment_start','assistant_text','tool_use','tool_result','input','turn_end','segment_end','proposal','actions_executed','question')`,
+      sql`type in ('segment_start','assistant_text','tool_use','tool_result','input','turn_end','segment_end','proposal','actions_executed','question','aside')`,
     ),
   ],
 );
@@ -6495,7 +6495,7 @@ export const claudeConversationQuestions = pgTable(
     uniqueIndex("claude_conversation_questions_turn_idx").on(table.sessionId, table.inputId),
     check(
       "claude_conversation_questions_answer_chk",
-      sql`(${table.answeredAt} is null) = (${table.answerOptionIndex} is null and ${table.answerText} is null)`,
+      sql`num_nonnulls(${table.answerOptionIndex}, ${table.answerText}) = (CASE WHEN ${table.answeredAt} IS NULL THEN 0 ELSE 1 END)`,
     ),
   ],
 );

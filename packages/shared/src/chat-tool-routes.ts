@@ -84,6 +84,10 @@ export const CHAT_TOOL_READ_ROUTES: ReadonlySet<string> = new Set([
   // Area 10, F2 (`list_departments`, S1): i reparti dell'istanza, per chi
   // chiede. Il ponte passa solo id, nome e se è il reparto di ripiego.
   "/api/departments",
+  // Area 10, F3 (`read_stalled_work`, S2): il polso dei progetti che chi chiede
+  // VEDE. Il ponte non passa i titoli (una task può venire da fuori), solo
+  // numeri, date e motivi.
+  "/api/projects/pulse",
 ]);
 
 /**

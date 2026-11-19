@@ -4,7 +4,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { CHAT_FREE_TOOL_NAMES, CHAT_MCP_SERVER_NAME, CHAT_MENTION_TOOL_NAMES, CHAT_READ_TOOLS, CHAT_TOOL_NAMES, CHAT_TOOLS, CLAUDE_PROPOSABLE_FNS, CHAT_INSTANCE_SECTIONS } from "@stubwise/shared";
 import { buildChatMcpServer, CHAT_SERVER_NAME, PROPOSABLE_FNS, UNTRUSTED_NOTE, UNTRUSTED_RELEASE_NOTE_MCP, UNTRUSTED_SERVER_NOTE_MCP, INSTANCE_SECTIONS } from "../chat-mcp/server.js";
-import { ChatToolArgError, chatServerPaths, startChatBridge, UNTRUSTED_CALENDAR_NOTE, UNTRUSTED_CHANNEL_NOTE, UNTRUSTED_DOCUMENT_NOTE, UNTRUSTED_MAIL_NOTE, UNTRUSTED_RELEASE_NOTE, UNTRUSTED_SERVER_NOTE, UNTRUSTED_SUPPORT_NOTE, type ChatBridge } from "./bridge.js";
+import { ChatToolArgError, chatServerPaths, startChatBridge, stalledProjects, UNTRUSTED_CALENDAR_NOTE, UNTRUSTED_CHANNEL_NOTE, UNTRUSTED_DOCUMENT_NOTE, UNTRUSTED_MAIL_NOTE, UNTRUSTED_RELEASE_NOTE, UNTRUSTED_SERVER_NOTE, UNTRUSTED_SUPPORT_NOTE, type ChatBridge } from "./bridge.js";
 
 // Il ponte dei tool di lettura della chat (fetta 1): ogni tool diventa una o
 // più GET sul server col token del turno (la visibilità dell'autore); il token
@@ -718,5 +718,50 @@ describe("area 10, F2: list_departments", () => {
     const body = (await (await call(bridge, grant.secret, "list_departments", {})).json()) as { text: string };
     expect(JSON.parse(body.text)).toEqual([{ id: P, name: "Supporto", isDefault: false }]);
     expect(body.text).not.toContain("plans.approve");
+  });
+});
+
+describe("area 10, F3: read_stalled_work — numeri, date e motivi; mai i titoli", () => {
+  const P = "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01";
+  const Q = "7a2d3b63-2e8c-4d4f-8b62-1c7b8f3f2b02";
+  const pulse = [
+    { projectId: P, projectName: "Audin", stalled: [
+      { ticketId: "11111111-1111-4111-8111-111111111111", ticketNumber: 12, title: "TITOLO-DA-FUORI", stalledSince: "2026-11-10T00:00:00.000Z", reason: "worked_then_stopped" },
+      { ticketId: "22222222-2222-4222-8222-222222222222", ticketNumber: 7, title: "x", stalledSince: "2026-11-01T00:00:00.000Z", reason: "to_prepare" },
+    ] },
+    { projectId: Q, projectName: "Acquisti", stalled: [] },
+  ];
+  const projects = [{ id: P, code: "AUD", name: "Audin", ingestionKey: "segreto" }];
+
+  it("i percorsi: il polso (col progetto nella query) e i progetti per i codici", () => {
+    expect(chatServerPaths("read_stalled_work", {})).toEqual(["/api/projects/pulse", "/api/projects"]);
+    expect(chatServerPaths("read_stalled_work", { projectId: P })).toEqual([`/api/projects/pulse?projectId=${P}`, "/api/projects"]);
+    expect(() => chatServerPaths("read_stalled_work", { projectId: "x" })).toThrow(ChatToolArgError);
+  });
+
+  it("la proiezione: solo i progetti con lavoro fermo, più vecchia prima, niente titoli; il polso va al gestore dell'aside, mai nei turni di @Claude", async () => {
+    const asides: unknown[][] = [];
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL) => Response.json(new URL(String(url)).pathname === "/api/projects/pulse" ? pulse : projects));
+    bridge = await startChatBridge({ serverUrl: "http://server:3000", fetchImpl: fetchImpl as never, stalledAside: async (...a) => void asides.push(a) });
+    const free = bridge.grant({ sessionId: "s1", serverToken: "stw_chat_t" });
+    const body = (await (await call(bridge, free.secret, "read_stalled_work", {})).json()) as { ok: boolean; text: string };
+    expect(body.ok).toBe(true);
+    const [stalled, list] = body.text.split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(stalled).toEqual({ stalled: [{ projectId: P, projectName: "Audin", stalled: [
+      { ticketNumber: 7, stalledSince: "2026-11-01T00:00:00.000Z", reason: "to_prepare" },
+      { ticketNumber: 12, stalledSince: "2026-11-10T00:00:00.000Z", reason: "worked_then_stopped" },
+    ] }] });
+    expect(list).toEqual({ projects: [{ id: P, code: "AUD", name: "Audin" }] });
+    expect(body.text).not.toContain("TITOLO-DA-FUORI");
+    expect(body.text).not.toContain("segreto");
+    expect(asides).toEqual([["s1", pulse, "/api/projects/pulse"]]);
+    const mention = bridge.grant({ sessionId: "s2", serverToken: "stw_chat_t", ask: true, mention: true });
+    await call(bridge, mention.secret, "read_stalled_work", {});
+    expect(asides).toHaveLength(1);
+  });
+
+  it("col progetto del contesto resta quello solo", () => {
+    expect(stalledProjects(pulse, `/api/projects/pulse?projectId=${Q}`)).toEqual([]);
+    expect(stalledProjects(pulse, `/api/projects/pulse?projectId=${P}`).map((p) => p.projectId)).toEqual([P]);
   });
 });

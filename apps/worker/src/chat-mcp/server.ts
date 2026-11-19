@@ -160,6 +160,11 @@ export function buildChatMcpServer(config: ChatMcpConfig, fetchImpl: typeof fetc
       >[2],
     );
   register("list_projects", "List the Stubwise projects the user can see: id, code, name, description.", {});
+  register(
+    "read_stalled_work",
+    "Read the stalled work of the projects the person can see (optionally one project, by id): for each project its stalled tasks, oldest first, with since when and why. Stubwise shows a «Details» line under your answer by itself: do not repeat a guess as a fact.",
+    { projectId: z.string().min(1).optional() },
+  );
   register("list_departments", "List the departments of this Stubwise instance: id and name (use the id to notify a department in an automation step).", {});
   register(
     "list_people",

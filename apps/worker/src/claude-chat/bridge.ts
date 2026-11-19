@@ -192,6 +192,12 @@ export function chatServerPaths(tool: ChatReadToolName, args: Args): string[] {
       return ["/api/people"];
     case "list_departments":
       return ["/api/departments"];
+    case "read_stalled_work": {
+      // Il progetto del contesto (facoltativo) va nella query: la rotta la ignora,
+      // la proiezione la usa per tenere quel progetto solo.
+      const projectId = projectArg(args, false);
+      return [projectId ? `/api/projects/pulse?projectId=${seg(projectId)}` : "/api/projects/pulse", "/api/projects"];
+    }
     case "search_tasks": {
       const q = new URLSearchParams();
       const text = str(args["text"]);
@@ -539,7 +545,34 @@ function calendarEventResult(json: unknown): unknown {
   };
 }
 
+/**
+ * Area 10, F3 (S2): il lavoro fermo dal polso. Per progetto le task ferme, più
+ * vecchie prima, coi numeri, le date e i motivi; MAI i titoli (una task può
+ * venire da fuori). La seconda rotta (`/api/projects`) dà id, codice e nome per
+ * citarle (`<CODICE>-<numero>`).
+ */
+export function stalledProjects(json: unknown, path: string): { projectId: string; projectName: string; stalled: { ticketId: string; ticketNumber: number; stalledSince: string; reason: string }[] }[] {
+  const only = new URLSearchParams(path.split("?")[1] ?? "").get("projectId");
+  const rows = (Array.isArray(json) ? json : []) as Record<string, unknown>[];
+  return rows
+    .filter((p) => (only ? p["projectId"] === only : true))
+    .map((p) => ({
+      projectId: String(p["projectId"]),
+      projectName: String(p["projectName"] ?? ""),
+      stalled: pickAll(p["stalled"], ["ticketId", "ticketNumber", "stalledSince", "reason"])
+        .map((s) => s as { ticketId: string; ticketNumber: number; stalledSince: string; reason: string })
+        .sort((a, b) => a.stalledSince.localeCompare(b.stalledSince)),
+    }))
+    .filter((p) => p.stalled.length > 0)
+    .sort((a, b) => a.stalled[0]!.stalledSince.localeCompare(b.stalled[0]!.stalledSince));
+}
+
 export function projectToolResult(tool: ChatReadToolName, json: unknown, path = ""): unknown {
+  if (tool === "read_stalled_work") {
+    if (path.split("?")[0] === "/api/projects") return { projects: pickAll(json, ["id", "code", "name"]) };
+    // L'id della task resta al worker (per l'aside): al modello numero, data e motivo.
+    return { stalled: stalledProjects(json, path).map((p) => ({ ...p, stalled: p.stalled.map((s) => ({ ticketNumber: s.ticketNumber, stalledSince: s.stalledSince, reason: s.reason })) })) };
+  }
   // Area 10, F2: dei reparti solo id, nome e il ripiego (i permessi che danno no).
   if (tool === "list_departments") return pickAll(json, ["id", "name", "isDefault"]);
   if (tool === "read_mail_thread") return mailThreadResult(json);
@@ -700,6 +733,12 @@ export async function startChatBridge(deps: {
   log?: (m: string) => void;
   /** `ask_question` dei turni di @Claude nella Chat (scrive nel DB). Senza, il tool non risponde. */
   askQuestion?: ChatAskHandler;
+  /**
+   * Area 10, F3 (S2): dopo una lettura riuscita del lavoro fermo, l'evento
+   * `aside` («Hypothesis», «Details»), scritto dal worker col polso GIÀ letto.
+   * Mai nei turni di @Claude (la risposta sta in un canale). Fail-open.
+   */
+  stalledAside?: (sessionId: string, pulse: unknown, path: string) => Promise<void>;
 }): Promise<ChatBridge> {
   const log = deps.log ?? ((m: string) => console.warn(m));
   const fetchImpl = deps.fetchImpl ?? fetch;
@@ -817,6 +856,7 @@ export async function startChatBridge(deps: {
       throw error;
     }
     const parts: string[] = [];
+    let pulse: { json: unknown; path: string } | null = null;
     for (const path of paths) {
       const res = await fetchImpl(`${serverUrl}${path}`, {
         method: "GET",
@@ -838,8 +878,12 @@ export async function startChatBridge(deps: {
         return { status: 200, body: { ok: false, text: `Stubwise is unavailable right now (${res.status}).` } };
       }
       const json: unknown = await res.json().catch(() => null);
+      if (tool === "read_stalled_work" && path.startsWith("/api/projects/pulse")) pulse = { json, path };
       const projected = compact(projectToolResult(tool, json, path));
       parts.push(tool === "read_drive_file" ? fitDriveFile(projected, CHAT_DOC_PAGE_TEXT_MAX) : JSON.stringify(projected));
+    }
+    if (pulse !== null && turn.mention !== true && deps.stalledAside) {
+      await deps.stalledAside(turn.sessionId, pulse.json, pulse.path).catch((e: unknown) => log(`[chat] aside del lavoro fermo non scritto: ${String(e)}`));
     }
     return { status: 200, body: { ok: true, text: truncate(parts.join("\n"), tool === "read_doc_page" || tool === "read_drive_file" ? CHAT_DOC_PAGE_TEXT_MAX : CHAT_TOOL_TEXT_MAX) } };
   }

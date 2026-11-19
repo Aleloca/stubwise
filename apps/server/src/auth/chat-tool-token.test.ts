@@ -71,6 +71,10 @@ describe("il token del turno della chat", () => {
     expect((await get("/api/people", token)).statusCode).toBe(200);
     // Area 10, F2: i reparti, per «avvisa un reparto».
     expect((await get("/api/departments", token)).statusCode).toBe(200);
+    // Area 10, F3: il polso, per il lavoro fermo (senza segnare la conversazione: niente testo da fuori passa).
+    expect((await get("/api/projects/pulse", token)).statusCode).toBe(200);
+    const [mark] = await t.db.select({ at: claudeConversations.untrustedReadAt }).from(claudeConversations).where(eq(claudeConversations.sessionId, sessionId));
+    expect(mark!.at).toBeNull();
   });
 
   it("legge una pagina Docs intera (area 5, fetta 1) di un progetto che l'autore vede; l'albero no", async () => {
