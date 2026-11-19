@@ -126,6 +126,19 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   `archived=true`; nessuna scrittura (`409 archived`); il worker non reclama
   il suo lavoro. Si elimina SOLO un archiviato, SOLO un full admin, con la
   riconferma e il codice digitato; i suoi repository restano staccati.
+- **Di un progetto eliminato restano SOLO codice, nome e chi ne era membro
+  (`deleted_projects`, `deleted_project_members`, 0193), e servono SOLO a
+  dire «chi lo conosceva».** Gli ex membri e i full admin leggono
+  l'etichetta `CODICE · Nome` di `project.deleted`, la provenienza
+  (`formerProject`) e il nome intero di un repository staccato; gli altri
+  leggono «un progetto che non vedi» (`hidden`), mai il codice, il nome né
+  l'id. Un ex membro eliminato esce dalla memoria (cascata). Le voci del
+  registro del progetto tengono il suo `project_id` (nessuna FK): non
+  diventano voci senza progetto, e non le legge più nessuno tranne
+  `project.deleted`. Un repository staccato non è di nessun progetto: lo
+  elencano solo le rotte dei repository staccati, e nessuna lettura di
+  progetto lo trova, nemmeno col `"all"` del full admin (le query uniscono
+  `projects`).
 - **Un invito non dà mai più di quanto ha chi invita, nemmeno per omissione
   né col passare del tempo** (ruling R51, `assertInviteGrants` e
   `applyInviteGrants` in `services/roles.ts`). Senza `instanceRoleId` il

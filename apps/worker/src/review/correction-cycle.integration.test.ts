@@ -80,6 +80,8 @@ afterEach(async () => {
   // projects (via tickets e repositories): nessun job resta in coda per il
   // test dopo, che reclama dalla coda GLOBALE.
   await testDb.db.delete(projects);
+  // F6 (0193): eliminare il progetto STACCA i repository, che tengono l'account.
+  await testDb.db.delete(repositories);
   await testDb.db.delete(gitAccounts);
   await testDb.db
     .update(instanceSettings)

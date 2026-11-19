@@ -252,10 +252,13 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
             id: repositories.id,
             name: repositories.name,
             slug: repositories.slug,
-            projectId: repositories.projectId,
+            // Dal progetto unito: un repository staccato (F6) non è di nessun
+            // progetto, e nemmeno il full admin lo trova qui.
+            projectId: projects.id,
             repoUrl: repositories.repoUrl,
           })
           .from(repositories)
+          .innerJoin(projects, eq(projects.id, repositories.projectId))
           .where(
             and(
               or(

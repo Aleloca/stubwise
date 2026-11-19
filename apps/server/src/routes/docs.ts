@@ -479,7 +479,8 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         .select({ id: repositories.id, projectId: repositories.projectId, currentDocGenerationId: repositories.currentDocGenerationId })
         .from(repositories)
         .where(eq(repositories.id, repositoryId));
-      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
+      // Un repository staccato (F6) non ha Docs: 404 come uno che non c'è.
+      if (!repository?.projectId) return apiError(reply, 404, "repository_not_found", "Repository not found");
 
       let generation: z.infer<typeof generationSchema> | null = null;
       // Pin esposto dalla generazione corrente (doc_generations.pinned_provider_id),

@@ -43,6 +43,8 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await testDb.db.delete(projects);
+  // F6 (0193): eliminare il progetto STACCA i repository, che tengono l'account.
+  await testDb.db.delete(repositories);
   await testDb.db.delete(gitAccounts);
   // Le righe di automation_rules sono seedate dalla migrazione e condivise tra
   // test: i test plan-only le mutano (planApprovalMinEffort) ma non sono

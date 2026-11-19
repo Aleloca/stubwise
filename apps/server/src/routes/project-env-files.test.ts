@@ -111,7 +111,7 @@ describe("POST /api/repositories/:id/env-files", () => {
       .select({ projectId: repositories.projectId })
       .from(repositories)
       .where(eq(repositories.id, projectId));
-    const stagingEnvironmentId = await seedEnvironment(testDb.db, row!.projectId, {
+    const stagingEnvironmentId = await seedEnvironment(testDb.db, row!.projectId!, {
       name: `staging-${Date.now()}`,
       kind: "staging",
     });

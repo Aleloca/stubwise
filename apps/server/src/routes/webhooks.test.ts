@@ -212,7 +212,7 @@ async function insertTicket(
   const [row] = await testDb.db
     .insert(tickets)
     .values({
-      projectId: repository!.projectId,
+      projectId: repository!.projectId!,
       number,
       title: `Ticket ${number}`,
       type: "bug",
@@ -348,7 +348,7 @@ async function projectIdOfRepository(repositoryId: string): Promise<string> {
     .select({ projectId: repositories.projectId })
     .from(repositories)
     .where(eq(repositories.id, repositoryId));
-  return row!.projectId;
+  return row!.projectId!;
 }
 
 function bitbucketPayload(branch: string, prUrl = "https://bitbucket.org/acme/repo/pull-requests/7") {
@@ -1368,7 +1368,7 @@ describe("POST /webhooks/git/:projectSlug — push (niente più lavoro Docs)", (
     await testDb.db
       .update(projects)
       .set({ docAutoUpdate: true })
-      .where(eq(projects.id, repository!.projectId));
+      .where(eq(projects.id, repository!.projectId!));
     const body = githubPushPayload("main", SHA("a"), SHA("b"));
 
     const res = await app.inject({
@@ -1399,7 +1399,7 @@ describe("POST /webhooks/git/:projectSlug — push (recount report attività)", 
     await testDb.db
       .update(projects)
       .set({ dailyReportEnabled: value })
-      .where(eq(projects.id, repository!.projectId));
+      .where(eq(projects.id, repository!.projectId!));
   }
 
   /** Legge l'unico job di recount del progetto (o undefined). */
@@ -1933,7 +1933,7 @@ describe("webhook PR Review (chiusura)", () => {
     const [row] = await testDb.db
       .insert(tickets)
       .values({
-        projectId: repository!.projectId,
+        projectId: repository!.projectId!,
         number,
         title: `Review PR #${number}`,
         type: "review",

@@ -188,7 +188,8 @@ export async function peopleActivity(db: Db, viewer: Viewer, date: string, depar
       .select({
         sha: commitSummaries.sha,
         repo: repositories.name,
-        projectId: repositories.projectId,
+        // Dal progetto unito: un repository staccato (F6) non è di nessuno, nemmeno per il full admin.
+        projectId: projects.id,
         authorName: commitSummaries.authorName,
         authorEmail: commitSummaries.authorEmail,
         message: commitSummaries.subject,
@@ -197,6 +198,7 @@ export async function peopleActivity(db: Db, viewer: Viewer, date: string, depar
       })
       .from(commitSummaries)
       .innerJoin(repositories, eq(repositories.id, commitSummaries.repositoryId))
+      .innerJoin(projects, eq(projects.id, repositories.projectId))
       .where(
         and(
           onDay(commitSummaries.committedAt, date),
