@@ -1,3 +1,4 @@
+import { departmentGrantsOf } from "./department-access.js";
 /**
  * Gestione di ruoli e membri (design `docs/plans/2026-10-22-permessi-progetto-design.md`).
  *
@@ -538,7 +539,9 @@ export async function deleteUser(db: Db, actor: Actor, userId: string): Promise<
 /** Da dove viene un permesso effettivo di un membro (area 9, F1). */
 export type MemberPermissionSourceRow =
   | { kind: "role"; roleId: string }
-  | { kind: "grant"; byUserId: string | null; at: string };
+  | { kind: "grant"; byUserId: string | null; at: string }
+  // Area 9, F8: dato dal reparto della persona.
+  | { kind: "department"; departmentId: string };
 
 export interface MemberRow {
   userId: string;
@@ -575,6 +578,7 @@ async function membersWithPermissions(db: DbOrTx, projectId: string, onlyUserId?
     .from(projectMemberPermissions)
     .where(and(eq(projectMemberPermissions.projectId, projectId), ...(onlyUserId ? [eq(projectMemberPermissions.userId, onlyUserId)] : [])));
   const known = new Set<string>(PROJECT_PERMISSIONS);
+  const fromDepartments = await departmentGrantsOf(db, rows.map((r) => r.userId));
   return rows.map(({ rolePermissions, ...row }) => {
     const sources = new Map<string, MemberPermissionSourceRow[]>();
     const add = (permission: string, source: MemberPermissionSourceRow) => {
@@ -583,6 +587,7 @@ async function membersWithPermissions(db: DbOrTx, projectId: string, onlyUserId?
     };
     for (const p of rolePermissions) add(p, { kind: "role", roleId: row.roleId });
     for (const g of grants) if (g.userId === row.userId) add(g.permission, { kind: "grant", byUserId: g.grantedByUserId, at: g.grantedAt.toISOString() });
+    for (const g of fromDepartments) if (g.userId === row.userId) add(g.permission, { kind: "department", departmentId: g.departmentId });
     return { ...row, permissions: PROJECT_PERMISSIONS.filter((p) => sources.has(p)).map((p) => ({ permission: p, sources: sources.get(p)! })) };
   });
 }
@@ -698,6 +703,9 @@ export async function putProjectMember(
     await keepingAManager(tx, projectId, async () => {
       // La riga (se c'è) si blocca: niente bersaglio protetto (area 9, D-2).
       const before = await lockedMember(tx, projectId, userId);
+      // Area 9, F8 (F8-4 = a): chi ENTRA porta qui i permessi dei suoi reparti;
+      // chi agisce deve averli in questo progetto (l'escalation sul DARE).
+      if (!before) assertNoEscalation(actor, (await departmentGrantsOf(tx, [userId])).map((g) => g.permission), held);
       await tx
         .insert(projectMembers)
         .values({ projectId, userId, roleId })

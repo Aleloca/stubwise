@@ -80,12 +80,13 @@ const nameSchema = z.string().trim().min(1).max(80);
 
 type DepartmentRow = typeof departments.$inferSelect;
 
-function toView(row: DepartmentRow): DepartmentView {
+function toView(row: DepartmentRow, projectPermissions: readonly string[] = []): DepartmentView {
   return {
     id: row.id,
     name: row.name,
     colorToken: row.colorToken as DepartmentView["colorToken"],
     isDefault: row.isDefault,
+    projectPermissions: [...projectPermissions].sort(),
   };
 }
 
@@ -256,12 +257,21 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
       config: { access: { kind: "user" } },
       schema: { response: { 200: z.array(departmentViewSchema), ...authErrorResponses } },
     },
-    async () => {
+    async (request) => {
       const rows = await app.db
         .select()
         .from(departments)
         .orderBy(desc(departments.isDefault), asc(departments.name));
-      return rows.map(toView);
+      // Area 9, F8 (R-1): i permessi di progetto che il reparto dà, SOLO a chi
+      // gestisce i reparti (l'elenco lo legge chiunque: le task, i selettori).
+      const manages = request.user!.instancePermissions.has("departments.manage");
+      const perms = manages ? await app.db.select().from(departmentProjectPermissions) : [];
+      return rows.map((r) =>
+        toView(
+          r,
+          perms.filter((p) => p.departmentId === r.id).map((p) => p.permission),
+        ),
+      );
     },
   );
 
@@ -602,9 +612,9 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
               before,
             });
           });
-          return row;
+          return { row, perms: draft.projectPermissions };
         });
-        return toView(updated);
+        return toView(updated.row, updated.perms);
       } catch (error) {
         if (error instanceof RoleRuleError && error.code === "last_manager")
           return sendLastManager(reply, request.user!, error);

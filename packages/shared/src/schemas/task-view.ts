@@ -52,6 +52,12 @@ export const departmentViewSchema = z.object({
   name: z.string(),
   colorToken: departmentColorTokenSchema,
   isDefault: z.boolean(),
+  /**
+   * Area 9, F8 (additivo): i permessi di progetto che il reparto dà ai suoi
+   * membri, nei progetti di cui sono membri. Pieno solo per chi gestisce i
+   * reparti; per gli altri, e da un server di prima, `[]`.
+   */
+  projectPermissions: z.array(z.string()).default([]),
 });
 export type DepartmentView = z.infer<typeof departmentViewSchema>;
 
