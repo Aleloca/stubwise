@@ -11,7 +11,7 @@ import {
   users,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedRepository, startTestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, seedRepository, startTestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { buildApp } from "../app.js";
 import { addMember, seedUsers } from "../test/fixtures.js";
@@ -61,7 +61,7 @@ afterEach(async () => {
   await testDb.db.delete(activityDevSummaries);
   await testDb.db.delete(activityDayRollups);
   await testDb.db.delete(gitIdentities);
-  await testDb.db.delete(projects);
+  await deleteAllProjects(testDb.db);
 });
 
 /**

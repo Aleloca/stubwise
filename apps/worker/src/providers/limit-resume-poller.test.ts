@@ -6,12 +6,13 @@ import {
   docGenerationJobs,
   docGenerations,
   encrypt,
+  gitAccounts,
   projects,
   repositories,
   tickets,
   type Db,
 } from "@stubwise/db";
-import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { t } from "@stubwise/i18n";
 import { and, eq } from "drizzle-orm";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -48,7 +49,9 @@ beforeAll(async () => {
 }, 120_000);
 
 afterEach(async () => {
-  await testDb.db.delete(projects);
+  // Area 9, F6: progetti, repository staccati (e le loro generazioni) e account git.
+  await deleteAllProjects(testDb.db);
+  await testDb.db.delete(gitAccounts);
   await testDb.db.delete(aiProviders);
 });
 

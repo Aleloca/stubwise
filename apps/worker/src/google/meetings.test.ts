@@ -16,7 +16,7 @@ import {
   users,
   type Db,
 } from "@stubwise/db";
-import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { GoogleApiError, type DriveFileMeta } from "@stubwise/google";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -54,7 +54,7 @@ afterEach(async () => {
   await db.delete(googleWorkspaces);
   await db.delete(projectMembers);
   await db.delete(tickets);
-  await db.delete(projects);
+  await deleteAllProjects(db);
   await db.delete(notifications);
   await db.delete(users).where(eq(users.isAgent, false));
   ws = null;

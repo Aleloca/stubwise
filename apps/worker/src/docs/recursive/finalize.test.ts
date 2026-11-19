@@ -7,11 +7,10 @@ import {
   docNodes,
   docPageCodes,
   docPages,
-  projects,
   repositories,
   type Db,
 } from "@stubwise/db";
-import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { createFakeEmbeddingClient, FAKE_EMBEDDING_DIMENSION } from "@stubwise/embeddings";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -49,7 +48,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterEach(async () => {
-  await testDb.db.delete(projects);
+  await deleteAllProjects(testDb.db);
 });
 
 afterAll(async () => {

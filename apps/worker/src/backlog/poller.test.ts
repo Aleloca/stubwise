@@ -1,5 +1,5 @@
 import { backlogJobs, projects, type Db } from "@stubwise/db";
-import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { BacklogJobPayload } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -32,7 +32,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterEach(async () => {
-  await testDb.db.delete(projects); // backlog_jobs cascano dal progetto.
+  await deleteAllProjects(testDb.db); // backlog_jobs cascano dal progetto.
 });
 
 afterAll(async () => {

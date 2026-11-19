@@ -11,12 +11,7 @@ import {
   users,
   type Db,
 } from "@stubwise/db";
-import {
-  seedRepositoryInProject,
-  seedTicketRepository,
-  startTestDb,
-  type TestDb,
-} from "@stubwise/db/testing";
+import { deleteAllProjects, seedRepositoryInProject, seedTicketRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { inboxQuestionSchema } from "@stubwise/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -51,7 +46,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
   // Tutto cade in cascata dal progetto; gli utenti hanno una radice propria.
-  await db.delete(projects);
+  await deleteAllProjects(db);
   await db.delete(users);
 });
 

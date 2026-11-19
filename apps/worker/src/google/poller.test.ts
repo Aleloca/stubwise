@@ -21,7 +21,7 @@ import {
   users,
   type Db,
 } from "@stubwise/db";
-import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, startTestDb, type TestDb } from "@stubwise/db/testing";
 import {
   GoogleApiError,
   MAX_TEXT_LENGTH,
@@ -92,7 +92,7 @@ afterEach(async () => {
   await db.delete(googleAccounts);
   await db.delete(googleWorkspaces);
   await db.delete(projectEmailRoutes);
-  await db.delete(projects);
+  await deleteAllProjects(db);
   await db.delete(users);
   // Singleton (id=1): senza questa riga un test che tocca l'ammissione
   // lascerebbe la configurazione sporca per quelli dopo.
