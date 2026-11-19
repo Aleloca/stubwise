@@ -148,6 +148,7 @@ export type ClaudeBusyReason =
   | { kind: "server_fix"; serverCode: string }
   | { kind: "release_fix"; releaseCode: string }
   | { kind: "release"; code: string }
+  | { kind: "doc_generation"; repository: string; paused: boolean }
   /** Una correzione della PR ancora aperta (il server vero, «Elimina task»). */
   | { kind: "open_correction" };
 

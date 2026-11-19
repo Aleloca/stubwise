@@ -7,7 +7,9 @@ import type { InstanceRefusal } from "../instance/types";
 export type BusyReason =
   /** `title` è `null` se chi guarda non vede la conversazione (`canSeeConversation`): ruling del controller (pre-flight), P23. */
   | { kind: "claude_session"; code: string | null; title: string | null; waiting: boolean }
-  | { kind: "release"; code: string };
+  | { kind: "release"; code: string }
+  /** F6, L-5: una generazione dei Docs in corso o in pausa sul limite, col nome del repository. */
+  | { kind: "doc_generation"; repository: string; paused: boolean };
 
 export type ProjectRefusal =
   | InstanceRefusal

@@ -279,4 +279,147 @@ describe("il registro delle modifiche dal server (area 9, F2)", () => {
     const [v] = (await createRealChangelog(withEntries(pulse).api).listChangesPage()).entries;
     expect(v!.objectLink).toBeNull();
   });
+
+  it("F6: project.deleted per chi non lo conosceva: «un progetto che non vedi», senza id; Repositories sì", async () => {
+    // Come nel prototipo (`deletedProjectLinkOf`, review F6 M1): il link ad
+    // Amministrazione → Repositories non nomina il progetto, e chi apre
+    // Repositories ci ritrova i repository rimasti.
+    const { api } = fakeApi({
+      viewer: async () => ({
+        personId: ME,
+        instancePermissions: ["changelog.view"],
+        projectPermissions: { [PRJ]: ["repos.manage"] },
+        departmentPermissions: {},
+      }),
+      list: async () =>
+        ({
+          nextCursor: null,
+          entries: [
+            entry({
+              type: "project.deleted",
+              group: "project",
+              hidden: true,
+              data: {
+                object: { type: "project", id: "hidden", label: "" },
+                before: null,
+                after: null,
+                params: { detachedRepositories: "1" },
+              },
+            }),
+          ],
+        }) as never,
+    });
+    const [v] = (await createRealChangelog(api).listChangesPage()).entries;
+    expect(v).toMatchObject({
+      kind: "project.deleted",
+      object: { type: "project", id: "", label: "" },
+      objectLabelKey: "changelog.values.hiddenProject",
+      objectLink: { to: "admin", section: "repositories" },
+    });
+  });
+
+  it("F6: project.deleted per chi lo conosceva: «CODICE · Nome», e Repositories se ne restano senza progetto", async () => {
+    const known = (detached: string) =>
+      entry({
+        type: "project.deleted",
+        group: "project",
+        data: {
+          object: { type: "project", id: PRJ, label: "RNC · Vetrina" },
+          before: null,
+          after: null,
+          params: { detachedRepositories: detached },
+        },
+      });
+    const withRepos = fakeApi({
+      list: async () => ({ entries: [known("2"), known("0")], nextCursor: null }) as never,
+      viewer: async () => ({
+        personId: ME,
+        instancePermissions: ["changelog.view"],
+        // repos.manage è di progetto: la sezione si vede con almeno uno.
+        projectPermissions: { [PRJ]: ["repos.manage"] },
+        departmentPermissions: {},
+      }),
+    });
+    const [two, zero] = (await createRealChangelog(withRepos.api).listChangesPage()).entries;
+    expect(two).toMatchObject({
+      object: { id: PRJ, label: "RNC · Vetrina" },
+      objectLabelKey: null,
+      objectLink: { to: "admin", section: "repositories" },
+    });
+    expect(zero!.objectLink).toBeNull();
+    // Nella build app il link c'è perché Amministrazione → Repositories è accesa
+    // (F6): l'adattatore lo dà solo a sezione accesa (I1).
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    try {
+      const [inApp] = (await createRealChangelog(withRepos.api).listChangesPage()).entries;
+      expect(inApp!.objectLink).toEqual({ to: "admin", section: "repositories" });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    // Senza repos.manage la sezione non si apre: niente link.
+    const [noManage] = (await createRealChangelog(withEntries(known("2")).api).listChangesPage())
+      .entries;
+    expect(noManage!.objectLink).toBeNull();
+  });
+
+  it("F6: la voce di un archiviato (projectArchived, derivato dal server) porta a /archived/<CODICE>", async () => {
+    const onProject = entry({
+      type: "project.pulse_interval_changed",
+      scope: "project",
+      group: "automations",
+      projectId: PRJ,
+      projectCode: "ACQ",
+      projectArchived: true,
+      data: {
+        object: { type: "project", id: PRJ, label: "Acquedotto" },
+        before: "7",
+        after: "14",
+        params: {},
+      },
+    });
+    // Una voce di Settings su un altro oggetto (un repository): un archiviato non ha Settings da aprire.
+    const onRepo = entry({
+      type: "repository.linked",
+      scope: "project",
+      group: "repositories",
+      projectId: PRJ,
+      projectCode: "ACQ",
+      projectArchived: true,
+      data: {
+        object: { type: "repository", id: "r1", label: "api" },
+        before: null,
+        after: null,
+        params: {},
+      },
+    });
+    // Un membro di un archiviato si apre come persona, non nel pannello del membro.
+    const onMember = entry({
+      type: "member.permission_granted",
+      scope: "project",
+      group: "members",
+      projectId: PRJ,
+      projectCode: "ACQ",
+      projectArchived: true,
+      data: {
+        object: { type: "person", id: MARCO, label: "Marco Bellini" },
+        before: null,
+        after: null,
+        params: {},
+      },
+    });
+    const { api } = fakeApi({
+      list: async () => ({ entries: [onProject, onRepo, onMember], nextCursor: null }) as never,
+      // Gli archiviati non sono in /api/auth/me: nessun permesso sul progetto.
+      viewer: async () => ({
+        personId: ME,
+        instancePermissions: ["changelog.view"],
+        projectPermissions: {},
+        departmentPermissions: {},
+      }),
+    });
+    const [p, r, m] = (await createRealChangelog(api).listChangesPage()).entries;
+    expect(p!.objectLink).toEqual({ to: "archived", code: "ACQ" });
+    expect(r!.objectLink).toBeNull();
+    expect(m!.objectLink).toEqual({ to: "person", personId: MARCO });
+  });
 });

@@ -130,7 +130,7 @@ describe("collegare un repository senza progetto", () => {
     expect(JSON.stringify(entries())).not.toContain(RNC);
   });
 
-  it("i rifiuti, nell'ordine: not_found, forbidden, name_taken; niente cambia, nessuna voce", async () => {
+  it("i rifiuti, nell'ordine: not_found, target_not_found, forbidden, name_taken; niente cambia, nessuna voce", async () => {
     as(LAURA);
     const sarasOnly = [...visibleProjectIds(SARA)].find((id) => !visibleProjectIds(LAURA).has(id));
     // Un progetto che Laura vede senza `repos.manage`: STW, tolto apposta.
@@ -148,10 +148,17 @@ describe("collegare un repository senza progetto", () => {
       ok: false,
       error: "not_found",
     });
-    expect(await instance.linkRepository(REPO, RNC)).toEqual({ ok: false, error: "not_found" });
+    // La destinazione archiviata o invisibile: `target_not_found`, non il
+    // repository che manca (review F6, M2; come il server, Task 7 di 72).
+    expect(await instance.linkRepository(REPO, RNC)).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "target_not_found",
+    });
     expect(await instance.linkRepository(REPO, sarasOnly!)).toEqual({
       ok: false,
-      error: "not_found",
+      error: "invalid",
+      reason: "target_not_found",
     });
     expect(await instance.linkRepository(REPO, notManaged!)).toEqual({
       ok: false,
@@ -166,7 +173,7 @@ describe("collegare un repository senza progetto", () => {
     expect(entries()).toEqual([]);
   });
 
-  it("verso un progetto archiviato: fuori dai linkTargets, e rifiutato not_found anche al full admin", async () => {
+  it("verso un progetto archiviato: fuori dai linkTargets, e rifiutato target_not_found anche al full admin", async () => {
     // ACQ archiviato da Roberta: Laura ne era membro, Roberta è full admin.
     as(ROBERTA);
     expect(await projectSettings.archiveProject(ACQ)).toEqual({ ok: true });
@@ -175,7 +182,11 @@ describe("collegare un repository senza progetto", () => {
       const [row] = await instance.listDetachedRepositories();
       expect(row!.linkTargets.map((t) => t.projectId)).not.toContain(ACQ);
       const before = snapshot();
-      expect(await instance.linkRepository(REPO, ACQ)).toEqual({ ok: false, error: "not_found" });
+      expect(await instance.linkRepository(REPO, ACQ)).toEqual({
+        ok: false,
+        error: "invalid",
+        reason: "target_not_found",
+      });
       expect(snapshot()).toBe(before);
     }
     expect(entries("repository.linked")).toEqual([]);

@@ -425,6 +425,9 @@ function useLifecycleWrite<TVars, TData>(mutationFn: (vars: TVars) => Promise<TD
         predicate: (q) => mine(q.queryKey) && subjectOfLifecycle(q.queryKey),
         refetchType: "none",
       });
+      // Anche i permessi di chi guarda (review F6, I1): `/api/auth/me` esclude
+      // gli archiviati, e il viewer non scade da solo (staleTime Infinity).
+      await client.invalidateQueries({ queryKey: ["viewer"] });
     },
   });
 }

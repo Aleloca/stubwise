@@ -194,6 +194,18 @@ const INTEGRATED_CALLS = new Set([
   // Area 9, F5: i plugin del progetto, con ifMatch.
   "projectSettings.getProjectPlugins",
   "projectSettings.saveProjectPlugins",
+  // Area 9, F6: archiviare, riaprire, eliminare; Amministrazione → Repositories.
+  "projectSettings.getArchivePreview",
+  "projectSettings.archiveProject",
+  "projectSettings.reopenProject",
+  "projectSettings.listArchivedProjects",
+  "projectSettings.getArchivedProject",
+  "projectSettings.getDeletionPreview",
+  "projectSettings.deleteProject",
+  "instance.listAllRepositories",
+  "instance.listDetachedRepositories",
+  "instance.linkRepository",
+  "instance.deleteDetachedRepository",
   // Area 9, F4: Instance status.
   "instance.getInstanceStatus",
   "instance.pauseQueue",
@@ -789,8 +801,9 @@ describe("aree non integrate nella build app", () => {
   });
 
   it("una pagina di progetto non integrata mostra «Coming soon»", async () => {
-    // Dall'area 8, F4a, ogni sezione di progetto è accesa: resta una voce delle impostazioni.
-    renderRoute("/p/AUD/settings/archive");
+    // Dall'area 8, F4a, ogni sezione di progetto è accesa: resta una voce delle impostazioni
+    // (Archive è accesa dall'area 9, F6; Usage no).
+    renderRoute("/p/AUD/settings/usage");
     expect(await screen.findByText("Coming soon")).toBeInTheDocument();
     await settle();
     expect(outside()).toEqual([]);
@@ -1062,6 +1075,38 @@ describe("aree non integrate nella build app", () => {
     signedInAs("p-laura");
     renderRoute("/p/ACQ/settings/integration");
     await waitFor(() => expect(calls).toContain("projectSettings.getIntegration"));
+    await settle();
+    expect(screen.queryByText(/Coming soon/)).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F6: Archive, la scheda Archived, la pagina dell'archiviato e Repositories.
+  it("aprire Archive di un progetto legge solo chiamate integrate", async () => {
+    signedInAs("p-laura");
+    renderRoute("/p/ACQ/settings/archive");
+    await settle();
+    expect(screen.queryByText(/Coming soon/)).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  it("la scheda Archived e la pagina di un archiviato leggono solo chiamate integrate", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/projects?view=archived");
+    await waitFor(() => expect(calls).toContain("projectSettings.listArchivedProjects"));
+    await settle();
+    expect(outside()).toEqual([]);
+    cleanup();
+    renderRoute("/archived/RNC");
+    await waitFor(() => expect(calls).toContain("projectSettings.getArchivedProject"));
+    await settle();
+    expect(screen.queryByText(/Coming soon/)).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  it("aprire Amministrazione → Repositories legge solo chiamate integrate", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/repositories");
+    await waitFor(() => expect(calls).toContain("instance.listDetachedRepositories"));
     await settle();
     expect(screen.queryByText(/Coming soon/)).toBeNull();
     expect(outside()).toEqual([]);

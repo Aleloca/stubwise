@@ -266,6 +266,14 @@ function BusyLine({ reason, code }: { reason: BusyReason; code: string }) {
         components={{ code: codeLink(`#/p/${code}/releases/${reason.code}`) }}
       />
     );
+  } else if (reason.kind === "doc_generation") {
+    line = (
+      <Trans
+        i18nKey={`settings.archive.busy.${reason.paused ? "docsPaused" : "docs"}`}
+        values={{ repository: reason.repository }}
+        components={{ repo: <span className="font-semibold" /> }}
+      />
+    );
   } else {
     const base = reason.waiting ? "waiting" : "session";
     const key =

@@ -150,10 +150,11 @@ function ArchivedRow({
 }) {
   const { t, i18n } = useTranslation();
   const reopenWhy = useId();
-  const archived = t("projects.archived.archivedBy", {
-    date: formatDate(row.archivedAt, i18n.language),
-    name: row.archivedBy,
-  });
+  const date = formatDate(row.archivedAt, i18n.language);
+  // Chi ha archiviato può non esserci più (F6): allora solo la data.
+  const archived = row.archivedBy
+    ? t("projects.archived.archivedBy", { date, name: row.archivedBy })
+    : t("projects.archived.archivedOn", { date });
   const client = row.clientName && (
     <span className="min-w-0 truncate text-sm text-ink-muted">{row.clientName}</span>
   );

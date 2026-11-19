@@ -153,5 +153,10 @@ export function busyLine(t: T, code: string, r: ClaudeBusyReason): string {
       return t(`${K}.release`, { code, release: r.code });
     case "open_correction":
       return t(`${K}.open_correction`, { code });
+    case "doc_generation":
+      return t(`${K}.${r.paused ? "doc_generationPaused" : "doc_generation"}`, {
+        code,
+        repository: r.repository,
+      });
   }
 }

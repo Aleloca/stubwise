@@ -12,6 +12,7 @@ import { liveProviders } from "./aiProviders";
 import { liveAutomation } from "./automation";
 import { liveBudget } from "./budget";
 import { liveWebhooks } from "./webhooks";
+import { liveInstanceRepositories } from "./instanceRepositories";
 
 /**
  * L'istanza nella build app: il budget AI del mese che la chat con Claude
@@ -41,4 +42,6 @@ export const instance: typeof Fake.instance = partialNamespace<typeof Fake.insta
   ...liveInstanceStatus,
   // Area 9, F4: AI → Usage.
   ...liveUsage,
+  // Area 9, F6: Repositories (collegati, staccati, collega, elimina).
+  ...liveInstanceRepositories,
 });

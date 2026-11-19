@@ -2557,6 +2557,7 @@
       "loadError": "Impossibile caricare i progetti archiviati.",
       "list": "Progetti archiviati",
       "archivedBy": "Archiviato il {{date}} da {{name}}",
+      "archivedOn": "Archiviato il {{date}}",
       "reopen": "Riapri",
       "reopenWhy": "Per riaprire {{code}} serve poterne gestire le impostazioni.",
       "more": "Altro per {{code}}",
@@ -2567,6 +2568,7 @@
       "page": {
         "back": "← Archiviati",
         "band": "Archiviato il {{date}} da {{name}}. Sola lettura: riaprilo per lavorarci di nuovo.",
+        "bandNoName": "Archiviato il {{date}}. Sola lettura: riaprilo per lavorarci di nuovo.",
         "loadError": "Impossibile caricare {{code}}.",
         "summary": "Sintesi",
         "noDescription": "Nessuna descrizione.",
@@ -3378,6 +3380,8 @@
         "waitingTitle": "“{{title}}” aspetta la ripresa della coda.",
         "waitingHidden": "Una conversazione che non vedi aspetta la ripresa della coda.",
         "release": "Il rilascio <code>{{code}}</code> è in corso.",
+        "docs": "Si stanno generando i Docs di <repo>{{repository}}</repo>.",
+        "docsPaused": "I Docs di <repo>{{repository}}</repo> sono in pausa sul limite d'uso e riprenderanno da soli.",
         "wait_one": "Aspetta che finisca, o fermalo dalla sua pagina, poi archivia di nuovo.",
         "wait_other": "Aspetta che finiscano, o fermali dalle loro pagine, poi archivia di nuovo.",
         "again": "Archivia di nuovo",
@@ -3811,7 +3815,9 @@
           "open_prNoCode": "**{{code}}** ha una pull request aperta: si archivia quando si chiude",
           "server_fix": "**{{code}}** ha una correzione aperta su **{{server}}**: si archivia quando finisce",
           "release": "**{{code}}** ha il rilascio **{{release}}** in corso: si archivia quando finisce",
-          "open_correction": "**{{code}}** ha una correzione di una pull request ancora aperta: si archivia quando finisce"
+          "open_correction": "**{{code}}** ha una correzione di una pull request ancora aperta: si archivia quando finisce",
+          "doc_generation": "**{{code}}** sta generando i Docs di **{{repository}}**: si archivia quando finisce",
+          "doc_generationPaused": "**{{code}}** ha i Docs di **{{repository}}** in pausa sul limite d'uso: si archivia quando finiscono"
         }
       },
       "member": {
@@ -11665,7 +11671,9 @@
       "detached": {
         "group": "In nessun progetto",
         "from": "Da <b>{{code}}</b> · {{name}}, eliminato il {{date}}",
+        "fromNoDate": "Da <b>{{code}}</b> · {{name}}",
         "since": "Senza progetto dal {{date}}",
+        "sinceNoDate": "Senza progetto",
         "link": "Collega a un progetto…",
         "noTargets": "Nessuno dei tuoi progetti può prenderlo: serve poter gestire i repository in un progetto attivo.",
         "more": "Altro per {{name}}",
@@ -11683,6 +11691,7 @@
           "open": "Apri",
           "nameTaken": "{{code}} ha già un repository che si chiama {{name}}. Scegli un altro progetto.",
           "forbidden": "Non puoi più gestire i repository di {{code}}.",
+          "targetGone": "{{code}} non è più disponibile. Scegli un altro progetto.",
           "gone": "Quel progetto non è più disponibile, o qualcuno ha già collegato questo repository. Non è cambiato niente."
         },
         "deleteDialog": {

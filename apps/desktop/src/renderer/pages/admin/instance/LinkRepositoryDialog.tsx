@@ -68,6 +68,11 @@ export function LinkRepositoryDialog({
               name: r.name,
             }),
           );
+        // Il progetto scelto è sparito nel frattempo: si dice, e le destinazioni si rileggono.
+        if (reason === "target_not_found") {
+          setRefusal(t("admin.repositories.detached.linkDialog.targetGone", { code: target.code }));
+          onReload();
+        }
       },
       () => {
         toast.show(
