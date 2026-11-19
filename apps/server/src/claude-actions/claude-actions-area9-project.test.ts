@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { aiJobs, changeLog, issueChatToolToken, projects } from "@stubwise/db";
+import { aiJobs, changeLog, claudeActionGroups, issueChatToolToken, projects } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
@@ -68,6 +68,10 @@ describe("area 9, F7: le B del progetto", () => {
     expect(res.statusCode).toBe(200);
     expect((await row(projectId)).name).toBe("Nome da Claude");
     expect(await entries(projectId, "project.renamed")).toHaveLength(1);
+    // Un inverso B: «Annulla» non chiede la riconferma (`undoReauth` false).
+    const [g] = await t.db.select({ sessionId: claudeActionGroups.sessionId }).from(claudeActionGroups).where(eq(claudeActionGroups.id, groupId!));
+    const groups = (await app.inject({ method: "GET", url: `/api/claude/conversations/${g!.sessionId}/groups`, headers: { cookie: lead.headers.cookie } })).json() as { id: string; undo: string; undoReauth: boolean }[];
+    expect(groups.find((x) => x.id === groupId)).toMatchObject({ undo: "available", undoReauth: false });
     expect((await undo(groupId!)).statusCode).toBe(200);
     expect((await row(projectId)).name).toBe(before);
   });

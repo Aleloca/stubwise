@@ -170,12 +170,14 @@ describe("area 9, F2: il registro delle modifiche", () => {
     const page = await client.changeLog.list({ project: "instance", group: "roles", cursor: "abc" });
     expect(call(fetchImpl).url).toBe("/api/change-log?project=instance&group=roles&cursor=abc");
     expect(page.nextCursor).toBeNull();
-    expect(page.entries[0]).toMatchObject({ type: "__unknown__", projectId: null, objectDeleted: false, data: { params: {} } });
+    // Area 9, F7: una voce di un server di prima (senza `via`, `undoOf`, `undoneEntry`) si legge coi default.
+    expect(page.entries[0]).toMatchObject({ type: "__unknown__", projectId: null, objectDeleted: false, data: { params: {} }, via: null, undoOf: null, undoneEntry: null });
     const proj = clientWith({ entries: [] });
     await proj.client.changeLog.listProject(P1, { withinDays: 7 });
     expect(call(proj.fetchImpl).url).toBe(`/api/projects/${P1}/change-log?withinDays=7`);
     const f = clientWith({ everything: false });
-    expect(await f.client.changeLog.filters(P1)).toEqual({ everything: false, people: [], projects: [], groups: [] });
+    // Area 9, F7: un server di prima non manda `claude` («By Claude»): false.
+    expect(await f.client.changeLog.filters(P1)).toEqual({ everything: false, people: [], projects: [], groups: [], claude: false });
     expect(call(f.fetchImpl).url).toBe(`/api/change-log/filters?project=${P1}`);
   });
 });

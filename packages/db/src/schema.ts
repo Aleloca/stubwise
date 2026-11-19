@@ -297,6 +297,13 @@ export const roles = pgTable(
  */
 export const VIA_CLAUDE_SETTING = "stubwise.via_claude_action_id";
 const VIA_CLAUDE_DEFAULT = sql`nullif(current_setting('stubwise.via_claude_action_id', true), '')::uuid`;
+/**
+ * Area 9, F7 (0195): l'azione di Claude che la scrittura in corso ANNULLA (un
+ * inverso di «Annulla»). La imposta solo l'esecutore; DEFAULT di
+ * `change_log.undo_of_action_id`.
+ */
+export const UNDO_OF_CLAUDE_SETTING = "stubwise.undo_of_claude_action_id";
+const UNDO_OF_CLAUDE_DEFAULT = sql`nullif(current_setting('stubwise.undo_of_claude_action_id', true), '')::uuid`;
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -574,8 +581,13 @@ export const changeLog = pgTable(
     subjectKind: text("subject_kind").notNull(),
     subjectId: text("subject_id").notNull(),
     data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+    // Area 9, F7 (0195): la voce l'ha scritta Claude (l'azione), e l'azione che
+    // annulla. DEFAULT dalle variabili di transazione dell'esecutore; senza FK.
+    viaClaudeActionId: uuid("via_claude_action_id").default(VIA_CLAUDE_DEFAULT),
+    undoOfActionId: uuid("undo_of_action_id").default(UNDO_OF_CLAUDE_DEFAULT),
   },
   (table) => [
+    index("change_log_via_claude_idx").on(table.viaClaudeActionId).where(sql`${table.viaClaudeActionId} is not null`),
     check("change_log_actor_kind_chk", sql`${table.actorKind} in ('user', 'agent', 'system')`),
     index("change_log_at_idx").on(table.at.desc(), table.id.desc()),
     index("change_log_project_at_idx").on(table.projectId, table.at.desc()),
