@@ -707,3 +707,16 @@ describe("area 10, F2: ask_question anche nella conversazione libera", () => {
     expect((await call(bridge, none.secret, "ask_question", { question: "q" })).status).toBe(404);
   });
 });
+
+describe("area 10, F2: list_departments", () => {
+  it("il percorso; dei reparti solo id, nome e ripiego, mai i permessi che danno né la versione", async () => {
+    expect(chatServerPaths("list_departments", {})).toEqual(["/api/departments"]);
+    const P = "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01";
+    const fetchImpl = vi.fn(async () => Response.json([{ id: P, name: "Supporto", colorToken: "--dept-1", isDefault: false, projectPermissions: ["plans.approve"], version: "v-SEGRETA" }]));
+    bridge = await startChatBridge({ serverUrl: "http://server:3000", fetchImpl: fetchImpl as never });
+    const grant = bridge.grant({ sessionId: "s1", serverToken: "stw_chat_t" });
+    const body = (await (await call(bridge, grant.secret, "list_departments", {})).json()) as { text: string };
+    expect(JSON.parse(body.text)).toEqual([{ id: P, name: "Supporto", isDefault: false }]);
+    expect(body.text).not.toContain("plans.approve");
+  });
+});

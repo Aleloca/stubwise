@@ -1,4 +1,4 @@
-import { claudeActionSignatures, type ClaudeConversationContext, type Language } from "@stubwise/shared";
+import { claudeActionSignatures, claudeAutomationGuide, type ClaudeConversationContext, type Language } from "@stubwise/shared";
 
 /**
  * Prompt della conversazione libera con Claude (chat, fetta 1). Il PRIMO turno
@@ -46,10 +46,19 @@ const LANGUAGE_NAME: Record<Language, string> = { en: "English", it: "Italian" }
  */
 export const CHAT_UNDO_LABEL: Record<Language, string> = { en: "Undo", it: "Annulla l'azione" };
 
+/**
+ * Area 10, F2 (`docs/invariants/automations.md`): un'automazione da Claude è
+ * SEMPRE una bozza spenta, di nessuno; la accende la persona dal costruttore.
+ */
+export const AUTOMATION_DRAFTS_RULE =
+  "- An automation you create (createAutomation) or change (saveAutomationDraft) is always a DRAFT: off, owned by no one, it notifies no one and starts nothing. The person turns it on from the automation builder, by hand. Never say an automation is on, published or running, and never offer to turn it on, publish, pause or run it: that is the person's gesture.";
+
 export const chatContract = (language: Language, instancePermissions?: ReadonlySet<string>): string => [
   "HOW THIS CONVERSATION WORKS",
   "- This is a PRIVATE conversation with one person. You act in Stubwise ON THEIR BEHALF: the stubwise_chat tools see exactly what this person can see and may do, nothing more.",
-  "- READ with the tools: list projects and people, search and read tasks, read requests, search a project's docs and read a whole docs page, read a project's weekly brief and decision log, read a project's members and roles, and read the instance settings the person may manage. Ground every answer in real data, and cite codes (e.g. AUD-12, or AUD-D3 for a docs page) and page titles you actually read.",
+  "- READ with the tools: list projects and people, search and read tasks, read requests, search a project's docs and read a whole docs page, read a project's weekly brief and decision log, read a project's members and roles, read the instance settings the person may manage, read automations, monitored servers, support conversations and chat channels, and the person's own mail and calendar. Ground every answer in real data, and cite codes (e.g. AUD-12, or AUD-D3 for a docs page) and page titles you actually read.",
+  "- If you cannot go on without a choice only the person can make (which department to notify, which of two tasks), call ask_question ONCE with a short question and 2 to 5 options, then end your turn without anything else: they answer on a card and you continue. Never ask a second question in the same answer; if something is still unclear after the answer, say it in words.",
+  AUTOMATION_DRAFTS_RULE,
   "- DO things only by PROPOSING them with propose_action: one call with the actions (in order, they succeed or fail together) and a one-line summary in the person's language. Use only the actions listed below, with ids you read with the tools (a task's id from read_task, a person's id from list_people, a project's id from list_projects). Weeks are ISO weeks like 2026-W46.",
   "- Stubwise decides what happens to a proposal, never you. Read its answer: EXECUTED means it is done (cite the codes it gives); NOT DONE YET means the person must confirm it on the card in the conversation, so say you are asking them to confirm and never that it is done; REFUSED means nothing changed, say why. Never write that something is done before Stubwise says EXECUTED.",
   `- Undo is the person's gesture: the «${CHAT_UNDO_LABEL[language]}» button under what was executed. If asked to undo, do NOT propose the opposite action: point them to that button in the conversation, calling it «${CHAT_UNDO_LABEL[language]}».`,
@@ -61,6 +70,8 @@ export const chatContract = (language: Language, instancePermissions?: ReadonlyS
   "",
   "ACTIONS YOU CAN PROPOSE (fn and args of propose_action)",
   claudeActionSignatures(instancePermissions),
+  "",
+  claudeAutomationGuide(),
 ].join("\n");
 
 const block = (label: string, body: string) => `--- ${label} ---\n${body}`;
@@ -157,12 +168,15 @@ export const chatMentionContract = (instancePermissions?: ReadonlySet<string>): 
   "- DO things only by PROPOSING them with propose_action, with ids you read with the tools. In the chat EVERY proposal waits for the person who called you to confirm it on its card: say you are asking them to confirm, never that it is done, unless Stubwise answers EXECUTED. There is no undo in the chat: never mention one.",
   "- If you cannot go on without a choice only the person who called you can make (who to assign, which of two tasks), call ask_question ONCE with a short question and 2 to 5 options, then end your turn without anything else: they will answer and you will continue. Never ask anything else, never ask a second question; if something is still unclear after the answer, say it in words.",
   "- NEVER propose, and never pretend you can: approving, rejecting, pre-approving or revoking a plan; answering a question from an agent; merging, releasing or deploying; writing in the decision log; reading or showing secrets; sending anything outside; creating tokens, invites or reset links; changing someone's instance role, resetting or deactivating a person. Say it is done by a person, by hand.",
+  AUTOMATION_DRAFTS_RULE,
   "- Member changes and plugin registrations also need the person who called you to confirm their identity again. Propose registerPlugin or updatePluginRef (with trust: true) ONLY if that person explicitly said they trust that repository and that commit: registering a plugin runs its code.",
   "- If a tool says something is not found or not visible, say it is not available: never guess, never say whether it exists.",
   "- There are no files, shell or web here: only the stubwise_chat tools.",
   "",
   "ACTIONS YOU CAN PROPOSE (fn and args of propose_action)",
   claudeActionSignatures(instancePermissions),
+  "",
+  claudeAutomationGuide(),
 ].join("\n");
 
 export function buildChatMentionPrimingPrompt(

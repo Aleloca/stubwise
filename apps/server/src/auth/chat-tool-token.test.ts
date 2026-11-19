@@ -69,6 +69,8 @@ describe("il token del turno della chat", () => {
     expect((await get(`/api/tasks/by-code/${hiddenCode}`, token)).statusCode).toBe(404);
     // Fetta 3: le persone, per proporre un assegnatario per nome.
     expect((await get("/api/people", token)).statusCode).toBe(200);
+    // Area 10, F2: i reparti, per «avvisa un reparto».
+    expect((await get("/api/departments", token)).statusCode).toBe(200);
   });
 
   it("legge una pagina Docs intera (area 5, fetta 1) di un progetto che l'autore vede; l'albero no", async () => {

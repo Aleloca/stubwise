@@ -160,6 +160,7 @@ export function buildChatMcpServer(config: ChatMcpConfig, fetchImpl: typeof fetc
       >[2],
     );
   register("list_projects", "List the Stubwise projects the user can see: id, code, name, description.", {});
+  register("list_departments", "List the departments of this Stubwise instance: id and name (use the id to notify a department in an automation step).", {});
   register(
     "list_people",
     "List the people the user can see (id, name, initials, departments), to find an assignee by name. The row marked isClaude is Claude itself: assigning it starts Claude's work, only in claudeAssignableProjectIds.",

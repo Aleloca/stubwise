@@ -190,6 +190,8 @@ export function chatServerPaths(tool: ChatReadToolName, args: Args): string[] {
       return ["/api/projects"];
     case "list_people":
       return ["/api/people"];
+    case "list_departments":
+      return ["/api/departments"];
     case "search_tasks": {
       const q = new URLSearchParams();
       const text = str(args["text"]);
@@ -538,6 +540,8 @@ function calendarEventResult(json: unknown): unknown {
 }
 
 export function projectToolResult(tool: ChatReadToolName, json: unknown, path = ""): unknown {
+  // Area 10, F2: dei reparti solo id, nome e il ripiego (i permessi che danno no).
+  if (tool === "list_departments") return pickAll(json, ["id", "name", "isDefault"]);
   if (tool === "read_mail_thread") return mailThreadResult(json);
   if (tool === "read_calendar_event") return calendarEventResult(json);
   if (tool === "read_automation") return automationResult(json);

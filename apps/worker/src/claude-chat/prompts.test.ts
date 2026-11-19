@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildChatPrimingPrompt, CHAT_UNDO_LABEL, chatMentionContract } from "./prompts.js";
+import { claudeAutomationGuide } from "@stubwise/shared";
+import { AUTOMATION_DRAFTS_RULE, buildChatPrimingPrompt, CHAT_UNDO_LABEL, chatMentionContract } from "./prompts.js";
 
 const prompt = (language: "en" | "it") =>
   buildChatPrimingPrompt({ language, authorName: "Ada", context: null, toolsAvailable: true, recentTranscript: [] }, "ciao");
@@ -84,5 +85,25 @@ describe("le voci d'istanza solo a chi può proporle (area 9, F7)", () => {
     expect(build(new Set(["settings.manage"]))).toMatch(/^- setModel\(/m);
     expect(chatMentionContract(new Set())).not.toMatch(/^- updateWebhook\(/m);
     expect(chatMentionContract(new Set(["integrations.manage"]))).toMatch(/^- updateWebhook\(/m);
+  });
+});
+
+describe("area 10, F2: domande a scelta e bozze di automazione", () => {
+  it("la libera: una domanda con ask_question, una sola; le automazioni sono SEMPRE bozze spente, mai «accesa»", () => {
+    const p = prompt("it");
+    expect(p).toMatch(/call ask_question ONCE/);
+    expect(p).toMatch(/Never ask a second question/);
+    expect(p).toContain(AUTOMATION_DRAFTS_RULE);
+    expect(AUTOMATION_DRAFTS_RULE).toMatch(/always a DRAFT/);
+    expect(AUTOMATION_DRAFTS_RULE).toMatch(/never offer to turn it on, publish, pause or run it/);
+  });
+
+  it("anche @Claude nella Chat: le bozze restano bozze", () => {
+    expect(chatMentionContract()).toContain(AUTOMATION_DRAFTS_RULE);
+  });
+
+  it("la guida ai flussi accanto alle firme, in tutti e due i contratti (golden S1: senza, il modello inventava l'inizio)", () => {
+    expect(prompt("it")).toContain(claudeAutomationGuide());
+    expect(chatMentionContract()).toContain(claudeAutomationGuide());
   });
 });

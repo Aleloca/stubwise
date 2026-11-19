@@ -81,6 +81,9 @@ export const CHAT_TOOL_READ_ROUTES: ReadonlySet<string> = new Set([
   // Contenuto NON fidato: anche in `CHAT_TOOL_UNTRUSTED_ROUTES`.
   "/api/me/mail/threads/:threadId",
   "/api/me/calendar/events/:id",
+  // Area 10, F2 (`list_departments`, S1): i reparti dell'istanza, per chi
+  // chiede. Il ponte passa solo id, nome e se è il reparto di ripiego.
+  "/api/departments",
 ]);
 
 /**
