@@ -160,6 +160,40 @@ describe("il token del turno della chat", () => {
     expect(await markOf(c.sessionId)).not.toBeNull();
   });
 
+  it("area 10, F1: posta e calendario solo di CHI CHIEDE — un full admin che chiede quelli di un altro riceve 404 e niente segno; i suoi, 200 e il segno", async () => {
+    const { googleWorkspaces, googleAccounts, emailMessages, calendarEvents } = await import("@stubwise/db");
+    const [ws] = await t.db.insert(googleWorkspaces).values({ name: "Acme", domains: ["acme.test"], clientId: "c", clientSecretEncrypted: "x" }).returning();
+    const mailboxOf = async (userId: string, tag: string) => {
+      const [acc] = await t.db.insert(googleAccounts).values({ userId, workspaceId: ws!.id, email: `${tag}@acme.test`, googleSub: `sub-${tag}`, refreshTokenEncrypted: "x" }).returning();
+      const threadId = `t-${tag}`;
+      await t.db.insert(emailMessages).values({ accountId: acc!.id, gmailMessageId: `m-${tag}`, threadId, fromAddress: "laura@cliente.test", subject: "Preventivo", receivedAt: new Date("2026-11-19T08:00:00.000Z"), status: "new", textExcerpt: "Ciao" });
+      const [ev] = await t.db.insert(calendarEvents).values({ accountId: acc!.id, googleEventId: `e-${tag}`, title: "Demo", startsAt: new Date("2026-11-20T10:00:00.000Z"), status: "confirmed", fingerprint: `f-${tag}` }).returning();
+      return { accountId: acc!.id, threadId, eventId: ev!.id };
+    };
+    const authorBox = await mailboxOf(author.id, "autore");
+    const adminBox = await mailboxOf(u.adminId, "admin");
+    const markOf = async (sessionId: string) =>
+      (await t.db.select({ at: claudeConversations.untrustedReadAt }).from(claudeConversations).where(eq(claudeConversations.sessionId, sessionId)))[0]!.at;
+    const turn = async () => {
+      const sessionId = await conversationOf(u.adminCookie);
+      return { sessionId, token: await issueChatToolToken(t.db, { sessionId, userId: u.adminId, ttlMs: 60_000 }) };
+    };
+
+    const a = await turn();
+    expect((await get(`/api/me/mail/threads/${authorBox.threadId}?account=${authorBox.accountId}`, a.token)).statusCode).toBe(404);
+    expect((await get(`/api/me/mail/threads/${authorBox.threadId}`, a.token)).statusCode).toBe(404);
+    expect((await get(`/api/me/calendar/events/${authorBox.eventId}`, a.token)).statusCode).toBe(404);
+    expect(await markOf(a.sessionId)).toBeNull();
+
+    const b = await turn();
+    expect((await get(`/api/me/mail/threads/${adminBox.threadId}?account=${adminBox.accountId}`, b.token)).statusCode).toBe(200);
+    expect(await markOf(b.sessionId)).not.toBeNull();
+
+    const c = await turn();
+    expect((await get(`/api/me/calendar/events/${adminBox.eventId}`, c.token)).statusCode).toBe(200);
+    expect(await markOf(c.sessionId)).not.toBeNull();
+  });
+
   it("solo GET e solo l'allowlist: altre GET, scritture e rotte di credenziale sono rifiutate", async () => {
     const sessionId = await conversationOf(author.headers.cookie);
     const token = await issueChatToolToken(t.db, { sessionId, userId: author.id, ttlMs: 60_000 });

@@ -34,6 +34,10 @@ export const CHAT_TOOL_UNTRUSTED_ROUTES: ReadonlySet<string> = new Set([
   "/api/support/conversations/by-code/:code",
   "/api/chat/channels/:id",
   "/api/chat/channels/:id/messages",
+  // Area 10, F1: una conversazione della posta e un appuntamento (li scrivono
+  // mittenti e organizzatori, anche di fuori).
+  "/api/me/mail/threads/:threadId",
+  "/api/me/calendar/events/:id",
 ]);
 
 /**

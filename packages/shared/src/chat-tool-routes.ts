@@ -75,6 +75,12 @@ export const CHAT_TOOL_READ_ROUTES: ReadonlySet<string> = new Set([
   "/api/support/conversations/by-code/:code",
   "/api/chat/channels/:id",
   "/api/chat/channels/:id/messages",
+  // Area 10, F1 (`read_mail_thread`, `read_calendar_event`): la posta e il
+  // calendario di CHI CHIEDE — le rotte leggono con l'id dell'utente, e un
+  // admin che chiede quelli di un altro riceve 404 (`mailbox_owner`).
+  // Contenuto NON fidato: anche in `CHAT_TOOL_UNTRUSTED_ROUTES`.
+  "/api/me/mail/threads/:threadId",
+  "/api/me/calendar/events/:id",
 ]);
 
 /**
