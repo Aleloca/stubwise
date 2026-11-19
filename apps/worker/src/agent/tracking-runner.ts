@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { Db } from "@stubwise/db";
 import { isConfigurableAiOperation } from "@stubwise/shared";
+import { clearProviderLimit, rateLimitAllowsUnlock, writeRateLimitSnapshot } from "../providers/usage-window.js";
 import { recordUsage } from "../queue.js";
 import { ClaudeCliRunner } from "./claude-cli.js";
 import { createModelResolver, type ModelResolver } from "./model-settings.js";
+import type { RateLimitInfo } from "./rate-limit-event.js";
 import type { AgentRunner, AgentRunOptions, AgentRunResult } from "./runner.js";
 
 export interface TrackingAgentRunnerDeps {
@@ -52,6 +54,34 @@ export class TrackingAgentRunner implements AgentRunner {
     return this.inner.recordsSessions;
   }
 
+  /**
+   * La `onRateLimit` da passare al runner interno. Per un account concatena
+   * quella del chiamante e la scrittura dello snapshot; per api_key o nessun
+   * provider lascia quella del chiamante com'è. Non lancia mai e ritorna la
+   * promessa del lavoro (lo streaming non l'attende, un test sì).
+   */
+  private rateLimitHook(opts: AgentRunOptions): Pick<AgentRunOptions, "onRateLimit"> | Record<string, never> {
+    const provider = opts.provider;
+    if (provider?.kind !== "account") return {};
+    const caller = opts.onRateLimit;
+    const db = this.db;
+    return {
+      onRateLimit: async (info: RateLimitInfo, at: Date): Promise<void> => {
+        try {
+          await caller?.(info, at);
+        } catch (err) {
+          console.error("[stubwise-worker] usage: onRateLimit del chiamante fallita:", errMessage(err));
+        }
+        try {
+          await writeRateLimitSnapshot(db, provider.id, info, at);
+          if (rateLimitAllowsUnlock(info)) await clearProviderLimit(db, provider.id);
+        } catch (err) {
+          console.error(`[stubwise-worker] usage: snapshot da rate_limit_event non scritto (${provider.id}):`, errMessage(err));
+        }
+      },
+    };
+  }
+
   async run(opts: AgentRunOptions): Promise<AgentRunResult> {
     const tag = opts.usage;
     let model = opts.model;
@@ -59,7 +89,11 @@ export class TrackingAgentRunner implements AgentRunner {
       model = await this.models.resolve(tag.operation, opts.model);
     }
     const runId = randomUUID();
-    const result = await this.inner.run({ ...opts, ...(model !== undefined ? { model } : {}) });
+    const result = await this.inner.run({
+      ...opts,
+      ...(model !== undefined ? { model } : {}),
+      ...this.rateLimitHook(opts),
+    });
     if (tag.record !== false) {
       await recordUsage(this.db, {
         ...(result.usage !== undefined ? { usage: result.usage } : {}),
@@ -82,4 +116,8 @@ export class TrackingAgentRunner implements AgentRunner {
  */
 export function trackedClaudeCliRunner(db: Db): TrackingAgentRunner {
   return new TrackingAgentRunner({ inner: new ClaudeCliRunner(), db, models: createModelResolver(db, console) });
+}
+
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
