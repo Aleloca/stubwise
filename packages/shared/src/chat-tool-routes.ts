@@ -68,6 +68,13 @@ export const CHAT_TOOL_READ_ROUTES: ReadonlySet<string> = new Set([
   // lo vede. Il ponte toglie il `target` dei check (per i DSN è la stringa del
   // database) e il loro `lastError`.
   "/api/servers/by-code/:code",
+  // Area 10, F1 (`read_support_conversation`, `read_channel`): contenuto NON
+  // fidato, anche in `CHAT_TOOL_UNTRUSTED_ROUTES` del server. La conversazione
+  // con la visibilità del progetto; il canale con le regole della Chat (un
+  // privato di cui non si è membri è 404).
+  "/api/support/conversations/by-code/:code",
+  "/api/chat/channels/:id",
+  "/api/chat/channels/:id/messages",
 ]);
 
 /**

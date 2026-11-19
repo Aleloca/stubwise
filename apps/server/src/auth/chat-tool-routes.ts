@@ -27,6 +27,13 @@ export const CHAT_TOOL_UNTRUSTED_ROUTES: ReadonlySet<string> = new Set([
   // della PR (anche di un esterno), i nomi e i passi delle run del provider di
   // CI, le note di rilascio. NON fidato: la lettura segna la conversazione.
   "/api/releases/:code",
+  // Area 10, F1: una conversazione di supporto (la scrive il cliente) e i
+  // messaggi di un canale (li scrive chiunque ne sia membro, anche un ospite).
+  // Il dettaglio del canale (nome, descrizione) lo segna anch'esso: lo scrive
+  // chi l'ha creato, e la lettura va sempre insieme ai messaggi.
+  "/api/support/conversations/by-code/:code",
+  "/api/chat/channels/:id",
+  "/api/chat/channels/:id/messages",
 ]);
 
 /**

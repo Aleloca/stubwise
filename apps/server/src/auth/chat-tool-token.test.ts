@@ -124,6 +124,42 @@ describe("il token del turno della chat", () => {
     expect(row!.at).toBeNull();
   });
 
+  it("area 10, F1: supporto e canali sono contenuto NON fidato — leggerli (200) segna la conversazione; un 404 (nascosto, privato di altri) no", async () => {
+    const { widgetConversations, widgetMessages, chatChannels } = await import("@stubwise/db");
+    const projectOf = async (repo: string) => (await t.db.execute<{ project_id: string; code: string }>(sql`select r.project_id, p.code from repositories r join projects p on p.id = r.project_id where r.id = ${repo}`))[0]!;
+    const seenP = await projectOf(seenRepo);
+    const hiddenP = await projectOf(hiddenRepo);
+    const conv = async (p: { project_id: string; code: string }) => {
+      const [c] = await t.db.insert(widgetConversations).values({ projectId: p.project_id, externalUserId: "v1", externalUserEmail: "cliente@example.com" }).returning();
+      await t.db.insert(widgetMessages).values({ conversationId: c!.id, role: "user", content: "Ciao" });
+      return `${p.code}-S${c!.number}`;
+    };
+    const seenConv = await conv(seenP);
+    const hiddenConv = await conv(hiddenP);
+    const [open] = await t.db.insert(chatChannels).values({ projectId: seenP.project_id, kind: "project", visibility: "open", name: "aperto" }).returning();
+    const [secret] = await t.db.insert(chatChannels).values({ projectId: seenP.project_id, kind: "project", visibility: "private", name: "riservato" }).returning();
+    const markOf = async (sessionId: string) =>
+      (await t.db.select({ at: claudeConversations.untrustedReadAt }).from(claudeConversations).where(eq(claudeConversations.sessionId, sessionId)))[0]!.at;
+    const turn = async () => {
+      const sessionId = await conversationOf(author.headers.cookie);
+      return { sessionId, token: await issueChatToolToken(t.db, { sessionId, userId: author.id, ttlMs: 60_000 }) };
+    };
+
+    const a = await turn();
+    expect((await get(`/api/support/conversations/by-code/${hiddenConv}`, a.token)).statusCode).toBe(404);
+    expect((await get(`/api/chat/channels/${secret!.id}`, a.token)).statusCode).toBe(404);
+    expect((await get(`/api/chat/channels/${secret!.id}/messages?limit=30`, a.token)).statusCode).toBe(404);
+    expect(await markOf(a.sessionId)).toBeNull();
+
+    const b = await turn();
+    expect((await get(`/api/support/conversations/by-code/${seenConv}`, b.token)).statusCode).toBe(200);
+    expect(await markOf(b.sessionId)).not.toBeNull();
+
+    const c = await turn();
+    expect((await get(`/api/chat/channels/${open!.id}/messages?limit=30`, c.token)).statusCode).toBe(200);
+    expect(await markOf(c.sessionId)).not.toBeNull();
+  });
+
   it("solo GET e solo l'allowlist: altre GET, scritture e rotte di credenziale sono rifiutate", async () => {
     const sessionId = await conversationOf(author.headers.cookie);
     const token = await issueChatToolToken(t.db, { sessionId, userId: author.id, ttlMs: 60_000 });
