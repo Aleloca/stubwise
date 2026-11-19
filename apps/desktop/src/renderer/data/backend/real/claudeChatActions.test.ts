@@ -154,6 +154,24 @@ describe("proposte e azioni di Claude nella conversazione", () => {
     expect(detail.undo?.[GROUP_A]).toEqual({ state: "available", needsReauth: false });
   });
 
+  it("F7: una C del server (`reauth`) è il motivo «Asks for your two-step code» della scheda; senza il campo, niente", async () => {
+    install({
+      [`GET /api/claude/conversations/${CONV}/proposals`]: {
+        body: [
+          proposals[0],
+          { ...proposals[1], cls: "C", reauth: true, reasons: [{ kind: "irreversible" }] },
+        ],
+      },
+    });
+    await getSessionPerson();
+    const card = (await getConversation(CONV))!.events.find((e) => e.type === "proposal")!;
+    expect(card).toMatchObject({ cls: "C", reasons: [{ kind: "irreversible" }, { kind: "reauth" }] });
+    // Un server di prima non manda `reauth`: la scheda resta com'era.
+    install();
+    const old = (await getConversation(CONV))!.events.find((e) => e.type === "proposal")!;
+    expect((old as { reasons: { kind: string }[] }).reasons.map((r) => r.kind)).toEqual(["notifies"]);
+  });
+
   it("una B confermata: la scheda resta (confermata, col suo gruppo e i codici), nessuna riga in più", async () => {
     install({
       [`GET /api/agent-sessions/${CONV}/events`]: {

@@ -223,7 +223,7 @@ describe("i bottoni per classe (maintainer)", () => {
 describe("scheda di un plugin: registrare ne esegue il codice (decisione del maintainer, F7, M-6)", () => {
   const register: ProposedAction = {
     fn: "registerPlugin",
-    args: { url: "https://github.com/acme/tools", ref: "main", trusted: true },
+    args: { url: "https://github.com/acme/tools", ref: "main", trust: true },
     summary: "Register the plugin https://github.com/acme/tools",
   };
 
@@ -241,7 +241,7 @@ describe("scheda di un plugin: registrare ne esegue il codice (decisione del mai
   it("anche per una ref nuova (updatePluginRef); una proposta senza plugin non lo dice", async () => {
     const move: ProposedAction = {
       fn: "updatePluginRef",
-      args: { id: "plg-x", ref: "v2", trusted: true },
+      args: { id: "plg-x", ref: "v2", trust: true },
       summary: "Move a plugin to v2",
     };
     const id = await injected(ROBERTA, [move], "C", [{ kind: "irreversible" }, { kind: "reauth" }]);

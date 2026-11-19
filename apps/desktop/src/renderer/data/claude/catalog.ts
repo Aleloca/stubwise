@@ -663,7 +663,8 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
           url: args.url as string,
           ref: args.ref as string,
           subdir: (args.subdir as string | null | undefined) ?? null,
-          trusted: args.trusted as true,
+          // `trust`, come la rotta del server (72, F7): «Mi fido» lo scrive la persona.
+          trusted: args.trust as true,
         }),
       );
       return onSetting(`plugin:${pluginId}`, null);
@@ -676,7 +677,7 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
     whoAction: "managePlugins",
     run(me, args) {
       const id = args.id as string;
-      done(updatePluginRefAs(me, id, { ref: args.ref as string, trusted: args.trusted as true }));
+      done(updatePluginRefAs(me, id, { ref: args.ref as string, trusted: args.trust as true }));
       return onSetting(`plugin:${id}`, null);
     },
   },

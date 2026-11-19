@@ -212,7 +212,7 @@ const SCENARIOS: Partial<Record<ClaudeActionFn, () => Record<string, unknown>>> 
     url: "https://github.com/acme/review-kit",
     ref: "v1.2.0",
     subdir: null,
-    trusted: true,
+    trust: true,
   }),
   rerunSmoke: () => ({ id: "plg-superpowers" }),
   removePlugin: () => ({ id: "plg-lint-helpers" }),

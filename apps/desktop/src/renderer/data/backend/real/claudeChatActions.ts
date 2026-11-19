@@ -211,8 +211,8 @@ const WHO_ACTION: Partial<Record<string, string>> = {
   deleteTask: "deleteTasks",
 };
 
-const reasonsOf = (p: ProposalView): ClassReason[] =>
-  p.reasons.flatMap((r): ClassReason[] =>
+const reasonsOf = (p: ProposalView): ClassReason[] => [
+  ...p.reasons.flatMap((r): ClassReason[] =>
     r.kind === "notifies"
       ? [{ kind: "notifies", personIds: [...r.personIds], more: r.more }]
       : r.kind === "irreversible"
@@ -220,7 +220,11 @@ const reasonsOf = (p: ProposalView): ClassReason[] =>
         : r.kind === "starts_work"
           ? [{ kind: "startsWork" }]
           : [],
-  );
+  ),
+  // F7: «chiede la riconferma» è un campo del server (M-3, il motivo non è
+  // apribile), nella scheda del prototipo un motivo, in fondo come lì.
+  ...(p.reauth ? [{ kind: "reauth" as const }] : []),
+];
 
 /** Il rifiuto del server nella forma del prototipo («Couldn't do it · Who?»). */
 function failureOf(p: ProposalView): ExecutedFailure | undefined {

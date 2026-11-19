@@ -218,7 +218,7 @@ const PLUGIN_FNS: ReadonlySet<string> = new Set(["registerPlugin", "updatePlugin
 /**
  * Registrare un plugin ne ESEGUE già il codice (CLAUDE.md, «Plugin e skill»):
  * la scheda lo dice prima di Confirm, e che chi chiede ha scritto di fidarsi
- * (`trusted`, decisione del maintainer in F7, M-6). La frase sta nel client,
+ * (`trust`, decisione del maintainer in F7, M-6). La frase sta nel client,
  * dalla `fn`: nessun motivo nuovo del server.
  */
 function PluginRunsCode({ trusted }: { trusted: boolean }) {
@@ -541,7 +541,7 @@ export function ProposalCardView({
               )}
         </button>
       )}
-      {open && pluginAction && <PluginRunsCode trusted={pluginAction.args.trusted === true} />}
+      {open && pluginAction && <PluginRunsCode trusted={pluginAction.args.trust === true} />}
       {open && event.reasons && event.reasons.length > 0 && (
         <ReasonRows
           reasons={blocked ? event.reasons.filter((r) => r.kind !== "reauth") : event.reasons}
