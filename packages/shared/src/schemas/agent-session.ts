@@ -181,6 +181,9 @@ export const agentSessionEventTypeSchema = z.enum([
   // Area 10, F2: una domanda a scelta di Claude nella conversazione libera.
   // `data`: solo `{ questionId }`; testo, opzioni e risposta si leggono a lettura.
   "question",
+  // Area 10, F3 (S2): «Hypothesis» e «Details» del lavoro fermo. `data`: id e
+  // una chiave, mai prosa; si arricchisce a lettura con la visibilità.
+  "aside",
 ]);
 export type AgentSessionEventType = z.infer<typeof agentSessionEventTypeSchema>;
 
