@@ -39,3 +39,62 @@ export const archiveBusyErrorSchema = z.object({
   message: z.string(),
   reasons: z.array(busyReasonSchema).default([]),
 });
+
+/**
+ * Quante cose ha il progetto: la pagina dell'archiviato e l'anteprima di
+ * Delete (le dieci chiavi del prototipo, `DeletionCounts`). Sempre tutte:
+ * 0 dove l'area non ha righe.
+ */
+export const deletionCountsSchema = z.object({
+  tasks: z.number().int().default(0),
+  requests: z.number().int().default(0),
+  docPages: z.number().int().default(0),
+  conversations: z.number().int().default(0),
+  channels: z.number().int().default(0),
+  driveFiles: z.number().int().default(0),
+  automations: z.number().int().default(0),
+  environments: z.number().int().default(0),
+  envFiles: z.number().int().default(0),
+  releases: z.number().int().default(0),
+});
+export type DeletionCounts = z.infer<typeof deletionCountsSchema>;
+
+/**
+ * Una riga della scheda «Archived» (`ArchivedProjectRow` del prototipo),
+ * per i membri di allora e i full admin. `archivedBy` è il NOME di chi l'ha
+ * archiviato, `null` se la persona non c'è più. I permessi li calcola il
+ * server.
+ */
+export const archivedProjectRowSchema = z.object({
+  projectId: z.uuid(),
+  code: z.string(),
+  name: z.string(),
+  clientName: z.string().nullable().default(null),
+  archivedAt: z.iso.datetime(),
+  archivedBy: z.string().nullable().default(null),
+  canReopen: z.boolean().default(false),
+  canDelete: z.boolean().default(false),
+});
+export type ArchivedProjectRow = z.infer<typeof archivedProjectRowSchema>;
+
+/** Gli interruttori com'erano all'archiviazione: tornano così riaprendo. */
+export const projectSwitchesSchema = z.object({
+  docsNightly: z.boolean().default(false),
+  dailyReport: z.boolean().default(false),
+  backlogDiscovery: z.boolean().default(false),
+  pulse: z.boolean().default(false),
+  weeklyBrief: z.boolean().default(false),
+});
+
+/** La pagina dell'archiviato (`ArchivedProjectView` del prototipo). */
+export const archivedProjectViewSchema = archivedProjectRowSchema.extend({
+  description: z.string().default(""),
+  /** I membri umani, col ruolo di progetto per nome; Claude e i bot non ci sono. */
+  members: z.array(z.object({ personId: z.uuid(), name: z.string(), role: z.string() })).default([]),
+  counts: deletionCountsSchema,
+  /** I nomi, in ordine alfabetico: a Delete restano senza progetto. */
+  repositories: z.array(z.string()).default([]),
+  switchesOnReopen: projectSwitchesSchema,
+  pulseEveryDays: z.number().int(),
+});
+export type ArchivedProjectView = z.infer<typeof archivedProjectViewSchema>;

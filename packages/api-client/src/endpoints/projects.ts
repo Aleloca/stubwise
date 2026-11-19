@@ -1,4 +1,6 @@
 import {
+  archivedProjectRowSchema,
+  archivedProjectViewSchema,
   archivePreviewSchema,
   memberPreviewSchema,
   projectMembersViewSchema,
@@ -18,6 +20,8 @@ import {
   weeklyBriefViewSchema,
 } from "@stubwise/shared";
 import type {
+  ArchivedProjectRow,
+  ArchivedProjectView,
   ArchivePreview,
   MemberPreview,
   ProjectMembersView,
@@ -92,6 +96,14 @@ export function createProjectsEndpoints(request: ApiRequest) {
      */
     archive(projectId: string): Promise<void> {
       return request("POST", `/api/projects/${seg(projectId)}/archive`);
+    },
+    /** La scheda «Archived»: gli archiviati che chi guarda vede, dal più recente. */
+    archived(): Promise<Reader<ArchivedProjectRow>[]> {
+      return request("GET", "/api/projects/archived", undefined, z.array(archivedProjectRowSchema));
+    },
+    /** La pagina di un archiviato; 404 per chi non lo vede da archiviato o per un progetto aperto. */
+    archivedView(projectId: string): Promise<Reader<ArchivedProjectView>> {
+      return request("GET", `/api/projects/${seg(projectId)}/archived-view`, undefined, archivedProjectViewSchema);
     },
     /** Riapre un archiviato; 409 `not_archived` se non lo è. */
     reopen(projectId: string): Promise<void> {
