@@ -17,7 +17,13 @@ import {
   THRESHOLD_PAUSE_REASON,
 } from "../docs/nodes.js";
 import { getContentLanguage } from "../settings.js";
-import { latestSnapshots, MAX_SNAPSHOT_AGE_MS, parseWindow, type LatestSnapshot } from "./usage-window.js";
+import {
+  effectiveUsedPercent,
+  latestSnapshots,
+  MAX_SNAPSHOT_AGE_MS,
+  parseWindow,
+  type   LatestSnapshot,
+} from "./usage-window.js";
 import type { ResolvedProvider } from "./chain.js";
 import { QuotaWaitLog } from "./quota-wait.js";
 import { selectProviders, type SelectDeps, type SelectInput } from "./select.js";
@@ -109,7 +115,8 @@ function errText(err: unknown): string {
 /**
  * Decide se `provider` ha di nuovo margine per lavorare.
  *  - `account` con snapshot FRESCO (età <= maxSnapshotAgeMs) e parsato:
- *    sessione usata < headroomPercent E weekly usata < 100. Il dato fresco è
+ *    sessione usata < headroomPercent E weekly usata < 100 (finestra assente
+ *    = 0, reset passato = 0: vedi effectiveUsedPercent). Il dato fresco è
  *    autoritativo in ENTRAMBE le direzioni (niente fallback a tempo se dice
  *    "ancora al limite").
  *  - altrimenti (api_key, snapshot stantio/assente/non parsato/jsonb malformato):
@@ -129,10 +136,19 @@ function hasHeadroom(
     if (snap && snap.parseOk && now.getTime() - snap.capturedAt.getTime() <= deps.maxSnapshotAgeMs) {
       const session = parseWindow(snap.sessionRemaining);
       const weekly = parseWindow(snap.weeklyRemaining);
-      if (session && weekly) {
-        return session.percentUsed < deps.headroomPercent && weekly.percentUsed < 100;
+      // Una finestra assente (null) conta 0 e una col reset passato è ripartita
+      // (effectiveUsedPercent). Solo un jsonb presente ma illeggibile, su
+      // entrambe, cade nel fallback a tempo qui sotto.
+      const malformed =
+        session === null &&
+        weekly === null &&
+        (snap.sessionRemaining !== null || snap.weeklyRemaining !== null);
+      if (!malformed) {
+        return (
+          effectiveUsedPercent(snap.sessionRemaining, snap.sessionResetAt, now) < deps.headroomPercent &&
+          effectiveUsedPercent(snap.weeklyRemaining, snap.weeklyResetAt, now) < 100
+        );
       }
-      // jsonb malformato: cade nel fallback a tempo qui sotto.
     }
   }
   return now.getTime() - pausedSince.getTime() > deps.cooldownMs;
