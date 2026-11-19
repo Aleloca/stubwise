@@ -201,6 +201,8 @@ describe("rotte con riconferma recente", () => {
     expect(partial.sort()).toEqual([
       "DELETE /api/projects/:projectId/environments/:environmentId",
       "PATCH /api/ai-providers/:id",
+      // Area 9, F8 (F8-3 = a): quando la scrittura fa arrivare permessi a qualcuno.
+      "PATCH /api/departments/:id",
       "PATCH /api/git-accounts/:id",
       "PATCH /api/settings/google-workspaces/:id",
       "PATCH /api/settings/webhooks/:id",
