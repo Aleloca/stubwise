@@ -222,7 +222,7 @@ describe("registro decisioni: decisions.record", () => {
 });
 
 describe("impostazioni del progetto: project.settings.manage", () => {
-  it("senza (Developer): PATCH, DELETE, email-routes, brief e plugin 403, stato invariato", async () => {
+  it("senza (Developer): PATCH, DELETE, email-routes, brief e PUT dei plugin 403 (il GET in sola lettura), stato invariato", async () => {
     const patch = await call(dev, "PATCH", `/api/projects/${projectId}`, { name: "Rinominato" });
     expect(patch.statusCode).toBe(403);
     const del = await call(dev, "DELETE", `/api/projects/${projectId}`);
@@ -233,7 +233,10 @@ describe("impostazioni del progetto: project.settings.manage", () => {
     expect(routes.statusCode).toBe(403);
     const brief = await call(dev, "POST", `/api/projects/${projectId}/briefs/generate`, {});
     expect(brief.statusCode).toBe(403);
-    expect((await call(dev, "GET", `/api/projects/${projectId}/plugins`)).statusCode).toBe(403);
+    // Review di F5: i plugin si LEGGONO da chi vede il progetto, in sola lettura.
+    const plugins = await call(dev, "GET", `/api/projects/${projectId}/plugins`);
+    expect(plugins.statusCode).toBe(200);
+    expect((plugins.json() as { canEdit: boolean }).canEdit).toBe(false);
     expect(
       (await call(dev, "PUT", `/api/projects/${projectId}/plugins`, { plugins: [] })).statusCode,
     ).toBe(403);
