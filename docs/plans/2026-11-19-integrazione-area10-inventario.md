@@ -280,14 +280,12 @@ Gli stessi titoli nei due lati:
   dicendo dove si fa (`domain/claude/intents/refused.ts`).
 - **App**: A e B calcolate dal server con la prova a secco; D la dice il
   modello col contratto del prompt (golden `chat-never-catalog`).
-- **Lacune**:
-  - la **C** non esiste: le sei azioni C del prototipo (`addMember`,
-    `removeMember`, `setMemberRole`, `registerPlugin`, `updatePluginRef`,
-    `saveStorage`) sono tutte dell'area 9, quindi la C arriva con F7
-    dell'area 9;
-  - nel renderer, `confirmEdited` (la scheda «Edit») salta il `reauth()` che
-    usa la conferma semplice: innocuo finché nessuna C ha «Edit», da chiudere
-    con la prima C (registro, area 9).
+- **Lacune**: *(aggiornato dopo F7 dell'area 9, 19 nov 2026)* nessuna. La
+  **C** c'è da F7: `reauth` per azione e per gruppo dal server, il motivo
+  «Asks for your two-step code» nella scheda, la riconferma di chi conferma
+  anche con «Edit» (`confirmEditedVia`) e dalla Chat. La classe segue la
+  rotta: `saveStorage` e `updateWebhook` di Claude sono B, e `saveStorage`
+  è uscita dal catalogo del server.
 
 ### 4. Il catalogo delle azioni — in parte
 
@@ -296,13 +294,20 @@ server. Per area:
 
 | Area | Funzioni del prototipo che il server non ha | Fetta che le porta |
 |---|---|---|
-| 7, automazioni | `createAutomation`, `saveAutomationDraft`, `deleteAutomationDraft`, `saveAutomation`, `saveProjectAutomations` | area 10 (S1, voce 10) |
+| 7, automazioni | `createAutomation`, `saveAutomationDraft`, `deleteAutomationDraft` | area 10 (S1, voce 10) |
 | 9, membri e ruoli | `addMember`, `removeMember`, `setMemberRole` | F7 dell'area 9 |
 | 9, progetto | `archiveProject`, `reopenProject`, `updateProjectGeneral`, `setProjectAi` | F7 dell'area 9 (archivia e riapri dopo F6) |
 | 9, AI dell'istanza | `setModel`, `saveBudget`, `setProviderEnabled`, `moveProvider` | F7 dell'area 9 |
 | 9, integrazioni | `registerPlugin`, `updatePluginRef`, `removePlugin`, `rerunSmoke`, `updateGitAccount`, `setDefaultReviewer`, `updateGoogleApp`, `saveStorage`, `setAttachments`, `updateWebhook` | F7 dell'area 9 |
 | 9, stato dell'istanza | `pauseQueue`, `resumeQueue`, `retryJob` | F7 dell'area 9 |
 | 11, doc di prodotto | `writeFirstVersion`, `undoFirstVersion`, `updateProductPage`, `undoProductUpdate`, `drawWireframe`, `deleteWireframe` | area 11 |
+
+*Aggiornato dopo F7 dell'area 9 (19 nov 2026)*: le righe dell'area 9 sono
+sul server, tranne `setAttachments`, `setDefaultReviewer` e `saveStorage`, che
+il server non esegue (registro dei rimandi); `saveAutomation` e
+`saveProjectAutomations` sono dell'area 9 (la regola d'istanza e gli
+interruttori del progetto), non dell'area 7. La parità fra i due cataloghi
+la tiene `data/claude/catalogParity.test.ts`.
 
 Le funzioni delle aree 2–6 e 8 del prototipo ci sono tutte (con `fillMailBody`
 della Posta e `setSubscription` degli avvisi). Il renderer non cambia per
@@ -321,10 +326,9 @@ aggiungerne una: la scheda e la riga si derivano dalle viste del server
 - **App**: c'è su storia della task, commenti, card d'inbox («Claude on
   behalf of …») e attività delle persone (derivato a lettura).
 - **Lacune**:
-  - il **registro delle modifiche**: «Made with Claude» (`?via=claude`) e la
-    riga «Undid: …» sotto l'inversa restano spenti (`real/changelog.ts`
-    risponde vuoto a `via: "claude"`, `undoOf: null`). Il registro li
-    rimanda a F7 dell'area 9;
+  - ~~il **registro delle modifiche**: «Made with Claude» e «Undid: …»~~
+    *accesi con F7 dell'area 9 (0195)*: `via`, `undoOf` e `undoneEntry` dal
+    server;
   - i messaggi «via Claude» nella Chat: `chat_messages.via_claude_action_id`
     resta inerte finché non c'è un'azione «scrivi nel canale» (registro,
     area 4).
