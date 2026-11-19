@@ -12,6 +12,7 @@ import {
   docGenerations,
   driveFiles,
   environmentServers,
+  graphJobs,
   prReviews,
   projectMembers,
   projects,
@@ -348,6 +349,7 @@ describe("elimina (Task 5): solo un archiviato, solo un full admin", () => {
     await db.insert(commitSummaries).values({ repositoryId: p.repositoryId, sha: "c".repeat(40), authorName: "Bea", authorEmail: "bea@acme.com", subject: "x", summary: "x", committedAt: new Date() });
     await db.insert(docGenerations).values({ repositoryId: p.repositoryId, status: "succeeded" });
     await db.insert(prReviews).values({ repositoryId: p.repositoryId, prNumber: 1, prUrl: "https://x/pr/1", prTitle: "PR", headSha: "a".repeat(40), status: "completed" });
+    await db.insert(graphJobs).values({ repositoryId: p.repositoryId, kind: "build" });
     expect((await call("POST", p.projectId, "archive")).statusCode).toBe(204);
     const res = await del(p.projectId, adminCookie, { confirmCode: p.code });
     expect(res.statusCode).toBe(204);
@@ -358,6 +360,7 @@ describe("elimina (Task 5): solo un archiviato, solo un full admin", () => {
     expect(await db.select().from(commitSummaries).where(eq(commitSummaries.repositoryId, p.repositoryId))).toHaveLength(1);
     expect(await db.select().from(docGenerations).where(eq(docGenerations.repositoryId, p.repositoryId))).toEqual([]);
     expect(await db.select().from(prReviews).where(eq(prReviews.repositoryId, p.repositoryId))).toEqual([]);
+    expect(await db.select().from(graphJobs).where(eq(graphJobs.repositoryId, p.repositoryId))).toEqual([]);
     expect(await db.select().from(deletedProjects).where(eq(deletedProjects.id, p.projectId))).toMatchObject([{ code: p.code }]);
     expect((await db.select().from(deletedProjectMembers).where(eq(deletedProjectMembers.projectId, p.projectId))).map((m) => m.userId)).toContain(p.lead.id);
     const [entry] = await db.select().from(changeLog).where(and(eq(changeLog.type, "project.deleted"), eq(changeLog.subjectId, p.projectId)));

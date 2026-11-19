@@ -189,6 +189,11 @@
 - Le **automazioni generali** che agiscono su un archiviato: il passo
   fallisce in «Needs attention» con la ragione del progetto non
   disponibile ([PX 5]), come su un progetto in pausa.
+- **Limite accettato** (review F6): il `FOR UPDATE` sul progetto non ferma
+  i claim del worker, che leggono il frammento senza lock. Un job `queued`
+  reclamato fra il controllo di `busy` e il commit parte su un progetto che
+  sta per diventare archiviato, e finisce («il lavoro partito finisce»).
+  `busy` è la regola del momento, non una garanzia contro i claim.
 - *Test*: `busy` per ogni ragione (e la ragione cieca per chi non vede la
   sessione); le esecuzioni annullate con la loro ragione; riaprire riporta
   tutto; due archiviazioni insieme (una sola voce); la voce nella
@@ -311,9 +316,11 @@
 - **L-2 — Cosa tiene un repository staccato.**
   - **(a) consigliata**: come il prototipo.
     - **Tiene** nome, URL, account git, comandi, rami protetti, il grafo
-      (`repo_graphs`), i riassunti dei commit (`commit_summaries`) e
-      l'attività (`activity_commits`), che sono fatti del repository e non
-      del progetto.
+      (`repo_graphs`) e i riassunti dei commit (`commit_summaries`), che
+      sono fatti del repository e non del progetto. NON l'attività
+      (`activity_commits`): sta sotto i report del progetto
+      (`activity_reports`, in cascata dal progetto) e se ne va con lui
+      (review F6; i daily report sono del progetto).
     - **Perde** i file d'ambiente (vanno con gli ambienti), i Docs (tutte le
       tabelle `doc_*`), le PR (`pr_reviews`, `pr_corrections`,
       `pr_review_jobs`, `pr_release_notes`), i rilasci, i milestone, gli

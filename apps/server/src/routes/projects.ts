@@ -38,6 +38,7 @@ import {
   scopeProjectIds,
   visibleProjectIds,
   type RouteAccess,
+  inProjectsStrict,
 } from "../auth/access.js";
 import { fromParam } from "../auth/project-resolvers.js";
 import type { ProjectPermission } from "@stubwise/shared";
@@ -435,7 +436,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
           count: sql<number>`count(*)::int`,
         })
         .from(repositories)
-        .where(inProjects(repositories.projectId, visible))
+        .where(inProjectsStrict(repositories.projectId, visible))
         .groupBy(repositories.projectId);
       const countByProject = new Map(counts.map((c) => [c.projectId, c.count]));
       const membersOf = await effectiveMemberIds(app.db, rows.map((r) => r.id));

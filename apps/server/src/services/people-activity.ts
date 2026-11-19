@@ -18,7 +18,7 @@ import {
 } from "@stubwise/db";
 import { legacyFamilyOf, ticketStatusSchema, type PersonDayActivityView } from "@stubwise/shared";
 import { and, asc, eq, inArray, isNotNull, isNull, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
-import { inProjects, projectIdsWithPermission, visibleProjectIds, isAllProjects } from "../auth/access.js";
+import { inProjects, projectIdsWithPermission, visibleProjectIds, isAllProjects, inProjectsStrict } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { backlogVisibleSql } from "./backlog-visibility.js";
 import { personName } from "./people.js";
@@ -202,8 +202,8 @@ export async function peopleActivity(db: Db, viewer: Viewer, date: string, depar
       .where(
         and(
           onDay(commitSummaries.committedAt, date),
-          inProjects(repositories.projectId, visible),
-          inProjects(repositories.projectId, reposView),
+          inProjectsStrict(repositories.projectId, visible),
+          inProjectsStrict(repositories.projectId, reposView),
         ),
       )
       .orderBy(asc(commitSummaries.committedAt), asc(commitSummaries.sha)),

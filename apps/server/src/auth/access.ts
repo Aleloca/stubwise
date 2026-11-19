@@ -380,6 +380,16 @@ export function inProjects(
 }
 
 /**
+ * Come {@link inProjects}, ma una riga SENZA progetto non passa mai, nemmeno
+ * per un full admin. Per le colonne dove il null vuol dire «di nessun
+ * progetto» e non «d'istanza»: il progetto di un repository (null = STACCATO,
+ * area 9, F6), che nessuna lettura di progetto deve trovare.
+ */
+export function inProjectsStrict(column: AnyColumn | SQL, ids: ProjectScope): SQL {
+  return and(sql`${column} IS NOT NULL`, inProjects(column, ids))!;
+}
+
+/**
  * Hook `preHandler` globale: applica `config.access` della rotta.
  * L'autenticazione è quella di `requireAuth` (PAT, poi cookie).
  *

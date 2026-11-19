@@ -1,6 +1,6 @@
 import fastifyCors from "@fastify/cors";
 import { ticketPrioritySchema, ticketTypeSchema } from "@stubwise/shared";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -65,9 +65,11 @@ export async function inboundRoutes(
             ingestionKey: projects.ingestionKey,
           })
           .from(projects)
-          .where(eq(projects.slug, slug));
-        // Ramo unico di rifiuto: header assente, slug sconosciuto e chiave
-        // errata sono indistinguibili dal client.
+          // Area 9, F6: un progetto ARCHIVIATO è come uno slug sconosciuto
+          // (non riceve ticket, né dall'SDK né dall'ingresso).
+          .where(and(eq(projects.slug, slug), isNull(projects.archivedAt)));
+        // Ramo unico di rifiuto: header assente, slug sconosciuto (o
+        // archiviato) e chiave errata sono indistinguibili dal client.
         if (
           typeof provided !== "string" ||
           !project ||

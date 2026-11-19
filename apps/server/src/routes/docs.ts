@@ -24,7 +24,7 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { ProjectPermission } from "@stubwise/shared";
-import { projectIdsWithPermission, type RouteAccess, isAllProjects, inProjects } from "../auth/access.js";
+import { projectIdsWithPermission, type RouteAccess, isAllProjects, inProjectsStrict } from "../auth/access.js";
 import { repositoryAccess } from "../auth/project-resolvers.js";
 import {
   aiProviders,
@@ -739,7 +739,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
             eq(docGenerations.status, "succeeded"),
           ),
         )
-        .where(inProjects(repositories.projectId, readable))
+        .where(inProjectsStrict(repositories.projectId, readable))
         .groupBy(
           repositories.id,
           repositories.slug,

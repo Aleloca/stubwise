@@ -9,7 +9,7 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
-import { inProjects, isAllProjects, projectIdsWithPermission, scopeProjectIds, visibleProjectIds, type ProjectScope } from "../auth/access.js";
+import { inProjects, isAllProjects, projectIdsWithPermission, scopeProjectIds, visibleProjectIds, type ProjectScope, inProjectsStrict } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import {
   automationRuns,
@@ -126,12 +126,12 @@ async function historyVisibleSql(db: Db, user: SessionUser): Promise<SQL | undef
     or (${searchHistory.type} = 'repository' and exists (
       select 1 from ${repositories} hr
       where hr.id::text = ${searchHistory.entityId}
-        and ${inProjects(sql`hr.project_id`, repoReadable)}
+        and ${inProjectsStrict(sql`hr.project_id`, repoReadable)}
     ))
     or (${searchHistory.type} = 'doc' and exists (
       select 1 from ${repositories} hd
       where hd.id = ${searchHistory.repositoryId}
-        and ${inProjects(sql`hd.project_id`, asList(docsView))}
+        and ${inProjectsStrict(sql`hd.project_id`, asList(docsView))}
     ))
   )`;
 }
@@ -191,10 +191,10 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
         ticketsViewAllSql ? or(ticketsViewAllSql, eq(tickets.requestedByUserId, user.id)) : undefined,
       );
       const repositoryScope = isAllProjects(docsView)
-        ? inProjects(repositories.projectId, docsView)
+        ? inProjectsStrict(repositories.projectId, docsView)
         : isAllProjects(reposView)
-          ? inProjects(repositories.projectId, reposView)
-          : inProjects(repositories.projectId, [...new Set([...docsView, ...reposView])]);
+          ? inProjectsStrict(repositories.projectId, reposView)
+          : inProjectsStrict(repositories.projectId, [...new Set([...docsView, ...reposView])]);
 
       // Esecuzione in PARALLELO delle cinque gambe.
       const [ticketRows, projectRows, repositoryRows, docRows, mailRows] = await Promise.all([
@@ -306,7 +306,7 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
                 isNull(docPages.generationId),
               ),
               scopeRepositoryId ? eq(repositories.id, scopeRepositoryId) : undefined,
-              inProjects(repositories.projectId, docsView),
+              inProjectsStrict(repositories.projectId, docsView),
             ),
           )
           .orderBy(sql`ts_rank_cd(${docPages.searchTsv}, ${tsq}, 32) DESC`)
@@ -573,7 +573,7 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
         const [repository] = await app.db
           .select({ id: repositories.id })
           .from(repositories)
-          .where(and(eq(repositories.id, repositoryId), inProjects(repositories.projectId, docsView)));
+          .where(and(eq(repositories.id, repositoryId), inProjectsStrict(repositories.projectId, docsView)));
         if (!repository) return [];
       }
 

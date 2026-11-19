@@ -6,6 +6,7 @@ import {
   notificationDeliveries,
   notifications,
   projectFollows,
+  projects,
   ticketFollowers,
   tickets,
   users,
@@ -157,6 +158,10 @@ export async function publishNotification(
       // `projectId` sfuggirebbe sia al filtro dei membri qui sia a quello a
       // lettura (`inbox-visibility.ts`, che legge la colonna).
       const projectId = opts.projectId ?? (await projectOfTicket(inner, opts.ticketId)) ?? null;
+      // Area 9, F6 (D-8): un progetto ARCHIVIATO non manda niente a nessuno —
+      // inbox, push, Slack, webhook. È come uno che non c'è; riaprendolo, gli
+      // eventi nuovi ripartono (quelli del frattempo non si recuperano).
+      if (projectId !== null && (await isArchivedProject(inner, projectId))) return { published: 0, notificationIds: [] };
       // L'utente di sistema «Claude» (area 3, fetta 3e) non riceve MAI una
       // notifica, da nessuna audience (né inbox, né push, né Slack): un punto
       // solo, qui, invece di una regola in ogni audience.
@@ -599,4 +604,10 @@ async function pushRecipients(db: DbOrTx, recipients: string[], mandatory: boole
       ),
     );
   return new Set(rows.map((row) => row.id));
+}
+
+/** Area 9, F6: il progetto è archiviato (una riga che manca non lo è: la decide il resto della publish). */
+async function isArchivedProject(db: DbOrTx, projectId: string): Promise<boolean> {
+  const [row] = await db.select({ archivedAt: projects.archivedAt }).from(projects).where(eq(projects.id, projectId));
+  return row?.archivedAt != null;
 }

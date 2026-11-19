@@ -30,7 +30,7 @@
  * il `badge` delle push del worker — la campanella e il telefono devono dire
  * lo stesso numero (vedi `unread.ts`).
  */
-import { memberPermissionsSql, notifications, projectMembers, roles, tickets } from "@stubwise/db";
+import { memberPermissionsSql, notifications, projectMembers, projects, roles, tickets } from "@stubwise/db";
 import { ALERT_TYPES, isLiveAlertType, type AlertType } from "@stubwise/shared";
 import { sql, type SQL } from "drizzle-orm";
 import { userIsFullAdmin } from "./project-access.js";
@@ -56,6 +56,14 @@ export function notificationVisibleToRecipient(): SQL {
       or ${userIsFullAdmin(notifications.userId)}
     )
     and ${catalogPermissionVisible(ALERT_TYPES.filter((t) => isLiveAlertType(t.type)))}
+    -- Area 9, F6 (D-8): le card di un progetto ARCHIVIATO non si vedono (né
+    -- si contano), per nessuno, e tornano riaprendolo: si filtra a lettura,
+    -- nessuna riga si riscrive. La proposta della posta resta di chi ha la
+    -- casella, come sopra.
+    and (
+      ${notifications.kind}::text = 'google.proposal'
+      or not exists (select 1 from ${projects} ap where ap.id = ${cardProjectId()} and ap.archived_at is not null)
+    )
   )`;
 }
 

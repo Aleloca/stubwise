@@ -13,7 +13,7 @@ import { and, eq, ne, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { projectIdsWithPermission, routePermissions, isAllProjects, scopeIncludes, inProjects, type ProjectScope } from "../auth/access.js";
+import { projectIdsWithPermission, routePermissions, isAllProjects, scopeIncludes, type ProjectScope, inProjectsStrict } from "../auth/access.js";
 import { fromBody, repositoryAccess } from "../auth/project-resolvers.js";
 import { GitProviderError } from "@stubwise/git";
 import { decrypt, gitAccounts, isAttachedRepository, projects, repositories } from "@stubwise/db";
@@ -478,7 +478,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         .where(
           and(
             projectId ? eq(repositories.projectId, projectId) : undefined,
-            inProjects(repositories.projectId, readable),
+            inProjectsStrict(repositories.projectId, readable),
           ),
         )
         .orderBy(repositories.createdAt);

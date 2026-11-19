@@ -60,6 +60,16 @@ describe("area 9, F6: un repository staccato non è di nessun progetto", () => {
     expect(one.statusCode).toBe(404);
   });
 
+  it("l'hub Docs del full admin non lo elenca (review F6: `inProjects` lasciava passare il progetto null)", async () => {
+    const attached = await seedRepository(testDb.db);
+    const repo = await detached("staccato-docs");
+    const res = await app.inject({ method: "GET", url: "/api/docs/spaces", headers: { cookie: adminCookie } });
+    expect(res.statusCode).toBe(200);
+    const ids = (res.json() as { repositoryId: string }[]).map((r) => r.repositoryId);
+    expect(ids).toContain(attached.repositoryId);
+    expect(ids).not.toContain(repo.id);
+  });
+
   it("la ricerca del full admin non lo trova", async () => {
     const repo = await detached("staccatoricercabile");
     const attached = await seedRepository(testDb.db);
@@ -182,6 +192,17 @@ describe("area 9, F6, Task 6: elencare, collegare, eliminare un repository senza
     expect(await testDb.db.select().from(changeLog).where(and(eq(changeLog.type, "repository.linked"), eq(changeLog.projectId, target.projectId)))).toHaveLength(1);
     const again = await link(lead.headers, repo.id, target.projectId);
     expect([again.statusCode, (again.json() as { code: string }).code]).toEqual([409, "not_detached"]);
+  });
+
+  it("due staccati omonimi collegati INSIEME allo stesso progetto: uno passa, l'altro name_taken (il lock della destinazione)", async () => {
+    const target = await seedRepository(testDb.db);
+    const { repo: one } = await detachedFrom("RC1");
+    const { repo: two } = await detachedFrom("RC2");
+    await testDb.db.update(repositories).set({ name: one.name }).where(eq(repositories.id, two.id));
+    const [a, b] = await Promise.all([link({ cookie: adminCookie }, one.id, target.projectId), link({ cookie: adminCookie }, two.id, target.projectId)]);
+    expect([a.statusCode, b.statusCode].sort()).toEqual([204, 409]);
+    const linked = await testDb.db.select().from(repositories).where(and(eq(repositories.projectId, target.projectId), eq(repositories.name, one.name)));
+    expect(linked).toHaveLength(1);
   });
 
   it("eliminare: solo uno staccato, solo un full admin, con la riconferma; la voce d'istanza risolve la provenienza a lettura e non fa mai uscire formerProjectId", async () => {

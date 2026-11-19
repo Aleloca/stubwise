@@ -6,6 +6,7 @@ import {
   notificationSettings,
   projectFollows,
   projectMembers,
+  projects,
   roles,
   tickets,
   users,
@@ -246,6 +247,22 @@ describe("publishNotification", () => {
       expect(row.ticketId).toBe(ticketId);
       expect(row.jobId).toBeNull();
       expect(row.handledAt).toBeNull();
+    }
+  });
+
+  it("area 9, F6: un evento di un progetto ARCHIVIATO non arriva a nessuno (né inbox, né webhook)", async () => {
+    const { projectId, ticketId } = await seedScenario();
+    await webhook(["job.pr_opened"]);
+    await db.update(projects).set({ archivedAt: new Date() }).where(eq(projects.id, projectId));
+    try {
+      const result = await publishNotification(db, prOpened, { projectId, ticketId });
+      expect(result).toEqual({ published: 0, notificationIds: [] });
+      expect(await db.select().from(notifications)).toEqual([]);
+      expect(await webhookDeliveries()).toEqual([]);
+      // Anche senza `projectId` dichiarato: il progetto si ricava dal ticket.
+      expect((await publishNotification(db, prOpened, { ticketId })).published).toBe(0);
+    } finally {
+      await db.update(projects).set({ archivedAt: null }).where(eq(projects.id, projectId));
     }
   });
 

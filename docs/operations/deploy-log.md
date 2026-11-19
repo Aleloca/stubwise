@@ -5253,7 +5253,12 @@ deploy o di un rollback che la tocca.
     - le approvazioni d'automazione senza progetto restano al full admin.
     Lo leggono di proposito solo `GET /api/projects/archived` e
     `…/:projectId/archived-view`, per i membri di allora e i full admin.
-    Scriverci risponde 409 `archived`.
+    Scriverci risponde 409 `archived`. Le superfici PUBBLICHE (l'SDK su
+    `/ingest`, l'ingresso `/api/inbound`, il widget, il webhook git) lo
+    trattano come uno slug sconosciuto (401): ⚠️ archiviando un progetto
+    l'SDK nei suoi siti smette di creare ticket e il widget smette di
+    rispondere. Nessuna notifica nuova nasce per un archiviato, e le card già
+    in inbox si nascondono (e tornano riaprendo).
   - **Archiviare** è bloccato (409 `busy`) solo dal lavoro in esecuzione:
     job che triagia o corregge, review di PR, sessione dal vivo, generazione
     Docs in corso o in pausa, rilascio con le run aperte. Annulla le

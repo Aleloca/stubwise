@@ -1,7 +1,7 @@
 import { backlogItems, chatMessageCitations, docPageCodes, docPages, driveFiles, driveOpens, projects, repositories, tickets, users, type Db } from "@stubwise/db";
 import type { ChatCitationKind, ChatCitationRef, ChatCitationView } from "@stubwise/shared";
 import { and, eq, inArray, isNull, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
-import { projectIdsWithPermission, visibleProjectIds, isAllProjects, inProjects } from "../auth/access.js";
+import { projectIdsWithPermission, visibleProjectIds, isAllProjects, inProjects, inProjectsStrict } from "../auth/access.js";
 import { personName } from "../services/people.js";
 import { requestVisibility } from "../services/project-requests.js";
 import { visibleTasksCondition } from "../services/task-view.js";
@@ -238,7 +238,7 @@ export async function hasVisibleCitationSql(db: Db, viewer: ChatViewer, messageI
     (inProjects(column, visible) ?? sql`true`);
   const readable = await projectIdsWithPermission(db, viewer, "docs.view");
   const inReadable: SQL =
-    (inProjects(repositories.projectId, readable) ?? sql`true`);
+    inProjectsStrict(repositories.projectId, readable);
   const tasks = (await visibleTasksCondition(db, viewer)) ?? sql`true`;
   const requests = (await requestVisibility(db, viewer)) ?? sql`true`;
   return sql`exists (

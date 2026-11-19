@@ -135,7 +135,11 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   `route-access.test.ts`). Tre eccezioni volute: i consumi d'istanza
   (`usage.view`) contano la spesa degli archiviati senza nominarli; il
   registro delle modifiche mostra le loro voci a chi li vedrebbe; le
-  approvazioni d'automazione senza progetto restano al full admin.
+  approvazioni d'automazione senza progetto restano al full admin. Le
+  superfici pubbliche (SDK, ingresso, widget, webhook git) trattano un
+  archiviato come uno slug sconosciuto (401), e non nasce nessuna notifica
+  per un archiviato. Limite accettato: archiviare non blocca i claim del
+  worker, quindi un job reclamato a cavallo del commit finisce.
 - **Di un progetto eliminato restano SOLO codice, nome e chi ne era membro
   (`deleted_projects`, `deleted_project_members`, 0193), e servono SOLO a
   dire «chi lo conosceva».** Gli ex membri e i full admin leggono

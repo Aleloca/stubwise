@@ -99,6 +99,11 @@ export async function linkRepository(db: Db, viewer: Viewer, repositoryId: strin
   if (!perms) throw new DetachedRepositoryError(404, "target_not_found", "Destination project not found");
   if (!perms.has("repos.manage")) throw new DetachedRepositoryError(403, "forbidden", "You need repos.manage in the destination project");
   await db.transaction(async (tx) => {
+    // La destinazione sotto lock (review F6): un'archiviazione concorrente non
+    // si infila fra il controllo e il collegamento, e due collegamenti nello
+    // stesso progetto si mettono in fila (il controllo di `name_taken` regge).
+    const [target] = await tx.select({ archivedAt: projects.archivedAt }).from(projects).where(eq(projects.id, projectId)).for("update");
+    if (!target || target.archivedAt !== null) throw new DetachedRepositoryError(404, "target_not_found", "Destination project not found");
     const [r] = await tx.select().from(repositories).where(eq(repositories.id, repositoryId)).for("update");
     if (!r) throw new DetachedRepositoryError(404, "not_found", "Repository not found");
     if (r.projectId !== null) throw new DetachedRepositoryError(409, "not_detached", "The repository already belongs to a project");

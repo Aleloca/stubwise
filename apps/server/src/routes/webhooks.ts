@@ -200,14 +200,17 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
             provider: repositories.provider,
             webhookSecret: repositories.webhookSecret,
             projectId: repositories.projectId,
+            projectArchivedAt: projects.archivedAt,
           })
           .from(repositories)
+          .leftJoin(projects, eq(projects.id, repositories.projectId))
           .where(eq(repositories.slug, projectSlug));
 
-        // Slug sconosciuto, segreto vuoto (legacy, non verificabile) o
-        // repository STACCATO (F6: niente progetto, niente lavoro): 401,
-        // indistinguibile da una firma errata.
-        if (!repository || repository.webhookSecret === "" || repository.projectId === null) {
+        // Slug sconosciuto, segreto vuoto (legacy, non verificabile),
+        // repository STACCATO o di un progetto ARCHIVIATO (F6: niente
+        // progetto aperto, niente lavoro né scritture): 401, indistinguibile
+        // da una firma errata.
+        if (!repository || repository.webhookSecret === "" || repository.projectId === null || repository.projectArchivedAt !== null) {
           return apiError(reply, 401, "webhook_unauthorized", "Webhook unauthorized");
         }
         const provider = getProvider(repository.provider);

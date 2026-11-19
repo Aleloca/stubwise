@@ -1,6 +1,6 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
-import { automations, projects, tickets, users } from "@stubwise/db";
+import { automations, projects, repositories, tickets, users, widgets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { projectPermissionsOfUser } from "@stubwise/notifications";
@@ -150,5 +150,34 @@ describe("area 9, F6: le primitive escludono l'archiviato", () => {
     expect(status.statusCode).toBe(200);
     expect(JSON.stringify(status.json())).toContain(open);
     expect(JSON.stringify(status.json())).not.toContain(archived);
+  });
+
+  it("le superfici PUBBLICHE trattano un archiviato come uno slug sconosciuto (401), un aperto no: SDK, ingresso, widget, webhook git", async () => {
+    const { open, archived } = await twoProjects();
+    const setup = async (projectId: string) => {
+      const [p] = await testDb.db.select().from(projects).where(eq(projects.id, projectId));
+      const [w] = await testDb.db.insert(widgets).values({ projectId, name: "W", key: `wk-${randomUUID()}` }).returning();
+      const [r] = await testDb.db.select().from(repositories).where(eq(repositories.projectId, projectId));
+      await testDb.db.update(repositories).set({ webhookSecret: "segreto" }).where(eq(repositories.id, r!.id));
+      return { slug: p!.slug, key: p!.ingestionKey!, widgetKey: w!.key, repoSlug: r!.slug };
+    };
+    const body = JSON.stringify({ ref: "refs/heads/main", before: "a".repeat(40), after: "b".repeat(40), commits: [] });
+    const calls = async (x: Awaited<ReturnType<typeof setup>>) => [
+      (await app.inject({ method: "POST", url: `/ingest/${x.slug}`, headers: { "x-stubwise-key": x.key }, payload: {} })).statusCode,
+      (await app.inject({ method: "POST", url: `/api/inbound/${x.slug}/ticket`, headers: { "x-stubwise-key": x.key }, payload: {} })).statusCode,
+      (await app.inject({ method: "GET", url: `/widget/${x.slug}/config`, headers: { "x-stubwise-key": x.widgetKey } })).statusCode,
+      (
+        await app.inject({
+          method: "POST",
+          url: `/webhooks/git/${x.repoSlug}`,
+          headers: { "content-type": "application/json", "x-github-event": "push", "x-hub-signature-256": `sha256=${createHmac("sha256", "segreto").update(body).digest("hex")}` },
+          payload: body,
+        })
+      ).statusCode,
+    ];
+    const openCodes = await calls(await setup(open));
+    const archivedCodes = await calls(await setup(archived));
+    expect(archivedCodes).toEqual([401, 401, 401, 401]);
+    for (const code of openCodes) expect(code).not.toBe(401);
   });
 });

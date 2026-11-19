@@ -19,6 +19,7 @@ import {
   docPages,
   driveFiles,
   environmentServers,
+  graphJobs,
   nightlyItems,
   prCorrections,
   prReleaseNotes,
@@ -373,7 +374,8 @@ async function detachRepositories(tx: Db, projectId: string): Promise<number> {
   if (repos.length === 0) return 0;
   // In SQL: un ciclo tipato su quattordici tabelle Drizzle fa esplodere il typecheck.
   const ids = sql`array[${sql.join(repos.map((id) => sql`${id}::uuid`), sql`, `)}]`;
-  const leafFirst: PgTable[] = [docChatSessions, docChunks, docNodes, docPageCodes, docPages, docGenerationJobs, docAutoUpdateJobs, docGenerations, prCorrections, prReleaseNotes, prReviewJobs, prReviews, nightlyItems, projectEnvFiles];
+  // Anche i job del grafo ancora in coda (review F6): senza progetto finirebbero `failed`.
+  const leafFirst: PgTable[] = [docChatSessions, docChunks, docNodes, docPageCodes, docPages, docGenerationJobs, docAutoUpdateJobs, docGenerations, prCorrections, prReleaseNotes, prReviewJobs, prReviews, nightlyItems, projectEnvFiles, graphJobs];
   for (const table of leafFirst) await tx.execute(sql`delete from ${table} where repository_id = any(${ids})`);
   await tx
     .update(repositories)
