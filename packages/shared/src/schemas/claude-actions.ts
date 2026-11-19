@@ -6,6 +6,11 @@ import { newRequestBodySchema } from "./project-request.js";
 import { mailComposeModeSchema } from "./mail-compose.js";
 import { liveRowTypes } from "../alerts/catalog.js";
 import { createPluginSchema, updatePluginRefSchema } from "./plugin.js";
+import { aiModelChoiceSchema, aiOperationSchema } from "../ai-operations.js";
+import { languageSchema } from "./language.js";
+import { googleDomainsSchema } from "./google.js";
+import { updateAutomationSettingsSchema } from "../instance-admin.js";
+import { webhookFieldsSchema } from "../outgoing-webhooks.js";
 
 /**
  * Il catalogo delle azioni di Claude (chat, fetta 3): l'elenco CHIUSO di ciò
@@ -61,6 +66,18 @@ export const CLAUDE_ACTION_FNS = [
   "pauseQueue",
   "resumeQueue",
   "retryJob",
+  // Area 9, F7, Task 4: le B dell'istanza, senza segreti (M-4 = a).
+  "setModel",
+  "saveBudget",
+  "saveStorage",
+  "saveAutomation",
+  "setProviderEnabled",
+  "moveProvider",
+  "updateGitAccount",
+  "updateGoogleApp",
+  "rerunSmoke",
+  "removePlugin",
+  "updateWebhook",
 ] as const;
 export const claudeActionFnSchema = z.enum(CLAUDE_ACTION_FNS);
 export type ClaudeActionFn = z.infer<typeof claudeActionFnSchema>;
@@ -115,6 +132,18 @@ export const CLAUDE_DECLARED_CLASS: Record<ClaudeActionFn, "A" | "B" | "C"> = {
   pauseQueue: "B",
   resumeQueue: "B",
   retryJob: "B",
+  // Area 9, F7, Task 4: senza segreti le rotte a riconferma PARZIALE non la chiedono (M-1 = a).
+  setModel: "B",
+  saveBudget: "B",
+  saveStorage: "B",
+  saveAutomation: "B",
+  setProviderEnabled: "B",
+  moveProvider: "B",
+  updateGitAccount: "B",
+  updateGoogleApp: "B",
+  rerunSmoke: "B",
+  removePlugin: "B",
+  updateWebhook: "B",
 };
 
 const id = z.uuid();
@@ -203,6 +232,32 @@ export const CLAUDE_ACTION_ARGS = {
   pauseQueue: z.object({ projectId: id }).strict(),
   resumeQueue: z.object({ projectId: id }).strict(),
   retryJob: z.object({ jobId: id }).strict(),
+  // Area 9, F7, Task 4: gli schemi delle rotte MENO i campi segreti, `strict`
+  // (M-4 = a): un segreto negli argomenti è `invalid`, Claude non può
+  // nemmeno proporlo, e la riconferma parziale non scatta mai da qui.
+  setModel: z.object({ operation: aiOperationSchema, model: aiModelChoiceSchema.nullable() }).strict(),
+  saveBudget: z.object({ monthlyUsd: z.number().nonnegative().nullable(), contentLanguage: languageSchema }).strict(),
+  saveStorage: z.object({ endpoint: z.string().max(500), region: z.string().max(100), bucket: z.string().max(200), accessKeyId: z.string().max(200) }).strict(),
+  saveAutomation: updateAutomationSettingsSchema.strict(),
+  setProviderEnabled: z.object({ id, enabled: z.boolean() }).strict(),
+  moveProvider: z.object({ id, toIndex: z.number().int().min(0).max(100) }).strict(),
+  updateGitAccount: z
+    .object({ id, name: z.string().min(1).max(200).optional(), workspace: z.string().min(1).max(200).optional() })
+    .strict()
+    .refine((a) => a.name !== undefined || a.workspace !== undefined, "name or workspace"),
+  updateGoogleApp: z
+    .object({ id, name: z.string().trim().min(1).max(200).optional(), domains: googleDomainsSchema.optional(), clientId: z.string().trim().min(1).max(500).optional() })
+    .strict()
+    .refine((a) => a.name !== undefined || a.domains !== undefined || a.clientId !== undefined, "a field"),
+  rerunSmoke: z.object({ id }).strict(),
+  removePlugin: z.object({ id }).strict(),
+  // Senza `url`: cambiarlo chiede la riconferma (e decide dove vanno i dati).
+  updateWebhook: webhookFieldsSchema
+    .omit({ url: true })
+    .partial()
+    .extend({ id })
+    .strict()
+    .refine((a) => Object.keys(a).length > 1, "a field"),
 } satisfies Record<ClaudeActionFn, z.ZodType>;
 
 export const claudeProposedActionSchema = z.object({

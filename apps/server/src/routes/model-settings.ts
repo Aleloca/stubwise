@@ -70,6 +70,51 @@ function stableModel(row: { model: string | null; workerDefault: string | null; 
   return `${row.source === "setting" ? "set" : row.source}:${model}`;
 }
 
+/**
+ * Il `PATCH /api/settings/models` (area 9, F7: estratto dalla rotta, lo
+ * chiama anche `setModel` di Claude): un modello per operazione, null torna
+ * al default, una voce per operazione che CAMBIA.
+ */
+export async function patchModelSettings(
+  db: Db,
+  actor: { id: string; email: string },
+  models: Partial<Record<AiOperation, AiModelChoice | null>>,
+): Promise<{ ok: true } | { ok: false; operation: string }> {
+  const entries = Object.entries(models) as [AiOperation, AiModelChoice | null | undefined][];
+  const bad = entries.find(([op]) => !isConfigurableAiOperation(op));
+  if (bad) return { ok: false, operation: bad[0] };
+  const toDelete = entries.filter(([, m]) => m === null).map(([op]) => op);
+  const toSet = entries.filter(([, m]) => typeof m === "string") as [AiOperation, AiModelChoice][];
+  await db.transaction(async (tx) => {
+    const before = await loadModelSettings(tx);
+    if (toDelete.length > 0) {
+      await tx.delete(aiModelSettings).where(inArray(aiModelSettings.operation, toDelete));
+    }
+    for (const [operation, model] of toSet) {
+      await tx
+        .insert(aiModelSettings)
+        .values({ operation, model, updatedByUserId: actor.id })
+        .onConflictDoUpdate({
+          target: aiModelSettings.operation,
+          set: { model, updatedAt: new Date(), updatedByUserId: actor.id },
+        });
+    }
+    // Area 9, F3: come il prototipo (`models.ts`), una voce per operazione
+    // che CAMBIA, col modello effettivo prima e dopo in valore stabile
+    // (`set:opus`, `env:haiku`, `default:sonnet`); l'oggetto è l'id
+    // dell'operazione, il nome lo traduce la pagina.
+    const after = await loadModelSettings(tx);
+    for (const row of after.operations) {
+      const old = before.operations.find((o) => o.operation === row.operation)!;
+      const a = stableModel(old);
+      const b = stableModel(row);
+      if (a === b) continue;
+      await recordChange(tx, { type: "model.changed", actor, projectId: null, data: { object: { type: "ai_settings", id: row.operation, label: row.operation }, before: a, after: b } });
+    }
+  });
+  return { ok: true };
+}
+
 export async function modelSettingsRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
@@ -92,48 +137,9 @@ export async function modelSettingsRoutes(instance: FastifyInstance): Promise<vo
       },
     },
     async (request, reply) => {
-      const entries = Object.entries(request.body.models) as [
-        AiOperation,
-        AiModelChoice | null | undefined,
-      ][];
-      const bad = entries.find(([op]) => !isConfigurableAiOperation(op));
-      if (bad) {
-        return reply
-          .code(400)
-          .send({ code: "not_configurable", message: `operazione non configurabile: ${bad[0]}` });
-      }
-      const toDelete = entries.filter(([, m]) => m === null).map(([op]) => op);
-      const toSet = entries.filter(([, m]) => typeof m === "string") as [
-        AiOperation,
-        AiModelChoice,
-      ][];
-      await app.db.transaction(async (tx) => {
-        const before = await loadModelSettings(tx);
-        if (toDelete.length > 0) {
-          await tx.delete(aiModelSettings).where(inArray(aiModelSettings.operation, toDelete));
-        }
-        for (const [operation, model] of toSet) {
-          await tx
-            .insert(aiModelSettings)
-            .values({ operation, model, updatedByUserId: request.user!.id })
-            .onConflictDoUpdate({
-              target: aiModelSettings.operation,
-              set: { model, updatedAt: new Date(), updatedByUserId: request.user!.id },
-            });
-        }
-        // Area 9, F3: come il prototipo (`models.ts`), una voce per operazione
-        // che CAMBIA, col modello effettivo prima e dopo in valore stabile
-        // (`set:opus`, `env:haiku`, `default:sonnet`); l'oggetto è l'id
-        // dell'operazione, il nome lo traduce la pagina.
-        const after = await loadModelSettings(tx);
-        for (const row of after.operations) {
-          const old = before.operations.find((o) => o.operation === row.operation)!;
-          const a = stableModel(old);
-          const b = stableModel(row);
-          if (a === b) continue;
-          await recordChange(tx, { type: "model.changed", actor: request.user!, projectId: null, data: { object: { type: "ai_settings", id: row.operation, label: row.operation }, before: a, after: b } });
-        }
-      });
+      // Area 9, F7: la funzione, la stessa dell'azione di Claude `setModel`.
+      const out = await patchModelSettings(app.db, request.user!, request.body.models);
+      if (!out.ok) return reply.code(400).send({ code: "not_configurable", message: `operazione non configurabile: ${out.operation}` });
       return loadModelSettings(app.db);
     },
   );

@@ -71,7 +71,7 @@ export type OutgoingWebhookWithSecret = z.infer<typeof outgoingWebhookWithSecret
 
 const urlSchema = z.url().max(2000).refine((u) => u.startsWith("https://"), { message: "Webhook URL must use https" });
 
-const webhookFieldsSchema = z.object({
+export const webhookFieldsSchema = z.object({
   name: z.string().trim().min(1).max(80),
   url: urlSchema,
   format: webhookFormatSchema,
