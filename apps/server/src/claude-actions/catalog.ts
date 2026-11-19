@@ -33,6 +33,7 @@ import {
 } from "../services/alert-subscriptions.js";
 import { loadTaskViews } from "../services/task-view.js";
 import { createTask, planTask, updateTask } from "../services/task-writes.js";
+import { AREA9_ENTRIES } from "./catalog-area9.js";
 
 /**
  * Il catalogo delle azioni di Claude sul SERVER (chat, fetta 3): per ogni `fn`
@@ -54,7 +55,12 @@ import { createTask, planTask, updateTask } from "../services/task-writes.js";
  * scritto dopo. Le task usano la loro storia (`ticket_events`, commenti).
  */
 export type ActionObject = {
-  kind: "task" | "request" | "milestone" | "filter" | "comment" | "subscription";
+  /**
+   * Area 9, F7: `member` (e le altre dell'area 9) hanno `stamp` = l'istante
+   * della scrittura; «Annulla» guarda le voci del registro arrivate DOPO sullo
+   * stesso soggetto (`changed_after`).
+   */
+  kind: "task" | "request" | "milestone" | "filter" | "comment" | "subscription" | "member";
   id: string;
   code?: string;
   stamp?: string;
@@ -520,7 +526,7 @@ const ENTRIES: CatalogEntry[] = [
 ];
 
 /** Le voci per `fn`. Una `fn` dell'elenco condiviso senza voce qui non si esegue (ancora). */
-export const SERVER_CATALOG: ReadonlyMap<ClaudeActionFn, CatalogEntry> = new Map(ENTRIES.map((e) => [e.fn, e]));
+export const SERVER_CATALOG: ReadonlyMap<ClaudeActionFn, CatalogEntry> = new Map([...ENTRIES, ...AREA9_ENTRIES].map((e) => [e.fn, e]));
 
 export function declaredClassOf(fn: ClaudeActionFn): "A" | "B" | "C" {
   return CLAUDE_DECLARED_CLASS[fn];

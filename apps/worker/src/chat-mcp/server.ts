@@ -51,6 +51,12 @@ export const PROPOSABLE_FNS = [
   "pageAction",
   "fillMailBody",
   "setSubscription",
+  // Area 9, F7: le voci dell'area 9.
+  "addMember",
+  "removeMember",
+  "setMemberRole",
+  "registerPlugin",
+  "updatePluginRef",
 ] as const;
 
 /** La chiave con cui il CLI (2.1.322) passa l'id del `tool_use` nel `_meta` di `tools/call`. */
