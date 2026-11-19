@@ -355,6 +355,41 @@ describe("l'accensione per progetto (area 9, F5: opt-in)", () => {
     expect([sp.on, sp.inRuns]).toEqual([true, true]);
   });
 
+  it("review F5, M3/M4: il plugin si nomina per SLUG (come il server); il namespace di «/» resta il nome del manifest", async () => {
+    as(ROBERTA);
+    state.instance.plugins.find((p) => p.name === "superpowers")!.slug = "sp-gh";
+    const view = (await projectSettings.getProjectPlugins(ZNC))!;
+    const keys = projectSettings.pluginOffKeys(view);
+    keys.delete("sp-gh");
+    keys.add("sp-gh:brainstorming");
+    expect(projectSettings.pluginEnabledInput(view, keys)).toEqual(["sp-gh"]);
+    expect(
+      await projectSettings.saveProjectPlugins(ZNC, {
+        version: view.version,
+        enabled: projectSettings.pluginEnabledInput(view, keys),
+        disabled: projectSettings.pluginDisabledInput(view, keys),
+      }),
+    ).toEqual({ ok: true, version: "2" });
+    expect(choicesOf(ZNC)).toMatchObject({
+      enabled: ["sp-gh"],
+      disabled: [{ plugin: "sp-gh", skills: ["brainstorming"], hookGroups: [] }],
+    });
+    expect(runSkills(ZNC)).toContain("superpowers:writing-plans");
+    expect(runSkills(ZNC)).not.toContain("superpowers:brainstorming");
+    expect(JSON.parse(entries("project.plugins_changed")[0]!.after!)).toEqual({
+      enabledPlugins: ["sp-gh"],
+      disabledSkills: ["sp-gh:brainstorming"],
+    });
+    // Il nome del manifest non è più un identificatore.
+    expect(
+      await projectSettings.saveProjectPlugins(ZNC, {
+        version: "2",
+        enabled: ["superpowers"],
+        disabled: [],
+      }),
+    ).toMatchObject({ ok: false, error: "invalid", reason: "plugin" });
+  });
+
   it("spegnere superpowers in ACQ lo toglie dai run; le scelte dentro restano", async () => {
     as(LAURA);
     expect(

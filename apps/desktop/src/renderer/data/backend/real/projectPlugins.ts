@@ -63,8 +63,9 @@ export function createRealProjectPlugins(api: ProjectPluginsApi) {
       );
       return {
         version: v.version ?? "",
-        // Il server la legge solo a chi gestisce le impostazioni del progetto.
-        canEdit: true,
+        // Chi può cambiare lo calcola il server (review F5, I2: la lettura è
+        // di chiunque veda il progetto); senza il campo, sola lettura.
+        canEdit: v.canEdit === true,
         plugins: (v.registry as Any[]).map((r) => {
           const c = choices.get(r.pluginId);
           const offSkills = c?.disabledSkills ?? [];
@@ -110,18 +111,19 @@ export function createRealProjectPlugins(api: ProjectPluginsApi) {
     ): Promise<ProjectResult<{ version: string }>> {
       const v = await read(projectId);
       if (!v) return { ok: false, error: "not_found" };
-      const registry = new Map<string, Any>((v.registry as Any[]).map((r) => [r.name, r]));
+      // Per slug (review F5, M3): il nome del manifest non è unico, lo slug sì.
+      const registry = new Map<string, Any>((v.registry as Any[]).map((r) => [r.slug, r]));
       const current = new Map<string, ServerChoice>(
         (v.plugins as ServerChoice[]).map((c) => [c.pluginId, c]),
       );
       const wanted = input.enabled;
       if (wanted?.some((name) => !registry.has(name))) return invalid("plugin");
-      const nameOf = new Map<string, string>(
-        [...registry.values()].map((r) => [r.pluginId, r.name]),
+      const slugOf = new Map<string, string>(
+        [...registry.values()].map((r) => [r.pluginId, r.slug]),
       );
       /** Acceso dopo il salvataggio: quello che `enabled` dice, o com'era. */
       const onAfter = (id: string, was: boolean) =>
-        wanted ? wanted.includes(nameOf.get(id) ?? "") : was;
+        wanted ? wanted.includes(slugOf.get(id) ?? "") : was;
       const named = new Map<string, ServerChoice>();
       for (const d of input.disabled) {
         const r = registry.get(d.plugin);
@@ -133,29 +135,38 @@ export function createRealProjectPlugins(api: ProjectPluginsApi) {
           d.hookGroups.some((h) => !r.hookGroups.includes(h) && !before?.disabledHooks.includes(h))
         )
           return invalid("hook");
+        // Ruling T10: una scelta già salvata che l'inventario non ha più si scarta.
         named.set(r.pluginId, {
           pluginId: r.pluginId,
           enabled: onAfter(r.pluginId, before?.enabled ?? false),
-          disabledSkills: [...d.skills],
-          disabledHooks: [...d.hookGroups],
+          disabledSkills: d.skills.filter((x) => r.skills.includes(x)),
+          disabledHooks: d.hookGroups.filter((x) => r.hookGroups.includes(x)),
         });
       }
-      const ready = (id: string) =>
-        [...registry.values()].some((r) => r.pluginId === id && statusOf(r.status) === "ready");
+      const byId = new Map<string, Any>([...registry.values()].map((r) => [r.pluginId, r]));
       const plugins: ServerChoice[] = [];
       for (const c of current.values()) {
+        const r = byId.get(c.pluginId);
+        // Un plugin tolto dal registro: la sua riga non si rimanda (il server la rifiuterebbe).
+        if (!r) continue;
         // Un pronto non nominato: dentro tutto acceso (come nel prototipo),
-        // acceso o no come dice `enabled`. Un non pronto resta com'era.
+        // acceso o no come dice `enabled`. Un non pronto resta com'era, ma
+        // anche lui filtrato sull'inventario attuale (review F5, I1: il
+        // server rifiuta una skill o un gruppo che non ci sono più).
         plugins.push(
           named.get(c.pluginId) ??
-            (ready(c.pluginId)
+            (statusOf(r.status) === "ready"
               ? {
                   ...c,
                   enabled: onAfter(c.pluginId, c.enabled),
                   disabledSkills: [],
                   disabledHooks: [],
                 }
-              : c),
+              : {
+                  ...c,
+                  disabledSkills: c.disabledSkills.filter((x) => r.skills.includes(x)),
+                  disabledHooks: c.disabledHooks.filter((x) => r.hookGroups.includes(x)),
+                }),
         );
         named.delete(c.pluginId);
       }
@@ -177,6 +188,14 @@ export function createRealProjectPlugins(api: ProjectPluginsApi) {
         return { ok: true, version: r.version ?? "" };
       } catch (error) {
         if (error instanceof ApiError && error.status === 409)
+          return { ok: false, error: "conflict" };
+        // L'inventario è cambiato fra la lettura e il salvataggio (uno sha
+        // nuovo): come una versione vecchia, si rilegge e la bozza resta.
+        if (
+          error instanceof ApiError &&
+          error.status === 400 &&
+          error.code?.startsWith("unknown_plugin")
+        )
           return { ok: false, error: "conflict" };
         if (error instanceof ApiError && error.status === 404)
           return { ok: false, error: "not_found" };

@@ -236,9 +236,9 @@ function PluginsForm({
   /** Il nome di una riga dalla sua chiave stabile: la skill, o la chiave del gruppo di hook. */
   function rowName(key: string): string {
     for (const p of ready) {
-      const skill = p.skills.find((s) => pluginSkillKey(p.name, s.name) === key);
+      const skill = p.skills.find((s) => pluginSkillKey(p.slug, s.name) === key);
       if (skill) return skill.name;
-      const hook = p.hooks.find((h) => pluginHookKey(p.name, h.key) === key);
+      const hook = p.hooks.find((h) => pluginHookKey(p.slug, h.key) === key);
       if (hook) return hook.key;
     }
     return key;
@@ -266,7 +266,7 @@ function PluginsForm({
       </p>
 
       {base.map((p) => (
-        <BasePlugin key={p.name} plugin={p} />
+        <BasePlugin key={p.slug} plugin={p} />
       ))}
 
       {ready.length === 0 && notReady.length === 0 && (
@@ -277,7 +277,7 @@ function PluginsForm({
 
       {ready.map((p) => (
         <ReadyPlugin
-          key={p.name}
+          key={p.slug}
           plugin={p}
           code={code}
           projectId={project.id}
@@ -495,9 +495,9 @@ function ReadyPlugin({
   const id = useId();
   const header = useRef<HTMLHeadingElement>(null);
   const [open, setOpen] = useState(false);
-  const skillKeys = p.skills.map((s) => pluginSkillKey(p.name, s.name));
-  const hookKeys = p.hooks.map((h) => pluginHookKey(p.name, h.key));
-  const onKey = pluginKey(p.name);
+  const skillKeys = p.skills.map((s) => pluginSkillKey(p.slug, s.name));
+  const hookKeys = p.hooks.map((h) => pluginHookKey(p.slug, h.key));
+  const onKey = pluginKey(p.slug);
   // Acceso sul progetto, nella bozza (F5): spento, le sue righe non si scelgono.
   const on = !keys.has(onKey);
   const rowsEditable = canEdit && on;
@@ -523,7 +523,7 @@ function ReadyPlugin({
   // [PG 6]: oltre 12 skill l'elenco si chiude, ma le spente restano sempre visibili.
   const closed = p.skills.length > SKILLS_OPEN_MAX && !open;
   const skills = closed
-    ? p.skills.filter((s) => keys.has(pluginSkillKey(p.name, s.name)))
+    ? p.skills.filter((s) => keys.has(pluginSkillKey(p.slug, s.name)))
     : p.skills;
 
   return (
@@ -559,9 +559,10 @@ function ReadyPlugin({
           </span>
           {p.preset && (
             <PresetButton
-              enabled={canEdit && !presetApplied}
+              // Review F5, M2: spento anche col plugin non acceso, con la sua ragione.
+              enabled={rowsEditable && !presetApplied}
               applied={presetApplied}
-              whyId={canEdit ? presetWhyId : readOnlyId}
+              whyId={canEdit ? (on ? presetWhyId : countId) : readOnlyId}
               projectId={projectId}
               code={code}
               editAction={editAction}
@@ -577,7 +578,7 @@ function ReadyPlugin({
           <GroupHeading label={t("settings.plugins.skills")} count={p.skills.length} />
           <ul aria-label={t("settings.plugins.skills")}>
             {skills.map((s) => {
-              const key = pluginSkillKey(p.name, s.name);
+              const key = pluginSkillKey(p.slug, s.name);
               const off = keys.has(key);
               const isBoth = both.includes(key);
               return (
@@ -633,7 +634,7 @@ function ReadyPlugin({
           <GroupHeading label={t("settings.plugins.hooks")} count={p.hooks.length} />
           <ul aria-label={t("settings.plugins.hooks")}>
             {p.hooks.map((h) => {
-              const key = pluginHookKey(p.name, h.key);
+              const key = pluginHookKey(p.slug, h.key);
               const off = keys.has(key);
               const isBoth = both.includes(key);
               return (
@@ -775,7 +776,7 @@ function NotReady({ plugins }: { plugins: PluginRow[] }) {
         {t("settings.plugins.notInRuns")}
       </h2>
       {plugins.map((p) => (
-        <NotReadyPlugin key={p.name} plugin={p} />
+        <NotReadyPlugin key={p.slug} plugin={p} />
       ))}
     </section>
   );

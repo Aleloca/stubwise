@@ -45,6 +45,7 @@ const REGISTRY = [
 
 const GET = {
   version: "v7",
+  canEdit: true,
   plugins: [
     { pluginId: SP, enabled: true, disabledSkills: ["brainstorming"], disabledHooks: [] },
     { pluginId: LH, enabled: true, disabledSkills: ["fix-lint"], disabledHooks: [] },
@@ -90,6 +91,16 @@ describe("i plugin del progetto dal server", () => {
     expect(lh).toMatchObject({ status: "failed", on: true, inRuns: false, preset: null });
     // Un plugin nuovo, mai acceso sul progetto, sul server non entra nei run.
     expect(nuovo).toMatchObject({ status: "ready", on: false, inRuns: false });
+  });
+
+  it("F5 review, I2: chi può cambiare lo dice il server (`canEdit`); senza il campo, sola lettura", async () => {
+    const read = (body: unknown) =>
+      createRealProjectPlugins(fake({ get: async () => body }).api).getProjectPlugins("p1");
+    expect((await read({ ...GET, canEdit: false }))!.canEdit).toBe(false);
+    const withoutField: Record<string, unknown> = { ...GET };
+    delete withoutField.canEdit;
+    expect((await read(withoutField))!.canEdit).toBe(false);
+    expect((await read(GET))!.canEdit).toBe(true);
   });
 
   it("un progetto che non si vede, o senza il permesso: null", async () => {
@@ -193,6 +204,99 @@ describe("i plugin del progetto dal server", () => {
         }),
       ).toMatchObject({ ok: false, error: "invalid", reason: "plugin" });
     expect(puts).toEqual([]);
+  });
+
+  it("F5 review, I1: ogni riga si salva filtrata sull'inventario ATTUALE (ruling T10), anche le non pronte", async () => {
+    const { api, puts } = fake({
+      get: async () => ({
+        ...GET,
+        plugins: [
+          {
+            pluginId: SP,
+            enabled: true,
+            disabledSkills: ["brainstorming", "tolta-dallo-sha"],
+            disabledHooks: ["Stop#3"],
+          },
+          {
+            pluginId: LH,
+            enabled: true,
+            disabledSkills: ["fix-lint", "vecchia"],
+            disabledHooks: ["X#0"],
+          },
+          // Un plugin tolto dal registro: la riga non si rimanda (il server la rifiuterebbe).
+          {
+            pluginId: "44444444-4444-4444-8444-444444444444",
+            enabled: true,
+            disabledSkills: [],
+            disabledHooks: [],
+          },
+        ],
+      }),
+    });
+    await createRealProjectPlugins(api).saveProjectPlugins("p1", {
+      version: "v7",
+      disabled: [
+        // Una scelta già salvata fuori dall'inventario si scarta, senza invalid.
+        {
+          plugin: "superpowers",
+          skills: ["brainstorming", "tolta-dallo-sha"],
+          hookGroups: ["Stop#3"],
+        },
+      ],
+    });
+    expect(puts[0]!.plugins).toEqual([
+      { pluginId: SP, enabled: true, disabledSkills: ["brainstorming"], disabledHooks: [] },
+      { pluginId: LH, enabled: true, disabledSkills: ["fix-lint"], disabledHooks: [] },
+    ]);
+  });
+
+  it("F5 review, I1: un 400 unknown_plugin* (l'inventario è cambiato nel frattempo) → conflict, che rilegge", async () => {
+    for (const code of ["unknown_plugin_skill", "unknown_plugin_hook", "unknown_plugin"]) {
+      const { api } = fake({
+        put: async () => {
+          throw new ApiError(400, "x", code);
+        },
+      });
+      expect(
+        await createRealProjectPlugins(api).saveProjectPlugins("p1", {
+          version: "v7",
+          disabled: [],
+        }),
+      ).toEqual({ ok: false, error: "conflict" });
+    }
+  });
+
+  it("review F5, M3: il registro si legge per slug, non per nome (due plugin col nome del manifest uguale)", async () => {
+    const FORK = "55555555-5555-4555-8555-555555555555";
+    const { api, puts } = fake({
+      get: async () => ({
+        ...GET,
+        plugins: [],
+        registry: [
+          REGISTRY[0],
+          {
+            ...REGISTRY[0],
+            pluginId: FORK,
+            slug: "superpowers-fork",
+            skills: ["brainstorming"],
+            hookGroups: [],
+          },
+        ],
+      }),
+    });
+    const view = (await createRealProjectPlugins(api).getProjectPlugins("p1"))!;
+    expect(view.plugins.map((p) => [p.name, p.slug])).toEqual([
+      ["superpowers", "superpowers"],
+      ["superpowers", "superpowers-fork"],
+    ]);
+    await createRealProjectPlugins(api).saveProjectPlugins("p1", {
+      version: "v7",
+      enabled: ["superpowers-fork"],
+      disabled: [{ plugin: "superpowers-fork", skills: ["brainstorming"], hookGroups: [] }],
+    });
+    expect(puts[0]!.plugins).toEqual([
+      { pluginId: FORK, enabled: true, disabledSkills: ["brainstorming"], disabledHooks: [] },
+    ]);
   });
 
   it("409 stale → conflict; un nome sconosciuto → invalid", async () => {

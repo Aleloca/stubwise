@@ -97,7 +97,9 @@ export function createRealIntegration(api: IntegrationApi) {
       } catch (error) {
         return keyRefusal(error);
       }
-      const v = await read(projectId);
+      // La chiave è già cambiata: una rilettura che fallisce non la perde
+      // (review F5, M5), il DSN resta vuoto.
+      const v = await read(projectId).catch(() => null);
       const dsn = v ? dsnWithKey(v.ingestion.dsnBase, key) : "";
       return { ok: true, key, dsn, snippet: snippetOf(dsn) };
     },

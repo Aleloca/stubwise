@@ -103,6 +103,20 @@ describe("Integration dal server", () => {
     expect(calls).toEqual(["key p1"]);
   });
 
+  it("F5 review, M5: la rilettura dopo la rigenerazione che fallisce non perde la chiave (DSN vuoto)", async () => {
+    const api = fake({
+      integration: async () => {
+        throw new Error("rete giù");
+      },
+    }).api;
+    expect(await createRealIntegration(api).regenerateIngestionKey("p1")).toEqual({
+      ok: true,
+      key: "sk_full_key_abcd",
+      dsn: "",
+      snippet: expect.stringContaining('dsn: ""'),
+    });
+  });
+
   it("la chiave: riconferma e permesso col loro rifiuto", async () => {
     const reauth = createRealIntegration(
       fake({ regenerateIngestionKey: refusing(403, "reauth_required") }).api,

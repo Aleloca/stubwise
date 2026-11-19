@@ -185,6 +185,15 @@ describe("Plugins: la pagina", () => {
     // Spento, le sue righe non si scelgono; la bozza le tiene.
     expect(skill("brainstorming")).toBeDisabled();
     expect(skill("brainstorming")).not.toBeChecked();
+    // Review F5, M2: anche il preset, spento, con la ragione del plugin non acceso.
+    const apply = within(superpowers).getByRole("button", { name: "Apply recommended preset" });
+    expect(apply).toHaveAttribute("aria-disabled", "true");
+    expect(apply).toHaveAccessibleDescription(
+      "Not turned on for this project: it doesn't enter runs.",
+    );
+    await user.click(apply);
+    // Il preset non ha toccato niente: la scelta salvata resta.
+    expect(skill("using-git-worktrees")).toBeChecked();
     expect(saveBar()).toHaveTextContent("2 changes");
     await user.click(within(saveBar()!).getByRole("button", { name: "Save" }));
     await screen.findByText(/^Saved\./);
@@ -205,6 +214,12 @@ describe("Plugins: un plugin pronto ma non acceso sul progetto", () => {
     const user = userEvent.setup();
     await open(LAURA);
     const superpowers = await block("superpowers");
+    // Review F5, M1: l'introduzione dice la regola opt-in.
+    expect(
+      screen.getByText(
+        "The Claude Code plugins Claude can use when it works on STW. A plugin enters runs only if you turn it on here; inside it, everything is on unless you turn it off.",
+      ),
+    ).toBeInTheDocument();
     expect(superpowers).toHaveTextContent("Not turned on for this project: it doesn't enter runs.");
     expect(superpowers).not.toHaveTextContent("in runs");
     const plugin = within(superpowers).getByRole("checkbox", {

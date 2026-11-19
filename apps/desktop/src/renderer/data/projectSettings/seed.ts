@@ -56,10 +56,10 @@ function pluginChoicesOf(projectId: string, superpowers: SeedPlugin): ProjectSet
   if (!chosen) return { version: 1, enabled: [], disabled: [] };
   return {
     version: 1,
-    enabled: [superpowers.name],
+    enabled: [superpowers.slug],
     disabled:
       chosen.disabledSkills.length > 0
-        ? [{ plugin: superpowers.name, skills: [...chosen.disabledSkills], hookGroups: [] }]
+        ? [{ plugin: superpowers.slug, skills: [...chosen.disabledSkills], hookGroups: [] }]
         : [],
   };
 }
