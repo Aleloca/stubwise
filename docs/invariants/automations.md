@@ -343,3 +343,23 @@ motore condiviso (`packages/shared/src/automations/`).
 - **Un passo tenuto per il budget riparte da solo quando il budget torna**
   (mese nuovo o tetto alzato), al giro del consumatore. Diverso dal
   `budget_held` dei job delle task, che resta com'è.
+
+## Claude scrive solo BOZZE (area 10, 19 nov 2026)
+
+- Le voci del catalogo di Claude sulle automazioni sono tre:
+  `createAutomation`, `saveAutomationDraft` e `deleteAutomationDraft`, e
+  solo di progetto (`projectId` obbligatorio).
+- **Mai nel catalogo** (`claude-actions-never.test.ts`): pubblicare,
+  accendere, mettere in pausa, duplicare, avviare un'esecuzione, approvarla o
+  rifiutarla.
+- Per questo una bozza creata da Claude è A. Nasce spenta e senza
+  proprietario, quindi non avvisa e non fa partire niente. Il suo
+  «Annulla» è `deleteAutomationDraft`, che su un'automazione mai pubblicata
+  la cancella tutta.
+- Chi aggiungesse «e accendila» renderebbe Claude capace di agire a nome
+  del proprietario di un'automazione. È un cambio di prodotto, non una voce
+  in più.
+- La prova di una bozza creata da Claude la fa il renderer, sugli esempi
+  (`GET …/examples`) e col motore condiviso. Non scrive niente e non chiama
+  il modello: `…/test/estimate` e `…/test/claude` restano fuori dal
+  catalogo.

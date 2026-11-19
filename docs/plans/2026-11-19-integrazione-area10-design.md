@@ -29,6 +29,7 @@ qui non si rifà.*
 | D-10 = a | La bozza in un campo è una voce nuova del catalogo, `fillField`, non un ramo di `pageAction`. | 46 |
 | D-11 = **b** | **`member.added` va alla persona aggiunta E a chi gestisce il progetto**, con «Undone by…» derivato a lettura. | **maintainer** |
 | D-12 = a | Un tool di lettura per tipo di oggetto, ognuno con la sua allowlist e il suo golden ostile. | 46 |
+| D-13 = a | S3: resta la regola del server sui consumi. Chi non ha nessun permesso non riceve niente, e Claude dice chi può dirglielo. Il prototipo si riallinea. | maintainer |
 
 D-4 e D-10 sono due metà della stessa scelta. D-4 dice CHI esegue: il
 renderer, dal vivo. D-10 dice come viaggia la bozza: una `fn` del catalogo,
@@ -86,7 +87,7 @@ Questi si aggiungono a quelli dell'inventario e ne correggono due.
   prototipo. `GET /api/ai-usage/summary` dà tutta l'istanza a chi ha
   `usage.view`, e i soli progetti in cui lo si ha a chi ha `project.usage.view`.
   Il prototipo dava «la somma dei soli suoi progetti» a OGNI membro. È una
-  differenza di permesso, e la decide D-13 (in fondo).
+  differenza di permesso: D-13 = a, resta la regola del server.
 - **`member.added` entra nel catalogo degli avvisi**
   (`packages/shared/src/alerts/catalog.ts`). Lo stesso giorno 46 ha deciso
   così anche D-6 dell'area 11, e la D-11 = b lo chiede. Chi gestisce il
@@ -306,7 +307,7 @@ Ognuno nasce con quattro cose:
   col nome di chi ha `usage.view`, letto da `read_people`/«Chi può farlo?».
 - Il ponte passa: totale, per progetto (solo i visibili), per modello.
   Niente per persona.
-- *La regola per chi non ha nessuno dei due permessi*: vedi **D-13**.
+- *Chi non ha nessuno dei due permessi* (D-13 = a, maintainer): non riceve niente, e Claude dice chi può dirglielo.
 - *Test*: tre persone sugli stessi dati (`usage.view`, `project.usage.view`
   su un progetto, nessuno), ognuna con la sua somma o il 403.
 
@@ -515,7 +516,7 @@ Ognuno nasce con quattro cose:
 - Le altre discese sono sicure.
 - Una voce di deploy-log per l'area, scritta all'ultima fetta.
 
-## Le invarianti nuove *(da applicare all'approvazione)*
+## Le invarianti nuove *(applicate all'approvazione, 19 nov 2026)*
 
 ### `docs/invariants/automations.md` — aggiunta
 
@@ -556,12 +557,4 @@ Ognuno nasce con quattro cose:
 
 ## [DECIDE]
 
-- **D-13 — S3, la spesa a chi non ha nessun permesso sui consumi.**
-  - **(a) consigliata**: resta la regola del server. Con `usage.view` tutta
-    l'istanza, con `project.usage.view` i soli progetti in cui lo si ha,
-    senza nessuno dei due niente, e Claude dice chi può dirlo. Nessun dato
-    nuovo esce, e il prototipo si riallinea (94).
-  - (b) come il prototipo: ogni membro riceve la somma dei soli suoi
-    progetti, anche senza permesso. Vuol dire dare a tutti una lettura dei
-    costi che oggi è dietro un permesso: è un cambio di permessi, non
-    dell'area 10.
+Nessuna aperta. D-13 è decisa (= a, maintainer, 19 nov 2026).
