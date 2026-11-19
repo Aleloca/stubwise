@@ -151,6 +151,11 @@ describe("Amministrazione → Repositories dal server", () => {
       [apiError(409, "not_detached"), { ok: false, error: "not_found" }],
       [apiError(403, "forbidden"), { ok: false, error: "forbidden" }],
       [apiError(404, "not_found"), { ok: false, error: "not_found" }],
+      // La destinazione sparita (review F6, M2; 72, Task 7): non è il repository che manca.
+      [
+        apiError(404, "target_not_found"),
+        { ok: false, error: "invalid", reason: "target_not_found" },
+      ],
     ];
     for (const [err, want] of cases) {
       const f = fake({ link: async () => Promise.reject(err) });

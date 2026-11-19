@@ -162,7 +162,10 @@ export async function linkRepository(
   const me = await writer("instance.linkRepository");
   const detached = detachedById(repositoryId);
   const project = openProject(me, projectId);
-  if (!detached || !project) return refuse.notFound();
+  if (!detached) return refuse.notFound();
+  // La destinazione archiviata, eliminata o invisibile: non è lo staccato che
+  // manca (review F6, M2; come il server, Task 7 di 72).
+  if (!project) return refuse.invalid("target_not_found");
   if (!canI(me, MANAGE_REPOS, project.id)) return refuse.forbidden();
   if (nameTaken(project.id, detached.repository.name, null)) return refuse.invalid("name_taken");
 

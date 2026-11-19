@@ -96,7 +96,8 @@ Repositories si accendono insieme: il toast di Delete porta a Repositories.
 | Delete: anteprima, codice esatto, riconferma | `projectArchive.ts` | `archive` | `second_factor_setup_required` è un `forbidden`, come in F5. |
 | Registro: `project.deleted` e `repository.deleted` | `changelog.ts` | — | La voce `hidden` del server perde il segnaposto dell'id. Il link a Repositories c'è solo se la sezione è accesa. |
 | Amministrazione → Repositories: collegati, senza progetto, collega, elimina | `instanceRepositories.ts` | `admin:repositories` | I collegati si compongono da `repositories.list()` (righe con `config`, cioè `repos.view`) e `projects.list()`; `owner/nome` dall'URL con la regola del server. `not_detached` si legge come «non c'è più». La data di distacco può mancare: la riga dice la provenienza e basta (anche nel prototipo). |
-| Le voci del registro di un archiviato portano a `/archived/<CODE>` | — | (no) | Nell'app non hanno link: vedi il registro dei rimandi. |
+| Le voci del registro di un archiviato portano a `/archived/<CODE>` | `changelog.ts` | — | Da `projectArchived`, che il server deriva a lettura (Task 7). |
+| Collegare uno staccato a un progetto sparito nel frattempo | `instanceRepositories.ts` | — | `target_not_found` (Task 7): il dialogo lo dice e resta aperto (anche nel prototipo). |
 
 ## A. Personale → Preferenze
 

@@ -206,6 +206,22 @@ describe("Link to a project…", () => {
     expect(state.detachedRepositories).toHaveLength(1);
   });
 
+  it("il progetto scelto è sparito nel frattempo: la frase nel dialogo, che resta aperto (review F6, M2)", async () => {
+    const user = userEvent.setup();
+    await open(LAURA);
+    await user.click(within(await group()).getByRole("button", { name: "Link to a project…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Link shop-frontend to a project" });
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: "Project" }), "prj-acq");
+    // ACQ si archivia mentre il dialogo è aperto.
+    state.projectsById.get("prj-acq")!.archived = { at: "2026-11-19T10:00:00.000Z", byId: ROBERTA };
+    await user.click(within(dialog).getByRole("button", { name: "Link" }));
+    expect(
+      await within(dialog).findByText("ACQ isn't available anymore. Choose another project."),
+    ).toBeVisible();
+    expect(screen.getByRole("dialog", { name: "Link shop-frontend to a project" })).toBe(dialog);
+    expect(state.detachedRepositories).toHaveLength(1);
+  });
+
   it("senza progetti in cui collegarlo: Link spento con la frase e «Who?»", async () => {
     // Il full admin di un'istanza con ogni progetto archiviato: nessun progetto
     // attivo può prenderlo (`linkTargets` vuoto).

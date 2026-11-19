@@ -361,4 +361,65 @@ describe("il registro delle modifiche dal server (area 9, F2)", () => {
       .entries;
     expect(noManage!.objectLink).toBeNull();
   });
+
+  it("F6: la voce di un archiviato (projectArchived, derivato dal server) porta a /archived/<CODICE>", async () => {
+    const onProject = entry({
+      type: "project.pulse_interval_changed",
+      scope: "project",
+      group: "automations",
+      projectId: PRJ,
+      projectCode: "ACQ",
+      projectArchived: true,
+      data: {
+        object: { type: "project", id: PRJ, label: "Acquedotto" },
+        before: "7",
+        after: "14",
+        params: {},
+      },
+    });
+    // Una voce di Settings su un altro oggetto (un repository): un archiviato non ha Settings da aprire.
+    const onRepo = entry({
+      type: "repository.linked",
+      scope: "project",
+      group: "repositories",
+      projectId: PRJ,
+      projectCode: "ACQ",
+      projectArchived: true,
+      data: {
+        object: { type: "repository", id: "r1", label: "api" },
+        before: null,
+        after: null,
+        params: {},
+      },
+    });
+    // Un membro di un archiviato si apre come persona, non nel pannello del membro.
+    const onMember = entry({
+      type: "member.permission_granted",
+      scope: "project",
+      group: "members",
+      projectId: PRJ,
+      projectCode: "ACQ",
+      projectArchived: true,
+      data: {
+        object: { type: "person", id: MARCO, label: "Marco Bellini" },
+        before: null,
+        after: null,
+        params: {},
+      },
+    });
+    const { api } = fakeApi({
+      list: async () => ({ entries: [onProject, onRepo, onMember], nextCursor: null }) as never,
+      // Gli archiviati non sono in /api/auth/me: nessun permesso sul progetto.
+      viewer: async () => ({
+        personId: ME,
+        instancePermissions: ["changelog.view"],
+        projectPermissions: {},
+        departmentPermissions: {},
+      }),
+    });
+    const [p, r, m] = (await createRealChangelog(api).listChangesPage()).entries;
+    expect(p!.objectLink).toEqual({ to: "archived", code: "ACQ" });
+    expect(r!.objectLink).toBeNull();
+    expect(m!.objectLink).toEqual({ to: "person", personId: MARCO });
+  });
 });

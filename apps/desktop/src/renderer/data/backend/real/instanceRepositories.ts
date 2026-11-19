@@ -41,6 +41,9 @@ export function fullNameOf(repoUrl: string): string | null {
 function refusalOf(error: unknown): ProjectResult {
   if (!(error instanceof ApiError)) throw error;
   if (error.code === "name_taken") return { ok: false, error: "invalid", reason: "name_taken" };
+  // La destinazione sparita (Task 7 di 72): il dialogo resta aperto, non è lo staccato che manca.
+  if (error.code === "target_not_found")
+    return { ok: false, error: "invalid", reason: "target_not_found" };
   if (error.code === "not_detached" || error.status === 404)
     return { ok: false, error: "not_found" };
   if (error.code === "reauth_required") return { ok: false, error: "reauth_required" };

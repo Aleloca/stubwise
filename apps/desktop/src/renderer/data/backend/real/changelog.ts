@@ -144,6 +144,11 @@ function linkOf(e: Any, viewer: Viewer): ChangeObjectLink | null {
   // F5: una voce della 9c porta alla sezione di Settings del progetto, se chi
   // guarda la vede (permessi dal server, `projectSettingsAccess`).
   const section = SECTION_OF_KIND[e.type];
+  // F6: un archiviato non ha Settings da aprire (`projectArchived`, derivato
+  // dal server a lettura): la voce sul progetto porta alla sua pagina, le
+  // altre di Settings non portano da nessuna parte.
+  if (section && e.projectArchived && e.projectCode)
+    return e.data.object.type === "project" ? { to: "archived", code: e.projectCode } : null;
   if (section && e.projectId && e.projectCode) {
     if (!projectSettingsAccess(viewer, e.projectId)[section]?.visible) return null;
     const repo = section === "repositories" && e.data.object.type === "repository";
@@ -155,7 +160,13 @@ function linkOf(e: Any, viewer: Viewer): ChangeObjectLink | null {
   switch (type) {
     case "person":
       // Una voce di membro si apre nel pannello del membro, se ne è ancora membro.
-      if (e.projectCode && String(e.type).startsWith("member.") && e.type !== "member.removed")
+      // Non in un archiviato: non ha Members da aprire (come il prototipo).
+      if (
+        e.projectCode &&
+        !e.projectArchived &&
+        String(e.type).startsWith("member.") &&
+        e.type !== "member.removed"
+      )
         return { to: "member", projectCode: e.projectCode, personId: id };
       return { to: "person", personId: id };
     case "role":

@@ -11691,6 +11691,7 @@
           "open": "Apri",
           "nameTaken": "{{code}} ha già un repository che si chiama {{name}}. Scegli un altro progetto.",
           "forbidden": "Non puoi più gestire i repository di {{code}}.",
+          "targetGone": "{{code}} non è più disponibile. Scegli un altro progetto.",
           "gone": "Quel progetto non è più disponibile, o qualcuno ha già collegato questo repository. Non è cambiato niente."
         },
         "deleteDialog": {
