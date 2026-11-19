@@ -350,7 +350,7 @@ export function NotificationItem({
 /**
  * Titolo e corpo di `task.assigned`, `planning.changed` e `member.added`
  * (area 10b) nella lingua di chi legge, dai valori stabili (`actorName`,
- * `viaClaude`, `plannedWeek`, `roleName`); `null` per gli altri tipi e per
+ * `viaClaude`, `plannedWeek`, `roleName`, `memberName`); `null` per gli altri tipi e per
  * le righe nate prima, che non li hanno.
  */
 function composedOf(
@@ -409,6 +409,25 @@ function composedOf(
       role: n.roleName ?? t("notifications.memberAdded.noRole"),
       ...vowelContext(n.objectCode),
     };
+    // Per chi gestisce i membri (19 nov 2026): chi è entrato, per nome se lo
+    // vede (R-G5), altrimenti «Someone».
+    if (n.memberName !== undefined) {
+      const words = "notifications.memberAdded";
+      const name = n.viaClaude
+        ? (n.viaClaudeName ?? t("notifications.viaClaude.someone"))
+        : (n.actorName ?? t("notifications.direct.someone"));
+      return {
+        title: t(`${words}.joinedTitle`, {
+          ...params,
+          member: n.memberName ?? t(`${words}.someoneTitle`),
+        }),
+        body: t(n.viaClaude ? `${words}.joinedBodyVia` : `${words}.joinedBody`, {
+          ...params,
+          name,
+          member: n.memberName ?? t(`${words}.someoneBody`),
+        }),
+      };
+    }
     return {
       title: t("notifications.memberAdded.title", params),
       body: n.viaClaude

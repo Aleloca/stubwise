@@ -190,7 +190,7 @@ describe("classOf: pianificare e modificare", () => {
 });
 
 describe("classOf: le altre voci", () => {
-  it("addMember è C: avvisa la persona aggiunta (D4), poi la riconferma; deleteTask è B e non si annulla", () => {
+  it("addMember è C: avvisa la persona aggiunta (D4) e chi gestisce i membri (19 nov 2026), poi la riconferma; deleteTask è B e non si annulla", () => {
     expect(
       classOf(ROBERTA, {
         fn: "addMember",
@@ -199,17 +199,20 @@ describe("classOf: le altre voci", () => {
     ).toEqual({
       cls: "C",
       reasons: [
-        { kind: "notifies", personIds: ["p-laura"], more: false },
+        { kind: "notifies", personIds: ["p-giulia", "p-laura"], more: false },
         { kind: "reauth" },
       ],
     });
-    // Chi aggiunge sé stesso non avvisa nessuno; un progetto invisibile non dice niente.
+    // Chi aggiunge sé stesso avvisa solo chi gestisce i membri; un progetto invisibile non dice niente.
     expect(
       classOf(ROBERTA, {
         fn: "addMember",
         args: { projectId: OLV, personId: ROBERTA, roleId: "role-developer" },
       }),
-    ).toEqual({ cls: "C", reasons: [{ kind: "reauth" }] });
+    ).toEqual({
+      cls: "C",
+      reasons: [{ kind: "notifies", personIds: ["p-giulia"], more: false }, { kind: "reauth" }],
+    });
     expect(
       classOf(GIULIA, {
         fn: "addMember",

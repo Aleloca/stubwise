@@ -761,6 +761,15 @@ export async function listNotifications(): Promise<AppNotification[]> {
       // ([SC 16]).
       if (n.roleId !== undefined)
         out.roleName = accessState().roles.find((r) => r.id === n.roleId)?.name ?? null;
+      // `member.added` a chi gestisce i membri (19 nov 2026): chi è entrato,
+      // per nome se chi guarda lo vede (R-G5); a chi è entrato niente.
+      if (n.memberId !== undefined) {
+        if (n.memberId !== me)
+          out.memberName = visiblePeopleFor(me).has(n.memberId)
+            ? (PEOPLE.find((p) => p.id === n.memberId)?.name ?? null)
+            : null;
+        delete out.memberId;
+      }
       if (n.projectId && !visibleProjectIds(me).has(n.projectId)) out.notOpenable = true;
       // Area 11a (Q1, P19): una menzione in un commento di prodotto, letta
       // dalla pagina e dal filo di adesso (`objectGone` se non ci sono più).

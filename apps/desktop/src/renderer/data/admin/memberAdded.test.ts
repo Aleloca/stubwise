@@ -20,7 +20,7 @@ import { CLAUDE_ID } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import { advanceNow, state, visibleProjectIds } from "../store";
 import type { AppNotification, ConversationEvent } from "../types";
-import { memberAddedRecipientOf } from "./members";
+import { memberAddedRecipientsOf } from "./members";
 
 // `member.added` (area 10b, Task 7, D4): chi viene aggiunto a un progetto lo
 // sa — a mano (Members), da Claude per conto di qualcuno (col segno) e da
@@ -28,10 +28,14 @@ import { memberAddedRecipientOf } from "./members";
 // stesso né per Claude collega (P8: provato sulla regola, non su scenari che
 // `judgeJoin` rifiuta prima), né per un cambio di ruolo. Il nome del ruolo si
 // legge a lettura; dopo un «Annulla» la notifica resta, con «Undone by».
+// Dal 19 nov 2026 (decisione del maintainer sull'inventario dell'area 10)
+// la ricevono anche i membri del progetto che ne gestiscono i membri
+// (`project.members.manage`), con chi è entrato; mai chi agisce né Claude.
 
 const LAURA = "p-laura";
 const LUCA = "p-luca";
 const MARCO = "p-marco";
+const MATTEO = "p-matteo";
 const ROBERTA = "p-roberta";
 const ACQ = "prj-acq";
 const DEVELOPER = "role-developer";
@@ -51,11 +55,15 @@ async function addedOf(personId: string): Promise<AppNotification[]> {
   return (await listNotifications()).filter((n) => n.kind === "member.added");
 }
 
-describe("memberAddedRecipientOf", () => {
-  it("la persona aggiunta; mai chi agisce, mai Claude collega (P8)", () => {
-    expect(memberAddedRecipientOf(LAURA, LUCA)).toBe(LUCA);
-    expect(memberAddedRecipientOf(LAURA, LAURA)).toBeNull();
-    expect(memberAddedRecipientOf(LAURA, CLAUDE_ID)).toBeNull();
+describe("memberAddedRecipientsOf", () => {
+  it("la persona aggiunta e chi gestisce i membri; mai chi agisce, mai Claude collega (P8)", () => {
+    // In ACQ gestiscono i membri Laura e Matteo; Roberta è full admin ma non membro.
+    expect(memberAddedRecipientsOf(LAURA, LUCA, ACQ)).toEqual([LUCA, MATTEO]);
+    expect(memberAddedRecipientsOf(MATTEO, LUCA, ACQ)).toEqual([LUCA, LAURA]);
+    expect(memberAddedRecipientsOf(LAURA, LAURA, ACQ)).toEqual([MATTEO]);
+    expect(memberAddedRecipientsOf(LAURA, CLAUDE_ID, ACQ)).toEqual([MATTEO]);
+    // Chi entra ed è già un gestore (un ruolo che li gestisce) non la riceve due volte.
+    expect(memberAddedRecipientsOf(LAURA, MATTEO, ACQ)).toEqual([MATTEO]);
   });
 });
 
@@ -81,6 +89,39 @@ describe("member.added a mano", () => {
     expect(n!.notOpenable).toBeUndefined();
     // Chi aggiunge non riceve niente.
     expect(await addedOf(LAURA)).toEqual([]);
+  });
+
+  it("Matteo, che gestisce i membri di ACQ, la riceve con chi è entrato; Roberta (full admin, non membro) no", async () => {
+    as(LAURA);
+    markReauthenticated(LAURA);
+    expect(await admin.addMember(ACQ, LUCA, DEVELOPER)).toEqual({ ok: true });
+    const [n, ...rest] = await addedOf(MATTEO);
+    expect(rest).toEqual([]);
+    expect(n).toMatchObject({
+      kind: "member.added",
+      projectId: ACQ,
+      roleName: "Developer",
+      actorName: "Laura Costa",
+      memberName: "Luca Bianchi",
+    });
+    // L'id resta nel livello dati, come quello di chi agisce.
+    expect(n!.memberId).toBeUndefined();
+    // Per chi è entrato la card resta «You've been added»: niente nome di sé.
+    expect((await addedOf(LUCA))[0]!.memberName).toBeUndefined();
+    expect(await addedOf("p-roberta")).toEqual([]);
+  });
+
+  it("un gestore che non vede più il progetto non la vede più: l'eccezione [SC 16] è solo di chi è entrato", async () => {
+    as(LAURA);
+    markReauthenticated(LAURA);
+    await admin.addMember(ACQ, LUCA, DEVELOPER);
+    expect(await addedOf(MATTEO)).toHaveLength(1);
+    writeAccess((s) => {
+      s.memberships = s.memberships.filter((m) => !(m.personId === MATTEO && m.projectId === ACQ));
+      s.grants = s.grants.filter((g) => !(g.personId === MATTEO && g.projectId === ACQ));
+    });
+    expect(visibleProjectIds(MATTEO).has(ACQ)).toBe(false);
+    expect(await addedOf(MATTEO)).toEqual([]);
   });
 
   it("cambiare il ruolo non è un'aggiunta: nessuna notifica nuova", async () => {
@@ -124,6 +165,8 @@ describe("member.added dalla posta (P25)", () => {
     expect(n).toMatchObject({ projectId: "prj-aud", objectCode: "AUD", roleName: "Contributor" });
     expect(n!.viaClaude).toBeUndefined();
     expect(await addedOf("p-matteo")).toEqual([]);
+    // Laura gestisce i membri di AUD: la riceve, con Chiara.
+    expect((await addedOf(LAURA))[0]).toMatchObject({ memberName: "Chiara Lombardi" });
   });
 });
 
@@ -216,7 +259,7 @@ describe("member.added da Claude per conto di Laura", () => {
       (e): e is Proposal => e.type === "proposal" && e.undoOf === groupId,
     )!;
     expect(card.reasons).toEqual([
-      { kind: "notifies", personIds: [MARCO], more: false },
+      { kind: "notifies", personIds: [MARCO, MATTEO], more: false },
       { kind: "reauth" },
     ]);
     // Niente prima della conferma.

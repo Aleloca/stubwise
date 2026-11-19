@@ -84,8 +84,10 @@ export function whyReceives(
   if (isClaude(personId) || !n.recipientIds.includes(personId)) return null;
   // `member.added` parla di chi la riceve: resta anche quando l'aggiunta è
   // stata annullata e il progetto non lo vede più, con «Undone by» e senza
-  // aprire niente (area 10b, [SC 16]). Dice solo ciò che sapeva già.
-  if (n.kind === "member.added") return "fixed";
+  // aprire niente (area 10b, [SC 16]). Dice solo ciò che sapeva già. Chi
+  // gestisce i membri (19 nov 2026) la riceve come ogni altra: col progetto.
+  if (n.kind === "member.added" && (n.memberId === undefined || n.memberId === personId))
+    return "fixed";
   if (n.projectId && !visibleProjectIds(personId).has(n.projectId)) return null;
   return "fixed";
 }

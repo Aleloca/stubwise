@@ -266,7 +266,15 @@
       "body_vowel": "{{name}} added you to {{code}} as {{role}}.",
       "bodyVia": "Claude on behalf of {{name}} added you to {{code}} as {{role}}.",
       "bodyVia_vowel": "Claude on behalf of {{name}} added you to {{code}} as {{role}}.",
-      "noRole": "a role that no longer exists"
+      "noRole": "a role that no longer exists",
+      "joinedTitle": "{{member}} joined {{code}} as {{role}}",
+      "joinedTitle_vowel": "{{member}} joined {{code}} as {{role}}",
+      "joinedBody": "{{name}} added {{member}} to {{code}} as {{role}}.",
+      "joinedBody_vowel": "{{name}} added {{member}} to {{code}} as {{role}}.",
+      "joinedBodyVia": "Claude on behalf of {{name}} added {{member}} to {{code}} as {{role}}.",
+      "joinedBodyVia_vowel": "Claude on behalf of {{name}} added {{member}} to {{code}} as {{role}}.",
+      "someoneTitle": "Someone",
+      "someoneBody": "someone"
     },
     "productDocMention": {
       "title": "{{name}} mentioned you in {{code}} · {{title}}",

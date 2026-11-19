@@ -255,7 +255,8 @@ describe("S5: aggiungere un membro", () => {
     expect(card.blocked).toBeUndefined();
     expect(classOfGroup(LAURA, card.actions)).toEqual({
       cls: "C",
-      reasons: [{ kind: "notifies", personIds: [LUCA], more: false }, { kind: "reauth" }],
+      // Luca, e Matteo che gestisce i membri di ACQ (19 nov 2026).
+      reasons: [{ kind: "notifies", personIds: [LUCA, "p-matteo"], more: false }, { kind: "reauth" }],
     });
     // Nessun pronome per la persona aggiunta [SC 13].
     expect(said(steps).toLowerCase()).not.toMatch(/\b(him|her|lo|la)\b/);
