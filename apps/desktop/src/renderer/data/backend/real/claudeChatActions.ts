@@ -357,6 +357,10 @@ export function rememberConversationOwner(conversationId: string, ownerId: strin
 }
 const ownerOf = (conversationId: string) => owners.get(conversationId) ?? session.personId ?? "";
 
+/** Chi guarda è l'autore della conversazione (sconosciuto = privata, quindi sua). */
+export const isConversationOwner = (conversationId: string): boolean =>
+  ownerOf(conversationId) === (session.personId ?? "");
+
 /**
  * Il corpo di `fillMailBody` che Gmail non ha salvato (`effectFailure`), da
  * copiare. Un server di prima non manda il campo: `?? null`, cioè riuscita

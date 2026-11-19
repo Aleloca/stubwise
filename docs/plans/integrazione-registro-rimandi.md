@@ -1327,6 +1327,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   cronologia di progetto che le nomini (la storia della task se ne va con
   lei); lo standup e la richiesta d'origine sì. (Elimina task: chiusa, sotto.)
 
+- Gli esempi scritti da Claude nella prova di S1 (F2, decisione 2a di 46,
+  19 nov 2026): nel prototipo, se il progetto non ha un evento che passa (o
+  che non passa) il filtro dell'inizio, Claude ne scrive uno («Example
+  written by Claude», `pickTrialExamples`/`writtenEvent`). Nell'app la prova
+  usa solo gli esempi veri del server (il più recente che passa e, con un
+  filtro, il più recente che non passa); senza, la riga dice «Nothing to try
+  it on yet». Nel prototipo non manca niente: è l'app che resta indietro.
+
 ## Area 11 — Documentazione di prodotto
 
 - Origine di una richiesta dalla documentazione di prodotto.

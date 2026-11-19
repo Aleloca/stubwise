@@ -4448,6 +4448,7 @@
       },
       "trial": {
         "label": "La prova di Claude",
+        "noExamples": "Ancora niente su cui provarla: nessun evento recente va bene per l'inizio",
         "head_one": "Provata su {{count}} esempio · non è nato niente",
         "head_other": "Provata su {{count}} esempi · non è nato niente",
         "testing_one": "La provo su {{count}} esempio…",

@@ -4448,6 +4448,7 @@
       },
       "trial": {
         "label": "Claude's test",
+        "noExamples": "Nothing to try it on yet: no recent event fits the start",
         "head_one": "Tested on {{count}} example · nothing was created",
         "head_other": "Tested on {{count}} examples · nothing was created",
         "testing_one": "Testing on {{count}} example…",

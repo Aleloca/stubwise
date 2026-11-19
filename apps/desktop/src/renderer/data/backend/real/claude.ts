@@ -1,4 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
+import { withSettledTrialEvents } from "./claudeTrial";
 import {
   REFINE_TOOL_NAMES,
   sizeFromEffort,
@@ -26,6 +27,7 @@ import { freeDetailOf, listMine, listPublic } from "./claudeChat";
 import {
   chatActionEvents,
   forgetPageStatuses,
+  isConversationOwner,
   rememberConversationOwner,
   readChatActions,
   reauthPhrasesOf,
@@ -549,7 +551,9 @@ async function readConversation(
     const [events, actions, people] = await Promise.all([readEvents(id), readChatActions(id), listPeople()]);
     const nameOf = (personId: string) => people.find((p) => p.id === personId)?.name ?? null;
     // Le schede e le righe delle azioni di Claude (fetta 3): derivate dalle viste del server.
-    const flow = withChatActionEvents(eventsOf(conversation.session, events, {}, null), chatActionEvents(events, actions));
+    // Area 10, F2: dopo un'automazione creata, la riga della prova (fatta qui, per l'autore).
+    const extra = await withSettledTrialEvents(chatActionEvents(events, actions), actions.groups, isConversationOwner(id));
+    const flow = withChatActionEvents(eventsOf(conversation.session, events, {}, null), extra);
     return {
       ...freeDetailOf(conversation, flow),
       continuesFrom: withOrigin ? await originOf(conversation.continuesFrom) : null,

@@ -1,4 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
+import { withTrialEvents } from "./claudeTrial";
 import {
   AGENT_STREAM_MAX_BYTES,
   agentStreamPath,
@@ -23,6 +24,7 @@ import {
   onChatActionsStale,
   onPageStatusChange,
   readChatActions,
+  isConversationOwner,
   withChatActionEvents,
   type ChatActions,
 } from "./claudeChatActions";
@@ -405,7 +407,11 @@ export const subscribe: typeof Fake.subscribe = (conversationId, onEvent, option
     const base = eventsOf(state.detail, state.raw, state.partials, state.plan);
     const flow =
       state.detail.kind === "free" && state.actions
-        ? withChatActionEvents(base, chatActionEvents(state.raw, state.actions))
+        ? withChatActionEvents(
+            base,
+            // Area 10, F2: la riga della prova; finita, si riemette.
+            withTrialEvents(chatActionEvents(state.raw, state.actions), state.actions.groups, isConversationOwner(conversationId), () => emit()),
+          )
         : base;
     for (const e of flow) {
       const json = JSON.stringify(e);

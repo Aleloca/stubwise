@@ -214,6 +214,19 @@ export function TrialRow({ event }: { event: Ev<"trial"> }) {
   }
   if (event.status !== "done") return null;
   const results = event.results ?? [];
+  // Area 10, F2 (decisione 2a): nessun esempio vero adatto all'inizio. La
+  // prova non è avvenuta, quindi niente «Tested on…».
+  if (results.length === 0) {
+    return (
+      <p
+        data-trial="empty"
+        className="event-enter flex items-center gap-1.5 text-sm text-ink-muted"
+      >
+        <TubeGlyph />
+        {t("claude.conversation.trial.noExamples")}
+      </p>
+    );
+  }
   return (
     <section
       data-trial="done"
