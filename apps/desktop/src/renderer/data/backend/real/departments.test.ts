@@ -57,6 +57,29 @@ describe("Reparti nella build app", () => {
     });
   });
 
+  it("F8: l'anteprima della bozza la calcola il server (F8-2 = a): reach, notGivable, missingToAdd, missing", async () => {
+    const { seen } = installFakeServer({
+      [`POST /api/departments/${SALES}/preview`]: {
+        body: {
+          reach: "anywhere",
+          notGivable: ["plans.approve"],
+          missingToAdd: { [ME_ID]: ["support.manage"] },
+          missing: [],
+        },
+      },
+    });
+    const draft = { memberIds: [ME_ID], projectPermissions: ["tickets.create"] };
+    expect(await adminDepartments.previewDepartment!(SALES, draft)).toEqual({
+      reach: "anywhere",
+      notGivable: ["plans.approve"],
+      missingToAdd: { [ME_ID]: ["support.manage"] },
+      missing: [],
+    });
+    const sent = seen.find((r) => r.path === `/api/departments/${SALES}/preview`)!;
+    expect(sent.method).toBe("POST");
+    expect(sent.body).toEqual(draft);
+  });
+
   it("senza departments.manage: forbidden; un nome già usato: name_taken", async () => {
     installFakeServer({
       "POST /api/departments": { status: 403, body: { code: "forbidden", message: "x" } },

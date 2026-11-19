@@ -84,12 +84,23 @@ const listDepartments: Admin["listDepartments"] = async () => {
   return rows.map((d) => view(d as ServerDepartment, members.get(d.id) ?? [], managers.get(d.id) ?? []));
 };
 
-const previewDepartment: Admin["previewDepartment"] = async () => ({
-  reach: "projects",
-  notGivable: [],
-  missingToAdd: {},
-  missing: [],
-});
+/**
+ * L'anteprima di una bozza (F8, F8-2 = a): la calcola il server con la
+ * regola di `judgeDraft` del prototipo, per chi guarda; il client non deduce
+ * i permessi. La tabella e «Add people» del pannello la leggono come prima.
+ */
+const previewDepartment: Admin["previewDepartment"] = async (id, draft) => {
+  const p = await appClient().departments.preview(id, {
+    memberIds: [...draft.memberIds],
+    projectPermissions: [...draft.projectPermissions],
+  });
+  return {
+    reach: p.reach === "anywhere" ? "anywhere" : "projects",
+    notGivable: [...p.notGivable],
+    missingToAdd: Object.fromEntries(Object.entries(p.missingToAdd).map(([k, v]) => [k, [...v]])),
+    missing: [...p.missing],
+  };
+};
 
 const createDepartment: Admin["createDepartment"] = async (input) => {
   try {
