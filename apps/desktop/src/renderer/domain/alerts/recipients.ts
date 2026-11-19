@@ -109,6 +109,7 @@ export function recipientsOf(n: AppNotification, ctx: RecipientContext): Recipie
     ...ctx.members,
     ...(alertTypeOf(n.kind)?.defaultForFullAdmins ? (ctx.fullAdmins ?? []) : []),
     ...ctx.subs.map((s) => s.personId),
+    ...(alertTypeOf(n.kind)?.addressed ? n.recipientIds : []),
   ]);
   const out: Recipient[] = [];
   for (const personId of candidates) {
@@ -133,8 +134,15 @@ export function whyFor(
 ): Recipient["why"] | null {
   const def = alertTypeOf(n.kind);
   if (!def) return null;
+  // Chi ha fatto la scrittura non è avvisato di ciò che ha fatto (area 10,
+  // F5: `member.added`, che porta `actorId`; gli altri tipi non lo scrivono).
+  if (n.actorId === personId) return null;
   const perms = ctx.permsOf(personId);
   const mandatory = n.mandatory?.find((m) => m.personId === personId);
+  // La persona aggiunta a un progetto lo sa sempre, anche se l'ingresso è
+  // stato annullato e il progetto non lo vede più ([SC 16]): dice solo ciò
+  // che sapeva già.
+  if (mandatory?.reason === "added") return mandatory.reason;
   // L'assegnatario vede la task che deve fare anche senza il permesso per
   // iscriversi (un Contributor): basta che veda il progetto.
   if (mandatory && OWN_TASK_REASONS.has(mandatory.reason) && ctx.seesProject(personId)) {
@@ -142,6 +150,14 @@ export function whyFor(
   }
   if (!allowedNow(def, perms, ctx.seesProject(personId))) return null;
   if (mandatory) return mandatory.reason;
+  // Area 11 (D-6 = b): solo chi il produttore ha nominato, se non l'ha spenta.
+  if (def.addressed) {
+    if (!n.recipientIds.includes(personId)) return null;
+    const sub = ctx.subs.find((s) => s.personId === personId && s.type === n.kind);
+    return subscriptionAt(sub, def, perms, { at: n.createdAt, seq: n.seq }).app
+      ? "subscribed"
+      : null;
+  }
   if (def.mandatoryOnly || n.mandatoryOnly) return null;
   const member = defaultApplies(def, personId, ctx);
   const sub = ctx.subs.find((s) => s.personId === personId && s.type === n.kind);

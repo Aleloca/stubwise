@@ -82,10 +82,6 @@ export function whyReceives(
   // R-K5 anche fuori dal catalogo: con R-L9 Claude vede ogni progetto, quindi
   // la visibilità non lo filtra più.
   if (isClaude(personId) || !n.recipientIds.includes(personId)) return null;
-  // `member.added` parla di chi la riceve: resta anche quando l'aggiunta è
-  // stata annullata e il progetto non lo vede più, con «Undone by» e senza
-  // aprire niente (area 10b, [SC 16]). Dice solo ciò che sapeva già.
-  if (n.kind === "member.added") return "fixed";
   if (n.projectId && !visibleProjectIds(personId).has(n.projectId)) return null;
   return "fixed";
 }
@@ -124,6 +120,8 @@ export function wouldNotify(
     kind: string;
     projectId: string;
     mandatory?: { personId: string; reason: MandatoryReason }[];
+    /** I destinatari nominati di un tipo `addressed` (area 11, D-6 = b). */
+    recipientIds?: readonly string[];
   },
 ): { personIds: string[]; more: boolean } {
   const n: AppNotification & { projectId: string } = {
@@ -132,7 +130,7 @@ export function wouldNotify(
     projectId: alert.projectId,
     objectCode: "",
     departmentId: null,
-    recipientIds: [],
+    recipientIds: [...(alert.recipientIds ?? [])],
     title: "",
     body: "",
     createdAt: now(),

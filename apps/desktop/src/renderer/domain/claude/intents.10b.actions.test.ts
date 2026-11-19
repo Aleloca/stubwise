@@ -109,9 +109,9 @@ describe("recognize: archiviare e aggiungere un membro (P10)", () => {
 });
 
 describe("S4: archiviare in blocco", () => {
-  it("Roberta: la prima riga col numero, una scheda B con tre azioni e i loro `why`, la nota `busy` di BSC", async () => {
+  it("Roberta: una scheda B con tre azioni e i loro `why`; BSC (occupato) nella prosa sopra, la riga col numero per ultima (D-9 = a)", async () => {
     const steps = await respond("archive projects with no activity for 90 days", as(ROBERTA));
-    expect(said(steps).split("\n")[0]).toBe("3 projects have had no activity for 90 days:");
+    expect(said(steps).split("\n").at(-1)).toBe("3 projects have had no activity for 90 days:");
     const card = proposalOf(steps)!;
     expect(card.actions.map((a) => a.fn)).toEqual(Array(3).fill("archiveProject"));
     expect(card.actions.map((a) => a.summary).sort()).toEqual(
@@ -121,9 +121,11 @@ describe("S4: archiviare in blocco", () => {
       const date = lastActivityOf(a.args.projectId as string)!;
       expect(a.why).toEqual({ key: "claude.answers.archive.why", params: { date } });
     }
-    expect(card.notes).toEqual([
-      { kind: "busy", code: "BSC", reasons: api.projectSettings.busyReasonsOf("prj-bsc", ROBERTA) },
-    ]);
+    // Area 10, D-9 = a: la scheda ha solo le righe fattibili; le altre le
+    // nomina la prosa col motivo, e il codice è un riferimento apribile.
+    expect(card.notes).toBeUndefined();
+    expect(said(steps).split("\n")[0]).toContain("**BSC**");
+    expect(events(steps, "citation").flatMap((c) => c.refs)).toContainEqual({ kind: "project", id: "prj-bsc" });
     // Le azioni sono B: la scheda, mai un'esecuzione subito.
     expect(events(steps, "executed")).toEqual([]);
     expect(classOfGroup(ROBERTA, card.actions).cls).toBe("B");
@@ -131,7 +133,7 @@ describe("S4: archiviare in blocco", () => {
 
   it("in it, chiesto in mesi: «3 progetti sono senza attività da 3 mesi:»", async () => {
     const steps = await respond("archivia i progetti senza attività da 3 mesi", as(ROBERTA, it_));
-    expect(said(steps).split("\n")[0]).toBe("3 progetti sono senza attività da 3 mesi:");
+    expect(said(steps).split("\n").at(-1)).toBe("3 progetti sono senza attività da 3 mesi:");
     expect(proposalOf(steps)!.actions).toHaveLength(3);
   });
 
@@ -196,7 +198,7 @@ describe("S4: archiviare in blocco", () => {
     ).toEqual([ACQ, "prj-lnt"]);
   });
 
-  it("la nota `not_manageable` di una scheda porta `codes` coi soli codici visibili, lunga quanto `count`", async () => {
+  it("con una scheda, il non gestibile sta nella prosa col suo «Who?», non nella scheda (D-9 = a)", async () => {
     // Un progetto che Laura gestisce, reso inattivo: ora c'è una scheda, e LNT diventa la sua nota.
     const mine = state.projects.find(
       (p) =>
@@ -209,16 +211,18 @@ describe("S4: archiviare in blocco", () => {
     const steps = await respond("archive projects with no activity for 3 months", as(LAURA));
     const card = proposalOf(steps)!;
     expect(card.actions.map((a) => a.args.projectId)).toEqual([mine.id]);
-    expect(card.notes).toEqual([
-      { kind: "not_manageable", count: 1, whoAction: "manageProjectSettings", codes: ["LNT"] },
-    ]);
+    expect(card.notes).toBeUndefined();
+    const lines = said(steps).split("\n");
+    expect(lines[0]).toBe("1 inactive project you can't archive: LNT · [Who?](who:manageProjectSettings/LNT)");
+    expect(lines.at(-1)).toMatch(/has had no activity for 3 months:$/);
+    expect(events(steps, "citation").flatMap((c) => c.refs)).toContainEqual({ kind: "project", id: "prj-lnt" });
   });
 
   it("dopo un'archiviazione la domanda successiva lo sa", async () => {
     setSessionPersonId(ROBERTA);
     state.projectsById.get("prj-ort")!.archived = { at: now(), byId: ROBERTA };
     const steps = await respond("archive projects with no activity for 90 days", as(ROBERTA));
-    expect(said(steps).split("\n")[0]).toBe("2 projects have had no activity for 90 days:");
+    expect(said(steps).split("\n").at(-1)).toBe("2 projects have had no activity for 90 days:");
   });
 });
 
@@ -255,7 +259,8 @@ describe("S5: aggiungere un membro", () => {
     expect(card.blocked).toBeUndefined();
     expect(classOfGroup(LAURA, card.actions)).toEqual({
       cls: "C",
-      reasons: [{ kind: "notifies", personIds: [LUCA], more: false }, { kind: "reauth" }],
+      // Luca, e Matteo che gestisce i membri di ACQ (19 nov 2026).
+      reasons: [{ kind: "notifies", personIds: [LUCA, "p-matteo"], more: false }, { kind: "reauth" }],
     });
     // Nessun pronome per la persona aggiunta [SC 13].
     expect(said(steps).toLowerCase()).not.toMatch(/\b(him|her|lo|la)\b/);

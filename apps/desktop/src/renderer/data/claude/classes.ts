@@ -1,4 +1,4 @@
-import { memberAddedRecipientOf } from "../admin/members";
+import { memberAddedMandatoryOf } from "../admin/members";
 import { splitByVisibility, wouldNotify } from "../alerts/visibility";
 import { assignedRecipientOf, nextTaskNumber, planRecipientsOf } from "../api-mutations";
 import { automationsStartingOn, taskHappening } from "../automations/sources";
@@ -162,14 +162,22 @@ function dataReasons(me: string, action: Action): ClassReason[] {
       return [notifiesOf(me, [assigned, ...planningChanged], task.projectId)];
     }
     case "addMember": {
-      // `member.added` alla persona aggiunta (maintainer, 2 nov 2026, D4): la
-      // stessa regola della scrittura (`memberAddedRecipientOf`). Di un
-      // progetto che chi chiede non vede non si dice niente (R-G5).
+      // `member.added` alla persona aggiunta (maintainer, 2 nov 2026, D4) e,
+      // per iscrizione, a chi gestisce i membri (D-11 = b, 19 nov 2026): la
+      // regola del catalogo, come la scrittura. Di un progetto che chi chiede
+      // non vede non si dice niente (R-G5).
       const projectId = args.projectId as string | undefined;
       if (!projectId || !visibleProjectIds(me).has(projectId)) return [];
       const personId = typeof args.personId === "string" ? args.personId : null;
       return [
-        notifiesOf(me, [personId && memberAddedRecipientOf(me, personId)], projectId),
+        {
+          kind: "notifies",
+          ...wouldNotify(me, {
+            kind: "member.added",
+            projectId,
+            mandatory: personId ? memberAddedMandatoryOf(me, personId) : [],
+          }),
+        },
       ];
     }
     case "updateProductPage": {
@@ -180,7 +188,17 @@ function dataReasons(me: string, action: Action): ClassReason[] {
       // senza altri destinatari la ragione sparisce, la classe no (P39).
       const page = typeof args.pageId === "string" ? productPageById(args.pageId) : undefined;
       if (!page || docsAccess(me, page.projectId) !== "read") return [];
-      return [notifiesOf(me, productDocRecipients(page.id), page.projectId)];
+      // Area 11 (D-6 = b): nel catalogo, chi ha spento gli aggiornamenti no.
+      return [
+        {
+          kind: "notifies",
+          ...wouldNotify(me, {
+            kind: "product_doc.updated",
+            projectId: page.projectId,
+            recipientIds: productDocRecipients(page.id),
+          }),
+        },
+      ];
     }
     default:
       return [];

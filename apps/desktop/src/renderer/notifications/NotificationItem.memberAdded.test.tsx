@@ -183,3 +183,39 @@ describe("member.added dopo «Annulla» (richiesta del coordinatore)", () => {
     expect(document.querySelector("[data-object-code]")!.closest("button")).not.toBeNull();
   });
 });
+
+describe("member.added per chi gestisce i membri (19 nov 2026)", () => {
+  const forManager: AppNotification = {
+    ...byHand,
+    recipientIds: ["p-matteo"],
+    memberName: "Luca Bianchi",
+  };
+
+  it("dice chi è entrato, in en e in it («ad ACQ»)", async () => {
+    renderItem(forManager);
+    expect(itemText()).toContain("Luca Bianchi joined ACQ as Developer");
+    expect(itemText()).toContain("Laura Costa added Luca Bianchi to ACQ as Developer.");
+    expect(itemText()).not.toContain("added you");
+    document.body.innerHTML = "";
+    await i18n.changeLanguage("it");
+    renderItem(forManager);
+    expect(itemText()).toContain("Luca Bianchi è entrato ad ACQ come Developer");
+    expect(itemText()).toContain("Laura Costa ha aggiunto Luca Bianchi ad ACQ come Developer.");
+  });
+
+  it("con Claude, e con una persona che chi guarda non vede (R-G5)", () => {
+    renderItem({
+      ...forManager,
+      viaClaude: { personId: LAURA, actionId: "ca-x" },
+      viaClaudeName: "Laura Costa",
+      undoneByName: null,
+    });
+    expect(itemText()).toContain(
+      "Claude on behalf of Laura Costa added Luca Bianchi to ACQ as Developer.",
+    );
+    document.body.innerHTML = "";
+    renderItem({ ...forManager, memberName: null });
+    expect(itemText()).toContain("Someone joined ACQ as Developer");
+    expect(itemText()).toContain("Laura Costa added someone to ACQ as Developer.");
+  });
+});

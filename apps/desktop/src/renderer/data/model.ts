@@ -201,6 +201,18 @@ export interface AppNotification {
    */
   roleId?: string;
   /**
+   * Solo `member.added` (19 nov 2026): chi è entrato, come valore stabile,
+   * perché la card di chi gestisce i membri dica chi. Non esce mai al
+   * client: `listNotifications` lo sostituisce con `memberName`. Assente
+   * sulle righe nate prima.
+   */
+  memberId?: string;
+  /**
+   * Solo a lettura, per chi non è la persona entrata: il suo nome se chi
+   * guarda la vede, `null` se no (R-G5). Assente per chi è entrato.
+   */
+  memberName?: string | null;
+  /**
    * Area 10b, solo a lettura: il nome di adesso di `roleId` (rinominato, il
    * nome nuovo); `null` se il ruolo non esiste più [SC 15]. Mai salvato.
    */
@@ -290,7 +302,14 @@ export interface ProductCardView {
  * (`@stubwise/shared`), mai una copia. `analysis_requester` (area 8, F4b): chi
  * ha chiesto a mano un'analisi riceve sempre il suo esito.
  */
-export type MandatoryReason = SharedMandatoryReason;
+export type MandatoryReason =
+  | SharedMandatoryReason
+  /**
+   * Area 10, F5 (D-11 = b, 19 nov 2026): la persona aggiunta a un progetto
+   * riceve sempre `member.added`, anche se nel frattempo non vede più il
+   * progetto ([SC 16]). Solo del prototipo finché il server non ha F5.
+   */
+  | "added";
 
 export type StatusFamily = "todo" | "active" | "closed";
 
