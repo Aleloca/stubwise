@@ -651,8 +651,8 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
   );
 
   /**
-   * 409 `last_manager` col `projectId`, e il `projectCode` solo se chi guarda
-   * vede quel progetto (F8-5 = a).
+   * 409 `last_manager` col `projectId` e il `projectCode`, SOLO se chi guarda
+   * vede quel progetto (F8-5 = a; invisibile = 404, senza eccezioni).
    */
   async function sendLastManager(
     reply: Parameters<typeof sendRoleRuleError>[0],
@@ -676,8 +676,8 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
       .send({
         code: error.code,
         message: error.message,
-        ...(projectId ? { projectId } : {}),
-        ...(p ? { projectCode: p.code } : {}),
+        // Invisibile = 404, senza eccezioni: id e codice solo a chi vede il progetto.
+        ...(p ? { projectId: projectId!, projectCode: p.code } : {}),
       });
   }
 

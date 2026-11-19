@@ -5436,8 +5436,9 @@ deploy o di un rollback che la tocca.
     lì: porta i permessi dei suoi reparti, e chi agisce li deve avere in
     quel progetto (F8-4 = a). Vale anche per `addMember` di Claude.
   - **`last_manager`** (F8-5 = a) anche per i reparti: togliere un permesso,
-    togliere una persona, eliminare il reparto. Il 409 porta `projectId`, e
-    `projectCode` solo a chi vede il progetto.
+    togliere una persona, eliminare il reparto. Il 409 porta `projectId` e
+    `projectCode` SOLO a chi vede il progetto: agli altri né l'uno né
+    l'altro (invisibile = 404).
   - **Claude** non ENTRA in un reparto (400 `not_a_person`), ma in ogni
     istanza esistente sta già nel reparto di ripiego: ce l'ha messo il trigger
     della 0109 quando la 0125 l'ha creato. Lì resta, e il salvataggio del

@@ -26,7 +26,7 @@ export function createDepartmentsEndpoints(request: ApiRequest) {
      * `projectPermissions` (area 9, F8) l'insieme intero dei permessi di
      * progetto che dà. Chiede la riconferma (403 `reauth_required`) quando fa
      * arrivare permessi a qualcuno; i rifiuti: 403 `escalation` (`missing`),
-     * 409 `last_manager` (`projectId`, `projectCode`), 400 `invalid_permission`,
+     * 409 `last_manager` (`projectId`, `projectCode` solo se lo vedi), 400 `invalid_permission`,
      * 400 `not_a_person`, 409 `stale` (con `version`) se `ifMatch` non è più la
      * versione dell'elenco. Un server di prima ignora `projectPermissions` e
      * `ifMatch`.

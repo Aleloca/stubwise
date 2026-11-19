@@ -156,7 +156,10 @@ describe("area 9, F8: l'ultimo gestore via reparto (F8-5 = a)", () => {
     // Chi non vede il progetto non ne riceve il codice.
     const byMember = await patch(d, { memberIds: [] });
     expect(byMember.statusCode).toBe(409);
-    expect((byMember.json() as { projectCode?: string }).projectCode).toBeUndefined();
+    // Invisibile = 404, senza eccezioni: a chi non vede il progetto né codice né id.
+    expect(byMember.json()).not.toHaveProperty("projectCode");
+    expect(byMember.json()).not.toHaveProperty("projectId");
+    expect(JSON.stringify(byMember.json())).not.toContain(p3);
     expect(await membersOf(d)).toEqual([m]);
     const del = await app.inject({ method: "DELETE", url: `/api/departments/${d}`, headers: { cookie: adminCookie } });
     expect(del.statusCode).toBe(409);
