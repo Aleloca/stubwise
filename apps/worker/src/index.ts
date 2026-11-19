@@ -698,8 +698,8 @@ if (relay) {
       serverUrl: config.chatServerUrl,
       // Area 10, F2: nella conversazione libera (c'è l'input del turno) la domanda va in `claude_conversation_questions`.
       // Area 10, F3 (S2): «Hypothesis» e «Details» del lavoro fermo.
-      stalledAside: async (sessionId, pulse, path) => {
-        await writeStalledAside(db, sessionId, pulse, path);
+      stalledAside: async (sessionId, stalled) => {
+        await writeStalledAside(db, sessionId, stalled);
       },
       askQuestion: (sessionId, args, inputId) => (inputId !== undefined ? askConversationQuestion(db, sessionId, inputId, args) : askChatQuestion(db, sessionId, args)),
     });

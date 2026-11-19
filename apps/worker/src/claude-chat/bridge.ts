@@ -192,11 +192,13 @@ export function chatServerPaths(tool: ChatReadToolName, args: Args): string[] {
       return ["/api/people"];
     case "list_departments":
       return ["/api/departments"];
+    case "read_usage_month":
+      return ["/api/ai-usage/summary?month=true&groupBy=project", "/api/access/who-can?permission=usage.view"];
     case "read_stalled_work": {
       // Il progetto del contesto (facoltativo) va nella query: la rotta la ignora,
       // la proiezione la usa per tenere quel progetto solo.
       const projectId = projectArg(args, false);
-      return [projectId ? `/api/projects/pulse?projectId=${seg(projectId)}` : "/api/projects/pulse", "/api/projects"];
+      return [projectId ? `/api/tasks/stalled?projectIds=${seg(projectId)}` : "/api/tasks/stalled", "/api/projects"];
     }
     case "search_tasks": {
       const q = new URLSearchParams();
@@ -545,33 +547,71 @@ function calendarEventResult(json: unknown): unknown {
   };
 }
 
+/** Una task ferma, come la legge il ponte da `GET /api/tasks/stalled` (`{ task, stall }`). */
+export interface StalledItem {
+  ticketId: string;
+  code: string;
+  stalledSince: string;
+  days: number;
+  reason: string;
+  plannedWeek: string | null;
+}
+
 /**
- * Area 10, F3 (S2): il lavoro fermo dal polso. Per progetto le task ferme, più
- * vecchie prima, coi numeri, le date e i motivi; MAI i titoli (una task può
- * venire da fuori). La seconda rotta (`/api/projects`) dà id, codice e nome per
- * citarle (`<CODICE>-<numero>`).
+ * Area 10, F3 (S2): le task ferme con le SOGLIE DEI PROGETTI, dalla rotta della
+ * lista delle task (`stallOf`: la stessa regola, non una copia), raggruppate
+ * per progetto, più vecchia prima. Del motivo solo il tipo (la nota di una
+ * sospensione a mano la scrive una persona), MAI il titolo (una task può
+ * venire da fuori). La seconda rotta (`/api/projects`) dà nome e codice.
  */
-export function stalledProjects(json: unknown, path: string): { projectId: string; projectName: string; stalled: { ticketId: string; ticketNumber: number; stalledSince: string; reason: string }[] }[] {
-  const only = new URLSearchParams(path.split("?")[1] ?? "").get("projectId");
-  const rows = (Array.isArray(json) ? json : []) as Record<string, unknown>[];
-  return rows
-    .filter((p) => (only ? p["projectId"] === only : true))
-    .map((p) => ({
-      projectId: String(p["projectId"]),
-      projectName: String(p["projectName"] ?? ""),
-      stalled: pickAll(p["stalled"], ["ticketId", "ticketNumber", "stalledSince", "reason"])
-        .map((s) => s as { ticketId: string; ticketNumber: number; stalledSince: string; reason: string })
-        .sort((a, b) => a.stalledSince.localeCompare(b.stalledSince)),
-    }))
-    .filter((p) => p.stalled.length > 0)
+export function stalledProjects(json: unknown): { projectId: string; stalled: StalledItem[] }[] {
+  const rows = (Array.isArray(json) ? json : []) as { task?: Record<string, unknown>; stall?: { reason?: { kind?: unknown }; since?: unknown; days?: unknown } }[];
+  const by = new Map<string, StalledItem[]>();
+  for (const r of rows) {
+    const projectId = typeof r.task?.["projectId"] === "string" ? r.task["projectId"] : null;
+    if (projectId === null) continue;
+    const item: StalledItem = {
+      ticketId: String(r.task?.["id"] ?? ""),
+      code: String(r.task?.["code"] ?? ""),
+      stalledSince: String(r.stall?.since ?? ""),
+      days: typeof r.stall?.days === "number" ? r.stall.days : 0,
+      reason: String(r.stall?.reason?.kind ?? ""),
+      plannedWeek: typeof r.task?.["plannedWeek"] === "string" ? r.task["plannedWeek"] : null,
+    };
+    by.set(projectId, [...(by.get(projectId) ?? []), item]);
+  }
+  return [...by.entries()]
+    .map(([projectId, stalled]) => ({ projectId, stalled: stalled.sort((a, b) => a.stalledSince.localeCompare(b.stalledSince)) }))
     .sort((a, b) => a.stalled[0]!.stalledSince.localeCompare(b.stalled[0]!.stalledSince));
 }
 
+/**
+ * Area 10, F3 (S3, D-13 = a): la spesa del mese. Il totale, e per progetto
+ * solo codice, nome e costo (la riga `other` resta `other`, senza nome: R-G5
+ * lo decide il server); niente per persona, niente token. «Chi può dirtelo»:
+ * solo i nomi di chi ha `usage.view`.
+ */
+function usageResult(json: unknown, path: string): unknown {
+  if (path.split("?")[0] === "/api/access/who-can") {
+    const people = ((json as { people?: unknown } | null)?.people ?? []) as { displayName?: unknown; email?: unknown }[];
+    return { whoCan: people.map((p) => (typeof p.displayName === "string" && p.displayName.trim() !== "" ? p.displayName : String(p.email ?? ""))).filter((n) => n !== "") };
+  }
+  const s = (json ?? {}) as { totals?: { costUsd?: unknown; runs?: unknown }; rows?: unknown };
+  return {
+    canSee: true,
+    totalUsd: s.totals?.costUsd ?? 0,
+    runs: s.totals?.runs ?? 0,
+    // `key` come `id`: la lista nera di `compact` toglie ogni campo che finisce in «key».
+    byProject: (Array.isArray(s.rows) ? (s.rows as Record<string, unknown>[]) : []).map((r) => ({ id: r["key"], ...pick(r, ["code", "label", "costUsd"]) })),
+  };
+}
+
 export function projectToolResult(tool: ChatReadToolName, json: unknown, path = ""): unknown {
+  if (tool === "read_usage_month") return usageResult(json, path);
   if (tool === "read_stalled_work") {
     if (path.split("?")[0] === "/api/projects") return { projects: pickAll(json, ["id", "code", "name"]) };
-    // L'id della task resta al worker (per l'aside): al modello numero, data e motivo.
-    return { stalled: stalledProjects(json, path).map((p) => ({ ...p, stalled: p.stalled.map((s) => ({ ticketNumber: s.ticketNumber, stalledSince: s.stalledSince, reason: s.reason })) })) };
+    // L'id della task resta al worker (per l'aside): al modello codice, data, giorni e motivo.
+    return { stalled: stalledProjects(json).map((p) => ({ projectId: p.projectId, stalled: p.stalled.map((s) => ({ code: s.code, stalledSince: s.stalledSince, days: s.days, reason: s.reason })) })) };
   }
   // Area 10, F2: dei reparti solo id, nome e il ripiego (i permessi che danno no).
   if (tool === "list_departments") return pickAll(json, ["id", "name", "isDefault"]);
@@ -738,7 +778,7 @@ export async function startChatBridge(deps: {
    * `aside` («Hypothesis», «Details»), scritto dal worker col polso GIÀ letto.
    * Mai nei turni di @Claude (la risposta sta in un canale). Fail-open.
    */
-  stalledAside?: (sessionId: string, pulse: unknown, path: string) => Promise<void>;
+  stalledAside?: (sessionId: string, stalled: unknown, path: string) => Promise<void>;
 }): Promise<ChatBridge> {
   const log = deps.log ?? ((m: string) => console.warn(m));
   const fetchImpl = deps.fetchImpl ?? fetch;
@@ -863,6 +903,12 @@ export async function startChatBridge(deps: {
         headers: { authorization: `Bearer ${turn.serverToken}`, accept: "application/json" },
         signal: AbortSignal.timeout(SERVER_TIMEOUT_MS),
       });
+      // Area 10, F3 (S3): chi non può vedere la spesa non riceve un errore, ma
+      // `canSee: false` e (dalla rotta dopo) chi può dirglielo.
+      if (tool === "read_usage_month" && res.status === 403 && path.startsWith("/api/ai-usage/summary")) {
+        parts.push(JSON.stringify({ canSee: false }));
+        continue;
+      }
       // 404 e 403 si leggono uguali: non si dice se l'oggetto esiste.
       if (res.status === 404 || res.status === 403) {
         return { status: 200, body: { ok: false, text: `Not found, or not visible to you: ${subjectOf(args)}.` } };
@@ -878,7 +924,7 @@ export async function startChatBridge(deps: {
         return { status: 200, body: { ok: false, text: `Stubwise is unavailable right now (${res.status}).` } };
       }
       const json: unknown = await res.json().catch(() => null);
-      if (tool === "read_stalled_work" && path.startsWith("/api/projects/pulse")) pulse = { json, path };
+      if (tool === "read_stalled_work" && path.startsWith("/api/tasks/stalled")) pulse = { json, path };
       const projected = compact(projectToolResult(tool, json, path));
       parts.push(tool === "read_drive_file" ? fitDriveFile(projected, CHAT_DOC_PAGE_TEXT_MAX) : JSON.stringify(projected));
     }

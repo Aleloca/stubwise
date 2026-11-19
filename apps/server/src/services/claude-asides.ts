@@ -1,6 +1,6 @@
-import { projects, tickets, type Db } from "@stubwise/db";
+import { projects, projectStatuses, tickets, type Db } from "@stubwise/db";
 import type { AgentSessionEvent } from "@stubwise/shared";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { isAllProjects, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 
@@ -20,6 +20,13 @@ export interface AsideRowView {
   stalledSince: string;
   reason: string;
   closed: boolean;
+  /**
+   * La soglia del progetto che rende ferma la task (decisione del maintainer,
+   * 20 nov 2026: le soglie dei progetti, la regola della lista delle task):
+   * per un'inattiva (`idle`) `stall_active_days` o `stall_todo_days` secondo la
+   * famiglia del suo stato; null per gli altri motivi, che non hanno soglia.
+   */
+  thresholdDays: number | null;
 }
 
 /**
@@ -46,14 +53,20 @@ export async function enrichAsides(db: Db, viewer: Pick<SessionUser, "id" | "ins
   const sees = (id: string) => (isAllProjects(visible) ? true : visible.includes(id));
   const codes = new Map(
     projectIds.size > 0
-      ? (await db.select({ id: projects.id, code: projects.code, archivedAt: projects.archivedAt }).from(projects).where(inArray(projects.id, [...projectIds])))
+      ? (await db.select({ id: projects.id, code: projects.code, archivedAt: projects.archivedAt, activeDays: projects.stallActiveDays, todoDays: projects.stallTodoDays }).from(projects).where(inArray(projects.id, [...projectIds])))
           .filter((p) => p.archivedAt === null && sees(p.id))
-          .map((p) => [p.id, p.code])
+          .map((p) => [p.id, p])
       : [],
   );
   const taskRows = new Map(
     ticketIds.size > 0
-      ? (await db.select({ id: tickets.id, number: tickets.number, status: tickets.status }).from(tickets).where(inArray(tickets.id, [...ticketIds]))).map((t) => [t.id, t])
+      ? (
+          await db
+            .select({ id: tickets.id, number: tickets.number, status: tickets.status, family: projectStatuses.family })
+            .from(tickets)
+            .leftJoin(projectStatuses, eq(projectStatuses.id, tickets.statusId))
+            .where(inArray(tickets.id, [...ticketIds]))
+        ).map((t) => [t.id, t])
       : [],
   );
   return events.map((e) => {
@@ -62,19 +75,22 @@ export async function enrichAsides(db: Db, viewer: Pick<SessionUser, "id" | "ins
     const rows: AsideRowView[] = (data.rows ?? []).flatMap((r) => {
       const projectId = typeof r.projectId === "string" ? r.projectId : "";
       const ticketId = typeof r.oldest?.ticketId === "string" ? r.oldest.ticketId : "";
-      const code = codes.get(projectId);
+      const project = codes.get(projectId);
       const task = taskRows.get(ticketId);
-      if (code === undefined || task === undefined) return [];
+      if (project === undefined || task === undefined) return [];
+      const reason = typeof r.oldest?.reason === "string" ? r.oldest.reason : "";
+      const thresholdDays = reason !== "idle" ? null : task.family === "active" ? project.activeDays : task.family === "todo" ? project.todoDays : null;
       return [
         {
           projectId,
-          projectCode: code,
+          projectCode: project.code,
           count: typeof r.count === "number" ? r.count : 0,
           ticketId,
-          taskCode: `${code}-${task.number}`,
+          taskCode: `${project.code}-${task.number}`,
           stalledSince: typeof r.oldest?.stalledSince === "string" ? r.oldest.stalledSince : "",
-          reason: typeof r.oldest?.reason === "string" ? r.oldest.reason : "",
+          reason,
           closed: task.status === "done" || task.status === "closed",
+          thresholdDays,
         },
       ];
     });
