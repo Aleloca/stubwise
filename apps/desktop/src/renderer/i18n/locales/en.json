@@ -10744,7 +10744,8 @@
         "instance": "You don't have this permission, so you can't give it.",
         "projects_role": "You don't have this in every project where this role is used, so you can't give it.",
         "projects_department": "You don't have this in every project of this department's people, so you can't give it.",
-        "anywhere": "You don't have this in any project, so you can't give it."
+        "anywhere": "You don't have this in any project, so you can't give it.",
+        "anywhere_department": "This department's people aren't in any project yet: you can give only what you have in at least one project."
       },
       "included": "Included in full administration"
     },

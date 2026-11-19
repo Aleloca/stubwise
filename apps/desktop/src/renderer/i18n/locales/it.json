@@ -10744,7 +10744,8 @@
         "instance": "Non hai questo permesso, quindi non puoi darlo.",
         "projects_role": "Non hai questo permesso in tutti i progetti dove il ruolo è usato, quindi non puoi darlo.",
         "projects_department": "Non hai questo permesso in tutti i progetti delle persone del reparto, quindi non puoi darlo.",
-        "anywhere": "Non hai questo permesso in nessun progetto, quindi non puoi darlo."
+        "anywhere": "Non hai questo permesso in nessun progetto, quindi non puoi darlo.",
+        "anywhere_department": "Le persone del reparto non sono ancora in nessun progetto: puoi dare solo ciò che hai in almeno un progetto."
       },
       "included": "Incluso nell'amministrazione completa"
     },

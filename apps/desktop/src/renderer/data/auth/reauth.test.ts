@@ -35,7 +35,6 @@ const EXPECTED_REAUTH: readonly ApiFnName[] = [
   "admin.duplicateRole",
   "admin.deleteRole",
   "admin.setDepartmentMembers",
-  "admin.setHomeManagers",
   "admin.setDepartmentPermissions",
   "admin.saveDepartment",
   "admin.addMember",

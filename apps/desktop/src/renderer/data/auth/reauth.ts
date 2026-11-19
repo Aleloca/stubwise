@@ -54,8 +54,10 @@ export const REAUTH_REQUIRED: ReadonlySet<ApiFnName> = new Set<ApiFnName>([
   "admin.updateRole",
   "admin.duplicateRole",
   "admin.deleteRole",
+  // F8-3 (maintainer): sui reparti solo dove si danno accessi (permessi
+  // aggiunti, una persona aggiunta a un reparto che ne dà): la riconferma è
+  // parziale, la chiede la scrittura. Chi gestisce la Home no.
   "admin.setDepartmentMembers",
-  "admin.setHomeManagers",
   "admin.setDepartmentPermissions",
   // Task 9, giro 1: persone, Home e permessi del reparto in un colpo.
   "admin.saveDepartment",

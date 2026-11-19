@@ -40,7 +40,13 @@ export function useGiveBlock() {
   const { t } = useTranslation();
   return (reach: GiveReach, what: "role" | "department"): RowContext => ({
     short: t("admin.permissionTable.blocked"),
-    long: t(`admin.permissionTable.blockedWhy.${reach === "projects" ? `projects_${what}` : reach}`),
+    // Un reparto che non arriva a nessun progetto ha il suo motivo (F8-4): i
+    // permessi arriveranno quando una sua persona entra in un progetto.
+    long: t(
+      `admin.permissionTable.blockedWhy.${
+        reach === "projects" ? `projects_${what}` : reach === "anywhere" && what === "department" ? "anywhere_department" : reach
+      }`,
+    ),
     locked: true,
   });
 }

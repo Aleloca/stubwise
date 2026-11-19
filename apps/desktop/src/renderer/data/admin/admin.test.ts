@@ -148,25 +148,23 @@ const SENSITIVE: Record<string, { setup?: () => void; call: () => Promise<AdminR
     },
     "admin.duplicateRole": { call: () => admin.duplicateRole(roleIdOf("developer")) },
     "admin.deleteRole": { call: () => admin.deleteRole(roleIdOf("au-1")) },
+    // F8-3 (maintainer): chiede il codice chi aggiunge una persona a un reparto CHE DÀ permessi.
     "admin.setDepartmentMembers": {
       call: () =>
-        admin.setDepartmentMembers("dep-sales", [
-          ...accessState().departments.find((d) => d.departmentId === "dep-sales")!.memberIds,
-          "p-marco",
+        admin.setDepartmentMembers("dep-development", [
+          ...accessState().departments.find((d) => d.departmentId === "dep-development")!.memberIds,
+          "p-giulia",
         ]),
-    },
-    "admin.setHomeManagers": {
-      call: () => admin.setHomeManagers("dep-sales", ["p-matteo", "p-elena"]),
     },
     "admin.setDepartmentPermissions": {
       call: () => admin.setDepartmentPermissions("dep-sales", ["support.manage"]),
     },
     "admin.saveDepartment": {
       call: () =>
-        admin.saveDepartment("dep-sales", {
-          memberIds: [...dept("dep-sales").memberIds, "p-marco"],
-          homeManagerIds: dept("dep-sales").homeManagerIds,
-          projectPermissions: dept("dep-sales").projectPermissions,
+        admin.saveDepartment("dep-development", {
+          memberIds: [...dept("dep-development").memberIds, "p-giulia"],
+          homeManagerIds: dept("dep-development").homeManagerIds,
+          projectPermissions: dept("dep-development").projectPermissions,
         }),
     },
     "admin.addMember": { call: () => admin.addMember(ACQ, "p-giulia", roleIdOf("developer")) },
@@ -200,6 +198,49 @@ describe("riconferma", () => {
       expect(REAUTH_REQUIRED.has(name as ApiFnName)).toBe(true);
     });
   }
+
+  // F8-3 (maintainer): la riconferma sui reparti solo dove si danno accessi:
+  // i permessi aggiunti e una persona aggiunta a un reparto che ne dà. Non
+  // rinominare, non togliere, non chi gestisce la Home.
+  it("F8-3: senza riconferma passano rinominare, togliere, la Home, e aggiungere a un reparto senza permessi", async () => {
+    as("p-roberta");
+    const dev = structuredClone(dept("dep-development"));
+    const sales = structuredClone(dept("dep-sales"));
+    expect(
+      await admin.saveDepartment("dep-development", {
+        name: "Engineering",
+        memberIds: dev.memberIds,
+        homeManagerIds: dev.homeManagerIds,
+        projectPermissions: dev.projectPermissions,
+      }),
+    ).toEqual({ ok: true });
+    expect(
+      await admin.setDepartmentPermissions("dep-development", []),
+    ).toEqual({ ok: true });
+    expect(
+      await admin.setDepartmentMembers("dep-sales", [...sales.memberIds, "p-marco"]),
+    ).toEqual({ ok: true });
+    expect(await admin.setDepartmentMembers("dep-sales", sales.memberIds)).toEqual({ ok: true });
+    expect(await admin.setHomeManagers("dep-sales", ["p-matteo", "p-elena"])).toEqual({ ok: true });
+    expect(REAUTH_REQUIRED.has("admin.setHomeManagers" as ApiFnName)).toBe(false);
+  });
+
+  it("F8-3: aggiungere un permesso al reparto chiede il codice; anche dentro la bozza intera", async () => {
+    as("p-roberta");
+    await refused(() => admin.setDepartmentPermissions("dep-sales", ["support.manage"]), {
+      error: "reauth_required",
+    });
+    const sales = structuredClone(dept("dep-sales"));
+    await refused(
+      () =>
+        admin.saveDepartment("dep-sales", {
+          memberIds: sales.memberIds,
+          homeManagerIds: sales.homeManagerIds,
+          projectPermissions: ["support.manage"],
+        }),
+      { error: "reauth_required" },
+    );
+  });
 
   it("la riconferma è della persona: quella di Roberta non vale per Laura", async () => {
     reauth("p-roberta");
