@@ -14,7 +14,7 @@
 
 - **Nessuna [DECIDE]**: D-3 e D-13 sono decise. L'ipotesi è quella del
   prototipo, una sola.
-- **Migrazione 0198**: il CHECK `agent_session_events_type_chk` con `aside`.
+- **Migrazione 0199** (la 0197 è della review di F1, la 0198 di F2): il CHECK `agent_session_events_type_chk` con `aside`.
 - **Fatti del codice che contano**:
   - il polso (`GET /api/projects/pulse`) dà per progetto `stalled[]`:
     `ticketId`, `ticketNumber`, `title`, `stalledSince` (una DATA:
@@ -45,10 +45,10 @@
 
 Come F1 e F2. F3 non tocca il catalogo.
 
-## Task 1 — la 0198 e il tipo `aside`
+## Task 1 — la 0199 e il tipo `aside`
 
 **File**: la migrazione, `meta/_journal.json`, shared `agent-session.ts`.
-Test: `migration-0198.test.ts`, il test del parse in shared.
+Test: `migration-0199.test.ts`, il test del parse in shared.
 
 1. **RED**:
    - un evento `aside` si inserisce, e un tipo inventato no;
@@ -158,7 +158,7 @@ Test: `bridge.test.ts`, `chat-tool-token.test.ts`.
 
 ## Task 5 — documenti e chiusura
 
-- `deploy-log.md`: la 0198, e lo stesso rollback di `question` (il CHECK
+- `deploy-log.md`: la 0199, e lo stesso rollback di `question` (il CHECK
   non scende finché esistono eventi `aside`).
 - `integration-claude-chat.md`: S2 e S3 (per 94).
 - Il registro: chiuse «Nessun tool legge il lavoro fermo né i consumi».
