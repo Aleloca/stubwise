@@ -562,10 +562,10 @@ export type SetVisibilityResult =
       reconfirm?: boolean;
     }
   /**
-   * Build app (review di F1 dell'area 10): Claude in questa conversazione ha
-   * letto contenuti privati (posta, calendario, un canale privato o un DM,
-   * un'automazione generale), quindi non si pubblica più. Assente nel
-   * prototipo.
+   * Area 10 (review di F1): Claude in questa conversazione ha letto
+   * contenuti privati (posta, calendario, un canale privato o un DM,
+   * un'automazione generale), quindi non si pubblica più. Nel prototipo:
+   * il chip della posta, una bozza di email, un'automazione generale.
    */
   | { status: "private_content" }
   | { status: "done"; conversation: Conversation };

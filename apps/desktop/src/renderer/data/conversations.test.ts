@@ -489,6 +489,60 @@ describe("proposte", () => {
   });
 });
 
+describe("i contenuti privati non si pubblicano (area 10, review di F1; 46)", () => {
+  const userWith = (context: unknown) =>
+    ({
+      id: "ev-private-test",
+      at: `${TODAY}T11:00:00Z`,
+      type: "user",
+      authorId: "p-giulia",
+      text: "x",
+      attachments: [],
+      delivery: "delivered",
+      context,
+    }) as never;
+  const blocked = async (event: unknown) => {
+    state.conversationEvents.get("cv-giulia-week")!.push(event as never);
+    as("p-giulia");
+    expect(await setVisibility("cv-giulia-week", "public")).toEqual({ status: "private_content" });
+    // Nemmeno confermando i progetti, e niente cambia.
+    expect(
+      await setVisibility("cv-giulia-week", "public", { confirmedProjectIds: ["prj-stw", "prj-olv", "prj-mkx"] }),
+    ).toEqual({ status: "private_content" });
+    expect(conv("cv-giulia-week").visibility).toBe("private");
+  };
+
+  it("un messaggio col chip della posta (una conversazione o l'email nuova)", async () => {
+    await blocked(userWith({ kind: "mail", threadId: null }));
+  });
+
+  it("una bozza di email di Claude", async () => {
+    await blocked({
+      id: "ev-draft-test",
+      at: `${TODAY}T11:00:00Z`,
+      type: "draft",
+      status: "done",
+      field: { kind: "mailBody", threadId: null },
+      text: "Hi",
+    });
+  });
+
+  it("il chip di un'automazione generale; una di progetto no", async () => {
+    const general = state.automations.find((a) => a.projectId === null)!;
+    const ofProject = state.automations.find((a) => a.projectId !== null)!;
+    state.conversationEvents.get("cv-giulia-week")!.push(userWith({ kind: "automation", automationId: ofProject.id }));
+    as("p-giulia");
+    expect((await setVisibility("cv-giulia-week", "public")).status).toBe("needs_confirmation");
+    await blocked(userWith({ kind: "automation", automationId: general.id }));
+  });
+
+  it("rendere privata resta possibile", async () => {
+    state.conversationEvents.get("cv-giulia-week")!.push(userWith({ kind: "mail", threadId: null }));
+    as("p-giulia");
+    expect((await setVisibility("cv-giulia-week", "private")).status).toBe("done");
+  });
+});
+
 describe("pubbliche e continuazioni", () => {
   it("rendere pubblica elenca i progetti toccati e chiede di confermarli", async () => {
     as("p-giulia");
