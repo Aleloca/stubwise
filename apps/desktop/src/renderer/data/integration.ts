@@ -57,7 +57,15 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   // Area 8, fetta 1 (46): «Repositories» ridotta al solo blocco «Releases» (`releases-repo-settings`).
   // Area 9, F1, R8: Members sulle letture calcolate del server.
   // Area 9, F2: Change log sulla lettura del server.
-  projectSettings: new Set(["statuses", "repositories", "members", "changelog"]),
+  // Area 9, F5: Integration (chiave d'ingestione, webhook git) e Plugins dal server.
+  projectSettings: new Set([
+    "statuses",
+    "repositories",
+    "members",
+    "changelog",
+    "integration",
+    "plugins",
+  ]),
   // Area 9, F1, R9: «Who can?» sulle rotte del server.
   // Area 9, F1, R7: People e Roles sulle letture calcolate del server.
   // Area 9, F2: Change log.

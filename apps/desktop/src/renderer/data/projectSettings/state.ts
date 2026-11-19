@@ -40,7 +40,13 @@ export const CORRECTION_CAP_MAX = 10;
 export interface ProjectPluginChoices {
   /** Cresce a ogni salvataggio: il controllo del «una persona per volta». */
   version: number;
-  /** Per sottrazione: ciò che è spento, per `name` del manifest. Assente = tutto acceso. */
+  /**
+   * I plugin del registro accesi sul progetto, per `name` del manifest (area
+   * 9, F5, decisione del maintainer: opt-in, come il server). Uno pronto ma
+   * non acceso non entra nei run.
+   */
+  enabled: string[];
+  /** Dentro un plugin acceso, per sottrazione: ciò che è spento. Assente = tutto acceso. */
   disabled: { plugin: string; skills: string[]; hookGroups: string[] /* "SessionStart#0" */ }[];
 }
 

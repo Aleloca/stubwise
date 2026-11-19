@@ -162,8 +162,9 @@ describe("le scritture dei file d'ambiente", () => {
     expect(values()).toContain("second-prototype-value-0007");
     expect(values()).not.toContain("first-prototype-value-0006");
     expect(entries("env_var.set").map((e) => e.params)).toEqual([
-      { environment: "Production", repository: "stubwise", key: "SENTRY_DSN" },
-      { environment: "Production", repository: "stubwise", key: "SENTRY_DSN" },
+      // F5 (K-3): il nome della variabile in `variable`, come il server.
+      { environment: "Production", repository: "stubwise", variable: "SENTRY_DSN" },
+      { environment: "Production", repository: "stubwise", variable: "SENTRY_DSN" },
     ]);
     expect(await projectSettings.removeEnvVar(STW_PROD_FILE, "SENTRY_DSN")).toEqual({ ok: true });
     expect(values()).not.toContain("second-prototype-value-0007");
@@ -171,7 +172,7 @@ describe("le scritture dei file d'ambiente", () => {
     expect(entries("env_var.removed")[0]!.params).toEqual({
       environment: "Production",
       repository: "stubwise",
-      key: "SENTRY_DSN",
+      variable: "SENTRY_DSN",
     });
 
     await projectSettings.setEnvVar(STW_PROD_FILE, "OTHER", "third-prototype-value-0008");
@@ -313,5 +314,36 @@ describe("I5: eliminare un ambiente toglie i suoi file e i loro segreti (RF 2)",
     expect(values()).not.toContain("prod-dsn-0005");
     expect(values()).toContain("test-redis-0006");
     expect(fileOf(STW_TEST_FILE)).toBeDefined();
+  });
+
+  // Area 9, F5 (decisione del maintainer): un ambiente con file d'ambiente
+  // si elimina con la riconferma, e ogni file eliminato lascia la sua voce.
+  it("con file e senza riconferma → reauth_required, niente cambia", async () => {
+    state.reauth.clear();
+    const before = snapshot();
+    const environments = state.environments.length;
+    expect(await releases.deleteEnvironment("env-stw-prod")).toEqual({
+      ok: false,
+      error: "reauth_required",
+    });
+    expect(snapshot()).toBe(before);
+    expect(state.environments).toHaveLength(environments);
+    expect(entries()).toHaveLength(0);
+  });
+
+  it("riconfermata: una voce env_file.deleted per file, poi environment.deleted", async () => {
+    expect(await releases.deleteEnvironment("env-stw-prod")).toEqual({ ok: true });
+    expect(entries().map((e) => e.kind)).toEqual(["env_file.deleted", "environment.deleted"]);
+    expect(entries("env_file.deleted")[0]).toMatchObject({
+      actorId: ROBERTA,
+      object: { id: STW_PROD_FILE },
+      params: { environment: "Production", repository: "stubwise" },
+    });
+  });
+
+  it("un ambiente senza file non chiede la riconferma", async () => {
+    state.reauth.clear();
+    expect(await releases.deleteEnvironment("env-acq-prod")).toEqual({ ok: true });
+    expect(entries().map((e) => e.kind)).toEqual(["environment.deleted"]);
   });
 });

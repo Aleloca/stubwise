@@ -4,6 +4,7 @@ import en from "../../i18n/locales/en.json";
 import it_ from "../../i18n/locales/it.json";
 import { ADMIN_CHANGE_TYPES } from "../admin/changeTypes";
 import { INSTANCE_CHANGE_TYPES } from "../instance/changeTypes";
+import { PROJECT_CHANGE_TYPES } from "../projectSettings/changeTypes";
 
 // Area 9, F2: la terza gamba della parità del registro delle modifiche. Il
 // catalogo del server (`CHANGE_LOG_TYPES` di `@stubwise/shared`) ha i tipi del
@@ -22,7 +23,10 @@ function at(tree: unknown, path: string): unknown {
 
 describe("il catalogo del registro: server, prototipo e frasi (area 9, F2)", () => {
   it.each(CHANGE_LOG_TYPES.map((t) => [t.kind, t] as const))("%s", (kind, server) => {
-    const proto = [...ADMIN_CHANGE_TYPES, ...INSTANCE_CHANGE_TYPES].find((t) => t.kind === kind);
+    // F5: anche i tipi delle impostazioni di progetto (9c).
+    const proto = [...ADMIN_CHANGE_TYPES, ...INSTANCE_CHANGE_TYPES, ...PROJECT_CHANGE_TYPES].find(
+      (t) => t.kind === kind,
+    );
     expect(proto, `${kind} manca nel prototipo`).toBeDefined();
     expect({
       scope: proto!.scope,

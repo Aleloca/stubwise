@@ -7,7 +7,10 @@ import type {
   ChangeObjectLink,
   ChangePage,
 } from "../../changelog/types";
+import { projectSettingsAccess } from "../../adminSections";
+import { SETTING_KINDS, decodeSetting } from "../../changelog/settingValues";
 import { CLAUDE_ID } from "../../ids";
+import { SECTION_OF_KIND } from "../../projectSettings/changeTypes";
 import type { Viewer } from "../../types";
 import { can } from "../../viewing";
 import { appClient } from "./client";
@@ -64,6 +67,13 @@ function paramsOf(params: Record<string, unknown> | undefined): Record<string, s
 function diffOf(e: Any): ChangeDiff | null {
   const { before, after } = e.data;
   const p = e.data.params ?? {};
+  // F5: le impostazioni (9b, 9c) salvano valori stabili, decodificati come
+  // nel prototipo (`settingValues.ts`); le parole le mette la pagina.
+  if (SETTING_KINDS[e.type]) {
+    const b = decodeSetting(e.type, before ?? null);
+    const a = decodeSetting(e.type, after ?? null);
+    if (b || a) return { kind: "setting", before: b, after: a };
+  }
   switch (e.type) {
     case "person.instance_role_changed":
     case "member.role_changed":
@@ -119,6 +129,16 @@ function diffOf(e: Any): ChangeDiff | null {
 /** Dove porta l'oggetto: solo se c'è ancora e chi guarda lo apre. */
 function linkOf(e: Any, viewer: Viewer): ChangeObjectLink | null {
   if (e.objectDeleted) return null;
+  // F5: una voce della 9c porta alla sezione di Settings del progetto, se chi
+  // guarda la vede (permessi dal server, `projectSettingsAccess`).
+  const section = SECTION_OF_KIND[e.type];
+  if (section && e.projectId && e.projectCode) {
+    if (!projectSettingsAccess(viewer, e.projectId)[section]?.visible) return null;
+    const repo = section === "repositories" && e.data.object.type === "repository";
+    return repo
+      ? { to: "projectSettings", code: e.projectCode, section, repo: e.data.object.id }
+      : { to: "projectSettings", code: e.projectCode, section };
+  }
   const { type, id } = e.data.object;
   switch (type) {
     case "person":

@@ -210,11 +210,25 @@ export function createRealEnvironments(api: EnvironmentsApi) {
       return { serverCode: code, containers: saved.containers };
     },
 
-    async deleteEnvironment(id: string): Promise<void> {
+    /**
+     * Area 9, F5: un ambiente con file d'ambiente vuole la riconferma (403
+     * `reauth_required`), che la pagina chiede con `useReauth` prima di
+     * ripartire; l'ambiente resta noto finché non è eliminato davvero.
+     */
+    async deleteEnvironment(
+      id: string,
+    ): Promise<{ ok: true } | { ok: false; error: "reauth_required" }> {
       const before = known.get(id);
       if (!before) throw new Error("not_found");
-      await call(() => api.remove(before.projectId, id));
+      try {
+        await api.remove(before.projectId, id);
+      } catch (error) {
+        if (error instanceof ApiError && error.code === "reauth_required")
+          return { ok: false, error: "reauth_required" };
+        throw words(error);
+      }
       known.delete(id);
+      return { ok: true };
     },
   };
 }

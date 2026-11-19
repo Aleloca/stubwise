@@ -2,6 +2,7 @@ import { ApiError } from "@stubwise/api-client";
 import type { ProjectMember } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { Project, ProjectModule, ProjectTemplate } from "../../types";
+import { dsnWithKey, snippetOf } from "../../projectSettings/integrationText";
 import { claudeWorkingProjectIds, claudeWaitingCounts } from "./claudePulse";
 import { appClient, session } from "./client";
 
@@ -141,6 +142,23 @@ export const listWaitingOnMeProjectIds: typeof Fake.listWaitingOnMeProjectIds = 
  * lo crea ne è Project Lead; un codice già usato è un 409 e non crea niente.
  * Il canale «general» del prototipo è della Chat (area 3) e qui non nasce.
  */
+/**
+ * Area 9, F5: la chiave d'ingestione intera esce una volta sola, nella 201 di
+ * `POST /api/projects` (`ingestionKey`, 72). La base del DSN non c'è: si
+ * rilegge dall'integrazione (`ingestion.dsnBase`, senza chiave). Una lettura
+ * che non riesce non toglie la chiave: il DSN resta vuoto.
+ */
+async function ingestionOnce(projectId: string, key: string) {
+  let dsn = "";
+  try {
+    const v = (await appClient().projects.integration(projectId)) as { ingestion: { dsnBase: string } };
+    dsn = dsnWithKey(v.ingestion.dsnBase, key);
+  } catch {
+    // Il dialogo mostra comunque la chiave, l'unica volta.
+  }
+  return { key, dsn, snippet: snippetOf(dsn) };
+}
+
 export const createProject: typeof Fake.createProject = async (input) => {
   try {
     const created = (await appClient().projects.create({
@@ -149,8 +167,11 @@ export const createProject: typeof Fake.createProject = async (input) => {
       template: input.template,
       ...(input.clientName ? { clientName: input.clientName } : {}),
       ...(input.modules ? { modules: input.modules } : {}),
-    })) as unknown as ServerProject;
-    return toProject(created, created.memberIds ?? (session.personId ? [session.personId] : []));
+    })) as unknown as ServerProject & { ingestionKey?: string | null };
+    return {
+      ...toProject(created, created.memberIds ?? (session.personId ? [session.personId] : [])),
+      ingestion: created.ingestionKey ? await ingestionOnce(created.id, created.ingestionKey) : null,
+    };
   } catch (error) {
     // La forma del rifiuto del prototipo: il dialogo lo dice sotto il codice.
     if (error instanceof ApiError && error.code === "code_taken") throw new Error("invalid: code_taken");

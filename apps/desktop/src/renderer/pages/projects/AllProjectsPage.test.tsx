@@ -235,6 +235,15 @@ describe("NewProjectDialog", () => {
     await userEvent.type(within(dialog).getByLabelText("Client"), "Brennero Logistics Srl");
     await userEvent.click(within(dialog).getByRole("radio", { name: /Software/ }));
     await userEvent.click(screen.getByRole("button", { name: "Create project" }));
+    // Area 9, F5: la chiave d'ingestione intera, una volta sola, a chi crea.
+    expect(
+      await within(dialog).findByText("BRL's ingestion key is shown only now."),
+    ).toBeInTheDocument();
+    const last4 = state.projectSettings.get(state.projects.find((p) => p.code === "BRL")!.id)!
+      .ingestion.last4;
+    expect(dialog).toHaveTextContent(new RegExp(`[A-Za-z0-9_]+${last4}@`));
+    expect(path(router)).not.toBe("/p/BRL/overview");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Done" }));
     await waitFor(() => expect(path(router)).toBe("/p/BRL/overview"));
     setSessionPersonId("p-roberta");
     const created = (await listProjects()).find((p) => p.code === "BRL")!;

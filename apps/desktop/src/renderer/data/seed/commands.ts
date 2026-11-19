@@ -58,8 +58,9 @@ const WITHOUT_PLUGINS = new Set(["prj-znc"]);
  * Il seme delle scelte dei plugin (area 9c, ruling del controller
  * (pre-flight), P3): superpowers del registro su tutti i progetti software
  * (tranne ZNC); in AUD una skill è spenta. Lo legge solo
- * `projectSettings/seed.ts`, che ne fa le scelte per sottrazione: i progetti
- * che qui non ci sono nascono con superpowers tutto spento. Le skill vere le
+ * `projectSettings/seed.ts`, che ne fa le scelte: superpowers acceso sui
+ * progetti nominati qui, con le skill spente per sottrazione (F5, opt-in);
+ * quelli che qui non ci sono non l'hanno acceso. Le skill vere le
  * dà il registro, e chi entra in «/» lo decide `skillsForRun`
  * (`projectSettings/plugins.ts`): un modulo del seme non legge lo stato vivo
  * (P4).

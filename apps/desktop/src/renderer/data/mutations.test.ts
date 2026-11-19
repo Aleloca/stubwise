@@ -50,6 +50,8 @@ import {
   updateTask,
   withdrawDecision,
 } from "./api";
+import { projectSettings } from "./api";
+import { markReauthenticated } from "./auth/reauth";
 import { currentWeek } from "../domain/weeks";
 import { PROJECTS } from "./seed/projects";
 import { setSessionPersonId } from "./session";
@@ -841,6 +843,27 @@ describe("progetti", () => {
         after: "Project Lead",
       }),
     ]);
+  });
+
+  it("createProject (F5): la chiave d'ingestione intera esce una volta, a chi crea; poi solo le ultime 4", async () => {
+    as("p-roberta");
+    const project = await createProject({ code: "KEYP", name: "Keyed", template: "software" });
+    const { key, dsn, snippet } = project.ingestion!;
+    expect(key.length).toBeGreaterThan(8);
+    expect(dsn).toContain(`${key}@`);
+    expect(snippet).toContain(dsn);
+    const view = (await projectSettings.getIntegration(project.id))!;
+    expect(view.ingestion.last4).toBe(key.slice(-4));
+    expect(view.ingestion.createdBy).toMatchObject({ id: "p-roberta" });
+    expect(view.ingestion.createdAt).not.toBeNull();
+    // Dopo, nessuna lettura la dice intera.
+    expect(JSON.stringify(view)).not.toContain(key);
+    expect(JSON.stringify(await listProjects())).not.toContain(key);
+    // Rigenerarla fa smettere quella di prima: era nel caveau.
+    markReauthenticated("p-roberta");
+    const again = await projectSettings.regenerateIngestionKey(project.id);
+    expect(again).toMatchObject({ ok: true });
+    expect((again as { key: string }).key).not.toBe(key);
   });
 
   it("createProject: codice non valido o già preso, e chi non ha projects.create → respinto", async () => {

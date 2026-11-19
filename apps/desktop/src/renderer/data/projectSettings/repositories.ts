@@ -112,7 +112,7 @@ const HOST = { github: "github.com", bitbucket: "bitbucket.org" } as const;
 const managesReposSomewhere = (me: string): boolean =>
   [...visibleProjectIds(me)].some((id) => canI(me, MANAGE_REPOS, id));
 
-const accountOf = (id: string | null | undefined): GitAccount | undefined =>
+export const accountOf = (id: string | null | undefined): GitAccount | undefined =>
   id ? state.instance.gitAccounts.find((g) => g.id === id) : undefined;
 const accountRef = (a: GitAccount | undefined) => (a ? { id: a.id, name: a.name } : null);
 const remoteOf = (accountId: string, fullName: string) =>

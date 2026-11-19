@@ -1230,6 +1230,27 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - «Load more» del registro e «Undid…» (area 10a, F7): la data della riga
     porta alla voce annullata solo se è fra le pagine già lette *(S, da
     rivedere con F7)*.
+  - Progetto → Settings → Integration (F5): il server non manda la
+    piattaforma dei webhook git (`gitWebhooks[].provider`), quindi nell'app
+    il dialogo del segreto dice «la piattaforma git» e non «GitHub» o
+    «Bitbucket»; lo stato è solo configurato/non configurato (niente
+    `failed`) *(S)*;
+  - Integration: il segreto del webhook si rigenera per slug, che
+    l'adattatore ricorda dall'ultima lettura della pagina (la rigenerazione
+    passa solo l'id del repository) *(S, se il server accetta l'id)*.
+  - ~~Progetto → Settings → Plugins (F5): la semantica è da decidere.~~
+    **Chiuso (19 nov 2026, decisione del maintainer): opt-in**, come il
+    server. Prototipo e app hanno la casella «acceso per questo progetto»
+    per plugin; dentro un plugin acceso, skill e hook per sottrazione. Resta
+    una differenza di sola voce: nel registro delle modifiche il server
+    scrive `enabledPlugins` e le chiavi delle skill con lo slug, il
+    prototipo col `name` del manifest (uguali per i plugin del seme) *(S)*;
+  - Plugins: il plugin base non c'è (sta fuori dal registro del server, nel
+    prototipo viene dal seme); le skill non hanno descrizione e i gruppi di
+    hook non hanno comando (il registro del progetto non li manda) *(S)*;
+  - Plugins: la lettura è sotto `project.settings.manage`, quindi un membro
+    senza quel permesso non vede la pagina in sola lettura come nel
+    prototipo (la trova «non disponibile») *(S, se il server apre la GET)*.
 
 ## Area 10 — Integrazione di Claude
 

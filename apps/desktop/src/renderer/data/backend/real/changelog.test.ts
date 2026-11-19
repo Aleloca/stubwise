@@ -1,6 +1,14 @@
 import { ApiError } from "@stubwise/api-client";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createRealChangelog, type ChangelogApi } from "./changelog";
+
+// Nella build app `@backend/access` è quello vero (`accessFacts.ts`): un
+// progetto si vede se il server ne dà i permessi. Qui lo stesso, per i link
+// alle sezioni di Settings (F5).
+vi.mock("@backend/access", async () => {
+  const real = await import("./accessFacts");
+  return { ...real };
+});
 
 // Area 9, F2: il registro delle modifiche sulla lettura del server (72,
 // 23eff4ae1 + d11411167). Il server filtra chi legge cosa e toglie le persone
@@ -218,5 +226,57 @@ describe("il registro delle modifiche dal server (area 9, F2)", () => {
       groups: ["people", "roles"],
       claude: false,
     });
+  });
+
+  // Area 9, F5: i tipi della 9c (impostazioni del progetto), coi prima/dopo in
+  // valori stabili decodificati come nel prototipo e il link alla sezione di
+  // Settings del progetto.
+  it("una voce della 9c: il prima/dopo decodificato e il link alla sua sezione di Settings", async () => {
+    const pulse = entry({
+      type: "project.pulse_interval_changed",
+      scope: "project",
+      group: "automations",
+      projectId: PRJ,
+      projectCode: "ACQ",
+      data: {
+        object: { type: "project", id: PRJ, label: "Acquedotto" },
+        before: "7",
+        after: "14",
+        params: {},
+      },
+    });
+    const { api } = withEntries(pulse);
+    const viewer = async () => ({
+      personId: ME,
+      instancePermissions: [],
+      projectPermissions: { [PRJ]: ["project.settings.manage"] },
+      departmentPermissions: {},
+    });
+    const [v] = (await createRealChangelog({ ...api, viewer: viewer as never }).listChangesPage())
+      .entries;
+    expect(v!.diff).toEqual({
+      kind: "setting",
+      before: { type: "number", value: 7 },
+      after: { type: "number", value: 14 },
+    });
+    expect(v!.objectLink).toEqual({ to: "projectSettings", code: "ACQ", section: "automations" });
+  });
+
+  it("chi non vede la sezione di Settings non ha il link", async () => {
+    const pulse = entry({
+      type: "project.pulse_interval_changed",
+      scope: "project",
+      group: "automations",
+      projectId: PRJ,
+      projectCode: "ACQ",
+      data: {
+        object: { type: "project", id: PRJ, label: "Acquedotto" },
+        before: "7",
+        after: "14",
+        params: {},
+      },
+    });
+    const [v] = (await createRealChangelog(withEntries(pulse).api).listChangesPage()).entries;
+    expect(v!.objectLink).toBeNull();
   });
 });

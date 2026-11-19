@@ -2454,7 +2454,10 @@
       "template": "Modello",
       "templateHint": "Il modello decide gli stati e i moduli di partenza. Gli stati si cambiano poi nelle impostazioni del progetto.",
       "failed": "Non è stato possibile creare il progetto. Non è stato creato nulla; riprova.",
-      "created": "{{code}} {{name}} creato."
+      "created": "{{code}} {{name}} creato.",
+      "keyTitle": "La chiave d'ingestione di {{code}} si vede solo ora.",
+      "keyLabel": "Chiave d'ingestione",
+      "keyLater": "Le app e i sistemi la usano per mandare a {{code}} errori ed eventi. Dopo, Impostazioni → Integrazione ne mostra solo gli ultimi 4 caratteri."
     },
     "people": {
       "views": "Vista dell'attività",
@@ -3266,7 +3269,16 @@
         "platformFallback": "la piattaforma git",
         "secretTitle": "Questo secret si vede solo adesso.",
         "secretLabel": "Secret",
-        "reauthAction": "creare un nuovo secret del webhook per {{name}}"
+        "reauthAction": "creare un nuovo secret del webhook per {{name}}",
+        "platform": "Già aggiornato su {{platform}}: non c'è niente da copiare.",
+        "manual": "Incollalo nelle impostazioni del webhook su {{platform}}: quello vecchio ha smesso di valere.",
+        "refused": {
+          "webhook_scope_missing": "Il token dell'account git non può gestire i webhook. Non è cambiato niente.",
+          "platform_update_failed": "La piattaforma git ha rifiutato il segreto nuovo. Quello vecchio vale ancora.",
+          "webhook_rollback": "Non è stato possibile salvare il segreto nuovo. Quello vecchio vale ancora, anche sulla piattaforma.",
+          "webhook_split": "Non è stato possibile salvare il segreto nuovo, e la piattaforma ha tenuto quello nuovo. Riprova per riallinearli.",
+          "webhook_unknown": "Non è stato possibile creare un segreto nuovo. Riprova."
+        }
       }
     },
     "plugins": {
@@ -3333,7 +3345,8 @@
         "Stop": "Quando Claude si ferma",
         "SubagentStop": "Quando un subagente si ferma",
         "PreCompact": "Prima di compattare"
-      }
+      },
+      "notTurnedOn": "Non acceso per questo progetto: non entra nei run."
     },
     "archive": {
       "intro": "Archivia {{code}} quando il lavoro è finito. Si può riaprire in ogni momento; solo un full admin può eliminarlo per sempre, e solo dopo averlo archiviato.",
@@ -9115,6 +9128,8 @@
       "deleteTitle": "Eliminare {{name}}?",
       "deleteProduction": "I rilasci senza pipeline mostreranno «Stato non disponibile» finché un altro ambiente di produzione non avrà un server per la loro repository.",
       "deleteError": "Non è stato possibile eliminare {{name}}.",
+      "deleteReauthAction": "eliminare {{name}} e i suoi file d'ambiente",
+      "deleteReauthCancelled": "Non è stato eliminato niente.",
       "errors": {
         "name": "Dai un nome all'ambiente.",
         "url": "L'URL deve cominciare con http:// o https://.",
@@ -12369,8 +12384,8 @@
         "imported_other": "<actor>{{actor}}</actor> ha importato {{count}} variabili in <object>{{object}}</object> (<strong>{{environment}}</strong>)."
       },
       "env_var": {
-        "set": "<actor>{{actor}}</actor> ha impostato <strong>{{key}}</strong> in <object>{{object}}</object> (<strong>{{environment}}</strong>).",
-        "removed": "<actor>{{actor}}</actor> ha rimosso <strong>{{key}}</strong> da <object>{{object}}</object> (<strong>{{environment}}</strong>)."
+        "set": "<actor>{{actor}}</actor> ha impostato <strong>{{variable}}</strong> in <object>{{object}}</object> (<strong>{{environment}}</strong>).",
+        "removed": "<actor>{{actor}}</actor> ha rimosso <strong>{{variable}}</strong> da <object>{{object}}</object> (<strong>{{environment}}</strong>)."
       },
       "environment": {
         "created": "<actor>{{actor}}</actor> ha creato l'ambiente <object>{{object}}</object> in {{project}}.",
@@ -12586,6 +12601,7 @@
       "activeDays": "Ferma se attiva, dopo (giorni)",
       "todoDays": "Ferma se da fare, dopo (giorni)",
       "statuses": "Stati",
+      "enabledPlugins": "Plugin accesi",
       "disabledSkills": "Skill spente",
       "disabledHooks": "Hook spenti",
       "installCommand": "Comando di install",

@@ -96,7 +96,8 @@ export const PROJECT_CHANGE_TYPES: readonly ChangeType[] = [
  * - `project.switch_changed`: `switch`, l'interruttore (`weeklyBrief`);
  * - `repository.updated`: `field`, la chiave del campo (`installCommand`);
  * - `env_file.imported`: `count`, quante variabili, come numero in stringa;
- * - `env_var.set`, `env_var.removed`: `key`, il nome della variabile;
+ * - `env_var.set`, `env_var.removed`: `variable`, il nome della variabile
+ *   (F5, K-3: come il server, così il test dei segreti non ha eccezioni);
  * - `project.deleted`: `detachedRepositories`, quanti repository restano
  *   senza progetto, come numero in stringa;
  * - `task.deleted`: `title`, il titolo di allora (il codice è `object.label`);
@@ -119,8 +120,8 @@ export interface ProjectChangeParams {
   "env_file.created": EnvFileParams;
   "env_file.deleted": EnvFileParams;
   "env_file.imported": EnvFileParams & { count: string };
-  "env_var.set": EnvFileParams & { key: string };
-  "env_var.removed": EnvFileParams & { key: string };
+  "env_var.set": EnvFileParams & { variable: string };
+  "env_var.removed": EnvFileParams & { variable: string };
   "project.deleted": { detachedRepositories: string };
   "task.deleted": { title: string };
 }

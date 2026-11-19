@@ -12,6 +12,7 @@ import {
 } from "../../data/queries";
 import type { EnvironmentInput, EnvironmentView } from "../../data/releases";
 import type { ProjectEnvironment } from "../../data/types";
+import { useReauth } from "../../layout/useReauth";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
 import { Menu, itemClass } from "../../tasks-ui/Menu";
 import { useToast } from "../../tasks-ui/Toast";
@@ -316,6 +317,27 @@ function DeleteDialog({
   const { t } = useTranslation();
   const remove = useDeleteEnvironment();
   const toast = useToast();
+  const reauth = useReauth();
+  const [busy, setBusy] = useState(false);
+
+  // Area 9, F5: un ambiente con file d'ambiente chiede la riconferma (il
+  // livello dati lo dice con `reauth_required`); chiuso il dialogo senza,
+  // niente è eliminato e questo resta aperto.
+  async function submit() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const result = await reauth(() => remove.mutateAsync(environment.id), {
+        action: t("releases.environments.deleteReauthAction", { name: environment.name }),
+        cancelMessage: t("releases.environments.deleteReauthCancelled"),
+      });
+      if (result.ok) onClose();
+    } catch {
+      toast.error(t("releases.environments.deleteError", { name: environment.name }));
+    }
+    setBusy(false);
+  }
+
   return (
     <Dialog
       title={t("releases.environments.deleteTitle", { name: environment.name })}
@@ -331,15 +353,9 @@ function DeleteDialog({
           </button>
           <button
             type="button"
-            disabled={remove.isPending}
+            disabled={busy}
             className={dangerSolidButton}
-            onClick={() =>
-              remove.mutate(environment.id, {
-                onSuccess: onClose,
-                onError: () =>
-                  toast.error(t("releases.environments.deleteError", { name: environment.name })),
-              })
-            }
+            onClick={() => void submit()}
           >
             {t("releases.environments.delete")}
           </button>

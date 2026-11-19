@@ -199,8 +199,26 @@ describe("gli ambienti dal server (area 8, F4a)", () => {
     const envs = createRealEnvironments(fakeApi());
     await expect(envs.deleteEnvironment(ENV)).rejects.toThrow("not_found");
     await envs.listEnvironments(PRJ);
-    await envs.deleteEnvironment(ENV);
+    expect(await envs.deleteEnvironment(ENV)).toEqual({ ok: true });
     expect(calls).toEqual([["remove", PRJ, ENV]]);
+  });
+
+  it("F5: un ambiente con file d'ambiente, senza riconferma → reauth_required, l'ambiente resta noto", async () => {
+    let first = true;
+    const envs = createRealEnvironments(
+      fakeApi({
+        remove: async () => {
+          if (first) {
+            first = false;
+            throw new ApiError(403, "reauth", "reauth_required");
+          }
+        },
+      }),
+    );
+    await envs.listEnvironments(PRJ);
+    expect(await envs.deleteEnvironment(ENV)).toEqual({ ok: false, error: "reauth_required" });
+    // Riconfermata, la stessa chiamata riparte (useReauth) e trova l'ambiente.
+    expect(await envs.deleteEnvironment(ENV)).toEqual({ ok: true });
   });
 
   it("R0-D: i container per riga; la riga di tutto il progetto li prende dalle sue repository", async () => {

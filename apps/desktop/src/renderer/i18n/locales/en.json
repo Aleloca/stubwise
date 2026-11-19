@@ -2454,7 +2454,10 @@
       "template": "Template",
       "templateHint": "The template sets the starting statuses and modules. You can change the statuses later in the project's settings.",
       "failed": "Couldn't create the project. Nothing was created; try again.",
-      "created": "{{code}} {{name}} created."
+      "created": "{{code}} {{name}} created.",
+      "keyTitle": "{{code}}'s ingestion key is shown only now.",
+      "keyLabel": "Ingestion key",
+      "keyLater": "Apps and systems send errors and events to {{code}} with it. Later, Settings → Integration shows only its last 4 characters."
     },
     "people": {
       "views": "Activity view",
@@ -3266,7 +3269,16 @@
         "platformFallback": "The git platform",
         "secretTitle": "This secret is shown only now.",
         "secretLabel": "Secret",
-        "reauthAction": "make a new webhook secret for {{name}}"
+        "reauthAction": "make a new webhook secret for {{name}}",
+        "platform": "Already updated on {{platform}}: nothing to copy.",
+        "manual": "Paste it in the webhook settings on {{platform}}: the old one stopped working.",
+        "refused": {
+          "webhook_scope_missing": "The git account's token can't manage webhooks. Nothing changed.",
+          "platform_update_failed": "The git platform refused the new secret. The old one still works.",
+          "webhook_rollback": "Couldn't save the new secret. The old one still works, on the platform too.",
+          "webhook_split": "Couldn't save the new secret, and the platform kept the new one. Try again to line them up.",
+          "webhook_unknown": "Couldn't make a new secret. Try again."
+        }
       }
     },
     "plugins": {
@@ -3333,7 +3345,8 @@
         "Stop": "When Claude stops",
         "SubagentStop": "When a subagent stops",
         "PreCompact": "Before compacting"
-      }
+      },
+      "notTurnedOn": "Not turned on for this project: it doesn't enter runs."
     },
     "archive": {
       "intro": "Archive {{code}} when the work is over. It can be reopened at any time; only a full admin can delete it for good, and only once it's archived.",
@@ -9115,6 +9128,8 @@
       "deleteTitle": "Delete {{name}}?",
       "deleteProduction": "Releases without a pipeline will show “Status unavailable” until another production environment has a server for their repository.",
       "deleteError": "Couldn't delete {{name}}.",
+      "deleteReauthAction": "delete {{name}} and its environment files",
+      "deleteReauthCancelled": "Nothing was deleted.",
       "errors": {
         "name": "Give the environment a name.",
         "url": "The URL must start with http:// or https://.",
@@ -12369,8 +12384,8 @@
         "imported_other": "<actor>{{actor}}</actor> imported {{count}} variables into <object>{{object}}</object> (<strong>{{environment}}</strong>)."
       },
       "env_var": {
-        "set": "<actor>{{actor}}</actor> set <strong>{{key}}</strong> in <object>{{object}}</object> (<strong>{{environment}}</strong>).",
-        "removed": "<actor>{{actor}}</actor> removed <strong>{{key}}</strong> from <object>{{object}}</object> (<strong>{{environment}}</strong>)."
+        "set": "<actor>{{actor}}</actor> set <strong>{{variable}}</strong> in <object>{{object}}</object> (<strong>{{environment}}</strong>).",
+        "removed": "<actor>{{actor}}</actor> removed <strong>{{variable}}</strong> from <object>{{object}}</object> (<strong>{{environment}}</strong>)."
       },
       "environment": {
         "created": "<actor>{{actor}}</actor> created the environment <object>{{object}}</object> in {{project}}.",
@@ -12586,6 +12601,7 @@
       "activeDays": "Stalled when active, after (days)",
       "todoDays": "Stalled when to do, after (days)",
       "statuses": "Statuses",
+      "enabledPlugins": "Plugins on",
       "disabledSkills": "Skills off",
       "disabledHooks": "Hooks off",
       "installCommand": "Install command",
