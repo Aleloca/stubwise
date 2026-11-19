@@ -13,7 +13,7 @@ import {
   visibleProjectIds,
 } from "../store";
 import { projectRoleOf } from "../access/index";
-import { CLAUDE_ID } from "../seed/people";
+import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { writer } from "../writer";
 import { MANAGE_SETTINGS, canI, nameOf, projectObject, reauthRefusal, refuse } from "./common";
 import { purgeProject } from "./purge";
@@ -59,8 +59,8 @@ export interface ArchivedProjectRow {
   name: string;
   clientName: string | null;
   archivedAt: string;
-  /** Il nome di chi l'ha archiviato. */
-  archivedBy: string;
+  /** Il nome di chi l'ha archiviato; `null` se la persona non c'è più (F6). */
+  archivedBy: string | null;
   canReopen: boolean;
   canDelete: boolean;
 }
@@ -217,7 +217,8 @@ function rowOf(me: string, p: Project): ArchivedProjectRow {
     name: p.name,
     clientName: p.clientName ?? null,
     archivedAt: p.archived!.at,
-    archivedBy: nameOf(p.archived!.byId) ?? "",
+    // `nameOf` ripiega sull'id: qui una persona che non c'è più è `null` (F6).
+    archivedBy: PEOPLE.find((x) => x.id === p.archived!.byId)?.name ?? null,
     canReopen: canI(me, MANAGE_SETTINGS, p.id),
     canDelete: isFullAdmin(me),
   };

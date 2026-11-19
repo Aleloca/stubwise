@@ -42,6 +42,45 @@ const RENDERER_REASONS = [
   { kind: "doc_generation", repository: "web", paused: true },
 ];
 
+const ROW = {
+  projectId: "p1",
+  code: "RNC",
+  name: "Vetrina",
+  clientName: "Tenuta Ronchi Srl",
+  archivedAt: "2026-11-01T10:00:00.000Z",
+  archivedBy: "Roberta Fontana",
+  canReopen: true,
+  canDelete: false,
+};
+const COUNTS = {
+  tasks: 3,
+  requests: 0,
+  docPages: 1,
+  conversations: 0,
+  channels: 1,
+  driveFiles: 0,
+  automations: 0,
+  environments: 0,
+  envFiles: 0,
+  releases: 2,
+};
+const SWITCHES = {
+  docsNightly: true,
+  dailyReport: false,
+  backlogDiscovery: true,
+  pulse: true,
+  weeklyBrief: false,
+};
+const VIEW = {
+  ...ROW,
+  description: "winery",
+  members: [{ personId: "u1", name: "Giulia Ferri", role: "Project Lead" }],
+  counts: COUNTS,
+  repositories: ["web"],
+  switchesOnReopen: SWITCHES,
+  pulseEveryDays: 7,
+};
+
 const apiError = (status: number, code: string, extra: object = {}) =>
   new ApiError(status, code, code, { details: { code, message: code, ...extra } });
 
@@ -57,6 +96,14 @@ function fake(over: Partial<ProjectArchiveApi> = {}) {
     },
     reopen: async (id) => {
       calls.push(`reopen ${id}`);
+    },
+    archived: async () => {
+      calls.push("archived");
+      return [ROW, { ...ROW, projectId: "p2", code: "OLD", archivedBy: null, clientName: null }];
+    },
+    archivedView: async (id) => {
+      calls.push(`view ${id}`);
+      return VIEW;
     },
     ...over,
   };
@@ -161,5 +208,31 @@ describe("archiviare e riaprire un progetto dal server", () => {
       error: "invalid",
       reason: "not_archived",
     });
+  });
+
+  it("l'elenco degli archiviati com'è, archivedBy null compreso", async () => {
+    const rows = await createRealProjectArchive(fake().api).listArchivedProjects();
+    expect(rows).toEqual([
+      ROW,
+      { ...ROW, projectId: "p2", code: "OLD", archivedBy: null, clientName: null },
+    ]);
+  });
+
+  it("la pagina dell'archiviato per codice: il codice si cerca nell'elenco, la vista per id", async () => {
+    const { api, calls } = fake();
+    const view = await createRealProjectArchive(api).getArchivedProject("RNC");
+    expect(view).toEqual(VIEW);
+    expect(calls).toEqual(["archived", "view p1"]);
+  });
+
+  it("un codice che non è fra gli archiviati: null, senza chiedere la vista", async () => {
+    const { api, calls } = fake();
+    expect(await createRealProjectArchive(api).getArchivedProject("NOPE")).toBeNull();
+    expect(calls).toEqual(["archived"]);
+  });
+
+  it("la vista risponde 404 (riaperto nel frattempo, o estraneo): null", async () => {
+    const { api } = fake({ archivedView: async () => Promise.reject(apiError(404, "not_found")) });
+    expect(await createRealProjectArchive(api).getArchivedProject("RNC")).toBeNull();
   });
 });

@@ -1,5 +1,6 @@
 import { ApiError } from "@stubwise/api-client";
 import { archiveBusyErrorSchema, archivePreviewSchema, readerSchema } from "@stubwise/shared";
+import type { ArchivedProjectRow, ArchivedProjectView } from "../../projectSettings/archive";
 import type { BusyReason, ProjectResult } from "../../projectSettings/types";
 import { appClient } from "./client";
 
@@ -15,6 +16,8 @@ export interface ProjectArchiveApi {
   preview(projectId: string): Promise<unknown>;
   archive(projectId: string): Promise<void>;
   reopen(projectId: string): Promise<void>;
+  archived(): Promise<unknown[]>;
+  archivedView(projectId: string): Promise<unknown>;
 }
 
 const previewReader = readerSchema(archivePreviewSchema);
@@ -93,6 +96,27 @@ export function createRealProjectArchive(api: ProjectArchiveApi) {
       }
     },
 
+    /** La scheda «Archived»: le righe come le calcola il server (`canReopen`, `canDelete` compresi). */
+    async listArchivedProjects(): Promise<ArchivedProjectRow[]> {
+      return (await api.archived()) as ArchivedProjectRow[];
+    },
+
+    /**
+     * La pagina dell'archiviato (`/archived/<CODE>`): il server la dà per id,
+     * il codice si cerca fra gli archiviati che chi guarda vede. `null` per
+     * un codice che non c'è o un 404 (riaperto nel frattempo, o estraneo).
+     */
+    async getArchivedProject(code: string): Promise<ArchivedProjectView | null> {
+      const row = ((await api.archived()) as ArchivedProjectRow[]).find((r) => r.code === code);
+      if (!row) return null;
+      try {
+        return (await api.archivedView(row.projectId)) as ArchivedProjectView;
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return null;
+        throw error;
+      }
+    },
+
     async reopenProject(projectId: string): Promise<ProjectResult> {
       try {
         await api.reopen(projectId);
@@ -113,6 +137,8 @@ const liveApi: ProjectArchiveApi = {
   preview: (projectId) => appClient().projects.archivePreview(projectId),
   archive: (projectId) => appClient().projects.archive(projectId),
   reopen: (projectId) => appClient().projects.reopen(projectId),
+  archived: () => appClient().projects.archived(),
+  archivedView: (projectId) => appClient().projects.archivedView(projectId),
 };
 
 export const liveProjectArchive = createRealProjectArchive(liveApi);

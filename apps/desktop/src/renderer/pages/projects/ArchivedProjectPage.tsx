@@ -101,7 +101,9 @@ function ArchivedProject({ view, onReload }: { view: ArchivedProjectView; onRelo
             <OpenCircleGlyph size={12} />
           </span>
           <span className="min-w-0">
-            {t("projects.archived.page.band", { date, name: view.archivedBy })}
+            {view.archivedBy
+              ? t("projects.archived.page.band", { date, name: view.archivedBy })
+              : t("projects.archived.page.bandNoName", { date })}
           </span>
         </p>
         <header className="flex flex-col gap-4 pt-5 pb-6 @min-[880px]:flex-row @min-[880px]:items-start">

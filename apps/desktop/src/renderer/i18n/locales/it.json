@@ -2557,6 +2557,7 @@
       "loadError": "Impossibile caricare i progetti archiviati.",
       "list": "Progetti archiviati",
       "archivedBy": "Archiviato il {{date}} da {{name}}",
+      "archivedOn": "Archiviato il {{date}}",
       "reopen": "Riapri",
       "reopenWhy": "Per riaprire {{code}} serve poterne gestire le impostazioni.",
       "more": "Altro per {{code}}",
@@ -2567,6 +2568,7 @@
       "page": {
         "back": "← Archiviati",
         "band": "Archiviato il {{date}} da {{name}}. Sola lettura: riaprilo per lavorarci di nuovo.",
+        "bandNoName": "Archiviato il {{date}}. Sola lettura: riaprilo per lavorarci di nuovo.",
         "loadError": "Impossibile caricare {{code}}.",
         "summary": "Sintesi",
         "noDescription": "Nessuna descrizione.",

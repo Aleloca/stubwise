@@ -2557,6 +2557,7 @@
       "loadError": "Couldn't load the archived projects.",
       "list": "Archived projects",
       "archivedBy": "Archived {{date}} by {{name}}",
+      "archivedOn": "Archived {{date}}",
       "reopen": "Reopen",
       "reopenWhy": "Reopening {{code}} needs managing its settings.",
       "more": "More for {{code}}",
@@ -2567,6 +2568,7 @@
       "page": {
         "back": "← Archived",
         "band": "Archived on {{date}} by {{name}}. Read only: reopen it to work in it again.",
+        "bandNoName": "Archived on {{date}}. Read only: reopen it to work in it again.",
         "loadError": "Couldn't load {{code}}.",
         "summary": "Summary",
         "noDescription": "No description.",
