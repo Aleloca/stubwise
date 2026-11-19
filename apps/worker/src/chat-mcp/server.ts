@@ -90,6 +90,9 @@ export const PROPOSABLE_FNS = [
   "rerunSmoke",
   "removePlugin",
   "updateWebhook",
+  "createAutomation",
+  "saveAutomationDraft",
+  "deleteAutomationDraft",
 ] as const;
 
 /** Copia di `CHAT_INSTANCE_SECTIONS` (area 9, F7; test d'allineamento): le sezioni di `read_instance_settings`. */
