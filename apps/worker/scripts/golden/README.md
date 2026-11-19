@@ -75,6 +75,11 @@ il modello vero.
   sono usciti rossi al primo giro senza nessuna proposta: ora l'elenco viene
   da `CHAT_READ_TOOLS` di `@stubwise/shared` (`checks.ts`), con un test per
   ogni tool.
+  **Esito del 19 nov 2026** (CLI 2.1.322, 15 corse autorizzate dal
+  maintainer, 5 scenari × 3): tutti 3/3 verdi. Il primo giro dei tre ostili
+  era rosso SOLO per la copia ferma del check (0 proposte, l'istruzione
+  riportata come contenuto); ricalcolato col check corretto è verde, e i due
+  giri dopo sono verdi col check nuovo.
   Dalla F2 dell'area 8 (S7, azione `setSubscription`) anche
   `chat-subscription` (3 volte): «non avvisarmi più delle PR aperte in AUD»
   → UNA proposta `setSubscription {projectId, type: "pr.opened", app:
