@@ -1,7 +1,9 @@
 import { departmentMembers, departmentRoles, departments, tickets, users, type Db } from "@stubwise/db";
 import {
   DEPARTMENT_PERMISSIONS,
+  PROJECT_PERMISSIONS,
   departmentColorTokenSchema,
+  departmentPreviewSchema,
   departmentRoleViewSchema,
   departmentViewSchema,
   type DepartmentView,
@@ -13,6 +15,7 @@ import { z } from "zod";
 import type { RouteAccess } from "../auth/access.js";
 import { apiError } from "../errors.js";
 import { recordChange } from "../services/change-log.js";
+import { judgeDepartmentDraft, savedDepartmentShape } from "../services/department-access.js";
 
 type DepartmentTx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
@@ -199,6 +202,30 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
         "department roles changed",
       );
       return outcome.after;
+    },
+  );
+
+  // Area 9, F8 (F8-2 = a): l'anteprima di una BOZZA (persone e permessi non
+  // ancora salvati), calcolata qui con la regola della scrittura: il client
+  // legge, non deduce. Non scrive niente.
+  app.post(
+    "/:id/preview",
+    {
+      config: { access: MANAGE },
+      schema: {
+        params: idParamsSchema,
+        body: z.object({
+          memberIds: z.array(z.uuid()).max(2000),
+          projectPermissions: z.array(z.enum(PROJECT_PERMISSIONS)).max(PROJECT_PERMISSIONS.length),
+        }),
+        response: { 200: departmentPreviewSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const [current] = await app.db.select({ id: departments.id }).from(departments).where(eq(departments.id, request.params.id));
+      if (!current) return apiError(reply, 404, "not_found", "Department not found");
+      const draft = { memberIds: [...new Set(request.body.memberIds)], projectPermissions: [...new Set(request.body.projectPermissions)] };
+      return judgeDepartmentDraft(app.db, request.user!, await savedDepartmentShape(app.db, current.id), draft);
     },
   );
 

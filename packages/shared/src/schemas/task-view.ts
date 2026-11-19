@@ -55,6 +55,19 @@ export const departmentViewSchema = z.object({
 });
 export type DepartmentView = z.infer<typeof departmentViewSchema>;
 
+/**
+ * Area 9, F8 (F8-2 = a): l'anteprima di una bozza di reparto
+ * (`POST /api/departments/:id/preview`), calcolata dal server con la regola
+ * della scrittura. `reach: "anywhere"`: la bozza non arriva a nessun progetto.
+ */
+export const departmentPreviewSchema = z.object({
+  reach: z.enum(["projects", "anywhere"]),
+  notGivable: z.array(z.string()).default([]),
+  missingToAdd: z.record(z.string(), z.array(z.string())).default({}),
+  missing: z.array(z.string()).default([]),
+});
+export type DepartmentPreview = z.infer<typeof departmentPreviewSchema>;
+
 export const personViewSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
