@@ -208,7 +208,15 @@ export function summaryOf(
     }
   }
   // `setSubscription` senza canali (il server ne vuole almeno uno, ma il client non lo dà per certo): la frase senza «: ».
-  const phrase = fn === "setSubscription" && params["channels"] === "" ? "setSubscriptionBare" : fn;
+  // `setProviderEnabled`: acceso o spento dagli argomenti (F7).
+  const phrase =
+    fn === "setSubscription" && params["channels"] === ""
+      ? "setSubscriptionBare"
+      : fn === "setProviderEnabled"
+        ? args["enabled"] === true
+          ? "setProviderEnabledOn"
+          : "setProviderEnabledOff"
+        : fn;
   // `resetSubscription` (l'inverso, mai proposto): «back to the default», senza canali.
   const own = `claude.chatActions.summary.${phrase}${code === null && params["code"] === "" && needsCode(fn) ? "NoCode" : ""}`;
   // Un'azione che questa build non conosce (un server più nuovo: `fn` è `__unknown__`) ha la frase generica.
@@ -277,6 +285,18 @@ const WHO_ACTION: Partial<Record<string, string>> = {
   setProjectAi: "manageProjectSettings",
   saveProjectAutomations: "manageProjectSettings",
   retryJob: "manageProjectSettings",
+  // Area 9, F7, Task 4: le voci d'istanza.
+  setModel: "manageSettings",
+  saveBudget: "manageSettings",
+  saveStorage: "manageSettings",
+  saveAutomation: "manageSettings",
+  setProviderEnabled: "manageAiProviders",
+  moveProvider: "manageAiProviders",
+  updateGitAccount: "manageGitAccounts",
+  updateGoogleApp: "manageIntegrations",
+  updateWebhook: "manageIntegrations",
+  rerunSmoke: "managePlugins",
+  removePlugin: "managePlugins",
 };
 
 const reasonsOf = (p: ProposalView): ClassReason[] => [

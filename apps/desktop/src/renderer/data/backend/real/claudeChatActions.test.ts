@@ -522,3 +522,21 @@ describe("F7: le schede dei membri, coi nomi che il server deriva per chi guarda
     ]);
   });
 });
+
+describe("F7: le schede delle voci d'istanza (Task 4 di 72), senza segreti", () => {
+  it("una frase per voce; l'account AI acceso o spento dagli argomenti", () => {
+    const say = (fn: string, args: Record<string, unknown> = {}) => summaryOf(fn, args, null).summary;
+    expect(say("setModel", { operation: "fix", model: null })).toBe("Change an AI model");
+    expect(say("saveBudget", { monthlyUsd: 50, contentLanguage: "en" })).toBe("Change the AI budget and language");
+    expect(say("saveStorage")).toBe("Change where files are stored");
+    expect(say("saveAutomation")).toBe("Change the automation rules");
+    expect(say("setProviderEnabled", { id: "a", enabled: true })).toBe("Turn an AI account on");
+    expect(say("setProviderEnabled", { id: "a", enabled: false })).toBe("Turn an AI account off");
+    expect(say("moveProvider", { id: "a", toIndex: 0 })).toBe("Change the order of the AI accounts");
+    expect(say("updateGitAccount", { id: "g" })).toBe("Change a git account");
+    expect(say("updateGoogleApp", { id: "w" })).toBe("Change a Google Workspace");
+    expect(say("updateWebhook", { id: "h" })).toBe("Change an outgoing webhook");
+    expect(say("rerunSmoke", { id: "p" })).toBe("Test a plugin again");
+    expect(say("removePlugin", { id: "p" })).toBe("Remove a plugin");
+  });
+});
