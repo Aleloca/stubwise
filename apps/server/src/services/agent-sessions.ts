@@ -1,5 +1,6 @@
 import { and, desc, eq, gt, inArray, isNull, lt, not, or, sql, type SQL } from "drizzle-orm";
 import { canReadPublic, holdForOwnerMessage, readerCut } from "./claude-public.js";
+import { enrichAsides } from "./claude-asides.js";
 import { alias } from "drizzle-orm/pg-core";
 import {
   agentQuestions,
@@ -1077,7 +1078,8 @@ export async function listAgentSessionEvents(
         : e.data,
   }));
   const before = !page.after && rows.length === page.limit ? (events[0]?.id ?? null) : null;
-  return { events, before };
+  // Area 10, F3: gli `aside` del lavoro fermo, coi codici e la visibilità di chi guarda.
+  return { events: await enrichAsides(db, viewer, events), before };
 }
 
 export type SendAgentMessageResult =

@@ -26,7 +26,7 @@ const asides = (sid: string) => t.db.select().from(agentSessionEvents).where(and
 
 describe("l'aside del lavoro fermo", () => {
   it("una riga per progetto (conteggio, la più vecchia e da quando) e l'ipotesi «fuori piano» se non è pianificata; niente testo", async () => {
-    const { ticketId, projectId } = await seedTicket(t.db, { title: "TITOLO" });
+    const { ticketId, projectId } = await seedTicket(t.db);
     const pulse = [{ projectId, projectName: "P", stalled: [
       { ticketId, ticketNumber: 1, title: "TITOLO", stalledSince: "2026-11-01T00:00:00.000Z", reason: "to_prepare" },
       { ticketId: randomUUID(), ticketNumber: 2, title: "x", stalledSince: "2026-11-05T00:00:00.000Z", reason: "interrupted" },
@@ -34,7 +34,7 @@ describe("l'aside del lavoro fermo", () => {
     const sid = await session();
     await writeStalledAside(t.db, sid, pulse, "/api/projects/pulse");
     const [e] = await asides(sid);
-    expect(e!.data).toEqual({ rows: [{ projectId, count: 2, oldest: { ticketId, stalledSince: "2026-11-01T00:00:00.000Z" } }], hypothesis: { ticketId, key: "out_of_plan" } });
+    expect(e!.data).toEqual({ rows: [{ projectId, count: 2, oldest: { ticketId, stalledSince: "2026-11-01T00:00:00.000Z", reason: "to_prepare" } }], hypothesis: { ticketId, key: "out_of_plan" } });
     expect(JSON.stringify(e!.data)).not.toContain("TITOLO");
   });
 

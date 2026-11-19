@@ -570,7 +570,8 @@ export function stalledProjects(json: unknown, path: string): { projectId: strin
 export function projectToolResult(tool: ChatReadToolName, json: unknown, path = ""): unknown {
   if (tool === "read_stalled_work") {
     if (path.split("?")[0] === "/api/projects") return { projects: pickAll(json, ["id", "code", "name"]) };
-    return { stalled: stalledProjects(json, path).map((p) => ({ ...p, stalled: p.stalled.map(({ ticketId: _t, ...rest }) => rest) })) };
+    // L'id della task resta al worker (per l'aside): al modello numero, data e motivo.
+    return { stalled: stalledProjects(json, path).map((p) => ({ ...p, stalled: p.stalled.map((s) => ({ ticketNumber: s.ticketNumber, stalledSince: s.stalledSince, reason: s.reason })) })) };
   }
   // Area 10, F2: dei reparti solo id, nome e il ripiego (i permessi che danno no).
   if (tool === "list_departments") return pickAll(json, ["id", "name", "isDefault"]);
