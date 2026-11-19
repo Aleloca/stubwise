@@ -171,6 +171,25 @@ describe("le pubbliche nelle pagine della build app", () => {
     await waitFor(() => expect(seen.filter((r) => r.method === "POST").at(-1)!.body).toEqual({ visibility: "public", confirmedProjectIds: [] }));
   });
 
+  it("Claude ha letto contenuti privati: il dialogo lo dice al posto dei progetti, e non si conferma (review di F1)", async () => {
+    install({
+      [`POST /api/claude/conversations/${MINE}/visibility`]: { status: 409, body: { code: "private_content", message: "x" } },
+    });
+    const ue = userEvent.setup();
+    renderRoute(`/claude/${MINE}`);
+    await ue.click(await screen.findByRole("button", { name: "Make public" }));
+    const dialog = await screen.findByRole("dialog", { name: "This conversation can't be made public" });
+    expect(
+      await within(dialog).findByText(
+        "In this conversation Claude read your email or calendar, a private channel or direct message, or a general automation: what it read stays yours, so the conversation stays private.",
+      ),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Make public, I'm responsible" })).toBeNull();
+    await ue.click(within(dialog).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(seen.filter((r) => r.method === "POST")).toHaveLength(1);
+  });
+
   it("una pubblica di un'altra: la testata dice chi l'ha resa pubblica, niente gestione; la colonna ha «Public»", async () => {
     install();
     renderRoute(`/claude/${CONV}`);

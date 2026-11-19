@@ -44,6 +44,8 @@ export function PublishDialog({
   const [serverReconfirm, setServerReconfirm] = useState<boolean | undefined>(undefined);
   const reconfirm = serverReconfirm ?? asked;
   const [failed, setFailed] = useState(false);
+  // Build app (review di F1): Claude ha letto contenuti privati; non si pubblica.
+  const [privateContent, setPrivateContent] = useState(false);
   const listId = useId();
   const { mutate } = setVisibility;
 
@@ -57,7 +59,7 @@ export function PublishDialog({
             setTouched(result.touchedProjects);
             setToolReads(result.includesToolReads === true);
             setServerReconfirm(result.reconfirm);
-          }
+          } else if (result.status === "private_content") setPrivateContent(true);
           // Nulla da confermare (non succede: la prima chiamata chiede sempre).
           else onDone();
         },
@@ -81,12 +83,31 @@ export function PublishDialog({
             setTouched(result.touchedProjects);
             setToolReads(result.includesToolReads === true);
             setServerReconfirm(result.reconfirm);
-          } else onDone();
+          } else if (result.status === "private_content") setPrivateContent(true);
+          else onDone();
         },
         onError: () => setFailed(true),
       },
     );
   };
+
+  if (privateContent) {
+    return (
+      <Dialog
+        title={t("claude.destination.publish.privateTitle")}
+        description={t("claude.destination.publish.privateBody")}
+        width={480}
+        onClose={onClose}
+        footer={
+          <button type="button" data-autofocus className={secondaryButton} onClick={onClose}>
+            {t("claude.destination.publish.close")}
+          </button>
+        }
+      >
+        {null}
+      </Dialog>
+    );
+  }
 
   const published = new Set(detail.publishedProjectIds);
   const shown = reconfirm ? (touched ?? []).filter((p) => !published.has(p.id)) : (touched ?? []);

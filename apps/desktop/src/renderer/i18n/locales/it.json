@@ -4673,6 +4673,9 @@
         "automaticServer": "Automatica · accesso in sola lettura a {{code}}"
       },
       "publish": {
+        "privateTitle": "Questa conversazione non si può rendere pubblica",
+        "privateBody": "In questa conversazione Claude ha letto la tua posta o il tuo calendario, un canale privato o un messaggio diretto, o un'automazione generale: ciò che ha letto resta tuo, quindi la conversazione resta privata.",
+        "close": "Chiudi",
         "title": "Rendere pubblica questa conversazione?",
         "body": "Chiunque possa vedere le conversazioni pubbliche la leggerà, compreso ciò che Claude ha trovato.",
         "projects": "Progetti che Claude ha letto o modificato",
