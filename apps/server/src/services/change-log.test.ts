@@ -84,7 +84,7 @@ const HELPERS: [file: string, name: string][] = [
   ["services/change-log.ts", "personObject"],
   ["services/roles.ts", "memberObject"],
   ["routes/departments.ts", "peopleParams"],
-  ["routes/settings.ts", "recordInstanceChanges"],
+  ["services/instance-settings-writes.ts", "recordInstanceChanges"],
 ];
 
 /**
