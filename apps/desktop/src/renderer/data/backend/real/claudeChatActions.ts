@@ -532,6 +532,8 @@ export function withChatActionEvents(events: ConversationEvent[], extra: Convers
 }
 
 /** Lo stato di «Annulla» di ogni gruppo, per chi guarda (`ConversationDetail.undo`). */
+const MEMBER_FNS = new Set(["addMember", "setMemberRole", "removeMember"]);
+
 /** Le voci che hanno la loro frase all'infinito nel dialogo della riconferma. */
 const REAUTH_PHRASE_FNS = new Set(["addMember", "setMemberRole", "removeMember", "registerPlugin", "updatePluginRef"]);
 
@@ -562,7 +564,9 @@ export function reauthPhrasesOf(
       const params: Record<string, string> = {};
       for (const k of ["name", "role", "code", "url", "ref"])
         if (s[k] !== undefined && s[k] !== "") params[k] = String(s[k]);
-      return { key: `claude.conversation.proposal.reauthAction.${a.fn}`, params };
+      // Un membro senza il codice del progetto: la variante «a project» (review F7, M1).
+      const noCode = params["code"] === undefined && MEMBER_FNS.has(a.fn);
+      return { key: `claude.conversation.proposal.reauthAction.${a.fn}${noCode ? "NoCode" : ""}`, params };
     });
   }
   return out;

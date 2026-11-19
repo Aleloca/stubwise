@@ -12,10 +12,12 @@ vi.mock("./client", () => ({ appClient: () => ({ projects }) }));
 describe("archiviare e riaprire, i percorsi veri", () => {
   it("anteprima, archiviazione e riapertura dal client", async () => {
     const { projectSettings } = await import("./index");
-    expect(await projectSettings.getArchivePreview("p1")).toMatchObject({
+    // Il client finto non manda publicSurfaces: i default, tutto false (review F7, M5).
+    expect(await projectSettings.getArchivePreview("p1")).toEqual({
       ok: true,
       openAutomationRuns: 1,
       busy: [],
+      publicSurfaces: { sdk: false, widget: false, inbound: false, gitWebhook: false },
     });
     expect(await projectSettings.archiveProject("p1")).toEqual({ ok: true });
     expect(await projectSettings.reopenProject("p1")).toEqual({ ok: true });

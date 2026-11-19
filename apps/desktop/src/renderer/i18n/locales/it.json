@@ -4192,12 +4192,19 @@
         "plugin": {
           "title": "Registrarlo ne esegue il codice",
           "runsCode": "Appena registrato, Stubwise lo installa e fa una prova con tutto acceso: i suoi hook girano con gli accessi del worker ai tuoi repository e alle credenziali di Claude.",
-          "trusted": "Hai detto che ti fidi di questo repository e di questo commit."
+          "trusted": "Hai detto che ti fidi di questo repository e di questo commit.",
+          "moves": {
+            "title": "Spostarlo ne esegue il codice",
+            "runsCode": "Appena passa al commit nuovo, Stubwise lo installa e fa una prova con tutto acceso: i suoi hook girano con gli accessi del worker ai tuoi repository e alle credenziali di Claude."
+          }
         },
         "reauthAction": {
           "addMember": "aggiungere {{name}} a {{code}} come {{role}}",
           "setMemberRole": "rendere {{name}} {{role}} in {{code}}",
           "removeMember": "togliere {{name}} da {{code}}",
+          "addMemberNoCode": "aggiungere {{name}} a un progetto come {{role}}",
+          "setMemberRoleNoCode": "rendere {{name}} {{role}} in un progetto",
+          "removeMemberNoCode": "togliere {{name}} da un progetto",
           "registerPlugin": "registrare il plugin {{url}}",
           "updatePluginRef": "portare un plugin a {{ref}}",
           "saveStorage": "cambiare dove si salvano i file"

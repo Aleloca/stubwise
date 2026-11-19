@@ -45,6 +45,13 @@ describe("confirmEdited passa dalla riconferma", () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  it("un secondo reauth_required dopo il codice non è un successo: rifiuta (review F7, M3)", async () => {
+    const send = vi.fn().mockResolvedValue({ ok: false, error: "reauth_required" });
+    const { run } = fakeReauth(true);
+    await expect(confirmEditedVia(run, send, "x")(0, {})).rejects.toThrow("reauth_required");
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
   it("una conferma che il server non esegue (failed) rifiuta col suo errore", async () => {
     const send = vi.fn().mockResolvedValue({ status: "failed", error: "conflict" });
     const { run } = fakeReauth(true);

@@ -4192,12 +4192,19 @@
         "plugin": {
           "title": "Registering runs its code",
           "runsCode": "Right after it's registered, Stubwise installs it and runs a test with all of it turned on: its hooks run with the worker's access to your repositories and to Claude's credentials.",
-          "trusted": "You said you trust this repository and this commit."
+          "trusted": "You said you trust this repository and this commit.",
+          "moves": {
+            "title": "Moving it runs its code",
+            "runsCode": "Right after it moves to the new commit, Stubwise installs it and runs a test with all of it turned on: its hooks run with the worker's access to your repositories and to Claude's credentials."
+          }
         },
         "reauthAction": {
           "addMember": "add {{name}} to {{code}} as {{role}}",
           "setMemberRole": "make {{name}} {{role}} in {{code}}",
           "removeMember": "remove {{name}} from {{code}}",
+          "addMemberNoCode": "add {{name}} to a project as {{role}}",
+          "setMemberRoleNoCode": "make {{name}} {{role}} in a project",
+          "removeMemberNoCode": "remove {{name}} from a project",
           "registerPlugin": "register the plugin {{url}}",
           "updatePluginRef": "move a plugin to {{ref}}",
           "saveStorage": "change where files are stored"

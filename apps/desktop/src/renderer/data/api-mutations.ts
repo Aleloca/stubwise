@@ -3091,6 +3091,11 @@ export async function settleProposal(
   if (place.conversationId !== undefined) {
     return settleInConversation(me, place, place.conversationId, chosen, gen);
   }
+  // Una C senza riconferma fresca non parte e non chiude la proposta, come
+  // nel riquadro (review F7, I1): la Chat chiede il codice e rimanda.
+  if (classOfGroup(me, chosen.actions).cls === "C" && reauthMissing(me, chosen.actions)) {
+    return { ok: false, error: "reauth_required" };
+  }
   claims.set(key, me);
   // Le conferme di @Claude nella Chat portano il segno «per conto di» come
   // il riquadro (maintainer, 2 nov 2026; ruling del controller (pre-flight),

@@ -516,9 +516,15 @@ function describeLater(
 
 const groupOf = (groupId: string) => state.claudeActions.filter((r) => r.groupId === groupId);
 
-/** Gli inversi di un gruppo chiederebbero il codice adesso? */
-const inversesNeedReauth = (me: string, group: ClaudeActionRecord[]) =>
-  group.some((r) => r.inverse !== null && reauthMissing(me, [r.inverse]));
+/**
+ * Gli inversi di un gruppo chiedono il codice? Come `undoReauth` del server
+ * (review F7, I3 b): l'inverso è una C, a prescindere dalla grazia di adesso.
+ */
+const inversesAreC = (group: ClaudeActionRecord[]) =>
+  group.some(
+    (r) =>
+      r.inverse !== null && isCatalogFn(r.inverse.fn) && reauthOf(r.inverse.fn, r.inverse.args),
+  );
 
 type ProposalEvent = Extract<ConversationEvent, { type: "proposal" }>;
 
@@ -574,7 +580,10 @@ function inversesOf(group: ClaudeActionRecord[]): {
  */
 function undoAsks(me: string, inverses: ProposedAction[]): ActionClass | null {
   const latest = classOfGroup(me, inverses);
-  const asks = latest.reasons.some((r) => r.kind === "notifies" || r.kind === "automation");
+  // Un inverso C è sempre una scheda, con la riconferma (come il server, review F7, I3 b).
+  const asks =
+    latest.cls === "C" ||
+    latest.reasons.some((r) => r.kind === "notifies" || r.kind === "automation");
   return asks ? { cls: latest.cls === "A" ? "B" : latest.cls, reasons: latest.reasons } : null;
 }
 
@@ -591,7 +600,7 @@ export function undoViewOf(viewerId: string, groupId: string): UndoView {
   const later = laterChangeOf(group);
   if (later) return { state: "changed_after", ...describeLater(viewerId, later) };
   if (openUndoProposalOf(head.conversationId, groupId)) return { state: "confirming" };
-  return { state: "available", needsReauth: inversesNeedReauth(viewerId, group) };
+  return { state: "available", needsReauth: inversesAreC(group) };
 }
 
 export type UndoResult =
@@ -623,7 +632,9 @@ function undoRefusalOf(me: string, group: ClaudeActionRecord[]): UndoRefusal | n
   if (group.some((r) => r.inverse === null)) return { ok: false, error: "not_undoable" };
   const later = laterChangeOf(group);
   if (later) return { ok: false, error: "changed_after", ...describeLater(me, later) };
-  if (inversesNeedReauth(me, group)) return { ok: false, error: "reauth_required" };
+  // La riconferma non è una regola del clic: un inverso C è sempre una scheda
+  // (`undoAsks`), e il codice lo chiede la sua conferma (`settleUndoProposal`),
+  // come il server (review F7, I3 b).
   return null;
 }
 

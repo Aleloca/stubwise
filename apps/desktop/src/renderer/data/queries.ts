@@ -1053,11 +1053,21 @@ export function useInvalidate(areas: readonly string[]) {
 export function useWrite<TVars, TData>(
   mutationFn: (vars: TVars) => Promise<TData>,
   areas: readonly string[],
-  /** Il risultato porta un segreto mostrato una volta: la cache delle mutazioni non lo tiene. */
-  { secret = false }: { secret?: boolean } = {},
+  /**
+   * `secret`: il risultato porta un segreto mostrato una volta, la cache delle
+   * mutazioni non lo tiene. `viewer`: la scrittura può cambiare i permessi di
+   * chi guarda (membri, archivio), si rilegge anche `["viewer"]`.
+   */
+  { secret = false, viewer = false }: { secret?: boolean; viewer?: boolean } = {},
 ) {
   const invalidate = useInvalidate(areas);
-  return useMutation({ mutationFn, onSettled: invalidate, ...(secret ? { gcTime: 0 } : {}) });
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSettled: () =>
+      Promise.all([invalidate(), viewer ? client.invalidateQueries({ queryKey: ["viewer"] }) : null]),
+    ...(secret ? { gcTime: 0 } : {}),
+  });
 }
 
 /**
@@ -1548,8 +1558,25 @@ export function useSetStallThresholds() {
  * registro. Task chiuse o spostate, commenti e richieste sono anche i fatti
  * della rassegna del giorno per persona: si rileggono anche quelli.
  */
+/**
+ * Le aree che le azioni di Claude dell'area 9 toccano (F7, review I2):
+ * impostazioni del progetto, registro, Amministrazione e istanza, gli elenchi
+ * dei progetti (un archiviato esce dal binario) e la pagina dell'archiviato.
+ */
+const CLAUDE_AREA9_AREAS = [
+  "projectSettings",
+  "changelog",
+  "admin",
+  "instance",
+  "projects",
+  "project",
+  "archived",
+  "pinned",
+] as const;
+
 const PROPOSAL_AREAS = [
   ...CONVERSATION_CHANGE_AREAS,
+  ...CLAUDE_AREA9_AREAS,
   ...TASK_AREAS,
   ...REQUEST_AREAS,
   ...DECISION_AREAS,
@@ -1764,6 +1791,8 @@ export function useConfirmProposal() {
         ...(edited ? { edited } : {}),
       }),
     PROPOSAL_AREAS,
+    // Membri e archivio cambiano i permessi di chi guarda (F7, review I2).
+    { viewer: true },
   );
 }
 
@@ -1776,6 +1805,7 @@ export function useUndoClaudeActions() {
   return useWrite(
     ({ id, groupId }: { id: string; groupId: string }) => api.claude.undoClaudeActions(id, groupId),
     [...PROPOSAL_AREAS, "changelog", "notifications"],
+    { viewer: true },
   );
 }
 
@@ -2483,7 +2513,8 @@ export function useConfirmChatProposal() {
         ...(actionIndexes ? { actionIndexes } : {}),
         ...(edited ? { edited } : {}),
       }),
-    CHAT_PROPOSAL_AREAS,
+    [...CHAT_PROPOSAL_AREAS, ...CLAUDE_AREA9_AREAS],
+    { viewer: true },
   );
 }
 

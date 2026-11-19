@@ -405,11 +405,17 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
       const projectId = args.projectId as string;
       const personId = args.personId as string;
       const roleId = roleOf(projectId, personId);
+      // I permessi personali nel progetto non tornerebbero con addMember: come
+      // sul server (72, F7), un'uscita così non si annulla (review F7, I3 a).
+      const personal = accessState().grants.some(
+        (g) => g.personId === personId && g.projectId === projectId,
+      );
       done(removeMemberAs(me, projectId, personId));
-      return onMember(projectId, personId, {
-        fn: "addMember",
-        args: { projectId, personId, roleId },
-      });
+      return onMember(
+        projectId,
+        personId,
+        personal ? null : { fn: "addMember", args: { projectId, personId, roleId } },
+      );
     },
   },
   setMemberRole: {
@@ -754,8 +760,9 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
     apiFn: "instance.saveStorage",
     baseClass: "B",
     undoable: true,
-    // La rotta chiede il codice solo con una chiave nuova, che da qui non entra mai.
-    reauthIf: (args) => "secretAccessKey" in args,
+    // La rotta chiede il codice solo con una chiave nuova, che da qui non entra
+    // mai (`run` la rifiuta come `invalid`, review F7, M2): la voce è sempre B.
+    reauthIf: () => false,
     whoAction: "manageSettings",
     run(me, args) {
       // Nessun segreto entra da qui: la chiave si scrive solo nel dialogo vero.

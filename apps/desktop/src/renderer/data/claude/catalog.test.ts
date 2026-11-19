@@ -601,3 +601,28 @@ describe("createTask del catalogo: la scrittura vera, coi segnali trattenuti (P5
     ).toHaveLength(1);
   });
 });
+
+describe("removeMember con permessi personali (review F7, I3 a; come il server)", () => {
+  it("non si annulla: l'inverso è null; senza permessi personali torna con addMember", () => {
+    markReauthenticated(ROBERTA);
+    const plain = CLAUDE_CATALOG.removeMember.run(ROBERTA, {
+      projectId: OLV,
+      personId: "p-davide",
+    });
+    expect(plain.inverse).toMatchObject({ fn: "addMember" });
+    resetApi();
+    markReauthenticated(ROBERTA);
+    accessState().grants.push({
+      personId: "p-davide",
+      projectId: OLV,
+      permission: "release.merge",
+      grantedById: null,
+      at: "2026-11-01T10:00:00.000Z",
+    } as never);
+    const granted = CLAUDE_CATALOG.removeMember.run(ROBERTA, {
+      projectId: OLV,
+      personId: "p-davide",
+    });
+    expect(granted.inverse).toBeNull();
+  });
+});

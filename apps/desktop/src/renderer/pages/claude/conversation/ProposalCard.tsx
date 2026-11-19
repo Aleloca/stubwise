@@ -136,14 +136,8 @@ export function ProposalCard({
   // La frase del dialogo della riconferma: all'infinito, dal livello dati
   // («To add …» / «Per aggiungere …», M1); mai il riassunto, che è
   // all'imperativo e in it non si piega dentro «Per …».
-  const reauthAction = (indexes: number[] | undefined) => {
-    if (event.undoOf) return t("claude.conversation.undo.reauthAction");
-    const chosen = indexes ?? event.actions.map((_, i) => i);
-    if (chosen.length !== 1)
-      return t("claude.conversation.proposal.reauthMany", { count: chosen.length });
-    const phrase = reauthPhrases?.[chosen[0]!];
-    return phrase ? t(phrase.key, phrase.params) : t("claude.conversation.proposal.reauthOne");
-  };
+  const reauthAction = (indexes: number[] | undefined) =>
+    reauthActionText(t, event, indexes, reauthPhrases);
   const confirmedCount = event.confirmedActions?.length ?? event.actions.length;
   const codes = objectCodesOf(event);
   return (
@@ -192,6 +186,25 @@ export function ProposalCard({
 }
 
 /**
+ * La frase del dialogo della riconferma per le azioni scelte: all'infinito,
+ * dal livello dati (M1); senza frasi (la Chat), la generica. La usano il
+ * riquadro e la Chat (review F7, I1).
+ */
+export function reauthActionText(
+  t: (key: string, params?: Record<string, unknown>) => string,
+  event: Pick<Ev<"proposal">, "actions" | "undoOf">,
+  indexes: number[] | undefined,
+  phrases?: (Utterance | null)[],
+): string {
+  if (event.undoOf) return t("claude.conversation.undo.reauthAction");
+  const chosen = indexes ?? event.actions.map((_, i) => i);
+  if (chosen.length !== 1)
+    return t("claude.conversation.proposal.reauthMany", { count: chosen.length });
+  const phrase = phrases?.[chosen[0]!];
+  return phrase ? t(phrase.key, phrase.params) : t("claude.conversation.proposal.reauthOne");
+}
+
+/**
  * La conferma di una proposta MODIFICATA (scheda «Edit»): passa dalla
  * riconferma come Confirm (una C risponde `reauth_required`, il wrapper chiede
  * il codice e la rimanda uguale). Una conferma che il server non esegue
@@ -206,7 +219,9 @@ export function confirmEditedVia(
   return async (index: number, args: Record<string, unknown>): Promise<unknown> => {
     const result = await reauth(() => send([{ index, args }]), { action });
     const r = result as { status?: string; error?: string; ok?: boolean };
-    if (r.ok === false && r.error === "reauth_cancelled") throw new Error("reauth_cancelled");
+    // Un rifiuto in forma di dato (la riconferma annullata, o un secondo
+    // `reauth_required`) non è un successo (review F7, M3).
+    if (r.ok === false) throw new Error(r.error ?? "failed");
     if (r.status === "failed") throw new Error(r.error);
     return result;
   };
@@ -221,9 +236,11 @@ const PLUGIN_FNS: ReadonlySet<string> = new Set(["registerPlugin", "updatePlugin
  * (`trust`, decisione del maintainer in F7, M-6). La frase sta nel client,
  * dalla `fn`: nessun motivo nuovo del server.
  */
-function PluginRunsCode({ trusted }: { trusted: boolean }) {
+function PluginRunsCode({ trusted, moves }: { trusted: boolean; moves: boolean }) {
   const { t } = useTranslation();
   const titleId = useId();
+  // Spostarlo a un commit nuovo ne esegue il codice nuovo (review F7, M4).
+  const k = moves ? "claude.conversation.proposal.plugin.moves" : "claude.conversation.proposal.plugin";
   return (
     <div
       role="note"
@@ -231,9 +248,9 @@ function PluginRunsCode({ trusted }: { trusted: boolean }) {
       className="flex min-w-0 flex-col gap-1 border-t border-rule pt-2.5 text-sm text-pretty text-ink-muted"
     >
       <p id={titleId} className="font-semibold text-ink">
-        {t("claude.conversation.proposal.plugin.title")}
+        {t(`${k}.title`)}
       </p>
-      <p>{t("claude.conversation.proposal.plugin.runsCode")}</p>
+      <p>{t(`${k}.runsCode`)}</p>
       {trusted && <p>{t("claude.conversation.proposal.plugin.trusted")}</p>}
     </div>
   );
@@ -541,7 +558,10 @@ export function ProposalCardView({
               )}
         </button>
       )}
-      {open && pluginAction && <PluginRunsCode trusted={pluginAction.args.trust === true} />}
+      {open && pluginAction && <PluginRunsCode
+          trusted={pluginAction.args.trust === true}
+          moves={pluginAction.fn === "updatePluginRef"}
+        />}
       {open && event.reasons && event.reasons.length > 0 && (
         <ReasonRows
           reasons={blocked ? event.reasons.filter((r) => r.kind !== "reauth") : event.reasons}

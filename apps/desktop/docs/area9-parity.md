@@ -99,6 +99,25 @@ Repositories si accendono insieme: il toast di Delete porta a Repositories.
 | Le voci del registro di un archiviato portano a `/archived/<CODE>` | `changelog.ts` | — | Da `projectArchived`, che il server deriva a lettura (Task 7). |
 | Collegare uno staccato a un progetto sparito nel frattempo | `instanceRepositories.ts` | — | `target_not_found` (Task 7): il dialogo lo dice e resta aperto (anche nel prototipo). |
 
+## Integrazione, F7: le azioni di Claude dell'area 9 nella build app (area 9, 19 nov 2026)
+
+Sulle rotte di 72 (`feat/area9-f7`, Task 1–6). Prima del collegamento il
+prototipo è cambiato con le decisioni del maintainer e di 46: la classe
+segue la rotta (una riconferma parziale è C solo con gli argomenti che la
+chiedono, e da Claude non entrano: `saveStorage` e `updateWebhook` sono B,
+`updateWebhook` senza `url`); «Mi fido» dei plugin è `trust`; un
+`removeMember` di chi ha permessi personali non si annulla; un «Annulla» con
+l'inverso C è sempre una scheda con la riconferma, e «Asks for your code»
+c'è da subito.
+
+| Voci | Adattatore | Funzione accesa | Differenze dichiarate |
+|---|---|---|---|
+| Le schede delle 24 voci (membri, plugin, progetto, istanza) | `claudeChatActions.ts` | (le funzioni di Claude, già accese) | La frase dagli argomenti del server e dalle `labels` (persona e ruolo per chi guarda, R-G5); il «Who?» come il catalogo del prototipo. |
+| La classe C e la riconferma | `claudeChatActions.ts`, `ProposalCard.tsx`, `ClaudeReply.tsx` | — | `reauth` del server è il motivo «Asks for your two-step code»; le frasi della riconferma per azione; riquadro e Chat, anche con «Edit». |
+| «Annulla» con l'inverso C | `claudeChatActions.ts` | — | «Asks for your code» da `undoReauth` del gruppo. |
+| Registro: «By Claude», «Undid…» | `changelog.ts` | — | Da `via`, `undoOf`, `undoneEntry` (0195); «By Claude» è `?via=claude`. |
+| `setAttachments`, `setDefaultReviewer` | — | (no) | Il server non le esegue (registro di 72): nel prototipo restano. |
+
 ## A. Personale → Preferenze
 
 | Voce | Dove vive ora | Test |

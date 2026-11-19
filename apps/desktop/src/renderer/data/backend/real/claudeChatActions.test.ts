@@ -522,6 +522,14 @@ describe("F7: le schede dei membri, coi nomi che il server deriva per chi guarda
       new Map([[PROJECT_ID, "AUD"]]),
     );
     expect(Object.keys(phrases)).toEqual(["p1"]);
+    // Senza il codice del progetto: la variante «a project», mai un {{code}} letterale (review F7, M1).
+    const blind = reauthPhrasesOf(
+      [{ id: "p3", status: "open", actions: [{ fn: "removeMember", args: A, reauth: true, labels: { person: null, role: null } }] }] as never,
+      new Map(),
+    );
+    expect(blind.p3).toEqual([
+      { key: "claude.conversation.proposal.reauthAction.removeMemberNoCode", params: { name: "a person", role: "a role" } },
+    ]);
     expect(phrases.p1).toEqual([
       {
         key: "claude.conversation.proposal.reauthAction.addMember",

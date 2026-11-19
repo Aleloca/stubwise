@@ -222,7 +222,7 @@ describe("«Annulla» di una scheda", () => {
     expect(state.projectsById.get(OLV)!.archived).toMatchObject({ byId: GIULIA });
   });
 
-  it("l'inverso chiede il codice e la grazia è scaduta: `reauth_required`, poi con il codice riesce", async () => {
+  it("l'inverso è una C (addMember → removeMember): «Annulla» è sempre una scheda con la riconferma, come il server (review F7, I3 b)", async () => {
     as(ROBERTA);
     markReauthenticated(ROBERTA);
     const { cid, groupId } = await confirmed(ROBERTA, [
@@ -232,17 +232,19 @@ describe("«Annulla» di una scheda", () => {
         summary: "Add Laura",
       },
     ]);
-    expect(await undoOf(cid, groupId)).toEqual({ state: "available", needsReauth: false });
-    advanceNow((REAUTH_GRACE_MINUTES + 1) * 60_000);
+    // «Asks for your code» c'è subito, anche con la riconferma fresca (`undoReauth` del server).
     expect(await undoOf(cid, groupId)).toEqual({ state: "available", needsReauth: true });
-    expect(await claude.undoClaudeActions(cid, groupId)).toEqual({
-      ok: false,
-      error: "reauth_required",
-    });
+    // Anche a grazia scaduta: la scheda, non un `reauth_required` (il codice si chiede alla conferma).
+    advanceNow((REAUTH_GRACE_MINUTES + 1) * 60_000);
+    const result = await claude.undoClaudeActions(cid, groupId);
+    expect(result).toMatchObject({ ok: true, proposalId: expect.any(String) });
+    // Niente parte prima della conferma.
     expect(state.projectsById.get(OLV)!.memberIds).toContain(LAURA);
-    markReauthenticated(ROBERTA);
-    expect(await claude.undoClaudeActions(cid, groupId)).toEqual({ ok: true });
-    expect(state.projectsById.get(OLV)!.memberIds).not.toContain(LAURA);
+    const card = eventsOf(cid).find(
+      (e): e is Proposal => e.type === "proposal" && e.undoOf === groupId,
+    )!;
+    expect(card).toMatchObject({ status: "open", cls: "C" });
+    expect(card.reasons?.map((r) => r.kind)).toContain("reauth");
   });
 
   it("planTask verso Marco annullato: l'inverso avvisa Marco, quindi passa da una scheda; confermata, la sua notifica dice «Undone by Giulia Ferri» e ne riceve una nuova (I1)", async () => {

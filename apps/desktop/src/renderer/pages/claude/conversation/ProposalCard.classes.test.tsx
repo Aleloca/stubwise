@@ -246,9 +246,12 @@ describe("scheda di un plugin: registrare ne esegue il codice (decisione del mai
     };
     const id = await injected(ROBERTA, [move], "C", [{ kind: "irreversible" }, { kind: "reauth" }]);
     mount(id, ROBERTA);
-    expect(
-      within(await cardOf()).getByRole("note", { name: "Registering runs its code" }),
-    ).toBeVisible();
+    // Spostarlo a un commit nuovo ne esegue il codice nuovo (review F7, M4).
+    const note = within(await cardOf()).getByRole("note", { name: "Moving it runs its code" });
+    expect(note).toHaveTextContent(
+      "Right after it moves to the new commit, Stubwise installs it and runs a test with all of it turned on: its hooks run with the worker's access to your repositories and to Claude's credentials.",
+    );
+    expect(note).toHaveTextContent("You said you trust this repository and this commit.");
     cleanup();
     const plain = await injected(ROBERTA, [{ fn: "setModel", args: {}, summary: "Use Opus" }], "B", []);
     mount(plain, ROBERTA);

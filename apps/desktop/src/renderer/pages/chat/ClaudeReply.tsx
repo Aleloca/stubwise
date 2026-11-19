@@ -27,7 +27,13 @@ import {
 } from "../claude/conversation/citations";
 import { CODE_IN_TEXT } from "../claude/conversation/flow";
 import { quietButton } from "../claude/conversation/parts";
-import { ProposalCardView, routeOfCode } from "../claude/conversation/ProposalCard";
+import {
+  confirmEditedVia,
+  ProposalCardView,
+  reauthActionText,
+  routeOfCode,
+} from "../claude/conversation/ProposalCard";
+import { useReauth } from "../../layout/useReauth";
 import { QuestionCardView } from "../claude/conversation/QuestionCard";
 import { MenuButton } from "../tasks/controls";
 import { isAppBuild } from "../../data/build";
@@ -102,6 +108,8 @@ export function ClaudeReply({
   const remove = useDeleteChatMessage();
   const answer = useAnswerChatClaudeQuestion();
   const confirm = useConfirmChatProposal();
+  // Una C passa dalla riconferma anche dalla Chat (review F7, I1).
+  const reauth = useReauth();
   const cancel = useCancelChatProposal();
   const edit = useEditChatProposal();
   const complete = useCompleteEditedChatProposal();
@@ -324,10 +332,14 @@ export function ClaudeReply({
                     renderCode={renderCode}
                     ops={{
                       confirm: (actionIndexes) =>
-                        confirm.mutateAsync({
-                          ...target,
-                          ...(actionIndexes ? { actionIndexes } : {}),
-                        }),
+                        reauth(
+                          () =>
+                            confirm.mutateAsync({
+                              ...target,
+                              ...(actionIndexes ? { actionIndexes } : {}),
+                            }),
+                          { action: reauthActionText(t, e, actionIndexes) },
+                        ),
                       cancel: () => cancel.mutateAsync(target),
                       edit: () => edit.mutateAsync(target),
                       complete: (code) => complete.mutateAsync({ ...target, resultCodes: [code] }),
@@ -335,11 +347,12 @@ export function ClaudeReply({
                         ? {
                             // Build app: salvare «Edit» CONFERMA coi valori cambiati
                             // (li esegue il server); un rifiuto lo dice il dialogo.
-                            confirmEdited: async (index: number, args: Record<string, unknown>) => {
-                              const result = await confirm.mutateAsync({ ...target, edited: [{ index, args }] });
-                              if ("status" in result && result.status === "failed") throw new Error(result.error);
-                              return result;
-                            },
+                            confirmEdited: (index: number, args: Record<string, unknown>) =>
+                              confirmEditedVia(
+                                reauth,
+                                (edited) => confirm.mutateAsync({ ...target, edited }),
+                                reauthActionText(t, e, [index]),
+                              )(index, args),
                           }
                         : {}),
                       busy:
