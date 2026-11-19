@@ -164,6 +164,9 @@ export async function claudeConversationRoutes(instance: FastifyInstance): Promi
       if (result.ok) return result.conversation;
       if (result.error === "needs_confirmation") return reply.code(409).send(result.confirmation);
       if (result.error === "not_found") return apiError(reply, 404, "not_found", "Conversation not found");
+      if (result.error === "private_content") {
+        return apiError(reply, 409, "private_content", "Claude read your mail, your calendar or a private channel here: this conversation can't be made public");
+      }
       return apiError(reply, 409, "conversation_archived", "An archived conversation can't be made public");
     },
   );

@@ -42,3 +42,25 @@ che non stanno in un'area sola. Il catalogo è
   catalogo esce da solo.
 - Va lanciato in ogni task che tocca il catalogo o un modulo che il catalogo
   importa.
+
+## Il contenuto PERSONALE solo in una conversazione libera privata (area 10, F1, review)
+
+- Posta e calendario di chi chiede, un canale privato o un DM, un'automazione
+  generale: il token del turno li legge SOLO in una conversazione libera
+  (`agent_sessions.kind = 'free'`) PRIVATA. Altrove il server risponde 403
+  `chat_tool_private_only` (`isPrivateChatToolRead`, `isPrivateConversation`
+  in `apps/server/src/auth/chat-tool-routes.ts`).
+- Non basta la visibilità: un turno di @Claude nella Chat ha anche lui una
+  riga in `claude_conversations`, privata di default, ma la sua risposta sta in
+  un canale (ospiti compresi). Conta il TIPO della sessione.
+- Una lettura riuscita segna la conversazione (`private_read_at`, 0197), e da
+  lì non si pubblica più (409 `private_content`): `mailbox_owner` non include
+  MAI gli admin, e una pubblica la legge chi ha `claude.public.view`. Si
+  rifiuta tutta, non si tagliano gli eventi: la risposta di Claude li
+  riassumerebbe comunque.
+- Nei turni di @Claude i due tool della posta e del calendario non ci sono
+  (`CHAT_MENTION_TOOL_NAMES`), e il ponte li rifiuta comunque.
+- Ogni lettura per codice o per id registra il suo progetto
+  (`recordChatToolReadProjects`): è ciò che trattiene il seguito di una
+  pubblica finché l'autore non lo conferma. Un tool nuovo che legge un oggetto
+  di progetto lo aggiunge lì.
