@@ -852,6 +852,24 @@ export const departmentMembers = pgTable(
 );
 
 /**
+ * Area 9, F8 (0196, F8-1 = a): i permessi di PROGETTO che un reparto dà ai suoi
+ * membri, in ogni progetto di cui sono già membri. Li unisce
+ * `memberPermissionsSql`; la validazione e l'escalation sono del servizio.
+ */
+export const departmentProjectPermissions = pgTable(
+  "department_project_permissions",
+  {
+    departmentId: uuid("department_id")
+      .notNull()
+      .references(() => departments.id, { onDelete: "cascade" }),
+    permission: text("permission").notNull(),
+    grantedByUserId: uuid("granted_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ name: "department_project_permissions_pkey", columns: [table.departmentId, table.permission] })],
+);
+
+/**
  * Repository: un singolo repo git (l'ex "progetto", rinominato). Appartiene a
  * esattamente un progetto (`projectId`, NOT NULL, cascade). Porta tutto ciò che
  * è specifico del repo git/ingest/webhook/docs. Le impostazioni di prodotto

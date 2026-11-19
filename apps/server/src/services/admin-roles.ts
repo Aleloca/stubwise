@@ -1,3 +1,4 @@
+import { departmentGrantsOf, type DepartmentGrant } from "./department-access.js";
 import { inviteProjects, invites, projectMemberPermissions, projectMembers, projects, roles, users, type Db } from "@stubwise/db";
 import {
   effectiveInstancePermissions,
@@ -188,7 +189,31 @@ async function grantsIn(db: Db, projectId: string, userId?: string) {
 function grantSource(g: { by: string | null; at: Date; byName: string | null; byEmail: string | null }, origin: "given" | "seed" | "draft" = g.by ? "given" : "seed"): SourceView {
   return { kind: "grant", roleId: null, roleName: null, grantedById: g.by, grantedByName: g.byEmail ? nameOf({ displayName: g.byName, email: g.byEmail }) : null, at: g.at.toISOString(), origin, departmentId: null, departmentName: null };
 }
+const departmentSource = (g: DepartmentGrant): SourceView => ({ kind: "department", roleId: null, roleName: null, grantedById: null, grantedByName: null, at: null, origin: null, departmentId: g.departmentId, departmentName: g.departmentName });
 const roleSource = (id: string, name: string): SourceView => ({ kind: "role", roleId: id, roleName: name, grantedById: null, grantedByName: null, at: null, origin: null, departmentId: null, departmentName: null });
+
+/** I permessi in più del ruolo di un membro, ognuno con le sue fonti (concessione, reparto). */
+function extraOf(
+  rolePermissions: readonly string[],
+  grants: { permission: string; by: string | null; at: Date; byName: string | null; byEmail: string | null }[],
+  fromDepartments: readonly DepartmentGrant[],
+) {
+  const out = new Map<string, { permission: string; sources: SourceView[]; granted: boolean }>();
+  for (const g of grants) {
+    if (rolePermissions.includes(g.permission)) continue;
+    const e = out.get(g.permission) ?? { permission: g.permission, sources: [], granted: true };
+    e.sources.push(grantSource(g));
+    e.granted = true;
+    out.set(g.permission, e);
+  }
+  for (const g of fromDepartments) {
+    if (rolePermissions.includes(g.permission)) continue;
+    const e = out.get(g.permission) ?? { permission: g.permission, sources: [], granted: false };
+    e.sources.push(departmentSource(g));
+    out.set(g.permission, e);
+  }
+  return PROJECT_PERMISSIONS.filter((p) => out.has(p)).map((p) => out.get(p)!);
+}
 
 /** `GET /api/projects/:projectId/members/view`. Progetto invisibile: 404 (lo fa la rotta, `config.access`). */
 export async function projectMembersView(db: Db, viewer: Viewer, projectId: string): Promise<ProjectMembersView> {
@@ -196,6 +221,7 @@ export async function projectMembersView(db: Db, viewer: Viewer, projectId: stri
   const canManage = held.has("project.members.manage");
   const members = await membersOf(db, projectId);
   const grants = await grantsIn(db, projectId);
+  const fromDepartments = await departmentGrantsOf(db, members.map((m) => m.personId));
   const avatars = await avatarUrlsFor(db, members.map((m) => m.personId));
   const memberIds = new Set(members.map((m) => m.personId));
   const addable = canManage
@@ -216,7 +242,12 @@ export async function projectMembersView(db: Db, viewer: Viewer, projectId: stri
         avatarUrl: avatars.get(m.personId) ?? null,
         status: m.deactivatedAt ? ("deactivated" as const) : ("active" as const),
         role: { id: m.roleId, name: m.roleName, permissions: m.rolePermissions },
-        extra: mine.filter((g) => !m.rolePermissions.includes(g.permission)).map((g) => ({ permission: g.permission, sources: [grantSource(g)], granted: true })),
+        // I permessi in più del ruolo, con le fonti: le concessioni e (F8) i reparti.
+        extra: extraOf(
+          m.rolePermissions,
+          mine,
+          fromDepartments.filter((g) => g.userId === m.personId),
+        ),
         granted: mine.map((g) => g.permission),
       };
     }),
@@ -224,9 +255,13 @@ export async function projectMembersView(db: Db, viewer: Viewer, projectId: stri
     canManage,
     roleChoices: canManage ? await projectRoleChoices(db, viewer, held) : [],
     grantable: PROJECT_PERMISSIONS.map((permission) => ({ permission, allowed: canManage && missingToGrant(viewer, [permission], held).length === 0 })),
-    // Le persone aggiungibili entrano senza reparti con permessi (F8): niente manca.
     addable: addableVisible,
-    addableMissing: Object.fromEntries(addableVisible.map((id) => [id, [] as string[]])),
+    // Area 9, F8 (F8-4 = a): chi entra porta i permessi dei suoi reparti; quelli che
+    // chi guarda non ha qui spengono la persona (lo stesso rifiuto del salvataggio).
+    addableMissing: await (async () => {
+      const brought = await departmentGrantsOf(db, addableVisible);
+      return Object.fromEntries(addableVisible.map((id) => [id, missingToGrant(viewer, [...new Set(brought.filter((g) => g.userId === id).map((g) => g.permission))], held)]));
+    })(),
   };
 }
 
@@ -257,7 +292,11 @@ export async function previewMember(db: Db, viewer: Viewer, projectId: string, u
     const g = saved.find((x) => x.permission === p);
     push(p, g ? grantSource(g) : grantSource({ by: viewer.id, at: new Date(), byName: null, byEmail: null }, "draft"));
   }
-  const after = new Set([...role.permissions, ...wanted]);
+  // Area 9, F8: i permessi dei reparti della persona, che valgono qui se è (o diventa) membro.
+  const fromDepartments = await departmentGrantsOf(db, [userId]);
+  for (const g of fromDepartments) push(g.permission, departmentSource(g));
+  const isMember = (await db.select({ u: projectMembers.userId }).from(projectMembers).where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, userId)))).length > 0;
+  const after = new Set([...role.permissions, ...wanted, ...fromDepartments.map((g) => g.permission)]);
   // L'ultimo gestore: la bozza toglie la gestione dei membri all'ultimo gestore attivo?
   const losesManage = !after.has("project.members.manage") && !target.deactivatedAt && (await lastManagerProjectOf(db, userId, [projectId])) !== null;
   const viewerHas = viewer.id === userId ? [...held].filter((p) => !after.has(p) && !viewer.instancePermissions.has("instance.full_admin")) : [];
@@ -265,7 +304,14 @@ export async function previewMember(db: Db, viewer: Viewer, projectId: string, u
     permissions: PROJECT_PERMISSIONS.filter((p) => sourcesOf.has(p)).map((p) => ({ permission: p, sources: sourcesOf.get(p)! })),
     removing: saved.filter((g) => !wanted.includes(g.permission)).map((g) => ({ permission: g.permission, source: grantSource(g) })),
     roleChoices: await projectRoleChoices(db, viewer, held),
-    missing: [...new Set([...missingToGrant(viewer, role.permissions, held), ...missingToGrant(viewer, added, held)])],
+    missing: [
+      ...new Set([
+        ...missingToGrant(viewer, role.permissions, held),
+        ...missingToGrant(viewer, added, held),
+        // F8-4 = a: chi ENTRA porta i permessi dei suoi reparti (lo stesso rifiuto di `putProjectMember`).
+        ...(isMember ? [] : missingToGrant(viewer, fromDepartments.map((g) => g.permission), held)),
+      ]),
+    ],
     // Un codice solo, quello della scrittura (M7).
     block: target.deactivatedAt ? "user_deactivated" : losesManage ? "last_manager" : null,
     removeBlock: !target.deactivatedAt && (await lastManagerProjectOf(db, userId, [projectId])) !== null ? "last_manager" : null,

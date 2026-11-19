@@ -1263,6 +1263,20 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     (le azioni del catalogo dell'area 10) arrivano con F7. **Archiviare e
     riaprire arrivate (F7, Task 3)**; eliminare resta a mano (la rotta è
     solo dei full admin, col codice scritto: nessuna voce);
+  - Permessi dei reparti, i Minor della review di F8 *(S ciascuno)*:
+    - la riconferma del `PATCH` si decide sul salvato letto FUORI dalla
+      transazione. Un `memberIds` intero mandato da una bozza vecchia, senza
+      `ifMatch`, può rimettere una persona tolta nel frattempo senza
+      riconferma. Con `ifMatch` è un 409 `stale`. Va ricalcolata dentro la
+      transazione (`reauth_required`);
+    - il 403 `escalation` di chi entra in un progetto porta solo
+      `permission`, non `missing` (il `PATCH` del reparto sì);
+    - il costo sul ripiego (tutti): togliere un suo permesso blocca e conta i
+      gestori di quasi ogni progetto. `judgeDepartmentDraft` filtra le
+      appartenenze per ogni utente (serve una `Map`). `whoCan` legge i
+      reparti di tutte le persone visibili, non dei soli membri;
+    - all'invito (`assertInviteGrants`, alla creazione) nessuno dice che il
+      ripiego porterà i suoi permessi: lo scarto avviene all'accettazione;
   - Azioni di Claude (review di F7): **`saveStorage`** non ha una voce.
     Endpoint e bucket decidono DOVE vanno e da dove si servono gli allegati,
     col secret salvato che resta in uso: è la ragione per cui l'url di un

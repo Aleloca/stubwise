@@ -52,8 +52,33 @@ export const departmentViewSchema = z.object({
   name: z.string(),
   colorToken: departmentColorTokenSchema,
   isDefault: z.boolean(),
+  /**
+   * Area 9, F8 (additivo): i permessi di progetto che il reparto dà ai suoi
+   * membri, nei progetti di cui sono membri. Pieno solo per chi gestisce i
+   * reparti; per gli altri, e da un server di prima, `[]`.
+   */
+  projectPermissions: z.array(z.string()).default([]),
+  /**
+   * Area 9, F8 (additivo): la versione opaca di nome, colore, persone e
+   * permessi, da rimandare come `ifMatch` al `PATCH` (409 `stale` se nel
+   * frattempo è cambiato). Vuota da un server di prima.
+   */
+  version: z.string().default(""),
 });
 export type DepartmentView = z.infer<typeof departmentViewSchema>;
+
+/**
+ * Area 9, F8 (F8-2 = a): l'anteprima di una bozza di reparto
+ * (`POST /api/departments/:id/preview`), calcolata dal server con la regola
+ * della scrittura. `reach: "anywhere"`: la bozza non arriva a nessun progetto.
+ */
+export const departmentPreviewSchema = z.object({
+  reach: z.enum(["projects", "anywhere"]),
+  notGivable: z.array(z.string()).default([]),
+  missingToAdd: z.record(z.string(), z.array(z.string())).default({}),
+  missing: z.array(z.string()).default([]),
+});
+export type DepartmentPreview = z.infer<typeof departmentPreviewSchema>;
 
 export const personViewSchema = z.object({
   id: z.string().uuid(),

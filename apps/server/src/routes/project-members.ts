@@ -27,7 +27,9 @@ function toMemberView(row: MemberRow): z.infer<typeof projectMemberSchema> {
       sources: p.sources.map((src) =>
         src.kind === "role"
           ? { kind: "role" as const, roleId: src.roleId, byUserId: null, at: null, departmentId: null }
-          : { kind: "grant" as const, roleId: null, byUserId: src.byUserId, at: src.at, departmentId: null },
+          : src.kind === "department"
+            ? { kind: "department" as const, roleId: null, byUserId: null, at: null, departmentId: src.departmentId }
+            : { kind: "grant" as const, roleId: null, byUserId: src.byUserId, at: src.at, departmentId: null },
       ),
     })),
   };

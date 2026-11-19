@@ -233,3 +233,22 @@ describe("area 9, F5 nel client", () => {
   });
 });
 
+
+describe("area 9, F8: l'anteprima di un reparto", () => {
+  it("departments.preview: POST con la bozza, e una risposta di un server senza i campi opzionali si legge coi default", async () => {
+    const { client, fetchImpl } = clientWith({ reach: "anywhere" });
+    const draft = { memberIds: [U1], projectPermissions: ["plans.approve"] };
+    const r = await client.departments.preview(P1, draft);
+    expect([call(fetchImpl).method, call(fetchImpl).url, call(fetchImpl).body]).toEqual(["POST", `/api/departments/${P1}/preview`, JSON.stringify(draft)]);
+    expect(r).toEqual({ reach: "anywhere", notGivable: [], missingToAdd: {}, missing: [] });
+  });
+});
+
+describe("area 9, F8: le risposte di un server di prima", () => {
+  it("un reparto senza projectPermissions si legge con [], un motivo senza departmentName con null", async () => {
+    const list = clientWith([{ id: P1, name: "Design", colorToken: "--dept-1", isDefault: false }]);
+    expect((await list.client.departments.list())[0]).toMatchObject({ projectPermissions: [] });
+    const { accessReasonSchema } = await import("@stubwise/shared");
+    expect(accessReasonSchema.parse({ kind: "department", departmentId: P1 })).toMatchObject({ departmentName: null });
+  });
+});

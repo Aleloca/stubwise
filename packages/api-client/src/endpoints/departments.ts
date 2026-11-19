@@ -1,7 +1,8 @@
-import { departmentHomeViewSchema, departmentRoleViewSchema, departmentViewSchema } from "@stubwise/shared";
+import { departmentHomeViewSchema, departmentPreviewSchema, departmentRoleViewSchema, departmentViewSchema } from "@stubwise/shared";
 import type {
   DepartmentHomeView,
   DepartmentPermission,
+  DepartmentPreview,
   DepartmentRoleView,
   DepartmentView,
   HomeBlock,
@@ -20,12 +21,30 @@ export function createDepartmentsEndpoints(request: ApiRequest) {
     create(body: { name: string; colorToken: DepartmentView["colorToken"] }): Promise<Reader<DepartmentView>> {
       return request("POST", "/api/departments", body, departmentViewSchema);
     },
-    /** `memberIds` sostituisce l'insieme intero delle persone del reparto. */
+    /**
+     * `memberIds` sostituisce l'insieme intero delle persone del reparto;
+     * `projectPermissions` (area 9, F8) l'insieme intero dei permessi di
+     * progetto che dà. Chiede la riconferma (403 `reauth_required`) quando fa
+     * arrivare permessi a qualcuno; i rifiuti: 403 `escalation` (`missing`),
+     * 409 `last_manager` (`projectId`, `projectCode` solo se lo vedi), 400 `invalid_permission`,
+     * 400 `not_a_person`, 409 `stale` (con `version`) se `ifMatch` non è più la
+     * versione dell'elenco. Un server di prima ignora `projectPermissions` e
+     * `ifMatch`.
+     */
     update(
       id: string,
-      patch: { name?: string; colorToken?: DepartmentView["colorToken"]; memberIds?: string[] },
+      patch: { name?: string; colorToken?: DepartmentView["colorToken"]; memberIds?: string[]; projectPermissions?: string[]; ifMatch?: string },
     ): Promise<Reader<DepartmentView>> {
       return request("PATCH", `/api/departments/${seg(id)}`, patch, departmentViewSchema);
+    },
+    /**
+     * Area 9, F8: l'anteprima di una BOZZA (persone e permessi di progetto non
+     * ancora salvati), calcolata dal server con la regola della scrittura:
+     * `reach`, `notGivable`, `missingToAdd`, `missing`. Per la forma salvata, la
+     * bozza = il salvato. Un server di prima risponde 404.
+     */
+    preview(id: string, draft: { memberIds: string[]; projectPermissions: string[] }): Promise<Reader<DepartmentPreview>> {
+      return request("POST", `/api/departments/${seg(id)}/preview`, draft, departmentPreviewSchema);
     },
     /** 204 senza corpo. Con task e senza `moveTasksTo` il server risponde 400 `department_has_tasks`. */
     remove(id: string, moveTasksTo?: string): Promise<void> {

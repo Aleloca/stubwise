@@ -1,3 +1,4 @@
+import { departmentGrantsOf, type DepartmentGrant } from "./department-access.js";
 import { createHash } from "node:crypto";
 import {
   departmentMembers,
@@ -232,20 +233,36 @@ export async function personDetail(db: Db, viewer: Viewer, personId: string, opt
         .where(and(eq(projectMemberPermissions.userId, p.id), inArray(projectMemberPermissions.projectId, seen.map((m) => m.projectId))))
     : [];
   const viewerManages = await managedProjectIds(db, viewer, projectIds);
+  // Area 9, F8: i permessi dei suoi reparti, in ogni progetto di cui è membro.
+  const fromDepartments = await departmentGrantsOf(db, [p.id]);
   const projectsView = seen.map((m) => ({
     projectId: m.projectId,
     code: m.code,
     name: m.name,
     role: { id: m.roleId, name: m.roleName },
-    extra: grants
-      .filter((g) => g.projectId === m.projectId && !m.rolePermissions.includes(g.permission))
-      .map(
-        (g): ExtraPermission => ({
-          permission: g.permission,
-          sources: [grantSource(g)],
-          granted: true,
-        }),
-      ),
+    extra: [
+      ...grants
+        .filter((g) => g.projectId === m.projectId && !m.rolePermissions.includes(g.permission))
+        .map(
+          (g): ExtraPermission => ({
+            permission: g.permission,
+            sources: [
+              grantSource(g),
+              ...fromDepartments.filter((d) => d.permission === g.permission).map(departmentSource),
+            ],
+            granted: true,
+          }),
+        ),
+      ...[...new Set(fromDepartments.map((d) => d.permission))]
+        .filter((perm) => !m.rolePermissions.includes(perm) && !grants.some((g) => g.projectId === m.projectId && g.permission === perm))
+        .map(
+          (perm): ExtraPermission => ({
+            permission: perm,
+            sources: fromDepartments.filter((d) => d.permission === perm).map(departmentSource),
+            granted: false,
+          }),
+        ),
+    ],
     canManage: viewerManages.has(m.projectId),
   }));
   const memberOf = new Set(all.map((m) => m.projectId));
@@ -304,6 +321,21 @@ export async function personDetail(db: Db, viewer: Viewer, personId: string, opt
     actions,
     instanceRoleChoices: manage ? await instanceRoleChoicesFor(db, viewer, { lastFullAdmin: lastAdmin }) : [],
     openTasks,
+  };
+}
+
+/** Area 9, F8: un permesso dato dal reparto della persona. */
+function departmentSource(g: DepartmentGrant) {
+  return {
+    kind: "department" as const,
+    roleId: null,
+    roleName: null,
+    grantedById: null,
+    grantedByName: null,
+    at: null,
+    origin: null,
+    departmentId: g.departmentId,
+    departmentName: g.departmentName,
   };
 }
 
