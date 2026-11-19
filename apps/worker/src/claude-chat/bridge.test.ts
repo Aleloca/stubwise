@@ -721,47 +721,80 @@ describe("area 10, F2: list_departments", () => {
   });
 });
 
-describe("area 10, F3: read_stalled_work — numeri, date e motivi; mai i titoli", () => {
+describe("area 10, F3: read_stalled_work — le soglie dei progetti, codici, date e motivi; mai titoli né note", () => {
   const P = "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01";
   const Q = "7a2d3b63-2e8c-4d4f-8b62-1c7b8f3f2b02";
-  const pulse = [
-    { projectId: P, projectName: "Audin", stalled: [
-      { ticketId: "11111111-1111-4111-8111-111111111111", ticketNumber: 12, title: "TITOLO-DA-FUORI", stalledSince: "2026-11-10T00:00:00.000Z", reason: "worked_then_stopped" },
-      { ticketId: "22222222-2222-4222-8222-222222222222", ticketNumber: 7, title: "x", stalledSince: "2026-11-01T00:00:00.000Z", reason: "to_prepare" },
-    ] },
-    { projectId: Q, projectName: "Acquisti", stalled: [] },
+  const task = (id: string, projectId: string, code: string, plannedWeek: string | null) => ({ id, projectId, code, title: "TITOLO-DA-FUORI", description: "x", plannedWeek });
+  const stalled = [
+    { task: task("11111111-1111-4111-8111-111111111111", P, "AUD-12", "2026-11-16"), stall: { reason: { kind: "manual", note: "NOTA-DI-UNA-PERSONA" }, since: "2026-11-10T00:00:00.000Z", days: 10 } },
+    { task: task("22222222-2222-4222-8222-222222222222", P, "AUD-7", null), stall: { reason: { kind: "idle" }, since: "2026-11-01T00:00:00.000Z", days: 19 } },
+    { task: task("33333333-3333-4333-8333-333333333333", Q, "ACQ-3", null), stall: { reason: { kind: "unassigned" }, since: "2026-11-15T00:00:00.000Z", days: 5 } },
   ];
   const projects = [{ id: P, code: "AUD", name: "Audin", ingestionKey: "segreto" }];
 
-  it("i percorsi: il polso (col progetto nella query) e i progetti per i codici", () => {
-    expect(chatServerPaths("read_stalled_work", {})).toEqual(["/api/projects/pulse", "/api/projects"]);
-    expect(chatServerPaths("read_stalled_work", { projectId: P })).toEqual([`/api/projects/pulse?projectId=${P}`, "/api/projects"]);
+  it("i percorsi: la rotta della lista delle task (col progetto) e i progetti per i nomi", () => {
+    expect(chatServerPaths("read_stalled_work", {})).toEqual(["/api/tasks/stalled", "/api/projects"]);
+    expect(chatServerPaths("read_stalled_work", { projectId: P })).toEqual([`/api/tasks/stalled?projectIds=${P}`, "/api/projects"]);
     expect(() => chatServerPaths("read_stalled_work", { projectId: "x" })).toThrow(ChatToolArgError);
   });
 
-  it("la proiezione: solo i progetti con lavoro fermo, più vecchia prima, niente titoli; il polso va al gestore dell'aside, mai nei turni di @Claude", async () => {
+  it("la proiezione: per progetto, più vecchia prima, codice, data, giorni e TIPO del motivo; le task lette vanno al gestore dell'aside, mai nei turni di @Claude", async () => {
     const asides: unknown[][] = [];
-    const fetchImpl = vi.fn(async (url: RequestInfo | URL) => Response.json(new URL(String(url)).pathname === "/api/projects/pulse" ? pulse : projects));
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL) => Response.json(new URL(String(url)).pathname === "/api/tasks/stalled" ? stalled : projects));
     bridge = await startChatBridge({ serverUrl: "http://server:3000", fetchImpl: fetchImpl as never, stalledAside: async (...a) => void asides.push(a) });
     const free = bridge.grant({ sessionId: "s1", serverToken: "stw_chat_t" });
     const body = (await (await call(bridge, free.secret, "read_stalled_work", {})).json()) as { ok: boolean; text: string };
     expect(body.ok).toBe(true);
-    const [stalled, list] = body.text.split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
-    expect(stalled).toEqual({ stalled: [{ projectId: P, projectName: "Audin", stalled: [
-      { ticketNumber: 7, stalledSince: "2026-11-01T00:00:00.000Z", reason: "to_prepare" },
-      { ticketNumber: 12, stalledSince: "2026-11-10T00:00:00.000Z", reason: "worked_then_stopped" },
-    ] }] });
+    const [first, list] = body.text.split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(first).toEqual({ stalled: [
+      { projectId: P, stalled: [{ code: "AUD-7", stalledSince: "2026-11-01T00:00:00.000Z", days: 19, reason: "idle" }, { code: "AUD-12", stalledSince: "2026-11-10T00:00:00.000Z", days: 10, reason: "manual" }] },
+      { projectId: Q, stalled: [{ code: "ACQ-3", stalledSince: "2026-11-15T00:00:00.000Z", days: 5, reason: "unassigned" }] },
+    ] });
     expect(list).toEqual({ projects: [{ id: P, code: "AUD", name: "Audin" }] });
-    expect(body.text).not.toContain("TITOLO-DA-FUORI");
-    expect(body.text).not.toContain("segreto");
-    expect(asides).toEqual([["s1", pulse, "/api/projects/pulse"]]);
+    for (const leak of ["TITOLO-DA-FUORI", "NOTA-DI-UNA-PERSONA", "segreto"]) expect(body.text).not.toContain(leak);
+    expect(asides).toEqual([["s1", stalled, "/api/tasks/stalled"]]);
     const mention = bridge.grant({ sessionId: "s2", serverToken: "stw_chat_t", ask: true, mention: true });
     await call(bridge, mention.secret, "read_stalled_work", {});
     expect(asides).toHaveLength(1);
   });
 
-  it("col progetto del contesto resta quello solo", () => {
-    expect(stalledProjects(pulse, `/api/projects/pulse?projectId=${Q}`)).toEqual([]);
-    expect(stalledProjects(pulse, `/api/projects/pulse?projectId=${P}`).map((p) => p.projectId)).toEqual([P]);
+  it("stalledProjects: per progetto, più vecchia prima, i progetti dal più fermo", () => {
+    expect(stalledProjects(stalled).map((p) => [p.projectId, p.stalled.map((s) => s.code)])).toEqual([[P, ["AUD-7", "AUD-12"]], [Q, ["ACQ-3"]]]);
+  });
+});
+
+describe("area 10, F3: read_usage_month — coi permessi di chi chiede (D-13 = a)", () => {
+  const P = "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01";
+  const whoCan = { permission: "usage.view", projectId: null, people: [{ userId: P, email: "ada@example.com", displayName: "Ada Lovelace", reasons: [] }, { userId: P, email: "marta@example.com", displayName: null, reasons: [] }] };
+  const read = async (summary: { status: number; body: unknown }) => {
+    const seen: string[] = [];
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL) => {
+      const u = new URL(String(url));
+      seen.push(u.pathname + u.search);
+      return u.pathname === "/api/ai-usage/summary" ? Response.json(summary.body, { status: summary.status }) : Response.json(whoCan);
+    });
+    bridge = await startChatBridge({ serverUrl: "http://server:3000", fetchImpl: fetchImpl as never });
+    const grant = bridge.grant({ sessionId: "s1", serverToken: "stw_chat_t" });
+    const body = (await (await call(bridge, grant.secret, "read_usage_month", {})).json()) as { ok: boolean; text: string };
+    return { ...body, seen, parsed: Object.assign({}, ...body.text.split("\n").map((l) => JSON.parse(l) as object)) as Record<string, unknown> };
+  };
+
+  it("con i permessi: totale e costo per progetto, la riga `other` senza nome; niente token né persone", async () => {
+    const r = await read({ status: 200, body: { totals: { costUsd: 12.5, inputTokens: 999, outputTokens: 1, cacheReadTokens: 0, runs: 40 }, byDay: [], rows: [
+      { key: P, label: "Audin", code: "AUD", costUsd: 10, tokens: 5, runs: 30, children: [{ key: "x", label: "Ada", code: null, costUsd: 1, tokens: 1, runs: 1 }] },
+      { key: "other", label: "other", code: null, costUsd: 2.5, tokens: 1, runs: 10, children: [] },
+    ] } });
+    expect(r.ok).toBe(true);
+    expect(r.seen).toEqual(["/api/ai-usage/summary?month=true&groupBy=project", "/api/access/who-can?permission=usage.view"]);
+    expect(r.parsed).toMatchObject({ canSee: true, totalUsd: 12.5, runs: 40, byProject: [{ id: P, code: "AUD", label: "Audin", costUsd: 10 }, { id: "other", label: "other", costUsd: 2.5 }] });
+    expect(r.text).not.toContain("999");
+    expect(r.text).not.toContain("children");
+  });
+
+  it("senza permessi (403): non un errore, `canSee: false` e i nomi di chi può dirlo, mai le email", async () => {
+    const r = await read({ status: 403, body: { code: "forbidden" } });
+    expect(r.ok).toBe(true);
+    expect(r.parsed).toMatchObject({ canSee: false, whoCan: ["Ada Lovelace", "marta@example.com"] });
+    expect(r.text).not.toContain("ada@example.com");
   });
 });
