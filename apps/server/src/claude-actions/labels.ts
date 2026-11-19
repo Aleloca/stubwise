@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { projectPermissionsFor } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { personName } from "../services/people.js";
+import { visiblePersonIds } from "../services/people-visibility.js";
 
 export type ActionLabels = { person: string | null; role: string | null };
 
@@ -14,13 +15,19 @@ const MEMBER_FNS: ReadonlySet<ClaudeActionFn> = new Set(["addMember", "removeMem
  * Area 9, F7: i nomi che la scheda di un'azione sui membri mostra («Add
  * {{name}} to {{code}} as {{role}}»), DERIVATI A LETTURA coi permessi di chi
  * guarda: la scheda di una conversazione pubblica la legge anche chi non
- * gestisce i membri. Li vede chi vede il progetto, come l'elenco dei membri
- * (`GET /api/projects/:projectId/members`, `member`); altrimenti null, e la
- * frase ripiega su «a person». Il ruolo di `removeMember` è quello di
- * adesso (gli argomenti non lo portano).
+ * gestisce i membri.
+ * - Il RUOLO lo vede chi vede il progetto, come l'elenco dei membri
+ *   (`GET /api/projects/:projectId/members`, `member`). Quello di
+ *   `removeMember` è il ruolo di adesso (gli argomenti non lo portano).
+ * - La PERSONA segue R-G5, la regola degli elenchi delle persone
+ *   (`visiblePersonIds`, `GET /api/people`): chi vede il progetto ma non
+ *   quella persona (un altro reparto, nessun progetto in comune) non ne
+ *   legge il nome da una scheda pubblica.
+ * Altrimenti null, e la frase ripiega su «a person».
  */
 export async function actionLabels(db: Db, viewer: SessionUser, actions: readonly { fn: ClaudeActionFn; args: unknown }[]): Promise<ActionLabels[]> {
   const visible = new Map<string, boolean>();
+  let people: "all" | string[] | null = null;
   const out: ActionLabels[] = [];
   for (const a of actions) {
     if (!MEMBER_FNS.has(a.fn)) {
@@ -50,7 +57,9 @@ export async function actionLabels(db: Db, viewer: SessionUser, actions: readonl
         .where(and(eq(projectMembers.projectId, args.projectId), eq(projectMembers.userId, args.userId)));
       roleName = m?.name ?? null;
     }
-    out.push({ person: u && !u.isAgent ? personName(u) : null, role: roleName });
+    people ??= await visiblePersonIds(db, viewer);
+    const seesPerson = people === "all" || people.includes(args.userId);
+    out.push({ person: u && !u.isAgent && seesPerson ? personName(u) : null, role: roleName });
   }
   return out;
 }
