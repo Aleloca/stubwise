@@ -85,9 +85,16 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   30 ott 2026, confermato il 16 nov)*. In `apps/server/src/services/roles.ts`,
   in UN posto, `assertNoEscalation` (403 **`escalation`**, con la chiave
   mancante in `permission`): si assegna un ruolo, si rende effettivo un ruolo
-  modificandone i permessi, si dà un permesso personale a un membro (o, con
-  F8, a un reparto per un progetto), si invita, solo se ciò che si dà è
-  incluso nei propri permessi nello stesso ambito. TOGLIERE non chiede
+  modificandone i permessi, si dà un permesso personale a un membro, si
+  invita, solo se ciò che si dà è incluso nei propri permessi nello stesso
+  ambito. **Con F8 (19 nov 2026) anche i reparti**: un permesso messo in un
+  reparto, o una persona che entra in un reparto che ne dà, arriva in ogni
+  progetto di cui le sue persone sono membri, e chi agisce lo deve avere in
+  OGNUNO di quei progetti, archiviati compresi. È `judgeDepartmentDraft`
+  (`apps/server/src/services/department-access.ts`), la stessa regola per
+  l'anteprima e per la scrittura. E chi ENTRA in un progetto ci porta i
+  permessi dei suoi reparti: `putProjectMember` li controlla per chi entra
+  (F8-4 = a). TOGLIERE non chiede
   niente: chi ha il permesso di gestione (`users.manage`,
   `project.members.manage`, `roles.manage`, `departments.manage`) modifica
   chiunque, anche chi ha più permessi di lui. Restano il rifiuto su sé stessi
@@ -105,15 +112,27 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   legge il codice, non il testo inglese. Un selettore che offre un ruolo che
   darà `escalation` è coerente con «il client non deduce», non un bug.
 - **I permessi effettivi in un progetto sono UNA funzione**: ruolo ∪
-  permessi personali (`project_member_permissions`) ∪ permessi del reparto
-  per quel progetto (F8), più l'implicito del full admin. La calcolano
-  `effectiveProjectPermissions` (`@stubwise/shared`) e
-  `projectPermissionsFor` (`apps/server/src/auth/access.ts`). Ogni gate, ogni
+  permessi personali (`project_member_permissions`) ∪ i permessi di progetto
+  dei reparti della persona (F8, `department_project_permissions`: UNA lista
+  per reparto, valida in ogni progetto di cui la persona è GIÀ membro, F8-1
+  = a), più l'implicito del full admin. Il pezzo SQL è UNO,
+  `memberPermissionsSql` (`packages/db/src/member-permissions.ts`): un
+  reparto non rende membri (un non membro resta null), e un utente di sistema
+  non ne riceve mai. Sopra ci sono `effectiveProjectPermissions`
+  (`@stubwise/shared`) e `projectPermissionsFor`
+  (`apps/server/src/auth/access.ts`). Le FONTI (Members, la pagina della
+  persona, «Chi può farlo?», l'anteprima del membro) leggono la stessa unione
+  da `departmentGrantsOf`, e la fonte `department` sta accanto a `role` e
+  `grant`. Ogni gate, ogni
   WHERE, `/api/auth/me` e «Chi può farlo?» passano da lì, e un test d'accordo
   lega `who-can` a `can()`. Un permesso personale vale esattamente come uno
   del ruolo; togliere un membro toglie i suoi permessi personali (cascade);
   Claude non ne riceve mai (insieme fisso). Un progetto non resta senza un
-  `project.members.manage` fuori dai full admin (`last_manager`).
+  `project.members.manage` fuori dai full admin (`last_manager`), anche
+  quando a toglierlo è un reparto: un permesso tolto, una persona uscita, il
+  reparto eliminato (F8-5 = a). La riconferma sui reparti la chiede SOLO una
+  scrittura che fa arrivare permessi a qualcuno: un permesso aggiunto, o una
+  persona aggiunta a un reparto che ne dà (F8-3 = a del maintainer).
 - **Una persona disattivata non entra da nessuna porta, e non si
   disattiva l'ultimo full admin.** Disattivare cancella nella stessa
   transazione sessioni, PAT e `device_tokens`, e revoca gli inviti
