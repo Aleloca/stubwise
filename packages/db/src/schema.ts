@@ -3703,6 +3703,10 @@ export const claudeConversations = pgTable(
     cliSessionStartedAt: timestamp("cli_session_started_at", { withTimezone: true }),
     // La prima lettura di contenuto NON fidato (0146, area 5, fetta 3): da lì ogni proposta è almeno B.
     untrustedReadAt: timestamp("untrusted_read_at", { withTimezone: true }),
+    // Area 10, F1 (0197, review I2): la prima lettura di contenuto PERSONALE
+    // (posta, calendario, canale privato o DM, automazione generale): da lì la
+    // conversazione non si pubblica.
+    privateReadAt: timestamp("private_read_at", { withTimezone: true }),
     // Fetta 5 (0133): le pubbliche e la continuazione. La visibilità la decide
     // il server (`canSeeConversation`); i lettori ricevono la proiezione
     // (`claude-conversations/public-view.ts`).

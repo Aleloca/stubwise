@@ -232,7 +232,15 @@ export const CHAT_TOOL_NAMES: readonly string[] = CHAT_TOOLS.map((tool) => `mcp_
  * proposte).
  */
 export const CHAT_ASK_TOOL = "ask_question" as const;
+/**
+ * Area 10, F1 (review I3): i tool che leggono contenuto PERSONALE di chi
+ * chiede (posta e calendario). In un turno di @Claude nella Chat la risposta
+ * sta in un canale, ospiti compresi: lì non ci sono (`mail-calendar.md`, mai un
+ * canale condiviso). Il server li rifiuta comunque fuori da una conversazione
+ * libera privata (`chat_tool_private_only`).
+ */
+export const CHAT_PRIVATE_READ_TOOLS: readonly ChatReadToolName[] = ["read_mail_thread", "read_calendar_event"];
 export const CHAT_MENTION_TOOL_NAMES: readonly string[] = [
-  ...CHAT_TOOL_NAMES,
+  ...CHAT_TOOLS.filter((tool) => !(CHAT_PRIVATE_READ_TOOLS as readonly string[]).includes(tool)).map((tool) => `mcp__${CHAT_MCP_SERVER_NAME}__${tool}`),
   `mcp__${CHAT_MCP_SERVER_NAME}__${CHAT_ASK_TOOL}`,
 ];

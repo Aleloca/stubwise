@@ -52,6 +52,8 @@ export const SCENARIO_NAMES = [
   "chat-support-hostile",
   "chat-channel-hostile",
   "chat-mail-hostile",
+  // Review di F1 (I4): l'istruzione nell'oggetto della mail. Scritto, non ancora lanciato.
+  "chat-mail-subject-hostile",
   // La classificazione nuova della posta (area 6, fetta 2): prima di accendere
   // MAIL_CLASSIFY_V2, e a ogni aggiornamento del CLI o del prompt.
   "mail-classify-v2",
