@@ -55,10 +55,23 @@ export function taskIdsOf(fn: string, args: Record<string, unknown>): string[] {
  * `setSubscription` non ha codici dal server (`codes: []`), e la riga dice
  * il codice del progetto, come nel prototipo.
  */
+const PROJECT_FNS = new Set([
+  "setSubscription",
+  "resetSubscription",
+  // Area 9, F7 (72, Task 2 e 3): le voci sul progetto.
+  "addMember",
+  "removeMember",
+  "setMemberRole",
+  "archiveProject",
+  "reopenProject",
+  "pauseQueue",
+  "resumeQueue",
+  "updateProjectGeneral",
+  "setProjectAi",
+  "saveProjectAutomations",
+]);
 const projectIdOf = (fn: string, args: Record<string, unknown>): string | null =>
-  (fn === "setSubscription" || fn === "resetSubscription") && typeof args["projectId"] === "string"
-    ? (args["projectId"] as string)
-    : null;
+  PROJECT_FNS.has(fn) && typeof args["projectId"] === "string" ? (args["projectId"] as string) : null;
 
 /** Proposte, gruppi e codici delle task citate di una conversazione libera. */
 export async function readChatActions(conversationId: string): Promise<ChatActions> {
@@ -160,6 +173,13 @@ export function summaryOf(fn: string, args: Record<string, unknown>, code: strin
     case "pageAction":
       params["kind"] = text("kind");
       break;
+    // Area 9, F7: i nomi degli argomenti del server (`sourceUrl`, non `url`).
+    case "registerPlugin":
+      params["url"] = text("sourceUrl");
+      break;
+    case "updatePluginRef":
+      params["ref"] = text("ref");
+      break;
     case "resetSubscription":
     case "setSubscription": {
       // L'etichetta del tipo dal catalogo condiviso; solo i canali presenti (un assente resta com'è).
@@ -183,7 +203,23 @@ export function summaryOf(fn: string, args: Record<string, unknown>, code: strin
 }
 
 const needsCode = (fn: string) =>
-  ["updateTask", "planTask", "deleteTask", "addComment", "deleteComment", "startRun", "setSubscription", "resetSubscription"].includes(fn);
+  [
+    "updateTask",
+    "planTask",
+    "deleteTask",
+    "addComment",
+    "deleteComment",
+    "startRun",
+    "setSubscription",
+    "resetSubscription",
+    "archiveProject",
+    "reopenProject",
+    "pauseQueue",
+    "resumeQueue",
+    "updateProjectGeneral",
+    "setProjectAi",
+    "saveProjectAutomations",
+  ].includes(fn);
 
 // --- le schede e le righe ------------------------------------------------------------
 
@@ -209,6 +245,20 @@ const WHO_ACTION: Partial<Record<string, string>> = {
   createMilestone: "editTasks",
   deleteMilestone: "editTasks",
   deleteTask: "deleteTasks",
+  // Area 9, F7: come il catalogo del prototipo.
+  addMember: "manageMembers",
+  removeMember: "manageMembers",
+  setMemberRole: "manageMembers",
+  registerPlugin: "managePlugins",
+  updatePluginRef: "managePlugins",
+  archiveProject: "manageProjectSettings",
+  reopenProject: "manageProjectSettings",
+  pauseQueue: "manageProjectSettings",
+  resumeQueue: "manageProjectSettings",
+  updateProjectGeneral: "manageProjectSettings",
+  setProjectAi: "manageProjectSettings",
+  saveProjectAutomations: "manageProjectSettings",
+  retryJob: "manageProjectSettings",
 };
 
 const reasonsOf = (p: ProposalView): ClassReason[] => [

@@ -172,6 +172,19 @@ describe("proposte e azioni di Claude nella conversazione", () => {
     expect((old as { reasons: { kind: string }[] }).reasons.map((r) => r.kind)).toEqual(["notifies"]);
   });
 
+  it("F7: una voce sul progetto (archiveProject) dice il codice del progetto, letto dai progetti", async () => {
+    install({
+      [`GET /api/claude/conversations/${CONV}/proposals`]: {
+        body: [proposals[0], { ...proposals[1], actions: [{ fn: "archiveProject", args: { projectId: PROJECT_ID } }], reasons: [] }],
+      },
+    });
+    await getSessionPerson();
+    const card = (await getConversation(CONV))!.events.find((e) => e.type === "proposal") as {
+      actions: { summary: string }[];
+    };
+    expect(card.actions[0]!.summary).toBe("Archive AUD");
+  });
+
   it("una B confermata: la scheda resta (confermata, col suo gruppo e i codici), nessuna riga in più", async () => {
     install({
       [`GET /api/agent-sessions/${CONV}/events`]: {
@@ -405,6 +418,35 @@ describe("resetSubscription, l'inverso di un setSubscription senza scelta salvat
     );
     expect(summaryOf("resetSubscription", args, null).summary).toBe(
       "Put your “Release failed” alerts in a project back to the default",
+    );
+  });
+});
+
+describe("F7: le schede delle voci dell'area 9 (Task 2 e 3 di 72), dagli argomenti", () => {
+  const P = { projectId: PROJECT_ID };
+  it("progetto: archivia, riapri, coda, generale, AI, automazioni; col codice e senza", () => {
+    expect(summaryOf("archiveProject", P, "AUD").summary).toBe("Archive AUD");
+    expect(summaryOf("archiveProject", P, null).summary).toBe("Archive a project");
+    expect(summaryOf("reopenProject", P, "AUD").summary).toBe("Reopen AUD");
+    expect(summaryOf("pauseQueue", P, "AUD").summary).toBe("Pause Claude's queue in AUD");
+    expect(summaryOf("resumeQueue", P, "AUD").summary).toBe("Resume Claude's queue in AUD");
+    expect(summaryOf("updateProjectGeneral", { ...P, name: "X" }, "AUD").summary).toBe(
+      "Change the name or description of AUD",
+    );
+    expect(summaryOf("setProjectAi", { ...P, providerId: null, exclusive: false }, "AUD").summary).toBe(
+      "Change the AI account of AUD",
+    );
+    expect(summaryOf("saveProjectAutomations", P, "AUD").summary).toBe("Change the automations of AUD");
+    expect(summaryOf("retryJob", { jobId: "j1" }, null).summary).toBe("Run a stopped job again");
+  });
+
+  it("plugin: l'indirizzo e la ref dagli argomenti (sourceUrl, come il server)", () => {
+    expect(
+      summaryOf("registerPlugin", { sourceUrl: "https://github.com/acme/tools", ref: "main", trust: true }, null)
+        .summary,
+    ).toBe("Register the plugin https://github.com/acme/tools");
+    expect(summaryOf("updatePluginRef", { id: "p1", ref: "v2", trust: true }, null).summary).toBe(
+      "Move a plugin to v2",
     );
   });
 });
