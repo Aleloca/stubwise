@@ -356,6 +356,12 @@ export const claudeActionGroupViewSchema = z.object({
   /** Chi ha scritto dopo, se chi guarda lo vede (per «Changed after by …»). */
   changedBy: z.uuid().nullable().default(null),
   undoneAt: z.iso.datetime().nullable().default(null),
+  /**
+   * Area 9, F7 (additivo): «Annulla» di questo gruppo chiede la riconferma
+   * (un inverso dichiarato C, i membri), derivato dal server; vero solo con
+   * `undo: "available"`. Un server di prima non lo manda.
+   */
+  undoReauth: z.boolean().default(false),
 });
 export type ClaudeActionGroupView = z.infer<typeof claudeActionGroupViewSchema>;
 

@@ -436,6 +436,7 @@ export async function listGroups(db: Db, user: SessionUser, sessionId: string): 
           : "not_undoable",
       changedBy: undo.state === "changed_after" ? undo.byUserId : null,
       undoneAt: g.undoneAt?.toISOString() ?? null,
+      undoReauth: undo.state === "available" && undo.inverses.some((a) => declaredClassOf(a.fn) === "C"),
     });
   }
   return out;

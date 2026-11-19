@@ -105,6 +105,9 @@ describe("area 9, F7: le C dei membri si confermano con la riconferma di chi con
     const done = await confirm(id, lead.headers.cookie);
     expect(await roleOf(userId)).toBe(leadRole);
     const groupId = (done.json() as { groupId: string }).groupId;
+    // Il gruppo dice che il suo «Annulla» chiede la riconferma (94: «Asks for your code»).
+    const groups = (await app.inject({ method: "GET", url: `/api/claude/conversations/${(await t.db.select({ sessionId: claudeProposals.sessionId }).from(claudeProposals).where(eq(claudeProposals.id, id)))[0]!.sessionId}/groups`, headers: { cookie: lead.headers.cookie } })).json() as { id: string; undoReauth: boolean }[];
+    expect(groups.find((g) => g.id === groupId)?.undoReauth).toBe(true);
     // L'annulla chiede conferma (una C), e la conferma la riconferma.
     const undo = await app.inject({ method: "POST", url: `/api/claude/groups/${groupId}/undo`, headers: { cookie: lead.headers.cookie } });
     expect(undo.json()).toMatchObject({ kind: "needs_confirmation", proposal: { reauth: true } });
