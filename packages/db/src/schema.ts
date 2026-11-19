@@ -6465,7 +6465,7 @@ export const chatClaudeQuestions = pgTable(
 );
 
 /**
- * Area 10, F2 (0197): le domande a scelta di Claude nella conversazione
+ * Area 10, F2 (0198): le domande a scelta di Claude nella conversazione
  * libera, UNA per turno (`input_id`, l'input che lo apre). La gemella di
  * `chat_claude_questions`, che sta sui messaggi di un canale.
  */
@@ -6933,7 +6933,7 @@ export const automationVersions = pgTable(
     rev: integer("rev").notNull().default(1),
     /** La revisione provata per ultima (R-J19: «non l'hai ancora provata»). */
     testedRev: integer("tested_rev"),
-    /** Area 10, F2 (0197): la versione l'ha salvata Claude per conto di `saved_by`. */
+    /** Area 10, F2 (0198): la versione l'ha salvata Claude per conto di `saved_by`. */
     viaClaudeActionId: uuid("via_claude_action_id").default(VIA_CLAUDE_DEFAULT),
   },
   (table) => [

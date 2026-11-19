@@ -6,7 +6,7 @@ import { agentSessionEvents, agentSessions, automations, automationVersions, cla
 import { startTestDb, type TestDb } from "./testing.js";
 
 /**
- * Migrazione 0197 (19 nov 2026, area 10, F2): l'evento `question`, le domande
+ * Migrazione 0198 (19 nov 2026, area 10, F2; era la 0197, rinumerata dopo la 0197 della review di F1): l'evento `question`, le domande
  * di Claude nella conversazione libera (una per turno) e `via_claude_action_id`
  * sulle versioni delle automazioni.
  */
@@ -23,7 +23,7 @@ async function session(): Promise<string> {
   return s!.id;
 }
 
-describe("migrazione 0197", () => {
+describe("migrazione 0198", () => {
   it("l'evento `question` si scrive; un tipo inventato resta rifiutato", async () => {
     const sid = await session();
     await t.db.insert(agentSessionEvents).values({ sessionId: sid, segmentId: "s", type: "question", data: { questionId: randomUUID() } });
@@ -59,11 +59,11 @@ describe("migrazione 0197", () => {
     expect(rows.sort((x, y) => x.n - y.n)).toEqual([{ n: 1, via: action }, { n: 2, via: null }]);
   });
 
-  it("il journal: 0196 e 0197 in fila, `when` crescente", () => {
+  it("il journal: 0197 e 0198 in fila, `when` crescente", () => {
     const journal = JSON.parse(readFileSync(new URL("../drizzle/meta/_journal.json", import.meta.url), "utf8")) as { entries: { tag: string; when: number }[] };
     const tags = journal.entries.map((e) => e.tag);
-    const i = tags.indexOf("0196_department_project_permissions");
-    expect(tags.slice(i, i + 2)).toEqual(["0196_department_project_permissions", "0197_area10_questions"]);
+    const i = tags.indexOf("0197_claude_private_reads");
+    expect(tags.slice(i, i + 2)).toEqual(["0197_claude_private_reads", "0198_area10_questions"]);
     const whens = journal.entries.map((e) => e.when);
     expect(whens.every((w, k) => k === 0 || w > whens[k - 1]!)).toBe(true);
   });
