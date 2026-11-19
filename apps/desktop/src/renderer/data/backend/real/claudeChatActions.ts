@@ -576,7 +576,8 @@ export function undoViewsOf(
   for (const g of groups) {
     switch (g.undo) {
       case "available":
-        out[g.id] = { state: "available", needsReauth: false };
+        // L'inverso dichiarato C (i membri) lo dice il server (F7, `undoReauth`).
+        out[g.id] = { state: "available", needsReauth: (g as { undoReauth?: boolean }).undoReauth === true };
         break;
       case "undone":
         out[g.id] = { state: "undone", byName: nameOf(session.personId ?? "") ?? "", at: g.undoneAt ?? g.executedAt };

@@ -1193,10 +1193,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - **F2 renderer, il registro delle modifiche nell'app** *(94, 18 nov 2026)*:
   - una voce d'invito non ha link: il server cancella gli inviti usati e
     revocati, e la voce non dice se l'invito è ancora aperto *(S)*;
-  - «By Claude» e la riga «Undid…» restano spenti fino a F7 (`via`,
-    `undoOf`); le voci dell'istanza (9b) e del progetto (9c) arrivano con le
-    loro fette (F3 per la 9b): fino ad allora il registro dell'app ha solo i
-    tipi dell'area 9 *(dichiarato)*.
+  - ~~«By Claude» e la riga «Undid…» restano spenti fino a F7.~~ **Chiuso
+    (F7, 0195 di 72)**: `via`, `undoOf` e `undoneEntry` dal server (la voce
+    annullata solo a chi la legge), «By Claude» con `?via=claude` e
+    `filters.claude`; le voci dell'istanza (9b) e del progetto (9c) sono
+    arrivate con le loro fette.
 
 - **F3 renderer, i webhook in uscita nell'app** *(94, 18 nov 2026)*:
   - il server non ricorda l'ultima prova di un webhook (`POST …/test` dice

@@ -206,6 +206,15 @@ describe("proposte e azioni di Claude nella conversazione", () => {
     ]);
   });
 
+  it("F7: «Annulla» di un gruppo con l'inverso C dice «Asks for your code» (undoReauth del server)", async () => {
+    install({
+      [`GET /api/claude/conversations/${CONV}/groups`]: { body: [{ ...groups[0], undoReauth: true }] },
+    });
+    await getSessionPerson();
+    const detail = (await getConversation(CONV))!;
+    expect(detail.undo?.[GROUP_A]).toEqual({ state: "available", needsReauth: true });
+  });
+
   it("F7: una voce sul progetto (archiveProject) dice il codice del progetto, letto dai progetti", async () => {
     install({
       [`GET /api/claude/conversations/${CONV}/proposals`]: {

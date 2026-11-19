@@ -24,8 +24,8 @@ import { appClient } from "./client";
 // guarda lo apre, coi permessi calcolati dal server), il prima/dopo.
 //
 // Limiti dichiarati (registro dei rimandi):
-// - `via: "claude"` e `undoOf` sono di F7: «By Claude» e «Undid…» restano
-//   spenti (nessuna voce, `claude: false`, `undoOf: null`);
+// - F7 (0195): `via: "claude"`, `undoOf` e `undoneEntry` li deriva il
+//   server, la voce annullata solo a chi la legge; «By Claude» è `?via=claude`;
 // - un invito non ha link: il server cancella gli inviti usati e revocati;
 // - le pagine sono quelle del server (50 voci, `nextCursor`): «Load more».
 
@@ -40,6 +40,8 @@ export interface ChangelogQuery {
   from?: string;
   to?: string;
   withinDays?: number;
+  /** F7: solo le voci scritte da Claude («By Claude»). */
+  via?: "claude";
   cursor?: string;
 }
 
@@ -179,7 +181,11 @@ function linkOf(e: Any, viewer: Viewer): ChangeObjectLink | null {
 }
 
 function viewOf(e: Any, viewer: Viewer): ChangeEntryView {
+  // La voce annullata (un livello solo, come il prototipo).
+  const undone = e.undoneEntry ? viewOf({ ...e.undoneEntry, undoneEntry: null }, viewer) : null;
   return {
+    ...(e.via === "claude" ? { via: "claude" as const } : {}),
+    ...(undone ? { undoneEntry: undone } : {}),
     id: e.id,
     kind: e.type,
     at: e.at,
@@ -187,7 +193,7 @@ function viewOf(e: Any, viewer: Viewer): ChangeEntryView {
     projectId: e.projectId ?? null,
     before: e.data.before ?? null,
     after: e.data.after ?? null,
-    undoOf: null,
+    undoOf: e.undoOf ?? null,
     // F6: una voce che chi guarda non deve leggere (un progetto eliminato che
     // non conosceva) arriva `hidden`: niente id (il server ci mette un
     // segnaposto), la chiave «un progetto che non vedi».
@@ -215,6 +221,7 @@ function queryOf(filter: ChangeFilter): ChangelogQuery {
   if (filter.withinDays !== undefined) q.withinDays = filter.withinDays;
   if (filter.from) q.from = filter.from;
   if (filter.to) q.to = filter.to;
+  if (filter.via === "claude") q.via = "claude";
   return q;
 }
 
@@ -224,7 +231,6 @@ export function createRealChangelog(api: ChangelogApi) {
   return {
     /** Una pagina (50 voci) e il cursore della dopo: «Load more» (decisione del maintainer). */
     async listChangesPage(filter: ChangeFilter = {}, cursor?: string): Promise<ChangePage> {
-      if (filter.via === "claude") return { entries: [], nextCursor: null };
       const [page, viewer] = await Promise.all([
         api.list(withCursor(queryOf(filter), cursor)),
         api.viewer(),
@@ -237,7 +243,6 @@ export function createRealChangelog(api: ChangelogApi) {
       filter: Omit<ChangeFilter, "projectId"> = {},
       cursor?: string,
     ): Promise<ChangePage> {
-      if (filter.via === "claude") return { entries: [], nextCursor: null };
       try {
         const [page, viewer] = await Promise.all([
           api.listProject(projectId, withCursor(queryOf(filter), cursor)),
@@ -267,8 +272,8 @@ export function createRealChangelog(api: ChangelogApi) {
         people: f.people ?? [],
         projects: f.projects ?? [],
         groups: f.groups ?? [],
-        // F7: le voci di Claude non ci sono ancora.
-        claude: false,
+        // F7: «By Claude» se chi guarda legge almeno una voce di Claude (lo dice il server).
+        claude: f.claude === true,
       };
     },
   };
