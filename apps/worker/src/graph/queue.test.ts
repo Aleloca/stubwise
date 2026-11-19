@@ -1,4 +1,4 @@
-import { graphJobs, projects, repoGraphs, type Db } from "@stubwise/db";
+import { graphJobs, projects, repoGraphs, repositories, type Db } from "@stubwise/db";
 import {
   seedRepository,
   seedRepositoryInProject,
@@ -27,7 +27,10 @@ beforeAll(async () => {
 }, 120_000);
 
 afterEach(async () => {
-  // repositories → repo_graphs / graph_jobs cascano dal progetto.
+  // Area 9, F6: eliminare il progetto STACCA i repository (0193) e i job del
+  // grafo non hanno più la FK (0194): si tolgono a mano, prima del progetto.
+  await testDb.db.delete(graphJobs);
+  await testDb.db.delete(repositories);
   await testDb.db.delete(projects);
 });
 

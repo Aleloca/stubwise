@@ -5218,3 +5218,93 @@ deploy o di un rollback che la tocca.
   - le voci della 9c già scritte restano; il server vecchio non le mostra
     (legge solo i tipi che conosce, nella WHERE) e il registro ha un buco per
     il tempo del rollback (come F2–F4).
+
+- **«Integrazione area 9, F6: archivio ed eliminazione»** *(19 nov 2026)*:
+  branch `feat/area9-f6` (da `feat/integrazione-area9`), piano
+  `docs/plans/2026-11-19-integrazione-area9-f6-plan.md` (L-1…L-7 = a, L-4
+  deciso dal maintainer). Si archivia e si riapre un progetto; si elimina
+  SOLO un archiviato, SOLO un full admin; i repository di un progetto
+  eliminato restano STACCATI. Migrazioni **0193** (`projects.archived_at` e
+  `archived_by_user_id`; `repositories.project_id` nullable con `ON DELETE
+  SET NULL`; `change_log.project_id` senza FK; la memoria del progetto
+  eliminato `deleted_projects` e `deleted_project_members`;
+  `repositories.detached_at` e `detached_from_project_id`) e **0194**
+  (`graph_jobs` senza FK sul repository, più `repo_url`: il job `prune`). Nessuna
+  env nuova, nessun `notification_kind` nuovo, nessun permesso nuovo.
+
+  **ORDINE**: **server** (healthy, 0193 e 0194 applicate), poi **worker** (legge
+  `projects.archived_at` nel frammento della coda e il job `prune` con
+  `graph_jobs.repo_url`), poi **caddy** (il web vecchio senza «Elimina»). Il
+  worker senza job dell'agente in corso, come sempre.
+
+  **Da sapere subito**:
+  - **Eliminare un progetto cambia regola**: prima bastava
+    `project.settings.manage`, senza archivio né riconferma, e i repository
+    se ne andavano in cascata. Ora:
+    - si elimina solo un archiviato, solo un full admin, con la riconferma e
+      il codice del progetto scritto esatto (`{ confirmCode }`);
+    - il web vecchio non ha più «Elimina»; lo fa l'app nuova;
+    - un client vecchio che prova riceve 400 (senza corpo) o 403.
+  - **L'archiviato sparisce ovunque** (elenchi, ricerca, ⌘K, Home, Stato
+    dell'istanza, `/api/auth/me`, automazioni, destinatari delle notifiche,
+    Slack), anche per i full admin. Restano tre eccezioni volute:
+    - i consumi d'istanza (`usage.view`) contano la sua spesa, senza il nome;
+    - il registro delle modifiche mostra le sue voci a chi lo vedrebbe;
+    - le approvazioni d'automazione senza progetto restano al full admin.
+    Lo leggono di proposito solo `GET /api/projects/archived` e
+    `…/:projectId/archived-view`, per i membri di allora e i full admin.
+    Scriverci risponde 409 `archived`. Le superfici PUBBLICHE (l'SDK su
+    `/ingest`, l'ingresso `/api/inbound`, il widget, il webhook git) lo
+    trattano come uno slug sconosciuto (401): ⚠️ archiviando un progetto
+    l'SDK nei suoi siti smette di creare ticket e il widget smette di
+    rispondere. Nessuna notifica nuova nasce per un archiviato, e le card già
+    in inbox si nascondono (e tornano riaprendo).
+  - **Archiviare** è bloccato (409 `busy`) solo dal lavoro in esecuzione:
+    job che triagia o corregge, review di PR, sessione dal vivo, generazione
+    Docs in corso o in pausa, rilascio con le run aperte. Annulla le
+    esecuzioni aperte delle automazioni del progetto (input di controllo,
+    ragione «Progetto archiviato.»).
+  - **Il worker** non prende lavoro di un archiviato: la coda lo tratta come
+    in pausa, nel frammento condiviso. Lo saltano anche il giro notturno, il
+    brief settimanale, il daily report, il polso e l'attribuzione della
+    posta. Riaprendo, tutto riparte da dov'era: niente è stato riscritto.
+  - **Un repository staccato** non è di nessun progetto:
+    - lo vede solo Amministrazione → Repositories (`GET
+      /api/repositories/detached`);
+    - si ricollega con `repos.manage` nel progetto di destinazione; il
+      segreto del webhook si rigenera, quindi il webhook va riconfigurato;
+    - lo elimina solo un full admin, con la riconferma.
+    Il webhook di uno staccato risponde 401. Eliminato, il worker (job
+    `prune` sulla coda dei grafi) toglie dal volume il suo grafo e il suo
+    mirror, il mirror solo se nessun altro repository usa lo stesso URL.
+  - **Il registro di un progetto eliminato**: le voci di progetto restano
+    col loro `project_id` e non le legge più nessuno. Restano solo codice,
+    nome e membri del progetto (`deleted_projects`), che servono a dire chi
+    lo conosceva: a quelle persone `project.deleted` mostra `CODICE · Nome`,
+    agli altri «un progetto che non vedi» (`hidden`).
+  Controllo, sola lettura: `select count(*) filter (where archived_at is not
+  null) as archiviati from projects; select count(*) from repositories where
+  project_id is null;` e `select kind, status, count(*) from graph_jobs where
+  kind = 'prune' group by 1, 2;`.
+
+  **Rollback** (il server scende **insieme** al caddy; le migrazioni non si
+  annullano):
+  - ⚠️ **PRIMA di scendere, nessun repository staccato**: il server vecchio va
+    in **500** su `GET /api/repositories` e sulla ricerca appena esiste una
+    riga con `repositories.project_id` null (verificato sul codice di
+    `feat/integrazione-area9` con la 0193 e la 0194 applicate a mano: le
+    altre letture principali rispondono 200). Quindi prima si ricollegano o
+    si eliminano, dall'app o dall'API. Si contano con `select id, name from
+    repositories where project_id is null;`;
+  - il server vecchio vede gli archiviati come APERTI: riappaiono a tutti i
+    loro membri e il worker vecchio ne riprende il lavoro (giro notturno,
+    brief, daily report, coda). Se non deve succedere, si riaprono o si
+    eliminano prima di scendere;
+  - i job `prune` ancora in coda il worker vecchio non li conosce: li chiude
+    `failed` («kind sconosciuto»), e mirror e grafo di quei repository restano
+    sul volume da togliere a mano (`/graphs/<repositoryId>`, il mirror per
+    URL);
+  - le voci `project.archived`, `project.reopened`, `project.deleted` e
+    `repository.linked` già scritte restano; il server vecchio non le mostra
+    (legge solo i tipi che conosce) e il registro ha un buco per il tempo del
+    rollback, come F2–F5.

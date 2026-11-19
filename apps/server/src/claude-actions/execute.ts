@@ -153,11 +153,14 @@ async function runGroup(
               );
         if (!access.ok) {
           throw new Abort(
-            failure(
-              access.error,
-              index,
-              access.error === "forbidden" && entry.access.kind === "project" ? { permission: entry.access.permission } : {},
-            ),
+            access.error === "archived"
+              ? // Area 9, F6: un progetto archiviato non si tocca, nemmeno da Claude (un conflitto, non un enum nuovo).
+                failure("conflict", index, { message: "The project is archived" })
+              : failure(
+                  access.error,
+                  index,
+                  access.error === "forbidden" && entry.access.kind === "project" ? { permission: entry.access.permission } : {},
+                ),
           );
         }
         const [row] = await tx

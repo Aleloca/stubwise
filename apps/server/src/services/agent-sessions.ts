@@ -54,6 +54,7 @@ import { memoPermissions, type PermissionsOf } from "./permissions-memo.js";
 import { reopenRefineSessionIfClosed } from "./backlog-refine.js";
 import {
   inProjects,
+  isAllProjects,
   projectIdsWithPermission,
   projectPermissionsFor,
 } from "../auth/access.js";
@@ -750,13 +751,17 @@ export async function listAgentSessions(
     projectIdsWithPermission(db, viewer, "repos.view"),
     projectIdsWithPermission(db, viewer, writePermissionFor("backlog_refine")),
   ]);
-  if (readable !== "all") {
+  if (isAllProjects(readable)) {
+    // Un full admin: ogni sessione tranne quelle degli archiviati (F6); restano le senza progetto.
+    const open = inProjects(sessionProjectSql, readable);
+    if (open) conditions.push(open);
+  } else {
     const allowed: SQL[] = [isNull(sessionProjectSql)];
-    if (readable.length > 0) allowed.push(inArray(sessionProjectSql, readable));
-    if (refineReadable === "all") {
-      allowed.push(eq(agentSessions.kind, "backlog_refine"));
+    if (readable.length > 0) allowed.push(inArray(sessionProjectSql, [...readable]));
+    if (isAllProjects(refineReadable)) {
+      allowed.push(and(eq(agentSessions.kind, "backlog_refine"), inProjects(sessionProjectSql, refineReadable))!);
     } else if (refineReadable.length > 0) {
-      allowed.push(and(eq(agentSessions.kind, "backlog_refine"), inArray(sessionProjectSql, refineReadable))!);
+      allowed.push(and(eq(agentSessions.kind, "backlog_refine"), inArray(sessionProjectSql, [...refineReadable]))!);
     }
     conditions.push(or(...allowed)!);
   }

@@ -375,6 +375,8 @@ function stateOf(turn: Turn): EngineState {
 export interface ControlInput {
   control: "cancel" | "retry" | "skip" | "suspend" | "resume";
   byId: string | null;
+  /** Area 9, F6: l'annullamento di chi archivia il progetto, con la sua ragione. */
+  reason?: "project_archived";
 }
 
 const OPEN_WAITING: ReadonlySet<RunStatus> = new Set(["waiting_approval", "waiting_project", "waiting_event"]);
@@ -389,8 +391,11 @@ async function control(turn: Turn, input: ControlInput): Promise<void> {
   switch (input.control) {
     case "cancel": {
       if (TERMINAL.has(status)) return;
-      await note(turn, { outcome: "cancelled", byId: input.byId, reason: "Esecuzione annullata.", why: { code: "cancelledBy" } });
-      await setRun(turn, { status: "cancelled", error: "cancelled", pending: null, endedAt: new Date(), cursor: { ...cursorOf(turn.run), inFlight: null } });
+      const archived = input.reason === "project_archived";
+      await note(turn, archived
+        ? { outcome: "cancelled", byId: input.byId, reason: "Progetto archiviato.", why: { code: "projectArchived" } }
+        : { outcome: "cancelled", byId: input.byId, reason: "Esecuzione annullata.", why: { code: "cancelledBy" } });
+      await setRun(turn, { status: "cancelled", error: archived ? "project_archived" : "cancelled", pending: null, endedAt: new Date(), cursor: { ...cursorOf(turn.run), inFlight: null } });
       // Un'email ancora in coda non parte più (una già in invio non si ferma: è nelle mani di Gmail).
       await turn.deps.db.update(mailOutgoing).set({ state: "cancelled" }).where(and(eq(mailOutgoing.automationRunId, turn.run.id), eq(mailOutgoing.state, "queued")));
       return;

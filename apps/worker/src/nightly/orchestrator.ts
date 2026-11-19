@@ -1,7 +1,7 @@
-import { activityReports, commitSummaries, decrypt, docGenerations, gitAccounts, nightlyItems, projects, repositories } from "@stubwise/db";
+import { activityReports, commitSummaries, decrypt, docGenerations, gitAccounts, nightlyItems, projects, repositories, projectQueueRunnable } from "@stubwise/db";
 import type { ReleaseNotes } from "@stubwise/docs-engine";
 import { publishDocsNightlyAttention } from "@stubwise/notifications";
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { CommitWithFiles, MirrorProject } from "../git/mirrors.js";
 import { isQuotaWait, type EmptyReason } from "../providers/select.js";
@@ -129,7 +129,8 @@ async function loadRepos(deps: NightlyDeps, repositoryId: string | undefined): P
         // dal giro intero — niente mirror, niente worktree, niente pagine
         // pianificate su riassunti a metà (un claim nullo per la pausa non è
         // una fase finita). I suoi elementi restano in coda per la notte dopo.
-        isNull(projects.queuePausedAt),
+        // La pausa di F4 e l'archivio di F6, dal frammento condiviso.
+        projectQueueRunnable(sql`${projects.id}`),
         repositoryId === undefined ? undefined : eq(repositories.id, repositoryId),
       ),
     )
@@ -744,7 +745,8 @@ export async function hasPendingNightWork(deps: Pick<NightlyDeps, "db">, night: 
         sql`(${nightlyItems.lastFailedNight} IS NULL OR ${nightlyItems.lastFailedNight} <> ${night}::date)`,
         or(eq(projects.dailyReportEnabled, true), eq(projects.docAutoUpdate, true)),
         // Gli elementi di un progetto in pausa non fanno ripartire il giro (review M4).
-        isNull(projects.queuePausedAt),
+        // La pausa di F4 e l'archivio di F6, dal frammento condiviso.
+        projectQueueRunnable(sql`${projects.id}`),
       ),
     )
     .limit(1);

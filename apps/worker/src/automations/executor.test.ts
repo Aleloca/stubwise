@@ -315,6 +315,15 @@ describe("executeDueRuns", () => {
       expect((await logOf(run.id)).at(-1)).toMatchObject({ outcome: "cancelled", byId: ownerId });
     });
 
+    it("area 9, F6: l'annullamento di chi ARCHIVIA il progetto lascia la sua ragione (Progetto archiviato), non quella di «Annulla»", async () => {
+      const { run } = await runOf([task({ approval: { mode: "ask", who: { owner: true } } })]);
+      await exec();
+      await t.db.insert(automationRunInputs).values({ runId: run.id, input: { control: "cancel", byId: ownerId, reason: "project_archived" }, byId: ownerId });
+      await exec();
+      expect(await reload(run.id)).toMatchObject({ status: "cancelled", error: "project_archived", pending: null });
+      expect((await logOf(run.id)).at(-1)).toMatchObject({ outcome: "cancelled", byId: ownerId, reason: "Progetto archiviato.", why: { code: "projectArchived" } });
+    });
+
     it("Riprova: il passo fallito si rifà (rimesso il permesso, crea la task); Salta: si va al passo dopo", async () => {
       const { automation, run } = await runOf([task({ title: "Prima" }), task({ title: "Dopo" })]);
       await member(ownerId, "viewer");

@@ -1,11 +1,11 @@
-import { notifications, projectBriefs, projects, type Db } from "@stubwise/db";
+import { notifications, projectBriefs, projects, type Db, projectNotArchived, projectQueueRunnable } from "@stubwise/db";
 import {
   briefHeadline,
   publishNotification,
   truncateText,
   type ProjectBriefEvent,
 } from "@stubwise/notifications";
-import { and, asc, eq, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, eq, lt, sql } from "drizzle-orm";
 import type { AgentRunner } from "../agent/runner.js";
 import { runAgentTextRaw, textFromRun } from "../agent/text.js";
 import { projectBriefSession, sessionOption } from "../sessions/owners.js";
@@ -297,7 +297,8 @@ async function enqueueDueBriefs(deps: BriefPollerDeps, now: Date, logger: BriefL
     const enabled = await deps.db
       .select({ id: projects.id })
       .from(projects)
-      .where(eq(projects.weeklyBriefEnabled, true));
+      // Area 9, F6: un archiviato non ha brief; riaprendolo riparte.
+      .where(and(eq(projects.weeklyBriefEnabled, true), projectNotArchived(sql`${projects.id}`)));
     for (const project of enabled) {
       await deps.db
         .insert(projectBriefs)
@@ -573,7 +574,8 @@ export async function pollBriefsOnce(deps: BriefPollerDeps): Promise<number> {
           sql`${projectBriefs.attempts} < ${BRIEF_MAX_ATTEMPTS}`,
           // Area 9, F4: il brief di un progetto in pausa resta `queued` (si
           // accoda lo stesso, per non perdere la settimana) e parte alla ripresa.
-          isNull(projects.queuePausedAt),
+          // Pausa (F4) e archivio (F6), dal frammento condiviso.
+          projectQueueRunnable(sql`${projects.id}`),
         ),
       );
   } catch (err) {

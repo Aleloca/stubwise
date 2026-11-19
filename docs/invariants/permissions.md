@@ -126,6 +126,33 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   `archived=true`; nessuna scrittura (`409 archived`); il worker non reclama
   il suo lavoro. Si elimina SOLO un archiviato, SOLO un full admin, con la
   riconferma e il codice digitato; i suoi repository restano staccati.
+  La regola sta in UN posto: `projectPermissionsFor` e
+  `projectPermissionsByProject` danno `null`, e un full admin riceve
+  `ProjectScope` (`{ all, archived }`), mai `"all"`, così ogni elenco
+  decide degli archiviati (`inProjects`, `scopeIncludes`). Una lettura non
+  dichiarata è 404, una scrittura 409 `archived` a chi lo vedrebbe; le
+  eccezioni si dichiarano con `config.archived` (elenco chiuso in
+  `route-access.test.ts`). Tre eccezioni volute: i consumi d'istanza
+  (`usage.view`) contano la spesa degli archiviati senza nominarli; il
+  registro delle modifiche mostra le loro voci a chi li vedrebbe; le
+  approvazioni d'automazione senza progetto restano al full admin. Le
+  superfici pubbliche (SDK, ingresso, widget, webhook git) trattano un
+  archiviato come uno slug sconosciuto (401), e non nasce nessuna notifica
+  per un archiviato. Limite accettato: archiviare non blocca i claim del
+  worker, quindi un job reclamato a cavallo del commit finisce.
+- **Di un progetto eliminato restano SOLO codice, nome e chi ne era membro
+  (`deleted_projects`, `deleted_project_members`, 0193), e servono SOLO a
+  dire «chi lo conosceva».** Gli ex membri e i full admin leggono
+  l'etichetta `CODICE · Nome` di `project.deleted`, la provenienza
+  (`formerProject`) e il nome intero di un repository staccato; gli altri
+  leggono «un progetto che non vedi» (`hidden`), mai il codice, il nome né
+  l'id. Un ex membro eliminato esce dalla memoria (cascata). Le voci del
+  registro del progetto tengono il suo `project_id` (nessuna FK): non
+  diventano voci senza progetto, e non le legge più nessuno tranne
+  `project.deleted`. Un repository staccato non è di nessun progetto: lo
+  elencano solo le rotte dei repository staccati, e nessuna lettura di
+  progetto lo trova, nemmeno col `"all"` del full admin (le query uniscono
+  `projects`).
 - **Un invito non dà mai più di quanto ha chi invita, nemmeno per omissione
   né col passare del tempo** (ruling R51, `assertInviteGrants` e
   `applyInviteGrants` in `services/roles.ts`). Senza `instanceRoleId` il

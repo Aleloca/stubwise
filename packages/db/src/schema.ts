@@ -568,7 +568,9 @@ export const changeLog = pgTable(
     actorEmail: text("actor_email").notNull(),
     actorKind: text("actor_kind").$type<"user" | "agent" | "system">().notNull(),
     type: text("type").notNull(),
-    projectId: uuid("project_id").references((): AnyPgColumn => projects.id, { onDelete: "set null" }),
+    // Senza FK dalla 0193 (area 9, F6, L-3): tiene l'id di un progetto
+    // eliminato, così le sue voci non diventano «senza progetto».
+    projectId: uuid("project_id"),
     subjectKind: text("subject_kind").notNull(),
     subjectId: text("subject_id").notNull(),
     data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
@@ -704,6 +706,11 @@ export const projects = pgTable(
     // (creazione del progetto o rigenerazione); null per le chiavi di prima.
     ingestionKeyCreatedAt: timestamp("ingestion_key_created_at", { withTimezone: true }),
     ingestionKeyCreatedByUserId: uuid("ingestion_key_created_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+    // Area 9, F6 (0193, D-8): l'archivio. Nullo = aperto. Un archiviato
+    // sparisce da ogni elenco e lettura (tranne quelle dedicate) e il worker
+    // non ne prende lavoro; si riapre o, solo allora, si elimina.
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    archivedByUserId: uuid("archived_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
     // Aggiornamento automatico della documentazione ai push (changelog/release):
     // false = disattivo (i push non innescano nulla). Toggle per-progetto, vale
     // per tutti i repository del progetto.
@@ -770,7 +777,7 @@ export const projects = pgTable(
       .notNull()
       .default(sql`'{docs,releases,support,servers}'::text[]`),
   },
-  () => [
+  (table) => [
     // Sotto 1 giorno il pulse diventerebbe un ping continuo, sopra 30 un
     // promemoria che non arriva mai.
     check("projects_pulse_every_days_chk", sql`pulse_every_days BETWEEN 1 AND 30`),
@@ -782,6 +789,7 @@ export const projects = pgTable(
     check("projects_code_format_chk", sql`code ~ '^[A-Z][A-Z0-9]{1,5}$'`),
     check("projects_stall_active_days_chk", sql`stall_active_days BETWEEN 1 AND 90`),
     check("projects_stall_todo_days_chk", sql`stall_todo_days BETWEEN 1 AND 90`),
+    index("projects_archived_idx").on(table.id).where(sql`archived_at IS NOT NULL`),
   ],
 );
 
@@ -839,12 +847,10 @@ export const departmentMembers = pgTable(
  */
 export const repositories = pgTable("repositories", {
   id: uuid("id").primaryKey().defaultRandom(),
-  // Progetto (gruppo) a cui il repository appartiene. NOT NULL: un repo sta
-  // sempre in un progetto. ON DELETE CASCADE: eliminare il progetto porta via i
-  // suoi repository.
-  projectId: uuid("project_id")
-    .notNull()
-    .references(() => projects.id, { onDelete: "cascade" }),
+  // Progetto (gruppo) a cui il repository appartiene. Nullo = STACCATO
+  // (area 9, F6, 0193): eliminare il progetto lascia il repository, senza
+  // progetto, e lo vede solo l'Amministrazione finché non si ricollega.
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   provider: gitProviderKind("provider").notNull(),
@@ -907,6 +913,10 @@ export const repositories = pgTable("repositories", {
    * analisi»), `analyze_only`, `off`. Default `analyze_only` (P-2 = a).
    */
   colleaguePrs: text("colleague_prs").$type<"analyze_and_fix" | "analyze_only" | "off">().notNull().default("analyze_only"),
+  // Area 9, F6 (0193): un repository staccato, quando e da quale progetto
+  // eliminato. Si azzerano insieme a un nuovo collegamento.
+  detachedAt: timestamp("detached_at", { withTimezone: true }),
+  detachedFromProjectId: uuid("detached_from_project_id").references((): AnyPgColumn => deletedProjects.id, { onDelete: "set null" }),
 }, (table) => [
   check("repositories_ci_provider_chk", sql`${table.ciProvider} IS NULL OR ${table.ciProvider} IN ('github_actions', 'bitbucket_pipelines')`),
   check("repositories_colleague_prs_chk", sql`${table.colleaguePrs} IN ('analyze_and_fix', 'analyze_only', 'off')`),
@@ -929,6 +939,36 @@ export const repositories = pgTable("repositories", {
  * (project_id, name) impedisce milestone omonime nello stesso progetto, ma
  * ammette lo stesso nome in progetti diversi.
  */
+/**
+ * Area 9, F6 (0193, D-8): cosa resta di un progetto eliminato. Codice, nome e
+ * chi ne era membro, e NIENT'ALTRO: servono a dire «chi conosceva il
+ * progetto» (l'etichetta di `project.deleted`, la provenienza e il nome
+ * intero di un repository staccato). `id` è quello del progetto, senza FK
+ * (non c'è più): è lo stesso `project_id` delle sue voci del registro.
+ */
+export const deletedProjects = pgTable("deleted_projects", {
+  id: uuid("id").primaryKey(),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const deletedProjectMembers = pgTable(
+  "deleted_project_members",
+  {
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => deletedProjects.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    primaryKey({ name: "deleted_project_members_pk", columns: [table.projectId, table.userId] }),
+    index("deleted_project_members_user_idx").on(table.userId),
+  ],
+);
+
 export const milestones = pgTable(
   "milestones",
   {
@@ -3872,12 +3912,15 @@ export const graphJobs = pgTable(
   "graph_jobs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    repositoryId: uuid("repository_id")
-      .notNull()
-      .references(() => repositories.id, { onDelete: "cascade" }),
+    // Senza FK dalla 0194 (area 9, F6): il job `prune` sopravvive al
+    // repository che pota. Gli altri job di un repository eliminato li toglie
+    // il DELETE (`deleteDetachedRepository`).
+    repositoryId: uuid("repository_id").notNull(),
     // Colonne `text` con enum compile-time (come `backlog_chat_messages.role`):
     // nessun enum Postgres né CHECK, il worker rivalida al dequeue.
-    kind: text("kind", { enum: ["build", "setup_pr"] }).notNull(),
+    kind: text("kind", { enum: ["build", "setup_pr", "prune"] }).notNull(),
+    /** Solo `prune`: l'URL del repository eliminato, per trovarne il mirror. */
+    repoUrl: text("repo_url"),
     status: text("status", { enum: ["queued", "running", "done", "failed"] })
       .notNull()
       .default("queued"),

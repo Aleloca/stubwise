@@ -14,7 +14,7 @@ import {
 } from "@stubwise/shared";
 import { alias } from "drizzle-orm/pg-core";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
-import { projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
+import { projectPermissionsFor, scopeProjectIds, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { visiblePersonIds } from "./people-visibility.js";
 import { RoleRuleError } from "./roles.js";
@@ -205,7 +205,7 @@ export async function whatCan(db: Db, viewer: Viewer, userId: string, projectId:
     projectIds = [projectId];
   } else {
     const seen = await visibleProjectIds(db, viewer);
-    projectIds = seen === "all" ? (await db.select({ id: projects.id }).from(projects)).map((p) => p.id) : seen;
+    projectIds = await scopeProjectIds(db, seen);
   }
   const names = projectIds.length
     ? await db.select({ id: projects.id, name: projects.name }).from(projects).where(inArray(projects.id, projectIds)).orderBy(asc(projects.name))

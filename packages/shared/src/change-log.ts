@@ -110,6 +110,9 @@ export const CHANGE_LOG_TYPES = [
   settings9c("project.stall_thresholds_changed"),
   settings9c("project.plugins_changed"),
   settings9c("project.ingestion_key_regenerated"),
+  // Area 9, F6 (D-8): l'archivio, di progetto (come nel prototipo).
+  settings9c("project.archived"),
+  settings9c("project.reopened"),
   repos9c("repository.created"),
   repos9c("repository.updated"),
   repos9c("repository.pr_mode_changed"),
@@ -121,17 +124,20 @@ export const CHANGE_LOG_TYPES = [
   repos9c("env_file.imported"),
   repos9c("env_var.set"),
   repos9c("env_var.removed"),
+  // F6: nel progetto di DESTINAZIONE; non nomina il progetto eliminato da cui viene (R-G5).
+  repos9c("repository.linked"),
   environments9c("environment.created"),
   environments9c("environment.updated"),
   environments9c("environment.deleted"),
   widget9c("widget.created"),
   widget9c("widget.updated"),
   widget9c("widget.deleted"),
+  // F6: d'istanza, come nel prototipo. L'etichetta si risolve a lettura
+  // (`CODICE · Nome` per chi conosceva il progetto); `params.detachedRepositories`.
+  instance("project.deleted", "instance.full_admin", "projects"),
   // D'istanza come nel prototipo (maintainer, 31 ott 2026, domanda 4 (b)):
-  // l'eliminazione da Amministrazione di un repository SENZA progetto. Sul
-  // server un repository ha sempre un progetto (`project_id NOT NULL`, va via
-  // in cascata col progetto) e nessuna rotta lo elimina da solo: oggi è un
-  // tipo dichiarato senza scrittore.
+  // l'eliminazione da Amministrazione di un repository SENZA progetto (F6:
+  // eliminare un progetto stacca i suoi repository, 0193).
   instance("repository.deleted", "instance.full_admin", "projects"),
 ] as const satisfies readonly ChangeLogType[];
 
@@ -266,6 +272,11 @@ export const CHANGE_DATA_SCHEMAS: Record<ChangeLogKind, z.ZodType<ChangeData>> =
   "widget.updated": changeDataSchema,
   "widget.deleted": changeDataSchema,
   "repository.deleted": changeDataSchema,
+  "project.archived": changeDataSchema,
+  "project.reopened": changeDataSchema,
+  "repository.linked": changeDataSchema,
+  // Quanti repository restano senza progetto, numero in stringa (il prototipo).
+  "project.deleted": withParams("detachedRepositories"),
 };
 
 /**
@@ -289,6 +300,18 @@ export const changeEntrySchema = z.object({
   group: z.string(),
   data: changeDataSchema,
   objectDeleted: z.boolean().default(false),
+  /**
+   * Area 9, F6: la voce parla di un progetto ELIMINATO che chi guarda non
+   * conosceva (non ne era membro, non è full admin): «un progetto che non
+   * vedi». `object.id` arriva `"hidden"` (non può essere vuoto), `object.label` vuota.
+   */
+  hidden: z.boolean().default(false),
+  /**
+   * Area 9, F6: il progetto della voce è ARCHIVIATO adesso (derivato a lettura
+   * da `projects.archived_at`, mai scritto nella voce): il client la porta a
+   * `/archived/<CODICE>`.
+   */
+  projectArchived: z.boolean().default(false),
 });
 export type ChangeEntry = z.infer<typeof changeEntrySchema>;
 

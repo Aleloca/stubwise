@@ -248,7 +248,8 @@ export async function setPrAnalysisOnly(
   input: { repositoryId: string; prNumber: number; on: boolean },
 ): Promise<{ analysisOnly: { byId: string | null; at: string } | null }> {
   const [repo] = await db.select({ projectId: repositories.projectId }).from(repositories).where(eq(repositories.id, input.repositoryId));
-  const perms = repo ? await projectPermissionsFor(db, viewer, repo.projectId) : null;
+  // Un repository staccato (F6): 404 come uno che non c'è.
+  const perms = repo?.projectId ? await projectPermissionsFor(db, viewer, repo.projectId) : null;
   if (!repo || !perms) throw new ReleaseError(404, "not_found", "Not found");
   if (!perms.has("prs.adopt")) throw new ReleaseError(403, "forbidden", "Only who can adopt pull requests can set analysis only");
   const where = and(eq(prReviews.repositoryId, input.repositoryId), eq(prReviews.prNumber, input.prNumber));

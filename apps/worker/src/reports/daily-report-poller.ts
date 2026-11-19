@@ -13,8 +13,10 @@ import {
   projects,
   repositories,
   type Db,
+  projectNotArchived,
+  projectQueueRunnable,
 } from "@stubwise/db";
-import { and, eq, gte, inArray, isNotNull, isNull, lt, lte, ne, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, lt, lte, ne, sql } from "drizzle-orm";
 import { tmpdir } from "node:os";
 import { z } from "zod";
 import type { AgentRunner, AgentRunSession } from "../agent/runner.js";
@@ -1333,6 +1335,8 @@ export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<
       .where(
         and(
           eq(projects.dailyReportEnabled, true),
+          // Area 9, F6: un archiviato non ha daily report; riaprendolo riparte.
+          projectNotArchived(sql`${projects.id}`),
           sql`not exists (select 1 from ${repositories} where ${repositories.projectId} = ${projects.id})`,
         ),
       );
@@ -1368,7 +1372,8 @@ export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<
       .innerJoin(projects, eq(activityReports.projectId, projects.id))
       // Area 9, F4: un progetto in pausa lascia il suo report `queued`, e lo
       // si genera alla ripresa.
-      .where(and(eq(activityReports.status, "queued"), gte(activityReports.date, cutoff), isNull(projects.queuePausedAt)));
+      // Area 9, F6: anche un archiviato.
+      .where(and(eq(activityReports.status, "queued"), gte(activityReports.date, cutoff), projectQueueRunnable(sql`${projects.id}`)));
 
     for (const q of queued) {
       try {

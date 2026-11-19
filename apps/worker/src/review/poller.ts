@@ -139,9 +139,10 @@ export async function pollPrReviewsOnce(deps: PollPrReviewsDeps): Promise<number
         .select({ projectId: repositories.projectId })
         .from(repositories)
         .where(eq(repositories.id, job.repositoryId));
-      if (!repo) {
+      // Un repository staccato (F6) non ha progetto: niente review.
+      if (!repo?.projectId) {
         console.error(
-          `[stubwise-worker] pr-review-poll: repository ${job.repositoryId} non trovato, salto la review della PR #${job.prNumber}`,
+          `[stubwise-worker] pr-review-poll: repository ${job.repositoryId} non trovato o senza progetto, salto la review della PR #${job.prNumber}`,
         );
         continue;
       }

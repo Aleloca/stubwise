@@ -2,7 +2,7 @@ import { adminRoleViewSchema, inviteChoicesSchema, inviteViewSchema, personDetai
 import { invites } from "@stubwise/db";
 import { eq } from "drizzle-orm";
 import { adminRoleViews, inviteChoices, inviteTokenOf, inviteViews } from "../services/admin-roles.js";
-import { browserOrConfirmedDesktop, projectIdsWithPermission } from "../auth/access.js";
+import { browserOrConfirmedDesktop, projectIdsWithPermission, isAllProjects } from "../auth/access.js";
 import { apiError } from "../errors.js";
 import { recordChange } from "../services/change-log.js";
 import { inviteObject } from "../services/invite-change.js";
@@ -51,7 +51,7 @@ export async function adminViewRoutes(instance: FastifyInstance): Promise<void> 
       const perms = user.instancePermissions;
       if (!perms.has("roles.manage") && !perms.has("users.manage") && !perms.has("users.invite")) {
         const managed = await projectIdsWithPermission(app.db, user, "project.members.manage");
-        if (managed !== "all" && managed.length === 0) return apiError(reply, 403, "forbidden", "Missing permission");
+        if (!isAllProjects(managed) && managed.length === 0) return apiError(reply, 403, "forbidden", "Missing permission");
       }
       return adminRoleViews(app.db, user);
     },

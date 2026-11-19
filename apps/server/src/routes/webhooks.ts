@@ -199,13 +199,18 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
             id: repositories.id,
             provider: repositories.provider,
             webhookSecret: repositories.webhookSecret,
+            projectId: repositories.projectId,
+            projectArchivedAt: projects.archivedAt,
           })
           .from(repositories)
+          .leftJoin(projects, eq(projects.id, repositories.projectId))
           .where(eq(repositories.slug, projectSlug));
 
-        // Slug sconosciuto o segreto vuoto (legacy, non verificabile): 401,
-        // indistinguibile da una firma errata.
-        if (!repository || repository.webhookSecret === "") {
+        // Slug sconosciuto, segreto vuoto (legacy, non verificabile),
+        // repository STACCATO o di un progetto ARCHIVIATO (F6: niente
+        // progetto aperto, niente lavoro né scritture): 401, indistinguibile
+        // da una firma errata.
+        if (!repository || repository.webhookSecret === "" || repository.projectId === null || repository.projectArchivedAt !== null) {
           return apiError(reply, 401, "webhook_unauthorized", "Webhook unauthorized");
         }
         const provider = getProvider(repository.provider);
@@ -233,7 +238,8 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
       if (push) {
         const [repository] = await instance.db
           .select({
-            projectId: repositories.projectId,
+            // Dal progetto unito, non dal repository: l'inner join esclude uno staccato (F6).
+            projectId: projects.id,
             defaultBranch: repositories.defaultBranch,
             dailyReportEnabled: projects.dailyReportEnabled,
             graphEnabled: repositories.graphEnabled,

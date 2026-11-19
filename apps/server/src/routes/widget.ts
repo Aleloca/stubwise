@@ -9,7 +9,7 @@ import {
   siteRequestDetailSchema,
   siteRequestListSchema,
 } from "@stubwise/shared";
-import { and, asc, count, desc, eq, gte, isNotNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, isNotNull, isNull } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -132,7 +132,8 @@ export async function widgetRoutes(
     const [project] = await app.db
       .select({ id: projects.id, name: projects.name })
       .from(projects)
-      .where(eq(projects.slug, slug));
+      // Area 9, F6: un progetto ARCHIVIATO è come uno slug sconosciuto (401).
+      .where(and(eq(projects.slug, slug), isNull(projects.archivedAt)));
 
     let matched: WidgetRow | undefined;
     if (typeof provided === "string" && project) {

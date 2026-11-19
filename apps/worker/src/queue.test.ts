@@ -163,6 +163,21 @@ describe("claimNextJob", () => {
     await db.update(projects).set({ queuePausedAt: null }).where(eq(projects.id, seededProjectId));
     expect((await claimNextJob(db))?.id).toBe(paused.id);
   });
+
+  it("area 9, F6: un progetto ARCHIVIATO non dà lavoro nuovo (la stessa regola della pausa); un job partito non cambia; riaperto riparte", async () => {
+    const { db } = testDb;
+    const other = await seedTicket(db);
+    const running = await enqueueJob(db, { createdAt: minutesAgo(9) });
+    await db.update(aiJobs).set({ status: "fixing" }).where(eq(aiJobs.id, running.id));
+    const waiting = await enqueueJob(db, { createdAt: minutesAgo(5) });
+    const [otherJob] = await db.insert(aiJobs).values({ ticketId: other.ticketId, createdAt: minutesAgo(1) }).returning();
+    await db.update(projects).set({ archivedAt: new Date() }).where(eq(projects.id, seededProjectId));
+    expect((await claimNextJob(db))?.id).toBe(otherJob!.id);
+    expect(await claimNextJob(db)).toBeNull();
+    expect((await db.select().from(aiJobs).where(eq(aiJobs.id, running.id)))[0]!.status).toBe("fixing");
+    await db.update(projects).set({ archivedAt: null }).where(eq(projects.id, seededProjectId));
+    expect((await claimNextJob(db))?.id).toBe(waiting.id);
+  });
 });
 
 describe("transizioni di stato", () => {

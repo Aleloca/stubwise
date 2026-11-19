@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { attachments, chatChannels, chatMessageAttachments, chatMessages, tickets, type Db } from "@stubwise/db";
+import { attachments, chatChannels, chatMessageAttachments, chatMessages, driveFiles, tickets, type Db } from "@stubwise/db";
 import { CHAT_ATTACHMENTS_PER_MESSAGE, chatAttachmentAllowed, type ChatAttachmentView } from "@stubwise/shared";
-import { and, asc, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import type { ObjectStorage } from "../storage/index.js";
 import { displayFileName } from "../storage/filenames.js";
 import { removeOrRecordOrphan } from "../storage/orphans.js";
@@ -241,7 +241,14 @@ export async function storageKeysOfProject(db: Db | Tx, projectId: string): Prom
     .from(attachments)
     .innerJoin(tickets, eq(tickets.id, attachments.ticketId))
     .where(eq(tickets.projectId, projectId));
-  return [...chat, ...ticket].map((r) => r.key);
+  // Area 9, F6 (review): anche i file caricati nel Drive del progetto, che
+  // l'anteprima dell'eliminazione conta fra le cose tolte (i file di Google
+  // non hanno una chiave nostra).
+  const drive = await db
+    .select({ key: driveFiles.storageKey })
+    .from(driveFiles)
+    .where(and(eq(driveFiles.projectId, projectId), isNotNull(driveFiles.storageKey)));
+  return [...chat, ...ticket, ...drive.map((d) => ({ key: d.key! }))].map((r) => r.key);
 }
 
 /**

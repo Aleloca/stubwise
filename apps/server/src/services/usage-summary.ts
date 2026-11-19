@@ -1,7 +1,7 @@
 import { agentRuns, aiProviders, projects, type Db } from "@stubwise/db";
 import { USAGE_NONE_KEY, USAGE_OTHER_KEY, type UsageDimension, type UsageRange, type UsageSummary } from "@stubwise/shared";
 import { and, gte, lt, sql, type SQL } from "drizzle-orm";
-import { inProjects } from "../auth/access.js";
+import { inProjects, scopeIncludes, type ProjectScope } from "../auth/access.js";
 
 /**
  * Area 9, F4: AI → Usage nell'app, nella forma della scheda del prototipo.
@@ -103,7 +103,7 @@ const DIM_SQL: Record<UsageDimension, SQL> = {
 
 export async function usageSummary(
   db: Db,
-  input: { range: UsageRange; groupBy: UsageDimension; thenBy: UsageDimension | null; scope: "all" | string[]; visibleProjectIds: "all" | string[] },
+  input: { range: UsageRange; groupBy: UsageDimension; thenBy: UsageDimension | null; scope: ProjectScope; visibleProjectIds: ProjectScope },
   now = new Date(),
 ): Promise<UsageSummary> {
   const { from, toExclusive, days } = usageDays(input.range, now);
@@ -125,9 +125,8 @@ export async function usageSummary(
     .groupBy(a, b);
 
   const projectRows = await db.select({ id: projects.id, name: projects.name, code: projects.code }).from(projects);
-  const visible = input.visibleProjectIds === "all" ? null : new Set(input.visibleProjectIds);
   const names: UsageNames = {
-    visibleProjects: new Map(projectRows.filter((p) => !visible || visible.has(p.id)).map((p) => [p.id, { name: p.name, code: p.code }])),
+    visibleProjects: new Map(projectRows.filter((p) => scopeIncludes(input.visibleProjectIds, p.id)).map((p) => [p.id, { name: p.name, code: p.code }])),
     providers: new Map((await db.select({ id: aiProviders.id, label: aiProviders.label }).from(aiProviders)).map((p) => [p.id, p.label])),
   };
 

@@ -1,10 +1,10 @@
-import { departmentMembers, projects, users } from "@stubwise/db";
+import { departmentMembers, users } from "@stubwise/db";
 import { peopleActivityQuerySchema, personDayActivitySchema, personViewSchema, type PersonView } from "@stubwise/shared";
 import { asc, eq, inArray, or } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { projectIdsWithPermission } from "../auth/access.js";
+import { projectIdsWithPermission, scopeProjectIds } from "../auth/access.js";
 import { initialsOf, personName } from "../services/people.js";
 import { peopleActivity } from "../services/people-activity.js";
 import { avatarUrlsFor } from "../services/avatars.js";
@@ -66,10 +66,7 @@ export async function peopleRoutes(instance: FastifyInstance): Promise<void> {
       const deptsOf = new Map<string, string[]>();
       for (const m of memberships) deptsOf.set(m.userId, [...(deptsOf.get(m.userId) ?? []), m.departmentId]);
       const canRun = people.some((p) => p.isAgent) ? await projectIdsWithPermission(app.db, viewer, "runs.start") : [];
-      const assignable =
-        canRun === "all"
-          ? (await app.db.select({ id: projects.id }).from(projects).orderBy(asc(projects.name))).map((p) => p.id)
-          : canRun;
+      const assignable = await scopeProjectIds(app.db, canRun, { orderByName: true });
       const avatars = await avatarUrlsFor(app.db, people.map((p) => p.id));
       return people.map((p) => {
         const name = personName(p);

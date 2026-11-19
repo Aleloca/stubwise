@@ -15,7 +15,7 @@
  * l'hook rifiuta comunque (500) una rotta senza dichiarazione.
  */
 import { CHAT_TOOL_READ_ROUTES, CHAT_TOOL_WRITE_ROUTES } from "./chat-tool-routes.js";
-import { and, eq, inArray, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
 import { memberPermissionsSql, projectMembers, projects, roles } from "@stubwise/db";
@@ -129,6 +129,15 @@ declare module "fastify" {
      * una dichiarazione, così il test del registro ne tiene l'elenco chiuso.
      */
     partialReauth?: true;
+    /**
+     * Area 9, F6 (D-8): la rotta di progetto passa anche su un progetto
+     * ARCHIVIATO, per chi ne era membro e per i full admin. `"read"` le
+     * letture dedicate agli archiviati, `"write"` solo riapri ed elimina.
+     * Senza, un archiviato è come uno che non c'è (lettura 404, scrittura
+     * 409 `archived` a chi lo vedrebbe). L'elenco è chiuso in
+     * `route-access.test.ts`.
+     */
+    archived?: "read" | "write";
   }
   interface FastifyRequest {
     /** Impostato dall'hook globale sulle rotte `project`. */
@@ -138,13 +147,18 @@ declare module "fastify" {
 
 /**
  * Permessi effettivi di `user` sul progetto, in UNA query (progetto +
- * appartenenza + ruolo). `null` = invisibile: progetto inesistente, oppure
- * utente non membro e non full admin. Un full admin li ha tutti, membro o no.
+ * appartenenza + ruolo). `null` = invisibile: progetto inesistente,
+ * ARCHIVIATO (area 9, F6, D-8: come uno che non c'è), oppure utente non
+ * membro e non full admin. Un full admin li ha tutti, membro o no.
+ *
+ * `includeArchived` è SOLO per le eccezioni dichiarate (`config.archived`
+ * delle rotte, la regola del 409 `archived`): chi lo legge di proposito.
  */
 export async function projectPermissionsFor(
   db: Pick<Db, "select">,
   user: Pick<SessionUser, "id" | "instancePermissions">,
   projectId: string,
+  opts: { includeArchived?: boolean } = {},
 ): Promise<ReadonlySet<ProjectPermission> | null> {
   const [row] = await db
     .select({ memberRolePermissions: memberPermissionsSql(roles.permissions, projectMembers.projectId, projectMembers.userId) })
@@ -154,7 +168,7 @@ export async function projectPermissionsFor(
       and(eq(projectMembers.projectId, projects.id), eq(projectMembers.userId, user.id)),
     )
     .leftJoin(roles, eq(roles.id, projectMembers.roleId))
-    .where(eq(projects.id, projectId));
+    .where(and(eq(projects.id, projectId), opts.includeArchived ? undefined : isNull(projects.archivedAt)));
   if (!row) return null;
   return effectiveProjectPermissions(new Set(user.instancePermissions), row.memberRolePermissions);
 }
@@ -173,7 +187,57 @@ export const projectPermissionsOfUser: (
 ) => Promise<ReadonlySet<ProjectPermission> | null> = notificationsProjectPermissionsOfUser;
 
 /**
- * I progetti in cui `user` ha `permission`: `"all"` per un full admin,
+ * Area 9, F6 (D-8, L-1 = a): l'insieme dei progetti di un elenco. Un full
+ * admin non riceve più `"all"` (che non filtrava niente) ma `{ all: true,
+ * archived }`: tutti TRANNE gli archiviati. Il tipo diverso è voluto: ogni
+ * chiamante che controllava `"all"` ha dovuto decidere cosa fare degli
+ * archiviati. Si traduce in SQL con {@link inProjects} e in JS con
+ * {@link scopeIncludes}.
+ */
+export interface AllOpenProjects {
+  readonly all: true;
+  readonly archived: readonly string[];
+}
+export type ProjectScope = AllOpenProjects | readonly string[];
+
+/** `scope` è «tutti i progetti aperti» (un full admin). */
+export function isAllProjects(scope: ProjectScope): scope is AllOpenProjects {
+  return !Array.isArray(scope);
+}
+
+/** `projectId` è nell'insieme (mai un archiviato). */
+export function scopeIncludes(scope: ProjectScope, projectId: string): boolean {
+  return isAllProjects(scope) ? !scope.archived.includes(projectId) : scope.includes(projectId);
+}
+
+/**
+ * L'insieme come elenco di id: per un full admin tutti i progetti APERTI
+ * (letti adesso), altrimenti i suoi. Per chi deve scorrerli uno per uno.
+ */
+export async function scopeProjectIds(db: Pick<Db, "select">, scope: ProjectScope, opts: { orderByName?: boolean } = {}): Promise<string[]> {
+  if (!isAllProjects(scope)) return [...scope];
+  const q = db.select({ id: projects.id }).from(projects).where(isNull(projects.archivedAt));
+  return (await (opts.orderByName ? q.orderBy(projects.name) : q)).map((r) => r.id);
+}
+
+/**
+ * Per le funzioni che accettano ancora `"all" | string[]` (in un pacchetto
+ * condiviso col worker, o un'API interna larga): `"all"` SOLO se non c'è
+ * nessun archiviato da togliere, altrimenti l'elenco dei progetti aperti.
+ */
+export async function legacyScope(db: Pick<Db, "select">, scope: ProjectScope): Promise<"all" | string[]> {
+  if (isAllProjects(scope) && scope.archived.length === 0) return "all";
+  return scopeProjectIds(db, scope);
+}
+
+/** Gli archiviati, per l'insieme di un full admin. */
+async function allOpenProjects(db: Pick<Db, "select">): Promise<AllOpenProjects> {
+  const rows = await db.select({ id: projects.id }).from(projects).where(isNotNull(projects.archivedAt));
+  return { all: true, archived: rows.map((r) => r.id) };
+}
+
+/**
+ * I progetti in cui `user` ha `permission`: tutti gli aperti per un full admin,
  * altrimenti quelli in cui il ruolo della sua appartenenza lo contiene. Da
  * usare come filtro degli elenchi che dipendono da un permesso (es. i ticket
  * altrui con `tickets.view_all`).
@@ -182,12 +246,13 @@ export async function projectIdsWithPermission(
   db: Db,
   user: Pick<SessionUser, "id" | "instancePermissions">,
   permission: ProjectPermission,
-): Promise<"all" | string[]> {
-  if (user.instancePermissions.has("instance.full_admin")) return "all";
+): Promise<ProjectScope> {
+  if (user.instancePermissions.has("instance.full_admin")) return allOpenProjects(db);
   const rows = await db
     .select({ projectId: projectMembers.projectId })
     .from(projectMembers)
     .innerJoin(roles, eq(roles.id, projectMembers.roleId))
+    .innerJoin(projects, and(eq(projects.id, projectMembers.projectId), isNull(projects.archivedAt)))
     .where(
       and(
         eq(projectMembers.userId, user.id),
@@ -238,18 +303,20 @@ export async function can(
 }
 
 /**
- * I progetti che `user` vede: `"all"` per un full admin (che vede anche i
- * progetti creati dopo, senza esserne membro), altrimenti quelli di cui è
- * membro. Da usare come filtro degli elenchi.
+ * I progetti che `user` vede: tutti gli aperti per un full admin (che vede
+ * anche i progetti creati dopo, senza esserne membro), altrimenti quelli
+ * aperti di cui è membro. Mai un archiviato (F6). Da usare come filtro degli
+ * elenchi.
  */
 export async function visibleProjectIds(
   db: Db,
   user: Pick<SessionUser, "id" | "instancePermissions">,
-): Promise<"all" | string[]> {
-  if (user.instancePermissions.has("instance.full_admin")) return "all";
+): Promise<ProjectScope> {
+  if (user.instancePermissions.has("instance.full_admin")) return allOpenProjects(db);
   const rows = await db
     .select({ projectId: projectMembers.projectId })
     .from(projectMembers)
+    .innerJoin(projects, and(eq(projects.id, projectMembers.projectId), isNull(projects.archivedAt)))
     .where(eq(projectMembers.userId, user.id));
   return rows.map((r) => r.projectId);
 }
@@ -262,10 +329,14 @@ export async function visibleProjectIds(
 export async function projectPermissionsMap(
   db: Db,
   user: Pick<SessionUser, "id" | "instancePermissions">,
+  opts: { includeArchived?: boolean } = {},
 ): Promise<Record<string, ProjectPermission[]>> {
   const instance = new Set(user.instancePermissions);
+  // Mai un archiviato (F6): `/api/auth/me` non lo nomina. `includeArchived`
+  // solo per chi lo legge di proposito (il registro delle modifiche).
+  const open = opts.includeArchived ? undefined : isNull(projects.archivedAt);
   const rows = instance.has("instance.full_admin")
-    ? (await db.select({ projectId: projects.id }).from(projects)).map((r) => ({
+    ? (await db.select({ projectId: projects.id }).from(projects).where(open)).map((r) => ({
         projectId: r.projectId,
         permissions: [] as string[],
       }))
@@ -276,6 +347,7 @@ export async function projectPermissionsMap(
         })
         .from(projectMembers)
         .innerJoin(roles, eq(roles.id, projectMembers.roleId))
+        .innerJoin(projects, and(eq(projects.id, projectMembers.projectId), open))
         .where(eq(projectMembers.userId, user.id));
   const map: Record<string, ProjectPermission[]> = {};
   for (const row of rows) {
@@ -288,17 +360,33 @@ export async function projectPermissionsMap(
 /**
  * Il filtro di un elenco su un insieme di progetti, come condizione SQL da
  * mettere nella WHERE (mai a valle in JS su una pagina già tagliata):
- * `undefined` per `"all"` (nessun filtro), `false` per un insieme vuoto (non si
- * vede niente). `ids` è quello di {@link visibleProjectIds} o di
+ * per tutti gli aperti (un full admin) solo gli archiviati fuori (`undefined`
+ * se non ce ne sono), `false` per un insieme vuoto (non si vede niente).
+ * `ids` è quello di {@link visibleProjectIds} o di
  * {@link projectIdsWithPermission}.
  */
 export function inProjects(
   column: AnyColumn | SQL,
-  ids: "all" | readonly string[],
+  ids: ProjectScope,
 ): SQL | undefined {
-  if (ids === "all") return undefined;
+  // Tutti gli aperti (un full admin): fuori gli archiviati, e restano le
+  // righe senza progetto (voci d'istanza, automazioni generali), come prima.
+  if (isAllProjects(ids)) {
+    if (ids.archived.length === 0) return undefined;
+    return sql`(${column} IS NULL OR ${column} NOT IN (${sql.join(ids.archived.map((id) => sql`${id}`), sql`, `)}))`;
+  }
   if (ids.length === 0) return sql`false`;
   return inArray(sql`${column}`, [...ids]);
+}
+
+/**
+ * Come {@link inProjects}, ma una riga SENZA progetto non passa mai, nemmeno
+ * per un full admin. Per le colonne dove il null vuol dire «di nessun
+ * progetto» e non «d'istanza»: il progetto di un repository (null = STACCATO,
+ * area 9, F6), che nessuna lettura di progetto deve trovare.
+ */
+export function inProjectsStrict(column: AnyColumn | SQL, ids: ProjectScope): SQL {
+  return and(sql`${column} IS NOT NULL`, inProjects(column, ids))!;
 }
 
 /**
@@ -537,8 +625,8 @@ export async function recordDesktopReauthUseOnResponse(request: FastifyRequest, 
 }
 
 export type ProjectAccessResult =
-  | { ok: true; projectId: string; permissions: ReadonlySet<ProjectPermission> }
-  | { ok: false; error: "not_found" | "forbidden" };
+  | { ok: true; projectId: string; permissions: ReadonlySet<ProjectPermission>; archived: boolean }
+  | { ok: false; error: "not_found" | "forbidden" | "archived" };
 
 /**
  * La regola di un `RouteAccess` di progetto, senza risposta HTTP: progetto
@@ -555,15 +643,29 @@ export async function evaluateProjectAccess(
   access: Extract<RouteAccess, { kind: "project" }>,
 ): Promise<ProjectAccessResult> {
   const projectId = await access.project(request, db);
-  const permissions = projectId ? await projectPermissionsFor(db, user, projectId) : null;
-  if (!projectId || !permissions) return { ok: false, error: "not_found" };
+  if (!projectId) return { ok: false, error: "not_found" };
+  let permissions = await projectPermissionsFor(db, user, projectId);
+  let archived = false;
+  if (!permissions) {
+    // Area 9, F6 (D-8): invisibile perché ARCHIVIATO? Lo si chiede solo qui,
+    // e chi non lo vedrebbe nemmeno aperto resta a 404.
+    const asArchived = await projectPermissionsFor(db, user, projectId, { includeArchived: true });
+    if (!asArchived) return { ok: false, error: "not_found" };
+    if (!request.routeOptions?.config?.archived) {
+      // Una lettura non dichiarata: come uno che non c'è. Una scrittura:
+      // chi lo vedrebbe sa perché non si può (409), e niente cambia.
+      return request.method === "GET" || request.method === "HEAD" ? { ok: false, error: "not_found" } : { ok: false, error: "archived" };
+    }
+    permissions = asArchived;
+    archived = true;
+  }
   if (access.resource && !(await access.resource(request, db, user, permissions))) {
     return { ok: false, error: "not_found" };
   }
   if (access.permission !== "member" && !permissions.has(access.permission)) {
     return { ok: false, error: "forbidden" };
   }
-  return { ok: true, projectId, permissions };
+  return { ok: true, projectId, permissions, archived };
 }
 
 async function applyProjectAccess(
@@ -576,7 +678,9 @@ async function applyProjectAccess(
   if (!result.ok) {
     await (result.error === "not_found"
       ? apiError(reply, 404, "not_found", "Not found")
-      : apiError(reply, 403, "forbidden", "Missing permission"));
+      : result.error === "archived"
+        ? apiError(reply, 409, "archived", "The project is archived: reopen it first")
+        : apiError(reply, 403, "forbidden", "Missing permission"));
     return;
   }
   request.access = { projectId: result.projectId, permissions: result.permissions };

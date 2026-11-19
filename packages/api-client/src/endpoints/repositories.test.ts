@@ -101,3 +101,28 @@ describe("area 8, F1: l'elenco dei repository di un progetto", () => {
     expect(String(fetchImpl.mock.calls.at(-1)![0])).toBe("/api/repositories");
   });
 });
+
+describe("area 9, F6: i repository senza progetto", () => {
+  function clientWith(body: unknown, status = 200) {
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async () =>
+      status === 204 ? new Response(null, { status }) : new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }),
+    );
+    return { client: createStubwiseClient({ baseUrl: "", getAuthHeader: () => null, fetch: fetchImpl }), fetchImpl };
+  }
+
+  it("detached parsa le righe coi default; link e deleteDetached: verbi, path e corpo", async () => {
+    const row = { id: "50000000-0000-4000-8000-000000000001", name: "sito", provider: "github" };
+    const list = clientWith([row]);
+    expect(await list.client.repositories.detached()).toEqual([
+      { ...row, fullName: null, repoUrl: null, gitAccountName: null, gitAccountProvider: null, detachedAt: null, formerProject: null, canDelete: false, linkTargets: [] },
+    ]);
+    expect(String(list.fetchImpl.mock.calls.at(-1)![0])).toBe("/api/repositories/detached");
+    const { client, fetchImpl } = clientWith(null, 204);
+    await client.repositories.link("r/1", "p1");
+    let [url, init] = fetchImpl.mock.calls.at(-1)!;
+    expect([String(url), init?.method, JSON.parse(String(init?.body))]).toEqual(["/api/repositories/r%2F1/link", "POST", { projectId: "p1" }]);
+    await client.repositories.deleteDetached("r");
+    [url, init] = fetchImpl.mock.calls.at(-1)!;
+    expect([String(url), init?.method]).toEqual(["/api/repositories/r", "DELETE"]);
+  });
+});

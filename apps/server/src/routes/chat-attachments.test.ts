@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { chatChannels, chatMessageAttachments, chatMessages } from "@stubwise/db";
+import { chatChannels, chatMessageAttachments, chatMessages, driveFiles, projects, users } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { pruneChatUploads } from "../chat/attachments.js";
@@ -31,6 +31,7 @@ function fakeStorage() {
 let t: TestDb;
 let app: ReturnType<typeof buildApp>;
 let projectId: string;
+let adminCookie: string;
 let storage: ReturnType<typeof fakeStorage>;
 let active: ObjectStorage | null;
 type U = Awaited<ReturnType<typeof createUserWithSession>>;
@@ -48,7 +49,7 @@ beforeAll(async () => {
     encryptionKey: randomBytes(32).toString("base64"),
     storageFactory: async () => active,
   });
-  await seedUsers(app);
+  ({ adminCookie } = await seedUsers(app));
   ({ projectId } = await seedRepository(t.db));
   lead = await createUserWithSession(app, "lead-at@example.com");
   dev = await createUserWithSession(app, "dev-at@example.com");
@@ -283,9 +284,16 @@ describe("review della fetta 4 (11 nov 2026)", () => {
       .where(and(eq(chatChannels.projectId, other), eq(chatChannels.isGeneral, true)));
     const a = (await upload(lead, g!.id, { filename: "progetto.pdf", contentType: "application/pdf" })).json() as Att;
     const [row] = await t.db.select().from(chatMessageAttachments).where(eq(chatMessageAttachments.id, a.id));
-    const res = await as(lead, "DELETE", `/api/projects/${other}`);
+    const driveKey = `drive/${other}/${randomBytes(4).toString("hex")}/nota.pdf`;
+    const [lead0] = await t.db.select({ id: users.id }).from(users).limit(1);
+    await t.db.insert(driveFiles).values({ projectId: other, number: 1, name: "nota.pdf", mime: "application/pdf", type: "pdf", sizeBytes: 1, storageKey: driveKey, addedBy: lead0!.id, contentStatus: "ready", contentOcr: "none" });
+    // Area 9, F6: lo elimina un full admin, da archiviato, col codice.
+    const [code] = await t.db.update(projects).set({ archivedAt: new Date() }).where(eq(projects.id, other)).returning({ code: projects.code });
+    const res = await app.inject({ method: "DELETE", url: `/api/projects/${other}`, headers: { cookie: adminCookie }, payload: { confirmCode: code!.code } });
     expect(res.statusCode, res.body).toBe(204);
     expect(storage.deleteObject).toHaveBeenCalledWith(row!.storageKey);
+    // Area 9, F6 (review): anche il file caricato nel Drive del progetto.
+    expect(storage.deleteObject).toHaveBeenCalledWith(driveKey);
   });
 
   it("3. l'accesso si controlla PRIMA di leggere il file: chi non scrive riceve 403 anche con un file troppo grande", async () => {

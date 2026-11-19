@@ -1,7 +1,7 @@
 import { backlogItems, chatMessageCitations, docPageCodes, docPages, driveFiles, driveOpens, projects, repositories, tickets, users, type Db } from "@stubwise/db";
 import type { ChatCitationKind, ChatCitationRef, ChatCitationView } from "@stubwise/shared";
 import { and, eq, inArray, isNull, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
-import { projectIdsWithPermission, visibleProjectIds } from "../auth/access.js";
+import { projectIdsWithPermission, visibleProjectIds, isAllProjects, inProjects, inProjectsStrict } from "../auth/access.js";
 import { personName } from "../services/people.js";
 import { requestVisibility } from "../services/project-requests.js";
 import { visibleTasksCondition } from "../services/task-view.js";
@@ -104,7 +104,7 @@ export async function citeablesFor(
   const visible =
     ids("request").length > 0 || ids("project").length > 0 || ids("drive").length > 0 ? await visibleProjectIds(db, viewer) : [];
   const inVisible = (column: typeof backlogItems.projectId | typeof projects.id | typeof driveFiles.projectId): SQL | undefined =>
-    visible === "all" ? undefined : visible.length === 0 ? sql`false` : inArray(column, visible);
+    inProjects(column, visible);
 
   const requestIds = ids("request");
   if (requestIds.length > 0) {
@@ -173,7 +173,7 @@ export async function citeablesFor(
   const docIds = ids("doc");
   if (docIds.length > 0) {
     const readable = await projectIdsWithPermission(db, viewer, "docs.view");
-    if (readable === "all" || readable.length > 0) {
+    if (isAllProjects(readable) || readable.length > 0) {
       const byPage = await db
         .select({ pageId: docPages.id, codeId: docPageCodes.id })
         .from(docPages)
@@ -205,7 +205,7 @@ export async function citeablesFor(
             or(eq(docPages.generationId, repositories.currentDocGenerationId), isNull(docPages.generationId)),
           ),
         )
-        .where(and(inArray(docPageCodes.id, codeIds), readable === "all" ? undefined : inArray(docPageCodes.projectId, readable)));
+        .where(and(inArray(docPageCodes.id, codeIds), inProjects(docPageCodes.projectId, readable)));
       // Una coppia con una generata e una manuale: vince la generata, come la rotta della pagina.
       const best = new Map<string, (typeof rows)[number]>();
       for (const r of rows) if (!best.has(r.codeId) || r.generated) best.set(r.codeId, r);
@@ -235,10 +235,10 @@ export async function citeablesFor(
 export async function hasVisibleCitationSql(db: Db, viewer: ChatViewer, messageId: AnyColumn): Promise<SQL> {
   const visible = await visibleProjectIds(db, viewer);
   const inVisible = (column: AnyColumn): SQL =>
-    visible === "all" ? sql`true` : visible.length === 0 ? sql`false` : inArray(column, visible);
+    (inProjects(column, visible) ?? sql`true`);
   const readable = await projectIdsWithPermission(db, viewer, "docs.view");
   const inReadable: SQL =
-    readable === "all" ? sql`true` : readable.length === 0 ? sql`false` : inArray(repositories.projectId, readable);
+    inProjectsStrict(repositories.projectId, readable);
   const tasks = (await visibleTasksCondition(db, viewer)) ?? sql`true`;
   const requests = (await requestVisibility(db, viewer)) ?? sql`true`;
   return sql`exists (

@@ -1,7 +1,7 @@
-import { projects, releaseCiRuns, releases, type Db } from "@stubwise/db";
+import { releaseCiRuns, releases, type Db } from "@stubwise/db";
 import type { MyReleases, ReleaseRow } from "@stubwise/shared";
 import { and, eq, inArray } from "drizzle-orm";
-import { projectIdsWithPermission } from "../auth/access.js";
+import { isAllProjects, projectIdsWithPermission, scopeProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { listOpenPulls } from "./pulls.js";
 import { listProjectReleases } from "./releases.js";
@@ -11,14 +11,13 @@ type Viewer = Pick<SessionUser, "id" | "instancePermissions">;
 /** I progetti in cui chi guarda ha `release.merge` (tutti per un full admin). */
 async function mergeProjects(db: Db, viewer: Viewer): Promise<string[]> {
   const ids = await projectIdsWithPermission(db, viewer, "release.merge");
-  if (ids !== "all") return ids;
-  return (await db.select({ id: projects.id }).from(projects)).map((p) => p.id);
+  return scopeProjectIds(db, ids);
 }
 
 /** Chi vede il blocco «Rilasci» della Home: `release.merge` in qualche progetto. */
 export async function seesReleasesBlock(db: Db, viewer: Viewer): Promise<boolean> {
   const ids = await projectIdsWithPermission(db, viewer, "release.merge");
-  return ids === "all" || ids.length > 0;
+  return isAllProjects(ids) || ids.length > 0;
 }
 
 /**

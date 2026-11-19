@@ -20,6 +20,7 @@ import {
   servers,
   users,
   type Db,
+  projects,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
@@ -1485,6 +1486,19 @@ describe("unreadCount", () => {
     expect(await unreadCount(db, user.id)).toBe(2);
     // Il conteggio non riapre nulla: la scrittura è compito di `listInbox`.
     expect((await readNotification(scaduta))?.status).toBe("snoozed");
+  });
+
+  it("area 9, F6: le card di un progetto ARCHIVIATO non si contano né si elencano, e tornano riaprendolo", async () => {
+    const user = await seedUser("admin");
+    const { projectId: other } = await seedRepository(db);
+    await seedNotification({ userId: user.id, kind: "job.plan_review", event: planReviewEvent(), projectId: other });
+    await seedNotification({ userId: user.id, kind: "job.plan_review", event: planReviewEvent(), projectId: other });
+    expect(await unreadCount(db, user.id)).toBe(2);
+    await db.update(projects).set({ archivedAt: new Date() }).where(eq(projects.id, other));
+    expect(await unreadCount(db, user.id)).toBe(0);
+    expect((await listInbox(db, { userId: user.id, lang: "it" })).items).toEqual([]);
+    await db.update(projects).set({ archivedAt: null }).where(eq(projects.id, other));
+    expect(await unreadCount(db, user.id)).toBe(2);
   });
 
   it("una notifica già letta resta nel conteggio (è 'da smaltire', non 'non letta')", async () => {

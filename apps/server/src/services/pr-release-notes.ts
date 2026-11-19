@@ -28,12 +28,12 @@ type ProviderFor = (kind: GitProviderKind) => Pick<GitProvider, "getPullRequestC
 
 async function scopeOf(db: Db, viewer: Viewer, repositoryId: string, prNumber: number) {
   const [repo] = await db
-    .select({ repository: repositories, account: gitAccounts, projectCode: projects.code })
+    .select({ repository: repositories, account: gitAccounts, projectId: projects.id, projectCode: projects.code })
     .from(repositories)
     .innerJoin(gitAccounts, eq(gitAccounts.id, repositories.gitAccountId))
     .innerJoin(projects, eq(projects.id, repositories.projectId))
     .where(eq(repositories.id, repositoryId));
-  const perms = repo ? await projectPermissionsFor(db, viewer, repo.repository.projectId) : null;
+  const perms = repo ? await projectPermissionsFor(db, viewer, repo.projectId) : null;
   if (!repo || !perms) throw new ReleaseError(404, "not_found", "Not found");
   // La PR deve essere nota a Stubwise: una riga di un fix o una review.
   const [link] = await db
@@ -84,7 +84,7 @@ export async function getPrReleaseNotes(
     ? await db
         .select({ number: tickets.number, title: tickets.title })
         .from(tickets)
-        .where(and(eq(tickets.projectId, scope.repository.projectId), inArray(tickets.number, numbers)))
+        .where(and(eq(tickets.projectId, scope.projectId), inArray(tickets.number, numbers)))
     : [];
   const draft = releaseNotesDraft({
     ownTaskCode: scope.ownTaskCode,

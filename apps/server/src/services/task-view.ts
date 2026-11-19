@@ -35,6 +35,7 @@ import { supportCodesForTickets } from "./support-links.js";
 import { and, asc, desc, eq, gte, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import {
   inProjects,
+  isAllProjects,
   projectIdsWithPermission,
   projectPermissionsMap,
   visibleProjectIds,
@@ -66,9 +67,10 @@ export async function visibleTasksCondition(db: Db, viewer: TaskViewer): Promise
   const visible = inProjects(tickets.projectId, await visibleProjectIds(db, viewer));
   if (visible) conditions.push(visible);
   const viewAll = await projectIdsWithPermission(db, viewer, "tickets.view_all");
-  if (viewAll !== "all") {
+  // Un full admin: ovunque (gli archiviati li toglie già la visibilità sopra).
+  if (!isAllProjects(viewAll)) {
     const own = eq(tickets.requestedByUserId, viewer.id);
-    conditions.push(viewAll.length > 0 ? or(inArray(tickets.projectId, viewAll), own)! : own);
+    conditions.push(viewAll.length > 0 ? or(inArray(tickets.projectId, [...viewAll]), own)! : own);
   }
   return conditions.length > 0 ? and(...conditions) : undefined;
 }

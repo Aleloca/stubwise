@@ -14,6 +14,7 @@ import {
   projects,
   tickets,
   type Db,
+  projectNotArchived,
 } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
 import {
@@ -945,6 +946,8 @@ async function loadContext(
   const instanceProjects = await db
     .select({ id: projects.id, name: projects.name, description: projects.description })
     .from(projects)
+    // Area 9, F6: una mail non si attribuisce a un progetto archiviato.
+    .where(projectNotArchived(sql`${projects.id}`))
     .orderBy(asc(projects.createdAt));
   const byId = new Map(instanceProjects.map((p) => [p.id, p]));
   const matched = derivedAllowed.filter((id, i) => byId.has(id) && derivedAllowed.indexOf(id) === i);

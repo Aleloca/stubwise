@@ -64,6 +64,8 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await testDb.db.delete(projects);
+  // F6 (0193): eliminare il progetto STACCA i repository, che tengono l'account.
+  await testDb.db.delete(repositories);
   await testDb.db.delete(gitAccounts);
   await testDb.db.delete(aiProviders);
 });

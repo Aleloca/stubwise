@@ -130,6 +130,46 @@ describe("la coda di un progetto (area 9, F4)", () => {
   });
 });
 
+describe("archivia e riapri (area 9, F6)", () => {
+  it("archivePreview parsa l'anteprima (un kind ignoto è __unknown__, i campi mancanti col default); archive e reopen: verbi e path", async () => {
+    const preview = clientWith({ openAutomationRuns: 2, busy: [{ kind: "claude_session", code: "AUD-12", title: "Login" }, { kind: "futuro" }] });
+    const p = await preview.client.projects.archivePreview("p/1");
+    expect(last(preview.fetchImpl)).toMatchObject({ method: "GET", url: "/api/projects/p%2F1/archive-preview" });
+    expect(p.openAutomationRuns).toBe(2);
+    expect(p.busy[0]).toEqual({ kind: "claude_session", code: "AUD-12", title: "Login", waiting: false, repository: null, paused: false });
+    expect(p.busy[1]!.kind).toBe("__unknown__");
+    const { client, fetchImpl } = clientWith(null, 204);
+    await client.projects.archive("p");
+    expect(last(fetchImpl)).toMatchObject({ method: "POST", url: "/api/projects/p/archive" });
+    await client.projects.reopen("p");
+    expect(last(fetchImpl)).toMatchObject({ method: "POST", url: "/api/projects/p/reopen" });
+  });
+
+  it("deletionPreview parsa l'anteprima; delete manda il codice nel corpo", async () => {
+    const preview = clientWith({ counts: { tasks: 3 } });
+    const d = await preview.client.projects.deletionPreview("p/1");
+    expect(last(preview.fetchImpl)).toMatchObject({ method: "GET", url: "/api/projects/p%2F1/deletion-preview" });
+    expect(d).toMatchObject({ orphanServers: [], detachedRepositories: [], counts: { tasks: 3, releases: 0 } });
+    const { client, fetchImpl } = clientWith(null, 204);
+    await client.projects.delete("p", "AUD");
+    expect(last(fetchImpl)).toMatchObject({ method: "DELETE", url: "/api/projects/p" });
+    expect(last(fetchImpl).body).toEqual({ confirmCode: "AUD" });
+  });
+
+  it("archived e archivedView: path e default (un server che non manda i campi facoltativi)", async () => {
+    const row = { projectId: "50000000-0000-4000-8000-000000000001", code: "AUD", name: "Audin", archivedAt: "2026-11-19T10:00:00.000Z" };
+    const list = clientWith([row]);
+    expect(await list.client.projects.archived()).toEqual([{ ...row, clientName: null, archivedBy: null, canReopen: false, canDelete: false }]);
+    expect(last(list.fetchImpl)).toMatchObject({ method: "GET", url: "/api/projects/archived" });
+    const view = clientWith({ ...row, counts: {}, switchesOnReopen: {}, pulseEveryDays: 7 });
+    const v = await view.client.projects.archivedView("p/1");
+    expect(last(view.fetchImpl)).toMatchObject({ method: "GET", url: "/api/projects/p%2F1/archived-view" });
+    expect(v).toMatchObject({ description: "", members: [], repositories: [], pulseEveryDays: 7 });
+    expect(v.counts).toEqual({ tasks: 0, requests: 0, docPages: 0, conversations: 0, channels: 0, driveFiles: 0, automations: 0, environments: 0, envFiles: 0, releases: 0 });
+    expect(v.switchesOnReopen).toEqual({ docsNightly: false, dailyReport: false, backlogDiscovery: false, pulse: false, weeklyBrief: false });
+  });
+});
+
 describe("usage.summary (area 9, F4)", () => {
   it("i tre intervalli diventano i parametri; senza i facoltativi: cache 0, figli vuoti, codice null", async () => {
     const { client, fetchImpl } = clientWith({ totals: { costUsd: 1, inputTokens: 2, outputTokens: 3, runs: 1 }, byDay: [], rows: [{ key: "other", label: "other", costUsd: 1, tokens: 5, runs: 1 }] });

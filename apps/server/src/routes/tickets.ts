@@ -28,6 +28,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import {
   inProjects,
+  isAllProjects,
   projectIdsWithPermission,
   routePermissions,
   visibleProjectIds,
@@ -694,9 +695,10 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       // chi guarda. Nella WHERE, prima del conteggio: anche `total` lo
       // rispetta.
       const viewAll = await projectIdsWithPermission(app.db, request.user!, "tickets.view_all");
-      if (viewAll !== "all") {
+      // Un full admin: ovunque (gli archiviati li toglie già la visibilità sopra).
+      if (!isAllProjects(viewAll)) {
         const own = eq(tickets.requestedByUserId, request.user!.id);
-        conditions.push(viewAll.length > 0 ? or(inArray(tickets.projectId, viewAll), own)! : own);
+        conditions.push(viewAll.length > 0 ? or(inArray(tickets.projectId, [...viewAll]), own)! : own);
       }
       // Ricerca full-text: matcha titolo+body (colonna generata searchTsv) OPPURE
       // il corpo di un commento del ticket. websearch_to_tsquery tollera input

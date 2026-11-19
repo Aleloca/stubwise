@@ -567,7 +567,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
 
   const [ticket] = await db.select().from(tickets).where(eq(tickets.id, job.ticketId));
   const [row] = await db
-    .select({ repository: repositories, account: gitAccounts, projectName: projects.name })
+    .select({ repository: repositories, account: gitAccounts, projectId: projects.id, projectName: projects.name })
     .from(repositories)
     .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
     .innerJoin(projects, eq(projects.id, repositories.projectId))
@@ -1587,13 +1587,13 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
           .where(and(eq(prReviews.repositoryId, correction!.repositoryId), eq(prReviews.prNumber, correction!.prNumber)))
           .orderBy(desc(prReviews.createdAt))
           .limit(1);
-        const [proj] = await db.select({ code: projects.code }).from(projects).where(eq(projects.id, row!.repository.projectId));
+        const [proj] = await db.select({ code: projects.code }).from(projects).where(eq(projects.id, row!.projectId));
         const base = (deps.publicUrl ?? "").replace(/\/+$/, "");
         await (deps.publish ?? publishNotification)(
           db,
           {
             kind: "pr.corrected",
-            projectId: row!.repository.projectId,
+            projectId: row!.projectId,
             repositoryName: row!.repository.name,
             prNumber: correction!.prNumber,
             prUrl,
@@ -1601,8 +1601,8 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
             url: `${base}/app/#/p/${proj?.code ?? ""}/releases?pr=${correction!.repositoryId}%23${correction!.prNumber}`,
           },
           {
-            projectId: row!.repository.projectId,
-            mandatory: await prAuthorMandatory(db, { projectId: row!.repository.projectId, ticketNumber: ticket!.number, branch, headAuthorEmail: prAuthorEmail }),
+            projectId: row!.projectId,
+            mandatory: await prAuthorMandatory(db, { projectId: row!.projectId, ticketNumber: ticket!.number, branch, headAuthorEmail: prAuthorEmail }),
           },
         );
       } catch (err) {

@@ -22,7 +22,7 @@ import {
   type PatchClaudeConversationInput,
   type SetClaudeConversationVisibilityInput,
 } from "@stubwise/shared";
-import { visibleProjectIds } from "../auth/access.js";
+import { visibleProjectIds, scopeIncludes } from "../auth/access.js";
 import {
   canReadPublic,
   contextProjectId,
@@ -72,7 +72,7 @@ async function toView(db: Db, viewer: SessionViewer, row: ConversationRow, sessi
   if (context && !isOwner) {
     const projectId = await contextProjectId(db, row);
     const visible = projectId ? await visibleProjectIds(db, viewer) : [];
-    if (!projectId || (visible !== "all" && !visible.includes(projectId))) context = null;
+    if (!projectId || (!scopeIncludes(visible, projectId))) context = null;
   }
   // Un lettore: il titolo e l'ultima attività come li vede lui (fetta 5, review).
   const snapshot = isOwner ? null : await readerSnapshot(db, row);
@@ -549,7 +549,7 @@ export async function continueClaudeConversation(
   if (context) {
     const projectId = await contextProjectId(db, row);
     const visible = projectId ? await visibleProjectIds(db, viewer) : [];
-    if (!projectId || (visible !== "all" && !visible.includes(projectId))) context = null;
+    if (!projectId || (!scopeIncludes(visible, projectId))) context = null;
   }
   const hiddenTitle = (await readerSnapshot(db, row)).titleHidden;
   return createClaudeConversation(

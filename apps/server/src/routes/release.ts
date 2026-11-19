@@ -2,7 +2,7 @@ import { releaseQueueSchema, releaseResultSchema } from "@stubwise/shared";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { projectIdsWithPermission } from "../auth/access.js";
+import { legacyScope, projectIdsWithPermission } from "../auth/access.js";
 import { fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
 import { listReleaseQueue, releasePullRequest } from "../services/release.js";
@@ -80,7 +80,7 @@ export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request) => {
       const projectIds = await projectIdsWithPermission(app.db, request.user!, "release.merge");
-      return { items: await listReleaseQueue(app.db, app.encryptionKey, projectIds) };
+      return { items: await listReleaseQueue(app.db, app.encryptionKey, await legacyScope(app.db, projectIds)) };
     },
   );
 

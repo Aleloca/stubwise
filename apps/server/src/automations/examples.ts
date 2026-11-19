@@ -44,11 +44,10 @@ const MAX_EXAMPLES = 10;
  * generale, F4) i progetti che chi prova vede — una generale ascolta gli
  * eventi di ogni progetto che il proprietario vede.
  */
-type ExampleScope = { projectId: string } | { visible: "all" | ReadonlySet<string> };
+type ExampleScope = { projectId: string } | { visible: ReadonlySet<string> };
 
 function scopeWhere(column: typeof tickets.projectId | typeof backlogItems.projectId | typeof milestones.projectId, scope: ExampleScope) {
   if ("projectId" in scope) return eq(column, scope.projectId);
-  if (scope.visible === "all") return undefined;
   return scope.visible.size > 0 ? inArray(column, [...scope.visible]) : eq(column, "00000000-0000-0000-0000-000000000000");
 }
 

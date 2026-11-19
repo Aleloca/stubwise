@@ -9,14 +9,14 @@ import {
   type RepositoryWarning,
 } from "@stubwise/shared";
 import { getProvider } from "@stubwise/git";
-import { and, eq, inArray, ne, sql, type SQL } from "drizzle-orm";
+import { and, eq, ne, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { projectIdsWithPermission, routePermissions } from "../auth/access.js";
+import { projectIdsWithPermission, routePermissions, isAllProjects, scopeIncludes, type ProjectScope, inProjectsStrict } from "../auth/access.js";
 import { fromBody, repositoryAccess } from "../auth/project-resolvers.js";
 import { GitProviderError } from "@stubwise/git";
-import { decrypt, gitAccounts, projects, repositories } from "@stubwise/db";
+import { decrypt, gitAccounts, isAttachedRepository, projects, repositories } from "@stubwise/db";
 import {
   resolveProviderUserId,
   resolveReviewAccounts,
@@ -168,7 +168,8 @@ type ReviewResolution = ReviewAccountResolution<ReviewAccountView>;
  * revisore, mai un errore.
  */
 function toPublicRepository(
-  row: RepositoryRow,
+  // Un repository staccato (F6) non esce da queste rotte: ha sempre il progetto.
+  row: RepositoryRow & { projectId: string },
   gitAccountName: string,
   review: ReviewResolution | undefined,
   withConfig = true,
@@ -423,7 +424,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
           const [mainAccount] = await app.db.select().from(gitAccounts).where(eq(gitAccounts.id, account.id));
           const review = (await resolveReviewAccounts(app.db, [created.id])).get(created.id);
           return await reply.code(201).header("cache-control", "no-store").send({
-            ...toPublicRepository(created, account.name, review),
+            ...toPublicRepository({ ...created, projectId }, account.name, review),
             webhookSecret: created.webhookSecret,
             warnings: [
               ...(await mainIdentityWarnings(app, mainAccount ?? account)),
@@ -459,19 +460,25 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         projectIdsWithPermission(app.db, request.user!, "repos.view"),
         projectIdsWithPermission(app.db, request.user!, "docs.view"),
       ]);
-      const readable =
-        withRepos === "all" || withDocs === "all" ? "all" : [...new Set([...withRepos, ...withDocs])];
-      if (readable !== "all" && readable.length === 0) return [];
+      const readable: ProjectScope = isAllProjects(withRepos)
+        ? withRepos
+        : isAllProjects(withDocs)
+          ? withDocs
+          : [...new Set([...withRepos, ...withDocs])];
+      if (!isAllProjects(readable) && readable.length === 0) return [];
       const configFor = (repoProjectId: string) =>
-        withRepos === "all" || withRepos.includes(repoProjectId);
+        scopeIncludes(withRepos, repoProjectId);
       const rows = await app.db
-        .select({ repository: repositories, gitAccountName: gitAccounts.name })
+        // Dal progetto unito: un repository staccato (F6) non è di nessun
+        // progetto, e lo elenca solo `/detached`, nemmeno al full admin.
+        .select({ repository: repositories, gitAccountName: gitAccounts.name, projectId: projects.id })
         .from(repositories)
         .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
+        .innerJoin(projects, eq(projects.id, repositories.projectId))
         .where(
           and(
             projectId ? eq(repositories.projectId, projectId) : undefined,
-            readable === "all" ? undefined : inArray(repositories.projectId, readable),
+            inProjectsStrict(repositories.projectId, readable),
           ),
         )
         .orderBy(repositories.createdAt);
@@ -480,13 +487,8 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         app.db,
         rows.map((r) => r.repository.id),
       );
-      return rows.map((r) =>
-        toPublicRepository(
-          r.repository,
-          r.gitAccountName,
-          reviews.get(r.repository.id),
-          configFor(r.repository.projectId),
-        ),
+      return rows.map(({ repository, gitAccountName, projectId: repoProjectId }) =>
+        toPublicRepository({ ...repository, projectId: repoProjectId }, gitAccountName, reviews.get(repository.id), configFor(repoProjectId)),
       );
     },
   );
@@ -508,7 +510,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         .from(repositories)
         .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
         .where(eq(repositories.slug, request.params.slug));
-      if (!row) return apiError(reply, 404, "repository_not_found", "Repository not found");
+      if (!row || !isAttachedRepository(row.repository)) return apiError(reply, 404, "repository_not_found", "Repository not found");
       const permissions = routePermissions(request);
       const withConfig = permissions.has("repos.view");
       if (!withConfig && !permissions.has("docs.view")) {
@@ -815,7 +817,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         .from(repositories)
         .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
         .where(eq(repositories.slug, request.params.slug));
-      if (!row) return apiError(reply, 404, "repository_not_found", "Repository not found");
+      if (!row || !isAttachedRepository(row.repository)) return apiError(reply, 404, "repository_not_found", "Repository not found");
       const review = (await resolveReviewAccounts(app.db, [row.repository.id])).get(row.repository.id);
       return {
         ...toPublicRepository(row.repository, row.account.name, review),
