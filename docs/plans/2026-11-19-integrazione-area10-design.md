@@ -259,6 +259,17 @@ Ognuno nasce con quattro cose:
   con `question` da un client che non lo conosce. Golden: S1 chiede il
   reparto, e la risposta porta alla bozza.
 
+### 2.2b Deviazione: `list_departments` *(20 nov 2026, approvata da 46)*
+
+- Per «avvisa un reparto» Claude deve sapere quali reparti ci sono, e nessun
+  tool li leggeva (`list_people` dà solo gli id).
+- Un tool di lettura nuovo, `list_departments`, su `GET /api/departments`
+  (nell'allowlist del token del turno): il ponte passa solo id, nome e se è
+  il reparto di ripiego. I permessi che il reparto dà e la versione no.
+- Nato dal golden `chat-s1-automation`, insieme alla guida ai flussi del
+  contratto (`claudeAutomationGuide`, dal motore, con un esempio che il
+  motore valida).
+
 ### 2.3 La prova
 
 - **Nel renderer, non sul server**, sul modello del costruttore:
