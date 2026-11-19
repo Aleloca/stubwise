@@ -59,6 +59,28 @@ export const CHAT_TOOL_READ_ROUTES: ReadonlySet<string> = new Set([
   "/api/settings/models",
   "/api/settings/automation",
   "/api/settings/instance",
+  // Area 10, F1 (`read_automation`): un'automazione per codice, con la
+  // visibilità della rotta (404 a chi non vede il progetto). Il ponte passa al
+  // modello solo i campi in allowlist: niente destinatari né corpo delle email,
+  // niente casella, niente evento delle esecuzioni.
+  "/api/automations/:code",
+  // Area 10, F1 (`read_server`): un server del monitoraggio per codice, per chi
+  // lo vede. Il ponte toglie il `target` dei check (per i DSN è la stringa del
+  // database) e il loro `lastError`.
+  "/api/servers/by-code/:code",
+  // Area 10, F1 (`read_support_conversation`, `read_channel`): contenuto NON
+  // fidato, anche in `CHAT_TOOL_UNTRUSTED_ROUTES` del server. La conversazione
+  // con la visibilità del progetto; il canale con le regole della Chat (un
+  // privato di cui non si è membri è 404).
+  "/api/support/conversations/by-code/:code",
+  "/api/chat/channels/:id",
+  "/api/chat/channels/:id/messages",
+  // Area 10, F1 (`read_mail_thread`, `read_calendar_event`): la posta e il
+  // calendario di CHI CHIEDE — le rotte leggono con l'id dell'utente, e un
+  // admin che chiede quelli di un altro riceve 404 (`mailbox_owner`).
+  // Contenuto NON fidato: anche in `CHAT_TOOL_UNTRUSTED_ROUTES`.
+  "/api/me/mail/threads/:threadId",
+  "/api/me/calendar/events/:id",
 ]);
 
 /**

@@ -180,6 +180,29 @@ prototipo.
 | R-G5 regge per costruzione: nella build app i codici nella prosa di Claude non si collegano (solo le citazioni registrate, che il server non registra), quindi un codice che chi legge non vede non si apre | costruttore (limite che già c'era) |
 | Lo stream di chi legge si ferma al confine del seguito privato e riprende da sé al rilascio: lo fa il server (F5.2), il renderer legge e basta | orchestratrice |
 
+## Area 10, F1 — le letture dei chip (server e worker; i chip sono di 94)
+
+Piano `docs/plans/2026-11-19-integrazione-area10-f1-plan.md`. Ogni tool è una
+GET sulla rotta che la pagina usa già, col token del turno, e il ponte passa
+al modello solo i campi in ALLOWLIST.
+
+| Tool | Chip (contesto) | Rotta | Da fuori | Test |
+|---|---|---|---|---|
+| `read_automation` | `{ kind: "automation", id: "AUD-A3" }` (anche `AUT-4`) | `GET /api/automations/:code` | no | `bridge.test.ts`, `chat-tool-token.test.ts`; golden `chat-automation-read` |
+| `read_server` | `{ kind: "server", id: "SRV-12" }` | `GET /api/servers/by-code/:code` | no | come sopra; golden `chat-server-read` |
+| `read_support_conversation` | `{ kind: "support", id: "AUD-S4" }` | `GET /api/support/conversations/by-code/:code` | **sì** | come sopra; golden `chat-support-hostile` |
+| `read_channel` | `{ kind: "channel", id: "<uuid>" }` | `GET /api/chat/channels/:id` e `…/messages?limit=30` | **sì** | come sopra; golden `chat-channel-hostile` |
+| `read_mail_thread` | `{ kind: "mail", id: "<accountId>/<threadId>" }` (il tool prende `ref`) | `GET /api/me/mail/threads/:threadId?account=` | **sì** | come sopra; golden `chat-mail-hostile` |
+| `read_calendar_event` | `{ kind: "calendar_event", id: "<uuid>" }` | `GET /api/me/calendar/events/:id` | **sì** | come sopra |
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| Un tool per tipo, ognuno con la sua allowlist (D-12 = a) | orchestratrice |
+| Da fuori = rotta anche in `CHAT_TOOL_UNTRUSTED_ROUTES`: da lì ogni proposta è almeno B; il testo dentro `untrusted_content` con la nota fissa | costruttore (regola dell'area 5) |
+| Posta e calendario solo di chi chiede, anche per un full admin (`mailbox_owner`) | invariante |
+| Il chip della posta porta `<accountId>/<threadId>` in un solo `id` | 94 e 72 |
+| Le PR non hanno un tool (nessuna lettura per Claude) | costruttore |
+
 ## Rimandate
 
 | Voce | Fetta |

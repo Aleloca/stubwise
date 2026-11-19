@@ -206,6 +206,15 @@ export const CHAT_READ_TOOLS = [
   // Area 9, F7: le letture delle voci dell'area 9 (gli id che servono a proporle).
   "read_project_members",
   "read_instance_settings",
+  // Area 10, F1: le letture dei chip delle aree integrate dopo.
+  "read_automation",
+  "read_server",
+  // Contenuto NON fidato: lo scrive il cliente (supporto) o chi scrive nel canale.
+  "read_support_conversation",
+  "read_channel",
+  // Solo le caselle e il calendario di chi chiede (`mailbox_owner`): mai di un altro, neanche per un admin.
+  "read_mail_thread",
+  "read_calendar_event",
 ] as const;
 /** Area 9, F7: le sezioni di `read_instance_settings`, una rotta ciascuna (coi suoi permessi). */
 export const CHAT_INSTANCE_SECTIONS = ["providers", "git_accounts", "google_apps", "webhooks", "plugins", "models", "automation", "instance"] as const;
