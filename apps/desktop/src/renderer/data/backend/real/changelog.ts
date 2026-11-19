@@ -7,7 +7,7 @@ import type {
   ChangeObjectLink,
   ChangePage,
 } from "../../changelog/types";
-import { projectSettingsAccess } from "../../adminSections";
+import { canSeeAdminSection, projectSettingsAccess } from "../../adminSections";
 import { isIntegrated } from "../../integration";
 import { SETTING_KINDS, decodeSetting } from "../../changelog/settingValues";
 import { CLAUDE_ID } from "../../ids";
@@ -129,15 +129,17 @@ function diffOf(e: Any): ChangeDiff | null {
 
 /** Dove porta l'oggetto: solo se c'è ancora e chi guarda lo apre. */
 function linkOf(e: Any, viewer: Viewer): ChangeObjectLink | null {
-  if (e.hidden) return null;
   // F6: un progetto eliminato che ha lasciato repository senza progetto porta
-  // ad Amministrazione → Repositories, se chi guarda la apre (e se c'è).
+  // ad Amministrazione → Repositories, se chi guarda la apre (e se c'è). Anche
+  // da una voce `hidden` (come `deletedProjectLinkOf` del prototipo, review
+  // F6 M1): il link non nomina il progetto.
   if (e.type === "project.deleted")
     return Number(e.data.params?.detachedRepositories ?? 0) > 0 &&
-      can(viewer, "repos.manage") &&
+      canSeeAdminSection(viewer, "repositories") &&
       isIntegrated({ kind: "admin", name: "repositories" })
       ? { to: "admin", section: "repositories" }
       : null;
+  if (e.hidden) return null;
   if (e.objectDeleted) return null;
   // F5: una voce della 9c porta alla sezione di Settings del progetto, se chi
   // guarda la vede (permessi dal server, `projectSettingsAccess`).

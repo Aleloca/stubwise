@@ -29,6 +29,9 @@ export interface ProjectArchiveApi {
 const previewReader = readerSchema(archivePreviewSchema);
 const busyReader = readerSchema(archiveBusyErrorSchema);
 
+/** Lavoro che chi guarda non vede: un tipo ignoto, o un `busy` senza ragioni leggibili. */
+const BLIND: BusyReason = { kind: "claude_session", code: null, title: null, waiting: false };
+
 type ServerReason = {
   kind: string;
   code: string | null;
@@ -49,7 +52,7 @@ function reasonOf(r: ServerReason): BusyReason {
     return { kind: "doc_generation", repository: r.repository ?? "", paused: r.paused };
   if (r.kind === "claude_session")
     return { kind: "claude_session", code: r.code, title: r.title, waiting: r.waiting };
-  return { kind: "claude_session", code: null, title: null, waiting: false };
+  return { ...BLIND };
 }
 
 /** 404 e 403 come ogni lettura del progetto; il resto si propaga. */
@@ -87,10 +90,14 @@ export function createRealProjectArchive(api: ProjectArchiveApi) {
           if (error.code === "busy") {
             const body = busyReader.safeParse(error.details);
             const reasons = body.success ? body.data.reasons : [];
+            // Un corpo che non si legge (o senza ragioni) non è «niente da
+            // aspettare»: una ragione cieca, come un tipo ignoto (review F6, M4).
             return {
               ok: false,
               error: "busy",
-              reasons: reasons.map((r) => reasonOf(r as ServerReason)),
+              reasons: reasons.length
+                ? reasons.map((r) => reasonOf(r as ServerReason))
+                : [{ ...BLIND }],
             };
           }
           if (error.code === "already_archived")

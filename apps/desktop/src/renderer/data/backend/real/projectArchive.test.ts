@@ -292,4 +292,15 @@ describe("archiviare e riaprire un progetto dal server", () => {
       ).toEqual(want);
     }
   });
+
+  it("un 409 busy con un corpo che non si legge: una ragione cieca, non un elenco vuoto (review F6, M4)", async () => {
+    const { api } = fake({
+      archive: async () => Promise.reject(new ApiError(409, "busy", "busy", { details: "<html>" })),
+    });
+    expect(await createRealProjectArchive(api).archiveProject("p1")).toEqual({
+      ok: false,
+      error: "busy",
+      reasons: [{ kind: "claude_session", code: null, title: null, waiting: false }],
+    });
+  });
 });

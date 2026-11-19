@@ -51,9 +51,8 @@ export const admin: typeof Fake.admin = partialNamespace<typeof Fake.admin>("adm
 export const access: typeof Fake.access = partialNamespace<typeof Fake.access>("access", liveWhoCan);
 
 // Area 9, F5: Progetto → Settings → Integration e Plugins (le altre sezioni restano «in arrivo»).
-// Area 9, F6: anteprima, archiviazione e riapertura dal server; la sezione
-// Archive resta spenta finché non ci sono anche l'elenco e la vista degli
-// archiviati (da lì si riapre: senza, un progetto archiviato non torna).
+// Area 9, F6: Archive (anteprima, archiviazione, riapertura), la scheda
+// Archived, la pagina dell'archiviato e Delete, dal server.
 export const projectSettings: typeof Fake.projectSettings = partialNamespace<
   typeof Fake.projectSettings
 >("projectSettings", { ...liveIntegration, ...liveProjectPlugins, ...liveProjectArchive });

@@ -280,8 +280,10 @@ describe("il registro delle modifiche dal server (area 9, F2)", () => {
     expect(v!.objectLink).toBeNull();
   });
 
-  it("F6: project.deleted per chi non lo conosceva: «un progetto che non vedi», senza id né link", async () => {
-    // Anche a chi apre Repositories: il link direbbe che quel progetto c'era.
+  it("F6: project.deleted per chi non lo conosceva: «un progetto che non vedi», senza id; Repositories sì", async () => {
+    // Come nel prototipo (`deletedProjectLinkOf`, review F6 M1): il link ad
+    // Amministrazione → Repositories non nomina il progetto, e chi apre
+    // Repositories ci ritrova i repository rimasti.
     const { api } = fakeApi({
       viewer: async () => ({
         personId: ME,
@@ -312,7 +314,7 @@ describe("il registro delle modifiche dal server (area 9, F2)", () => {
       kind: "project.deleted",
       object: { type: "project", id: "", label: "" },
       objectLabelKey: "changelog.values.hiddenProject",
-      objectLink: null,
+      objectLink: { to: "admin", section: "repositories" },
     });
   });
 
