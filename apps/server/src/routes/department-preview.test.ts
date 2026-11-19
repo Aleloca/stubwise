@@ -111,8 +111,10 @@ describe("area 9, F8: l'anteprima della bozza di un reparto", () => {
     // b salvato e tolto dalla bozza: rientrando riporterebbe solo i permessi AGGIUNTI.
     const out = await preview({ memberIds: [a], projectPermissions: [X, Y] });
     expect(out.body.missingToAdd[b]).toEqual([Y]);
+    // Senza progetti: conta ciò che chi guarda ha in ALMENO un progetto (il prototipo, `holdingsSomewhere`).
     const empty = await preview({ memberIds: [], projectPermissions: [X, Y] });
-    expect(empty.body).toMatchObject({ reach: "anywhere", notGivable: [], missing: [] });
+    expect(empty.body).toMatchObject({ reach: "anywhere", missing: [] });
+    expect(sorted(empty.body.notGivable)).toEqual(sorted(PROJECT_PERMISSIONS.filter((p) => !leadPerms.includes(p) && !devPerms.includes(p))));
     await t.db.delete(departmentProjectPermissions).where(eq(departmentProjectPermissions.departmentId, deptId));
     await t.db.delete(departmentMembers).where(eq(departmentMembers.userId, b));
   });
@@ -125,6 +127,17 @@ describe("area 9, F8: l'anteprima della bozza di un reparto", () => {
     expect(r.body.notGivable).not.toContain(X);
     expect(r.body.missing).toEqual([]);
     await t.db.delete(departments).where(eq(departments.id, own!.id));
+  });
+
+  it("F8-4, come il prototipo: chi non ha un permesso in NESSUN progetto non lo mette in un reparto senza progetti", async () => {
+    const [role] = await t.db.insert(roles).values({ name: "Solo reparti F8p", scope: "instance", permissions: ["departments.manage"] }).returning({ id: roles.id });
+    const loneId = await person("lone-f8p@example.com");
+    await t.db.update(users).set({ instanceRoleId: role!.id }).where(eq(users.id, loneId));
+    const lone = await fullSessionCookie(app, loneId);
+    const [d] = await t.db.insert(departments).values({ name: "Vuoto F8p", colorToken: "--dept-8" }).returning();
+    const r = await preview({ memberIds: [], projectPermissions: [X] }, lone, d!.id);
+    expect(r.body).toMatchObject({ reach: "anywhere", missing: [X] });
+    expect(r.body.notGivable).toContain(X);
   });
 
   it("il full admin non ha niente di mancante; Claude non è fra i candidati", async () => {

@@ -58,6 +58,12 @@ export const departmentViewSchema = z.object({
    * reparti; per gli altri, e da un server di prima, `[]`.
    */
   projectPermissions: z.array(z.string()).default([]),
+  /**
+   * Area 9, F8 (additivo): la versione opaca di nome, colore, persone e
+   * permessi, da rimandare come `ifMatch` al `PATCH` (409 `stale` se nel
+   * frattempo è cambiato). Vuota da un server di prima.
+   */
+  version: z.string().default(""),
 });
 export type DepartmentView = z.infer<typeof departmentViewSchema>;
 

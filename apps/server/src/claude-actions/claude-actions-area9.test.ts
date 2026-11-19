@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { changeLog, claudeActionGroups, claudeProposals, issueChatToolToken, plugins, projectMemberPermissions, projectMembers, roles, users } from "@stubwise/db";
+import { PROJECT_PERMISSIONS } from "@stubwise/shared";
+import { changeLog, claudeActionGroups, claudeProposals, departmentMembers, departmentProjectPermissions, departments, issueChatToolToken, plugins, projectMemberPermissions, projectMembers, roles, users } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { createSession, SESSION_COOKIE } from "../auth/session.js";
@@ -219,6 +220,27 @@ describe("area 9, F7: i nomi della scheda dei membri, a lettura coi permessi di 
     const id = (res.json() as { proposalId: string }).proposalId;
     const cancel = await app.inject({ method: "POST", url: `/api/claude/proposals/${id}/cancel`, headers: { cookie: lead.headers.cookie }, payload: {} });
     expect(cancel.json()).toMatchObject({ actions: [{ fn: "addMember", labels: { person: null, role: expect.any(String) } }] });
+  });
+});
+
+describe("area 9, F8: addMember di Claude e i permessi del reparto di chi entra (F8-4 = a)", () => {
+  it("chi conferma non ha un permesso che il reparto della persona porterebbe nel progetto: escalation, e niente cambia", async () => {
+    const devPerms = (await t.db.select({ p: roles.permissions }).from(roles).where(eq(roles.id, developerRole)))[0]!.p;
+    const X = PROJECT_PERMISSIONS.find((x) => !devPerms.includes(x) && x !== "project.members.manage")!;
+    // Chi agisce: i permessi del Developer più la gestione dei membri, ma non X.
+    const [r] = await t.db.insert(roles).values({ name: `Dev e membri F8 ${++n}`, scope: "project", permissions: [...devPerms, "project.members.manage"] }).returning({ id: roles.id });
+    const actor = await createUserWithSession(app, `act-f8c-${++n}@example.com`);
+    await t.db.insert(projectMembers).values({ projectId, userId: actor.id, roleId: r!.id });
+    const [d] = await t.db.insert(departments).values({ name: `Reparto F8c ${n}`, colorToken: "--dept-7" }).returning();
+    await t.db.insert(departmentProjectPermissions).values({ departmentId: d!.id, permission: X });
+    const userId = await person();
+    await t.db.insert(departmentMembers).values({ departmentId: d!.id, userId });
+    const res = await propose([{ fn: "addMember", args: { projectId, userId, roleId: developerRole } }], actor);
+    expect(res.json()).toMatchObject({ status: "refused" });
+    expect(await roleOf(userId)).toBeNull();
+    // Senza il reparto, la stessa proposta passa alla scheda.
+    const plain = await person();
+    expect((await propose([{ fn: "addMember", args: { projectId, userId: plain, roleId: developerRole } }], actor)).json()).toMatchObject({ status: "awaiting_confirmation" });
   });
 });
 

@@ -5399,3 +5399,70 @@ deploy o di un rollback che la tocca.
     conversazioni restano illeggibili per il tempo del rollback;
   - il worker vecchio torna a elencare tutte le firme a tutti, senza le voci
     nuove e senza i due tool di lettura.
+
+- **«Integrazione area 9, F8: i permessi di progetto dei reparti»** *(19 nov
+  2026)*: branch `feat/area9-f8` (da `feat/integrazione-area9`), piano
+  `docs/plans/2026-11-19-integrazione-area9-f8-plan.md`.
+  - Decisioni: F8-1 e F8-3 del maintainer; F8-2, F8-4 e F8-5 = a.
+  - Un reparto dà ai suoi membri UNA lista di permessi di progetto, valida
+    in ogni progetto di cui sono GIÀ membri. Un reparto non rende membri di
+    niente.
+  - Migrazione **0196** (`department_project_permissions`, PK
+    `(department_id, permission)`, cascade col reparto).
+  - Nessuna env nuova, nessun `notification_kind` nuovo, nessun permesso
+    nuovo.
+  - Una rotta nuova, `POST /api/departments/:id/preview`.
+  - `PATCH /api/departments/:id` prende `projectPermissions` e diventa a
+    riconferma PARZIALE.
+
+  **ORDINE**: **server** (healthy, 0196 applicata), poi **worker**, poi
+  **caddy**. Il worker va ribuildato: legge `memberPermissionsSql` dal
+  `@stubwise/db` della sua immagine, e senza rebuild il suo routing delle
+  notifiche (le consegne, i bottoni Slack) non conta i permessi dei reparti.
+  Chi ha un permesso dal reparto non riceverebbe le notifiche che il server
+  gli mostra. Il worker senza lavoro dell'agente in corso, come sempre.
+
+  **Da sapere subito**:
+  - **Il calcolo è UNO**: `memberPermissionsSql` unisce i permessi dei
+    reparti. Li seguono da soli gate, `/api/auth/me`, «Chi può farlo?», il
+    conteggio dei gestori (`last_manager`) e il routing. Le fonti mostrano
+    `department` accanto a `role` e `grant`.
+  - **La riconferma** (F8-3 = a) la chiede solo una scrittura che fa
+    arrivare permessi a qualcuno: un permesso aggiunto, o una persona
+    aggiunta a un reparto che ne dà. Nome, colore, la Home e togliere no.
+  - **L'escalation**: chi agisce deve avere ogni permesso che dà in OGNI
+    progetto dove arriva, archiviati compresi (403 `escalation` con
+    `missing`). Anche **aggiungere una persona a un progetto** ora passa da
+    lì: porta i permessi dei suoi reparti, e chi agisce li deve avere in
+    quel progetto (F8-4 = a). Vale anche per `addMember` di Claude.
+  - **`last_manager`** (F8-5 = a) anche per i reparti: togliere un permesso,
+    togliere una persona, eliminare il reparto. Il 409 porta `projectId`, e
+    `projectCode` solo a chi vede il progetto.
+  - **Claude** non sta nei reparti (400 `not_a_person`) e non ne riceve mai
+    permessi, nemmeno se una riga ce lo mettesse.
+  - `GET /api/departments` mostra `projectPermissions` solo a chi gestisce i
+    reparti.
+  Controllo, sola lettura: `select d.name, array_agg(p.permission) from
+  department_project_permissions p join departments d on d.id =
+  p.department_id group by 1;`.
+
+  **Rollback** (il server scende **insieme** al caddy, il worker con loro;
+  la 0196 non si annulla, e la tabella resta):
+  - il server vecchio ignora la tabella: chi aveva un permesso SOLO dal
+    reparto lo PERDE. È il verso sicuro (meno accessi), ma un progetto
+    gestito solo via reparto resta senza gestore fuori dai full admin. Prima
+    di scendere si cercano con:
+    `select p.code from projects p where exists (select 1 from
+    project_members pm join department_members dm on dm.user_id = pm.user_id
+    join department_project_permissions dp on dp.department_id =
+    dm.department_id and dp.permission = 'project.members.manage' where
+    pm.project_id = p.id) and not exists (select 1 from project_members pm
+    join roles r on r.id = pm.role_id where pm.project_id = p.id and
+    (r.permissions @> array['project.members.manage'] or exists (select 1
+    from project_member_permissions g where g.project_id = pm.project_id and
+    g.user_id = pm.user_id and g.permission = 'project.members.manage')));`.
+    A quei progetti si dà un gestore a mano prima (ruolo o permesso
+    personale);
+  - le voci `department.permissions_changed` già scritte restano, e il
+    server vecchio le mostra (il tipo era già nel catalogo da F2);
+  - il caddy vecchio non chiama l'anteprima né manda `projectPermissions`.

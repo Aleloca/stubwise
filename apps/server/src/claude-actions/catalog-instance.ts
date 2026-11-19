@@ -5,7 +5,7 @@ import { LAST_ENABLED, patchProvider, reorderProviders } from "../routes/ai-prov
 import { patchGitAccount } from "../routes/git-accounts.js";
 import { patchGoogleWorkspace } from "../routes/google-workspaces.js";
 import { patchModelSettings } from "../routes/model-settings.js";
-import { putAutomationSettings, putInstanceSettings, readAutomationSettings } from "../routes/settings.js";
+import { putAutomationSettings, putInstanceSettings, readAutomationSettings } from "../services/instance-settings-writes.js";
 import { updateWebhook } from "../services/outgoing-webhooks.js";
 import { deletePlugin, requestSmoke } from "../services/plugins.js";
 import { RoleRuleError } from "../services/roles.js";

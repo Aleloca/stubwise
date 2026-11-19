@@ -31,7 +31,8 @@ export interface DepartmentJudgement {
  * - un permesso AGGIUNTO arriva nei progetti di tutte le persone della bozza;
  * - chi ENTRA riceve tutti i permessi della bozza nei suoi progetti, mentre un
  *   membro salvato tolto e rimesso porta solo quelli aggiunti;
- * - chi agisce deve avere ogni permesso dato in OGNI progetto dove arriva.
+ * - chi agisce deve avere ogni permesso dato in OGNI progetto dove arriva
+ *   (e, se non arriva in nessuno, in almeno un progetto).
  *   I suoi permessi sono quelli effettivi (ruolo, personali, i suoi reparti),
  *   anche negli archiviati: riaprendo, un permesso arriverebbe senza
  *   controllo. Un progetto che non vede, non ci ha niente.
@@ -42,9 +43,21 @@ export async function judgeDepartmentDraft(db: Db, actor: Actor, saved: Departme
   const held = fullAdmin ? {} : await projectPermissionsMap(db, actor, { includeArchived: true });
   const memberships = await db.select({ userId: projectMembers.userId, projectId: projectMembers.projectId }).from(projectMembers);
   const projectsOf = (userId: string) => memberships.filter((m) => m.userId === userId).map((m) => m.projectId);
-  /** I permessi di `perms` che chi agisce non ha in almeno uno di `projectIds`. */
+  /** I permessi che chi agisce ha in ALMENO un progetto: il confronto per ciò che non arriva in nessuno. */
+  const somewhere = new Set(Object.values(held).flat() as string[]);
+  /**
+   * I permessi di `perms` che chi agisce non ha in almeno uno di `projectIds`.
+   * Senza progetti (F8-4 = a, il prototipo: `holdingsSomewhere`), quelli che
+   * non ha in NESSUN progetto: chi non ha `plans.approve` da nessuna parte non
+   * lo mette nemmeno in un reparto vuoto, dove arriverebbe appena una persona
+   * entra in un progetto.
+   */
   const missingIn = (projectIds: readonly string[], perms: readonly string[]) =>
-    fullAdmin ? [] : perms.filter((p) => projectIds.some((id) => !(held[id] ?? []).includes(p as never)));
+    fullAdmin
+      ? []
+      : projectIds.length === 0
+        ? perms.filter((p) => !somewhere.has(p))
+        : perms.filter((p) => projectIds.some((id) => !(held[id] ?? []).includes(p as never)));
   const reached = [...new Set(draft.memberIds.flatMap(projectsOf))];
   const notGivable = missingIn(reached, PROJECT_PERMISSIONS);
   const addedPerms = draft.projectPermissions.filter((p) => !saved.projectPermissions.includes(p));

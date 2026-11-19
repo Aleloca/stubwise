@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   departmentMembers,
   departmentProjectPermissions,
@@ -80,13 +81,24 @@ const nameSchema = z.string().trim().min(1).max(80);
 
 type DepartmentRow = typeof departments.$inferSelect;
 
-function toView(row: DepartmentRow, projectPermissions: readonly string[] = []): DepartmentView {
+/**
+ * Area 9, F8 (la review del renderer): la versione OPACA di ciò che il `PATCH`
+ * scrive (nome, colore, persone, permessi di progetto), come quella dei plugin
+ * di un progetto. Un salvataggio con `ifMatch` vecchio è 409 `stale`.
+ */
+export function departmentVersion(row: Pick<DepartmentRow, "name" | "colorToken">, shape: { memberIds: readonly string[]; projectPermissions: readonly string[] }): string {
+  const canonical = { name: row.name, colorToken: row.colorToken, memberIds: [...shape.memberIds].sort(), projectPermissions: [...shape.projectPermissions].sort() };
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex").slice(0, 16);
+}
+
+function toView(row: DepartmentRow, projectPermissions: readonly string[] = [], version = ""): DepartmentView {
   return {
     id: row.id,
     name: row.name,
     colorToken: row.colorToken as DepartmentView["colorToken"],
     isDefault: row.isDefault,
     projectPermissions: [...projectPermissions].sort(),
+    version,
   };
 }
 
@@ -96,6 +108,8 @@ const departmentErrorSchema = errorSchema.extend({
   missing: z.array(z.string()).optional(),
   projectId: z.string().optional(),
   projectCode: z.string().optional(),
+  /** `stale`: la versione di adesso. */
+  version: z.string().optional(),
 });
 
 /**
@@ -265,13 +279,13 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
       // Area 9, F8 (R-1): i permessi di progetto che il reparto dà, SOLO a chi
       // gestisce i reparti (l'elenco lo legge chiunque: le task, i selettori).
       const manages = request.user!.instancePermissions.has("departments.manage");
-      const perms = manages ? await app.db.select().from(departmentProjectPermissions) : [];
-      return rows.map((r) =>
-        toView(
-          r,
-          perms.filter((p) => p.departmentId === r.id).map((p) => p.permission),
-        ),
-      );
+      const perms = await app.db.select().from(departmentProjectPermissions);
+      const members = await app.db.select({ departmentId: departmentMembers.departmentId, userId: departmentMembers.userId }).from(departmentMembers);
+      return rows.map((r) => {
+        const own = perms.filter((p) => p.departmentId === r.id).map((p) => p.permission);
+        const version = departmentVersion(r, { memberIds: members.filter((m) => m.departmentId === r.id).map((m) => m.userId), projectPermissions: own });
+        return toView(r, manages ? own : [], version);
+      });
     },
   );
 
@@ -484,7 +498,7 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
         });
         return created!;
       });
-      return reply.code(201).send(toView(row));
+      return reply.code(201).send(toView(row, [], departmentVersion(row, { memberIds: [], projectPermissions: [] })));
     },
   );
 
@@ -506,6 +520,9 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
           // reparto dà. Stringhe: un permesso che non è di progetto è un
           // `invalid_permission` col suo nome, non un errore di validazione.
           projectPermissions: z.array(z.string().min(1).max(80)).max(64).optional(),
+          // Area 9, F8: la versione della bozza (dall'elenco). Facoltativa: un
+          // client di prima non la manda, e per lui vince l'ultima scrittura.
+          ifMatch: z.string().min(1).max(64).optional(),
         }),
         response: {
           200: departmentViewSchema,
@@ -558,8 +575,12 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
       try {
         const updated = await app.db.transaction(async (tx) => {
           // Il reparto bloccato: il giudizio e la scrittura vedono lo stesso salvato.
-          await tx.execute(sql`select 1 from "departments" where "id" = ${id} for update`);
+          const [locked] = await tx.select().from(departments).where(eq(departments.id, id)).for("update");
           const before = await savedDepartmentShape(tx, id);
+          const ifMatch = request.body.ifMatch;
+          if (ifMatch !== undefined && ifMatch !== departmentVersion(locked!, before)) {
+            throw new RoleRuleError(409, "stale", "The department changed since you loaded it", { version: departmentVersion(locked!, before) });
+          }
           const draft = {
             memberIds: next ?? before.memberIds,
             projectPermissions: nextPerms ?? before.projectPermissions,
@@ -612,9 +633,9 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
               before,
             });
           });
-          return { row, perms: draft.projectPermissions };
+          return { row, perms: draft.projectPermissions, version: departmentVersion(row, draft) };
         });
-        return toView(updated.row, updated.perms);
+        return toView(updated.row, updated.perms, updated.version);
       } catch (error) {
         if (error instanceof RoleRuleError && error.code === "last_manager")
           return sendLastManager(reply, request.user!, error);
