@@ -67,6 +67,8 @@ export type AdminRefusal =
   | { ok: false; error: "not_found" }
   | { ok: false; error: "forbidden" }
   | { ok: false; error: "reauth_required" }
+  /** Area 9, F8: il reparto è cambiato da quando la bozza l'ha letto (409 `stale`). */
+  | { ok: false; error: "conflict" }
   | { ok: false; error: "escalation"; missing: string[] }
   | {
       ok: false;
@@ -345,6 +347,8 @@ export type GiveReach = "instance" | "projects" | "anywhere";
 
 export interface DepartmentView {
   id: string;
+  /** Area 9, F8: la versione opaca del server (`ifMatch`); assente nel prototipo. */
+  version?: string;
   name: string;
   colorToken: string;
   memberIds: string[];

@@ -374,6 +374,11 @@ export function departmentInvalid(t: T, reason: string): string {
     // Il server: un ruolo di reparto vale solo per chi è nel reparto.
     case "invalid_person":
       return t("admin.departments.errors.invalidPerson");
+    // F8 (72): un permesso che non è di progetto; Claude fra le persone (review F8, M2).
+    case "permission":
+      return t("admin.departments.errors.invalidPermission");
+    case "person":
+      return t("admin.departments.errors.notAPerson");
     default:
       return t("admin.refusal.status");
   }

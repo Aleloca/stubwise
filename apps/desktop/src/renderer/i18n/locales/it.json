@@ -10718,6 +10718,7 @@
     "refusal": {
       "escalation": "Non puoi dare «{{what}}»: contiene {{missing}}, che non hai.",
       "escalationPlain": "Non puoi farlo: darebbe {{missing}}, che non hai.",
+      "conflict": "Qualcun altro l'ha cambiato mentre lo modificavi. Non è stato salvato niente.",
       "more_one": "altro {{count}}",
       "more_other": "altri {{count}}",
       "lastFullAdmin": "{{name}} è l'unico amministratore completo. Rendi prima qualcun altro amministratore completo.",
@@ -10744,7 +10745,8 @@
         "instance": "Non hai questo permesso, quindi non puoi darlo.",
         "projects_role": "Non hai questo permesso in tutti i progetti dove il ruolo è usato, quindi non puoi darlo.",
         "projects_department": "Non hai questo permesso in tutti i progetti delle persone del reparto, quindi non puoi darlo.",
-        "anywhere": "Non hai questo permesso in nessun progetto, quindi non puoi darlo."
+        "anywhere": "Non hai questo permesso in nessun progetto, quindi non puoi darlo.",
+        "anywhere_department": "Le persone del reparto non sono ancora in nessun progetto: puoi dare solo ciò che hai in almeno un progetto."
       },
       "included": "Incluso nell'amministrazione completa"
     },
@@ -10876,7 +10878,9 @@
         "nameTaken": "C'è già un reparto con questo nome.",
         "defaultDepartment": "È il reparto di ripiego: ci finiscono le task senza reparto, quindi si rinomina ma non si elimina.",
         "rolesNotSaved": "Membri salvati, ma chi gestisce la Home no. Riprova per salvarlo.",
-        "invalidPerson": "Solo chi è nel reparto può gestirne la Home."
+        "invalidPerson": "Solo chi è nel reparto può gestirne la Home.",
+        "invalidPermission": "Un reparto non può dare questo permesso: solo i permessi di progetto.",
+        "notAPerson": "In un reparto stanno solo le persone: Claude no."
       }
     },
     "department": {
@@ -10911,6 +10915,10 @@
       "discardAsk_one": "Lasciar perdere {{count}} modifica?",
       "discardAsk_other": "Lasciar perdere {{count}} modifiche?",
       "saved": "Salvato",
+      "staleDraft": "Qualcun altro ha cambiato questo reparto mentre lo modificavi. Annulla le tue modifiche per vedere le sue, o salva le tue sopra.",
+      "previewLoading": "Controllo cosa puoi dare…",
+      "previewError": "Non riesco a controllare cosa puoi dare.",
+      "previewRetry": "Riprova",
       "saveAction": "modificare {{name}}",
       "saveFailed": "Non è stato possibile salvare. Riprova.",
       "refusal": {

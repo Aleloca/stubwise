@@ -1127,8 +1127,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   opaco `b_` è un HMAC con `ENCRYPTION_KEY` (separato solo dal prefisso
   `session:`). Né l'uno né l'altro è un difetto; da rivedere se il carico o
   una rotazione della chiave lo chiedono.
-- Permessi di progetto dati da un reparto (`department-permissions`): non
-  previsti dal server, da decidere col maintainer se servono.
+- ~~Permessi di progetto dati da un reparto (`department-permissions`): non
+  previsti dal server.~~ **Chiuso (area 9, F8)**: una lista per reparto,
+  valida nei progetti di cui la persona è già membro (F8-1 = a); anteprima
+  dal server (F8-2 = a); riconferma solo quando si danno accessi (F8-3 = a).
 - Azioni di Claude dell'area 9 (membri, ruoli, impostazioni senza segreti), con
   la riconferma.
 - ~~Classe C delle azioni di Claude *(O, 10 nov 2026)*: nel renderer la

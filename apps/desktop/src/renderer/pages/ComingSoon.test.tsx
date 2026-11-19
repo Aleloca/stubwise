@@ -280,6 +280,8 @@ const INTEGRATED_CALLS = new Set([
   "admin.listPeople",
   "admin.createDepartment",
   "admin.updateDepartment",
+  // Area 9, F8: l'anteprima della bozza del reparto dal server (F8-2 = a).
+  "admin.previewDepartment",
   "admin.saveDepartment",
   "admin.deleteDepartment",
   // Task 17: Tasks, dettaglio, nuova task, stati.
@@ -1098,6 +1100,16 @@ describe("aree non integrate nella build app", () => {
     cleanup();
     renderRoute("/archived/RNC");
     await waitFor(() => expect(calls).toContain("projectSettings.getArchivedProject"));
+    await settle();
+    expect(screen.queryByText(/Coming soon/)).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 9, F8: il pannello di un reparto legge l'anteprima dal server.
+  it("aprire il pannello di un reparto legge solo chiamate integrate", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/departments?department=dep-development");
+    await waitFor(() => expect(calls).toContain("admin.previewDepartment"));
     await settle();
     expect(screen.queryByText(/Coming soon/)).toBeNull();
     expect(outside()).toEqual([]);

@@ -34,6 +34,7 @@ const ALL: IntegrationTarget[] = [
       "saved-filters",
       "department-home",
       "department-permissions",
+      "department-reauth",
       "portfolio",
       "refine",
       "claude",
@@ -212,6 +213,9 @@ describe("isIntegrated", () => {
         "destination:filters",
         "feature:saved-filters",
         "feature:department-home",
+        // Area 9, F8: i permessi di progetto dei reparti, e la riconferma quando si danno accessi (F8-3).
+        "feature:department-permissions",
+        "feature:department-reauth",
         "projectSection:overview",
         "projectSection:requests",
         "feature:calendar-write",

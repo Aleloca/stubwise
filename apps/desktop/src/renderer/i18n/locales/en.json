@@ -10718,6 +10718,7 @@
     "refusal": {
       "escalation": "You can't give “{{what}}”: it includes {{missing}}, which you don't have.",
       "escalationPlain": "You can't do this: it gives {{missing}}, which you don't have.",
+      "conflict": "Someone else changed this while you were editing it. Nothing was saved.",
       "more_one": "{{count}} more",
       "more_other": "{{count}} more",
       "lastFullAdmin": "{{name}} is the only full admin. Make someone else full admin first.",
@@ -10744,7 +10745,8 @@
         "instance": "You don't have this permission, so you can't give it.",
         "projects_role": "You don't have this in every project where this role is used, so you can't give it.",
         "projects_department": "You don't have this in every project of this department's people, so you can't give it.",
-        "anywhere": "You don't have this in any project, so you can't give it."
+        "anywhere": "You don't have this in any project, so you can't give it.",
+        "anywhere_department": "This department's people aren't in any project yet: you can give only what you have in at least one project."
       },
       "included": "Included in full administration"
     },
@@ -10876,7 +10878,9 @@
         "nameTaken": "Another department already has this name.",
         "defaultDepartment": "This is the default department: tasks without one land here, so it can be renamed but not deleted.",
         "rolesNotSaved": "Members saved, but who manages the Home wasn't. Try again to save it.",
-        "invalidPerson": "Only people in the department can manage its Home."
+        "invalidPerson": "Only people in the department can manage its Home.",
+        "invalidPermission": "That permission can't be given by a department: only project permissions can.",
+        "notAPerson": "Only people can be in a department: Claude can't."
       }
     },
     "department": {
@@ -10911,6 +10915,10 @@
       "discardAsk_one": "Discard {{count}} change?",
       "discardAsk_other": "Discard {{count}} changes?",
       "saved": "Saved",
+      "staleDraft": "Someone else changed this department while you were editing it. Discard your changes to see theirs, or save yours over them.",
+      "previewLoading": "Checking what you can give…",
+      "previewError": "Couldn't check what you can give.",
+      "previewRetry": "Try again",
       "saveAction": "change {{name}}",
       "saveFailed": "Couldn't save. Try again.",
       "refusal": {

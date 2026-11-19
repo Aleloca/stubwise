@@ -205,6 +205,28 @@ describe("«Chi può farlo?» dal server (area 9, R9)", () => {
     expect(reads.departments).toBeLessThanOrEqual(1);
   });
 
+  it("F8: il nome del reparto lo dà il server (departmentName); senza, si cerca nei reparti come prima", async () => {
+    const base = fakeApi().api;
+    let deptReads = 0;
+    const api = createRealWhoCan({
+      ...base,
+      departments: async () => {
+        deptReads++;
+        return [];
+      },
+      whoCan: async (q) => {
+        const r = (await base.whoCan(q)) as { people: { reasons: Record<string, unknown>[] }[] };
+        for (const p of r.people)
+          for (const x of p.reasons) if (x.kind === "department") x.departmentName = "Support team";
+        return r as never;
+      },
+    });
+    const who = await api.whoCan("approvePlan", PRJ);
+    expect(JSON.stringify(who)).toContain("Support team");
+    // Il reparto non si cerca: chi non gestisce i reparti non lo leggerebbe pieno.
+    expect(deptReads).toBe(0);
+  });
+
   it("le scelte: i progetti visibili e le persone, senza Claude", async () => {
     expect(await createRealWhoCan(fakeApi().api).whoCanChoices()).toEqual({
       projects: [{ projectId: PRJ, code: "ACQ", name: "Acquedotto" }],

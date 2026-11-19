@@ -57,6 +57,65 @@ describe("Reparti nella build app", () => {
     });
   });
 
+  it("F8: l'anteprima della bozza la calcola il server (F8-2 = a): reach, notGivable, missingToAdd, missing", async () => {
+    const { seen } = installFakeServer({
+      [`POST /api/departments/${SALES}/preview`]: {
+        body: {
+          reach: "anywhere",
+          notGivable: ["plans.approve"],
+          missingToAdd: { [ME_ID]: ["support.manage"] },
+          missing: [],
+        },
+      },
+    });
+    const draft = { memberIds: [ME_ID], projectPermissions: ["tickets.create"] };
+    expect(await adminDepartments.previewDepartment!(SALES, draft)).toEqual({
+      reach: "anywhere",
+      notGivable: ["plans.approve"],
+      missingToAdd: { [ME_ID]: ["support.manage"] },
+      missing: [],
+    });
+    const sent = seen.find((r) => r.path === `/api/departments/${SALES}/preview`)!;
+    expect(sent.method).toBe("POST");
+    expect(sent.body).toEqual(draft);
+  });
+
+  it("F8: i rifiuti del salvataggio nelle parole del prototipo (riconferma, escalation, ultimo gestore, permesso, persona)", async () => {
+    const patch = `PATCH /api/departments/${SALES}`;
+    const save = () =>
+      adminDepartments.saveDepartment!(SALES, {
+        memberIds: [ME_ID],
+        homeManagerIds: [],
+        projectPermissions: [],
+      });
+    const cases: [number, Record<string, unknown>, unknown][] = [
+      [403, { code: "reauth_required" }, { ok: false, error: "reauth_required" }],
+      [403, { code: "escalation", permission: "plans.approve", missing: ["plans.approve"] }, { ok: false, error: "escalation", missing: ["plans.approve"] }],
+      [409, { code: "last_manager", projectId: "p1", projectCode: "ACQ" }, { ok: false, error: "invalid", reason: "last_members_manager" }],
+      [400, { code: "invalid_permission", permission: "x" }, { ok: false, error: "invalid", reason: "permission" }],
+      [400, { code: "not_a_person" }, { ok: false, error: "invalid", reason: "person" }],
+      [403, { code: "forbidden" }, { ok: false, error: "forbidden" }],
+    ];
+    for (const [status, body, want] of cases) {
+      installFakeServer({
+        "GET /api/departments/roles": { body: [] },
+        [patch]: { status, body: { message: "x", ...body } },
+      });
+      expect(await save(), String(body.code)).toEqual(want);
+    }
+  });
+
+  it("F8: eliminare un reparto che lascerebbe un progetto senza gestore: last_members_manager", async () => {
+    installFakeServer({
+      [`DELETE /api/departments/${SALES}`]: { status: 409, body: { code: "last_manager", message: "x", projectId: "p1" } },
+    });
+    expect(await adminDepartments.deleteDepartment!(SALES, null)).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "last_members_manager",
+    });
+  });
+
   it("senza departments.manage: forbidden; un nome già usato: name_taken", async () => {
     installFakeServer({
       "POST /api/departments": { status: 403, body: { code: "forbidden", message: "x" } },
@@ -73,7 +132,7 @@ describe("Reparti nella build app", () => {
     });
   });
 
-  it("salvare il pannello manda nome, colore e membri, poi i responsabili della Home; mai i permessi", async () => {
+  it("salvare il pannello manda nome, colore e membri, poi i responsabili della Home; i permessi no se il reparto non è stato letto (F8)", async () => {
     const { seen } = installFakeServer({
       "GET /api/departments/roles": { body: [] },
       [`PATCH /api/departments/${SALES}`]: { body: departments[1] },
@@ -96,6 +155,79 @@ describe("Reparti nella build app", () => {
     expect(seen[0]!.body).toEqual({ memberIds: [ME_ID] });
     // Senza riconferma (decisione del maintainer): il corpo è solo l'elenco dei ruoli.
     expect(seen[2]!.body).toEqual({ roles: [{ userId: ME_ID, permissions: ["department.home.manage"] }] });
+  });
+
+  it("F8 (review I1): l'elenco dà i permessi; il salvataggio li manda solo se la bozza li cambia rispetto alla SUA base", async () => {
+    const withPerms = [departments[0], { ...departments[1], projectPermissions: ["support.manage"] }];
+    const { seen } = installFakeServer({
+      "GET /api/departments": { body: withPerms },
+      "GET /api/people": { body: [] },
+      "GET /api/departments/roles": { body: [] },
+      [`PATCH /api/departments/${SALES}`]: { body: withPerms[1] },
+      [`PUT /api/departments/${SALES}/roles`]: { body: [] },
+    });
+    const rows = await adminDepartments.listDepartments!();
+    expect(rows.find((d) => d.id === SALES)!.projectPermissions).toEqual(["support.manage"]);
+    let requests = seen;
+    const patches = () => requests.filter((r) => r.method === "PATCH").map((r) => r.body);
+    const save = (projectPermissions: string[], baseProjectPermissions?: string[]) =>
+      adminDepartments.saveDepartment!(SALES, {
+        memberIds: [ME_ID],
+        homeManagerIds: [],
+        projectPermissions,
+        ...(baseProjectPermissions ? { baseProjectPermissions } : {}),
+      });
+    // Invariati rispetto alla base della bozza: il PATCH non li nomina…
+    await save(["support.manage"], ["support.manage"]);
+    expect(patches().at(-1)).toEqual({ memberIds: [ME_ID] });
+    // …anche se nel frattempo un altro ne ha aggiunto uno (l'elenco riletto ne ha due):
+    // la bozza vecchia non cancella la concessione dell'altro.
+    requests = installFakeServer({
+      "GET /api/departments": { body: [departments[0], { ...departments[1], projectPermissions: ["support.manage", "plans.approve"] }] },
+      "GET /api/people": { body: [] },
+      "GET /api/departments/roles": { body: [] },
+      [`PATCH /api/departments/${SALES}`]: { body: withPerms[1] },
+      [`PUT /api/departments/${SALES}/roles`]: { body: [] },
+    }).seen;
+    await adminDepartments.listDepartments!();
+    await save(["support.manage"], ["support.manage"]);
+    expect(patches().at(-1)).toEqual({ memberIds: [ME_ID] });
+    // Cambiati rispetto alla base: l'insieme intero.
+    await save(["support.manage", "drive.upload", "drive.upload"], ["support.manage"]);
+    expect(patches().at(-1)).toEqual({ memberIds: [ME_ID], projectPermissions: ["support.manage", "drive.upload"] });
+    // Senza base: mai.
+    await save(["drive.upload"]);
+    expect(patches().at(-1)).toEqual({ memberIds: [ME_ID] });
+  });
+
+  it("F8 (review I1, 72 714fb5b9e): la version della base va come ifMatch; un 409 stale è un conflitto", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/departments": { body: [departments[0], { ...departments[1], version: "00000000000000aa" }] },
+      "GET /api/people": { body: [] },
+      "GET /api/departments/roles": { body: [] },
+      [`PATCH /api/departments/${SALES}`]: { status: 409, body: { code: "stale", message: "x", version: "00000000000000bb" } },
+    });
+    const rows = await adminDepartments.listDepartments!();
+    expect(rows.find((d) => d.id === SALES)!.version).toBe("00000000000000aa");
+    expect(
+      await adminDepartments.saveDepartment!(SALES, {
+        memberIds: [ME_ID],
+        homeManagerIds: [],
+        projectPermissions: [],
+        baseVersion: "00000000000000aa",
+      }),
+    ).toEqual({ ok: false, error: "conflict" });
+    expect(seen.find((r) => r.method === "PATCH")!.body).toEqual({ memberIds: [ME_ID], ifMatch: "00000000000000aa" });
+  });
+
+  it("F8: senza version (server di prima) il PATCH non manda ifMatch", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/departments/roles": { body: [] },
+      [`PATCH /api/departments/${SALES}`]: { body: departments[1] },
+      [`PUT /api/departments/${SALES}/roles`]: { body: [] },
+    });
+    await adminDepartments.saveDepartment!(SALES, { memberIds: [ME_ID], homeManagerIds: [], projectPermissions: [], baseVersion: "" });
+    expect(seen.find((r) => r.method === "PATCH")!.body).toEqual({ memberIds: [ME_ID] });
   });
 
   it("i responsabili della Home vengono dai ruoli di reparto", async () => {

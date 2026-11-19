@@ -19,6 +19,18 @@ type Admin = typeof Fake.admin;
 /** Un rifiuto del server nella forma del prototipo. */
 function refusalOf(error: unknown): AdminRefusal {
   if (error instanceof ApiError) {
+    // Area 9, F8 (72, 39071e1f8): la riconferma quando si danno accessi, l'escalation
+    // coi permessi mancanti, l'ultimo gestore di un progetto, nelle parole del prototipo.
+    if (error.code === "reauth_required") return { ok: false, error: "reauth_required" };
+    // F8 (72): un altro ha cambiato il reparto da quando la bozza l'ha letto.
+    if (error.code === "stale") return { ok: false, error: "conflict" };
+    if (error.code === "escalation") {
+      const missing = (error.details as { missing?: string[] } | undefined)?.missing ?? [];
+      return { ok: false, error: "escalation", missing };
+    }
+    if (error.code === "last_manager") return { ok: false, error: "invalid", reason: "last_members_manager" };
+    if (error.code === "invalid_permission") return { ok: false, error: "invalid", reason: "permission" };
+    if (error.code === "not_a_person") return { ok: false, error: "invalid", reason: "person" };
     if (error.status === 403) return { ok: false, error: "forbidden" };
     if (error.status === 404) return { ok: false, error: "not_found" };
     const reason =
@@ -49,13 +61,15 @@ async function membersByDepartment(): Promise<Map<string, string[]>> {
  * dell'eliminazione, all'apertura (`countTasks` filtrato per reparto).
  */
 function view(d: ServerDepartment, memberIds: string[], homeManagerIds: string[]): DepartmentView {
+  const projectPermissions = [...((d as { projectPermissions?: string[] }).projectPermissions ?? [])];
   return {
+    version: (d as { version?: string }).version ?? "",
     id: d.id,
     name: d.name,
     colorToken: d.colorToken,
     memberIds,
     homeManagerIds,
-    projectPermissions: [],
+    projectPermissions,
     taskCount: 0,
     missingToAdd: {},
     reach: "projects",
@@ -84,12 +98,23 @@ const listDepartments: Admin["listDepartments"] = async () => {
   return rows.map((d) => view(d as ServerDepartment, members.get(d.id) ?? [], managers.get(d.id) ?? []));
 };
 
-const previewDepartment: Admin["previewDepartment"] = async () => ({
-  reach: "projects",
-  notGivable: [],
-  missingToAdd: {},
-  missing: [],
-});
+/**
+ * L'anteprima di una bozza (F8, F8-2 = a): la calcola il server con la
+ * regola di `judgeDraft` del prototipo, per chi guarda; il client non deduce
+ * i permessi. La tabella e «Add people» del pannello la leggono come prima.
+ */
+const previewDepartment: Admin["previewDepartment"] = async (id, draft) => {
+  const p = await appClient().departments.preview(id, {
+    memberIds: [...draft.memberIds],
+    projectPermissions: [...draft.projectPermissions],
+  });
+  return {
+    reach: p.reach === "anywhere" ? "anywhere" : "projects",
+    notGivable: [...p.notGivable],
+    missingToAdd: Object.fromEntries(Object.entries(p.missingToAdd).map(([k, v]) => [k, [...v]])),
+    missing: [...p.missing],
+  };
+};
 
 const createDepartment: Admin["createDepartment"] = async (input) => {
   try {
@@ -147,6 +172,22 @@ async function rolesFor(id: string, memberIds: string[], homeManagerIds: string[
  * dati dal reparto non ci sono nella build app. Se i membri sono salvati e i
  * ruoli no, lo dice (`roles_not_saved`): riprovando, solo i ruoli.
  */
+/**
+ * `projectPermissions` nel PATCH solo se la bozza li cambia rispetto alla SUA
+ * base (review F8, I1): i permessi del reparto quando il pannello l'ha aperto,
+ * non l'ultimo elenco riletto. Così una bozza vecchia non cancella la
+ * concessione che un altro ha fatto nel frattempo; senza base, mai.
+ */
+function permissionsPatch(
+  draft: readonly string[],
+  base: readonly string[] | undefined,
+): { projectPermissions?: string[] } {
+  if (!base) return {};
+  const next = [...new Set(draft)];
+  const same = next.length === base.length && next.every((p) => base.includes(p));
+  return same ? {} : { projectPermissions: next };
+}
+
 const saveDepartment: Admin["saveDepartment"] = async (id, draft) => {
   const patch = {
     ...(draft.name !== undefined ? { name: draft.name.trim() } : {}),
@@ -154,6 +195,9 @@ const saveDepartment: Admin["saveDepartment"] = async (id, draft) => {
       ? { colorToken: draft.colorToken as ServerDepartment["colorToken"] }
       : {}),
     memberIds: [...new Set(draft.memberIds)],
+    ...permissionsPatch(draft.projectPermissions, draft.baseProjectPermissions),
+    // La version della base: il server rifiuta (409 `stale`) se nel frattempo è cambiato.
+    ...(draft.baseVersion ? { ifMatch: draft.baseVersion } : {}),
   };
   const key = JSON.stringify(patch);
   try {
