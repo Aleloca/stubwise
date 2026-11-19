@@ -304,33 +304,40 @@ describe("dettaglio progetto (gruppo)", () => {
     );
   });
 
-  it("mostra la sezione Integrazione col la chiave di ingestion del progetto e lo snippet", async () => {
+  // Area 9, F5 (I2): la chiave intera non arriva più dalla vista del progetto
+  // né da nessuna lettura; l'Integrazione (`/integration`) ne dà le ultime 4.
+  const integrationOf = (canRegenerateKey: boolean) => () =>
+    jsonResponse(200, { ingestion: { last4: "cdef", dsnBase: "https://s.example.com/p/acme-platform" }, inbound: { url: "https://s.example.com/api/inbound/acme-platform/ticket" }, canRegenerateKey, canRegenerateWebhookSecret: canRegenerateKey });
+
+  it("admin: l'Integrazione mostra la chiave MASCHERATA (le ultime 4) e il bottone per rigenerarla; DSN con lo slug di progetto", async () => {
     mockApi({
       "GET /api/auth/me": meHandler("admin"),
       [`GET /api/projects/${PROJECT_ID}`]: () => jsonResponse(200, detail()),
+      [`GET /api/projects/${PROJECT_ID}/integration`]: integrationOf(true),
       "GET /api/milestones": () => jsonResponse(200, []),
     });
 
     renderApp(`/projects/${PROJECT_ID}`);
 
-    // La chiave di ingestion, salita dal repo al progetto (Fase 3), è mostrata qui.
-    expect(await screen.findByText("0123456789abcdef0123456789abcdef")).toBeInTheDocument();
-    const snippet = screen.getByTestId("init-snippet");
-    expect(snippet.textContent).toContain('from "@stubwise/sdk/browser"');
-    // Il DSN usa lo slug di PROGETTO (…/p/<projectSlug>).
-    expect(snippet.textContent).toContain("/p/acme-platform");
+    expect(await screen.findByText("••••••••cdef")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Regenerate key" })).toBeInTheDocument();
+    expect(screen.getByText((text) => text.includes("/p/acme-platform") && text.includes("••••••••cdef@"))).toBeInTheDocument();
+    expect(screen.queryByText("0123456789abcdef0123456789abcdef")).not.toBeInTheDocument();
   });
 
-  it("member: vede comunque la chiave di ingestion del progetto (integrare non richiede admin)", async () => {
+  it("member: vede le ultime 4 e il rimando a chi gestisce il progetto, mai la chiave intera né la rigenerazione", async () => {
     mockApi({
       "GET /api/auth/me": meHandler("member"),
       [`GET /api/projects/${PROJECT_ID}`]: () => jsonResponse(200, detail()),
+      [`GET /api/projects/${PROJECT_ID}/integration`]: integrationOf(false),
       "GET /api/milestones": () => jsonResponse(200, []),
     });
 
     renderApp(`/projects/${PROJECT_ID}`);
 
-    expect(await screen.findByText("0123456789abcdef0123456789abcdef")).toBeInTheDocument();
+    expect(await screen.findByText("••••••••cdef")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Regenerate key" })).not.toBeInTheDocument();
+    expect(screen.queryByText("0123456789abcdef0123456789abcdef")).not.toBeInTheDocument();
   });
 
   it("admin: salvataggio del provider invia il PATCH al gruppo", async () => {

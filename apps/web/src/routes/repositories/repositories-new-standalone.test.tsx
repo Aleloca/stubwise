@@ -144,12 +144,14 @@ describe("aggiunta repository standalone", () => {
         jsonResponse(200, { branches: ["main", "develop"], defaultBranch: "main" }),
       "POST /api/repositories": (_url, init) => {
         postBody = JSON.parse(String(init?.body));
-        return jsonResponse(201, created);
+        // Area 9, F5 (decisione C): il segreto intero, solo nella creazione.
+        return jsonResponse(201, { ...created, webhookSecret: "s3cr3t-dalla-creazione" });
       },
       "GET /api/repositories/demo-shop": () => jsonResponse(200, created),
+      [`GET /api/projects/${PROJECT_ID}/environments`]: () => jsonResponse(200, []),
       [`GET /api/repositories/${REPO_ID}/env-files`]: () => jsonResponse(200, []),
       "GET /api/repositories/demo-shop/webhook": () =>
-        jsonResponse(200, { webhookSecret: "s3cr3t", webhookPath: "/webhooks/git/demo-shop" }),
+        jsonResponse(200, { webhookPath: "/webhooks/git/demo-shop", secretLast4: "cr3t", configured: false }),
     });
 
     const router = renderApp("/repositories/new");
@@ -170,6 +172,10 @@ describe("aggiunta repository standalone", () => {
     await user.click(screen.getByRole("button", { name: "Add repository" }));
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/repositories/demo-shop"));
+    // Il dettaglio mostra UNA volta il segreto che la creazione ha dato, e non
+    // lo mette nello stato di history.
+    expect(await screen.findByText("s3cr3t-dalla-creazione")).toBeInTheDocument();
+    expect(JSON.stringify(router.state.location.state)).not.toContain("s3cr3t-dalla-creazione");
     expect(postBody).toEqual({
       projectId: PROJECT_ID,
       name: "Demo Shop",

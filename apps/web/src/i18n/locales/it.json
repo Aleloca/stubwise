@@ -2450,7 +2450,27 @@
     "configureAuto": "Configura automaticamente",
     "webhookUpdated": "Webhook aggiornato su {{url}}",
     "webhookConfigured": "Webhook configurato su {{url}}",
-    "configureFailed": "Configurazione del webhook fallita"
+    "configureFailed": "Configurazione del webhook fallita",
+    "keyMaskedHint": "Per sicurezza la chiave intera si vede una volta sola, subito dopo averla rigenerata. Rigenerala per copiare chiave, DSN e snippet.",
+    "keyMaskedHintReadOnly": "Per sicurezza la chiave intera si vede una volta sola, quando viene rigenerata: chiedi a chi gestisce il progetto.",
+    "keyCreated": "Creata il {{date}} da {{name}}",
+    "keyCreatedAt": "Creata il {{date}}",
+    "regenerateKey": "Rigenera chiave",
+    "regenerateKeyConfirm": "Rigenera: la chiave attuale smette subito di funzionare",
+    "regenerateKeyCancel": "Annulla",
+    "regenerateKeyWarning": "Ogni sito e script che usa la chiave attuale smette di inviare finché non la sostituisci.",
+    "regenerating": "Rigenerazione…",
+    "keyRevealed": "È l'unica volta che vedi la chiave nuova: copiala adesso.",
+    "regenerateFailed": "Non è stato possibile rigenerare la chiave. Riprova.",
+    "secretMaskedHint": "Per sicurezza il secret intero si vede una volta sola: alla creazione del repository o subito dopo averlo rigenerato. Rigeneralo per configurare il webhook a mano.",
+    "regenerateSecret": "Rigenera secret",
+    "regenerateSecretConfirm": "Rigenera: il secret attuale smette di funzionare",
+    "regenerateSecretWarning": "Se il webhook l'ha configurato Stubwise, il secret nuovo va prima al provider git; altrimenti le merge vengono rifiutate finché non lo incolli lì.",
+    "secretRevealedManual": "È l'unica volta che vedi il secret nuovo: copialo adesso nel provider git.",
+    "secretRevealedPlatform": "Il provider git ha già il secret nuovo. È l'unica volta che lo vedi.",
+    "secretRollback": "Il secret non si è potuto salvare: resta in uso quello di prima, su Stubwise e sul provider git.",
+    "secretScopeMissing": "Il token dell'account git non può gestire i webhook (scope mancante): aggiornalo e riprova.",
+    "regenerateSecretFailed": "Non è stato possibile rigenerare il secret: resta in uso quello di prima. Riprova."
   },
   "jobStatus": {
     "notes": {

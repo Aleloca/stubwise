@@ -309,3 +309,51 @@ export const putProjectPluginsSchema = z.object({
     ),
 });
 export type PutProjectPluginsInput = z.infer<typeof putProjectPluginsSchema>;
+
+/**
+ * Area 9, F5: GET e PUT delle abilitazioni di un progetto, con la versione
+ * (un'impronta dello stato) da rimandare come `ifMatch`. `version` è `null`
+ * da un server che non la manda ancora: in quel caso il client non manda
+ * `ifMatch`, e il salvataggio funziona come prima.
+ */
+/**
+ * Area 9, F5: una riga del registro vista da chi gestisce il PROGETTO (che
+ * non ha `plugins.manage` d'istanza): quanto serve a scegliere, niente di
+ * più (nessun URL, sha né comando di hook). Tutti gli stati: un plugin non
+ * `ready` non entra nei run, e la pagina lo dice.
+ */
+export const projectPluginRegistryRowSchema = z.object({
+  pluginId: z.uuid(),
+  slug: z.string(),
+  name: z.string(),
+  status: pluginStatusSchema,
+  skills: z.array(z.string()).default([]),
+  hookGroups: z.array(z.string()).default([]),
+  /** Il preset consigliato (`RECOMMENDED_DISABLED_SKILLS`, per nome del manifest), ristretto alle skill che ci sono. */
+  recommendedDisabledSkills: z.array(z.string()).default([]),
+});
+export type ProjectPluginRegistryRow = z.infer<typeof projectPluginRegistryRowSchema>;
+
+/**
+ * Area 9, F5: un'abilitazione come la LEGGE un client. È lo stesso oggetto di
+ * {@link projectPluginSchema} senza i tetti di lunghezza, che servono al body
+ * del PUT: una risposta non si rifiuta per un elenco lungo, e un array con
+ * controlli non è attraversabile da `readerSchema` (`reader.test.ts`).
+ */
+export const projectPluginReadSchema = z.object({
+  pluginId: z.uuid(),
+  enabled: z.boolean(),
+  disabledSkills: z.array(z.string()).default([]),
+  disabledHooks: z.array(z.string()).default([]),
+});
+
+export const projectPluginsViewSchema = z.object({
+  plugins: z.array(projectPluginReadSchema),
+  version: z.string().nullable().default(null),
+  /** Vuoto da un server che non lo manda ancora. */
+  registry: z.array(projectPluginRegistryRowSchema).default([]),
+});
+export type ProjectPluginsView = z.infer<typeof projectPluginsViewSchema>;
+
+/** Il 409 `stale` del PUT: in `ApiError.details`, la versione e lo stato di adesso. */
+export const projectPluginsStaleSchema = z.object({ version: z.string(), plugins: z.array(projectPluginReadSchema) });

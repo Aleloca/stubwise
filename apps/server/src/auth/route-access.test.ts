@@ -130,6 +130,8 @@ describe("rotte con riconferma recente", () => {
       "DELETE /api/git-accounts/:id",
       "DELETE /api/me/security/passkeys/:id",
       "DELETE /api/projects/:projectId/members/:userId",
+      "DELETE /api/repositories/:id/env-files/:fileId",
+      "DELETE /api/repositories/:id/env-files/:fileId/vars/:key",
       "DELETE /api/roles/:id",
       "DELETE /api/settings/google-workspaces/:id",
       "DELETE /api/settings/webhooks/:id",
@@ -157,7 +159,10 @@ describe("rotte con riconferma recente", () => {
       // Area 8, «L'API per i siti»: il segreto d'identità del widget è una credenziale.
       "POST /api/plugins",
       "POST /api/plugins/:id/update",
+      "POST /api/projects/:projectId/ingestion-key",
       "POST /api/projects/:projectId/widgets/:widgetId/identity-secret",
+      "POST /api/repositories/:id/env-files/:fileId/import",
+      "POST /api/repositories/:slug/webhook-secret",
       "POST /api/roles",
       "POST /api/roles/:id/duplicate",
       // Area 9, F1: disattivare e riattivare una persona.
@@ -176,6 +181,7 @@ describe("rotte con riconferma recente", () => {
       "POST /api/vault/recovery/confirm/:personKeyId",
       "POST /api/vault/recovery/pending",
       "PUT /api/projects/:projectId/members/:userId",
+      "PUT /api/repositories/:id/env-files/:fileId/vars/:key",
       "PUT /api/users/:id/bitbucket",
       "PUT /api/users/:id/slack",
     ]);
@@ -188,6 +194,7 @@ describe("rotte con riconferma recente", () => {
   it("le rotte con riconferma PARZIALE sono ESATTAMENTE queste", async () => {
     const partial = (await registeredRoutes()).filter((r) => r.partialReauth).map((r) => r.key);
     expect(partial.sort()).toEqual([
+      "DELETE /api/projects/:projectId/environments/:environmentId",
       "PATCH /api/ai-providers/:id",
       "PATCH /api/git-accounts/:id",
       "PATCH /api/settings/google-workspaces/:id",

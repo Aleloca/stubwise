@@ -27,6 +27,8 @@ const ARGS_FOR: Record<string, unknown[]> = {
   "drive.upload": [ID, new Blob(["x"]), "x.pdf"],
   "mail.uploadAttachment": [ID, new Blob(["x"]), "x.txt"],
   "calendar.freeBusy": [{ personIds: [ID], from: NOW, to: NOW }],
+  // Legge `input.range`: con un id al posto dell'oggetto lancerebbe prima di `request`.
+  "usage.summary": [{ range: { days: 30 }, groupBy: "project" }],
 };
 
 function responseSchemas(): {

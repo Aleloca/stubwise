@@ -9,6 +9,7 @@ import { RepositoryForm } from "../../components/repository-form";
 import { RepositorySaveWarnings } from "../../components/repository-save-warnings";
 import { patchRepository, type RepositoryPatch } from "../../lib/api";
 import { useCan } from "../../lib/permissions";
+import { dropOneTimeSecret, peekOneTimeSecret } from "../../lib/one-time-secrets";
 import { readRepositoryWarnings, withoutRepositoryWarnings } from "../../lib/repository-warnings";
 import { formatDateTime } from "../../lib/format";
 import {
@@ -56,6 +57,13 @@ function RepositoryDetail({ slug }: { slug: string }) {
     enabled: canManage,
   });
   const [saved, setSaved] = useState(false);
+  // Area 9, F5 (decisione C): il segreto del webhook intero che la creazione
+  // ha appena dato, una volta; poi solo le ultime 4.
+  const secretKey = `webhook-secret:${slug}`;
+  const [createdSecret] = useState(() => peekOneTimeSecret(secretKey));
+  useEffect(() => {
+    dropOneTimeSecret(secretKey);
+  }, [secretKey]);
   // Avvisi NON bloccanti del salvataggio: dal PATCH qui sotto, oppure —
   // appena atterrati dal wizard — dallo stato della navigazione. Quello si
   // legge UNA volta, al montaggio, e si CONSUMA subito (sotto): `history.state`
@@ -233,6 +241,8 @@ function RepositoryDetail({ slug }: { slug: string }) {
               webhook={webhook}
               webhookConfiguredAt={repository.webhookConfiguredAt ?? null}
               onWebhookConfigured={handleWebhookConfigured}
+              revealedSecret={createdSecret}
+              onSecretRegenerated={() => void queryClient.invalidateQueries({ queryKey: repositoryWebhookQueryOptions(slug).queryKey })}
             />
           </div>
         )}

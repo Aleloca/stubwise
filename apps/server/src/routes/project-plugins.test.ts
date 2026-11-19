@@ -1,9 +1,9 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
-import { plugins, projectPlugins, projects, type Db } from "@stubwise/db";
+import { changeLog, plugins, projectPlugins, projects, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository as seedRepositoryRaw, startTestDb } from "@stubwise/db/testing";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
@@ -47,6 +47,14 @@ async function seedPlugin(slug: string): Promise<string> {
     .returning();
   if (!row) throw new Error("insert del plugin di test non ha restituito la riga");
   return row.id;
+}
+
+/** La risposta senza `version` (area 9, F5): il resto si confronta esatto. */
+function withoutVersion(body: unknown) {
+  const { version, registry, ...rest } = body as { version: unknown; registry: unknown };
+  expect(typeof version).toBe("string");
+  expect(Array.isArray(registry)).toBe(true);
+  return rest;
 }
 
 /** PUT dell'insieme completo delle abilitazioni del progetto corrente. */
@@ -146,7 +154,7 @@ describe("GET/PUT /api/projects/:projectId/plugins", () => {
   it("un progetto senza abilitazioni risponde con la lista vuota", async () => {
     const res = await get();
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ plugins: [] });
+    expect(withoutVersion(res.json())).toEqual({ plugins: [] });
   });
 
   it("salva le abilitazioni e le rilegge identiche (round-trip)", async () => {
@@ -163,8 +171,8 @@ describe("GET/PUT /api/projects/:projectId/plugins", () => {
     };
     const res = await put(body);
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual(body);
-    expect((await get()).json()).toEqual(body);
+    expect(withoutVersion(res.json())).toEqual(body);
+    expect(withoutVersion((await get()).json())).toEqual(body);
   });
 
   it("il PUT è una SOSTITUZIONE COMPLETA: i plugin assenti spariscono", async () => {
@@ -194,7 +202,7 @@ describe("GET/PUT /api/projects/:projectId/plugins", () => {
     await put({ plugins: [{ pluginId: id, enabled: true }] });
     const res = await put({ plugins: [] });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ plugins: [] });
+    expect(withoutVersion(res.json())).toEqual({ plugins: [] });
   });
 
   it("avanza updatedAt su un'abilitazione riscritta", async () => {
@@ -287,7 +295,7 @@ describe("GET/PUT /api/projects/:projectId/plugins", () => {
 
     const result = await putProjectPlugins(racing, projectId, [
       { pluginId: id, enabled: true, disabledSkills: [], disabledHooks: [] },
-    ]);
+    ], { actor: { id: randomUUID(), email: "x@example.com" } });
     expect(result.ok).toBe(false);
     expect(result).toMatchObject({ error: "unknown_plugin" });
   });
@@ -302,5 +310,62 @@ describe("GET/PUT /api/projects/:projectId/plugins", () => {
       ],
     });
     expect(dup.statusCode).toBe(400);
+  });
+});
+
+describe("area 9, F5: la versione, ifMatch e la voce", () => {
+  const entries = () => testDb.db.select().from(changeLog).where(and(eq(changeLog.type, "project.plugins_changed"), eq(changeLog.projectId, projectId)));
+
+  it("il GET dà la versione; un PUT con la versione giusta salva e ne dà una nuova; con quella vecchia 409 stale, lo stato di adesso, niente scritto", async () => {
+    const id = await seedPlugin("superpowers");
+    const v0 = (await get()).json() as { version: string };
+    const first = await put({ ifMatch: v0.version, plugins: [{ pluginId: id, enabled: true, disabledSkills: ["writing-plans"] }] });
+    expect(first.statusCode).toBe(200);
+    const v1 = (first.json() as { version: string }).version;
+    expect(v1).not.toBe(v0.version);
+    expect(((await get()).json() as { version: string }).version).toBe(v1);
+    // Chi aveva la pagina aperta da prima salva con la versione vecchia: non riaccende la skill in silenzio.
+    const late = await put({ ifMatch: v0.version, plugins: [{ pluginId: id, enabled: true, disabledSkills: [] }] });
+    expect(late.statusCode).toBe(409);
+    expect(late.json()).toMatchObject({ code: "stale", version: v1, plugins: [{ pluginId: id, disabledSkills: ["writing-plans"] }] });
+    const [row] = await testDb.db.select().from(projectPlugins).where(eq(projectPlugins.projectId, projectId));
+    expect(row!.disabledSkills).toEqual(["writing-plans"]);
+  });
+
+  it("la versione non dipende dall'ordine delle liste; senza ifMatch (il web vecchio) si salva come prima", async () => {
+    const id = await seedPlugin("superpowers");
+    await put({ plugins: [{ pluginId: id, enabled: true, disabledSkills: ["writing-plans", "using-git-worktrees"] }] });
+    const a = ((await get()).json() as { version: string }).version;
+    await put({ plugins: [{ pluginId: id, enabled: true, disabledSkills: ["using-git-worktrees", "writing-plans"] }] });
+    expect(((await get()).json() as { version: string }).version).toBe(a);
+  });
+
+  it("la voce: le chiavi stabili cambiate (plugin:skill, plugin#gruppo, i plugin accesi), una sola per salvataggio; un salvataggio identico non ne scrive", async () => {
+    const id = await seedPlugin("superpowers");
+    await put({ plugins: [{ pluginId: id, enabled: true }] });
+    const [on] = await entries();
+    expect(on!.data).toMatchObject({ object: { type: "project", id: projectId }, before: JSON.stringify({ enabledPlugins: [] }), after: JSON.stringify({ enabledPlugins: ["superpowers"] }) });
+    await put({ plugins: [{ pluginId: id, enabled: true, disabledSkills: ["writing-plans"], disabledHooks: ["SessionStart#0"] }] });
+    const second = (await entries()).find((e) => e.id !== on!.id)!;
+    expect(second.data).toMatchObject({
+      before: JSON.stringify({ disabledSkills: [], disabledHooks: [] }),
+      after: JSON.stringify({ disabledSkills: ["superpowers:writing-plans"], disabledHooks: ["superpowers#SessionStart#0"] }),
+    });
+    await put({ plugins: [{ pluginId: id, enabled: true, disabledSkills: ["writing-plans"], disabledHooks: ["SessionStart#0"] }] });
+    expect(await entries()).toHaveLength(2);
+  });
+});
+
+describe("area 9, F5: il registro per chi gestisce il progetto", () => {
+  it("ogni plugin del registro con stato, skill, gruppi di hook e il preset consigliato (ristretto alle skill che ci sono); niente URL né comandi", async () => {
+    const id = await seedPlugin("superpowers");
+    await testDb.db.insert(plugins).values({ slug: "rotto", name: "rotto", sourceUrl: "https://github.com/acme/rotto", ref: "v1", status: "failed" });
+    const body = (await get()).json() as { registry: Record<string, unknown>[] };
+    expect(body.registry).toEqual([
+      { pluginId: expect.any(String), slug: "rotto", name: "rotto", status: "failed", skills: [], hookGroups: [], recommendedDisabledSkills: [] },
+      { pluginId: id, slug: "superpowers", name: "superpowers", status: "ready", skills: ["writing-plans", "using-git-worktrees"], hookGroups: ["SessionStart#0"], recommendedDisabledSkills: ["using-git-worktrees"] },
+    ]);
+    expect(JSON.stringify(body.registry)).not.toContain("echo ciao");
+    expect(JSON.stringify(body.registry)).not.toContain("github.com");
   });
 });

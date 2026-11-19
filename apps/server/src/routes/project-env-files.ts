@@ -1,9 +1,11 @@
+import { recordChange } from "../services/change-log.js";
 import {
   projectEnvironments,
   encrypt,
   projectEnvFiles,
   projectEnvVars,
   repositories,
+  type Db,
 } from "@stubwise/db";
 import { isSafeRelPath, isValidEnvKey, parseDotenv } from "@stubwise/shared";
 import { and, asc, eq, sql } from "drizzle-orm";
@@ -13,6 +15,8 @@ import { z } from "zod";
 import { repositoryAccess } from "../auth/project-resolvers.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import { apiError } from "../errors.js";
+
+type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 const createFileSchema = z.object({ path: z.string(), environmentId: z.uuid() });
 const importSchema = z.object({ content: z.string() });
@@ -78,6 +82,22 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
     return rows.map((r) => ({ key: r.key, valueSet: true as const }));
   }
 
+  /**
+   * Area 9, F5: l'oggetto e i `params` di una voce su un file d'ambiente, come
+   * il prototipo (`envFiles.ts`): il percorso, il NOME dell'ambiente e del
+   * repository, il progetto. Mai un valore.
+   */
+  async function envFileContext(db: DbOrTx, fileId: string) {
+    const [row] = await db
+      .select({ id: projectEnvFiles.id, path: projectEnvFiles.path, environment: projectEnvironments.name, repository: repositories.name, projectId: repositories.projectId })
+      .from(projectEnvFiles)
+      .innerJoin(repositories, eq(repositories.id, projectEnvFiles.repositoryId))
+      .innerJoin(projectEnvironments, eq(projectEnvironments.id, projectEnvFiles.environmentId))
+      .where(eq(projectEnvFiles.id, fileId));
+    if (!row) return null;
+    return { projectId: row.projectId, object: { type: "env_file", id: row.id, label: row.path }, params: { environment: row.environment, repository: row.repository } };
+  }
+
   // Verifica che il file esista E appartenga al repository dell'URL: evita di
   // operare su file di altri repository tramite fileId indovinati.
   async function findFile(repositoryId: string, fileId: string) {
@@ -93,7 +113,7 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
   app.post(
     "/:id/env-files",
     {
-      config: { access: REPOS_MANAGE },
+      config: { access: REPOS_MANAGE }, // D-5: niente riconferma per un file VUOTO (il prototipo lo esclude apposta)
       schema: {
         params: projectParamsSchema,
         body: createFileSchema,
@@ -132,11 +152,13 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
       if (!environment) return apiError(reply, 404, "environment_not_found", "Environment not found");
 
       try {
-        const [created] = await app.db
-          .insert(projectEnvFiles)
-          .values({ repositoryId, environmentId, path })
-          .returning();
-        if (!created) throw new Error("insert del file env non ha restituito la riga");
+        const created = await app.db.transaction(async (tx) => {
+          const [row] = await tx.insert(projectEnvFiles).values({ repositoryId, environmentId, path }).returning();
+          if (!row) throw new Error("insert del file env non ha restituito la riga");
+          const ctx = (await envFileContext(tx, row.id))!;
+          await recordChange(tx, { type: "env_file.created", actor: request.user!, projectId: ctx.projectId, data: { object: ctx.object, params: ctx.params } });
+          return row;
+        });
         return await reply
           .code(201)
           .send({ id: created.id, environmentId: created.environmentId, path: created.path, vars: [] });
@@ -188,7 +210,7 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
   app.post(
     "/:id/env-files/:fileId/import",
     {
-      config: { access: REPOS_MANAGE },
+      config: { access: REPOS_MANAGE, reauth: true },
       schema: {
         params: fileParamsSchema,
         body: importSchema,
@@ -214,6 +236,10 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
               set: { valueEncrypted, updatedAt: sql`now()` },
             });
         }
+        // Area 9, F5: quante variabili, mai quali valori. Un import senza
+        // righe valide non ha scritto niente, quindi niente voce.
+        const ctx = valid.length > 0 ? await envFileContext(tx, fileId) : null;
+        if (ctx) await recordChange(tx, { type: "env_file.imported", actor: request.user!, projectId: ctx.projectId, data: { object: ctx.object, params: { ...ctx.params, count: String(valid.length) } } });
       });
       const imported = valid.map((v) => v.key);
       return { count: imported.length, imported };
@@ -226,7 +252,7 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
   app.put(
     "/:id/env-files/:fileId/vars/:key",
     {
-      config: { access: REPOS_MANAGE },
+      config: { access: REPOS_MANAGE, reauth: true },
       schema: {
         params: varParamsSchema,
         body: putVarSchema,
@@ -242,13 +268,18 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
       if (!file) return apiError(reply, 404, "env_file_not_found", "Env file not found");
 
       const valueEncrypted = encrypt(request.body.value, app.encryptionKey);
-      await app.db
-        .insert(projectEnvVars)
-        .values({ fileId, key, valueEncrypted })
-        .onConflictDoUpdate({
-          target: [projectEnvVars.fileId, projectEnvVars.key],
-          set: { valueEncrypted, updatedAt: sql`now()` },
-        });
+      await app.db.transaction(async (tx) => {
+        await tx
+          .insert(projectEnvVars)
+          .values({ fileId, key, valueEncrypted })
+          .onConflictDoUpdate({
+            target: [projectEnvVars.fileId, projectEnvVars.key],
+            set: { valueEncrypted, updatedAt: sql`now()` },
+          });
+        // Il NOME della variabile (`variable`, K-3), mai il valore.
+        const ctx = (await envFileContext(tx, fileId))!;
+        await recordChange(tx, { type: "env_var.set", actor: request.user!, projectId: ctx.projectId, data: { object: ctx.object, params: { ...ctx.params, variable: key } } });
+      });
       return { key, valueSet: true as const };
     },
   );
@@ -256,7 +287,7 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
   app.delete(
     "/:id/env-files/:fileId/vars/:key",
     {
-      config: { access: REPOS_MANAGE },
+      config: { access: REPOS_MANAGE, reauth: true },
       schema: {
         params: varParamsSchema,
         response: { 204: z.null(), 400: errorSchema, 404: errorSchema, ...authErrorResponses },
@@ -270,10 +301,17 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
       const file = await findFile(repositoryId, fileId);
       if (!file) return apiError(reply, 404, "env_file_not_found", "Env file not found");
 
-      const deleted = await app.db
-        .delete(projectEnvVars)
-        .where(and(eq(projectEnvVars.fileId, fileId), eq(projectEnvVars.key, key)))
-        .returning({ id: projectEnvVars.id });
+      const deleted = await app.db.transaction(async (tx) => {
+        const gone = await tx
+          .delete(projectEnvVars)
+          .where(and(eq(projectEnvVars.fileId, fileId), eq(projectEnvVars.key, key)))
+          .returning({ id: projectEnvVars.id });
+        if (gone.length > 0) {
+          const ctx = (await envFileContext(tx, fileId))!;
+          await recordChange(tx, { type: "env_var.removed", actor: request.user!, projectId: ctx.projectId, data: { object: ctx.object, params: { ...ctx.params, variable: key } } });
+        }
+        return gone;
+      });
       if (deleted.length === 0) {
         return apiError(reply, 404, "env_var_not_found", "Env variable not found");
       }
@@ -284,7 +322,7 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
   app.delete(
     "/:id/env-files/:fileId",
     {
-      config: { access: REPOS_MANAGE },
+      config: { access: REPOS_MANAGE, reauth: true },
       schema: {
         params: fileParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
@@ -293,10 +331,18 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
     async (request, reply) => {
       const { id: repositoryId, fileId } = request.params;
       // Il vincolo sul repositoryId evita di cancellare file di altri repository.
-      const deleted = await app.db
-        .delete(projectEnvFiles)
-        .where(and(eq(projectEnvFiles.id, fileId), eq(projectEnvFiles.repositoryId, repositoryId)))
-        .returning({ id: projectEnvFiles.id });
+      const deleted = await app.db.transaction(async (tx) => {
+        // La voce prima della cancellazione: dopo, il file non c'è più da leggere.
+        const ctx = await envFileContext(tx, fileId);
+        const gone = await tx
+          .delete(projectEnvFiles)
+          .where(and(eq(projectEnvFiles.id, fileId), eq(projectEnvFiles.repositoryId, repositoryId)))
+          .returning({ id: projectEnvFiles.id });
+        if (gone.length > 0 && ctx) {
+          await recordChange(tx, { type: "env_file.deleted", actor: request.user!, projectId: ctx.projectId, data: { object: ctx.object, params: ctx.params } });
+        }
+        return gone;
+      });
       if (deleted.length === 0) {
         return apiError(reply, 404, "env_file_not_found", "Env file not found");
       }

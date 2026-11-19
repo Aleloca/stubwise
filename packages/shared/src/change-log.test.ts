@@ -25,6 +25,35 @@ describe("il catalogo del registro delle modifiche", () => {
     expect(INSTANCE_PERMISSIONS).toContain("instance.status.view");
   });
 
+  it("area 9, F5: i tipi della 9c sono ESATTAMENTE quelli del prototipo, tranne F6 (archivio, eliminazione) e 10a (task.deleted)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const proto = readFileSync(new URL("../../../apps/desktop/src/renderer/data/projectSettings/changeTypes.ts", import.meta.url), "utf8");
+    // Nel prototipo `projects(...)` è una voce d'ISTANZA (gruppo `projects`, `instance.full_admin`), le altre di progetto.
+    const entries = [...proto.matchAll(/^\s+(settings|tasks|repos|environments|widget|projects)\("([a-z_.]+)"\)/gm)].map((m) => ({ kind: m[2]!, scope: m[1] === "projects" ? "instance" : "project" }));
+    const notF5 = new Set(["project.archived", "project.reopened", "project.deleted", "repository.linked", "task.deleted"]);
+    const expected = entries.filter((e) => !notF5.has(e.kind)).sort((a, b) => a.kind.localeCompare(b.kind));
+    expect(expected.length).toBeGreaterThan(20);
+    const instanceKinds = new Set(expected.filter((e) => e.scope === "instance").map((e) => e.kind));
+    const ours = CHANGE_LOG_TYPES.filter((t) => (t.scope === "project" && !t.kind.startsWith("member.") && !t.kind.startsWith("queue.") && t.kind !== "job.retried") || instanceKinds.has(t.kind))
+      .map((t) => ({ kind: t.kind, scope: t.scope }))
+      .sort((a, b) => a.kind.localeCompare(b.kind));
+    expect(ours).toEqual(expected);
+    // `repository.deleted`: d'istanza (maintainer, 31 ott 2026, domanda 4 (b)).
+    expect(CHANGE_LOG_TYPES.find((t) => t.kind === "repository.deleted")).toMatchObject({ scope: "instance", group: "projects", readPermission: "instance.full_admin" });
+  });
+
+  it("area 9, F5: i params obbligatori della 9c; il nome della variabile è `variable` (K-3), mai `key`", () => {
+    const object = { type: "env_file", id: "x", label: "test" };
+    expect(CHANGE_DATA_SCHEMAS["env_var.set"]!.safeParse({ object, params: { environment: "test", repository: "web" } }).success).toBe(false);
+    expect(CHANGE_DATA_SCHEMAS["env_var.set"]!.safeParse({ object, params: { environment: "test", repository: "web", variable: "API_URL" } }).success).toBe(true);
+    expect(CHANGE_DATA_SCHEMAS["env_file.imported"]!.safeParse({ object, params: { environment: "test", repository: "web" } }).success).toBe(false);
+    expect(CHANGE_DATA_SCHEMAS["project.switch_changed"]!.safeParse({ object }).success).toBe(false);
+    expect(CHANGE_DATA_SCHEMAS["repository.updated"]!.safeParse({ object, params: { field: "name" } }).success).toBe(true);
+    expect(CHANGE_LOG_TYPES.find((t) => t.kind === "env_var.set")).toMatchObject({ scope: "project", group: "repositories", readPermission: "repos.manage" });
+    expect(CHANGE_LOG_TYPES.find((t) => t.kind === "widget.created")).toMatchObject({ readPermission: "widget.manage" });
+    expect(CHANGE_LOG_TYPES.find((t) => t.kind === "project.renamed")).toMatchObject({ group: "project", readPermission: "project.settings.manage" });
+  });
+
   it("uno schema per tipo pretende i `params` che la sua frase nomina", () => {
     const object = { type: "member", id: "x", label: "Bea" };
     expect(CHANGE_DATA_SCHEMAS["member.permission_granted"]!.safeParse({ object }).success).toBe(false);

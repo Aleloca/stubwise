@@ -1,17 +1,20 @@
-import { projectPluginSchema, putProjectPluginsSchema } from "@stubwise/shared";
+import { projectPluginRegistryRowSchema, projectPluginSchema, putProjectPluginsSchema } from "@stubwise/shared";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { RouteAccess } from "../auth/access.js";
 import { fromParam } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
-import { getProjectPlugins, putProjectPlugins } from "../services/plugins.js";
+import { getProjectPlugins, projectPluginRegistry, projectPluginsVersion, putProjectPlugins } from "../services/plugins.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 const paramsSchema = z.object({ projectId: z.uuid() });
 
 /** Risposta di GET e PUT: la stessa forma del body del PUT, così fa round-trip. */
-const projectPluginsSchema = z.object({ plugins: z.array(projectPluginSchema) });
+const projectPluginsSchema = z.object({ plugins: z.array(projectPluginSchema), version: z.string(), registry: z.array(projectPluginRegistryRowSchema) });
+/** Area 9, F5: `ifMatch` facoltativo (il web vecchio non lo manda: per lui resta l'ultima scrittura che vince). */
+const putBodySchema = putProjectPluginsSchema.extend({ ifMatch: z.string().min(1).optional() });
+const staleSchema = errorSchema.extend({ version: z.string(), plugins: z.array(projectPluginSchema) });
 
 /**
  * Abilitazioni dei plugin su un progetto, sotto /api/projects/:projectId/plugins.
@@ -44,7 +47,9 @@ export async function projectPluginRoutes(instance: FastifyInstance): Promise<vo
     },
     async (request) => {
       const { projectId } = request.params;
-      return { plugins: await getProjectPlugins(app.db, projectId) };
+      const plugins = await getProjectPlugins(app.db, projectId);
+      // Area 9, F5: anche il registro, per chi non ha `plugins.manage` d'istanza.
+      return { plugins, version: projectPluginsVersion(plugins), registry: await projectPluginRegistry(app.db) };
     },
   );
 
@@ -54,10 +59,11 @@ export async function projectPluginRoutes(instance: FastifyInstance): Promise<vo
       config: { access: ACCESS },
       schema: {
         params: paramsSchema,
-        body: putProjectPluginsSchema,
+        body: putBodySchema,
         response: {
           200: projectPluginsSchema,
           400: errorSchema,
+          409: staleSchema,
           404: errorSchema,
           ...authErrorResponses,
         },
@@ -65,7 +71,10 @@ export async function projectPluginRoutes(instance: FastifyInstance): Promise<vo
     },
     async (request, reply) => {
       const { projectId } = request.params;
-      const result = await putProjectPlugins(app.db, projectId, request.body.plugins);
+      const result = await putProjectPlugins(app.db, projectId, request.body.plugins, { actor: request.user!, ifMatch: request.body.ifMatch });
+      if (!result.ok && result.error === "stale") {
+        return reply.code(409).send({ code: "stale", message: "The plugin choices changed since you loaded them", version: result.version, plugins: result.plugins });
+      }
       if (!result.ok) {
         // 400 e non tolleranza: uno spegnimento che cita una voce inesistente è
         // un refuso che, salvato in silenzio, lascerebbe accesa una skill che
@@ -78,7 +87,7 @@ export async function projectPluginRoutes(instance: FastifyInstance): Promise<vo
               : `Unknown hook in the plugin inventory (${result.detail})`;
         return apiError(reply, 400, result.error, message);
       }
-      return { plugins: result.plugins };
+      return { plugins: result.plugins, version: projectPluginsVersion(result.plugins), registry: await projectPluginRegistry(app.db) };
     },
   );
 }

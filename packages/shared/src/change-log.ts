@@ -28,6 +28,11 @@ const instance = (kind: string, readPermission: string, group: string): ChangeLo
 const project = (kind: string, group = "members", readPermission = "project.members.manage"): ChangeLogType => ({ kind, scope: "project", group, readPermission });
 // Area 9, F4: la coda di un progetto (J-1 = a: la gestisce chi gestisce il progetto).
 const queue = (kind: string): ChangeLogType => project(kind, "queue", "project.settings.manage");
+// Area 9, F5: le impostazioni del progetto (la 9c del prototipo, `projectSettings/changeTypes.ts`).
+const settings9c = (kind: string): ChangeLogType => project(kind, "project", "project.settings.manage");
+const repos9c = (kind: string): ChangeLogType => project(kind, "repositories", "repos.manage");
+const environments9c = (kind: string): ChangeLogType => project(kind, "repositories", "environments.manage");
+const widget9c = (kind: string): ChangeLogType => project(kind, "repositories", "widget.manage");
 
 export const CHANGE_LOG_TYPES = [
   instance("person.instance_role_changed", "users.manage", "people"),
@@ -93,6 +98,41 @@ export const CHANGE_LOG_TYPES = [
   queue("queue.paused"),
   queue("queue.resumed"),
   queue("job.retried"),
+  // Area 9, F5: la 9c (archivio ed eliminazione in F6, task.deleted nell'area 10a).
+  settings9c("project.renamed"),
+  settings9c("project.description_changed"),
+  settings9c("project.docs_toggled"),
+  settings9c("project.ai_account_changed"),
+  settings9c("project.switch_changed"),
+  settings9c("project.pulse_interval_changed"),
+  settings9c("project.correction_cap_changed"),
+  settings9c("project.statuses_changed"),
+  settings9c("project.stall_thresholds_changed"),
+  settings9c("project.plugins_changed"),
+  settings9c("project.ingestion_key_regenerated"),
+  repos9c("repository.created"),
+  repos9c("repository.updated"),
+  repos9c("repository.pr_mode_changed"),
+  repos9c("repository.release_pipeline_changed"),
+  repos9c("repository.webhook_configured"),
+  repos9c("repository.webhook_secret_regenerated"),
+  repos9c("env_file.created"),
+  repos9c("env_file.deleted"),
+  repos9c("env_file.imported"),
+  repos9c("env_var.set"),
+  repos9c("env_var.removed"),
+  environments9c("environment.created"),
+  environments9c("environment.updated"),
+  environments9c("environment.deleted"),
+  widget9c("widget.created"),
+  widget9c("widget.updated"),
+  widget9c("widget.deleted"),
+  // D'istanza come nel prototipo (maintainer, 31 ott 2026, domanda 4 (b)):
+  // l'eliminazione da Amministrazione di un repository SENZA progetto. Sul
+  // server un repository ha sempre un progetto (`project_id NOT NULL`, va via
+  // in cascata col progetto) e nessuna rotta lo elimina da solo: oggi è un
+  // tipo dichiarato senza scrittore.
+  instance("repository.deleted", "instance.full_admin", "projects"),
 ] as const satisfies readonly ChangeLogType[];
 
 export type ChangeLogKind = (typeof CHANGE_LOG_TYPES)[number]["kind"];
@@ -194,6 +234,38 @@ export const CHANGE_DATA_SCHEMAS: Record<ChangeLogKind, z.ZodType<ChangeData>> =
   // Prima e dopo: `paused:<ISO>` → `running` (encodeQueue del prototipo).
   "queue.resumed": changeDataSchema,
   "job.retried": changeDataSchema,
+  // Area 9, F5: i `params` che le frasi della 9c leggono (`ProjectChangeParams`
+  // del prototipo). Il nome di una variabile è `variable`, mai `key` (K-3): il
+  // test di sorgente sui segreti resta senza eccezioni.
+  "project.renamed": changeDataSchema,
+  "project.description_changed": changeDataSchema,
+  "project.docs_toggled": changeDataSchema,
+  "project.ai_account_changed": changeDataSchema,
+  "project.switch_changed": withParams("switch"),
+  "project.pulse_interval_changed": changeDataSchema,
+  "project.correction_cap_changed": changeDataSchema,
+  "project.statuses_changed": changeDataSchema,
+  "project.stall_thresholds_changed": changeDataSchema,
+  "project.plugins_changed": changeDataSchema,
+  "project.ingestion_key_regenerated": changeDataSchema,
+  "repository.created": changeDataSchema,
+  "repository.updated": withParams("field"),
+  "repository.pr_mode_changed": changeDataSchema,
+  "repository.release_pipeline_changed": changeDataSchema,
+  "repository.webhook_configured": changeDataSchema,
+  "repository.webhook_secret_regenerated": changeDataSchema,
+  "env_file.created": withParams("environment", "repository"),
+  "env_file.deleted": withParams("environment", "repository"),
+  "env_file.imported": withParams("environment", "repository", "count"),
+  "env_var.set": withParams("environment", "repository", "variable"),
+  "env_var.removed": withParams("environment", "repository", "variable"),
+  "environment.created": changeDataSchema,
+  "environment.updated": changeDataSchema,
+  "environment.deleted": changeDataSchema,
+  "widget.created": changeDataSchema,
+  "widget.updated": changeDataSchema,
+  "widget.deleted": changeDataSchema,
+  "repository.deleted": changeDataSchema,
 };
 
 /**

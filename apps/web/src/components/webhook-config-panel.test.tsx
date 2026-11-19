@@ -14,7 +14,7 @@ import { WebhookConfigPanel } from "./webhook-config-panel";
 const props = {
   slug: "demo-shop",
   origin: "https://track.example.com",
-  webhook: { webhookSecret: "s3cr3t-hmac", webhookPath: "/webhooks/git/demo-shop" },
+  webhook: { webhookPath: "/webhooks/git/demo-shop", secretLast4: "hmac", configured: true },
 };
 
 describe("WebhookConfigPanel", () => {
@@ -22,18 +22,56 @@ describe("WebhookConfigPanel", () => {
     vi.restoreAllMocks();
   });
 
-  it("mostra URL assoluto e secret, copiabili", async () => {
-    const user = userEvent.setup();
+  it("mostra l'URL assoluto copiabile e il secret MASCHERATO (ultime 4, niente copia)", () => {
     render(<WebhookConfigPanel {...props} />);
 
     expect(screen.getByTestId("webhook-config")).toBeInTheDocument();
     expect(
       screen.getByText("https://track.example.com/webhooks/git/demo-shop"),
     ).toBeInTheDocument();
-    expect(screen.getByText("s3cr3t-hmac")).toBeInTheDocument();
+    expect(screen.getByTestId("webhook-secret-masked")).toHaveTextContent("••••••••hmac");
+    expect(screen.queryByRole("button", { name: "Copy webhook secret" })).not.toBeInTheDocument();
+  });
 
+  it("il secret della creazione (revealedSecret) si vede intero e si copia", async () => {
+    const user = userEvent.setup();
+    render(<WebhookConfigPanel {...props} revealedSecret="s3cr3t-hmac" />);
+    expect(screen.getByText("s3cr3t-hmac")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Copy webhook secret" }));
     expect(await navigator.clipboard.readText()).toBe("s3cr3t-hmac");
+  });
+
+  it("rigenera in due passi: il secret nuovo si vede una volta (manual) e il genitore rilegge", async () => {
+    const user = userEvent.setup();
+    const onRegenerated = vi.fn();
+    const spy = vi.spyOn(api, "regenerateWebhookSecret").mockResolvedValue({ mode: "manual", webhookSecret: "nuovo-secret-1234" });
+    render(<WebhookConfigPanel {...props} onSecretRegenerated={onRegenerated} />);
+
+    await user.click(screen.getByTestId("regenerate-secret-button"));
+    expect(spy).not.toHaveBeenCalled();
+    await user.click(screen.getByTestId("regenerate-secret-confirm"));
+
+    expect(spy).toHaveBeenCalledWith("demo-shop");
+    expect(await screen.findByText("nuovo-secret-1234")).toBeInTheDocument();
+    expect(screen.getByText(/copy it into the git provider now/)).toBeInTheDocument();
+    expect(onRegenerated).toHaveBeenCalledTimes(1);
+  });
+
+  it("rigenerazione con rollback o scope mancante: resta mascherato, con il messaggio giusto", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "regenerateWebhookSecret")
+      .mockResolvedValueOnce({ mode: "rollback", platformRestored: true })
+      .mockRejectedValueOnce(new api.ApiError(422, "missing scope", "webhook_scope_missing"));
+    render(<WebhookConfigPanel {...props} />);
+
+    await user.click(screen.getByTestId("regenerate-secret-button"));
+    await user.click(screen.getByTestId("regenerate-secret-confirm"));
+    expect(await screen.findByTestId("regenerate-secret-error")).toHaveTextContent(/previous one is still in use/);
+    expect(screen.getByTestId("webhook-secret-masked")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("regenerate-secret-button"));
+    await user.click(screen.getByTestId("regenerate-secret-confirm"));
+    expect(await screen.findByTestId("regenerate-secret-error")).toHaveTextContent(/missing scope/);
   });
 
   it("click chiama postConfigureWebhook(slug) e mostra l'esito di successo", async () => {
