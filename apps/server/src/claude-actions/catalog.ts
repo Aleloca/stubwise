@@ -58,9 +58,11 @@ export type ActionObject = {
   /**
    * Area 9, F7: `member` (e le altre dell'area 9) hanno `stamp` = l'istante
    * della scrittura; «Annulla» guarda le voci del registro arrivate DOPO sullo
-   * stesso soggetto (`changed_after`).
+   * stesso soggetto (`changed_after`), solo dei tipi in `changeTypes` se c'è.
    */
-  kind: "task" | "request" | "milestone" | "filter" | "comment" | "subscription" | "member";
+  kind: "task" | "request" | "milestone" | "filter" | "comment" | "subscription" | "member" | "project";
+  /** Area 9, F7: i tipi di voce che contano per `changed_after` (assente: tutti). */
+  changeTypes?: readonly string[];
   id: string;
   code?: string;
   stamp?: string;
@@ -116,6 +118,11 @@ export interface CatalogEntry {
     db: Db,
   ) => { params?: Record<string, unknown>; body?: unknown } | Promise<{ params?: Record<string, unknown>; body?: unknown }>;
   run: CatalogRun;
+  /**
+   * Area 9, F7: lo stesso `config.archived` della rotta (archivia e riapri
+   * passano su un archiviato; il test d'accordo lo confronta con la rotta).
+   */
+  archived?: "read" | "write";
 }
 
 const onTicket = (
@@ -543,8 +550,11 @@ export function syntheticRequest(
   db: Db,
   user: SessionUser,
   parts: { params?: Record<string, unknown>; body?: unknown },
+  archived?: "read" | "write",
 ): FastifyRequest {
   return {
+    // Solo `config.archived`: l'eccezione dichiarata della rotta all'archivio (F6).
+    routeOptions: { config: archived ? { archived } : {} },
     params: parts.params ?? {},
     body: parts.body ?? {},
     query: {},

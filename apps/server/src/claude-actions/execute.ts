@@ -151,7 +151,7 @@ async function runGroup(
                 ? { ok: true as const, projectId: null, permissions: new Set<ProjectPermission>() }
                 : { ok: false as const, error: "forbidden" as const }
               : await evaluateProjectAccess(
-                syntheticRequest(tx as unknown as Db, user, await entry.request(args, tx as unknown as Db)),
+                syntheticRequest(tx as unknown as Db, user, await entry.request(args, tx as unknown as Db), entry.archived),
                 tx as unknown as Db,
                 user,
                 entry.access,

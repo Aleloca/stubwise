@@ -52,6 +52,15 @@ export const CLAUDE_ACTION_FNS = [
   "setMemberRole",
   "registerPlugin",
   "updatePluginRef",
+  // Area 9, F7, Task 3: le B del progetto.
+  "archiveProject",
+  "reopenProject",
+  "updateProjectGeneral",
+  "setProjectAi",
+  "saveProjectAutomations",
+  "pauseQueue",
+  "resumeQueue",
+  "retryJob",
 ] as const;
 export const claudeActionFnSchema = z.enum(CLAUDE_ACTION_FNS);
 export type ClaudeActionFn = z.infer<typeof claudeActionFnSchema>;
@@ -97,6 +106,15 @@ export const CLAUDE_DECLARED_CLASS: Record<ClaudeActionFn, "A" | "B" | "C"> = {
   setMemberRole: "C",
   registerPlugin: "C",
   updatePluginRef: "C",
+  // Area 9, F7, Task 3: le impostazioni del progetto (le rotte non chiedono la riconferma).
+  archiveProject: "B",
+  reopenProject: "B",
+  updateProjectGeneral: "B",
+  setProjectAi: "B",
+  saveProjectAutomations: "B",
+  pauseQueue: "B",
+  resumeQueue: "B",
+  retryJob: "B",
 };
 
 const id = z.uuid();
@@ -164,6 +182,27 @@ export const CLAUDE_ACTION_ARGS = {
   // di quel commit, e la scheda lo dice.
   registerPlugin: createPluginSchema.extend({ trust: z.literal(true) }).strict(),
   updatePluginRef: updatePluginRefSchema.extend({ id, trust: z.literal(true) }).strict(),
+  // Area 9, F7, Task 3: le forme del prototipo (`data/claude/catalog.ts`).
+  archiveProject: z.object({ projectId: id }).strict(),
+  reopenProject: z.object({ projectId: id }).strict(),
+  updateProjectGeneral: z
+    .object({ projectId: id, name: z.string().min(1).max(200).optional(), description: z.string().min(1).max(2000).nullable().optional() })
+    .strict()
+    .refine((a) => a.name !== undefined || a.description !== undefined, "name or description"),
+  setProjectAi: z.object({ projectId: id, providerId: id.nullable(), exclusive: z.boolean() }).strict(),
+  saveProjectAutomations: z
+    .object({
+      projectId: id,
+      switches: z
+        .object({ docsNightly: z.boolean(), dailyReport: z.boolean(), backlogDiscovery: z.boolean(), pulse: z.boolean(), weeklyBrief: z.boolean() })
+        .strict(),
+      pulseEveryDays: z.number().int().min(1).max(30),
+      correctionCap: z.number().int().min(0).max(10),
+    })
+    .strict(),
+  pauseQueue: z.object({ projectId: id }).strict(),
+  resumeQueue: z.object({ projectId: id }).strict(),
+  retryJob: z.object({ jobId: id }).strict(),
 } satisfies Record<ClaudeActionFn, z.ZodType>;
 
 export const claudeProposedActionSchema = z.object({

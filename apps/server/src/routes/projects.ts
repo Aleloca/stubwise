@@ -1,5 +1,5 @@
 import { ArchiveError, deleteArchivedProject } from "../services/project-archive.js";
-import { recordProjectChanges } from "../services/project-settings-log.js";
+import { orderedModules, patchProject } from "../services/project-patch.js";
 import {
   createProjectSchema,
   decisionDraftSchema,
@@ -20,10 +20,8 @@ import {
   updateProjectSchema,
   compareProjectNames,
   needsViewer,
-  MODULE_ORDER,
   TEMPLATE_MODULES,
   TEMPLATE_STATUSES,
-  type ProjectModule,
   deleteProjectSchema,
 } from "@stubwise/shared";
 import { summarizeProject, userIdsWithPermission, type ProjectPulseSummary } from "@stubwise/notifications";
@@ -243,10 +241,6 @@ function toPublicProject(row: ProjectRow, pausers: Map<string, string> = new Map
   };
 }
 
-/** I moduli una volta sola, nell'ordine in cui un progetto li elenca (`MODULE_ORDER`). */
-function orderedModules(modules: readonly ProjectModule[]): ProjectModule[] {
-  return MODULE_ORDER.filter((m) => modules.includes(m));
-}
 
 /**
  * Route dei progetti (gruppi), registrate sotto /api/projects. Lettura per chi
@@ -984,105 +978,11 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const {
-        name,
-        description,
-        aiProviderId,
-        aiProviderExclusive,
-        docAutoUpdate,
-        dailyReportEnabled,
-        backlogEnabled,
-        pulseEnabled,
-        pulseEveryDays,
-        weeklyBriefEnabled,
-        prCorrectionMaxRounds,
-        code,
-        clientName,
-        modules,
-      } = request.body;
-      const updates: Partial<ProjectRow> = {};
-      // Fetta 4: null toglie il cliente (torna interno); i moduli sono l'insieme intero.
-      if (clientName !== undefined) updates.clientName = clientName;
-      if (modules !== undefined) updates.modules = orderedModules(modules);
-      if (name !== undefined) updates.name = name;
-      // Codice di progetto (integrazione area 2): unico, 409 se è di un altro.
-      if (code !== undefined) updates.code = code;
-      // null azzera la descrizione, una stringa la imposta; omesso lascia.
-      if (description !== undefined) updates.description = description;
-      // Toggle auto-aggiornamento Docs: omesso lo lascia invariato.
-      if (docAutoUpdate !== undefined) updates.docAutoUpdate = docAutoUpdate;
-      // Toggle standup giornaliero (report attività): omesso lo lascia invariato.
-      if (dailyReportEnabled !== undefined) updates.dailyReportEnabled = dailyReportEnabled;
-      // Toggle backlog di discovery: omesso lo lascia invariato.
-      if (backlogEnabled !== undefined) updates.backlogEnabled = backlogEnabled;
-      // Toggle e cadenza del pulse proattivo: omessi li lasciano invariati. Il
-      // range 1..30 lo ha già applicato lo schema del corpo (400), e il CHECK
-      // del DB resta l'arbitro per chi scrive senza passare da qui.
-      if (pulseEnabled !== undefined) updates.pulseEnabled = pulseEnabled;
-      if (pulseEveryDays !== undefined) updates.pulseEveryDays = pulseEveryDays;
-      // Toggle brief settimanale: omesso lo lascia invariato.
-      if (weeklyBriefEnabled !== undefined) updates.weeklyBriefEnabled = weeklyBriefEnabled;
-      // Tetto del ciclo di correzione: range già applicato dallo schema (400).
-      if (prCorrectionMaxRounds !== undefined)
-        updates.prCorrectionMaxRounds = prCorrectionMaxRounds;
-      // Provider AI del progetto (Docs e fix). null lo azzera (automatico); un
-      // uuid deve riferire una riga ai_providers esistente; omesso lo lascia.
-      if (aiProviderId !== undefined) {
-        if (aiProviderId !== null) {
-          const [aiProvider] = await app.db
-            .select({ id: aiProviders.id })
-            .from(aiProviders)
-            .where(eq(aiProviders.id, aiProviderId));
-          if (!aiProvider) {
-            return apiError(reply, 400, "ai_provider_not_found", "AI provider not found");
-          }
-        }
-        updates.aiProviderId = aiProviderId;
-        // Provider tolto: «solo questo» non sopravvive, qualunque cosa dica il body.
-        if (aiProviderId === null) updates.aiProviderExclusive = false;
-      }
-      // «Solo questo» vale solo con un provider (nel body o già in colonna).
-      if (aiProviderExclusive !== undefined && aiProviderId === undefined) {
-        if (aiProviderExclusive) {
-          const [current] = await app.db
-            .select({ aiProviderId: projects.aiProviderId })
-            .from(projects)
-            .where(eq(projects.id, request.params.projectId));
-          updates.aiProviderExclusive = current?.aiProviderId != null;
-        } else {
-          updates.aiProviderExclusive = false;
-        }
-      } else if (aiProviderExclusive !== undefined && aiProviderId !== null) {
-        updates.aiProviderExclusive = aiProviderExclusive;
-      }
-
-      // Area 9, F5: lettura, regola del pulse, scrittura e voci nella STESSA
-      // transazione, con la riga bloccata (due salvataggi si mettono in fila).
-      type Outcome = { row: ProjectRow } | { error: "not_found" | "pulse_needs_backlog" | "code_taken" };
-      let outcome: Outcome;
-      try {
-        outcome = await app.db.transaction(async (tx): Promise<Outcome> => {
-          // NO KEY UPDATE: mette in fila i salvataggi senza fermare chi inserisce righe che referenziano il progetto.
-          const [current] = await tx.select().from(projects).where(eq(projects.id, request.params.projectId)).for("no key update");
-          if (!current) return { error: "not_found" };
-          // K-2, la regola del prototipo: il pulse propone dal backlog, quindi
-          // acceso senza la discovery è rifiutato; spegnere la discovery lo
-          // spegne nello stesso salvataggio.
-          const backlogAfter = updates.backlogEnabled ?? current.backlogEnabled;
-          if (pulseEnabled === true && !backlogAfter) return { error: "pulse_needs_backlog" };
-          if (updates.backlogEnabled === false && current.pulseEnabled) updates.pulseEnabled = false;
-          // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una lettura.
-          if (Object.keys(updates).length === 0) return { row: current };
-          const [updated] = await tx.update(projects).set(updates).where(eq(projects.id, current.id)).returning();
-          await recordProjectChanges(tx, request.user!, current, updated!);
-          return { row: updated! };
-        });
-      } catch (error) {
-        if (code !== undefined && isUniqueViolation(error)) outcome = { error: "code_taken" };
-        else throw error;
-      }
-      if ("error" in outcome) {
+      // Area 9, F7: il servizio, lo stesso delle azioni di Claude.
+      const outcome = await patchProject(app.db, request.user!, request.params.projectId, request.body);
+      if (!outcome.ok) {
         if (outcome.error === "not_found") return apiError(reply, 404, "project_not_found", "Project not found");
+        if (outcome.error === "ai_provider_not_found") return apiError(reply, 400, "ai_provider_not_found", "AI provider not found");
         if (outcome.error === "code_taken") return apiError(reply, 409, "code_taken", "Another project already uses this code");
         return apiError(reply, 400, "pulse_needs_backlog", "The pulse proposes from the backlog: turn on backlog discovery first");
       }
