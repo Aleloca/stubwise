@@ -362,7 +362,7 @@ async function notifyClosed(tx: Tx, sessionId: string): Promise<void> {
 
 export type SetVisibilityResult =
   | { ok: true; conversation: ClaudeConversation }
-  | { ok: false; error: "not_found" | "archived" }
+  | { ok: false; error: "not_found" | "archived" | "private_content" }
   | { ok: false; error: "needs_confirmation"; confirmation: ClaudeVisibilityConfirmation };
 
 const sameSet = (a: Iterable<string>, b: Iterable<string>) => {
@@ -426,6 +426,11 @@ export async function setClaudeConversationVisibility(
       .where(eq(claudeConversations.sessionId, id));
     return { ok: true, conversation: (await viewOf(db, viewer, id))! };
   }
+  // Area 10, F1 (review I2): una conversazione che ha letto contenuto PERSONALE
+  // (posta, calendario, un canale privato o un DM, un'automazione generale)
+  // non diventa pubblica. Si rifiuta tutta: tagliare gli eventi lascerebbe la
+  // risposta di Claude, che li riassume.
+  if (row.privateReadAt !== null) return { ok: false, error: "private_content" };
   const touched = await touchedProjectIds(db, row);
   // La conferma è sempre ESPLICITA, anche con un elenco vuoto: dice anche che
   // chi legge vedrà ciò che Claude ha letto per te (D1).

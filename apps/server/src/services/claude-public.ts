@@ -2,6 +2,7 @@ import {
   agentSessionEvents,
   agentSessionInputs,
   agentSessions,
+  chatChannels,
   claudeConversationProjects,
   claudeConversations,
   projects,
@@ -13,7 +14,7 @@ import { effectiveInstancePermissions } from "@stubwise/shared";
 import type { ClaudeConversationProject } from "@stubwise/shared";
 import { and, desc, eq, gte, inArray, lt, sql, type SQL } from "drizzle-orm";
 import { scopeIncludes, visibleProjectIds, type ProjectScope } from "../auth/access.js";
-import { CHAT_TOOL_EXTERNAL_CONTENT_ROUTES, CHAT_TOOL_UNTRUSTED_ROUTES, EXTERNAL_TICKET_SOURCES } from "../auth/chat-tool-routes.js";
+import { CHAT_TOOL_EXTERNAL_CONTENT_ROUTES, CHAT_TOOL_UNTRUSTED_ROUTES, EXTERNAL_TICKET_SOURCES, isPrivateChatToolRead } from "../auth/chat-tool-routes.js";
 import type { SessionUser } from "../auth/session.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
@@ -367,8 +368,57 @@ async function readsExternalContent(db: Db, route: string, payload: unknown): Pr
   return rows.length > 0;
 }
 
-/** Le letture per codice del token del turno: il progetto sta nella risposta. */
-const BY_CODE_ROUTES = new Set(["/api/tasks/by-code/:code", "/api/requests/by-code/:code"]);
+/** Le letture per codice del token del turno: il progetto sta nella risposta (`projectId`). */
+const BY_CODE_ROUTES = new Set([
+  "/api/tasks/by-code/:code",
+  "/api/requests/by-code/:code",
+  // Area 10, F1 (review I1): anche i rilasci, che non lo registravano da F1 dell'area 8.
+  "/api/releases/:code",
+  "/api/support/conversations/by-code/:code",
+  "/api/chat/channels/:id",
+  "/api/me/calendar/events/:id",
+]);
+
+/**
+ * Area 10, F1 (review I1): i progetti di una risposta che NON li porta in
+ * `projectId` alla radice. Un'automazione li ha in `automation.projectId` (una
+ * generale nessuno: è una lettura personale, `isPrivateChatToolRead`); un
+ * server in `projects` e `productionProjects` (tutti: chi legge una pubblica
+ * deve vederli tutti, come la conferma dell'autore li elenca). I messaggi di un
+ * canale non dicono il canale: il suo progetto si legge dal DB.
+ */
+async function projectsOfResponse(db: Db, route: string, params: Record<string, unknown>, body: unknown): Promise<string[]> {
+  const b = (body ?? {}) as Record<string, unknown>;
+  const uuids = (xs: unknown[]) => xs.filter((x): x is string => typeof x === "string" && UUID.test(x));
+  if (BY_CODE_ROUTES.has(route)) return uuids([b["projectId"]]);
+  if (route === "/api/automations/:code") return uuids([(b["automation"] as Record<string, unknown> | undefined)?.["projectId"]]);
+  if (route === "/api/servers/by-code/:code") {
+    const of = (k: string) => (Array.isArray(b[k]) ? (b[k] as { id?: unknown }[]).map((p) => p.id) : []);
+    return uuids([...of("projects"), ...of("productionProjects")]);
+  }
+  if (route === "/api/chat/channels/:id/messages" && typeof params["id"] === "string" && UUID.test(params["id"])) {
+    const [c] = await db.select({ projectId: chatChannels.projectId }).from(chatChannels).where(eq(chatChannels.id, params["id"]));
+    return uuids([c?.projectId]);
+  }
+  return [];
+}
+
+/**
+ * Area 10, F1 (review I2): una lettura riuscita di contenuto PERSONALE segna la
+ * conversazione (`private_read_at`): da lì non si pubblica. FAIL-CLOSED, come
+ * `recordChatToolUntrustedRead`: se il segno non si scrive, la risposta fallisce
+ * e il contenuto non arriva al modello.
+ */
+export async function recordChatToolPrivateRead(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  const sessionId = request.user?.chatToolSessionId;
+  if (sessionId === undefined || request.method !== "GET" || reply.statusCode !== 200) return;
+  const route = request.routeOptions.url ?? "";
+  if (!(await isPrivateChatToolRead(request.server.db, route, (request.params ?? {}) as Record<string, unknown>))) return;
+  await request.server.db
+    .update(claudeConversations)
+    .set({ privateReadAt: sql`coalesce(${claudeConversations.privateReadAt}, now())` })
+    .where(eq(claudeConversations.sessionId, sessionId));
+}
 
 /**
  * Hook `onSend` dell'app (fetta 5, D2): una lettura riuscita del token del
@@ -389,9 +439,8 @@ export async function recordChatToolReadProjects(request: FastifyRequest, reply:
     if (route === "/api/tasks" && typeof query["projectIds"] === "string" && UUID.test(query["projectIds"])) {
       ids.add(query["projectIds"]);
     }
-    if (BY_CODE_ROUTES.has(route) && typeof payload === "string") {
-      const body = JSON.parse(payload) as { projectId?: unknown };
-      if (typeof body.projectId === "string" && UUID.test(body.projectId)) ids.add(body.projectId);
+    if (typeof payload === "string") {
+      for (const id of await projectsOfResponse(request.server.db, route, params, JSON.parse(payload))) ids.add(id);
     }
     await recordConversationProjects(request.server.db, sessionId, [...ids]);
   } catch (error) {

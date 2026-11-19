@@ -202,6 +202,9 @@ al modello solo i campi in ALLOWLIST.
 | Posta e calendario solo di chi chiede, anche per un full admin (`mailbox_owner`) | invariante |
 | Il chip della posta porta `<accountId>/<threadId>` in un solo `id` | 94 e 72 |
 | Le PR non hanno un tool (nessuna lettura per Claude) | costruttore |
+| Posta, calendario, canali privati e DM, automazioni generali solo in una conversazione libera PRIVATA (403 altrove); letti, la conversazione non si pubblica (409 `private_content`, la pagina lo dice) | orchestratrice (review di F1, I2: rifiutare invece di tagliare gli eventi) |
+| Nei turni di @Claude nella Chat posta e calendario non ci sono (I3) | orchestratrice |
+| Oggetto della mail, nome e descrizione del canale, titolo e descrizione della richiesta del supporto, hostname e nomi dei servizi: dentro `untrusted_content` (I4, M6); delle condizioni delle automazioni niente valori (M5); niente indirizzi web nel testo di un invito (M2) | orchestratrice |
 
 ## Rimandate
 

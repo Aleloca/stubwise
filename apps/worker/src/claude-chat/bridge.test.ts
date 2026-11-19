@@ -2,9 +2,9 @@ import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { CHAT_MCP_SERVER_NAME, CHAT_READ_TOOLS, CHAT_TOOLS, CLAUDE_PROPOSABLE_FNS, CHAT_INSTANCE_SECTIONS } from "@stubwise/shared";
-import { buildChatMcpServer, CHAT_SERVER_NAME, PROPOSABLE_FNS, UNTRUSTED_NOTE, UNTRUSTED_RELEASE_NOTE_MCP, INSTANCE_SECTIONS } from "../chat-mcp/server.js";
-import { ChatToolArgError, chatServerPaths, startChatBridge, UNTRUSTED_CALENDAR_NOTE, UNTRUSTED_CHANNEL_NOTE, UNTRUSTED_DOCUMENT_NOTE, UNTRUSTED_MAIL_NOTE, UNTRUSTED_RELEASE_NOTE, UNTRUSTED_SUPPORT_NOTE, type ChatBridge } from "./bridge.js";
+import { CHAT_MCP_SERVER_NAME, CHAT_MENTION_TOOL_NAMES, CHAT_READ_TOOLS, CHAT_TOOL_NAMES, CHAT_TOOLS, CLAUDE_PROPOSABLE_FNS, CHAT_INSTANCE_SECTIONS } from "@stubwise/shared";
+import { buildChatMcpServer, CHAT_SERVER_NAME, PROPOSABLE_FNS, UNTRUSTED_NOTE, UNTRUSTED_RELEASE_NOTE_MCP, UNTRUSTED_SERVER_NOTE_MCP, INSTANCE_SECTIONS } from "../chat-mcp/server.js";
+import { ChatToolArgError, chatServerPaths, startChatBridge, UNTRUSTED_CALENDAR_NOTE, UNTRUSTED_CHANNEL_NOTE, UNTRUSTED_DOCUMENT_NOTE, UNTRUSTED_MAIL_NOTE, UNTRUSTED_RELEASE_NOTE, UNTRUSTED_SERVER_NOTE, UNTRUSTED_SUPPORT_NOTE, type ChatBridge } from "./bridge.js";
 
 // Il ponte dei tool di lettura della chat (fetta 1): ogni tool diventa una o
 // più GET sul server col token del turno (la visibilità dell'autore); il token
@@ -424,7 +424,7 @@ describe("area 10, F1: `read_automation` e `read_server` — solo i campi in all
     const { ok, text, seen } = await read("read_server", { code: "SRV-12" }, {
       id: P, code: "SRV-12", name: "prod-1", hostname: "prod-1.internal", status: "online", health: "warning", lastSeenAt: "2026-11-19T10:00:00.000Z",
       checksUp: 1, checksDown: 1, projects: [{ id: P, code: "AUD", name: "Audin" }], agentVersion: "1.2.0", alertThresholds: { cpu: 90 },
-      services: [{ name: "web", kind: "docker", status: "running", image: "acme/web:1" }],
+      services: [{ source: "docker", name: "web", state: "running", cpuPct: 1, memBytes: 10, restarts: null, image: "acme/web:1" }],
       checks: [
         { id: P, serverId: P, type: "postgres", name: "DB", target: "postgres://u:SEGRETO@db/x", hasDsn: true, intervalSeconds: 60, enabled: true, lastStatus: "down", lastCheckedAt: null, lastLatencyMs: null, lastError: "FATAL password authentication failed", downSince: "2026-11-19T09:00:00.000Z", createdAt: "x" },
       ],
@@ -435,6 +435,14 @@ describe("area 10, F1: `read_automation` e `read_server` — solo i campi in all
     const r = JSON.parse(text) as Record<string, unknown> & { checks: Record<string, unknown>[] };
     expect(r).toMatchObject({ code: "SRV-12", name: "prod-1", status: "online", health: "warning", checksDown: 1, ssh: { status: "verified", usable: true } });
     expect(r.checks).toEqual([{ name: "DB", type: "postgres", enabled: true, lastStatus: "down", downSince: "2026-11-19T09:00:00.000Z" }]);
+    // Review di F1 (M3, M6): i servizi con `source` e `state`, e coi nomi dell'host dentro il DATO.
+    expect((r as unknown as { untrusted_content: unknown }).untrusted_content).toEqual({
+      note: UNTRUSTED_SERVER_NOTE,
+      hostname: "prod-1.internal",
+      services: [{ source: "docker", name: "web", state: "running" }],
+    });
+    expect(r).not.toHaveProperty("hostname");
+    expect(r).not.toHaveProperty("services");
     expect(text).toContain("web");
     expect(text).not.toContain("SEGRETO");
     expect(text).not.toContain("FATAL");
@@ -464,11 +472,12 @@ describe("area 10, F1: `read_automation` e `read_server` — solo i campi in all
     expect(ok).toBe(true);
     const r = JSON.parse(text) as Record<string, unknown> & { trigger: unknown; steps: Record<string, unknown>[]; runs: unknown[] };
     expect(r).toMatchObject({ code: "AUD-A3", name: "Urgenti", status: "active", hasDraft: false, lastRunAt: "2026-11-18T00:00:00.000Z" });
-    expect(r.trigger).toEqual(flow.trigger);
+    // Review di F1 (M5): il filtro senza i valori a destra.
+    expect(r.trigger).toEqual({ kind: "stubwise", event: "request_created", filter: { left: { ref: "richiesta.urgenza" }, op: "is" } });
     expect(r.steps).toEqual([
       { id: "s1", kind: "notify", who: { departmentId: P }, text: "Arriva una richiesta urgente" },
       { id: "s2", kind: "sendEmail", subject: "Ricevuta" },
-      { id: "s3", kind: "condition", when: flow.steps[2]!.when, then: [{ id: "s4", kind: "createTask", title: "Richiama" }], else: [] },
+      { id: "s3", kind: "condition", when: { left: { ref: "x" }, op: "is" }, then: [{ id: "s4", kind: "createTask", title: "Richiama" }], else: [] },
     ]);
     expect(r.runs).toEqual([{ code: "AUD-A3 #2", status: "succeeded", startedAt: "2026-11-18T00:00:00.000Z", endedAt: "2026-11-18T00:01:00.000Z" }]);
     for (const secret of ["cliente@segreto.test", "CORPO-SEGRETO", "casella@segreto.test", "EVENTO-SEGRETO"]) expect(text).not.toContain(secret);
@@ -504,14 +513,17 @@ describe("area 10, F1: supporto e canali — il testo scritto da altri arriva co
         id: P, code: "AUD-S4", projectId: P, projectCode: "AUD", channel: "widget", widgetId: P, widgetName: "Sito", identityVerified: true,
         customer: { name: "Rossi", email: "rossi@segreto.test" },
         messages: [{ id: P, from: "customer", authorId: null, body: hostile, at: "2026-11-19T10:00:00.000Z" }],
-        lastMessage: null, state: "open", rewrittenWish: "Vuole il rimborso", confirmedAt: null, triage: { x: 1 }, request: { code: "AUD-R9" }, task: null,
+        lastMessage: null, state: "open", rewrittenWish: "Vuole il rimborso", confirmedAt: null, triage: { x: 1 }, request: { id: P, code: "AUD-R9", title: "Rimborso", description: hostile, status: "new", customerStatus: "received" }, task: null,
         canOpenRequest: true, canMarkNotConcluded: true, canReplyToCollaborator: false, continuedIn: null, continuedFrom: null,
         createdAt: "2026-11-19T09:00:00.000Z", lastMessageAt: "2026-11-19T10:00:00.000Z",
       },
     });
     expect(ok).toBe(true);
     const r = JSON.parse(text) as Record<string, unknown> & { untrusted_content: { note: string; customerName: unknown; messages: unknown[]; rewrittenWish: unknown } };
-    expect(r).toMatchObject({ code: "AUD-S4", projectCode: "AUD", channel: "widget", state: "open", request: { code: "AUD-R9" } });
+    expect(r).toMatchObject({ code: "AUD-S4", projectCode: "AUD", channel: "widget", state: "open", request: { code: "AUD-R9", status: "new" } });
+    // Review di F1 (I4): titolo e descrizione della richiesta li scrive il cliente.
+    expect(r.untrusted_content).toMatchObject({ request: { title: "Rimborso", description: hostile } });
+    expect(JSON.stringify(r.request)).not.toContain("Rimborso");
     expect(r.untrusted_content.note).toBe(UNTRUSTED_SUPPORT_NOTE);
     expect(r.untrusted_content).toMatchObject({ customerName: "Rossi", rewrittenWish: "Vuole il rimborso" });
     // `compact` toglie i null (authorId del cliente).
@@ -536,7 +548,10 @@ describe("area 10, F1: supporto e canali — il testo scritto da altri arriva co
     expect(ok).toBe(true);
     // Due rotte, due righe: il dettaglio e i messaggi.
     const r = Object.assign({}, ...text.split("\n").map((line) => JSON.parse(line) as object)) as Record<string, unknown> & { untrusted_content: { note: string; messages: Record<string, unknown>[] } };
-    expect(r).toMatchObject({ name: "aud-general", kind: "project", visibility: "open", isGeneral: true });
+    expect(r).toMatchObject({ kind: "project", visibility: "open", isGeneral: true });
+    // Review di F1 (I4): nome, descrizione e argomento del canale sono DATO.
+    expect(r).not.toHaveProperty("name");
+    expect(r).not.toHaveProperty("description");
     expect(r.untrusted_content.note).toBe(UNTRUSTED_CHANNEL_NOTE);
     expect(r.untrusted_content.messages).toEqual([
       { authorId: P, kind: "text", text: hostile, createdAt: "2026-11-19T10:00:00.000Z", replyCount: 0, linkedCodes: ["AUD-12"], viaClaude: false, attachments: [{ filename: "preventivo.pdf", mimeType: "application/pdf" }] },
@@ -583,7 +598,10 @@ describe("area 10, F1: posta e calendario di chi chiede — il testo dei mittent
     });
     expect(body.ok).toBe(true);
     const r = JSON.parse(body.text) as Record<string, unknown> & { messages: Record<string, unknown>[]; untrusted_content: { note: string; messages: unknown[] } };
-    expect(r).toMatchObject({ threadId: "t1", subject: "Preventivo" });
+    expect(r).toMatchObject({ threadId: "t1" });
+    // Review di F1 (I4): l'oggetto lo scrive il mittente.
+    expect(r).not.toHaveProperty("subject");
+    expect(r.untrusted_content).toMatchObject({ subject: "Preventivo" });
     expect(r.messages).toEqual([{ id: P, receivedAt: "2026-11-19T10:00:00.000Z", admitted: true, proposalIds: [P] }]);
     expect(r.untrusted_content.note).toBe(UNTRUSTED_MAIL_NOTE);
     expect(r.untrusted_content.messages).toEqual([{ id: P, from: "rossi@cliente.test", to: ["io@example.com"], textExcerpt: hostile }]);
@@ -594,14 +612,17 @@ describe("area 10, F1: posta e calendario di chi chiede — il testo dei mittent
     const body = await read("read_calendar_event", { eventId: P }, {
       id: P, accountId: P, accountEmail: "io@example.com", recurringEventId: null, projectId: P, projectName: "Audin", title: hostile, organizer: "rossi@cliente.test",
       attendees: [{ email: "io@example.com", name: "Io", responseStatus: "accepted" }], startsAt: "2026-11-20T09:00:00.000Z", endsAt: "2026-11-20T10:00:00.000Z", allDay: false,
-      status: "confirmed", outcome: null, error: null, url: "https://calendar.google.com/x", eventUrl: "https://calendar.google.com/event?eid=SEGRETO",
-      reproposable: false, descriptionHtml: "<b>x</b>", descriptionText: "Ordine del giorno", location: "Sala 2", hangoutLink: "https://meet.google.com/abc-defg-hij",
+      status: "confirmed", outcome: { type: "task_created", taskCode: "EXT-99" }, error: null, url: "https://calendar.google.com/x", eventUrl: "https://calendar.google.com/event?eid=SEGRETO",
+      reproposable: false, descriptionHtml: "<b>x</b>", descriptionText: "Ordine del giorno, entra da https://zoom.us/j/123?pwd=SEGRETO o www.meet.test/x", location: "Sala 2 https://maps.test/sala2", hangoutLink: "https://meet.google.com/abc-defg-hij",
       conferenceEntryPoints: [{ uri: "https://meet.google.com/abc-defg-hij" }], reminders: [],
     });
     expect(body.ok).toBe(true);
     const r = JSON.parse(body.text) as Record<string, unknown> & { untrusted_content: Record<string, unknown> };
     expect(r).toMatchObject({ startsAt: "2026-11-20T09:00:00.000Z", endsAt: "2026-11-20T10:00:00.000Z", allDay: false, status: "confirmed", projectName: "Audin" });
-    expect(r.untrusted_content).toMatchObject({ note: UNTRUSTED_CALENDAR_NOTE, title: hostile, organizer: "rossi@cliente.test", location: "Sala 2", description: "Ordine del giorno" });
+    expect(r.untrusted_content).toMatchObject({ note: UNTRUSTED_CALENDAR_NOTE, title: hostile, organizer: "rossi@cliente.test", location: "Sala 2 [link]", description: "Ordine del giorno, entra da [link] o [link]" });
+    // Review di F1 (M1): dell'esito solo il tipo.
+    expect(r).toMatchObject({ outcome: "task_created" });
+    expect(body.text).not.toContain("EXT-99");
     for (const leak of ["meet.google.com", "SEGRETO", "calendar.google.com", "<b>"]) expect(body.text).not.toContain(leak);
     expect(r).not.toHaveProperty("title");
   });
@@ -610,5 +631,54 @@ describe("area 10, F1: posta e calendario di chi chiede — il testo dei mittent
     const registered = (buildChatMcpServer({ bridgeUrl: "http://x", secret: "s" }) as unknown as { _registeredTools: Record<string, { description: string }> })._registeredTools;
     expect(registered["read_mail_thread"]!.description).toContain(UNTRUSTED_MAIL_NOTE);
     expect(registered["read_calendar_event"]!.description).toContain(UNTRUSTED_CALENDAR_NOTE);
+  });
+});
+
+describe("area 10, F1, review: rami, posta e calendario fuori dalla Chat", () => {
+  it("M4: i rami del passo di Claude e l'uscita «limite raggiunto» entrano anche loro, in breve", async () => {
+    const flow = {
+      titleTemplate: "x",
+      trigger: { kind: "manual" },
+      steps: [
+        { id: "c1", kind: "claude", prompt: "PROMPT-SEGRETO", inputs: [], outcomes: ["ok", "ko"], fields: [], branches: { ok: [{ id: "b1", kind: "sendEmail", to: "x@segreto.test", subject: "Ok", body: "CORPO" }], ko: [] } },
+        { id: "r1", kind: "repeatUntil", until: { any: [{ left: { ref: "a" }, op: "is", right: { value: "VALORE-SEGRETO" } }] }, max: 3, steps: [], onLimit: [{ id: "l1", kind: "createTask", title: "Limite", description: "d" }] },
+      ],
+    };
+    const fetchImpl = vi.fn(async () => Response.json({ automation: { code: "AUD-A1", versions: [{ n: 1, flow, publishedAt: null }] }, runs: [] }));
+    bridge = await startChatBridge({ serverUrl: "http://server:3000", fetchImpl: fetchImpl as never });
+    const grant = bridge.grant({ sessionId: "s1", serverToken: "stw_chat_t" });
+    const body = (await (await call(bridge, grant.secret, "read_automation", { code: "AUD-A1" })).json()) as { text: string };
+    const r = JSON.parse(body.text) as { steps: unknown[] };
+    expect(r.steps).toEqual([
+      { id: "c1", kind: "claude", outcomes: ["ok", "ko"], branches: { ok: [{ id: "b1", kind: "sendEmail", subject: "Ok" }], ko: [] } },
+      { id: "r1", kind: "repeatUntil", max: 3, until: { any: [{ left: { ref: "a" }, op: "is" }] }, steps: [], onLimit: [{ id: "l1", kind: "createTask", title: "Limite" }] },
+    ]);
+    for (const leak of ["PROMPT-SEGRETO", "x@segreto.test", "CORPO", "VALORE-SEGRETO"]) expect(body.text).not.toContain(leak);
+  });
+
+  it("I3: nei turni di @Claude nella Chat posta e calendario non ci sono, e il ponte li rifiuta senza chiamare il server", async () => {
+    for (const tool of ["read_mail_thread", "read_calendar_event"]) {
+      expect(CHAT_MENTION_TOOL_NAMES).not.toContain(`mcp__${CHAT_MCP_SERVER_NAME}__${tool}`);
+      expect(CHAT_TOOL_NAMES).toContain(`mcp__${CHAT_MCP_SERVER_NAME}__${tool}`);
+    }
+    const mention = (buildChatMcpServer({ bridgeUrl: "http://x", secret: "s", askQuestion: true }) as unknown as { _registeredTools: Record<string, unknown> })._registeredTools;
+    expect(Object.keys(mention)).not.toContain("read_mail_thread");
+    expect(Object.keys(mention)).not.toContain("read_calendar_event");
+    const fetchImpl = vi.fn(async () => Response.json({}));
+    bridge = await startChatBridge({ serverUrl: "http://server:3000", fetchImpl: fetchImpl as never });
+    const grant = bridge.grant({ sessionId: "s1", serverToken: "stw_chat_t", ask: true });
+    const P = "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01";
+    const mail = (await (await call(bridge, grant.secret, "read_mail_thread", { ref: `${P}/t1` })).json()) as { ok: boolean; text: string };
+    const cal = (await (await call(bridge, grant.secret, "read_calendar_event", { eventId: P })).json()) as { ok: boolean; text: string };
+    expect(mail).toMatchObject({ ok: false });
+    expect(cal).toMatchObject({ ok: false });
+    expect(mail.text).toMatch(/private conversation/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("M6: la descrizione di read_server lo dice con le stesse parole della nota", () => {
+    const registered = (buildChatMcpServer({ bridgeUrl: "http://x", secret: "s" }) as unknown as { _registeredTools: Record<string, { description: string }> })._registeredTools;
+    expect(UNTRUSTED_SERVER_NOTE_MCP).toBe(UNTRUSTED_SERVER_NOTE);
+    expect(registered["read_server"]!.description).toContain(UNTRUSTED_SERVER_NOTE);
   });
 });

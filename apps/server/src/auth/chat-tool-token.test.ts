@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { RouteOptions } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
@@ -94,9 +95,13 @@ describe("il token del turno della chat", () => {
     expect((await get("/api/releases/SEEN-V1", token)).statusCode).toBe(200);
     const [after] = await t.db.select({ at: claudeConversations.untrustedReadAt }).from(claudeConversations).where(eq(claudeConversations.sessionId, sessionId));
     expect(after!.at).not.toBeNull();
+    // Area 10, F1 (review I1): il rilascio registra il suo progetto, come una task.
+    const { claudeConversationProjects } = await import("@stubwise/db");
+    const read = await t.db.select({ id: claudeConversationProjects.projectId }).from(claudeConversationProjects).where(eq(claudeConversationProjects.sessionId, sessionId));
+    expect(read.map((r) => r.id)).toEqual([seenP[0]!.project_id]);
   });
 
-  it("area 10, F1: un'automazione e un server di un progetto che l'autore vede (`read_automation`, `read_server`), 404 a quelli nascosti; la lettura NON segna la conversazione", async () => {
+  it("area 10, F1: un'automazione e un server di un progetto che l'autore vede (`read_automation`, `read_server`), 404 a quelli nascosti; l'automazione non segna la conversazione, il server sì (nomi dell'host, M6); entrambi registrano il progetto (I1)", async () => {
     const { automations, automationVersions, servers, projectEnvironments, environmentServers } = await import("@stubwise/db");
     const projectOf = async (repo: string) => (await t.db.execute<{ project_id: string; code: string }>(sql`select r.project_id, p.code from repositories r join projects p on p.id = r.project_id where r.id = ${repo}`))[0]!;
     const seenP = await projectOf(seenRepo);
@@ -114,14 +119,26 @@ describe("il token del turno della chat", () => {
     };
     const seenServer = await mkServer(seenP, seenRepo, "visto");
     const hiddenServer = await mkServer(hiddenP, hiddenRepo, "nascosto");
-    const sessionId = await conversationOf(author.headers.cookie);
-    const token = await issueChatToolToken(t.db, { sessionId, userId: author.id, ttlMs: 60_000 });
-    expect((await get(`/api/automations/${seenP.code}-A71`, token)).statusCode).toBe(200);
-    expect((await get(`/api/automations/${hiddenP.code}-A72`, token)).statusCode).toBe(404);
-    expect((await get(`/api/servers/by-code/${seenServer}`, token)).statusCode).toBe(200);
-    expect((await get(`/api/servers/by-code/${hiddenServer}`, token)).statusCode).toBe(404);
-    const [row] = await t.db.select({ at: claudeConversations.untrustedReadAt }).from(claudeConversations).where(eq(claudeConversations.sessionId, sessionId));
-    expect(row!.at).toBeNull();
+    const { claudeConversationProjects } = await import("@stubwise/db");
+    const turn = async () => {
+      const sessionId = await conversationOf(author.headers.cookie);
+      return { sessionId, token: await issueChatToolToken(t.db, { sessionId, userId: author.id, ttlMs: 60_000 }) };
+    };
+    const markOf = async (sessionId: string) => (await t.db.select({ at: claudeConversations.untrustedReadAt }).from(claudeConversations).where(eq(claudeConversations.sessionId, sessionId)))[0]!.at;
+    const projectsOf = async (sessionId: string) => (await t.db.select({ id: claudeConversationProjects.projectId }).from(claudeConversationProjects).where(eq(claudeConversationProjects.sessionId, sessionId))).map((r) => r.id);
+
+    const a = await turn();
+    expect((await get(`/api/automations/${seenP.code}-A71`, a.token)).statusCode).toBe(200);
+    expect((await get(`/api/automations/${hiddenP.code}-A72`, a.token)).statusCode).toBe(404);
+    expect(await markOf(a.sessionId)).toBeNull();
+    expect(await projectsOf(a.sessionId)).toEqual([seenP.project_id]);
+
+    const b = await turn();
+    expect((await get(`/api/servers/by-code/${hiddenServer}`, b.token)).statusCode).toBe(404);
+    expect(await markOf(b.sessionId)).toBeNull();
+    expect((await get(`/api/servers/by-code/${seenServer}`, b.token)).statusCode).toBe(200);
+    expect(await markOf(b.sessionId)).not.toBeNull();
+    expect(await projectsOf(b.sessionId)).toEqual([seenP.project_id]);
   });
 
   it("area 10, F1: supporto e canali sono contenuto NON fidato — leggerli (200) segna la conversazione; un 404 (nascosto, privato di altri) no", async () => {
@@ -158,6 +175,81 @@ describe("il token del turno della chat", () => {
     const c = await turn();
     expect((await get(`/api/chat/channels/${open!.id}/messages?limit=30`, c.token)).statusCode).toBe(200);
     expect(await markOf(c.sessionId)).not.toBeNull();
+
+    // Review di F1 (I1): supporto e canale registrano il progetto letto, anche
+    // dai soli messaggi (la risposta non lo porta).
+    const { claudeConversationProjects } = await import("@stubwise/db");
+    const projectsOf = async (sessionId: string) => (await t.db.select({ id: claudeConversationProjects.projectId }).from(claudeConversationProjects).where(eq(claudeConversationProjects.sessionId, sessionId))).map((r) => r.id);
+    expect(await projectsOf(b.sessionId)).toEqual([seenP.project_id]);
+    expect(await projectsOf(c.sessionId)).toEqual([seenP.project_id]);
+
+    // M7: il dettaglio del canale DA SOLO segna anche lui (nome, descrizione, argomento).
+    const d = await turn();
+    expect((await get(`/api/chat/channels/${open!.id}`, d.token)).statusCode).toBe(200);
+    expect(await markOf(d.sessionId)).not.toBeNull();
+    expect(await projectsOf(d.sessionId)).toEqual([seenP.project_id]);
+
+    // M7: il canale di un progetto ARCHIVIATO non si legge (come la pagina), e non segna.
+    const archived = await seedTicket(t.db, { number: 3 });
+    await addMember(app, archived.projectId, author.id, "developer");
+    const [old] = await t.db.insert(chatChannels).values({ projectId: archived.projectId, kind: "project", visibility: "open", name: "vecchio" }).returning();
+    await t.db.update(projects).set({ archivedAt: new Date() }).where(eq(projects.id, archived.projectId));
+    const e = await turn();
+    expect((await get(`/api/chat/channels/${old!.id}/messages?limit=30`, e.token)).statusCode).toBe(404);
+    expect(await markOf(e.sessionId)).toBeNull();
+  });
+
+  it("area 10, F1, review I2 e I3: posta, calendario, canali privati, DM e automazioni generali SOLO in una conversazione libera privata; letti, la conversazione non si pubblica", async () => {
+    const { googleWorkspaces, googleAccounts, emailMessages, calendarEvents, chatChannels, chatChannelMembers, agentSessions, automations, automationVersions } = await import("@stubwise/db");
+    const [ws] = await t.db.insert(googleWorkspaces).values({ name: "Acme2", domains: ["acme2.test"], clientId: "c", clientSecretEncrypted: "x" }).returning();
+    const [acc] = await t.db.insert(googleAccounts).values({ userId: author.id, workspaceId: ws!.id, email: "autore2@acme2.test", googleSub: "sub-autore2", refreshTokenEncrypted: "x" }).returning();
+    await t.db.insert(emailMessages).values({ accountId: acc!.id, gmailMessageId: "m-priv", threadId: "t-priv", fromAddress: "x@cliente.test", subject: "S", receivedAt: new Date(), status: "new" });
+    const [ev] = await t.db.insert(calendarEvents).values({ accountId: acc!.id, googleEventId: "e-priv", title: "Demo", startsAt: new Date(), status: "confirmed", fingerprint: "f-priv" }).returning();
+    const seenP = (await t.db.execute<{ project_id: string }>(sql`select project_id from repositories where id = ${seenRepo}`))[0]!.project_id;
+    const [priv] = await t.db.insert(chatChannels).values({ projectId: seenP, kind: "project", visibility: "private", name: "riservato2" }).returning();
+    const [open] = await t.db.insert(chatChannels).values({ projectId: seenP, kind: "project", visibility: "open", name: "aperto2" }).returning();
+    await t.db.insert(chatChannelMembers).values({ channelId: priv!.id, userId: author.id });
+    const [general] = await t.db.insert(automations).values({ code: "AUT-91", seq: 91, name: "Generale", description: "", projectId: null, status: "draft", createdBy: u.adminId }).returning();
+    await t.db.insert(automationVersions).values({ automationId: general!.id, n: 1, flow: { titleTemplate: "x", trigger: { kind: "manual" }, steps: [] } as never, savedBy: u.adminId, rev: 1 });
+    const personal = [`/api/me/mail/threads/t-priv?account=${acc!.id}`, `/api/me/calendar/events/${ev!.id}`, `/api/chat/channels/${priv!.id}`, `/api/chat/channels/${priv!.id}/messages?limit=30`, "/api/automations/AUT-91"];
+    const privateMark = async (sessionId: string) => (await t.db.select({ at: claudeConversations.privateReadAt }).from(claudeConversations).where(eq(claudeConversations.sessionId, sessionId)))[0]?.at ?? null;
+    const publish = (sessionId: string) =>
+      app.inject({ method: "POST", url: `/api/claude/conversations/${sessionId}/visibility`, headers: { cookie: author.headers.cookie }, payload: { visibility: "public", confirmedProjectIds: [] } });
+
+    // Una PUBBLICA: tutte e cinque 403, nessun segno; il canale aperto sì.
+    const pub = await conversationOf(author.headers.cookie);
+    expect((await publish(pub)).statusCode).toBe(200);
+    const pubToken = await issueChatToolToken(t.db, { sessionId: pub, userId: author.id, ttlMs: 60_000 });
+    for (const url of personal) {
+      const res = await get(url, pubToken);
+      expect(res.statusCode, url).toBe(403);
+      expect(res.json()).toMatchObject({ code: "chat_tool_private_only" });
+    }
+    expect((await get(`/api/chat/channels/${open!.id}`, pubToken)).statusCode).toBe(200);
+    expect(await privateMark(pub)).toBeNull();
+
+    // Un turno di @Claude nella Chat, come lo crea `chat/claude.ts`: la sua riga in
+    // `claude_conversations` è PRIVATA di default, ma la risposta sta in un canale. 403.
+    const [mention] = await t.db.insert(agentSessions).values({ ownerKey: `chat_mention:${randomUUID()}`, kind: "chat_mention", title: "" }).returning();
+    await t.db.insert(claudeConversations).values({ sessionId: mention!.id, ownerId: author.id, title: "" });
+    const mentionToken = await issueChatToolToken(t.db, { sessionId: mention!.id, userId: author.id, ttlMs: 60_000 });
+    expect((await get(personal[0]!, mentionToken)).statusCode).toBe(403);
+    expect((await get(personal[1]!, mentionToken)).statusCode).toBe(403);
+
+    // Una PRIVATA: la posta si legge, la conversazione è segnata e non si pubblica più.
+    const mine = await conversationOf(author.headers.cookie);
+    const mineToken = await issueChatToolToken(t.db, { sessionId: mine, userId: author.id, ttlMs: 60_000 });
+    expect((await get(personal[0]!, mineToken)).statusCode).toBe(200);
+    expect(await privateMark(mine)).not.toBeNull();
+    const refused = await publish(mine);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toMatchObject({ code: "private_content" });
+
+    // Un canale privato di cui l'autore è membro segna anche lui.
+    const ch = await conversationOf(author.headers.cookie);
+    const chToken = await issueChatToolToken(t.db, { sessionId: ch, userId: author.id, ttlMs: 60_000 });
+    expect((await get(personal[3]!, chToken)).statusCode).toBe(200);
+    expect(await privateMark(ch)).not.toBeNull();
   });
 
   it("area 10, F1: posta e calendario solo di CHI CHIEDE — un full admin che chiede quelli di un altro riceve 404 e niente segno; i suoi, 200 e il segno", async () => {
