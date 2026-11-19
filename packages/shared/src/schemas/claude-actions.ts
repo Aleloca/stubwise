@@ -77,6 +77,11 @@ export const CLAUDE_ACTION_FNS = [
   "rerunSmoke",
   "removePlugin",
   "updateWebhook",
+  // Area 10, F2 (S1): le BOZZE di automazione di progetto. Claude non pubblica
+  // né accende mai (`docs/invariants/automations.md`).
+  "createAutomation",
+  "saveAutomationDraft",
+  "deleteAutomationDraft",
 ] as const;
 export const claudeActionFnSchema = z.enum(CLAUDE_ACTION_FNS);
 export type ClaudeActionFn = z.infer<typeof claudeActionFnSchema>;
@@ -142,9 +147,27 @@ export const CLAUDE_DECLARED_CLASS: Record<ClaudeActionFn, "A" | "B" | "C"> = {
   rerunSmoke: "B",
   removePlugin: "B",
   updateWebhook: "B",
+  // Area 10, F2: una bozza spenta non avvisa e non fa partire niente.
+  createAutomation: "A",
+  saveAutomationDraft: "A",
+  deleteAutomationDraft: "B",
 };
 
 const id = z.uuid();
+
+/**
+ * Area 10, F2: il flusso di una bozza, nella forma che le rotte accettano
+ * (inizio, passi, titolo delle esecuzioni). Il resto lo controlla il motore
+ * (`configErrorsOf`) prima della scheda: un flusso con errori non diventa una
+ * bozza di Claude.
+ */
+const automationFlowArgSchema = z.looseObject({
+  trigger: z.looseObject({ kind: z.string() }),
+  steps: z.array(z.record(z.string(), z.unknown())).max(50),
+  titleTemplate: z.string().max(200),
+});
+const automationCodeSchema = z.string().trim().min(1).max(40);
+
 export const pageActionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("language"), to: z.enum(["en", "it"]) }),
   z.object({ kind: z.literal("theme"), to: z.enum(["system", "light", "dark"]) }),
@@ -257,6 +280,16 @@ export const CLAUDE_ACTION_ARGS = {
     .extend({ id })
     .strict()
     .refine((a) => Object.keys(a).length > 1, "a field"),
+  // Area 10, F2: solo di PROGETTO (`projectId` obbligatorio); stato e
+  // proprietario non sono argomenti: nasce bozza spenta, di nessuno.
+  createAutomation: z
+    .object({ projectId: id, name: z.string().trim().min(1).max(200), description: z.string().max(2000).optional(), flow: automationFlowArgSchema })
+    .strict(),
+  // `expectedRev`: la revisione della bozza letta (null = un'accesa senza bozza).
+  saveAutomationDraft: z
+    .object({ code: automationCodeSchema, flow: automationFlowArgSchema, expectedRev: z.number().int().nullable(), name: z.string().trim().min(1).max(200).optional(), description: z.string().max(2000).optional() })
+    .strict(),
+  deleteAutomationDraft: z.object({ code: automationCodeSchema, expectedRev: z.number().int() }).strict(),
 } satisfies Record<ClaudeActionFn, z.ZodType>;
 
 export const claudeProposedActionSchema = z.object({

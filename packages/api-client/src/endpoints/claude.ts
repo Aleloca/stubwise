@@ -6,6 +6,7 @@ import {
   claudeConversationDetailSchema,
   claudeConversationListSchema,
   claudeConversationSchema,
+  claudeConversationQuestionSchema,
 } from "@stubwise/shared";
 import type {
   ClaudeActionGroupView,
@@ -17,6 +18,8 @@ import type {
   CreateClaudeConversationInput,
   PatchClaudeConversationInput,
   SetClaudeConversationVisibilityInput,
+  AnswerClaudeQuestionInput,
+  ClaudeConversationQuestion,
   Reader,
 } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
@@ -83,6 +86,23 @@ export function createClaudeEndpoints(request: ApiRequest) {
       /** I gruppi eseguiti, con lo stato di «Annulla» per chi guarda. */
       groups(id: string): Promise<Reader<ClaudeActionGroupView>[]> {
         return request("GET", `/api/claude/conversations/${seg(id)}/groups`, undefined, z.array(claudeActionGroupViewSchema));
+      },
+      /**
+       * Area 10, F2: le domande a scelta di Claude (rilette a ogni evento
+       * `question`, come le proposte). Chi legge una pubblica non vede quelle del
+       * seguito privato.
+       */
+      questions(id: string): Promise<Reader<ClaudeConversationQuestion>[]> {
+        return request("GET", `/api/claude/conversations/${seg(id)}/questions`, undefined, z.array(claudeConversationQuestionSchema));
+      },
+      /**
+       * La risposta dell'autore: un'opzione (`index`) o un testo. Entra come un
+       * suo messaggio (202). 403 `forbidden` a chi non è l'autore, 409
+       * `answered`, `conversation_archived`, `budget_exhausted`, 422
+       * `invalid_option`.
+       */
+      answerQuestion(id: string, questionId: string, body: AnswerClaudeQuestionInput): Promise<Reader<{ inputId: string; status: "pending" }>> {
+        return request("POST", `/api/claude/conversations/${seg(id)}/questions/${seg(questionId)}/answer`, body, z.object({ inputId: z.string(), status: z.literal("pending") }));
       },
     },
     /**

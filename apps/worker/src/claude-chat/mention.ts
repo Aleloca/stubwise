@@ -174,7 +174,11 @@ const str = (v: unknown, max: number): string | null =>
  * modello chiude il turno. Una seconda domanda nella stessa risposta è
  * rifiutata (indice unico). Testo e opzioni si validano qui.
  */
-export async function askChatQuestion(db: Db, sessionId: string, args: Record<string, unknown>): Promise<{ ok: boolean; text: string }> {
+/**
+ * Testo e opzioni di `ask_question`, validati: UNA regola per @Claude nella
+ * Chat e per la conversazione libera (area 10, F2). `null` = non valida.
+ */
+export function parseChatQuestion(args: Record<string, unknown>): { question: string; options: { label: string; description?: string }[] } | null {
   const question = str(args["question"], 500);
   const rawOptions = Array.isArray(args["options"]) ? args["options"] : [];
   const options = rawOptions.flatMap((o) => {
@@ -182,9 +186,15 @@ export async function askChatQuestion(db: Db, sessionId: string, args: Record<st
     const description = str((o as { description?: unknown } | null)?.description, 300);
     return label ? [{ label, ...(description ? { description } : {}) }] : [];
   });
-  if (!question || options.length < 2 || options.length > 5 || options.length !== rawOptions.length) {
-    return { ok: false, text: "Invalid question: write a short question and 2 to 5 options, each with a label." };
-  }
+  if (!question || options.length < 2 || options.length > 5 || options.length !== rawOptions.length) return null;
+  return { question, options };
+}
+export const INVALID_QUESTION_TEXT = "Invalid question: write a short question and 2 to 5 options, each with a label.";
+
+export async function askChatQuestion(db: Db, sessionId: string, args: Record<string, unknown>): Promise<{ ok: boolean; text: string }> {
+  const parsed = parseChatQuestion(args);
+  if (!parsed) return { ok: false, text: INVALID_QUESTION_TEXT };
+  const { question, options } = parsed;
   const reply = await replyOf(db, sessionId);
   if (!reply || reply.deletedAt !== null || reply.claudeState !== "working") {
     return { ok: false, text: "You cannot ask now: the answer was stopped or is no longer running." };

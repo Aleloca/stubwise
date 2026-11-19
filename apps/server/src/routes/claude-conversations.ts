@@ -16,7 +16,10 @@ import {
   createClaudeConversationSchema,
   patchClaudeConversationSchema,
   setClaudeConversationVisibilitySchema,
+  answerClaudeQuestionSchema,
+  claudeConversationQuestionSchema,
 } from "@stubwise/shared";
+import { answerConversationQuestion, listConversationQuestions } from "../services/claude-conversation-questions.js";
 import { apiError } from "../errors.js";
 import {
   createClaudeConversation,
@@ -164,6 +167,9 @@ export async function claudeConversationRoutes(instance: FastifyInstance): Promi
       if (result.ok) return result.conversation;
       if (result.error === "needs_confirmation") return reply.code(409).send(result.confirmation);
       if (result.error === "not_found") return apiError(reply, 404, "not_found", "Conversation not found");
+      if (result.error === "private_content") {
+        return apiError(reply, 409, "private_content", "Claude read your mail, your calendar or a private channel here: this conversation can't be made public");
+      }
       return apiError(reply, 409, "conversation_archived", "An archived conversation can't be made public");
     },
   );
@@ -199,6 +205,67 @@ export async function claudeConversationRoutes(instance: FastifyInstance): Promi
         { toolUseId: request.body.toolUseId, actions: request.body.actions, summary: request.body.summary },
         actionEffects(app, request),
       );
+    },
+  );
+
+  /**
+   * Area 10, F2: le domande a scelta di Claude nella conversazione libera. Chi
+   * legge una pubblica vede solo quelle prima del seguito privato, come le
+   * proposte; risponde solo l'autore. La risposta entra come un suo messaggio
+   * (202, come `POST /api/agent-sessions/:id/messages`).
+   */
+  app.get(
+    "/:id/questions",
+    {
+      config: { access: ACCESS },
+      schema: { params: idParams, response: { 200: z.array(claudeConversationQuestionSchema), 404: errorSchema, ...authErrorResponses } },
+    },
+    async (request, reply) => {
+      if (!(await getClaudeConversation(app.db, request.user!, request.params.id))) {
+        return apiError(reply, 404, "not_found", "Conversation not found");
+      }
+      return listConversationQuestions(app.db, request.user!, request.params.id);
+    },
+  );
+
+  app.post(
+    "/:id/questions/:questionId/answer",
+    {
+      config: { access: ACCESS },
+      schema: {
+        params: z.object({ id: z.uuid(), questionId: z.uuid() }),
+        body: answerClaudeQuestionSchema,
+        response: {
+          202: z.object({ inputId: z.uuid(), status: z.literal("pending") }),
+          404: errorSchema,
+          409: errorSchema,
+          422: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!(await getClaudeConversation(app.db, request.user!, request.params.id))) {
+        return apiError(reply, 404, "not_found", "Conversation not found");
+      }
+      const result = await answerConversationQuestion(app.db, request.user!, request.params.id, request.params.questionId, request.body);
+      if (result.ok) return reply.code(202).send({ inputId: result.inputId, status: "pending" as const });
+      switch (result.error) {
+        case "not_found":
+          return apiError(reply, 404, "not_found", "Question not found");
+        case "forbidden":
+          return apiError(reply, 403, "forbidden", "Only the author answers Claude's questions");
+        case "answered":
+          return apiError(reply, 409, "answered", "This question is already answered");
+        case "invalid_option":
+          return apiError(reply, 422, "invalid_option", "There is no such option");
+        case "conversation_archived":
+          return apiError(reply, 409, "conversation_archived", "The conversation is archived");
+        case "budget_exhausted":
+          return apiError(reply, 409, "budget_exhausted", "The monthly AI budget is used up");
+        default:
+          return apiError(reply, 409, result.error, "The answer could not be sent");
+      }
     },
   );
 

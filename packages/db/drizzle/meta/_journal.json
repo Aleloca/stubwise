@@ -1366,6 +1366,20 @@
       "when": 1801353600000,
       "tag": "0196_department_project_permissions",
       "breakpoints": true
+    },
+    {
+      "idx": 197,
+      "version": "7",
+      "when": 1801440000000,
+      "tag": "0197_claude_private_reads",
+      "breakpoints": true
+    },
+    {
+      "idx": 198,
+      "version": "7",
+      "when": 1801526400000,
+      "tag": "0198_area10_questions",
+      "breakpoints": true
     }
   ]
 }

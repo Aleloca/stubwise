@@ -112,6 +112,30 @@ const NEVER = [
   "vaultSettings",
   "vaultPersonKeys",
   "vaultPersonKeySeals",
+  // Area 10, F2 (`docs/invariants/automations.md`): Claude scrive solo BOZZE.
+  // Accendere, pubblicare, mettere in pausa, duplicare un'automazione, avviarne
+  // un'esecuzione o deciderci sopra restano gesti delle persone.
+  "publishAutomation",
+  "activateAutomation",
+  "pauseAutomation",
+  "duplicateAutomation",
+  "startManualRun",
+  "approveRun",
+  "rejectRun",
+  "controlRun",
+  "chooseRunProject",
+  "runTestClaude",
+  "estimateTest",
+];
+
+/** Area 10, F2: le rotte delle automazioni che accendono o fanno partire qualcosa. */
+const AUTOMATION_LIVE_ROUTES = [
+  "/automations/:code/publish",
+  "/automations/:code/activate",
+  "/automations/:code/pause",
+  "/automations/:code/duplicate",
+  "/automations/:code/runs",
+  "/automations/:code/test",
 ];
 
 /**
@@ -131,10 +155,19 @@ describe("mai nel catalogo delle azioni di Claude (sorgente)", () => {
 
   it.each(NEVER)("nessun modulo nomina %s", (name) => {
     // Il turno della chat EMETTE il token del turno: è il solo caso lecito.
+    // Area 10, F1: il ponte nomina `sendEmail` come TIPO di passo di
+    // un'automazione nella proiezione di `read_automation` (ne passa solo
+    // l'oggetto): si toglie quella riga sola, il resto del file conta.
+    const codeOf = (f: { path: string; code: string }) =>
+      name === "sendEmail" && f.path.endsWith(join("claude-chat", "bridge.ts")) ? f.code.replace('  sendEmail: ["subject"],', "") : f.code;
     const offenders = files.filter(
-      (f) => new RegExp(`\\b${name}\\b`).test(f.code) && !(name === "issueChatToolToken" && f.path.endsWith("turn.ts")),
+      (f) => new RegExp(`\\b${name}\\b`).test(codeOf(f)) && !(name === "issueChatToolToken" && f.path.endsWith("turn.ts")),
     );
     expect(offenders.map((f) => f.path)).toEqual([]);
+  });
+
+  it.each(AUTOMATION_LIVE_ROUTES)("nessun modulo nomina la rotta %s", (route) => {
+    expect(files.filter((f) => f.code.includes(route)).map((f) => f.path)).toEqual([]);
   });
 
   it.each(SECRET_ROUTES)("nessun modulo nomina la rotta %s", (route) => {

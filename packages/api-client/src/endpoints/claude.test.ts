@@ -34,6 +34,18 @@ describe("endpoints claude", () => {
   });
 
 
+  it("area 10, F2: le domande (percorso e parse, anche senza `answer` da un server che non lo manda) e la risposta col corpo", async () => {
+    const q = { id: ID, text: "Quale reparto?", options: [{ label: "Vendite" }, { label: "Supporto", description: "Il team" }] };
+    const { c, fetchImpl } = client([q]);
+    expect(await c.claude.conversations.questions(ID)).toEqual([{ ...q, answer: null }]);
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/claude/conversations/${ID}/questions`);
+    const answered = client({ inputId: ID, status: "pending" }, 202);
+    expect(await answered.c.claude.conversations.answerQuestion(ID, ID, { index: 1 })).toEqual({ inputId: ID, status: "pending" });
+    const [url, init] = answered.fetchImpl.mock.calls.at(-1)!;
+    expect(url).toBe(`/api/claude/conversations/${ID}/questions/${ID}/answer`);
+    expect(JSON.parse(String(init!.body))).toEqual({ index: 1 });
+  });
+
   it("status: il budget finito; senza il campo (server più vecchio) vale false", async () => {
     const { c, fetchImpl } = client({ budgetExhausted: true });
     expect(await c.claude.status()).toEqual({ budgetExhausted: true });

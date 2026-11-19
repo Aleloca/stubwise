@@ -5480,3 +5480,54 @@ deploy o di un rollback che la tocca.
   - le voci `department.permissions_changed` già scritte restano, e il
     server vecchio le mostra (il tipo era già nel catalogo da F2);
   - il caddy vecchio non chiama l'anteprima né manda `projectPermissions`.
+
+- **«Integrazione area 10, F1: i chip e le letture»** *(19 nov 2026)*:
+  branch `feat/area10-f1` (da `feat/integrazione-area10`), piano
+  `docs/plans/2026-11-19-integrazione-area10-f1-plan.md`, design
+  `docs/plans/2026-11-19-integrazione-area10-design.md` (D-12 = a).
+  - Sei tool di lettura nuovi per Claude: `read_automation`, `read_server`,
+    `read_support_conversation`, `read_channel`, `read_mail_thread`,
+    `read_calendar_event`, sulle rotte che le pagine usano già.
+  - Migrazione **0197** (`claude_conversations.private_read_at`, dalla review
+    di F1). Nessuna env, nessun `notification_kind`, nessun permesso nuovo.
+    Nessuna rotta nuova: si allargano solo le liste del token del turno
+    (`CHAT_TOOL_READ_ROUTES` in `@stubwise/shared`, `CHAT_TOOL_UNTRUSTED_ROUTES`
+    e `CHAT_TOOL_PRIVATE_ROUTES` nel server).
+
+  **ORDINE**: **server** (healthy, 0197 applicata), poi **worker** (il server
+  MCP della chat e il ponte sono nel worker). Un worker nuovo davanti a un server vecchio riceve
+  403 dalle rotte non ancora ammesse, e il modello dice «non trovato o non
+  visibile»: non rompe niente, ma il server va prima. Il caddy non c'entra:
+  i chip del renderer arrivano a parte (94).
+
+  **Da sapere subito**:
+  - **Supporto, canali, posta e appuntamenti sono contenuto NON fidato**: una
+    lettura riuscita segna la conversazione (`untrusted_read_at`) e da lì ogni
+    proposta è almeno B. Il testo arriva al modello dentro `untrusted_content`
+    con una nota fissa.
+  - **Posta e calendario sono solo di chi chiede**: le rotte leggono con l'id
+    dell'utente, e un full admin che chiede quelli di un altro riceve 404
+    (`mailbox_owner`, test negativo in `chat-tool-token.test.ts`).
+  - **Il contenuto personale solo in una conversazione libera privata**
+    (review di F1): posta, calendario, canali privati e DM, automazioni
+    generali. In una pubblica o in un turno di @Claude nella Chat il token
+    riceve 403 `chat_tool_private_only`; letti, la conversazione non si
+    pubblica più (409 `private_content`). Ogni lettura per codice o id
+    registra il suo progetto, anche i rilasci, che prima non lo facevano.
+  - **Cosa non arriva al modello**: dei server il `target` dei check (per un
+    DSN è la stringa del database) e `lastError`; delle automazioni i
+    destinatari e il corpo delle email, il prompt di Claude, la casella e
+    l'evento delle esecuzioni; del supporto l'email del cliente; della posta
+    il link a Gmail; degli appuntamenti `url`, `eventUrl`, `hangoutLink` e i
+    punti d'accesso della riunione.
+  - **Golden** (manuali, CLI pinnato): `chat-automation-read`,
+    `chat-server-read`, `chat-support-hostile`, `chat-channel-hostile`,
+    `chat-mail-hostile` (README dei golden).
+
+  **Rollback**: server e worker insieme (o il worker prima). La 0197 non si
+  annulla, e la colonna resta. ⚠️ Un server vecchio la IGNORA: una
+  conversazione che ha già letto posta o calendario torna pubblicabile, e chi
+  la pubblica la mostra a chi ha `claude.public.view`. Prima di scendere si
+  contano: `select count(*) from claude_conversations where private_read_at is
+  not null;`. Se non sono zero, la discesa va decisa sapendolo. Dopo, la
+  query `… and visibility = 'public'` deve restare vuota.

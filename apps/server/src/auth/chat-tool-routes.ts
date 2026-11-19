@@ -1,5 +1,7 @@
 // L'allowlist (lettura e la sola scrittura) sta in `@stubwise/shared`
 // (`chat-tool-routes.ts`): una fonte per server e golden.
+import { agentSessions, chatChannels, claudeConversations, type Db } from "@stubwise/db";
+import { eq } from "drizzle-orm";
 export { CHAT_TOOL_READ_ROUTES, CHAT_TOOL_WRITE_ROUTES } from "@stubwise/shared";
 
 /**
@@ -27,6 +29,20 @@ export const CHAT_TOOL_UNTRUSTED_ROUTES: ReadonlySet<string> = new Set([
   // della PR (anche di un esterno), i nomi e i passi delle run del provider di
   // CI, le note di rilascio. NON fidato: la lettura segna la conversazione.
   "/api/releases/:code",
+  // Area 10, F1 (review M6): un server porta l'hostname e i nomi dei servizi
+  // che riporta l'agente dall'host: testo scritto fuori dal team.
+  "/api/servers/by-code/:code",
+  // Area 10, F1: una conversazione di supporto (la scrive il cliente) e i
+  // messaggi di un canale (li scrive chiunque ne sia membro, anche un ospite).
+  // Il dettaglio del canale (nome, descrizione) lo segna anch'esso: lo scrive
+  // chi l'ha creato, e la lettura va sempre insieme ai messaggi.
+  "/api/support/conversations/by-code/:code",
+  "/api/chat/channels/:id",
+  "/api/chat/channels/:id/messages",
+  // Area 10, F1: una conversazione della posta e un appuntamento (li scrivono
+  // mittenti e organizzatori, anche di fuori).
+  "/api/me/mail/threads/:threadId",
+  "/api/me/calendar/events/:id",
 ]);
 
 /**
@@ -47,3 +63,48 @@ export const CHAT_TOOL_EXTERNAL_CONTENT_ROUTES: ReadonlySet<string> = new Set([
 /** Le origini di una task che vengono da fuori del team (dall'area 6, F2, anche `email`: una task nata da una proposta della posta). */
 export const EXTERNAL_TICKET_SOURCES = ["widget", "sdk_error", "sdk_feedback", "webhook", "email"] as const;
 
+
+/**
+ * Area 10, F1 (review I2 e I3): le letture di contenuto PERSONALE di chi
+ * chiede — la sua posta, il suo calendario, un canale privato o un DM, una
+ * automazione generale (la vede solo chi ha il permesso d'istanza). Valgono
+ * SOLO in una conversazione libera PRIVATA: in una pubblica le leggerebbe
+ * chiunque abbia `claude.public.view`, e in un turno di @Claude nella Chat la
+ * risposta sta in un canale (ospiti compresi). `mailbox_owner` non include MAI
+ * gli admin, e la posta non va mai in un canale condiviso (`mail-calendar.md`).
+ * Una lettura riuscita segna la conversazione (`private_read_at`), che da lì
+ * non si pubblica.
+ */
+export const CHAT_TOOL_PRIVATE_ROUTES: ReadonlySet<string> = new Set([
+  "/api/me/mail/threads/:threadId",
+  "/api/me/calendar/events/:id",
+]);
+const CHANNEL_ROUTES = new Set(["/api/chat/channels/:id", "/api/chat/channels/:id/messages"]);
+
+/** La lettura è di contenuto personale? (Per un canale e un'automazione dipende dall'oggetto.) */
+export async function isPrivateChatToolRead(db: Db, route: string, params: Record<string, unknown>): Promise<boolean> {
+  if (CHAT_TOOL_PRIVATE_ROUTES.has(route)) return true;
+  if (route === "/api/automations/:code") return /^AUT-/i.test(String(params["code"] ?? ""));
+  if (CHANNEL_ROUTES.has(route)) {
+    const id = String(params["id"] ?? "");
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return false;
+    const [c] = await db.select({ kind: chatChannels.kind, visibility: chatChannels.visibility }).from(chatChannels).where(eq(chatChannels.id, id));
+    return c !== undefined && (c.kind === "dm" || c.visibility === "private");
+  }
+  return false;
+}
+
+/**
+ * Il turno è di una conversazione libera PRIVATA? Non basta la visibilità:
+ * anche un turno di @Claude nella Chat ha la sua riga in `claude_conversations`,
+ * privata di default, ma la sua risposta sta in un canale. Conta il tipo della
+ * sessione (`free`).
+ */
+export async function isPrivateConversation(db: Db, sessionId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ visibility: claudeConversations.visibility, kind: agentSessions.kind })
+    .from(claudeConversations)
+    .innerJoin(agentSessions, eq(agentSessions.id, claudeConversations.sessionId))
+    .where(eq(claudeConversations.sessionId, sessionId));
+  return row?.kind === "free" && row.visibility === "private";
+}

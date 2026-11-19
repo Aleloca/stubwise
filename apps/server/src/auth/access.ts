@@ -14,7 +14,7 @@
  * widget). Lo pretende `route-access.test.ts`, senza elenco di eccezioni, e
  * l'hook rifiuta comunque (500) una rotta senza dichiarazione.
  */
-import { CHAT_TOOL_READ_ROUTES, CHAT_TOOL_WRITE_ROUTES } from "./chat-tool-routes.js";
+import { CHAT_TOOL_READ_ROUTES, CHAT_TOOL_WRITE_ROUTES, isPrivateChatToolRead, isPrivateConversation } from "./chat-tool-routes.js";
 import { and, eq, inArray, isNotNull, isNull, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
@@ -432,6 +432,13 @@ export async function accessPreHandler(
     const write = CHAT_TOOL_WRITE_ROUTES.has(`${request.method} ${url}`);
     if (!read && !write) {
       await apiError(reply, 403, "chat_tool_forbidden", "Not available to Claude's read tools");
+      return;
+    }
+    // Area 10, F1 (review I2, I3): posta, calendario, canali privati e DM,
+    // automazioni generali solo in una conversazione libera PRIVATA.
+    const params = (request.params ?? {}) as Record<string, unknown>;
+    if (read && (await isPrivateChatToolRead(request.server.db, url, params)) && !(await isPrivateConversation(request.server.db, user.chatToolSessionId))) {
+      await apiError(reply, 403, "chat_tool_private_only", "Personal content can be read only in a private conversation");
       return;
     }
   }

@@ -28,7 +28,7 @@ import {
   ticketAttachmentRoutes,
 } from "./routes/attachments.js";
 import { accessPreHandler, recordDesktopReauthUseOnResponse } from "./auth/access.js";
-import { recordChatToolReadProjects, recordChatToolUntrustedRead } from "./services/claude-public.js";
+import { recordChatToolPrivateRead, recordChatToolReadProjects, recordChatToolUntrustedRead } from "./services/claude-public.js";
 import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";
 import { createAnthropicChatLlm, type ChatLlm } from "./routes/chat-llm.js";
@@ -482,6 +482,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     await recordChatToolReadProjects(request, reply, payload);
     // Il contenuto NON fidato letto dal token del turno (area 5, fetta 3): fail-closed.
     await recordChatToolUntrustedRead(request, reply, payload);
+    // Il contenuto PERSONALE (area 10, F1, review I2): da lì non si pubblica. Fail-closed.
+    await recordChatToolPrivateRead(request, reply);
     return payload;
   });
 
