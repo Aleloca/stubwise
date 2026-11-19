@@ -213,7 +213,8 @@ describe("isIntegrated", () => {
         "destination:filters",
         "feature:saved-filters",
         "feature:department-home",
-        // Area 9, F8 (F8-3): la riconferma sui reparti quando si danno accessi.
+        // Area 9, F8: i permessi di progetto dei reparti, e la riconferma quando si danno accessi (F8-3).
+        "feature:department-permissions",
         "feature:department-reauth",
         "projectSection:overview",
         "projectSection:requests",

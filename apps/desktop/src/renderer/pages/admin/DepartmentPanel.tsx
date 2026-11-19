@@ -302,7 +302,7 @@ export function DepartmentPanel({
           />
         </PanelPart>
 
-        {/* Sul server un reparto non dà permessi di progetto: nella build app la parte non c'è. */}
+        {/* Accesa con l'area 9, F8: i permessi e i motivi dall'anteprima del server. */}
         {featureIntegrated("department-permissions") && (
         <PanelPart title={t("admin.department.permissions.title")}>
           <p className="mb-3 text-sm text-pretty text-ink-muted">

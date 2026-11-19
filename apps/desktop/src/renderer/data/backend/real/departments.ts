@@ -58,14 +58,29 @@ async function membersByDepartment(): Promise<Map<string, string[]>> {
  * `taskCount` non si scarica con l'elenco: lo legge il dialogo
  * dell'eliminazione, all'apertura (`countTasks` filtrato per reparto).
  */
+/**
+ * I permessi di progetto di ogni reparto come li ha letti l'elenco (F8): il
+ * salvataggio li manda solo se la bozza li CAMBIA rispetto a qui (decisione
+ * di 46). Un reparto mai letto non li manda: una sessione con dati vecchi non
+ * cancella i permessi salvati.
+ */
+const loadedPermissions = new Map<string, string[]>();
+
+/** SOLO TEST: dimentica i permessi letti (ogni test parte da un elenco mai letto). */
+export function forgetLoadedDepartmentsForTest(): void {
+  loadedPermissions.clear();
+}
+
 function view(d: ServerDepartment, memberIds: string[], homeManagerIds: string[]): DepartmentView {
+  const projectPermissions = [...((d as { projectPermissions?: string[] }).projectPermissions ?? [])];
+  loadedPermissions.set(d.id, projectPermissions);
   return {
     id: d.id,
     name: d.name,
     colorToken: d.colorToken,
     memberIds,
     homeManagerIds,
-    projectPermissions: [],
+    projectPermissions,
     taskCount: 0,
     missingToAdd: {},
     reach: "projects",
@@ -168,6 +183,15 @@ async function rolesFor(id: string, memberIds: string[], homeManagerIds: string[
  * dati dal reparto non ci sono nella build app. Se i membri sono salvati e i
  * ruoli no, lo dice (`roles_not_saved`): riprovando, solo i ruoli.
  */
+/** `projectPermissions` nel PATCH solo se la bozza cambia ciò che l'elenco ha letto (F8). */
+function permissionsPatch(id: string, draft: readonly string[]): { projectPermissions?: string[] } {
+  const loaded = loadedPermissions.get(id);
+  const next = [...new Set(draft)];
+  if (!loaded) return {};
+  const same = next.length === loaded.length && next.every((p) => loaded.includes(p));
+  return same ? {} : { projectPermissions: next };
+}
+
 const saveDepartment: Admin["saveDepartment"] = async (id, draft) => {
   const patch = {
     ...(draft.name !== undefined ? { name: draft.name.trim() } : {}),
@@ -175,6 +199,7 @@ const saveDepartment: Admin["saveDepartment"] = async (id, draft) => {
       ? { colorToken: draft.colorToken as ServerDepartment["colorToken"] }
       : {}),
     memberIds: [...new Set(draft.memberIds)],
+    ...permissionsPatch(id, draft.projectPermissions),
   };
   const key = JSON.stringify(patch);
   try {

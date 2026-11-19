@@ -19,6 +19,8 @@ type ServerReason = {
   byUserId?: string | null;
   at?: string | null;
   departmentId?: string | null;
+  /** F8 (72): il nome del reparto, dal server; null da un server di prima. */
+  departmentName?: string | null;
 };
 
 type ServerWho = {
@@ -75,10 +77,13 @@ export function createRealWhoCan(api: WhoCanApi) {
 
   /** I motivi del server in parole del prototipo; un tipo ignoto (server più nuovo) si salta. */
   async function reasonsOf(reasons: ServerReason[], names: Lookup): Promise<WhoCanReason[]> {
-    const needNames = reasons.some((r) => r.kind === "grant" || r.kind === "department");
-    const [people, departments] = needNames
-      ? await Promise.all([names.people(), names.departments()])
-      : [[], []];
+    // Il nome del reparto lo dà il server da F8: i reparti si leggono solo se manca.
+    const needPeople = reasons.some((r) => r.kind === "grant");
+    const needDepartments = reasons.some((r) => r.kind === "department" && !r.departmentName);
+    const [people, departments] = await Promise.all([
+      needPeople ? names.people() : [],
+      needDepartments ? names.departments() : [],
+    ]);
     return reasons.flatMap((r): WhoCanReason[] => {
       if (r.kind === "full_admin") return [{ kind: "full_admin" }];
       if (r.kind === "role") return [{ kind: "role", roleName: r.roleName ?? "" }];
@@ -87,7 +92,8 @@ export function createRealWhoCan(api: WhoCanApi) {
         return [{ kind: "grant", byName: by, at: r.at ?? "" }];
       }
       if (r.kind === "department") {
-        const name = departments.find((d) => d.id === r.departmentId)?.name ?? "";
+        const name =
+          r.departmentName ?? departments.find((d) => d.id === r.departmentId)?.name ?? "";
         return [{ kind: "department", departmentName: name }];
       }
       return [];

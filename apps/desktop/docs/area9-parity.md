@@ -118,6 +118,22 @@ c'è da subito.
 | Registro: «By Claude», «Undid…» | `changelog.ts` | — | Da `via`, `undoOf`, `undoneEntry` (0195); «By Claude» è `?via=claude`. |
 | `setAttachments`, `setDefaultReviewer`, `saveStorage` | — | (no) | Il server non le esegue (registro di 72; `saveStorage` dalla review di F7: endpoint e bucket decidono dove vanno gli allegati): nel prototipo restano, nell'app Claude dice che si fanno dalla pagina. |
 
+## Integrazione, F8: i permessi di progetto dei reparti nella build app (area 9, 19 nov 2026)
+
+Sulle rotte di 72 (`feat/area9-f8`). Prima del collegamento il prototipo è
+cambiato con le decisioni del maintainer: la riconferma sui reparti solo
+quando si danno accessi (un permesso aggiunto, una persona aggiunta a un
+reparto che ne dà; chi gestisce la Home, rinominare e togliere no, F8-3 = a),
+e un reparto che non arriva a nessun progetto ha il suo motivo (F8-4 = a).
+
+| Voci | Adattatore | Funzione accesa | Differenze dichiarate |
+|---|---|---|---|
+| La riga «gives…» e la tabella dei permessi del reparto | `departments.ts` | `department-permissions` | I permessi pieni solo a chi gestisce i reparti. Il salvataggio manda `projectPermissions` solo se la bozza li cambia rispetto all'elenco letto (un reparto mai letto non li manda). |
+| L'anteprima: permessi spenti, «Add people» | `departments.ts` | — | `POST …/preview` (F8-2 = a): il server calcola `reach`, `notGivable`, `missingToAdd`, `missing`. |
+| La riconferma | `departments.ts`, `DepartmentPanel.tsx` | `department-reauth` | `reauth_required` dal server, il dialogo come nel prototipo. |
+| «From <reparto>» in Members e nella persona, «via <reparto>» in «Chi può farlo?» | `adminPeople.ts`, `whoCan.ts` | — | Il nome del reparto dal server (`departmentName`); senza, si cerca nell'elenco. |
+| L'ultimo gestore via reparto | `departments.ts` | — | `last_manager` del server si legge come `last_members_manager`, anche sul DELETE. |
+
 ## A. Personale → Preferenze
 
 | Voce | Dove vive ora | Test |

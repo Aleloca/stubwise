@@ -32,8 +32,8 @@ export type IntegrationTarget =
  * blocchi (`home`), i filtri salvati (`filters`, `saved-filters`) e i ruoli di
  * reparto (`department-home`: chi dispone la Home del reparto). I blocchi della
  * Home delle aree non integrate si spengono da soli (`registry.ts`, `area`).
- * `department-permissions` (un reparto che dà permessi di progetto) resta fuori:
- * il server non la conosce. Fetta 4
+ * `department-permissions` (un reparto che dà permessi di progetto) è accesa
+ * dall'area 9, F8. Fetta 4
  * (`docs/plans/2026-11-09-integrazione-area2-fetta4-design.md`): Overview e
  * Requests di progetto, «Tutti i progetti» (`portfolio`); un progetto atterra
  * di nuovo sull'Overview. Refinement, task eliminate, archiviati, interruttori
@@ -98,6 +98,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Area 9, F6: archiviare, riaprire ed eliminare un progetto (la scheda
     // Archived di All projects, la pagina dell'archiviato, Delete).
     "archive",
+    // Area 9, F8: un reparto dà permessi di progetto (la riga «gives…», la
+    // tabella del pannello coi motivi dell'anteprima del server).
+    "department-permissions",
     // Area 9, F8 (F8-3 = a): il server chiede la riconferma sui reparti quando
     // si danno accessi; il pannello passa dal dialogo (il PAT del desktop
     // riconfermato vale, 0132).
