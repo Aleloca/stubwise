@@ -1,3 +1,4 @@
+import { departmentGrantsOf, type DepartmentGrant } from "./department-access.js";
 import { memberPermissionsSql, projectMemberPermissions, projectMembers, projects, roles, users, type Db } from "@stubwise/db";
 import {
   effectiveInstancePermissions,
@@ -46,6 +47,7 @@ const reason = (kind: AccessReason["kind"], extra: Partial<AccessReason> = {}): 
   byUserId: null,
   at: null,
   departmentId: null,
+  departmentName: null,
   ...extra,
 });
 
@@ -100,6 +102,7 @@ function projectWithReasons(
   person: Person,
   membership: Membership | undefined,
   grants: { permission: string; grantedByUserId: string | null; grantedAt: Date }[],
+  departmentGrants: readonly DepartmentGrant[] = [],
 ): PermissionWithReasons[] | null {
   const effective = effectiveProjectPermissions(
     effectiveInstancePermissions(person.instanceRolePermissions),
@@ -117,6 +120,10 @@ function projectWithReasons(
       ...grants
         .filter((g) => g.permission === permission)
         .map((g) => reason("grant", { byUserId: g.grantedByUserId, at: g.grantedAt.toISOString() })),
+      // Area 9, F8: «via <reparto>», solo se è membro (un reparto non rende membri).
+      ...(membership?.rolePermissions
+        ? departmentGrants.filter((g) => g.permission === permission).map((g) => reason("department", { departmentId: g.departmentId, departmentName: g.departmentName }))
+        : []),
     ],
   }));
 }
@@ -176,8 +183,9 @@ export async function whoCan(db: Db, viewer: Viewer, permission: AnyPermission, 
   } else {
     const byUser = new Map((await memberships(db, [projectId!])).map((m) => [m.userId, m]));
     const grants = await grantsOf(db, [projectId!]);
+    const fromDepartments = await departmentGrantsOf(db, people.map((p) => p.id));
     for (const person of people) {
-      const entry = projectWithReasons(person, byUser.get(person.id), grants.filter((g) => g.userId === person.id))?.find(
+      const entry = projectWithReasons(person, byUser.get(person.id), grants.filter((g) => g.userId === person.id), fromDepartments.filter((g) => g.userId === person.id))?.find(
         (p) => p.permission === permission,
       );
       if (entry) rows.push({ userId: person.id, email: person.email, displayName: person.displayName, reasons: entry.reasons });
@@ -212,10 +220,11 @@ export async function whatCan(db: Db, viewer: Viewer, userId: string, projectId:
     : [];
   const byProject = new Map((await memberships(db, projectIds, [userId])).map((m) => [m.projectId, m]));
   const grants = await grantsOf(db, projectIds, [userId]);
+  const fromDepartments = await departmentGrantsOf(db, [userId]);
 
   const perProject: WhatCanResponse["projects"] = [];
   for (const { id, name } of names) {
-    const permissions = projectWithReasons(person, byProject.get(id), grants.filter((g) => g.projectId === id));
+    const permissions = projectWithReasons(person, byProject.get(id), grants.filter((g) => g.projectId === id), fromDepartments);
     if (permissions) perProject.push({ projectId: id, projectName: name, permissions });
   }
   return { userId, instance: instanceWithReasons(person), projects: perProject };

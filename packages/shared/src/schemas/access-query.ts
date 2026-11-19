@@ -16,6 +16,8 @@ export const accessReasonSchema = z.object({
   byUserId: z.uuid().nullable().default(null),
   at: z.iso.datetime().nullable().default(null),
   departmentId: z.uuid().nullable().default(null),
+  /** Area 9, F8 (additivo): il nome del reparto, per «via <reparto>». */
+  departmentName: z.string().nullable().default(null),
 });
 export type AccessReason = z.infer<typeof accessReasonSchema>;
 

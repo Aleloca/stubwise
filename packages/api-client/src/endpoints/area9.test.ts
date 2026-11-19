@@ -243,3 +243,12 @@ describe("area 9, F8: l'anteprima di un reparto", () => {
     expect(r).toEqual({ reach: "anywhere", notGivable: [], missingToAdd: {}, missing: [] });
   });
 });
+
+describe("area 9, F8: le risposte di un server di prima", () => {
+  it("un reparto senza projectPermissions si legge con [], un motivo senza departmentName con null", async () => {
+    const list = clientWith([{ id: P1, name: "Design", colorToken: "--dept-1", isDefault: false }]);
+    expect((await list.client.departments.list())[0]).toMatchObject({ projectPermissions: [] });
+    const { accessReasonSchema } = await import("@stubwise/shared");
+    expect(accessReasonSchema.parse({ kind: "department", departmentId: P1 })).toMatchObject({ departmentName: null });
+  });
+});

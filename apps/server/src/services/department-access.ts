@@ -1,6 +1,6 @@
-import { departmentMembers, departmentProjectPermissions, projectMembers, users, type Db } from "@stubwise/db";
+import { departmentMembers, departmentProjectPermissions, departments, projectMembers, users, type Db } from "@stubwise/db";
 import { PROJECT_PERMISSIONS } from "@stubwise/shared";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { projectPermissionsMap } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 
@@ -68,4 +68,35 @@ export async function savedDepartmentShape(db: Pick<Db, "select">, departmentId:
   const members = await db.select({ userId: departmentMembers.userId }).from(departmentMembers).where(eq(departmentMembers.departmentId, departmentId));
   const perms = await db.select({ permission: departmentProjectPermissions.permission }).from(departmentProjectPermissions).where(eq(departmentProjectPermissions.departmentId, departmentId));
   return { memberIds: members.map((m) => m.userId), projectPermissions: perms.map((p) => p.permission).sort() };
+}
+
+/** Un permesso di progetto che una persona riceve da un suo reparto. */
+export interface DepartmentGrant {
+  userId: string;
+  departmentId: string;
+  departmentName: string;
+  permission: string;
+}
+
+/**
+ * Area 9, F8: i permessi di progetto che le persone ricevono dai loro reparti
+ * (validi in ogni progetto di cui sono membri), coi nomi dei reparti. È la
+ * stessa unione di `memberPermissionsSql`, letta per le FONTI (Members, la
+ * pagina della persona, «Chi può farlo?», l'anteprima del membro) e per
+ * l'escalation di chi entra in un progetto. Mai a un utente di sistema.
+ */
+export async function departmentGrantsOf(db: Pick<Db, "select">, userIds?: readonly string[]): Promise<DepartmentGrant[]> {
+  if (userIds && userIds.length === 0) return [];
+  return db
+    .select({
+      userId: departmentMembers.userId,
+      departmentId: departmentMembers.departmentId,
+      departmentName: departments.name,
+      permission: departmentProjectPermissions.permission,
+    })
+    .from(departmentMembers)
+    .innerJoin(departmentProjectPermissions, eq(departmentProjectPermissions.departmentId, departmentMembers.departmentId))
+    .innerJoin(departments, eq(departments.id, departmentMembers.departmentId))
+    .innerJoin(users, eq(users.id, departmentMembers.userId))
+    .where(and(eq(users.isAgent, false), ...(userIds ? [inArray(departmentMembers.userId, [...userIds])] : [])));
 }
