@@ -4,7 +4,7 @@ import { mailSignalSchema, waitingCustomersResponseSchema, type WaitingCustomer 
 import { eq, inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
-import { visibleProjectIds } from "../auth/access.js";
+import { legacyScope, visibleProjectIds } from "../auth/access.js";
 import { authErrorResponses } from "./shared.js";
 
 /** Area 8, «Clienti in attesa»: dopo quante ore un messaggio esterno «aspetta». */
@@ -40,7 +40,7 @@ export async function meWaitingCustomersRoutes(instance: FastifyInstance): Promi
         accountIds: boxes.map((b) => b.id),
         cutoff: new Date(Date.now() - WAITING_AFTER_HOURS * 3_600_000),
         limit: WAITING_PAGE_LIMIT,
-        projects: visible,
+        projects: await legacyScope(app.db, visible),
         shownOnly: true,
       });
       const ids = [...new Set(page.items.map((c) => c.projectId))];

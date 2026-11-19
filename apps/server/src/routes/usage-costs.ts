@@ -4,7 +4,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
 import { agentRuns, aiJobs, aiProviders, projects } from "@stubwise/db";
-import { inProjects, projectIdsWithPermission, visibleProjectIds } from "../auth/access.js";
+import { inProjects, isAllProjects, projectIdsWithPermission, visibleProjectIds, type ProjectScope } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -392,10 +392,13 @@ async function breakdown(
  * altrimenti quelli in cui ha `project.usage.view` (le righe senza progetto
  * no).
  */
-type UsageScope = "all" | string[];
+type UsageScope = ProjectScope;
 
 async function usageScope(db: Db, user: SessionUser): Promise<UsageScope> {
-  if (user.instancePermissions.has("usage.view")) return "all";
+  // `usage.view` d'istanza: TUTTO il consumo, anche dei progetti archiviati
+  // (area 9, F6: è spesa vera, e il conto dell'istanza non la dimentica).
+  // I loro nomi restano fuori (`visibleProjectIds`).
+  if (user.instancePermissions.has("usage.view")) return { all: true, archived: [] };
   return projectIdsWithPermission(db, user, "project.usage.view");
 }
 
@@ -410,7 +413,7 @@ async function requireUsageScope(
   reply: FastifyReply,
 ): Promise<UsageScope | null> {
   const scope = await usageScope(request.server.db, request.user!);
-  if (scope !== "all" && scope.length === 0) {
+  if (!isAllProjects(scope) && scope.length === 0) {
     await apiError(reply, 403, "forbidden", "Missing permission");
     return null;
   }

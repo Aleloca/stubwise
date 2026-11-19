@@ -9,11 +9,11 @@ import {
   type RepositoryWarning,
 } from "@stubwise/shared";
 import { getProvider } from "@stubwise/git";
-import { and, eq, inArray, ne, sql, type SQL } from "drizzle-orm";
+import { and, eq, ne, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { projectIdsWithPermission, routePermissions } from "../auth/access.js";
+import { projectIdsWithPermission, routePermissions, isAllProjects, scopeIncludes, inProjects, type ProjectScope } from "../auth/access.js";
 import { fromBody, repositoryAccess } from "../auth/project-resolvers.js";
 import { GitProviderError } from "@stubwise/git";
 import { decrypt, gitAccounts, isAttachedRepository, projects, repositories } from "@stubwise/db";
@@ -460,11 +460,14 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         projectIdsWithPermission(app.db, request.user!, "repos.view"),
         projectIdsWithPermission(app.db, request.user!, "docs.view"),
       ]);
-      const readable =
-        withRepos === "all" || withDocs === "all" ? "all" : [...new Set([...withRepos, ...withDocs])];
-      if (readable !== "all" && readable.length === 0) return [];
+      const readable: ProjectScope = isAllProjects(withRepos)
+        ? withRepos
+        : isAllProjects(withDocs)
+          ? withDocs
+          : [...new Set([...withRepos, ...withDocs])];
+      if (!isAllProjects(readable) && readable.length === 0) return [];
       const configFor = (repoProjectId: string) =>
-        withRepos === "all" || withRepos.includes(repoProjectId);
+        scopeIncludes(withRepos, repoProjectId);
       const rows = await app.db
         // Dal progetto unito: un repository staccato (F6) non è di nessun
         // progetto, e lo elenca solo `/detached`, nemmeno al full admin.
@@ -475,7 +478,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         .where(
           and(
             projectId ? eq(repositories.projectId, projectId) : undefined,
-            readable === "all" ? undefined : inArray(repositories.projectId, readable),
+            inProjects(repositories.projectId, readable),
           ),
         )
         .orderBy(repositories.createdAt);

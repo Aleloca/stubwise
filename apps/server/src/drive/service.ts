@@ -20,7 +20,7 @@ import {
 } from "@stubwise/shared";
 import type { z } from "zod";
 import { and, asc, desc, eq, getTableColumns, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
-import { projectPermissionsFor, projectPermissionsMap, visibleProjectIds } from "../auth/access.js";
+import { projectPermissionsFor, projectPermissionsMap, visibleProjectIds, isAllProjects, scopeIncludes, inProjects } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { StorageObjectNotFound, type ObjectStorage } from "../storage/index.js";
 import { clip, displayFileName } from "../storage/filenames.js";
@@ -67,7 +67,7 @@ const LIST_DEFAULT = 200;
 
 async function sees(db: Db, viewer: Viewer, projectId: string): Promise<boolean> {
   const visible = await visibleProjectIds(db, viewer);
-  return visible === "all" || visible.includes(projectId);
+  return scopeIncludes(visible, projectId);
 }
 
 /** Chi può caricare nel Drive del progetto, PRIMA di leggere il file: 404 se non lo vede, 403 senza `drive.upload`. */
@@ -232,12 +232,12 @@ export async function listDriveFiles(
     if (!project || !(await sees(db, viewer, scope.projectId))) throw notFound();
   }
   const visible = await visibleProjectIds(db, viewer);
-  if (visible !== "all" && visible.length === 0) return [];
+  if (!isAllProjects(visible) && visible.length === 0) return [];
   const q = query.q?.trim();
   const opens = sql`(select count(*) from ${driveOpens} o where o.file_id = ${driveFiles.id} and o.at > now() - interval '90 days')`;
   const scopeConditions = [
     isNull(driveFiles.deletedAt),
-    visible === "all" ? undefined : inArray(driveFiles.projectId, visible),
+    inProjects(driveFiles.projectId, visible),
     projectId ? eq(driveFiles.projectId, projectId) : undefined,
     query.type ? eq(driveFiles.type, query.type) : undefined,
     query.addedById ? eq(driveFiles.addedBy, query.addedById) : undefined,

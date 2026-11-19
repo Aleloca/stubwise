@@ -13,7 +13,7 @@ import {
   type SetAlertSubscriptionInput,
 } from "@stubwise/shared";
 import { and, asc, eq, inArray } from "drizzle-orm";
-import { projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
+import { projectPermissionsFor, visibleProjectIds, isAllProjects, inProjects } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 
 /**
@@ -97,11 +97,11 @@ async function rowsOf(db: Db, viewer: Viewer, projectId: string): Promise<AlertS
 
 export async function listAlertSubscriptions(db: Db, viewer: Viewer): Promise<ProjectSubscriptions[]> {
   const ids = await visibleProjectIds(db, viewer);
-  if (ids !== "all" && ids.length === 0) return [];
+  if (!isAllProjects(ids) && ids.length === 0) return [];
   const list = await db
     .select({ id: projects.id, code: projects.code, name: projects.name })
     .from(projects)
-    .where(ids === "all" ? undefined : inArray(projects.id, [...ids]))
+    .where(inProjects(projects.id, ids))
     .orderBy(asc(projects.name));
   const out: ProjectSubscriptions[] = [];
   for (const p of list) out.push({ projectId: p.id, projectCode: p.code, projectName: p.name, rows: await rowsOf(db, viewer, p.id) });

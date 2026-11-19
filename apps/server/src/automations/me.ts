@@ -8,7 +8,7 @@ import {
   type AutomationFlow,
   type MyAutomationRun,
 } from "@stubwise/shared";
-import { and, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { canManage, managesGeneral, seen, seesAutomation, type Viewer } from "./model.js";
 import { decidersOf, pendingEffectOf, runCode, runRowOf } from "./runs.js";
 import { canManageIntegrations } from "./sources.js";
@@ -29,9 +29,9 @@ const OPEN = ["running", "waiting_approval", "waiting_project", "suspended"] as 
 async function candidates(db: Db, viewer: Viewer, statuses: readonly string[]) {
   const visible = await seen(db, viewer);
   const generals = managesGeneral(viewer);
-  if (visible !== "all" && visible.size === 0 && !generals) return { visible, rows: [] };
+  if (visible.size === 0 && !generals) return { visible, rows: [] };
   // Le generali (F4) solo a chi le vede (R-G5).
-  const projectScope = visible === "all" ? isNotNull(automations.projectId) : visible.size > 0 ? inArray(automations.projectId, [...visible]) : sql`false`;
+  const projectScope = visible.size > 0 ? inArray(automations.projectId, [...visible]) : sql`false`;
   const rows = await db
     .select({ run: automationRuns, automation: automations })
     .from(automationRuns)
@@ -65,7 +65,7 @@ async function waitingCandidates(db: Db, viewer: Viewer) {
     sql`coalesce(${automationRuns.pending}->'preview'->>'progetto', ${automations.projectId}::text) is null`,
     or(eq(automations.ownerId, viewer.id), sql`coalesce(${automationRuns.pending}->'approverIds', '[]'::jsonb) ? ${viewer.id}`),
   );
-  if (visible !== "all" && visible.size === 0) {
+  if (visible.size === 0) {
     const rows = await db
       .select({ run: automationRuns, automation: automations })
       .from(automationRuns)
@@ -82,7 +82,12 @@ async function waitingCandidates(db: Db, viewer: Viewer) {
     .where(
       and(
         inArray(automationRuns.status, [...WAITING]),
-        visible === "all" ? undefined : or(sql`${approvalProject} in (${sql.join([...visible].map((id) => sql`${id}`), sql`, `)})`, ownerOfUnplaced),
+        or(
+          sql`${approvalProject} in (${sql.join([...visible].map((id) => sql`${id}`), sql`, `)})`,
+          ownerOfUnplaced,
+          // Un full admin le vedeva tutte (prima riceveva `"all"`): anche quelle senza progetto (F6 toglie solo gli archiviati).
+          viewer.instancePermissions.has("instance.full_admin") ? sql`${approvalProject} is null` : undefined,
+        ),
         sql`not exists (select 1 from ${automationRunInputs} i where i.run_id = ${automationRuns.id} and i.consumed_at is null)`,
       ),
     )
@@ -103,7 +108,7 @@ export async function listMyApprovals(db: Db, viewer: Viewer): Promise<Automatio
     const step = v && cursor ? stepAt((v.flow as AutomationFlow).steps, cursor) : null;
     const [last] = await db.select({ at: automationRunLog.at }).from(automationRunLog).where(eq(automationRunLog.runId, run.id)).orderBy(desc(automationRunLog.seq)).limit(1);
     const preview = structuredClone(pending.preview ?? {});
-    if (visible !== "all") hideProject(preview, visible);
+    hideProject(preview, visible);
     const cliente = (run.event as { cliente?: { nome?: unknown } } | null)?.cliente?.nome;
     out.push({
       kind: run.status === "waiting_project" ? "project" : "approval",

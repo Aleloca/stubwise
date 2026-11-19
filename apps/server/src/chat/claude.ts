@@ -16,7 +16,7 @@ import { AGENT_SESSION_INPUT_CHANNEL, CLAUDE_CONVERSATION_CLOSED_CHANNEL, CLAUDE
 import type { ChatCitationKind, ChatClaudeReplyView } from "@stubwise/shared";
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import { projectIdsWithPermission } from "../auth/access.js";
+import { projectIdsWithPermission, scopeIncludes, type ProjectScope } from "../auth/access.js";
 import { monthlyBudgetExhausted } from "../services/agent-sessions.js";
 import { agentUserId } from "../services/claude-assign.js";
 import { personName } from "../services/people.js";
@@ -357,7 +357,7 @@ async function argsVisibleTo(
     needed ? await projectIdsWithPermission(db, viewer, permission) : [];
   const tasksAll = await viewAll("tickets.view_all", flat.some((r) => r.kind === "newTask"));
   const requestsAll = await viewAll("backlog.view_all", flat.some((r) => r.kind === "newRequest"));
-  const within = (ids: "all" | string[], projectId: string) => ids === "all" || ids.includes(projectId);
+  const within = (ids: ProjectScope, projectId: string) => scopeIncludes(ids, projectId);
   const sees = (ref: ActionRef): boolean => {
     if (ref.kind === "newTask") return seen.has(`project:${ref.id}`) && within(tasksAll, ref.id);
     if (ref.kind === "newRequest") return seen.has(`project:${ref.id}`) && within(requestsAll, ref.id);

@@ -31,8 +31,10 @@ import { RoleRuleError } from "./roles.js";
 type Viewer = Pick<SessionUser, "id" | "instancePermissions">;
 
 /** I permessi di progetto di chi guarda, per ogni progetto che vede (la regola di `/api/auth/me`). */
+// Area 9, F6: le voci di un progetto ARCHIVIATO restano nel registro di chi lo
+// vedrebbe (il prototipo, `changelog/reads.ts`): il registro lo legge di proposito.
 async function projectPermissionsMapFor(db: Db, viewer: Viewer): Promise<Map<string, ReadonlySet<string>>> {
-  return new Map(Object.entries(await projectPermissionsMap(db, viewer)).map(([id, perms]) => [id, new Set<string>(perms)]));
+  return new Map(Object.entries(await projectPermissionsMap(db, viewer, { includeArchived: true })).map(([id, perms]) => [id, new Set<string>(perms)]));
 }
 export const PAGE_SIZE = 50;
 const MANAGE_PROJECT = ["project.settings.manage", "project.members.manage"] as const;

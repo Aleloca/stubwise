@@ -2,7 +2,7 @@ import { chatChannelMembers, chatChannels, users, type Db } from "@stubwise/db";
 import { projectViewerIds, type DbOrTx } from "@stubwise/notifications";
 import type { ProjectPermission } from "@stubwise/shared";
 import { and, eq, exists, inArray, isNotNull, or, sql, type SQL } from "drizzle-orm";
-import { projectIdsWithPermission, projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
+import { inProjects as inProjectScope, isAllProjects, projectIdsWithPermission, projectPermissionsFor, visibleProjectIds, type ProjectScope } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 
 /**
@@ -32,10 +32,11 @@ function memberSql(viewerId: string): SQL {
   );
 }
 
-function inProjects(ids: "all" | string[]): SQL {
-  if (ids === "all") return isNotNull(chatChannels.projectId);
+function inProjects(ids: ProjectScope): SQL {
+  // Un full admin: ogni canale di progetto tranne quelli degli archiviati (F6).
+  if (isAllProjects(ids)) return and(isNotNull(chatChannels.projectId), inProjectScope(chatChannels.projectId, ids))!;
   if (ids.length === 0) return sql`false`;
-  return inArray(chatChannels.projectId, ids);
+  return inArray(chatChannels.projectId, [...ids]);
 }
 
 /** La WHERE dei canali che chi guarda VEDE. */

@@ -23,6 +23,8 @@ interface CollectedRoute {
   credentialDoor?: true;
   /** `config.partialReauth`, se dichiarato (area 9, F3). */
   partialReauth?: true;
+  /** `config.archived`, se dichiarato (area 9, F6). */
+  archived?: "read" | "write";
 }
 
 /**
@@ -48,6 +50,7 @@ function collect(route: RouteOptions, into: Map<string, CollectedRoute>): void {
       reauth: route.config?.reauth ?? prev?.reauth,
       credentialDoor: route.config?.credentialDoor ?? prev?.credentialDoor,
       partialReauth: route.config?.partialReauth ?? prev?.partialReauth,
+      archived: route.config?.archived ?? prev?.archived,
     });
   }
 }
@@ -202,5 +205,16 @@ describe("rotte con riconferma recente", () => {
       "PUT /api/settings/instance",
       "PUT /api/settings/notifications",
     ]);
+  });
+
+  /**
+   * Area 9, F6 (D-8): un progetto archiviato è come uno che non c'è, TRANNE
+   * per queste rotte, che lo leggono (o lo riaprono, lo eliminano) di
+   * proposito. Un'aggiunta qui è una scelta: va nel design.
+   */
+  it("le rotte che passano su un progetto ARCHIVIATO sono ESATTAMENTE queste, e solo di progetto", async () => {
+    const routes = (await registeredRoutes()).filter((r) => r.archived);
+    expect(routes.filter((r) => r.kind !== "project").map((r) => r.key)).toEqual([]);
+    expect(routes.map((r) => `${r.key} ${r.archived}`).sort()).toEqual([]);
   });
 });

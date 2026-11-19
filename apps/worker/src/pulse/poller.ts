@@ -342,7 +342,8 @@ export async function pollPulseOnce(deps: PulsePollerDeps): Promise<number> {
         pulseLastSentAt: projects.pulseLastSentAt,
       })
       .from(projects)
-      .where(and(eq(projects.pulseEnabled, true), eq(projects.backlogEnabled, true)));
+      // Area 9, F6: un archiviato non ha polso; riaprendolo riparte.
+      .where(and(eq(projects.pulseEnabled, true), eq(projects.backlogEnabled, true), isNull(projects.archivedAt)));
   } catch (err) {
     logger.error(`pulse: selezione dei progetti abilitati fallita: ${errText(err)}`);
     return 0;

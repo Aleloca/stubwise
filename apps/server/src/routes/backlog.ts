@@ -48,6 +48,7 @@ import {
   projectPermissionsFor,
   routePermissions,
   visibleProjectIds,
+  type ProjectScope,
 } from "../auth/access.js";
 import {
   backlogItemAccess,
@@ -130,7 +131,8 @@ const baseColumns = {
  * chi guarda non vede.
  */
 function itemVisibility(request: FastifyRequest): SQL | undefined {
-  const viewAll = routePermissions(request).has("backlog.view_all") ? "all" : [];
+  // Nel progetto della rotta (aperto): «ovunque» senza archiviati da togliere.
+  const viewAll: ProjectScope = routePermissions(request).has("backlog.view_all") ? { all: true, archived: [] } : [];
   return backlogVisibleSql(viewAll, request.user!.id);
 }
 

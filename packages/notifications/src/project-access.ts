@@ -11,7 +11,7 @@
  * modifica. Il server ri-usa queste funzioni (`projectPermissionsOfUser` in
  * `access.ts` le delega).
  */
-import { memberPermissionsSql, projectMembers, roles, tickets, users } from "@stubwise/db";
+import { memberPermissionsSql, projectMembers, projects, roles, tickets, users } from "@stubwise/db";
 import {
   effectiveInstancePermissions,
   effectiveProjectPermissions,
@@ -87,7 +87,9 @@ export async function automationOwnerInScope(db: DbOrTx, ownerId: string, projec
  * pagina d'inbox non ne fa una per card). Ogni progetto chiesto è nella mappa;
  * quelli che l'utente non vede valgono `null`. Un progetto inesistente per un
  * full admin vale l'insieme completo: chi chiede un id lo ha letto da una riga
- * che lo referenzia (FK), quindi il caso non si presenta.
+ * che lo referenzia (FK), quindi il caso non si presenta. Un progetto
+ * ARCHIVIATO vale `null` per tutti (area 9, F6, D-8): ogni destinatario del
+ * routing, di Slack e delle automazioni lo perde, come uno che non c'è.
  */
 export async function projectPermissionsByProject(
   db: DbOrTx,
@@ -105,6 +107,8 @@ export async function projectPermissionsByProject(
       projectId: projectMembers.projectId,
       // Ruolo ∪ permessi personali (area 9, F1): la regola di `memberPermissionsSql`.
       memberPermissions: memberPermissionsSql(memberRoles.permissions, projectMembers.projectId, projectMembers.userId),
+      // Area 9, F6: gli archiviati fra quelli chiesti, nella STESSA query (una pagina d'inbox ne fa una).
+      archived: sql<string[]>`array(select ${projects.id}::text from ${projects} where ${inArray(projects.id, unique)} and ${projects.archivedAt} is not null)`,
     })
     .from(users)
     .innerJoin(roles, eq(roles.id, users.instanceRoleId))
@@ -120,13 +124,14 @@ export async function projectPermissionsByProject(
     for (const id of unique) result.set(id, null);
     return result;
   }
+  const archived = new Set(rows[0]!.archived);
   const instance = effectiveInstancePermissions(rows[0]!.instancePermissions);
   const memberPerms = new Map<string, string[]>();
   for (const row of rows) {
     if (row.projectId && row.memberPermissions) memberPerms.set(row.projectId, row.memberPermissions);
   }
   for (const id of unique) {
-    result.set(id, effectiveProjectPermissions(instance, memberPerms.get(id) ?? null));
+    result.set(id, archived.has(id) ? null : effectiveProjectPermissions(instance, memberPerms.get(id) ?? null));
   }
   return result;
 }

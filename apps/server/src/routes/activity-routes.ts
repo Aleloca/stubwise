@@ -11,7 +11,7 @@ import {
   projects,
   users,
 } from "@stubwise/db";
-import { inProjects, projectIdsWithPermission } from "../auth/access.js";
+import { inProjects, isAllProjects, projectIdsWithPermission } from "../auth/access.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -262,7 +262,15 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
       // committato SOLO in progetti visibili. Gli autori con commit altrove
       // (email git, in minuscolo) vengono da una query sui report invisibili.
       const authorsElsewhere = new Set<string>();
-      if (visible !== "all") {
+      // Un full admin non vede gli archiviati (F6): i loro report contano come «altrove».
+      const hiddenScope = isAllProjects(visible)
+        ? visible.archived.length > 0
+          ? inArray(activityReports.projectId, [...visible.archived])
+          : null
+        : visible.length > 0
+          ? notInArray(activityReports.projectId, [...visible])
+          : undefined;
+      if (hiddenScope !== null) {
         const hidden = await app.db
           .select({ authorEmail: activityCommits.authorEmail })
           .from(activityCommits)
@@ -270,7 +278,7 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
           .where(
             and(
               eq(activityReports.date, date),
-              visible.length > 0 ? notInArray(activityReports.projectId, visible) : undefined,
+              hiddenScope,
             ),
           );
         for (const row of hidden) authorsElsewhere.add(row.authorEmail.toLowerCase());
