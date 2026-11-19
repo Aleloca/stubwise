@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { changeLog, projects, repositories, users } from "./schema.js";
+import { changeLog, deletedProjectMembers, deletedProjects, projects, repositories, users } from "./schema.js";
 import { seedRepository, startTestDb, type TestDb } from "./testing.js";
 
 /**
@@ -56,6 +56,24 @@ describe("migrazione 0193", () => {
     await t.db.insert(changeLog).values({ actorEmail: "a@acme.com", actorKind: "user", type: "project.deleted", projectId: gone, subjectKind: "project", subjectId: gone });
     // E resta append-only.
     await expect(t.db.update(changeLog).set({ projectId: null }).where(eq(changeLog.projectId, projectId))).rejects.toThrow();
+  });
+
+  it("la memoria del progetto eliminato: codice, nome, ex membri; il repository staccato ne tiene l'id e la data", async () => {
+    const { projectId, repositoryId } = await seedRepository(t.db);
+    const u = await newUser();
+    await t.db.insert(deletedProjects).values({ id: projectId, code: "ACM", name: "Acme" });
+    await t.db.insert(deletedProjectMembers).values({ projectId, userId: u });
+    await t.db.update(repositories).set({ detachedAt: new Date(), detachedFromProjectId: projectId }).where(eq(repositories.id, repositoryId));
+    await t.db.delete(projects).where(eq(projects.id, projectId));
+    const [r] = await t.db.select().from(repositories).where(eq(repositories.id, repositoryId));
+    expect(r).toMatchObject({ projectId: null, detachedFromProjectId: projectId });
+    expect(r!.detachedAt).toBeInstanceOf(Date);
+    // Un ex membro eliminato esce dalla memoria; la memoria tolta lascia il repository.
+    await t.db.delete(users).where(eq(users.id, u));
+    expect(await t.db.select().from(deletedProjectMembers).where(eq(deletedProjectMembers.projectId, projectId))).toEqual([]);
+    await t.db.delete(deletedProjects).where(eq(deletedProjects.id, projectId));
+    const [after] = await t.db.select().from(repositories).where(eq(repositories.id, repositoryId));
+    expect(after!.detachedFromProjectId).toBeNull();
   });
 
   it("l'indice parziale degli archiviati c'è, e le FK sono quelle attese", async () => {

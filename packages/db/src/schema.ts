@@ -913,6 +913,10 @@ export const repositories = pgTable("repositories", {
    * analisi»), `analyze_only`, `off`. Default `analyze_only` (P-2 = a).
    */
   colleaguePrs: text("colleague_prs").$type<"analyze_and_fix" | "analyze_only" | "off">().notNull().default("analyze_only"),
+  // Area 9, F6 (0193): un repository staccato, quando e da quale progetto
+  // eliminato. Si azzerano insieme a un nuovo collegamento.
+  detachedAt: timestamp("detached_at", { withTimezone: true }),
+  detachedFromProjectId: uuid("detached_from_project_id").references((): AnyPgColumn => deletedProjects.id, { onDelete: "set null" }),
 }, (table) => [
   check("repositories_ci_provider_chk", sql`${table.ciProvider} IS NULL OR ${table.ciProvider} IN ('github_actions', 'bitbucket_pipelines')`),
   check("repositories_colleague_prs_chk", sql`${table.colleaguePrs} IN ('analyze_and_fix', 'analyze_only', 'off')`),
@@ -935,6 +939,36 @@ export const repositories = pgTable("repositories", {
  * (project_id, name) impedisce milestone omonime nello stesso progetto, ma
  * ammette lo stesso nome in progetti diversi.
  */
+/**
+ * Area 9, F6 (0193, D-8): cosa resta di un progetto eliminato. Codice, nome e
+ * chi ne era membro, e NIENT'ALTRO: servono a dire «chi conosceva il
+ * progetto» (l'etichetta di `project.deleted`, la provenienza e il nome
+ * intero di un repository staccato). `id` è quello del progetto, senza FK
+ * (non c'è più): è lo stesso `project_id` delle sue voci del registro.
+ */
+export const deletedProjects = pgTable("deleted_projects", {
+  id: uuid("id").primaryKey(),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const deletedProjectMembers = pgTable(
+  "deleted_project_members",
+  {
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => deletedProjects.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    primaryKey({ name: "deleted_project_members_pk", columns: [table.projectId, table.userId] }),
+    index("deleted_project_members_user_idx").on(table.userId),
+  ],
+);
+
 export const milestones = pgTable(
   "milestones",
   {
