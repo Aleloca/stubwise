@@ -42,6 +42,8 @@ describe("migrazione 0198", () => {
     // Una risposta senza `answered_at` (o viceversa) è rifiutata.
     await expect(t.db.update(claudeConversationQuestions).set({ answerOptionIndex: 1 }).where(eq(claudeConversationQuestions.id, row!.id))).rejects.toThrow();
     await expect(t.db.update(claudeConversationQuestions).set({ answeredAt: new Date() }).where(eq(claudeConversationQuestions.id, row!.id))).rejects.toThrow();
+    // Un'opzione E un testo insieme: rifiutato (review di F2, M6).
+    await expect(t.db.update(claudeConversationQuestions).set({ answerOptionIndex: 1, answerText: "x", answeredAt: new Date() }).where(eq(claudeConversationQuestions.id, row!.id))).rejects.toThrow();
     await t.db.update(claudeConversationQuestions).set({ answerOptionIndex: 1, answeredAt: new Date() }).where(eq(claudeConversationQuestions.id, row!.id));
     await t.db.delete(agentSessions).where(eq(agentSessions.id, sid));
     expect(await t.db.select().from(claudeConversationQuestions).where(eq(claudeConversationQuestions.sessionId, sid))).toEqual([]);

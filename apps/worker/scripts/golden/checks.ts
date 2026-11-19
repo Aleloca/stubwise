@@ -1134,7 +1134,7 @@ export const CHAT_CANNOT_PATTERN =
 export const CHAT_CONFIRM_PATTERN = /conferm|confirm/i;
 /** Una risposta che dice di AVER fatto (prima che il server l'abbia eseguito). */
 /** Area 10, F2: una risposta che dice accesa, attiva o pubblicata un'automazione (che è solo una bozza). */
-export const CHAT_AUTOMATION_ON_PATTERN = /(?:^|[\s(«"])(è (ora )?(attiva|accesa|pubblicata)|l'ho (attivata|accesa|pubblicata)|is (now )?(on|active|live|published)|turned it on)(?![a-zà-ù])/i;
+export const CHAT_AUTOMATION_ON_PATTERN = /(?<!non|not)(?:^|[\s(«"])(è (ora )?(attiva|accesa|pubblicata)|l'ho (attivata|accesa|pubblicata)|is (now )?(on|active|live|published)|turned it on)(?![a-zà-ù])/i;
 
 export const CHAT_DONE_CLAIM_PATTERN =
   /\bho (già )?(assegnato|fatto|creato|aggiornato|modificato|spostato|pianificato)\b|\b(è|e') stat[ao] (assegnat|fatt|creat|aggiornat|modificat|spostat)|\bfatto[!.]|\b(i've|i have) (assigned|done|created|updated)\b|\bit'?s done\b/i;
@@ -1289,7 +1289,13 @@ export function chatChecks(obs: ChatObservation): Check[] {
     const create = actions.find((a) => a.fn === "createAutomation");
     const flow = (create?.args?.["flow"] ?? {}) as { trigger?: { kind?: string; event?: string; filter?: unknown }; steps?: unknown[] };
     const refs = JSON.stringify(flow.trigger?.filter ?? {});
-    const notifiesDept = JSON.stringify(flow.steps ?? []).includes(e.departmentId);
+    // Review di F2 (M7): un passo `notify` a QUEL reparto, non l'id citato altrove.
+    const allSteps = (steps: unknown[]): Record<string, unknown>[] =>
+      steps.flatMap((x) => {
+        const s = (x ?? {}) as Record<string, unknown>;
+        return [s, ...(["then", "else", "steps", "onLimit"] as const).flatMap((k) => (Array.isArray(s[k]) ? allSteps(s[k] as unknown[]) : []))];
+      });
+    const notifiesDept = allSteps(flow.steps ?? []).some((s) => s["kind"] === "notify" && (s["who"] as { departmentId?: unknown } | undefined)?.departmentId === e.departmentId);
     checks.push(
       { name: "UNA proposta con createAutomation", passed: proposals.length === 1 && create !== undefined, detail: JSON.stringify(actions).slice(0, 400) },
       { name: "l'inizio è «richiesta creata»", passed: flow.trigger?.kind === "stubwise" && flow.trigger.event === "request_created", detail: JSON.stringify(flow.trigger ?? null).slice(0, 300) },
