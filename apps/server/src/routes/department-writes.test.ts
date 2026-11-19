@@ -155,3 +155,27 @@ describe("area 9, F8: l'ultimo gestore via reparto (F8-5 = a)", () => {
     expect(await t.db.select().from(departments).where(eq(departments.id, d))).toHaveLength(1);
   });
 });
+
+describe("area 9, F8: due persone sullo stesso reparto (ifMatch)", () => {
+  it("l'elenco dà una versione; un salvataggio da una bozza vecchia è 409 stale e non scrive; senza ifMatch resta l'ultima che vince", async () => {
+    const d = await department([a, c], [X]);
+    const list = async () => ((await app.inject({ method: "GET", url: "/api/departments", headers: { cookie: mgr.cookie } })).json() as { id: string; version: string }[]).find((x) => x.id === d)!;
+    const v1 = (await list()).version;
+    expect(v1).toMatch(/^[0-9a-f]{16}$/);
+    // Un'altra persona salva prima (toglie c).
+    const first = await patch(d, { memberIds: [a], ifMatch: v1 });
+    expect(first.statusCode).toBe(200);
+    const v2 = (first.json() as { version: string }).version;
+    expect(v2).not.toBe(v1);
+    expect((await list()).version).toBe(v2);
+    // La bozza vecchia (con c, senza permessi) non sovrascrive.
+    const stale = await patch(d, { memberIds: [a, c], projectPermissions: [], ifMatch: v1 });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json()).toMatchObject({ code: "stale", version: v2 });
+    expect(await membersOf(d)).toEqual([a]);
+    expect(await permsOf(d)).toEqual([X]);
+    // Un client di prima, senza ifMatch: l'ultima scrittura vince, come prima.
+    expect((await patch(d, { name: `Senza versione ${++n}` })).statusCode).toBe(200);
+  });
+});
+

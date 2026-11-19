@@ -27,11 +27,13 @@ export function createDepartmentsEndpoints(request: ApiRequest) {
      * progetto che dà. Chiede la riconferma (403 `reauth_required`) quando fa
      * arrivare permessi a qualcuno; i rifiuti: 403 `escalation` (`missing`),
      * 409 `last_manager` (`projectId`, `projectCode`), 400 `invalid_permission`,
-     * 400 `not_a_person`. Un server di prima ignora `projectPermissions`.
+     * 400 `not_a_person`, 409 `stale` (con `version`) se `ifMatch` non è più la
+     * versione dell'elenco. Un server di prima ignora `projectPermissions` e
+     * `ifMatch`.
      */
     update(
       id: string,
-      patch: { name?: string; colorToken?: DepartmentView["colorToken"]; memberIds?: string[]; projectPermissions?: string[] },
+      patch: { name?: string; colorToken?: DepartmentView["colorToken"]; memberIds?: string[]; projectPermissions?: string[]; ifMatch?: string },
     ): Promise<Reader<DepartmentView>> {
       return request("PATCH", `/api/departments/${seg(id)}`, patch, departmentViewSchema);
     },
