@@ -130,9 +130,13 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
     contesto di progetto scelto all'inizio si perde dopo un messaggio con un
     chip di task.
   - Riquadro: il chip c'è per task, richieste, pagine e impostazioni di
-    progetto; gli oggetti delle aree non integrate (rilasci, supporto, PR,
-    automazioni, posta) non danno chip né contesto; le domande della doc di
-    prodotto sotto il chip restano spente (`product-docs`, area 11).
+    progetto e, dall'area 10 F1, per automazioni (`automation: AUD-A3`),
+    conversazioni di supporto (`support: AUD-S4`) e la propria posta
+    (`mail: <casella>/<thread>`, il `ref` di `read_mail_thread`). Rilasci e
+    PR non danno ancora chip né contesto. Server, canali e appuntamenti non
+    hanno chip nemmeno nel prototipo: i tool di 72 li leggono quando il
+    modello ne ha il codice. Le domande della doc di prodotto sotto il chip
+    restano spente (`product-docs`, area 11).
 
 ## Area 4 — Chat
 
