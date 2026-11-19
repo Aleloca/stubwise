@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
+import { getRouteApi, Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { ProviderBadge } from "../../components/badges";
 import { ProjectIntegrationSection } from "../../components/project-integration-section";
@@ -13,7 +13,7 @@ import { ProjectEnvironmentsSection } from "../../components/project-environment
 import { ProjectServersSection } from "../../components/project-servers-section";
 import { WidgetsSection } from "../../components/widgets-section";
 import { CredentialsSection } from "../../components/vault/credentials-section";
-import { deleteProject, patchProject, putMyFollows, type ProjectPatch } from "../../lib/api";
+import { patchProject, putMyFollows, type ProjectPatch } from "../../lib/api";
 import { useCanFn } from "../../lib/permissions";
 import { formatDateTime } from "../../lib/format";
 import { myFollowsQueryOptions, projectQueryOptions } from "../../lib/queries";
@@ -31,7 +31,6 @@ export function ProjectDetailPage() {
   const { t } = useTranslation();
   const { projectId } = route.useParams();
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
 
   const { data: project } = useSuspenseQuery(projectQueryOptions(projectId));
   // Permessi di chi guarda in QUESTO progetto, calcolati dal server.
@@ -40,8 +39,6 @@ export function ProjectDetailPage() {
   const canManageRepos = can("repos.manage", projectId);
 
   const [saved, setSaved] = useState(false);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
 
   async function handleSubmit(patch: ProjectPatch) {
     setSaved(false);
@@ -54,17 +51,6 @@ export function ProjectDetailPage() {
     // il dettaglio appena aggiornato.
     await queryClient.invalidateQueries({ queryKey: ["projects"], exact: true });
     setSaved(true);
-  }
-
-  async function handleDelete() {
-    setDeleting(true);
-    try {
-      await deleteProject(projectId);
-      await queryClient.invalidateQueries({ queryKey: ["projects"] });
-      await navigate({ to: "/projects" });
-    } finally {
-      setDeleting(false);
-    }
   }
 
   return (
@@ -357,44 +343,8 @@ export function ProjectDetailPage() {
         <MilestoneManager projectId={project.id} />
       </section>
 
-      {/* Eliminazione del progetto (`project.settings.manage`): cancella in cascata i repository. */}
-      {canSettings && (
-        <section className="mt-8 border-t border-line pt-6">
-          <h2 className={sectionTitleClass}>{t("projects:detail.dangerZone")}</h2>
-          {confirmingDelete ? (
-            <div className="flex flex-col gap-3 rounded-sm border border-danger/30 bg-danger/10 px-4 py-4">
-              <p className="font-mono text-[12px] text-danger">
-                {t("projects:detail.deleteConfirm")}
-              </p>
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => void handleDelete()}
-                  disabled={deleting}
-                  className="rounded-sm border border-danger/40 px-3 py-2 font-mono text-[12px] tracking-[0.08em] text-danger uppercase transition-colors hover:bg-danger/20 disabled:opacity-50"
-                >
-                  {deleting ? t("projects:detail.deleting") : t("projects:detail.deleteConfirmYes")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmingDelete(false)}
-                  className="rounded-sm border border-line-strong px-3 py-2 font-mono text-[12px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg"
-                >
-                  {t("projects:detail.cancel")}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setConfirmingDelete(true)}
-              className="rounded-sm border border-danger/30 px-3 py-2 font-mono text-[12px] tracking-[0.08em] text-danger uppercase transition-colors hover:bg-danger/10"
-            >
-              {t("projects:detail.deleteProject")}
-            </button>
-          )}
-        </section>
-      )}
+      {/* Area 9, F6 (L-6): il web vecchio non elimina più un progetto. Si
+          elimina solo un archiviato, da un full admin, nell'app nuova. */}
     </div>
   );
 }

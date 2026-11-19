@@ -139,6 +139,7 @@ export async function listChanges(db: Db, viewer: Viewer, filter: ChangeLogFilte
       type: changeLog.type,
       projectId: changeLog.projectId,
       projectCode: projects.code,
+      projectArchivedAt: projects.archivedAt,
       subjectKind: changeLog.subjectKind,
       subjectId: changeLog.subjectId,
       data: changeLog.data,
@@ -176,6 +177,9 @@ export async function listChanges(db: Db, viewer: Viewer, filter: ChangeLogFilte
       data: redact(r.type, data, readable.visiblePeople, allProjectsVisible ? null : visibleCodes),
       objectDeleted: !existing.has(`${r.subjectKind}:${r.subjectId}`),
       hidden: false,
+      // Area 9, F6: DERIVATO a lettura, mai scritto nella voce. Il client
+      // porta le voci di un archiviato alla sua pagina (`/archived/<CODICE>`).
+      projectArchived: r.projectArchivedAt !== null,
     };
   });
   await resolveDeletedProjects(db, viewer, entries);

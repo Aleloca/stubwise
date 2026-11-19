@@ -254,7 +254,11 @@
   `repository.linked` nel progetto di destinazione.
 - `DELETE /api/repositories/:id`: solo uno staccato (`409 not_detached`),
   solo un full admin, con la riconferma. Voce `repository.deleted`
-  d'istanza. Il mirror e il grafo sul volume li pota il worker (L-2).
+  d'istanza. Il mirror e il grafo sul volume li pota il worker (L-2): un
+  job `prune` sulla coda dei grafi, accodato nella transazione del DELETE
+  (0194: `graph_jobs` senza FK sul repository, con `repo_url`), dentro una
+  catena sua; il mirror è per URL, quindi si toglie solo se nessun altro
+  repository usa lo stesso URL (Task 7, chiesto da 46).
 - I poller del worker non trovano un repository staccato (nessun
   progetto): un test per il giro notturno e per il grafo.
 - *Test*: collegare (il permesso nel progetto di destinazione, NEGATIVO da

@@ -533,6 +533,15 @@ export class MirrorManager {
   }
 
   /**
+   * Area 9, F6: toglie il mirror di un URL (un repository eliminato). Idempotente:
+   * una cartella che non c'è non è un errore. Chi chiama controlla prima che
+   * nessun altro repository usi lo stesso URL (il mirror è per URL).
+   */
+  async removeMirror(repoUrl: string): Promise<void> {
+    await rm(join(this.mirrorsDir, mirrorSlug(repoUrl)), { recursive: true, force: true });
+  }
+
+  /**
    * Garantisce un mirror bare aggiornato: clona al primo uso (`clone
    * --mirror` con URL credential-free), altrimenti `fetch --prune`. Un clone
    * parziale (HEAD mancante, es. processo killato) viene rimosso e rifatto.

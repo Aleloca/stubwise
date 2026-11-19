@@ -1,7 +1,11 @@
 import { gitAccounts, graphJobs, projects, repoGraphs, type Db, type GraphJob, repositories } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createProjectSerializer, type ProjectSerializer } from "../handler.js";
 import type { GraphBuildDeps } from "./build.js";
@@ -122,6 +126,39 @@ describe("pollGraphJobsOnce", () => {
     const job = await getJob(db, id);
     expect(job.status).toBe("done");
     expect(job.error).toBeNull();
+  });
+
+  it("area 9, F6: il job prune toglie dal volume il grafo e il mirror del repository eliminato; il mirror resta se un altro repository usa lo stesso URL; è idempotente", async () => {
+    const db = testDb.db;
+    const root = await mkdtemp(join(tmpdir(), "prune-"));
+    try {
+      const graphsDir = join(root, "graphs");
+      const goneId = randomUUID();
+      await mkdir(join(graphsDir, goneId, "graphify-out"), { recursive: true });
+      await writeFile(join(graphsDir, goneId, "graphify-out", "graph.json"), "{}");
+      const removeMirror = vi.fn<(url: string) => Promise<void>>(async () => {});
+      const mirrors = { ...explodingMirrors, removeMirror } as unknown as GraphPollerDeps["mirrors"];
+      const solo = `https://example.com/acme/solo-${goneId}.git`;
+      await db.insert(graphJobs).values({ repositoryId: goneId, kind: "prune", repoUrl: solo });
+      expect(await pollGraphJobsOnce(makeDeps(db, { graphsDir, mirrors }))).toBe(1);
+      expect(existsSync(join(graphsDir, goneId))).toBe(false);
+      expect(removeMirror).toHaveBeenCalledWith(solo);
+      // Un URL ancora usato da un repository vivo: il mirror resta, il grafo no.
+      const { repositoryId } = await seedRepository(db);
+      const [live] = await db.select({ repoUrl: repositories.repoUrl }).from(repositories).where(eq(repositories.id, repositoryId));
+      const twinId = randomUUID();
+      await mkdir(join(graphsDir, twinId), { recursive: true });
+      await db.insert(graphJobs).values({ repositoryId: twinId, kind: "prune", repoUrl: live!.repoUrl });
+      removeMirror.mockClear();
+      expect(await pollGraphJobsOnce(makeDeps(db, { graphsDir, mirrors }))).toBe(1);
+      expect(existsSync(join(graphsDir, twinId))).toBe(false);
+      expect(removeMirror).not.toHaveBeenCalled();
+      // Di nuovo, su una cartella che non c'è più: niente errore.
+      await db.insert(graphJobs).values({ repositoryId: goneId, kind: "prune", repoUrl: solo });
+      expect(await pollGraphJobsOnce(makeDeps(db, { graphsDir, mirrors }))).toBe(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("area 9, F6: il job di un repository STACCATO (senza progetto) non gira e finisce failed", async () => {

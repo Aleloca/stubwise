@@ -81,6 +81,23 @@ describe("le generali nell'esecutore", () => {
   });
 });
 
+describe("area 9, F6: una generale e un progetto ARCHIVIATO", () => {
+  it("il passo che tocca un archiviato è fuori perimetro: nessuna task, l'esecuzione non finisce done — col proprietario membro E col proprietario full admin", async () => {
+    const adminRole = (await t.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "admin")))[0]!.id;
+    for (const role of [generalRoleId, adminRole]) {
+      await t.db.update(users).set({ instanceRoleId: role }).where(eq(users.id, ownerId));
+      await t.db.update(projects).set({ archivedAt: new Date() }).where(eq(projects.id, projectId));
+      const { run } = await generalRun([fixedTask()]);
+      await executeDueRuns({ db: t.db });
+      const after = await reload(run.id);
+      expect(after.status, `ruolo ${role}`).not.toBe("done");
+      expect(after.projectIds).not.toContain(projectId);
+      expect(await t.db.select().from(tickets).where(eq(tickets.automationRunId, run.id))).toEqual([]);
+      await t.db.update(projects).set({ archivedAt: null }).where(eq(projects.id, projectId));
+    }
+  });
+});
+
 describe("il progetto del cliente (S5)", () => {
   const clientTask = (): Step => ({
     id: `c${seq++}`,
