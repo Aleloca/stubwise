@@ -186,6 +186,15 @@ describe("Make public / Make private", () => {
     ]);
   });
 
+  it("una conversazione in cui Claude ha letto contenuti privati non si pubblica (409 private_content, review di F1)", async () => {
+    install({
+      [`POST /api/claude/conversations/${MINE}/visibility`]: { status: 409, body: { code: "private_content", message: "x" } },
+    });
+    await getSessionPerson();
+    expect(await setVisibility(MINE, "public")).toEqual({ status: "private_content" });
+    expect(await setVisibility(MINE, "public", { confirmedProjectIds: [] })).toEqual({ status: "private_content" });
+  });
+
   it("«Make private»: nessuna conferma", async () => {
     install({ [`POST /api/claude/conversations/${MINE}/visibility`]: { body: mine() } });
     await getSessionPerson();

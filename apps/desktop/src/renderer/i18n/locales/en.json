@@ -4673,6 +4673,9 @@
         "automaticServer": "Automatic · read-only access to {{code}}"
       },
       "publish": {
+        "privateTitle": "This conversation can't be made public",
+        "privateBody": "In this conversation Claude read your email or calendar, a private channel or direct message, or a general automation: what it read stays yours, so the conversation stays private.",
+        "close": "Close",
         "title": "Make this conversation public?",
         "body": "Anyone who can see public conversations will read it, including what Claude found.",
         "projects": "Projects Claude read or changed",

@@ -561,6 +561,13 @@ export type SetVisibilityResult =
       /** Build app: è la riconferma di un seguito privato (i progetti sono solo i nuovi). */
       reconfirm?: boolean;
     }
+  /**
+   * Build app (review di F1 dell'area 10): Claude in questa conversazione ha
+   * letto contenuti privati (posta, calendario, un canale privato o un DM,
+   * un'automazione generale), quindi non si pubblica più. Assente nel
+   * prototipo.
+   */
+  | { status: "private_content" }
   | { status: "done"; conversation: Conversation };
 
 /** La rassegna del giorno di una persona (o di un autore di commit non collegato). */
