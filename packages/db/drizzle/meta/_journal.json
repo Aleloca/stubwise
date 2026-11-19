@@ -1359,6 +1359,13 @@
       "when": 1801267200000,
       "tag": "0195_change_log_via_claude",
       "breakpoints": true
+    },
+    {
+      "idx": 196,
+      "version": "7",
+      "when": 1801353600000,
+      "tag": "0196_department_project_permissions",
+      "breakpoints": true
     }
   ]
 }
