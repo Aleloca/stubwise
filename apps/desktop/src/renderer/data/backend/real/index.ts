@@ -19,6 +19,7 @@ import { liveMembers } from "./adminMembers";
 import { liveChangelog } from "./changelog";
 import { partialNamespace } from "./notIntegrated";
 import { liveIntegration } from "./projectIntegration";
+import { liveProjectArchive } from "./projectArchive";
 import { liveProjectPlugins } from "./projectPlugins";
 import { chatFunctions } from "./chat";
 import { channelStream, onChatChange, subscribeChat, threadStream } from "./chatStream";
@@ -50,9 +51,12 @@ export const admin: typeof Fake.admin = partialNamespace<typeof Fake.admin>("adm
 export const access: typeof Fake.access = partialNamespace<typeof Fake.access>("access", liveWhoCan);
 
 // Area 9, F5: Progetto → Settings → Integration e Plugins (le altre sezioni restano «in arrivo»).
+// Area 9, F6: anteprima, archiviazione e riapertura dal server; la sezione
+// Archive resta spenta finché non ci sono anche l'elenco e la vista degli
+// archiviati (da lì si riapre: senza, un progetto archiviato non torna).
 export const projectSettings: typeof Fake.projectSettings = partialNamespace<
   typeof Fake.projectSettings
->("projectSettings", { ...liveIntegration, ...liveProjectPlugins });
+>("projectSettings", { ...liveIntegration, ...liveProjectPlugins, ...liveProjectArchive });
 
 // Area 9, F2: il registro delle modifiche sulla lettura del server.
 export const changelog: typeof Fake.changelog = partialNamespace<typeof Fake.changelog>(
