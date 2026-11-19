@@ -65,6 +65,17 @@ export const PROPOSABLE_FNS = [
   "pauseQueue",
   "resumeQueue",
   "retryJob",
+  "setModel",
+  "saveBudget",
+  "saveStorage",
+  "saveAutomation",
+  "setProviderEnabled",
+  "moveProvider",
+  "updateGitAccount",
+  "updateGoogleApp",
+  "rerunSmoke",
+  "removePlugin",
+  "updateWebhook",
 ] as const;
 
 /** La chiave con cui il CLI (2.1.322) passa l'id del `tool_use` nel `_meta` di `tools/call`. */

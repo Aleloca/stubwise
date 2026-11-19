@@ -10,7 +10,7 @@ const last4Of = (secret: string): string | null => (secret.length >= 8 ? secret.
 
 /** Spegnere o eliminare l'ULTIMO account acceso: senza, il worker non lavora (decisione del maintainer, 18 nov 2026). */
 class LastEnabledProvider extends Error {}
-const LAST_ENABLED = Symbol("last_enabled_provider");
+export const LAST_ENABLED = Symbol("last_enabled_provider");
 const lastEnabledOrThrow = (error: unknown): typeof LAST_ENABLED => {
   if (error instanceof LastEnabledProvider) return LAST_ENABLED;
   throw error;
@@ -109,6 +109,94 @@ function toPublicProvider(row: AiProviderRow, ctx: ProviderViewContext): z.infer
 /** L'oggetto delle voci del registro: l'account col nome dato da una persona. */
 const providerObject = (row: { id: string; label: string }) => ({ type: "provider", id: row.id, label: row.label });
 
+/**
+ * Il riordino (`POST /api/ai-providers/reorder`, area 9, F7: estratto dalla
+ * rotta). null se `orderedIds` non elenca esattamente tutti gli account.
+ */
+export async function reorderProviders(db: Db, actor: { id: string; email: string }, orderedIds: string[]): Promise<AiProviderRow[] | null> {
+  const unique = new Set(orderedIds);
+  const rows = await db.transaction(async (tx) => {
+    const beforeRows = await tx.select().from(aiProviders).orderBy(asc(aiProviders.position), asc(aiProviders.createdAt));
+    const existing = beforeRows.map((r) => ({ id: r.id }));
+    const existingIds = new Set(existing.map((r) => r.id));
+    if (existingIds.size !== unique.size || [...unique].some((id) => !existingIds.has(id))) {
+      // Lancia per rollback; il chiamante traduce in 400.
+      throw new ReorderMismatchError();
+    }
+    for (const [index, id] of orderedIds.entries()) {
+      await tx.update(aiProviders).set({ position: index }).where(eq(aiProviders.id, id));
+    }
+    const afterRows = await tx
+      .select()
+      .from(aiProviders)
+      .orderBy(asc(aiProviders.position), asc(aiProviders.createdAt));
+    // Come il prototipo: la catena dei nomi prima e dopo, e come oggetto
+    // il primo account che ha cambiato posto. Un riordino uguale non scrive.
+    const chain = (list: AiProviderRow[]) => list.map((r) => r.label).join(", ");
+    const moved = afterRows.find((r, i) => beforeRows[i]?.id !== r.id);
+    if (moved) {
+      await recordChange(tx, { type: "provider.reordered", actor: actor, projectId: null, data: { object: providerObject(moved), before: chain(beforeRows), after: chain(afterRows) } });
+    }
+    return afterRows;
+  }).catch((error: unknown) => {
+    if (error instanceof ReorderMismatchError) return null;
+    throw error;
+  });
+  return rows;
+}
+
+/**
+ * La patch di un account AI (`PATCH /api/ai-providers/:id`, area 9, F7:
+ * estratta dalla rotta). La riconferma per un segreto la chiede la ROTTA;
+ * Claude non ne porta mai uno (`encryptionKey` null). Restituisce la riga,
+ * `undefined` se non c'è, o `LAST_ENABLED` per l'ultimo account acceso.
+ */
+export async function patchProvider(
+  db: Db,
+  encryptionKey: Buffer | null,
+  actor: { id: string; email: string },
+  id: string,
+  body: { label?: string | undefined; secret?: string | undefined; enabled?: boolean | undefined; position?: number | undefined },
+): Promise<AiProviderRow | undefined | typeof LAST_ENABLED> {
+  const { label, secret, enabled, position } = body;
+  const key = (): Buffer => {
+    if (!encryptionKey) throw new Error("patchProvider: un segreto senza chiave di cifratura");
+    return encryptionKey;
+  };
+  const updates: Partial<AiProviderRow> = {};
+  if (label !== undefined) updates.label = label;
+  if (enabled !== undefined) updates.enabled = enabled;
+  if (position !== undefined) updates.position = position;
+  if (secret !== undefined) {
+    updates.secretEncrypted = encrypt(secret, key());
+    updates.secretLast4 = last4Of(secret);
+  }
+
+  // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una lettura.
+  const row = await db.transaction(async (tx) => {
+    const [before] = await tx.select().from(aiProviders).where(eq(aiProviders.id, id)).for("update");
+    if (!before || Object.keys(updates).length === 0) return before;
+    // Task 8c: l'ultimo account acceso non si spegne.
+    if (before.enabled && updates.enabled === false && (await otherEnabled(tx, before.id)) === 0) throw new LastEnabledProvider();
+    const [after] = await tx.update(aiProviders).set(updates).where(eq(aiProviders.id, id)).returning();
+    const object = providerObject(after!);
+    // Area 9, F3: le voci del prototipo. L'interruttore con on/off; la
+    // credenziale «sostituita», mai un valore; un nome nuovo (il prototipo
+    // non rinomina) con prima e dopo com'è dato da una persona.
+    if (before.enabled !== after!.enabled) {
+      await recordChange(tx, { type: "provider.updated", actor: actor, projectId: null, data: { object, before: before.enabled ? "on" : "off", after: after!.enabled ? "on" : "off" } });
+    }
+    if (before.label !== after!.label) {
+      await recordChange(tx, { type: "provider.updated", actor: actor, projectId: null, data: { object, before: before.label, after: after!.label, params: { field: "name" } } });
+    }
+    if (secret !== undefined) {
+      await recordChange(tx, { type: "provider.credential_replaced", actor: actor, projectId: null, data: { object } });
+    }
+    return after;
+  }).catch(lastEnabledOrThrow);
+  return row;
+}
+
 export async function aiProviderRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
@@ -184,34 +272,8 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
         return apiError(reply, 400, "reorder_duplicate_ids", "orderedIds contains duplicate ids");
       }
 
-      const rows = await app.db.transaction(async (tx) => {
-        const beforeRows = await tx.select().from(aiProviders).orderBy(asc(aiProviders.position), asc(aiProviders.createdAt));
-        const existing = beforeRows.map((r) => ({ id: r.id }));
-        const existingIds = new Set(existing.map((r) => r.id));
-        if (existingIds.size !== unique.size || [...unique].some((id) => !existingIds.has(id))) {
-          // Lancia per rollback; il chiamante traduce in 400.
-          throw new ReorderMismatchError();
-        }
-        for (const [index, id] of orderedIds.entries()) {
-          await tx.update(aiProviders).set({ position: index }).where(eq(aiProviders.id, id));
-        }
-        const afterRows = await tx
-          .select()
-          .from(aiProviders)
-          .orderBy(asc(aiProviders.position), asc(aiProviders.createdAt));
-        // Come il prototipo: la catena dei nomi prima e dopo, e come oggetto
-        // il primo account che ha cambiato posto. Un riordino uguale non scrive.
-        const chain = (list: AiProviderRow[]) => list.map((r) => r.label).join(", ");
-        const moved = afterRows.find((r, i) => beforeRows[i]?.id !== r.id);
-        if (moved) {
-          await recordChange(tx, { type: "provider.reordered", actor: request.user!, projectId: null, data: { object: providerObject(moved), before: chain(beforeRows), after: chain(afterRows) } });
-        }
-        return afterRows;
-      }).catch((error: unknown) => {
-        if (error instanceof ReorderMismatchError) return null;
-        throw error;
-      });
-
+      // Area 9, F7: la funzione, la stessa dell'azione di Claude `moveProvider`.
+      const rows = await reorderProviders(app.db, request.user!, orderedIds);
       if (rows === null) {
         return apiError(
           reply,
@@ -239,37 +301,8 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
       // Area 9, F3 (D-5): la riconferma solo quando il corpo porta un segreto
       // (sostituito o azzerato), con la regola del gate (`requireReauth`).
       if (secret !== undefined && !(await requireReauth(request, reply))) return reply;
-      const updates: Partial<AiProviderRow> = {};
-      if (label !== undefined) updates.label = label;
-      if (enabled !== undefined) updates.enabled = enabled;
-      if (position !== undefined) updates.position = position;
-      if (secret !== undefined) {
-        updates.secretEncrypted = encrypt(secret, app.encryptionKey);
-        updates.secretLast4 = last4Of(secret);
-      }
-
-      // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una lettura.
-      const row = await app.db.transaction(async (tx) => {
-        const [before] = await tx.select().from(aiProviders).where(eq(aiProviders.id, request.params.id)).for("update");
-        if (!before || Object.keys(updates).length === 0) return before;
-        // Task 8c: l'ultimo account acceso non si spegne.
-        if (before.enabled && updates.enabled === false && (await otherEnabled(tx, before.id)) === 0) throw new LastEnabledProvider();
-        const [after] = await tx.update(aiProviders).set(updates).where(eq(aiProviders.id, request.params.id)).returning();
-        const object = providerObject(after!);
-        // Area 9, F3: le voci del prototipo. L'interruttore con on/off; la
-        // credenziale «sostituita», mai un valore; un nome nuovo (il prototipo
-        // non rinomina) con prima e dopo com'è dato da una persona.
-        if (before.enabled !== after!.enabled) {
-          await recordChange(tx, { type: "provider.updated", actor: request.user!, projectId: null, data: { object, before: before.enabled ? "on" : "off", after: after!.enabled ? "on" : "off" } });
-        }
-        if (before.label !== after!.label) {
-          await recordChange(tx, { type: "provider.updated", actor: request.user!, projectId: null, data: { object, before: before.label, after: after!.label, params: { field: "name" } } });
-        }
-        if (secret !== undefined) {
-          await recordChange(tx, { type: "provider.credential_replaced", actor: request.user!, projectId: null, data: { object } });
-        }
-        return after;
-      }).catch(lastEnabledOrThrow);
+      // Area 9, F7: la funzione, la stessa dell'azione di Claude `setProviderEnabled`.
+      const row = await patchProvider(app.db, app.encryptionKey, request.user!, request.params.id, { label, secret, enabled, position });
       if (row === LAST_ENABLED) return lastEnabledError(reply);
       if (!row) return apiError(reply, 404, "ai_provider_not_found", "AI provider not found");
       return (await providerViews(app.db, [row]))[0]!;

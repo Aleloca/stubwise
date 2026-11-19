@@ -158,7 +158,6 @@ describe("area 9, F7: le C dei membri si confermano con la riconferma di chi con
 describe("area 9, F7: i nomi della scheda dei membri, a lettura coi permessi di chi guarda", () => {
   it("chi vede il progetto legge persona e ruolo (removeMember: il ruolo di adesso); chi non lo vede null; le altre voci null", async () => {
     const userId = await person();
-    const email = (await t.db.select({ email: users.email }).from(users).where(eq(users.id, userId)))[0]!.email;
     const [dev] = await t.db.select({ name: roles.name }).from(roles).where(eq(roles.id, developerRole));
     const actions = [
       { fn: "addMember" as const, args: { projectId, userId, roleId: developerRole } },
@@ -168,7 +167,8 @@ describe("area 9, F7: i nomi della scheda dei membri, a lettura coi permessi di 
     const [leadRow] = await t.db.select({ name: roles.name }).from(roles).where(eq(roles.id, leadRole));
     const asLead = await actionLabels(t.db, { id: lead.id, instancePermissions: new Set() } as unknown as SessionUser, actions);
     expect(asLead).toEqual([
-      { person: email.split("@")[0], role: dev!.name },
+      // Una persona senza progetti in comune: il nome no (R-G5, il caso sotto).
+      { person: null, role: dev!.name },
       { person: "lead-a9", role: leadRow!.name },
       { person: null, role: null },
     ]);
@@ -177,12 +177,30 @@ describe("area 9, F7: i nomi della scheda dei membri, a lettura coi permessi di 
     expect(asOutsider).toEqual([{ person: null, role: null }, { person: null, role: null }, { person: null, role: null }]);
   });
 
+  it("R-G5: chi vede il progetto ma NON la persona (nessun progetto in comune) legge il ruolo, non il nome", async () => {
+    // Una persona che sta solo in un altro progetto, che chi guarda non vede.
+    const elsewhere = await person();
+    const { projectId: otherProject } = await seedRepository(t.db);
+    await t.db.insert(projectMembers).values({ projectId: otherProject, userId: elsewhere, roleId: developerRole });
+    const viewer = await createUserWithSession(app, `pl-a9-${++n}@example.com`);
+    await addMember(app, projectId, viewer.id, "project_lead");
+    const [dev] = await t.db.select({ name: roles.name }).from(roles).where(eq(roles.id, developerRole));
+    const labels = await actionLabels(t.db, { id: viewer.id, instancePermissions: new Set() } as unknown as SessionUser, [
+      { fn: "addMember", args: { projectId, userId: elsewhere, roleId: developerRole } },
+      // Un membro dello stesso progetto la vede.
+      { fn: "removeMember", args: { projectId, userId: lead.id } },
+    ]);
+    expect(labels[0]).toEqual({ person: null, role: dev!.name });
+    expect(labels[1]!.person).toBe("lead-a9");
+  });
+
   it("la proposta porta le etichette per azione", async () => {
     const userId = await person();
+    // Senza progetti in comune con chi guarda: il nome resta null (R-G5).
     const res = await propose([{ fn: "addMember", args: { projectId, userId, roleId: developerRole } }]);
     const id = (res.json() as { proposalId: string }).proposalId;
     const cancel = await app.inject({ method: "POST", url: `/api/claude/proposals/${id}/cancel`, headers: { cookie: lead.headers.cookie }, payload: {} });
-    expect(cancel.json()).toMatchObject({ actions: [{ fn: "addMember", labels: { person: expect.any(String), role: expect.any(String) } }] });
+    expect(cancel.json()).toMatchObject({ actions: [{ fn: "addMember", labels: { person: null, role: expect.any(String) } }] });
   });
 });
 
