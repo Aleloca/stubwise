@@ -57,8 +57,9 @@ import { selectProviders, type SelectDeps, type SelectInput } from "./select.js"
  * seconda copia delle regole è come quel giro è nato.
  *
  * DECISIONE DI HEADROOM di un candidato (vedi hasHeadroom):
- *  - credenziale `account` con uno snapshot d'usage FRESCO e PARSATO (poller
- *    /usage, agent/usage-poller.ts): headroom = sessione usata < soglia% E
+ *  - credenziale `account` con uno snapshot d'usage FRESCO e PARSATO (nasce
+ *    dal rate_limit_event di ogni run, TrackingAgentRunner; la sonda
+ *    agent/usage-poller.ts lo rinfresca per gli account fermi): headroom = sessione usata < soglia% E
  *    weekly usata < 100%. Lo snapshot fresco è AUTORITATIVO: se dice "ancora al
  *    limite" NON si degrada al fallback a tempo.
  *  - credenziale `api_key` (nessuno snapshot: /usage esiste solo per gli
@@ -68,8 +69,8 @@ import { selectProviders, type SelectDeps, type SelectInput } from "./select.js"
  *    con il poll usage disabilitato (USAGE_POLL_MINUTES=0: tutti gli snapshot
  *    invecchiano e si degrada sempre al tempo). Restano fermi BY DESIGN i casi
  *    in cui la scelta è vuota: tutti al limite o oltre soglia (si aspetta: il
- *    poller d'uso azzera limited_until appena torna margine, e comunque
- *    limited_until scade) e «solo questo» su un provider non risolvibile
+ *    TrackingAgentRunner azzera limited_until dal rate_limit_event appena
+ *    torna margine, e comunque limited_until scade) e «solo questo» su un provider non risolvibile
  *    (serve l'intervento umano: riabilitarlo o togliere il vincolo).
  *
  * VINCOLI (come gli altri poller): NON fa MAI crashare il worker (ogni item in

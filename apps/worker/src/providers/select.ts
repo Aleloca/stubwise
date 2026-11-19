@@ -242,8 +242,9 @@ async function resetFor(
   // Una lettura degli snapshot fallita (o un db finto nei test dei chiamanti,
   // con selectProvidersFn/markProviderLimitedFn iniettati) non deve far
   // fallire il run: si ripiega sull'attesa fissa. Un reset dello snapshot
-  // anche non fresco è accettato: è un limite superiore, e il poller d'uso
-  // azzera limited_until appena torna margine.
+  // anche non fresco è accettato: è un limite superiore, e il
+  // TrackingAgentRunner azzera limited_until (dal rate_limit_event) appena
+  // torna margine.
   const snap = await latestSnapshots(deps.db)
     .then((m) => m.get(providerId))
     .catch((error: unknown) => {

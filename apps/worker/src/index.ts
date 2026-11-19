@@ -32,6 +32,7 @@ import { startPluginPoller } from "./plugins/poller.js";
 import { startMonitorRollupPoller } from "./monitor/rollup.js";
 import { startLimitResumePoller } from "./providers/limit-resume-poller.js";
 import type { SelectDeps } from "./providers/select.js";
+import { MAX_SNAPSHOT_AGE_MS } from "./providers/usage-window.js";
 import { startBriefPoller } from "./briefs/poller.js";
 import { startGooglePoller } from "./google/poller.js";
 import { startPulsePoller } from "./pulse/poller.js";
@@ -373,6 +374,21 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 // Best-effort: un errore (DB giù all'avvio) si logga e il worker parte lo
 // stesso — le righe restano in attesa e ci riprova il prossimo avvio.
 await requeueWaitingReviewsAtStartup(db);
+
+// Sonda d'uso: se idle + giro supera la validità dello snapshot, fra due sonde
+// lo snapshot è stantio e select.ts ammette l'account ai lavori di sfondo anche
+// al 100% (si spenderebbe overage). Soglia derivata da MAX_SNAPSHOT_AGE_MS.
+if (
+  config.usagePollMinutes > 0 &&
+  (config.usageProbeIdleMinutes + config.usagePollMinutes) * 60_000 > MAX_SNAPSHOT_AGE_MS
+) {
+  console.warn(
+    `[stubwise-worker] config: USAGE_PROBE_IDLE_MINUTES (${config.usageProbeIdleMinutes}) + USAGE_POLL_MINUTES ` +
+      `(${config.usagePollMinutes}) supera la validità di uno snapshot (${MAX_SNAPSHOT_AGE_MS / 60_000}'): ` +
+      "fra una sonda e l'altra lo snapshot è stantio e l'account è ammesso ai lavori di sfondo anche al 100% " +
+      "(overage). Abbassa USAGE_PROBE_IDLE_MINUTES.",
+  );
+}
 
 // Sonda d'uso degli account fermi (agent/usage-poller.ts): task SEPARATO dal loop
 // dei job, su un proprio intervallo. È BEST-EFFORT (non fa mai crashare il

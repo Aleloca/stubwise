@@ -1048,9 +1048,14 @@ export interface WorkerConfig {
   /** URL pubblico dell'istanza (senza slash finali) per i link nelle notifiche;
    * vuoto = il link al ticket è il solo path. */
   publicUrl: string;
-  /** Intervallo in minuti del poller dell'usage residuo (default 5; 0 =
-   * disabilitato). */
+  /** Intervallo in minuti del giro della sonda d'uso degli account fermi
+   * (default 5; 0 = sonda disabilitata). Lo snapshot degli account che
+   * lavorano nasce comunque dal rate_limit_event dei loro run. */
   usagePollMinutes: number;
+  /** Inattività (minuti, intero >= 1, default 30) oltre la quale un account si
+   * sonda. Tenere idle + giro <= 45' (MAX_SNAPSHOT_AGE_MS): oltre, lo snapshot
+   * è stantio fra due sonde e l'account è ammesso ai lavori di sfondo anche al
+   * 100%; l'avvio del worker lo segnala. */
   usageProbeIdleMinutes: number;
   /** Intervallo in secondi del tester delle credenziali AI (default 5; 0 =
    * disabilitato). */

@@ -39,13 +39,22 @@ const PROBE_MAX_TURNS = 1;
 const PROBE_TIMEOUT_MS = 60_000;
 const PROBE_PROMPT = "Rispondi solo con: ok";
 
+/** Memoria in-process dell'ultima sonda di un account (viva fra i giri). */
+export interface ProbeMemo {
+  at: Date;
+  /** Il run minimo ha consegnato il `rate_limit_event`. */
+  gotEvent: boolean;
+}
+
 /**
  * Serve una sonda per questo account? Pura.
  *  - nessuno snapshot leggibile (assente o `parseOk` false): sì;
  *  - account al limite: sì se lo snapshot è più vecchio di un tick (si
  *    rilegge a ogni giro per cogliere il reset anticipato) — salvo che una
  *    finestra sia a 100% con reset ancora nel futuro: allora no;
- *  - altrimenti sì solo se lo snapshot ha più di `idleMs`.
+ *  - altrimenti sì solo se lo snapshot ha più di `idleMs`;
+ *  - `lastProbe`: l'età è quella del più recente fra snapshot e sonda, e una
+ *    sonda SENZA evento mette l'account in backoff per `idleMs`.
  */
 export function shouldProbe(
   account: { limitedUntil: Date | null },
@@ -53,9 +62,20 @@ export function shouldProbe(
   now: Date,
   idleMs: number,
   tickMs: number,
+  lastProbe?: ProbeMemo,
 ): boolean {
-  if (snap === undefined || !snap.parseOk) return true;
-  const age = now.getTime() - snap.capturedAt.getTime();
+  const probeAge = lastProbe ? now.getTime() - lastProbe.at.getTime() : undefined;
+  // Backoff: una sonda che non ha prodotto l'evento non cambia lo snapshot, e
+  // senza memoria si ripeterebbe a ogni giro (anche per un account al limite
+  // fino al reset). Non si riprova prima di `idleMs`.
+  if (lastProbe && !lastProbe.gotEvent && probeAge !== undefined && probeAge < idleMs) return false;
+  if (snap === undefined || !snap.parseOk) {
+    // Anche con evento ma senza snapshot salvato (solo finestre scartate) non si insiste.
+    return !(probeAge !== undefined && probeAge < idleMs);
+  }
+  // L'età è quella del più recente fra lo snapshot e l'ultima sonda.
+  let age = now.getTime() - snap.capturedAt.getTime();
+  if (probeAge !== undefined && probeAge < age) age = probeAge;
   const limited = account.limitedUntil !== null && account.limitedUntil.getTime() > now.getTime();
   if (!limited) return age > idleMs;
   if (windowBlocked(snap.sessionRemaining, snap.sessionResetAt, now)) return false;
@@ -66,7 +86,9 @@ export function shouldProbe(
 /** Finestra a 100% il cui reset non è ancora arrivato: sondare non cambierebbe nulla. */
 function windowBlocked(value: unknown, resetAt: Date | null, now: Date): boolean {
   const w = parseWindow(value);
-  return w !== null && w.percentUsed >= 100 && resetAt !== null && resetAt.getTime() > now.getTime();
+  return (
+    w !== null && w.percentUsed >= 100 && resetAt !== null && resetAt.getTime() > now.getTime()
+  );
 }
 
 export interface ProbeDeps {
@@ -77,6 +99,8 @@ export interface ProbeDeps {
   idleMs: number;
   tickMs: number;
   now?: () => Date;
+  /** Memoria delle sonde, condivisa fra i giri (se assente vale solo per questo giro). */
+  probeMemory?: Map<string, ProbeMemo>;
 }
 
 /**
@@ -87,9 +111,12 @@ export interface ProbeDeps {
 export async function probeIdleAccountsOnce(deps: ProbeDeps): Promise<void> {
   try {
     const now = (deps.now ?? (() => new Date()))();
-    const chain = (await loadProviderChain(deps.db, deps.encryptionKey)).filter((p) => p.kind === "account");
+    const chain = (await loadProviderChain(deps.db, deps.encryptionKey)).filter(
+      (p) => p.kind === "account",
+    );
     if (chain.length === 0) return;
     const snaps = await latestSnapshots(deps.db);
+    const memory = deps.probeMemory ?? new Map<string, ProbeMemo>();
     for (const provider of chain) {
       try {
         const [row] = await deps.db
@@ -97,10 +124,22 @@ export async function probeIdleAccountsOnce(deps: ProbeDeps): Promise<void> {
           .from(aiProviders)
           .where(eq(aiProviders.id, provider.id));
         if (!row) continue;
-        if (!shouldProbe(row, snaps.get(provider.id), now, deps.idleMs, deps.tickMs)) continue;
-        await probeOne(deps.runner, provider);
+        if (
+          !shouldProbe(
+            row,
+            snaps.get(provider.id),
+            now,
+            deps.idleMs,
+            deps.tickMs,
+            memory.get(provider.id),
+          )
+        )
+          continue;
+        memory.set(provider.id, await probeOne(deps.runner, provider, now));
       } catch (err) {
-        console.error(`[stubwise-worker] usage-probe: account ${provider.id} saltato: ${errText(err)}`);
+        console.error(
+          `[stubwise-worker] usage-probe: account ${provider.id} saltato: ${errText(err)}`,
+        );
       }
     }
   } catch (err) {
@@ -108,11 +147,20 @@ export async function probeIdleAccountsOnce(deps: ProbeDeps): Promise<void> {
   }
 }
 
-/** Il run minimo, in una cwd vuota e usa-e-getta. */
-async function probeOne(runner: AgentRunner, provider: ResolvedProvider): Promise<void> {
+/**
+ * Il run minimo, in una cwd vuota e usa-e-getta. Passa una `onRateLimit` solo
+ * per sapere se l'evento è arrivato: il TrackingAgentRunner la concatena alla
+ * propria e scrive lo snapshot. Se non arriva lo si logga (mai l'output).
+ */
+async function probeOne(
+  runner: AgentRunner,
+  provider: ResolvedProvider,
+  now: Date,
+): Promise<ProbeMemo> {
   const cwd = await mkdtemp(join(tmpdir(), "stubwise-usage-probe-"));
+  let gotEvent = false;
   try {
-    await runner.run({
+    const result = await runner.run({
       cwd,
       prompt: PROBE_PROMPT,
       model: PROBE_MODEL,
@@ -121,7 +169,21 @@ async function probeOne(runner: AgentRunner, provider: ResolvedProvider): Promis
       maxTurns: PROBE_MAX_TURNS,
       timeoutMs: PROBE_TIMEOUT_MS,
       provider,
+      onRateLimit: () => {
+        gotEvent = true;
+      },
     });
+    if (!gotEvent) {
+      console.error(
+        `[stubwise-worker] usage-probe: nessun rate_limit_event per ${provider.id} (exit ${result.exitCode})`,
+      );
+    }
+    return { at: now, gotEvent };
+  } catch (err) {
+    console.error(
+      `[stubwise-worker] usage-probe: nessun rate_limit_event per ${provider.id} (il run ha lanciato: ${errText(err)})`,
+    );
+    return { at: now, gotEvent };
   } finally {
     await rm(cwd, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -155,6 +217,7 @@ export function startUsagePoller(opts: StartUsagePollerOptions): () => void {
     db: opts.db,
     models: createModelResolver(opts.db, console),
   });
+  const probeMemory = new Map<string, ProbeMemo>();
   let running = false;
 
   const tick = async (): Promise<void> => {
@@ -167,6 +230,7 @@ export function startUsagePoller(opts: StartUsagePollerOptions): () => void {
         runner,
         idleMs: opts.idleMinutes * 60_000,
         tickMs,
+        probeMemory,
       });
     } finally {
       running = false;

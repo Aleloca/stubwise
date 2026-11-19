@@ -8,6 +8,10 @@ import type { RateLimitInfo } from "../agent/rate-limit-event.js";
  * giro di poll e un margine = 45'. COSTANTE, non una env: se nessun run né
  * sonda rinfresca lo snapshot, la decisione degrada da sola al fallback a
  * tempo senza un'altra manopola da tenere coerente.
+ * ⚠️ Deve restare ≥ USAGE_PROBE_IDLE_MINUTES + USAGE_POLL_MINUTES: oltre,
+ * lo snapshot è stantio fra una sonda e l'altra e select.ts ammette l'account
+ * ai lavori di sfondo anche al 100%. Un warning all'avvio (index.ts) lo
+ * controlla a partire da questa costante.
  */
 export const MAX_SNAPSHOT_AGE_MS = 45 * 60_000;
 

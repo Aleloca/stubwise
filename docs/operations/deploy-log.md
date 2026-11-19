@@ -2830,8 +2830,14 @@ deploy o di un rollback che la tocca.
   **Nota sull'overage**: un account con l'overage abilitato (Account Leo) che
   non è marcato «al limite» ma sta al 100% continua a essere sondato ogni 30′
   (costa poco, ma potrebbe essere a pagamento): se dà fastidio si alza
-  `USAGE_PROBE_IDLE_MINUTES`.
+  `USAGE_PROBE_IDLE_MINUTES`, **ma non oltre 45 − `USAGE_POLL_MINUTES`**
+  (40′ coi default). Oltre, fra una sonda e l'altra lo snapshot supera i 45′
+  (`MAX_SNAPSHOT_AGE_MS`) e diventa stantio, e uno snapshot stantio AMMETTE
+  l'account ai lavori di sfondo (`select.ts`) anche se è al 100%: si
+  spenderebbe overage proprio con la manopola pensata per risparmiarlo. Il
+  worker lo segnala con un warning all'avvio.
   **Rollback**: ricostruire il worker dall'immagine vecchia: torna il lettore
-  PTY (rotto, ma innocuo come prima). Gli snapshot scritti nel frattempo sono
+  PTY (rotto) e, peggio, il fallback Haiku sulla chiave API (~$12 al giorno):
+  NON è innocuo come prima, quindi un rollback va tenuto breve. Gli snapshot scritti nel frattempo sono
   righe valide nel formato di sempre: niente da ripulire, nessuna migrazione
   da invertire.
