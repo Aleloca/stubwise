@@ -300,6 +300,12 @@ export const changeEntrySchema = z.object({
   group: z.string(),
   data: changeDataSchema,
   objectDeleted: z.boolean().default(false),
+  /**
+   * Area 9, F6: la voce parla di un progetto ELIMINATO che chi guarda non
+   * conosceva (non ne era membro, non è full admin): «un progetto che non
+   * vedi». `object.id` arriva `"hidden"` (non può essere vuoto), `object.label` vuota.
+   */
+  hidden: z.boolean().default(false),
 });
 export type ChangeEntry = z.infer<typeof changeEntrySchema>;
 

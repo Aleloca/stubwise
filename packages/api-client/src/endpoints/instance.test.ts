@@ -145,6 +145,17 @@ describe("archivia e riapri (area 9, F6)", () => {
     expect(last(fetchImpl)).toMatchObject({ method: "POST", url: "/api/projects/p/reopen" });
   });
 
+  it("deletionPreview parsa l'anteprima; delete manda il codice nel corpo", async () => {
+    const preview = clientWith({ counts: { tasks: 3 } });
+    const d = await preview.client.projects.deletionPreview("p/1");
+    expect(last(preview.fetchImpl)).toMatchObject({ method: "GET", url: "/api/projects/p%2F1/deletion-preview" });
+    expect(d).toMatchObject({ orphanServers: [], detachedRepositories: [], counts: { tasks: 3, releases: 0 } });
+    const { client, fetchImpl } = clientWith(null, 204);
+    await client.projects.delete("p", "AUD");
+    expect(last(fetchImpl)).toMatchObject({ method: "DELETE", url: "/api/projects/p" });
+    expect(last(fetchImpl).body).toEqual({ confirmCode: "AUD" });
+  });
+
   it("archived e archivedView: path e default (un server che non manda i campi facoltativi)", async () => {
     const row = { projectId: "50000000-0000-4000-8000-000000000001", code: "AUD", name: "Audin", archivedAt: "2026-11-19T10:00:00.000Z" };
     const list = clientWith([row]);

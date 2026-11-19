@@ -7,9 +7,22 @@ import {
   backlogItems,
   chatChannels,
   claudeConversationProjects,
+  deletedProjectMembers,
+  deletedProjects,
+  docAutoUpdateJobs,
+  docChatSessions,
+  docChunks,
+  docGenerationJobs,
   docGenerations,
+  docNodes,
+  docPageCodes,
   docPages,
   driveFiles,
+  environmentServers,
+  nightlyItems,
+  prCorrections,
+  prReleaseNotes,
+  prReviewJobs,
   prReviews,
   projectEnvFiles,
   projectEnvironments,
@@ -18,12 +31,14 @@ import {
   releases,
   repositories,
   roles,
+  servers,
   tickets,
   users,
   type Db,
 } from "@stubwise/db";
-import type { ArchivedProjectRow, ArchivedProjectView, ArchivePreview, BusyReason, DeletionCounts, ProjectPermission } from "@stubwise/shared";
+import type { ArchivedProjectRow, ArchivedProjectView, ArchivePreview, BusyReason, DeletionCounts, DeletionPreview, ProjectPermission } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, sql, type SQL } from "drizzle-orm";
+import type { PgTable } from "drizzle-orm/pg-core";
 import { projectPermissionsMap } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { OPEN_RUN_STATUSES } from "../automations/runs.js";
@@ -53,8 +68,8 @@ type Viewer = Pick<SessionUser, "id" | "email" | "role" | "instancePermissions">
 
 export class ArchiveError extends Error {
   constructor(
-    readonly status: 409,
-    readonly code: "busy" | "already_archived" | "not_archived",
+    readonly status: 400 | 403 | 409,
+    readonly code: "busy" | "already_archived" | "not_archived" | "code_mismatch" | "forbidden",
     message: string,
     readonly reasons: BusyReason[] = [],
   ) {
@@ -309,4 +324,104 @@ export async function archivedProjectView(db: Db, viewer: Viewer, projectId: str
     switchesOnReopen: switches,
     pulseEveryDays: p!.pulseEveryDays,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Elimina (Task 5): solo un archiviato, solo un full admin.
+// ---------------------------------------------------------------------------
+
+/** I server che resterebbero senza ambienti: li usano SOLO ambienti del progetto (R-L7). */
+async function orphanServers(db: Db, projectId: string): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ number: servers.number })
+    .from(servers)
+    .innerJoin(environmentServers, eq(environmentServers.serverId, servers.id))
+    .innerJoin(projectEnvironments, eq(projectEnvironments.id, environmentServers.environmentId))
+    .where(
+      and(
+        eq(projectEnvironments.projectId, projectId),
+        sql`not exists (
+          select 1 from ${environmentServers} es2
+          join ${projectEnvironments} pe2 on pe2.id = es2.environment_id
+          where es2.server_id = ${servers.id} and pe2.project_id <> ${projectId}
+        )`,
+      ),
+    )
+    .orderBy(asc(servers.number));
+  return rows.map((r) => `SRV-${r.number}`);
+}
+
+export async function deletionPreview(db: Db, projectId: string): Promise<DeletionPreview> {
+  const [row] = await db.select({ archivedAt: projects.archivedAt }).from(projects).where(eq(projects.id, projectId));
+  if (!row?.archivedAt) throw new ArchiveError(409, "not_archived", "Only an archived project can be deleted");
+  return {
+    counts: await projectCounts(db, projectId),
+    orphanServers: await orphanServers(db, projectId),
+    detachedRepositories: await projectRepositoryNames(db, projectId),
+  };
+}
+
+/**
+ * Stacca i repository del progetto (L-2, il prototipo `purge.ts`): tengono
+ * nome, account, comandi, grafo e storia dei commit; perdono i Docs, le PR
+ * (review, correzioni, note di rilascio), il giro notturno e i file
+ * d'ambiente; il webhook va riconfigurato. Rilasci, ambienti e task se ne
+ * vanno col progetto (cascata).
+ */
+async function detachRepositories(tx: Db, projectId: string): Promise<number> {
+  const repos = (await tx.select({ id: repositories.id }).from(repositories).where(eq(repositories.projectId, projectId))).map((r) => r.id);
+  if (repos.length === 0) return 0;
+  // In SQL: un ciclo tipato su quattordici tabelle Drizzle fa esplodere il typecheck.
+  const ids = sql`array[${sql.join(repos.map((id) => sql`${id}::uuid`), sql`, `)}]`;
+  const leafFirst: PgTable[] = [docChatSessions, docChunks, docNodes, docPageCodes, docPages, docGenerationJobs, docAutoUpdateJobs, docGenerations, prCorrections, prReleaseNotes, prReviewJobs, prReviews, nightlyItems, projectEnvFiles];
+  for (const table of leafFirst) await tx.execute(sql`delete from ${table} where repository_id = any(${ids})`);
+  await tx
+    .update(repositories)
+    .set({ detachedAt: new Date(), detachedFromProjectId: projectId, currentDocGenerationId: null, webhookConfiguredAt: null })
+    .where(inArray(repositories.id, repos));
+  return repos.length;
+}
+
+/**
+ * Elimina un archiviato. Nella transazione, col progetto FOR UPDATE: il
+ * codice scritto esatto, la memoria del progetto (codice, nome, membri:
+ * `deleted_projects`), i repository staccati, le chiavi dello storage da
+ * togliere dopo il commit, la cancellazione (le cascate fanno il resto) e la
+ * voce `project.deleted` d'istanza.
+ */
+export async function deleteArchivedProject(
+  db: Db,
+  viewer: Viewer,
+  projectId: string,
+  confirmCode: string,
+  storageKeysOf: (tx: Db, projectId: string) => Promise<string[]>,
+): Promise<{ storageKeys: string[] }> {
+  if (!viewer.instancePermissions.has("instance.full_admin")) throw new ArchiveError(403, "forbidden", "Only a full admin can delete a project");
+  return db.transaction(async (txRaw) => {
+    const tx = txRaw as unknown as Db;
+    const [row] = await tx.select().from(projects).where(eq(projects.id, projectId)).for("update");
+    if (!row) throw new Error(`progetto ${projectId} sparito sotto il lock`);
+    if (!row.archivedAt) throw new ArchiveError(409, "not_archived", "Only an archived project can be deleted");
+    if (confirmCode !== row.code) throw new ArchiveError(400, "code_mismatch", "The code does not match the project's code");
+    const storageKeys = await storageKeysOf(tx, projectId);
+    await tx.insert(deletedProjects).values({ id: row.id, code: row.code, name: row.name });
+    const formerMembers = await tx
+      .select({ userId: projectMembers.userId })
+      .from(projectMembers)
+      .innerJoin(users, eq(users.id, projectMembers.userId))
+      .where(and(eq(projectMembers.projectId, projectId), eq(users.isAgent, false)));
+    if (formerMembers.length > 0) {
+      await tx.insert(deletedProjectMembers).values(formerMembers.map((m) => ({ projectId: row.id, userId: m.userId })));
+    }
+    const detached = await detachRepositories(tx, projectId);
+    await tx.delete(projects).where(eq(projects.id, projectId));
+    await recordChange(tx, {
+      type: "project.deleted",
+      actor: viewer,
+      projectId: null,
+      // L'etichetta la risolve la lettura (`CODICE · Nome` a chi lo conosceva).
+      data: { object: { type: "project", id: row.id, label: "" }, params: { detachedRepositories: String(detached) } },
+    });
+    return { storageKeys };
+  });
 }

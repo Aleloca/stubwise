@@ -98,3 +98,20 @@ export const archivedProjectViewSchema = archivedProjectRowSchema.extend({
   pulseEveryDays: z.number().int(),
 });
 export type ArchivedProjectView = z.infer<typeof archivedProjectViewSchema>;
+
+/**
+ * Cosa toglie Delete e cosa resta senza progetto (il prototipo,
+ * `getDeletionPreview`): i conteggi, i server che resterebbero senza
+ * ambienti (codici `SRV-<n>`, R-L7) e i repository che restano staccati
+ * (nomi).
+ */
+export const deletionPreviewSchema = z.object({
+  counts: deletionCountsSchema,
+  orphanServers: z.array(z.string()).default([]),
+  detachedRepositories: z.array(z.string()).default([]),
+});
+export type DeletionPreview = z.infer<typeof deletionPreviewSchema>;
+
+/** Il corpo di `DELETE /api/projects/:projectId`: il codice del progetto, scritto esatto. */
+export const deleteProjectSchema = z.object({ confirmCode: z.string().min(1).max(20) });
+export type DeleteProjectInput = z.infer<typeof deleteProjectSchema>;

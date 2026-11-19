@@ -1,10 +1,10 @@
-import { archivedProjectRowSchema, archivedProjectViewSchema, archivePreviewSchema, archiveBusyErrorSchema } from "@stubwise/shared";
+import { archivedProjectRowSchema, archivedProjectViewSchema, archivePreviewSchema, archiveBusyErrorSchema, deletionPreviewSchema } from "@stubwise/shared";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { routePermissions, type RouteAccess } from "../auth/access.js";
 import { fromParam } from "../auth/project-resolvers.js";
-import { ArchiveError, archivedProjectView, archivePreview, archiveProject, listArchivedProjects, reopenProject } from "../services/project-archive.js";
+import { ArchiveError, archivedProjectView, archivePreview, archiveProject, deletionPreview, listArchivedProjects, reopenProject } from "../services/project-archive.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -66,6 +66,24 @@ export async function projectArchiveRoutes(instance: FastifyInstance): Promise<v
       try {
         await archiveProject(app.db, request.user!, request.params.projectId, routePermissions(request));
         return await reply.code(204).send(null);
+      } catch (error) {
+        return sendArchiveError(reply, error);
+      }
+    },
+  );
+
+  // Cosa toglie Delete: solo un full admin, solo su un archiviato (409
+  // `not_archived` su un aperto).
+  app.get(
+    "/:projectId/deletion-preview",
+    {
+      config: { access: { kind: "project", permission: "member", project: fromParam("projectId") }, archived: "read" },
+      schema: { params, response: { 200: deletionPreviewSchema, 404: errorSchema, 409: errorSchema, ...authErrorResponses } },
+    },
+    async (request, reply) => {
+      if (!request.user!.instancePermissions.has("instance.full_admin")) return apiError(reply, 403, "forbidden", "Only a full admin can delete a project");
+      try {
+        return await deletionPreview(app.db, request.params.projectId);
       } catch (error) {
         return sendArchiveError(reply, error);
       }

@@ -2,6 +2,7 @@ import {
   archivedProjectRowSchema,
   archivedProjectViewSchema,
   archivePreviewSchema,
+  deletionPreviewSchema,
   memberPreviewSchema,
   projectMembersViewSchema,
   projectMemberSchema,
@@ -23,6 +24,7 @@ import type {
   ArchivedProjectRow,
   ArchivedProjectView,
   ArchivePreview,
+  DeletionPreview,
   MemberPreview,
   ProjectMembersView,
   ProjectMember,
@@ -104,6 +106,22 @@ export function createProjectsEndpoints(request: ApiRequest) {
     /** La pagina di un archiviato; 404 per chi non lo vede da archiviato o per un progetto aperto. */
     archivedView(projectId: string): Promise<Reader<ArchivedProjectView>> {
       return request("GET", `/api/projects/${seg(projectId)}/archived-view`, undefined, archivedProjectViewSchema);
+    },
+    /**
+     * Cosa toglie Delete: i conteggi, i server che restano senza ambienti
+     * (`SRV-<n>`), i repository che restano staccati. Solo un full admin
+     * (403), solo un archiviato (409 `not_archived`).
+     */
+    deletionPreview(projectId: string): Promise<Reader<DeletionPreview>> {
+      return request("GET", `/api/projects/${seg(projectId)}/deletion-preview`, undefined, deletionPreviewSchema);
+    },
+    /**
+     * Elimina un archiviato: solo un full admin, con la riconferma e il
+     * codice scritto esatto. Rifiuti: 400 `code_mismatch`, 409
+     * `not_archived`, 403 `reauth_required` / `forbidden`.
+     */
+    delete(projectId: string, confirmCode: string): Promise<void> {
+      return request("DELETE", `/api/projects/${seg(projectId)}`, { confirmCode });
     },
     /** Riapre un archiviato; 409 `not_archived` se non lo è. */
     reopen(projectId: string): Promise<void> {

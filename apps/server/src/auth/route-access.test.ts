@@ -132,6 +132,7 @@ describe("rotte con riconferma recente", () => {
       "DELETE /api/ai-providers/:id",
       "DELETE /api/git-accounts/:id",
       "DELETE /api/me/security/passkeys/:id",
+      "DELETE /api/projects/:projectId",
       "DELETE /api/projects/:projectId/members/:userId",
       "DELETE /api/repositories/:id/env-files/:fileId",
       "DELETE /api/repositories/:id/env-files/:fileId/vars/:key",
@@ -216,7 +217,9 @@ describe("rotte con riconferma recente", () => {
     const routes = (await registeredRoutes()).filter((r) => r.archived);
     expect(routes.filter((r) => r.kind !== "project").map((r) => r.key)).toEqual([]);
     expect(routes.map((r) => `${r.key} ${r.archived}`).sort()).toEqual([
+      "DELETE /api/projects/:projectId write",
       "GET /api/projects/:projectId/archived-view read",
+      "GET /api/projects/:projectId/deletion-preview read",
       "POST /api/projects/:projectId/archive write",
       "POST /api/projects/:projectId/reopen write",
     ]);
