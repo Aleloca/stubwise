@@ -163,6 +163,8 @@ export interface DepartmentDraft {
    * li usa (il suo stato è uno solo).
    */
   baseProjectPermissions?: string[];
+  /** La `version` del reparto quando la bozza è nata: il PATCH la manda come `ifMatch` (F8). */
+  baseVersion?: string;
 }
 
 /**

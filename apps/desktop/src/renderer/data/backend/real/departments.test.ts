@@ -200,6 +200,36 @@ describe("Reparti nella build app", () => {
     expect(patches().at(-1)).toEqual({ memberIds: [ME_ID] });
   });
 
+  it("F8 (review I1, 72 714fb5b9e): la version della base va come ifMatch; un 409 stale è un conflitto", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/departments": { body: [departments[0], { ...departments[1], version: "00000000000000aa" }] },
+      "GET /api/people": { body: [] },
+      "GET /api/departments/roles": { body: [] },
+      [`PATCH /api/departments/${SALES}`]: { status: 409, body: { code: "stale", message: "x", version: "00000000000000bb" } },
+    });
+    const rows = await adminDepartments.listDepartments!();
+    expect(rows.find((d) => d.id === SALES)!.version).toBe("00000000000000aa");
+    expect(
+      await adminDepartments.saveDepartment!(SALES, {
+        memberIds: [ME_ID],
+        homeManagerIds: [],
+        projectPermissions: [],
+        baseVersion: "00000000000000aa",
+      }),
+    ).toEqual({ ok: false, error: "conflict" });
+    expect(seen.find((r) => r.method === "PATCH")!.body).toEqual({ memberIds: [ME_ID], ifMatch: "00000000000000aa" });
+  });
+
+  it("F8: senza version (server di prima) il PATCH non manda ifMatch", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/departments/roles": { body: [] },
+      [`PATCH /api/departments/${SALES}`]: { body: departments[1] },
+      [`PUT /api/departments/${SALES}/roles`]: { body: [] },
+    });
+    await adminDepartments.saveDepartment!(SALES, { memberIds: [ME_ID], homeManagerIds: [], projectPermissions: [], baseVersion: "" });
+    expect(seen.find((r) => r.method === "PATCH")!.body).toEqual({ memberIds: [ME_ID] });
+  });
+
   it("i responsabili della Home vengono dai ruoli di reparto", async () => {
     installFakeServer({
       "GET /api/departments": { body: departments },

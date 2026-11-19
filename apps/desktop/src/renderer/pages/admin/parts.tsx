@@ -126,6 +126,9 @@ export function useRefusalWords() {
         return t("admin.refusal.notFound");
       case "reauth_required":
         return t("admin.refusal.reauthCancelled");
+      // Area 9, F8: cambiato da un altro mentre si modificava (409 `stale`).
+      case "conflict":
+        return t("admin.refusal.conflict");
       case "invalid":
         return reasonWords(t, r.reason, ctx);
     }

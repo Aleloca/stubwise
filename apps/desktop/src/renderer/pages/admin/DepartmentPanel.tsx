@@ -107,8 +107,15 @@ export function DepartmentPanelHost() {
 const diff = (a: readonly string[], b: readonly string[]) => a.filter((x) => !b.includes(x));
 
 /** Ciò che il pannello salva, come lo era quando la bozza è nata (la sua base, review F8 I1). */
-type Base = { memberIds: string[]; homeManagerIds: string[]; projectPermissions: string[] };
+type Base = {
+  memberIds: string[];
+  homeManagerIds: string[];
+  projectPermissions: string[];
+  /** La `version` del server (F8, `ifMatch`); `""` nel prototipo o da un server di prima. */
+  version: string;
+};
 const baseOf = (d: DepartmentView): Base => ({
+  version: d.version ?? "",
   memberIds: [...d.memberIds],
   homeManagerIds: [...d.homeManagerIds],
   projectPermissions: [...d.projectPermissions],
@@ -165,7 +172,11 @@ export function DepartmentPanel({
   const latestKey = JSON.stringify(latest);
   useEffect(() => {
     const next = JSON.parse(latestKey) as Base;
-    if (sameBase(next, base)) return;
+    if (sameBase(next, base)) {
+      // Cambiato altro (il nome, il colore, salvati da qui): la bozza vale ancora, si aggiorna la versione.
+      if (next.version !== base.version) setBase((b) => ({ ...b, version: next.version }));
+      return;
+    }
     if (dirtyRef.current) {
       setStale(true);
       return;
@@ -245,6 +256,7 @@ export function DepartmentPanel({
           homeManagerIds: home,
           projectPermissions: permList,
           baseProjectPermissions: base.projectPermissions,
+          baseVersion: base.version,
         },
       ]);
     // Il server chiede la riconferma quando la bozza dà accessi (F8-3): il
@@ -258,6 +270,8 @@ export function DepartmentPanel({
     const refusal = refusalOf(result) as UiRefusal | null;
     if (refusal) {
       if (refusal.error === "reauth_cancelled") return;
+      // F8: un altro l'ha cambiato da quando la bozza è nata (409 `stale`): niente è scritto.
+      if (refusal.error === "conflict") return setStale(true);
       if (refusal.error === "escalation")
         return setError(
           t("admin.department.refusal.escalation", {
@@ -270,7 +284,7 @@ export function DepartmentPanel({
     }
     dirtyRef.current = false;
     // La bozza salvata è la base nuova: la rilettura dopo il salvataggio non è «un altro».
-    setBase({ memberIds: [...members], homeManagerIds: [...home], projectPermissions: permList });
+    setBase((b) => ({ ...b, memberIds: [...members], homeManagerIds: [...home], projectPermissions: permList }));
     setStale(false);
     toast.show(t("admin.department.saved"));
   }

@@ -10718,6 +10718,7 @@
     "refusal": {
       "escalation": "You can't give “{{what}}”: it includes {{missing}}, which you don't have.",
       "escalationPlain": "You can't do this: it gives {{missing}}, which you don't have.",
+      "conflict": "Someone else changed this while you were editing it. Nothing was saved.",
       "more_one": "{{count}} more",
       "more_other": "{{count}} more",
       "lastFullAdmin": "{{name}} is the only full admin. Make someone else full admin first.",

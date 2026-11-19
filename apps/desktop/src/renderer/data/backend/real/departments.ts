@@ -22,6 +22,8 @@ function refusalOf(error: unknown): AdminRefusal {
     // Area 9, F8 (72, 39071e1f8): la riconferma quando si danno accessi, l'escalation
     // coi permessi mancanti, l'ultimo gestore di un progetto, nelle parole del prototipo.
     if (error.code === "reauth_required") return { ok: false, error: "reauth_required" };
+    // F8 (72): un altro ha cambiato il reparto da quando la bozza l'ha letto.
+    if (error.code === "stale") return { ok: false, error: "conflict" };
     if (error.code === "escalation") {
       const missing = (error.details as { missing?: string[] } | undefined)?.missing ?? [];
       return { ok: false, error: "escalation", missing };
@@ -61,6 +63,7 @@ async function membersByDepartment(): Promise<Map<string, string[]>> {
 function view(d: ServerDepartment, memberIds: string[], homeManagerIds: string[]): DepartmentView {
   const projectPermissions = [...((d as { projectPermissions?: string[] }).projectPermissions ?? [])];
   return {
+    version: (d as { version?: string }).version ?? "",
     id: d.id,
     name: d.name,
     colorToken: d.colorToken,
@@ -193,6 +196,8 @@ const saveDepartment: Admin["saveDepartment"] = async (id, draft) => {
       : {}),
     memberIds: [...new Set(draft.memberIds)],
     ...permissionsPatch(draft.projectPermissions, draft.baseProjectPermissions),
+    // La version della base: il server rifiuta (409 `stale`) se nel frattempo è cambiato.
+    ...(draft.baseVersion ? { ifMatch: draft.baseVersion } : {}),
   };
   const key = JSON.stringify(patch);
   try {

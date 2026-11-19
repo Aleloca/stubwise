@@ -10718,6 +10718,7 @@
     "refusal": {
       "escalation": "Non puoi dare «{{what}}»: contiene {{missing}}, che non hai.",
       "escalationPlain": "Non puoi farlo: darebbe {{missing}}, che non hai.",
+      "conflict": "Qualcun altro l'ha cambiato mentre lo modificavi. Non è stato salvato niente.",
       "more_one": "altro {{count}}",
       "more_other": "altri {{count}}",
       "lastFullAdmin": "{{name}} è l'unico amministratore completo. Rendi prima qualcun altro amministratore completo.",
