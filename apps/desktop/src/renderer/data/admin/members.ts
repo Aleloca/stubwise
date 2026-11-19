@@ -11,7 +11,9 @@ import {
 import { recordChange } from "../changelog/index";
 import { currentVia, silencedByUndo } from "../claude/via";
 import { CLAUDE_ID } from "../seed/people";
-import { gate, newId, now, state, visibleProjectIds } from "../store";
+import { registerAlertTypes } from "../../domain/alerts/catalog";
+import { gate, newId, nextSeq, now, state, visibleProjectIds } from "../store";
+import type { MandatoryReason } from "../model";
 import { writer } from "../writer";
 import {
   avatarOf,
@@ -252,23 +254,30 @@ export function writeJoin(
   publishMemberAdded(actorId, projectId, personId, roleId);
 }
 
-/**
- * Chi riceve `member.added`: la persona aggiunta, poi (decisione del
- * maintainer, 19 nov 2026, inventario dell'area 10) i membri del progetto che
- * ne gestiscono i membri (`project.members.manage`), in ordine di id. Mai chi
- * agisce, mai Claude collega, nessuno due volte. Un full admin che non è
- * membro non la riceve: gestisce ogni progetto, e lo dice già il registro.
- */
-export function memberAddedRecipientsOf(me: string, personId: string, projectId: string): string[] {
-  const skip = (id: string) => id === me || id === CLAUDE_ID;
-  const managers = accessState()
-    .memberships.filter(
-      (m) => m.projectId === projectId && m.personId !== personId && !skip(m.personId),
-    )
-    .map((m) => m.personId)
-    .filter((id) => effectivePermissions(id, projectId).has("project.members.manage"))
-    .sort();
-  return [...(skip(personId) ? [] : [personId]), ...new Set(managers)];
+// `member.added` è un tipo del catalogo degli avvisi (area 10, F5, D-11 = b
+// del maintainer, 19 nov 2026): chi gestisce i membri del progetto lo riceve
+// per iscrizione, accesa di default e spegnibile; la persona aggiunta per
+// motivo obbligatorio (`added`). Il server lo avrà con F5 in
+// `@stubwise/shared`; fino ad allora la riga è del prototipo.
+registerAlertTypes([
+  {
+    type: "member.added",
+    group: "members",
+    labelKey: "alerts.types.member_added",
+    subscribe: { perm: "project.members.manage" },
+    defaultOn: { perm: "project.members.manage" },
+    defaultPhone: false,
+    mandatory: ["added"],
+  },
+]);
+
+/** Chi riceve `member.added` senza iscrizione: la persona aggiunta, se non è chi agisce né Claude collega. */
+export function memberAddedMandatoryOf(
+  me: string,
+  personId: string,
+): { personId: string; reason: MandatoryReason }[] {
+  if (personId === me || personId === CLAUDE_ID) return [];
+  return [{ personId, reason: "added" }];
 }
 
 /**
@@ -281,12 +290,12 @@ export function memberAddedRecipientsOf(me: string, personId: string, projectId:
  * «Annulla» non si scrive: l'avviso c'era già.
  */
 function publishMemberAdded(me: string, projectId: string, personId: string, roleId: string) {
-  const recipientIds = memberAddedRecipientsOf(me, personId, projectId);
-  if (recipientIds.length === 0) return;
+  if (personId === CLAUDE_ID) return;
   const via = currentVia();
   if (silencedByUndo(via)) return;
   const code = projectLabel(projectId);
   const role = roleById(roleId)?.name ?? "";
+  const mandatory = memberAddedMandatoryOf(me, personId);
   state.notifications.push({
     id: newId("n"),
     kind: "member.added",
@@ -294,10 +303,13 @@ function publishMemberAdded(me: string, projectId: string, personId: string, rol
     // Non c'è un oggetto con un codice: il progetto stesso (shape §3.9).
     objectCode: code,
     departmentId: null,
-    recipientIds,
+    // I destinatari si calcolano a lettura dal catalogo (`whyFor`).
+    recipientIds: [],
+    ...(mandatory.length > 0 ? { mandatory } : {}),
     title: `You've been added to ${code} as ${role}`,
     body: `${nameOf(me) ?? ""} added you to ${code} as ${role}.`,
     createdAt: now(),
+    seq: nextSeq(),
     read: false,
     archived: false,
     snoozedUntil: null,

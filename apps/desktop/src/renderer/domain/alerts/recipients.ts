@@ -133,8 +133,15 @@ export function whyFor(
 ): Recipient["why"] | null {
   const def = alertTypeOf(n.kind);
   if (!def) return null;
+  // Chi ha fatto la scrittura non è avvisato di ciò che ha fatto (area 10,
+  // F5: `member.added`, che porta `actorId`; gli altri tipi non lo scrivono).
+  if (n.actorId === personId) return null;
   const perms = ctx.permsOf(personId);
   const mandatory = n.mandatory?.find((m) => m.personId === personId);
+  // La persona aggiunta a un progetto lo sa sempre, anche se l'ingresso è
+  // stato annullato e il progetto non lo vede più ([SC 16]): dice solo ciò
+  // che sapeva già.
+  if (mandatory?.reason === "added") return mandatory.reason;
   // L'assegnatario vede la task che deve fare anche senza il permesso per
   // iscriversi (un Contributor): basta che veda il progetto.
   if (mandatory && OWN_TASK_REASONS.has(mandatory.reason) && ctx.seesProject(personId)) {

@@ -8791,6 +8791,7 @@
       "releases": "Rilasci",
       "docs": "Docs",
       "tasks": "Task",
+      "members": "Membri",
       "support": "Support",
       "monitor": "Server",
       "claude": "Claude"
@@ -8808,6 +8809,7 @@
       "support_request": "Nuova richiesta",
       "job_pr_opened": "Claude ha aperto una PR",
       "review_completed": "Revisione della PR conclusa",
+      "member_added": "Una persona entra nel progetto",
       "ticket_created": "Nuova task",
       "request_created": "Nuova richiesta",
       "docs_nightly_attention": "Docs da guardare",
@@ -8833,6 +8835,7 @@
       "support_request": "Quando si apre una richiesta in {{code}}, da un cliente o da un collega",
       "job_pr_opened": "Quando Claude apre una PR per una task di {{code}}",
       "review_completed": "Quando Claude finisce di rivedere una PR di {{code}}",
+      "member_added": "Quando qualcuno entra in {{code}}",
       "ticket_created": "Quando si crea una task in {{code}}",
       "request_created": "Quando si apre una richiesta in {{code}}",
       "docs_nightly_attention": "Quando il giro notturno non riesce ad aggiornare una pagina dei docs di {{code}}",
@@ -8842,6 +8845,7 @@
       "project_brief": "Quando il brief settimanale di {{code}} è pronto"
     },
     "mandatoryLine": {
+      "added": "Sempre per chi è stato aggiunto",
       "merged": "Sempre se il merge l'hai fatto tu",
       "pr_author": "Sempre per chi ha aperto la PR",
       "task_author": "Sempre per l'autore della task, se il merge è arrivato da fuori Stubwise",

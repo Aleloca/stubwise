@@ -20,7 +20,8 @@ import { CLAUDE_ID } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import { advanceNow, state, visibleProjectIds } from "../store";
 import type { AppNotification, ConversationEvent } from "../types";
-import { memberAddedRecipientsOf } from "./members";
+import { alerts } from "../api";
+import { memberAddedMandatoryOf } from "./members";
 
 // `member.added` (area 10b, Task 7, D4): chi viene aggiunto a un progetto lo
 // sa — a mano (Members), da Claude per conto di qualcuno (col segno) e da
@@ -28,9 +29,10 @@ import { memberAddedRecipientsOf } from "./members";
 // stesso né per Claude collega (P8: provato sulla regola, non su scenari che
 // `judgeJoin` rifiuta prima), né per un cambio di ruolo. Il nome del ruolo si
 // legge a lettura; dopo un «Annulla» la notifica resta, con «Undone by».
-// Dal 19 nov 2026 (decisione del maintainer sull'inventario dell'area 10)
-// la ricevono anche i membri del progetto che ne gestiscono i membri
-// (`project.members.manage`), con chi è entrato; mai chi agisce né Claude.
+// Dal 19 nov 2026 (D-11 = b del maintainer, design dell'area 10, F5) è un
+// tipo del catalogo degli avvisi: la persona aggiunta la riceve per motivo
+// obbligatorio (`added`), chi gestisce i membri del progetto per iscrizione
+// (accesa di default, spegnibile). Mai chi agisce, mai Claude.
 
 const LAURA = "p-laura";
 const LUCA = "p-luca";
@@ -50,20 +52,57 @@ beforeEach(() => {
   resetApi();
 });
 
-async function addedOf(personId: string): Promise<AppNotification[]> {
+async function addedOf(personId: string, projectId?: string): Promise<AppNotification[]> {
   as(personId);
-  return (await listNotifications()).filter((n) => n.kind === "member.added");
+  return (await listNotifications()).filter(
+    (n) => n.kind === "member.added" && (projectId === undefined || n.projectId === projectId),
+  );
 }
 
-describe("memberAddedRecipientsOf", () => {
-  it("la persona aggiunta e chi gestisce i membri; mai chi agisce, mai Claude collega (P8)", () => {
-    // In ACQ gestiscono i membri Laura e Matteo; Roberta è full admin ma non membro.
-    expect(memberAddedRecipientsOf(LAURA, LUCA, ACQ)).toEqual([LUCA, MATTEO]);
-    expect(memberAddedRecipientsOf(MATTEO, LUCA, ACQ)).toEqual([LUCA, LAURA]);
-    expect(memberAddedRecipientsOf(LAURA, LAURA, ACQ)).toEqual([MATTEO]);
-    expect(memberAddedRecipientsOf(LAURA, CLAUDE_ID, ACQ)).toEqual([MATTEO]);
-    // Chi entra ed è già un gestore (un ruolo che li gestisce) non la riceve due volte.
-    expect(memberAddedRecipientsOf(LAURA, MATTEO, ACQ)).toEqual([MATTEO]);
+describe("memberAddedMandatoryOf", () => {
+  it("la persona aggiunta, per motivo `added`; mai chi aggiunge sé stesso, mai Claude collega (P8)", () => {
+    expect(memberAddedMandatoryOf(LAURA, LUCA)).toEqual([{ personId: LUCA, reason: "added" }]);
+    expect(memberAddedMandatoryOf(LAURA, LAURA)).toEqual([]);
+    expect(memberAddedMandatoryOf(LAURA, CLAUDE_ID)).toEqual([]);
+  });
+});
+
+describe("member.added nel catalogo degli avvisi (F5)", () => {
+  const addLucaByHand = async () => {
+    as(LAURA);
+    markReauthenticated(LAURA);
+    expect(await admin.addMember(ACQ, LUCA, DEVELOPER)).toEqual({ ok: true });
+  };
+
+  it("nelle Preferenze di Matteo: una riga nel gruppo «members», accesa", async () => {
+    as(MATTEO);
+    const row = (await alerts.subscriptionRows())
+      .find((p) => p.projectId === ACQ)!
+      .rows.find((r) => r.type === "member.added");
+    expect(row).toMatchObject({ group: "members", state: "on", app: true, phone: false });
+  });
+
+  it("Matteo la spegne in ACQ: l'ingresso dopo non gli arriva", async () => {
+    as(MATTEO);
+    await alerts.setSubscription(ACQ, "member.added", { app: false });
+    await addLucaByHand();
+    expect(await addedOf(MATTEO, ACQ)).toEqual([]);
+    expect(await addedOf(LUCA)).toHaveLength(1);
+  });
+
+  it("Marco spegne tutto in ACQ, ne esce, e Laura lo rimette dentro: la riceve lo stesso, obbligatoria", async () => {
+    as(MARCO);
+    await alerts.muteProject(ACQ);
+    writeAccess((s) => {
+      s.memberships = s.memberships.filter((m) => !(m.personId === MARCO && m.projectId === ACQ));
+      s.grants = s.grants.filter((g) => !(g.personId === MARCO && g.projectId === ACQ));
+    });
+    as(LAURA);
+    markReauthenticated(LAURA);
+    expect(await admin.addMember(ACQ, MARCO, DEVELOPER)).toEqual({ ok: true });
+    const [n, ...rest] = await addedOf(MARCO, ACQ);
+    expect(rest).toEqual([]);
+    expect(n!.memberName).toBeUndefined();
   });
 });
 
@@ -95,7 +134,7 @@ describe("member.added a mano", () => {
     as(LAURA);
     markReauthenticated(LAURA);
     expect(await admin.addMember(ACQ, LUCA, DEVELOPER)).toEqual({ ok: true });
-    const [n, ...rest] = await addedOf(MATTEO);
+    const [n, ...rest] = await addedOf(MATTEO, ACQ);
     expect(rest).toEqual([]);
     expect(n).toMatchObject({
       kind: "member.added",
@@ -115,13 +154,13 @@ describe("member.added a mano", () => {
     as(LAURA);
     markReauthenticated(LAURA);
     await admin.addMember(ACQ, LUCA, DEVELOPER);
-    expect(await addedOf(MATTEO)).toHaveLength(1);
+    expect(await addedOf(MATTEO, ACQ)).toHaveLength(1);
     writeAccess((s) => {
       s.memberships = s.memberships.filter((m) => !(m.personId === MATTEO && m.projectId === ACQ));
       s.grants = s.grants.filter((g) => !(g.personId === MATTEO && g.projectId === ACQ));
     });
     expect(visibleProjectIds(MATTEO).has(ACQ)).toBe(false);
-    expect(await addedOf(MATTEO)).toEqual([]);
+    expect(await addedOf(MATTEO, ACQ)).toEqual([]);
   });
 
   it("cambiare il ruolo non è un'aggiunta: nessuna notifica nuova", async () => {
@@ -146,9 +185,8 @@ describe("member.added a mano", () => {
 
   it("chi crea un progetto ne diventa Project Lead senza avvisare sé stesso", async () => {
     as(ROBERTA);
-    const before = state.notifications.length;
     await createProject({ code: "NEWP", name: "New project", template: "empty" });
-    expect(state.notifications).toHaveLength(before);
+    expect((await addedOf(ROBERTA)).filter((n) => n.objectCode === "NEWP")).toEqual([]);
   });
 });
 
@@ -164,7 +202,11 @@ describe("member.added dalla posta (P25)", () => {
     expect(rest).toEqual([]);
     expect(n).toMatchObject({ projectId: "prj-aud", objectCode: "AUD", roleName: "Contributor" });
     expect(n!.viaClaude).toBeUndefined();
-    expect(await addedOf("p-matteo")).toEqual([]);
+    // Matteo ha agito: dell'ingresso di Chiara non riceve niente (la riga del
+    // seme su Stefano, che gestisce, sì).
+    expect(
+      (await addedOf("p-matteo")).filter((m) => m.createdAt === n!.createdAt && m.id === n!.id),
+    ).toEqual([]);
     // Laura gestisce i membri di AUD: la riceve, con Chiara.
     expect((await addedOf(LAURA))[0]).toMatchObject({ memberName: "Chiara Lombardi" });
   });

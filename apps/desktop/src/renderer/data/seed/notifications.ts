@@ -74,7 +74,7 @@ type Row = [
   number,
   boolean,
   string[]?,
-  Pick<AppNotification, "actorId" | "plannedWeek" | "roleId">?,
+  Pick<AppNotification, "actorId" | "plannedWeek" | "roleId" | "memberId" | "mandatory">?,
 ];
 
 const ROWS: Row[] = [
@@ -336,7 +336,14 @@ const ROWS: Row[] = [
     432,
     true,
     ["p-stefano"],
-    { actorId: "p-laura", roleId: "role-developer" },
+    // Dal 19 nov 2026 un tipo del catalogo (F5): Stefano per motivo
+    // obbligatorio; chi gestisce i membri di AUD (Matteo) per iscrizione.
+    {
+      actorId: "p-laura",
+      roleId: "role-developer",
+      memberId: "p-stefano",
+      mandatory: [{ personId: "p-stefano", reason: "added" }],
+    },
   ],
 ];
 
