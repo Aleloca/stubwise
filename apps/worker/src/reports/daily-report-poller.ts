@@ -1370,7 +1370,8 @@ export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<
       .innerJoin(projects, eq(activityReports.projectId, projects.id))
       // Area 9, F4: un progetto in pausa lascia il suo report `queued`, e lo
       // si genera alla ripresa.
-      .where(and(eq(activityReports.status, "queued"), gte(activityReports.date, cutoff), isNull(projects.queuePausedAt)));
+      // Area 9, F6: anche un archiviato.
+      .where(and(eq(activityReports.status, "queued"), gte(activityReports.date, cutoff), isNull(projects.queuePausedAt), isNull(projects.archivedAt)));
 
     for (const q of queued) {
       try {

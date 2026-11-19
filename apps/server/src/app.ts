@@ -51,6 +51,7 @@ import { changeLogRoutes } from "./routes/change-log.js";
 import { outgoingWebhookRoutes } from "./routes/outgoing-webhooks.js";
 import { instanceStatusRoutes } from "./routes/instance-status.js";
 import { projectArchiveRoutes } from "./routes/project-archive.js";
+import { detachedRepositoryRoutes } from "./routes/detached-repositories.js";
 import { projectQueueRoutes } from "./routes/project-queue.js";
 import { projectSecretRoutes } from "./routes/project-secrets.js";
 import { smtpTransport, type MailTransport } from "./mail/transport.js";
@@ -725,6 +726,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(widgetAdminRoutes, { prefix: "/api/projects" });
   // Repository: il singolo repo git (ex "progetto") con setup git, branch,
   // webhook, ingestion, docs. Appartiene sempre a un progetto.
+  // Area 9, F6: i repository senza progetto, PRIMA di `/:slug`.
+  void app.register(detachedRepositoryRoutes, { prefix: "/api/repositories" });
   void app.register(repositoryRoutes, { prefix: "/api/repositories" });
   // File d'ambiente, materializzati nel worktree del repo: sono repository-level
   // (il parametro :id dell'URL è il repositoryId).

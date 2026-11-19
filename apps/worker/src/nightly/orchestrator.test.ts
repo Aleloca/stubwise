@@ -224,6 +224,25 @@ describe("runNight: riassunti a turno", () => {
     }
   });
 
+  it("area 9, F6: un progetto ARCHIVIATO resta fuori dal giro come uno in pausa; un repository STACCATO non c'è proprio", async () => {
+    const archived = await seedNightRepo("archiviato", { dailyReport: true });
+    const detached = await seedNightRepo("staccato", { dailyReport: true });
+    const b = await seedNightRepo("aperto", { dailyReport: true });
+    await db.update(projects).set({ archivedAt: new Date() }).where(eq(projects.id, archived.projectId));
+    await db.update(repositories).set({ projectId: null }).where(eq(repositories.id, detached.repositoryId));
+    try {
+      const h = harness({ commitsByUrl: { [archived.url]: [commit("1", "a1")], [detached.url]: [commit("2", "d1")], [b.url]: [commit("5", "b1")] } });
+      const res = await runNight(h.deps, NOW);
+      const order = h.run.mock.calls.map(([opts]) => subjectOf((opts as AgentRunOptions).prompt));
+      expect(order).toEqual(["b1"]);
+      expect(res).toMatchObject({ repositories: 1 });
+      expect(h.ensureMirror).toHaveBeenCalledTimes(1);
+    } finally {
+      await db.update(projects).set({ archivedAt: null }).where(eq(projects.id, archived.projectId));
+      await db.update(repositories).set({ projectId: detached.projectId }).where(eq(repositories.id, detached.repositoryId));
+    }
+  });
+
   it("quota finita al 2° elemento → giro fermo; la ripresa continua senza rifare nulla; un riavvio non rifà niente", async () => {
     const a = await seedNightRepo("alpha");
     const b = await seedNightRepo("beta");

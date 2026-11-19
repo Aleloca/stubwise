@@ -115,3 +115,31 @@ export type DeletionPreview = z.infer<typeof deletionPreviewSchema>;
 /** Il corpo di `DELETE /api/projects/:projectId`: il codice del progetto, scritto esatto. */
 export const deleteProjectSchema = z.object({ confirmCode: z.string().min(1).max(20) });
 export type DeleteProjectInput = z.infer<typeof deleteProjectSchema>;
+
+/**
+ * Un repository STACCATO (il suo progetto è stato eliminato), come lo legge
+ * l'Amministrazione (`data/instance/repositories.ts` del prototipo). Il nome
+ * intero e la provenienza solo a chi conosceva il progetto di prima (gli ex
+ * membri e i full admin): il workspace può nominare il cliente (ruling T11).
+ * `linkTargets` li calcola il server: i progetti APERTI dove chi guarda ha
+ * `repos.manage` (tutti per un full admin).
+ */
+export const detachedRepositorySchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  /** `owner/nome` intero a chi conosceva il progetto, altrimenti solo l'ultimo segmento. */
+  fullName: z.string().nullable().default(null),
+  /** L'URL solo a chi conosceva il progetto. */
+  repoUrl: z.string().nullable().default(null),
+  provider: z.string(),
+  gitAccountName: z.string().nullable().default(null),
+  gitAccountProvider: z.string().nullable().default(null),
+  detachedAt: z.iso.datetime().nullable().default(null),
+  formerProject: z.object({ code: z.string(), name: z.string() }).nullable().default(null),
+  canDelete: z.boolean().default(false),
+  linkTargets: z.array(z.object({ projectId: z.uuid(), code: z.string(), name: z.string() })).default([]),
+});
+export type DetachedRepository = z.infer<typeof detachedRepositorySchema>;
+
+/** Il corpo di `POST /api/repositories/:id/link`: il progetto di destinazione. */
+export const linkRepositorySchema = z.object({ projectId: z.uuid() });
