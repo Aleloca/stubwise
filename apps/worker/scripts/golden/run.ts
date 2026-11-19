@@ -579,6 +579,18 @@ const DISCOUNT_PLAN = [
   "Comando di test: `npm test` dentro `shop/`.",
 ].join("\n");
 
+/**
+ * Conteggio dei `rate_limit_event` che il runner in streaming consegna a
+ * `onRateLimit` (è la fonte dell'utilizzo degli account: `TrackingAgentRunner`
+ * ne ricava lo snapshot). Gli scenari girano uno alla volta, quindi un
+ * contatore di modulo azzerato dal ciclo di `main` basta. Il runner classico
+ * non emette l'evento: con `--classic` il conteggio resta 0 e non è un errore.
+ */
+let rateLimitEvents = 0;
+const countRateLimitEvent = (): void => {
+  rateLimitEvents += 1;
+};
+
 /* ------------------------------------------------------------------ *
  * Esito di uno scenario
  * ------------------------------------------------------------------ */
@@ -593,6 +605,8 @@ interface ScenarioResult {
   gitState: GitState;
   finalMessage: string;
   usage?: AgentRunResult["usage"];
+  /** `rate_limit_event` ricevuti dal runner durante lo scenario (solo streaming). */
+  rateLimitEvents?: number;
   /** Solo `refine-read-bash`: ogni chiamata ai tool con input ed esito (è la misura). */
   toolCalls?: { name: string; command?: string; input: unknown; outcome: string; content: string }[];
 }
@@ -673,6 +687,7 @@ async function runPlanOnly(ctx: ScenarioContext): Promise<ScenarioResult> {
 
   const startedAt = Date.now();
   const result = await ctx.runner.run({
+    onRateLimit: countRateLimitEvent,
     cwd: parentDir,
     usage: GOLDEN_USAGE("fix_plan"),
     prompt: ctx.rt.buildFixPlanPrompt(
@@ -761,6 +776,7 @@ async function runWithAskUser(
 
   const startedAt = Date.now();
   const result = await ctx.runner.run({
+    onRateLimit: countRateLimitEvent,
     cwd: parentDir,
     usage: GOLDEN_USAGE("fix_plan"),
     prompt: ctx.rt.buildFixPlanPrompt(
@@ -894,6 +910,7 @@ async function runExecute(ctx: ScenarioContext): Promise<ScenarioResult> {
 
   const startedAt = Date.now();
   const result = await ctx.runner.run({
+    onRateLimit: countRateLimitEvent,
     cwd: parentDir,
     usage: GOLDEN_USAGE("fix_execute"),
     prompt: ctx.rt.buildFixExecutePrompt(
@@ -1003,6 +1020,7 @@ async function runCorrection(ctx: ScenarioContext): Promise<ScenarioResult> {
 
   const startedAt = Date.now();
   const result = await ctx.runner.run({
+    onRateLimit: countRateLimitEvent,
     cwd: parentDir,
     usage: GOLDEN_USAGE("fix_execute"),
     prompt: ctx.rt.buildCorrectionPrompt(
@@ -1188,6 +1206,7 @@ async function runInterveneOnce(
   let timedOut = false;
   try {
     result = await runner.run({
+      onRateLimit: countRateLimitEvent,
       cwd: parentDir,
       usage: GOLDEN_USAGE("fix_execute"),
       prompt: INTERVENE_PROMPT,
@@ -1326,6 +1345,7 @@ async function runPlanInterveneOnce(
   let timedOut = false;
   try {
     result = await runner.run({
+      onRateLimit: countRateLimitEvent,
       cwd: parentDir,
       usage: GOLDEN_USAGE("fix_plan"),
       prompt: ctx.rt.buildFixPlanPrompt(
@@ -1470,6 +1490,7 @@ async function runStopPauseOnce(
   let errorName: string | null = null;
   try {
     result = await runner.run({
+      onRateLimit: countRateLimitEvent,
       cwd: parentDir,
       usage: GOLDEN_USAGE("fix_execute"),
       prompt: INTERVENE_PROMPT,
@@ -1669,6 +1690,7 @@ async function runRefine(ctx: ScenarioContext): Promise<ScenarioResult> {
   let timedOut = false;
   try {
     result = await runner.run({
+      onRateLimit: countRateLimitEvent,
       cwd: parentDir,
       usage: GOLDEN_USAGE("backlog_refine"),
       prompt,
@@ -1871,6 +1893,7 @@ async function runReadProbe(ctx: ScenarioContext, probe: "refine" | "bash"): Pro
   let timedOut = false;
   try {
     result = await runner.run({
+      onRateLimit: countRateLimitEvent,
       cwd: parentDir,
       usage: GOLDEN_USAGE("backlog_refine"),
       prompt,
@@ -2042,7 +2065,22 @@ async function main(): Promise<void> {
   const results: ScenarioResult[] = [];
   for (const name of args.scenarios) {
     section(`Scenario ${name}`);
+    rateLimitEvents = 0;
     const result = await SCENARIOS[name](ctx);
+    result.rateLimitEvents = rateLimitEvents;
+    // `plan-only` è la sentinella: un CLI aggiornato che cambia o toglie
+    // l'evento spegnerebbe in silenzio gli snapshot d'uso degli account.
+    if (name === "plan-only" && !args.classic) {
+      const present = rateLimitEvents > 0;
+      result.checks.push({
+        name: "rate_limit_event consegnato",
+        passed: present,
+        detail: present
+          ? `${rateLimitEvents} evento/i ricevuto/i da onRateLimit`
+          : "nessun rate_limit_event: il CLI ha cambiato o tolto l'evento da cui nasce l'utilizzo degli account",
+      });
+      result.passed = result.checks.every((check) => check.passed);
+    }
     results.push(result);
     for (const check of result.checks) {
       log(`  ${check.passed ? "OK  " : "KO  "} ${check.name} — ${check.detail}`);
@@ -2063,7 +2101,7 @@ async function main(): Promise<void> {
   };
   section("Esito");
   for (const result of results) {
-    log(`${result.passed ? "PASSATO" : "FALLITO"}  ${result.scenario}`);
+    log(`${result.passed ? "PASSATO" : "FALLITO"}  ${result.scenario} — rate_limit_event: ${result.rateLimitEvents ?? 0}`);
   }
 
   // Il JSON è IL PRODOTTO di questo script, e va scritto per INTERO anche

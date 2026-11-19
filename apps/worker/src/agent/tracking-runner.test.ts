@@ -1,12 +1,14 @@
-import { agentRuns, aiJobs, aiModelSettings, aiProviders } from "@stubwise/db";
+import { agentRuns, aiJobs, aiModelSettings, aiProviders, aiUsageSnapshots, encrypt } from "@stubwise/db";
 import { seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "./fake.js";
 import { createModelResolver } from "./model-settings.js";
+import type { RateLimitInfo } from "./rate-limit-event.js";
 import type { AgentRunOptions, AgentRunUsage, UsageTag } from "./runner.js";
 import { TrackingAgentRunner } from "./tracking-runner.js";
 
@@ -33,6 +35,7 @@ afterEach(async () => {
   await testDb.db.delete(agentRuns);
   await testDb.db.delete(aiModelSettings);
   await testDb.db.delete(aiJobs);
+  await testDb.db.delete(aiUsageSnapshots);
 });
 
 afterAll(async () => {
@@ -216,5 +219,109 @@ describe("TrackingAgentRunner — consumi", () => {
   it("recordsSessions è quello del runner interno", () => {
     expect(tracking(new FakeAgentRunner({ recordsSessions: true })).recordsSessions).toBe(true);
     expect(tracking(new FakeAgentRunner()).recordsSessions).toBe(false);
+  });
+});
+
+describe("TrackingAgentRunner — snapshot d'uso dal rate_limit_event", () => {
+  const AT = new Date("2026-11-19T09:00:00.000Z");
+  const info = (status: string, usedPercent: number): RateLimitInfo => ({
+    status,
+    rateLimitType: "five_hour",
+    windows: { five_hour: { usedPercent, resetsAt: new Date("2026-11-19T12:00:00.000Z") } },
+  });
+
+  async function newAccount(label: string, limitedUntil: Date | null = null): Promise<string> {
+    const [row] = await testDb.db
+      .insert(aiProviders)
+      .values({
+        position: 2,
+        kind: "account",
+        label,
+        secretEncrypted: encrypt("x", randomBytes(32)),
+        limitedUntil,
+      })
+      .returning();
+    return row!.id;
+  }
+
+  // Il runner finto emette l'evento e ASPETTA la promessa della callback, come
+  // farebbe un chiamante che vuole sincronizzarsi: lo streaming vero non la attende.
+  function emitting(i: RateLimitInfo): FakeAgentRunner {
+    return new FakeAgentRunner({
+      script: async (o) => {
+        await o.onRateLimit?.(i, AT);
+        return { output: "ok", exitCode: 0 };
+      },
+    });
+  }
+
+  const snapshots = (id: string) =>
+    testDb.db.select().from(aiUsageSnapshots).where(eq(aiUsageSnapshots.providerId, id));
+
+  it("account: una riga con captured_at = at, anche con record: false", async () => {
+    const id = await newAccount("snap1");
+    const provider = { id, kind: "account" as const, secret: "s" };
+    await tracking(emitting(info("allowed", 40))).run(
+      opts({ operation: "summary", projectId, record: false }, { provider }),
+    );
+    const rows = await snapshots(id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.capturedAt).toEqual(AT);
+    expect(rows[0]!.sessionRemaining).toEqual({ percentUsed: 40, percentRemaining: 60, resetsLabel: null });
+  });
+
+  it("allowed sotto il 100: azzera limited_until", async () => {
+    const id = await newAccount("snap2", new Date(Date.now() + 3_600_000));
+    const provider = { id, kind: "account" as const, secret: "s" };
+    await tracking(emitting(info("allowed", 40))).run(opts({ operation: "summary", projectId }, { provider }));
+    const [row] = await testDb.db.select().from(aiProviders).where(eq(aiProviders.id, id));
+    expect(row!.limitedUntil).toBeNull();
+  });
+
+  it("rejected: limited_until invariato", async () => {
+    const until = new Date(Date.now() + 3_600_000);
+    const id = await newAccount("snap3", until);
+    const provider = { id, kind: "account" as const, secret: "s" };
+    await tracking(emitting(info("rejected", 100))).run(opts({ operation: "summary", projectId }, { provider }));
+    const [row] = await testDb.db.select().from(aiProviders).where(eq(aiProviders.id, id));
+    expect(row!.limitedUntil).toEqual(until);
+  });
+
+  it("api_key: nessuna riga, e la callback del chiamante riceve l'evento", async () => {
+    const onRateLimit = vi.fn();
+    const provider = { id: providerId, kind: "api_key" as const, secret: "s" };
+    await tracking(emitting(info("allowed", 40))).run(
+      opts({ operation: "summary", projectId }, { provider, onRateLimit }),
+    );
+    expect(await snapshots(providerId)).toHaveLength(0);
+    expect(onRateLimit).toHaveBeenCalledWith(info("allowed", 40), AT);
+  });
+
+  it("nessun provider: nessuna riga, la callback del chiamante riceve l'evento", async () => {
+    const onRateLimit = vi.fn();
+    await tracking(emitting(info("allowed", 40))).run(opts({ operation: "summary", projectId }, { onRateLimit }));
+    expect(onRateLimit).toHaveBeenCalledWith(info("allowed", 40), AT);
+    expect(await testDb.db.select().from(aiUsageSnapshots)).toHaveLength(0);
+  });
+
+  it("account: la callback del chiamante è chiamata e, se lancia, lo snapshot si scrive lo stesso", async () => {
+    const id = await newAccount("snap4");
+    const provider = { id, kind: "account" as const, secret: "s" };
+    const onRateLimit = vi.fn(() => {
+      throw new Error("boom");
+    });
+    await tracking(emitting(info("allowed", 40))).run(
+      opts({ operation: "summary", projectId }, { provider, onRateLimit }),
+    );
+    expect(onRateLimit).toHaveBeenCalledOnce();
+    expect(await snapshots(id)).toHaveLength(1);
+  });
+
+  it("insert fallito (provider inesistente): il run ritorna il suo risultato, nessun throw", async () => {
+    const provider = { id: randomUUID(), kind: "account" as const, secret: "s" };
+    const result = await tracking(emitting(info("allowed", 40))).run(
+      opts({ operation: "summary", projectId, record: false }, { provider }),
+    );
+    expect(result.output).toBe("ok");
   });
 });

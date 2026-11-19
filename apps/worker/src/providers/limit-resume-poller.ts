@@ -17,7 +17,13 @@ import {
   THRESHOLD_PAUSE_REASON,
 } from "../docs/nodes.js";
 import { getContentLanguage } from "../settings.js";
-import { latestSnapshots, MAX_SNAPSHOT_AGE_MS, parseWindow, type LatestSnapshot } from "./usage-window.js";
+import {
+  effectiveUsedPercent,
+  latestSnapshots,
+  MAX_SNAPSHOT_AGE_MS,
+  parseWindow,
+  type   LatestSnapshot,
+} from "./usage-window.js";
 import type { ResolvedProvider } from "./chain.js";
 import { QuotaWaitLog } from "./quota-wait.js";
 import { selectProviders, type SelectDeps, type SelectInput } from "./select.js";
@@ -51,8 +57,9 @@ import { selectProviders, type SelectDeps, type SelectInput } from "./select.js"
  * seconda copia delle regole è come quel giro è nato.
  *
  * DECISIONE DI HEADROOM di un candidato (vedi hasHeadroom):
- *  - credenziale `account` con uno snapshot d'usage FRESCO e PARSATO (poller
- *    /usage, agent/usage-poller.ts): headroom = sessione usata < soglia% E
+ *  - credenziale `account` con uno snapshot d'usage FRESCO e PARSATO (nasce
+ *    dal rate_limit_event di ogni run, TrackingAgentRunner; la sonda
+ *    agent/usage-poller.ts lo rinfresca per gli account fermi): headroom = sessione usata < soglia% E
  *    weekly usata < 100%. Lo snapshot fresco è AUTORITATIVO: se dice "ancora al
  *    limite" NON si degrada al fallback a tempo.
  *  - credenziale `api_key` (nessuno snapshot: /usage esiste solo per gli
@@ -62,8 +69,8 @@ import { selectProviders, type SelectDeps, type SelectInput } from "./select.js"
  *    con il poll usage disabilitato (USAGE_POLL_MINUTES=0: tutti gli snapshot
  *    invecchiano e si degrada sempre al tempo). Restano fermi BY DESIGN i casi
  *    in cui la scelta è vuota: tutti al limite o oltre soglia (si aspetta: il
- *    poller d'uso azzera limited_until appena torna margine, e comunque
- *    limited_until scade) e «solo questo» su un provider non risolvibile
+ *    TrackingAgentRunner azzera limited_until dal rate_limit_event appena
+ *    torna margine, e comunque limited_until scade) e «solo questo» su un provider non risolvibile
  *    (serve l'intervento umano: riabilitarlo o togliere il vincolo).
  *
  * VINCOLI (come gli altri poller): NON fa MAI crashare il worker (ogni item in
@@ -109,7 +116,8 @@ function errText(err: unknown): string {
 /**
  * Decide se `provider` ha di nuovo margine per lavorare.
  *  - `account` con snapshot FRESCO (età <= maxSnapshotAgeMs) e parsato:
- *    sessione usata < headroomPercent E weekly usata < 100. Il dato fresco è
+ *    sessione usata < headroomPercent E weekly usata < 100 (finestra assente
+ *    = 0, reset passato = 0: vedi effectiveUsedPercent). Il dato fresco è
  *    autoritativo in ENTRAMBE le direzioni (niente fallback a tempo se dice
  *    "ancora al limite").
  *  - altrimenti (api_key, snapshot stantio/assente/non parsato/jsonb malformato):
@@ -129,10 +137,19 @@ function hasHeadroom(
     if (snap && snap.parseOk && now.getTime() - snap.capturedAt.getTime() <= deps.maxSnapshotAgeMs) {
       const session = parseWindow(snap.sessionRemaining);
       const weekly = parseWindow(snap.weeklyRemaining);
-      if (session && weekly) {
-        return session.percentUsed < deps.headroomPercent && weekly.percentUsed < 100;
+      // Una finestra assente (null) conta 0 e una col reset passato è ripartita
+      // (effectiveUsedPercent). Solo un jsonb presente ma illeggibile, su
+      // entrambe, cade nel fallback a tempo qui sotto.
+      const malformed =
+        session === null &&
+        weekly === null &&
+        (snap.sessionRemaining !== null || snap.weeklyRemaining !== null);
+      if (!malformed) {
+        return (
+          effectiveUsedPercent(snap.sessionRemaining, snap.sessionResetAt, now) < deps.headroomPercent &&
+          effectiveUsedPercent(snap.weeklyRemaining, snap.weeklyResetAt, now) < 100
+        );
       }
-      // jsonb malformato: cade nel fallback a tempo qui sotto.
     }
   }
   return now.getTime() - pausedSince.getTime() > deps.cooldownMs;

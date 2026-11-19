@@ -1448,7 +1448,7 @@
         "estimated": "estimated (fallback)",
         "noData": "// nessun dato di consumo ancora",
         "diagnoseTitle": "Parsing deterministico di /usage fallito",
-        "diagnoseHint": "Aggiorna il parser deterministico in `apps/worker/src/agent/usage-parser.ts` — attese le finestre sessione/settimanale; ricevuto il testo qui sotto.",
+        "diagnoseHint": "Questo snapshot viene dal vecchio lettore di `/usage` (ritirato), che non riusciva più a interpretare l'output del CLI (testo grezzo qui sotto). Gli snapshot nuovi si leggono dal rate-limit event del CLI e non mostrano questo avviso.",
         "showRaw": "Mostra output grezzo",
         "hideRaw": "Nascondi output grezzo"
       }

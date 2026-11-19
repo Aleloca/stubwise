@@ -1,238 +1,237 @@
-import { aiProviders, aiUsageSnapshots, type Db } from "@stubwise/db";
-import { and, eq, isNotNull } from "drizzle-orm";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { aiProviders, type Db } from "@stubwise/db";
+import { eq } from "drizzle-orm";
 import { loadProviderChain, type ResolvedProvider } from "../providers/chain.js";
-import { parseWindow } from "../providers/usage-window.js";
+import { latestSnapshots, parseWindow, type LatestSnapshot } from "../providers/usage-window.js";
+import { createModelResolver } from "./model-settings.js";
 import type { AgentRunner } from "./runner.js";
-import { trackedClaudeCliRunner } from "./tracking-runner.js";
-import { captureUsageOutput } from "./usage-pty.js";
-import { parseUsage, type RunLlm } from "./usage-parser.js";
+import { StreamingClaudeRunner } from "./streaming-cli.js";
+import { TrackingAgentRunner } from "./tracking-runner.js";
 
 /**
- * Scheduler BEST-EFFORT che, periodicamente, legge l'utilizzo residuo
- * dell'abbonamento di ogni credenziale `account` della catena via il comando
- * `/usage` (PTY, vedi usage-pty.ts), ne parsa l'output (deterministico →
- * fallback LLM, vedi usage-parser.ts) e salva uno snapshot in
- * `ai_usage_snapshots`.
+ * Sonda d'uso degli account FERMI (design 2026-11-19-utilizzo-account-da-
+ * rate-limit-event §3). Lo snapshot d'uso nasce dal `rate_limit_event` che ogni
+ * run dell'account emette (lo scrive il `TrackingAgentRunner`, vedi
+ * tracking-runner.ts): un account che lavora è quindi già fresco. Questo
+ * scheduler serve SOLO agli account che non lavorano — inattivi, o «al limite»
+ * e in attesa del reset — e lancia per loro un run minimo (haiku, 1 turno) il
+ * cui evento rinfresca lo snapshot. Il poller NON scrive MAI snapshot e NON
+ * sblocca niente: lo fa il decoratore, dallo stesso evento.
  *
  * Vincoli (CRITICI):
- *  - NON deve MAI far crashare il worker: ogni credenziale è in un try/catch
- *    isolato; un fallimento (PTY, parse, insert) salta quella credenziale e
- *    prosegue con le altre. L'intero giro è a sua volta in try/catch.
- *  - È un task SEPARATO dal loop dei job: gira su un proprio setInterval, NON
- *    tocca il lock/heartbeat dei job né i loro timeout (nessun impatto
- *    sull'invariante WORKER_STALE_MINUTES).
- *  - `/usage` è una lettura GRATUITA (non consuma token dell'abbonamento).
- *  - Il fallback LLM usa un modello economico (haiku) preferendo una
- *    credenziale `api_key` della catena, per NON intaccare la quota
- *    dell'abbonamento di cui stiamo misurando il residuo.
+ *  - NON deve MAI far crashare il worker: ogni account è in un try/catch
+ *    isolato, e l'intero giro a sua volta.
+ *  - È un task SEPARATO dal loop dei job: proprio setInterval, nessun impatto
+ *    su lock/heartbeat dei job né su WORKER_STALE_MINUTES.
+ *  - Un run di sonda COSTA un po' di quota dell'abbonamento: per questo si
+ *    lancia solo se lo snapshot è vecchio, e un account al limite con una
+ *    finestra a 100% e reset futuro non si sonda affatto (non c'è niente da
+ *    imparare prima del reset).
  *  - I segreti non vengono MAI loggati.
- *  - NON passa dalla scelta dell'account (providers/select.ts): deve leggere
- *    ANCHE gli account «al limite», perché è proprio una lettura con margine a
- *    sbloccarli prima dell'ora stimata (vedi clearLimitIfHeadroom).
+ *  - NON passa dalla scelta dell'account (providers/select.ts): deve poter
+ *    sondare ANCHE gli account «al limite», perché è la sonda a sbloccarli.
  */
 
-/** Modello economico per il fallback LLM. */
-const LLM_FALLBACK_MODEL = "haiku";
-/** Tetto di turni/tempo per la chiamata LLM di parsing (è una mini-estrazione). */
-const LLM_MAX_TURNS = 1;
-const LLM_TIMEOUT_MS = 60_000;
+const PROBE_MODEL = "haiku";
+const PROBE_MAX_TURNS = 1;
+const PROBE_TIMEOUT_MS = 60_000;
+const PROBE_PROMPT = "Rispondi solo con: ok";
 
-export interface PollUsageDeps {
+/** Memoria in-process dell'ultima sonda di un account (viva fra i giri). */
+export interface ProbeMemo {
+  at: Date;
+  /** Il run minimo ha consegnato il `rate_limit_event`. */
+  gotEvent: boolean;
+}
+
+/**
+ * Serve una sonda per questo account? Pura.
+ *  - nessuno snapshot leggibile (assente o `parseOk` false): sì;
+ *  - account al limite: sì se lo snapshot è più vecchio di un tick (si
+ *    rilegge a ogni giro per cogliere il reset anticipato) — salvo che una
+ *    finestra sia a 100% con reset ancora nel futuro: allora no;
+ *  - altrimenti sì solo se lo snapshot ha più di `idleMs`;
+ *  - `lastProbe`: l'età è quella del più recente fra snapshot e sonda, e una
+ *    sonda SENZA evento mette l'account in backoff per `idleMs`.
+ */
+export function shouldProbe(
+  account: { limitedUntil: Date | null },
+  snap: LatestSnapshot | undefined,
+  now: Date,
+  idleMs: number,
+  tickMs: number,
+  lastProbe?: ProbeMemo,
+): boolean {
+  const probeAge = lastProbe ? now.getTime() - lastProbe.at.getTime() : undefined;
+  // Backoff: una sonda che non ha prodotto l'evento non cambia lo snapshot, e
+  // senza memoria si ripeterebbe a ogni giro (anche per un account al limite
+  // fino al reset). Non si riprova prima di `idleMs`.
+  if (lastProbe && !lastProbe.gotEvent && probeAge !== undefined && probeAge < idleMs) return false;
+  if (snap === undefined || !snap.parseOk) {
+    // Anche con evento ma senza snapshot salvato (solo finestre scartate) non si insiste.
+    return !(probeAge !== undefined && probeAge < idleMs);
+  }
+  // L'età è quella del più recente fra lo snapshot e l'ultima sonda.
+  let age = now.getTime() - snap.capturedAt.getTime();
+  if (probeAge !== undefined && probeAge < age) age = probeAge;
+  const limited = account.limitedUntil !== null && account.limitedUntil.getTime() > now.getTime();
+  if (!limited) return age > idleMs;
+  if (windowBlocked(snap.sessionRemaining, snap.sessionResetAt, now)) return false;
+  if (windowBlocked(snap.weeklyRemaining, snap.weeklyResetAt, now)) return false;
+  return age > tickMs;
+}
+
+/** Finestra a 100% il cui reset non è ancora arrivato: sondare non cambierebbe nulla. */
+function windowBlocked(value: unknown, resetAt: Date | null, now: Date): boolean {
+  const w = parseWindow(value);
+  return (
+    w !== null && w.percentUsed >= 100 && resetAt !== null && resetAt.getTime() > now.getTime()
+  );
+}
+
+export interface ProbeDeps {
   db: Db;
   encryptionKey: Buffer;
-  /** Cattura l'output `/usage` di una credenziale (iniettabile per i test). */
-  capture: (provider: ResolvedProvider) => Promise<string>;
-  /** Esegue la chiamata LLM di parsing di fallback (iniettabile per i test). */
-  runLlm: RunLlm;
+  /** Il runner che avvolge lo snapshot (TrackingAgentRunner in produzione). */
+  runner: AgentRunner;
+  idleMs: number;
+  tickMs: number;
+  now?: () => Date;
+  /** Memoria delle sonde, condivisa fra i giri (se assente vale solo per questo giro). */
+  probeMemory?: Map<string, ProbeMemo>;
 }
 
 /**
- * Esegue UN giro di polling: per ogni credenziale `account` abilitata della
- * catena cattura `/usage`, parsa e salva uno snapshot. `rawText` è conservato
- * SOLO quando parseOk=false (per diagnosticare il parser da aggiornare). Un
- * parse che non produce snapshot (né deterministico né LLM) NON salva nulla.
- * Non lancia mai: errori per-credenziale sono loggati (senza segreti) e saltati.
+ * UN giro: sonda, in sequenza, gli account `account` abilitati che ne hanno
+ * bisogno. `limitedUntil` si legge da `ai_providers` (la catena non lo porta).
+ * Non lancia mai: un errore su un account si logga e si passa al successivo.
  */
-export async function pollUsageOnce(deps: PollUsageDeps): Promise<void> {
-  let chain: ResolvedProvider[];
+export async function probeIdleAccountsOnce(deps: ProbeDeps): Promise<void> {
   try {
-    chain = await loadProviderChain(deps.db, deps.encryptionKey);
-  } catch (err) {
-    console.error(
-      `[stubwise-worker] usage-poll: impossibile caricare la catena provider: ${errText(err)}`,
+    const now = (deps.now ?? (() => new Date()))();
+    const chain = (await loadProviderChain(deps.db, deps.encryptionKey)).filter(
+      (p) => p.kind === "account",
     );
-    return;
+    if (chain.length === 0) return;
+    const snaps = await latestSnapshots(deps.db);
+    const memory = deps.probeMemory ?? new Map<string, ProbeMemo>();
+    for (const provider of chain) {
+      try {
+        const [row] = await deps.db
+          .select({ limitedUntil: aiProviders.limitedUntil })
+          .from(aiProviders)
+          .where(eq(aiProviders.id, provider.id));
+        if (!row) continue;
+        if (
+          !shouldProbe(
+            row,
+            snaps.get(provider.id),
+            now,
+            deps.idleMs,
+            deps.tickMs,
+            memory.get(provider.id),
+          )
+        )
+          continue;
+        memory.set(provider.id, await probeOne(deps.runner, provider, now));
+      } catch (err) {
+        console.error(
+          `[stubwise-worker] usage-probe: account ${provider.id} saltato: ${errText(err)}`,
+        );
+      }
+    }
+  } catch (err) {
+    console.error(`[stubwise-worker] usage-probe: giro fallito: ${errText(err)}`);
   }
+}
 
-  const accounts = chain.filter((p) => p.kind === "account");
-  for (const provider of accounts) {
-    try {
-      await pollOneAccount(deps, provider);
-    } catch (err) {
-      // Best-effort: un fallimento non blocca le altre credenziali.
+/**
+ * Il run minimo, in una cwd vuota e usa-e-getta. Passa una `onRateLimit` solo
+ * per sapere se l'evento è arrivato: il TrackingAgentRunner la concatena alla
+ * propria e scrive lo snapshot. Se non arriva lo si logga (mai l'output).
+ */
+async function probeOne(
+  runner: AgentRunner,
+  provider: ResolvedProvider,
+  now: Date,
+): Promise<ProbeMemo> {
+  const cwd = await mkdtemp(join(tmpdir(), "stubwise-usage-probe-"));
+  let gotEvent = false;
+  try {
+    const result = await runner.run({
+      cwd,
+      prompt: PROBE_PROMPT,
+      model: PROBE_MODEL,
+      usage: { operation: "usage_probe", projectId: null },
+      permissionMode: "default",
+      maxTurns: PROBE_MAX_TURNS,
+      timeoutMs: PROBE_TIMEOUT_MS,
+      provider,
+      onRateLimit: () => {
+        gotEvent = true;
+      },
+    });
+    if (!gotEvent) {
       console.error(
-        `[stubwise-worker] usage-poll: credenziale ${provider.id} saltata: ${errText(err)}`,
+        `[stubwise-worker] usage-probe: nessun rate_limit_event per ${provider.id} (exit ${result.exitCode})`,
       );
     }
-  }
-}
-
-async function pollOneAccount(deps: PollUsageDeps, provider: ResolvedProvider): Promise<void> {
-  const rawText = await deps.capture(provider);
-
-  // Cattura PTY vuota (nessun output): non c'è nulla da estrarre NÉ da
-  // diagnosticare. Logghiamo e basta, senza inquinare la tabella con righe vuote.
-  if (rawText.trim() === "") {
+    return { at: now, gotEvent };
+  } catch (err) {
     console.error(
-      `[stubwise-worker] usage-poll: cattura /usage vuota per ${provider.id} (niente da salvare)`,
+      `[stubwise-worker] usage-probe: nessun rate_limit_event per ${provider.id} (il run ha lanciato: ${errText(err)})`,
     );
-    return;
+    return { at: now, gotEvent };
+  } finally {
+    await rm(cwd, { recursive: true, force: true }).catch(() => undefined);
   }
-
-  const { snapshot, source, parseOk } = await parseUsage(rawText, deps.runLlm);
-
-  if (snapshot === null) {
-    // Nessun parser ha estratto dati, MA c'è del testo grezzo: lo salviamo con
-    // parseOk=false così il banner di diagnosi (UI) può mostrarlo e si può
-    // capire perché il parser fallisce e aggiornarlo. Usage null.
-    console.error(
-      `[stubwise-worker] usage-poll: nessun usage estraibile per ${provider.id} (source ${source}); salvo rawText per diagnosi`,
-    );
-    await deps.db.insert(aiUsageSnapshots).values({
-      providerId: provider.id,
-      sessionRemaining: null,
-      weeklyRemaining: null,
-      sessionResetAt: null,
-      weeklyResetAt: null,
-      source,
-      parseOk: false,
-      rawText,
-    });
-    return;
-  }
-
-  await deps.db.insert(aiUsageSnapshots).values({
-    providerId: provider.id,
-    sessionRemaining: snapshot.sessionRemaining,
-    weeklyRemaining: snapshot.weeklyRemaining,
-    sessionResetAt: toDate(snapshot.sessionResetAt),
-    weeklyResetAt: toDate(snapshot.weeklyResetAt),
-    source,
-    parseOk,
-    // rawText SOLO quando il deterministico ha fallito (parseOk=false): serve a
-    // capire perché e ad aggiornare il parser. Se parseOk, non lo conserviamo.
-    rawText: parseOk ? null : rawText,
-  });
-
-  if (parseOk) {
-    await clearLimitIfHeadroom(deps.db, provider.id, snapshot.sessionRemaining, snapshot.weeklyRemaining);
-  }
-}
-
-/**
- * Il reset è arrivato prima dell'ora stimata: una lettura deterministica che
- * dice «c'è margine» in ENTRAMBE le finestre (sessione < 100% e settimana <
- * 100%) azzera `limited_until`, così scelta e ripresa ripartono subito. Una
- * lettura dal fallback LLM (parseOk false) non basta: i suoi numeri non sono
- * abbastanza affidabili per sbloccare un account. Il guard `is not null` evita
- * scritture inutili a ogni giro.
- */
-async function clearLimitIfHeadroom(
-  db: Db,
-  providerId: string,
-  sessionRemaining: unknown,
-  weeklyRemaining: unknown,
-): Promise<void> {
-  const session = parseWindow(sessionRemaining);
-  const weekly = parseWindow(weeklyRemaining);
-  if (session === null || weekly === null) return;
-  if (session.percentUsed >= 100 || weekly.percentUsed >= 100) return;
-  const cleared = await db
-    .update(aiProviders)
-    .set({ limitedUntil: null })
-    .where(and(eq(aiProviders.id, providerId), isNotNull(aiProviders.limitedUntil)))
-    .returning({ id: aiProviders.id });
-  if (cleared.length > 0) {
-    console.error(
-      `[stubwise-worker] usage-poll: credenziale ${providerId} di nuovo con margine, «al limite» azzerato`,
-    );
-  }
-}
-
-function toDate(iso: string | null | undefined): Date | null {
-  if (iso === null || iso === undefined) return null;
-  const ms = Date.parse(iso);
-  return Number.isNaN(ms) ? null : new Date(ms);
 }
 
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/**
- * Costruisce il `runLlm` di fallback dalla catena: esegue `claude -p` con un
- * modello economico (haiku) preferendo una credenziale `api_key` per non
- * intaccare la quota dell'abbonamento; se non c'è api_key usa il primo account.
- * Se la catena è vuota, ritorna un runLlm che fallisce (→ parse LLM = null).
- */
-export function buildRunLlmFromChain(chain: ResolvedProvider[], runner: AgentRunner): RunLlm {
-  const preferred = chain.find((p) => p.kind === "api_key") ?? chain[0];
-  return async (prompt: string): Promise<string> => {
-    if (!preferred) throw new Error("nessuna credenziale per il fallback LLM");
-    const res = await runner.run({
-      cwd: process.cwd(),
-      prompt,
-      model: LLM_FALLBACK_MODEL,
-      usage: { operation: "usage_probe", projectId: null },
-      permissionMode: "default",
-      maxTurns: LLM_MAX_TURNS,
-      timeoutMs: LLM_TIMEOUT_MS,
-      provider: preferred,
-    });
-    return res.output;
-  };
-}
-
 export interface StartUsagePollerOptions {
   db: Db;
   encryptionKey: Buffer;
-  /** Intervallo in minuti. 0 = disabilitato (non avvia nulla). */
+  /** Intervallo del giro in minuti. 0 = disabilitato (non avvia nulla). */
   intervalMinutes: number;
+  /** Inattività oltre la quale un account si sonda (USAGE_PROBE_IDLE_MINUTES). */
+  idleMinutes: number;
   signal: AbortSignal;
 }
 
 /**
- * Avvia il poller su un proprio setInterval, separato dal loop dei job. Ad ogni
- * tick ricarica la catena (per cogliere i cambi di credenziali) e costruisce
- * capture reale (PTY) + runLlm reale (haiku via catena). Lo stop avviene
- * sull'AbortSignal (lo stesso del worker). 0 minuti = poller disabilitato.
- *
- * Ritorna una funzione di stop idempotente (utile anche fuori dal segnale).
+ * Avvia la sonda su un proprio setInterval. Il runner è SEMPRE quello in
+ * streaming (anche con AGENT_STREAMING=false): è lui a consegnare il
+ * `rate_limit_event`. Niente sovrapposizione fra giri; il timer è `unref` e si
+ * ferma sull'AbortSignal. Ritorna una funzione di stop idempotente.
  */
 export function startUsagePoller(opts: StartUsagePollerOptions): () => void {
-  if (opts.intervalMinutes <= 0) {
-    return () => {};
-  }
-  const intervalMs = opts.intervalMinutes * 60_000;
+  if (opts.intervalMinutes <= 0) return () => {};
+  const tickMs = opts.intervalMinutes * 60_000;
+  const runner = new TrackingAgentRunner({
+    inner: new StreamingClaudeRunner(),
+    db: opts.db,
+    models: createModelResolver(opts.db, console),
+  });
+  const probeMemory = new Map<string, ProbeMemo>();
   let running = false;
 
   const tick = async (): Promise<void> => {
-    // Evita sovrapposizioni se un giro è più lento dell'intervallo.
     if (running) return;
     running = true;
     try {
-      const chain = await loadProviderChain(opts.db, opts.encryptionKey);
-      // Runner storico avvolto: il fallback LLM lascia la sua riga `usage_probe`.
-      const runLlm = buildRunLlmFromChain(chain, trackedClaudeCliRunner(opts.db));
-      await pollUsageOnce({
+      await probeIdleAccountsOnce({
         db: opts.db,
         encryptionKey: opts.encryptionKey,
-        capture: (provider) => captureUsageOutput(provider),
-        runLlm,
+        runner,
+        idleMs: opts.idleMinutes * 60_000,
+        tickMs,
+        probeMemory,
       });
-    } catch (err) {
-      // Difesa finale: un tick non deve mai propagare.
-      console.error(`[stubwise-worker] usage-poll: tick fallito: ${errText(err)}`);
     } finally {
       running = false;
     }
@@ -240,8 +239,7 @@ export function startUsagePoller(opts: StartUsagePollerOptions): () => void {
 
   const timer = setInterval(() => {
     void tick();
-  }, intervalMs);
-  // Non tenere vivo il processo solo per il poller.
+  }, tickMs);
   if (typeof timer.unref === "function") timer.unref();
 
   const stop = (): void => clearInterval(timer);

@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { Db } from "@stubwise/db";
 import { isConfigurableAiOperation } from "@stubwise/shared";
+import { clearProviderLimit, rateLimitAllowsUnlock, writeRateLimitSnapshot } from "../providers/usage-window.js";
 import { recordUsage } from "../queue.js";
 import { ClaudeCliRunner } from "./claude-cli.js";
 import { createModelResolver, type ModelResolver } from "./model-settings.js";
+import type { RateLimitInfo } from "./rate-limit-event.js";
 import type { AgentRunner, AgentRunOptions, AgentRunResult } from "./runner.js";
 
 export interface TrackingAgentRunnerDeps {
@@ -30,6 +32,13 @@ export interface TrackingAgentRunnerDeps {
  * 3. consumi — con `record !== false`, `recordUsage` best-effort (un insert
  *    fallito non fa mai fallire il run).
  *
+ * 4. snapshot d'uso — per un provider `account` il decoratore concatena alla
+ *    `onRateLimit` del chiamante la scrittura dello snapshot da
+ *    `rate_limit_event` (anche con `record: false`: è un'altra tabella),
+ *    con `captured_at` = istante di arrivo dell'evento, e azzera `limited_until`
+ *    se l'evento dice che si può lavorare (`allowed` e ogni finestra < 100).
+ *    Vale per OGNI run, sonda d'uso compresa: il poller non scrive snapshot.
+ *
  * Il PROVIDER non si tocca: lo sceglie `providers/select.ts` prima del run
  * (docs/invariants/providers.md), qui se ne legge solo l'id per la riga.
  *
@@ -52,6 +61,34 @@ export class TrackingAgentRunner implements AgentRunner {
     return this.inner.recordsSessions;
   }
 
+  /**
+   * La `onRateLimit` da passare al runner interno. Per un account concatena
+   * quella del chiamante e la scrittura dello snapshot; per api_key o nessun
+   * provider lascia quella del chiamante com'è. Non lancia mai e ritorna la
+   * promessa del lavoro (lo streaming non l'attende, un test sì).
+   */
+  private rateLimitHook(opts: AgentRunOptions): Pick<AgentRunOptions, "onRateLimit"> | Record<string, never> {
+    const provider = opts.provider;
+    if (provider?.kind !== "account") return {};
+    const caller = opts.onRateLimit;
+    const db = this.db;
+    return {
+      onRateLimit: async (info: RateLimitInfo, at: Date): Promise<void> => {
+        try {
+          await caller?.(info, at);
+        } catch (err) {
+          console.error("[stubwise-worker] usage: onRateLimit del chiamante fallita:", errMessage(err));
+        }
+        try {
+          await writeRateLimitSnapshot(db, provider.id, info, at);
+          if (rateLimitAllowsUnlock(info)) await clearProviderLimit(db, provider.id);
+        } catch (err) {
+          console.error(`[stubwise-worker] usage: snapshot da rate_limit_event non scritto (${provider.id}):`, errMessage(err));
+        }
+      },
+    };
+  }
+
   async run(opts: AgentRunOptions): Promise<AgentRunResult> {
     const tag = opts.usage;
     let model = opts.model;
@@ -59,7 +96,11 @@ export class TrackingAgentRunner implements AgentRunner {
       model = await this.models.resolve(tag.operation, opts.model);
     }
     const runId = randomUUID();
-    const result = await this.inner.run({ ...opts, ...(model !== undefined ? { model } : {}) });
+    const result = await this.inner.run({
+      ...opts,
+      ...(model !== undefined ? { model } : {}),
+      ...this.rateLimitHook(opts),
+    });
     if (tag.record !== false) {
       await recordUsage(this.db, {
         ...(result.usage !== undefined ? { usage: result.usage } : {}),
@@ -74,12 +115,17 @@ export class TrackingAgentRunner implements AgentRunner {
 
 /**
  * Il `ClaudeCliRunner` storico già avvolto, per i task che girano FUORI dal
- * runner condiviso di index.ts e ne costruivano uno proprio (sonda d'uso,
- * test delle credenziali, smoke dei plugin, `nightly/once.ts`): senza
+ * runner condiviso di index.ts e ne costruiscono uno proprio (test delle
+ * credenziali, smoke dei plugin, `nightly/once.ts`; la sonda d'uso no: usa
+ * lo streaming, l'unico che consegna il `rate_limit_event`): senza
  * l'involucro i loro consumi non arriverebbero in `agent_runs`. Resta il
  * runner STORICO, non quello in streaming, come prima: cambia solo che il
  * run lascia traccia (e, per le operazioni configurabili, legge il modello).
  */
 export function trackedClaudeCliRunner(db: Db): TrackingAgentRunner {
   return new TrackingAgentRunner({ inner: new ClaudeCliRunner(), db, models: createModelResolver(db, console) });
+}
+
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }

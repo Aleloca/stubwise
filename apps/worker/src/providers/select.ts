@@ -3,7 +3,7 @@ import { asc, eq, sql } from "drizzle-orm";
 import type { AgentRunResult } from "../agent/runner.js";
 import type { ResolvedProvider } from "./chain.js";
 import { isLimitError, limitResetAt, ProviderLimitError } from "./limit.js";
-import { latestSnapshots, MAX_SNAPSHOT_AGE_MS, parseWindow } from "./usage-window.js";
+import { effectiveUsedPercent, latestSnapshots, MAX_SNAPSHOT_AGE_MS } from "./usage-window.js";
 
 /**
  * Scelta dell'account per OGNI run `claude` del worker (design 2026-10-15 §4).
@@ -158,8 +158,9 @@ export async function selectProviders(
       if (!s || !s.parseOk || now.getTime() - s.capturedAt.getTime() > MAX_SNAPSHOT_AGE_MS) {
         return true;
       }
-      const weekly = parseWindow(s.weeklyRemaining);
-      return weekly === null || weekly.percentUsed < deps.backgroundWeeklyThreshold;
+      return (
+        effectiveUsedPercent(s.weeklyRemaining, s.weeklyResetAt, now) < deps.backgroundWeeklyThreshold
+      );
     });
     if (ordered.length === 0) {
       return { candidates: [], legacyAuth: false, emptyReason: "all_over_threshold" };
@@ -241,8 +242,9 @@ async function resetFor(
   // Una lettura degli snapshot fallita (o un db finto nei test dei chiamanti,
   // con selectProvidersFn/markProviderLimitedFn iniettati) non deve far
   // fallire il run: si ripiega sull'attesa fissa. Un reset dello snapshot
-  // anche non fresco è accettato: è un limite superiore, e il poller d'uso
-  // azzera limited_until appena torna margine.
+  // anche non fresco è accettato: è un limite superiore, e il
+  // TrackingAgentRunner azzera limited_until (dal rate_limit_event) appena
+  // torna margine.
   const snap = await latestSnapshots(deps.db)
     .then((m) => m.get(providerId))
     .catch((error: unknown) => {
