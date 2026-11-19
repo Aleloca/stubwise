@@ -31,7 +31,14 @@ beforeEach(() => {
     }),
     "POST /api/projects": () => {
       created = true;
-      return { status: 201, body: serverProject({ id: NEW_ID, name: "Brennero", code: "BRN", memberIds: [ME_ID] }) };
+      // F5: la chiave d'ingestione intera c'è solo qui, una volta.
+      return {
+        status: 201,
+        body: serverProject({ id: NEW_ID, name: "Brennero", code: "BRN", memberIds: [ME_ID], ingestionKey: "sk_brn_full_7c1d" }),
+      };
+    },
+    [`GET /api/projects/${NEW_ID}/integration`]: {
+      body: { ingestion: { last4: "7c1d", dsnBase: "https://stubwise.example/p/brennero" }, inbound: { url: "https://stubwise.example/in" } },
     },
     "GET /api/me/follows": { body: { projectIds: [] } },
     "GET /api/decisions": { body: [] },
@@ -64,6 +71,11 @@ describe("nuovo progetto nella build app", () => {
     const dialog = await screen.findByRole("dialog", { name: "New project" });
     await ue.type(within(dialog).getByLabelText("Name"), "Brennero");
     await ue.click(within(dialog).getByRole("button", { name: "Create project" }));
+    // F5: la chiave intera e il DSN composto con la base dell'integrazione, poi «Done» porta all'Overview.
+    expect(await within(dialog).findByText("BRN's ingestion key is shown only now.")).toBeTruthy();
+    expect(within(dialog).getAllByText(/sk_brn_full_7c1d@stubwise\.example\/p\/brennero/).length).toBeGreaterThan(0);
+    expect(router.state.location.pathname).toBe("/projects");
+    await ue.click(within(dialog).getByRole("button", { name: "Done" }));
     await waitFor(() => expect(router.state.location.pathname).toBe("/p/BRN/overview"));
     await router.navigate({ to: "/p/$code/$section", params: { code: "BRN", section: "tasks" } } as never);
     // Quella della testata e quella dello stato vuoto.
