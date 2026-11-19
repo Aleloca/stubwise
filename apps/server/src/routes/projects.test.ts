@@ -16,6 +16,7 @@ import {
   projectEmailRoutes,
   projectFollows,
   projects,
+  repositories,
   ticketRepositories,
   tickets,
 } from "@stubwise/db";
@@ -466,32 +467,40 @@ describe("PATCH /api/projects/:projectId", () => {
   });
 });
 
-describe("DELETE /api/projects/:projectId", () => {
-  it("l'admin elimina un progetto: 204 (cascade sui repository)", async () => {
-    const { projectId } = await seedRepository(testDb.db);
+describe("DELETE /api/projects/:projectId (area 9, F6: solo un archiviato, solo un full admin)", () => {
+  it("l'admin elimina un archiviato col codice: 204, e i repository restano staccati; un secondo delete è 404", async () => {
+    const { projectId, repositoryId } = await seedRepository(testDb.db);
+    const [p] = await testDb.db.update(projects).set({ archivedAt: new Date() }).where(eq(projects.id, projectId)).returning({ code: projects.code });
     const res = await app.inject({
       method: "DELETE",
       url: `/api/projects/${projectId}`,
       headers: { cookie: adminCookie },
+      payload: { confirmCode: p!.code },
     });
     expect(res.statusCode).toBe(204);
+    const [repo] = await testDb.db.select().from(repositories).where(eq(repositories.id, repositoryId));
+    expect(repo!.projectId).toBeNull();
 
-    // Idempotenza inversa: un secondo delete è 404.
     const again = await app.inject({
       method: "DELETE",
       url: `/api/projects/${projectId}`,
       headers: { cookie: adminCookie },
+      payload: { confirmCode: p!.code },
     });
     expect(again.statusCode).toBe(404);
   });
 
-  it("un member (Legacy Member: senza project.settings.manage) non può eliminare: 403", async () => {
+  it("un progetto aperto non si elimina (409 not_archived); un member senza essere full admin: 403", async () => {
     const { projectId } = await seedRepository(testDb.db);
+    const [p] = await testDb.db.select({ code: projects.code }).from(projects).where(eq(projects.id, projectId));
+    const open = await app.inject({ method: "DELETE", url: `/api/projects/${projectId}`, headers: { cookie: adminCookie }, payload: { confirmCode: p!.code } });
+    expect(open.statusCode).toBe(409);
     await addMember(app, projectId, memberId);
     const res = await app.inject({
       method: "DELETE",
       url: `/api/projects/${projectId}`,
       headers: { cookie: memberCookie },
+      payload: { confirmCode: p!.code },
     });
     expect(res.statusCode).toBe(403);
   });

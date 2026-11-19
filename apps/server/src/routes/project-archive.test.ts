@@ -6,21 +6,29 @@ import {
   automationRuns,
   automations,
   changeLog,
+  commitSummaries,
+  deletedProjectMembers,
+  deletedProjects,
   docGenerations,
+  driveFiles,
+  environmentServers,
   prReviews,
   projectMembers,
   projects,
   releases,
+  repositories,
   roles,
+  servers,
   tickets,
   users,
   type Db,
 } from "@stubwise/db";
-import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { seedEnvironment, seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { and, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
+import { createSession, SESSION_COOKIE } from "../auth/session.js";
 import { fullSessionCookie, seedUsers } from "../test/fixtures.js";
 
 /**
@@ -224,6 +232,10 @@ describe("le letture di un archiviato (Task 4)", () => {
     await ticket(p.projectId, "Una task");
     await ticket(p.projectId, "Un'altra");
     await run(p.projectId, "done");
+    // Un file del Drive eliminato non conta (quello che il contatore promette).
+    for (const [n, deletedAt] of [[1, null], [2, new Date()]] as const) {
+      await db.insert(driveFiles).values({ projectId: p.projectId, number: n, name: `doc-${n}.pdf`, mime: "application/pdf", type: "pdf", sizeBytes: 1, storageKey: `drive/${p.projectId}/${randomUUID()}/x.pdf`, addedBy: adminId, contentStatus: "ready", contentOcr: "none", deletedAt });
+    }
     const [agent] = await db.select({ id: users.id }).from(users).where(eq(users.isAgent, true));
     const [r] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "developer"));
     await db.insert(projectMembers).values({ projectId: p.projectId, userId: agent!.id, roleId: r!.id });
@@ -235,7 +247,7 @@ describe("le letture di un archiviato (Task 4)", () => {
       projectId: p.projectId,
       description: "Il sito",
       // Il canale del progetto nasce col progetto.
-      counts: { tasks: 2, requests: 0, docPages: 0, conversations: 0, channels: 1, driveFiles: 0, automations: 1, environments: 0, envFiles: 0, releases: 0 },
+      counts: { tasks: 2, requests: 0, docPages: 0, conversations: 0, channels: 1, driveFiles: 1, automations: 1, environments: 0, envFiles: 0, releases: 0 },
       repositories: ["Repository di test"],
       switchesOnReopen: { docsNightly: false, dailyReport: false, backlogDiscovery: false, pulse: false, weeklyBrief: true },
       pulseEveryDays: 5,
@@ -266,5 +278,100 @@ describe("le letture di un archiviato (Task 4)", () => {
     expect((mine.json() as { entries: { type: string }[] }).entries.map((e) => e.type)).toContain("project.archived");
     const { cookie: stranger } = await member((await seedRepository(db)).projectId, "project_lead");
     expect((((await log(stranger)).json() as { entries: unknown[] }).entries)).toEqual([]);
+  });
+});
+
+describe("elimina (Task 5): solo un archiviato, solo un full admin", () => {
+  const del = (projectId: string, cookie: string, body?: unknown) =>
+    app.inject({ method: "DELETE", url: `/api/projects/${projectId}`, headers: { cookie }, ...(body === undefined ? {} : { payload: body as Record<string, unknown> }) });
+  async function staleAdmin() {
+    const old = await createSession(db, adminId, { stage: "full", secondFactorAt: new Date(Date.now() - 11 * 60_000) });
+    return `${SESSION_COOKIE}=${encodeURIComponent(app.signCookie(old.id))}`;
+  }
+  async function archivedWithRepo() {
+    const { projectId, repositoryId } = await seedRepository(db);
+    const lead = await member(projectId, "project_lead");
+    const [p] = await db.select({ code: projects.code }).from(projects).where(eq(projects.id, projectId));
+    return { projectId, repositoryId, lead, code: p!.code };
+  }
+
+  it("deletion-preview: i conteggi, i server che restano orfani (solo quelli di questo progetto), i repository che restano staccati; solo un full admin, solo un archiviato", async () => {
+    const p = await archivedWithRepo();
+    const other = await seedRepository(db);
+    const mine = await seedEnvironment(db, p.projectId);
+    const mine2 = await seedEnvironment(db, p.projectId, { kind: "staging" });
+    const theirs = await seedEnvironment(db, other.projectId);
+    const [solo] = await db.insert(servers).values({ name: "solo", keyHash: randomUUID() }).returning();
+    const [shared] = await db.insert(servers).values({ name: "condiviso", keyHash: randomUUID() }).returning();
+    await db.insert(environmentServers).values([
+      { environmentId: mine, repositoryId: p.repositoryId, serverId: solo!.id },
+      { environmentId: mine2, repositoryId: p.repositoryId, serverId: shared!.id },
+      { environmentId: theirs, repositoryId: other.repositoryId, serverId: shared!.id },
+    ]);
+    expect((await call("GET", p.projectId, "deletion-preview")).statusCode).toBe(409);
+    expect((await call("POST", p.projectId, "archive")).statusCode).toBe(204);
+    expect((await call("GET", p.projectId, "deletion-preview", p.lead.cookie)).statusCode).toBe(403);
+    const res = await call("GET", p.projectId, "deletion-preview");
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ orphanServers: [`SRV-${solo!.number}`], detachedRepositories: ["Repository di test"], counts: { environments: 2 } });
+  });
+
+  it("NEGATIVI: aperto 409, non full admin 403, senza riconferma 403, codice sbagliato (anche in minuscolo) 400, senza corpo 400; niente cambia", async () => {
+    const p = await archivedWithRepo();
+    expect((await del(p.projectId, adminCookie, { confirmCode: p.code })).json()).toMatchObject({ code: "not_archived" });
+    expect((await call("POST", p.projectId, "archive")).statusCode).toBe(204);
+    const notAdmin = await del(p.projectId, p.lead.cookie, { confirmCode: p.code });
+    expect(notAdmin.statusCode).toBe(403);
+    const stale = await del(p.projectId, await staleAdmin(), { confirmCode: p.code });
+    expect(stale.statusCode).toBe(403);
+    expect(stale.json()).toMatchObject({ code: "reauth_required" });
+    const lower = await del(p.projectId, adminCookie, { confirmCode: p.code.toLowerCase() });
+    expect(lower.statusCode).toBe(400);
+    expect(lower.json()).toMatchObject({ code: "code_mismatch" });
+    expect((await del(p.projectId, adminCookie)).statusCode).toBe(400);
+    expect(await projectOf(p.projectId)).toBeDefined();
+    expect(await db.select().from(deletedProjects).where(eq(deletedProjects.id, p.projectId))).toEqual([]);
+  });
+
+  it("elimina: i repository restano staccati (con la storia dei commit, senza Docs né PR), la memoria del progetto, la voce d'istanza; le voci di progetto non le legge più nessuno", async () => {
+    const p = await archivedWithRepo();
+    await db.insert(commitSummaries).values({ repositoryId: p.repositoryId, sha: "c".repeat(40), authorName: "Bea", authorEmail: "bea@acme.com", subject: "x", summary: "x", committedAt: new Date() });
+    await db.insert(docGenerations).values({ repositoryId: p.repositoryId, status: "succeeded" });
+    await db.insert(prReviews).values({ repositoryId: p.repositoryId, prNumber: 1, prUrl: "https://x/pr/1", prTitle: "PR", headSha: "a".repeat(40), status: "completed" });
+    expect((await call("POST", p.projectId, "archive")).statusCode).toBe(204);
+    const res = await del(p.projectId, adminCookie, { confirmCode: p.code });
+    expect(res.statusCode).toBe(204);
+    expect(await db.select().from(projects).where(eq(projects.id, p.projectId))).toEqual([]);
+    const [repo] = await db.select().from(repositories).where(eq(repositories.id, p.repositoryId));
+    expect(repo).toMatchObject({ projectId: null, detachedFromProjectId: p.projectId, webhookConfiguredAt: null, currentDocGenerationId: null });
+    expect(repo!.detachedAt).toBeInstanceOf(Date);
+    expect(await db.select().from(commitSummaries).where(eq(commitSummaries.repositoryId, p.repositoryId))).toHaveLength(1);
+    expect(await db.select().from(docGenerations).where(eq(docGenerations.repositoryId, p.repositoryId))).toEqual([]);
+    expect(await db.select().from(prReviews).where(eq(prReviews.repositoryId, p.repositoryId))).toEqual([]);
+    expect(await db.select().from(deletedProjects).where(eq(deletedProjects.id, p.projectId))).toMatchObject([{ code: p.code }]);
+    expect((await db.select().from(deletedProjectMembers).where(eq(deletedProjectMembers.projectId, p.projectId))).map((m) => m.userId)).toContain(p.lead.id);
+    const [entry] = await db.select().from(changeLog).where(and(eq(changeLog.type, "project.deleted"), eq(changeLog.subjectId, p.projectId)));
+    expect(entry).toMatchObject({ projectId: null });
+    expect(entry!.data).toMatchObject({ params: { detachedRepositories: "1" } });
+    // Le voci di progetto restano col loro project_id, ma nessuno le legge più.
+    expect(await entries(p.projectId, "project.archived")).toHaveLength(1);
+    const log = (await app.inject({ method: "GET", url: "/api/change-log", headers: { cookie: adminCookie } })).json() as { entries: { type: string; projectId: string | null; hidden: boolean; data: { object: { id: string; label: string } } }[] };
+    expect(log.entries.filter((e) => e.projectId === p.projectId)).toEqual([]);
+    // `project.deleted` si risolve a lettura: il full admin lo conosceva.
+    const mine = log.entries.find((e) => e.type === "project.deleted" && e.data.object.id === p.projectId);
+    expect(mine).toMatchObject({ hidden: false, data: { object: { label: `${p.code} · Progetto di test` } } });
+    // Chi legge tutto il registro (`changelog.view`) ma non ne era membro: «un progetto che non vedi».
+    const [u] = await db.insert(users).values({ email: `log-${randomUUID().slice(0, 6)}@acme.com`, passwordHash: "x", role: "member" }).returning({ id: users.id });
+    const [role] = await db.insert(roles).values({ name: `Registro ${randomUUID().slice(0, 6)}`, scope: "instance", permissions: ["changelog.view"] }).returning({ id: roles.id });
+    await db.update(users).set({ instanceRoleId: role!.id }).where(eq(users.id, u!.id));
+    const reader = (await app.inject({ method: "GET", url: "/api/change-log", headers: { cookie: await fullSessionCookie(app, u!.id) } })).json() as typeof log;
+    const blind = reader.entries.filter((e) => e.type === "project.deleted" && e.hidden);
+    expect(blind.length).toBeGreaterThan(0);
+    expect(JSON.stringify(reader.entries)).not.toContain(p.projectId);
+    expect(blind[0]!.data.object).toMatchObject({ id: "hidden", label: "" });
+    // Un ex membro con `changelog.view` lo conosceva.
+    await db.update(users).set({ instanceRoleId: role!.id }).where(eq(users.id, p.lead.id));
+    const former = (await app.inject({ method: "GET", url: "/api/change-log", headers: { cookie: p.lead.cookie } })).json() as typeof log;
+    expect(former.entries.find((e) => e.type === "project.deleted" && e.data.object.id === p.projectId)).toMatchObject({ hidden: false, data: { object: { label: `${p.code} · Progetto di test` } } });
   });
 });

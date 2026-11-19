@@ -1,4 +1,4 @@
-import { changeLog, departments, projects, roles, users, type Db } from "@stubwise/db";
+import { changeLog, deletedProjectMembers, deletedProjects, departments, projects, roles, users, type Db } from "@stubwise/db";
 import {
   CHANGE_LOG_TYPES,
   changeLogTypeOf,
@@ -175,8 +175,10 @@ export async function listChanges(db: Db, viewer: Viewer, filter: ChangeLogFilte
       group: type.group,
       data: redact(r.type, data, readable.visiblePeople, allProjectsVisible ? null : visibleCodes),
       objectDeleted: !existing.has(`${r.subjectKind}:${r.subjectId}`),
+      hidden: false,
     };
   });
+  await resolveDeletedProjects(db, viewer, entries);
   const last = page.at(-1);
   return { entries, nextCursor: rows.length > PAGE_SIZE && last ? encodeCursor(last.id) : null };
 }
@@ -260,3 +262,52 @@ export async function changeLogFilters(db: Db, viewer: Viewer, projectId?: strin
   };
 }
 
+
+/**
+ * Area 9, F6 (R-G5 del prototipo, `changelog/reads.ts`): le voci che nominano
+ * un progetto ELIMINATO si risolvono a lettura, dalla sua memoria
+ * (`deleted_projects`). Chi lo conosceva (ne era membro, o è full admin)
+ * legge `CODICE · Nome` in `project.deleted` e `params.formerProject` (il
+ * codice) in `repository.deleted`; gli altri leggono «un progetto che non
+ * vedi» (`hidden`, `object.id` = `"hidden"`, etichetta vuota) e nessuna
+ * provenienza.
+ * `formerProjectId` non esce mai.
+ */
+async function resolveDeletedProjects(db: Db, viewer: Viewer, entries: ChangeEntry[]): Promise<void> {
+  const idOf = (e: ChangeEntry): string | null => {
+    if (e.type === "project.deleted") return e.data.object?.id ?? null;
+    if (e.type === "repository.deleted") return typeof e.data.params?.formerProjectId === "string" ? e.data.params.formerProjectId : null;
+    return null;
+  };
+  const ids = [...new Set(entries.map(idOf).filter((id): id is string => id !== null && /^[0-9a-f-]{36}$/i.test(id)))];
+  const memory = new Map(
+    ids.length ? (await db.select().from(deletedProjects).where(inArray(deletedProjects.id, ids))).map((p) => [p.id, p] as const) : [],
+  );
+  const fullAdmin = viewer.instancePermissions.has("instance.full_admin");
+  const known = new Set(
+    fullAdmin || ids.length === 0
+      ? ids
+      : (await db.select({ id: deletedProjectMembers.projectId }).from(deletedProjectMembers).where(and(inArray(deletedProjectMembers.projectId, ids), eq(deletedProjectMembers.userId, viewer.id)))).map((r) => r.id),
+  );
+  for (const e of entries) {
+    const id = idOf(e);
+    if (e.type === "repository.deleted") {
+      const params = { ...(e.data.params ?? {}) };
+      delete params.formerProjectId;
+      const p = id ? memory.get(id) : undefined;
+      if (p && known.has(p.id)) params.formerProject = p.code;
+      e.data = { ...e.data, params };
+      continue;
+    }
+    if (e.type !== "project.deleted") continue;
+    const p = id ? memory.get(id) : undefined;
+    if (p && known.has(p.id)) {
+      e.data = { ...e.data, object: { ...e.data.object!, label: `${p.code} · ${p.name}` } };
+    } else {
+      e.hidden = true;
+      // `object.id` non può essere vuoto (lo schema dei client, anche dei
+      // vecchi, lo vuole): un segnaposto che non dice niente.
+      e.data = { ...e.data, object: { ...e.data.object!, id: "hidden", label: "" } };
+    }
+  }
+}

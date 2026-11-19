@@ -1,3 +1,4 @@
+import { ArchiveError, deleteArchivedProject } from "../services/project-archive.js";
 import { recordProjectChanges } from "../services/project-settings-log.js";
 import {
   createProjectSchema,
@@ -23,6 +24,7 @@ import {
   TEMPLATE_MODULES,
   TEMPLATE_STATUSES,
   type ProjectModule,
+  deleteProjectSchema,
 } from "@stubwise/shared";
 import { summarizeProject, userIdsWithPermission, type ProjectPulseSummary } from "@stubwise/notifications";
 import { eq, inArray, sql } from "drizzle-orm";
@@ -1087,29 +1089,34 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
-  // Eliminazione del progetto (`project.settings.manage`). Il DB cancella in cascata i
-  // repository del progetto (e con essi ticket/milestone/docs): nessuna guard
-  // di "non se ha repository", coerentemente con la cascade definita sullo
-  // schema. Risponde 204 No Content, o 404 se il progetto non esiste.
+  // Area 9, F6 (D-8): si elimina SOLO un archiviato, SOLO un full admin, con
+  // la riconferma e il codice scritto esatto (`{ confirmCode }`). I
+  // repository restano, staccati (L-2); di un progetto restano solo codice,
+  // nome e membri (`deleted_projects`); la voce `project.deleted` è
+  // d'istanza. Un client vecchio riceve 403 (chi non è full admin) o 400
+  // (senza corpo). Prima era `project.settings.manage`, senza archivio né
+  // riconferma.
   app.delete(
     "/:projectId",
     {
-      config: { access: onProject("project.settings.manage") },
+      config: { access: onProject("member"), archived: "write", reauth: true },
       schema: {
         params: idParamsSchema,
-        response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
+        body: deleteProjectSchema,
+        response: { 204: z.null(), 400: errorSchema, 404: errorSchema, 409: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
       // Gli allegati (Chat e ticket) vanno via in cascata col progetto: le chiavi
       // dello storage si leggono prima, e si tolgono dopo il commit (review
       // della fetta 4 della Chat). Lo storage giù non fa fallire l'eliminazione.
-      const { deleted, keys } = await app.db.transaction(async (tx) => {
-        const found = await storageKeysOfProject(tx, request.params.projectId);
-        const [row] = await tx.delete(projects).where(eq(projects.id, request.params.projectId)).returning({ id: projects.id });
-        return { deleted: row, keys: found };
-      });
-      if (!deleted) return apiError(reply, 404, "project_not_found", "Project not found");
+      let keys: string[];
+      try {
+        ({ storageKeys: keys } = await deleteArchivedProject(app.db, request.user!, request.params.projectId, request.body.confirmCode, storageKeysOfProject));
+      } catch (error) {
+        if (error instanceof ArchiveError) return apiError(reply, error.status, error.code, error.message);
+        throw error;
+      }
       if (keys.length > 0) {
         try {
           await deleteStoredObjects(await app.storage(), keys, (m) => request.log.warn(m));

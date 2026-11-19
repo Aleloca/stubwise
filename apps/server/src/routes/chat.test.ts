@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { chatChannels, chatMessages, notifications } from "@stubwise/db";
+import { chatChannels, chatMessages, notifications, projects } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers, type SeededUsers } from "../test/fixtures.js";
@@ -236,7 +236,9 @@ describe("eliminare il progetto", () => {
     const msgId = (msg.json() as { id: string }).id;
     await as(lead, "POST", `/api/chat/messages/${msgId}/reactions/toggle`, { emoji: "👍" });
 
-    const del = await app.inject({ method: "DELETE", url: `/api/projects/${other}`, headers: { cookie: seeded.adminCookie } });
+    // Area 9, F6: si elimina un archiviato, col codice.
+    const [code] = await t.db.update(projects).set({ archivedAt: new Date() }).where(eq(projects.id, other)).returning({ code: projects.code });
+    const del = await app.inject({ method: "DELETE", url: `/api/projects/${other}`, headers: { cookie: seeded.adminCookie }, payload: { confirmCode: code!.code } });
     expect(del.statusCode, del.body).toBe(204);
 
     expect(await t.db.select().from(chatChannels).where(eq(chatChannels.projectId, other))).toEqual([]);
