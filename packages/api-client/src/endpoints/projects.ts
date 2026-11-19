@@ -1,4 +1,5 @@
 import {
+  archivePreviewSchema,
   memberPreviewSchema,
   projectMembersViewSchema,
   projectMemberSchema,
@@ -17,6 +18,7 @@ import {
   weeklyBriefViewSchema,
 } from "@stubwise/shared";
 import type {
+  ArchivePreview,
   MemberPreview,
   ProjectMembersView,
   ProjectMember,
@@ -76,6 +78,24 @@ export function createProjectsEndpoints(request: ApiRequest) {
     },
     resumeQueue(projectId: string): Promise<void> {
       return request("POST", `/api/projects/${seg(projectId)}/queue/resume`);
+    },
+    /**
+     * Area 9, F6: cosa dice il dialogo prima di archiviare (le esecuzioni che
+     * si annulleranno, le ragioni di `busy`). `project.settings.manage`.
+     */
+    archivePreview(projectId: string): Promise<Reader<ArchivePreview>> {
+      return request("GET", `/api/projects/${seg(projectId)}/archive-preview`, undefined, archivePreviewSchema);
+    },
+    /**
+     * Archivia. Rifiuti in `ApiError`: 409 `busy` (le ragioni nei `details`,
+     * `archiveBusyErrorSchema`), 409 `already_archived`.
+     */
+    archive(projectId: string): Promise<void> {
+      return request("POST", `/api/projects/${seg(projectId)}/archive`);
+    },
+    /** Riapre un archiviato; 409 `not_archived` se non lo è. */
+    reopen(projectId: string): Promise<void> {
+      return request("POST", `/api/projects/${seg(projectId)}/reopen`);
     },
     /**
      * Area 9, F5: una chiave d'ingestione nuova (`project.settings.manage`,
