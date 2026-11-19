@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { changeLog, claudeProposals, issueChatToolToken, plugins, projectMemberPermissions, projectMembers, roles, users } from "@stubwise/db";
+import { changeLog, claudeActionGroups, claudeProposals, issueChatToolToken, plugins, projectMemberPermissions, projectMembers, roles, users } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { createSession, SESSION_COOKIE } from "../auth/session.js";
@@ -132,6 +132,21 @@ describe("area 9, F7: le C dei membri si confermano con la riconferma di chi con
       expect(undo2.statusCode).toBe(409);
     }
     expect(await roleOf(userId)).toBe(developerRole);
+  });
+
+  it("review di F7 (I3): la conferma di un «Annulla» C chiede la riconferma anche se lo stato del gruppo non è «available» in quel momento", async () => {
+    const userId = await person();
+    await t.db.insert(projectMembers).values({ projectId, userId, roleId: developerRole });
+    const res = await propose([{ fn: "setMemberRole", args: { projectId, userId, roleId: leadRole } }]);
+    const done = await confirm((res.json() as { proposalId: string }).proposalId, lead.headers.cookie);
+    const groupId = (done.json() as { groupId: string }).groupId;
+    const undo = await app.inject({ method: "POST", url: `/api/claude/groups/${groupId}/undo`, headers: { cookie: lead.headers.cookie } });
+    const undoId = (undo.json() as { proposal: { id: string } }).proposal.id;
+    // Un altro «Annulla» concorrente ha appena reclamato il gruppo (e poi potrebbe rilasciarlo).
+    await t.db.update(claudeActionGroups).set({ undoneAt: new Date(), undoneBy: lead.id }).where(eq(claudeActionGroups.id, groupId));
+    const r = await confirm(undoId, await stale(lead));
+    expect([r.statusCode, (r.json() as { code: string }).code]).toEqual([403, "reauth_required"]);
+    expect((await t.db.select().from(claudeProposals).where(eq(claudeProposals.id, undoId)))[0]!.status).toBe("open");
   });
 
   it("removeMember con permessi personali: si toglie, ma «Annulla» non c'è (Claude non ridà i permessi personali)", async () => {

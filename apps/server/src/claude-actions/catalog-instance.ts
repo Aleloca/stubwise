@@ -19,7 +19,9 @@ import type { ActionObject, CatalogEntry, CatalogRefusal } from "./catalog.js";
  * quelle rotte non scatta mai da qui. L'accesso è il permesso d'istanza della
  * rotta (il test d'accordo lo confronta).
  *
- * Fuori, per ora (ruling, `integrazione-registro-rimandi.md`): `setAttachments`
+ * Fuori, per ora (ruling, `integrazione-registro-rimandi.md`): `saveStorage`
+ * (review di F7: endpoint e bucket decidono dove vanno gli allegati, come
+ * l'url di un webhook, e la chiave d'accesso non si legge da qui), `setAttachments`
  * (sul server gli allegati non hanno un interruttore: si accendono con
  * l'archiviazione configurata) e `setDefaultReviewer` (il PUT verifica il token
  * chiamando il provider: lo farebbe a ogni prova a secco, dentro la
@@ -83,22 +85,6 @@ export const INSTANCE_ENTRIES: CatalogEntry[] = [
       return done(
         { fn: "saveBudget", args: { monthlyUsd: was?.monthlyBudgetUsd != null ? Number(was.monthlyBudgetUsd) : null, contentLanguage: was?.contentLanguage ?? "en" } },
         [await setting(tx, "ai_settings", "", ["budget.changed", "content_language.changed"])],
-      );
-    },
-  },
-  {
-    // L'archiviazione senza il secret (lo si cambia a mano, con la riconferma).
-    fn: "saveStorage",
-    route: "PUT /api/settings/instance",
-    access: { kind: "instance", permission: "settings.manage" },
-    request: () => ({}),
-    async run(tx, user, args) {
-      const { endpoint, region, bucket, accessKeyId } = args as { endpoint: string; region: string; bucket: string; accessKeyId: string };
-      const was = await instanceRow(tx);
-      await putInstanceSettings(tx, null, user, { s3Endpoint: endpoint, s3Region: region, s3Bucket: bucket, s3AccessKey: accessKeyId });
-      return done(
-        { fn: "saveStorage", args: { endpoint: was?.s3Endpoint ?? "", region: was?.s3Region ?? "", bucket: was?.s3Bucket ?? "", accessKeyId: was?.s3AccessKey ?? "" } },
-        [await setting(tx, "storage", "storage", ["storage.changed"])],
       );
     },
   },

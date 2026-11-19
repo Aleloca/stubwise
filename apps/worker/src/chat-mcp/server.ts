@@ -67,7 +67,6 @@ export const PROPOSABLE_FNS = [
   "retryJob",
   "setModel",
   "saveBudget",
-  "saveStorage",
   "saveAutomation",
   "setProviderEnabled",
   "moveProvider",

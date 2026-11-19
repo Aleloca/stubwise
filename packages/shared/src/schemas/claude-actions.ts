@@ -69,7 +69,6 @@ export const CLAUDE_ACTION_FNS = [
   // Area 9, F7, Task 4: le B dell'istanza, senza segreti (M-4 = a).
   "setModel",
   "saveBudget",
-  "saveStorage",
   "saveAutomation",
   "setProviderEnabled",
   "moveProvider",
@@ -135,7 +134,6 @@ export const CLAUDE_DECLARED_CLASS: Record<ClaudeActionFn, "A" | "B" | "C"> = {
   // Area 9, F7, Task 4: senza segreti le rotte a riconferma PARZIALE non la chiedono (M-1 = a).
   setModel: "B",
   saveBudget: "B",
-  saveStorage: "B",
   saveAutomation: "B",
   setProviderEnabled: "B",
   moveProvider: "B",
@@ -237,7 +235,8 @@ export const CLAUDE_ACTION_ARGS = {
   // nemmeno proporlo, e la riconferma parziale non scatta mai da qui.
   setModel: z.object({ operation: aiOperationSchema, model: aiModelChoiceSchema.nullable() }).strict(),
   saveBudget: z.object({ monthlyUsd: z.number().nonnegative().nullable(), contentLanguage: languageSchema }).strict(),
-  saveStorage: z.object({ endpoint: z.string().max(500), region: z.string().max(100), bucket: z.string().max(200), accessKeyId: z.string().max(200) }).strict(),
+  // (Niente `saveStorage`, review di F7: endpoint e bucket decidono DOVE vanno
+  // gli allegati, come l'url di un webhook. Resta un gesto della persona.)
   saveAutomation: updateAutomationSettingsSchema.strict(),
   setProviderEnabled: z.object({ id, enabled: z.boolean() }).strict(),
   moveProvider: z.object({ id, toIndex: z.number().int().min(0).max(100) }).strict(),
@@ -447,7 +446,6 @@ export const CLAUDE_INSTANCE_PERMISSION: Partial<Record<ClaudeActionFn, string>>
   removePlugin: "plugins.manage",
   setModel: "settings.manage",
   saveBudget: "settings.manage",
-  saveStorage: "settings.manage",
   saveAutomation: "settings.manage",
   setProviderEnabled: "ai_providers.manage",
   moveProvider: "ai_providers.manage",

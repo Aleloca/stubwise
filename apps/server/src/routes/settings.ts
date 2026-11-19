@@ -378,7 +378,7 @@ export async function readAutomationSettings(db: Db): Promise<z.infer<typeof aut
 
 /**
  * Il `PUT /api/settings/instance` (area 9, F7: estratto dalla rotta, lo
- * chiamano anche `saveBudget` e `saveStorage` di Claude, che non portano mai
+ * chiama anche `saveBudget` di Claude, che non porta mai
  * un segreto: per loro `encryptionKey` è null, e un segreto qui lancerebbe).
  * La riconferma per un segreto la chiede la ROTTA, prima.
  */
@@ -622,7 +622,7 @@ export async function settingsRoutes(instance: FastifyInstance, opts: { mailClas
       // (sostituito o azzerato), con la regola del gate (`requireReauth`).
       const touchesSecret = [body.s3SecretKey, body.slackSigningSecret, body.slackBotToken].some((v) => v !== undefined);
       if (touchesSecret && !(await requireReauth(request, reply))) return reply;
-      // Area 9, F7: la funzione, la stessa delle azioni di Claude (`saveBudget`, `saveStorage`).
+      // Area 9, F7: la funzione, la stessa delle azioni di Claude (`saveBudget`).
       const { reachedBefore } = await putInstanceSettings(app.db, app.encryptionKey, request.user!, body);
       const view = await loadInstanceSettings(app.db, app.encryptionKey);
       return { ...view, budgetEffect: budgetEffectOf(reachedBefore, view.budgetReached) };
