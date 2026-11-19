@@ -104,24 +104,23 @@ describe("il registro del catalogo", () => {
     expect(CLAUDE_CATALOG.deleteMilestone.whoAction).toBe("editTasks");
   });
 
-  it("la classe C viene SOLO da REAUTH_REQUIRED, e nessuna voce le sta sotto", () => {
+  it("la classe C viene da REAUTH_REQUIRED e segue la rotta: una riconferma parziale non è C da sé", () => {
     for (const fn of fns) {
-      const reauth = REAUTH_REQUIRED.has(CLAUDE_CATALOG[fn].apiFn);
-      expect(declaredClassOf(fn) === "C", fn).toBe(reauth);
-      if (!reauth) expect(declaredClassOf(fn)).toBe(CLAUDE_CATALOG[fn].baseClass);
+      const entry = CLAUDE_CATALOG[fn];
+      const full = REAUTH_REQUIRED.has(entry.apiFn) && !entry.reauthIf;
+      expect(declaredClassOf(fn) === "C", fn).toBe(full);
+      if (!full) expect(declaredClassOf(fn)).toBe(entry.baseClass);
     }
     expect(fns.filter((fn) => declaredClassOf(fn) === "C").sort()).toEqual(
-      [
-        "addMember",
-        "registerPlugin",
-        "removeMember",
-        "saveStorage",
-        "setMemberRole",
-        "updatePluginRef",
-        // Cambiare l'URL di un webhook vuole la riconferma (maintainer, 18 nov 2026).
-        "updateWebhook",
-      ].sort(),
+      ["addMember", "registerPlugin", "removeMember", "setMemberRole", "updatePluginRef"].sort(),
     );
+    // Le parziali (decisione del maintainer in F7: la classe segue la rotta):
+    // saveStorage chiede il codice solo con una chiave, che Claude non porta mai;
+    // updateWebhook solo con un URL nuovo, che da Claude non entra (72, F7).
+    expect(fns.filter((fn) => CLAUDE_CATALOG[fn].reauthIf).sort()).toEqual(
+      ["saveStorage", "updateWebhook"].sort(),
+    );
+    expect(declaredClassOf("updateWebhook")).toBe("B");
   });
 
   it("nessuna voce che non si annulla parte in classe A", () => {
@@ -264,7 +263,7 @@ const storageArgs = () => {
 };
 const webhookArgs = () => {
   const w = state.instance.webhooks[0]!;
-  return { id: w.id, enabled: w.enabled, format: w.format, url: w.url, events: [...w.events] };
+  return { id: w.id, enabled: w.enabled, format: w.format, events: [...w.events] };
 };
 
 describe("gli inversi", () => {

@@ -175,18 +175,67 @@ export function ProposalCard({
         complete: (code) => complete.mutateAsync({ ...target, resultCodes: [code] }),
         ...(isAppBuild()
           ? {
-              // Una conferma che il server non esegue (`failed`) non chiude il
-              // dialogo in silenzio: rifiuta, e il dialogo dice l'errore.
-              confirmEdited: async (index, args) => {
-                const result = await confirm.mutateAsync({ ...target, edited: [{ index, args }] });
-                if ("status" in result && result.status === "failed") throw new Error(result.error);
-                return result;
-              },
+              // Come Confirm, una C passa dalla riconferma (F7, il rimando
+              // «confirmEdited salta reauth()»).
+              confirmEdited: (index, args) =>
+                confirmEditedVia(
+                  reauth,
+                  (edited) => confirm.mutateAsync({ ...target, edited }),
+                  reauthAction([index]),
+                )(index, args),
             }
           : {}),
         busy: confirm.isPending || cancel.isPending || edit.isPending || complete.isPending,
       }}
     />
+  );
+}
+
+/**
+ * La conferma di una proposta MODIFICATA (scheda «Edit»): passa dalla
+ * riconferma come Confirm (una C risponde `reauth_required`, il wrapper chiede
+ * il codice e la rimanda uguale). Una conferma che il server non esegue
+ * (`failed`) o una riconferma annullata non chiudono il dialogo in silenzio:
+ * rifiutano, e il dialogo dice l'errore.
+ */
+export function confirmEditedVia(
+  reauth: <T>(call: () => Promise<T>, opts: { action: string }) => Promise<unknown>,
+  send: (edited: { index: number; args: Record<string, unknown> }[]) => Promise<unknown>,
+  action: string,
+) {
+  return async (index: number, args: Record<string, unknown>): Promise<unknown> => {
+    const result = await reauth(() => send([{ index, args }]), { action });
+    const r = result as { status?: string; error?: string; ok?: boolean };
+    if (r.ok === false && r.error === "reauth_cancelled") throw new Error("reauth_cancelled");
+    if (r.status === "failed") throw new Error(r.error);
+    return result;
+  };
+}
+
+/** Le voci che registrano o spostano un plugin: lo smoke run ne esegue il codice subito. */
+const PLUGIN_FNS: ReadonlySet<string> = new Set(["registerPlugin", "updatePluginRef"]);
+
+/**
+ * Registrare un plugin ne ESEGUE già il codice (CLAUDE.md, «Plugin e skill»):
+ * la scheda lo dice prima di Confirm, e che chi chiede ha scritto di fidarsi
+ * (`trusted`, decisione del maintainer in F7, M-6). La frase sta nel client,
+ * dalla `fn`: nessun motivo nuovo del server.
+ */
+function PluginRunsCode({ trusted }: { trusted: boolean }) {
+  const { t } = useTranslation();
+  const titleId = useId();
+  return (
+    <div
+      role="note"
+      aria-labelledby={titleId}
+      className="flex min-w-0 flex-col gap-1 border-t border-rule pt-2.5 text-sm text-pretty text-ink-muted"
+    >
+      <p id={titleId} className="font-semibold text-ink">
+        {t("claude.conversation.proposal.plugin.title")}
+      </p>
+      <p>{t("claude.conversation.proposal.plugin.runsCode")}</p>
+      {trusted && <p>{t("claude.conversation.proposal.plugin.trusted")}</p>}
+    </div>
   );
 }
 
@@ -237,6 +286,10 @@ export function ProposalCardView({
   const resolvedRef = useFocusWhenResolved<HTMLElement>(event.status !== "open");
 
   const open = event.status === "open";
+
+  // Registrare o spostare un plugin ne esegue il codice (F7, M-6): la scheda lo dice.
+  const pluginAction = event.actions.find((a) => PLUGIN_FNS.has(a.fn));
+
   // Build app: su una scheda aperta chi decide lo dice il server
   // (`canDecide`), non chi guarda (fetta 5: una pubblica, una continuazione).
   // Quando è il posto a non lasciar agire (`canAct` falso: nella Chat un
@@ -488,6 +541,7 @@ export function ProposalCardView({
               )}
         </button>
       )}
+      {open && pluginAction && <PluginRunsCode trusted={pluginAction.args.trusted === true} />}
       {open && event.reasons && event.reasons.length > 0 && (
         <ReasonRows
           reasons={blocked ? event.reasons.filter((r) => r.kind !== "reauth") : event.reasons}

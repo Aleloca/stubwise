@@ -272,7 +272,32 @@ describe("classi B e C: la scheda", () => {
     expect(proposalsOf(cid)[0]!.status).toBe("open");
   });
 
-  it("C da `REAUTH_REQUIRED`, non dalla scrittura: saveStorage senza chiave nuova chiede lo stesso il codice", async () => {
+  it("updateWebhook: Claude non cambia l'URL (72, F7); il resto della patch è B e si esegue", async () => {
+    as(ROBERTA);
+    const w = structuredClone(state.instance.webhooks[0]!);
+    const cid = (await createConversation()).id;
+    await propose(cid, ROBERTA, [
+      {
+        fn: "updateWebhook",
+        args: { id: w.id, url: "https://hooks.example/new" },
+        summary: "Move it",
+      },
+    ]);
+    const refused = await confirmProposal(cid, "prop-test");
+    // `invalid` dalla voce: «non vale più», nessuna riconferma chiesta.
+    expect(refused).toMatchObject({ status: "failed" });
+    expect(state.instance.webhooks[0]!.url).toBe(w.url);
+    const cid2 = (await createConversation()).id;
+    await propose(cid2, ROBERTA, [
+      { fn: "updateWebhook", args: { id: w.id, enabled: !w.enabled }, summary: "Toggle it" },
+    ]);
+    expect(await confirmProposal(cid2, "prop-test")).not.toMatchObject({
+      error: "reauth_required",
+    });
+    expect(state.instance.webhooks[0]!.enabled).toBe(!w.enabled);
+  });
+
+  it("la classe segue la rotta: saveStorage senza chiave non chiede il codice (decisione del maintainer, F7)", async () => {
     as(ROBERTA);
     const cid = (await createConversation()).id;
     const s = state.instance.storage;
@@ -289,11 +314,9 @@ describe("classi B e C: la scheda", () => {
         summary: "Change the bucket",
       },
     ]);
-    expect(await confirmProposal(cid, "prop-test")).toEqual({
-      ok: false,
-      error: "reauth_required",
-    });
-    expect(state.instance.storage).toEqual(before);
+    expect(await confirmProposal(cid, "prop-test")).not.toMatchObject({ error: "reauth_required" });
+    expect(state.instance.storage.bucket).toBe("stubwise-files-2");
+    expect(state.instance.storage.secretId).toBe(before.secretId);
   });
 
   it("una proposta con una `fn` fuori dal catalogo (`recordDecision`) confermata nel riquadro: `failed` con `invalid`, nessuna decisione", async () => {

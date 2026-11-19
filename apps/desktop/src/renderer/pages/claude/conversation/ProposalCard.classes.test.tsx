@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as api from "../../../data/api";
@@ -218,6 +218,42 @@ describe("i bottoni per classe (maintainer)", () => {
       expect(names).toEqual(c.edit ? ["Edit", "Cancel", confirm] : ["Cancel", confirm]);
     });
   }
+});
+
+describe("scheda di un plugin: registrare ne esegue il codice (decisione del maintainer, F7, M-6)", () => {
+  const register: ProposedAction = {
+    fn: "registerPlugin",
+    args: { url: "https://github.com/acme/tools", ref: "main", trusted: true },
+    summary: "Register the plugin https://github.com/acme/tools",
+  };
+
+  it("la scheda lo dice prima di Confirm, e che chi chiede ha detto di fidarsi", async () => {
+    const id = await injected(ROBERTA, [register], "C", [{ kind: "irreversible" }, { kind: "reauth" }]);
+    mount(id, ROBERTA);
+    const card = await cardOf();
+    const row = within(card).getByRole("note", { name: "Registering runs its code" });
+    expect(row).toHaveTextContent(
+      "Right after it's registered, Stubwise installs it and runs a test with all of it turned on: its hooks run with the worker's access to your repositories and to Claude's credentials.",
+    );
+    expect(row).toHaveTextContent("You said you trust this repository and this commit.");
+  });
+
+  it("anche per una ref nuova (updatePluginRef); una proposta senza plugin non lo dice", async () => {
+    const move: ProposedAction = {
+      fn: "updatePluginRef",
+      args: { id: "plg-x", ref: "v2", trusted: true },
+      summary: "Move a plugin to v2",
+    };
+    const id = await injected(ROBERTA, [move], "C", [{ kind: "irreversible" }, { kind: "reauth" }]);
+    mount(id, ROBERTA);
+    expect(
+      within(await cardOf()).getByRole("note", { name: "Registering runs its code" }),
+    ).toBeVisible();
+    cleanup();
+    const plain = await injected(ROBERTA, [{ fn: "setModel", args: {}, summary: "Use Opus" }], "B", []);
+    mount(plain, ROBERTA);
+    expect(within(await cardOf()).queryByRole("note", { name: "Registering runs its code" })).toBeNull();
+  });
 });
 
 describe("scheda C: la riconferma", () => {

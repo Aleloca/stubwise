@@ -24,7 +24,7 @@ import {
 import { appendExecuted, appendUndoProposal, notifyConversationChange } from "../stream";
 import type { TaskBusyReason } from "../taskDelete";
 import type { UndoView } from "../types";
-import { CLAUDE_CATALOG, declaredClassOf, isCatalogFn } from "./catalog";
+import { CLAUDE_CATALOG, isCatalogFn, reauthOf } from "./catalog";
 import { classOfGroup } from "./classes";
 import type {
   ActionClass,
@@ -60,15 +60,15 @@ export type GroupFailure = {
 
 /**
  * Le azioni di classe C di un gruppo che chiederebbero il codice adesso: la
- * riconferma manca o è scaduta (o la chiamata è di un PAT). Si guarda la
- * classe dichiarata (`REAUTH_REQUIRED`), non il rifiuto della scrittura:
- * `saveStorage` senza chiave nuova non lo chiederebbe da sé.
+ * riconferma manca o è scaduta (o la chiamata è di un PAT). La classe segue la
+ * rotta (F7): una riconferma parziale conta solo con gli argomenti che la
+ * chiedono (`reauthOf`).
  */
-export function reauthMissing(me: string, actions: Pick<ProposedAction, "fn">[]): boolean {
+export function reauthMissing(me: string, actions: Pick<ProposedAction, "fn" | "args">[]): boolean {
   return actions.some(
     (a) =>
       isCatalogFn(a.fn) &&
-      declaredClassOf(a.fn) === "C" &&
+      reauthOf(a.fn, a.args) &&
       requireReauth(me, CLAUDE_CATALOG[a.fn].apiFn) !== null,
   );
 }

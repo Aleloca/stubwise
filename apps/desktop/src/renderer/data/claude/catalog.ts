@@ -79,6 +79,12 @@ export interface CatalogEntry {
   /** Se la voce ha un inverso (il valore vero lo dà `run`). */
   undoable: boolean;
   /**
+   * Una riconferma PARZIALE (decisione del maintainer in F7: la classe segue
+   * la rotta): la funzione sta in `REAUTH_REQUIRED`, ma la scrittura la chiede
+   * solo con certi argomenti, e la voce è C solo allora.
+   */
+  reauthIf?: (args: Record<string, unknown>) => boolean;
+  /**
    * L'azione di `ACTIONS` per il «Who?» di un rifiuto; `null` solo per ciò
    * che è solo tuo: `setSubscription` (P19) e i filtri salvati (P4).
    */
@@ -747,6 +753,8 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
     apiFn: "instance.saveStorage",
     baseClass: "B",
     undoable: true,
+    // La rotta chiede il codice solo con una chiave nuova, che da qui non entra mai.
+    reauthIf: (args) => "secretAccessKey" in args,
     whoAction: "manageSettings",
     run(me, args) {
       // Nessun segreto entra da qui: la chiave si scrive solo nel dialogo vero.
@@ -787,14 +795,19 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
     apiFn: "instance.updateWebhook",
     baseClass: "B",
     undoable: true,
+    // La rotta chiede il codice solo per un URL nuovo, che da qui non entra mai
+    // (`run` lo rifiuta come `invalid`): la voce è sempre B.
+    reauthIf: () => false,
     whoAction: "manageIntegrations",
     run(me, args) {
+      // L'indirizzo non entra da qui (come sul server, 72 in F7): un URL nuovo
+      // vorrebbe la riconferma (maintainer, 18 nov 2026), e la voce resta B.
+      if ("url" in args) throw invalid("url");
       const id = args.id as string;
       const w = state.instance.webhooks.find((x) => x.id === id);
       const was = {
         id,
         name: w?.name,
-        url: w?.url,
         format: w?.format,
         enabled: w?.enabled,
         events: [...(w?.events ?? [])],
@@ -803,9 +816,8 @@ const ENTRIES: Record<Exclude<ClaudeActionFn, MoreCatalogFn>, Declaration> = {
         updateWebhookAs(
           me,
           id,
-          present(args, ["name", "url", "format", "enabled", "events"] as const) as {
+          present(args, ["name", "format", "enabled", "events"] as const) as {
             name?: string;
-            url?: string;
             format?: WebhookFormat;
             enabled?: boolean;
             events?: string[];
@@ -859,5 +871,12 @@ export const isCatalogFn = (fn: string): fn is ClaudeActionFn => Object.hasOwn(C
 /** La classe dichiarata alzata dalla riconferma: C se `apiFn` è in `REAUTH_REQUIRED`. */
 export function declaredClassOf(fn: ClaudeActionFn): "A" | "B" | "C" {
   const entry = CLAUDE_CATALOG[fn];
-  return REAUTH_REQUIRED.has(entry.apiFn) ? "C" : entry.baseClass;
+  return REAUTH_REQUIRED.has(entry.apiFn) && !entry.reauthIf ? "C" : entry.baseClass;
+}
+
+/** Se l'azione, con QUESTI argomenti, chiede la riconferma: la rotta intera o la parziale. */
+export function reauthOf(fn: ClaudeActionFn, args: Record<string, unknown>): boolean {
+  const entry = CLAUDE_CATALOG[fn];
+  if (!REAUTH_REQUIRED.has(entry.apiFn)) return false;
+  return entry.reauthIf ? entry.reauthIf(args) : true;
 }

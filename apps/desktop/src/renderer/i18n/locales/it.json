@@ -4181,6 +4181,11 @@
         "failedForbidden": "Non è stato possibile: non puoi più {{action}} in {{code}}. Non è cambiato nulla.",
         "failedForbiddenNoProject": "Non è stato possibile: non puoi più {{action}}. Non è cambiato nulla.",
         "reauthOne": "eseguire questa modifica",
+        "plugin": {
+          "title": "Registrarlo ne esegue il codice",
+          "runsCode": "Appena registrato, Stubwise lo installa e fa una prova con tutto acceso: i suoi hook girano con gli accessi del worker ai tuoi repository e alle credenziali di Claude.",
+          "trusted": "Hai detto che ti fidi di questo repository e di questo commit."
+        },
         "reauthAction": {
           "addMember": "aggiungere {{name}} a {{code}} come {{role}}",
           "setMemberRole": "rendere {{name}} {{role}} in {{code}}",
