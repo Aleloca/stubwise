@@ -57,9 +57,190 @@ Gli stessi titoli nei due lati:
 
 ## Lato server
 
-> Di stubwise-72, da scrivere. Per ogni voce: cosa ha già il server (rotte,
-> tool della chat, catalogo), le lacune e lo stato (**c'è**, **in parte**,
-> **manca**).
+> Di stubwise-72 (19 nov 2026), su `feat/integrazione-area9` 91f3174dc, con
+> F7 e F8 dell'area 9 già dentro. Per ogni voce: cosa ha già il server
+> (rotte, tool della chat, catalogo), le lacune e lo stato (**c'è**, **in
+> parte**, **manca**).
+
+### I fatti del codice che cambiano il lavoro
+
+- **L'area 9 ha già chiuso metà delle lacune del renderer.** Con F7 il
+  server ha:
+  - la classe **C**: la riconferma alla conferma, anche con `edited`, e per
+    l'inverso di un «Annulla»;
+  - 23 voci nuove: membri e plugin (C), le B del progetto e le B dell'istanza
+    senza segreti;
+  - «By Claude» e «Undid…» nel registro (0195: `via`, `undoOf`,
+    `undoneEntry`, il filtro `?via=claude`);
+  - `labels` per le schede dei membri e `undoReauth` sul gruppo.
+  Restano fuori, nel registro dei rimandi, `saveStorage`, `setAttachments` e
+  `setDefaultReviewer`: in app Claude dice che si fanno dalla pagina.
+- **Il catalogo per area, corretto.** `saveAutomation` e
+  `saveProjectAutomations` NON sono dell'area 7:
+  - `saveAutomation` è la regola d'istanza dell'auto-fix e della review
+    (`PUT /api/settings/automation`);
+  - `saveProjectAutomations` sono gli interruttori del progetto;
+  - tutte e due ci sono, da F7.
+  Le voci dell'area 7 che mancano sono tre: `createAutomation`,
+  `saveAutomationDraft`, `deleteAutomationDraft`. Le rotte ci sono
+  (`POST /api/automations`, `PUT`/`DELETE …/:code/draft`, il controllo
+  `…/:code/check`, la prova `…/:code/test/*`).
+- **Il catalogo è a gruppi atomici.** Una proposta riesce o fallisce tutta;
+  la prova a secco ne rifiuta l'INTERA proposta se una voce non si può fare.
+  Per S4 (archiviare in blocco) le righe «che chi chiede non può archiviare»
+  quindi non escono da sole: serve un esito per riga nella prova a secco, o
+  che Claude proponga solo le righe fattibili dopo averle lette (D-9). Il
+  «Conferma 2 di 3» (`selected`) c'è già.
+- **Le domande a scelta ci sono già, ma solo nella Chat.** Il tool
+  `ask_question` del server MCP della chat esiste per @Claude nella Chat
+  (area 4): una domanda, da 2 a 5 opzioni, la risposta torna come input.
+  Il turno lo dà solo alle menzioni (`ask: mention`). Nella conversazione
+  libera è un interruttore del turno, non un tool nuovo (D-2 costa poco).
+- **I tool di lettura oggi sono tredici.** `list_projects`, `list_people`,
+  `search_tasks`, `read_task`, `read_request`, `search_docs`,
+  `read_doc_page`, `read_project_overview`, `search_drive`,
+  `read_drive_file`, `read_release`, e da F7 `read_project_members` e
+  `read_instance_settings`. Per i chip: i rilasci (`read_release`) e i file
+  del Drive (`read_drive_file`) **ci sono**. Mancano conversazioni di
+  supporto, server, automazioni, email ed eventi, canali. Ogni tool nuovo
+  vuole la sua rotta in `CHAT_TOOL_READ_ROUTES` (il test del registro lo
+  controlla), e la proiezione del ponte in ALLOWLIST, non con la lista nera
+  di `compact`. È la regola nata in F7 con `read_instance_settings`.
+- **Il contesto del chip è libero**: `{ kind, id }` con stringhe (`claude-
+  conversation.ts`); il prompt lo passa al modello, che rilegge coi tool. Un
+  chip nuovo non cambia lo schema, solo il tool che rilegge.
+- **S2 e S3 hanno già le loro letture sul server**, ma non come tool:
+  - il lavoro fermo è `stalled` del polso (`GET /api/projects/pulse`, per chi
+    vede il progetto);
+  - la spesa sta in `usage-costs` / `usage-snapshots` (`usage.view`).
+  Diventano due tool con l'allowlist del ponte. La regola «agli altri la
+  somma dei soli loro progetti» non c'è: va scritta sul server.
+- **S5 e l'escalation**: da F8 aggiungere una persona a un progetto passa
+  anche dai permessi dei suoi reparti (403 `escalation`, anche per
+  `addMember` di Claude). `target_above` del prototipo **non esiste** sul
+  server: niente gerarchia fra persone (maintainer, 16 nov).
+- **`member.added` non è un `notification_kind`.** Serve un valore nuovo
+  dell'enum: la `ALTER TYPE … ADD VALUE` in uno statement a sé, il valore
+  non usabile nello stesso batch (CLAUDE.md, «Migrazioni Drizzle»). E la
+  regola di rollback: niente discesa d'immagine sul server finché ne
+  esistono righe, perché `/api/inbox` va in 500.
+- **Le bozze nei campi**: `pageAction` è un'unione discriminata chiusa
+  (`language`, `theme`, `filter`). Un `kind: "fill"` è una voce nuova
+  dell'unione: i client vecchi che la parsano non la conoscono, e una
+  proposta con quella voce fa fallire il parse della proposta INTERA.
+  `readerSchema` apre gli enum, non le unioni discriminate (la stessa
+  ragione di M-3 in F7). Servono una forma additiva (una voce `fillField`
+  del catalogo, non un ramo di `pageAction`) o un client che la sappia
+  ignorare (D-4).
+- **I golden della chat ci sono**: `chat-never-catalog`, `chat-confirm-
+  executes`, `chat-continue`, `chat-mention-*`, `chat-drive-*` in
+  `apps/worker/scripts/golden/run.ts`. D-6 (a) è un'estensione di quelli,
+  non un impianto nuovo.
+- **Niente citazioni né allegati sui messaggi della conversazione**: i
+  messaggi di Claude sono prosa. Le citazioni della Chat (area 4,
+  `chat/citations.ts`) sono un'altra tabella.
+- **I suggerimenti non hanno niente sul server**: né regole né una tabella
+  per «Not now».
+
+### Le voci
+
+1. **Il riquadro e il contesto — in parte.** Ci sono i tool per task,
+   richiesta, pagina Docs, rilascio, file del Drive, membri e impostazioni.
+   Mancano supporto, server, automazioni, email ed eventi, canali: un tool
+   per tipo, con la rotta e l'allowlist.
+2. **Conversazioni — c'è.**
+3. **Le classi — c'è** (A, B, C dal server; D dal contratto, provata dal
+   golden `chat-never-catalog`). Il `confirmEdited` del renderer è di 94.
+4. **Il catalogo — in parte.**
+   - Area 9: c'è, tranne le tre voci rimandate.
+   - Area 7: mancano `createAutomation`, `saveAutomationDraft` e
+     `deleteAutomationDraft`, sulle rotte che ci sono.
+   - Area 11: manca tutto, perché manca l'area (vedi il suo inventario).
+5. **«Annulla» — c'è.** Da F7 c'è anche `changed_after` dal registro, per
+   membri, progetto e impostazioni, coi tipi di voce della sezione. Restano
+   i Minor nel registro dei rimandi: il TOCTOU e lo `stamp` all'inizio
+   della transazione.
+6. **«via Claude» — c'è** nel registro (F7, 0195). Resta inerte quello della
+   Chat (nessuna azione «scrivi nel canale»).
+7. **«Elimina task» — c'è.**
+8. **Le notifiche — in parte.** `task.assigned` c'è; `member.added` manca (un
+   kind nuovo, con la sua voce di rollback).
+9. **S0 — manca** sul server (D-1). L'elenco «dal catalogo vero» c'è già:
+   sono le firme filtrate coi permessi d'istanza di chi chiede (F7,
+   `claudeActionSignatures(perms)`). Un evento `capabilities` le
+   ricompone, non deve dedurle.
+10. **S1 — manca.**
+    - Le tre voci dell'area 7.
+    - La prova come voce: la rotta di prova c'è, ma scrive un `tested` e
+      costa una stima; va vista se una prova a secco è un'azione A o una
+      lettura.
+    - `ask_question` nella conversazione libera (D-2).
+    - Il «Avvisa un reparto» e l'urgenza di `request_created`, da
+      verificare contro il catalogo dei passi dell'area 7, F2.
+11. **S2 e S3 — in parte.** Le letture ci sono (il polso, i consumi), i
+    tool no. «La spesa dei soli tuoi progetti» va scritta.
+12. **S4 — in parte.** `archiveProject` c'è (B, coi motivi `busy`). Manca
+    l'esito per riga di una proposta in blocco (D-9).
+13. **S5 — c'è** sul server: `addMember` C, l'escalation di F8, `labels`.
+    Manca `member.added`.
+14. **Le bozze — in parte.** C'è la posta (`fillMailBody`). Le note di
+    rilascio hanno la bozza (`GET …/release-notes`), ma non una voce.
+    Manca la descrizione della task. Vedi D-4: `pageAction` non si allarga
+    senza rompere i client vecchi.
+15. **Le azioni della pagina — c'è.**
+16. **I suggerimenti — manca** (D-5).
+17. **«/», «#», «@» — in parte.**
+    - `/status` e `/today` vogliono letture nuove (i progetti seguiti, la
+      settimana di chi scrive).
+    - Le skill dei plugin nel «/» vogliono una lettura dell'inventario del
+      progetto. Esiste (`GET /api/projects/:id/plugins`), ma non è un tool.
+    - Le citazioni e gli allegati mancano.
+
+### Le fette viste dal server
+
+- **S10-1, i chip e le letture**: i tool dei tipi che mancano, due alla
+  volta, ognuno con rotta, allowlist e il golden di una lettura ostile come
+  `chat-drive-hostile`.
+- **S10-2, S1**: le tre voci dell'area 7, `ask_question` nella
+  conversazione libera, la prova.
+- **S10-3, S2 e S3**: due tool, e la somma della spesa per progetti visibili.
+- **S10-4, S4 in blocco**: l'esito per riga.
+- **S10-5, `member.added`**: il kind, il rollback, il titolo derivato a
+  lettura.
+- **S10-6, le bozze**: la descrizione della task e le note di rilascio, nella
+  forma che dice D-4.
+- **S10-7, S0 e i suggerimenti** (D-1, D-5).
+
+### [DECIDE] del server
+
+- **D-9 — Una proposta in blocco con righe non fattibili (S4).**
+  - **(a) consigliata**: la prova a secco rifiuta già la proposta intera, e
+    il contratto dice a Claude di leggere prima (`list_projects` più il motivo
+    `busy` dell'anteprima d'archivio come tool) e di proporre solo le righe
+    fattibili, nominando le altre in prosa. Niente esiti parziali: i gruppi
+    restano atomici, come «Annulla» li vuole.
+  - (b) la prova a secco restituisce un esito per riga, e la scheda mostra le
+    non fattibili spente: più vicino al prototipo, ma il gruppo non è più
+    «tutto o niente» nella scheda (lo resta all'esecuzione).
+- **D-10 — Le bozze nei campi, la forma** (il lato server di D-4).
+  - **(a) consigliata**: una voce nuova del catalogo, `fillField` (A, nessuna
+    scrittura sul server: la esegue il renderer dal vivo, come le azioni
+    della pagina), con `{ field: "task.description" | "release.notes",
+    targetId, text }`. È una `fn` nuova, che un client vecchio legge
+    `UNKNOWN`, non un ramo nuovo di `pageAction`.
+  - (b) un ramo `fill` di `pageAction`: più corto, ma un client vecchio non
+    parsa più la proposta intera.
+- **D-11 — `member.added`: chi lo riceve.**
+  - **(a) consigliata**: la persona aggiunta, mai chi aggiunge sé stesso,
+    con l'attore umano anche quando è Claude per conto di qualcuno («Claude on
+    behalf of …», come le card di oggi). «Undone by …» si deriva a lettura
+    dal gruppo annullato, non si scrive nell'evento.
+  - (b) anche i gestori del progetto: più rumore, e lo dice già il registro.
+- **D-12 — Il tetto dei tool di lettura.**
+  - **(a) consigliata**: un tool per tipo di oggetto (il chip), con la sua
+    allowlist e il suo golden ostile, aggiunti due per fetta.
+  - (b) un tool generico `read_object(kind, id)`: meno codice nel server MCP,
+    ma un'allowlist sola per tipi molto diversi, ed è lì che le fughe nascono.
 
 ## Lato renderer
 
