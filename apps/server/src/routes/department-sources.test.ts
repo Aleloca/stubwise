@@ -149,6 +149,43 @@ describe("area 9, F8: aggiungere a un progetto chi porta permessi dal suo repart
   });
 });
 
+describe("area 9, F8 (review, I1): l'invito accettato entra nel reparto di ripiego", () => {
+  it("se il ripiego dà un permesso che l'invitante non ha nel progetto, la concessione si scarta; da un full admin passa", async () => {
+    const [general] = await t.db.select({ id: departments.id }).from(departments).where(eq(departments.isDefault, true));
+    await t.db.insert(departmentProjectPermissions).values({ departmentId: general!.id, permission: X });
+    try {
+      const { applyInviteGrants } = await import("../services/roles.js");
+      const { projectMembers } = await import("@stubwise/db");
+      // L'invitante gestisce i membri di P ma non ha X (il ruolo «Solo membri»).
+      const invitee = await person("inv-f8s@example.com");
+      const [inGeneral] = await t.db.select().from(departmentMembers).where(eq(departmentMembers.userId, invitee));
+      expect(inGeneral?.departmentId).toBe(general!.id);
+      const dropped: string[] = [];
+      await t.db.transaction((tx) => applyInviteGrants(tx, invitee, [{ projectId: p, roleId: devRoleId }], limited.id, (_g, reason) => dropped.push(reason)));
+      expect(dropped).toEqual(["inviter_lacks_role_permissions"]);
+      // Con un ruolo che dà tutto il Developer ma non X: lo scarta il reparto.
+      const [r] = await t.db.insert(roles).values({ name: "Dev e membri inviti F8", scope: "project", permissions: [...((await t.db.select({ p: roles.permissions }).from(roles).where(eq(roles.id, devRoleId)))[0]!.p), "project.members.manage"] }).returning({ id: roles.id });
+      const inviter = await person("inviter-f8s@example.com");
+      await t.db.insert(projectMembers).values({ projectId: p, userId: inviter, roleId: r!.id });
+      // Ogni persona nasce nel ripiego (il trigger): l'invitante ne avrebbe X anche lui.
+      // Il caso della review è chi ne è USCITO.
+      await t.db.delete(departmentMembers).where(eq(departmentMembers.userId, inviter));
+      const second = await person("inv2-f8s@example.com");
+      const dropped2: string[] = [];
+      await t.db.transaction((tx) => applyInviteGrants(tx, second, [{ projectId: p, roleId: devRoleId }], inviter, (_g, reason) => dropped2.push(reason)));
+      expect(dropped2).toEqual(["inviter_lacks_department_permissions"]);
+      expect(await t.db.select().from(projectMembers).where(eq(projectMembers.userId, second))).toEqual([]);
+      // Un full admin ha tutto: la concessione passa.
+      const [fa] = await t.db.select({ id: users.id }).from(users).innerJoin(roles, eq(roles.id, users.instanceRoleId)).where(eq(roles.presetKey, "admin"));
+      const third = await person("inv3-f8s@example.com");
+      await t.db.transaction((tx) => applyInviteGrants(tx, third, [{ projectId: p, roleId: devRoleId }], fa!.id));
+      expect(await t.db.select().from(projectMembers).where(eq(projectMembers.userId, third))).toHaveLength(1);
+    } finally {
+      await t.db.delete(departmentProjectPermissions).where(eq(departmentProjectPermissions.departmentId, general!.id));
+    }
+  });
+});
+
 describe("area 9, F8: l'elenco dei reparti", () => {
   it("projectPermissions solo a chi gestisce i reparti; agli altri []", async () => {
     const asAdmin = (await app.inject({ method: "GET", url: "/api/departments", headers: { cookie: adminCookie } })).json() as { id: string; projectPermissions: string[] }[];

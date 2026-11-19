@@ -122,6 +122,14 @@ describe("area 9, F8: i rifiuti, e niente si scrive", () => {
     expect(await membersOf(giving)).toEqual([a]);
   });
 
+  it("review di F8 (I2): Claude già nel reparto (il ripiego, in ogni istanza esistente) non blocca il salvataggio; rifiutato solo chi ENTRA", async () => {
+    const [agent] = await t.db.select({ id: users.id }).from(users).where(eq(users.isAgent, true));
+    const d = await department([a, agent!.id]);
+    const r = await patch(d, { name: `Con Claude ${++n}`, memberIds: [a, agent!.id] });
+    expect(r.statusCode).toBe(200);
+    expect(await membersOf(d)).toEqual([a, agent!.id].sort());
+  });
+
   it("invalid_permission per un permesso che non è di progetto; not_a_person per Claude", async () => {
     const empty = await department([]);
     const r = await patch(empty, { projectPermissions: ["instance.full_admin"] });

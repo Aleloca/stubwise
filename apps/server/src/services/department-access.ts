@@ -113,3 +113,25 @@ export async function departmentGrantsOf(db: Pick<Db, "select">, userIds?: reado
     .innerJoin(users, eq(users.id, departmentMembers.userId))
     .where(and(eq(users.isAgent, false), ...(userIds ? [inArray(departmentMembers.userId, [...userIds])] : [])));
 }
+
+/**
+ * Area 9, F8 (review, I3): i permessi dei reparti di chi ENTRA in un progetto,
+ * con le righe di quei reparti bloccate in condivisione. Il `PATCH` di un
+ * reparto le tiene `FOR UPDATE` mentre giudica e scrive: un'aggiunta al
+ * progetto e un permesso aggiunto al reparto si mettono in fila, e nessuno dei
+ * due giudica sui dati dell'altro ancora da scrivere (il write skew per cui una
+ * persona riceverebbe un permesso che nessuno di chi ha agito ha lì).
+ */
+export async function departmentGrantsForEntering(tx: Db, userId: string): Promise<DepartmentGrant[]> {
+  const mine = await tx.select({ departmentId: departmentMembers.departmentId }).from(departmentMembers).where(eq(departmentMembers.userId, userId));
+  if (mine.length > 0) {
+    await tx
+      .select({ id: departments.id })
+      .from(departments)
+      .where(inArray(departments.id, mine.map((m) => m.departmentId)))
+      .orderBy(departments.id)
+      .for("share");
+  }
+  return departmentGrantsOf(tx, [userId]);
+}
+

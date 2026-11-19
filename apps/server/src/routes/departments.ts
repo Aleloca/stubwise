@@ -556,8 +556,14 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
         if (found.length !== next.length) {
           return apiError(reply, 400, "person_not_found", "One of the people does not exist");
         }
-        // R-L9: Claude (e ogni utente di sistema) non sta in un reparto, quindi non ne riceve permessi.
-        if (found.some((u) => u.isAgent))
+        // R-L9: Claude (e ogni utente di sistema) non ENTRA in un reparto. Chi
+        // c'è già resta (review di F8, I2: il trigger della 0109 l'ha messo nel
+        // ripiego in ogni istanza esistente, e il client rimanda l'insieme
+        // intero); i permessi non li riceve comunque (`memberPermissionsSql`).
+        const already = new Set(
+          (await app.db.select({ userId: departmentMembers.userId }).from(departmentMembers).where(eq(departmentMembers.departmentId, id))).map((m) => m.userId),
+        );
+        if (found.some((u) => u.isAgent && !already.has(u.id)))
           return apiError(reply, 400, "not_a_person", "Claude is not a person of a department");
       }
       const nextPerms =

@@ -1,4 +1,4 @@
-import { departmentGrantsOf } from "./department-access.js";
+import { departmentGrantsForEntering, departmentGrantsOf } from "./department-access.js";
 /**
  * Gestione di ruoli e membri (design `docs/plans/2026-10-22-permessi-progetto-design.md`).
  *
@@ -705,7 +705,7 @@ export async function putProjectMember(
       const before = await lockedMember(tx, projectId, userId);
       // Area 9, F8 (F8-4 = a): chi ENTRA porta qui i permessi dei suoi reparti;
       // chi agisce deve averli in questo progetto (l'escalation sul DARE).
-      if (!before) assertNoEscalation(actor, (await departmentGrantsOf(tx, [userId])).map((g) => g.permission), held);
+      if (!before) assertNoEscalation(actor, (await departmentGrantsForEntering(tx as unknown as Db, userId)).map((g) => g.permission), held);
       await tx
         .insert(projectMembers)
         .values({ projectId, userId, roleId })
@@ -915,6 +915,7 @@ export async function applyInviteGrants(
 ): Promise<void> {
   if (grants.length === 0) return;
   const valid: InviteProject[] = [];
+  let brought: string[] | undefined;
   const held = invitedByUserId
     ? await projectPermissionsByProject(
         tx,
@@ -936,6 +937,14 @@ export async function applyInviteGrants(
     const missing = role?.permissions.find((p) => !perms.has(p));
     if (!role || missing) {
       onDropped(grant, "inviter_lacks_role_permissions");
+      continue;
+    }
+    // Area 9, F8 (review, I1): chi accetta è appena entrato nel reparto di
+    // ripiego (il trigger della 0109), e ne porta i permessi nel progetto.
+    // Come per un'aggiunta, l'invitante li deve avere lì (F8-4 = a).
+    brought ??= (await departmentGrantsForEntering(tx as unknown as Db, userId)).map((g) => g.permission);
+    if (brought.some((p) => !perms.has(p))) {
+      onDropped(grant, "inviter_lacks_department_permissions");
       continue;
     }
     valid.push(grant);

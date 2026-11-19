@@ -5438,8 +5438,21 @@ deploy o di un rollback che la tocca.
   - **`last_manager`** (F8-5 = a) anche per i reparti: togliere un permesso,
     togliere una persona, eliminare il reparto. Il 409 porta `projectId`, e
     `projectCode` solo a chi vede il progetto.
-  - **Claude** non sta nei reparti (400 `not_a_person`) e non ne riceve mai
-    permessi, nemmeno se una riga ce lo mettesse.
+  - **Claude** non ENTRA in un reparto (400 `not_a_person`), ma in ogni
+    istanza esistente sta già nel reparto di ripiego: ce l'ha messo il trigger
+    della 0109 quando la 0125 l'ha creato. Lì resta, e il salvataggio del
+    ripiego non si blocca. Non riceve comunque nessun permesso
+    (`memberPermissionsSql` salta gli utenti di sistema).
+  - **Un invito accettato**: chi entra finisce nel reparto di ripiego, e ne
+    porta i permessi nei progetti dell'invito. Se l'invitante non li ha lì,
+    la concessione si scarta, col motivo `inviter_lacks_department_permissions`.
+  - **Due scritture in fila**: chi entra in un progetto blocca `FOR SHARE` le
+    righe dei suoi reparti, e il `PATCH` di un reparto le tiene `FOR UPDATE`.
+    Un'aggiunta al progetto e un permesso aggiunto al reparto non si
+    giudicano a vicenda su dati non ancora scritti.
+  - **Due persone sullo stesso reparto**: c'è la `version` nell'elenco, e
+    `ifMatch` sul `PATCH` dà 409 `stale`. Senza `ifMatch` (un client di
+    prima) vince l'ultima scrittura.
   - `GET /api/departments` mostra `projectPermissions` solo a chi gestisce i
     reparti.
   Controllo, sola lettura: `select d.name, array_agg(p.permission) from
