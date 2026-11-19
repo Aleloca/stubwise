@@ -175,7 +175,13 @@ describe("riga D: ogni tema, en e it, porta al posto vero", () => {
       `${en("claude.answers.refused.webhookUrl")} [${en("claude.answers.refused.webhookUrlLink")}](#/admin/webhooks)`,
     );
     expect(
-      links(await refusal("Cambia l'indirizzo del webhook in https://hooks.example/new", "p-roberta", it_)),
+      links(
+        await refusal(
+          "Cambia l'indirizzo del webhook in https://hooks.example/new",
+          "p-roberta",
+          it_,
+        ),
+      ),
     ).toEqual(["#/admin/webhooks"]);
   });
 
