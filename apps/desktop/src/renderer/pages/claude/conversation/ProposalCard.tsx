@@ -136,14 +136,8 @@ export function ProposalCard({
   // La frase del dialogo della riconferma: all'infinito, dal livello dati
   // («To add …» / «Per aggiungere …», M1); mai il riassunto, che è
   // all'imperativo e in it non si piega dentro «Per …».
-  const reauthAction = (indexes: number[] | undefined) => {
-    if (event.undoOf) return t("claude.conversation.undo.reauthAction");
-    const chosen = indexes ?? event.actions.map((_, i) => i);
-    if (chosen.length !== 1)
-      return t("claude.conversation.proposal.reauthMany", { count: chosen.length });
-    const phrase = reauthPhrases?.[chosen[0]!];
-    return phrase ? t(phrase.key, phrase.params) : t("claude.conversation.proposal.reauthOne");
-  };
+  const reauthAction = (indexes: number[] | undefined) =>
+    reauthActionText(t, event, indexes, reauthPhrases);
   const confirmedCount = event.confirmedActions?.length ?? event.actions.length;
   const codes = objectCodesOf(event);
   return (
@@ -175,18 +169,90 @@ export function ProposalCard({
         complete: (code) => complete.mutateAsync({ ...target, resultCodes: [code] }),
         ...(isAppBuild()
           ? {
-              // Una conferma che il server non esegue (`failed`) non chiude il
-              // dialogo in silenzio: rifiuta, e il dialogo dice l'errore.
-              confirmEdited: async (index, args) => {
-                const result = await confirm.mutateAsync({ ...target, edited: [{ index, args }] });
-                if ("status" in result && result.status === "failed") throw new Error(result.error);
-                return result;
-              },
+              // Come Confirm, una C passa dalla riconferma (F7, il rimando
+              // «confirmEdited salta reauth()»).
+              confirmEdited: (index, args) =>
+                confirmEditedVia(
+                  reauth,
+                  (edited) => confirm.mutateAsync({ ...target, edited }),
+                  reauthAction([index]),
+                )(index, args),
             }
           : {}),
         busy: confirm.isPending || cancel.isPending || edit.isPending || complete.isPending,
       }}
     />
+  );
+}
+
+/**
+ * La frase del dialogo della riconferma per le azioni scelte: all'infinito,
+ * dal livello dati (M1); senza frasi (la Chat), la generica. La usano il
+ * riquadro e la Chat (review F7, I1).
+ */
+export function reauthActionText(
+  t: (key: string, params?: Record<string, unknown>) => string,
+  event: Pick<Ev<"proposal">, "actions" | "undoOf">,
+  indexes: number[] | undefined,
+  phrases?: (Utterance | null)[],
+): string {
+  if (event.undoOf) return t("claude.conversation.undo.reauthAction");
+  const chosen = indexes ?? event.actions.map((_, i) => i);
+  if (chosen.length !== 1)
+    return t("claude.conversation.proposal.reauthMany", { count: chosen.length });
+  const phrase = phrases?.[chosen[0]!];
+  return phrase ? t(phrase.key, phrase.params) : t("claude.conversation.proposal.reauthOne");
+}
+
+/**
+ * La conferma di una proposta MODIFICATA (scheda «Edit»): passa dalla
+ * riconferma come Confirm (una C risponde `reauth_required`, il wrapper chiede
+ * il codice e la rimanda uguale). Una conferma che il server non esegue
+ * (`failed`) o una riconferma annullata non chiudono il dialogo in silenzio:
+ * rifiutano, e il dialogo dice l'errore.
+ */
+export function confirmEditedVia(
+  reauth: <T>(call: () => Promise<T>, opts: { action: string }) => Promise<unknown>,
+  send: (edited: { index: number; args: Record<string, unknown> }[]) => Promise<unknown>,
+  action: string,
+) {
+  return async (index: number, args: Record<string, unknown>): Promise<unknown> => {
+    const result = await reauth(() => send([{ index, args }]), { action });
+    const r = result as { status?: string; error?: string; ok?: boolean };
+    // Un rifiuto in forma di dato (la riconferma annullata, o un secondo
+    // `reauth_required`) non è un successo (review F7, M3).
+    if (r.ok === false) throw new Error(r.error ?? "failed");
+    if (r.status === "failed") throw new Error(r.error);
+    return result;
+  };
+}
+
+/** Le voci che registrano o spostano un plugin: lo smoke run ne esegue il codice subito. */
+const PLUGIN_FNS: ReadonlySet<string> = new Set(["registerPlugin", "updatePluginRef"]);
+
+/**
+ * Registrare un plugin ne ESEGUE già il codice (CLAUDE.md, «Plugin e skill»):
+ * la scheda lo dice prima di Confirm, e che chi chiede ha scritto di fidarsi
+ * (`trust`, decisione del maintainer in F7, M-6). La frase sta nel client,
+ * dalla `fn`: nessun motivo nuovo del server.
+ */
+function PluginRunsCode({ trusted, moves }: { trusted: boolean; moves: boolean }) {
+  const { t } = useTranslation();
+  const titleId = useId();
+  // Spostarlo a un commit nuovo ne esegue il codice nuovo (review F7, M4).
+  const k = moves ? "claude.conversation.proposal.plugin.moves" : "claude.conversation.proposal.plugin";
+  return (
+    <div
+      role="note"
+      aria-labelledby={titleId}
+      className="flex min-w-0 flex-col gap-1 border-t border-rule pt-2.5 text-sm text-pretty text-ink-muted"
+    >
+      <p id={titleId} className="font-semibold text-ink">
+        {t(`${k}.title`)}
+      </p>
+      <p>{t(`${k}.runsCode`)}</p>
+      {trusted && <p>{t("claude.conversation.proposal.plugin.trusted")}</p>}
+    </div>
   );
 }
 
@@ -237,6 +303,10 @@ export function ProposalCardView({
   const resolvedRef = useFocusWhenResolved<HTMLElement>(event.status !== "open");
 
   const open = event.status === "open";
+
+  // Registrare o spostare un plugin ne esegue il codice (F7, M-6): la scheda lo dice.
+  const pluginAction = event.actions.find((a) => PLUGIN_FNS.has(a.fn));
+
   // Build app: su una scheda aperta chi decide lo dice il server
   // (`canDecide`), non chi guarda (fetta 5: una pubblica, una continuazione).
   // Quando è il posto a non lasciar agire (`canAct` falso: nella Chat un
@@ -488,6 +558,10 @@ export function ProposalCardView({
               )}
         </button>
       )}
+      {open && pluginAction && <PluginRunsCode
+          trusted={pluginAction.args.trust === true}
+          moves={pluginAction.fn === "updatePluginRef"}
+        />}
       {open && event.reasons && event.reasons.length > 0 && (
         <ReasonRows
           reasons={blocked ? event.reasons.filter((r) => r.kind !== "reauth") : event.reasons}

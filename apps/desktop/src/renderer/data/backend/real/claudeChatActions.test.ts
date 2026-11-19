@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forgetClaudeCaches, getConversation } from "./claude";
-import { claudeChatNamespace, summaryOf } from "./claudeChatActions";
+import { claudeChatNamespace, reauthPhrasesOf, summaryOf } from "./claudeChatActions";
 import { setAppClientForTests } from "./client";
 import { installFakeServer, me, ME_ID, PROJECT_ID, serverProject, serverTicketDetail, TICKET_ID } from "./fakeServer";
 import { getSessionPerson } from "./session";
@@ -152,6 +152,80 @@ describe("proposte e azioni di Claude nella conversazione", () => {
     expect((card as { actions: { summary: string }[] }).actions[0]!.summary).toBe("Change AUD-12 (assignee)");
     // «Annulla» del gruppo: disponibile, come lo dice il server per chi guarda.
     expect(detail.undo?.[GROUP_A]).toEqual({ state: "available", needsReauth: false });
+  });
+
+  it("F7: una C del server (`reauth`) è il motivo «Asks for your two-step code» della scheda; senza il campo, niente", async () => {
+    install({
+      [`GET /api/claude/conversations/${CONV}/proposals`]: {
+        body: [
+          proposals[0],
+          { ...proposals[1], cls: "C", reauth: true, reasons: [{ kind: "irreversible" }] },
+        ],
+      },
+    });
+    await getSessionPerson();
+    const card = (await getConversation(CONV))!.events.find((e) => e.type === "proposal")!;
+    expect(card).toMatchObject({ cls: "C", reasons: [{ kind: "irreversible" }, { kind: "reauth" }] });
+    // Un server di prima non manda `reauth`: la scheda resta com'era.
+    install();
+    const old = (await getConversation(CONV))!.events.find((e) => e.type === "proposal")!;
+    expect((old as { reasons: { kind: string }[] }).reasons.map((r) => r.kind)).toEqual(["notifies"]);
+  });
+
+  it("F7: una C sui membri: la scheda coi nomi del server e la frase della riconferma nel dettaglio", async () => {
+    install({
+      [`GET /api/claude/conversations/${CONV}/proposals`]: {
+        body: [
+          proposals[0],
+          {
+            ...proposals[1],
+            cls: "C",
+            reauth: true,
+            reasons: [],
+            actions: [
+              {
+                fn: "addMember",
+                args: { projectId: PROJECT_ID, userId: MARTA, roleId: "11111111-2222-4333-8444-555555555555" },
+                reauth: true,
+                labels: { person: "Marta Rossi", role: "Developer" },
+              },
+            ],
+          },
+        ],
+      },
+    });
+    await getSessionPerson();
+    const detail = (await getConversation(CONV))!;
+    const card = detail.events.find((e) => e.type === "proposal") as { actions: { summary: string }[] };
+    expect(card.actions[0]!.summary).toBe("Add Marta Rossi to AUD as Developer");
+    expect(detail.reauthPhrases?.[PROPOSAL_B]).toEqual([
+      {
+        key: "claude.conversation.proposal.reauthAction.addMember",
+        params: { name: "Marta Rossi", role: "Developer", code: "AUD" },
+      },
+    ]);
+  });
+
+  it("F7: «Annulla» di un gruppo con l'inverso C dice «Asks for your code» (undoReauth del server)", async () => {
+    install({
+      [`GET /api/claude/conversations/${CONV}/groups`]: { body: [{ ...groups[0], undoReauth: true }] },
+    });
+    await getSessionPerson();
+    const detail = (await getConversation(CONV))!;
+    expect(detail.undo?.[GROUP_A]).toEqual({ state: "available", needsReauth: true });
+  });
+
+  it("F7: una voce sul progetto (archiveProject) dice il codice del progetto, letto dai progetti", async () => {
+    install({
+      [`GET /api/claude/conversations/${CONV}/proposals`]: {
+        body: [proposals[0], { ...proposals[1], actions: [{ fn: "archiveProject", args: { projectId: PROJECT_ID } }], reasons: [] }],
+      },
+    });
+    await getSessionPerson();
+    const card = (await getConversation(CONV))!.events.find((e) => e.type === "proposal") as {
+      actions: { summary: string }[];
+    };
+    expect(card.actions[0]!.summary).toBe("Archive AUD");
   });
 
   it("una B confermata: la scheda resta (confermata, col suo gruppo e i codici), nessuna riga in più", async () => {
@@ -388,5 +462,98 @@ describe("resetSubscription, l'inverso di un setSubscription senza scelta salvat
     expect(summaryOf("resetSubscription", args, null).summary).toBe(
       "Put your “Release failed” alerts in a project back to the default",
     );
+  });
+});
+
+describe("F7: le schede delle voci dell'area 9 (Task 2 e 3 di 72), dagli argomenti", () => {
+  const P = { projectId: PROJECT_ID };
+  it("progetto: archivia, riapri, coda, generale, AI, automazioni; col codice e senza", () => {
+    expect(summaryOf("archiveProject", P, "AUD").summary).toBe("Archive AUD");
+    expect(summaryOf("archiveProject", P, null).summary).toBe("Archive a project");
+    expect(summaryOf("reopenProject", P, "AUD").summary).toBe("Reopen AUD");
+    expect(summaryOf("pauseQueue", P, "AUD").summary).toBe("Pause Claude's queue in AUD");
+    expect(summaryOf("resumeQueue", P, "AUD").summary).toBe("Resume Claude's queue in AUD");
+    expect(summaryOf("updateProjectGeneral", { ...P, name: "X" }, "AUD").summary).toBe(
+      "Change the name or description of AUD",
+    );
+    expect(summaryOf("setProjectAi", { ...P, providerId: null, exclusive: false }, "AUD").summary).toBe(
+      "Change the AI account of AUD",
+    );
+    expect(summaryOf("saveProjectAutomations", P, "AUD").summary).toBe("Change the automations of AUD");
+    expect(summaryOf("retryJob", { jobId: "j1" }, null).summary).toBe("Run a stopped job again");
+  });
+
+  it("plugin: l'indirizzo e la ref dagli argomenti (sourceUrl, come il server)", () => {
+    expect(
+      summaryOf("registerPlugin", { sourceUrl: "https://github.com/acme/tools", ref: "main", trust: true }, null)
+        .summary,
+    ).toBe("Register the plugin https://github.com/acme/tools");
+    expect(summaryOf("updatePluginRef", { id: "p1", ref: "v2", trust: true }, null).summary).toBe(
+      "Move a plugin to v2",
+    );
+  });
+});
+
+describe("F7: le schede dei membri, coi nomi che il server deriva per chi guarda (labels)", () => {
+  const A = { projectId: PROJECT_ID, userId: MARTA, roleId: "r1" };
+  it("persona e ruolo dalle labels; senza (chi non vede il progetto), «a person» e «a role»", () => {
+    const named = { person: "Marta Rossi", role: "Developer" };
+    expect(summaryOf("addMember", A, "AUD", named).summary).toBe("Add Marta Rossi to AUD as Developer");
+    expect(summaryOf("setMemberRole", A, "AUD", named).summary).toBe("Make Marta Rossi Developer in AUD");
+    expect(summaryOf("removeMember", A, "AUD", named).summary).toBe("Remove Marta Rossi from AUD");
+    const blind = { person: null, role: null };
+    expect(summaryOf("addMember", A, null, blind).summary).toBe("Add a person to a project as a role");
+    expect(summaryOf("removeMember", A, null).summary).toBe("Remove a person from a project");
+  });
+
+  it("le frasi della riconferma di una C aperta: una per azione, null dove non serve", () => {
+    const phrases = reauthPhrasesOf(
+      [
+        {
+          id: "p1",
+          status: "open",
+          actions: [
+            { fn: "addMember", args: A, reauth: true, labels: { person: "Marta Rossi", role: "Developer" } },
+            { fn: "archiveProject", args: { projectId: PROJECT_ID }, reauth: false, labels: { person: null, role: null } },
+          ],
+        },
+        { id: "p2", status: "confirmed", actions: [{ fn: "addMember", args: A, reauth: true }] },
+      ] as never,
+      new Map([[PROJECT_ID, "AUD"]]),
+    );
+    expect(Object.keys(phrases)).toEqual(["p1"]);
+    // Senza il codice del progetto: la variante «a project», mai un {{code}} letterale (review F7, M1).
+    const blind = reauthPhrasesOf(
+      [{ id: "p3", status: "open", actions: [{ fn: "removeMember", args: A, reauth: true, labels: { person: null, role: null } }] }] as never,
+      new Map(),
+    );
+    expect(blind.p3).toEqual([
+      { key: "claude.conversation.proposal.reauthAction.removeMemberNoCode", params: { name: "a person", role: "a role" } },
+    ]);
+    expect(phrases.p1).toEqual([
+      {
+        key: "claude.conversation.proposal.reauthAction.addMember",
+        params: { name: "Marta Rossi", role: "Developer", code: "AUD" },
+      },
+      null,
+    ]);
+  });
+});
+
+describe("F7: le schede delle voci d'istanza (Task 4 di 72), senza segreti", () => {
+  it("una frase per voce; l'account AI acceso o spento dagli argomenti", () => {
+    const say = (fn: string, args: Record<string, unknown> = {}) => summaryOf(fn, args, null).summary;
+    expect(say("setModel", { operation: "fix", model: null })).toBe("Change an AI model");
+    expect(say("saveBudget", { monthlyUsd: 50, contentLanguage: "en" })).toBe("Change the AI budget and language");
+    expect(say("saveStorage")).toBe("Change where files are stored");
+    expect(say("saveAutomation")).toBe("Change the automation rules");
+    expect(say("setProviderEnabled", { id: "a", enabled: true })).toBe("Turn an AI account on");
+    expect(say("setProviderEnabled", { id: "a", enabled: false })).toBe("Turn an AI account off");
+    expect(say("moveProvider", { id: "a", toIndex: 0 })).toBe("Change the order of the AI accounts");
+    expect(say("updateGitAccount", { id: "g" })).toBe("Change a git account");
+    expect(say("updateGoogleApp", { id: "w" })).toBe("Change a Google Workspace");
+    expect(say("updateWebhook", { id: "h" })).toBe("Change an outgoing webhook");
+    expect(say("rerunSmoke", { id: "p" })).toBe("Test a plugin again");
+    expect(say("removePlugin", { id: "p" })).toBe("Remove a plugin");
   });
 });

@@ -169,6 +169,22 @@ describe("riga D: ogni tema, en e it, porta al posto vero", () => {
     );
   });
 
+  it("l'URL di un webhook si cambia dalla sua pagina: Claude non lo propone (F7, M-4, con la riconferma)", async () => {
+    const out = await refusal("Change the webhook URL to https://hooks.example/new", "p-roberta");
+    expect(out).toBe(
+      `${en("claude.answers.refused.webhookUrl")} [${en("claude.answers.refused.webhookUrlLink")}](#/admin/webhooks)`,
+    );
+    expect(
+      links(
+        await refusal(
+          "Cambia l'indirizzo del webhook in https://hooks.example/new",
+          "p-roberta",
+          it_,
+        ),
+      ),
+    ).toEqual(["#/admin/webhooks"]);
+  });
+
   it("send: Supporto quando si parla del cliente di un progetto", async () => {
     expect(links(await refusal("Send the reply to the customer in ACQ", "p-marco"))).toEqual([
       "#/p/ACQ/support",

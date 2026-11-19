@@ -55,10 +55,23 @@ export function taskIdsOf(fn: string, args: Record<string, unknown>): string[] {
  * `setSubscription` non ha codici dal server (`codes: []`), e la riga dice
  * il codice del progetto, come nel prototipo.
  */
+const PROJECT_FNS = new Set([
+  "setSubscription",
+  "resetSubscription",
+  // Area 9, F7 (72, Task 2 e 3): le voci sul progetto.
+  "addMember",
+  "removeMember",
+  "setMemberRole",
+  "archiveProject",
+  "reopenProject",
+  "pauseQueue",
+  "resumeQueue",
+  "updateProjectGeneral",
+  "setProjectAi",
+  "saveProjectAutomations",
+]);
 const projectIdOf = (fn: string, args: Record<string, unknown>): string | null =>
-  (fn === "setSubscription" || fn === "resetSubscription") && typeof args["projectId"] === "string"
-    ? (args["projectId"] as string)
-    : null;
+  PROJECT_FNS.has(fn) && typeof args["projectId"] === "string" ? (args["projectId"] as string) : null;
 
 /** Proposte, gruppi e codici delle task citate di una conversazione libera. */
 export async function readChatActions(conversationId: string): Promise<ChatActions> {
@@ -132,10 +145,25 @@ export function cachedTaskCode(id: string): Promise<string | null> {
 // --- i riassunti ----------------------------------------------------------------
 
 /** Il riassunto di un'azione come frase (`summaryText`), dai suoi argomenti: mai scritto dal modello. */
-export function summaryOf(fn: string, args: Record<string, unknown>, code: string | null): ProposedAction {
+/** I nomi che il server deriva per chi guarda (F7, `labels`): persona e ruolo, null se non li vede. */
+export type ActionLabels = { person: string | null; role: string | null };
+
+export function summaryOf(
+  fn: string,
+  args: Record<string, unknown>,
+  code: string | null,
+  labels?: ActionLabels,
+): ProposedAction {
   const params: Record<string, string | number> = { code: code ?? "" };
   const text = (k: string) => (typeof args[k] === "string" ? (args[k] as string) : "");
   switch (fn) {
+    // Area 9, F7: i membri coi nomi del server; chi non vede il progetto legge «a person».
+    case "addMember":
+    case "setMemberRole":
+    case "removeMember":
+      params["name"] = labels?.person ?? i18n.t("claude.chatActions.aPerson");
+      params["role"] = labels?.role ?? i18n.t("claude.chatActions.aRole");
+      break;
     case "createTask":
     case "createRequest":
       params["title"] = text("title");
@@ -160,6 +188,13 @@ export function summaryOf(fn: string, args: Record<string, unknown>, code: strin
     case "pageAction":
       params["kind"] = text("kind");
       break;
+    // Area 9, F7: i nomi degli argomenti del server (`sourceUrl`, non `url`).
+    case "registerPlugin":
+      params["url"] = text("sourceUrl");
+      break;
+    case "updatePluginRef":
+      params["ref"] = text("ref");
+      break;
     case "resetSubscription":
     case "setSubscription": {
       // L'etichetta del tipo dal catalogo condiviso; solo i canali presenti (un assente resta com'è).
@@ -173,7 +208,15 @@ export function summaryOf(fn: string, args: Record<string, unknown>, code: strin
     }
   }
   // `setSubscription` senza canali (il server ne vuole almeno uno, ma il client non lo dà per certo): la frase senza «: ».
-  const phrase = fn === "setSubscription" && params["channels"] === "" ? "setSubscriptionBare" : fn;
+  // `setProviderEnabled`: acceso o spento dagli argomenti (F7).
+  const phrase =
+    fn === "setSubscription" && params["channels"] === ""
+      ? "setSubscriptionBare"
+      : fn === "setProviderEnabled"
+        ? args["enabled"] === true
+          ? "setProviderEnabledOn"
+          : "setProviderEnabledOff"
+        : fn;
   // `resetSubscription` (l'inverso, mai proposto): «back to the default», senza canali.
   const own = `claude.chatActions.summary.${phrase}${code === null && params["code"] === "" && needsCode(fn) ? "NoCode" : ""}`;
   // Un'azione che questa build non conosce (un server più nuovo: `fn` è `__unknown__`) ha la frase generica.
@@ -183,7 +226,26 @@ export function summaryOf(fn: string, args: Record<string, unknown>, code: strin
 }
 
 const needsCode = (fn: string) =>
-  ["updateTask", "planTask", "deleteTask", "addComment", "deleteComment", "startRun", "setSubscription", "resetSubscription"].includes(fn);
+  [
+    "updateTask",
+    "planTask",
+    "deleteTask",
+    "addComment",
+    "deleteComment",
+    "startRun",
+    "setSubscription",
+    "resetSubscription",
+    "archiveProject",
+    "reopenProject",
+    "pauseQueue",
+    "resumeQueue",
+    "updateProjectGeneral",
+    "setProjectAi",
+    "saveProjectAutomations",
+    "addMember",
+    "setMemberRole",
+    "removeMember",
+  ].includes(fn);
 
 // --- le schede e le righe ------------------------------------------------------------
 
@@ -209,10 +271,36 @@ const WHO_ACTION: Partial<Record<string, string>> = {
   createMilestone: "editTasks",
   deleteMilestone: "editTasks",
   deleteTask: "deleteTasks",
+  // Area 9, F7: come il catalogo del prototipo.
+  addMember: "manageMembers",
+  removeMember: "manageMembers",
+  setMemberRole: "manageMembers",
+  registerPlugin: "managePlugins",
+  updatePluginRef: "managePlugins",
+  archiveProject: "manageProjectSettings",
+  reopenProject: "manageProjectSettings",
+  pauseQueue: "manageProjectSettings",
+  resumeQueue: "manageProjectSettings",
+  updateProjectGeneral: "manageProjectSettings",
+  setProjectAi: "manageProjectSettings",
+  saveProjectAutomations: "manageProjectSettings",
+  retryJob: "manageProjectSettings",
+  // Area 9, F7, Task 4: le voci d'istanza.
+  setModel: "manageSettings",
+  saveBudget: "manageSettings",
+  saveStorage: "manageSettings",
+  saveAutomation: "manageSettings",
+  setProviderEnabled: "manageAiProviders",
+  moveProvider: "manageAiProviders",
+  updateGitAccount: "manageGitAccounts",
+  updateGoogleApp: "manageIntegrations",
+  updateWebhook: "manageIntegrations",
+  rerunSmoke: "managePlugins",
+  removePlugin: "managePlugins",
 };
 
-const reasonsOf = (p: ProposalView): ClassReason[] =>
-  p.reasons.flatMap((r): ClassReason[] =>
+const reasonsOf = (p: ProposalView): ClassReason[] => [
+  ...p.reasons.flatMap((r): ClassReason[] =>
     r.kind === "notifies"
       ? [{ kind: "notifies", personIds: [...r.personIds], more: r.more }]
       : r.kind === "irreversible"
@@ -220,7 +308,11 @@ const reasonsOf = (p: ProposalView): ClassReason[] =>
         : r.kind === "starts_work"
           ? [{ kind: "startsWork" }]
           : [],
-  );
+  ),
+  // F7: «chiede la riconferma» è un campo del server (M-3, il motivo non è
+  // apribile), nella scheda del prototipo un motivo, in fondo come lì.
+  ...(p.reauth ? [{ kind: "reauth" as const }] : []),
+];
 
 /** Il rifiuto del server nella forma del prototipo («Couldn't do it · Who?»). */
 function failureOf(p: ProposalView): ExecutedFailure | undefined {
@@ -291,7 +383,9 @@ function proposalEvent(p: ProposalView, at: string, actions: ChatActions): Conve
     // che da una pubblica non è chi guarda): chi decide lo dice il server.
     requesterId: ownerOf(p.sessionId),
     canDecide: p.canConfirm || p.canCancel,
-    actions: p.actions.map((a) => summaryOf(a.fn, a.args, codeOfAction(a, actions.codes))),
+    actions: p.actions.map((a) =>
+      summaryOf(a.fn, a.args, codeOfAction(a, actions.codes), (a as { labels?: ActionLabels }).labels),
+    ),
     status: p.status,
     cls: p.cls,
     reasons: reasonsOf(p),
@@ -438,6 +532,46 @@ export function withChatActionEvents(events: ConversationEvent[], extra: Convers
 }
 
 /** Lo stato di «Annulla» di ogni gruppo, per chi guarda (`ConversationDetail.undo`). */
+const MEMBER_FNS = new Set(["addMember", "setMemberRole", "removeMember"]);
+
+/** Le voci che hanno la loro frase all'infinito nel dialogo della riconferma. */
+const REAUTH_PHRASE_FNS = new Set(["addMember", "setMemberRole", "removeMember", "registerPlugin", "updatePluginRef"]);
+
+/**
+ * Le frasi della riconferma delle schede aperte con una C (F7, come
+ * `reauthPhrasesOf` del prototipo): una per azione, all'infinito («To add
+ * Marta Rossi to AUD as Developer»), coi nomi delle `labels`; null dove
+ * l'azione non la chiede o non ha la sua frase (il dialogo dice la generica).
+ */
+export function reauthPhrasesOf(
+  proposals: readonly ProposalView[],
+  codes: Map<string, string>,
+): Record<string, ({ key: string; params: Record<string, string> } | null)[]> {
+  const out: Record<string, ({ key: string; params: Record<string, string> } | null)[]> = {};
+  for (const p of proposals) {
+    if (p.status !== "open") continue;
+    const actions = p.actions as unknown as {
+      fn: string;
+      args: Record<string, unknown>;
+      reauth?: boolean;
+      labels?: ActionLabels;
+    }[];
+    if (!actions.some((a) => a.reauth)) continue;
+    out[p.id] = actions.map((a) => {
+      if (!a.reauth || !REAUTH_PHRASE_FNS.has(a.fn)) return null;
+      const s: Record<string, unknown> =
+        summaryOf(a.fn, a.args, codeOfAction(a, codes), a.labels).summaryText?.params ?? {};
+      const params: Record<string, string> = {};
+      for (const k of ["name", "role", "code", "url", "ref"])
+        if (s[k] !== undefined && s[k] !== "") params[k] = String(s[k]);
+      // Un membro senza il codice del progetto: la variante «a project» (review F7, M1).
+      const noCode = params["code"] === undefined && MEMBER_FNS.has(a.fn);
+      return { key: `claude.conversation.proposal.reauthAction.${a.fn}${noCode ? "NoCode" : ""}`, params };
+    });
+  }
+  return out;
+}
+
 export function undoViewsOf(
   groups: readonly GroupView[],
   nameOf: (personId: string) => string | null,
@@ -446,7 +580,8 @@ export function undoViewsOf(
   for (const g of groups) {
     switch (g.undo) {
       case "available":
-        out[g.id] = { state: "available", needsReauth: false };
+        // L'inverso dichiarato C (i membri) lo dice il server (F7, `undoReauth`).
+        out[g.id] = { state: "available", needsReauth: (g as { undoReauth?: boolean }).undoReauth === true };
         break;
       case "undone":
         out[g.id] = { state: "undone", byName: nameOf(session.personId ?? "") ?? "", at: g.undoneAt ?? g.executedAt };

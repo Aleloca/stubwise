@@ -7,7 +7,7 @@ import type { NewTaskInput, ProposedAction, Task, TaskPatch } from "../model";
 import { productDocRecipients } from "../productDocs/follows";
 import { productPageById } from "../productDocs/reads";
 import { familyOf, state, visibleProjectIds } from "../store";
-import { CLAUDE_CATALOG, declaredClassOf, isCatalogFn } from "./catalog";
+import { CLAUDE_CATALOG, declaredClassOf, isCatalogFn, reauthOf } from "./catalog";
 import type { ActionClass, ClassReason } from "./types";
 
 // La classe calcolata di un'azione di Claude (area 10a, Task 4). Un'azione è
@@ -192,11 +192,13 @@ export function classOf(me: string, action: Action): ActionClass {
   // Fuori dal catalogo non si esegue dal riquadro: mai A.
   if (!isCatalogFn(action.fn)) return { cls: "B", reasons: [] };
   const fn = action.fn;
-  const declared = declaredClassOf(fn);
+  // La classe segue la rotta (F7): una parziale è C solo con gli argomenti che la chiedono.
+  const reauth = reauthOf(fn, action.args);
+  const declared = reauth ? "C" : declaredClassOf(fn);
   const reasons = normalize([
     ...dataReasons(me, action),
     ...(CLAUDE_CATALOG[fn].undoable ? [] : [{ kind: "irreversible" as const }]),
-    ...(declared === "C" ? [{ kind: "reauth" as const }] : []),
+    ...(reauth ? [{ kind: "reauth" as const }] : []),
   ]);
   return { cls: higher(declared, reasons.length > 0 ? "B" : "A"), reasons };
 }

@@ -43,7 +43,7 @@ modifiche fatte PRIMA del collegamento sono in fondo alla tabella.
 | People, persona, inviti, Roles | `adminPeople.ts` | `admin:people`, `admin:roles` | Azioni, `missing`, portata e blocchi sono calcolati dal server. L'id dell'invito è opaco (`i_` + sha256 del token). Gli autori git osservati arrivano senza commit né progetti. |
 | Members del progetto | `adminMembers.ts` | `projectSettings:members` | `department` fra le fonti arriva con F8. |
 | Inbox: «Restore», «Move to New», «Mark as unread» | `notifications.ts` | `notification-restore` | Un 409 `invalid_state` non si scrive: il pannello rilegge. |
-| Registro delle modifiche (Amministrazione e Progetto → Settings) — F2 | `changelog.ts` | `admin:changelog`, `projectSettings:changelog` | Solo i tipi dell'area 9 finché F3 (9b) e la 9c non scrivono i loro. Le prime 50 voci e «Load more» col cursore del server (decisione del maintainer, 18 nov 2026; anche nel prototipo). «By Claude» e «Undid…» spenti fino a F7. Nessun link alle voci d'invito. `person.email_changed` nel gruppo «security», come sul server (test di parità del catalogo). |
+| Registro delle modifiche (Amministrazione e Progetto → Settings) — F2 | `changelog.ts` | `admin:changelog`, `projectSettings:changelog` | Solo i tipi dell'area 9 finché F3 (9b) e la 9c non scrivono i loro. Le prime 50 voci e «Load more» col cursore del server (decisione del maintainer, 18 nov 2026; anche nel prototipo). «By Claude» e «Undid…» dal server da F7 (0195: `via`, `undoOf`, `undoneEntry`). Nessun link alle voci d'invito. `person.email_changed` nel gruppo «security», come sul server (test di parità del catalogo). |
 | Prototipo cambiato prima del collegamento | — | — | Foto (tipi dai primi byte, 512 KB); cambio d'email con l'attesa e il ramo admin; pagina del link che conferma solo al clic; password con la riconferma; disattivazione con `invalid_reassignment` per task e senza Claude; «Chi può farlo?» con Claude senza permessi; invito non valido senza nomi né date; «Mark as unread». |
 
 ## Integrazione, F4: Stato dell'istanza, budget e consumi nella build app (area 9, 18 nov 2026)
@@ -98,6 +98,25 @@ Repositories si accendono insieme: il toast di Delete porta a Repositories.
 | Amministrazione → Repositories: collegati, senza progetto, collega, elimina | `instanceRepositories.ts` | `admin:repositories` | I collegati si compongono da `repositories.list()` (righe con `config`, cioè `repos.view`) e `projects.list()`; `owner/nome` dall'URL con la regola del server. `not_detached` si legge come «non c'è più». La data di distacco può mancare: la riga dice la provenienza e basta (anche nel prototipo). |
 | Le voci del registro di un archiviato portano a `/archived/<CODE>` | `changelog.ts` | — | Da `projectArchived`, che il server deriva a lettura (Task 7). |
 | Collegare uno staccato a un progetto sparito nel frattempo | `instanceRepositories.ts` | — | `target_not_found` (Task 7): il dialogo lo dice e resta aperto (anche nel prototipo). |
+
+## Integrazione, F7: le azioni di Claude dell'area 9 nella build app (area 9, 19 nov 2026)
+
+Sulle rotte di 72 (`feat/area9-f7`, Task 1–6). Prima del collegamento il
+prototipo è cambiato con le decisioni del maintainer e di 46: la classe
+segue la rotta (una riconferma parziale è C solo con gli argomenti che la
+chiedono, e da Claude non entrano: `saveStorage` e `updateWebhook` sono B,
+`updateWebhook` senza `url`); «Mi fido» dei plugin è `trust`; un
+`removeMember` di chi ha permessi personali non si annulla; un «Annulla» con
+l'inverso C è sempre una scheda con la riconferma, e «Asks for your code»
+c'è da subito.
+
+| Voci | Adattatore | Funzione accesa | Differenze dichiarate |
+|---|---|---|---|
+| Le schede delle 23 voci (membri, plugin, progetto, istanza) | `claudeChatActions.ts` | (le funzioni di Claude, già accese) | La frase dagli argomenti del server e dalle `labels` (persona e ruolo per chi guarda, R-G5); il «Who?» come il catalogo del prototipo. |
+| La classe C e la riconferma | `claudeChatActions.ts`, `ProposalCard.tsx`, `ClaudeReply.tsx` | — | `reauth` del server è il motivo «Asks for your two-step code»; le frasi della riconferma per azione; riquadro e Chat, anche con «Edit». |
+| «Annulla» con l'inverso C | `claudeChatActions.ts` | — | «Asks for your code» da `undoReauth` del gruppo. |
+| Registro: «By Claude», «Undid…» | `changelog.ts` | — | Da `via`, `undoOf`, `undoneEntry` (0195); «By Claude» è `?via=claude`. |
+| `setAttachments`, `setDefaultReviewer`, `saveStorage` | — | (no) | Il server non le esegue (registro di 72; `saveStorage` dalla review di F7: endpoint e bucket decidono dove vanno gli allegati): nel prototipo restano, nell'app Claude dice che si fanno dalla pagina. |
 
 ## A. Personale → Preferenze
 

@@ -1131,11 +1131,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   previsti dal server, da decidere col maintainer se servono.
 - Azioni di Claude dell'area 9 (membri, ruoli, impostazioni senza segreti), con
   la riconferma.
-- Classe C delle azioni di Claude (la fetta 4 della chat è vuota: le C sono
-  solo dell'area 9) *(O, 10 nov 2026)*: nel renderer la conferma di una
-  proposta MODIFICATA (`confirmEdited`, scheda «Edit») salta il wrapper
-  `reauth()` che usa la conferma semplice. Oggi è innocuo (nessuna C ha
-  «Edit»), ma con le prime C va passata dalla riconferma come Confirm.
+- ~~Classe C delle azioni di Claude *(O, 10 nov 2026)*: nel renderer la
+  conferma di una proposta MODIFICATA (`confirmEdited`, scheda «Edit») salta
+  il wrapper `reauth()` che usa la conferma semplice.~~ **Chiuso (F7
+  renderer)**: `confirmEditedVia` passa dalla riconferma come Confirm, e una
+  riconferma annullata rifiuta (il dialogo lo dice).
 - **Cassaforte dal desktop: aperta al desktop riconfermato per decisione del
   maintainer, bloccata tecnicamente dallo sblocco PRF** *(M, 10 nov 2026)*. Il
   maintainer vuole che dal desktop si faccia tutto quello che si fa dal
@@ -1164,15 +1164,16 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - una **chiave del Mac** (Keychain / Touch ID) iscritta dal browser, col
     secondo fattore come prova in più. Cambia l'invariante «non esiste un
     secondo meccanismo».
-- **Gli insiemi `CLAUDE_*_PERMISSIONS` del prototipo** *(S, 94, 16 nov 2026,
-  decisione (a) di 46 su «Chi può farlo?»)*: il server non dà permessi a
-  Claude, che agisce con quelli di chi lo assegna o conferma la sua azione.
-  «Chi può farlo?» non li usa più (5d29b8c19). Restano in
-  `data/viewing.ts` (`claudeCan`, il `can()` di Claude come chi agisce) e in
-  `data/viewer.ts`. Dove servono a dire COSA Claude può proporre, vanno
-  ridotti a un elenco di azioni proponibili che coincida col catalogo del
-  server (`claudeActionSignatures`), non a permessi. Con F7 (azioni di Claude
-  dell'area 9) o con l'area 10.
+- ~~**Gli insiemi `CLAUDE_*_PERMISSIONS` del prototipo**~~ **Chiuso (F7
+  renderer)**: non decidono cosa Claude propone (restano solo per Claude
+  come chi agisce, `claudeCan`). Cosa si propone lo tiene un test di parità
+  col server (`data/claude/catalogParity.test.ts`): ogni voce di
+  `CLAUDE_PROPOSABLE_FNS` c'è nel catalogo del prototipo (tranne
+  `pageAction` e `fillMailBody`, che lì passano dalla pagina e dalla Posta),
+  e il permesso d'istanza di una voce è `CLAUDE_INSTANCE_PERMISSION`.
+  Restano solo del prototipo `setAttachments`, `setDefaultReviewer` e
+  `saveStorage` (dalla review di F7: endpoint e bucket decidono dove vanno
+  gli allegati), che il server non esegue (registro di 72).
 
 - **F1 renderer, ciò che resta** *(94, 16 nov 2026)*:
   - gli autori git osservati arrivano dal server senza commit né progetti
@@ -1193,10 +1194,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - **F2 renderer, il registro delle modifiche nell'app** *(94, 18 nov 2026)*:
   - una voce d'invito non ha link: il server cancella gli inviti usati e
     revocati, e la voce non dice se l'invito è ancora aperto *(S)*;
-  - «By Claude» e la riga «Undid…» restano spenti fino a F7 (`via`,
-    `undoOf`); le voci dell'istanza (9b) e del progetto (9c) arrivano con le
-    loro fette (F3 per la 9b): fino ad allora il registro dell'app ha solo i
-    tipi dell'area 9 *(dichiarato)*.
+  - ~~«By Claude» e la riga «Undid…» restano spenti fino a F7.~~ **Chiuso
+    (F7, 0195 di 72)**: `via`, `undoOf` e `undoneEntry` dal server (la voce
+    annullata solo a chi la legge), «By Claude» con `?via=claude` e
+    `filters.claude`; le voci dell'istanza (9b) e del progetto (9c) sono
+    arrivate con le loro fette.
 
 - **F3 renderer, i webhook in uscita nell'app** *(94, 18 nov 2026)*:
   - il server non ricorda l'ultima prova di un webhook (`POST …/test` dice

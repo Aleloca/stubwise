@@ -192,13 +192,34 @@ describe("il registro delle modifiche dal server (area 9, F2)", () => {
     ]);
   });
 
-  it("«By Claude» non ha ancora voci sul server (F7): nessuna chiamata, nessuna voce", async () => {
-    const { api, queries } = fakeApi();
-    expect(await createRealChangelog(api).listChangesPage({ via: "claude" })).toEqual({
-      entries: [],
-      nextCursor: null,
+  it("F7: «By Claude» chiede al server ?via=claude, e la voce dice che l'ha fatta Claude", async () => {
+    const { api, queries } = fakeApi({
+      list: async (q) => {
+        queries.push(q);
+        return { entries: [entry({ via: "claude" })], nextCursor: null } as never;
+      },
     });
-    expect(queries).toEqual([]);
+    const page = await createRealChangelog(api).listChangesPage({ via: "claude" });
+    expect(queries).toEqual([{ via: "claude" }]);
+    expect(page.entries[0]).toMatchObject({ via: "claude", undoOf: null });
+    // Una voce a mano non ha `via`.
+    const hand = await createRealChangelog(withEntries(entry({})).api).listChangesPage();
+    expect(hand.entries[0]!.via).toBeUndefined();
+  });
+
+  it("F7: «Undid…» porta la voce annullata (undoneEntry, solo se chi guarda la legge)", async () => {
+    const undone = entry({ id: "88888888-8888-4888-8888-888888888888", via: "claude" });
+    const { api } = withEntries(
+      entry({ via: "claude", undoOf: undone.id, undoneEntry: undone }),
+      entry({ id: "99999999-9999-4999-8999-999999999999", undoOf: null, undoneEntry: null }),
+    );
+    const [undo, plain] = (await createRealChangelog(api).listChangesPage()).entries;
+    expect(undo).toMatchObject({
+      undoOf: undone.id,
+      undoneEntry: { id: undone.id, via: "claude" },
+    });
+    expect(plain!.undoOf).toBeNull();
+    expect(plain!.undoneEntry).toBeUndefined();
   });
 
   it("il registro di un progetto: 404 è not_found, 403 è forbidden, come il prototipo", async () => {
@@ -218,7 +239,7 @@ describe("il registro delle modifiche dal server (area 9, F2)", () => {
     );
   });
 
-  it("le scelte dei filtri: dal server, «By Claude» spento finché non c'è (F7)", async () => {
+  it("le scelte dei filtri: dal server, «By Claude» compreso (F7, `claude`); senza il campo, spento", async () => {
     expect(await createRealChangelog(fakeApi().api).listChangeFilterChoices()).toEqual({
       everything: true,
       people: [{ personId: MARCO, name: "Marco Bellini" }],
@@ -226,6 +247,16 @@ describe("il registro delle modifiche dal server (area 9, F2)", () => {
       groups: ["people", "roles"],
       claude: false,
     });
+    const withClaude = fakeApi({
+      filters: async () => ({
+        everything: true,
+        people: [],
+        projects: [],
+        groups: [],
+        claude: true,
+      }),
+    });
+    expect((await createRealChangelog(withClaude.api).listChangeFilterChoices()).claude).toBe(true);
   });
 
   // Area 9, F5: i tipi della 9c (impostazioni del progetto), coi prima/dopo in

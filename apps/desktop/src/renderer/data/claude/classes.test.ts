@@ -229,14 +229,18 @@ describe("classOf: le altre voci", () => {
       cls: "C",
       reasons: [{ kind: "irreversible" }, { kind: "reauth" }],
     });
-    expect(classOf(ROBERTA, { fn: "saveStorage", args: {} })).toEqual({
-      cls: "C",
-      reasons: [{ kind: "reauth" }],
+    // La classe segue la rotta (decisione del maintainer in F7): senza chiave, storage è B.
+    expect(classOf(ROBERTA, { fn: "saveStorage", args: {} })).toEqual({ cls: "B", reasons: [] });
+    // Anche con una chiave negli argomenti: la voce la rifiuta prima (invalid), non chiede il codice (review F7, M2).
+    expect(classOf(ROBERTA, { fn: "saveStorage", args: { secretAccessKey: "x" } })).toEqual({
+      cls: "B",
+      reasons: [],
     });
-    // Cambiare l'URL di un webhook vuole la riconferma (maintainer, 18 nov 2026), come la chiave di saveStorage.
-    expect(classOf(ROBERTA, { fn: "updateWebhook", args: {} })).toEqual({
-      cls: "C",
-      reasons: [{ kind: "reauth" }],
+    // Un webhook: B. L'URL (che vorrebbe la riconferma) da Claude non arriva (72, F7).
+    const w = state.instance.webhooks[0]!;
+    expect(classOf(ROBERTA, { fn: "updateWebhook", args: { id: w.id, enabled: false } })).toEqual({
+      cls: "B",
+      reasons: [],
     });
     expect(classOf(ROBERTA, { fn: "registerPlugin", args: {} })).toEqual({
       cls: "C",
