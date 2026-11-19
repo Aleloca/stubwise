@@ -117,6 +117,9 @@ const TASK_CODE = /^[A-Z][A-Z0-9]*-\d+$/;
 const REQUEST_CODE = /^[A-Z][A-Z0-9]*-R\d+$/;
 const DRIVE_CODE = /^[A-Z][A-Z0-9]*-F\d+$/;
 const RELEASE_CODE = /^[A-Z][A-Z0-9]*-V\d+$/;
+/** Area 10, F1: un'automazione di progetto (`AUD-A3`) o generale (`AUT-4`, `insertAutomation`); un server (`SRV-12`). */
+const AUTOMATION_CODE = /^(?:[A-Z][A-Z0-9]*-A\d+|AUT-\d+)$/;
+const SERVER_CODE = /^SRV-\d{1,9}$/;
 
 /**
  * La nota FISSA che accompagna il testo dei file del Drive (area 5, fetta 3):
@@ -208,6 +211,10 @@ export function chatServerPaths(tool: ChatReadToolName, args: Args): string[] {
     }
     case "read_project_members":
       return [`/api/projects/${seg(projectArg(args, true)!)}/members/view`];
+    case "read_automation":
+      return [`/api/automations/${seg(codeArg(args, AUTOMATION_CODE, "AUD-A3"))}`];
+    case "read_server":
+      return [`/api/servers/by-code/${seg(codeArg(args, SERVER_CODE, "SRV-12"))}`];
     case "read_instance_settings": {
       const section = str(args["section"]);
       if (section === undefined || !(CHAT_INSTANCE_SECTIONS as readonly string[]).includes(section)) {
@@ -289,7 +296,66 @@ function compact(value: unknown): unknown {
  * per nome; le EMAIL restano fuori (decisione dell'orchestratrice, 10 nov 2026).
  */
 const PERSON_FIELDS = ["id", "name", "initials", "departmentIds", "deactivated", "isClaude", "claudeAssignableProjectIds"] as const;
+/**
+ * Area 10, F1: un passo di un'automazione, in breve e in ALLOWLIST. Dell'email
+ * solo l'oggetto (destinatari e corpo no: possono portare indirizzi e testo
+ * del cliente), di Claude niente (il prompt resta nel costruttore). I passi
+ * annidati (condizione, «per ogni», «ripeti») seguono la stessa regola.
+ */
+const STEP_FIELDS: Record<string, readonly string[]> = {
+  createTask: ["title"],
+  createRequest: ["title"],
+  createMilestone: ["name"],
+  notify: ["who", "text"],
+  sendEmail: ["subject"],
+  condition: ["when"],
+  forEach: ["list", "as"],
+  repeatUntil: [],
+  wait: [],
+  claude: [],
+  startAutomation: [],
+};
+function stepBrief(step: unknown): Record<string, unknown> {
+  const s = (step ?? {}) as Record<string, unknown>;
+  const kind = typeof s["kind"] === "string" ? s["kind"] : "unknown";
+  const out: Record<string, unknown> = { id: s["id"], kind, ...pick(s, STEP_FIELDS[kind] ?? []) };
+  for (const nested of ["then", "else", "steps"] as const) {
+    if (Array.isArray(s[nested])) out[nested] = (s[nested] as unknown[]).map(stepBrief);
+  }
+  return out;
+}
+/** L'inizio: tipo, evento, filtro, regola dell'orario. Niente id di sorgente. */
+const triggerBrief = (t: unknown) => pick(t, ["kind", "event", "filter", "rule"]);
+
+function automationResult(json: unknown): unknown {
+  const view = (json ?? {}) as { automation?: Record<string, unknown>; runs?: unknown };
+  const a = view.automation ?? {};
+  const versions = Array.isArray(a["versions"]) ? (a["versions"] as Record<string, unknown>[]) : [];
+  const last = versions.at(-1);
+  const flow = (last?.["flow"] ?? {}) as { trigger?: unknown; steps?: unknown };
+  return {
+    ...pick(a, ["code", "name", "description", "projectId", "status", "hasDraft", "lastRunAt", "openRuns", "waitingRuns", "configErrorCount", "liveErrorCount", "createdAt"]),
+    lastVersionIsDraft: last ? last["publishedAt"] == null : null,
+    trigger: triggerBrief(flow.trigger),
+    steps: Array.isArray(flow.steps) ? flow.steps.map(stepBrief) : [],
+    runs: pickAll(Array.isArray(view.runs) ? view.runs.slice(0, 5) : [], ["code", "status", "startedAt", "endedAt"]),
+  };
+}
+
+function serverResult(json: unknown): unknown {
+  const s = (json ?? {}) as Record<string, unknown>;
+  return {
+    ...pick(s, ["code", "name", "hostname", "status", "health", "lastSeenAt", "agentVersion", "checksUp", "checksDown", "metricsAt", "ssh"]),
+    projects: pickAll(s["projects"], ["code", "name"]),
+    productionProjects: pickAll(s["productionProjects"], ["code", "name"]),
+    services: pickAll(s["services"], ["name", "kind", "status"]),
+    checks: pickAll(s["checks"], ["name", "type", "enabled", "lastStatus", "downSince"]),
+  };
+}
+
 export function projectToolResult(tool: ChatReadToolName, json: unknown, path = ""): unknown {
+  if (tool === "read_automation") return automationResult(json);
+  if (tool === "read_server") return serverResult(json);
   // Area 9, F7: i membri senza email; i ruoli che si possono scegliere.
   if (tool === "read_project_members") {
     const view = (json ?? {}) as { members?: unknown; roleChoices?: unknown; canManage?: unknown };

@@ -34,7 +34,7 @@ describe("il ponte dei tool della chat", () => {
     expect([...INSTANCE_SECTIONS]).toEqual([...CHAT_INSTANCE_SECTIONS]);
     const P = "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01";
     for (const tool of CHAT_READ_TOOLS) {
-      const code = tool === "read_request" ? "AUD-R1" : tool === "read_drive_file" ? "AUD-F1" : tool === "read_release" ? "AUD-V1" : "AUD-1";
+      const code = tool === "read_request" ? "AUD-R1" : tool === "read_drive_file" ? "AUD-F1" : tool === "read_release" ? "AUD-V1" : tool === "read_automation" ? "AUD-A1" : tool === "read_server" ? "SRV-1" : "AUD-1";
       expect(chatServerPaths(tool, { code, projectId: P, query: "q", repositoryId: P, slug: "s", section: "providers" }).length).toBeGreaterThan(0);
     }
   });
@@ -395,5 +395,82 @@ describe("sul sorgente del ponte", () => {
     expect(methods.sort()).toEqual(["GET", "POST"]);
     const fetchUrls = [...code.matchAll(/fetchImpl\(`\$\{serverUrl\}([^`]*)`/g)].map((m) => m[1]);
     expect(fetchUrls.sort()).toEqual(["${path}", "/api/claude/conversations/${seg(turn.sessionId)}/proposals"].sort());
+  });
+});
+
+describe("area 10, F1: `read_automation` e `read_server` — solo i campi in allowlist", () => {
+  const read = async (tool: string, args: Record<string, unknown>, answer: unknown) => {
+    const seen: string[] = [];
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL) => {
+      seen.push(new URL(String(url)).pathname);
+      return Response.json(answer);
+    });
+    bridge = await startChatBridge({ serverUrl: "http://server:3000", fetchImpl: fetchImpl as never });
+    const grant = bridge.grant({ sessionId: "s1", serverToken: "stw_chat_t" });
+    const body = (await (await call(bridge, grant.secret, tool, args)).json()) as { ok: boolean; text: string };
+    return { ...body, seen };
+  };
+
+  it("i percorsi per codice: A di progetto o AUT generale, SRV; il resto non parte", () => {
+    expect(chatServerPaths("read_automation", { code: "aud-a3" })).toEqual(["/api/automations/AUD-A3"]);
+    expect(chatServerPaths("read_automation", { code: "aut-4" })).toEqual(["/api/automations/AUT-4"]);
+    expect(chatServerPaths("read_server", { code: "srv-12" })).toEqual(["/api/servers/by-code/SRV-12"]);
+    for (const bad of ["AUD-12", "AUD-R3", "AUD-A", "../x", "AUD-A3/runs", ""]) expect(() => chatServerPaths("read_automation", { code: bad })).toThrow(ChatToolArgError);
+    for (const bad of ["SRV-", "AUD-1", "SRV-1/ssh", "srv-1234567890", ""]) expect(() => chatServerPaths("read_server", { code: bad })).toThrow(ChatToolArgError);
+  });
+
+  it("un server: stato, check (nome, tipo, esito), servizi e progetti; mai il target del check né il suo errore", async () => {
+    const P = "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01";
+    const { ok, text, seen } = await read("read_server", { code: "SRV-12" }, {
+      id: P, code: "SRV-12", name: "prod-1", hostname: "prod-1.internal", status: "online", health: "warning", lastSeenAt: "2026-11-19T10:00:00.000Z",
+      checksUp: 1, checksDown: 1, projects: [{ id: P, code: "AUD", name: "Audin" }], agentVersion: "1.2.0", alertThresholds: { cpu: 90 },
+      services: [{ name: "web", kind: "docker", status: "running", image: "acme/web:1" }],
+      checks: [
+        { id: P, serverId: P, type: "postgres", name: "DB", target: "postgres://u:SEGRETO@db/x", hasDsn: true, intervalSeconds: 60, enabled: true, lastStatus: "down", lastCheckedAt: null, lastLatencyMs: null, lastError: "FATAL password authentication failed", downSince: "2026-11-19T09:00:00.000Z", createdAt: "x" },
+      ],
+      episodes: [], productionProjects: [{ id: P, code: "AUD", name: "Audin" }], canManage: true, canStartAnalysis: true, ssh: { status: "verified", usable: true },
+    });
+    expect(ok).toBe(true);
+    expect(seen).toEqual(["/api/servers/by-code/SRV-12"]);
+    const r = JSON.parse(text) as Record<string, unknown> & { checks: Record<string, unknown>[] };
+    expect(r).toMatchObject({ code: "SRV-12", name: "prod-1", status: "online", health: "warning", checksDown: 1, ssh: { status: "verified", usable: true } });
+    expect(r.checks).toEqual([{ name: "DB", type: "postgres", enabled: true, lastStatus: "down", downSince: "2026-11-19T09:00:00.000Z" }]);
+    expect(text).toContain("web");
+    expect(text).not.toContain("SEGRETO");
+    expect(text).not.toContain("FATAL");
+    for (const k of ["id", "canManage", "canStartAnalysis", "alertThresholds"]) expect(r).not.toHaveProperty(k);
+  });
+
+  it("un'automazione: stato, inizio e passi in breve, ultime esecuzioni; mai destinatari e corpo delle email, né l'evento di un'esecuzione", async () => {
+    const P = "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01";
+    const flow = {
+      titleTemplate: "x",
+      trigger: { kind: "stubwise", event: "request_created", filter: { left: { ref: "richiesta.urgenza" }, op: "is", right: { value: "high" } } },
+      steps: [
+        { id: "s1", kind: "notify", who: { departmentId: P }, text: "Arriva una richiesta urgente" },
+        { id: "s2", kind: "sendEmail", to: "cliente@segreto.test", subject: "Ricevuta", body: "CORPO-SEGRETO" },
+        { id: "s3", kind: "condition", when: { left: { ref: "x" }, op: "is", right: { value: true } }, then: [{ id: "s4", kind: "createTask", title: "Richiama", description: "d" }], else: [] },
+      ],
+    };
+    const { ok, text } = await read("read_automation", { code: "AUD-A3" }, {
+      automation: {
+        id: P, code: "AUD-A3", name: "Urgenti", description: "Avvisa", projectId: P, ownerId: P, status: "active", createdAt: "x", mailbox: "casella@segreto.test", mailboxAccountId: P,
+        versions: [{ n: 1, flow, publishedAt: "2026-11-01T00:00:00.000Z", publishedById: P }],
+        permissions: { manage: true }, openRuns: 0, waitingRuns: 0, lastRunAt: "2026-11-18T00:00:00.000Z", hasDraft: false, configErrorCount: 0, liveErrorCount: 0,
+      },
+      configErrors: [], liveErrors: [],
+      runs: [{ id: P, code: "AUD-A3 #2", status: "succeeded", startedAt: "2026-11-18T00:00:00.000Z", endedAt: "2026-11-18T00:01:00.000Z", event: { richiesta: { titolo: "EVENTO-SEGRETO" } }, vars: {}, log: [], error: null }],
+    });
+    expect(ok).toBe(true);
+    const r = JSON.parse(text) as Record<string, unknown> & { trigger: unknown; steps: Record<string, unknown>[]; runs: unknown[] };
+    expect(r).toMatchObject({ code: "AUD-A3", name: "Urgenti", status: "active", hasDraft: false, lastRunAt: "2026-11-18T00:00:00.000Z" });
+    expect(r.trigger).toEqual(flow.trigger);
+    expect(r.steps).toEqual([
+      { id: "s1", kind: "notify", who: { departmentId: P }, text: "Arriva una richiesta urgente" },
+      { id: "s2", kind: "sendEmail", subject: "Ricevuta" },
+      { id: "s3", kind: "condition", when: flow.steps[2]!.when, then: [{ id: "s4", kind: "createTask", title: "Richiama" }], else: [] },
+    ]);
+    expect(r.runs).toEqual([{ code: "AUD-A3 #2", status: "succeeded", startedAt: "2026-11-18T00:00:00.000Z", endedAt: "2026-11-18T00:01:00.000Z" }]);
+    for (const secret of ["cliente@segreto.test", "CORPO-SEGRETO", "casella@segreto.test", "EVENTO-SEGRETO"]) expect(text).not.toContain(secret);
   });
 });

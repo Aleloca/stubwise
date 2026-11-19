@@ -190,6 +190,16 @@ export function buildChatMcpServer(config: ChatMcpConfig, fetchImpl: typeof fetc
     { code: z.string().min(1) },
   );
   register(
+    "read_automation",
+    "Read one automation by its code (e.g. AUD-A3, or AUT-4 for an instance-wide one): its start, its steps, whether it is on, its last runs.",
+    { code: z.string().min(1) },
+  );
+  register(
+    "read_server",
+    "Read one monitored server by its code (e.g. SRV-12): its status, its checks, its services, its projects.",
+    { code: z.string().min(1) },
+  );
+  register(
     "read_project_overview",
     "Read a project's latest weekly brief (generated text) and its decision log (facts recorded by people).",
     { projectId: z.string().min(1) },

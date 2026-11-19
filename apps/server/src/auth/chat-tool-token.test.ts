@@ -96,6 +96,34 @@ describe("il token del turno della chat", () => {
     expect(after!.at).not.toBeNull();
   });
 
+  it("area 10, F1: un'automazione e un server di un progetto che l'autore vede (`read_automation`, `read_server`), 404 a quelli nascosti; la lettura NON segna la conversazione", async () => {
+    const { automations, automationVersions, servers, projectEnvironments, environmentServers } = await import("@stubwise/db");
+    const projectOf = async (repo: string) => (await t.db.execute<{ project_id: string; code: string }>(sql`select r.project_id, p.code from repositories r join projects p on p.id = r.project_id where r.id = ${repo}`))[0]!;
+    const seenP = await projectOf(seenRepo);
+    const hiddenP = await projectOf(hiddenRepo);
+    const flow = { titleTemplate: "x", trigger: { kind: "manual" }, steps: [] };
+    for (const [p, n] of [[seenP, 71], [hiddenP, 72]] as const) {
+      const [a] = await t.db.insert(automations).values({ code: `${p.code}-A${n}`, seq: n, name: "Auto", description: "", projectId: p.project_id, status: "draft", createdBy: u.adminId }).returning();
+      await t.db.insert(automationVersions).values({ automationId: a!.id, n: 1, flow: flow as never, savedBy: u.adminId, rev: 1 });
+    }
+    const mkServer = async (p: { project_id: string }, repo: string, name: string) => {
+      const [srv] = await t.db.insert(servers).values({ name, keyHash: `h-${name}` }).returning();
+      const [env] = await t.db.insert(projectEnvironments).values({ projectId: p.project_id, name: "production", kind: "production" }).returning();
+      await t.db.insert(environmentServers).values({ environmentId: env!.id, repositoryId: repo, serverId: srv!.id });
+      return `SRV-${srv!.number}`;
+    };
+    const seenServer = await mkServer(seenP, seenRepo, "visto");
+    const hiddenServer = await mkServer(hiddenP, hiddenRepo, "nascosto");
+    const sessionId = await conversationOf(author.headers.cookie);
+    const token = await issueChatToolToken(t.db, { sessionId, userId: author.id, ttlMs: 60_000 });
+    expect((await get(`/api/automations/${seenP.code}-A71`, token)).statusCode).toBe(200);
+    expect((await get(`/api/automations/${hiddenP.code}-A72`, token)).statusCode).toBe(404);
+    expect((await get(`/api/servers/by-code/${seenServer}`, token)).statusCode).toBe(200);
+    expect((await get(`/api/servers/by-code/${hiddenServer}`, token)).statusCode).toBe(404);
+    const [row] = await t.db.select({ at: claudeConversations.untrustedReadAt }).from(claudeConversations).where(eq(claudeConversations.sessionId, sessionId));
+    expect(row!.at).toBeNull();
+  });
+
   it("solo GET e solo l'allowlist: altre GET, scritture e rotte di credenziale sono rifiutate", async () => {
     const sessionId = await conversationOf(author.headers.cookie);
     const token = await issueChatToolToken(t.db, { sessionId, userId: author.id, ttlMs: 60_000 });

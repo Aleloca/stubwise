@@ -59,6 +59,15 @@ export const CHAT_TOOL_READ_ROUTES: ReadonlySet<string> = new Set([
   "/api/settings/models",
   "/api/settings/automation",
   "/api/settings/instance",
+  // Area 10, F1 (`read_automation`): un'automazione per codice, con la
+  // visibilità della rotta (404 a chi non vede il progetto). Il ponte passa al
+  // modello solo i campi in allowlist: niente destinatari né corpo delle email,
+  // niente casella, niente evento delle esecuzioni.
+  "/api/automations/:code",
+  // Area 10, F1 (`read_server`): un server del monitoraggio per codice, per chi
+  // lo vede. Il ponte toglie il `target` dei check (per i DSN è la stringa del
+  // database) e il loro `lastError`.
+  "/api/servers/by-code/:code",
 ]);
 
 /**
