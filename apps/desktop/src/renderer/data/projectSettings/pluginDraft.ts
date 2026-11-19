@@ -81,9 +81,9 @@ export const pluginChoosable = (p: PluginRow): boolean => !p.base && p.status ==
 /** Le chiavi spente di un plugin della vista. */
 function offKeysOfPlugin(p: PluginRow): string[] {
   return [
-    ...(p.on ? [] : [pluginKey(p.name)]),
-    ...p.skills.filter((s) => !s.enabled).map((s) => pluginSkillKey(p.name, s.name)),
-    ...p.hooks.filter((h) => !h.enabled).map((h) => pluginHookKey(p.name, h.key)),
+    ...(p.on ? [] : [pluginKey(p.slug)]),
+    ...p.skills.filter((s) => !s.enabled).map((s) => pluginSkillKey(p.slug, s.name)),
+    ...p.hooks.filter((h) => !h.enabled).map((h) => pluginHookKey(p.slug, h.key)),
   ];
 }
 
@@ -102,24 +102,24 @@ export function pluginDisabledInput(
   keys: ReadonlySet<string>,
 ): ProjectPluginChoices["disabled"] {
   return view.plugins.filter(pluginChoosable).map((p) => ({
-    plugin: p.name,
-    skills: p.skills.filter((s) => keys.has(pluginSkillKey(p.name, s.name))).map((s) => s.name),
-    hookGroups: p.hooks.filter((h) => keys.has(pluginHookKey(p.name, h.key))).map((h) => h.key),
+    plugin: p.slug,
+    skills: p.skills.filter((s) => keys.has(pluginSkillKey(p.slug, s.name))).map((s) => s.name),
+    hookGroups: p.hooks.filter((h) => keys.has(pluginHookKey(p.slug, h.key))).map((h) => h.key),
   }));
 }
 
 /** I plugin da accendere, da una bozza: i `ready` del registro la cui chiave non è fra le spente. */
 export function pluginEnabledInput(view: ProjectPluginsView, keys: ReadonlySet<string>): string[] {
   return view.plugins
-    .filter((p) => pluginChoosable(p) && !keys.has(pluginKey(p.name)))
-    .map((p) => p.name);
+    .filter((p) => pluginChoosable(p) && !keys.has(pluginKey(p.slug)))
+    .map((p) => p.slug);
 }
 
 /** Le chiavi del preset di un plugin che il suo inventario ha davvero. */
 const presetKeys = (p: PluginRow): string[] =>
   (p.preset ?? [])
     .filter((name) => p.skills.some((s) => s.name === name))
-    .map((name) => pluginSkillKey(p.name, name));
+    .map((name) => pluginSkillKey(p.slug, name));
 
 /**
  * Il preset consigliato sulla bozza ([PG 3]): spegne le sue skill e non

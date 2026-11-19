@@ -8,6 +8,7 @@ import {
   useConfirmEnrollment,
   useCreateGitAccount,
   useCreateInvite,
+  useCreateProject,
   useCreatePasswordResetLink,
   useCreateProvider,
   useCreateWebhook,
@@ -56,6 +57,9 @@ const SECRET_HOOKS: Record<string, () => { mutateAsync: (v: never) => Promise<un
   // uscita nel risultato, alla creazione e alla rigenerazione.
   useCreateWebhook: () => useCreateWebhook(),
   useRegenerateOutgoingWebhookSecret: () => useRegenerateOutgoingWebhookSecret(),
+  // Integrazione area 9, F5 (review, C1): la chiave d'ingestione intera nel
+  // risultato della creazione del progetto, l'unica volta.
+  useCreateProject: () => useCreateProject(),
 };
 
 describe("segreti nelle mutazioni d'amministrazione e della riconferma", () => {

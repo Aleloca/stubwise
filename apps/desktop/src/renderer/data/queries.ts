@@ -1476,6 +1476,9 @@ export function useCreateProject() {
   return useMutation({
     mutationFn: api.createProject,
     onSettled: () => Promise.all([invalidate(), client.invalidateQueries({ queryKey: ["viewer"] })]),
+    // Area 9, F5 (review, C1): il risultato porta la chiave d'ingestione
+    // intera, l'unica volta; la cache delle mutazioni non la tiene.
+    gcTime: 0,
   });
 }
 
