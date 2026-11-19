@@ -1,4 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
+import { hasQuestionEvents, questionEventsOf, readQuestions } from "./claudeQuestions";
 import { withSettledTrialEvents } from "./claudeTrial";
 import {
   REFINE_TOOL_NAMES,
@@ -549,10 +550,16 @@ async function readConversation(
     // L'autore prima delle viste delle proposte: è il loro richiedente (fetta 5).
     rememberConversationOwner(id, conversation.author?.id ?? "");
     const [events, actions, people] = await Promise.all([readEvents(id), readChatActions(id), listPeople()]);
+    const questions = hasQuestionEvents(events) ? await readQuestions(id) : [];
     const nameOf = (personId: string) => people.find((p) => p.id === personId)?.name ?? null;
     // Le schede e le righe delle azioni di Claude (fetta 3): derivate dalle viste del server.
     // Area 10, F2: dopo un'automazione creata, la riga della prova (fatta qui, per l'autore).
-    const extra = await withSettledTrialEvents(chatActionEvents(events, actions), actions.groups, isConversationOwner(id));
+    // Area 10, F2: le domande a scelta, nel punto dei loro eventi.
+    const extra = await withSettledTrialEvents(
+      [...chatActionEvents(events, actions), ...questionEventsOf(events, questions)],
+      actions.groups,
+      isConversationOwner(id),
+    );
     const flow = withChatActionEvents(eventsOf(conversation.session, events, {}, null), extra);
     return {
       ...freeDetailOf(conversation, flow),

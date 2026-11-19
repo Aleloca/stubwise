@@ -1,4 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
+import { hasQuestionEvents, questionEventsOf, readQuestions } from "./claudeQuestions";
 import { withTrialEvents } from "./claudeTrial";
 import {
   AGENT_STREAM_MAX_BYTES,
@@ -232,6 +233,12 @@ interface SessionState {
    */
   actions: ChatActions | null;
   actionsSig: string;
+  /**
+   * Area 10, F2: le domande a scelta della libera, rilette quando arriva un
+   * evento `question` o un messaggio della persona (una risposta) nuovo.
+   */
+  questions: Awaited<ReturnType<typeof readQuestions>> | null;
+  questionsSig: string;
 }
 
 /** Per persona e sessione: lo stato di una non passa a chi entra dopo. */
@@ -259,6 +266,8 @@ function stateFor(id: string): SessionState {
       listeners: 0,
       actions: null,
       actionsSig: "",
+      questions: null,
+      questionsSig: "",
     };
   }
   sessions.set(key, state);
@@ -410,7 +419,12 @@ export const subscribe: typeof Fake.subscribe = (conversationId, onEvent, option
         ? withChatActionEvents(
             base,
             // Area 10, F2: la riga della prova; finita, si riemette.
-            withTrialEvents(chatActionEvents(state.raw, state.actions), state.actions.groups, isConversationOwner(conversationId), () => emit()),
+            withTrialEvents(
+              [...chatActionEvents(state.raw, state.actions), ...questionEventsOf(state.raw, state.questions ?? [])],
+              state.actions.groups,
+              isConversationOwner(conversationId),
+              () => emit(),
+            ),
           )
         : base;
     for (const e of flow) {
@@ -420,6 +434,25 @@ export const subscribe: typeof Fake.subscribe = (conversationId, onEvent, option
       emitted.set(e.id, json);
       onEvent(e as ConversationEvent, before === undefined ? "append" : "update");
     }
+  };
+
+  /** Le domande della libera, rilette a ogni domanda o risposta nuova; una risposta arrivata tardi si scarta. */
+  const readQuestionList = () => {
+    if (state.detail?.kind !== "free" || !hasQuestionEvents(state.raw)) return;
+    const sig = state.raw
+      .filter((e) => (e.type as string) === "question" || e.type === "input")
+      .map((e) => e.id)
+      .join(",");
+    if (!sig.length || (sig === state.questionsSig && state.questions)) return;
+    state.questionsSig = sig;
+    void readQuestions(conversationId).then(
+      (questions) => {
+        if (state.questionsSig !== sig) return;
+        state.questions = questions;
+        emit();
+      },
+      () => undefined,
+    );
   };
 
   /**
@@ -482,6 +515,7 @@ export const subscribe: typeof Fake.subscribe = (conversationId, onEvent, option
       }
     }
     readActions();
+    readQuestionList();
     emit();
   };
 

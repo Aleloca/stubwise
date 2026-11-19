@@ -1,4 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
+import { answerFreeQuestion } from "./claudeQuestions";
 import type { ClaudeDecisionView, Reader } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { ClaudeDecision, Conversation } from "../../types";
@@ -151,6 +152,8 @@ export const revokePlanApproval: typeof Fake.revokePlanApproval = async (id) => 
 
 /** La risposta alla domanda APERTA (409 `question_not_pending` se nel frattempo non lo è più). */
 export const answerQuestion: typeof Fake.answerQuestion = async (id, questionId, answer) => {
+  // Area 10, F2: una domanda di Claude nella libera, sulla rotta della conversazione.
+  if (isFreeConversation(id)) return answerFreeQuestion(id, questionId, answer);
   const body = answer.optionIndex !== null ? { optionIndex: answer.optionIndex } : { text: answer.text ?? "" };
   await appClient().tickets.answerQuestion(await ticketOf(id), questionId, body);
 };

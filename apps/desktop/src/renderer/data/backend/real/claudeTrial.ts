@@ -217,8 +217,7 @@ export function forgetTrials(): void {
 
 /** Il codice dell'automazione che il gruppo ha creato, se ne ha creata una. */
 function createdCodeOf(g: GroupView | undefined): string | null {
-  // Come stringa: la voce entra nell'enum condiviso col Task 2 di F2 (72).
-  const a = g?.actions.find((x) => (x.fn as string) === "createAutomation");
+  const a = g?.actions.find((x) => x.fn === "createAutomation");
   return a?.codes[0] ?? null;
 }
 
