@@ -10,7 +10,7 @@ import {
   users,
   type Db,
 } from "@stubwise/db";
-import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { t } from "@stubwise/i18n";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -66,7 +66,7 @@ afterEach(async () => {
   await db.delete(googleAccounts);
   await db.delete(googleWorkspaces);
   await db.delete(notifications);
-  await db.delete(projects);
+  await deleteAllProjects(db);
   await db.delete(users);
   vi.restoreAllMocks();
 });

@@ -1,5 +1,5 @@
 import { aiJobs, projects, repositories, tickets, type Db } from "@stubwise/db";
-import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createGenerationWorktreeRegistry } from "./docs/recursive/registry.js";
@@ -21,7 +21,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterEach(async () => {
-  await testDb.db.delete(projects);
+  await deleteAllProjects(testDb.db);
 });
 
 afterAll(async () => {

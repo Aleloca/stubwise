@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { aiJobs, backlogItems, backlogJobs, milestones, projects, type Db } from "@stubwise/db";
-import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { executeAutoCalendarAction } from "./calendar-auto.js";
@@ -28,7 +28,7 @@ afterEach(async () => {
   await db.delete(aiJobs);
   await db.delete(backlogItems);
   await db.delete(milestones);
-  await db.delete(projects);
+  await deleteAllProjects(db);
 });
 
 afterAll(async () => {

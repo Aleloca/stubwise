@@ -13,7 +13,7 @@ import {
   tickets,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedRepository as seedRepositoryRaw, startTestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, seedRepository as seedRepositoryRaw, startTestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { buildApp } from "../app.js";
 import type { ChatAvailability, ChatLlm, ChatLlmInput } from "./chat-llm.js";
@@ -86,7 +86,7 @@ afterEach(async () => {
   await testDb.db.delete(backlogItems);
   await testDb.db.delete(aiJobs);
   await testDb.db.delete(tickets);
-  await testDb.db.delete(projects);
+  await deleteAllProjects(testDb.db);
 });
 
 /** Inserisce una voce di backlog nel progetto corrente e ne restituisce la riga. */

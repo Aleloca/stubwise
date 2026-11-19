@@ -17,7 +17,7 @@ import {
   type Db,
   type EmailProposalRow,
 } from "@stubwise/db";
-import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunOptions, AgentRunResult, AgentRunner } from "../agent/runner.js";
@@ -77,7 +77,7 @@ afterEach(async () => {
   await db.delete(googleWorkspaces);
   await db.delete(backlogItems);
   await db.delete(tickets);
-  await db.delete(projects);
+  await deleteAllProjects(db);
   await db.delete(users);
   // Il tetto di budget mensile (Task 6) vive sul singleton seedato dalle
   // migrazioni: chi lo tocca lo rimette a `null` (nessun tetto), il default.

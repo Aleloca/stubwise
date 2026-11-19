@@ -1,5 +1,5 @@
 import { pluginJobs, plugins, projectPlugins, projects, type Db } from "@stubwise/db";
-import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { PluginInventory } from "@stubwise/shared";
 import { and, eq } from "drizzle-orm";
 import { execa } from "execa";
@@ -50,7 +50,7 @@ const cleanups: Array<() => Promise<void>> = [];
 
 afterEach(async () => {
   await testDb.db.delete(plugins);
-  await testDb.db.delete(projects);
+  await deleteAllProjects(testDb.db);
   while (cleanups.length > 0) await cleanups.pop()?.();
 });
 

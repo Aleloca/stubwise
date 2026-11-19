@@ -1,8 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
-import { changeLog, plugins, projectPlugins, projects, type Db } from "@stubwise/db";
+import { changeLog, plugins, projectPlugins, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedRepository as seedRepositoryRaw, startTestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, seedRepository as seedRepositoryRaw, startTestDb } from "@stubwise/db/testing";
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -111,7 +111,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await testDb.db.delete(plugins);
-  await testDb.db.delete(projects);
+  await deleteAllProjects(testDb.db);
 });
 
 describe("autorizzazione e progetto", () => {

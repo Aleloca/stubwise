@@ -1,9 +1,9 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { projects, repoGraphs, repositories, type Db } from "@stubwise/db";
+import { repoGraphs, repositories, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedRepository, seedRepositoryInProject, startTestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, seedRepository, seedRepositoryInProject, startTestDb } from "@stubwise/db/testing";
 import { mirrorSlug } from "@stubwise/shared/mirror-slug";
 import { eq } from "drizzle-orm";
 import { execa } from "execa";
@@ -143,7 +143,7 @@ afterAll(async () => {
 
 afterEach(async () => {
   await testDb.db.delete(repoGraphs);
-  await testDb.db.delete(projects);
+  await deleteAllProjects(testDb.db);
 });
 
 describe("buildGraphContextBlock", () => {

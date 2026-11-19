@@ -138,6 +138,8 @@ describe("archivia e riapri (area 9, F6)", () => {
     expect(p.openAutomationRuns).toBe(2);
     expect(p.busy[0]).toEqual({ kind: "claude_session", code: "AUD-12", title: "Login", waiting: false, repository: null, paused: false });
     expect(p.busy[1]!.kind).toBe("__unknown__");
+    // Un server che non manda `publicSurfaces` (prima di questo campo): tutte spente.
+    expect(p.publicSurfaces).toEqual({ sdk: false, widget: false, inbound: false, gitWebhook: false });
     const { client, fetchImpl } = clientWith(null, 204);
     await client.projects.archive("p");
     expect(last(fetchImpl)).toMatchObject({ method: "POST", url: "/api/projects/p/archive" });
