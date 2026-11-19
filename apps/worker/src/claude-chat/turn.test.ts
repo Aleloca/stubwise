@@ -83,10 +83,11 @@ async function echo(o: AgentRunOptions) {
   });
 }
 
-async function seeded(opts: { cliSessionId?: string; archived?: boolean; author?: string } = {}) {
+async function seeded(opts: { cliSessionId?: string; archived?: boolean; author?: string; mention?: boolean } = {}) {
+  const kind = opts.mention ? "chat_mention" : "free";
   const [s] = await t.db
     .insert(agentSessions)
-    .values({ ownerKey: `free:${crypto.randomUUID()}`, kind: "free", title: "t" })
+    .values({ ownerKey: `${kind}:${crypto.randomUUID()}`, kind, title: "t" })
     .returning();
   await t.db.insert(claudeConversations).values({
     sessionId: s!.id,
@@ -171,6 +172,9 @@ describe("il turno della chat", () => {
     expect(o.resumeSessionId).toBeUndefined();
     expect(o.prompt).toContain("DO things only by PROPOSING them with propose_action");
     expect(o.prompt).toContain("- updateTask({ id: uuid, patch: {");
+    // Area 9, F7: Ada non ha permessi d'istanza, le voci d'istanza non le vede.
+    expect(o.prompt).not.toMatch(/^- setModel\(/m);
+    expect(o.prompt).toMatch(/^- addMember\(/m);
     expect(o.prompt).toContain("Ada");
     expect(cwdEmpty).toBe(true);
     // La cwd resta fra i turni: è quella con cui il CLI ritrova la sessione.
@@ -328,5 +332,23 @@ describe("il turno della chat", () => {
     const tokens = await tokensOf(s.sessionId);
     expect(tokens).toHaveLength(1);
     expect(tokens[0]!.revokedAt).not.toBeNull();
+  });
+});
+
+describe("le voci d'istanza nel prompt della MENZIONE (area 9, F7)", () => {
+  it("chi chiama @Claude nella Chat senza permessi d'istanza non vede setModel fra le firme; le voci di progetto sì", async () => {
+    const s = await seeded({ mention: true });
+    const { runner, calls } = fakeRunner([
+      async (o) => {
+        await echo(o);
+        return OK;
+      },
+    ]);
+    await runChatTurn(deps(runner), { ...s, signal: new AbortController().signal });
+    const o = calls[0]!;
+    // È davvero il contratto della Chat (non quello della conversazione).
+    expect(o.prompt).toContain("called you in a chat thread");
+    expect(o.prompt).not.toMatch(/^- setModel\(/m);
+    expect(o.prompt).toMatch(/^- addMember\(/m);
   });
 });

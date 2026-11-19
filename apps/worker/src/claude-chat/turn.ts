@@ -1,4 +1,4 @@
-import { aiBudgetState } from "@stubwise/notifications";
+import { aiBudgetState, instancePermissionsOfUser } from "@stubwise/notifications";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { and, eq, sql } from "drizzle-orm";
@@ -206,8 +206,9 @@ export async function runChatTurn(
     const mentionPriming = async () => {
       const language = await getContentLanguage(db);
       const call = await callInputText(db, sid);
-      if (call === null || call === opening.text) return buildChatMentionPrimingPrompt({ language, callerName }, opening.text);
-      return `${buildChatMentionPrimingPrompt({ language, callerName }, call)}\n\n${buildChatMentionAnswerPrompt(callerName, opening.text)}`;
+      const instancePermissions = await instancePermissionsOfUser(db, ownerId);
+      if (call === null || call === opening.text) return buildChatMentionPrimingPrompt({ language, callerName, instancePermissions }, opening.text);
+      return `${buildChatMentionPrimingPrompt({ language, callerName, instancePermissions }, call)}\n\n${buildChatMentionAnswerPrompt(callerName, opening.text)}`;
     };
     const priming = async () =>
       mention
@@ -215,6 +216,8 @@ export async function runChatTurn(
         : buildChatPrimingPrompt(
         {
           language: await getContentLanguage(db),
+          // Area 9, F7: le voci d'istanza solo a chi può proporle.
+          instancePermissions: await instancePermissionsOfUser(db, ownerId),
           authorName: conv.displayName?.trim() || conv.email.split("@")[0]!,
           context: (conv.conversation.contextRef as ClaudeConversationContext | null) ?? null,
           toolsAvailable: true,

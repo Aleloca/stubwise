@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { CHAT_MCP_SERVER_NAME, CHAT_READ_TOOLS, CHAT_TOOLS, CLAUDE_PROPOSABLE_FNS } from "@stubwise/shared";
-import { buildChatMcpServer, CHAT_SERVER_NAME, PROPOSABLE_FNS, UNTRUSTED_NOTE, UNTRUSTED_RELEASE_NOTE_MCP } from "../chat-mcp/server.js";
+import { CHAT_MCP_SERVER_NAME, CHAT_READ_TOOLS, CHAT_TOOLS, CLAUDE_PROPOSABLE_FNS, CHAT_INSTANCE_SECTIONS } from "@stubwise/shared";
+import { buildChatMcpServer, CHAT_SERVER_NAME, PROPOSABLE_FNS, UNTRUSTED_NOTE, UNTRUSTED_RELEASE_NOTE_MCP, INSTANCE_SECTIONS } from "../chat-mcp/server.js";
 import { ChatToolArgError, chatServerPaths, startChatBridge, UNTRUSTED_DOCUMENT_NOTE, UNTRUSTED_RELEASE_NOTE, type ChatBridge } from "./bridge.js";
 
 // Il ponte dei tool di lettura della chat (fetta 1): ogni tool diventa una o
@@ -31,11 +31,55 @@ describe("il ponte dei tool della chat", () => {
     })._registeredTools;
     expect(Object.keys(registered).sort()).toEqual([...CHAT_TOOLS].sort());
     expect([...PROPOSABLE_FNS]).toEqual([...CLAUDE_PROPOSABLE_FNS]);
+    expect([...INSTANCE_SECTIONS]).toEqual([...CHAT_INSTANCE_SECTIONS]);
     const P = "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01";
     for (const tool of CHAT_READ_TOOLS) {
       const code = tool === "read_request" ? "AUD-R1" : tool === "read_drive_file" ? "AUD-F1" : tool === "read_release" ? "AUD-V1" : "AUD-1";
-      expect(chatServerPaths(tool, { code, projectId: P, query: "q", repositoryId: P, slug: "s" }).length).toBeGreaterThan(0);
+      expect(chatServerPaths(tool, { code, projectId: P, query: "q", repositoryId: P, slug: "s", section: "providers" }).length).toBeGreaterThan(0);
     }
+  });
+
+  it("area 9, F7: read_project_members e read_instance_settings passano solo i campi in allowlist (niente email, segreti, ultime cifre, url)", async () => {
+    const P = "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01";
+    const answers: Record<string, unknown> = {
+      [`/api/projects/${P}/members/view`]: {
+        projectId: P,
+        canManage: true,
+        members: [{ personId: P, name: "Ada", email: "ada@segreto.test", status: "active", role: { id: P, name: "Developer", permissions: ["x"] }, granted: [] }],
+        roleChoices: [{ roleId: P, name: "Developer", permissionCount: 3, missing: [], block: null }],
+      },
+      "/api/ai-providers": [{ id: P, kind: "api_key", label: "Anthropic", enabled: true, position: 0, last4: "9z9z", secretSet: true, testError: "boom" }],
+      "/api/settings/webhooks": [{ id: P, name: "Hook", url: "https://hooks.example.com/T0KEN-nel-percorso", format: "generic", enabled: true, events: ["job.failed"], secretSet: true }],
+      "/api/settings/instance": { contentLanguage: "it", monthlyBudgetUsd: 10, s3Endpoint: "https://s3", s3AccessKey: "AKIA-SEGRETA", s3SecretKeySet: true, slackBotTokenSet: true, attachmentsEnabled: true },
+    };
+    const seen: string[] = [];
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL) => {
+      const path = new URL(String(url)).pathname;
+      seen.push(path);
+      return Response.json(answers[path] ?? {});
+    });
+    bridge = await startChatBridge({ serverUrl: "http://server:3000", fetchImpl: fetchImpl as never });
+    const grant = bridge.grant({ sessionId: "s1", serverToken: "stw_chat_t" });
+    const b = bridge!;
+    const text = async (tool: string, args: Record<string, unknown>) => ((await (await call(b, grant.secret, tool, args)).json()) as { text: string }).text;
+    const members = await text("read_project_members", { projectId: P });
+    expect(members).toContain("Developer");
+    expect(members).toContain("roleChoices");
+    expect(members).not.toContain("ada@segreto.test");
+    const providers = await text("read_instance_settings", { section: "providers" });
+    expect(providers).toContain("Anthropic");
+    expect(providers).not.toContain("9z9z");
+    expect(providers).not.toContain("boom");
+    const hooks = await text("read_instance_settings", { section: "webhooks" });
+    expect(hooks).toContain("Hook");
+    expect(hooks).not.toContain("T0KEN");
+    const inst = await text("read_instance_settings", { section: "instance" });
+    expect(inst).toContain("https://s3");
+    expect(inst).not.toContain("AKIA");
+    // Un campo che la lista nera di `compact` lascerebbe passare: lo toglie l'allowlist.
+    expect(inst).not.toContain("slackBotTokenSet");
+    expect(await text("read_instance_settings", { section: "vault" })).toMatch(/Invalid section/);
+    expect(seen).toEqual([`/api/projects/${P}/members/view`, "/api/ai-providers", "/api/settings/webhooks", "/api/settings/instance"]);
   });
 
   it("ogni tool è una GET di lettura sul server col token del turno", async () => {

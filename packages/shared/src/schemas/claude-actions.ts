@@ -435,8 +435,39 @@ const wrap = (t: string) => (t.includes(" | ") ? `(${t})` : t);
  * STESSI schemi che il server usa per validarle (`CLAUDE_ACTION_ARGS`): il
  * prompt della chat non le riscrive a mano, quindi non possono divergere.
  */
-export function claudeActionSignatures(): string {
-  return CLAUDE_PROPOSABLE_FNS.map(
+/**
+ * Area 9, F7: il permesso d'ISTANZA che una voce chiede (lo stesso di
+ * `config.access` della sua rotta; un test d'accordo del server lo confronta
+ * col catalogo). Le altre voci si valutano nel progetto, alla proposta.
+ */
+export const CLAUDE_INSTANCE_PERMISSION: Partial<Record<ClaudeActionFn, string>> = {
+  registerPlugin: "plugins.manage",
+  updatePluginRef: "plugins.manage",
+  rerunSmoke: "plugins.manage",
+  removePlugin: "plugins.manage",
+  setModel: "settings.manage",
+  saveBudget: "settings.manage",
+  saveStorage: "settings.manage",
+  saveAutomation: "settings.manage",
+  setProviderEnabled: "ai_providers.manage",
+  moveProvider: "ai_providers.manage",
+  updateGitAccount: "git_accounts.manage",
+  updateGoogleApp: "integrations.manage",
+  updateWebhook: "integrations.manage",
+};
+
+/**
+ * Le firme che il modello vede. Con `instancePermissions` (quelli di chi
+ * chiede) le voci d'istanza che non può proporre NON compaiono: il server le
+ * rifiuterebbe comunque, ma così Claude non le offre. Le voci di progetto
+ * restano: il permesso dipende dal progetto, e lo valuta il server.
+ */
+export function claudeActionSignatures(instancePermissions?: ReadonlySet<string>): string {
+  const allowed = (fn: ClaudeActionFn) => {
+    const needs = CLAUDE_INSTANCE_PERMISSION[fn];
+    return needs === undefined || instancePermissions === undefined || instancePermissions.has(needs);
+  };
+  return CLAUDE_PROPOSABLE_FNS.filter(allowed).map(
     (fn) => `- ${fn}(${signature(z.toJSONSchema(CLAUDE_ACTION_ARGS[fn], { io: "input", unrepresentable: "any" }) as JsonSchema)})`,
   ).join("\n");
 }

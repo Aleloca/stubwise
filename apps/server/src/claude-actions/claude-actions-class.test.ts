@@ -1,5 +1,5 @@
 import type { RouteOptions } from "fastify";
-import { CLAUDE_ACTION_FNS, CLAUDE_DECLARED_CLASS, CLAUDE_INVERSE_ONLY_FNS } from "@stubwise/shared";
+import { CLAUDE_ACTION_FNS, CLAUDE_DECLARED_CLASS, CLAUDE_INVERSE_ONLY_FNS, CLAUDE_INSTANCE_PERMISSION } from "@stubwise/shared";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { SERVER_CATALOG } from "./catalog.js";
@@ -59,5 +59,18 @@ describe("la classe C segue la rotta (area 9, F7, M-1 = a)", () => {
     expect(mismatches).toEqual([]);
     // Il test non gira a vuoto.
     expect(CLAUDE_ACTION_FNS.filter((f) => !CLAUDE_INVERSE_ONLY_FNS.includes(f)).length).toBeGreaterThan(10);
+  });
+});
+
+describe("il permesso d'istanza delle firme del prompt è quello del catalogo (area 9, F7)", () => {
+  it("una voce ha CLAUDE_INSTANCE_PERMISSION se e solo se il suo accesso è d'istanza, con lo stesso permesso", () => {
+    const mismatches: string[] = [];
+    for (const [fn, entry] of SERVER_CATALOG) {
+      const declared = CLAUDE_INSTANCE_PERMISSION[fn];
+      const actual = entry.access.kind === "instance" ? entry.access.permission : undefined;
+      if (declared !== actual) mismatches.push(`${fn}: firme ${String(declared)}, catalogo ${String(actual)}`);
+    }
+    expect(mismatches).toEqual([]);
+    expect(Object.keys(CLAUDE_INSTANCE_PERMISSION).length).toBeGreaterThan(10);
   });
 });
