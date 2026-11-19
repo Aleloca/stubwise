@@ -3666,6 +3666,26 @@ export function proposalActionArgs(
 }
 
 /**
+ * Se Claude, in questa conversazione, ha letto contenuti privati di chi
+ * chiede (area 10, review di F1, come il server): la posta o l'email nuova
+ * (il chip `mail`), una bozza di email (`mailBody`), un'automazione generale
+ * (il chip di una senza progetto). Si deriva dagli eventi a lettura. Calendario,
+ * canali privati e DM la libera del prototipo non li legge.
+ */
+function readsPrivateContent(conversationId: string): boolean {
+  return eventsOf(conversationId).some((e) => {
+    if (e.type === "draft") return e.field?.kind === "mailBody";
+    if (e.type !== "user" || !e.context) return false;
+    if (e.context.kind === "mail") return true;
+    if (e.context.kind === "automation") {
+      const automationId = e.context.automationId;
+      return state.automations.find((a) => a.id === automationId)?.projectId === null;
+    }
+    return false;
+  });
+}
+
+/**
  * Rende pubblica o privata una conversazione libera (l'autore). Pubblica
  * chiede prima di confermare i progetti che Claude ha letto o toccato:
  * senza `confirmedProjectIds` uguale all'elenco di adesso risponde
@@ -3685,6 +3705,9 @@ export async function setVisibility(
     c.privateFromIndex = null;
     c.publishedProjectIds = [];
   } else {
+    // Area 10 (review di F1, 46): ciò che Claude ha letto di privato resta di
+    // chi l'ha chiesto, quindi la conversazione non si pubblica più.
+    if (readsPrivateContent(id)) return { status: "private_content" };
     const touched = [...new Set(c.touchedProjectIds)].sort().join();
     const confirmed = [...new Set(options.confirmedProjectIds ?? [])].sort().join();
     if (options.confirmedProjectIds === undefined || touched !== confirmed) {
