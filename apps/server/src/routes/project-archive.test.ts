@@ -22,6 +22,7 @@ import {
   servers,
   tickets,
   users,
+  widgets,
   type Db,
 } from "@stubwise/db";
 import { seedEnvironment, seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
@@ -88,7 +89,7 @@ describe("archive-preview e busy (L-5 = a)", () => {
     await run(projectId, "done");
     const res = await call("GET", projectId, "archive-preview");
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ openAutomationRuns: 2, busy: [] });
+    expect(res.json()).toEqual({ openAutomationRuns: 2, busy: [], publicSurfaces: { sdk: false, widget: false, inbound: false, gitWebhook: false } });
   });
 
   it("ogni ragione: un job al lavoro, una review in corso, una sessione dal vivo (cieca se non la vedi), una generazione in pausa, un rilascio con le run aperte", async () => {
@@ -121,6 +122,24 @@ describe("archive-preview e busy (L-5 = a)", () => {
     expect(archive.json()).toMatchObject({ code: "busy", reasons: busy });
     expect((await projectOf(projectId)).archivedAt).toBeNull();
     expect(await entries(projectId, "project.archived")).toEqual([]);
+  });
+});
+
+describe("archive-preview: le superfici pubbliche che archiviare spegne", () => {
+  it("vere solo quando il progetto le usa davvero: SDK e ingresso recenti, widget acceso, webhook configurato", async () => {
+    const { projectId, repositoryId } = await seedRepository(db);
+    const surfaces = async () => ((await call("GET", projectId, "archive-preview")).json() as { publicSurfaces: Record<string, boolean> }).publicSurfaces;
+    // Un widget spento e un ticket SDK vecchio non contano.
+    await db.insert(widgets).values({ projectId, name: "Spento", key: `k-${randomUUID()}`, enabled: false });
+    const old = new Date(Date.now() - 120 * 86_400_000);
+    await db.insert(tickets).values({ projectId, number: seq++, title: "vecchio", type: "bug", priority: "medium", status: "triaged", source: "sdk_error", createdAt: old });
+    expect(await surfaces()).toEqual({ sdk: false, widget: false, inbound: false, gitWebhook: false });
+    await db.insert(tickets).values({ projectId, number: seq++, title: "errore", type: "bug", priority: "medium", status: "triaged", source: "sdk_feedback" });
+    expect(await surfaces()).toMatchObject({ sdk: true, widget: false, inbound: false, gitWebhook: false });
+    await db.insert(widgets).values({ projectId, name: "Acceso", key: `k-${randomUUID()}`, enabled: true });
+    await db.insert(tickets).values({ projectId, number: seq++, title: "dal form", type: "bug", priority: "medium", status: "triaged", source: "webhook" });
+    await db.update(repositories).set({ webhookConfiguredAt: new Date() }).where(eq(repositories.id, repositoryId));
+    expect(await surfaces()).toEqual({ sdk: true, widget: true, inbound: true, gitWebhook: true });
   });
 });
 

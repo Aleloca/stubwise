@@ -35,9 +35,10 @@ import {
   servers,
   tickets,
   users,
+  widgets,
   type Db,
 } from "@stubwise/db";
-import type { ArchivedProjectRow, ArchivedProjectView, ArchivePreview, BusyReason, DeletionCounts, DeletionPreview, ProjectPermission } from "@stubwise/shared";
+import type { ArchivedProjectRow, ArchivedProjectView, ArchivePreview, BusyReason, DeletionCounts, DeletionPreview, ProjectPermission, PublicSurfaces } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, sql, type SQL } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
 import { projectPermissionsMap } from "../auth/access.js";
@@ -178,7 +179,20 @@ export async function archivePreview(
     .from(automationRuns)
     .innerJoin(automations, eq(automations.id, automationRuns.automationId))
     .where(openRunsWhere(projectId));
-  return { openAutomationRuns: open?.n ?? 0, busy: await busyReasons(db, projectId, viewer, permissions) };
+  return { openAutomationRuns: open?.n ?? 0, busy: await busyReasons(db, projectId, viewer, permissions), publicSurfaces: await publicSurfaces(db, projectId) };
+}
+
+/** Le superfici pubbliche che il progetto usa davvero (la regola sta in `publicSurfacesSchema`). */
+const SURFACE_WINDOW_DAYS = 90;
+async function publicSurfaces(db: Db, projectId: string): Promise<PublicSurfaces> {
+  const since = sql`now() - make_interval(days => ${SURFACE_WINDOW_DAYS}::int)`;
+  const res = (await db.execute(sql`select
+    exists(select 1 from ${tickets} where ${tickets.projectId} = ${projectId} and ${tickets.source} in ('sdk_error', 'sdk_feedback') and ${tickets.createdAt} > ${since}) as sdk,
+    exists(select 1 from ${widgets} where ${widgets.projectId} = ${projectId} and ${widgets.enabled}) as widget,
+    exists(select 1 from ${tickets} where ${tickets.projectId} = ${projectId} and ${tickets.source} = 'webhook' and ${tickets.createdAt} > ${since}) as inbound,
+    exists(select 1 from ${repositories} where ${repositories.projectId} = ${projectId} and ${repositories.webhookConfiguredAt} is not null) as git_webhook`)) as unknown as { rows?: Record<string, boolean>[] } & Record<string, boolean>[];
+  const row = (res.rows ?? res)[0]!;
+  return { sdk: row.sdk === true, widget: row.widget === true, inbound: row.inbound === true, gitWebhook: row.git_webhook === true };
 }
 
 /**
