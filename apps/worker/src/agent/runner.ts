@@ -18,6 +18,7 @@
 
 import type { AgentSegmentLabel, AiOperation } from "@stubwise/shared";
 import type { ResolvedProvider } from "../providers/chain.js";
+import type { RateLimitInfo } from "./rate-limit-event.js";
 
 /**
  * Un singolo server MCP **stdio** locale al run: il CLI lo lancia come processo
@@ -216,6 +217,8 @@ export interface AgentRunOptions {
    * (ANTHROPIC_API_KEY se presente) o dall'OAuth del volume ~/.claude.
    */
   provider?: ResolvedProvider;
+  /** Chiamata (fire-and-forget) quando il CLI emette un rate_limit_event; `at` = istante d'arrivo. Solo StreamingClaudeRunner. */
+  onRateLimit?: (info: RateLimitInfo, at: Date) => void | Promise<void>;
   /** Vedi AgentRunSession. */
   session?: AgentRunSession;
   /**
