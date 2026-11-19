@@ -74,14 +74,15 @@ describe("area 9, F7: le B dell'istanza", () => {
     expect(Number((await instance()).monthlyBudgetUsd)).toBe(70);
   });
 
-  it("M-4: un segreto negli argomenti è rifiutato alla proposta (saveStorage, updateWebhook con l'url); senza, saveStorage salva e si annulla", async () => {
-    const withSecret = await propose([{ fn: "saveStorage", args: { endpoint: "https://s3.example", region: "eu", bucket: "b", accessKeyId: "AK", secretAccessKey: "x" } }]);
-    expect(withSecret.json()).toMatchObject({ status: "refused" });
-    const r = await run([{ fn: "saveStorage", args: { endpoint: "https://s3.example", region: "eu", bucket: "b", accessKeyId: "AK" } }]);
-    expect(r.res.statusCode).toBe(200);
-    expect(await instance()).toMatchObject({ s3Endpoint: "https://s3.example", s3Bucket: "b", s3AccessKey: "AK", s3SecretKeyEncrypted: null });
-    expect((await entries("storage.changed")).length).toBe(1);
-    expect((await undo(r.groupId!)).statusCode).toBe(200);
+  it("review di F7 (I1, I2): saveStorage NON è nel catalogo (endpoint e bucket decidono dove vanno i dati, come l'url di un webhook)", async () => {
+    for (const args of [
+      { endpoint: "https://s3.evil.example", region: "eu", bucket: "b", accessKeyId: "AK" },
+      { bucket: "altro" },
+    ]) {
+      // Non è una `fn` del catalogo: la richiesta stessa non passa (400), niente si propone.
+      const res = await propose([{ fn: "saveStorage", args }]);
+      expect(res.statusCode).toBe(400);
+    }
     expect(await instance()).toMatchObject({ s3Endpoint: null, s3Bucket: null });
   });
 

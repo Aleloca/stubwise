@@ -5312,7 +5312,7 @@ deploy o di un rollback che la tocca.
 - **«Integrazione area 9, F7: le azioni di Claude dell'area 9»** *(19 nov
   2026)*: branch `feat/area9-f7` (da `feat/integrazione-area9`), piano
   `docs/plans/2026-11-19-integrazione-area9-f7-plan.md` (M-1…M-8 = a).
-  Claude propone 24 voci nuove: le C dei membri e dei plugin, le B del
+  Claude propone 23 voci nuove: le C dei membri e dei plugin, le B del
   progetto, le B dell'istanza senza segreti. Una C si conferma SOLO con la
   riconferma di chi conferma. Il registro delle modifiche sa che una voce
   l'ha scritta Claude («By Claude») e quale voce annulla un «Annulla».
@@ -5347,15 +5347,17 @@ deploy o di un rollback che la tocca.
     CLAUDE.md): il contratto dice a Claude di proporlo solo se la persona ha
     scritto che si fida di quel repository e di quel commit.
   - **Nessun segreto passa da Claude** (M-4 = a): gli argomenti delle voci
-    d'istanza sono gli schemi delle rotte MENO i segreti, `strict`. Il secret
-    S3, le credenziali git, il secret Google e l'url di un webhook sono
-    rifiutati già alla proposta. La riconferma parziale di quelle rotte non
+    d'istanza sono gli schemi delle rotte MENO i segreti, `strict`. Le
+    credenziali git, il secret Google e l'url di un webhook sono rifiutati
+    già alla proposta. La riconferma parziale di quelle rotte non
     scatta mai da Claude. Le due letture nuove passano al modello solo campi
     in allowlist: niente segreti, ultime cifre, url dei webhook o chiave
     d'accesso S3.
-  - **Fuori, nel registro dei rimandi**: `setAttachments` (sul server gli
-    allegati non hanno un interruttore) e `setDefaultReviewer` (il PUT
-    verifica il token chiamando il provider). Nell'app Claude dice che si
+  - **Fuori, nel registro dei rimandi**: `saveStorage` (review di F7:
+    endpoint e bucket decidono dove vanno gli allegati, come l'url di un
+    webhook), `setAttachments` (sul server gli allegati non hanno un
+    interruttore) e `setDefaultReviewer` (il PUT verifica il token chiamando
+    il provider). Nell'app Claude dice che si
     fanno dalla pagina.
   - **«Annulla»** riporta lo stato di prima. Rifiuta (`changed_after`) se
     dopo Claude qualcuno ha salvato a mano la STESSA impostazione: lo guarda
@@ -5392,7 +5394,7 @@ deploy o di un rollback che la tocca.
     rifiuta (`invalid`). Prima di scendere si contano con `select
     count(distinct g.session_id) from claude_actions a join
     claude_action_groups g on g.id = a.group_id where a.fn in
-    ('addMember','removeMember','setMemberRole','registerPlugin','updatePluginRef','archiveProject','reopenProject','updateProjectGeneral','setProjectAi','saveProjectAutomations','pauseQueue','resumeQueue','retryJob','setModel','saveBudget','saveStorage','saveAutomation','setProviderEnabled','moveProvider','updateGitAccount','updateGoogleApp','rerunSmoke','removePlugin','updateWebhook');`
+    ('addMember','removeMember','setMemberRole','registerPlugin','updatePluginRef','archiveProject','reopenProject','updateProjectGeneral','setProjectAi','saveProjectAutomations','pauseQueue','resumeQueue','retryJob','setModel','saveBudget','saveAutomation','setProviderEnabled','moveProvider','updateGitAccount','updateGoogleApp','rerunSmoke','removePlugin','updateWebhook');`
     (e lo stesso su `claude_proposals.actions`). Se non è zero, quelle
     conversazioni restano illeggibili per il tempo del rollback;
   - il worker vecchio torna a elencare tutte le firme a tutti, senza le voci

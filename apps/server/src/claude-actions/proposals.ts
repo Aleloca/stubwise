@@ -506,7 +506,12 @@ export async function confirmProposal(
       : [...new Set(opts.selected)].filter((i) => i >= 0 && i < baseActions.length).sort((a, b) => a - b);
   if (!row.undoOfGroupId && selected.length === 0) return { ok: false, error: "invalid" };
   // La riconferma PRIMA di reclamare la riga: un 403 lascia la proposta aperta.
-  const reauthPlan = row.undoOfGroupId ? ((await undoInversesOf(db, user, row.undoOfGroupId)) ?? []) : selected.map((i) => baseActions[i]!);
+  // Review di F7 (I3): se lo stato del gruppo in questo momento non è
+  // «available» (un altro «Annulla» l'ha appena reclamato, e potrebbe
+  // rilasciarlo), si giudica sugli inversi SALVATI nella proposta, come
+  // `proposalView`: altrimenti la riconferma si salterebbe e `undoGroup` li
+  // eseguirebbe lo stesso, se intanto lo stato tornasse «available».
+  const reauthPlan = row.undoOfGroupId ? ((await undoInversesOf(db, user, row.undoOfGroupId)) ?? baseActions) : selected.map((i) => baseActions[i]!);
   if (reauthPlan.some((a) => declaredClassOf(a.fn) === "C") && !(opts.reauth && (await opts.reauth()))) {
     return { ok: false, error: "reauth_required" };
   }
