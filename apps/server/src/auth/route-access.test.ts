@@ -216,6 +216,7 @@ describe("rotte con riconferma recente", () => {
     const routes = (await registeredRoutes()).filter((r) => r.archived);
     expect(routes.filter((r) => r.kind !== "project").map((r) => r.key)).toEqual([]);
     expect(routes.map((r) => `${r.key} ${r.archived}`).sort()).toEqual([
+      "GET /api/projects/:projectId/archived-view read",
       "POST /api/projects/:projectId/archive write",
       "POST /api/projects/:projectId/reopen write",
     ]);

@@ -1,10 +1,11 @@
-import { archivePreviewSchema, archiveBusyErrorSchema } from "@stubwise/shared";
+import { archivedProjectRowSchema, archivedProjectViewSchema, archivePreviewSchema, archiveBusyErrorSchema } from "@stubwise/shared";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { routePermissions, type RouteAccess } from "../auth/access.js";
 import { fromParam } from "../auth/project-resolvers.js";
-import { ArchiveError, archivePreview, archiveProject, reopenProject } from "../services/project-archive.js";
+import { ArchiveError, archivedProjectView, archivePreview, archiveProject, listArchivedProjects, reopenProject } from "../services/project-archive.js";
+import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -26,6 +27,31 @@ async function sendArchiveError(reply: FastifyReply, error: unknown): Promise<Fa
 
 export async function projectArchiveRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+
+  // Letterale: registrata prima di ogni rotta `/:projectId` di questo plugin
+  // (la trappola di routing di CLAUDE.md). Per i membri di allora e i full
+  // admin, dal più recente; un estraneo riceve la lista vuota.
+  app.get(
+    "/archived",
+    { config: { access: { kind: "user" } }, schema: { response: { 200: z.array(archivedProjectRowSchema), ...authErrorResponses } } },
+    async (request) => listArchivedProjects(app.db, request.user!),
+  );
+
+  // La pagina dell'archiviato: passa su un archiviato (`config.archived:
+  // "read"`), per chi ne era membro e per i full admin; un progetto aperto è
+  // 404 come uno che non c'è.
+  app.get(
+    "/:projectId/archived-view",
+    {
+      config: { access: { kind: "project", permission: "member", project: fromParam("projectId") }, archived: "read" },
+      schema: { params, response: { 200: archivedProjectViewSchema, 404: errorSchema, ...authErrorResponses } },
+    },
+    async (request, reply) => {
+      const view = await archivedProjectView(app.db, request.user!, request.params.projectId);
+      if (!view) return apiError(reply, 404, "not_found", "Not found");
+      return view;
+    },
+  );
 
   app.get(
     "/:projectId/archive-preview",

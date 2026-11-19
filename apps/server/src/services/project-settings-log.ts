@@ -18,7 +18,7 @@ const sw = (on: boolean) => (on ? "on" : "off");
 const aiAccount = (id: string | null, exclusive: boolean) => (id === null ? "auto" : `account:${id}${exclusive ? ":exclusive" : ""}`);
 
 /** Le colonne degli interruttori e il nome che il prototipo dà loro (`PROJECT_SWITCHES`). */
-const SWITCHES = [
+export const SWITCHES = [
   ["docAutoUpdate", "docsNightly"],
   ["dailyReportEnabled", "dailyReport"],
   ["backlogEnabled", "backlogDiscovery"],

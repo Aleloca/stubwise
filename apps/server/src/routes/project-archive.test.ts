@@ -183,3 +183,88 @@ describe("archivia e riapri", () => {
     expect((await projectOf(projectId)).archivedAt).not.toBeNull();
   });
 });
+
+describe("le letture di un archiviato (Task 4)", () => {
+  async function archivedProject(opts: { name?: string } = {}) {
+    const { projectId, repositoryId } = await seedRepository(db);
+    if (opts.name) await db.update(projects).set({ name: opts.name }).where(eq(projects.id, projectId));
+    const lead = await member(projectId, "project_lead");
+    const dev = await member(projectId, "developer");
+    return { projectId, repositoryId, lead, dev };
+  }
+
+  it("GET /api/projects/archived: i membri di allora e i full admin, dal più recente, coi permessi calcolati dal server; un estraneo la lista vuota", async () => {
+    const first = await archivedProject();
+    const second = await archivedProject();
+    expect((await call("POST", first.projectId, "archive")).statusCode).toBe(204);
+    expect((await call("POST", second.projectId, "archive")).statusCode).toBe(204);
+    await member(second.projectId, "developer");
+    const list = async (cookie: string) => (await app.inject({ method: "GET", url: "/api/projects/archived", headers: { cookie } })).json() as Record<string, unknown>[];
+    const admin = (await list(adminCookie)).filter((r) => r.projectId === first.projectId || r.projectId === second.projectId);
+    expect(admin.map((r) => r.projectId)).toEqual([second.projectId, first.projectId]);
+    expect(admin[0]).toMatchObject({ canReopen: true, canDelete: true, archivedBy: expect.any(String), clientName: null });
+    expect((await list(first.lead.cookie)).map((r) => r.projectId)).toEqual([first.projectId]);
+    expect((await list(first.lead.cookie))[0]).toMatchObject({ canReopen: true, canDelete: false });
+    expect((await list(first.dev.cookie))[0]).toMatchObject({ canReopen: false, canDelete: false });
+    const { cookie: stranger } = await member((await seedRepository(db)).projectId, "project_lead");
+    expect(await list(stranger)).toEqual([]);
+  });
+
+  it("archivedBy è null quando chi ha archiviato non c'è più", async () => {
+    const p = await archivedProject();
+    expect((await call("POST", p.projectId, "archive", p.lead.cookie)).statusCode).toBe(204);
+    await db.delete(users).where(eq(users.id, p.lead.id));
+    const rows = (await app.inject({ method: "GET", url: "/api/projects/archived", headers: { cookie: adminCookie } })).json() as { projectId: string; archivedBy: string | null }[];
+    expect(rows.find((r) => r.projectId === p.projectId)!.archivedBy).toBeNull();
+  });
+
+  it("archived-view: descrizione, membri umani col ruolo, i dieci conteggi, i repository, gli interruttori com'erano, la cadenza del pulse", async () => {
+    const p = await archivedProject();
+    await db.update(projects).set({ description: "Il sito", weeklyBriefEnabled: true, pulseEveryDays: 5 }).where(eq(projects.id, p.projectId));
+    await ticket(p.projectId, "Una task");
+    await ticket(p.projectId, "Un'altra");
+    await run(p.projectId, "done");
+    const [agent] = await db.select({ id: users.id }).from(users).where(eq(users.isAgent, true));
+    const [r] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "developer"));
+    await db.insert(projectMembers).values({ projectId: p.projectId, userId: agent!.id, roleId: r!.id });
+    expect((await call("POST", p.projectId, "archive")).statusCode).toBe(204);
+    const res = await call("GET", p.projectId, "archived-view", p.dev.cookie);
+    expect(res.statusCode).toBe(200);
+    const view = res.json() as Record<string, unknown> & { members: { personId: string; role: string }[] };
+    expect(view).toMatchObject({
+      projectId: p.projectId,
+      description: "Il sito",
+      // Il canale del progetto nasce col progetto.
+      counts: { tasks: 2, requests: 0, docPages: 0, conversations: 0, channels: 1, driveFiles: 0, automations: 1, environments: 0, envFiles: 0, releases: 0 },
+      repositories: ["Repository di test"],
+      switchesOnReopen: { docsNightly: false, dailyReport: false, backlogDiscovery: false, pulse: false, weeklyBrief: true },
+      pulseEveryDays: 5,
+      canReopen: false,
+      canDelete: false,
+    });
+    expect(view.members.map((m) => m.personId).sort()).toEqual([p.lead.id, p.dev.id].sort());
+    expect(view.members.find((m) => m.personId === p.lead.id)!.role).toBe("Project Lead");
+  });
+
+  it("NEGATIVI: archived-view di un aperto è 404, di un estraneo 404; il membro di allora legge ma non scrive (409)", async () => {
+    const p = await archivedProject();
+    expect((await call("GET", p.projectId, "archived-view")).statusCode).toBe(404);
+    expect((await call("POST", p.projectId, "archive")).statusCode).toBe(204);
+    const { cookie: stranger } = await member((await seedRepository(db)).projectId, "project_lead");
+    expect((await call("GET", p.projectId, "archived-view", stranger)).statusCode).toBe(404);
+    expect((await call("GET", p.projectId, "archived-view", p.lead.cookie)).statusCode).toBe(200);
+    const patch = await app.inject({ method: "PATCH", url: `/api/projects/${p.projectId}`, headers: { cookie: p.lead.cookie }, payload: { name: "Nuovo" } });
+    expect(patch.statusCode).toBe(409);
+  });
+
+  it("il registro: le voci dell'archiviato si leggono filtrando il progetto, da chi lo vede da archiviato; non da un estraneo", async () => {
+    const p = await archivedProject();
+    expect((await call("POST", p.projectId, "archive", p.lead.cookie)).statusCode).toBe(204);
+    const log = async (cookie: string) => app.inject({ method: "GET", url: `/api/change-log?project=${p.projectId}`, headers: { cookie } });
+    const mine = await log(p.lead.cookie);
+    expect(mine.statusCode).toBe(200);
+    expect((mine.json() as { entries: { type: string }[] }).entries.map((e) => e.type)).toContain("project.archived");
+    const { cookie: stranger } = await member((await seedRepository(db)).projectId, "project_lead");
+    expect((((await log(stranger)).json() as { entries: unknown[] }).entries)).toEqual([]);
+  });
+});

@@ -4,21 +4,33 @@ import {
   automationRunInputs,
   automationRuns,
   automations,
+  backlogItems,
+  chatChannels,
+  claudeConversationProjects,
   docGenerations,
+  docPages,
+  driveFiles,
   prReviews,
+  projectEnvFiles,
+  projectEnvironments,
+  projectMembers,
   projects,
   releases,
   repositories,
+  roles,
   tickets,
+  users,
   type Db,
 } from "@stubwise/db";
-import type { ArchivePreview, BusyReason, ProjectPermission } from "@stubwise/shared";
-import { and, asc, eq, inArray, isNotNull, isNull, notInArray, sql } from "drizzle-orm";
+import type { ArchivedProjectRow, ArchivedProjectView, ArchivePreview, BusyReason, DeletionCounts, ProjectPermission } from "@stubwise/shared";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, sql, type SQL } from "drizzle-orm";
+import { projectPermissionsMap } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { OPEN_RUN_STATUSES } from "../automations/runs.js";
 import { LIVE_HEARTBEAT_SECONDS, visibleTo } from "./agent-sessions.js";
 import { recordChange } from "./change-log.js";
-import { projectObject } from "./project-settings-log.js";
+import { personName } from "./people.js";
+import { projectObject, SWITCHES } from "./project-settings-log.js";
 
 /**
  * Area 9, F6 (D-8): archivia e riapri un progetto (`design §F6`, il prototipo
@@ -195,4 +207,106 @@ export async function reopenProject(db: Db, viewer: Viewer, projectId: string): 
     await tx.update(projects).set({ archivedAt: null, archivedByUserId: null }).where(and(eq(projects.id, projectId), isNotNull(projects.archivedAt)));
     await recordChange(tx, { type: "project.reopened", actor: viewer, projectId, data: { object: projectObject(row) } });
   });
+}
+
+// ---------------------------------------------------------------------------
+// Le letture di un archiviato (Task 4): per i membri di allora e i full admin.
+// ---------------------------------------------------------------------------
+
+/**
+ * Gli archiviati che `viewer` vede, coi suoi permessi lì: quelli in cui ne
+ * era membro, tutti per un full admin. È la regola di «chi lo legge di
+ * proposito» (`archivedProjectIdsFor` del prototipo), in UN posto.
+ */
+export async function archivedPermissionsFor(db: Db, viewer: Viewer): Promise<Map<string, ReadonlySet<ProjectPermission>>> {
+  const [withArchived, open] = await Promise.all([
+    projectPermissionsMap(db, viewer, { includeArchived: true }),
+    projectPermissionsMap(db, viewer),
+  ]);
+  const out = new Map<string, ReadonlySet<ProjectPermission>>();
+  for (const [id, perms] of Object.entries(withArchived)) if (!(id in open)) out.set(id, new Set(perms));
+  return out;
+}
+
+async function rowsFor(db: Db, viewer: Viewer, perms: Map<string, ReadonlySet<ProjectPermission>>, ids: string[]): Promise<ArchivedProjectRow[]> {
+  if (ids.length === 0) return [];
+  const rows = await db
+    .select({ p: projects, byEmail: users.email, byName: users.displayName })
+    .from(projects)
+    .leftJoin(users, eq(users.id, projects.archivedByUserId))
+    .where(and(inArray(projects.id, ids), isNotNull(projects.archivedAt)))
+    .orderBy(desc(projects.archivedAt), asc(projects.code));
+  const fullAdmin = viewer.instancePermissions.has("instance.full_admin");
+  return rows.map(({ p, byEmail, byName }) => ({
+    projectId: p.id,
+    code: p.code,
+    name: p.name,
+    clientName: p.clientName ?? null,
+    archivedAt: p.archivedAt!.toISOString(),
+    archivedBy: byEmail ? personName({ email: byEmail, displayName: byName }) : null,
+    canReopen: perms.get(p.id)?.has("project.settings.manage") ?? false,
+    canDelete: fullAdmin,
+  }));
+}
+
+/** La scheda «Archived»: dal più recente. */
+export async function listArchivedProjects(db: Db, viewer: Viewer): Promise<ArchivedProjectRow[]> {
+  const perms = await archivedPermissionsFor(db, viewer);
+  return rowsFor(db, viewer, perms, [...perms.keys()]);
+}
+
+const count = async (db: Db, from: SQL): Promise<number> => {
+  const res = (await db.execute(sql`select count(*)::int as n from ${from}`)) as unknown as { rows?: { n: number }[] } & { n: number }[];
+  return (res.rows ?? res)[0]?.n ?? 0;
+};
+
+/** I conteggi del progetto: COUNT nella WHERE, mai letture intere. */
+export async function projectCounts(db: Db, projectId: string): Promise<DeletionCounts> {
+  const repos = sql`(select r.id from ${repositories} r where r.project_id = ${projectId})`;
+  const [tasks, requests, pages, conversations, channels, files, autos, envs, envFiles, rels] = await Promise.all([
+    count(db, sql`${tickets} where ${tickets.projectId} = ${projectId}`),
+    count(db, sql`${backlogItems} where ${backlogItems.projectId} = ${projectId}`),
+    // Le pagine della generazione CORRENTE di ogni repository del progetto.
+    count(db, sql`${docPages} join ${repositories} on ${repositories.id} = ${docPages.repositoryId} where ${repositories.projectId} = ${projectId} and ${docPages.generationId} = ${repositories.currentDocGenerationId}`),
+    count(db, sql`${claudeConversationProjects} where ${claudeConversationProjects.projectId} = ${projectId}`),
+    count(db, sql`${chatChannels} where ${chatChannels.projectId} = ${projectId}`),
+    count(db, sql`${driveFiles} where ${driveFiles.projectId} = ${projectId} and ${driveFiles.deletedAt} is null`),
+    count(db, sql`${automations} where ${automations.projectId} = ${projectId}`),
+    count(db, sql`${projectEnvironments} where ${projectEnvironments.projectId} = ${projectId}`),
+    count(db, sql`${projectEnvFiles} where ${projectEnvFiles.repositoryId} in ${repos}`),
+    count(db, sql`${releases} where ${releases.projectId} = ${projectId}`),
+  ]);
+  return { tasks, requests, docPages: pages, conversations, channels, driveFiles: files, automations: autos, environments: envs, envFiles, releases: rels };
+}
+
+/** I nomi dei repository del progetto, in ordine alfabetico. */
+export async function projectRepositoryNames(db: Db, projectId: string): Promise<string[]> {
+  return (await db.select({ name: repositories.name }).from(repositories).where(eq(repositories.projectId, projectId)).orderBy(asc(repositories.name))).map((r) => r.name);
+}
+
+/** La pagina dell'archiviato; `null` per chi non lo vede da archiviato (o per un progetto aperto). */
+export async function archivedProjectView(db: Db, viewer: Viewer, projectId: string): Promise<ArchivedProjectView | null> {
+  const perms = await archivedPermissionsFor(db, viewer);
+  if (!perms.has(projectId)) return null;
+  const [row] = await rowsFor(db, viewer, perms, [projectId]);
+  if (!row) return null;
+  const [p] = await db.select().from(projects).where(eq(projects.id, projectId));
+  const members = await db
+    .select({ id: users.id, email: users.email, displayName: users.displayName, role: roles.name })
+    .from(projectMembers)
+    .innerJoin(users, eq(users.id, projectMembers.userId))
+    .innerJoin(roles, eq(roles.id, projectMembers.roleId))
+    .where(and(eq(projectMembers.projectId, projectId), eq(users.isAgent, false)));
+  const switches = Object.fromEntries(SWITCHES.map(([column, name]) => [name, p![column] === true])) as ArchivedProjectView["switchesOnReopen"];
+  return {
+    ...row,
+    description: p!.description ?? "",
+    members: members
+      .map((m) => ({ personId: m.id, name: personName(m), role: m.role }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    counts: await projectCounts(db, projectId),
+    repositories: await projectRepositoryNames(db, projectId),
+    switchesOnReopen: switches,
+    pulseEveryDays: p!.pulseEveryDays,
+  };
 }
