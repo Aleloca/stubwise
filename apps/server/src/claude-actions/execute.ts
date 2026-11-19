@@ -3,7 +3,7 @@ import {
   claudeActions,
   notifications,
   tickets,
-  VIA_CLAUDE_SETTING,
+  UNDO_OF_CLAUDE_SETTING, VIA_CLAUDE_SETTING,
   type Db,
 } from "@stubwise/db";
 import type { ClaudeActionFailure, ClaudeActionFn, ClaudeClassReason, ProjectPermission } from "@stubwise/shared";
@@ -36,6 +36,12 @@ import { runActionContext, runFollowUps, type ActionEffects } from "./effects.js
 export interface PlannedAction {
   fn: ClaudeActionFn;
   args: Record<string, unknown>;
+  /**
+   * Area 9, F7 (0195): per l'inverso di un «Annulla», l'azione che annulla.
+   * Le voci del registro scritte dall'inverso lo portano
+   * (`change_log.undo_of_action_id`, DEFAULT dalla variabile di transazione).
+   */
+  undoOfActionId?: string;
 }
 
 export interface ExecutedAction {
@@ -145,8 +151,13 @@ async function runGroup(
           entry.access.kind === "user"
             ? // Le cose personali (un filtro): basta essere la persona, come la rotta.
               { ok: true as const, projectId: null, permissions: new Set<ProjectPermission>() }
-            : await evaluateProjectAccess(
-                syntheticRequest(tx as unknown as Db, user, await entry.request(args, tx as unknown as Db)),
+            : entry.access.kind === "instance"
+              ? // Area 9, F7: un'impostazione d'istanza, col permesso d'istanza di chi chiede (come la rotta).
+                user.instancePermissions.has(entry.access.permission)
+                ? { ok: true as const, projectId: null, permissions: new Set<ProjectPermission>() }
+                : { ok: false as const, error: "forbidden" as const }
+              : await evaluateProjectAccess(
+                syntheticRequest(tx as unknown as Db, user, await entry.request(args, tx as unknown as Db), entry.archived),
                 tx as unknown as Db,
                 user,
                 entry.access,
@@ -159,7 +170,7 @@ async function runGroup(
               : failure(
                   access.error,
                   index,
-                  access.error === "forbidden" && entry.access.kind === "project" ? { permission: entry.access.permission } : {},
+                  access.error === "forbidden" && (entry.access.kind === "project" || entry.access.kind === "instance") ? { permission: entry.access.permission } : {},
                 ),
           );
         }
@@ -169,8 +180,10 @@ async function runGroup(
           .returning({ id: claudeActions.id });
         // Il segno di QUESTA azione: le righe scritte da qui in poi lo portano (DEFAULT delle colonne).
         await tx.execute(sql`select set_config(${VIA_CLAUDE_SETTING}, ${row!.id}, true)`);
+        await tx.execute(sql`select set_config(${UNDO_OF_CLAUDE_SETTING}, ${planned.undoOfActionId ?? ""}, true)`);
         const ran = await entry.run(tx as unknown as Db, user, args, access.permissions, start);
         await tx.execute(sql`select set_config(${VIA_CLAUDE_SETTING}, '', true)`);
+        await tx.execute(sql`select set_config(${UNDO_OF_CLAUDE_SETTING}, '', true)`);
         if (!ran.ok) {
           throw new Abort(
             failure(ran.refusal.code, index, {
@@ -247,12 +260,14 @@ export function inverseAsksConfirmation(result: Extract<ExecuteResult, { ok: tru
 export function classOfGroup(
   actions: readonly PlannedAction[],
   dry: Extract<ExecuteResult, { ok: true }>,
-): { cls: "A" | "B"; reasons: ClaudeClassReason[] } {
+): { cls: "A" | "B" | "C"; reasons: ClaudeClassReason[] } {
   const reasons: ClaudeClassReason[] = [];
   if (dry.notified.length > 0) reasons.push({ kind: "notifies", personIds: [...dry.notified].sort(), more: false });
   // Il lavoro di Claude che parte (Claude assegnato): sempre una conferma, come `startRun`.
   if (dry.actions.some((a) => a.startsWork === true)) reasons.push({ kind: "starts_work" });
   if (dry.actions.some((a) => a.inverse === null)) reasons.push({ kind: "irreversible" });
+  // Area 9, F7: la classe più alta delle azioni; una C resta C (la riconferma).
+  if (actions.some((a) => declaredClassOf(a.fn) === "C")) return { cls: "C", reasons };
   const declared = actions.some((a) => declaredClassOf(a.fn) === "B") ? "B" : "A";
   return { cls: declared === "B" || reasons.length > 0 ? "B" : "A", reasons };
 }

@@ -44,6 +44,21 @@ export const CHAT_TOOL_READ_ROUTES: ReadonlySet<string> = new Set([
   // Area 8, F1: un rilascio per codice (tool `read_release`, «Spiega»), coi
   // progetti che l'autore vede (404 agli altri, come la rotta).
   "/api/releases/:code",
+  // Area 9, F7 (`read_project_members`): membri e ruoli che si possono scegliere in un
+  // progetto, per chi lo vede (`member`, come la rotta). Il ponte toglie le email.
+  "/api/projects/:projectId/members/view",
+  // Area 9, F7 (`read_instance_settings`): le impostazioni d'istanza, ognuna
+  // col SUO permesso d'istanza (403 agli altri). Il ponte passa al modello
+  // solo i campi in allowlist: niente segreti, niente ultime cifre, niente url
+  // dei webhook.
+  "/api/ai-providers",
+  "/api/git-accounts",
+  "/api/settings/google-workspaces",
+  "/api/settings/webhooks",
+  "/api/plugins",
+  "/api/settings/models",
+  "/api/settings/automation",
+  "/api/settings/instance",
 ]);
 
 /**

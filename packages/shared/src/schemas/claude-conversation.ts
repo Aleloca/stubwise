@@ -203,7 +203,13 @@ export const CHAT_READ_TOOLS = [
   "read_drive_file",
   // Area 8, F1 («Spiega»): un rilascio per codice. Titolo, note e run sono contenuto NON fidato.
   "read_release",
+  // Area 9, F7: le letture delle voci dell'area 9 (gli id che servono a proporle).
+  "read_project_members",
+  "read_instance_settings",
 ] as const;
+/** Area 9, F7: le sezioni di `read_instance_settings`, una rotta ciascuna (coi suoi permessi). */
+export const CHAT_INSTANCE_SECTIONS = ["providers", "git_accounts", "google_apps", "webhooks", "plugins", "models", "automation", "instance"] as const;
+export type ChatInstanceSection = (typeof CHAT_INSTANCE_SECTIONS)[number];
 export type ChatReadToolName = (typeof CHAT_READ_TOOLS)[number];
 /** Il solo tool che non legge: scrive una proposta, mai un'esecuzione diretta. */
 export const CHAT_PROPOSE_TOOL = "propose_action" as const;

@@ -19,6 +19,8 @@ const filterSchema = z.object({
   to: z.iso.datetime().optional(),
   withinDays: z.coerce.number().int().min(1).max(3650).optional(),
   cursor: z.string().max(200).optional(),
+  // Area 9, F7: le sole voci scritte da Claude («By Claude»).
+  via: z.literal("claude").optional(),
 });
 
 export async function changeLogRoutes(instance: FastifyInstance): Promise<void> {

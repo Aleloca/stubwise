@@ -19,6 +19,8 @@ export interface ChangeLogQuery {
   to?: string;
   withinDays?: number;
   cursor?: string;
+  /** Area 9, F7: le sole voci scritte da Claude («By Claude»). Un server di prima lo ignora. */
+  via?: "claude";
 }
 
 export function createChangeLogEndpoints(request: ApiRequest) {

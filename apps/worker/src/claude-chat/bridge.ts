@@ -12,8 +12,7 @@ import {
   CHAT_TOOLS,
   claudeProposalOutcomeSchema,
   type ChatReadToolName,
-  type ChatToolName,
-} from "@stubwise/shared";
+  type ChatToolName, CHAT_INSTANCE_SECTIONS, type ChatInstanceSection } from "@stubwise/shared";
 import type { AgentMcpConfig } from "../agent/runner.js";
 
 /**
@@ -207,6 +206,64 @@ export function chatServerPaths(tool: ChatReadToolName, args: Args): string[] {
       const p = seg(projectArg(args, true)!);
       return [`/api/projects/${p}/briefs/latest`, `/api/projects/${p}/decisions?limit=50`];
     }
+    case "read_project_members":
+      return [`/api/projects/${seg(projectArg(args, true)!)}/members/view`];
+    case "read_instance_settings": {
+      const section = str(args["section"]);
+      if (section === undefined || !(CHAT_INSTANCE_SECTIONS as readonly string[]).includes(section)) {
+        throw new ChatToolArgError(`Invalid section: use one of ${CHAT_INSTANCE_SECTIONS.join(", ")}.`);
+      }
+      return [INSTANCE_SECTION_PATH[section as ChatInstanceSection]];
+    }
+  }
+}
+
+/** Area 9, F7: la rotta di ogni sezione di `read_instance_settings` (nell'allowlist del server). */
+const INSTANCE_SECTION_PATH: Record<ChatInstanceSection, string> = {
+  providers: "/api/ai-providers",
+  git_accounts: "/api/git-accounts",
+  google_apps: "/api/settings/google-workspaces",
+  webhooks: "/api/settings/webhooks",
+  plugins: "/api/plugins",
+  models: "/api/settings/models",
+  automation: "/api/settings/automation",
+  instance: "/api/settings/instance",
+};
+
+/** Solo questi campi di ogni riga: un'ALLOWLIST (non la lista nera di `compact`). */
+function pick(row: unknown, fields: readonly string[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (row === null || typeof row !== "object") return out;
+  for (const f of fields) if (f in row) out[f] = (row as Record<string, unknown>)[f];
+  return out;
+}
+const pickAll = (rows: unknown, fields: readonly string[]) => (Array.isArray(rows) ? rows.map((r) => pick(r, fields)) : []);
+
+/**
+ * Area 9, F7: ciò che di un'impostazione d'istanza entra nel contesto del
+ * modello. Mai un segreto, mai le ultime cifre di una chiave, mai l'url di un
+ * webhook (può portare un token nel percorso) né la chiave d'accesso S3.
+ */
+function instanceSectionResult(path: string, json: unknown): unknown {
+  switch (path) {
+    case INSTANCE_SECTION_PATH.providers:
+      return pickAll(json, ["id", "label", "kind", "enabled", "position"]);
+    case INSTANCE_SECTION_PATH.git_accounts:
+      return pickAll(json, ["id", "name", "provider", "workspace", "isDefaultReviewer"]);
+    case INSTANCE_SECTION_PATH.google_apps:
+      return pickAll(json, ["id", "name", "domains", "clientId"]);
+    case INSTANCE_SECTION_PATH.webhooks:
+      return pickAll(json, ["id", "name", "format", "enabled", "events"]);
+    case INSTANCE_SECTION_PATH.plugins:
+      return pickAll((json as { plugins?: unknown } | null)?.plugins, ["id", "slug", "name", "sourceUrl", "sourceSubdir", "ref", "status", "smokeStatus"]);
+    case INSTANCE_SECTION_PATH.models:
+      return pick(json, ["operations", "choices"]);
+    case INSTANCE_SECTION_PATH.automation:
+      return pick(json, ["rules", "prReview"]);
+    case INSTANCE_SECTION_PATH.instance:
+      return pick(json, ["contentLanguage", "monthlyBudgetUsd", "spentUsd", "budgetReached", "s3Endpoint", "s3Region", "s3Bucket", "attachmentsEnabled"]);
+    default:
+      return {};
   }
 }
 
@@ -232,7 +289,23 @@ function compact(value: unknown): unknown {
  * per nome; le EMAIL restano fuori (decisione dell'orchestratrice, 10 nov 2026).
  */
 const PERSON_FIELDS = ["id", "name", "initials", "departmentIds", "deactivated", "isClaude", "claudeAssignableProjectIds"] as const;
-export function projectToolResult(tool: ChatReadToolName, json: unknown): unknown {
+export function projectToolResult(tool: ChatReadToolName, json: unknown, path = ""): unknown {
+  // Area 9, F7: i membri senza email; i ruoli che si possono scegliere.
+  if (tool === "read_project_members") {
+    const view = (json ?? {}) as { members?: unknown; roleChoices?: unknown; canManage?: unknown };
+    return {
+      canManage: view.canManage === true,
+      members: Array.isArray(view.members)
+        ? view.members.map((m: unknown) => {
+            const row = pick(m, ["personId", "name", "status", "granted"]);
+            const role = (m as { role?: { id?: unknown; name?: unknown } } | null)?.role;
+            return { ...row, role: { id: role?.id, name: role?.name } };
+          })
+        : [],
+      roleChoices: pickAll(view.roleChoices, ["roleId", "name", "block"]),
+    };
+  }
+  if (tool === "read_instance_settings") return instanceSectionResult(path.split("?")[0]!, json);
   if (tool === "list_people") {
     if (!Array.isArray(json)) return [];
     return json.map((row: unknown) => {
@@ -502,7 +575,7 @@ export async function startChatBridge(deps: {
         return { status: 200, body: { ok: false, text: `Stubwise is unavailable right now (${res.status}).` } };
       }
       const json: unknown = await res.json().catch(() => null);
-      const projected = compact(projectToolResult(tool, json));
+      const projected = compact(projectToolResult(tool, json, path));
       parts.push(tool === "read_drive_file" ? fitDriveFile(projected, CHAT_DOC_PAGE_TEXT_MAX) : JSON.stringify(projected));
     }
     return { status: 200, body: { ok: true, text: truncate(parts.join("\n"), tool === "read_doc_page" || tool === "read_drive_file" ? CHAT_DOC_PAGE_TEXT_MAX : CHAT_TOOL_TEXT_MAX) } };

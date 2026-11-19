@@ -1,4 +1,5 @@
 import {
+  changeLog,
   alertSubscriptions,
   attachments,
   backlogItems,
@@ -14,7 +15,7 @@ import {
 import type { ClaudeActionFn } from "@stubwise/shared";
 import { and, asc, desc, eq, gt, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import type { SessionUser } from "../auth/session.js";
-import type { ActionObject } from "./catalog.js";
+import { declaredClassOf, type ActionObject } from "./catalog.js";
 import type { ActionEffects } from "./effects.js";
 import { executeGroup, inverseAsksConfirmation, RECLASSIFIED, type ExecuteResult, type PlannedAction } from "./execute.js";
 
@@ -82,6 +83,27 @@ async function laterChangeOf(
       );
     // Riscritta dopo, o riportata al default (la riga non c'è più).
     if (!row || row.at.toISOString() > o.stamp) return { byUserId: group.requesterId };
+  }
+  // Area 9, F7: gli oggetti dell'area 9 (membri…) non hanno un `updated_at`, ma
+  // ogni loro scrittura lascia una voce nel registro sul loro soggetto: una
+  // voce arrivata DOPO l'istante della scrittura di Claude (`stamp`, ai
+  // microsecondi) vuol dire che qualcuno ci ha scritto.
+  for (const o of objects) {
+    if ((o.kind !== "member" && o.kind !== "project" && o.kind !== "setting") || !o.stamp) continue;
+    const [later] = await db
+      .select({ by: changeLog.actorUserId })
+      .from(changeLog)
+      .where(
+        and(
+          eq(changeLog.subjectKind, o.subjectKind ?? o.kind),
+          o.id ? eq(changeLog.subjectId, o.id) : undefined,
+          o.projectId ? eq(changeLog.projectId, o.projectId) : undefined,
+          sql`${changeLog.at} > ${o.stamp}::timestamptz`,
+          o.changeTypes ? inArray(changeLog.type, [...o.changeTypes]) : undefined,
+        ),
+      )
+      .limit(1);
+    if (later) return { byUserId: later.by };
   }
   const taskIds = objects.filter((o) => o.kind === "task").map((o) => o.id);
   if (taskIds.length === 0) return undefined;
@@ -155,7 +177,8 @@ export async function undoStateOf(db: Db, viewerId: string, groupId: string): Pr
   if (later) return { state: "changed_after", byUserId: later.byUserId };
   return {
     state: "available",
-    inverses: actions.map((a) => ({ fn: a.inverse!.fn as ClaudeActionFn, args: a.inverse!.args })),
+    // Area 9, F7 (0195): ogni inverso dice quale azione annulla (il registro lo porta).
+    inverses: actions.map((a) => ({ fn: a.inverse!.fn as ClaudeActionFn, args: a.inverse!.args, undoOfActionId: a.id })),
   };
 }
 
@@ -187,7 +210,12 @@ export async function undoGroup(
     if (!dry.ok) return { ok: false, error: "refused", failure: dry.failure };
     // Come `undoAsks` del prototipo: un inverso che avviserebbe qualcuno, o che
     // farebbe ripartire il lavoro di Claude (riassegnarlo), è una scheda.
-    if (inverseAsksConfirmation(dry)) return { ok: true, kind: "needs_confirmation", inverses: state.inverses, notified: dry.notified };
+    // Area 9, F7: un inverso C (togliere o rimettere un membro…) chiede SEMPRE
+    // una scheda, e la sua conferma la riconferma: un «Annulla» diretto
+    // scavalcherebbe la riconferma.
+    if (inverseAsksConfirmation(dry) || state.inverses.some((a) => declaredClassOf(a.fn) === "C")) {
+      return { ok: true, kind: "needs_confirmation", inverses: state.inverses, notified: dry.notified };
+    }
   }
   // Una volta sola: si RECLAMA la riga prima degli inversi (due «Annulla»
   // insieme: uno solo passa); se gli inversi falliscono, la riga torna libera.

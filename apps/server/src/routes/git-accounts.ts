@@ -1,7 +1,7 @@
 import { changedFields, recordChange } from "../services/change-log.js";
 import { createGitAccountSchema, defaultReviewerResponseSchema, gitCredentialsSchema, defaultReviewerWarningSchema, gitAccountSchema, gitValidateResponseSchema, updateGitAccountSchema } from "@stubwise/shared";
 import { BITBUCKET_REVIEWER_SCOPES, GitProviderError, bitbucketRequiredScopes, getProvider } from "@stubwise/git";
-import { decrypt, encrypt, gitAccounts, repositories } from "@stubwise/db";
+import { decrypt, encrypt, gitAccounts, repositories, type Db } from "@stubwise/db";
 import { resolveProviderUserId, resolveReviewAccounts } from "@stubwise/notifications";
 import { and, eq, ne, or, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -223,6 +223,86 @@ async function accountReviewRole(
 const gitAccountObject = (row: { id: string; name: string }) => ({ type: "git_account", id: row.id, label: row.name });
 const PLATFORM_NAME: Record<string, string> = { github: "GitHub", bitbucket: "Bitbucket" };
 
+/**
+ * La patch di un account git (`PATCH /api/git-accounts/:id`, area 9, F7:
+ * estratta dalla rotta). La riconferma per le credenziali la chiede la ROTTA;
+ * Claude non le porta mai (`encryptionKey` null).
+ */
+export async function patchGitAccount(
+  db: Db,
+  encryptionKey: Buffer | null,
+  actor: { id: string; email: string },
+  id: string,
+  body: { name?: string | undefined; credentials?: z.infer<typeof gitCredentialsSchema> | undefined; workspace?: string | undefined },
+): Promise<GitAccountRow | "not_found" | "workspace_locked"> {
+  const { name, credentials, workspace } = body;
+  const key = (): Buffer => {
+    if (!encryptionKey) throw new Error("patchGitAccount: credenziali senza chiave di cifratura");
+    return encryptionKey;
+  };
+  const updates: Partial<GitAccountRow> = {};
+  if (name !== undefined) updates.name = name;
+  if (workspace !== undefined) updates.workspace = workspace;
+  if (credentials !== undefined) {
+    updates.encryptedCredentials = encrypt(JSON.stringify(credentials), key());
+    // Un token nuovo può appartenere a un ALTRO utente della piattaforma:
+    // l'identità salvata (ciclo di correzione, design §5) non vale più e si
+    // riscopre al primo uso. Tenerla farebbe passare dal filtro
+    // anti-auto-innesco proprio il bot nuovo. Stessa scrittura del blob
+    // nuovo: `resolveProviderUserId` guarda la sua cache proprio sul blob.
+    updates.providerUserId = null;
+  }
+
+  // D7: il workspace di un revisore PREDEFINITO Bitbucket non si cambia —
+  // sposterebbe in silenzio l'ambito, cioè il revisore di N repository,
+  // senza la validazione del PUT, e potrebbe collidere con l'indice. Vale
+  // SOLO dove il workspace entra nell'ambito (`sameReviewScope`): su GitHub
+  // l'ambito è il solo provider, e cambiare il workspace non sposta niente.
+  // La guardia sta nel WHERE (non in una lettura prima): un PUT concorrente
+  // che marca l'account fra la lettura e la scrittura non la scavalca. Lo
+  // stesso workspace di prima non è un cambio. Il verso opposto (un PATCH
+  // che sposta l'account mentre il PUT verifica) lo chiude il PUT.
+  const workspaceGuard =
+    workspace === undefined
+      ? undefined
+      : or(
+          eq(gitAccounts.isDefaultReviewer, false),
+          ne(gitAccounts.provider, "bitbucket"),
+          sql`${gitAccounts.workspace} is not distinct from ${workspace}`,
+        );
+
+  // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una lettura.
+  const row = await db.transaction(async (tx) => {
+    const [before] = await tx.select().from(gitAccounts).where(eq(gitAccounts.id, id)).for("update");
+    if (!before || Object.keys(updates).length === 0) return before;
+    const [after] = await tx
+      .update(gitAccounts)
+      .set(updates)
+      .where(and(eq(gitAccounts.id, id), workspaceGuard))
+      .returning();
+    if (!after) return undefined;
+    // Area 9, F3: come il prototipo (`git.ts`), i soli campi cambiati; il
+    // token solo «sostituito».
+    const diff = changedFields({ name: before.name, workspace: before.workspace }, { name: after.name, workspace: after.workspace });
+    if (diff) await recordChange(tx, { type: "git_account.updated", actor: actor, projectId: null, data: { object: gitAccountObject(after), ...diff } });
+    if (credentials !== undefined) await recordChange(tx, { type: "git_account.token_replaced", actor: actor, projectId: null, data: { object: gitAccountObject(after) } });
+    return after;
+  });
+  if (!row) {
+    if (workspaceGuard !== undefined) {
+      const [exists] = await db
+        .select({ id: gitAccounts.id })
+        .from(gitAccounts)
+        .where(eq(gitAccounts.id, id));
+      if (exists) {
+        return "workspace_locked" as const;
+      }
+    }
+    return "not_found" as const;
+  }
+  return row;
+}
+
 export async function gitAccountRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
@@ -297,71 +377,17 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
       // Area 9, F3 (D-5): la riconferma solo quando il corpo porta un segreto
       // (sostituito o azzerato), con la regola del gate (`requireReauth`).
       if (credentials !== undefined && !(await requireReauth(request, reply))) return reply;
-      const updates: Partial<GitAccountRow> = {};
-      if (name !== undefined) updates.name = name;
-      if (workspace !== undefined) updates.workspace = workspace;
-      if (credentials !== undefined) {
-        updates.encryptedCredentials = encrypt(JSON.stringify(credentials), app.encryptionKey);
-        // Un token nuovo può appartenere a un ALTRO utente della piattaforma:
-        // l'identità salvata (ciclo di correzione, design §5) non vale più e si
-        // riscopre al primo uso. Tenerla farebbe passare dal filtro
-        // anti-auto-innesco proprio il bot nuovo. Stessa scrittura del blob
-        // nuovo: `resolveProviderUserId` guarda la sua cache proprio sul blob.
-        updates.providerUserId = null;
+      // Area 9, F7: la funzione, la stessa dell'azione di Claude `updateGitAccount`.
+      const row = await patchGitAccount(app.db, app.encryptionKey, request.user!, request.params.id, { name, credentials, workspace });
+      if (row === "workspace_locked") {
+        return apiError(
+          reply,
+          409,
+          "default_reviewer_workspace_locked",
+          "This account is the default reviewer: remove the default before changing its workspace",
+        );
       }
-
-      // D7: il workspace di un revisore PREDEFINITO Bitbucket non si cambia —
-      // sposterebbe in silenzio l'ambito, cioè il revisore di N repository,
-      // senza la validazione del PUT, e potrebbe collidere con l'indice. Vale
-      // SOLO dove il workspace entra nell'ambito (`sameReviewScope`): su GitHub
-      // l'ambito è il solo provider, e cambiare il workspace non sposta niente.
-      // La guardia sta nel WHERE (non in una lettura prima): un PUT concorrente
-      // che marca l'account fra la lettura e la scrittura non la scavalca. Lo
-      // stesso workspace di prima non è un cambio. Il verso opposto (un PATCH
-      // che sposta l'account mentre il PUT verifica) lo chiude il PUT.
-      const workspaceGuard =
-        workspace === undefined
-          ? undefined
-          : or(
-              eq(gitAccounts.isDefaultReviewer, false),
-              ne(gitAccounts.provider, "bitbucket"),
-              sql`${gitAccounts.workspace} is not distinct from ${workspace}`,
-            );
-
-      // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una lettura.
-      const row = await app.db.transaction(async (tx) => {
-        const [before] = await tx.select().from(gitAccounts).where(eq(gitAccounts.id, request.params.id)).for("update");
-        if (!before || Object.keys(updates).length === 0) return before;
-        const [after] = await tx
-          .update(gitAccounts)
-          .set(updates)
-          .where(and(eq(gitAccounts.id, request.params.id), workspaceGuard))
-          .returning();
-        if (!after) return undefined;
-        // Area 9, F3: come il prototipo (`git.ts`), i soli campi cambiati; il
-        // token solo «sostituito».
-        const diff = changedFields({ name: before.name, workspace: before.workspace }, { name: after.name, workspace: after.workspace });
-        if (diff) await recordChange(tx, { type: "git_account.updated", actor: request.user!, projectId: null, data: { object: gitAccountObject(after), ...diff } });
-        if (credentials !== undefined) await recordChange(tx, { type: "git_account.token_replaced", actor: request.user!, projectId: null, data: { object: gitAccountObject(after) } });
-        return after;
-      });
-      if (!row) {
-        if (workspaceGuard !== undefined) {
-          const [exists] = await app.db
-            .select({ id: gitAccounts.id })
-            .from(gitAccounts)
-            .where(eq(gitAccounts.id, request.params.id));
-          if (exists) {
-            return apiError(
-              reply,
-              409,
-              "default_reviewer_workspace_locked",
-              "This account is the default reviewer: remove the default before changing its workspace",
-            );
-          }
-        }
-        return apiError(reply, 404, "git_account_not_found", "Git account not found");
-      }
+      if (row === "not_found") return apiError(reply, 404, "git_account_not_found", "Git account not found");
       return toPublicAccount(row);
     },
   );

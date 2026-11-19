@@ -1,5 +1,5 @@
 import { changedFields, recordChange } from "../services/change-log.js";
-import { encrypt, googleAccounts, googleWorkspaces } from "@stubwise/db";
+import { encrypt, googleAccounts, googleWorkspaces, type Db } from "@stubwise/db";
 import {
   GOOGLE_OAUTH_CALLBACK_PATH,
   googleWorkspaceDraftSchema,
@@ -90,6 +90,51 @@ async function countAccounts(db: FastifyInstance["db"], workspaceId: string): Pr
 /** Area 9, F3: l'oggetto delle voci del registro (l'app col nome dato da una persona). */
 const googleAppObject = (row: { id: string; name: string }) => ({ type: "google_app", id: row.id, label: row.name });
 
+/**
+ * La patch di un'app Google (`PATCH /api/settings/google-workspaces/:id`,
+ * area 9, F7: estratta dalla rotta). La riconferma per il secret la chiede la
+ * ROTTA; Claude non lo porta mai (`encryptionKey` null).
+ */
+export async function patchGoogleWorkspace(
+  db: Db,
+  encryptionKey: Buffer | null,
+  actor: { id: string; email: string },
+  id: string,
+  body: { name?: string | undefined; domains?: string[] | undefined; clientId?: string | undefined; clientSecret?: string | undefined },
+): Promise<GoogleWorkspaceRow | undefined> {
+  const { name, domains, clientId, clientSecret } = body;
+  const key = (): Buffer => {
+    if (!encryptionKey) throw new Error("patchGoogleWorkspace: un secret senza chiave di cifratura");
+    return encryptionKey;
+  };
+  const updates: Partial<GoogleWorkspaceRow> = {};
+  if (name !== undefined) updates.name = name;
+  if (domains !== undefined) updates.domains = domains;
+  if (clientId !== undefined) updates.clientId = clientId;
+  // Qui vive la semantica write-only: `undefined` (campo assente nel body)
+  // non entra in `updates` e il segreto salvato resta intatto; `""` scrive
+  // la sentinella di azzeramento; qualunque altro valore viene ricifrato.
+  if (clientSecret !== undefined) {
+    updates.clientSecretEncrypted =
+      clientSecret === "" ? NO_SECRET : encrypt(clientSecret, key());
+  }
+
+  // Drizzle rifiuta un update senza colonne: una patch vuota è una lettura.
+  const row = await db.transaction(async (tx) => {
+    const [before] = await tx.select().from(googleWorkspaces).where(eq(googleWorkspaces.id, id)).for("update");
+    if (!before || Object.keys(updates).length === 0) return before;
+    const [after] = await tx.update(googleWorkspaces).set(updates).where(eq(googleWorkspaces.id, id)).returning();
+    // Area 9, F3: come il prototipo (`google.ts`), i soli campi cambiati;
+    // il secret solo «sostituito».
+    const fields = (w: GoogleWorkspaceRow) => ({ name: w.name, domains: w.domains, clientId: w.clientId });
+    const diff = changedFields(fields(before), fields(after!));
+    if (diff) await recordChange(tx, { type: "google_app.updated", actor: actor, projectId: null, data: { object: googleAppObject(after!), ...diff } });
+    if (clientSecret !== undefined) await recordChange(tx, { type: "google_app.secret_replaced", actor: actor, projectId: null, data: { object: googleAppObject(after!) } });
+    return after;
+  });
+  return row;
+}
+
 export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
@@ -163,31 +208,8 @@ export async function googleWorkspaceRoutes(instance: FastifyInstance): Promise<
       // Area 9, F3 (D-5): la riconferma solo quando il corpo porta un segreto
       // (sostituito o azzerato), con la regola del gate (`requireReauth`).
       if (clientSecret !== undefined && !(await requireReauth(request, reply))) return reply;
-      const updates: Partial<GoogleWorkspaceRow> = {};
-      if (name !== undefined) updates.name = name;
-      if (domains !== undefined) updates.domains = domains;
-      if (clientId !== undefined) updates.clientId = clientId;
-      // Qui vive la semantica write-only: `undefined` (campo assente nel body)
-      // non entra in `updates` e il segreto salvato resta intatto; `""` scrive
-      // la sentinella di azzeramento; qualunque altro valore viene ricifrato.
-      if (clientSecret !== undefined) {
-        updates.clientSecretEncrypted =
-          clientSecret === "" ? NO_SECRET : encrypt(clientSecret, app.encryptionKey);
-      }
-
-      // Drizzle rifiuta un update senza colonne: una patch vuota è una lettura.
-      const row = await app.db.transaction(async (tx) => {
-        const [before] = await tx.select().from(googleWorkspaces).where(eq(googleWorkspaces.id, request.params.id)).for("update");
-        if (!before || Object.keys(updates).length === 0) return before;
-        const [after] = await tx.update(googleWorkspaces).set(updates).where(eq(googleWorkspaces.id, request.params.id)).returning();
-        // Area 9, F3: come il prototipo (`google.ts`), i soli campi cambiati;
-        // il secret solo «sostituito».
-        const fields = (w: GoogleWorkspaceRow) => ({ name: w.name, domains: w.domains, clientId: w.clientId });
-        const diff = changedFields(fields(before), fields(after!));
-        if (diff) await recordChange(tx, { type: "google_app.updated", actor: request.user!, projectId: null, data: { object: googleAppObject(after!), ...diff } });
-        if (clientSecret !== undefined) await recordChange(tx, { type: "google_app.secret_replaced", actor: request.user!, projectId: null, data: { object: googleAppObject(after!) } });
-        return after;
-      });
+      // Area 9, F7: la funzione, la stessa dell'azione di Claude `updateGoogleApp`.
+      const row = await patchGoogleWorkspace(app.db, app.encryptionKey, request.user!, request.params.id, { name, domains, clientId, clientSecret });
       if (!row) {
         return apiError(reply, 404, "google_workspace_not_found", "Google Workspace not found");
       }

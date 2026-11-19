@@ -86,7 +86,40 @@ const NEVER = [
   "respondToCalendarEvent",
   "postWebhook",
   "replyToCustomer",
+  // Area 9, F7 (design «Mai nel catalogo»): i gesti dell'amministrazione che
+  // restano delle persone. PAT e inviti, i reset, il ruolo d'istanza,
+  // disattivare ed eliminare una persona, eliminare un progetto; i segreti
+  // (creare un webhook ne mostra il segreto, ruotarlo, la chiave
+  // d'ingestione, il segreto del webhook git, la cassaforte).
+  "personalAccessTokens",
+  "createUserWithPat",
+  "revokeMobilePats",
+  // (La tabella `invites` no: «invites» è una parola del contratto del prompt.)
+  "applyInviteGrants",
+  "inviteTokenOf",
+  "issuePasswordResetToken",
+  "revokePendingResetTokens",
+  "setInstanceRole",
+  "deactivateUser",
+  "reactivateUser",
+  "deleteUser",
+  "deleteArchivedProject",
+  "createWebhook",
+  "deleteWebhook",
+  "rotateWebhookSecret",
+  "regenerateWebhookSecret",
+  "regenerateIngestionKey",
+  "vaultSettings",
+  "vaultPersonKeys",
+  "vaultPersonKeySeals",
 ];
+
+/**
+ * Area 9, F7: le rotte che danno o cambiano un segreto. Nessun modulo le
+ * nomina, nemmeno come `route` di una voce (il percorso sta in una stringa:
+ * qui si cerca nel codice senza commenti, stringhe comprese).
+ */
+const SECRET_ROUTES = ["/ingestion-key", "/webhook-secret", "/secret", "/identity-secret"];
 
 describe("mai nel catalogo delle azioni di Claude (sorgente)", () => {
   const files = sources();
@@ -101,6 +134,11 @@ describe("mai nel catalogo delle azioni di Claude (sorgente)", () => {
     const offenders = files.filter(
       (f) => new RegExp(`\\b${name}\\b`).test(f.code) && !(name === "issueChatToolToken" && f.path.endsWith("turn.ts")),
     );
+    expect(offenders.map((f) => f.path)).toEqual([]);
+  });
+
+  it.each(SECRET_ROUTES)("nessun modulo nomina la rotta %s", (route) => {
+    const offenders = files.filter((f) => new RegExp(`${route.replace(/[/-]/g, (c) => `\\${c}`)}(?![a-z-])`).test(f.code));
     expect(offenders.map((f) => f.path)).toEqual([]);
   });
 });

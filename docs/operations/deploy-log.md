@@ -5308,3 +5308,94 @@ deploy o di un rollback che la tocca.
     `repository.linked` già scritte restano; il server vecchio non le mostra
     (legge solo i tipi che conosce) e il registro ha un buco per il tempo del
     rollback, come F2–F5.
+
+- **«Integrazione area 9, F7: le azioni di Claude dell'area 9»** *(19 nov
+  2026)*: branch `feat/area9-f7` (da `feat/integrazione-area9`), piano
+  `docs/plans/2026-11-19-integrazione-area9-f7-plan.md` (M-1…M-8 = a).
+  Claude propone 23 voci nuove: le C dei membri e dei plugin, le B del
+  progetto, le B dell'istanza senza segreti. Una C si conferma SOLO con la
+  riconferma di chi conferma. Il registro delle modifiche sa che una voce
+  l'ha scritta Claude («By Claude») e quale voce annulla un «Annulla».
+  Migrazione **0195** (`change_log.via_claude_action_id` e
+  `undo_of_action_id`, senza FK, di DEFAULT dalle variabili di transazione
+  dell'esecutore; le due colonne entrano nella tupla del trigger
+  append-only). Nessuna env nuova, nessun `notification_kind` nuovo, nessun
+  permesso nuovo. Nove rotte GET entrano nell'allowlist del token del turno
+  della chat (i tool `read_project_members` e `read_instance_settings`).
+
+  **ORDINE**: **server** (healthy, 0195 applicata), poi **worker**, poi
+  **caddy**. Il piano diceva «niente worker»: invece il worker cambia (la
+  copia delle voci proponibili del server MCP, il contratto del prompt, le
+  firme filtrate coi permessi d'istanza, i due tool di lettura), quindi va
+  ribuildato. Il worker si riavvia senza job dell'agente in corso, come
+  sempre. Un worker nuovo davanti a un server vecchio propone voci che il
+  server rifiuta (`invalid`) e legge rotte che il server rifiuta
+  (`chat_tool_forbidden`, che Claude legge «non visibile»): niente si rompe,
+  ma il server va per primo.
+
+  **Da sapere subito**:
+  - **Le C chiedono la riconferma alla CONFERMA** (`POST
+    /api/claude/proposals/:id/confirm`, `partialReauth`), con la finestra di
+    chi conferma. Sono `addMember`, `removeMember`, `setMemberRole`,
+    `registerPlugin`, `updatePluginRef`. Senza riconferma: 403
+    `reauth_required`, e la proposta resta aperta. Una C non scelta
+    («Conferma 2 di 3») non la chiede. Un «Annulla» il cui inverso è una C
+    passa sempre da una scheda con la riconferma.
+  - **I plugin**: `registerPlugin`/`updatePluginRef` vogliono `trust: true`
+    negli argomenti, come la rotta. Registrare un plugin ne ESEGUE il codice
+    (lo smoke run parte da solo, vedi «Plugin e skill dell'agente» in
+    CLAUDE.md): il contratto dice a Claude di proporlo solo se la persona ha
+    scritto che si fida di quel repository e di quel commit.
+  - **Nessun segreto passa da Claude** (M-4 = a): gli argomenti delle voci
+    d'istanza sono gli schemi delle rotte MENO i segreti, `strict`. Le
+    credenziali git, il secret Google e l'url di un webhook sono rifiutati
+    già alla proposta. La riconferma parziale di quelle rotte non
+    scatta mai da Claude. Le due letture nuove passano al modello solo campi
+    in allowlist: niente segreti, ultime cifre, url dei webhook o chiave
+    d'accesso S3.
+  - **Fuori, nel registro dei rimandi**: `saveStorage` (review di F7:
+    endpoint e bucket decidono dove vanno gli allegati, come l'url di un
+    webhook), `setAttachments` (sul server gli allegati non hanno un
+    interruttore) e `setDefaultReviewer` (il PUT verifica il token chiamando
+    il provider). Nell'app Claude dice che si
+    fanno dalla pagina.
+  - **«Annulla»** riporta lo stato di prima. Rifiuta (`changed_after`) se
+    dopo Claude qualcuno ha salvato a mano la STESSA impostazione: lo guarda
+    nel registro, per i tipi di voce di quella sezione. Non si annullano
+    `retryJob`, `rerunSmoke`, `removePlugin`, i plugin, il `removeMember` di
+    chi aveva permessi personali (Claude non li ridà) e un workspace git
+    messo dove non c'era.
+  - **Le firme che il modello vede**: le voci d'istanza compaiono solo a chi
+    ha il loro permesso d'istanza (`CLAUDE_INSTANCE_PERMISSION`); quelle di
+    progetto le giudica il server alla proposta.
+  - **Il registro**: le voci di prima di F7 restano senza `via` (non si sa
+    più chi le ha scritte). `undoOf` e `undoneEntry` ci sono solo se chi
+    guarda legge la voce annullata.
+  - **Refactor senza cambi di risposta**: le scritture di sette rotte sono
+    estratte in funzioni che chiamano anche le voci di Claude. Sono il PATCH
+    del progetto, modelli, automazioni, `PUT /api/settings/instance`,
+    provider (patch e riordino), account git, app Google.
+  Controllo, sola lettura: `select count(*) from change_log where
+  via_claude_action_id is not null;` e `select fn, count(*) from
+  claude_actions group by 1 order by 2 desc;`.
+
+  **Rollback** (il server scende **insieme** al caddy, il worker con loro;
+  la 0195 non si annulla):
+  - le colonne della 0195 restano, il server vecchio le ignora, e i DEFAULT
+    continuano a scrivere null fuori dall'esecutore;
+  - ⚠️ **le conversazioni con una voce nuova**: il server vecchio va in
+    **500** sugli elenchi delle proposte e dei gruppi di una conversazione
+    che ne contiene una. Le risposte validano la `fn` con l'enum
+    `claudeActionFnSchema`, che non la conosce, e il serializer
+    (`fastify-type-provider-zod`, `safeParse` della risposta) lancia
+    `ResponseSerializationError`. Lo dice il codice, non è stato provato su
+    un server vecchio. Una proposta
+    ancora aperta con una voce nuova, alla conferma, il server vecchio la
+    rifiuta (`invalid`). Prima di scendere si contano con `select
+    count(distinct g.session_id) from claude_actions a join
+    claude_action_groups g on g.id = a.group_id where a.fn in
+    ('addMember','removeMember','setMemberRole','registerPlugin','updatePluginRef','archiveProject','reopenProject','updateProjectGeneral','setProjectAi','saveProjectAutomations','pauseQueue','resumeQueue','retryJob','setModel','saveBudget','saveAutomation','setProviderEnabled','moveProvider','updateGitAccount','updateGoogleApp','rerunSmoke','removePlugin','updateWebhook');`
+    (e lo stesso su `claude_proposals.actions`). Se non è zero, quelle
+    conversazioni restano illeggibili per il tempo del rollback;
+  - il worker vecchio torna a elencare tutte le firme a tutti, senza le voci
+    nuove e senza i due tool di lettura.

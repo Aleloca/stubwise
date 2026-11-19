@@ -33,6 +33,8 @@ import {
 } from "../services/alert-subscriptions.js";
 import { loadTaskViews } from "../services/task-view.js";
 import { createTask, planTask, updateTask } from "../services/task-writes.js";
+import { AREA9_ENTRIES } from "./catalog-area9.js";
+import { INSTANCE_ENTRIES } from "./catalog-instance.js";
 
 /**
  * Il catalogo delle azioni di Claude sul SERVER (chat, fetta 3): per ogni `fn`
@@ -54,7 +56,20 @@ import { createTask, planTask, updateTask } from "../services/task-writes.js";
  * scritto dopo. Le task usano la loro storia (`ticket_events`, commenti).
  */
 export type ActionObject = {
-  kind: "task" | "request" | "milestone" | "filter" | "comment" | "subscription";
+  /**
+   * Area 9, F7: `member` (e le altre dell'area 9) hanno `stamp` = l'istante
+   * della scrittura; «Annulla» guarda le voci del registro arrivate DOPO sullo
+   * stesso soggetto (`changed_after`), solo dei tipi in `changeTypes` se c'è.
+   */
+  kind: "task" | "request" | "milestone" | "filter" | "comment" | "subscription" | "member" | "project" | "setting";
+  /**
+   * Area 9, F7, Task 4: per `setting`, il `subject_kind` delle sue voci del
+   * registro (`ai_settings`, `provider`, `webhook`…); `id` vuoto = qualunque
+   * soggetto di quel tipo.
+   */
+  subjectKind?: string;
+  /** Area 9, F7: i tipi di voce che contano per `changed_after` (assente: tutti). */
+  changeTypes?: readonly string[];
   id: string;
   code?: string;
   stamp?: string;
@@ -98,14 +113,23 @@ export interface CatalogEntry {
   fn: ClaudeActionFn;
   /** La rotta di riferimento: `METODO /percorso` come la registra Fastify. */
   route: string;
-  /** Lo stesso `config.access` della rotta: di progetto (il permesso si valuta come lì) o `user` (cose personali). */
-  access: Extract<RouteAccess, { kind: "project" } | { kind: "user" }>;
+  /**
+   * Lo stesso `config.access` della rotta: di progetto (il permesso si valuta
+   * come lì), `user` (cose personali) o `instance` (area 9, F7: le
+   * impostazioni d'istanza, col permesso d'istanza di chi chiede).
+   */
+  access: Extract<RouteAccess, { kind: "project" } | { kind: "user" } | { kind: "instance" }>;
   /** Parametri e corpo della richiesta sintetica su cui si valuta `access` (può leggere il DB). */
   request: (
     args: Record<string, unknown>,
     db: Db,
   ) => { params?: Record<string, unknown>; body?: unknown } | Promise<{ params?: Record<string, unknown>; body?: unknown }>;
   run: CatalogRun;
+  /**
+   * Area 9, F7: lo stesso `config.archived` della rotta (archivia e riapri
+   * passano su un archiviato; il test d'accordo lo confronta con la rotta).
+   */
+  archived?: "read" | "write";
 }
 
 const onTicket = (
@@ -516,9 +540,9 @@ const ENTRIES: CatalogEntry[] = [
 ];
 
 /** Le voci per `fn`. Una `fn` dell'elenco condiviso senza voce qui non si esegue (ancora). */
-export const SERVER_CATALOG: ReadonlyMap<ClaudeActionFn, CatalogEntry> = new Map(ENTRIES.map((e) => [e.fn, e]));
+export const SERVER_CATALOG: ReadonlyMap<ClaudeActionFn, CatalogEntry> = new Map([...ENTRIES, ...AREA9_ENTRIES, ...INSTANCE_ENTRIES].map((e) => [e.fn, e]));
 
-export function declaredClassOf(fn: ClaudeActionFn): "A" | "B" {
+export function declaredClassOf(fn: ClaudeActionFn): "A" | "B" | "C" {
   return CLAUDE_DECLARED_CLASS[fn];
 }
 
@@ -533,8 +557,11 @@ export function syntheticRequest(
   db: Db,
   user: SessionUser,
   parts: { params?: Record<string, unknown>; body?: unknown },
+  archived?: "read" | "write",
 ): FastifyRequest {
   return {
+    // Solo `config.archived`: l'eccezione dichiarata della rotta all'archivio (F6).
+    routeOptions: { config: archived ? { archived } : {} },
     params: parts.params ?? {},
     body: parts.body ?? {},
     query: {},

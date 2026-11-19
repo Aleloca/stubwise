@@ -285,7 +285,7 @@ export const CHANGE_DATA_SCHEMAS: Record<ChangeLogKind, z.ZodType<ChangeData>> =
  * la frase, il link e il prima/dopo da leggere li compone il client. Le
  * persone che chi guarda non vede sono già tolte dal server.
  */
-export const changeEntrySchema = z.object({
+const changeEntryBaseSchema = z.object({
   id: z.uuid(),
   type: z.enum(CHANGE_LOG_KINDS),
   at: z.iso.datetime(),
@@ -312,6 +312,22 @@ export const changeEntrySchema = z.object({
    * `/archived/<CODICE>`.
    */
   projectArchived: z.boolean().default(false),
+  /**
+   * Area 9, F7 (0195, M-5 = a): la voce l'ha scritta Claude per conto
+   * dell'attore («By Claude»). Le voci di prima di F7 sono null.
+   */
+  via: z.literal("claude").nullable().default(null),
+  /**
+   * Area 9, F7: la voce viene da un «Annulla», e questa è la voce che annulla
+   * (stessa azione di Claude, stesso oggetto) — SOLO se chi guarda la legge;
+   * altrimenti null.
+   */
+  undoOf: z.uuid().nullable().default(null),
+});
+
+/** Una voce, con la voce che annulla (un livello solo: quella non porta la sua). */
+export const changeEntrySchema = changeEntryBaseSchema.extend({
+  undoneEntry: changeEntryBaseSchema.nullable().default(null),
 });
 export type ChangeEntry = z.infer<typeof changeEntrySchema>;
 
@@ -328,5 +344,7 @@ export const changeLogFiltersSchema = z.object({
   people: z.array(z.object({ personId: z.uuid(), name: z.string() })).default([]),
   projects: z.array(z.object({ projectId: z.uuid(), code: z.string(), name: z.string() })).default([]),
   groups: z.array(z.string()).default([]),
+  /** Area 9, F7: «By Claude» fra i filtri, solo se chi guarda ne legge almeno una. */
+  claude: z.boolean().default(false),
 });
 export type ChangeLogFilters = z.infer<typeof changeLogFiltersSchema>;

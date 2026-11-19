@@ -5,6 +5,12 @@ import { milestoneDraftSchema } from "./milestone.js";
 import { newRequestBodySchema } from "./project-request.js";
 import { mailComposeModeSchema } from "./mail-compose.js";
 import { liveRowTypes } from "../alerts/catalog.js";
+import { createPluginSchema, updatePluginRefSchema } from "./plugin.js";
+import { aiModelChoiceSchema, aiOperationSchema } from "../ai-operations.js";
+import { languageSchema } from "./language.js";
+import { googleDomainsSchema } from "./google.js";
+import { updateAutomationSettingsSchema } from "../instance-admin.js";
+import { webhookFieldsSchema } from "../outgoing-webhooks.js";
 
 /**
  * Il catalogo delle azioni di Claude (chat, fetta 3): l'elenco CHIUSO di ciò
@@ -45,6 +51,32 @@ export const CLAUDE_ACTION_FNS = [
   "deleteTask",
   // Area 8, F2 (review): l'«Annulla» di un setSubscription su una riga senza scelta salvata.
   "resetSubscription",
+  // Area 9, F7, Task 2: le C (la loro rotta chiede la riconferma).
+  "addMember",
+  "removeMember",
+  "setMemberRole",
+  "registerPlugin",
+  "updatePluginRef",
+  // Area 9, F7, Task 3: le B del progetto.
+  "archiveProject",
+  "reopenProject",
+  "updateProjectGeneral",
+  "setProjectAi",
+  "saveProjectAutomations",
+  "pauseQueue",
+  "resumeQueue",
+  "retryJob",
+  // Area 9, F7, Task 4: le B dell'istanza, senza segreti (M-4 = a).
+  "setModel",
+  "saveBudget",
+  "saveAutomation",
+  "setProviderEnabled",
+  "moveProvider",
+  "updateGitAccount",
+  "updateGoogleApp",
+  "rerunSmoke",
+  "removePlugin",
+  "updateWebhook",
 ] as const;
 export const claudeActionFnSchema = z.enum(CLAUDE_ACTION_FNS);
 export type ClaudeActionFn = z.infer<typeof claudeActionFnSchema>;
@@ -55,8 +87,13 @@ export const CLAUDE_INVERSE_ONLY_FNS: readonly ClaudeActionFn[] = ["deleteTask",
 /** Le `fn` che Claude può proporre (il catalogo meno gli inversi). */
 export const CLAUDE_PROPOSABLE_FNS = CLAUDE_ACTION_FNS.filter((f) => !CLAUDE_INVERSE_ONLY_FNS.includes(f));
 
-/** La classe dichiarata: A parte subito (con «Annulla»), B chiede conferma. La C (riconferma) è la fetta 4. */
-export const CLAUDE_DECLARED_CLASS: Record<ClaudeActionFn, "A" | "B"> = {
+/**
+ * La classe dichiarata: A parte subito (con «Annulla»), B chiede conferma, C
+ * chiede la conferma CON la riconferma di chi conferma (area 9, F7). La C non
+ * si sceglie: è quella delle voci la cui rotta ha `config.reauth` (il test
+ * d'accordo `claude-actions-class.test.ts` le tiene uguali).
+ */
+export const CLAUDE_DECLARED_CLASS: Record<ClaudeActionFn, "A" | "B" | "C"> = {
   createTask: "A",
   updateTask: "A",
   planTask: "A",
@@ -79,6 +116,32 @@ export const CLAUDE_DECLARED_CLASS: Record<ClaudeActionFn, "A" | "B"> = {
   deleteTask: "B",
   // Riporta al default le iscrizioni di chi chiede: nessun altro è avvisato.
   resetSubscription: "A",
+  // Area 9, F7: le rotte chiedono la riconferma (`config.reauth`): C.
+  addMember: "C",
+  removeMember: "C",
+  setMemberRole: "C",
+  registerPlugin: "C",
+  updatePluginRef: "C",
+  // Area 9, F7, Task 3: le impostazioni del progetto (le rotte non chiedono la riconferma).
+  archiveProject: "B",
+  reopenProject: "B",
+  updateProjectGeneral: "B",
+  setProjectAi: "B",
+  saveProjectAutomations: "B",
+  pauseQueue: "B",
+  resumeQueue: "B",
+  retryJob: "B",
+  // Area 9, F7, Task 4: senza segreti le rotte a riconferma PARZIALE non la chiedono (M-1 = a).
+  setModel: "B",
+  saveBudget: "B",
+  saveAutomation: "B",
+  setProviderEnabled: "B",
+  moveProvider: "B",
+  updateGitAccount: "B",
+  updateGoogleApp: "B",
+  rerunSmoke: "B",
+  removePlugin: "B",
+  updateWebhook: "B",
 };
 
 const id = z.uuid();
@@ -135,6 +198,65 @@ export const CLAUDE_ACTION_ARGS = {
     .refine((a) => a.app !== undefined || a.phone !== undefined, { message: "app or phone" }),
   deleteTask: z.object({ id }),
   resetSubscription: z.object({ projectId: id, type: z.enum(liveRowTypes() as [string, ...string[]]) }).strict(),
+  // Area 9, F7: i membri (`PUT`/`DELETE /api/projects/:projectId/members/:userId`),
+  // senza i permessi personali (li dà solo una persona, dalla pagina).
+  addMember: z.object({ projectId: id, userId: id, roleId: id }).strict(),
+  removeMember: z.object({ projectId: id, userId: id }).strict(),
+  setMemberRole: z.object({ projectId: id, userId: id, roleId: id }).strict(),
+  // I plugin (M-6 = a): `trust: true` OBBLIGATORIO, come la rotta. Registrare
+  // un plugin ne ESEGUE il codice (lo smoke run parte da solo): Claude lo
+  // propone solo se la persona ha detto che si fida di quel repository e
+  // di quel commit, e la scheda lo dice.
+  registerPlugin: createPluginSchema.extend({ trust: z.literal(true) }).strict(),
+  updatePluginRef: updatePluginRefSchema.extend({ id, trust: z.literal(true) }).strict(),
+  // Area 9, F7, Task 3: le forme del prototipo (`data/claude/catalog.ts`).
+  archiveProject: z.object({ projectId: id }).strict(),
+  reopenProject: z.object({ projectId: id }).strict(),
+  updateProjectGeneral: z
+    .object({ projectId: id, name: z.string().min(1).max(200).optional(), description: z.string().min(1).max(2000).nullable().optional() })
+    .strict()
+    .refine((a) => a.name !== undefined || a.description !== undefined, "name or description"),
+  setProjectAi: z.object({ projectId: id, providerId: id.nullable(), exclusive: z.boolean() }).strict(),
+  saveProjectAutomations: z
+    .object({
+      projectId: id,
+      switches: z
+        .object({ docsNightly: z.boolean(), dailyReport: z.boolean(), backlogDiscovery: z.boolean(), pulse: z.boolean(), weeklyBrief: z.boolean() })
+        .strict(),
+      pulseEveryDays: z.number().int().min(1).max(30),
+      correctionCap: z.number().int().min(0).max(10),
+    })
+    .strict(),
+  pauseQueue: z.object({ projectId: id }).strict(),
+  resumeQueue: z.object({ projectId: id }).strict(),
+  retryJob: z.object({ jobId: id }).strict(),
+  // Area 9, F7, Task 4: gli schemi delle rotte MENO i campi segreti, `strict`
+  // (M-4 = a): un segreto negli argomenti è `invalid`, Claude non può
+  // nemmeno proporlo, e la riconferma parziale non scatta mai da qui.
+  setModel: z.object({ operation: aiOperationSchema, model: aiModelChoiceSchema.nullable() }).strict(),
+  saveBudget: z.object({ monthlyUsd: z.number().nonnegative().nullable(), contentLanguage: languageSchema }).strict(),
+  // (Niente `saveStorage`, review di F7: endpoint e bucket decidono DOVE vanno
+  // gli allegati, come l'url di un webhook. Resta un gesto della persona.)
+  saveAutomation: updateAutomationSettingsSchema.strict(),
+  setProviderEnabled: z.object({ id, enabled: z.boolean() }).strict(),
+  moveProvider: z.object({ id, toIndex: z.number().int().min(0).max(100) }).strict(),
+  updateGitAccount: z
+    .object({ id, name: z.string().min(1).max(200).optional(), workspace: z.string().min(1).max(200).optional() })
+    .strict()
+    .refine((a) => a.name !== undefined || a.workspace !== undefined, "name or workspace"),
+  updateGoogleApp: z
+    .object({ id, name: z.string().trim().min(1).max(200).optional(), domains: googleDomainsSchema.optional(), clientId: z.string().trim().min(1).max(500).optional() })
+    .strict()
+    .refine((a) => a.name !== undefined || a.domains !== undefined || a.clientId !== undefined, "a field"),
+  rerunSmoke: z.object({ id }).strict(),
+  removePlugin: z.object({ id }).strict(),
+  // Senza `url`: cambiarlo chiede la riconferma (e decide dove vanno i dati).
+  updateWebhook: webhookFieldsSchema
+    .omit({ url: true })
+    .partial()
+    .extend({ id })
+    .strict()
+    .refine((a) => Object.keys(a).length > 1, "a field"),
 } satisfies Record<ClaudeActionFn, z.ZodType>;
 
 export const claudeProposedActionSchema = z.object({
@@ -180,7 +302,18 @@ export type ClaudeActionFailure = z.infer<typeof claudeActionFailureSchema>;
 export const claudeProposalViewSchema = z.object({
   id: z.uuid(),
   sessionId: z.uuid(),
-  actions: z.array(claudeProposedActionSchema),
+  // Area 9, F7: `reauth` per azione (una C non scelta in «Conferma 2 di 3» non la chiede). False da un server di prima.
+  actions: z.array(
+    claudeProposedActionSchema.extend({
+      reauth: z.boolean().default(false),
+      /**
+       * Area 9, F7 (additivo): i nomi della scheda di un'azione sui membri,
+       * derivati a lettura coi permessi di chi guarda (null se non vede il
+       * progetto, o per le altre voci). Un server di prima non li manda.
+       */
+      labels: z.object({ person: z.string().nullable(), role: z.string().nullable() }).default({ person: null, role: null }),
+    }),
+  ),
   summary: z.string(),
   cls: z.enum(["A", "B", "C"]),
   reasons: z.array(claudeClassReasonSchema).default([]),
@@ -191,6 +324,12 @@ export const claudeProposalViewSchema = z.object({
   groupId: z.uuid().nullable().default(null),
   undoOfGroupId: z.uuid().nullable().default(null),
   createdAt: z.iso.datetime(),
+  /**
+   * Area 9, F7 (M-3 = a): la conferma chiede la riconferma (il gruppo ha una
+   * C). Un campo a sé e non un motivo nuovo dell'unione dei motivi, che
+   * `readerSchema` non apre. False da un server che non lo manda.
+   */
+  reauth: z.boolean().default(false),
 });
 export type ClaudeProposalView = z.infer<typeof claudeProposalViewSchema>;
 
@@ -216,6 +355,12 @@ export const claudeActionGroupViewSchema = z.object({
   /** Chi ha scritto dopo, se chi guarda lo vede (per «Changed after by …»). */
   changedBy: z.uuid().nullable().default(null),
   undoneAt: z.iso.datetime().nullable().default(null),
+  /**
+   * Area 9, F7 (additivo): «Annulla» di questo gruppo chiede la riconferma
+   * (un inverso dichiarato C, i membri), derivato dal server; vero solo con
+   * `undo: "available"`. Un server di prima non lo manda.
+   */
+  undoReauth: z.boolean().default(false),
 });
 export type ClaudeActionGroupView = z.infer<typeof claudeActionGroupViewSchema>;
 
@@ -289,8 +434,38 @@ const wrap = (t: string) => (t.includes(" | ") ? `(${t})` : t);
  * STESSI schemi che il server usa per validarle (`CLAUDE_ACTION_ARGS`): il
  * prompt della chat non le riscrive a mano, quindi non possono divergere.
  */
-export function claudeActionSignatures(): string {
-  return CLAUDE_PROPOSABLE_FNS.map(
+/**
+ * Area 9, F7: il permesso d'ISTANZA che una voce chiede (lo stesso di
+ * `config.access` della sua rotta; un test d'accordo del server lo confronta
+ * col catalogo). Le altre voci si valutano nel progetto, alla proposta.
+ */
+export const CLAUDE_INSTANCE_PERMISSION: Partial<Record<ClaudeActionFn, string>> = {
+  registerPlugin: "plugins.manage",
+  updatePluginRef: "plugins.manage",
+  rerunSmoke: "plugins.manage",
+  removePlugin: "plugins.manage",
+  setModel: "settings.manage",
+  saveBudget: "settings.manage",
+  saveAutomation: "settings.manage",
+  setProviderEnabled: "ai_providers.manage",
+  moveProvider: "ai_providers.manage",
+  updateGitAccount: "git_accounts.manage",
+  updateGoogleApp: "integrations.manage",
+  updateWebhook: "integrations.manage",
+};
+
+/**
+ * Le firme che il modello vede. Con `instancePermissions` (quelli di chi
+ * chiede) le voci d'istanza che non può proporre NON compaiono: il server le
+ * rifiuterebbe comunque, ma così Claude non le offre. Le voci di progetto
+ * restano: il permesso dipende dal progetto, e lo valuta il server.
+ */
+export function claudeActionSignatures(instancePermissions?: ReadonlySet<string>): string {
+  const allowed = (fn: ClaudeActionFn) => {
+    const needs = CLAUDE_INSTANCE_PERMISSION[fn];
+    return needs === undefined || instancePermissions === undefined || instancePermissions.has(needs);
+  };
+  return CLAUDE_PROPOSABLE_FNS.filter(allowed).map(
     (fn) => `- ${fn}(${signature(z.toJSONSchema(CLAUDE_ACTION_ARGS[fn], { io: "input", unrepresentable: "any" }) as JsonSchema)})`,
   ).join("\n");
 }

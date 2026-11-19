@@ -1258,7 +1258,42 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     server a lettura; la voce sul progetto porta alla sua pagina, le altre
     di Settings non hanno link, un membro si apre come persona;
   - Archivio (F6): archiviare, riaprire ed eliminare dal riquadro di Claude
-    (le azioni del catalogo dell'area 10) arrivano con F7.
+    (le azioni del catalogo dell'area 10) arrivano con F7. **Archiviare e
+    riaprire arrivate (F7, Task 3)**; eliminare resta a mano (la rotta è
+    solo dei full admin, col codice scritto: nessuna voce);
+  - Azioni di Claude (review di F7): **`saveStorage`** non ha una voce.
+    Endpoint e bucket decidono DOVE vanno e da dove si servono gli allegati,
+    col secret salvato che resta in uso: è la ragione per cui l'url di un
+    webhook è fuori dagli argomenti di `updateWebhook`. In più la lettura di
+    Claude non mostra la chiave d'accesso, e gli argomenti obbligatori
+    l'avrebbero azzerata. Se servirà: una C, o una patch senza endpoint e
+    bucket *(S, da decidere)*;
+  - Azioni di Claude, i Minor della review di F7 *(S ciascuno)*:
+    - `changed_after` dei tipi `member`/`project`/`setting` legge il
+      registro senza un lock: un salvataggio a mano che fa commit fra la
+      guardia di «Annulla» e l'inverso viene sovrascritto. Va bloccata la
+      riga (progetto, membro, `instance_settings`) nella guardia;
+    - lo `stamp` è `now()` della transazione, cioè il suo INIZIO: una
+      scrittura a mano iniziata prima ma con commit dopo ha `at` minore e
+      «Annulla» non la vede. `now()::text` dipende anche da `DateStyle`
+      (oggi ISO);
+    - `updateProjectGeneral` ha i massimi (200/2000) che la rotta non ha:
+      l'inverso di un nome o una descrizione più lunghi non passa lo schema,
+      e quell'«Annulla» finisce `invalid`;
+    - un riordino a mano via `PATCH /api/ai-providers/:id { position }` non
+      scrive `provider.reordered`, quindi l'«Annulla» di `moveProvider` non
+      lo vede;
+  - Azioni di Claude (F7, Task 4): **`setAttachments`** non ha una voce,
+    perché sul server gli allegati non hanno un interruttore: si accendono
+    da soli con l'archiviazione configurata e valida (`attachmentsEnabled` è
+    derivato). Serve prima un interruttore d'istanza sul server *(S)*;
+  - Azioni di Claude (F7, Task 4): **`setDefaultReviewer`** non ha una voce:
+    il `PUT /api/git-accounts/:id/default-reviewer` verifica il token
+    chiamando il provider (account, scope, identità), e dentro il catalogo
+    lo farebbe a ogni prova a secco di una proposta, nella transazione. Va
+    separata la verifica (fuori dalla transazione, una volta, alla conferma)
+    dalla scrittura *(M)*. Togliere il predefinito (`DELETE`) da solo
+    sarebbe facile, ma senza il suo inverso non si annulla;
 
 ## Area 10 — Integrazione di Claude
 
