@@ -650,6 +650,7 @@ una voce ti riguarda.
   - Gli eventi strutturati (`aside`, `capabilities`, `question`) li scrive il SERVER, non il modello; un tipo nuovo vuole il CHECK, lo `z.enum` e il test del tipo ignoto (area 10).
   - Una bozza di Claude in un campo (`fillField`) non si salva da sola (area 10, F6).
   - Le funzioni del catalogo stanno nei servizi, mai nelle rotte (`claude-actions-effects.test.ts`, area 9, F7).
+  - Contenuto personale (posta, calendario, canali privati, DM, automazioni generali) solo in una conversazione libera privata; letta, la conversazione non si pubblica (area 10, F1).
 - **Automazioni → `docs/invariants/automations.md`**:
   - Claude scrive solo BOZZE di automazione: pubblicare e accendere non sono mai nel catalogo (area 10).
 - **Account e provider dell'agente → `docs/invariants/providers.md`**:
