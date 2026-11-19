@@ -1,6 +1,6 @@
-import { releasePipelineSchema, repositorySchema, webhookSecretResultSchema } from "@stubwise/shared";
+import { detachedRepositorySchema, releasePipelineSchema, repositorySchema, webhookSecretResultSchema } from "@stubwise/shared";
 import { z } from "zod";
-import type { Reader, Repository, WebhookSecretResult } from "@stubwise/shared";
+import type { DetachedRepository, Reader, Repository, WebhookSecretResult } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
 import { seg } from "../query.js";
 
@@ -75,6 +75,21 @@ export function createRepositoriesEndpoints(request: ApiRequest) {
      */
     regenerateWebhookSecret(slug: string): Promise<Reader<WebhookSecretResult>> {
       return request("POST", `/api/repositories/${seg(slug)}/webhook-secret`, undefined, webhookSecretResultSchema);
+    },
+    /**
+     * Area 9, F6: i repository senza progetto (Amministrazione). 403 a chi non
+     * ha `repos.manage` in nessun progetto e non è full admin.
+     */
+    detached(): Promise<Reader<DetachedRepository>[]> {
+      return request("GET", "/api/repositories/detached", undefined, z.array(detachedRepositorySchema));
+    },
+    /** Collega uno staccato a un progetto (`repos.manage` lì). 409 `name_taken` / `not_detached`. */
+    link(id: string, projectId: string): Promise<void> {
+      return request("POST", `/api/repositories/${seg(id)}/link`, { projectId });
+    },
+    /** Elimina uno staccato: solo un full admin, con la riconferma. 409 `not_detached`. */
+    deleteDetached(id: string): Promise<void> {
+      return request("DELETE", `/api/repositories/${seg(id)}`);
     },
   };
 }

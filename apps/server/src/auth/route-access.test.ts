@@ -134,6 +134,7 @@ describe("rotte con riconferma recente", () => {
       "DELETE /api/me/security/passkeys/:id",
       "DELETE /api/projects/:projectId",
       "DELETE /api/projects/:projectId/members/:userId",
+      "DELETE /api/repositories/:id",
       "DELETE /api/repositories/:id/env-files/:fileId",
       "DELETE /api/repositories/:id/env-files/:fileId/vars/:key",
       "DELETE /api/roles/:id",

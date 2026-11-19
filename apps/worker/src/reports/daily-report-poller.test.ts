@@ -430,6 +430,16 @@ describe("pollDailyReportsOnce", () => {
     expect(await pollDailyReportsOnce(makeDeps({ commitsByCall: [[commit({})]] }).deps)).toBe(1);
   });
 
+  it("area 9, F6: un progetto ARCHIVIATO non genera il report; riaperto, sì", async () => {
+    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: true });
+    await testDb.db.update(projects).set({ archivedAt: new Date() }).where(eq(projects.id, projectId));
+    const archived = makeDeps({ commitsByCall: [[commit({})]] });
+    expect(await pollDailyReportsOnce(archived.deps)).toBe(0);
+    expect(archived.runSpy).not.toHaveBeenCalled();
+    await testDb.db.update(projects).set({ archivedAt: null }).where(eq(projects.id, projectId));
+    expect(await pollDailyReportsOnce(makeDeps({ commitsByCall: [[commit({})]] }).deps)).toBe(1);
+  });
+
   it("è idempotente: un secondo tick non crea un secondo report", async () => {
     await createProject(testDb.db, { dailyReportEnabled: true });
     const first = makeDeps({ commitsByCall: [[commit({})]] });

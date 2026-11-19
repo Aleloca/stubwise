@@ -575,6 +575,8 @@ export async function pollBriefsOnce(deps: BriefPollerDeps): Promise<number> {
           // Area 9, F4: il brief di un progetto in pausa resta `queued` (si
           // accoda lo stesso, per non perdere la settimana) e parte alla ripresa.
           isNull(projects.queuePausedAt),
+          // Area 9, F6: anche un archiviato; riaprendolo riparte.
+          isNull(projects.archivedAt),
         ),
       );
   } catch (err) {

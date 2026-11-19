@@ -130,6 +130,8 @@ async function loadRepos(deps: NightlyDeps, repositoryId: string | undefined): P
         // pianificate su riassunti a metà (un claim nullo per la pausa non è
         // una fase finita). I suoi elementi restano in coda per la notte dopo.
         isNull(projects.queuePausedAt),
+        // Area 9, F6: un archiviato resta fuori come uno in pausa; riaprendolo riparte.
+        isNull(projects.archivedAt),
         repositoryId === undefined ? undefined : eq(repositories.id, repositoryId),
       ),
     )
@@ -745,6 +747,8 @@ export async function hasPendingNightWork(deps: Pick<NightlyDeps, "db">, night: 
         or(eq(projects.dailyReportEnabled, true), eq(projects.docAutoUpdate, true)),
         // Gli elementi di un progetto in pausa non fanno ripartire il giro (review M4).
         isNull(projects.queuePausedAt),
+        // Area 9, F6: un archiviato resta fuori come uno in pausa; riaprendolo riparte.
+        isNull(projects.archivedAt),
       ),
     )
     .limit(1);

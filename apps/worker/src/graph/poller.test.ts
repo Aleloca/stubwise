@@ -124,6 +124,19 @@ describe("pollGraphJobsOnce", () => {
     expect(job.error).toBeNull();
   });
 
+  it("area 9, F6: il job di un repository STACCATO (senza progetto) non gira e finisce failed", async () => {
+    const db = testDb.db;
+    const { repositoryId } = await seedRepository(db);
+    await db.update(repositories).set({ projectId: null }).where(eq(repositories.id, repositoryId));
+    const id = await insertJob(db, { repositoryId });
+    const runGraphBuildFn = vi.fn<RunGraphBuildFn>(async () => true);
+    await pollGraphJobsOnce(makeDeps(db, { runGraphBuildFn }));
+    expect(runGraphBuildFn).not.toHaveBeenCalled();
+    const job = await getJob(db, id);
+    expect(job.status).toBe("failed");
+    expect(job.error).toContain("staccato");
+  });
+
   it("esegue il job nella CATENA PER-PROGETTO del repository", async () => {
     const db = testDb.db;
     const { projectId, repositoryId } = await seedRepository(db);

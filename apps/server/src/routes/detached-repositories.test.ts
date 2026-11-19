@@ -1,13 +1,14 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
-import { commitSummaries, projects, repositories } from "@stubwise/db";
+import { changeLog, commitSummaries, deletedProjectMembers, deletedProjects, projects, repositories } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { seedUsers } from "../test/fixtures.js";
+import { createSession, SESSION_COOKIE } from "../auth/session.js";
+import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
 
 /**
  * Area 9, F6 (0193): un repository STACCATO (il suo progetto è stato
@@ -18,6 +19,7 @@ import { seedUsers } from "../test/fixtures.js";
 let testDb: TestDb;
 let app: FastifyInstance;
 let adminCookie: string;
+let adminId: string;
 
 beforeAll(async () => {
   testDb = await startTestDb();
@@ -28,7 +30,7 @@ beforeAll(async () => {
     publicUrl: "https://stubwise.example.com",
     embeddingClient: createFakeEmbeddingClient(),
   });
-  ({ adminCookie } = await seedUsers(app));
+  ({ adminCookie, adminId } = await seedUsers(app));
 }, 120_000);
 
 afterAll(async () => {
@@ -103,5 +105,93 @@ describe("area 9, F6: un repository staccato non è di nessun progetto", () => {
       payload: body,
     });
     expect(accepted.statusCode).not.toBe(401);
+  });
+});
+
+describe("area 9, F6, Task 6: elencare, collegare, eliminare un repository senza progetto", () => {
+  /** Uno staccato come lo lascia l'eliminazione: con la memoria del progetto e i suoi ex membri. */
+  async function detachedFrom(code: string, formerMembers: string[] = []) {
+    const { projectId, repositoryId } = await seedRepository(testDb.db);
+    await testDb.db.update(repositories).set({ name: `rep-${randomBytes(3).toString("hex")}`, repoUrl: "https://github.com/cliente-segreto/sito.git" }).where(eq(repositories.id, repositoryId));
+    await testDb.db.insert(deletedProjects).values({ id: projectId, code, name: `Progetto ${code}` });
+    for (const userId of formerMembers) await testDb.db.insert(deletedProjectMembers).values({ projectId, userId });
+    await testDb.db.update(repositories).set({ detachedAt: new Date(), detachedFromProjectId: projectId }).where(eq(repositories.id, repositoryId));
+    await testDb.db.delete(projects).where(eq(projects.id, projectId));
+    const [row] = await testDb.db.select().from(repositories).where(eq(repositories.id, repositoryId));
+    return { formerProjectId: projectId, repo: row! };
+  }
+  async function person(preset: string | null, projectId?: string) {
+    const u = await createUserWithSession(app, `p-${randomBytes(4).toString("hex")}@acme.com`);
+    if (preset && projectId) await addMember(app, projectId, u.id, preset);
+    return u;
+  }
+  const list = (headers: Record<string, string>) => app.inject({ method: "GET", url: "/api/repositories/detached", headers });
+  const link = (headers: Record<string, string>, id: string, projectId: string) => app.inject({ method: "POST", url: `/api/repositories/${id}/link`, headers, payload: { projectId } });
+  const del = (headers: Record<string, string>, id: string) => app.inject({ method: "DELETE", url: `/api/repositories/${id}`, headers });
+
+  it("l'elenco: il full admin vede nome intero, URL e provenienza; chi gestisce i repository altrove solo l'ultimo segmento e nessuna provenienza; senza repos.manage 403", async () => {
+    const target = await seedRepository(testDb.db);
+    const lead = await person("project_lead", target.projectId);
+    const { repo } = await detachedFrom(`D${randomBytes(2).toString("hex").toUpperCase()}`.slice(0, 6).replace(/[^A-Z0-9]/g, "X"));
+    const mine = (await list({ cookie: adminCookie })).json() as Record<string, unknown>[];
+    expect(mine.find((r) => r.id === repo.id)).toMatchObject({ fullName: "cliente-segreto/sito", repoUrl: repo.repoUrl, formerProject: { code: expect.any(String) }, canDelete: true });
+    const theirs = (await list(lead.headers)).json() as Record<string, unknown>[];
+    expect(theirs.find((r) => r.id === repo.id)).toMatchObject({ fullName: "sito", repoUrl: null, formerProject: null, canDelete: false });
+    expect((theirs[0]!.linkTargets as { projectId: string }[]).map((t) => t.projectId)).toEqual([target.projectId]);
+    const nobody = await person(null);
+    expect((await list(nobody.headers)).statusCode).toBe(403);
+  });
+
+  it("un ex membro conosce la provenienza", async () => {
+    const target = await seedRepository(testDb.db);
+    const former = await person("project_lead", target.projectId);
+    const { repo } = await detachedFrom("EXM", [former.id]);
+    const rows = (await list(former.headers)).json() as Record<string, unknown>[];
+    expect(rows.find((r) => r.id === repo.id)).toMatchObject({ fullName: "cliente-segreto/sito", formerProject: { code: "EXM" } });
+  });
+
+  it("collegare: repos.manage nel progetto di DESTINAZIONE (L-4); il segreto si rigenera; la voce nel progetto di destinazione; NEGATIVI: Contributor (senza repos.manage) 403, progetto altrui 404, nome già preso 409, già collegato 409", async () => {
+    const target = await seedRepository(testDb.db);
+    const lead = await person("project_lead", target.projectId);
+    const dev = await person("contributor", target.projectId);
+    const other = await seedRepository(testDb.db);
+    const { repo } = await detachedFrom("LNK");
+    expect((await link(dev.headers, repo.id, target.projectId)).statusCode).toBe(403);
+    expect((await link(lead.headers, repo.id, other.projectId)).statusCode).toBe(404);
+    const [clash] = await testDb.db.select({ name: repositories.name }).from(repositories).where(eq(repositories.id, target.repositoryId));
+    const { repo: twin } = await detachedFrom("TWN");
+    await testDb.db.update(repositories).set({ name: clash!.name }).where(eq(repositories.id, twin.id));
+    const taken = await link(lead.headers, twin.id, target.projectId);
+    expect([taken.statusCode, (taken.json() as { code: string }).code]).toEqual([409, "name_taken"]);
+    const [still] = await testDb.db.select().from(repositories).where(eq(repositories.id, repo.id));
+    expect(still!.projectId).toBeNull();
+
+    expect((await link(lead.headers, repo.id, target.projectId)).statusCode).toBe(204);
+    const [linked] = await testDb.db.select().from(repositories).where(eq(repositories.id, repo.id));
+    expect(linked).toMatchObject({ projectId: target.projectId, detachedAt: null, detachedFromProjectId: null, webhookConfiguredAt: null });
+    expect(linked!.webhookSecret).not.toBe(repo.webhookSecret);
+    expect(await testDb.db.select().from(changeLog).where(and(eq(changeLog.type, "repository.linked"), eq(changeLog.projectId, target.projectId)))).toHaveLength(1);
+    const again = await link(lead.headers, repo.id, target.projectId);
+    expect([again.statusCode, (again.json() as { code: string }).code]).toEqual([409, "not_detached"]);
+  });
+
+  it("eliminare: solo uno staccato, solo un full admin, con la riconferma; la voce d'istanza risolve la provenienza a lettura e non fa mai uscire formerProjectId", async () => {
+    const target = await seedRepository(testDb.db);
+    const lead = await person("project_lead", target.projectId);
+    const { repo, formerProjectId } = await detachedFrom("DEL");
+    expect((await del(lead.headers, repo.id)).statusCode).toBe(403);
+    const attached = await del({ cookie: adminCookie }, target.repositoryId);
+    expect([attached.statusCode, (attached.json() as { code: string }).code]).toEqual([409, "not_detached"]);
+    const old = await createSession(testDb.db, adminId, { stage: "full", secondFactorAt: new Date(Date.now() - 11 * 60_000) });
+    const stale = await del({ cookie: `${SESSION_COOKIE}=${encodeURIComponent(app.signCookie(old.id))}` }, repo.id);
+    expect([stale.statusCode, (stale.json() as { code: string }).code]).toEqual([403, "reauth_required"]);
+    expect(await testDb.db.select().from(repositories).where(eq(repositories.id, repo.id))).toHaveLength(1);
+
+    expect((await del({ cookie: adminCookie }, repo.id)).statusCode).toBe(204);
+    expect(await testDb.db.select().from(repositories).where(eq(repositories.id, repo.id))).toEqual([]);
+    const log = (await app.inject({ method: "GET", url: "/api/change-log", headers: { cookie: adminCookie } })).json() as { entries: { type: string; data: { object: { id: string }; params?: Record<string, unknown> } }[] };
+    const entry = log.entries.find((e) => e.type === "repository.deleted" && e.data.object.id === repo.id);
+    expect(entry!.data.params).toEqual({ formerProject: "DEL" });
+    expect(JSON.stringify(log.entries)).not.toContain(formerProjectId);
   });
 });
