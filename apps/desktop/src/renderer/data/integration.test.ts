@@ -45,6 +45,8 @@ const ALL: IntegrationTarget[] = [
       "claude-suggestions",
       "claude-chat-actions",
       "product-docs",
+      // Area 11, D-7: lo spazio Product (spento finché il server non c'è).
+      "product-space",
       "task-delete",
       "chat",
       ...CHAT_LATER_FEATURES,

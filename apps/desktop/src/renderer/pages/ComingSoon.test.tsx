@@ -802,6 +802,20 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
+  // Area 11, D-7 = a: lo spazio della doc di prodotto non ha ancora il server.
+  it("lo spazio Product (/p/X/docs/product) mostra «Coming soon» e non legge la doc di prodotto", async () => {
+    renderRoute("/p/ACQ/docs/product");
+    expect(await screen.findByText("Coming soon")).toBeInTheDocument();
+    await settle();
+    expect(calls.some((c) => c.startsWith("productDocs."))).toBe(false);
+    expect(outside()).toEqual([]);
+    cleanup();
+    renderRoute("/p/ACQ/docs/product/ACQ-D5");
+    expect(await screen.findByText("Coming soon")).toBeInTheDocument();
+    await settle();
+    expect(calls.some((c) => c.startsWith("productDocs."))).toBe(false);
+  });
+
   it("una pagina di progetto non integrata mostra «Coming soon»", async () => {
     // Dall'area 8, F4a, ogni sezione di progetto è accesa: resta una voce delle impostazioni
     // (Archive è accesa dall'area 9, F6; Usage no).
