@@ -1241,16 +1241,17 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - ~~Progetto → Settings → Plugins (F5): la semantica è da decidere.~~
     **Chiuso (19 nov 2026, decisione del maintainer): opt-in**, come il
     server. Prototipo e app hanno la casella «acceso per questo progetto»
-    per plugin; dentro un plugin acceso, skill e hook per sottrazione. Resta
-    una differenza di sola voce: nel registro delle modifiche il server
-    scrive `enabledPlugins` e le chiavi delle skill con lo slug, il
-    prototipo col `name` del manifest (uguali per i plugin del seme) *(S)*;
+    per plugin; dentro un plugin acceso, skill e hook per sottrazione. Dalla
+    review di F5 (M3/M4) anche il prototipo nomina i plugin per **slug**,
+    come il server (scelte salvate, bozza, salvataggio, registro delle
+    modifiche); il `name` del manifest resta per il preset e per il
+    namespace di «/»;
   - Plugins: il plugin base non c'è (sta fuori dal registro del server, nel
     prototipo viene dal seme); le skill non hanno descrizione e i gruppi di
     hook non hanno comando (il registro del progetto non li manda) *(S)*;
-  - Plugins: la lettura è sotto `project.settings.manage`, quindi un membro
-    senza quel permesso non vede la pagina in sola lettura come nel
-    prototipo (la trova «non disponibile») *(S, se il server apre la GET)*.
+  - ~~Plugins: la lettura è sotto `project.settings.manage`.~~ **Chiuso
+    (review di F5)**: la GET risponde a chi vede il progetto, con `canEdit`
+    del server (72, f480e527b); la pagina è in sola lettura per gli altri.
 
 ## Area 10 — Integrazione di Claude
 

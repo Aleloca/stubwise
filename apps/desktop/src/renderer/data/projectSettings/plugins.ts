@@ -76,8 +76,8 @@ function registryRow(
   p: RegisteredPlugin,
   choices: ProjectPluginChoices,
 ): ProjectPluginsView["plugins"][number] {
-  const off = disabledOf(choices, p.name);
-  const on = choices.enabled.includes(p.name);
+  const off = disabledOf(choices, p.slug);
+  const on = choices.enabled.includes(p.slug);
   const skills = p.inventory?.skills ?? [];
   const hooks = p.inventory?.hooks ?? [];
   return {
@@ -142,7 +142,7 @@ function normalized(
     )
       return { reason: "disabled" };
     if (d.plugin === BASE_PLUGIN) return { reason: "base_plugin" };
-    const plugin = state.instance.plugins.find((p) => p.name === d.plugin);
+    const plugin = state.instance.plugins.find((p) => p.slug === d.plugin);
     if (!plugin) return { reason: "plugin" };
     // Un plugin senza inventario (mai materializzato) non dice le sue skill: si accetta ciò che arriva.
     const skills = plugin.inventory?.skills.map((s) => s.name);
@@ -181,7 +181,7 @@ function enabledReason(enabled: unknown): string | null {
   if (!Array.isArray(enabled) || enabled.some((n) => typeof n !== "string")) return "enabled";
   for (const name of enabled as string[]) {
     if (name === BASE_PLUGIN) return "base_plugin";
-    if (!state.instance.plugins.some((p) => p.name === name)) return "plugin";
+    if (!state.instance.plugins.some((p) => p.slug === name)) return "plugin";
   }
   return null;
 }
@@ -209,7 +209,7 @@ export async function saveProjectPlugins(
 
   // [PG 4]: le scelte di un plugin non `ready` che l'input non nomina restano.
   const ready = (name: string) =>
-    state.instance.plugins.some((p) => p.name === name && p.status === "ready");
+    state.instance.plugins.some((p) => p.slug === name && p.status === "ready");
   const disabled = [
     ...clean.disabled,
     ...choices.disabled.filter((d) => !clean.named.has(d.plugin) && !ready(d.plugin)),
@@ -221,9 +221,9 @@ export async function saveProjectPlugins(
     ? state.instance.plugins
         .filter(
           (p) =>
-            wanted.includes(p.name) || (p.status !== "ready" && choices.enabled.includes(p.name)),
+            wanted.includes(p.slug) || (p.status !== "ready" && choices.enabled.includes(p.slug)),
         )
-        .map((p) => p.name)
+        .map((p) => p.slug)
     : choices.enabled;
   const fields = (on: string[], off: ProjectPluginChoices["disabled"]) => ({
     enabledPlugins: [...on].sort(),
@@ -257,9 +257,9 @@ export function skillsForRun(
   if (!project) return [];
   const choices = settingsOf(project).plugins;
   const chosen = state.instance.plugins
-    .filter((p) => p.status === "ready" && choices.enabled.includes(p.name))
+    .filter((p) => p.status === "ready" && choices.enabled.includes(p.slug))
     .flatMap((p) => {
-      const off = disabledOf(choices, p.name);
+      const off = disabledOf(choices, p.slug);
       return (p.inventory?.skills ?? [])
         .filter((s) => !off?.skills.includes(s.name))
         .map((s) => ({ plugin: p.name, skill: s.name, description: s.description }));

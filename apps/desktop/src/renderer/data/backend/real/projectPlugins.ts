@@ -111,18 +111,19 @@ export function createRealProjectPlugins(api: ProjectPluginsApi) {
     ): Promise<ProjectResult<{ version: string }>> {
       const v = await read(projectId);
       if (!v) return { ok: false, error: "not_found" };
-      const registry = new Map<string, Any>((v.registry as Any[]).map((r) => [r.name, r]));
+      // Per slug (review F5, M3): il nome del manifest non è unico, lo slug sì.
+      const registry = new Map<string, Any>((v.registry as Any[]).map((r) => [r.slug, r]));
       const current = new Map<string, ServerChoice>(
         (v.plugins as ServerChoice[]).map((c) => [c.pluginId, c]),
       );
       const wanted = input.enabled;
       if (wanted?.some((name) => !registry.has(name))) return invalid("plugin");
-      const nameOf = new Map<string, string>(
-        [...registry.values()].map((r) => [r.pluginId, r.name]),
+      const slugOf = new Map<string, string>(
+        [...registry.values()].map((r) => [r.pluginId, r.slug]),
       );
       /** Acceso dopo il salvataggio: quello che `enabled` dice, o com'era. */
       const onAfter = (id: string, was: boolean) =>
-        wanted ? wanted.includes(nameOf.get(id) ?? "") : was;
+        wanted ? wanted.includes(slugOf.get(id) ?? "") : was;
       const named = new Map<string, ServerChoice>();
       for (const d of input.disabled) {
         const r = registry.get(d.plugin);

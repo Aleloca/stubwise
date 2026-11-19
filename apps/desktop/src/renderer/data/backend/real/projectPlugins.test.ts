@@ -266,6 +266,39 @@ describe("i plugin del progetto dal server", () => {
     }
   });
 
+  it("review F5, M3: il registro si legge per slug, non per nome (due plugin col nome del manifest uguale)", async () => {
+    const FORK = "55555555-5555-4555-8555-555555555555";
+    const { api, puts } = fake({
+      get: async () => ({
+        ...GET,
+        plugins: [],
+        registry: [
+          REGISTRY[0],
+          {
+            ...REGISTRY[0],
+            pluginId: FORK,
+            slug: "superpowers-fork",
+            skills: ["brainstorming"],
+            hookGroups: [],
+          },
+        ],
+      }),
+    });
+    const view = (await createRealProjectPlugins(api).getProjectPlugins("p1"))!;
+    expect(view.plugins.map((p) => [p.name, p.slug])).toEqual([
+      ["superpowers", "superpowers"],
+      ["superpowers", "superpowers-fork"],
+    ]);
+    await createRealProjectPlugins(api).saveProjectPlugins("p1", {
+      version: "v7",
+      enabled: ["superpowers-fork"],
+      disabled: [{ plugin: "superpowers-fork", skills: ["brainstorming"], hookGroups: [] }],
+    });
+    expect(puts[0]!.plugins).toEqual([
+      { pluginId: FORK, enabled: true, disabledSkills: ["brainstorming"], disabledHooks: [] },
+    ]);
+  });
+
   it("409 stale → conflict; un nome sconosciuto → invalid", async () => {
     const stale = fake({
       put: async () => {
