@@ -568,7 +568,9 @@ export const changeLog = pgTable(
     actorEmail: text("actor_email").notNull(),
     actorKind: text("actor_kind").$type<"user" | "agent" | "system">().notNull(),
     type: text("type").notNull(),
-    projectId: uuid("project_id").references((): AnyPgColumn => projects.id, { onDelete: "set null" }),
+    // Senza FK dalla 0193 (area 9, F6, L-3): tiene l'id di un progetto
+    // eliminato, così le sue voci non diventano «senza progetto».
+    projectId: uuid("project_id"),
     subjectKind: text("subject_kind").notNull(),
     subjectId: text("subject_id").notNull(),
     data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
@@ -704,6 +706,11 @@ export const projects = pgTable(
     // (creazione del progetto o rigenerazione); null per le chiavi di prima.
     ingestionKeyCreatedAt: timestamp("ingestion_key_created_at", { withTimezone: true }),
     ingestionKeyCreatedByUserId: uuid("ingestion_key_created_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+    // Area 9, F6 (0193, D-8): l'archivio. Nullo = aperto. Un archiviato
+    // sparisce da ogni elenco e lettura (tranne quelle dedicate) e il worker
+    // non ne prende lavoro; si riapre o, solo allora, si elimina.
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    archivedByUserId: uuid("archived_by_user_id").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
     // Aggiornamento automatico della documentazione ai push (changelog/release):
     // false = disattivo (i push non innescano nulla). Toggle per-progetto, vale
     // per tutti i repository del progetto.
@@ -770,7 +777,7 @@ export const projects = pgTable(
       .notNull()
       .default(sql`'{docs,releases,support,servers}'::text[]`),
   },
-  () => [
+  (table) => [
     // Sotto 1 giorno il pulse diventerebbe un ping continuo, sopra 30 un
     // promemoria che non arriva mai.
     check("projects_pulse_every_days_chk", sql`pulse_every_days BETWEEN 1 AND 30`),
@@ -782,6 +789,7 @@ export const projects = pgTable(
     check("projects_code_format_chk", sql`code ~ '^[A-Z][A-Z0-9]{1,5}$'`),
     check("projects_stall_active_days_chk", sql`stall_active_days BETWEEN 1 AND 90`),
     check("projects_stall_todo_days_chk", sql`stall_todo_days BETWEEN 1 AND 90`),
+    index("projects_archived_idx").on(table.id).where(sql`archived_at IS NOT NULL`),
   ],
 );
 
@@ -839,12 +847,10 @@ export const departmentMembers = pgTable(
  */
 export const repositories = pgTable("repositories", {
   id: uuid("id").primaryKey().defaultRandom(),
-  // Progetto (gruppo) a cui il repository appartiene. NOT NULL: un repo sta
-  // sempre in un progetto. ON DELETE CASCADE: eliminare il progetto porta via i
-  // suoi repository.
-  projectId: uuid("project_id")
-    .notNull()
-    .references(() => projects.id, { onDelete: "cascade" }),
+  // Progetto (gruppo) a cui il repository appartiene. Nullo = STACCATO
+  // (area 9, F6, 0193): eliminare il progetto lascia il repository, senza
+  // progetto, e lo vede solo l'Amministrazione finché non si ricollega.
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   provider: gitProviderKind("provider").notNull(),
