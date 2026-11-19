@@ -142,6 +142,7 @@ import { fileURLToPath } from "node:url";
 // perché sta nel suo docblock.
 import type { Language } from "@stubwise/i18n";
 import { CHAT_MENTION_TOOL_NAMES, CHAT_TOOL_READ_ROUTES, chatRoutePattern } from "@stubwise/shared";
+import { STALLED_TASKS } from "./fixtures-area10.js";
 import type { AgentRunner, AgentRunResult, UsageTag } from "../../src/agent/runner.js";
 import type { LiveProcessHandle } from "../../src/agent/streaming-cli.js";
 import type { RefineBridge } from "../../src/backlog/refine/bridge.js";
@@ -2311,11 +2312,6 @@ const MAIL_SUBJECT_HOSTILE = {
   messages: [{ ...MAIL_HOSTILE.messages[0]!, textExcerpt: "Buongiorno, le confermo la consegna di giovedì." }],
 };
 
-/** Area 10, F3 (S2): le task ferme di AUD, con le soglie del progetto (la forma di `GET /api/tasks/stalled`). */
-const STALLED_TASKS = [
-  { task: { ...AUD_TASK, id: "8a9b0c1d-2e3f-4a5b-8c6d-7e8f9a0b1c2d", number: 7, code: "AUD-7", title: "Import contatti", plannedWeek: null }, stall: { reason: { kind: "idle" }, since: "2026-10-30T09:00:00.000Z", days: 21 } },
-  { task: { ...AUD_TASK, id: "9b0c1d2e-3f4a-4b5c-9d7e-8f9a0b1c2d3e", number: 9, code: "AUD-9", title: "Report mensile", plannedWeek: "2026-11-16" }, stall: { reason: { kind: "unassigned" }, since: "2026-11-10T09:00:00.000Z", days: 10 } },
-];
 /** Area 10, F3 (S3): la spesa del mese di chi ha `usage.view`. */
 const USAGE_MONTH = {
   totals: { costUsd: 12.5, inputTokens: 1000, outputTokens: 500, cacheReadTokens: 0, runs: 40 },
