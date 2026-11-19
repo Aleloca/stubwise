@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setAppClientForTests } from "./client";
 import { installFakeServer, ME_ID } from "./fakeServer";
-import { adminDepartments, forgetLoadedDepartmentsForTest } from "./departments";
+import { adminDepartments } from "./departments";
 import { countTasks } from "./tasks";
 
 const GENERAL = "66666666-6666-4666-8666-666666666666";
@@ -12,10 +12,7 @@ const departments = [
   { id: SALES, name: "Sales", colorToken: "--dept-2", isDefault: false },
 ];
 
-beforeEach(() => {
-  setAppClientForTests(null);
-  forgetLoadedDepartmentsForTest();
-});
+beforeEach(() => setAppClientForTests(null));
 afterEach(() => {
   vi.unstubAllGlobals();
   setAppClientForTests(null);
@@ -160,7 +157,7 @@ describe("Reparti nella build app", () => {
     expect(seen[2]!.body).toEqual({ roles: [{ userId: ME_ID, permissions: ["department.home.manage"] }] });
   });
 
-  it("F8: l'elenco dà i permessi del reparto; il salvataggio li manda solo se la bozza li CAMBIA rispetto al letto", async () => {
+  it("F8 (review I1): l'elenco dà i permessi; il salvataggio li manda solo se la bozza li cambia rispetto alla SUA base", async () => {
     const withPerms = [departments[0], { ...departments[1], projectPermissions: ["support.manage"] }];
     const { seen } = installFakeServer({
       "GET /api/departments": { body: withPerms },
@@ -171,37 +168,36 @@ describe("Reparti nella build app", () => {
     });
     const rows = await adminDepartments.listDepartments!();
     expect(rows.find((d) => d.id === SALES)!.projectPermissions).toEqual(["support.manage"]);
-    const patches = () => seen.filter((r) => r.method === "PATCH").map((r) => r.body);
-    // Invariati: il PATCH non li nomina (una sessione con dati vecchi non li cancella).
-    await adminDepartments.saveDepartment!(SALES, {
-      memberIds: [ME_ID],
-      homeManagerIds: [],
-      projectPermissions: ["support.manage"],
-    });
+    let requests = seen;
+    const patches = () => requests.filter((r) => r.method === "PATCH").map((r) => r.body);
+    const save = (projectPermissions: string[], baseProjectPermissions?: string[]) =>
+      adminDepartments.saveDepartment!(SALES, {
+        memberIds: [ME_ID],
+        homeManagerIds: [],
+        projectPermissions,
+        ...(baseProjectPermissions ? { baseProjectPermissions } : {}),
+      });
+    // Invariati rispetto alla base della bozza: il PATCH non li nomina…
+    await save(["support.manage"], ["support.manage"]);
     expect(patches().at(-1)).toEqual({ memberIds: [ME_ID] });
-    // Cambiati: l'insieme intero, come lo vuole il server.
-    await adminDepartments.saveDepartment!(SALES, {
-      memberIds: [ME_ID],
-      homeManagerIds: [],
-      projectPermissions: ["support.manage", "drive.upload", "drive.upload"],
-    });
-    expect(patches().at(-1)).toEqual({
-      memberIds: [ME_ID],
-      projectPermissions: ["support.manage", "drive.upload"],
-    });
-  });
-
-  it("F8: un elenco senza il campo (server di prima): una bozza vuota non nomina i permessi", async () => {
-    const { seen } = installFakeServer({
-      "GET /api/departments": { body: departments },
+    // …anche se nel frattempo un altro ne ha aggiunto uno (l'elenco riletto ne ha due):
+    // la bozza vecchia non cancella la concessione dell'altro.
+    requests = installFakeServer({
+      "GET /api/departments": { body: [departments[0], { ...departments[1], projectPermissions: ["support.manage", "plans.approve"] }] },
       "GET /api/people": { body: [] },
       "GET /api/departments/roles": { body: [] },
-      [`PATCH /api/departments/${SALES}`]: { body: departments[1] },
+      [`PATCH /api/departments/${SALES}`]: { body: withPerms[1] },
       [`PUT /api/departments/${SALES}/roles`]: { body: [] },
-    });
+    }).seen;
     await adminDepartments.listDepartments!();
-    await adminDepartments.saveDepartment!(SALES, { memberIds: [ME_ID], homeManagerIds: [], projectPermissions: [] });
-    expect(seen.find((r) => r.method === "PATCH")!.body).toEqual({ memberIds: [ME_ID] });
+    await save(["support.manage"], ["support.manage"]);
+    expect(patches().at(-1)).toEqual({ memberIds: [ME_ID] });
+    // Cambiati rispetto alla base: l'insieme intero.
+    await save(["support.manage", "drive.upload", "drive.upload"], ["support.manage"]);
+    expect(patches().at(-1)).toEqual({ memberIds: [ME_ID], projectPermissions: ["support.manage", "drive.upload"] });
+    // Senza base: mai.
+    await save(["drive.upload"]);
+    expect(patches().at(-1)).toEqual({ memberIds: [ME_ID] });
   });
 
   it("i responsabili della Home vengono dai ruoli di reparto", async () => {

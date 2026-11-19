@@ -131,7 +131,8 @@ e un reparto che non arriva a nessun progetto ha il suo motivo (F8-4 = a).
 | La riga «gives…» e la tabella dei permessi del reparto | `departments.ts` | `department-permissions` | I permessi pieni solo a chi gestisce i reparti. Il salvataggio manda `projectPermissions` solo se la bozza li cambia rispetto all'elenco letto (un reparto mai letto non li manda). |
 | L'anteprima: permessi spenti, «Add people» | `departments.ts` | — | `POST …/preview` (F8-2 = a): il server calcola `reach`, `notGivable`, `missingToAdd`, `missing`. |
 | La riconferma | `departments.ts`, `DepartmentPanel.tsx` | `department-reauth` | `reauth_required` dal server, il dialogo come nel prototipo. |
-| «From <reparto>» in Members e nella persona, «via <reparto>» in «Chi può farlo?» | `adminPeople.ts`, `whoCan.ts` | — | Il nome del reparto dal server (`departmentName`); senza, si cerca nell'elenco. |
+| La fonte di un permesso: «From the <reparto> department» in Members e nella persona, «<reparto> department» in «Chi può farlo?» | `adminPeople.ts` (`sourceOf`), `whoCan.ts` | — | Il nome del reparto dal server (`departmentName`). Solo «Chi può farlo?» ripiega sull'elenco dei reparti se il nome manca (un server di prima). |
+| Il reparto cambiato da un altro col pannello aperto | `DepartmentPanel.tsx`, `departments.ts` | — | La bozza ha la sua base (review F8, I1): senza modifiche si rilegge, con modifiche lo dice; `projectPermissions` va nel PATCH solo se la bozza lo cambia rispetto alla base. La precondizione di versione (`ifMatch`) arriva da 72. |
 | L'ultimo gestore via reparto | `departments.ts` | — | `last_manager` del server si legge come `last_members_manager`, anche sul DELETE. |
 
 ## A. Personale → Preferenze

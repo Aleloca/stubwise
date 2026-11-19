@@ -1,6 +1,6 @@
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { admin, resetApi, setLatency } from "../../data/api";
 import { accessState, roleIdOf, writeAccess } from "../../data/access/index";
 import { setSessionPersonId } from "../../data/session";
@@ -17,7 +17,8 @@ import en from "../../i18n/locales/en.json";
 import it_ from "../../i18n/locales/it.json";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { resetReauthForTest } from "../../layout/useReauth";
-import { renderRoute } from "../../test/renderRoute";
+import { lastQueryClient, renderRoute } from "../../test/renderRoute";
+import { departmentInvalid } from "./DepartmentsPage";
 import { setMatchMedia } from "../../test/setup";
 
 // Departments e Roles in Amministrazione (area 9a, Task 9, shape
@@ -179,6 +180,54 @@ describe("Departments", () => {
     ).toBeVisible();
     expect(dept(legal.departmentId).projectPermissions).toEqual([]);
     expect(state.changelog.length).toBe(entries);
+  });
+
+  it("review F8 I1: un altro cambia il reparto mentre il pannello è aperto — senza modifiche la bozza si rilegge, con modifiche lo dice", async () => {
+    const user = userEvent.setup();
+    renderRoute("/admin/departments?department=dep-development", ROBERTA);
+    const panel = await screen.findByRole("region", { name: "Department Development" });
+    // Un altro amministratore dà «Approve plans» a Development.
+    writeAccess((s) => {
+      s.departments.find((d) => d.departmentId === "dep-development")!.projectPermissions.push("plans.approve");
+    });
+    await lastQueryClient().invalidateQueries();
+    // Senza modifiche: la bozza è quella nuova.
+    await waitFor(() =>
+      expect(within(panel).getByRole("checkbox", { name: /^Approve plans/ })).toBeChecked(),
+    );
+    // Con una modifica in corso, un altro cambio non la sovrascrive: lo dice.
+    await user.click(within(panel).getByRole("button", { name: "Add people" }));
+    await user.click(
+      within(within(panel).getByRole("list", { name: "People you can add" })).getByText("Sara Montanari"),
+    );
+    writeAccess((s) => {
+      s.departments.find((d) => d.departmentId === "dep-development")!.projectPermissions.push("drive.upload");
+    });
+    await lastQueryClient().invalidateQueries();
+    expect(
+      await within(panel).findByText(/^Someone else changed this department while you were editing it\./),
+    ).toBeVisible();
+  });
+
+  it("review F8 M1: l'anteprima che non si legge lo dice, con «Try again»", async () => {
+    const spy = vi.spyOn(admin, "previewDepartment").mockRejectedValue(new Error("boom"));
+    try {
+      renderRoute("/admin/departments?department=dep-development", ROBERTA);
+      const panel = await screen.findByRole("region", { name: "Department Development" });
+      const alerts = await within(panel).findAllByText("Couldn't check what you can give.");
+      expect(alerts.length).toBeGreaterThan(0);
+      expect(within(panel).getAllByRole("button", { name: "Try again" }).length).toBeGreaterThan(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("review F8 M2: i rifiuti invalid_permission e not_a_person hanno la loro frase", () => {
+    const t = i18n.getFixedT("en");
+    expect(departmentInvalid(t as never, "permission")).toBe(
+      "That permission can't be given by a department: only project permissions can.",
+    );
+    expect(departmentInvalid(t as never, "person")).toBe("Only people can be in a department: Claude can't.");
   });
 
   it("F8-4: un reparto che non arriva a nessun progetto resta modificabile, e il motivo lo dice", async () => {

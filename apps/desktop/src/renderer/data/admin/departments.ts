@@ -157,6 +157,12 @@ export interface DepartmentDraft {
   memberIds: string[];
   homeManagerIds: string[];
   projectPermissions: string[];
+  /**
+   * I permessi del reparto quando la bozza è nata (review F8, I1): il server
+   * li riceve solo se la bozza li cambia rispetto a questi. Il prototipo non
+   * li usa (il suo stato è uno solo).
+   */
+  baseProjectPermissions?: string[];
 }
 
 /**

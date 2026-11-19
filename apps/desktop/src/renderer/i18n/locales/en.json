@@ -10877,7 +10877,9 @@
         "nameTaken": "Another department already has this name.",
         "defaultDepartment": "This is the default department: tasks without one land here, so it can be renamed but not deleted.",
         "rolesNotSaved": "Members saved, but who manages the Home wasn't. Try again to save it.",
-        "invalidPerson": "Only people in the department can manage its Home."
+        "invalidPerson": "Only people in the department can manage its Home.",
+        "invalidPermission": "That permission can't be given by a department: only project permissions can.",
+        "notAPerson": "Only people can be in a department: Claude can't."
       }
     },
     "department": {
@@ -10912,6 +10914,10 @@
       "discardAsk_one": "Discard {{count}} change?",
       "discardAsk_other": "Discard {{count}} changes?",
       "saved": "Saved",
+      "staleDraft": "Someone else changed this department while you were editing it. Discard your changes to see theirs, or save yours over them.",
+      "previewLoading": "Checking what you can give…",
+      "previewError": "Couldn't check what you can give.",
+      "previewRetry": "Try again",
       "saveAction": "change {{name}}",
       "saveFailed": "Couldn't save. Try again.",
       "refusal": {
