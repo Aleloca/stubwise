@@ -3365,6 +3365,12 @@
         "readable": "I suoi membri e i full admin possono ancora leggerlo, in Archiviati.",
         "automations": "Le sue automazioni si fermano e non parte nuovo lavoro di Claude.",
         "nothingDeleted": "Non si cancella niente: Riapri lo riporta com'era.",
+        "surfaces": {
+          "sdk": "L'SDK dei suoi siti smette di funzionare.",
+          "widget": "Il suo widget di Support smette di funzionare.",
+          "inbound": "La sua API in ingresso smette di accettare task.",
+          "gitWebhook": "I webhook git dei suoi repository smettono di funzionare."
+        },
         "openRuns_one": "{{count}} esecuzione delle automazioni ancora aperta verrà annullata.",
         "openRuns_other": "{{count}} esecuzioni delle automazioni ancora aperte verranno annullate.",
         "archive": "Archivia",

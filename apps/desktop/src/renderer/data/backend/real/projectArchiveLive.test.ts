@@ -12,7 +12,7 @@ vi.mock("./client", () => ({ appClient: () => ({ projects }) }));
 describe("archiviare e riaprire, i percorsi veri", () => {
   it("anteprima, archiviazione e riapertura dal client", async () => {
     const { projectSettings } = await import("./index");
-    expect(await projectSettings.getArchivePreview("p1")).toEqual({
+    expect(await projectSettings.getArchivePreview("p1")).toMatchObject({
       ok: true,
       openAutomationRuns: 1,
       busy: [],

@@ -4,6 +4,7 @@ import type {
   ArchivedProjectRow,
   ArchivedProjectView,
   DeletionCounts,
+  PublicSurfaces,
 } from "../../projectSettings/archive";
 import type { BusyReason, ProjectResult } from "../../projectSettings/types";
 import { appClient } from "./client";
@@ -64,15 +65,21 @@ function common(error: unknown): ProjectResult | null {
 
 export function createRealProjectArchive(api: ProjectArchiveApi) {
   return {
-    async getArchivePreview(
-      projectId: string,
-    ): Promise<ProjectResult<{ openAutomationRuns: number; busy: BusyReason[] }>> {
+    async getArchivePreview(projectId: string): Promise<
+      ProjectResult<{
+        openAutomationRuns: number;
+        busy: BusyReason[];
+        publicSurfaces: PublicSurfaces;
+      }>
+    > {
       try {
         const v = previewReader.parse(await api.preview(projectId));
         return {
           ok: true,
           openAutomationRuns: v.openAutomationRuns,
           busy: v.busy.map((r) => reasonOf(r as ServerReason)),
+          // Da un server più vecchio tutto false (`publicSurfacesSchema`, i default).
+          publicSurfaces: { ...v.publicSurfaces },
         };
       } catch (error) {
         const refused = common(error);

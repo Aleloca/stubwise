@@ -139,9 +139,43 @@ const openRunsOf = (projectId: string) => {
  * 2026, [AR 3]): le esecuzioni aperte che si annulleranno e le ragioni di
  * `busy`. `not_found` su un progetto invisibile o già archiviato.
  */
+/**
+ * Le superfici pubbliche che l'archiviazione ferma (decisione del maintainer,
+ * F6): attive se usate davvero, con le regole del server (72, cf9814c23).
+ * L'SDK e l'ingresso HTTP: una task arrivata da lì negli ultimi 90 giorni
+ * (ogni progetto ha una chiave, quindi «c'è la chiave» non dice niente). Il
+ * widget: uno acceso. Il webhook git: un repository col webhook configurato.
+ */
+export interface PublicSurfaces {
+  sdk: boolean;
+  widget: boolean;
+  inbound: boolean;
+  gitWebhook: boolean;
+}
+
+const RECENT_DAYS = 90;
+
+function publicSurfacesOf(projectId: string): PublicSurfaces {
+  const since = Date.parse(now()) - RECENT_DAYS * 86_400_000;
+  const recent = (source: string) =>
+    state.tasks.some(
+      (t) => t.projectId === projectId && t.source === source && Date.parse(t.createdAt) >= since,
+    );
+  return {
+    sdk: recent("sdk"),
+    widget: state.supportWidgets.some((w) => w.projectId === projectId && w.enabled),
+    inbound: recent("webhook"),
+    gitWebhook: state.repositories.some(
+      (r) => r.projectId === projectId && (r.webhook?.configuredAt ?? null) !== null,
+    ),
+  };
+}
+
 export async function getArchivePreview(
   projectId: string,
-): Promise<ProjectResult<{ openAutomationRuns: number; busy: BusyReason[] }>> {
+): Promise<
+  ProjectResult<{ openAutomationRuns: number; busy: BusyReason[]; publicSurfaces: PublicSurfaces }>
+> {
   const me = await gate("projectSettings.getArchivePreview");
   if (!visibleProjectIds(me).has(projectId)) return refuse.notFound();
   if (!canI(me, MANAGE_SETTINGS, projectId)) return refuse.forbidden();
@@ -149,6 +183,7 @@ export async function getArchivePreview(
     ok: true,
     openAutomationRuns: openRunsOf(projectId).length,
     busy: busyReasonsOf(projectId, me),
+    publicSurfaces: publicSurfacesOf(projectId),
   };
 }
 
