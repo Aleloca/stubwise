@@ -28,6 +28,7 @@ import { monthlyBudgetExhausted } from "../services/agent-sessions.js";
 import { readerCut, recordConversationProjects } from "../services/claude-public.js";
 import type { ActionEffects } from "./effects.js";
 import { declaredClassOf } from "./catalog.js";
+import { actionLabels } from "./labels.js";
 import { classOfGroup, executeGroup, RECLASSIFIED, type ExecuteResult, type PlannedAction } from "./execute.js";
 import { undoGroup, undoStateOf } from "./undo.js";
 
@@ -363,11 +364,12 @@ export async function proposalView(db: Db, user: SessionUser, row: ProposalRow, 
   const reauthPlan = row.undoOfGroupId ? ((await undoInversesOf(db, user, row.undoOfGroupId)) ?? actions) : actions;
   const needsReauth = reauthPlan.some((a) => declaredClassOf(a.fn) === "C");
   if (needsReauth) cls = "C";
+  const labels = await actionLabels(db, user, actions);
   return {
     id: row.id,
     sessionId: row.sessionId,
     // Area 9, F7: la riconferma anche PER AZIONE, per «Conferma 2 di 3» (una C non scelta non la chiede).
-    actions: actions.map((a) => ({ fn: a.fn, args: a.args, reauth: declaredClassOf(a.fn) === "C" })),
+    actions: actions.map((a, i) => ({ fn: a.fn, args: a.args, reauth: declaredClassOf(a.fn) === "C", labels: labels[i]! })),
     summary: row.summary,
     cls,
     reasons,

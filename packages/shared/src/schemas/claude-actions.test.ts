@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CHAT_PROPOSE_TOOL, CHAT_READ_TOOLS, CHAT_TOOLS } from "./claude-conversation.js";
 import { liveRowTypes } from "../alerts/catalog.js";
-import { CLAUDE_ACTION_ARGS, CLAUDE_DECLARED_CLASS, CLAUDE_PROPOSABLE_FNS, claudeActionSignatures } from "./claude-actions.js";
+import { CLAUDE_ACTION_ARGS, CLAUDE_DECLARED_CLASS, CLAUDE_PROPOSABLE_FNS, claudeActionSignatures, claudeProposalViewSchema } from "./claude-actions.js";
 
 describe("le firme delle azioni per il prompt della chat", () => {
   const lines = claudeActionSignatures().split("\n");
@@ -45,5 +45,28 @@ describe("le firme delle azioni per il prompt della chat", () => {
   it("i tool della chat: le letture e, in fondo, il solo tool che propone", () => {
     expect(CHAT_TOOLS).toEqual([...CHAT_READ_TOOLS, CHAT_PROPOSE_TOOL]);
     expect(CHAT_READ_TOOLS).toContain("list_people");
+  });
+});
+
+describe("la proposta di un server di prima (area 9, F7: campi additivi)", () => {
+  it("senza `reauth` né `labels` si legge, coi default", () => {
+    const old = {
+      id: "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01",
+      sessionId: "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a02",
+      actions: [{ fn: "addMember", args: {} }],
+      summary: "s",
+      cls: "B",
+      reasons: [],
+      status: "open",
+      canConfirm: true,
+      canCancel: true,
+      failure: null,
+      groupId: null,
+      undoOfGroupId: null,
+      createdAt: "2026-11-19T10:00:00.000Z",
+    };
+    const parsed = claudeProposalViewSchema.parse(old);
+    expect(parsed.reauth).toBe(false);
+    expect(parsed.actions[0]).toMatchObject({ reauth: false, labels: { person: null, role: null } });
   });
 });
