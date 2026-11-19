@@ -177,7 +177,8 @@ export async function undoStateOf(db: Db, viewerId: string, groupId: string): Pr
   if (later) return { state: "changed_after", byUserId: later.byUserId };
   return {
     state: "available",
-    inverses: actions.map((a) => ({ fn: a.inverse!.fn as ClaudeActionFn, args: a.inverse!.args })),
+    // Area 9, F7 (0195): ogni inverso dice quale azione annulla (il registro lo porta).
+    inverses: actions.map((a) => ({ fn: a.inverse!.fn as ClaudeActionFn, args: a.inverse!.args, undoOfActionId: a.id })),
   };
 }
 

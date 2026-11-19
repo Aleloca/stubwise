@@ -3,7 +3,7 @@ import {
   claudeActions,
   notifications,
   tickets,
-  VIA_CLAUDE_SETTING,
+  UNDO_OF_CLAUDE_SETTING, VIA_CLAUDE_SETTING,
   type Db,
 } from "@stubwise/db";
 import type { ClaudeActionFailure, ClaudeActionFn, ClaudeClassReason, ProjectPermission } from "@stubwise/shared";
@@ -36,6 +36,12 @@ import { runActionContext, runFollowUps, type ActionEffects } from "./effects.js
 export interface PlannedAction {
   fn: ClaudeActionFn;
   args: Record<string, unknown>;
+  /**
+   * Area 9, F7 (0195): per l'inverso di un «Annulla», l'azione che annulla.
+   * Le voci del registro scritte dall'inverso lo portano
+   * (`change_log.undo_of_action_id`, DEFAULT dalla variabile di transazione).
+   */
+  undoOfActionId?: string;
 }
 
 export interface ExecutedAction {
@@ -174,8 +180,10 @@ async function runGroup(
           .returning({ id: claudeActions.id });
         // Il segno di QUESTA azione: le righe scritte da qui in poi lo portano (DEFAULT delle colonne).
         await tx.execute(sql`select set_config(${VIA_CLAUDE_SETTING}, ${row!.id}, true)`);
+        await tx.execute(sql`select set_config(${UNDO_OF_CLAUDE_SETTING}, ${planned.undoOfActionId ?? ""}, true)`);
         const ran = await entry.run(tx as unknown as Db, user, args, access.permissions, start);
         await tx.execute(sql`select set_config(${VIA_CLAUDE_SETTING}, '', true)`);
+        await tx.execute(sql`select set_config(${UNDO_OF_CLAUDE_SETTING}, '', true)`);
         if (!ran.ok) {
           throw new Abort(
             failure(ran.refusal.code, index, {

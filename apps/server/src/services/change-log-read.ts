@@ -7,7 +7,7 @@ import {
   type ChangeLogPage,
   type ChangeLogType,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, gte, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import { projectPermissionsFor, projectPermissionsMap } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { adminVisiblePersonIds } from "./admin-people.js";
@@ -50,6 +50,8 @@ export interface ChangeLogFilter {
   to?: string;
   withinDays?: number;
   cursor?: string;
+  /** Area 9, F7: le sole voci scritte da Claude («By Claude»). */
+  via?: "claude";
 }
 
 interface Readable {
@@ -117,6 +119,7 @@ function filterWhere(filter: ChangeLogFilter): SQL[] {
   }
   if (filter.from) out.push(gte(changeLog.at, new Date(filter.from)));
   if (filter.to) out.push(lte(changeLog.at, new Date(filter.to)));
+  if (filter.via === "claude") out.push(isNotNull(changeLog.viaClaudeActionId));
   if (filter.withinDays !== undefined) out.push(gte(changeLog.at, new Date(Date.now() - filter.withinDays * 86_400_000)));
   if (filter.cursor) {
     const id = decodeCursor(filter.cursor);
@@ -126,24 +129,29 @@ function filterWhere(filter: ChangeLogFilter): SQL[] {
   return out;
 }
 
+/** Le colonne di una voce, per la pagina e per le voci annullate. */
+const ENTRY_COLUMNS = {
+  id: changeLog.id,
+  at: changeLog.at,
+  actorUserId: changeLog.actorUserId,
+  actorEmail: changeLog.actorEmail,
+  actorKind: changeLog.actorKind,
+  actorName: users.displayName,
+  type: changeLog.type,
+  projectId: changeLog.projectId,
+  projectCode: projects.code,
+  projectArchivedAt: projects.archivedAt,
+  subjectKind: changeLog.subjectKind,
+  subjectId: changeLog.subjectId,
+  data: changeLog.data,
+  viaClaudeActionId: changeLog.viaClaudeActionId,
+  undoOfActionId: changeLog.undoOfActionId,
+};
+
 export async function listChanges(db: Db, viewer: Viewer, filter: ChangeLogFilter): Promise<ChangeLogPage> {
   const readable = await readableBy(db, viewer);
   const rows = await db
-    .select({
-      id: changeLog.id,
-      at: changeLog.at,
-      actorUserId: changeLog.actorUserId,
-      actorEmail: changeLog.actorEmail,
-      actorKind: changeLog.actorKind,
-      actorName: users.displayName,
-      type: changeLog.type,
-      projectId: changeLog.projectId,
-      projectCode: projects.code,
-      projectArchivedAt: projects.archivedAt,
-      subjectKind: changeLog.subjectKind,
-      subjectId: changeLog.subjectId,
-      data: changeLog.data,
-    })
+    .select(ENTRY_COLUMNS)
     .from(changeLog)
     .leftJoin(users, eq(users.id, changeLog.actorUserId))
     .leftJoin(projects, eq(projects.id, changeLog.projectId))
@@ -151,14 +159,32 @@ export async function listChanges(db: Db, viewer: Viewer, filter: ChangeLogFilte
     .orderBy(desc(changeLog.at), desc(changeLog.id))
     .limit(PAGE_SIZE + 1);
   const page = rows.slice(0, PAGE_SIZE);
-  const existing = await existingObjects(db, page);
+  // Area 9, F7: le voci che un «Annulla» annulla, con la STESSA condizione di
+  // lettura (chi non legge la voce annullata non la riceve, e `undoOf` è null).
+  const undoIds = [...new Set(page.map((r) => r.undoOfActionId).filter((x): x is string => x !== null))];
+  const candidates = undoIds.length
+    ? await db
+        .select(ENTRY_COLUMNS)
+        .from(changeLog)
+        .leftJoin(users, eq(users.id, changeLog.actorUserId))
+        .leftJoin(projects, eq(projects.id, changeLog.projectId))
+        .where(and(readable.where, inArray(changeLog.viaClaudeActionId, undoIds)))
+        .orderBy(desc(changeLog.at), desc(changeLog.id))
+    : [];
+  /** La voce annullata: della stessa azione di Claude, sullo stesso oggetto, non dopo (la più recente). */
+  const undoneOf = (r: (typeof page)[number]) =>
+    r.undoOfActionId === null
+      ? undefined
+      : candidates.find((c) => c.viaClaudeActionId === r.undoOfActionId && c.subjectKind === r.subjectKind && c.subjectId === r.subjectId && c.at.getTime() <= r.at.getTime() && c.id !== r.id);
+  const undone = new Map(page.map((r) => [r.id, undoneOf(r)] as const));
+  const existing = await existingObjects(db, [...page, ...[...undone.values()].filter((u) => u !== undefined)]);
   const visibleCodes = new Set(
     readable.readableProjects.length
       ? (await db.select({ code: projects.code }).from(projects).where(inArray(projects.id, readable.readableProjects))).map((p) => p.code)
       : [],
   );
   const allProjectsVisible = viewer.instancePermissions.has("instance.full_admin");
-  const entries: ChangeEntry[] = page.map((r) => {
+  const toEntry = (r: (typeof page)[number]): Omit<ChangeEntry, "undoneEntry"> => {
     const type = changeLogTypeOf(r.type)!;
     const data = r.data as ChangeEntry["data"];
     return {
@@ -180,9 +206,17 @@ export async function listChanges(db: Db, viewer: Viewer, filter: ChangeLogFilte
       // Area 9, F6: DERIVATO a lettura, mai scritto nella voce. Il client
       // porta le voci di un archiviato alla sua pagina (`/archived/<CODICE>`).
       projectArchived: r.projectArchivedAt !== null,
+      // Area 9, F7 (0195): «By Claude». L'id dell'azione non esce.
+      via: r.viaClaudeActionId !== null ? "claude" : null,
+      undoOf: undone.get(r.id)?.id ?? null,
     };
+  };
+  const entries: ChangeEntry[] = page.map((r) => {
+    const u = undone.get(r.id);
+    // Un livello solo: la voce annullata non porta la sua.
+    return { ...toEntry(r), undoneEntry: u ? { ...toEntry({ ...u, undoOfActionId: null }), undoOf: null } : null };
   });
-  await resolveDeletedProjects(db, viewer, entries);
+  await resolveDeletedProjects(db, viewer, [...entries, ...entries.flatMap((e) => (e.undoneEntry ? [e.undoneEntry as ChangeEntry] : []))]);
   const last = page.at(-1);
   return { entries, nextCursor: rows.length > PAGE_SIZE && last ? encodeCursor(last.id) : null };
 }
@@ -258,11 +292,18 @@ export async function changeLogFilters(db: Db, viewer: Viewer, projectId?: strin
     ...(projectId ? [] : readable.instanceTypes.map((t) => t.group)),
     ...(projectReadable ? CHANGE_LOG_TYPES.filter((t) => t.scope === "project").map((t) => t.group) : []),
   ]);
+  // Area 9, F7: «By Claude» solo se chi guarda ne legge almeno una (lì, con `projectId`).
+  const [claude] = await db
+    .select({ id: changeLog.id })
+    .from(changeLog)
+    .where(and(readable.where, isNotNull(changeLog.viaClaudeActionId), projectId ? eq(changeLog.projectId, projectId) : undefined))
+    .limit(1);
   return {
     everything,
     people: people.map((p) => ({ personId: p.id, name: p.displayName ?? p.email.split("@")[0]! })),
     projects: list.map((p) => ({ projectId: p.id, code: p.code, name: p.name })),
     groups: [...groups],
+    claude: claude !== undefined,
   };
 }
 

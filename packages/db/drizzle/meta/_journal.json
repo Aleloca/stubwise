@@ -1352,6 +1352,13 @@
       "when": 1801180800000,
       "tag": "0194_graph_job_prune",
       "breakpoints": true
+    },
+    {
+      "idx": 195,
+      "version": "7",
+      "when": 1801267200000,
+      "tag": "0195_change_log_via_claude",
+      "breakpoints": true
     }
   ]
 }
