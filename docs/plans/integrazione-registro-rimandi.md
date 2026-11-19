@@ -1171,8 +1171,9 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `CLAUDE_PROPOSABLE_FNS` c'è nel catalogo del prototipo (tranne
   `pageAction` e `fillMailBody`, che lì passano dalla pagina e dalla Posta),
   e il permesso d'istanza di una voce è `CLAUDE_INSTANCE_PERMISSION`.
-  Restano solo del prototipo `setAttachments` e `setDefaultReviewer`, che il
-  server non esegue (registro di 72).
+  Restano solo del prototipo `setAttachments`, `setDefaultReviewer` e
+  `saveStorage` (dalla review di F7: endpoint e bucket decidono dove vanno
+  gli allegati), che il server non esegue (registro di 72).
 
 - **F1 renderer, ciò che resta** *(94, 16 nov 2026)*:
   - gli autori git osservati arrivano dal server senza commit né progetti

@@ -112,11 +112,11 @@ c'è da subito.
 
 | Voci | Adattatore | Funzione accesa | Differenze dichiarate |
 |---|---|---|---|
-| Le schede delle 24 voci (membri, plugin, progetto, istanza) | `claudeChatActions.ts` | (le funzioni di Claude, già accese) | La frase dagli argomenti del server e dalle `labels` (persona e ruolo per chi guarda, R-G5); il «Who?» come il catalogo del prototipo. |
+| Le schede delle 23 voci (membri, plugin, progetto, istanza) | `claudeChatActions.ts` | (le funzioni di Claude, già accese) | La frase dagli argomenti del server e dalle `labels` (persona e ruolo per chi guarda, R-G5); il «Who?» come il catalogo del prototipo. |
 | La classe C e la riconferma | `claudeChatActions.ts`, `ProposalCard.tsx`, `ClaudeReply.tsx` | — | `reauth` del server è il motivo «Asks for your two-step code»; le frasi della riconferma per azione; riquadro e Chat, anche con «Edit». |
 | «Annulla» con l'inverso C | `claudeChatActions.ts` | — | «Asks for your code» da `undoReauth` del gruppo. |
 | Registro: «By Claude», «Undid…» | `changelog.ts` | — | Da `via`, `undoOf`, `undoneEntry` (0195); «By Claude» è `?via=claude`. |
-| `setAttachments`, `setDefaultReviewer` | — | (no) | Il server non le esegue (registro di 72): nel prototipo restano. |
+| `setAttachments`, `setDefaultReviewer`, `saveStorage` | — | (no) | Il server non le esegue (registro di 72; `saveStorage` dalla review di F7: endpoint e bucket decidono dove vanno gli allegati): nel prototipo restano, nell'app Claude dice che si fanno dalla pagina. |
 
 ## A. Personale → Preferenze
 

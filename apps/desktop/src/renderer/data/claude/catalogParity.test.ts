@@ -8,8 +8,10 @@ import { CLAUDE_CATALOG, isCatalogFn } from "./catalog";
 // può proporre (`CLAUDE_PROPOSABLE_FNS`) e del permesso d'istanza di una voce
 // (`CLAUDE_INSTANCE_PERMISSION`, la stessa mappa che toglie al modello le voci
 // che chi chiede non può proporre). Il prototipo ha anche voci che il server
-// non ha ancora (aree 10 e 11), e due dell'area 9 che il server non esegue
-// (registro dei rimandi: `setAttachments`, `setDefaultReviewer`).
+// non ha ancora (aree 10 e 11), e tre dell'area 9 che il server non esegue
+// (registro dei rimandi: `setAttachments`, `setDefaultReviewer`; e
+// `saveStorage`, dalla review di F7: endpoint e bucket decidono dove vanno gli
+// allegati, come l'URL di un webhook).
 
 describe("il catalogo di Claude: prototipo e server", () => {
   it("ogni voce che il server propone c'è nel prototipo, tranne le due che lì passano da un'altra strada", () => {
@@ -21,8 +23,8 @@ describe("il catalogo di Claude: prototipo e server", () => {
     );
   });
 
-  it("le due voci dell'area 9 che il server non esegue sono solo del prototipo", () => {
-    for (const fn of ["setAttachments", "setDefaultReviewer"]) {
+  it("le tre voci dell'area 9 che il server non esegue sono solo del prototipo", () => {
+    for (const fn of ["setAttachments", "setDefaultReviewer", "saveStorage"]) {
       expect(isCatalogFn(fn), fn).toBe(true);
       expect((CLAUDE_PROPOSABLE_FNS as readonly string[]).includes(fn), fn).toBe(false);
     }
