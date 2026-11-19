@@ -1339,6 +1339,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   automazione nel catalogo (`createAutomation`, `saveAutomationDraft`,
   `deleteAutomationDraft`), mai accese da Claude.
 
+- **Chiuse con F3 (20 nov 2026)**: Claude legge il lavoro fermo (con le
+  soglie dei progetti, la regola della lista delle task) e la spesa del mese
+  (coi permessi del server, D-13 = a), con «Hypothesis» e «Details» sotto la
+  risposta (evento `aside`).
+
 ## Area 11 — Documentazione di prodotto
 
 - Origine di una richiesta dalla documentazione di prodotto.

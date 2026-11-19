@@ -5569,3 +5569,35 @@ deploy o di un rollback che la tocca.
     conversazioni, le risposte restano come messaggi):
     `delete from agent_session_events where type = 'question';`.
   - La tabella e la colonna nuove restano, e un server vecchio le ignora.
+
+- **«Integrazione area 10, F3: rispondere sui dati (S2, S3)»** *(20 nov
+  2026)*: branch `feat/area10-f3` (da `feat/integrazione-area10`), piano
+  `docs/plans/2026-11-19-integrazione-area10-f3-plan.md`.
+  - Migrazione **0199**: il CHECK `agent_session_events_type_chk` con `aside`.
+  - Nessuna rotta nuova: nell'allowlist del token del turno
+    `GET /api/tasks/stalled` (la rotta della lista delle task),
+    `GET /api/ai-usage/summary` e `GET /api/access/who-can`. Il polso
+    (`/api/projects/pulse`) NON è fra le letture di Claude.
+  - Nessuna env, nessun `notification_kind`, nessun permesso nuovo.
+
+  **ORDINE**: **server** (healthy, 0199 applicata), poi **worker** (scrive
+  gli eventi `aside`: su un server senza la 0199 il CHECK li rifiuta, e il
+  ponte lo ingoia — fail-open), poi **caddy**.
+
+  **Da sapere subito**:
+  - «Cosa è fermo» per Claude segue le SOGLIE DEI PROGETTI
+    (`stall_active_days`, `stall_todo_days`), la stessa regola e la stessa
+    rotta della lista delle task (decisione del maintainer, 20 nov 2026).
+  - L'`aside` («Hypothesis», «Details») lo scrive il worker con solo id,
+    numeri, date e il tipo del motivo; il server lo arricchisce a lettura
+    (codici, `closed`, `thresholdDays`, solo i progetti che chi guarda vede).
+  - La spesa segue i permessi del server (D-13 = a): chi non può vederla non
+    riceve numeri, e Claude nomina chi può dirglielo.
+
+  **Rollback** (il server scende **insieme** al caddy, il worker con loro):
+  ⚠️ **NON sicuro finché esistono eventi `aside`** (lo schema di risposta del
+  server vecchio non conosce il tipo, e la pagina degli eventi di quella
+  conversazione va in 500). Contarli: `select count(*) from
+  agent_session_events where type = 'aside';`; toglierli (spariscono le righe
+  «Details», la risposta di Claude resta):
+  `delete from agent_session_events where type = 'aside';`.
