@@ -126,6 +126,16 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   `archived=true`; nessuna scrittura (`409 archived`); il worker non reclama
   il suo lavoro. Si elimina SOLO un archiviato, SOLO un full admin, con la
   riconferma e il codice digitato; i suoi repository restano staccati.
+  La regola sta in UN posto: `projectPermissionsFor` e
+  `projectPermissionsByProject` danno `null`, e un full admin riceve
+  `ProjectScope` (`{ all, archived }`), mai `"all"`, così ogni elenco
+  decide degli archiviati (`inProjects`, `scopeIncludes`). Una lettura non
+  dichiarata è 404, una scrittura 409 `archived` a chi lo vedrebbe; le
+  eccezioni si dichiarano con `config.archived` (elenco chiuso in
+  `route-access.test.ts`). Tre eccezioni volute: i consumi d'istanza
+  (`usage.view`) contano la spesa degli archiviati senza nominarli; il
+  registro delle modifiche mostra le loro voci a chi li vedrebbe; le
+  approvazioni d'automazione senza progetto restano al full admin.
 - **Di un progetto eliminato restano SOLO codice, nome e chi ne era membro
   (`deleted_projects`, `deleted_project_members`, 0193), e servono SOLO a
   dire «chi lo conosceva».** Gli ex membri e i full admin leggono

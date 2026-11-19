@@ -143,7 +143,17 @@
   `evaluateProjectAccess`, quindi vale anche per le azioni di Claude.
 - **Il worker** (`queue-pause.ts`): `projectQueueRunnable` esclude anche
   `archived_at IS NOT NULL`. Il lavoro già partito finisce, e niente si
-  cancella (riaprendo riparte).
+  cancella (riaprendo riparte). Polso, brief settimanale e daily report
+  saltano un archiviato; la classificazione della posta non gli attribuisce
+  mail.
+- **Tre eccezioni dichiarate** (Task 2, approvate da 46 il 19 nov 2026):
+  - a) i consumi d'istanza (`usage.view`) contano anche la spesa degli
+    archiviati, senza i loro nomi: è spesa vera;
+  - b) il registro delle modifiche mostra le voci di un archiviato a chi lo
+    vedrebbe (membri di allora e full admin), come il prototipo
+    (`changelog/reads.ts`);
+  - c) le approvazioni d'automazione senza progetto restano al full admin
+    come prima.
 - *Test*:
   - l'archiviato non compare in elenchi, ricerca, ⌘K, Home, «Chi può
     farlo?», Stato dell'istanza, `/api/auth/me`, automazioni (elenco), né

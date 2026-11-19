@@ -215,6 +215,9 @@ describe("rotte con riconferma recente", () => {
   it("le rotte che passano su un progetto ARCHIVIATO sono ESATTAMENTE queste, e solo di progetto", async () => {
     const routes = (await registeredRoutes()).filter((r) => r.archived);
     expect(routes.filter((r) => r.kind !== "project").map((r) => r.key)).toEqual([]);
-    expect(routes.map((r) => `${r.key} ${r.archived}`).sort()).toEqual([]);
+    expect(routes.map((r) => `${r.key} ${r.archived}`).sort()).toEqual([
+      "POST /api/projects/:projectId/archive write",
+      "POST /api/projects/:projectId/reopen write",
+    ]);
   });
 });
