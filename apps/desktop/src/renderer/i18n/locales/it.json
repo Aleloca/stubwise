@@ -3282,7 +3282,7 @@
       }
     },
     "plugins": {
-      "intro": "I plugin di Claude Code che Claude può usare quando lavora su {{code}}. Tutto è acceso, a meno che non lo spegni qui.",
+      "intro": "I plugin di Claude Code che Claude può usare quando lavora su {{code}}. Un plugin entra nei run solo se lo accendi qui; dentro, tutto è acceso a meno che non lo spegni.",
       "registered": "I plugin si registrano per tutta l'istanza in <link>Amministrazione → Plugin</link>.",
       "mcpNote": "I server MCP propri di un plugin (.mcp.json) non vengono mai caricati.",
       "loadError": "Impossibile caricare i plugin di {{code}}.",

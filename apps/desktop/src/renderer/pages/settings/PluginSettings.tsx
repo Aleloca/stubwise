@@ -559,9 +559,10 @@ function ReadyPlugin({
           </span>
           {p.preset && (
             <PresetButton
-              enabled={canEdit && !presetApplied}
+              // Review F5, M2: spento anche col plugin non acceso, con la sua ragione.
+              enabled={rowsEditable && !presetApplied}
               applied={presetApplied}
-              whyId={canEdit ? presetWhyId : readOnlyId}
+              whyId={canEdit ? (on ? presetWhyId : countId) : readOnlyId}
               projectId={projectId}
               code={code}
               editAction={editAction}

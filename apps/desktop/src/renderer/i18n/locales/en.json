@@ -3282,7 +3282,7 @@
       }
     },
     "plugins": {
-      "intro": "The Claude Code plugins Claude can use when it works on {{code}}. Everything is on unless you turn it off here.",
+      "intro": "The Claude Code plugins Claude can use when it works on {{code}}. A plugin enters runs only if you turn it on here; inside it, everything is on unless you turn it off.",
       "registered": "Plugins are registered for the whole instance in <link>Administration → Plugins</link>.",
       "mcpNote": "A plugin's own MCP servers (.mcp.json) are never loaded.",
       "loadError": "Couldn't load {{code}}'s plugins.",
