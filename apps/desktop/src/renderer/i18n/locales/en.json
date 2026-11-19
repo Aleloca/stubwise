@@ -10937,7 +10937,7 @@
       "discardAsk_one": "Discard {{count}} change?",
       "discardAsk_other": "Discard {{count}} changes?",
       "saved": "Saved",
-      "staleDraft": "Someone else changed this department while you were editing it. Discard your changes to see theirs, or save yours over them.",
+      "staleDraft": "Someone else changed this department while you were editing it. Discard your changes to see theirs.",
       "previewLoading": "Checking what you can give…",
       "previewError": "Couldn't check what you can give.",
       "previewRetry": "Try again",

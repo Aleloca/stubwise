@@ -1,4 +1,4 @@
-# Integrazione aree 2 e 3 — prove a mano (10 nov 2026)
+# Integrazione — prove a mano (aree 2 e 3: 10 nov 2026; aree 9 e 10: 20 nov 2026)
 
 Le prove che i test automatici non fanno: il giro vero sul Mac, il mouse e la
 tastiera, l'aspetto delle pagine, il server vero con dati veri. Raccolgono le
@@ -396,3 +396,175 @@ di AUD e di MKX, B membro di AUD che non vede MKX.
 - Il tema o la lingua che Claude cambia in una conversazione non ripartono
   ricaricando la pagina o da un'altra scheda: la riga dice «Not applied in this
   window» con **Apply** (review della F3.4).
+
+# Aree 9 e 10 — amministrazione, accessi e Claude (20 nov 2026)
+
+Le prove dei flussi che i test automatici coprono solo a pezzi. Si fanno
+**sia nell'app desktop (dmg) sia nel browser su `/app`**: dove le due strade
+differiscono, la prova lo dice.
+
+## Cosa serve in più
+
+- **Il codice di `feat/integrazione-area10`** su un'istanza di prova: server
+  prima (migrazioni fino alla 0198), poi worker, poi caddy; il dmg rifatto da
+  quel branch.
+- **Tre account con il secondo fattore acceso** (app di autenticazione):
+  - **A**: Project Lead di un progetto P (gestisce i membri);
+  - **B**: Developer di P;
+  - **C**: full admin, non membro di P.
+- Un secondo progetto Q con un repository collegato e senza lavori in corso,
+  da archiviare ed eliminare.
+- Un plugin registrato nel registro d'istanza (per esempio `superpowers`).
+- A con una casella Google collegata (per la prova della posta).
+
+## La riconferma (quando chiede il codice, e perché)
+
+Il codice si chiede prima di un'azione che dà accessi, crea un segreto o
+tocca l'identità. Dopo un codice giusto, per 10 minuti non lo chiede più.
+
+- Con A, Members di P → aggiungi B con un ruolo → il dialogo chiede il codice
+  **nominando l'azione** → codice giusto → B è membro. Subito dopo cambia il
+  ruolo di B → **non** chiede niente (dentro i 10 minuti).
+- Aspetta 11 minuti, cambia di nuovo il ruolo → chiede il codice.
+- Preferenze → Tokens → «Create token» → chiede il codice. Anche «Change
+  password» e il cambio d'email di login lo chiedono.
+- Rinomina un reparto, o cambia chi gestisce la sua Home → **nessun** codice.
+  Aggiungi un permesso di progetto al reparto → il codice sì. Togli un
+  permesso → no.
+- 5 codici sbagliati di fila → «locked» per 15 minuti, anche col codice giusto;
+  il campo è spento e lo dice in parole.
+- **Desktop**: il codice si scrive dentro l'app (nessun browser). Dal web
+  vecchio, cambia la password di A → l'app desktop chiede di rientrare, e la
+  finestra dei 10 minuti riparte da zero.
+
+## I segreti si vedono una volta
+
+Dopo il salvataggio un segreto non si rilegge: al più le ultime 4 cifre.
+
+- Preferenze → Tokens: crea un token → il valore si copia una volta; chiudi e
+  riapri la sezione → c'è solo il nome, con date e ultimo uso.
+- Preferenze → Claude Code: il comando d'installazione contiene un token
+  nuovo, visto una volta; il token compare fra i Tokens.
+- Preferenze → Security: rigenera i codici di riserva → si vedono una volta;
+  «Done», o lasciare la pagina, li toglie dallo schermo.
+- Amministrazione → People: link di reset della password di B, e un invito →
+  il link si copia una volta; «Done» lo dimentica.
+- Amministrazione → Webhooks: crea un webhook → il segreto di firma una volta;
+  «Regenerate» ne mostra uno nuovo, una volta (e chiede il codice).
+- AI → Providers, Git accounts, Storage: dopo il salvataggio la chiave o il
+  token appare solo come «••••» con le ultime 4, mai intero.
+
+## Archiviare, riaprire, eliminare (con i repository staccati)
+
+- Con A, Settings di Q → **Archive** → l'anteprima dice cosa si ferma. Con un
+  lavoro di Claude in corso su Q → non si archivia, e la ragione è in parole.
+- Archivia Q → sparisce dalla colonna; All projects → **Archived** → la pagina
+  di Q (sola lettura) → **Reopen** → Q torna com'era.
+- Archivia di nuovo e **Delete**: va scritto il codice esatto, poi chiede il
+  codice di riconferma → Q sparisce; il toast porta ad **Amministrazione →
+  Repositories**.
+- Lì il repository di Q è fra quelli **senza progetto**, con la data e da dove
+  è stato staccato → **Link** a P → torna collegato. Prova anche **Delete**
+  su un altro staccato.
+- Registro delle modifiche d'istanza: le voci «project deleted» e
+  «repository deleted». Una voce di Q archiviato porta alla sua pagina
+  d'archivio.
+
+## Plugin acceso per progetto
+
+- Con A, Settings di P → **Plugins**: un plugin del registro è **spento** per
+  P finché non lo accendi (il plugin base `stubwise` è sempre acceso, senza
+  caselle).
+- Accendi il plugin, spegni una sua skill → «Saved». Nel riquadro di Claude
+  (⌘J) col contesto di P, «/» non elenca la skill spenta.
+- «Apply recommended preset» su `superpowers` → spegne quattro skill e
+  nient'altro.
+- Con A e con C sulla stessa pagina: C salva per primo, A salva dopo → A vede
+  il conflitto con «Keep my changes on theirs» e «Use theirs»; la sua bozza
+  resta finché non sceglie.
+- Con B (senza `project.settings.manage`) → la pagina si legge, con «Who?».
+
+## I permessi dei reparti con due admin insieme
+
+- A e C aprono lo stesso reparto in Amministrazione → Departments.
+- C aggiunge un permesso di progetto e salva (codice) → nel pannello di A,
+  **senza modifiche**, il reparto si rilegge da solo.
+- Di nuovo, ma A ha cambiato qualcosa senza salvare → il pannello dice
+  «Someone else changed this department while you were editing it…»; salvare
+  dà «Someone else changed this while you were editing it. Nothing was
+  saved.», e niente si sovrascrive. **Da guardare**: la prima frase dice anche
+  «or save yours over them», ma il salvataggio sopra non riesce. Annota cosa
+  succede dopo «Discard».
+- L'anteprima di un permesso che il reparto non può dare lo mostra spento,
+  col perché; un reparto che non arriva a nessun progetto ha la sua frase.
+- Togliere l'ultimo che gestisce i membri passando dal reparto → rifiutato,
+  in parole.
+
+## Le azioni di Claude con «Annulla»
+
+Nella conversazione libera (destinazione Claude) o nel riquadro (⌘J).
+
+- «Assegna P-12 a B» → una riga eseguita con **Undo** → Undo → la task torna
+  com'era; il registro dice «By Claude» e poi «Undid…».
+- Un'azione B (per esempio «elimina la task P-13») → una scheda coi motivi;
+  **Confirm** la esegue, **Cancel** no.
+- Un'azione C, «aggiungi B a P come Developer» → la scheda dice «Asks for your
+  two-step code» → Confirm → il codice → B entra in P.
+- **Undo** di quell'aggiunta → è una scheda nuova che chiede il codice
+  (l'inverso è anch'esso C); confermata, B esce da P.
+- Una scheda C aperta col codice scaduto (oltre 10 minuti) → Confirm chiede il
+  codice, e senza niente cambia.
+
+## La Chat con una C
+
+- In un canale di P, «@Claude aggiungi C a P come Viewer» → la scheda nel
+  canale dice «Asks for your two-step code» → A conferma → il codice → C entra.
+- **Il codice si chiede PRIMA** che la scheda risulti presa: con il dialogo
+  del codice chiuso senza confermare, la scheda resta aperta per tutti.
+- B, nello stesso canale, vede la scheda ma non la conferma (non gestisce i
+  membri).
+- Le notifiche `member.added`: C riceve «You've been added to P as Viewer»
+  («Claude on behalf of A»). Gli altri che gestiscono i membri di P ricevono
+  «A added C to P as Viewer». Chi ha agito no. Un gestore che spegne «Someone
+  joined the project» in Preferenze → Notifiche non la riceve più; chi entra la
+  riceve comunque.
+
+## Il contenuto personale blocca «Rendi pubblica»
+
+- Con A, apri una conversazione della tua posta, ⌘J, chiedi qualcosa su
+  quella email → nella conversazione, **Make public** → il dialogo dice «This
+  conversation can't be made public» col perché, e solo **Close**.
+- Lo stesso con una bozza di email scritta da Claude, e col chip di
+  un'automazione generale (una senza progetto).
+- Una conversazione che ha letto solo task e progetti → il dialogo di sempre,
+  coi progetti da confermare.
+- Una conversazione pubblica, poi chiedi a Claude di leggere la tua posta →
+  Claude dice in prosa che lì non può leggerla.
+- «Make private» resta sempre possibile.
+
+## Le automazioni scritte da Claude (S1)
+
+- Con A, dalla pagina Support di P, nella libera: «avvisa il reparto quando
+  arriva una richiesta urgente dal supporto» → Claude chiede **quale reparto**
+  con una scheda di scelta → scegli → Claude crea la bozza.
+- La riga della prova: «Tested on 2 examples · nothing was created», un
+  esempio che passa e uno che il filtro esclude («Wouldn't start»). Nessuna
+  task, notifica o email vera nasce.
+- Il costruttore si apre da solo sulla prova, con «Back to <pagina>».
+  L'automazione è **spenta**: si accende solo dal costruttore, a mano.
+- Senza esempi adatti nel progetto → «Nothing to try it on yet», e il
+  costruttore si apre sulla bozza.
+- **Undo** dell'automazione creata → la bozza sparisce.
+- Claude non dice mai «l'ho accesa», e non propone mai di pubblicarla.
+- La scheda di scelta: rispondi con un'opzione o con un testo tuo; risposta,
+  non si risponde una seconda volta («already answered»). Chi legge la
+  conversazione resa pubblica vede la domanda ma non risponde.
+
+## I chip del riquadro (F1)
+
+- ⌘J su un'automazione, su una conversazione di supporto, su un'email della
+  tua casella → il chip la nomina; chiedi «cosa fa?» → Claude risponde
+  leggendola.
+- Un'email nel riquadro di una conversazione pubblica → Claude dice che lì
+  non legge la posta.
+

@@ -460,7 +460,7 @@ describe("fix round 1: in una conversazione pubblica le frasi dell'email non esc
       await api.whenIdle(c.id);
       await new Promise((r) => setTimeout(r, 0));
     }
-    await api.setVisibility(c.id, "public", { confirmedProjectIds: [ACQ] });
+    await publishedBeforeTheRule(c.id, [ACQ]);
     return c.id;
   }
   const readAs = async (personId: string, id: string) => {
@@ -673,3 +673,23 @@ describe("revisione finale: gli id delle fonti negli `args` non escono a chi leg
     for (const sid of ids) expect(laura).not.toContain(sid.toLowerCase());
   });
 });
+
+/**
+ * Area 10 (review di F1): con la posta letta, «Make public» ora rifiuta
+ * (`private_content`). La difesa a lettura resta per le conversazioni rese
+ * pubbliche PRIMA della regola: in quel caso la si scrive nello stato, come
+ * allora; senza posta letta si pubblica come sempre.
+ */
+async function publishedBeforeTheRule(id: string, projectIds: string[]): Promise<void> {
+  const out = await api.setVisibility(id, "public", { confirmedProjectIds: projectIds });
+  // Senza posta letta si pubblica come sempre.
+  if (out.status === "done") return;
+  expect(out).toEqual({ status: "private_content" });
+  const c = state.conversations.find((x) => x.id === id)!;
+  Object.assign(c, {
+    visibility: "public",
+    publishedAt: c.createdAt,
+    publishedById: c.ownerId,
+    publishedProjectIds: [...projectIds],
+  });
+}

@@ -317,7 +317,7 @@ describe("Posta (D1)", () => {
       field: { kind: "mailBody", threadId: BILLING() },
     });
     const touched = state.conversations.find((x) => x.id === c.id)!.touchedProjectIds;
-    await api.setVisibility(c.id, "public", { confirmedProjectIds: touched });
+    await publishedBeforeTheRule(c.id, touched);
 
     setSessionPersonId(ROBERTA);
     const read = (await api.getConversation(c.id))!;
@@ -454,3 +454,21 @@ describe("Dove la bozza non ha un campo", () => {
     );
   });
 });
+
+/**
+ * Area 10 (review di F1): con la posta letta, «Make public» ora rifiuta
+ * (`private_content`). La difesa a lettura resta per le conversazioni rese
+ * pubbliche PRIMA della regola: qui la si scrive nello stato, come allora.
+ */
+async function publishedBeforeTheRule(id: string, projectIds: string[]): Promise<void> {
+  expect(await api.setVisibility(id, "public", { confirmedProjectIds: projectIds })).toEqual({
+    status: "private_content",
+  });
+  const c = state.conversations.find((x) => x.id === id)!;
+  Object.assign(c, {
+    visibility: "public",
+    publishedAt: c.createdAt,
+    publishedById: c.ownerId,
+    publishedProjectIds: [...projectIds],
+  });
+}

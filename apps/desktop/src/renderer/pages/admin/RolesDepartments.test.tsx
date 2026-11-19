@@ -204,9 +204,19 @@ describe("Departments", () => {
       s.departments.find((d) => d.departmentId === "dep-development")!.projectPermissions.push("drive.upload");
     });
     await lastQueryClient().invalidateQueries();
+    // Salvare sopra non riesce (la versione è vecchia: «Nothing was saved»),
+    // quindi la frase non lo promette: dice solo come vedere le sue.
     expect(
-      await within(panel).findByText(/^Someone else changed this department while you were editing it\./),
+      await within(panel).findByText(
+        "Someone else changed this department while you were editing it. Discard your changes to see theirs.",
+      ),
     ).toBeVisible();
+  });
+
+  it("la frase della bozza superata non promette di salvare sopra, nemmeno in it", () => {
+    expect(i18n.t("admin.department.staleDraft", { lng: "it" })).toBe(
+      "Qualcun altro ha cambiato questo reparto mentre lo modificavi. Annulla le tue modifiche per vedere le sue.",
+    );
   });
 
   it("review F8 M1: l'anteprima che non si legge lo dice, con «Try again»", async () => {
