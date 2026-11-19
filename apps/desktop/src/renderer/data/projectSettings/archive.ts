@@ -90,8 +90,8 @@ function seenProject(me: string, projectId: string): Project | undefined {
 
 /**
  * Perché il progetto non si archivia adesso: le sessioni di Claude del
- * progetto non finite (anche ferme per la coda in pausa: `waiting`) e i
- * rilasci in corso. Senza `viewerId` è la regola nuda (codici e titoli);
+ * progetto non finite (anche ferme per la coda in pausa: `waiting`), i
+ * rilasci in corso e le generazioni dei Docs in corso o in pausa (F6, L-5). Senza `viewerId` è la regola nuda (codici e titoli);
  * con `viewerId`, il titolo e il codice di una sessione che chi guarda non
  * vede sono `null` (P23).
  */
@@ -110,7 +110,22 @@ export function busyReasonsOf(projectId: string, viewerId?: string): BusyReason[
   const releases = state.releases
     .filter((r) => r.projectId === projectId && statusOf(r).kind === "running")
     .map((r): BusyReason => ({ kind: "release", code: r.code }));
-  return [...sessions, ...releases];
+  // F6, L-5: anche una generazione dei Docs che il worker sta facendo (o ha
+  // in pausa sul limite d'uso: riprende da sola). In coda o trattenuta no.
+  const docs = state.docSpaces
+    .filter(
+      (d) =>
+        d.projectId === projectId &&
+        (d.generation.status === "running" || d.generation.status === "paused"),
+    )
+    .map(
+      (d): BusyReason => ({
+        kind: "doc_generation",
+        repository: d.name,
+        paused: d.generation.status === "paused",
+      }),
+    );
+  return [...sessions, ...releases, ...docs];
 }
 
 /** Le esecuzioni aperte delle automazioni del progetto: quelle che archiviare annulla. */

@@ -187,6 +187,26 @@ describe("RF 4: busy", () => {
     });
   });
 
+  it("F6, L-5: una generazione dei Docs in corso o in pausa → busy col nome del repository; in coda o trattenuta no", async () => {
+    const space = state.docSpaces.find((d) => d.projectId === ACQ)!;
+    as(LAURA);
+    space.generation = { ...space.generation, status: "running" };
+    expect(await projectSettings.archiveProject(ACQ)).toEqual({
+      ok: false,
+      error: "busy",
+      reasons: [{ kind: "doc_generation", repository: space.name, paused: false }],
+    });
+    space.generation = { ...space.generation, status: "paused" };
+    expect(projectSettings.busyReasonsOf(ACQ)).toEqual([
+      { kind: "doc_generation", repository: space.name, paused: true },
+    ]);
+    for (const status of ["queued", "held", "failed", "succeeded"] as const) {
+      space.generation = { ...space.generation, status };
+      expect(projectSettings.busyReasonsOf(ACQ)).toEqual([]);
+    }
+    expect(project(ACQ).archived).toBeFalsy();
+  });
+
   it("una sessione finita non conta: ACQ ha cv-run-acq-3 finita e si archivia", async () => {
     expect(state.conversations.find((c) => c.id === "cv-run-acq-3")!.state).toBe("finished");
     as(LAURA);

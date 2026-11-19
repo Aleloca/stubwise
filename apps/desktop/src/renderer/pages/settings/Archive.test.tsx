@@ -158,6 +158,26 @@ describe("Archive: il dialogo", () => {
     expect(await screen.findByRole("link", { name: /ACQ/ })).toBeVisible();
   });
 
+  it("F6, L-5: i Docs di un repository in generazione o in pausa → busy in parole", async () => {
+    const user = userEvent.setup();
+    const space = state.docSpaces.find((d) => d.projectId === ACQ)!;
+    space.generation = { ...space.generation, status: "running" };
+    await open(LAURA);
+    await user.click(archiveButton());
+    const dialog = await screen.findByRole("dialog", { name: "Archive ACQ?" });
+    await user.click(within(dialog).getByRole("button", { name: "Archive" }));
+    const busy = await screen.findByRole("dialog", { name: "ACQ can't be archived yet" });
+    expect(busy).toHaveTextContent(`The Docs of ${space.name} are being generated.`);
+    space.generation = { ...space.generation, status: "paused" };
+    await user.click(within(busy).getByRole("button", { name: "Archive again" }));
+    await waitFor(() =>
+      expect(busy).toHaveTextContent(
+        `The Docs of ${space.name} are paused on the usage limit and will resume on their own.`,
+      ),
+    );
+    expect(state.projectsById.get(ACQ)!.archived).toBeFalsy();
+  });
+
   it("«2 automation runs still open will be cancelled.» dall'anteprima; senza esecuzioni la riga non c'è", async () => {
     const user = userEvent.setup();
     await openAutomationRuns(2);

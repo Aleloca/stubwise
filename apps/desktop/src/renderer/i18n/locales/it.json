@@ -3378,6 +3378,8 @@
         "waitingTitle": "“{{title}}” aspetta la ripresa della coda.",
         "waitingHidden": "Una conversazione che non vedi aspetta la ripresa della coda.",
         "release": "Il rilascio <code>{{code}}</code> è in corso.",
+        "docs": "Si stanno generando i Docs di <repo>{{repository}}</repo>.",
+        "docsPaused": "I Docs di <repo>{{repository}}</repo> sono in pausa sul limite d'uso e riprenderanno da soli.",
         "wait_one": "Aspetta che finisca, o fermalo dalla sua pagina, poi archivia di nuovo.",
         "wait_other": "Aspetta che finiscano, o fermali dalle loro pagine, poi archivia di nuovo.",
         "again": "Archivia di nuovo",
@@ -3811,7 +3813,9 @@
           "open_prNoCode": "**{{code}}** ha una pull request aperta: si archivia quando si chiude",
           "server_fix": "**{{code}}** ha una correzione aperta su **{{server}}**: si archivia quando finisce",
           "release": "**{{code}}** ha il rilascio **{{release}}** in corso: si archivia quando finisce",
-          "open_correction": "**{{code}}** ha una correzione di una pull request ancora aperta: si archivia quando finisce"
+          "open_correction": "**{{code}}** ha una correzione di una pull request ancora aperta: si archivia quando finisce",
+          "doc_generation": "**{{code}}** sta generando i Docs di **{{repository}}**: si archivia quando finisce",
+          "doc_generationPaused": "**{{code}}** ha i Docs di **{{repository}}** in pausa sul limite d'uso: si archivia quando finiscono"
         }
       },
       "member": {

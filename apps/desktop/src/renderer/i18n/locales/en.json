@@ -3378,6 +3378,8 @@
         "waitingTitle": "“{{title}}” is waiting for the queue to resume.",
         "waitingHidden": "A conversation you can't see is waiting for the queue to resume.",
         "release": "The release <code>{{code}}</code> is running.",
+        "docs": "The Docs of <repo>{{repository}}</repo> are being generated.",
+        "docsPaused": "The Docs of <repo>{{repository}}</repo> are paused on the usage limit and will resume on their own.",
         "wait_one": "Wait for it to finish, or stop it from its page, then archive again.",
         "wait_other": "Wait for them to finish, or stop them from their pages, then archive again.",
         "again": "Archive again",
@@ -3811,7 +3813,9 @@
           "open_prNoCode": "**{{code}}** has an open pull request: it can be archived when it's closed",
           "server_fix": "**{{code}}** has a fix open on **{{server}}**: it can be archived when that ends",
           "release": "**{{code}}** has release **{{release}}** in progress: it can be archived when that ends",
-          "open_correction": "**{{code}}** has a pull request correction still open: it can be archived when it ends"
+          "open_correction": "**{{code}}** has a pull request correction still open: it can be archived when it ends",
+          "doc_generation": "**{{code}}** is generating the Docs of **{{repository}}**: it can be archived when that ends",
+          "doc_generationPaused": "**{{code}}** has the Docs of **{{repository}}** paused on the usage limit: it can be archived when they finish"
         }
       },
       "member": {
