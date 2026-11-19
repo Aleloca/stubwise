@@ -22,6 +22,7 @@ import { startServerOpsBridge } from "./server-ops/bridge.js";
 import { startServerFixPoller, type ServerFixPoller } from "./server-ops/fix-run.js";
 import { askChatQuestion } from "./claude-chat/mention.js";
 import { askConversationQuestion } from "./claude-chat/conversation-question.js";
+import { writeStalledAside } from "./claude-chat/aside.js";
 import { ChatScheduler } from "./claude-chat/scheduler.js";
 import { turnDispatcher } from "./sessions/turn-dispatch.js";
 import { runChatTurn } from "./claude-chat/turn.js";
@@ -696,6 +697,10 @@ if (relay) {
     chatBridge = await startChatBridge({
       serverUrl: config.chatServerUrl,
       // Area 10, F2: nella conversazione libera (c'è l'input del turno) la domanda va in `claude_conversation_questions`.
+      // Area 10, F3 (S2): «Hypothesis» e «Details» del lavoro fermo.
+      stalledAside: async (sessionId, pulse, path) => {
+        await writeStalledAside(db, sessionId, pulse, path);
+      },
       askQuestion: (sessionId, args, inputId) => (inputId !== undefined ? askConversationQuestion(db, sessionId, inputId, args) : askChatQuestion(db, sessionId, args)),
     });
   } catch (error) {
