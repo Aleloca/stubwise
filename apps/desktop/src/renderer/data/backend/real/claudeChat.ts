@@ -650,7 +650,9 @@ export function freeDetailOf(
     isOwner: owner,
     canWrite: owner && v.session.canWrite && !v.archived,
     canInterrupt: owner && v.session.canInterrupt && !v.archived,
-    canAnswer: false,
+    // Area 10, F2: le domande a scelta le risponde l'autore (il server lo
+    // riverifica: 403 a chiunque altro); archiviata non si risponde.
+    canAnswer: owner && !v.archived,
     canDecidePlan: false,
     canRejectPlan: false,
     canPreApprovePlan: false,
