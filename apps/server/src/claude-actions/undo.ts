@@ -1,4 +1,5 @@
 import {
+  automations,
   changeLog,
   alertSubscriptions,
   attachments,
@@ -254,6 +255,13 @@ export async function undoGroup(
       const taskIds = all.filter((o) => o.kind === "task").map((o) => o.id);
       if (taskIds.length > 0) {
         await tx.execute(sql`select id from ${tickets} where ${inArray(tickets.id, taskIds)} for update`);
+      }
+      // Area 10, F2 (review I1): una bozza di automazione si blocca come una
+      // task, PRIMA di guardare `changed_after`: una pubblicazione concorrente
+      // (che prende lo stesso lock) aspetta, o è già passata e lo stamp lo dice.
+      const automationIds = all.filter((o) => o.kind === "automation").map((o) => o.id);
+      if (automationIds.length > 0) {
+        await tx.execute(sql`select id from ${automations} where ${inArray(automations.id, automationIds)} for update`);
       }
       const later = await laterChangeOf(tx, group!, objects.map((r) => r.id), all);
       return later ? { code: "conflict", index: 0, permission: null, projectId: null, message: CHANGED_AFTER } : null;

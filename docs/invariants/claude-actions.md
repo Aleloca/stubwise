@@ -64,3 +64,18 @@ che non stanno in un'area sola. Il catalogo è
   (`recordChatToolReadProjects`): è ciò che trattiene il seguito di una
   pubblica finché l'autore non lo conferma. Un tool nuovo che legge un oggetto
   di progetto lo aggiunge lì.
+
+## Le domande a scelta di Claude nella conversazione libera (area 10, F2)
+
+- Le scrive il worker (`askConversationQuestion`): UNA per turno, sull'input
+  che lo apre, con l'evento `question` (solo l'id).
+- Le legge `GET /api/claude/conversations/:id/questions`: chi legge una
+  pubblica vede solo quelle prima del seguito privato (`event_id`, come le
+  proposte).
+- Risponde SOLO l'autore, e solo finché il turno della domanda è l'ultimo
+  (409 `stale` se ha già scritto altro).
+- La risposta entra come un suo messaggio, nella STESSA transazione che segna
+  la domanda, con il testo «<domanda>» → <scelta> (`answerText`). Il modello
+  non legge gli eventi `question`: senza la domanda nel testo, una risposta
+  «Supporto» non direbbe a cosa risponde. È anche il segno che quel messaggio
+  risponde a una domanda.

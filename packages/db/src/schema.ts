@@ -6495,7 +6495,7 @@ export const claudeConversationQuestions = pgTable(
     uniqueIndex("claude_conversation_questions_turn_idx").on(table.sessionId, table.inputId),
     check(
       "claude_conversation_questions_answer_chk",
-      sql`(${table.answeredAt} is null) = (${table.answerOptionIndex} is null and ${table.answerText} is null)`,
+      sql`num_nonnulls(${table.answerOptionIndex}, ${table.answerText}) = (CASE WHEN ${table.answeredAt} IS NULL THEN 0 ELSE 1 END)`,
     ),
   ],
 );

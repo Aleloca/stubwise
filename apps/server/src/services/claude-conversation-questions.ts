@@ -1,6 +1,6 @@
-import { claudeConversationQuestions, claudeConversations, users, type Db } from "@stubwise/db";
+import { agentSessionInputs, claudeConversationQuestions, claudeConversations, users, type Db } from "@stubwise/db";
 import type { AnswerClaudeQuestionInput, ClaudeConversationQuestion } from "@stubwise/shared";
-import { and, asc, eq, inArray, isNotNull, isNull, lt } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt } from "drizzle-orm";
 import type { SessionUser } from "../auth/session.js";
 import { readerLimits } from "../claude-actions/proposals.js";
 import { sendAgentMessage, type SendAgentMessageResult } from "./agent-sessions.js";
@@ -46,7 +46,16 @@ export async function listConversationQuestions(db: Db, user: SessionUser, sessi
 
 export type AnswerQuestionResult =
   | { ok: true; inputId: string }
-  | { ok: false; error: "not_found" | "forbidden" | "answered" | "invalid_option" | Exclude<SendAgentMessageResult, { ok: true }>["error"] };
+  | { ok: false; error: "not_found" | "forbidden" | "answered" | "stale" | "invalid_option" | Exclude<SendAgentMessageResult, { ok: true }>["error"] };
+
+/**
+ * Review di F2 (I3, M5): la risposta che entra nella conversazione porta la
+ * DOMANDA, «<domanda>» → <scelta>: il modello non legge gli eventi `question`
+ * (la trascrizione recente è fatta di messaggi), e senza la domanda una
+ * risposta «Supporto» non dice a cosa risponde. È anche il segno, nel testo,
+ * che quel messaggio risponde a una domanda.
+ */
+export const answerText = (question: string, choice: string) => `«${question}» → ${choice}`;
 
 class Refused extends Error {
   constructor(readonly result: Exclude<AnswerQuestionResult, { ok: true }>) {
@@ -74,14 +83,24 @@ export async function answerConversationQuestion(
         .for("update");
       if (!q) throw new Refused({ ok: false, error: "not_found" });
       if (q.answeredAt !== null) throw new Refused({ ok: false, error: "answered" });
-      let text: string;
+      // Review di F2 (M4): la domanda vale finché il suo turno è l'ultimo; se la
+      // persona ha già scritto altro dopo, la conversazione è andata avanti.
+      const [last] = await tx
+        .select({ id: agentSessionInputs.id })
+        .from(agentSessionInputs)
+        .where(eq(agentSessionInputs.sessionId, sessionId))
+        .orderBy(desc(agentSessionInputs.createdAt), desc(agentSessionInputs.id))
+        .limit(1);
+      if (last && last.id !== q.inputId) throw new Refused({ ok: false, error: "stale" });
+      let choice: string;
       if ("index" in input) {
         const option = q.options[input.index];
         if (!option) throw new Refused({ ok: false, error: "invalid_option" });
-        text = option.label;
+        choice = option.label;
       } else {
-        text = input.text;
+        choice = input.text;
       }
+      const text = answerText(q.text, choice);
       // Il messaggio della persona: la stessa strada di ogni suo messaggio
       // (budget, archiviata, permessi). Se rifiuta, la domanda NON resta segnata.
       const sent = await sendAgentMessage(tx as unknown as Db, { sessionId, actor: user, text, interrupt: false });

@@ -62,7 +62,8 @@ describe("le domande di Claude nella conversazione libera", () => {
     expect(res.json()).toMatchObject({ status: "pending" });
     const inputs = await inputsOf(sid);
     expect(inputs).toHaveLength(before + 1);
-    expect(inputs.at(-1)).toMatchObject({ text: "Supporto", authorUserId: author.id });
+    // Review di F2 (I3): la risposta porta la domanda, «domanda» → scelta.
+    expect(inputs.at(-1)).toMatchObject({ text: "«Quale reparto avviso?» → Supporto", authorUserId: author.id });
     const [shown] = (await list(sid)).json() as { answer: { index: number; text: string | null; by: { id: string } } }[];
     expect(shown!.answer).toMatchObject({ index: 1, text: null, by: { id: author.id } });
   });
@@ -75,7 +76,7 @@ describe("le domande di Claude nella conversazione libera", () => {
     const again = await answer(sid, q.id, { index: 0 });
     expect(again.statusCode).toBe(409);
     expect(again.json()).toMatchObject({ code: "answered" });
-    expect((await inputsOf(sid)).at(-1)).toMatchObject({ text: "Nessuno dei due: il commerciale" });
+    expect((await inputsOf(sid)).at(-1)).toMatchObject({ text: "«Quale reparto avviso?» → Nessuno dei due: il commerciale" });
   });
 
   it("una conversazione archiviata: 409, e la domanda NON resta segnata (la risposta e il messaggio vanno insieme)", async () => {
@@ -113,5 +114,26 @@ describe("le domande di Claude nella conversazione libera", () => {
     const q = await ask(sid);
     expect((await list(sid, reader)).statusCode).toBe(404);
     expect((await answer(sid, q.id, { index: 0 }, reader)).statusCode).toBe(404);
+  });
+
+  it("review di F2, M4: se dopo la domanda la persona ha già scritto altro, la risposta è 409 `stale` e niente si segna", async () => {
+    const sid = await conversation();
+    const first = await app.inject({ method: "POST", url: `/api/agent-sessions/${sid}/messages`, headers: { cookie: author.headers.cookie }, payload: { text: "Avvisa un reparto", interrupt: false } });
+    const inputId = (first.json() as { inputId: string }).inputId;
+    const [q] = await t.db.insert(claudeConversationQuestions).values({ sessionId: sid, inputId, text: "Quale?", options: [{ label: "A" }, { label: "B" }] }).returning();
+    await app.inject({ method: "POST", url: `/api/agent-sessions/${sid}/messages`, headers: { cookie: author.headers.cookie }, payload: { text: "Lascia stare", interrupt: false } });
+    const res = await answer(sid, q!.id, { index: 0 });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: "stale" });
+    const [row] = await t.db.select().from(claudeConversationQuestions).where(eq(claudeConversationQuestions.id, q!.id));
+    expect(row!.answeredAt).toBeNull();
+  });
+
+  it("review di F2, M4: la domanda del turno che è ancora l'ultimo si risponde", async () => {
+    const sid = await conversation();
+    const first = await app.inject({ method: "POST", url: `/api/agent-sessions/${sid}/messages`, headers: { cookie: author.headers.cookie }, payload: { text: "Avvisa un reparto", interrupt: false } });
+    const inputId = (first.json() as { inputId: string }).inputId;
+    const [q] = await t.db.insert(claudeConversationQuestions).values({ sessionId: sid, inputId, text: "Quale?", options: [{ label: "A" }, { label: "B" }] }).returning();
+    expect((await answer(sid, q!.id, { index: 1 })).statusCode).toBe(202);
   });
 });

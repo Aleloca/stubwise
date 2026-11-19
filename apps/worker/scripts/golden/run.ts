@@ -2311,6 +2311,9 @@ const MAIL_SUBJECT_HOSTILE = {
   messages: [{ ...MAIL_HOSTILE.messages[0]!, textExcerpt: "Buongiorno, le confermo la consegna di giovedì." }],
 };
 
+/** L'ultima domanda di `ask_question` (golden S1: il turno 2 risponde a QUELLA). */
+let lastAskedQuestion: string | null = null;
+
 /** Area 10, F2 (S1): i reparti dell'istanza. */
 const DEPT_SALES_ID = "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b";
 const DEPT_SUPPORT_ID = "4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f7a";
@@ -2438,8 +2441,9 @@ async function runChat(
     serverUrl: fake.url,
     log,
     // I testi di produzione: `askChatQuestion` (Chat) o `askConversationQuestion` (libera, con l'input del turno).
-    askQuestion: async (_sessionId, _args, inputId) =>
-      ++asked === 1
+    askQuestion: async (_sessionId, args, inputId) => {
+      if (typeof args["question"] === "string") lastAskedQuestion = args["question"];
+      return ++asked === 1
         ? {
             ok: true,
             text:
@@ -2447,7 +2451,8 @@ async function runChat(
                 ? "The question is shown to the person as a card with your options. End your turn now, with nothing else: when they answer, you will continue."
                 : "The question is in the thread for the person who called you. End your turn now, with nothing else: when they answer, you will continue.",
           }
-        : { ok: false, text: "You already asked your one question in this answer: say what is still unclear in words." },
+        : { ok: false, text: "You already asked your one question in this answer: say what is still unclear in words." };
+    },
   });
   // Come in produzione (area 10, F2): `ask_question` in ogni turno; nella libera con l'input del turno.
   const grant = bridge.grant({ sessionId: "golden", serverToken: CHAT_TOKEN, ask: true, ...(mention ? { mention: true } : { inputId: randomUUID() }) });
@@ -2981,13 +2986,16 @@ async function runChatS1Automation(ctx: ScenarioContext): Promise<ScenarioResult
   // La pagina del supporto (l'elenco, nessuna conversazione aperta).
   const context = { kind: "page", id: "support" };
   const first = await runChat(ctx, "chat-s1-automation", opening, { kind: "ask" }, { context });
-  const question = "Quale reparto devo avvisare: Vendite o Supporto?";
-  const second = await runChat(ctx, "chat-s1-automation", "Supporto", { kind: "automation-draft", departmentId: DEPT_SUPPORT_ID }, {
+  // Review di F2 (I3): la forma VERA della risposta — la domanda che Claude ha
+  // fatto al turno 1 e la scelta, «domanda» → scelta (`answerText` del server),
+  // con la sua risposta vera del turno 1 nella trascrizione recente.
+  const question = lastAskedQuestion ?? "Quale reparto devo avvisare?";
+  const second = await runChat(ctx, "chat-s1-automation", `«${question}» → Supporto`, { kind: "automation-draft", departmentId: DEPT_SUPPORT_ID }, {
     answer: { executed: ["AUD-A9"] },
     context,
     recentTranscript: [
       { role: "user", text: opening },
-      { role: "agent", text: question },
+      { role: "agent", text: first.finalMessage },
     ],
   });
   return {

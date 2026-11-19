@@ -257,6 +257,8 @@ export async function claudeConversationRoutes(instance: FastifyInstance): Promi
           return apiError(reply, 403, "forbidden", "Only the author answers Claude's questions");
         case "answered":
           return apiError(reply, 409, "answered", "This question is already answered");
+        case "stale":
+          return apiError(reply, 409, "stale", "The conversation went on after this question");
         case "invalid_option":
           return apiError(reply, 422, "invalid_option", "There is no such option");
         case "conversation_archived":
