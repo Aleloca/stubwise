@@ -11,7 +11,13 @@ import { authErrorResponses, errorSchema } from "./shared.js";
 const paramsSchema = z.object({ projectId: z.uuid() });
 
 /** Risposta di GET e PUT: la stessa forma del body del PUT, così fa round-trip. */
-const projectPluginsSchema = z.object({ plugins: z.array(projectPluginSchema), version: z.string(), registry: z.array(projectPluginRegistryRowSchema) });
+const projectPluginsSchema = z.object({
+  plugins: z.array(projectPluginSchema),
+  version: z.string(),
+  registry: z.array(projectPluginRegistryRowSchema),
+  /** Dalla review di F5: chi la legge può salvarla (`project.settings.manage`), lo calcola il server. */
+  canEdit: z.boolean(),
+});
 /** Area 9, F5: `ifMatch` facoltativo (il web vecchio non lo manda: per lui resta l'ultima scrittura che vince). */
 const putBodySchema = putProjectPluginsSchema.extend({ ifMatch: z.string().min(1).optional() });
 const staleSchema = errorSchema.extend({ version: z.string(), plugins: z.array(projectPluginSchema) });
@@ -19,9 +25,11 @@ const staleSchema = errorSchema.extend({ version: z.string(), plugins: z.array(p
 /**
  * Abilitazioni dei plugin su un progetto, sotto /api/projects/:projectId/plugins.
  *
- * `project.settings.manage` nel progetto (lettura inclusa): decidere quali
- * skill di terze parti girano nei run di un progetto è una scelta da
- * maintainer.
+ * Il PUT vuole `project.settings.manage` nel progetto: decidere quali skill
+ * di terze parti girano nei run di un progetto è una scelta da maintainer.
+ * La LETTURA (dalla review di F5) è di chi vede il progetto, in sola lettura
+ * con `canEdit: false`: il registro gli arriva con nome, skill, gruppi di
+ * hook e stato, senza il preset consigliato (serve solo a chi salva).
  *
  * Il PUT sostituisce l'INSIEME COMPLETO (i plugin assenti dal body risultano
  * non abilitati): la UI ha davanti tutto il registro e salva la foto intera,
@@ -33,13 +41,15 @@ const ACCESS: RouteAccess = {
   project: fromParam("projectId"),
 };
 
+const READ_ACCESS: RouteAccess = { kind: "project", permission: "member", project: fromParam("projectId") };
+
 export async function projectPluginRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
   app.get(
     "/:projectId/plugins",
     {
-      config: { access: ACCESS },
+      config: { access: READ_ACCESS },
       schema: {
         params: paramsSchema,
         response: { 200: projectPluginsSchema, 404: errorSchema, ...authErrorResponses },
@@ -48,8 +58,15 @@ export async function projectPluginRoutes(instance: FastifyInstance): Promise<vo
     async (request) => {
       const { projectId } = request.params;
       const plugins = await getProjectPlugins(app.db, projectId);
+      const canEdit = request.access!.permissions.has("project.settings.manage");
       // Area 9, F5: anche il registro, per chi non ha `plugins.manage` d'istanza.
-      return { plugins, version: projectPluginsVersion(plugins), registry: await projectPluginRegistry(app.db) };
+      const registry = await projectPluginRegistry(app.db);
+      return {
+        plugins,
+        version: projectPluginsVersion(plugins),
+        registry: canEdit ? registry : registry.map((row) => ({ ...row, recommendedDisabledSkills: [] })),
+        canEdit,
+      };
     },
   );
 
@@ -87,7 +104,7 @@ export async function projectPluginRoutes(instance: FastifyInstance): Promise<vo
               : `Unknown hook in the plugin inventory (${result.detail})`;
         return apiError(reply, 400, result.error, message);
       }
-      return { plugins: result.plugins, version: projectPluginsVersion(result.plugins), registry: await projectPluginRegistry(app.db) };
+      return { plugins: result.plugins, version: projectPluginsVersion(result.plugins), registry: await projectPluginRegistry(app.db), canEdit: true };
     },
   );
 }

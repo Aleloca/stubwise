@@ -352,6 +352,12 @@ export const projectPluginsViewSchema = z.object({
   version: z.string().nullable().default(null),
   /** Vuoto da un server che non lo manda ancora. */
   registry: z.array(projectPluginRegistryRowSchema).default([]),
+  /**
+   * Chi legge può salvare (`project.settings.manage`), calcolato dal server
+   * (review di F5: la vista in sola lettura per chi vede il progetto). `false`
+   * da un server che non lo manda: il PUT risponderebbe comunque 403.
+   */
+  canEdit: z.boolean().default(false),
 });
 export type ProjectPluginsView = z.infer<typeof projectPluginsViewSchema>;
 
