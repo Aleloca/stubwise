@@ -193,8 +193,8 @@ export function DepartmentPanel({
         d.id,
         { memberIds: members, homeManagerIds: home, projectPermissions: permList },
       ]);
-    // Build app: il server non chiede la riconferma sui reparti (e un PAT del
-    // desktop non potrebbe darla); nel prototipo resta.
+    // Il server chiede la riconferma quando la bozza dà accessi (F8-3): il
+    // dialogo, come nel prototipo; `department-reauth` acceso da F8.
     const result = await (featureIntegrated("department-reauth")
       ? reauth(write, { action: t("admin.department.saveAction", { name: d.name }) })
       : write()

@@ -98,6 +98,10 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Area 9, F6: archiviare, riaprire ed eliminare un progetto (la scheda
     // Archived di All projects, la pagina dell'archiviato, Delete).
     "archive",
+    // Area 9, F8 (F8-3 = a): il server chiede la riconferma sui reparti quando
+    // si danno accessi; il pannello passa dal dialogo (il PAT del desktop
+    // riconfermato vale, 0132).
+    "department-reauth",
     // Area 7, fetta 1: le Automations (Home, «Da decidere», ⌘K, righe d'origine).
     "automations",
     // Area 7, fetta 2: email e attese (passo «Manda email», attese, «ripeti

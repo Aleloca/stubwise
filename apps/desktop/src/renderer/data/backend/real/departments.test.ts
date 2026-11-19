@@ -80,6 +80,42 @@ describe("Reparti nella build app", () => {
     expect(sent.body).toEqual(draft);
   });
 
+  it("F8: i rifiuti del salvataggio nelle parole del prototipo (riconferma, escalation, ultimo gestore, permesso, persona)", async () => {
+    const patch = `PATCH /api/departments/${SALES}`;
+    const save = () =>
+      adminDepartments.saveDepartment!(SALES, {
+        memberIds: [ME_ID],
+        homeManagerIds: [],
+        projectPermissions: [],
+      });
+    const cases: [number, Record<string, unknown>, unknown][] = [
+      [403, { code: "reauth_required" }, { ok: false, error: "reauth_required" }],
+      [403, { code: "escalation", permission: "plans.approve", missing: ["plans.approve"] }, { ok: false, error: "escalation", missing: ["plans.approve"] }],
+      [409, { code: "last_manager", projectId: "p1", projectCode: "ACQ" }, { ok: false, error: "invalid", reason: "last_members_manager" }],
+      [400, { code: "invalid_permission", permission: "x" }, { ok: false, error: "invalid", reason: "permission" }],
+      [400, { code: "not_a_person" }, { ok: false, error: "invalid", reason: "person" }],
+      [403, { code: "forbidden" }, { ok: false, error: "forbidden" }],
+    ];
+    for (const [status, body, want] of cases) {
+      installFakeServer({
+        "GET /api/departments/roles": { body: [] },
+        [patch]: { status, body: { message: "x", ...body } },
+      });
+      expect(await save(), String(body.code)).toEqual(want);
+    }
+  });
+
+  it("F8: eliminare un reparto che lascerebbe un progetto senza gestore: last_members_manager", async () => {
+    installFakeServer({
+      [`DELETE /api/departments/${SALES}`]: { status: 409, body: { code: "last_manager", message: "x", projectId: "p1" } },
+    });
+    expect(await adminDepartments.deleteDepartment!(SALES, null)).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "last_members_manager",
+    });
+  });
+
   it("senza departments.manage: forbidden; un nome già usato: name_taken", async () => {
     installFakeServer({
       "POST /api/departments": { status: 403, body: { code: "forbidden", message: "x" } },

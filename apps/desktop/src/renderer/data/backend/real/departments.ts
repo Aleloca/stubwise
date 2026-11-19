@@ -19,6 +19,16 @@ type Admin = typeof Fake.admin;
 /** Un rifiuto del server nella forma del prototipo. */
 function refusalOf(error: unknown): AdminRefusal {
   if (error instanceof ApiError) {
+    // Area 9, F8 (72, 39071e1f8): la riconferma quando si danno accessi, l'escalation
+    // coi permessi mancanti, l'ultimo gestore di un progetto, nelle parole del prototipo.
+    if (error.code === "reauth_required") return { ok: false, error: "reauth_required" };
+    if (error.code === "escalation") {
+      const missing = (error.details as { missing?: string[] } | undefined)?.missing ?? [];
+      return { ok: false, error: "escalation", missing };
+    }
+    if (error.code === "last_manager") return { ok: false, error: "invalid", reason: "last_members_manager" };
+    if (error.code === "invalid_permission") return { ok: false, error: "invalid", reason: "permission" };
+    if (error.code === "not_a_person") return { ok: false, error: "invalid", reason: "person" };
     if (error.status === 403) return { ok: false, error: "forbidden" };
     if (error.status === 404) return { ok: false, error: "not_found" };
     const reason =
