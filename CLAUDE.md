@@ -646,6 +646,12 @@ una voce ti riguarda.
   - Solo l'insieme chiuso `SERVER_ACTIONS`, eseguito dall'agente con un comando firmato per passo approvato; mai via SSH.
   - Ogni piano lo approva `plans.approve` nel progetto che l'analisi indica, prima di ogni comando; mai Claude, mai in anticipo.
   - SSH solo letture, utente senza privilegi; tutto nel registro `server_commands`.
+- **Azioni di Claude (catalogo e conversazione libera) → `docs/invariants/claude-actions.md`**:
+  - Gli eventi strutturati (`aside`, `capabilities`, `question`) li scrive il SERVER, non il modello; un tipo nuovo vuole il CHECK, lo `z.enum` e il test del tipo ignoto (area 10).
+  - Una bozza di Claude in un campo (`fillField`) non si salva da sola (area 10, F6).
+  - Le funzioni del catalogo stanno nei servizi, mai nelle rotte (`claude-actions-effects.test.ts`, area 9, F7).
+- **Automazioni → `docs/invariants/automations.md`**:
+  - Claude scrive solo BOZZE di automazione: pubblicare e accendere non sono mai nel catalogo (area 10).
 - **Account e provider dell'agente → `docs/invariants/providers.md`**:
   - La scelta dell'account sta in `providers/select.ts`, e la ripresa usa la stessa funzione (15 ott 2026).
 - **Giro notturno → `docs/invariants/nightly.md`**:
