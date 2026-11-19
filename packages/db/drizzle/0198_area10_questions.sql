@@ -26,7 +26,8 @@ CREATE TABLE "claude_conversation_questions" (
 	-- domande prima del seguito privato, come le proposte (`claude_proposals.event_id`).
 	"event_id" bigint,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "claude_conversation_questions_answer_chk" CHECK (("answered_at" is null) = ("answer_option_index" is null and "answer_text" is null))
+	-- Una risposta è un'opzione O un testo, mai tutti e due; e c'è sse c'è `answered_at` (review di F2, M6).
+	CONSTRAINT "claude_conversation_questions_answer_chk" CHECK (num_nonnulls("answer_option_index", "answer_text") = (CASE WHEN "answered_at" IS NULL THEN 0 ELSE 1 END))
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX "claude_conversation_questions_turn_idx" ON "claude_conversation_questions" USING btree ("session_id","input_id");

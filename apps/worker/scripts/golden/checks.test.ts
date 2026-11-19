@@ -1076,6 +1076,10 @@ describe("chatChecks (chat-read, chat-no-leak e le proposte)", () => {
     expect(failed(chatChecks(obs([create, { fn: "updateTask", args: {} }])))).toEqual(["solo bozze: nessuna altra voce"]);
     expect(failed(chatChecks(obs([{ ...create, args: { ...create.args, flow: { ...create.args.flow, steps: [] } } }])))).toEqual(["un passo avvisa il reparto scelto"]);
     expect(failed(chatChecks(obs([create], "Fatto: l'automazione è attiva.")))).toEqual(["non dice che è accesa"]);
+    // Review di F2 (M7): «non è attiva» è giusto, e un id del reparto fuori da un `notify` non basta.
+    expect(failed(chatChecks(obs([create], "La bozza non è attiva: la accendi tu.")))).toEqual([]);
+    const elsewhere = { ...create, args: { ...create.args, flow: { ...create.args.flow, steps: [{ id: "s1", kind: "createTask", title: D, description: "", assignee: { departmentId: D } }] } } };
+    expect(failed(chatChecks(obs([elsewhere])))).toEqual(["un passo avvisa il reparto scelto"]);
   });
 
   it("chat-read: senza la lettura o senza i fatti è rossa", () => {

@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { automations, automationVersions, claudeActionGroups, claudeActions, claudeProposals, issueChatToolToken } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
+import { SERVER_CATALOG } from "./catalog.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
 
 /**
@@ -16,12 +17,14 @@ let app: ReturnType<typeof buildApp>;
 type U = Awaited<ReturnType<typeof createUserWithSession>>;
 let lead: U;
 let dev: U;
+let admin: U;
 let n = 0;
 
 beforeAll(async () => {
   t = await startTestDb();
   app = buildApp({ db: t.db, sessionSecret: "x".repeat(40), publicUrl: "https://stubwise.example" });
-  await seedUsers(app);
+  const seeded = await seedUsers(app);
+  admin = { id: seeded.adminId, headers: { cookie: seeded.adminCookie } } as U;
   lead = await createUserWithSession(app, "lead-auto@example.com");
   dev = await createUserWithSession(app, "dev-auto@example.com");
 }, 120_000);
@@ -108,8 +111,9 @@ describe("area 10, F2: le bozze di automazione da Claude", () => {
   it("un flusso con errori di configurazione non diventa una bozza: rifiutata con gli errori, e nessuna riga resta", async () => {
     const projectId = await project();
     const broken = { ...flow(), steps: [step("")] };
-    const res = (await propose([{ fn: "createAutomation", args: { projectId, name: "Rotta", flow: broken } }])).json() as { status: string };
+    const res = (await propose([{ fn: "createAutomation", args: { projectId, name: "Rotta", flow: broken } }])).json() as { status: string; reason: string };
     expect(res.status).toBe("refused");
+    expect(res.reason).toMatch(/flow_errors/);
     expect(await byProject(projectId)).toEqual([]);
   });
 
@@ -169,5 +173,116 @@ describe("area 10, F2: le bozze di automazione da Claude", () => {
     const { groupId } = await run([{ fn: "deleteAutomationDraft", args: { code: a!.code, expectedRev: 1 } }]);
     expect(await byProject(projectId)).toEqual([]);
     expect((await undo(groupId!)).statusCode).toBe(409);
+  });
+
+  it("review di F2, I2: sul codice di un progetto nascosto con una rev sbagliata not_found (niente oracolo); una generale invalid", async () => {
+    const hidden = (await seedRepository(t.db)).projectId;
+    const [h] = await t.db.insert(automations).values({ code: `H${n}-A1`, seq: 1, name: "Nascosta", description: "", projectId: hidden, status: "draft", createdBy: dev.id }).returning();
+    await t.db.insert(automationVersions).values({ automationId: h!.id, n: 1, flow: flow() as never, savedBy: dev.id, rev: 1 });
+    for (const action of [
+      { fn: "saveAutomationDraft", args: { code: h!.code, flow: flow("x"), expectedRev: 99 } },
+      { fn: "deleteAutomationDraft", args: { code: h!.code, expectedRev: 99 } },
+    ]) {
+      const res = (await propose([action])).json() as { status: string; reason: string };
+      expect(res.status).toBe("refused");
+      expect(res.reason).toMatch(/not found/i);
+      expect(res.reason).not.toMatch(/stale|conflict/);
+    }
+    const [g] = await t.db.insert(automations).values({ code: `AUT-${900 + n}`, seq: 900 + n, name: "Generale", description: "", projectId: null, status: "draft", createdBy: lead.id }).returning();
+    await t.db.insert(automationVersions).values({ automationId: g!.id, n: 1, flow: flow() as never, savedBy: lead.id, rev: 1 });
+    const general = (await propose([{ fn: "saveAutomationDraft", args: { code: g!.code, flow: flow("x"), expectedRev: 1 } }], admin)).json() as { status: string; reason: string };
+    expect(general.status).toBe("refused");
+    expect(general.reason).toMatch(/project_only/);
+  });
+
+  it("review di F2, M3: su un'accesa senza bozza Claude non cambia nome né descrizione; un nome cambiato dopo Claude fa cadere l'«Annulla»", async () => {
+    const projectId = await project();
+    const created = await propose([{ fn: "createAutomation", args: { projectId, name: "Nome", flow: flow() } }]);
+    const [a] = await byProject(projectId);
+    const renamed = await app.inject({ method: "PATCH", url: `/api/automations/${a!.code}`, headers: { cookie: lead.headers.cookie }, payload: { name: "A mano" } });
+    expect(renamed.statusCode).toBe(200);
+    const groupId = (await groupOfProposal((created.json() as { proposalId: string }).proposalId))!;
+    const [g] = await t.db.select({ sessionId: claudeActionGroups.sessionId }).from(claudeActionGroups).where(eq(claudeActionGroups.id, groupId));
+    const groups = (await app.inject({ method: "GET", url: `/api/claude/conversations/${g!.sessionId}/groups`, headers: { cookie: lead.headers.cookie } })).json() as { id: string; undo: string }[];
+    expect(groups.find((x) => x.id === groupId)).toMatchObject({ undo: "changed_after" });
+    await t.db.update(automationVersions).set({ publishedAt: new Date(), publishedBy: lead.id }).where(eq(automationVersions.automationId, a!.id));
+    const res = (await propose([{ fn: "saveAutomationDraft", args: { code: a!.code, flow: flow("x"), expectedRev: null, name: "Da Claude" } }])).json() as { status: string; reason: string };
+    expect(res.status).toBe("refused");
+    expect(res.reason).toMatch(/invalid/i);
+    expect((await byProject(projectId))[0]!.name).toBe("A mano");
+  });
+
+  it("review di F2, I1: l'«Annulla» di una createAutomation non cancella una bozza pubblicata mentre aspettava", async () => {
+    const projectId = await project();
+    const created = await propose([{ fn: "createAutomation", args: { projectId, name: "In gara", flow: flow() } }]);
+    const [a] = await byProject(projectId);
+    const groupId = (await groupOfProposal((created.json() as { proposalId: string }).proposalId))!;
+    let release!: () => void;
+    let locked!: () => void;
+    const isLocked = new Promise<void>((resolve) => (locked = resolve));
+    // La pubblicazione: prende il lock dell'automazione, e committa DOPO che l'«Annulla» è partito.
+    const publishing = t.db.transaction(async (tx) => {
+      await tx.select().from(automations).where(eq(automations.id, a!.id)).for("update");
+      locked();
+      await new Promise<void>((resolve) => (release = resolve));
+      await tx.update(automationVersions).set({ publishedAt: new Date(), publishedBy: lead.id }).where(eq(automationVersions.automationId, a!.id));
+      await tx.update(automations).set({ status: "active", ownerId: lead.id }).where(eq(automations.id, a!.id));
+    });
+    await isLocked;
+    const undoing = undo(groupId);
+    // L'«Annulla» deve ARRIVARE al lock (una query in attesa), non solo partire.
+    for (let i = 0; i < 100; i++) {
+      const [w] = await t.db.execute<{ n: number }>(sql`select count(*)::int as n from pg_stat_activity where wait_event_type = 'Lock' and datname = current_database()`);
+      if ((w?.n ?? 0) > 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    release();
+    await publishing;
+    const res = await undoing;
+    expect(res.statusCode).toBe(409);
+    expect(await byProject(projectId)).toHaveLength(1);
+  });
+
+  it("review di F2, M1: l'inverso di saveAutomationDraft rimette anche un flusso che aveva errori (una bozza può averne)", async () => {
+    const projectId = await project();
+    await propose([{ fn: "createAutomation", args: { projectId, name: "Con errori", flow: flow() } }]);
+    const [a] = await byProject(projectId);
+    // A mano dal costruttore: una bozza con un errore (titolo vuoto).
+    const manual = await app.inject({ method: "PUT", url: `/api/automations/${a!.code}/draft`, headers: { cookie: lead.headers.cookie }, payload: { flow: { ...flow(), steps: [step("")] }, expectedRev: 1 } });
+    expect(manual.statusCode).toBe(200);
+    const saved = await run([{ fn: "saveAutomationDraft", args: { code: a!.code, flow: flow("Sistemata"), expectedRev: 2 } }]);
+    expect(saved.body).toMatchObject({ status: "executed" });
+    expect((await undo(saved.groupId!)).statusCode).toBe(200);
+    const [v] = await versionsOf(a!.id);
+    expect((v!.flow as { steps: { title: string }[] }).steps[0]!.title).toBe("");
+  });
+
+  it("review di F2, I1 (la voce): deleteAutomationDraft blocca l'automazione e rilegge dopo il lock — una pubblicazione in corso vince", async () => {
+    const projectId = await project();
+    await propose([{ fn: "createAutomation", args: { projectId, name: "Voce in gara", flow: flow() } }]);
+    const [a] = await byProject(projectId);
+    let release!: () => void;
+    let locked!: () => void;
+    const isLocked = new Promise<void>((resolve) => (locked = resolve));
+    const publishing = t.db.transaction(async (tx) => {
+      await tx.select().from(automations).where(eq(automations.id, a!.id)).for("update");
+      locked();
+      await new Promise<void>((resolve) => (release = resolve));
+      await tx.update(automationVersions).set({ publishedAt: new Date(), publishedBy: lead.id }).where(eq(automationVersions.automationId, a!.id));
+    });
+    await isLocked;
+    const entry = SERVER_CATALOG.get("deleteAutomationDraft")!;
+    const viewer = { id: lead.id, instancePermissions: new Set<string>() } as unknown as Parameters<typeof entry.run>[1];
+    const running = t.db.transaction((tx) => entry.run(tx as never, viewer, { code: a!.code, expectedRev: 1 }, new Set(), {}));
+    for (let i = 0; i < 100; i++) {
+      const [w] = await t.db.execute<{ n: number }>(sql`select count(*)::int as n from pg_stat_activity where wait_event_type = 'Lock' and datname = current_database()`);
+      if ((w?.n ?? 0) > 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    release();
+    await publishing;
+    const result = await running;
+    expect(result.ok).toBe(false);
+    expect(await byProject(projectId)).toHaveLength(1);
   });
 });
