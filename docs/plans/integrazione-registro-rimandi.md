@@ -133,6 +133,13 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
     progetto; gli oggetti delle aree non integrate (rilasci, supporto, PR,
     automazioni, posta) non danno chip né contesto; le domande della doc di
     prodotto sotto il chip restano spente (`product-docs`, area 11).
+    *Area 10, F1 (19 nov 2026), lato server CHIUSO*: Claude legge
+    automazioni (`read_automation`), server (`read_server`), conversazioni
+    di supporto (`read_support_conversation`), canali (`read_channel`),
+    posta e appuntamenti di chi chiede (`read_mail_thread`,
+    `read_calendar_event`); rilasci e file del Drive li leggeva già. I
+    contesti dei chip sono concordati con 94 (la posta `<accountId>/<threadId>`).
+    Restano del renderer i chip stessi (94), e fuori le PR (nessun tool).
 
 ## Area 4 — Chat
 
