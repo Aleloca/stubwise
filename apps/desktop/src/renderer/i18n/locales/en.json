@@ -2454,7 +2454,10 @@
       "template": "Template",
       "templateHint": "The template sets the starting statuses and modules. You can change the statuses later in the project's settings.",
       "failed": "Couldn't create the project. Nothing was created; try again.",
-      "created": "{{code}} {{name}} created."
+      "created": "{{code}} {{name}} created.",
+      "keyTitle": "{{code}}'s ingestion key is shown only now.",
+      "keyLabel": "Ingestion key",
+      "keyLater": "Apps and systems send errors and events to {{code}} with it. Later, Settings → Integration shows only its last 4 characters."
     },
     "people": {
       "views": "Activity view",

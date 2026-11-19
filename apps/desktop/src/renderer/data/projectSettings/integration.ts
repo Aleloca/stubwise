@@ -124,6 +124,34 @@ export async function getIntegration(projectId: string): Promise<IntegrationView
   };
 }
 
+/** La chiave d'ingestione intera, col DSN e lo snippet: escono una volta sola. */
+export interface IngestionKeyOnce {
+  key: string;
+  dsn: string;
+  snippet: string;
+}
+
+/**
+ * Una chiave d'ingestione nuova per il progetto, a nome di `me`: quella di
+ * prima smette di valere. Non è una scrittura a sé (non guarda chi può): la
+ * chiamano `regenerateIngestionKey` e, alla nascita del progetto,
+ * `createProject` (area 9, F5, decisione del maintainer: la chiave intera
+ * esce una volta a chi crea).
+ */
+export function issueIngestionKey(project: Project, me: string): IngestionKeyOnce {
+  const settings = settingsOf(project);
+  if (settings.ingestion.secretId) forgetSecret(settings.ingestion.secretId);
+  const secret = storeSecret("ingestion_key", project.id);
+  settings.ingestion = {
+    secretId: secret.id,
+    last4: secret.value.slice(-4),
+    createdAt: now(),
+    createdById: me,
+  };
+  const dsn = dsnOf(secret.value, project);
+  return { key: secret.value, dsn, snippet: snippetOf(dsn) };
+}
+
 /**
  * Una chiave d'ingestione nuova (+R, `project.settings.manage`): il valore,
  * il DSN e lo snippet interi escono qui e mai più; la chiave di prima smette
@@ -139,23 +167,14 @@ export async function regenerateIngestionKey(
   if (blocked) return blocked;
 
   const { project } = managed;
-  const settings = settingsOf(project);
-  if (settings.ingestion.secretId) forgetSecret(settings.ingestion.secretId);
-  const secret = storeSecret("ingestion_key", project.id);
-  settings.ingestion = {
-    secretId: secret.id,
-    last4: secret.value.slice(-4),
-    createdAt: now(),
-    createdById: me,
-  };
+  const once = issueIngestionKey(project, me);
   recordChange({
     kind: "project.ingestion_key_regenerated",
     actorId: me,
     projectId: project.id,
     object: projectObject(project),
   });
-  const dsn = dsnOf(secret.value, project);
-  return { ok: true, key: secret.value, dsn, snippet: snippetOf(dsn) };
+  return { ok: true, ...once };
 }
 
 /**

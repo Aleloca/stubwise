@@ -2454,7 +2454,10 @@
       "template": "Modello",
       "templateHint": "Il modello decide gli stati e i moduli di partenza. Gli stati si cambiano poi nelle impostazioni del progetto.",
       "failed": "Non è stato possibile creare il progetto. Non è stato creato nulla; riprova.",
-      "created": "{{code}} {{name}} creato."
+      "created": "{{code}} {{name}} creato.",
+      "keyTitle": "La chiave d'ingestione di {{code}} si vede solo ora.",
+      "keyLabel": "Chiave d'ingestione",
+      "keyLater": "Le app e i sistemi la usano per mandare a {{code}} errori ed eventi. Dopo, Impostazioni → Integrazione ne mostra solo gli ultimi 4 caratteri."
     },
     "people": {
       "views": "Vista dell'attività",

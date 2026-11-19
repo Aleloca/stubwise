@@ -17,6 +17,7 @@ import { recordChange } from "./changelog/index";
 import { changedFields } from "./changelog/settingValues";
 // Per effetto: registra i tipi di voce di progetto (`recordChange` lancia su uno ignoto).
 import "./projectSettings/changeTypes";
+import { issueIngestionKey, type IngestionKeyOnce } from "./projectSettings/integration";
 import { skillsForRun } from "./projectSettings/plugins";
 import { linkIdentityAs } from "./admin/people";
 // Le letture servono al motore di intenti (a nome di chi conversa): si usano
@@ -1410,7 +1411,13 @@ function freshProjectId(code: string): string {
   return id;
 }
 
-export async function createProject(input: NewProjectInput): Promise<Project> {
+/**
+ * Il progetto appena creato, con la sua chiave d'ingestione intera (area 9,
+ * F5): esce qui una volta sola, a chi crea; `null` se il server non la manda.
+ */
+export type CreatedProject = Project & { ingestion: IngestionKeyOnce | null };
+
+export async function createProject(input: NewProjectInput): Promise<CreatedProject> {
   const me = await gate("createProject");
   need(me, "projects.create");
   if (!CODE_PATTERN.test(input.code)) throw invalid("code");
@@ -1464,7 +1471,10 @@ export async function createProject(input: NewProjectInput): Promise<Project> {
     publishedEvents: [...DEFAULT_PUBLISHED_EVENTS],
     createdAt: now(),
   });
-  return copy(project);
+  // Area 9, F5: la chiave d'ingestione nasce col progetto, e la vede intera
+  // solo chi lo crea, qui; dopo, le ultime 4 (Settings → Integration).
+  const ingestion = issueIngestionKey(project, me);
+  return { ...copy(project), ingestion };
 }
 
 const FAMILIES: StatusFamily[] = ["todo", "active", "closed"];

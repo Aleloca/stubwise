@@ -150,7 +150,11 @@ export const createProject: typeof Fake.createProject = async (input) => {
       ...(input.clientName ? { clientName: input.clientName } : {}),
       ...(input.modules ? { modules: input.modules } : {}),
     })) as unknown as ServerProject;
-    return toProject(created, created.memberIds ?? (session.personId ? [session.personId] : []));
+    return {
+      ...toProject(created, created.memberIds ?? (session.personId ? [session.personId] : [])),
+      // Area 9, F5: la chiave intera alla creazione la manderà il server (72).
+      ingestion: null,
+    };
   } catch (error) {
     // La forma del rifiuto del prototipo: il dialogo lo dice sotto il codice.
     if (error instanceof ApiError && error.code === "code_taken") throw new Error("invalid: code_taken");
