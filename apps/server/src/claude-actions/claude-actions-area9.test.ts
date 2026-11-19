@@ -4,7 +4,9 @@ import { changeLog, claudeProposals, issueChatToolToken, plugins, projectMemberP
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { createSession, SESSION_COOKIE } from "../auth/session.js";
+import type { SessionUser } from "../auth/session.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
+import { actionLabels } from "./labels.js";
 
 /**
  * Area 9, F7, Task 2: le prime C. Una C si conferma SOLO con la riconferma
@@ -150,6 +152,37 @@ describe("area 9, F7: le C dei membri si confermano con la riconferma di chi con
     const [agent] = await t.db.select({ id: users.id }).from(users).where(eq(users.isAgent, true));
     const agentTry = await propose([{ fn: "addMember", args: { projectId, userId: agent!.id, roleId: developerRole } }]);
     expect(agentTry.json()).toMatchObject({ status: "refused" });
+  });
+});
+
+describe("area 9, F7: i nomi della scheda dei membri, a lettura coi permessi di chi guarda", () => {
+  it("chi vede il progetto legge persona e ruolo (removeMember: il ruolo di adesso); chi non lo vede null; le altre voci null", async () => {
+    const userId = await person();
+    const email = (await t.db.select({ email: users.email }).from(users).where(eq(users.id, userId)))[0]!.email;
+    const [dev] = await t.db.select({ name: roles.name }).from(roles).where(eq(roles.id, developerRole));
+    const actions = [
+      { fn: "addMember" as const, args: { projectId, userId, roleId: developerRole } },
+      { fn: "removeMember" as const, args: { projectId, userId: lead.id } },
+      { fn: "pauseQueue" as const, args: { projectId } },
+    ];
+    const [leadRow] = await t.db.select({ name: roles.name }).from(roles).where(eq(roles.id, leadRole));
+    const asLead = await actionLabels(t.db, { id: lead.id, instancePermissions: new Set() } as unknown as SessionUser, actions);
+    expect(asLead).toEqual([
+      { person: email.split("@")[0], role: dev!.name },
+      { person: "lead-a9", role: leadRow!.name },
+      { person: null, role: null },
+    ]);
+    const outsider = await createUserWithSession(app, `out-a9-${++n}@example.com`);
+    const asOutsider = await actionLabels(t.db, { id: outsider.id, instancePermissions: new Set() } as unknown as SessionUser, actions);
+    expect(asOutsider).toEqual([{ person: null, role: null }, { person: null, role: null }, { person: null, role: null }]);
+  });
+
+  it("la proposta porta le etichette per azione", async () => {
+    const userId = await person();
+    const res = await propose([{ fn: "addMember", args: { projectId, userId, roleId: developerRole } }]);
+    const id = (res.json() as { proposalId: string }).proposalId;
+    const cancel = await app.inject({ method: "POST", url: `/api/claude/proposals/${id}/cancel`, headers: { cookie: lead.headers.cookie }, payload: {} });
+    expect(cancel.json()).toMatchObject({ actions: [{ fn: "addMember", labels: { person: expect.any(String), role: expect.any(String) } }] });
   });
 });
 

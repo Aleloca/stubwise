@@ -249,7 +249,17 @@ export const claudeProposalViewSchema = z.object({
   id: z.uuid(),
   sessionId: z.uuid(),
   // Area 9, F7: `reauth` per azione (una C non scelta in «Conferma 2 di 3» non la chiede). False da un server di prima.
-  actions: z.array(claudeProposedActionSchema.extend({ reauth: z.boolean().default(false) })),
+  actions: z.array(
+    claudeProposedActionSchema.extend({
+      reauth: z.boolean().default(false),
+      /**
+       * Area 9, F7 (additivo): i nomi della scheda di un'azione sui membri,
+       * derivati a lettura coi permessi di chi guarda (null se non vede il
+       * progetto, o per le altre voci). Un server di prima non li manda.
+       */
+      labels: z.object({ person: z.string().nullable(), role: z.string().nullable() }).default({ person: null, role: null }),
+    }),
+  ),
   summary: z.string(),
   cls: z.enum(["A", "B", "C"]),
   reasons: z.array(claudeClassReasonSchema).default([]),
