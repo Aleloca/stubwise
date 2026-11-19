@@ -1,4 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
+import { asideEventsOf } from "./claudeAsides";
 import { hasQuestionEvents, questionEventsOf, readQuestions } from "./claudeQuestions";
 import { withTrialEvents } from "./claudeTrial";
 import {
@@ -420,7 +421,11 @@ export const subscribe: typeof Fake.subscribe = (conversationId, onEvent, option
             base,
             // Area 10, F2: la riga della prova; finita, si riemette.
             withTrialEvents(
-              [...chatActionEvents(state.raw, state.actions), ...questionEventsOf(state.raw, state.questions ?? [])],
+              [
+                ...chatActionEvents(state.raw, state.actions),
+                ...questionEventsOf(state.raw, state.questions ?? []),
+                ...asideEventsOf(state.raw),
+              ],
               state.actions.groups,
               isConversationOwner(conversationId),
               () => emit(),
