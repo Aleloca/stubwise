@@ -37,7 +37,7 @@
 
   | Tool | Rotta | Argomenti | Da fuori |
   |---|---|---|---|
-  | `read_automation` | `/api/automations/:code` | `code` (`AUD-A3`) | no |
+  | `read_automation` | `/api/automations/:code` | `code` (`AUD-A3`, o `AUT-4` per una generale) | no |
   | `read_server` | `/api/servers/by-code/:code` | `code` (`SRV-12`) | no |
   | `read_support_conversation` | `/api/support/conversations/by-code/:code` | `code` (`AUD-S4`) | **sì** |
   | `read_channel` | `/api/chat/channels/:id` + `/api/chat/channels/:id/messages?limit=30` | `channelId` (uuid) | **sì** |
@@ -108,7 +108,7 @@
    la conversazione (`untrusted_read_at` resta null).
 3. **GREEN**: le due voci in `CHAT_READ_TOOLS`, le due rotte in
    `CHAT_TOOL_READ_ROUTES` (con il commento «Area 10, F1»), `AUTOMATION_CODE
-   = /^[A-Z][A-Z0-9]*-A\d+$/` e `SERVER_CODE = /^SRV-\d{1,9}$/` nel ponte, le
+   = /^(?:[A-Z][A-Z0-9]*-A\d+|AUT-\d+)$/` (le generali sono `AUT-<n>`, `insertAutomation`) e `SERVER_CODE = /^SRV-\d{1,9}$/` nel ponte, le
    proiezioni con `pick`, la registrazione nel server MCP con la
    descrizione: «Read one automation by its code (e.g. AUD-A3): its start,
    its steps, whether it is on, its last runs.» / «Read one monitored server
