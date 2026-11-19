@@ -142,8 +142,10 @@ describe("POST /api/projects", () => {
       // L'identità del principale non si legge (il doppio di default rigetta):
       // avviso non bloccante, il repository è creato comunque.
       warnings: ["main_account_identity_unresolved"],
+      // Area 9, F5 (decisione C): il segreto del webhook esce intero SOLO qui, alla creazione.
+      webhookSecret: expect.stringMatching(/^[0-9a-f]{32}$/),
     });
-    expect(res.body).not.toContain("webhookSecret");
+    expect(res.headers["cache-control"]).toBe("no-store");
     expect(res.body).not.toContain("credentials");
     expect(res.body).not.toContain(PLAINTEXT_TOKEN);
   });
@@ -326,15 +328,18 @@ describe("GET /api/projects/:slug", () => {
 });
 
 describe("GET /api/projects/:slug/webhook", () => {
-  it("l'admin legge il webhookSecret e il path del webhook", async () => {
+  it("l'admin legge il path del webhook e le ultime 4 del segreto, mai il segreto intero (F5, decisione C)", async () => {
     const res = await app.inject({
       method: "GET",
       url: "/api/repositories/sito-vetrina/webhook",
       headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
-    const body = res.json() as { webhookSecret: string; webhookPath: string };
-    expect(body.webhookSecret).toMatch(/^[0-9a-f]{32}$/);
+    const body = res.json() as { webhookSecret?: string; secretLast4: string; webhookPath: string };
+    const [row] = await testDb.db.select({ webhookSecret: repositories.webhookSecret }).from(repositories).where(eq(repositories.slug, "sito-vetrina"));
+    expect(body.webhookSecret).toBeUndefined();
+    expect(body.secretLast4).toBe(row!.webhookSecret.slice(-4));
+    expect(res.body).not.toContain(row!.webhookSecret);
     expect(body.webhookPath).toBe("/webhooks/git/sito-vetrina");
   });
 
@@ -561,12 +566,9 @@ describe("POST /api/projects/:slug/configure-webhook", () => {
       }),
     );
 
-    const webhookRes = await app.inject({
-      method: "GET",
-      url: "/api/repositories/sito-vetrina/webhook",
-      headers: { cookie: adminCookie },
-    });
-    const expectedSecret = (webhookRes.json() as { webhookSecret: string }).webhookSecret;
+    // Il segreto intero non esce più da una lettura (F5, decisione C): lo si prende dal DB.
+    const [stored] = await testDb.db.select({ webhookSecret: repositories.webhookSecret }).from(repositories).where(eq(repositories.slug, "sito-vetrina"));
+    const expectedSecret = stored!.webhookSecret;
 
     const res = await configure("sito-vetrina");
     expect(res.statusCode).toBe(200);
