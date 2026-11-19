@@ -188,7 +188,17 @@ function dataReasons(me: string, action: Action): ClassReason[] {
       // senza altri destinatari la ragione sparisce, la classe no (P39).
       const page = typeof args.pageId === "string" ? productPageById(args.pageId) : undefined;
       if (!page || docsAccess(me, page.projectId) !== "read") return [];
-      return [notifiesOf(me, productDocRecipients(page.id), page.projectId)];
+      // Area 11 (D-6 = b): nel catalogo, chi ha spento gli aggiornamenti no.
+      return [
+        {
+          kind: "notifies",
+          ...wouldNotify(me, {
+            kind: "product_doc.updated",
+            projectId: page.projectId,
+            recipientIds: productDocRecipients(page.id),
+          }),
+        },
+      ];
     }
     default:
       return [];

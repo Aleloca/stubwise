@@ -120,6 +120,8 @@ export function wouldNotify(
     kind: string;
     projectId: string;
     mandatory?: { personId: string; reason: MandatoryReason }[];
+    /** I destinatari nominati di un tipo `addressed` (area 11, D-6 = b). */
+    recipientIds?: readonly string[];
   },
 ): { personIds: string[]; more: boolean } {
   const n: AppNotification & { projectId: string } = {
@@ -128,7 +130,7 @@ export function wouldNotify(
     projectId: alert.projectId,
     objectCode: "",
     departmentId: null,
-    recipientIds: [],
+    recipientIds: [...(alert.recipientIds ?? [])],
     title: "",
     body: "",
     createdAt: now(),

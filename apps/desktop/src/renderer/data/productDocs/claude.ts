@@ -419,6 +419,8 @@ function cardBase(page: ProductPage, recipientIds: string[]): Omit<AppNotificati
     title: "",
     body: "",
     createdAt: now(),
+    // Nel catalogo (area 11, D-6 = b): l'ordine con le iscrizioni (R-K19).
+    seq: nextSeq(),
     read: false,
     archived: false,
     snoozedUntil: null,

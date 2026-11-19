@@ -43,6 +43,13 @@ export interface AlertType extends Omit<
   mandatory: MandatoryReason[];
   subscribe: { perm: Permission | "member" };
   defaultOn: DefaultRule;
+  /**
+   * Area 11 (D-6 = b, 19 nov 2026): i destinatari li nomina il produttore
+   * (`recipientIds`: chi è menzionato, chi segue la pagina); l'iscrizione li
+   * filtra, accesa di default per loro, e nessun altro la riceve. Solo del
+   * prototipo finché il server non ha i tipi della doc di prodotto.
+   */
+  addressed?: boolean;
   appDefaultOn?: DefaultRule;
 }
 

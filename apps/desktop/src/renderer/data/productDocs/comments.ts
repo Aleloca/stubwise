@@ -1,4 +1,5 @@
 import { anchorIdsOf, anchorText } from "../../domain/productDocs/blocks";
+import "./alertTypes";
 import { visiblePeopleFor } from "../access/whoCan";
 import { directMentionIds } from "../chat/mentions";
 import { docsAccess } from "../docs/reads";
@@ -163,6 +164,8 @@ function publishMentions(me: string, page: ProductPage, comment: ProductComment)
       title: "",
       body: comment.body,
       createdAt: comment.createdAt,
+      // Nel catalogo (area 11, D-6 = b): l'ordine con le iscrizioni (R-K19).
+      seq: nextSeq(),
       read: false,
       archived: false,
       snoozedUntil: null,

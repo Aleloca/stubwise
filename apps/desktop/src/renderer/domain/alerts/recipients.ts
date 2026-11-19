@@ -109,6 +109,7 @@ export function recipientsOf(n: AppNotification, ctx: RecipientContext): Recipie
     ...ctx.members,
     ...(alertTypeOf(n.kind)?.defaultForFullAdmins ? (ctx.fullAdmins ?? []) : []),
     ...ctx.subs.map((s) => s.personId),
+    ...(alertTypeOf(n.kind)?.addressed ? n.recipientIds : []),
   ]);
   const out: Recipient[] = [];
   for (const personId of candidates) {
@@ -149,6 +150,14 @@ export function whyFor(
   }
   if (!allowedNow(def, perms, ctx.seesProject(personId))) return null;
   if (mandatory) return mandatory.reason;
+  // Area 11 (D-6 = b): solo chi il produttore ha nominato, se non l'ha spenta.
+  if (def.addressed) {
+    if (!n.recipientIds.includes(personId)) return null;
+    const sub = ctx.subs.find((s) => s.personId === personId && s.type === n.kind);
+    return subscriptionAt(sub, def, perms, { at: n.createdAt, seq: n.seq }).app
+      ? "subscribed"
+      : null;
+  }
   if (def.mandatoryOnly || n.mandatoryOnly) return null;
   const member = defaultApplies(def, personId, ctx);
   const sub = ctx.subs.find((s) => s.personId === personId && s.type === n.kind);
