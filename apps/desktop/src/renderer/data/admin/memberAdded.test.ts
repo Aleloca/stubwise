@@ -13,6 +13,7 @@ import {
   setLatency,
   setStreamLatency,
 } from "../api";
+import { writeAccess } from "../access/state";
 import { markReauthenticated, REAUTH_GRACE_MINUTES } from "../auth/reauth";
 import type { ProposedAction } from "../model";
 import { CLAUDE_ID } from "../seed/people";
@@ -155,7 +156,7 @@ const addLuca: ProposedAction = {
 };
 
 describe("member.added da Claude per conto di Laura", () => {
-  it("col segno; «Annulla» a grazia scaduta chiede il codice; annullata, resta una sola notifica, «Undone by Laura Costa», e non si apre più", async () => {
+  it("col segno; «Annulla» (inverso C) è una scheda che chiede il codice alla conferma; annullata, resta una sola notifica, «Undone by Laura Costa», e non si apre più", async () => {
     const { cid, groupId } = await confirmed(LAURA, [addLuca]);
     expect(visibleProjectIds(LUCA).has(ACQ)).toBe(true);
     const [n] = await addedOf(LUCA);
@@ -169,13 +170,21 @@ describe("member.added da Claude per conto di Laura", () => {
       state: "available",
       needsReauth: true,
     });
-    expect(await claude.undoClaudeActions(cid, groupId)).toEqual({
+    // L'inverso (removeMember) è una C: «Annulla» è sempre una scheda (review F7, I3 b).
+    const undo = await claude.undoClaudeActions(cid, groupId);
+    expect(undo).toMatchObject({ ok: true, proposalId: expect.any(String) });
+    expect(visibleProjectIds(LUCA).has(ACQ)).toBe(true);
+    const card = eventsOf(cid).find(
+      (e): e is Proposal => e.type === "proposal" && e.undoOf === groupId,
+    )!;
+    // A grazia scaduta la sua conferma chiede il codice, e niente cambia.
+    expect(await confirmProposal(cid, card.proposalId)).toEqual({
       ok: false,
       error: "reauth_required",
     });
+    expect(visibleProjectIds(LUCA).has(ACQ)).toBe(true);
     markReauthenticated(LAURA);
-    // L'inverso (removeMember) non avvisa: «Annulla» parte subito.
-    expect(await claude.undoClaudeActions(cid, groupId)).toEqual({ ok: true });
+    expect(await confirmProposal(cid, card.proposalId)).toMatchObject({ status: "confirmed" });
     expect(visibleProjectIds(LUCA).has(ACQ)).toBe(false);
 
     // Luca non vede più ACQ, ma la notifica che parla di lui resta [SC 16]:
@@ -188,6 +197,10 @@ describe("member.added da Claude per conto di Laura", () => {
   });
 
   it("l'«Annulla» di un `removeMember` di Claude (inverso `addMember`) avvisa: apre una scheda (P7)", async () => {
+    // Senza permessi personali in ACQ (con, l'uscita non si annulla: I3 a di F7).
+    writeAccess((s) => {
+      s.grants = s.grants.filter((g) => !(g.personId === MARCO && g.projectId === ACQ));
+    });
     const { cid, groupId } = await confirmed(LAURA, [
       {
         fn: "removeMember",
