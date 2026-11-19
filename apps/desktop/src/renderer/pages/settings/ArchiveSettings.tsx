@@ -176,6 +176,9 @@ function ArchiveDialog({ project, onClose }: { project: Project; onClose: () => 
     );
 
   const runs = preview.data && preview.data.ok ? preview.data.openAutomationRuns : 0;
+  // Le superfici pubbliche attive che si fermano (decisione del maintainer, F6).
+  const surfaces = preview.data && preview.data.ok ? preview.data.publicSurfaces : null;
+  const stopping = SURFACES.filter((s) => surfaces?.[s]);
   return (
     <Dialog
       title={t("settings.archive.dialog.title", { code })}
@@ -194,6 +197,9 @@ function ArchiveDialog({ project, onClose }: { project: Project; onClose: () => 
         {WHAT_HAPPENS.map((line) => (
           <Consequence key={line}>{t(`settings.archive.dialog.${line}`, { code })}</Consequence>
         ))}
+        {stopping.map((s) => (
+          <Consequence key={s}>{t(`settings.archive.dialog.surfaces.${s}`)}</Consequence>
+        ))}
         {runs > 0 && (
           <Consequence>{t("settings.archive.dialog.openRuns", { count: runs })}</Consequence>
         )}
@@ -208,6 +214,9 @@ function ArchiveDialog({ project, onClose }: { project: Project; onClose: () => 
     </Dialog>
   );
 }
+
+/** Nell'ordine in cui il dialogo le dice. */
+const SURFACES = ["sdk", "widget", "inbound", "gitWebhook"] as const;
 
 function Consequence({ children }: { children: ReactNode }) {
   return (
