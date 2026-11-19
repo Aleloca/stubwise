@@ -204,6 +204,7 @@ describe("rotte con riconferma recente", () => {
       "PATCH /api/git-accounts/:id",
       "PATCH /api/settings/google-workspaces/:id",
       "PATCH /api/settings/webhooks/:id",
+      "POST /api/claude/proposals/:id/confirm",
       "PUT /api/settings/instance",
       "PUT /api/settings/notifications",
     ]);

@@ -2,6 +2,7 @@ import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { claudeActionFailureSchema, claudeProposalViewSchema } from "@stubwise/shared";
+import { requireReauth } from "../auth/access.js";
 import { apiError } from "../errors.js";
 import type { ActionEffects } from "../claude-actions/effects.js";
 import { cancelProposal, confirmProposal, requestUndo } from "../claude-actions/proposals.js";
@@ -55,7 +56,9 @@ export async function claudeActionRoutes(instance: FastifyInstance): Promise<voi
   app.post(
     "/proposals/:id/confirm",
     {
-      config: { access: ACCESS },
+      // Area 9, F7 (M-2 = a): la riconferma solo se il gruppo ha una C, con la
+      // finestra di chi conferma (`requireReauth`, la regola delle altre rotte).
+      config: { access: ACCESS, partialReauth: true },
       schema: {
         params: idParams,
         body: z
@@ -81,10 +84,13 @@ export async function claudeActionRoutes(instance: FastifyInstance): Promise<voi
         {
           ...(request.body.selected ? { selected: request.body.selected } : {}),
           ...(request.body.edited ? { edited: request.body.edited } : {}),
+          reauth: () => requireReauth(request, reply),
         },
         actionEffects(app, request),
       );
       if (result.ok) return result.proposal;
+      // `requireReauth` ha già risposto (403 `reauth_required` / `second_factor_setup_required`).
+      if (result.error === "reauth_required") return reply;
       if (result.error === "not_found") return apiError(reply, 404, "not_found", "Proposal not found");
       if (result.error === "invalid") return apiError(reply, 400, "invalid", "Select at least one action");
       if (result.error === "refused") {

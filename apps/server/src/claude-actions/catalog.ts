@@ -98,8 +98,12 @@ export interface CatalogEntry {
   fn: ClaudeActionFn;
   /** La rotta di riferimento: `METODO /percorso` come la registra Fastify. */
   route: string;
-  /** Lo stesso `config.access` della rotta: di progetto (il permesso si valuta come lì) o `user` (cose personali). */
-  access: Extract<RouteAccess, { kind: "project" } | { kind: "user" }>;
+  /**
+   * Lo stesso `config.access` della rotta: di progetto (il permesso si valuta
+   * come lì), `user` (cose personali) o `instance` (area 9, F7: le
+   * impostazioni d'istanza, col permesso d'istanza di chi chiede).
+   */
+  access: Extract<RouteAccess, { kind: "project" } | { kind: "user" } | { kind: "instance" }>;
   /** Parametri e corpo della richiesta sintetica su cui si valuta `access` (può leggere il DB). */
   request: (
     args: Record<string, unknown>,
@@ -518,7 +522,7 @@ const ENTRIES: CatalogEntry[] = [
 /** Le voci per `fn`. Una `fn` dell'elenco condiviso senza voce qui non si esegue (ancora). */
 export const SERVER_CATALOG: ReadonlyMap<ClaudeActionFn, CatalogEntry> = new Map(ENTRIES.map((e) => [e.fn, e]));
 
-export function declaredClassOf(fn: ClaudeActionFn): "A" | "B" {
+export function declaredClassOf(fn: ClaudeActionFn): "A" | "B" | "C" {
   return CLAUDE_DECLARED_CLASS[fn];
 }
 

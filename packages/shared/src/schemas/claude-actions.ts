@@ -55,8 +55,13 @@ export const CLAUDE_INVERSE_ONLY_FNS: readonly ClaudeActionFn[] = ["deleteTask",
 /** Le `fn` che Claude può proporre (il catalogo meno gli inversi). */
 export const CLAUDE_PROPOSABLE_FNS = CLAUDE_ACTION_FNS.filter((f) => !CLAUDE_INVERSE_ONLY_FNS.includes(f));
 
-/** La classe dichiarata: A parte subito (con «Annulla»), B chiede conferma. La C (riconferma) è la fetta 4. */
-export const CLAUDE_DECLARED_CLASS: Record<ClaudeActionFn, "A" | "B"> = {
+/**
+ * La classe dichiarata: A parte subito (con «Annulla»), B chiede conferma, C
+ * chiede la conferma CON la riconferma di chi conferma (area 9, F7). La C non
+ * si sceglie: è quella delle voci la cui rotta ha `config.reauth` (il test
+ * d'accordo `claude-actions-class.test.ts` le tiene uguali).
+ */
+export const CLAUDE_DECLARED_CLASS: Record<ClaudeActionFn, "A" | "B" | "C"> = {
   createTask: "A",
   updateTask: "A",
   planTask: "A",
@@ -180,7 +185,8 @@ export type ClaudeActionFailure = z.infer<typeof claudeActionFailureSchema>;
 export const claudeProposalViewSchema = z.object({
   id: z.uuid(),
   sessionId: z.uuid(),
-  actions: z.array(claudeProposedActionSchema),
+  // Area 9, F7: `reauth` per azione (una C non scelta in «Conferma 2 di 3» non la chiede). False da un server di prima.
+  actions: z.array(claudeProposedActionSchema.extend({ reauth: z.boolean().default(false) })),
   summary: z.string(),
   cls: z.enum(["A", "B", "C"]),
   reasons: z.array(claudeClassReasonSchema).default([]),
@@ -191,6 +197,12 @@ export const claudeProposalViewSchema = z.object({
   groupId: z.uuid().nullable().default(null),
   undoOfGroupId: z.uuid().nullable().default(null),
   createdAt: z.iso.datetime(),
+  /**
+   * Area 9, F7 (M-3 = a): la conferma chiede la riconferma (il gruppo ha una
+   * C). Un campo a sé e non un motivo nuovo dell'unione dei motivi, che
+   * `readerSchema` non apre. False da un server che non lo manda.
+   */
+  reauth: z.boolean().default(false),
 });
 export type ClaudeProposalView = z.infer<typeof claudeProposalViewSchema>;
 

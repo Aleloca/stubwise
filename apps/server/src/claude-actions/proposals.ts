@@ -27,6 +27,7 @@ import type { SessionUser } from "../auth/session.js";
 import { monthlyBudgetExhausted } from "../services/agent-sessions.js";
 import { readerCut, recordConversationProjects } from "../services/claude-public.js";
 import type { ActionEffects } from "./effects.js";
+import { declaredClassOf } from "./catalog.js";
 import { classOfGroup, executeGroup, RECLASSIFIED, type ExecuteResult, type PlannedAction } from "./execute.js";
 import { undoGroup, undoStateOf } from "./undo.js";
 
@@ -161,7 +162,7 @@ export async function createProposal(
   const actions = input.actions as PlannedAction[];
   const insert = async (
     status: ProposalRow["status"],
-    declared: "A" | "B",
+    declared: "A" | "B" | "C",
     extra: Partial<typeof claudeProposals.$inferInsert> = {},
   ) => {
     const [row] = await db
@@ -231,7 +232,9 @@ export async function createProposal(
   await recordConversationProjects(db, sessionId, await projectsOfPlan(db, actions, dry));
   // Nella Chat tutto è proposta: la classe calcolata sale SEMPRE a B (prototipo,
   // maintainer). Lo stesso dopo una lettura di contenuto non fidato (fetta 3, O).
-  const cls = inChat || untrusted ? "B" : classOfGroup(actions, dry).cls;
+  // Una C resta C (la riconferma): la Chat e il non fidato alzano solo una A.
+  const computed = classOfGroup(actions, dry).cls;
+  const cls = computed === "C" ? "C" : inChat || untrusted ? "B" : computed;
   const row = await insert("open", cls, { untrustedInput: untrusted });
   if (!row) {
     const [again] = await db
@@ -355,10 +358,16 @@ export async function proposalView(db: Db, user: SessionUser, row: ProposalRow, 
     if (cls === "A" && (row.untrustedInput || (await isChatMention(db, row.sessionId)))) cls = "B";
   }
   const open = row.status === "open" && !isExpired;
+  // Area 9, F7 (M-3 = a): la conferma chiede la riconferma se il gruppo
+  // (o l'inverso, per un «Annulla» da confermare) ha una C.
+  const reauthPlan = row.undoOfGroupId ? ((await undoInversesOf(db, user, row.undoOfGroupId)) ?? actions) : actions;
+  const needsReauth = reauthPlan.some((a) => declaredClassOf(a.fn) === "C");
+  if (needsReauth) cls = "C";
   return {
     id: row.id,
     sessionId: row.sessionId,
-    actions: actions.map((a) => ({ fn: a.fn, args: a.args })),
+    // Area 9, F7: la riconferma anche PER AZIONE, per «Conferma 2 di 3» (una C non scelta non la chiede).
+    actions: actions.map((a) => ({ fn: a.fn, args: a.args, reauth: declaredClassOf(a.fn) === "C" })),
     summary: row.summary,
     cls,
     reasons,
@@ -369,6 +378,7 @@ export async function proposalView(db: Db, user: SessionUser, row: ProposalRow, 
     groupId: row.groupId,
     undoOfGroupId: row.undoOfGroupId,
     createdAt: row.createdAt.toISOString(),
+    reauth: needsReauth,
   };
 }
 
@@ -440,7 +450,7 @@ export async function ownLiveConversation(db: Db, userId: string, sessionId: str
 
 export type DecideResult =
   | { ok: true; proposal: ClaudeProposalView }
-  | { ok: false; error: "not_found" | "conflict" | "expired" | "budget_exhausted" | "invalid" }
+  | { ok: false; error: "not_found" | "conflict" | "expired" | "budget_exhausted" | "invalid" | "reauth_required" }
   | { ok: false; error: "refused"; proposal: ClaudeProposalView };
 
 async function loadOwn(db: Db, user: SessionUser, proposalId: string): Promise<ProposalRow | null> {
@@ -467,7 +477,16 @@ export async function confirmProposal(
   db: Db,
   user: SessionUser,
   proposalId: string,
-  opts: { selected?: number[]; edited?: { index: number; args: Record<string, unknown> }[] } = {},
+  opts: {
+    selected?: number[];
+    edited?: { index: number; args: Record<string, unknown> }[];
+    /**
+     * Area 9, F7 (M-2 = a): la riconferma di CHI CONFERMA, chiesta solo se
+     * il gruppo scelto (o l'inverso da confermare) ha una C. `false` = ha già
+     * risposto (403), e non si esegue niente.
+     */
+    reauth?: () => Promise<boolean>;
+  } = {},
   effects: ActionEffects = {},
 ): Promise<DecideResult> {
   const row = await loadOwn(db, user, proposalId);
@@ -483,6 +502,11 @@ export async function confirmProposal(
       ? baseActions.map((_, i) => i)
       : [...new Set(opts.selected)].filter((i) => i >= 0 && i < baseActions.length).sort((a, b) => a - b);
   if (!row.undoOfGroupId && selected.length === 0) return { ok: false, error: "invalid" };
+  // La riconferma PRIMA di reclamare la riga: un 403 lascia la proposta aperta.
+  const reauthPlan = row.undoOfGroupId ? ((await undoInversesOf(db, user, row.undoOfGroupId)) ?? []) : selected.map((i) => baseActions[i]!);
+  if (reauthPlan.some((a) => declaredClassOf(a.fn) === "C") && !(opts.reauth && (await opts.reauth()))) {
+    return { ok: false, error: "reauth_required" };
+  }
   // Una sola conferma: la riga si reclama prima di eseguire.
   const claimed = await db
     .update(claudeProposals)
