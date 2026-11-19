@@ -17,7 +17,7 @@ export async function publishPrOpened(
 ): Promise<void> {
   if (input.reopened === true || input.sourceBranch.startsWith("stubwise/")) return;
   const [repo] = await db
-    .select({ projectId: repositories.projectId, name: repositories.name, projectCode: projects.code })
+    .select({ projectId: projects.id, name: repositories.name, projectCode: projects.code })
     .from(repositories)
     .innerJoin(projects, eq(projects.id, repositories.projectId))
     .where(eq(repositories.id, input.repositoryId));

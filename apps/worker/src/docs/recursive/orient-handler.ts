@@ -4,6 +4,7 @@ import {
   docGenerations,
   docNodes,
   gitAccounts,
+  isAttachedRepository,
   repositories,
   type Db,
 } from "@stubwise/db";
@@ -173,14 +174,16 @@ async function loadGenerationContext(
     .from(repositories)
     .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
     .where(eq(repositories.id, job.repositoryId));
-  if (!row) {
+  // Un repository staccato (F6) non ha Docs: come uno che non c'è.
+  if (!row || !isAttachedRepository(row.project)) {
     await failDocJob(db, job.id, {
-      log: `[docs] repository ${job.repositoryId} o account git collegato non trovato`,
+      log: `[docs] repository ${job.repositoryId}, il suo progetto o l'account git collegato non trovato`,
       error: "repository del job non trovato",
     });
     return null;
   }
-  const { project, account } = row;
+  const { account } = row;
+  const project = row.project;
 
   let credentials: z.infer<typeof credentialsSchema>;
   try {

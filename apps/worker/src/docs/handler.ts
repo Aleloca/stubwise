@@ -91,7 +91,8 @@ export function createDocHandler(
     // il trigger `failed` con un messaggio chiaro.
     const [project] = await deps.db
       .select({
-        projectId: repositories.projectId,
+        // Dal progetto unito: un repository staccato (F6) non ha progetto, e cade nel `failed` sotto.
+        projectId: projects.id,
         aiProviderId: projects.aiProviderId,
         aiProviderExclusive: projects.aiProviderExclusive,
       })

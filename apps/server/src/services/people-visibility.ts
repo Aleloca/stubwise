@@ -1,7 +1,7 @@
 import { projectMembers, type Db } from "@stubwise/db";
 import { userIdsWithPermission } from "@stubwise/notifications";
 import { inArray } from "drizzle-orm";
-import { visibleProjectIds } from "../auth/access.js";
+import { isAllProjects, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 
 /**
@@ -13,7 +13,8 @@ import type { SessionUser } from "../auth/session.js";
  */
 export async function visiblePersonIds(db: Db, viewer: Pick<SessionUser, "id" | "instancePermissions">): Promise<"all" | string[]> {
   const visible = await visibleProjectIds(db, viewer);
-  if (visible === "all") return "all";
+  // Un full admin vede tutte le persone: l'archivio di un progetto non toglie nessuno.
+  if (isAllProjects(visible)) return "all";
   const rows =
     visible.length > 0
       ? await db.selectDistinct({ userId: projectMembers.userId }).from(projectMembers).where(inArray(projectMembers.projectId, visible))

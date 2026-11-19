@@ -37,6 +37,8 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await testDb.db.delete(projects); // repositories/repo_graphs/graph_jobs cascano.
+  // F6 (0193): eliminare il progetto STACCA i repository, che tengono l'account.
+  await testDb.db.delete(repositories);
   await testDb.db.delete(gitAccounts);
 });
 

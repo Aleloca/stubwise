@@ -68,7 +68,7 @@ async function nextSeq(tx: Tx, projectId: string): Promise<number> {
 export async function recordRelease(db: Db, input: RecordReleaseInput): Promise<RecordReleaseResult> {
   return db.transaction(async (tx) => {
     const [repo] = await tx
-      .select({ projectId: repositories.projectId, defaultBranch: repositories.defaultBranch, releaseBranch: repositories.releaseBranch, projectCode: projects.code })
+      .select({ projectId: projects.id, defaultBranch: repositories.defaultBranch, releaseBranch: repositories.releaseBranch, projectCode: projects.code })
       .from(repositories)
       .innerJoin(projects, eq(projects.id, repositories.projectId))
       .where(eq(repositories.id, input.repositoryId));

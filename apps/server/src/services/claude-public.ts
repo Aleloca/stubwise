@@ -12,7 +12,7 @@ import {
 import { effectiveInstancePermissions } from "@stubwise/shared";
 import type { ClaudeConversationProject } from "@stubwise/shared";
 import { and, desc, eq, gte, inArray, lt, sql, type SQL } from "drizzle-orm";
-import { visibleProjectIds } from "../auth/access.js";
+import { scopeIncludes, visibleProjectIds, type ProjectScope } from "../auth/access.js";
 import { CHAT_TOOL_EXTERNAL_CONTENT_ROUTES, CHAT_TOOL_UNTRUSTED_ROUTES, EXTERNAL_TICKET_SOURCES } from "../auth/chat-tool-routes.js";
 import type { SessionUser } from "../auth/session.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -122,7 +122,7 @@ export async function contextProjectId(db: DbOrTx, row: ConversationRow): Promis
 }
 
 /** I progetti che l'AUTORE vede adesso (i suoi permessi d'istanza dal ruolo). */
-async function authorVisibleProjects(db: DbOrTx, ownerId: string): Promise<"all" | Set<string>> {
+async function authorVisibleProjects(db: DbOrTx, ownerId: string): Promise<ProjectScope> {
   const [row] = await db
     .select({ permissions: roles.permissions })
     .from(users)
@@ -132,7 +132,7 @@ async function authorVisibleProjects(db: DbOrTx, ownerId: string): Promise<"all"
     id: ownerId,
     instancePermissions: effectiveInstancePermissions(row?.permissions ?? []),
   });
-  return visible === "all" ? "all" : new Set(visible);
+  return visible;
 }
 
 /**
@@ -160,7 +160,7 @@ export async function touchedProjectIds(db: DbOrTx, row: ConversationRow, from?:
   if (context) derived.push(context);
   if (derived.length > 0) {
     const visible = await authorVisibleProjects(db, row.ownerId);
-    for (const id of derived) if (visible === "all" || visible.has(id)) out.add(id);
+    for (const id of derived) if (scopeIncludes(visible, id)) out.add(id);
   }
   return out;
 }
@@ -295,7 +295,7 @@ export async function projectViews(
   const list = [...new Set(ids)];
   if (list.length === 0) return [];
   const visible = await visibleProjectIds(db, viewer);
-  const allowed = visible === "all" ? list : list.filter((id) => visible.includes(id));
+  const allowed = list.filter((id) => scopeIncludes(visible, id));
   if (allowed.length === 0) return [];
   const rows = await db
     .select({ id: projects.id, code: projects.code, name: projects.name })

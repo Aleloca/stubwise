@@ -1,4 +1,4 @@
-import { gitAccounts, graphJobs, projects, repoGraphs, type Db, type GraphJob } from "@stubwise/db";
+import { gitAccounts, graphJobs, projects, repoGraphs, type Db, type GraphJob, repositories } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
@@ -28,6 +28,8 @@ beforeAll(async () => {
 afterEach(async () => {
   // repositories → repo_graphs / graph_jobs cascano dal progetto.
   await testDb.db.delete(projects);
+  // F6 (0193): eliminare il progetto STACCA i repository, che tengono l'account.
+  await testDb.db.delete(repositories);
   await testDb.db.delete(gitAccounts);
 });
 

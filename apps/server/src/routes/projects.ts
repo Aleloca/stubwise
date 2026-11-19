@@ -33,6 +33,7 @@ import {
   inProjects,
   projectPermissionsFor,
   routePermissions,
+  scopeProjectIds,
   visibleProjectIds,
   type RouteAccess,
 } from "../auth/access.js";
@@ -470,10 +471,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request) => {
       const visible = await visibleProjectIds(app.db, request.user!);
-      const projectIds =
-        visible === "all"
-          ? (await app.db.select({ id: projects.id }).from(projects)).map((row) => row.id)
-          : visible;
+      const projectIds = await scopeProjectIds(app.db, visible);
 
       const summaries = (
         await Promise.all(

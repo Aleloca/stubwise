@@ -1,7 +1,7 @@
 import { docPageCodes, docPages, projects, repositories, type Db } from "@stubwise/db";
 import { DOC_CODE_RE, docCode, type DocCodeResolution } from "@stubwise/shared";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
-import { projectIdsWithPermission } from "../auth/access.js";
+import { projectIdsWithPermission, scopeIncludes } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 
 /**
@@ -67,7 +67,7 @@ export async function resolveDocCode(db: Db, viewer: Viewer, code: string): Prom
     .where(and(eq(projects.code, projectCode!), eq(docPageCodes.number, Number(number))));
   if (!row) return null;
   const readable = await projectIdsWithPermission(db, viewer, "docs.view");
-  if (readable !== "all" && !readable.includes(row.projectId)) return null;
+  if (!scopeIncludes(readable, row.projectId)) return null;
   const [page] = await db
     .select({ id: docPages.id })
     .from(docPages)

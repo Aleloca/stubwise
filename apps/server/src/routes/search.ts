@@ -9,7 +9,7 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
-import { inProjects, projectIdsWithPermission, visibleProjectIds } from "../auth/access.js";
+import { inProjects, isAllProjects, projectIdsWithPermission, scopeProjectIds, visibleProjectIds, type ProjectScope } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import {
   automationRuns,
@@ -109,9 +109,12 @@ async function historyVisibleSql(db: Db, user: SessionUser): Promise<SQL | undef
     projectIdsWithPermission(db, user, "docs.view"),
     projectIdsWithPermission(db, user, "repos.view"),
   ]);
-  if (visible === "all") return undefined;
-  const asList = (ids: "all" | string[]): string[] => (ids === "all" ? visible : ids);
-  const repoReadable = [...new Set([...asList(docsView), ...asList(reposView)])];
+  // Un full admin senza archiviati non ha niente da togliere; con, la stessa
+  // regola di tutti, sui progetti aperti (F6).
+  if (isAllProjects(visible) && visible.archived.length === 0) return undefined;
+  const asList = (ids: ProjectScope): ProjectScope => (isAllProjects(ids) ? visible : ids);
+  const repoReadable: ProjectScope =
+    isAllProjects(docsView) || isAllProjects(reposView) ? visible : [...new Set([...docsView, ...reposView])];
   return sql`(
     (${searchHistory.type} = 'project' and ${inProjects(searchHistory.entityId, visible)})
     or (${searchHistory.type} = 'ticket' and exists (
@@ -187,9 +190,10 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
         inProjects(tickets.projectId, visible),
         ticketsViewAllSql ? or(ticketsViewAllSql, eq(tickets.requestedByUserId, user.id)) : undefined,
       );
-      const repositoryScope =
-        docsView === "all" || reposView === "all"
-          ? undefined
+      const repositoryScope = isAllProjects(docsView)
+        ? inProjects(repositories.projectId, docsView)
+        : isAllProjects(reposView)
+          ? inProjects(repositories.projectId, reposView)
           : inProjects(repositories.projectId, [...new Set([...docsView, ...reposView])]);
 
       // Esecuzione in PARALLELO delle cinque gambe.
@@ -252,10 +256,13 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
             id: repositories.id,
             name: repositories.name,
             slug: repositories.slug,
-            projectId: repositories.projectId,
+            // Dal progetto unito: un repository staccato (F6) non è di nessun
+            // progetto, e nemmeno il full admin lo trova qui.
+            projectId: projects.id,
             repoUrl: repositories.repoUrl,
           })
           .from(repositories)
+          .innerJoin(projects, eq(projects.id, repositories.projectId))
           .where(
             and(
               or(
@@ -436,10 +443,10 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
       // --- Area 7: le automazioni (codice o nome) e le esecuzioni (codice o titolo) dei progetti visibili.
       // F4: le generali (senza progetto) solo a chi ha `automations.general.manage` (R-G5).
       const projectAutomationScope = inProjects(automations.projectId, visible);
-      const automationScope =
-        visible === "all"
-          ? undefined
-          : request.user!.instancePermissions.has("automations.general.manage")
+      // Un full admin: tutto tranne gli archiviati, generali comprese (`inProjects` tiene le senza progetto).
+      const automationScope = isAllProjects(visible)
+        ? projectAutomationScope
+        : request.user!.instancePermissions.has("automations.general.manage")
             ? or(projectAutomationScope, isNull(automations.projectId))
             : projectAutomationScope;
       const [automationRows, runRows] = await Promise.all([
@@ -561,8 +568,8 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
       // `repositoryId` fuori da quelli dà un elenco vuoto, come un repository
       // senza Docs (non si conferma che esiste).
       const docsView = await projectIdsWithPermission(app.db, request.user!, "docs.view");
-      if (docsView !== "all" && docsView.length === 0) return [];
-      if (repositoryId && docsView !== "all") {
+      if (!isAllProjects(docsView) && docsView.length === 0) return [];
+      if (repositoryId) {
         const [repository] = await app.db
           .select({ id: repositories.id })
           .from(repositories)
@@ -576,7 +583,7 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
           })
         : await retrieveChunksAll(app.db, app.embeddingClient, q, {
             logger: request.log,
-            ...(docsView === "all" ? {} : { projectIds: docsView }),
+            ...(isAllProjects(docsView) && docsView.archived.length === 0 ? {} : { projectIds: await scopeProjectIds(app.db, docsView) }),
           });
 
       return chunks.map((c) => ({

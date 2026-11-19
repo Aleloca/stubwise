@@ -22,7 +22,7 @@ import {
   type TicketPriority,
   type TicketStatus,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, inArray, lte, ne, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lte, ne, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRunner, AgentRunResult, UsageTag } from "../agent/runner.js";
 import { capText, parseAgentJson, textFromRun } from "../agent/text.js";
@@ -945,6 +945,8 @@ async function loadContext(
   const instanceProjects = await db
     .select({ id: projects.id, name: projects.name, description: projects.description })
     .from(projects)
+    // Area 9, F6: una mail non si attribuisce a un progetto archiviato.
+    .where(isNull(projects.archivedAt))
     .orderBy(asc(projects.createdAt));
   const byId = new Map(instanceProjects.map((p) => [p.id, p]));
   const matched = derivedAllowed.filter((id, i) => byId.has(id) && derivedAllowed.indexOf(id) === i);

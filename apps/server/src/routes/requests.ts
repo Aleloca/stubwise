@@ -4,7 +4,7 @@ import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm"
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { inProjects, projectIdsWithPermission } from "../auth/access.js";
+import { inProjects, projectIdsWithPermission, isAllProjects } from "../auth/access.js";
 import { backlogVisibleSql } from "../services/backlog-visibility.js";
 import { authErrorResponses } from "./shared.js";
 
@@ -32,7 +32,7 @@ export async function requestRoutes(fastify: FastifyInstance): Promise<void> {
     async (request): Promise<RequestToConvertView[]> => {
       const viewer = request.user!;
       const canCreate = await projectIdsWithPermission(app.db, viewer, "tickets.create");
-      if (canCreate !== "all" && canCreate.length === 0) return [];
+      if (!isAllProjects(canCreate) && canCreate.length === 0) return [];
       const conditions: SQL[] = [
         inArray(backlogItems.status, ["new", "refining", "ready"]),
         isNull(backlogItems.mergedIntoId),

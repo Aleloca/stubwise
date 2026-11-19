@@ -24,7 +24,7 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { ProjectPermission } from "@stubwise/shared";
-import { projectIdsWithPermission, type RouteAccess } from "../auth/access.js";
+import { projectIdsWithPermission, type RouteAccess, isAllProjects, inProjects } from "../auth/access.js";
 import { repositoryAccess } from "../auth/project-resolvers.js";
 import {
   aiProviders,
@@ -479,7 +479,8 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         .select({ id: repositories.id, projectId: repositories.projectId, currentDocGenerationId: repositories.currentDocGenerationId })
         .from(repositories)
         .where(eq(repositories.id, repositoryId));
-      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
+      // Un repository staccato (F6) non ha Docs: 404 come uno che non c'è.
+      if (!repository?.projectId) return apiError(reply, 404, "repository_not_found", "Repository not found");
 
       let generation: z.infer<typeof generationSchema> | null = null;
       // Pin esposto dalla generazione corrente (doc_generations.pinned_provider_id),
@@ -701,7 +702,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       // Solo i repository dei progetti in cui chi chiede ha `docs.view`: l'hub
       // è d'istanza, ma i suoi spazi sono dati di progetto.
       const readable = await projectIdsWithPermission(app.db, request.user!, "docs.view");
-      if (readable !== "all" && readable.length === 0) return [];
+      if (!isAllProjects(readable) && readable.length === 0) return [];
       // L'hub elenca TUTTI i repository visibili, ognuno come "spazio" doc: è anche
       // l'entry point per generare la prima volta. Left join su doc_pages, quindi
       // un repository senza documentazione compare con pageCount 0 e
@@ -738,7 +739,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
             eq(docGenerations.status, "succeeded"),
           ),
         )
-        .where(readable === "all" ? undefined : inArray(repositories.projectId, readable))
+        .where(inProjects(repositories.projectId, readable))
         .groupBy(
           repositories.id,
           repositories.slug,

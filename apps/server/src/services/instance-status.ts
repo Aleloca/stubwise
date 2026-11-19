@@ -16,7 +16,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import { aiBudgetState, CLOSED_TICKET_STATUSES } from "@stubwise/notifications";
-import { PROJECT_PERMISSIONS, type AiBlockView, type InstanceJob, type InstanceStatus } from "@stubwise/shared";
+import { type AiBlockView, type InstanceJob, type InstanceStatus } from "@stubwise/shared";
 import { and, desc, eq, gte, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
 import { projectPermissionsMap } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
@@ -131,11 +131,10 @@ const NIGHTLY_LEASE_MS = 60 * 60_000;
 export async function instanceStatus(db: Db, viewer: Viewer, now = new Date()): Promise<InstanceStatus> {
   const permsRecord = await projectPermissionsMap(db, viewer);
   const permsMap = new Map(Object.entries(permsRecord).map(([id, list]) => [id, new Set<string>(list)]));
-  const all = viewer.instancePermissions.has("instance.full_admin");
-  const fullSet = all ? new Set<string>(PROJECT_PERMISSIONS) : null;
-  const sees = (projectId: string | null) => projectId !== null && (all || permsMap.has(projectId));
-  // Un full admin ha tutti i permessi su ogni progetto, anche su uno nato dopo.
-  const permsOf = (projectId: string | null): Perms | null => (projectId ? (permsMap.get(projectId) ?? (all ? fullSet : null)) : null);
+  // Area 9, F6: `permsMap` non ha gli archiviati, nemmeno per un full admin, e
+  // un archiviato non sta nello Stato dell'istanza.
+  const sees = (projectId: string | null) => projectId !== null && permsMap.has(projectId);
+  const permsOf = (projectId: string | null): Perms | null => (projectId ? (permsMap.get(projectId) ?? null) : null);
   const budgetReached = (await aiBudgetState(db)).exhausted;
   const since7 = new Date(now.getTime() - FAILED_WINDOW_MS);
 

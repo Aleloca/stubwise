@@ -11,9 +11,13 @@ import { sql, type SQL } from "drizzle-orm";
  * Agisce SOLO sulla coda di Stubwise: nessun server, ambiente o processo
  * (CLAUDE.md, «Stubwise non fa deploy»). Chat, «Chiedi a Claude» e le
  * sessioni interattive non lo usano, per scelta (D-7).
+ *
+ * Area 9, F6 (D-8): un progetto archiviato non riceve lavoro, con la stessa
+ * regola (il lavoro partito finisce, niente si cancella).
  */
 export function projectQueueRunnable(projectId: SQL): SQL {
-  return sql`NOT EXISTS (SELECT 1 FROM projects qp WHERE qp.id = ${projectId} AND qp.queue_paused_at IS NOT NULL)`;
+  // F6 (D-8): un progetto ARCHIVIATO è fermo come uno in pausa, e riaprendolo riparte.
+  return sql`NOT EXISTS (SELECT 1 FROM projects qp WHERE qp.id = ${projectId} AND (qp.queue_paused_at IS NOT NULL OR qp.archived_at IS NOT NULL))`;
 }
 
 /** La stessa regola per una coda che conosce il REPOSITORY: il progetto è quello del repository. */

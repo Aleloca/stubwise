@@ -24,7 +24,7 @@ import {
 } from "@stubwise/shared";
 import { alias } from "drizzle-orm/pg-core";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
-import { visibleProjectIds } from "../auth/access.js";
+import { scopeProjectIds, visibleProjectIds } from "../auth/access.js";
 import { hasSecondFactor } from "../auth/second-factor/reset.js";
 import type { SessionUser } from "../auth/session.js";
 import { avatarUrlsFor } from "./avatars.js";
@@ -64,7 +64,7 @@ export async function adminVisiblePersonIds(db: Db, viewer: Viewer): Promise<"al
 
 async function visibleProjectList(db: Db, viewer: Viewer): Promise<string[]> {
   const seen = await visibleProjectIds(db, viewer);
-  return seen === "all" ? (await db.select({ id: projects.id }).from(projects)).map((p) => p.id) : seen;
+  return await scopeProjectIds(db, seen);
 }
 
 async function departmentsOf(db: Db, userIds: readonly string[]) {

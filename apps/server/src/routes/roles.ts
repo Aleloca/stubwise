@@ -8,7 +8,7 @@ import {
   roleScopeSchema,
   updateRoleSchema,
 } from "@stubwise/shared";
-import { projectIdsWithPermission } from "../auth/access.js";
+import { projectIdsWithPermission, isAllProjects } from "../auth/access.js";
 import {
   createRole,
   deleteRole,
@@ -78,7 +78,7 @@ export async function roleRoutes(instance: FastifyInstance): Promise<void> {
       const perms = user.instancePermissions;
       if (!perms.has("roles.manage") && !perms.has("users.manage") && !perms.has("users.invite")) {
         const managed = await projectIdsWithPermission(app.db, user, "project.members.manage");
-        if (managed !== "all" && managed.length === 0) {
+        if (!isAllProjects(managed) && managed.length === 0) {
           return apiError(reply, 403, "forbidden", "Missing permission");
         }
       }

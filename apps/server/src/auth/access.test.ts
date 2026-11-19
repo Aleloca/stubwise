@@ -203,7 +203,8 @@ describe("permessi risolti dal server", () => {
     const perms = await projectPermissionsFor(testDb.db, admin, projectId);
     expect(perms).not.toBeNull();
     expect([...perms!].sort()).toEqual([...PROJECT_PERMISSIONS].sort());
-    expect(await visibleProjectIds(testDb.db, admin)).toBe("all");
+    // Tutti gli aperti (area 9, F6): nessun archiviato in questo database.
+    expect(await visibleProjectIds(testDb.db, admin)).toEqual({ all: true, archived: [] });
   });
 
   it("(b) un Developer ha runs.start e non plans.approve", async () => {

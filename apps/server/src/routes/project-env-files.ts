@@ -137,7 +137,8 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
         .select({ id: repositories.id, projectId: repositories.projectId })
         .from(repositories)
         .where(eq(repositories.id, repositoryId));
-      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
+      // Un repository staccato (F6) non ha file d'ambiente.
+      if (!repository?.projectId) return apiError(reply, 404, "repository_not_found", "Repository not found");
 
       // L'ambiente deve esistere ED essere del PROGETTO di questo repository:
       // senza questo controllo un id d'ambiente di un altro progetto (indovinato

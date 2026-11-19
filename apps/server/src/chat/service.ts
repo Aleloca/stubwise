@@ -33,7 +33,7 @@ import type {
 } from "@stubwise/shared";
 import { CHAT_DM_MAX_PEOPLE, CHAT_EVENT_KINDS, CHAT_GENERAL_DEFAULT_EVENTS, CHAT_SEARCH_MIN, chatChannelNameSchema } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, isNull, ne, or, sql, type SQL } from "drizzle-orm";
-import { projectPermissionsFor, projectPermissionsMap, visibleProjectIds } from "../auth/access.js";
+import { projectPermissionsFor, projectPermissionsMap, visibleProjectIds, isAllProjects, inProjects } from "../auth/access.js";
 import { isUniqueViolation } from "../routes/shared.js";
 import { personName } from "../services/people.js";
 import { requestVisibility } from "../services/project-requests.js";
@@ -397,7 +397,7 @@ async function linksOf(
     .orderBy(asc(chatMessageLinks.createdAt));
   for (const r of taskRows) push(r.messageId, { kind: "task", id: r.id, code: r.code });
   const visible = await visibleProjectIds(db, viewer);
-  if (visible !== "all" && visible.length === 0) return out;
+  if (!isAllProjects(visible) && visible.length === 0) return out;
   const requestRows = await db
     .select({ messageId: chatMessageLinks.messageId, id: backlogItems.id, code: sql<string>`${projects.code} || '-R' || ${backlogItems.number}` })
     .from(chatMessageLinks)
@@ -406,7 +406,7 @@ async function linksOf(
     .where(
       and(
         inArray(chatMessageLinks.messageId, [...ids]),
-        visible === "all" ? undefined : inArray(backlogItems.projectId, visible),
+        inProjects(backlogItems.projectId, visible),
         await requestVisibility(db, viewer),
       ),
     )

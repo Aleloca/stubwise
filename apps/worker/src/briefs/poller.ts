@@ -297,7 +297,8 @@ async function enqueueDueBriefs(deps: BriefPollerDeps, now: Date, logger: BriefL
     const enabled = await deps.db
       .select({ id: projects.id })
       .from(projects)
-      .where(eq(projects.weeklyBriefEnabled, true));
+      // Area 9, F6: un archiviato non ha brief; riaprendolo riparte.
+      .where(and(eq(projects.weeklyBriefEnabled, true), isNull(projects.archivedAt)));
     for (const project of enabled) {
       await deps.db
         .insert(projectBriefs)

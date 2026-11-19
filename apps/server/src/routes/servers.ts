@@ -24,7 +24,7 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
+import { legacyScope, projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
 import { canViewServer, serverIdsOfProjects, visibleServerIds } from "../auth/monitor-access.js";
 import { toCheckView } from "./servers-checks.js";
 import { commandPublicKey } from "../services/server-signing.js";
@@ -298,7 +298,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
         }
         return row;
       });
-      const agg = (await loadAggregates(app, [created.id], await visibleProjectIds(app.db, request.user!))).get(created.id)!;
+      const agg = (await loadAggregates(app, [created.id], await legacyScope(app.db, await visibleProjectIds(app.db, request.user!)))).get(created.id)!;
       return await reply.code(201).send({ ...toServerView(created, agg, now), key, ingestUrl: ingestUrlOf() });
     },
   );
@@ -350,7 +350,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
                 .orderBy(servers.createdAt);
       }
 
-      const agg = await loadAggregates(app, rows.map((r) => r.id), await visibleProjectIds(app.db, request.user!));
+      const agg = await loadAggregates(app, rows.map((r) => r.id), await legacyScope(app.db, await visibleProjectIds(app.db, request.user!)));
       return rows.map((r) => toServerView(r, agg.get(r.id)!, now));
     },
   );
@@ -364,7 +364,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
 
   async function detailOf(row: ServerRow, user: NonNullable<FastifyRequest["user"]>) {
     const now = new Date();
-    const visibleProjects = await visibleProjectIds(app.db, user);
+    const visibleProjects = await legacyScope(app.db, await visibleProjectIds(app.db, user));
     const agg = (await loadAggregates(app, [row.id], visibleProjects)).get(row.id)!;
     // Snapshot corrente dall'ultimo campione: servizi scoperti, dischi,
     // memoria e ts. La memoria (23 set 2026) sta nella STESSA riga: le due
@@ -496,7 +496,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
           ? await app.db.update(servers).set(updates).where(eq(servers.id, request.params.id)).returning()
           : await app.db.select().from(servers).where(eq(servers.id, request.params.id));
       if (!applied) return apiError(reply, 404, "server_not_found", "Server not found");
-      const agg = await loadAggregates(app, [applied.id], await visibleProjectIds(app.db, request.user!));
+      const agg = await loadAggregates(app, [applied.id], await legacyScope(app.db, await visibleProjectIds(app.db, request.user!)));
       return toServerView(applied, agg.get(applied.id)!, now);
     },
   );
@@ -519,7 +519,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(servers.id, request.params.id))
         .returning();
       if (!updated) return apiError(reply, 404, "server_not_found", "Server not found");
-      const agg = await loadAggregates(app, [updated.id], await visibleProjectIds(app.db, request.user!));
+      const agg = await loadAggregates(app, [updated.id], await legacyScope(app.db, await visibleProjectIds(app.db, request.user!)));
       return { ...toServerView(updated, agg.get(updated.id)!, now), key, ingestUrl: ingestUrlOf() };
     },
   );

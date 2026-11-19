@@ -93,6 +93,8 @@ async function resolveProjectId(db: Db, repositoryId: string): Promise<string> {
     .from(repositories)
     .where(eq(repositories.id, repositoryId));
   if (!row) throw new Error(`repository ${repositoryId} inesistente`);
+  // F6: un repository staccato non ha progetto, quindi niente serializer e niente build.
+  if (row.projectId === null) throw new Error(`repository ${repositoryId} senza progetto (staccato)`);
   return row.projectId;
 }
 

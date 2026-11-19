@@ -8,7 +8,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { putProjectPlugins } from "../services/plugins.js";
-import { seedUsers, addMember } from "../test/fixtures.js";
+import { seedUsers, addMember, createUserWithPat } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -51,8 +51,9 @@ async function seedPlugin(slug: string): Promise<string> {
 
 /** La risposta senza `version` (area 9, F5): il resto si confronta esatto. */
 function withoutVersion(body: unknown) {
-  const { version, registry, ...rest } = body as { version: unknown; registry: unknown };
+  const { version, registry, canEdit, ...rest } = body as { version: unknown; registry: unknown; canEdit: unknown };
   expect(typeof version).toBe("string");
+  expect(typeof canEdit).toBe("boolean");
   expect(Array.isArray(registry)).toBe(true);
   return rest;
 }
@@ -127,7 +128,10 @@ describe("autorizzazione e progetto", () => {
     });
     expect(anonPut.statusCode).toBe(401);
 
-    expect((await get(memberCookie)).statusCode).toBe(403);
+    // Dalla review di F5: chi vede il progetto LEGGE (sola lettura), il PUT resta a chi lo gestisce.
+    const read = await get(memberCookie);
+    expect(read.statusCode).toBe(200);
+    expect((read.json() as { canEdit: boolean }).canEdit).toBe(false);
     expect((await put({ plugins: [] }, memberCookie)).statusCode).toBe(403);
   });
 
@@ -369,3 +373,30 @@ describe("area 9, F5: il registro per chi gestisce il progetto", () => {
     expect(JSON.stringify(body.registry)).not.toContain("github.com");
   });
 });
+
+describe("dalla review di F5: la vista in sola lettura per chi vede il progetto", () => {
+  it("un Developer legge abilitazioni e registro con canEdit false (nome, skill, hook, stato: niente preset) e il PUT gli risponde 403; chi gestisce ha canEdit true; chi non vede il progetto 404", async () => {
+    const id = await seedPlugin("superpowers");
+    expect((await put({ plugins: [{ pluginId: id, enabled: true, disabledSkills: ["writing-plans"], disabledHooks: [] }] })).statusCode).toBe(200);
+    const dev = await createUserWithPat(app, `${randomUUID()}@acme.com`);
+    await addMember(app, projectId, dev.id, "developer");
+    const res = await app.inject({ method: "GET", url: `/api/projects/${projectId}/plugins`, headers: dev.headers });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { canEdit: boolean; plugins: unknown[]; registry: Record<string, unknown>[] };
+    expect(body.canEdit).toBe(false);
+    expect(body.plugins).toEqual([{ pluginId: id, enabled: true, disabledSkills: ["writing-plans"], disabledHooks: [] }]);
+    expect(body.registry).toEqual([
+      { pluginId: id, slug: "superpowers", name: "superpowers", status: "ready", skills: ["writing-plans", "using-git-worktrees"], hookGroups: ["SessionStart#0"], recommendedDisabledSkills: [] },
+    ]);
+    const putRes = await app.inject({ method: "PUT", url: `/api/projects/${projectId}/plugins`, headers: dev.headers, payload: { plugins: [] } });
+    expect(putRes.statusCode).toBe(403);
+    expect(await getProjectPluginsRows()).toHaveLength(1);
+    expect(((await get()).json() as { canEdit: boolean }).canEdit).toBe(true);
+    const stranger = await createUserWithPat(app, `${randomUUID()}@acme.com`);
+    expect((await app.inject({ method: "GET", url: `/api/projects/${projectId}/plugins`, headers: stranger.headers })).statusCode).toBe(404);
+  });
+});
+
+async function getProjectPluginsRows() {
+  return testDb.db.select().from(projectPlugins).where(eq(projectPlugins.projectId, projectId));
+}

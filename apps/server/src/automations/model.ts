@@ -4,6 +4,7 @@ import {
   automationSources,
   automationVersions,
   googleAccounts,
+  projects,
   roles,
   users,
   type Db,
@@ -26,7 +27,7 @@ import {
   type Step,
 } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
-import { projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
+import { isAllProjects, projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { webhookLimitsView } from "./webhook-limits.js";
 
@@ -70,15 +71,22 @@ export const forbidden = (what = "automations.manage") => new AutomationError(40
 export const GENERAL_PERMISSION = "automations.general.manage";
 export const managesGeneral = (viewer: Viewer) => viewer.instancePermissions.has(GENERAL_PERMISSION);
 
-/** I progetti che `viewer` vede (`"all"` per un full admin). */
-export async function seen(db: Db | Tx, viewer: Viewer): Promise<"all" | ReadonlySet<string>> {
+/**
+ * I progetti che `viewer` vede, come insieme ENUMERATO: per un full admin
+ * tutti gli APERTI (area 9, F6: mai un archiviato). Prima un full admin
+ * riceveva `"all"`; i progetti di un'istanza sono pochi, e un insieme solo
+ * vuol dire un caso solo in ogni lettura.
+ */
+export async function seen(db: Db | Tx, viewer: Viewer): Promise<ReadonlySet<string>> {
   const v = await visibleProjectIds(db as Db, viewer);
-  return v === "all" ? "all" : new Set(v);
+  if (!isAllProjects(v)) return new Set(v);
+  const open = await (db as Db).select({ id: projects.id }).from(projects).where(isNull(projects.archivedAt));
+  return new Set(open.map((r) => r.id));
 }
-export const sees = (visible: "all" | ReadonlySet<string>, projectId: string) => visible === "all" || visible.has(projectId);
+export const sees = (visible: ReadonlySet<string>, projectId: string) => visible.has(projectId);
 
 /** Chi guarda vede l'automazione? Una generale solo col permesso d'istanza (R-G5). */
-export const seesAutomation = (visible: "all" | ReadonlySet<string>, viewer: Viewer, a: Pick<AutomationRecord, "projectId">) =>
+export const seesAutomation = (visible: ReadonlySet<string>, viewer: Viewer, a: Pick<AutomationRecord, "projectId">) =>
   a.projectId === null ? managesGeneral(viewer) : sees(visible, a.projectId);
 
 /** `projectId` null = una generale: la gestisce chi ha il permesso d'istanza. */
@@ -129,7 +137,7 @@ export async function mailboxAddresses(db: Db | Tx, rows: Pick<AutomationRecord,
   return new Map(found.map((r) => [r.id, r.email]));
 }
 
-export function automationOf(a: AutomationRecord, versions: VersionRecord[], visible: "all" | ReadonlySet<string>, addresses?: ReadonlyMap<string, string>): Automation {
+export function automationOf(a: AutomationRecord, versions: VersionRecord[], visible: ReadonlySet<string>, addresses?: ReadonlyMap<string, string>): Automation {
   const mailbox = a.mailboxAccountId ? (addresses?.get(a.mailboxAccountId) ?? null) : null;
   return {
     id: a.id,
@@ -165,7 +173,7 @@ function fixedSteps(flow: AutomationFlow): FixedStep[] {
 }
 
 /** R-G5: un progetto fisso che chi guarda non vede resta senza id, col segno `unavailable`. */
-export function flowFor(visible: "all" | ReadonlySet<string>, flow: AutomationFlow): AutomationFlow {
+export function flowFor(visible: ReadonlySet<string>, flow: AutomationFlow): AutomationFlow {
   const out = structuredClone(flow);
   for (const s of fixedSteps(out)) {
     if (s.project.projectId !== "" && sees(visible, s.project.projectId)) continue;
@@ -180,7 +188,7 @@ export function flowFor(visible: "all" | ReadonlySet<string>, flow: AutomationFl
  * aveva un progetto fisso che chi salva non vede, e che torna senza id, lo
  * riprende dalla versione di prima (per id del passo).
  */
-export function keepHiddenProjects(visible: "all" | ReadonlySet<string>, prev: AutomationFlow, next: AutomationFlow): void {
+export function keepHiddenProjects(visible: ReadonlySet<string>, prev: AutomationFlow, next: AutomationFlow): void {
   const before = new Map(fixedSteps(prev).map((s) => [s.id, s.project.projectId]));
   for (const s of fixedSteps(next)) {
     const old = before.get(s.id);
@@ -349,9 +357,8 @@ export async function listAutomations(
   const generals = managesGeneral(viewer);
   // Le generali solo a chi ha il permesso d'istanza (R-G5): filtrate nella WHERE.
   if (q.general && !generals) return [];
-  if (!q.general && visible !== "all" && visible.size === 0 && !generals) return [];
-  const projectScope =
-    visible === "all" ? sql`${automations.projectId} is not null` : visible.size > 0 ? inArray(automations.projectId, [...visible]) : sql`false`;
+  if (!q.general && visible.size === 0 && !generals) return [];
+  const projectScope = visible.size > 0 ? inArray(automations.projectId, [...visible]) : sql`false`;
   const scope = q.general ? isNull(automations.projectId) : q.project ? projectScope : generals ? or(projectScope, isNull(automations.projectId)) : projectScope;
   const records = await db
     .select()

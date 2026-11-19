@@ -1333,6 +1333,8 @@ export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<
       .where(
         and(
           eq(projects.dailyReportEnabled, true),
+          // Area 9, F6: un archiviato non ha daily report; riaprendolo riparte.
+          isNull(projects.archivedAt),
           sql`not exists (select 1 from ${repositories} where ${repositories.projectId} = ${projects.id})`,
         ),
       );

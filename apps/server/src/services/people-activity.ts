@@ -18,7 +18,7 @@ import {
 } from "@stubwise/db";
 import { legacyFamilyOf, ticketStatusSchema, type PersonDayActivityView } from "@stubwise/shared";
 import { and, asc, eq, inArray, isNotNull, isNull, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
-import { inProjects, projectIdsWithPermission, visibleProjectIds } from "../auth/access.js";
+import { inProjects, projectIdsWithPermission, visibleProjectIds, isAllProjects } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { backlogVisibleSql } from "./backlog-visibility.js";
 import { personName } from "./people.js";
@@ -77,7 +77,7 @@ export async function peopleActivity(db: Db, viewer: Viewer, date: string, depar
   ]);
   const ticketVisible = and(
     inProjects(tickets.projectId, visible),
-    viewAll === "all" ? undefined : or(inProjects(tickets.projectId, viewAll), eq(tickets.requestedByUserId, viewer.id)),
+    isAllProjects(viewAll) && viewAll.archived.length === 0 ? undefined : or(inProjects(tickets.projectId, viewAll), eq(tickets.requestedByUserId, viewer.id)),
   );
   const taskCols = {
     taskId: tickets.id,
@@ -188,7 +188,8 @@ export async function peopleActivity(db: Db, viewer: Viewer, date: string, depar
       .select({
         sha: commitSummaries.sha,
         repo: repositories.name,
-        projectId: repositories.projectId,
+        // Dal progetto unito: un repository staccato (F6) non è di nessuno, nemmeno per il full admin.
+        projectId: projects.id,
         authorName: commitSummaries.authorName,
         authorEmail: commitSummaries.authorEmail,
         message: commitSummaries.subject,
@@ -197,6 +198,7 @@ export async function peopleActivity(db: Db, viewer: Viewer, date: string, depar
       })
       .from(commitSummaries)
       .innerJoin(repositories, eq(repositories.id, commitSummaries.repositoryId))
+      .innerJoin(projects, eq(projects.id, repositories.projectId))
       .where(
         and(
           onDay(commitSummaries.committedAt, date),
@@ -303,9 +305,7 @@ export async function peopleActivity(db: Db, viewer: Viewer, date: string, depar
         isNotNull(deletedTickets.deletedBy),
         onDay(deletedTickets.deletedAt, date),
         inProjects(deletedTickets.projectId, visible),
-        viewAll === "all"
-          ? undefined
-          : or(inProjects(deletedTickets.projectId, viewAll), eq(deletedTickets.deletedBy, viewer.id)),
+        isAllProjects(viewAll) ? undefined : or(inProjects(deletedTickets.projectId, viewAll), eq(deletedTickets.deletedBy, viewer.id)),
       ),
     )
     .orderBy(asc(deletedTickets.deletedAt), asc(deletedTickets.id));

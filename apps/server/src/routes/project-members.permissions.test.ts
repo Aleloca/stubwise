@@ -8,7 +8,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { buildApp } from "../app.js";
-import { projectIdsWithPermission, projectPermissionsFor } from "../auth/access.js";
+import { projectIdsWithPermission, projectPermissionsFor, scopeIncludes } from "../auth/access.js";
 import { addMember, createUserWithSession, presetRoleId, seedUsers } from "../test/fixtures.js";
 
 /**
@@ -143,7 +143,7 @@ describe("i permessi personali", () => {
       expect(fromView).toEqual(fromMe);
       for (const p of ["release.merge", "plans.approve"] as ProjectPermission[]) {
         const ids = await projectIdsWithPermission(db, user, p);
-        expect(ids === "all" || ids.includes(s.projectId)).toBe(fromMe.includes(p));
+        expect(scopeIncludes(ids, s.projectId)).toBe(fromMe.includes(p));
         // Chi riceve un avviso legato a quel permesso.
         expect((await userIdsWithPermission(db, p, s.projectId)).includes(u.id)).toBe(fromMe.includes(p));
       }

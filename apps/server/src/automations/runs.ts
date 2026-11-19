@@ -29,7 +29,7 @@ import {
   type RunLogEntry,
   type RunStatus,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { canManageIntegrations, writeClientLink } from "./sources.js";
 import { AutomationError, sourcesFor, canManage, flowFor, forbidden, GENERAL_PERMISSION, managesGeneral, notFound, seen, sees, seesAutomation, visibleAutomation, type AutomationRecord, type Viewer } from "./model.js";
 
@@ -84,17 +84,14 @@ export async function decidersOf(db: Db, r: RunRecord, a: AutomationRecord): Pro
 }
 
 /** Il registro come lo legge chi guarda (R-J12). */
-async function logFor(db: Db, runId: string, visible: "all" | ReadonlySet<string>): Promise<RunLogEntry[]> {
+async function logFor(db: Db, runId: string, visible: ReadonlySet<string>): Promise<RunLogEntry[]> {
   const rows = await db.select().from(automationRunLog).where(eq(automationRunLog.runId, runId)).orderBy(asc(automationRunLog.seq));
-  const all = visible === "all";
   return rows.map((r) => {
     const input = structuredClone((r.input ?? {}) as Record<string, unknown>);
     const output = structuredClone((r.output ?? {}) as Record<string, unknown>);
-    if (!all) {
-      hideProject(input, visible);
-      hideProject(output, visible);
-    }
-    const hidden = !all && typeof (r.input as { progetto?: unknown } | null)?.progetto === "string" && input.progetto === "";
+    hideProject(input, visible);
+    hideProject(output, visible);
+    const hidden = typeof (r.input as { progetto?: unknown } | null)?.progetto === "string" && input.progetto === "";
     return {
       at: r.at.toISOString(),
       stepId: r.stepId,
@@ -128,7 +125,7 @@ async function aiWaitingOf(db: Db, w: { reason: string } | null, projectId: stri
   return { aiWaiting: { reason: "queue_paused", byId: pause.byId ?? "", byName: pause.byName, since: pause.since }, aiWaitingCode: p?.code ?? null };
 }
 
-export async function runRowOf(db: Db, viewer: Viewer, r: RunRecord, a: AutomationRecord, visible?: "all" | ReadonlySet<string>, opts: { withLog?: boolean; decider?: boolean } = {}): Promise<AutomationRunRow> {
+export async function runRowOf(db: Db, viewer: Viewer, r: RunRecord, a: AutomationRecord, visible?: ReadonlySet<string>, opts: { withLog?: boolean; decider?: boolean } = {}): Promise<AutomationRunRow> {
   const v = visible ?? (await seen(db, viewer));
   const c = cursorOf(r);
   const pending = pendingOf(r);
@@ -158,7 +155,7 @@ export async function runRowOf(db: Db, viewer: Viewer, r: RunRecord, a: Automati
     // regola della vista della task); ripresa nel frattempo → null.
     ...(await aiWaitingOf(db, (c as { aiWaiting?: { reason: string } | null }).aiWaiting ?? null, a.projectId)),
   };
-  if (pending && typeof pending.preview.progetto === "string" && v !== "all") hideProject(run.pending!.preview, v);
+  if (pending && typeof pending.preview.progetto === "string") hideProject(run.pending!.preview, v);
   // R-J16 (area 7, F2): il testo della risposta del cliente lo vede solo il proprietario; chi decide ne vede l'anteprima intera (R-J14).
   // C1 (review F2): la posta di un'esecuzione la legge il proprietario della SUA
   // casella (ripubblicare con un'altra casella non la passa a un altro); senza
@@ -314,10 +311,10 @@ export async function listRuns(
 ): Promise<{ items: AutomationRunRow[]; nextCursor: string | null }> {
   const visible = await seen(db, viewer);
   const generals = managesGeneral(viewer);
-  if (visible !== "all" && visible.size === 0 && !generals) return { items: [], nextCursor: null };
+  if (visible.size === 0 && !generals) return { items: [], nextCursor: null };
   const limit = Math.min(q.limit ?? 50, 200);
   // Le esecuzioni delle generali solo a chi le vede (R-G5), filtrate nella WHERE.
-  const projectScope = visible === "all" ? isNotNull(automations.projectId) : visible.size > 0 ? inArray(automations.projectId, [...visible]) : sql`false`;
+  const projectScope = visible.size > 0 ? inArray(automations.projectId, [...visible]) : sql`false`;
   const scope = generals ? or(projectScope, isNull(automations.projectId)) : projectScope;
   const [cAt, cId] = q.cursor ? q.cursor.split("|") : [];
   const rows = await db
@@ -443,7 +440,7 @@ export const OPEN_RUN_STATUSES = OPEN_STATUSES;
 
 const str = (v: unknown) => (typeof v === "string" ? v : "");
 
-async function projectFor(db: Db, visible: "all" | ReadonlySet<string>, id: string | null): Promise<SimulationProject> {
+async function projectFor(db: Db, visible: ReadonlySet<string>, id: string | null): Promise<SimulationProject> {
   if (!id || !sees(visible, id)) return { id: "", code: "", name: "" };
   const [p] = await db.select({ id: projects.id, code: projects.code, name: projects.name }).from(projects).where(eq(projects.id, id));
   return p ?? { id: "", code: "", name: "" };
@@ -459,7 +456,7 @@ async function projectFor(db: Db, visible: "all" | ReadonlySet<string>, id: stri
  */
 export async function pendingEffectOf(
   db: Db,
-  visible: "all" | ReadonlySet<string>,
+  visible: ReadonlySet<string>,
   source: RunRecord,
   a: AutomationRecord,
   viewed: AutomationRunRow,

@@ -3,7 +3,7 @@ import { DRIVE_FOLDER_MIME, getDriveFile as getGoogleFile, GOOGLE_EXPORT_MIME, G
 import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
 import { driveContentKindOf, driveFileTypeOf, googleOpenUrl, type DriveFileRow, type DriveFolderLink, type GoogleFileChoice, type GoogleFolderChoice } from "@stubwise/shared";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
+import { inProjects, projectPermissionsFor, visibleProjectIds, scopeIncludes } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { DRIVE_READONLY_SCOPE, DriveError, driveRowOf, drivePermsLookup, linkExpiredSql, openDriveFile, visibleDriveFile } from "./service.js";
 
@@ -70,7 +70,7 @@ function uniqueViolation(err: unknown): boolean {
 
 async function sees(db: Db, viewer: Viewer, projectId: string): Promise<boolean> {
   const visible = await visibleProjectIds(db, viewer);
-  return visible === "all" || visible.includes(projectId);
+  return scopeIncludes(visible, projectId);
 }
 
 async function need(db: Db, viewer: Viewer, projectId: string, permission: "drive.upload" | "drive.manage"): Promise<void> {
@@ -158,7 +158,7 @@ export async function listGoogleOutside(deps: DriveGoogleDeps, viewer: Viewer, q
   const rows = await deps.db
     .select({ id: driveFiles.googleFileId })
     .from(driveFiles)
-    .where(and(eq(driveFiles.source, "google"), isNull(driveFiles.deletedAt), inArray(driveFiles.googleFileId, ids), ...(visible === "all" ? [] : [inArray(driveFiles.projectId, visible.length > 0 ? visible : ["00000000-0000-0000-0000-000000000000"])])));
+    .where(and(eq(driveFiles.source, "google"), isNull(driveFiles.deletedAt), inArray(driveFiles.googleFileId, ids), inProjects(driveFiles.projectId, visible)));
   const anywhere = new Set(rows.map((r) => r.id!));
   return page.files.filter((f) => !anywhere.has(f.id)).map((f) => choiceOf(f, false));
 }

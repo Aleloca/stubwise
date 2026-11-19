@@ -18,7 +18,7 @@ import {
   type WebhookSourceCreated,
 } from "@stubwise/shared";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
-import { projectIdsWithPermission } from "../auth/access.js";
+import { projectIdsWithPermission, isAllProjects } from "../auth/access.js";
 import { AutomationError, managesGeneral, notFound, seen, sees, seesAutomation, sourceShape, type Viewer } from "./model.js";
 
 /**
@@ -49,7 +49,7 @@ export const canManageIntegrations = (viewer: Viewer) => viewer.instancePermissi
 export async function canSeeSources(db: Db, viewer: Viewer): Promise<boolean> {
   if (canManageIntegrations(viewer) || managesGeneral(viewer)) return true;
   const where = await projectIdsWithPermission(db, viewer, "automations.manage");
-  return where === "all" || where.length > 0;
+  return isAllProjects(where) || where.length > 0;
 }
 
 /** Il segreto di un indirizzo: `whk_` + 32 byte casuali (base64url); si salva solo l'hash. */

@@ -28,7 +28,7 @@ import {
 } from "@stubwise/google";
 import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
 import { projectPermissionsOfUser } from "@stubwise/notifications";
-import { visibleProjectIds } from "../auth/access.js";
+import { isAllProjects, scopeIncludes, visibleProjectIds, type ProjectScope } from "../auth/access.js";
 import { t } from "@stubwise/i18n";
 import {
   closedReason,
@@ -208,8 +208,13 @@ function firstLine(text: string | null): string {
  * può contenere progetti altrui — e un progetto invisibile è come uno che
  * non esiste, anche nei filtri.
  */
-function visibleScopeSql(visible: "all" | string[]): SQL {
-  if (visible === "all") return sql`${emailMessages.scopeProjectIds}`;
+function visibleScopeSql(visible: ProjectScope): SQL {
+  if (isAllProjects(visible)) {
+    // Un full admin: tutti tranne gli archiviati (F6).
+    if (visible.archived.length === 0) return sql`${emailMessages.scopeProjectIds}`;
+    const archived = sql`array[${sql.join(visible.archived.map((id) => sql`${id}::uuid`), sql`, `)}]`;
+    return sql`array(select x from unnest(${emailMessages.scopeProjectIds}) as x where not (x = any(${archived})))`;
+  }
   const list = visible.length === 0 ? sql`'{}'::uuid[]` : sql`array[${sql.join(visible.map((id) => sql`${id}::uuid`), sql`, `)}]`;
   return sql`array(select x from unnest(${emailMessages.scopeProjectIds}) as x where x = any(${list}))`;
 }
@@ -221,7 +226,7 @@ function threadClassificationFilters(
     noProject?: "true" | "false" | undefined;
     important?: "true" | "false" | undefined;
   },
-  visible: "all" | string[],
+  visible: ProjectScope,
 ): SQL[] {
   const scope = visibleScopeSql(visible);
   const done = sql`${emailMessages.classificationState} = 'done'`;
@@ -1283,7 +1288,7 @@ export async function meMailRoutes(
       const conditions = [eq(googleAccounts.userId, request.user!.id)];
       if (account) conditions.push(eq(emailMessages.accountId, account));
       const visible = await visibleProjectIds(app.db, request.user!);
-      const sees = (id: string) => visible === "all" || visible.includes(id);
+      const sees = (id: string) => scopeIncludes(visible, id);
 
       // Una riga per `(account_id, thread_id)`: il thread è l'unità, e due
       // caselle con lo stesso thread Gmail restano due conversazioni.

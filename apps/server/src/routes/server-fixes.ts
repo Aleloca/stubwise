@@ -6,7 +6,7 @@ import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { routePermissions, visibleProjectIds, type RouteAccess } from "../auth/access.js";
+import { routePermissions, scopeIncludes, visibleProjectIds, type RouteAccess } from "../auth/access.js";
 import { canViewServer } from "../auth/monitor-access.js";
 import { fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import type { SessionUser } from "../auth/session.js";
@@ -75,7 +75,7 @@ async function pruneWarning(db: Db, user: SessionUser, fix: Fix): Promise<Server
   // Un server di questo solo progetto: nessun avviso (review F4b, renderer).
   if (others.length === 0) return null;
   const visible = await visibleProjectIds(db, user);
-  const seen = visible === "all" ? others : others.filter((id) => visible.includes(id));
+  const seen = others.filter((id) => scopeIncludes(visible, id));
   const names = seen.length === 0 ? [] : (await db.select({ name: projects.name }).from(projects).where(inArray(projects.id, seen))).map((p) => p.name).sort();
   return { projects: names, hiddenCount: others.length - seen.length };
 }

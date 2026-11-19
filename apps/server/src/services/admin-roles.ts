@@ -13,7 +13,7 @@ import {
 } from "@stubwise/shared";
 import { alias } from "drizzle-orm/pg-core";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { projectPermissionsFor, projectPermissionsMap, visibleProjectIds } from "../auth/access.js";
+import { projectPermissionsFor, projectPermissionsMap, scopeProjectIds, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { instanceRoleChoicesFor, inviteIdOf, managedProjectIds, nameOf } from "./admin-people.js";
 import { avatarUrlsFor } from "./avatars.js";
@@ -34,7 +34,7 @@ const granters = alias(users, "granter");
 
 async function visibleProjectList(db: Db, viewer: Viewer): Promise<string[]> {
   const seen = await visibleProjectIds(db, viewer);
-  return seen === "all" ? (await db.select({ id: projects.id }).from(projects)).map((p) => p.id) : seen;
+  return await scopeProjectIds(db, seen);
 }
 
 /** `GET /api/admin/roles`. */

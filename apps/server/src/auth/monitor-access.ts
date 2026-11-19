@@ -12,7 +12,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import type { Db } from "@stubwise/db";
 import { environmentServers, projectEnvironments } from "@stubwise/db";
-import { visibleProjectIds } from "./access.js";
+import { isAllProjects, visibleProjectIds } from "./access.js";
 import type { SessionUser } from "./session.js";
 
 const seesAll = (user: SessionUser) => user.instancePermissions.has("monitor.view") || user.instancePermissions.has("monitor.manage");
@@ -35,7 +35,8 @@ export async function serverIdsOfProjects(db: Db, projectIds: readonly string[])
 export async function visibleServerIds(db: Db, user: SessionUser): Promise<"all" | string[]> {
   if (seesAll(user)) return "all";
   const projectIds = await visibleProjectIds(db, user);
-  if (projectIds === "all") return "all";
+  // Un full admin vede i server di tutti (`seesAll` lo copre già prima).
+  if (isAllProjects(projectIds)) return "all";
   return serverIdsOfProjects(db, projectIds);
 }
 
@@ -43,13 +44,13 @@ export async function visibleServerIds(db: Db, user: SessionUser): Promise<"all"
 export async function canViewServer(db: Db, user: SessionUser, serverId: string): Promise<boolean> {
   if (seesAll(user)) return true;
   const projectIds = await visibleProjectIds(db, user);
-  if (projectIds === "all") return true;
+  if (isAllProjects(projectIds)) return true;
   if (projectIds.length === 0) return false;
   const [row] = await db
     .select({ serverId: environmentServers.serverId })
     .from(environmentServers)
     .innerJoin(projectEnvironments, eq(projectEnvironments.id, environmentServers.environmentId))
-    .where(and(eq(environmentServers.serverId, serverId), inArray(projectEnvironments.projectId, projectIds)))
+    .where(and(eq(environmentServers.serverId, serverId), inArray(projectEnvironments.projectId, [...projectIds])))
     .limit(1);
   return row !== undefined;
 }

@@ -194,7 +194,8 @@ describe("area 9, F5 nel client", () => {
   it("projects.plugins senza version (server vecchio) → null; setPlugins manda ifMatch solo se c'è", async () => {
     const plugin = { pluginId: "50000000-0000-4000-8000-000000000001", enabled: true, disabledSkills: [], disabledHooks: [] };
     const old = clientWith({ plugins: [plugin] });
-    expect(await old.client.projects.plugins(P1)).toEqual({ plugins: [plugin], version: null, registry: [] });
+    // `canEdit` assente da un server vecchio: false (review di F5).
+    expect(await old.client.projects.plugins(P1)).toEqual({ plugins: [plugin], version: null, registry: [], canEdit: false });
     expect(call(old.fetchImpl).url).toBe(`/api/projects/${P1}/plugins`);
     const put = clientWith({ plugins: [plugin], version: "v2" });
     await put.client.projects.setPlugins(P1, [plugin], "v1");

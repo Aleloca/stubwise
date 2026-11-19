@@ -25,12 +25,12 @@ describe("il catalogo del registro delle modifiche", () => {
     expect(INSTANCE_PERMISSIONS).toContain("instance.status.view");
   });
 
-  it("area 9, F5: i tipi della 9c sono ESATTAMENTE quelli del prototipo, tranne F6 (archivio, eliminazione) e 10a (task.deleted)", async () => {
+  it("area 9, F5 e F6: i tipi della 9c sono ESATTAMENTE quelli del prototipo, tranne 10a (task.deleted)", async () => {
     const { readFileSync } = await import("node:fs");
     const proto = readFileSync(new URL("../../../apps/desktop/src/renderer/data/projectSettings/changeTypes.ts", import.meta.url), "utf8");
     // Nel prototipo `projects(...)` è una voce d'ISTANZA (gruppo `projects`, `instance.full_admin`), le altre di progetto.
     const entries = [...proto.matchAll(/^\s+(settings|tasks|repos|environments|widget|projects)\("([a-z_.]+)"\)/gm)].map((m) => ({ kind: m[2]!, scope: m[1] === "projects" ? "instance" : "project" }));
-    const notF5 = new Set(["project.archived", "project.reopened", "project.deleted", "repository.linked", "task.deleted"]);
+    const notF5 = new Set(["task.deleted"]);
     const expected = entries.filter((e) => !notF5.has(e.kind)).sort((a, b) => a.kind.localeCompare(b.kind));
     expect(expected.length).toBeGreaterThan(20);
     const instanceKinds = new Set(expected.filter((e) => e.scope === "instance").map((e) => e.kind));
@@ -40,6 +40,17 @@ describe("il catalogo del registro delle modifiche", () => {
     expect(ours).toEqual(expected);
     // `repository.deleted`: d'istanza (maintainer, 31 ott 2026, domanda 4 (b)).
     expect(CHANGE_LOG_TYPES.find((t) => t.kind === "repository.deleted")).toMatchObject({ scope: "instance", group: "projects", readPermission: "instance.full_admin" });
+  });
+
+  it("area 9, F6: archivio, riapertura, eliminazione e collegamento, con i gruppi e i lettori del prototipo", () => {
+    for (const kind of ["project.archived", "project.reopened"]) {
+      expect(CHANGE_LOG_TYPES.find((t) => t.kind === kind), kind).toMatchObject({ scope: "project", group: "project", readPermission: "project.settings.manage" });
+    }
+    expect(CHANGE_LOG_TYPES.find((t) => t.kind === "repository.linked")).toMatchObject({ scope: "project", group: "repositories", readPermission: "repos.manage" });
+    expect(CHANGE_LOG_TYPES.find((t) => t.kind === "project.deleted")).toMatchObject({ scope: "instance", group: "projects", readPermission: "instance.full_admin" });
+    const object = { type: "project", id: "x", label: "" };
+    expect(CHANGE_DATA_SCHEMAS["project.deleted"]!.safeParse({ object }).success).toBe(false);
+    expect(CHANGE_DATA_SCHEMAS["project.deleted"]!.safeParse({ object, params: { detachedRepositories: "2" } }).success).toBe(true);
   });
 
   it("area 9, F5: i params obbligatori della 9c; il nome della variabile è `variable` (K-3), mai `key`", () => {
