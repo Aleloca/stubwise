@@ -360,6 +360,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Ruoli e membri di progetto» (22 ott 2026)
   - «Secondo fattore sul login» (23 ott 2026)
   - «Cassaforte delle credenziali» (23 ott 2026)
+  - «L'utilizzo degli account dal rate_limit_event» (19 nov 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.

@@ -6,11 +6,13 @@ import { z } from "zod";
 import { authErrorResponses } from "./shared.js";
 
 /**
- * Finestra di consumo normalizzata (formato del parser del worker): percentuale
- * usata e residua, più `resetsLabel`, l'orario di reset come label testuale
- * della TUI (non-ISO, es. "2:39pm (Europe/Rome)") — opzionale. Nullable perché
- * lo snapshot la conserva come jsonb libero e uno snapshot con parse fallito
- * potrebbe non averla.
+ * Finestra di consumo normalizzata: percentuale usata e residua (interi 0–100,
+ * complementari), più `resetsLabel`, l'orario di reset come label testuale
+ * della vecchia TUI `/usage` (non-ISO, es. "2:39pm (Europe/Rome)") — opzionale.
+ * Gli snapshot nuovi nascono dal `rate_limit_event` del CLI e hanno SEMPRE
+ * `resetsLabel` null: il reset sta nei `*ResetAt`, e il pannello li usa quando
+ * la label manca. Nullable perché lo snapshot la conserva come jsonb libero e
+ * una finestra può mancare (es. nessun limite di 5 ore per gli account Ultra).
  */
 const usageWindowSchema = z
   .object({
@@ -21,10 +23,13 @@ const usageWindowSchema = z
   .nullable();
 
 /**
- * Ultimo snapshot di consumo di una credenziale `account`. `rawText` è incluso
- * SOLO quando `parseOk=false` (admin-only, serve al banner di diagnosi del
- * parser): con parse riuscito non lo conserviamo nemmeno a DB, quindi resta
- * assente/null.
+ * Ultimo snapshot di consumo di una credenziale `account`. Dal 19 nov 2026 lo
+ * scrive il worker leggendo il `rate_limit_event` dello stream-json (a ogni run
+ * di un account, più una sonda minima per quelli fermi): `source` è
+ * `deterministic` = letto senza LLM, `parseOk` true, `rawText` null. `llm_fallback`
+ * e `parseOk=false` esistono solo per le righe del vecchio lettore `/usage`
+ * (ritirato). `rawText` è incluso SOLO per quelle ultime (admin-only, serve al
+ * banner di diagnosi): resta assente/null per tutti gli snapshot nuovi.
  */
 const snapshotItemSchema = z.object({
   providerId: z.uuid(),

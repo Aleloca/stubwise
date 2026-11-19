@@ -2782,3 +2782,56 @@ deploy o di un rollback che la tocca.
   `project_lead` va ripristinato a mano con la stessa `update` della
   0103). Un ritorno pieno allo stato di prima è solo il backup — e le
   credenziali inserite dopo il rilascio ci sono solo nel DB attuale.
+
+- **«L'utilizzo degli account dal rate_limit_event» (19 nov 2026)**: design
+  `docs/plans/2026-11-19-utilizzo-account-da-rate-limit-event-design.md`.
+  **Perché**: dal 30 ott 2026 gli account Ultra non hanno più il limite di 5
+  ore, il pannello `/usage` non mostra più «Current session» e il lettore a
+  PTY (parser a regex) falliva sempre; ogni giro passava al fallback Haiku
+  sulla chiave API (864 chiamate al giorno, ~$12/giorno, operazione
+  `usage_probe`) senza estrarre nulla. Il pannello d'uso era fermo, la soglia
+  settimanale dei lavori di sfondo non scattava e lo sblocco anticipato di un
+  account «al limite» nemmeno. Ora lo snapshot nasce dal `rate_limit_event`
+  che il CLI emette a ogni run (`source = 'deterministic'`, `parse_ok = true`,
+  `raw_text = null`, `resetsLabel` null) e una sonda minima (Haiku, 1 turno,
+  `usage_probe`, solo su account in abbonamento) copre gli account fermi o al
+  limite.
+  **Da questo branch (`fix/usage-da-rate-limit-event`, base = produzione
+  `d3e94841`), NON da `main`** (642 commit avanti col lavoro di altre
+  sessioni); come portare il checkout di `/opt/stubwise` sul branch e poi
+  riportarlo su `main` lo decide il maintainer al momento del deploy; il merge
+  in `main` segue con una PR.
+  **Cosa ribuildare**: **`worker`** (obbligatorio); `server` facoltativo (solo
+  docblock); **niente `caddy`**: i testi web e docs toccati (`diagnoseHint`
+  in `en.json`/`it.json`, la pagina `claude-setup`) arrivano in produzione
+  solo col prossimo build di caddy, senza fretta. Nessuna migrazione, nessun
+  valore nuovo di enum. Env nuova: `USAGE_PROBE_IDLE_MINUTES` (intero ≥ 1,
+  default **30**: ogni quanto sondare un account che non ha fatto run; non
+  serve impostarla); `USAGE_POLL_MINUTES` resta (default 5, 0 = spento).
+  **Prima del deploy rilancia gli scenari golden** (a mano, col CLI
+  pinnato): si è toccato `streaming-cli.ts`. `plan-only` ora fallisce se il
+  run non produce nessun `rate_limit_event` (il riepilogo stampa «rate_limit_event:
+  N» per scenario): un CLI che cambia l'evento salta fuori lì.
+  **Worker**: senza generazioni Docs vive né giro notturno in corso. Controlli
+  d'inattività, tutti a 0 / vuoti, in più campioni a distanza di qualche
+  minuto: `select id from doc_generations where status in
+  ('running','paused');` vuoto; job e job di backlog fermi; `select count(*)
+  from agent_sessions where cardinality(live_segment_ids) > 0 and
+  heartbeat_at > now() - interval '90 seconds';` = 0; `select count(*) from
+  activity_reports where status = 'running';` = 0; `select count(*) from
+  nightly_items where status = 'pending' and claimed_at > now() - interval
+  '60 minutes';` = 0. Poi `docker compose up -d --build worker`.
+  **Verifica dopo il deploy** (entro ~35′, una riga per account in
+  abbonamento): `select p.label, s.captured_at, s.weekly_remaining from
+  ai_usage_snapshots s join ai_providers p on p.id = s.provider_id where
+  s.captured_at > now() - interval '35 minutes' and s.parse_ok;` — e **nessuna
+  riga `agent_runs` nuova con operazione `usage_probe` e provider
+  `api_key`** (la sonda non deve più toccare la chiave API).
+  **Nota sull'overage**: un account con l'overage abilitato (Account Leo) che
+  non è marcato «al limite» ma sta al 100% continua a essere sondato ogni 30′
+  (costa poco, ma potrebbe essere a pagamento): se dà fastidio si alza
+  `USAGE_PROBE_IDLE_MINUTES`.
+  **Rollback**: ricostruire il worker dall'immagine vecchia: torna il lettore
+  PTY (rotto, ma innocuo come prima). Gli snapshot scritti nel frattempo sono
+  righe valide nel formato di sempre: niente da ripulire, nessuna migrazione
+  da invertire.
