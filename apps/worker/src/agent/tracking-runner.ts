@@ -32,6 +32,13 @@ export interface TrackingAgentRunnerDeps {
  * 3. consumi — con `record !== false`, `recordUsage` best-effort (un insert
  *    fallito non fa mai fallire il run).
  *
+ * 4. snapshot d'uso — per un provider `account` il decoratore concatena alla
+ *    `onRateLimit` del chiamante la scrittura dello snapshot da
+ *    `rate_limit_event` (anche con `record: false`: è un'altra tabella),
+ *    con `captured_at` = istante di arrivo dell'evento, e azzera `limited_until`
+ *    se l'evento dice che si può lavorare (`allowed` e ogni finestra < 100).
+ *    Vale per OGNI run, sonda d'uso compresa: il poller non scrive snapshot.
+ *
  * Il PROVIDER non si tocca: lo sceglie `providers/select.ts` prima del run
  * (docs/invariants/providers.md), qui se ne legge solo l'id per la riga.
  *
@@ -108,8 +115,9 @@ export class TrackingAgentRunner implements AgentRunner {
 
 /**
  * Il `ClaudeCliRunner` storico già avvolto, per i task che girano FUORI dal
- * runner condiviso di index.ts e ne costruivano uno proprio (sonda d'uso,
- * test delle credenziali, smoke dei plugin, `nightly/once.ts`): senza
+ * runner condiviso di index.ts e ne costruiscono uno proprio (test delle
+ * credenziali, smoke dei plugin, `nightly/once.ts`; la sonda d'uso no: usa
+ * lo streaming, l'unico che consegna il `rate_limit_event`): senza
  * l'involucro i loro consumi non arriverebbero in `agent_runs`. Resta il
  * runner STORICO, non quello in streaming, come prima: cambia solo che il
  * run lascia traccia (e, per le operazioni configurabili, legge il modello).

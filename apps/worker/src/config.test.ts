@@ -601,6 +601,14 @@ describe("loadWorkerConfig", () => {
     expect(loadWorkerConfig({ ...VALID, USAGE_POLL_MINUTES: "" }).usagePollMinutes).toBe(5);
   });
 
+  it("USAGE_PROBE_IDLE_MINUTES: default 30, esplicito, 0 e non interi rifiutati", () => {
+    expect(loadWorkerConfig({ ...VALID }).usageProbeIdleMinutes).toBe(30);
+    expect(loadWorkerConfig({ ...VALID, USAGE_PROBE_IDLE_MINUTES: "" }).usageProbeIdleMinutes).toBe(30);
+    expect(loadWorkerConfig({ ...VALID, USAGE_PROBE_IDLE_MINUTES: "10" }).usageProbeIdleMinutes).toBe(10);
+    expect(() => loadWorkerConfig({ ...VALID, USAGE_PROBE_IDLE_MINUTES: "0" })).toThrow(/USAGE_PROBE_IDLE_MINUTES/);
+    expect(() => loadWorkerConfig({ ...VALID, USAGE_PROBE_IDLE_MINUTES: "1.5" })).toThrow(/USAGE_PROBE_IDLE_MINUTES/);
+  });
+
   it("rispetta CREDENTIAL_TEST_POLL_SECONDS esplicito e 0 = disabilitato", () => {
     expect(
       loadWorkerConfig({ ...VALID, CREDENTIAL_TEST_POLL_SECONDS: "10" }).credentialTestPollSeconds,

@@ -374,7 +374,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 // stesso — le righe restano in attesa e ci riprova il prossimo avvio.
 await requeueWaitingReviewsAtStartup(db);
 
-// Poller dell'usage residuo dell'abbonamento (Task 6): task SEPARATO dal loop
+// Sonda d'uso degli account fermi (agent/usage-poller.ts): task SEPARATO dal loop
 // dei job, su un proprio intervallo. È BEST-EFFORT (non fa mai crashare il
 // worker) e NON tocca il lock/heartbeat né i timeout dei job (nessun impatto
 // sull'invariante WORKER_STALE_MINUTES). Si ferma sullo stesso AbortSignal.
@@ -382,6 +382,7 @@ startUsagePoller({
   db,
   encryptionKey: config.encryptionKey,
   intervalMinutes: config.usagePollMinutes,
+  idleMinutes: config.usageProbeIdleMinutes,
   signal: controller.signal,
 });
 
@@ -809,7 +810,7 @@ startGooglePoller({
 
 console.error(
   `[stubwise-worker] avviato (concurrency ${config.concurrency}, db-pool ${config.databasePoolMax}, mirrors in ${config.mirrorsDir}` +
-    `, usage-poll ${config.usagePollMinutes > 0 ? `ogni ${config.usagePollMinutes}'` : "disabilitato"}` +
+    `, sonda d'uso ${config.usagePollMinutes > 0 ? `ogni ${config.usagePollMinutes}' (fermi da ${config.usageProbeIdleMinutes}')` : "disabilitata"}` +
     `, credential-test ${config.credentialTestPollSeconds > 0 ? `ogni ${config.credentialTestPollSeconds}"` : "disabilitato"}` +
     `, giro notturno alle ${config.nightlyStart} Europe/Rome` +
     `, pr-review ${config.prReviewPollSeconds > 0 ? `ogni ${config.prReviewPollSeconds}"` : "disabilitato"}` +

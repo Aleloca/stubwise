@@ -205,10 +205,10 @@ const envSchema = z.object({
     (value) => (typeof value === "string" ? value.replace(/\/+$/, "") : value),
     z.string().default(""),
   ),
-  // Intervallo in minuti del poller dell'usage residuo dell'abbonamento (task
-  // separato dal loop dei job, vedi agent/usage-poller.ts): legge `/usage` via
-  // PTY e salva uno snapshot. È BEST-EFFORT e non tocca i timeout dei job.
-  // 0 = disabilitato. Default 5'.
+  // Intervallo in minuti della sonda d'uso degli account fermi (task separato
+  // dal loop dei job, vedi agent/usage-poller.ts): lancia un run minimo il cui
+  // rate_limit_event rinfresca lo snapshot. È BEST-EFFORT e non tocca i timeout
+  // dei job. 0 = disabilitato. Default 5'.
   USAGE_POLL_MINUTES: z.preprocess(
     emptyAsUndefined,
     z.coerce
@@ -216,6 +216,17 @@ const envSchema = z.object({
       .int("deve essere un intero ≥ 0 in minuti (es. 5; 0 = disabilitato)")
       .min(0, "deve essere un intero ≥ 0 in minuti (es. 5; 0 = disabilitato)")
       .default(5),
+  ),
+  // Inattività (minuti) oltre la quale la sonda d'uso rilegge un account: lo
+  // snapshot più vecchio di così si rinfresca. Intero ≥ 1, default 30. Il tetto
+  // di attendibilità dello snapshot (MAX_SNAPSHOT_AGE_MS, 45') è una costante.
+  USAGE_PROBE_IDLE_MINUTES: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 in minuti (es. 30)" })
+      .int("deve essere un intero ≥ 1 in minuti (es. 30)")
+      .min(1, "deve essere un intero ≥ 1 in minuti (es. 30)")
+      .default(30),
   ),
   // Intervallo di poll (secondi) del tester delle credenziali AI (task separato
   // dal loop dei job, vedi agent/credential-tester.ts): raccoglie le richieste
@@ -1040,6 +1051,7 @@ export interface WorkerConfig {
   /** Intervallo in minuti del poller dell'usage residuo (default 5; 0 =
    * disabilitato). */
   usagePollMinutes: number;
+  usageProbeIdleMinutes: number;
   /** Intervallo in secondi del tester delle credenziali AI (default 5; 0 =
    * disabilitato). */
   credentialTestPollSeconds: number;
@@ -1325,6 +1337,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     installTimeoutMs: parsed.INSTALL_TIMEOUT_MS,
     publicUrl: parsed.PUBLIC_URL,
     usagePollMinutes: parsed.USAGE_POLL_MINUTES,
+    usageProbeIdleMinutes: parsed.USAGE_PROBE_IDLE_MINUTES,
     credentialTestPollSeconds: parsed.CREDENTIAL_TEST_POLL_SECONDS,
     docGenerationModel: parsed.DOC_GENERATION_MODEL,
     docAgentTimeoutMs: parsed.DOC_AGENT_TIMEOUT_MS,
