@@ -187,4 +187,207 @@ accende.
 
 ## Lato server
 
-*(72)*
+*(72, 19 nov 2026.)*
+
+### Le decisioni prese
+
+- **Maintainer**:
+  - **F8-1 = a**: UNA lista per reparto, valida in tutti i progetti di cui
+    la persona è già membro, come il prototipo;
+  - **F8-3 = a**: la riconferma sui permessi del reparto E su ogni
+    scrittura che li fa arrivare a qualcuno (aggiungere una persona a un
+    reparto che ne dà). Rinominare, cambiare colore, la Home e togliere
+    persone non la chiedono.
+- **Orchestratrice (46)**: **F8-2 = a** (l'anteprima la calcola il server),
+  **F8-4 = a**, **F8-5 = a**.
+- Il design (`F8`, una tabella per progetto con `project_id`) è superato
+  dalla F8-1: la tabella è SENZA `project_id`.
+
+### Fatti del codice che il design non dice
+
+- **Il calcolo dei permessi effettivi ha UN punto SQL**:
+  `memberPermissionsSql` (`packages/db/src/member-permissions.ts`): ruolo ∪
+  permessi personali, per un membro. Lo usano 11 punti di server,
+  `@stubwise/notifications` e worker, fra cui `projectPermissionsFor`, il
+  conteggio dei gestori (`managerCount`, quindi `last_manager`),
+  `/api/auth/me`, «Chi può farlo?» e il routing delle notifiche. Il reparto
+  entra LÌ, e tutti lo seguono senza essere toccati. È l'invariante «I
+  permessi effettivi in un progetto sono UNA funzione».
+- **Chi agisce vede già i suoi permessi di reparto**: `held` (i permessi
+  di chi agisce nel progetto) passa da lì, quindi «un permesso che ha solo
+  dal suo reparto conta» (il prototipo) è vero senza codice nuovo.
+- **Le FONTI non passano da lì**: le leggono a parte
+  - `admin-roles.ts` (Members),
+  - `admin-people.ts` (la pagina della persona),
+  - `access-query.ts` («Chi può farlo?»),
+  - `roles.ts` (le bozze di un membro).
+  Ognuna aggiunge la fonte `department`. `sourceViewSchema` ha già
+  `departmentId`/`departmentName` (F1).
+- **Il salvataggio della bozza del reparto c'è già**: `PATCH
+  /api/departments/:id` scrive nome, colore e l'insieme INTERO delle persone,
+  in una transazione, senza riconferma.
+- **`last_manager`** si chiama così sul server (non `last_members_manager`),
+  col `projectId` (`keepingManagersIn` di `roles.ts`, per più progetti
+  insieme).
+- Il tipo `department.permissions_changed` è già nel catalogo del registro
+  (dichiarato in F2, senza scrittore).
+- **Primo numero libero: 0196** (la 0195 è di F7).
+
+### Le forme (le R-1…R-7 del renderer)
+
+- **R-1 — `GET /api/departments`**: in più `projectPermissions: string[]`
+  (default `[]`).
+  - [Ruling] La lista la riceve SOLO chi ha `departments.manage`; agli
+    altri arriva `[]`. L'elenco lo legge ogni persona (le task, i
+    selettori), e i permessi che un reparto dà sono amministrazione.
+  - `reach`/`notGivable`/`missingToAdd` NON sono nell'elenco (calcolarli
+    per ogni reparto × ogni persona è caro): li dà l'anteprima (R-2),
+    anche per la forma salvata.
+- **R-2 — `POST /api/departments/:id/preview`** (`departments.manage`), con
+  la bozza `{ memberIds, projectPermissions }`, restituisce `{ reach,
+  notGivable, missingToAdd, missing }`. È `judgeDraft` del prototipo, in UN
+  posto del server (`services/department-access.ts`, `judgeDepartmentDraft`),
+  che la scrittura (R-3, R-4) usa tale e quale:
+  - `notGivable`: i permessi di progetto che chi guarda non ha in TUTTI i
+    progetti dove la bozza arriva (i progetti delle persone della bozza);
+  - `reach`: `"projects"` se arriva ad almeno un progetto, altrimenti
+    `"anywhere"` (F8-4 = a: la tabella resta modificabile);
+  - `missingToAdd[userId]`: per ogni persona attiva e umana fuori dalla
+    bozza, cosa riceverebbe entrando (o, se era fra i salvati, i soli
+    permessi aggiunti) senza che chi guarda lo abbia nei SUOI progetti;
+  - `missing`: ciò che la bozza così com'è darebbe senza averlo (vuoto = si
+    può salvare).
+  Un full admin non ha mai niente di mancante. I progetti che chi guarda non
+  vede contano nel calcolo (non li ha), ma non escono per nome.
+- **R-3 — La scrittura**: [Ruling] un campo `projectPermissions` facoltativo
+  nel `PATCH /api/departments/:id` (la bozza intera, UNA transazione, UNA
+  riconferma), non una rotta `PUT …/project-permissions` a parte (il design).
+  Due strade per la stessa scrittura sono due posti da tenere d'accordo.
+  - **La riconferma** (F8-3 = a): `partialReauth` sulla rotta, chiesta
+    quando il corpo AGGIUNGE un permesso di progetto, oppure aggiunge una
+    persona e il reparto, dopo la scrittura, dà almeno un permesso. Togliere
+    permessi o persone, il nome, il colore no.
+  - **I rifiuti**, prima di scrivere:
+    - 403 `escalation` con `permission` (il primo) e `missing: string[]`,
+      come i ruoli: è `missing` dell'anteprima;
+    - 400 `invalid_permission` con `permission` (non è un permesso di
+      progetto);
+    - 400 `not_a_person` (Claude, o un utente di sistema, fra le persone:
+      R-L9, Claude non riceve mai permessi);
+    - 403 `reauth_required`;
+    - 409 `last_manager` con `projectId` (e `projectCode` solo se chi guarda
+      lo vede) se togliere un permesso o una persona lascia un progetto senza
+      `project.members.manage` fuori dai full admin. È F8-5 = a, con
+      `keepingManagersIn` sui progetti toccati, nella stessa transazione.
+- **R-4 — Le persone**: le stesse regole sul `memberIds` dello stesso `PATCH`:
+  - chi ENTRA passa dall'escalation (i permessi del reparto nei suoi
+    progetti);
+  - chi ESCE passa da `last_manager`;
+  - l'eliminazione del reparto (`DELETE /api/departments/:id`) passa da
+    `last_manager` sui progetti a cui arrivava.
+- **R-5 — Le fonti**: `{ kind: "department", departmentId, departmentName }`
+  accanto a `role` e `grant` nelle tre letture qui sopra. `departmentName`
+  c'è anche in «Chi può farlo?».
+- **R-6 — Il registro**: `department.permissions_changed` con `params.added`,
+  `params.removed`, e `before`/`after` (l'insieme di prima e di dopo, ordinati,
+  separati da virgola), come il prototipo. Lo scrive la stessa transazione.
+- **R-7 — `/api/auth/me`**: niente di nuovo, i permessi del reparto entrano
+  da `memberPermissionsSql`.
+
+### Task
+
+#### Task 1 — La tabella e il calcolo (0196)
+
+- **0196**: `department_project_permissions` (`department_id` FK `ON DELETE
+  CASCADE`, `permission` text, `granted_by_user_id` FK `SET NULL`,
+  `granted_at`; PK `(department_id, permission)`). L'indice lo dà la PK. La
+  CHECK sui soli permessi di progetto no: la validazione sta nel servizio (il
+  catalogo cresce nel codice, non nel DB).
+- `memberPermissionsSql` aggiunge `∪` i permessi dei reparti dell'utente,
+  SOLO se è membro (il `case` sul ruolo resta: un non membro ha `null`), e mai
+  per un utente `is_agent`.
+- *Test*:
+  - un permesso di reparto apre la rotta di un progetto di cui la persona è
+    membro (`plans.approve`, per esempio), e uscire dal reparto la richiude;
+  - in un progetto di cui NON è membro non vede niente (il reparto non rende
+    membri);
+  - entra in `/api/auth/me`, in `who-can` (l'accordo con `can()`) e nel
+    conteggio dei gestori;
+  - NEGATIVO Claude: un `is_agent` messo a mano nel reparto non riceve
+    niente.
+  Le suite che chiamano `memberPermissionsSql` girano tutte (la lista dei
+  file nel commit).
+
+#### Task 2 — L'anteprima (F8-2 = a)
+
+- `judgeDepartmentDraft(db, actor, departmentId, draft)` in
+  `services/department-access.ts`, sulla regola di `missingToGrant` (UN
+  posto), coi permessi di chi agisce per progetto (`projectPermissionsMap`).
+- `POST /api/departments/:id/preview` (registrata prima delle altre `/:id`
+  con suffisso, la trappola di routing).
+- *Test*: gli stessi casi di `judgeDraft` del prototipo, cioè:
+  - una persona salvata tolta e rimessa;
+  - un permesso che chi agisce ha solo in uno dei progetti;
+  - un reparto senza progetti (`anywhere`);
+  - il full admin;
+  - un permesso che chi agisce ha solo dal suo reparto, che conta.
+
+#### Task 3 — Le scritture (F8-3, F8-5)
+
+- Il `PATCH` con `projectPermissions` e le regole sulle persone (R-3, R-4).
+- `partialReauth` con la regola di F8-3, come gli altri `partialReauth`, e
+  l'elenco chiuso di `route-access.test.ts`.
+- `DELETE` con `last_manager`.
+- La voce `department.permissions_changed`.
+- *Test*:
+  - per la riconferma, le quattro combinazioni: aggiungere un permesso;
+    aggiungere una persona a un reparto che ne dà; aggiungere una persona a
+    un reparto che non ne dà (non la chiede); togliere (non la chiede);
+  - i NEGATIVI: `escalation` coi `missing`, `last_manager` per permesso,
+    persona ed eliminazione, `not_a_person` per Claude, `invalid_permission`;
+  - lo stato invariato dopo ogni rifiuto, e la voce del registro col prima
+    e dopo.
+
+#### Task 4 — Le fonti e l'elenco
+
+- La fonte `department` nelle tre letture (R-5); `projectPermissions`
+  nell'elenco, solo a chi gestisce (R-1).
+- *Test*:
+  - la fonte in Members, nella pagina della persona e in «Chi può farlo?»;
+  - un permesso dato sia dal ruolo sia dal reparto ha due fonti;
+  - chi non gestisce i reparti riceve `[]`;
+  - il parse di una risposta di prima (senza i campi nuovi).
+
+#### Task 5 — Invarianti, deploy-log, review
+
+- `docs/invariants/permissions.md`: la voce «UNA funzione» col reparto, e
+  «nessuna escalation sul DARE» col reparto.
+- Deploy-log:
+  - **server → caddy**, il worker NON va ribuildato (legge
+    `memberPermissionsSql` da `@stubwise/db` buildato nella sua immagine: si
+    ribuilda solo se si vuole che le sue notifiche contino i reparti; a
+    decidere al rollout);
+  - **rollback**: il server vecchio ignora la tabella, quindi chi aveva un
+    permesso solo dal reparto lo PERDE. Va nel verso sicuro, ma un progetto
+    gestito solo via reparto resta senza gestore fuori dai full admin. La
+    query per trovarli va nella voce.
+- Review con un revisore fresco.
+
+### Review Focus
+
+- Un permesso di reparto che arriva in un progetto di cui la persona NON è
+  membro, o a Claude.
+- Un'aggiunta di persona, o di permesso, senza la riconferma; una
+  rimozione che la chiede.
+- Un'escalation che passa perché chi agisce non vede un progetto della
+  persona.
+- Una lettura delle fonti, o di `who-can`, che non vede il reparto mentre il
+  gate sì (o viceversa).
+- Un progetto lasciato senza gestore da un reparto (permesso, persona,
+  eliminazione).
+
+### Cosa il server di F8 non fa
+
+- I permessi d'istanza dei reparti, un reparto che rende membri, le azioni
+  di Claude sui reparti (come sopra).
+- La riconferma sul resto dei reparti (F8-3 = a).
