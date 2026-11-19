@@ -10937,7 +10937,7 @@
       "discardAsk_one": "Lasciar perdere {{count}} modifica?",
       "discardAsk_other": "Lasciar perdere {{count}} modifiche?",
       "saved": "Salvato",
-      "staleDraft": "Qualcun altro ha cambiato questo reparto mentre lo modificavi. Annulla le tue modifiche per vedere le sue, o salva le tue sopra.",
+      "staleDraft": "Qualcun altro ha cambiato questo reparto mentre lo modificavi. Annulla le tue modifiche per vedere le sue.",
       "previewLoading": "Controllo cosa puoi dare…",
       "previewError": "Non riesco a controllare cosa puoi dare.",
       "previewRetry": "Riprova",
