@@ -56,10 +56,175 @@ Gli stessi titoli nei due lati:
 
 ## Lato server
 
-> Di stubwise-72, da scrivere. Per ogni voce: cosa ha già il server (rotte,
-> tabelle, job del worker, tool della chat, catalogo), le lacune e lo stato
-> (**c'è**, **in parte**, **manca**). Il punto di partenza per il server è
-> `apps/desktop/docs/area11-parity.md`, «Per il prodotto vero» (11a, 11b).
+> Di stubwise-72 (19 nov 2026), su `feat/integrazione-area9` 91f3174dc,
+> partendo da `apps/desktop/docs/area11-parity.md`, «Per il prodotto vero»
+> (11a e 11b). Per ogni voce: cosa ha già il server (rotte, tabelle, job del
+> worker, tool della chat, catalogo), le lacune e lo stato (**c'è**, **in
+> parte**, **manca**).
+
+### I fatti del codice che cambiano il lavoro
+
+- **La serie `-D` è legata a un repository.** `doc_page_codes` (0142) ha
+  `repository_id NOT NULL` e l'unicità `(repository_id, slug)`. Il codice lo
+  dà il trigger `doc_pages_code` a ogni `doc_pages` nuova. Una pagina di
+  prodotto non ha repository: la serie condivisa vuole una colonna
+  `product_page_id` (con `repository_id` nullable e una CHECK «uno dei due»)
+  e un trigger gemello, oppure un repository finto `product`. Il prototipo
+  riserva quel nome fra i repository, ma sul server un repository porta git,
+  mirror, webhook, grafo e il giro notturno (D-9).
+- **I permessi ci sono**: `docs.view` e `docs.edit` (e `docs.generate`) sono
+  permessi di progetto, e il modulo Docs del progetto (fetta 4) spegne la
+  sezione. Valgono le regole di sempre: invisibile = 404, nella WHERE, e un
+  archiviato come uno che non c'è (F6, `inProjects` / `projectNotArchived`).
+- **I file hanno già dove stare.** Lo storage d'istanza (S3) del Drive e
+  degli allegati: le immagini delle pagine (D-3 a) ci entrano. Ma
+  l'eliminazione di un progetto (F6) toglie dallo storage SOLO le chiavi che
+  `storageKeysOf` conosce (`project-archive.ts`). Le immagini di prodotto
+  vanno aggiunte lì, o restano orfane sul volume.
+- **Il canale in tempo reale non c'è per pagina.** L'SSE di oggi è delle
+  sessioni degli agenti (`GET /api/agent-sessions/:id/stream`) e della chat
+  LLM: legato a una sessione, monodirezionale, coi permessi della
+  sessione. La presenza a due mani (D-2 a) è un canale nuovo, coi permessi
+  ricalcolati a ogni evento (`docs.edit` per scrivere in presenza).
+- **L'origine della richiesta NON si allarga in modo additivo.**
+  `projectRequestSchema.origin` è un oggetto con `kind: z.literal("support")`,
+  non un'unione aperta. Un `kind: "product_doc"` fa fallire il parse
+  dell'INTERA lista delle richieste ai client vecchi (app e desktop di
+  prima). Serve un campo a sé, `productOrigin` (nullable, default null), o
+  un'unione con un client che la apra (D-10).
+- **Tre `notification_kind` nuovi** (`product_doc.mention`, `.updated`,
+  `.question`).
+  - Ognuno è una `ALTER TYPE … ADD VALUE` in uno statement a sé, non usabile
+    nello stesso batch.
+  - Ognuno ha la sua voce di rollback: niente discesa d'immagine sul server
+    finché ne esistono righe (500 su `/api/inbox`).
+  - I campi della card si derivano a lettura (CLAUDE.md), compreso
+    `objectGone`.
+- **Il worker ha già i pezzi del 11b, non il lavoro.** Ci sono:
+  - il giro notturno, con la coda `nightly_items` che riprende dopo la quota
+    e i riassunti dei commit una volta sola;
+  - il serializer per progetto;
+  - i job `held`, con `heldReasonSchema` = `limit` | `budget` | `other`;
+  - i punti d'arrivo delle fonti: la posta classificata (il poller Google),
+    le riunioni (`meeting_notes`), il registro decisioni, la chiusura di una
+    task, il rilascio.
+  Manca il job che rilegge una fonte e scrive in una pagina.
+  `heldReasonSchema` non dice «per pagina»: la riga «riprende quando il
+  budget torna» per pagina è una tabella o un campo nuovi.
+- **Le fonti private hanno le loro regole.** L'audience `mailbox_owner` non
+  include MAI gli admin (`docs/invariants/mail-calendar.md`), e la posta
+  non entra nella cronologia della ricerca. La §21 del prototipo («da
+  un'email di <titolare>», senza oggetto né testo a chi non la può aprire) è
+  la stessa famiglia: la vista della fonte va calcolata dal server per chi
+  guarda, mai dal client.
+- **Il registro decisioni non è mai scritto dall'AI**
+  (`decisions-never-ai.test.ts`, sul sorgente e a runtime). Il lavoro del
+  11b non deve nominare chi lo scrive. Il prototipo lo prova con
+  `neverWritesDecisions.test.ts`: va portato come test del worker.
+- **I commenti dei ticket hanno già la regola del testo eliminato** (`body
+  = ''` con una CHECK, `deleted_at`). I commenti di prodotto sono un'altra
+  tabella, ma la stessa regola conviene da subito (il prototipo non
+  modifica né elimina, minore aperto).
+- **La ricerca dei Docs è ibrida** (pgvector bge-m3 più full-text,
+  `retrieveChunks…` in `@stubwise/db`) sui `doc_chunks` delle pagine di un
+  repository. «In Product» e le citazioni nella chat dei Docs vogliono i
+  chunk anche per le pagine di prodotto, e il loro embedding: un job del
+  worker, che è l'unico che chiama ollama per i Docs.
+- **`docx` è solo del desktop** (`apps/desktop`, con l'override di
+  `@types/node` nella radice). Un'esportazione sul server (D-4 b) porta la
+  dipendenza nell'immagine del server.
+- **Le azioni di Claude dell'area 11** entrano nel catalogo del server come
+  le altre. Le funzioni del catalogo stanno in `services/`, mai in una rotta:
+  da F7 il test `claude-actions-effects.test.ts` controlla che il catalogo
+  non raggiunga niente che esca da solo. Il job del 11b, invece, scrive dal
+  worker, fuori dal catalogo, col segno `via` della sua revisione.
+- **Il registro delle modifiche**: l'area 11 nel prototipo non vi scrive.
+  Se il server ne scrivesse (pagina creata, eliminata, spostata), il tipo va
+  dichiarato nel catalogo del registro (`packages/shared/src/change-log.ts`)
+  e il prototipo allineato.
+
+### Le voci
+
+1. **Lo spazio — manca.** Mancano tabelle, rotte, la serie `-D` per le
+   pagine senza repository (D-9) e il 404 per l'archiviato.
+2. **L'editor e il salvataggio — manca.** Mancano le operazioni (D-1), gli id
+   dei blocchi mai riusati (una sequenza per pagina, non `max + 1`), la
+   validazione degli `href` sul server (solo `http(s)`, la terza copia della
+   tabella di casi) e i riferimenti a Drive, decisioni e wireframe validati
+   con la visibilità di chi salva.
+3. **Commenti e menzioni — manca.** Mancano la tabella, le rotte,
+   `product_doc.mention` e il testo eliminato come per i ticket.
+4. **La cronologia — manca.** Mancano le revisioni per sessione, «Undo»
+   come revisione nuova e lo stato di «Undo» calcolato dal server per chi
+   guarda.
+5. **Seguire — manca.** Una tabella `(page_id, user_id)` e i destinatari di
+   Claude (chi segue, altrimenti chi ha `docs.edit`, mai Claude).
+6. **Dal vivo — manca** (D-2). Il canale non c'è.
+7. **L'esportazione — manca** (D-4). Serve una lettura apposta, con i
+   commenti esclusi.
+8. **La ricerca e le citazioni — manca.** Mancano i chunk, l'embedding (un
+   job del worker), l'ambito nella ricerca globale e le citazioni `doc` della
+   chat dei Docs (`chat/citations.ts`) estese alle pagine di prodotto.
+9. **Claude dalle fonti — manca.** Mancano il job del worker (D-5), la
+   tabella dei segni, `decideFact` in `@stubwise/shared` (una regola per
+   worker, server e client), e il prompt più il controllo sul risultato, a
+   due livelli.
+10. **Le domande — manca.** Sono commenti di Claude con la loro parte di
+    domanda, una vista per chi legge (mai `sourceRef`), la risposta e
+    `product_doc.question`.
+11. **La prima versione — manca.** Un job interrompibile, le fonti viste da
+    chi lancia, «Undo» dalle foglie.
+12. **Il backlog da una pagina — manca**, e l'origine non è additiva sullo
+    schema di oggi (D-10).
+13. **I wireframe — manca.** Chi li disegna è il modello, e lo SVG
+    prodotto va ripulito sul server (niente script, niente riferimenti
+    esterni) prima di salvarlo e di esportarlo come PNG.
+14. **Le notifiche — manca**: tre kind, col rollback di ciascuno.
+15. **Le azioni di Claude — manca**: sei voci nel catalogo, più le letture
+    per il modello (le pagine, i cambi della settimana) come tool della
+    chat con l'allowlist del ponte.
+16. **Le superfici fuori dallo spazio — manca.** La card nella Home dei Docs,
+    «Decide», «From the doc» (dopo D-10) e il lavoro nello Stato
+    dell'istanza (un `kind` nuovo nelle sue righe).
+
+### Le fette viste dal server
+
+- **S11-1, lo spazio e l'editor**: tabelle, serie `-D`, operazioni,
+  revisioni, seguire, 404 e archiviati, storage con l'eliminazione del
+  progetto.
+- **S11-2, commenti e menzioni**: `product_doc.mention` col rollback.
+- **S11-3, ricerca, citazioni, esportazione**: chunk ed embedding dal worker.
+- **S11-4, dal vivo**: il canale, se D-2 = a.
+- **S11-5, Claude dalle fonti e le domande**: il job, i segni, `decideFact`
+  condivisa, due kind.
+- **S11-6, prima versione, wireframe, backlog, catalogo**.
+
+### [DECIDE] del server
+
+- **D-9 — La serie `-D` per le pagine di prodotto.**
+  - **(a) consigliata**: `doc_page_codes` con `product_page_id` accanto a
+    `repository_id` (uno dei due, CHECK) e un trigger sulle pagine di
+    prodotto: la stessa numerazione per progetto, mai riusata, e le
+    citazioni `doc` che già la leggono.
+  - (b) un repository finto `product` per progetto: niente colonne nuove, ma
+    un repository che git, mirror, webhook, grafo e giro notturno devono
+    imparare a saltare, ovunque.
+- **D-10 — L'origine «dalla doc» di una richiesta.**
+  - **(a) consigliata**: un campo additivo `productOrigin: { pageId, pageCode,
+    anchorId, questionId } | null` (default null), accanto a `origin`, che
+    resta `support`. Un client vecchio lo ignora.
+  - (b) `origin` come unione discriminata: più pulita, ma i client di prima
+    non parsano più le liste delle richieste che ne contengono una.
+- **D-11 — Dove sta il corpo.**
+  - **(a) consigliata**: un `jsonb` per pagina coi blocchi, più una sequenza
+    di id per pagina, e le revisioni a parte. Le operazioni della D-1
+    lavorano sul jsonb sotto un `FOR UPDATE` della pagina.
+  - (b) una riga per blocco: ancore e revisioni per blocco più naturali, ma
+    ogni lettura di una pagina ricompone l'ordine.
+- **D-12 — Le pagine di prodotto nel registro delle modifiche.**
+  - **(a) consigliata**: no, come il prototipo: la cronologia della pagina è
+    la sua storia, e il registro resta delle impostazioni e dell'accesso.
+  - (b) sì per creare, eliminare e spostare: il prototipo va allineato.
 
 ## Lato renderer
 
