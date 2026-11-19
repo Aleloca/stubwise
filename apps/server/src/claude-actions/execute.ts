@@ -145,7 +145,12 @@ async function runGroup(
           entry.access.kind === "user"
             ? // Le cose personali (un filtro): basta essere la persona, come la rotta.
               { ok: true as const, projectId: null, permissions: new Set<ProjectPermission>() }
-            : await evaluateProjectAccess(
+            : entry.access.kind === "instance"
+              ? // Area 9, F7: un'impostazione d'istanza, col permesso d'istanza di chi chiede (come la rotta).
+                user.instancePermissions.has(entry.access.permission)
+                ? { ok: true as const, projectId: null, permissions: new Set<ProjectPermission>() }
+                : { ok: false as const, error: "forbidden" as const }
+              : await evaluateProjectAccess(
                 syntheticRequest(tx as unknown as Db, user, await entry.request(args, tx as unknown as Db)),
                 tx as unknown as Db,
                 user,
@@ -159,7 +164,7 @@ async function runGroup(
               : failure(
                   access.error,
                   index,
-                  access.error === "forbidden" && entry.access.kind === "project" ? { permission: entry.access.permission } : {},
+                  access.error === "forbidden" && (entry.access.kind === "project" || entry.access.kind === "instance") ? { permission: entry.access.permission } : {},
                 ),
           );
         }
@@ -247,12 +252,14 @@ export function inverseAsksConfirmation(result: Extract<ExecuteResult, { ok: tru
 export function classOfGroup(
   actions: readonly PlannedAction[],
   dry: Extract<ExecuteResult, { ok: true }>,
-): { cls: "A" | "B"; reasons: ClaudeClassReason[] } {
+): { cls: "A" | "B" | "C"; reasons: ClaudeClassReason[] } {
   const reasons: ClaudeClassReason[] = [];
   if (dry.notified.length > 0) reasons.push({ kind: "notifies", personIds: [...dry.notified].sort(), more: false });
   // Il lavoro di Claude che parte (Claude assegnato): sempre una conferma, come `startRun`.
   if (dry.actions.some((a) => a.startsWork === true)) reasons.push({ kind: "starts_work" });
   if (dry.actions.some((a) => a.inverse === null)) reasons.push({ kind: "irreversible" });
+  // Area 9, F7: la classe più alta delle azioni; una C resta C (la riconferma).
+  if (actions.some((a) => declaredClassOf(a.fn) === "C")) return { cls: "C", reasons };
   const declared = actions.some((a) => declaredClassOf(a.fn) === "B") ? "B" : "A";
   return { cls: declared === "B" || reasons.length > 0 ? "B" : "A", reasons };
 }

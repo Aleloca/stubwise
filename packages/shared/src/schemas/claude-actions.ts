@@ -5,6 +5,7 @@ import { milestoneDraftSchema } from "./milestone.js";
 import { newRequestBodySchema } from "./project-request.js";
 import { mailComposeModeSchema } from "./mail-compose.js";
 import { liveRowTypes } from "../alerts/catalog.js";
+import { createPluginSchema, updatePluginRefSchema } from "./plugin.js";
 
 /**
  * Il catalogo delle azioni di Claude (chat, fetta 3): l'elenco CHIUSO di ciò
@@ -45,6 +46,12 @@ export const CLAUDE_ACTION_FNS = [
   "deleteTask",
   // Area 8, F2 (review): l'«Annulla» di un setSubscription su una riga senza scelta salvata.
   "resetSubscription",
+  // Area 9, F7, Task 2: le C (la loro rotta chiede la riconferma).
+  "addMember",
+  "removeMember",
+  "setMemberRole",
+  "registerPlugin",
+  "updatePluginRef",
 ] as const;
 export const claudeActionFnSchema = z.enum(CLAUDE_ACTION_FNS);
 export type ClaudeActionFn = z.infer<typeof claudeActionFnSchema>;
@@ -55,8 +62,13 @@ export const CLAUDE_INVERSE_ONLY_FNS: readonly ClaudeActionFn[] = ["deleteTask",
 /** Le `fn` che Claude può proporre (il catalogo meno gli inversi). */
 export const CLAUDE_PROPOSABLE_FNS = CLAUDE_ACTION_FNS.filter((f) => !CLAUDE_INVERSE_ONLY_FNS.includes(f));
 
-/** La classe dichiarata: A parte subito (con «Annulla»), B chiede conferma. La C (riconferma) è la fetta 4. */
-export const CLAUDE_DECLARED_CLASS: Record<ClaudeActionFn, "A" | "B"> = {
+/**
+ * La classe dichiarata: A parte subito (con «Annulla»), B chiede conferma, C
+ * chiede la conferma CON la riconferma di chi conferma (area 9, F7). La C non
+ * si sceglie: è quella delle voci la cui rotta ha `config.reauth` (il test
+ * d'accordo `claude-actions-class.test.ts` le tiene uguali).
+ */
+export const CLAUDE_DECLARED_CLASS: Record<ClaudeActionFn, "A" | "B" | "C"> = {
   createTask: "A",
   updateTask: "A",
   planTask: "A",
@@ -79,6 +91,12 @@ export const CLAUDE_DECLARED_CLASS: Record<ClaudeActionFn, "A" | "B"> = {
   deleteTask: "B",
   // Riporta al default le iscrizioni di chi chiede: nessun altro è avvisato.
   resetSubscription: "A",
+  // Area 9, F7: le rotte chiedono la riconferma (`config.reauth`): C.
+  addMember: "C",
+  removeMember: "C",
+  setMemberRole: "C",
+  registerPlugin: "C",
+  updatePluginRef: "C",
 };
 
 const id = z.uuid();
@@ -135,6 +153,17 @@ export const CLAUDE_ACTION_ARGS = {
     .refine((a) => a.app !== undefined || a.phone !== undefined, { message: "app or phone" }),
   deleteTask: z.object({ id }),
   resetSubscription: z.object({ projectId: id, type: z.enum(liveRowTypes() as [string, ...string[]]) }).strict(),
+  // Area 9, F7: i membri (`PUT`/`DELETE /api/projects/:projectId/members/:userId`),
+  // senza i permessi personali (li dà solo una persona, dalla pagina).
+  addMember: z.object({ projectId: id, userId: id, roleId: id }).strict(),
+  removeMember: z.object({ projectId: id, userId: id }).strict(),
+  setMemberRole: z.object({ projectId: id, userId: id, roleId: id }).strict(),
+  // I plugin (M-6 = a): `trust: true` OBBLIGATORIO, come la rotta. Registrare
+  // un plugin ne ESEGUE il codice (lo smoke run parte da solo): Claude lo
+  // propone solo se la persona ha detto che si fida di quel repository e
+  // di quel commit, e la scheda lo dice.
+  registerPlugin: createPluginSchema.extend({ trust: z.literal(true) }).strict(),
+  updatePluginRef: updatePluginRefSchema.extend({ id, trust: z.literal(true) }).strict(),
 } satisfies Record<ClaudeActionFn, z.ZodType>;
 
 export const claudeProposedActionSchema = z.object({
@@ -180,7 +209,8 @@ export type ClaudeActionFailure = z.infer<typeof claudeActionFailureSchema>;
 export const claudeProposalViewSchema = z.object({
   id: z.uuid(),
   sessionId: z.uuid(),
-  actions: z.array(claudeProposedActionSchema),
+  // Area 9, F7: `reauth` per azione (una C non scelta in «Conferma 2 di 3» non la chiede). False da un server di prima.
+  actions: z.array(claudeProposedActionSchema.extend({ reauth: z.boolean().default(false) })),
   summary: z.string(),
   cls: z.enum(["A", "B", "C"]),
   reasons: z.array(claudeClassReasonSchema).default([]),
@@ -191,6 +221,12 @@ export const claudeProposalViewSchema = z.object({
   groupId: z.uuid().nullable().default(null),
   undoOfGroupId: z.uuid().nullable().default(null),
   createdAt: z.iso.datetime(),
+  /**
+   * Area 9, F7 (M-3 = a): la conferma chiede la riconferma (il gruppo ha una
+   * C). Un campo a sé e non un motivo nuovo dell'unione dei motivi, che
+   * `readerSchema` non apre. False da un server che non lo manda.
+   */
+  reauth: z.boolean().default(false),
 });
 export type ClaudeProposalView = z.infer<typeof claudeProposalViewSchema>;
 
