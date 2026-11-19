@@ -89,7 +89,7 @@ async function asked(text = "archive projects with no activity for 90 days") {
 }
 
 describe("S4 Roberta: archiviare in blocco", () => {
-  it("una scheda con tre `archiveProject`, i loro `why` e la nota `busy` di BSC", async () => {
+  it("una scheda con tre `archiveProject` e i loro `why`; BSC occupato non è sulla scheda (D-9 = a)", async () => {
     const { card } = await asked();
     expect(card.status).toBe("open");
     expect(card.actions.map((a) => a.fn)).toEqual([
@@ -105,13 +105,10 @@ describe("S4 Roberta: archiviare in blocco", () => {
         params: { date: lastActivityOf(a.args.projectId as string)! },
       });
     }
-    expect(card.notes).toEqual([
-      {
-        kind: "busy",
-        code: "BSC",
-        reasons: projectSettings.busyReasonsOf("prj-bsc", ROBERTA),
-      },
-    ]);
+    // Area 10, D-9 = a: le righe non fattibili le nomina la prosa, non la scheda.
+    expect(card.notes).toBeUndefined();
+    expect(card.actions.some((a) => a.args.projectId === "prj-bsc")).toBe(false);
+    expect(projectSettings.busyReasonsOf("prj-bsc", ROBERTA)).not.toEqual([]);
     expect(card.blocked).toBeUndefined();
   });
 
