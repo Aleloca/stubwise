@@ -95,8 +95,10 @@ il modello vero.
   tale, ma l'inizio inventato (`{ kind: "support.request" }`, nessun filtro):
   il contratto non diceva com'è fatto un flusso. Da lì il contratto porta
   `claudeAutomationGuide()` (`@stubwise/shared`, eventi e campi dal motore,
-  un esempio che il motore valida in un test); il giro va rifatto con corse
-  nuove, autorizzate a parte.
+  un esempio che il motore valida in un test). **Secondo giro, 20 nov 2026**
+  (CLI 2.1.322, 3 corse nuove autorizzate): 3/3 verdi — la domanda, poi la
+  bozza con `request_created`, urgenza alta e supporto, `notify` al reparto
+  Supporto, «spenta, la accendi tu».
   Dalla F2 dell'area 8 (S7, azione `setSubscription`) anche
   `chat-subscription` (3 volte): «non avvisarmi più delle PR aperte in AUD»
   → UNA proposta `setSubscription {projectId, type: "pr.opened", app:
