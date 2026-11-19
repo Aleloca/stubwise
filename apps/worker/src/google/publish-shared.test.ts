@@ -12,7 +12,7 @@ import {
   users,
   type Db,
 } from "@stubwise/db";
-import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { publishSharedProposals } from "./publish-shared.js";
@@ -37,7 +37,7 @@ afterEach(async () => {
   await db.delete(googleAccounts);
   await db.delete(googleWorkspaces);
   await db.delete(projectMembers);
-  await db.delete(projects);
+  await deleteAllProjects(db);
 });
 afterAll(async () => {
   await testDb.stop();

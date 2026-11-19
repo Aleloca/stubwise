@@ -89,7 +89,11 @@ function fake(over: Partial<ProjectArchiveApi> = {}) {
   const api: ProjectArchiveApi = {
     preview: async (id) => {
       calls.push(`preview ${id}`);
-      return { openAutomationRuns: 2, busy: SERVER_REASONS };
+      return {
+        openAutomationRuns: 2,
+        busy: SERVER_REASONS,
+        publicSurfaces: { sdk: true, widget: false, inbound: false, gitWebhook: true },
+      };
     },
     archive: async (id) => {
       calls.push(`archive ${id}`);
@@ -120,7 +124,12 @@ function fake(over: Partial<ProjectArchiveApi> = {}) {
 describe("archiviare e riaprire un progetto dal server", () => {
   it("l'anteprima: le esecuzioni che si annullano e le ragioni nella forma del renderer", async () => {
     const r = await createRealProjectArchive(fake().api).getArchivePreview("p1");
-    expect(r).toEqual({ ok: true, openAutomationRuns: 2, busy: RENDERER_REASONS });
+    expect(r).toEqual({
+      ok: true,
+      openAutomationRuns: 2,
+      busy: RENDERER_REASONS,
+      publicSurfaces: { sdk: true, widget: false, inbound: false, gitWebhook: true },
+    });
   });
 
   it("l'anteprima parsa la risposta: i campi assenti prendono il default", async () => {
@@ -128,10 +137,12 @@ describe("archiviare e riaprire un progetto dal server", () => {
       preview: async () => ({ busy: [{ kind: "release", code: "WEB-V1" }] }),
     });
     const r = await createRealProjectArchive(api).getArchivePreview("p1");
+    // Un server più vecchio non manda publicSurfaces: tutto false.
     expect(r).toEqual({
       ok: true,
       openAutomationRuns: 0,
       busy: [{ kind: "release", code: "WEB-V1" }],
+      publicSurfaces: { sdk: false, widget: false, inbound: false, gitWebhook: false },
     });
   });
 
@@ -142,6 +153,7 @@ describe("archiviare e riaprire un progetto dal server", () => {
       ok: true,
       openAutomationRuns: 0,
       busy: [{ kind: "claude_session", code: null, title: null, waiting: false }],
+      publicSurfaces: { sdk: false, widget: false, inbound: false, gitWebhook: false },
     });
   });
 

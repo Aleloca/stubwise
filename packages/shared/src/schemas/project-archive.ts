@@ -26,10 +26,31 @@ export const busyReasonSchema = z.object({
 });
 export type BusyReason = z.infer<typeof busyReasonSchema>;
 
-/** Cosa dice il dialogo prima di archiviare: le esecuzioni che si annulleranno e le ragioni di `busy`. */
+/**
+ * Le superfici pubbliche che il progetto USA davvero, e che archiviare spegne
+ * (decisione del maintainer, 19 nov 2026: un archiviato le ferma tutte).
+ * - `sdk`: almeno un ticket dall'SDK (`sdk_error`/`sdk_feedback`) negli
+ *   ultimi 90 giorni (ogni progetto ha una chiave: la chiave sola non dice
+ *   che si usa);
+ * - `widget`: almeno un widget di Support acceso;
+ * - `inbound`: almeno un ticket dall'ingresso (`webhook`) negli ultimi 90
+ *   giorni (l'ingresso non ha una configurazione: si usa con la chiave);
+ * - `gitWebhook`: almeno un repository col webhook configurato.
+ * Additivo: `false` da un server che non lo manda.
+ */
+export const publicSurfacesSchema = z.object({
+  sdk: z.boolean().default(false),
+  widget: z.boolean().default(false),
+  inbound: z.boolean().default(false),
+  gitWebhook: z.boolean().default(false),
+});
+export type PublicSurfaces = z.infer<typeof publicSurfacesSchema>;
+
+/** Cosa dice il dialogo prima di archiviare: le esecuzioni che si annulleranno, le ragioni di `busy`, le superfici che si spengono. */
 export const archivePreviewSchema = z.object({
   openAutomationRuns: z.number().int().default(0),
   busy: z.array(busyReasonSchema).default([]),
+  publicSurfaces: publicSurfacesSchema.default({ sdk: false, widget: false, inbound: false, gitWebhook: false }),
 });
 export type ArchivePreview = z.infer<typeof archivePreviewSchema>;
 

@@ -17,6 +17,7 @@ import {
   gitAccounts,
   googleAccounts,
   googleWorkspaces,
+  graphJobs,
   projectEnvironments,
   projectStatuses,
   projects,
@@ -447,4 +448,17 @@ export async function seedDecisionRequest(
     })
     .returning({ id: decisionRequests.id });
   return { id: row!.id };
+}
+
+/**
+ * Area 9, F6: la pulizia di TUTTI i progetti nei test. Eliminare un progetto
+ * STACCA i suoi repository (0193, `ON DELETE SET NULL`) e i job del grafo non
+ * hanno più la FK sul repository (0194): una `delete(projects)` da sola li
+ * lascia lì, e si accumulano fra un test e l'altro (doc_generations,
+ * commit, job…). Gli account git restano: chi li vuole via li toglie dopo.
+ */
+export async function deleteAllProjects(db: Db): Promise<void> {
+  await db.delete(graphJobs);
+  await db.delete(repositories);
+  await db.delete(projects);
 }

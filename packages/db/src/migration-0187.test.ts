@@ -61,13 +61,13 @@ describe("0187: il registro delle modifiche", () => {
     expect(still!.data).toEqual(row.data);
   });
 
-  it("eliminare l'utente o il progetto azzera il riferimento, e la voce resta com'era", async () => {
+  it("eliminare l'utente azzera l'attore; eliminare il progetto NO (0193, L-3: la voce tiene il suo id); la voce resta com'era", async () => {
     const p = await person();
     const { projectId } = await seedRepository(t.db);
     const row = await entry(p, projectId);
     await t.db.delete(users).where(eq(users.id, p.id));
     await t.db.delete(projects).where(eq(projects.id, projectId));
     const [after] = await t.db.select().from(changeLog).where(eq(changeLog.id, row.id));
-    expect(after).toMatchObject({ actorUserId: null, projectId: null, actorEmail: p.email, type: "role.created", data: row.data });
+    expect(after).toMatchObject({ actorUserId: null, projectId, actorEmail: p.email, type: "role.created", data: row.data });
   });
 });

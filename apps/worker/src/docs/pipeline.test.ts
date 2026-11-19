@@ -1,5 +1,5 @@
-import { docGenerations, projects, repositories, type Db } from "@stubwise/db";
-import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { docGenerations, repositories, type Db } from "@stubwise/db";
+import { deleteAllProjects, seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { pruneOldGenerations } from "./pipeline.js";
@@ -19,7 +19,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterEach(async () => {
-  await testDb.db.delete(projects);
+  await deleteAllProjects(testDb.db);
 });
 
 afterAll(async () => {

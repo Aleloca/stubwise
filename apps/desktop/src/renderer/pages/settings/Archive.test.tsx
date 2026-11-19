@@ -189,6 +189,27 @@ describe("Archive: il dialogo", () => {
     ).toBeVisible();
   });
 
+  it("le superfici pubbliche che si fermano, solo quelle attive su ACQ (decisione del maintainer, F6)", async () => {
+    const user = userEvent.setup();
+    // ACQ: un errore dall'SDK di ieri e un widget acceso; nessun ingresso HTTP, nessun webhook git.
+    for (const t of state.tasks) if (t.projectId === ACQ) t.source = "manual";
+    Object.assign(state.tasks.find((t) => t.projectId === ACQ)!, {
+      source: "sdk",
+      createdAt: new Date(Date.now() - 86_400_000).toISOString(),
+    });
+    for (const w of state.supportWidgets) w.enabled = w.projectId === ACQ;
+    for (const r of state.repositories)
+      if (r.projectId === ACQ)
+        r.webhook = { state: "not_configured", configuredAt: null, secretId: null, last4: null };
+    await open(LAURA);
+    await user.click(archiveButton());
+    const dialog = await screen.findByRole("dialog", { name: "Archive ACQ?" });
+    expect(await within(dialog).findByText("The SDK on its sites stops working.")).toBeVisible();
+    expect(within(dialog).getByText("Its Support widget stops working.")).toBeVisible();
+    expect(within(dialog).queryByText("Its inbound API stops accepting tasks.")).toBeNull();
+    expect(within(dialog).queryByText("Its git webhooks stop working.")).toBeNull();
+  });
+
   it("Cancel chiude e il fuoco torna al bottone; «Open Archived» del toast apre la scheda", async () => {
     const user = userEvent.setup();
     const router = await open(LAURA);

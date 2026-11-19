@@ -3365,6 +3365,12 @@
         "readable": "Its members and full admins can still read it, in Archived.",
         "automations": "Its automations stop and no new Claude work starts.",
         "nothingDeleted": "Nothing is deleted: Reopen brings it back as it was.",
+        "surfaces": {
+          "sdk": "The SDK on its sites stops working.",
+          "widget": "Its Support widget stops working.",
+          "inbound": "Its inbound API stops accepting tasks.",
+          "gitWebhook": "Its git webhooks stop working."
+        },
         "openRuns_one": "{{count}} automation run still open will be cancelled.",
         "openRuns_other": "{{count}} automation runs still open will be cancelled.",
         "archive": "Archive",

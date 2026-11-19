@@ -171,6 +171,8 @@ describe("isIntegrated", () => {
         // Area 9, F5: Integration.
         "projectSettings:integration",
         "projectSettings:plugins",
+        // Area 9, F6: Archive, con Amministrazione → Repositories.
+        "projectSettings:archive",
         "admin:departments",
         // Area 9, F1, R9: «Chi può farlo?».
         "admin:who-can",
@@ -188,6 +190,7 @@ describe("isIntegrated", () => {
         "admin:plugins",
         "admin:storage",
         "admin:status",
+        "admin:repositories",
         "feature:ai-automation",
         "feature:ai-providers",
         "feature:ai-models",
