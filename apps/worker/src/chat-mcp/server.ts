@@ -90,6 +90,9 @@ export const PROPOSABLE_FNS = [
   "rerunSmoke",
   "removePlugin",
   "updateWebhook",
+  "createAutomation",
+  "saveAutomationDraft",
+  "deleteAutomationDraft",
 ] as const;
 
 /** Copia di `CHAT_INSTANCE_SECTIONS` (area 9, F7; test d'allineamento): le sezioni di `read_instance_settings`. */
@@ -101,8 +104,10 @@ const TOOL_USE_META = "claudecode/toolUseId";
 export interface ChatMcpConfig {
   bridgeUrl: string;
   secret: string;
-  /** Solo nei turni di @Claude nella Chat: il tool `ask_question` (area 4, fetta 3). */
+  /** Il tool `ask_question`: nei turni di @Claude nella Chat (area 4) e della conversazione libera (area 10, F2). */
   askQuestion?: boolean;
+  /** Area 10, F1 (review I3): un turno di @Claude nella Chat — niente posta né calendario. */
+  mention?: boolean;
 }
 
 export function loadChatMcpConfig(env: NodeJS.ProcessEnv): ChatMcpConfig {
@@ -110,7 +115,12 @@ export function loadChatMcpConfig(env: NodeJS.ProcessEnv): ChatMcpConfig {
   const secret = env["CHAT_BRIDGE_SECRET"];
   if (!bridgeUrl) throw new Error("CHAT_BRIDGE_URL mancante");
   if (!secret) throw new Error("CHAT_BRIDGE_SECRET mancante");
-  return { bridgeUrl, secret, ...(env["CHAT_ASK_QUESTION"] === "1" ? { askQuestion: true } : {}) };
+  return {
+    bridgeUrl,
+    secret,
+    ...(env["CHAT_ASK_QUESTION"] === "1" ? { askQuestion: true } : {}),
+    ...(env["CHAT_MENTION"] === "1" ? { mention: true } : {}),
+  };
 }
 
 type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
@@ -150,6 +160,7 @@ export function buildChatMcpServer(config: ChatMcpConfig, fetchImpl: typeof fetc
       >[2],
     );
   register("list_projects", "List the Stubwise projects the user can see: id, code, name, description.", {});
+  register("list_departments", "List the departments of this Stubwise instance: id and name (use the id to notify a department in an automation step).", {});
   register(
     "list_people",
     "List the people the user can see (id, name, initials, departments), to find an assignee by name. The row marked isClaude is Claude itself: assigning it starts Claude's work, only in claudeAssignableProjectIds.",
@@ -226,7 +237,7 @@ export function buildChatMcpServer(config: ChatMcpConfig, fetchImpl: typeof fetc
   );
   // Area 10, F1 (review I3): posta e calendario non ci sono nei turni di @Claude
   // nella Chat (la risposta sta in un canale, ospiti compresi).
-  if (!config.askQuestion) {
+  if (!config.mention) {
     register(
       "read_mail_thread",
       `Read one email conversation of the person's own mailboxes, from the conversation context (ref = <accountId>/<threadId>): subject, who wrote, when, and an excerpt of each message. ${UNTRUSTED_MAIL_NOTE_MCP}`,
@@ -268,7 +279,7 @@ export function buildChatMcpServer(config: ChatMcpConfig, fetchImpl: typeof fetc
   if (config.askQuestion) {
     register(
       "ask_question",
-      "Ask the person who called you ONE multiple-choice question, when you cannot go on without a choice only they can make. Then end your turn: they answer and you continue. Only once per call.",
+      "Ask the person ONE multiple-choice question, when you cannot go on without a choice only they can make. Then end your turn: they answer and you continue. Only once per answer.",
       {
         question: z.string().min(1).max(500).describe("The question, short, in the person's language"),
         options: z

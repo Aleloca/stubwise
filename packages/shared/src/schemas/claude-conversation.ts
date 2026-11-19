@@ -215,6 +215,8 @@ export const CHAT_READ_TOOLS = [
   // Solo le caselle e il calendario di chi chiede (`mailbox_owner`): mai di un altro, neanche per un admin.
   "read_mail_thread",
   "read_calendar_event",
+  // Area 10, F2 (S1): i reparti, per «avvisa un reparto» in un'automazione.
+  "list_departments",
 ] as const;
 /** Area 9, F7: le sezioni di `read_instance_settings`, una rotta ciascuna (coi suoi permessi). */
 export const CHAT_INSTANCE_SECTIONS = ["providers", "git_accounts", "google_apps", "webhooks", "plugins", "models", "automation", "instance"] as const;
@@ -240,7 +242,41 @@ export const CHAT_ASK_TOOL = "ask_question" as const;
  * libera privata (`chat_tool_private_only`).
  */
 export const CHAT_PRIVATE_READ_TOOLS: readonly ChatReadToolName[] = ["read_mail_thread", "read_calendar_event"];
+/**
+ * Area 10, F2: i tool di un turno della conversazione LIBERA — tutti, più la
+ * domanda a scelta (`ask_question`), che lì scrive il worker in
+ * `claude_conversation_questions`.
+ */
+export const CHAT_FREE_TOOL_NAMES: readonly string[] = [...CHAT_TOOL_NAMES, `mcp__${CHAT_MCP_SERVER_NAME}__${CHAT_ASK_TOOL}`];
 export const CHAT_MENTION_TOOL_NAMES: readonly string[] = [
   ...CHAT_TOOLS.filter((tool) => !(CHAT_PRIVATE_READ_TOOLS as readonly string[]).includes(tool)).map((tool) => `mcp__${CHAT_MCP_SERVER_NAME}__${tool}`),
   `mcp__${CHAT_MCP_SERVER_NAME}__${CHAT_ASK_TOOL}`,
 ];
+
+/**
+ * Area 10, F2: una domanda a scelta di Claude nella conversazione libera
+ * (`GET /api/claude/conversations/:id/questions`). La risposta: l'indice di
+ * un'opzione o un testo, chi e quando.
+ */
+export const claudeConversationQuestionSchema = z.object({
+  id: z.uuid(),
+  text: z.string(),
+  options: z.array(z.object({ label: z.string(), description: z.string().optional() })),
+  answer: z
+    .object({
+      index: z.number().int().nullable(),
+      text: z.string().nullable(),
+      by: claudeConversationPersonSchema.nullable(),
+      at: z.string(),
+    })
+    .nullable()
+    .default(null),
+});
+export type ClaudeConversationQuestion = z.infer<typeof claudeConversationQuestionSchema>;
+
+/** Il corpo della risposta: un'opzione per indice, o un testo libero. */
+export const answerClaudeQuestionSchema = z.union([
+  z.object({ index: z.number().int().min(0).max(4) }).strict(),
+  z.object({ text: z.string().trim().min(1).max(500) }).strict(),
+]);
+export type AnswerClaudeQuestionInput = z.infer<typeof answerClaudeQuestionSchema>;

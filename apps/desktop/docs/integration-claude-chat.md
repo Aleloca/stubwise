@@ -206,6 +206,22 @@ al modello solo i campi in ALLOWLIST.
 | Nei turni di @Claude nella Chat posta e calendario non ci sono (I3) | orchestratrice |
 | Oggetto della mail, nome e descrizione del canale, titolo e descrizione della richiesta del supporto, hostname e nomi dei servizi: dentro `untrusted_content` (I4, M6); delle condizioni delle automazioni niente valori (M5); niente indirizzi web nel testo di un invito (M2) | orchestratrice |
 
+## Area 10, F2 — un'automazione dal riquadro (server e worker; la scheda e la prova sono di 94)
+
+| Voce | Dove vive | Rotta / pezzo | Test |
+|---|---|---|---|
+| Le bozze di automazione: `createAutomation` (A), `saveAutomationDraft` (A), `deleteAutomationDraft` (B), solo di progetto; mai accese | `claude-actions/catalog-automations.ts`, sui servizi di `automations/writes.ts` | `POST /api/automations`, `PUT`/`DELETE …/:code/draft` | `claude-actions-automations.test.ts`, `claude-actions-never.test.ts` |
+| «Annulla» di una bozza: cade se qualcuno salva dopo (versione, rev, pubblicazione) | `claude-actions/undo.ts` (`automationStamp`) | — | `claude-actions-automations.test.ts` |
+| Le domande a scelta nella libera: UNA per risposta, scritta dal worker; letta filtrata per chi legge una pubblica; risposta dell'autore come suo messaggio | `claude-chat/conversation-question.ts`, `services/claude-conversation-questions.ts` | `GET /api/claude/conversations/:id/questions`, `POST …/questions/:questionId/answer` | `conversation-question.test.ts`, `claude-conversation-questions.test.ts` |
+| I reparti per «avvisa un reparto» | `claude-chat/bridge.ts` | `list_departments` → `GET /api/departments` | `bridge.test.ts`, `chat-tool-token.test.ts` |
+| La guida ai flussi nel contratto | `@stubwise/shared` `claudeAutomationGuide` | — | `claudeGuide.test.ts`, `prompts.test.ts`; golden `chat-s1-automation` |
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| Le domande hanno una lettura a sé (come le proposte), non un campo della vista | orchestratrice (ruling approvato) |
+| La prova della bozza la fa il renderer e la segna provata (`testedRev`) | orchestratrice |
+| `list_departments`: una lettura nuova, che il design non prevedeva (serve a «avvisa un reparto») | costruttore |
+
 ## Rimandate
 
 | Voce | Fetta |

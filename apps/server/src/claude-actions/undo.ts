@@ -12,6 +12,8 @@ import {
   tickets,
   type Db,
 } from "@stubwise/db";
+import { latestVersion } from "../automations/model.js";
+import { automationStamp } from "./catalog-automations.js";
 import type { ClaudeActionFn } from "@stubwise/shared";
 import { and, asc, desc, eq, gt, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import type { SessionUser } from "../auth/session.js";
@@ -65,6 +67,16 @@ async function laterChangeOf(
     const table = o.kind === "request" ? backlogItems : taskFilters;
     const [row] = await db.select({ at: table.updatedAt }).from(table).where(eq(table.id, o.id));
     if (row && row.at.toISOString() > o.stamp) return { byUserId: null };
+  }
+  // Area 10, F2: una bozza di automazione — la sua ultima versione non è più
+  // quella che Claude ha lasciato (un altro salvataggio, una pubblicazione, o
+  // non c'è più). Chi l'ha salvata dopo lo dice la versione.
+  for (const o of objects) {
+    if (o.kind !== "automation" || !o.stamp) continue;
+    if ((await automationStamp(db, o.id)) !== o.stamp) {
+      const last = await latestVersion(db, o.id);
+      return { byUserId: last?.savedBy ?? null };
+    }
   }
   // Le iscrizioni (S7): la riga di chi ha chiesto, riscritta dopo (dalle
   // Preferenze, «Copia da», «Silenzia») o tolta (ritorno al default). Solo lui

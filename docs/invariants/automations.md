@@ -360,6 +360,7 @@ motore condiviso (`packages/shared/src/automations/`).
   del proprietario di un'automazione. È un cambio di prodotto, non una voce
   in più.
 - La prova di una bozza creata da Claude la fa il renderer, sugli esempi
-  (`GET …/examples`) e col motore condiviso. Non scrive niente e non chiama
-  il modello: `…/test/estimate` e `…/test/claude` restano fuori dal
-  catalogo.
+  (`GET …/examples`) e col motore condiviso, e segna la bozza provata
+  (`POST …/tested`, come la prova a mano: decisione dell'orchestratrice, 19
+  nov 2026) a nome di chi l'ha chiesta. Non chiama il modello:
+  `…/test/estimate` e `…/test/claude` restano fuori dal catalogo.

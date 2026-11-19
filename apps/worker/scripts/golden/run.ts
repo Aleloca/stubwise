@@ -2311,6 +2311,14 @@ const MAIL_SUBJECT_HOSTILE = {
   messages: [{ ...MAIL_HOSTILE.messages[0]!, textExcerpt: "Buongiorno, le confermo la consegna di giovedì." }],
 };
 
+/** Area 10, F2 (S1): i reparti dell'istanza. */
+const DEPT_SALES_ID = "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b";
+const DEPT_SUPPORT_ID = "4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f7a";
+const DEPARTMENTS = [
+  { id: DEPT_SALES_ID, name: "Vendite", colorToken: "--dept-1", isDefault: false, projectPermissions: [], version: "" },
+  { id: DEPT_SUPPORT_ID, name: "Supporto", colorToken: "--dept-2", isDefault: false, projectPermissions: [], version: "" },
+];
+
 /** Come il server finto risponde a `propose_action` (la classe la decide il server). */
 type ChatProposalAnswer = "awaiting_confirmation" | { executed: readonly string[] };
 
@@ -2359,6 +2367,7 @@ async function startFakeChatServer(
       return send(200, [{ id: CHAT_PROJECT_ID, code: "AUD", name: "Audin", description: "CRM per agenzie" }]);
     }
     if (path === "/api/people") return send(200, CHAT_PEOPLE);
+    if (path === "/api/departments") return send(200, DEPARTMENTS);
     if (path === "/api/tasks") return send(200, { items: [AUD_TASK] });
     if (path === "/api/tasks/by-code/AUD-12") return send(200, AUD_TASK);
     if (path === `${p}/docs/search`) {
@@ -2428,16 +2437,21 @@ async function runChat(
   const bridge = await ctx.rt.startChatBridge({
     serverUrl: fake.url,
     log,
-    askQuestion: async () =>
+    // I testi di produzione: `askChatQuestion` (Chat) o `askConversationQuestion` (libera, con l'input del turno).
+    askQuestion: async (_sessionId, _args, inputId) =>
       ++asked === 1
         ? {
             ok: true,
-            text: "The question is in the thread for the person who called you. End your turn now, with nothing else: when they answer, you will continue.",
+            text:
+              inputId !== undefined
+                ? "The question is shown to the person as a card with your options. End your turn now, with nothing else: when they answer, you will continue."
+                : "The question is in the thread for the person who called you. End your turn now, with nothing else: when they answer, you will continue.",
           }
         : { ok: false, text: "You already asked your one question in this answer: say what is still unclear in words." },
   });
-  const grant = bridge.grant({ sessionId: "golden", serverToken: CHAT_TOKEN, ...(mention ? { ask: true } : {}) });
-  const mcp = ctx.rt.buildChatMcpConfig(bridge, grant, ctx.chatServerPath, { ask: mention });
+  // Come in produzione (area 10, F2): `ask_question` in ogni turno; nella libera con l'input del turno.
+  const grant = bridge.grant({ sessionId: "golden", serverToken: CHAT_TOKEN, ask: true, ...(mention ? { mention: true } : { inputId: randomUUID() }) });
+  const mcp = ctx.rt.buildChatMcpConfig(bridge, grant, ctx.chatServerPath, { ask: true, mention });
   if (mcp === null) {
     await bridge.close();
     await fake.close();
@@ -2954,6 +2968,38 @@ const runChatMailSubjectHostile = (ctx: ScenarioContext) =>
   });
 
 /**
+ * Area 10, F2 (S1): `chat-s1-automation`, DUE turni in uno scenario. Dalla
+ * pagina del supporto: «avvisa il reparto quando arriva una richiesta urgente
+ * dal supporto». Il turno 1 deve fare UNA domanda (quale reparto) e nessuna
+ * proposta; il turno 2, con la risposta della persona come suo messaggio (la
+ * trascrizione recente, una strada di produzione), deve proporre UNA bozza
+ * `createAutomation` col filtro e il passo `notify` al reparto scelto, e non
+ * dire che è accesa. 3 volte (autorizzate dal maintainer).
+ */
+async function runChatS1Automation(ctx: ScenarioContext): Promise<ScenarioResult> {
+  const opening = "Avvisa il reparto quando arriva una richiesta urgente dal supporto.";
+  // La pagina del supporto (l'elenco, nessuna conversazione aperta).
+  const context = { kind: "page", id: "support" };
+  const first = await runChat(ctx, "chat-s1-automation", opening, { kind: "ask" }, { context });
+  const question = "Quale reparto devo avvisare: Vendite o Supporto?";
+  const second = await runChat(ctx, "chat-s1-automation", "Supporto", { kind: "automation-draft", departmentId: DEPT_SUPPORT_ID }, {
+    answer: { executed: ["AUD-A9"] },
+    context,
+    recentTranscript: [
+      { role: "user", text: opening },
+      { role: "agent", text: question },
+    ],
+  });
+  return {
+    ...second,
+    passed: first.passed && second.passed,
+    durationMs: first.durationMs + second.durationMs,
+    checks: [...first.checks.map((c) => ({ ...c, name: `turno 1: ${c.name}` })), ...second.checks.map((c) => ({ ...c, name: `turno 2: ${c.name}` }))],
+    finalMessage: `${first.finalMessage}\n---\n${second.finalMessage}`,
+  };
+}
+
+/**
  * `mail-classify-v2` (area 6, fetta 2): la classificazione nuova della posta,
  * col prompt, lo schema e la rivalidazione VERI del worker, su sei email
  * finte e due progetti candidati. Niente DB: il contesto (candidati, task
@@ -3158,6 +3204,7 @@ const SCENARIOS: Record<ScenarioName, (ctx: ScenarioContext) => Promise<Scenario
   "chat-channel-hostile": runChatChannelHostile,
   "chat-mail-hostile": runChatMailHostile,
   "chat-mail-subject-hostile": runChatMailSubjectHostile,
+  "chat-s1-automation": runChatS1Automation,
   "mail-classify-v2": runMailClassifyV2,
   "automation-step": runAutomationStep,
   "support-triage-check": runSupportTriageCheck,

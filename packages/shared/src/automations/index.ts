@@ -12,6 +12,7 @@ export * from "./restore.js";
 export * from "./preview.js";
 export * from "./claudeStep.js";
 export * from "./claudePrompt.js";
+export * from "./claudeGuide.js";
 export * from "./availability.js";
 export * from "./views.js";
 export * from "./plans.js";

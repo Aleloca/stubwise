@@ -112,6 +112,30 @@ const NEVER = [
   "vaultSettings",
   "vaultPersonKeys",
   "vaultPersonKeySeals",
+  // Area 10, F2 (`docs/invariants/automations.md`): Claude scrive solo BOZZE.
+  // Accendere, pubblicare, mettere in pausa, duplicare un'automazione, avviarne
+  // un'esecuzione o deciderci sopra restano gesti delle persone.
+  "publishAutomation",
+  "activateAutomation",
+  "pauseAutomation",
+  "duplicateAutomation",
+  "startManualRun",
+  "approveRun",
+  "rejectRun",
+  "controlRun",
+  "chooseRunProject",
+  "runTestClaude",
+  "estimateTest",
+];
+
+/** Area 10, F2: le rotte delle automazioni che accendono o fanno partire qualcosa. */
+const AUTOMATION_LIVE_ROUTES = [
+  "/automations/:code/publish",
+  "/automations/:code/activate",
+  "/automations/:code/pause",
+  "/automations/:code/duplicate",
+  "/automations/:code/runs",
+  "/automations/:code/test",
 ];
 
 /**
@@ -140,6 +164,10 @@ describe("mai nel catalogo delle azioni di Claude (sorgente)", () => {
       (f) => new RegExp(`\\b${name}\\b`).test(codeOf(f)) && !(name === "issueChatToolToken" && f.path.endsWith("turn.ts")),
     );
     expect(offenders.map((f) => f.path)).toEqual([]);
+  });
+
+  it.each(AUTOMATION_LIVE_ROUTES)("nessun modulo nomina la rotta %s", (route) => {
+    expect(files.filter((f) => f.code.includes(route)).map((f) => f.path)).toEqual([]);
   });
 
   it.each(SECRET_ROUTES)("nessun modulo nomina la rotta %s", (route) => {

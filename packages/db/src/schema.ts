@@ -5691,7 +5691,7 @@ export const agentSessionEvents = pgTable(
       .where(sql`type in ('tool_use','assistant_text')`),
     check(
       "agent_session_events_type_chk",
-      sql`type in ('segment_start','assistant_text','tool_use','tool_result','input','turn_end','segment_end','proposal','actions_executed')`,
+      sql`type in ('segment_start','assistant_text','tool_use','tool_result','input','turn_end','segment_end','proposal','actions_executed','question')`,
     ),
   ],
 );
@@ -6468,6 +6468,38 @@ export const chatClaudeQuestions = pgTable(
   ],
 );
 
+/**
+ * Area 10, F2 (0198): le domande a scelta di Claude nella conversazione
+ * libera, UNA per turno (`input_id`, l'input che lo apre). La gemella di
+ * `chat_claude_questions`, che sta sui messaggi di un canale.
+ */
+export const claudeConversationQuestions = pgTable(
+  "claude_conversation_questions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references((): AnyPgColumn => agentSessions.id, { onDelete: "cascade" }),
+    inputId: uuid("input_id").notNull(),
+    text: text("text").notNull(),
+    options: jsonb("options").$type<{ label: string; description?: string }[]>().notNull(),
+    answerOptionIndex: integer("answer_option_index"),
+    answerText: text("answer_text"),
+    answeredBy: uuid("answered_by").references(() => users.id, { onDelete: "set null" }),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    /** L'evento `question`: il filtro di chi legge una pubblica, come `claude_proposals.event_id`. */
+    eventId: bigint("event_id", { mode: "bigint" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("claude_conversation_questions_turn_idx").on(table.sessionId, table.inputId),
+    check(
+      "claude_conversation_questions_answer_chk",
+      sql`(${table.answeredAt} is null) = (${table.answerOptionIndex} is null and ${table.answerText} is null)`,
+    ),
+  ],
+);
+
 /** «Da decidere»: le domande della Chat che chi guarda ha ignorato (0137). */
 export const chatDismissedQuestions = pgTable(
   "chat_dismissed_questions",
@@ -6907,6 +6939,8 @@ export const automationVersions = pgTable(
     rev: integer("rev").notNull().default(1),
     /** La revisione provata per ultima (R-J19: «non l'hai ancora provata»). */
     testedRev: integer("tested_rev"),
+    /** Area 10, F2 (0198): la versione l'ha salvata Claude per conto di `saved_by`. */
+    viaClaudeActionId: uuid("via_claude_action_id").default(VIA_CLAUDE_DEFAULT),
   },
   (table) => [
     uniqueIndex("automation_versions_n_idx").on(table.automationId, table.n),

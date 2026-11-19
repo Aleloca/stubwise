@@ -15,7 +15,7 @@ import {
   users,
 } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
-import { CHAT_MCP_SERVER_NAME, CHAT_TOOL_NAMES } from "@stubwise/shared";
+import { CHAT_FREE_TOOL_NAMES, CHAT_MCP_SERVER_NAME } from "@stubwise/shared";
 import type { AgentRunOptions, AgentRunResult, AgentRunner } from "../agent/runner.js";
 import { fakeSelect } from "../providers/select-fake.js";
 import { startChatBridge, type ChatBridge } from "./bridge.js";
@@ -161,7 +161,8 @@ describe("il turno della chat", () => {
     const out = await runChatTurn(deps(runner), { ...s, signal: new AbortController().signal });
     expect(out).toBe("completed");
     const o = calls[0]!;
-    expect(o.allowedTools).toEqual([...CHAT_TOOL_NAMES]);
+    // Area 10, F2: nella libera anche la domanda a scelta (`ask_question`).
+    expect(o.allowedTools).toEqual([...CHAT_FREE_TOOL_NAMES]);
     for (const tool of CHAT_DENIED_BUILTIN_TOOLS) expect(o.disallowedTools).toContain(tool);
     expect(o.settingSources).toBe("");
     expect(o.builtinTools).toBe("");
