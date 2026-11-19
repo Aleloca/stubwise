@@ -5531,3 +5531,41 @@ deploy o di un rollback che la tocca.
   contano: `select count(*) from claude_conversations where private_read_at is
   not null;`. Se non sono zero, la discesa va decisa sapendolo. Dopo, la
   query `… and visibility = 'public'` deve restare vuota.
+
+- **«Integrazione area 10, F2: un'automazione dal riquadro (S1)»** *(19 nov
+  2026)*: branch `feat/area10-f2` (da `feat/integrazione-area10`), piano
+  `docs/plans/2026-11-19-integrazione-area10-f2-plan.md`.
+  - Migrazione **0198** (era la 0197 nel piano, rinumerata dopo quella della
+    review di F1): il CHECK `agent_session_events_type_chk` con `question`,
+    la tabella `claude_conversation_questions`, e
+    `automation_versions.via_claude_action_id` (DEFAULT dalla variabile di
+    transazione, come la 0131 e la 0195).
+  - Rotte nuove: `GET /api/claude/conversations/:id/questions` e
+    `POST …/questions/:questionId/answer`. Nell'allowlist del token del turno,
+    `GET /api/departments` (tool `list_departments`).
+  - Nessuna env, nessun `notification_kind`, nessun permesso nuovo.
+
+  **ORDINE**: **server** (healthy, 0198 applicata), poi **worker** (il
+  gestore di `ask_question` della libera scrive in `claude_conversation_questions`
+  e gli eventi `question`: su un server senza la 0198 il CHECK li rifiuta),
+  poi **caddy**.
+
+  **Da sapere subito**:
+  - Claude scrive solo BOZZE di automazione (`docs/invariants/automations.md`):
+    pubblicare, accendere, mettere in pausa, avviare e decidere un'esecuzione
+    restano gesti delle persone (`claude-actions-never.test.ts`, nomi e rotte).
+  - Nella conversazione libera Claude può fare UNA domanda a scelta per
+    risposta; la risposta dell'autore entra come un suo messaggio, nella
+    stessa transazione che segna la domanda.
+  - Il contratto porta la guida ai flussi (`claudeAutomationGuide`): eventi e
+    campi dal motore.
+
+  **Rollback** (il server scende **insieme** al caddy, il worker con loro):
+  - ⚠️ **NON sicuro finché esistono eventi `question`**: il CHECK è del DB
+    e resta quello della 0198, ma lo schema di risposta degli eventi del
+    server vecchio non conosce `question`, e la pagina degli eventi di quella
+    conversazione va in 500. Prima di scendere: `select count(*) from agent_session_events where
+    type = 'question';`. Per toglierli (le domande spariscono dalle
+    conversazioni, le risposte restano come messaggi):
+    `delete from agent_session_events where type = 'question';`.
+  - La tabella e la colonna nuove restano, e un server vecchio le ignora.

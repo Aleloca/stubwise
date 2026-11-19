@@ -1333,6 +1333,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   cronologia di progetto che le nomini (la storia della task se ne va con
   lei); lo standup e la richiesta d'origine sì. (Elimina task: chiusa, sotto.)
 
+- **Chiuse con F2 (19 nov 2026)**: Claude fa domande a scelta anche nella
+  conversazione libera (`ask_question`, una per risposta,
+  `GET/POST /api/claude/conversations/:id/questions…`); le bozze di
+  automazione nel catalogo (`createAutomation`, `saveAutomationDraft`,
+  `deleteAutomationDraft`), mai accese da Claude.
+
 ## Area 11 — Documentazione di prodotto
 
 - Origine di una richiesta dalla documentazione di prodotto.
