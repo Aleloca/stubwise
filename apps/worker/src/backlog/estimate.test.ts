@@ -1,5 +1,5 @@
 import { agentSessions, backlogItems, projects, type Db, type EmbeddingProvider } from "@stubwise/db";
-import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { BacklogItemStatus } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -21,7 +21,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterEach(async () => {
-  await testDb.db.delete(projects); // tutto casca dal progetto.
+  await deleteAllProjects(testDb.db); // tutto casca dal progetto.
 });
 
 afterAll(async () => {

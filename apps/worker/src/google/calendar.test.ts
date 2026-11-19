@@ -10,7 +10,7 @@ import {
   users,
   type Db,
 } from "@stubwise/db";
-import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { deleteAllProjects, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { GoogleApiError, type GoogleCalendarEvent } from "@stubwise/google";
 import type { GoogleAccountCredentials } from "@stubwise/google/credentials";
 import { eq } from "drizzle-orm";
@@ -115,7 +115,7 @@ afterEach(async () => {
   await db.delete(googleAccounts);
   await db.delete(googleWorkspaces);
   await db.delete(projectEmailRoutes);
-  await db.delete(projects);
+  await deleteAllProjects(db);
   await db.delete(users);
   vi.restoreAllMocks();
 });
