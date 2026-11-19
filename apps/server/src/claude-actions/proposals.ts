@@ -305,7 +305,7 @@ async function projectsOfPlan(db: Db, actions: readonly PlannedAction[], dry: Ex
  * Il confine del seguito privato per chi LEGGE (fetta 5): le proposte e i
  * gruppi da lì in poi non gli arrivano. `null` = nessun taglio.
  */
-async function readerLimits(db: Db, user: SessionUser, sessionId: string): Promise<{ cut: bigint; at: Date } | null> {
+export async function readerLimits(db: Db, user: SessionUser, sessionId: string): Promise<{ cut: bigint; at: Date } | null> {
   const cut = await readerCut(db, user.id, sessionId);
   if (cut === null) return null;
   const [first] = await db

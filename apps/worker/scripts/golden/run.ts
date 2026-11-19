@@ -2428,16 +2428,21 @@ async function runChat(
   const bridge = await ctx.rt.startChatBridge({
     serverUrl: fake.url,
     log,
-    askQuestion: async () =>
+    // I testi di produzione: `askChatQuestion` (Chat) o `askConversationQuestion` (libera, con l'input del turno).
+    askQuestion: async (_sessionId, _args, inputId) =>
       ++asked === 1
         ? {
             ok: true,
-            text: "The question is in the thread for the person who called you. End your turn now, with nothing else: when they answer, you will continue.",
+            text:
+              inputId !== undefined
+                ? "The question is shown to the person as a card with your options. End your turn now, with nothing else: when they answer, you will continue."
+                : "The question is in the thread for the person who called you. End your turn now, with nothing else: when they answer, you will continue.",
           }
         : { ok: false, text: "You already asked your one question in this answer: say what is still unclear in words." },
   });
-  const grant = bridge.grant({ sessionId: "golden", serverToken: CHAT_TOKEN, ...(mention ? { ask: true } : {}) });
-  const mcp = ctx.rt.buildChatMcpConfig(bridge, grant, ctx.chatServerPath, { ask: mention });
+  // Come in produzione (area 10, F2): `ask_question` in ogni turno; nella libera con l'input del turno.
+  const grant = bridge.grant({ sessionId: "golden", serverToken: CHAT_TOKEN, ask: true, ...(mention ? { mention: true } : { inputId: randomUUID() }) });
+  const mcp = ctx.rt.buildChatMcpConfig(bridge, grant, ctx.chatServerPath, { ask: true, mention });
   if (mcp === null) {
     await bridge.close();
     await fake.close();

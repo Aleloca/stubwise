@@ -21,6 +21,7 @@ import { startServerAnalysisPoller, type ServerAnalysisPoller } from "./server-o
 import { startServerOpsBridge } from "./server-ops/bridge.js";
 import { startServerFixPoller, type ServerFixPoller } from "./server-ops/fix-run.js";
 import { askChatQuestion } from "./claude-chat/mention.js";
+import { askConversationQuestion } from "./claude-chat/conversation-question.js";
 import { ChatScheduler } from "./claude-chat/scheduler.js";
 import { turnDispatcher } from "./sessions/turn-dispatch.js";
 import { runChatTurn } from "./claude-chat/turn.js";
@@ -694,7 +695,8 @@ if (relay) {
     // `ask_question` di @Claude nella Chat (area 4, fetta 3): la scrive il worker nel DB.
     chatBridge = await startChatBridge({
       serverUrl: config.chatServerUrl,
-      askQuestion: (sessionId, args) => askChatQuestion(db, sessionId, args),
+      // Area 10, F2: nella conversazione libera (c'è l'input del turno) la domanda va in `claude_conversation_questions`.
+      askQuestion: (sessionId, args, inputId) => (inputId !== undefined ? askConversationQuestion(db, sessionId, inputId, args) : askChatQuestion(db, sessionId, args)),
     });
   } catch (error) {
     console.error(`[stubwise-worker] ponte della chat non avviato, chat con Claude spenta: ${String(error)}`);

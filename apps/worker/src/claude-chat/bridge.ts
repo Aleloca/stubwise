@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   CHAT_ASK_TOOL,
+  CHAT_FREE_TOOL_NAMES,
   CHAT_MENTION_TOOL_NAMES,
   CHAT_MCP_SERVER_NAME,
   CHAT_PRIVATE_READ_TOOLS,
@@ -59,8 +60,12 @@ export interface ChatTurnGrant {
 export interface ChatTurn {
   sessionId: string;
   serverToken: string;
-  /** Il turno di una chiamata a @Claude (area 4, fetta 3): può usare `ask_question`. */
+  /** Il turno può usare `ask_question`: @Claude nella Chat (area 4) e la conversazione libera (area 10, F2). */
   ask?: boolean;
+  /** Area 10, F1 (review I3): un turno di @Claude nella Chat — la risposta sta in un canale. */
+  mention?: boolean;
+  /** Area 10, F2: l'input che apre il turno della conversazione libera (UNA domanda per turno). */
+  inputId?: string;
 }
 
 /**
@@ -68,7 +73,7 @@ export interface ChatTurn {
  * il token del turno resta GET-only più le proposte. L'esito è il testo per il
  * modello.
  */
-export type ChatAskHandler = (sessionId: string, args: Record<string, unknown>) => Promise<{ ok: boolean; text: string }>;
+export type ChatAskHandler = (sessionId: string, args: Record<string, unknown>, inputId?: string) => Promise<{ ok: boolean; text: string }>;
 
 export interface ChatBridge {
   readonly url: string;
@@ -87,7 +92,7 @@ export function buildChatMcpConfig(
   bridge: ChatBridge,
   grant: ChatTurnGrant,
   serverPath: string,
-  opts: { ask?: boolean } = {},
+  opts: { ask?: boolean; mention?: boolean } = {},
 ): { mcpConfig: AgentMcpConfig; tools: readonly string[] } | null {
   if (!existsSync(serverPath)) return null;
   return {
@@ -99,13 +104,15 @@ export function buildChatMcpConfig(
           env: {
             CHAT_BRIDGE_URL: bridge.url,
             CHAT_BRIDGE_SECRET: grant.secret,
-            // Solo nei turni di @Claude nella Chat: il server MCP espone `ask_question`.
+            // Il server MCP espone `ask_question` (Chat e conversazione libera).
             ...(opts.ask ? { CHAT_ASK_QUESTION: "1" } : {}),
+            // Un turno di @Claude: niente posta né calendario (review I3 di F1).
+            ...(opts.mention ? { CHAT_MENTION: "1" } : {}),
           },
         },
       },
     },
-    tools: opts.ask ? CHAT_MENTION_TOOL_NAMES : CHAT_TOOL_NAMES,
+    tools: opts.mention ? CHAT_MENTION_TOOL_NAMES : opts.ask ? CHAT_FREE_TOOL_NAMES : CHAT_TOOL_NAMES,
   };
 }
 
@@ -789,13 +796,13 @@ export async function startChatBridge(deps: {
     if (tool === CHAT_PROPOSE_TOOL) return propose(turn, args);
     // Area 10, F1 (review I3): posta e calendario mai in un turno di @Claude nella
     // Chat (la risposta sta in un canale). Il server li rifiuta comunque.
-    if (turn.ask === true && (CHAT_PRIVATE_READ_TOOLS as readonly string[]).includes(tool)) {
+    if (turn.mention === true && (CHAT_PRIVATE_READ_TOOLS as readonly string[]).includes(tool)) {
       return { status: 200, body: { ok: false, text: "In the Chat you can't read the person's mail or calendar: the answer would be visible to everyone in the channel. Suggest they ask you in a private conversation." } };
     }
     // La domanda: solo un turno di @Claude nella Chat, e solo col gestore del worker.
     if (tool === CHAT_ASK_TOOL) {
       if (!turn.ask || !deps.askQuestion) return { status: 404, body: { ok: false, error: "not_found" } };
-      return { status: 200, body: await deps.askQuestion(turn.sessionId, args) };
+      return { status: 200, body: await deps.askQuestion(turn.sessionId, args, turn.inputId) };
     }
 
     let paths: string[];

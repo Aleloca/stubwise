@@ -22,6 +22,9 @@ CREATE TABLE "claude_conversation_questions" (
 	"answer_text" text,
 	"answered_by" uuid REFERENCES "users"("id") ON DELETE SET NULL,
 	"answered_at" timestamp with time zone,
+	-- L'evento `question` della domanda: chi legge una pubblica vede solo le
+	-- domande prima del seguito privato, come le proposte (`claude_proposals.event_id`).
+	"event_id" bigint,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "claude_conversation_questions_answer_chk" CHECK (("answered_at" is null) = ("answer_option_index" is null and "answer_text" is null))
 );

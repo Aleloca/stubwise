@@ -243,9 +243,10 @@ export async function runChatTurn(
         userId: ownerId,
         ttlMs: deps.turnTimeoutMs + TOKEN_TTL_MARGIN_MS,
       });
-      const grant = deps.bridge.grant({ sessionId: sid, serverToken: token, ...(mention ? { ask: true } : {}) });
+      // `ask_question` in ogni turno (area 10, F2): nella libera con l'input che apre il turno.
+      const grant = deps.bridge.grant({ sessionId: sid, serverToken: token, ask: true, ...(mention ? { mention: true } : { inputId: opening.id }) });
       try {
-        const mcp = buildChatMcpConfig(deps.bridge, grant, serverPath, { ask: mention });
+        const mcp = buildChatMcpConfig(deps.bridge, grant, serverPath, { ask: true, mention });
         if (mcp === null) throw new Error("entry MCP della chat sparita");
         return await deps.runner.run({
           cwd,

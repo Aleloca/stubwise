@@ -6487,6 +6487,8 @@ export const claudeConversationQuestions = pgTable(
     answerText: text("answer_text"),
     answeredBy: uuid("answered_by").references(() => users.id, { onDelete: "set null" }),
     answeredAt: timestamp("answered_at", { withTimezone: true }),
+    /** L'evento `question`: il filtro di chi legge una pubblica, come `claude_proposals.event_id`. */
+    eventId: bigint("event_id", { mode: "bigint" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

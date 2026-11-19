@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { CHAT_MCP_SERVER_NAME, CHAT_MENTION_TOOL_NAMES, CHAT_READ_TOOLS, CHAT_TOOL_NAMES, CHAT_TOOLS, CLAUDE_PROPOSABLE_FNS, CHAT_INSTANCE_SECTIONS } from "@stubwise/shared";
+import { CHAT_FREE_TOOL_NAMES, CHAT_MCP_SERVER_NAME, CHAT_MENTION_TOOL_NAMES, CHAT_READ_TOOLS, CHAT_TOOL_NAMES, CHAT_TOOLS, CLAUDE_PROPOSABLE_FNS, CHAT_INSTANCE_SECTIONS } from "@stubwise/shared";
 import { buildChatMcpServer, CHAT_SERVER_NAME, PROPOSABLE_FNS, UNTRUSTED_NOTE, UNTRUSTED_RELEASE_NOTE_MCP, UNTRUSTED_SERVER_NOTE_MCP, INSTANCE_SECTIONS } from "../chat-mcp/server.js";
 import { ChatToolArgError, chatServerPaths, startChatBridge, UNTRUSTED_CALENDAR_NOTE, UNTRUSTED_CHANNEL_NOTE, UNTRUSTED_DOCUMENT_NOTE, UNTRUSTED_MAIL_NOTE, UNTRUSTED_RELEASE_NOTE, UNTRUSTED_SERVER_NOTE, UNTRUSTED_SUPPORT_NOTE, type ChatBridge } from "./bridge.js";
 
@@ -661,12 +661,12 @@ describe("area 10, F1, review: rami, posta e calendario fuori dalla Chat", () =>
       expect(CHAT_MENTION_TOOL_NAMES).not.toContain(`mcp__${CHAT_MCP_SERVER_NAME}__${tool}`);
       expect(CHAT_TOOL_NAMES).toContain(`mcp__${CHAT_MCP_SERVER_NAME}__${tool}`);
     }
-    const mention = (buildChatMcpServer({ bridgeUrl: "http://x", secret: "s", askQuestion: true }) as unknown as { _registeredTools: Record<string, unknown> })._registeredTools;
+    const mention = (buildChatMcpServer({ bridgeUrl: "http://x", secret: "s", askQuestion: true, mention: true }) as unknown as { _registeredTools: Record<string, unknown> })._registeredTools;
     expect(Object.keys(mention)).not.toContain("read_mail_thread");
     expect(Object.keys(mention)).not.toContain("read_calendar_event");
     const fetchImpl = vi.fn(async () => Response.json({}));
     bridge = await startChatBridge({ serverUrl: "http://server:3000", fetchImpl: fetchImpl as never });
-    const grant = bridge.grant({ sessionId: "s1", serverToken: "stw_chat_t", ask: true });
+    const grant = bridge.grant({ sessionId: "s1", serverToken: "stw_chat_t", ask: true, mention: true });
     const P = "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01";
     const mail = (await (await call(bridge, grant.secret, "read_mail_thread", { ref: `${P}/t1` })).json()) as { ok: boolean; text: string };
     const cal = (await (await call(bridge, grant.secret, "read_calendar_event", { eventId: P })).json()) as { ok: boolean; text: string };
@@ -680,5 +680,30 @@ describe("area 10, F1, review: rami, posta e calendario fuori dalla Chat", () =>
     const registered = (buildChatMcpServer({ bridgeUrl: "http://x", secret: "s" }) as unknown as { _registeredTools: Record<string, { description: string }> })._registeredTools;
     expect(UNTRUSTED_SERVER_NOTE_MCP).toBe(UNTRUSTED_SERVER_NOTE);
     expect(registered["read_server"]!.description).toContain(UNTRUSTED_SERVER_NOTE);
+  });
+});
+
+describe("area 10, F2: ask_question anche nella conversazione libera", () => {
+  it("i tool del turno: la libera ha tutto più la domanda; @Claude la domanda senza posta e calendario; il server MCP lo dice con CHAT_MENTION", () => {
+    expect(CHAT_FREE_TOOL_NAMES).toEqual([...CHAT_TOOL_NAMES, `mcp__${CHAT_MCP_SERVER_NAME}__ask_question`]);
+    const free = (buildChatMcpServer({ bridgeUrl: "http://x", secret: "s", askQuestion: true }) as unknown as { _registeredTools: Record<string, unknown> })._registeredTools;
+    expect(Object.keys(free)).toEqual(expect.arrayContaining(["ask_question", "read_mail_thread", "read_calendar_event"]));
+  });
+
+  it("il ponte passa al gestore l'input del turno della libera; senza `ask` la domanda non c'è", async () => {
+    const calls: unknown[][] = [];
+    bridge = await startChatBridge({
+      serverUrl: "http://server:3000",
+      fetchImpl: vi.fn(async () => Response.json({})) as never,
+      askQuestion: async (...args) => {
+        calls.push(args);
+        return { ok: true, text: "ok" };
+      },
+    });
+    const free = bridge.grant({ sessionId: "s1", serverToken: "stw_chat_t", ask: true, inputId: "in-1" });
+    expect(((await (await call(bridge, free.secret, "ask_question", { question: "q" })).json()) as { ok: boolean }).ok).toBe(true);
+    expect(calls).toEqual([["s1", { question: "q" }, "in-1"]]);
+    const none = bridge.grant({ sessionId: "s2", serverToken: "stw_chat_t" });
+    expect((await call(bridge, none.secret, "ask_question", { question: "q" })).status).toBe(404);
   });
 });
