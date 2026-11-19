@@ -378,6 +378,8 @@ export const setVisibility: typeof Fake.setVisibility = async (id, visibility, o
         };
       }
     }
+    // Review di F1: Claude ha letto contenuti privati, la conversazione resta privata.
+    if (error instanceof ApiError && error.code === "private_content") return { status: "private_content" };
     if (error instanceof ApiError && error.status === 403) throw new Error("forbidden");
     return call(() => Promise.reject(error));
   }
