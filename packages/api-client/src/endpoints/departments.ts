@@ -21,10 +21,17 @@ export function createDepartmentsEndpoints(request: ApiRequest) {
     create(body: { name: string; colorToken: DepartmentView["colorToken"] }): Promise<Reader<DepartmentView>> {
       return request("POST", "/api/departments", body, departmentViewSchema);
     },
-    /** `memberIds` sostituisce l'insieme intero delle persone del reparto. */
+    /**
+     * `memberIds` sostituisce l'insieme intero delle persone del reparto;
+     * `projectPermissions` (area 9, F8) l'insieme intero dei permessi di
+     * progetto che dà. Chiede la riconferma (403 `reauth_required`) quando fa
+     * arrivare permessi a qualcuno; i rifiuti: 403 `escalation` (`missing`),
+     * 409 `last_manager` (`projectId`, `projectCode`), 400 `invalid_permission`,
+     * 400 `not_a_person`. Un server di prima ignora `projectPermissions`.
+     */
     update(
       id: string,
-      patch: { name?: string; colorToken?: DepartmentView["colorToken"]; memberIds?: string[] },
+      patch: { name?: string; colorToken?: DepartmentView["colorToken"]; memberIds?: string[]; projectPermissions?: string[] },
     ): Promise<Reader<DepartmentView>> {
       return request("PATCH", `/api/departments/${seg(id)}`, patch, departmentViewSchema);
     },
