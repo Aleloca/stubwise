@@ -156,7 +156,12 @@ describe("member.added dopo «Annulla» (richiesta del coordinatore)", () => {
     const groupId = (state.conversationEvents.get(cid) ?? []).find(
       (e): e is Extract<ConversationEvent, { type: "proposal" }> => e.type === "proposal",
     )!.groupId!;
-    expect(await claude.undoClaudeActions(cid, groupId)).toEqual({ ok: true });
+    // L'inverso (removeMember) è una C: «Annulla» è una scheda, confermata con la riconferma (F7, review I3 b).
+    const undo = await claude.undoClaudeActions(cid, groupId);
+    expect(undo).toMatchObject({ ok: true, proposalId: expect.any(String) });
+    expect(await confirmProposal(cid, (undo as { proposalId: string }).proposalId)).toMatchObject({
+      status: "confirmed",
+    });
 
     setSessionPersonId(LUCA);
     const mine = (await listNotifications()).filter((n) => n.kind === "member.added");
