@@ -28,6 +28,7 @@ import {
   forgetPageStatuses,
   rememberConversationOwner,
   readChatActions,
+  reauthPhrasesOf,
   undoViewsOf,
   withChatActionEvents,
 } from "./claudeChatActions";
@@ -553,6 +554,8 @@ async function readConversation(
       ...freeDetailOf(conversation, flow),
       continuesFrom: withOrigin ? await originOf(conversation.continuesFrom) : null,
       undo: undoViewsOf(actions.groups, nameOf),
+      // F7: le frasi della riconferma delle schede C aperte (coi nomi del server).
+      reauthPhrases: reauthPhrasesOf(actions.proposals, actions.codes),
     };
   }
   const [events, plan, codes] = await Promise.all([readEvents(id), planOf(detail), projectCodes()]);

@@ -145,10 +145,25 @@ export function cachedTaskCode(id: string): Promise<string | null> {
 // --- i riassunti ----------------------------------------------------------------
 
 /** Il riassunto di un'azione come frase (`summaryText`), dai suoi argomenti: mai scritto dal modello. */
-export function summaryOf(fn: string, args: Record<string, unknown>, code: string | null): ProposedAction {
+/** I nomi che il server deriva per chi guarda (F7, `labels`): persona e ruolo, null se non li vede. */
+export type ActionLabels = { person: string | null; role: string | null };
+
+export function summaryOf(
+  fn: string,
+  args: Record<string, unknown>,
+  code: string | null,
+  labels?: ActionLabels,
+): ProposedAction {
   const params: Record<string, string | number> = { code: code ?? "" };
   const text = (k: string) => (typeof args[k] === "string" ? (args[k] as string) : "");
   switch (fn) {
+    // Area 9, F7: i membri coi nomi del server; chi non vede il progetto legge «a person».
+    case "addMember":
+    case "setMemberRole":
+    case "removeMember":
+      params["name"] = labels?.person ?? i18n.t("claude.chatActions.aPerson");
+      params["role"] = labels?.role ?? i18n.t("claude.chatActions.aRole");
+      break;
     case "createTask":
     case "createRequest":
       params["title"] = text("title");
@@ -219,6 +234,9 @@ const needsCode = (fn: string) =>
     "updateProjectGeneral",
     "setProjectAi",
     "saveProjectAutomations",
+    "addMember",
+    "setMemberRole",
+    "removeMember",
   ].includes(fn);
 
 // --- le schede e le righe ------------------------------------------------------------
@@ -345,7 +363,9 @@ function proposalEvent(p: ProposalView, at: string, actions: ChatActions): Conve
     // che da una pubblica non è chi guarda): chi decide lo dice il server.
     requesterId: ownerOf(p.sessionId),
     canDecide: p.canConfirm || p.canCancel,
-    actions: p.actions.map((a) => summaryOf(a.fn, a.args, codeOfAction(a, actions.codes))),
+    actions: p.actions.map((a) =>
+      summaryOf(a.fn, a.args, codeOfAction(a, actions.codes), (a as { labels?: ActionLabels }).labels),
+    ),
     status: p.status,
     cls: p.cls,
     reasons: reasonsOf(p),
@@ -492,6 +512,42 @@ export function withChatActionEvents(events: ConversationEvent[], extra: Convers
 }
 
 /** Lo stato di «Annulla» di ogni gruppo, per chi guarda (`ConversationDetail.undo`). */
+/** Le voci che hanno la loro frase all'infinito nel dialogo della riconferma. */
+const REAUTH_PHRASE_FNS = new Set(["addMember", "setMemberRole", "removeMember", "registerPlugin", "updatePluginRef"]);
+
+/**
+ * Le frasi della riconferma delle schede aperte con una C (F7, come
+ * `reauthPhrasesOf` del prototipo): una per azione, all'infinito («To add
+ * Marta Rossi to AUD as Developer»), coi nomi delle `labels`; null dove
+ * l'azione non la chiede o non ha la sua frase (il dialogo dice la generica).
+ */
+export function reauthPhrasesOf(
+  proposals: readonly ProposalView[],
+  codes: Map<string, string>,
+): Record<string, ({ key: string; params: Record<string, string> } | null)[]> {
+  const out: Record<string, ({ key: string; params: Record<string, string> } | null)[]> = {};
+  for (const p of proposals) {
+    if (p.status !== "open") continue;
+    const actions = p.actions as unknown as {
+      fn: string;
+      args: Record<string, unknown>;
+      reauth?: boolean;
+      labels?: ActionLabels;
+    }[];
+    if (!actions.some((a) => a.reauth)) continue;
+    out[p.id] = actions.map((a) => {
+      if (!a.reauth || !REAUTH_PHRASE_FNS.has(a.fn)) return null;
+      const s: Record<string, unknown> =
+        summaryOf(a.fn, a.args, codeOfAction(a, codes), a.labels).summaryText?.params ?? {};
+      const params: Record<string, string> = {};
+      for (const k of ["name", "role", "code", "url", "ref"])
+        if (s[k] !== undefined && s[k] !== "") params[k] = String(s[k]);
+      return { key: `claude.conversation.proposal.reauthAction.${a.fn}`, params };
+    });
+  }
+  return out;
+}
+
 export function undoViewsOf(
   groups: readonly GroupView[],
   nameOf: (personId: string) => string | null,

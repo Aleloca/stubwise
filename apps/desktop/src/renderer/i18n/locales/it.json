@@ -4891,6 +4891,8 @@
       }
     },
     "chatActions": {
+      "aPerson": "una persona",
+      "aRole": "un ruolo",
       "summary": {
         "createTask": "Crea la task «{{title}}»",
         "updateTask": "Modifica {{code}} ({{fields}})",
@@ -4936,6 +4938,12 @@
         "saveProjectAutomations": "Cambia le automazioni di {{code}}",
         "saveProjectAutomationsNoCode": "Cambia le automazioni di un progetto",
         "retryJob": "Fai ripartire un lavoro fermo",
+        "addMember": "Aggiungi {{name}} a {{code}} come {{role}}",
+        "addMemberNoCode": "Aggiungi {{name}} a un progetto come {{role}}",
+        "setMemberRole": "Rendi {{name}} {{role}} in {{code}}",
+        "setMemberRoleNoCode": "Rendi {{name}} {{role}} in un progetto",
+        "removeMember": "Togli {{name}} da {{code}}",
+        "removeMemberNoCode": "Togli {{name}} da un progetto",
         "registerPlugin": "Registra il plugin {{url}}",
         "updatePluginRef": "Porta un plugin a {{ref}}"
       },

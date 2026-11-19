@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forgetClaudeCaches, getConversation } from "./claude";
-import { claudeChatNamespace, summaryOf } from "./claudeChatActions";
+import { claudeChatNamespace, reauthPhrasesOf, summaryOf } from "./claudeChatActions";
 import { setAppClientForTests } from "./client";
 import { installFakeServer, me, ME_ID, PROJECT_ID, serverProject, serverTicketDetail, TICKET_ID } from "./fakeServer";
 import { getSessionPerson } from "./session";
@@ -170,6 +170,40 @@ describe("proposte e azioni di Claude nella conversazione", () => {
     install();
     const old = (await getConversation(CONV))!.events.find((e) => e.type === "proposal")!;
     expect((old as { reasons: { kind: string }[] }).reasons.map((r) => r.kind)).toEqual(["notifies"]);
+  });
+
+  it("F7: una C sui membri: la scheda coi nomi del server e la frase della riconferma nel dettaglio", async () => {
+    install({
+      [`GET /api/claude/conversations/${CONV}/proposals`]: {
+        body: [
+          proposals[0],
+          {
+            ...proposals[1],
+            cls: "C",
+            reauth: true,
+            reasons: [],
+            actions: [
+              {
+                fn: "addMember",
+                args: { projectId: PROJECT_ID, userId: MARTA, roleId: "11111111-2222-4333-8444-555555555555" },
+                reauth: true,
+                labels: { person: "Marta Rossi", role: "Developer" },
+              },
+            ],
+          },
+        ],
+      },
+    });
+    await getSessionPerson();
+    const detail = (await getConversation(CONV))!;
+    const card = detail.events.find((e) => e.type === "proposal") as { actions: { summary: string }[] };
+    expect(card.actions[0]!.summary).toBe("Add Marta Rossi to AUD as Developer");
+    expect(detail.reauthPhrases?.[PROPOSAL_B]).toEqual([
+      {
+        key: "claude.conversation.proposal.reauthAction.addMember",
+        params: { name: "Marta Rossi", role: "Developer", code: "AUD" },
+      },
+    ]);
   });
 
   it("F7: una voce sul progetto (archiveProject) dice il codice del progetto, letto dai progetti", async () => {
@@ -448,5 +482,43 @@ describe("F7: le schede delle voci dell'area 9 (Task 2 e 3 di 72), dagli argomen
     expect(summaryOf("updatePluginRef", { id: "p1", ref: "v2", trust: true }, null).summary).toBe(
       "Move a plugin to v2",
     );
+  });
+});
+
+describe("F7: le schede dei membri, coi nomi che il server deriva per chi guarda (labels)", () => {
+  const A = { projectId: PROJECT_ID, userId: MARTA, roleId: "r1" };
+  it("persona e ruolo dalle labels; senza (chi non vede il progetto), «a person» e «a role»", () => {
+    const named = { person: "Marta Rossi", role: "Developer" };
+    expect(summaryOf("addMember", A, "AUD", named).summary).toBe("Add Marta Rossi to AUD as Developer");
+    expect(summaryOf("setMemberRole", A, "AUD", named).summary).toBe("Make Marta Rossi Developer in AUD");
+    expect(summaryOf("removeMember", A, "AUD", named).summary).toBe("Remove Marta Rossi from AUD");
+    const blind = { person: null, role: null };
+    expect(summaryOf("addMember", A, null, blind).summary).toBe("Add a person to a project as a role");
+    expect(summaryOf("removeMember", A, null).summary).toBe("Remove a person from a project");
+  });
+
+  it("le frasi della riconferma di una C aperta: una per azione, null dove non serve", () => {
+    const phrases = reauthPhrasesOf(
+      [
+        {
+          id: "p1",
+          status: "open",
+          actions: [
+            { fn: "addMember", args: A, reauth: true, labels: { person: "Marta Rossi", role: "Developer" } },
+            { fn: "archiveProject", args: { projectId: PROJECT_ID }, reauth: false, labels: { person: null, role: null } },
+          ],
+        },
+        { id: "p2", status: "confirmed", actions: [{ fn: "addMember", args: A, reauth: true }] },
+      ] as never,
+      new Map([[PROJECT_ID, "AUD"]]),
+    );
+    expect(Object.keys(phrases)).toEqual(["p1"]);
+    expect(phrases.p1).toEqual([
+      {
+        key: "claude.conversation.proposal.reauthAction.addMember",
+        params: { name: "Marta Rossi", role: "Developer", code: "AUD" },
+      },
+      null,
+    ]);
   });
 });
