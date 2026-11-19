@@ -306,6 +306,12 @@ export const changeEntrySchema = z.object({
    * vedi». `object.id` arriva `"hidden"` (non può essere vuoto), `object.label` vuota.
    */
   hidden: z.boolean().default(false),
+  /**
+   * Area 9, F6: il progetto della voce è ARCHIVIATO adesso (derivato a lettura
+   * da `projects.archived_at`, mai scritto nella voce): il client la porta a
+   * `/archived/<CODICE>`.
+   */
+  projectArchived: z.boolean().default(false),
 });
 export type ChangeEntry = z.infer<typeof changeEntrySchema>;
 

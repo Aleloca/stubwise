@@ -276,6 +276,16 @@ describe("le letture di un archiviato (Task 4)", () => {
     const mine = await log(p.lead.cookie);
     expect(mine.statusCode).toBe(200);
     expect((mine.json() as { entries: { type: string }[] }).entries.map((e) => e.type)).toContain("project.archived");
+    // `projectArchived` si DERIVA: lo porta anche una voce scritta prima dell'archivio (senza il campo nel jsonb).
+    const old = (mine.json() as { entries: { type: string; projectArchived: boolean }[] }).entries;
+    expect(old.length).toBeGreaterThan(0);
+    expect(old.every((e) => e.projectArchived)).toBe(true);
+    const [raw] = await db.select({ data: changeLog.data }).from(changeLog).where(and(eq(changeLog.projectId, p.projectId), eq(changeLog.type, "project.archived")));
+    expect(raw!.data).not.toHaveProperty("projectArchived");
+    // Riaperto, le stesse voci non lo dicono più.
+    expect((await call("POST", p.projectId, "reopen", p.lead.cookie)).statusCode).toBe(204);
+    const reopened = (await log(p.lead.cookie)).json() as { entries: { projectArchived: boolean }[] };
+    expect(reopened.entries.every((e) => !e.projectArchived)).toBe(true);
     const { cookie: stranger } = await member((await seedRepository(db)).projectId, "project_lead");
     expect((((await log(stranger)).json() as { entries: unknown[] }).entries)).toEqual([]);
   });

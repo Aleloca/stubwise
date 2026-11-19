@@ -83,7 +83,7 @@ export function createRepositoriesEndpoints(request: ApiRequest) {
     detached(): Promise<Reader<DetachedRepository>[]> {
       return request("GET", "/api/repositories/detached", undefined, z.array(detachedRepositorySchema));
     },
-    /** Collega uno staccato a un progetto (`repos.manage` lì). 409 `name_taken` / `not_detached`. */
+    /** Collega uno staccato a un progetto (`repos.manage` lì). 409 `name_taken` / `not_detached`; 404 `target_not_found` (la destinazione) o `not_found` (il repository). */
     link(id: string, projectId: string): Promise<void> {
       return request("POST", `/api/repositories/${seg(id)}/link`, { projectId });
     },

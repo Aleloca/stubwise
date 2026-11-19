@@ -11,6 +11,7 @@ import {
   tickets,
   users,
   type Db,
+  projectNotArchived,
 } from "@stubwise/db";
 import { resolveRecipientUserIds } from "@stubwise/notifications";
 import type { Language } from "@stubwise/shared";
@@ -255,7 +256,7 @@ export async function loadCandidateProjects(db: Db, recipientUserIds: readonly s
     .from(projects)
     .innerJoin(projectMembers, eq(projectMembers.projectId, projects.id))
     // Area 9, F6: una mail non si attribuisce a un progetto archiviato.
-    .where(and(inArray(projectMembers.userId, [...recipientUserIds]), isNull(projects.archivedAt)))
+    .where(and(inArray(projectMembers.userId, [...recipientUserIds]), projectNotArchived(sql`${projects.id}`)))
     .orderBy(asc(projects.name))
     .limit(CLASSIFY_V2_MAX_CANDIDATES);
   const out: CandidateProject[] = [];

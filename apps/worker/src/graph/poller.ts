@@ -1,7 +1,9 @@
 import { repositories, type Db, type GraphJob } from "@stubwise/db";
 import { eq } from "drizzle-orm";
+import type { MirrorManager } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
 import { runGraphBuild, type GraphBuildDeps } from "./build.js";
+import { runGraphPrune } from "./prune.js";
 import { runGraphSetupPr, type GraphSetupPrDeps } from "./setup-pr.js";
 import {
   claimNextGraphJob,
@@ -65,7 +67,9 @@ export type RunGraphBuildFn = (deps: GraphBuildDeps, job: GraphJob) => Promise<b
  */
 export type RunGraphSetupPrFn = (deps: GraphSetupPrDeps, job: GraphJob) => Promise<boolean>;
 
-export interface GraphPollerDeps extends GraphSetupPrDeps {
+export interface GraphPollerDeps extends Omit<GraphSetupPrDeps, "mirrors"> {
+  /** Area 9, F6: anche `removeMirror`, per il job `prune`. */
+  mirrors: GraphSetupPrDeps["mirrors"] & Pick<MirrorManager, "removeMirror">;
   /** Catena per-progetto CONDIVISA col fix/doc-generation/review/backlog. */
   serializer: ProjectSerializer;
   /** Minuti oltre cui un `running` è orfano. Default GRAPH_STALE_MINUTES. */
@@ -170,6 +174,15 @@ export async function pollGraphJobsOnce(deps: GraphPollerDeps): Promise<number> 
     handled.add(claimed.id);
 
     try {
+      if (claimed.kind === "prune") {
+        // Area 9, F6: il repository non c'è più (niente progetto, niente
+        // serializer di progetto). Tocca il mirror, quindi passa da una
+        // catena sua, per URL: due potature dello stesso mirror non si incrociano.
+        await deps.serializer.run(`prune:${claimed.repoUrl ?? claimed.repositoryId}`, () => runGraphPrune(deps, claimed));
+        await completeGraphJob(deps.db, claimed.id);
+        done++;
+        continue;
+      }
       const projectId = await resolveProjectId(deps.db, claimed.repositoryId);
       const ok = await deps.serializer.run(projectId, () => dispatchGraphJob(deps, claimed));
       if (ok) done++;

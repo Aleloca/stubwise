@@ -147,7 +147,7 @@ describe("schema: integrazione graphify", () => {
     }
   });
 
-  it("il delete del repository cascata su metadati del grafo e job", async () => {
+  it("il delete del repository cascata sui metadati del grafo; i job RESTANO (0194, area 9, F6: il `prune` sopravvive al repository, gli altri li toglie il DELETE)", async () => {
     const { repositoryId } = await seedRepository(db);
     await db.insert(repoGraphs).values({ repositoryId });
     await db.insert(graphJobs).values({ repositoryId, kind: "build" });
@@ -160,6 +160,6 @@ describe("schema: integrazione graphify", () => {
       .where(eq(repoGraphs.repositoryId, repositoryId));
     expect(graphs).toHaveLength(0);
     const jobs = await db.select().from(graphJobs).where(eq(graphJobs.repositoryId, repositoryId));
-    expect(jobs).toHaveLength(0);
+    expect(jobs).toHaveLength(1);
   });
 });

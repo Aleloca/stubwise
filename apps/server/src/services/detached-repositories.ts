@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { deletedProjectMembers, deletedProjects, gitAccounts, projects, repositories, type Db } from "@stubwise/db";
+import { deletedProjectMembers, deletedProjects, gitAccounts, graphJobs, projects, repositories, type Db } from "@stubwise/db";
 import type { DetachedRepository } from "@stubwise/shared";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { projectIdsWithPermission, projectPermissionsFor, scopeProjectIds } from "../auth/access.js";
@@ -23,7 +23,7 @@ type Viewer = Pick<SessionUser, "id" | "email" | "instancePermissions">;
 export class DetachedRepositoryError extends Error {
   constructor(
     readonly status: 403 | 404 | 409,
-    readonly code: "forbidden" | "not_found" | "not_detached" | "name_taken",
+    readonly code: "forbidden" | "not_found" | "target_not_found" | "not_detached" | "name_taken",
     message: string,
   ) {
     super(message);
@@ -94,7 +94,9 @@ export async function listDetachedRepositories(db: Db, viewer: Viewer): Promise<
  */
 export async function linkRepository(db: Db, viewer: Viewer, repositoryId: string, projectId: string): Promise<void> {
   const perms = await projectPermissionsFor(db, viewer, projectId);
-  if (!perms) throw new DetachedRepositoryError(404, "not_found", "Project not found");
+  // Un codice suo (review F6, renderer): la destinazione sparita nel frattempo
+  // (archiviata, eliminata, invisibile) non è «il repository non c'è più».
+  if (!perms) throw new DetachedRepositoryError(404, "target_not_found", "Destination project not found");
   if (!perms.has("repos.manage")) throw new DetachedRepositoryError(403, "forbidden", "You need repos.manage in the destination project");
   await db.transaction(async (tx) => {
     const [r] = await tx.select().from(repositories).where(eq(repositories.id, repositoryId)).for("update");
@@ -113,7 +115,10 @@ export async function linkRepository(db: Db, viewer: Viewer, repositoryId: strin
 /**
  * Elimina uno staccato: solo un full admin (la riconferma la dichiara la
  * rotta). La voce d'istanza `repository.deleted` tiene il nome e
- * `formerProjectId`, che la lettura risolve (e non fa mai uscire).
+ * `formerProjectId`, che la lettura risolve (e non fa mai uscire). Nella
+ * stessa transazione si accoda il job `prune` del worker (unico scrittore di
+ * mirror e grafi), che toglie dal volume il grafo e il mirror: altrimenti
+ * «elimina» lascerebbe lì il codice.
  */
 export async function deleteDetachedRepository(db: Db, viewer: Viewer, repositoryId: string): Promise<void> {
   if (!isFullAdmin(viewer)) throw new DetachedRepositoryError(403, "forbidden", "Only a full admin can delete a repository");
@@ -121,6 +126,9 @@ export async function deleteDetachedRepository(db: Db, viewer: Viewer, repositor
     const [r] = await tx.select().from(repositories).where(eq(repositories.id, repositoryId)).for("update");
     if (!r) throw new DetachedRepositoryError(404, "not_found", "Repository not found");
     if (r.projectId !== null) throw new DetachedRepositoryError(409, "not_detached", "Only a repository without a project can be deleted");
+    // I job di prima non hanno più un repository su cui girare (0194: nessuna FK).
+    await tx.delete(graphJobs).where(eq(graphJobs.repositoryId, repositoryId));
+    await tx.insert(graphJobs).values({ repositoryId, kind: "prune", repoUrl: r.repoUrl });
     await tx.delete(repositories).where(eq(repositories.id, repositoryId));
     await recordChange(tx, {
       type: "repository.deleted",

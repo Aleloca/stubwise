@@ -2433,10 +2433,6 @@ export function patchProject(projectId: string, patch: ProjectPatch): Promise<Pr
   return api.patch(`/api/projects/${encodeURIComponent(projectId)}`, patch);
 }
 
-export function deleteProject(projectId: string): Promise<void> {
-  return request("DELETE", `/api/projects/${encodeURIComponent(projectId)}`);
-}
-
 // --- Repository env files ---
 
 /**

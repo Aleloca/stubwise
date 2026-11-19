@@ -221,7 +221,8 @@ describe("dettaglio progetto: permessi di progetto", () => {
     renderApp(`/projects/${PROJECT_ID}`);
 
     expect(await screen.findByLabelText("Name")).toHaveValue("Acme Platform");
-    expect(screen.getByRole("button", { name: "Delete project" })).toBeInTheDocument();
+    // Area 9, F6 (L-6): il web vecchio non elimina più un progetto.
+    expect(screen.queryByRole("button", { name: "Delete project" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /add repository/i })).toBeInTheDocument();
   });
 
@@ -295,8 +296,8 @@ describe("dettaglio progetto (gruppo)", () => {
     // Elenco repository con link al dettaglio del repo.
     const repoLink = screen.getByRole("link", { name: /acme-api/ });
     expect(repoLink).toHaveAttribute("href", "/repositories/acme-api");
-    // Azione di eliminazione del progetto.
-    expect(screen.getByRole("button", { name: "Delete project" })).toBeInTheDocument();
+    // Area 9, F6 (L-6): niente più eliminazione dal web vecchio (solo un archiviato, dall'app nuova).
+    expect(screen.queryByRole("button", { name: "Delete project" })).not.toBeInTheDocument();
     // Link per aggiungere un repository.
     expect(screen.getByRole("link", { name: /add repository/i })).toHaveAttribute(
       "href",
@@ -449,26 +450,24 @@ describe("dettaglio progetto (gruppo)", () => {
     expect(screen.getByLabelText("Use only this account")).not.toBeChecked();
   });
 
-  it("admin: conferma ed elimina il progetto, poi torna alla lista", async () => {
-    const user = userEvent.setup();
-    let deleted = false;
+  it("area 9, F6 (L-6): nemmeno l'admin trova Elimina nel web vecchio, e nessun DELETE parte", async () => {
+    const calls: string[] = [];
     mockApi({
       "GET /api/auth/me": meHandler("admin"),
       [`GET /api/projects/${PROJECT_ID}`]: () => jsonResponse(200, detail()),
       "GET /api/milestones": () => jsonResponse(200, []),
-      "GET /api/projects": () => jsonResponse(200, deleted ? [] : [listItem()]),
       [`DELETE /api/projects/${PROJECT_ID}`]: () => {
-        deleted = true;
+        calls.push("DELETE");
         return jsonResponse(204, null);
       },
     });
 
-    const router = renderApp(`/projects/${PROJECT_ID}`);
+    renderApp(`/projects/${PROJECT_ID}`);
 
-    await user.click(await screen.findByRole("button", { name: "Delete project" }));
-    await user.click(screen.getByRole("button", { name: "Yes, delete" }));
-
-    await waitFor(() => expect(router.state.location.pathname).toBe("/projects"));
+    await screen.findByLabelText("Name");
+    expect(screen.queryByRole("button", { name: "Delete project" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Yes, delete" })).not.toBeInTheDocument();
+    expect(calls).toEqual([]);
   });
 
   it("bottone Segui: dallo stato non seguito manda l'insieme con questo progetto", async () => {

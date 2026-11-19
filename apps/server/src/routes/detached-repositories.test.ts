@@ -1,6 +1,6 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
-import { changeLog, commitSummaries, deletedProjectMembers, deletedProjects, projects, repositories } from "@stubwise/db";
+import { changeLog, commitSummaries, deletedProjectMembers, deletedProjects, graphJobs, projects, repositories } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { and, eq } from "drizzle-orm";
@@ -157,7 +157,16 @@ describe("area 9, F6, Task 6: elencare, collegare, eliminare un repository senza
     const other = await seedRepository(testDb.db);
     const { repo } = await detachedFrom("LNK");
     expect((await link(dev.headers, repo.id, target.projectId)).statusCode).toBe(403);
-    expect((await link(lead.headers, repo.id, other.projectId)).statusCode).toBe(404);
+    const elsewhere = await link(lead.headers, repo.id, other.projectId);
+    expect([elsewhere.statusCode, (elsewhere.json() as { code: string }).code]).toEqual([404, "target_not_found"]);
+    // La destinazione archiviata nel frattempo: lo stesso codice, non «il repository non c'è».
+    await testDb.db.update(projects).set({ archivedAt: new Date() }).where(eq(projects.id, target.projectId));
+    const archivedTarget = await link({ cookie: adminCookie }, repo.id, target.projectId);
+    expect([archivedTarget.statusCode, (archivedTarget.json() as { code: string }).code]).toEqual([404, "target_not_found"]);
+    await testDb.db.update(projects).set({ archivedAt: null }).where(eq(projects.id, target.projectId));
+    // Il repository che non c'è: `not_found`.
+    const missing = await link(lead.headers, "00000000-0000-4000-8000-000000000000", target.projectId);
+    expect([missing.statusCode, (missing.json() as { code: string }).code]).toEqual([404, "not_found"]);
     const [clash] = await testDb.db.select({ name: repositories.name }).from(repositories).where(eq(repositories.id, target.repositoryId));
     const { repo: twin } = await detachedFrom("TWN");
     await testDb.db.update(repositories).set({ name: clash!.name }).where(eq(repositories.id, twin.id));
@@ -186,9 +195,14 @@ describe("area 9, F6, Task 6: elencare, collegare, eliminare un repository senza
     const stale = await del({ cookie: `${SESSION_COOKIE}=${encodeURIComponent(app.signCookie(old.id))}` }, repo.id);
     expect([stale.statusCode, (stale.json() as { code: string }).code]).toEqual([403, "reauth_required"]);
     expect(await testDb.db.select().from(repositories).where(eq(repositories.id, repo.id))).toHaveLength(1);
+    // I rifiuti non accodano niente.
+    expect(await testDb.db.select().from(graphJobs).where(and(eq(graphJobs.repositoryId, repo.id), eq(graphJobs.kind, "prune")))).toEqual([]);
 
+    await testDb.db.insert(graphJobs).values({ repositoryId: repo.id, kind: "build" });
     expect((await del({ cookie: adminCookie }, repo.id)).statusCode).toBe(204);
     expect(await testDb.db.select().from(repositories).where(eq(repositories.id, repo.id))).toEqual([]);
+    // Il worker poterà mirror e grafo: il job `prune` (con l'URL) al posto della build di prima.
+    expect((await testDb.db.select().from(graphJobs).where(eq(graphJobs.repositoryId, repo.id))).map((j) => [j.kind, j.status, j.repoUrl])).toEqual([["prune", "queued", repo.repoUrl]]);
     const log = (await app.inject({ method: "GET", url: "/api/change-log", headers: { cookie: adminCookie } })).json() as { entries: { type: string; data: { object: { id: string }; params?: Record<string, unknown> } }[] };
     const entry = log.entries.find((e) => e.type === "repository.deleted" && e.data.object.id === repo.id);
     expect(entry!.data.params).toEqual({ formerProject: "DEL" });

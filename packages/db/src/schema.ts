@@ -3912,12 +3912,15 @@ export const graphJobs = pgTable(
   "graph_jobs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    repositoryId: uuid("repository_id")
-      .notNull()
-      .references(() => repositories.id, { onDelete: "cascade" }),
+    // Senza FK dalla 0194 (area 9, F6): il job `prune` sopravvive al
+    // repository che pota. Gli altri job di un repository eliminato li toglie
+    // il DELETE (`deleteDetachedRepository`).
+    repositoryId: uuid("repository_id").notNull(),
     // Colonne `text` con enum compile-time (come `backlog_chat_messages.role`):
     // nessun enum Postgres né CHECK, il worker rivalida al dequeue.
-    kind: text("kind", { enum: ["build", "setup_pr"] }).notNull(),
+    kind: text("kind", { enum: ["build", "setup_pr", "prune"] }).notNull(),
+    /** Solo `prune`: l'URL del repository eliminato, per trovarne il mirror. */
+    repoUrl: text("repo_url"),
     status: text("status", { enum: ["queued", "running", "done", "failed"] })
       .notNull()
       .default("queued"),
