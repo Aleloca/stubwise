@@ -250,6 +250,21 @@ al modello solo i campi in ALLOWLIST.
 | Un tool che dà anche i fermi (deviazione dal design: senza l'ultima attività Claude non saprebbe quali chiedere) | orchestratrice (approvata) |
 | Niente esiti per riga: le righe non fattibili stanno nella prosa, non spente nella scheda | orchestratrice (D-9 = a) |
 
+## Area 10, F5 — chi entra in un progetto (server; la card è di 94)
+
+| Voce | Dove vive | Rotta / pezzo | Test |
+|---|---|---|---|
+| Il tipo `member.added` nel catalogo degli avvisi (famiglia «members»): alla persona aggiunta sempre (`added`), a chi gestisce i membri di partenza | `@stubwise/shared` `alerts/catalog.ts`; `notifications` (`format`, `alert-recipients` con `exclude`) | `notification_kind` (0200) | `alert-recipients.test.ts`, `format.test.ts`, `migration-0200.test.ts` |
+| La card nasce nella transazione della voce del registro, a ogni INGRESSO (a mano, `addMember` di Claude, invito accettato); mai a chi ha agito, mai per un cambio di ruolo, un reparto o l'agente | `services/roles.ts` (`publishMemberAdded`), `services/change-log.ts` (`recordChange` dà l'id) | `PUT /api/projects/:projectId/members/:userId`, accettazione dell'invito | `project-members.notify.test.ts` |
+| «Undone by» derivato a lettura dal registro (voce d'ingresso → azione di Claude → voce che la annulla), mai dal jsonb | `services/inbox.ts` (`undoneByOfMemberAdded`) | `/api/inbox` (`undoneBy`, additivo) | `inbox-member-added.test.ts`, `notification.test.ts` (shared) |
+| Claude propone `addMember` coi membri e i ruoli del progetto | — | `read_project_members` | golden `chat-s5-member` |
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| Alla persona aggiunta e a chi gestisce i membri, spegnibile per i gestori | maintainer (D-11 = b) |
+| Nell'invito accettato l'attore è chi accetta: la card va ai gestori, non a lui | orchestratrice |
+| Il full admin dell'istanza riceve la card come gestore di ogni progetto | costruttore (come gli altri tipi del catalogo) |
+
 ## Rimandate
 
 | Voce | Fetta |

@@ -1355,6 +1355,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   candidati (`GET /api/projects/archive-candidates`) e propone solo quelli;
   gli occupati e i non gestibili li nomina in prosa (D-9 = a).
 
+- **Chiusa con F5 (20 nov 2026)**: `member.added` — la card a chi entra in un
+  progetto e a chi ne gestisce i membri (D-11 = b), mai a chi ha agito, con
+  «Undone by» derivato dal registro.
+
 ## Area 11 — Documentazione di prodotto
 
 - Origine di una richiesta dalla documentazione di prodotto.

@@ -246,8 +246,9 @@ describe("il rilancio (Task 6)", () => {
   it("change-log.md: la voce si scrive nella transazione di startRun (afterInTx) — c'è esattamente quando il job riparte", async () => {
     const actor = { id: adminId, permissions: new Set(["runs.start", "plans.approve"]) as never };
     const entriesFor = async (ticketId: string) => (await db.select().from(changeLog).where(eq(changeLog.type, "job.retried"))).filter((e) => (e.data as { object: { id: string } }).object.id === ticketId);
-    const entry = (tx: Parameters<NonNullable<Parameters<typeof startRun>[1]["afterInTx"]>>[0], ticketId: string, projectId: string) =>
-      recordChange(tx, { type: "job.retried", actor: { id: adminId, email: "admin@example.com" }, projectId, data: { object: { type: "task", id: ticketId, label: "X-1" } } });
+    const entry = async (tx: Parameters<NonNullable<Parameters<typeof startRun>[1]["afterInTx"]>>[0], ticketId: string, projectId: string): Promise<void> => {
+      await recordChange(tx, { type: "job.retried", actor: { id: adminId, email: "admin@example.com" }, projectId, data: { object: { type: "task", id: ticketId, label: "X-1" } } });
+    };
 
     // Non riparte (un job in volo): la callback non gira, nessuna voce.
     const busy = await seedTicket(db);
@@ -289,7 +290,7 @@ describe("il rilancio (Task 6)", () => {
     expect(source).toContain("startRun(");
     expect(source).not.toMatch(/insert\(aiJobs\)|update\(aiJobs\)/);
     // La voce nella transazione di startRun, con la SUA tx (change-log.md).
-    expect(source).toMatch(/afterInTx: \(tx\) => recordChange\(tx,/);
+    expect(source).toMatch(/afterInTx: async \(tx\) => \{\s*await recordChange\(tx,/);
     expect(source).not.toMatch(/recordChange\(app\.db/);
   });
 });

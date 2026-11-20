@@ -341,3 +341,37 @@ describe("inboxItemSchema — kind docs.nightly_attention (giro notturno Docs)",
     expect(parsed.text).toBe(riga.text);
   });
 });
+
+describe("inboxItemSchema.undoneBy (area 10, F5) — additivo", () => {
+  const item = {
+    id: "1c9e4f70-5555-4666-8777-888899990001",
+    kind: "member.added",
+    status: "open",
+    text: "Ada joined PRO as Developer",
+    actions: ["open", "snooze", "handled"],
+    projectId: null,
+    ticketId: null,
+    jobId: null,
+    createdAt: "2026-11-20T08:14:00.000Z",
+    readAt: null,
+    snoozedUntil: null,
+    handledAt: null,
+    handledBy: null,
+  };
+
+  it("un server più vecchio non lo manda: null (e così memberAdded)", () => {
+    const parsed = readerSchema(inboxItemSchema).parse(item);
+    expect(parsed.undoneBy).toBeNull();
+    expect(parsed.memberAdded).toBeNull();
+  });
+
+  it("memberAdded coi nomi a null (chi guarda non vede la persona) passa", () => {
+    const parts = { addedUserId: "1c9e4f70-5555-4666-8777-888899990003", addedName: null, roleName: null, actorName: null };
+    expect(readerSchema(inboxItemSchema).parse({ ...item, memberAdded: parts }).memberAdded).toEqual(parts);
+  });
+
+  it("quando c'è, passa", () => {
+    const by = { id: "1c9e4f70-5555-4666-8777-888899990002", name: "Bea" };
+    expect(readerSchema(inboxItemSchema).parse({ ...item, undoneBy: by }).undoneBy).toEqual(by);
+  });
+});

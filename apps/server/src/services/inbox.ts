@@ -22,6 +22,8 @@
 import { chatMentionsFor } from "../chat/service.js";
 import {
   aiJobs,
+  changeLog,
+  roles,
   automationRuns,
   automations,
   calendarEvents,
@@ -41,6 +43,8 @@ import {
   users,
   type Db,
 } from "@stubwise/db";
+import { personName } from "./people.js";
+import { visiblePersonIds } from "./people-visibility.js";
 import type { Language } from "@stubwise/i18n";
 import {
   actionsFor,
@@ -804,6 +808,10 @@ export interface InboxItem extends ViaClaudeFields {
   alertMandatory: string | null;
   /** Area 8, F4a/F4b: `monitor.*` e `server.diagnosis_ready`, il codice del server derivato a lettura (`serverCodesByNotification`), o null. */
   serverCode: string | null;
+  /** Area 10, F5: chi ha annullato l'ingresso di una card `member.added` («Undone by»), derivato a lettura, o null. */
+  undoneBy: { id: string; name: string } | null;
+  /** Area 10, F5: i pezzi delle frasi di una card `member.added`, derivati a lettura (R-G5), o null. */
+  memberAdded: { addedUserId: string; addedName: string | null; roleName: string | null; actorName: string | null } | null;
   /** Area 4, Chat: solo `chat.mention` e `chat.question`, il messaggio come lo vede chi legge (`readChatMention`). */
   chat?: {
     channelId: string;
@@ -1001,6 +1009,9 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
   );
   // Area 8, F4a: il codice del server delle card `monitor.*`.
   const serverCodes = await serverCodesByNotification(db, page);
+  // Area 10, F5: «Undone by» delle card `member.added`, dal registro (UNA query per pagina).
+  const undoneBy = await undoneByOfMemberAdded(db, page.filter((r) => r.kind === "member.added"));
+  const memberAdded = await memberAddedPartsOf(db, userId, page.filter((r) => r.kind === "member.added"));
   // Solo per le card di posta: le altre non hanno una riga `email_proposals` e
   // la mappa resta vuota per loro.
   const sourceProposalIds = await sourceProposalIdsByNotification(
@@ -1110,6 +1121,8 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       alertMandatory: typeof (r.event as { alertMandatory?: unknown }).alertMandatory === "string" ? (r.event as { alertMandatory: string }).alertMandatory : null,
       // Area 8, F4a: il codice del server, dalla riga del server (mai dal jsonb).
       serverCode: serverCodes.get(r.id) ?? null,
+      undoneBy: undoneBy.get(r.id) ?? null,
+      memberAdded: memberAdded.get(r.id) ?? null,
       // Le azioni NON passano dal jsonb: la chiave del catalogo è la colonna
       // enum `kind`, che il DB garantisce valida. Una card col testo degradato
       // resta quindi azionabile.
@@ -1627,6 +1640,85 @@ function reviewOutcomeForItem(kind: NotificationKind, rawEvent: Record<string, u
  * pubblicate quando la tabella non esisteva — semplicemente non compaiono
  * nella mappa, e il chiamante legge `null`.
  */
+/**
+ * Area 10, F5 (richiesta di 94): i pezzi delle frasi di una card
+ * `member.added`, per chi legge. Le persone coi nomi di adesso, solo se chi
+ * legge le vede (R-G5, la regola di `GET /api/people`); il ruolo col nome di
+ * adesso dal `roleId` dell'evento (null se non c'è più; una card senza
+ * `roleId` tiene il nome scritto). Tre query per pagina al più.
+ */
+async function memberAddedPartsOf(
+  db: Db,
+  viewerId: string,
+  rows: { id: string; event: unknown }[],
+): Promise<Map<string, { addedUserId: string; addedName: string | null; roleName: string | null; actorName: string | null }>> {
+  type Ev = { addedUserId?: unknown; actorUserId?: unknown; roleId?: unknown; roleName?: unknown };
+  const isId = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v);
+  const evs = rows.flatMap((r) => {
+    const e = (r.event ?? {}) as Ev;
+    return isId(e.addedUserId) ? [{ id: r.id, e, added: e.addedUserId }] : [];
+  });
+  if (evs.length === 0) return new Map();
+  const personIds = [...new Set(evs.flatMap(({ e, added }) => [added, ...(isId(e.actorUserId) ? [e.actorUserId] : [])]))];
+  const roleIds = [...new Set(evs.flatMap(({ e }) => (isId(e.roleId) ? [e.roleId] : [])))];
+  const visible = await visiblePersonIds(db, { id: viewerId, instancePermissions: await instancePermissionsOfUser(db, viewerId) });
+  const sees = (id: string) => visible === "all" || visible.includes(id);
+  const names = new Map(
+    (await db.select({ id: users.id, email: users.email, displayName: users.displayName }).from(users).where(inArray(users.id, personIds))).map((u) => [u.id, personName(u)]),
+  );
+  const roleNames = new Map(
+    roleIds.length > 0 ? (await db.select({ id: roles.id, name: roles.name }).from(roles).where(inArray(roles.id, roleIds))).map((r) => [r.id, r.name]) : [],
+  );
+  const nameOf = (id: unknown) => (isId(id) && sees(id) ? (names.get(id) ?? null) : null);
+  return new Map(
+    evs.map(({ id, e, added }) => [
+      id,
+      {
+        addedUserId: added,
+        addedName: nameOf(added),
+        roleName: isId(e.roleId) ? (roleNames.get(e.roleId) ?? null) : typeof e.roleName === "string" ? e.roleName : null,
+        actorName: nameOf(e.actorUserId),
+      },
+    ]),
+  );
+}
+
+/**
+ * Area 10, F5 (D-11 = b): chi ha ANNULLATO l'ingresso di una card
+ * `member.added`. Dalla voce d'ingresso (`changeLogEntryId`, scritto alla
+ * publish) alla sua azione di Claude (`via_claude_action_id`), e da lì alla
+ * voce che annulla quell'azione (`undo_of_action_id`): il suo autore. Una card
+ * vecchia senza `changeLogEntryId`, un ingresso fatto a mano o tolto a mano:
+ * nessun «Undone by». Due query per pagina, mai una per card.
+ */
+async function undoneByOfMemberAdded(db: Db, rows: { id: string; event: unknown }[]): Promise<Map<string, { id: string; name: string }>> {
+  const entryOf = new Map<string, string>();
+  for (const r of rows) {
+    const id = (r.event as { changeLogEntryId?: unknown } | null)?.changeLogEntryId;
+    if (typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)) entryOf.set(r.id, id);
+  }
+  if (entryOf.size === 0) return new Map();
+  const entries = await db
+    .select({ id: changeLog.id, actionId: changeLog.viaClaudeActionId })
+    .from(changeLog)
+    .where(inArray(changeLog.id, [...new Set(entryOf.values())]));
+  const actionOf = new Map(entries.flatMap((e) => (e.actionId ? [[e.id, e.actionId] as const] : [])));
+  if (actionOf.size === 0) return new Map();
+  const undos = await db
+    .select({ undoOf: changeLog.undoOfActionId, by: changeLog.actorUserId, email: users.email, displayName: users.displayName })
+    .from(changeLog)
+    .leftJoin(users, eq(users.id, changeLog.actorUserId))
+    .where(inArray(changeLog.undoOfActionId, [...new Set(actionOf.values())]));
+  const byAction = new Map(undos.flatMap((u) => (u.undoOf && u.by && u.email ? [[u.undoOf, { id: u.by, name: personName({ email: u.email, displayName: u.displayName }) }] as const] : [])));
+  const out = new Map<string, { id: string; name: string }>();
+  for (const [cardId, entryId] of entryOf) {
+    const action = actionOf.get(entryId);
+    const who = action ? byAction.get(action) : undefined;
+    if (who) out.set(cardId, who);
+  }
+  return out;
+}
+
 /**
  * Area 8, F4a: il codice `SRV-<n>` del server di ogni card `monitor.*`, dal
  * suo id nel link dell'evento (`…/monitor/servers/<id>`), in UNA query per

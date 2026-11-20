@@ -286,7 +286,9 @@ export const AREA9_ENTRIES: CatalogEntry[] = [
         actor: { id: user.id, permissions },
         ...(start.publicUrl !== undefined ? { publicUrl: start.publicUrl } : {}),
         expectLatestJobId: jobId,
-        afterInTx: (inner) => recordChange(inner, { type: "job.retried", actor: user, projectId: facts.projectId, data: { object: { type: "task", id: facts.ticketId, label: facts.code } } }),
+        afterInTx: async (inner) => {
+          await recordChange(inner, { type: "job.retried", actor: user, projectId: facts.projectId, data: { object: { type: "task", id: facts.ticketId, label: facts.code } } });
+        },
       });
       if (!result.ok) return refused(result.error === "forbidden" ? "forbidden" : "conflict", result.error);
       return { ok: true, result: { inverse: null, objects: [{ kind: "task", id: facts.ticketId, code: facts.code }], codes: [facts.code], startsWork: true } };

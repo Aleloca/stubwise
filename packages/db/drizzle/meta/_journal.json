@@ -1387,6 +1387,13 @@
       "when": 1801612800000,
       "tag": "0199_session_event_aside",
       "breakpoints": true
+    },
+    {
+      "idx": 200,
+      "version": "7",
+      "when": 1801699200000,
+      "tag": "0200_member_added",
+      "breakpoints": true
     }
   ]
 }

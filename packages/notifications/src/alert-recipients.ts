@@ -34,6 +34,12 @@ export interface CatalogRecipientsContext {
   pushPreference: (userId: string) => boolean;
   /** Area 8, F4b: questo evento va SOLO agli obbligatori (un esito per chi ha chiesto un'analisi). */
   mandatoryOnly?: boolean;
+  /**
+   * Area 10, F5: chi NON lo riceve mai, né da obbligatorio né da iscritto — chi
+   * ha agito (`member.added`: chi aggiunge, anche sé stesso; con Claude la
+   * persona per conto di cui agisce).
+   */
+  exclude?: readonly string[];
 }
 
 export interface CatalogRecipients {
@@ -50,8 +56,9 @@ export function catalogRecipients(type: AlertType, ctx: CatalogRecipientsContext
   const app: string[] = [];
   const phone = new Set<string>();
   const mandatory = new Map<string, MandatoryReason>();
+  const excluded = new Set(ctx.exclude ?? []);
   const add = (userId: string, wantsPhone: boolean) => {
-    if (!visible.has(userId) || app.includes(userId)) return;
+    if (!visible.has(userId) || excluded.has(userId) || app.includes(userId)) return;
     app.push(userId);
     if (wantsPhone) phone.add(userId);
   };

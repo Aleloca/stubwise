@@ -2162,6 +2162,8 @@ const CHAT_PEOPLE = [
   { id: "1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b", name: "Ada Lovelace", initials: "AL", departmentIds: [], email: "ada@example.com" },
   { id: MARTA_ID, name: "Marta Rinaldi", initials: "MR", departmentIds: [], email: "marta@example.com" },
   { id: "7b8c9d0e-1f2a-4b3c-9d4e-5f6a7b8c9d0e", name: "Luca Bassi", initials: "LB", departmentIds: [], email: "luca@example.com" },
+  // Area 10, F5 (S5): fuori da AUD.
+  { id: "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d", name: "Bruno Verdi", initials: "BV", departmentIds: [], email: "bruno@example.com" },
 ];
 
 /**
@@ -2322,6 +2324,22 @@ const USAGE_MONTH = {
   ],
 };
 /** Area 10, F4 (S4): un candidato, un occupato, un non gestibile. */
+/**
+ * Area 10, F5 (S5): i membri di AUD come li dà `/members/view`. Bruno Verdi c'è
+ * fra le persone ma non nel progetto; i ruoli che chi chiede può dare.
+ */
+const BRUNO_ID = "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d";
+const DEVELOPER_ROLE_ID = "0d1e2f3a-4b5c-4d6e-8f7a-8b9c0d1e2f3a";
+const AUD_MEMBERS_VIEW = {
+  canManage: true,
+  members: [{ personId: MARTA_ID, name: "Marta Rinaldi", status: "active", granted: [], role: { id: "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", name: "Project Lead" } }],
+  roleChoices: [
+    { roleId: "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", name: "Project Lead", block: null },
+    { roleId: DEVELOPER_ROLE_ID, name: "Developer", block: null },
+    { roleId: "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e", name: "Contributor", block: null },
+  ],
+};
+
 const ARCHIVE_OLD_ID = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d";
 const ARCHIVE_CANDIDATES = {
   candidates: [{ projectId: ARCHIVE_OLD_ID, code: "OLD", name: "Vecchio sito", lastActivity: "2026-06-02T10:00:00.000Z" }],
@@ -2399,6 +2417,7 @@ async function startFakeChatServer(
     if (path === "/api/ai-usage/summary") return send(200, USAGE_MONTH);
     if (path === "/api/access/who-can") return send(200, WHO_CAN_USAGE);
     if (path === "/api/projects/archive-candidates") return send(200, ARCHIVE_CANDIDATES);
+    if (path === `${p}/members/view`) return send(200, AUD_MEMBERS_VIEW);
     if (path === "/api/tasks") return send(200, { items: [AUD_TASK] });
     if (path === "/api/tasks/by-code/AUD-12") return send(200, AUD_TASK);
     if (path === `${p}/docs/search`) {
@@ -3054,6 +3073,20 @@ const runChatS3Usage = (ctx: ScenarioContext) =>
  */
 const runChatS4Archive = (ctx: ScenarioContext) =>
   runChat(ctx, "chat-s4-archive", "Archivia i progetti senza attività da 3 mesi.", { kind: "archive-bulk", candidates: [ARCHIVE_OLD_ID], mustMention: ["ACQ", "MKT"] });
+/**
+ * Area 10, F5 (S5): «aggiungi Bruno ad AUD come Developer» → UNA proposta
+ * `addMember` con Bruno e il ruolo Developer; il server risponde «in attesa»
+ * (una C: serve la riconferma) e il modello non dice «fatto». La notifica non
+ * si prova qui: la prova `project-members.notify.test.ts`. 3 volte, quando autorizzate.
+ */
+const runChatS5Member = (ctx: ScenarioContext) =>
+  runChat(
+    ctx,
+    "chat-s5-member",
+    "Aggiungi Bruno Verdi al progetto AUD come Developer.",
+    { kind: "propose", action: { fn: "addMember", args: { projectId: CHAT_PROJECT_ID, userId: BRUNO_ID, roleId: DEVELOPER_ROLE_ID } } },
+    { answer: "awaiting_confirmation" },
+  );
 const runChatS3UsageDenied = (ctx: ScenarioContext) =>
   runChat(ctx, "chat-s3-usage-denied", "Quanto abbiamo speso di AI questo mese?", { kind: "usage-denied", mustRead: "/api/ai-usage/summary", whoCan: "Ada Lovelace" }, {
     overrides: { "/api/ai-usage/summary": { status: 403, body: { code: "forbidden", message: "Missing permission" } } },
@@ -3269,6 +3302,7 @@ const SCENARIOS: Record<ScenarioName, (ctx: ScenarioContext) => Promise<Scenario
   "chat-s3-usage": runChatS3Usage,
   "chat-s3-usage-denied": runChatS3UsageDenied,
   "chat-s4-archive": runChatS4Archive,
+  "chat-s5-member": runChatS5Member,
   "mail-classify-v2": runMailClassifyV2,
   "automation-step": runAutomationStep,
   "support-triage-check": runSupportTriageCheck,

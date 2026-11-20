@@ -55,6 +55,8 @@ export interface PublishOpts {
    * la diagnosi del progetto attribuito).
    */
   mandatoryOnly?: boolean;
+  /** Area 10, F5: chi non riceve MAI questo avviso del catalogo (chi ha agito). */
+  exclude?: string[];
   /** Progetto dell'evento: instrada verso chi lo segue. */
   projectId?: string;
   /** Ticket dell'evento: instrada verso l'assegnatario. */
@@ -327,6 +329,7 @@ export async function resolveCatalogRecipients(
     mandatory: opts.mandatory ?? [],
     pushPreference: (userId) => pushOn.has(userId),
     mandatoryOnly: opts.mandatoryOnly === true,
+    exclude: opts.exclude ?? [],
   });
 }
 

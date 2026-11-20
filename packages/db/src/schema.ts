@@ -1943,6 +1943,8 @@ export const notificationKind = pgEnum("notification_kind", [
   "support.request",
   // Area 8, fetta 4b (0181): la diagnosi dell'analisi di un server.
   "server.diagnosis_ready",
+  // Area 10, F5 (0200).
+  "member.added",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),

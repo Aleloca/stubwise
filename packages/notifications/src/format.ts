@@ -942,6 +942,29 @@ export interface PlanningChangedEvent {
   actorUserId: string | null;
 }
 
+/**
+ * Area 10, F5 (D-11 = b): una persona è entrata in un progetto. Nel jsonb i
+ * nomi di ALLORA (per le frasi fuori dall'app) e l'id della voce del registro
+ * della stessa transazione (`changeLogEntryId`, vero solo adesso); «Undone by»
+ * NON sta qui: lo deriva l'inbox a lettura. Con Claude l'attore è la persona
+ * per conto di cui agisce (`viaClaude`).
+ */
+export interface MemberAddedEvent {
+  kind: "member.added";
+  projectId: string;
+  projectCode: string;
+  projectName: string;
+  addedUserId: string;
+  addedName: string;
+  roleName: string;
+  /** Il ruolo dato: l'inbox ne legge il nome di ADESSO (null se non c'è più). Assente nelle card scritte prima. */
+  roleId?: string;
+  actorUserId: string | null;
+  actorName: string | null;
+  viaClaude: boolean;
+  changeLogEntryId: string | null;
+}
+
 /** Una task ricevuta da un'altra persona (audience `task_people`, mai l'attore). */
 export interface TaskAssignedEvent {
   kind: "task.assigned";
@@ -1030,6 +1053,7 @@ export type NotificationEvent =
   | TaskAssignedEvent
   | ChatMentionEvent
   | ChatQuestionEvent
+  | MemberAddedEvent
   | AutomationNotificationEvent;
 
 /**
@@ -1058,6 +1082,7 @@ type NonTicketedEvent =
   | TaskAssignedEvent
   | ChatMentionEvent
   | ChatQuestionEvent
+  | MemberAddedEvent
   | AutomationNotificationEvent;
 
 /**
@@ -1094,6 +1119,7 @@ function hasTicket(event: NotificationEvent): event is TicketedEvent {
     event.kind !== "ticket.activity" &&
     event.kind !== "planning.changed" &&
     event.kind !== "task.assigned" &&
+    event.kind !== "member.added" &&
     event.kind !== "chat.mention" &&
     event.kind !== "chat.question" &&
     event.kind !== "automation.approval" &&
@@ -1167,6 +1193,7 @@ const EMOJI: Record<NotificationKind, string> = {
   "google.proposal": "📬",
   "google.proposal_handed": "📨",
   "security.alert": "🔐",
+  "member.added": "👋",
   "decision.requested": "🤔",
   "decision.answered": "💬",
   "ticket.activity": "👀",
@@ -1316,6 +1343,7 @@ function linkParam(
     case "ticket.activity":
     case "planning.changed":
     case "task.assigned":
+    case "member.added":
     case "chat.mention":
     case "chat.question":
     case "automation.approval":
@@ -1355,6 +1383,7 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "monitor.recovered": "notify.monitorRecovered",
   "job.awaiting_input": "notify.awaitingInput",
   "project.pulse": "notify.pulse",
+  "member.added": "notify.memberAdded",
   "project.brief": "notify.brief",
   "google.proposal": "notify.googleProposal",
   "google.proposal_handed": "notify.googleProposalHanded",
@@ -1639,6 +1668,9 @@ function textParams(
     }
     if (event.kind === "task.assigned") {
       return { ref: taskRef(event) };
+    }
+    if (event.kind === "member.added") {
+      return { person: event.addedName, project: event.projectCode, role: event.roleName };
     }
     if (event.kind === "chat.mention" || event.kind === "chat.question") {
       return { author: event.authorName, channel: event.channelName };
@@ -2014,6 +2046,10 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
       event.kind === "server.diagnosis_ready"
     ) {
       return { event: event.kind, projectId: event.projectId, title: event.title, message: formatNotificationText(event, lang), url: event.url };
+    }
+    if (event.kind === "member.added") {
+      // Area 10, F5: un webhook lo riceve solo dove l'evento è scelto (E-2).
+      return { event: event.kind, projectId: event.projectId, projectCode: event.projectCode, message: formatNotificationText(event, lang) };
     }
     // monitor.alert | monitor.recovered: la `condition` resta l'enum grezzo
     // (machine-readable), il `detail` la descrizione, `serverUrl` la pagina
@@ -2429,6 +2465,19 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
       projectCode: "NEG",
       actorUserId: "5e6f7a8b-dddd-4eee-8fff-000011112222",
+    },
+    {
+      kind: "member.added",
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      projectCode: "NEG",
+      projectName: "Negozio",
+      addedUserId: "3c4d5e6f-7777-4888-8999-aaaabbbbcccc",
+      addedName: "Giulia Ferri",
+      roleName: "Developer",
+      actorUserId: "5e6f7a8b-dddd-4eee-8fff-000011112222",
+      actorName: "Ada Lovelace",
+      viaClaude: false,
+      changeLogEntryId: null,
     },
     {
       kind: "chat.mention",

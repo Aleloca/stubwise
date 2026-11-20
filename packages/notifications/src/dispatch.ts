@@ -144,6 +144,7 @@ const TOGGLE_FOR_KIND: Record<NotificationKind, keyof NotificationSettingsRow> =
   "pr.corrected": "notifyJobFailed",
   "docs.release_note": "notifyJobFailed",
   "support.request": "notifyJobFailed",
+  "member.added": "notifyJobFailed",
   "server.diagnosis_ready": "notifyJobFailed",
 };
 
