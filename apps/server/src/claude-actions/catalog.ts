@@ -15,6 +15,8 @@ import type { SessionUser } from "../auth/session.js";
 import { backlogItems, taskFilters } from "@stubwise/db";
 import type { MilestoneDraft, NewFilterBody, NewRequestBody } from "@stubwise/shared";
 import { enqueueBacklogIntake } from "../services/backlog-intake.js";
+import { ProductDocsError } from "../services/product-docs.js";
+import { ProductQuestionConflictError, checkProductDocOrigin, closeQuestionWithRequest } from "../services/product-question-origin.js";
 import { postUserComment } from "../services/comment-post.js";
 import { deleteComment } from "../services/comments.js";
 import { startRun } from "../services/jobs.js";
@@ -315,6 +317,16 @@ const ENTRIES: CatalogEntry[] = [
     request: (args) => ({ body: args }),
     async run(tx, user, args) {
       const body = args as unknown as NewRequestBody;
+      // Area 11, F5: da una domanda di Claude sulla doc (la scheda B): l'origine si controlla PRIMA, la domanda si chiude col job.
+      if (body.origin) {
+        try {
+          await checkProductDocOrigin(tx, user, body.projectId, body.origin);
+        } catch (error) {
+          if (error instanceof ProductQuestionConflictError) return refused("conflict", error.code);
+          if (error instanceof ProductDocsError) return refused(error.status === 403 ? "forbidden" : "invalid", error.code);
+          throw error;
+        }
+      }
       // Passa dall'intake (può fonderla in una che c'è già): non si annulla.
       const result = await enqueueBacklogIntake(tx, {
         projectId: body.projectId,
@@ -323,6 +335,7 @@ const ENTRIES: CatalogEntry[] = [
         requestedByUserId: user.id,
       });
       if (!result.ok) return refused("not_found", result.error);
+      if (body.origin) await closeQuestionWithRequest(tx, user, body.origin, result.jobId);
       return { ok: true, result: { inverse: null, objects: [], codes: [] } };
     },
   },

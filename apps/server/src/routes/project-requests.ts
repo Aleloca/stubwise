@@ -26,6 +26,9 @@ import { archiveRequest, reopenRequest } from "../services/project-request-write
 import { loadRequestSummaries, loadRequestViews, requestView, requestVisibility } from "../services/project-requests.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 import { messageLinkable } from "../chat/links.js";
+import type { Db } from "@stubwise/db";
+import { ProductDocsError } from "../services/product-docs.js";
+import { ProductQuestionConflictError, checkProductDocOrigin, closeQuestionWithRequest } from "../services/product-question-origin.js";
 
 /**
  * Le richieste dell'app nuova (integrazione area 2, fetta 4): la sezione
@@ -133,24 +136,49 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
       config: { access: { kind: "project", permission: "backlog.create", project: fromBody("projectId") } },
       schema: {
         body: newRequestBodySchema,
-        response: { 202: z.object({ jobId: z.uuid() }), 400: errorSchema, 404: errorSchema, ...authErrorResponses },
+        response: {
+          202: z.object({ jobId: z.uuid() }),
+          400: errorSchema,
+          404: errorSchema,
+          // Area 11, F5: un'origine `product_doc` (la domanda di Claude) già risposta, o non valida.
+          409: z.object({ code: z.string(), message: z.string(), byId: z.uuid().nullable().optional(), byName: z.string().nullable().optional() }),
+          422: errorSchema,
+          ...authErrorResponses,
+        },
       },
     },
     async (request, reply) => {
-      const { projectId, title, description, chatMessageId } = request.body;
+      const { projectId, title, description, chatMessageId, origin } = request.body;
       // Da un messaggio della Chat: chi chiede lo deve leggere, e non dev'essere eliminato.
       if (chatMessageId && !(await messageLinkable(app.db, request.user!, chatMessageId))) {
         return apiError(reply, 400, "chat_message_not_found", "Chat message not found");
       }
-      const result = await enqueueBacklogIntake(app.db, {
-        projectId,
-        title,
-        body: description,
-        requestedByUserId: request.user!.id,
-        ...(chatMessageId ? { chatMessageId } : {}),
-      });
-      if (!result.ok) return apiError(reply, 404, "project_not_found", "Project not found");
-      return reply.code(202).send({ jobId: result.jobId });
+      const enqueue = (db: Db) =>
+        enqueueBacklogIntake(db, {
+          projectId,
+          title,
+          body: description,
+          requestedByUserId: request.user!.id,
+          ...(chatMessageId ? { chatMessageId } : {}),
+        });
+      try {
+        // Area 11, F5: da una domanda di Claude, l'origine si controlla PRIMA e la domanda si chiude col job, in UNA transazione.
+        const result = origin
+          ? await app.db.transaction(async (txRaw) => {
+              const tx = txRaw as unknown as Db;
+              await checkProductDocOrigin(tx, request.user!, projectId, origin);
+              const queued = await enqueue(tx);
+              if (queued.ok) await closeQuestionWithRequest(tx, request.user!, origin, queued.jobId);
+              return queued;
+            })
+          : await enqueue(app.db);
+        if (!result.ok) return apiError(reply, 404, "project_not_found", "Project not found");
+        return reply.code(202).send({ jobId: result.jobId });
+      } catch (error) {
+        if (error instanceof ProductQuestionConflictError) return reply.code(409).send({ code: error.code, message: error.message, byId: error.by.id, byName: error.by.name });
+        if (error instanceof ProductDocsError) return apiError(reply, error.status, error.code, error.message);
+        throw error;
+      }
     },
   );
 

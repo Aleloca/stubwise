@@ -1,4 +1,4 @@
-import { backlogItems, createRequestItem, docPageCodes, productComments, productPageBlockIds, productPageRevisions, productPages, projects, tickets, users, type Db } from "@stubwise/db";
+import { backlogItems, backlogJobs, docPageCodes, productComments, productPageBlockIds, productPageRevisions, productPages, projects, tickets, type Db } from "@stubwise/db";
 import { withAnchorText } from "@stubwise/notifications";
 import {
   anchorIdsOf,
@@ -7,8 +7,6 @@ import {
   isTextBlock,
   productBlockSchema,
   productBlockWriteSchema,
-  productQuestionAnswerSchema,
-  productQuestionSchema,
   productSearchText,
   validProductBlock,
   type ProductAnswerChoice,
@@ -26,10 +24,11 @@ import { and, asc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { inProjects, projectIdsWithPermission, projectPermissionsFor } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
-import { personName } from "./people.js";
-import { visiblePersonIds } from "./people-visibility.js";
 import { productSourceViews } from "./product-claude.js";
 import { ProductDocsError } from "./product-docs.js";
+import { ProductQuestionConflictError, answerOf, close, namesFor, questionOf } from "./product-question-origin.js";
+
+export { ProductQuestionConflictError, checkProductDocOrigin, closeQuestionWithRequest } from "./product-question-origin.js";
 import { holdTouchedSections } from "./product-docs-ops.js";
 import { notifyProductRevision } from "./product-live-notify.js";
 
@@ -50,10 +49,14 @@ import { notifyProductRevision } from "./product-live-notify.js";
  *   (chi): la domanda resta aperta. Le sezioni si prendono come per ogni
  *   scrittura (F4: 409 `section_busy`);
  * - «Keep it» (`keep`) chiude senza revisioni;
- * - «Open a request» (`request`) crea la voce del backlog (`createRequestItem`,
- *   lo scrittore delle persone) e la chiude nella stessa transazione. Chiede
- *   `backlog.create` e il backlog acceso nel progetto: senza, l'opzione non
- *   c'è (`options`) e la risposta è 422 `option_unavailable`;
+ * - «Open a request» (`request`) NON passa da qui: il riquadro di Claude
+ *   propone una scheda B, una `createRequest` con `origin.product_doc` e il
+ *   `questionId`; confermata, `POST /api/requests` (o il catalogo di Claude)
+ *   controlla l'origine PRIMA che la richiesta nasca
+ *   ({@link checkProductDocOrigin}) e chiude la domanda nella stessa
+ *   transazione del job d'intake ({@link closeQuestionWithRequest}). Il
+ *   permesso e il resto sono quelli di `createRequest` di oggi. La voce e il
+ *   suo codice si DERIVANO dal risultato del job;
  * - la domanda si chiude rispondendo: «Resolve» e «Reopen» la rifiutano
  *   (`product-comments.ts`);
  * - niente qui scrive nel registro decisioni.
@@ -66,46 +69,11 @@ const ANSWERS: readonly ProductAnswerChoice[] = ["apply", "keep", "request"];
 
 const notFound = () => new ProductDocsError(404, "not_found", "Not found");
 
-/** 409: la domanda ha già una risposta (`already_answered`), o la frase è cambiata dopo (`changed_after`). */
-export class ProductQuestionConflictError extends ProductDocsError {
-  constructor(
-    readonly reason: "already_answered" | "changed_after",
-    readonly by: { id: string | null; name: string | null },
-    readonly option: ProductAnswerChoice | null = null,
-  ) {
-    super(409, reason, reason === "already_answered" ? "The question already has an answer" : "The sentence changed after the question");
-  }
-}
-
 const readBlocks = (raw: unknown): ProductBlock[] =>
   (Array.isArray(raw) ? raw : []).flatMap((b) => {
     const parsed = productBlockSchema.safeParse(b);
     return parsed.success ? [parsed.data as ProductBlock] : [];
   });
-
-const questionOf = (row: Pick<CommentRow, "question">): ProductQuestion | null => {
-  const parsed = row.question ? productQuestionSchema.safeParse(row.question) : null;
-  return parsed?.success ? parsed.data : null;
-};
-
-const answerOf = (row: Pick<CommentRow, "answer">): ProductQuestionAnswer | null => {
-  const parsed = row.answer ? productQuestionAnswerSchema.safeParse(row.answer) : null;
-  return parsed?.success ? parsed.data : null;
-};
-
-/** I nomi delle persone che chi guarda vede (R-G5). */
-async function namesFor(db: Db, viewer: Viewer, ids: readonly (string | null)[]): Promise<(id: string | null) => string | null> {
-  const wanted = [...new Set(ids.filter((x): x is string => x !== null))];
-  if (wanted.length === 0) return () => null;
-  const people = await visiblePersonIds(db, viewer);
-  const rows = await db.select({ id: users.id, email: users.email, displayName: users.displayName, isAgent: users.isAgent }).from(users).where(inArray(users.id, wanted));
-  const names = new Map(rows.map((u) => [u.id, { name: personName(u), agent: u.isAgent }]));
-  return (id) => {
-    const u = id ? names.get(id) : undefined;
-    // Claude si nomina sempre; una persona solo se chi guarda la vede.
-    return u && (u.agent || people === "all" || people.includes(id!)) ? u.name : null;
-  };
-}
 
 /** La frase di un'ancora (un blocco di testo o una cella) com'è adesso. */
 function anchorRich(blocks: readonly ProductBlock[], anchorId: string): RichText | null {
@@ -128,8 +96,8 @@ function blockerOf(comment: Pick<CommentRow, "anchorId" | "createdAt">, q: Produ
 }
 
 /** Le risposte che hanno una strada; il consiglio per primo, se ha la sua. */
-function optionsOf(q: ProductQuestion, canRequest: boolean): { recommended: ProductAnswerChoice | null; options: ProductAnswerChoice[] } {
-  const has = (o: ProductAnswerChoice) => o === "keep" || (o === "apply" ? q.apply !== null || q.insert !== undefined : q.request !== null && canRequest);
+function optionsOf(q: ProductQuestion): { recommended: ProductAnswerChoice | null; options: ProductAnswerChoice[] } {
+  const has = (o: ProductAnswerChoice) => o === "keep" || (o === "apply" ? q.apply !== null || q.insert !== undefined : q.request !== null);
   const recommended = has(q.recommended) ? q.recommended : null;
   const rest = ANSWERS.filter((o) => o !== recommended && has(o));
   return { recommended, options: recommended ? [recommended, ...rest] : rest };
@@ -140,10 +108,7 @@ interface PageCtx {
   projectId: string;
   blocks: ProductBlock[];
   perms: ReadonlySet<string> | null;
-  backlogEnabled: boolean;
 }
-
-const canRequestIn = (page: PageCtx) => page.backlogEnabled && page.perms?.has("backlog.create") === true;
 
 /**
  * Le domande di alcuni commenti radice della STESSA pagina come le legge chi
@@ -166,7 +131,13 @@ async function questionViews(db: Db, viewer: Viewer, page: PageCtx, rows: readon
     ref.kind === "first_version"
       ? { kind: "first_version", canOpen: false, id: null, title: null, code: null, ownerId: null, ownerName: null, at: null, gone: false, thread: null }
       : sources.get(`${ref.kind}:${ref.id}`)!;
-  const requestIds = asked.flatMap((a) => (a.answer?.requestId ? [a.answer.requestId] : []));
+  // «Open a request»: la voce la dice il job d'intake quando ha finito (nuova o fusa), DERIVATA a lettura.
+  const jobIds = asked.flatMap((a) => (a.answer?.requestJobId ? [a.answer.requestJobId] : []));
+  const jobItem = new Map(
+    jobIds.length > 0 ? (await db.select({ id: backlogJobs.id, itemId: backlogJobs.resultItemId }).from(backlogJobs).where(inArray(backlogJobs.id, jobIds))).map((j) => [j.id, j.itemId]) : [],
+  );
+  const requestOf = (answer: ProductQuestionAnswer) => answer.requestId ?? (answer.requestJobId ? (jobItem.get(answer.requestJobId) ?? null) : null);
+  const requestIds = asked.flatMap((a) => (a.answer && requestOf(a.answer) ? [requestOf(a.answer)!] : []));
   const requestCodes = new Map(
     requestIds.length > 0
       ? (await db.select({ id: backlogItems.id, number: backlogItems.number, code: projects.code }).from(backlogItems).innerJoin(projects, eq(projects.id, backlogItems.projectId)).where(inArray(backlogItems.id, requestIds))).map((r) => [r.id, `${r.code}-R${r.number}`])
@@ -196,7 +167,7 @@ async function questionViews(db: Db, viewer: Viewer, page: PageCtx, rows: readon
       apply: q.apply ?? (q.insert && "content" in q.insert.block ? (q.insert.block as { content: RichText }).content : null),
       built: q.built,
       request: q.request,
-      ...optionsOf(q, canRequestIn(page)),
+      ...optionsOf(q),
       canAnswer: answer === null && canEdit,
       applyBlocked: blocker ? { byId: blockerName ? blocker.actorId : null, byName: blockerName } : null,
       answer: answer && {
@@ -205,8 +176,8 @@ async function questionViews(db: Db, viewer: Viewer, page: PageCtx, rows: readon
         option: answer.option,
         at: answer.at,
         revisionId: answer.revisionId,
-        requestId: answer.requestId,
-        requestCode: answer.requestId ? (requestCodes.get(answer.requestId) ?? null) : null,
+        requestId: requestOf(answer),
+        requestCode: requestOf(answer) ? (requestCodes.get(requestOf(answer)!) ?? null) : null,
       },
     });
   }
@@ -214,13 +185,9 @@ async function questionViews(db: Db, viewer: Viewer, page: PageCtx, rows: readon
 }
 
 async function pageCtx(db: Db, viewer: Viewer, pageId: string): Promise<PageCtx | null> {
-  const [page] = await db
-    .select({ id: productPages.id, projectId: productPages.projectId, blocks: productPages.blocks, backlogEnabled: projects.backlogEnabled })
-    .from(productPages)
-    .innerJoin(projects, eq(projects.id, productPages.projectId))
-    .where(eq(productPages.id, pageId));
+  const [page] = await db.select({ id: productPages.id, projectId: productPages.projectId, blocks: productPages.blocks }).from(productPages).where(eq(productPages.id, pageId));
   if (!page) return null;
-  return { id: page.id, projectId: page.projectId, blocks: readBlocks(page.blocks), perms: await projectPermissionsFor(db, viewer, page.projectId), backlogEnabled: page.backlogEnabled };
+  return { id: page.id, projectId: page.projectId, blocks: readBlocks(page.blocks), perms: await projectPermissionsFor(db, viewer, page.projectId) };
 }
 
 /** Le domande dei commenti di una pagina (per `listProductComments`). */
@@ -234,8 +201,6 @@ export interface ProductAnswerResult {
   /** La revisione di «Update it». */
   revisionId: string | null;
   seq: number | null;
-  /** La voce del backlog di «Open a request». */
-  requestId: string | null;
 }
 
 /**
@@ -244,6 +209,8 @@ export interface ProductAnswerResult {
  * la pagina, poi il commento, poi la scrittura e la chiusura.
  */
 export async function answerProductQuestion(db: Db, viewer: Viewer, commentId: string, option: ProductAnswerChoice): Promise<ProductAnswerResult> {
+  // «Open a request» passa da `createRequest` con l'origine della domanda (la scheda B), mai da qui.
+  if (option === "request") throw new ProductDocsError(422, "request_via_create_request", "Open a request goes through createRequest with the question as origin");
   const [head] = await db.select({ pageId: productComments.pageId }).from(productComments).where(eq(productComments.id, commentId));
   if (!head) throw notFound();
   const ctx = await pageCtx(db, viewer, head.pageId);
@@ -258,11 +225,10 @@ export async function answerProductQuestion(db: Db, viewer: Viewer, commentId: s
     if (!comment || !q) throw notFound();
     const prior = answerOf(comment);
     if (prior) throw new ProductQuestionConflictError("already_answered", { id: prior.byId, name: (await namesFor(tx, viewer, [prior.byId]))(prior.byId) }, prior.option);
-    if (!optionsOf(q, canRequestIn(ctx)).options.includes(option)) throw new ProductDocsError(422, "option_unavailable", "This answer is not available for this question");
+    if (!optionsOf(q).options.includes(option)) throw new ProductDocsError(422, "option_unavailable", "This answer is not available for this question");
 
     let revisionId: string | null = null;
     let seq: number | null = null;
-    let requestId: string | null = null;
     if (option === "apply") {
       const later = await tx.select().from(productPageRevisions).where(and(eq(productPageRevisions.pageId, page.id), q.seq !== undefined ? gt(productPageRevisions.lastSeq, q.seq) : undefined)).orderBy(asc(productPageRevisions.lastSeq));
       const blocker = blockerOf(comment, q, later);
@@ -297,15 +263,9 @@ export async function answerProductQuestion(db: Db, viewer: Viewer, commentId: s
         revisionId = rev!.id;
         await notifyProductRevision(tx, { pageId: page.id, seq, kind: "edit", actorId: viewer.id, sessionId: null });
       }
-    } else if (option === "request") {
-      requestId = await createRequestItem(tx, { projectId: page.projectId, title: q.request!.title, document: q.request!.description, requesterId: viewer.id });
     }
-    const answer: ProductQuestionAnswer = { byId: viewer.id, option, at: new Date().toISOString(), revisionId, requestId };
-    await tx
-      .update(productComments)
-      .set({ answer: answer as unknown as Record<string, unknown>, resolvedAt: new Date(), resolvedBy: viewer.id })
-      .where(eq(productComments.id, comment.id));
-    return { revisionId, seq, requestId };
+    await close(tx, viewer, comment.id, { option, revisionId, requestJobId: null });
+    return { revisionId, seq };
   });
 }
 

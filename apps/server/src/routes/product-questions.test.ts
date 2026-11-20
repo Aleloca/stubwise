@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { backlogItemRequesters, backlogItems, productClaudeMarks, productComments, productDocJobs, productPageRevisions, productSectionHolds, projectDecisions, projects } from "@stubwise/db";
+import { backlogJobs, createRequestItem, productClaudeMarks, productComments, productDocJobs, productPageRevisions, productSectionHolds, projectDecisions } from "@stubwise/db";
 import { seedEmailMessage, seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { writeClaudeFacts } from "@stubwise/notifications";
 import type { ProductCommentsView, ProductFact, ProductOpenQuestion, ProductPageView, ProductQuestionView, ProductRevisionView } from "@stubwise/shared";
 import { buildApp } from "../app.js";
-import { answerProductQuestion } from "../services/product-questions.js";
+import { SERVER_CATALOG, parseArgs } from "../claude-actions/catalog.js";
+import { answerProductQuestion, checkProductDocOrigin } from "../services/product-questions.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
 
 // Area 11, F5, Task 4 — le domande di Claude: come le legge chi guarda, la
@@ -27,8 +28,7 @@ beforeAll(async () => {
   app = buildApp({ db: t.db, sessionSecret: "x".repeat(40) });
   const seeded = await seedUsers(app);
   ({ projectId } = await seedRepository(t.db));
-  await t.db.update(projects).set({ backlogEnabled: true }).where(eq(projects.id, projectId));
-  ada = await createUserWithSession(app, "ada-q@example.com");
+    ada = await createUserWithSession(app, "ada-q@example.com");
   bea = await createUserWithSession(app, "bea-q@example.com");
   vic = await createUserWithSession(app, "vic-q@example.com");
   admin = { id: seeded.adminId, headers: { cookie: seeded.adminCookie } };
@@ -144,19 +144,14 @@ describe("leggere una domanda", () => {
     expect(open.body).not.toContain(mail.messageId);
   });
 
-  it("senza `backlog.create` (o col backlog spento) «Open a request» non c'è, e la risposta è 422", async () => {
+  it("«Open a request» c'è quando il fatto ha una richiesta da proporre, e da /answer è 422: passa da createRequest", async () => {
     const p = await page();
     const id = await vagueQuestion(p);
-    await t.db.update(projects).set({ backlogEnabled: false }).where(eq(projects.id, projectId));
-    try {
-      expect((await questionOf(bea, p, id)).options).not.toContain("request");
-      const res = await answer(bea, id, "request");
-      expect(res.statusCode).toBe(422);
-      expect(res.json()).toMatchObject({ code: "option_unavailable" });
-      expect((await t.db.select().from(productComments).where(eq(productComments.id, id)))[0]!.answer).toBeNull();
-    } finally {
-      await t.db.update(projects).set({ backlogEnabled: true }).where(eq(projects.id, projectId));
-    }
+    expect((await questionOf(bea, p, id)).options).toContain("request");
+    const res = await answer(bea, id, "request");
+    expect(res.statusCode).toBe(422);
+    expect(res.json()).toMatchObject({ code: "request_via_create_request" });
+    expect((await t.db.select().from(productComments).where(eq(productComments.id, id)))[0]!.answer).toBeNull();
   });
 });
 
@@ -168,7 +163,7 @@ describe("rispondere", () => {
     expect((await answer(vic, id, "keep")).statusCode).toBe(403);
     const res = await answer(bea, id, "keep");
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.json()).toEqual({ revisionId: null, seq: null, requestId: null });
+    expect(res.json()).toEqual({ revisionId: null, seq: null });
     expect((await state(p)).seq).toBe(seq);
     const q = await questionOf(ada, p, id);
     expect(q).toMatchObject({ canAnswer: false, answer: { byId: bea.id, byName: "bea-q", option: "keep", revisionId: null } });
@@ -250,20 +245,6 @@ describe("rispondere", () => {
     expect(blocks[at + 1]!.id).not.toBe(modelId);
   });
 
-  it("«Open a request» crea la voce del backlog con chi risponde fra i richiedenti; la domanda porta il suo codice", async () => {
-    const p = await page();
-    const id = await vagueQuestion(p);
-    const res = await answer(bea, id, "request");
-    expect(res.statusCode, res.body).toBe(200);
-    const { requestId } = res.json() as { requestId: string };
-    const [item] = await t.db.select().from(backlogItems).where(eq(backlogItems.id, requestId));
-    expect(item).toMatchObject({ projectId, title: "Chiarire a uno", document: "Il cliente dice forse" });
-    expect((await t.db.select().from(backlogItemRequesters).where(eq(backlogItemRequesters.itemId, requestId))).map((r) => r.userId)).toEqual([bea.id]);
-    const q = await questionOf(bea, p, id);
-    expect(q.answer).toMatchObject({ option: "request", requestId, requestCode: expect.stringMatching(/-R\d+$/) });
-    expect(await textOf(p, p.ids.a1)).toBe("a uno");
-  });
-
   it("due risposte insieme: una sola passa, l'altra è 409 already_answered", async () => {
     const p = await page();
     const id = await vagueQuestion(p);
@@ -276,6 +257,75 @@ describe("rispondere", () => {
     const p = await page();
     const id = await vagueQuestion(p);
     await expect(answerProductQuestion(t.db, { id: vic.id, instancePermissions: new Set() }, id, "keep")).rejects.toMatchObject({ status: 403 });
+  });
+});
+
+describe("«Open a request»: createRequest con l'origine della domanda", () => {
+  const origin = (p: Page, questionId: string) => ({ kind: "product_doc", pageId: p.id, anchorId: p.ids.a1, questionId });
+  const create = (who: U, p: Page, questionId: string, projectOf = projectId) =>
+    inject(who, "POST", "/api/requests", { projectId: projectOf, title: "Chiarire a uno", description: "Il cliente dice forse", origin: origin(p, questionId) });
+  const jobsOf = async () => (await t.db.select({ id: backlogJobs.id }).from(backlogJobs).where(eq(backlogJobs.projectId, projectId))).length;
+
+  it("la richiesta nasce (il job d'intake) e la domanda si chiude nella stessa scrittura; la voce e il codice si derivano dal job", async () => {
+    const p = await page();
+    const id = await vagueQuestion(p);
+    const res = await create(bea, p, id);
+    expect(res.statusCode, res.body).toBe(202);
+    const { jobId } = res.json() as { jobId: string };
+    const [row] = await t.db.select().from(productComments).where(eq(productComments.id, id));
+    expect(row!.answer).toMatchObject({ byId: bea.id, option: "request", requestJobId: jobId, revisionId: null });
+    expect(row!.resolvedBy).toBe(bea.id);
+    // Finché l'intake non ha finito la voce non c'è ancora.
+    expect((await questionOf(bea, p, id)).answer).toMatchObject({ option: "request", requestId: null, requestCode: null });
+    // L'intake ha finito: la voce (nuova o fusa) è quella del job.
+    const itemId = await createRequestItem(t.db, { projectId, title: "Chiarire a uno", document: "x", requesterId: bea.id, estimate: false });
+    await t.db.update(backlogJobs).set({ status: "done", resultItemId: itemId }).where(eq(backlogJobs.id, jobId));
+    expect((await questionOf(bea, p, id)).answer).toMatchObject({ requestId: itemId, requestCode: expect.stringMatching(/-R\d+$/) });
+    expect(await textOf(p, p.ids.a1)).toBe("a uno");
+  });
+
+  it("rifiutata PRIMA che la richiesta nasca: domanda già risposta (409 con chi), di un'altra pagina o di un altro progetto (422)", async () => {
+    const p = await page();
+    const other = await page();
+    const id = await vagueQuestion(p);
+    const before = await jobsOf();
+    // La domanda è di `p`, l'origine dice `other`.
+    expect((await inject(bea, "POST", "/api/requests", { projectId, title: "T", description: "", origin: { ...origin(other, id) } })).json()).toMatchObject({ code: "invalid_origin" });
+    const { projectId: elsewhere } = await seedRepository(t.db);
+    await addMember(app, elsewhere, bea.id, "developer");
+    const cross = await create(bea, p, id, elsewhere);
+    expect(cross.statusCode).toBe(422);
+    expect(cross.json()).toMatchObject({ code: "invalid_origin" });
+    expect(await jobsOf()).toBe(before);
+    expect((await answer(ada, id, "keep")).statusCode).toBe(200);
+    const late = await create(bea, p, id);
+    expect(late.statusCode).toBe(409);
+    expect(late.json()).toMatchObject({ code: "already_answered", byId: ada.id, byName: "ada-q" });
+    expect(await jobsOf()).toBe(before);
+  });
+
+  it("una domanda senza richiesta da proporre è 422 invalid_origin; senza docs.edit 403 (il controllo, non solo la rotta)", async () => {
+    const p = await page();
+    const id = await vagueQuestion(p, undefined, { options: {} });
+    const res = await create(bea, p, id);
+    expect(res.statusCode).toBe(422);
+    expect(res.json()).toMatchObject({ code: "invalid_origin" });
+    const withRequest = await vagueQuestion(p);
+    await expect(t.db.transaction((tx) => checkProductDocOrigin(tx as never, { id: vic.id, instancePermissions: new Set() }, projectId, origin(p, withRequest) as never))).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("dal catalogo di Claude (la scheda B confermata): la stessa regola, e la domanda si chiude col job", async () => {
+    const p = await page();
+    const id = await vagueQuestion(p);
+    const entry = SERVER_CATALOG.get("createRequest")!;
+    const args = parseArgs("createRequest", { projectId, title: "Chiarire a uno", description: "d", origin: origin(p, id) })!;
+    expect(args).not.toBeNull();
+    const user = { id: bea.id, instancePermissions: new Set() } as never;
+    const ok = await t.db.transaction((tx) => entry.run(tx as never, user, args, new Set(), {}));
+    expect(ok.ok).toBe(true);
+    expect((await t.db.select().from(productComments).where(eq(productComments.id, id)))[0]!.answer).toMatchObject({ option: "request", byId: bea.id });
+    const again = await t.db.transaction((tx) => entry.run(tx as never, user, args, new Set(), {}));
+    expect(again).toMatchObject({ ok: false, refusal: { code: "conflict" } });
   });
 });
 
