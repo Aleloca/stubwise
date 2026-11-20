@@ -95,6 +95,9 @@ export const CHAT_TOOL_READ_ROUTES: ReadonlySet<string> = new Set([
   // dirglielo (`usage.view`): il ponte passa solo i nomi.
   "/api/ai-usage/summary",
   "/api/access/who-can",
+  // Area 10, F4 (`read_archive_candidates`, S4): i progetti fermi di chi chiede,
+  // divisi come nel prototipo. Il ponte non passa i titoli dei motivi `busy`.
+  "/api/projects/archive-candidates",
 ]);
 
 /**

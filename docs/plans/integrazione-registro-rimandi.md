@@ -1351,6 +1351,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   (coi permessi del server, D-13 = a), con «Hypothesis» e «Details» sotto la
   risposta (evento `aside`).
 
+- **Chiusa con F4 (20 nov 2026)**: archiviare in blocco — Claude legge i
+  candidati (`GET /api/projects/archive-candidates`) e propone solo quelli;
+  gli occupati e i non gestibili li nomina in prosa (D-9 = a).
+
 ## Area 11 — Documentazione di prodotto
 
 - Origine di una richiesta dalla documentazione di prodotto.

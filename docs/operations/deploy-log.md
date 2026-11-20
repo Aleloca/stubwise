@@ -5601,3 +5601,16 @@ deploy o di un rollback che la tocca.
   agent_session_events where type = 'aside';`; toglierli (spariscono le righe
   «Details», la risposta di Claude resta):
   `delete from agent_session_events where type = 'aside';`.
+
+- **«Integrazione area 10, F4: archiviare in blocco (S4)»** *(20 nov 2026)*:
+  branch `feat/area10-f4` (da `feat/area10-f3`), piano
+  `docs/plans/2026-11-19-integrazione-area10-f4-plan.md`.
+  - Una rotta nuova, `GET /api/projects/archive-candidates?inactiveDays=<n>`
+    (`access: user`): i progetti fermi di chi chiede (l'ultima attività come il
+    prototipo), divisi in candidati, occupati (i motivi `busy` di F6) e non
+    gestibili. È nell'allowlist del token del turno (`read_archive_candidates`).
+  - Nessuna migrazione, nessuna env, nessun `notification_kind`.
+
+  **ORDINE**: **server**, poi **worker** (il tool). **Rollback**: sicuro in
+  discesa; un worker vecchio non ha il tool, un server vecchio risponde 403 al
+  token del turno sulla rotta che non ha.

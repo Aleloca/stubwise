@@ -221,6 +221,8 @@ export const CHAT_READ_TOOLS = [
   "read_stalled_work",
   // Area 10, F3 (S3, D-13 = a): la spesa AI del mese, coi permessi di chi chiede.
   "read_usage_month",
+  // Area 10, F4 (S4): i progetti fermi da archiviare (candidati, occupati, non gestibili).
+  "read_archive_candidates",
 ] as const;
 /** Area 9, F7: le sezioni di `read_instance_settings`, una rotta ciascuna (coi suoi permessi). */
 export const CHAT_INSTANCE_SECTIONS = ["providers", "git_accounts", "google_apps", "webhooks", "plugins", "models", "automation", "instance"] as const;

@@ -1,4 +1,5 @@
-import { archivedProjectRowSchema, archivedProjectViewSchema, archivePreviewSchema, archiveBusyErrorSchema, deletionPreviewSchema } from "@stubwise/shared";
+import { archiveCandidatesSchema, archivedProjectRowSchema, archivedProjectViewSchema, archivePreviewSchema, archiveBusyErrorSchema, deletionPreviewSchema } from "@stubwise/shared";
+import { archiveCandidates } from "../services/project-activity.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -35,6 +36,20 @@ export async function projectArchiveRoutes(instance: FastifyInstance): Promise<v
     "/archived",
     { config: { access: { kind: "user" } }, schema: { response: { 200: z.array(archivedProjectRowSchema), ...authErrorResponses } } },
     async (request) => listArchivedProjects(app.db, request.user!),
+  );
+
+  // Area 10, F4 (S4): i progetti da archiviare per chi chiede (letterale, prima
+  // di ogni `/:projectId`). Lo legge Claude (`read_archive_candidates`).
+  app.get(
+    "/archive-candidates",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        querystring: z.object({ inactiveDays: z.coerce.number().int().min(1).max(3650).default(90) }),
+        response: { 200: archiveCandidatesSchema, ...authErrorResponses },
+      },
+    },
+    async (request) => archiveCandidates(app.db, request.user!, request.query.inactiveDays),
   );
 
   // La pagina dell'archiviato: passa su un archiviato (`config.archived:
