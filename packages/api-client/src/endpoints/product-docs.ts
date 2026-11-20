@@ -1,5 +1,5 @@
-import { productPageViewSchema, productRevisionViewSchema, productSpaceSchema } from "@stubwise/shared";
-import type { ProductBlockOp, ProductPageView, ProductRevisionView, ProductSpaceView, Reader } from "@stubwise/shared";
+import { productCommentViewSchema, productCommentsSchema, productMentionCandidatesSchema, productPageViewSchema, productRevisionViewSchema, productSpaceSchema } from "@stubwise/shared";
+import type { AddProductCommentInput, ProductBlockOp, ProductCommentView, ProductCommentsView, ProductPageView, ProductRevisionView, ProductSpaceView, Reader } from "@stubwise/shared";
 import { z } from "zod";
 import type { ApiRequest } from "../client.js";
 import { seg, toQuery } from "../query.js";
@@ -48,6 +48,25 @@ export function createProductDocsEndpoints(request: ApiRequest) {
       const form = new FormData();
       form.append("file", file, filename);
       return request("POST", `/api/product-pages/${seg(pageId)}/images`, form, imageSchema);
+    },
+    // --- F2: i commenti ---
+    /** I fili della pagina, aperti e risolti; `anchorGone` = «Frase eliminata» (derivato). */
+    comments(pageId: string): Promise<Reader<ProductCommentsView>> {
+      return request("GET", `/api/product-pages/${seg(pageId)}/comments`, undefined, productCommentsSchema);
+    },
+    /** Un commento (`docs.edit`); con `replyToId` una risposta, che prende ancora e frase della radice. Le menzioni le trova il server (`@Nome`). */
+    addComment(pageId: string, input: AddProductCommentInput): Promise<Reader<ProductCommentView>> {
+      return request("POST", `/api/product-pages/${seg(pageId)}/comments`, input, productCommentViewSchema);
+    },
+    resolveComment(commentId: string): Promise<void> {
+      return request("POST", `/api/product-comments/${seg(commentId)}/resolve`);
+    },
+    reopenComment(commentId: string): Promise<void> {
+      return request("POST", `/api/product-comments/${seg(commentId)}/reopen`);
+    },
+    /** Chi si può menzionare nel progetto: chi ne legge i Docs e chi guarda vede, mai Claude né sé stessi. */
+    mentionCandidates(projectId: string, q = ""): Promise<Reader<{ id: string; name: string }>[]> {
+      return request("GET", `/api/projects/${seg(projectId)}/product/mention-candidates${toQuery({ q: q || undefined })}`, undefined, productMentionCandidatesSchema);
     },
     /** L'immagine: 302 verso un URL firmato breve, coi permessi della pagina. */
     imagePath(pageId: string, imageId: string): string {

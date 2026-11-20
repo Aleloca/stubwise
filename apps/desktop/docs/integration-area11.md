@@ -30,3 +30,25 @@ Design: `docs/plans/2026-11-20-integrazione-area11-design.md`; i piani
 | Il padre di una pagina è NO ACTION (un progetto eliminato porta via le pagine annidate) | costruttore |
 | L'«Undo» dalla cronologia arriva con F5 (nel prototipo è delle modifiche di Claude) | costruttore (ruling del piano) |
 | Il modulo Docs spento non chiude le rotte (come i Docs): nel registro dei rimandi | 46 |
+
+## F2 — commenti, menzioni e le notifiche nel catalogo (server; il renderer è di 94)
+
+| Voce del prototipo | Dove vive | Rotta / pezzo | Test |
+|---|---|---|---|
+| Le tre righe della doc di prodotto nel catalogo degli avvisi (`alertTypes.ts`, riallineate a N-1 = a) | `packages/shared/src/alerts/catalog.ts` (`mentioned`, `follower`, `seePerm`) | — | `catalog.test.ts`, `alert-recipients.test.ts`, `alert-subscriptions.test.ts` |
+| I tre `notification_kind` | `packages/db/drizzle/0203_product_doc_notifications.sql`, `notifications/src/format.ts` | — | `migration-0203.test.ts`, `format.test.ts` |
+| La frase citata (`cleanQuote`) | `packages/shared/src/product-docs/comments.ts` | — | `comments.test.ts` (shared) |
+| I fili, le risposte, «Frase eliminata» derivata, il `merge` che sposta i fili (`comments.ts`, `onAnchorsMerged`) | `packages/db/drizzle/0204_product_comments.sql`, `apps/server/src/services/product-comments.ts` | `GET`/`POST /api/product-pages/:id/comments` | `product-comments.test.ts` |
+| «Resolve» / «Reopen» | idem | `POST /api/product-comments/:id/resolve`, `…/reopen` | idem |
+| Chi si può menzionare (`productMentionCandidates`) | idem | `GET /api/projects/:projectId/product/mention-candidates` | idem |
+| La notifica della menzione (`publishMentions`) e la card a lettura (`presentProductMention`) | `services/product-comments.ts` (`publishMention`, `productDocCardsFor`), `services/inbox.ts` (`productDoc`) | `GET /api/inbox` | `inbox-product-mention.test.ts` |
+| L'api-client del renderer | `packages/api-client/src/endpoints/product-docs.ts` | `client.productDocs.{comments,addComment,resolveComment,reopenComment,mentionCandidates}` | `reader.test.ts` |
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| La menzione è solo obbligatoria (nessun interruttore); aggiornamento e domanda hanno la riga del progetto, chi segue la pagina li riceve sempre (N-1 = a) | maintainer |
+| `seePerm`: chi non legge i Docs del progetto non riceve la card, nemmeno da obbligatorio | costruttore, approvato da 46 |
+| La frase citata è UNA riga (gli a capo diventano uno spazio); il tetto di 200 lo tiene `cleanQuote`, non una CHECK | costruttore |
+| Le menzioni le trova il server nel testo (`@Nome`, i nomi più lunghi prima, come la Chat) | costruttore |
+| Nessuna rotta di eliminazione dei commenti (il prototipo non elimina): la colonna e la CHECK sono una predisposizione | 46 |
+| Una card sparita o di una pagina che chi guarda non legge più ha una frase neutra; senza l'autore visibile, «Ti hanno menzionato…» | costruttore, approvato da 46 |
