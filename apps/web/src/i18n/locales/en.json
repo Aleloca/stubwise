@@ -1922,7 +1922,8 @@
         "support_triage_check": "Support: triage check",
         "server_analysis": "Servers: analysis",
         "server_fix_plan": "Servers: fix plan",
-        "mail_reply_judgment": "Mail: does it need my reply?"
+        "mail_reply_judgment": "Mail: does it need my reply?",
+        "product_doc_update": "Product docs: updates from sources"
       }
     }
   },

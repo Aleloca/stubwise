@@ -17,12 +17,13 @@ describe("catalogo operazioni AI", () => {
     expect(new Set(all).size).toBe(all.length);
   });
 
-  it("le configurabili escludono le tre tecniche e contengono le altre 25 (con `automation_step`, area 7 F3, quella di Support, area 8 F3, le due dei server, area 8 F4b, e il giudizio della posta, «Clienti in attesa»)", () => {
+  it("le configurabili escludono le tre tecniche e contengono le altre 25 (con `automation_step`, area 7 F3, quella di Support, area 8 F3, le due dei server, area 8 F4b, e il giudizio della posta, «Clienti in attesa», e la doc di prodotto dalle fonti, area 11 F5)", () => {
     for (const op of ["plugin_smoke", "credential_test", "usage_probe"] as const) {
       expect(CONFIGURABLE_AI_OPERATIONS).not.toContain(op);
       expect(isConfigurableAiOperation(op)).toBe(false);
     }
-    expect(CONFIGURABLE_AI_OPERATIONS).toHaveLength(25);
+    expect(CONFIGURABLE_AI_OPERATIONS).toHaveLength(26);
+    expect(isConfigurableAiOperation("product_doc_update")).toBe(true);
     expect(isConfigurableAiOperation("mail_reply_judgment")).toBe(true);
     expect(isConfigurableAiOperation("support_triage_check")).toBe(true);
     expect(isConfigurableAiOperation("triage")).toBe(true);
@@ -45,7 +46,7 @@ describe("catalogo operazioni AI", () => {
       { group: "tickets", operations: ["triage", "fix_plan", "fix_execute", "pr_review", "summary"] },
       { group: "backlog", operations: ["backlog_intake", "backlog_refine"] },
       { group: "nightly", operations: ["commit_summary", "release_notes", "docs_nightly"] },
-      { group: "docs", operations: ["docs_generation", "drive_summary"] },
+      { group: "docs", operations: ["docs_generation", "drive_summary", "product_doc_update"] },
       { group: "reports", operations: ["daily_report", "weekly_brief"] },
       { group: "mail", operations: ["mail_classify", "mail_draft", "meeting_summary", "mail_reply_judgment"] },
       { group: "automations", operations: ["automation_step"] },

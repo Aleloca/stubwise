@@ -50,6 +50,7 @@ import { createCancelRegistry, startCancelWatch } from "./pipeline/cancel.js";
 import { startMonitorAlertPoller } from "./monitor/alerts.js";
 import { startReleasePoller } from "./releases/poller.js";
 import { startTriageCheckPoller } from "./support/triage-check.js";
+import { startProductDocsPoller } from "./product-docs/job.js";
 import { PUSH_RELAY_TIMEOUT_MS, startDeliveriesPoller } from "./notify/deliveries-poller.js";
 import { startPluginPoller } from "./plugins/poller.js";
 import { startMonitorRollupPoller } from "./monitor/rollup.js";
@@ -920,6 +921,23 @@ startTriageCheckPoller({
   intervalSeconds: 60,
   signal: controller.signal,
   log: (message) => console.warn(message),
+});
+
+// Area 11, F5: Claude aggiorna la doc di prodotto dalle fonti (la coda
+// `product_doc_jobs`, riempita dai trigger della 0210). Un lavoro per volta,
+// sotto il serializer del suo progetto; il modello lo risolve il
+// TrackingAgentRunner (`product_doc_update`).
+startProductDocsPoller({
+  db,
+  runner,
+  select,
+  serializer,
+  intervalSeconds: 20,
+  signal: controller.signal,
+  log: {
+    warn: (obj, msg) => console.warn(`[stubwise-worker] ${msg ?? ""}`, obj),
+    info: (obj, msg) => console.error(`[stubwise-worker] ${msg ?? ""}`, obj),
+  },
 });
 
 // Poller del PULSE PROATTIVO: task SEPARATO dal loop dei job, sul proprio

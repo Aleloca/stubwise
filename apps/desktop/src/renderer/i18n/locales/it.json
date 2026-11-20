@@ -12764,7 +12764,8 @@
       "support_triage_check": "Supporto: giudizio sul triage",
       "server_analysis": "Server: analisi",
       "server_fix_plan": "Server: piano di correzione",
-      "mail_reply_judgment": "Posta: serve una mia risposta?"
+      "mail_reply_judgment": "Posta: serve una mia risposta?",
+      "product_doc_update": "Doc di prodotto: aggiornamenti dalle fonti"
     }
   },
   "instanceEffects": {

@@ -44,6 +44,8 @@ export const AI_OPERATIONS = [
   "server_fix_plan",
   // Area 8, «Clienti in attesa»: il giudizio «serve una MIA risposta?» su un thread (Haiku).
   "mail_reply_judgment",
+  // Area 11, F5: Claude aggiorna la doc di prodotto dalle fonti (fatti strutturati, nessuno strumento).
+  "product_doc_update",
 ] as const;
 
 export type AiOperation = (typeof AI_OPERATIONS)[number];
@@ -71,7 +73,7 @@ export const AI_OPERATION_GROUPS: {
   { group: "tickets", operations: ["triage", "fix_plan", "fix_execute", "pr_review", "summary"] },
   { group: "backlog", operations: ["backlog_intake", "backlog_refine"] },
   { group: "nightly", operations: ["commit_summary", "release_notes", "docs_nightly"] },
-  { group: "docs", operations: ["docs_generation", "drive_summary"] },
+  { group: "docs", operations: ["docs_generation", "drive_summary", "product_doc_update"] },
   { group: "reports", operations: ["daily_report", "weekly_brief"] },
   { group: "mail", operations: ["mail_classify", "mail_draft", "meeting_summary", "mail_reply_judgment"] },
   { group: "automations", operations: ["automation_step"] },
