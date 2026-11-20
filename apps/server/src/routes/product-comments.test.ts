@@ -69,7 +69,7 @@ async function pageWith(...texts: string[]) {
   const sessionId = randomUUID();
   const saved = await inject(editor, "POST", `/api/product-pages/${id}/ops`, { sessionId, baseSeq: view.seq, ops });
   expect(saved.statusCode, saved.body).toBe(200);
-  return { id, ids, sessionId, seq: (saved.json() as { seq: number }).seq };
+  return { id, code, ids, sessionId, seq: (saved.json() as { seq: number }).seq };
 }
 
 const comment = (who: U, pageId: string, payload: object) => inject(who, "POST", `/api/product-pages/${pageId}/comments`, payload);
@@ -172,6 +172,20 @@ describe("i commenti", () => {
     expect(anchors.get(onSecond.id)).toEqual([page.ids[1], null]);
     const list = await threads(editor, page.id);
     expect(list.open.map((th) => [th.root.id, th.anchorGone])).toEqual([[onFirst.id, false], [onSecond.id, false]]);
+  });
+
+  it("richiesta di 94: `openComments` sulla vista della pagina conta le radici aperte (ancora viva o no), non le risposte né le risolte", async () => {
+    const page = await pageWith("Uno", "Due");
+    const viewOf = async () => ((await inject(reader, "GET", `/api/product-pages/by-code/${page.code}`)).json() as ProductPageView).openComments;
+    expect(await viewOf()).toBe(0);
+    const a = (await comment(editor, page.id, { anchorId: page.ids[0], quote: "", body: "A" })).json() as ProductCommentView;
+    await comment(editor, page.id, { anchorId: page.ids[1], quote: "", body: "B" });
+    await comment(editor, page.id, { anchorId: "x", quote: "", body: "risposta", replyToId: a.id });
+    expect(await viewOf()).toBe(2);
+    await inject(editor, "POST", `/api/product-comments/${a.id}/resolve`);
+    expect(await viewOf()).toBe(1);
+    await inject(editor, "POST", `/api/product-pages/${page.id}/ops`, { sessionId: page.sessionId, baseSeq: page.seq, ops: [{ op: "delete", blockId: page.ids[1] }] });
+    expect(await viewOf()).toBe(1);
   });
 
   it("«Resolve» e «Reopen» con `docs.edit`; una risposta 422; chi legge soltanto 403", async () => {

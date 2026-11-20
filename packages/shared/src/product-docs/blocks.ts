@@ -235,3 +235,35 @@ export function excerptOfBlocks(blocks: readonly ProductBlock[]): string {
   }
   return "";
 }
+
+/**
+ * Area 11, F3: il testo di una pagina per gli embedding, con il TITOLO in
+ * testa e i titoli dei blocchi come intestazioni markdown (`#`, `##`, `###`),
+ * così il chunking dei Docs (`chunkMarkdown`) ne prende la sezione. Elenchi,
+ * citazioni e to-do col loro segno di riga, le celle di una riga con ` | `, la
+ * didascalia di un'immagine. Mai un segno inline né un `href`: solo le lettere
+ * (`anchorText`). Separatore, file, decisioni e bozze non hanno testo.
+ */
+export function productBlocksToText(title: string, blocks: readonly ProductBlock[]): string {
+  const lines: string[] = [];
+  const head = title.trim();
+  if (head) lines.push(`# ${head}`);
+  for (const b of blocks) {
+    if (b.type === "table") {
+      for (const row of b.rows) {
+        const cells = row.cells.map((c) => c.content.text.trim()).filter((c) => c !== "");
+        if (cells.length > 0) lines.push(cells.join(" | "));
+      }
+      continue;
+    }
+    const text = (anchorText([b], b.id) ?? "").trim();
+    if (!text) continue;
+    if (b.type === "heading") lines.push(`${"#".repeat(Math.min(b.level + 1, 6))} ${text}`);
+    else if (b.type === "bullet") lines.push(`- ${text}`);
+    else if (b.type === "numbered") lines.push(`1. ${text}`);
+    else if (b.type === "todo") lines.push(`- [${b.checked ? "x" : " "}] ${text}`);
+    else if (b.type === "quote") lines.push(`> ${text}`);
+    else lines.push(text);
+  }
+  return lines.join("\n\n");
+}

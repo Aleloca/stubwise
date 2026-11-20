@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ProductBlock, RichText } from "../schemas/product-docs.js";
+import type { InlineMark, ProductBlock, RichText } from "../schemas/product-docs.js";
 import {
   anchorIdsOf,
   anchorText,
@@ -10,6 +10,7 @@ import {
   makeBlockId,
   mergeBlocks,
   plainTextOf,
+  productBlocksToText,
   splitBlock,
 } from "./blocks.js";
 import { plain, setLink, toggleMark } from "./rich-text.js";
@@ -267,5 +268,27 @@ describe("ancore e testo", () => {
     const h: ProductBlock = { id: "h", type: "heading", level: 1, content: plain("Title") };
     expect(excerptOfBlocks([h, para("e", ""), para("x", "x".repeat(300))])).toBe("x".repeat(200));
     expect(excerptOfBlocks([h])).toBe("");
+  });
+});
+
+describe("productBlocksToText (area 11, F3)", () => {
+  const rich = (text: string, marks: InlineMark[] = []) => ({ text, marks });
+  it("il titolo in testa, i titoli come sezioni, elenchi e celle; mai segni né href", () => {
+    const text = productBlocksToText("Visione", [
+      { id: "h", type: "heading", level: 1, content: rich("Obiettivi") },
+      { id: "p", type: "paragraph", content: rich("Vedi il sito", [{ type: "link", start: 5, end: 12, href: "https://evil.example" }, { type: "bold", start: 0, end: 4 }]) },
+      { id: "b", type: "bullet", indent: 0, content: rich("Uno") },
+      { id: "t", type: "todo", checked: true, content: rich("Fatto") },
+      { id: "d", type: "divider" },
+      { id: "tb", type: "table", rows: [{ id: "r1", cells: [{ id: "c1", content: rich("A") }, { id: "c2", content: rich("B") }] }] },
+      { id: "e", type: "paragraph", content: rich("   ") },
+    ]);
+    expect(text).toBe("# Visione\n\n## Obiettivi\n\nVedi il sito\n\n- Uno\n\n- [x] Fatto\n\nA | B");
+    expect(text).not.toContain("evil.example");
+    expect(text).not.toContain("**");
+  });
+
+  it("una pagina senza testo e senza titolo è vuota", () => {
+    expect(productBlocksToText("  ", [{ id: "d", type: "divider" }])).toBe("");
   });
 });

@@ -2722,6 +2722,8 @@ export const productPages = pgTable(
     blocks: jsonb("blocks").$type<unknown[]>().notNull().default([]),
     /** La sequenza delle revisioni della pagina (`seq`/`last_seq`, il `baseSeq` del client). */
     revSeq: integer("rev_seq").notNull().default(0),
+    /** Area 11, F3: l'`updated_at` della versione che ha i chunk di adesso (`product_page_chunks`); null = mai fatti. */
+    embeddedAt: timestamp("embedded_at", { withTimezone: true }),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
@@ -2817,6 +2819,35 @@ export const productPageImages = pgTable("product_page_images", {
   uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * I passaggi di una pagina di prodotto con l'embedding (area 11, F3), con lo
+ * stesso chunking e lo stesso embedder dei Docs (bge-m3, 1024). Una tabella a
+ * parte da `doc_chunks`, che è legata ai repository: la ricerca e la chat dei
+ * Docs le uniscono. Li scrive il poller del server (`product-embed.ts`).
+ */
+export const productPageChunks = pgTable(
+  "product_page_chunks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => productPages.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    heading: text("heading"),
+    content: text("content").notNull(),
+    embedding: vector(1024),
+    tokenCount: integer("token_count"),
+  },
+  (table) => [
+    index("product_page_chunks_page_idx").on(table.pageId),
+    index("product_page_chunks_project_idx").on(table.projectId),
+    index("product_page_chunks_embedding_idx").using("hnsw", table.embedding.op("vector_cosine_ops")),
+  ],
+);
 
 /**
  * I commenti di una pagina di prodotto (area 11, F2): ancorati a un blocco o a

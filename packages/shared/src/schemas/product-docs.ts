@@ -175,6 +175,13 @@ export const productPageViewSchema = z.object({
    * (`children`); `null` quando si può eliminare. Additivo.
    */
   deleteBlockedBy: z.enum(["children", "permission"]).nullable().default(null),
+  /**
+   * I fili aperti (richiesta di 94, come il prototipo): le radici non risolte
+   * della pagina, con l'ancora viva o no; un commento eliminato non conta. Per
+   * il numero accanto a «Comments» e l'apertura della colonna, senza leggere i
+   * commenti a ogni lettura della pagina. Additivo.
+   */
+  openComments: z.number().int().default(0),
 });
 export type ProductPageView = z.infer<typeof productPageViewSchema>;
 

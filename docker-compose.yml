@@ -96,6 +96,10 @@ services:
       # Per questo la sostituzione usa `-` e non `:-`: con `:-` una variabile
       # definita ma vuota ricadrebbe sul default e lo spegnimento non funzionerebbe.
       GRAPHIFY_MCP_URL: ${GRAPHIFY_MCP_URL-http://graphify:8080/mcp}
+      # Area 11, F3: ogni quanti secondi il server rifà gli embedding delle
+      # pagine di prodotto ferme e cambiate. Come sopra, la stringa VUOTA spegne
+      # il poller (la ricerca «In Product» resta per testo): sostituzione con `-`.
+      PRODUCT_EMBED_POLL_SECONDS: ${PRODUCT_EMBED_POLL_SECONDS-30}
       # Area 9, F1: SMTP d'istanza FACOLTATIVO, solo per il cambio dell'email
       # di login (link alla nuova, avviso alla vecchia). Vuote = non disponibile.
       SMTP_URL: ${SMTP_URL:-}
