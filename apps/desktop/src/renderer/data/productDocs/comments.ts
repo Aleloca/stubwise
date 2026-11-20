@@ -160,7 +160,9 @@ function publishMentions(me: string, page: ProductPage, comment: ProductComment)
       projectId: page.projectId,
       objectCode: page.code,
       departmentId: null,
-      recipientIds: [personId],
+      // N-1 = a: chi è menzionato la riceve sempre (obbligo `mentioned`).
+      recipientIds: [],
+      mandatory: [{ personId, reason: "mentioned" }],
       title: "",
       body: comment.body,
       createdAt: comment.createdAt,

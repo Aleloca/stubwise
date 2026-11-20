@@ -50,7 +50,9 @@ async function rejects(p: Promise<unknown>, message: string): Promise<void> {
 
 const mentionsOf = (personId: string) =>
   state.notifications.filter(
-    (n) => n.kind === "product_doc.mention" && n.recipientIds.includes(personId),
+    (n) =>
+      n.kind === "product_doc.mention" &&
+      (n.mandatory ?? []).some((m) => m.personId === personId && m.reason === "mentioned"),
   );
 
 beforeEach(() => {

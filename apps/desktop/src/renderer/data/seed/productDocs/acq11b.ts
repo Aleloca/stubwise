@@ -301,7 +301,9 @@ function card(
     projectId: ACQ,
     objectCode: pageById(pageId).code,
     departmentId: null,
-    recipientIds: recipientsOf(pageId),
+    // N-1 = a: chi segue la pagina la riceve sempre (obbligo `follower`); gli iscritti a lettura.
+    recipientIds: [],
+    mandatory: recipientsOf(pageId).map((personId) => ({ personId, reason: "follower" as const })),
     // Vuoti: la card compone titolo e corpo a lettura (`presentProductUpdate`/`Question`).
     title: "",
     body: "",

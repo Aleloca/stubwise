@@ -20,6 +20,7 @@ import type {
   ScriptStep,
 } from "../../../data/types";
 import { revokeProjectPermission } from "../../../data/viewer";
+import { setSubscriptionAs } from "../../../data/alerts/writes";
 import { recognize, respond, type IntentContext } from "../intents";
 import { CAPABILITIES } from "./general";
 
@@ -136,16 +137,18 @@ describe("S0: cosa so fare", () => {
   });
 });
 
-describe("scrivi la prima versione (A, con «Undo»)", () => {
-  it("Laura su VRD vuoto: parte subito, scrive le pagine, e «Undo» le toglie tutte", async () => {
+describe("scrivi la prima versione (B, Claude si mette al lavoro; «Undo» dopo)", () => {
+  it("Laura su VRD vuoto: una scheda da confermare; confermata scrive le pagine, e «Undo» le toglie tutte", async () => {
     const steps = await respond("Write the first version of VRD's docs", as(LAURA));
-    expect(proposalOf(steps)).toBeUndefined();
-    const executed = executedOf(steps)!;
-    expect(executed.actions.map((a) => a.fn)).toEqual(["writeFirstVersion"]);
-    expect(executed.actions[0]!.args).toMatchObject({ projectId: VRD });
-    expect(classOfGroup(LAURA, executed.actions).cls).toBe("A");
+    // Area 11, F6-1 = a: fa partire lavoro del modello, quindi chiede.
+    expect(executedOf(steps)).toBeUndefined();
+    const card = proposalOf(steps)!;
+    expect(card.actions.map((a) => a.fn)).toEqual(["writeFirstVersion"]);
+    expect(card.actions[0]!.args).toMatchObject({ projectId: VRD });
+    expect(classOfGroup(LAURA, card.actions)).toEqual({ cls: "B", reasons: [{ kind: "startsWork" }] });
+    expect(state.productPages.filter((p) => p.projectId === VRD)).toEqual([]);
 
-    const done = run(LAURA, executed.actions);
+    const done = run(LAURA, card.actions);
     expect(done.ok).toBe(true);
     if (!done.ok) return;
     await whenFirstVersionIdle();
@@ -163,7 +166,7 @@ describe("scrivi la prima versione (A, con «Undo»)", () => {
 
   it("dopo che Marco ha toccato una pagina, «Undo» è spento col suo nome", async () => {
     const steps = await respond("Scrivi la prima versione della doc di VRD", as(LAURA, it_));
-    const done = run(LAURA, executedOf(steps)!.actions);
+    const done = run(LAURA, proposalOf(steps)!.actions);
     if (!done.ok) throw new Error("not run");
     await whenFirstVersionIdle();
     const page = state.productPages.find((p) => p.projectId === VRD)!;
@@ -210,10 +213,13 @@ describe("aggiorna la pagina da questa email (B, avvisa chi segue)", () => {
     });
     expect(said(steps)).not.toContain(sentence);
     expect(said(steps)).toContain("1 sentence would change");
-    // Chi viene avvisato: chi segue la pagina, meno chi chiede.
+    // Chi viene avvisato: chi segue la pagina e chi ha la riga accesa (N-1 = a), meno chi chiede.
     const cls = classOfGroup(LAURA, card.actions);
     expect(cls.cls).toBe("B");
-    expect(cls.reasons).toEqual([{ kind: "notifies", personIds: [MARCO], more: false }]);
+    const notified = (cls.reasons[0] as { kind: string; personIds: string[] }).personIds;
+    expect(cls.reasons[0]).toMatchObject({ kind: "notifies" });
+    expect(notified).toContain(MARCO);
+    expect(notified).not.toContain(LAURA);
     expect(said(steps)).toContain("Marco Bellini");
 
     // Confermata: la modifica di Claude per conto della titolare, e la card a Marco.
@@ -295,9 +301,18 @@ describe("aggiorna la pagina da questa email (B, avvisa chi segue)", () => {
     expect(said(steps)).toMatch(/open the email/i);
   });
 
-  it("la scheda è B anche quando chi chiede è l'unico a seguire la pagina", () => {
+  it("la scheda è B anche quando chi chiede è l'unico che riceverebbe la card", () => {
     state.productFollows = state.productFollows.filter((f) => f.pageId !== SIGN_IN);
     state.productFollows.push({ pageId: SIGN_IN, personId: LAURA, since: "2026-11-01T00:00:00Z" });
+    // Gli altri hanno spento la riga di ACQ (N-1 = a); chi non può iscriversi non la riceve comunque.
+    for (const p of state.projectsById.get(ACQ)!.memberIds) {
+      if (p === LAURA) continue;
+      try {
+        setSubscriptionAs(p, ACQ, "product_doc.updated", { app: false });
+      } catch {
+        /* non iscrivibile */
+      }
+    }
     const action = {
       fn: "updateProductPage" as const,
       args: { pageId: SIGN_IN, source: { kind: "email", id: ACQ_11B.signInEmailId } },
@@ -338,14 +353,16 @@ describe("proponi le voci di backlog (la scheda in blocco)", () => {
   });
 });
 
-describe("disegna questa schermata (A, con «Undo»)", () => {
-  it("Laura su Screens: la bozza in fondo alla pagina; «Undo» la toglie", async () => {
+describe("disegna questa schermata (B, Claude si mette al lavoro; «Undo» dopo)", () => {
+  it("Laura su Screens: una scheda da confermare; confermata, la bozza in fondo alla pagina; «Undo» la toglie", async () => {
     const steps = await respond("Draw this screen in ACQ-D9", as(LAURA));
-    const executed = executedOf(steps)!;
-    expect(executed.actions.map((a) => a.fn)).toEqual(["drawWireframe"]);
-    expect(classOfGroup(LAURA, executed.actions).cls).toBe("A");
+    // Area 11, F6-1 = a: fa partire lavoro del modello, quindi chiede.
+    expect(executedOf(steps)).toBeUndefined();
+    const card = proposalOf(steps)!;
+    expect(card.actions.map((a) => a.fn)).toEqual(["drawWireframe"]);
+    expect(classOfGroup(LAURA, card.actions)).toEqual({ cls: "B", reasons: [{ kind: "startsWork" }] });
     const count = pageBlocks(SCREENS).length;
-    const done = run(LAURA, executed.actions);
+    const done = run(LAURA, card.actions);
     if (!done.ok) throw new Error("not run");
     expect(pageBlocks(SCREENS)).toHaveLength(count + 1);
     expect(pageBlocks(SCREENS).at(-1)!.type).toBe("wireframe");
@@ -359,7 +376,7 @@ describe("disegna questa schermata (A, con «Undo»)", () => {
 
   it("rifatta da Marco dopo: «Undo» è spento col suo nome", async () => {
     const steps = await respond("Disegna questa schermata in ACQ-D9", as(LAURA, it_));
-    const done = run(LAURA, executedOf(steps)!.actions);
+    const done = run(LAURA, proposalOf(steps)!.actions);
     if (!done.ok) throw new Error("not run");
     const block = pageBlocks(SCREENS).at(-1)!;
     api.productDocs.redrawWireframeAs(MARCO, SCREENS, block.id);
@@ -665,8 +682,9 @@ describe("revisione finale: gli id delle fonti negli `args` non escono a chi leg
   it("`writeFirstVersion`: le fonti scelte non escono come id", async () => {
     const id = await publicAsk("Write the first version of VRD's docs", null, VRD);
     await whenFirstVersionIdle();
-    const executed = (state.conversationEvents.get(id) ?? []).find((e) => e.type === "executed")!;
-    const sources = (executed as { actions: ProposedAction[] }).actions[0]!.args.sources as { id?: string; fileId?: string }[];
+    // Area 11, F6-1 = a: è una scheda (B), non una riga eseguita.
+    const card = (state.conversationEvents.get(id) ?? []).find((e) => e.type === "proposal")!;
+    const sources = (card as { actions: ProposedAction[] }).actions[0]!.args.sources as { id?: string; fileId?: string }[];
     const ids = sources.map((s) => s.id ?? s.fileId!).filter(Boolean);
     expect(ids.length).toBeGreaterThan(0);
     const laura = await readAs(LAURA, id);

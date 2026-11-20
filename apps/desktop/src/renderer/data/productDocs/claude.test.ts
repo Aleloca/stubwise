@@ -10,6 +10,7 @@ import { state } from "../store";
 import { grantInstancePermission, revokeProjectPermission } from "../viewer";
 import { applyProductSource, askProductQuestion, planProductSource, whenProductClaudeIdle } from "./claude";
 import { answerProductQuestionAs } from "./questions";
+import { whyReceives } from "../alerts/visibility";
 
 // Il motore degli aggiornamenti (11b, Task 2): i fatti di una fonte sulle
 // pagine di prodotto. Una modifica entra da sola solo se il fatto è chiaro,
@@ -45,6 +46,8 @@ const contentOf = (id: string): RichText | null => {
 const claudeRevisions = () =>
   state.productRevisions.filter((r) => r.pageId === PAGE && r.via === "claude");
 const cards = (kind: string) => state.notifications.filter((n) => n.kind === kind);
+/** Chi segue la pagina, scritto sulla card come obbligo (`follower`, N-1 = a). */
+const followersOn = (n: { mandatory?: { personId: string }[] }) => (n.mandatory ?? []).map((m) => m.personId).sort();
 const questions = () =>
   state.productComments.filter((c) => c.pageId === PAGE && c.question !== undefined);
 
@@ -134,7 +137,9 @@ describe("un fatto chiaro", () => {
       objectCode: page().code,
       productUpdate: { pageId: PAGE, revisionIds: out.edits, sources: [ref("mm-laura-1")] },
     });
-    expect([...updated[0]!.recipientIds].sort()).toEqual([LAURA, MARCO]);
+    // Chi segue la pagina, per obbligo (N-1 = a); gli iscritti si calcolano a lettura.
+    expect(followersOn(updated[0]!)).toEqual([LAURA, MARCO]);
+    expect(updated[0]!.recipientIds).toEqual([]);
   });
 
   it("un `link_task` aggiunge solo il codice in fondo alla frase", () => {
@@ -514,7 +519,9 @@ describe("chi riceve le card", () => {
       fact({ anchorId: STORES, clarity: "vague", change: { kind: "replace", text: STORES_TEXT } }),
     ]);
     for (const n of [...cards("product_doc.updated"), ...cards("product_doc.question")]) {
-      expect(n.recipientIds).toEqual([LAURA]);
+      expect(whyReceives(LAURA, n)).toBe("follower");
+      expect(whyReceives(MARCO, n)).toBeNull();
+      expect(whyReceives(CLAUDE_ID, n)).toBeNull();
     }
   });
 });
@@ -535,14 +542,11 @@ describe("le card a lettura (P12)", () => {
     expect(JSON.stringify(marco).toLowerCase()).not.toContain("subject of mm-laura-1");
   });
 
-  it("chi non legge più la pagina: `objectGone`, niente codice, titolo, fonte né link", async () => {
+  it("chi non legge più i Docs non ha più la card, nemmeno seguendo (N-1 = a: l'iscrizione e l'obbligo chiedono `docs.view`)", async () => {
     applyProductSource(ref("mm-laura-1"), ACQ, [replace(HOW)]);
     revokeProjectPermission(MARCO, ACQ, "docs.view" as never);
     as(MARCO);
-    const card = (await listNotifications()).find((x) => x.kind === "product_doc.updated")!;
-    expect(card).toMatchObject({ objectGone: true, objectCode: "", link: "" });
-    expect(card.productCard).toBeUndefined();
-    expect(card.productPageTitle).toBeUndefined();
+    expect((await listNotifications()).find((x) => x.kind === "product_doc.updated")).toBeUndefined();
   });
 
   it("una card senza `productUpdate` non lancia: si legge come `objectGone`", async () => {
@@ -595,7 +599,7 @@ describe("Revisione finale I1: un gesto ripetuto non richiede e non reinserisce"
     expect(questions()).toHaveLength(1);
     const asked = cards("product_doc.question");
     expect(asked).toHaveLength(1);
-    for (const id of [LAURA, MARCO]) expect(asked.filter((n) => n.recipientIds.includes(id))).toHaveLength(1);
+    expect(followersOn(asked[0]!)).toEqual([LAURA, MARCO]);
     // L'anteprima lo dice uguale: niente da chiedere.
     expect(planProductSource(ref("mm-laura-1"), PAGE, [vague()], LAURA).map((p) => p.kind)).toEqual(["none"]);
   });

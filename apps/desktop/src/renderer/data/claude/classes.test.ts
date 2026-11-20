@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { visiblePeopleFor } from "../access/whoCan";
 import { wouldNotify } from "../alerts/visibility";
+import { setSubscriptionAs } from "../alerts/writes";
 import { automations, resetApi, setLatency } from "../api";
 import { createTaskAs } from "../api-mutations";
 import { automationsStartingOn } from "../automations/sources";
@@ -352,15 +353,16 @@ describe("la doc di prodotto (11b, Task 8; decisione 3)", () => {
   const people = (c: ReturnType<typeof classOf>) =>
     (c.reasons[0] as Extract<ClassReason, { kind: "notifies" }>).personIds;
 
-  it("«aggiorna la pagina» è B e dice chi segue la pagina, meno chi chiede", () => {
-    follows([LAURA, MARCO]);
-    expect(classOf(LAURA, update)).toEqual({
-      cls: "B",
-      reasons: [{ kind: "notifies", personIds: [MARCO], more: false }],
-    });
+  it("«aggiorna la pagina» è B e dice chi segue la pagina e chi ha la riga accesa, meno chi chiede", () => {
+    follows([LAURA, SARA]);
+    const cls = classOf(LAURA, update);
+    expect(cls.cls).toBe("B");
+    // Sara segue (solo docs.view): sempre; Marco ha docs.edit, riga accesa di partenza.
+    expect(people(cls)).toEqual(expect.arrayContaining([MARCO, SARA]));
+    expect(people(cls)).not.toContain(LAURA);
   });
 
-  it("senza seguaci avvisa chi ha `docs.edit` (il ripiego di `productDocRecipients`): B", () => {
+  it("senza seguaci avvisa chi ha la riga accesa (di partenza chi ha `docs.edit`): B", () => {
     follows([]);
     const cls = classOf(LAURA, update);
     expect(cls.cls).toBe("B");
@@ -371,6 +373,16 @@ describe("la doc di prodotto (11b, Task 8; decisione 3)", () => {
 
   it("chi chiede è l'unico destinatario: la ragione sparisce, la classe resta B (P39)", () => {
     follows([LAURA]);
+    // Tutti gli altri hanno spento la riga di ACQ: resta solo chi chiede.
+    for (const p of state.projectsById.get(ACQ)!.memberIds) {
+      if (p === LAURA) continue;
+      // Chi non può iscriversi (senza docs.view) non la riceve comunque.
+      try {
+        setSubscriptionAs(p, ACQ, "product_doc.updated", { app: false });
+      } catch {
+        /* non iscrivibile */
+      }
+    }
     expect(classOf(LAURA, update)).toEqual({ cls: "B", reasons: [] });
   });
 
@@ -380,9 +392,10 @@ describe("la doc di prodotto (11b, Task 8; decisione 3)", () => {
     expect(classOf(SARA, update)).toEqual({ cls: "B", reasons: [] });
   });
 
-  it("la prima versione e la bozza di schermata sono A; un gruppo con l'aggiornamento è B", () => {
-    expect(classOf(LAURA, { fn: "writeFirstVersion", args: { projectId: "prj-vrd", sources: [] } })).toEqual(A);
-    expect(classOf(LAURA, draw)).toEqual(A);
+  it("la prima versione e la bozza di schermata sono B: Claude si mette al lavoro, e chiede (area 11, F6-1 = a)", () => {
+    const startsWork = { cls: "B", reasons: [{ kind: "startsWork" }] };
+    expect(classOf(LAURA, { fn: "writeFirstVersion", args: { projectId: "prj-vrd", sources: [] } })).toEqual(startsWork);
+    expect(classOf(LAURA, draw)).toEqual(startsWork);
     expect(classOfGroup(LAURA, [draw, update]).cls).toBe("B");
     // Gli inversi non si annullano a loro volta: B (il riquadro li esegue da «Undo»).
     for (const fn of ["undoFirstVersion", "undoProductUpdate", "deleteWireframe"] as const) {
