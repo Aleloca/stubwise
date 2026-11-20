@@ -46,7 +46,14 @@ import { BlockShell } from "./BlockShell";
 import { DecisionPicker } from "./DecisionPicker";
 import { DrivePicker } from "./DrivePicker";
 import { ImageRefusalRow } from "./ImageBlock";
-import { PRODUCT_IMAGE_TYPES, filesOf, readImageFile, uploadRefusalOf, type ImageRefusal } from "./images";
+import {
+  PRODUCT_IMAGE_TYPES,
+  checkImageFile,
+  filesOf,
+  readImageFile,
+  uploadRefusalOf,
+  type ImageRefusal,
+} from "./images";
 import { LinkPicker } from "./LinkPicker";
 import { makeGestures, type Focus, type Slash } from "./gestures";
 import { RichBlockEdit, RichBlockRead } from "./RichBlock";
@@ -521,13 +528,15 @@ function WritableBody({
     // Letta e controllata, l'immagine si salva (nella build app: si carica sul
     // server e il blocco porta il riferimento); un caricamento rifiutato è un
     // rifiuto come gli altri.
-    const stored = async (file: File) => {
-      const r = await readImageFile(file);
+    const stored = async (
+      file: File,
+    ): Promise<{ ok: true; src: string; alt: string } | { ok: false; reason: ImageRefusal }> => {
+      const r = checkImageFile(file);
       if (!r.ok) return r;
       try {
-        return { ...r, src: await storeImage(page.id, file, r.src) };
+        return { ...r, src: await storeImage(page.id, file) };
       } catch (error) {
-        return { ok: false as const, reason: uploadRefusalOf(error) };
+        return { ok: false, reason: uploadRefusalOf(error) };
       }
     };
     void Promise.all(files.map(stored)).then((results) => {

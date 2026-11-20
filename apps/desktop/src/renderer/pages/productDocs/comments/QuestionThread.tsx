@@ -295,7 +295,7 @@ export const QuestionThread = forwardRef<
       </p>
       <p className="flex min-w-0 items-center gap-1.5">
         <Avatar person={claude} />
-        <span className="min-w-0 truncate text-sm font-semibold text-ink">{root.authorName}</span>
+        <span className="min-w-0 truncate text-sm font-semibold text-ink">{root.authorName ?? t("productDocs.comments.someone")}</span>
         <time dateTime={root.createdAt} className="num shrink-0 text-xs text-ink-faint">
           {commentTime(root.createdAt, i18n.language)}
         </time>

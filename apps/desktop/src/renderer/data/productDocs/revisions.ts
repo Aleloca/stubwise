@@ -123,7 +123,18 @@ export function recordRevision(
 }
 
 /** Le revisioni di una pagina, dalla più recente (`lastSeq`). */
-export async function listProductRevisions(pageId: string): Promise<ProductRevisionView[]> {
+/** Una pagina della cronologia, come sul server (area 11, F1). */
+export const PRODUCT_REVISION_PAGE = 100;
+
+/**
+ * La cronologia di una pagina, dalla più recente, a pagine di
+ * `PRODUCT_REVISION_PAGE` come il server: `before` è il `lastSeq` più vecchio
+ * già letto (I2 della revisione di R11-1).
+ */
+export async function listProductRevisions(
+  pageId: string,
+  { before }: { before?: number } = {},
+): Promise<ProductRevisionView[]> {
   const me = await gate("productDocs.listProductRevisions");
   const page = productPageById(pageId);
   if (!page) return [];
@@ -131,8 +142,9 @@ export async function listProductRevisions(pageId: string): Promise<ProductRevis
   if (access === "forbidden") throw new Error("forbidden");
   if (access === "none") return [];
   return state.productRevisions
-    .filter((r) => r.pageId === pageId)
+    .filter((r) => r.pageId === pageId && (before === undefined || r.lastSeq < before))
     .sort((a, b) => b.lastSeq - a.lastSeq)
+    .slice(0, PRODUCT_REVISION_PAGE)
     .map((r) => {
       const row: ProductRevisionView = {
         ...copy(r),

@@ -578,7 +578,11 @@ const getProjectDocsHome: Docs["getProjectDocsHome"] = async (projectId) => {
   );
   const main = views[0] ?? null;
   // Il registro del progetto: le recenti e il totale vero (fino al tetto della lettura).
-  const decisions = await listDecisionLog(projectId).catch(() => []);
+  // La card Product si legge insieme al registro, non dopo (I5 della revisione).
+  const [decisions, productHome] = await Promise.all([
+    listDecisionLog(projectId).catch(() => []),
+    productHomeOf(projectId),
+  ]);
   const sorted = [...decisions].sort((a, b) => b.decidedAt.localeCompare(a.decidedAt));
   const home: ProjectDocsHome = {
     projectId,
@@ -593,7 +597,7 @@ const getProjectDocsHome: Docs["getProjectDocsHome"] = async (projectId) => {
     chatAvailable: true,
     chatSuggestions: chatSuggestions(views.flatMap((s) => s.chatSuggestions)),
     // Lo spazio Prodotto (area 11, F1): la card dallo spazio, se chi guarda lo legge.
-    product: await productHomeOf(projectId),
+    product: productHome,
   };
   return home;
 };

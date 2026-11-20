@@ -1,9 +1,10 @@
+import { cleanQuote } from "@stubwise/shared";
 import { anchorIdsOf, anchorText } from "../../domain/productDocs/blocks";
 import "./alertTypes";
 import { visiblePeopleFor } from "../access/whoCan";
 import { directMentionIds } from "../chat/mentions";
 import { docsAccess } from "../docs/reads";
-import { PEOPLE } from "../seed/people";
+import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { getSessionPersonId } from "../session";
 import { copy, gate, newId, nextSeq, now, onStoreReset, state } from "../store";
 import type {
@@ -35,8 +36,6 @@ import { editablePage, onAnchorsMerged } from "./writes";
 //   scrive, riceve una notifica `product_doc.mention` (Q1). Titolo, corpo e
 //   `objectGone` si compongono a lettura (`presentProductMention`).
 
-/** La frase citata: al più 200 caratteri, senza segni. */
-const QUOTE_MAX = 200;
 
 const nameOf = (personId: string): string =>
   PEOPLE.find((p) => p.id === personId)?.name ?? personId;
@@ -44,11 +43,10 @@ const nameOf = (personId: string): string =>
 const commentById = (id: string): ProductComment | undefined =>
   state.productComments.find((c) => c.id === id);
 
-/** Senza spazi ai lati e tagliata a `QUOTE_MAX` con «…» (anche le domande di Claude, 11b). */
-export function cleanQuote(quote: string): string {
-  const q = quote.trim();
-  return q.length > QUOTE_MAX ? `${q.slice(0, QUOTE_MAX - 1)}…` : q;
-}
+// La frase citata (anche delle domande di Claude, 11b): dall'area 11, F2 la
+// regola sta in `@stubwise/shared`, la stessa del server. UNA riga, senza
+// spazi ai lati, tagliata a 200 con «…».
+export { cleanQuote };
 
 /** L'indirizzo che apre la pagina sul filo (`?comment=<radice>`). */
 export const threadLink = (page: ProductPage, rootId: string): string =>
@@ -67,12 +65,22 @@ onAnchorsMerged((pageId, from, to) => {
 // --- leggere -------------------------------------------------------------------
 
 /** Un commento come lo legge `me`: una domanda di Claude nella sua vista, mai la fonte grezza (11b). */
-function viewOf(me: string, page: ProductPage, c: ProductComment): ProductCommentView {
+/**
+ * Il nome di una persona per chi guarda (R-G5): `null` se non la vede, come
+ * il server (area 11, F2). Chi guarda e Claude si vedono sempre.
+ */
+const visibleNameOf = (me: string, personId: string): string | null =>
+  personId === me || personId === CLAUDE_ID || visiblePeopleFor(me).has(personId) ? nameOf(personId) : null;
+
+/** Il commento come lo legge chi guarda, nella forma del server (F2): senza `seq`, coi nomi che vede. */
+export function viewOf(me: string, page: ProductPage, c: ProductComment): ProductCommentView {
   // La domanda grezza (fonte, fatto) non esce mai: la sua vista la sostituisce.
-  const rest: Omit<ProductComment, "question"> = copy(c);
+  const { question: _question, seq: _seq, ...rest } = copy(c);
+  void [_question, _seq];
   return {
     ...rest,
-    authorName: nameOf(c.authorId),
+    resolved: c.resolved ? { ...c.resolved, byName: visibleNameOf(me, c.resolved.byId) } : null,
+    authorName: visibleNameOf(me, c.authorId),
     ...(c.question ? { question: questionViewOf(me, c, page) } : {}),
   };
 }
@@ -96,6 +104,7 @@ export async function listProductComments(
 
   const position = new Map(page.blocks.flatMap(anchorIdsOf).map((id, i) => [id, i]));
   const mine = state.productComments.filter((c) => c.pageId === pageId);
+  const seqOf = new Map(mine.map((c) => [c.id, c.seq]));
   const threads = mine
     .filter((c) => c.replyToId === null)
     .map(
@@ -111,7 +120,7 @@ export async function listProductComments(
     .sort((a, b) => {
       if (a.anchorGone !== b.anchorGone) return a.anchorGone ? 1 : -1;
       const at = a.anchorGone ? 0 : position.get(a.root.anchorId)! - position.get(b.root.anchorId)!;
-      return at || a.root.seq - b.root.seq;
+      return at || seqOf.get(a.root.id)! - seqOf.get(b.root.id)!;
     });
   return {
     open: threads.filter((t) => t.root.resolved === null),
@@ -234,13 +243,13 @@ export function addProductCommentAs(
  * (stessa persona, stessa pagina, stessi valori) riceve la stessa scrittura,
  * come `fixRelease`. Finita, lo stesso testo di nuovo è un commento nuovo.
  */
-const posting = new Map<string, Promise<ProductComment>>();
+const posting = new Map<string, Promise<ProductCommentView>>();
 onStoreReset(() => posting.clear());
 
 export function addProductComment(
   pageId: string,
   input: { anchorId: string; quote: string; body: string; replyToId?: string },
-): Promise<ProductComment> {
+): Promise<ProductCommentView> {
   const key = JSON.stringify([
     getSessionPersonId(),
     pageId,
@@ -252,7 +261,7 @@ export function addProductComment(
   const pending = posting.get(key);
   if (pending) return pending;
   const write = writer("productDocs.addProductComment")
-    .then((me) => addProductCommentAs(me, pageId, input))
+    .then((me) => viewOf(me, productPageById(pageId)!, addProductCommentAs(me, pageId, input)))
     .finally(() => {
       if (posting.get(key) === write) posting.delete(key);
     });

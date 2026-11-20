@@ -13165,7 +13165,9 @@
         "failed": "Couldn't save",
         "retry": "Retry",
         "notUndone": "Changed by someone else, not undone",
-        "dropped": "Couldn't save a change: the page had changed"
+        "dropped": "Couldn't save a change: the page had changed",
+        "droppedForbidden": "Couldn't save a change: you can no longer edit this page",
+        "droppedGone": "Couldn't save a change: the page was deleted"
       },
       "title": {
         "field": "Page title",
@@ -13178,6 +13180,7 @@
       }
     },
     "comments": {
+      "someone": "Someone",
       "title": "Comments",
       "close": "Close comments",
       "resolvedCount_one": "{{count}} resolved",

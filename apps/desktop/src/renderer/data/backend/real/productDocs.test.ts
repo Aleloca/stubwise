@@ -1,13 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setAppClientForTests } from "./client";
-
-const authed = vi.hoisted(() => vi.fn<(path: string) => Promise<string | null>>());
-vi.mock("./transport", async (original) => ({
-  ...(await original<typeof import("./transport")>()),
-  authedDataUrl: authed,
-}));
-import { installFakeServer, ME_ID, PROJECT_ID } from "./fakeServer";
+import { installFakeServer, me, ME_ID, PROJECT_ID } from "./fakeServer";
 import { forgetProductDocs, liveProductDocs as docs, productHomeOf } from "./productDocs";
+import { getSessionPerson } from "./session";
 
 // Lo spazio Product nella build app (area 11, F1 di 72; R11-1): le rotte di
 // `client.productDocs` nelle forme del prototipo.
@@ -75,6 +70,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   setAppClientForTests(null);
 });
 
@@ -152,7 +148,7 @@ describe("lo spazio Product dal server", () => {
     ]);
   });
 
-  it("409 `stale`: le revisioni di un altro si prendono come viste e si riprova una volta, da lì", async () => {
+  it("409 `stale` su blocchi diversi: le revisioni di un altro si prendono come viste e si riprova una volta, da lì", async () => {
     let first = true;
     const { seen } = installFakeServer({
       "GET /api/product-pages/by-code/AUD-D5": { body: pageView() },
@@ -172,12 +168,60 @@ describe("lo spazio Product dal server", () => {
       },
     });
     await docs.getProductPage!("AUD-D5");
-    await docs.saveProductBlocks!(PAGE, [{ op: "delete", blockId: "blk-1" }], {
+    // Le revisioni dell'altro toccano blk-1; questa scrittura blk-2.
+    await docs.saveProductBlocks!(PAGE, [{ op: "delete", blockId: "blk-2" }], {
       sessionId: "s-me",
     });
     expect(
       seen.filter((r) => r.method === "POST").map((r) => (r.body as { baseSeq: number }).baseSeq),
     ).toEqual([7, 9]);
+  });
+
+  it("409 `stale` su un blocco che l'altro ha toccato: nessuna sovrascrittura, `invalid: stale` e nessun secondo invio", async () => {
+    const stale = (revisions?: unknown) => ({
+      status: 409,
+      body: { code: "stale", message: "x", ...(revisions === undefined ? {} : { revisions }) },
+    });
+    const ops = (blockId: string) => [
+      {
+        op: "set" as const,
+        block: { id: blockId, type: "paragraph" as const, content: { text: "mine", marks: [] } },
+      },
+    ];
+    for (const [revisions, mine] of [
+      [[revision(OTHER_REV, { lastSeq: 9 })], "blk-1"],
+      // Un merge dell'altro che assorbe il blocco: tocca anche quello.
+      [
+        [
+          revision(OTHER_REV, {
+            lastSeq: 9,
+            changes: [
+              {
+                blockId: "blk-3",
+                before: null,
+                after: null,
+                anchors: [],
+                mergedFrom: { anchorId: "blk-1", offset: 2 },
+              },
+            ],
+          }),
+        ],
+        "blk-1",
+      ],
+      // Senza le revisioni nella risposta non si sa cosa è cambiato: non si riprova (M5).
+      [undefined, "blk-2"],
+    ] as const) {
+      forgetProductDocs();
+      const { seen } = installFakeServer({
+        "GET /api/product-pages/by-code/AUD-D5": { body: pageView() },
+        [`POST /api/product-pages/${PAGE}/ops`]: stale(revisions),
+      });
+      await docs.getProductPage!("AUD-D5");
+      await expect(docs.saveProductBlocks!(PAGE, ops(mine), { sessionId: "s-me" })).rejects.toThrow(
+        "invalid: stale",
+      );
+      expect(seen.filter((r) => r.method === "POST")).toHaveLength(1);
+    }
   });
 
   it("un altro errore della scrittura nella forma del prototipo: un id riusato è `invalid`", async () => {
@@ -299,10 +343,20 @@ describe("la card Product della Home dei Docs", () => {
     });
     expect(await productHomeOf(PROJECT_ID)).toBeNull();
   });
+
+  it("un altro errore non si nasconde (I5): la lettura della Home lo dice", async () => {
+    installFakeServer({
+      [`GET /api/projects/${PROJECT_ID}/product`]: {
+        status: 500,
+        body: { code: "internal", message: "boom" },
+      },
+    });
+    await expect(productHomeOf(PROJECT_ID)).rejects.toThrow();
+  });
 });
 
 describe("la cronologia a pagine e i rifiuti del server", () => {
-  it("la cronologia intera, a pagine di 100: `before` è il `lastSeq` più vecchio già letto", async () => {
+  it("la cronologia a pagine di 100: la prima senza `before`, la seguente col `lastSeq` più vecchio già letto", async () => {
     const first = Array.from({ length: 100 }, (_, i) =>
       revision(`cccccccc-0000-4000-8000-${String(i).padStart(12, "0")}`, {
         seq: 300 - i * 2,
@@ -318,9 +372,11 @@ describe("la cronologia a pagine e i rifiuti del server", () => {
         body: req.path.includes("before=") ? second : first,
       }),
     });
-    const rows = await docs.listProductRevisions!(PAGE);
-    expect(rows).toHaveLength(102);
-    expect(rows.at(-1)!.id).toBe(OTHER_REV);
+    expect(await docs.listProductRevisions!(PAGE)).toHaveLength(100);
+    expect((await docs.listProductRevisions!(PAGE, { before: 103 })).map((r) => r.id)).toEqual([
+      REV,
+      OTHER_REV,
+    ]);
     expect(seen.map((r) => r.path)).toEqual([
       `/api/product-pages/${PAGE}/revisions`,
       `/api/product-pages/${PAGE}/revisions?before=103`,
@@ -358,9 +414,7 @@ describe("le immagini dei blocchi", () => {
       },
     });
     const file = new File([new Uint8Array([137, 80, 78, 71])], "flow.png", { type: "image/png" });
-    expect(await docs.storeProductImage!(PAGE, file, "data:image/png;base64,iVBO")).toBe(
-      `product-image:${IMAGE}`,
-    );
+    expect(await docs.storeProductImage!(PAGE, file)).toBe(`product-image:${IMAGE}`);
     expect(seen[0]!.body).toBeInstanceOf(FormData);
   });
 
@@ -372,27 +426,151 @@ describe("le immagini dei blocchi", () => {
         body: { code: "file_too_large", message: "x" },
       },
     });
-    await expect(docs.storeProductImage!(PAGE, file, "")).rejects.toThrow(
-      "invalid: file_too_large",
-    );
+    await expect(docs.storeProductImage!(PAGE, file)).rejects.toThrow("invalid: file_too_large");
     installFakeServer({
       [`POST /api/product-pages/${PAGE}/images`]: {
         status: 422,
         body: { code: "invalid_image", message: "x" },
       },
     });
-    await expect(docs.storeProductImage!(PAGE, file, "")).rejects.toThrow("invalid: invalid_image");
+    await expect(docs.storeProductImage!(PAGE, file)).rejects.toThrow("invalid: invalid_image");
   });
 
-  it("mostrare: `product-image:` dalla rotta dell'immagine come data URL; nient'altro si carica", async () => {
-    authed.mockResolvedValueOnce("data:image/png;base64,AAAA");
+  it("sul web: la rotta dell'immagine così com'è, per `<img src>` (stessa origine, il cookie, la cache del browser)", async () => {
+    installFakeServer({});
     expect(await docs.productImageSrc!(PAGE, `product-image:${IMAGE}`)).toBe(
-      "data:image/png;base64,AAAA",
+      `/api/product-pages/${PAGE}/images/${IMAGE}`,
     );
-    expect(authed).toHaveBeenCalledWith(`/api/product-pages/${PAGE}/images/${IMAGE}`);
-    authed.mockClear();
+  });
+
+  it("sul desktop: i byte dalla rotta (dal main, col token) come data URL; 404 è null; un altro errore lancia (si riprova)", async () => {
+    const png = new Uint8Array([137, 80, 78, 71]);
+    const request = vi.fn(async (req: { path: string }) =>
+      req.path.endsWith(IMAGE)
+        ? { status: 200, headers: { "content-type": "image/png" }, body: png.buffer }
+        : {
+            status: 404,
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ code: "not_found" }),
+          },
+    );
+    vi.stubGlobal("stubwise", { api: { request } });
+    expect(await docs.productImageSrc!(PAGE, `product-image:${IMAGE}`)).toBe(
+      `data:image/png;base64,${btoa(String.fromCharCode(...png))}`,
+    );
+    expect(request.mock.calls[0]![0]).toMatchObject({
+      method: "GET",
+      path: `/api/product-pages/${PAGE}/images/${IMAGE}`,
+    });
+    expect(
+      await docs.productImageSrc!(PAGE, "product-image:dddddddd-0000-4000-8000-000000000009"),
+    ).toBeNull();
+    request.mockResolvedValueOnce({
+      status: 500,
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    } as never);
+    await expect(docs.productImageSrc!(PAGE, `product-image:${IMAGE}`)).rejects.toThrow(
+      "image_failed",
+    );
+    // Un tipo che non è un'immagine permessa (SVG) non si mostra.
+    request.mockResolvedValueOnce({
+      status: 200,
+      headers: { "content-type": "image/svg+xml" },
+      body: png.buffer,
+    } as never);
+    await expect(docs.productImageSrc!(PAGE, `product-image:${IMAGE}`)).rejects.toThrow(
+      "image_failed",
+    );
+    request.mockClear();
     expect(await docs.productImageSrc!(PAGE, "https://evil.example/x.png")).toBeNull();
     expect(await docs.productImageSrc!(PAGE, "data:image/png;base64,AAAA")).toBeNull();
-    expect(authed).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
+  });
+});
+
+describe("una scrittura riuscita resta riuscita (I1 della revisione)", () => {
+  it("il salvataggio è andato, la rilettura no: la pagina dall'ultima lettura con le stesse operazioni, nessun errore", async () => {
+    let reads = 0;
+    installFakeServer({
+      "GET /api/product-pages/by-code/AUD-D5": () =>
+        ++reads === 1
+          ? { body: pageView() }
+          : { status: 500, body: { code: "internal", message: "x" } },
+      [`POST /api/product-pages/${PAGE}/ops`]: { body: { seq: 8, revisionId: REV } },
+    });
+    await docs.getProductPage!("AUD-D5");
+    const saved = await docs.saveProductBlocks!(
+      PAGE,
+      [
+        {
+          op: "insert",
+          afterId: "blk-1",
+          block: { id: "blk-9", type: "paragraph", content: { text: "New line", marks: [] } },
+        },
+      ],
+      { sessionId: "s-me" },
+    );
+    expect(saved.revisionId).toBe(REV);
+    expect(saved.blocks.map((b) => b.id)).toEqual(["blk-1", "blk-9"]);
+  });
+
+  it("la pagina è creata, la rilettura no: la pagina nuova lo stesso (un Retry ne creerebbe una doppia)", async () => {
+    installFakeServer({
+      [`POST /api/projects/${PROJECT_ID}/product/pages`]: {
+        status: 201,
+        body: { id: CHILD, code: "AUD-D6" },
+      },
+      "GET /api/product-pages/by-code/AUD-D6": {
+        status: 500,
+        body: { code: "internal", message: "x" },
+      },
+    });
+    const page = await docs.createProductPage!(PROJECT_ID, {
+      title: "Billing",
+      parentId: PAGE,
+      index: 0,
+    });
+    expect(page).toMatchObject({
+      id: CHILD,
+      code: "AUD-D6",
+      title: "Billing",
+      parentId: PAGE,
+      blocks: [],
+    });
+  });
+});
+
+describe("cambiata la persona, niente di quella di prima (M3 della revisione)", () => {
+  it("il `baseSeq` letto dalla persona di prima non si usa: la scrittura parte da 0 e il server dice se è vecchia", async () => {
+    const OTHER = "22222222-2222-4222-8222-000000000002";
+    const who = { current: me() };
+    const { seen } = installFakeServer({
+      "GET /api/auth/me": () => ({ body: who.current }),
+      "GET /api/product-pages/by-code/AUD-D5": { body: pageView() },
+      [`POST /api/product-pages/${PAGE}/ops`]: { body: { seq: 8, revisionId: REV } },
+    });
+    await getSessionPerson();
+    await docs.getProductPage!("AUD-D5");
+    who.current = me({ user: { ...me().user, id: OTHER } });
+    await getSessionPerson();
+    await docs.saveProductBlocks!(PAGE, [{ op: "delete", blockId: "blk-2" }], {
+      sessionId: "s",
+    }).catch(() => undefined);
+    const posted = seen
+      .filter((r) => r.method === "POST")
+      .map((r) => (r.body as { baseSeq: number }).baseSeq);
+    expect(posted).toEqual([0]);
+  });
+
+  it("eliminata la pagina, il suo codice se ne va con lei", async () => {
+    installFakeServer({
+      "GET /api/product-pages/by-code/AUD-D5": { body: pageView() },
+      [`DELETE /api/product-pages/${PAGE}`]: { status: 204 },
+      [`PATCH /api/product-pages/${PAGE}`]: { body: {} },
+    });
+    await docs.getProductPage!("AUD-D5");
+    await docs.deleteProductPage!(PAGE);
+    await expect(docs.renameProductPage!(PAGE, "x")).rejects.toThrow("not_found");
   });
 });

@@ -1,11 +1,11 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect } from "react";
 import * as api from "@backend/api";
 import { PRODUCT_IMAGE_REF_PREFIX } from "@stubwise/shared";
 import { featureIntegrated } from "../integration";
 import { PROJECT_AREAS, useInvalidate, useSessionPersonId, useWrite } from "../queries";
 import { useInstanceChanges } from "./instance";
-import type { FirstVersionSource, ProductBlockOp } from "../types";
+import type { FirstVersionSource, ProductBlockOp, ProductRevisionView } from "../types";
 
 // Gli hook dello spazio Prodotto (area 11a); `data/queries` li ri-esporta.
 // Le letture stanno nell'area «productDocs». Una scrittura di prodotto
@@ -111,7 +111,7 @@ export function useReadProductExport() {
  */
 export function useStoreProductImage() {
   return useCallback(
-    (pageId: string, file: File, src: string) => api.productDocs.storeProductImage(pageId, file, src),
+    (pageId: string, file: File) => api.productDocs.storeProductImage(pageId, file),
     [],
   );
 }
@@ -124,19 +124,44 @@ export function useStoreProductImage() {
 export function useProductImageSrc(pageId: string, src: string) {
   const me = useSessionPersonId();
   return useQuery({
-    queryKey: ["as", me, "productDocs", "image", pageId, src] as const,
+    // Fuori dall'area «productDocs»: l'immagine di un id non cambia, e un
+    // salvataggio non la riscarica (I2 della revisione).
+    queryKey: ["as", me, "productImage", pageId, src] as const,
     queryFn: () => api.productDocs.productImageSrc(pageId, src),
     enabled: src.startsWith(PRODUCT_IMAGE_REF_PREFIX),
     staleTime: Infinity,
   });
 }
 
-/** La cronologia di una pagina, dalla più recente. */
+/** Una pagina della cronologia (il server, e il prototipo come lui): una più corta è l'ultima. */
+const REVISION_PAGE = 100;
+/** I tipi di revisione che il pannello sa dire; un tipo futuro (F5, F6) non si mostra come un altro (M6). */
+const REVISION_KINDS = new Set<string>([
+  "create",
+  "edit",
+  "rename",
+  "move",
+  "undo",
+  "first_version",
+  "answer",
+] satisfies ProductRevisionView["kind"][]);
+
+/**
+ * La cronologia di una pagina, dalla più recente, una pagina di 100 alla
+ * volta (`fetchNextPage`): un salvataggio rilegge le pagine già lette, non
+ * tutta la cronologia (I2 della revisione di R11-1).
+ */
 export function useProductRevisions(pageId: string) {
   const me = useSessionPersonId();
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ["as", me, "productDocs", "revisions", pageId] as const,
-    queryFn: () => api.productDocs.listProductRevisions(pageId),
+    queryFn: ({ pageParam }) =>
+      api.productDocs.listProductRevisions(pageId, pageParam === undefined ? {} : { before: pageParam }),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (last) =>
+      last.length < REVISION_PAGE ? undefined : Math.min(...last.map((r) => r.lastSeq)),
+    // Dopo aver contato la pagina: scartare prima la farebbe sembrare l'ultima.
+    select: (data) => ({ ...data, pages: data.pages.map((page) => page.filter((r) => REVISION_KINDS.has(r.kind))) }),
   });
 }
 
@@ -350,7 +375,9 @@ export function useSetProductPresence() {
     }: {
       pageId: string;
       at: { anchorId: string; offset: number; selection?: [number, number] | null } | null;
-    }) => api.productDocs.setProductPresence(pageId, at),
+    }) =>
+      // La presenza arriva con F4: spenta, non si manda (I3 della revisione di R11-1).
+      productLaterOn("live") ? api.productDocs.setProductPresence(pageId, at) : Promise.resolve(),
   });
 }
 

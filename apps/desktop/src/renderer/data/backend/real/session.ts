@@ -10,6 +10,7 @@ import { resetChatStreams } from "./chatStream";
 import { forgetChatCaches } from "./claudeChat";
 import { forgetTrials } from "./claudeTrial";
 import { forgetDocsCaches } from "./docs";
+import { forgetProductDocs } from "./productDocs";
 import { appClient, session } from "./client";
 import { NotIntegratedError, partialNamespace } from "./notIntegrated";
 import { forgetCommentTickets } from "./taskDetail";
@@ -98,6 +99,8 @@ function forgetClientCaches(): void {
   forgetTrials();
   forgetPeopleChatCaches();
   resetChatStreams();
+  // Area 11 (M3 della revisione di R11-1): `baseSeq`, codici e ultime pagine lette.
+  forgetProductDocs();
 }
 
 /**

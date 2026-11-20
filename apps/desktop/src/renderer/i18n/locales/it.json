@@ -13165,7 +13165,9 @@
         "failed": "Salvataggio non riuscito",
         "retry": "Riprova",
         "notUndone": "Cambiato da altri, non annullato",
-        "dropped": "Modifica non salvata: la pagina era cambiata"
+        "dropped": "Modifica non salvata: la pagina era cambiata",
+        "droppedForbidden": "Modifica non salvata: non puoi più modificare questa pagina",
+        "droppedGone": "Modifica non salvata: la pagina è stata eliminata"
       },
       "title": {
         "field": "Titolo della pagina",
@@ -13178,6 +13180,7 @@
       }
     },
     "comments": {
+      "someone": "Qualcuno",
       "title": "Commenti",
       "close": "Chiudi i commenti",
       "resolvedCount_one": "{{count}} risolto",
