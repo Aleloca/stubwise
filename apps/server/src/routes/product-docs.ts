@@ -16,6 +16,8 @@ import {
   productExportSpaceSchema,
   productExportTooLargeSchema,
   productMarkViewSchema,
+  productOpenQuestionSchema,
+  answerProductQuestionSchema,
   PRODUCT_EXPORT_PAGES_MAX,
   productSpaceSchema,
   saveProductBlocksSchema,
@@ -56,6 +58,7 @@ import { productPages } from "@stubwise/db";
 import { eq } from "drizzle-orm";
 import { exportProductPage, exportProductSpace, ProductExportTooLarge } from "../services/product-export.js";
 import { addProductComment, listProductComments, productMentionCandidates, setProductCommentResolved } from "../services/product-comments.js";
+import { ProductQuestionConflictError, answerProductQuestion, listOpenProductQuestions } from "../services/product-questions.js";
 import { StorageObjectNotFound } from "../storage/errors.js";
 import { removeOrRecordOrphan } from "../storage/orphans.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -79,7 +82,7 @@ async function handleUndo<T>(reply: FastifyReply, fn: () => Promise<T>): Promise
   try {
     return await fn();
   } catch (error) {
-    if (error instanceof ProductUndoBlockedError) return reply.code(409).send({ code: error.code, message: error.message, byId: error.by.id, byName: error.by.name });
+    if (error instanceof ProductUndoBlockedError || error instanceof ProductQuestionConflictError) return reply.code(409).send({ code: error.code, message: error.message, byId: error.by.id, byName: error.by.name });
     if (error instanceof ProductSectionBusyError) return reply.code(409).send({ code: error.code, message: error.message, sectionId: error.sectionId, by: error.by });
     if (error instanceof ProductDocsError) return apiError(reply, error.status, error.code, error.message);
     throw error;
@@ -498,6 +501,27 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
         }),
     );
   }
+
+  // --- F5: le domande di Claude (rispondere chiede `docs.edit`, una risposta sola) ---
+
+  app.post(
+    "/product-comments/:id/answer",
+    {
+      config: { access: COMMENT_EDIT },
+      schema: {
+        params: pageParams,
+        body: answerProductQuestionSchema,
+        response: { 200: z.object({ revisionId: z.uuid().nullable(), seq: z.number().int().nullable(), requestId: z.uuid().nullable() }), 404: errorSchema, 409: undoConflictSchema, 422: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => handleUndo(reply, () => answerProductQuestion(app.db, request.user!, request.params.id, request.body.option)),
+  );
+
+  app.get(
+    "/me/product-questions",
+    { config: { access: { kind: "user" } }, schema: { querystring: z.object({ pageId: z.uuid().optional() }), response: { 200: z.array(productOpenQuestionSchema), ...authErrorResponses } } },
+    async (request) => listOpenProductQuestions(app.db, request.user!, request.query.pageId),
+  );
 
   app.get(
     "/projects/:projectId/product/mention-candidates",

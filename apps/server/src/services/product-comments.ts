@@ -17,6 +17,7 @@ import type { SessionUser } from "../auth/session.js";
 import { personName } from "./people.js";
 import { visiblePersonIds } from "./people-visibility.js";
 import { ProductDocsError } from "./product-docs.js";
+import { productQuestionViewsOf } from "./product-questions.js";
 
 /**
  * Area 11, F2 — i commenti delle pagine di prodotto. La regola è quella del
@@ -100,7 +101,7 @@ async function viewsOf(db: Db, viewer: Viewer, rows: readonly CommentRow[]): Pro
         replyToId: r.replyToId,
         resolved: r.resolvedAt ? { byId: r.resolvedBy, byName: sees(r.resolvedBy) ? (names.get(r.resolvedBy) ?? null) : null, at: r.resolvedAt.toISOString() } : null,
         mentionIds: r.mentions.filter(sees),
-        // F5: la parte di domanda la legge `product-questions.ts` (Task 4).
+        // F5: la parte di domanda la aggiunge `productQuestionViewsOf` (`product-questions.ts`).
         question: null,
       },
     ]),
@@ -122,6 +123,8 @@ export async function listProductComments(db: Db, viewer: Viewer, pageId: string
     .where(and(eq(productComments.pageId, pageId), isNull(productComments.deletedAt)))
     .orderBy(asc(productComments.createdAt), asc(productComments.id));
   const views = await viewsOf(db, viewer, rows);
+  // F5: la parte di domanda dei commenti di Claude, come la legge chi guarda.
+  for (const [id, question] of await productQuestionViewsOf(db, viewer, pageId, rows)) views.set(id, { ...views.get(id)!, question });
   const position = new Map(readBlocks(page.blocks).flatMap(anchorIdsOf).map((id, i) => [id, i]));
   const order = new Map(rows.map((r, i) => [r.id, i]));
   // Le risposte raggruppate UNA volta per radice (review di F2), già in ordine.
@@ -236,6 +239,8 @@ export async function setProductCommentResolved(db: Db, viewer: Viewer, rootId: 
   const [root] = await db.select().from(productComments).where(and(eq(productComments.id, rootId), isNull(productComments.deletedAt)));
   if (!root) throw notFound();
   if (root.replyToId !== null) throw invalid("invalid_reply", "Only a thread's first comment is resolved");
+  // F5: una domanda di Claude si chiude rispondendo, non con «Resolve» né «Reopen».
+  if (root.question !== null) throw invalid("question_answer_only", "A question from Claude is closed by answering it");
   if ((root.resolvedAt !== null) === resolved) return;
   await db
     .update(productComments)

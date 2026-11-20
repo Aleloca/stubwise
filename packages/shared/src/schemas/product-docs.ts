@@ -198,6 +198,12 @@ export const productQuestionSchema = z.object({
   /** Un fatto `insert_after` senza `options.apply`: «Update it» inserisce una copia del blocco dopo `afterId`. */
   insert: z.object({ block: productBlockWriteSchema, afterId: id.nullable() }).optional(),
   recommended: productAnswerChoiceSchema,
+  /**
+   * Il `rev_seq` della pagina quando la domanda è nata: una revisione dopo che
+   * tocca l'ancora spegne «Update it» (`changed_after`). Opzionale per le
+   * domande scritte prima (si ripiega sulla data del commento).
+   */
+  seq: z.number().int().optional(),
 });
 export type ProductQuestion = z.infer<typeof productQuestionSchema>;
 
@@ -291,6 +297,15 @@ export const productRevisionClaudeFields = {
   answerOf: z.uuid().nullable().default(null),
 };
 
+/**
+ * Una frase come la LEGGE un client: i segni larghi (come i blocchi di
+ * `productPageViewSchema`), perché `readerSchema` non attraversa l'unione
+ * stretta di `richTextSchema` (il guardiano di `reader.test.ts`). La forma
+ * vera la tiene chi scrive.
+ */
+export const richTextViewSchema = z.object({ text: z.string(), marks: z.array(z.record(z.string(), z.unknown())) });
+export type RichTextView = z.infer<typeof richTextViewSchema>;
+
 /** La parte di DOMANDA di un commento di Claude, come la legge chi guarda. */
 export const productQuestionViewSchema = z.object({
   reason: productQuestionReasonSchema,
@@ -301,8 +316,8 @@ export const productQuestionViewSchema = z.object({
   source: productSourceViewSchema,
   applyMode: z.enum(["replace", "insert"]),
   /** La frase dell'ancora com'è adesso; null se non c'è più, e sempre per `insert`. */
-  current: richTextSchema.nullable(),
-  apply: richTextSchema.nullable(),
+  current: richTextViewSchema.nullable(),
+  apply: richTextViewSchema.nullable(),
   built: z.string().nullable(),
   request: z.object({ title: z.string(), description: z.string() }).nullable(),
   recommended: productAnswerChoiceSchema.nullable(),

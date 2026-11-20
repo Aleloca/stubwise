@@ -364,4 +364,4 @@ export {
   type WebhookFormat,
   type WebhookSendOptions,
 } from "./webhooks.js";
-export { agentUserId, writeClaudeFacts, type ClaudeFactOutcome, type ClaudeWriteInput, type ClaudeWriteResult, type ProductSourceKind } from "./product-docs-write.js";
+export { agentUserId, withAnchorText, writeClaudeFacts, type ClaudeFactOutcome, type ClaudeWriteInput, type ClaudeWriteResult, type ProductSourceKind } from "./product-docs-write.js";

@@ -366,6 +366,11 @@ describe("il registro decisioni non è mai scritto dall'AI — sul sorgente", ()
     // run e non scrive nel registro (`product-docs/job.test.ts` lo verifica
     // anche sui nomi delle tabelle).
     "../../../../packages/notifications/src/product-docs-write.ts",
+    // Area 11, F5, Task 4: i segni e le domande di Claude. «Undo», «Update it»,
+    // «Keep it» e «Open a request» sono gesti di una PERSONA, non decisioni del
+    // registro, e non eseguono run.
+    "./product-claude.ts",
+    "./product-questions.ts",
   ];
 
   it.each(MODULES)("%s non nomina nessun esecutore di agenti", async (relative) => {
