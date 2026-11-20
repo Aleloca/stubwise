@@ -119,6 +119,8 @@ const citedViews = new Map<
     /** Solo una pagina Docs (area 5, fetta 1): il codice stabile e dove aprirla. */
     code?: string | null;
     doc?: { repositorySlug: string; slug: string } | null;
+    /** Area 11, F3: una pagina di prodotto citata come `doc` (col suo codice -D). */
+    product?: { pageId: string } | null;
     /** Solo un file del Drive (area 5, fetta 2): la scheda del gettone. */
     drive?: { type: DriveFileType; projectCode: string; projectName: string; opens90d: number; summary: string | null } | null;
   }
@@ -144,9 +146,19 @@ export function rememberDocCitation(c: {
   label: string;
   projectId: string;
   code: string | null;
-  doc: { repositorySlug: string; slug: string };
+  doc: { repositorySlug: string; slug: string } | null;
+  /** Area 11, F3: una pagina di prodotto (`doc` è null). */
+  product?: { pageId: string } | null;
 }): void {
-  citedViews.set(citeKey("doc", c.id), { kind: "doc", id: c.id, label: c.label, projectId: c.projectId, code: c.code, doc: c.doc });
+  citedViews.set(citeKey("doc", c.id), {
+    kind: "doc",
+    id: c.id,
+    label: c.label,
+    projectId: c.projectId,
+    code: c.code,
+    doc: c.doc,
+    product: c.product ?? null,
+  });
 }
 
 /** I tipi che il server sa citare (gli altri, scelti da «#», non partono). */
@@ -213,7 +225,12 @@ export function chatCitationView(ref: CitationRef, codeOf: (projectId: string) =
         ...base,
         code: c.code ?? null,
         name: c.label,
-        route: c.doc && project ? `#/p/${project}/docs/${c.doc.repositorySlug}/${c.doc.slug}` : null,
+        // Area 11, F3: una pagina di prodotto si apre dal suo codice nello spazio Product.
+        route: c.product && project && c.code
+          ? `#/p/${project}/docs/product/${c.code}`
+          : c.doc && project
+            ? `#/p/${project}/docs/${c.doc.repositorySlug}/${c.doc.slug}`
+            : null,
       };
   }
 }
@@ -348,6 +365,7 @@ export function toMessage(v: ServerMsg): ChatMessageView {
         projectId: c.projectId,
         code: c.code,
         doc: c.doc ? { repositorySlug: c.doc.repositorySlug, slug: c.doc.slug } : null,
+        product: c.product ? { pageId: c.product.pageId } : null,
         drive: c.drive
           ? {
               type: (DRIVE_FILE_TYPES as readonly string[]).includes(c.drive.type) ? (c.drive.type as DriveFileType) : "other",

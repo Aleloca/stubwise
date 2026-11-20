@@ -1,4 +1,4 @@
-import { backlogItems, chatMessageCitations, docPageCodes, docPages, driveFiles, driveOpens, projects, repositories, tickets, users, type Db } from "@stubwise/db";
+import { backlogItems, chatMessageCitations, docPageCodes, docPages, driveFiles, driveOpens, productPages, projects, repositories, tickets, users, type Db } from "@stubwise/db";
 import type { ChatCitationKind, ChatCitationRef, ChatCitationView } from "@stubwise/shared";
 import { and, eq, inArray, isNull, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { projectIdsWithPermission, visibleProjectIds, isAllProjects, inProjects, inProjectsStrict } from "../auth/access.js";
@@ -30,6 +30,8 @@ interface Citeable {
   /** Solo una pagina Docs: il suo codice e dove aprirla (area 5, fetta 1). */
   code?: string | null;
   doc?: { repositoryId: string; repositorySlug: string; slug: string } | null;
+  /** Area 11, F3: solo una pagina di prodotto (una citazione `doc` col codice `-D`). */
+  product?: { pageId: string } | null;
   /** Solo un file del Drive (area 5, fetta 2): la sua scheda. */
   drive?: ChatCitationView["drive"];
 }
@@ -210,7 +212,19 @@ export async function citeablesFor(
       // Una coppia con una generata e una manuale: vince la generata, come la rotta della pagina.
       const best = new Map<string, (typeof rows)[number]>();
       for (const r of rows) if (!best.has(r.codeId) || r.generated) best.set(r.codeId, r);
+      // Area 11, F3: un codice `-D` di una pagina di PRODOTTO (la stessa serie, D-9), con `docs.view`.
+      const products = await db
+        .select({ codeId: docPageCodes.id, number: docPageCodes.number, projectId: docPageCodes.projectId, projectCode: projects.code, pageId: productPages.id, title: productPages.title })
+        .from(docPageCodes)
+        .innerJoin(projects, eq(projects.id, docPageCodes.projectId))
+        .innerJoin(productPages, eq(productPages.id, docPageCodes.productPageId))
+        .where(and(inArray(docPageCodes.id, codeIds), inProjects(docPageCodes.projectId, readable)));
       for (const [input, codeId] of codeOfInput) {
+        const p = products.find((x) => x.codeId === codeId);
+        if (p) {
+          out.set(keyOf("doc", input), { kind: "doc", id: p.codeId, label: p.title, projectId: p.projectId, code: `${p.projectCode}-D${p.number}`, doc: null, product: { pageId: p.pageId } });
+          continue;
+        }
         const r = best.get(codeId);
         if (!r) continue;
         out.set(keyOf("doc", input), {
@@ -261,6 +275,11 @@ export async function hasVisibleCitationSql(db: Db, viewer: ChatViewer, messageI
           inner join ${docPages} on ${docPages.repositoryId} = dc.repository_id and ${docPages.slug} = dc.slug
             and (${docPages.generationId} = ${repositories.currentDocGenerationId} or ${docPages.generationId} is null)
           where dc.id = c.ref_id and ${inReadable}
+        ))
+        or (c.kind = 'doc' and exists (
+          select 1 from ${docPageCodes} dc
+          inner join ${productPages} on ${productPages.id} = dc.product_page_id
+          where dc.id = c.ref_id and ${inProjectsStrict(productPages.projectId, readable)}
         ))
       )
   )`;
@@ -350,7 +369,7 @@ export async function citationViews(
     if (!c) continue;
     out.set(r.messageId, [
       ...(out.get(r.messageId) ?? []),
-      { kind: c.kind, id: c.id, label: c.label, projectId: c.projectId, code: c.code ?? null, doc: c.doc ?? null, drive: c.drive ?? null },
+      { kind: c.kind, id: c.id, label: c.label, projectId: c.projectId, code: c.code ?? null, doc: c.doc ?? null, drive: c.drive ?? null, product: c.product ?? null },
     ]);
   }
   return out;

@@ -87,6 +87,37 @@ describe("la citazione di una pagina Docs nella Chat", () => {
     ]);
   });
 
+  it("una pagina di prodotto citata (F3: `doc` null, `product`): si apre dal suo codice nello spazio Product", async () => {
+    install({
+      [`GET /api/chat/messages/${MSG}`]: {
+        body: {
+          id: MSG,
+          channelId: CH,
+          threadRootId: null,
+          authorId: ME_ID,
+          text: "See AUD-D5",
+          createdAt: "2026-11-10T10:00:00.000Z",
+          citations: [
+            {
+              kind: "doc",
+              id: CODE_ID,
+              label: "Sign-in",
+              projectId: PROJECT_ID,
+              code: "AUD-D5",
+              doc: null,
+              product: { pageId: "aaaaaaaa-0000-4000-8000-000000000001" },
+            },
+          ],
+        },
+      },
+    });
+    await getSessionPerson();
+    const hit = (await chat.getMessage(MSG))!;
+    expect(await resolveCitations(hit.message.citations)).toMatchObject([
+      { kind: "doc", visible: true, code: "AUD-D5", name: "Sign-in", route: "#/p/AUD/docs/product/AUD-D5" },
+    ]);
+  });
+
   it("da un server senza codici D: il nome, senza link (come prima)", async () => {
     install({
       [`GET /api/chat/messages/${MSG}`]: {

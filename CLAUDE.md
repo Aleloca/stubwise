@@ -483,6 +483,8 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 10: l'area intera (F1–F8)» (20 nov 2026; migrazioni 0197–0201 in ordine, server → worker → caddy; l'elenco delle discese non sicure — `question`, `aside`, `capabilities`, `member.added`, `private_read_at` — con le query)
   - «Integrazione area 11, F1: lo spazio Product e l'editor» (20 nov 2026; migrazione 0202, server → caddy, rollback sicuro)
   - «Integrazione area 11, F2: commenti, menzioni e le notifiche nel catalogo» (20 nov 2026; migrazioni 0203–0205, server → worker → caddy, rollback NON sicuro sul server finché esistono notifiche `product_doc.*`)
+  - «Integrazione area 11, F3: ricerca, citazioni ed esportazione della doc di prodotto» (20 nov 2026; migrazioni 0206–0208, env `PRODUCT_EMBED_POLL_SECONDS`, server → caddy, rollback sicuro)
+  - «Integrazione area 11, F4: la scrittura dal vivo» (20 nov 2026; migrazione 0209, server → caddy, rollback sicuro col caddy insieme; ⚠️ un solo processo server)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -649,6 +651,7 @@ una voce ti riguarda.
   - Lo stato della generazione dice solo ciò che il server sa: niente stime.
   - Il numero di un codice D lo dà `stubwise_ensure_doc_page_codes`; uno scrittore di `doc_pages` con una transazione lunga chiama `ensureDocPageCodes` PRIMA (il lock per progetto).
   - Embedding delle manuali: fail-open, chunk vecchi tolti, backfill all'avvio e ogni ora.
+  - Doc di prodotto (area 11): il corpo si scrive solo a operazioni; nessuna sovrascrittura silenziosa; il canale dal vivo ricalcola i permessi, presenza in memoria (un solo processo server), presa in tabella; card `product_doc.*` derivate; contenuto delle pagine non fidato nei prompt; immagini coi byte dalla rotta.
 - **Operazioni sui server → `docs/invariants/server-operations.md`** (area 8 F4b, 14 nov 2026):
   - Solo l'insieme chiuso `SERVER_ACTIONS`, eseguito dall'agente con un comando firmato per passo approvato; mai via SSH.
   - Ogni piano lo approva `plans.approve` nel progetto che l'analisi indica, prima di ogni comando; mai Claude, mai in anticipo.

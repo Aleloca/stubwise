@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { productPageChunks, productPages } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { createFakeEmbeddingClient, type EmbeddingClient } from "@stubwise/embeddings";
-import { embedStaleProductPages, productChunkCount } from "./product-embed.js";
+import { backfillAllProductSearchText, embedStaleProductPages, productChunkCount, startProductEmbedPoller } from "./product-embed.js";
 
 // Area 11, F3, Task 1: gli embedding delle pagine di prodotto. Il poller rifà
 // solo le pagine FERME da 30 s; i chunk di prima si rifanno; un embedder giù
@@ -118,5 +118,69 @@ describe("embedStaleProductPages", () => {
     expect(await productChunkCount(t.db, p.id)).toBeGreaterThan(0);
     await t.db.delete(productPages).where(eq(productPages.id, p.id));
     expect(await productChunkCount(t.db, p.id)).toBe(0);
+  });
+
+  it("review di F3 (I1): una pagina col `updated_at` del database (microsecondi) si fa UNA volta, non a ogni giro", async () => {
+    // Senza `updatedAt` dal JS: lo scrive `defaultNow()` di Postgres, coi microsecondi.
+    const [row] = await t.db.insert(productPages).values({ projectId, title: "Dal database", blocks: [para("blk-0", "Testo")] }).returning();
+    await t.db.update(productPages).set({ updatedAt: sql`now() - interval '1 minute' + interval '123 microseconds'` }).where(eq(productPages.id, row!.id));
+    await embedStaleProductPages(t.db, embedder, log);
+    expect(await productChunkCount(t.db, row!.id)).toBeGreaterThan(0);
+    const spy = vi.spyOn(embedder, "embed");
+    await embedStaleProductPages(t.db, embedder, log);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+    const [after] = await t.db.select({ same: sql<boolean>`${productPages.embeddedAt} = ${productPages.updatedAt}` }).from(productPages).where(eq(productPages.id, row!.id));
+    expect(after!.same).toBe(true);
+  });
+
+  it("review di F3 (I6): una pagina che sbaglia per conto suo si rimanda e il giro va avanti", async () => {
+    const bad = await page("Rotta", ["CONTENUTO CHE ROMPE"], ago(700));
+    const good = await page("Buona", ["Contenuto normale"], ago(690));
+    const picky: EmbeddingClient = {
+      ...embedder,
+      embed: async (texts: string[]) => (texts.some((x) => x.includes("ROMPE")) ? texts.map(() => [1, 2, 3]) : embedder.embed(texts)),
+    };
+    log.warn.mockClear();
+    await embedStaleProductPages(t.db, picky, log);
+    expect(await productChunkCount(t.db, good.id)).toBeGreaterThan(0);
+    expect(await productChunkCount(t.db, bad.id)).toBe(0);
+    expect(log.warn).toHaveBeenCalled();
+    // Rimandata: al giro dopo non si riprova (fino alla sua prossima modifica).
+    const spy = vi.spyOn(picky, "embed");
+    await embedStaleProductPages(t.db, picky, log);
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe("review di F3 (C1): il poller si avvia prima di `listen`", () => {
+  it("registrato prima che il server parta, l'app si avvia e si chiude; dopo, Fastify lo rifiuta", async () => {
+    const { buildApp } = await import("../app.js");
+    const app = buildApp({ db: t.db, sessionSecret: "x".repeat(40), embeddingClient: embedder });
+    startProductEmbedPoller(app, 30);
+    await app.ready();
+    expect(() => startProductEmbedPoller(app, 30)).toThrow(/already listening|Cannot call "addHook"/i);
+    await app.close();
+  });
+
+  it("review di F3 (I5): il testo cercabile di TUTTE le pagine di prima, a lotti, senza l'embedder; e index.ts lo fa qualunque sia l'env", async () => {
+    await t.db.insert(productPages).values(Array.from({ length: 7 }, (_, i) => ({ projectId, title: `Lotto ${i}`, blocks: [para("blk-0", "Caffè")] })));
+    const n = await backfillAllProductSearchText(t.db, 3);
+    expect(n).toBeGreaterThanOrEqual(7);
+    expect((await t.db.select({ id: productPages.id }).from(productPages).where(eq(productPages.searchText, "")))).toEqual([]);
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
+    const call = src.indexOf("void backfillAllProductSearchText(app.db)");
+    expect(call).toBeGreaterThan(0);
+    // Non dentro l'`if` del poller: quell'`if` è una riga sola, che non lo contiene.
+    const pollerLine = src.split("\n").find((l) => l.includes("config.productEmbedPollSeconds !== undefined"))!;
+    expect(pollerLine).not.toContain("backfillAllProductSearchText");
+  });
+
+  it("index.ts lo avvia PRIMA di `app.listen`", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
+    expect(src.indexOf("startProductEmbedPoller(app")).toBeGreaterThan(0);
+    expect(src.indexOf("startProductEmbedPoller(app")).toBeLessThan(src.indexOf("await app.listen("));
   });
 });

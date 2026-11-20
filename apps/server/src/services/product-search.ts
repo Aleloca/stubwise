@@ -35,6 +35,8 @@ type Viewer = Pick<SessionUser, "id" | "instancePermissions">;
 type Log = { warn: (obj: unknown, msg?: string) => void };
 
 export const PRODUCT_SEARCH_LIMIT = 20;
+/** Review di F3 (I2): solo passaggi davvero vicini alla domanda (distanza coseno), la soglia del Drive. */
+export const PRODUCT_SEMANTIC_MAX_DISTANCE = 0.35;
 
 const readBlocks = (raw: unknown): ProductBlock[] =>
   (Array.isArray(raw) ? raw : []).flatMap((b) => {
@@ -46,6 +48,8 @@ export interface ProductSearchResult {
   items: ProductSearchHit[];
   /** C'è almeno un risultato oltre il limite (fra le pagine che chi cerca legge). */
   hasMore: boolean;
+  /** Per uso interno (la chat dei Docs): il passaggio che ha corrisposto per significato, per pagina. Le rotte non lo mandano. */
+  matched?: Map<string, string>;
 }
 
 /**
@@ -68,20 +72,30 @@ export async function searchProductPages(
     and(inProjectsStrict(column, readable), opts.projectId ? eq(column, opts.projectId) : undefined);
   const code = sql`${projects.code} || '-D' || ${docPageCodes.number}`;
 
-  // --- Per significato: i chunk più vicini, una pagina per volta (il chunk migliore). ---
+  // --- Per significato: il passaggio migliore PER PAGINA, solo se davvero vicino. ---
+  // Review di F3 (I2, I3), come il Drive (`drive/service.ts`): PRIMA il filtro di
+  // progetto, POI la distanza, con una soglia. Un `ORDER BY distanza LIMIT`
+  // scenderebbe sull'indice HNSW, che dà al più `ef_search` chunk di TUTTA
+  // l'istanza prima del filtro (chi legge un progetto solo riceverebbe poco o
+  // niente); senza `ORDER BY` sulla distanza il planner non lo usa ed è esatto.
+  // Senza soglia, ogni ricerca darebbe sempre le pagine più vicine, anche lontane.
   const ordered: string[] = [];
+  const chunks = new Map<string, string>();
   if (opts.semantic !== false) {
     try {
       const [vector] = await embeddingClient.embed([q]);
       if (!vector) throw new Error("nessun vettore per la query");
       const literal = `[${vector.join(",")}]`;
+      const distance = sql<number>`(${productPageChunks.embedding} <=> ${literal}::vector)`;
       const rows = await db
-        .select({ pageId: productPageChunks.pageId })
+        .selectDistinctOn([productPageChunks.pageId], { pageId: productPageChunks.pageId, content: productPageChunks.content, distance })
         .from(productPageChunks)
-        .where(and(scopeOf(productPageChunks.projectId), sql`${productPageChunks.embedding} IS NOT NULL`))
-        .orderBy(sql`${productPageChunks.embedding} <=> ${literal}::vector`)
-        .limit(Math.max((limit + 1) * 3, 40));
-      for (const r of rows) if (!ordered.includes(r.pageId)) ordered.push(r.pageId);
+        .where(and(scopeOf(productPageChunks.projectId), sql`${productPageChunks.embedding} IS NOT NULL`, sql`${distance} < ${PRODUCT_SEMANTIC_MAX_DISTANCE}`))
+        .orderBy(productPageChunks.pageId, distance);
+      for (const r of rows.sort((a, b) => a.distance - b.distance)) {
+        ordered.push(r.pageId);
+        chunks.set(r.pageId, r.content);
+      }
     } catch (error) {
       opts.log?.warn({ err: error }, "ricerca nelle pagine di prodotto: il significato non è disponibile, resta il testo");
     }
@@ -153,5 +167,5 @@ export async function searchProductPages(
       },
     ];
   });
-  return { items, hasMore };
+  return { items, hasMore, matched: chunks };
 }

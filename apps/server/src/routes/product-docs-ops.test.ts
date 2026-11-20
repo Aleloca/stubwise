@@ -63,6 +63,11 @@ beforeEach(() => {
   storage = fakeStorage();
 });
 
+/** F4: libera le sezioni prese di una pagina, per i test che non sono sulle prese. */
+const freeHolds = async (pageId: string) => {
+  const { productSectionHolds } = await import("@stubwise/db");
+  await t.db.delete(productSectionHolds).where(eq(productSectionHolds.pageId, pageId));
+};
 const as = (u: U, method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE", url: string, payload?: object) =>
   app.inject({ method, url, headers: { cookie: u.headers.cookie }, ...(payload !== undefined ? { payload: payload as never } : {}) });
 async function page(): Promise<{ id: string; code: string }> {
@@ -108,12 +113,15 @@ describe("scrivere a operazioni", () => {
     const del = await ops(editor, p.id, { sessionId: "s2", baseSeq: v.seq, ops: [{ op: "delete", blockId: "blk-x" }] });
     const delRev = (del.json() as { revisionId: string }).revisionId;
     v = await view(p.code);
+    // F4: le prese di chi ha scritto via, così l'altro arriva fino al controllo degli id (questo test non è sulle prese).
+    await freeHolds(p.id);
     const reuse = await ops(other, p.id, { sessionId: "o", baseSeq: v.seq, ops: [{ op: "insert", afterId: null, block: para("blk-x", "Di nuovo") }] });
     expect(reuse.statusCode).toBe(422);
     expect(reuse.json()).toMatchObject({ code: "block_id_taken" });
     // Review di F1 (I4): un undoOf inventato, di un'altra sessione o di un altro: 422.
     expect((await ops(editor, p.id, { sessionId: "s2", baseSeq: v.seq, undoOf: randomUUID(), ops: [{ op: "insert", afterId: null, block: para("blk-x", "X") }] })).json()).toMatchObject({ code: "invalid_undo" });
     expect((await ops(editor, p.id, { sessionId: "altra", baseSeq: v.seq, undoOf: delRev, ops: [{ op: "insert", afterId: null, block: para("blk-x", "X") }] })).json()).toMatchObject({ code: "invalid_undo" });
+    await freeHolds(p.id);
     expect((await ops(other, p.id, { sessionId: "s2", baseSeq: v.seq, undoOf: delRev, ops: [{ op: "insert", afterId: null, block: para("blk-x", "X") }] })).json()).toMatchObject({ code: "invalid_undo" });
     // Il blocco rimesso dev'essere quello di prima, non un altro con lo stesso id.
     expect((await ops(editor, p.id, { sessionId: "s2", baseSeq: v.seq, undoOf: delRev, ops: [{ op: "insert", afterId: null, block: para("blk-x", "Diverso") }] })).json()).toMatchObject({ code: "block_id_taken" });
@@ -222,6 +230,7 @@ describe("la cronologia, Segui, le immagini", () => {
     const p = await page();
     let seq = (await view(p.code)).seq;
     for (let i = 0; i < 105; i++) {
+      await freeHolds(p.id);
       const r = await ops(i % 2 === 0 ? editor : other, p.id, { sessionId: `h${i}`, baseSeq: seq, ops: [{ op: "insert", afterId: null, block: para(`blk-h${i}`, `${i}`) }] });
       seq = (r.json() as { seq: number }).seq;
     }

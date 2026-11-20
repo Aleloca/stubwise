@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
-import { productPages, projectMembers, projects, roles } from "@stubwise/db";
+import { productPageChunks, productPages, projectMembers, projects, repositories, roles } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { createFakeEmbeddingClient, type EmbeddingClient } from "@stubwise/embeddings";
 import { productSearchText, type ProductBlock, type ProductPageView, type ProductSearchResults, type SearchResults } from "@stubwise/shared";
@@ -87,7 +87,9 @@ describe("la ricerca «In Product»", () => {
   });
 
   it("un indirizzo di un link non è testo: non si trova per lui, e la frase non lo contiene", async () => {
-    const p = await page(projectId, "Link", [para("a", "Vedi il menù", [{ type: "link", start: 5, end: 12, href: "https://segretissimo.example/menu" }])]);
+    const p = await page(projectId, "Link", [para("a", "Vedi il menù", [{ type: "link", start: 5, end: 12, href: "https://segretissimo.example/menu" }])], new Date(Date.now() - 120_000));
+    // Coi chunk presenti (review di F3, I2): né il testo né il significato trovano l'indirizzo.
+    await embedStaleProductPages(t.db, embedder, { warn: vi.fn() });
     expect((await search(reader, "segretissimo")).json()).toEqual({ items: [], hasMore: false });
     const hit = (await search(reader, "menu")).json() as ProductSearchResults;
     const mine = hit.items.find((h) => h.page.id === p.id)!;
@@ -130,8 +132,45 @@ describe("la ricerca «In Product»", () => {
     const hidden = await page(hiddenProject, "Segreta", [para("a", "Il piano segreto del lancio")], new Date(Date.now() - 120_000));
     const mine = await page(projectId, "Mia", [para("a", "Il piano pubblico del lancio")], new Date(Date.now() - 120_000));
     await embedStaleProductPages(t.db, embedder, { warn: vi.fn() });
-    const out = await searchProductPages(t.db, embedder, actorAs(reader.id, "member"), "Il piano segreto del lancio", { semantic: true });
+    const chunkOf = async (pageId: string) => (await t.db.select({ content: productPageChunks.content }).from(productPageChunks).where(eq(productPageChunks.pageId, pageId)))[0]!.content;
+    // La domanda è IL passaggio della pagina invisibile (distanza 0): non esce lo stesso.
+    const out = await searchProductPages(t.db, embedder, actorAs(reader.id, "member"), await chunkOf(hidden.id), { semantic: true });
     expect(out.items.map((h) => h.page.id)).not.toContain(hidden.id);
+    // E la gamba per significato funziona: il passaggio di quella visibile la trova.
+    const own = await searchProductPages(t.db, embedder, actorAs(reader.id, "member"), await chunkOf(mine.id), { semantic: true });
+    expect(own.items.map((h) => h.page.id)).toContain(mine.id);
+  });
+
+  it("review di F3 (I2): per significato solo i passaggi davvero vicini; una domanda lontana non dà nulla anche coi chunk", async () => {
+    const p = await page(projectId, "Vicina", [para("a", "Il gatto dorme sul divano rosso")], new Date(Date.now() - 120_000));
+    await embedStaleProductPages(t.db, embedder, { warn: vi.fn() });
+    const [chunk] = await t.db.select({ content: productPageChunks.content }).from(productPageChunks).where(eq(productPageChunks.pageId, p.id));
+    // Identica al passaggio: distanza 0, trovata (anche senza parole in comune col testo piegato).
+    const near = await searchProductPages(t.db, embedder, actorAs(reader.id, "member"), chunk!.content, { projectId });
+    expect(near.items.map((h) => h.page.id)).toContain(p.id);
+    // Lontana (il fake dà vettori pseudo-casuali): niente, e hasMore falso.
+    const far = await searchProductPages(t.db, embedder, actorAs(reader.id, "member"), "xq zw", { projectId });
+    expect(far).toMatchObject({ items: [], hasMore: false });
+  });
+
+  it("review di F3 (I3): tanti passaggi identici in progetti invisibili non tolgono il posto a quello visibile", async () => {
+    const text = "Il protocollo di rilascio notturno";
+    for (let i = 0; i < 45; i++) await page(hiddenProject, "Nascosta", [para("a", text)], new Date(Date.now() - 120_000));
+    const mine = await page(projectId, "Mia", [para("a", text)], new Date(Date.now() - 120_000));
+    await embedStaleProductPages(t.db, embedder, { warn: vi.fn() }, { limit: 100 });
+    const [chunk] = await t.db.select({ content: productPageChunks.content }).from(productPageChunks).where(eq(productPageChunks.pageId, mine.id));
+    const out = await searchProductPages(t.db, embedder, actorAs(reader.id, "member"), chunk!.content, { semantic: true, limit: 5 });
     expect(out.items.map((h) => h.page.id)).toContain(mine.id);
+  });
+
+  it("review di F3 (M5): con lo scope Docs di un repository, il gruppo `product` cerca solo nel suo progetto", async () => {
+    const p = await page(projectId, "Scope Lemure", [para("a", "lemure")]);
+    const { repositoryId: otherRepo, projectId: otherProject } = await seedRepository(t.db);
+    await addMember(app, otherProject, reader.id, "viewer");
+    const scoped = async (repositoryId: string) =>
+      ((await app.inject({ method: "GET", url: `/api/search?q=lemure&repositoryId=${repositoryId}`, headers: { cookie: reader.headers.cookie } })).json() as SearchResults).product.items.map((h) => h.page.id);
+    expect(await scoped(otherRepo)).not.toContain(p.id);
+    const [mineRepo] = await t.db.select({ id: repositories.id }).from(repositories).where(eq(repositories.projectId, projectId));
+    expect(await scoped(mineRepo!.id)).toContain(p.id);
   });
 });

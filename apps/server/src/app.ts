@@ -102,6 +102,7 @@ import { runStorageHygiene } from "./storage/hygiene.js";
 import { purgeStorageOrphans } from "./storage/orphans.js";
 import { purgeUnusedProductImages } from "./services/product-docs-ops.js";
 import { NOOP_CHAT_BUS, type ChatBus } from "./chat/bus.js";
+import { ProductLiveHub } from "./services/product-live.js";
 import { claudeConversationRoutes } from "./routes/claude-conversations.js";
 import { claudeActionRoutes } from "./routes/claude-actions.js";
 import { claudeHelpRoutes } from "./routes/claude-help.js";
@@ -150,6 +151,8 @@ declare module "fastify" {
     agentSessionBus: AgentSessionBus;
     /** Bus delle NOTIFY della Chat (area 4), per gli stream dei canali (BuildAppOptions.chatBus). */
     chatBus: ChatBus;
+    /** Area 11, F4: il canale dal vivo delle pagine di prodotto (presenza in memoria, prese, revisioni). */
+    productLive: ProductLiveHub;
     /** Chiave AES-256 (32 byte) per cifrare le credenziali git dei progetti. */
     encryptionKey: Buffer;
     /**
@@ -452,6 +455,8 @@ export interface BuildAppOptions {
   sessionBus?: AgentSessionBus;
   /** Il bus della Chat (`chat/bus.ts`); senza, gli stream dei canali vivono del solo poll. */
   chatBus?: ChatBus;
+  /** Area 11, F4: i tempi del canale dal vivo (solo i test li accorciano). */
+  productLive?: { permsTtlMs?: number; presenceTtlMs?: number };
   /**
    * Osservatore di OGNI rotta registrata, collegato come primo hook `onRoute`
    * (prima di qualunque rotta, anche quelle sul root). Serve al test che
@@ -514,6 +519,17 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const db = opts.db;
   app.decorate("agentSessionBus", opts.sessionBus ?? NOOP_BUS);
   app.decorate("chatBus", opts.chatBus ?? NOOP_CHAT_BUS);
+  // Area 11, F4: il canale dal vivo, nato al primo uso (serve il db) e fermato alla chiusura.
+  let productLive: ProductLiveHub | undefined;
+  app.decorate("productLive", {
+    getter(this: FastifyInstance): ProductLiveHub {
+      productLive ??= new ProductLiveHub(this.db, Date.now, this.log, opts.productLive ?? {});
+      return productLive;
+    },
+  });
+  app.addHook("onClose", async () => {
+    productLive?.stop();
+  });
   app.decorate("db", {
     getter(): Db {
       if (!db) {

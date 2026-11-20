@@ -43,7 +43,8 @@ import { apiError } from "../errors.js";
 import { withDocCodes } from "../services/doc-codes.js";
 import { chatQuerySchema, loadHistory, streamChatResponse } from "./docs-chat-core.js";
 import { emptyCountsByKind, HIGHLIGHT_LIMITS } from "./docs-highlights.js";
-import { buildCitations, buildDocsSystemPrompt } from "./docs-rag.js";
+import { appendProductContext, buildCitations, buildDocsSystemPrompt } from "./docs-rag.js";
+import { productSourcesNow, retrieveProductContext } from "../services/product-retrieval.js";
 import { retrieveChunksForProject } from "./docs-retrieval.js";
 import { appendGraphContext, retrieveGraphContextForProject } from "../graph-chat/context.js";
 import { appendDecisionContext, retrieveDecisionContext } from "../graph-chat/decisions.js";
@@ -429,7 +430,7 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
       // scelte già prese dal team su questo progetto, che il modello deve
       // rispettare invece di riproporre le alternative scartate. Fail-open
       // come il grafo — `null` = system identico a prima.
-      const [chunks, graphBlock, decisionBlock] = await Promise.all([
+      const [chunks, graphBlock, decisionBlock, productPagesFound] = await Promise.all([
         retrieveChunksForProject(app.db, app.embeddingClient, projectId, message, {
           logger: request.log,
         }),
@@ -442,13 +443,18 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
             )
           : Promise.resolve(null),
         retrieveDecisionContext(app.db, { projectId, question: message }, request.log),
+        // Area 11, F3: le pagine di prodotto del progetto (la rotta ha già chiesto `docs.view`). Fail-open.
+        retrieveProductContext(app.db, app.embeddingClient, request.user!, projectId, message, { log: request.log }).catch((error: unknown) => {
+          request.log.warn({ err: error, projectId }, "pagine di prodotto non recuperate per la chat dei Docs");
+          return [];
+        }),
       ]);
       // Il codice D di ogni fonte (area 5, fetta 1).
       const citations = await withDocCodes(app.db, buildCitations(chunks));
       // Le decisioni per ULTIME: sono vincoli che valgono nonostante ciò che
       // le fonti descrittive dicono (vedi `appendDecisionContext`).
       const system = appendDecisionContext(
-        appendGraphContext(buildDocsSystemPrompt(chunks), graphBlock),
+        appendProductContext(appendGraphContext(buildDocsSystemPrompt(chunks), graphBlock), productPagesFound),
         decisionBlock,
       );
       const history = await loadHistory(app.db, resolvedSessionId);
@@ -465,6 +471,7 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
         system,
         history,
         citations,
+        productSources: productPagesFound.map((p) => ({ pageId: p.pageId, code: p.code, title: p.title })),
         logContext: { projectId },
         projectId,
         mode: stream ? "sse" : "json",
@@ -539,17 +546,25 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
           role: docChatMessages.role,
           content: docChatMessages.content,
           citations: docChatMessages.citations,
+          productSources: docChatMessages.productSources,
           createdAt: docChatMessages.createdAt,
         })
         .from(docChatMessages)
         .where(eq(docChatMessages.sessionId, id))
         .orderBy(asc(docChatMessages.createdAt));
 
+      // Area 11, F3 (46): le fonti di prodotto con titolo e codice di ADESSO, e
+      // solo le pagine che chi guarda vede ancora (docs.view, nella WHERE).
+      const sources = await productSourcesNow(app.db, request.user!, rows.flatMap((r) => (Array.isArray(r.productSources) ? r.productSources.map((p) => p.pageId) : [])));
       return rows.map((r) => ({
         id: r.id,
         role: r.role,
         content: r.content,
         citations: r.citations ?? null,
+        productSources: (Array.isArray(r.productSources) ? r.productSources : []).flatMap((p) => {
+          const now = sources.get(p.pageId);
+          return now ? [now] : [];
+        }),
         createdAt: r.createdAt.toISOString(),
       }));
     },

@@ -13,9 +13,11 @@ import {
   type ProductSpaceView,
 } from "@stubwise/shared";
 import { and, asc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { projectPermissionsByProject } from "@stubwise/notifications";
 import { projectPermissionsFor } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { personName } from "./people.js";
+import { notifyProductGone, notifyProductRevision } from "./product-live-notify.js";
 import { visiblePersonIds } from "./people-visibility.js";
 
 /**
@@ -65,7 +67,7 @@ type TreeRow = Pick<PageRow, "id" | "projectId" | "parentId" | "order" | "title"
  * pagine. L'estratto (il primo paragrafo non vuoto, al più 200 caratteri, la
  * regola di `excerptOfBlocks`) lo calcola il database.
  */
-async function pageRowsOf(db: Db, projectId: string): Promise<TreeRow[]> {
+export async function pageRowsOf(db: Db, projectId: string): Promise<TreeRow[]> {
   const rows = await db
     .select({
       id: productPages.id,
@@ -157,6 +159,43 @@ export async function productPageByCode(db: Db, viewer: Viewer, code: string): P
   return productPageView(db, viewer, hit.pageId, perms);
 }
 
+/**
+ * Le decisioni citate dai blocchi, come le vede chi guarda (R-G5): `null` per
+ * una decisione di un progetto che non vede, il nome di chi ha deciso solo se
+ * lo vede. La usano la vista della pagina e l'esportazione (F3).
+ */
+export async function decisionRefsFor(db: Db, viewer: Viewer, blocks: readonly ProductBlock[]): Promise<ProductPageView["decisions"]> {
+  const decisionIds = [...new Set(blocks.flatMap((b) => (b.type === "decision" ? [b.decisionId] : [])))];
+  const decisions: ProductPageView["decisions"] = {};
+  if (decisionIds.length > 0) {
+    const rowsD = await db
+      .select({ id: projectDecisions.id, title: projectDecisions.title, decidedAt: projectDecisions.decidedAt, projectId: projectDecisions.projectId, projectCode: projects.code, by: projectDecisions.decidedByUserId, email: users.email, displayName: users.displayName })
+      .from(projectDecisions)
+      .innerJoin(projects, eq(projects.id, projectDecisions.projectId))
+      .leftJoin(users, eq(users.id, projectDecisions.decidedByUserId))
+      .where(inArray(projectDecisions.id, decisionIds));
+    const people = await visiblePersonIds(db, viewer);
+    // Review di F3 (M6): i permessi di tutti i progetti in UNA lettura.
+    const perms = await projectPermissionsByProject(db, viewer.id, rowsD.map((r) => r.projectId));
+    for (const id of decisionIds) {
+      const d = rowsD.find((r) => r.id === id);
+      // Una decisione di un progetto che chi guarda non vede: null (R-G5).
+      if (!d || !perms.get(d.projectId)) {
+        decisions[id] = null;
+        continue;
+      }
+      const seesBy = d.by !== null && (people === "all" || people.includes(d.by));
+      decisions[id] = {
+        title: d.title,
+        decidedAt: d.decidedAt.toISOString(),
+        decidedByName: seesBy && d.email ? personName({ email: d.email, displayName: d.displayName }) : null,
+        projectCode: d.projectCode,
+      };
+    }
+  }
+  return decisions;
+}
+
 /** La vista di una pagina per chi guarda (con `docs.view` già controllato). */
 export async function productPageView(db: Db, viewer: Viewer, pageId: string, perms: ReadonlySet<string>): Promise<ProductPageView> {
   const [page] = await db.select().from(productPages).where(eq(productPages.id, pageId));
@@ -175,32 +214,7 @@ export async function productPageView(db: Db, viewer: Viewer, pageId: string, pe
     at = parent.parentId;
   }
   const blocks = readBlocks(page);
-  const decisionIds = [...new Set(blocks.flatMap((b) => (b.type === "decision" ? [b.decisionId] : [])))];
-  const decisions: ProductPageView["decisions"] = {};
-  if (decisionIds.length > 0) {
-    const rowsD = await db
-      .select({ id: projectDecisions.id, title: projectDecisions.title, decidedAt: projectDecisions.decidedAt, projectId: projectDecisions.projectId, projectCode: projects.code, by: projectDecisions.decidedByUserId, email: users.email, displayName: users.displayName })
-      .from(projectDecisions)
-      .innerJoin(projects, eq(projects.id, projectDecisions.projectId))
-      .leftJoin(users, eq(users.id, projectDecisions.decidedByUserId))
-      .where(inArray(projectDecisions.id, decisionIds));
-    const people = await visiblePersonIds(db, viewer);
-    for (const id of decisionIds) {
-      const d = rowsD.find((r) => r.id === id);
-      // Una decisione di un progetto che chi guarda non vede: null (R-G5).
-      if (!d || !(await projectPermissionsFor(db, viewer, d.projectId))) {
-        decisions[id] = null;
-        continue;
-      }
-      const seesBy = d.by !== null && (people === "all" || people.includes(d.by));
-      decisions[id] = {
-        title: d.title,
-        decidedAt: d.decidedAt.toISOString(),
-        decidedByName: seesBy && d.email ? personName({ email: d.email, displayName: d.displayName }) : null,
-        projectCode: d.projectCode,
-      };
-    }
-  }
+  const decisions = await decisionRefsFor(db, viewer, blocks);
   const [follow] = await db
     .select({ pageId: productPageFollows.pageId })
     .from(productPageFollows)
@@ -340,6 +354,7 @@ export async function updateProductPage(
         await tx.update(productPages).set({ title: after, searchText: productSearchText(after, readBlocks(page)), updatedBy: viewer.id, updatedAt: new Date() }).where(eq(productPages.id, pageId));
         const seq = await nextRevSeq(tx, pageId);
         await tx.insert(productPageRevisions).values({ pageId, seq, lastSeq: seq, actorId: viewer.id, kind: "rename", title: { before: page.title, after } });
+        await notifyProductRevision(tx, { pageId, seq, kind: "rename", actorId: viewer.id, sessionId: null, title: after });
       }
     }
     if (input.move) {
@@ -357,6 +372,7 @@ export async function updateProductPage(
         await tx.update(productPages).set({ updatedBy: viewer.id, updatedAt: new Date() }).where(eq(productPages.id, pageId));
         const seq = await nextRevSeq(tx, pageId);
         await tx.insert(productPageRevisions).values({ pageId, seq, lastSeq: seq, actorId: viewer.id, kind: "move", parent: { beforeId, afterId: parentId } });
+        await notifyProductRevision(tx, { pageId, seq, kind: "move", actorId: viewer.id, sessionId: null, parentId });
       }
     }
   });
@@ -380,6 +396,7 @@ export async function deleteProductPage(db: Db, pageId: string): Promise<{ stora
     if (child) throw new ProductDocsError(409, "has_children", "The page has pages under it");
     const images = await tx.select({ key: productPageImages.storageKey }).from(productPageImages).where(eq(productPageImages.pageId, pageId));
     await tx.delete(productPages).where(eq(productPages.id, pageId));
+    await notifyProductGone(tx, pageId);
     await renumber(tx, await siblingIds(tx, page.projectId, page.parentId));
     return { storageKeys: images.map((i) => i.key) };
   });
