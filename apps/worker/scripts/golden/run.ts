@@ -2325,6 +2325,18 @@ const USAGE_MONTH = {
 };
 /** Area 10, F4 (S4): un candidato, un occupato, un non gestibile. */
 /**
+ * Area 10, F8 («/today»): una decisione che aspetta chi scrive (su AUD-12) e
+ * le sue task: AUD-7 in ritardo, AUD-9 della settimana.
+ */
+const MY_DECISIONS = [
+  { id: "d0e1f2a3-b4c5-4d6e-8f7a-8b9c0d1e2f3a", taskId: "9a4b2c1d-3e5f-4a6b-8c7d-0e1f2a3b4c5d", taskCode: "AUD-12", askedById: MARTA_ID, askedOfId: "1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b", question: "Esportiamo anche i contatti archiviati?", options: ["Sì", "No"], createdAt: "2026-11-19T09:00:00.000Z", withdrawnAt: null, answer: null },
+];
+const MY_WEEK_TASKS = [
+  { id: "a7b8c9d0-e1f2-4a3b-8c4d-5e6f7a8b9c0d", code: "AUD-7", title: "Correggere il login con SSO", dueDate: "2026-11-18", plannedWeek: "2026-11-16", priority: "high" },
+  { id: "b8c9d0e1-f2a3-4b4c-8d5e-6f7a8b9c0d1e", code: "AUD-9", title: "Rivedere i permessi del Drive", dueDate: null, plannedWeek: "2026-11-16", priority: "medium" },
+];
+
+/**
  * Area 10, F5 (S5): i membri di AUD come li dà `/members/view`. Bruno Verdi c'è
  * fra le persone ma non nel progetto; i ruoli che chi chiede può dare.
  */
@@ -2418,7 +2430,10 @@ async function startFakeChatServer(
     if (path === "/api/access/who-can") return send(200, WHO_CAN_USAGE);
     if (path === "/api/projects/archive-candidates") return send(200, ARCHIVE_CANDIDATES);
     if (path === `${p}/members/view`) return send(200, AUD_MEMBERS_VIEW);
+    // Area 10, F8 (`read_my_week`): le task di chi scrive, una in ritardo.
+    if (path === "/api/tasks" && url.includes("assigneeIds=me")) return send(200, { items: MY_WEEK_TASKS });
     if (path === "/api/tasks") return send(200, { items: [AUD_TASK] });
+    if (path === "/api/decisions") return send(200, MY_DECISIONS);
     if (path === "/api/tasks/by-code/AUD-12") return send(200, AUD_TASK);
     if (path === `${p}/docs/search`) {
       return send(200, [{ pageTitle: "Esportazioni", snippet: "L'export CSV usa i filtri della lista contatti." }]);
@@ -3087,6 +3102,13 @@ const runChatS5Member = (ctx: ScenarioContext) =>
     { kind: "propose", action: { fn: "addMember", args: { projectId: CHAT_PROJECT_ID, userId: BRUNO_ID, roleId: DEVELOPER_ROLE_ID } } },
     { answer: "awaiting_confirmation" },
   );
+/**
+ * Area 10, F8 («/today»): legge le decisioni e la settimana di chi scrive, e cita
+ * la decisione aperta (AUD-12) e la task in ritardo (AUD-7). Nessuna proposta.
+ * 3 volte, quando autorizzate.
+ */
+const runChatToday = (ctx: ScenarioContext) =>
+  runChat(ctx, "chat-today", "/today", { kind: "read", mustRead: "/api/decisions", mustMention: ["AUD-12", "AUD-7"] });
 const runChatS3UsageDenied = (ctx: ScenarioContext) =>
   runChat(ctx, "chat-s3-usage-denied", "Quanto abbiamo speso di AI questo mese?", { kind: "usage-denied", mustRead: "/api/ai-usage/summary", whoCan: "Ada Lovelace" }, {
     overrides: { "/api/ai-usage/summary": { status: 403, body: { code: "forbidden", message: "Missing permission" } } },
@@ -3303,6 +3325,7 @@ const SCENARIOS: Record<ScenarioName, (ctx: ScenarioContext) => Promise<Scenario
   "chat-s3-usage-denied": runChatS3UsageDenied,
   "chat-s4-archive": runChatS4Archive,
   "chat-s5-member": runChatS5Member,
+  "chat-today": runChatToday,
   "mail-classify-v2": runMailClassifyV2,
   "automation-step": runAutomationStep,
   "support-triage-check": runSupportTriageCheck,

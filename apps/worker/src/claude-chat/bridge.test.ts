@@ -825,3 +825,28 @@ describe("area 10, F4: read_archive_candidates — dei motivi busy niente titoli
     expect(body.text).not.toContain("TITOLO-DA-FUORI");
   });
 });
+
+describe("area 10, F8: read_my_week", () => {
+
+  it("i percorsi: le decisioni di chi chiede e le sue task aperte", () => {
+    expect(chatServerPaths("read_my_week", {})).toEqual(["/api/decisions?askedOfId=me&open=true", "/api/tasks?assigneeIds=me&families=todo,active"]);
+  });
+
+  it("/today: le decisioni (codice, domanda, opzioni) e le task di chi scrive", async () => {
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL) => {
+      const p = new URL(String(url)).pathname;
+      return Response.json(
+        p === "/api/decisions"
+          ? [{ id: "d1", taskId: "t1", taskCode: "AUD-12", askedById: "u1", askedOfId: "me", question: "A o B?", options: ["A", "B"], createdAt: "2026-11-19T10:00:00.000Z", withdrawnAt: null, answer: null }]
+          : { items: [{ id: "t2", code: "AUD-7", title: "Il login", description: "DESCRIZIONE", dueDate: "2026-11-20", plannedWeek: "2026-11-16", priority: "high", assigneeId: "u2" }] },
+      );
+    });
+    bridge = await startChatBridge({ serverUrl: "http://server:3000", fetchImpl: fetchImpl as never });
+    const grant = bridge.grant({ sessionId: "s1", serverToken: "stw_chat_t" });
+    const body = (await (await call(bridge, grant.secret, "read_my_week", {})).json()) as { ok: boolean; text: string };
+    const [decisions, tasks] = body.text.split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(decisions).toEqual({ decisionsWaitingForYou: [{ taskCode: "AUD-12", question: "A o B?", options: ["A", "B"], createdAt: "2026-11-19T10:00:00.000Z" }] });
+    expect(tasks).toEqual({ yourTasks: [{ code: "AUD-7", title: "Il login", dueDate: "2026-11-20", plannedWeek: "2026-11-16", priority: "high" }] });
+    expect(body.text).not.toContain("DESCRIZIONE");
+  });
+});

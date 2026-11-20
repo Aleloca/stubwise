@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { decisionRequests, notifications, ticketFollowers, tickets } from "@stubwise/db";
+import { decisionRequests, notifications, projects, ticketFollowers, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { decisionRequestViewSchema } from "@stubwise/shared";
@@ -135,6 +135,9 @@ describe("richieste di decisione", () => {
     expect(mine.statusCode).toBe(200);
     const list = decisionRequestViewSchema.array().parse(mine.json());
     expect(list.map((d) => d.askedOfId)).toEqual([target.id]);
+    // Area 10, F8: il codice della task, derivato (CODICE-numero).
+    const [t] = await testDb.db.select({ number: tickets.number, code: projects.code }).from(tickets).innerJoin(projects, eq(projects.id, tickets.projectId)).where(eq(tickets.id, ticketId));
+    expect(list[0]!.taskCode).toBe(`${t!.code}-${t!.number}`);
     const all = await app.inject({ method: "GET", url: `/api/decisions?taskId=${ticketId}`, headers: { cookie: users.memberCookie } });
     const both = decisionRequestViewSchema.array().parse(all.json());
     expect(both).toHaveLength(2);

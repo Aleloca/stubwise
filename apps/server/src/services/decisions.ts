@@ -17,11 +17,12 @@ import { visibleTasksCondition, type TaskViewer } from "./task-view.js";
 
 type DecisionRow = typeof decisionRequests.$inferSelect;
 
-export function toDecisionView(row: DecisionRow, projectId?: string): DecisionRequestView {
+export function toDecisionView(row: DecisionRow, projectId?: string, taskCode?: string): DecisionRequestView {
   return {
     id: row.id,
     taskId: row.ticketId,
     ...(projectId ? { projectId } : {}),
+    ...(taskCode ? { taskCode } : {}),
     askedById: row.askedByUserId,
     askedOfId: row.askedOfUserId,
     question: row.question,
@@ -196,12 +197,13 @@ export async function listDecisions(
   }
   if (query.open) conditions.push(isNull(decisionRequests.answeredAt), isNull(decisionRequests.withdrawnAt));
   const rows = await db
-    .select({ d: decisionRequests, projectId: tickets.projectId })
+    .select({ d: decisionRequests, projectId: tickets.projectId, number: tickets.number, code: projects.code })
     .from(decisionRequests)
     .innerJoin(tickets, eq(tickets.id, decisionRequests.ticketId))
+    .innerJoin(projects, eq(projects.id, tickets.projectId))
     .where(and(...conditions))
     // Le più recenti per prime, PRIMA del tetto: a tagliare sono le vecchie.
     .orderBy(desc(decisionRequests.createdAt), desc(decisionRequests.id))
     .limit(500);
-  return rows.map((r) => toDecisionView(r.d, r.projectId));
+  return rows.map((r) => toDecisionView(r.d, r.projectId, `${r.code}-${r.number}`));
 }

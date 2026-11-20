@@ -175,6 +175,12 @@ export function buildChatMcpServer(config: ChatMcpConfig, fetchImpl: typeof fetc
     "Read the stalled tasks of the projects the person can see (optionally one project, by id), with each project's own thresholds, the same rule as the task list: for each project its stalled tasks, oldest first, with since when, how many days and why. Stubwise shows a «Details» line under your answer by itself: do not repeat a guess as a fact.",
     { projectId: z.string().min(1).optional() },
   );
+  // Area 10, F8: «/today».
+  register(
+    "read_my_week",
+    "For /today: read the decisions that wait for the person (task code, question, options) and their open tasks (code, title, due date, planned week, priority).",
+    {},
+  );
   register("list_departments", "List the departments of this Stubwise instance: id and name (use the id to notify a department in an automation step).", {});
   register(
     "list_people",

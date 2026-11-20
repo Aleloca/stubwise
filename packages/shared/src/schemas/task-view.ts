@@ -242,6 +242,8 @@ export const decisionRequestViewSchema = z.object({
   taskId: z.string().uuid(),
   /** Il progetto della task, derivato a lettura. `.optional()`: un server più vecchio non lo manda. */
   projectId: z.string().uuid().optional(),
+  /** Area 10, F8: il codice della task (`AUD-12`), derivato a lettura nell'elenco. `.optional()`: un server più vecchio non lo manda. */
+  taskCode: z.string().optional(),
   /** null se chi ha chiesto non c'è più. */
   askedById: z.string().uuid().nullable(),
   askedOfId: z.string().uuid(),

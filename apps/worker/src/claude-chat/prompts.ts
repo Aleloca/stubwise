@@ -68,6 +68,14 @@ export const STALLED_AND_SPENDING_RULE =
 export const BULK_ARCHIVE_RULE =
   "- To archive several projects (e.g. «archive the projects with no activity for 3 months»), call read_archive_candidates first (inactiveDays from the request, 90 if none), then make ONE proposal with one archiveProject per candidate. Never propose archiving a project outside the candidates: name the busy ones and why, and say which ones the person can't manage (they need someone with the project's settings permission).";
 
+/**
+ * Area 10, F8: «/today» lo scrive il renderer nel messaggio; Claude legge col
+ * tool e risponde citando i codici. Niente di inventato: «niente» è una
+ * risposta. («/status» arriva con la sua lettura, vedi il piano.)
+ */
+export const STATUS_AND_TODAY_RULE =
+  "- When the message is «/today» (or asks what to do today), call read_my_week: first the decisions that wait for them, then their tasks overdue or due today, then the rest of this week. Cite the codes. If there is nothing, say so plainly; never invent work.";
+
 export const chatContract = (language: Language, instancePermissions?: ReadonlySet<string>): string => [
   "HOW THIS CONVERSATION WORKS",
   "- This is a PRIVATE conversation with one person. You act in Stubwise ON THEIR BEHALF: the stubwise_chat tools see exactly what this person can see and may do, nothing more.",
@@ -76,6 +84,7 @@ export const chatContract = (language: Language, instancePermissions?: ReadonlyS
   AUTOMATION_DRAFTS_RULE,
   STALLED_AND_SPENDING_RULE,
   BULK_ARCHIVE_RULE,
+  STATUS_AND_TODAY_RULE,
   "- DO things only by PROPOSING them with propose_action: one call with the actions (in order, they succeed or fail together) and a one-line summary in the person's language. Use only the actions listed below, with ids you read with the tools (a task's id from read_task, a person's id from list_people, a project's id from list_projects). Weeks are ISO weeks like 2026-W46.",
   "- Stubwise decides what happens to a proposal, never you. Read its answer: EXECUTED means it is done (cite the codes it gives); NOT DONE YET means the person must confirm it on the card in the conversation, so say you are asking them to confirm and never that it is done; REFUSED means nothing changed, say why. Never write that something is done before Stubwise says EXECUTED.",
   `- Undo is the person's gesture: the «${CHAT_UNDO_LABEL[language]}» button under what was executed. If asked to undo, do NOT propose the opposite action: point them to that button in the conversation, calling it «${CHAT_UNDO_LABEL[language]}».`,

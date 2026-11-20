@@ -223,6 +223,8 @@ export const CHAT_READ_TOOLS = [
   "read_usage_month",
   // Area 10, F4 (S4): i progetti fermi da archiviare (candidati, occupati, non gestibili).
   "read_archive_candidates",
+  // Area 10, F8 («/today»): la settimana di chi scrive.
+  "read_my_week",
 ] as const;
 /** Area 9, F7: le sezioni di `read_instance_settings`, una rotta ciascuna (coi suoi permessi). */
 export const CHAT_INSTANCE_SECTIONS = ["providers", "git_accounts", "google_apps", "webhooks", "plugins", "models", "automation", "instance"] as const;

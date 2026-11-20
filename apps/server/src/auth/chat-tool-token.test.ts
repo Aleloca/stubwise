@@ -75,6 +75,12 @@ describe("il token del turno della chat", () => {
     expect((await get("/api/tasks/stalled", token)).statusCode).toBe(200);
     // Area 10, F4: i progetti da archiviare, senza segnare la conversazione.
     expect((await get("/api/projects/archive-candidates?inactiveDays=90", token)).statusCode).toBe(200);
+    // Area 10, F8 (`read_my_week`): le decisioni che aspettano l'autore e le sue task.
+    expect((await get("/api/decisions?askedOfId=me&open=true", token)).statusCode).toBe(200);
+    expect((await get("/api/tasks?assigneeIds=me&families=todo,active", token)).statusCode).toBe(200);
+    // …ma rispondere a una decisione è una SCRITTURA, anche se la rotta comincia uguale.
+    const answer = await app.inject({ method: "POST", url: `/api/decisions/${randomUUID()}/answer`, headers: { authorization: `Bearer ${token}` }, payload: { optionIndex: 0 } });
+    expect(answer.statusCode).toBe(403);
     // Il polso NON è fra le letture di Claude (decisione del maintainer: le soglie, non la regola del polso).
     expect((await get("/api/projects/pulse", token)).statusCode).toBe(403);
     const [mark] = await t.db.select({ at: claudeConversations.untrustedReadAt }).from(claudeConversations).where(eq(claudeConversations.sessionId, sessionId));
