@@ -86,6 +86,7 @@ export * from "./product-docs/comments.js";
 export * from "./product-docs/search.js";
 export * from "./product-docs/sections.js";
 export * from "./product-docs/live.js";
+export * from "./product-docs/claude-rule.js";
 export * from "./schemas/chat.js";
 export * from "./schemas/access-query.js";
 export * from "./change-log.js";

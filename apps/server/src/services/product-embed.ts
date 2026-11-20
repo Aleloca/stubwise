@@ -84,7 +84,7 @@ export async function embedProductPage(db: Db, embeddingClient: EmbeddingClient,
         .select({ id: productPages.id })
         .from(productPages)
         .where(and(eq(productPages.id, page.id), sql`${productPages.updatedAt} = ${page.version}::timestamptz`))
-        .for("update");
+        .for("no key update");
       if (!same) return;
       await tx.delete(productPageChunks).where(eq(productPageChunks.pageId, page.id));
       if (chunks.length > 0) {

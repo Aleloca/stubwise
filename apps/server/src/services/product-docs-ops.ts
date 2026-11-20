@@ -95,17 +95,32 @@ export { PRODUCT_HOLD_TTL_MS };
  */
 function touchedSections(blocks: readonly ProductBlock[], ops: readonly ProductBlockOp[]): string[] {
   const out = new Set<string>();
-  const at = (anchorId: string | null) => (anchorId === null ? PRODUCT_TOP_SECTION : sectionKeyOf(blocks, anchorId));
+  const ids = new Set(blocks.flatMap(blockIdsOf));
+  // Review di F4 (M7): un id che non è nella pagina non prende niente (le operazioni
+  // daranno il loro 422, non un 409 sulla sezione in cima).
+  const at = (anchorId: string | null) => {
+    if (anchorId === null) out.add(PRODUCT_TOP_SECTION);
+    else if (ids.has(anchorId)) out.add(sectionKeyOf(blocks, anchorId));
+  };
+  // Togliere (o spostare) un TITOLO fa confluire il suo contenuto nella sezione di sopra: anche quella.
+  const above = (blockId: string) => {
+    const i = blocks.findIndex((b) => b.id === blockId);
+    if (i >= 0 && blocks[i]!.type === "heading") out.add(i === 0 ? PRODUCT_TOP_SECTION : sectionKeyOf(blocks, blocks[i - 1]!.id));
+  };
   for (const op of ops) {
-    if (op.op === "set") out.add(at(op.block.id));
-    else if (op.op === "delete") out.add(at(op.blockId));
-    else if (op.op === "insert") out.add(at(op.afterId));
+    if (op.op === "set") at(op.block.id);
+    else if (op.op === "delete") {
+      at(op.blockId);
+      above(op.blockId);
+    } else if (op.op === "insert") at(op.afterId);
     else if (op.op === "move") {
-      out.add(at(op.blockId));
-      out.add(at(op.afterId));
+      at(op.blockId);
+      above(op.blockId);
+      at(op.afterId);
     } else {
-      out.add(at(op.firstId));
-      out.add(at(op.secondId));
+      at(op.firstId);
+      at(op.secondId);
+      above(op.secondId);
     }
   }
   return [...out].sort();
@@ -168,10 +183,22 @@ const readBlocks = (raw: unknown): ProductBlock[] =>
     return parsed.success ? [parsed.data as ProductBlock] : [];
   });
 
+/**
+ * Il lock della riga di una pagina per scriverne il corpo. Review di F4 (I1): NO
+ * KEY UPDATE, non UPDATE. Una presa nuova (il battito, in un'altra transazione)
+ * controlla la sua FK su questa riga con FOR KEY SHARE, che un FOR UPDATE
+ * bloccherebbe: le due si aspetterebbero a vicenda sulla stessa presa (40P01).
+ * NO KEY UPDATE serializza le scritture della pagina lo stesso.
+ */
+export async function lockPageForWrite(tx: Db, pageId: string) {
+  const [page] = await tx.select().from(productPages).where(eq(productPages.id, pageId)).for("no key update");
+  return page;
+}
+
 export async function saveProductBlocks(db: Db, viewer: Viewer, pageId: string, input: SaveProductBlocksInput): Promise<SaveProductBlocksResult> {
   return db.transaction(async (txRaw) => {
     const tx = txRaw as unknown as Db;
-    const [page] = await tx.select().from(productPages).where(eq(productPages.id, pageId)).for("update");
+    const page = await lockPageForWrite(tx, pageId);
     if (!page) throw new ProductDocsError(404, "not_found", "Not found");
 
     // Review di F1 (M8): un `baseSeq` che la pagina non ha ancora raggiunto è un client sbagliato.
@@ -187,6 +214,10 @@ export async function saveProductBlocks(db: Db, viewer: Viewer, pageId: string, 
     if (others.length > 0) throw new ProductStaleError(await revisionViews(tx, viewer, others));
 
     const blocks = readBlocks(page.blocks);
+    // Review di F4 (M7): un blocco nuovo non si chiama come la sezione in cima.
+    if (input.ops.some((op) => (op.op === "insert" || op.op === "set") && blockIdsOf(op.block as ProductBlock).includes(PRODUCT_TOP_SECTION))) {
+      throw invalid("invalid_block_id", `"${PRODUCT_TOP_SECTION}" is not a block id`);
+    }
     // F4: le sezioni che le operazioni toccano, prese PRIMA di applicarle (un 409 non lascia niente a metà).
     await holdTouchedSections(tx, viewer, pageId, blocks, input.ops as ProductBlockOp[]);
     const onPage = new Set(blocks.flatMap(blockIdsOf));

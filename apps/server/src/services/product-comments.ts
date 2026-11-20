@@ -161,7 +161,7 @@ export async function addProductComment(db: Db, viewer: Viewer, pageId: string, 
   if (!body) throw invalid("invalid_body", "The comment is empty");
   return db.transaction(async (txRaw) => {
     const tx = txRaw as unknown as Db;
-    const [page] = await tx.select({ id: productPages.id, projectId: productPages.projectId, blocks: productPages.blocks }).from(productPages).where(eq(productPages.id, pageId)).for("update");
+    const [page] = await tx.select({ id: productPages.id, projectId: productPages.projectId, blocks: productPages.blocks }).from(productPages).where(eq(productPages.id, pageId)).for("no key update");
     if (!page) throw notFound();
     let anchorId: string;
     let quote: string;

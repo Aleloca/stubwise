@@ -334,19 +334,30 @@ export async function createProductPage(
  * fratelli no (ruling P30 del prototipo). Sotto sé stessa o un discendente:
  * 409 `cycle`.
  */
+/** Una rinomina o uno spostamento scritti, col loro seq (per il canale dal vivo). */
+export interface PageChangeRevision {
+  seq: number;
+  kind: "rename" | "move";
+  title: string;
+  parentId: string | null;
+}
+
 export async function updateProductPage(
   db: Db,
   viewer: Viewer,
   pageId: string,
   input: { title?: string; move?: { parentId: string | null; index: number } },
-): Promise<void> {
+): Promise<PageChangeRevision[]> {
+  // Review di F4 (I5): le revisioni che QUESTA scrittura ha fatto, coi loro seq: la
+  // rotta pubblica queste, non il seq della pagina riletto dopo il commit.
+  const written: PageChangeRevision[] = [];
   await db.transaction(async (txRaw) => {
     const tx = txRaw as unknown as Db;
     const [where] = await tx.select({ projectId: productPages.projectId }).from(productPages).where(eq(productPages.id, pageId));
     if (!where) throw notFound();
     // Il lock dell'albero PRIMA di rileggere la pagina e l'albero (review di F1, I1).
     if (input.move) await lockProductTree(tx, where.projectId);
-    const [page] = await tx.select().from(productPages).where(eq(productPages.id, pageId)).for("update");
+    const [page] = await tx.select().from(productPages).where(eq(productPages.id, pageId)).for("no key update");
     if (!page) throw notFound();
     if (input.title !== undefined) {
       const after = cleanTitle(input.title);
@@ -355,6 +366,7 @@ export async function updateProductPage(
         const seq = await nextRevSeq(tx, pageId);
         await tx.insert(productPageRevisions).values({ pageId, seq, lastSeq: seq, actorId: viewer.id, kind: "rename", title: { before: page.title, after } });
         await notifyProductRevision(tx, { pageId, seq, kind: "rename", actorId: viewer.id, sessionId: null, title: after });
+        written.push({ seq, kind: "rename", title: after, parentId: page.parentId });
       }
     }
     if (input.move) {
@@ -373,9 +385,11 @@ export async function updateProductPage(
         const seq = await nextRevSeq(tx, pageId);
         await tx.insert(productPageRevisions).values({ pageId, seq, lastSeq: seq, actorId: viewer.id, kind: "move", parent: { beforeId, afterId: parentId } });
         await notifyProductRevision(tx, { pageId, seq, kind: "move", actorId: viewer.id, sessionId: null, parentId });
+        written.push({ seq, kind: "move", title: input.title !== undefined ? cleanTitle(input.title) : page.title, parentId });
       }
     }
   });
+  return written;
 }
 
 /**

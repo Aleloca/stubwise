@@ -4,6 +4,8 @@ import { buildApp } from "./app.js";
 import { backfillManualPageEmbeddings } from "./services/doc-embed.js";
 import { backfillAllProductSearchText, startProductEmbedPoller } from "./services/product-embed.js";
 import { PRODUCT_LIVE_NOTIFY } from "./services/product-live-notify.js";
+import { productPages } from "@stubwise/db";
+import { eq } from "drizzle-orm";
 import { loadConfig, type Config } from "./config.js";
 import { createDb, runMigrations } from "@stubwise/db";
 
@@ -63,7 +65,17 @@ const app = buildApp({
 // chiusura dopo `listen` fa uscire il server all'avvio).
 if (config.productEmbedPollSeconds !== undefined) startProductEmbedPoller(app, config.productEmbedPollSeconds);
 // Area 11, F4: le revisioni scritte da un altro processo (il worker, F5) arrivano al canale dal vivo.
-await client.listen(PRODUCT_LIVE_NOTIFY, (payload) => app.productLive.handleNotify(payload));
+// Review di F4 (M11): `onlisten` scatta anche a ogni riconnessione della LISTEN, quando le
+// NOTIFY del frattempo sono perse: a ogni stream aperto uno `state` nuovo (il client rilegge).
+await client.listen(
+  PRODUCT_LIVE_NOTIFY,
+  (payload) => app.productLive.handleNotify(payload),
+  () =>
+    void app.productLive.resyncAll(async (pageId) => {
+      const [row] = await app.db.select({ seq: productPages.revSeq }).from(productPages).where(eq(productPages.id, pageId));
+      return row?.seq ?? null;
+    }),
+);
 
 try {
   await app.listen({ port: config.port, host: "0.0.0.0" });

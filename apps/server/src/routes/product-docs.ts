@@ -45,6 +45,10 @@ import {
 } from "../services/product-docs-ops.js";
 import { searchProductPages } from "../services/product-search.js";
 import { ProductLiveError } from "../services/product-live.js";
+import { PRODUCT_TOP_SECTION } from "@stubwise/shared";
+
+/** Review di F4 (M9): oltre questo, un client che non legge si chiude (riapre e riceve `state`). */
+const PRODUCT_LIVE_MAX_BUFFER = 1_000_000;
 import { visiblePersonIds } from "../services/people-visibility.js";
 import { productPages } from "@stubwise/db";
 import { eq } from "drizzle-orm";
@@ -133,9 +137,14 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
     },
     async (request, reply) =>
       handle(reply, async () => {
-        await updateProductPage(app.db, request.user!, request.params.id, request.body);
-        // F4: agli stream della pagina, dopo il commit (la NOTIFY nella transazione serve agli altri processi).
-        void publishPageChange(request.params.id, request.user!.id, request.body.move ? "move" : "rename");
+        const written = await updateProductPage(app.db, request.user!, request.params.id, request.body);
+        // F4: agli stream della pagina, dopo il commit, le revisioni che QUESTA scrittura ha fatto
+        // (review di F4, I5: mai il seq riletto, che può essere di un'altra scrittura).
+        for (const r of written) {
+          void app.productLive
+            .revision({ pageId: request.params.id, seq: r.seq, kind: r.kind, actorId: request.user!.id, sessionId: null, title: r.title, parentId: r.parentId })
+            .catch((error: unknown) => request.log.warn({ err: error }, "canale dal vivo: cambio della pagina non consegnato"));
+        }
         return reply.code(204).send(null);
       }),
   );
@@ -288,23 +297,17 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
 
   // --- F4: il canale dal vivo e il battito ---
 
-  /** Una rinomina o uno spostamento, agli stream della pagina (fail-open: lo stream ha la sua NOTIFY). */
-  async function publishPageChange(pageId: string, actorId: string, kind: "rename" | "move"): Promise<void> {
-    try {
-      const [page] = await app.db.select({ seq: productPages.revSeq, title: productPages.title, parentId: productPages.parentId }).from(productPages).where(eq(productPages.id, pageId));
-      if (page) await app.productLive.revision({ pageId, seq: page.seq, kind, actorId, sessionId: null, title: page.title, parentId: page.parentId });
-    } catch (error) {
-      app.log.warn({ err: error }, "canale dal vivo: cambio della pagina non consegnato");
-    }
-  }
-
   app.get(
     "/product-pages/:id/live",
     { config: { access: PAGE_VIEW }, schema: { params: pageParams, response: { 404: errorSchema, 429: errorSchema, ...authErrorResponses } } },
     async (request, reply) => {
       const [page] = await app.db.select({ projectId: productPages.projectId, seq: productPages.revSeq }).from(productPages).where(eq(productPages.id, request.params.id));
       if (!page) return apiError(reply, 404, "not_found", "Not found");
+      // Review di F4 (I2, M9, M10): la chiusura si ascolta da SUBITO (un client che se ne
+      // va durante l'apertura non lascia uno stream orfano nei tetti); prima dell'hijack
+      // non si scrive né si chiude la risposta; un client lento oltre una soglia si chiude.
       let closed = false;
+      let hijacked = false;
       let unsubscribe: () => void = () => undefined;
       const timers: NodeJS.Timeout[] = [];
       const close = () => {
@@ -312,32 +315,35 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
         closed = true;
         for (const timer of timers) clearInterval(timer);
         unsubscribe();
-        reply.raw.end();
+        if (hijacked) reply.raw.end();
       };
-      const write = (frame: Record<string, unknown>) => {
-        if (!closed) reply.raw.write(`data: ${JSON.stringify(frame)}\n\n`);
-      };
-      // I tetti e i permessi PRIMA di aprire: un 429 o un 404 sono risposte vere, non uno stream.
+      reply.raw.on("close", close);
       const pending: Record<string, unknown>[] = [];
-      let open = false;
+      const write = (frame: Record<string, unknown>) => {
+        if (closed) return;
+        if (!hijacked) {
+          pending.push(frame);
+          return;
+        }
+        const ok = reply.raw.write(`data: ${JSON.stringify(frame)}\n\n`);
+        if (!ok && reply.raw.writableLength > PRODUCT_LIVE_MAX_BUFFER) close();
+      };
       try {
-        unsubscribe = await app.productLive.open({
-          pageId: request.params.id,
-          projectId: page.projectId,
-          userId: request.user!.id,
-          seq: page.seq,
-          send: (frame) => (open ? write(frame) : pending.push(frame)),
-          close,
-        });
+        unsubscribe = await app.productLive.open({ pageId: request.params.id, projectId: page.projectId, userId: request.user!.id, seq: page.seq, send: write, close });
       } catch (error) {
         if (error instanceof ProductLiveError) return apiError(reply, error.status as 404, error.code, error.message);
         throw error;
       }
+      // Se ne è andato mentre si apriva: il posto si libera, e niente stream.
+      if (closed || request.raw.destroyed || reply.raw.destroyed) {
+        unsubscribe();
+        closed = true;
+        return reply;
+      }
       reply.hijack();
+      hijacked = true;
       reply.raw.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" });
-      open = true;
-      for (const frame of pending) write(frame);
-      reply.raw.on("close", close);
+      for (const frame of pending.splice(0)) write(frame);
       timers.push(
         setInterval(() => {
           if (!closed) reply.raw.write(": ping\n\n");
@@ -348,17 +354,31 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
 
   app.post(
     "/product-pages/:id/live/presence",
-    { config: { access: PAGE_VIEW }, schema: { params: pageParams, body: productPresenceBeatSchema, response: { 200: productPresenceBeatResultSchema, ...authErrorResponses } } },
+    {
+      // Review di F4 (I4): ogni battito legge permessi e persone e manda alla pagina: un tetto per persona.
+      config: { access: PAGE_VIEW, rateLimit: { max: 120, timeWindow: "1 minute", hook: "preHandler", keyGenerator: (request: FastifyRequest) => request.user?.id ?? request.ip } },
+      schema: { params: pageParams, body: productPresenceBeatSchema, response: { 200: productPresenceBeatResultSchema, 422: errorSchema, ...authErrorResponses } },
+    },
     async (request, reply) => {
-      // Con una sezione il battito PRENDE (scrive): serve `docs.edit`.
-      if (typeof request.body.sectionId === "string" && !routePermissions(request).has("docs.edit")) return apiError(reply, 403, "forbidden", "Missing permission");
+      const sectionId = request.body.sectionId;
+      if (typeof sectionId === "string") {
+        // Con una sezione il battito PRENDE (scrive): serve `docs.edit`.
+        if (!routePermissions(request).has("docs.edit")) return apiError(reply, 403, "forbidden", "Missing permission");
+        // Una sezione VERA della pagina: un titolo che c'è, o quella in cima (I4).
+        if (sectionId !== PRODUCT_TOP_SECTION) {
+          const [page] = await app.db.select({ blocks: productPages.blocks }).from(productPages).where(eq(productPages.id, request.params.id));
+          const isHeading = Array.isArray(page?.blocks) && (page!.blocks as { id?: unknown; type?: unknown }[]).some((b) => b?.id === sectionId && b?.type === "heading");
+          if (!isHeading) return apiError(reply, 422, "invalid_section", "Not a section of this page");
+        }
+      }
       const people = await visiblePersonIds(app.db, request.user!);
       return app.productLive.beat({
         pageId: request.params.id,
         userId: request.user!.id,
         viewerSees: (id) => people === "all" || people.includes(id),
+        ...(request.body.sessionId !== undefined ? { sessionId: request.body.sessionId } : {}),
         ...(request.body.cursor !== undefined ? { cursor: request.body.cursor } : {}),
-        ...(request.body.sectionId !== undefined ? { sectionId: request.body.sectionId } : {}),
+        ...(sectionId !== undefined ? { sectionId } : {}),
       });
     },
   );

@@ -37,11 +37,13 @@ import {
   users,
   widgets,
   type Db,
+  productPages,
 } from "@stubwise/db";
 import type { ArchivedProjectRow, ArchivedProjectView, ArchivePreview, BusyReason, DeletionCounts, DeletionPreview, ProjectPermission, PublicSurfaces } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, sql, type SQL } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
 import { projectPermissionsMap } from "../auth/access.js";
+import { notifyProductGone } from "./product-live-notify.js";
 import type { SessionUser } from "../auth/session.js";
 import { OPEN_RUN_STATUSES } from "../automations/runs.js";
 import { LIVE_HEARTBEAT_SECONDS, visibleTo } from "./agent-sessions.js";
@@ -430,6 +432,9 @@ export async function deleteArchivedProject(
       await tx.insert(deletedProjectMembers).values(formerMembers.map((m) => ({ projectId: row.id, userId: m.userId })));
     }
     const detached = await detachRepositories(tx, projectId);
+    // Area 11, F4 (review I6): le pagine di prodotto vanno via in cascata; chi le
+    // guarda dal vivo riceve `gone` (la NOTIFY parte al commit).
+    for (const p of await tx.select({ id: productPages.id }).from(productPages).where(eq(productPages.projectId, projectId))) await notifyProductGone(tx, p.id);
     await tx.delete(projects).where(eq(projects.id, projectId));
     await recordChange(tx, {
       type: "project.deleted",
