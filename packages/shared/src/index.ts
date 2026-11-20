@@ -82,6 +82,7 @@ export * from "./product-docs/blocks.js";
 export * from "./product-docs/validate.js";
 export * from "./product-docs/tree.js";
 export * from "./product-docs/revisions.js";
+export * from "./product-docs/comments.js";
 export * from "./schemas/chat.js";
 export * from "./schemas/access-query.js";
 export * from "./change-log.js";

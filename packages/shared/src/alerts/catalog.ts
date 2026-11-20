@@ -33,7 +33,11 @@ export type MandatoryReason =
   /** Area 8, F4b: chi ha chiesto un'analisi a mano ne riceve SEMPRE l'esito (decisione del maintainer, 15 nov 2026). */
   | "analysis_requester"
   /** Area 10, F5 (D-11 = b): la persona aggiunta a un progetto riceve SEMPRE `member.added`. */
-  | "added";
+  | "added"
+  /** Area 11, F2 (N-1 = a): chi è menzionato in un commento della doc di prodotto riceve SEMPRE `product_doc.mention`. */
+  | "mentioned"
+  /** Area 11, F2 (N-1 = a): chi SEGUE una pagina di prodotto ne riceve sempre `updated` e `question`, anche con la riga spenta. */
+  | "follower";
 
 /**
  * Il valore di partenza («App») per un membro che non ha toccato niente, dai
@@ -72,6 +76,12 @@ export interface AlertType {
   sameRowAs?: string;
   /** Il default vale anche per i full admin che non sono membri del progetto (R-L10). */
   defaultForFullAdmins?: boolean;
+  /**
+   * Area 11, F2: il permesso nel progetto per VEDERE l'oggetto dell'avviso.
+   * Vale per TUTTI, anche per gli obbligatori: la visibilità viene prima di
+   * tutto (una menzione a chi non legge più i Docs del progetto non arriva).
+   */
+  seePerm?: string;
 }
 
 const label = (type: string) => `alerts.types.${type.replace(/\./g, "_")}`;
@@ -131,6 +141,14 @@ export const ALERT_TYPES: readonly AlertType[] = [
     sameRowAs: "support.request",
   }),
   row("docs.nightly_attention", "docs", "member", "members", false),
+  // Area 11, F2 (N-1 = a, maintainer): la doc di prodotto. La menzione è SOLO
+  // obbligatoria (nessun interruttore, come pr.corrected), col Telefono
+  // acceso; aggiornamento e domanda hanno la riga del progetto, accesa di
+  // partenza per chi scrive la doc, e chi segue la pagina li riceve sempre.
+  // Tutti e tre solo a chi legge i Docs del progetto (`seePerm`).
+  row("product_doc.mention", "docs", "docs.view", "off", true, ["mentioned"], { mandatoryOnly: true, seePerm: "docs.view" }),
+  row("product_doc.updated", "docs", "docs.view", { perm: "docs.edit" }, false, ["follower"], { seePerm: "docs.view" }),
+  row("product_doc.question", "docs", "docs.view", { perm: "docs.edit" }, false, ["follower"], { seePerm: "docs.view" }),
   // I kind di prima dei server confluiscono nella riga di `server.trouble`.
   row("monitor.alert", "monitor", "member", "members", true, [], {
     sameRowAs: "server.trouble",

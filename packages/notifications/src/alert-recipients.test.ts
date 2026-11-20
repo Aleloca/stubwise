@@ -97,3 +97,49 @@ describe("area 10, F5: member.added (D-11 = b)", () => {
     expect(out.app).toContain("e");
   });
 });
+
+describe("area 11, F2: la doc di prodotto (N-1 = a)", () => {
+  // w scrive la doc (docs.edit + docs.view), r la legge (docs.view), x è un membro che non legge i Docs.
+  const DOCS: Record<string, string[]> = { w: ["docs.view", "docs.edit"], r: ["docs.view"], x: [] };
+  const dctx = (over: Partial<CatalogRecipientsContext> = {}) =>
+    ctx({ members: ["w", "r", "x"], fullAdmins: new Set(), holds: (u, p) => (DOCS[u] ?? []).includes(p), ...over });
+
+  it("la menzione va SOLO al menzionato, col Telefono acceso di partenza; nessun iscritto", () => {
+    const out = catalogRecipients(t("product_doc.mention"), dctx({ mandatory: [{ userId: "r", reason: "mentioned" }] }));
+    expect(out.app).toEqual(["r"]);
+    expect(out.phone.has("r")).toBe(true);
+    expect(out.mandatory.get("r")).toBe("mentioned");
+  });
+
+  it("la menzione arriva anche con la riga scritta spenta (non ha un interruttore)", () => {
+    const subscriptions = new Map([["r", { app: false, phone: true }]]);
+    expect(catalogRecipients(t("product_doc.mention"), dctx({ subscriptions, mandatory: [{ userId: "r", reason: "mentioned" }] })).app).toEqual(["r"]);
+  });
+
+  it("la visibilità prima di tutto: una menzione a chi non legge i Docs del progetto NON arriva, né a chi non è più membro", () => {
+    const out = catalogRecipients(t("product_doc.mention"), dctx({ mandatory: [{ userId: "x", reason: "mentioned" }, { userId: "gone", reason: "mentioned" }] }));
+    expect(out.app).toEqual([]);
+    expect(out.mandatory.size).toBe(0);
+  });
+
+  it("aggiornamento e domanda: di partenza a chi scrive la doc; chi la legge solo se la accende; chi non legge i Docs mai", () => {
+    for (const kind of ["product_doc.updated", "product_doc.question"]) {
+      expect(catalogRecipients(t(kind), dctx()).app, kind).toEqual(["w"]);
+      const subscriptions = new Map([["r", { app: true, phone: false }], ["x", { app: true, phone: false }]]);
+      expect(catalogRecipients(t(kind), dctx({ subscriptions })).app.sort(), kind).toEqual(["r", "w"]);
+    }
+  });
+
+  it("chi SEGUE la pagina riceve aggiornamento e domanda anche con la riga spenta (motivo `follower`)", () => {
+    const subscriptions = new Map([["w", { app: false, phone: false }], ["r", { app: false, phone: false }]]);
+    for (const kind of ["product_doc.updated", "product_doc.question"]) {
+      const out = catalogRecipients(t(kind), dctx({ subscriptions, mandatory: [{ userId: "r", reason: "follower" }] }));
+      expect(out.app, kind).toEqual(["r"]);
+      expect(out.mandatory.get("r"), kind).toBe("follower");
+    }
+  });
+
+  it("un seguace che non legge più i Docs non riceve niente", () => {
+    expect(catalogRecipients(t("product_doc.updated"), dctx({ mandatory: [{ userId: "x", reason: "follower" }] })).app).toEqual(["w"]);
+  });
+});

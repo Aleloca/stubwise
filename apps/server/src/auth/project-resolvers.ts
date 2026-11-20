@@ -22,6 +22,7 @@ import {
   projects,
   repositories,
   tickets,
+  productComments,
   productPages,
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
@@ -217,6 +218,20 @@ export function fromProductPage(param: string): ProjectResolver {
     const id = uuidParam(req, param);
     if (!id) return null;
     const [row] = await db.select({ projectId: productPages.projectId }).from(productPages).where(eq(productPages.id, id));
+    return row?.projectId ?? null;
+  };
+}
+
+/** Area 11, F2: il progetto di un commento di una pagina di prodotto. */
+export function fromProductComment(param: string): ProjectResolver {
+  return async (req, db) => {
+    const id = uuidParam(req, param);
+    if (!id) return null;
+    const [row] = await db
+      .select({ projectId: productPages.projectId })
+      .from(productComments)
+      .innerJoin(productPages, eq(productPages.id, productComments.pageId))
+      .where(eq(productComments.id, id));
     return row?.projectId ?? null;
   };
 }
