@@ -30,6 +30,7 @@ import {
 } from "../services/product-docs.js";
 import {
   PRODUCT_IMAGE_MAX_BYTES,
+  ProductSectionBusyError,
   ProductStaleError,
   followProductPage,
   imageMimeOf,
@@ -157,7 +158,14 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
       schema: {
         params: pageParams,
         body: saveProductBlocksSchema,
-        response: { 200: z.object({ seq: z.number().int(), revisionId: z.uuid().nullable() }), 409: z.object({ code: z.string(), message: z.string(), revisions: z.array(productRevisionViewSchema).optional() }), 422: errorSchema, 404: errorSchema, ...authErrorResponses },
+        response: { 200: z.object({ seq: z.number().int(), revisionId: z.uuid().nullable() }), 409: z.object({
+          code: z.string(),
+          message: z.string(),
+          revisions: z.array(productRevisionViewSchema).optional(),
+          // F4: `section_busy` dice la sezione e chi la tiene (`productSectionBusySchema`).
+          sectionId: z.string().optional(),
+          by: z.object({ id: z.uuid(), name: z.string().nullable() }).optional(),
+        }), 422: errorSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
@@ -165,6 +173,7 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
         return await saveProductBlocks(app.db, request.user!, request.params.id, request.body);
       } catch (error) {
         if (error instanceof ProductStaleError) return reply.code(409).send({ code: error.code, message: error.message, revisions: error.revisions });
+        if (error instanceof ProductSectionBusyError) return reply.code(409).send({ code: error.code, message: error.message, sectionId: error.sectionId, by: error.by });
         if (error instanceof ProductDocsError) return apiError(reply, error.status, error.code, error.message);
         throw error;
       }

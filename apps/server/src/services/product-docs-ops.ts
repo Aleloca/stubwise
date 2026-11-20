@@ -10,6 +10,7 @@ import {
   projectDecisions,
   projects,
   users,
+  takeSection,
   type Db,
 } from "@stubwise/db";
 import {
@@ -22,6 +23,8 @@ import {
   productBlockSchema,
   productBlockWriteSchema,
   productSearchText,
+  PRODUCT_TOP_SECTION,
+  sectionKeyOf,
   validProductBlock,
   type ProductBlock,
   type ProductBlockChange,
@@ -66,6 +69,58 @@ const IMAGE_ID = (src: string) => (src.startsWith(PRODUCT_IMAGE_REF_PREFIX) ? sr
 export interface SaveProductBlocksResult {
   seq: number;
   revisionId: string | null;
+}
+
+/**
+ * Area 11, F4: un'operazione tocca una sezione presa da un ALTRO. La
+ * transazione si annulla: niente cambiato, nemmeno le prese chieste prima.
+ */
+export class ProductSectionBusyError extends ProductDocsError {
+  constructor(
+    readonly sectionId: string,
+    readonly by: { id: string; name: string | null },
+  ) {
+    super(409, "section_busy", "Someone else is writing in this section");
+  }
+}
+
+/** Quanto dura una presa: tre battiti persi (il battito è ogni 5 s). */
+export const PRODUCT_HOLD_TTL_MS = 15_000;
+
+/**
+ * Le sezioni che le operazioni toccano, sui blocchi di PRIMA (review di F4: dopo,
+ * un blocco tolto o spostato non direbbe più dov'era): `set` e `delete` la
+ * sezione del blocco; `insert` quella del blocco dopo cui entra (in cima senza);
+ * `move` e `merge` le due sezioni.
+ */
+function touchedSections(blocks: readonly ProductBlock[], ops: readonly ProductBlockOp[]): string[] {
+  const out = new Set<string>();
+  const at = (anchorId: string | null) => (anchorId === null ? PRODUCT_TOP_SECTION : sectionKeyOf(blocks, anchorId));
+  for (const op of ops) {
+    if (op.op === "set") out.add(at(op.block.id));
+    else if (op.op === "delete") out.add(at(op.blockId));
+    else if (op.op === "insert") out.add(at(op.afterId));
+    else if (op.op === "move") {
+      out.add(at(op.blockId));
+      out.add(at(op.afterId));
+    } else {
+      out.add(at(op.firstId));
+      out.add(at(op.secondId));
+    }
+  }
+  return [...out].sort();
+}
+
+/** Prende per chi scrive le sezioni che tocca; la prima presa da un altro è un 409 (nella stessa transazione). */
+async function holdTouchedSections(tx: Db, viewer: Viewer, pageId: string, blocks: readonly ProductBlock[], ops: readonly ProductBlockOp[]): Promise<void> {
+  for (const sectionId of touchedSections(blocks, ops)) {
+    const got = await takeSection(tx, { pageId, sectionId, userId: viewer.id, ttlMs: PRODUCT_HOLD_TTL_MS });
+    if (got.taken) continue;
+    const people = await visiblePersonIds(tx, viewer);
+    const [u] = await tx.select({ email: users.email, displayName: users.displayName }).from(users).where(eq(users.id, got.by));
+    const sees = people === "all" || people.includes(got.by);
+    throw new ProductSectionBusyError(sectionId, { id: got.by, name: sees && u ? personName(u) : null });
+  }
 }
 
 export class ProductStaleError extends ProductDocsError {
@@ -132,6 +187,8 @@ export async function saveProductBlocks(db: Db, viewer: Viewer, pageId: string, 
     if (others.length > 0) throw new ProductStaleError(await revisionViews(tx, viewer, others));
 
     const blocks = readBlocks(page.blocks);
+    // F4: le sezioni che le operazioni toccano, prese PRIMA di applicarle (un 409 non lascia niente a metà).
+    await holdTouchedSections(tx, viewer, pageId, blocks, input.ops as ProductBlockOp[]);
     const onPage = new Set(blocks.flatMap(blockIdsOf));
     const given = new Set((await tx.select({ id: productPageBlockIds.blockId }).from(productPageBlockIds).where(eq(productPageBlockIds.pageId, pageId))).map((r) => r.id));
     // Review di F1 (I4): ⌘Z rimette SOLO i blocchi che la revisione annullata ha
