@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { docPageKindSchema } from "./docs.js";
+import { productSearchHitSchema } from "./product-docs.js";
 import { ticketStatusSchema } from "./ticket.js";
 
 /**
@@ -211,6 +212,12 @@ export const searchResultsSchema = z.object({
   mail: group(searchMailHitSchema).default({ items: [], hasMore: false }),
   /** Area 7: le automazioni e le esecuzioni. Additivo (default vuoto), come `mail`. */
   automations: group(searchAutomationHitSchema).default({ items: [], hasMore: false }),
+  /**
+   * Area 11, F3: «In Product», le pagine di prodotto che chi cerca legge (per
+   * testo: la ricerca globale è la corsia veloce). Additivo (default vuoto),
+   * come `mail`: sul web va difeso nel punto di lettura.
+   */
+  product: group(productSearchHitSchema).default({ items: [], hasMore: false }),
 });
 export type SearchResults = z.infer<typeof searchResultsSchema>;
 

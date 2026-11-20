@@ -9,6 +9,7 @@ import {
   productMentionCandidatesSchema,
   productPageViewSchema,
   productRevisionViewSchema,
+  productSearchResultsSchema,
   productSpaceSchema,
   saveProductBlocksSchema,
 } from "@stubwise/shared";
@@ -35,6 +36,7 @@ import {
   recordProductImage,
   saveProductBlocks,
 } from "../services/product-docs-ops.js";
+import { searchProductPages } from "../services/product-search.js";
 import { addProductComment, listProductComments, productMentionCandidates, setProductCommentResolved } from "../services/product-comments.js";
 import { StorageObjectNotFound } from "../storage/errors.js";
 import { removeOrRecordOrphan } from "../storage/orphans.js";
@@ -252,6 +254,17 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
         .header("content-disposition", "inline")
         .header("content-security-policy", "default-src 'none'; sandbox")
         .send(bytes as never);
+    },
+  );
+
+  // --- F3: la ricerca «In Product» dello spazio (ibrida: significato e testo) ---
+
+  app.get(
+    "/projects/:projectId/product/search",
+    { config: { access: SPACE_VIEW }, schema: { params: projectParams, querystring: z.object({ q: z.string().min(1).max(200) }), response: { 200: productSearchResultsSchema, 400: errorSchema, ...authErrorResponses } } },
+    async (request, reply) => {
+      if (request.query.q.trim() === "") return apiError(reply, 400, "empty_query", "Search query must not be empty");
+      return searchProductPages(app.db, app.embeddingClient, request.user!, request.query.q, { projectId: request.params.projectId, log: request.log });
     },
   );
 

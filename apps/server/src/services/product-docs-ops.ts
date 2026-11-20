@@ -21,6 +21,7 @@ import {
   mergeChanges,
   productBlockSchema,
   productBlockWriteSchema,
+  productSearchText,
   validProductBlock,
   type ProductBlock,
   type ProductBlockChange,
@@ -173,7 +174,7 @@ export async function saveProductBlocks(db: Db, viewer: Viewer, pageId: string, 
     if (fresh.length > 0) await tx.insert(productPageBlockIds).values(fresh.map((blockId) => ({ pageId, blockId }))).onConflictDoNothing();
     const [{ seq }] = (await tx
       .update(productPages)
-      .set({ blocks: next.blocks, revSeq: sql`${productPages.revSeq} + 1`, updatedBy: viewer.id, updatedAt: new Date() })
+      .set({ blocks: next.blocks, searchText: productSearchText(page.title, next.blocks), revSeq: sql`${productPages.revSeq} + 1`, updatedBy: viewer.id, updatedAt: new Date() })
       .where(eq(productPages.id, pageId))
       .returning({ seq: productPages.revSeq })) as [{ seq: number }];
     // F2: i fili del blocco assorbito da un `merge` passano sul blocco unito, nella stessa scrittura;

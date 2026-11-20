@@ -4,6 +4,7 @@ import {
   searchHistoryItemSchema,
   searchResultsSchema,
 } from "@stubwise/shared";
+import { searchProductPages } from "../services/product-search.js";
 import { and, desc, eq, ilike, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -469,7 +470,12 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
         ...runRows.map((r) => ({ kind: "run" as const, id: r.id, code: `${r.code} #${r.n}`, label: r.title, route: `#/automations/${r.code}/runs/${r.n}`, status: r.status })),
       ];
 
+      // Area 11, F3: «In Product», per testo (la corsia veloce: niente embedder a ogni tasto),
+      // filtrato nella WHERE sui progetti in cui chi cerca ha `docs.view`.
+      const product = await searchProductPages(app.db, app.embeddingClient, user, q, { limit: PER_GROUP, semantic: false });
+
       return {
+        product,
         automations: { items: automationHits.slice(0, PER_GROUP), hasMore: automationRows.length > PER_GROUP || runRows.length > PER_GROUP || automationHits.length > PER_GROUP },
         tickets: {
           items: ticketRows.slice(0, PER_GROUP).map((r) => ({
