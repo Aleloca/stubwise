@@ -355,6 +355,22 @@ describe("la chat dei Docs (senza streaming, come il prototipo)", () => {
     ]);
   });
 
+  it("le pagine di prodotto citate (`productSources`, F3): una citazione `doc` col codice -D che apre la pagina di prodotto", async () => {
+    const PAGE = "aaaaaaaa-0000-4000-8000-000000000001";
+    install({
+      [`POST /api/projects/${PROJECT_ID}/docs/chat`]: {
+        body: { ...answer, productSources: [{ pageId: PAGE, code: "AUD-D5", title: "Sign-in" }] },
+      },
+    });
+    await getSessionPerson();
+    const out = await docs.askDocs({ projectId: PROJECT_ID, question: "How do customers sign in?" });
+    expect(out.refs).toHaveLength(2);
+    expect(out.sources[1]).toEqual({ pageId: out.refs[1]!.id, repositoryName: "", space: "product" });
+    expect(await resolveCitations([out.refs[1]!])).toMatchObject([
+      { kind: "doc", visible: true, code: "AUD-D5", name: "Sign-in", route: "#/p/AUD/docs/product/AUD-D5" },
+    ]);
+  });
+
   it("la domanda di un repository va alla sua chat; senza provider è «chat_unavailable»", async () => {
     const { seen } = install({
       [`POST /api/repositories/${REPO}/docs/chat`]: { status: 503, body: { code: "chat_unavailable", message: "x" } },

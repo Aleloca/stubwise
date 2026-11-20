@@ -740,11 +740,20 @@ const askDocs: Docs["askDocs"] = async ({ projectId, repositoryId, question }) =
     rememberDocCitation({ id, label: s.title, projectId, code: s.code, doc: { repositorySlug: s.repositorySlug, slug: s.slug } });
     return { kind: "doc" as const, id };
   });
+  // Area 11, F3: le pagine di prodotto citate (`productSources`), una
+  // citazione `doc` col codice -D che apre la pagina nello spazio Product.
+  const productRefs = (out.productSources ?? []).map((p) => {
+    rememberDocCitation({ id: p.code, label: p.title, projectId, code: p.code, doc: null, product: { pageId: p.pageId } });
+    return { kind: "doc" as const, id: p.code };
+  });
   return {
     answeredAt: new Date().toISOString(),
     text: out.answer,
-    refs,
-    sources: out.sources.map((s, i) => ({ pageId: refs[i]!.id, repositoryName: s.repositoryName })),
+    refs: [...refs, ...productRefs],
+    sources: [
+      ...out.sources.map((s, i) => ({ pageId: refs[i]!.id, repositoryName: s.repositoryName })),
+      ...productRefs.map((r) => ({ pageId: r.id, repositoryName: "", space: "product" as const })),
+    ],
   };
 };
 
