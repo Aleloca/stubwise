@@ -296,7 +296,33 @@ export function eventsOf(
     }) as ConversationEvent[],
     plan,
   );
-  return detail.kind === "backlog_refine" ? withRefineResults(out) : out;
+  const visible = withoutWithheldContent(out, events);
+  return detail.kind === "backlog_refine" ? withRefineResults(visible) : visible;
+}
+
+/**
+ * Area 10, review I2a (72): chi legge la conversazione di un altro (una
+ * pubblica) riceve `tool_use` e `tool_result` SENZA contenuto (`withheld`,
+ * `input: {}`, `content: ""`), per ogni tool. La riga dice solo il nome del
+ * tool e com'è andata: niente ingresso né risultato da aprire, e `input` e
+ * `content` non si leggono. All'autore arriva tutto.
+ */
+function withoutWithheldContent(
+  out: ConversationEvent[],
+  events: readonly Reader<AgentSessionEvent>[],
+): ConversationEvent[] {
+  const withheld = new Set(
+    events
+      .filter((e) => e.type === "tool_use" && (e.data as { withheld?: unknown }).withheld === true)
+      .map((e) => e.id),
+  );
+  if (withheld.size === 0) return out;
+  return out.map((e) => {
+    if (e.type !== "action" || !withheld.has(e.id)) return e;
+    const { input: _i, result: _r, resultText: _t, truncated: _x, ...rest } = e;
+    void [_i, _r, _t, _x];
+    return rest;
+  });
 }
 
 /** I tool del refinement (`mcp__stubwise_refine__*`) e l'esito che diventano nel prototipo. */
