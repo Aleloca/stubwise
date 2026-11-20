@@ -224,8 +224,8 @@ describe("il contesto della chat nella build app", () => {
 
   it("«/»: i comandi di lettura e, dalla fetta 3, quelli d'azione (con una proposta), con la descrizione tradotta", async () => {
     const commands = await listCommands(null);
-    expect(commands.map((c) => c.label)).toEqual(["/explain", "/docs", "/plan", "/new-task", "/new-request", "/run"]);
-    expect(commands[0]!.description).toBe("Explain a task or a request, by its code");
+    expect(commands.map((c) => c.label)).toContain("/explain");
+    expect(commands.find((c) => c.label === "/explain")!.description).toBe("Explain a task or a request, by its code");
     expect(commands.find((c) => c.label === "/new-task")!.description).toBe("Create a task, with a proposal to confirm");
   });
 });
@@ -310,5 +310,149 @@ describe("«#» nella build app: i file del Drive (area 5, fetta 2)", () => {
         drive: { type: "pdf", google: false },
       },
     ]);
+  });
+});
+
+// Area 10, F8: «/status» e «/today» (i tool `read_followed_projects` e
+// `read_my_week` di 72: il comando scrive solo il testo, è il modello a
+// chiamarli), le skill dei plugin in «/» (`GET /api/projects/:id/plugins`) e
+// le richieste in «#» (`GET /api/requests?projectId=…`): letture del renderer.
+describe("«/» e «#» nella build app (area 10, F8)", () => {
+  const PLUGIN_A = "aaaaaaaa-0000-4000-8000-000000000001";
+  const PLUGIN_B = "aaaaaaaa-0000-4000-8000-000000000002";
+  const PLUGIN_C = "aaaaaaaa-0000-4000-8000-000000000003";
+  const row = (pluginId: string, name: string, status: string, skills: string[]) => ({
+    pluginId,
+    slug: name,
+    name,
+    status,
+    skills,
+    hookGroups: [],
+    recommendedDisabledSkills: [],
+  });
+
+  it("«/status» e «/today» nell'ordine del prototipo, con la descrizione tradotta", async () => {
+    const commands = await listCommands(null);
+    expect(commands.map((c) => c.label)).toEqual([
+      "/status",
+      "/today",
+      "/explain",
+      "/plan",
+      "/new-task",
+      "/new-request",
+      "/run",
+      "/docs",
+    ]);
+    expect(commands[0]!.description).toBe("Where the projects stand: pulse of the projects you follow");
+    expect(commands[1]!.description).toBe("What you have to do today: decisions, late tasks, your week");
+  });
+
+  it("le skill dei plugin del progetto di contesto: pronti, accesi sul progetto, meno le skill spente", async () => {
+    installFakeServer({
+      [`GET /api/projects/${PROJECT_ID}/plugins`]: {
+        body: {
+          plugins: [
+            { pluginId: PLUGIN_A, enabled: true, disabledSkills: ["writing-plans"], disabledHooks: [] },
+            { pluginId: PLUGIN_B, enabled: false, disabledSkills: [], disabledHooks: [] },
+            { pluginId: PLUGIN_C, enabled: true, disabledSkills: [], disabledHooks: [] },
+          ],
+          version: "v1",
+          registry: [
+            row(PLUGIN_A, "superpowers", "ready", ["brainstorming", "writing-plans"]),
+            row(PLUGIN_B, "spento", "ready", ["off"]),
+            row(PLUGIN_C, "rotto", "failed", ["broken"]),
+          ],
+          canEdit: false,
+        },
+      },
+    });
+    const commands = await listCommands(PROJECT_ID);
+    const skills = commands.filter((c) => c.source !== "stubwise");
+    expect(skills).toEqual([
+      {
+        id: "superpowers:brainstorming",
+        label: "/superpowers:brainstorming",
+        description: "",
+        source: { plugin: "superpowers", skill: "brainstorming" },
+      },
+    ]);
+  });
+
+  it("un progetto che chi guarda non vede (404): solo i comandi di Stubwise", async () => {
+    installFakeServer({
+      [`GET /api/projects/${PROJECT_ID}/plugins`]: { status: 404, body: { code: "not_found", message: "x" } },
+    });
+    const commands = await listCommands(PROJECT_ID);
+    expect(commands.every((c) => c.source === "stubwise")).toBe(true);
+    expect(commands).toHaveLength(8);
+  });
+
+  const REQ = "bbbbbbbb-0000-4000-8000-000000000001";
+  const summary = (over: Record<string, unknown> = {}) => ({
+    id: REQ,
+    code: "AUD-R4",
+    projectId: PROJECT_ID,
+    title: "Export to CSV",
+    excerpt: "Users want CSV.",
+    hasDesign: false,
+    hasPlan: false,
+    requesterIds: [ME_ID],
+    status: "new",
+    urgency: "high",
+    urgent: false,
+    size: null,
+    risk: null,
+    riskNote: null,
+    similarToId: null,
+    mergedIntoId: null,
+    mergedIntoCode: null,
+    taskIds: [],
+    createdAt: "2026-11-01T09:00:00.000Z",
+    suggestions: null,
+    webHref: `/backlog/${REQ}`,
+    ...over,
+  });
+  const empty = { items: [], hasMore: false };
+  const mentionRoutes = (requests: { status?: number; body: unknown }) => ({
+    "GET /api/projects": { body: [serverProject({ memberIds: [] })] },
+    "GET /api/tasks": { body: { items: [], truncated: false } },
+    "GET /api/search": { body: { tickets: empty, projects: empty, repositories: empty, docs: empty } },
+    "GET /api/requests": requests,
+  });
+
+  it("«#» cerca anche le richieste dei progetti che chi guarda vede, per codice e titolo; mai una fusa", async () => {
+    const { seen } = installFakeServer(
+      mentionRoutes({
+        body: [
+          summary(),
+          summary({ id: "bbbbbbbb-0000-4000-8000-000000000002", code: "AUD-R5", title: "Invoices" }),
+          summary({
+            id: "bbbbbbbb-0000-4000-8000-000000000003",
+            code: "AUD-R6",
+            title: "CSV again",
+            mergedIntoId: REQ,
+            mergedIntoCode: "AUD-R4",
+          }),
+        ],
+      }),
+    );
+    const rows = await searchMentions("csv", "objects");
+    const read = seen.find((r) => r.path.startsWith("/api/requests"));
+    expect(new URL(`http://x${read!.path}`).searchParams.get("projectId")).toBe(PROJECT_ID);
+    expect(rows.filter((r) => r.ref.kind === "request")).toEqual([
+      { ref: { kind: "request", id: REQ }, code: "AUD-R4", label: "Export to CSV", detail: "Audin AI", projectId: PROJECT_ID },
+    ]);
+    expect((await searchMentions("r5", "objects")).filter((r) => r.ref.kind === "request").map((r) => r.code)).toEqual([
+      "AUD-R5",
+    ]);
+  });
+
+  it("una lettura delle richieste che fallisce non toglie le altre righe; senza testo nessuna lettura", async () => {
+    installFakeServer(mentionRoutes({ status: 403, body: { code: "forbidden", message: "x" } }));
+    const rows = await searchMentions("audin", "objects");
+    expect(rows.map((r) => r.ref.kind)).toEqual(["project"]);
+    const { seen } = installFakeServer(mentionRoutes({ body: [summary()] }));
+    await searchMentions("", "objects");
+    expect(seen.some((r) => r.path.startsWith("/api/requests"))).toBe(false);
   });
 });

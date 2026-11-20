@@ -4504,6 +4504,8 @@
         "write": "Write it"
       },
       "commands": {
+        "status": "Where the projects stand: pulse of the projects you follow",
+        "today": "What you have to do today: decisions, late tasks, your week",
         "explain": "Explain a task or a request, by its code",
         "docs": "How something works in a project, from its Docs",
         "plan": "Plan your next week from the open tasks",
