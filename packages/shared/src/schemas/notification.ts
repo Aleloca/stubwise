@@ -776,6 +776,14 @@ export const inboxItemSchema = z.object({
    */
   serverCode: z.string().nullable().default(null),
   /**
+   * Area 10, F5 (D-11 = b): sulle card `member.added`, chi ha ANNULLATO quell'ingresso
+   * con «Annulla» di Claude («Undone by …»). DERIVATO a lettura dal registro
+   * delle modifiche (la voce d'ingresso, la sua azione, la voce che la annulla),
+   * mai dal jsonb: vale per le card vecchie e scavalca un jsonb che dicesse
+   * altro. Una rimozione a mano NON è un annullamento. Additivo.
+   */
+  undoneBy: z.object({ id: z.uuid(), name: z.string() }).nullable().default(null),
+  /**
    * Area 4, Chat (fetta 1): solo sulle card `chat.mention` e (fetta 2)
    * `chat.question`, il messaggio che
    * nomina chi legge, DERIVATO a lettura (canale, thread, chi scrive, un

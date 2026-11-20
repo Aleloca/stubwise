@@ -76,6 +76,7 @@ function item(overrides: Partial<InboxItem> & Pick<InboxItem, "id">): InboxItem 
     alertMandatory: null,
     // Area 8, F4a: idem (il codice del server, per i link dell'app).
     serverCode: null,
+    undoneBy: null,
     chat: null,
     automation: null,
     kind: "job.plan_review",
