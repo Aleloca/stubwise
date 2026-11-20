@@ -479,6 +479,8 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 10, F1–F5: le letture di Claude, le bozze di automazione, il lavoro fermo e la spesa, l'archivio in blocco, chi entra in un progetto» (19–20 nov 2026; migrazioni 0197–0200, server → worker → caddy; nel rollback NON scendere finché esistono eventi `question`/`aside`, righe `member.added` o conversazioni con contenuto personale letto: le query sono nelle voci)
   - «Integrazione area 10, F8: «/status» e «/today»» (20 nov 2026; nessuna migrazione, server → worker → caddy, rollback sicuro)
   - «Integrazione area 10, F6: le bozze nei campi» (20 nov 2026; nessuna migrazione, server → worker → caddy; il server non scrive mai il campo)
+  - «Integrazione area 10, F7: S0 e i suggerimenti» (20 nov 2026; migrazione 0201, server → worker → caddy; nel rollback NON scendere finché esistono eventi `capabilities`)
+  - «Integrazione area 10: l'area intera (F1–F8)» (20 nov 2026; migrazioni 0197–0201 in ordine, server → worker → caddy; l'elenco delle discese non sicure — `question`, `aside`, `capabilities`, `member.added`, `private_read_at` — con le query)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
