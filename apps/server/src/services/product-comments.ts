@@ -1,5 +1,5 @@
-import { productComments, productPages, users, type Db } from "@stubwise/db";
-import { projectViewerIds, userIdsWithPermission } from "@stubwise/notifications";
+import { docPageCodes, productComments, productPages, projects, users, type Db } from "@stubwise/db";
+import { instancePermissionsOfUser, projectViewerIds, publishNotification, userIdsWithPermission } from "@stubwise/notifications";
 import {
   anchorIdsOf,
   anchorText,
@@ -13,6 +13,7 @@ import {
   type ProductCommentsView,
 } from "@stubwise/shared";
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { projectPermissionsFor } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { personName } from "./people.js";
 import { visiblePersonIds } from "./people-visibility.js";
@@ -180,9 +181,41 @@ export async function addProductComment(db: Db, viewer: Viewer, pageId: string, 
     }
     const mentioned = mentionedIn(body, await productDocReaders(tx, page.projectId), viewer.id);
     const [row] = await tx.insert(productComments).values({ pageId: page.id, anchorId, quote, replyToId, body, authorId: viewer.id, mentions: mentioned }).returning();
+    if (mentioned.length > 0) await publishMention(tx, viewer, page, row!.id, mentioned);
     const view = (await viewsOf(tx, viewer, [row!])).get(row!.id)!;
     return { view, mentioned, projectId: page.projectId };
   });
+}
+
+/**
+ * Task 3: una card `product_doc.mention` per ogni persona menzionata, nella
+ * transazione del commento. Il catalogo la manda SOLO agli obbligatori
+ * (`mentioned`), a chi legge i Docs del progetto adesso (`seePerm`), mai a chi
+ * scrive (`exclude`). Nel jsonb solo id, codici e il nome di chi ha scritto:
+ * titolo, codice di adesso, chi ha menzionato (R-G5) e `objectGone` li deriva
+ * l'inbox a lettura (`productDocCardsFor`).
+ */
+async function publishMention(tx: Db, viewer: Viewer, page: { id: string; projectId: string }, commentId: string, mentioned: readonly string[]): Promise<void> {
+  const [code] = await tx
+    .select({ number: docPageCodes.number, projectCode: projects.code })
+    .from(docPageCodes)
+    .innerJoin(projects, eq(projects.id, docPageCodes.projectId))
+    .where(eq(docPageCodes.productPageId, page.id));
+  const [author] = await tx.select({ email: users.email, displayName: users.displayName }).from(users).where(eq(users.id, viewer.id));
+  await publishNotification(
+    tx,
+    {
+      kind: "product_doc.mention",
+      pageId: page.id,
+      pageCode: code ? `${code.projectCode}-D${code.number}` : "",
+      projectId: page.projectId,
+      projectCode: code?.projectCode ?? "",
+      commentId,
+      authorUserId: viewer.id,
+      authorName: author ? personName(author) : "",
+    },
+    { projectId: page.projectId, mandatory: mentioned.map((userId) => ({ userId, reason: "mentioned" as const })), exclude: [viewer.id] },
+  );
 }
 
 /**
@@ -233,4 +266,82 @@ export async function moveMergedAnchors(tx: Db, pageId: string, ops: readonly Pr
       .set({ anchorId: op.firstId })
       .where(and(eq(productComments.pageId, pageId), eq(productComments.anchorId, op.secondId)));
   }
+}
+
+/** Una card `product_doc.mention` come la legge chi guarda, DERIVATA a lettura (Task 3). */
+export interface ProductDocCard {
+  pageId: string;
+  pageCode: string;
+  /** Il titolo di ADESSO della pagina. */
+  pageTitle: string;
+  projectCode: string;
+  commentId: string;
+  /** La radice del filo (il commento stesso, o quello a cui risponde): per aprire la pagina sul filo. */
+  threadRootId: string;
+  authorId: string | null;
+  /** Chi ha menzionato, solo se chi guarda lo vede (R-G5). */
+  authorName: string | null;
+}
+
+/**
+ * Le card della doc di prodotto di una pagina d'inbox, coi dati di ADESSO (mai
+ * dal jsonb, che porta solo gli id): titolo e codice della pagina, chi ha
+ * scritto (R-G5). `null` = `objectGone`: la pagina o il commento non ci sono
+ * più, o chi guarda non legge più i Docs di quel progetto. Una query per
+ * tabella, non una per card.
+ */
+export async function productDocCardsFor(db: Db, viewerId: string, rows: readonly { id: string; event: unknown }[]): Promise<Map<string, ProductDocCard | null>> {
+  const out = new Map<string, ProductDocCard | null>();
+  const isId = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v);
+  const wanted = rows.flatMap((r) => {
+    const e = (r.event ?? {}) as { pageId?: unknown; commentId?: unknown };
+    if (!isId(e.pageId) || !isId(e.commentId)) {
+      out.set(r.id, null);
+      return [];
+    }
+    return [{ id: r.id, pageId: e.pageId, commentId: e.commentId }];
+  });
+  if (wanted.length === 0) return out;
+  const pages = await db
+    .select({ id: productPages.id, projectId: productPages.projectId, title: productPages.title, number: docPageCodes.number, projectCode: projects.code })
+    .from(productPages)
+    .innerJoin(projects, eq(projects.id, productPages.projectId))
+    .innerJoin(docPageCodes, eq(docPageCodes.productPageId, productPages.id))
+    .where(inArray(productPages.id, [...new Set(wanted.map((w) => w.pageId))]));
+  const pageById = new Map(pages.map((p) => [p.id, p]));
+  const commentRows = await db
+    .select({ id: productComments.id, pageId: productComments.pageId, replyToId: productComments.replyToId, authorId: productComments.authorId })
+    .from(productComments)
+    .where(and(inArray(productComments.id, [...new Set(wanted.map((w) => w.commentId))]), isNull(productComments.deletedAt)));
+  const commentById = new Map(commentRows.map((c) => [c.id, c]));
+  const viewer = { id: viewerId, instancePermissions: await instancePermissionsOfUser(db, viewerId) };
+  const reads = new Map<string, boolean>();
+  for (const projectId of new Set(pages.map((p) => p.projectId))) {
+    const perms = await projectPermissionsFor(db, viewer, projectId);
+    reads.set(projectId, perms?.has("docs.view") === true);
+  }
+  const people = await visiblePersonIds(db, viewer);
+  const authors = [...new Set(commentRows.flatMap((c) => (c.authorId && (people === "all" || people.includes(c.authorId)) ? [c.authorId] : [])))];
+  const names = new Map(
+    authors.length > 0 ? (await db.select({ id: users.id, email: users.email, displayName: users.displayName }).from(users).where(inArray(users.id, authors))).map((u) => [u.id, personName(u)]) : [],
+  );
+  for (const w of wanted) {
+    const page = pageById.get(w.pageId);
+    const comment = commentById.get(w.commentId);
+    if (!page || !comment || comment.pageId !== page.id || !reads.get(page.projectId)) {
+      out.set(w.id, null);
+      continue;
+    }
+    out.set(w.id, {
+      pageId: page.id,
+      pageCode: `${page.projectCode}-D${page.number}`,
+      pageTitle: page.title,
+      projectCode: page.projectCode,
+      commentId: comment.id,
+      threadRootId: comment.replyToId ?? comment.id,
+      authorId: comment.authorId,
+      authorName: comment.authorId ? (names.get(comment.authorId) ?? null) : null,
+    });
+  }
+  return out;
 }

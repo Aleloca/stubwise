@@ -78,6 +78,8 @@ function item(overrides: Partial<InboxItem> & Pick<InboxItem, "id">): InboxItem 
     serverCode: null,
     undoneBy: null,
     memberAdded: null,
+    // Area 11, F2: idem (la menzione nella doc di prodotto è dell'app nuova).
+    productDoc: null,
     chat: null,
     automation: null,
     kind: "job.plan_review",

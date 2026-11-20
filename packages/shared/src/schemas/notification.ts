@@ -819,6 +819,27 @@ export const inboxItemSchema = z.object({
     .nullable()
     .default(null),
   /**
+   * Area 11, F2: solo sulle card `product_doc.mention`, la pagina e il
+   * commento DERIVATI a lettura: codice e titolo di ADESSO, la radice del
+   * filo, chi ha scritto (`authorName` null se chi guarda non lo vede, R-G5).
+   * `null` per gli altri kind, o se la pagina o il commento non ci sono più o
+   * chi guarda non legge più i Docs del progetto (allora `objectGone`, e la
+   * frase non dice né codice né chi). Additivo.
+   */
+  productDoc: z
+    .object({
+      pageId: z.uuid(),
+      pageCode: z.string(),
+      pageTitle: z.string(),
+      projectCode: z.string(),
+      commentId: z.uuid(),
+      threadRootId: z.uuid(),
+      authorId: z.uuid().nullable(),
+      authorName: z.string().nullable(),
+    })
+    .nullable()
+    .default(null),
+  /**
    * Area 7 (fetta 1): solo sulle card `automation.*`, lo stato dell'esecuzione
    * DERIVATO a lettura: se aspetta ancora chi legge (`waitingOnYou`) e, per
    * un'approvazione, se nel frattempo qualcuno ha deciso (`decided`: la card

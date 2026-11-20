@@ -198,6 +198,8 @@ export const LIVE_ALERT_TYPES: readonly string[] = [
   "server.diagnosis_ready",
   // Area 10, F5 (72): un ingresso in un progetto (putProjectMember, invito accettato).
   "member.added",
+  // Area 11, F2: la menzione in un commento della doc di prodotto (addProductComment).
+  "product_doc.mention",
 ];
 
 export const alertTypeOf = (kind: string): AlertType | undefined =>

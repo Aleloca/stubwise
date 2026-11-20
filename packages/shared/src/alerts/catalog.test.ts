@@ -91,7 +91,8 @@ describe("area 11, F2: la doc di prodotto (N-1 = a)", () => {
     }
   });
 
-  it("aggiornamento e domanda non sono vivi in F2 (i produttori arrivano con F5)", () => {
+  it("la menzione è viva (il suo produttore è il commento); aggiornamento e domanda no (i produttori arrivano con F5)", () => {
+    expect(isLiveAlertType("product_doc.mention")).toBe(true);
     expect(isLiveAlertType("product_doc.updated")).toBe(false);
     expect(isLiveAlertType("product_doc.question")).toBe(false);
   });

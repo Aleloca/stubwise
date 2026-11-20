@@ -530,3 +530,11 @@ describe("isAdminOnlyKind", () => {
     }
   });
 });
+
+describe("openUrl, area 11 F2: la doc di prodotto", () => {
+  it("apre la pagina nell'app nuova dai codici; senza PUBLIC_URL niente link", () => {
+    const mention = sampleEvents("https://app.example.com").find((e) => e.kind === "product_doc.mention")!;
+    expect(openUrl(mention, "https://app.example.com/")).toBe("https://app.example.com/app/#/p/NEG/docs/product/NEG-D12");
+    expect(openUrl(mention)).toBe("");
+  });
+});

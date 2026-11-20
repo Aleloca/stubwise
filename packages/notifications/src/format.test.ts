@@ -1650,6 +1650,12 @@ describe("area 11, F2: gli eventi della doc di prodotto", () => {
     }
   });
 
+  it("senza il nome di chi ha scritto (chi legge non lo vede) la frase non nomina nessuno", () => {
+    const event = { ...mention, authorName: "" } as NotificationEvent;
+    expect(formatNotificationText(event, "it")).toContain("Ti hanno menzionato in un commento su NEG-D12");
+    expect(formatNotificationText(event, "en")).toContain("You were mentioned in a comment on NEG-D12");
+  });
+
   it("su Slack il nome di chi ha scritto è escapato (lo sceglie una persona)", () => {
     const event = { ...mention, authorName: "A & <b>" } as NotificationEvent;
     const { body } = formatNotification(event, "slack");
