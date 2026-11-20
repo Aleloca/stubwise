@@ -5640,3 +5640,24 @@ deploy o di un rollback che la tocca.
   ```
   Il valore dell'enum resta (Postgres non lo toglie): è innocuo. Il caddy
   scende insieme al server.
+
+- **«Integrazione area 10, F8: «/status» e «/today»»** *(20 nov 2026)*:
+  branch `feat/area10-f8` (da `feat/area10-f5`, con
+  `feat/integrazione-area10` dentro), piano
+  `docs/plans/2026-11-20-integrazione-area10-f8-plan.md`.
+  - `GET /api/tasks` accetta `assigneeIds=me` (additivo, il server lo
+    risolve su chi chiede); l'elenco delle decisioni porta `taskCode`
+    (additivo, `.optional()`).
+  - L'allowlist del token del turno si allarga a `/api/me/follows`,
+    `/api/projects/pulse` e `/api/decisions` (solo il GET dell'elenco: la
+    risposta a una decisione resta 403). Del polso il ponte non passa i
+    titoli né il `stalled` (decisione del maintainer, 20 nov 2026): il fermo
+    viene da `/api/tasks/stalled`, le soglie dei progetti.
+  - Due tool nuovi del worker: `read_followed_projects` («/status») e
+    `read_my_week` («/today»).
+  - Nessuna migrazione, nessuna env, nessun `notification_kind`.
+
+  **ORDINE**: **server**, poi **worker**, poi **caddy**. **Rollback**:
+  sicuro. Un worker vecchio non ha i tool; un server vecchio rifiuta
+  `assigneeIds=me` con 400 e il token sulle rotte nuove con 403, e il tool lo
+  dice; un client che non legge `taskCode` lo scarta.

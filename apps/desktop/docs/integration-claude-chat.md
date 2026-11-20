@@ -265,6 +265,20 @@ al modello solo i campi in ALLOWLIST.
 | Nell'invito accettato l'attore è chi accetta: la card va ai gestori, non a lui | orchestratrice |
 | Il full admin dell'istanza riceve la card come gestore di ogni progetto | costruttore (come gli altri tipi del catalogo) |
 
+## Area 10, F8 — «/status» e «/today» (server e worker; i comandi sono di 94)
+
+| Voce | Dove vive | Rotta / pezzo | Test |
+|---|---|---|---|
+| `assigneeIds=me` nella lista delle task, risolto dal server su chi chiede | `services/task-view.ts` (`taskFilterConditions`), shared `task-view.ts` | `GET /api/tasks` | `tasks.read.test.ts` |
+| Il codice della task nell'elenco delle decisioni | `services/decisions.ts` (`listDecisions`) | `GET /api/decisions` (`taskCode`, additivo) | `decisions.test.ts` |
+| «/today»: le decisioni che aspettano chi scrive e le sue task aperte | `claude-chat/bridge.ts` (`read_my_week`, `myWeekResult`), `prompts.ts` (`STATUS_AND_TODAY_RULE`) | `GET /api/decisions?askedOfId=me&open=true`, `GET /api/tasks?assigneeIds=me` | `bridge.test.ts`, `prompts.test.ts`, `chat-tool-token.test.ts`; golden `chat-today` |
+| «/status»: seguiti, polso (senza titoli né `stalled`), task ferme con le soglie, codici | `claude-chat/bridge.ts` (`read_followed_projects`, `followedProjectsResult`) | `GET /api/me/follows`, `GET /api/projects/pulse`, `GET /api/tasks/stalled` | `bridge.test.ts`, `chat-tool-token.test.ts`; golden `chat-status` |
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| Il polso entra nelle letture di Claude, ma il suo fermo no: il fermo è quello delle soglie (F3) | maintainer (20 nov 2026) |
+| `me` nella lista delle task invece di dare al ponte l'id di chi scrive (`/api/auth/me` resta fuori: dà la sessione intera) | costruttore (ruling del piano) |
+
 ## Rimandate
 
 | Voce | Fetta |

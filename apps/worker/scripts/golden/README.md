@@ -111,6 +111,15 @@ il modello vero.
   `projectId` e il ponte le scartava, quindi il modello ha detto (giusto)
   «niente di fermo». La fixture ora sta in `fixtures-area10.ts` con un test
   che la fa passare da `stalledProjects`; il giro va rifatto con corse nuove.
+  Dalla F4 anche `chat-s4-archive` (archiviare in blocco: UNA proposta coi
+  soli candidati), dalla F5 `chat-s5-member` (`addMember` coi membri e i
+  ruoli del progetto) e dalla F8 `chat-today` («/today»: cita la decisione
+  aperta AUD-12 e la task in ritardo AUD-7) e `chat-status` («/status»: cita
+  AUD-12 e il fermo delle soglie AUD-7, MAI AUD-31, il fermo del polso che il
+  ponte toglie; check `mustNotMention`). **Esito del 20 nov 2026** (CLI
+  2.1.322, 12 corse autorizzate dal maintainer): `chat-s2-stalled` (con la
+  fixture corretta), `chat-s4-archive`, `chat-s5-member` e `chat-today` 3/3
+  verdi. `chat-status` scritto, non ancora lanciato.
   Dalla F2 dell'area 8 (S7, azione `setSubscription`) anche
   `chat-subscription` (3 volte): «non avvisarmi più delle PR aperte in AUD»
   → UNA proposta `setSubscription {projectId, type: "pr.opened", app:

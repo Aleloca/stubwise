@@ -1359,6 +1359,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   progetto e a chi ne gestisce i membri (D-11 = b), mai a chi ha agito, con
   «Undone by» derivato dal registro.
 
+- **Chiuse con F8 (20 nov 2026)**: «/status» (seguiti, polso senza il suo
+  fermo, task ferme con le soglie dei progetti) e «/today» (le decisioni che
+  aspettano chi scrive e le sue task aperte, `assigneeIds=me`). Restano
+  aperti, come dice il design: le citazioni registrate sui messaggi della
+  conversazione (anche quelle di file, area 5 D6, sopra) e gli allegati
+  (`claude-attachments`).
+
 ## Area 11 — Documentazione di prodotto
 
 - Origine di una richiesta dalla documentazione di prodotto.
