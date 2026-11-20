@@ -126,6 +126,10 @@ const AUDIENCE_FOR_KIND: Record<NotificationKind, Audience> = {
   "support.request": "deciders",
   // Area 10, F5: un avviso del catalogo (sempre con un progetto); il routing di oggi non serve.
   "member.added": "deciders",
+  // Area 11, F2: avvisi del catalogo (sempre con un progetto); `deciders` non è mai consultato.
+  "product_doc.mention": "deciders",
+  "product_doc.updated": "deciders",
+  "product_doc.question": "deciders",
   // Area 8, F4b: nel catalogo (le iscrizioni); `deciders` non è mai consultato.
   "server.diagnosis_ready": "deciders",
   // La domanda dell'AI è rivolta a chi ha chiesto quel lavoro: chi segue il
@@ -228,6 +232,9 @@ export const PERMISSION_FOR_KIND: Record<NotificationKind, KindPermission> = {
   "docs.release_note": null,
   "support.request": null,
   "member.added": null,
+  "product_doc.mention": null,
+  "product_doc.updated": null,
+  "product_doc.question": null,
   "server.diagnosis_ready": null,
   "docs.limit_paused": "settings.manage",
   "docs.nightly_attention": "settings.manage",

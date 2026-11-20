@@ -69,6 +69,34 @@ describe("il default come dato", () => {
   });
 });
 
+describe("area 11, F2: la doc di prodotto (N-1 = a)", () => {
+  it("tre righe nella famiglia Docs, tutte con un notification_kind, solo per chi legge i Docs", () => {
+    for (const kind of ["product_doc.mention", "product_doc.updated", "product_doc.question"]) {
+      const t = alertTypeOf(kind)!;
+      expect(t.group, kind).toBe("docs");
+      expect(t.seePerm, kind).toBe("docs.view");
+      expect(KINDS.has(kind), kind).toBe(true);
+    }
+  });
+
+  it("la menzione è SOLO obbligatoria (motivo `mentioned`), col Telefono acceso", () => {
+    expect(alertTypeOf("product_doc.mention")).toMatchObject({ mandatoryOnly: true, mandatory: ["mentioned"], defaultPhone: true });
+  });
+
+  it("aggiornamento e domanda: ci si iscrive con docs.view, accesi di partenza per docs.edit, `follower` obbligatorio, Telefono spento", () => {
+    for (const kind of ["product_doc.updated", "product_doc.question"]) {
+      const t = alertTypeOf(kind)!;
+      expect(t, kind).toMatchObject({ subscribe: { perm: "docs.view" }, defaultOn: { perm: "docs.edit" }, mandatory: ["follower"], defaultPhone: false });
+      expect(t.mandatoryOnly, kind).toBeUndefined();
+    }
+  });
+
+  it("aggiornamento e domanda non sono vivi in F2 (i produttori arrivano con F5)", () => {
+    expect(isLiveAlertType("product_doc.updated")).toBe(false);
+    expect(isLiveAlertType("product_doc.question")).toBe(false);
+  });
+});
+
 describe("le righe delle Preferenze", () => {
   it("i kind di prima confluiti stanno nella riga del tipo nuovo, che li scrive insieme", () => {
     expect(rowTypeOf("monitor.alert")).toBe("server.trouble");

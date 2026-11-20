@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isAutomationEvent,
+  isProductDocEvent,
   formatNotification,
   formatNotificationText,
   isReviewFailedEvent,
@@ -1366,6 +1367,9 @@ describe("sampleEvents", () => {
       "planning.changed",
       "task.assigned",
       "member.added",
+      "product_doc.mention",
+      "product_doc.updated",
+      "product_doc.question",
       "chat.mention",
       "chat.question",
       "automation.approval",
@@ -1412,6 +1416,7 @@ describe("sampleEvents", () => {
         event.kind === "planning.changed" ||
         event.kind === "task.assigned" ||
         event.kind === "member.added" ||
+        isProductDocEvent(event) ||
         event.kind === "chat.mention" ||
         event.kind === "chat.question" ||
         isAutomationEvent(event)
@@ -1626,5 +1631,28 @@ describe("gli avvisi di Support (area 8, F3)", () => {
     expect(named).toContain("NEG-R14");
     const anon = formatNotificationText({ kind: "support.request", projectId: P, requestCode: "NEG-R14", title: "Export PDF", customerName: null, url: "https://x/app/#/p/NEG/requests" }, "it");
     expect(anon).toContain("Visitatore anonimo");
+  });
+});
+
+describe("area 11, F2: gli eventi della doc di prodotto", () => {
+  const mention = sampleEvents("https://app.example.com").find((e) => e.kind === "product_doc.mention")!;
+
+  it("la frase della menzione nomina chi ha scritto e il codice della pagina, nelle due lingue", () => {
+    expect(formatNotificationText(mention, "it")).toContain("Ada Lovelace ti ha menzionato in un commento su NEG-D12");
+    expect(formatNotificationText(mention, "en")).toContain("Ada Lovelace mentioned you in a comment on NEG-D12");
+  });
+
+  it("nel jsonb solo id, codici e il nome di chi ha scritto: mai il testo della pagina o del commento", () => {
+    expect(Object.keys(mention).sort()).toEqual(["authorName", "authorUserId", "commentId", "kind", "pageCode", "pageId", "projectCode", "projectId"]);
+    for (const kind of ["product_doc.updated", "product_doc.question"] as const) {
+      const e = sampleEvents("https://app.example.com").find((x) => x.kind === kind)!;
+      expect(Object.keys(e).filter((k) => /title|body|text|quote|excerpt/i.test(k)), kind).toEqual([]);
+    }
+  });
+
+  it("su Slack il nome di chi ha scritto è escapato (lo sceglie una persona)", () => {
+    const event = { ...mention, authorName: "A & <b>" } as NotificationEvent;
+    const { body } = formatNotification(event, "slack");
+    expect(JSON.stringify(body)).toContain("A &amp; &lt;b&gt;");
   });
 });

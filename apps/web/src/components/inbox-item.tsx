@@ -73,6 +73,10 @@ export const INBOX_KIND_LABEL_KEYS: Record<InboxItem["kind"], string> = {
   "task.assigned": "inbox:kinds.taskAssigned",
   // Area 10, F5: una persona entrata in un progetto (la card vera è dell'app nuova).
   "member.added": "inbox:kinds.memberAdded",
+  // Area 11, F2: la doc di prodotto (la card vera è dell'app nuova).
+  "product_doc.mention": "inbox:kinds.productDocMention",
+  "product_doc.updated": "inbox:kinds.productDocUpdated",
+  "product_doc.question": "inbox:kinds.productDocQuestion",
   "chat.mention": "inbox:kinds.chatMention",
   "chat.question": "inbox:kinds.chatQuestion",
   // Area 7: le card delle Automations (si aprono nell'app nuova).

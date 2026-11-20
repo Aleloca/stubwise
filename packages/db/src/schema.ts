@@ -1945,6 +1945,10 @@ export const notificationKind = pgEnum("notification_kind", [
   "server.diagnosis_ready",
   // Area 10, F5 (0200).
   "member.added",
+  // Area 11, F2 (0203).
+  "product_doc.mention",
+  "product_doc.updated",
+  "product_doc.question",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),

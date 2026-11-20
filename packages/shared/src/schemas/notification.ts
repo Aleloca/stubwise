@@ -85,6 +85,11 @@ export const notificationKindSchema = z.enum([
   // Area 10, F5 (0200, D-11 = b): una persona entra in un progetto. Alla persona
   // (obbligatorio) e a chi gestisce i membri (iscrizione), mai a chi ha agito.
   "member.added",
+  // Area 11, F2 (0203, N-1 = a): la doc di prodotto nel catalogo degli avvisi. La
+  // menzione è solo obbligatoria; `updated` e `question` le produce F5.
+  "product_doc.mention",
+  "product_doc.updated",
+  "product_doc.question",
 ]);
 
 /**
