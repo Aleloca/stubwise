@@ -1365,6 +1365,7 @@ describe("sampleEvents", () => {
       "ticket.activity",
       "planning.changed",
       "task.assigned",
+      "member.added",
       "chat.mention",
       "chat.question",
       "automation.approval",
@@ -1410,6 +1411,7 @@ describe("sampleEvents", () => {
         event.kind === "ticket.activity" ||
         event.kind === "planning.changed" ||
         event.kind === "task.assigned" ||
+        event.kind === "member.added" ||
         event.kind === "chat.mention" ||
         event.kind === "chat.question" ||
         isAutomationEvent(event)

@@ -9,7 +9,7 @@
 // decisioni, la Chat, le Automazioni, e (S-4) tutti i kind di oggi che
 // un'area non ha ancora portato qui. Nessuna tabella: è codice.
 
-export type AlertGroup = "prs" | "releases" | "docs" | "tasks" | "support" | "monitor" | "claude";
+export type AlertGroup = "prs" | "releases" | "docs" | "tasks" | "members" | "support" | "monitor" | "claude";
 
 /** Le famiglie nell'ordine in cui si mostrano. */
 export const ALERT_GROUPS: readonly AlertGroup[] = [
@@ -17,6 +17,8 @@ export const ALERT_GROUPS: readonly AlertGroup[] = [
   "releases",
   "docs",
   "tasks",
+  // Area 10, F5: chi entra in un progetto (dopo le task, come nel prototipo).
+  "members",
   "support",
   "monitor",
   "claude",
@@ -29,7 +31,9 @@ export type MandatoryReason =
   | "task_author"
   | "assignee"
   /** Area 8, F4b: chi ha chiesto un'analisi a mano ne riceve SEMPRE l'esito (decisione del maintainer, 15 nov 2026). */
-  | "analysis_requester";
+  | "analysis_requester"
+  /** Area 10, F5 (D-11 = b): la persona aggiunta a un progetto riceve SEMPRE `member.added`. */
+  | "added";
 
 /**
  * Il valore di partenza («App») per un membro che non ha toccato niente, dai
@@ -138,6 +142,10 @@ export const ALERT_TYPES: readonly AlertType[] = [
     appDefaultOn: { perm: "monitor.manage" },
   }),
   row("job.failed", "claude", "member", "members", false),
+  // Area 10, F5 (D-11 = b, maintainer): alla persona aggiunta (obbligatorio) e a
+  // chi gestisce i membri del progetto (iscrizione, acceso di partenza,
+  // spegnibile); mai a chi ha fatto l'ingresso (`exclude` del produttore).
+  row("member.added", "members", "project.members.manage", { perm: "project.members.manage" }, false, ["added"]),
   row("project.brief", "claude", "member", "members", false),
   serverRow("server.trouble", true),
   serverRow("server.down", true, { sameRowAs: "server.trouble" }),

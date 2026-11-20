@@ -154,6 +154,7 @@ const CATALOG_FOR_KIND: Record<
   "pr.corrected": { decisions: [], permission: null, archivable: true },
   "docs.release_note": { decisions: [], permission: null, archivable: true },
   "support.request": { decisions: [], permission: null, archivable: true },
+  "member.added": { decisions: [], permission: null, archivable: true },
   "server.diagnosis_ready": { decisions: [], permission: null, archivable: true },
   "monitor.recovered": { decisions: [], permission: null, archivable: true },
   // NON archiviabile di proposito: la domanda dell'agente si chiude solo
@@ -503,6 +504,9 @@ export function openUrl(event: NotificationEvent, publicUrl?: string): string {
     case "chat.mention":
     case "chat.question":
       return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/app/#/chat/${event.channelId}?message=${event.chatMessageId}` : "";
+    // Area 10, F5: i membri del progetto nell'app nuova (DERIVATO, nessun URL nel jsonb).
+    case "member.added":
+      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/app/#/projects/${event.projectId}/members` : "";
     // Area 7: l'automazione (o l'esecuzione) nell'app nuova.
     case "automation.approval":
     case "automation.failed":

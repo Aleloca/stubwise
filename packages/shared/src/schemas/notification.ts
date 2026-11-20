@@ -82,6 +82,9 @@ export const notificationKindSchema = z.enum([
   "support.request",
   // Area 8, fetta 4b (0181): la diagnosi dell'analisi di un server, nel catalogo degli avvisi.
   "server.diagnosis_ready",
+  // Area 10, F5 (0200, D-11 = b): una persona entra in un progetto. Alla persona
+  // (obbligatorio) e a chi gestisce i membri (iscrizione), mai a chi ha agito.
+  "member.added",
 ]);
 
 /**

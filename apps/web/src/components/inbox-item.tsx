@@ -71,6 +71,8 @@ export const INBOX_KIND_LABEL_KEYS: Record<InboxItem["kind"], string> = {
   // Fetta 2: pianificazione cambiata da altri, task ricevuta da altri.
   "planning.changed": "inbox:kinds.planningChanged",
   "task.assigned": "inbox:kinds.taskAssigned",
+  // Area 10, F5: una persona entrata in un progetto (la card vera è dell'app nuova).
+  "member.added": "inbox:kinds.memberAdded",
   "chat.mention": "inbox:kinds.chatMention",
   "chat.question": "inbox:kinds.chatQuestion",
   // Area 7: le card delle Automations (si aprono nell'app nuova).
