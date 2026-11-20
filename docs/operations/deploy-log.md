@@ -5769,3 +5769,45 @@ deploy o di un rollback che la tocca.
   - La pulizia oraria dello storage toglie le immagini che nessun blocco nomina
     da 7 giorni (`purgeUnusedProductImages`); un server vecchio non lo fa.
 
+
+- **«Integrazione area 11, F2: commenti, menzioni e le notifiche nel
+  catalogo»** *(20 nov 2026)*: branch `feat/area11-f2` (da `feat/area11-f1`),
+  piano `docs/plans/2026-11-20-integrazione-area11-f2-plan.md`.
+  - Migrazione **0203** (`product_doc_notifications`): tre valori nuovi di
+    `notification_kind` (`product_doc.mention`, `product_doc.updated`,
+    `product_doc.question`), ognuno in uno statement a sé e mai usato nello
+    stesso batch. Solo `product_doc.mention` ha un produttore: gli altri due li
+    produce F5.
+  - Migrazione **0204** (`product_comments`): i commenti delle pagine di
+    prodotto, con la CHECK del testo eliminato (`deleted_at IS NULL OR body =
+    ''`).
+  - Rotte nuove sotto `/api`: i fili di una pagina (`GET`/`POST
+    /product-pages/:id/comments`), «Resolve»/«Reopen» (`POST
+    /product-comments/:id/resolve|reopen`), i candidati alle menzioni (`GET
+    /projects/:projectId/product/mention-candidates`). Sulle card d'inbox, il
+    campo additivo `productDoc` (derivato a lettura).
+  - Nessuna env, nessun permesso nuovo. Nel catalogo degli avvisi tre righe
+    nella famiglia Docs: la menzione è solo obbligatoria (nessun
+    interruttore), aggiornamento e domanda accesi di partenza per chi ha
+    `docs.edit`.
+
+  **ORDINE**: **server** (healthy, 0203 e 0204 applicate), poi **caddy** (il
+  renderer di 94). Il worker non c'entra.
+
+  **Rollback**: ⚠️ **NON sicuro sul server finché esistono righe di uno dei
+  tre kind** (`/api/inbox` va in 500: il server vecchio non conosce il
+  `kind`). Oggi può esisterne solo `product_doc.mention`, ma la query li
+  copre tutti e tre, così vale anche dopo F5:
+
+  ```sql
+  select kind, count(*) from notifications
+   where kind in ('product_doc.mention', 'product_doc.updated', 'product_doc.question')
+   group by kind;
+  delete from notifications
+   where kind in ('product_doc.mention', 'product_doc.updated', 'product_doc.question');
+  ```
+
+  Tolte quelle righe, la discesa è possibile. Il caddy scende **insieme** al
+  server. Le migrazioni non si annullano: valori d'enum e `product_comments`
+  restano, e un server vecchio li ignora. I commenti scritti restano nella
+  tabella e tornano visibili quando si risale.

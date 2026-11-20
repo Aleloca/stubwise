@@ -114,6 +114,8 @@ function toInboxItemView(item: ServiceInboxItem): InboxItem {
     chat: item.chat ?? null,
     // Area 7: lo stato dell'esecuzione di una card `automation.*`, derivato dal servizio.
     automation: item.automation ?? null,
+    // Area 11, F2: la pagina e il commento di una menzione nella doc di prodotto, derivati a lettura.
+    productDoc: item.productDoc ?? null,
     jobId: item.jobId,
     createdAt: item.createdAt.toISOString(),
     readAt: item.readAt?.toISOString() ?? null,

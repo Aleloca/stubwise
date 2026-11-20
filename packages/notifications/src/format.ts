@@ -1572,6 +1572,8 @@ export const isDirectMessageEvent = (event: NotificationEvent): boolean =>
   (event.kind === "chat.mention" || event.kind === "chat.question") && event.channelName === "";
 
 function templateKey(event: NotificationEvent): string {
+  // Area 11, F2: chi ha scritto non si nomina (chi legge non lo vede, R-G5: il nome lo deriva l'inbox).
+  if (event.kind === "product_doc.mention" && event.authorName === "") return "notify.productDocMention.anonymous";
   if (isDirectMessageEvent(event)) {
     return event.kind === "chat.question" ? "notify.chatQuestion.dm" : "notify.chatMention.dm";
   }
