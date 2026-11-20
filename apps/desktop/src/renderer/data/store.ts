@@ -316,6 +316,7 @@ export type ApiFnName =
   | "getConversation"
   | "describeContext"
   | "getClaudeSuggestion"
+  | "dismissClaudeSuggestion"
   | "contextIdOf"
   | "openRoutes"
   | "canRecordDecisions"

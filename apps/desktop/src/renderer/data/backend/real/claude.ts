@@ -1,5 +1,6 @@
 import { ApiError } from "@stubwise/api-client";
 import { asideEventsOf } from "./claudeAsides";
+import { capabilitiesEventsOf } from "./claudeCapabilities";
 import { hasQuestionEvents, questionEventsOf, readQuestions } from "./claudeQuestions";
 import { withSettledTrialEvents } from "./claudeTrial";
 import {
@@ -558,7 +559,13 @@ async function readConversation(
     // Area 10, F2: le domande a scelta, nel punto dei loro eventi.
     const extra = await withSettledTrialEvents(
       // Area 10, F3: «Hypothesis» e «Details» sotto la risposta di S2.
-      [...chatActionEvents(events, actions), ...questionEventsOf(events, questions), ...asideEventsOf(events)],
+      // Area 10, F7: «cosa sai fare» (S0), l'evento `capabilities` del ponte.
+      [
+        ...chatActionEvents(events, actions),
+        ...questionEventsOf(events, questions),
+        ...asideEventsOf(events),
+        ...capabilitiesEventsOf(events),
+      ],
       actions.groups,
       isConversationOwner(id),
     );

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as api from "@backend/api";
 import { featureIntegrated } from "../integration";
 import { useConversationChanges, useSessionPersonId } from "../queries";
@@ -56,5 +56,22 @@ export function useClaudeSuggestion(place: api.SuggestionPlace | null) {
       previousQuery?.queryKey[1] === me && previousQuery.queryKey[4] === placeKey
         ? previous
         : undefined,
+  });
+}
+
+/**
+ * «Not now» (area 10, F7): nella build app lo salva il server, per persona e
+ * per oggetto; poi la riga si rilegge (il server la dà `null`). Nel prototipo
+ * non scrive niente: lo ricorda la riga in `localStorage` ([SG 7]).
+ */
+export function useDismissClaudeSuggestion() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: { place: api.SuggestionPlace; kind: api.ClaudeSuggestion["id"] }) =>
+      api.dismissClaudeSuggestion(vars.place, vars.kind),
+    onSettled: () =>
+      client.invalidateQueries({
+        predicate: (q) => q.queryKey[3] === "claudeSuggestion",
+      }),
   });
 }

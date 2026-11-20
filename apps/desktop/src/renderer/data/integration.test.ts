@@ -244,6 +244,8 @@ describe("isIntegrated", () => {
         "feature:claude-chat-actions",
         // Fetta 5 della chat: le pubbliche e la continuazione.
         "feature:claude-public",
+        // Area 10, F7: «Claude can help you…».
+        "feature:claude-suggestions",
         // Fetta 3.0 della chat: «Elimina task».
         "feature:task-delete",
         // Area 4, fetta 1: la Chat fra persone (le fette dopo restano spente).

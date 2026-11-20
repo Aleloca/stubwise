@@ -933,6 +933,19 @@ export async function getClaudeSuggestion(
 }
 
 /**
+ * «Not now» della riga (area 10, F7): nel prototipo lo ricorda la riga in
+ * `localStorage`, per persona e per oggetto ([SG 7]); nella build app il
+ * server (`POST /api/claude/suggestions/dismiss`). Qui non scrive niente.
+ */
+export async function dismissClaudeSuggestion(
+  place: SuggestionPlace,
+  kind: ClaudeSuggestion["id"],
+): Promise<void> {
+  void [place, kind];
+  await gate("dismissClaudeSuggestion");
+}
+
+/**
  * L'id dell'oggetto che l'indirizzo nomina col codice (`?task=ACQ-3`,
  * `/automations/AUD-A1`), per il riferimento del chip; `null` se chi guarda
  * non lo vede o non esiste.

@@ -3,9 +3,11 @@ import { useTranslation } from "react-i18next";
 import {
   suggestionKeyOf,
   useClaudeSuggestion,
+  useDismissClaudeSuggestion,
   useSessionPersonId,
   type SuggestionPlace,
 } from "../data/queries";
+import { isAppBuild } from "../data/build";
 import { onStoreReset } from "@backend/runtime";
 import { openClaudePanel } from "../layout/claudePanel/panelEvents";
 
@@ -17,7 +19,9 @@ import { openClaudePanel } from "../layout/claudePanel/panelEvents";
 // inviata: Invio resta della persona. Se c'è e quale la decide il livello
 // dati (`useClaudeSuggestion`); qui solo «Not now», che si ricorda per
 // persona e per oggetto in `localStorage` ([SG 7]) e, senza archivio, vale
-// fino al prossimo ingresso nella pagina.
+// fino al prossimo ingresso nella pagina. Nella build app (area 10, F7) lo
+// ricorda il SERVER (`dismissClaudeSuggestion`), e `localStorage` non entra:
+// la riga si nasconde subito e si rilegge.
 
 const PREFIX = "stubwise.claudeSuggestion.";
 /** La durata del richiudersi: `--duration-fast` (0 con movimento ridotto). */
@@ -27,6 +31,7 @@ const storageKey = (me: string, place: SuggestionPlace) =>
   `${PREFIX}${me}.${suggestionKeyOf(place)}`;
 
 function storedHidden(key: string): boolean {
+  if (isAppBuild()) return false;
   try {
     return window.localStorage.getItem(key) !== null;
   } catch {
@@ -104,6 +109,7 @@ export function ClaudeSuggestionRow({
   const { t } = useTranslation();
   const me = useSessionPersonId();
   const suggestion = useClaudeSuggestion(place).data ?? null;
+  const dismiss = useDismissClaudeSuggestion();
   const key = place ? storageKey(me, place) : null;
   // «Not now» di questo ingresso nella pagina: vale anche senza archivio.
   const [dismissed, setDismissed] = useState<string | null>(null);
@@ -129,7 +135,8 @@ export function ClaudeSuggestionRow({
   const open = () =>
     openClaudePanel({ draft: t(suggestion.promptKey, params), fresh: true, mode: "open" });
   const notNow = () => {
-    storeHidden(key);
+    if (isAppBuild()) dismiss.mutate({ place: place!, kind: suggestion.id });
+    else storeHidden(key);
     if (row.current) focusAfter(row.current);
     setDismissed(key);
   };

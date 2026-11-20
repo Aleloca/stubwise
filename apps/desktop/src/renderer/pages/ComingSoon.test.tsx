@@ -110,6 +110,10 @@ beforeEach(() => {
  * altra chiamata, nella build app vera, sarebbe uno stub «non integrato».
  */
 const INTEGRATED_CALLS = new Set([
+  // Area 10, F7: la riga «Claude can help you…» e il suo «Not now», dal server.
+  "suggestionKeyOf",
+  "getClaudeSuggestion",
+  "dismissClaudeSuggestion",
   // Area 9, F1, R4a: Preferenze → Account.
   "me.getMyProfile",
   "me.updateProfile",

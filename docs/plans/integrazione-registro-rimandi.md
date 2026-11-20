@@ -61,8 +61,8 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
     nella build app (solo le citazioni registrate, che il server non
     registra): R-G5 regge per costruzione, ma neanche l'autrice apre un
     codice citato dalla prosa.
-- «Claude can help you…» (suggerimenti nelle pagine) e le citazioni
-  registrate sui messaggi (oggi solo i codici nel testo) *(O)*. Menzioni,
+- Le citazioni registrate sui messaggi (oggi solo i codici nel testo)
+  *(O)*. ✅ *«Claude can help you…»: area 10, F7 (sotto).* Menzioni,
   riquadro come chat e ⌘J/⌘K: chiuse (sotto).
 - Azioni delle altre aree: entrano **con la loro area** (sotto) *(O)*.
 - **Limiti della fetta 5 (server e worker)** *(S, stubwise-72, 10 nov 2026)*:
@@ -1377,6 +1377,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   dai permessi veri, evento `capabilities` scritto dal worker) e le righe
   «Claude can help you…» (`claude-suggestions`, quattro pagine: PR,
   Automations, Overview, Usage) col «Not now» per persona e per oggetto.
+  Renderer (94): `claude-suggestions` acceso; la riga è quella del server,
+  senza `can()`; nella build app «Not now» va solo al server (niente
+  `localStorage`, che resta del prototipo). La lista delle capacità è quella
+  del prototipo, con gli id ignoti saltati.
 - Le capacità della doc di prodotto (`productFirstVersion`, `productUpdate`,
   `productBacklog`, `productWireframe`, `productChanges`) arrivano con
   l'area 11 (F7-1 = a, maintainer): il server non le manda, il renderer salta

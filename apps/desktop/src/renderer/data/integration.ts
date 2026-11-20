@@ -216,10 +216,11 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Fetta 3c: il refinement delle richieste («Refine with Claude»).
     "refine",
     // Chat con Claude, fetta 2: le conversazioni libere PRIVATE («Mine»,
-    // «New», N) e, sotto, il riquadro. Restano spente la riga «Claude can
-    // help you…» (`claude-suggestions`) e le domande della doc di prodotto
-    // (`product-docs`).
+    // «New», N) e, sotto, il riquadro. Restano spente le domande della doc
+    // di prodotto (`product-docs`).
     "claude-chat",
+    // Area 10, F7: la riga «Claude can help you…» e il suo «Not now», decisi dal server.
+    "claude-suggestions",
     // Fetta 3.0 della chat: «Elimina task», a mano dal menu «⋯» della task.
     "task-delete",
     // Fetta 2 della chat, il riquadro (⌘J, ⌘K «Ask Claude…») col chip del contesto.

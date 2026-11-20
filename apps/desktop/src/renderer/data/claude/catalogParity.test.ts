@@ -14,12 +14,13 @@ import { CLAUDE_CATALOG, isCatalogFn } from "./catalog";
 // allegati, come l'URL di un webhook).
 
 describe("il catalogo di Claude: prototipo e server", () => {
-  it("ogni voce che il server propone c'è nel prototipo, tranne le due che lì passano da un'altra strada", () => {
-    // `pageAction` (le azioni della pagina, D3: le esegue il renderer) e
-    // `fillMailBody` (il corpo della bozza Gmail): nel prototipo non sono del
-    // catalogo, le fa la pagina o la Posta.
+  it("ogni voce che il server propone c'è nel prototipo, tranne le tre che lì passano da un'altra strada", () => {
+    // `pageAction` (le azioni della pagina, D3: le esegue il renderer),
+    // `fillMailBody` (il corpo della bozza Gmail) e, dall'area 10 F6,
+    // `fillField` (la bozza nel campo: nel prototipo è l'evento `draft`): nel
+    // prototipo non sono del catalogo, le fa la pagina o la Posta.
     expect(CLAUDE_PROPOSABLE_FNS.filter((fn) => !isCatalogFn(fn)).sort()).toEqual(
-      ["fillMailBody", "pageAction"].sort(),
+      ["fillField", "fillMailBody", "pageAction"].sort(),
     );
   });
 
