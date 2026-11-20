@@ -82,7 +82,11 @@ describe("Sign-in: la modifica dall'email di Laura", () => {
       (n) => n.kind === "product_doc.updated" && n.productUpdate?.pageId === PAGE.signIn,
     );
     expect(cards).toHaveLength(1);
-    expect([...cards[0]!.recipientIds].sort()).toEqual([LAURA, MARCO]);
+    // Chi segue la pagina la riceve da obbligatorio (motivo `follower`, N-1 = a); i destinatari si calcolano a lettura.
+    expect(cards[0]!.mandatory?.map((m) => [m.personId, m.reason]).sort()).toEqual([
+      [LAURA, "follower"],
+      [MARCO, "follower"],
+    ]);
     expect(cards[0]!.productUpdate).toEqual({
       pageId: PAGE.signIn,
       revisionIds: ["prev-acq11b-signin"],
@@ -242,13 +246,16 @@ describe("Phases: le richieste nate dalla doc", () => {
 });
 
 describe("le card del 11b", () => {
-  it("vanno a chi riceve gli avvisi della pagina (`productDocRecipients`), mai a Claude", () => {
+  it("vanno da obbligatorio a chi segue la pagina, dentro chi riceve gli avvisi (`productDocRecipients`), mai a Claude", () => {
     const cards = state.notifications.filter((n) => n.id.startsWith("n-acq11b-"));
     expect(cards).toHaveLength(5);
     for (const n of cards) {
       const pageId = n.productUpdate?.pageId ?? n.productQuestion!.pageId;
-      expect([...n.recipientIds].sort(), n.id).toEqual([...productDocRecipients(pageId)].sort());
-      expect(n.recipientIds).not.toContain(CLAUDE_ID);
+      const mandatory = (n.mandatory ?? []).map((m) => m.personId);
+      expect(mandatory.length, n.id).toBeGreaterThan(0);
+      expect(n.mandatory?.every((m) => m.reason === "follower"), n.id).toBe(true);
+      for (const id of mandatory) expect(productDocRecipients(pageId, n.kind as "product_doc.updated"), n.id).toContain(id);
+      expect(mandatory).not.toContain(CLAUDE_ID);
     }
   });
 });
