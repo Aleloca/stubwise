@@ -70,6 +70,8 @@ describe("lo spazio Product", () => {
     expect((s.json() as ProductSpaceView).permissions).toEqual({ edit: false });
     const view = (await inject(reader, "GET", `/api/product-pages/by-code/${page.code}`)).json() as ProductPageView;
     expect(view.permissions).toEqual({ edit: false, delete: false });
+    // Il motivo lo dice il server (richiesta di 94): chi legge soltanto non ha il permesso.
+    expect(view.deleteBlockedBy).toBe("permission");
     expect((await inject(reader, "POST", `/api/projects/${projectId}/product/pages`, { title: "No" })).statusCode).toBe(403);
     expect((await inject(reader, "PATCH", `/api/product-pages/${page.id}`, { title: "No" })).statusCode).toBe(403);
     expect((await inject(reader, "DELETE", `/api/product-pages/${page.id}`)).statusCode).toBe(403);
@@ -195,5 +197,17 @@ describe("lo spazio Product", () => {
     await t.db.update(productPages).set({ blocks: [{ id: "blk-rg5", type: "decision", decisionId: d!.id }] }).where(eq(productPages.id, page.id));
     const view = (await inject(reader, "GET", `/api/product-pages/by-code/${page.code}`)).json() as ProductPageView;
     expect(view.decisions[d!.id]).toMatchObject({ title: "Chi?", decidedByName: null });
+  });
+});
+
+describe("deleteBlockedBy (richiesta di 94): perché l'eliminazione è spenta, dal server", () => {
+  it("una pagina con sottopagine: `children` per chi scrive; senza sottopagine: null; chi legge soltanto: `permission`, anche con sottopagine", async () => {
+    const parent = await create("Con figli");
+    await create("Figlio", { parentId: parent.id });
+    const leaf = await create("Foglia");
+    const viewOf = async (who: U, code: string) => (await inject(who, "GET", `/api/product-pages/by-code/${code}`)).json() as ProductPageView;
+    expect(await viewOf(editor, parent.code)).toMatchObject({ permissions: { edit: true, delete: false }, deleteBlockedBy: "children" });
+    expect(await viewOf(editor, leaf.code)).toMatchObject({ permissions: { edit: true, delete: true }, deleteBlockedBy: null });
+    expect((await viewOf(reader, parent.code)).deleteBlockedBy).toBe("permission");
   });
 });
