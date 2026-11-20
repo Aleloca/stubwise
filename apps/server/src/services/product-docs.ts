@@ -6,6 +6,7 @@ import {
   blockChanges,
   canMoveUnder,
   productBlockSchema,
+  productSearchText,
   type ProductBlock,
   type ProductPageRef,
   type ProductPageView,
@@ -295,7 +296,7 @@ export async function createProductPage(
     const first: ProductBlock = { id: newBlockId(), type: "paragraph", content: { text: "", marks: [] } };
     const [page] = await tx
       .insert(productPages)
-      .values({ projectId, parentId, title, blocks: [first], createdBy: viewer.id, updatedBy: viewer.id })
+      .values({ projectId, parentId, title, blocks: [first], searchText: productSearchText(title, [first]), createdBy: viewer.id, updatedBy: viewer.id })
       .returning();
     await tx.insert(productPageBlockIds).values({ pageId: page!.id, blockId: first.id });
     const siblings = await siblingIds(tx, projectId, parentId, page!.id);
@@ -336,7 +337,7 @@ export async function updateProductPage(
     if (input.title !== undefined) {
       const after = cleanTitle(input.title);
       if (after !== page.title) {
-        await tx.update(productPages).set({ title: after, updatedBy: viewer.id, updatedAt: new Date() }).where(eq(productPages.id, pageId));
+        await tx.update(productPages).set({ title: after, searchText: productSearchText(after, readBlocks(page)), updatedBy: viewer.id, updatedAt: new Date() }).where(eq(productPages.id, pageId));
         const seq = await nextRevSeq(tx, pageId);
         await tx.insert(productPageRevisions).values({ pageId, seq, lastSeq: seq, actorId: viewer.id, kind: "rename", title: { before: page.title, after } });
       }

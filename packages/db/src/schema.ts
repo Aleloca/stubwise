@@ -2722,6 +2722,8 @@ export const productPages = pgTable(
     blocks: jsonb("blocks").$type<unknown[]>().notNull().default([]),
     /** La sequenza delle revisioni della pagina (`seq`/`last_seq`, il `baseSeq` del client). */
     revSeq: integer("rev_seq").notNull().default(0),
+    /** Area 11, F3 (0207): titolo e testo semplice già piegati da `productSearchText`, per la ricerca per testo. */
+    searchText: text("search_text").notNull().default(""),
     /** Area 11, F3: l'`updated_at` della versione che ha i chunk di adesso (`product_page_chunks`); null = mai fatti. */
     embeddedAt: timestamp("embedded_at", { withTimezone: true }),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),

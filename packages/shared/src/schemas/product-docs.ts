@@ -257,3 +257,18 @@ export type ProductCommentsView = z.infer<typeof productCommentsSchema>;
 
 /** `GET /api/projects/:projectId/product/mention-candidates`. */
 export const productMentionCandidatesSchema = z.array(z.object({ id: z.uuid(), name: z.string() }));
+
+// --- Area 11, F3: la ricerca -------------------------------------------------
+
+/** Un risultato della ricerca nelle pagine di prodotto (⌘K «In Product»), come `ProductSearchHit` del prototipo. */
+export const productSearchHitSchema = z.object({
+  page: productPageRefSchema,
+  projectCode: z.string(),
+  /** La frase che ha corrisposto: testo semplice, una riga, mai segni né indirizzi. */
+  passage: z.string(),
+});
+export type ProductSearchHit = z.infer<typeof productSearchHitSchema>;
+
+/** `GET /api/projects/:projectId/product/search`: le pagine dello spazio, al più 20, e se ce ne sono altre. */
+export const productSearchResultsSchema = z.object({ items: z.array(productSearchHitSchema), hasMore: z.boolean() });
+export type ProductSearchResults = z.infer<typeof productSearchResultsSchema>;

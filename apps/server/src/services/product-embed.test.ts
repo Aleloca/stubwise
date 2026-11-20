@@ -95,6 +95,14 @@ describe("embedStaleProductPages", () => {
     expect(row!.embeddedAt).toBeNull();
   });
 
+  it("una pagina di prima della 0207 (testo cercabile vuoto) lo riceve dal poller, piegato", async () => {
+    const p = await page("Vecchia Pagina", ["Il Caffè"], ago(500));
+    expect(p.searchText).toBe("");
+    await embedStaleProductPages(t.db, embedder, log);
+    const [row] = await t.db.select({ searchText: productPages.searchText }).from(productPages).where(eq(productPages.id, p.id));
+    expect(row!.searchText).toBe("vecchia pagina\nil caffe");
+  });
+
   it("eliminare la pagina toglie i suoi chunk", async () => {
     const p = await page("Via", ["Da eliminare"], ago(400));
     await embedStaleProductPages(t.db, embedder, log);

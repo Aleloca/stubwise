@@ -1,7 +1,7 @@
 import { productPageChunks, productPages, type Db } from "@stubwise/db";
 import { chunkMarkdown, DOC_CHUNK_OVERLAP_WORDS, DOC_CHUNK_TARGET_TOKENS, estimateTokens } from "@stubwise/docs-engine";
 import type { EmbeddingClient } from "@stubwise/embeddings";
-import { productBlockSchema, productBlocksToText, type ProductBlock } from "@stubwise/shared";
+import { productBlockSchema, productBlocksToText, productSearchText, type ProductBlock } from "@stubwise/shared";
 import { and, asc, eq, isNull, lt, or, sql } from "drizzle-orm";
 
 /**
@@ -71,7 +71,8 @@ export async function embedProductPage(db: Db, embeddingClient: EmbeddingClient,
           })),
         );
       }
-      await tx.update(productPages).set({ embeddedAt: page.updatedAt }).where(eq(productPages.id, page.id));
+      // Il testo cercabile, per le pagine di prima della 0207 (le scritture lo tengono già aggiornato).
+      await tx.update(productPages).set({ embeddedAt: page.updatedAt, searchText: productSearchText(page.title, readBlocks(page.blocks)) }).where(eq(productPages.id, page.id));
     });
     return true;
   } catch (error) {
