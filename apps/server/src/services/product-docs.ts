@@ -1,4 +1,4 @@
-import { docPageCodes, productPageBlockIds, productPageFollows, productPageImages, productPageRevisions, productPages, projectDecisions, projects, users, type Db } from "@stubwise/db";
+import { docPageCodes, productComments, productPageBlockIds, productPageFollows, productPageImages, productPageRevisions, productPages, projectDecisions, projects, users, type Db } from "@stubwise/db";
 import {
   DOC_CODE_RE,
   PRODUCT_PAGES_MAX,
@@ -11,7 +11,7 @@ import {
   type ProductPageView,
   type ProductSpaceView,
 } from "@stubwise/shared";
-import { and, asc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { projectPermissionsFor } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { personName } from "./people.js";
@@ -205,6 +205,12 @@ export async function productPageView(db: Db, viewer: Viewer, pageId: string, pe
     .from(productPageFollows)
     .where(and(eq(productPageFollows.pageId, page.id), eq(productPageFollows.userId, viewer.id)));
   const hasChildren = rows.some((r) => r.parentId === page.id);
+  // I fili aperti (richiesta di 94): le radici non risolte né eliminate, con l'ancora viva o no.
+  const [open] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(productComments)
+    .where(and(eq(productComments.pageId, page.id), isNull(productComments.replyToId), isNull(productComments.resolvedAt), isNull(productComments.deletedAt)));
+  const openComments = open?.n ?? 0;
   const edit = perms.has("docs.edit");
   return {
     id: page.id,
@@ -225,6 +231,7 @@ export async function productPageView(db: Db, viewer: Viewer, pageId: string, pe
     permissions: { edit, delete: edit && !hasChildren },
     // Perché «Elimina» è spenta (richiesta di 94): prima il permesso, poi le sottopagine.
     deleteBlockedBy: !edit ? "permission" : hasChildren ? "children" : null,
+    openComments,
   };
 }
 

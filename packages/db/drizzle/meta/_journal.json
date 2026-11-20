@@ -1429,6 +1429,13 @@
       "when": 1802131200000,
       "tag": "0205_product_comments_original_anchor",
       "breakpoints": true
+    },
+    {
+      "idx": 206,
+      "version": "7",
+      "when": 1802217600000,
+      "tag": "0206_product_page_chunks",
+      "breakpoints": true
     }
   ]
 }
