@@ -338,6 +338,8 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
         role: r.role,
         content: r.content,
         citations: r.citations ?? null,
+        // Area 11, F3: le fonti di prodotto sono della chat del PROGETTO, non di un repository.
+        productSources: [],
         createdAt: r.createdAt.toISOString(),
       }));
     },

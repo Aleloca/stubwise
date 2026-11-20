@@ -1,7 +1,8 @@
-import { productPageChunks, productPages, type Db } from "@stubwise/db";
+import { docPageCodes, productPageChunks, productPages, projects, type Db } from "@stubwise/db";
 import type { EmbeddingClient } from "@stubwise/embeddings";
 import { plainTextOf, productBlockSchema, type ProductBlock } from "@stubwise/shared";
 import { and, asc, eq, inArray } from "drizzle-orm";
+import { inProjectsStrict, projectIdsWithPermission } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { searchProductPages } from "./product-search.js";
 
@@ -55,4 +56,23 @@ export async function retrieveProductContext(
   const pages = missing.length > 0 ? await db.select({ id: productPages.id, blocks: productPages.blocks }).from(productPages).where(inArray(productPages.id, missing)) : [];
   for (const p of pages) first.set(p.id, plainTextOf(readBlocks(p.blocks)));
   return items.map((h) => ({ pageId: h.page.id, code: h.page.code, title: h.page.title, snippet: (first.get(h.page.id) ?? "").slice(0, PRODUCT_CONTEXT_CHARS) }));
+}
+
+/**
+ * Le fonti di prodotto salvate con una risposta (solo gli id), come le vede chi
+ * riapre la sessione ADESSO (46): titolo e codice di oggi, e solo le pagine che
+ * ci sono ancora in un progetto in cui ha `docs.view`. Le altre non escono, né
+ * titolo né codice.
+ */
+export async function productSourcesNow(db: Db, viewer: Viewer, pageIds: readonly string[]): Promise<Map<string, { pageId: string; code: string; title: string }>> {
+  const ids = [...new Set(pageIds.filter((id) => /^[0-9a-f-]{36}$/i.test(id)))];
+  if (ids.length === 0) return new Map();
+  const readable = await projectIdsWithPermission(db, viewer, "docs.view");
+  const rows = await db
+    .select({ id: productPages.id, title: productPages.title, number: docPageCodes.number, projectCode: projects.code })
+    .from(productPages)
+    .innerJoin(projects, eq(projects.id, productPages.projectId))
+    .innerJoin(docPageCodes, eq(docPageCodes.productPageId, productPages.id))
+    .where(and(inArray(productPages.id, ids), inProjectsStrict(productPages.projectId, readable)));
+  return new Map(rows.map((r) => [r.id, { pageId: r.id, code: `${r.projectCode}-D${r.number}`, title: r.title }]));
 }

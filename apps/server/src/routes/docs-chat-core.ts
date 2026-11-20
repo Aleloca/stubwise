@@ -280,6 +280,7 @@ async function respondSse(args: StreamChatResponseArgs): Promise<void> {
           role: "assistant",
           content: full,
           citations,
+          productSources: (args.productSources ?? []).map((p) => ({ pageId: p.pageId })),
         });
       } else if (full.length > 0) {
         await db.insert(docChatMessages).values({
@@ -385,6 +386,7 @@ async function respondJson(args: StreamChatResponseArgs): Promise<void> {
         role: "assistant",
         content: full,
         citations,
+        productSources: (args.productSources ?? []).map((p) => ({ pageId: p.pageId })),
       });
     }
   } catch (error) {
