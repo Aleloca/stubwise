@@ -44,14 +44,11 @@ CREATE TABLE "product_page_revisions" (
 CREATE INDEX "product_page_revisions_page_seq_idx" ON "product_page_revisions" ("page_id", "last_seq");
 --> statement-breakpoint
 -- Gli id (blocco, riga, cella) già dati in una pagina: li genera il client
--- (`blk-<uuid>`, il prototipo), e un id non torna per un blocco diverso.
--- `removed_by`/`removed_session`: chi e quale sessione dell'editor l'ha tolto
--- per ultima, perché ⌘Z di quella sessione lo possa rimettere.
+-- (`blk-<uuid>`, il prototipo), e un id non torna per un blocco diverso, salvo
+-- ⌘Z della revisione che l'ha tolto (si legge da lì).
 CREATE TABLE "product_page_block_ids" (
 	"page_id" uuid NOT NULL REFERENCES "product_pages"("id") ON DELETE CASCADE,
 	"block_id" text NOT NULL,
-	"removed_by" uuid REFERENCES "users"("id") ON DELETE SET NULL,
-	"removed_session" text,
 	CONSTRAINT "product_page_block_ids_pk" PRIMARY KEY ("page_id", "block_id")
 );
 --> statement-breakpoint
