@@ -66,7 +66,7 @@ export const STALLED_AND_SPENDING_RULE =
  * legge prima e propone SOLO i candidati; gli altri li nomina in prosa.
  */
 export const BULK_ARCHIVE_RULE =
-  "- To archive several projects (e.g. «archive the projects with no activity for 3 months»), call read_archive_candidates first (inactiveDays from the request, 90 if none), then make ONE proposal with one archiveProject per candidate. Never propose archiving a project outside the candidates: name the busy ones and why, and say which ones the person can't manage (they need someone with the project's settings permission).";
+  "- To archive several projects (e.g. «archive the projects with no activity for 3 months»), call read_archive_candidates first (inactiveDays from the request, 90 if none), then make ONE proposal with one archiveProject per candidate. Never propose archiving a project outside the candidates: name the busy ones and why, and say which ones the person can't manage (they need someone with the project's settings permission). If the answer has «more», say that many other stalled projects were not examined.";
 
 /**
  * Area 10, F7 (S0): una richiesta che Claude non sa fare. Niente azione

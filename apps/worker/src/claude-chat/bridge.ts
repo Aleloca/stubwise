@@ -642,12 +642,14 @@ function usageResult(json: unknown, path: string): unknown {
  * codice e stato (il titolo di una task o di una PR può venire da fuori).
  */
 function archiveCandidatesResult(json: unknown): unknown {
-  const v = (json ?? {}) as { candidates?: unknown; busy?: unknown; notManageable?: unknown; notManageableCodes?: unknown };
+  const v = (json ?? {}) as { candidates?: unknown; busy?: unknown; notManageable?: unknown; notManageableCodes?: unknown; more?: unknown };
   return {
     candidates: pickAll(v.candidates, ["projectId", "code", "name", "lastActivity"]),
     busy: (Array.isArray(v.busy) ? (v.busy as Record<string, unknown>[]) : []).map((b) => ({ code: b["code"], reasons: pickAll(b["reasons"], ["kind", "code", "waiting", "paused"]) })),
     notManageable: typeof v.notManageable === "number" ? v.notManageable : 0,
     notManageableCodes: Array.isArray(v.notManageableCodes) ? v.notManageableCodes : [],
+    // Review di F3–F8 (M7): i fermi non esaminati (oltre il tetto del server).
+    ...(typeof v.more === "number" && v.more > 0 ? { more: v.more } : {}),
   };
 }
 

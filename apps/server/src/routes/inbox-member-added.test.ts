@@ -71,6 +71,24 @@ describe("«Undone by» sulle card member.added", () => {
     expect((await cardOf(s.g2, s.projectId))!.undoneBy).toMatchObject({ id: s.g2.id });
   });
 
+  it("review di F3–F8 (M3): chi ha annullato e chi guarda non si vedono (R-G5): nessun «Undone by»", async () => {
+    const s = await scene();
+    const stranger = await person();
+    const elsewhere = await seedRepository(t.db);
+    await addMember(app, elsewhere.projectId, stranger.id, "project_lead");
+    const action = await claudeAction(s.g1.id);
+    await t.db.transaction(async (tx) => {
+      await tx.execute(sql`select set_config('stubwise.via_claude_action_id', ${action}, true)`);
+      await putProjectMember(tx as never, actorOf(s.g1), LEAD, s.projectId, s.p.id, s.developer);
+    });
+    // Annulla chi non condivide nessun progetto con g1 (qui il servizio, coi permessi dati).
+    await t.db.transaction(async (tx) => {
+      await tx.execute(sql`select set_config('stubwise.undo_of_claude_action_id', ${action}, true)`);
+      await removeProjectMember(tx as never, actorOf(stranger), LEAD, s.projectId, s.p.id);
+    });
+    expect((await cardOf(s.g2, s.projectId))!.undoneBy).toBeNull();
+  });
+
   it("tolto A MANO (non un «Annulla»): nessun «Undone by»", async () => {
     const s = await scene();
     const action = await claudeAction(s.g1.id);

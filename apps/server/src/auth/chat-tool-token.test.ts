@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { RouteOptions } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
-import { seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { seedDecisionRequest, seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { claudeChatToolTokens, claudeConversations, docPages, issueChatToolToken, revokeChatToolToken, tickets, projects } from "@stubwise/db";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
@@ -79,9 +79,20 @@ describe("il token del turno della chat", () => {
     // Area 10, F8 (`read_my_week`): le decisioni che aspettano l'autore e le sue task.
     expect((await get("/api/decisions?askedOfId=me&open=true", token)).statusCode).toBe(200);
     expect((await get("/api/tasks?assigneeIds=me&families=todo,active", token)).statusCode).toBe(200);
-    // …ma rispondere a una decisione è una SCRITTURA, anche se la rotta comincia uguale.
-    const answer = await app.inject({ method: "POST", url: `/api/decisions/${randomUUID()}/answer`, headers: { authorization: `Bearer ${token}` }, payload: { optionIndex: 0 } });
-    expect(answer.statusCode).toBe(403);
+    // …ma rispondere a una decisione è una SCRITTURA, anche se la rotta comincia
+    // uguale (review di F3–F8, M6): una decisione VERA che aspetta l'autore. Col
+    // token 403 e resta aperta; la STESSA richiesta col cookie passa (non era
+    // una richiesta sbagliata a farla rifiutare).
+    const { decisionRequests } = await import("@stubwise/db");
+    const [seenTask] = await t.db.execute<{ id: string }>(sql`select t.id from tickets t join repositories r on r.project_id = t.project_id where r.id = ${seenRepo} limit 1`);
+    const decision = await seedDecisionRequest(t.db, { ticketId: seenTask!.id, askedOfUserId: author.id, options: ["Sì", "No"] });
+    const answer = (headers: Record<string, string>) => app.inject({ method: "POST", url: `/api/decisions/${decision.id}/answer`, headers, payload: { optionIndex: 0 } });
+    const refused = await answer({ authorization: `Bearer ${token}` });
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json()).toMatchObject({ code: "chat_tool_forbidden" });
+    expect((await t.db.select({ at: decisionRequests.answeredAt }).from(decisionRequests).where(eq(decisionRequests.id, decision.id)))[0]!.at).toBeNull();
+    const accepted = await answer({ cookie: author.headers.cookie });
+    expect(accepted.statusCode, accepted.body).toBeLessThan(300);
     // Area 10, F8 (`read_followed_projects`, «/status»): i seguiti e il polso. Il polso
     // entra (decisione del maintainer, 20 nov 2026), ma il suo `stalled` non arriva mai al
     // modello: lo toglie il ponte, e il fermo viene da `/api/tasks/stalled` (le soglie, F3).

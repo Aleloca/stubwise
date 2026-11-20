@@ -410,8 +410,9 @@ Ognuno nasce con quattro cose:
 
 - **La voce**: `fillField`, classe A, nessuna scrittura sul server.
   - Argomenti: `{ field: "task.description" | "release.notes", targetId,
-    text }`, `.strict()`, con `text` fino al tetto del campo vero (20 000
-    per la descrizione; per le note il tetto della rotta).
+    text }`, `.strict()`, con `text` fino al tetto del campo vero (100 000
+    per la descrizione, come `taskPatchSchema`; 20 000 per le note, come la
+    rotta — allineato dalla review di F3–F8, M8).
   - Prima di proporla, la prova a secco controlla che chi chiede possa
     scrivere quel campo. Se non può, non diventa una scheda: Claude dice che
     non può.

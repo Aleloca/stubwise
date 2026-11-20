@@ -1010,7 +1010,7 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
   // Area 8, F4a: il codice del server delle card `monitor.*`.
   const serverCodes = await serverCodesByNotification(db, page);
   // Area 10, F5: «Undone by» delle card `member.added`, dal registro (UNA query per pagina).
-  const undoneBy = await undoneByOfMemberAdded(db, page.filter((r) => r.kind === "member.added"));
+  const undoneBy = await undoneByOfMemberAdded(db, userId, page.filter((r) => r.kind === "member.added"));
   const memberAdded = await memberAddedPartsOf(db, userId, page.filter((r) => r.kind === "member.added"));
   // Solo per le card di posta: le altre non hanno una riga `email_proposals` e
   // la mappa resta vuota per loro.
@@ -1691,7 +1691,7 @@ async function memberAddedPartsOf(
  * vecchia senza `changeLogEntryId`, un ingresso fatto a mano o tolto a mano:
  * nessun «Undone by». Due query per pagina, mai una per card.
  */
-async function undoneByOfMemberAdded(db: Db, rows: { id: string; event: unknown }[]): Promise<Map<string, { id: string; name: string }>> {
+async function undoneByOfMemberAdded(db: Db, viewerId: string, rows: { id: string; event: unknown }[]): Promise<Map<string, { id: string; name: string }>> {
   const entryOf = new Map<string, string>();
   for (const r of rows) {
     const id = (r.event as { changeLogEntryId?: unknown } | null)?.changeLogEntryId;
@@ -1710,11 +1710,15 @@ async function undoneByOfMemberAdded(db: Db, rows: { id: string; event: unknown 
     .leftJoin(users, eq(users.id, changeLog.actorUserId))
     .where(inArray(changeLog.undoOfActionId, [...new Set(actionOf.values())]));
   const byAction = new Map(undos.flatMap((u) => (u.undoOf && u.by && u.email ? [[u.undoOf, { id: u.by, name: personName({ email: u.email, displayName: u.displayName }) }] as const] : [])));
+  // Review di F3–F8 (M3): R-G5, come `memberAdded`. Chi ha annullato e chi
+  // guarda non si vedono: niente «Undone by» (il nome è la sola cosa da dire).
+  const visible = await visiblePersonIds(db, { id: viewerId, instancePermissions: await instancePermissionsOfUser(db, viewerId) });
+  const sees = (id: string) => visible === "all" || visible.includes(id);
   const out = new Map<string, { id: string; name: string }>();
   for (const [cardId, entryId] of entryOf) {
     const action = actionOf.get(entryId);
     const who = action ? byAction.get(action) : undefined;
-    if (who) out.set(cardId, who);
+    if (who && sees(who.id)) out.set(cardId, who);
   }
   return out;
 }
