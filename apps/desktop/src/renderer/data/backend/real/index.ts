@@ -19,6 +19,7 @@ import { liveMembers } from "./adminMembers";
 import { liveChangelog } from "./changelog";
 import { partialNamespace } from "./notIntegrated";
 import { liveProductDocs } from "./productDocs";
+import { liveProductClaude } from "./productClaude";
 import { liveProductPresence } from "./productLive";
 import { liveIntegration } from "./projectIntegration";
 import { liveProjectArchive } from "./projectArchive";
@@ -242,12 +243,14 @@ export {
 } from "./claudeChat";
 // Area 11: lo spazio Product, la pagina, la scrittura a operazioni, la
 // cronologia e Segui (F1), i commenti (F2), ricerca ed esportazione (F3), la
-// presenza dal vivo (F4, dietro `product-live`); Claude resta «in arrivo».
+// presenza dal vivo (F4) e Claude (F5, dietro `product-docs`).
 const { rememberBlocks: _rememberBlocks, rememberSession: _rememberSession, ...livePresence } = liveProductPresence;
 void [_rememberBlocks, _rememberSession];
 export const productDocs: typeof Fake.productDocs = partialNamespace<typeof Fake.productDocs>("productDocs", {
   ...liveProductDocs,
   ...livePresence,
+  // F5 (dietro `product-docs`): i segni, «Undo», le risposte alle domande.
+  ...liveProductClaude,
 });
 // Area 10, F7: la riga «Claude can help you…» e il suo «Not now», dal server.
 export { dismissClaudeSuggestion, getClaudeSuggestion } from "./claudeSuggestions";

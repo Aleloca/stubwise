@@ -10,6 +10,7 @@ import { resetChatStreams } from "./chatStream";
 import { forgetChatCaches } from "./claudeChat";
 import { forgetTrials } from "./claudeTrial";
 import { forgetDocsCaches } from "./docs";
+import { forgetProductClaude } from "./productClaude";
 import { forgetProductDocs } from "./productDocs";
 import { forgetProductLive } from "./productLive";
 import { appClient, session } from "./client";
@@ -104,6 +105,7 @@ function forgetClientCaches(): void {
   // e gli stream dal vivo e i battiti della persona di prima (revisione di R11-4, 14).
   forgetProductDocs();
   forgetProductLive();
+  forgetProductClaude();
 }
 
 /**
