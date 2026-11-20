@@ -5614,3 +5614,29 @@ deploy o di un rollback che la tocca.
   **ORDINE**: **server**, poi **worker** (il tool). **Rollback**: sicuro in
   discesa; un worker vecchio non ha il tool, un server vecchio risponde 403 al
   token del turno sulla rotta che non ha.
+
+- **«Integrazione area 10, F5: chi entra in un progetto (S5)»** *(20 nov
+  2026)*: branch `feat/area10-f5` (da `feat/area10-f4`), piano
+  `docs/plans/2026-11-19-integrazione-area10-f5-plan.md`.
+  - Migrazione **0200** (`member_added`): un valore nuovo di
+    `notification_kind`, in uno statement a sé (il batch gira in UNA
+    transazione: nessun uso del valore nella stessa migrazione).
+  - Il server pubblica `member.added` a ogni ingresso in un progetto (a mano,
+    `addMember` di Claude, invito accettato), nella transazione della voce del
+    registro. `/api/inbox` ha un campo nuovo, `undoneBy` (additivo, null di
+    partenza).
+  - Nessuna env.
+
+  **ORDINE**: **server** (healthy, migrazione 0200 applicata), poi **worker**
+  e **caddy**.
+
+  **Rollback**: **NON sicuro sul server finché esistono righe `member.added`**
+  — un server vecchio non conosce il kind e `/api/inbox` risponde 500 (vedi
+  CLAUDE.md, «un `notification_kind` nuovo»). Prima della discesa, contale e
+  toglile (le card spariscono dall'inbox di chi le aveva):
+  ```sql
+  select count(*) from notifications where kind = 'member.added';
+  delete from notifications where kind = 'member.added';
+  ```
+  Il valore dell'enum resta (Postgres non lo toglie): è innocuo. Il caddy
+  scende insieme al server.
