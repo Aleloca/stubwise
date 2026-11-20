@@ -136,8 +136,10 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   - Riquadro: il chip c'è per task, richieste, pagine e impostazioni di
     progetto e, dall'area 10 F1, per automazioni (`automation: AUD-A3`),
     conversazioni di supporto (`support: AUD-S4`) e la propria posta
-    (`mail: <casella>/<thread>`, il `ref` di `read_mail_thread`). Rilasci e
-    PR non danno ancora chip né contesto. Server, canali e appuntamenti non
+    (`mail: <casella>/<thread>`, il `ref` di `read_mail_thread`) e,
+    dall'area 10 F6, per la PR aperta nel pannello (`pr:
+    <repository>:<numero>`, solo una PR che chi guarda ha letto e che ha un
+    numero). I rilasci non danno ancora chip né contesto. Server, canali e appuntamenti non
     hanno chip nemmeno nel prototipo: i tool di 72 li leggono quando il
     modello ne ha il codice. Le domande della doc di prodotto sotto il chip
     restano spente (`product-docs`, area 11).
@@ -1366,7 +1368,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - **Chiuse con F6 (20 nov 2026)**: le bozze di Claude nei campi
   (`fillField`): la descrizione di una task e le note di rilascio di una PR
   (F6-1 = a, con `read_pull_request_notes`), eseguite dal renderer e salvate
-  dalla persona.
+  dalla persona. Renderer (94): la bozza è l'evento `draft` del prototipo;
+  nella build app il suo esito vive solo nella finestra (come le azioni
+  della pagina), quindi una bozza letta alla prima occhiata non entra da
+  sola nemmeno a campo aperto e aspetta «Put it in the field».
 
 - **Chiuse con F8 (20 nov 2026)**: «/status» (seguiti, polso senza il suo
   fermo, task ferme con le soglie dei progetti) e «/today» (le decisioni che

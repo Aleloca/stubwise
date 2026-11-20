@@ -106,7 +106,7 @@ describe("il contesto della chat nella build app", () => {
     expect(await serverContextOf({ kind: "task", taskId: "ffffffff-0000-4000-8000-000000000009" })).toBeNull();
   });
 
-  it("le aree non integrate (rilascio, PR) non danno chip né contesto, senza chiamate", async () => {
+  it("un rilascio, e una PR mai letta, non danno chip né contesto, senza chiamate", async () => {
     const { seen } = installFakeServer({});
     expect(await contextIdOf("release", "AUD-V1")).toBeNull();
     expect(await describeContext({ kind: "release", releaseId: "r1" })).toBeNull();
@@ -454,5 +454,71 @@ describe("«/» e «#» nella build app (area 10, F8)", () => {
     const { seen } = installFakeServer(mentionRoutes({ body: [summary()] }));
     await searchMentions("", "objects");
     expect(seen.some((r) => r.path.startsWith("/api/requests"))).toBe(false);
+  });
+});
+
+// Area 10, F6: la pagina della PR dà il contesto alla conversazione,
+// `{ kind: "pr", id: "<repositoryId>:<prNumber>" }` (72), così Claude rilegge
+// le note con `read_pull_request_notes` e le scrive con `fillField`. Il chip
+// rilegge la PR fra quelle che chi guarda ha letto (l'elenco del server è già
+// filtrato); una PR mai letta, o senza numero, non dà contesto.
+describe("il contesto di una PR nella build app (area 10, F6)", () => {
+  const REPO = "11111111-1111-4111-8111-111111111111";
+  const pull = (over: Record<string, unknown> = {}) => ({
+    origin: "stubwise",
+    ticketId: TICKET_ID,
+    ticketNumber: 12,
+    ticketTitle: "Checkout",
+    repositoryId: REPO,
+    repositoryName: "audin-app",
+    branch: "stubwise/ticket-12",
+    baseBranch: "main",
+    prUrl: "https://github.com/audin/audin-app/pull/246",
+    prNumber: 246,
+    headSha: "a".repeat(40),
+    createdAt: "2026-11-13T09:00:00.000Z",
+    checks: { status: "success", checks: [] },
+    deployedOn: [],
+    analysis: { verdict: "approve", summary: "", stale: false },
+    corrections: { count: 0, lastStatus: null },
+    cap: 3,
+    analysisOnly: null,
+    prState: { state: "clean", autoRound: 0, canAutoCorrect: false },
+    ready: true,
+    fromFork: false,
+    mergeable: null,
+    colleaguePrs: "analyze_only",
+    issues: [],
+    permissions: { analysisOnly: false, requestCorrection: true, editReleaseNotes: true },
+    ...over,
+  });
+
+  it("una PR letta: al server `pr: <repository>:<numero>`, il chip «pull request #246» nel progetto", async () => {
+    installFakeServer({
+      "GET /api/projects": { body: [serverProject()] },
+      [`GET /api/projects/${PROJECT_ID}/pulls`]: { body: { items: [pull()] } },
+    });
+    const { liveReleases } = await import("./releasesLive");
+    await liveReleases.listOpenPrs!(PROJECT_ID);
+    const ref = { kind: "pr", prId: `${REPO}#246` } as const;
+    expect(await serverContextOf(ref)).toEqual({ kind: "pr", id: `${REPO}:246` });
+    expect(await describeContext(ref)).toEqual({
+      code: "AUD",
+      labelKey: "claude.panel.chip.kind.pr",
+      projectId: PROJECT_ID,
+      params: { number: 246 },
+    });
+  });
+
+  it("una PR che chi guarda non ha letto, o senza numero: nessun contesto, nessun chip", async () => {
+    installFakeServer({
+      "GET /api/projects": { body: [serverProject()] },
+      [`GET /api/projects/${PROJECT_ID}/pulls`]: { body: { items: [pull({ prNumber: null, repositoryId: "11111111-1111-4111-8111-111111111112" })] } },
+    });
+    const { liveReleases } = await import("./releasesLive");
+    await liveReleases.listOpenPrs!(PROJECT_ID);
+    expect(await serverContextOf({ kind: "pr", prId: "99999999-9999-4999-8999-999999999999#3" })).toBeNull();
+    expect(await describeContext({ kind: "pr", prId: "99999999-9999-4999-8999-999999999999#3" })).toBeNull();
+    expect(await serverContextOf({ kind: "pr", prId: "11111111-1111-4111-8111-111111111112#0" })).toBeNull();
   });
 });

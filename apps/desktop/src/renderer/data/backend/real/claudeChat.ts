@@ -128,11 +128,21 @@ async function ownMailThread(key: string | null) {
 }
 
 /**
+ * Area 10, F6: una PR che chi guarda ha letto (`prRefOf`, gli elenchi del
+ * server sono già filtrati), con un numero. Importata a chiamata: i rilasci
+ * leggono i codici dei progetti da `claude.ts`, che importa questo modulo.
+ */
+async function seenPr(prId: string) {
+  const { prRefOf } = await import("./releasesLive");
+  const ref = prRefOf(prId);
+  return ref && ref.prNumber > 0 ? ref : null;
+}
+
+/**
  * Il contesto di una pagina come lo legge il server: `tipo: id`, dove l'id è
  * ciò con cui il modello lo rilegge coi suoi tool — il CODICE di una task o di
- * una richiesta (`read_task`, `read_request`), l'id di un progetto. Gli
- * oggetti delle aree non integrate (rilasci, supporto, PR, automazioni,
- * posta) non danno contesto.
+ * una richiesta (`read_task`, `read_request`), l'id di un progetto. I
+ * rilasci non danno contesto.
  */
 export async function serverContextOf(ref: ContextRef): Promise<ClaudeConversationContext | null> {
   switch (ref.kind) {
@@ -160,6 +170,11 @@ export async function serverContextOf(ref: ContextRef): Promise<ClaudeConversati
     case "mail": {
       const parts = await ownMailThread(ref.threadId);
       return parts ? { kind: "mail", id: `${parts.accountId}/${parts.threadId}` } : null;
+    }
+    // Area 10, F6: la PR per `read_pull_request_notes` (72): `<repository>:<numero>`.
+    case "pr": {
+      const pr = await seenPr(ref.prId);
+      return pr ? { kind: "pr", id: `${pr.repositoryId}:${pr.prNumber}` } : null;
     }
     default:
       return null;
@@ -213,8 +228,15 @@ export const describeContext: typeof Fake.describeContext = async (ref) => {
       return (await ownMailThread(ref.threadId))
         ? { code: null, labelKey: `${K}.kind.mail`, projectId: null }
         : null;
+    case "pr": {
+      const pr = await seenPr(ref.prId);
+      const code = pr ? (await listProjects()).find((p) => p.id === pr.projectId)?.code : undefined;
+      return pr && code
+        ? { code, labelKey: `${K}.kind.pr`, projectId: pr.projectId, params: { number: pr.prNumber } }
+        : null;
+    }
     default:
-      // Le aree non integrate (rilasci, PR): nessun chip.
+      // Le aree non integrate (rilasci): nessun chip.
       return null;
   }
 };

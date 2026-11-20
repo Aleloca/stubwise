@@ -24,7 +24,8 @@ import { fillableFor, subscribeFillable, type FillableField } from "./fillable";
 // finestra, cioè dopo la prima occhiata alla conversazione — mai da una
 // lettura del dettaglio o della storia (un ricaricamento, un riavvio,
 // un'altra scheda del browser). Quelle già lette restano «non applicate» e la
-// riga offre il gesto per applicarle adesso («Apply»).
+// riga offre il gesto per applicarle adesso («Apply»). Lo stesso per le bozze
+// di `fillField` (area 10, F6): lette, aspettano «Put it in the field».
 
 type PageEvent = Extract<ConversationEvent, { type: "pageAction" }>;
 
@@ -224,7 +225,9 @@ export function usePageEventRunner(
     let readNotLive = looks.get(conversationId);
     if (!readNotLive) {
       readNotLive = new Set(
-        isAppBuild() ? detail.events.filter((e) => e.type === "pageAction").map((e) => e.id) : [],
+        isAppBuild()
+          ? detail.events.filter((e) => e.type === "pageAction" || e.type === "draft").map((e) => e.id)
+          : [],
       );
       looks.set(conversationId, readNotLive);
     }
@@ -242,7 +245,8 @@ export function usePageEventRunner(
         if (event.status !== "pending" || !event.field || mine.has(event.id)) return;
         mine.add(event.id);
         // Una bozza vecchia non entra in un campo da sola: aspetta «Put it in the field».
-        startDraft(me, conversationId, event, settle, isStale(detail.events, index));
+        // Build app (area 10, F6): nemmeno una letta alla prima occhiata in questa finestra.
+        startDraft(me, conversationId, event, settle, isStale(detail.events, index) || readNotLive.has(event.id));
         return;
       }
       if (event.type !== "pageAction" || event.status !== "pending" || mine.has(event.id)) return;

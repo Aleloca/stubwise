@@ -118,5 +118,8 @@ export const liveReleases: Partial<typeof Fake.releases> = {
   setEnvironmentContainers: environments.setEnvironmentContainers,
 };
 
+/** Area 10, F6: una PR letta da chi guarda, per il contesto della conversazione. */
+export const prRefOf = prs.prRef;
+
 /** La bozza delle note della PR per il riquadro di Claude (calcolata dal server). */
 export const releaseNotesDraftFromServer = prs.releaseNotesDraft;

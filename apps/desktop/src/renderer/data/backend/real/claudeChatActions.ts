@@ -1,8 +1,8 @@
 import { ApiError } from "@stubwise/api-client";
-import type { AgentSessionEvent, ClaudeActionGroupView, ClaudeProposalView, Reader } from "@stubwise/shared";
+import { RENDERER_FNS, type AgentSessionEvent, type ClaudeActionGroupView, type ClaudeProposalView, type Reader } from "@stubwise/shared";
 import i18n from "../../../i18n";
 import type { ClassReason, ExecutedFailure } from "../../claude/types";
-import type { ConversationEvent, ProposedAction, UndoView } from "../../types";
+import type { ConversationEvent, FieldRef, ProposedAction, UndoView } from "../../types";
 import { appClient, session } from "./client";
 import { taskCodeOf } from "./claudeChat";
 import { knownTaskCode } from "./tasks";
@@ -47,6 +47,7 @@ export function taskIdsOf(fn: string, args: Record<string, unknown>): string[] {
   const taskId = typeof args["taskId"] === "string" ? (args["taskId"] as string) : null;
   if (fn === "updateTask" || fn === "planTask" || fn === "deleteTask") return id ? [id] : [];
   if (fn === "addComment" || fn === "deleteComment" || fn === "startRun") return taskId ? [taskId] : [];
+  if (fn === "fillField" && args["field"] === "task.description") return taskId ? [taskId] : [];
   return [];
 }
 
@@ -188,6 +189,10 @@ export function summaryOf(
     case "pageAction":
       params["kind"] = text("kind");
       break;
+    // Area 10, F6: la frase dice il campo (la task col codice, la PR col numero).
+    case "fillField":
+      if (typeof args["prNumber"] === "number") params["number"] = args["prNumber"];
+      break;
     // Area 9, F7: i nomi degli argomenti del server (`sourceUrl`, non `url`).
     case "registerPlugin":
       params["url"] = text("sourceUrl");
@@ -212,6 +217,10 @@ export function summaryOf(
   const phrase =
     fn === "setSubscription" && params["channels"] === ""
       ? "setSubscriptionBare"
+      : fn === "fillField"
+        ? args["field"] === "release.notes"
+          ? "fillFieldNotes"
+          : "fillFieldDescription"
       : fn === "setProviderEnabled"
         ? args["enabled"] === true
           ? "setProviderEnabledOn"
@@ -227,6 +236,7 @@ export function summaryOf(
 
 const needsCode = (fn: string) =>
   [
+    "fillField",
     "updateTask",
     "planTask",
     "deleteTask",
@@ -470,13 +480,42 @@ export function forgetPageStatuses(): void {
  * eseguire.
  */
 const isRunnablePageProposal = (p: ProposalView) =>
-  p.status === "confirmed" && p.actions.length > 0 && p.actions.every((a) => a.fn === "pageAction");
+  p.status === "confirmed" && p.actions.length > 0 && p.actions.every((a) => RENDERER_FNS.has(a.fn as never));
 
-/** Un'azione della pagina per ogni azione della proposta, col suo esito locale. */
+const DRAFT_STATUSES = new Set(["placed", "waiting", "undone", "changed_after"]);
+
+/**
+ * Area 10, F6: il campo di `fillField` come lo dichiara la pagina
+ * (`FieldRef`): la descrizione per id della task, le note per id della PR
+ * della build app (`<repository>#<numero>`, `releasePrs.ts`).
+ */
+function fieldRefOf(args: Record<string, unknown>): FieldRef | null {
+  if (args["field"] === "task.description" && typeof args["taskId"] === "string")
+    return { kind: "taskDescription", taskId: args["taskId"] };
+  if (args["field"] === "release.notes" && typeof args["repositoryId"] === "string" && typeof args["prNumber"] === "number")
+    return { kind: "releaseNotes", prId: `${args["repositoryId"]}#${args["prNumber"]}` };
+  return null;
+}
+
+/**
+ * Un'azione della pagina (o una bozza di `fillField`) per ogni azione della
+ * proposta, col suo esito locale. La bozza non scrive niente: il runner del
+ * riquadro la mette nel campo solo a pagina aperta, e la salva la persona.
+ */
 function pageEvents(p: ProposalView, at: string): ConversationEvent[] {
   return p.actions.map((a, i) => {
     const id = `page:${p.id}:${i}`;
     const status = pageStatuses().get(id);
+    if (a.fn === "fillField") {
+      return {
+        id,
+        at,
+        type: "draft",
+        field: fieldRefOf(a.args),
+        text: typeof a.args["text"] === "string" ? a.args["text"] : "",
+        status: status && DRAFT_STATUSES.has(status) ? status : "pending",
+      } as ConversationEvent;
+    }
     return {
       id,
       at,

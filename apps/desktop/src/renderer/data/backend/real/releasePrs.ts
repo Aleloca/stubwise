@@ -206,6 +206,15 @@ export function createRealPrs(
 
   return {
     /**
+     * Area 10, F6: la PR (`<repository>#<numero>`) fra quelle che chi guarda
+     * ha letto (gli elenchi del server sono già filtrati), per il contesto
+     * della conversazione e il chip; `null` se non l'ha letta.
+     */
+    prRef(prId: string): PrRef | null {
+      return refs.get(prId) ?? null;
+    },
+
+    /**
      * La Home «Rilasci»: i rilasci falliti che mi riguardano e le PR pronte
      * dei progetti dove ho `release.merge` (quindi `canMerge`). Una PR senza
      * `projectId` (un server di prima) si salta: senza progetto non ha link.

@@ -52,6 +52,13 @@ const contextOfField = (field: FieldRef | null): ContextRef | null => {
   }
 };
 
+/**
+ * La pagina della PR di una bozza delle note. L'id va codificato: nella build
+ * app è `<repository>#<numero>` (area 10, F6), e il `#` sarebbe l'ancora.
+ */
+export const prDraftRoute = (code: string, prId: string): string =>
+  `/p/${code}/releases?pr=${encodeURIComponent(prId)}`;
+
 /** Il luogo della bozza, riletto per chi guarda; `null` finché non si sa (o non si vede). */
 function useWhere(field: FieldRef | null): Where | null {
   const described = useDescribeContext(contextOfField(field)).data;
@@ -80,7 +87,7 @@ function useWhere(field: FieldRef | null): Where | null {
         kind: typeof number === "number" ? "releaseNotes" : "releaseNotesBare",
         group: "notes",
         values: { code: described.code, ...(typeof number === "number" ? { number } : {}) },
-        route: `/p/${described.code}/releases?pr=${field.prId}`,
+        route: prDraftRoute(described.code, field.prId),
       };
     }
     case "taskDescription":

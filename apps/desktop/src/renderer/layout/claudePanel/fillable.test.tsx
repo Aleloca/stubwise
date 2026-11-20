@@ -300,3 +300,40 @@ describe("il runner delle bozze", () => {
     }
   });
 });
+
+// Area 10, F6: nella build app l'esito di una bozza vive solo in questa
+// finestra (il server non lo salva), come quello delle azioni della pagina.
+// Una bozza c'era già alla prima occhiata (un ricaricamento, un'altra
+// scheda): non entra da sola nemmeno a campo aperto, aspetta «Put it in the
+// field». Una arrivata DOPO la prima occhiata entra, a pagina aperta.
+describe("il runner delle bozze nella build app (area 10, F6)", () => {
+  beforeEach(() => vi.stubEnv("VITE_STUBWISE_BUILD", "app"));
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("letta alla prima occhiata: `waiting`, il campo aperto non cambia", async () => {
+    puts.length = 0;
+    const cid = await conversationWithDraft(LAURA, FIELD, "none");
+    mount(LAURA, { conversationId: cid, field: FIELD });
+    await waitFor(() => expect(draftEvents()[0]!.status).toBe("waiting"));
+    expect(puts).toEqual([]);
+    expect(toy()).toBe("");
+  });
+
+  it("arrivata dopo la prima occhiata: entra nel campo aperto, una volta", async () => {
+    puts.length = 0;
+    setSessionPersonId(LAURA);
+    const cid = (await api.createConversation()).id;
+    mount(LAURA, { conversationId: cid, field: FIELD });
+    await waitFor(() => expect(fillableFor(FIELD)).not.toBeNull());
+    await new Promise((r) => setTimeout(r, 20));
+    await api.runScript(cid, [
+      { step: "event", event: { type: "draft", field: FIELD, text: "Claude's text.", status: "pending" } },
+    ]);
+    act(() => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    await waitFor(() => expect(draftEvents()[0]!.status).toBe("placed"));
+    expect(puts).toEqual(["Claude's text."]);
+  });
+});
