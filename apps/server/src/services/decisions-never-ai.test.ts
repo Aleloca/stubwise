@@ -361,6 +361,11 @@ describe("il registro decisioni non è mai scritto dall'AI — sul sorgente", ()
     // Review F5a, punto 4: chi conferma una proposta (anche di una riunione)
     // scrive nel registro da TEMPLATE (`decision.meeting.*`), mai un run.
     "./mail-proposals-decide.ts",
+    // Area 11, F5: lo scrittore delle modifiche di Claude alla doc di prodotto
+    // (worker e risposte del server): applica FATTI già validati, non esegue
+    // run e non scrive nel registro (`product-docs/job.test.ts` lo verifica
+    // anche sui nomi delle tabelle).
+    "../../../../packages/notifications/src/product-docs-write.ts",
   ];
 
   it.each(MODULES)("%s non nomina nessun esecutore di agenti", async (relative) => {

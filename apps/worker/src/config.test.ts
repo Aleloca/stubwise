@@ -955,6 +955,7 @@ describe("effectiveModelDefaults", () => {
       server_analysis: "sonnet",
       server_fix_plan: "sonnet",
       mail_reply_judgment: "haiku",
+      product_doc_update: "sonnet",
       chat: "claude-opus-4-8",
       claude_chat: config.backlogModel,
       backlog_merge: "claude-opus-4-8",

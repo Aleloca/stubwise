@@ -1377,6 +1377,8 @@ export function effectiveModelDefaults(
     server_analysis: "sonnet",
     server_fix_plan: "sonnet",
     mail_reply_judgment: "haiku",
+    // La doc di prodotto dalle fonti (area 11, F5): fatti strutturati da una fonte, Sonnet.
+    product_doc_update: "sonnet",
     chat: SERVER_CHAT_DEFAULT_MODEL,
     // La chat con Claude (fetta 1): lo stesso modello dei turni di refinement.
     claude_chat: config.backlogModel,

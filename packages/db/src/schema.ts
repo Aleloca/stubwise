@@ -2848,7 +2848,7 @@ export const productDocJobs = pgTable(
     sourceKind: text("source_kind").$type<"email" | "meeting" | "decision" | "task" | "release">().notNull(),
     sourceId: uuid("source_id").notNull(),
     status: text("status").$type<"queued" | "running" | "held" | "done" | "failed">().notNull().default("queued"),
-    heldReason: text("held_reason").$type<"limit" | "budget" | "section_busy">(),
+    heldReason: text("held_reason").$type<"limit" | "budget" | "section_busy" | "paused">(),
     attempts: integer("attempts").notNull().default(0),
     error: text("error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -2861,7 +2861,7 @@ export const productDocJobs = pgTable(
     check("product_doc_jobs_source_kind_chk", sql`source_kind in ('email', 'meeting', 'decision', 'task', 'release')`),
     check("product_doc_jobs_status_chk", sql`status in ('queued', 'running', 'held', 'done', 'failed')`),
     check("product_doc_jobs_held_chk", sql`(status = 'held') = (held_reason IS NOT NULL)`),
-    check("product_doc_jobs_held_reason_chk", sql`held_reason IS NULL OR held_reason in ('limit', 'budget', 'section_busy')`),
+    check("product_doc_jobs_held_reason_chk", sql`held_reason IS NULL OR held_reason in ('limit', 'budget', 'section_busy', 'paused')`),
   ],
 );
 

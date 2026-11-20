@@ -445,8 +445,9 @@ describe("modelli per operazione", () => {
     // 22 con `support_triage_check` (il giudizio dopo il silenzio, area 8 F3, gruppo support:
     // la bozza della risposta `support_reply_draft` è uscita con la premessa corretta);
     // 24 con `server_analysis` e `server_fix_plan` (area 8 F4b, gruppo servers);
-    // 25 con `mail_reply_judgment` («serve una mia risposta?», «Clienti in attesa», gruppo mail).
-    expect(rows).toHaveLength(25);
+    // 25 con `mail_reply_judgment` («serve una mia risposta?», «Clienti in attesa», gruppo mail);
+    // 26 con `product_doc_update` (area 11, F5: la doc di prodotto dalle fonti, gruppo docs).
+    expect(rows).toHaveLength(26);
     expect(rows.find((r) => r.operation === "mail_reply_judgment")).toMatchObject({
       group: "mail",
     });
