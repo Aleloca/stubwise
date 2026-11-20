@@ -378,10 +378,8 @@ describe("chi non può rispondere", () => {
     expect(await productDecisions()).toHaveLength(1);
     revokeProjectPermission(MARCO, ACQ, "docs.view" as never);
     expect(await productDecisions()).toEqual([]);
-    const card = (await listNotifications()).find(
-      (n) => n.kind === "product_doc.question" && n.recipientIds.includes(MARCO),
-    )!;
-    expect(card.objectGone).toBe(true);
+    // N-1 = a: senza `docs.view` la card non arriva più (la revoca si applica a lettura).
+    expect((await listNotifications()).find((n) => n.kind === "product_doc.question")).toBeUndefined();
     expect(() => answerProductQuestionAs(MARCO, id, "keep")).toThrow();
   });
 });

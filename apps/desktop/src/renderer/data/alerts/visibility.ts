@@ -120,17 +120,29 @@ export function wouldNotify(
     kind: string;
     projectId: string;
     mandatory?: { personId: string; reason: MandatoryReason }[];
-    /** I destinatari nominati di un tipo `addressed` (area 11, D-6 = b). */
-    recipientIds?: readonly string[];
   },
 ): { personIds: string[]; more: boolean } {
+  return splitByVisibility(me, recipientsNow(alert));
+}
+
+/**
+ * Chi riceverebbe ADESSO un avviso del catalogo (la regola delle letture, su
+ * un avviso che non esiste ancora), senza dividerlo per chi chiede: tutti gli
+ * id, Claude escluso. Lo usano `wouldNotify` e chi pubblica solo se qualcuno
+ * lo riceverebbe (le pagine di prodotto, area 11).
+ */
+export function recipientsNow(alert: {
+  kind: string;
+  projectId: string;
+  mandatory?: { personId: string; reason: MandatoryReason }[];
+}): string[] {
   const n: AppNotification & { projectId: string } = {
     id: "n-would-notify",
     kind: alert.kind,
     projectId: alert.projectId,
     objectCode: "",
     departmentId: null,
-    recipientIds: [...(alert.recipientIds ?? [])],
+    recipientIds: [],
     title: "",
     body: "",
     createdAt: now(),
@@ -141,9 +153,8 @@ export function wouldNotify(
     link: "",
     ...(alert.mandatory?.length ? { mandatory: alert.mandatory.map((m) => ({ ...m })) } : {}),
   };
-  if (!isComputed(n)) return { personIds: [], more: false };
-  return splitByVisibility(
-    me,
-    recipientsOf(n, contextOf(n)).map((r) => r.personId),
-  );
+  if (!isComputed(n)) return [];
+  return recipientsOf(n, contextOf(n))
+    .map((r) => r.personId)
+    .filter((id) => !isClaude(id));
 }

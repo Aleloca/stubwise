@@ -8866,7 +8866,9 @@
       "pr_author": "Always for the PR's author",
       "task_author": "Always for the task's author, if the merge came from outside Stubwise",
       "assignee": "Always for whoever the task is assigned to",
-      "analysis_requester": "Always for whoever asked Claude to look into the server"
+      "analysis_requester": "Always for whoever asked Claude to look into the server",
+      "mentioned": "Always for whoever is mentioned",
+      "follower": "Always for whoever follows the page"
     },
     "mandatoryStill": {
       "app": "When it applies to you, it still reaches you in the app",
@@ -8943,7 +8945,9 @@
         "pr_author": "You get this because you opened this PR",
         "task_author": "You get this because the PR comes from your task",
         "assignee": "You get this because the task is assigned to you",
-        "analysis_requester": "You get this because you asked Claude to look into this server"
+        "analysis_requester": "You get this because you asked Claude to look into this server",
+        "mentioned": "You get this because you were mentioned",
+        "follower": "You get this because you follow this page"
       }
     },
     "pausedShort": "Paused",

@@ -291,7 +291,9 @@ describe("azioni in blocco", () => {
       ).toBe(true),
     );
     expect(rowOf("AUD", "pr.corrected")).toHaveTextContent("Always for you");
-    expect(headerOf("AUD")!.textContent).toMatch(/Everything off · 1 always on/);
+    // Area 11, N-1 = a: anche le menzioni nella doc di prodotto, solo obbligatorie.
+    expect(rowOf("AUD", "product_doc.mention")).toHaveTextContent("Always for you");
+    expect(headerOf("AUD")!.textContent).toMatch(/Everything off · 2 always on/);
 
     await userEvent.click(screen.getByRole("button", { name: "Undo" }));
     await waitFor(() =>

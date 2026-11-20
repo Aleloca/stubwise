@@ -4,7 +4,7 @@ import { assignedRecipientOf, nextTaskNumber, planRecipientsOf } from "../api-mu
 import { automationsStartingOn, taskHappening } from "../automations/sources";
 import { docsAccess } from "../docs/reads";
 import type { NewTaskInput, ProposedAction, Task, TaskPatch } from "../model";
-import { productDocRecipients } from "../productDocs/follows";
+import { followerMandatory } from "../productDocs/follows";
 import { productPageById } from "../productDocs/reads";
 import { familyOf, state, visibleProjectIds } from "../store";
 import { CLAUDE_CATALOG, declaredClassOf, isCatalogFn, reauthOf } from "./catalog";
@@ -41,6 +41,7 @@ function normalize(reasons: readonly ClassReason[]): ClassReason[] {
   // Una riga per progetto ed evento («…when a task is created / closed»).
   const automations = new Map<string, Extract<ClassReason, { kind: "automation" }>>();
   let irreversible = false;
+  let startsWork = false;
   let reauth = false;
   for (const r of reasons) {
     if (r.kind === "notifies") {
@@ -51,6 +52,7 @@ function normalize(reasons: readonly ClassReason[]): ClassReason[] {
       const key = `${r.projectId}|${r.event ?? ""}`;
       if (!automations.has(key)) automations.set(key, r);
     } else if (r.kind === "irreversible") irreversible = true;
+    else if (r.kind === "startsWork") startsWork = true;
     else reauth = true;
   }
   const [only] = moreIn.size === 1 ? [...moreIn] : [];
@@ -67,6 +69,7 @@ function normalize(reasons: readonly ClassReason[]): ClassReason[] {
       : []),
     ...automations.values(),
     ...(irreversible ? [{ kind: "irreversible" as const }] : []),
+    ...(startsWork ? [{ kind: "startsWork" as const }] : []),
     ...(reauth ? [{ kind: "reauth" as const }] : []),
   ];
 }
@@ -182,20 +185,19 @@ function dataReasons(me: string, action: Action): ClassReason[] {
     }
     case "updateProductPage": {
       // 11b (decisione 3): l'aggiornamento chiesto nel riquadro avvisa chi
-      // segue la pagina (`product_doc.updated` a `productDocRecipients`,
-      // anche quando sono i `docs.edit` del ripiego). Di una pagina che chi
+      // segue la pagina, sempre, e chi ha la riga accesa (area 11, N-1 = a:
+      // `product_doc.updated` nel catalogo). Di una pagina che chi
       // chiede non legge non si dice niente (R-G5). La voce è dichiarata B:
       // senza altri destinatari la ragione sparisce, la classe no (P39).
       const page = typeof args.pageId === "string" ? productPageById(args.pageId) : undefined;
       if (!page || docsAccess(me, page.projectId) !== "read") return [];
-      // Area 11 (D-6 = b): nel catalogo, chi ha spento gli aggiornamenti no.
       return [
         {
           kind: "notifies",
           ...wouldNotify(me, {
             kind: "product_doc.updated",
             projectId: page.projectId,
-            recipientIds: productDocRecipients(page.id),
+            mandatory: followerMandatory(page.id),
           }),
         },
       ];
@@ -216,6 +218,7 @@ export function classOf(me: string, action: Action): ActionClass {
   const reasons = normalize([
     ...dataReasons(me, action),
     ...(CLAUDE_CATALOG[fn].undoable ? [] : [{ kind: "irreversible" as const }]),
+    ...(CLAUDE_CATALOG[fn].startsWork ? [{ kind: "startsWork" as const }] : []),
     ...(reauth ? [{ kind: "reauth" as const }] : []),
   ]);
   return { cls: higher(declared, reasons.length > 0 ? "B" : "A"), reasons };

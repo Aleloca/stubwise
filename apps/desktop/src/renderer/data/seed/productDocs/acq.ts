@@ -627,7 +627,9 @@ export const PRODUCT_NOTIFICATIONS: AppNotification[] = [
     projectId: "prj-acq",
     objectCode: signInPageCode,
     departmentId: null,
-    recipientIds: [MARCO],
+    // N-1 = a: chi è menzionato la riceve sempre (obbligo `mentioned`).
+    recipientIds: [],
+    mandatory: [{ personId: MARCO, reason: "mentioned" }],
     // Vuoto: la card compone il titolo in lettura (`composedOf`).
     title: "",
     body: PRODUCT_COMMENTS[0]!.body,

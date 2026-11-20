@@ -85,6 +85,12 @@ export interface CatalogEntry {
    */
   reauthIf?: (args: Record<string, unknown>) => boolean;
   /**
+   * Fa partire lavoro del modello (area 11, F6-1 = a, maintainer): costa
+   * budget, e un «Undo» non lo restituisce. La voce è B col motivo
+   * `startsWork`, e parte alla conferma; «Undo» resta dopo.
+   */
+  startsWork?: boolean;
+  /**
    * L'azione di `ACTIONS` per il «Who?» di un rifiuto; `null` solo per ciò
    * che è solo tuo: `setSubscription` (P19) e i filtri salvati (P4).
    */
