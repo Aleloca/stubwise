@@ -68,7 +68,7 @@ export function createProductDocsEndpoints(request: ApiRequest) {
     mentionCandidates(projectId: string, q = ""): Promise<Reader<{ id: string; name: string }>[]> {
       return request("GET", `/api/projects/${seg(projectId)}/product/mention-candidates${toQuery({ q: q || undefined })}`, undefined, productMentionCandidatesSchema);
     },
-    /** L'immagine: 302 verso un URL firmato breve, coi permessi della pagina. */
+    /** L'immagine coi permessi della pagina: la rotta risponde coi byte (nessun redirect verso lo storage). */
     imagePath(pageId: string, imageId: string): string {
       return `/api/product-pages/${seg(pageId)}/images/${seg(imageId)}`;
     },
