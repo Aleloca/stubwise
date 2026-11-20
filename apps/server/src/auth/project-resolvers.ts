@@ -22,7 +22,9 @@ import {
   projects,
   repositories,
   tickets,
+  productClaudeMarks,
   productComments,
+  productPageRevisions,
   productPages,
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
@@ -232,6 +234,34 @@ export function fromProductComment(param: string): ProjectResolver {
       .from(productComments)
       .innerJoin(productPages, eq(productPages.id, productComments.pageId))
       .where(eq(productComments.id, id));
+    return row?.projectId ?? null;
+  };
+}
+
+/** Area 11, F5: il progetto di un segno di Claude. */
+export function fromProductMark(param: string): ProjectResolver {
+  return async (req, db) => {
+    const id = uuidParam(req, param);
+    if (!id) return null;
+    const [row] = await db
+      .select({ projectId: productPages.projectId })
+      .from(productClaudeMarks)
+      .innerJoin(productPages, eq(productPages.id, productClaudeMarks.pageId))
+      .where(eq(productClaudeMarks.id, id));
+    return row?.projectId ?? null;
+  };
+}
+
+/** Area 11, F5: il progetto di una revisione di una pagina di prodotto. */
+export function fromProductRevision(param: string): ProjectResolver {
+  return async (req, db) => {
+    const id = uuidParam(req, param);
+    if (!id) return null;
+    const [row] = await db
+      .select({ projectId: productPages.projectId })
+      .from(productPageRevisions)
+      .innerJoin(productPages, eq(productPages.id, productPageRevisions.pageId))
+      .where(eq(productPageRevisions.id, id));
     return row?.projectId ?? null;
   };
 }

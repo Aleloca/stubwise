@@ -124,6 +124,229 @@ export interface ProductTreeNode {
   children: ProductTreeNode[];
 }
 
+// --- Area 11, F5: Claude dalle fonti e le domande --------------------------------
+
+/** La fonte di una modifica di Claude. `first_version` (F6) ne ha più d'una. */
+export const productSourceRefSchema = z.union([
+  z.object({ kind: z.enum(["email", "meeting", "decision", "task", "release"]), id: z.uuid() }).strict(),
+  z.object({ kind: z.literal("first_version"), ids: z.array(z.uuid()).max(50) }).strict(),
+]);
+export type ProductSourceRef = z.infer<typeof productSourceRefSchema>;
+
+export const productAnswerChoiceSchema = z.enum(["apply", "keep", "request"]);
+export type ProductAnswerChoice = z.infer<typeof productAnswerChoiceSchema>;
+
+/**
+ * Un fatto che una fonte dice alla doc di prodotto, come lo restituisce il
+ * modello (F5): STRUTTURATO, mai testo libero da incollare. Lo valida questo
+ * schema; uno che non passa si scarta (e si conta). `clarity` dice se è detto
+ * chiaro o è un «forse»; solo uno chiaro, che non contraddice una persona, entra
+ * da sé (`decideFact`). Dal prototipo (`ProductFact`, `data/model.ts`).
+ */
+export const productFactSchema = z
+  .object({
+    id: z.string().min(1).max(100),
+    pageId: z.uuid(),
+    /** Il blocco (o la cella) che il fatto riguarda; `null` = in cima alla pagina. */
+    anchorId: id.nullable(),
+    change: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("replace"), text: richTextSchema }).strict(),
+      z.object({ kind: z.literal("insert_after"), block: productBlockWriteSchema }).strict(),
+      z.object({ kind: z.literal("link_task"), taskCode: z.string().min(1).max(40) }).strict(),
+      z.object({ kind: z.literal("diverges"), built: z.string().min(1).max(2000) }).strict(),
+    ]),
+    clarity: z.enum(["clear", "vague"]),
+    /** Il contrasto GIÀ presente quando il fatto arriva, con un testo che nessuna persona ha toccato. */
+    contradicts: z.boolean().optional(),
+    /** Il testo che il fatto si aspetta di trovare nel blocco: lo scrittore lo ricontrolla prima di scrivere. */
+    before: richTextSchema.optional(),
+    options: z
+      .object({
+        apply: richTextSchema.optional(),
+        request: z.object({ title: z.string().min(1).max(200), description: z.string().max(5000) }).strict().optional(),
+      })
+      .strict()
+      .optional(),
+    /** La risposta che Claude consiglia; senza, `recommendedOf`. */
+    recommended: productAnswerChoiceSchema.optional(),
+  })
+  .strict();
+export type ProductFact = z.infer<typeof productFactSchema>;
+
+export const productQuestionReasonSchema = z.enum(["vague", "contradicts_person", "contradicts", "diverges", "no_permission"]);
+export type ProductQuestionReason = z.infer<typeof productQuestionReasonSchema>;
+
+export type ProductFactDecision = { kind: "edit" } | { kind: "question"; reason: ProductQuestionReason } | { kind: "none" };
+
+/**
+ * La parte di DOMANDA di un commento di Claude (`product_comments.question`):
+ * le risposte già scritte. Il testo della domanda non sta nel corpo: lo compone
+ * chi la mostra, nella sua lingua, da questi valori. La risposta sta a parte
+ * (`product_comments.answer`, una sola).
+ */
+export const productQuestionSchema = z.object({
+  sourceRef: productSourceRefSchema,
+  factId: z.string(),
+  reason: productQuestionReasonSchema,
+  /** Chi la domanda nomina: chi ha scritto la frase (`contradicts_person`) o il titolare senza `docs.edit` (`no_permission`). */
+  forId: z.uuid().nullable(),
+  /** La frase del fatto, parola per parola («Update it»); null = nessuna strada. */
+  apply: richTextSchema.nullable(),
+  /** Solo `diverges`: cosa è stato fatto. */
+  built: z.string().nullable(),
+  request: z.object({ title: z.string(), description: z.string() }).nullable(),
+  /** Un fatto `insert_after` senza `options.apply`: «Update it» inserisce una copia del blocco dopo `afterId`. */
+  insert: z.object({ block: productBlockWriteSchema, afterId: id.nullable() }).optional(),
+  recommended: productAnswerChoiceSchema,
+});
+export type ProductQuestion = z.infer<typeof productQuestionSchema>;
+
+/** La risposta a una domanda di Claude, una sola (`product_comments.answer`). */
+export const productQuestionAnswerSchema = z.object({
+  byId: z.uuid(),
+  option: productAnswerChoiceSchema,
+  at: z.string(),
+  /** La revisione di «Update it», o la richiesta aperta da «Open a request». */
+  revisionId: z.uuid().nullable(),
+  requestId: z.uuid().nullable().default(null),
+});
+export type ProductQuestionAnswer = z.infer<typeof productQuestionAnswerSchema>;
+
+// --- Area 11, F5, Task 4: le letture di Claude dalle fonti -----------------------
+
+/**
+ * Una fonte come la legge chi guarda (il prototipo: `ProductSourceView`): i
+ * PEZZI, la frase la compone il client. `canOpen` falso (un'email o una
+ * riunione della casella di un altro, admin compreso: N-2 = a) → `id`,
+ * `title` e `thread` sono null: resta «da un'email di <ownerName> · <at>».
+ */
+export const productSourceViewSchema = z.object({
+  kind: z.enum(["email", "meeting", "decision", "task", "release", "first_version"]),
+  canOpen: z.boolean(),
+  id: z.uuid().nullable(),
+  title: z.string().nullable(),
+  /** Il codice di una task o di un rilascio (anche invisibile). */
+  code: z.string().nullable(),
+  ownerId: z.uuid().nullable(),
+  ownerName: z.string().nullable(),
+  at: z.string().nullable(),
+  /** La fonte non c'è più (email potata, riunione tolta). */
+  gone: z.boolean(),
+  /** La conversazione della Posta (`/api/me/mail/threads/:threadId?account=`): solo con `canOpen`. */
+  thread: z.object({ threadId: z.string(), accountId: z.uuid() }).nullable().default(null),
+});
+export type ProductSourceView = z.infer<typeof productSourceViewSchema>;
+
+/**
+ * Se chi guarda può annullare una modifica di Claude, e se no perché. Un
+ * oggetto solo (non un'unione: `readerSchema` la attraversa): con `enabled`
+ * vero gli altri campi sono null.
+ */
+export const productUndoViewSchema = z.object({
+  enabled: z.boolean(),
+  reason: z.enum(["changed_after", "no_permission", "already_undone"]).nullable().default(null),
+  byId: z.uuid().nullable().default(null),
+  byName: z.string().nullable().default(null),
+});
+export type ProductUndoView = z.infer<typeof productUndoViewSchema>;
+
+/** `GET /api/product-pages/:id/marks`: i segni aperti di Claude, uno per ancora. */
+export const productMarkViewSchema = z.object({
+  id: z.uuid(),
+  anchorId: z.string(),
+  /** Il blocco che contiene l'ancora (la tabella, per una cella). */
+  blockId: z.string(),
+  /** Per una cella: 1 = la prima riga, la prima colonna (P45). */
+  cell: z.object({ row: z.number().int(), col: z.number().int() }).nullable().default(null),
+  revisionId: z.uuid(),
+  /** Quante ancore ha cambiato la stessa revisione. */
+  groupAnchors: z.number().int(),
+  actorId: z.uuid().nullable(),
+  onBehalfOfId: z.uuid().nullable(),
+  onBehalfOfName: z.string().nullable(),
+  at: z.string(),
+  source: productSourceViewSchema,
+  canAccept: z.boolean(),
+  undo: productUndoViewSchema,
+});
+export type ProductMarkView = z.infer<typeof productMarkViewSchema>;
+
+/** I campi in più di una revisione di Claude o di un «Undo» (additivi su `productRevisionViewSchema`). */
+export const productRevisionClaudeFields = {
+  via: z.enum(["claude"]).nullable().default(null),
+  onBehalfOfId: z.uuid().nullable().default(null),
+  onBehalfOfName: z.string().nullable().default(null),
+  source: productSourceViewSchema.nullable().default(null),
+  /** Solo `claude`: «Undo all». */
+  undo: productUndoViewSchema.nullable().default(null),
+  /** Solo `claude`: lo stato di «Undo» per ogni ancora cambiata. */
+  undoByAnchor: z.record(z.string(), productUndoViewSchema).default({}),
+  /** Solo `claude`: quante ancore sono state annullate («1 di 3 annullate»). */
+  undoneCount: z.object({ done: z.number().int(), count: z.number().int() }).nullable().default(null),
+  undoneById: z.uuid().nullable().default(null),
+  undoneByName: z.string().nullable().default(null),
+  /** Solo `undo`: la revisione di Claude annullata. */
+  undoOf: z.uuid().nullable().default(null),
+  /** Una modifica scritta da «Update it» su una domanda di Claude: il commento della domanda. */
+  answerOf: z.uuid().nullable().default(null),
+};
+
+/** La parte di DOMANDA di un commento di Claude, come la legge chi guarda. */
+export const productQuestionViewSchema = z.object({
+  reason: productQuestionReasonSchema,
+  forId: z.uuid().nullable(),
+  forName: z.string().nullable(),
+  /** Il codice della task di una divergenza. */
+  taskCode: z.string().nullable(),
+  source: productSourceViewSchema,
+  applyMode: z.enum(["replace", "insert"]),
+  /** La frase dell'ancora com'è adesso; null se non c'è più, e sempre per `insert`. */
+  current: richTextSchema.nullable(),
+  apply: richTextSchema.nullable(),
+  built: z.string().nullable(),
+  request: z.object({ title: z.string(), description: z.string() }).nullable(),
+  recommended: productAnswerChoiceSchema.nullable(),
+  /** Le risposte che hanno una strada, il consiglio per primo. */
+  options: z.array(productAnswerChoiceSchema),
+  canAnswer: z.boolean(),
+  /** «Update it» spento: la frase è cambiata dopo la domanda. */
+  applyBlocked: z.object({ byId: z.uuid().nullable(), byName: z.string().nullable() }).nullable(),
+  answer: z
+    .object({
+      byId: z.uuid().nullable(),
+      byName: z.string().nullable(),
+      option: productAnswerChoiceSchema,
+      at: z.string(),
+      revisionId: z.uuid().nullable(),
+      requestId: z.uuid().nullable(),
+      requestCode: z.string().nullable(),
+    })
+    .nullable(),
+});
+export type ProductQuestionView = z.infer<typeof productQuestionViewSchema>;
+
+/** `POST /api/product-comments/:id/answer`. */
+export const answerProductQuestionSchema = z.object({ option: productAnswerChoiceSchema }).strict();
+export type AnswerProductQuestionInput = z.infer<typeof answerProductQuestionSchema>;
+
+/** `GET /api/me/product-questions`: le domande aperte a cui chi guarda può rispondere. */
+export const productOpenQuestionSchema = z.object({
+  commentId: z.uuid(),
+  pageId: z.uuid(),
+  pageCode: z.string(),
+  pageTitle: z.string(),
+  projectId: z.uuid(),
+  projectCode: z.string(),
+  anchorId: z.string(),
+  question: productQuestionViewSchema,
+  createdAt: z.string(),
+});
+export type ProductOpenQuestion = z.infer<typeof productOpenQuestionSchema>;
+
+/** Il lavoro di Claude fermo, per la riga «riprende quando…» (pagina e spazio). */
+export const productClaudeHeldSchema = z.object({ reason: z.enum(["budget", "limit", "section_busy", "paused"]), count: z.number().int() }).nullable().default(null);
+export type ProductClaudeHeld = z.infer<typeof productClaudeHeldSchema>;
+
 /**
  * `GET /api/projects/:projectId/product`: lo spazio per chi guarda. Le pagine
  * IN FILA (`pages`), non l'albero: `readerSchema` non attraversa uno schema
@@ -137,6 +360,8 @@ export const productSpaceSchema = z.object({
   pageCount: z.number().int(),
   recent: z.array(productPageRefSchema),
   permissions: z.object({ edit: z.boolean() }),
+  /** F5: il lavoro di Claude fermo nel progetto (riga «riprende quando…» in cima all'indice). Additivo. */
+  claudeHeld: productClaudeHeldSchema,
 });
 export type ProductSpaceView = z.infer<typeof productSpaceSchema>;
 
@@ -182,6 +407,8 @@ export const productPageViewSchema = z.object({
    * commenti a ogni lettura della pagina. Additivo.
    */
   openComments: z.number().int().default(0),
+  /** F5: il lavoro di Claude fermo che tocca questa pagina. Additivo. */
+  claudeHeld: productClaudeHeldSchema,
 });
 export type ProductPageView = z.infer<typeof productPageViewSchema>;
 
@@ -203,6 +430,7 @@ export const productRevisionViewSchema = z.object({
   parent: z.object({ beforeId: z.uuid().nullable(), afterId: z.uuid().nullable() }).nullable().default(null),
   createdAt: z.string(),
   updatedAt: z.string(),
+  ...productRevisionClaudeFields,
 });
 export type ProductRevisionView = z.infer<typeof productRevisionViewSchema>;
 
@@ -238,6 +466,8 @@ export const productCommentViewSchema = z.object({
   resolved: z.object({ byId: z.uuid().nullable(), byName: z.string().nullable(), at: z.string() }).nullable(),
   /** Le persone menzionate che chi guarda vede. */
   mentionIds: z.array(z.uuid()).default([]),
+  /** F5: la parte di domanda di un commento di Claude; null per i commenti delle persone. Additivo. */
+  question: productQuestionViewSchema.nullable().default(null),
 });
 export type ProductCommentView = z.infer<typeof productCommentViewSchema>;
 
@@ -392,91 +622,3 @@ export const productLiveCursorSchema = z.object({ type: z.literal("cursor"), use
 export const productLiveHoldSchema = z.object({ type: z.literal("hold"), hold: productSectionHoldSchema });
 export const productLiveReleaseSchema = z.object({ type: z.literal("release"), sectionId: z.string() });
 export const productLiveGoneSchema = z.object({ type: z.literal("gone") });
-
-// --- Area 11, F5: Claude dalle fonti e le domande --------------------------------
-
-/** La fonte di una modifica di Claude. `first_version` (F6) ne ha più d'una. */
-export const productSourceRefSchema = z.union([
-  z.object({ kind: z.enum(["email", "meeting", "decision", "task", "release"]), id: z.uuid() }).strict(),
-  z.object({ kind: z.literal("first_version"), ids: z.array(z.uuid()).max(50) }).strict(),
-]);
-export type ProductSourceRef = z.infer<typeof productSourceRefSchema>;
-
-export const productAnswerChoiceSchema = z.enum(["apply", "keep", "request"]);
-export type ProductAnswerChoice = z.infer<typeof productAnswerChoiceSchema>;
-
-/**
- * Un fatto che una fonte dice alla doc di prodotto, come lo restituisce il
- * modello (F5): STRUTTURATO, mai testo libero da incollare. Lo valida questo
- * schema; uno che non passa si scarta (e si conta). `clarity` dice se è detto
- * chiaro o è un «forse»; solo uno chiaro, che non contraddice una persona, entra
- * da sé (`decideFact`). Dal prototipo (`ProductFact`, `data/model.ts`).
- */
-export const productFactSchema = z
-  .object({
-    id: z.string().min(1).max(100),
-    pageId: z.uuid(),
-    /** Il blocco (o la cella) che il fatto riguarda; `null` = in cima alla pagina. */
-    anchorId: id.nullable(),
-    change: z.discriminatedUnion("kind", [
-      z.object({ kind: z.literal("replace"), text: richTextSchema }).strict(),
-      z.object({ kind: z.literal("insert_after"), block: productBlockWriteSchema }).strict(),
-      z.object({ kind: z.literal("link_task"), taskCode: z.string().min(1).max(40) }).strict(),
-      z.object({ kind: z.literal("diverges"), built: z.string().min(1).max(2000) }).strict(),
-    ]),
-    clarity: z.enum(["clear", "vague"]),
-    /** Il contrasto GIÀ presente quando il fatto arriva, con un testo che nessuna persona ha toccato. */
-    contradicts: z.boolean().optional(),
-    /** Il testo che il fatto si aspetta di trovare nel blocco: lo scrittore lo ricontrolla prima di scrivere. */
-    before: richTextSchema.optional(),
-    options: z
-      .object({
-        apply: richTextSchema.optional(),
-        request: z.object({ title: z.string().min(1).max(200), description: z.string().max(5000) }).strict().optional(),
-      })
-      .strict()
-      .optional(),
-    /** La risposta che Claude consiglia; senza, `recommendedOf`. */
-    recommended: productAnswerChoiceSchema.optional(),
-  })
-  .strict();
-export type ProductFact = z.infer<typeof productFactSchema>;
-
-export const productQuestionReasonSchema = z.enum(["vague", "contradicts_person", "contradicts", "diverges", "no_permission"]);
-export type ProductQuestionReason = z.infer<typeof productQuestionReasonSchema>;
-
-export type ProductFactDecision = { kind: "edit" } | { kind: "question"; reason: ProductQuestionReason } | { kind: "none" };
-
-/**
- * La parte di DOMANDA di un commento di Claude (`product_comments.question`):
- * le risposte già scritte. Il testo della domanda non sta nel corpo: lo compone
- * chi la mostra, nella sua lingua, da questi valori. La risposta sta a parte
- * (`product_comments.answer`, una sola).
- */
-export const productQuestionSchema = z.object({
-  sourceRef: productSourceRefSchema,
-  factId: z.string(),
-  reason: productQuestionReasonSchema,
-  /** Chi la domanda nomina: chi ha scritto la frase (`contradicts_person`) o il titolare senza `docs.edit` (`no_permission`). */
-  forId: z.uuid().nullable(),
-  /** La frase del fatto, parola per parola («Update it»); null = nessuna strada. */
-  apply: richTextSchema.nullable(),
-  /** Solo `diverges`: cosa è stato fatto. */
-  built: z.string().nullable(),
-  request: z.object({ title: z.string(), description: z.string() }).nullable(),
-  /** Un fatto `insert_after` senza `options.apply`: «Update it» inserisce una copia del blocco dopo `afterId`. */
-  insert: z.object({ block: productBlockWriteSchema, afterId: id.nullable() }).optional(),
-  recommended: productAnswerChoiceSchema,
-});
-export type ProductQuestion = z.infer<typeof productQuestionSchema>;
-
-/** La risposta a una domanda di Claude, una sola (`product_comments.answer`). */
-export const productQuestionAnswerSchema = z.object({
-  byId: z.uuid(),
-  option: productAnswerChoiceSchema,
-  at: z.string(),
-  /** La revisione di «Update it», o la richiesta aperta da «Open a request». */
-  revisionId: z.uuid().nullable(),
-  requestId: z.uuid().nullable().default(null),
-});
-export type ProductQuestionAnswer = z.infer<typeof productQuestionAnswerSchema>;

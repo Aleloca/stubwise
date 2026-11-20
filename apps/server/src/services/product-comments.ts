@@ -100,6 +100,8 @@ async function viewsOf(db: Db, viewer: Viewer, rows: readonly CommentRow[]): Pro
         replyToId: r.replyToId,
         resolved: r.resolvedAt ? { byId: r.resolvedBy, byName: sees(r.resolvedBy) ? (names.get(r.resolvedBy) ?? null) : null, at: r.resolvedAt.toISOString() } : null,
         mentionIds: r.mentions.filter(sees),
+        // F5: la parte di domanda la legge `product-questions.ts` (Task 4).
+        question: null,
       },
     ]),
   );
