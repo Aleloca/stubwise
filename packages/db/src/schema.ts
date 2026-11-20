@@ -5693,7 +5693,7 @@ export const agentSessionEvents = pgTable(
       .where(sql`type in ('tool_use','assistant_text')`),
     check(
       "agent_session_events_type_chk",
-      sql`type in ('segment_start','assistant_text','tool_use','tool_result','input','turn_end','segment_end','proposal','actions_executed','question','aside')`,
+      sql`type in ('segment_start','assistant_text','tool_use','tool_result','input','turn_end','segment_end','proposal','actions_executed','question','aside','capabilities')`,
     ),
   ],
 );
@@ -6468,6 +6468,24 @@ export const chatClaudeQuestions = pgTable(
     uniqueIndex("chat_claude_questions_reply_idx").on(table.replyMessageId),
     check("chat_claude_questions_answer_chk", sql`(${table.answeredAt} is null) = (${table.answeredBy} is null)`),
   ],
+);
+
+/**
+ * Area 10, F7 (D-5 = a): i «Not now» delle righe «Claude can help you…», per
+ * persona, per tipo di suggerimento e per oggetto (`object_id` vuoto = la
+ * pagina senza oggetto). Togliere la persona toglie le sue righe.
+ */
+export const claudeSuggestionDismissals = pgTable(
+  "claude_suggestion_dismissals",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    objectId: text("object_id").notNull().default(""),
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ name: "claude_suggestion_dismissals_pk", columns: [table.userId, table.kind, table.objectId] })],
 );
 
 /**

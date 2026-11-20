@@ -1394,6 +1394,13 @@
       "when": 1801699200000,
       "tag": "0200_member_added",
       "breakpoints": true
+    },
+    {
+      "idx": 201,
+      "version": "7",
+      "when": 1801785600000,
+      "tag": "0201_claude_capabilities_suggestions",
+      "breakpoints": true
     }
   ]
 }

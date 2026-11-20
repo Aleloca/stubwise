@@ -4,12 +4,11 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
 import { agentRuns, aiJobs, aiProviders, projects } from "@stubwise/db";
-import { inProjects, isAllProjects, projectIdsWithPermission, visibleProjectIds, type ProjectScope } from "../auth/access.js";
-import type { SessionUser } from "../auth/session.js";
+import { inProjects, isAllProjects, visibleProjectIds, type ProjectScope } from "../auth/access.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 import { usageDimensionSchema, usageSummarySchema, type UsageRange } from "@stubwise/shared";
-import { usageSummary } from "../services/usage-summary.js";
+import { usageScope, usageSummary } from "../services/usage-summary.js";
 
 /**
  * Range temporale (default: ultimi 30 giorni) della dashboard consumi. `from`/
@@ -394,13 +393,6 @@ async function breakdown(
  */
 type UsageScope = ProjectScope;
 
-async function usageScope(db: Db, user: SessionUser): Promise<UsageScope> {
-  // `usage.view` d'istanza: TUTTO il consumo, anche dei progetti archiviati
-  // (area 9, F6: è spesa vera, e il conto dell'istanza non la dimentica).
-  // I loro nomi restano fuori (`visibleProjectIds`).
-  if (user.instancePermissions.has("usage.view")) return { all: true, archived: [] };
-  return projectIdsWithPermission(db, user, "project.usage.view");
-}
 
 /**
  * Accesso alla dashboard: `usage.view` d'istanza, oppure `project.usage.view`

@@ -226,6 +226,8 @@ export const CHAT_READ_TOOLS = [
   // Area 10, F8 («/today»): la settimana di chi scrive.
   // Area 10, F6 (D-4 = a, F6-1 = a): le note di una PR, per la bozza nel campo.
   "read_pull_request_notes",
+  // Area 10, F7 (S0): ciò che Claude sa fare per chi chiede (il worker scrive l'evento).
+  "show_capabilities",
   "read_followed_projects",
   "read_my_week",
 ] as const;

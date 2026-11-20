@@ -184,6 +184,10 @@ export const agentSessionEventTypeSchema = z.enum([
   // Area 10, F3 (S2): «Hypothesis» e «Details» del lavoro fermo. `data`: id e
   // una chiave, mai prosa; si arricchisce a lettura con la visibilità.
   "aside",
+  // Area 10, F7 (S0): ciò che Claude sa fare per chi chiede. `data`: solo
+  // `{ items: ClaudeCapabilityId[] }`, gli id dati dal server; le frasi le
+  // scrive il renderer.
+  "capabilities",
 ]);
 export type AgentSessionEventType = z.infer<typeof agentSessionEventTypeSchema>;
 
