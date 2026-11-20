@@ -103,7 +103,8 @@ fare subito).
     `product` diventa riservato (la regola del prototipo).
 - **Le rotte**, tutte con `config.access` di progetto (`docs.view` per
   leggere, `docs.edit` per scrivere), invisibile = 404, archiviato come
-  inesistente (`projectNotArchived`), elenchi filtrati nella WHERE:
+  inesistente (`projectPermissionsFor` lo esclude, salvo le eccezioni
+  dichiarate con `config.archived`), elenchi filtrati nella WHERE:
   - lo spazio (albero, recenti), una pagina, crea, rinomina, sposta
     (padre e ordine, senza cicli), elimina (spento su una pagina con figlie,
     come il prototipo);
@@ -162,7 +163,7 @@ deleted»; le card in inbox; le righe della doc in Preferenze → Notifiche.
 chat dei Docs, «Esporta» in PDF e Word.
 
 - I chunk delle pagine di prodotto nella stessa tabella dei Docs
-  (`doc_chunks`, con `product_page_id` accanto a `doc_page_id`, uno dei due)
+  (`doc_chunks`, con `product_page_id` accanto a `page_id`, uno dei due)
   e il loro embedding da un job del worker, l'unico che chiama ollama per i
   Docs. Il job si accoda a ogni revisione chiusa, con un debounce per pagina.
 - La ricerca ibrida (`retrieveChunks…`) impara l'ambito Product; le
