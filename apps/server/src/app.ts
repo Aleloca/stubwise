@@ -104,6 +104,7 @@ import { NOOP_CHAT_BUS, type ChatBus } from "./chat/bus.js";
 import { claudeConversationRoutes } from "./routes/claude-conversations.js";
 import { claudeActionRoutes } from "./routes/claude-actions.js";
 import { claudeHelpRoutes } from "./routes/claude-help.js";
+import { productDocsRoutes } from "./routes/product-docs.js";
 import { correctionRoutes } from "./routes/corrections.js";
 import { briefRoutes } from "./routes/briefs.js";
 import { projectRoutes } from "./routes/projects.js";
@@ -757,6 +758,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(claudeActionRoutes, { prefix: "/api/claude" });
   // Area 10, F7: le capacità di Claude e i suggerimenti delle pagine.
   void app.register(claudeHelpRoutes, { prefix: "/api/claude" });
+  // Area 11, F1: lo spazio Product (la documentazione di prodotto).
+  void app.register(productDocsRoutes, { prefix: "/api" });
   // Correzioni post-PR (ciclo review → correzione, 30 set 2026): il bottone
   // "Chiedi modifiche" del ticket. `corrections.request`, vedi la rotta.
   void app.register(correctionRoutes, { prefix: "/api" });

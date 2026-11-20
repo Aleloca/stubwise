@@ -22,6 +22,7 @@ import {
   projects,
   repositories,
   tickets,
+  productPages,
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { ProjectPermission } from "@stubwise/shared";
@@ -206,6 +207,16 @@ export function fromMilestone(param: string): ProjectResolver {
       .select({ projectId: milestones.projectId })
       .from(milestones)
       .where(eq(milestones.id, id));
+    return row?.projectId ?? null;
+  };
+}
+
+/** Area 11, F1: il progetto di una pagina di prodotto. */
+export function fromProductPage(param: string): ProjectResolver {
+  return async (req, db) => {
+    const id = uuidParam(req, param);
+    if (!id) return null;
+    const [row] = await db.select({ projectId: productPages.projectId }).from(productPages).where(eq(productPages.id, id));
     return row?.projectId ?? null;
   };
 }
