@@ -155,6 +155,9 @@ const CATALOG_FOR_KIND: Record<
   "docs.release_note": { decisions: [], permission: null, archivable: true },
   "support.request": { decisions: [], permission: null, archivable: true },
   "member.added": { decisions: [], permission: null, archivable: true },
+  "product_doc.mention": { decisions: [], permission: null, archivable: true },
+  "product_doc.updated": { decisions: [], permission: null, archivable: true },
+  "product_doc.question": { decisions: [], permission: null, archivable: true },
   "server.diagnosis_ready": { decisions: [], permission: null, archivable: true },
   "monitor.recovered": { decisions: [], permission: null, archivable: true },
   // NON archiviabile di proposito: la domanda dell'agente si chiude solo
@@ -507,6 +510,12 @@ export function openUrl(event: NotificationEvent, publicUrl?: string): string {
     // Area 10, F5: i membri del progetto nell'app nuova (DERIVATO, nessun URL nel jsonb).
     case "member.added":
       return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/app/#/projects/${event.projectId}/members` : "";
+    // Area 11, F2: la pagina di prodotto nell'app nuova (la doc di prodotto vive
+    // solo lì). Dai codici del jsonb: una pagina non cambia progetto né codice.
+    case "product_doc.mention":
+    case "product_doc.updated":
+    case "product_doc.question":
+      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/app/#/p/${event.projectCode}/docs/product/${event.pageCode}` : "";
     // Area 7: l'automazione (o l'esecuzione) nell'app nuova.
     case "automation.approval":
     case "automation.failed":

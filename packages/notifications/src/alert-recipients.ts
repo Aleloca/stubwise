@@ -17,7 +17,8 @@ import { defaultApplies, type AlertType, type MandatoryReason } from "@stubwise/
  *   l'interruttore `push` della persona (M-2 = b); SENZA riga, `defaultPhone`
  *   E l'interruttore `push` di oggi (`pushPreference`), così il giorno del
  *   deploy nessuno con `push` spento riceve un telefono nuovo (46).
- * Tutti dentro chi VEDE il progetto (`members`).
+ * Tutti dentro chi VEDE il progetto (`members`) e, se il tipo lo dice
+ * (`seePerm`, area 11), l'oggetto dell'avviso.
  */
 export interface CatalogRecipientsContext {
   /** Chi vede il progetto adesso (membri + full admin). */
@@ -59,6 +60,8 @@ export function catalogRecipients(type: AlertType, ctx: CatalogRecipientsContext
   const excluded = new Set(ctx.exclude ?? []);
   const add = (userId: string, wantsPhone: boolean) => {
     if (!visible.has(userId) || excluded.has(userId) || app.includes(userId)) return;
+    // Area 11, F2: chi non vede l'oggetto non la riceve, nemmeno da obbligatorio.
+    if (type.seePerm !== undefined && !ctx.holds(userId, type.seePerm)) return;
     app.push(userId);
     if (wantsPhone) phone.add(userId);
   };

@@ -45,7 +45,8 @@ import {
 } from "@stubwise/db";
 import { personName } from "./people.js";
 import { visiblePersonIds } from "./people-visibility.js";
-import type { Language } from "@stubwise/i18n";
+import { t, type Language } from "@stubwise/i18n";
+import { productDocCardsFor, type ProductDocCard } from "./product-comments.js";
 import {
   actionsFor,
   actorAllows,
@@ -824,6 +825,8 @@ export interface InboxItem extends ViaClaudeFields {
   } | null;
   /** Area 7: solo `automation.*`, lo stato dell'esecuzione per chi legge (`automationCardsFor`). */
   automation?: InboxAutomation | null;
+  /** Area 11, F2: solo `product_doc.*`, la pagina e il commento come li vede chi legge (`productDocCardsFor`). */
+  productDoc?: ProductDocCard | null;
   jobId: string | null;
   createdAt: Date;
   readAt: Date | null;
@@ -1044,14 +1047,21 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     page.filter((r) => r.kind === "chat.mention" || r.kind === "chat.question"),
   );
 
+  // Area 11, F2: le card della doc di prodotto derivate a lettura (la pagina di adesso, per chi legge;
+  // null = pagina o commento tolti, o Docs del progetto che chi legge non legge più).
+  const isProductDocKind = (kind: string) => kind === "product_doc.mention" || kind === "product_doc.updated" || kind === "product_doc.question";
+  const productDocCards = await productDocCardsFor(db, userId, page.filter((r) => r.kind === "product_doc.mention"));
+
   // Area 7: le card `automation.*` derivate a lettura (l'esecuzione com'è adesso, per chi legge).
   const automationCards = await automationCardsFor(db, userId, page.filter((r) => isAutomationKind(r.kind)));
 
   const items = page.map((r): InboxItem => {
     // La resa dal jsonb è l'unica parte che può esplodere: sta dentro il suo
     // recinto (vedi `renderItem`).
+    const productDoc = r.kind === "product_doc.mention" ? (productDocCards.get(r.id) ?? null) : null;
     const rendered = renderItem(
-      withCommentExcerpt(r.event, commentsById),
+      // La frase con i dati di ADESSO (il codice, chi ha scritto se chi legge lo vede): mai dal jsonb.
+      productDoc ? { ...r.event, pageCode: productDoc.pageCode, projectCode: productDoc.projectCode, authorName: productDoc.authorName ?? "" } : withCommentExcerpt(r.event, commentsById),
       r.kind,
       lang,
       sourceProposalIds.get(r.id) ?? null,
@@ -1093,7 +1103,8 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     const objectGone =
       (r.ticketId === null && typeof eventTicketId === "string" && goneTickets.has(eventTicketId)) ||
       (isChat && chat === null) ||
-      (isAutomationKind(r.kind) && automation === null);
+      (isAutomationKind(r.kind) && automation === null) ||
+      (r.kind === "product_doc.mention" && productDoc === null);
     // Una task eliminata non si apre: niente link alla sua pagina.
     const { url: _url, ...withoutUrl } = rendered;
     void _url;
@@ -1102,8 +1113,11 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       kind: r.kind,
       status: r.status,
       ...(objectGone ? withoutUrl : rendered),
+      // Area 11, F2: una pagina che chi legge non vede non dice né codice né chi ha scritto (R-G5).
+      ...(objectGone && isProductDocKind(r.kind) ? { text: t(lang, "notify.productDocGone") } : {}),
       objectGone,
       chat,
+      ...(isProductDocKind(r.kind) ? { productDoc } : {}),
       ...(isAutomationKind(r.kind) ? { automation } : {}),
       // Il riassunto NON passa dal jsonb dell'evento: viene dalle colonne
       // (`ai_jobs.plan_summary`, `pr_reviews.pr_summary`) caricate in batch

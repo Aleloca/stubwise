@@ -24,6 +24,7 @@ import {
   validProductBlock,
   type ProductBlock,
   type ProductBlockChange,
+  type ProductBlockOp,
   type ProductRevisionView,
   type SaveProductBlocksInput,
 } from "@stubwise/shared";
@@ -34,6 +35,7 @@ import { personName } from "./people.js";
 import { visiblePersonIds } from "./people-visibility.js";
 import type { ObjectStorage } from "../storage/index.js";
 import { removeOrRecordOrphan } from "../storage/orphans.js";
+import { moveMergedAnchors } from "./product-comments.js";
 import { ProductDocsError } from "./product-docs.js";
 
 /**
@@ -174,6 +176,8 @@ export async function saveProductBlocks(db: Db, viewer: Viewer, pageId: string, 
       .set({ blocks: next.blocks, revSeq: sql`${productPages.revSeq} + 1`, updatedBy: viewer.id, updatedAt: new Date() })
       .where(eq(productPages.id, pageId))
       .returning({ seq: productPages.revSeq })) as [{ seq: number }];
+    // F2: i fili del blocco assorbito da un `merge` passano sul blocco unito, nella stessa scrittura.
+    await moveMergedAnchors(tx, pageId, input.ops as ProductBlockOp[]);
 
     // L'unione: all'ultima revisione della pagina, se è un `edit` della stessa persona e sessione (e non un ⌘Z).
     const [last] = await tx.select().from(productPageRevisions).where(eq(productPageRevisions.pageId, pageId)).orderBy(desc(productPageRevisions.lastSeq)).limit(1);

@@ -21,7 +21,7 @@ function fakeStorage() {
     putObjectStream: vi.fn(async () => undefined),
     copyObject: vi.fn(async () => undefined),
     getSignedDownloadUrl: vi.fn(async (key: string) => `https://bucket.example/${key}`),
-    getObjectBytes: async () => Buffer.alloc(0),
+    getObjectBytes: vi.fn(async (key: string) => objects.get(key) ?? Buffer.alloc(0)),
     deleteObject: vi.fn(async (key: string) => void objects.delete(key)),
   };
 }
@@ -290,8 +290,22 @@ describe("la cronologia, Segui, le immagini", () => {
     const vq = await view(q.code);
     const foreign = await ops(editor, q.id, { sessionId: "i", baseSeq: vq.seq, ops: [{ op: "insert", afterId: null, block: { id: "blk-img2", type: "image", src: ref, caption: "", alt: "" } }] });
     expect(foreign.statusCode).toBe(422);
-    const open = await as(reader, "GET", `/api/product-pages/${p.id}/images/${ref.split(":")[1]}`);
-    expect(open.statusCode).toBe(302);
+  });
+
+  it("l'immagine si legge dalla rotta coi BYTE, non con un 302 verso lo storage (i due client non seguono un redirect cross-origin)", async () => {
+    const p = await page();
+    const { ref } = (await upload(editor, p.id, PNG)).json() as { ref: string };
+    const path = `/api/product-pages/${p.id}/images/${ref.split(":")[1]}`;
+    const open = await as(reader, "GET", path);
+    expect(open.statusCode).toBe(200);
+    expect(open.headers["content-type"]).toBe("image/png");
+    expect(open.headers["x-content-type-options"]).toBe("nosniff");
+    expect(String(open.headers["cache-control"])).toContain("private");
+    expect(open.headers.location).toBeUndefined();
+    expect(open.rawPayload.equals(PNG)).toBe(true);
+    expect(storage.getSignedDownloadUrl).not.toHaveBeenCalled();
+    const outsider = await createUserWithSession(app, `out-img-${randomUUID().slice(0, 6)}@example.com`);
+    expect((await as(outsider, "GET", path)).statusCode).toBe(404);
   });
 
   it("l'eliminazione di un progetto toglie anche le chiavi delle immagini", async () => {

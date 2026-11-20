@@ -2,9 +2,18 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { productPageViewSchema, productRevisionViewSchema, productSpaceSchema, saveProductBlocksSchema } from "@stubwise/shared";
+import {
+  addProductCommentSchema,
+  productCommentViewSchema,
+  productCommentsSchema,
+  productMentionCandidatesSchema,
+  productPageViewSchema,
+  productRevisionViewSchema,
+  productSpaceSchema,
+  saveProductBlocksSchema,
+} from "@stubwise/shared";
 import { routePermissions, type RouteAccess } from "../auth/access.js";
-import { fromParam, fromProductPage } from "../auth/project-resolvers.js";
+import { fromParam, fromProductComment, fromProductPage } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
 import {
   ProductDocsError,
@@ -26,6 +35,8 @@ import {
   recordProductImage,
   saveProductBlocks,
 } from "../services/product-docs-ops.js";
+import { addProductComment, listProductComments, productMentionCandidates, setProductCommentResolved } from "../services/product-comments.js";
+import { StorageObjectNotFound } from "../storage/errors.js";
 import { removeOrRecordOrphan } from "../storage/orphans.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -37,6 +48,7 @@ const SPACE_VIEW: RouteAccess = { kind: "project", permission: "docs.view", proj
 const SPACE_EDIT: RouteAccess = { kind: "project", permission: "docs.edit", project: fromParam("projectId") };
 const PAGE_EDIT: RouteAccess = { kind: "project", permission: "docs.edit", project: fromProductPage("id") };
 const PAGE_VIEW: RouteAccess = { kind: "project", permission: "docs.view", project: fromProductPage("id") };
+const COMMENT_EDIT: RouteAccess = { kind: "project", permission: "docs.edit", project: fromProductComment("id") };
 
 const projectParams = z.object({ projectId: z.uuid() });
 const pageParams = z.object({ id: z.uuid() });
@@ -204,17 +216,72 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
     },
   );
 
-  // L'immagine si apre dalla rotta, coi permessi della pagina: un URL firmato breve.
+  // L'immagine si apre dalla rotta, coi permessi della pagina, coi BYTE (al più
+  // 5 MB, il tipo verificato dai byte al caricamento, mai SVG). Non un 302
+  // verso lo storage: lo storage d'istanza ha un'altra origine, e né il proxy
+  // del main del desktop (`redirect: "manual"`) né una `fetch` col cookie del
+  // web (CORS) seguono quel redirect (review di R11-1, 46 e 94).
   app.get(
     "/product-pages/:id/images/:imageId",
-    { config: { access: PAGE_VIEW }, schema: { params: z.object({ id: z.uuid(), imageId: z.uuid() }), response: { 404: errorSchema, ...authErrorResponses } } },
+    { config: { access: PAGE_VIEW }, schema: { params: z.object({ id: z.uuid(), imageId: z.uuid() }), response: { 400: errorSchema, 404: errorSchema, ...authErrorResponses } } },
     async (request, reply) => {
       const image = await productImageOf(app.db, request.params.id, request.params.imageId);
       if (!image) return apiError(reply, 404, "not_found", "Not found");
       const storage = await app.storage();
       if (!storage) return apiError(reply, 400, "storage_not_configured", "Object storage is not configured");
-      const url = await storage.getSignedDownloadUrl(image.storageKey, "image", 300, { inlineContentType: image.mime });
-      return reply.redirect(url, 302);
+      let bytes: Buffer;
+      try {
+        bytes = await storage.getObjectBytes(image.storageKey, PRODUCT_IMAGE_MAX_BYTES);
+      } catch (error) {
+        if (error instanceof StorageObjectNotFound) return apiError(reply, 404, "not_found", "Not found");
+        throw error;
+      }
+      return reply
+        .header("content-type", image.mime)
+        .header("x-content-type-options", "nosniff")
+        .header("content-disposition", "inline")
+        .header("content-security-policy", "default-src 'none'; sandbox")
+        .header("cache-control", "private, max-age=3600")
+        .send(bytes as never);
     },
+  );
+
+  // --- F2: i commenti, la risoluzione, i candidati alle menzioni ---
+
+  app.get(
+    "/product-pages/:id/comments",
+    { config: { access: PAGE_VIEW }, schema: { params: pageParams, response: { 200: productCommentsSchema, 404: errorSchema, ...authErrorResponses } } },
+    async (request, reply) => handle(reply, () => listProductComments(app.db, request.user!, request.params.id)),
+  );
+
+  app.post(
+    "/product-pages/:id/comments",
+    {
+      config: { access: PAGE_EDIT },
+      schema: { params: pageParams, body: addProductCommentSchema, response: { 201: productCommentViewSchema, 404: errorSchema, 422: errorSchema, ...authErrorResponses } },
+    },
+    async (request, reply) =>
+      handle(reply, async () => {
+        const added = await addProductComment(app.db, request.user!, request.params.id, request.body);
+        return reply.code(201).send(added.view);
+      }),
+  );
+
+  for (const [action, resolved] of [["resolve", true], ["reopen", false]] as const) {
+    app.post(
+      `/product-comments/:id/${action}`,
+      { config: { access: COMMENT_EDIT }, schema: { params: pageParams, response: { 204: z.null(), 404: errorSchema, 422: errorSchema, ...authErrorResponses } } },
+      async (request, reply) =>
+        handle(reply, async () => {
+          await setProductCommentResolved(app.db, request.user!, request.params.id, resolved);
+          return reply.code(204).send(null);
+        }),
+    );
+  }
+
+  app.get(
+    "/projects/:projectId/product/mention-candidates",
+    { config: { access: SPACE_VIEW }, schema: { params: projectParams, querystring: z.object({ q: z.string().max(100).default("") }), response: { 200: productMentionCandidatesSchema, ...authErrorResponses } } },
+    async (request) => productMentionCandidates(app.db, request.user!, request.params.projectId, request.query.q),
   );
 }

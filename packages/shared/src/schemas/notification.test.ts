@@ -375,3 +375,39 @@ describe("inboxItemSchema.undoneBy (area 10, F5) — additivo", () => {
     expect(readerSchema(inboxItemSchema).parse({ ...item, undoneBy: by }).undoneBy).toEqual(by);
   });
 });
+
+describe("inboxItemSchema.productDoc (area 11, F2) — additivo", () => {
+  const item = {
+    id: "1c9e4f70-5555-4666-8777-888899990011",
+    kind: "product_doc.mention",
+    status: "open",
+    text: "Ada mentioned you in a comment on PRO-D3",
+    actions: ["open", "snooze", "handled"],
+    projectId: null,
+    ticketId: null,
+    jobId: null,
+    createdAt: "2026-11-20T08:14:00.000Z",
+    readAt: null,
+    snoozedUntil: null,
+    handledAt: null,
+    handledBy: null,
+  };
+
+  it("un server più vecchio non lo manda: null", () => {
+    expect(readerSchema(inboxItemSchema).parse(item).productDoc).toBeNull();
+  });
+
+  it("quando c'è passa, anche con chi ha scritto a null (chi guarda non lo vede)", () => {
+    const productDoc = {
+      pageId: "1c9e4f70-5555-4666-8777-888899990012",
+      pageCode: "PRO-D3",
+      pageTitle: "Visione",
+      projectCode: "PRO",
+      commentId: "1c9e4f70-5555-4666-8777-888899990013",
+      threadRootId: "1c9e4f70-5555-4666-8777-888899990013",
+      authorId: null,
+      authorName: null,
+    };
+    expect(readerSchema(inboxItemSchema).parse({ ...item, productDoc }).productDoc).toEqual(productDoc);
+  });
+});

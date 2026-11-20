@@ -965,6 +965,49 @@ export interface MemberAddedEvent {
   changeLogEntryId: string | null;
 }
 
+/**
+ * Area 11, F2 (N-1 = a): una menzione in un commento della doc di prodotto,
+ * al menzionato (motivo obbligatorio `mentioned`), mai all'autore. Nel jsonb
+ * solo id e codici e il nome di chi ha scritto, di ALLORA, per le frasi fuori
+ * dall'app: MAI testo della pagina né del commento. Titolo, codice di adesso,
+ * chi ha menzionato (R-G5) e `objectGone` li DERIVA l'inbox a lettura.
+ */
+export interface ProductDocMentionEvent {
+  kind: "product_doc.mention";
+  pageId: string;
+  pageCode: string;
+  projectId: string;
+  projectCode: string;
+  commentId: string;
+  authorUserId: string | null;
+  authorName: string;
+}
+
+/** Area 11 (F5 lo produce): Claude ha aggiornato una pagina di prodotto. Solo id e codici. */
+export interface ProductDocUpdatedEvent {
+  kind: "product_doc.updated";
+  pageId: string;
+  pageCode: string;
+  projectId: string;
+  projectCode: string;
+  revisionId: string | null;
+}
+
+/** Area 11 (F5 lo produce): Claude chiede qualcosa su una pagina di prodotto. Solo id e codici. */
+export interface ProductDocQuestionEvent {
+  kind: "product_doc.question";
+  pageId: string;
+  pageCode: string;
+  projectId: string;
+  projectCode: string;
+  questionId: string | null;
+}
+
+export type ProductDocEvent = ProductDocMentionEvent | ProductDocUpdatedEvent | ProductDocQuestionEvent;
+
+export const isProductDocEvent = (event: NotificationEvent): event is ProductDocEvent =>
+  event.kind === "product_doc.mention" || event.kind === "product_doc.updated" || event.kind === "product_doc.question";
+
 /** Una task ricevuta da un'altra persona (audience `task_people`, mai l'attore). */
 export interface TaskAssignedEvent {
   kind: "task.assigned";
@@ -1054,6 +1097,7 @@ export type NotificationEvent =
   | ChatMentionEvent
   | ChatQuestionEvent
   | MemberAddedEvent
+  | ProductDocEvent
   | AutomationNotificationEvent;
 
 /**
@@ -1083,6 +1127,7 @@ type NonTicketedEvent =
   | ChatMentionEvent
   | ChatQuestionEvent
   | MemberAddedEvent
+  | ProductDocEvent
   | AutomationNotificationEvent;
 
 /**
@@ -1120,6 +1165,9 @@ function hasTicket(event: NotificationEvent): event is TicketedEvent {
     event.kind !== "planning.changed" &&
     event.kind !== "task.assigned" &&
     event.kind !== "member.added" &&
+    event.kind !== "product_doc.mention" &&
+    event.kind !== "product_doc.updated" &&
+    event.kind !== "product_doc.question" &&
     event.kind !== "chat.mention" &&
     event.kind !== "chat.question" &&
     event.kind !== "automation.approval" &&
@@ -1194,6 +1242,9 @@ const EMOJI: Record<NotificationKind, string> = {
   "google.proposal_handed": "📨",
   "security.alert": "🔐",
   "member.added": "👋",
+  "product_doc.mention": "💬",
+  "product_doc.updated": "📝",
+  "product_doc.question": "❓",
   "decision.requested": "🤔",
   "decision.answered": "💬",
   "ticket.activity": "👀",
@@ -1344,6 +1395,9 @@ function linkParam(
     case "planning.changed":
     case "task.assigned":
     case "member.added":
+    case "product_doc.mention":
+    case "product_doc.updated":
+    case "product_doc.question":
     case "chat.mention":
     case "chat.question":
     case "automation.approval":
@@ -1384,6 +1438,9 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "job.awaiting_input": "notify.awaitingInput",
   "project.pulse": "notify.pulse",
   "member.added": "notify.memberAdded",
+  "product_doc.mention": "notify.productDocMention",
+  "product_doc.updated": "notify.productDocUpdated",
+  "product_doc.question": "notify.productDocQuestion",
   "project.brief": "notify.brief",
   "google.proposal": "notify.googleProposal",
   "google.proposal_handed": "notify.googleProposalHanded",
@@ -1515,6 +1572,8 @@ export const isDirectMessageEvent = (event: NotificationEvent): boolean =>
   (event.kind === "chat.mention" || event.kind === "chat.question") && event.channelName === "";
 
 function templateKey(event: NotificationEvent): string {
+  // Area 11, F2: chi ha scritto non si nomina (chi legge non lo vede, R-G5: il nome lo deriva l'inbox).
+  if (event.kind === "product_doc.mention" && event.authorName === "") return "notify.productDocMention.anonymous";
   if (isDirectMessageEvent(event)) {
     return event.kind === "chat.question" ? "notify.chatQuestion.dm" : "notify.chatMention.dm";
   }
@@ -1672,6 +1731,12 @@ function textParams(
     if (event.kind === "member.added") {
       return { person: event.addedName, project: event.projectCode, role: event.roleName };
     }
+    if (event.kind === "product_doc.mention") {
+      return { author: event.authorName, code: event.pageCode };
+    }
+    if (event.kind === "product_doc.updated" || event.kind === "product_doc.question") {
+      return { code: event.pageCode };
+    }
     if (event.kind === "chat.mention" || event.kind === "chat.question") {
       return { author: event.authorName, channel: event.channelName };
     }
@@ -1778,6 +1843,8 @@ const UNTRUSTED_SLACK_PARAMS: Partial<Record<NotificationKind, readonly string[]
   // Il nome di chi scrive e quello del canale li scelgono le persone.
   "chat.mention": ["author", "channel"],
   "chat.question": ["author", "channel"],
+  // Area 11, F2: il nome di chi ha scritto il commento lo sceglie una persona.
+  "product_doc.mention": ["author"],
   // Il nome dell'automazione e il testo di `notify` li scrivono le persone.
   "automation.approval": ["automation"],
   "automation.failed": ["automation"],
@@ -2046,6 +2113,10 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
       event.kind === "server.diagnosis_ready"
     ) {
       return { event: event.kind, projectId: event.projectId, title: event.title, message: formatNotificationText(event, lang), url: event.url };
+    }
+    if (isProductDocEvent(event)) {
+      // Area 11, F2: un avviso del catalogo, mai sul webhook (M3): il ramo c'è per l'esaustività.
+      return { event: event.kind, projectId: event.projectId, pageId: event.pageId, pageCode: event.pageCode, message: formatNotificationText(event, lang) };
     }
     if (event.kind === "member.added") {
       // Area 10, F5: un webhook lo riceve solo dove l'evento è scelto (E-2).
@@ -2478,6 +2549,32 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       actorName: "Ada Lovelace",
       viaClaude: false,
       changeLogEntryId: null,
+    },
+    {
+      kind: "product_doc.mention",
+      pageId: "6a7b8c9d-1111-4222-8333-444455556666",
+      pageCode: "NEG-D12",
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      projectCode: "NEG",
+      commentId: "7b8c9d0e-2222-4333-8444-555566667777",
+      authorUserId: "5e6f7a8b-dddd-4eee-8fff-000011112222",
+      authorName: "Ada Lovelace",
+    },
+    {
+      kind: "product_doc.updated",
+      pageId: "6a7b8c9d-1111-4222-8333-444455556666",
+      pageCode: "NEG-D12",
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      projectCode: "NEG",
+      revisionId: null,
+    },
+    {
+      kind: "product_doc.question",
+      pageId: "6a7b8c9d-1111-4222-8333-444455556666",
+      pageCode: "NEG-D12",
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      projectCode: "NEG",
+      questionId: null,
     },
     {
       kind: "chat.mention",

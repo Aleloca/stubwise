@@ -306,6 +306,8 @@ export async function resolveCatalogRecipients(
   const perms = [
     ...(type.subscribe.perm !== "member" ? [type.subscribe.perm] : []),
     ...(typeof rule === "object" ? [rule.perm] : []),
+    // Area 11, F2: chi vede l'oggetto (`seePerm`), che vale anche per gli obbligatori.
+    ...(type.seePerm !== undefined ? [type.seePerm] : []),
   ];
   const holders = new Map<string, Set<string>>();
   for (const perm of new Set(perms)) {

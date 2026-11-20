@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { alertSubscriptions, notifications, roles, users } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { publishNotification, resolveCatalogRecipients } from "@stubwise/notifications";
-import { alertTypeOf, LIVE_ALERT_TYPES, rowTypeOf } from "@stubwise/shared";
+import { alertTypeOf, LIVE_ALERT_TYPES, rowTypeOf, type AlertType } from "@stubwise/shared";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
@@ -250,5 +250,34 @@ describe("review F2 (46), A/B/C: App e Telefono legati, il Telefono degli obblig
     const muted = await app.inject({ method: "POST", url: `/api/me/alert-subscriptions/${projectId}/mute`, headers: contributor.headers });
     const before = (muted.json() as { before: Row[] }).before;
     expect(before.every((r) => r.saved === false)).toBe(true);
+  });
+});
+
+describe("area 11, F2: `seePerm` si carica anche quando è diverso dagli altri permessi del tipo", () => {
+  // Un tipo SINTETICO (non una riga del catalogo): ci si iscrive da membri,
+  // acceso per tutti, ma lo riceve solo chi ha `docs.view`. Senza i titolari
+  // di `seePerm` caricati, nessuno che non sia full admin lo riceverebbe.
+  const SYNTHETIC: AlertType = {
+    type: "test.synthetic",
+    group: "docs",
+    labelKey: "alerts.types.test_synthetic",
+    subscribe: { perm: "member" },
+    defaultOn: "members",
+    defaultPhone: false,
+    mandatory: ["mentioned"],
+    seePerm: "docs.view",
+  };
+
+  it("chi ha il permesso per vedere lo riceve (iscritto e obbligatorio); chi non ce l'ha no", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const viewer = await person("viewer", projectId);
+    const [blindRole] = await t.db.insert(roles).values({ name: `Senza Docs ${randomUUID().slice(0, 4)}`, scope: "project", permissions: ["tickets.view_all"] }).returning({ id: roles.id });
+    const blind = await createUserWithPat(app, `b-${randomUUID().slice(0, 8)}@acme.com`);
+    const { projectMembers } = await import("@stubwise/db");
+    await t.db.insert(projectMembers).values({ projectId, userId: blind.id, roleId: blindRole!.id });
+    const out = await resolveCatalogRecipients(t.db, SYNTHETIC, projectId, { mandatory: [{ userId: blind.id, reason: "mentioned" }] });
+    expect(out.app).toContain(viewer.id);
+    expect(out.app).not.toContain(blind.id);
+    expect(out.mandatory.has(blind.id)).toBe(false);
   });
 });

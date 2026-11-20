@@ -85,6 +85,11 @@ export const notificationKindSchema = z.enum([
   // Area 10, F5 (0200, D-11 = b): una persona entra in un progetto. Alla persona
   // (obbligatorio) e a chi gestisce i membri (iscrizione), mai a chi ha agito.
   "member.added",
+  // Area 11, F2 (0203, N-1 = a): la doc di prodotto nel catalogo degli avvisi. La
+  // menzione è solo obbligatoria; `updated` e `question` le produce F5.
+  "product_doc.mention",
+  "product_doc.updated",
+  "product_doc.question",
 ]);
 
 /**
@@ -810,6 +815,27 @@ export const inboxItemSchema = z.object({
       authorId: z.uuid().nullable(),
       authorName: z.string(),
       excerpt: z.string(),
+    })
+    .nullable()
+    .default(null),
+  /**
+   * Area 11, F2: solo sulle card `product_doc.mention`, la pagina e il
+   * commento DERIVATI a lettura: codice e titolo di ADESSO, la radice del
+   * filo, chi ha scritto (`authorName` null se chi guarda non lo vede, R-G5).
+   * `null` per gli altri kind, o se la pagina o il commento non ci sono più o
+   * chi guarda non legge più i Docs del progetto (allora `objectGone`, e la
+   * frase non dice né codice né chi). Additivo.
+   */
+  productDoc: z
+    .object({
+      pageId: z.uuid(),
+      pageCode: z.string(),
+      pageTitle: z.string(),
+      projectCode: z.string(),
+      commentId: z.uuid(),
+      threadRootId: z.uuid(),
+      authorId: z.uuid().nullable(),
+      authorName: z.string().nullable(),
     })
     .nullable()
     .default(null),
