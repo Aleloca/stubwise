@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
-import { agentQuestions, agentRuns, aiJobs, claudeSuggestionDismissals, instanceSettings, notifications, prReleaseNotes, projects, ticketRepositories, tickets, users } from "@stubwise/db";
+import { agentQuestions, agentRuns, aiJobs, automations, claudeSuggestionDismissals, instanceSettings, notifications, prReleaseNotes, projects, ticketRepositories, tickets, users } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
@@ -75,6 +75,15 @@ describe("automations", () => {
     expect(await suggestion(outsider, "automations", projectId)).toBeNull();
     expect(await suggestion(lead, "automations", randomUUID())).toBeNull();
     expect(await suggestion(lead, "automations", "non-un-uuid")).toBeNull();
+  });
+
+  it("un progetto che ha già un'automazione (anche una bozza): niente riga", async () => {
+    const other = await seedRepository(t.db);
+    await addMember(app, other.projectId, lead.id, "project_lead");
+    const [p] = await t.db.select({ code: projects.code }).from(projects).where(eq(projects.id, other.projectId));
+    expect(await suggestion(lead, "automations", other.projectId)).toMatchObject({ kind: "buildAutomation", params: { code: p!.code } });
+    await t.db.insert(automations).values({ code: `${p!.code}-A1`, seq: 1, name: "Auto", description: "", projectId: other.projectId, status: "draft", createdBy: lead.id });
+    expect(await suggestion(lead, "automations", other.projectId)).toBeNull();
   });
 });
 
