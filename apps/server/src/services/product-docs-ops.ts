@@ -62,6 +62,8 @@ import { ProductDocsError } from "./product-docs.js";
  */
 
 type Viewer = Pick<SessionUser, "id" | "instancePermissions">;
+/** I campi di Claude di una revisione che non è sua (F5): tutti vuoti. */
+const NO_CLAUDE_FIELDS = { via: null, onBehalfOfId: null, onBehalfOfName: null, source: null, undo: null, undoByAnchor: {}, undoneCount: null, undoneById: null, undoneByName: null, undoOf: null, answerOf: null } as const;
 const invalid = (code: string, message: string) => new ProductDocsError(422, code, message);
 
 const productBlocksWriteSchema = z.array(productBlockWriteSchema);
@@ -127,7 +129,7 @@ function touchedSections(blocks: readonly ProductBlock[], ops: readonly ProductB
 }
 
 /** Prende per chi scrive le sezioni che tocca; la prima presa da un altro è un 409 (nella stessa transazione). */
-async function holdTouchedSections(tx: Db, viewer: Viewer, pageId: string, blocks: readonly ProductBlock[], ops: readonly ProductBlockOp[]): Promise<void> {
+export async function holdTouchedSections(tx: Db, viewer: Viewer, pageId: string, blocks: readonly ProductBlock[], ops: readonly ProductBlockOp[]): Promise<void> {
   for (const sectionId of touchedSections(blocks, ops)) {
     const got = await takeSection(tx, { pageId, sectionId, userId: viewer.id, ttlMs: PRODUCT_HOLD_TTL_MS });
     if (got.taken) continue;
@@ -320,6 +322,8 @@ async function revisionViews(db: Db, viewer: Viewer, rows: (typeof productPageRe
       parent: r.parent ?? null,
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),
+      // F5: i campi di Claude li aggiunge `withClaudeFields` (product-claude.ts) sulla lettura della cronologia.
+      ...NO_CLAUDE_FIELDS,
     }));
 }
 

@@ -15,12 +15,14 @@ import {
   productPresenceBeatSchema,
   productExportSpaceSchema,
   productExportTooLargeSchema,
+  productMarkViewSchema,
   PRODUCT_EXPORT_PAGES_MAX,
   productSpaceSchema,
   saveProductBlocksSchema,
 } from "@stubwise/shared";
 import { routePermissions, type RouteAccess } from "../auth/access.js";
-import { fromParam, fromProductComment, fromProductPage } from "../auth/project-resolvers.js";
+import { fromParam, fromProductComment, fromProductMark, fromProductPage, fromProductRevision } from "../auth/project-resolvers.js";
+import { ProductUndoBlockedError, acceptProductMark, listProductMarks, undoProductMark, undoProductRevision, withClaudeFields } from "../services/product-claude.js";
 import { apiError } from "../errors.js";
 import {
   ProductDocsError,
@@ -67,6 +69,22 @@ const SPACE_EDIT: RouteAccess = { kind: "project", permission: "docs.edit", proj
 const PAGE_EDIT: RouteAccess = { kind: "project", permission: "docs.edit", project: fromProductPage("id") };
 const PAGE_VIEW: RouteAccess = { kind: "project", permission: "docs.view", project: fromProductPage("id") };
 const COMMENT_EDIT: RouteAccess = { kind: "project", permission: "docs.edit", project: fromProductComment("id") };
+const MARK_EDIT: RouteAccess = { kind: "project", permission: "docs.edit", project: fromProductMark("id") };
+const REVISION_EDIT: RouteAccess = { kind: "project", permission: "docs.edit", project: fromProductRevision("id") };
+
+/** F5: un «Undo» spento (409 col motivo e chi), o una sezione presa (come le ops). */
+const undoConflictSchema = z.object({ code: z.string(), message: z.string(), byId: z.uuid().nullable().optional(), byName: z.string().nullable().optional(), sectionId: z.string().optional(), by: z.object({ id: z.uuid(), name: z.string().nullable() }).optional() });
+
+async function handleUndo<T>(reply: FastifyReply, fn: () => Promise<T>): Promise<T | FastifyReply> {
+  try {
+    return await fn();
+  } catch (error) {
+    if (error instanceof ProductUndoBlockedError) return reply.code(409).send({ code: error.code, message: error.message, byId: error.by.id, byName: error.by.name });
+    if (error instanceof ProductSectionBusyError) return reply.code(409).send({ code: error.code, message: error.message, sectionId: error.sectionId, by: error.by });
+    if (error instanceof ProductDocsError) return apiError(reply, error.status, error.code, error.message);
+    throw error;
+  }
+}
 
 const projectParams = z.object({ projectId: z.uuid() });
 const pageParams = z.object({ id: z.uuid() });
@@ -210,7 +228,38 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
       config: { access: PAGE_VIEW },
       schema: { params: pageParams, querystring: z.object({ before: z.coerce.number().int().min(1).optional() }), response: { 200: z.array(productRevisionViewSchema), ...authErrorResponses } },
     },
-    async (request) => listProductRevisions(app.db, request.user!, request.params.id, request.query.before),
+    async (request) => withClaudeFields(app.db, request.user!, request.params.id, await listProductRevisions(app.db, request.user!, request.params.id, request.query.before)),
+  );
+
+  // --- F5: i segni di Claude, «Looks good», «Undo» e «Undo all» ---
+
+  app.get(
+    "/product-pages/:id/marks",
+    { config: { access: PAGE_VIEW }, schema: { params: pageParams, response: { 200: z.array(productMarkViewSchema), 404: errorSchema, ...authErrorResponses } } },
+    async (request, reply) => handle(reply, () => listProductMarks(app.db, request.user!, request.params.id)),
+  );
+
+  app.post(
+    "/product-marks/:id/looks-good",
+    { config: { access: MARK_EDIT }, schema: { params: pageParams, response: { 204: z.null(), 404: errorSchema, 409: undoConflictSchema, ...authErrorResponses } } },
+    async (request, reply) =>
+      handleUndo(reply, async () => {
+        await acceptProductMark(app.db, request.user!, request.params.id);
+        return reply.code(204).send(null);
+      }),
+  );
+
+  const undoResult = z.object({ seq: z.number().int(), revisionId: z.uuid().nullable() });
+  app.post(
+    "/product-marks/:id/undo",
+    { config: { access: MARK_EDIT }, schema: { params: pageParams, response: { 200: undoResult, 404: errorSchema, 409: undoConflictSchema, ...authErrorResponses } } },
+    async (request, reply) => handleUndo(reply, () => undoProductMark(app.db, request.user!, request.params.id)),
+  );
+
+  app.post(
+    "/product-revisions/:id/undo-all",
+    { config: { access: REVISION_EDIT }, schema: { params: pageParams, response: { 200: undoResult, 404: errorSchema, 409: undoConflictSchema, ...authErrorResponses } } },
+    async (request, reply) => handleUndo(reply, () => undoProductRevision(app.db, request.user!, request.params.id)),
   );
 
   // Seguire una pagina: chi la legge (`docs.view`).

@@ -16,7 +16,7 @@ export const PRODUCT_HOLD_TTL_MS = 15_000;
 export interface ProductRevisionEvent {
   pageId: string;
   seq: number;
-  kind: "create" | "edit" | "rename" | "move";
+  kind: "create" | "edit" | "rename" | "move" | "undo" | "claude";
   actorId: string | null;
   sessionId: string | null;
   ops?: unknown[];

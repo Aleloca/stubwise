@@ -3,6 +3,7 @@ import {
   productCommentsSchema,
   productExportPageSchema,
   productExportSpaceSchema,
+  productMarkViewSchema,
   productMentionCandidatesSchema,
   productPageViewSchema,
   productPresenceBeatResultSchema,
@@ -17,6 +18,7 @@ import type {
   ProductCommentsView,
   ProductExportPage,
   ProductExportSpace,
+  ProductMarkView,
   ProductPageView,
   ProductPresenceBeat,
   ProductPresenceBeatResult,
@@ -92,6 +94,27 @@ export function createProductDocsEndpoints(request: ApiRequest) {
     /** Chi si può menzionare nel progetto: chi ne legge i Docs e chi guarda vede, mai Claude né sé stessi. */
     mentionCandidates(projectId: string, q = ""): Promise<Reader<{ id: string; name: string }>[]> {
       return request("GET", `/api/projects/${seg(projectId)}/product/mention-candidates${toQuery({ q: q || undefined })}`, undefined, productMentionCandidatesSchema);
+    },
+    // --- F5: i segni di Claude ---
+    /** I segni APERTI di una pagina, uno per ancora, con la fonte vista e lo stato di «Undo». */
+    marks(pageId: string): Promise<Reader<ProductMarkView>[]> {
+      return request("GET", `/api/product-pages/${seg(pageId)}/marks`, undefined, z.array(productMarkViewSchema));
+    },
+    /** «Looks good»: il segno si toglie (409 `already_undone` su uno annullato). */
+    acceptMark(markId: string): Promise<void> {
+      return request("POST", `/api/product-marks/${seg(markId)}/looks-good`);
+    },
+    /**
+     * «Undo» di un segno: l'ancora torna com'era prima di Claude. 409 col motivo
+     * in `ApiError.body`: `changed_after` (`byId`, `byName`), `already_undone`,
+     * `section_busy` (`sectionId`, `by`).
+     */
+    undoMark(markId: string): Promise<{ seq: number; revisionId: string | null }> {
+      return request("POST", `/api/product-marks/${seg(markId)}/undo`, undefined, savedSchema);
+    },
+    /** «Undo all» di una revisione di Claude: tutto o niente, gli stessi 409 di `undoMark`. */
+    undoRevision(revisionId: string): Promise<{ seq: number; revisionId: string | null }> {
+      return request("POST", `/api/product-revisions/${seg(revisionId)}/undo-all`, undefined, savedSchema);
     },
     // --- F4: la scrittura dal vivo ---
     /**

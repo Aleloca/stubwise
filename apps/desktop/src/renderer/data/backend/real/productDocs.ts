@@ -11,6 +11,7 @@ import {
   type ProductExportSpace,
   type ProductPageView as ServerPageView,
   type ProductRevisionView as ServerRevisionView,
+  type Reader,
 } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import i18n from "../../../i18n";
@@ -246,7 +247,8 @@ function exportImageReader() {
 }
 
 /** Un commento del server nella forma del prototipo (un id che manca è vuoto). */
-function commentOf(c: ServerCommentView): ProductCommentView {
+// F5 (72): il commento ha la parte di domanda, con enum aperti: la lettura è un `Reader`.
+function commentOf(c: Reader<ServerCommentView>): ProductCommentView {
   return {
     id: c.id,
     pageId: c.pageId,

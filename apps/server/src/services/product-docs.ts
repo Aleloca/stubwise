@@ -1,4 +1,4 @@
-import { docPageCodes, productComments, productPageBlockIds, productPageFollows, productPageImages, productPageRevisions, productPages, projectDecisions, projects, users, type Db } from "@stubwise/db";
+import { docPageCodes, productComments, productDocJobs, productPageBlockIds, productPageFollows, productPageImages, productPageRevisions, productPages, projectDecisions, projects, users, type Db } from "@stubwise/db";
 import {
   DOC_CODE_RE,
   PRODUCT_PAGES_MAX,
@@ -10,6 +10,7 @@ import {
   type ProductBlock,
   type ProductPageRef,
   type ProductPageView,
+  type ProductClaudeHeld,
   type ProductSpaceView,
 } from "@stubwise/shared";
 import { and, asc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
@@ -134,7 +135,24 @@ export async function productSpace(db: Db, projectId: string, perms: ReadonlySet
     pageCount: refs.length,
     recent: [...refs].sort(byRecent).slice(0, 5),
     permissions: { edit: perms.has("docs.edit") },
+    claudeHeld: await productClaudeHeld(db, projectId),
   };
+}
+
+/** Il motivo più grave per primo. */
+const HELD_ORDER = ["budget", "paused", "limit", "section_busy"] as const;
+
+/** La riga «riprende quando…» di uno spazio: i lavori di Claude fermi nel progetto e il motivo più grave. */
+export async function productClaudeHeld(db: Pick<Db, "select">, projectId: string): Promise<ProductClaudeHeld> {
+  const rows = await db
+    .select({ reason: productDocJobs.heldReason, n: sql<number>`count(*)::int` })
+    .from(productDocJobs)
+    .where(and(eq(productDocJobs.projectId, projectId), eq(productDocJobs.status, "held")))
+    .groupBy(productDocJobs.heldReason);
+  const count = rows.reduce((s, r) => s + r.n, 0);
+  if (count === 0) return null;
+  const reason = HELD_ORDER.find((r) => rows.some((x) => x.reason === r)) ?? "limit";
+  return { reason, count };
 }
 
 /**
@@ -247,6 +265,8 @@ export async function productPageView(db: Db, viewer: Viewer, pageId: string, pe
     // Perché «Elimina» è spenta (richiesta di 94): prima il permesso, poi le sottopagine.
     deleteBlockedBy: !edit ? "permission" : hasChildren ? "children" : null,
     openComments,
+    // F5: un lavoro fermo non si attribuisce a una pagina prima che il modello l'abbia letta: la riga sta sullo spazio.
+    claudeHeld: null,
   };
 }
 
