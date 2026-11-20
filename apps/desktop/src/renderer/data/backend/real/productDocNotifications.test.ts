@@ -38,6 +38,7 @@ const card = (over: Record<string, unknown> = {}) => ({
     threadRootId: ROOT,
     authorId: LAURA,
     authorName: "Laura Costa",
+    excerpt: "@Ada can you check the fallback?",
   },
   ...over,
 });
@@ -102,5 +103,14 @@ describe("la card della menzione arriva da obbligatorio (review di R11-2, 1)", (
     inbox([card({ alertMandatory: "mentioned" })]);
     const [n] = await listNotifications();
     expect(n!.mandatory).toEqual([{ personId: expect.any(String), reason: "mentioned" }]);
+  });
+});
+
+describe("il testo della card della menzione (review di R11-2, 2)", () => {
+  it("viene da `productDoc.excerpt` (72, 0dd87eaa0), mai da un `summary`; null (un server di prima) è vuoto", async () => {
+    inbox([card({ summary: "a summary the server never sends" })]);
+    expect((await listNotifications())[0]!.body).toBe("@Ada can you check the fallback?");
+    inbox([card({ productDoc: { ...card().productDoc, excerpt: null } })]);
+    expect((await listNotifications())[0]!.body).toBe("");
   });
 });

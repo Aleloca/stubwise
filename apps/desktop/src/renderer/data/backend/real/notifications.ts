@@ -258,7 +258,7 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
       title: item.text,
       // Il testo del commento, derivato dal server (`excerpt`, nullable): il
       // server non manda `summary` per la menzione (review di R11-2, 2).
-      body: (productDoc as { excerpt?: string | null }).excerpt ?? "",
+      body: productDoc.excerpt ?? "",
       createdAt: item.createdAt,
       read: item.readAt !== null,
       archived: item.status === "handled",
