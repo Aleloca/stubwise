@@ -65,7 +65,7 @@ type TreeRow = Pick<PageRow, "id" | "projectId" | "parentId" | "order" | "title"
  * pagine. L'estratto (il primo paragrafo non vuoto, al più 200 caratteri, la
  * regola di `excerptOfBlocks`) lo calcola il database.
  */
-async function pageRowsOf(db: Db, projectId: string): Promise<TreeRow[]> {
+export async function pageRowsOf(db: Db, projectId: string): Promise<TreeRow[]> {
   const rows = await db
     .select({
       id: productPages.id,
@@ -157,24 +157,12 @@ export async function productPageByCode(db: Db, viewer: Viewer, code: string): P
   return productPageView(db, viewer, hit.pageId, perms);
 }
 
-/** La vista di una pagina per chi guarda (con `docs.view` già controllato). */
-export async function productPageView(db: Db, viewer: Viewer, pageId: string, perms: ReadonlySet<string>): Promise<ProductPageView> {
-  const [page] = await db.select().from(productPages).where(eq(productPages.id, pageId));
-  if (!page) throw notFound();
-  const rows = await pageRowsOf(db, page.projectId);
-  const byId = new Map(rows.map((r) => [r.id, r]));
-  const self = byId.get(page.id);
-  if (!self) throw notFound();
-  const breadcrumbs: ProductPageRef[] = [];
-  const seen = new Set<string>([page.id]);
-  for (let at = page.parentId; at !== null && !seen.has(at); ) {
-    seen.add(at);
-    const parent = byId.get(at);
-    if (!parent) break;
-    breadcrumbs.unshift(pageRefOf(parent));
-    at = parent.parentId;
-  }
-  const blocks = readBlocks(page);
+/**
+ * Le decisioni citate dai blocchi, come le vede chi guarda (R-G5): `null` per
+ * una decisione di un progetto che non vede, il nome di chi ha deciso solo se
+ * lo vede. La usano la vista della pagina e l'esportazione (F3).
+ */
+export async function decisionRefsFor(db: Db, viewer: Viewer, blocks: readonly ProductBlock[]): Promise<ProductPageView["decisions"]> {
   const decisionIds = [...new Set(blocks.flatMap((b) => (b.type === "decision" ? [b.decisionId] : [])))];
   const decisions: ProductPageView["decisions"] = {};
   if (decisionIds.length > 0) {
@@ -201,6 +189,28 @@ export async function productPageView(db: Db, viewer: Viewer, pageId: string, pe
       };
     }
   }
+  return decisions;
+}
+
+/** La vista di una pagina per chi guarda (con `docs.view` già controllato). */
+export async function productPageView(db: Db, viewer: Viewer, pageId: string, perms: ReadonlySet<string>): Promise<ProductPageView> {
+  const [page] = await db.select().from(productPages).where(eq(productPages.id, pageId));
+  if (!page) throw notFound();
+  const rows = await pageRowsOf(db, page.projectId);
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const self = byId.get(page.id);
+  if (!self) throw notFound();
+  const breadcrumbs: ProductPageRef[] = [];
+  const seen = new Set<string>([page.id]);
+  for (let at = page.parentId; at !== null && !seen.has(at); ) {
+    seen.add(at);
+    const parent = byId.get(at);
+    if (!parent) break;
+    breadcrumbs.unshift(pageRefOf(parent));
+    at = parent.parentId;
+  }
+  const blocks = readBlocks(page);
+  const decisions = await decisionRefsFor(db, viewer, blocks);
   const [follow] = await db
     .select({ pageId: productPageFollows.pageId })
     .from(productPageFollows)

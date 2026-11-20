@@ -272,3 +272,32 @@ export type ProductSearchHit = z.infer<typeof productSearchHitSchema>;
 /** `GET /api/projects/:projectId/product/search`: le pagine dello spazio, al più 20, e se ce ne sono altre. */
 export const productSearchResultsSchema = z.object({ items: z.array(productSearchHitSchema), hasMore: z.boolean() });
 export type ProductSearchResults = z.infer<typeof productSearchResultsSchema>;
+
+// --- Area 11, F3: l'esportazione ------------------------------------------------
+
+/** La tetto delle pagine di un'esportazione dello spazio (oltre: 413 col numero). */
+export const PRODUCT_EXPORT_PAGES_MAX = 200;
+
+/**
+ * Una pagina da esportare (D-4 = a: il file lo compone il client). I blocchi
+ * come record (`productBlockSchema` per leggerli), MAI i commenti; le decisioni
+ * e i file del Drive citati come li vede chi esporta (`null` = non li vede); le
+ * immagini (`product-image:<id>`) si leggono dalla rotta coi byte.
+ */
+export const productExportPageSchema = z.object({
+  page: z.object({ id: z.uuid(), code: z.string(), title: z.string(), projectCode: z.string(), updatedAt: z.string() }),
+  blocks: z.array(z.record(z.string(), z.unknown())),
+  decisions: z.record(z.string(), productDecisionRefSchema).default({}),
+  files: z.record(z.string(), z.object({ name: z.string() }).nullable()).default({}),
+});
+export type ProductExportPage = z.infer<typeof productExportPageSchema>;
+
+/** Lo spazio intero, in ordine d'albero; `depth` 0 = una radice. */
+export const productExportSpaceSchema = z.object({
+  projectCode: z.string(),
+  pages: z.array(productExportPageSchema.extend({ depth: z.number().int().min(0) })),
+});
+export type ProductExportSpace = z.infer<typeof productExportSpaceSchema>;
+
+/** Il 413 di uno spazio troppo grande: quante pagine ha, e il tetto. */
+export const productExportTooLargeSchema = z.object({ code: z.literal("too_many_pages"), message: z.string(), count: z.number().int(), max: z.number().int() });

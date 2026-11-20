@@ -10,6 +10,10 @@ import {
   productPageViewSchema,
   productRevisionViewSchema,
   productSearchResultsSchema,
+  productExportPageSchema,
+  productExportSpaceSchema,
+  productExportTooLargeSchema,
+  PRODUCT_EXPORT_PAGES_MAX,
   productSpaceSchema,
   saveProductBlocksSchema,
 } from "@stubwise/shared";
@@ -37,6 +41,7 @@ import {
   saveProductBlocks,
 } from "../services/product-docs-ops.js";
 import { searchProductPages } from "../services/product-search.js";
+import { exportProductPage, exportProductSpace, ProductExportTooLarge } from "../services/product-export.js";
 import { addProductComment, listProductComments, productMentionCandidates, setProductCommentResolved } from "../services/product-comments.js";
 import { StorageObjectNotFound } from "../storage/errors.js";
 import { removeOrRecordOrphan } from "../storage/orphans.js";
@@ -265,6 +270,28 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
     async (request, reply) => {
       if (request.query.q.trim() === "") return apiError(reply, 400, "empty_query", "Search query must not be empty");
       return searchProductPages(app.db, app.embeddingClient, request.user!, request.query.q, { projectId: request.params.projectId, log: request.log });
+    },
+  );
+
+  // --- F3: l'esportazione (il file lo compone il client, D-4 = a) ---
+
+  app.get(
+    "/product-pages/:id/export",
+    { config: { access: PAGE_VIEW }, schema: { params: pageParams, response: { 200: productExportPageSchema, 404: errorSchema, ...authErrorResponses } } },
+    async (request, reply) => handle(reply, () => exportProductPage(app.db, request.user!, request.params.id)),
+  );
+
+  app.get(
+    "/projects/:projectId/product/export",
+    { config: { access: SPACE_VIEW }, schema: { params: projectParams, response: { 200: productExportSpaceSchema, 404: errorSchema, 413: productExportTooLargeSchema, ...authErrorResponses } } },
+    async (request, reply) => {
+      try {
+        return await exportProductSpace(app.db, request.user!, request.params.projectId);
+      } catch (error) {
+        if (error instanceof ProductExportTooLarge) return reply.code(413).send({ code: "too_many_pages", message: error.message, count: error.count, max: PRODUCT_EXPORT_PAGES_MAX });
+        if (error instanceof ProductDocsError) return apiError(reply, error.status, error.code, error.message);
+        throw error;
+      }
     },
   );
 
