@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
+import { readerSchema, UNKNOWN } from "../reader.js";
 import { CHAT_PROPOSE_TOOL, CHAT_READ_TOOLS, CHAT_TOOLS } from "./claude-conversation.js";
 import { liveRowTypes } from "../alerts/catalog.js";
-import { CLAUDE_ACTION_ARGS, CLAUDE_DECLARED_CLASS, CLAUDE_PROPOSABLE_FNS, claudeActionSignatures, claudeProposalViewSchema } from "./claude-actions.js";
+import { CLAUDE_ACTION_ARGS, CLAUDE_DECLARED_CLASS, CLAUDE_FILL_FIELD_MAX, CLAUDE_PROPOSABLE_FNS, RENDERER_FNS, claudeActionSignatures, claudeProposalViewSchema } from "./claude-actions.js";
 
 describe("le firme delle azioni per il prompt della chat", () => {
   const lines = claudeActionSignatures().split("\n");
@@ -83,5 +85,46 @@ describe("le firme coi permessi d'istanza di chi chiede (area 9, F7)", () => {
     expect(settings).toContain("setModel");
     expect(settings).not.toContain("removePlugin");
     expect(fns(claudeActionSignatures())).toEqual([...CLAUDE_PROPOSABLE_FNS]);
+  });
+});
+
+describe("area 10, F6: fillField", () => {
+  const T = "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01";
+  const R = "7a2d3b63-2e8c-4d5f-8b62-1c7b8f3f2b12";
+  const ok = (a: unknown) => CLAUDE_ACTION_ARGS.fillField.safeParse(a).success;
+
+  it("la descrizione vuole la task; le note vogliono repository e PR; mai entrambe", () => {
+    expect(ok({ field: "task.description", taskId: T, text: "Cosa fare" })).toBe(true);
+    expect(ok({ field: "release.notes", repositoryId: R, prNumber: 12, text: "- AUD-7: login" })).toBe(true);
+    expect(ok({ field: "task.description", text: "x" })).toBe(false);
+    expect(ok({ field: "task.description", taskId: T, repositoryId: R, prNumber: 1, text: "x" })).toBe(false);
+    expect(ok({ field: "release.notes", repositoryId: R, text: "x" })).toBe(false);
+    expect(ok({ field: "release.notes", repositoryId: R, prNumber: 1, taskId: T, text: "x" })).toBe(false);
+    expect(ok({ field: "task.title", taskId: T, text: "x" })).toBe(false);
+    expect(ok({ field: "task.description", taskId: T, text: "x", save: true })).toBe(false);
+    expect(ok({ field: "task.description", taskId: T, text: "   " })).toBe(false);
+  });
+
+  it("il tetto è quello della rotta del campo: 100 000 la descrizione, 20 000 le note", () => {
+    expect(CLAUDE_FILL_FIELD_MAX).toEqual({ "task.description": 100_000, "release.notes": 20_000 });
+    expect(ok({ field: "task.description", taskId: T, text: "a".repeat(100_000) })).toBe(true);
+    expect(ok({ field: "task.description", taskId: T, text: "a".repeat(100_001) })).toBe(false);
+    expect(ok({ field: "release.notes", repositoryId: R, prNumber: 1, text: "a".repeat(20_000) })).toBe(true);
+    expect(ok({ field: "release.notes", repositoryId: R, prNumber: 1, text: "a".repeat(20_001) })).toBe(false);
+  });
+
+  it("A, proponibile, ed eseguita dal renderer come pageAction", () => {
+    expect(CLAUDE_DECLARED_CLASS.fillField).toBe("A");
+    expect(CLAUDE_PROPOSABLE_FNS).toContain("fillField");
+    expect([...RENDERER_FNS].sort()).toEqual(["fillField", "pageAction"]);
+  });
+
+  it("un client vecchio, il cui enum non conosce fillField, la legge come UNKNOWN e non perde la proposta (D-10 = a)", () => {
+    const old = z.object({ fn: z.enum(CLAUDE_PROPOSABLE_FNS.filter((f) => f !== "fillField") as [string, ...string[]]), args: z.record(z.string(), z.unknown()) });
+    const read = readerSchema(z.object({ actions: z.array(old), summary: z.string() })).parse({
+      actions: [{ fn: "fillField", args: { field: "task.description", taskId: T, text: "bozza" } }],
+      summary: "La descrizione di AUD-12",
+    });
+    expect(read).toEqual({ actions: [{ fn: UNKNOWN, args: { field: "task.description", taskId: T, text: "bozza" } }], summary: "La descrizione di AUD-12" });
   });
 });

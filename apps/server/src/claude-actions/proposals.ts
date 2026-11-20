@@ -14,6 +14,7 @@ import {
   AGENT_SESSION_EVENTS_CHANNEL,
   CLAUDE_PROPOSABLE_FNS,
   CLAUDE_PROPOSAL_EXPIRY,
+  RENDERER_FNS,
   type ClaudeActionFailure,
   type ClaudeActionFn,
   type ClaudeActionGroupView,
@@ -27,7 +28,8 @@ import type { SessionUser } from "../auth/session.js";
 import { monthlyBudgetExhausted } from "../services/agent-sessions.js";
 import { readerCut, recordConversationProjects } from "../services/claude-public.js";
 import type { ActionEffects } from "./effects.js";
-import { declaredClassOf } from "./catalog.js";
+import { canFillField } from "../services/claude-field-access.js";
+import { declaredClassOf, parseArgs } from "./catalog.js";
 import { actionLabels } from "./labels.js";
 import { classOfGroup, executeGroup, RECLASSIFIED, type ExecuteResult, type PlannedAction } from "./execute.js";
 import { undoGroup, undoStateOf } from "./undo.js";
@@ -42,8 +44,9 @@ import { undoGroup, undoStateOf } from "./undo.js";
  * - una A si esegue SUBITO, come la persona; una B aspetta la conferma
  *   dell'autore (cookie o PAT, MAI il token del turno), che riverifica
  *   scadenza, classe e permessi;
- * - le azioni della pagina (`pageAction`) le esegue il renderer: qui si
- *   validano e basta.
+ * - le azioni del renderer (`RENDERER_FNS`: `pageAction`, e dall'area 10, F6,
+ *   le bozze nei campi `fillField`) le esegue il renderer: qui si validano
+ *   (una bozza anche col permesso di scrivere QUEL campo) e basta.
  * Il registro decisioni non si tocca mai: confermare non è una decisione.
  */
 
@@ -197,17 +200,27 @@ export async function createProposal(
   }
 
   const inChat = await isChatMention(db, sessionId);
-  // Le azioni della pagina: le esegue il renderer (D3). Da sole, mai insieme ad
+  // Le azioni del renderer: le esegue il renderer (D3). Da sole, mai insieme ad
   // altre; nella Chat non ci sono (non c'è una pagina dietro una risposta).
-  const page = actions.filter((a) => a.fn === "pageAction");
+  const page = actions.filter((a) => RENDERER_FNS.has(a.fn));
   if (page.length > 0 && inChat) {
-    return refuse({ code: "invalid", index: actions.findIndex((a) => a.fn === "pageAction"), permission: null, projectId: null, message: "no page actions in the chat" });
+    return refuse({ code: "invalid", index: actions.findIndex((a) => RENDERER_FNS.has(a.fn)), permission: null, projectId: null, message: "no page actions in the chat" });
   }
   // Dopo un contenuto non fidato ogni proposta è almeno B, anche un'azione della pagina (fetta 3, O).
   const untrusted = await readUntrusted(db, sessionId);
   if (page.length > 0) {
     if (page.length !== actions.length) {
       return refuse({ code: "invalid", index: 0, permission: null, projectId: null, message: "page actions go alone" });
+    }
+    // Area 10, F6: una bozza nel campo nasce solo se chi chiede può scrivere
+    // QUEL campo (le regole della rotta del campo); altrimenti non diventa niente.
+    for (const [index, a] of actions.entries()) {
+      if (a.fn !== "fillField") continue;
+      const args = parseArgs("fillField", a.args);
+      if (!args) return refuse({ code: "invalid", index, permission: null, projectId: null, message: "invalid arguments" });
+      const access = await canFillField(db, user, args as Parameters<typeof canFillField>[2]);
+      if (!access.ok) return refuse({ ...access.failure, index });
+      await recordConversationProjects(db, sessionId, [access.projectId]);
     }
     if (untrusted) {
       // Una scheda da confermare: alla conferma il server chiude la proposta e il renderer esegue l'azione.
@@ -350,7 +363,7 @@ export async function proposalView(db: Db, user: SessionUser, row: ProposalRow, 
   // La classe di adesso si ricalcola (a secco) solo per chi l'ha chiesta: un
   // lettore di una pubblica la legge e basta (fetta 5).
   const own = row.requesterId === user.id;
-  if (own && row.status === "open" && !isExpired && !actions.every((a) => a.fn === "pageAction")) {
+  if (own && row.status === "open" && !isExpired && !actions.every((a) => RENDERER_FNS.has(a.fn))) {
     const plan = row.undoOfGroupId ? await undoInversesOf(db, user, row.undoOfGroupId) : actions;
     const dry = plan ? await executeGroup(db, user, { sessionId: row.sessionId, actions: plan, dryRun: true }) : null;
     if (dry?.ok) ({ cls, reasons } = classOfGroup(actions, dry));
@@ -524,7 +537,7 @@ export async function confirmProposal(
   if (claimed.length === 0) return { ok: false, error: "conflict" };
   // Un'azione della pagina confermata (dopo un contenuto non fidato, fetta 3):
   // il server la chiude e basta, la esegue il renderer, come una A della pagina.
-  if (!row.undoOfGroupId && baseActions.every((a) => a.fn === "pageAction")) {
+  if (!row.undoOfGroupId && baseActions.every((a) => RENDERER_FNS.has(a.fn))) {
     await touchChatReply(db, row.sessionId);
     const [after] = await db.select().from(claudeProposals).where(eq(claudeProposals.id, row.id));
     return { ok: true, proposal: await proposalView(db, user, after!) };

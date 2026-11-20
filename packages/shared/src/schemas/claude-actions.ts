@@ -25,7 +25,8 @@ import { webhookFieldsSchema } from "../outgoing-webhooks.js";
  * inviare fuori; creare PAT, inviti, link di reset.
  *
  * `deleteTask` c'è solo come INVERSO di `createTask` («Annulla»): Claude non lo
- * propone. Le azioni della pagina (`pageAction`) le esegue il renderer.
+ * propone. Le azioni della pagina (`pageAction`) e le bozze nei campi
+ * (`fillField`, area 10, F6) le esegue il renderer (`RENDERER_FNS`).
  */
 export const CLAUDE_ACTION_FNS = [
   "createTask",
@@ -43,6 +44,8 @@ export const CLAUDE_ACTION_FNS = [
   "saveFilter",
   "deleteFilter",
   "pageAction",
+  // Area 10, F6: una bozza nel campo della pagina aperta; la salva la persona.
+  "fillField",
   // Area 6, F3: il corpo di un'email nella bozza di chi conferma. SEMPRE B.
   "fillMailBody",
   // Area 8, F2, S7: l'iscrizione a un tipo d'avviso di chi chiede. A, con «Annulla».
@@ -114,6 +117,8 @@ export const CLAUDE_DECLARED_CLASS: Record<ClaudeActionFn, "A" | "B" | "C"> = {
   saveFilter: "A",
   deleteFilter: "B",
   pageAction: "A",
+  // Non scrive sul server: il testo va nel campo, e lo salva la persona.
+  fillField: "A",
   // Scrive su Gmail (la bozza di chi conferma): mai senza conferma.
   fillMailBody: "B",
   // Tocca solo le iscrizioni di chi chiede: nessun altro è avvisato.
@@ -174,6 +179,45 @@ export const pageActionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("filter"), route: z.string().max(200), search: z.record(z.string(), z.unknown()) }),
 ]);
 
+/**
+ * Area 10, F6: i campi in cui Claude scrive una bozza, col tetto della ROTTA
+ * del campo (`taskPatchSchema.description`, il body di `PUT …/release-notes`).
+ */
+export const CLAUDE_FILL_FIELDS = ["task.description", "release.notes"] as const;
+export type ClaudeFillField = (typeof CLAUDE_FILL_FIELDS)[number];
+export const CLAUDE_FILL_FIELD_MAX: Record<ClaudeFillField, number> = { "task.description": 100_000, "release.notes": 20_000 };
+
+/**
+ * `.strict()` e SENZA unioni (D-10 = a): un client che non conosce `fillField`
+ * la legge come `UNKNOWN` (`readerSchema` sull'enum) senza perdere la
+ * proposta. Il `superRefine` vuole il bersaglio del campo e il suo tetto.
+ */
+export const fillFieldArgsSchema = z
+  .object({
+    field: z.enum(CLAUDE_FILL_FIELDS),
+    taskId: id.optional(),
+    repositoryId: id.optional(),
+    prNumber: z.number().int().positive().optional(),
+    text: z.string().trim().min(1).max(100_000),
+  })
+  .strict()
+  .superRefine((a, ctx) => {
+    if (a.field === "task.description" && (a.taskId === undefined || a.repositoryId !== undefined || a.prNumber !== undefined)) {
+      ctx.addIssue({ code: "custom", message: "task.description wants taskId only" });
+    }
+    if (a.field === "release.notes" && (a.repositoryId === undefined || a.prNumber === undefined || a.taskId !== undefined)) {
+      ctx.addIssue({ code: "custom", message: "release.notes wants repositoryId and prNumber only" });
+    }
+    if (a.text.length > CLAUDE_FILL_FIELD_MAX[a.field]) ctx.addIssue({ code: "custom", message: `text over ${CLAUDE_FILL_FIELD_MAX[a.field]} characters` });
+  });
+
+/**
+ * Le azioni che esegue il RENDERER (area 10, F6): il server le valida, le
+ * registra e basta — nessuna voce in `SERVER_CATALOG`, nessuna scrittura,
+ * nessun «Annulla» del server. Da sole, mai nella Chat.
+ */
+export const RENDERER_FNS: ReadonlySet<ClaudeActionFn> = new Set<ClaudeActionFn>(["pageAction", "fillField"]);
+
 /** Gli argomenti di ogni azione, con gli STESSI schemi delle rotte. */
 export const CLAUDE_ACTION_ARGS = {
   // SENZA `requestId`, e strict (review della fetta 3): convertire una
@@ -196,6 +240,7 @@ export const CLAUDE_ACTION_ARGS = {
   saveFilter: newFilterBodySchema,
   deleteFilter: z.object({ id }),
   pageAction: pageActionSchema,
+  fillField: fillFieldArgsSchema,
   // La conversazione (`threadId` null = un'email nuova) di una casella di chi
   // conferma; il testo va nel corpo, destinatari e oggetto li calcola il server.
   fillMailBody: z

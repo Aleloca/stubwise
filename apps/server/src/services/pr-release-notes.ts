@@ -26,6 +26,30 @@ import { ReleaseError } from "./releases.js";
 type Viewer = Pick<SessionUser, "id" | "instancePermissions">;
 type ProviderFor = (kind: GitProviderKind) => Pick<GitProvider, "getPullRequestCommits">;
 
+/** Chi scrive le note di una PR: UNA regola, per la rotta, per `canEdit` e per le bozze di Claude. */
+const canWriteNotes = (perms: ReadonlySet<string>) => perms.has("release.merge") || perms.has("tickets.edit");
+
+/**
+ * Area 10, F6: se chi chiede può scrivere le note di QUESTA PR, con la regola
+ * di `putPrReleaseNotes` (stesso `scopeOf`): `not_found` se non vede il
+ * progetto o la PR non è nota, `forbidden` senza né `release.merge` né
+ * `tickets.edit`. Non scrive niente.
+ */
+export async function releaseNotesWriteAccess(
+  db: Db,
+  viewer: Viewer,
+  repositoryId: string,
+  prNumber: number,
+): Promise<{ ok: true; projectId: string } | { ok: false; error: "not_found" | "forbidden" }> {
+  try {
+    const scope = await scopeOf(db, viewer, repositoryId, prNumber);
+    return canWriteNotes(scope.perms) ? { ok: true, projectId: scope.projectId } : { ok: false, error: "forbidden" };
+  } catch (error) {
+    if (error instanceof ReleaseError && error.status === 404) return { ok: false, error: "not_found" };
+    throw error;
+  }
+}
+
 async function scopeOf(db: Db, viewer: Viewer, repositoryId: string, prNumber: number) {
   const [repo] = await db
     .select({ repository: repositories, account: gitAccounts, projectId: projects.id, projectCode: projects.code })
@@ -99,7 +123,7 @@ export async function getPrReleaseNotes(
     updatedAt: saved?.updatedAt.toISOString() ?? null,
     draft,
     commitsRead,
-    canEdit: scope.perms.has("release.merge") || scope.perms.has("tickets.edit"),
+    canEdit: canWriteNotes(scope.perms),
   };
 }
 
@@ -111,7 +135,7 @@ export async function putPrReleaseNotes(
   providerFor: ProviderFor = getProvider,
 ): Promise<PrReleaseNotes> {
   const scope = await scopeOf(db, viewer, input.repositoryId, input.prNumber);
-  if (!scope.perms.has("release.merge") && !scope.perms.has("tickets.edit")) {
+  if (!canWriteNotes(scope.perms)) {
     throw new ReleaseError(403, "forbidden", "You can't edit the release notes of this pull request");
   }
   const now = new Date();
