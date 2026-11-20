@@ -6,7 +6,7 @@ import { appClient } from "./client";
 import { threadKey } from "./mailKeys";
 
 // Claude sulla doc di prodotto nella build app (area 11, F5; R11-5), sulle
-// forme di 72 in bozza (Task 4 e 5), finché l'api-client non le porta:
+// forme di 72 in shared (Task 4, aededb033) e l'api-client `productDocs`:
 // - la fonte vista arriva A PEZZI (`ProductSourceView` del server: tipo, se
 //   chi guarda la apre, titolo, codice, titolare, data). La frase la compone
 //   il renderer con le stesse chiavi del prototipo: chi non apre un'email o
@@ -21,7 +21,8 @@ import { threadKey } from "./mailKeys";
 
 /** La fonte come la manda il server (72, Task 4). */
 export interface ServerSourceView {
-  kind: "email" | "meeting" | "decision" | "task" | "release" | "first_version";
+  /** Un tipo che il renderer non conosce (enum aperto) si legge come la prima versione. */
+  kind: "email" | "meeting" | "decision" | "task" | "release" | "first_version" | (string & {});
   canOpen: boolean;
   id: string | null;
   title: string | null;
@@ -38,8 +39,12 @@ const someone = () => i18n.t("productDocs.history.someone");
 
 /** La fonte vista, con la frase composta qui (le chiavi del prototipo, `data/productDocs/sources.ts`). */
 export function sourceViewFrom(s: ServerSourceView): ProductSourceView {
+  const KINDS = ["email", "meeting", "decision", "task", "release", "first_version"] as const;
+  const kind = (KINDS as readonly string[]).includes(s.kind)
+    ? (s.kind as (typeof KINDS)[number])
+    : ("first_version" as const);
   const base = {
-    kind: s.kind === "first_version" ? ("first_version" as const) : s.kind,
+    kind: kind as ProductSourceView["kind"],
     code: s.code,
     ownerId: s.ownerId,
     at: s.at,
@@ -89,28 +94,6 @@ export function sourceViewFrom(s: ServerSourceView): ProductSourceView {
   return { ...base, label, link, gone: false } as ProductSourceView;
 }
 
-/** Un segno come lo manda il server (72, Task 4). */
-interface ServerMark {
-  id: string;
-  anchorId: string;
-  blockId: string;
-  cell: { row: number; col: number } | null;
-  revisionId: string;
-  groupAnchors: number;
-  actorId: string;
-  onBehalfOfId: string | null;
-  at: string;
-  source: ServerSourceView;
-  canAccept: boolean;
-  undo:
-    | { enabled: true }
-    | {
-        enabled: false;
-        reason: "changed_after" | "no_permission" | "already_undone";
-        byId: string | null;
-      };
-}
-
 /** L'id del segno di ogni ancora, per pagina e per revisione, dall'ultima lettura dei segni. */
 const markIds = new Map<string, string>();
 const markKey = (scope: string, anchorId: string) => `${scope}|${anchorId}`;
@@ -120,8 +103,21 @@ export function forgetProductClaude(): void {
   markIds.clear();
 }
 
-const undoOf = (u: ServerMark["undo"]): ProductUndoView =>
-  u.enabled ? { enabled: true } : { enabled: false, reason: u.reason, byId: u.byId };
+const UNDO_REASONS = ["changed_after", "no_permission", "already_undone"] as const;
+
+/** «Undo» del server (UN oggetto: `enabled`, e il perché quando è spento) nella forma del prototipo. */
+export function undoViewFrom(u: {
+  enabled: boolean;
+  reason: string | null;
+  byId: string | null;
+}): ProductUndoView {
+  if (u.enabled) return { enabled: true };
+  const reason = (UNDO_REASONS as readonly string[]).includes(u.reason ?? "")
+    ? (u.reason as (typeof UNDO_REASONS)[number])
+    : // Un motivo che il renderer non conosce spegne «Undo» come un cambio dopo.
+      "changed_after";
+  return { enabled: false, reason, byId: u.byId };
+}
 
 /** Gli errori di Claude sulla doc nelle parole del prototipo (con chi, quando il server lo dice). */
 function mapClaudeError(error: unknown): never {
@@ -149,12 +145,9 @@ type ProductDocs = typeof Fake.productDocs;
 
 export const liveProductClaude: Partial<ProductDocs> = {
   async listProductMarks(pageId) {
-    let rows: ServerMark[];
+    let rows: Awaited<ReturnType<ReturnType<typeof appClient>["productDocs"]["marks"]>>;
     try {
-      rows = (await appClient().request(
-        "GET",
-        `/api/product-pages/${encodeURIComponent(pageId)}/marks`,
-      )) as ServerMark[];
+      rows = await appClient().productDocs.marks(pageId);
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) return [];
       return mapClaudeError(error);
@@ -168,13 +161,13 @@ export const liveProductClaude: Partial<ProductDocs> = {
         ...(m.cell ? { cell: m.cell } : {}),
         revisionId: m.revisionId,
         groupId: m.revisionId,
-        actorId: m.actorId,
+        actorId: m.actorId ?? "",
         onBehalfOfId: m.onBehalfOfId,
         at: m.at,
         groupAnchors: m.groupAnchors,
-        source: sourceViewFrom(m.source),
+        source: sourceViewFrom(m.source as ServerSourceView),
         canAccept: m.canAccept,
-        undo: undoOf(m.undo),
+        undo: undoViewFrom(m.undo),
       };
     });
   },
@@ -183,24 +176,21 @@ export const liveProductClaude: Partial<ProductDocs> = {
     const id = markIds.get(markKey(pageId, anchorId));
     if (!id) throw new Error("not_found");
     try {
-      await appClient().request("POST", `/api/product-marks/${encodeURIComponent(id)}/looks-good`);
+      await appClient().productDocs.acceptMark(id);
     } catch (error) {
       mapClaudeError(error);
     }
   },
 
   async undoProductChange(revisionId, anchorId) {
-    let path: string;
-    if (anchorId === undefined)
-      path = `/api/product-revisions/${encodeURIComponent(revisionId)}/undo-all`;
-    else {
-      const id = markIds.get(markKey(revisionId, anchorId));
-      if (!id) throw new Error("not_found");
-      path = `/api/product-marks/${encodeURIComponent(id)}/undo`;
-    }
+    const id = anchorId === undefined ? null : (markIds.get(markKey(revisionId, anchorId)) ?? null);
+    if (anchorId !== undefined && !id) throw new Error("not_found");
     try {
-      const out = (await appClient().request("POST", path)) as { revisionId: string };
-      return { revisionId: out.revisionId };
+      // «Undo all» è tutto o niente: un'ancora toccata dopo dà `changed_after` e niente cambia.
+      const out = id
+        ? await appClient().productDocs.undoMark(id)
+        : await appClient().productDocs.undoRevision(revisionId);
+      return { revisionId: out.revisionId ?? revisionId };
     } catch (error) {
       return mapClaudeError(error);
     }

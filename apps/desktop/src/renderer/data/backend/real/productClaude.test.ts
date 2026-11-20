@@ -48,7 +48,7 @@ const mark = (over: Record<string, unknown> = {}) => ({
   at: "2026-11-20T10:00:00.000Z",
   source: source(),
   canAccept: true,
-  undo: { enabled: true },
+  undo: { enabled: true, reason: null, byId: null, byName: null },
   ...over,
 });
 
@@ -143,15 +143,21 @@ describe("i segni di Claude", () => {
     const { seen } = installFakeServer({
       [`GET /api/product-pages/${PAGE}/marks`]: { body: [mark()] },
       [`POST /api/product-marks/${MARK}/looks-good`]: { status: 204 },
-      [`POST /api/product-marks/${MARK}/undo`]: { body: { seq: 9, revisionId: "rev-undo" } },
+      [`POST /api/product-marks/${MARK}/undo`]: {
+        body: { seq: 9, revisionId: "bbbbbbbb-0000-4000-8000-000000000009" },
+      },
       [`POST /api/product-revisions/${REV}/undo-all`]: {
-        body: { seq: 10, revisionId: "rev-undo-all" },
+        body: { seq: 10, revisionId: "bbbbbbbb-0000-4000-8000-000000000010" },
       },
     });
     await claude.listProductMarks!(PAGE);
     await claude.acceptProductMark!(PAGE, "blk-1");
-    expect(await claude.undoProductChange!(REV, "blk-1")).toEqual({ revisionId: "rev-undo" });
-    expect(await claude.undoProductChange!(REV)).toEqual({ revisionId: "rev-undo-all" });
+    expect(await claude.undoProductChange!(REV, "blk-1")).toEqual({
+      revisionId: "bbbbbbbb-0000-4000-8000-000000000009",
+    });
+    expect(await claude.undoProductChange!(REV)).toEqual({
+      revisionId: "bbbbbbbb-0000-4000-8000-000000000010",
+    });
     expect(seen.filter((r) => r.method === "POST").map((r) => r.path)).toEqual([
       `/api/product-marks/${MARK}/looks-good`,
       `/api/product-marks/${MARK}/undo`,

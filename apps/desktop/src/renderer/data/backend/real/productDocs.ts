@@ -21,6 +21,7 @@ import type {
   ProductBlockOp,
   ProductCommentThread,
   ProductCommentView,
+  ProductQuestionView,
   ProductPage,
   ProductPageView,
   ProductExportView,
@@ -28,6 +29,7 @@ import type {
   ProductSearchHit,
 } from "../../types";
 import { appClient } from "./client";
+import { sourceViewFrom, undoViewFrom, type ServerSourceView } from "./productClaude";
 import { citableSearch } from "./globalSearch";
 import { liveProductPresence } from "./productLive";
 import { authedDataUrl, ipcFetch } from "./transport";
@@ -263,7 +265,44 @@ function commentOf(c: Reader<ServerCommentView>): ProductCommentView {
       ? { byId: c.resolved.byId ?? "", byName: c.resolved.byName, at: c.resolved.at }
       : null,
     mentionIds: [...c.mentionIds],
+    // F5: la domanda di Claude, con la fonte vista composta qui (null per i commenti delle persone).
+    ...(c.question ? { question: questionOf(c.question) } : {}),
   };
+}
+
+const ANSWERS = ["apply", "keep", "request"] as const;
+const isAnswer = (x: string): x is (typeof ANSWERS)[number] =>
+  (ANSWERS as readonly string[]).includes(x);
+
+/** La domanda di Claude del server nella forma del prototipo (enum aperti: un valore ignoto si scarta). */
+function questionOf(q: NonNullable<Reader<ServerCommentView>["question"]>): ProductQuestionView {
+  const options = q.options.filter(isAnswer);
+  return {
+    reason: q.reason as ProductQuestionView["reason"],
+    forId: q.forId,
+    forName: q.forName,
+    taskCode: q.taskCode,
+    source: sourceViewFrom(q.source as ServerSourceView),
+    applyMode: q.applyMode === "insert" ? "insert" : "replace",
+    current: q.current,
+    apply: q.apply,
+    built: q.built,
+    request: q.request,
+    recommended: q.recommended !== null && isAnswer(q.recommended) ? q.recommended : null,
+    options,
+    canAnswer: q.canAnswer,
+    applyBlocked: q.applyBlocked ? { byId: q.applyBlocked.byId } : null,
+    answer:
+      q.answer && isAnswer(q.answer.option)
+        ? {
+            byId: q.answer.byId,
+            byName: q.answer.byName,
+            option: q.answer.option,
+            revisionId: q.answer.revisionId,
+            requestCode: q.answer.requestCode,
+          }
+        : null,
+  } as ProductQuestionView;
 }
 
 function revisionOf(r: ServerRevisionView): ProductRevisionView {
@@ -275,7 +314,22 @@ function revisionOf(r: ServerRevisionView): ProductRevisionView {
     at: r.updatedAt,
     actorId: r.actorId ?? "",
     ...(r.sessionId ? { sessionId: r.sessionId } : {}),
-    kind: r.kind as ProductRevisionView["kind"],
+    // F5: una revisione di Claude è un «edit» via Claude, come nel prototipo; un «Undo» è `undo`.
+    kind: (r.kind === "claude" ? "edit" : r.kind) as ProductRevisionView["kind"],
+    ...(r.via === "claude" || r.kind === "claude" ? { via: "claude" as const } : {}),
+    ...(r.onBehalfOfId ? { onBehalfOfId: r.onBehalfOfId } : {}),
+    ...(r.source ? { sourceView: sourceViewFrom(r.source as ServerSourceView) } : {}),
+    ...(r.undo ? { undo: undoViewFrom(r.undo) } : {}),
+    ...(r.undoByAnchor
+      ? {
+          undoByAnchor: Object.fromEntries(
+            Object.entries(r.undoByAnchor).map(([anchor, u]) => [anchor, undoViewFrom(u)]),
+          ),
+        }
+      : {}),
+    ...(r.undoneCount ? { undoneCount: r.undoneCount } : {}),
+    ...(r.undoneById ? { undoneById: r.undoneById } : {}),
+    ...(r.answerOf ? { answerOf: r.answerOf } : {}),
     changes: r.changes.flatMap((c): ProductBlockChange[] => {
       const x = c as {
         blockId?: unknown;

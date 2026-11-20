@@ -843,3 +843,117 @@ describe("la base della scrittura (revisione di R11-4, 2 e 3)", () => {
     expect(late.blocks).toEqual([para("blk-1", "Mine, saved.")]);
   });
 });
+
+describe("Claude nei fili e nella cronologia (area 11, F5; bozza delle forme di 72)", () => {
+  const email = {
+    kind: "email",
+    canOpen: false,
+    id: null,
+    title: null,
+    code: null,
+    ownerId: ME_ID,
+    ownerName: "Laura Costa",
+    at: "2026-11-18T09:00:00.000Z",
+    gone: false,
+    thread: null,
+  };
+
+  it("un commento di Claude porta la sua domanda, con la fonte vista composta qui; quello di una persona no", async () => {
+    const ROOT = "eeeeeeee-0000-4000-8000-000000000001";
+    installFakeServer({
+      [`GET /api/product-pages/${PAGE}/comments`]: {
+        body: {
+          open: [
+            {
+              root: {
+                id: ROOT,
+                pageId: PAGE,
+                anchorId: "blk-1",
+                quote: "Google account",
+                authorId: "99999999-9999-4999-8999-999999999999",
+                authorName: "Claude",
+                body: "",
+                createdAt: "2026-11-20T10:00:00.000Z",
+                replyToId: null,
+                resolved: null,
+                mentionIds: [],
+                question: {
+                  reason: "vague",
+                  forId: null,
+                  forName: null,
+                  taskCode: null,
+                  source: email,
+                  applyMode: "replace",
+                  current: { text: "Google only", marks: [] },
+                  apply: { text: "Google or email", marks: [] },
+                  built: null,
+                  request: null,
+                  recommended: "keep",
+                  options: ["keep", "apply"],
+                  canAnswer: true,
+                  applyBlocked: { byId: ME_ID, byName: "Laura Costa" },
+                  answer: null,
+                },
+              },
+              replies: [],
+              anchorGone: false,
+            },
+          ],
+          resolved: [],
+        },
+      },
+    });
+    const [thread] = (await docs.listProductComments!(PAGE)).open;
+    expect(thread!.root.question).toMatchObject({
+      reason: "vague",
+      source: { label: { key: "productDocs.source.emailOf" } },
+      applyMode: "replace",
+      recommended: "keep",
+      options: ["keep", "apply"],
+      canAnswer: true,
+      applyBlocked: { byId: ME_ID },
+      answer: null,
+    });
+  });
+
+  it("la revisione di Claude: «edit» via Claude, per conto di chi, la fonte vista e lo stato di «Undo»", async () => {
+    installFakeServer({
+      [`GET /api/product-pages/${PAGE}/revisions`]: {
+        body: [
+          revision(REV, {
+            kind: "claude",
+            via: "claude",
+            onBehalfOfId: ME_ID,
+            onBehalfOfName: "Laura Costa",
+            source: email,
+            undo: { enabled: true, reason: null, byId: null, byName: null },
+            undoByAnchor: {
+              "blk-1": {
+                enabled: false,
+                reason: "changed_after",
+                byId: ME_ID,
+                byName: "Laura Costa",
+              },
+            },
+            undoneCount: { done: 1, count: 2 },
+            undoneById: ME_ID,
+            undoneByName: "Laura Costa",
+          }),
+          revision(OTHER_REV, { kind: "undo", undoOf: REV }),
+        ],
+      },
+    });
+    const [claudeRev, undo] = await docs.listProductRevisions!(PAGE);
+    expect(claudeRev).toMatchObject({
+      kind: "edit",
+      via: "claude",
+      onBehalfOfId: ME_ID,
+      sourceView: { label: { key: "productDocs.source.emailOf" } },
+      undo: { enabled: true },
+      undoByAnchor: { "blk-1": { enabled: false, reason: "changed_after", byId: ME_ID } },
+      undoneCount: { done: 1, count: 2 },
+      undoneById: ME_ID,
+    });
+    expect(undo).toMatchObject({ kind: "undo" });
+  });
+});
