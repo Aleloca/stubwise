@@ -449,3 +449,60 @@ describe("il salvataggio e lo stream (revisione di R11-4, 15)", () => {
     expect(events).toEqual(["presence"]);
   });
 });
+
+describe("la finestra in secondo piano lascia la sezione (decisione del maintainer, R11-4 punto 6)", () => {
+  const setHidden = (hidden: boolean) => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => (hidden ? "hidden" : "visible"),
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  };
+  afterEach(() => setHidden(false));
+
+  it("nascosta: subito `sectionId: null`, e i battiti dopo non riprendono la presa; tornata visibile, la riprende solo il cursore", async () => {
+    vi.useFakeTimers({
+      toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"],
+    });
+    fakeTransport();
+    const { seen } = installFakeServer({
+      [`POST /api/product-pages/${PAGE}/live/presence`]: beatOk,
+    });
+    const bodies = () =>
+      seen.filter((r) => r.method === "POST").map((r) => r.body as Record<string, unknown>);
+    await live.joinProductPage!(PAGE);
+    await vi.advanceTimersByTimeAsync(2_000);
+    await live.setProductPresence!(PAGE, { anchorId: "blk-1", offset: 0, sectionId: "h-1" });
+    expect(bodies().at(-1)).toMatchObject({ sectionId: "h-1" });
+    setHidden(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(bodies().at(-1)).toMatchObject({ cursor: null, sectionId: null });
+    // I battiti a finestra nascosta non riprendono la presa.
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(bodies().at(-1)).toMatchObject({ sectionId: null });
+    setHidden(false);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(bodies().at(-1)).toMatchObject({ sectionId: null });
+    // Il primo battito col cursore dentro un blocco la riprende.
+    await vi.advanceTimersByTimeAsync(1_000);
+    await live.setProductPresence!(PAGE, { anchorId: "blk-1", offset: 2, sectionId: "h-1" });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(bodies().at(-1)).toMatchObject({ sectionId: "h-1" });
+  });
+
+  it("scrivendo senza pause a finestra visibile la presa resta", async () => {
+    vi.useFakeTimers({
+      toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"],
+    });
+    fakeTransport();
+    const { seen } = installFakeServer({
+      [`POST /api/product-pages/${PAGE}/live/presence`]: beatOk,
+    });
+    await live.joinProductPage!(PAGE);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await live.setProductPresence!(PAGE, { anchorId: "blk-1", offset: 0, sectionId: "h-1" });
+    await vi.advanceTimersByTimeAsync(15_000);
+    const last = seen.filter((r) => r.method === "POST").at(-1)!.body as Record<string, unknown>;
+    expect(last).toMatchObject({ sectionId: "h-1" });
+  });
+});

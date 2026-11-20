@@ -331,8 +331,9 @@ function flush(pageId: string, entry: BeatEntry): Promise<void> {
     return Promise.resolve();
   }
   entry.lastSent = now;
+  const body = entry.released ? { cursor: null, sectionId: null } : (entry.at ?? {});
   return appClient()
-    .productDocs.beat(pageId, { ...(entry.at ?? {}), sessionId: TAB_ID })
+    .productDocs.beat(pageId, { ...body, sessionId: TAB_ID })
     .then(
       () => undefined,
       (error: unknown) => {
@@ -345,9 +346,39 @@ function flush(pageId: string, entry: BeatEntry): Promise<void> {
 interface BeatEntry {
   timer: ReturnType<typeof setInterval>;
   at: Presence | null;
+  /**
+   * La finestra è andata in secondo piano: la presa è lasciata e i battiti
+   * non la riprendono finché il cursore non torna in un blocco
+   * (`setProductPresence`), decisione del maintainer (R11-4, punto 6).
+   */
+  released: boolean;
   lastSent: number;
   pausedUntil: number;
   later: ReturnType<typeof setTimeout> | null;
+}
+
+/**
+ * In secondo piano (la scheda nascosta, o sul desktop la finestra che perde
+ * il fuoco) ogni presa si lascia SUBITO: un battito con `sectionId: null`, e
+ * i battiti dopo non la rinnovano (decisione del maintainer, R11-4 punto 6).
+ */
+function releaseAll(): void {
+  for (const [pageId, entry] of beats) {
+    if (entry.released) continue;
+    entry.released = true;
+    void beatNow(pageId, { cursor: null, sectionId: null });
+  }
+}
+
+let listening = false;
+function listenToVisibility(): void {
+  if (listening || typeof document === "undefined") return;
+  listening = true;
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") releaseAll();
+  });
+  // Sul desktop la finestra può restare visibile ma dietro un'altra.
+  if (window.stubwise?.api) window.addEventListener("blur", releaseAll);
 }
 
 type ProductDocs = typeof Fake.productDocs;
@@ -411,9 +442,11 @@ export const liveProductPresence: Partial<ProductDocs> & {
 
   async joinProductPage(pageId) {
     if (beats.has(pageId)) return;
+    listenToVisibility();
     const entry: BeatEntry = {
       timer: setInterval(() => void flush(pageId, entry), BEAT_MS),
       at: null,
+      released: false,
       lastSent: 0,
       pausedUntil: 0,
       later: null,
@@ -446,6 +479,8 @@ export const liveProductPresence: Partial<ProductDocs> & {
     const entry = beats.get(pageId);
     if (!entry) return beatNow(pageId, next);
     entry.at = next;
+    // Il cursore in un blocco riprende la presa (se è di un altro, il 409 di sempre).
+    if (at) entry.released = false;
     await flush(pageId, entry);
   },
 
