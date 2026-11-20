@@ -5,6 +5,7 @@ import {
   productExportSpaceSchema,
   productMentionCandidatesSchema,
   productPageViewSchema,
+  productPresenceBeatResultSchema,
   productRevisionViewSchema,
   productSearchResultsSchema,
   productSpaceSchema,
@@ -17,6 +18,8 @@ import type {
   ProductExportPage,
   ProductExportSpace,
   ProductPageView,
+  ProductPresenceBeat,
+  ProductPresenceBeatResult,
   ProductRevisionView,
   ProductSearchResults,
   ProductSpaceView,
@@ -89,6 +92,17 @@ export function createProductDocsEndpoints(request: ApiRequest) {
     /** Chi si può menzionare nel progetto: chi ne legge i Docs e chi guarda vede, mai Claude né sé stessi. */
     mentionCandidates(projectId: string, q = ""): Promise<Reader<{ id: string; name: string }>[]> {
       return request("GET", `/api/projects/${seg(projectId)}/product/mention-candidates${toQuery({ q: q || undefined })}`, undefined, productMentionCandidatesSchema);
+    },
+    // --- F4: la scrittura dal vivo ---
+    /**
+     * Il battito della presenza (ogni 5 s, scade a 15 s). Con `sectionId` serve
+     * `docs.edit` e prende o rinnova la sezione: `hold` se è tua, `busy` se la
+     * tiene un altro. `sectionId: null` lascia le tue prese. Lo stream
+     * (`productLiveStreamPath`, `parseProductLiveFrame` di shared) lo apre il
+     * renderer: `EventSource` sul web, il main del desktop.
+     */
+    beat(pageId: string, input: ProductPresenceBeat): Promise<Reader<ProductPresenceBeatResult>> {
+      return request("POST", `/api/product-pages/${seg(pageId)}/live/presence`, input, productPresenceBeatResultSchema);
     },
     // --- F3: la ricerca e l'esportazione ---
     /** «In Product» in uno spazio: ibrida, al più 20, e se ce ne sono altre. La ricerca globale ha il gruppo `product`. */

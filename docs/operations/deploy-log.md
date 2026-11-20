@@ -5866,3 +5866,32 @@ deploy o di un rollback che la tocca.
   ```sql
   update product_pages set search_text = '';
   ```
+
+- **«Integrazione area 11, F4: la scrittura dal vivo»** *(20 nov 2026)*: branch
+  `feat/area11-f4` (da `feat/integrazione-area11`), piano
+  `docs/plans/2026-11-20-integrazione-area11-f4-plan.md`.
+  - Migrazione **0209** (`product_section_holds`): le sezioni prese di una
+    pagina di prodotto (chi scrive, fino a quando), con scadenza da sola. Sta
+    in tabella perché il worker deve vederle (F5).
+  - Nessuna env, nessun `notification_kind`, nessun permesso nuovo.
+  - Rotte nuove sotto `/api`: lo stream SSE della pagina
+    (`/product-pages/:id/live`) e il battito della presenza
+    (`/product-pages/:id/live/presence`). `POST …/ops` risponde anche 409
+    `section_busy` quando un'operazione tocca una sezione presa da un altro.
+  - Il canale dal vivo usa una LISTEN in più del server
+    (`product_page_events`), accanto a quelle delle sessioni e della Chat.
+
+  **ORDINE**: **server** (healthy, 0209 applicata), poi **caddy** (il
+  renderer di 94). Il worker non c'entra (lo userà F5).
+
+  ⚠️ **Un solo processo server.** Presenza e cursori stanno nella memoria del
+  processo, quindi più processi server dietro caddy si vedrebbero a metà: chi
+  è collegato a uno non vede la presenza di chi è sull'altro. Oggi c'è un
+  processo solo. Chi ne aggiunge un secondo deve prima portare la presenza
+  fuori dalla memoria (o tenere le persone di una pagina sullo stesso
+  processo). Le revisioni e le prese invece passano dal database e reggono.
+
+  **Rollback**: sicuro, col caddy che scende insieme al server. Un server
+  vecchio non manda gli eventi né il 409 `section_busy`, e ignora la tabella
+  delle prese. Il renderer torna a «Saved» col 409 `stale` di F1. La 0209
+  non si annulla: la tabella resta, e le prese scadono da sole.

@@ -73,3 +73,21 @@ Design: `docs/plans/2026-11-20-integrazione-area11-design.md`; i piani
 | Le fonti di prodotto della chat dei Docs stanno in `productSources`, non in `sources` (che vuole un repository); si salvano solo gli id e si rileggono con la visibilità di adesso | costruttore e 46 |
 | L'esportazione non porta URL firmati: le immagini dalla rotta coi byte | costruttore, approvato da 46 |
 | I nomi dei file del Drive nell'esportazione (`files`), null per chi non vede il file | 94 |
+
+## F4 — la scrittura dal vivo (server; il renderer è di 94)
+
+| Voce del prototipo | Dove vive | Rotta / pezzo | Test |
+|---|---|---|---|
+| Le sezioni (`sectionOf`, `sectionRange`, `inSectionOf`) | `packages/shared/src/product-docs/sections.ts` (più `sectionKeyOf`, `top`) | — | `sections.test.ts` |
+| Le forme dello stream, il parser, l'allowlist | `packages/shared/src/schemas/product-docs.ts`, `product-docs/live.ts` | `parseProductLiveFrame`, `isAllowedProductLiveStreamPath` | `live.test.ts` |
+| La sezione presa (chi scrive qui) | `packages/db/src/product-holds.ts` (`takeSection`), `0209_*` | — | `product-holds.test.ts` |
+| Le operazioni rispettano la presa | `apps/server/src/services/product-docs-ops.ts` | 409 `section_busy` di `POST /api/product-pages/:id/ops` | `product-section-busy.test.ts` |
+| La presenza, i cursori, i blocchi degli altri senza ricaricare (al posto del copione) | `services/product-live.ts`, `product-live-notify.ts` | `GET /api/product-pages/:id/live`, `POST …/live/presence` | `product-live.test.ts` |
+| L'api-client del renderer | `packages/api-client/src/endpoints/product-docs.ts` | `client.productDocs.beat` | `reader.test.ts` |
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| La sezione presa sta in tabella (la vede il worker, F5); presenza e cursori in memoria | costruttore (ruling del piano) |
+| La sezione di una presa è `sectionOf` (il titolo più vicino sopra), come il prototipo | costruttore |
+| Le revisioni di un altro processo arrivano senza operazioni: il client rilegge la pagina | costruttore, d'accordo con 94 |
+| Un solo processo server: più processi dietro caddy romperebbero la presenza in memoria | piano, nella voce del deploy-log |
