@@ -54,6 +54,8 @@ export type StreamPortMessage =
   | { type: "chatFrame"; messages: ChatStreamFrameMessage[]; cursor: string | null }
   /** Area 11, F4: un frame dello stream dal vivo di una pagina di prodotto, com'è (testo SSE senza i ping). */
   | { type: "productFrame"; raw: string }
+  /** Area 11, F4: un frame troppo grande, scartato: il renderer rilegge la pagina. */
+  | { type: "productFrameDropped" }
   /** Area 6, F3: un pezzo della bozza di Claude per la Posta (`parseMailDraftFrame`). */
   | { type: "mailDraft"; event: MailDraftStreamEvent }
   | { type: "end"; reason: StreamEndReason; fatal: boolean; status?: number; code?: string };
@@ -297,8 +299,11 @@ export function createStreamRegistry(deps: StreamDeps) {
             // di shared (frame per frame, i malformati si scartano). Un frame
             // troppo grande non passa.
             const onlyComments = raw.split("\n").every((line) => line === "" || line.startsWith(":"));
-            if (!onlyComments && raw.length <= PRODUCT_LIVE_FRAME_MAX)
-              port.postMessage({ type: "productFrame", raw } satisfies StreamPortMessage);
+            if (onlyComments) continue;
+            // Un frame troppo grande non passa, ma lo si dice: il renderer rilegge (revisione di R11-4, 13).
+            if (raw.length > PRODUCT_LIVE_FRAME_MAX)
+              port.postMessage({ type: "productFrameDropped" } satisfies StreamPortMessage);
+            else port.postMessage({ type: "productFrame", raw } satisfies StreamPortMessage);
             continue;
           }
           if (chat) {

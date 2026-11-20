@@ -15,6 +15,8 @@ export interface PresenceAt {
   anchorId: string;
   offset: number;
   selection: [number, number] | null;
+  /** La sezione dell'ancora nella vista dell'editor (build app: la presa). */
+  sectionId?: string;
 }
 
 export function useSendPresence(pageId: string, at: PresenceAt | null) {

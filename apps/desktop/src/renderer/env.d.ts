@@ -59,6 +59,8 @@ type StubwiseStreamMessage =
     }
   /** Area 11, F4: un frame dello stream dal vivo di una pagina di prodotto, com'è. */
   | { type: "productFrame"; raw: string }
+  /** Un frame dello stream di una pagina troppo grande, scartato: si rilegge la pagina. */
+  | { type: "productFrameDropped" }
   | {
       /** Area 6, F3: un pezzo della bozza di Claude per la Posta. */
       type: "mailDraft";

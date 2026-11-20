@@ -110,7 +110,13 @@ export function leaveProductPageAs(me: string, pageId: string): void {
  */
 export async function setProductPresence(
   pageId: string,
-  at: { anchorId: string; offset: number; selection?: [number, number] | null } | null,
+  /** `sectionId`: la sezione dell'ancora nella vista dell'editor (la usa la build app per la presa). */
+  at: {
+    anchorId: string;
+    offset: number;
+    selection?: [number, number] | null;
+    sectionId?: string;
+  } | null,
 ): Promise<void> {
   const me = await writer("productDocs.setProductPresence");
   const page = readablePage(me, pageId);

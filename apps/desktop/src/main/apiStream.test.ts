@@ -274,6 +274,18 @@ describe("lo stream dal vivo di una pagina di prodotto via IPC (main, area 11 F4
     expect(port.sent.at(-1)).toMatchObject({ type: "end", fatal: false });
   });
 
+  it("un frame troppo grande non passa, ma lo si dice (`productFrameDropped`): il renderer rilegge", async () => {
+    const body = sseBody();
+    const d = deps({ fetch: vi.fn(async () => new Response(body.stream, { status: 200, headers: { "content-type": "text/event-stream" } })) });
+    const registry = createStreamRegistry(d);
+    const port = fakePort();
+    registry.open(1, LIVE_PATH, port);
+    await flush();
+    body.push(`data: {"type":"revision","pad":"${"x".repeat(1_000_001)}"}\n\n`);
+    await flush();
+    expect(port.sent.map((m) => m.type)).toEqual(["open", "productFrameDropped"]);
+  });
+
   it("un percorso della doc fuori elenco non apre nessuna connessione", async () => {
     const d = deps();
     const registry = createStreamRegistry(d);

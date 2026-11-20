@@ -31,6 +31,7 @@ import {
 } from "../../../data/queries";
 import type { ProductBlock, ProductBlockOp, ProductPageView, ProductPresenceView } from "../../../data/types";
 import { useToast } from "../../../tasks-ui/Toast";
+import { sectionKeyOf } from "@stubwise/shared";
 import { anchorIdsOf, anchorText, isTextBlock, makeBlockId } from "../../../domain/productDocs/blocks";
 import { setLink, toggleMark } from "../../../domain/productDocs/richText";
 import { BlockBody, ReadOnlyBody, blockLabel, layoutOf, numbersOf, textClassOf } from "./BlockBody";
@@ -139,9 +140,17 @@ export function BlockEditor({
   return <WritableBody page={page} session={session} handle={handle} others={others} />;
 }
 
-/** Chi scrive (ha un'ancora) nel blocco `id`. */
-export const writersIn = (others: readonly ProductPresenceView[], id: string): ProductPresenceView[] =>
-  others.filter((p) => p.anchorId === id);
+/**
+ * Chi scrive (ha un'ancora) nel blocco `id`; col fuoco, anche chi tiene la
+ * sua sezione (`sectionId`, la presa della build app): la sezione mostra chi
+ * la tiene, come il prototipo con chi le sta scrivendo dentro.
+ */
+export const writersIn = (
+  others: readonly ProductPresenceView[],
+  id: string,
+  section: string | null = null,
+): ProductPresenceView[] =>
+  others.filter((p) => p.anchorId === id || (section !== null && p.sectionId === section));
 
 // --- chi scrive --------------------------------------------------------------
 
@@ -311,6 +320,8 @@ function WritableBody({
     here
       ? {
           anchorId: here.id,
+          // La sezione dalla vista con la fila: un blocco appena creato c'è già (revisione di R11-4, 4).
+          sectionId: sectionKeyOf(session.blocks, here.id),
           offset: Math.min(here.end, savedLength),
           selection:
             here.start !== here.end ? [Math.min(here.start, savedLength), Math.min(here.end, savedLength)] : null,
@@ -950,7 +961,7 @@ function WritableBody({
                       <CommentMark anchorIds={anchorIdsOf(block)} below={block.type === "table"} />
                       {isTextBlock(block) &&
                         (editing ? (
-                          <RemoteBlockNote people={writersIn(others, block.id)} />
+                          <RemoteBlockNote people={writersIn(others, block.id, sectionKeyOf(session.blocks, block.id))} />
                         ) : (
                           <RemoteCursors people={writersIn(others, block.id)} contentKey={JSON.stringify(block.content)} />
                         ))}
@@ -1065,7 +1076,7 @@ function WritableBody({
           else addImages(files.slice(0, 1), { replaceId: target.id });
         }}
       />
-      <LiveNoteRegion people={focus ? writersIn(others, focus.id) : []} />
+      <LiveNoteRegion people={focus ? writersIn(others, focus.id, sectionKeyOf(session.blocks, focus.id)) : []} />
       {showBar && focusedText && (
         <SelectionBar
           ref={barRef}

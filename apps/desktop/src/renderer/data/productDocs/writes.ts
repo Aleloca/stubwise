@@ -395,7 +395,8 @@ export function writeProductBlocksAs(
 export async function saveProductBlocks(
   pageId: string,
   ops: ProductBlockOp[],
-  opts: { sessionId: string; undoOf?: string },
+  /** `baseSeq`: la revisione della base su cui la scrittura è calcolata (la usa la build app). */
+  opts: { sessionId: string; undoOf?: string; baseSeq?: number },
 ): Promise<ProductPage & { revisionId: string | null }> {
   return writeProductBlocksAs(await writer("productDocs.saveProductBlocks"), pageId, ops, {
     sessionId: opts.sessionId,

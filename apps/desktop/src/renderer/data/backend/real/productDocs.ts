@@ -120,11 +120,17 @@ async function readPage(code: string): Promise<ProductPageView | null> {
     if (error instanceof ApiError && error.status === 404) return null;
     return mapError(error);
   }
-  // Mai indietro: una lettura arrivata dopo un salvataggio non riporta `baseSeq` a prima.
-  seqOf.set(v.id, Math.max(seqOf.get(v.id) ?? 0, v.seq));
+  // Mai indietro (revisione di R11-4, 3): una lettura partita prima di un
+  // salvataggio e arrivata dopo ha un `seq` più vecchio; la pagina resta quella
+  // già letta, più nuova.
+  const known = seqOf.get(v.id) ?? 0;
+  const newer = lastRead.get(v.id);
+  if (v.seq < known && newer) return newer;
+  seqOf.set(v.id, Math.max(known, v.seq));
   codeOf.set(v.id, v.code);
   const page: ProductPageView = {
     ...pageOf(v),
+    seq: v.seq,
     breadcrumbs: v.breadcrumbs,
     permissions: {
       edit: v.permissions.edit,
@@ -141,7 +147,7 @@ async function readPage(code: string): Promise<ProductPageView | null> {
   };
   lastRead.set(v.id, page);
   // La sezione del cursore nel battito (F4) si calcola sui blocchi di adesso.
-  liveProductPresence.rememberBlocks(v.id, page.blocks);
+  liveProductPresence.rememberBlocks(v.id, page.blocks, v.seq);
   return page;
 }
 
@@ -397,7 +403,9 @@ export const liveProductDocs: Partial<ProductDocs> = {
     });
     let saved: { seq: number; revisionId: string | null };
     try {
-      saved = await client.save(pageId, body(seqOf.get(pageId) ?? 0));
+      // La base su cui la scrittura è calcolata (la fila la porta), non l'ultima
+      // lettura: una revisione altrui riletta intanto dà `stale` (revisione di R11-4, 2).
+      saved = await client.save(pageId, body(opts.baseSeq ?? seqOf.get(pageId) ?? 0));
     } catch (error) {
       if (!isStale(error)) return mapError(error);
       // Le revisioni di un altro arrivate nel frattempo. Mai una sovrascrittura
@@ -406,9 +414,15 @@ export const liveProductDocs: Partial<ProductDocs> = {
       // risposta, la scrittura si rifiuta e la barra dice che la pagina era
       // cambiata.
       const newer = staleRevisions(error);
-      if (!newer || newer.some((r) => r.touched.some((id) => opBlockIds(ops).has(id))))
+      // Le revisioni della stessa sessione (le scritture di prima della fila) non sono un conflitto.
+      const others = newer?.filter((r) => r.sessionId !== opts.sessionId) ?? [];
+      if (!newer || others.some((r) => r.touched.some((id) => opBlockIds(ops).has(id))))
         throw fail("invalid: stale");
-      const seq = Math.max(seqOf.get(pageId) ?? 0, ...newer.map((r) => r.lastSeq));
+      const seq = Math.max(
+        opts.baseSeq ?? 0,
+        seqOf.get(pageId) ?? 0,
+        ...newer.map((r) => r.lastSeq),
+      );
       seqOf.set(pageId, seq);
       try {
         saved = await client.save(pageId, body(seq));
@@ -668,12 +682,14 @@ const isStale = (error: unknown): boolean =>
  * e le ancore che toccano (anche il blocco assorbito da un `merge`); `null`
  * se la risposta non le porta, o ne porta una che non si legge.
  */
-function staleRevisions(error: unknown): { lastSeq: number; touched: string[] }[] | null {
+function staleRevisions(
+  error: unknown,
+): { lastSeq: number; sessionId: string | null; touched: string[] }[] | null {
   const revisions = (error as ApiError).details as { revisions?: unknown } | undefined;
   const list = revisions?.revisions;
   if (!Array.isArray(list) || list.length === 0) return null;
-  const out: { lastSeq: number; touched: string[] }[] = [];
-  for (const r of list as { lastSeq?: unknown; changes?: unknown }[]) {
+  const out: { lastSeq: number; sessionId: string | null; touched: string[] }[] = [];
+  for (const r of list as { lastSeq?: unknown; sessionId?: unknown; changes?: unknown }[]) {
     if (typeof r?.lastSeq !== "number" || !Array.isArray(r.changes)) return null;
     const touched = (
       r.changes as { blockId?: unknown; anchors?: unknown; mergedFrom?: { anchorId?: unknown } }[]
@@ -682,7 +698,11 @@ function staleRevisions(error: unknown): { lastSeq: number; touched: string[] }[
         (id): id is string => typeof id === "string",
       ),
     );
-    out.push({ lastSeq: r.lastSeq, touched });
+    out.push({
+      lastSeq: r.lastSeq,
+      sessionId: typeof r.sessionId === "string" ? r.sessionId : null,
+      touched,
+    });
   }
   return out;
 }

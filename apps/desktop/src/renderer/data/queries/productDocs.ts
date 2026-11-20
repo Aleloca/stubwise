@@ -210,12 +210,20 @@ export function useSaveProductBlocks() {
       ops,
       sessionId,
       undoOf,
+      baseSeq,
     }: {
       pageId: string;
       ops: ProductBlockOp[];
       sessionId: string;
       undoOf?: string;
-    }) => api.productDocs.saveProductBlocks(pageId, ops, undoOf ? { sessionId, undoOf } : { sessionId }),
+      /** La revisione della base su cui le operazioni sono calcolate (build app). */
+      baseSeq?: number;
+    }) =>
+      api.productDocs.saveProductBlocks(pageId, ops, {
+        sessionId,
+        ...(undoOf ? { undoOf } : {}),
+        ...(baseSeq !== undefined ? { baseSeq } : {}),
+      }),
     PRODUCT_AREAS,
   );
 }
@@ -325,6 +333,8 @@ export function useProductPageEvents(pageId: string) {
         return;
       }
       void client.invalidateQueries({ queryKey: [...area, "page"] });
+      // Una rinomina o uno spostamento altrui cambiano l'albero e le briciole (revisione di R11-4, 12).
+      void client.invalidateQueries({ queryKey: [...area, "space"] });
       void client.invalidateQueries({ queryKey: [...area, "comments", pageId] });
       void client.invalidateQueries({ queryKey: [...area, "revisions", pageId] });
       void client.invalidateQueries({ queryKey: [...area, "marks", pageId] });
@@ -380,7 +390,7 @@ export function useSetProductPresence() {
       at,
     }: {
       pageId: string;
-      at: { anchorId: string; offset: number; selection?: [number, number] | null } | null;
+      at: { anchorId: string; offset: number; selection?: [number, number] | null; sectionId?: string } | null;
     }) =>
       // La presenza arriva con F4: spenta, non si manda (I3 della revisione di R11-1).
       productLaterOn("live") ? api.productDocs.setProductPresence(pageId, at) : Promise.resolve(),

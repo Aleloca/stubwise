@@ -611,6 +611,23 @@ describe("una scrittura rifiutata non blocca la fila", () => {
   });
 });
 
+describe("la base della scrittura (revisione di R11-4, 2)", () => {
+  it("la scrittura porta il `seq` della pagina letta quando è entrata in fila (build app)", async () => {
+    seedBlock(LOGIN);
+    const real = api.productDocs.getProductPage;
+    vi.spyOn(api.productDocs, "getProductPage").mockImplementation(async (code) => {
+      const v = await real(code);
+      return v ? { ...v, seq: 7 } : v;
+    });
+    await openSignIn();
+    const el = await enter(LOGIN, 22);
+    input(el, "insertText", "!");
+    leave(el);
+    await waitFor(() => expect(saves).toHaveBeenCalled());
+    expect(saves.mock.calls[0]![2]).toMatchObject({ baseSeq: 7 });
+  });
+});
+
 describe("una sezione presa da un altro (409 `section_busy`, piano F4)", () => {
   it("il blocco resta com'era, la barra dice chi la tiene, nessun Retry", async () => {
     seedBlock(LOGIN);
@@ -797,5 +814,16 @@ describe("il blocco di codice (prove a mano del 7 nov 2026)", () => {
     await enter("const a = 1", 0, 5);
     const bar = await screen.findByRole("toolbar");
     expect(within(bar).getAllByRole("button").map((b) => b.textContent)).toEqual([expect.stringMatching(/Comment/)]);
+  });
+});
+
+describe("chi scrive qui: il blocco, e col fuoco la sua sezione (revisione di R11-4, 9)", () => {
+  it("`writersIn`: chi ha l'ancora nel blocco; con la sezione anche chi la tiene altrove", async () => {
+    const { writersIn } = await import("./BlockEditor");
+    const at = (personId: string, anchorId: string | null, sectionId?: string) =>
+      ({ pageId: "p", personId, anchorId, offset: 0, selection: null, seq: 0, name: personId, initials: "X", color: 1, ...(sectionId ? { sectionId } : {}) }) as const;
+    const others = [at("a", "blk-1"), at("b", "blk-9", "h-2"), at("c", "blk-3", "h-7")];
+    expect(writersIn(others, "blk-1").map((p) => p.personId)).toEqual(["a"]);
+    expect(writersIn(others, "blk-1", "h-2").map((p) => p.personId)).toEqual(["a", "b"]);
   });
 });

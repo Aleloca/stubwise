@@ -243,13 +243,8 @@ export {
 // Area 11: lo spazio Product, la pagina, la scrittura a operazioni, la
 // cronologia e Segui (F1), i commenti (F2), ricerca ed esportazione (F3), la
 // presenza dal vivo (F4, dietro `product-live`); Claude resta «in arrivo».
-const {
-  sectionHolder: _sectionHolder,
-  rememberBlocks: _rememberBlocks,
-  rememberSession: _rememberSession,
-  ...livePresence
-} = liveProductPresence;
-void [_sectionHolder, _rememberBlocks, _rememberSession];
+const { rememberBlocks: _rememberBlocks, rememberSession: _rememberSession, ...livePresence } = liveProductPresence;
+void [_rememberBlocks, _rememberSession];
 export const productDocs: typeof Fake.productDocs = partialNamespace<typeof Fake.productDocs>("productDocs", {
   ...liveProductDocs,
   ...livePresence,

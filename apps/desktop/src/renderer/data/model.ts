@@ -4390,6 +4390,8 @@ export interface ProductPresence {
 }
 
 export interface ProductPresenceView extends ProductPresence {
+  /** Build app (F4): la sezione in cui scrive (`sectionKeyOf`, la sua presa). */
+  sectionId?: string;
   name: string;
   initials: string;
   /** Uno dei colori della presenza (`--presence-1`…`--presence-6`), stabile per persona. */
@@ -4432,6 +4434,11 @@ export interface ProductExportView {
 }
 
 export interface ProductPageView extends ProductPage {
+  /**
+   * L'ultima revisione della pagina com'è letta (build app; il prototipo non
+   * la dà): una scrittura parte da qui (`baseSeq`, revisione di R11-4).
+   */
+  seq?: number;
   /** Gli antenati, dalla radice al genitore. */
   breadcrumbs: ProductPageRef[];
   permissions: { edit: boolean; delete: boolean; deleteBlocked: "has_children" | null };

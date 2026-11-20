@@ -11,6 +11,7 @@ import { forgetChatCaches } from "./claudeChat";
 import { forgetTrials } from "./claudeTrial";
 import { forgetDocsCaches } from "./docs";
 import { forgetProductDocs } from "./productDocs";
+import { forgetProductLive } from "./productLive";
 import { appClient, session } from "./client";
 import { NotIntegratedError, partialNamespace } from "./notIntegrated";
 import { forgetCommentTickets } from "./taskDetail";
@@ -99,8 +100,10 @@ function forgetClientCaches(): void {
   forgetTrials();
   forgetPeopleChatCaches();
   resetChatStreams();
-  // Area 11 (M3 della revisione di R11-1): `baseSeq`, codici e ultime pagine lette.
+  // Area 11 (M3 della revisione di R11-1): `baseSeq`, codici e ultime pagine lette;
+  // e gli stream dal vivo e i battiti della persona di prima (revisione di R11-4, 14).
   forgetProductDocs();
+  forgetProductLive();
 }
 
 /**

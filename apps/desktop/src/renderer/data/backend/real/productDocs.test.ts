@@ -739,8 +739,8 @@ describe("i commenti dal server (area 11, F2; R11-2)", () => {
 describe("una sezione presa da un altro (F4, bozza del piano)", () => {
   it("409 `section_busy`: un rifiuto `section_busy` col nome di chi la tiene (o nessuno, se chi guarda non lo vede)", async () => {
     for (const [by, name] of [
-      [{ id: ME_ID, name: "Marco Bellini" }, "Marco Bellini"],
-      [{ id: ME_ID, name: null }, undefined],
+      [{ id: "33333333-3333-4333-8333-000000000003", name: "Marco Bellini" }, "Marco Bellini"],
+      [{ id: "33333333-3333-4333-8333-000000000003", name: null }, undefined],
     ] as const) {
       forgetProductDocs();
       installFakeServer({
@@ -760,5 +760,86 @@ describe("una sezione presa da un altro (F4, bozza del piano)", () => {
       expect(error?.message).toBe("section_busy");
       expect(error?.by).toBe(name);
     }
+  });
+});
+
+describe("la base della scrittura (revisione di R11-4, 2 e 3)", () => {
+  it("la scrittura parte dal `seq` della SUA base, non dall'ultima lettura: una revisione altrui intanto dà `stale`", async () => {
+    let first = true;
+    const { seen } = installFakeServer({
+      // La pagina riletta per la revisione di un altro: seq 9.
+      "GET /api/product-pages/by-code/AUD-D5": { body: pageView({ seq: 9 }) },
+      [`POST /api/product-pages/${PAGE}/ops`]: () => {
+        if (!first) return { body: { seq: 10, revisionId: REV } };
+        first = false;
+        return {
+          status: 409,
+          body: {
+            code: "stale",
+            message: "x",
+            revisions: [revision(OTHER_REV, { lastSeq: 9, sessionId: "s-other" })],
+          },
+        };
+      },
+    });
+    await docs.getProductPage!("AUD-D5");
+    // La scrittura era stata calcolata sulla base al seq 7; tocca blk-1, che l'altro ha cambiato.
+    await expect(
+      docs.saveProductBlocks!(PAGE, [{ op: "delete", blockId: "blk-1" }], {
+        sessionId: "s-me",
+        baseSeq: 7,
+      }),
+    ).rejects.toThrow("invalid: stale");
+    expect(
+      seen.filter((r) => r.method === "POST").map((r) => (r.body as { baseSeq: number }).baseSeq),
+    ).toEqual([7]);
+  });
+
+  it("le revisioni della STESSA sessione fra la base e l'invio non sono un conflitto: si riprova", async () => {
+    let first = true;
+    const { seen } = installFakeServer({
+      "GET /api/product-pages/by-code/AUD-D5": { body: pageView({ seq: 8 }) },
+      [`POST /api/product-pages/${PAGE}/ops`]: () => {
+        if (!first) return { body: { seq: 9, revisionId: REV } };
+        first = false;
+        return {
+          status: 409,
+          body: {
+            code: "stale",
+            message: "x",
+            revisions: [revision(OTHER_REV, { lastSeq: 8, sessionId: "s-me" })],
+          },
+        };
+      },
+    });
+    await docs.getProductPage!("AUD-D5");
+    await docs.saveProductBlocks!(PAGE, [{ op: "delete", blockId: "blk-1" }], {
+      sessionId: "s-me",
+      baseSeq: 7,
+    });
+    expect(
+      seen.filter((r) => r.method === "POST").map((r) => (r.body as { baseSeq: number }).baseSeq),
+    ).toEqual([7, 8]);
+  });
+
+  it("una lettura partita prima di un salvataggio e arrivata dopo (seq più vecchio) non riporta indietro la pagina", async () => {
+    let reads = 0;
+    installFakeServer({
+      "GET /api/product-pages/by-code/AUD-D5": () =>
+        ++reads === 2
+          ? { body: pageView({ seq: 8, blocks: [para("blk-1", "Mine, saved.")] }) }
+          : { body: pageView({ seq: 7 }) },
+      [`POST /api/product-pages/${PAGE}/ops`]: { body: { seq: 8, revisionId: REV } },
+    });
+    await docs.getProductPage!("AUD-D5");
+    await docs.saveProductBlocks!(
+      PAGE,
+      [{ op: "set", block: para("blk-1", "Mine, saved.") as never }],
+      { sessionId: "s-me" },
+    );
+    // La terza lettura risponde col seq 7 (era partita prima): resta la pagina al seq 8.
+    const late = (await docs.getProductPage!("AUD-D5"))!;
+    expect(late.seq).toBe(8);
+    expect(late.blocks).toEqual([para("blk-1", "Mine, saved.")]);
   });
 });

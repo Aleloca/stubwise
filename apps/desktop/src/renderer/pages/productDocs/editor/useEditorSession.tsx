@@ -40,6 +40,12 @@ export type SaveState = "idle" | "saving" | "saved" | "error";
 
 interface Batch {
   ops: ProductBlockOp[];
+  /**
+   * La revisione della base su cui le operazioni sono calcolate, presa
+   * all'ingresso in fila (build app): una revisione altrui riletta nel
+   * frattempo non la sposta, e il server dice `stale` (revisione di R11-4, 2).
+   */
+  baseSeq?: number;
   /** La revisione che la scrittura annulla (letta all'invio: la scrittura annullata è già tornata). */
   undoOf?: () => string | undefined;
   onDone?: (revisionId: string | null) => void;
@@ -131,10 +137,13 @@ export function useEditorSession(page: ProductPageView) {
   );
 
   const [seen, setSeen] = useState(page.blocks);
+  /** La revisione della base (`page.seq` nella build app; il prototipo non la dà). */
+  const seqRef = useRef(page.seq);
   if (seen !== page.blocks) {
     setSeen(page.blocks);
     setBase(page.blocks);
     baseRef.current = page.blocks;
+    seqRef.current = page.seq;
   }
 
   const queue = useRef<Batch[]>([]);
@@ -197,6 +206,7 @@ export function useEditorSession(page: ProductPageView) {
         ops: batch.ops,
         sessionId,
         undoOf: batch.undoOf?.(),
+        ...(batch.baseSeq !== undefined ? { baseSeq: batch.baseSeq } : {}),
       });
       client.setQueryData(
         ["as", me, "productDocs", "page", pageRef.current.code],
@@ -205,6 +215,9 @@ export function useEditorSession(page: ProductPageView) {
       );
       baseRef.current = result.blocks;
       setBase(result.blocks);
+      // La base delle scritture ancora in fila NON si sposta: le revisioni di
+      // questa sessione il server le dà nello `stale` e l'adapter non le conta
+      // come conflitto; una revisione altrui in mezzo sì.
       // Una scrittura di questa sessione sul blocco tenuto si vede; le altre lo lasciano com'era.
       const held = heldRef.current;
       if (held && touches(batch.ops, held)) setHeldBlock(result.blocks.find((b) => b.id === held) ?? null);
@@ -242,7 +255,7 @@ export function useEditorSession(page: ProductPageView) {
 
   const enqueue = useCallback(
     (batch: Batch) => {
-      queue.current.push(batch);
+      queue.current.push(seqRef.current === undefined ? batch : { ...batch, baseSeq: seqRef.current });
       setPending(queue.current.map((b) => b.ops));
       void pump();
     },
