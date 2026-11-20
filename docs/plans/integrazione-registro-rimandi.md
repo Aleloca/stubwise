@@ -1346,6 +1346,19 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   filtro, il più recente che non passa); senza, la riga dice «Nothing to try
   it on yet». Nel prototipo non manca niente: è l'app che resta indietro.
 
+- **Chiuse con F3 (20 nov 2026)**: Claude legge il lavoro fermo (con le
+  soglie dei progetti, la regola della lista delle task) e la spesa del mese
+  (coi permessi del server, D-13 = a), con «Hypothesis» e «Details» sotto la
+  risposta (evento `aside`).
+
+- **Chiusa con F4 (20 nov 2026)**: archiviare in blocco — Claude legge i
+  candidati (`GET /api/projects/archive-candidates`) e propone solo quelli;
+  gli occupati e i non gestibili li nomina in prosa (D-9 = a).
+
+- **Chiusa con F5 (20 nov 2026)**: `member.added` — la card a chi entra in un
+  progetto e a chi ne gestisce i membri (D-11 = b), mai a chi ha agito, con
+  «Undone by» derivato dal registro.
+
 ## Area 11 — Documentazione di prodotto
 
 - Origine di una richiesta dalla documentazione di prodotto.

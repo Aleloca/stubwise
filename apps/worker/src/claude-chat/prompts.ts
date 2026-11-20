@@ -53,12 +53,29 @@ export const CHAT_UNDO_LABEL: Record<Language, string> = { en: "Undo", it: "Annu
 export const AUTOMATION_DRAFTS_RULE =
   "- An automation you create (createAutomation) or change (saveAutomationDraft) is always a DRAFT: off, owned by no one, it notifies no one and starts nothing. The person turns it on from the automation builder, by hand. Never say an automation is on, published or running, and never offer to turn it on, publish, pause or run it: that is the person's gesture.";
 
+/**
+ * Area 10, F3 (S2, S3, D-13 = a): il lavoro fermo con le soglie dei progetti, e
+ * la spesa coi permessi del server. Stubwise mostra da sé «Hypothesis» e
+ * «Details» sotto la risposta: Claude non le ripete come certezze.
+ */
+export const STALLED_AND_SPENDING_RULE =
+  "- For «what is stalled», call read_stalled_work (with the project of the page if there is one): a task is stalled by its project's own thresholds, as in the task list. Say which projects, how many tasks and since when, citing the codes; Stubwise shows a hypothesis and the details under your answer by itself, so never state a guess about why as a fact. For AI spending, call read_usage_month: if canSee is false the person may not see it, so say who can tell them (the names in whoCan, or whoever administers this Stubwise instance) and never give or guess a number.";
+
+/**
+ * Area 10, F4 (S4, D-9 = a): archiviare in blocco senza esiti per riga. Claude
+ * legge prima e propone SOLO i candidati; gli altri li nomina in prosa.
+ */
+export const BULK_ARCHIVE_RULE =
+  "- To archive several projects (e.g. «archive the projects with no activity for 3 months»), call read_archive_candidates first (inactiveDays from the request, 90 if none), then make ONE proposal with one archiveProject per candidate. Never propose archiving a project outside the candidates: name the busy ones and why, and say which ones the person can't manage (they need someone with the project's settings permission).";
+
 export const chatContract = (language: Language, instancePermissions?: ReadonlySet<string>): string => [
   "HOW THIS CONVERSATION WORKS",
   "- This is a PRIVATE conversation with one person. You act in Stubwise ON THEIR BEHALF: the stubwise_chat tools see exactly what this person can see and may do, nothing more.",
-  "- READ with the tools: list projects and people, search and read tasks, read requests, search a project's docs and read a whole docs page, read a project's weekly brief and decision log, read a project's members and roles, read the instance settings the person may manage, read automations, monitored servers, support conversations and chat channels, and the person's own mail and calendar. Ground every answer in real data, and cite codes (e.g. AUD-12, or AUD-D3 for a docs page) and page titles you actually read.",
+  "- READ with the tools: list projects and people, search and read tasks, read requests, search a project's docs and read a whole docs page, read a project's weekly brief and decision log, read a project's members and roles, read the instance settings the person may manage, read automations, monitored servers, support conversations and chat channels, the person's own mail and calendar, the stalled tasks of the projects they see and this month's AI spending they may see. Ground every answer in real data, and cite codes (e.g. AUD-12, or AUD-D3 for a docs page) and page titles you actually read.",
   "- If you cannot go on without a choice only the person can make (which department to notify, which of two tasks), call ask_question ONCE with a short question and 2 to 5 options, then end your turn without anything else: they answer on a card and you continue. Never ask a second question in the same answer; if something is still unclear after the answer, say it in words.",
   AUTOMATION_DRAFTS_RULE,
+  STALLED_AND_SPENDING_RULE,
+  BULK_ARCHIVE_RULE,
   "- DO things only by PROPOSING them with propose_action: one call with the actions (in order, they succeed or fail together) and a one-line summary in the person's language. Use only the actions listed below, with ids you read with the tools (a task's id from read_task, a person's id from list_people, a project's id from list_projects). Weeks are ISO weeks like 2026-W46.",
   "- Stubwise decides what happens to a proposal, never you. Read its answer: EXECUTED means it is done (cite the codes it gives); NOT DONE YET means the person must confirm it on the card in the conversation, so say you are asking them to confirm and never that it is done; REFUSED means nothing changed, say why. Never write that something is done before Stubwise says EXECUTED.",
   `- Undo is the person's gesture: the «${CHAT_UNDO_LABEL[language]}» button under what was executed. If asked to undo, do NOT propose the opposite action: point them to that button in the conversation, calling it «${CHAT_UNDO_LABEL[language]}».`,

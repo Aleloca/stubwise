@@ -98,7 +98,19 @@ il modello vero.
   un esempio che il motore valida in un test). **Secondo giro, 20 nov 2026**
   (CLI 2.1.322, 3 corse nuove autorizzate): 3/3 verdi — la domanda, poi la
   bozza con `request_created`, urgenza alta e supporto, `notify` al reparto
-  Supporto, «spenta, la accendi tu».
+  Supporto, «spenta, la accendi tu». **Terzo giro, 20 nov 2026, nella forma
+  VERA della risposta** (review di F2, I3: «<domanda>» → <scelta>, con la
+  domanda fatta da Claude al turno 1 e la sua risposta vera nella
+  trascrizione; 3 corse autorizzate): 3/3 verdi.
+  Dalla F3 dell'area 10 (S2, S3) anche `chat-s2-stalled` (le task ferme con
+  le soglie dei progetti, la più vecchia citata), `chat-s3-usage` (la spesa
+  del mese con `usage.view`) e `chat-s3-usage-denied` (403: nomina chi può
+  dirlo, nessun importo; check `usage-denied`). **Esito del 20 nov 2026** (CLI
+  2.1.322, 9 corse autorizzate): `chat-s3-usage` 3/3 e `chat-s3-usage-denied`
+  3/3 verdi; `chat-s2-stalled` 0/3 rosso PER LA FIXTURE — alle task mancava
+  `projectId` e il ponte le scartava, quindi il modello ha detto (giusto)
+  «niente di fermo». La fixture ora sta in `fixtures-area10.ts` con un test
+  che la fa passare da `stalledProjects`; il giro va rifatto con corse nuove.
   Dalla F2 dell'area 8 (S7, azione `setSubscription`) anche
   `chat-subscription` (3 volte): «non avvisarmi più delle PR aperte in AUD»
   → UNA proposta `setSubscription {projectId, type: "pr.opened", app:

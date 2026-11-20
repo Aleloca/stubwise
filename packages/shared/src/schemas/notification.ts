@@ -82,6 +82,9 @@ export const notificationKindSchema = z.enum([
   "support.request",
   // Area 8, fetta 4b (0181): la diagnosi dell'analisi di un server, nel catalogo degli avvisi.
   "server.diagnosis_ready",
+  // Area 10, F5 (0200, D-11 = b): una persona entra in un progetto. Alla persona
+  // (obbligatorio) e a chi gestisce i membri (iscrizione), mai a chi ha agito.
+  "member.added",
 ]);
 
 /**
@@ -772,6 +775,14 @@ export const inboxItemSchema = z.object({
    * per un server tolto. Additivo.
    */
   serverCode: z.string().nullable().default(null),
+  /**
+   * Area 10, F5 (D-11 = b): sulle card `member.added`, chi ha ANNULLATO quell'ingresso
+   * con «Annulla» di Claude («Undone by …»). DERIVATO a lettura dal registro
+   * delle modifiche (la voce d'ingresso, la sua azione, la voce che la annulla),
+   * mai dal jsonb: vale per le card vecchie e scavalca un jsonb che dicesse
+   * altro. Una rimozione a mano NON è un annullamento. Additivo.
+   */
+  undoneBy: z.object({ id: z.uuid(), name: z.string() }).nullable().default(null),
   /**
    * Area 4, Chat (fetta 1): solo sulle card `chat.mention` e (fetta 2)
    * `chat.question`, il messaggio che

@@ -1943,6 +1943,8 @@ export const notificationKind = pgEnum("notification_kind", [
   "support.request",
   // Area 8, fetta 4b (0181): la diagnosi dell'analisi di un server.
   "server.diagnosis_ready",
+  // Area 10, F5 (0200).
+  "member.added",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),
@@ -5691,7 +5693,7 @@ export const agentSessionEvents = pgTable(
       .where(sql`type in ('tool_use','assistant_text')`),
     check(
       "agent_session_events_type_chk",
-      sql`type in ('segment_start','assistant_text','tool_use','tool_result','input','turn_end','segment_end','proposal','actions_executed','question')`,
+      sql`type in ('segment_start','assistant_text','tool_use','tool_result','input','turn_end','segment_end','proposal','actions_executed','question','aside')`,
     ),
   ],
 );

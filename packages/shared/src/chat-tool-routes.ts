@@ -84,6 +84,20 @@ export const CHAT_TOOL_READ_ROUTES: ReadonlySet<string> = new Set([
   // Area 10, F2 (`list_departments`, S1): i reparti dell'istanza, per chi
   // chiede. Il ponte passa solo id, nome e se è il reparto di ripiego.
   "/api/departments",
+  // Area 10, F3 (`read_stalled_work`, S2): le task FERME con le soglie dei
+  // progetti, la stessa regola e la stessa rotta della lista delle task
+  // (`stallOf`, decisione del maintainer, 20 nov 2026). Il ponte non passa i
+  // titoli né le note (possono venire da fuori), solo codici, date e motivi.
+  "/api/tasks/stalled",
+  // Area 10, F3 (`read_usage_month`, S3, D-13 = a): la spesa del mese coi
+  // permessi di chi chiede (tutta l'istanza con `usage.view`, i soli progetti
+  // con `project.usage.view`, 403 senza) e, per chi non può vederla, chi può
+  // dirglielo (`usage.view`): il ponte passa solo i nomi.
+  "/api/ai-usage/summary",
+  "/api/access/who-can",
+  // Area 10, F4 (`read_archive_candidates`, S4): i progetti fermi di chi chiede,
+  // divisi come nel prototipo. Il ponte non passa i titoli dei motivi `busy`.
+  "/api/projects/archive-candidates",
 ]);
 
 /**

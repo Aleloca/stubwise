@@ -1732,6 +1732,7 @@
       "ticketActivity": "Activity on a followed task",
       "planningChanged": "Your plan changed",
       "taskAssigned": "Assigned to you",
+      "memberAdded": "Joined a project",
       "chatMention": "Mentioned in the chat",
       "chatQuestion": "A question for you in the chat",
       "automationApproval": "Approval",

@@ -222,6 +222,49 @@ al modello solo i campi in ALLOWLIST.
 | La prova della bozza la fa il renderer e la segna provata (`testedRev`) | orchestratrice |
 | `list_departments`: una lettura nuova, che il design non prevedeva (serve a «avvisa un reparto») | costruttore |
 
+## Area 10, F3 — rispondere sui dati (server e worker; la riga «Details» è di 94)
+
+| Voce | Dove vive | Rotta / pezzo | Test |
+|---|---|---|---|
+| Il lavoro fermo con le soglie dei progetti (la regola e la rotta della lista delle task) | `claude-chat/bridge.ts` (`read_stalled_work`, `stalledProjects`) | `GET /api/tasks/stalled`, `GET /api/projects` | `bridge.test.ts`, `claude-asides.test.ts` (oltre la soglia sì, dentro no); golden `chat-s2-stalled` |
+| L'`aside` («Hypothesis», «Details»): scritto dal worker, arricchito a lettura | `claude-chat/aside.ts`, `services/claude-asides.ts` (in `listAgentSessionEvents`) | evento `aside` (0199) | `aside.test.ts`, `claude-asides.test.ts` |
+| La spesa del mese coi permessi del server; senza, `canSee: false` e chi può dirlo | `claude-chat/bridge.ts` (`read_usage_month`) | `GET /api/ai-usage/summary`, `GET /api/access/who-can` | `bridge.test.ts`, `chat-tool-token.test.ts`; golden `chat-s3-usage`, `chat-s3-usage-denied` |
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| «Fermo» = le soglie dei progetti, non la regola del polso | maintainer (20 nov 2026) |
+| `thresholdDays` solo per il motivo `idle` (gli altri motivi non hanno soglia) | costruttore |
+| Chi non vede nessuno riceve `whoCan` vuoto (R-G5): Claude dice «chi amministra l'istanza» | costruttore (accettato) |
+| D-13 = a: la spesa a chi ha `usage.view` o `project.usage.view`, a nessun altro | maintainer |
+
+## Area 10, F4 — archiviare in blocco (server e worker)
+
+| Voce | Dove vive | Rotta / pezzo | Test |
+|---|---|---|---|
+| L'ultima attività di un progetto (come `lastActivityOf`), in una query | `services/project-activity.ts` (`lastActivityByProject`) | — | `project-activity.test.ts` |
+| I progetti da archiviare: candidati, occupati, non gestibili; mai un invisibile | `services/project-activity.ts` (`archiveCandidates`) | `GET /api/projects/archive-candidates` | `project-activity.test.ts` |
+| Claude legge prima e propone i soli candidati (D-9 = a) | `claude-chat/bridge.ts` (`read_archive_candidates`), `prompts.ts` (`BULK_ARCHIVE_RULE`) | — | `bridge.test.ts`, `prompts.test.ts`; golden `chat-s4-archive` |
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| Un tool che dà anche i fermi (deviazione dal design: senza l'ultima attività Claude non saprebbe quali chiedere) | orchestratrice (approvata) |
+| Niente esiti per riga: le righe non fattibili stanno nella prosa, non spente nella scheda | orchestratrice (D-9 = a) |
+
+## Area 10, F5 — chi entra in un progetto (server; la card è di 94)
+
+| Voce | Dove vive | Rotta / pezzo | Test |
+|---|---|---|---|
+| Il tipo `member.added` nel catalogo degli avvisi (famiglia «members»): alla persona aggiunta sempre (`added`), a chi gestisce i membri di partenza | `@stubwise/shared` `alerts/catalog.ts`; `notifications` (`format`, `alert-recipients` con `exclude`) | `notification_kind` (0200) | `alert-recipients.test.ts`, `format.test.ts`, `migration-0200.test.ts` |
+| La card nasce nella transazione della voce del registro, a ogni INGRESSO (a mano, `addMember` di Claude, invito accettato); mai a chi ha agito, mai per un cambio di ruolo, un reparto o l'agente | `services/roles.ts` (`publishMemberAdded`), `services/change-log.ts` (`recordChange` dà l'id) | `PUT /api/projects/:projectId/members/:userId`, accettazione dell'invito | `project-members.notify.test.ts` |
+| «Undone by» derivato a lettura dal registro (voce d'ingresso → azione di Claude → voce che la annulla), mai dal jsonb | `services/inbox.ts` (`undoneByOfMemberAdded`) | `/api/inbox` (`undoneBy`, additivo) | `inbox-member-added.test.ts`, `notification.test.ts` (shared) |
+| Claude propone `addMember` coi membri e i ruoli del progetto | — | `read_project_members` | golden `chat-s5-member` |
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| Alla persona aggiunta e a chi gestisce i membri, spegnibile per i gestori | maintainer (D-11 = b) |
+| Nell'invito accettato l'attore è chi accetta: la card va ai gestori, non a lui | orchestratrice |
+| Il full admin dell'istanza riceve la card come gestore di ogni progetto | costruttore (come gli altri tipi del catalogo) |
+
 ## Rimandate
 
 | Voce | Fetta |

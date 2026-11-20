@@ -142,6 +142,7 @@ import { fileURLToPath } from "node:url";
 // perché sta nel suo docblock.
 import type { Language } from "@stubwise/i18n";
 import { CHAT_MENTION_TOOL_NAMES, CHAT_TOOL_READ_ROUTES, chatRoutePattern } from "@stubwise/shared";
+import { STALLED_TASKS } from "./fixtures-area10.js";
 import type { AgentRunner, AgentRunResult, UsageTag } from "../../src/agent/runner.js";
 import type { LiveProcessHandle } from "../../src/agent/streaming-cli.js";
 import type { RefineBridge } from "../../src/backlog/refine/bridge.js";
@@ -2161,6 +2162,8 @@ const CHAT_PEOPLE = [
   { id: "1f2e3d4c-5b6a-4978-8a9b-0c1d2e3f4a5b", name: "Ada Lovelace", initials: "AL", departmentIds: [], email: "ada@example.com" },
   { id: MARTA_ID, name: "Marta Rinaldi", initials: "MR", departmentIds: [], email: "marta@example.com" },
   { id: "7b8c9d0e-1f2a-4b3c-9d4e-5f6a7b8c9d0e", name: "Luca Bassi", initials: "LB", departmentIds: [], email: "luca@example.com" },
+  // Area 10, F5 (S5): fuori da AUD.
+  { id: "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d", name: "Bruno Verdi", initials: "BV", departmentIds: [], email: "bruno@example.com" },
 ];
 
 /**
@@ -2311,6 +2314,41 @@ const MAIL_SUBJECT_HOSTILE = {
   messages: [{ ...MAIL_HOSTILE.messages[0]!, textExcerpt: "Buongiorno, le confermo la consegna di giovedì." }],
 };
 
+/** Area 10, F3 (S3): la spesa del mese di chi ha `usage.view`. */
+const USAGE_MONTH = {
+  totals: { costUsd: 12.5, inputTokens: 1000, outputTokens: 500, cacheReadTokens: 0, runs: 40 },
+  byDay: [],
+  rows: [
+    { key: CHAT_PROJECT_ID, label: "Audin", code: "AUD", costUsd: 10, tokens: 1200, runs: 30, children: [] },
+    { key: "other", label: "other", code: null, costUsd: 2.5, tokens: 300, runs: 10, children: [] },
+  ],
+};
+/** Area 10, F4 (S4): un candidato, un occupato, un non gestibile. */
+/**
+ * Area 10, F5 (S5): i membri di AUD come li dà `/members/view`. Bruno Verdi c'è
+ * fra le persone ma non nel progetto; i ruoli che chi chiede può dare.
+ */
+const BRUNO_ID = "5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d";
+const DEVELOPER_ROLE_ID = "0d1e2f3a-4b5c-4d6e-8f7a-8b9c0d1e2f3a";
+const AUD_MEMBERS_VIEW = {
+  canManage: true,
+  members: [{ personId: MARTA_ID, name: "Marta Rinaldi", status: "active", granted: [], role: { id: "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", name: "Project Lead" } }],
+  roleChoices: [
+    { roleId: "9c8b7a6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", name: "Project Lead", block: null },
+    { roleId: DEVELOPER_ROLE_ID, name: "Developer", block: null },
+    { roleId: "2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e", name: "Contributor", block: null },
+  ],
+};
+
+const ARCHIVE_OLD_ID = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d";
+const ARCHIVE_CANDIDATES = {
+  candidates: [{ projectId: ARCHIVE_OLD_ID, code: "OLD", name: "Vecchio sito", lastActivity: "2026-06-02T10:00:00.000Z" }],
+  busy: [{ code: "ACQ", reasons: [{ kind: "doc_generation", code: null, title: null, waiting: false, repository: "acquisti-web", paused: false }] }],
+  notManageable: 1,
+  notManageableCodes: ["MKT"],
+};
+const WHO_CAN_USAGE = { permission: "usage.view", projectId: null, people: [{ userId: CHAT_PEOPLE[0]!.id, email: "ada@example.com", displayName: "Ada Lovelace", reasons: [] }], agent: { actsFor: "confirmer" } };
+
 /** L'ultima domanda di `ask_question` (golden S1: il turno 2 risponde a QUELLA). */
 let lastAskedQuestion: string | null = null;
 
@@ -2335,6 +2373,7 @@ type ChatProposalAnswer = "awaiting_confirmation" | { executed: readonly string[
  */
 async function startFakeChatServer(
   answer: ChatProposalAnswer = "awaiting_confirmation",
+  overrides: Record<string, { status: number; body: unknown }> = {},
 ): Promise<{ url: string; requests: ChatServerRequest[]; close: () => Promise<void> }> {
   const requests: ChatServerRequest[] = [];
   const server = createServer((req, res) => {
@@ -2366,11 +2405,19 @@ async function startFakeChatServer(
     if (req.method !== "GET") return send(403, { code: "chat_tool_forbidden" });
     const path = url.split("?")[0]!;
     const p = `/api/projects/${CHAT_PROJECT_ID}`;
+    // Area 10, F3: le risposte di uno scenario (il 403 della spesa per chi non può vederla).
+    const override = overrides[path];
+    if (override) return send(override.status, override.body);
     if (path === "/api/projects") {
       return send(200, [{ id: CHAT_PROJECT_ID, code: "AUD", name: "Audin", description: "CRM per agenzie" }]);
     }
     if (path === "/api/people") return send(200, CHAT_PEOPLE);
     if (path === "/api/departments") return send(200, DEPARTMENTS);
+    if (path === "/api/tasks/stalled") return send(200, STALLED_TASKS);
+    if (path === "/api/ai-usage/summary") return send(200, USAGE_MONTH);
+    if (path === "/api/access/who-can") return send(200, WHO_CAN_USAGE);
+    if (path === "/api/projects/archive-candidates") return send(200, ARCHIVE_CANDIDATES);
+    if (path === `${p}/members/view`) return send(200, AUD_MEMBERS_VIEW);
     if (path === "/api/tasks") return send(200, { items: [AUD_TASK] });
     if (path === "/api/tasks/by-code/AUD-12") return send(200, AUD_TASK);
     if (path === `${p}/docs/search`) {
@@ -2428,10 +2475,12 @@ async function runChat(
     mention?: { thread: readonly string[] };
     /** Area 10, F1: il chip della pagina (il contesto della conversazione). */
     context?: { kind: string; id: string };
+    /** Area 10, F3: risposte del server finto per questo scenario. */
+    overrides?: Record<string, { status: number; body: unknown }>;
   } = {},
 ): Promise<ScenarioResult> {
   const tag = `[${scenario}]`;
-  const fake = await startFakeChatServer(opts.answer);
+  const fake = await startFakeChatServer(opts.answer, opts.overrides);
   const mention = opts.mention !== undefined;
   // `ask_question` la scrive il worker nel DB: qui si risponde come lui — la
   // prima domanda accettata, una seconda nella stessa risposta rifiutata
@@ -3008,6 +3057,42 @@ async function runChatS1Automation(ctx: ScenarioContext): Promise<ScenarioResult
 }
 
 /**
+ * Area 10, F3 (S2, S3). `chat-s2-stalled`: «cosa è fermo?» → legge le task
+ * ferme (le soglie dei progetti) e nomina la più vecchia. `chat-s3-usage`: con
+ * `usage.view` la spesa del mese (il totale). `chat-s3-usage-denied`: senza
+ * permessi (403) nomina chi può dirlo e non dà numeri. 3 volte ciascuno.
+ */
+const runChatS2Stalled = (ctx: ScenarioContext) =>
+  runChat(ctx, "chat-s2-stalled", "Cosa è fermo nei miei progetti?", { kind: "read", mustRead: "/api/tasks/stalled", mustMention: ["AUD-7"] });
+const runChatS3Usage = (ctx: ScenarioContext) =>
+  runChat(ctx, "chat-s3-usage", "Quanto abbiamo speso di AI questo mese?", { kind: "read", mustRead: "/api/ai-usage/summary", mustMention: ["12"] });
+/**
+ * Area 10, F4 (S4): «archivia i progetti senza attività da 3 mesi» → legge i
+ * candidati, UNA proposta coi soli candidati, e nomina l'occupato (ACQ, i Docs
+ * in generazione) e il non gestibile (MKT). 3 volte, quando autorizzate.
+ */
+const runChatS4Archive = (ctx: ScenarioContext) =>
+  runChat(ctx, "chat-s4-archive", "Archivia i progetti senza attività da 3 mesi.", { kind: "archive-bulk", candidates: [ARCHIVE_OLD_ID], mustMention: ["ACQ", "MKT"] });
+/**
+ * Area 10, F5 (S5): «aggiungi Bruno ad AUD come Developer» → UNA proposta
+ * `addMember` con Bruno e il ruolo Developer; il server risponde «in attesa»
+ * (una C: serve la riconferma) e il modello non dice «fatto». La notifica non
+ * si prova qui: la prova `project-members.notify.test.ts`. 3 volte, quando autorizzate.
+ */
+const runChatS5Member = (ctx: ScenarioContext) =>
+  runChat(
+    ctx,
+    "chat-s5-member",
+    "Aggiungi Bruno Verdi al progetto AUD come Developer.",
+    { kind: "propose", action: { fn: "addMember", args: { projectId: CHAT_PROJECT_ID, userId: BRUNO_ID, roleId: DEVELOPER_ROLE_ID } } },
+    { answer: "awaiting_confirmation" },
+  );
+const runChatS3UsageDenied = (ctx: ScenarioContext) =>
+  runChat(ctx, "chat-s3-usage-denied", "Quanto abbiamo speso di AI questo mese?", { kind: "usage-denied", mustRead: "/api/ai-usage/summary", whoCan: "Ada Lovelace" }, {
+    overrides: { "/api/ai-usage/summary": { status: 403, body: { code: "forbidden", message: "Missing permission" } } },
+  });
+
+/**
  * `mail-classify-v2` (area 6, fetta 2): la classificazione nuova della posta,
  * col prompt, lo schema e la rivalidazione VERI del worker, su sei email
  * finte e due progetti candidati. Niente DB: il contesto (candidati, task
@@ -3213,6 +3298,11 @@ const SCENARIOS: Record<ScenarioName, (ctx: ScenarioContext) => Promise<Scenario
   "chat-mail-hostile": runChatMailHostile,
   "chat-mail-subject-hostile": runChatMailSubjectHostile,
   "chat-s1-automation": runChatS1Automation,
+  "chat-s2-stalled": runChatS2Stalled,
+  "chat-s3-usage": runChatS3Usage,
+  "chat-s3-usage-denied": runChatS3UsageDenied,
+  "chat-s4-archive": runChatS4Archive,
+  "chat-s5-member": runChatS5Member,
   "mail-classify-v2": runMailClassifyV2,
   "automation-step": runAutomationStep,
   "support-triage-check": runSupportTriageCheck,

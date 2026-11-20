@@ -69,3 +69,31 @@ describe("catalogRecipients (area 8, F2, S2)", () => {
     expect(catalogRecipients(t("release.failed"), ctx({ pushPreference: () => false, mandatory: [{ userId: "d", reason: "merged" }] })).phone.has("d")).toBe(false);
   });
 });
+
+describe("area 10, F5: member.added (D-11 = b)", () => {
+  // b ha project.members.manage (un gestore), c no; e è la persona aggiunta.
+  const MEM: Record<string, string[]> = { b: ["project.members.manage"], c: [] };
+  const mctx = (over: Partial<CatalogRecipientsContext> = {}) =>
+    ctx({ members: ["a", "b", "c", "e"], holds: (u, p) => u === "a" || (MEM[u] ?? []).includes(p), mandatory: [{ userId: "e", reason: "added" }], ...over });
+
+  it("alla persona aggiunta (obbligatoria) e a chi gestisce i membri (di partenza); a un membro qualunque no; il telefono spento di partenza", () => {
+    const out = catalogRecipients(t("member.added"), mctx());
+    expect([...out.app].sort()).toEqual(["a", "b", "e"]);
+    expect(out.mandatory.get("e")).toBe("added");
+    expect(out.phone.size).toBe(0);
+  });
+
+  it("MAI a chi ha agito, né come iscritto né come obbligatorio (aggiungere sé stessi non avvisa sé stessi)", () => {
+    expect(catalogRecipients(t("member.added"), mctx({ exclude: ["b"] })).app.sort()).toEqual(["a", "e"]);
+    const self = catalogRecipients(t("member.added"), mctx({ mandatory: [{ userId: "b", reason: "added" }], exclude: ["b"] }));
+    expect(self.app).not.toContain("b");
+    expect(self.mandatory.has("b")).toBe(false);
+  });
+
+  it("un gestore che lo spegne non lo riceve; la persona aggiunta sì, anche con la riga spenta", () => {
+    const subscriptions = new Map([["b", { app: false, phone: false }], ["e", { app: false, phone: false }]]);
+    const out = catalogRecipients(t("member.added"), mctx({ subscriptions }));
+    expect(out.app).not.toContain("b");
+    expect(out.app).toContain("e");
+  });
+});

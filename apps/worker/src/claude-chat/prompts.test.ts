@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { claudeAutomationGuide } from "@stubwise/shared";
-import { AUTOMATION_DRAFTS_RULE, buildChatPrimingPrompt, CHAT_UNDO_LABEL, chatMentionContract } from "./prompts.js";
+import { AUTOMATION_DRAFTS_RULE, BULK_ARCHIVE_RULE, STALLED_AND_SPENDING_RULE, buildChatPrimingPrompt, CHAT_UNDO_LABEL, chatMentionContract } from "./prompts.js";
 
 const prompt = (language: "en" | "it") =>
   buildChatPrimingPrompt({ language, authorName: "Ada", context: null, toolsAvailable: true, recentTranscript: [] }, "ciao");
@@ -105,5 +105,22 @@ describe("area 10, F2: domande a scelta e bozze di automazione", () => {
   it("la guida ai flussi accanto alle firme, in tutti e due i contratti (golden S1: senza, il modello inventava l'inizio)", () => {
     expect(prompt("it")).toContain(claudeAutomationGuide());
     expect(chatMentionContract()).toContain(claudeAutomationGuide());
+  });
+});
+
+describe("area 10, F3: lavoro fermo e spesa", () => {
+  it("la libera dice read_stalled_work con le soglie dei progetti, nessuna ipotesi come certezza, e read_usage_month senza numeri per chi non può vederli", () => {
+    expect(prompt("it")).toContain(STALLED_AND_SPENDING_RULE);
+    expect(STALLED_AND_SPENDING_RULE).toMatch(/its project's own thresholds/);
+    expect(STALLED_AND_SPENDING_RULE).toMatch(/never state a guess about why as a fact/);
+    expect(STALLED_AND_SPENDING_RULE).toMatch(/never give or guess a number/);
+  });
+});
+
+describe("area 10, F4: archiviare in blocco", () => {
+  it("la libera: prima read_archive_candidates, poi UNA proposta coi soli candidati; gli altri in prosa", () => {
+    expect(prompt("it")).toContain(BULK_ARCHIVE_RULE);
+    expect(BULK_ARCHIVE_RULE).toMatch(/call read_archive_candidates first/);
+    expect(BULK_ARCHIVE_RULE).toMatch(/Never propose archiving a project outside the candidates/);
   });
 });

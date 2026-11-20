@@ -5569,3 +5569,74 @@ deploy o di un rollback che la tocca.
     conversazioni, le risposte restano come messaggi):
     `delete from agent_session_events where type = 'question';`.
   - La tabella e la colonna nuove restano, e un server vecchio le ignora.
+
+- **«Integrazione area 10, F3: rispondere sui dati (S2, S3)»** *(20 nov
+  2026)*: branch `feat/area10-f3` (da `feat/integrazione-area10`), piano
+  `docs/plans/2026-11-19-integrazione-area10-f3-plan.md`.
+  - Migrazione **0199**: il CHECK `agent_session_events_type_chk` con `aside`.
+  - Nessuna rotta nuova: nell'allowlist del token del turno
+    `GET /api/tasks/stalled` (la rotta della lista delle task),
+    `GET /api/ai-usage/summary` e `GET /api/access/who-can`. Il polso
+    (`/api/projects/pulse`) NON è fra le letture di Claude.
+  - Nessuna env, nessun `notification_kind`, nessun permesso nuovo.
+
+  **ORDINE**: **server** (healthy, 0199 applicata), poi **worker** (scrive
+  gli eventi `aside`: su un server senza la 0199 il CHECK li rifiuta, e il
+  ponte lo ingoia — fail-open), poi **caddy**.
+
+  **Da sapere subito**:
+  - «Cosa è fermo» per Claude segue le SOGLIE DEI PROGETTI
+    (`stall_active_days`, `stall_todo_days`), la stessa regola e la stessa
+    rotta della lista delle task (decisione del maintainer, 20 nov 2026).
+  - L'`aside` («Hypothesis», «Details») lo scrive il worker con solo id,
+    numeri, date e il tipo del motivo; il server lo arricchisce a lettura
+    (codici, `closed`, `thresholdDays`, solo i progetti che chi guarda vede).
+  - La spesa segue i permessi del server (D-13 = a): chi non può vederla non
+    riceve numeri, e Claude nomina chi può dirglielo.
+
+  **Rollback** (il server scende **insieme** al caddy, il worker con loro):
+  ⚠️ **NON sicuro finché esistono eventi `aside`** (lo schema di risposta del
+  server vecchio non conosce il tipo, e la pagina degli eventi di quella
+  conversazione va in 500). Contarli: `select count(*) from
+  agent_session_events where type = 'aside';`; toglierli (spariscono le righe
+  «Details», la risposta di Claude resta):
+  `delete from agent_session_events where type = 'aside';`.
+
+- **«Integrazione area 10, F4: archiviare in blocco (S4)»** *(20 nov 2026)*:
+  branch `feat/area10-f4` (da `feat/area10-f3`), piano
+  `docs/plans/2026-11-19-integrazione-area10-f4-plan.md`.
+  - Una rotta nuova, `GET /api/projects/archive-candidates?inactiveDays=<n>`
+    (`access: user`): i progetti fermi di chi chiede (l'ultima attività come il
+    prototipo), divisi in candidati, occupati (i motivi `busy` di F6) e non
+    gestibili. È nell'allowlist del token del turno (`read_archive_candidates`).
+  - Nessuna migrazione, nessuna env, nessun `notification_kind`.
+
+  **ORDINE**: **server**, poi **worker** (il tool). **Rollback**: sicuro in
+  discesa; un worker vecchio non ha il tool, un server vecchio risponde 403 al
+  token del turno sulla rotta che non ha.
+
+- **«Integrazione area 10, F5: chi entra in un progetto (S5)»** *(20 nov
+  2026)*: branch `feat/area10-f5` (da `feat/area10-f4`), piano
+  `docs/plans/2026-11-19-integrazione-area10-f5-plan.md`.
+  - Migrazione **0200** (`member_added`): un valore nuovo di
+    `notification_kind`, in uno statement a sé (il batch gira in UNA
+    transazione: nessun uso del valore nella stessa migrazione).
+  - Il server pubblica `member.added` a ogni ingresso in un progetto (a mano,
+    `addMember` di Claude, invito accettato), nella transazione della voce del
+    registro. `/api/inbox` ha un campo nuovo, `undoneBy` (additivo, null di
+    partenza).
+  - Nessuna env.
+
+  **ORDINE**: **server** (healthy, migrazione 0200 applicata), poi **worker**
+  e **caddy**.
+
+  **Rollback**: **NON sicuro sul server finché esistono righe `member.added`**
+  — un server vecchio non conosce il kind e `/api/inbox` risponde 500 (vedi
+  CLAUDE.md, «un `notification_kind` nuovo»). Prima della discesa, contale e
+  toglile (le card spariscono dall'inbox di chi le aveva):
+  ```sql
+  select count(*) from notifications where kind = 'member.added';
+  delete from notifications where kind = 'member.added';
+  ```
+  Il valore dell'enum resta (Postgres non lo toglie): è innocuo. Il caddy
+  scende insieme al server.
