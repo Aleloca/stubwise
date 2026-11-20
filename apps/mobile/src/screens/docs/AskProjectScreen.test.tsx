@@ -26,6 +26,8 @@ function answer(overrides: Partial<Reader<DocsChatAnswer>> = {}): Reader<DocsCha
         code: null,
       },
     ],
+    // Area 11, F3: le fonti di prodotto (additivo; l'app ancora non le mostra).
+    productSources: [],
     sessionId: SESSION_ID,
     ...overrides,
   };

@@ -150,3 +150,23 @@ describe("gli schemi della Chat", () => {
     expect(chatAttachmentAllowed("../../x/nota.txt", "text/plain")).toBe(true);
   });
 });
+
+describe("chatCitationSchema.product (area 11, F3) — additivo", () => {
+  it("una citazione di un server di prima non ha `product`: null; una pagina di prodotto lo porta", async () => {
+    const { chatCitationSchema } = await import("./chat.js");
+    const { readerSchema } = await import("../reader.js");
+    const base = { kind: "doc", id: "1c9e4f70-5555-4666-8777-888899990031", label: "Visione", projectId: null, code: "PRJ-D3", doc: null };
+    expect(readerSchema(chatCitationSchema).parse(base).product).toBeNull();
+    const pageId = "1c9e4f70-5555-4666-8777-888899990032";
+    expect(readerSchema(chatCitationSchema).parse({ ...base, product: { pageId } }).product).toEqual({ pageId });
+  });
+});
+
+describe("docsChatAnswerSchema.productSources (area 11, F3) — additivo", () => {
+  it("una risposta di un server di prima non ha `productSources`: []", async () => {
+    const { docsChatAnswerSchema } = await import("./docs.js");
+    const { readerSchema } = await import("../reader.js");
+    const parsed = readerSchema(docsChatAnswerSchema).parse({ answer: "x", sources: [], sessionId: "1c9e4f70-5555-4666-8777-888899990033" });
+    expect(parsed.productSources).toEqual([]);
+  });
+});

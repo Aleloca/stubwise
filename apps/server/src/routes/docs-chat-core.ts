@@ -90,6 +90,12 @@ interface StreamChatResponseArgs {
   history: { role: "user" | "assistant"; content: string }[];
   /** Citazioni delle fonti recuperate, allegate al `done`/`sources` e al messaggio assistant. */
   citations: Citation[];
+  /**
+   * Area 11, F3: le pagine di prodotto date al modello, allegate al `done` e alla
+   * risposta JSON come `productSources` (additivo). Non si salvano nel messaggio:
+   * lo storico tiene le sole `citations` dei repository (registro dei rimandi).
+   */
+  productSources?: { pageId: string; code: string; title: string }[];
   /** Contesto per il log degli errori LLM (repositoryId, projectId o backlogItemId). */
   logContext: Record<string, string>;
   /** Progetto a cui attribuire i consumi della risposta (operazione `chat`). */
@@ -298,7 +304,7 @@ async function respondSse(args: StreamChatResponseArgs): Promise<void> {
         // Risposta completa e persistita: evento finale con le citazioni e il
         // sessionId, così il client può persistere la sessione (nuova al primo
         // turno) e riusarla nei turni successivi (multi-turn).
-        writeSseEvent(reply, { type: "done", sessionId, citations });
+        writeSseEvent(reply, { type: "done", sessionId, citations, productSources: args.productSources ?? [] });
       }
       reply.raw.end();
     }
@@ -390,7 +396,7 @@ async function respondJson(args: StreamChatResponseArgs): Promise<void> {
     return;
   }
 
-  reply.send({ answer: full, sources: citations, sessionId });
+  reply.send({ answer: full, sources: citations, productSources: args.productSources ?? [], sessionId });
 }
 
 /**
