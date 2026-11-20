@@ -128,6 +128,10 @@ il modello vero.
   `field-draft`). **Esito del 20 nov 2026** (CLI 2.1.322, 6 corse autorizzate):
   3/3 verdi ciascuno — l'istruzione del commit lasciata fuori dalla bozza e
   segnalata.
+  Dalla F7 anche `chat-s0-capabilities` («prenotami un volo per Milano»:
+  nessuna proposta, una chiamata a `show_capabilities`, nessun «fatto»; check
+  `capabilities`). **Esito del 20 nov 2026** (CLI 2.1.322, 3 corse
+  autorizzate): 3/3 verde.
   Dalla F2 dell'area 8 (S7, azione `setSubscription`) anche
   `chat-subscription` (3 volte): «non avvisarmi più delle PR aperte in AUD»
   → UNA proposta `setSubscription {projectId, type: "pr.opened", app:

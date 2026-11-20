@@ -1364,6 +1364,17 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   (F6-1 = a, con `read_pull_request_notes`), eseguite dal renderer e salvate
   dalla persona.
 
+- **Chiuse con F7 (20 nov 2026)**: S0 (le capacità di Claude per chi chiede,
+  dai permessi veri, evento `capabilities` scritto dal worker) e le righe
+  «Claude can help you…» (`claude-suggestions`, quattro pagine: PR,
+  Automations, Overview, Usage) col «Not now» per persona e per oggetto.
+- Le capacità della doc di prodotto (`productFirstVersion`, `productUpdate`,
+  `productBacklog`, `productWireframe`, `productChanges`) arrivano con
+  l'area 11 (F7-1 = a, maintainer): il server non le manda, il renderer salta
+  ciò che non riceve.
+- La riga «write the reply» sulla conversazione di supporto resta fuori
+  (premessa del maintainer del 14 nov 2026).
+
 - **Chiuse con F8 (20 nov 2026)**: «/status» (seguiti, polso senza il suo
   fermo, task ferme con le soglie dei progetti) e «/today» (le decisioni che
   aspettano chi scrive e le sue task aperte, `assigneeIds=me`). Restano
@@ -1374,6 +1385,7 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 ## Area 11 — Documentazione di prodotto
 
 - Origine di una richiesta dalla documentazione di prodotto.
+- Le cinque capacità `product*` di Claude in S0 (dall'area 10, F7-1 = a).
 - Azioni di Claude dell'area 11.
 
 ## Trasversali

@@ -5681,3 +5681,58 @@ deploy o di un rollback che la tocca.
   renderer vecchio la legge come `UNKNOWN` e la mostra come azione non
   disponibile.
 
+- **«Integrazione area 10, F7: S0 e i suggerimenti»** *(20 nov 2026)*:
+  branch `feat/area10-f7` (da `feat/area10-f6`), piano
+  `docs/plans/2026-11-20-integrazione-area10-f7-plan.md`.
+  - Migrazione **0201**: il CHECK `agent_session_events_type_chk` con
+    `capabilities`, e la tabella `claude_suggestion_dismissals` (i «Not now»,
+    per persona, tipo e oggetto, CASCADE sull'utente).
+  - Rotte nuove sotto `/api/claude`: `GET /capabilities` (anche col token del
+    turno: tool `show_capabilities`), `GET /suggestions` e
+    `POST /suggestions/dismiss`.
+  - Nessuna env, nessun `notification_kind`, nessun permesso nuovo.
+
+  **ORDINE**: **server** (healthy, 0201 applicata), poi **worker** (scrive
+  gli eventi `capabilities`: su un server senza la 0201 il CHECK li rifiuta),
+  poi **caddy**.
+
+  **Rollback** (il server scende **insieme** al caddy, il worker con loro):
+  ⚠️ **NON sicuro finché esistono eventi `capabilities`**, come per `aside`:
+  lo schema di risposta del server vecchio non conosce il tipo, e la pagina
+  degli eventi di quella conversazione va in 500. Contarli:
+  `select count(*) from agent_session_events where type = 'capabilities';`;
+  toglierli (sparisce l'elenco «cosa so fare», la risposta resta):
+  `delete from agent_session_events where type = 'capabilities';`. La tabella
+  dei «Not now» resta, e un server vecchio la ignora.
+
+- **«Integrazione area 10: l'area intera (F1–F8)»** *(20 nov 2026)*: la voce
+  per chi rilascia l'area in una volta sola (il design: «una voce per l'area,
+  scritta all'ultima fetta»). Le voci di fetta qui sopra restano quelle da
+  leggere per i dettagli.
+  - **Migrazioni, in ordine** (tutte nel batch del server, `when` crescente):
+    **0197** (F1, `claude_conversations.private_read_at`), **0198** (F2, il
+    CHECK con `question`, `claude_conversation_questions`,
+    `automation_versions.via_claude_action_id`), **0199** (F3, il CHECK con
+    `aside`), **0200** (F5, `notification_kind` `member.added`, in uno
+    statement a sé), **0201** (F7, il CHECK con `capabilities` e
+    `claude_suggestion_dismissals`). Nessuna env nuova.
+  - **ORDINE**: **server** (healthy, 0197–0201 applicate), poi **worker**
+    (niente lavoro dell'agente in corso: «Worker fail-on-restart»), poi
+    **caddy** (il renderer delle fette di 94). Il CLI del worker resta il
+    2.1.322 pinnato: tutti i golden dell'area sono passati con quello.
+  - **Rollback dell'area**: il server scende **insieme** al caddy, il worker
+    con loro. ⚠️ **NON sicuro** finché esistono:
+    - eventi `question`, `aside` o `capabilities` (la pagina degli eventi va
+      in 500): `select type, count(*) from agent_session_events where type in
+      ('question','aside','capabilities') group by type;` e, per toglierli,
+      `delete from agent_session_events where type in
+      ('question','aside','capabilities');`;
+    - card `member.added` (`/api/inbox` va in 500): `select count(*) from
+      notifications where kind = 'member.added';` e `delete from notifications
+      where kind = 'member.added';`;
+    - conversazioni che hanno letto posta o calendario (un server vecchio
+      ignora `private_read_at` e le rende pubblicabili): `select count(*) from
+      claude_conversations where private_read_at is not null;` — se non sono
+      zero, la discesa va decisa sapendolo.
+    Colonne, tabelle e valori d'enum restano: un server vecchio li ignora.
+
