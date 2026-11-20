@@ -62,6 +62,7 @@ export const SCENARIO_NAMES = [
   "chat-s3-usage-denied",
   // Area 10, F4 (S4): archiviare in blocco.
   "chat-s4-archive",
+  "chat-s5-member",
   // La classificazione nuova della posta (area 6, fetta 2): prima di accendere
   // MAIL_CLASSIFY_V2, e a ogni aggiornamento del CLI o del prompt.
   "mail-classify-v2",
