@@ -196,6 +196,24 @@ export const liveProductClaude: Partial<ProductDocs> = {
     }
   },
 
+  // La riga «riprende quando…» dello spazio: quanti lavori della doc aspettano
+  // nel progetto e il motivo più grave (`claudeHeld` di 72; sulla pagina vale
+  // sempre null). Le quattro frasi le ha decise il maintainer.
+  async productUpdatesWaiting(projectId) {
+    try {
+      const held = (await appClient().productDocs.space(projectId)).claudeHeld;
+      if (!held || held.count === 0) return null;
+      const reasons = ["budget", "paused", "limit", "section_busy"] as const;
+      const reason = (reasons as readonly string[]).includes(held.reason)
+        ? (held.reason as (typeof reasons)[number])
+        : "budget";
+      return { count: held.count, reason };
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 404 || error.status === 403)) return null;
+      throw error;
+    }
+  },
+
   async answerProductQuestion(commentId, option) {
     try {
       const out = (await appClient().request(

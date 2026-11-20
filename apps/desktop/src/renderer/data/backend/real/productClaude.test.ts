@@ -234,3 +234,37 @@ describe("la risposta a una domanda di Claude", () => {
     await expect(claude.answerProductQuestion!(COMMENT, "apply")).rejects.toThrow("changed_after");
   });
 });
+
+describe("la riga «riprende quando…» dello spazio (claudeHeld, F5)", () => {
+  const PROJECT = "11111111-1111-4111-8111-111111111111";
+  const space = (claudeHeld: unknown) => ({
+    projectId: PROJECT,
+    projectCode: "AUD",
+    pages: [],
+    pageCount: 0,
+    recent: [],
+    permissions: { edit: true },
+    claudeHeld,
+  });
+
+  it("il conteggio e il motivo più grave dello spazio; senza attese nessuna riga", async () => {
+    for (const reason of ["budget", "paused", "limit", "section_busy"] as const) {
+      installFakeServer({
+        [`GET /api/projects/${PROJECT}/product`]: { body: space({ reason, count: 3 }) },
+      });
+      expect(await claude.productUpdatesWaiting!(PROJECT)).toEqual({ count: 3, reason });
+    }
+    installFakeServer({ [`GET /api/projects/${PROJECT}/product`]: { body: space(null) } });
+    expect(await claude.productUpdatesWaiting!(PROJECT)).toBeNull();
+  });
+
+  it("uno spazio che non c'è o non si legge: nessuna riga", async () => {
+    installFakeServer({
+      [`GET /api/projects/${PROJECT}/product`]: {
+        status: 404,
+        body: { code: "not_found", message: "x" },
+      },
+    });
+    expect(await claude.productUpdatesWaiting!(PROJECT)).toBeNull();
+  });
+});

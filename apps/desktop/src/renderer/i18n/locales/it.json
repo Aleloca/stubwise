@@ -13454,7 +13454,9 @@
     },
     "waiting": {
       "budget": "Claude riprenderà ad aggiornare la doc quando torna il budget",
-      "queue": "Claude riprenderà ad aggiornare la doc quando {{name}} riprende la coda",
+      "paused": "Claude riprenderà ad aggiornare la doc quando riprende la coda",
+      "limit": "Claude aggiorna la doc quando si azzera la quota dell'account",
+      "sectionBusy": "Claude aspetta che qualcuno finisca di scrivere in una sezione",
       "count_one": "{{count}} aggiornamento in attesa",
       "count_other": "{{count}} aggiornamenti in attesa"
     },

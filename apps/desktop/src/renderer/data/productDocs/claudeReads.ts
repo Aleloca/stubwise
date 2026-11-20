@@ -3,7 +3,13 @@ import { docsAccess } from "../docs/reads";
 import { heldJobs } from "../instance/queue";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { gate, state } from "../store";
-import type { AiBlock, AppNotification, ProductPage, ProductRevision } from "../types";
+import type {
+  AppNotification,
+  ProductPage,
+  ProductRevision,
+  ProductUpdatesWaiting,
+  ProductWaitingReason,
+} from "../types";
 import { threadLink } from "./comments";
 import { liveMarks } from "./marks";
 import { productPageById } from "./reads";
@@ -30,9 +36,7 @@ export const productPageHref = (page: ProductPage): string =>
  * soltanto: nessuna fonte è nominata. `null` per chi non
  * legge i Docs del progetto (R-G5) o senza attese.
  */
-export async function productUpdatesWaiting(
-  projectId: string,
-): Promise<{ count: number; block: AiBlock } | null> {
+export async function productUpdatesWaiting(projectId: string): Promise<ProductUpdatesWaiting | null> {
   const me = await gate("productDocs.productUpdatesWaiting");
   if (docsAccess(me, projectId) !== "read") return null;
   const jobs = heldJobs().filter(
@@ -42,8 +46,22 @@ export async function productUpdatesWaiting(
       j.productPageId !== undefined &&
       productPageById(j.productPageId) !== undefined,
   );
-  return jobs.length === 0 ? null : { count: jobs.length, block: jobs[0]!.block };
+  // I fatti che aspettano una sezione presa da una persona (`productPending`).
+  const busy = state.productPending.filter(
+    (p) => p.projectId === projectId && productPageById(p.pageId) !== undefined,
+  );
+  const reasons: ProductWaitingReason[] = [
+    ...jobs.map((j): ProductWaitingReason => (j.block.reason === "monthly_budget" ? "budget" : "paused")),
+    ...busy.map((): ProductWaitingReason => "section_busy"),
+  ];
+  if (reasons.length === 0) return null;
+  // Il motivo più grave, come il server: budget > paused > limit > section_busy.
+  const reason = WAITING_ORDER.find((r) => reasons.includes(r))!;
+  return { count: reasons.length, reason };
 }
+
+/** I motivi dell'attesa, dal più grave (F5 di 72). */
+const WAITING_ORDER: readonly ProductWaitingReason[] = ["budget", "paused", "limit", "section_busy"];
 
 /** La card non apre più niente: nessun codice, titolo, fonte né link (R-G5). */
 function gone(out: AppNotification): void {

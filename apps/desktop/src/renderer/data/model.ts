@@ -275,6 +275,19 @@ export interface AppNotification {
  * Quello che una card della doc di prodotto (11b) dice, per chi la legge. I
  * testi li compone la card in en/it da questi valori stabili.
  */
+/**
+ * Perché gli aggiornamenti di Claude aspettano (F5, decisione del
+ * maintainer): il budget del mese, la coda in pausa, la quota dell'account
+ * dell'agente, una sezione presa da una persona.
+ */
+export type ProductWaitingReason = "budget" | "paused" | "limit" | "section_busy";
+
+/** La riga «riprende quando…» dello spazio: quanti aggiornamenti aspettano e il motivo più grave. */
+export interface ProductUpdatesWaiting {
+  count: number;
+  reason: ProductWaitingReason;
+}
+
 export interface ProductCardView {
   /** Le fonti, ognuna come la legge chi riceve (`sourceViewOf`), in ordine d'arrivo. */
   sources: ProductSourceView[];

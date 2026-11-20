@@ -392,10 +392,8 @@ describe("il budget e la pausa (Review Focus 5)", () => {
     applyProductSource(ref("mm-laura-1"), ACQ, [replace(HOW)]);
     applyProductSource({ kind: "task", id: TASK_ID }, ACQ, [replace(STORES, STORES_TEXT)]);
     as(SARA);
-    expect(await productDocs.productUpdatesWaiting(ACQ)).toEqual({
-      count: 2,
-      block: { reason: "monthly_budget" },
-    });
+    // I quattro motivi del server (decisione del maintainer): il più grave in testa.
+    expect(await productDocs.productUpdatesWaiting(ACQ)).toEqual({ count: 2, reason: "budget" });
     // Giulia non è in ACQ: niente (R-G5).
     as("p-giulia");
     expect(await productDocs.productUpdatesWaiting(ACQ)).toBeNull();
@@ -708,5 +706,21 @@ describe("Revisione finale: gli id dell'anteprima", () => {
     expect(plan.map((p) => p.kind)).toEqual(["edit", "edit"]);
     const ids = plan.map((p) => (p.kind === "edit" && p.op.op === "insert" ? p.op.block.id : null));
     expect(new Set(ids).size).toBe(2);
+  });
+});
+
+describe("la riga «riprende quando…»: i quattro motivi (decisione del maintainer, R11-5)", () => {
+  it("un fatto che aspetta una sezione presa da una persona è «section_busy»; il budget, più grave, vince", async () => {
+    const pageId = state.productPages.find((p) => p.projectId === ACQ)!.id;
+    state.productPending.push({
+      id: "pend-1",
+      pageId,
+      projectId: ACQ,
+      ref: { kind: "task", id: "t-x" },
+      fact: {} as never,
+      arrivedSeq: 0,
+    });
+    as(SARA);
+    expect(await productDocs.productUpdatesWaiting(ACQ)).toEqual({ count: 1, reason: "section_busy" });
   });
 });

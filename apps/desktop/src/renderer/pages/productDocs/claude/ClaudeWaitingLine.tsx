@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { usePauserName } from "../../../components/InstanceBlock";
 import { WhoCanLink } from "../../../components/WhoCanLink";
 import { useProductUpdatesWaiting } from "../../../data/queries";
-import type { AiBlock } from "../../../data/types";
+import type { ProductWaitingReason } from "../../../data/types";
 import { REDUCED_MOTION_QUERY, useMediaQuery } from "../../../layout/useMediaQuery";
 
 // La riga dell'attesa in cima allo spazio Prodotto (11b, Task 11; shape
 // product-claude-questions.md §3.8, [PQ 11]): quando aggiornamenti di
-// Claude aspettano il budget del mese o la ripresa della coda, una riga
+// Claude aspettano (il budget del mese, la coda in pausa, la quota
+// dell'account dell'agente o una sezione presa da una persona: le quattro
+// frasi della decisione del maintainer in F5), una riga
 // sotto la barra dello spazio, a tutta larghezza, li conta (nessuna fonte è
 // nominata) e dice quando ripartono, col «Who?» di chi sblocca
 // (`manageSettings`, d'istanza: budget e pausa li gestisce chi ha
@@ -64,17 +65,29 @@ export function ClaudeWaitingLine({ projectId }: { projectId: string }) {
 
   if (!shown) return null;
   return (
-    <WaitingRow count={shown.count} block={shown.block} leaving={leaving && !waiting} />
+    <WaitingRow count={shown.count} reason={shown.reason} leaving={leaving && !waiting} />
   );
 }
 
-function WaitingRow({ count, block, leaving }: { count: number; block: AiBlock; leaving: boolean }) {
+/** Le quattro frasi dell'attesa (decisione del maintainer, F5). */
+const WAITING_KEYS: Record<ProductWaitingReason, string> = {
+  budget: "productDocs.waiting.budget",
+  paused: "productDocs.waiting.paused",
+  limit: "productDocs.waiting.limit",
+  section_busy: "productDocs.waiting.sectionBusy",
+};
+
+/** Perché Claude aspetta, in una frase. */
+export function ClaudeWaitingText({ reason }: { reason: ProductWaitingReason }) {
   const { t } = useTranslation();
-  const pauser = usePauserName(block);
-  const reason =
-    block.reason === "monthly_budget"
-      ? t("productDocs.waiting.budget")
-      : t("productDocs.waiting.queue", { name: pauser });
+  return <>{t(WAITING_KEYS[reason])}</>;
+}
+
+function WaitingRow({ count, reason, leaving }: { count: number; reason: ProductWaitingReason; leaving: boolean }) {
+  const { t } = useTranslation();
+  // Budget, pausa e quota li sblocca chi gestisce l'istanza («Who?»); una
+  // sezione presa la libera chi ci scrive: nessun «Who?».
+  const who = reason !== "section_busy";
   const counted = t("productDocs.waiting.count", { count });
   // L'ultima parola del conteggio e «Who?» vanno a capo insieme ([PQ 11], 1024).
   const cut = counted.lastIndexOf(" ");
@@ -88,13 +101,17 @@ function WaitingRow({ count, block, leaving }: { count: number; block: AiBlock; 
         <ClockIcon />
       </span>
       <span className="min-w-0 text-pretty [overflow-wrap:anywhere]">
-        {reason}
+        <ClaudeWaitingText reason={reason} />
         <span aria-hidden="true"> · </span>
         <span className="num">{cut > 0 ? `${counted.slice(0, cut)} ` : ""}</span>
         <span className="whitespace-nowrap">
           <span className="num">{cut > 0 ? counted.slice(cut + 1) : counted}</span>
-          <span aria-hidden="true"> · </span>
-          <WhoCanLink action="manageSettings" projectId={null} />
+          {who && (
+            <>
+              <span aria-hidden="true"> · </span>
+              <WhoCanLink action="manageSettings" projectId={null} />
+            </>
+          )}
         </span>
       </span>
     </p>
