@@ -26,6 +26,7 @@ import {
   recordProductImage,
   saveProductBlocks,
 } from "../services/product-docs-ops.js";
+import { removeOrRecordOrphan } from "../storage/orphans.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 // Area 11, F1 — lo spazio Product, sotto `/api`. Le regole stanno nei servizi
@@ -116,7 +117,14 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
     { config: { access: PAGE_EDIT }, schema: { params: pageParams, response: { 204: z.null(), 404: errorSchema, 409: errorSchema, ...authErrorResponses } } },
     async (request, reply) =>
       handle(reply, async () => {
-        await deleteProductPage(app.db, request.params.id);
+        const { storageKeys } = await deleteProductPage(app.db, request.params.id);
+        // Gli oggetti delle immagini DOPO il commit (review di F1, I2): uno storage
+        // che rifiuta lascia la chiave in `storage_orphans`, e la pulizia oraria la ritenta.
+        if (storageKeys.length > 0) {
+          const storage = await app.storage();
+          if (storage) for (const key of storageKeys) await removeOrRecordOrphan(app.db, storage, key, "product page deleted");
+          else request.log.warn(`[product] storage non configurato: ${storageKeys.length} immagini restano da togliere`);
+        }
         return reply.code(204).send(null);
       }),
   );
@@ -146,8 +154,11 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
 
   app.get(
     "/product-pages/:id/revisions",
-    { config: { access: PAGE_VIEW }, schema: { params: pageParams, response: { 200: z.array(productRevisionViewSchema), ...authErrorResponses } } },
-    async (request) => listProductRevisions(app.db, request.user!, request.params.id),
+    {
+      config: { access: PAGE_VIEW },
+      schema: { params: pageParams, querystring: z.object({ before: z.coerce.number().int().min(1).optional() }), response: { 200: z.array(productRevisionViewSchema), ...authErrorResponses } },
+    },
+    async (request) => listProductRevisions(app.db, request.user!, request.params.id, request.query.before),
   );
 
   // Seguire una pagina: chi la legge (`docs.view`).

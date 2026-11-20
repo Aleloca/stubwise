@@ -1,9 +1,10 @@
-import { docPageCodes, productPageBlockIds, productPageFollows, productPageRevisions, productPages, projectDecisions, projects, users, type Db } from "@stubwise/db";
+import { docPageCodes, productPageBlockIds, productPageFollows, productPageImages, productPageRevisions, productPages, projectDecisions, projects, users, type Db } from "@stubwise/db";
 import {
   DOC_CODE_RE,
+  PRODUCT_PAGES_MAX,
+  PRODUCT_TREE_DEPTH_MAX,
   blockChanges,
   canMoveUnder,
-  excerptOfBlocks,
   productBlockSchema,
   type ProductBlock,
   type ProductPageRef,
@@ -45,28 +46,74 @@ const readBlocks = (row: PageRow): ProductBlock[] =>
     return parsed.success ? [parsed.data as ProductBlock] : [];
   });
 
-/** Le pagine di un progetto con il loro codice (`<PRJ>-D<n>`), come le vede l'albero. */
-async function pageRowsOf(db: Db, projectId: string): Promise<(PageRow & { code: string })[]> {
+/**
+ * Review di F1 (I1): il lock dell'ALBERO di un progetto, per crea, sposta ed
+ * elimina, PRIMA di leggerlo. Senza, due spostamenti concorrenti (A sotto B,
+ * C sotto A) leggono lo stesso albero e chiudono un giro che toglie pagine
+ * dall'albero; e gli `order` dei fratelli si sovrappongono.
+ */
+export async function lockProductTree(tx: Db, projectId: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`stubwise-product-tree:${projectId}`}))`);
+}
+
+type TreeRow = Pick<PageRow, "id" | "projectId" | "parentId" | "order" | "title" | "updatedAt" | "updatedBy"> & { code: string; excerpt: string };
+
+/**
+ * Le pagine di un progetto con il loro codice (`<PRJ>-D<n>`), come le vede
+ * l'albero: SOLO le sue colonne (review di F1, I3), mai i blocchi di tutte le
+ * pagine. L'estratto (il primo paragrafo non vuoto, al più 200 caratteri, la
+ * regola di `excerptOfBlocks`) lo calcola il database.
+ */
+async function pageRowsOf(db: Db, projectId: string): Promise<TreeRow[]> {
   const rows = await db
-    .select({ page: productPages, number: docPageCodes.number, projectCode: projects.code })
+    .select({
+      id: productPages.id,
+      projectId: productPages.projectId,
+      parentId: productPages.parentId,
+      order: productPages.order,
+      title: productPages.title,
+      updatedAt: productPages.updatedAt,
+      updatedBy: productPages.updatedBy,
+      number: docPageCodes.number,
+      projectCode: projects.code,
+      excerpt: sql<string | null>`(select left(trim(b->'content'->>'text'), 200) from jsonb_array_elements(${productPages.blocks}) as b where b->>'type' = 'paragraph' and trim(coalesce(b->'content'->>'text', '')) <> '' limit 1)`,
+    })
     .from(productPages)
     .innerJoin(projects, eq(projects.id, productPages.projectId))
     .innerJoin(docPageCodes, eq(docPageCodes.productPageId, productPages.id))
     .where(eq(productPages.projectId, projectId));
-  return rows.map((r) => ({ ...r.page, code: `${r.projectCode}-D${r.number}` }));
+  return rows.map(({ number, projectCode, excerpt, ...r }) => ({ ...r, code: `${projectCode}-D${number}`, excerpt: excerpt ?? "" }));
 }
 
-export const pageRefOf = (row: PageRow & { code: string }): ProductPageRef => ({
+export const pageRefOf = (row: TreeRow): ProductPageRef => ({
   id: row.id,
   code: row.code,
   projectId: row.projectId,
   parentId: row.parentId,
   order: row.order,
   title: row.title,
-  excerpt: excerptOfBlocks(readBlocks(row)),
+  excerpt: row.excerpt,
   updatedAt: row.updatedAt.toISOString(),
   updatedById: row.updatedBy,
 });
+
+/** La profondità di una pagina (la radice è 1), dall'albero già letto. */
+function depthOf(rows: readonly TreeRow[], pageId: string | null): number {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  let depth = 0;
+  const seen = new Set<string>();
+  for (let at = pageId; at !== null && !seen.has(at); at = byId.get(at)?.parentId ?? null) {
+    seen.add(at);
+    depth++;
+  }
+  return depth;
+}
+
+/** Quanti livelli sotto la pagina (lei compresa: una foglia è 1). */
+function heightOf(rows: readonly TreeRow[], pageId: string): number {
+  const children = rows.filter((r) => r.parentId === pageId);
+  return 1 + Math.max(0, ...children.map((c) => heightOf(rows, c.id)));
+}
 
 /** Le pagine più recenti prima; a pari data il codice più alto (la più nuova). */
 const byRecent = (a: ProductPageRef, b: ProductPageRef) =>
@@ -230,7 +277,12 @@ export async function createProductPage(
   const title = cleanTitle(input.title);
   return db.transaction(async (txRaw) => {
     const tx = txRaw as unknown as Db;
+    await lockProductTree(tx, projectId);
     const parentId = await checkParent(tx, projectId, input.parentId);
+    // Review di F1 (M9): le pagine di un progetto e la profondità dell'albero.
+    const tree = await pageRowsOf(tx, projectId);
+    if (tree.length >= PRODUCT_PAGES_MAX) throw new ProductDocsError(409, "too_many_pages", `A project has at most ${PRODUCT_PAGES_MAX} pages`);
+    if (depthOf(tree, parentId) + 1 > PRODUCT_TREE_DEPTH_MAX) throw new ProductDocsError(409, "too_deep", `Pages nest at most ${PRODUCT_TREE_DEPTH_MAX} levels`);
     const first: ProductBlock = { id: newBlockId(), type: "paragraph", content: { text: "", marks: [] } };
     const [page] = await tx
       .insert(productPages)
@@ -266,6 +318,10 @@ export async function updateProductPage(
 ): Promise<void> {
   await db.transaction(async (txRaw) => {
     const tx = txRaw as unknown as Db;
+    const [where] = await tx.select({ projectId: productPages.projectId }).from(productPages).where(eq(productPages.id, pageId));
+    if (!where) throw notFound();
+    // Il lock dell'albero PRIMA di rileggere la pagina e l'albero (review di F1, I1).
+    if (input.move) await lockProductTree(tx, where.projectId);
     const [page] = await tx.select().from(productPages).where(eq(productPages.id, pageId)).for("update");
     if (!page) throw notFound();
     if (input.title !== undefined) {
@@ -278,8 +334,9 @@ export async function updateProductPage(
     }
     if (input.move) {
       const parentId = await checkParent(tx, page.projectId, input.move.parentId);
-      const refs = (await pageRowsOf(tx, page.projectId)).map(pageRefOf);
-      if (!canMoveUnder(refs, pageId, parentId)) throw new ProductDocsError(409, "cycle", "A page can't go under itself or one of its pages");
+      const tree = await pageRowsOf(tx, page.projectId);
+      if (!canMoveUnder(tree.map(pageRefOf), pageId, parentId)) throw new ProductDocsError(409, "cycle", "A page can't go under itself or one of its pages");
+      if (depthOf(tree, parentId) + heightOf(tree, pageId) > PRODUCT_TREE_DEPTH_MAX) throw new ProductDocsError(409, "too_deep", `Pages nest at most ${PRODUCT_TREE_DEPTH_MAX} levels`);
       const beforeId = page.parentId;
       if (beforeId !== parentId) await renumber(tx, await siblingIds(tx, page.projectId, beforeId, pageId));
       const siblings = await siblingIds(tx, page.projectId, parentId, pageId);
@@ -295,15 +352,25 @@ export async function updateProductPage(
   });
 }
 
-/** Elimina una pagina senza sottopagine (409 `has_children`). Il codice resta preso. */
-export async function deleteProductPage(db: Db, pageId: string): Promise<void> {
-  await db.transaction(async (txRaw) => {
+/**
+ * Elimina una pagina senza sottopagine (409 `has_children`). Il codice resta
+ * preso. Restituisce le chiavi dello storage delle sue immagini (review di F1,
+ * I2): la cascata toglie le righe, gli oggetti li toglie chi chiama DOPO il
+ * commit (`removeOrRecordOrphan`), come per l'eliminazione di un progetto.
+ */
+export async function deleteProductPage(db: Db, pageId: string): Promise<{ storageKeys: string[] }> {
+  return db.transaction(async (txRaw) => {
     const tx = txRaw as unknown as Db;
+    const [where] = await tx.select({ projectId: productPages.projectId }).from(productPages).where(eq(productPages.id, pageId));
+    if (!where) throw notFound();
+    await lockProductTree(tx, where.projectId);
     const [page] = await tx.select().from(productPages).where(eq(productPages.id, pageId)).for("update");
     if (!page) throw notFound();
     const [child] = await tx.select({ id: productPages.id }).from(productPages).where(eq(productPages.parentId, pageId)).limit(1);
     if (child) throw new ProductDocsError(409, "has_children", "The page has pages under it");
+    const images = await tx.select({ key: productPageImages.storageKey }).from(productPageImages).where(eq(productPageImages.pageId, pageId));
     await tx.delete(productPages).where(eq(productPages.id, pageId));
     await renumber(tx, await siblingIds(tx, page.projectId, page.parentId));
+    return { storageKeys: images.map((i) => i.key) };
   });
 }

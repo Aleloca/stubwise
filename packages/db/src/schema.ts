@@ -2766,7 +2766,7 @@ export const productPageRevisions = pgTable(
 /**
  * Gli id (blocco, riga, cella) già dati in una pagina di prodotto (F1): li
  * genera il client (`blk-<uuid>`, il prototipo), e un id non torna per un
- * blocco diverso, salvo ⌘Z della stessa sessione.
+ * blocco diverso, salvo ⌘Z della revisione che l'ha tolto (review di F1, I4).
  */
 export const productPageBlockIds = pgTable(
   "product_page_block_ids",
@@ -2775,9 +2775,6 @@ export const productPageBlockIds = pgTable(
       .notNull()
       .references(() => productPages.id, { onDelete: "cascade" }),
     blockId: text("block_id").notNull(),
-    /** Chi e quale sessione l'ha tolto per ultima: ⌘Z di quella sessione lo può rimettere. */
-    removedBy: uuid("removed_by").references(() => users.id, { onDelete: "set null" }),
-    removedSession: text("removed_session"),
   },
   (table) => [primaryKey({ name: "product_page_block_ids_pk", columns: [table.pageId, table.blockId] })],
 );

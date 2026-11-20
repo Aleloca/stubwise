@@ -5756,9 +5756,16 @@ deploy o di un rollback che la tocca.
   **ORDINE**: **server** (healthy, 0202 applicata), poi **caddy** (il
   renderer di 94). Il worker non c'entra.
 
-  **Rollback**: sicuro. Un server vecchio ignora le tabelle nuove e le righe
-  di prodotto di `doc_page_codes` (le sue letture dei codici dei Docs passano
-  dai repository). Le immagini caricate restano nello storage finché il
-  progetto non si elimina con un server che le conosce: prima di scendere si
-  contano con `select count(*) from product_page_images;`.
+  **Rollback**: la discesa d'immagine del server è possibile, con due cose da
+  sapere (review di F1, M13).
+  - La **0202 non si annulla**: tabelle e colonne restano, e un server
+    vecchio le ignora (le sue letture dei codici dei Docs passano dai
+    repository, le righe di prodotto di `doc_page_codes` non le vede).
+  - Un server vecchio che **elimina un progetto** porta via le righe delle
+    immagini di prodotto in cascata ma NON gli oggetti nello storage
+    (`storageKeysOfProject` non le conosce): restano orfani. Prima di
+    scendere si contano (`select count(*) from product_page_images;`); dopo
+    una discesa, le chiavi di un progetto eliminato non si ritrovano più.
+  - La pulizia oraria dello storage toglie le immagini che nessun blocco nomina
+    da 7 giorni (`purgeUnusedProductImages`); un server vecchio non lo fa.
 

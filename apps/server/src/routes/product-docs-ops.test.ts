@@ -63,7 +63,7 @@ beforeEach(() => {
   storage = fakeStorage();
 });
 
-const as = (u: U, method: "GET" | "POST" | "PUT" | "DELETE", url: string, payload?: object) =>
+const as = (u: U, method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE", url: string, payload?: object) =>
   app.inject({ method, url, headers: { cookie: u.headers.cookie }, ...(payload !== undefined ? { payload: payload as never } : {}) });
 async function page(): Promise<{ id: string; code: string }> {
   const res = await as(editor, "POST", `/api/projects/${projectId}/product/pages`, { title: `Pagina ${++n}` });
@@ -100,18 +100,76 @@ describe("scrivere a operazioni", () => {
     expect((await view(p.code)).blocks).toHaveLength(1);
   });
 
-  it("un id già dato in questa pagina non torna (422), salvo ⌘Z della stessa sessione", async () => {
+  it("un id già dato in questa pagina non torna (422), salvo ⌘Z della revisione che l'ha tolto, col blocco com'era", async () => {
     const p = await page();
     let v = await view(p.code);
-    await ops(editor, p.id, { sessionId: "s", baseSeq: v.seq, ops: [{ op: "insert", afterId: null, block: para("blk-x", "X") }] });
+    await ops(editor, p.id, { sessionId: "s1", baseSeq: v.seq, ops: [{ op: "insert", afterId: null, block: para("blk-x", "X") }] });
     v = await view(p.code);
-    const del = await ops(editor, p.id, { sessionId: "s", baseSeq: v.seq, ops: [{ op: "delete", blockId: "blk-x" }] });
+    const del = await ops(editor, p.id, { sessionId: "s2", baseSeq: v.seq, ops: [{ op: "delete", blockId: "blk-x" }] });
+    const delRev = (del.json() as { revisionId: string }).revisionId;
     v = await view(p.code);
     const reuse = await ops(other, p.id, { sessionId: "o", baseSeq: v.seq, ops: [{ op: "insert", afterId: null, block: para("blk-x", "Di nuovo") }] });
     expect(reuse.statusCode).toBe(422);
     expect(reuse.json()).toMatchObject({ code: "block_id_taken" });
-    const undo = await ops(editor, p.id, { sessionId: "s", baseSeq: v.seq, undoOf: (del.json() as { revisionId: string }).revisionId, ops: [{ op: "insert", afterId: null, block: para("blk-x", "X") }] });
+    // Review di F1 (I4): un undoOf inventato, di un'altra sessione o di un altro: 422.
+    expect((await ops(editor, p.id, { sessionId: "s2", baseSeq: v.seq, undoOf: randomUUID(), ops: [{ op: "insert", afterId: null, block: para("blk-x", "X") }] })).json()).toMatchObject({ code: "invalid_undo" });
+    expect((await ops(editor, p.id, { sessionId: "altra", baseSeq: v.seq, undoOf: delRev, ops: [{ op: "insert", afterId: null, block: para("blk-x", "X") }] })).json()).toMatchObject({ code: "invalid_undo" });
+    expect((await ops(other, p.id, { sessionId: "s2", baseSeq: v.seq, undoOf: delRev, ops: [{ op: "insert", afterId: null, block: para("blk-x", "X") }] })).json()).toMatchObject({ code: "invalid_undo" });
+    // Il blocco rimesso dev'essere quello di prima, non un altro con lo stesso id.
+    expect((await ops(editor, p.id, { sessionId: "s2", baseSeq: v.seq, undoOf: delRev, ops: [{ op: "insert", afterId: null, block: para("blk-x", "Diverso") }] })).json()).toMatchObject({ code: "block_id_taken" });
+    const undo = await ops(editor, p.id, { sessionId: "s2", baseSeq: v.seq, undoOf: delRev, ops: [{ op: "insert", afterId: null, block: para("blk-x", "X") }] });
     expect(undo.statusCode, undo.body).toBe(200);
+  });
+
+  it("review di F1 (M11): una scrittura che riporta la revisione com'era dà revisionId null", async () => {
+    const p = await page();
+    const v = await view(p.code);
+    const a = await ops(editor, p.id, { sessionId: "z", baseSeq: v.seq, ops: [{ op: "insert", afterId: null, block: para("blk-z", "Z") }] });
+    const b = await ops(editor, p.id, { sessionId: "z", baseSeq: (a.json() as { seq: number }).seq, ops: [{ op: "delete", blockId: "blk-z" }] });
+    expect(b.json()).toMatchObject({ revisionId: null });
+  });
+
+  it("review di F1 (I3): un merge che supera il tetto di un blocco e una pagina oltre il tetto in byte: 422", async () => {
+    const p = await page();
+    let v = await view(p.code);
+    const long = "a".repeat(30_000);
+    await ops(editor, p.id, { sessionId: "m", baseSeq: v.seq, ops: [{ op: "insert", afterId: null, block: para("blk-m1", long) }, { op: "insert", afterId: "blk-m1", block: para("blk-m2", long) }] });
+    v = await view(p.code);
+    const merged = await ops(editor, p.id, { sessionId: "m", baseSeq: v.seq, ops: [{ op: "merge", firstId: "blk-m1", secondId: "blk-m2" }] });
+    expect(merged.statusCode).toBe(422);
+    expect(merged.json()).toMatchObject({ code: "invalid_block" });
+    // Il corpo HTTP di una chiamata ha già il suo tetto (~1 MB): la pagina oltre
+    // i 2 MB ci arriva in più salvataggi, e il terzo è rifiutato.
+    const q = await page();
+    let seq = (await view(q.code)).seq;
+    const batch = (k: number) => Array.from({ length: 15 }, (_, i) => ({ op: "insert", afterId: null, block: para(`blk-b${k}-${i}`, "b".repeat(48_000)) }));
+    for (const k of [0, 1]) {
+      const r = await ops(editor, q.id, { sessionId: "b", baseSeq: seq, ops: batch(k) });
+      expect(r.statusCode, r.body.slice(0, 200)).toBe(200);
+      seq = (r.json() as { seq: number }).seq;
+    }
+    const big = await ops(editor, q.id, { sessionId: "b", baseSeq: seq, ops: batch(2) });
+    expect(big.statusCode).toBe(422);
+    expect(big.json()).toMatchObject({ code: "page_too_large" });
+  });
+
+  it("review di F1 (M8): un baseSeq oltre la pagina è 422; una rinomina della stessa persona non fa `stale`", async () => {
+    const p = await page();
+    const v = await view(p.code);
+    expect((await ops(editor, p.id, { sessionId: "q", baseSeq: v.seq + 5, ops: [{ op: "delete", blockId: v.blocks[0]!.id as string }] })).json()).toMatchObject({ code: "invalid_base_seq" });
+    await as(editor, "PATCH", `/api/product-pages/${p.id}`, { title: "Rinominata" });
+    const ok = await ops(editor, p.id, { sessionId: "q", baseSeq: v.seq, ops: [{ op: "set", block: para(v.blocks[0]!.id as string, "Dopo la rinomina") }] });
+    expect(ok.statusCode, ok.body).toBe(200);
+  });
+
+  it("review di F1 (M5, M6): il codice del file dev'essere esatto; un riferimento d'immagine senza uuid vero è rifiutato (mai 500)", async () => {
+    const p = await page();
+    const v = await view(p.code);
+    const [file] = await t.db.insert(driveFiles).values({ projectId, number: 7, name: "v.pdf", mime: "application/pdf", type: "pdf", sizeBytes: 1, storageKey: `drive/${randomUUID()}`, addedBy: editor.id } as typeof driveFiles.$inferInsert).returning();
+    const res = await ops(editor, p.id, { sessionId: "f", baseSeq: v.seq, ops: [{ op: "insert", afterId: null, block: { id: "blk-f2", type: "drive", fileId: file!.id, code: "ALTRO-F7" } }] });
+    expect(res.json()).toMatchObject({ code: "invalid_drive" });
+    const img = await ops(editor, p.id, { sessionId: "f", baseSeq: v.seq, ops: [{ op: "insert", afterId: null, block: { id: "blk-i3", type: "image", src: `product-image:${"-".repeat(36)}`, caption: "", alt: "" } }] });
+    expect(img.statusCode).toBe(400);
   });
 
   it("un link javascript: e un'operazione su un blocco che non c'è: 422, niente cambiato", async () => {
@@ -160,6 +218,42 @@ describe("la cronologia, Segui, le immagini", () => {
     expect(revs[0]!.actorName).not.toBeNull();
   });
 
+  it("review di F1 (M10): la cronologia a pagine di 100, con `before`", async () => {
+    const p = await page();
+    let seq = (await view(p.code)).seq;
+    for (let i = 0; i < 105; i++) {
+      const r = await ops(i % 2 === 0 ? editor : other, p.id, { sessionId: `h${i}`, baseSeq: seq, ops: [{ op: "insert", afterId: null, block: para(`blk-h${i}`, `${i}`) }] });
+      seq = (r.json() as { seq: number }).seq;
+    }
+    const first = (await as(reader, "GET", `/api/product-pages/${p.id}/revisions`)).json() as ProductRevisionView[];
+    expect(first).toHaveLength(100);
+    const rest = (await as(reader, "GET", `/api/product-pages/${p.id}/revisions?before=${first.at(-1)!.lastSeq}`)).json() as ProductRevisionView[];
+    expect(rest).toHaveLength(6);
+  });
+
+  it("review di F1 (M12): il nome di chi ha scritto a chi non lo vede è null (R-G5)", async () => {
+    const p = await page();
+    const stranger = await createUserWithSession(app, `stranger-${randomUUID()}@example.com`);
+    await addMember(app, projectId, stranger.id, "developer");
+    const v = await view(p.code);
+    await ops(stranger, p.id, { sessionId: "st", baseSeq: v.seq, ops: [{ op: "set", block: para(v.blocks[0]!.id as string, "Da chi se ne va") }] });
+    const { projectMembers } = await import("@stubwise/db");
+    const { and: andOp } = await import("drizzle-orm");
+    await t.db.delete(projectMembers).where(andOp(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, stranger.id)));
+    const revs = (await as(reader, "GET", `/api/product-pages/${p.id}/revisions`)).json() as ProductRevisionView[];
+    expect(revs.find((r) => r.actorId === stranger.id)!.actorName).toBeNull();
+  });
+
+  it("review di F1 (M12): scrivere su un progetto archiviato è 409", async () => {
+    const pid = (await seedRepository(t.db)).projectId;
+    await addMember(app, pid, editor.id, "developer");
+    const created = (await as(editor, "POST", `/api/projects/${pid}/product/pages`, { title: "Prima" })).json() as { id: string; code: string };
+    const v = await view(created.code);
+    await t.db.update(projects).set({ archivedAt: new Date() }).where(eq(projects.id, pid));
+    const res = await ops(editor, created.id, { sessionId: "a", baseSeq: v.seq, ops: [{ op: "delete", blockId: v.blocks[0]!.id as string }] });
+    expect(res.statusCode).toBe(409);
+  });
+
   it("seguire e smettere (chi legge può)", async () => {
     const p = await page();
     expect((await as(reader, "PUT", `/api/product-pages/${p.id}/follow`)).statusCode).toBe(204);
@@ -205,6 +299,30 @@ describe("la cronologia, Segui, le immagini", () => {
     await upload(editor, p.id, PNG);
     const [img] = await t.db.select({ key: productPageImages.storageKey }).from(productPageImages).where(eq(productPageImages.pageId, p.id));
     expect(await storageKeysOfProject(t.db, projectId)).toContain(img!.key);
+  });
+
+  it("review di F1 (I2): eliminare una pagina toglie dallo storage gli oggetti delle sue immagini", async () => {
+    const p = await page();
+    await upload(editor, p.id, PNG);
+    const [img] = await t.db.select({ key: productPageImages.storageKey }).from(productPageImages).where(eq(productPageImages.pageId, p.id));
+    expect((await as(editor, "DELETE", `/api/product-pages/${p.id}`)).statusCode).toBe(204);
+    expect(storage.deleteObject).toHaveBeenCalledWith(img!.key);
+  });
+
+  it("review di F1 (I2): le immagini che nessun blocco nomina più da 7 giorni vanno via; quelle usate restano", async () => {
+    const p = await page();
+    const used = (await upload(editor, p.id, PNG)).json() as { id: string; ref: string };
+    const unused = (await upload(editor, p.id, PNG)).json() as { id: string; ref: string };
+    const v = await view(p.code);
+    await ops(editor, p.id, { sessionId: "u", baseSeq: v.seq, ops: [{ op: "insert", afterId: null, block: { id: "blk-u", type: "image", src: used.ref, caption: "", alt: "" } }] });
+    const { sql: q } = await import("drizzle-orm");
+    await t.db.update(productPageImages).set({ createdAt: q`now() - interval '8 days'` }).where(eq(productPageImages.pageId, p.id));
+    await t.db.update(productPages).set({ updatedAt: q`now() - interval '8 days'` }).where(eq(productPages.id, p.id));
+    const { purgeUnusedProductImages } = await import("../services/product-docs-ops.js");
+    expect(await purgeUnusedProductImages(t.db, storage as unknown as ObjectStorage, () => undefined)).toBe(1);
+    const left = await t.db.select({ id: productPageImages.id }).from(productPageImages).where(eq(productPageImages.pageId, p.id));
+    expect(left.map((r) => r.id)).toEqual([used.id]);
+    expect(unused.id).not.toBe(used.id);
   });
 
   it("una pagina che se ne va porta via le sue revisioni", async () => {

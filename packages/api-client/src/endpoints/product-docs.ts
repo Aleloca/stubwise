@@ -2,7 +2,7 @@ import { productPageViewSchema, productRevisionViewSchema, productSpaceSchema } 
 import type { ProductBlockOp, ProductPageView, ProductRevisionView, ProductSpaceView, Reader } from "@stubwise/shared";
 import { z } from "zod";
 import type { ApiRequest } from "../client.js";
-import { seg } from "../query.js";
+import { seg, toQuery } from "../query.js";
 
 const createdSchema = z.object({ id: z.uuid(), code: z.string() });
 const savedSchema = z.object({ seq: z.number().int(), revisionId: z.uuid().nullable() });
@@ -36,8 +36,9 @@ export function createProductDocsEndpoints(request: ApiRequest) {
     save(pageId: string, input: { sessionId: string; baseSeq: number; ops: ProductBlockOp[]; undoOf?: string }) {
       return request("POST", `/api/product-pages/${seg(pageId)}/ops`, input, savedSchema);
     },
-    revisions(pageId: string): Promise<Reader<ProductRevisionView>[]> {
-      return request("GET", `/api/product-pages/${seg(pageId)}/revisions`, undefined, z.array(productRevisionViewSchema));
+    /** Le revisioni dalla più recente, a pagine di 100; `before` = il `lastSeq` più vecchio già letto. */
+    revisions(pageId: string, before?: number): Promise<Reader<ProductRevisionView>[]> {
+      return request("GET", `/api/product-pages/${seg(pageId)}/revisions${toQuery({ before: before === undefined ? undefined : String(before) })}`, undefined, z.array(productRevisionViewSchema));
     },
     follow(pageId: string, on: boolean): Promise<void> {
       return request(on ? "PUT" : "DELETE", `/api/product-pages/${seg(pageId)}/follow`);

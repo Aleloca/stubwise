@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { productPageFollows, productPageRevisions, productPages, projectDecisions, projects } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildProductTree, type ProductPageView, type ProductSpaceView, type ProductTreeNode } from "@stubwise/shared";
@@ -140,5 +140,60 @@ describe("lo spazio Product", () => {
     const view = (await inject(reader, "GET", `/api/product-pages/by-code/${page.code}`)).json() as ProductPageView;
     expect(view.decisions[hidden!.id]).toBeNull();
     expect(view.decisions[visible!.id]).toMatchObject({ title: "Pubblica" });
+  });
+
+  it("review di F1 (I1): due spostamenti concorrenti (A sotto B, C sotto A) aspettano il lock dell'albero e non chiudono un giro", async () => {
+    const other = await seedRepository(t.db);
+    await addMember(app, other.projectId, editor.id, "developer");
+    const r = await create("R", {}, other.projectId);
+    const a = await create("A", { parentId: r.id }, other.projectId);
+    const c = await create("C", { parentId: r.id }, other.projectId);
+    const b = await create("B", { parentId: c.id }, other.projectId);
+    // Un'altra transazione tiene il lock dell'albero: i due spostamenti devono METTERSI IN FILA.
+    let release!: () => void;
+    let locked!: () => void;
+    const isLocked = new Promise<void>((resolve) => (locked = resolve));
+    const holding = t.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`stubwise-product-tree:${other.projectId}`}))`);
+      locked();
+      await new Promise<void>((resolve) => (release = resolve));
+    });
+    await isLocked;
+    const first = inject(editor, "PATCH", `/api/product-pages/${a.id}`, { move: { parentId: b.id, index: 0 } });
+    const second = inject(editor, "PATCH", `/api/product-pages/${c.id}`, { move: { parentId: a.id, index: 0 } });
+    let waiting = 0;
+    for (let i = 0; i < 100 && waiting < 2; i++) {
+      const [w] = await t.db.execute<{ n: number }>(sql`select count(*)::int as n from pg_stat_activity where wait_event_type = 'Lock' and wait_event = 'advisory' and datname = current_database()`);
+      waiting = w?.n ?? 0;
+      if (waiting < 2) await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(waiting).toBe(2);
+    release();
+    await holding;
+    const codes = [(await first).statusCode, (await second).statusCode].sort();
+    // Uno passa, l'altro vede l'albero nuovo e chiuderebbe un giro: 409.
+    expect(codes).toEqual([204, 409]);
+    const all = treeOf((await space(editor, other.projectId)).json() as ProductSpaceView);
+    const count = (nodes: ProductTreeNode[]): number => nodes.reduce((n, x) => n + 1 + count(x.children), 0);
+    expect(count(all)).toBe(4);
+  });
+
+  it("review di F1 (M9): al più 20 livelli", async () => {
+    const other = await seedRepository(t.db);
+    await addMember(app, other.projectId, editor.id, "developer");
+    let parent: string | null = null;
+    for (let i = 0; i < 20; i++) parent = (await create(`L${i}`, { parentId: parent }, other.projectId)).id;
+    const deeper = await inject(editor, "POST", `/api/projects/${other.projectId}/product/pages`, { title: "L20", parentId: parent });
+    expect(deeper.statusCode).toBe(409);
+    expect(deeper.json()).toMatchObject({ code: "too_deep" });
+  });
+
+  it("review di F1 (M12): chi ha deciso, a chi non lo vede, è null (R-G5)", async () => {
+    const decider = await createUserWithSession(app, "decider-pd@example.com");
+    const [d] = await t.db.insert(projectDecisions).values({ projectId, source: "manual", sourceKey: "k-rg5", title: "Chi?", decision: "z", decidedByUserId: decider.id } as typeof projectDecisions.$inferInsert).returning();
+    const page = await create("Chi decide");
+    await t.db.update(productPages).set({ blocks: [{ id: "blk-rg5", type: "decision", decisionId: d!.id }] }).where(eq(productPages.id, page.id));
+    const view = (await inject(reader, "GET", `/api/product-pages/by-code/${page.code}`)).json() as ProductPageView;
+    expect(view.decisions[d!.id]).toMatchObject({ title: "Chi?", decidedByName: null });
   });
 });
