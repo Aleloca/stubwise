@@ -678,7 +678,7 @@ async function keepingAManager(tx: Tx, projectId: string, write: () => Promise<v
  */
 async function publishMemberAdded(
   tx: Tx,
-  input: { projectId: string; userId: string; roleName: string; actorUserId: string; changeLogEntryId: string },
+  input: { projectId: string; userId: string; roleId: string; roleName: string; actorUserId: string; changeLogEntryId: string },
 ): Promise<void> {
   const [added] = await tx.select({ email: users.email, displayName: users.displayName, isAgent: users.isAgent }).from(users).where(eq(users.id, input.userId));
   if (!added || added.isAgent) return;
@@ -695,6 +695,7 @@ async function publishMemberAdded(
       addedUserId: input.userId,
       addedName: added.displayName || added.email,
       roleName: input.roleName,
+      roleId: input.roleId,
       actorUserId: input.actorUserId,
       actorName: actor ? actor.displayName || actor.email : null,
       viaClaude: (via?.id ?? null) !== null,
@@ -752,7 +753,7 @@ export async function putProjectMember(
       const object = memberObject(user);
       if (!before) {
         const entryId = await recordChange(tx, { type: "member.added", actor, projectId, data: { object, after: role.name } });
-        await publishMemberAdded(tx, { projectId, userId, roleName: role.name, actorUserId: actor.id, changeLogEntryId: entryId });
+        await publishMemberAdded(tx, { projectId, userId, roleId, roleName: role.name, actorUserId: actor.id, changeLogEntryId: entryId });
       } else if (before.roleId !== roleId) {
         await recordChange(tx, { type: "member.role_changed", actor, projectId, data: { object, before: before.roleName, after: role.name } });
       }
@@ -995,6 +996,6 @@ export async function applyInviteGrants(
   for (const g of valid) {
     const entryId = await recordChange(tx, { type: "member.added", actor: me!, projectId: g.projectId, data: { object: memberObject(me!), after: names.get(g.roleId) ?? null, params: { via: "invite" } } });
     // Chi accetta è l'attore: l'avviso va ai gestori, non a lui (decisione di 46, 20 nov 2026).
-    await publishMemberAdded(tx, { projectId: g.projectId, userId, roleName: names.get(g.roleId) ?? "", actorUserId: userId, changeLogEntryId: entryId });
+    await publishMemberAdded(tx, { projectId: g.projectId, userId, roleId: g.roleId, roleName: names.get(g.roleId) ?? "", actorUserId: userId, changeLogEntryId: entryId });
   }
 }

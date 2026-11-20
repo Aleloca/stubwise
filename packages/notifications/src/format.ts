@@ -957,6 +957,8 @@ export interface MemberAddedEvent {
   addedUserId: string;
   addedName: string;
   roleName: string;
+  /** Il ruolo dato: l'inbox ne legge il nome di ADESSO (null se non c'è più). Assente nelle card scritte prima. */
+  roleId?: string;
   actorUserId: string | null;
   actorName: string | null;
   viaClaude: boolean;

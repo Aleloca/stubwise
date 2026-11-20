@@ -784,6 +784,17 @@ export const inboxItemSchema = z.object({
    */
   undoneBy: z.object({ id: z.uuid(), name: z.string() }).nullable().default(null),
   /**
+   * Area 10, F5 (richiesta di 94): sulle card `member.added`, i pezzi delle due
+   * frasi del prototipo, che il renderer compone nella lingua di chi guarda.
+   * DERIVATI a lettura: `addedName` e `actorName` null se chi guarda non vede
+   * quella persona (R-G5, `visiblePersonIds`) o non c'è più; `roleName` il
+   * nome di ADESSO del ruolo, null se il ruolo non c'è più. Additivo.
+   */
+  memberAdded: z
+    .object({ addedUserId: z.uuid(), addedName: z.string().nullable(), roleName: z.string().nullable(), actorName: z.string().nullable() })
+    .nullable()
+    .default(null),
+  /**
    * Area 4, Chat (fetta 1): solo sulle card `chat.mention` e (fetta 2)
    * `chat.question`, il messaggio che
    * nomina chi legge, DERIVATO a lettura (canale, thread, chi scrive, un

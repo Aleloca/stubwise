@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
-import { changeLog, claudeActionGroups, claudeActions, notifications } from "@stubwise/db";
+import { changeLog, claudeActionGroups, claudeActions, notifications, roles, users } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { PRESET_ROLES } from "@stubwise/shared";
 import { buildApp } from "../app.js";
 import { putProjectMember, removeProjectMember } from "../services/roles.js";
+import { personName } from "../services/people.js";
 import { addMember, createUserWithSession, presetRoleId, seedUsers } from "../test/fixtures.js";
 
 /**
@@ -47,8 +48,9 @@ async function claudeAction(requesterId: string): Promise<string> {
   const [a] = await t.db.insert(claudeActions).values({ groupId: g!.id, seq: 0, fn: "addMember", args: {}, cls: "C" }).returning();
   return a!.id;
 }
+type Parts = { addedUserId: string; addedName: string | null; roleName: string | null; actorName: string | null };
 const inboxOf = async (u: U) =>
-  ((await app.inject({ method: "GET", url: "/api/inbox", headers: u.headers })).json() as { items: { kind: string; projectId: string | null; undoneBy: { id: string; name: string } | null }[] }).items;
+  ((await app.inject({ method: "GET", url: "/api/inbox", headers: u.headers })).json() as { items: { kind: string; projectId: string | null; undoneBy: { id: string; name: string } | null; memberAdded: Parts | null }[] }).items;
 const cardOf = async (u: U, projectId: string) => (await inboxOf(u)).find((i) => i.kind === "member.added" && i.projectId === projectId);
 
 describe("«Undone by» sulle card member.added", () => {
@@ -94,5 +96,49 @@ describe("«Undone by» sulle card member.added", () => {
     await t.db.insert(notifications).values({ userId: liar.id, projectId: s.projectId, kind: "member.added", status: "open", event: { kind: "member.added", changeLogEntryId: entry!.id, undoneBy: { id: s.g2.id, name: "Falso" }, projectId: s.projectId, projectCode: "X", projectName: "X", addedUserId: liar.id, addedName: "L", roleName: "Developer", actorUserId: s.g1.id, actorName: "G1", viaClaude: false, alertMandatory: "added" } });
     await addMember(app, s.projectId, liar.id, "developer");
     expect((await cardOf(liar, s.projectId))!.undoneBy).toBeNull();
+  });
+});
+
+describe("i pezzi delle frasi (memberAdded), derivati a lettura", () => {
+  const nameOf = async (id: string) => {
+    const [u] = await t.db.select({ email: users.email, displayName: users.displayName }).from(users).where(eq(users.id, id));
+    return personName(u!);
+  };
+
+  it("un ingresso a mano: chi entra, il ruolo e chi ha agito, per chi entra e per l'altro gestore", async () => {
+    const s = await scene();
+    await putProjectMember(t.db, actorOf(s.g1), LEAD, s.projectId, s.p.id, s.developer);
+    const want = { addedUserId: s.p.id, addedName: await nameOf(s.p.id), roleName: "Developer", actorName: await nameOf(s.g1.id) };
+    expect((await cardOf(s.p, s.projectId))!.memberAdded).toEqual(want);
+    expect((await cardOf(s.g2, s.projectId))!.memberAdded).toEqual(want);
+  });
+
+  it("il ruolo col nome di ADESSO; un ruolo che non c'è più: null", async () => {
+    const s = await scene();
+    await putProjectMember(t.db, actorOf(s.g1), LEAD, s.projectId, s.p.id, s.developer);
+    const [before] = await t.db.select({ name: roles.name }).from(roles).where(eq(roles.id, s.developer));
+    await t.db.update(roles).set({ name: "Sviluppo" }).where(eq(roles.id, s.developer));
+    try {
+      expect((await cardOf(s.p, s.projectId))!.memberAdded!.roleName).toBe("Sviluppo");
+    } finally {
+      await t.db.update(roles).set({ name: before!.name }).where(eq(roles.id, s.developer));
+    }
+    // Una card il cui ruolo non esiste più (l'id di un ruolo cancellato).
+    await t.db.update(notifications).set({ event: sql`jsonb_set(event, '{roleId}', to_jsonb(${randomUUID()}::text))` }).where(and(eq(notifications.userId, s.p.id), eq(notifications.kind, "member.added")));
+    expect((await cardOf(s.p, s.projectId))!.memberAdded!.roleName).toBeNull();
+  });
+
+  it("chi agisce e chi guarda non si vedono (R-G5): actorName null; il proprio nome sì", async () => {
+    const s = await scene();
+    const other = await seedRepository(t.db);
+    const stranger = await person();
+    await addMember(app, other.projectId, stranger.id, "project_lead");
+    await addMember(app, s.projectId, s.p.id, "developer");
+    await t.db.insert(notifications).values({ userId: s.p.id, projectId: s.projectId, kind: "member.added", status: "open", event: { kind: "member.added", projectId: s.projectId, projectCode: "X", projectName: "X", addedUserId: s.p.id, addedName: "P", roleName: "Developer", actorUserId: stranger.id, actorName: "Scritto nel jsonb", viaClaude: false, alertMandatory: "added" } });
+    const parts = (await cardOf(s.p, s.projectId))!.memberAdded!;
+    expect(parts.actorName).toBeNull();
+    expect(parts.addedName).toBe(await nameOf(s.p.id));
+    // Senza roleId (card scritta prima): il nome scritto.
+    expect(parts.roleName).toBe("Developer");
   });
 });
