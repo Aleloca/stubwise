@@ -123,8 +123,8 @@ async function readPage(code: string): Promise<ProductPageView | null> {
     },
     following: v.following,
     decisions: v.decisions,
-    // I commenti arrivano con F2: nessun filo.
-    openComments: 0,
+    // Le radici non risolte, con l'ancora viva o no: le conta il server (F2).
+    openComments: v.openComments,
   };
   lastRead.set(v.id, page);
   return page;

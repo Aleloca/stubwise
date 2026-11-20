@@ -134,6 +134,12 @@ describe("lo spazio Product dal server", () => {
     installFakeServer({ "GET /api/product-pages/by-code/AUD-D5": { body: pageView() } });
     await docs.getProductPage!("AUD-D5");
     expect(page).toMatchObject({ following: true, openComments: 0, code: "AUD-D5" });
+    // I fili aperti li conta il server (72, 9979ecbcc).
+    forgetProductDocs();
+    installFakeServer({
+      "GET /api/product-pages/by-code/AUD-D5": { body: pageView({ openComments: 3 }) },
+    });
+    expect((await docs.getProductPage!("AUD-D5"))!.openComments).toBe(3);
     installFakeServer({
       "GET /api/product-pages/by-code/AUD-D9": {
         status: 404,
