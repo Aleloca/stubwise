@@ -92,8 +92,9 @@ interface StreamChatResponseArgs {
   citations: Citation[];
   /**
    * Area 11, F3: le pagine di prodotto date al modello, allegate al `done` e alla
-   * risposta JSON come `productSources` (additivo). Non si salvano nel messaggio:
-   * lo storico tiene le sole `citations` dei repository (registro dei rimandi).
+   * risposta JSON come `productSources` (additivo). Il messaggio salvato ne tiene
+   * solo gli id (`doc_chat_messages.product_sources`, 0208): titolo e codice si
+   * rileggono alla riapertura con la visibilità di adesso (`productSourcesNow`).
    */
   productSources?: { pageId: string; code: string; title: string }[];
   /** Contesto per il log degli errori LLM (repositoryId, projectId o backlogItemId). */

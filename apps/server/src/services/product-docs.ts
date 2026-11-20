@@ -13,6 +13,7 @@ import {
   type ProductSpaceView,
 } from "@stubwise/shared";
 import { and, asc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { projectPermissionsByProject } from "@stubwise/notifications";
 import { projectPermissionsFor } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { personName } from "./people.js";
@@ -173,10 +174,12 @@ export async function decisionRefsFor(db: Db, viewer: Viewer, blocks: readonly P
       .leftJoin(users, eq(users.id, projectDecisions.decidedByUserId))
       .where(inArray(projectDecisions.id, decisionIds));
     const people = await visiblePersonIds(db, viewer);
+    // Review di F3 (M6): i permessi di tutti i progetti in UNA lettura.
+    const perms = await projectPermissionsByProject(db, viewer.id, rowsD.map((r) => r.projectId));
     for (const id of decisionIds) {
       const d = rowsD.find((r) => r.id === id);
       // Una decisione di un progetto che chi guarda non vede: null (R-G5).
-      if (!d || !(await projectPermissionsFor(db, viewer, d.projectId))) {
+      if (!d || !perms.get(d.projectId)) {
         decisions[id] = null;
         continue;
       }

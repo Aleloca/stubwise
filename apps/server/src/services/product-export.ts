@@ -3,7 +3,9 @@ import {
   PRODUCT_EXPORT_PAGES_MAX,
   buildProductTree,
   productBlockSchema,
+  safeLinkHref,
   type ProductBlock,
+  type RichText,
   type ProductExportPage,
   type ProductExportSpace,
   type ProductTreeNode,
@@ -60,14 +62,37 @@ async function fileNamesFor(db: Db, viewer: Viewer, blocks: readonly ProductBloc
 
 type PageRow = Pick<typeof productPages.$inferSelect, "id" | "title" | "blocks" | "updatedAt">;
 
-async function exportOf(db: Db, viewer: Viewer, row: PageRow, code: string, projectCode: string): Promise<ProductExportPage> {
-  const blocks = readBlocks(row.blocks);
-  return {
-    page: { id: row.id, code, title: row.title, projectCode, updatedAt: row.updatedAt.toISOString() },
-    blocks: blocks as unknown as Record<string, unknown>[],
-    decisions: await decisionRefsFor(db, viewer, blocks),
-    files: await fileNamesFor(db, viewer, blocks),
-  };
+/**
+ * Review di F3 (M6): un link il cui indirizzo non è sicuro (non http/https,
+ * `safeLinkHref`) esce SENZA il segno, col solo testo. Le scritture lo
+ * rifiutano già (`validProductBlock`), ma un blocco salvato per altre strade
+ * non deve finire cliccabile in un PDF o in un Word.
+ */
+function safeMarks(rt: RichText): RichText {
+  return { ...rt, marks: rt.marks.filter((m) => m.type !== "link" || safeLinkHref(m.href) === m.href) };
+}
+function withSafeLinks(block: ProductBlock): ProductBlock {
+  if (block.type === "table") return { ...block, rows: block.rows.map((r) => ({ ...r, cells: r.cells.map((c) => ({ ...c, content: safeMarks(c.content) })) })) };
+  if ("content" in block) return { ...block, content: safeMarks(block.content) } as ProductBlock;
+  return block;
+}
+
+const pick = <T>(all: Record<string, T>, keys: readonly string[]): Record<string, T> => Object.fromEntries(keys.filter((k) => k in all).map((k) => [k, all[k]!]));
+const decisionIdsOf = (blocks: readonly ProductBlock[]) => blocks.flatMap((b) => (b.type === "decision" ? [b.decisionId] : []));
+const fileIdsOf = (blocks: readonly ProductBlock[]) => blocks.flatMap((b) => (b.type === "drive" ? [b.fileId] : []));
+
+/** L'esportazione di più pagine con DUE letture in tutto per decisioni e file (M6), non due per pagina. */
+async function exportAll(db: Db, viewer: Viewer, rows: readonly { row: PageRow; code: string; projectCode: string }[]): Promise<ProductExportPage[]> {
+  const blocksOf = rows.map((r) => readBlocks(r.row.blocks).map(withSafeLinks));
+  const everything = blocksOf.flat();
+  const decisions = await decisionRefsFor(db, viewer, everything);
+  const files = await fileNamesFor(db, viewer, everything);
+  return rows.map((r, i) => ({
+    page: { id: r.row.id, code: r.code, title: r.row.title, projectCode: r.projectCode, updatedAt: r.row.updatedAt.toISOString() },
+    blocks: blocksOf[i] as unknown as Record<string, unknown>[],
+    decisions: pick(decisions, decisionIdsOf(blocksOf[i]!)),
+    files: pick(files, fileIdsOf(blocksOf[i]!)),
+  }));
 }
 
 /** Una pagina (la rotta ha chiesto `docs.view` nel suo progetto). */
@@ -80,7 +105,7 @@ export async function exportProductPage(db: Db, viewer: Viewer, pageId: string):
   if (!page) throw new ProductDocsError(404, "not_found", "Not found");
   const ref = (await pageRowsOf(db, page.projectId)).find((r) => r.id === page.id);
   if (!ref) throw new ProductDocsError(404, "not_found", "Not found");
-  return exportOf(db, viewer, page, ref.code, page.projectCode);
+  return (await exportAll(db, viewer, [{ row: page, code: ref.code, projectCode: page.projectCode }]))[0]!;
 }
 
 /** Lo spazio intero, in ordine d'albero (la rotta ha chiesto `docs.view`). */
@@ -101,10 +126,7 @@ export async function exportProductSpace(db: Db, viewer: Viewer, projectId: stri
     ? await db.select({ id: productPages.id, title: productPages.title, blocks: productPages.blocks, updatedAt: productPages.updatedAt }).from(productPages).where(inArray(productPages.id, ordered.map((o) => o.id)))
     : [];
   const byId = new Map(rows.map((r) => [r.id, r]));
-  const pages: ProductExportSpace["pages"] = [];
-  for (const o of ordered) {
-    const row = byId.get(o.id);
-    if (row) pages.push({ ...(await exportOf(db, viewer, row, o.code, project.code)), depth: o.depth });
-  }
-  return { projectCode: project.code, pages };
+  const present = ordered.filter((o) => byId.has(o.id));
+  const exported = await exportAll(db, viewer, present.map((o) => ({ row: byId.get(o.id)!, code: o.code, projectCode: project.code })));
+  return { projectCode: project.code, pages: exported.map((p, i) => ({ ...p, depth: present[i]!.depth })) };
 }

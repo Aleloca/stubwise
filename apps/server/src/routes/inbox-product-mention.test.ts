@@ -141,6 +141,16 @@ describe("la menzione nella doc di prodotto", () => {
     expect(JSON.stringify(card)).not.toContain("parola parola");
   });
 
+  it("review di F3 (M3): l'estratto si taglia per code point, un emoji al confine non si spezza", async () => {
+    const body = `@reader-m ${"a".repeat(188)}😀😀😀😀😀`;
+    const { comment } = await mention(body);
+    const [card] = await cardsOf(reader, comment.id);
+    const excerpt = card!.productDoc!.excerpt!;
+    expect(Array.from(excerpt)).toHaveLength(200);
+    expect(excerpt.endsWith("😀…")).toBe(true);
+    expect(excerpt).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+  });
+
   it("review di F2: una pagina che non c'è più con il commento che c'è ancora (il ramo della pagina, da solo) è `objectGone`", async () => {
     const { comment } = await mention("@reader-m resta il commento");
     await t.db

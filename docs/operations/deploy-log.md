@@ -5845,18 +5845,23 @@ deploy o di un rollback che la tocca.
 
   **ORDINE**: **server** (healthy, 0206–0208 applicate), poi **caddy**. Il
   worker non c'entra: F3 non tocca `packages/notifications` e il worker non
-  legge le colonne nuove. Al primo giro (30 s dopo l'avvio) il poller dà alle
-  pagine di prima il testo cercabile, poi fa i loro embedding, 20 per giro: con
-  molte pagine la ricerca per significato si completa in qualche minuto, quella
-  per testo subito.
+  legge le colonne nuove. All'avvio il server dà alle pagine di prima il testo
+  cercabile (`backfillAllProductSearchText`, in sottofondo, qualunque sia
+  `PRODUCT_EMBED_POLL_SECONDS`): la ricerca per testo le trova subito. Gli
+  embedding li fa poi il poller, 20 pagine per giro: con molte pagine la
+  ricerca per significato si completa in qualche minuto. Il poller si avvia
+  PRIMA di `listen` (review di F3, C1: un `addHook` dopo `listen` faceva
+  uscire il server all'avvio).
 
-  **Rollback**: sicuro. Un server vecchio ignora tabella e colonne, e un
-  client vecchio legge la citazione senza destinazione. Una cosa da sapere
+  **Rollback**: sicuro, col **caddy** che scende **insieme** al server (il
+  renderer nuovo chiama le rotte di F3). Un server vecchio ignora tabella e
+  colonne, e un client vecchio legge la citazione senza destinazione. Una cosa da sapere
   per quando si risale: un server vecchio che scrive pagine di prodotto non
   aggiorna `search_text`, quindi il testo cercabile di quelle pagine resta
   quello di prima della discesa. Gli embedding invece si rifanno da soli
   (`embedded_at < updated_at`). Dopo la risalita, per rifare il testo
-  cercabile di tutte le pagine (lo ricostruisce il poller, 100 per giro):
+  cercabile di tutte le pagine (lo ricostruisce il server al riavvio
+  successivo, e intanto il poller a ogni giro):
 
   ```sql
   update product_pages set search_text = '';

@@ -472,10 +472,15 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
 
       // Area 11, F3: «In Product», per testo (la corsia veloce: niente embedder a ogni tasto),
       // filtrato nella WHERE sui progetti in cui chi cerca ha `docs.view`.
-      const product = await searchProductPages(app.db, app.embeddingClient, user, q, { limit: PER_GROUP, semantic: false });
+      // Review di F3 (M5): con lo scope Docs di un repository, solo le pagine del SUO progetto (come il gruppo docs).
+      const [scopeRepo] = scopeRepositoryId ? await app.db.select({ projectId: repositories.projectId }).from(repositories).where(eq(repositories.id, scopeRepositoryId)) : [];
+      const productFound =
+        scopeRepositoryId && !scopeRepo?.projectId
+          ? { items: [], hasMore: false }
+          : await searchProductPages(app.db, app.embeddingClient, user, q, { limit: PER_GROUP, semantic: false, ...(scopeRepo?.projectId ? { projectId: scopeRepo.projectId } : {}) });
 
       return {
-        product,
+        product: { items: productFound.items, hasMore: productFound.hasMore },
         automations: { items: automationHits.slice(0, PER_GROUP), hasMore: automationRows.length > PER_GROUP || runRows.length > PER_GROUP || automationHits.length > PER_GROUP },
         tickets: {
           items: ticketRows.slice(0, PER_GROUP).map((r) => ({

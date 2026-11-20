@@ -87,6 +87,17 @@ describe("l'esportazione", () => {
     expect(body.blocks.find((b) => b.id === "blk-i")).toMatchObject({ src: `product-image:${imageId}` });
   });
 
+  it("review di F3 (M6): un link con un indirizzo non sicuro esce senza il segno, col solo testo", async () => {
+    const page = await create("Link");
+    await t.db
+      .update(productPages)
+      .set({ blocks: [{ id: "blk-l", type: "paragraph", content: { text: "Clicca qui o qua", marks: [{ type: "link", start: 0, end: 6, href: "javascript:alert(1)" }, { type: "link", start: 12, end: 16, href: "https://example.com" }, { type: "bold", start: 7, end: 10 }] } }] })
+      .where(eq(productPages.id, page.id));
+    const body = (await inject(reader, "GET", `/api/product-pages/${page.id}/export`)).json() as ProductExportPage;
+    expect(body.blocks[0]).toMatchObject({ content: { text: "Clicca qui o qua", marks: [{ type: "link", start: 12, end: 16, href: "https://example.com" }, { type: "bold", start: 7, end: 10 }] } });
+    expect(JSON.stringify(body)).not.toContain("javascript:");
+  });
+
   it("chi non legge i Docs non esporta (403); chi non vede il progetto 404", async () => {
     const page = await create("Chiusa");
     expect((await inject(noDocs, "GET", `/api/product-pages/${page.id}/export`)).statusCode).toBe(403);

@@ -10,8 +10,9 @@ import { searchProductPages } from "./product-search.js";
  * Area 11, F3 — le pagine di prodotto nella chat dei Docs del progetto. Le
  * trova la ricerca «In Product» (`searchProductPages`: stessa visibilità,
  * `docs.view` nella WHERE, ibrida, fail-open sull'embedder), e per ognuna il
- * contesto per il modello: il primo passaggio della pagina (il chunk 0, o il
- * testo semplice se i chunk non ci sono ancora), al più `PRODUCT_CONTEXT_CHARS`.
+ * contesto per il modello: il passaggio che ha corrisposto per significato o,
+ * per una trovata per testo, il primo (il chunk 0, o il testo semplice se i
+ * chunk non ci sono ancora), al più `PRODUCT_CONTEXT_CHARS`.
  *
  * Il testo di una pagina di prodotto lo scrive chiunque abbia `docs.edit`:
  * per il modello è contenuto NON fidato (`appendProductContext`).
@@ -43,15 +44,17 @@ export async function retrieveProductContext(
   question: string,
   opts: { log?: { warn: (obj: unknown, msg?: string) => void }; limit?: number } = {},
 ): Promise<ProductContextPage[]> {
-  const { items } = await searchProductPages(db, embeddingClient, viewer, question, { projectId, limit: opts.limit ?? PRODUCT_CONTEXT_PAGES, ...(opts.log ? { log: opts.log } : {}) });
+  const { items, matched } = await searchProductPages(db, embeddingClient, viewer, question, { projectId, limit: opts.limit ?? PRODUCT_CONTEXT_PAGES, ...(opts.log ? { log: opts.log } : {}) });
   if (items.length === 0) return [];
   const ids = items.map((h) => h.page.id);
+  // Review di F3 (M2): per una pagina trovata per significato, il passaggio che ha corrisposto.
+  const best = matched ?? new Map<string, string>();
   const chunks = await db
     .select({ pageId: productPageChunks.pageId, content: productPageChunks.content })
     .from(productPageChunks)
     .where(and(inArray(productPageChunks.pageId, ids), eq(productPageChunks.position, 0)))
     .orderBy(asc(productPageChunks.pageId));
-  const first = new Map(chunks.map((c) => [c.pageId, c.content]));
+  const first = new Map([...chunks.map((c) => [c.pageId, c.content] as const), ...best]);
   const missing = ids.filter((id) => !first.has(id));
   const pages = missing.length > 0 ? await db.select({ id: productPages.id, blocks: productPages.blocks }).from(productPages).where(inArray(productPages.id, missing)) : [];
   for (const p of pages) first.set(p.id, plainTextOf(readBlocks(p.blocks)));

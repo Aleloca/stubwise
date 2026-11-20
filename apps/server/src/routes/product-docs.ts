@@ -269,7 +269,8 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
     { config: { access: SPACE_VIEW }, schema: { params: projectParams, querystring: z.object({ q: z.string().min(1).max(200) }), response: { 200: productSearchResultsSchema, 400: errorSchema, ...authErrorResponses } } },
     async (request, reply) => {
       if (request.query.q.trim() === "") return apiError(reply, 400, "empty_query", "Search query must not be empty");
-      return searchProductPages(app.db, app.embeddingClient, request.user!, request.query.q, { projectId: request.params.projectId, log: request.log });
+      const { items, hasMore } = await searchProductPages(app.db, app.embeddingClient, request.user!, request.query.q, { projectId: request.params.projectId, log: request.log });
+      return { items, hasMore };
     },
   );
 
