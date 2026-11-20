@@ -483,6 +483,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 10: l'area intera (F1–F8)» (20 nov 2026; migrazioni 0197–0201 in ordine, server → worker → caddy; l'elenco delle discese non sicure — `question`, `aside`, `capabilities`, `member.added`, `private_read_at` — con le query)
   - «Integrazione area 11, F1: lo spazio Product e l'editor» (20 nov 2026; migrazione 0202, server → caddy, rollback sicuro)
   - «Integrazione area 11, F2: commenti, menzioni e le notifiche nel catalogo» (20 nov 2026; migrazioni 0203–0205, server → worker → caddy, rollback NON sicuro sul server finché esistono notifiche `product_doc.*`)
+  - «Integrazione area 11, F3: ricerca, citazioni ed esportazione della doc di prodotto» (20 nov 2026; migrazioni 0206–0208, env `PRODUCT_EMBED_POLL_SECONDS`, server → caddy, rollback sicuro)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
