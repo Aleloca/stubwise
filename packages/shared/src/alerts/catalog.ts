@@ -178,6 +178,8 @@ export const LIVE_ALERT_TYPES: readonly string[] = [
   "support.request",
   // Area 8, F4b, S6 (72): la diagnosi dell'analisi di un server, e l'esito per chi l'ha chiesta.
   "server.diagnosis_ready",
+  // Area 10, F5 (72): un ingresso in un progetto (putProjectMember, invito accettato).
+  "member.added",
 ];
 
 export const alertTypeOf = (kind: string): AlertType | undefined =>

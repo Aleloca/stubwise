@@ -27,7 +27,8 @@ export interface ChangeInput {
 /** L'oggetto «persona» di una voce: l'email di ALLORA come etichetta. */
 export const personObject = (user: { id: string; email: string }) => ({ type: "person", id: user.id, label: user.email });
 
-export async function recordChange(tx: Tx | Db, entry: ChangeInput): Promise<void> {
+/** Scrive una voce del registro e ne restituisce l'id (area 10, F5: la card `member.added` lo porta). */
+export async function recordChange(tx: Tx | Db, entry: ChangeInput): Promise<string> {
   const type = changeLogTypeOf(entry.type);
   if (!type) throw new Error(`tipo del registro sconosciuto: ${entry.type}`);
   if ((type.scope === "project") !== (entry.projectId !== null)) {
@@ -35,7 +36,7 @@ export async function recordChange(tx: Tx | Db, entry: ChangeInput): Promise<voi
   }
   const data = CHANGE_DATA_SCHEMAS[entry.type]!.parse(entry.data);
   const actor = entry.actor;
-  await tx.insert(changeLog).values({
+  const [row] = await tx.insert(changeLog).values({
     actorUserId: actor === "system" ? null : actor.id,
     actorEmail: actor === "system" ? "system" : actor.email,
     actorKind: actor === "system" ? "system" : actor.isAgent ? "agent" : "user",
@@ -44,7 +45,8 @@ export async function recordChange(tx: Tx | Db, entry: ChangeInput): Promise<voi
     subjectKind: data.object.type,
     subjectId: data.object.id,
     data,
-  });
+  }).returning({ id: changeLog.id });
+  return row!.id;
 }
 
 /**

@@ -63,7 +63,9 @@ export async function instanceStatusRoutes(instance: FastifyInstance): Promise<v
         publicUrl: publicUrlOrUndefined(app),
         // Sotto il lock: l'ultimo job del ticket deve essere ancora QUESTO (review M1).
         expectLatestJobId: request.params.id,
-        afterInTx: (tx) => recordChange(tx, { type: "job.retried", actor: request.user!, projectId: facts.projectId, data: { object: { type: "task", id: facts.ticketId, label: facts.code } } }),
+        afterInTx: async (tx) => {
+          await recordChange(tx, { type: "job.retried", actor: request.user!, projectId: facts.projectId, data: { object: { type: "task", id: facts.ticketId, label: facts.code } } });
+        },
       });
       if (!result.ok) {
         if (result.error === "job_in_flight" || result.error === "latest_changed") return apiError(reply, 409, "conflict", "The task already has newer work running");

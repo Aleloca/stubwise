@@ -26,7 +26,7 @@ import {
   type InviteProject,
   type RoleScope,
 } from "@stubwise/shared";
-import { projectPermissionsByProject } from "@stubwise/notifications";
+import { projectPermissionsByProject, publishNotification } from "@stubwise/notifications";
 import { projectPermissionsFor } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { personObject, recordChange } from "./change-log.js";
@@ -670,6 +670,41 @@ async function keepingAManager(tx: Tx, projectId: string, write: () => Promise<v
 }
 
 /**
+ * Area 10, F5 (D-11 = b, maintainer): l'avviso `member.added`, nella STESSA
+ * transazione della voce del registro. Alla persona aggiunta (obbligatorio,
+ * `added`) e a chi gestisce i membri (catalogo degli avvisi); mai a chi ha
+ * agito (`exclude`), né all'agente. Con Claude l'attore è la persona per conto
+ * di cui agisce, e la card dice «via Claude».
+ */
+async function publishMemberAdded(
+  tx: Tx,
+  input: { projectId: string; userId: string; roleName: string; actorUserId: string; changeLogEntryId: string },
+): Promise<void> {
+  const [added] = await tx.select({ email: users.email, displayName: users.displayName, isAgent: users.isAgent }).from(users).where(eq(users.id, input.userId));
+  if (!added || added.isAgent) return;
+  const [project] = await tx.select({ code: projects.code, name: projects.name }).from(projects).where(eq(projects.id, input.projectId));
+  const [actor] = await tx.select({ email: users.email, displayName: users.displayName }).from(users).where(eq(users.id, input.actorUserId));
+  const [via] = (await tx.execute(sql`select nullif(current_setting('stubwise.via_claude_action_id', true), '') as id`)) as unknown as { id: string | null }[];
+  await publishNotification(
+    tx,
+    {
+      kind: "member.added",
+      projectId: input.projectId,
+      projectCode: project?.code ?? "",
+      projectName: project?.name ?? "",
+      addedUserId: input.userId,
+      addedName: added.displayName || added.email,
+      roleName: input.roleName,
+      actorUserId: input.actorUserId,
+      actorName: actor ? actor.displayName || actor.email : null,
+      viaClaude: (via?.id ?? null) !== null,
+      changeLogEntryId: input.changeLogEntryId,
+    },
+    { projectId: input.projectId, mandatory: [{ userId: input.userId, reason: "added" }], exclude: [input.actorUserId] },
+  );
+}
+
+/**
  * Aggiunge `userId` al progetto con `roleId`, o gli cambia ruolo. `held` sono
  * i permessi di chi agisce IN QUESTO progetto (quelli risolti dall'hook).
  */
@@ -716,7 +751,8 @@ export async function putProjectMember(
       // Area 9, F2: chi entra, o il ruolo che cambia (niente se è lo stesso).
       const object = memberObject(user);
       if (!before) {
-        await recordChange(tx, { type: "member.added", actor, projectId, data: { object, after: role.name } });
+        const entryId = await recordChange(tx, { type: "member.added", actor, projectId, data: { object, after: role.name } });
+        await publishMemberAdded(tx, { projectId, userId, roleName: role.name, actorUserId: actor.id, changeLogEntryId: entryId });
       } else if (before.roleId !== roleId) {
         await recordChange(tx, { type: "member.role_changed", actor, projectId, data: { object, before: before.roleName, after: role.name } });
       }
@@ -957,6 +993,8 @@ export async function applyInviteGrants(
   const [me] = await tx.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, userId));
   const names = new Map((await tx.select({ id: roles.id, name: roles.name }).from(roles).where(inArray(roles.id, valid.map((g) => g.roleId)))).map((r) => [r.id, r.name]));
   for (const g of valid) {
-    await recordChange(tx, { type: "member.added", actor: me!, projectId: g.projectId, data: { object: memberObject(me!), after: names.get(g.roleId) ?? null, params: { via: "invite" } } });
+    const entryId = await recordChange(tx, { type: "member.added", actor: me!, projectId: g.projectId, data: { object: memberObject(me!), after: names.get(g.roleId) ?? null, params: { via: "invite" } } });
+    // Chi accetta è l'attore: l'avviso va ai gestori, non a lui (decisione di 46, 20 nov 2026).
+    await publishMemberAdded(tx, { projectId: g.projectId, userId, roleName: names.get(g.roleId) ?? "", actorUserId: userId, changeLogEntryId: entryId });
   }
 }
