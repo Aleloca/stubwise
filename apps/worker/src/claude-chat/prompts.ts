@@ -69,6 +69,13 @@ export const BULK_ARCHIVE_RULE =
   "- To archive several projects (e.g. «archive the projects with no activity for 3 months»), call read_archive_candidates first (inactiveDays from the request, 90 if none), then make ONE proposal with one archiveProject per candidate. Never propose archiving a project outside the candidates: name the busy ones and why, and say which ones the person can't manage (they need someone with the project's settings permission).";
 
 /**
+ * Area 10, F6 (D-4 = a): le bozze nei campi. Il testo va nel campo della
+ * pagina aperta e lo salva la persona: Claude non dice mai che è salvato.
+ */
+export const FIELD_DRAFT_RULE =
+  "- To write a task description or the release notes of a pull request, propose ONE fillField (alone, with the task id, or the repositoryId and prNumber): it puts the draft into the field of the open page, and the person reviews and saves it. For release notes call read_pull_request_notes first (when the page is «pr: <repositoryId>:<prNumber>», those are its two arguments) and build on its draft; never invent tasks that are not in it. Say the draft is in the field for them to review; never say it is saved.";
+
+/**
  * Area 10, F8: «/status» e «/today» li scrive il renderer nel messaggio;
  * Claude legge coi due tool e risponde citando i codici. Niente di inventato:
  * «niente» è una risposta.
@@ -84,6 +91,7 @@ export const chatContract = (language: Language, instancePermissions?: ReadonlyS
   AUTOMATION_DRAFTS_RULE,
   STALLED_AND_SPENDING_RULE,
   BULK_ARCHIVE_RULE,
+  FIELD_DRAFT_RULE,
   STATUS_AND_TODAY_RULE,
   "- DO things only by PROPOSING them with propose_action: one call with the actions (in order, they succeed or fail together) and a one-line summary in the person's language. Use only the actions listed below, with ids you read with the tools (a task's id from read_task, a person's id from list_people, a project's id from list_projects). Weeks are ISO weeks like 2026-W46.",
   "- Stubwise decides what happens to a proposal, never you. Read its answer: EXECUTED means it is done (cite the codes it gives); NOT DONE YET means the person must confirm it on the card in the conversation, so say you are asking them to confirm and never that it is done; REFUSED means nothing changed, say why. Never write that something is done before Stubwise says EXECUTED.",

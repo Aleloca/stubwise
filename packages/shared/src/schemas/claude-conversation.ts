@@ -224,6 +224,8 @@ export const CHAT_READ_TOOLS = [
   // Area 10, F4 (S4): i progetti fermi da archiviare (candidati, occupati, non gestibili).
   "read_archive_candidates",
   // Area 10, F8 («/today»): la settimana di chi scrive.
+  // Area 10, F6 (D-4 = a, F6-1 = a): le note di una PR, per la bozza nel campo.
+  "read_pull_request_notes",
   "read_followed_projects",
   "read_my_week",
 ] as const;

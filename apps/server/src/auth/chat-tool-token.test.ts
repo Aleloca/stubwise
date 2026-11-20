@@ -23,7 +23,8 @@ let hiddenRepo: string;
 
 beforeAll(async () => {
   t = await startTestDb();
-  app = buildApp({ db: t.db, sessionSecret: "x".repeat(32) });
+  // Area 10, F6: le note di una PR leggono la chiave (le credenziali del seme non si decifrano: nessuna rete).
+  app = buildApp({ db: t.db, sessionSecret: "x".repeat(32), encryptionKey: Buffer.alloc(32, 7).toString("base64") });
   u = await seedUsers(app);
   author = await createUserWithSession(app, "author@example.com");
   const seen = await seedTicket(t.db);
@@ -96,6 +97,30 @@ describe("il token del turno della chat", () => {
     expect((await get(`/api/repositories/${seenRepo}/docs/pages/runbook`, token)).statusCode).toBe(200);
     expect((await get(`/api/repositories/${hiddenRepo}/docs/pages/segreto`, token)).statusCode).toBe(404);
     expect((await get(`/api/repositories/${seenRepo}/docs/tree`, token)).statusCode).toBe(403);
+  });
+
+  it("area 10, F6: le note di una PR (`read_pull_request_notes`): 200 a chi vede il progetto, 404 a uno nascosto; la lettura segna la conversazione (commit e titoli vengono da fuori) e ne registra il progetto; scriverle resta 403", async () => {
+    const { ticketRepositories, claudeConversationProjects } = await import("@stubwise/db");
+    const link = async (repositoryId: string) => {
+      const p = await t.db.execute<{ project_id: string }>(sql`select project_id from repositories where id = ${repositoryId}`);
+      const { ticketId } = await seedTicket(t.db, { projectId: p[0]!.project_id, repositoryId, number: 9077 });
+      await t.db.insert(ticketRepositories).values({ ticketId, repositoryId, branch: "b", prUrl: "https://github.com/acme/x/pull/77", prNumber: 77, prState: "open" });
+      return p[0]!.project_id;
+    };
+    const seenProject = await link(seenRepo);
+    await link(hiddenRepo);
+    const sessionId = await conversationOf(author.headers.cookie);
+    const token = await issueChatToolToken(t.db, { sessionId, userId: author.id, ttlMs: 60_000 });
+    expect((await get(`/api/repositories/${hiddenRepo}/pulls/77/release-notes`, token)).statusCode).toBe(404);
+    const [before] = await t.db.select({ at: claudeConversations.untrustedReadAt }).from(claudeConversations).where(eq(claudeConversations.sessionId, sessionId));
+    expect(before!.at).toBeNull();
+    expect((await get(`/api/repositories/${seenRepo}/pulls/77/release-notes`, token)).statusCode).toBe(200);
+    const [after] = await t.db.select({ at: claudeConversations.untrustedReadAt }).from(claudeConversations).where(eq(claudeConversations.sessionId, sessionId));
+    expect(after!.at).not.toBeNull();
+    const read = await t.db.select({ id: claudeConversationProjects.projectId }).from(claudeConversationProjects).where(eq(claudeConversationProjects.sessionId, sessionId));
+    expect(read.map((r) => r.id)).toEqual([seenProject]);
+    const put = await app.inject({ method: "PUT", url: `/api/repositories/${seenRepo}/pulls/77/release-notes`, headers: { authorization: `Bearer ${token}` }, payload: { body: "x" } });
+    expect(put.statusCode).toBe(403);
   });
 
   it("area 8, F1: legge un rilascio per codice (`read_release`) di un progetto che l'autore vede, 404 a uno nascosto; la lettura segna la conversazione come non fidata", async () => {

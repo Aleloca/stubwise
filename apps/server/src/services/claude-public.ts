@@ -6,6 +6,7 @@ import {
   claudeConversationProjects,
   claudeConversations,
   projects,
+  repositories,
   roles,
   users,
   type Db,
@@ -395,6 +396,11 @@ async function projectsOfResponse(db: Db, route: string, params: Record<string, 
   if (route === "/api/servers/by-code/:code") {
     const of = (k: string) => (Array.isArray(b[k]) ? (b[k] as { id?: unknown }[]).map((p) => p.id) : []);
     return uuids([...of("projects"), ...of("productionProjects")]);
+  }
+  // Area 10, F6: le note di una PR dicono il repository, non il progetto.
+  if (route === "/api/repositories/:repositoryId/pulls/:prNumber/release-notes" && typeof params["repositoryId"] === "string" && UUID.test(params["repositoryId"])) {
+    const [r] = await db.select({ projectId: repositories.projectId }).from(repositories).where(eq(repositories.id, params["repositoryId"]));
+    return uuids([r?.projectId]);
   }
   if (route === "/api/chat/channels/:id/messages" && typeof params["id"] === "string" && UUID.test(params["id"])) {
     const [c] = await db.select({ projectId: chatChannels.projectId }).from(chatChannels).where(eq(chatChannels.id, params["id"]));
