@@ -188,9 +188,10 @@ export async function citeablesFor(
           number: docPageCodes.number,
           projectId: docPageCodes.projectId,
           projectCode: projects.code,
-          repositoryId: docPageCodes.repositoryId,
+          repositoryId: repositories.id,
           repositorySlug: repositories.slug,
-          slug: docPageCodes.slug,
+          // Il join sui repository esclude le pagine di prodotto (area 11, F1): qui lo slug c'è sempre.
+          slug: sql<string>`${docPageCodes.slug}`,
           title: docPages.title,
           generated: sql<boolean>`${docPages.generationId} is not null`,
         })

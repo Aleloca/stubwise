@@ -26,7 +26,8 @@ export async function docCodesFor(db: Db, refs: readonly { repositoryId: string;
     .from(docPageCodes)
     .innerJoin(projects, eq(projects.id, docPageCodes.projectId))
     .where(and(inArray(docPageCodes.repositoryId, repositoryIds), inArray(docPageCodes.slug, slugs)));
-  for (const r of rows) out.set(keyOf(r.repositoryId, r.slug), docCode(r.projectCode, r.number));
+  // Le righe di una pagina di prodotto (area 11, F1) non hanno repository né slug: qui non ci sono.
+  for (const r of rows) if (r.repositoryId !== null && r.slug !== null) out.set(keyOf(r.repositoryId, r.slug), docCode(r.projectCode, r.number));
   return out;
 }
 
@@ -56,7 +57,7 @@ export async function resolveDocCode(db: Db, viewer: Viewer, code: string): Prom
   const [row] = await db
     .select({
       projectId: docPageCodes.projectId,
-      repositoryId: docPageCodes.repositoryId,
+      repositoryId: repositories.id,
       repositorySlug: repositories.slug,
       currentGeneration: repositories.currentDocGenerationId,
       slug: docPageCodes.slug,
@@ -65,7 +66,9 @@ export async function resolveDocCode(db: Db, viewer: Viewer, code: string): Prom
     .innerJoin(projects, eq(projects.id, docPageCodes.projectId))
     .innerJoin(repositories, eq(repositories.id, docPageCodes.repositoryId))
     .where(and(eq(projects.code, projectCode!), eq(docPageCodes.number, Number(number))));
-  if (!row) return null;
+  // Un codice di una pagina di prodotto (area 11, F1) non ha repository: il join lo esclude, e lo slug è nullo.
+  if (!row || row.slug === null) return null;
+  const slug = row.slug;
   const readable = await projectIdsWithPermission(db, viewer, "docs.view");
   if (!scopeIncludes(readable, row.projectId)) return null;
   const [page] = await db
@@ -74,7 +77,7 @@ export async function resolveDocCode(db: Db, viewer: Viewer, code: string): Prom
     .where(
       and(
         eq(docPages.repositoryId, row.repositoryId),
-        eq(docPages.slug, row.slug),
+        eq(docPages.slug, slug),
         row.currentGeneration ? or(eq(docPages.generationId, row.currentGeneration), isNull(docPages.generationId)) : isNull(docPages.generationId),
       ),
     )
@@ -84,7 +87,7 @@ export async function resolveDocCode(db: Db, viewer: Viewer, code: string): Prom
     projectId: row.projectId,
     repositoryId: row.repositoryId,
     repositorySlug: row.repositorySlug,
-    slug: row.slug,
+    slug,
     available: page !== undefined,
   };
 }

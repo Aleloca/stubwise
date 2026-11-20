@@ -208,7 +208,7 @@ describe("runPageCreateItem", () => {
     deps.embeddingClient = {
       ...fake,
       embed: async (inputs: string[]) => {
-        seen.push((await testDb.db.select({ slug: docPageCodes.slug }).from(docPageCodes).where(eq(docPageCodes.repositoryId, repositoryId))).map((r) => r.slug));
+        seen.push((await testDb.db.select({ slug: docPageCodes.slug }).from(docPageCodes).where(eq(docPageCodes.repositoryId, repositoryId))).flatMap((r) => (r.slug === null ? [] : [r.slug])));
         return fake.embed(inputs);
       },
     };

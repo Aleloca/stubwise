@@ -2676,17 +2676,128 @@ export const docPageCodes = pgTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     number: integer("number").notNull(),
-    repositoryId: uuid("repository_id")
-      .notNull()
-      .references(() => repositories.id, { onDelete: "cascade" }),
-    slug: text("slug").notNull(),
+    // Area 11, F1 (D-9 = a, 0202): una riga è di un repository (repository e
+    // slug insieme) o di una pagina di prodotto (né repository né slug). Il
+    // riferimento alla pagina si azzera quando la pagina se ne va: il numero
+    // resta preso.
+    repositoryId: uuid("repository_id").references(() => repositories.id, { onDelete: "cascade" }),
+    slug: text("slug"),
+    productPageId: uuid("product_page_id").references((): AnyPgColumn => productPages.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     uniqueIndex("doc_page_codes_project_number_idx").on(table.projectId, table.number),
     uniqueIndex("doc_page_codes_repository_slug_idx").on(table.repositoryId, table.slug),
+    uniqueIndex("doc_page_codes_product_page_idx").on(table.productPageId).where(sql`product_page_id IS NOT NULL`),
+    check(
+      "doc_page_codes_owner_chk",
+      sql`(repository_id IS NULL) = (slug IS NULL) AND NOT (repository_id IS NOT NULL AND product_page_id IS NOT NULL)`,
+    ),
   ],
 );
+
+/**
+ * Area 11, F1 — la documentazione di prodotto (0202). Una pagina dello spazio
+ * Product di un progetto: il corpo è un documento a blocchi (`blocks`, D-11 =
+ * a) che si scrive SOLO a operazioni (`applyBlockOps` di `@stubwise/shared`,
+ * sotto un `FOR UPDATE` della riga); `block_seq` dà gli id nuovi, che non si
+ * riusano mai. Il codice `-D` sta in `doc_page_codes` (trigger
+ * `product_pages_code`).
+ */
+export const productPages = pgTable(
+  "product_pages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    // NO ACTION, non RESTRICT: una pagina con figlie non si elimina, ma un progetto che se ne va porta via tutte le sue pagine in cascata (il controllo a fine istruzione).
+    parentId: uuid("parent_id").references((): AnyPgColumn => productPages.id),
+    order: integer("order").notNull().default(0),
+    title: text("title").notNull(),
+    blocks: jsonb("blocks").$type<unknown[]>().notNull().default([]),
+    blockSeq: integer("block_seq").notNull().default(0),
+    /** La sequenza delle revisioni della pagina (`seq`/`last_seq`, il `baseSeq` del client). */
+    revSeq: integer("rev_seq").notNull().default(0),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("product_pages_tree_idx").on(table.projectId, table.parentId, table.order),
+    check("product_pages_not_own_parent_chk", sql`parent_id IS NULL OR parent_id <> id`),
+  ],
+);
+
+/**
+ * Le revisioni di una pagina di prodotto (F1, la regola del prototipo
+ * `recordRevision`): una scrittura dell'editor si UNISCE all'ultima revisione
+ * della pagina se è della stessa persona e della stessa sessione
+ * (`last_seq` cresce), altrimenti ne apre una nuova. `seq` e `last_seq`
+ * vengono da `product_pages.rev_seq`: il client manda l'ultimo che ha visto
+ * (`baseSeq`). `title` e `parent` (prima e dopo) per `rename` e `move`.
+ * `kind` si allarga in F5 (le modifiche di Claude, «Undo»).
+ */
+export const productPageRevisions = pgTable(
+  "product_page_revisions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => productPages.id, { onDelete: "cascade" }),
+    sessionId: text("session_id"),
+    seq: integer("seq").notNull(),
+    lastSeq: integer("last_seq").notNull(),
+    actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
+    kind: text("kind").$type<"create" | "edit" | "rename" | "move">().notNull().default("edit"),
+    undoOf: uuid("undo_of").references((): AnyPgColumn => productPageRevisions.id, { onDelete: "set null" }),
+    changes: jsonb("changes").$type<unknown[]>().notNull().default([]),
+    title: jsonb("title").$type<{ before: string; after: string } | null>(),
+    parent: jsonb("parent").$type<{ beforeId: string | null; afterId: string | null } | null>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("product_page_revisions_page_seq_idx").on(table.pageId, table.lastSeq),
+    check("product_page_revisions_kind_chk", sql`kind in ('create','edit','rename','move')`),
+  ],
+);
+
+/** Chi segue una pagina di prodotto (F1; i destinatari delle card della doc da F2/F5). */
+export const productPageFollows = pgTable(
+  "product_page_follows",
+  {
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => productPages.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ name: "product_page_follows_pk", columns: [table.pageId, table.userId] })],
+);
+
+/**
+ * Le immagini caricate in una pagina di prodotto (F1, D-3 = a): l'oggetto
+ * sta nell'archiviazione d'istanza; il blocco tiene `product-image:<id>`.
+ * L'eliminazione di un progetto ne toglie le chiavi (`storageKeysOfProject`).
+ */
+export const productPageImages = pgTable("product_page_images", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  pageId: uuid("page_id")
+    .notNull()
+    .references(() => productPages.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  storageKey: text("storage_key").notNull().unique(),
+  mime: text("mime").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 /**
  * Chunk di una pagina di documentazione con il suo embedding (pgvector, 1024
