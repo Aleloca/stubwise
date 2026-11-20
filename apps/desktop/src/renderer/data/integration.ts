@@ -234,6 +234,11 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // blocchi degli altri senza ricaricare (lo stream della pagina e il
     // battito); il 409 `section_busy` dice chi tiene la sezione.
     "product-live",
+    // Area 11, F5 (R11-5): il segno di Claude, «Looks good», «Undo», «Undo
+    // all», le domande con le loro scelte, Home «Decide», le domande da
+    // chiudere nel riquadro e la riga «riprende quando…». «Open a request»
+    // torna con F6. I gesti di Claude (F6) restano su `product-claude-actions`.
+    "product-docs",
     // Fetta 3.0 della chat: «Elimina task», a mano dal menu «⋯» della task.
     "task-delete",
     // Fetta 2 della chat, il riquadro (⌘J, ⌘K «Ask Claude…») col chip del contesto.

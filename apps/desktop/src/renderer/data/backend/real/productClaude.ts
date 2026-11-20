@@ -214,8 +214,13 @@ export function questionViewFrom(q: Reader<SharedQuestionView>): ProductQuestion
     apply: richOf(q.apply),
     built: q.built,
     request: q.request,
-    recommended: q.recommended !== null && isAnswer(q.recommended) ? q.recommended : null,
-    options: q.options.filter(isAnswer),
+    // «Open a request» torna con F6 (decisione di 46, registro dei rimandi):
+    // fino ad allora nella build app le scelte sono «Update it» e «Leave it as is».
+    recommended:
+      q.recommended !== null && isAnswer(q.recommended) && q.recommended !== "request"
+        ? q.recommended
+        : null,
+    options: q.options.filter(isAnswer).filter((o) => o !== "request"),
     canAnswer: q.canAnswer,
     applyBlocked: q.applyBlocked ? { byId: q.applyBlocked.byId } : null,
     answer:
@@ -312,6 +317,13 @@ export const liveProductClaude: Partial<ProductDocs> = {
     } catch (error) {
       return mapClaudeError(error);
     }
+  },
+
+  // Nella build app non c'è un evento delle domande: si rileggono con le
+  // scritture che le toccano (le risposte invalidano «Decide» e i fili) e con
+  // lo stream della pagina. L'iscrizione c'è, e non chiama niente.
+  onProductQuestionsChanged() {
+    return () => undefined;
   },
 
   // Il riquadro di uno spazio: le domande aperte del progetto a cui chi guarda

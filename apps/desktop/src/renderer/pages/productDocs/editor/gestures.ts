@@ -212,10 +212,10 @@ export function makeGestures(ctx: GestureContext) {
     const text = block && isTextBlock(block) ? block.content.text : "";
     return s.viaPlus ? text : text.slice(1);
   };
-  // «Screen sketch» è di Claude (F6): nella build app arriva con `product-docs` (R11-1).
+  // «Screen sketch» è di Claude (F6): nella build app arriva con `product-claude-actions`.
   const slashItems = (s: Slash | null): SlashItem[] =>
     filterSlashItems(slashQuery(s), (key) => t(key)).filter(
-      (item) => item.id !== "wireframe" || productLaterOn("claude"),
+      (item) => item.id !== "wireframe" || productLaterOn("actions"),
     );
 
   const pickSlash = (item: SlashItem) => {

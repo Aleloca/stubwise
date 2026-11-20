@@ -1450,13 +1450,17 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     `POST /api/product-pages/:id/comments` non ha una chiave del client; se
     il commento è salvato ma la risposta si perde, «Retry» ne scrive un
     secondo. Si chiude con una chiave idempotente sulla rotta (72).
-  - **«Open a request» da una domanda di Claude** *(S, R11-5 → F6)*: nel
-    prototipo apre il riquadro e il motore risponde con la scheda B
-    (`createRequest` con `origin.product_doc`). Nella build app risponde il
-    Claude del server: la scheda arriva quando sa proporre `createRequest`
-    con l'origine della doc (le capacità `product*`, F6). La riga «Una
-    richiesta è in preparazione…» (`listProductRequestsPreparing`) legge le
-    proposte aperte di chi guarda e arriva con loro.
+  - **«Open a request» da una domanda di Claude** *(S, F6 la chiude)*:
+    con `product-docs` acceso (F5) la build app la toglie dalle scelte delle
+    domande, consiglio compreso (decisione di 46). Il prototipo resta com'è.
+    F6 la rimette: la scheda B nel riquadro, confermata con `createRequest`
+    e `origin.product_doc`. Con lei arriva la riga «Una richiesta è in
+    preparazione…» (`listProductRequestsPreparing`, dalle proposte aperte
+    di chi guarda).
+  - **I gesti di Claude sulla doc** *(F6)*: prima versione, dalla doc al
+    backlog, richieste nate dalla pagina, bozze di schermata, il gruppo di
+    Claude nel «⋯» e nel menu del titolo, «Screen sketch» in «/». Stanno
+    dietro `product-claude-actions`, spento.
 - *Revisione di R11-1 (46, 20 nov 2026), chiuse*: le immagini (la rotta dà
   i byte, 72 69b09a99d: sul web `<img src>` sulla rotta, sul desktop i byte
   da `api:request` come data URL); la cronologia a pagine di 100 con

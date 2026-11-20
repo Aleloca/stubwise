@@ -54,6 +54,8 @@ const ALL: IntegrationTarget[] = [
       "product-export",
       // Area 11, F4: la scrittura dal vivo.
       "product-live",
+      // Area 11, F6: i gesti di Claude sulla doc (spenti).
+      "product-claude-actions",
       "task-delete",
       "chat",
       ...CHAT_LATER_FEATURES,
@@ -262,6 +264,8 @@ describe("isIntegrated", () => {
         "feature:product-export",
         // Area 11, F4: la scrittura dal vivo.
         "feature:product-live",
+        // Area 11, F5: Claude sulla doc (segni, domande, attese).
+        "feature:product-docs",
         // Fetta 3.0 della chat: «Elimina task».
         "feature:task-delete",
         // Area 4, fetta 1: la Chat fra persone (le fette dopo restano spente).

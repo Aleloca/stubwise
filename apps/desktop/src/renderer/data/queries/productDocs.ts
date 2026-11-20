@@ -37,8 +37,9 @@ const docsModuleAreas = (): readonly string[] => [
  * Le fette dell'integrazione dopo F1 (area 11): nella build app ogni pezzo
  * legge e ascolta solo con la sua funzione accesa (R11-1). I commenti e le
  * menzioni con F2, la ricerca e l'esportazione con F3, la presenza e la
- * scrittura dal vivo con F4, Claude (segni, domande, prima versione, dalla
- * doc al backlog, bozze di schermata) con F5–F6. Nel prototipo è tutto acceso.
+ * scrittura dal vivo con F4, Claude con F5 (segni, domande, attese) e i
+ * suoi gesti con F6 (prima versione, dalla doc al backlog, richieste nate
+ * dalla pagina, bozze di schermata). Nel prototipo è tutto acceso.
  */
 export const PRODUCT_LATER = {
   comments: "product-comments",
@@ -46,6 +47,7 @@ export const PRODUCT_LATER = {
   export: "product-export",
   live: "product-live",
   claude: "product-docs",
+  actions: "product-claude-actions",
 } as const;
 
 /** Una fetta dopo F1 è accesa? (vedi `PRODUCT_LATER`). */
@@ -461,7 +463,7 @@ export function useFirstVersionSources(projectId: string, { enabled = true }: { 
   return useQuery({
     queryKey: ["as", me, "productDocs", "firstVersionSources", projectId] as const,
     queryFn: () => api.productDocs.listFirstVersionSources(projectId),
-    enabled: enabled && productLaterOn("claude"),
+    enabled: enabled && productLaterOn("actions"),
   });
 }
 
@@ -473,7 +475,7 @@ export function useFirstVersionSources(projectId: string, { enabled = true }: { 
 export function useProductFirstVersion(projectId: string, { enabled = true }: { enabled?: boolean } = {}) {
   const me = useSessionPersonId();
   const client = useQueryClient();
-  const on = productLaterOn("claude");
+  const on = productLaterOn("actions");
   useEffect(
     () =>
       on
@@ -567,7 +569,7 @@ export function useProductRequestsPreparing(pageId: string, { enabled = true }: 
   const me = useSessionPersonId();
   const client = useQueryClient();
   const queryKey = ["as", me, "productDocs", "requestsPreparing", pageId] as const;
-  const on = productLaterOn("claude");
+  const on = productLaterOn("actions");
   useEffect(() => {
     if (!on) return;
     const again = () => void client.invalidateQueries({ queryKey: ["as", me, "productDocs", "requestsPreparing"] });
@@ -603,7 +605,7 @@ export function useBacklogProposal(
   return useQuery({
     queryKey: ["as", me, "requests", "productBacklogProposal", pageId, fromAnchorId] as const,
     queryFn: () => api.productDocs.proposeBacklogFromPage(pageId, fromAnchorId ?? undefined),
-    enabled: enabled && productLaterOn("claude"),
+    enabled: enabled && productLaterOn("actions"),
     refetchOnMount: "always",
   });
 }
@@ -614,7 +616,7 @@ export function useProductLinkedRequests(pageId: string, { enabled = true }: { e
   return useQuery({
     queryKey: ["as", me, "requests", "productLinked", pageId] as const,
     queryFn: () => api.productDocs.listProductLinkedRequests(pageId),
-    enabled: enabled && productLaterOn("claude"),
+    enabled: enabled && productLaterOn("actions"),
   });
 }
 

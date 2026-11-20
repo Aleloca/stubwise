@@ -1018,7 +1018,7 @@ function PageMenu({
               </div>
             )}
             {/* I gesti di Claude (11b, [PB 2]): per chi scrive, prima di Copy link. */}
-            {page.permissions.edit && productLaterOn("claude") && (
+            {page.permissions.edit && productLaterOn("actions") && (
               <PageClaudeGroup page={page} close={() => close(true)} onDraw={() => editor?.current?.drawScreen()} />
             )}
             <MenuGroup>

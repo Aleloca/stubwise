@@ -945,7 +945,7 @@ function WritableBody({
                         }
                         onClaudeChange={marks?.byBlock.has(block.id) ? () => marks.setOpen(block.id) : undefined}
                         claudeItem={
-                          block.type === "heading" && productLaterOn("claude")
+                          block.type === "heading" && productLaterOn("actions")
                             ? (close) => (
                                 <SectionProposeItem
                                   page={page}

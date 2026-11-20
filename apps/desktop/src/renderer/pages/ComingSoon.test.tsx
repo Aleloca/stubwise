@@ -137,6 +137,14 @@ const INTEGRATED_CALLS = new Set([
   "productDocs.joinProductPage",
   "productDocs.getProductPresence",
   "productDocs.setProductPresence",
+  // Area 11, F5 (R11-5): Claude sulla doc (segni, domande, attese).
+  "productDocs.listProductMarks",
+  "productDocs.acceptProductMark",
+  "productDocs.undoProductChange",
+  "productDocs.answerProductQuestion",
+  "productDocs.listOpenProductQuestions",
+  "productDocs.productUpdatesWaiting",
+  "productDocs.onProductQuestionsChanged",
   // Area 10, F7: la riga «Claude can help you…» e il suo «Not now», dal server.
   "suggestionKeyOf",
   "getClaudeSuggestion",
@@ -837,7 +845,7 @@ describe("aree non integrate nella build app", () => {
 
   // Area 11, F1 (R11-1): lo spazio Product c'è; commenti, ricerca ed
   // esportazione, dal vivo e Claude (F2–F6) restano fuori e non si leggono.
-  it("lo spazio Product (/p/X/docs/product) e una sua pagina si aprono e leggono solo le chiamate di F1–F4", async () => {
+  it("lo spazio Product (/p/X/docs/product) e una sua pagina si aprono e leggono solo le chiamate di F1–F5", async () => {
     // Marco legge i Docs di ACQ (la persona di partenza, Giulia, non è nel progetto).
     signedInAs("p-marco");
     renderRoute("/p/ACQ/docs/product");
