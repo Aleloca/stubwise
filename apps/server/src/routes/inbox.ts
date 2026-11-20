@@ -109,6 +109,7 @@ function toInboxItemView(item: ServiceInboxItem): InboxItem {
     alertMandatory: item.alertMandatory,
     serverCode: item.serverCode,
     undoneBy: item.undoneBy,
+    memberAdded: item.memberAdded,
     // Area 4, Chat: il messaggio di una card `chat.mention`, derivato dal servizio.
     chat: item.chat ?? null,
     // Area 7: lo stato dell'esecuzione di una card `automation.*`, derivato dal servizio.

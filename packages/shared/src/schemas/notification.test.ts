@@ -359,9 +359,15 @@ describe("inboxItemSchema.undoneBy (area 10, F5) — additivo", () => {
     handledBy: null,
   };
 
-  it("un server più vecchio non lo manda: null", () => {
+  it("un server più vecchio non lo manda: null (e così memberAdded)", () => {
     const parsed = readerSchema(inboxItemSchema).parse(item);
     expect(parsed.undoneBy).toBeNull();
+    expect(parsed.memberAdded).toBeNull();
+  });
+
+  it("memberAdded coi nomi a null (chi guarda non vede la persona) passa", () => {
+    const parts = { addedUserId: "1c9e4f70-5555-4666-8777-888899990003", addedName: null, roleName: null, actorName: null };
+    expect(readerSchema(inboxItemSchema).parse({ ...item, memberAdded: parts }).memberAdded).toEqual(parts);
   });
 
   it("quando c'è, passa", () => {
