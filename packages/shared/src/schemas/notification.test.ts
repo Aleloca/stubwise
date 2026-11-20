@@ -408,6 +408,7 @@ describe("inboxItemSchema.productDoc (area 11, F2) — additivo", () => {
       authorId: null,
       authorName: null,
     };
-    expect(readerSchema(inboxItemSchema).parse({ ...item, productDoc }).productDoc).toEqual(productDoc);
+    // Senza `excerpt` (un server di prima della richiesta di 46): null.
+    expect(readerSchema(inboxItemSchema).parse({ ...item, productDoc }).productDoc).toEqual({ ...productDoc, excerpt: null });
   });
 });

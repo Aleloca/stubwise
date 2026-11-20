@@ -308,6 +308,12 @@ export interface ProductDocCard {
   authorId: string | null;
   /** Chi ha menzionato, solo se chi guarda lo vede (R-G5). */
   authorName: string | null;
+  /**
+   * Il testo del commento di ADESSO, al più 200 caratteri (come `chat.excerpt`),
+   * dalla riga del commento, mai dal jsonb; null su `updated` e `question`
+   * (richiesta di 46 dalla review di R11-2: nel prototipo il corpo della card).
+   */
+  excerpt: string | null;
 }
 
 /**
@@ -342,7 +348,7 @@ export async function productDocCardsFor(db: Db, viewerId: string, rows: readonl
   const commentRows =
     commentIds.length > 0
       ? await db
-          .select({ id: productComments.id, pageId: productComments.pageId, replyToId: productComments.replyToId, authorId: productComments.authorId })
+          .select({ id: productComments.id, pageId: productComments.pageId, replyToId: productComments.replyToId, authorId: productComments.authorId, body: productComments.body })
           .from(productComments)
           .where(and(inArray(productComments.id, commentIds), isNull(productComments.deletedAt)))
       : [];
@@ -370,6 +376,8 @@ export async function productDocCardsFor(db: Db, viewerId: string, rows: readonl
       threadRootId: comment ? (comment.replyToId ?? comment.id) : null,
       authorId: comment?.authorId ?? null,
       authorName: comment?.authorId ? (names.get(comment.authorId) ?? null) : null,
+      // Un commento eliminato non ha testo (e qui non arriva: è `objectGone`); un corpo vuoto resta null.
+      excerpt: comment && comment.body !== "" ? (comment.body.length > 200 ? `${comment.body.slice(0, 199).trimEnd()}…` : comment.body) : null,
     });
   }
   return out;

@@ -73,14 +73,14 @@ function asServerSent(body: unknown): SearchResults {
   // gruppi che ci sono sono comunque controllati.
   return body as SearchResults;
 }
-const EMPTY: Omit<SearchResults, "mail" | "automations"> = {
+const EMPTY: Omit<SearchResults, "mail" | "automations" | "product"> = {
   tickets: { items: [], hasMore: false },
   projects: { items: [], hasMore: false },
   repositories: { items: [], hasMore: false },
   docs: { items: [], hasMore: false },
 };
 
-const RESULTS: Omit<SearchResults, "mail" | "automations"> = {
+const RESULTS: Omit<SearchResults, "mail" | "automations" | "product"> = {
   tickets: {
     items: [
       {
@@ -371,7 +371,7 @@ describe("GlobalSearchPalette", () => {
   });
 
   it('"mostra altri": espande un gruppo oltre i primi 5', async () => {
-    const many: Omit<SearchResults, "mail" | "automations"> = {
+    const many: Omit<SearchResults, "mail" | "automations" | "product"> = {
       ...EMPTY,
       tickets: {
         items: Array.from({ length: 6 }, (_, i) => ({

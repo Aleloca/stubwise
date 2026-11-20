@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
-import { notifications, projectMembers, roles } from "@stubwise/db";
+import { notifications, productComments, projectMembers, roles } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { InboxItem, ProductCommentView, ProductPageView } from "@stubwise/shared";
 import { buildApp } from "../app.js";
@@ -123,6 +123,24 @@ describe("la menzione nella doc di prodotto", () => {
     expect(await rowsFor(again.comment.id)).toHaveLength(0);
   });
 
+  it("46 (R11-2): l'estratto è il testo del commento di ADESSO, anche su una CARD VECCHIA, mai dal jsonb; un commento eliminato non dà testo", async () => {
+    const long = `@reader-m ${"parola ".repeat(60)}`;
+    const { comment } = await mention(long);
+    // La card vecchia: un jsonb con un `body` scritto apposta, che la card non deve leggere.
+    await t.db
+      .update(notifications)
+      .set({ event: sql`${notifications.event} || '{"body":"testo del jsonb"}'::jsonb` })
+      .where(and(eq(notifications.userId, reader.id), sql`${notifications.event}->>'commentId' = ${comment.id}`));
+    let [card] = await cardsOf(reader, comment.id);
+    expect(card!.productDoc!.excerpt).toBe(`${long.slice(0, 199).trimEnd()}…`);
+    expect(JSON.stringify(card)).not.toContain("testo del jsonb");
+    // Eliminato (come fa la regola dei commenti: `body = ''`): niente più testo, e la card è sparita.
+    await t.db.update(productComments).set({ deletedAt: new Date(), body: "" }).where(eq(productComments.id, comment.id));
+    [card] = await cardsOf(reader, comment.id);
+    expect(card).toMatchObject({ objectGone: true, productDoc: null });
+    expect(JSON.stringify(card)).not.toContain("parola parola");
+  });
+
   it("review di F2: una pagina che non c'è più con il commento che c'è ancora (il ramo della pagina, da solo) è `objectGone`", async () => {
     const { comment } = await mention("@reader-m resta il commento");
     await t.db
@@ -148,7 +166,7 @@ describe("review di F2: `updated` e `question` si derivano come la menzione (i p
     }
     const read = async () => ((await inject(reader, "GET", "/api/inbox")).json() as { items: InboxItem[] }).items.filter((i) => ids.includes(i.id));
     for (const card of await read()) {
-      expect(card, card.kind).toMatchObject({ objectGone: false, productDoc: { pageId: created.id, pageCode: created.code, pageTitle: "Aggiornata", commentId: null, threadRootId: null } });
+      expect(card, card.kind).toMatchObject({ objectGone: false, productDoc: { pageId: created.id, pageCode: created.code, pageTitle: "Aggiornata", commentId: null, threadRootId: null, excerpt: null } });
       expect(card.text, card.kind).toContain(created.code);
       expect(card.text, card.kind).not.toContain("VEC-D1");
     }

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { productPageChunks, productPages } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { createFakeEmbeddingClient, type EmbeddingClient } from "@stubwise/embeddings";
@@ -93,6 +93,23 @@ describe("embedStaleProductPages", () => {
     expect(await productChunkCount(t.db, p.id)).toBe(0);
     const [row] = await t.db.select({ embeddedAt: productPages.embeddedAt }).from(productPages).where(eq(productPages.id, p.id));
     expect(row!.embeddedAt).toBeNull();
+  });
+
+  it("una pagina di prima della 0207 (testo cercabile vuoto) lo riceve dal poller, piegato", async () => {
+    const p = await page("Vecchia Pagina", ["Il Caffè"], ago(500));
+    expect(p.searchText).toBe("");
+    await embedStaleProductPages(t.db, embedder, log);
+    const [row] = await t.db.select({ searchText: productPages.searchText }).from(productPages).where(eq(productPages.id, p.id));
+    expect(row!.searchText).toBe("vecchia pagina\nil caffe");
+  });
+
+  it("46: con l'embedder giù il testo cercabile delle pagine di prima arriva lo stesso (non dipende dagli embedding)", async () => {
+    const a = await page("Prima A", ["Caffè"], ago(600));
+    const b = await page("Prima B", ["Tè"], ago(600));
+    const down: EmbeddingClient = { ...embedder, embed: async () => Promise.reject(new Error("ollama giù")) };
+    await embedStaleProductPages(t.db, down, log);
+    const rows = await t.db.select({ id: productPages.id, searchText: productPages.searchText }).from(productPages).where(inArray(productPages.id, [a.id, b.id]));
+    expect(new Map(rows.map((r) => [r.id, r.searchText]))).toEqual(new Map([[a.id, "prima a\ncaffe"], [b.id, "prima b\nte"]]));
   });
 
   it("eliminare la pagina toglie i suoi chunk", async () => {

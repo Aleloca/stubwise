@@ -1,7 +1,7 @@
 import { productPageChunks, productPages, type Db } from "@stubwise/db";
 import { chunkMarkdown, DOC_CHUNK_OVERLAP_WORDS, DOC_CHUNK_TARGET_TOKENS, estimateTokens } from "@stubwise/docs-engine";
 import type { EmbeddingClient } from "@stubwise/embeddings";
-import { productBlockSchema, productBlocksToText, type ProductBlock } from "@stubwise/shared";
+import { productBlockSchema, productBlocksToText, productSearchText, type ProductBlock } from "@stubwise/shared";
 import { and, asc, eq, isNull, lt, or, sql } from "drizzle-orm";
 
 /**
@@ -71,7 +71,8 @@ export async function embedProductPage(db: Db, embeddingClient: EmbeddingClient,
           })),
         );
       }
-      await tx.update(productPages).set({ embeddedAt: page.updatedAt }).where(eq(productPages.id, page.id));
+      // Il testo cercabile, per le pagine di prima della 0207 (le scritture lo tengono già aggiornato).
+      await tx.update(productPages).set({ embeddedAt: page.updatedAt, searchText: productSearchText(page.title, readBlocks(page.blocks)) }).where(eq(productPages.id, page.id));
     });
     return true;
   } catch (error) {
@@ -84,8 +85,35 @@ export async function embedProductPage(db: Db, embeddingClient: EmbeddingClient,
   }
 }
 
-/** Un giro del poller: le pagine ferme da rifare, fino al primo errore dell'embedder. Restituisce quante ne ha fatte. */
+/**
+ * Il testo cercabile (0207) delle pagine che non l'hanno ancora: quelle di
+ * prima della colonna. Il titolo non è mai vuoto, quindi `''` vuol dire «mai
+ * calcolato». NON dipende dall'embedder (46): con ollama giù la ricerca per
+ * testo deve trovarle lo stesso. Le scritture lo tengono aggiornato da sole.
+ */
+export async function backfillProductSearchText(db: Db, limit = 100): Promise<number> {
+  const rows = await db
+    .select({ id: productPages.id, title: productPages.title, blocks: productPages.blocks })
+    .from(productPages)
+    .where(eq(productPages.searchText, ""))
+    .limit(limit);
+  for (const r of rows) {
+    // Solo se è ancora vuoto: una scrittura arrivata nel frattempo l'ha già messo, di adesso.
+    await db
+      .update(productPages)
+      .set({ searchText: productSearchText(r.title, readBlocks(r.blocks)) })
+      .where(and(eq(productPages.id, r.id), eq(productPages.searchText, "")));
+  }
+  return rows.length;
+}
+
+/**
+ * Un giro del poller: prima il testo cercabile che manca (senza l'embedder),
+ * poi le pagine ferme da rifare, fino al primo errore dell'embedder. Restituisce
+ * quante pagine ha fatto con gli embedding.
+ */
 export async function embedStaleProductPages(db: Db, embeddingClient: EmbeddingClient, log: Log, opts: { now?: Date; quietSeconds?: number; limit?: number } = {}): Promise<number> {
+  await backfillProductSearchText(db).catch((error: unknown) => log.warn({ err: error }, "testo cercabile delle pagine di prodotto non ricostruito"));
   let done = 0;
   for (const page of await staleProductPages(db, opts)) {
     if (!(await embedProductPage(db, embeddingClient, page, log))) break;

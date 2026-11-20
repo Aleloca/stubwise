@@ -837,6 +837,11 @@ export const inboxItemSchema = z.object({
       threadRootId: z.uuid().nullable(),
       authorId: z.uuid().nullable(),
       authorName: z.string().nullable(),
+      /**
+       * Solo per una menzione: il testo del commento di ADESSO, al più 200
+       * caratteri, derivato dalla riga del commento (mai dal jsonb). Additivo.
+       */
+      excerpt: z.string().nullable().default(null),
     })
     .nullable()
     .default(null),
