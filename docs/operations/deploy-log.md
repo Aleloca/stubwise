@@ -5820,3 +5820,44 @@ deploy o di un rollback che la tocca.
   scendono **insieme** al server. Le migrazioni non si annullano: valori d'enum e `product_comments`
   restano, e un server vecchio li ignora. I commenti scritti restano nella
   tabella e tornano visibili quando si risale.
+
+- **«Integrazione area 11, F3: ricerca, citazioni, esportazione»** *(20 nov
+  2026)*: branch `feat/area11-f3` (da `feat/integrazione-area11`), piano
+  `docs/plans/2026-11-20-integrazione-area11-f3-plan.md`.
+  - Migrazione **0206** (`product_page_chunks`): i passaggi delle pagine di
+    prodotto con l'embedding (indice HNSW come `doc_chunks`), e
+    `product_pages.embedded_at`.
+  - Migrazione **0207** (`product_pages_search_text`): il testo cercabile di
+    una pagina, già piegato dal server (senza maiuscole né accenti).
+  - Migrazione **0208** (`doc_chat_product_sources`): le pagine di prodotto
+    usate come fonte da una risposta della chat dei Docs (solo gli id).
+  - **Env nuova, del server**: `PRODUCT_EMBED_POLL_SECONDS` (default 30, almeno
+    5). La stringa VUOTA spegne il poller degli embedding di prodotto, e la
+    ricerca resta per testo. Nel compose la sostituzione è con `-`, come
+    `GRAPHIFY_MCP_URL`. Il poller usa lo stesso embedder dei Docs
+    (`EMBEDDING_*`, ollama).
+  - Rotte nuove sotto `/api`: la ricerca dello spazio
+    (`/projects/:projectId/product/search`) e l'esportazione
+    (`/product-pages/:id/export`, `/projects/:projectId/product/export`). Il
+    gruppo `product` nella ricerca globale. Le citazioni della Chat portano
+    `product`, la chat dei Docs del progetto `productSources`. Tutto additivo.
+  - Nessun `notification_kind` e nessun permesso nuovo.
+
+  **ORDINE**: **server** (healthy, 0206–0208 applicate), poi **caddy**. Il
+  worker non c'entra: F3 non tocca `packages/notifications` e il worker non
+  legge le colonne nuove. Al primo giro (30 s dopo l'avvio) il poller dà alle
+  pagine di prima il testo cercabile, poi fa i loro embedding, 20 per giro: con
+  molte pagine la ricerca per significato si completa in qualche minuto, quella
+  per testo subito.
+
+  **Rollback**: sicuro. Un server vecchio ignora tabella e colonne, e un
+  client vecchio legge la citazione senza destinazione. Una cosa da sapere
+  per quando si risale: un server vecchio che scrive pagine di prodotto non
+  aggiorna `search_text`, quindi il testo cercabile di quelle pagine resta
+  quello di prima della discesa. Gli embedding invece si rifanno da soli
+  (`embedded_at < updated_at`). Dopo la risalita, per rifare il testo
+  cercabile di tutte le pagine (lo ricostruisce il poller, 100 per giro):
+
+  ```sql
+  update product_pages set search_text = '';
+  ```
