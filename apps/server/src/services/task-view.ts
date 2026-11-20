@@ -144,13 +144,17 @@ export function effectiveWeekOverlaps(from: string, to: string): SQL {
   ))`;
 }
 
-/** I filtri di `FilterCriteria` che si esprimono in SQL (tutti tranne `stalled`). */
-export function taskFilterConditions(q: TaskListQuery, today: string): SQL[] {
+/**
+ * I filtri di `FilterCriteria` che si esprimono in SQL (tutti tranne
+ * `stalled`). `viewerId` risolve `assigneeIds=me` (area 10, F8): sul server,
+ * mai nel client.
+ */
+export function taskFilterConditions(q: TaskListQuery, today: string, viewerId: string): SQL[] {
   const c: SQL[] = [];
   if (q.projectIds?.length) c.push(inArray(tickets.projectId, q.projectIds));
   if (q.departmentIds?.length) c.push(inArray(tickets.departmentId, q.departmentIds));
   if (q.assigneeIds?.length) {
-    const ids = q.assigneeIds.filter((a) => a !== "none");
+    const ids = q.assigneeIds.flatMap((a) => (a === "none" ? [] : a === "me" ? [viewerId] : [a]));
     const parts: SQL[] = [];
     if (ids.length) parts.push(inArray(tickets.assigneeId, ids));
     if (q.assigneeIds.includes("none")) parts.push(isNull(tickets.assigneeId));
