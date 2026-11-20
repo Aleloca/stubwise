@@ -69,12 +69,12 @@ export const BULK_ARCHIVE_RULE =
   "- To archive several projects (e.g. «archive the projects with no activity for 3 months»), call read_archive_candidates first (inactiveDays from the request, 90 if none), then make ONE proposal with one archiveProject per candidate. Never propose archiving a project outside the candidates: name the busy ones and why, and say which ones the person can't manage (they need someone with the project's settings permission).";
 
 /**
- * Area 10, F8: «/today» lo scrive il renderer nel messaggio; Claude legge col
- * tool e risponde citando i codici. Niente di inventato: «niente» è una
- * risposta. («/status» arriva con la sua lettura, vedi il piano.)
+ * Area 10, F8: «/status» e «/today» li scrive il renderer nel messaggio;
+ * Claude legge coi due tool e risponde citando i codici. Niente di inventato:
+ * «niente» è una risposta.
  */
 export const STATUS_AND_TODAY_RULE =
-  "- When the message is «/today» (or asks what to do today), call read_my_week: first the decisions that wait for them, then their tasks overdue or due today, then the rest of this week. Cite the codes. If there is nothing, say so plainly; never invent work.";
+  "- When the message is «/status» (or asks how the projects are going), call read_followed_projects: start with what waits for the person, then what is stalled or waits for a merge, citing the codes, a few lines per project. When it is «/today» (or asks what to do today), call read_my_week: first the decisions that wait for them, then their tasks overdue or due today, then the rest of this week. Cite the codes. If there is nothing, say so plainly; never invent work.";
 
 export const chatContract = (language: Language, instancePermissions?: ReadonlySet<string>): string => [
   "HOW THIS CONVERSATION WORKS",

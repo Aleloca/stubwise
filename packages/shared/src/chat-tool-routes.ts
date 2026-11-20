@@ -98,6 +98,12 @@ export const CHAT_TOOL_READ_ROUTES: ReadonlySet<string> = new Set([
   // Area 10, F4 (`read_archive_candidates`, S4): i progetti fermi di chi chiede,
   // divisi come nel prototipo. Il ponte non passa i titoli dei motivi `busy`.
   "/api/projects/archive-candidates",
+  // Area 10, F8 (`read_followed_projects`, «/status»): i progetti seguiti (già
+  // filtrati sui visibili) e il polso di chi chiede (decisione del maintainer,
+  // 20 nov 2026). Il ponte non passa i titoli delle task né il `stalled` del
+  // polso: il fermo viene da `/api/tasks/stalled`, le soglie dei progetti (F3).
+  "/api/me/follows",
+  "/api/projects/pulse",
   // Area 10, F8 (`read_my_week`, «/today»): le decisioni che aspettano chi
   // chiede (`askedOfId=me`) e le sue task (`assigneeIds=me` di `/api/tasks`).
   // Solo il GET dell'elenco: `/api/decisions/:id/answer` è una scrittura e

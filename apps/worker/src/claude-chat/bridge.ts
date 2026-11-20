@@ -201,6 +201,8 @@ export function chatServerPaths(tool: ChatReadToolName, args: Args): string[] {
     case "read_usage_month":
       return ["/api/ai-usage/summary?month=true&groupBy=project", "/api/access/who-can?permission=usage.view"];
     // Area 10, F8: «/today».
+    case "read_followed_projects":
+      return ["/api/me/follows", "/api/projects/pulse", "/api/tasks/stalled", "/api/projects"];
     case "read_my_week":
       return ["/api/decisions?askedOfId=me&open=true", "/api/tasks?assigneeIds=me&families=todo,active"];
     case "read_stalled_work": {
@@ -629,6 +631,44 @@ function archiveCandidatesResult(json: unknown): unknown {
   };
 }
 
+/** L'id della task resta al worker (per l'aside): al modello codice, data, giorni e motivo. */
+function stalledForModel(json: unknown): unknown {
+  return { stalled: stalledProjects(json).map((p) => ({ projectId: p.projectId, stalled: p.stalled.map((s) => ({ code: s.code, stalledSince: s.stalledSince, days: s.days, reason: s.reason })) })) };
+}
+
+/**
+ * Area 10, F8 («/status»): i seguiti, il polso per progetto, le task ferme e i
+ * codici. Dal polso niente titoli (possono venire da fuori): numeri delle
+ * task, motivi e conteggi. Il suo `stalled` NON passa (decisione del
+ * maintainer, 20 nov 2026): per Claude il fermo è quello delle soglie dei
+ * progetti (`/api/tasks/stalled`, la regola di `read_stalled_work`), non la
+ * regola del polso, così le due risposte non si contraddicono.
+ */
+export function followedProjectsResult(json: unknown, path: string): unknown {
+  const route = path.split("?")[0];
+  if (route === "/api/me/follows") {
+    const ids = (json as { projectIds?: unknown } | null)?.projectIds;
+    return { followedProjectIds: Array.isArray(ids) ? ids.filter((x) => typeof x === "string") : [] };
+  }
+  if (route === "/api/projects") return { projects: pickAll(json, ["id", "code", "name"]) };
+  if (route === "/api/tasks/stalled") return stalledForModel(json);
+  const rows = Array.isArray(json) ? (json as Record<string, unknown>[]) : [];
+  const numbers = (v: unknown, extra: string[]) =>
+    Array.isArray(v) ? (v as Record<string, unknown>[]).map((x) => Object.fromEntries([["number", x["ticketNumber"]], ...extra.map((k) => [k, x[k]])])) : [];
+  const count = (v: unknown) => (Array.isArray(v) ? v.length : 0);
+  return {
+    pulse: rows.map((r) => ({
+      projectId: r["projectId"],
+      waitingForYou: numbers(r["waitingForYou"], ["kind"]),
+      waitingForOthers: count(r["waitingForOthers"]),
+      running: count(r["running"]),
+      failed: r["failedCount"],
+      waitingForMerge: numbers(r["waitingForMerge"], ["canMerge"]),
+      idleDays: r["idleDays"],
+    })),
+  };
+}
+
 /**
  * Area 10, F8 («/today»): le decisioni che aspettano chi scrive (codice della
  * task, domanda, opzioni, da quando) e le sue task aperte (codice, titolo,
@@ -643,12 +683,12 @@ export function myWeekResult(json: unknown, path: string): unknown {
 
 export function projectToolResult(tool: ChatReadToolName, json: unknown, path = ""): unknown {
   if (tool === "read_archive_candidates") return archiveCandidatesResult(json);
+  if (tool === "read_followed_projects") return followedProjectsResult(json, path);
   if (tool === "read_my_week") return myWeekResult(json, path);
   if (tool === "read_usage_month") return usageResult(json, path);
   if (tool === "read_stalled_work") {
     if (path.split("?")[0] === "/api/projects") return { projects: pickAll(json, ["id", "code", "name"]) };
-    // L'id della task resta al worker (per l'aside): al modello codice, data, giorni e motivo.
-    return { stalled: stalledProjects(json).map((p) => ({ projectId: p.projectId, stalled: p.stalled.map((s) => ({ code: s.code, stalledSince: s.stalledSince, days: s.days, reason: s.reason })) })) };
+    return stalledForModel(json);
   }
   // Area 10, F2: dei reparti solo id, nome e il ripiego (i permessi che danno no).
   if (tool === "list_departments") return pickAll(json, ["id", "name", "isDefault"]);

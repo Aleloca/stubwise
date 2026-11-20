@@ -81,8 +81,11 @@ describe("il token del turno della chat", () => {
     // …ma rispondere a una decisione è una SCRITTURA, anche se la rotta comincia uguale.
     const answer = await app.inject({ method: "POST", url: `/api/decisions/${randomUUID()}/answer`, headers: { authorization: `Bearer ${token}` }, payload: { optionIndex: 0 } });
     expect(answer.statusCode).toBe(403);
-    // Il polso NON è fra le letture di Claude (decisione del maintainer: le soglie, non la regola del polso).
-    expect((await get("/api/projects/pulse", token)).statusCode).toBe(403);
+    // Area 10, F8 (`read_followed_projects`, «/status»): i seguiti e il polso. Il polso
+    // entra (decisione del maintainer, 20 nov 2026), ma il suo `stalled` non arriva mai al
+    // modello: lo toglie il ponte, e il fermo viene da `/api/tasks/stalled` (le soglie, F3).
+    expect((await get("/api/me/follows", token)).statusCode).toBe(200);
+    expect((await get("/api/projects/pulse", token)).statusCode).toBe(200);
     const [mark] = await t.db.select({ at: claudeConversations.untrustedReadAt }).from(claudeConversations).where(eq(claudeConversations.sessionId, sessionId));
     expect(mark!.at).toBeNull();
   });

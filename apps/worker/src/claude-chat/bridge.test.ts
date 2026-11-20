@@ -826,6 +826,42 @@ describe("area 10, F4: read_archive_candidates — dei motivi busy niente titoli
   });
 });
 
+describe("area 10, F8: read_followed_projects («/status»)", () => {
+  const P = "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01";
+
+  it("i percorsi: seguiti, polso, task ferme (le soglie dei progetti) e progetti", () => {
+    expect(chatServerPaths("read_followed_projects", {})).toEqual(["/api/me/follows", "/api/projects/pulse", "/api/tasks/stalled", "/api/projects"]);
+  });
+
+  it("dal polso numeri, motivi e conteggi, mai i titoli né il suo `stalled`; il fermo viene dalle soglie", async () => {
+    const pulse = [{
+      projectId: P, projectName: "Audin",
+      waitingForYou: [{ kind: "plan_approval", ticketId: "11111111-1111-4111-8111-111111111111", ticketNumber: 12, title: "TITOLO-DA-FUORI", notificationId: "22222222-2222-4222-8222-222222222222" }],
+      waitingForOthers: [{ kind: "question", ticketId: "x", ticketNumber: 3, title: "TITOLO-DA-FUORI", who: { kind: "user" } }],
+      running: [], failedCount: 1, backlogReadyCount: 0, idleDays: 2,
+      stalled: [{ ticketId: "y", ticketNumber: 99, title: "TITOLO-DA-FUORI", stalledSince: "2026-10-01T00:00:00.000Z", reason: "POLSO-FERMO" }],
+      waitingForMerge: [{ ticketId: "z", ticketNumber: 9, title: "TITOLO-DA-FUORI", prUrl: "https://x", canMerge: true }],
+      lastReportDate: null,
+    }];
+    const stalled = [{ task: { id: "t7", code: "AUD-7", title: "TITOLO-DA-FUORI", projectId: P, plannedWeek: null }, stall: { reason: { kind: "idle" }, since: "2026-11-01T00:00:00.000Z", days: 19 } }];
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL) => {
+      const p = new URL(String(url)).pathname;
+      return Response.json(p === "/api/me/follows" ? { projectIds: [P] } : p === "/api/projects/pulse" ? pulse : p === "/api/tasks/stalled" ? stalled : [{ id: P, code: "AUD", name: "Audin", ingestionKey: "segreto" }]);
+    });
+    bridge = await startChatBridge({ serverUrl: "http://server:3000", fetchImpl: fetchImpl as never });
+    const grant = bridge.grant({ sessionId: "s1", serverToken: "stw_chat_t" });
+    const body = (await (await call(bridge, grant.secret, "read_followed_projects", {})).json()) as { ok: boolean; text: string };
+    expect(body.ok).toBe(true);
+    const [follows, pulseOut, stalledOut, projects] = body.text.split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(follows).toEqual({ followedProjectIds: [P] });
+    expect(pulseOut).toEqual({ pulse: [{ projectId: P, waitingForYou: [{ number: 12, kind: "plan_approval" }], waitingForOthers: 1, running: 0, failed: 1, waitingForMerge: [{ number: 9, canMerge: true }], idleDays: 2 }] });
+    expect(stalledOut).toEqual({ stalled: [{ projectId: P, stalled: [{ code: "AUD-7", stalledSince: "2026-11-01T00:00:00.000Z", days: 19, reason: "idle" }] }] });
+    expect(projects).toEqual({ projects: [{ id: P, code: "AUD", name: "Audin" }] });
+    // Il fermo del polso (la sua regola) non arriva mai al modello.
+    for (const leak of ["TITOLO-DA-FUORI", "segreto", "https://x", "POLSO-FERMO", "2026-10-01"]) expect(body.text).not.toContain(leak);
+  });
+});
+
 describe("area 10, F8: read_my_week", () => {
 
   it("i percorsi: le decisioni di chi chiede e le sue task aperte", () => {

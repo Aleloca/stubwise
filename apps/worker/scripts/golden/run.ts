@@ -2337,6 +2337,28 @@ const MY_WEEK_TASKS = [
 ];
 
 /**
+ * Area 10, F8 («/status»): il polso di AUD come lo dà `/api/projects/pulse`.
+ * AUD-12 aspetta chi scrive (un piano da approvare); AUD-31 è fermo per la
+ * regola del POLSO, che il ponte toglie: il fermo per Claude è quello delle
+ * soglie (`STALLED_TASKS`, AUD-7 e AUD-9), e AUD-31 non deve comparire.
+ */
+const AUD_PULSE = [
+  {
+    projectId: CHAT_PROJECT_ID,
+    projectName: "Audin",
+    waitingForYou: [{ kind: "plan_approval", ticketId: "9a4b2c1d-3e5f-4a6b-8c7d-0e1f2a3b4c5d", ticketNumber: 12, title: "Export CSV dei contatti", notificationId: "c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f" }],
+    waitingForOthers: [],
+    running: [],
+    failedCount: 0,
+    backlogReadyCount: 0,
+    idleDays: 0,
+    stalled: [{ ticketId: "d2e3f4a5-b6c7-4d8e-9f0a-1b2c3d4e5f6a", ticketNumber: 31, title: "Migrazione rubrica", stalledSince: "2026-10-01T09:00:00.000Z", reason: "idle" }],
+    waitingForMerge: [],
+    lastReportDate: null,
+  },
+];
+
+/**
  * Area 10, F5 (S5): i membri di AUD come li dà `/members/view`. Bruno Verdi c'è
  * fra le persone ma non nel progetto; i ruoli che chi chiede può dare.
  */
@@ -2434,6 +2456,9 @@ async function startFakeChatServer(
     if (path === "/api/tasks" && url.includes("assigneeIds=me")) return send(200, { items: MY_WEEK_TASKS });
     if (path === "/api/tasks") return send(200, { items: [AUD_TASK] });
     if (path === "/api/decisions") return send(200, MY_DECISIONS);
+    // Area 10, F8 (`read_followed_projects`): AUD seguito, e il suo polso.
+    if (path === "/api/me/follows") return send(200, { projectIds: [CHAT_PROJECT_ID] });
+    if (path === "/api/projects/pulse") return send(200, AUD_PULSE);
     if (path === "/api/tasks/by-code/AUD-12") return send(200, AUD_TASK);
     if (path === `${p}/docs/search`) {
       return send(200, [{ pageTitle: "Esportazioni", snippet: "L'export CSV usa i filtri della lista contatti." }]);
@@ -3109,6 +3134,13 @@ const runChatS5Member = (ctx: ScenarioContext) =>
  */
 const runChatToday = (ctx: ScenarioContext) =>
   runChat(ctx, "chat-today", "/today", { kind: "read", mustRead: "/api/decisions", mustMention: ["AUD-12", "AUD-7"] });
+/**
+ * Area 10, F8 («/status»): legge seguiti, polso e task ferme; cita ciò che
+ * aspetta chi scrive (AUD-12) e il fermo delle soglie (AUD-7), MAI il fermo del
+ * polso (AUD-31, tolto dal ponte). Nessuna proposta. 3 volte, quando autorizzate.
+ */
+const runChatStatus = (ctx: ScenarioContext) =>
+  runChat(ctx, "chat-status", "/status", { kind: "read", mustRead: "/api/projects/pulse", mustMention: ["AUD-12", "AUD-7"], mustNotMention: ["AUD-31"] });
 const runChatS3UsageDenied = (ctx: ScenarioContext) =>
   runChat(ctx, "chat-s3-usage-denied", "Quanto abbiamo speso di AI questo mese?", { kind: "usage-denied", mustRead: "/api/ai-usage/summary", whoCan: "Ada Lovelace" }, {
     overrides: { "/api/ai-usage/summary": { status: 403, body: { code: "forbidden", message: "Missing permission" } } },
@@ -3326,6 +3358,7 @@ const SCENARIOS: Record<ScenarioName, (ctx: ScenarioContext) => Promise<Scenario
   "chat-s4-archive": runChatS4Archive,
   "chat-s5-member": runChatS5Member,
   "chat-today": runChatToday,
+  "chat-status": runChatStatus,
   "mail-classify-v2": runMailClassifyV2,
   "automation-step": runAutomationStep,
   "support-triage-check": runSupportTriageCheck,

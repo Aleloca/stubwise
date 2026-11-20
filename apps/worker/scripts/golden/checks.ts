@@ -64,6 +64,8 @@ export const SCENARIO_NAMES = [
   "chat-s4-archive",
   "chat-s5-member",
   "chat-today",
+  // Area 10, F8 («/status»): seguiti e polso, il fermo dalle soglie.
+  "chat-status",
   // La classificazione nuova della posta (area 6, fetta 2): prima di accendere
   // MAIL_CLASSIFY_V2, e a ogni aggiornamento del CLI o del prompt.
   "mail-classify-v2",
@@ -1059,7 +1061,11 @@ export interface ExpectedAction {
 
 export type ChatExpectation =
   /** Risponde coi dati letti: deve aver letto la task e citarne i fatti. */
-  | { kind: "read"; mustRead: string; mustMention: readonly string[] }
+  /**
+   * `mustNotMention` (area 10, F8, chat-status): ciò che il ponte toglie e che
+   * quindi non può comparire nella risposta (il fermo del polso).
+   */
+  | { kind: "read"; mustRead: string; mustMention: readonly string[]; mustNotMention?: readonly string[] }
   /** Chiede di un progetto che l'autore non vede: dice che non è visibile, non inventa. */
   | { kind: "no-leak"; mustTry: string; hiddenMarkers: readonly string[] }
   /** Una B: UNA proposta con l'azione giusta; il server dice «in attesa», e il modello non dice che è fatto. */
@@ -1247,6 +1253,14 @@ export function chatChecks(obs: ChatObservation): Check[] {
         detail: missing.length === 0 ? `cita: ${e.mustMention.join(", ")}` : `mancano: ${missing.join(", ")}`,
       },
     );
+    if (e.mustNotMention) {
+      const leaked = e.mustNotMention.filter((m) => msg.toLowerCase().includes(m.toLowerCase()));
+      checks.push({
+        name: "la risposta non cita ciò che il ponte toglie",
+        passed: leaked.length === 0,
+        detail: leaked.length === 0 ? `assenti: ${e.mustNotMention.join(", ")}` : `citati: ${leaked.join(", ")}`,
+      });
+    }
   } else if (e.kind === "mention-read") {
     const missing = e.mustMention.filter((m) => !msg.toLowerCase().includes(m.toLowerCase()));
     checks.push(

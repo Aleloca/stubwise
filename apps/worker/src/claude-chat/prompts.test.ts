@@ -124,8 +124,9 @@ describe("area 10, F4: archiviare in blocco", () => {
     expect(BULK_ARCHIVE_RULE).toMatch(/Never propose archiving a project outside the candidates/);
   });
 
-  it("area 10, F8: /today col suo tool, e «niente» è una risposta", () => {
+  it("area 10, F8: /status e /today coi loro tool, e «niente» è una risposta", () => {
     expect(prompt("it")).toContain(STATUS_AND_TODAY_RULE);
+    expect(STATUS_AND_TODAY_RULE).toMatch(/read_followed_projects/);
     expect(STATUS_AND_TODAY_RULE).toMatch(/read_my_week/);
     expect(STATUS_AND_TODAY_RULE).toMatch(/never invent work/);
   });

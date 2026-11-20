@@ -1004,6 +1004,12 @@ describe("chatChecks (chat-read, chat-no-leak e le proposte)", () => {
     expect(failed(chatChecks({ ...base }))).toEqual([]);
   });
 
+  it("area 10, F8 (chat-status): un fatto che non deve arrivare al modello, se citato, è rosso", () => {
+    const e = { ...base.expectation, mustNotMention: ["AUD-31"] };
+    expect(failed(chatChecks({ ...base, expectation: e }))).toEqual([]);
+    expect(failed(chatChecks({ ...base, expectation: e, finalMessage: `${base.finalMessage} Ferma AUD-31.` }))).toEqual(["la risposta non cita ciò che il ponte toglie"]);
+  });
+
   it("un tool nativo eseguito, una GET fuori elenco o il token nella trascrizione sono rossi", () => {
     const bash: ToolCall = { toolUseId: "b", name: "Bash", input: { command: "ls" }, isError: false, content: "a\nb" };
     expect(failed(chatChecks({ ...base, toolCalls: [bash] }))).toEqual(["nessun tool fuori da stubwise_chat eseguito"]);

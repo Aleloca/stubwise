@@ -177,6 +177,11 @@ export function buildChatMcpServer(config: ChatMcpConfig, fetchImpl: typeof fetc
   );
   // Area 10, F8: «/today».
   register(
+    "read_followed_projects",
+    "For /status: read the projects the person follows (followedProjectIds; if empty, look at all of them), each project's pulse (what waits for them, what waits for others or for a merge, counts), the stalled tasks with each project's own thresholds (the same rule as read_stalled_work) and the project codes. A task code is the project code, a dash and the number.",
+    {},
+  );
+  register(
     "read_my_week",
     "For /today: read the decisions that wait for the person (task code, question, options) and their open tasks (code, title, due date, planned week, priority).",
     {},
