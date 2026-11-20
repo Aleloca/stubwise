@@ -1004,6 +1004,22 @@ describe("chatChecks (chat-read, chat-no-leak e le proposte)", () => {
     expect(failed(chatChecks({ ...base }))).toEqual([]);
   });
 
+  it("area 10, F6 (field-draft): UN fillField sul campo giusto, niente altro, e mai «salvata»", () => {
+    const T = "9a4b2c1d-3e5f-4a6b-8c7d-0e1f2a3b4c5d";
+    const req = (actions: unknown[]) => ({ method: "POST", path: "/api/claude/conversations/s/proposals", body: { actions } });
+    const fill = { fn: "fillField", args: { field: "task.description", taskId: T, text: "Cosa fare" } };
+    const e = { kind: "field-draft", target: { field: "task.description", taskId: T } } as const;
+    const obs = (actions: unknown[], finalMessage = "Ho messo la bozza nel campo: rivedila e salvala tu.") => ({ ...base, toolCalls: [chatCall("read_task"), chatCall("propose_action")], serverRequests: [...base.serverRequests, req(actions)], finalMessage, expectation: e });
+    expect(failed(chatChecks(obs([fill])))).toEqual([]);
+    expect(failed(chatChecks(obs([fill], "La descrizione non è salvata: la salvi tu.")))).toEqual([]);
+    expect(failed(chatChecks(obs([fill], "Fatto, ho salvato la descrizione.")))).toEqual(["non dice che è salvata (la salva la persona)"]);
+    expect(failed(chatChecks(obs([fill], "La descrizione è stata salvata.")))).toEqual(["non dice che è salvata (la salva la persona)"]);
+    expect(failed(chatChecks(obs([{ ...fill, args: { ...fill.args, taskId: "altro" } }])))).toEqual(["UNA proposta con un solo fillField sul campo giusto, testo non vuoto"]);
+    expect(failed(chatChecks(obs([fill, { fn: "archiveProject", args: { projectId: T } }])))).toEqual(["UNA proposta con un solo fillField sul campo giusto, testo non vuoto"]);
+    expect(failed(chatChecks(obs([{ ...fill, args: { ...fill.args, text: " " } }])))).toEqual(["UNA proposta con un solo fillField sul campo giusto, testo non vuoto"]);
+    expect(failed(chatChecks({ ...obs([fill]), expectation: { ...e, mustRead: "/api/repositories/" } }))).toEqual(["ha letto /api/repositories/"]);
+  });
+
   it("area 10, F8 (chat-status): un fatto che non deve arrivare al modello, se citato, è rosso", () => {
     const e = { ...base.expectation, mustNotMention: ["AUD-31"] };
     expect(failed(chatChecks({ ...base, expectation: e }))).toEqual([]);

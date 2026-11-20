@@ -1,5 +1,5 @@
 import type { RouteOptions } from "fastify";
-import { CLAUDE_ACTION_FNS, CLAUDE_DECLARED_CLASS, CLAUDE_INVERSE_ONLY_FNS, CLAUDE_INSTANCE_PERMISSION } from "@stubwise/shared";
+import { CLAUDE_ACTION_FNS, CLAUDE_DECLARED_CLASS, CLAUDE_INVERSE_ONLY_FNS, CLAUDE_INSTANCE_PERMISSION, RENDERER_FNS } from "@stubwise/shared";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { SERVER_CATALOG } from "./catalog.js";
@@ -34,7 +34,7 @@ describe("la classe C segue la rotta (area 9, F7, M-1 = a)", () => {
     const routes = await routeConfigs();
     const mismatches: string[] = [];
     for (const fn of CLAUDE_ACTION_FNS) {
-      if (fn === "pageAction") continue;
+      if (RENDERER_FNS.has(fn)) continue;
       const entry = SERVER_CATALOG.get(fn);
       if (!entry) {
         mismatches.push(`${fn}: nessuna voce nel catalogo del server`);

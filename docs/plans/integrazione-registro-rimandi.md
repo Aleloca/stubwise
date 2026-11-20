@@ -1363,6 +1363,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   progetto e a chi ne gestisce i membri (D-11 = b), mai a chi ha agito, con
   «Undone by» derivato dal registro.
 
+- **Chiuse con F6 (20 nov 2026)**: le bozze di Claude nei campi
+  (`fillField`): la descrizione di una task e le note di rilascio di una PR
+  (F6-1 = a, con `read_pull_request_notes`), eseguite dal renderer e salvate
+  dalla persona.
+
 - **Chiuse con F8 (20 nov 2026)**: «/status» (seguiti, polso senza il suo
   fermo, task ferme con le soglie dei progetti) e «/today» (le decisioni che
   aspettano chi scrive e le sue task aperte, `assigneeIds=me`). Restano

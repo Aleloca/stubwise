@@ -43,6 +43,9 @@ export const CHAT_TOOL_UNTRUSTED_ROUTES: ReadonlySet<string> = new Set([
   // mittenti e organizzatori, anche di fuori).
   "/api/me/mail/threads/:threadId",
   "/api/me/calendar/events/:id",
+  // Area 10, F6: le note di una PR. La bozza viene dai commit (li scrive chi
+  // ha accesso al repository, anche di fuori) e dai titoli delle task.
+  "/api/repositories/:repositoryId/pulls/:prNumber/release-notes",
 ]);
 
 /**

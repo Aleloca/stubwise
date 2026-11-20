@@ -5661,3 +5661,23 @@ deploy o di un rollback che la tocca.
   sicuro. Un worker vecchio non ha i tool; un server vecchio rifiuta
   `assigneeIds=me` con 400 e il token sulle rotte nuove con 403, e il tool lo
   dice; un client che non legge `taskCode` lo scarta.
+
+- **«Integrazione area 10, F6: le bozze nei campi»** *(20 nov 2026)*:
+  branch `feat/area10-f6` (da `feat/area10-f8`), piano
+  `docs/plans/2026-11-20-integrazione-area10-f6-plan.md`.
+  - Una voce nuova del catalogo condiviso, `fillField` (descrizione di una
+    task, note di rilascio di una PR): la esegue il RENDERER come
+    `pageAction`. Il server la valida e controlla che chi chiede possa
+    scrivere quel campo (le regole delle due rotte); non scrive mai.
+  - L'allowlist del token del turno si allarga al GET delle note di una PR
+    (`/api/repositories/:repositoryId/pulls/:prNumber/release-notes`), che è
+    contenuto NON fidato (segna la conversazione). Tool nuovo del worker:
+    `read_pull_request_notes`; `read_release` porta `repositoryId`.
+  - Nessuna migrazione, nessuna env, nessun `notification_kind`.
+
+  **ORDINE**: **server**, poi **worker**, poi **caddy**. **Rollback**:
+  sicuro. Un server vecchio rifiuta `fillField` come `fn` ignota (e il token
+  sulla rotta delle note con 403), un worker vecchio non la propone, un
+  renderer vecchio la legge come `UNKNOWN` e la mostra come azione non
+  disponibile.
+

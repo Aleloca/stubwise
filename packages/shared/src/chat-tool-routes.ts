@@ -103,6 +103,12 @@ export const CHAT_TOOL_READ_ROUTES: ReadonlySet<string> = new Set([
   // 20 nov 2026). Il ponte non passa i titoli delle task né il `stalled` del
   // polso: il fermo viene da `/api/tasks/stalled`, le soglie dei progetti (F3).
   "/api/me/follows",
+  // Area 10, F6 (`read_pull_request_notes`, F6-1 = a): le note di una PR —
+  // la bozza calcolata, le fonti, le note salvate e se chi chiede può
+  // scriverle — con la regola della rotta (404 a chi non vede il progetto).
+  // Contenuto NON fidato (commit e titoli): anche in
+  // `CHAT_TOOL_UNTRUSTED_ROUTES`. Solo il GET: il PUT è una scrittura.
+  "/api/repositories/:repositoryId/pulls/:prNumber/release-notes",
   "/api/projects/pulse",
   // Area 10, F8 (`read_my_week`, «/today»): le decisioni che aspettano chi
   // chiede (`askedOfId=me`) e le sue task (`assigneeIds=me` di `/api/tasks`).

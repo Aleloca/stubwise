@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { claudeAutomationGuide } from "@stubwise/shared";
-import { AUTOMATION_DRAFTS_RULE, BULK_ARCHIVE_RULE, STALLED_AND_SPENDING_RULE, STATUS_AND_TODAY_RULE, buildChatPrimingPrompt, CHAT_UNDO_LABEL, chatMentionContract } from "./prompts.js";
+import { AUTOMATION_DRAFTS_RULE, BULK_ARCHIVE_RULE, FIELD_DRAFT_RULE, STALLED_AND_SPENDING_RULE, STATUS_AND_TODAY_RULE, buildChatPrimingPrompt, CHAT_UNDO_LABEL, chatMentionContract } from "./prompts.js";
 
 const prompt = (language: "en" | "it") =>
   buildChatPrimingPrompt({ language, authorName: "Ada", context: null, toolsAvailable: true, recentTranscript: [] }, "ciao");
@@ -129,5 +129,16 @@ describe("area 10, F4: archiviare in blocco", () => {
     expect(STATUS_AND_TODAY_RULE).toMatch(/read_followed_projects/);
     expect(STATUS_AND_TODAY_RULE).toMatch(/read_my_week/);
     expect(STATUS_AND_TODAY_RULE).toMatch(/never invent work/);
+  });
+});
+
+describe("area 10, F6: le bozze nei campi", () => {
+  it("fillField per descrizione e note; la salva la persona, mai «salvato»", () => {
+    expect(prompt("it")).toContain(FIELD_DRAFT_RULE);
+    expect(FIELD_DRAFT_RULE).toMatch(/fillField/);
+    expect(FIELD_DRAFT_RULE).toMatch(/read_pull_request_notes/);
+    // Il contesto della pagina di una PR, come lo manda il renderer.
+    expect(FIELD_DRAFT_RULE).toContain("pr: <repositoryId>:<prNumber>");
+    expect(FIELD_DRAFT_RULE).toMatch(/never say it is saved/);
   });
 });
