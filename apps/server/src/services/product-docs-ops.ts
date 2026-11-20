@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import {
   driveFiles,
   productPageBlockIds,
@@ -7,27 +8,32 @@ import {
   productPageRevisions,
   productPages,
   projectDecisions,
+  projects,
   users,
   type Db,
 } from "@stubwise/db";
 import {
   PRODUCT_BLOCKS_MAX,
+  PRODUCT_PAGE_BYTES_MAX,
   PRODUCT_IMAGE_REF_PREFIX,
   applyBlockOps,
   blockIdsOf,
   mergeChanges,
   productBlockSchema,
+  productBlockWriteSchema,
   validProductBlock,
   type ProductBlock,
   type ProductBlockChange,
   type ProductRevisionView,
   type SaveProductBlocksInput,
 } from "@stubwise/shared";
-import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import { projectPermissionsFor } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { personName } from "./people.js";
 import { visiblePersonIds } from "./people-visibility.js";
+import type { ObjectStorage } from "../storage/index.js";
+import { removeOrRecordOrphan } from "../storage/orphans.js";
 import { ProductDocsError } from "./product-docs.js";
 
 /**
@@ -36,8 +42,9 @@ import { ProductDocsError } from "./product-docs.js";
  * `writeProductBlocksAs` (`data/productDocs/writes.ts`):
  * - sotto `FOR UPDATE` della pagina;
  * - un id nuovo (blocco, riga, cella) non dev'essere mai stato dato in QUESTA
- *   pagina (`product_page_block_ids`), salvo ⌘Z: con `undoOf`, la stessa
- *   persona può rimettere gli id che la sua sessione ha tolto;
+ *   pagina (`product_page_block_ids`), salvo ⌘Z: con `undoOf` (una revisione
+ *   di questa pagina, di chi chiede e della sua sessione) si rimettono SOLO i
+ *   blocchi che quella revisione ha tolto, uguali a com'erano;
  * - i segni validi (link solo http(s)); i riferimenti validati con la
  *   visibilità di chi salva (un file del Drive, una decisione, un'immagine
  *   della stessa pagina); i wireframe arrivano con F6;
@@ -50,6 +57,7 @@ import { ProductDocsError } from "./product-docs.js";
 type Viewer = Pick<SessionUser, "id" | "instancePermissions">;
 const invalid = (code: string, message: string) => new ProductDocsError(422, code, message);
 
+const productBlocksWriteSchema = z.array(productBlockWriteSchema);
 const IMAGE_ID = (src: string) => (src.startsWith(PRODUCT_IMAGE_REF_PREFIX) ? src.slice(PRODUCT_IMAGE_REF_PREFIX.length) : null);
 
 export interface SaveProductBlocksResult {
@@ -76,11 +84,13 @@ async function checkReferences(tx: Db, viewer: Viewer, pageId: string, changes: 
     }
     if (after.type === "drive") {
       const [file] = await tx
-        .select({ projectId: driveFiles.projectId, number: driveFiles.number, deletedAt: driveFiles.deletedAt })
+        .select({ projectId: driveFiles.projectId, number: driveFiles.number, deletedAt: driveFiles.deletedAt, projectCode: projects.code })
         .from(driveFiles)
+        .innerJoin(projects, eq(projects.id, driveFiles.projectId))
         .where(eq(driveFiles.id, after.fileId));
       const perms = file && file.deletedAt === null ? await projectPermissionsFor(tx, viewer, file.projectId) : null;
-      if (!file || !perms || !after.code.endsWith(`-F${file.number}`)) throw invalid("invalid_drive", "The file is not one you can see");
+      // Il codice ESATTO del file (review di F1, M5), non solo il numero.
+      if (!file || !perms || after.code !== `${file.projectCode}-F${file.number}`) throw invalid("invalid_drive", "The file is not one you can see");
     }
     if (after.type === "decision") {
       const [d] = await tx.select({ projectId: projectDecisions.projectId }).from(projectDecisions).where(eq(projectDecisions.id, after.decisionId));
@@ -106,27 +116,41 @@ export async function saveProductBlocks(db: Db, viewer: Viewer, pageId: string, 
     const [page] = await tx.select().from(productPages).where(eq(productPages.id, pageId)).for("update");
     if (!page) throw new ProductDocsError(404, "not_found", "Not found");
 
-    // Le revisioni che il client non ha visto e che non sono sue (persona e sessione).
+    // Review di F1 (M8): un `baseSeq` che la pagina non ha ancora raggiunto è un client sbagliato.
+    if (input.baseSeq > page.revSeq) throw invalid("invalid_base_seq", "baseSeq is ahead of the page");
+    // Le revisioni che il client non ha visto e che non sono sue: della stessa
+    // persona contano come sue quelle della stessa sessione e quelle senza
+    // sessione (crea, rinomina, sposta).
     const newer = await tx
       .select()
       .from(productPageRevisions)
       .where(and(eq(productPageRevisions.pageId, pageId), gt(productPageRevisions.lastSeq, input.baseSeq)));
-    const others = newer.filter((r) => !(r.actorId === viewer.id && r.sessionId === input.sessionId));
+    const others = newer.filter((r) => !(r.actorId === viewer.id && (r.sessionId === input.sessionId || r.sessionId === null)));
     if (others.length > 0) throw new ProductStaleError(await revisionViews(tx, viewer, others));
 
     const blocks = readBlocks(page.blocks);
     const onPage = new Set(blocks.flatMap(blockIdsOf));
-    const registry = await tx
-      .select({ id: productPageBlockIds.blockId, removedBy: productPageBlockIds.removedBy, removedSession: productPageBlockIds.removedSession })
-      .from(productPageBlockIds)
-      .where(eq(productPageBlockIds.pageId, pageId));
-    const given = new Set(registry.map((r) => r.id));
-    // ⌘Z (`undoOf`): la stessa persona rimette gli id che la SUA sessione ha tolto da questa pagina.
-    const restorable = new Set(input.undoOf ? registry.filter((r) => r.removedBy === viewer.id && r.removedSession === input.sessionId).map((r) => r.id) : []);
+    const given = new Set((await tx.select({ id: productPageBlockIds.blockId }).from(productPageBlockIds).where(eq(productPageBlockIds.pageId, pageId))).map((r) => r.id));
+    // Review di F1 (I4): ⌘Z rimette SOLO i blocchi che la revisione annullata ha
+    // tolto, uguali a com'erano. La revisione dev'essere di questa pagina, di chi
+    // chiede e della sua sessione; un `undoOf` inventato è 422.
+    const restorable = new Map<string, ProductBlock>();
+    if (input.undoOf) {
+      const [undone] = await tx
+        .select({ changes: productPageRevisions.changes })
+        .from(productPageRevisions)
+        .where(and(eq(productPageRevisions.id, input.undoOf), eq(productPageRevisions.pageId, pageId), eq(productPageRevisions.actorId, viewer.id), eq(productPageRevisions.sessionId, input.sessionId)));
+      if (!undone) throw invalid("invalid_undo", "undoOf is not a revision of this session on this page");
+      for (const c of undone.changes as ProductBlockChange[]) if (c.after === null && c.before !== null) restorable.set(c.blockId, c.before);
+    }
+    const sameBlock = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
     for (const op of input.ops) {
       if (op.op !== "insert" && op.op !== "set") continue;
-      const fresh = blockIdsOf(op.block as ProductBlock).filter((id) => op.op === "insert" || !onPage.has(id));
-      if (fresh.some((id) => given.has(id) && !restorable.has(id))) throw invalid("block_id_taken", "A block id was already used on this page");
+      const block = op.block as ProductBlock;
+      const fresh = blockIdsOf(block).filter((id) => op.op === "insert" || !onPage.has(id));
+      if (!fresh.some((id) => given.has(id))) continue;
+      const before = restorable.get(block.id);
+      if (op.op !== "insert" || !before || !sameBlock(before, block)) throw invalid("block_id_taken", "A block id was already used on this page");
     }
 
     let next: { blocks: ProductBlock[]; changes: ProductBlockChange[] };
@@ -136,21 +160,15 @@ export async function saveProductBlocks(db: Db, viewer: Viewer, pageId: string, 
       throw invalid("invalid_op", "An operation names a block that isn't there, or repeats an id");
     }
     if (next.blocks.length > PRODUCT_BLOCKS_MAX) throw invalid("too_many_blocks", `A page has at most ${PRODUCT_BLOCKS_MAX} blocks`);
+    // Review di F1 (I3): il risultato si rivalida intero (un `merge` unisce due
+    // testi e scavalcherebbe il tetto di un blocco) e il corpo ha un tetto in byte.
+    if (!productBlocksWriteSchema.safeParse(next.blocks).success) throw invalid("invalid_block", "A block is not valid (or too long) after the operations");
+    if (Buffer.byteLength(JSON.stringify(next.blocks)) > PRODUCT_PAGE_BYTES_MAX) throw invalid("page_too_large", "The page is too large");
     await checkReferences(tx, viewer, pageId, next.changes);
     if (next.changes.length === 0) return { seq: page.revSeq, revisionId: null };
 
-    const keptIds = new Set(next.blocks.flatMap(blockIdsOf));
-    const fresh = [...keptIds].filter((id) => !given.has(id));
+    const fresh = next.blocks.flatMap(blockIdsOf).filter((id) => !given.has(id));
     if (fresh.length > 0) await tx.insert(productPageBlockIds).values(fresh.map((blockId) => ({ pageId, blockId }))).onConflictDoNothing();
-    const gone = [...onPage].filter((id) => !keptIds.has(id));
-    if (gone.length > 0) {
-      await tx
-        .update(productPageBlockIds)
-        .set({ removedBy: viewer.id, removedSession: input.sessionId })
-        .where(and(eq(productPageBlockIds.pageId, pageId), inArray(productPageBlockIds.blockId, gone)));
-    }
-    // Una revisione annullata può non esserci più (unita e tornata com'era): `undoOf` resta solo se c'è.
-    const [undone] = input.undoOf ? await tx.select({ id: productPageRevisions.id }).from(productPageRevisions).where(and(eq(productPageRevisions.id, input.undoOf), eq(productPageRevisions.pageId, pageId))) : [];
     const [{ seq }] = (await tx
       .update(productPages)
       .set({ blocks: next.blocks, revSeq: sql`${productPages.revSeq} + 1`, updatedBy: viewer.id, updatedAt: new Date() })
@@ -162,7 +180,9 @@ export async function saveProductBlocks(db: Db, viewer: Viewer, pageId: string, 
     if (!input.undoOf && last && last.kind === "edit" && last.actorId === viewer.id && last.sessionId === input.sessionId) {
       const merged = mergeChanges(last.changes as ProductBlockChange[], next.changes);
       if (merged.length === 0) {
+        // Tornato tutto com'era (review di F1, M11): la revisione non dice più niente, e non c'è.
         await tx.delete(productPageRevisions).where(eq(productPageRevisions.id, last.id));
+        return { seq, revisionId: null };
       } else {
         await tx.update(productPageRevisions).set({ changes: merged as unknown[], lastSeq: seq, updatedAt: new Date() }).where(eq(productPageRevisions.id, last.id));
       }
@@ -170,7 +190,7 @@ export async function saveProductBlocks(db: Db, viewer: Viewer, pageId: string, 
     }
     const [rev] = await tx
       .insert(productPageRevisions)
-      .values({ pageId, sessionId: input.sessionId, seq, lastSeq: seq, actorId: viewer.id, kind: "edit", undoOf: undone?.id ?? null, changes: next.changes as unknown[] })
+      .values({ pageId, sessionId: input.sessionId, seq, lastSeq: seq, actorId: viewer.id, kind: "edit", undoOf: input.undoOf ?? null, changes: next.changes as unknown[] })
       .returning({ id: productPageRevisions.id });
     return { seq, revisionId: rev!.id };
   });
@@ -203,8 +223,16 @@ async function revisionViews(db: Db, viewer: Viewer, rows: (typeof productPageRe
 }
 
 /** Le revisioni di una pagina, dalla più recente (la rotta ha chiesto `docs.view`). */
-export async function listProductRevisions(db: Db, viewer: Viewer, pageId: string): Promise<ProductRevisionView[]> {
-  const rows = await db.select().from(productPageRevisions).where(eq(productPageRevisions.pageId, pageId)).orderBy(desc(productPageRevisions.lastSeq)).limit(500);
+export const PRODUCT_REVISIONS_PAGE = 100;
+
+/** Le revisioni di una pagina, dalla più recente, a pagine di 100 (`before` = il `lastSeq` più vecchio già letto; review di F1, M10). */
+export async function listProductRevisions(db: Db, viewer: Viewer, pageId: string, before?: number): Promise<ProductRevisionView[]> {
+  const rows = await db
+    .select()
+    .from(productPageRevisions)
+    .where(and(eq(productPageRevisions.pageId, pageId), before === undefined ? undefined : lt(productPageRevisions.lastSeq, before)))
+    .orderBy(desc(productPageRevisions.lastSeq))
+    .limit(PRODUCT_REVISIONS_PAGE);
   return revisionViews(db, viewer, rows);
 }
 
@@ -251,4 +279,33 @@ export async function productImageOf(db: Db, pageId: string, imageId: string): P
 export async function productPageProject(db: Db, pageId: string): Promise<{ id: string; projectId: string } | null> {
   const [row] = await db.select({ id: productPages.id, projectId: productPages.projectId }).from(productPages).where(eq(productPages.id, pageId));
   return row ?? null;
+}
+
+/**
+ * Review di F1 (I2): le immagini caricate che nessun blocco della loro pagina
+ * nomina più da almeno `olderThanDays` giorni (una tolta resta qualche giorno:
+ * ⌘Z e la cronologia la rimettono). Righe e oggetti vanno via insieme; uno
+ * storage che rifiuta lascia la chiave in `storage_orphans`. Gira con la
+ * pulizia oraria dello storage.
+ */
+export async function purgeUnusedProductImages(db: Db, storage: ObjectStorage | null, log: (msg: string) => void, olderThanDays = 7, limit = 200): Promise<number> {
+  if (!storage) return 0;
+  const rows = await db
+    .select({ id: productPageImages.id, key: productPageImages.storageKey })
+    .from(productPageImages)
+    .innerJoin(productPages, eq(productPages.id, productPageImages.pageId))
+    .where(
+      and(
+        lt(productPageImages.createdAt, sql`now() - make_interval(days => ${olderThanDays}::int)`),
+        lt(productPages.updatedAt, sql`now() - make_interval(days => ${olderThanDays}::int)`),
+        sql`position(${PRODUCT_IMAGE_REF_PREFIX} || ${productPageImages.id}::text in ${productPages.blocks}::text) = 0`,
+      ),
+    )
+    .limit(limit);
+  for (const row of rows) {
+    await db.delete(productPageImages).where(eq(productPageImages.id, row.id));
+    await removeOrRecordOrphan(db, storage, row.key, "product image unused");
+  }
+  if (rows.length > 0) log(`[product] ${rows.length} immagini non più usate tolte`);
+  return rows.length;
 }

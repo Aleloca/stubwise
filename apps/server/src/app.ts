@@ -100,6 +100,7 @@ import type { DriveGoogleClient } from "./drive/google.js";
 import { purgeDeletedDriveObjects } from "./drive/service.js";
 import { runStorageHygiene } from "./storage/hygiene.js";
 import { purgeStorageOrphans } from "./storage/orphans.js";
+import { purgeUnusedProductImages } from "./services/product-docs-ops.js";
 import { NOOP_CHAT_BUS, type ChatBus } from "./chat/bus.js";
 import { claudeConversationRoutes } from "./routes/claude-conversations.js";
 import { claudeActionRoutes } from "./routes/claude-actions.js";
@@ -642,6 +643,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
             { name: "drive", run: () => purgeDeletedDriveObjects(app.db, storage, (m) => app.log.warn(m)) },
             // Gli oggetti rimasti senza riga che lo storage non aveva tolto (0144).
             { name: "orphans", run: () => purgeStorageOrphans(app.db, storage, (m) => app.log.warn(m)) },
+            // Area 11, F1 (review I2): le immagini delle pagine di prodotto non più usate.
+            { name: "product-images", run: () => purgeUnusedProductImages(app.db, storage, (m) => app.log.warn(m)) },
           ],
           (error, name) => app.log.warn({ err: error }, `pulizia oraria dello storage non riuscita: ${name}`),
         );

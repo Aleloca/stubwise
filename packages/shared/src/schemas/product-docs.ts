@@ -35,7 +35,8 @@ export type ProductTableRow = z.infer<typeof productTableRowSchema>;
  * un indirizzo da caricare: il client la apre dalla rotta dell'immagine.
  */
 export const PRODUCT_IMAGE_REF_PREFIX = "product-image:";
-export const productImageRefSchema = z.string().regex(/^product-image:[0-9a-f-]{36}$/);
+// Review di F1 (M6): un uuid VERO dopo il prefisso, o la query del server lancerebbe.
+export const productImageRefSchema = z.string().regex(/^product-image:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
 
 export const PRODUCT_BLOCK_TYPES = ["heading", "paragraph", "quote", "code", "bullet", "numbered", "todo", "divider", "table", "image", "drive", "decision", "wireframe"] as const;
 
@@ -85,6 +86,11 @@ export interface ProductBlockChange {
 /** Il limite di una chiamata di scrittura e di una pagina (F1, ruling del piano). */
 export const PRODUCT_OPS_MAX = 200;
 export const PRODUCT_BLOCKS_MAX = 2000;
+/** Review di F1 (I3): il corpo salvato di una pagina, in byte del JSON (un `merge` non lo scavalca). */
+export const PRODUCT_PAGE_BYTES_MAX = 2_000_000;
+/** Review di F1 (M9): la profondità dell'albero (la radice è 1) e le pagine di un progetto. */
+export const PRODUCT_TREE_DEPTH_MAX = 20;
+export const PRODUCT_PAGES_MAX = 2000;
 
 /** `POST /api/product-pages/:id/ops`. */
 export const saveProductBlocksSchema = z
