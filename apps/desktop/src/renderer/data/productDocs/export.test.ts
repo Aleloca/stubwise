@@ -93,3 +93,15 @@ describe("getProductExport", () => {
     await expect(productDocs.getProductExport(ACQ)).rejects.toThrow("forbidden");
   });
 });
+
+describe("il tetto dell'esportazione dello spazio (piano F3: 200 pagine, oltre un 413 col numero)", () => {
+  it("oltre 200 pagine lo spazio intero si rifiuta col numero e il tetto; una pagina sola no", async () => {
+    setSessionPersonId("p-laura");
+    const seed = state.productPages.find((p) => p.projectId === ACQ)!;
+    const have = state.productPages.filter((p) => p.projectId === ACQ).length;
+    for (let i = 0; i < 201 - have; i++)
+      state.productPages.push({ ...structuredClone(seed), id: `pp-extra-${i}`, code: `ACQ-D${900 + i}`, parentId: null, order: 100 + i });
+    await expect(productDocs.getProductExport(ACQ)).rejects.toMatchObject({ message: "too_large", pageCount: 201, max: 200 });
+    expect((await productDocs.getProductExport(ACQ, { pageId: seed.id }))!.pages).toHaveLength(1);
+  });
+});

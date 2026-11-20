@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetApi, setLatency } from "../../../data/api";
+import { productDocs, resetApi, setLatency } from "../../../data/api";
 import { state } from "../../../data/store";
 import { setLanguage } from "../../../i18n";
 import { DOCKED_PANEL_QUERY } from "../../../layout/useDetailPanel";
@@ -302,6 +302,19 @@ describe("con la finestra di salvataggio (window.stubwise.saveFile)", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent!.toLowerCase()).toContain("over 25 mb");
     expect(alert.textContent!.toLowerCase()).toContain("pdf");
+    expect(within(alert).queryByRole("button", { name: /retry/i })).toBeNull();
+    expect(saveFile).not.toHaveBeenCalled();
+  });
+
+  it("lo spazio oltre il tetto dell'esportazione (413 del server, piano F3): il numero, la via della pagina, nessun Retry", async () => {
+    withBridge();
+    vi.spyOn(productDocs, "getProductExport").mockRejectedValueOnce(
+      Object.assign(new Error("too_large"), { pageCount: 240, max: 200 }),
+    );
+    await openPage("Sign-in");
+    await choose("Whole space", "PDF");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("The space has 240 pages: export up to 200 at a time, or export a single page.");
     expect(within(alert).queryByRole("button", { name: /retry/i })).toBeNull();
     expect(saveFile).not.toHaveBeenCalled();
   });

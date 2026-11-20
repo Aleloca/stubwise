@@ -13318,6 +13318,7 @@
       "failed": "Couldn't export",
       "retry": "Retry",
       "tooLarge": "The Word file is over 25 MB. Export as PDF instead.",
+      "spaceTooLarge": "The space has {{count}} pages: export up to {{max}} at a time, or export a single page.",
       "fileLine": "File: {{name}} ({{code}})",
       "fileGone": "File: {{code}} (not available)",
       "decisionLine": "Decision: {{title}}",

@@ -129,8 +129,13 @@ export function useProductExport({
             );
           } else if (result.reason !== "canceled") failed();
         }
-      } catch {
-        failed();
+      } catch (error) {
+        // Lo spazio oltre il tetto (il 413 del server): riprovare darebbe lo
+        // stesso; l'avviso dice il numero e la via della pagina, senza Retry.
+        const e = error as { message?: string; pageCount?: number; max?: number } | null;
+        if (e?.message === "too_large" && typeof e.pageCount === "number")
+          toast.error(t("productDocs.export.spaceTooLarge", { count: e.pageCount, max: e.max ?? 200 }));
+        else failed();
       } finally {
         running.current = false;
         setBusy(false);

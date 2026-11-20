@@ -13318,6 +13318,7 @@
       "failed": "Esportazione non riuscita",
       "retry": "Riprova",
       "tooLarge": "Il file Word supera i 25 MB. Esporta in PDF.",
+      "spaceTooLarge": "Lo spazio ha {{count}} pagine: se ne esportano al più {{max}} alla volta, oppure esporta una pagina sola.",
       "fileLine": "File: {{name}} ({{code}})",
       "fileGone": "File: {{code}} (non disponibile)",
       "decisionLine": "Decisione: {{title}}",
