@@ -2,6 +2,7 @@ import { ApiError } from "@stubwise/api-client";
 import {
   PRODUCT_BLOCK_TYPES,
   PRODUCT_IMAGE_REF_PREFIX,
+  applyBlockOps,
   buildProductTree,
   productImageRefSchema,
   productBlockSchema,
@@ -13,12 +14,13 @@ import i18n from "../../../i18n";
 import type {
   ProductBlock,
   ProductBlockChange,
+  ProductBlockOp,
   ProductPage,
   ProductPageView,
   ProductRevisionView,
 } from "../../types";
 import { appClient } from "./client";
-import { authedDataUrl } from "./transport";
+import { ipcFetch } from "./transport";
 
 // Lo spazio Product nella build app (area 11, F1 di 72; R11-1): lo spazio, la
 // pagina per codice, crea, rinomina, sposta, elimina, la scrittura a
@@ -37,9 +39,8 @@ import { authedDataUrl } from "./transport";
 // dopo (F2–F6): qui non ci sono.
 
 const KNOWN_TYPES = new Set<string>(PRODUCT_BLOCK_TYPES);
-/** Una pagina della cronologia sul server, e quante se ne leggono al più (5000 revisioni). */
-const REVISION_PAGE = 100;
-const REVISION_ROUNDS_MAX = 50;
+/** Le immagini che la rotta dà (mai SVG, che può portare script). */
+const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 /** Un errore nella forma del prototipo (`forbidden`, `invalid: …`, `not_found`). */
 const fail = (message: string) => new Error(message);
@@ -69,11 +70,14 @@ export function blocksOf(raw: readonly unknown[]): ProductBlock[] {
 /** L'ultima revisione vista per pagina (`baseSeq` della scrittura) e il codice di ogni pagina letta. */
 const seqOf = new Map<string, number>();
 const codeOf = new Map<string, string>();
+/** L'ultima pagina letta: se la rilettura dopo una scrittura riuscita non riesce, si ricostruisce da qui. */
+const lastRead = new Map<string, ProductPageView>();
 
-/** Solo nei test, e al cambio di persona. */
+/** Al cambio di persona (`session.ts`) e nei test. */
 export function forgetProductDocs(): void {
   seqOf.clear();
   codeOf.clear();
+  lastRead.clear();
 }
 
 function pageOf(v: ServerPageView): ProductPage {
@@ -103,7 +107,7 @@ async function readPage(code: string): Promise<ProductPageView | null> {
   // Mai indietro: una lettura arrivata dopo un salvataggio non riporta `baseSeq` a prima.
   seqOf.set(v.id, Math.max(seqOf.get(v.id) ?? 0, v.seq));
   codeOf.set(v.id, v.code);
-  return {
+  const page: ProductPageView = {
     ...pageOf(v),
     breadcrumbs: v.breadcrumbs,
     permissions: {
@@ -117,6 +121,8 @@ async function readPage(code: string): Promise<ProductPageView | null> {
     // I commenti arrivano con F2: nessun filo.
     openComments: 0,
   };
+  lastRead.set(v.id, page);
+  return page;
 }
 
 /** Il codice di una pagina già letta, o la rilettura dallo spazio non c'è: la pagina si rilegge per codice. */
@@ -126,11 +132,32 @@ const codeFor = (pageId: string): string => {
   return code;
 };
 
-const reread = async (pageId: string): Promise<ProductPage> => {
+const reread = async (pageId: string): Promise<ProductPageView> => {
   const page = await readPage(codeFor(pageId));
   if (!page) throw fail("not_found");
   return page;
 };
+
+/**
+ * La rilettura dopo una scrittura RIUSCITA (I1 della revisione): se non
+ * riesce, la scrittura non sembra fallita — un Retry la rifarebbe (una pagina
+ * doppia, operazioni già applicate). Si risponde dall'ultima lettura, cambiata
+ * come la scrittura; la cache si rilegge comunque dopo (`useWrite`).
+ */
+async function rereadOr(
+  pageId: string,
+  fallback: (last: ProductPageView) => ProductPageView,
+): Promise<ProductPageView> {
+  try {
+    return await reread(pageId);
+  } catch {
+    const last = lastRead.get(pageId);
+    const page = fallback(last ?? ({} as ProductPageView));
+    if (!page.id) throw fail("not_found");
+    lastRead.set(pageId, page);
+    return page;
+  }
+}
 
 function revisionOf(r: ServerRevisionView): ProductRevisionView {
   return {
@@ -207,7 +234,25 @@ export const liveProductDocs: Partial<ProductDocs> = {
       return mapError(error);
     }
     codeOf.set(created.id, created.code);
-    return reread(created.id);
+    const at = new Date().toISOString();
+    return rereadOr(created.id, () => ({
+      id: created.id,
+      code: created.code,
+      projectId,
+      parentId: input.parentId ?? null,
+      order: input.index ?? 0,
+      title: input.title,
+      blocks: [],
+      createdById: "",
+      createdAt: at,
+      updatedById: "",
+      updatedAt: at,
+      breadcrumbs: [],
+      permissions: { edit: true, delete: true, deleteBlocked: null },
+      following: false,
+      decisions: {},
+      openComments: 0,
+    }));
   },
 
   async renameProductPage(pageId, title) {
@@ -216,7 +261,7 @@ export const liveProductDocs: Partial<ProductDocs> = {
     } catch (error) {
       return mapError(error);
     }
-    return reread(pageId);
+    return rereadOr(pageId, (last) => ({ ...last, title }));
   },
 
   async moveProductPage(pageId, to) {
@@ -227,7 +272,7 @@ export const liveProductDocs: Partial<ProductDocs> = {
     } catch (error) {
       return mapError(error);
     }
-    return reread(pageId);
+    return rereadOr(pageId, (last) => ({ ...last, parentId: to.parentId, order: to.index }));
   },
 
   async deleteProductPage(pageId) {
@@ -237,6 +282,8 @@ export const liveProductDocs: Partial<ProductDocs> = {
       return mapError(error);
     }
     seqOf.delete(pageId);
+    codeOf.delete(pageId);
+    lastRead.delete(pageId);
   },
 
   async saveProductBlocks(pageId, ops, opts) {
@@ -251,9 +298,15 @@ export const liveProductDocs: Partial<ProductDocs> = {
     try {
       saved = await client.save(pageId, body(seqOf.get(pageId) ?? 0));
     } catch (error) {
+      if (!isStale(error)) return mapError(error);
+      // Le revisioni di un altro arrivate nel frattempo. Mai una sovrascrittura
+      // silenziosa (design §F4): si riprova solo se nessuna tocca un blocco che
+      // queste operazioni nominano; altrimenti, o senza le revisioni nella
+      // risposta, la scrittura si rifiuta e la barra dice che la pagina era
+      // cambiata.
       const newer = staleRevisions(error);
-      if (!newer) return mapError(error);
-      // Le revisioni di un altro arrivate nel frattempo: le si prende come viste e si riprova una volta.
+      if (!newer || newer.some((r) => r.touched.some((id) => opBlockIds(ops).has(id))))
+        throw fail("invalid: stale");
       const seq = Math.max(seqOf.get(pageId) ?? 0, ...newer.map((r) => r.lastSeq));
       seqOf.set(pageId, seq);
       try {
@@ -263,26 +316,31 @@ export const liveProductDocs: Partial<ProductDocs> = {
       }
     }
     seqOf.set(pageId, saved.seq);
-    return { ...(await reread(pageId)), revisionId: saved.revisionId };
+    // La scrittura è salvata: una rilettura che non riesce non la fa sembrare
+    // fallita (un Retry rifarebbe operazioni già applicate). Si ricostruisce
+    // dall'ultima lettura con le stesse operazioni.
+    try {
+      return { ...(await reread(pageId)), revisionId: saved.revisionId };
+    } catch {
+      const last = lastRead.get(pageId);
+      if (!last) throw fail("not_found");
+      const page = { ...last, blocks: applyBlockOps(last.blocks, ops).blocks };
+      lastRead.set(pageId, page);
+      return { ...page, revisionId: saved.revisionId };
+    }
   },
 
-  async listProductRevisions(pageId) {
+  // Una pagina di 100 alla volta, dalla più recente; `before` è il `lastSeq`
+  // più vecchio già letto (il pannello chiede la seguente, I2 della revisione).
+  async listProductRevisions(pageId, opts = {}) {
     try {
-      // A pagine di 100, dalla più recente: `before` è il `lastSeq` più vecchio
-      // già letto. Il prototipo dà la cronologia intera; il tetto ferma un giro
-      // che non finisse.
-      const all: ServerRevisionView[] = [];
-      let before: number | undefined;
-      for (let round = 0; round < REVISION_ROUNDS_MAX; round++) {
-        const rows = (await appClient().productDocs.revisions(
-          pageId,
-          before,
-        )) as ServerRevisionView[];
-        all.push(...rows);
-        if (rows.length < REVISION_PAGE) break;
-        before = Math.min(...rows.map((r) => r.lastSeq));
-      }
-      return all.map(revisionOf);
+      const rows = (await appClient().productDocs.revisions(
+        pageId,
+        opts.before,
+      )) as ServerRevisionView[];
+      // Un `kind` che questo renderer non conosce passa com'è: lo scarta
+      // `useProductRevisions`, dopo aver contato la pagina (M6 della revisione).
+      return rows.map(revisionOf);
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) return [];
       return mapError(error);
@@ -307,14 +365,28 @@ export const liveProductDocs: Partial<ProductDocs> = {
     }
   },
 
-  // Solo un riferimento del server si carica: dalla rotta dell'immagine
-  // (302 verso un URL firmato breve), come data URL perché sul desktop il
-  // token sta nel main e la CSP ammette solo `data:` (`authedDataUrl`).
+  // Solo un riferimento del server si carica, dalla rotta dell'immagine (200
+  // coi byte: png, jpeg, gif o webp, cache privata di un'ora). Sul web la
+  // rotta va così com'è in `<img src>` (stessa origine, il cookie). Sul
+  // desktop il token sta nel main e la CSP ammette solo `data:`: i byte
+  // passano da `api:request` e diventano un data URL. Un'immagine che non c'è
+  // (403/404) è `null`; ogni altro errore lancia, così la lettura si riprova (M2).
   async productImageSrc(pageId, src) {
     if (!productImageRefSchema.safeParse(src).success) return null;
-    return authedDataUrl(
-      appClient().productDocs.imagePath(pageId, src.slice(PRODUCT_IMAGE_REF_PREFIX.length)),
+    const path = appClient().productDocs.imagePath(
+      pageId,
+      src.slice(PRODUCT_IMAGE_REF_PREFIX.length),
     );
+    if (!window.stubwise?.api) return path;
+    const res = await ipcFetch(path);
+    if (res.status === 404 || res.status === 403) return null;
+    const type = (res.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
+    if (!res.ok || !IMAGE_TYPES.has(type)) throw fail("image_failed");
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000)
+      binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return `data:${type};base64,${btoa(binary)}`;
   },
 
   async unfollowProductPage(pageId) {
@@ -330,7 +402,7 @@ export const liveProductDocs: Partial<ProductDocs> = {
  * La card Product della Home dei Docs (R11-1): dallo spazio, il numero di
  * pagine, l'ultima modifica e se chi guarda scrive. Senza spazio per chi
  * guarda (404) o senza `docs.view` (403) la card non c'è; un altro errore
- * la lascia fuori senza rompere la Home.
+ * (server, rete) non si nasconde: la Home lo dice (I5 della revisione).
  */
 export async function productHomeOf(
   projectId: string,
@@ -346,18 +418,61 @@ export async function productHomeOf(
           .at(-1) ?? null,
       canEdit: v.permissions.edit,
     };
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 404 || error.status === 403)) return null;
+    throw error;
   }
 }
 
 /** Le revisioni di un 409 `stale` (`ApiError.details.revisions`), o `null` per ogni altro errore. */
-function staleRevisions(error: unknown): { lastSeq: number }[] | null {
-  if (!(error instanceof ApiError) || error.status !== 409 || error.code !== "stale") return null;
-  const revisions = (error.details as { revisions?: unknown } | undefined)?.revisions;
-  return Array.isArray(revisions)
-    ? revisions.filter(
-        (r): r is { lastSeq: number } => typeof (r as { lastSeq?: unknown })?.lastSeq === "number",
-      )
-    : [];
+const isStale = (error: unknown): boolean =>
+  error instanceof ApiError && error.status === 409 && error.code === "stale";
+
+/**
+ * Le revisioni di un 409 `stale` (`ApiError.details.revisions`), coi blocchi
+ * e le ancore che toccano (anche il blocco assorbito da un `merge`); `null`
+ * se la risposta non le porta, o ne porta una che non si legge.
+ */
+function staleRevisions(error: unknown): { lastSeq: number; touched: string[] }[] | null {
+  const revisions = (error as ApiError).details as { revisions?: unknown } | undefined;
+  const list = revisions?.revisions;
+  if (!Array.isArray(list) || list.length === 0) return null;
+  const out: { lastSeq: number; touched: string[] }[] = [];
+  for (const r of list as { lastSeq?: unknown; changes?: unknown }[]) {
+    if (typeof r?.lastSeq !== "number" || !Array.isArray(r.changes)) return null;
+    const touched = (
+      r.changes as { blockId?: unknown; anchors?: unknown; mergedFrom?: { anchorId?: unknown } }[]
+    ).flatMap((c) =>
+      [c.blockId, ...(Array.isArray(c.anchors) ? c.anchors : []), c.mergedFrom?.anchorId].filter(
+        (id): id is string => typeof id === "string",
+      ),
+    );
+    out.push({ lastSeq: r.lastSeq, touched });
+  }
+  return out;
+}
+
+/** Ogni id che le operazioni nominano: blocchi, celle e righe scritte, i punti d'inserimento. */
+function opBlockIds(ops: readonly ProductBlockOp[]): Set<string> {
+  const ids = new Set<string>();
+  const block = (b: ProductBlock) => {
+    ids.add(b.id);
+    if (b.type === "table")
+      for (const row of b.rows) for (const cell of row.cells) ids.add(cell.id);
+  };
+  for (const op of ops) {
+    if (op.op === "set") block(op.block);
+    else if (op.op === "insert") {
+      block(op.block);
+      if (op.afterId) ids.add(op.afterId);
+    } else if (op.op === "delete") ids.add(op.blockId);
+    else if (op.op === "move") {
+      ids.add(op.blockId);
+      if (op.afterId) ids.add(op.afterId);
+    } else {
+      ids.add(op.firstId);
+      ids.add(op.secondId);
+    }
+  }
+  return ids;
 }

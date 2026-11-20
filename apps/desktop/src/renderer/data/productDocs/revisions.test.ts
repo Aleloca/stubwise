@@ -214,3 +214,20 @@ describe("lastRevisionTouching (11b, preflight P7)", () => {
     expect(productDocs.lastRevisionTouching(p.id, "blk-che-non-c-e")).toBeNull();
   });
 });
+
+describe("la cronologia a pagine (I2 della revisione, come il server)", () => {
+  it("pagine di 100, dalla più recente; `before` è il `lastSeq` più vecchio già letto", async () => {
+    const { page: p, a } = await page();
+    // 150 revisioni di sessioni diverse (una sessione nuova non si unisce).
+    for (let i = 0; i < 150; i++)
+      await productDocs.saveProductBlocks(p.id, [{ op: "set", block: para(a, `Alpha ${i}`) }], { sessionId: `s-${i}` });
+    const total = state.productRevisions.filter((r) => r.pageId === p.id).length;
+    const first = await productDocs.listProductRevisions(p.id);
+    expect(first).toHaveLength(100);
+    const before = Math.min(...first.map((r) => r.lastSeq));
+    const second = await productDocs.listProductRevisions(p.id, { before });
+    expect(second).toHaveLength(total - 100);
+    expect(second.every((r) => r.lastSeq < before)).toBe(true);
+    expect(new Set([...first, ...second].map((r) => r.id)).size).toBe(total);
+  });
+});

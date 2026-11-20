@@ -255,3 +255,50 @@ describe("fix round 1", () => {
   });
 });
 
+
+describe("la cronologia a pagine (I2 della revisione di R11-1)", () => {
+  it("oltre 100 revisioni: «Show older» mostra le lette e poi legge la pagina seguente, fino all'ultima", async () => {
+    const screens = pageByTitle("Screens");
+    const anchor = screens.blocks.find((b) => b.type === "paragraph")!;
+    for (let i = 0; i < 130; i++)
+      productDocs.writeProductBlocksAs(
+        LAURA,
+        screens.id,
+        [{ op: "set", block: { ...anchor, content: { text: `Line ${i}`, marks: [] } } as ProductBlock }],
+        { sessionId: `s-${i}` },
+      );
+    const total = state.productRevisions.filter((r) => r.pageId === screens.id).length;
+    expect(total).toBeGreaterThan(130);
+    const read = vi.spyOn(productDocs, "listProductRevisions");
+    const { region, list, user } = await openHistory("Screens");
+    expect(rows(list)).toHaveLength(50);
+    await user.click(within(region).getByRole("button", { name: "Show older" }));
+    expect(rows(list)).toHaveLength(100);
+    // Lette tutte quelle della prima pagina: la seguente arriva col clic.
+    await user.click(within(region).getByRole("button", { name: "Show older" }));
+    await vi.waitFor(() => expect(rows(list)).toHaveLength(Math.min(150, total)));
+    expect(read.mock.calls.some(([, opts]) => typeof opts?.before === "number")).toBe(true);
+    while (within(region).queryByRole("button", { name: "Show older" }))
+      await user.click(within(region).getByRole("button", { name: "Show older" }));
+    await vi.waitFor(() => expect(rows(list)).toHaveLength(total));
+  });
+});
+
+describe("un `kind` che il pannello non conosce (M6 della revisione di R11-1)", () => {
+  it("la riga non si mostra come un'altra; le altre restano", async () => {
+    const screens = pageByTitle("Screens");
+    const last = state.productRevisions.filter((r) => r.pageId === screens.id).sort((a, b) => b.lastSeq - a.lastSeq)[0]!;
+    const before = state.productRevisions.filter((r) => r.pageId === screens.id).length;
+    state.productRevisions.push({
+      ...structuredClone(last),
+      id: "rev-future",
+      kind: "some_future_kind" as never,
+      seq: nextSeq(),
+      lastSeq: nextSeq(),
+      at: now(),
+    });
+    const { list } = await openHistory("Screens");
+    expect(rows(list)).toHaveLength(Math.min(50, before));
+    expect(list.querySelector('[id$="-rev-future"]')).toBeNull();
+  });
+});

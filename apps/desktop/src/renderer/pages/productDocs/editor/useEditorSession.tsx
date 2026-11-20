@@ -84,8 +84,20 @@ function touches(ops: readonly ProductBlockOp[], id: string): boolean {
   });
 }
 
-/** Un rifiuto che riprovando non cambierebbe: l'input non vale per la pagina (`invalid: …`). */
-const rejected = (error: unknown): boolean => error instanceof Error && error.message.startsWith("invalid:");
+/**
+ * Un rifiuto che riprovando non cambierebbe, e il suo perché: l'input non vale
+ * per la pagina (`invalid: …`, anche `invalid: stale`), chi scrive non può più
+ * (`forbidden`), la pagina non c'è più (`not_found`) — I4 della revisione di
+ * R11-1. Ogni altro errore (rete, server) si riprova con Retry.
+ */
+export type DropReason = "changed" | "forbidden" | "gone";
+const rejected = (error: unknown): DropReason | null => {
+  if (!(error instanceof Error)) return null;
+  if (error.message.startsWith("invalid:")) return "changed";
+  if (error.message === "forbidden") return "forbidden";
+  if (error.message === "not_found") return "gone";
+  return null;
+};
 
 export function useEditorSession(page: ProductPageView) {
   const [sessionId] = useState(() => `ses-${crypto.randomUUID()}`);
@@ -129,7 +141,7 @@ export function useEditorSession(page: ProductPageView) {
   const [state, setState] = useState<SaveState>("idle");
   const [skipped, setSkipped] = useState(false);
   /** L'ultima scrittura rifiutata dal livello dati e scartata. */
-  const [dropped, setDropped] = useState(false);
+  const [dropped, setDropped] = useState<DropReason | false>(false);
   const stackRef = useRef<UndoStack>({ undo: [], redo: [] });
   const [stack, setStackState] = useState<UndoStack>(stackRef.current);
   const setStack = (next: UndoStack) => {
@@ -202,11 +214,12 @@ export function useEditorSession(page: ProductPageView) {
       }
     } catch (error) {
       busy.current = false;
-      if (rejected(error)) {
+      const reason = rejected(error);
+      if (reason) {
         // Riprovare darebbe lo stesso rifiuto: la scrittura esce dalla fila.
         queue.current.shift();
         setPending(queue.current.map((b) => b.ops));
-        setDropped(true);
+        setDropped(reason);
         if (queue.current.length > 0) void pump();
         else {
           setState("idle");

@@ -843,6 +843,11 @@ describe("aree non integrate nella build app", () => {
     expect(screen.queryByRole("button", { name: /^Export/ })).toBeNull();
     expect(screen.getByRole("button", { name: "History" })).toBeInTheDocument();
     expect(screen.queryByText("Coming soon")).toBeNull();
+    // Il fuoco in un blocco: la presenza (F4) non parte (I3 della revisione).
+    const body = document.querySelector<HTMLElement>("[data-editor-body]")!;
+    const [block] = within(body).getAllByRole("textbox");
+    await userEvent.setup().click(block!);
+    await settle();
     expect(outside()).toEqual([]);
   });
 

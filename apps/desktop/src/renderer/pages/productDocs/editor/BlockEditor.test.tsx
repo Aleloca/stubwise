@@ -594,6 +594,21 @@ describe("una scrittura rifiutata non blocca la fila", () => {
     await waitFor(async () => expect(await saveStatus()).toHaveTextContent("Saved"));
     expect(loginBlock().content.text).toBe(`A ${LOGIN}`);
   });
+
+  it.each([
+    ["forbidden", "Couldn't save a change: you can no longer edit this page"],
+    ["not_found", "Couldn't save a change: the page was deleted"],
+  ])("un `%s` del salvataggio è definitivo (I4): la sua frase, nessun Retry, la fila non resta bloccata", async (code, text) => {
+    seedBlock(LOGIN);
+    await openSignIn();
+    saves.mockRejectedValueOnce(new Error(code));
+    const el = await enter(LOGIN, 22);
+    input(el, "insertText", "!");
+    leave(el);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(text);
+    expect(within(alert).queryByRole("button", { name: "Retry" })).toBeNull();
+  });
 });
 
 describe("tastiera e lettori di schermo", () => {

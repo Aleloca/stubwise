@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { ClaudeMark } from "../../../components/ClaudeMark";
 import { now } from "../../../data/dates";
@@ -227,7 +227,11 @@ export function HistoryPanel({
   const listId = useId();
   const rowName = useRowName();
 
-  const all = revisions.data ?? [];
+  // Le pagine di 100 già lette, in fila (I2 della revisione): «Show older»
+  // mostra le righe lette e, finite, legge la pagina seguente.
+  const all = useMemo(() => revisions.data?.pages.flat() ?? [], [revisions.data]);
+  const loaded = revisions.data ? all : null;
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = revisions;
   const hasFirstVersion = all.some((r) => r.kind === "first_version");
   const firstVersion = useProductFirstVersion(project.id, { enabled: hasFirstVersion }).data ?? null;
 
@@ -235,14 +239,19 @@ export function HistoryPanel({
   const followed = useRef<number | null>(null);
   const [focusRow, setFocusRow] = useState<string | null>(null);
   useEffect(() => {
-    if (!focus || followed.current === focus.n || !revisions.data) return;
-    const index = revisions.data.findIndex((r) => r.id === focus.revisionId);
+    if (!focus || followed.current === focus.n || !loaded) return;
+    const index = loaded.findIndex((r) => r.id === focus.revisionId);
+    // Più vecchia di quelle lette: si legge la pagina seguente, poi si riguarda.
+    if (index === -1 && hasNextPage) {
+      if (!isFetchingNextPage) void fetchNextPage();
+      return;
+    }
     followed.current = focus.n;
     if (index === -1) return;
     if (index >= limit) setLimit(index + 1);
     setOpenRows((prev) => new Set(prev).add(focus.revisionId));
     setFocusRow(focus.revisionId);
-  }, [focus, revisions.data, limit]);
+  }, [focus, loaded, limit, hasNextPage, isFetchingNextPage, fetchNextPage]);
   // Il fuoco dopo un «Undo» resta sulla riga: sul suo testo nuovo («Undone by …»).
   const [focusAfter, setFocusAfter] = useState<string | null>(null);
   useEffect(() => {
@@ -454,10 +463,14 @@ export function HistoryPanel({
               </li>
             ))}
           </ul>
-          {all.length > limit && (
+          {(all.length > limit || hasNextPage) && (
             <button
               type="button"
-              onClick={() => setLimit((n) => n + FIRST)}
+              disabled={isFetchingNextPage}
+              onClick={() => {
+                if (all.length <= limit + FIRST && hasNextPage) void fetchNextPage();
+                setLimit((n) => n + FIRST);
+              }}
               className="mx-4 mt-2 inline-flex h-7 items-center self-start rounded-md px-1.5 text-sm font-medium text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink"
             >
               {t("productDocs.history.showOlder")}

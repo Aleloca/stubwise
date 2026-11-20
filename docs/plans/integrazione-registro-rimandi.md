@@ -1431,18 +1431,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     ancora il `data:` URL del prototipo (`replaceWireframeWithImage`);
     quando F6 la porta sul server va fatta passare da `storeProductImage`
     come gli altri blocchi immagine.
-  - **L'immagine apre un URL firmato con un 302** *(S, da verificare con
-    72)*: il renderer la legge con `authedDataUrl` (token dal main sul
-    desktop, `fetch` col cookie sul web). Sul web una `fetch` che segue un
-    302 verso un'altra origine (lo storage) vuole il CORS dello storage;
-    sul desktop la segue il main. Da provare sull'istanza vera.
-  - **La cronologia si legge intera** *(S)*: a pagine di 100 lette tutte
-    (tetto 50 pagine, 5000 revisioni), perché il pannello del prototipo
-    vuole l'elenco intero; un «Load older» arriva se una pagina vera lo
-    chiede.
-  - **La card Product sulla Home dei Docs nasconde un errore del server**
-    *(XS)*: un errore che non sia 403/404 la toglie senza dirlo, come le
-    decisioni recenti della stessa Home.
+  - **Il motivo dell'eliminazione spenta** *(XS, M1 della revisione di
+    R11-1)*: il client lo deduce ancora da `permissions` (`has_children`).
+    72 ha aggiunto `deleteBlockedBy` sulla vista della pagina (ffba613eb,
+    `feat/area11-f3`): si legge quando F3 arriva in integrazione.
+- *Revisione di R11-1 (46, 20 nov 2026), chiuse*: le immagini (la rotta dà
+  i byte, 72 69b09a99d: sul web `<img src>` sulla rotta, sul desktop i byte
+  da `api:request` come data URL); la cronologia a pagine di 100 con
+  «Show older» (`useInfiniteQuery`); la card della Home che non nasconde
+  più un errore diverso da 403/404.
 
 ## Trasversali
 
