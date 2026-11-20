@@ -1411,6 +1411,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   (`services/product-comments.ts`) come fa già `saveProductBlocks` con
   `undoOf`, o i fili spostati da un `merge` restano sul blocco che l'aveva
   assorbito.
+- **Le fonti di prodotto della chat dei Docs non restano nello storico** *(S,
+  F3, 20 nov 2026)*: la chat dei Docs del progetto passa al modello anche le
+  pagine di prodotto e le manda al client come `productSources` (nel `done`
+  dell'SSE e nella risposta JSON), ma il messaggio salvato tiene le sole
+  `citations` dei repository: riaprendo una sessione, le fonti di prodotto di
+  una risposta vecchia non ci sono. Salvarle vuol dire allargare la forma di
+  `doc_chat_messages.citations`, che i client leggono come un array di fonti dei
+  repository: da decidere insieme alla forma.
 - **Gli id di chi ha scritto escono anche quando il nome è nascosto**
   *(S, review di F2, F1 e F2 insieme)*: con R-G5 il NOME di una persona che
   chi guarda non vede è null, ma il suo id no: `actorId` delle revisioni (F1),

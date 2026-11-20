@@ -280,6 +280,8 @@ describe("streamChatResponse — mode: json (fase 4, mobile, ?stream=false)", ()
         body: {
           answer: "ciao mondo",
           sources: CITATIONS,
+          // Area 11, F3: le fonti di prodotto (nessuna qui: chi chiama non ne passa).
+          productSources: [],
           sessionId: "22222222-2222-4222-8222-222222222222",
         },
       },

@@ -157,6 +157,13 @@ export const chatCitationSchema = z.object({
     })
     .nullable()
     .default(null),
+  /**
+   * Area 11, F3: solo una pagina di PRODOTTO, citata come una pagina Docs
+   * (`kind: "doc"`, l'`id` è la riga del suo codice `-D`, D-9), con `doc: null`
+   * e qui la pagina da aprire. Un client vecchio la mostra col titolo e il
+   * codice, senza destinazione. Additivo.
+   */
+  product: z.object({ pageId: z.uuid() }).nullable().default(null),
 });
 export type ChatCitationView = z.infer<typeof chatCitationSchema>;
 
