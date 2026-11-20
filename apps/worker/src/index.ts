@@ -22,7 +22,7 @@ import { startServerOpsBridge } from "./server-ops/bridge.js";
 import { startServerFixPoller, type ServerFixPoller } from "./server-ops/fix-run.js";
 import { askChatQuestion } from "./claude-chat/mention.js";
 import { askConversationQuestion } from "./claude-chat/conversation-question.js";
-import { writeStalledAside } from "./claude-chat/aside.js";
+import { writeCapabilities, writeStalledAside } from "./claude-chat/aside.js";
 import { ChatScheduler } from "./claude-chat/scheduler.js";
 import { turnDispatcher } from "./sessions/turn-dispatch.js";
 import { runChatTurn } from "./claude-chat/turn.js";
@@ -700,6 +700,10 @@ if (relay) {
       // Area 10, F3 (S2): «Hypothesis» e «Details» del lavoro fermo.
       stalledAside: async (sessionId, stalled) => {
         await writeStalledAside(db, sessionId, stalled);
+      },
+      // Area 10, F7 (S0): l'elenco di ciò che Claude sa fare, con gli id del server.
+      capabilities: async (sessionId, json) => {
+        await writeCapabilities(db, sessionId, json);
       },
       askQuestion: (sessionId, args, inputId) => (inputId !== undefined ? askConversationQuestion(db, sessionId, inputId, args) : askChatQuestion(db, sessionId, args)),
     });

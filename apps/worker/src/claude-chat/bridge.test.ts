@@ -4,7 +4,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { CHAT_FREE_TOOL_NAMES, CHAT_MCP_SERVER_NAME, CHAT_MENTION_TOOL_NAMES, CHAT_READ_TOOLS, CHAT_TOOL_NAMES, CHAT_TOOLS, CLAUDE_PROPOSABLE_FNS, CHAT_INSTANCE_SECTIONS } from "@stubwise/shared";
 import { buildChatMcpServer, CHAT_SERVER_NAME, PROPOSABLE_FNS, UNTRUSTED_NOTE, UNTRUSTED_PR_NOTES_NOTE_MCP, UNTRUSTED_RELEASE_NOTE_MCP, UNTRUSTED_SERVER_NOTE_MCP, INSTANCE_SECTIONS } from "../chat-mcp/server.js";
-import { ChatToolArgError, chatServerPaths, startChatBridge, stalledProjects, UNTRUSTED_CALENDAR_NOTE, UNTRUSTED_CHANNEL_NOTE, UNTRUSTED_DOCUMENT_NOTE, UNTRUSTED_MAIL_NOTE, UNTRUSTED_PR_NOTES_NOTE, UNTRUSTED_RELEASE_NOTE, UNTRUSTED_SERVER_NOTE, UNTRUSTED_SUPPORT_NOTE, type ChatBridge } from "./bridge.js";
+import { ChatToolArgError, chatServerPaths, startChatBridge, stalledProjects, UNTRUSTED_CALENDAR_NOTE, UNTRUSTED_CHANNEL_NOTE, UNTRUSTED_DOCUMENT_NOTE, CAPABILITIES_SHOWN_NOTE, UNTRUSTED_MAIL_NOTE, UNTRUSTED_PR_NOTES_NOTE, UNTRUSTED_RELEASE_NOTE, UNTRUSTED_SERVER_NOTE, UNTRUSTED_SUPPORT_NOTE, type ChatBridge } from "./bridge.js";
 
 // Il ponte dei tool di lettura della chat (fetta 1): ogni tool diventa una o
 // più GET sul server col token del turno (la visibilità dell'autore); il token
@@ -824,6 +824,23 @@ describe("area 10, F4: read_archive_candidates — dei motivi busy niente titoli
       notManageableCodes: ["MKT"],
     });
     expect(body.text).not.toContain("TITOLO-DA-FUORI");
+  });
+});
+
+describe("area 10, F7: show_capabilities — gli id dal server, l'evento lo scrive il worker", () => {
+  it("il percorso, la risposta al modello e il gestore dell'evento (mai nei turni di @Claude)", async () => {
+    expect(chatServerPaths("show_capabilities", {})).toEqual(["/api/claude/capabilities"]);
+    const events: unknown[][] = [];
+    const fetchImpl = vi.fn(async () => Response.json({ items: ["stalled", "spend"] }));
+    bridge = await startChatBridge({ serverUrl: "http://server:3000", fetchImpl: fetchImpl as never, capabilities: async (...a) => void events.push(a) });
+    const free = bridge.grant({ sessionId: "s1", serverToken: "stw_chat_t" });
+    const body = (await (await call(bridge, free.secret, "show_capabilities", {})).json()) as { ok: boolean; text: string };
+    expect(body.ok).toBe(true);
+    expect(JSON.parse(body.text)).toEqual({ capabilities: ["stalled", "spend"], note: CAPABILITIES_SHOWN_NOTE });
+    expect(events).toEqual([["s1", { items: ["stalled", "spend"] }]]);
+    const mention = bridge.grant({ sessionId: "s2", serverToken: "stw_chat_t", ask: true, mention: true });
+    await call(bridge, mention.secret, "show_capabilities", {});
+    expect(events).toHaveLength(1);
   });
 });
 

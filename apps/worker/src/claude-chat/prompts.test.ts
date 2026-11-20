@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { claudeAutomationGuide } from "@stubwise/shared";
-import { AUTOMATION_DRAFTS_RULE, BULK_ARCHIVE_RULE, FIELD_DRAFT_RULE, STALLED_AND_SPENDING_RULE, STATUS_AND_TODAY_RULE, buildChatPrimingPrompt, CHAT_UNDO_LABEL, chatMentionContract } from "./prompts.js";
+import { AUTOMATION_DRAFTS_RULE, BULK_ARCHIVE_RULE, CAPABILITIES_RULE, FIELD_DRAFT_RULE, STALLED_AND_SPENDING_RULE, STATUS_AND_TODAY_RULE, buildChatPrimingPrompt, CHAT_UNDO_LABEL, chatMentionContract } from "./prompts.js";
 
 const prompt = (language: "en" | "it") =>
   buildChatPrimingPrompt({ language, authorName: "Ada", context: null, toolsAvailable: true, recentTranscript: [] }, "ciao");
@@ -140,5 +140,13 @@ describe("area 10, F6: le bozze nei campi", () => {
     // Il contesto della pagina di una PR, come lo manda il renderer.
     expect(FIELD_DRAFT_RULE).toContain("pr: <repositoryId>:<prNumber>");
     expect(FIELD_DRAFT_RULE).toMatch(/never say it is saved/);
+  });
+});
+
+describe("area 10, F7: S0, cosa sa fare Claude", () => {
+  it("una richiesta che non sa fare: show_capabilities invece di un'azione inventata, in una frase", () => {
+    expect(prompt("it")).toContain(CAPABILITIES_RULE);
+    expect(CAPABILITIES_RULE).toMatch(/show_capabilities/);
+    expect(CAPABILITIES_RULE).toMatch(/instead of inventing an action/);
   });
 });
