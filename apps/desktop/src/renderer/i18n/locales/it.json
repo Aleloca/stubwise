@@ -4504,6 +4504,8 @@
         "write": "Scrivila"
       },
       "commands": {
+        "status": "A che punto sono i progetti: il polso di quelli che segui",
+        "today": "Cosa devi fare oggi: decisioni, task in ritardo, la tua settimana",
         "explain": "Spiega una task o una richiesta, dal suo codice",
         "docs": "Come funziona qualcosa in un progetto, dai suoi Docs",
         "plan": "Pianifica la prossima settimana dalle task aperte",

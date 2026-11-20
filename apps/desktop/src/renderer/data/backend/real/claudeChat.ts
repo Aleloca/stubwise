@@ -1,6 +1,7 @@
 import { ApiError } from "@stubwise/api-client";
 import { claudeVisibilityConfirmationSchema, DOC_CODE_RE, docCodeResolutionSchema } from "@stubwise/shared";
 import type {
+  ProjectRequestSummary,
   ClaudeConversation,
   ClaudeConversationContext,
   ClaudeConversationDetail as ClaudeConversationDetailView,
@@ -441,31 +442,64 @@ export async function chatAiBlock(projectId: string | null): Promise<AiBlock | n
 // --- «/», «#», «@» e i codici nei testi -------------------------------------------
 
 /**
- * I comandi di «/» di questa fetta: solo quelli che i tool di lettura coprono
- * davvero (`read_task`/`read_request` per `/explain`, `search_docs` per
- * `/docs`). `/status` e `/today` del prototipo leggono progetti seguiti,
- * decisioni e la settimana di chi scrive, che i tool non vedono: tornano con
- * la fetta che li copre. Le skill dei plugin non ci sono (il server non le
- * espone). Le descrizioni nella lingua di chi guarda.
+ * I comandi di «/», nell'ordine del prototipo (`STUBWISE_COMMANDS`): solo
+ * quelli che i tool coprono davvero. `/status` e `/today` dall'area 10 (F8:
+ * `read_followed_projects` e `read_my_week`; il comando scrive solo il testo,
+ * è il modello a chiamare i tool), quelli d'azione con `claude-chat-actions`.
+ * Le descrizioni nella lingua di chi guarda.
  */
-const READ_COMMANDS = ["explain", "docs"] as const;
+const COMMANDS = ["status", "today", "explain", "plan", "new-task", "new-request", "run", "docs"] as const;
 /** Fetta 3: i comandi d'azione, che diventano una proposta (Claude propone, il server esegue). */
-const ACTION_COMMANDS = ["plan", "new-task", "new-request", "run"] as const;
+const ACTION_COMMANDS = new Set<string>(["plan", "new-task", "new-request", "run"]);
 
-export const listCommands: typeof Fake.listCommands = async () =>
-  [...READ_COMMANDS, ...(featureIntegrated("claude-chat-actions") ? ACTION_COMMANDS : [])].map<SlashCommand>((id) => ({
+/**
+ * Poi le skill che entrano nei run del progetto di contesto (area 10, F8, su
+ * `GET /api/projects/:id/plugins`): i plugin pronti e accesi sul progetto,
+ * meno le skill spente, col `name` del manifest come namespace. Il server non
+ * dà le descrizioni delle skill, né il plugin base (sta fuori dal registro).
+ * Un progetto che chi guarda non vede: solo i comandi di Stubwise.
+ */
+export const listCommands: typeof Fake.listCommands = async (contextProjectId) => {
+  const actions = featureIntegrated("claude-chat-actions");
+  const stubwise = COMMANDS.filter((id) => actions || !ACTION_COMMANDS.has(id)).map<SlashCommand>((id) => ({
     id: `cmd-${id}`,
     label: `/${id}`,
     description: i18n.t(`claude.conversation.commands.${id}`),
     source: "stubwise",
   }));
+  return [...stubwise, ...(contextProjectId ? await pluginSkillCommands(contextProjectId) : [])];
+};
+
+async function pluginSkillCommands(projectId: string): Promise<SlashCommand[]> {
+  let view: Awaited<ReturnType<ReturnType<typeof appClient>["projects"]["plugins"]>>;
+  try {
+    view = await appClient().projects.plugins(projectId);
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 404 || error.status === 403)) return [];
+    throw error;
+  }
+  const choices = new Map(view.plugins.map((c) => [c.pluginId, c] as const));
+  return view.registry.flatMap((r) => {
+    const choice = choices.get(r.pluginId);
+    if (r.status !== "ready" || !choice?.enabled) return [];
+    return r.skills
+      .filter((skill) => !choice.disabledSkills.includes(skill))
+      .map<SlashCommand>((skill) => ({
+        id: `${r.name}:${skill}`,
+        label: `/${r.name}:${skill}`,
+        description: "",
+        source: { plugin: r.name, skill },
+      }));
+  });
+}
 
 const MENTION_LIMIT = 8;
 
 /**
  * «#»: task, progetti, pagine Docs e file del Drive che chi guarda vede (il server filtra);
- * «@»: le persone. Le richieste non ci sono ancora (limite della fetta, nel
- * registro dei rimandi).
+ * «@»: le persone. Dall'area 10 (F8) anche le richieste, per codice e
+ * titolo, dei progetti che chi guarda vede (`GET /api/requests?projectId=…`,
+ * filtrato dal server); una fusa no, come nel prototipo.
  */
 export const searchMentions: typeof Fake.searchMentions = async (q, kind) => {
   const needle = q.trim().toLowerCase();
@@ -478,11 +512,13 @@ export const searchMentions: typeof Fake.searchMentions = async (q, kind) => {
       .slice(0, MENTION_LIMIT)
       .map<MentionResult>((p) => ({ ref: { kind: "person", id: p.id }, code: null, label: p.name, detail: null, projectId: null }));
   }
-  const [projects, tasks, docHits, driveRows] = await Promise.all([
-    listProjects(),
+  const projectsRead = listProjects();
+  const [projects, tasks, docHits, driveRows, requests] = await Promise.all([
+    projectsRead,
     needle ? listTasks({ text: q.trim(), families: ["todo", "active"] }) : Promise.resolve([]),
     needle && featureIntegrated("docs") ? docMentionHits(q.trim()) : Promise.resolve([]),
     needle && featureIntegrated("drive") ? drive.searchDrive(q.trim()).then((r) => r.files.map((h) => h.file)) : Promise.resolve([]),
+    needle ? projectsRead.then((list) => requestsOf(list.map((p) => p.id))) : Promise.resolve([]),
   ]);
   const nameOf = new Map(projects.map((p) => [p.id, p.name] as const));
   const projectRows = projects
@@ -495,6 +531,15 @@ export const searchMentions: typeof Fake.searchMentions = async (q, kind) => {
     detail: nameOf.get(t.projectId) ?? null,
     projectId: t.projectId,
   }));
+  const requestRows = requests
+    .filter((r) => r.mergedIntoId === null && has(r.code, r.title))
+    .map<MentionResult>((r) => ({
+      ref: { kind: "request", id: r.id },
+      code: r.code,
+      label: r.title,
+      detail: nameOf.get(r.projectId) ?? null,
+      projectId: r.projectId,
+    }));
   // Una pagina si cita col suo codice (`AUD-D3`): il progetto è il prefisso.
   const byCode = new Map(projects.map((p) => [p.code, p] as const));
   const docRows = docHits.flatMap<MentionResult>((d) => {
@@ -514,10 +559,28 @@ export const searchMentions: typeof Fake.searchMentions = async (q, kind) => {
   }));
   return [
     ...[...taskRows, ...projectRows].slice(0, MENTION_LIMIT),
+    ...requestRows.slice(0, MENTION_LIMIT),
     ...docRows.slice(0, MENTION_LIMIT),
     ...driveMentions.slice(0, MENTION_LIMIT),
   ];
 };
+
+/**
+ * Le richieste dei progetti dati, per «#». Un progetto la cui lettura fallisce
+ * (backlog spento, permesso tolto nel frattempo) non dà righe e non toglie le
+ * altre.
+ */
+async function requestsOf(projectIds: string[]): Promise<ProjectRequestSummary[]> {
+  const lists = await Promise.all(
+    projectIds.map((id) =>
+      appClient()
+        .requests.list(id)
+        .then((rows) => rows as ProjectRequestSummary[])
+        .catch(() => []),
+    ),
+  );
+  return lists.flat();
+}
 
 /**
  * Le pagine Docs per «#»: la ricerca globale con `citable` (niente note di

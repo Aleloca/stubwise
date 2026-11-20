@@ -116,12 +116,16 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 - Budget del mese finito: in chat nessuno lo scavalca (una conversazione non ha
   un progetto, quindi nessun `plans.approve`) *(S)*.
 - **Limiti della fetta 2 (renderer, destinazione)** *(S, stubwise-72)*:
-  - «#» propone task, progetti e (dall'area 5, fetta 1) pagine Docs, non le richieste; «@» le persone.
+  - «#» propone task, progetti, (dall'area 5, fetta 1) pagine Docs e
+    (dall'area 10, F8) richieste; «@» le persone. ✅ *Le richieste: area 10,
+    F8.*
   - «/» ha i comandi di lettura (`/explain`, `/docs`) e, dalla F3.4, quelli
-    d'azione (`/plan`, `/new-task`, `/new-request`, `/run`); `/status` e
-    `/today` tornano quando i tool leggono progetti seguiti, decisioni e la
-    settimana di chi scrive; niente skill dei plugin del progetto (il server
-    non le espone).
+    d'azione (`/plan`, `/new-task`, `/new-request`, `/run`). ✅ *Area 10, F8:
+    `/status` e `/today` (i tool `read_followed_projects` e `read_my_week`)
+    e le skill dei plugin del progetto di contesto (`GET
+    /api/projects/:id/plugins`).* Resta diverso dal prototipo: le skill non
+    hanno la descrizione (il registro dà solo i nomi) e il plugin base non
+    c'è (sta fuori dal registro).
   - Le citazioni registrate su un messaggio non esistono sul server: Claude
     cita col codice nel testo, che la pagina risolve (`resolveCodes`, task e
     richieste).
