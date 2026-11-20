@@ -1450,6 +1450,13 @@
       "when": 1802390400000,
       "tag": "0208_doc_chat_product_sources",
       "breakpoints": true
+    },
+    {
+      "idx": 209,
+      "version": "7",
+      "when": 1802476800000,
+      "tag": "0209_product_section_holds",
+      "breakpoints": true
     }
   ]
 }

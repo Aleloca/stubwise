@@ -2823,6 +2823,29 @@ export const productPageImages = pgTable("product_page_images", {
 });
 
 /**
+ * Le sezioni prese di una pagina di prodotto (area 11, F4): chi ci sta
+ * scrivendo, fino a quando. In tabella e non in memoria perché la deve vedere
+ * anche il worker (F5: Claude aspetta chi scrive nella stessa sezione). La
+ * rinnova il battito di chi scrive e scade da sola (`expires_at`). La sezione
+ * è `sectionKeyOf` di shared (`top` = in cima). Presenza e cursori invece
+ * stanno nella memoria del server, mai qui.
+ */
+export const productSectionHolds = pgTable(
+  "product_section_holds",
+  {
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => productPages.id, { onDelete: "cascade" }),
+    sectionId: text("section_id").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [primaryKey({ name: "product_section_holds_pk", columns: [table.pageId, table.sectionId] })],
+);
+
+/**
  * I passaggi di una pagina di prodotto con l'embedding (area 11, F3), con lo
  * stesso chunking e lo stesso embedder dei Docs (bge-m3, 1024). Una tabella a
  * parte da `doc_chunks`, che è legata ai repository: la ricerca e la chat dei

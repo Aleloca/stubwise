@@ -301,3 +301,91 @@ export type ProductExportSpace = z.infer<typeof productExportSpaceSchema>;
 
 /** Il 413 di uno spazio troppo grande: quante pagine ha, e il tetto. */
 export const productExportTooLargeSchema = z.object({ code: z.literal("too_many_pages"), message: z.string(), count: z.number().int(), max: z.number().int() });
+
+// --- Area 11, F4: la scrittura dal vivo ----------------------------------------
+
+/** Dove una persona ha il cursore: un'ancora (blocco o cella) e la posizione nel suo testo. */
+export const productCursorSchema = z.object({ blockId: id, offset: z.number().int().min(0) });
+export type ProductCursor = z.infer<typeof productCursorSchema>;
+
+/**
+ * Una persona presente nella pagina, come la vede chi guarda: solo le persone
+ * che vede (R-G5) e che leggono ancora i Docs del progetto; il nome lo deriva
+ * il server, il colore lo sceglie il client dall'id (come il prototipo).
+ */
+export const productPresenceSchema = z.object({
+  userId: z.uuid(),
+  name: z.string(),
+  /** Dove scrive; null = c'è ma non scrive. */
+  cursor: productCursorSchema.nullable(),
+  /** La sezione in cui scrive (`sectionKeyOf`, `top` = in cima), o null. */
+  sectionId: z.string().nullable(),
+});
+export type ProductPresence = z.infer<typeof productPresenceSchema>;
+
+/** Una sezione presa: chi la tiene (il nome solo se chi guarda lo vede, R-G5) e fino a quando. */
+export const productSectionHoldSchema = z.object({
+  sectionId: z.string(),
+  by: z.object({ id: z.uuid(), name: z.string().nullable() }),
+  expiresAt: z.string(),
+});
+export type ProductSectionHold = z.infer<typeof productSectionHoldSchema>;
+
+/** Il 409 di `POST /api/product-pages/:id/ops` quando un'operazione tocca una sezione presa da un ALTRO: niente è cambiato. */
+export const productSectionBusySchema = z.object({
+  code: z.literal("section_busy"),
+  message: z.string(),
+  sectionId: z.string(),
+  by: z.object({ id: z.uuid(), name: z.string().nullable() }),
+});
+export type ProductSectionBusy = z.infer<typeof productSectionBusySchema>;
+
+/** `POST /api/product-pages/:id/live/presence`: il battito (ogni 5 s, scade a 15 s). Con `sectionId` serve `docs.edit` e rinnova la presa. */
+export const productPresenceBeatSchema = z
+  .object({
+    cursor: productCursorSchema.nullable().optional(),
+    sectionId: z.string().min(1).max(100).nullable().optional(),
+  })
+  .strict();
+export type ProductPresenceBeat = z.infer<typeof productPresenceBeatSchema>;
+
+/** La risposta del battito: la presa chiesta, se è di chi chiede, o chi la tiene. */
+export const productPresenceBeatResultSchema = z.object({
+  hold: productSectionHoldSchema.nullable(),
+  busy: productSectionHoldSchema.nullable().default(null),
+});
+export type ProductPresenceBeatResult = z.infer<typeof productPresenceBeatResultSchema>;
+
+/**
+ * I frame dello stream `GET /api/product-pages/:id/live` (SSE, `data: {json}`,
+ * `: ping` ogni 25 s). Il primo è sempre `state`; alla ripresa ne arriva uno
+ * nuovo, e il client confronta il `seq` col suo (più avanti: rilegge la pagina).
+ * - `revision`: una scrittura salvata, con le operazioni (`ops`, per applicarle
+ *   senza rileggere se il client è al `seq` di prima) o, per una rinomina o uno
+ *   spostamento, il titolo e il genitore nuovi;
+ * - `presence`: tutta la presenza, di nuovo;
+ * - `cursor`: un cursore che si è mosso;
+ * - `hold` / `release`: una sezione presa o lasciata;
+ * - `gone`: la pagina non c'è più, o chi guarda non la legge più: lo stream si chiude.
+ */
+export const productLiveStateSchema = z.object({
+  type: z.literal("state"),
+  seq: z.number().int(),
+  presence: z.array(productPresenceSchema),
+  holds: z.array(productSectionHoldSchema),
+});
+export const productLiveRevisionSchema = z.object({
+  type: z.literal("revision"),
+  seq: z.number().int(),
+  kind: z.enum(["create", "edit", "rename", "move"]),
+  actorId: z.uuid().nullable(),
+  sessionId: z.string().nullable(),
+  ops: z.array(z.record(z.string(), z.unknown())).default([]),
+  title: z.string().nullable().default(null),
+  parentId: z.uuid().nullable().default(null),
+});
+export const productLivePresenceSchema = z.object({ type: z.literal("presence"), presence: z.array(productPresenceSchema) });
+export const productLiveCursorSchema = z.object({ type: z.literal("cursor"), userId: z.uuid(), cursor: productCursorSchema.nullable() });
+export const productLiveHoldSchema = z.object({ type: z.literal("hold"), hold: productSectionHoldSchema });
+export const productLiveReleaseSchema = z.object({ type: z.literal("release"), sectionId: z.string() });
+export const productLiveGoneSchema = z.object({ type: z.literal("gone") });
