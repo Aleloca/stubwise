@@ -26,6 +26,12 @@ import {
 // rifiutato o tetto raggiunto no; rete caduta, timeout dei ping, rotazione a
 // 1 MB e 5xx sì (col backoff di `streamBackoffMs`).
 
+/** Lo stream dal vivo di una pagina di prodotto (area 11, F4): solo `/api/product-pages/:uuid/live`. */
+const PRODUCT_LIVE_PATH = /^\/api\/product-pages\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/live$/i;
+export const isAllowedProductLivePath = (path: string): boolean => PRODUCT_LIVE_PATH.test(path);
+/** Il frame più grande che si inoltra (una revisione con molte operazioni): 1 MB. */
+const PRODUCT_LIVE_FRAME_MAX = 1_000_000;
+
 /** Quanti stream aperti per finestra, al più. */
 export const MAX_STREAMS_PER_WINDOW = 8;
 /** Il server manda `: ping` ogni 25 s: senza un byte per questo tempo la connessione è morta. */
@@ -48,6 +54,8 @@ export type StreamPortMessage =
   | { type: "frame"; messages: AgentStreamMessage[]; lastId: string | null; real: boolean; invalidSession: boolean }
   /** Area 4: un frame dello stream di un canale della Chat (`parseChatStreamFrame`). */
   | { type: "chatFrame"; messages: ChatStreamFrameMessage[]; cursor: string | null }
+  /** Area 11, F4: un frame dello stream dal vivo di una pagina di prodotto, com'è (testo SSE senza i ping). */
+  | { type: "productFrame"; raw: string }
   /** Area 6, F3: un pezzo della bozza di Claude per la Posta (`parseMailDraftFrame`). */
   | { type: "mailDraft"; event: MailDraftStreamEvent }
   | { type: "end"; reason: StreamEndReason; fatal: boolean; status?: number; code?: string };
@@ -157,12 +165,18 @@ export function createStreamRegistry(deps: StreamDeps) {
       }
       port.close();
     };
-    // Tre allowlist strette: le sessioni dell'agente, dall'area 4 i canali della
-    // Chat, dall'area 6 la bozza di Claude per la Posta (un POST, col suo corpo).
+    // Quattro allowlist strette: le sessioni dell'agente, dall'area 4 i canali
+    // della Chat, dall'area 6 la bozza di Claude per la Posta (un POST, col suo
+    // corpo), dall'area 11 lo stream dal vivo di una pagina di prodotto.
     const chat = typeof path === "string" && isAllowedChatStreamPath(path);
+    const productLive = typeof path === "string" && isAllowedProductLivePath(path);
     const mailDraft = path === MAIL_DRAFT_PATH;
     const draftBody = mailDraft ? mailDraftBody(options.body) : null;
-    if (typeof path !== "string" || (!chat && !mailDraft && !isAllowedAgentStreamPath(path)) || (mailDraft && draftBody === null)) {
+    if (
+      typeof path !== "string" ||
+      (!chat && !mailDraft && !productLive && !isAllowedAgentStreamPath(path)) ||
+      (mailDraft && draftBody === null)
+    ) {
       end({ type: "end", reason: "rejected", fatal: true });
       return;
     }
@@ -278,6 +292,15 @@ export function createStreamRegistry(deps: StreamDeps) {
           if (mailDraft) {
             const event = parseMailDraftFrame(raw);
             if (event) port.postMessage({ type: "mailDraft", event } satisfies StreamPortMessage);
+            continue;
+          }
+          if (productLive) {
+            // Il frame com'è: lo legge il renderer (il parser di shared arriva
+            // con F4 di 72; da lì si potrà leggere anche qui). Un frame troppo
+            // grande non passa.
+            const onlyComments = raw.split("\n").every((line) => line === "" || line.startsWith(":"));
+            if (!onlyComments && raw.length <= PRODUCT_LIVE_FRAME_MAX)
+              port.postMessage({ type: "productFrame", raw } satisfies StreamPortMessage);
             continue;
           }
           if (chat) {

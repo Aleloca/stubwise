@@ -19,6 +19,7 @@ import { liveMembers } from "./adminMembers";
 import { liveChangelog } from "./changelog";
 import { partialNamespace } from "./notIntegrated";
 import { liveProductDocs } from "./productDocs";
+import { liveProductPresence } from "./productLive";
 import { liveIntegration } from "./projectIntegration";
 import { liveProjectArchive } from "./projectArchive";
 import { liveProjectPlugins } from "./projectPlugins";
@@ -239,12 +240,15 @@ export {
   // Fetta 5: le pubbliche e la continuazione.
   setVisibility,
 } from "./claudeChat";
-// Area 11, F1 (R11-1): lo spazio Product, la pagina, la scrittura a operazioni,
-// la cronologia e Segui; commenti, ricerca, dal vivo e Claude restano «in arrivo».
-export const productDocs: typeof Fake.productDocs = partialNamespace<typeof Fake.productDocs>(
-  "productDocs",
-  liveProductDocs,
-);
+// Area 11: lo spazio Product, la pagina, la scrittura a operazioni, la
+// cronologia e Segui (F1), i commenti (F2), ricerca ed esportazione (F3), la
+// presenza dal vivo (F4, dietro `product-live`); Claude resta «in arrivo».
+const { sectionHolder: _sectionHolder, rememberBlocks: _rememberBlocks, ...livePresence } = liveProductPresence;
+void [_sectionHolder, _rememberBlocks];
+export const productDocs: typeof Fake.productDocs = partialNamespace<typeof Fake.productDocs>("productDocs", {
+  ...liveProductDocs,
+  ...livePresence,
+});
 // Area 10, F7: la riga «Claude can help you…» e il suo «Not now», dal server.
 export { dismissClaudeSuggestion, getClaudeSuggestion } from "./claudeSuggestions";
 // La chiave della riga per persona e oggetto: pura, la stessa del prototipo.

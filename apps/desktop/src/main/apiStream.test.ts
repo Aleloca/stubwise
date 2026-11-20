@@ -250,6 +250,47 @@ describe("stream della Chat via IPC (main, area 4 fetta 1)", () => {
   });
 });
 
+describe("lo stream dal vivo di una pagina di prodotto via IPC (main, area 11 F4)", () => {
+  const PG = "00000000-0000-4000-8000-0000000000e1";
+  const LIVE_PATH = `/api/product-pages/${PG}/live`;
+
+  it("apre /api/product-pages/:id/live col Bearer e inoltra ogni frame com'è (lo legge il renderer)", async () => {
+    const body = sseBody();
+    const d = deps({ fetch: vi.fn(async () => new Response(body.stream, { status: 200, headers: { "content-type": "text/event-stream" } })) });
+    const registry = createStreamRegistry(d);
+    const port = fakePort();
+    registry.open(1, LIVE_PATH, port);
+    await flush();
+    const [url, init] = d.fetch.mock.calls[0]! as [string, RequestInit];
+    expect(url).toBe(`https://example.com${LIVE_PATH}`);
+    expect((init.headers as Record<string, string>).authorization).toBe("Bearer stw_pat_x");
+    body.push(": ping\n\n");
+    body.push('event: presence\ndata: {"userId":"u1","present":true}\n\n');
+    await flush();
+    expect(port.sent.map((m) => m.type)).toEqual(["open", "productFrame"]);
+    expect(port.sent[1]).toEqual({ type: "productFrame", raw: 'event: presence\ndata: {"userId":"u1","present":true}' });
+    body.end();
+    await flush();
+    expect(port.sent.at(-1)).toMatchObject({ type: "end", fatal: false });
+  });
+
+  it("un percorso della doc fuori elenco non apre nessuna connessione", async () => {
+    const d = deps();
+    const registry = createStreamRegistry(d);
+    for (const bad of [
+      `/api/product-pages/${PG}/live/presence`,
+      `/api/product-pages/not-a-uuid/live`,
+      `${LIVE_PATH}?x=1`,
+      `/api/product-pages/${PG}`,
+    ]) {
+      const port = fakePort();
+      registry.open(1, bad, port);
+      expect(port.sent).toEqual([{ type: "end", reason: "rejected", fatal: true }]);
+    }
+    expect(d.fetch).not.toHaveBeenCalled();
+  });
+});
+
 describe("la bozza di Claude per la Posta via IPC (main, area 6 F3)", () => {
   const MAIL = "/api/me/mail/drafts/claude";
   const ACC = "aaaaaaaa-1111-4111-8111-111111111111";

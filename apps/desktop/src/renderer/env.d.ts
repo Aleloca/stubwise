@@ -57,6 +57,8 @@ type StubwiseStreamMessage =
       messages: import("@stubwise/shared").ChatStreamFrameMessage[];
       cursor: string | null;
     }
+  /** Area 11, F4: un frame dello stream dal vivo di una pagina di prodotto, com'è. */
+  | { type: "productFrame"; raw: string }
   | {
       /** Area 6, F3: un pezzo della bozza di Claude per la Posta. */
       type: "mailDraft";

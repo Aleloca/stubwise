@@ -1,5 +1,6 @@
 import { anchorIdsOf, anchorText, isTextBlock } from "../../domain/productDocs/blocks";
 import { insertText } from "../../domain/productDocs/richText";
+import { presenceColor } from "../../domain/productDocs/presence";
 import { sectionOf, sectionRange } from "../../domain/productDocs/sections";
 import { visiblePeopleFor } from "../access/whoCan";
 import { docsAccess } from "../docs/reads";
@@ -85,13 +86,6 @@ function readablePage(me: string, pageId: string): ProductPage {
   if (access === "none") throw notFound();
   if (access === "forbidden") throw forbidden();
   return page;
-}
-
-/** Il colore della presenza di una persona: lo stesso ovunque e a ogni ripristino. */
-function presenceColor(personId: string): ProductPresenceView["color"] {
-  let h = 0;
-  for (const ch of personId) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return ((h % 6) + 1) as ProductPresenceView["color"];
 }
 
 // --- chi guarda ---------------------------------------------------------------

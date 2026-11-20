@@ -26,6 +26,7 @@ import type {
   ProductSearchHit,
 } from "../../types";
 import { appClient } from "./client";
+import { liveProductPresence } from "./productLive";
 import { authedDataUrl, ipcFetch } from "./transport";
 
 // Lo spazio Product nella build app (area 11, F1 di 72; R11-1): lo spazio, la
@@ -137,6 +138,8 @@ async function readPage(code: string): Promise<ProductPageView | null> {
     openComments: v.openComments,
   };
   lastRead.set(v.id, page);
+  // La sezione del cursore nel battito (F4) si calcola sui blocchi di adesso.
+  liveProductPresence.rememberBlocks(v.id, page.blocks);
   return page;
 }
 
