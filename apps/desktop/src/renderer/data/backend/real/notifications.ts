@@ -93,6 +93,10 @@ export const MANDATORY_REASONS: ReadonlySet<string> = new Set([
   "analysis_requester",
   // Area 10, F5: la persona aggiunta a un progetto riceve sempre `member.added`.
   "added",
+  // Area 11, F2: chi è menzionato in un commento della doc di prodotto, e chi
+  // segue la pagina per le card di Claude (N-1 = a, catalogo di 72).
+  "mentioned",
+  "follower",
 ] satisfies MandatoryReason[]);
 
 /**
@@ -197,7 +201,9 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
       id: item.id,
       kind: item.kind,
       projectId: item.projectId,
-      objectCode: item.taskCode ?? projectCode ?? "",
+      // Una card della doc di prodotto sparita non dice né la pagina né il
+      // progetto (R-G5, come il prototipo): la frase lo dice senza codice.
+      objectCode: item.kind.startsWith("product_doc.") ? "" : (item.taskCode ?? projectCode ?? ""),
       departmentId: null,
       recipientIds: [],
       title: item.text,
@@ -250,7 +256,9 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
       departmentId: null,
       recipientIds: [],
       title: item.text,
-      body: item.summary ?? "",
+      // Il testo del commento, derivato dal server (`excerpt`, nullable): il
+      // server non manda `summary` per la menzione (review di R11-2, 2).
+      body: (productDoc as { excerpt?: string | null }).excerpt ?? "",
       createdAt: item.createdAt,
       read: item.readAt !== null,
       archived: item.status === "handled",

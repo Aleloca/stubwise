@@ -20,7 +20,6 @@ const card = (over: Record<string, unknown> = {}) => ({
   kind: "product_doc.mention",
   status: "open",
   text: "Laura Costa mentioned you in AUD-D5",
-  summary: "@Ada can you check the fallback?",
   actions: ["open"],
   projectId: PROJECT_ID,
   ticketId: null,
@@ -67,7 +66,6 @@ describe("la menzione nella doc di prodotto nell'inbox", () => {
       objectCode: "AUD-D5",
       productPageTitle: "Sign-in",
       actorName: "Laura Costa",
-      body: "@Ada can you check the fallback?",
       link: `#/p/AUD/docs/product/AUD-D5?comment=${ROOT}`,
     });
   });
@@ -93,7 +91,16 @@ describe("la menzione nella doc di prodotto nell'inbox", () => {
   it("pagina o commento spariti: `objectGone`, nessun link né titolo della pagina", async () => {
     inbox([card({ objectGone: true, productDoc: null, text: "A comment you were mentioned in" })]);
     const [n] = await listNotifications();
-    expect(n).toMatchObject({ objectGone: true, link: "" });
+    // Niente codice, come il prototipo (`presentProductMention`): né la pagina né il progetto.
+    expect(n).toMatchObject({ objectGone: true, link: "", objectCode: "" });
     expect(n!.productPageTitle).toBeUndefined();
+  });
+});
+
+describe("la card della menzione arriva da obbligatorio (review di R11-2, 1)", () => {
+  it("`alertMandatory: mentioned`: il motivo c'è, e il pannello non offre «Don't alert me»", async () => {
+    inbox([card({ alertMandatory: "mentioned" })]);
+    const [n] = await listNotifications();
+    expect(n!.mandatory).toEqual([{ personId: expect.any(String), reason: "mentioned" }]);
   });
 });

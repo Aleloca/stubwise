@@ -131,8 +131,6 @@ describe("lo spazio Product dal server", () => {
       });
       expect((await docs.getProductPage!("AUD-D5"))!.permissions.deleteBlocked).toBe(blocked);
     }
-    installFakeServer({ "GET /api/product-pages/by-code/AUD-D5": { body: pageView() } });
-    await docs.getProductPage!("AUD-D5");
     expect(page).toMatchObject({ following: true, openComments: 0, code: "AUD-D5" });
     // I fili aperti li conta il server (72, 9979ecbcc).
     forgetProductDocs();

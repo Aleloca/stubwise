@@ -1446,6 +1446,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     un id non cambia). Il server dice `no-cache` per rivalidare chi la può
     vedere: sul desktop una visibilità tolta si vede alla rilettura della
     pagina, non dell'immagine.
+  - **Un commento doppio dopo un errore di rete** *(XS, review di R11-2, 7)*:
+    `POST /api/product-pages/:id/comments` non ha una chiave del client; se
+    il commento è salvato ma la risposta si perde, «Retry» ne scrive un
+    secondo. Si chiude con una chiave idempotente sulla rotta (72).
+  - **Il testo della card della menzione** *(XS, review di R11-2, 2)*: il
+    renderer legge `productDoc.excerpt`; finché lo schema condiviso non lo
+    porta (72), la card nell'app ha il corpo vuoto.
 - *Revisione di R11-1 (46, 20 nov 2026), chiuse*: le immagini (la rotta dà
   i byte, 72 69b09a99d: sul web `<img src>` sulla rotta, sul desktop i byte
   da `api:request` come data URL); la cronologia a pagine di 100 con

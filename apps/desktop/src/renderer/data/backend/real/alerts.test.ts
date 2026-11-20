@@ -148,6 +148,30 @@ describe("le iscrizioni dal server (R2)", () => {
     ]);
   });
 
+  it("le righe della doc di prodotto portano i loro motivi: `mentioned` e `follower` (review di R11-2, 1)", async () => {
+    const { api } = fakeApi({
+      list: async () => ({
+        items: [
+          project(AUD, "AUD", "Audin", [
+            row({
+              type: "product_doc.mention",
+              group: "docs",
+              state: "mandatory",
+              mandatory: ["mentioned"] as never,
+            }),
+            row({ type: "product_doc.updated", group: "docs", mandatory: ["follower"] as never }),
+          ]),
+        ],
+      }),
+      follows: async () => ({ projectIds: [] }),
+    });
+    const [aud] = await createRealAlerts(api).subscriptionRows();
+    expect(aud!.rows.map((r) => [r.type, r.mandatory])).toEqual([
+      ["product_doc.mention", ["mentioned"]],
+      ["product_doc.updated", ["follower"]],
+    ]);
+  });
+
   it("i seguiti che non si leggono non fermano le iscrizioni: nessun fissato (review F2, m4)", async () => {
     const { api } = fakeApi({
       follows: async () => {

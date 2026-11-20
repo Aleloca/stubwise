@@ -81,6 +81,8 @@ export function viewOf(me: string, page: ProductPage, c: ProductComment): Produc
     ...rest,
     resolved: c.resolved ? { ...c.resolved, byName: visibleNameOf(me, c.resolved.byId) } : null,
     authorName: visibleNameOf(me, c.authorId),
+    // Le menzionate che chi guarda vede, come il server (review di R11-2, 4).
+    mentionIds: c.mentionIds.filter((id) => visibleNameOf(me, id) !== null),
     ...(c.question ? { question: questionViewOf(me, c, page) } : {}),
   };
 }

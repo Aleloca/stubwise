@@ -13216,7 +13216,9 @@
       "resolved": "Risolto",
       "reopened": "Riaperto",
       "resolveFailed": "Impossibile risolvere il filo.",
+      "resolveFailedFinal": "Impossibile risolvere il filo: è cambiato o non c'è più.",
       "reopenFailed": "Impossibile riaprire il filo.",
+      "reopenFailedFinal": "Impossibile riaprire il filo: è cambiato o non c'è più.",
       "send": "Rispondi",
       "behindTask": "{{code}} ha del testo non salvato. I commenti si aprono quando lo chiudi."
     },

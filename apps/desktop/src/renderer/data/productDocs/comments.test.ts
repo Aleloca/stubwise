@@ -604,4 +604,15 @@ describe("la vista del commento come la dà il server (area 11, F2)", () => {
     expect(thread!.root.authorName).toBeNull();
     expect(thread!.root.resolved).toMatchObject({ byId: hidden.id, byName: null });
   });
+
+  it("le menzionate che chi guarda non vede non sono nella vista (come il server; review di R11-2, 4)", async () => {
+    const signIn = page("Sign-in");
+    const hidden = PEOPLE.find((p) => p.id !== CLAUDE_ID && p.id !== MARCO && !visiblePeopleFor(MARCO).has(p.id))!;
+    const seed = state.productComments.find((c) => c.pageId === signIn.id && c.replyToId === null)!;
+    state.productComments.push({ ...structuredClone(seed), id: "pc-hidden-mention", mentionIds: [LAURA, hidden.id] });
+    as(MARCO);
+    const all = (await productDocs.listProductComments(signIn.id)).open;
+    const root = all.find((t) => t.root.id === "pc-hidden-mention")!.root;
+    expect(root.mentionIds).toEqual([LAURA]);
+  });
 });

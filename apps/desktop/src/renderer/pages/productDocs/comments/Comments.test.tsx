@@ -327,6 +327,20 @@ describe("la colonna", () => {
     expect(spy).toHaveBeenCalledTimes(2);
   });
 
+  it.each([["not_found"], ["invalid: invalid_reply"], ["forbidden"]])(
+    "«Resolve» rifiutato (`%s`): riprovare non cambierebbe, l'avviso lo dice senza «Retry» (review di R11-2, 5)",
+    async (code) => {
+      vi.spyOn(api.productDocs, "resolveProductComment").mockRejectedValueOnce(new Error(code));
+      await open(SIGNIN);
+      const col = await column();
+      const thread = await within(col).findByRole("article", { name: /Comment by Laura Costa on “Google account”/ });
+      await userEvent.setup().click(within(thread).getByRole("button", { name: "Resolve" }));
+      const message = await screen.findByText("Couldn't resolve the thread: it changed or is no longer there.");
+      const toast = message.closest("[data-toast]") ?? message.parentElement!;
+      expect(within(toast as HTMLElement).queryByRole("button", { name: "Retry" })).toBeNull();
+    },
+  );
+
   it("«Reopen» che fallisce lo dice, con «Retry»; in italiano «Impossibile riaprire il filo.»", async () => {
     await setLanguage("it");
     const spy = vi.spyOn(api.productDocs, "reopenProductComment").mockRejectedValueOnce(new Error("failed"));

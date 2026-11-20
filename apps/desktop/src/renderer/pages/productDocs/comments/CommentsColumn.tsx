@@ -241,12 +241,17 @@ export function CommentsColumn({
   // hook staccherebbe le callback per-chiamata del primo (TanStack Query 5),
   // e il suo filo resterebbe bloccato. `mutateAsync(...).finally` no.
   // Un rifiuto non tace: l'avviso lo dice, con «Retry» (revisione finale F2).
+  // Un filo che non c'è più, una risposta o un permesso tolto: riprovare non
+  // cambierebbe, l'avviso lo dice senza «Retry» (review di R11-2, 5).
   const once = (rootId: string, run: () => Promise<unknown>, failed: string, retry: () => void) => {
     if (writing.current.has(rootId)) return;
     writing.current.add(rootId);
     run()
-      .catch(() => {
-        toast.error(t(failed), { action: { label: t("productDocs.comments.retry"), run: retry } });
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "";
+        if (message === "not_found" || message === "forbidden" || message.startsWith("invalid:"))
+          toast.error(t(`${failed}Final`));
+        else toast.error(t(failed), { action: { label: t("productDocs.comments.retry"), run: retry } });
       })
       .finally(() => writing.current.delete(rootId));
   };

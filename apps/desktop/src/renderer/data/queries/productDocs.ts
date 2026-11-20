@@ -242,6 +242,8 @@ export function useSetDocsModule() {
  * è menzionato; non cambia citazioni né Docs.
  */
 const COMMENT_AREAS: readonly string[] = ["productDocs", "notifications"];
+/** «Resolve» e «Reopen» cambiano solo i fili della pagina: nessuna card (review di R11-2, 6). */
+const RESOLVE_AREAS: readonly string[] = ["productDocs"];
 
 /** I fili di una pagina, aperti e risolti. */
 export function useProductComments(pageId: string, { enabled = true }: { enabled?: boolean } = {}) {
@@ -254,9 +256,11 @@ export function useProductComments(pageId: string, { enabled = true }: { enabled
 }
 
 /**
- * Commenta o risponde. Un doppio clic riceve la stessa scrittura
- * (`addProductComment` tiene quelle in volo); la pagina spegne comunque
- * «Comment» con `isPending`.
+ * Commenta o risponde. La pagina spegne «Comment» con `isPending`; nel
+ * prototipo anche il livello dati dà a un doppio clic la stessa scrittura
+ * (`addProductComment` tiene quelle in volo), il server no: un Retry dopo
+ * un errore di rete con il commento già salvato ne scrive un secondo (nel
+ * registro dei rimandi: la rotta non ha una chiave del client).
  */
 export function useAddProductComment() {
   return useWrite(
@@ -275,11 +279,11 @@ export function useAddProductComment() {
 }
 
 export function useResolveProductComment() {
-  return useWrite((rootId: string) => api.productDocs.resolveProductComment(rootId), COMMENT_AREAS);
+  return useWrite((rootId: string) => api.productDocs.resolveProductComment(rootId), RESOLVE_AREAS);
 }
 
 export function useReopenProductComment() {
-  return useWrite((rootId: string) => api.productDocs.reopenProductComment(rootId), COMMENT_AREAS);
+  return useWrite((rootId: string) => api.productDocs.reopenProductComment(rootId), RESOLVE_AREAS);
 }
 
 /** Chi si può menzionare nel progetto (chi ne legge i Docs), per «@». */

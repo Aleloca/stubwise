@@ -13216,7 +13216,9 @@
       "resolved": "Resolved",
       "reopened": "Reopened",
       "resolveFailed": "Couldn't resolve the thread.",
+      "resolveFailedFinal": "Couldn't resolve the thread: it changed or is no longer there.",
       "reopenFailed": "Couldn't reopen the thread.",
+      "reopenFailedFinal": "Couldn't reopen the thread: it changed or is no longer there.",
       "send": "Reply",
       "behindTask": "{{code}} has text you haven't saved. The comments open when you close it."
     },
