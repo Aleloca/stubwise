@@ -1,18 +1,29 @@
-import { splitSseFrames, streamBackoffMs } from "@stubwise/shared";
+import {
+  isAllowedProductLiveStreamPath,
+  parseProductLiveFrame,
+  productLiveStreamPath,
+  sectionKeyOf,
+  splitSseFrames,
+  streamBackoffMs,
+  type ProductLiveFrame,
+} from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { ProductBlock, ProductPageEvent, ProductPresenceView } from "../../types";
 import { initialsOf, presenceColor } from "../../../domain/productDocs/presence";
-import { sectionOf } from "../../../domain/productDocs/sections";
 import { appClient, session } from "./client";
 
 // La scrittura dal vivo di una pagina di prodotto nella build app (area 11,
-// F4; R11-4), contro le forme del piano F4:
+// F4; R11-4), sulle forme di 72 in shared (61de0e593: `parseProductLiveFrame`,
+// gli schemi dei frame, `sectionKeyOf`):
 // - UNO stream per pagina (`GET /api/product-pages/:id/live`), condiviso da
-//   chi la guarda: all'apertura lo stato (`snapshot`: chi c'è coi cursori, le
-//   prese delle sezioni, l'ultimo `seq`), poi `revision`, `presence`,
-//   `cursor`, `hold`, `release`. Una revisione dice «blocks»: la pagina si
-//   rilegge (le operazioni sono nell'evento, ma rileggere tiene una sola
-//   strada per il corpo, quella di F1);
+//   chi la guarda: all'apertura (e a ogni ripresa) `state` (gli ALTRI presenti
+//   coi cursori, le prese delle sezioni, l'ultimo `seq`), poi `revision`,
+//   `presence` (la lista intera), `cursor`, `hold`, `release`, `gone`. Una
+//   revisione di un altro dice «blocks»: la pagina si rilegge (le operazioni
+//   sono nell'evento, ma rileggere tiene una sola strada per il corpo, quella
+//   di F1; una revisione del worker arriva senza operazioni). Le revisioni
+//   delle sessioni di questo editor arrivano anche qui, col loro
+//   `sessionId`: si scartano, la pagina le ha già;
 // - il trasporto è quello della Chat: sul web `fetch` col cookie e il
 //   watchdog dei ping, sul desktop `window.stubwise.openStream` del main
 //   (allowlist stretta, Bearer nel main) che consegna il frame com'è
@@ -22,86 +33,8 @@ import { appClient, session } from "./client";
 // - il battito (`POST …/live/presence`) ogni 5 s mentre si è dentro, col
 //   cursore e la sezione del blocco (che rinnova la presa); il server fa
 //   scadere a 15 s chi non batte;
-// - un nome `null` (chi guarda non vede quella persona, R-G5) non si mostra.
-// Il parser dei frame è PROVVISORIO: diventa quello di shared con F4 di 72.
-// Dietro `product-live`, spento.
-
-/** Un evento dello stream, nella forma del piano F4 (provvisoria). */
-export type ProductLiveEvent =
-  | {
-      type: "snapshot";
-      seq: number;
-      present: {
-        userId: string;
-        name: string | null;
-        cursor: { blockId: string; offset: number } | null;
-      }[];
-      holds: { sectionId: string; userId: string; name: string | null }[];
-    }
-  | { type: "revision"; seq: number }
-  | { type: "presence"; userId: string; name: string | null; present: boolean }
-  | { type: "cursor"; userId: string; cursor: { blockId: string; offset: number } | null }
-  | { type: "hold"; sectionId: string; userId: string; name: string | null }
-  | { type: "release"; sectionId: string };
-
-const isObject = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null;
-const str = (x: unknown): x is string => typeof x === "string";
-const nameOf = (x: unknown): string | null => (str(x) ? x : null);
-const cursorOf = (x: unknown): { blockId: string; offset: number } | null =>
-  isObject(x) && str(x.blockId) && typeof x.offset === "number"
-    ? { blockId: x.blockId, offset: x.offset }
-    : null;
-
-/** Un frame SSE (testo, senza i ping) come evento; `null` se non si legge o è di un tipo ignoto. */
-export function parseProductLiveFrame(raw: string): ProductLiveEvent | null {
-  let type: string | null = null;
-  const data: string[] = [];
-  for (const line of raw.split("\n")) {
-    if (line.startsWith("event:")) type = line.slice(6).trim();
-    else if (line.startsWith("data:")) data.push(line.slice(5).replace(/^ /, ""));
-  }
-  if (!type || data.length === 0) return null;
-  let d: unknown;
-  try {
-    d = JSON.parse(data.join("\n"));
-  } catch {
-    return null;
-  }
-  if (!isObject(d)) return null;
-  switch (type) {
-    case "snapshot":
-      return {
-        type,
-        seq: typeof d.seq === "number" ? d.seq : 0,
-        present: (Array.isArray(d.present) ? d.present : []).flatMap((p) =>
-          isObject(p) && str(p.userId)
-            ? [{ userId: p.userId, name: nameOf(p.name), cursor: cursorOf(p.cursor) }]
-            : [],
-        ),
-        holds: (Array.isArray(d.holds) ? d.holds : []).flatMap((h) =>
-          isObject(h) && str(h.sectionId) && str(h.userId)
-            ? [{ sectionId: h.sectionId, userId: h.userId, name: nameOf(h.name) }]
-            : [],
-        ),
-      };
-    case "revision":
-      return typeof d.seq === "number" ? { type, seq: d.seq } : null;
-    case "presence":
-      return str(d.userId) && typeof d.present === "boolean"
-        ? { type, userId: d.userId, name: nameOf(d.name), present: d.present }
-        : null;
-    case "cursor":
-      return str(d.userId) ? { type, userId: d.userId, cursor: cursorOf(d.cursor) } : null;
-    case "hold":
-      return str(d.sectionId) && str(d.userId)
-        ? { type, sectionId: d.sectionId, userId: d.userId, name: nameOf(d.name) }
-        : null;
-    case "release":
-      return str(d.sectionId) ? { type, sectionId: d.sectionId } : null;
-    default:
-      return null;
-  }
-}
+// - chi tiene una sezione con un nome `null` (R-G5) non si dice.
+// Dietro `product-live`.
 
 // --- il trasporto (lo stesso della Chat) ---------------------------------------------
 
@@ -212,20 +145,24 @@ const currentTransport = (): ProductLiveTransport =>
 
 interface PageLive {
   listeners: Set<(event: ProductPageEvent) => void>;
-  present: Map<string, { name: string | null; cursor: { blockId: string; offset: number } | null }>;
+  present: Map<string, { name: string; cursor: { blockId: string; offset: number } | null }>;
   holds: Map<string, { userId: string; name: string | null }>;
   close: (() => void) | null;
+  /** L'ultimo `seq` visto (stato o revisione); `null` prima del primo `state`. */
+  seq: number | null;
   attempts: number;
   retry: ReturnType<typeof setTimeout> | null;
 }
 
 const pages = new Map<string, PageLive>();
+/** Le sessioni dell'editor di questa finestra (le revisioni loro non si rileggono). */
+const mySessions = new Set<string>();
 /** I battiti in corso, per pagina, e l'ultimo cursore mandato. */
 const beats = new Map<string, { timer: ReturnType<typeof setInterval>; at: Presence | null }>();
 /** I blocchi di adesso di una pagina (per la sezione del cursore): li dà la lettura della pagina. */
 const blocksOf = new Map<string, readonly ProductBlock[]>();
 
-type Presence = { cursor: { blockId: string; offset: number }; sectionId?: string };
+type Presence = { cursor: { blockId: string; offset: number } | null; sectionId?: string | null };
 
 /** Il battito ogni quanto (il server fa scadere a 15 s). */
 const BEAT_MS = 5_000;
@@ -234,43 +171,55 @@ const emit = (page: PageLive, event: ProductPageEvent) => {
   for (const fn of [...page.listeners]) fn(event);
 };
 
-function apply(page: PageLive, e: ProductLiveEvent): ProductPageEvent {
-  switch (e.type) {
-    case "snapshot":
-      page.present = new Map(e.present.map((p) => [p.userId, { name: p.name, cursor: p.cursor }]));
-      page.holds = new Map(e.holds.map((h) => [h.sectionId, { userId: h.userId, name: h.name }]));
-      return "presence";
+/**
+ * Un frame sullo stato della pagina, e cosa dire a chi ascolta. `state`
+ * arriva all'apertura e a ogni ripresa: se il suo `seq` è più avanti
+ * dell'ultimo visto, intanto è cambiato il corpo e la pagina si rilegge. Le
+ * prese non scadono qui (`expiresAt` non si usa): le toglie `release`.
+ */
+function apply(page: PageLive, f: ProductLiveFrame): ProductPageEvent[] {
+  switch (f.type) {
+    case "state": {
+      const behind = page.seq !== null && f.seq > page.seq;
+      page.seq = f.seq;
+      page.present = new Map(f.presence.map((p) => [p.userId, { name: p.name, cursor: p.cursor }]));
+      page.holds = new Map(f.holds.map((h) => [h.sectionId, { userId: h.by.id, name: h.by.name }]));
+      return behind ? ["presence", "blocks"] : ["presence"];
+    }
     case "revision":
-      return "blocks";
+      page.seq = Math.max(page.seq ?? 0, f.seq);
+      return f.sessionId !== null && mySessions.has(f.sessionId) ? [] : ["blocks"];
     case "presence":
-      if (e.present)
-        page.present.set(e.userId, {
-          name: e.name,
-          cursor: page.present.get(e.userId)?.cursor ?? null,
-        });
-      else page.present.delete(e.userId);
-      return "presence";
+      page.present = new Map(f.presence.map((p) => [p.userId, { name: p.name, cursor: p.cursor }]));
+      return ["presence"];
     case "cursor": {
-      const was = page.present.get(e.userId);
-      page.present.set(e.userId, { name: was?.name ?? null, cursor: e.cursor });
-      return "presence";
+      const was = page.present.get(f.userId);
+      if (!was) return [];
+      page.present.set(f.userId, { name: was.name, cursor: f.cursor });
+      return ["presence"];
     }
     case "hold":
-      page.holds.set(e.sectionId, { userId: e.userId, name: e.name });
-      return "presence";
+      page.holds.set(f.hold.sectionId, { userId: f.hold.by.id, name: f.hold.by.name });
+      return ["presence"];
     case "release":
-      page.holds.delete(e.sectionId);
-      return "presence";
+      page.holds.delete(f.sectionId);
+      return ["presence"];
+    case "gone":
+      return ["gone"];
+    default:
+      return [];
   }
 }
 
-function connect(pageId: string, page: PageLive, again: boolean): void {
-  page.close = currentTransport()(`/api/product-pages/${encodeURIComponent(pageId)}/live`, {
+function connect(pageId: string, page: PageLive): void {
+  const path = productLiveStreamPath(pageId);
+  if (!isAllowedProductLiveStreamPath(path)) return;
+  page.close = currentTransport()(path, {
     onFrame(raw) {
-      const event = parseProductLiveFrame(raw);
-      if (!event) return;
-      page.attempts = 0;
-      emit(page, apply(page, event));
+      for (const frame of parseProductLiveFrame(raw)) {
+        page.attempts = 0;
+        for (const event of apply(page, frame)) emit(page, event);
+      }
     },
     onClose(end) {
       page.close = null;
@@ -279,14 +228,13 @@ function connect(pageId: string, page: PageLive, again: boolean): void {
         emit(page, "gone");
         return;
       }
-      // Una caduta: si riapre dopo il backoff, e si rilegge ciò che è cambiato intanto.
+      // Una caduta: si riapre dopo il backoff; il `state` della ripresa dice se rileggere.
       page.retry = setTimeout(() => {
         page.retry = null;
-        if (pages.get(pageId) === page) connect(pageId, page, true);
+        if (pages.get(pageId) === page) connect(pageId, page);
       }, streamBackoffMs(page.attempts++));
     },
   });
-  if (again) emit(page, "blocks");
 }
 
 /** Solo nei test, e al cambio di persona: chiude ogni stream e ferma ogni battito. */
@@ -299,11 +247,12 @@ export function forgetProductLive(): void {
   for (const beat of beats.values()) clearInterval(beat.timer);
   beats.clear();
   blocksOf.clear();
+  mySessions.clear();
 }
 
 const beat = (pageId: string, at: Presence | null) =>
   appClient()
-    .request("POST", `/api/product-pages/${encodeURIComponent(pageId)}/live/presence`, at ?? {})
+    .productDocs.beat(pageId, at ?? {})
     // Un battito che non passa non dice niente: il prossimo rimedia.
     .catch(() => undefined);
 
@@ -314,6 +263,8 @@ export const liveProductPresence: Partial<ProductDocs> & {
   sectionHolder(pageId: string, sectionId: string): string | null;
   /** I blocchi di adesso di una pagina, per la sezione del cursore nel battito. */
   rememberBlocks(pageId: string, blocks: readonly ProductBlock[]): void;
+  /** Una sessione dell'editor di questa finestra: le sue revisioni non si rileggono. */
+  rememberSession(sessionId: string): void;
 } = {
   subscribeProductPage(pageId, cb) {
     let page = pages.get(pageId);
@@ -323,12 +274,13 @@ export const liveProductPresence: Partial<ProductDocs> & {
         present: new Map(),
         holds: new Map(),
         close: null,
+        seq: null,
         attempts: 0,
         retry: null,
       };
       pages.set(pageId, page);
       page.listeners.add(cb);
-      connect(pageId, page, false);
+      connect(pageId, page);
     } else page.listeners.add(cb);
     const mine = page;
     return () => {
@@ -345,7 +297,7 @@ export const liveProductPresence: Partial<ProductDocs> & {
     if (!page) return [];
     const me = session.personId;
     return [...page.present.entries()].flatMap(([personId, p]): ProductPresenceView[] =>
-      personId === me || p.name === null
+      personId === me
         ? []
         : [
             {
@@ -381,14 +333,15 @@ export const liveProductPresence: Partial<ProductDocs> & {
   },
 
   async setProductPresence(pageId, at) {
+    // Con l'ancora: il cursore e la sua sezione (`sectionKeyOf`, `top` in cima),
+    // che rinnova la presa; senza, `sectionId: null` lascia le prese di chi guarda.
     const blocks = blocksOf.get(pageId) ?? [];
-    const section = at ? sectionOf(blocks, at.anchorId) : null;
-    const next: Presence | null = at
+    const next: Presence = at
       ? {
           cursor: { blockId: at.anchorId, offset: at.offset },
-          ...(section ? { sectionId: section } : {}),
+          sectionId: sectionKeyOf(blocks, at.anchorId),
         }
-      : null;
+      : { cursor: null, sectionId: null };
     const entry = beats.get(pageId);
     if (entry) entry.at = next;
     await beat(pageId, next);
@@ -402,5 +355,9 @@ export const liveProductPresence: Partial<ProductDocs> & {
 
   rememberBlocks(pageId, blocks) {
     blocksOf.set(pageId, blocks);
+  },
+
+  rememberSession(sessionId) {
+    mySessions.add(sessionId);
   },
 };

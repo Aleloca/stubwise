@@ -3,6 +3,7 @@ import {
   endsSession,
   isAllowedAgentStreamPath,
   isAllowedChatStreamPath,
+  isAllowedProductLiveStreamPath,
   parseAgentStreamFrame,
   parseChatStreamFrame,
   splitSseFrames,
@@ -26,9 +27,6 @@ import {
 // rifiutato o tetto raggiunto no; rete caduta, timeout dei ping, rotazione a
 // 1 MB e 5xx sì (col backoff di `streamBackoffMs`).
 
-/** Lo stream dal vivo di una pagina di prodotto (area 11, F4): solo `/api/product-pages/:uuid/live`. */
-const PRODUCT_LIVE_PATH = /^\/api\/product-pages\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/live$/i;
-export const isAllowedProductLivePath = (path: string): boolean => PRODUCT_LIVE_PATH.test(path);
 /** Il frame più grande che si inoltra (una revisione con molte operazioni): 1 MB. */
 const PRODUCT_LIVE_FRAME_MAX = 1_000_000;
 
@@ -169,7 +167,7 @@ export function createStreamRegistry(deps: StreamDeps) {
     // della Chat, dall'area 6 la bozza di Claude per la Posta (un POST, col suo
     // corpo), dall'area 11 lo stream dal vivo di una pagina di prodotto.
     const chat = typeof path === "string" && isAllowedChatStreamPath(path);
-    const productLive = typeof path === "string" && isAllowedProductLivePath(path);
+    const productLive = typeof path === "string" && isAllowedProductLiveStreamPath(path);
     const mailDraft = path === MAIL_DRAFT_PATH;
     const draftBody = mailDraft ? mailDraftBody(options.body) : null;
     if (
@@ -295,9 +293,9 @@ export function createStreamRegistry(deps: StreamDeps) {
             continue;
           }
           if (productLive) {
-            // Il frame com'è: lo legge il renderer (il parser di shared arriva
-            // con F4 di 72; da lì si potrà leggere anche qui). Un frame troppo
-            // grande non passa.
+            // Il frame com'è: lo legge il renderer con `parseProductLiveFrame`
+            // di shared (frame per frame, i malformati si scartano). Un frame
+            // troppo grande non passa.
             const onlyComments = raw.split("\n").every((line) => line === "" || line.startsWith(":"));
             if (!onlyComments && raw.length <= PRODUCT_LIVE_FRAME_MAX)
               port.postMessage({ type: "productFrame", raw } satisfies StreamPortMessage);

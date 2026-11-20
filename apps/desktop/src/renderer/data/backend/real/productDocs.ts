@@ -387,6 +387,8 @@ export const liveProductDocs: Partial<ProductDocs> = {
 
   async saveProductBlocks(pageId, ops, opts) {
     const client = appClient().productDocs;
+    // Le revisioni di questa sessione arrivano anche dallo stream: non si rileggono (F4).
+    liveProductPresence.rememberSession(opts.sessionId);
     const body = (baseSeq: number) => ({
       sessionId: opts.sessionId,
       baseSeq,

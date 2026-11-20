@@ -230,6 +230,10 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // globale) e l'esportazione in PDF e Word.
     "product-search",
     "product-export",
+    // Area 11, F4 (R11-4): gli avatar, i cursori, «X is writing here», i
+    // blocchi degli altri senza ricaricare (lo stream della pagina e il
+    // battito); il 409 `section_busy` dice chi tiene la sezione.
+    "product-live",
     // Fetta 3.0 della chat: «Elimina task», a mano dal menu «⋯» della task.
     "task-delete",
     // Fetta 2 della chat, il riquadro (⌘J, ⌘K «Ask Claude…») col chip del contesto.

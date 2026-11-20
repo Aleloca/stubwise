@@ -52,6 +52,8 @@ const ALL: IntegrationTarget[] = [
       // Area 11, F3: la ricerca «In Product» e l'esportazione.
       "product-search",
       "product-export",
+      // Area 11, F4: la scrittura dal vivo.
+      "product-live",
       "task-delete",
       "chat",
       ...CHAT_LATER_FEATURES,
@@ -258,6 +260,8 @@ describe("isIntegrated", () => {
         // Area 11, F3: la ricerca «In Product» e l'esportazione.
         "feature:product-search",
         "feature:product-export",
+        // Area 11, F4: la scrittura dal vivo.
+        "feature:product-live",
         // Fetta 3.0 della chat: «Elimina task».
         "feature:task-delete",
         // Area 4, fetta 1: la Chat fra persone (le fette dopo restano spente).

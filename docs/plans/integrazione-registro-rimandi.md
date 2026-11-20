@@ -1450,6 +1450,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     `POST /api/product-pages/:id/comments` non ha una chiave del client; se
     il commento è salvato ma la risposta si perde, «Retry» ne scrive un
     secondo. Si chiude con una chiave idempotente sulla rotta (72).
+  - **La presenza per sessione (scheda)** *(S, R11-4, dalla revisione di
+    F4 server)*: oggi il battito è per persona; quando 72 aggiunge il
+    `sessionId` al battito (e cambiare sezione rilascia la precedente) il
+    renderer lo manda. Le prese non scadono lato client: le toglie `release`.
 - *Revisione di R11-1 (46, 20 nov 2026), chiuse*: le immagini (la rotta dà
   i byte, 72 69b09a99d: sul web `<img src>` sulla rotta, sul desktop i byte
   da `api:request` come data URL); la cronologia a pagine di 100 con

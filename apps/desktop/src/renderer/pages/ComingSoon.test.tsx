@@ -132,6 +132,11 @@ const INTEGRATED_CALLS = new Set([
   // Area 11, F3 (R11-3): la ricerca «In Product» e l'esportazione.
   "productDocs.searchProductPages",
   "productDocs.getProductExport",
+  // Area 11, F4 (R11-4): la presenza e la scrittura dal vivo.
+  "productDocs.subscribeProductPage",
+  "productDocs.joinProductPage",
+  "productDocs.getProductPresence",
+  "productDocs.setProductPresence",
   // Area 10, F7: la riga «Claude can help you…» e il suo «Not now», dal server.
   "suggestionKeyOf",
   "getClaudeSuggestion",
@@ -832,7 +837,7 @@ describe("aree non integrate nella build app", () => {
 
   // Area 11, F1 (R11-1): lo spazio Product c'è; commenti, ricerca ed
   // esportazione, dal vivo e Claude (F2–F6) restano fuori e non si leggono.
-  it("lo spazio Product (/p/X/docs/product) e una sua pagina si aprono e leggono solo le chiamate di F1, F2 e F3", async () => {
+  it("lo spazio Product (/p/X/docs/product) e una sua pagina si aprono e leggono solo le chiamate di F1–F4", async () => {
     // Marco legge i Docs di ACQ (la persona di partenza, Giulia, non è nel progetto).
     signedInAs("p-marco");
     renderRoute("/p/ACQ/docs/product");
@@ -859,7 +864,7 @@ describe("aree non integrate nella build app", () => {
     expect(await within(column).findAllByRole("article")).not.toHaveLength(0);
     await settle();
     expect(outside()).toEqual([]);
-    // Il fuoco in un blocco: la presenza (F4) non parte (I3 della revisione).
+    // Il fuoco in un blocco: la presenza (F4) parte, ed è integrata.
     const body = document.querySelector<HTMLElement>("[data-editor-body]")!;
     const [block] = within(body).getAllByRole("textbox");
     await user.click(block!);
