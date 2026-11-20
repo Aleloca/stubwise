@@ -3,6 +3,16 @@ import { describe, expect, it } from "vitest";
 import { Markdown } from "./Markdown";
 
 describe("Markdown", () => {
+  it("i link si aprono solo con http(s) (`isSafeWebUrl`, area 11 F1): mailto e javascript restano testo", () => {
+    const { container } = render(
+      <Markdown source={"[site](https://example.com) [mail](mailto:a@b.c) [bad](javascript:alert(1))"} />,
+    );
+    const links = [...container.querySelectorAll("a")];
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(["https://example.com"]);
+    expect(container.textContent).toContain("mail");
+    expect(container.textContent).toContain("bad");
+  });
+
   it("un blocco di codice: testo intatto, scorre dentro sé stesso e si raggiunge da tastiera", () => {
     const { container } = render(
       <Markdown source={"Before\n\n```ts\nconst a = 1;\n  const b = <T>() => 2;\n```\n\nAfter"} />,

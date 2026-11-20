@@ -1,12 +1,11 @@
 import { applyBlockOps, blockChanges } from "../../domain/productDocs/blocks";
-import { safeLinkHref } from "../../domain/productDocs/richText";
+import { validRichText } from "@stubwise/shared";
 import { canMoveUnder } from "../../domain/productDocs/tree";
 import { docsAccess } from "../docs/reads";
 import { driveFileFor } from "../drive/visibility";
 import { PRODUCT_WIREFRAMES } from "../seed/productDocs/wireframes";
 import { copy, newId, now, state, visibleProjectIds } from "../store";
 import type {
-  InlineMark,
   ProductBlock,
   ProductBlockOp,
   ProductPage,
@@ -234,21 +233,13 @@ const idsOf = (block: ProductBlock): string[] =>
     ? [block.id, ...block.rows.flatMap((r) => [r.id, ...r.cells.map((c) => c.id)])]
     : [block.id];
 
-/** Un segno è dentro il testo, non vuoto, e un link ha un indirizzo http(s) (`safeLinkHref`). */
-const validMark = (m: InlineMark, length: number): boolean =>
-  Number.isInteger(m.start) &&
-  Number.isInteger(m.end) &&
-  m.start >= 0 &&
-  m.start < m.end &&
-  m.end <= length &&
-  (m.type === "bold" ||
-    m.type === "italic" ||
-    (m.type === "link" && typeof m.href === "string" && safeLinkHref(m.href) === m.href));
-
+/**
+ * Un segno è dentro il testo, non vuoto, e un link ha un indirizzo http(s):
+ * la regola di `@stubwise/shared` (`validRichText`, area 11 F1), la stessa
+ * del server. Qui solo la difesa sulla forma (una frase che non è una frase).
+ */
 const validRich = (rt: RichText): boolean =>
-  typeof rt.text === "string" &&
-  Array.isArray(rt.marks) &&
-  rt.marks.every((m) => validMark(m, rt.text.length));
+  typeof rt.text === "string" && Array.isArray(rt.marks) && validRichText(rt);
 
 /**
  * L'immagine di un blocco (Task 9, shape product-editor.md §9): sempre un
