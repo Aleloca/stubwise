@@ -798,3 +798,30 @@ describe("area 10, F3: read_usage_month — coi permessi di chi chiede (D-13 = a
     expect(r.text).not.toContain("ada@example.com");
   });
 });
+
+describe("area 10, F4: read_archive_candidates — dei motivi busy niente titoli", () => {
+  it("il percorso coi giorni (90 di base, interi fra 1 e 3650); la proiezione senza titoli", async () => {
+    expect(chatServerPaths("read_archive_candidates", {})).toEqual(["/api/projects/archive-candidates?inactiveDays=90"]);
+    expect(chatServerPaths("read_archive_candidates", { inactiveDays: 30 })).toEqual(["/api/projects/archive-candidates?inactiveDays=30"]);
+    for (const bad of [0, 3651, 2.5, "x"]) expect(() => chatServerPaths("read_archive_candidates", { inactiveDays: bad })).toThrow(ChatToolArgError);
+    const P = "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01";
+    const fetchImpl = vi.fn(async () =>
+      Response.json({
+        candidates: [{ projectId: P, code: "OLD", name: "Vecchio", lastActivity: "2026-06-01T00:00:00.000Z" }],
+        busy: [{ code: "ACQ", reasons: [{ kind: "claude_session", code: "ACQ-3", title: "TITOLO-DA-FUORI", waiting: false, repository: null, paused: false }] }],
+        notManageable: 1,
+        notManageableCodes: ["MKT"],
+      }),
+    );
+    bridge = await startChatBridge({ serverUrl: "http://server:3000", fetchImpl: fetchImpl as never });
+    const grant = bridge.grant({ sessionId: "s1", serverToken: "stw_chat_t" });
+    const body = (await (await call(bridge, grant.secret, "read_archive_candidates", {})).json()) as { ok: boolean; text: string };
+    expect(JSON.parse(body.text)).toEqual({
+      candidates: [{ projectId: P, code: "OLD", name: "Vecchio", lastActivity: "2026-06-01T00:00:00.000Z" }],
+      busy: [{ code: "ACQ", reasons: [{ kind: "claude_session", code: "ACQ-3", waiting: false, paused: false }] }],
+      notManageable: 1,
+      notManageableCodes: ["MKT"],
+    });
+    expect(body.text).not.toContain("TITOLO-DA-FUORI");
+  });
+});

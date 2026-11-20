@@ -192,6 +192,12 @@ export function chatServerPaths(tool: ChatReadToolName, args: Args): string[] {
       return ["/api/people"];
     case "list_departments":
       return ["/api/departments"];
+    case "read_archive_candidates": {
+      const raw = args["inactiveDays"];
+      const days = raw === undefined ? 90 : Number(raw);
+      if (!Number.isInteger(days) || days < 1 || days > 3650) throw new ChatToolArgError("Invalid inactiveDays: a whole number of days between 1 and 3650 (default 90).");
+      return [`/api/projects/archive-candidates?inactiveDays=${days}`];
+    }
     case "read_usage_month":
       return ["/api/ai-usage/summary?month=true&groupBy=project", "/api/access/who-can?permission=usage.view"];
     case "read_stalled_work": {
@@ -606,7 +612,22 @@ function usageResult(json: unknown, path: string): unknown {
   };
 }
 
+/**
+ * Area 10, F4 (S4): i progetti da archiviare. Dei motivi `busy` solo tipo,
+ * codice e stato (il titolo di una task o di una PR può venire da fuori).
+ */
+function archiveCandidatesResult(json: unknown): unknown {
+  const v = (json ?? {}) as { candidates?: unknown; busy?: unknown; notManageable?: unknown; notManageableCodes?: unknown };
+  return {
+    candidates: pickAll(v.candidates, ["projectId", "code", "name", "lastActivity"]),
+    busy: (Array.isArray(v.busy) ? (v.busy as Record<string, unknown>[]) : []).map((b) => ({ code: b["code"], reasons: pickAll(b["reasons"], ["kind", "code", "waiting", "paused"]) })),
+    notManageable: typeof v.notManageable === "number" ? v.notManageable : 0,
+    notManageableCodes: Array.isArray(v.notManageableCodes) ? v.notManageableCodes : [],
+  };
+}
+
 export function projectToolResult(tool: ChatReadToolName, json: unknown, path = ""): unknown {
+  if (tool === "read_archive_candidates") return archiveCandidatesResult(json);
   if (tool === "read_usage_month") return usageResult(json, path);
   if (tool === "read_stalled_work") {
     if (path.split("?")[0] === "/api/projects") return { projects: pickAll(json, ["id", "code", "name"]) };

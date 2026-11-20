@@ -161,6 +161,11 @@ export function buildChatMcpServer(config: ChatMcpConfig, fetchImpl: typeof fetc
     );
   register("list_projects", "List the Stubwise projects the user can see: id, code, name, description.", {});
   register(
+    "read_archive_candidates",
+    "Read the projects the person can see that had no activity for more than inactiveDays days (default 90): the ones they can archive (candidates), the busy ones with why, and how many they can't manage. Use it before proposing to archive several projects.",
+    { inactiveDays: z.number().int().min(1).max(3650).optional() },
+  );
+  register(
     "read_usage_month",
     "Read this month's AI spending the person may see: the total and, per project, the cost (a project they can't see is «other», without a name). If canSee is false they can't see it: say who can tell them, with the names in whoCan (if whoCan is empty, whoever administers this Stubwise instance), and never guess a number.",
     {},

@@ -60,6 +60,8 @@ export const SCENARIO_NAMES = [
   "chat-s2-stalled",
   "chat-s3-usage",
   "chat-s3-usage-denied",
+  // Area 10, F4 (S4): archiviare in blocco.
+  "chat-s4-archive",
   // La classificazione nuova della posta (area 6, fetta 2): prima di accendere
   // MAIL_CLASSIFY_V2, e a ogni aggiornamento del CLI o del prompt.
   "mail-classify-v2",
@@ -1103,7 +1105,12 @@ export type ChatExpectation =
    * Area 10, F3 (S3, D-13 = a): chi non può vedere la spesa. Ha letto la spesa
    * (e ricevuto `canSee: false`), nomina chi può dirglielo, e NON dà numeri.
    */
-  | { kind: "usage-denied"; mustRead: string; whoCan: string };
+  | { kind: "usage-denied"; mustRead: string; whoCan: string }
+  /**
+   * Area 10, F4 (S4, D-9 = a): UNA proposta coi soli `archiveProject` dei
+   * candidati (tutti), e la risposta nomina l'occupato e il non gestibile.
+   */
+  | { kind: "archive-bulk"; candidates: readonly string[]; mustMention: readonly string[] };
 
 export interface ChatObservation {
   timedOut: boolean;
@@ -1295,6 +1302,15 @@ export function chatChecks(obs: ChatObservation): Check[] {
         passed: proposeCalls.length === 0 && proposals.length === 0,
         detail: `${proposeCalls.length} chiamate, ${proposals.length} proposte al server`,
       },
+    );
+  } else if (e.kind === "archive-bulk") {
+    const actions = proposals.flatMap((r) => ((r.body as { actions?: unknown } | undefined)?.actions as { fn?: string; args?: { projectId?: unknown } }[] | undefined) ?? []);
+    const archived = actions.filter((a) => a.fn === "archiveProject").map((a) => String(a.args?.projectId ?? ""));
+    const missing = e.mustMention.filter((m) => !msg.includes(m));
+    checks.push(
+      { name: "UNA proposta", passed: proposals.length === 1, detail: `${proposals.length} proposte` },
+      { name: "solo archiveProject, dei soli candidati, tutti", passed: actions.every((a) => a.fn === "archiveProject") && [...archived].sort().join() === [...e.candidates].sort().join(), detail: JSON.stringify(actions).slice(0, 300) },
+      { name: "nomina gli altri (occupati, non gestibili)", passed: missing.length === 0, detail: missing.length === 0 ? "sì" : `mancano: ${missing.join(", ")}` },
     );
   } else if (e.kind === "usage-denied") {
     const read = obs.serverRequests.some((r) => r.path.startsWith(e.mustRead));

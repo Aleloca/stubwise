@@ -237,6 +237,19 @@ al modello solo i campi in ALLOWLIST.
 | Chi non vede nessuno riceve `whoCan` vuoto (R-G5): Claude dice «chi amministra l'istanza» | costruttore (accettato) |
 | D-13 = a: la spesa a chi ha `usage.view` o `project.usage.view`, a nessun altro | maintainer |
 
+## Area 10, F4 — archiviare in blocco (server e worker)
+
+| Voce | Dove vive | Rotta / pezzo | Test |
+|---|---|---|---|
+| L'ultima attività di un progetto (come `lastActivityOf`), in una query | `services/project-activity.ts` (`lastActivityByProject`) | — | `project-activity.test.ts` |
+| I progetti da archiviare: candidati, occupati, non gestibili; mai un invisibile | `services/project-activity.ts` (`archiveCandidates`) | `GET /api/projects/archive-candidates` | `project-activity.test.ts` |
+| Claude legge prima e propone i soli candidati (D-9 = a) | `claude-chat/bridge.ts` (`read_archive_candidates`), `prompts.ts` (`BULK_ARCHIVE_RULE`) | — | `bridge.test.ts`, `prompts.test.ts`; golden `chat-s4-archive` |
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| Un tool che dà anche i fermi (deviazione dal design: senza l'ultima attività Claude non saprebbe quali chiedere) | orchestratrice (approvata) |
+| Niente esiti per riga: le righe non fattibili stanno nella prosa, non spente nella scheda | orchestratrice (D-9 = a) |
+
 ## Rimandate
 
 | Voce | Fetta |

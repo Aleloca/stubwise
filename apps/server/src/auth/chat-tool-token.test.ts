@@ -73,6 +73,8 @@ describe("il token del turno della chat", () => {
     expect((await get("/api/departments", token)).statusCode).toBe(200);
     // Area 10, F3: le task ferme (la rotta della lista, le soglie dei progetti), senza segnare la conversazione.
     expect((await get("/api/tasks/stalled", token)).statusCode).toBe(200);
+    // Area 10, F4: i progetti da archiviare, senza segnare la conversazione.
+    expect((await get("/api/projects/archive-candidates?inactiveDays=90", token)).statusCode).toBe(200);
     // Il polso NON è fra le letture di Claude (decisione del maintainer: le soglie, non la regola del polso).
     expect((await get("/api/projects/pulse", token)).statusCode).toBe(403);
     const [mark] = await t.db.select({ at: claudeConversations.untrustedReadAt }).from(claudeConversations).where(eq(claudeConversations.sessionId, sessionId));

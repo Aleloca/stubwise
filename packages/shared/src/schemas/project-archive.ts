@@ -164,3 +164,21 @@ export type DetachedRepository = z.infer<typeof detachedRepositorySchema>;
 
 /** Il corpo di `POST /api/repositories/:id/link`: il progetto di destinazione. */
 export const linkRepositorySchema = z.object({ projectId: z.uuid() });
+
+/**
+ * Area 10, F4 (S4): i progetti da archiviare, come li legge Claude
+ * (`GET /api/projects/archive-candidates?inactiveDays=<n>`). La forma di
+ * `ArchiveCandidates` del prototipo: i FERMI da più di n giorni (l'ultima
+ * attività di `lastActivityOf`), divisi in candidati, occupati e non gestibili
+ * da chi chiede. Un progetto che chi chiede non vede non compare da nessuna
+ * parte, neanche nel conteggio.
+ */
+export const archiveCandidatesSchema = z.object({
+  candidates: z
+    .array(z.object({ projectId: z.uuid(), code: z.string(), name: z.string(), lastActivity: z.string().nullable() }))
+    .default([]),
+  busy: z.array(z.object({ code: z.string(), reasons: z.array(busyReasonSchema) })).default([]),
+  notManageable: z.number().int().default(0),
+  notManageableCodes: z.array(z.string()).default([]),
+});
+export type ArchiveCandidates = z.infer<typeof archiveCandidatesSchema>;

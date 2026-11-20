@@ -2321,6 +2321,14 @@ const USAGE_MONTH = {
     { key: "other", label: "other", code: null, costUsd: 2.5, tokens: 300, runs: 10, children: [] },
   ],
 };
+/** Area 10, F4 (S4): un candidato, un occupato, un non gestibile. */
+const ARCHIVE_OLD_ID = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d";
+const ARCHIVE_CANDIDATES = {
+  candidates: [{ projectId: ARCHIVE_OLD_ID, code: "OLD", name: "Vecchio sito", lastActivity: "2026-06-02T10:00:00.000Z" }],
+  busy: [{ code: "ACQ", reasons: [{ kind: "doc_generation", code: null, title: null, waiting: false, repository: "acquisti-web", paused: false }] }],
+  notManageable: 1,
+  notManageableCodes: ["MKT"],
+};
 const WHO_CAN_USAGE = { permission: "usage.view", projectId: null, people: [{ userId: CHAT_PEOPLE[0]!.id, email: "ada@example.com", displayName: "Ada Lovelace", reasons: [] }], agent: { actsFor: "confirmer" } };
 
 /** L'ultima domanda di `ask_question` (golden S1: il turno 2 risponde a QUELLA). */
@@ -2390,6 +2398,7 @@ async function startFakeChatServer(
     if (path === "/api/tasks/stalled") return send(200, STALLED_TASKS);
     if (path === "/api/ai-usage/summary") return send(200, USAGE_MONTH);
     if (path === "/api/access/who-can") return send(200, WHO_CAN_USAGE);
+    if (path === "/api/projects/archive-candidates") return send(200, ARCHIVE_CANDIDATES);
     if (path === "/api/tasks") return send(200, { items: [AUD_TASK] });
     if (path === "/api/tasks/by-code/AUD-12") return send(200, AUD_TASK);
     if (path === `${p}/docs/search`) {
@@ -3038,6 +3047,13 @@ const runChatS2Stalled = (ctx: ScenarioContext) =>
   runChat(ctx, "chat-s2-stalled", "Cosa è fermo nei miei progetti?", { kind: "read", mustRead: "/api/tasks/stalled", mustMention: ["AUD-7"] });
 const runChatS3Usage = (ctx: ScenarioContext) =>
   runChat(ctx, "chat-s3-usage", "Quanto abbiamo speso di AI questo mese?", { kind: "read", mustRead: "/api/ai-usage/summary", mustMention: ["12"] });
+/**
+ * Area 10, F4 (S4): «archivia i progetti senza attività da 3 mesi» → legge i
+ * candidati, UNA proposta coi soli candidati, e nomina l'occupato (ACQ, i Docs
+ * in generazione) e il non gestibile (MKT). 3 volte, quando autorizzate.
+ */
+const runChatS4Archive = (ctx: ScenarioContext) =>
+  runChat(ctx, "chat-s4-archive", "Archivia i progetti senza attività da 3 mesi.", { kind: "archive-bulk", candidates: [ARCHIVE_OLD_ID], mustMention: ["ACQ", "MKT"] });
 const runChatS3UsageDenied = (ctx: ScenarioContext) =>
   runChat(ctx, "chat-s3-usage-denied", "Quanto abbiamo speso di AI questo mese?", { kind: "usage-denied", mustRead: "/api/ai-usage/summary", whoCan: "Ada Lovelace" }, {
     overrides: { "/api/ai-usage/summary": { status: 403, body: { code: "forbidden", message: "Missing permission" } } },
@@ -3252,6 +3268,7 @@ const SCENARIOS: Record<ScenarioName, (ctx: ScenarioContext) => Promise<Scenario
   "chat-s2-stalled": runChatS2Stalled,
   "chat-s3-usage": runChatS3Usage,
   "chat-s3-usage-denied": runChatS3UsageDenied,
+  "chat-s4-archive": runChatS4Archive,
   "mail-classify-v2": runMailClassifyV2,
   "automation-step": runAutomationStep,
   "support-triage-check": runSupportTriageCheck,
