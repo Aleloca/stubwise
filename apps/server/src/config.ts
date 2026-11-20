@@ -159,6 +159,21 @@ const envSchema = z.object({
       .min(1, "deve essere un numero intero positivo (es. 6000)")
       .default(6000),
   ),
+  // Area 11, F3: ogni quanti secondi il server rifà gli embedding delle pagine
+  // di prodotto ferme e cambiate (`product-embed.ts`). Come GRAPHIFY_MCP_URL, la
+  // stringa VUOTA spegne il poller (la ricerca resta per testo); assente, 30.
+  PRODUCT_EMBED_POLL_SECONDS: z
+    .string()
+    .default("30")
+    .transform((value, ctx) => {
+      if (value.trim() === "") return undefined;
+      const n = Number(value);
+      if (!Number.isInteger(n) || n < 5) {
+        ctx.addIssue({ code: "custom", message: "deve essere un numero intero di secondi, almeno 5 (vuota per spegnere)" });
+        return z.NEVER;
+      }
+      return n;
+    }),
   // Quanti nodi del sottografo, al massimo, diventano uno snippet di codice.
   GRAPH_CHAT_SNIPPET_NODES: z.preprocess(
     (value) => (value === "" ? undefined : value),
@@ -218,6 +233,8 @@ export interface Config {
   graphChatSnippetMaxChars: number;
   /** Massimo numero di nodi del sottografo da cui estrarre snippet (default 6). */
   graphChatSnippetNodes: number;
+  /** Area 11, F3: il periodo del poller degli embedding di prodotto; `undefined` = spento. */
+  productEmbedPollSeconds?: number;
   /** Radice del volume dei mirror git bare, montato read-only (default /var/stubwise/mirrors). */
   mirrorsDir: string;
 }
@@ -262,6 +279,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     graphChatTokenBudget: parsed.GRAPH_CHAT_TOKEN_BUDGET,
     graphChatSnippetMaxChars: parsed.GRAPH_CHAT_SNIPPET_MAX_CHARS,
     graphChatSnippetNodes: parsed.GRAPH_CHAT_SNIPPET_NODES,
+    ...(parsed.PRODUCT_EMBED_POLL_SECONDS !== undefined ? { productEmbedPollSeconds: parsed.PRODUCT_EMBED_POLL_SECONDS } : {}),
     mirrorsDir: parsed.MIRRORS_DIR,
   };
 }

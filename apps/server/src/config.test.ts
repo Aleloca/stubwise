@@ -43,6 +43,7 @@ describe("loadConfig", () => {
       graphChatSnippetNodes: 6,
       // Default del volume dei mirror git (stesso path del worker).
       mirrorsDir: "/var/stubwise/mirrors",
+      productEmbedPollSeconds: 30,
     });
   });
 
@@ -51,6 +52,13 @@ describe("loadConfig", () => {
     expect(
       loadConfig({ ...validEnv, GRAPHIFY_MCP_URL: "http://localhost:9090/mcp" }).graphifyMcpUrl,
     ).toBe("http://localhost:9090/mcp");
+  });
+
+  it("area 11, F3: PRODUCT_EMBED_POLL_SECONDS: 30 di default, un numero se dato, vuota spegne, sotto 5 è un errore", () => {
+    expect(loadConfig(validEnv).productEmbedPollSeconds).toBe(30);
+    expect(loadConfig({ ...validEnv, PRODUCT_EMBED_POLL_SECONDS: "60" }).productEmbedPollSeconds).toBe(60);
+    expect(loadConfig({ ...validEnv, PRODUCT_EMBED_POLL_SECONDS: "" }).productEmbedPollSeconds).toBeUndefined();
+    expect(() => loadConfig({ ...validEnv, PRODUCT_EMBED_POLL_SECONDS: "2" })).toThrow();
   });
 
   it("con GRAPHIFY_MCP_URL vuota spegne la feature (undefined, NON il default)", () => {
