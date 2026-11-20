@@ -238,5 +238,9 @@ export {
   // Fetta 5: le pubbliche e la continuazione.
   setVisibility,
 } from "./claudeChat";
+// Area 10, F7: la riga «Claude can help you…» e il suo «Not now», dal server.
+export { dismissClaudeSuggestion, getClaudeSuggestion } from "./claudeSuggestions";
+// La chiave della riga per persona e oggetto: pura, la stessa del prototipo.
+export { suggestionKeyOf } from "../../claude/suggestionKey";
 // Fetta 3.0 della chat: «Elimina task» (anteprima ed eliminazione dal server).
 export { deleteTask, getTaskDeletion } from "./taskDelete";
