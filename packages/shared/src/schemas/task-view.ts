@@ -242,6 +242,8 @@ export const decisionRequestViewSchema = z.object({
   taskId: z.string().uuid(),
   /** Il progetto della task, derivato a lettura. `.optional()`: un server più vecchio non lo manda. */
   projectId: z.string().uuid().optional(),
+  /** Area 10, F8: il codice della task (`AUD-12`), derivato a lettura nell'elenco. `.optional()`: un server più vecchio non lo manda. */
+  taskCode: z.string().optional(),
   /** null se chi ha chiesto non c'è più. */
   askedById: z.string().uuid().nullable(),
   askedOfId: z.string().uuid(),
@@ -505,7 +507,8 @@ export const relativePeriodSchema = z.enum(["last7", "last30", "thisWeek", "next
 export const taskListQuerySchema = z.object({
   projectIds: csv(z.string().uuid()).optional(),
   departmentIds: csv(z.string().uuid()).optional(),
-  assigneeIds: csv(z.union([z.string().uuid(), z.literal("none")])).optional(),
+  // `me` (area 10, F8): chi chiede, risolto dal server (il token del turno di Claude non conosce il proprio id).
+  assigneeIds: csv(z.union([z.string().uuid(), z.literal("none"), z.literal("me")])).optional(),
   families: csv(statusFamilySchema).optional(),
   statusIds: csv(z.string().uuid()).optional(),
   sizes: csv(z.union([taskSizeSchema, z.literal("none")])).optional(),

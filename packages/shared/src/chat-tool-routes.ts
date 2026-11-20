@@ -98,6 +98,11 @@ export const CHAT_TOOL_READ_ROUTES: ReadonlySet<string> = new Set([
   // Area 10, F4 (`read_archive_candidates`, S4): i progetti fermi di chi chiede,
   // divisi come nel prototipo. Il ponte non passa i titoli dei motivi `busy`.
   "/api/projects/archive-candidates",
+  // Area 10, F8 (`read_my_week`, «/today»): le decisioni che aspettano chi
+  // chiede (`askedOfId=me`) e le sue task (`assigneeIds=me` di `/api/tasks`).
+  // Solo il GET dell'elenco: `/api/decisions/:id/answer` è una scrittura e
+  // NON sta qui.
+  "/api/decisions",
 ]);
 
 /**

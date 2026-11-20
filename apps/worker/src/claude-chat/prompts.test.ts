@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { claudeAutomationGuide } from "@stubwise/shared";
-import { AUTOMATION_DRAFTS_RULE, BULK_ARCHIVE_RULE, STALLED_AND_SPENDING_RULE, buildChatPrimingPrompt, CHAT_UNDO_LABEL, chatMentionContract } from "./prompts.js";
+import { AUTOMATION_DRAFTS_RULE, BULK_ARCHIVE_RULE, STALLED_AND_SPENDING_RULE, STATUS_AND_TODAY_RULE, buildChatPrimingPrompt, CHAT_UNDO_LABEL, chatMentionContract } from "./prompts.js";
 
 const prompt = (language: "en" | "it") =>
   buildChatPrimingPrompt({ language, authorName: "Ada", context: null, toolsAvailable: true, recentTranscript: [] }, "ciao");
@@ -122,5 +122,11 @@ describe("area 10, F4: archiviare in blocco", () => {
     expect(prompt("it")).toContain(BULK_ARCHIVE_RULE);
     expect(BULK_ARCHIVE_RULE).toMatch(/call read_archive_candidates first/);
     expect(BULK_ARCHIVE_RULE).toMatch(/Never propose archiving a project outside the candidates/);
+  });
+
+  it("area 10, F8: /today col suo tool, e «niente» è una risposta", () => {
+    expect(prompt("it")).toContain(STATUS_AND_TODAY_RULE);
+    expect(STATUS_AND_TODAY_RULE).toMatch(/read_my_week/);
+    expect(STATUS_AND_TODAY_RULE).toMatch(/never invent work/);
   });
 });

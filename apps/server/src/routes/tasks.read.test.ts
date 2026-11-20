@@ -127,6 +127,28 @@ describe("GET /api/tasks", () => {
     expect(await ids(`&text=${projectCode.toLowerCase()}-${b.number}`)).toEqual([b.id]);
   });
 
+  it("area 10, F8: assigneeIds=me sono le task di CHI CHIEDE, anche insieme ad altri valori", async () => {
+    const mine = await insertTask({ title: "La mia" });
+    const others = await insertTask({ title: "Di un altro", assigneeId: users.adminId });
+    const nobody = await insertTask({ title: "Di nessuno", assigneeId: null });
+    const ids = async (q: string, cookie = users.memberCookie) => {
+      const res = await get(`/api/tasks?projectIds=${projectId}${q}`, cookie);
+      expect(res.statusCode).toBe(200);
+      return taskListResponseSchema.parse(res.json()).items.map((t) => t.id);
+    };
+    const asMember = await ids("&assigneeIds=me");
+    expect(asMember).toContain(mine.id);
+    expect(asMember).not.toContain(others.id);
+    expect(asMember).not.toContain(nobody.id);
+    // Lo stesso «me» detto dall'admin è l'admin.
+    const asAdmin = await ids("&assigneeIds=me", users.adminCookie);
+    expect(asAdmin).toContain(others.id);
+    expect(asAdmin).not.toContain(mine.id);
+    const mixed = await ids("&assigneeIds=me,none");
+    expect(mixed).toEqual(expect.arrayContaining([mine.id, nobody.id]));
+    expect(mixed).not.toContain(others.id);
+  });
+
   it("ogni risposta parsa con lo schema condiviso, e il codice è CODICE-numero", async () => {
     const t = await insertTask({ effort: 3 });
     const res = await get(`/api/tasks?projectIds=${projectId}`);

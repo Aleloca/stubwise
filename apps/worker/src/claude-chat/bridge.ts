@@ -200,6 +200,9 @@ export function chatServerPaths(tool: ChatReadToolName, args: Args): string[] {
     }
     case "read_usage_month":
       return ["/api/ai-usage/summary?month=true&groupBy=project", "/api/access/who-can?permission=usage.view"];
+    // Area 10, F8: «/today».
+    case "read_my_week":
+      return ["/api/decisions?askedOfId=me&open=true", "/api/tasks?assigneeIds=me&families=todo,active"];
     case "read_stalled_work": {
       // Il progetto del contesto (facoltativo) va nella query: la rotta la ignora,
       // la proiezione la usa per tenere quel progetto solo.
@@ -626,8 +629,21 @@ function archiveCandidatesResult(json: unknown): unknown {
   };
 }
 
+/**
+ * Area 10, F8 («/today»): le decisioni che aspettano chi scrive (codice della
+ * task, domanda, opzioni, da quando) e le sue task aperte (codice, titolo,
+ * scadenza, settimana, priorità). La domanda e il titolo li scrive il team.
+ */
+export function myWeekResult(json: unknown, path: string): unknown {
+  const route = path.split("?")[0];
+  if (route === "/api/decisions") return { decisionsWaitingForYou: pickAll(json, ["taskCode", "question", "options", "createdAt"]) };
+  const items = (json as { items?: unknown } | null)?.items;
+  return { yourTasks: pickAll(items, ["code", "title", "dueDate", "plannedWeek", "priority"]) };
+}
+
 export function projectToolResult(tool: ChatReadToolName, json: unknown, path = ""): unknown {
   if (tool === "read_archive_candidates") return archiveCandidatesResult(json);
+  if (tool === "read_my_week") return myWeekResult(json, path);
   if (tool === "read_usage_month") return usageResult(json, path);
   if (tool === "read_stalled_work") {
     if (path.split("?")[0] === "/api/projects") return { projects: pickAll(json, ["id", "code", "name"]) };

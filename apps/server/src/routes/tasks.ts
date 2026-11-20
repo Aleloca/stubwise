@@ -115,7 +115,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request) => {
       const today = serverToday();
-      const loaded = await loadTaskViews(app.db, request.user!, taskFilterConditions(request.query, today));
+      const loaded = await loadTaskViews(app.db, request.user!, taskFilterConditions(request.query, today, request.user!.id));
       let kept = loaded;
       if (request.query.stalled !== undefined) {
         const stalls = await stallsOf(app.db, request.user!, loaded, today);
@@ -141,7 +141,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request) => {
       const today = serverToday();
-      const loaded = await loadTaskViews(app.db, request.user!, taskFilterConditions(request.query, today));
+      const loaded = await loadTaskViews(app.db, request.user!, taskFilterConditions(request.query, today, request.user!.id));
       const stalls = await stallsOf(app.db, request.user!, loaded, today);
       return loaded
         .flatMap((t) => {
