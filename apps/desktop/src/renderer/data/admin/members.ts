@@ -11,7 +11,6 @@ import {
 import { recordChange } from "../changelog/index";
 import { currentVia, silencedByUndo } from "../claude/via";
 import { CLAUDE_ID } from "../seed/people";
-import { registerAlertTypes } from "../../domain/alerts/catalog";
 import { gate, newId, nextSeq, now, state, visibleProjectIds } from "../store";
 import type { MandatoryReason } from "../model";
 import { writer } from "../writer";
@@ -255,21 +254,9 @@ export function writeJoin(
 }
 
 // `member.added` è un tipo del catalogo degli avvisi (area 10, F5, D-11 = b
-// del maintainer, 19 nov 2026): chi gestisce i membri del progetto lo riceve
-// per iscrizione, accesa di default e spegnibile; la persona aggiunta per
-// motivo obbligatorio (`added`). Il server lo avrà con F5 in
-// `@stubwise/shared`; fino ad allora la riga è del prototipo.
-registerAlertTypes([
-  {
-    type: "member.added",
-    group: "members",
-    labelKey: "alerts.types.member_added",
-    subscribe: { perm: "project.members.manage" },
-    defaultOn: { perm: "project.members.manage" },
-    defaultPhone: false,
-    mandatory: ["added"],
-  },
-]);
+// del maintainer): la riga sta in `@stubwise/shared` (gruppo `members`,
+// iscrizione e default per `project.members.manage`, motivo obbligatorio
+// `added` per la persona aggiunta), la stessa che legge il server.
 
 /** Chi riceve `member.added` senza iscrizione: la persona aggiunta, se non è chi agisce né Claude collega. */
 export function memberAddedMandatoryOf(
