@@ -478,6 +478,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 9, F8: i permessi di progetto dei reparti» (19 nov 2026; migrazione 0196, server → worker → caddy, il worker per il routing; nel rollback chi aveva un permesso solo dal reparto lo perde, e i progetti gestiti solo via reparto vanno sistemati PRIMA con la query della voce)
   - «Integrazione area 10, F1–F5: le letture di Claude, le bozze di automazione, il lavoro fermo e la spesa, l'archivio in blocco, chi entra in un progetto» (19–20 nov 2026; migrazioni 0197–0200, server → worker → caddy; nel rollback NON scendere finché esistono eventi `question`/`aside`, righe `member.added` o conversazioni con contenuto personale letto: le query sono nelle voci)
   - «Integrazione area 10, F8: «/status» e «/today»» (20 nov 2026; nessuna migrazione, server → worker → caddy, rollback sicuro)
+  - «Integrazione area 10, F6: le bozze nei campi» (20 nov 2026; nessuna migrazione, server → worker → caddy; il server non scrive mai il campo)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
