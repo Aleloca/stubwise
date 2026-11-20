@@ -8866,7 +8866,9 @@
       "pr_author": "Sempre per chi ha aperto la PR",
       "task_author": "Sempre per l'autore della task, se il merge è arrivato da fuori Stubwise",
       "assignee": "Sempre per chi ha la task assegnata",
-      "analysis_requester": "Sempre per chi ha chiesto a Claude di guardare il server"
+      "analysis_requester": "Sempre per chi ha chiesto a Claude di guardare il server",
+      "mentioned": "Sempre per chi è menzionato",
+      "follower": "Sempre per chi segue la pagina"
     },
     "mandatoryStill": {
       "app": "Quando ti riguarda ti arriva lo stesso nell'app",
@@ -8943,7 +8945,9 @@
         "pr_author": "Lo ricevi perché questa PR l'hai aperta tu",
         "task_author": "Lo ricevi perché la PR viene da una tua task",
         "assignee": "Lo ricevi perché la task è assegnata a te",
-        "analysis_requester": "Ti arriva perché hai chiesto a Claude di guardare questo server"
+        "analysis_requester": "Ti arriva perché hai chiesto a Claude di guardare questo server",
+        "mentioned": "Ti arriva perché sei stato menzionato",
+        "follower": "Ti arriva perché segui questa pagina"
       }
     },
     "pausedShort": "Sospeso",

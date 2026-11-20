@@ -162,7 +162,7 @@ export function productQuestionDecisions(me: string): ProductQuestionDecision[] 
   for (const c of state.productComments) {
     if (!c.question || c.replyToId !== null || c.question.answer !== null || c.resolved !== null) continue;
     const page = productPageById(c.pageId);
-    if (!page || !canEdit(me, page.projectId) || !productDocRecipients(page.id).includes(me)) continue;
+    if (!page || !canEdit(me, page.projectId) || !productDocRecipients(page.id, "product_doc.question").includes(me)) continue;
     const view = questionViewOf(me, c, page);
     out.push({
       kind: "productQuestion",

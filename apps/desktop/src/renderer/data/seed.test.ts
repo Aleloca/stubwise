@@ -507,8 +507,9 @@ describe("seed: notifiche", () => {
       [...ALERT_NOTIFICATIONS, ...SERVER_ALERT_NOTIFICATIONS].map((n) => n.id),
     );
     for (const n of NOTIFICATIONS) {
-      // Gli avvisi delle aree 8a e 8b hanno i destinatari calcolati a lettura.
-      if (alertIds.has(n.id)) continue;
+      // Gli avvisi delle aree 8a e 8b hanno i destinatari calcolati a lettura,
+      // e così quelli della doc di prodotto (area 11, N-1 = a: obblighi e iscritti).
+      if (alertIds.has(n.id) || n.kind.startsWith("product_doc.")) continue;
       expect(n.recipientIds.length).toBeGreaterThan(0);
       for (const r of n.recipientIds) {
         expect(PEOPLE.find((p) => p.id === r)?.isClaude).toBe(false);

@@ -88,7 +88,9 @@ function undoRevision(me: string, revisionId: unknown): CatalogRun {
 export const PRODUCT_ENTRIES: Record<ProductCatalogFn, Omit<CatalogEntry, "fn">> = {
   writeFirstVersion: {
     apiFn: "productDocs.startFirstVersion",
-    baseClass: "A",
+    // Area 11, F6-1 = a (maintainer): fa partire lavoro del modello, quindi chiede.
+    baseClass: "B",
+    startsWork: true,
     undoable: true,
     whoAction: "editDocs",
     run(me, args) {
@@ -165,7 +167,9 @@ export const PRODUCT_ENTRIES: Record<ProductCatalogFn, Omit<CatalogEntry, "fn">>
   },
   drawWireframe: {
     apiFn: "productDocs.drawWireframe",
-    baseClass: "A",
+    // Area 11, F6-1 = a (maintainer): fa partire lavoro del modello, quindi chiede.
+    baseClass: "B",
+    startsWork: true,
     undoable: true,
     whoAction: "editDocs",
     run(me, args) {

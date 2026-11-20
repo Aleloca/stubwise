@@ -1410,6 +1410,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - Origine di una richiesta dalla documentazione di prodotto.
 - Le cinque capacità `product*` di Claude in S0 (dall'area 10, F7-1 = a).
 - Azioni di Claude dell'area 11.
+- *Prototipo riallineato (94, 20 nov 2026), prima dell'integrazione*: le
+  notifiche della doc nel catalogo con N-1 = a (`product_doc.mention` solo
+  obbligatoria, motivo `mentioned`; `.updated` e `.question` con la riga del
+  progetto, iscrizione `docs.view`, accesa di partenza per chi ha
+  `docs.edit`, e il motivo `follower` per chi segue la pagina; tolto il
+  concetto `addressed`). I due motivi stanno nel prototipo finché F2 di 72
+  non li porta nel catalogo condiviso. F6-1 = a: «Write the first version» e
+  «Draw this screen» sono B col motivo `startsWork`.
 
 ## Trasversali
 

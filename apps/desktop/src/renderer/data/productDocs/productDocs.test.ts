@@ -685,19 +685,22 @@ describe("chi segue", () => {
     expect(JSON.stringify(state.productFollows)).toBe(rows);
   });
 
-  it("productDocRecipients: chi segue; senza seguaci chi ha docs.edit in ACQ, mai Claude", async () => {
+  it("productDocRecipients (N-1 = a): chi ha la riga accesa (di partenza chi ha docs.edit) e chi segue, sempre; mai Claude", async () => {
     const { payments } = await featuresAndPayments();
-    expect(productDocs.productDocRecipients(payments.id)).toEqual([LAURA]);
+    // Chi legge i Docs di ACQ e li scrive, con la riga accesa di partenza: i
+    // MEMBRI con docs.edit (il default del catalogo vale per i membri; un full
+    // admin che non lo è, Roberta, parte spento, R-L10). Sara (Contributor,
+    // solo docs.view) no, e Claude mai.
+    const editors = ["p-davide", "p-federico", LAURA, MARCO, "p-matteo"].sort();
+    expect([...productDocs.productDocRecipients(payments.id)].sort()).toEqual(editors);
     await productDocs.unfollowProductPage(payments.id);
     expect(productDocs.followersOf(payments.id)).toEqual([]);
-    const recipients = productDocs.productDocRecipients(payments.id);
-    // Chi legge i Docs di ACQ e li scrive: i membri con docs.edit e Roberta
-    // (full admin, membro implicito). Sara (Contributor) e Claude no.
-    expect([...recipients].sort()).toEqual(
-      ["p-davide", "p-federico", LAURA, MARCO, "p-matteo", "p-roberta"].sort(),
-    );
-    expect(recipients).not.toContain(SARA);
-    expect(recipients).not.toContain(CLAUDE_ID);
+    expect([...productDocs.productDocRecipients(payments.id)].sort()).toEqual(editors);
+    // Sara segue la pagina: le arriva sempre, anche senza la riga.
+    as(SARA);
+    await productDocs.followProductPage(payments.id);
+    expect(productDocs.productDocRecipients(payments.id)).toContain(SARA);
+    expect(productDocs.productDocRecipients(payments.id)).not.toContain(CLAUDE_ID);
   });
 
   it("commentare o essere menzionati non fa seguire: segue solo chi crea e chi preme Follow", async () => {

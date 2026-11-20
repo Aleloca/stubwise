@@ -300,9 +300,12 @@ export interface ProductCardView {
 /**
  * Perché un avviso arriva senza iscrizione: il tipo del catalogo condiviso
  * (`@stubwise/shared`), mai una copia. `analysis_requester` (area 8, F4b): chi
- * ha chiesto a mano un'analisi riceve sempre il suo esito.
+ * ha chiesto a mano un'analisi riceve sempre il suo esito. Area 11 (N-1 = a):
+ * `mentioned` (chi è menzionato in una pagina di prodotto) e `follower` (chi
+ * la segue) sono del prototipo finché F2 di 72 non li porta nel catalogo
+ * condiviso.
  */
-export type MandatoryReason = SharedMandatoryReason;
+export type MandatoryReason = SharedMandatoryReason | "mentioned" | "follower";
 
 export type StatusFamily = "todo" | "active" | "closed";
 
