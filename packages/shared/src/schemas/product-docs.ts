@@ -192,7 +192,8 @@ export const productRevisionViewSchema = z.object({
   sessionId: z.string().nullable(),
   seq: z.number().int(),
   lastSeq: z.number().int(),
-  kind: z.enum(["create", "edit", "rename", "move"]),
+  /** F5: anche `undo` (un «Undo» di un segno di Claude) e `claude` (una modifica di Claude da una fonte). Additivo: `readerSchema` apre l'enum. */
+  kind: z.enum(["create", "edit", "rename", "move", "undo", "claude"]),
   actorId: z.uuid().nullable(),
   /** Il nome di chi ha scritto, se chi guarda lo vede (R-G5). */
   actorName: z.string().nullable(),
@@ -377,7 +378,7 @@ export const productLiveStateSchema = z.object({
 export const productLiveRevisionSchema = z.object({
   type: z.literal("revision"),
   seq: z.number().int(),
-  kind: z.enum(["create", "edit", "rename", "move"]),
+  kind: z.enum(["create", "edit", "rename", "move", "undo", "claude"]),
   actorId: z.uuid().nullable(),
   sessionId: z.string().nullable(),
   ops: z.array(z.record(z.string(), z.unknown())).default([]),

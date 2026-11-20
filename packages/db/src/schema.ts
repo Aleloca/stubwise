@@ -2757,17 +2757,25 @@ export const productPageRevisions = pgTable(
     seq: integer("seq").notNull(),
     lastSeq: integer("last_seq").notNull(),
     actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
-    kind: text("kind").$type<"create" | "edit" | "rename" | "move">().notNull().default("edit"),
+    kind: text("kind").$type<"create" | "edit" | "rename" | "move" | "undo" | "claude">().notNull().default("edit"),
     undoOf: uuid("undo_of").references((): AnyPgColumn => productPageRevisions.id, { onDelete: "set null" }),
     changes: jsonb("changes").$type<unknown[]>().notNull().default([]),
     title: jsonb("title").$type<{ before: string; after: string } | null>(),
     parent: jsonb("parent").$type<{ beforeId: string | null; afterId: string | null } | null>(),
+    /** F5 (0210): la fonte di una revisione di Claude. */
+    sourceKind: text("source_kind").$type<"email" | "meeting" | "decision" | "task" | "release">(),
+    sourceId: uuid("source_id"),
+    /** F5: `claude` = scritta da Claude, per conto di `on_behalf_of` (il titolare della fonte). */
+    via: text("via").$type<"claude">(),
+    onBehalfOf: uuid("on_behalf_of").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("product_page_revisions_page_seq_idx").on(table.pageId, table.lastSeq),
-    check("product_page_revisions_kind_chk", sql`kind in ('create','edit','rename','move')`),
+    check("product_page_revisions_kind_chk", sql`kind in ('create', 'edit', 'rename', 'move', 'undo', 'claude')`),
+    check("product_page_revisions_via_chk", sql`via IS NULL OR via = 'claude'`),
+    check("product_page_revisions_claude_source_chk", sql`kind <> 'claude' OR (source_kind IS NOT NULL AND source_id IS NOT NULL AND via = 'claude')`),
   ],
 );
 
@@ -2821,6 +2829,63 @@ export const productPageImages = pgTable("product_page_images", {
   uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Area 11, F5 (0210): la coda del lavoro di Claude sulla doc di prodotto. La
+ * riempiono i trigger delle fonti (una task chiusa, una decisione, un
+ * rilascio, una riunione col documento pronto, una proposta della posta di un
+ * messaggio ammesso), solo per i progetti che hanno una pagina di prodotto, e
+ * una fonte una volta sola per progetto (`product_doc_jobs_source_unique`). La
+ * prende il worker sotto il serializer per progetto.
+ */
+export const productDocJobs = pgTable(
+  "product_doc_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    sourceKind: text("source_kind").$type<"email" | "meeting" | "decision" | "task" | "release">().notNull(),
+    sourceId: uuid("source_id").notNull(),
+    status: text("status").$type<"queued" | "running" | "held" | "done" | "failed">().notNull().default("queued"),
+    heldReason: text("held_reason").$type<"limit" | "budget" | "section_busy">(),
+    attempts: integer("attempts").notNull().default(0),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("product_doc_jobs_source_unique").on(table.projectId, table.sourceKind, table.sourceId),
+    index("product_doc_jobs_queued_idx").on(table.createdAt).where(sql`status = 'queued'`),
+    check("product_doc_jobs_source_kind_chk", sql`source_kind in ('email', 'meeting', 'decision', 'task', 'release')`),
+    check("product_doc_jobs_status_chk", sql`status in ('queued', 'running', 'held', 'done', 'failed')`),
+    check("product_doc_jobs_held_chk", sql`(status = 'held') = (held_reason IS NOT NULL)`),
+    check("product_doc_jobs_held_reason_chk", sql`held_reason IS NULL OR held_reason in ('limit', 'budget', 'section_busy')`),
+  ],
+);
+
+/** Area 11, F5 (0210): i segni di Claude, uno per ancora di una revisione `claude`. */
+export const productClaudeMarks = pgTable(
+  "product_claude_marks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    revisionId: uuid("revision_id")
+      .notNull()
+      .references(() => productPageRevisions.id, { onDelete: "cascade" }),
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => productPages.id, { onDelete: "cascade" }),
+    anchorId: text("anchor_id").notNull(),
+    sourceKind: text("source_kind").$type<"email" | "meeting" | "decision" | "task" | "release">().notNull(),
+    sourceId: uuid("source_id").notNull(),
+    status: text("status").$type<"open" | "looks_good" | "undone">().notNull().default("open"),
+    decidedBy: uuid("decided_by").references(() => users.id, { onDelete: "set null" }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("product_claude_marks_page_idx").on(table.pageId), check("product_claude_marks_status_chk", sql`status in ('open', 'looks_good', 'undone')`)],
+);
 
 /**
  * Le sezioni prese di una pagina di prodotto (area 11, F4): chi ci sta
@@ -2902,10 +2967,14 @@ export const productComments = pgTable(
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     resolvedBy: uuid("resolved_by").references(() => users.id, { onDelete: "set null" }),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    /** F5 (0210): la parte di domanda di un commento di Claude (`productQuestionSchema`), e la sua risposta, una sola. */
+    question: jsonb("question").$type<Record<string, unknown>>(),
+    answer: jsonb("answer").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("product_comments_page_idx").on(table.pageId, table.createdAt),
+    check("product_comments_answer_chk", sql`answer IS NULL OR question IS NOT NULL`),
     check("product_comments_deleted_body_empty_chk", sql`deleted_at IS NULL OR body = ''`),
   ],
 );
