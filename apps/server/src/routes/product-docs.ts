@@ -511,7 +511,7 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
       schema: {
         params: pageParams,
         body: answerProductQuestionSchema,
-        response: { 200: z.object({ revisionId: z.uuid().nullable(), seq: z.number().int().nullable(), requestId: z.uuid().nullable() }), 404: errorSchema, 409: undoConflictSchema, 422: errorSchema, ...authErrorResponses },
+        response: { 200: z.object({ revisionId: z.uuid().nullable(), seq: z.number().int().nullable() }), 404: errorSchema, 409: undoConflictSchema, 422: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => handleUndo(reply, () => answerProductQuestion(app.db, request.user!, request.params.id, request.body.option)),

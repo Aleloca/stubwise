@@ -36,7 +36,7 @@ import { seg, toQuery } from "../query.js";
 
 const createdSchema = z.object({ id: z.uuid(), code: z.string() });
 const savedSchema = z.object({ seq: z.number().int(), revisionId: z.uuid().nullable() });
-const answerSchema = z.object({ revisionId: z.uuid().nullable(), seq: z.number().int().nullable(), requestId: z.uuid().nullable() });
+const answerSchema = z.object({ revisionId: z.uuid().nullable(), seq: z.number().int().nullable() });
 const imageSchema = z.object({ id: z.uuid(), ref: z.string() });
 
 /**
@@ -122,13 +122,15 @@ export function createProductDocsEndpoints(request: ApiRequest) {
     },
     // --- F5: le domande di Claude ---
     /**
-     * La risposta a una domanda di Claude (`docs.edit`, una sola). `apply`
-     * scrive la frase (`revisionId`), `request` apre la voce del backlog
-     * (`requestId`), `keep` chiude. 409 in `ApiError.body`: `already_answered`
-     * e `changed_after` (`byId`, `byName`), `section_busy` (`sectionId`, `by`);
-     * 422 `option_unavailable`.
+     * La risposta a una domanda di Claude (`docs.edit`, una sola): `apply`
+     * scrive la frase (`revisionId`), `keep` chiude. «Open a request» non passa
+     * da qui: è `requests.create` con `origin` (`kind: "product_doc"`, il
+     * `questionId`), che chiude la domanda col job d'intake. 409 in
+     * `ApiError.body`: `already_answered` e `changed_after` (`byId`,
+     * `byName`), `section_busy` (`sectionId`, `by`); 422 `option_unavailable`
+     * e `request_via_create_request`.
      */
-    answerQuestion(commentId: string, option: ProductAnswerChoice): Promise<{ revisionId: string | null; seq: number | null; requestId: string | null }> {
+    answerQuestion(commentId: string, option: Exclude<ProductAnswerChoice, "request">): Promise<{ revisionId: string | null; seq: number | null }> {
       return request("POST", `/api/product-comments/${seg(commentId)}/answer`, { option }, answerSchema);
     },
     /** Le domande aperte a cui chi guarda può rispondere (Home «Decide»; `pageId` = il riquadro di una pagina). */

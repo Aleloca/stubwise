@@ -212,9 +212,15 @@ export const productQuestionAnswerSchema = z.object({
   byId: z.uuid(),
   option: productAnswerChoiceSchema,
   at: z.string(),
-  /** La revisione di «Update it», o la richiesta aperta da «Open a request». */
+  /** La revisione di «Update it». */
   revisionId: z.uuid().nullable(),
   requestId: z.uuid().nullable().default(null),
+  /**
+   * «Open a request»: il job d'intake della richiesta (la richiesta nasce
+   * asincrona, e l'intake può fonderla in una che c'è già). La voce e il suo
+   * codice si DERIVANO a lettura dal risultato del job.
+   */
+  requestJobId: z.uuid().nullable().default(null),
 });
 export type ProductQuestionAnswer = z.infer<typeof productQuestionAnswerSchema>;
 

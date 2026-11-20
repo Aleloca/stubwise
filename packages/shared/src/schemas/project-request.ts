@@ -111,6 +111,20 @@ export const projectRequestSummarySchema = projectRequestViewSchema
   });
 export type ProjectRequestSummary = z.infer<typeof projectRequestSummarySchema>;
 
+/**
+ * Area 11, F5: la richiesta nasce da una domanda di Claude sulla doc di
+ * prodotto («Open a request», la scheda B del riquadro di Claude). Il server
+ * la controlla PRIMA che la richiesta nasca (la pagina è del progetto, chi
+ * chiede legge i Docs, la domanda è aperta, è di quella pagina, ha una
+ * richiesta da proporre, e chi chiede può rispondere) e chiude la domanda
+ * nella stessa scrittura. `questionId` obbligatorio fino a F6, che ci aggiunge
+ * la proposta dalla pagina senza domanda.
+ */
+export const productDocOriginSchema = z
+  .object({ kind: z.literal("product_doc"), pageId: z.uuid(), anchorId: z.string().min(1).max(100), questionId: z.uuid() })
+  .strict();
+export type ProductDocOrigin = z.infer<typeof productDocOriginSchema>;
+
 /** Corpo di `POST /api/requests`: come oggi passa dall'intake, che può fonderla in una esistente. */
 export const newRequestBodySchema = z.object({
   projectId: z.uuid(),
@@ -122,6 +136,8 @@ export const newRequestBodySchema = z.object({
    * leggere.
    */
   chatMessageId: z.uuid().optional(),
+  /** Area 11, F5: da una domanda di Claude sulla doc (`productDocOriginSchema`). */
+  origin: productDocOriginSchema.optional(),
 });
 export type NewRequestBody = z.infer<typeof newRequestBodySchema>;
 
