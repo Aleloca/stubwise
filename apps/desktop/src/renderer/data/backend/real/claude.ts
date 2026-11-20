@@ -1,4 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
+import { asideEventsOf } from "./claudeAsides";
 import { hasQuestionEvents, questionEventsOf, readQuestions } from "./claudeQuestions";
 import { withSettledTrialEvents } from "./claudeTrial";
 import {
@@ -556,7 +557,8 @@ async function readConversation(
     // Area 10, F2: dopo un'automazione creata, la riga della prova (fatta qui, per l'autore).
     // Area 10, F2: le domande a scelta, nel punto dei loro eventi.
     const extra = await withSettledTrialEvents(
-      [...chatActionEvents(events, actions), ...questionEventsOf(events, questions)],
+      // Area 10, F3: «Hypothesis» e «Details» sotto la risposta di S2.
+      [...chatActionEvents(events, actions), ...questionEventsOf(events, questions), ...asideEventsOf(events)],
       actions.groups,
       isConversationOwner(id),
     );
