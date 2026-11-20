@@ -250,9 +250,16 @@ export function forgetProductLive(): void {
   mySessions.clear();
 }
 
+/**
+ * La scheda di questa finestra (72, b138abc37): due schede della stessa
+ * persona sono due presenze, e una che lascia le prese non toglie quella
+ * dell'altra che scrive.
+ */
+const TAB_ID = `tab-${crypto.randomUUID()}`;
+
 const beat = (pageId: string, at: Presence | null) =>
   appClient()
-    .productDocs.beat(pageId, at ?? {})
+    .productDocs.beat(pageId, { ...(at ?? {}), sessionId: TAB_ID })
     // Un battito che non passa non dice niente: il prossimo rimedia.
     .catch(() => undefined);
 

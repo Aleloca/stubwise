@@ -229,16 +229,21 @@ describe("il battito", () => {
       { id: "blk-2", type: "paragraph", content: { text: "Only Google.", marks: [] } },
     ]);
     await live.setProductPresence!(PAGE, { anchorId: "blk-2", offset: 3 });
+    // Una presenza per scheda (72, b138abc37): lo stesso `sessionId` in ogni battito di questa finestra.
+    const tab = (seen.at(-1)!.body as { sessionId: string }).sessionId;
+    expect(tab).toMatch(/^tab-/);
     expect(seen.at(-1)!.body).toEqual({
       cursor: { blockId: "blk-2", offset: 3 },
       sectionId: "h-1",
+      sessionId: tab,
     });
     await live.setProductPresence!(PAGE, { anchorId: "blk-0", offset: 0 });
     expect(seen.at(-1)!.body).toEqual({
       cursor: { blockId: "blk-0", offset: 0 },
       sectionId: "top",
+      sessionId: tab,
     });
     await live.setProductPresence!(PAGE, null);
-    expect(seen.at(-1)!.body).toEqual({ cursor: null, sectionId: null });
+    expect(seen.at(-1)!.body).toEqual({ cursor: null, sectionId: null, sessionId: tab });
   });
 });
