@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { agentSessionEvents, agentSessions } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
-import { writeStalledAside } from "./aside.js";
+import { writeCapabilities, writeStalledAside } from "./aside.js";
 
 /**
  * Area 10, F3 (S2): l'evento `aside` del lavoro fermo, scritto dal worker con
@@ -56,5 +56,25 @@ describe("l'aside del lavoro fermo", () => {
     const mention = await session("chat_mention");
     await writeStalledAside(t.db, mention, [item(randomUUID(), "idle", "2026-11-01T00:00:00.000Z", null)]);
     expect(await asides(mention)).toEqual([]);
+  });
+});
+
+describe("area 10, F7: l'evento `capabilities`", () => {
+  const events = (sid: string) => t.db.select().from(agentSessionEvents).where(and(eq(agentSessionEvents.sessionId, sid), eq(agentSessionEvents.type, "capabilities")));
+
+  it("gli id che dà il server, e solo quelli conosciuti: il modello non sceglie niente", async () => {
+    const sid = await session();
+    expect(await writeCapabilities(t.db, sid, { items: ["stalled", "spend", "inventata", 3] })).toEqual({ items: ["stalled", "spend"] });
+    const [e] = await events(sid);
+    expect(e!.data).toEqual({ items: ["stalled", "spend"] });
+  });
+
+  it("mai nei turni di @Claude nella Chat, e niente evento da una risposta illeggibile", async () => {
+    const mention = await session("chat_mention");
+    expect(await writeCapabilities(t.db, mention, { items: ["stalled"] })).toBeNull();
+    expect(await events(mention)).toEqual([]);
+    const sid = await session();
+    expect(await writeCapabilities(t.db, sid, null)).toBeNull();
+    expect(await events(sid)).toEqual([]);
   });
 });

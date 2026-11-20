@@ -1004,6 +1004,14 @@ describe("chatChecks (chat-read, chat-no-leak e le proposte)", () => {
     expect(failed(chatChecks({ ...base }))).toEqual([]);
   });
 
+  it("area 10, F7 (capabilities): show_capabilities, nessuna proposta, nessun «fatto»", () => {
+    const e = { kind: "capabilities" } as const;
+    const ok = { ...base, toolCalls: [chatCall("show_capabilities")], serverRequests: [{ method: "GET", path: "/api/claude/capabilities" }], finalMessage: "Prenotare voli non è una cosa che posso fare: qui sotto vedi cosa posso fare per te.", allowedPaths: [...ALLOWED, /^\/api\/claude\/capabilities$/], expectation: e };
+    expect(failed(chatChecks(ok))).toEqual([]);
+    expect(failed(chatChecks({ ...ok, toolCalls: [], serverRequests: [] }))).toEqual(["chiama show_capabilities (e legge /api/claude/capabilities)"]);
+    expect(failed(chatChecks({ ...ok, toolCalls: [chatCall("show_capabilities"), chatCall("propose_action")], serverRequests: [...ok.serverRequests, { method: "POST", path: "/api/claude/conversations/s/proposals", body: { actions: [] } }] }))).toContain("nessuna proposta");
+  });
+
   it("area 10, F6 (field-draft): UN fillField sul campo giusto, niente altro, e mai «salvata»", () => {
     const T = "9a4b2c1d-3e5f-4a6b-8c7d-0e1f2a3b4c5d";
     const req = (actions: unknown[]) => ({ method: "POST", path: "/api/claude/conversations/s/proposals", body: { actions } });

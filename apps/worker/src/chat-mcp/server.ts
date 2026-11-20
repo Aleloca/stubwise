@@ -183,6 +183,11 @@ export function buildChatMcpServer(config: ChatMcpConfig, fetchImpl: typeof fetc
   );
   // Area 10, F8: «/today».
   register(
+    "show_capabilities",
+    "When the person asks for something you cannot do with these tools and actions (e.g. booking a flight), call this instead of inventing an action: Stubwise shows them what you CAN do for them, from their permissions.",
+    {},
+  );
+  register(
     "read_pull_request_notes",
     `Read the release notes of a pull request (repositoryId and prNumber: from the page context when the open page is the pull request, or from read_release): whether the person can write them, the draft Stubwise computes (one line per task) with its sources, and the notes saved so far. Use it before writing release notes with fillField. ${UNTRUSTED_PR_NOTES_NOTE_MCP}`,
     { repositoryId: z.string().min(1), prNumber: z.number().int() },

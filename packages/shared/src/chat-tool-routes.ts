@@ -103,6 +103,9 @@ export const CHAT_TOOL_READ_ROUTES: ReadonlySet<string> = new Set([
   // 20 nov 2026). Il ponte non passa i titoli delle task né il `stalled` del
   // polso: il fermo viene da `/api/tasks/stalled`, le soglie dei progetti (F3).
   "/api/me/follows",
+  // Area 10, F7 (`show_capabilities`, S0): le capacità di chi chiede, dai suoi
+  // permessi (solo id). Il worker scrive l'evento `capabilities` con quegli id.
+  "/api/claude/capabilities",
   // Area 10, F6 (`read_pull_request_notes`, F6-1 = a): le note di una PR —
   // la bozza calcolata, le fonti, le note salvate e se chi chiede può
   // scriverle — con la regola della rotta (404 a chi non vede il progetto).

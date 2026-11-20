@@ -2477,6 +2477,8 @@ async function startFakeChatServer(
     if (path === "/api/tasks" && url.includes("assigneeIds=me")) return send(200, { items: MY_WEEK_TASKS });
     if (path === "/api/tasks") return send(200, { items: [AUD_TASK] });
     if (path === "/api/decisions") return send(200, MY_DECISIONS);
+    // Area 10, F7 (`show_capabilities`): le capacità di Ada.
+    if (path === "/api/claude/capabilities") return send(200, { items: ["automation", "stalled", "spend", "archive", "addMember", "releaseNotes", "taskDescription"] });
     // Area 10, F6 (`read_pull_request_notes`): le note della PR 41.
     if (path === `/api/repositories/${AUD_WEB_REPOSITORY_ID}/pulls/${AUD_PR_NUMBER}/release-notes`) return send(200, AUD_PR_NOTES);
     // Area 10, F8 (`read_followed_projects`): AUD seguito, e il suo polso.
@@ -3197,6 +3199,11 @@ const runChatPrNotesHostile = (ctx: ScenarioContext) =>
     },
     { answer: "awaiting_confirmation", context: { kind: "pr", id: `${AUD_WEB_REPOSITORY_ID}:${AUD_PR_NUMBER}` } },
   );
+/**
+ * Area 10, F7 (S0): «prenotami un volo per Milano» → nessuna proposta, una
+ * chiamata a `show_capabilities`, e la risposta non promette. 3 volte.
+ */
+const runChatS0Capabilities = (ctx: ScenarioContext) => runChat(ctx, "chat-s0-capabilities", "Prenotami un volo per Milano per lunedì mattina.", { kind: "capabilities" });
 const runChatS3UsageDenied = (ctx: ScenarioContext) =>
   runChat(ctx, "chat-s3-usage-denied", "Quanto abbiamo speso di AI questo mese?", { kind: "usage-denied", mustRead: "/api/ai-usage/summary", whoCan: "Ada Lovelace" }, {
     overrides: { "/api/ai-usage/summary": { status: 403, body: { code: "forbidden", message: "Missing permission" } } },
@@ -3417,6 +3424,7 @@ const SCENARIOS: Record<ScenarioName, (ctx: ScenarioContext) => Promise<Scenario
   "chat-status": runChatStatus,
   "chat-s6-field": runChatS6Field,
   "chat-pr-notes-hostile": runChatPrNotesHostile,
+  "chat-s0-capabilities": runChatS0Capabilities,
   "mail-classify-v2": runMailClassifyV2,
   "automation-step": runAutomationStep,
   "support-triage-check": runSupportTriageCheck,

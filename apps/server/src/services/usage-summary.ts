@@ -1,7 +1,8 @@
 import { agentRuns, aiProviders, projects, type Db } from "@stubwise/db";
 import { USAGE_NONE_KEY, USAGE_OTHER_KEY, type UsageDimension, type UsageRange, type UsageSummary } from "@stubwise/shared";
 import { and, gte, lt, sql, type SQL } from "drizzle-orm";
-import { inProjects, scopeIncludes, type ProjectScope } from "../auth/access.js";
+import { inProjects, projectIdsWithPermission, scopeIncludes, type ProjectScope } from "../auth/access.js";
+import type { SessionUser } from "../auth/session.js";
 
 /**
  * Area 9, F4: AI → Usage nell'app, nella forma della scheda del prototipo.
@@ -13,6 +14,18 @@ import { inProjects, scopeIncludes, type ProjectScope } from "../auth/access.js"
  */
 
 export const USAGE_MAX_DAYS = 366;
+
+/**
+ * Chi vede la spesa, e di quali progetti: UNA regola, per le rotte di
+ * `/api/ai-usage` e per le capacità di Claude (area 10, F7). `usage.view`
+ * d'istanza: TUTTO il consumo, anche dei progetti archiviati (area 9, F6: è
+ * spesa vera, e il conto dell'istanza non la dimentica; i loro nomi restano
+ * fuori, `visibleProjectIds`); altrimenti i progetti con `project.usage.view`.
+ */
+export async function usageScope(db: Db, user: Pick<SessionUser, "id" | "instancePermissions">): Promise<ProjectScope> {
+  if (user.instancePermissions.has("usage.view")) return { all: true, archived: [] };
+  return projectIdsWithPermission(db, user, "project.usage.view");
+}
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);

@@ -103,6 +103,7 @@ import { purgeStorageOrphans } from "./storage/orphans.js";
 import { NOOP_CHAT_BUS, type ChatBus } from "./chat/bus.js";
 import { claudeConversationRoutes } from "./routes/claude-conversations.js";
 import { claudeActionRoutes } from "./routes/claude-actions.js";
+import { claudeHelpRoutes } from "./routes/claude-help.js";
 import { correctionRoutes } from "./routes/corrections.js";
 import { briefRoutes } from "./routes/briefs.js";
 import { projectRoutes } from "./routes/projects.js";
@@ -754,6 +755,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Chat con Claude, fetta 1: le conversazioni libere (private dell'autore).
   void app.register(claudeConversationRoutes, { prefix: "/api/claude/conversations" });
   void app.register(claudeActionRoutes, { prefix: "/api/claude" });
+  // Area 10, F7: le capacità di Claude e i suggerimenti delle pagine.
+  void app.register(claudeHelpRoutes, { prefix: "/api/claude" });
   // Correzioni post-PR (ciclo review → correzione, 30 set 2026): il bottone
   // "Chiedi modifiche" del ticket. `corrections.request`, vedi la rotta.
   void app.register(correctionRoutes, { prefix: "/api" });

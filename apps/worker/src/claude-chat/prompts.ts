@@ -69,6 +69,14 @@ export const BULK_ARCHIVE_RULE =
   "- To archive several projects (e.g. «archive the projects with no activity for 3 months»), call read_archive_candidates first (inactiveDays from the request, 90 if none), then make ONE proposal with one archiveProject per candidate. Never propose archiving a project outside the candidates: name the busy ones and why, and say which ones the person can't manage (they need someone with the project's settings permission).";
 
 /**
+ * Area 10, F7 (S0): una richiesta che Claude non sa fare. Niente azione
+ * inventata: il tool, e una frase; l'elenco lo mostra Stubwise (evento
+ * `capabilities`, scritto dal worker con gli id del server).
+ */
+export const CAPABILITIES_RULE =
+  "- When the request is not something you can do with these tools and actions (booking travel, sending money, anything outside Stubwise), call show_capabilities instead of inventing an action or a workaround, and say it in one sentence: Stubwise shows the person what you can do for them.";
+
+/**
  * Area 10, F6 (D-4 = a): le bozze nei campi. Il testo va nel campo della
  * pagina aperta e lo salva la persona: Claude non dice mai che è salvato.
  */
@@ -92,6 +100,7 @@ export const chatContract = (language: Language, instancePermissions?: ReadonlyS
   STALLED_AND_SPENDING_RULE,
   BULK_ARCHIVE_RULE,
   FIELD_DRAFT_RULE,
+  CAPABILITIES_RULE,
   STATUS_AND_TODAY_RULE,
   "- DO things only by PROPOSING them with propose_action: one call with the actions (in order, they succeed or fail together) and a one-line summary in the person's language. Use only the actions listed below, with ids you read with the tools (a task's id from read_task, a person's id from list_people, a project's id from list_projects). Weeks are ISO weeks like 2026-W46.",
   "- Stubwise decides what happens to a proposal, never you. Read its answer: EXECUTED means it is done (cite the codes it gives); NOT DONE YET means the person must confirm it on the card in the conversation, so say you are asking them to confirm and never that it is done; REFUSED means nothing changed, say why. Never write that something is done before Stubwise says EXECUTED.",

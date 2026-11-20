@@ -281,6 +281,22 @@ al modello solo i campi in ALLOWLIST.
 | Il tetto del testo è quello della rotta del campo (100 000 la descrizione, 20 000 le note) | costruttore (ruling del piano) |
 | Il contesto della pagina di una PR è `pr: <repositoryId>:<prNumber>` (lo stesso oggetto dei suggerimenti di F7) | costruttore |
 
+## Area 10, F7 — S0 e i suggerimenti (db, server e worker; l'elenco e la riga sono di 94)
+
+| Voce | Dove vive | Rotta / pezzo | Test |
+|---|---|---|---|
+| Gli id delle capacità (F7-1 = a: niente `product*`), l'evento, la forma dei suggerimenti | `@stubwise/shared` `schemas/claude-capabilities.ts` | migrazione 0201 | `claude-capabilities.test.ts` (shared), `migration-0201.test.ts` |
+| Le capacità di chi chiede, sulle `access` delle voci del catalogo | `services/claude-capabilities.ts` | `GET /api/claude/capabilities` | `routes/claude-capabilities.test.ts` |
+| `show_capabilities`: l'evento lo scrive il worker con gli id del server | `claude-chat/bridge.ts`, `claude-chat/aside.ts` (`writeCapabilities`), `prompts.ts` (`CAPABILITIES_RULE`) | — | `bridge.test.ts`, `aside.test.ts`, `prompts.test.ts`; golden `chat-s0-capabilities` |
+| La riga «Claude can help you…» per pagina, mai un oracolo | `services/claude-suggestions.ts` | `GET /api/claude/suggestions`, `POST /api/claude/suggestions/dismiss` | `routes/claude-suggestions.test.ts` |
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| Solo le capacità che il server sa fare (F7-1 = a) | maintainer |
+| La riga delle note della PR c'è (F7-2, segue F6-1 = a) | maintainer |
+| Quattro pagine, non cinque (la conversazione di supporto è fuori) | costruttore (ruling del piano) |
+| Una proposta del polso «aperta» è una card `project.pulse` non gestita (`status <> 'handled'`, anche posticipata) | costruttore |
+
 ## Area 10, F8 — «/status» e «/today» (server e worker; i comandi sono di 94)
 
 | Voce | Dove vive | Rotta / pezzo | Test |
