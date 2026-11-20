@@ -226,6 +226,10 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Area 11, F2 (R11-2): i fili ancorati, «Resolve», le risposte, le
     // menzioni «@» e la loro card nell'inbox.
     "product-comments",
+    // Area 11, F3 (R11-3): «In Product» in ⌘K (lo spazio e la ricerca
+    // globale) e l'esportazione in PDF e Word.
+    "product-search",
+    "product-export",
     // Fetta 3.0 della chat: «Elimina task», a mano dal menu «⋯» della task.
     "task-delete",
     // Fetta 2 della chat, il riquadro (⌘J, ⌘K «Ask Claude…») col chip del contesto.

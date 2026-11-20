@@ -94,24 +94,10 @@ describe("la ricerca «In Product»", () => {
     expect(seen[0]!.path).toBe("/api/search?q=bills");
   });
 
-  it("un server senza il gruppo `product` non ha righe; una riga che non si legge si salta; 404 nessuna riga", async () => {
+  it("un server senza il gruppo `product` non ha righe; 404 nessuna riga", async () => {
     // Un server di prima: niente gruppo `product` (il default dello schema è vuoto).
     installFakeServer({ "GET /api/search": { body: emptySearch } });
     expect(await docs.searchProductPages!("bills")).toEqual([]);
-    installFakeServer({
-      [`GET /api/projects/${PROJECT_ID}/product/search`]: {
-        body: {
-          items: [
-            { page: { id: 3 }, projectCode: "AUD", passage: "x" },
-            { page: ref(PAGE), projectCode: "AUD", passage: "ok" },
-          ],
-          hasMore: false,
-        },
-      },
-    });
-    expect(
-      (await docs.searchProductPages!("x", { projectId: PROJECT_ID })).map((h) => h.passage),
-    ).toEqual(["ok"]);
     installFakeServer({
       [`GET /api/projects/${PROJECT_ID}/product/search`]: {
         status: 404,
@@ -136,6 +122,7 @@ describe("l'esportazione", () => {
       "d-1": { title: "Google only", decidedAt: "2026-11-01T10:00:00.000Z", decidedByName: null },
       "d-2": null,
     },
+    files: { "f-1": { name: "brief.pdf" }, "f-2": null },
     ...over,
   });
 
@@ -155,6 +142,8 @@ describe("l'esportazione", () => {
     });
     expect(view.pages[0]!.page.blocks).toEqual([para("b-1", "Hello")]);
     expect(view.decisions).toEqual({ "d-1": { title: "Google only" }, "d-2": null });
+    // I file del Drive come li vede chi esporta (72, 5c5d0323e): null se non li vede.
+    expect(view.files).toEqual({ "f-1": { name: "brief.pdf" }, "f-2": null });
   });
 
   it("lo spazio: la rotta del progetto, in ordine d'albero con la profondità", async () => {

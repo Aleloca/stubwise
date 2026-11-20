@@ -129,6 +129,9 @@ const INTEGRATED_CALLS = new Set([
   "productDocs.resolveProductComment",
   "productDocs.reopenProductComment",
   "productDocs.productMentionCandidates",
+  // Area 11, F3 (R11-3): la ricerca «In Product» e l'esportazione.
+  "productDocs.searchProductPages",
+  "productDocs.getProductExport",
   // Area 10, F7: la riga «Claude can help you…» e il suo «Not now», dal server.
   "suggestionKeyOf",
   "getClaudeSuggestion",
@@ -829,24 +832,24 @@ describe("aree non integrate nella build app", () => {
 
   // Area 11, F1 (R11-1): lo spazio Product c'è; commenti, ricerca ed
   // esportazione, dal vivo e Claude (F2–F6) restano fuori e non si leggono.
-  it("lo spazio Product (/p/X/docs/product) e una sua pagina si aprono e leggono solo le chiamate di F1 e F2", async () => {
+  it("lo spazio Product (/p/X/docs/product) e una sua pagina si aprono e leggono solo le chiamate di F1, F2 e F3", async () => {
     // Marco legge i Docs di ACQ (la persona di partenza, Giulia, non è nel progetto).
     signedInAs("p-marco");
     renderRoute("/p/ACQ/docs/product");
     expect(await screen.findByRole("heading", { level: 1, name: "Product" })).toBeInTheDocument();
     await settle();
-    // La ricerca «In Product» e l'esportazione arrivano con F3.
-    expect(screen.queryByRole("button", { name: /^Search\s*⌘K$/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Export/ })).toBeNull();
+    // La ricerca «In Product» e l'esportazione (F3) ci sono.
+    expect(screen.getByRole("button", { name: /^Search\s*⌘K$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Export/ })).toBeInTheDocument();
     expect(screen.queryByText("Coming soon")).toBeNull();
     expect(outside()).toEqual([]);
     cleanup();
     renderRoute("/p/ACQ/docs/product/ACQ-D5");
     expect(await screen.findByRole("heading", { level: 1, name: "Sign-in" })).toBeInTheDocument();
     await settle();
-    // L'esportazione (F3) non è nella barra; Segui, i commenti (F2) e la cronologia sì.
+    // Segui, i commenti (F2), la cronologia e l'esportazione (F3) nella barra.
     expect(screen.getByRole("button", { name: /^Comments/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Export/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Export/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "History" })).toBeInTheDocument();
     expect(screen.queryByText("Coming soon")).toBeNull();
     // La colonna dei commenti (F2): i fili si leggono, e nient'altro.
@@ -886,8 +889,9 @@ describe("aree non integrate nella build app", () => {
     expect(calls).not.toContain("releases.searchReleases");
     expect(calls).not.toContain("support.searchSupport");
     expect(calls).not.toContain("servers.searchServers");
-    // Nemmeno la doc di prodotto (area 11, spenta) parte.
-    expect(calls).not.toContain("productDocs.searchProductPages");
+    // La doc di prodotto (area 11, F3) parte, ed è integrata.
+    expect(calls).toContain("productDocs.searchProductPages");
+    expect(outside()).toEqual([]);
     expect(outside()).toEqual([]);
   });
 

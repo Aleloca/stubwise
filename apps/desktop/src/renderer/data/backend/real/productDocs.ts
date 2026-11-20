@@ -8,6 +8,8 @@ import {
   productSearchHitSchema,
   productBlockSchema,
   type ProductCommentView as ServerCommentView,
+  type ProductExportPage,
+  type ProductExportSpace,
   type ProductPageView as ServerPageView,
   type ProductRevisionView as ServerRevisionView,
 } from "@stubwise/shared";
@@ -167,49 +169,10 @@ async function rereadOr(
   }
 }
 
-/** Una pagina dell'esportazione del server (F3 di 72). */
-type ExportedPage = {
-  page: { id: string; code: string; title: string; projectCode: string; updatedAt: string };
-  blocks: unknown[];
-  decisions?: Record<string, { title?: unknown } | null>;
-  depth: number;
-};
-type ExportRaw = { projectCode: string; pages: ExportedPage[] };
-
 /** Una riga della ricerca (`productSearchHitSchema` di shared, come il prototipo), o `null` se non si legge. */
 function searchHitOf(r: unknown): ProductSearchHit | null {
   const hit = productSearchHitSchema.safeParse(r);
   return hit.success ? hit.data : null;
-}
-
-/**
- * L'esportazione del server: una pagina (`{ page, blocks, decisions }`) o lo
- * spazio (`{ projectCode, pages: [… più depth] }`), nella forma dello spazio.
- * Una forma che non torna è un errore; una pagina che non si legge si salta.
- */
-function exportOf(raw: unknown, onePage: boolean): ExportRaw {
-  const readable = (p: unknown): p is ExportedPage => {
-    const x = p as Partial<ExportedPage> | null;
-    return (
-      typeof x?.page?.id === "string" &&
-      typeof x.page.code === "string" &&
-      typeof x.page.title === "string" &&
-      typeof x.page.updatedAt === "string" &&
-      Array.isArray(x.blocks)
-    );
-  };
-  if (onePage) {
-    if (!readable(raw)) throw fail("invalid: export");
-    return { projectCode: raw.page.projectCode, pages: [{ ...raw, depth: 0 }] };
-  }
-  const x = raw as { projectCode?: unknown; pages?: unknown } | null;
-  if (typeof x?.projectCode !== "string" || !Array.isArray(x.pages)) throw fail("invalid: export");
-  return {
-    projectCode: x.projectCode,
-    pages: x.pages
-      .filter(readable)
-      .map((p) => ({ ...p, depth: typeof p.depth === "number" ? p.depth : 0 })),
-  };
 }
 
 /** Lo spazio oltre il tetto dell'esportazione (413 `too_many_pages`): `too_large`, col numero (`count`) e il tetto. */
@@ -563,11 +526,7 @@ export const liveProductDocs: Partial<ProductDocs> = {
     try {
       if (projectId) {
         // Lo spazio: ibrida (significato, poi testo), al più 20 righe.
-        const out = (await appClient().request(
-          "GET",
-          `/api/projects/${encodeURIComponent(projectId)}/product/search?${new URLSearchParams({ q: text })}`,
-        )) as { items?: unknown } | null;
-        items = out?.items;
+        items = (await appClient().productDocs.search(projectId, text)).items;
       } else {
         // Senza progetto: il gruppo `product` della ricerca globale (per testo,
         // la corsia veloce). Un server senza il gruppo non ha righe.
@@ -581,24 +540,25 @@ export const liveProductDocs: Partial<ProductDocs> = {
   },
 
   async getProductExport(projectId, { pageId } = {}) {
-    const path =
-      pageId !== undefined
-        ? `/api/product-pages/${encodeURIComponent(pageId)}/export`
-        : `/api/projects/${encodeURIComponent(projectId)}/product/export`;
-    let raw: unknown;
+    let raw: ProductExportPage | ProductExportSpace;
     try {
-      raw = await appClient().request("GET", path);
+      raw =
+        pageId !== undefined
+          ? await appClient().productDocs.exportPage(pageId)
+          : await appClient().productDocs.exportSpace(projectId);
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) return null;
       if (error instanceof ApiError && error.status === 413) throw tooLarge(error);
       return mapError(error);
     }
-    const v = exportOf(raw, pageId !== undefined);
+    const exported = "pages" in raw ? raw.pages : [{ ...raw, depth: 0 }];
     const decisions: ProductExportView["decisions"] = {};
+    const files: ProductExportView["files"] = {};
     const pages = await Promise.all(
-      v.pages.map(async (p) => {
-        for (const [id, d] of Object.entries(p.decisions ?? {}))
-          decisions[id] = d && typeof d.title === "string" ? { title: d.title } : null;
+      exported.map(async (p) => {
+        for (const [id, d] of Object.entries(p.decisions))
+          decisions[id] = d ? { title: d.title } : null;
+        for (const [id, f] of Object.entries(p.files)) files[id] = f ? { name: f.name } : null;
         const page: ProductPage = {
           id: p.page.id,
           code: p.page.code,
@@ -615,9 +575,12 @@ export const liveProductDocs: Partial<ProductDocs> = {
         return { page, depth: p.depth };
       }),
     );
-    // I file del Drive citati non sono nell'esportazione del server: la riga
-    // dice «non più disponibile» (nel registro dei rimandi).
-    return { projectCode: v.projectCode, pages, files: {}, decisions };
+    return {
+      projectCode: "pages" in raw ? raw.projectCode : raw.page.projectCode,
+      pages,
+      files,
+      decisions,
+    };
   },
 
   async unfollowProductPage(pageId) {
