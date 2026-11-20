@@ -25,6 +25,7 @@ const NOW = "2026-09-02T10:00:00.000Z";
  */
 const ARGS_FOR: Record<string, unknown[]> = {
   "drive.upload": [ID, new Blob(["x"]), "x.pdf"],
+  "productDocs.uploadImage": [ID, new Blob(["x"]), "x.png"],
   "mail.uploadAttachment": [ID, new Blob(["x"]), "x.txt"],
   "calendar.freeBusy": [{ personIds: [ID], from: NOW, to: NOW }],
   // Legge `input.range`: con un id al posto dell'oggetto lancerebbe prima di `request`.

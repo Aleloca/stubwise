@@ -1397,6 +1397,16 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Area 11 — Documentazione di prodotto
 
+- **Chiusa con F1 (20 nov 2026)**: lo spazio Product e l'editor (pagine,
+  albero, scrittura a operazioni, cronologia in lettura, Segui, immagini).
+- **Il modulo Docs spento non chiude le rotte** *(S, buco di prima, F1 e 46,
+  20 nov 2026)*: con `projects.modules` senza `docs` la sezione sparisce
+  dall'interfaccia, ma le rotte dei Docs E dello spazio Product rispondono
+  ancora a chi ha `docs.view`/`docs.edit` (il server non legge i moduli).
+  Da chiudere per tutti e due insieme, con un controllo nel resolver di
+  progetto delle rotte `docs.*`.
+- L'«Undo» di una revisione dalla cronologia: nel prototipo c'è solo per le
+  modifiche di Claude, quindi arriva con F5.
 - Origine di una richiesta dalla documentazione di prodotto.
 - Le cinque capacità `product*` di Claude in S0 (dall'area 10, F7-1 = a).
 - Azioni di Claude dell'area 11.

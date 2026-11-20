@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { productPageFollows, productPageRevisions, productPages, projectDecisions, projects } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
-import type { ProductPageView, ProductSpaceView, ProductTreeNode } from "@stubwise/shared";
+import { buildProductTree, type ProductPageView, type ProductSpaceView, type ProductTreeNode } from "@stubwise/shared";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
 
@@ -50,6 +50,7 @@ const create = async (title: string, extra: Record<string, unknown> = {}, pid = 
   return res.json() as { id: string; code: string };
 };
 const space = async (who: U, pid = projectId) => inject(who, "GET", `/api/projects/${pid}/product`);
+const treeOf = (s: ProductSpaceView) => buildProductTree(s.pages);
 const titlesOf = (nodes: ProductTreeNode[]): unknown[] => nodes.map((n) => (n.children.length > 0 ? [n.page.title, titlesOf(n.children)] : n.page.title));
 
 describe("lo spazio Product", () => {
@@ -103,9 +104,9 @@ describe("lo spazio Product", () => {
     const a = await create("A", {}, other.projectId);
     const b = await create("B", {}, other.projectId);
     const c = await create("C", { parentId: a.id }, other.projectId);
-    expect(titlesOf(((await space(editor, other.projectId)).json() as ProductSpaceView).tree)).toEqual([["A", ["C"]], "B"]);
+    expect(titlesOf(treeOf((await space(editor, other.projectId)).json() as ProductSpaceView))).toEqual([["A", ["C"]], "B"]);
     expect((await inject(editor, "PATCH", `/api/product-pages/${b.id}`, { move: { parentId: null, index: 0 } })).statusCode).toBe(204);
-    expect(titlesOf(((await space(editor, other.projectId)).json() as ProductSpaceView).tree)).toEqual(["B", ["A", ["C"]]]);
+    expect(titlesOf(treeOf((await space(editor, other.projectId)).json() as ProductSpaceView))).toEqual(["B", ["A", ["C"]]]);
     expect((await inject(editor, "PATCH", `/api/product-pages/${a.id}`, { move: { parentId: c.id, index: 0 } })).statusCode).toBe(409);
     expect((await inject(editor, "PATCH", `/api/product-pages/${c.id}`, { title: "C nuova", move: { parentId: b.id, index: 0 } })).statusCode).toBe(204);
     const view = (await inject(editor, "GET", `/api/product-pages/by-code/${c.code}`)).json() as ProductPageView;

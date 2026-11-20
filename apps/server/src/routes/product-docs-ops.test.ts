@@ -77,7 +77,7 @@ describe("scrivere a operazioni", () => {
   it("due salvataggi della stessa sessione si uniscono in una revisione; un'altra sessione ne apre una nuova", async () => {
     const p = await page();
     const v = await view(p.code);
-    const first = v.blocks[0]!.id;
+    const first = (v.blocks[0]!.id as string);
     const a = await ops(editor, p.id, { sessionId: "s1", baseSeq: v.seq, ops: [{ op: "set", block: para(first, "Ciao") }] });
     expect(a.statusCode, a.body).toBe(200);
     const b = await ops(editor, p.id, { sessionId: "s1", baseSeq: (a.json() as { seq: number }).seq, ops: [{ op: "insert", afterId: first, block: para("blk-due", "Due") }] });
@@ -90,7 +90,7 @@ describe("scrivere a operazioni", () => {
   it("`stale`: un salvataggio su una versione vecchia, dopo uno di un ALTRO, è 409 con le revisioni mancanti; la propria sessione no", async () => {
     const p = await page();
     const v = await view(p.code);
-    const first = v.blocks[0]!.id;
+    const first = (v.blocks[0]!.id as string);
     expect((await ops(other, p.id, { sessionId: "o1", baseSeq: v.seq, ops: [{ op: "set", block: para(first, "Dell'altro") }] })).statusCode).toBe(200);
     const stale = await ops(editor, p.id, { sessionId: "e1", baseSeq: v.seq, ops: [{ op: "insert", afterId: first, block: para("blk-mio", "Mio") }] });
     expect(stale.statusCode).toBe(409);
@@ -136,7 +136,7 @@ describe("scrivere a operazioni", () => {
   it("chi ha solo `docs.view` non scrive (403)", async () => {
     const p = await page();
     const v = await view(p.code);
-    expect((await ops(reader, p.id, { sessionId: "r", baseSeq: v.seq, ops: [{ op: "delete", blockId: v.blocks[0]!.id }] })).statusCode).toBe(403);
+    expect((await ops(reader, p.id, { sessionId: "r", baseSeq: v.seq, ops: [{ op: "delete", blockId: (v.blocks[0]!.id as string) }] })).statusCode).toBe(403);
   });
 
   it("due salvataggi in parallelo sulla stessa pagina non perdono operazioni (il FOR UPDATE)", async () => {
@@ -154,7 +154,7 @@ describe("la cronologia, Segui, le immagini", () => {
   it("la cronologia dalla più recente, coi cambi; il nome dell'autore", async () => {
     const p = await page();
     const v = await view(p.code);
-    await ops(editor, p.id, { sessionId: "h", baseSeq: v.seq, ops: [{ op: "set", block: para(v.blocks[0]!.id, "Storia") }] });
+    await ops(editor, p.id, { sessionId: "h", baseSeq: v.seq, ops: [{ op: "set", block: para((v.blocks[0]!.id as string), "Storia") }] });
     const revs = (await as(reader, "GET", `/api/product-pages/${p.id}/revisions`)).json() as ProductRevisionView[];
     expect(revs.map((r) => r.kind)).toEqual(["edit", "create"]);
     expect(revs[0]!.actorName).not.toBeNull();

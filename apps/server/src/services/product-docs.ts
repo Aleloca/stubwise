@@ -2,7 +2,6 @@ import { docPageCodes, productPageBlockIds, productPageFollows, productPageRevis
 import {
   DOC_CODE_RE,
   blockChanges,
-  buildProductTree,
   canMoveUnder,
   excerptOfBlocks,
   productBlockSchema,
@@ -81,7 +80,7 @@ export async function productSpace(db: Db, projectId: string, perms: ReadonlySet
   return {
     projectId,
     projectCode: project.code,
-    tree: buildProductTree(refs),
+    pages: refs,
     pageCount: refs.length,
     recent: [...refs].sort(byRecent).slice(0, 5),
     permissions: { edit: perms.has("docs.edit") },

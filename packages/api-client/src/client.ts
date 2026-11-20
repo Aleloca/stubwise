@@ -49,6 +49,7 @@ import { createServersEndpoints } from "./endpoints/servers.js";
 import { createTicketsEndpoints } from "./endpoints/tickets.js";
 import { createUsersEndpoints } from "./endpoints/users.js";
 import { createDecisionsEndpoints } from "./endpoints/decisions.js";
+import { createProductDocsEndpoints } from "./endpoints/product-docs.js";
 import { createDepartmentsEndpoints } from "./endpoints/departments.js";
 import { createPeopleEndpoints } from "./endpoints/people.js";
 import { createProjectStatusesEndpoints } from "./endpoints/projectStatuses.js";
@@ -168,6 +169,8 @@ export function createEndpoints(request: ApiRequest) {
     // Integrazione area 2 (fetta 1): l'app nuova.
     tasks: createTasksEndpoints(request),
     decisions: createDecisionsEndpoints(request),
+    // Area 11, F1: la documentazione di prodotto.
+    productDocs: createProductDocsEndpoints(request),
     departments: createDepartmentsEndpoints(request),
     people: createPeopleEndpoints(request),
     projectStatuses: createProjectStatusesEndpoints(request),

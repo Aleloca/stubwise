@@ -5736,3 +5736,29 @@ deploy o di un rollback che la tocca.
       zero, la discesa va decisa sapendolo.
     Colonne, tabelle e valori d'enum restano: un server vecchio li ignora.
 
+- **«Integrazione area 11, F1: lo spazio Product e l'editor»** *(20 nov
+  2026)*: branch `feat/area11-f1` (da `feat/integrazione-area11`), piano
+  `docs/plans/2026-11-20-integrazione-area11-f1-plan.md`, design
+  `docs/plans/2026-11-20-integrazione-area11-design.md`.
+  - Migrazione **0202**: `product_pages` (corpo a blocchi in jsonb,
+    `rev_seq`), `product_page_revisions`, `product_page_block_ids`,
+    `product_page_follows`, `product_page_images`; `doc_page_codes` accetta
+    le pagine di prodotto (`repository_id` e `slug` nullable,
+    `product_page_id`, una CHECK), con un trigger che numera sotto lo stesso
+    lock della serie `-D` dei Docs (0142).
+  - Rotte nuove sotto `/api`: lo spazio (`/projects/:projectId/product`), la
+    pagina per codice, crea, rinomina e sposta, elimina, la scrittura a
+    operazioni (`…/ops`), la cronologia, Segui, le immagini (nello storage
+    d'istanza, prefisso `product/`).
+  - Nessuna env, nessun `notification_kind`, nessun permesso nuovo (`docs.view`
+    e `docs.edit` di progetto).
+
+  **ORDINE**: **server** (healthy, 0202 applicata), poi **caddy** (il
+  renderer di 94). Il worker non c'entra.
+
+  **Rollback**: sicuro. Un server vecchio ignora le tabelle nuove e le righe
+  di prodotto di `doc_page_codes` (le sue letture dei codici dei Docs passano
+  dai repository). Le immagini caricate restano nello storage finché il
+  progetto non si elimina con un server che le conosce: prima di scendere si
+  contano con `select count(*) from product_page_images;`.
+

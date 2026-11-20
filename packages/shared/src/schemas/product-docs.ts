@@ -112,19 +112,22 @@ export const productPageRefSchema = z.object({
 });
 export type ProductPageRef = z.infer<typeof productPageRefSchema>;
 
+/** L'albero (`buildProductTree`): lo costruisce il client dalle pagine dello spazio. */
 export interface ProductTreeNode {
   page: ProductPageRef;
   children: ProductTreeNode[];
 }
-export const productTreeNodeSchema: z.ZodType<ProductTreeNode> = z.lazy(() =>
-  z.object({ page: productPageRefSchema, children: z.array(productTreeNodeSchema) }),
-);
 
-/** `GET /api/projects/:projectId/product`: lo spazio per chi guarda. */
+/**
+ * `GET /api/projects/:projectId/product`: lo spazio per chi guarda. Le pagine
+ * IN FILA (`pages`), non l'albero: `readerSchema` non attraversa uno schema
+ * ricorsivo (`z.lazy`), e l'albero lo dà `buildProductTree` di shared, la
+ * stessa regola del prototipo.
+ */
 export const productSpaceSchema = z.object({
   projectId: z.uuid(),
   projectCode: z.string(),
-  tree: z.array(productTreeNodeSchema),
+  pages: z.array(productPageRefSchema),
   pageCount: z.number().int(),
   recent: z.array(productPageRefSchema),
   permissions: z.object({ edit: z.boolean() }),
@@ -144,7 +147,12 @@ export const productPageViewSchema = z.object({
   parentId: z.uuid().nullable(),
   order: z.number().int(),
   title: z.string(),
-  blocks: z.array(productBlockSchema),
+  /**
+   * I blocchi come record: `readerSchema` non apre una `discriminatedUnion`.
+   * Il client li legge uno per uno con `productBlockSchema` (il noto o il
+   * ripiego per un tipo futuro), come il server li ha salvati.
+   */
+  blocks: z.array(z.record(z.string(), z.unknown())),
   /** L'ultima revisione della pagina (per `baseSeq`); 0 senza revisioni. */
   seq: z.number().int(),
   createdById: z.uuid().nullable(),
