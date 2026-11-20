@@ -162,10 +162,13 @@ deleted»; le card in inbox; le righe della doc in Preferenze → Notifiche.
 **Cosa vede chi usa l'app**: ⌘K con «In Product», le pagine di prodotto nella
 chat dei Docs, «Esporta» in PDF e Word.
 
-- I chunk delle pagine di prodotto nella stessa tabella dei Docs
-  (`doc_chunks`, con `product_page_id` accanto a `page_id`, uno dei due)
-  e il loro embedding da un job del worker, l'unico che chiama ollama per i
-  Docs. Il job si accoda a ogni revisione chiusa, con un debounce per pagina.
+- I chunk delle pagine di prodotto in una tabella a parte,
+  `product_page_chunks`, con lo stesso chunking e lo stesso embedder dei
+  Docs (*corretto col piano di F3*: `doc_chunks` ha `page_id → doc_pages` e
+  `repository_id` NOT NULL, e il retrieval filtra per repository e
+  generazione). Gli embedding li fa il SERVER, come già per le pagine manuali
+  (`embedManualPage`): un poller rifà ogni 30 s le pagine ferme da almeno
+  30 s (`embedded_at < updated_at`), fail-open.
 - La ricerca ibrida (`retrieveChunks…`) impara l'ambito Product; le
   citazioni `doc` della chat dei Docs (`chat/citations.ts`) le pagine di
   prodotto; la chat dei Docs del progetto le legge come contenuto NON fidato
@@ -308,8 +311,11 @@ riga dello Stato dell'istanza.
   prototipo; fondere il testo dentro un blocco è un'altra area.
 - **La presenza in memoria del server**, non in tabella (F4): sparisce con
   un riavvio, e un battito la rimette.
-- **I chunk nella tabella dei Docs** (F3), non in una tabella gemella: la
-  ricerca ibrida e le citazioni ci sono già lì.
+- **I chunk in una tabella a parte** (F3, corretto col piano): `doc_chunks`
+  è legata ai Docs dei repository; la ricerca unisce le due sorgenti, e la
+  citazione resta `doc` con un campo additivo `product`.
+- **La sezione presa sta in tabella** (F4, dal piano): presenza e cursori in
+  memoria, ma la presa la deve vedere anche il worker (F5).
 - **Il modello restituisce fatti strutturati, mai testo da incollare** (F5):
   è ciò che rende `decideFact` applicabile e la parità misurabile.
 
@@ -330,7 +336,8 @@ riga dello Stato dell'istanza.
   il `jsonb` intero; un id di blocco non si riusa mai (la sequenza per
   pagina), salvo lo stesso blocco che torna con `undoOf`.
 - **Il canale dal vivo ricalcola i permessi a ogni evento**: un accesso
-  revocato chiude lo stream; la presenza non si scrive mai in tabella.
+  revocato chiude lo stream; presenza e cursori non si scrivono mai in
+  tabella (la sezione presa sì, con scadenza: la legge anche il worker).
 
 ## Rollback, per fetta (le voci di deploy-log le scrive ogni piano)
 
