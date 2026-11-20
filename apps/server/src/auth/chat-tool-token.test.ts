@@ -71,6 +71,12 @@ describe("il token del turno della chat", () => {
     expect((await get("/api/people", token)).statusCode).toBe(200);
     // Area 10, F2: i reparti, per «avvisa un reparto».
     expect((await get("/api/departments", token)).statusCode).toBe(200);
+    // Area 10, F3: le task ferme (la rotta della lista, le soglie dei progetti), senza segnare la conversazione.
+    expect((await get("/api/tasks/stalled", token)).statusCode).toBe(200);
+    // Il polso NON è fra le letture di Claude (decisione del maintainer: le soglie, non la regola del polso).
+    expect((await get("/api/projects/pulse", token)).statusCode).toBe(403);
+    const [mark] = await t.db.select({ at: claudeConversations.untrustedReadAt }).from(claudeConversations).where(eq(claudeConversations.sessionId, sessionId));
+    expect(mark!.at).toBeNull();
   });
 
   it("legge una pagina Docs intera (area 5, fetta 1) di un progetto che l'autore vede; l'albero no", async () => {
@@ -286,6 +292,26 @@ describe("il token del turno della chat", () => {
     const c = await turn();
     expect((await get(`/api/me/calendar/events/${adminBox.eventId}`, c.token)).statusCode).toBe(200);
     expect(await markOf(c.sessionId)).not.toBeNull();
+  });
+
+  it("area 10, F3 (S3, D-13 = a): la spesa del mese coi permessi di chi chiede — tutta con usage.view, i propri progetti con project.usage.view, 403 senza; «chi può dirtelo» per tutti", async () => {
+    const nobody = await createUserWithSession(app, "nobody-usage@example.com");
+    const turnOf = async (userId: string, cookie: string) => {
+      const sessionId = await conversationOf(cookie);
+      return issueChatToolToken(t.db, { sessionId, userId, ttlMs: 60_000 });
+    };
+    const summary = "/api/ai-usage/summary?month=true&groupBy=project";
+    expect((await get(summary, await turnOf(u.adminId, u.adminCookie))).statusCode).toBe(200);
+    expect((await get(summary, await turnOf(author.id, author.headers.cookie))).statusCode).toBe(200);
+    const none = await turnOf(nobody.id, nobody.headers.cookie);
+    expect((await get(summary, none)).statusCode).toBe(403);
+    const who = await get("/api/access/who-can?permission=usage.view", none);
+    expect(who.statusCode).toBe(200);
+    // R-G5: chi non vede nessuno riceve un elenco vuoto (Claude dice «chi amministra l'istanza»);
+    // chi vede il progetto dell'admin lo trova.
+    expect((who.json() as { people: unknown[] }).people).toEqual([]);
+    const seen = await get("/api/access/who-can?permission=usage.view", await turnOf(author.id, author.headers.cookie));
+    expect(seen.statusCode).toBe(200);
   });
 
   it("solo GET e solo l'allowlist: altre GET, scritture e rotte di credenziale sono rifiutate", async () => {

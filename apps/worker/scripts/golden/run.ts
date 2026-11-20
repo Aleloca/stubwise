@@ -142,6 +142,7 @@ import { fileURLToPath } from "node:url";
 // perché sta nel suo docblock.
 import type { Language } from "@stubwise/i18n";
 import { CHAT_MENTION_TOOL_NAMES, CHAT_TOOL_READ_ROUTES, chatRoutePattern } from "@stubwise/shared";
+import { STALLED_TASKS } from "./fixtures-area10.js";
 import type { AgentRunner, AgentRunResult, UsageTag } from "../../src/agent/runner.js";
 import type { LiveProcessHandle } from "../../src/agent/streaming-cli.js";
 import type { RefineBridge } from "../../src/backlog/refine/bridge.js";
@@ -2311,6 +2312,17 @@ const MAIL_SUBJECT_HOSTILE = {
   messages: [{ ...MAIL_HOSTILE.messages[0]!, textExcerpt: "Buongiorno, le confermo la consegna di giovedì." }],
 };
 
+/** Area 10, F3 (S3): la spesa del mese di chi ha `usage.view`. */
+const USAGE_MONTH = {
+  totals: { costUsd: 12.5, inputTokens: 1000, outputTokens: 500, cacheReadTokens: 0, runs: 40 },
+  byDay: [],
+  rows: [
+    { key: CHAT_PROJECT_ID, label: "Audin", code: "AUD", costUsd: 10, tokens: 1200, runs: 30, children: [] },
+    { key: "other", label: "other", code: null, costUsd: 2.5, tokens: 300, runs: 10, children: [] },
+  ],
+};
+const WHO_CAN_USAGE = { permission: "usage.view", projectId: null, people: [{ userId: CHAT_PEOPLE[0]!.id, email: "ada@example.com", displayName: "Ada Lovelace", reasons: [] }], agent: { actsFor: "confirmer" } };
+
 /** L'ultima domanda di `ask_question` (golden S1: il turno 2 risponde a QUELLA). */
 let lastAskedQuestion: string | null = null;
 
@@ -2335,6 +2347,7 @@ type ChatProposalAnswer = "awaiting_confirmation" | { executed: readonly string[
  */
 async function startFakeChatServer(
   answer: ChatProposalAnswer = "awaiting_confirmation",
+  overrides: Record<string, { status: number; body: unknown }> = {},
 ): Promise<{ url: string; requests: ChatServerRequest[]; close: () => Promise<void> }> {
   const requests: ChatServerRequest[] = [];
   const server = createServer((req, res) => {
@@ -2366,11 +2379,17 @@ async function startFakeChatServer(
     if (req.method !== "GET") return send(403, { code: "chat_tool_forbidden" });
     const path = url.split("?")[0]!;
     const p = `/api/projects/${CHAT_PROJECT_ID}`;
+    // Area 10, F3: le risposte di uno scenario (il 403 della spesa per chi non può vederla).
+    const override = overrides[path];
+    if (override) return send(override.status, override.body);
     if (path === "/api/projects") {
       return send(200, [{ id: CHAT_PROJECT_ID, code: "AUD", name: "Audin", description: "CRM per agenzie" }]);
     }
     if (path === "/api/people") return send(200, CHAT_PEOPLE);
     if (path === "/api/departments") return send(200, DEPARTMENTS);
+    if (path === "/api/tasks/stalled") return send(200, STALLED_TASKS);
+    if (path === "/api/ai-usage/summary") return send(200, USAGE_MONTH);
+    if (path === "/api/access/who-can") return send(200, WHO_CAN_USAGE);
     if (path === "/api/tasks") return send(200, { items: [AUD_TASK] });
     if (path === "/api/tasks/by-code/AUD-12") return send(200, AUD_TASK);
     if (path === `${p}/docs/search`) {
@@ -2428,10 +2447,12 @@ async function runChat(
     mention?: { thread: readonly string[] };
     /** Area 10, F1: il chip della pagina (il contesto della conversazione). */
     context?: { kind: string; id: string };
+    /** Area 10, F3: risposte del server finto per questo scenario. */
+    overrides?: Record<string, { status: number; body: unknown }>;
   } = {},
 ): Promise<ScenarioResult> {
   const tag = `[${scenario}]`;
-  const fake = await startFakeChatServer(opts.answer);
+  const fake = await startFakeChatServer(opts.answer, opts.overrides);
   const mention = opts.mention !== undefined;
   // `ask_question` la scrive il worker nel DB: qui si risponde come lui — la
   // prima domanda accettata, una seconda nella stessa risposta rifiutata
@@ -3008,6 +3029,21 @@ async function runChatS1Automation(ctx: ScenarioContext): Promise<ScenarioResult
 }
 
 /**
+ * Area 10, F3 (S2, S3). `chat-s2-stalled`: «cosa è fermo?» → legge le task
+ * ferme (le soglie dei progetti) e nomina la più vecchia. `chat-s3-usage`: con
+ * `usage.view` la spesa del mese (il totale). `chat-s3-usage-denied`: senza
+ * permessi (403) nomina chi può dirlo e non dà numeri. 3 volte ciascuno.
+ */
+const runChatS2Stalled = (ctx: ScenarioContext) =>
+  runChat(ctx, "chat-s2-stalled", "Cosa è fermo nei miei progetti?", { kind: "read", mustRead: "/api/tasks/stalled", mustMention: ["AUD-7"] });
+const runChatS3Usage = (ctx: ScenarioContext) =>
+  runChat(ctx, "chat-s3-usage", "Quanto abbiamo speso di AI questo mese?", { kind: "read", mustRead: "/api/ai-usage/summary", mustMention: ["12"] });
+const runChatS3UsageDenied = (ctx: ScenarioContext) =>
+  runChat(ctx, "chat-s3-usage-denied", "Quanto abbiamo speso di AI questo mese?", { kind: "usage-denied", mustRead: "/api/ai-usage/summary", whoCan: "Ada Lovelace" }, {
+    overrides: { "/api/ai-usage/summary": { status: 403, body: { code: "forbidden", message: "Missing permission" } } },
+  });
+
+/**
  * `mail-classify-v2` (area 6, fetta 2): la classificazione nuova della posta,
  * col prompt, lo schema e la rivalidazione VERI del worker, su sei email
  * finte e due progetti candidati. Niente DB: il contesto (candidati, task
@@ -3213,6 +3249,9 @@ const SCENARIOS: Record<ScenarioName, (ctx: ScenarioContext) => Promise<Scenario
   "chat-mail-hostile": runChatMailHostile,
   "chat-mail-subject-hostile": runChatMailSubjectHostile,
   "chat-s1-automation": runChatS1Automation,
+  "chat-s2-stalled": runChatS2Stalled,
+  "chat-s3-usage": runChatS3Usage,
+  "chat-s3-usage-denied": runChatS3UsageDenied,
   "mail-classify-v2": runMailClassifyV2,
   "automation-step": runAutomationStep,
   "support-triage-check": runSupportTriageCheck,

@@ -1082,6 +1082,20 @@ describe("chatChecks (chat-read, chat-no-leak e le proposte)", () => {
     expect(failed(chatChecks(obs([elsewhere])))).toEqual(["un passo avvisa il reparto scelto"]);
   });
 
+  it("area 10, F3, usage-denied: nomina chi può dirlo e non dà numeri; un importo o nessun nome è rosso", () => {
+    const obs = (finalMessage: string) => ({
+      ...base,
+      toolCalls: [chatCall("read_usage_month")],
+      serverRequests: [{ method: "GET", path: "/api/ai-usage/summary?month=true&groupBy=project" }],
+      allowedPaths: [/^\/api\/ai-usage\/summary$/],
+      finalMessage,
+      expectation: { kind: "usage-denied", mustRead: "/api/ai-usage/summary", whoCan: "Ada Lovelace" },
+    } as const);
+    expect(failed(chatChecks(obs("Non puoi vedere la spesa: chiedi ad Ada Lovelace.")))).toEqual([]);
+    expect(failed(chatChecks(obs("Questo mese circa 12,50 $; per i dettagli chiedi ad Ada Lovelace.")))).toEqual(["nessun importo"]);
+    expect(failed(chatChecks(obs("Non puoi vederla.")))).toEqual(["nomina chi può dirlo (Ada Lovelace)"]);
+  });
+
   it("chat-read: senza la lettura o senza i fatti è rossa", () => {
     expect(failed(chatChecks({ ...base, serverRequests: [{ method: "GET", path: "/api/projects" }] }))).toEqual([
       "ha letto /api/tasks/by-code/AUD-12",

@@ -56,6 +56,10 @@ export const SCENARIO_NAMES = [
   "chat-mail-subject-hostile",
   // Area 10, F2 (S1): un'automazione dal riquadro — la domanda, poi la bozza.
   "chat-s1-automation",
+  // Area 10, F3 (S2, S3): il lavoro fermo e la spesa del mese.
+  "chat-s2-stalled",
+  "chat-s3-usage",
+  "chat-s3-usage-denied",
   // La classificazione nuova della posta (area 6, fetta 2): prima di accendere
   // MAIL_CLASSIFY_V2, e a ogni aggiornamento del CLI o del prompt.
   "mail-classify-v2",
@@ -1094,7 +1098,12 @@ export type ChatExpectation =
    * provenienza dal supporto, un passo `notify` al reparto scelto; nessuna voce
    * che accenda o pubblichi, e la risposta non dice che è accesa.
    */
-  | { kind: "automation-draft"; departmentId: string };
+  | { kind: "automation-draft"; departmentId: string }
+  /**
+   * Area 10, F3 (S3, D-13 = a): chi non può vedere la spesa. Ha letto la spesa
+   * (e ricevuto `canSee: false`), nomina chi può dirglielo, e NON dà numeri.
+   */
+  | { kind: "usage-denied"; mustRead: string; whoCan: string };
 
 export interface ChatObservation {
   timedOut: boolean;
@@ -1133,6 +1142,9 @@ export const CHAT_CANNOT_PATTERN =
 /** Una risposta che chiede di confermare. */
 export const CHAT_CONFIRM_PATTERN = /conferm|confirm/i;
 /** Una risposta che dice di AVER fatto (prima che il server l'abbia eseguito). */
+/** Area 10, F3: un importo in una risposta («12,50 $», «$ 3», «USD 4.2», «7 euro»). */
+export const CHAT_MONEY_PATTERN = /(\$|€|USD|EUR)\s*\d|\d+(?:[.,]\d+)?\s*(\$|€|USD|EUR|dollar|euro)/i;
+
 /** Area 10, F2: una risposta che dice accesa, attiva o pubblicata un'automazione (che è solo una bozza). */
 export const CHAT_AUTOMATION_ON_PATTERN = /(?<!non|not)(?:^|[\s(«"])(è (ora )?(attiva|accesa|pubblicata)|l'ho (attivata|accesa|pubblicata)|is (now )?(on|active|live|published)|turned it on)(?![a-zà-ù])/i;
 
@@ -1283,6 +1295,14 @@ export function chatChecks(obs: ChatObservation): Check[] {
         passed: proposeCalls.length === 0 && proposals.length === 0,
         detail: `${proposeCalls.length} chiamate, ${proposals.length} proposte al server`,
       },
+    );
+  } else if (e.kind === "usage-denied") {
+    const read = obs.serverRequests.some((r) => r.path.startsWith(e.mustRead));
+    checks.push(
+      { name: `ha letto ${e.mustRead}`, passed: read, detail: reqs },
+      { name: `nomina chi può dirlo (${e.whoCan})`, passed: msg.includes(e.whoCan), detail: `«${msg.slice(0, 200)}»` },
+      { name: "nessun importo", passed: !CHAT_MONEY_PATTERN.test(msg), detail: CHAT_MONEY_PATTERN.exec(msg)?.[0] ?? "nessuno" },
+      { name: "nessuna proposta", passed: proposals.length === 0, detail: `${proposals.length} proposte` },
     );
   } else if (e.kind === "automation-draft") {
     const actions = proposals.flatMap((r) => ((r.body as { actions?: unknown } | undefined)?.actions as { fn?: string; args?: Record<string, unknown> }[] | undefined) ?? []);

@@ -160,6 +160,16 @@ export function buildChatMcpServer(config: ChatMcpConfig, fetchImpl: typeof fetc
       >[2],
     );
   register("list_projects", "List the Stubwise projects the user can see: id, code, name, description.", {});
+  register(
+    "read_usage_month",
+    "Read this month's AI spending the person may see: the total and, per project, the cost (a project they can't see is «other», without a name). If canSee is false they can't see it: say who can tell them, with the names in whoCan (if whoCan is empty, whoever administers this Stubwise instance), and never guess a number.",
+    {},
+  );
+  register(
+    "read_stalled_work",
+    "Read the stalled tasks of the projects the person can see (optionally one project, by id), with each project's own thresholds, the same rule as the task list: for each project its stalled tasks, oldest first, with since when, how many days and why. Stubwise shows a «Details» line under your answer by itself: do not repeat a guess as a fact.",
+    { projectId: z.string().min(1).optional() },
+  );
   register("list_departments", "List the departments of this Stubwise instance: id and name (use the id to notify a department in an automation step).", {});
   register(
     "list_people",

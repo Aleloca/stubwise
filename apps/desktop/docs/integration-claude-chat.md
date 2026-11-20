@@ -222,6 +222,21 @@ al modello solo i campi in ALLOWLIST.
 | La prova della bozza la fa il renderer e la segna provata (`testedRev`) | orchestratrice |
 | `list_departments`: una lettura nuova, che il design non prevedeva (serve a «avvisa un reparto») | costruttore |
 
+## Area 10, F3 — rispondere sui dati (server e worker; la riga «Details» è di 94)
+
+| Voce | Dove vive | Rotta / pezzo | Test |
+|---|---|---|---|
+| Il lavoro fermo con le soglie dei progetti (la regola e la rotta della lista delle task) | `claude-chat/bridge.ts` (`read_stalled_work`, `stalledProjects`) | `GET /api/tasks/stalled`, `GET /api/projects` | `bridge.test.ts`, `claude-asides.test.ts` (oltre la soglia sì, dentro no); golden `chat-s2-stalled` |
+| L'`aside` («Hypothesis», «Details»): scritto dal worker, arricchito a lettura | `claude-chat/aside.ts`, `services/claude-asides.ts` (in `listAgentSessionEvents`) | evento `aside` (0199) | `aside.test.ts`, `claude-asides.test.ts` |
+| La spesa del mese coi permessi del server; senza, `canSee: false` e chi può dirlo | `claude-chat/bridge.ts` (`read_usage_month`) | `GET /api/ai-usage/summary`, `GET /api/access/who-can` | `bridge.test.ts`, `chat-tool-token.test.ts`; golden `chat-s3-usage`, `chat-s3-usage-denied` |
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| «Fermo» = le soglie dei progetti, non la regola del polso | maintainer (20 nov 2026) |
+| `thresholdDays` solo per il motivo `idle` (gli altri motivi non hanno soglia) | costruttore |
+| Chi non vede nessuno riceve `whoCan` vuoto (R-G5): Claude dice «chi amministra l'istanza» | costruttore (accettato) |
+| D-13 = a: la spesa a chi ha `usage.view` o `project.usage.view`, a nessun altro | maintainer |
+
 ## Rimandate
 
 | Voce | Fetta |
