@@ -265,6 +265,22 @@ al modello solo i campi in ALLOWLIST.
 | Nell'invito accettato l'attore è chi accetta: la card va ai gestori, non a lui | orchestratrice |
 | Il full admin dell'istanza riceve la card come gestore di ogni progetto | costruttore (come gli altri tipi del catalogo) |
 
+## Area 10, F6 — le bozze nei campi (server e worker; il segno «Bozza di Claude», Undo e Apply sono di 94)
+
+| Voce | Dove vive | Rotta / pezzo | Test |
+|---|---|---|---|
+| `fillField` nel catalogo condiviso (A, args strict, tetto della rotta del campo) e `RENDERER_FNS` | `@stubwise/shared` `schemas/claude-actions.ts` | — | `claude-actions.test.ts` (shared, anche il parse `UNKNOWN`) |
+| La strada del renderer: da sola, mai nella Chat, B dopo un contenuto non fidato; nessuna scrittura | `claude-actions/proposals.ts` | `POST /api/claude/conversations/:id/proposals` | `claude-actions-fill-field.test.ts` |
+| Chi può scrivere il campo: le regole delle rotte (voce `updateTask`; `releaseNotesWriteAccess`) | `services/claude-field-access.ts` (`canFillField`), `services/pr-release-notes.ts` | — | `claude-actions-fill-field.test.ts` |
+| Le note di una PR per Claude, contenuto non fidato | `claude-chat/bridge.ts` (`read_pull_request_notes`), `auth/chat-tool-routes.ts` | `GET /api/repositories/:repositoryId/pulls/:prNumber/release-notes` | `bridge.test.ts`, `chat-tool-token.test.ts`; golden `chat-pr-notes-hostile` |
+| La regola del prompt: una bozza, la salva la persona | `claude-chat/prompts.ts` (`FIELD_DRAFT_RULE`) | — | `prompts.test.ts`; golden `chat-s6-field` |
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| Claude legge le note della PR con un tool nuovo (F6-1 = a) | maintainer |
+| Il tetto del testo è quello della rotta del campo (100 000 la descrizione, 20 000 le note) | costruttore (ruling del piano) |
+| Il contesto della pagina di una PR è `pr: <repositoryId>:<prNumber>` (lo stesso oggetto dei suggerimenti di F7) | costruttore |
+
 ## Area 10, F8 — «/status» e «/today» (server e worker; i comandi sono di 94)
 
 | Voce | Dove vive | Rotta / pezzo | Test |
