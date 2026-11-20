@@ -5882,14 +5882,17 @@ deploy o di un rollback che la tocca.
     (`product_page_events`), accanto a quelle delle sessioni e della Chat.
 
   **ORDINE**: **server** (healthy, 0209 applicata), poi **caddy** (il
-  renderer di 94). Il worker non c'entra (lo userà F5).
+  renderer). Il worker non c'entra (lo userà F5).
 
   ⚠️ **Un solo processo server.** Presenza e cursori stanno nella memoria del
   processo, quindi più processi server dietro caddy si vedrebbero a metà: chi
   è collegato a uno non vede la presenza di chi è sull'altro. Oggi c'è un
   processo solo. Chi ne aggiunge un secondo deve prima portare la presenza
   fuori dalla memoria (o tenere le persone di una pagina sullo stesso
-  processo). Le revisioni e le prese invece passano dal database e reggono.
+  processo). Le revisioni e le prese passano dal database e reggono, ma a
+  metà: con due processi, `hold` e `release` di una presa fatta sull'altro
+  arrivano solo col giro a tempo (5 s), e le revisioni scritte sull'altro
+  arrivano senza operazioni (il client rilegge la pagina).
 
   **Rollback**: sicuro, col caddy che scende insieme al server. Un server
   vecchio non manda gli eventi né il 409 `section_busy`, e ignora la tabella

@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { projectMembers } from "@stubwise/db";
+import { productPages, productSectionHolds, projectMembers, projects, roles, users } from "@stubwise/db";
+import { PRODUCT_LIVE_NOTIFY } from "../services/product-live-notify.js";
+import { saveProductBlocks } from "../services/product-docs-ops.js";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { parseProductLiveFrame, type ProductLiveFrame, type ProductPageView } from "@stubwise/shared";
 import { buildApp } from "../app.js";
-import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
+import { actorAs, addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
 
 // Area 11, F4, Task 3: il canale dal vivo di una pagina. Due lettori, un
 // salvataggio: l'altro riceve la revisione con le operazioni; un accesso tolto
@@ -22,8 +24,8 @@ let projectId: string;
 
 beforeAll(async () => {
   t = await startTestDb();
-  // Tempi corti per il test: permessi riletti ogni 200 ms, presenza che scade a 600 ms.
-  app = buildApp({ db: t.db, sessionSecret: "x".repeat(40), productLive: { permsTtlMs: 200, presenceTtlMs: 600 } });
+  // Tempi corti per il test: permessi riletti ogni 200 ms, presenza che scade a 1,5 s.
+  app = buildApp({ db: t.db, sessionSecret: "x".repeat(40), productLive: { permsTtlMs: 200, presenceTtlMs: 1500 } });
   await seedUsers(app);
   ({ projectId } = await seedRepository(t.db));
   editor = await createUserWithSession(app, "editor-live@example.com");
@@ -31,6 +33,8 @@ beforeAll(async () => {
   await addMember(app, projectId, editor.id, "developer");
   await addMember(app, projectId, reader.id, "viewer");
   base = await app.listen({ port: 0, host: "127.0.0.1" });
+  // Review di F4 (M12): la LISTEN vera, come index.ts, così le NOTIFY scritte nel DB arrivano al canale.
+  await t.client.listen(PRODUCT_LIVE_NOTIFY, (payload) => app.productLive.handleNotify(payload));
 }, 120_000);
 afterAll(async () => {
   await app.close();
@@ -150,8 +154,8 @@ describe("il canale dal vivo", () => {
     // Chi guarda non vede sé stesso.
     await inject(reader, "POST", `/api/product-pages/${p.id}/live/presence`, {});
     expect(b.frames.filter((f) => f.type === "presence").every((f) => f.type === "presence" && f.presence.every((x) => x.userId !== reader.id))).toBe(true);
-    // Senza battiti la presenza scade (600 ms nel test) e la lista torna vuota.
-    expect(await b.wait((f) => f.type === "presence" && f.presence.length === 0, 3000)).toBeDefined();
+    // Senza battiti la presenza scade (1,5 s nel test) e la lista torna vuota.
+    expect(await b.wait((f) => f.type === "presence" && f.presence.length === 0, 5000)).toBeDefined();
     b.close();
   });
 
@@ -201,5 +205,107 @@ describe("il canale dal vivo", () => {
     const res = await fetch(`${base}/api/product-pages/${p.id}/live`, { headers: { cookie: outsider.headers.cookie } });
     expect(res.status).toBe(404);
     expect((await inject(outsider, "POST", `/api/product-pages/${p.id}/live/presence`, {})).statusCode).toBe(404);
+  });
+
+  it("review di F4 (I3): aperture CONCORRENTI della stessa persona: ne passano 10, le altre 429", async () => {
+    const p = await page();
+    const who = await createUserWithSession(app, `conc-${randomUUID().slice(0, 6)}@example.com`);
+    await addMember(app, projectId, who.id, "viewer");
+    const ctrls = Array.from({ length: 15 }, () => new AbortController());
+    const res = await Promise.all(ctrls.map((c) => fetch(`${base}/api/product-pages/${p.id}/live`, { headers: { cookie: who.headers.cookie }, signal: c.signal })));
+    expect(res.filter((r) => r.status === 200)).toHaveLength(10);
+    expect(res.filter((r) => r.status === 429)).toHaveLength(5);
+    for (const c of ctrls) c.abort();
+  });
+
+  it("review di F4 (M12): il tetto per pagina, 50 stream; il cinquantunesimo 429", async () => {
+    const p = await page();
+    const ctrls: AbortController[] = [];
+    for (let i = 0; i < 5; i++) {
+      const who = await createUserWithSession(app, `cap-${i}-${randomUUID().slice(0, 6)}@example.com`);
+      await addMember(app, projectId, who.id, "viewer");
+      for (let k = 0; k < 10; k++) {
+        const c = new AbortController();
+        ctrls.push(c);
+        expect((await fetch(`${base}/api/product-pages/${p.id}/live`, { headers: { cookie: who.headers.cookie }, signal: c.signal })).status).toBe(200);
+      }
+    }
+    const last = await fetch(`${base}/api/product-pages/${p.id}/live`, { headers: { cookie: reader.headers.cookie } });
+    expect(last.status).toBe(429);
+    for (const c of ctrls) c.abort();
+  });
+
+  it("review di F4 (I2): chi se ne va mentre lo stream si apre non resta nei tetti", async () => {
+    const p = await page();
+    for (let i = 0; i < 12; i++) {
+      const c = new AbortController();
+      const f = fetch(`${base}/api/product-pages/${p.id}/live`, { headers: { cookie: reader.headers.cookie }, signal: c.signal }).catch(() => undefined);
+      setTimeout(() => c.abort(), i % 3);
+      await f;
+    }
+    const deadline = Date.now() + 3000;
+    while (app.productLive.count(p.id) > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+    expect(app.productLive.count(p.id)).toBe(0);
+    // E la persona apre ancora uno stream (nessun orfano che le occupi i 10 posti).
+    const s2 = await stream(reader, p.id);
+    expect(s2.res.status).toBe(200);
+    s2.close();
+  });
+
+  it("review di F4 (I6): un progetto eliminato chiude lo stream anche a un full admin", async () => {
+    const { projectId: doomed } = await seedRepository(t.db);
+    const created = (await inject(editor, "POST", `/api/projects/${doomed}/product/pages`, { title: "Condannata" }).catch(() => null))?.json() as { id: string } | undefined;
+    const admin = await createUserWithSession(app, `adm-${randomUUID().slice(0, 6)}@example.com`);
+    const [adminRole] = await t.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "admin"));
+    await t.db.update(users).set({ instanceRoleId: adminRole!.id }).where(eq(users.id, admin.id));
+    const pageId = created?.id ?? (await t.db.insert(productPages).values({ projectId: doomed, title: "Condannata" }).returning())[0]!.id;
+    const s2 = await stream(admin, pageId);
+    expect(await s2.wait((f) => f.type === "state")).toBeDefined();
+    await t.db.delete(projects).where(eq(projects.id, doomed));
+    expect(await s2.wait((f) => f.type === "gone", 3000)).toBeDefined();
+  });
+
+  it("review di F4 (M12): una scrittura che arriva SOLO dalla NOTIFY vera (pg_notify + LISTEN) porta la revisione, senza operazioni", async () => {
+    const p = await page();
+    const b = await stream(reader, p.id);
+    await b.wait((f) => f.type === "state");
+    // Scrive il servizio, senza la rotta: come farà il worker (F5).
+    const saved = await saveProductBlocks(t.db, actorAs(editor.id, "member"), p.id, { sessionId: "srv", baseSeq: p.seq, ops: [{ op: "set", block: { id: p.first, type: "paragraph", content: { text: "Dal servizio", marks: [] } } }] });
+    expect(await b.wait((f) => f.type === "revision")).toMatchObject({ seq: saved.seq, ops: [], sessionId: "srv" });
+    b.close();
+  });
+
+  it("review di F4 (I4): il battito vuole una sezione VERA della pagina, e una persona tiene al più una sezione", async () => {
+    const p = await page();
+    expect((await inject(editor, "POST", `/api/product-pages/${p.id}/live/presence`, { sectionId: "blk-inventata" })).statusCode).toBe(422);
+    const heading = `blk-${randomUUID()}`;
+    await inject(editor, "POST", `/api/product-pages/${p.id}/ops`, { sessionId: "h", baseSeq: p.seq, ops: [{ op: "insert", afterId: p.first, block: { id: heading, type: "heading", level: 2, content: { text: "Sezione", marks: [] } } }] });
+    await t.db.delete(productSectionHolds).where(eq(productSectionHolds.pageId, p.id));
+    expect((await inject(editor, "POST", `/api/product-pages/${p.id}/live/presence`, { sectionId: "top" })).json()).toMatchObject({ hold: { sectionId: "top" } });
+    expect((await inject(editor, "POST", `/api/product-pages/${p.id}/live/presence`, { sectionId: heading })).json()).toMatchObject({ hold: { sectionId: heading } });
+    const held = await t.db.select({ sectionId: productSectionHolds.sectionId }).from(productSectionHolds).where(and(eq(productSectionHolds.pageId, p.id), eq(productSectionHolds.userId, editor.id)));
+    expect(held.map((h) => h.sectionId)).toEqual([heading]);
+  });
+
+  it("review di F4 (M4): due schede della stessa persona: quella che non scrive non lascia la presa dell'altra", async () => {
+    const p = await page();
+    await inject(editor, "POST", `/api/product-pages/${p.id}/live/presence`, { sessionId: "scheda-1", sectionId: "top" });
+    await inject(editor, "POST", `/api/product-pages/${p.id}/live/presence`, { sessionId: "scheda-2", sectionId: null });
+    const held = await t.db.select().from(productSectionHolds).where(eq(productSectionHolds.pageId, p.id));
+    expect(held.map((h) => [h.sectionId, h.userId])).toEqual([["top", editor.id]]);
+  });
+
+  it("review di F4 (M5): chi perde `docs.view` esce dalla presenza al giro, senza aspettare la scadenza", async () => {
+    const p = await page();
+    const d = await createUserWithSession(app, `d-live-${randomUUID().slice(0, 6)}@example.com`);
+    await addMember(app, projectId, d.id, "viewer");
+    await inject(d, "POST", `/api/product-pages/${p.id}/live/presence`, {});
+    const b = await stream(editor, p.id);
+    expect(await b.wait((f) => f.type === "state")).toMatchObject({ presence: [{ userId: d.id }] });
+    const [blind] = await t.db.insert(roles).values({ name: `Cieco ${randomUUID().slice(0, 4)}`, scope: "project", permissions: ["tickets.view_all"] }).returning({ id: roles.id });
+    await t.db.update(projectMembers).set({ roleId: blind!.id }).where(and(eq(projectMembers.userId, d.id), eq(projectMembers.projectId, projectId)));
+    // Prima della scadenza (1,5 s): il giro (200 ms) la toglie.
+    expect(await b.wait((f) => f.type === "presence" && f.presence.every((x) => x.userId !== d.id), 1200)).toBeDefined();
+    b.close();
   });
 });
