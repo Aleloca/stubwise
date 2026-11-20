@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect } from "react";
 import * as api from "@backend/api";
+import { PRODUCT_IMAGE_REF_PREFIX } from "@stubwise/shared";
 import { featureIntegrated } from "../integration";
 import { PROJECT_AREAS, useInvalidate, useSessionPersonId, useWrite } from "../queries";
 import { useInstanceChanges } from "./instance";
@@ -32,6 +33,25 @@ const docsModuleAreas = (): readonly string[] => [
   "search",
 ];
 
+/**
+ * Le fette dell'integrazione dopo F1 (area 11): nella build app ogni pezzo
+ * legge e ascolta solo con la sua funzione accesa (R11-1). I commenti e le
+ * menzioni con F2, la ricerca e l'esportazione con F3, la presenza e la
+ * scrittura dal vivo con F4, Claude (segni, domande, prima versione, dalla
+ * doc al backlog, bozze di schermata) con F5–F6. Nel prototipo è tutto acceso.
+ */
+export const PRODUCT_LATER = {
+  comments: "product-comments",
+  search: "product-search",
+  export: "product-export",
+  live: "product-live",
+  claude: "product-docs",
+} as const;
+
+/** Una fetta dopo F1 è accesa? (vedi `PRODUCT_LATER`). */
+export const productLaterOn = (slice: keyof typeof PRODUCT_LATER): boolean =>
+  featureIntegrated(PRODUCT_LATER[slice]);
+
 /** Lo spazio Prodotto di un progetto; `null` dove non esiste per chi guarda. */
 export function useProductSpace(projectId: string, { enabled = true }: { enabled?: boolean } = {}) {
   const me = useSessionPersonId();
@@ -49,7 +69,7 @@ export function useProductSearch(q: string, projectId: string | null, enabled = 
     queryKey: ["as", me, "productDocs", "search", q, projectId] as const,
     queryFn: () => api.productDocs.searchProductPages(q, projectId ? { projectId } : {}),
     // Solo dove la doc di prodotto è integrata (area 11; review area 8 F1, m5).
-    enabled: enabled && q.trim().length > 0 && featureIntegrated("product-docs"),
+    enabled: enabled && q.trim().length > 0 && productLaterOn("search"),
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
   });
@@ -83,6 +103,32 @@ export function useReadProductExport() {
       }),
     [client, me],
   );
+}
+
+/**
+ * Il `src` di un blocco immagine da salvare: nel prototipo il `data:` URL
+ * letto, nella build app il riferimento del file caricato (R11-1).
+ */
+export function useStoreProductImage() {
+  return useCallback(
+    (pageId: string, file: File, src: string) => api.productDocs.storeProductImage(pageId, file, src),
+    [],
+  );
+}
+
+/**
+ * Un'immagine del server (`product-image:<id>`) da mostrare, come data URL;
+ * `null` se non si apre. Un `data:` URL del prototipo non si legge: si
+ * mostra così com'è. L'immagine di un id non cambia: la lettura resta.
+ */
+export function useProductImageSrc(pageId: string, src: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "productDocs", "image", pageId, src] as const,
+    queryFn: () => api.productDocs.productImageSrc(pageId, src),
+    enabled: src.startsWith(PRODUCT_IMAGE_REF_PREFIX),
+    staleTime: Infinity,
+  });
 }
 
 /** La cronologia di una pagina, dalla più recente. */
@@ -178,7 +224,7 @@ export function useProductComments(pageId: string, { enabled = true }: { enabled
   return useQuery({
     queryKey: ["as", me, "productDocs", "comments", pageId] as const,
     queryFn: () => api.productDocs.listProductComments(pageId),
-    enabled,
+    enabled: enabled && productLaterOn("comments"),
   });
 }
 
@@ -217,6 +263,7 @@ export function useProductMentionCandidates(projectId: string, q: string) {
   return useQuery({
     queryKey: ["as", me, "productDocs", "mentionCandidates", projectId, q] as const,
     queryFn: () => api.productDocs.productMentionCandidates(projectId, q),
+    enabled: productLaterOn("comments"),
   });
 }
 
@@ -233,7 +280,9 @@ export function useProductMentionCandidates(projectId: string, q: string) {
 export function useProductPageEvents(pageId: string) {
   const me = useSessionPersonId();
   const client = useQueryClient();
+  const live = productLaterOn("live");
   useEffect(() => {
+    if (!live) return;
     const area = ["as", me, "productDocs"] as const;
     return api.productDocs.subscribeProductPage(pageId, (event) => {
       if (event === "presence") {
@@ -249,7 +298,7 @@ export function useProductPageEvents(pageId: string) {
       void client.invalidateQueries({ queryKey: [...area, "revisions", pageId] });
       void client.invalidateQueries({ queryKey: [...area, "marks", pageId] });
     });
-  }, [client, me, pageId]);
+  }, [client, live, me, pageId]);
 }
 
 /** Gli altri presenti nella pagina (non chi guarda); dal vivo con `useProductPageEvents` montato. */
@@ -258,7 +307,7 @@ export function useProductPresence(pageId: string, { enabled = true }: { enabled
   return useQuery({
     queryKey: ["as", me, "productDocs", "presence", pageId] as const,
     queryFn: () => api.productDocs.getProductPresence(pageId),
-    enabled,
+    enabled: enabled && productLaterOn("live"),
   });
 }
 
@@ -271,8 +320,9 @@ export function useProductPresence(pageId: string, { enabled = true }: { enabled
  */
 export function useJoinProductPage(pageId: string | null) {
   const me = useSessionPersonId();
+  const live = productLaterOn("live");
   useEffect(() => {
-    if (!pageId) return;
+    if (!pageId || !live) return;
     let left = false;
     api.productDocs.joinProductPage(pageId).then(
       () => {
@@ -285,7 +335,7 @@ export function useJoinProductPage(pageId: string | null) {
       left = true;
       api.productDocs.leaveProductPageAs(me, pageId);
     };
-  }, [me, pageId]);
+  }, [live, me, pageId]);
 }
 
 /**
@@ -315,6 +365,7 @@ export function useProductUpdatesWaiting(projectId: string) {
   return useQuery({
     queryKey: ["as", me, "instance", "product-updates-waiting", projectId] as const,
     queryFn: () => api.productDocs.productUpdatesWaiting(projectId),
+    enabled: productLaterOn("claude"),
   });
 }
 
@@ -326,7 +377,7 @@ export function useProductMarks(pageId: string, { enabled = true }: { enabled?: 
   return useQuery({
     queryKey: ["as", me, "productDocs", "marks", pageId] as const,
     queryFn: () => api.productDocs.listProductMarks(pageId),
-    enabled,
+    enabled: enabled && productLaterOn("claude"),
   });
 }
 
@@ -367,7 +418,7 @@ export function useFirstVersionSources(projectId: string, { enabled = true }: { 
   return useQuery({
     queryKey: ["as", me, "productDocs", "firstVersionSources", projectId] as const,
     queryFn: () => api.productDocs.listFirstVersionSources(projectId),
-    enabled,
+    enabled: enabled && productLaterOn("claude"),
   });
 }
 
@@ -379,18 +430,21 @@ export function useFirstVersionSources(projectId: string, { enabled = true }: { 
 export function useProductFirstVersion(projectId: string, { enabled = true }: { enabled?: boolean } = {}) {
   const me = useSessionPersonId();
   const client = useQueryClient();
+  const on = productLaterOn("claude");
   useEffect(
     () =>
-      api.productDocs.onProductFirstVersion((changed) => {
-        if (changed === projectId)
-          void client.invalidateQueries({ queryKey: ["as", me, "productDocs"] });
-      }),
-    [client, me, projectId],
+      on
+        ? api.productDocs.onProductFirstVersion((changed) => {
+            if (changed === projectId)
+              void client.invalidateQueries({ queryKey: ["as", me, "productDocs"] });
+          })
+        : undefined,
+    [client, me, on, projectId],
   );
   return useQuery({
     queryKey: ["as", me, "productDocs", "firstVersion", projectId] as const,
     queryFn: () => api.productDocs.getProductFirstVersion(projectId),
-    enabled,
+    enabled: enabled && on,
   });
 }
 
@@ -399,17 +453,20 @@ export function useOpenProductQuestions(projectId: string, { enabled = true }: {
   const me = useSessionPersonId();
   const client = useQueryClient();
   const queryKey = ["as", me, "productDocs", "openQuestions", projectId] as const;
+  const on = productLaterOn("claude");
   useEffect(
     () =>
-      api.productDocs.onProductQuestionsChanged(() => {
-        void client.invalidateQueries({ queryKey: ["as", me, "productDocs", "openQuestions"] });
-      }),
-    [client, me],
+      on
+        ? api.productDocs.onProductQuestionsChanged(() => {
+            void client.invalidateQueries({ queryKey: ["as", me, "productDocs", "openQuestions"] });
+          })
+        : undefined,
+    [client, me, on],
   );
   return useQuery({
     queryKey,
     queryFn: () => api.productDocs.listOpenProductQuestions(projectId),
-    enabled,
+    enabled: enabled && on,
   });
 }
 
@@ -467,7 +524,9 @@ export function useProductRequestsPreparing(pageId: string, { enabled = true }: 
   const me = useSessionPersonId();
   const client = useQueryClient();
   const queryKey = ["as", me, "productDocs", "requestsPreparing", pageId] as const;
+  const on = productLaterOn("claude");
   useEffect(() => {
+    if (!on) return;
     const again = () => void client.invalidateQueries({ queryKey: ["as", me, "productDocs", "requestsPreparing"] });
     const offConversation = api.onConversationChange(again);
     const offQuestions = api.productDocs.onProductQuestionsChanged(again);
@@ -475,11 +534,11 @@ export function useProductRequestsPreparing(pageId: string, { enabled = true }: 
       offConversation();
       offQuestions();
     };
-  }, [client, me]);
+  }, [client, me, on]);
   return useQuery({
     queryKey,
     queryFn: () => api.productDocs.listProductRequestsPreparing(pageId),
-    enabled,
+    enabled: enabled && on,
   });
 }
 
@@ -501,7 +560,7 @@ export function useBacklogProposal(
   return useQuery({
     queryKey: ["as", me, "requests", "productBacklogProposal", pageId, fromAnchorId] as const,
     queryFn: () => api.productDocs.proposeBacklogFromPage(pageId, fromAnchorId ?? undefined),
-    enabled,
+    enabled: enabled && productLaterOn("claude"),
     refetchOnMount: "always",
   });
 }
@@ -512,7 +571,7 @@ export function useProductLinkedRequests(pageId: string, { enabled = true }: { e
   return useQuery({
     queryKey: ["as", me, "requests", "productLinked", pageId] as const,
     queryFn: () => api.productDocs.listProductLinkedRequests(pageId),
-    enabled,
+    enabled: enabled && productLaterOn("claude"),
   });
 }
 

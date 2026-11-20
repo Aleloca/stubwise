@@ -110,6 +110,19 @@ beforeEach(() => {
  * altra chiamata, nella build app vera, sarebbe uno stub «non integrato».
  */
 const INTEGRATED_CALLS = new Set([
+  // Area 11, F1 (R11-1): lo spazio Product, la pagina, la scrittura, la cronologia, Segui.
+  "productDocs.getProductSpace",
+  "productDocs.getProductPage",
+  "productDocs.createProductPage",
+  "productDocs.renameProductPage",
+  "productDocs.moveProductPage",
+  "productDocs.deleteProductPage",
+  "productDocs.saveProductBlocks",
+  "productDocs.listProductRevisions",
+  "productDocs.followProductPage",
+  "productDocs.unfollowProductPage",
+  "productDocs.storeProductImage",
+  "productDocs.productImageSrc",
   // Area 10, F7: la riga «Claude can help you…» e il suo «Not now», dal server.
   "suggestionKeyOf",
   "getClaudeSuggestion",
@@ -563,6 +576,8 @@ const INTEGRATED_CALLS = new Set([
   "automations.whenAutomationsIdle",
   // Area 5: la ricerca nei Docs del progetto (`data/backend/real/docs.ts`), che la palette usa.
   "docs.searchDocs",
+  // Area 5: gli spazi dei Docs del progetto, che il cassetto dello spazio Product elenca.
+  "docs.listDocSpaces",
   // Area 8, F1 (`releases-prs`): le PR aperte, la coda e le loro scritture
   // (`data/backend/real/releasesLive.ts`).
   "releases.listOpenPrs",
@@ -806,18 +821,29 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  // Area 11, D-7 = a: lo spazio della doc di prodotto non ha ancora il server.
-  it("lo spazio Product (/p/X/docs/product) mostra «Coming soon» e non legge la doc di prodotto", async () => {
+  // Area 11, F1 (R11-1): lo spazio Product c'è; commenti, ricerca ed
+  // esportazione, dal vivo e Claude (F2–F6) restano fuori e non si leggono.
+  it("lo spazio Product (/p/X/docs/product) e una sua pagina si aprono e leggono solo le chiamate di F1", async () => {
+    // Marco legge i Docs di ACQ (la persona di partenza, Giulia, non è nel progetto).
+    signedInAs("p-marco");
     renderRoute("/p/ACQ/docs/product");
-    expect(await screen.findByText("Coming soon")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Product" })).toBeInTheDocument();
     await settle();
-    expect(calls.some((c) => c.startsWith("productDocs."))).toBe(false);
+    // La ricerca «In Product» e l'esportazione arrivano con F3.
+    expect(screen.queryByRole("button", { name: /^Search\s*⌘K$/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Export/ })).toBeNull();
+    expect(screen.queryByText("Coming soon")).toBeNull();
     expect(outside()).toEqual([]);
     cleanup();
     renderRoute("/p/ACQ/docs/product/ACQ-D5");
-    expect(await screen.findByText("Coming soon")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Sign-in" })).toBeInTheDocument();
     await settle();
-    expect(calls.some((c) => c.startsWith("productDocs."))).toBe(false);
+    // Commenti ed esportazione (F2, F3) non sono nella barra; Segui e la cronologia sì.
+    expect(screen.queryByRole("button", { name: /^Comments/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Export/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "History" })).toBeInTheDocument();
+    expect(screen.queryByText("Coming soon")).toBeNull();
+    expect(outside()).toEqual([]);
   });
 
   it("una pagina di progetto non integrata mostra «Coming soon»", async () => {

@@ -1,6 +1,8 @@
 import type {
   Attribution,
   MandatoryReason as SharedMandatoryReason,
+  ProductPageRef as SharedProductPageRef,
+  ProductTreeNode as SharedProductTreeNode,
   ServerPlan,
   StallReason,
   TicketPriority,
@@ -3826,17 +3828,11 @@ export interface ProductBlockChange {
 }
 
 /** Una pagina di prodotto vista da fuori: albero, recenti, briciole (Task 2 la legge). */
-export interface ProductPageRef {
-  id: string;
-  code: string;
-  projectId: string;
-  parentId: string | null;
-  order: number;
-  title: string;
-  excerpt: string;
-  updatedAt: string;
-  updatedById: string;
-}
+/**
+ * Dall'integrazione dell'area 11 (F1) la forma è quella del server
+ * (`@stubwise/shared`): `updatedById` è null per chi non c'è più.
+ */
+export type ProductPageRef = SharedProductPageRef;
 
 /** Un risultato della ricerca nelle pagine di prodotto (⌘K): come `DocSearchHit`, senza repository. */
 export interface ProductSearchHit {
@@ -3846,10 +3842,7 @@ export interface ProductSearchHit {
   passage: string;
 }
 
-export interface ProductTreeNode {
-  page: ProductPageRef;
-  children: ProductTreeNode[];
-}
+export type ProductTreeNode = SharedProductTreeNode;
 
 /**
  * Una pagina dello spazio Prodotto (area 11a). Il codice è della serie dei

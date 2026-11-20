@@ -1418,6 +1418,31 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   concetto `addressed`). I due motivi stanno nel prototipo finché F2 di 72
   non li porta nel catalogo condiviso. F6-1 = a: «Write the first version» e
   «Draw this screen» sono B col motivo `startsWork`.
+- *Renderer di F1, R11-1 (94, 20 nov 2026)*: lo spazio (`product-space`) e
+  la card Product della Home dei Docs sono accesi. Le fette dopo leggono
+  solo con la loro funzione (`PRODUCT_LATER` in `data/queries/productDocs.ts`):
+  `product-comments` (F2: fili, segni, «Comment», «@»), `product-search` e
+  `product-export` (F3: «Search ⌘K» e Export, nella barra e nel «⋯»),
+  `product-live` (F4: presenza, ingresso, l'iscrizione alla pagina),
+  `product-docs` (F5–F6: segni e domande di Claude, prima versione, attese,
+  dalla doc al backlog, «Screen sketch», le voci di Claude del «⋯» e del
+  titolo). Restano da fare dopo:
+  - **«Replace with an image» della bozza di schermata** *(S, F6)*: manda
+    ancora il `data:` URL del prototipo (`replaceWireframeWithImage`);
+    quando F6 la porta sul server va fatta passare da `storeProductImage`
+    come gli altri blocchi immagine.
+  - **L'immagine apre un URL firmato con un 302** *(S, da verificare con
+    72)*: il renderer la legge con `authedDataUrl` (token dal main sul
+    desktop, `fetch` col cookie sul web). Sul web una `fetch` che segue un
+    302 verso un'altra origine (lo storage) vuole il CORS dello storage;
+    sul desktop la segue il main. Da provare sull'istanza vera.
+  - **La cronologia si legge intera** *(S)*: a pagine di 100 lette tutte
+    (tetto 50 pagine, 5000 revisioni), perché il pannello del prototipo
+    vuole l'elenco intero; un «Load older» arriva se una pagina vera lo
+    chiede.
+  - **La card Product sulla Home dei Docs nasconde un errore del server**
+    *(XS)*: un errore che non sia 403/404 la toglie senza dirlo, come le
+    decisioni recenti della stessa Home.
 
 ## Trasversali
 

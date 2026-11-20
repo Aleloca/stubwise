@@ -221,6 +221,8 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "claude-chat",
     // Area 10, F7: la riga «Claude can help you…» e il suo «Not now», decisi dal server.
     "claude-suggestions",
+    // Area 11, F1 (R11-1): lo spazio Product, l'editor, la cronologia e Segui.
+    "product-space",
     // Fetta 3.0 della chat: «Elimina task», a mano dal menu «⋯» della task.
     "task-delete",
     // Fetta 2 della chat, il riquadro (⌘J, ⌘K «Ask Claude…») col chip del contesto.
@@ -390,7 +392,7 @@ export function integrationTargetOf(
       return { target: { kind: "projectSettings", name }, titleKey: `settings.sections.${name}` };
     }
     // Area 11 (D-7 = a): lo spazio della doc di prodotto sta nella sezione Docs,
-    // accesa, ma il server non lo ha ancora: la sua funzione, spenta.
+    // con la sua funzione (`product-space`, accesa con F1).
     if (third === "docs" && parts[3] === "product")
       return { target: { kind: "feature", name: "product-space" }, titleKey: "productDocs.space.title" };
     return { target: { kind: "projectSection", name: third }, titleKey: `project.sections.${third}` };

@@ -11,6 +11,7 @@ export {
   readableProductPages,
 } from "./reads";
 export { searchProductPages } from "./search";
+export { productImageSrc, storeProductImage } from "./images";
 export {
   createProductPage,
   createProductPageAs,

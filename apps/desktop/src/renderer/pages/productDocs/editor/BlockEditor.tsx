@@ -22,7 +22,13 @@ import {
   type Ref,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { useAiBlock, useDrawWireframe, useReplaceWireframeWithImage } from "../../../data/queries";
+import {
+  productLaterOn,
+  useAiBlock,
+  useDrawWireframe,
+  useReplaceWireframeWithImage,
+  useStoreProductImage,
+} from "../../../data/queries";
 import type { ProductBlock, ProductBlockOp, ProductPageView, ProductPresenceView } from "../../../data/types";
 import { useToast } from "../../../tasks-ui/Toast";
 import { anchorIdsOf, anchorText, isTextBlock, makeBlockId } from "../../../domain/productDocs/blocks";
@@ -40,7 +46,7 @@ import { BlockShell } from "./BlockShell";
 import { DecisionPicker } from "./DecisionPicker";
 import { DrivePicker } from "./DrivePicker";
 import { ImageRefusalRow } from "./ImageBlock";
-import { PRODUCT_IMAGE_TYPES, filesOf, readImageFile, type ImageRefusal } from "./images";
+import { PRODUCT_IMAGE_TYPES, filesOf, readImageFile, uploadRefusalOf, type ImageRefusal } from "./images";
 import { LinkPicker } from "./LinkPicker";
 import { makeGestures, type Focus, type Slash } from "./gestures";
 import { RichBlockEdit, RichBlockRead } from "./RichBlock";
@@ -182,6 +188,7 @@ function WritableBody({
   budgetOutRef.current = budgetOut;
   /** «Comment» (Task 10): solo per chi può commentare. */
   const comment = useCommentGesture();
+  const storeImage = useStoreProductImage();
   /** Un selettore aperto al blocco `id`; `at` è il cursore a cui torna il fuoco. */
   const [picker, setPickerState] = useState<{ kind: PickerKind; id: string; at: number } | null>(null);
   const pickerRef = useRef(picker);
@@ -511,7 +518,19 @@ function WritableBody({
    */
   const addImages = (files: File[], at: { afterId: string } | { replaceId: string }) => {
     if (files.length === 0) return;
-    void Promise.all(files.map(readImageFile)).then((results) => {
+    // Letta e controllata, l'immagine si salva (nella build app: si carica sul
+    // server e il blocco porta il riferimento); un caricamento rifiutato è un
+    // rifiuto come gli altri.
+    const stored = async (file: File) => {
+      const r = await readImageFile(file);
+      if (!r.ok) return r;
+      try {
+        return { ...r, src: await storeImage(page.id, file, r.src) };
+      } catch (error) {
+        return { ok: false as const, reason: uploadRefusalOf(error) };
+      }
+    };
+    void Promise.all(files.map(stored)).then((results) => {
       const anchorId = "afterId" in at ? at.afterId : at.replaceId;
       const refused = results.find((r) => !r.ok);
       setRefusal(refused && !refused.ok ? { anchorId, reason: refused.reason, n: Date.now() } : null);
@@ -906,7 +925,7 @@ function WritableBody({
                         }
                         onClaudeChange={marks?.byBlock.has(block.id) ? () => marks.setOpen(block.id) : undefined}
                         claudeItem={
-                          block.type === "heading"
+                          block.type === "heading" && productLaterOn("claude")
                             ? (close) => (
                                 <SectionProposeItem
                                   page={page}
