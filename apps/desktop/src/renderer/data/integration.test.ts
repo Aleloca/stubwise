@@ -246,6 +246,8 @@ describe("isIntegrated", () => {
         "feature:claude-public",
         // Area 10, F7: «Claude can help you…».
         "feature:claude-suggestions",
+        // Area 11, F1: lo spazio Product.
+        "feature:product-space",
         // Fetta 3.0 della chat: «Elimina task».
         "feature:task-delete",
         // Area 4, fetta 1: la Chat fra persone (le fette dopo restano spente).

@@ -430,6 +430,8 @@ export type ApiFnName =
   | "productDocs.deleteProductPage"
   | "productDocs.saveProductBlocks"
   | "productDocs.followProductPage"
+  | "productDocs.storeProductImage"
+  | "productDocs.productImageSrc"
   | "productDocs.unfollowProductPage"
   | "productDocs.listProductComments"
   | "productDocs.addProductComment"

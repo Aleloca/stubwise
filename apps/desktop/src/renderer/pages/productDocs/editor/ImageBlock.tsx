@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { useProductImageSrc } from "../../../data/queries";
 import type { ProductBlock } from "../../../data/types";
 import { WarningGlyph } from "../../drive/glyphs";
 import type { ImageRefusal } from "./images";
@@ -9,7 +10,8 @@ import type { ImageRefusal } from "./images";
 // sotto la didascalia 13/18 `ink-muted`. Chi scrive ha un campo senza bordo
 // («Add a caption») che salva all'uscita; per chi legge una didascalia vuota
 // non occupa spazio. Solo `data:image/…`: un indirizzo d'altro tipo non si
-// carica mai (§9).
+// carica mai (§9). Nella build app il blocco porta `product-image:<id>`, che
+// il livello dati apre dalla rotta dell'immagine come data URL (R11-1).
 
 type Image = Extract<ProductBlock, { type: "image" }>;
 
@@ -22,22 +24,26 @@ export const selectOnMouseDown = (onSelect?: () => void) => (e: MouseEvent) => {
 
 export function ImageBlock({
   block,
+  pageId,
   onCaption,
   onSelect,
 }: {
   block: Image;
+  /** La pagina del blocco: un'immagine del server si apre coi suoi permessi. */
+  pageId: string;
   /** Chi scrive: la didascalia nuova, all'uscita dal campo. */
   onCaption?: (caption: string) => void;
   onSelect?: () => void;
 }) {
   const { t } = useTranslation();
-  const safe = block.src.startsWith("data:image/");
+  const remote = useProductImageSrc(pageId, block.src).data ?? null;
+  const src = block.src.startsWith("data:image/") ? block.src : remote;
   return (
     <figure className="flex flex-col gap-1.5">
       <div onMouseDown={selectOnMouseDown(onSelect)}>
-        {safe ? (
+        {src ? (
           <img
-            src={block.src}
+            src={src}
             alt={block.alt}
             draggable={false}
             className="max-h-[480px] max-w-full rounded-md border border-rule object-contain"

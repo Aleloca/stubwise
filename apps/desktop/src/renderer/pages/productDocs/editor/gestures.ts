@@ -8,6 +8,7 @@ import {
   type SlashItem,
   type SlashItemId,
 } from "../../../domain/productDocs/shortcuts";
+import { productLaterOn } from "../../../data/queries";
 import type { TextBlock } from "./BlockBody";
 import { cloneWithIds, emptyParagraph, emptyTable, insertRich, typed } from "./blockOps";
 import { pastedImages } from "./images";
@@ -211,7 +212,11 @@ export function makeGestures(ctx: GestureContext) {
     const text = block && isTextBlock(block) ? block.content.text : "";
     return s.viaPlus ? text : text.slice(1);
   };
-  const slashItems = (s: Slash | null): SlashItem[] => filterSlashItems(slashQuery(s), (key) => t(key));
+  // «Screen sketch» è di Claude (F6): nella build app arriva con `product-docs` (R11-1).
+  const slashItems = (s: Slash | null): SlashItem[] =>
+    filterSlashItems(slashQuery(s), (key) => t(key)).filter(
+      (item) => item.id !== "wireframe" || productLaterOn("claude"),
+    );
 
   const pickSlash = (item: SlashItem) => {
     const s = slashRef.current;

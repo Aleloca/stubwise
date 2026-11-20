@@ -177,6 +177,16 @@ describe("immagini ([PE 9])", () => {
     expect(document.activeElement?.closest("[data-editor-body]")).not.toBeNull();
   });
 
+  it("un salvataggio dell'immagine non riuscito (nella build app il caricamento): «Couldn't upload the image», nessun blocco", async () => {
+    await open("Screens");
+    const el = await enter(SCREENS_INTRO, 5);
+    failNext("productDocs.storeProductImage");
+    pasteFiles(el, [png()]);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Couldn't upload the image. Try again.");
+    expect(saves).not.toHaveBeenCalled();
+  });
+
   it("il rifiuto in italiano, composto in lettura: «Questa immagine supera i 5 MB»; un PDF: «Solo immagini PNG, JPEG, GIF e WebP»", async () => {
     await open("Screens");
     const el = await enter(SCREENS_INTRO, 5);

@@ -13043,6 +13043,7 @@
         "drop": "Drop to add the image",
         "too_large": "This image is larger than 5 MB",
         "unsupported": "Only PNG, JPEG, GIF and WebP images",
+        "failed": "Couldn't upload the image. Try again.",
         "dismiss": "Dismiss",
         "choose": "Choose an image"
       },
@@ -13251,6 +13252,7 @@
       "undonePart": "{{done}} of {{count}} undone · {{name}}",
       "undonePartNobody": "{{done}} of {{count}} undone",
       "undoneAnchor": "Undone",
+      "someone": "Someone",
       "answerFrom": "{{name}}, from Claude's question",
       "seeQuestion": "See the question",
       "firstVersion": "Wrote the first version",

@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { flushSync } from "react-dom";
 import {
+  productLaterOn,
   useProject,
   useProductComments,
   useProductMarks,
@@ -206,7 +207,8 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
   }, [side.raised, docked, search.task, navigate, toast, t]);
   const comments = useProductComments(view?.id ?? "", { enabled: view !== null });
   const bridge = ((): CommentsBridge | null => {
-    if (!view) return null;
+    // I commenti arrivano con F2: spenti, la pagina non ha né segni né «Comment» (R11-1).
+    if (!view || !productLaterOn("comments")) return null;
     const open = comments.data?.open ?? [];
     const counts = new Map<string, number>();
     for (const th of open) if (!th.anchorGone) counts.set(th.root.anchorId, (counts.get(th.root.anchorId) ?? 0) + 1);
@@ -589,6 +591,8 @@ function SpaceBar({
   pageCount: number;
 }) {
   const { t, i18n } = useTranslation();
+  const commentsOn = productLaterOn("comments");
+  const exportOn = productLaterOn("export");
   // La stessa lettura della pagina aperta (la cache la condivide con la vista).
   const page = useProductPage(pageCode ?? "", { enabled: pageCode !== null });
   const view = pageCode && page.data && inSpace(page.data, project) ? page.data : null;
@@ -651,8 +655,12 @@ function SpaceBar({
     return () => observer.disconnect();
   }, [measureBar, hasView]);
 
-  const hidden = view ? (fit?.hidden ?? []) : [];
-  const shows = (id: OptionalPageItem) => !hidden.includes(id);
+  // Nella build app commenti ed esportazione arrivano con F2 e F3: spenti,
+  // non sono nella barra né nel «⋯» (R11-1).
+  const sliceOn = (id: OptionalPageItem) =>
+    id === "comments" ? commentsOn : id === "export" ? exportOn : true;
+  const hidden = view ? (fit?.hidden ?? []).filter(sliceOn) : [];
+  const shows = (id: OptionalPageItem) => sliceOn(id) && !hidden.includes(id);
   const compact = fit ? fit.compact : !docked;
   const separator = <span className="px-0.5">›</span>;
 
@@ -692,19 +700,23 @@ function SpaceBar({
               {separator}
               <span className="px-1">{view.title}</span>
             </span>
-            <span data-bar="comments" className={pageBarButton}>
-              <CommentGlyph />
-              {t("productDocs.space.comments")}
-              {view.openComments > 0 && <span className="num">{view.openComments}</span>}
-            </span>
+            {commentsOn && (
+              <span data-bar="comments" className={pageBarButton}>
+                <CommentGlyph />
+                {t("productDocs.space.comments")}
+                {view.openComments > 0 && <span className="num">{view.openComments}</span>}
+              </span>
+            )}
             <span data-bar="history" className={pageBarButton}>
               <HistoryGlyph />
               {t("productDocs.space.history")}
             </span>
-            <span data-bar="export" className={pageBarButton}>
-              {t("productDocs.export.button")}
-              <Chevron />
-            </span>
+            {exportOn && (
+              <span data-bar="export" className={pageBarButton}>
+                {t("productDocs.export.button")}
+                <Chevron />
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -732,7 +744,7 @@ function SpaceBar({
       </Link>
       {view && <Breadcrumbs project={project} page={view} compact={compact} />}
       <span ref={keep} className="ml-auto flex shrink-0 items-center gap-1">
-        {pageCode === null && (
+        {pageCode === null && productLaterOn("search") && (
           <button
             type="button"
             onClick={() => openPalette("open")}
@@ -743,7 +755,7 @@ function SpaceBar({
             <kbd className="num ml-1.5 font-sans text-xs text-ink-faint">⌘K</kbd>
           </button>
         )}
-        {pageCode === null && pageCount > 0 && <ExportMenu project={project} page={null} pageCount={pageCount} />}
+        {pageCode === null && pageCount > 0 && exportOn && <ExportMenu project={project} page={null} pageCount={pageCount} />}
         {view && editorStatus && (
           <span data-bar-keep="" className="flex shrink-0">
             <SaveStatus status={editorStatus} />
@@ -1005,7 +1017,7 @@ function PageMenu({
               </div>
             )}
             {/* I gesti di Claude (11b, [PB 2]): per chi scrive, prima di Copy link. */}
-            {page.permissions.edit && (
+            {page.permissions.edit && productLaterOn("claude") && (
               <PageClaudeGroup page={page} close={() => close(true)} onDraw={() => editor?.current?.drawScreen()} />
             )}
             <MenuGroup>

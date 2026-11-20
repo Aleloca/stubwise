@@ -32,6 +32,7 @@ import { rememberDocCitation } from "./chat";
 import { appClient } from "./client";
 import { partialNamespace } from "./notIntegrated";
 import { listDecisionLog } from "./overview";
+import { productHomeOf } from "./productDocs";
 import { listProjects } from "./projects";
 
 // I Docs nella build app (integrazione area 5, fetta 1): le rotte di oggi dei
@@ -591,8 +592,8 @@ const getProjectDocsHome: Docs["getProjectDocsHome"] = async (projectId) => {
       .slice(0, 5),
     chatAvailable: true,
     chatSuggestions: chatSuggestions(views.flatMap((s) => s.chatSuggestions)),
-    // Lo spazio Prodotto è dell'area 11a, non integrata.
-    product: null,
+    // Lo spazio Prodotto (area 11, F1): la card dallo spazio, se chi guarda lo legge.
+    product: await productHomeOf(projectId),
   };
   return home;
 };

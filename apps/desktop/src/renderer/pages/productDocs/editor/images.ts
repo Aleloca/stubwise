@@ -7,7 +7,19 @@
 export const PRODUCT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 export const PRODUCT_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
 
-export type ImageRefusal = "too_large" | "unsupported";
+export type ImageRefusal = "too_large" | "unsupported" | "failed";
+
+/**
+ * Il rifiuto di un salvataggio dell'immagine (nella build app il caricamento
+ * sul server, R11-1): troppo grande, non un'immagine, o non riuscito (rete,
+ * server) — quest'ultimo si riprova rifacendo il gesto.
+ */
+export function uploadRefusalOf(error: unknown): ImageRefusal {
+  const message = error instanceof Error ? error.message : "";
+  if (message === "invalid: file_too_large") return "too_large";
+  if (message === "invalid: invalid_image") return "unsupported";
+  return "failed";
+}
 
 const isImageType = (type: string): boolean => (PRODUCT_IMAGE_TYPES as readonly string[]).includes(type);
 

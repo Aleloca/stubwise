@@ -13043,6 +13043,7 @@
         "drop": "Rilascia per aggiungere l'immagine",
         "too_large": "Questa immagine supera i 5 MB",
         "unsupported": "Solo immagini PNG, JPEG, GIF e WebP",
+        "failed": "Non è stato possibile caricare l'immagine. Riprova.",
         "dismiss": "Chiudi",
         "choose": "Scegli un'immagine"
       },
@@ -13251,6 +13252,7 @@
       "undonePart": "{{done}} di {{count}} annullate · {{name}}",
       "undonePartNobody": "{{done}} di {{count}} annullate",
       "undoneAnchor": "Annullata",
+      "someone": "Qualcuno",
       "answerFrom": "{{name}}, dalla domanda di Claude",
       "seeQuestion": "Vedi la domanda",
       "firstVersion": "Ha scritto la prima versione",
