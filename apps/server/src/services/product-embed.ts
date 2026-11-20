@@ -33,11 +33,18 @@ const readBlocks = (raw: unknown): ProductBlock[] =>
     return parsed.success ? [parsed.data as ProductBlock] : [];
   });
 
-/** Le pagine da rifare: mai fatte o cambiate dopo, e ferme da `quietSeconds`. */
+/**
+ * Le pagine da rifare: mai fatte o cambiate dopo, e ferme da `quietSeconds`.
+ * `version` è `updated_at` come TESTO del database (review di F3, I1): un `Date`
+ * di JavaScript perde i microsecondi che `defaultNow()` scrive, e un confronto
+ * o una scrittura col valore troncato lascerebbe `embedded_at < updated_at` per
+ * sempre (la pagina rifatta a ogni giro, e le nuove mai). Confronti e scritture
+ * di questa versione stanno in SQL.
+ */
 export async function staleProductPages(db: Db, opts: { now?: Date; quietSeconds?: number; limit?: number } = {}) {
   const quietBefore = new Date((opts.now ?? new Date()).getTime() - (opts.quietSeconds ?? PRODUCT_EMBED_QUIET_SECONDS) * 1000);
   return db
-    .select({ id: productPages.id, projectId: productPages.projectId, title: productPages.title, blocks: productPages.blocks, updatedAt: productPages.updatedAt })
+    .select({ id: productPages.id, projectId: productPages.projectId, title: productPages.title, blocks: productPages.blocks, version: sql<string>`${productPages.updatedAt}::text` })
     .from(productPages)
     .where(and(or(isNull(productPages.embeddedAt), lt(productPages.embeddedAt, productPages.updatedAt)), lt(productPages.updatedAt, quietBefore)))
     .orderBy(asc(productPages.updatedAt))
@@ -46,17 +53,39 @@ export async function staleProductPages(db: Db, opts: { now?: Date; quietSeconds
 
 type StalePage = Awaited<ReturnType<typeof staleProductPages>>[number];
 
-/** I chunk di UNA pagina, per la versione letta. `false` = l'embedder non ha risposto. */
-export async function embedProductPage(db: Db, embeddingClient: EmbeddingClient, page: StalePage, log: Log): Promise<boolean> {
+/** L'esito di una pagina: fatta, embedder giù (il giro si ferma), o pagina rimandata (il giro va avanti). */
+export type EmbedOutcome = "done" | "embedder_down" | "deferred";
+
+const EMBEDDING_DIMENSIONS = 1024;
+
+/** I chunk di UNA pagina, per la versione letta. */
+export async function embedProductPage(db: Db, embeddingClient: EmbeddingClient, page: StalePage, log: Log): Promise<EmbedOutcome> {
+  const text = productBlocksToText(page.title, readBlocks(page.blocks));
+  const chunks = text.trim() ? chunkMarkdown(text, { targetTokens: DOC_CHUNK_TARGET_TOKENS, overlap: DOC_CHUNK_OVERLAP_WORDS }) : [];
+  let vectors: number[][] = [];
   try {
-    const text = productBlocksToText(page.title, readBlocks(page.blocks));
-    const chunks = text.trim() ? chunkMarkdown(text, { targetTokens: DOC_CHUNK_TARGET_TOKENS, overlap: DOC_CHUNK_OVERLAP_WORDS }) : [];
-    const vectors = chunks.length > 0 ? await embeddingClient.embed(chunks.map((c) => c.content)) : [];
+    vectors = chunks.length > 0 ? await embeddingClient.embed(chunks.map((c) => c.content)) : [];
+  } catch (error) {
+    // L'embedder giù: per tutte le pagine, quindi il giro si ferma. I chunk di
+    // prima dicono il testo VECCHIO: via, la pagina resta trovabile per testo.
+    log.warn({ err: error, pageId: page.id }, "embedding della pagina di prodotto non riuscito: si trova per testo");
+    await db
+      .delete(productPageChunks)
+      .where(eq(productPageChunks.pageId, page.id))
+      .catch((err: unknown) => log.warn({ err, pageId: page.id }, "chunk vecchi della pagina di prodotto non tolti"));
+    return "embedder_down";
+  }
+  try {
+    if (vectors.length !== chunks.length || vectors.some((v) => v.length !== EMBEDDING_DIMENSIONS)) throw new Error("l'embedder ha risposto vettori di forma sbagliata");
     await db.transaction(async (txRaw) => {
       const tx = txRaw as unknown as Db;
-      // Ancora la versione letta? Se no, la rifà il giro dopo.
-      const [now] = await tx.select({ updatedAt: productPages.updatedAt }).from(productPages).where(eq(productPages.id, page.id)).for("update");
-      if (!now || now.updatedAt.getTime() !== page.updatedAt.getTime()) return;
+      // Ancora la versione letta? Se no, la rifà il giro dopo. Il confronto è in SQL (I1).
+      const [same] = await tx
+        .select({ id: productPages.id })
+        .from(productPages)
+        .where(and(eq(productPages.id, page.id), sql`${productPages.updatedAt} = ${page.version}::timestamptz`))
+        .for("update");
+      if (!same) return;
       await tx.delete(productPageChunks).where(eq(productPageChunks.pageId, page.id));
       if (chunks.length > 0) {
         await tx.insert(productPageChunks).values(
@@ -66,22 +95,29 @@ export async function embedProductPage(db: Db, embeddingClient: EmbeddingClient,
             position: i,
             heading: c.heading ?? null,
             content: c.content,
-            embedding: vectors[i] ?? [],
+            embedding: vectors[i]!,
             tokenCount: estimateTokens(c.content),
           })),
         );
       }
-      // Il testo cercabile, per le pagine di prima della 0207 (le scritture lo tengono già aggiornato).
-      await tx.update(productPages).set({ embeddedAt: page.updatedAt, searchText: productSearchText(page.title, readBlocks(page.blocks)) }).where(eq(productPages.id, page.id));
+      // `embedded_at` = `updated_at` del database (I1); il testo cercabile, per le pagine di prima della 0207.
+      await tx.update(productPages).set({ embeddedAt: sql`${productPages.updatedAt}`, searchText: productSearchText(page.title, readBlocks(page.blocks)) }).where(eq(productPages.id, page.id));
     });
-    return true;
+    return "done";
   } catch (error) {
-    log.warn({ err: error, pageId: page.id }, "embedding della pagina di prodotto non riuscito: si trova per testo");
+    // Review di F3 (I6): un errore di QUESTA pagina (un chunk rifiutato, un vettore
+    // di forma sbagliata, un errore SQL) non blocca la coda. La pagina si rimanda
+    // fino alla sua prossima modifica (`embedded_at` = la versione letta, senza
+    // chunk), resta trovabile per testo, e lo dice il log.
+    log.warn({ err: error, pageId: page.id }, "embedding della pagina di prodotto rimandato alla sua prossima modifica");
     await db
-      .delete(productPageChunks)
-      .where(eq(productPageChunks.pageId, page.id))
-      .catch((err: unknown) => log.warn({ err, pageId: page.id }, "chunk vecchi della pagina di prodotto non tolti"));
-    return false;
+      .transaction(async (txRaw) => {
+        const tx = txRaw as unknown as Db;
+        await tx.delete(productPageChunks).where(eq(productPageChunks.pageId, page.id));
+        await tx.update(productPages).set({ embeddedAt: sql`${page.version}::timestamptz` }).where(eq(productPages.id, page.id));
+      })
+      .catch((err: unknown) => log.warn({ err, pageId: page.id }, "pagina di prodotto non rimandata"));
+    return "deferred";
   }
 }
 
@@ -108,18 +144,60 @@ export async function backfillProductSearchText(db: Db, limit = 100): Promise<nu
 }
 
 /**
+ * Review di F3 (I5): TUTTO il testo cercabile che manca, a lotti, all'avvio del
+ * server, che il poller sia acceso o no (`PRODUCT_EMBED_POLL_SECONDS` vuota
+ * spegne gli embedding, non la ricerca per testo).
+ */
+export async function backfillAllProductSearchText(db: Db, batch = 100): Promise<number> {
+  let total = 0;
+  for (;;) {
+    const n = await backfillProductSearchText(db, batch);
+    total += n;
+    if (n < batch) return total;
+  }
+}
+
+/**
  * Un giro del poller: prima il testo cercabile che manca (senza l'embedder),
- * poi le pagine ferme da rifare, fino al primo errore dell'embedder. Restituisce
- * quante pagine ha fatto con gli embedding.
+ * poi le pagine ferme da rifare. Si ferma quando l'embedder non risponde; una
+ * pagina che sbaglia per conto suo si rimanda e il giro va avanti (I6).
+ * Restituisce quante pagine ha fatto con gli embedding.
  */
 export async function embedStaleProductPages(db: Db, embeddingClient: EmbeddingClient, log: Log, opts: { now?: Date; quietSeconds?: number; limit?: number } = {}): Promise<number> {
   await backfillProductSearchText(db).catch((error: unknown) => log.warn({ err: error }, "testo cercabile delle pagine di prodotto non ricostruito"));
   let done = 0;
   for (const page of await staleProductPages(db, opts)) {
-    if (!(await embedProductPage(db, embeddingClient, page, log))) break;
-    done += 1;
+    const outcome = await embedProductPage(db, embeddingClient, page, log);
+    if (outcome === "embedder_down") break;
+    if (outcome === "done") done += 1;
   }
   return done;
+}
+
+/**
+ * Review di F3 (C1): il poller, da avviare PRIMA di `app.listen` (Fastify non
+ * accetta un `addHook` dopo: `FST_ERR_INSTANCE_ALREADY_LISTENING`, e il server
+ * uscirebbe all'avvio). Un giro alla volta.
+ */
+export function startProductEmbedPoller(
+  app: { db: Db; embeddingClient: EmbeddingClient; log: Log; addHook: (name: "onClose", fn: () => Promise<void>) => unknown },
+  seconds: number,
+): NodeJS.Timeout {
+  let running = false;
+  const timer = setInterval(() => {
+    if (running) return;
+    running = true;
+    void embedStaleProductPages(app.db, app.embeddingClient, app.log)
+      .catch((error: unknown) => app.log.warn({ err: error }, "giro degli embedding delle pagine di prodotto non riuscito"))
+      .finally(() => {
+        running = false;
+      });
+  }, seconds * 1000);
+  timer.unref();
+  app.addHook("onClose", async () => {
+    clearInterval(timer);
+  });
+  return timer;
 }
 
 /** Per i test e la diagnostica: quanti chunk ha una pagina. */

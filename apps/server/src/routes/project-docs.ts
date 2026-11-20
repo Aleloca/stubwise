@@ -44,7 +44,7 @@ import { withDocCodes } from "../services/doc-codes.js";
 import { chatQuerySchema, loadHistory, streamChatResponse } from "./docs-chat-core.js";
 import { emptyCountsByKind, HIGHLIGHT_LIMITS } from "./docs-highlights.js";
 import { appendProductContext, buildCitations, buildDocsSystemPrompt } from "./docs-rag.js";
-import { retrieveProductContext } from "../services/product-retrieval.js";
+import { productSourcesNow, retrieveProductContext } from "../services/product-retrieval.js";
 import { retrieveChunksForProject } from "./docs-retrieval.js";
 import { appendGraphContext, retrieveGraphContextForProject } from "../graph-chat/context.js";
 import { appendDecisionContext, retrieveDecisionContext } from "../graph-chat/decisions.js";
@@ -546,17 +546,25 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
           role: docChatMessages.role,
           content: docChatMessages.content,
           citations: docChatMessages.citations,
+          productSources: docChatMessages.productSources,
           createdAt: docChatMessages.createdAt,
         })
         .from(docChatMessages)
         .where(eq(docChatMessages.sessionId, id))
         .orderBy(asc(docChatMessages.createdAt));
 
+      // Area 11, F3 (46): le fonti di prodotto con titolo e codice di ADESSO, e
+      // solo le pagine che chi guarda vede ancora (docs.view, nella WHERE).
+      const sources = await productSourcesNow(app.db, request.user!, rows.flatMap((r) => (Array.isArray(r.productSources) ? r.productSources.map((p) => p.pageId) : [])));
       return rows.map((r) => ({
         id: r.id,
         role: r.role,
         content: r.content,
         citations: r.citations ?? null,
+        productSources: (Array.isArray(r.productSources) ? r.productSources : []).flatMap((p) => {
+          const now = sources.get(p.pageId);
+          return now ? [now] : [];
+        }),
         createdAt: r.createdAt.toISOString(),
       }));
     },

@@ -5820,3 +5820,78 @@ deploy o di un rollback che la tocca.
   scendono **insieme** al server. Le migrazioni non si annullano: valori d'enum e `product_comments`
   restano, e un server vecchio li ignora. I commenti scritti restano nella
   tabella e tornano visibili quando si risale.
+
+- **«Integrazione area 11, F3: ricerca, citazioni, esportazione»** *(20 nov
+  2026)*: branch `feat/area11-f3` (da `feat/integrazione-area11`), piano
+  `docs/plans/2026-11-20-integrazione-area11-f3-plan.md`.
+  - Migrazione **0206** (`product_page_chunks`): i passaggi delle pagine di
+    prodotto con l'embedding (indice HNSW come `doc_chunks`), e
+    `product_pages.embedded_at`.
+  - Migrazione **0207** (`product_pages_search_text`): il testo cercabile di
+    una pagina, già piegato dal server (senza maiuscole né accenti).
+  - Migrazione **0208** (`doc_chat_product_sources`): le pagine di prodotto
+    usate come fonte da una risposta della chat dei Docs (solo gli id).
+  - **Env nuova, del server**: `PRODUCT_EMBED_POLL_SECONDS` (default 30, almeno
+    5). La stringa VUOTA spegne il poller degli embedding di prodotto, e la
+    ricerca resta per testo. Nel compose la sostituzione è con `-`, come
+    `GRAPHIFY_MCP_URL`. Il poller usa lo stesso embedder dei Docs
+    (`EMBEDDING_*`, ollama).
+  - Rotte nuove sotto `/api`: la ricerca dello spazio
+    (`/projects/:projectId/product/search`) e l'esportazione
+    (`/product-pages/:id/export`, `/projects/:projectId/product/export`). Il
+    gruppo `product` nella ricerca globale. Le citazioni della Chat portano
+    `product`, la chat dei Docs del progetto `productSources`. Tutto additivo.
+  - Nessun `notification_kind` e nessun permesso nuovo.
+
+  **ORDINE**: **server** (healthy, 0206–0208 applicate), poi **caddy**. Il
+  worker non c'entra: F3 non tocca `packages/notifications` e il worker non
+  legge le colonne nuove. All'avvio il server dà alle pagine di prima il testo
+  cercabile (`backfillAllProductSearchText`, in sottofondo, qualunque sia
+  `PRODUCT_EMBED_POLL_SECONDS`): la ricerca per testo le trova subito. Gli
+  embedding li fa poi il poller, 20 pagine per giro: con molte pagine la
+  ricerca per significato si completa in qualche minuto. Il poller si avvia
+  PRIMA di `listen` (review di F3, C1: un `addHook` dopo `listen` faceva
+  uscire il server all'avvio).
+
+  **Rollback**: sicuro, col **caddy** che scende **insieme** al server (il
+  renderer nuovo chiama le rotte di F3). Un server vecchio ignora tabella e
+  colonne, e un client vecchio legge la citazione senza destinazione. Una cosa da sapere
+  per quando si risale: un server vecchio che scrive pagine di prodotto non
+  aggiorna `search_text`, quindi il testo cercabile di quelle pagine resta
+  quello di prima della discesa. Gli embedding invece si rifanno da soli
+  (`embedded_at < updated_at`). Dopo la risalita, per rifare il testo
+  cercabile di tutte le pagine (lo ricostruisce il server al riavvio
+  successivo, e intanto il poller a ogni giro):
+
+  ```sql
+  update product_pages set search_text = '';
+  ```
+
+- **«Integrazione area 11, F4: la scrittura dal vivo»** *(20 nov 2026)*: branch
+  `feat/area11-f4` (da `feat/integrazione-area11`), piano
+  `docs/plans/2026-11-20-integrazione-area11-f4-plan.md`.
+  - Migrazione **0209** (`product_section_holds`): le sezioni prese di una
+    pagina di prodotto (chi scrive, fino a quando), con scadenza da sola. Sta
+    in tabella perché il worker deve vederle (F5).
+  - Nessuna env, nessun `notification_kind`, nessun permesso nuovo.
+  - Rotte nuove sotto `/api`: lo stream SSE della pagina
+    (`/product-pages/:id/live`) e il battito della presenza
+    (`/product-pages/:id/live/presence`). `POST …/ops` risponde anche 409
+    `section_busy` quando un'operazione tocca una sezione presa da un altro.
+  - Il canale dal vivo usa una LISTEN in più del server
+    (`product_page_events`), accanto a quelle delle sessioni e della Chat.
+
+  **ORDINE**: **server** (healthy, 0209 applicata), poi **caddy** (il
+  renderer di 94). Il worker non c'entra (lo userà F5).
+
+  ⚠️ **Un solo processo server.** Presenza e cursori stanno nella memoria del
+  processo, quindi più processi server dietro caddy si vedrebbero a metà: chi
+  è collegato a uno non vede la presenza di chi è sull'altro. Oggi c'è un
+  processo solo. Chi ne aggiunge un secondo deve prima portare la presenza
+  fuori dalla memoria (o tenere le persone di una pagina sullo stesso
+  processo). Le revisioni e le prese invece passano dal database e reggono.
+
+  **Rollback**: sicuro, col caddy che scende insieme al server. Un server
+  vecchio non manda gli eventi né il 409 `section_busy`, e ignora la tabella
+  delle prese. Il renderer torna a «Saved» col 409 `stale` di F1. La 0209
+  non si annulla: la tabella resta, e le prese scadono da sole.

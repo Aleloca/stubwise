@@ -255,6 +255,10 @@ export type DocSpace = z.infer<typeof docSpaceSchema>;
 export const docChatSessionSchema = z.object({ id: z.uuid(), createdAt: z.string() });
 export type DocChatSession = z.infer<typeof docChatSessionSchema>;
 
+/** Area 11, F3: una pagina di prodotto data alla chat dei Docs del progetto (la si apre dal codice o da `pageId`). */
+export const docsChatProductSourceSchema = z.object({ pageId: z.uuid(), code: z.string(), title: z.string() });
+export type DocsChatProductSource = z.infer<typeof docsChatProductSourceSchema>;
+
 /**
  * Un messaggio persistito di una sessione di chat sui Docs. `citations` è
  * `unknown` di proposito, ai due capi: è una colonna jsonb e il contratto non
@@ -265,6 +269,12 @@ export const docChatMessageSchema = z.object({
   role: z.string(),
   content: z.string(),
   citations: z.unknown().nullable(),
+  /**
+   * Area 11, F3: le pagine di prodotto usate come fonte (chat dei Docs del
+   * progetto), coi titoli e i codici di ADESSO e solo quelle che chi guarda
+   * vede ancora. Additivo.
+   */
+  productSources: z.array(docsChatProductSourceSchema).default([]),
   createdAt: z.string(),
 });
 export type DocChatMessage = z.infer<typeof docChatMessageSchema>;
@@ -298,10 +308,6 @@ export type DocsChatSource = z.infer<typeof docsChatSourceSchema>;
  * backlog): per il backlog `sessionId` è l'id della voce (non c'è una tabella
  * di sessioni dedicata, vedi `backlog.ts`).
  */
-/** Area 11, F3: una pagina di prodotto data alla chat dei Docs del progetto (la si apre dal codice o da `pageId`). */
-export const docsChatProductSourceSchema = z.object({ pageId: z.uuid(), code: z.string(), title: z.string() });
-export type DocsChatProductSource = z.infer<typeof docsChatProductSourceSchema>;
-
 export const docsChatAnswerSchema = z.object({
   answer: z.string(),
   sources: z.array(docsChatSourceSchema),

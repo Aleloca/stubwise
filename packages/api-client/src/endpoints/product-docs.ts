@@ -1,5 +1,30 @@
-import { productCommentViewSchema, productCommentsSchema, productMentionCandidatesSchema, productPageViewSchema, productRevisionViewSchema, productSpaceSchema } from "@stubwise/shared";
-import type { AddProductCommentInput, ProductBlockOp, ProductCommentView, ProductCommentsView, ProductPageView, ProductRevisionView, ProductSpaceView, Reader } from "@stubwise/shared";
+import {
+  productCommentViewSchema,
+  productCommentsSchema,
+  productExportPageSchema,
+  productExportSpaceSchema,
+  productMentionCandidatesSchema,
+  productPageViewSchema,
+  productPresenceBeatResultSchema,
+  productRevisionViewSchema,
+  productSearchResultsSchema,
+  productSpaceSchema,
+} from "@stubwise/shared";
+import type {
+  AddProductCommentInput,
+  ProductBlockOp,
+  ProductCommentView,
+  ProductCommentsView,
+  ProductExportPage,
+  ProductExportSpace,
+  ProductPageView,
+  ProductPresenceBeat,
+  ProductPresenceBeatResult,
+  ProductRevisionView,
+  ProductSearchResults,
+  ProductSpaceView,
+  Reader,
+} from "@stubwise/shared";
 import { z } from "zod";
 import type { ApiRequest } from "../client.js";
 import { seg, toQuery } from "../query.js";
@@ -67,6 +92,30 @@ export function createProductDocsEndpoints(request: ApiRequest) {
     /** Chi si può menzionare nel progetto: chi ne legge i Docs e chi guarda vede, mai Claude né sé stessi. */
     mentionCandidates(projectId: string, q = ""): Promise<Reader<{ id: string; name: string }>[]> {
       return request("GET", `/api/projects/${seg(projectId)}/product/mention-candidates${toQuery({ q: q || undefined })}`, undefined, productMentionCandidatesSchema);
+    },
+    // --- F4: la scrittura dal vivo ---
+    /**
+     * Il battito della presenza (ogni 5 s, scade a 15 s). Con `sectionId` serve
+     * `docs.edit` e prende o rinnova la sezione: `hold` se è tua, `busy` se la
+     * tiene un altro. `sectionId: null` lascia le tue prese. Lo stream
+     * (`productLiveStreamPath`, `parseProductLiveFrame` di shared) lo apre il
+     * renderer: `EventSource` sul web, il main del desktop.
+     */
+    beat(pageId: string, input: ProductPresenceBeat): Promise<Reader<ProductPresenceBeatResult>> {
+      return request("POST", `/api/product-pages/${seg(pageId)}/live/presence`, input, productPresenceBeatResultSchema);
+    },
+    // --- F3: la ricerca e l'esportazione ---
+    /** «In Product» in uno spazio: ibrida, al più 20, e se ce ne sono altre. La ricerca globale ha il gruppo `product`. */
+    search(projectId: string, q: string): Promise<Reader<ProductSearchResults>> {
+      return request("GET", `/api/projects/${seg(projectId)}/product/search${toQuery({ q })}`, undefined, productSearchResultsSchema);
+    },
+    /** Una pagina da esportare: blocchi senza commenti, decisioni e file del Drive come li vede chi esporta. */
+    exportPage(pageId: string): Promise<Reader<ProductExportPage>> {
+      return request("GET", `/api/product-pages/${seg(pageId)}/export`, undefined, productExportPageSchema);
+    },
+    /** Lo spazio intero in ordine d'albero; oltre 200 pagine 413 `too_many_pages` con `count` e `max` (`ApiError.body`). */
+    exportSpace(projectId: string): Promise<Reader<ProductExportSpace>> {
+      return request("GET", `/api/projects/${seg(projectId)}/product/export`, undefined, productExportSpaceSchema);
     },
     /** L'immagine coi permessi della pagina: la rotta risponde coi byte (nessun redirect verso lo storage). */
     imagePath(pageId: string, imageId: string): string {

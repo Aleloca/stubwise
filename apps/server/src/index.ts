@@ -2,7 +2,8 @@ import { createAgentSessionBus } from "./agent-session-bus.js";
 import { createChatBus } from "./chat/bus.js";
 import { buildApp } from "./app.js";
 import { backfillManualPageEmbeddings } from "./services/doc-embed.js";
-import { embedStaleProductPages } from "./services/product-embed.js";
+import { backfillAllProductSearchText, startProductEmbedPoller } from "./services/product-embed.js";
+import { PRODUCT_LIVE_NOTIFY } from "./services/product-live-notify.js";
 import { loadConfig, type Config } from "./config.js";
 import { createDb, runMigrations } from "@stubwise/db";
 
@@ -56,6 +57,14 @@ const app = buildApp({
   chatBus,
 });
 
+// Area 11, F3: gli embedding delle pagine di prodotto ferme e cambiate, ogni
+// `PRODUCT_EMBED_POLL_SECONDS` (vuota = spento). Qui e non in `buildApp`, o
+// girerebbe in ogni test; PRIMA di `listen` (review di F3, C1: l'hook di
+// chiusura dopo `listen` fa uscire il server all'avvio).
+if (config.productEmbedPollSeconds !== undefined) startProductEmbedPoller(app, config.productEmbedPollSeconds);
+// Area 11, F4: le revisioni scritte da un altro processo (il worker, F5) arrivano al canale dal vivo.
+await client.listen(PRODUCT_LIVE_NOTIFY, (payload) => app.productLive.handleNotify(payload));
+
 try {
   await app.listen({ port: config.port, host: "0.0.0.0" });
 } catch (err) {
@@ -63,25 +72,13 @@ try {
   process.exit(1);
 }
 
-// Area 11, F3: gli embedding delle pagine di prodotto ferme e cambiate, ogni
-// `PRODUCT_EMBED_POLL_SECONDS` (vuota = spento). Qui e non in `buildApp`, o
-// girerebbe in ogni test. Un giro alla volta: uno lento non se ne accavalla un altro.
-if (config.productEmbedPollSeconds !== undefined) {
-  let running = false;
-  const productEmbed = setInterval(() => {
-    if (running) return;
-    running = true;
-    void embedStaleProductPages(app.db, app.embeddingClient, app.log)
-      .catch((error: unknown) => app.log.warn({ err: error }, "giro degli embedding delle pagine di prodotto non riuscito"))
-      .finally(() => {
-        running = false;
-      });
-  }, config.productEmbedPollSeconds * 1000);
-  productEmbed.unref();
-  app.addHook("onClose", async () => {
-    clearInterval(productEmbed);
-  });
-}
+// Area 11, F3 (review I5): il testo cercabile delle pagine di prodotto che ne
+// sono senza, all'avvio e qualunque sia l'env del poller. In sottofondo, fail-open.
+void backfillAllProductSearchText(app.db)
+  .then((n) => {
+    if (n > 0) app.log.info({ pages: n }, "testo cercabile delle pagine di prodotto ricostruito");
+  })
+  .catch((error: unknown) => app.log.warn({ err: error }, "testo cercabile delle pagine di prodotto non ricostruito"));
 
 // Gli embedding delle pagine manuali di prima della 0142, all'avvio (poi ogni
 // ora dal timer di `buildApp`): in sottofondo, fail-open.

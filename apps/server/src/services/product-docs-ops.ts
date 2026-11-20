@@ -10,6 +10,7 @@ import {
   projectDecisions,
   projects,
   users,
+  takeSection,
   type Db,
 } from "@stubwise/db";
 import {
@@ -22,6 +23,8 @@ import {
   productBlockSchema,
   productBlockWriteSchema,
   productSearchText,
+  PRODUCT_TOP_SECTION,
+  sectionKeyOf,
   validProductBlock,
   type ProductBlock,
   type ProductBlockChange,
@@ -37,6 +40,7 @@ import { visiblePersonIds } from "./people-visibility.js";
 import type { ObjectStorage } from "../storage/index.js";
 import { removeOrRecordOrphan } from "../storage/orphans.js";
 import { moveMergedAnchors, restoreMergedAnchors } from "./product-comments.js";
+import { PRODUCT_HOLD_TTL_MS, notifyProductRevision } from "./product-live-notify.js";
 import { ProductDocsError } from "./product-docs.js";
 
 /**
@@ -66,6 +70,57 @@ const IMAGE_ID = (src: string) => (src.startsWith(PRODUCT_IMAGE_REF_PREFIX) ? sr
 export interface SaveProductBlocksResult {
   seq: number;
   revisionId: string | null;
+}
+
+/**
+ * Area 11, F4: un'operazione tocca una sezione presa da un ALTRO. La
+ * transazione si annulla: niente cambiato, nemmeno le prese chieste prima.
+ */
+export class ProductSectionBusyError extends ProductDocsError {
+  constructor(
+    readonly sectionId: string,
+    readonly by: { id: string; name: string | null },
+  ) {
+    super(409, "section_busy", "Someone else is writing in this section");
+  }
+}
+
+export { PRODUCT_HOLD_TTL_MS };
+
+/**
+ * Le sezioni che le operazioni toccano, sui blocchi di PRIMA (review di F4: dopo,
+ * un blocco tolto o spostato non direbbe più dov'era): `set` e `delete` la
+ * sezione del blocco; `insert` quella del blocco dopo cui entra (in cima senza);
+ * `move` e `merge` le due sezioni.
+ */
+function touchedSections(blocks: readonly ProductBlock[], ops: readonly ProductBlockOp[]): string[] {
+  const out = new Set<string>();
+  const at = (anchorId: string | null) => (anchorId === null ? PRODUCT_TOP_SECTION : sectionKeyOf(blocks, anchorId));
+  for (const op of ops) {
+    if (op.op === "set") out.add(at(op.block.id));
+    else if (op.op === "delete") out.add(at(op.blockId));
+    else if (op.op === "insert") out.add(at(op.afterId));
+    else if (op.op === "move") {
+      out.add(at(op.blockId));
+      out.add(at(op.afterId));
+    } else {
+      out.add(at(op.firstId));
+      out.add(at(op.secondId));
+    }
+  }
+  return [...out].sort();
+}
+
+/** Prende per chi scrive le sezioni che tocca; la prima presa da un altro è un 409 (nella stessa transazione). */
+async function holdTouchedSections(tx: Db, viewer: Viewer, pageId: string, blocks: readonly ProductBlock[], ops: readonly ProductBlockOp[]): Promise<void> {
+  for (const sectionId of touchedSections(blocks, ops)) {
+    const got = await takeSection(tx, { pageId, sectionId, userId: viewer.id, ttlMs: PRODUCT_HOLD_TTL_MS });
+    if (got.taken) continue;
+    const people = await visiblePersonIds(tx, viewer);
+    const [u] = await tx.select({ email: users.email, displayName: users.displayName }).from(users).where(eq(users.id, got.by));
+    const sees = people === "all" || people.includes(got.by);
+    throw new ProductSectionBusyError(sectionId, { id: got.by, name: sees && u ? personName(u) : null });
+  }
 }
 
 export class ProductStaleError extends ProductDocsError {
@@ -132,6 +187,8 @@ export async function saveProductBlocks(db: Db, viewer: Viewer, pageId: string, 
     if (others.length > 0) throw new ProductStaleError(await revisionViews(tx, viewer, others));
 
     const blocks = readBlocks(page.blocks);
+    // F4: le sezioni che le operazioni toccano, prese PRIMA di applicarle (un 409 non lascia niente a metà).
+    await holdTouchedSections(tx, viewer, pageId, blocks, input.ops as ProductBlockOp[]);
     const onPage = new Set(blocks.flatMap(blockIdsOf));
     const given = new Set((await tx.select({ id: productPageBlockIds.blockId }).from(productPageBlockIds).where(eq(productPageBlockIds.pageId, pageId))).map((r) => r.id));
     // Review di F1 (I4): ⌘Z rimette SOLO i blocchi che la revisione annullata ha
@@ -177,6 +234,9 @@ export async function saveProductBlocks(db: Db, viewer: Viewer, pageId: string, 
       .set({ blocks: next.blocks, searchText: productSearchText(page.title, next.blocks), revSeq: sql`${productPages.revSeq} + 1`, updatedBy: viewer.id, updatedAt: new Date() })
       .where(eq(productPages.id, pageId))
       .returning({ seq: productPages.revSeq })) as [{ seq: number }];
+    // F4: il canale dal vivo, al commit (un rollback la toglie). Gli stream dello stesso processo
+    // ricevono le operazioni dalla rotta; questa NOTIFY serve agli altri (il worker, F5).
+    await notifyProductRevision(tx, { pageId, seq, kind: "edit", actorId: viewer.id, sessionId: input.sessionId });
     // F2: i fili del blocco assorbito da un `merge` passano sul blocco unito, nella stessa scrittura;
     // un ⌘Z che rimette un blocco ci riporta i fili che il merge gli aveva tolto (review di F2, M4).
     await moveMergedAnchors(tx, pageId, input.ops as ProductBlockOp[]);

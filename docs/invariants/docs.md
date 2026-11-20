@@ -120,6 +120,36 @@ le sue in `nightly.md`.
 - `progress` conta i nodi fatti su quelli totali della generazione in corso o
   in pausa; senza nodi è null.
 
+## La doc di prodotto (area 11, F1–F4, 20 nov 2026)
+
+- **Le operazioni sono l'unica scrittura del corpo.** Nessuna rotta scrive il
+  `jsonb` intero di `product_pages.body`: si passa da `saveProductBlocks`
+  (`applyBlockOps` di `@stubwise/shared`, una sola copia), sotto il
+  `FOR UPDATE` della pagina e il controllo `baseSeq`/`stale`. Un id di blocco
+  non si riusa mai, salvo lo stesso blocco che torna con `undoOf` (che
+  riporta anche i fili di commento spostati da un merge,
+  `restoreMergedAnchors`). L'albero (crea, sposta, elimina) passa da un
+  `pg_advisory_xact_lock` per progetto.
+- **Un client non sovrascrive mai in silenzio.** Su un `stale` il renderer
+  ritenta solo se nessuna revisione nuova tocca i blocchi delle sue
+  operazioni; altrimenti rifiuta e lo dice. Una sezione presa da un altro
+  risponde 409 `section_busy` (mai una fusione del testo).
+- **Il canale dal vivo ricalcola i permessi a ogni evento e a tempo**: un
+  accesso revocato manda `gone` e chiude lo stream anche senza eventi.
+  Presenza e cursori stanno nella memoria del server, mai in tabella; la
+  sezione presa sta in `product_section_holds` perché la vede anche il worker
+  (F5), e scade da sola. ⚠️ La presenza in memoria regge **un solo processo
+  server**: revisioni e prese passano dal DB (NOTIFY `product_page_events`),
+  la presenza no.
+- **La card d'inbox `product_doc.*` si deriva a lettura** (titolo, codice,
+  autore, estratto del commento), mai dal jsonb; una pagina che chi guarda non
+  vede più dà `objectGone` senza link. Il catalogo scarta chi non ha
+  `docs.view` (`seePerm`), anche da obbligatorio.
+- **Il contenuto di una pagina di prodotto nel prompt di una chat è NON
+  fidato**: dentro il recinto, passato da `escapeUntrusted`.
+- **Le immagini si servono coi byte dalla rotta della pagina**, coi permessi
+  della pagina, mai un URL firmato verso il client.
+
 ## Limiti accettati
 
 - La cronologia della ricerca globale (`search_history`, `type = 'doc'`) punta

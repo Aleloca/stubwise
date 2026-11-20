@@ -317,6 +317,15 @@ export interface ProductDocCard {
 }
 
 /**
+ * Review di F3 (M3): al più 200 caratteri, tagliati per CODE POINT (un emoji
+ * non si spezza a metà della coppia surrogata), come `chat.excerpt`.
+ */
+function excerptOf(body: string): string {
+  const points = Array.from(body);
+  return points.length > 200 ? `${points.slice(0, 199).join("").trimEnd()}…` : body;
+}
+
+/**
  * Le card della doc di prodotto di una pagina d'inbox (tutti e tre i kind),
  * coi dati di ADESSO (mai dal jsonb, che porta solo gli id): titolo e codice
  * della pagina e, per una menzione, il commento e chi l'ha scritto (R-G5).
@@ -377,7 +386,7 @@ export async function productDocCardsFor(db: Db, viewerId: string, rows: readonl
       authorId: comment?.authorId ?? null,
       authorName: comment?.authorId ? (names.get(comment.authorId) ?? null) : null,
       // Un commento eliminato non ha testo (e qui non arriva: è `objectGone`); un corpo vuoto resta null.
-      excerpt: comment && comment.body !== "" ? (comment.body.length > 200 ? `${comment.body.slice(0, 199).trimEnd()}…` : comment.body) : null,
+      excerpt: comment && comment.body !== "" ? excerptOf(comment.body) : null,
     });
   }
   return out;

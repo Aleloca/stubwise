@@ -1,4 +1,5 @@
 import { agentRuns, emailBodies, emailMessages, emailProposals, googleAccounts, projectStatuses, projects, tickets, users, type Db } from "@stubwise/db";
+import { escapeUntrusted } from "./untrusted.js";
 import { projectPermissionsOfUser } from "@stubwise/notifications";
 import { resolveApiModelId, type MailComposeMode } from "@stubwise/shared";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
@@ -75,10 +76,8 @@ export interface PreparedClaudeDraft {
 
 export type ClaudeDraftError = { error: "not_found" } | { error: "invalid_hint" };
 
-/** Scappa `&`, `<` e `>`: un testo non fidato non apre né chiude un blocco. */
-export function escapeUntrusted(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
+/** Scappa `&`, `<` e `>`: un testo non fidato non apre né chiude un blocco (la regola sta in `untrusted.ts`). */
+export { escapeUntrusted };
 
 const SYSTEM = `You write the BODY of an email for a person, in a team that uses Stubwise to track its projects.
 

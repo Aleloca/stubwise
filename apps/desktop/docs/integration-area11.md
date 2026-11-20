@@ -52,3 +52,42 @@ Design: `docs/plans/2026-11-20-integrazione-area11-design.md`; i piani
 | Le menzioni le trova il server nel testo (`@Nome`, i nomi più lunghi prima, come la Chat) | costruttore |
 | Nessuna rotta di eliminazione dei commenti (il prototipo non elimina): la colonna e la CHECK sono una predisposizione | 46 |
 | Una card sparita o di una pagina che chi guarda non legge più ha una frase neutra; senza l'autore visibile, «Ti hanno menzionato…» | costruttore, approvato da 46 |
+
+## F3 — ricerca, citazioni, esportazione (server; il renderer è di 94)
+
+| Voce del prototipo | Dove vive | Rotta / pezzo | Test |
+|---|---|---|---|
+| La ricerca nelle pagine (`searchProductPages`, `passageIn`, `fold`) | `packages/shared/src/product-docs/search.ts`, `apps/server/src/services/product-search.ts` | `GET /api/projects/:projectId/product/search`, il gruppo `product` di `GET /api/search` | `search.test.ts` (shared), `product-search.test.ts` |
+| Gli embedding delle pagine (il poller del server) | `services/product-embed.ts`, `packages/db/drizzle/0206_*`, `0207_*` | `PRODUCT_EMBED_POLL_SECONDS` | `product-embed.test.ts` |
+| Una pagina di prodotto citata nella Chat | `apps/server/src/chat/citations.ts` (`product: { pageId }`) | le rotte della Chat | `product-citations.test.ts` |
+| Le pagine di prodotto nella chat dei Docs del progetto (contenuto non fidato) | `services/product-retrieval.ts`, `routes/docs-rag.ts` (`appendProductContext`), `0208_*` | `POST /api/projects/:projectId/docs/chat`, `productSources` (anche nello storico) | idem |
+| L'esportazione (`getProductExport`) | `services/product-export.ts` | `GET /api/product-pages/:id/export`, `GET /api/projects/:projectId/product/export` | `product-export.test.ts` |
+| L'api-client del renderer | `packages/api-client/src/endpoints/product-docs.ts` | `client.productDocs.{search,exportPage,exportSpace}` | `reader.test.ts` |
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| I chunk in una tabella a parte (`doc_chunks` è legata ai repository); gli embedding dal server, non a ogni salvataggio ma da un poller, sulle pagine ferme da 30 s | costruttore (ruling del piano) |
+| Il testo cercabile si piega in TypeScript (`search_text`), non nel database: la piegatura del database dipende dalla codifica | costruttore, approvato da 46 |
+| La ricerca globale è solo per testo (la corsia veloce, come il gruppo Docs); quella dello spazio è ibrida | costruttore, approvato da 46 |
+| Una pagina di prodotto è una citazione `doc` col codice `-D` e `product: { pageId }`, nessun `kind` nuovo | costruttore (ruling del piano) |
+| Le fonti di prodotto della chat dei Docs stanno in `productSources`, non in `sources` (che vuole un repository); si salvano solo gli id e si rileggono con la visibilità di adesso | costruttore e 46 |
+| L'esportazione non porta URL firmati: le immagini dalla rotta coi byte | costruttore, approvato da 46 |
+| I nomi dei file del Drive nell'esportazione (`files`), null per chi non vede il file | 94 |
+
+## F4 — la scrittura dal vivo (server; il renderer è di 94)
+
+| Voce del prototipo | Dove vive | Rotta / pezzo | Test |
+|---|---|---|---|
+| Le sezioni (`sectionOf`, `sectionRange`, `inSectionOf`) | `packages/shared/src/product-docs/sections.ts` (più `sectionKeyOf`, `top`) | — | `sections.test.ts` |
+| Le forme dello stream, il parser, l'allowlist | `packages/shared/src/schemas/product-docs.ts`, `product-docs/live.ts` | `parseProductLiveFrame`, `isAllowedProductLiveStreamPath` | `live.test.ts` |
+| La sezione presa (chi scrive qui) | `packages/db/src/product-holds.ts` (`takeSection`), `0209_*` | — | `product-holds.test.ts` |
+| Le operazioni rispettano la presa | `apps/server/src/services/product-docs-ops.ts` | 409 `section_busy` di `POST /api/product-pages/:id/ops` | `product-section-busy.test.ts` |
+| La presenza, i cursori, i blocchi degli altri senza ricaricare (al posto del copione) | `services/product-live.ts`, `product-live-notify.ts` | `GET /api/product-pages/:id/live`, `POST …/live/presence` | `product-live.test.ts` |
+| L'api-client del renderer | `packages/api-client/src/endpoints/product-docs.ts` | `client.productDocs.beat` | `reader.test.ts` |
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| La sezione presa sta in tabella (la vede il worker, F5); presenza e cursori in memoria | costruttore (ruling del piano) |
+| La sezione di una presa è `sectionOf` (il titolo più vicino sopra), come il prototipo | costruttore |
+| Le revisioni di un altro processo arrivano senza operazioni: il client rilegge la pagina | costruttore, d'accordo con 94 |
+| Un solo processo server: più processi dietro caddy romperebbero la presenza in memoria | piano, nella voce del deploy-log |
