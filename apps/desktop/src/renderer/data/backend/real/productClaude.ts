@@ -1,7 +1,15 @@
 import { ApiError } from "@stubwise/api-client";
+import type { ProductQuestionView as SharedQuestionView, Reader } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import i18n from "../../../i18n";
-import type { ProductMarkView, ProductSourceView, ProductUndoView } from "../../types";
+import type {
+  ProductMarkView,
+  ProductQuestionDecision,
+  ProductQuestionView,
+  ProductSourceView,
+  ProductUndoView,
+  RichText,
+} from "../../types";
 import { appClient } from "./client";
 import { threadKey } from "./mailKeys";
 
@@ -141,6 +149,88 @@ function mapClaudeError(error: unknown): never {
   throw error;
 }
 
+/** Le domande aperte di chi guarda (72, 4b); un server senza la rotta (404): nessuna. */
+async function openQuestions() {
+  try {
+    return await appClient().productDocs.openQuestions();
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return [];
+    return mapClaudeError(error);
+  }
+}
+
+/**
+ * Le domande di Claude sulla doc per «Decide» della Home (11b, P17): una voce
+ * per domanda aperta a cui chi guarda può rispondere, `product:<commento>`,
+ * col filo da aprire e la fonte vista. Le aggiunge `listClaudeDecisions` con
+ * `product-docs` acceso.
+ */
+export async function productQuestionDecisions(): Promise<ProductQuestionDecision[]> {
+  return (await openQuestions()).map((q): ProductQuestionDecision => {
+    const view = questionViewFrom(q.question);
+    return {
+      kind: "productQuestion",
+      id: `product:${q.commentId}`,
+      commentId: q.commentId,
+      pageId: q.pageId,
+      pageCode: q.pageCode,
+      pageTitle: q.pageTitle,
+      projectId: q.projectId,
+      projectCode: q.projectCode,
+      at: q.createdAt,
+      quote: q.question.current?.text ?? "",
+      link: `#/p/${q.projectCode}/docs/product/${q.pageCode}?comment=${q.commentId}`,
+      reason: view.reason,
+      forName: view.forName,
+      taskCode: view.taskCode,
+      source: view.source,
+      applyMode: view.applyMode,
+      apply: view.apply,
+      recommended: view.recommended,
+      options: view.options,
+      applyBlocked: view.applyBlocked,
+    };
+  });
+}
+
+const ANSWERS = ["apply", "keep", "request"] as const;
+const isAnswer = (x: string): x is (typeof ANSWERS)[number] =>
+  (ANSWERS as readonly string[]).includes(x);
+
+/** Il testo di una domanda del server (`RichTextView`) nella forma del prototipo. */
+const richOf = (r: { text: string; marks: readonly unknown[] } | null): RichText | null =>
+  r ? ({ text: r.text, marks: [...r.marks] } as RichText) : null;
+
+/** La domanda di Claude del server nella forma del prototipo (enum aperti: un valore ignoto si scarta). */
+export function questionViewFrom(q: Reader<SharedQuestionView>): ProductQuestionView {
+  return {
+    reason: q.reason as ProductQuestionView["reason"],
+    forId: q.forId,
+    forName: q.forName,
+    taskCode: q.taskCode,
+    source: sourceViewFrom(q.source as ServerSourceView),
+    applyMode: q.applyMode === "insert" ? "insert" : "replace",
+    current: richOf(q.current),
+    apply: richOf(q.apply),
+    built: q.built,
+    request: q.request,
+    recommended: q.recommended !== null && isAnswer(q.recommended) ? q.recommended : null,
+    options: q.options.filter(isAnswer),
+    canAnswer: q.canAnswer,
+    applyBlocked: q.applyBlocked ? { byId: q.applyBlocked.byId } : null,
+    answer:
+      q.answer && isAnswer(q.answer.option)
+        ? {
+            byId: q.answer.byId,
+            byName: q.answer.byName,
+            option: q.answer.option,
+            revisionId: q.answer.revisionId,
+            requestCode: q.answer.requestCode,
+          }
+        : null,
+  };
+}
+
 type ProductDocs = typeof Fake.productDocs;
 
 export const liveProductClaude: Partial<ProductDocs> = {
@@ -216,16 +306,27 @@ export const liveProductClaude: Partial<ProductDocs> = {
 
   async answerProductQuestion(commentId, option) {
     try {
-      const out = (await appClient().request(
-        "POST",
-        `/api/product-comments/${encodeURIComponent(commentId)}/answer`,
-        {
-          option,
-        },
-      )) as { answer: { revisionId: string | null } };
-      return { revisionId: out.answer.revisionId };
+      // «Update it» scrive una revisione `edit` di chi risponde (niente segno di Claude).
+      const out = await appClient().productDocs.answerQuestion(commentId, option);
+      return { revisionId: out.revisionId };
     } catch (error) {
       return mapClaudeError(error);
     }
+  },
+
+  // Il riquadro di uno spazio: le domande aperte del progetto a cui chi guarda
+  // può rispondere (`docs.edit`), con la frase citata.
+  async listOpenProductQuestions(projectId) {
+    const items = (await openQuestions()).filter((q) => q.projectId === projectId);
+    return {
+      count: items.length,
+      items: items.map((q) => ({
+        commentId: q.commentId,
+        pageId: q.pageId,
+        pageCode: q.pageCode,
+        pageTitle: q.pageTitle,
+        quote: q.question.current?.text ?? "",
+      })),
+    };
   },
 };

@@ -6,6 +6,8 @@ import type { ClaudeDecision, Conversation } from "../../types";
 import { ticketOfConversation } from "./claude";
 import { call, isFreeConversation, sendFreeMessage } from "./claudeChat";
 import { appClient } from "./client";
+import { featureIntegrated } from "../../integration";
+import { productQuestionDecisions } from "./productClaude";
 
 // Le azioni di Claude nella build app (integrazione area 3, fetta 3b «Agire»).
 // Ogni azione è una rotta del server, che decide chi può (i due divieti
@@ -228,10 +230,17 @@ function toDecision(d: Reader<ClaudeDecisionView>): ClaudeDecision | null {
  * voce, e «Da decidere» mostra le altre invece di un errore.
  */
 export const listClaudeDecisions: typeof Fake.listClaudeDecisions = async () => {
+  // Area 11, F5: le domande di Claude sulla doc, con `product-docs` acceso (P17).
+  const product = featureIntegrated("product-docs") ? productQuestionDecisions() : Promise.resolve([]);
+  let conversations: ClaudeDecision[];
   try {
-    return (await appClient().me.claudeDecisions()).flatMap((d) => toDecision(d) ?? []);
+    conversations = (await appClient().me.claudeDecisions()).flatMap((d) => toDecision(d) ?? []);
   } catch (error) {
-    if (error instanceof ApiError && error.status === 404) return [];
-    throw error;
+    if (!(error instanceof ApiError && error.status === 404)) {
+      void product.catch(() => undefined);
+      throw error;
+    }
+    conversations = [];
   }
+  return [...conversations, ...(await product)];
 };

@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setAppClientForTests } from "./client";
-import { installFakeServer, ME_ID } from "./fakeServer";
+import { installFakeServer } from "./fakeServer";
 import {
   forgetProductClaude,
   liveProductClaude as claude,
+  productQuestionDecisions,
   sourceViewFrom,
   type ServerSourceView,
 } from "./productClaude";
@@ -190,18 +191,9 @@ describe("i segni di Claude", () => {
 describe("la risposta a una domanda di Claude", () => {
   it("«Update it» / «Leave it as is»: la risposta con la revisione scritta", async () => {
     const { seen } = installFakeServer({
+      // L'api-client di 72 (4b): `{ revisionId, seq, requestId }`.
       [`POST /api/product-comments/${COMMENT}/answer`]: {
-        body: {
-          answer: {
-            byId: ME_ID,
-            byName: "Ada",
-            option: "apply",
-            at: "2026-11-20T10:00:00.000Z",
-            revisionId: REV,
-            requestId: null,
-            requestCode: null,
-          },
-        },
+        body: { revisionId: REV, seq: 9, requestId: null },
       },
     });
     expect(await claude.answerProductQuestion!(COMMENT, "apply")).toEqual({ revisionId: REV });
@@ -266,5 +258,96 @@ describe("la riga «riprende quando…» dello spazio (claudeHeld, F5)", () => {
       },
     });
     expect(await claude.productUpdatesWaiting!(PROJECT)).toBeNull();
+  });
+});
+
+describe("le domande aperte (72, 4b: `openQuestions`)", () => {
+  const PROJECT = "11111111-1111-4111-8111-111111111111";
+  const open = (over: Record<string, unknown> = {}) => ({
+    commentId: COMMENT,
+    pageId: PAGE,
+    pageCode: "AUD-D5",
+    pageTitle: "Sign-in",
+    projectId: PROJECT,
+    projectCode: "AUD",
+    anchorId: "blk-1",
+    createdAt: "2026-11-20T10:00:00.000Z",
+    question: {
+      reason: "vague",
+      forId: null,
+      forName: null,
+      taskCode: null,
+      source: source({ canOpen: false, id: null, title: null, thread: null }),
+      applyMode: "replace",
+      current: { text: "Google only", marks: [] },
+      apply: { text: "Google or email", marks: [] },
+      built: null,
+      request: null,
+      recommended: "keep",
+      options: ["keep", "apply"],
+      canAnswer: true,
+      applyBlocked: null,
+      answer: null,
+    },
+    ...over,
+  });
+
+  it("il riquadro di uno spazio: quelle del progetto, con la frase citata", async () => {
+    installFakeServer({
+      "GET /api/me/product-questions": {
+        body: [
+          open(),
+          open({
+            commentId: "eeeeeeee-0000-4000-8000-000000000002",
+            projectId: "22222222-2222-4222-8222-222222222222",
+          }),
+        ],
+      },
+    });
+    expect(await claude.listOpenProductQuestions!(PROJECT)).toEqual({
+      count: 1,
+      items: [
+        {
+          commentId: COMMENT,
+          pageId: PAGE,
+          pageCode: "AUD-D5",
+          pageTitle: "Sign-in",
+          quote: "Google only",
+        },
+      ],
+    });
+  });
+
+  it("«Decide» della Home: una voce per domanda, `product:<commento>`, col filo da aprire e la fonte vista", async () => {
+    installFakeServer({ "GET /api/me/product-questions": { body: [open()] } });
+    const [d] = await productQuestionDecisions();
+    expect(d).toMatchObject({
+      kind: "productQuestion",
+      id: `product:${COMMENT}`,
+      commentId: COMMENT,
+      pageCode: "AUD-D5",
+      projectCode: "AUD",
+      quote: "Google only",
+      link: `#/p/AUD/docs/product/AUD-D5?comment=${COMMENT}`,
+      reason: "vague",
+      recommended: "keep",
+      options: ["keep", "apply"],
+      applyBlocked: null,
+      source: { label: { key: "productDocs.source.emailOf" } },
+    });
+  });
+
+  it("un server senza la rotta (404): nessuna voce", async () => {
+    installFakeServer({});
+    expect(await productQuestionDecisions()).toEqual([]);
+  });
+});
+
+describe("«Decide» con `product-docs` spento", () => {
+  it("le domande della doc non si chiedono finché F5 non è accesa", async () => {
+    const { listClaudeDecisions } = await import("./claudeActions");
+    const { seen } = installFakeServer({ "GET /api/me/claude-decisions": { body: [] } });
+    await listClaudeDecisions();
+    expect(seen.some((r) => r.path.startsWith("/api/me/product-questions"))).toBe(false);
   });
 });
