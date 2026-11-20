@@ -2700,8 +2700,8 @@ export const docPageCodes = pgTable(
  * Area 11, F1 — la documentazione di prodotto (0202). Una pagina dello spazio
  * Product di un progetto: il corpo è un documento a blocchi (`blocks`, D-11 =
  * a) che si scrive SOLO a operazioni (`applyBlockOps` di `@stubwise/shared`,
- * sotto un `FOR UPDATE` della riga); `block_seq` dà gli id nuovi, che non si
- * riusano mai. Il codice `-D` sta in `doc_page_codes` (trigger
+ * sotto un `FOR UPDATE` della riga); gli id dei blocchi già dati stanno in
+ * `product_page_block_ids` e non si riusano mai. Il codice `-D` sta in `doc_page_codes` (trigger
  * `product_pages_code`).
  */
 export const productPages = pgTable(
@@ -2716,7 +2716,6 @@ export const productPages = pgTable(
     order: integer("order").notNull().default(0),
     title: text("title").notNull(),
     blocks: jsonb("blocks").$type<unknown[]>().notNull().default([]),
-    blockSeq: integer("block_seq").notNull().default(0),
     /** La sequenza delle revisioni della pagina (`seq`/`last_seq`, il `baseSeq` del client). */
     revSeq: integer("rev_seq").notNull().default(0),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
@@ -2762,6 +2761,25 @@ export const productPageRevisions = pgTable(
     index("product_page_revisions_page_seq_idx").on(table.pageId, table.lastSeq),
     check("product_page_revisions_kind_chk", sql`kind in ('create','edit','rename','move')`),
   ],
+);
+
+/**
+ * Gli id (blocco, riga, cella) già dati in una pagina di prodotto (F1): li
+ * genera il client (`blk-<uuid>`, il prototipo), e un id non torna per un
+ * blocco diverso, salvo ⌘Z della stessa sessione.
+ */
+export const productPageBlockIds = pgTable(
+  "product_page_block_ids",
+  {
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => productPages.id, { onDelete: "cascade" }),
+    blockId: text("block_id").notNull(),
+    /** Chi e quale sessione l'ha tolto per ultima: ⌘Z di quella sessione lo può rimettere. */
+    removedBy: uuid("removed_by").references(() => users.id, { onDelete: "set null" }),
+    removedSession: text("removed_session"),
+  },
+  (table) => [primaryKey({ name: "product_page_block_ids_pk", columns: [table.pageId, table.blockId] })],
 );
 
 /** Chi segue una pagina di prodotto (F1; i destinatari delle card della doc da F2/F5). */

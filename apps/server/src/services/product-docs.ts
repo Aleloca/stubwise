@@ -1,4 +1,4 @@
-import { docPageCodes, productPageFollows, productPageRevisions, productPages, projectDecisions, projects, users, type Db } from "@stubwise/db";
+import { docPageCodes, productPageBlockIds, productPageFollows, productPageRevisions, productPages, projectDecisions, projects, users, type Db } from "@stubwise/db";
 import {
   DOC_CODE_RE,
   blockChanges,
@@ -237,6 +237,7 @@ export async function createProductPage(
       .insert(productPages)
       .values({ projectId, parentId, title, blocks: [first], createdBy: viewer.id, updatedBy: viewer.id })
       .returning();
+    await tx.insert(productPageBlockIds).values({ pageId: page!.id, blockId: first.id });
     const siblings = await siblingIds(tx, projectId, parentId, page!.id);
     siblings.splice(Math.min(input.index ?? siblings.length, siblings.length), 0, page!.id);
     await renumber(tx, siblings);

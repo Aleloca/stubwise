@@ -1,6 +1,7 @@
 -- Area 11, F1: la documentazione di prodotto — lo spazio e l'editor. Le
--- pagine (corpo a blocchi in jsonb, D-11 = a; `block_seq` per gli id, che non
--- si riusano mai; `rev_seq` la sequenza delle revisioni della pagina), le
+-- pagine (corpo a blocchi in jsonb, D-11 = a; `rev_seq` la sequenza delle
+-- revisioni della pagina; gli id dei blocchi già dati in
+-- `product_page_block_ids`, perché non si riusino mai), le
 -- revisioni (create, edit, rename, move: le scritture della stessa sessione
 -- si uniscono all'ultima revisione della pagina, se è sua), chi segue, le
 -- immagini caricate (D-3 = a), e la serie dei codici `-D` condivisa coi Docs
@@ -13,7 +14,6 @@ CREATE TABLE "product_pages" (
 	"order" integer DEFAULT 0 NOT NULL,
 	"title" text NOT NULL,
 	"blocks" jsonb DEFAULT '[]'::jsonb NOT NULL,
-	"block_seq" integer DEFAULT 0 NOT NULL,
 	"rev_seq" integer DEFAULT 0 NOT NULL,
 	"created_by" uuid REFERENCES "users"("id") ON DELETE SET NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -42,6 +42,18 @@ CREATE TABLE "product_page_revisions" (
 );
 --> statement-breakpoint
 CREATE INDEX "product_page_revisions_page_seq_idx" ON "product_page_revisions" ("page_id", "last_seq");
+--> statement-breakpoint
+-- Gli id (blocco, riga, cella) già dati in una pagina: li genera il client
+-- (`blk-<uuid>`, il prototipo), e un id non torna per un blocco diverso.
+-- `removed_by`/`removed_session`: chi e quale sessione dell'editor l'ha tolto
+-- per ultima, perché ⌘Z di quella sessione lo possa rimettere.
+CREATE TABLE "product_page_block_ids" (
+	"page_id" uuid NOT NULL REFERENCES "product_pages"("id") ON DELETE CASCADE,
+	"block_id" text NOT NULL,
+	"removed_by" uuid REFERENCES "users"("id") ON DELETE SET NULL,
+	"removed_session" text,
+	CONSTRAINT "product_page_block_ids_pk" PRIMARY KEY ("page_id", "block_id")
+);
 --> statement-breakpoint
 CREATE TABLE "product_page_follows" (
 	"page_id" uuid NOT NULL REFERENCES "product_pages"("id") ON DELETE CASCADE,

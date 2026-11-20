@@ -165,11 +165,14 @@ export const productRevisionViewSchema = z.object({
   sessionId: z.string().nullable(),
   seq: z.number().int(),
   lastSeq: z.number().int(),
-  kind: z.enum(["edit"]),
+  kind: z.enum(["create", "edit", "rename", "move"]),
   actorId: z.uuid().nullable(),
   /** Il nome di chi ha scritto, se chi guarda lo vede (R-G5). */
   actorName: z.string().nullable(),
   changes: z.array(z.record(z.string(), z.unknown())),
+  /** `rename`: il titolo prima e dopo; `move`: il genitore prima e dopo. */
+  title: z.object({ before: z.string(), after: z.string() }).nullable().default(null),
+  parent: z.object({ beforeId: z.uuid().nullable(), afterId: z.uuid().nullable() }).nullable().default(null),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { attachments, chatChannels, chatMessageAttachments, chatMessages, driveFiles, tickets, type Db } from "@stubwise/db";
+import { attachments, chatChannels, chatMessageAttachments, chatMessages, driveFiles, productPageImages, tickets, type Db } from "@stubwise/db";
 import { CHAT_ATTACHMENTS_PER_MESSAGE, chatAttachmentAllowed, type ChatAttachmentView } from "@stubwise/shared";
 import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import type { ObjectStorage } from "../storage/index.js";
@@ -248,7 +248,9 @@ export async function storageKeysOfProject(db: Db | Tx, projectId: string): Prom
     .select({ key: driveFiles.storageKey })
     .from(driveFiles)
     .where(and(eq(driveFiles.projectId, projectId), isNotNull(driveFiles.storageKey)));
-  return [...chat, ...ticket, ...drive.map((d) => ({ key: d.key! }))].map((r) => r.key);
+  // Area 11, F1: le immagini delle pagine di prodotto (D-3 = a).
+  const product = await db.select({ key: productPageImages.storageKey }).from(productPageImages).where(eq(productPageImages.projectId, projectId));
+  return [...chat, ...ticket, ...drive.map((d) => ({ key: d.key! })), ...product].map((r) => r.key);
 }
 
 /**
