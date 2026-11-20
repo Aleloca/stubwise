@@ -221,6 +221,19 @@ describe("la colonna", () => {
     expect(state.productComments.find((c) => c.body === "Out of scope, yes.")!.replyToId).toBe("pc-acq-phases-1");
   });
 
+  it("chi ha scritto e chi guarda non vede (R-G5, nome `null` come dal server): «Someone», mai il nome", async () => {
+    const { visiblePeopleFor } = await import("../../../data/access/whoCan");
+    const { CLAUDE_ID, PEOPLE } = await import("../../../data/seed/people");
+    const hidden = PEOPLE.find((p) => p.id !== CLAUDE_ID && p.id !== MARCO && !visiblePeopleFor(MARCO).has(p.id))!;
+    const root = state.productComments.find((c) => c.id === SIGNIN_ROOT)!;
+    root.authorId = hidden.id;
+    await open(SIGNIN, MARCO);
+    const col = await column();
+    const thread = await within(col).findByRole("article", { name: /^Comment by Someone on/ });
+    expect(within(thread).getAllByText("Someone").length).toBeGreaterThan(0);
+    expect(document.body.textContent).not.toContain(hidden.name);
+  });
+
   it("in italiano: «Frase eliminata»", async () => {
     act(() => setLanguage("it"));
     await open(pageByTitle("Phases").code);

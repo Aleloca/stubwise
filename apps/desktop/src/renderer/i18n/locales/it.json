@@ -13178,6 +13178,7 @@
       }
     },
     "comments": {
+      "someone": "Qualcuno",
       "title": "Commenti",
       "close": "Chiudi i commenti",
       "resolvedCount_one": "{{count}} risolto",

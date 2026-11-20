@@ -4,7 +4,8 @@ import { plain } from "../../domain/productDocs/richText";
 import { listNotifications, productDocs, resetApi, setLatency } from "../api";
 import { docsAccess } from "../docs/reads";
 import type { ProductBlock, ProductPage } from "../model";
-import { CLAUDE_ID } from "../seed/people";
+import { visiblePeopleFor } from "../access/whoCan";
+import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
 import { revokeProjectPermission } from "../viewer";
@@ -34,6 +35,8 @@ const page = (title: string): ProductPage =>
 const block = (title: string, id: string) => page(title).blocks.find((b) => b.id === id)!;
 
 const SIGN_IN_PARA = "blk-acq-signin-2";
+/** Il commento salvato (con `seq`), dietro la vista che il livello dati restituisce. */
+const rawOf = (id: string) => state.productComments.find((c) => c.id === id)!;
 
 const snapshot = () =>
   JSON.stringify({
@@ -116,7 +119,7 @@ describe("il seme dei commenti", () => {
       quote: "UTC",
       body: "Fine.",
     });
-    expect(c.seq).toBeGreaterThan(max);
+    expect(rawOf(c.id).seq).toBeGreaterThan(max);
   });
 });
 
@@ -146,7 +149,7 @@ describe("commentare, rispondere, «Risolto»", () => {
       replyToId: root.id,
     });
     expect(reply.replyToId).toBe(root.id);
-    expect(reply.seq).toBeGreaterThan(root.seq);
+    expect(rawOf(reply.id).seq).toBeGreaterThan(rawOf(root.id).seq);
     // La risposta sta sull'ancora e sulla frase della sua radice.
     expect(reply.anchorId).toBe(SIGN_IN_PARA);
     expect(reply.quote).toBe("Google account");
@@ -560,5 +563,45 @@ describe("le menzioni (Q1)", () => {
     const text = JSON.stringify(cards[0]).toLowerCase();
     expect(text).not.toContain("sign-in");
     expect(text).not.toContain(signIn.code.toLowerCase());
+  });
+});
+
+describe("la vista del commento come la dà il server (area 11, F2)", () => {
+  it("la frase è UNA riga (`cleanQuote` di shared); il commento è la vista: nome, niente `seq`; «Risolto» dice chi", async () => {
+    const signIn = page("Sign-in");
+    as(LAURA);
+    const root = await productDocs.addProductComment(signIn.id, {
+      anchorId: SIGN_IN_PARA,
+      quote: "  Google\n   account  ",
+      body: "Do we keep a fallback?",
+    });
+    expect(root.quote).toBe("Google account");
+    expect(root.authorName).toBe("Laura Costa");
+    expect(root).not.toHaveProperty("seq");
+    await productDocs.resolveProductComment(root.id);
+    const [thread] = (await productDocs.listProductComments(signIn.id)).resolved.filter((t) => t.root.id === root.id);
+    expect(thread!.root.resolved).toMatchObject({ byId: LAURA, byName: "Laura Costa" });
+    expect(thread!.root).not.toHaveProperty("seq");
+  });
+
+  it("chi guarda non vede chi ha scritto né chi ha risolto: i nomi sono `null` (R-G5)", async () => {
+    const signIn = page("Sign-in");
+    // Una persona che Marco non vede (nessun progetto in comune), autrice e
+    // risolutrice di un filo: il commento resta, il nome no.
+    const hidden = PEOPLE.find((p) => p.id !== CLAUDE_ID && p.id !== MARCO && !visiblePeopleFor(MARCO).has(p.id))!;
+    const seed = state.productComments.find((c) => c.pageId === signIn.id && c.replyToId === null)!;
+    state.productComments.push({
+      ...structuredClone(seed),
+      id: "pc-hidden-author",
+      authorId: hidden.id,
+      mentionIds: [],
+      resolved: { byId: hidden.id, at: seed.createdAt },
+    });
+    as(MARCO);
+    const [thread] = (await productDocs.listProductComments(signIn.id)).resolved.filter(
+      (t) => t.root.id === "pc-hidden-author",
+    );
+    expect(thread!.root.authorName).toBeNull();
+    expect(thread!.root.resolved).toMatchObject({ byId: hidden.id, byName: null });
   });
 });

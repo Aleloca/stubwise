@@ -4524,8 +4524,14 @@ export interface ProductComment {
   question?: ProductQuestion;
 }
 
-export interface ProductCommentView extends Omit<ProductComment, "question"> {
-  authorName: string;
+/**
+ * Il commento come lo legge chi guarda, nella forma del server (area 11, F2):
+ * l'ordine lo danno i fili (niente `seq`), e un nome che chi guarda non vede
+ * è `null` (R-G5), anche quello di chi ha risolto.
+ */
+export interface ProductCommentView extends Omit<ProductComment, "question" | "seq" | "resolved"> {
+  authorName: string | null;
+  resolved: { byId: string; byName: string | null; at: string } | null;
   /** 11b: la domanda di Claude come la legge chi guarda (mai la fonte grezza). */
   question?: ProductQuestionView;
 }

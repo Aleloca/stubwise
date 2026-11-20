@@ -59,11 +59,11 @@ function CommentBody({ comment }: { comment: ProductCommentView }) {
 
 /** Una riga del filo: nome · ora (e l'azione a destra), poi il testo con le menzioni. */
 export function CommentLine({ comment, action }: { comment: ProductCommentView; action?: ReactNode }) {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   return (
     <div className="flex flex-col gap-1">
       <p className="flex min-w-0 items-baseline gap-1.5">
-        <span className="min-w-0 truncate text-sm font-semibold text-ink">{comment.authorName}</span>
+        <span className="min-w-0 truncate text-sm font-semibold text-ink">{comment.authorName ?? t("productDocs.comments.someone")}</span>
         <time dateTime={comment.createdAt} className="num shrink-0 text-xs text-ink-faint">
           {commentTime(comment.createdAt, i18n.language)}
         </time>
@@ -137,7 +137,7 @@ export const CommentThread = forwardRef<
       ref={ref}
       tabIndex={-1}
       data-thread={root.id}
-      aria-label={t("productDocs.comments.threadLabel", { name: root.authorName, quote: root.quote })}
+      aria-label={t("productDocs.comments.threadLabel", { name: root.authorName ?? t("productDocs.comments.someone"), quote: root.quote })}
       style={style}
       onFocus={onActive}
       onClick={onActive}
