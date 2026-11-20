@@ -611,6 +611,21 @@ describe("una scrittura rifiutata non blocca la fila", () => {
   });
 });
 
+describe("una sezione presa da un altro (409 `section_busy`, piano F4)", () => {
+  it("il blocco resta com'era, la barra dice chi la tiene, nessun Retry", async () => {
+    seedBlock(LOGIN);
+    await openSignIn();
+    saves.mockRejectedValueOnce(Object.assign(new Error("section_busy"), { by: "Marco Bellini" }));
+    const el = await enter(LOGIN, 22);
+    input(el, "insertText", "!");
+    leave(el);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Couldn't save a change: Marco Bellini is writing in this section");
+    expect(within(alert).queryByRole("button", { name: "Retry" })).toBeNull();
+    await waitFor(() => expect(textbox(LOGIN)).toBeTruthy());
+  });
+});
+
 describe("tastiera e lettori di schermo", () => {
   it("il titolo modificabile si raggiunge con Tab", async () => {
     await openSignIn();

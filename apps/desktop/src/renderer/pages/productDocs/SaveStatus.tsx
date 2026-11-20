@@ -17,13 +17,17 @@ export function SaveStatus({ status }: { status: EditorStatus }) {
     return (
       <span role="alert" className="mr-1 inline-flex shrink-0 items-center gap-1 text-xs whitespace-nowrap text-critical">
         <AlertIcon />
-        {t(
-          status.dropped === "forbidden"
-            ? "productDocs.editor.save.droppedForbidden"
-            : status.dropped === "gone"
-              ? "productDocs.editor.save.droppedGone"
-              : "productDocs.editor.save.dropped",
-        )}
+        {status.dropped === "busy"
+          ? t("productDocs.editor.save.droppedBusy", {
+              name: status.droppedBy ?? t("productDocs.comments.someone"),
+            })
+          : t(
+              status.dropped === "forbidden"
+                ? "productDocs.editor.save.droppedForbidden"
+                : status.dropped === "gone"
+                  ? "productDocs.editor.save.droppedGone"
+                  : "productDocs.editor.save.dropped",
+            )}
       </span>
     );
   }

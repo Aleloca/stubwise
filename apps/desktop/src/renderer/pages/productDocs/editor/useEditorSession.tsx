@@ -88,11 +88,14 @@ function touches(ops: readonly ProductBlockOp[], id: string): boolean {
  * Un rifiuto che riprovando non cambierebbe, e il suo perché: l'input non vale
  * per la pagina (`invalid: …`, anche `invalid: stale`), chi scrive non può più
  * (`forbidden`), la pagina non c'è più (`not_found`) — I4 della revisione di
- * R11-1. Ogni altro errore (rete, server) si riprova con Retry.
+ * R11-1 —, la sezione la tiene un altro che ci sta scrivendo (`section_busy`,
+ * F4: `by` è il nome, se chi guarda lo vede). Ogni altro errore (rete,
+ * server) si riprova con Retry.
  */
-export type DropReason = "changed" | "forbidden" | "gone";
+export type DropReason = "changed" | "forbidden" | "gone" | "busy";
 const rejected = (error: unknown): DropReason | null => {
   if (!(error instanceof Error)) return null;
+  if (error.message === "section_busy") return "busy";
   if (error.message.startsWith("invalid:")) return "changed";
   if (error.message === "forbidden") return "forbidden";
   if (error.message === "not_found") return "gone";
@@ -142,6 +145,8 @@ export function useEditorSession(page: ProductPageView) {
   const [skipped, setSkipped] = useState(false);
   /** L'ultima scrittura rifiutata dal livello dati e scartata. */
   const [dropped, setDropped] = useState<DropReason | false>(false);
+  /** Chi tiene la sezione di una scrittura scartata per `section_busy` (`null`: non si vede). */
+  const [droppedBy, setDroppedBy] = useState<string | null>(null);
   const stackRef = useRef<UndoStack>({ undo: [], redo: [] });
   const [stack, setStackState] = useState<UndoStack>(stackRef.current);
   const setStack = (next: UndoStack) => {
@@ -220,6 +225,8 @@ export function useEditorSession(page: ProductPageView) {
         queue.current.shift();
         setPending(queue.current.map((b) => b.ops));
         setDropped(reason);
+        const by = (error as { by?: unknown }).by;
+        setDroppedBy(reason === "busy" && typeof by === "string" ? by : null);
         if (queue.current.length > 0) void pump();
         else {
           setState("idle");
@@ -340,6 +347,7 @@ export function useEditorSession(page: ProductPageView) {
     canRedo: stack.redo.length > 0,
     skipped,
     dropped,
+    droppedBy,
     touch,
     /** La pagina con le scritture in fila: quella vera, su cui si ragiona. */
     blocks: view,

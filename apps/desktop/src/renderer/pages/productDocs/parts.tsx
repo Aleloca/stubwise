@@ -29,6 +29,8 @@ export interface EditorStatus {
   /** L'ultima scrittura rifiutata dal livello dati (`invalid: …`) e scartata. */
   /** Perché l'ultima scrittura è stata scartata (`false`: nessuna). */
   dropped: DropReason | false;
+  /** Con `busy`: chi tiene la sezione, se chi guarda lo vede (F4). */
+  droppedBy?: string | null;
   retry: () => void;
 }
 

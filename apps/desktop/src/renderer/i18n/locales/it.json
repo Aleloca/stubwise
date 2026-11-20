@@ -13167,7 +13167,8 @@
         "notUndone": "Cambiato da altri, non annullato",
         "dropped": "Modifica non salvata: la pagina era cambiata",
         "droppedForbidden": "Modifica non salvata: non puoi più modificare questa pagina",
-        "droppedGone": "Modifica non salvata: la pagina è stata eliminata"
+        "droppedGone": "Modifica non salvata: la pagina è stata eliminata",
+        "droppedBusy": "Modifica non salvata: {{name}} sta scrivendo in questa sezione"
       },
       "title": {
         "field": "Titolo della pagina",

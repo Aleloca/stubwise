@@ -13167,7 +13167,8 @@
         "notUndone": "Changed by someone else, not undone",
         "dropped": "Couldn't save a change: the page had changed",
         "droppedForbidden": "Couldn't save a change: you can no longer edit this page",
-        "droppedGone": "Couldn't save a change: the page was deleted"
+        "droppedGone": "Couldn't save a change: the page was deleted",
+        "droppedBusy": "Couldn't save a change: {{name}} is writing in this section"
       },
       "title": {
         "field": "Page title",

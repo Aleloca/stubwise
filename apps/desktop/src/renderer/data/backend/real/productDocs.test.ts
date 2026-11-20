@@ -735,3 +735,30 @@ describe("i commenti dal server (area 11, F2; R11-2)", () => {
     expect(seen[0]!.path).toBe(`/api/projects/${PROJECT_ID}/product/mention-candidates?q=ma`);
   });
 });
+
+describe("una sezione presa da un altro (F4, bozza del piano)", () => {
+  it("409 `section_busy`: un rifiuto `section_busy` col nome di chi la tiene (o nessuno, se chi guarda non lo vede)", async () => {
+    for (const [by, name] of [
+      [{ id: ME_ID, name: "Marco Bellini" }, "Marco Bellini"],
+      [{ id: ME_ID, name: null }, undefined],
+    ] as const) {
+      forgetProductDocs();
+      installFakeServer({
+        "GET /api/product-pages/by-code/AUD-D5": { body: pageView() },
+        [`POST /api/product-pages/${PAGE}/ops`]: {
+          status: 409,
+          body: { code: "section_busy", message: "x", by, sectionId: "blk-1" },
+        },
+      });
+      await docs.getProductPage!("AUD-D5");
+      const error = await docs.saveProductBlocks!(PAGE, [{ op: "delete", blockId: "blk-1" }], {
+        sessionId: "s",
+      }).then(
+        () => null,
+        (e: unknown) => e as Error & { by?: string },
+      );
+      expect(error?.message).toBe("section_busy");
+      expect(error?.by).toBe(name);
+    }
+  });
+});

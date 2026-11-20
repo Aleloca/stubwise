@@ -55,6 +55,13 @@ function mapError(error: unknown): never {
   if (error instanceof ApiError) {
     if (error.status === 403) throw fail("forbidden");
     if (error.status === 404) throw fail("not_found");
+    // F4 (bozza del piano): la sezione la tiene un altro che ci scrive. Il
+    // blocco resta com'era e la barra dice chi, se chi guarda lo vede.
+    if (error.status === 409 && error.code === "section_busy") {
+      const by = (error.details as { by?: { name?: unknown } | string } | undefined)?.by;
+      const name = typeof by === "string" ? by : typeof by?.name === "string" ? by.name : undefined;
+      throw Object.assign(fail("section_busy"), name ? { by: name } : {});
+    }
     // Un 409 dell'albero (`has_children`, `cycle`, `too_deep`, `too_many_pages`)
     // non cambia riprovando; `stale` sì (lo riprova il salvataggio, poi la fila).
     if (error.status === 409 && error.code !== "stale")
