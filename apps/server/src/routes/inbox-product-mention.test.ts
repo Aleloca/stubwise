@@ -122,4 +122,40 @@ describe("la menzione nella doc di prodotto", () => {
     const again = await mention("@other-m ancora");
     expect(await rowsFor(again.comment.id)).toHaveLength(0);
   });
+
+  it("review di F2: una pagina che non c'è più con il commento che c'è ancora (il ramo della pagina, da solo) è `objectGone`", async () => {
+    const { comment } = await mention("@reader-m resta il commento");
+    await t.db
+      .update(notifications)
+      .set({ event: sql`jsonb_set(${notifications.event}, '{pageId}', to_jsonb(${randomUUID()}::text))` })
+      .where(and(eq(notifications.userId, reader.id), sql`${notifications.event}->>'commentId' = ${comment.id}`));
+    const [card] = await cardsOf(reader, comment.id);
+    expect(card).toMatchObject({ objectGone: true, productDoc: null });
+  });
+});
+
+describe("review di F2: `updated` e `question` si derivano come la menzione (i produttori arrivano con F5)", () => {
+  it("la pagina di adesso senza commento; pagina eliminata → `objectGone` con la frase neutra", async () => {
+    const created = (await inject(editor, "POST", `/api/projects/${projectId}/product/pages`, { title: "Aggiornata" })).json() as { id: string; code: string };
+    const ids: string[] = [];
+    for (const kind of ["product_doc.updated", "product_doc.question"] as const) {
+      const extra = kind === "product_doc.updated" ? { revisionId: null } : { questionId: null };
+      const [row] = await t.db
+        .insert(notifications)
+        .values({ userId: reader.id, projectId, kind, status: "open", event: { kind, pageId: created.id, pageCode: "VEC-D1", projectId, projectCode: "VEC", ...extra } })
+        .returning({ id: notifications.id });
+      ids.push(row!.id);
+    }
+    const read = async () => ((await inject(reader, "GET", "/api/inbox")).json() as { items: InboxItem[] }).items.filter((i) => ids.includes(i.id));
+    for (const card of await read()) {
+      expect(card, card.kind).toMatchObject({ objectGone: false, productDoc: { pageId: created.id, pageCode: created.code, pageTitle: "Aggiornata", commentId: null, threadRootId: null } });
+      expect(card.text, card.kind).toContain(created.code);
+      expect(card.text, card.kind).not.toContain("VEC-D1");
+    }
+    expect((await inject(editor, "DELETE", `/api/product-pages/${created.id}`)).statusCode).toBeLessThan(300);
+    for (const card of await read()) {
+      expect(card, card.kind).toMatchObject({ objectGone: true, productDoc: null });
+      expect(card.text, card.kind).not.toContain(created.code);
+    }
+  });
 });

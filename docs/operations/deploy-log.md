@@ -5781,6 +5781,9 @@ deploy o di un rollback che la tocca.
   - Migrazione **0204** (`product_comments`): i commenti delle pagine di
     prodotto, con la CHECK del testo eliminato (`deleted_at IS NULL OR body =
     ''`).
+  - Migrazione **0205** (`product_comments_original_anchor`, review di F2):
+    la colonna `original_anchor_id`, per riportare i fili sul blocco che un
+    ⌘Z rimette dopo un `merge`.
   - Rotte nuove sotto `/api`: i fili di una pagina (`GET`/`POST
     /product-pages/:id/comments`), «Resolve»/«Reopen» (`POST
     /product-comments/:id/resolve|reopen`), i candidati alle menzioni (`GET
@@ -5791,8 +5794,14 @@ deploy o di un rollback che la tocca.
     interruttore), aggiornamento e domanda accesi di partenza per chi ha
     `docs.edit`.
 
-  **ORDINE**: **server** (healthy, 0203 e 0204 applicate), poi **caddy** (il
-  renderer di 94). Il worker non c'entra.
+  **ORDINE**: **server** (healthy, 0203–0205 applicate), poi **worker**, poi
+  **caddy** (il renderer di 94). Il worker c'entra (review di F2): le push
+  delle menzioni le consegna lui (`deliveries-poller.ts`, `buildPushPayload`),
+  e F2 cambia `packages/notifications` (i titoli push e le frasi dei tre kind).
+  Un worker vecchio con una `product_doc.mention` col Telefono acceso non ha il
+  titolo del kind, e la consegna finisce `failed` senza riprovare. Come per
+  `member.added`: niente lavoro dell'agente in corso al riavvio («Worker
+  fail-on-restart»).
 
   **Rollback**: ⚠️ **NON sicuro sul server finché esistono righe di uno dei
   tre kind** (`/api/inbox` va in 500: il server vecchio non conosce il
@@ -5807,7 +5816,7 @@ deploy o di un rollback che la tocca.
    where kind in ('product_doc.mention', 'product_doc.updated', 'product_doc.question');
   ```
 
-  Tolte quelle righe, la discesa è possibile. Il caddy scende **insieme** al
-  server. Le migrazioni non si annullano: valori d'enum e `product_comments`
+  Tolte quelle righe, la discesa è possibile. Il **worker** e il caddy
+  scendono **insieme** al server. Le migrazioni non si annullano: valori d'enum e `product_comments`
   restano, e un server vecchio li ignora. I commenti scritti restano nella
   tabella e tornano visibili quando si risale.

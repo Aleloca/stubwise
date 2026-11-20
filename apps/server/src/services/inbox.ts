@@ -1050,7 +1050,7 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
   // Area 11, F2: le card della doc di prodotto derivate a lettura (la pagina di adesso, per chi legge;
   // null = pagina o commento tolti, o Docs del progetto che chi legge non legge più).
   const isProductDocKind = (kind: string) => kind === "product_doc.mention" || kind === "product_doc.updated" || kind === "product_doc.question";
-  const productDocCards = await productDocCardsFor(db, userId, page.filter((r) => r.kind === "product_doc.mention"));
+  const productDocCards = await productDocCardsFor(db, userId, page.filter((r) => isProductDocKind(r.kind)));
 
   // Area 7: le card `automation.*` derivate a lettura (l'esecuzione com'è adesso, per chi legge).
   const automationCards = await automationCardsFor(db, userId, page.filter((r) => isAutomationKind(r.kind)));
@@ -1058,10 +1058,12 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
   const items = page.map((r): InboxItem => {
     // La resa dal jsonb è l'unica parte che può esplodere: sta dentro il suo
     // recinto (vedi `renderItem`).
-    const productDoc = r.kind === "product_doc.mention" ? (productDocCards.get(r.id) ?? null) : null;
+    const productDoc = isProductDocKind(r.kind) ? (productDocCards.get(r.id) ?? null) : null;
     const rendered = renderItem(
       // La frase con i dati di ADESSO (il codice, chi ha scritto se chi legge lo vede): mai dal jsonb.
-      productDoc ? { ...r.event, pageCode: productDoc.pageCode, projectCode: productDoc.projectCode, authorName: productDoc.authorName ?? "" } : withCommentExcerpt(r.event, commentsById),
+      productDoc
+        ? { ...r.event, pageCode: productDoc.pageCode, projectCode: productDoc.projectCode, ...(r.kind === "product_doc.mention" ? { authorName: productDoc.authorName ?? "" } : {}) }
+        : withCommentExcerpt(r.event, commentsById),
       r.kind,
       lang,
       sourceProposalIds.get(r.id) ?? null,
@@ -1104,7 +1106,7 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       (r.ticketId === null && typeof eventTicketId === "string" && goneTickets.has(eventTicketId)) ||
       (isChat && chat === null) ||
       (isAutomationKind(r.kind) && automation === null) ||
-      (r.kind === "product_doc.mention" && productDoc === null);
+      (isProductDocKind(r.kind) && productDoc === null);
     // Una task eliminata non si apre: niente link alla sua pagina.
     const { url: _url, ...withoutUrl } = rendered;
     void _url;

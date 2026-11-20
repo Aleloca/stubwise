@@ -1406,7 +1406,17 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   Da chiudere per tutti e due insieme, con un controllo nel resolver di
   progetto delle rotte `docs.*`.
 - L'«Undo» di una revisione dalla cronologia: nel prototipo c'è solo per le
-  modifiche di Claude, quindi arriva con F5.
+  modifiche di Claude, quindi arriva con F5. *(Review di F2)*: quel ripristino
+  rimette blocchi tolti come il ⌘Z, e deve chiamare `restoreMergedAnchors`
+  (`services/product-comments.ts`) come fa già `saveProductBlocks` con
+  `undoOf`, o i fili spostati da un `merge` restano sul blocco che l'aveva
+  assorbito.
+- **Gli id di chi ha scritto escono anche quando il nome è nascosto**
+  *(S, review di F2, F1 e F2 insieme)*: con R-G5 il NOME di una persona che
+  chi guarda non vede è null, ma il suo id no: `actorId` delle revisioni (F1),
+  `authorId` e `resolved.byId` dei commenti, `productDoc.authorId` della card
+  (F2). Coerente con il resto dell'app, dove gli id non sono un segreto; da
+  rivedere insieme se R-G5 deve coprire anche gli id.
 - Origine di una richiesta dalla documentazione di prodotto.
 - Le cinque capacità `product*` di Claude in S0 (dall'area 10, F7-1 = a).
 - Azioni di Claude dell'area 11.
