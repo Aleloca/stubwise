@@ -11,6 +11,8 @@ import {
   productRevisionViewSchema,
   productSearchResultsSchema,
   productExportPageSchema,
+  productPresenceBeatResultSchema,
+  productPresenceBeatSchema,
   productExportSpaceSchema,
   productExportTooLargeSchema,
   PRODUCT_EXPORT_PAGES_MAX,
@@ -42,6 +44,10 @@ import {
   saveProductBlocks,
 } from "../services/product-docs-ops.js";
 import { searchProductPages } from "../services/product-search.js";
+import { ProductLiveError } from "../services/product-live.js";
+import { visiblePersonIds } from "../services/people-visibility.js";
+import { productPages } from "@stubwise/db";
+import { eq } from "drizzle-orm";
 import { exportProductPage, exportProductSpace, ProductExportTooLarge } from "../services/product-export.js";
 import { addProductComment, listProductComments, productMentionCandidates, setProductCommentResolved } from "../services/product-comments.js";
 import { StorageObjectNotFound } from "../storage/errors.js";
@@ -128,6 +134,8 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
     async (request, reply) =>
       handle(reply, async () => {
         await updateProductPage(app.db, request.user!, request.params.id, request.body);
+        // F4: agli stream della pagina, dopo il commit (la NOTIFY nella transazione serve agli altri processi).
+        void publishPageChange(request.params.id, request.user!.id, request.body.move ? "move" : "rename");
         return reply.code(204).send(null);
       }),
   );
@@ -138,6 +146,8 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
     async (request, reply) =>
       handle(reply, async () => {
         const { storageKeys } = await deleteProductPage(app.db, request.params.id);
+        // F4: chi la guarda dal vivo riceve `gone`.
+        app.productLive.gone(request.params.id);
         // Gli oggetti delle immagini DOPO il commit (review di F1, I2): uno storage
         // che rifiuta lascia la chiave in `storage_orphans`, e la pulizia oraria la ritenta.
         if (storageKeys.length > 0) {
@@ -170,7 +180,12 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
     },
     async (request, reply) => {
       try {
-        return await saveProductBlocks(app.db, request.user!, request.params.id, request.body);
+        const saved = await saveProductBlocks(app.db, request.user!, request.params.id, request.body);
+        // F4: agli stream della pagina, dopo il commit, CON le operazioni (chi è al seq di prima le applica).
+        void app.productLive
+          .revision({ pageId: request.params.id, seq: saved.seq, kind: "edit", actorId: request.user!.id, sessionId: request.body.sessionId, ops: request.body.ops })
+          .catch((error: unknown) => request.log.warn({ err: error }, "canale dal vivo: revisione non consegnata"));
+        return saved;
       } catch (error) {
         if (error instanceof ProductStaleError) return reply.code(409).send({ code: error.code, message: error.message, revisions: error.revisions });
         if (error instanceof ProductSectionBusyError) return reply.code(409).send({ code: error.code, message: error.message, sectionId: error.sectionId, by: error.by });
@@ -268,6 +283,83 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
         .header("content-disposition", "inline")
         .header("content-security-policy", "default-src 'none'; sandbox")
         .send(bytes as never);
+    },
+  );
+
+  // --- F4: il canale dal vivo e il battito ---
+
+  /** Una rinomina o uno spostamento, agli stream della pagina (fail-open: lo stream ha la sua NOTIFY). */
+  async function publishPageChange(pageId: string, actorId: string, kind: "rename" | "move"): Promise<void> {
+    try {
+      const [page] = await app.db.select({ seq: productPages.revSeq, title: productPages.title, parentId: productPages.parentId }).from(productPages).where(eq(productPages.id, pageId));
+      if (page) await app.productLive.revision({ pageId, seq: page.seq, kind, actorId, sessionId: null, title: page.title, parentId: page.parentId });
+    } catch (error) {
+      app.log.warn({ err: error }, "canale dal vivo: cambio della pagina non consegnato");
+    }
+  }
+
+  app.get(
+    "/product-pages/:id/live",
+    { config: { access: PAGE_VIEW }, schema: { params: pageParams, response: { 404: errorSchema, 429: errorSchema, ...authErrorResponses } } },
+    async (request, reply) => {
+      const [page] = await app.db.select({ projectId: productPages.projectId, seq: productPages.revSeq }).from(productPages).where(eq(productPages.id, request.params.id));
+      if (!page) return apiError(reply, 404, "not_found", "Not found");
+      let closed = false;
+      let unsubscribe: () => void = () => undefined;
+      const timers: NodeJS.Timeout[] = [];
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        for (const timer of timers) clearInterval(timer);
+        unsubscribe();
+        reply.raw.end();
+      };
+      const write = (frame: Record<string, unknown>) => {
+        if (!closed) reply.raw.write(`data: ${JSON.stringify(frame)}\n\n`);
+      };
+      // I tetti e i permessi PRIMA di aprire: un 429 o un 404 sono risposte vere, non uno stream.
+      const pending: Record<string, unknown>[] = [];
+      let open = false;
+      try {
+        unsubscribe = await app.productLive.open({
+          pageId: request.params.id,
+          projectId: page.projectId,
+          userId: request.user!.id,
+          seq: page.seq,
+          send: (frame) => (open ? write(frame) : pending.push(frame)),
+          close,
+        });
+      } catch (error) {
+        if (error instanceof ProductLiveError) return apiError(reply, error.status as 404, error.code, error.message);
+        throw error;
+      }
+      reply.hijack();
+      reply.raw.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" });
+      open = true;
+      for (const frame of pending) write(frame);
+      reply.raw.on("close", close);
+      timers.push(
+        setInterval(() => {
+          if (!closed) reply.raw.write(": ping\n\n");
+        }, 25_000),
+      );
+    },
+  );
+
+  app.post(
+    "/product-pages/:id/live/presence",
+    { config: { access: PAGE_VIEW }, schema: { params: pageParams, body: productPresenceBeatSchema, response: { 200: productPresenceBeatResultSchema, ...authErrorResponses } } },
+    async (request, reply) => {
+      // Con una sezione il battito PRENDE (scrive): serve `docs.edit`.
+      if (typeof request.body.sectionId === "string" && !routePermissions(request).has("docs.edit")) return apiError(reply, 403, "forbidden", "Missing permission");
+      const people = await visiblePersonIds(app.db, request.user!);
+      return app.productLive.beat({
+        pageId: request.params.id,
+        userId: request.user!.id,
+        viewerSees: (id) => people === "all" || people.includes(id),
+        ...(request.body.cursor !== undefined ? { cursor: request.body.cursor } : {}),
+        ...(request.body.sectionId !== undefined ? { sectionId: request.body.sectionId } : {}),
+      });
     },
   );
 

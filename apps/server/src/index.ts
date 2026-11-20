@@ -3,6 +3,7 @@ import { createChatBus } from "./chat/bus.js";
 import { buildApp } from "./app.js";
 import { backfillManualPageEmbeddings } from "./services/doc-embed.js";
 import { backfillAllProductSearchText, startProductEmbedPoller } from "./services/product-embed.js";
+import { PRODUCT_LIVE_NOTIFY } from "./services/product-live-notify.js";
 import { loadConfig, type Config } from "./config.js";
 import { createDb, runMigrations } from "@stubwise/db";
 
@@ -61,6 +62,8 @@ const app = buildApp({
 // girerebbe in ogni test; PRIMA di `listen` (review di F3, C1: l'hook di
 // chiusura dopo `listen` fa uscire il server all'avvio).
 if (config.productEmbedPollSeconds !== undefined) startProductEmbedPoller(app, config.productEmbedPollSeconds);
+// Area 11, F4: le revisioni scritte da un altro processo (il worker, F5) arrivano al canale dal vivo.
+await client.listen(PRODUCT_LIVE_NOTIFY, (payload) => app.productLive.handleNotify(payload));
 
 try {
   await app.listen({ port: config.port, host: "0.0.0.0" });

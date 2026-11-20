@@ -17,6 +17,7 @@ import { projectPermissionsByProject } from "@stubwise/notifications";
 import { projectPermissionsFor } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { personName } from "./people.js";
+import { notifyProductGone, notifyProductRevision } from "./product-live-notify.js";
 import { visiblePersonIds } from "./people-visibility.js";
 
 /**
@@ -353,6 +354,7 @@ export async function updateProductPage(
         await tx.update(productPages).set({ title: after, searchText: productSearchText(after, readBlocks(page)), updatedBy: viewer.id, updatedAt: new Date() }).where(eq(productPages.id, pageId));
         const seq = await nextRevSeq(tx, pageId);
         await tx.insert(productPageRevisions).values({ pageId, seq, lastSeq: seq, actorId: viewer.id, kind: "rename", title: { before: page.title, after } });
+        await notifyProductRevision(tx, { pageId, seq, kind: "rename", actorId: viewer.id, sessionId: null, title: after });
       }
     }
     if (input.move) {
@@ -370,6 +372,7 @@ export async function updateProductPage(
         await tx.update(productPages).set({ updatedBy: viewer.id, updatedAt: new Date() }).where(eq(productPages.id, pageId));
         const seq = await nextRevSeq(tx, pageId);
         await tx.insert(productPageRevisions).values({ pageId, seq, lastSeq: seq, actorId: viewer.id, kind: "move", parent: { beforeId, afterId: parentId } });
+        await notifyProductRevision(tx, { pageId, seq, kind: "move", actorId: viewer.id, sessionId: null, parentId });
       }
     }
   });
@@ -393,6 +396,7 @@ export async function deleteProductPage(db: Db, pageId: string): Promise<{ stora
     if (child) throw new ProductDocsError(409, "has_children", "The page has pages under it");
     const images = await tx.select({ key: productPageImages.storageKey }).from(productPageImages).where(eq(productPageImages.pageId, pageId));
     await tx.delete(productPages).where(eq(productPages.id, pageId));
+    await notifyProductGone(tx, pageId);
     await renumber(tx, await siblingIds(tx, page.projectId, page.parentId));
     return { storageKeys: images.map((i) => i.key) };
   });

@@ -40,6 +40,7 @@ import { visiblePersonIds } from "./people-visibility.js";
 import type { ObjectStorage } from "../storage/index.js";
 import { removeOrRecordOrphan } from "../storage/orphans.js";
 import { moveMergedAnchors, restoreMergedAnchors } from "./product-comments.js";
+import { PRODUCT_HOLD_TTL_MS, notifyProductRevision } from "./product-live-notify.js";
 import { ProductDocsError } from "./product-docs.js";
 
 /**
@@ -84,8 +85,7 @@ export class ProductSectionBusyError extends ProductDocsError {
   }
 }
 
-/** Quanto dura una presa: tre battiti persi (il battito è ogni 5 s). */
-export const PRODUCT_HOLD_TTL_MS = 15_000;
+export { PRODUCT_HOLD_TTL_MS };
 
 /**
  * Le sezioni che le operazioni toccano, sui blocchi di PRIMA (review di F4: dopo,
@@ -234,6 +234,9 @@ export async function saveProductBlocks(db: Db, viewer: Viewer, pageId: string, 
       .set({ blocks: next.blocks, searchText: productSearchText(page.title, next.blocks), revSeq: sql`${productPages.revSeq} + 1`, updatedBy: viewer.id, updatedAt: new Date() })
       .where(eq(productPages.id, pageId))
       .returning({ seq: productPages.revSeq })) as [{ seq: number }];
+    // F4: il canale dal vivo, al commit (un rollback la toglie). Gli stream dello stesso processo
+    // ricevono le operazioni dalla rotta; questa NOTIFY serve agli altri (il worker, F5).
+    await notifyProductRevision(tx, { pageId, seq, kind: "edit", actorId: viewer.id, sessionId: input.sessionId });
     // F2: i fili del blocco assorbito da un `merge` passano sul blocco unito, nella stessa scrittura;
     // un ⌘Z che rimette un blocco ci riporta i fili che il merge gli aveva tolto (review di F2, M4).
     await moveMergedAnchors(tx, pageId, input.ops as ProductBlockOp[]);
