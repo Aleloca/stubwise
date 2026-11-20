@@ -1443,6 +1443,13 @@
       "when": 1802304000000,
       "tag": "0207_product_pages_search_text",
       "breakpoints": true
+    },
+    {
+      "idx": 208,
+      "version": "7",
+      "when": 1802390400000,
+      "tag": "0208_doc_chat_product_sources",
+      "breakpoints": true
     }
   ]
 }

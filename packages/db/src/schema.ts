@@ -3070,6 +3070,12 @@ export const docChatMessages = pgTable(
     role: text("role").notNull(),
     content: text("content").notNull(),
     citations: jsonb("citations"),
+    /**
+     * Area 11, F3 (0208, 46): le pagine di prodotto date al modello per questa
+     * risposta, SOLO gli id: titolo e codice si rileggono a ogni riapertura con
+     * la visibilità di adesso (una pagina che chi guarda non vede più non esce).
+     */
+    productSources: jsonb("product_sources").$type<{ pageId: string }[]>().notNull().default(sql`'[]'::jsonb`),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   // I messaggi si caricano sempre per sessione, in ordine cronologico.
