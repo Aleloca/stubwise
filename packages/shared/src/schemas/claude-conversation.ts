@@ -253,8 +253,11 @@ export const CHAT_ASK_TOOL = "ask_question" as const;
  * sta in un canale, ospiti compresi: lì non ci sono (`mail-calendar.md`, mai un
  * canale condiviso). Il server li rifiuta comunque fuori da una conversazione
  * libera privata (`chat_tool_private_only`).
+ * Dalla review di F3–F8 (I1) anche la spesa del mese (`read_usage_month`): la
+ * vede chi ha `usage.view` o `project.usage.view`, e una pubblica la
+ * mostrerebbe a chiunque abbia `claude.public.view`, un canale agli ospiti.
  */
-export const CHAT_PRIVATE_READ_TOOLS: readonly ChatReadToolName[] = ["read_mail_thread", "read_calendar_event"];
+export const CHAT_PRIVATE_READ_TOOLS: readonly ChatReadToolName[] = ["read_mail_thread", "read_calendar_event", "read_usage_month"];
 /**
  * Area 10, F2: i tool di un turno della conversazione LIBERA — tutti, più la
  * domanda a scelta (`ask_question`), che lì scrive il worker in

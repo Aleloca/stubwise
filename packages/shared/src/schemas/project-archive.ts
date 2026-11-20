@@ -180,5 +180,7 @@ export const archiveCandidatesSchema = z.object({
   busy: z.array(z.object({ code: z.string(), reasons: z.array(busyReasonSchema) })).default([]),
   notManageable: z.number().int().default(0),
   notManageableCodes: z.array(z.string()).default([]),
+  /** Review di F3–F8 (M7): i progetti fermi oltre il tetto esaminato, non elencati. Additivo. */
+  more: z.number().int().default(0),
 });
 export type ArchiveCandidates = z.infer<typeof archiveCandidatesSchema>;

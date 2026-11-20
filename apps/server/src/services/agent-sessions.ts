@@ -1052,6 +1052,13 @@ export async function listAgentSessionEvents(
     .orderBy(page.after ? agentSessionEvents.id : desc(agentSessionEvents.id))
     .limit(page.limit);
   const ordered = page.after ? rows : rows.reverse();
+  // Area 10, review di F3–F8 (I2a): in una conversazione con Claude, a chi NON
+  // ne è l'autore (il lettore di una pubblica) le letture dei tool arrivano
+  // senza contenuto. Quel contenuto è la risposta del server all'AUTORE, coi
+  // suoi permessi: un filtro per chi guarda su un evento strutturato non
+  // serve a niente se il JSON grezzo arriva accanto (`claude-actions.md`).
+  const [conversation] = await db.select({ ownerId: claudeConversations.ownerId }).from(claudeConversations).where(eq(claudeConversations.sessionId, id));
+  const withheld = conversation !== undefined && conversation.ownerId !== viewer.id;
   // Autore degli interventi: DERIVATO qui e sovrascritto su quello che il jsonb dicesse.
   const authors = await emailsOf(
     db,
@@ -1075,11 +1082,22 @@ export async function listAgentSessionEvents(
                 ? (authors.get(e.data["authorUserId"]) ?? null)
                 : null,
           }
-        : e.data,
+        : withheld && (e.type === "tool_use" || e.type === "tool_result")
+          ? toolEventForReader(e.type, e.data)
+          : e.data,
   }));
   const before = !page.after && rows.length === page.limit ? (events[0]?.id ?? null) : null;
   // Area 10, F3: gli `aside` del lavoro fermo, coi codici e la visibilità di chi guarda.
   return { events: await enrichAsides(db, viewer, events), before };
+}
+
+/**
+ * Il `tool_use`/`tool_result` per chi legge una conversazione altrui: il nome
+ * del tool e l'esito, mai argomenti né contenuto (`withheld: true`).
+ */
+function toolEventForReader(type: "tool_use" | "tool_result", data: Record<string, unknown>): Record<string, unknown> {
+  if (type === "tool_use") return { toolUseId: data["toolUseId"], name: data["name"], input: {}, withheld: true };
+  return { toolUseId: data["toolUseId"], isError: data["isError"] === true, content: "", withheld: true };
 }
 
 export type SendAgentMessageResult =

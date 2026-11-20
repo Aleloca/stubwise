@@ -39,7 +39,19 @@ export async function lastActivityByProject(db: Db, projectIds: readonly string[
  * `busy`; gli altri sono candidati. I progetti che chi chiede non vede sono
  * fuori dalla WHERE, prima di tutto.
  */
-export async function archiveCandidates(db: Db, viewer: Pick<SessionUser, "id" | "email" | "role" | "instancePermissions">, inactiveDays: number): Promise<ArchiveCandidates> {
+/**
+ * Review di F3–F8 (M7): quanti progetti fermi si esaminano (i motivi `busy`
+ * costano qualche query per progetto). I più fermi prima; quelli oltre il
+ * tetto si contano in `more`, e Claude lo dice.
+ */
+export const ARCHIVE_CANDIDATES_SCAN_MAX = 50;
+
+export async function archiveCandidates(
+  db: Db,
+  viewer: Pick<SessionUser, "id" | "email" | "role" | "instancePermissions">,
+  inactiveDays: number,
+  scanMax = ARCHIVE_CANDIDATES_SCAN_MAX,
+): Promise<ArchiveCandidates> {
   const visible = await visibleProjectIds(db, viewer);
   const open = await db
     .select({ id: projects.id, code: projects.code, name: projects.name })
@@ -53,8 +65,8 @@ export async function archiveCandidates(db: Db, viewer: Pick<SessionUser, "id" |
     .filter((p) => p.last === null || p.last.getTime() < limit)
     .sort((a, b) => (a.last?.getTime() ?? 0) - (b.last?.getTime() ?? 0) || a.code.localeCompare(b.code));
   const perms = await projectPermissionsMap(db, viewer);
-  const out: ArchiveCandidates = { candidates: [], busy: [], notManageable: 0, notManageableCodes: [] };
-  for (const p of quiet) {
+  const out: ArchiveCandidates = { candidates: [], busy: [], notManageable: 0, notManageableCodes: [], more: Math.max(0, quiet.length - scanMax) };
+  for (const p of quiet.slice(0, scanMax)) {
     const held = new Set<ProjectPermission>(perms[p.id] ?? []);
     if (!held.has("project.settings.manage")) {
       out.notManageable++;

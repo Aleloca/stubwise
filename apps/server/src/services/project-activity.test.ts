@@ -4,7 +4,7 @@ import { aiJobs, backlogItems, projectDecisions, projects, releases, ticketEvent
 import { seedRepository, seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
-import { lastActivityByProject } from "./project-activity.js";
+import { archiveCandidates, lastActivityByProject } from "./project-activity.js";
 
 /**
  * Area 10, F4 (S4): l'ultima attività di un progetto (`lastActivityOf` del
@@ -94,5 +94,22 @@ describe("GET /api/projects/archive-candidates", () => {
     expect(JSON.stringify(body)).not.toContain(hidden.projectId);
     expect(JSON.stringify(body)).not.toContain(await code(hidden.projectId));
     expect(JSON.stringify(body)).not.toContain(active.projectId);
+  });
+});
+
+describe("review di F3–F8 (M7): un tetto ai progetti esaminati", () => {
+  it("si esaminano i più fermi fino al tetto; gli altri si contano in `more`", async () => {
+    const who = await createUserWithSession(app, "lead-cap@example.com");
+    const a = await quietProject();
+    const b = await quietProject();
+    for (const p of [a, b]) await addMember(app, p.projectId, who.id, "project_lead");
+    const viewer = { id: who.id, email: "lead-cap@example.com", role: "member" as const, instancePermissions: new Set<string>() };
+    const all = await archiveCandidates(t.db, viewer as never, 90);
+    expect(all.more).toBe(0);
+    const listed = (r: typeof all) => r.candidates.length + r.busy.length + r.notManageable;
+    expect(listed(all)).toBe(2);
+    const capped = await archiveCandidates(t.db, viewer as never, 90, 1);
+    expect(listed(capped)).toBe(1);
+    expect(capped.more).toBe(1);
   });
 });

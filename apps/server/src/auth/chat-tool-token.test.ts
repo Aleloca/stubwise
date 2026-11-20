@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { RouteOptions } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
-import { seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { seedDecisionRequest, seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { claudeChatToolTokens, claudeConversations, docPages, issueChatToolToken, revokeChatToolToken, tickets, projects } from "@stubwise/db";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
@@ -79,9 +79,20 @@ describe("il token del turno della chat", () => {
     // Area 10, F8 (`read_my_week`): le decisioni che aspettano l'autore e le sue task.
     expect((await get("/api/decisions?askedOfId=me&open=true", token)).statusCode).toBe(200);
     expect((await get("/api/tasks?assigneeIds=me&families=todo,active", token)).statusCode).toBe(200);
-    // …ma rispondere a una decisione è una SCRITTURA, anche se la rotta comincia uguale.
-    const answer = await app.inject({ method: "POST", url: `/api/decisions/${randomUUID()}/answer`, headers: { authorization: `Bearer ${token}` }, payload: { optionIndex: 0 } });
-    expect(answer.statusCode).toBe(403);
+    // …ma rispondere a una decisione è una SCRITTURA, anche se la rotta comincia
+    // uguale (review di F3–F8, M6): una decisione VERA che aspetta l'autore. Col
+    // token 403 e resta aperta; la STESSA richiesta col cookie passa (non era
+    // una richiesta sbagliata a farla rifiutare).
+    const { decisionRequests } = await import("@stubwise/db");
+    const [seenTask] = await t.db.execute<{ id: string }>(sql`select t.id from tickets t join repositories r on r.project_id = t.project_id where r.id = ${seenRepo} limit 1`);
+    const decision = await seedDecisionRequest(t.db, { ticketId: seenTask!.id, askedOfUserId: author.id, options: ["Sì", "No"] });
+    const answer = (headers: Record<string, string>) => app.inject({ method: "POST", url: `/api/decisions/${decision.id}/answer`, headers, payload: { optionIndex: 0 } });
+    const refused = await answer({ authorization: `Bearer ${token}` });
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json()).toMatchObject({ code: "chat_tool_forbidden" });
+    expect((await t.db.select({ at: decisionRequests.answeredAt }).from(decisionRequests).where(eq(decisionRequests.id, decision.id)))[0]!.at).toBeNull();
+    const accepted = await answer({ cookie: author.headers.cookie });
+    expect(accepted.statusCode, accepted.body).toBeLessThan(300);
     // Area 10, F8 (`read_followed_projects`, «/status»): i seguiti e il polso. Il polso
     // entra (decisione del maintainer, 20 nov 2026), ma il suo `stalled` non arriva mai al
     // modello: lo toglie il ponte, e il fermo viene da `/api/tasks/stalled` (le soglie, F3).
@@ -294,6 +305,49 @@ describe("il token del turno della chat", () => {
     const chToken = await issueChatToolToken(t.db, { sessionId: ch, userId: author.id, ttlMs: 60_000 });
     expect((await get(personal[3]!, chToken)).statusCode).toBe(200);
     expect(await privateMark(ch)).not.toBeNull();
+  });
+
+  it("review di F3–F8 (I1): la spesa del mese è contenuto PERSONALE — in una pubblica e in un turno di @Claude 403 `chat_tool_private_only`; in una privata si legge, segna la conversazione e la pubblicazione è rifiutata", async () => {
+    const { agentSessions } = await import("@stubwise/db");
+    const { projectId } = await seedTicket(t.db, { number: 9101 });
+    await addMember(app, projectId, author.id, "project_lead");
+    const url = "/api/ai-usage/summary?month=true&groupBy=project";
+    const privateMark = async (sessionId: string) => (await t.db.select({ at: claudeConversations.privateReadAt }).from(claudeConversations).where(eq(claudeConversations.sessionId, sessionId)))[0]?.at ?? null;
+    const publish = (sessionId: string) =>
+      app.inject({ method: "POST", url: `/api/claude/conversations/${sessionId}/visibility`, headers: { cookie: author.headers.cookie }, payload: { visibility: "public", confirmedProjectIds: [] } });
+    const pub = await conversationOf(author.headers.cookie);
+    expect((await publish(pub)).statusCode).toBe(200);
+    const pubRes = await get(url, await issueChatToolToken(t.db, { sessionId: pub, userId: author.id, ttlMs: 60_000 }));
+    expect(pubRes.statusCode).toBe(403);
+    expect(pubRes.json()).toMatchObject({ code: "chat_tool_private_only" });
+    const [mention] = await t.db.insert(agentSessions).values({ ownerKey: `chat_mention:${randomUUID()}`, kind: "chat_mention", title: "" }).returning();
+    await t.db.insert(claudeConversations).values({ sessionId: mention!.id, ownerId: author.id, title: "" });
+    expect((await get(url, await issueChatToolToken(t.db, { sessionId: mention!.id, userId: author.id, ttlMs: 60_000 }))).statusCode).toBe(403);
+    const mine = await conversationOf(author.headers.cookie);
+    expect((await get(url, await issueChatToolToken(t.db, { sessionId: mine, userId: author.id, ttlMs: 60_000 }))).statusCode).toBe(200);
+    expect(await privateMark(mine)).not.toBeNull();
+    expect((await publish(mine)).json()).toMatchObject({ code: "private_content" });
+  });
+
+  it("review di F3–F8 (I2b): le letture a elenco (task ferme, polso, seguiti, candidati all'archivio) registrano i progetti che restituiscono", async () => {
+    const { claudeConversationProjects, projectFollows } = await import("@stubwise/db");
+    const { projectId, ticketId } = await seedTicket(t.db, { number: 9102 });
+    await addMember(app, projectId, author.id, "project_lead");
+    await t.db.update(tickets).set({ manualStallReason: "Aspetta", manualStallSince: new Date() }).where(eq(tickets.id, ticketId));
+    const read = async (path: string) => {
+      const sessionId = await conversationOf(author.headers.cookie);
+      const token = await issueChatToolToken(t.db, { sessionId, userId: author.id, ttlMs: 60_000 });
+      expect((await get(path, token)).statusCode, path).toBe(200);
+      return (await t.db.select({ id: claudeConversationProjects.projectId }).from(claudeConversationProjects).where(eq(claudeConversationProjects.sessionId, sessionId))).map((r) => r.id);
+    };
+    expect(await read("/api/tasks/stalled")).toContain(projectId);
+    expect(await read("/api/projects/pulse")).toContain(projectId);
+    await t.db.insert(projectFollows).values({ userId: author.id, projectId }).onConflictDoNothing();
+    expect(await read("/api/me/follows")).toContain(projectId);
+    await t.db.update(projects).set({ createdAt: sql`now() - interval '400 days'` }).where(eq(projects.id, projectId));
+    await t.db.update(tickets).set({ createdAt: sql`now() - interval '400 days'`, updatedAt: sql`now() - interval '400 days'` }).where(eq(tickets.projectId, projectId));
+    const archive = await read("/api/projects/archive-candidates?inactiveDays=90");
+    expect(archive).toContain(projectId);
   });
 
   it("area 10, F1: posta e calendario solo di CHI CHIEDE — un full admin che chiede quelli di un altro riceve 404 e niente segno; i suoi, 200 e il segno", async () => {
