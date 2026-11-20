@@ -344,6 +344,8 @@ export type ProductSectionBusy = z.infer<typeof productSectionBusySchema>;
 /** `POST /api/product-pages/:id/live/presence`: il battito (ogni 5 s, scade a 15 s). Con `sectionId` serve `docs.edit` e rinnova la presa. */
 export const productPresenceBeatSchema = z
   .object({
+    /** La sessione (una scheda) che batte: due schede della stessa persona sono due presenze (review di F4, M4). Facoltativa. */
+    sessionId: z.string().min(1).max(100).optional(),
     cursor: productCursorSchema.nullable().optional(),
     sectionId: z.string().min(1).max(100).nullable().optional(),
   })

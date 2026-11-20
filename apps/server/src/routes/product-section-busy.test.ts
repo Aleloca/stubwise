@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
-import { productSectionHolds } from "@stubwise/db";
+import { productPageRevisions, productSectionHolds, takeSection } from "@stubwise/db";
+import { lockPageForWrite } from "../services/product-docs-ops.js";
+import { updateProductPage } from "../services/product-docs.js";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { ProductPageView } from "@stubwise/shared";
 import { buildApp } from "../app.js";
-import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
+import { actorAs, addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
 
 // Area 11, F4, Task 2: le operazioni rispettano la sezione presa. Chi scrive
 // prende la sezione dei blocchi che tocca; un altro riceve 409 `section_busy`
@@ -127,5 +129,50 @@ describe("le operazioni rispettano la sezione presa", () => {
     const res = await save(bea, p, "bea", s.seq, [{ op: "insert", afterId: null, block: para(`blk-${randomUUID()}`, "Bea prima di tutto") }]);
     expect(res.statusCode).toBe(409);
     expect(res.json()).toMatchObject({ sectionId: "top" });
+  });
+});
+
+describe("review di F4", () => {
+  it("I1: con la pagina presa per scrivere (lo stesso lock delle operazioni), una presa NUOVA di un altro (il battito) non si blocca", async () => {
+    const p = await page();
+    const outcome = await t.db.transaction(async (tx) => {
+      await lockPageForWrite(tx as unknown as typeof t.db, p.id);
+      const take = takeSection(t.db, { pageId: p.id, sectionId: p.ids.hB, userId: bea.id, ttlMs: 15_000 }).then(() => "taken");
+      return Promise.race([take, new Promise((r) => setTimeout(() => r("blocked"), 2000))]);
+    });
+    expect(outcome).toBe("taken");
+  });
+
+  it("M7: eliminare un titolo prende anche la sezione di sopra, dove confluisce il suo contenuto", async () => {
+    const p = await page();
+    let s = await state(p);
+    await save(ada, p, "ada", s.seq, [{ op: "set", block: para(p.ids.top, "Ada in cima") }]);
+    s = await state(p);
+    const res = await save(bea, p, "bea", s.seq, [{ op: "delete", blockId: p.ids.hA }]);
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ sectionId: "top" });
+  });
+
+  it("M7: un'operazione su un id che non c'è è 422 (non 409 sulla sezione in cima), e un blocco non si chiama `top`", async () => {
+    const p = await page();
+    let s = await state(p);
+    await save(ada, p, "ada", s.seq, [{ op: "set", block: para(p.ids.top, "Ada in cima") }]);
+    s = await state(p);
+    const missing = await save(bea, p, "bea", s.seq, [{ op: "delete", blockId: "blk-che-non-ce" }]);
+    expect(missing.statusCode).toBe(422);
+    const top = await save(bea, p, "bea", s.seq, [{ op: "insert", afterId: p.ids.b1, block: para("top", "Furbo") }]);
+    expect(top.statusCode).toBe(422);
+    expect(top.json()).toMatchObject({ code: "invalid_block_id" });
+  });
+
+  it("I5: rinomina e spostamento dicono i seq che HANNO scritto", async () => {
+    const p = await page();
+    const parent = (await inject(ada, "POST", `/api/projects/${projectId}/product/pages`, { title: `Genitore ${randomUUID().slice(0, 4)}` })).json() as { id: string };
+    const written = await updateProductPage(t.db, actorAs(ada.id, "member"), p.id, { title: "Nuovo nome", move: { parentId: parent.id, index: 0 } });
+    const revs = await t.db.select({ seq: productPageRevisions.seq, kind: productPageRevisions.kind }).from(productPageRevisions).where(eq(productPageRevisions.pageId, p.id));
+    expect(written.map((w) => [w.kind, w.seq])).toEqual([
+      ["rename", revs.find((r) => r.kind === "rename")!.seq],
+      ["move", revs.find((r) => r.kind === "move")!.seq],
+    ]);
   });
 });
