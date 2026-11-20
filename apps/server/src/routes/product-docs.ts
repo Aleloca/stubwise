@@ -223,10 +223,20 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
   // web (CORS) seguono quel redirect (review di R11-1, 46 e 94).
   app.get(
     "/product-pages/:id/images/:imageId",
-    { config: { access: PAGE_VIEW }, schema: { params: z.object({ id: z.uuid(), imageId: z.uuid() }), response: { 400: errorSchema, 404: errorSchema, ...authErrorResponses } } },
+    {
+      // Review di F2 (M7): fino a 5 MB in memoria per richiesta, quindi un tetto per persona.
+      config: { access: PAGE_VIEW, rateLimit: { max: 600, timeWindow: "1 minute", hook: "preHandler", keyGenerator: (request: FastifyRequest) => request.user?.id ?? request.ip } },
+      schema: { params: z.object({ id: z.uuid(), imageId: z.uuid() }), response: { 304: z.null(), 400: errorSchema, 404: errorSchema, ...authErrorResponses } },
+    },
     async (request, reply) => {
       const image = await productImageOf(app.db, request.params.id, request.params.imageId);
       if (!image) return apiError(reply, 404, "not_found", "Not found");
+      // Review di F2 (M6): un'immagine non cambia mai sotto il suo id, quindi l'ETag
+      // è l'id; `no-cache` fa rivalidare OGNI volta, e la rivalidazione passa dal
+      // controllo dei permessi qui sopra (chi non vede più la pagina ha 404, non 304).
+      const etag = `"${image.id}"`;
+      reply.header("etag", etag).header("cache-control", "private, no-cache").header("vary", "Cookie");
+      if (request.headers["if-none-match"] === etag) return reply.code(304).send(null);
       const storage = await app.storage();
       if (!storage) return apiError(reply, 400, "storage_not_configured", "Object storage is not configured");
       let bytes: Buffer;
@@ -241,7 +251,6 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
         .header("x-content-type-options", "nosniff")
         .header("content-disposition", "inline")
         .header("content-security-policy", "default-src 'none'; sandbox")
-        .header("cache-control", "private, max-age=3600")
         .send(bytes as never);
     },
   );

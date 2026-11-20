@@ -169,6 +169,12 @@ export const productPageViewSchema = z.object({
   decisions: z.record(z.string(), productDecisionRefSchema).default({}),
   following: z.boolean().default(false),
   permissions: z.object({ edit: z.boolean(), delete: z.boolean() }),
+  /**
+   * Perché «Elimina» è spenta, deciso dal server (richiesta di 94): manca
+   * `docs.edit` (`permission`, il primo motivo), o la pagina ha sottopagine
+   * (`children`); `null` quando si può eliminare. Additivo.
+   */
+  deleteBlockedBy: z.enum(["children", "permission"]).nullable().default(null),
 });
 export type ProductPageView = z.infer<typeof productPageViewSchema>;
 

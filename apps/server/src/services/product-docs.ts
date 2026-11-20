@@ -223,6 +223,8 @@ export async function productPageView(db: Db, viewer: Viewer, pageId: string, pe
     decisions,
     following: follow !== undefined,
     permissions: { edit, delete: edit && !hasChildren },
+    // Perché «Elimina» è spenta (richiesta di 94): prima il permesso, poi le sottopagine.
+    deleteBlockedBy: !edit ? "permission" : hasChildren ? "children" : null,
   };
 }
 

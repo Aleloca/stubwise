@@ -35,7 +35,7 @@ import { personName } from "./people.js";
 import { visiblePersonIds } from "./people-visibility.js";
 import type { ObjectStorage } from "../storage/index.js";
 import { removeOrRecordOrphan } from "../storage/orphans.js";
-import { moveMergedAnchors } from "./product-comments.js";
+import { moveMergedAnchors, restoreMergedAnchors } from "./product-comments.js";
 import { ProductDocsError } from "./product-docs.js";
 
 /**
@@ -176,8 +176,13 @@ export async function saveProductBlocks(db: Db, viewer: Viewer, pageId: string, 
       .set({ blocks: next.blocks, revSeq: sql`${productPages.revSeq} + 1`, updatedBy: viewer.id, updatedAt: new Date() })
       .where(eq(productPages.id, pageId))
       .returning({ seq: productPages.revSeq })) as [{ seq: number }];
-    // F2: i fili del blocco assorbito da un `merge` passano sul blocco unito, nella stessa scrittura.
+    // F2: i fili del blocco assorbito da un `merge` passano sul blocco unito, nella stessa scrittura;
+    // un ⌘Z che rimette un blocco ci riporta i fili che il merge gli aveva tolto (review di F2, M4).
     await moveMergedAnchors(tx, pageId, input.ops as ProductBlockOp[]);
+    if (input.undoOf) {
+      const back = input.ops.flatMap((op) => (op.op === "insert" && restorable.has(op.block.id) ? [op.block.id] : []));
+      await restoreMergedAnchors(tx, pageId, back);
+    }
 
     // L'unione: all'ultima revisione della pagina, se è un `edit` della stessa persona e sessione (e non un ⌘Z).
     const [last] = await tx.select().from(productPageRevisions).where(eq(productPageRevisions.pageId, pageId)).orderBy(desc(productPageRevisions.lastSeq)).limit(1);
@@ -272,9 +277,9 @@ export async function recordProductImage(
 
 export const productImageKey = (projectId: string, pageId: string) => `product/${projectId}/${pageId}/${randomUUID()}`;
 
-export async function productImageOf(db: Db, pageId: string, imageId: string): Promise<{ storageKey: string; mime: string } | null> {
+export async function productImageOf(db: Db, pageId: string, imageId: string): Promise<{ id: string; storageKey: string; mime: string } | null> {
   const [row] = await db
-    .select({ storageKey: productPageImages.storageKey, mime: productPageImages.mime })
+    .select({ id: productPageImages.id, storageKey: productPageImages.storageKey, mime: productPageImages.mime })
     .from(productPageImages)
     .where(and(eq(productPageImages.id, imageId), eq(productPageImages.pageId, pageId)));
   return row ?? null;

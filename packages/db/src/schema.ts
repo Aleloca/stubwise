@@ -2835,6 +2835,8 @@ export const productComments = pgTable(
       .notNull()
       .references(() => productPages.id, { onDelete: "cascade" }),
     anchorId: text("anchor_id").notNull(),
+    /** Review di F2 (M4, 0205): l'ancora di prima di un `merge`, per rimetterci il filo col ⌘Z; null = dov'è nato. */
+    originalAnchorId: text("original_anchor_id"),
     quote: text("quote").notNull(),
     replyToId: uuid("reply_to_id").references((): AnyPgColumn => productComments.id, { onDelete: "cascade" }),
     body: text("body").notNull(),

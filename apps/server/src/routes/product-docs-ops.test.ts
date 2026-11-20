@@ -301,11 +301,33 @@ describe("la cronologia, Segui, le immagini", () => {
     expect(open.headers["content-type"]).toBe("image/png");
     expect(open.headers["x-content-type-options"]).toBe("nosniff");
     expect(String(open.headers["cache-control"])).toContain("private");
+    expect(String(open.headers["cache-control"])).toContain("no-cache");
     expect(open.headers.location).toBeUndefined();
     expect(open.rawPayload.equals(PNG)).toBe(true);
     expect(storage.getSignedDownloadUrl).not.toHaveBeenCalled();
     const outsider = await createUserWithSession(app, `out-img-${randomUUID().slice(0, 6)}@example.com`);
     expect((await as(outsider, "GET", path)).statusCode).toBe(404);
+  });
+
+  it("review di F2 (M6): la cache si RIVALIDA coi permessi di adesso (ETag, 304), e un'immagine di un'altra pagina non si legge (IDOR)", async () => {
+    const p = await page();
+    const { ref } = (await upload(editor, p.id, PNG)).json() as { ref: string };
+    const imageId = ref.split(":")[1]!;
+    const path = `/api/product-pages/${p.id}/images/${imageId}`;
+    const first = await as(reader, "GET", path);
+    const etag = first.headers.etag as string;
+    expect(etag).toBeTruthy();
+    expect(String(first.headers.vary)).toMatch(/cookie/i);
+    storage.getObjectBytes.mockClear();
+    const again = await app.inject({ method: "GET", url: path, headers: { cookie: reader.headers.cookie, "if-none-match": etag } });
+    expect(again.statusCode).toBe(304);
+    expect(storage.getObjectBytes).not.toHaveBeenCalled();
+    // Chi non vede più la pagina non riceve il 304: 404, anche con l'ETag in mano.
+    const gone = await createUserWithSession(app, `gone-img-${randomUUID().slice(0, 6)}@example.com`);
+    expect((await app.inject({ method: "GET", url: path, headers: { cookie: gone.headers.cookie, "if-none-match": etag } })).statusCode).toBe(404);
+    // L'immagine di una pagina, chiesta sotto un'altra pagina visibile: 404.
+    const q = await page();
+    expect((await as(reader, "GET", `/api/product-pages/${q.id}/images/${imageId}`)).statusCode).toBe(404);
   });
 
   it("l'eliminazione di un progetto toglie anche le chiavi delle immagini", async () => {

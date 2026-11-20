@@ -89,8 +89,8 @@ describe("i commenti", () => {
   });
 
   it("la frase citata è ripulita: una riga, al più 200; senza frase, quella intera dell'ancora", async () => {
-    const page = await pageWith("La frase intera del blocco", "Altro");
     const long = `  Riga uno\n\nriga due ${"x".repeat(300)}`;
+    const page = await pageWith(long, "Altro");
     const a = await comment(editor, page.id, { anchorId: page.ids[0], quote: long, body: "Sì" });
     expect(a.statusCode, a.body).toBe(201);
     const quote = (a.json() as ProductCommentView).quote;
@@ -149,6 +149,31 @@ describe("i commenti", () => {
     expect(rows.every((r) => r.anchorId === page.ids[0])).toBe(true);
   });
 
+  it("review di F2 (M4): il ⌘Z di un `merge` riporta i fili sul blocco rimesso; quelli nati sul primo restano", async () => {
+    const page = await pageWith("Primo", "Secondo");
+    const onFirst = (await comment(editor, page.id, { anchorId: page.ids[0], quote: "", body: "Sul primo" })).json() as ProductCommentView;
+    const onSecond = (await comment(editor, page.id, { anchorId: page.ids[1], quote: "", body: "Sul secondo" })).json() as ProductCommentView;
+    const session = randomUUID();
+    const merged = await inject(editor, "POST", `/api/product-pages/${page.id}/ops`, { sessionId: session, baseSeq: page.seq, ops: [{ op: "merge", firstId: page.ids[0], secondId: page.ids[1] }] });
+    expect(merged.statusCode, merged.body).toBe(200);
+    const { seq, revisionId } = merged.json() as { seq: number; revisionId: string };
+    const undo = await inject(editor, "POST", `/api/product-pages/${page.id}/ops`, {
+      sessionId: session,
+      baseSeq: seq,
+      undoOf: revisionId,
+      ops: [
+        { op: "set", block: para(page.ids[0]!, "Primo") },
+        { op: "insert", afterId: page.ids[0], block: para(page.ids[1]!, "Secondo") },
+      ],
+    });
+    expect(undo.statusCode, undo.body).toBe(200);
+    const anchors = new Map((await t.db.select().from(productComments).where(eq(productComments.pageId, page.id))).map((r) => [r.id, [r.anchorId, r.originalAnchorId]]));
+    expect(anchors.get(onFirst.id)).toEqual([page.ids[0], null]);
+    expect(anchors.get(onSecond.id)).toEqual([page.ids[1], null]);
+    const list = await threads(editor, page.id);
+    expect(list.open.map((th) => [th.root.id, th.anchorGone])).toEqual([[onFirst.id, false], [onSecond.id, false]]);
+  });
+
   it("«Resolve» e «Reopen» con `docs.edit`; una risposta 422; chi legge soltanto 403", async () => {
     const page = await pageWith("Da risolvere");
     const root = (await comment(editor, page.id, { anchorId: page.ids[0], quote: "", body: "Fatto?" })).json() as ProductCommentView;
@@ -163,6 +188,38 @@ describe("i commenti", () => {
     list = await threads(reader, page.id);
     expect(list.open).toHaveLength(1);
     expect((await inject(outsider, "POST", `/api/product-comments/${root.id}/resolve`)).statusCode).toBe(404);
+  });
+});
+
+describe("review di F2: la frase citata è del blocco, e gli id di un'altra pagina non passano", () => {
+  it("una frase che il blocco non contiene diventa il testo dell'ancora; una frase di soli spazi anche; un pezzo vero resta", async () => {
+    const page = await pageWith("Il cliente paga a trenta giorni");
+    const fake = (await comment(editor, page.id, { anchorId: page.ids[0], quote: "Il cliente non paga mai", body: "x" })).json() as ProductCommentView;
+    expect(fake.quote).toBe("Il cliente paga a trenta giorni");
+    const blank = (await comment(editor, page.id, { anchorId: page.ids[0], quote: "   ", body: "x" })).json() as ProductCommentView;
+    expect(blank.quote).toBe("Il cliente paga a trenta giorni");
+    const part = (await comment(editor, page.id, { anchorId: page.ids[0], quote: " paga a\ntrenta ", body: "x" })).json() as ProductCommentView;
+    expect(part.quote).toBe("paga a trenta");
+  });
+
+  it("IDOR: una risposta a un filo di un'altra pagina è 404, e non scrive niente", async () => {
+    const a = await pageWith("Pagina A");
+    const b = await pageWith("Pagina B");
+    const rootOnB = (await comment(editor, b.id, { anchorId: b.ids[0], quote: "", body: "Su B" })).json() as ProductCommentView;
+    const res = await comment(editor, a.id, { anchorId: a.ids[0], quote: "", body: "Risposta furba", replyToId: rootOnB.id });
+    expect(res.statusCode).toBe(404);
+    expect((await threads(editor, a.id)).open).toHaveLength(0);
+    expect((await threads(editor, b.id)).open[0]!.replies).toHaveLength(0);
+  });
+
+  it("IDOR: chi scrive i Docs di un ALTRO progetto non risolve un filo di questo (404)", async () => {
+    const page = await pageWith("Da proteggere");
+    const root = (await comment(editor, page.id, { anchorId: page.ids[0], quote: "", body: "Filo" })).json() as ProductCommentView;
+    const { projectId: otherProject } = await seedRepository(t.db);
+    const foreign = await createUserWithSession(app, `foreign-${randomUUID().slice(0, 6)}@example.com`);
+    await addMember(app, otherProject, foreign.id, "developer");
+    expect((await inject(foreign, "POST", `/api/product-comments/${root.id}/resolve`)).statusCode).toBe(404);
+    expect((await threads(editor, page.id)).open).toHaveLength(1);
   });
 });
 
