@@ -1338,6 +1338,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `GET/POST /api/claude/conversations/:id/questions…`); le bozze di
   automazione nel catalogo (`createAutomation`, `saveAutomationDraft`,
   `deleteAutomationDraft`), mai accese da Claude.
+- Gli esempi scritti da Claude nella prova di S1 (F2, decisione 2a di 46,
+  19 nov 2026): nel prototipo, se il progetto non ha un evento che passa (o
+  che non passa) il filtro dell'inizio, Claude ne scrive uno («Example
+  written by Claude», `pickTrialExamples`/`writtenEvent`). Nell'app la prova
+  usa solo gli esempi veri del server (il più recente che passa e, con un
+  filtro, il più recente che non passa); senza, la riga dice «Nothing to try
+  it on yet». Nel prototipo non manca niente: è l'app che resta indietro.
 
 - **Chiuse con F3 (20 nov 2026)**: Claude legge il lavoro fermo (con le
   soglie dei progetti, la regola della lista delle task) e la spesa del mese

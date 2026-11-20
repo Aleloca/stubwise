@@ -241,3 +241,39 @@ describe("gli stati di un esempio", () => {
     expect(screen.queryByText(/Tested on/)).toBeNull();
   });
 });
+
+describe("nessun esempio su cui provarla (area 10, F2, decisione 2a)", () => {
+  it("«Nothing to try it on yet» al posto di «Tested on 0 examples», e niente righe", async () => {
+    await injected({
+      status: "done",
+      wants: ["passes"],
+      automationId: "aut-none",
+      code: "ACQ-A99",
+      openSimId: null,
+      results: [],
+    });
+    await waitFor(() => expect(trialRow()).not.toBeNull());
+    expect(trialRow()).toHaveTextContent(
+      "Nothing to try it on yet: no recent event fits the start",
+    );
+    expect(trialRow()).not.toHaveTextContent("Tested on");
+    expect(exampleRows()).toEqual([]);
+  });
+
+  it("in it", async () => {
+    await i18n.changeLanguage("it");
+    await injected({
+      status: "done",
+      wants: ["passes"],
+      automationId: "aut-none",
+      code: "ACQ-A99",
+      openSimId: null,
+      results: [],
+    });
+    await waitFor(() =>
+      expect(trialRow()).toHaveTextContent(
+        "Ancora niente su cui provarla: nessun evento recente va bene per l'inizio",
+      ),
+    );
+  });
+});

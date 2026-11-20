@@ -8,6 +8,7 @@ import { forgetCalendarWrites } from "./calendarWrites";
 import { forgetPeopleChatCaches } from "./chat";
 import { resetChatStreams } from "./chatStream";
 import { forgetChatCaches } from "./claudeChat";
+import { forgetTrials } from "./claudeTrial";
 import { forgetDocsCaches } from "./docs";
 import { appClient, session } from "./client";
 import { NotIntegratedError, partialNamespace } from "./notIntegrated";
@@ -93,6 +94,8 @@ function forgetClientCaches(): void {
   forgetFilterCaches();
   forgetStreams();
   forgetChatCaches();
+  // Area 10, F2: le prove di Claude erano della persona di prima.
+  forgetTrials();
   forgetPeopleChatCaches();
   resetChatStreams();
 }

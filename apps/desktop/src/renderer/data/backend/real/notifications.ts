@@ -91,6 +91,8 @@ export const MANDATORY_REASONS: ReadonlySet<string> = new Set([
   "assignee",
   // Area 8, F4b: chi ha chiesto a mano un'analisi riceve sempre il suo esito.
   "analysis_requester",
+  // Area 10, F5: la persona aggiunta a un progetto riceve sempre `member.added`.
+  "added",
 ] satisfies MandatoryReason[]);
 
 /**
@@ -143,6 +145,46 @@ export function appLinkFor(rawUrl: string | null | undefined, instanceOrigin?: s
     return null;
   }
   return url.hash;
+}
+
+/**
+ * Area 10, F5 (D-11 = b): `member.added` coi valori che il server deriva a
+ * lettura (`memberAdded`): la card del prototipo li compone nella lingua di
+ * chi guarda («You've been added…» per chi è entrato, «A added B…» per chi
+ * gestisce i membri, `memberName`). Chi è entrato lo dice `addedUserId`.
+ * «Undone by» da `undoneBy` (un ingresso di Claude tolto con «Annulla»): per
+ * chi era entrato la card non apre più il progetto, che non vede ([SC 16]).
+ * Una card di un server di prima, senza `memberAdded`: `null`, il testo del
+ * server com'è.
+ */
+function memberAddedOf(item: InboxItem, ctx: PresentContext, projectCode: string | undefined): AppNotification | null {
+  const m = (item as Partial<InboxItem>).memberAdded;
+  if (!m) return null;
+  const undoneBy = (item as Partial<InboxItem>).undoneBy ?? null;
+  const isMe = m.addedUserId === ctx.viewerId;
+  const notOpenable = isMe && undoneBy !== null;
+  return {
+    id: item.id,
+    kind: item.kind,
+    projectId: item.projectId,
+    objectCode: projectCode ?? "",
+    departmentId: null,
+    recipientIds: [],
+    title: item.text,
+    body: item.summary ?? "",
+    createdAt: item.createdAt,
+    read: item.readAt !== null,
+    archived: item.status === "handled",
+    snoozedUntil: item.status === "snoozed" ? item.snoozedUntil : null,
+    link: projectCode && !notOpenable ? `#/p/${projectCode}/overview` : "",
+    roleName: m.roleName,
+    actorName: m.actorName,
+    ...(isMe ? {} : { memberName: m.addedName }),
+    ...(notOpenable ? { notOpenable: true } : {}),
+    ...mandatoryOf(item, ctx),
+    ...viaClaudeOf(item, ctx),
+    ...(undoneBy ? { undoneByName: undoneBy.name } : {}),
+  };
 }
 
 /** Una card dell'inbox come notifica del prototipo. Non lancia mai, nemmeno su un kind ignoto. */
@@ -259,6 +301,8 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
       ...viaClaudeOf(item, ctx),
     };
   }
+  const member = item.kind === "member.added" ? memberAddedOf(item, ctx, projectCode) : null;
+  if (member) return member;
   const taskCode = item.ticketId ? ctx.taskCodes.get(item.ticketId) : undefined;
   const integrated = INTEGRATED_KINDS.has(item.kind) && taskCode !== undefined && projectCode !== undefined;
   return {

@@ -302,14 +302,7 @@ export interface ProductCardView {
  * (`@stubwise/shared`), mai una copia. `analysis_requester` (area 8, F4b): chi
  * ha chiesto a mano un'analisi riceve sempre il suo esito.
  */
-export type MandatoryReason =
-  | SharedMandatoryReason
-  /**
-   * Area 10, F5 (D-11 = b, 19 nov 2026): la persona aggiunta a un progetto
-   * riceve sempre `member.added`, anche se nel frattempo non vede più il
-   * progetto ([SC 16]). Solo del prototipo finché il server non ha F5.
-   */
-  | "added";
+export type MandatoryReason = SharedMandatoryReason;
 
 export type StatusFamily = "todo" | "active" | "closed";
 

@@ -1,11 +1,8 @@
 import {
-  ALERT_GROUPS as SHARED_ALERT_GROUPS,
   ALERT_TYPES as SHARED_ALERT_TYPES,
-  type AlertGroup as SharedAlertGroup,
   defaultApplies as sharedDefaultApplies,
   type AlertType as SharedAlertType,
 } from "@stubwise/shared";
-import type { MandatoryReason } from "../../data/model";
 import type { Permission } from "../../data/viewing";
 
 // Il catalogo dei tipi di avviso (area 8a, spec «Notifiche: iscrizioni per
@@ -19,14 +16,7 @@ import type { Permission } from "../../data/viewing";
 // coi destinatari fissi: `security.alert`, le decisioni
 // (`DECISION_NOTIFICATION_KINDS`), Chat e Automazioni.
 
-/**
- * Le famiglie: quelle condivise più `members` (area 10, F5: `member.added`),
- * che il prototipo ha prima del server, dopo `tasks`.
- */
-export type AlertGroup = SharedAlertGroup | "members";
-export const ALERT_GROUPS: readonly AlertGroup[] = SHARED_ALERT_GROUPS.flatMap((g) =>
-  g === "tasks" ? [g, "members" as const] : [g],
-);
+export { ALERT_GROUPS, type AlertGroup } from "@stubwise/shared";
 
 // Il catalogo condiviso nomina i permessi come stringhe: ci sono quelli del
 // registro (di progetto, e `monitor.manage` d'istanza) e quelli che per ora
@@ -37,10 +27,8 @@ export type DefaultRule = "off" | "members" | { perm: Permission };
 
 export interface AlertType extends Omit<
   SharedAlertType,
-  "subscribe" | "defaultOn" | "appDefaultOn" | "group" | "mandatory"
+  "subscribe" | "defaultOn" | "appDefaultOn"
 > {
-  group: AlertGroup;
-  mandatory: MandatoryReason[];
   subscribe: { perm: Permission | "member" };
   defaultOn: DefaultRule;
   /**
