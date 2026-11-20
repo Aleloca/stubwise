@@ -191,3 +191,56 @@ export const productRevisionViewSchema = z.object({
   updatedAt: z.string(),
 });
 export type ProductRevisionView = z.infer<typeof productRevisionViewSchema>;
+
+// --- Area 11, F2: i commenti --------------------------------------------------
+
+/**
+ * `POST /api/product-pages/:id/comments`: una radice (ancora e frase) o una
+ * risposta (`replyToId`: prende ancora e frase della radice, e quelle date si
+ * ignorano). Le menzioni le trova il server nel testo (`@Nome`).
+ */
+export const addProductCommentSchema = z
+  .object({
+    anchorId: id,
+    quote: z.string().max(2000),
+    body: z.string().min(1).max(10_000),
+    replyToId: z.uuid().optional(),
+  })
+  .strict();
+export type AddProductCommentInput = z.infer<typeof addProductCommentSchema>;
+
+/** Un commento come lo legge chi guarda; il nome di chi ha scritto solo se lo vede (R-G5). */
+export const productCommentViewSchema = z.object({
+  id: z.uuid(),
+  pageId: z.uuid(),
+  anchorId: z.string(),
+  quote: z.string(),
+  authorId: z.uuid().nullable(),
+  authorName: z.string().nullable(),
+  body: z.string(),
+  createdAt: z.string(),
+  replyToId: z.uuid().nullable(),
+  /** Solo la radice. */
+  resolved: z.object({ byId: z.uuid().nullable(), byName: z.string().nullable(), at: z.string() }).nullable(),
+  /** Le persone menzionate che chi guarda vede. */
+  mentionIds: z.array(z.uuid()).default([]),
+});
+export type ProductCommentView = z.infer<typeof productCommentViewSchema>;
+
+export const productCommentThreadSchema = z.object({
+  root: productCommentViewSchema,
+  replies: z.array(productCommentViewSchema),
+  /** L'ancora non c'è più nei blocchi di adesso: «Frase eliminata». DERIVATO a lettura. */
+  anchorGone: z.boolean(),
+});
+export type ProductCommentThread = z.infer<typeof productCommentThreadSchema>;
+
+/** `GET /api/product-pages/:id/comments`. */
+export const productCommentsSchema = z.object({
+  open: z.array(productCommentThreadSchema),
+  resolved: z.array(productCommentThreadSchema),
+});
+export type ProductCommentsView = z.infer<typeof productCommentsSchema>;
+
+/** `GET /api/projects/:projectId/product/mention-candidates`. */
+export const productMentionCandidatesSchema = z.array(z.object({ id: z.uuid(), name: z.string() }));

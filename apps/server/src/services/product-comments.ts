@@ -1,0 +1,236 @@
+import { productComments, productPages, users, type Db } from "@stubwise/db";
+import { projectViewerIds, userIdsWithPermission } from "@stubwise/notifications";
+import {
+  anchorIdsOf,
+  anchorText,
+  cleanQuote,
+  productBlockSchema,
+  type AddProductCommentInput,
+  type ProductBlock,
+  type ProductBlockOp,
+  type ProductCommentThread,
+  type ProductCommentView,
+  type ProductCommentsView,
+} from "@stubwise/shared";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import type { SessionUser } from "../auth/session.js";
+import { personName } from "./people.js";
+import { visiblePersonIds } from "./people-visibility.js";
+import { ProductDocsError } from "./product-docs.js";
+
+/**
+ * Area 11, F2 — i commenti delle pagine di prodotto. La regola è quella del
+ * prototipo (`apps/desktop/src/renderer/data/productDocs/comments.ts`):
+ * - leggere i fili chiede `docs.view`, commentare, rispondere, «Resolve» e
+ *   «Reopen» `docs.edit` (le rotte lo dichiarano);
+ * - una radice va su un'ancora che c'è nella pagina ADESSO (422
+ *   `invalid_anchor`); una risposta va sempre sul filo, anche con l'ancora
+ *   sparita, e mai sotto un'altra risposta (422 `invalid_reply`);
+ * - «Frase eliminata» (`anchorGone`) si DERIVA dai blocchi di adesso, mai da
+ *   una colonna; un `merge` sposta i fili del blocco assorbito sul blocco
+ *   unito, nella stessa scrittura (`moveMergedAnchors`);
+ * - commentare ed essere menzionati non fanno seguire la pagina;
+ * - le menzioni sono `@Nome` nel testo, fra chi legge i Docs del progetto,
+ *   mai Claude né chi scrive (`productDocReaders`).
+ */
+
+type Viewer = Pick<SessionUser, "id" | "instancePermissions">;
+type CommentRow = typeof productComments.$inferSelect;
+
+const notFound = () => new ProductDocsError(404, "not_found", "Not found");
+const invalid = (code: string, message: string) => new ProductDocsError(422, code, message);
+
+const readBlocks = (raw: unknown): ProductBlock[] =>
+  (Array.isArray(raw) ? raw : []).flatMap((b) => {
+    const parsed = productBlockSchema.safeParse(b);
+    return parsed.success ? [parsed.data as ProductBlock] : [];
+  });
+
+/** Chi legge i Docs del progetto adesso (membri con `docs.view` e full admin), coi nomi; mai Claude. */
+export async function productDocReaders(db: Db, projectId: string): Promise<{ id: string; name: string }[]> {
+  const viewers = new Set(await projectViewerIds(db, projectId));
+  const ids = (await userIdsWithPermission(db, "docs.view", projectId)).filter((id) => viewers.has(id));
+  if (ids.length === 0) return [];
+  const rows = await db
+    .select({ id: users.id, email: users.email, displayName: users.displayName })
+    .from(users)
+    .where(and(inArray(users.id, [...new Set(ids)]), eq(users.isAgent, false)));
+  return rows.map((r) => ({ id: r.id, name: personName(r) }));
+}
+
+/**
+ * Le persone nominate (`@Nome`) fra `people`; mai chi scrive. I nomi più
+ * lunghi prima, e ogni nome trovato CONSUMA il suo tratto di testo (la regola
+ * di `mentionedIn` della Chat): «@Ale Loca» non nomina anche «Ale».
+ */
+export function mentionedIn(text: string, people: readonly { id: string; name: string }[], authorId: string): string[] {
+  if (!text.includes("@")) return [];
+  let rest = text;
+  const out: string[] = [];
+  for (const p of [...people].sort((a, b) => b.name.length - a.name.length)) {
+    const escaped = p.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`@${escaped}(?![\\p{L}\\p{N}_])`, "gu");
+    if (!re.test(rest)) continue;
+    rest = rest.replace(re, (m) => " ".repeat(m.length));
+    if (p.id !== authorId && !out.includes(p.id)) out.push(p.id);
+  }
+  return out;
+}
+
+/** I commenti come li legge chi guarda: i nomi solo di chi vede (R-G5), le menzioni che vede. */
+async function viewsOf(db: Db, viewer: Viewer, rows: readonly CommentRow[]): Promise<Map<string, ProductCommentView>> {
+  const people = await visiblePersonIds(db, viewer);
+  const sees = (id: string | null): id is string => id !== null && (people === "all" || people.includes(id));
+  const named = [...new Set(rows.flatMap((r) => [r.authorId, r.resolvedBy]).filter(sees))];
+  const names = new Map(
+    named.length > 0 ? (await db.select({ id: users.id, email: users.email, displayName: users.displayName }).from(users).where(inArray(users.id, named))).map((u) => [u.id, personName(u)]) : [],
+  );
+  return new Map(
+    rows.map((r) => [
+      r.id,
+      {
+        id: r.id,
+        pageId: r.pageId,
+        anchorId: r.anchorId,
+        quote: r.quote,
+        authorId: r.authorId,
+        authorName: sees(r.authorId) ? (names.get(r.authorId) ?? null) : null,
+        body: r.body,
+        createdAt: r.createdAt.toISOString(),
+        replyToId: r.replyToId,
+        resolved: r.resolvedAt ? { byId: r.resolvedBy, byName: sees(r.resolvedBy) ? (names.get(r.resolvedBy) ?? null) : null, at: r.resolvedAt.toISOString() } : null,
+        mentionIds: r.mentions.filter(sees),
+      },
+    ]),
+  );
+}
+
+/**
+ * I fili di una pagina (la rotta ha già chiesto `docs.view`): aperti e
+ * risolti. In ognuno, i fili con l'ancora viva nell'ordine delle ancore nella
+ * pagina, poi quelli con l'ancora sparita («Frase eliminata»), dal più vecchio.
+ * Un commento eliminato non si mostra (e con lui le sue risposte).
+ */
+export async function listProductComments(db: Db, viewer: Viewer, pageId: string): Promise<ProductCommentsView> {
+  const [page] = await db.select({ blocks: productPages.blocks }).from(productPages).where(eq(productPages.id, pageId));
+  if (!page) throw notFound();
+  const rows = await db
+    .select()
+    .from(productComments)
+    .where(and(eq(productComments.pageId, pageId), isNull(productComments.deletedAt)))
+    .orderBy(asc(productComments.createdAt), asc(productComments.id));
+  const views = await viewsOf(db, viewer, rows);
+  const position = new Map(readBlocks(page.blocks).flatMap(anchorIdsOf).map((id, i) => [id, i]));
+  const order = new Map(rows.map((r, i) => [r.id, i]));
+  const threads = rows
+    .filter((r) => r.replyToId === null)
+    .map(
+      (root): ProductCommentThread => ({
+        root: views.get(root.id)!,
+        replies: rows.filter((r) => r.replyToId === root.id).map((r) => views.get(r.id)!),
+        // DERIVATO: l'ancora non c'è nei blocchi di adesso.
+        anchorGone: !position.has(root.anchorId),
+      }),
+    )
+    .sort((a, b) => {
+      if (a.anchorGone !== b.anchorGone) return a.anchorGone ? 1 : -1;
+      const at = a.anchorGone ? 0 : position.get(a.root.anchorId)! - position.get(b.root.anchorId)!;
+      return at || order.get(a.root.id)! - order.get(b.root.id)!;
+    });
+  return { open: threads.filter((t) => t.root.resolved === null), resolved: threads.filter((t) => t.root.resolved !== null) };
+}
+
+export interface AddedProductComment {
+  view: ProductCommentView;
+  /** Le persone menzionate (lettori dei Docs, mai chi scrive): i destinatari di `product_doc.mention` (Task 3). */
+  mentioned: string[];
+  projectId: string;
+}
+
+/**
+ * Un commento (radice) o una risposta (`replyToId`), per chi ha `docs.edit`
+ * (la rotta). Una risposta prende ancora e frase della sua radice; una radice
+ * senza `quote` prende la frase intera dell'ancora. Sotto il lock della riga
+ * della pagina: l'ancora si controlla sui blocchi che nessuno sta scrivendo.
+ */
+export async function addProductComment(db: Db, viewer: Viewer, pageId: string, input: AddProductCommentInput): Promise<AddedProductComment> {
+  const body = input.body.trim();
+  if (!body) throw invalid("invalid_body", "The comment is empty");
+  return db.transaction(async (txRaw) => {
+    const tx = txRaw as unknown as Db;
+    const [page] = await tx.select({ id: productPages.id, projectId: productPages.projectId, blocks: productPages.blocks }).from(productPages).where(eq(productPages.id, pageId)).for("update");
+    if (!page) throw notFound();
+    let anchorId: string;
+    let quote: string;
+    let replyToId: string | null = null;
+    if (input.replyToId !== undefined) {
+      const [root] = await tx
+        .select()
+        .from(productComments)
+        .where(and(eq(productComments.id, input.replyToId), eq(productComments.pageId, page.id), isNull(productComments.deletedAt)));
+      if (!root) throw notFound();
+      if (root.replyToId !== null) throw invalid("invalid_reply", "A reply goes under the first comment of the thread");
+      ({ anchorId, quote } = root);
+      replyToId = root.id;
+    } else {
+      const text = anchorText(readBlocks(page.blocks), input.anchorId);
+      if (text === null) throw invalid("invalid_anchor", "The comment's block isn't on the page");
+      anchorId = input.anchorId;
+      quote = cleanQuote(input.quote || text);
+    }
+    const mentioned = mentionedIn(body, await productDocReaders(tx, page.projectId), viewer.id);
+    const [row] = await tx.insert(productComments).values({ pageId: page.id, anchorId, quote, replyToId, body, authorId: viewer.id, mentions: mentioned }).returning();
+    const view = (await viewsOf(tx, viewer, [row!])).get(row!.id)!;
+    return { view, mentioned, projectId: page.projectId };
+  });
+}
+
+/**
+ * «Resolve» / «Reopen» di un filo (`docs.edit`, la rotta). Solo una radice
+ * (una risposta 422 `invalid_reply`); già nello stato chiesto, niente cambia.
+ */
+export async function setProductCommentResolved(db: Db, viewer: Viewer, rootId: string, resolved: boolean): Promise<void> {
+  const [root] = await db.select().from(productComments).where(and(eq(productComments.id, rootId), isNull(productComments.deletedAt)));
+  if (!root) throw notFound();
+  if (root.replyToId !== null) throw invalid("invalid_reply", "Only a thread's first comment is resolved");
+  if ((root.resolvedAt !== null) === resolved) return;
+  await db
+    .update(productComments)
+    .set(resolved ? { resolvedAt: new Date(), resolvedBy: viewer.id } : { resolvedAt: null, resolvedBy: null })
+    .where(eq(productComments.id, rootId));
+}
+
+/** La pagina di un commento (per la rotta che lo risolve: il suo progetto). */
+export async function productCommentPage(db: Db, commentId: string): Promise<string | null> {
+  const [row] = await db.select({ pageId: productComments.pageId }).from(productComments).where(eq(productComments.id, commentId));
+  return row?.pageId ?? null;
+}
+
+/**
+ * Le persone che `viewer` può menzionare nel progetto (la rotta ha chiesto
+ * `docs.view`): chi ne legge i Docs e chi guarda vede, mai Claude né sé
+ * stesso. `q` cerca nel nome, senza maiuscole.
+ */
+export async function productMentionCandidates(db: Db, viewer: Viewer, projectId: string, q: string): Promise<{ id: string; name: string }[]> {
+  const needle = q.trim().toLowerCase();
+  const people = await visiblePersonIds(db, viewer);
+  return (await productDocReaders(db, projectId))
+    .filter((p) => p.id !== viewer.id && (people === "all" || people.includes(p.id)) && (!needle || p.name.toLowerCase().includes(needle)))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, 50);
+}
+
+/**
+ * Un `merge` sposta sul blocco unito ogni filo del blocco assorbito (radici e
+ * risposte; la frase resta com'era), nella transazione della scrittura. Le
+ * operazioni nell'ordine dato: A+B e poi Z+A portano i fili di B su Z.
+ */
+export async function moveMergedAnchors(tx: Db, pageId: string, ops: readonly ProductBlockOp[]): Promise<void> {
+  for (const op of ops) {
+    if (op.op !== "merge") continue;
+    await tx
+      .update(productComments)
+      .set({ anchorId: op.firstId })
+      .where(and(eq(productComments.pageId, pageId), eq(productComments.anchorId, op.secondId)));
+  }
+}

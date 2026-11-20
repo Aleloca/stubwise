@@ -2,9 +2,18 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { productPageViewSchema, productRevisionViewSchema, productSpaceSchema, saveProductBlocksSchema } from "@stubwise/shared";
+import {
+  addProductCommentSchema,
+  productCommentViewSchema,
+  productCommentsSchema,
+  productMentionCandidatesSchema,
+  productPageViewSchema,
+  productRevisionViewSchema,
+  productSpaceSchema,
+  saveProductBlocksSchema,
+} from "@stubwise/shared";
 import { routePermissions, type RouteAccess } from "../auth/access.js";
-import { fromParam, fromProductPage } from "../auth/project-resolvers.js";
+import { fromParam, fromProductComment, fromProductPage } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
 import {
   ProductDocsError,
@@ -26,6 +35,7 @@ import {
   recordProductImage,
   saveProductBlocks,
 } from "../services/product-docs-ops.js";
+import { addProductComment, listProductComments, productMentionCandidates, setProductCommentResolved } from "../services/product-comments.js";
 import { removeOrRecordOrphan } from "../storage/orphans.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -37,6 +47,7 @@ const SPACE_VIEW: RouteAccess = { kind: "project", permission: "docs.view", proj
 const SPACE_EDIT: RouteAccess = { kind: "project", permission: "docs.edit", project: fromParam("projectId") };
 const PAGE_EDIT: RouteAccess = { kind: "project", permission: "docs.edit", project: fromProductPage("id") };
 const PAGE_VIEW: RouteAccess = { kind: "project", permission: "docs.view", project: fromProductPage("id") };
+const COMMENT_EDIT: RouteAccess = { kind: "project", permission: "docs.edit", project: fromProductComment("id") };
 
 const projectParams = z.object({ projectId: z.uuid() });
 const pageParams = z.object({ id: z.uuid() });
@@ -216,5 +227,44 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
       const url = await storage.getSignedDownloadUrl(image.storageKey, "image", 300, { inlineContentType: image.mime });
       return reply.redirect(url, 302);
     },
+  );
+
+  // --- F2: i commenti, la risoluzione, i candidati alle menzioni ---
+
+  app.get(
+    "/product-pages/:id/comments",
+    { config: { access: PAGE_VIEW }, schema: { params: pageParams, response: { 200: productCommentsSchema, 404: errorSchema, ...authErrorResponses } } },
+    async (request, reply) => handle(reply, () => listProductComments(app.db, request.user!, request.params.id)),
+  );
+
+  app.post(
+    "/product-pages/:id/comments",
+    {
+      config: { access: PAGE_EDIT },
+      schema: { params: pageParams, body: addProductCommentSchema, response: { 201: productCommentViewSchema, 404: errorSchema, 422: errorSchema, ...authErrorResponses } },
+    },
+    async (request, reply) =>
+      handle(reply, async () => {
+        const added = await addProductComment(app.db, request.user!, request.params.id, request.body);
+        return reply.code(201).send(added.view);
+      }),
+  );
+
+  for (const [action, resolved] of [["resolve", true], ["reopen", false]] as const) {
+    app.post(
+      `/product-comments/:id/${action}`,
+      { config: { access: COMMENT_EDIT }, schema: { params: pageParams, response: { 204: z.null(), 404: errorSchema, 422: errorSchema, ...authErrorResponses } } },
+      async (request, reply) =>
+        handle(reply, async () => {
+          await setProductCommentResolved(app.db, request.user!, request.params.id, resolved);
+          return reply.code(204).send(null);
+        }),
+    );
+  }
+
+  app.get(
+    "/projects/:projectId/product/mention-candidates",
+    { config: { access: SPACE_VIEW }, schema: { params: projectParams, querystring: z.object({ q: z.string().max(100).default("") }), response: { 200: productMentionCandidatesSchema, ...authErrorResponses } } },
+    async (request) => productMentionCandidates(app.db, request.user!, request.params.projectId, request.query.q),
   );
 }

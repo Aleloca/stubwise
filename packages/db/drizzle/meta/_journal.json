@@ -1415,6 +1415,13 @@
       "when": 1801958400000,
       "tag": "0203_product_doc_notifications",
       "breakpoints": true
+    },
+    {
+      "idx": 204,
+      "version": "7",
+      "when": 1802044800000,
+      "tag": "0204_product_comments",
+      "breakpoints": true
     }
   ]
 }

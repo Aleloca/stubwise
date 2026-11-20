@@ -2819,6 +2819,40 @@ export const productPageImages = pgTable("product_page_images", {
 });
 
 /**
+ * I commenti di una pagina di prodotto (area 11, F2): ancorati a un blocco o a
+ * una cella (`anchor_id`), con la frase che si guardava (`quote`, una riga,
+ * ≤ 200, mai riscritta). Una risposta sta sotto una radice (`reply_to_id`),
+ * mai sotto un'altra risposta. «Frase eliminata» NON è una colonna: si deriva
+ * dai blocchi di adesso. Un commento eliminato non ha più testo (CHECK, come
+ * `comments` dei ticket). La lunghezza della frase la tiene `cleanQuote`
+ * (server), non una CHECK: in un database SQL_ASCII `char_length` conta i byte.
+ */
+export const productComments = pgTable(
+  "product_comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => productPages.id, { onDelete: "cascade" }),
+    anchorId: text("anchor_id").notNull(),
+    quote: text("quote").notNull(),
+    replyToId: uuid("reply_to_id").references((): AnyPgColumn => productComments.id, { onDelete: "cascade" }),
+    body: text("body").notNull(),
+    authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+    /** Chi il testo menzionava e leggeva i Docs del progetto quando è stato scritto; mai chi scrive. */
+    mentions: uuid("mentions").array().notNull().default(sql`'{}'::uuid[]`),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedBy: uuid("resolved_by").references(() => users.id, { onDelete: "set null" }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("product_comments_page_idx").on(table.pageId, table.createdAt),
+    check("product_comments_deleted_body_empty_chk", sql`deleted_at IS NULL OR body = ''`),
+  ],
+);
+
+/**
  * Chunk di una pagina di documentazione con il suo embedding (pgvector, 1024
  * dim / bge-m3): alimenta la ricerca semantica e il retrieval della chat RAG.
  * `metadata` jsonb porta heading di provenienza e simili. L'indice HNSW
