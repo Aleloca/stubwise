@@ -47,6 +47,8 @@ const ALL: IntegrationTarget[] = [
       "product-docs",
       // Area 11, D-7: lo spazio Product (spento finché il server non c'è).
       "product-space",
+      // Area 11, F2: i commenti e le menzioni della doc di prodotto.
+      "product-comments",
       "task-delete",
       "chat",
       ...CHAT_LATER_FEATURES,
@@ -248,6 +250,8 @@ describe("isIntegrated", () => {
         "feature:claude-suggestions",
         // Area 11, F1: lo spazio Product.
         "feature:product-space",
+        // Area 11, F2: i commenti e le menzioni.
+        "feature:product-comments",
         // Fetta 3.0 della chat: «Elimina task».
         "feature:task-delete",
         // Area 4, fetta 1: la Chat fra persone (le fette dopo restano spente).

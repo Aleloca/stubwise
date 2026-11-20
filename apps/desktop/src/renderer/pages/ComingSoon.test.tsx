@@ -123,6 +123,12 @@ const INTEGRATED_CALLS = new Set([
   "productDocs.unfollowProductPage",
   "productDocs.storeProductImage",
   "productDocs.productImageSrc",
+  // Area 11, F2 (R11-2): i commenti e le menzioni.
+  "productDocs.listProductComments",
+  "productDocs.addProductComment",
+  "productDocs.resolveProductComment",
+  "productDocs.reopenProductComment",
+  "productDocs.productMentionCandidates",
   // Area 10, F7: la riga «Claude can help you…» e il suo «Not now», dal server.
   "suggestionKeyOf",
   "getClaudeSuggestion",
@@ -823,7 +829,7 @@ describe("aree non integrate nella build app", () => {
 
   // Area 11, F1 (R11-1): lo spazio Product c'è; commenti, ricerca ed
   // esportazione, dal vivo e Claude (F2–F6) restano fuori e non si leggono.
-  it("lo spazio Product (/p/X/docs/product) e una sua pagina si aprono e leggono solo le chiamate di F1", async () => {
+  it("lo spazio Product (/p/X/docs/product) e una sua pagina si aprono e leggono solo le chiamate di F1 e F2", async () => {
     // Marco legge i Docs di ACQ (la persona di partenza, Giulia, non è nel progetto).
     signedInAs("p-marco");
     renderRoute("/p/ACQ/docs/product");
@@ -838,15 +844,22 @@ describe("aree non integrate nella build app", () => {
     renderRoute("/p/ACQ/docs/product/ACQ-D5");
     expect(await screen.findByRole("heading", { level: 1, name: "Sign-in" })).toBeInTheDocument();
     await settle();
-    // Commenti ed esportazione (F2, F3) non sono nella barra; Segui e la cronologia sì.
-    expect(screen.queryByRole("button", { name: /^Comments/ })).toBeNull();
+    // L'esportazione (F3) non è nella barra; Segui, i commenti (F2) e la cronologia sì.
+    expect(screen.getByRole("button", { name: /^Comments/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Export/ })).toBeNull();
     expect(screen.getByRole("button", { name: "History" })).toBeInTheDocument();
     expect(screen.queryByText("Coming soon")).toBeNull();
+    // La colonna dei commenti (F2): i fili si leggono, e nient'altro.
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^Comments/ }));
+    const column = await screen.findByRole("region", { name: "Comments" });
+    expect(await within(column).findAllByRole("article")).not.toHaveLength(0);
+    await settle();
+    expect(outside()).toEqual([]);
     // Il fuoco in un blocco: la presenza (F4) non parte (I3 della revisione).
     const body = document.querySelector<HTMLElement>("[data-editor-body]")!;
     const [block] = within(body).getAllByRole("textbox");
-    await userEvent.setup().click(block!);
+    await user.click(block!);
     await settle();
     expect(outside()).toEqual([]);
   });

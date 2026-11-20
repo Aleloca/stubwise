@@ -1441,15 +1441,21 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     ancora il `data:` URL del prototipo (`replaceWireframeWithImage`);
     quando F6 la porta sul server va fatta passare da `storeProductImage`
     come gli altri blocchi immagine.
-  - **Il motivo dell'eliminazione spenta** *(XS, M1 della revisione di
-    R11-1)*: il client lo deduce ancora da `permissions` (`has_children`).
-    72 ha aggiunto `deleteBlockedBy` sulla vista della pagina (ffba613eb,
-    `feat/area11-f3`): si legge quando F3 arriva in integrazione.
+  - **L'immagine sul desktop resta in cache per la sessione** *(XS,
+    accettato da 46)*: letta una volta (`staleTime: Infinity`, l'immagine di
+    un id non cambia). Il server dice `no-cache` per rivalidare chi la può
+    vedere: sul desktop una visibilità tolta si vede alla rilettura della
+    pagina, non dell'immagine.
+  - **Il numero dei fili aperti di una pagina** *(XS, R11-2, chiesto a 72)*:
+    la vista della pagina del server non ha `openComments`. Finché non c'è,
+    la barra non mostra il numero accanto a «Comments» e la colonna non si
+    apre da sola su una pagina con fili.
 - *Revisione di R11-1 (46, 20 nov 2026), chiuse*: le immagini (la rotta dà
   i byte, 72 69b09a99d: sul web `<img src>` sulla rotta, sul desktop i byte
   da `api:request` come data URL); la cronologia a pagine di 100 con
   «Show older» (`useInfiniteQuery`); la card della Home che non nasconde
-  più un errore diverso da 403/404.
+  più un errore diverso da 403/404; il motivo dell'eliminazione spenta dal
+  server (`deleteBlockedBy`, M1).
 
 ## Trasversali
 

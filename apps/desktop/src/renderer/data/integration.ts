@@ -223,6 +223,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "claude-suggestions",
     // Area 11, F1 (R11-1): lo spazio Product, l'editor, la cronologia e Segui.
     "product-space",
+    // Area 11, F2 (R11-2): i fili ancorati, «Resolve», le risposte, le
+    // menzioni «@» e la loro card nell'inbox.
+    "product-comments",
     // Fetta 3.0 della chat: «Elimina task», a mano dal menu «⋯» della task.
     "task-delete",
     // Fetta 2 della chat, il riquadro (⌘J, ⌘K «Ask Claude…») col chip del contesto.

@@ -114,10 +114,25 @@ describe("lo spazio Product dal server", () => {
   });
 
   it("la pagina: i blocchi letti con lo schema, un tipo che il renderer non conosce saltato; «Delete» spento per le sottopagine", async () => {
-    installFakeServer({ "GET /api/product-pages/by-code/AUD-D5": { body: pageView() } });
+    installFakeServer({
+      "GET /api/product-pages/by-code/AUD-D5": { body: pageView({ deleteBlockedBy: "children" }) },
+    });
     const page = (await docs.getProductPage!("AUD-D5"))!;
     expect(page.blocks).toEqual([para("blk-1", "Customers sign in with Google.")]);
     expect(page.permissions).toEqual({ edit: true, delete: false, deleteBlocked: "has_children" });
+    // Il motivo lo dice il server (`deleteBlockedBy`, M1): il client non lo deduce dai permessi.
+    for (const [by, blocked] of [
+      [null, null],
+      ["permission", null],
+    ] as const) {
+      forgetProductDocs();
+      installFakeServer({
+        "GET /api/product-pages/by-code/AUD-D5": { body: pageView({ deleteBlockedBy: by }) },
+      });
+      expect((await docs.getProductPage!("AUD-D5"))!.permissions.deleteBlocked).toBe(blocked);
+    }
+    installFakeServer({ "GET /api/product-pages/by-code/AUD-D5": { body: pageView() } });
+    await docs.getProductPage!("AUD-D5");
     expect(page).toMatchObject({ following: true, openComments: 0, code: "AUD-D5" });
     installFakeServer({
       "GET /api/product-pages/by-code/AUD-D9": {
@@ -572,5 +587,147 @@ describe("cambiata la persona, niente di quella di prima (M3 della revisione)", 
     await docs.getProductPage!("AUD-D5");
     await docs.deleteProductPage!(PAGE);
     await expect(docs.renameProductPage!(PAGE, "x")).rejects.toThrow("not_found");
+  });
+});
+
+describe("i commenti dal server (area 11, F2; R11-2)", () => {
+  const ROOT = "eeeeeeee-0000-4000-8000-000000000001";
+  const REPLY = "eeeeeeee-0000-4000-8000-000000000002";
+  const OTHER_PERSON = "33333333-3333-4333-8333-000000000003";
+  const comment = (id: string, over: Record<string, unknown> = {}) => ({
+    id,
+    pageId: PAGE,
+    anchorId: "blk-1",
+    quote: "Google account",
+    authorId: ME_ID,
+    authorName: "Laura Costa",
+    body: "Do we keep a fallback?",
+    createdAt: "2026-11-20T10:00:00.000Z",
+    replyToId: null,
+    resolved: null,
+    mentionIds: [],
+    ...over,
+  });
+
+  it("i fili nella forma del prototipo: chi non si vede è `null`, un autore eliminato non ha id", async () => {
+    installFakeServer({
+      [`GET /api/product-pages/${PAGE}/comments`]: {
+        body: {
+          open: [
+            {
+              root: comment(ROOT, { mentionIds: [OTHER_PERSON] }),
+              replies: [
+                comment(REPLY, { replyToId: ROOT, authorId: null, authorName: null, body: "No." }),
+              ],
+              anchorGone: false,
+            },
+          ],
+          resolved: [
+            {
+              root: comment(OTHER_REV, {
+                resolved: { byId: OTHER_PERSON, byName: null, at: "2026-11-20T11:00:00.000Z" },
+              }),
+              replies: [],
+              anchorGone: true,
+            },
+          ],
+        },
+      },
+    });
+    const threads = await docs.listProductComments!(PAGE);
+    expect(threads.open[0]!.root).toMatchObject({
+      id: ROOT,
+      authorName: "Laura Costa",
+      mentionIds: [OTHER_PERSON],
+    });
+    expect(threads.open[0]!.replies[0]).toMatchObject({
+      id: REPLY,
+      authorId: "",
+      authorName: null,
+      replyToId: ROOT,
+    });
+    expect(threads.resolved[0]).toMatchObject({
+      anchorGone: true,
+      root: { resolved: { byId: OTHER_PERSON, byName: null } },
+    });
+  });
+
+  it("una pagina che non c'è (404) non ha fili; senza `docs.view` è `forbidden`", async () => {
+    installFakeServer({
+      [`GET /api/product-pages/${PAGE}/comments`]: {
+        status: 404,
+        body: { code: "not_found", message: "x" },
+      },
+    });
+    expect(await docs.listProductComments!(PAGE)).toEqual({ open: [], resolved: [] });
+    installFakeServer({
+      [`GET /api/product-pages/${PAGE}/comments`]: {
+        status: 403,
+        body: { code: "forbidden", message: "x" },
+      },
+    });
+    await expect(docs.listProductComments!(PAGE)).rejects.toThrow("forbidden");
+  });
+
+  it("commentare manda ancora, frase e testo (le menzioni le trova il server); i rifiuti `invalid: …`", async () => {
+    const { seen } = installFakeServer({
+      [`POST /api/product-pages/${PAGE}/comments`]: { status: 201, body: comment(ROOT) },
+    });
+    const made = await docs.addProductComment!(PAGE, {
+      anchorId: "blk-1",
+      quote: "Google account",
+      body: "Hi @Marco Bellini",
+    });
+    expect(made).toMatchObject({ id: ROOT, authorName: "Laura Costa" });
+    expect(seen[0]!.body).toEqual({
+      anchorId: "blk-1",
+      quote: "Google account",
+      body: "Hi @Marco Bellini",
+    });
+    installFakeServer({
+      [`POST /api/product-pages/${PAGE}/comments`]: {
+        status: 422,
+        body: { code: "invalid_anchor", message: "x" },
+      },
+    });
+    await expect(
+      docs.addProductComment!(PAGE, { anchorId: "gone", quote: "", body: "x" }),
+    ).rejects.toThrow("invalid: invalid_anchor");
+  });
+
+  it("una risposta manda `replyToId`; «Resolve» e «Reopen» sulle rotte del commento", async () => {
+    const { seen } = installFakeServer({
+      [`POST /api/product-pages/${PAGE}/comments`]: {
+        status: 201,
+        body: comment(REPLY, { replyToId: ROOT }),
+      },
+      [`POST /api/product-comments/${ROOT}/resolve`]: { status: 204 },
+      [`POST /api/product-comments/${ROOT}/reopen`]: { status: 204 },
+    });
+    await docs.addProductComment!(PAGE, {
+      anchorId: "blk-1",
+      quote: "",
+      body: "No.",
+      replyToId: ROOT,
+    });
+    expect(seen[0]!.body).toMatchObject({ replyToId: ROOT });
+    await docs.resolveProductComment!(ROOT);
+    await docs.reopenProductComment!(ROOT);
+    expect(seen.slice(1).map((r) => r.path)).toEqual([
+      `/api/product-comments/${ROOT}/resolve`,
+      `/api/product-comments/${ROOT}/reopen`,
+    ]);
+  });
+
+  it("chi si può menzionare: la ricerca col testo dato", async () => {
+    const { seen } = installFakeServer({
+      [`GET /api/projects/${PROJECT_ID}/product/mention-candidates`]: {
+        body: [{ id: OTHER_PERSON, name: "Marco Bellini" }],
+      },
+    });
+    expect(await docs.productMentionCandidates!(PROJECT_ID, "ma")).toEqual([
+      { id: OTHER_PERSON, name: "Marco Bellini" },
+    ]);
+    expect(seen[0]!.path).toBe(`/api/projects/${PROJECT_ID}/product/mention-candidates?q=ma`);
   });
 });

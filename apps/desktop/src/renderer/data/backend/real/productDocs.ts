@@ -6,6 +6,7 @@ import {
   buildProductTree,
   productImageRefSchema,
   productBlockSchema,
+  type ProductCommentView as ServerCommentView,
   type ProductPageView as ServerPageView,
   type ProductRevisionView as ServerRevisionView,
 } from "@stubwise/shared";
@@ -15,6 +16,8 @@ import type {
   ProductBlock,
   ProductBlockChange,
   ProductBlockOp,
+  ProductCommentThread,
+  ProductCommentView,
   ProductPage,
   ProductPageView,
   ProductRevisionView,
@@ -113,8 +116,10 @@ async function readPage(code: string): Promise<ProductPageView | null> {
     permissions: {
       edit: v.permissions.edit,
       delete: v.permissions.delete,
-      // Il server spegne l'eliminazione a chi potrebbe eliminare solo per le sottopagine.
-      deleteBlocked: v.permissions.edit && !v.permissions.delete ? "has_children" : null,
+      // Il perché dell'eliminazione spenta lo dice il server (`deleteBlockedBy`,
+      // M1): «children» è la frase delle sottopagine; senza `docs.edit` il
+      // gesto non c'è, e la frase non serve.
+      deleteBlocked: v.deleteBlockedBy === "children" ? "has_children" : null,
     },
     following: v.following,
     decisions: v.decisions,
@@ -157,6 +162,25 @@ async function rereadOr(
     lastRead.set(pageId, page);
     return page;
   }
+}
+
+/** Un commento del server nella forma del prototipo (un id che manca è vuoto). */
+function commentOf(c: ServerCommentView): ProductCommentView {
+  return {
+    id: c.id,
+    pageId: c.pageId,
+    anchorId: c.anchorId,
+    quote: c.quote,
+    authorId: c.authorId ?? "",
+    authorName: c.authorName,
+    body: c.body,
+    createdAt: c.createdAt,
+    replyToId: c.replyToId,
+    resolved: c.resolved
+      ? { byId: c.resolved.byId ?? "", byName: c.resolved.byName, at: c.resolved.at }
+      : null,
+    mentionIds: [...c.mentionIds],
+  };
 }
 
 function revisionOf(r: ServerRevisionView): ProductRevisionView {
@@ -387,6 +411,66 @@ export const liveProductDocs: Partial<ProductDocs> = {
     for (let i = 0; i < bytes.length; i += 0x8000)
       binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
     return `data:${type};base64,${btoa(binary)}`;
+  },
+
+  // --- i commenti (area 11, F2; R11-2) -------------------------------------------
+  // Le forme di 72 (ec8c47400): l'ordine dei fili lo dà il server, un nome
+  // che chi guarda non vede è `null` (R-G5), le menzioni le trova il server
+  // nel testo. Un autore eliminato non ha id: la UI dice «Someone».
+
+  async listProductComments(pageId) {
+    try {
+      const v = await appClient().productDocs.comments(pageId);
+      const thread = (t: (typeof v.open)[number]): ProductCommentThread => ({
+        root: commentOf(t.root),
+        replies: t.replies.map(commentOf),
+        anchorGone: t.anchorGone,
+      });
+      return { open: v.open.map(thread), resolved: v.resolved.map(thread) };
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return { open: [], resolved: [] };
+      return mapError(error);
+    }
+  },
+
+  async addProductComment(pageId, input) {
+    try {
+      return commentOf(
+        await appClient().productDocs.addComment(pageId, {
+          anchorId: input.anchorId,
+          quote: input.quote,
+          body: input.body,
+          ...(input.replyToId ? { replyToId: input.replyToId } : {}),
+        }),
+      );
+    } catch (error) {
+      return mapError(error);
+    }
+  },
+
+  async resolveProductComment(rootId) {
+    try {
+      await appClient().productDocs.resolveComment(rootId);
+    } catch (error) {
+      mapError(error);
+    }
+  },
+
+  async reopenProductComment(rootId) {
+    try {
+      await appClient().productDocs.reopenComment(rootId);
+    } catch (error) {
+      mapError(error);
+    }
+  },
+
+  async productMentionCandidates(projectId, q) {
+    try {
+      return [...(await appClient().productDocs.mentionCandidates(projectId, q))];
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 404 || error.status === 403)) return [];
+      return mapError(error);
+    }
   },
 
   async unfollowProductPage(pageId) {

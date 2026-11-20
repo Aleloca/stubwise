@@ -235,6 +235,33 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
       ...viaClaudeOf(item, ctx),
     };
   }
+  // Area 11, F2 (R11-2): la menzione in un commento della doc di prodotto, coi
+  // valori che il server deriva a lettura (`item.productDoc`): il titolo di
+  // adesso, chi ha scritto (`null` se chi guarda non lo vede), il filo da
+  // aprire. Le card di Claude sulla doc (updated, question) aspettano F5.
+  const productDoc = (item as Partial<InboxItem>).productDoc;
+  if (item.kind === "product_doc.mention" && productDoc) {
+    const page = `#/p/${productDoc.projectCode}/docs/product/${productDoc.pageCode}`;
+    return {
+      id: item.id,
+      kind: item.kind,
+      projectId: item.projectId,
+      objectCode: productDoc.pageCode,
+      departmentId: null,
+      recipientIds: [],
+      title: item.text,
+      body: item.summary ?? "",
+      createdAt: item.createdAt,
+      read: item.readAt !== null,
+      archived: item.status === "handled",
+      snoozedUntil: item.status === "snoozed" ? item.snoozedUntil : null,
+      link: productDoc.threadRootId ? `${page}?comment=${productDoc.threadRootId}` : page,
+      productPageTitle: productDoc.pageTitle,
+      actorName: productDoc.authorName,
+      ...mandatoryOf(item, ctx),
+      ...viaClaudeOf(item, ctx),
+    };
+  }
   // Area 7, F1: una card di un'automazione apre l'esecuzione (o l'automazione),
   // dai campi derivati a lettura (`item.automation`); solo a destinazione
   // accesa, o porterebbe a «in arrivo». Gli indirizzi sono quelli di `routes.ts`.
