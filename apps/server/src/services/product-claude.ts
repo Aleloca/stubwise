@@ -3,6 +3,7 @@ import {
   googleAccounts,
   meetingNotes,
   productClaudeMarks,
+  productComments,
   productPageRevisions,
   productPages,
   projectDecisions,
@@ -348,7 +349,18 @@ export async function undoProductRevision(db: Db, viewer: Viewer, revisionId: st
  * I campi di Claude sulle revisioni lette (additivi): la fonte vista, per
  * conto di chi, «Undo all» e lo stato di «Undo» per ancora.
  */
-export async function withClaudeFields(db: Db, viewer: Viewer, pageId: string, views: ProductRevisionView[]): Promise<ProductRevisionView[]> {
+export async function withClaudeFields(db: Db, viewer: Viewer, pageId: string, input: ProductRevisionView[]): Promise<ProductRevisionView[]> {
+  // «Update it» su una domanda di Claude: la revisione `edit` porta il commento della domanda (DERIVATO dalla risposta).
+  const editIds = input.filter((v) => v.kind === "edit").map((v) => v.id);
+  const answered =
+    editIds.length > 0
+      ? await db
+          .select({ id: productComments.id, revisionId: sql<string>`${productComments.answer}->>'revisionId'` })
+          .from(productComments)
+          .where(and(eq(productComments.pageId, pageId), inArray(sql`${productComments.answer}->>'revisionId'`, editIds)))
+      : [];
+  const answerOf = new Map(answered.map((a) => [a.revisionId, a.id]));
+  const views = answerOf.size > 0 ? input.map((v) => (answerOf.has(v.id) ? { ...v, answerOf: answerOf.get(v.id)! } : v)) : input;
   const claudeIds = views.filter((v) => v.kind === "claude" || v.kind === "undo").map((v) => v.id);
   if (claudeIds.length === 0) return views;
   const rows = new Map((await db.select().from(productPageRevisions).where(inArray(productPageRevisions.id, claudeIds))).map((r) => [r.id, r]));

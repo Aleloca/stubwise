@@ -90,7 +90,7 @@ const readBlocks = (raw: unknown): ProductBlock[] =>
 const sameRich = (a: RichText, b: RichText) => a.text.trim() === b.text.trim();
 
 /** Il blocco con la frase dell'ancora (il blocco, o una sua cella) sostituita. */
-function withAnchorText(block: ProductBlock, anchorId: string, text: RichText): ProductBlock | null {
+export function withAnchorText(block: ProductBlock, anchorId: string, text: RichText): ProductBlock | null {
   if (block.type === "table") {
     let hit = false;
     const rows = block.rows.map((r) => ({ ...r, cells: r.cells.map((c) => (c.id === anchorId ? ((hit = true), { ...c, content: text }) : c)) }));
@@ -252,6 +252,8 @@ export async function writeClaudeFacts(db: Db, input: ClaudeWriteInput): Promise
         request: q.fact.options?.request ?? null,
         ...(change.kind === "insert_after" && !q.fact.options?.apply ? { insert: { block: change.block, afterId: q.fact.anchorId } } : {}),
         recommended: recommendedOf(q.fact, decision),
+        // Il «dopo» di «Update it»: le revisioni successive che toccano l'ancora la spengono.
+        seq: seq ?? page.revSeq,
       };
       const [c] = await tx
         .insert(productComments)

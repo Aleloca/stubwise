@@ -5,6 +5,7 @@ import {
   productExportSpaceSchema,
   productMarkViewSchema,
   productMentionCandidatesSchema,
+  productOpenQuestionSchema,
   productPageViewSchema,
   productPresenceBeatResultSchema,
   productRevisionViewSchema,
@@ -18,7 +19,9 @@ import type {
   ProductCommentsView,
   ProductExportPage,
   ProductExportSpace,
+  ProductAnswerChoice,
   ProductMarkView,
+  ProductOpenQuestion,
   ProductPageView,
   ProductPresenceBeat,
   ProductPresenceBeatResult,
@@ -33,6 +36,7 @@ import { seg, toQuery } from "../query.js";
 
 const createdSchema = z.object({ id: z.uuid(), code: z.string() });
 const savedSchema = z.object({ seq: z.number().int(), revisionId: z.uuid().nullable() });
+const answerSchema = z.object({ revisionId: z.uuid().nullable(), seq: z.number().int().nullable(), requestId: z.uuid().nullable() });
 const imageSchema = z.object({ id: z.uuid(), ref: z.string() });
 
 /**
@@ -115,6 +119,21 @@ export function createProductDocsEndpoints(request: ApiRequest) {
     /** «Undo all» di una revisione di Claude: tutto o niente, gli stessi 409 di `undoMark`. */
     undoRevision(revisionId: string): Promise<{ seq: number; revisionId: string | null }> {
       return request("POST", `/api/product-revisions/${seg(revisionId)}/undo-all`, undefined, savedSchema);
+    },
+    // --- F5: le domande di Claude ---
+    /**
+     * La risposta a una domanda di Claude (`docs.edit`, una sola). `apply`
+     * scrive la frase (`revisionId`), `request` apre la voce del backlog
+     * (`requestId`), `keep` chiude. 409 in `ApiError.body`: `already_answered`
+     * e `changed_after` (`byId`, `byName`), `section_busy` (`sectionId`, `by`);
+     * 422 `option_unavailable`.
+     */
+    answerQuestion(commentId: string, option: ProductAnswerChoice): Promise<{ revisionId: string | null; seq: number | null; requestId: string | null }> {
+      return request("POST", `/api/product-comments/${seg(commentId)}/answer`, { option }, answerSchema);
+    },
+    /** Le domande aperte a cui chi guarda può rispondere (Home «Decide»; `pageId` = il riquadro di una pagina). */
+    openQuestions(pageId?: string): Promise<Reader<ProductOpenQuestion>[]> {
+      return request("GET", `/api/me/product-questions${toQuery({ pageId })}`, undefined, z.array(productOpenQuestionSchema));
     },
     // --- F4: la scrittura dal vivo ---
     /**
