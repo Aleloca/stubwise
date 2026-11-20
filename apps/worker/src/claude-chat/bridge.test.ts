@@ -792,6 +792,31 @@ describe("area 10, F3: read_usage_month — coi permessi di chi chiede (D-13 = a
     expect(r.text).not.toContain("children");
   });
 
+  it("review di F3–F8 (I1): la spesa è contenuto personale — in una pubblica (403 `chat_tool_private_only`) lo dice, senza `canSee: false`; mai in un turno di @Claude", async () => {
+    const seen: string[] = [];
+    const pubFetch = vi.fn(async (url: RequestInfo | URL) => {
+      const u = new URL(String(url));
+      seen.push(u.pathname + u.search);
+      return Response.json({ code: "chat_tool_private_only" }, { status: 403 });
+    });
+    bridge = await startChatBridge({ serverUrl: "http://server:3000", fetchImpl: pubFetch as never });
+    const pubGrant = bridge.grant({ sessionId: "s1", serverToken: "stw_chat_t" });
+    const r = (await (await call(bridge, pubGrant.secret, "read_usage_month", {})).json()) as { ok: boolean; text: string };
+    expect(r.ok).toBe(false);
+    expect(r.text).toMatch(/only in a private conversation/);
+    expect(r.text).not.toContain("canSee");
+    expect(seen).toEqual(["/api/ai-usage/summary?month=true&groupBy=project"]);
+    await bridge.close();
+    const fetchImpl = vi.fn(async () => Response.json({}));
+    bridge = await startChatBridge({ serverUrl: "http://server:3000", fetchImpl: fetchImpl as never });
+    const mention = bridge.grant({ sessionId: "s2", serverToken: "stw_chat_t", ask: true, mention: true });
+    const body = (await (await call(bridge, mention.secret, "read_usage_month", {})).json()) as { ok: boolean; text: string };
+    expect(body.ok).toBe(false);
+    expect(body.text).toMatch(/AI spending/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(CHAT_MENTION_TOOL_NAMES).not.toContain("mcp__stubwise_chat__read_usage_month");
+  });
+
   it("senza permessi (403): non un errore, `canSee: false` e i nomi di chi può dirlo, mai le email", async () => {
     const r = await read({ status: 403, body: { code: "forbidden" } });
     expect(r.ok).toBe(true);

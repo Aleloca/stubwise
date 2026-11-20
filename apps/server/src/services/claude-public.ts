@@ -397,6 +397,18 @@ async function projectsOfResponse(db: Db, route: string, params: Record<string, 
     const of = (k: string) => (Array.isArray(b[k]) ? (b[k] as { id?: unknown }[]).map((p) => p.id) : []);
     return uuids([...of("projects"), ...of("productionProjects")]);
   }
+  // Area 10, review di F3–F8 (I2b): le letture A ELENCO registrano i progetti
+  // che restituiscono, così l'autore li conferma alla pubblicazione.
+  const rows = Array.isArray(body) ? (body as Record<string, unknown>[]) : [];
+  if (route === "/api/tasks/stalled") return uuids(rows.map((r) => (r["task"] as Record<string, unknown> | undefined)?.["projectId"]));
+  if (route === "/api/projects/pulse") return uuids(rows.map((r) => r["projectId"]));
+  if (route === "/api/me/follows") return uuids(Array.isArray(b["projectIds"]) ? (b["projectIds"] as unknown[]) : []);
+  if (route === "/api/projects/archive-candidates") {
+    const list = (k: string) => (Array.isArray(b[k]) ? (b[k] as Record<string, unknown>[]) : []);
+    const codes = [...list("busy").map((x) => x["code"]), ...(Array.isArray(b["notManageableCodes"]) ? (b["notManageableCodes"] as unknown[]) : [])].filter((c): c is string => typeof c === "string");
+    const byCode = codes.length > 0 ? await db.select({ id: projects.id }).from(projects).where(inArray(projects.code, codes)) : [];
+    return uuids([...list("candidates").map((x) => x["projectId"]), ...byCode.map((r) => r.id)]);
+  }
   // Area 10, F6: le note di una PR dicono il repository, non il progetto.
   if (route === "/api/repositories/:repositoryId/pulls/:prNumber/release-notes" && typeof params["repositoryId"] === "string" && UUID.test(params["repositoryId"])) {
     const [r] = await db.select({ projectId: repositories.projectId }).from(repositories).where(eq(repositories.id, params["repositoryId"]));
@@ -429,9 +441,13 @@ export async function recordChatToolPrivateRead(request: FastifyRequest, reply: 
 /**
  * Hook `onSend` dell'app (fetta 5, D2): una lettura riuscita del token del
  * turno PER CODICE O PER ID registra il suo progetto fra quelli letti dalla
- * conversazione. Gli elenchi generici (progetti, persone, task senza
- * progetto) no: contano per ciò che la risposta di Claude cita. Mai il dato
- * letto: solo il progetto. Fail-open: un errore non tocca la risposta.
+ * conversazione; così il filtro per progetto della lista delle task (anche
+ * delle ferme). Dall'area 10 (review di F3–F8, I2b) anche le letture a elenco
+ * che portano dati di progetto per progetto — le task ferme, il polso, i
+ * seguiti, i candidati all'archivio — registrano TUTTI i progetti che
+ * restituiscono, perché l'autore li confermi alla pubblicazione. Restano fuori
+ * gli elenchi che non dicono niente di un progetto (progetti, persone). Mai il
+ * dato letto: solo il progetto. Fail-open: un errore non tocca la risposta.
  */
 export async function recordChatToolReadProjects(request: FastifyRequest, reply: FastifyReply, payload: unknown): Promise<void> {
   const sessionId = request.user?.chatToolSessionId;
@@ -442,8 +458,9 @@ export async function recordChatToolReadProjects(request: FastifyRequest, reply:
     const params = (request.params ?? {}) as Record<string, unknown>;
     if (typeof params["projectId"] === "string" && UUID.test(params["projectId"])) ids.add(params["projectId"]);
     const query = (request.query ?? {}) as Record<string, unknown>;
-    if (route === "/api/tasks" && typeof query["projectIds"] === "string" && UUID.test(query["projectIds"])) {
-      ids.add(query["projectIds"]);
+    // Il filtro per progetto della lista delle task (anche quella delle ferme, area 10, F3).
+    if ((route === "/api/tasks" || route === "/api/tasks/stalled") && typeof query["projectIds"] === "string") {
+      for (const id of query["projectIds"].split(",")) if (UUID.test(id)) ids.add(id);
     }
     if (typeof payload === "string") {
       for (const id of await projectsOfResponse(request.server.db, route, params, JSON.parse(payload))) ids.add(id);

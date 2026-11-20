@@ -1009,7 +1009,7 @@ export async function startChatBridge(deps: {
     // Area 10, F1 (review I3): posta e calendario mai in un turno di @Claude nella
     // Chat (la risposta sta in un canale). Il server li rifiuta comunque.
     if (turn.mention === true && (CHAT_PRIVATE_READ_TOOLS as readonly string[]).includes(tool)) {
-      return { status: 200, body: { ok: false, text: "In the Chat you can't read the person's mail or calendar: the answer would be visible to everyone in the channel. Suggest they ask you in a private conversation." } };
+      return { status: 200, body: { ok: false, text: "In the Chat you can't read the person's mail, calendar or AI spending: the answer would be visible to everyone in the channel. Suggest they ask you in a private conversation." } };
     }
     // La domanda: solo un turno di @Claude nella Chat, e solo col gestore del worker.
     if (tool === CHAT_ASK_TOOL) {
@@ -1036,6 +1036,11 @@ export async function startChatBridge(deps: {
       // Area 10, F3 (S3): chi non può vedere la spesa non riceve un errore, ma
       // `canSee: false` e (dalla rotta dopo) chi può dirglielo.
       if (tool === "read_usage_month" && res.status === 403 && path.startsWith("/api/ai-usage/summary")) {
+        // Area 10, review di F3–F8 (I1): in una conversazione pubblica la spesa non si legge.
+        const refusal = (await res.clone().json().catch(() => null)) as { code?: unknown } | null;
+        if (refusal?.code === "chat_tool_private_only") {
+          return { status: 200, body: { ok: false, text: "AI spending is personal to what the person may see: it can be read only in a private conversation, not in a public one. Say so, and suggest they ask you in a private conversation." } };
+        }
         parts.push(JSON.stringify({ canSee: false }));
         continue;
       }

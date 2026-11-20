@@ -81,6 +81,10 @@ export const EXTERNAL_TICKET_SOURCES = ["widget", "sdk_error", "sdk_feedback", "
 export const CHAT_TOOL_PRIVATE_ROUTES: ReadonlySet<string> = new Set([
   "/api/me/mail/threads/:threadId",
   "/api/me/calendar/events/:id",
+  // Area 10, review di F3–F8 (I1): la spesa del mese (totale e per progetto)
+  // coi permessi di chi chiede — in una pubblica o in un canale la leggerebbe
+  // chi non ha quei permessi.
+  "/api/ai-usage/summary",
 ]);
 const CHANNEL_ROUTES = new Set(["/api/chat/channels/:id", "/api/chat/channels/:id/messages"]);
 

@@ -23,6 +23,27 @@ che non stanno in un'area sola. Il catalogo è
   - un test che parsa una sessione con un tipo ignoto.
 - Un CHECK più stretto non è sicuro in discesa finché esistono eventi coi
   tipi nuovi.
+- `capabilities` è l'elenco dell'AUTORE (dai suoi permessi): in una pubblica
+  il lettore lo vede così com'è. Dice cosa Claude sa fare per l'autore, non
+  un dato di progetto, ed è accettato (review di F3–F8, M9).
+
+## Il contenuto dei tool non arriva a chi non è l'autore (review di F3–F8, I2)
+
+- Per OGNI tool, in una conversazione con Claude (una riga in
+  `claude_conversations`), chi legge e non ne è l'autore — il lettore di una
+  pubblica — riceve i `tool_use` e i `tool_result` SENZA contenuto: il nome
+  del tool e l'esito, `input: {}`, `content: ""`, `withheld: true`
+  (`listAgentSessionEvents`, `toolEventForReader`).
+- Il motivo: quel contenuto è la risposta del server all'AUTORE, coi suoi
+  permessi (codici e `projectId` di ogni progetto che lui vede). Un filtro per
+  chi guarda su un evento strutturato (`aside`) non serve a niente se il JSON
+  grezzo arriva accanto.
+- Chi aggiunge un tool non ha niente da fare qui: la regola vale per tutti. Chi
+  aggiunge un evento strutturato lo filtra a lettura (sopra).
+- Le letture a ELENCO che portano dati di progetto per progetto (task ferme,
+  polso, seguiti, candidati all'archivio) registrano TUTTI i progetti che
+  restituiscono (`recordChatToolReadProjects`), così l'autore li conferma
+  alla pubblicazione: la risposta di Claude li può citare.
 
 ## Una bozza in un campo non si salva da sola (area 10, F6)
 
@@ -46,7 +67,8 @@ che non stanno in un'area sola. Il catalogo è
 ## Il contenuto PERSONALE solo in una conversazione libera privata (area 10, F1, review)
 
 - Posta e calendario di chi chiede, un canale privato o un DM, un'automazione
-  generale: il token del turno li legge SOLO in una conversazione libera
+  generale, e (review di F3–F8, I1) la spesa del mese (`/api/ai-usage/summary`:
+  totale e costi per progetto coi permessi di chi chiede): il token del turno li legge SOLO in una conversazione libera
   (`agent_sessions.kind = 'free'`) PRIVATA. Altrove il server risponde 403
   `chat_tool_private_only` (`isPrivateChatToolRead`, `isPrivateConversation`
   in `apps/server/src/auth/chat-tool-routes.ts`).
@@ -58,8 +80,9 @@ che non stanno in un'area sola. Il catalogo è
   MAI gli admin, e una pubblica la legge chi ha `claude.public.view`. Si
   rifiuta tutta, non si tagliano gli eventi: la risposta di Claude li
   riassumerebbe comunque.
-- Nei turni di @Claude i due tool della posta e del calendario non ci sono
-  (`CHAT_MENTION_TOOL_NAMES`), e il ponte li rifiuta comunque.
+- Nei turni di @Claude i tool della posta, del calendario e della spesa non
+  ci sono (`CHAT_PRIVATE_READ_TOOLS` fuori da `CHAT_MENTION_TOOL_NAMES`), e il
+  ponte li rifiuta comunque.
 - Ogni lettura per codice o per id registra il suo progetto
   (`recordChatToolReadProjects`): è ciò che trattiene il seguito di una
   pubblica finché l'autore non lo conferma. Un tool nuovo che legge un oggetto

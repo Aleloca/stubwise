@@ -75,6 +75,32 @@ describe("l'aside del lavoro fermo, a lettura", () => {
     expect(JSON.stringify(theirs)).not.toContain(hidden.projectId);
   });
 
+  it("review di F3–F8 (I2a): il lettore di una pubblica che non è membro di X non riceve i codici di X da NESSUN evento dei tool; l'autore sì", async () => {
+    const hidden = await seedTicket(t.db, { number: 31 });
+    await addMember(app, hidden.projectId, author.id, "developer");
+    const hiddenCode = await codeOf(hidden.projectId);
+    const res = await app.inject({ method: "POST", url: "/api/claude/conversations", headers: { cookie: author.headers.cookie }, payload: {} });
+    const sid = (res.json() as { id: string }).id;
+    const content = JSON.stringify({ stalled: [{ projectId: hidden.projectId, stalled: [{ code: `${hiddenCode}-31`, reason: "idle" }] }] });
+    await t.db.insert(agentSessionEvents).values([
+      { sessionId: sid, segmentId: "s1", type: "tool_use", data: { toolUseId: "tu1", name: "mcp__stubwise_chat__read_stalled_work", input: { projectId: hidden.projectId } } },
+      { sessionId: sid, segmentId: "s1", type: "tool_result", data: { toolUseId: "tu1", isError: false, content } },
+    ]);
+    const all = async (who: U) => ((await app.inject({ method: "GET", url: `/api/agent-sessions/${sid}/events`, headers: { cookie: who.headers.cookie } })).json() as { events: { type: string; data: Record<string, unknown> }[] }).events;
+    const mine = await all(author);
+    expect(JSON.stringify(mine)).toContain(`${hiddenCode}-31`);
+    expect(mine.find((e) => e.type === "tool_use")!.data).toMatchObject({ input: { projectId: hidden.projectId } });
+    const pub = await app.inject({ method: "POST", url: `/api/claude/conversations/${sid}/visibility`, headers: { cookie: author.headers.cookie }, payload: { visibility: "public", confirmedProjectIds: [] } });
+    expect(pub.statusCode, pub.body).toBe(200);
+    const theirs = await all(reader);
+    expect(theirs.map((e) => e.type)).toEqual(expect.arrayContaining(["tool_use", "tool_result"]));
+    expect(theirs.find((e) => e.type === "tool_use")!.data).toEqual({ toolUseId: "tu1", name: "mcp__stubwise_chat__read_stalled_work", input: {}, withheld: true });
+    expect(theirs.find((e) => e.type === "tool_result")!.data).toEqual({ toolUseId: "tu1", isError: false, content: "", withheld: true });
+    const text = JSON.stringify(theirs);
+    expect(text).not.toContain(hiddenCode);
+    expect(text).not.toContain(hidden.projectId);
+  });
+
   it("le SOGLIE DEI PROGETTI (la regola della lista delle task): oltre la soglia è ferma, dentro no, con gli stessi dati della lista; l'aside porta la soglia", async () => {
     const { projectId } = await seedRepository(t.db);
     await addMember(app, projectId, author.id, "project_lead");
