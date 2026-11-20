@@ -749,10 +749,11 @@ const askDocs: Docs["askDocs"] = async ({ projectId, repositoryId, question }) =
   return {
     answeredAt: new Date().toISOString(),
     text: out.answer,
-    refs: [...refs, ...productRefs],
+    // Prima le pagine di prodotto, poi quelle dei repository, come il prototipo (`data/docs/chat.ts`).
+    refs: [...productRefs, ...refs],
     sources: [
-      ...out.sources.map((s, i) => ({ pageId: refs[i]!.id, repositoryName: s.repositoryName })),
       ...productRefs.map((r) => ({ pageId: r.id, repositoryName: "", space: "product" as const })),
+      ...out.sources.map((s, i) => ({ pageId: refs[i]!.id, repositoryName: s.repositoryName })),
     ],
   };
 };

@@ -939,6 +939,7 @@ function PageMenu({
     projectCode: project.code,
     page: { id: page.id, code: page.code, title: page.title },
     button,
+    pageCount,
   });
   const copyLink = () =>
     copyText(productPageHref(project.code, page.code)).then(

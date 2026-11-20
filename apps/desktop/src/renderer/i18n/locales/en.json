@@ -13319,13 +13319,14 @@
       "failed": "Couldn't export",
       "retry": "Retry",
       "tooLarge": "The Word file is over 25 MB. Export as PDF instead.",
-      "spaceTooLarge": "The space has {{count}} pages: export up to {{max}} at a time, or export a single page.",
+      "spaceTooLarge": "The space has {{count}} pages, more than the {{max}} that can be exported. Export a single page instead.",
       "fileLine": "File: {{name}} ({{code}})",
       "fileGone": "File: {{code}} (not available)",
       "decisionLine": "Decision: {{title}}",
       "decisionHidden": "Decision: not available",
       "printLabel": "Print view",
-      "notDataImage": "not data: images"
+      "notDataImage": "not data: images",
+      "imageLeftOut": "Image left out: {{caption}}"
     },
     "question": {
       "reason": {

@@ -265,6 +265,45 @@ describe("«#» nella build app: le pagine Docs (area 5, fetta 1)", () => {
     ]);
   });
 
+  it("anche le pagine di prodotto (gruppo `product`, area 11 F3): `doc` col codice -D, «AUD · Product», come il prototipo", async () => {
+    installFakeServer({
+      "GET /api/projects": { body: [serverProject({ memberIds: [] })] },
+      "GET /api/tasks": { body: { items: [], truncated: false } },
+      "GET /api/search": {
+        body: {
+          tickets: empty,
+          projects: empty,
+          repositories: empty,
+          docs: empty,
+          product: {
+            items: [
+              {
+                page: {
+                  id: "aaaaaaaa-0000-4000-8000-000000000001",
+                  code: "AUD-D5",
+                  projectId: PROJECT_ID,
+                  parentId: null,
+                  order: 0,
+                  title: "Sign-in",
+                  excerpt: "",
+                  updatedAt: "2026-11-20T10:00:00.000Z",
+                  updatedById: null,
+                },
+                projectCode: "AUD",
+                passage: "Customers sign in with Google.",
+              },
+            ],
+            hasMore: false,
+          },
+        },
+      },
+    });
+    const rows = await searchMentions("sign", "objects");
+    expect(rows.filter((r) => r.ref.kind === "doc")).toEqual([
+      { ref: { kind: "doc", id: "AUD-D5" }, code: "AUD-D5", label: "Sign-in", detail: "AUD", projectId: PROJECT_ID, space: "product" },
+    ]);
+  });
+
   it("senza testo nessuna ricerca globale", async () => {
     const { seen } = installFakeServer({ "GET /api/projects": { body: [serverProject({ memberIds: [] })] } });
     await searchMentions("", "objects");

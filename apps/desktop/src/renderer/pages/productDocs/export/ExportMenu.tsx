@@ -88,6 +88,7 @@ export function ExportMenu({
     projectCode: project.code,
     page,
     button,
+    pageCount,
   });
 
   const close = (restore: boolean) => {

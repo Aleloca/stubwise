@@ -365,8 +365,10 @@ describe("la chat dei Docs (senza streaming, come il prototipo)", () => {
     await getSessionPerson();
     const out = await docs.askDocs({ projectId: PROJECT_ID, question: "How do customers sign in?" });
     expect(out.refs).toHaveLength(2);
-    expect(out.sources[1]).toEqual({ pageId: out.refs[1]!.id, repositoryName: "", space: "product" });
-    expect(await resolveCitations([out.refs[1]!])).toMatchObject([
+    // Prima le pagine di prodotto, poi quelle dei repository, come il prototipo (review di R11-3, 9).
+    expect(out.sources[0]).toEqual({ pageId: out.refs[0]!.id, repositoryName: "", space: "product" });
+    expect(out.sources[1]).toEqual({ pageId: out.refs[1]!.id, repositoryName: "audin-app" });
+    expect(await resolveCitations([out.refs[0]!])).toMatchObject([
       { kind: "doc", visible: true, code: "AUD-D5", name: "Sign-in", route: "#/p/AUD/docs/product/AUD-D5" },
     ]);
   });

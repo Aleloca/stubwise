@@ -6,6 +6,7 @@ import type {
   ClaudeConversationContext,
   ClaudeConversationDetail as ClaudeConversationDetailView,
   Reader,
+  ProductSearchHit,
   SearchDocHit,
 } from "@stubwise/shared";
 import type * as Fake from "../../api";
@@ -538,7 +539,7 @@ export const searchMentions: typeof Fake.searchMentions = async (q, kind) => {
   const [projects, tasks, docHits, driveRows, requests] = await Promise.all([
     projectsRead,
     needle ? listTasks({ text: q.trim(), families: ["todo", "active"] }) : Promise.resolve([]),
-    needle && featureIntegrated("docs") ? docMentionHits(q.trim()) : Promise.resolve([]),
+    needle && featureIntegrated("docs") ? docMentionHits(q.trim()) : Promise.resolve({ docs: [], product: [] }),
     needle && featureIntegrated("drive") ? drive.searchDrive(q.trim()).then((r) => r.files.map((h) => h.file)) : Promise.resolve([]),
     needle ? projectsRead.then((list) => requestsOf(list.map((p) => p.id))) : Promise.resolve([]),
   ]);
@@ -564,11 +565,20 @@ export const searchMentions: typeof Fake.searchMentions = async (q, kind) => {
     }));
   // Una pagina si cita col suo codice (`AUD-D3`): il progetto è il prefisso.
   const byCode = new Map(projects.map((p) => [p.code, p] as const));
-  const docRows = docHits.flatMap<MentionResult>((d) => {
+  const docRows = docHits.docs.flatMap<MentionResult>((d) => {
     const project = byCode.get(DOC_CODE_RE.exec(d.code)?.[1] ?? "");
     if (!project) return [];
     return [{ ref: { kind: "doc", id: d.code }, code: d.code, label: d.title, detail: `${project.code} · ${d.repositoryName}`, projectId: project.id }];
   });
+  // Le pagine di prodotto con le altre pagine, per codice: «ACQ · Product» lo compone chi le mostra (`space`).
+  const productRows = docHits.product.map<MentionResult>((h) => ({
+    ref: { kind: "doc", id: h.page.code },
+    code: h.page.code,
+    label: h.page.title,
+    detail: h.projectCode,
+    projectId: h.page.projectId,
+    space: "product",
+  }));
   // I file del Drive dei progetti di cui si è membri, per nome e codice. Il
   // riferimento porta il codice (R-H5): resta anche se il file se ne va.
   const driveMentions = driveRows.map<MentionResult>((f) => ({
@@ -582,7 +592,7 @@ export const searchMentions: typeof Fake.searchMentions = async (q, kind) => {
   return [
     ...[...taskRows, ...projectRows].slice(0, MENTION_LIMIT),
     ...requestRows.slice(0, MENTION_LIMIT),
-    ...docRows.slice(0, MENTION_LIMIT),
+    ...[...productRows, ...docRows].slice(0, MENTION_LIMIT),
     ...driveMentions.slice(0, MENTION_LIMIT),
   ];
 };
@@ -609,9 +619,15 @@ async function requestsOf(projectIds: string[]): Promise<ProjectRequestSummary[]
  * rilascio). Un server che non conosce il parametro le manda comunque, e senza
  * codice: si tengono solo le pagine che ne hanno uno.
  */
-async function docMentionHits(q: string): Promise<(SearchDocHit & { code: string })[]> {
+async function docMentionHits(
+  q: string,
+): Promise<{ docs: (SearchDocHit & { code: string })[]; product: ProductSearchHit[] }> {
   const hits = await appClient().search.global(q, undefined, { citable: true });
-  return hits.docs.items.filter((d): d is SearchDocHit & { code: string } => d.code !== null && d.kind !== "releases");
+  return {
+    docs: hits.docs.items.filter((d): d is SearchDocHit & { code: string } => d.code !== null && d.kind !== "releases"),
+    // Area 11, F3: le pagine di prodotto (il gruppo `product`), come nel prototipo.
+    product: featureIntegrated("product-space") ? [...(hits.product?.items ?? [])] : [],
+  };
 }
 
 const hidden = (ref: CitationRef): CitationView => ({

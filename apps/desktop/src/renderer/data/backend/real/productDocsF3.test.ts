@@ -91,7 +91,8 @@ describe("la ricerca «In Product»", () => {
     expect(await docs.searchProductPages!("  ")).toEqual([]);
     expect(seen).toHaveLength(0);
     expect((await docs.searchProductPages!("bills")).map((h) => h.page.id)).toEqual([CHILD]);
-    expect(seen[0]!.path).toBe("/api/search?q=bills");
+    // La stessa ricerca citabile della palette (una sola chiamata in volo per testo).
+    expect(seen[0]!.path).toBe("/api/search?q=bills&citable=true");
   });
 
   it("un server senza il gruppo `product` non ha righe; 404 nessuna riga", async () => {
@@ -109,6 +110,18 @@ describe("la ricerca «In Product»", () => {
 });
 
 describe("l'esportazione", () => {
+  const D1 = "dddddddd-1111-4111-8111-000000000001";
+  const D2 = "dddddddd-1111-4111-8111-000000000002";
+  const F1 = "ffffffff-1111-4111-8111-000000000001";
+  const F2 = "ffffffff-1111-4111-8111-000000000002";
+  const IMG2 = "dddddddd-0000-4000-8000-000000000002";
+  const cited = [
+    { id: "b-d1", type: "decision", decisionId: D1 },
+    { id: "b-d2", type: "decision", decisionId: D2 },
+    { id: "b-f1", type: "drive", fileId: F1, code: "AUD-F1" },
+    { id: "b-f2", type: "drive", fileId: F2, code: "AUD-F2" },
+  ];
+  // Il server manda decisioni e file CITATI dai blocchi della pagina, risolti per chi esporta.
   const exported = (id: string, blocks: unknown[], over: Record<string, unknown> = {}) => ({
     page: {
       id,
@@ -118,18 +131,57 @@ describe("l'esportazione", () => {
       updatedAt: "2026-11-20T10:00:00.000Z",
     },
     blocks,
-    decisions: {
-      "d-1": { title: "Google only", decidedAt: "2026-11-01T10:00:00.000Z", decidedByName: null },
-      "d-2": null,
-    },
-    files: { "f-1": { name: "brief.pdf" }, "f-2": null },
+    decisions: {},
+    files: {},
     ...over,
   });
+  const image = (id: string, imageId: string) => ({
+    id,
+    type: "image",
+    src: `product-image:${imageId}`,
+    caption: "Flow",
+    alt: "flow",
+  });
+  const png = new Uint8Array([137, 80, 78, 71]);
+  const pngUrl = `data:image/png;base64,${btoa(String.fromCharCode(...png))}`;
+  /** Il main del desktop: l'export per JSON, le immagini coi loro byte (o un errore per `failing`). */
+  function desktop(exportBody: unknown, { failing = new Set<string>(), type = "image/png" } = {}) {
+    let active = 0;
+    let peak = 0;
+    const request = vi.fn(async (req: { path: string }) => {
+      if (req.path.endsWith("/export"))
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(exportBody),
+        };
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((r) => setTimeout(r, 1));
+      active--;
+      const id = req.path.split("/").at(-1)!;
+      return failing.has(id)
+        ? { status: 500, headers: { "content-type": "application/json" }, body: "{}" }
+        : { status: 200, headers: { "content-type": type }, body: png.buffer };
+    });
+    vi.stubGlobal("stubwise", { api: { request } });
+    return { request, peak: () => peak };
+  }
 
-  it("una pagina: la sua rotta; i blocchi letti con lo schema, le decisioni come le vede chi esporta", async () => {
+  it("una pagina: la sua rotta; i blocchi letti con lo schema, decisioni e file citati come li vede chi esporta", async () => {
     const { seen } = installFakeServer({
       [`GET /api/product-pages/${PAGE}/export`]: {
-        body: exported(PAGE, [para("b-1", "Hello"), { id: "b-2", type: "hologram" }]),
+        body: exported(PAGE, [para("b-1", "Hello"), { id: "b-2", type: "hologram" }, ...cited], {
+          decisions: {
+            [D1]: {
+              title: "Google only",
+              decidedAt: "2026-11-01T10:00:00.000Z",
+              decidedByName: null,
+            },
+            [D2]: null,
+          },
+          files: { [F1]: { name: "brief.pdf" }, [F2]: null },
+        }),
       },
     });
     const view = (await docs.getProductExport!(PROJECT_ID, { pageId: PAGE }))!;
@@ -140,10 +192,16 @@ describe("l'esportazione", () => {
       depth: 0,
       page: { id: PAGE, code: "AUD-D5", title: "Sign-in", projectId: PROJECT_ID },
     });
-    expect(view.pages[0]!.page.blocks).toEqual([para("b-1", "Hello")]);
-    expect(view.decisions).toEqual({ "d-1": { title: "Google only" }, "d-2": null });
+    expect(view.pages[0]!.page.blocks.map((b) => b.id)).toEqual([
+      "b-1",
+      "b-d1",
+      "b-d2",
+      "b-f1",
+      "b-f2",
+    ]);
+    expect(view.decisions).toEqual({ [D1]: { title: "Google only" }, [D2]: null });
     // I file del Drive come li vede chi esporta (72, 5c5d0323e): null se non li vede.
-    expect(view.files).toEqual({ "f-1": { name: "brief.pdf" }, "f-2": null });
+    expect(view.files).toEqual({ [F1]: { name: "brief.pdf" }, [F2]: null });
   });
 
   it("lo spazio: la rotta del progetto, in ordine d'albero con la profondità", async () => {
@@ -165,33 +223,52 @@ describe("l'esportazione", () => {
     ]);
   });
 
-  it("un'immagine si legge dalla rotta dell'immagine come data URL (l'export non porta URL firmati)", async () => {
-    const png = new Uint8Array([137, 80, 78, 71]);
-    const request = vi.fn(async (req: { path: string }) =>
-      req.path.endsWith("/export")
-        ? {
-            status: 200,
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(
-              exported(PAGE, [
-                {
-                  id: "b-img",
-                  type: "image",
-                  src: `product-image:${IMAGE}`,
-                  caption: "Flow",
-                  alt: "flow",
-                },
-              ]),
-            ),
-          }
-        : req.path === `/api/product-pages/${PAGE}/images/${IMAGE}`
-          ? { status: 200, headers: { "content-type": "image/png" }, body: png.buffer }
-          : { status: 404, headers: { "content-type": "application/json" }, body: "{}" },
+  it("le immagini dalla rotta coi byte, ognuna col pageId della SUA pagina (l'export non porta URL firmati)", async () => {
+    const { request } = desktop({
+      projectCode: "AUD",
+      pages: [
+        { ...exported(PAGE, [image("b-1", IMAGE)]), depth: 0 },
+        { ...exported(CHILD, [image("b-2", IMG2)]), depth: 1 },
+      ],
+    });
+    const view = (await docs.getProductExport!(PROJECT_ID))!;
+    expect(view.pages.map((p) => (p.page.blocks[0] as { src: string }).src)).toEqual([
+      pngUrl,
+      pngUrl,
+    ]);
+    const paths = request.mock.calls.map(([r]) => r.path).filter((p) => p.includes("/images/"));
+    expect(paths).toEqual([
+      `/api/product-pages/${PAGE}/images/${IMAGE}`,
+      `/api/product-pages/${CHILD}/images/${IMG2}`,
+    ]);
+  });
+
+  it("al più 4 immagini lette insieme, e la stessa immagine una volta sola (I1 della revisione di R11-3)", async () => {
+    const ids = Array.from(
+      { length: 12 },
+      (_, i) => `dddddddd-0000-4000-8000-${String(100 + i).padStart(12, "0")}`,
     );
-    vi.stubGlobal("stubwise", { api: { request } });
+    const { request, peak } = desktop(
+      exported(PAGE, [...ids.map((id, i) => image(`b-${i}`, id)), image("b-again", ids[0]!)]),
+    );
     const view = (await docs.getProductExport!(PROJECT_ID, { pageId: PAGE }))!;
-    const image = view.pages[0]!.page.blocks[0] as { src: string };
-    expect(image.src).toBe(`data:image/png;base64,${btoa(String.fromCharCode(...png))}`);
+    expect(view.pages[0]!.page.blocks).toHaveLength(13);
+    expect(request.mock.calls.filter(([r]) => r.path.includes("/images/"))).toHaveLength(12);
+    expect(peak()).toBeLessThanOrEqual(4);
+  });
+
+  it("un'immagine che non si legge, o che non è PNG/JPEG/GIF/WebP: resta un riferimento, «lasciata fuori» dall'export", async () => {
+    desktop(exported(PAGE, [image("b-1", IMAGE), image("b-2", IMG2)]), {
+      failing: new Set([IMAGE]),
+    });
+    const view = (await docs.getProductExport!(PROJECT_ID, { pageId: PAGE }))!;
+    expect(view.pages[0]!.page.blocks.map((b) => (b as { src: string }).src)).toEqual([
+      `product-image:${IMAGE}`,
+      pngUrl,
+    ]);
+    desktop(exported(PAGE, [image("b-1", IMAGE)]), { type: "image/svg+xml" });
+    const svg = (await docs.getProductExport!(PROJECT_ID, { pageId: PAGE }))!;
+    expect((svg.pages[0]!.page.blocks[0] as { src: string }).src).toBe(`product-image:${IMAGE}`);
   });
 
   it("404 è nessuna esportazione; 403 è `forbidden`; oltre il tetto (413 `too_many_pages`) un rifiuto `too_large` col numero", async () => {

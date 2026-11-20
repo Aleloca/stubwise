@@ -102,6 +102,40 @@ function codeOf(body: string | ArrayBuffer): string | undefined {
   }
 }
 
+/** Il tetto di un'immagine di una pagina di prodotto, come il caricamento (5 MB). */
+export const PRODUCT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const PRODUCT_IMAGE_PATH =
+  /^\/api\/product-pages\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/images\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Il corpo fino a `max` byte; `null` se ne dichiara o ne porta di più (smette di leggere). */
+async function readCapped(res: Response, max: number): Promise<ArrayBuffer | null> {
+  if (Number(res.headers.get("content-length") ?? "0") > max) {
+    await res.body?.cancel().catch(() => undefined);
+    return null;
+  }
+  if (!res.body) return new ArrayBuffer(0);
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.byteLength;
+  }
+  return out.buffer;
+}
+
 export interface ApiProxyDeps {
   instanceUrl: () => string | null;
   token: () => string | null;
@@ -143,6 +177,14 @@ export async function handleApiRequest(raw: unknown, deps: ApiProxyDeps): Promis
     headers[k] = v;
   });
   const type = res.headers.get("content-type") ?? "";
+  // Un'immagine di una pagina di prodotto (area 11): i byte con un tetto,
+  // dichiarati o letti, così un'esportazione non riempie il main (I1 della
+  // revisione di R11-3). Oltre, 413 e i byte non si tengono.
+  if (res.ok && PRODUCT_IMAGE_PATH.test(req.path.split("?")[0]!)) {
+    const capped = await readCapped(res, PRODUCT_IMAGE_MAX_BYTES);
+    if (!capped) return fail(413, "image_too_large");
+    return { status: res.status, headers, body: capped };
+  }
   const body = type === "" || isText(type) ? await res.text() : await res.arrayBuffer();
   // Solo un 401 di SESSIONE cancella il token (un codice di riconferma
   // sbagliato è un 401 con la sessione viva): la regola è `endsSession`.

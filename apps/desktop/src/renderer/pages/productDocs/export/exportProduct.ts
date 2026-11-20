@@ -1,3 +1,4 @@
+import { PRODUCT_EXPORT_PAGES_MAX } from "@stubwise/shared";
 import { useCallback, useRef, useState, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -6,7 +7,7 @@ import type { ProductExportView } from "../../../data/types";
 import { exportModelOf, type ExportDoc } from "../../../domain/productDocs/exportModel";
 import { fitFileName, MAX_SAVE_BYTES, saveExport } from "../../../platform/saveFile";
 import { useToast } from "../../../tasks-ui/Toast";
-import { buildDocx, svgToPng, wordLeftOutReasons } from "./docx";
+import { buildDocx, svgToPng, wordImageBytes, wordLeftOutReasons } from "./docx";
 import { printRoot } from "./PrintView";
 
 // L'esportazione (area 11a, Task 12; shape product-space.md §3.8). Una sola
@@ -27,6 +28,7 @@ export function useProductExport({
   projectCode,
   page,
   button,
+  pageCount,
 }: {
   projectId: string;
   projectCode: string;
@@ -34,6 +36,8 @@ export function useProductExport({
   page: { id: string; code: string; title: string } | null;
   /** «Export ▾»: il fuoco ci torna alla fine (e al Retry, che sparisce). */
   button: RefObject<HTMLButtonElement | null>;
+  /** Le pagine dello spazio, se il menu le conosce: oltre il tetto si avvisa prima di chiedere. */
+  pageCount?: number;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
@@ -70,6 +74,11 @@ export function useProductExport({
     async function run(scope: ExportScope, format: ExportFormat): Promise<void> {
       if (running.current) return;
       if (scope === "page" && !page) return;
+      // Lo spazio che il menu sa già oltre il tetto: niente richiesta, l'avviso subito.
+      if (scope === "space" && pageCount !== undefined && pageCount > PRODUCT_EXPORT_PAGES_MAX) {
+        toast.error(t("productDocs.export.spaceTooLarge", { count: pageCount, max: PRODUCT_EXPORT_PAGES_MAX }));
+        return;
+      }
       running.current = true;
       setBusy(true);
       // Il fuoco su «Export ▾» (spento ma raggiungibile): un Retry che sparisce non lo lascia sul body.
@@ -104,6 +113,11 @@ export function useProductExport({
             flushSync(() => setPrinting(null));
           }
         } else {
+          // Le immagini da sole oltre il tetto: lo si dice prima di costruire (I1 della revisione di R11-3).
+          if (wordImageBytes(doc) > MAX_SAVE_BYTES) {
+            toast.error(t("productDocs.export.tooLarge"));
+            return;
+          }
           const data = await buildDocx(doc, {
             label: t("productDocs.wireframe.exportLabel"),
             name: t("productDocs.wireframe.kind"),
@@ -134,7 +148,7 @@ export function useProductExport({
         // stesso; l'avviso dice il numero e la via della pagina, senza Retry.
         const e = error as { message?: string; pageCount?: number; max?: number } | null;
         if (e?.message === "too_large" && typeof e.pageCount === "number")
-          toast.error(t("productDocs.export.spaceTooLarge", { count: e.pageCount, max: e.max ?? 200 }));
+          toast.error(t("productDocs.export.spaceTooLarge", { count: e.pageCount, max: e.max ?? PRODUCT_EXPORT_PAGES_MAX }));
         else failed();
       } finally {
         running.current = false;
@@ -144,7 +158,7 @@ export function useProductExport({
         if (!active || active === document.body || active === button.current) button.current?.focus();
       }
     },
-    [button, modelOf, page, projectCode, projectId, read, t, toast],
+    [button, modelOf, page, pageCount, projectCode, projectId, read, t, toast],
   );
 
   return { busy, printing, start };

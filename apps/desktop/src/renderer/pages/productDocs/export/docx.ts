@@ -97,6 +97,24 @@ export function wordLeftOutReasons(doc: ExportDoc): WordLeftOut[] {
   );
 }
 
+/**
+ * I byte delle immagini che entrerebbero nel Word, stimati dai data URL
+ * (base64 per 3/4) PRIMA di costruirlo (I1 della revisione di R11-3): oltre
+ * il tetto del processo principale non serve costruire niente.
+ */
+export function wordImageBytes(doc: ExportDoc): number {
+  return doc.pages.reduce(
+    (sum, p) =>
+      sum +
+      p.blocks.reduce((n, b) => {
+        if (b.kind !== "image") return n;
+        const comma = b.src.startsWith("data:") ? b.src.indexOf(",") : -1;
+        return comma < 0 ? n : n + Math.floor(((b.src.length - comma - 1) * 3) / 4);
+      }, 0),
+    0,
+  );
+}
+
 /** Quante immagini il Word lascia fuori (l'avviso finale le conta). */
 export function wordLeftOutImages(doc: ExportDoc): number {
   return wordLeftOutReasons(doc).length;

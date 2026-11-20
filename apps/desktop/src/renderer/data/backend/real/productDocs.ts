@@ -5,7 +5,6 @@ import {
   applyBlockOps,
   buildProductTree,
   productImageRefSchema,
-  productSearchHitSchema,
   productBlockSchema,
   type ProductCommentView as ServerCommentView,
   type ProductExportPage,
@@ -28,6 +27,7 @@ import type {
   ProductSearchHit,
 } from "../../types";
 import { appClient } from "./client";
+import { citableSearch } from "./globalSearch";
 import { liveProductPresence } from "./productLive";
 import { authedDataUrl, ipcFetch } from "./transport";
 
@@ -179,12 +179,6 @@ async function rereadOr(
   }
 }
 
-/** Una riga della ricerca (`productSearchHitSchema` di shared, come il prototipo), o `null` se non si legge. */
-function searchHitOf(r: unknown): ProductSearchHit | null {
-  const hit = productSearchHitSchema.safeParse(r);
-  return hit.success ? hit.data : null;
-}
-
 /** Lo spazio oltre il tetto dell'esportazione (413 `too_many_pages`): `too_large`, col numero (`count`) e il tetto. */
 function tooLarge(error: ApiError): Error & { pageCount?: number; max?: number } {
   const d = (error.details ?? {}) as { count?: unknown; max?: unknown };
@@ -194,23 +188,55 @@ function tooLarge(error: ApiError): Error & { pageCount?: number; max?: number }
   });
 }
 
+/** Quante immagini dell'esportazione si leggono insieme (I1 della revisione di R11-3). */
+const EXPORT_IMAGE_CONCURRENCY = 4;
+
 /**
- * Le immagini di una pagina da esportare come data URL: il PDF del desktop
- * (CSP `img-src 'self' data:`) e il Word vogliono i byte. Si leggono dalla
- * rotta dell'immagine (`authedDataUrl`: dal main sul desktop, col cookie sul
- * web), mai dall'URL firmato dello storage. Un'immagine che non si legge
- * resta col suo riferimento: l'esportazione la dice «lasciata fuori».
+ * Il lettore delle immagini di UNA esportazione, come data URL: il PDF del
+ * desktop (CSP `img-src 'self' data:`) e il Word vogliono i byte. Si leggono
+ * dalla rotta dell'immagine (`authedDataUrl`: dal main sul desktop, col
+ * cookie sul web), mai dall'URL firmato dello storage; al più
+ * `EXPORT_IMAGE_CONCURRENCY` insieme, e la stessa immagine una volta sola.
+ * Un'immagine che non si legge, o che non è PNG/JPEG/GIF/WebP, resta col suo
+ * riferimento: l'esportazione la dice «lasciata fuori» (PDF e Word).
  */
-async function withImageData(pageId: string, blocks: ProductBlock[]): Promise<ProductBlock[]> {
-  return Promise.all(
-    blocks.map(async (b) => {
-      if (b.type !== "image" || !productImageRefSchema.safeParse(b.src).success) return b;
-      const data = await authedDataUrl(
-        appClient().productDocs.imagePath(pageId, b.src.slice(PRODUCT_IMAGE_REF_PREFIX.length)),
-      );
-      return data ? { ...b, src: data } : b;
-    }),
-  );
+function exportImageReader() {
+  const seen = new Map<string, Promise<string | null>>();
+  const waiting: (() => void)[] = [];
+  let active = 0;
+  const slot = async () => {
+    if (active >= EXPORT_IMAGE_CONCURRENCY) await new Promise<void>((go) => waiting.push(go));
+    active++;
+  };
+  const free = () => {
+    active--;
+    waiting.shift()?.();
+  };
+  const read = (pageId: string, imageId: string): Promise<string | null> => {
+    let pending = seen.get(imageId);
+    if (!pending) {
+      pending = (async () => {
+        await slot();
+        try {
+          const data = await authedDataUrl(appClient().productDocs.imagePath(pageId, imageId));
+          const type = data ? /^data:([^;,]+)[;,]/.exec(data)?.[1]?.toLowerCase() : undefined;
+          return data && type && IMAGE_TYPES.has(type) ? data : null;
+        } finally {
+          free();
+        }
+      })();
+      seen.set(imageId, pending);
+    }
+    return pending;
+  };
+  return (pageId: string, blocks: ProductBlock[]): Promise<ProductBlock[]> =>
+    Promise.all(
+      blocks.map(async (b) => {
+        if (b.type !== "image" || !productImageRefSchema.safeParse(b.src).success) return b;
+        const data = await read(pageId, b.src.slice(PRODUCT_IMAGE_REF_PREFIX.length));
+        return data ? { ...b, src: data } : b;
+      }),
+    );
 }
 
 /** Un commento del server nella forma del prototipo (un id che manca è vuoto). */
@@ -523,30 +549,32 @@ export const liveProductDocs: Partial<ProductDocs> = {
   },
 
   // --- la ricerca e l'esportazione (area 11, F3; R11-3) ---------------------------
-  // Contro le forme del piano F3, finché 72 non pubblica l'api-client: le
-  // rotte con `request`, le righe lette una per una (una rotta di una
-  // forma che non torna non rompe la palette). Dietro `product-search` e
-  // `product-export`.
+  // Sull'api-client di F3 (72): la risposta la valida lo schema del client
+  // INTERA, quindi una riga malformata fa fallire la ricerca (e, nella
+  // globale, anche gli altri gruppi): la palette lo dice come ogni errore di
+  // ricerca. È la regola dei `readerSchema` (enum aperti, campi no).
 
   async searchProductPages(q, { projectId } = {}) {
     const text = q.trim();
     // Il server risponde 400 `empty_query`: un testo vuoto non chiede niente.
     if (text === "") return [];
-    let items: unknown;
+    let items: readonly ProductSearchHit[];
     try {
       if (projectId) {
         // Lo spazio: ibrida (significato, poi testo), al più 20 righe.
         items = (await appClient().productDocs.search(projectId, text)).items;
       } else {
         // Senza progetto: il gruppo `product` della ricerca globale (per testo,
-        // la corsia veloce). Un server senza il gruppo non ha righe.
-        items = (await appClient().search.global(text)).product.items;
+        // la corsia veloce), la STESSA chiamata della palette (`citableSearch`
+        // la condivide finché è in volo, review di R11-3, 4). Un server senza
+        // il gruppo non ha righe.
+        items = (await citableSearch(text)).product.items;
       }
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) return [];
       return mapError(error);
     }
-    return (Array.isArray(items) ? items : []).flatMap((r) => searchHitOf(r) ?? []);
+    return [...(items as ProductSearchHit[])];
   },
 
   async getProductExport(projectId, { pageId } = {}) {
@@ -564,6 +592,7 @@ export const liveProductDocs: Partial<ProductDocs> = {
     const exported = "pages" in raw ? raw.pages : [{ ...raw, depth: 0 }];
     const decisions: ProductExportView["decisions"] = {};
     const files: ProductExportView["files"] = {};
+    const withImageData = exportImageReader();
     const pages = await Promise.all(
       exported.map(async (p) => {
         for (const [id, d] of Object.entries(p.decisions))

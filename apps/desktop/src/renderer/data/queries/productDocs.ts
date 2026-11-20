@@ -99,6 +99,8 @@ export function useReadProductExport() {
         queryKey: ["as", me, "productDocs", "export", projectId, pageId ?? null] as const,
         queryFn: () => api.productDocs.getProductExport(projectId, pageId === undefined ? {} : { pageId }),
         staleTime: 0,
+        // La vista porta tutte le immagini come data URL: non resta in cache (I1 della revisione di R11-3).
+        gcTime: 0,
         retry: false,
       }),
     [client, me],

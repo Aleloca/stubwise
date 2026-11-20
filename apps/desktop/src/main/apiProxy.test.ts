@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({ app: { getPath: () => "/nonexistent" }, safeStorage: {} }));
 
-const { handleApiRequest, isAllowedApiPath } = await import("./apiProxy");
+const { PRODUCT_IMAGE_MAX_BYTES, handleApiRequest, isAllowedApiPath } = await import("./apiProxy");
 
 function deps(over: Partial<Parameters<typeof handleApiRequest>[1]> = {}) {
   return {
@@ -193,5 +193,27 @@ describe("«Apri nel web»", () => {
     // Altrove il Location resta (non è un URL firmato).
     const other = await handleApiRequest({ method: "GET", path: "/api/tasks" }, redirectTo("/api/tasks/"));
     expect(other.headers.location).toBe("/api/tasks/");
+  });
+});
+
+describe("le immagini delle pagine di prodotto: un tetto ai byte (I1 della revisione di R11-3)", () => {
+  const PATH = "/api/product-pages/7f1c2a1e-0000-4000-8000-0000000000a1/images/7f1c2a1e-0000-4000-8000-0000000000b2";
+  const image = (bytes: number, length = bytes) =>
+    new Response(new Uint8Array(bytes), { status: 200, headers: { "content-type": "image/png", "content-length": String(length) } });
+
+  it("entro i 5 MB i byte passano; oltre (dichiarati o letti) un 413 `image_too_large`, senza tenerli", async () => {
+    const ok = await handleApiRequest({ method: "GET", path: PATH }, deps({ fetch: vi.fn(async () => image(10)) }));
+    expect(ok.status).toBe(200);
+    expect((ok.body as ArrayBuffer).byteLength).toBe(10);
+    const declared = await handleApiRequest(
+      { method: "GET", path: PATH },
+      deps({ fetch: vi.fn(async () => image(10, PRODUCT_IMAGE_MAX_BYTES + 1)) }),
+    );
+    expect(declared).toMatchObject({ status: 413 });
+    const read = await handleApiRequest(
+      { method: "GET", path: PATH },
+      deps({ fetch: vi.fn(async () => new Response(new Uint8Array(PRODUCT_IMAGE_MAX_BYTES + 1), { status: 200, headers: { "content-type": "image/png" } })) }),
+    );
+    expect(read).toMatchObject({ status: 413 });
   });
 });

@@ -1,3 +1,4 @@
+import { PRODUCT_EXPORT_PAGES_MAX } from "@stubwise/shared";
 import { excerptOfBlocks } from "../../domain/productDocs/blocks";
 import { buildProductTree, flattenTree } from "../../domain/productDocs/tree";
 import { visiblePeopleFor } from "../access/whoCan";
@@ -157,11 +158,10 @@ export async function getProductPage(code: string): Promise<ProductPageView | nu
  * pagina (`decisionFor`); una bozza di schermata col suo SVG del seme (11b,
  * P36). Commenti, presenza e chi segue non ci sono.
  * `null` dove lo spazio (o la pagina) non c'è per chi guarda; `forbidden`
- * in un progetto visibile senza `docs.view`.
+ * in un progetto visibile senza `docs.view`. Lo spazio oltre
+ * `PRODUCT_EXPORT_PAGES_MAX` pagine si rifiuta col numero, come il 413 del
+ * server (F3 di 72).
  */
-/** Le pagine al più in un'esportazione dello spazio (piano F3 di 72). */
-export const PRODUCT_EXPORT_MAX = 200;
-
 export async function getProductExport(
   projectId: string,
   { pageId }: { pageId?: string } = {},
@@ -171,10 +171,11 @@ export async function getProductExport(
   if (access === "forbidden") throw forbidden();
   if (access === "none") return null;
   const all = productPagesOf(projectId);
-  // Il tetto del server (piano F3): lo spazio intero al più 200 pagine; oltre,
-  // il rifiuto dice il numero (il 413 della build app).
-  if (pageId === undefined && all.length > PRODUCT_EXPORT_MAX)
-    throw Object.assign(new Error("too_large"), { pageCount: all.length, max: PRODUCT_EXPORT_MAX });
+  if (pageId === undefined && all.length > PRODUCT_EXPORT_PAGES_MAX)
+    throw Object.assign(new Error("too_large"), {
+      pageCount: all.length,
+      max: PRODUCT_EXPORT_PAGES_MAX,
+    });
   let pages: { page: ProductPage; depth: number }[];
   if (pageId !== undefined) {
     const page = all.find((p) => p.id === pageId);
