@@ -2940,6 +2940,32 @@ export const productWireframes = pgTable(
   (table) => [index("product_wireframes_page_idx").on(table.pageId), check("product_wireframes_status_chk", sql`status in ('drawing', 'ready', 'failed')`)],
 );
 
+/**
+ * Area 11, F6 (0216): la pagina (e la frase) da cui nasce una richiesta, una
+ * riga per lavoro d'intake (la richiesta è `backlog_jobs.result_item_id`).
+ * `anchorId` null = la frase non c'era più: l'origine resta sulla pagina.
+ */
+export const productRequestOrigins = pgTable(
+  "product_request_origins",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => productPages.id, { onDelete: "cascade" }),
+    anchorId: text("anchor_id"),
+    questionId: uuid("question_id").references((): AnyPgColumn => productComments.id, { onDelete: "set null" }),
+    intakeJobId: uuid("intake_job_id")
+      .notNull()
+      .references((): AnyPgColumn => backlogJobs.id, { onDelete: "cascade" }),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique("product_request_origins_job_key").on(table.intakeJobId), index("product_request_origins_page_anchor_idx").on(table.pageId, table.anchorId)],
+);
+
 /** Area 11, F5 (0210): i segni di Claude, uno per ancora di una revisione `claude`. */
 export const productClaudeMarks = pgTable(
   "product_claude_marks",

@@ -323,7 +323,7 @@ const ENTRIES: CatalogEntry[] = [
           await checkProductDocOrigin(tx, user, body.projectId, body.origin);
         } catch (error) {
           if (error instanceof ProductQuestionConflictError) return refused("conflict", error.code);
-          if (error instanceof ProductDocsError) return refused(error.status === 403 ? "forbidden" : "invalid", error.code);
+          if (error instanceof ProductDocsError) return refused(error.status === 403 ? "forbidden" : error.status === 409 ? "conflict" : "invalid", error.code);
           throw error;
         }
       }

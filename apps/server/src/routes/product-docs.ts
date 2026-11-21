@@ -20,6 +20,8 @@ import {
   answerProductQuestionSchema,
   productFirstVersionSourcesSchema,
   drawWireframeSchema,
+  productBacklogCandidatesSchema,
+  productLinkedRequestSchema,
   redrawWireframeSchema,
   pickWireframeSchema,
   replaceWireframeWithImageSchema,
@@ -68,6 +70,7 @@ import { addProductComment, listProductComments, productMentionCandidates, setPr
 import { ProductQuestionConflictError, answerProductQuestion, listOpenProductQuestions } from "../services/product-questions.js";
 import { drawWireframe, keepWireframe, pickWireframe, redrawWireframe, replaceWireframeWithImage } from "../services/product-wireframes.js";
 import { FirstVersionUndoBlockedError, acceptFirstVersionPage, firstVersionSources, firstVersionView, startFirstVersion, stopFirstVersion, undoFirstVersion } from "../services/product-first-version.js";
+import { listProductLinkedRequests, productBacklogCandidates } from "../services/product-request-origins.js";
 import { StorageObjectNotFound } from "../storage/errors.js";
 import { removeOrRecordOrphan } from "../storage/orphans.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -575,6 +578,24 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
         await acceptFirstVersionPage(app.db, request.user!, request.params.id);
         return reply.code(204).send(null);
       }),
+  );
+
+  // --- F6: dalla pagina al backlog ---
+
+  // «Turn into backlog items»: le voci che la pagina (o la sezione di un titolo) propone; chi scrive i Docs.
+  app.get(
+    "/product-pages/:id/backlog-candidates",
+    {
+      config: { access: PAGE_EDIT },
+      schema: { params: pageParams, querystring: z.object({ fromAnchorId: z.string().min(1).max(100).optional() }), response: { 200: productBacklogCandidatesSchema, 404: errorSchema, 422: errorSchema, ...authErrorResponses } },
+    },
+    async (request, reply) => handleUndo(reply, () => productBacklogCandidates(app.db, request.user!, request.params.id, request.query.fromAnchorId ?? null)),
+  );
+  // «From this page»: le richieste nate dalla pagina che chi guarda vede.
+  app.get(
+    "/product-pages/:id/requests",
+    { config: { access: PAGE_VIEW }, schema: { params: pageParams, response: { 200: z.array(productLinkedRequestSchema), 404: errorSchema, ...authErrorResponses } } },
+    async (request, reply) => handleUndo(reply, () => listProductLinkedRequests(app.db, request.user!, request.params.id)),
   );
 
   // --- F6: le bozze di schermata (il disegno lo fa il worker) ---

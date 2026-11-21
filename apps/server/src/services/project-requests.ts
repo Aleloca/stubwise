@@ -6,6 +6,7 @@ import type { SessionUser } from "../auth/session.js";
 import { deletedTaskCodesOf } from "./task-delete.js";
 import { supportOriginsForRequests } from "./support-links.js";
 import { backlogVisibleSql } from "./backlog-visibility.js";
+import { productOriginsForItems } from "./product-origins.js";
 
 /**
  * Le richieste dell'app nuova (integrazione area 2, fetta 4) sopra le voci
@@ -76,7 +77,7 @@ type CommonRow = {
 type CommonView = Omit<ProjectRequestView, "description" | "design" | "plan">;
 
 /** Le parti comuni a elenco e dettaglio, caricate in blocco: richiedenti, task nate, codice della fusa. */
-async function decorate<R extends CommonRow>(db: Db, rows: R[]): Promise<{ row: R; view: CommonView }[]> {
+async function decorate<R extends CommonRow>(db: Db, viewer: Viewer, rows: R[]): Promise<{ row: R; view: CommonView }[]> {
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
   const mergedIds = [...new Set(rows.flatMap((r) => (r.mergedIntoId ? [r.mergedIntoId] : [])))];
@@ -108,6 +109,8 @@ async function decorate<R extends CommonRow>(db: Db, rows: R[]): Promise<{ row: 
   const codeOf = new Map(merged.map((m) => [m.id, `${m.code}-R${m.number}`]));
   const deletedCodes = await deletedTaskCodesOf(db, ids);
   const originOf = await supportOriginsForRequests(db, ids);
+  // Area 11, F6: la pagina da cui nasce, derivata per chi guarda (null a chi non la legge).
+  const productOriginOf = await productOriginsForItems(db, viewer, ids);
   return rows.map((r) => {
     const urgency = levelOf(r.urgency);
     const suggested = r.suggested;
@@ -131,8 +134,7 @@ async function decorate<R extends CommonRow>(db: Db, rows: R[]): Promise<{ row: 
       deletedTaskCodes: deletedCodes.get(r.id) ?? [],
       // Area 8, F3 (S6): la conversazione di Support da cui è nata, derivata a lettura.
       origin: originOf.get(r.id) ?? null,
-      // F6: la pagina d'origine, derivata col Task 3.
-      productOrigin: null,
+      productOrigin: productOriginOf.get(r.id) ?? null,
       createdAt: r.createdAt.toISOString(),
       suggestions: suggested
         ? {
@@ -153,14 +155,14 @@ const whereAll = (conditions: (SQL | undefined)[]) => and(...conditions.filter((
 const newestFirst = [desc(backlogItems.createdAt), desc(backlogItems.id)];
 
 /** Le richieste che rispondono a `conditions` (già filtrate per visibilità), dalla più recente, coi testi interi. */
-export async function loadRequestViews(db: Db, conditions: (SQL | undefined)[]): Promise<ProjectRequestView[]> {
+export async function loadRequestViews(db: Db, viewer: Viewer, conditions: (SQL | undefined)[]): Promise<ProjectRequestView[]> {
   const rows = await db
     .select({ ...COMMON, ...FULL })
     .from(backlogItems)
     .innerJoin(projects, eq(projects.id, backlogItems.projectId))
     .where(whereAll(conditions))
     .orderBy(...newestFirst);
-  return (await decorate(db, rows)).map(({ row, view }) => ({
+  return (await decorate(db, viewer, rows)).map(({ row, view }) => ({
     ...view,
     // Quando un design ha sostituito il corpo, il corpo originale è la richiesta.
     description: row.originContent ?? row.document,
@@ -170,14 +172,14 @@ export async function loadRequestViews(db: Db, conditions: (SQL | undefined)[]):
 }
 
 /** Come {@link loadRequestViews}, per l'ELENCO: un estratto al posto dei testi interi. */
-export async function loadRequestSummaries(db: Db, conditions: (SQL | undefined)[]): Promise<ProjectRequestSummary[]> {
+export async function loadRequestSummaries(db: Db, viewer: Viewer, conditions: (SQL | undefined)[]): Promise<ProjectRequestSummary[]> {
   const rows = await db
     .select({ ...COMMON, ...BRIEF })
     .from(backlogItems)
     .innerJoin(projects, eq(projects.id, backlogItems.projectId))
     .where(whereAll(conditions))
     .orderBy(...newestFirst);
-  return (await decorate(db, rows)).map(({ row, view }) => ({
+  return (await decorate(db, viewer, rows)).map(({ row, view }) => ({
     ...view,
     excerpt: row.excerpt,
     hasDesign: row.hasDesign,
@@ -187,6 +189,6 @@ export async function loadRequestSummaries(db: Db, conditions: (SQL | undefined)
 
 /** Una richiesta per id, se chi guarda la vede. */
 export async function requestView(db: Db, viewer: Viewer, id: string): Promise<ProjectRequestView | null> {
-  const [view] = await loadRequestViews(db, [eq(backlogItems.id, id), await requestVisibility(db, viewer)]);
+  const [view] = await loadRequestViews(db, viewer, [eq(backlogItems.id, id), await requestVisibility(db, viewer)]);
   return view ?? null;
 }
