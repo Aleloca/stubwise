@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { capabilitiesEventsOf } from "./claudeCapabilities";
 
 // S0 nella build app (area 10, F7 di 72): il ponte scrive l'evento
@@ -42,5 +42,37 @@ describe("l'evento `capabilities` nella build app", () => {
         } as never,
       ]),
     ).toEqual([]);
+  });
+});
+
+// Area 11, F6 (R11-6): le capacità `product*` (prima versione, aggiornamento,
+// backlog, wireframe, cambi della settimana) si mostrano solo con i gesti di
+// Claude sulla doc accesi (`product-claude-actions`): un server che le manda
+// a un renderer che non li ha prometterebbe gesti che qui non ci sono.
+describe("le capacità `product*` (F6)", () => {
+  const PRODUCT = [
+    "productFirstVersion",
+    "productUpdate",
+    "productBacklog",
+    "productWireframe",
+    "productChanges",
+  ];
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("nella build app, col cancello spento, si saltano; le altre restano", async () => {
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    const { featureIntegrated } = await import("../../integration");
+    expect(featureIntegrated("product-claude-actions")).toBe(false);
+    expect(capabilitiesEventsOf([raw("7", { items: ["spend", ...PRODUCT] })])).toMatchObject([
+      { items: ["spend"] },
+    ]);
+    expect(capabilitiesEventsOf([raw("8", { items: PRODUCT })])).toEqual([]);
+  });
+
+  it("nel prototipo (tutto acceso) passano", () => {
+    expect(capabilitiesEventsOf([raw("9", { items: PRODUCT })])).toMatchObject([
+      { items: PRODUCT },
+    ]);
   });
 });

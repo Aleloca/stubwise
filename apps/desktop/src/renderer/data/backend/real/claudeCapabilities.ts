@@ -1,5 +1,6 @@
 import type { AgentSessionEvent, Reader } from "@stubwise/shared";
 import { CAPABILITIES } from "../../../domain/claude/intents/general";
+import { productLaterOn } from "../../queries/productDocs";
 import type { CapabilityId, ConversationEvent } from "../../types";
 
 // S0 nella build app (area 10, F7 di 72): «cosa sai fare» è l'evento
@@ -12,6 +13,11 @@ import type { CapabilityId, ConversationEvent } from "../../types";
 
 const KNOWN = new Set<string>(CAPABILITIES);
 
+// Area 11, F6 (R11-6): le capacità `product*` solo coi gesti di Claude sulla
+// doc accesi (`product-claude-actions`), o prometterebbero gesti che questo
+// renderer non ha.
+const shown = (id: string) => !id.startsWith("product") || productLaterOn("actions");
+
 export function capabilitiesEventsOf(
   raw: readonly Reader<AgentSessionEvent>[],
 ): ConversationEvent[] {
@@ -19,7 +25,9 @@ export function capabilitiesEventsOf(
     if ((e.type as string) !== "capabilities") return [];
     const items = (e.data as { items?: unknown } | null)?.items;
     if (!Array.isArray(items)) return [];
-    const known = items.filter((id): id is CapabilityId => typeof id === "string" && KNOWN.has(id));
+    const known = items.filter(
+      (id): id is CapabilityId => typeof id === "string" && KNOWN.has(id) && shown(id),
+    );
     return known.length > 0
       ? [{ id: `capabilities:${e.id}`, at: e.at, type: "capabilities", items: known }]
       : [];
