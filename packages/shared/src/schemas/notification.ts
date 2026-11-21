@@ -3,6 +3,7 @@ import { z } from "zod";
 // ha bisogno per `planApprovedBy` della fase 7); ri-esportato più sotto perché
 // questo file continua a usarlo anche internamente.
 import { handledBySchema, viaClaudeShape, type HandledBy } from "./actor.js";
+import { productDocClaudeCardSchema } from "./product-docs.js";
 import { ticketPrioritySchema } from "./ticket.js";
 
 /**
@@ -842,6 +843,8 @@ export const inboxItemSchema = z.object({
        * caratteri, derivato dalla riga del commento (mai dal jsonb). Additivo.
        */
       excerpt: z.string().nullable().default(null),
+      /** Area 11, F5: solo `updated` e `question`, quello che dice la card (`productDocClaudeCardSchema`). Additivo. */
+      claude: productDocClaudeCardSchema.nullable().default(null),
     })
     .nullable()
     .default(null),

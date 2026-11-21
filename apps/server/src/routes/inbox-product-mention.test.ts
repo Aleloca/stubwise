@@ -162,8 +162,8 @@ describe("la menzione nella doc di prodotto", () => {
   });
 });
 
-describe("review di F2: `updated` e `question` si derivano come la menzione (i produttori arrivano con F5)", () => {
-  it("la pagina di adesso senza commento; pagina eliminata → `objectGone` con la frase neutra", async () => {
+describe("review di F2, riscritta con F5: `updated` e `question` senza revisione né domanda", () => {
+  it("una card che non nomina la sua revisione o la sua domanda è `objectGone` con la frase neutra (il prototipo: «una riga senza si legge come objectGone»)", async () => {
     const created = (await inject(editor, "POST", `/api/projects/${projectId}/product/pages`, { title: "Aggiornata" })).json() as { id: string; code: string };
     const ids: string[] = [];
     for (const kind of ["product_doc.updated", "product_doc.question"] as const) {
@@ -174,16 +174,11 @@ describe("review di F2: `updated` e `question` si derivano come la menzione (i p
         .returning({ id: notifications.id });
       ids.push(row!.id);
     }
-    const read = async () => ((await inject(reader, "GET", "/api/inbox")).json() as { items: InboxItem[] }).items.filter((i) => ids.includes(i.id));
-    for (const card of await read()) {
-      expect(card, card.kind).toMatchObject({ objectGone: false, productDoc: { pageId: created.id, pageCode: created.code, pageTitle: "Aggiornata", commentId: null, threadRootId: null, excerpt: null } });
-      expect(card.text, card.kind).toContain(created.code);
-      expect(card.text, card.kind).not.toContain("VEC-D1");
-    }
-    expect((await inject(editor, "DELETE", `/api/product-pages/${created.id}`)).statusCode).toBeLessThan(300);
-    for (const card of await read()) {
+    const cards = ((await inject(reader, "GET", "/api/inbox")).json() as { items: InboxItem[] }).items.filter((i) => ids.includes(i.id));
+    expect(cards).toHaveLength(2);
+    for (const card of cards) {
       expect(card, card.kind).toMatchObject({ objectGone: true, productDoc: null });
-      expect(card.text, card.kind).not.toContain(created.code);
+      expect(card.text, card.kind).not.toContain("VEC-D1");
     }
   });
 });

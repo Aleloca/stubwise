@@ -1417,7 +1417,20 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `authorId` e `resolved.byId` dei commenti, `productDoc.authorId` della card
   (F2). Coerente con il resto dell'app, dove gli id non sono un segreto; da
   rivedere insieme se R-G5 deve coprire anche gli id.
-- Origine di una richiesta dalla documentazione di prodotto.
+- Origine di una richiesta dalla documentazione di prodotto. *(F5, 72)*: c'è
+  quella di una DOMANDA di Claude (`origin.product_doc` con `questionId`
+  obbligatorio, su `POST /api/requests` e sulla voce `createRequest` del
+  catalogo); in F6 la proposta dalla pagina senza domanda (`questionId`
+  opzionale, e il «già proposta» su pagina e ancora del prototipo, che vuole
+  l'origine salvata sulla richiesta).
+- **`waited` sulla card `product_doc.updated`** *(XS, F5, 72)*: il prototipo
+  dice se la card arriva dopo un'attesa della coda (budget o pausa). Sul
+  server non si può derivare: ripreso il lavoro, la riga di
+  `product_doc_jobs` torna `queued` e perde il motivo (il CHECK lega
+  `held_reason` allo stato `held`). Il campo c'è ed è sempre null; serve una
+  colonna (`last_held_reason`) scritta alla ripresa e passata allo scrittore.
+  Anche «una card per pagina con più fonti dopo un rilascio della coda» del
+  prototipo non c'è: una card per fonte e pagina.
 - Le cinque capacità `product*` di Claude in S0 (dall'area 10, F7-1 = a).
 - Azioni di Claude dell'area 11.
 - *Prototipo riallineato (94, 20 nov 2026), prima dell'integrazione*: le

@@ -46,6 +46,7 @@ import {
 import { personName } from "./people.js";
 import { visiblePersonIds } from "./people-visibility.js";
 import { t, type Language } from "@stubwise/i18n";
+import { productClaudeCardsFor } from "./product-claude-cards.js";
 import { productDocCardsFor, type ProductDocCard } from "./product-comments.js";
 import {
   actionsFor,
@@ -1051,6 +1052,14 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
   // null = pagina o commento tolti, o Docs del progetto che chi legge non legge più).
   const isProductDocKind = (kind: string) => kind === "product_doc.mention" || kind === "product_doc.updated" || kind === "product_doc.question";
   const productDocCards = await productDocCardsFor(db, userId, page.filter((r) => isProductDocKind(r.kind)));
+  // F5: le card di Claude (`updated`, `question`): quello che dicono, di adesso. Senza la revisione o la domanda: `objectGone`.
+  for (const [id, claude] of await productClaudeCardsFor(db, userId, page.filter((r) => isProductDocKind(r.kind)))) {
+    const card = productDocCards.get(id);
+    if (!card) continue;
+    // Una domanda apre la pagina sul suo filo: il commento-domanda (una radice).
+    const question = claude?.question ? (page.find((r) => r.id === id)?.event as { questionId?: string } | undefined)?.questionId ?? null : null;
+    productDocCards.set(id, claude ? { ...card, claude, ...(question ? { commentId: question, threadRootId: question } : {}) } : null);
+  }
 
   // Area 7: le card `automation.*` derivate a lettura (l'esecuzione com'è adesso, per chi legge).
   const automationCards = await automationCardsFor(db, userId, page.filter((r) => isAutomationKind(r.kind)));

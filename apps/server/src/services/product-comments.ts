@@ -11,6 +11,7 @@ import {
   type ProductCommentThread,
   type ProductCommentView,
   type ProductCommentsView,
+  type ProductDocClaudeCard,
 } from "@stubwise/shared";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { SessionUser } from "../auth/session.js";
@@ -321,6 +322,8 @@ export interface ProductDocCard {
    * (richiesta di 46 dalla review di R11-2: nel prototipo il corpo della card).
    */
   excerpt: string | null;
+  /** F5: solo `updated` e `question`, quello che dice la card (`productClaudeCardsFor`); null sugli altri. */
+  claude: ProductDocClaudeCard | null;
 }
 
 /**
@@ -394,6 +397,7 @@ export async function productDocCardsFor(db: Db, viewerId: string, rows: readonl
       authorName: comment?.authorId ? (names.get(comment.authorId) ?? null) : null,
       // Un commento eliminato non ha testo (e qui non arriva: è `objectGone`); un corpo vuoto resta null.
       excerpt: comment && comment.body !== "" ? excerptOf(comment.body) : null,
+      claude: null,
     });
   }
   return out;

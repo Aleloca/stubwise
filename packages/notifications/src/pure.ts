@@ -31,6 +31,7 @@ export {
   formatNotificationText,
   isAutomationEvent,
   isDirectMessageEvent,
+  isProductDocEvent,
   isReviewFailedEvent,
   reviewOutcomeOf,
   sampleEvents,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readerSchema } from "../reader.js";
+import { readerSchema, UNKNOWN } from "../reader.js";
 import {
   deviceDeletionSchema,
   deviceRegistrationSchema,
@@ -408,7 +408,31 @@ describe("inboxItemSchema.productDoc (area 11, F2) — additivo", () => {
       authorId: null,
       authorName: null,
     };
-    // Senza `excerpt` (un server di prima della richiesta di 46): null.
-    expect(readerSchema(inboxItemSchema).parse({ ...item, productDoc }).productDoc).toEqual({ ...productDoc, excerpt: null });
+    // Senza `excerpt` (un server di prima della richiesta di 46) e senza `claude` (di prima di F5): null.
+    expect(readerSchema(inboxItemSchema).parse({ ...item, productDoc }).productDoc).toEqual({ ...productDoc, excerpt: null, claude: null });
+  });
+
+  it("F5: la card di Claude si legge, con un motivo che il client non conosce e senza `waited`", () => {
+    const productDoc = {
+      pageId: "1c9e4f70-5555-4666-8777-888899990012",
+      pageCode: "PRO-D3",
+      pageTitle: "Visione",
+      projectCode: "PRO",
+      commentId: null,
+      threadRootId: null,
+      authorId: null,
+      authorName: null,
+      claude: {
+        revisionId: null,
+        sources: [{ kind: "brand_new_source", canOpen: false, id: null, title: null, code: null, ownerId: null, ownerName: null, at: null, gone: false }],
+        changes: 0,
+        onBehalfOfName: null,
+        undoneByName: null,
+        markAnchorId: null,
+        question: { reason: "brand_new_reason", forName: null, taskCode: null, answer: null, answeredByName: null, canRequest: false },
+      },
+    };
+    const parsed = readerSchema(inboxItemSchema).parse({ ...item, productDoc }).productDoc!.claude!;
+    expect(parsed).toMatchObject({ waited: null, sources: [{ kind: UNKNOWN, thread: null }], question: { reason: UNKNOWN } });
   });
 });

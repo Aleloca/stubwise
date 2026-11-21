@@ -346,6 +346,39 @@ export const productQuestionViewSchema = z.object({
 });
 export type ProductQuestionView = z.infer<typeof productQuestionViewSchema>;
 
+/**
+ * Area 11, F5: quello che una card `product_doc.updated` o `.question` dice,
+ * DERIVATO a lettura per chi la riceve (il prototipo: `ProductCardView`): la
+ * fonte nella sua forma (N-2 = a), le frasi cambiate, «per conto di» e chi ha
+ * annullato (se chi legge li vede, R-G5), il primo segno ancora a vista (dove
+ * porta la card; null = alla cronologia della revisione), e per una domanda
+ * il motivo e la risposta di adesso. I testi li compone il client.
+ */
+export const productDocClaudeCardSchema = z.object({
+  revisionId: z.uuid().nullable(),
+  sources: z.array(productSourceViewSchema),
+  /** Quante frasi (ancore) ha cambiato la revisione; 0 per una domanda. */
+  changes: z.number().int(),
+  onBehalfOfName: z.string().nullable(),
+  /** Tutte le frasi annullate: chi ha annullato per ultimo. */
+  undoneByName: z.string().nullable(),
+  markAnchorId: z.string().nullable(),
+  /** La card arriva dopo un'attesa della coda (budget o pausa); oggi sempre null (registro dei rimandi). */
+  waited: z.enum(["budget", "paused"]).nullable().default(null),
+  question: z
+    .object({
+      reason: productQuestionReasonSchema,
+      forName: z.string().nullable(),
+      taskCode: z.string().nullable(),
+      answer: productAnswerChoiceSchema.nullable(),
+      answeredByName: z.string().nullable(),
+      canRequest: z.boolean(),
+    })
+    .nullable()
+    .default(null),
+});
+export type ProductDocClaudeCard = z.infer<typeof productDocClaudeCardSchema>;
+
 /** `POST /api/product-comments/:id/answer`. */
 export const answerProductQuestionSchema = z.object({ option: productAnswerChoiceSchema }).strict();
 export type AnswerProductQuestionInput = z.infer<typeof answerProductQuestionSchema>;

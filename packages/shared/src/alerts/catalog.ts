@@ -200,6 +200,9 @@ export const LIVE_ALERT_TYPES: readonly string[] = [
   "member.added",
   // Area 11, F2: la menzione in un commento della doc di prodotto (addProductComment).
   "product_doc.mention",
+  // Area 11, F5: le modifiche e le domande di Claude dalle fonti (`writeClaudeFacts`).
+  "product_doc.updated",
+  "product_doc.question",
 ];
 
 export const alertTypeOf = (kind: string): AlertType | undefined =>
