@@ -1,4 +1,4 @@
-# Integrazione — prove a mano (aree 2 e 3: 10 nov 2026; aree 9 e 10: 20 nov 2026)
+# Integrazione — prove a mano (aree 2 e 3: 10 nov 2026; aree 9 e 10: 20 nov 2026; area 11: 21 nov 2026)
 
 Le prove che i test automatici non fanno: il giro vero sul Mac, il mouse e la
 tastiera, l'aspetto delle pagine, il server vero con dati veri. Raccolgono le
@@ -568,3 +568,203 @@ Nella conversazione libera (destinazione Claude) o nel riquadro (⌘J).
 - Un'email nel riquadro di una conversazione pubblica → Claude dice che lì
   non legge la posta.
 
+
+# Area 11 — la documentazione di prodotto (21 nov 2026)
+
+Le prove dello spazio Product contro il server vero. Si fanno **sia
+nell'app desktop (dmg) sia nel browser su `/app`**; le prove «dal vivo»
+vogliono due finestre, e dove desktop e browser si comportano diversamente
+la prova lo dice. Le parole fra virgolette sono quelle dell'interfaccia in
+inglese; in italiano cambiano, il senso no.
+
+## Cosa serve in più
+
+- **Il codice di `feat/integrazione-area11`** su un'istanza di prova: server
+  prima (migrazioni fino alla 0215), poi worker, poi caddy; il dmg rifatto da
+  quel branch. Un solo processo server (la presenza dal vivo sta in memoria).
+- **Tre account** in un progetto P col modulo Docs acceso:
+  - **A**: Project Lead di P (scrive i Docs, gestisce le impostazioni);
+  - **B**: Developer di P (scrive i Docs);
+  - **S**: un account che legge soltanto i Docs di P (senza «Edit docs»).
+- Un'immagine PNG sotto i 5 MB, una sopra i 5 MB e un file non immagine
+  (per esempio un PDF).
+- Per Claude sulla doc: il worker acceso col CLI pinnato e budget del mese
+  disponibile. In P qualche email e una riunione con la trascrizione (per la
+  prima versione), e un file nel Drive di P.
+- **Le prove di F6** (prima versione, bozze di schermata, dalla doc al
+  backlog) valgono quando l'interruttore `product-claude-actions` è acceso,
+  dopo il catalogo di Claude (Task 4 del server). Prima, quei gesti non ci
+  sono: nessun «Write the first version», niente gruppo «Claude» nel «⋯».
+
+## Spazio ed editor
+
+- Con A, Docs di P → **Product**: lo spazio vuoto; crea una pagina, poi una
+  sottopagina, rinominala, spostala sotto un'altra pagina, eliminane una
+  vuota. Il codice di ogni pagina è della serie `-D` dei Docs e una pagina
+  eliminata non lo ridà a nessuno.
+- Scrivi qualche paragrafo, un titolo, un elenco, un blocco di codice, una
+  tabella → «Saving…» poi «Saved». Ricarica: tutto è com'era. ⌘Z dell'editor
+  rimette un blocco tolto, coi commenti che aveva.
+- **Pagina cambiata intanto (`stale`)**: A e B sulla stessa pagina, con la
+  scrittura dal vivo spenta o in due sezioni diverse. B cambia un paragrafo,
+  A (senza rileggere) cambia lo stesso paragrafo → se la modifica di A non si
+  può più applicare, A vede «Couldn't save a change: the page had changed» e
+  la pagina con la modifica di B. **Da annotare**: cosa resta del testo di A.
+  Niente deve perdersi in silenzio.
+- **Sezione occupata (`section_busy`)**: B scrive sotto un titolo; A prova a
+  scrivere nella stessa sezione → «Couldn't save a change: B is writing in
+  this section», e il testo di B resta. Quando B smette (o la sua finestra va
+  in secondo piano, sotto) A scrive.
+- **Immagini**: «/image» o trascina un PNG → «Drop to add the image», poi
+  l'immagine con «Add a caption». Ricarica e da un'altra finestra: si vede.
+  L'immagine sopra i 5 MB → «This image is larger than 5 MB»; il PDF → «Only
+  PNG, JPEG, GIF and WebP images»; la pagina non cambia. Una rete staccata
+  durante il caricamento → «Couldn't upload the image. Try again.».
+- **Cronologia**: le revisioni dalla più recente, con chi e quando; una
+  pagina creata, rinominata e spostata ha le sue righe.
+- **Segui**: «Follow» → «Following», e la riga «Followed by…». Con S la
+  pagina si legge, senza editor e con il «Who?» di «Edit docs».
+
+## Commenti e menzioni
+
+- Con A seleziona una frase → **Comment** → «@» elenca solo chi legge i Docs
+  di P («People who can read P's docs») → menziona B → «B will be
+  notified.» → «Comment posted».
+- **La card**: nell'inbox di B «A mentioned you in P-D… · <titolo>»; aprirla
+  porta alla pagina col filo aperto e la frase evidenziata.
+- B risponde, poi **Resolve** → il filo esce dagli aperti («1 resolved») →
+  **Reopen** lo riporta. S vede i commenti e «Commenting is for people with
+  Edit docs in P».
+- Elimina la frase commentata → il filo resta con «Sentence deleted».
+- Una card di una pagina eliminata, o di un progetto che chi guarda non legge
+  più → «This comment is no longer available», nessun dettaglio.
+- **Preferenze → Avvisi**: le righe «Mentioned in the product doc»
+  (obbligatoria, senza interruttore), «Claude updated a product page» e
+  «Claude asks about a product page», per progetto. Spegni la seconda per P
+  → B non riceve più le card di aggiornamento di P; chi segue la pagina le
+  riceve comunque.
+
+## Ricerca ed esportazione
+
+- Cerca una parola che sta in una pagina di Product → nella ricerca dello
+  spazio la pagina col passaggio evidenziato; nella ricerca globale (⌘K) il
+  gruppo Product. Una pagina appena scritta compare dopo una trentina di
+  secondi (il poller degli embedding), non subito.
+- Nella Chat, una risposta che cita una pagina di Product → la citazione
+  porta alla pagina. Con S la citazione si vede solo se S legge i Docs di P.
+- **Export** → «This page» e «Whole space», PDF e «Word (.docx)» →
+  «Preparing…» poi «Saved the PDF» / «Saved the Word file». Apri i file: le
+  pagine in ordine d'albero, le immagini dentro, «Comments aren't
+  included.». Un file del Drive citato ha la sua riga col nome; S, che non
+  vede il file, ha «File: … (not available)».
+
+## Dal vivo (due finestre)
+
+- A e B sulla stessa pagina, in due finestre (o un'app e un browser). Il
+  cursore di B si vede nella finestra di A, con «B · writing in <sezione>».
+  Quello che B scrive compare da A senza ricaricare.
+- **Finestra in secondo piano**: B scrive in una sezione, poi
+  - nel browser: cambia scheda (la scheda nascosta);
+  - sul desktop: clicca su un'altra app (la finestra perde il fuoco, anche
+    se resta visibile);
+  → da A la sezione si libera **subito** («B · writing» sparisce) e A ci
+  scrive. Quando B torna e rimette il cursore in un blocco, la presa torna;
+  il solo ritorno della finestra non la riprende.
+- Chiudi la finestra di B → in pochi secondi B sparisce dalla pagina di A.
+
+## Claude sulla doc (segni, «Undo», domande)
+
+Serve un lavoro di Claude sulla pagina: una nota di rilascio, una task
+chiusa o una decisione che tocca una frase della pagina (o il giro notturno).
+
+- Le frasi cambiate da Claude hanno il **segno** a margine; aprirlo dice da
+  quale fonte («From a decision you can't see» per chi non la vede).
+  **Looks good** → «Marked as reviewed»; **Undo** → «Undone: the sentence
+  is back as it was».
+- **Undo rifiutato**: B cambia la frase dopo Claude → l'«Undo» di A dice che
+  B l'ha cambiata dopo, senza «Retry»; B scrive nella sezione mentre A preme
+  «Undo» → «B is writing in this section. Try again when they're done.».
+  Un «Undo» già fatto da un altro → «Already undone by …». «Retry» c'è solo
+  per un errore di rete.
+- Dalla **cronologia**: la revisione di Claude con «Undo all» e «Undo» per
+  frase; «1 of 3 undone · A» dopo un «Undo» parziale.
+- **Le domande**: una frase poco chiara diventa una domanda di Claude nel filo,
+  con la frase citata. «Update it» la corregge (una revisione di chi
+  risponde), «Leave it as is» la chiude. La card «Claude asks about P-D… ·
+  <titolo>» arriva a chi segue la pagina; risposta, dice «Answered by …».
+- **«Open a request» (la scheda B nel filo)**: dalla domanda → sotto, la
+  scheda «Open a request in P» con titolo e descrizione → **Create request**
+  → la richiesta nasce in P e la domanda si chiude. **Cancel** → la scheda
+  se ne va e la domanda resta aperta. Da Home → «Decide» → «Open a request»
+  porta allo stesso filo con la scheda già aperta (mai un messaggio a
+  Claude). Due persone rispondono insieme → la seconda vede chi ha già
+  risposto.
+- **«riprende quando…»**: col budget del mese finito (o la coda in pausa)
+  un aggiornamento di Claude aspetta → in cima allo spazio «Claude will
+  resume updating the doc when the budget is back» con «1 update waiting».
+  La riga si aggiorna da sola entro mezzo minuto, senza ricaricare. Rimetti
+  il budget → l'aggiornamento parte e la card dice «…after waiting for the
+  budget».
+- La card «Claude updated P-D… · <titolo>» porta al segno della frase; senza
+  segni (tutti annullati), alla revisione in cronologia.
+
+## La prima versione (F6, con `product-claude-actions` acceso)
+
+- Con A, in uno spazio **vuoto** → «Write the first version with Claude» →
+  scegli due email, una riunione, un file e incolla qualche nota → l'avviso
+  sulla privacy → **Write the first version**.
+- «Claude is writing the first version», «1 of N pages»: le pagine compaiono
+  una alla volta nell'albero, senza ricaricare (la pagina si rilegge ogni
+  due secondi mentre scrive). Alla fine «Claude wrote the first version»,
+  con le domande da chiudere.
+- In cima a ogni pagina «First version written by Claude on behalf of A» con
+  **Accept** e **Undo the first version**. «Accept» su una pagina toglie la
+  riga da quella pagina.
+- B modifica una pagina → l'«Undo the first version» di A dice «B edited
+  “…” afterwards» ed è spento. Su uno spazio non toccato, «Undo the first
+  version» → la conferma → le pagine se ne vanno, coi loro commenti.
+- Mentre A apre la finestra, B aggiunge una pagina → «Someone added a page in
+  the meantime: the first version starts only in an empty space.».
+- S vede la prima versione, senza «Accept» né «Undo» («…is for people with
+  Edit docs in P»). Non c'è un «Stop»: è nel registro dei rimandi.
+
+## Le bozze di schermata (F6, con `product-claude-actions` acceso)
+
+- Con A, «⋯» della pagina → gruppo **Claude** → **Draw this screen** (o
+  «/» → «Screen sketch» su un paragrafo vuoto) → il blocco nasce subito con
+  la testata «Claude's draft · Screen sketch», l'anello che pulsa e «Claude
+  is drawing this screen…»; «Keep» e «Redraw» spenti, «Replace with an
+  image» acceso. Dopo qualche secondo arriva lo schizzo (in bianco e nero,
+  anche nel tema scuro), senza ricaricare.
+- **Redraw** → di nuovo «Claude is drawing this screen…» al posto dello
+  schizzo, poi uno schizzo nuovo e l'annuncio «New sketch». Il fuoco resta su
+  «Redraw».
+- **Keep** → l'etichetta se ne va: è una figura come le altre. Dalla
+  cronologia «Kept the screen sketch» con **Undo** → l'etichetta torna. Se B
+  ha rifatto lo schizzo dopo, l'«Undo» è spento col nome di B.
+- **Replace with an image** (anche mentre disegna) → l'immagine prende il
+  posto della bozza, con la didascalia; il disegno in arrivo non scrive più
+  nulla. «Undo» dalla cronologia rimette la bozza.
+- **Non riuscita**: col budget del mese finito mentre disegna → «Claude
+  couldn't draw this screen» e «The monthly AI budget is used up · Who?», e
+  «Redraw» spento. Col limite dell'account → «Claude reached its usage limit.
+  Try Redraw later.». Un «Redraw» che non riesce lascia lo schizzo di prima,
+  con la frase sotto («Claude couldn't redraw this screen»).
+- S vede le bozze, gli stati e le frasi, senza bottoni.
+- Esporta la pagina: lo schizzo nel PDF e nel Word; una bozza mai tenuta ha
+  sotto «Claude's draft · Screen sketch», una tenuta no.
+
+## Dalla doc al backlog (F6, con `product-claude-actions` acceso)
+
+- Una pagina con un elenco o una lista di controllo → «⋯» → **Propose
+  backlog items** (o dal ⋮⋮ di un titolo «…from this section») → nel
+  riquadro di Claude la scheda con una voce per frase, «From the page:
+  “…”». Conferma → le richieste nascono nel backlog di P.
+- In fondo alla pagina «From this page» elenca le richieste nate da lì, con
+  lo stato («Converted» con le task, «Archived»). Sulla richiesta e sulla
+  task, «From the doc: P-D… <titolo>» riporta alla pagina.
+- Proporre di nuovo dalla stessa pagina → «Already proposed from this
+  page: …» e le frasi già proposte non tornano. Una pagina senza elenchi →
+  la voce è spenta con «No list items or to-dos on this page».
+- Col budget finito il gruppo Claude è spento con «The monthly AI budget is
+  used up · Who?». S non ha il gruppo Claude nel «⋯».
