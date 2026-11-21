@@ -6,7 +6,11 @@ import {
   automations,
   nightlyItems,
   prReviews,
+  docPageCodes,
   productDocJobs,
+  productPageUpdates,
+  productPages,
+  productWireframes,
   projects,
   repositories,
   serverFixes,
@@ -256,15 +260,36 @@ export async function instanceStatus(db: Db, viewer: Viewer, now = new Date()): 
   }
 
   // 5. Area 11, F6, Task 4: i lavori della doc di prodotto in coda, in corso o
-  // fermi (budget, pausa, quota, una sezione presa). Niente titolo: la fonte
-  // (un'email, una riunione) non si nomina qui, e la riga la scrive il
-  // renderer dal `kind`. Un gesto di chi l'ha chiesto (prima versione, bozza,
-  // aggiornamento a mano) non si ferma sulla pausa.
+  // fermi (budget, pausa, quota, una sezione presa). La fonte (un'email, una
+  // riunione) non si nomina mai qui. La PAGINA (titolo e codice) c'è quando il
+  // lavoro ne ha una sola — un aggiornamento chiesto a mano, una bozza — e
+  // SOLO a chi legge i Docs del progetto (il prototipo: `readsPage`, R-G5);
+  // una fonte automatica (più pagine) e la prima versione restano senza. Un
+  // gesto di chi l'ha chiesto (prima versione, bozza, aggiornamento a mano)
+  // non si ferma sulla pausa.
   const docJobs = await db
-    .select({ id: productDocJobs.id, projectId: productDocJobs.projectId, status: productDocJobs.status, heldReason: productDocJobs.heldReason, sourceKind: productDocJobs.sourceKind, createdAt: productDocJobs.createdAt, startedAt: productDocJobs.startedAt })
+    .select({ id: productDocJobs.id, projectId: productDocJobs.projectId, sourceId: productDocJobs.sourceId, status: productDocJobs.status, heldReason: productDocJobs.heldReason, sourceKind: productDocJobs.sourceKind, createdAt: productDocJobs.createdAt, startedAt: productDocJobs.startedAt })
     .from(productDocJobs)
     .where(inArray(productDocJobs.status, ["queued", "running", "held"]));
+  const idsOf = (kind: string) => docJobs.filter((j) => j.sourceKind === kind).map((j) => j.sourceId);
+  const pageOfSource = new Map<string, string>([
+    ...(idsOf("page_update").length > 0 ? await db.select({ id: productPageUpdates.id, pageId: productPageUpdates.pageId }).from(productPageUpdates).where(inArray(productPageUpdates.id, idsOf("page_update"))) : []).map((r) => [r.id, r.pageId] as const),
+    ...(idsOf("wireframe").length > 0 ? await db.select({ id: productWireframes.id, pageId: productWireframes.pageId }).from(productWireframes).where(inArray(productWireframes.id, idsOf("wireframe"))) : []).map((r) => [r.id, r.pageId] as const),
+  ]);
+  const pageIds = [...new Set(pageOfSource.values())];
+  const pageById = new Map(
+    (pageIds.length > 0
+      ? await db
+          .select({ id: productPages.id, title: productPages.title, projectId: productPages.projectId, number: docPageCodes.number })
+          .from(productPages)
+          .leftJoin(docPageCodes, eq(docPageCodes.productPageId, productPages.id))
+          .where(inArray(productPages.id, pageIds))
+      : []
+    ).map((p) => [p.id, p] as const),
+  );
   for (const j of docJobs) {
+    const page = pageOfSource.has(j.sourceId) ? pageById.get(pageOfSource.get(j.sourceId)!) : undefined;
+    const shownPage = page && page.projectId === j.projectId && permsOf(j.projectId)?.has("docs.view") ? page : null;
     const gesture = j.sourceKind === "first_version" || j.sourceKind === "wireframe" || j.sourceKind === "page_update";
     const block: AiBlockView | null =
       j.status === "running"
@@ -274,7 +299,7 @@ export async function instanceStatus(db: Db, viewer: Viewer, now = new Date()): 
           : !gesture && (j.heldReason === "paused" || j.status === "queued")
             ? pausedBlock(j.projectId)
             : null;
-    raw.push({ id: j.id, kind: "product_doc_update", projectId: j.projectId, projectCode: codeOf(j.projectId), title: "", code: null, state: j.status === "running" ? "running" : "waiting", waiting: block, since: (j.status === "running" ? (j.startedAt ?? j.createdAt) : j.createdAt).toISOString(), href: null, summary: null, startFailed: false, superseded: false });
+    raw.push({ id: j.id, kind: "product_doc_update", projectId: j.projectId, projectCode: codeOf(j.projectId), title: shownPage?.title ?? "", code: shownPage && shownPage.number !== null ? `${codeOf(j.projectId)}-D${shownPage.number}` : null, state: j.status === "running" ? "running" : "waiting", waiting: block, since: (j.status === "running" ? (j.startedAt ?? j.createdAt) : j.createdAt).toISOString(), href: null, summary: null, startFailed: false, superseded: false });
   }
 
   // In corso e in attesa dal più vecchio, i falliti dal più recente.

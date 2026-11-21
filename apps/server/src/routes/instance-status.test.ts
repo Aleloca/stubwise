@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { aiJobs, changeLog, instanceSettings, productDocJobs, projectMembers, projects, roles, tickets, users, workerHeartbeats, type Db, agentRuns } from "@stubwise/db";
+import { aiJobs, changeLog, docPageCodes, instanceSettings, productDocJobs, productPageUpdates, productPages, productWireframes, projectMembers, projects, roles, tickets, users, workerHeartbeats, type Db, agentRuns } from "@stubwise/db";
 import { seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { InstanceStatus } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
@@ -156,6 +156,35 @@ describe("lo Stato dell'istanza", () => {
       expect(JSON.stringify(body)).not.toContain(hidden!.id);
     } finally {
       await db.update(projects).set({ queuePausedAt: null, queuePausedByUserId: null }).where(eq(projects.id, s.projectId));
+      await db.delete(productDocJobs);
+    }
+  });
+
+  it("area 11, F6 (94): la pagina di un aggiornamento chiesto a mano e di una bozza, titolo e codice, SOLO a chi legge i Docs; una fonte automatica non ha pagina", async () => {
+    const s = await seedTicket(db);
+    const [proj] = await db.select({ code: projects.code }).from(projects).where(eq(projects.id, s.projectId));
+    const [pg] = await db.insert(productPages).values({ projectId: s.projectId, title: "Pagamenti", blocks: [] }).returning();
+    const [code] = await db.select({ number: docPageCodes.number }).from(docPageCodes).where(eq(docPageCodes.productPageId, pg!.id));
+    const [u] = await db.insert(productPageUpdates).values({ projectId: s.projectId, pageId: pg!.id, sourceKind: "email", sourceId: randomUUID() }).returning();
+    const [w] = await db.insert(productWireframes).values({ pageId: pg!.id, projectId: s.projectId, blockId: "blk-w" }).returning();
+    const [upd] = await db.insert(productDocJobs).values({ projectId: s.projectId, sourceKind: "page_update", sourceId: u!.id }).returning();
+    const [wf] = await db.insert(productDocJobs).values({ projectId: s.projectId, sourceKind: "wireframe", sourceId: w!.id }).returning();
+    const [mail] = await db.insert(productDocJobs).values({ projectId: s.projectId, sourceKind: "email", sourceId: randomUUID() }).returning();
+    try {
+      const pageCode = `${proj!.code}-D${code!.number}`;
+      const reader = await person([{ projectId: s.projectId, preset: "viewer" }]);
+      const rows = (await status(reader.cookie)).body.jobs;
+      expect(rows.find((j) => j.id === upd!.id)).toMatchObject({ title: "Pagamenti", code: pageCode });
+      expect(rows.find((j) => j.id === wf!.id)).toMatchObject({ title: "Pagamenti", code: pageCode });
+      expect(rows.find((j) => j.id === mail!.id)).toMatchObject({ title: "", code: null });
+      // Un ruolo senza `docs.view` vede la riga, non la pagina (R-G5).
+      const [role] = await db.insert(roles).values({ name: `NoDocs ${randomUUID().slice(0, 6)}`, scope: "project", permissions: ["tickets.view_all"] }).returning({ id: roles.id });
+      const blind = await person([]);
+      await db.insert(projectMembers).values({ projectId: s.projectId, userId: blind.id, roleId: role!.id });
+      const blindRows = (await status(blind.cookie)).body.jobs;
+      expect(blindRows.find((j) => j.id === upd!.id)).toMatchObject({ title: "", code: null });
+      expect(JSON.stringify(blindRows)).not.toContain("Pagamenti");
+    } finally {
       await db.delete(productDocJobs);
     }
   });
