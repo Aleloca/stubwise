@@ -21,6 +21,16 @@ import {
 // configurano (sono di Stubwise). «Apri in Google Calendar» apre l'evento.
 vi.mock("@backend/api", async () => await import("./index"));
 
+// Due orologi in questo file: la pagina e `at()` leggono l'«oggi» fisso del
+// prototipo (`@backend/clock` nei test, 23 ott 2026), l'adattatore vero la
+// finestra del calendario dall'orologio vero (`./clock`, oggi − 30 giorni).
+// Senza allinearli, dal 22 nov 2026 «ieri» del prototipo cadeva fuori dalla
+// finestra e l'evento passato era «non disponibile». `Date` parte da
+// mezzogiorno di quell'oggi, prima che `./clock` si carichi, e avanza.
+vi.hoisted(() => {
+  vi.useFakeTimers({ now: new Date("2026-10-23T12:00:00Z"), toFake: ["Date"], shouldAdvanceTime: true });
+});
+
 const ACC = "aaaaaaaa-1111-4111-8111-111111111111";
 const EV = "eeeeeeee-1111-4111-8111-111111111111";
 const PAST = "eeeeeeee-2222-4222-8222-222222222222";
