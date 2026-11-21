@@ -31,6 +31,8 @@ export interface EditorStatus {
   dropped: DropReason | false;
   /** Con `busy`: chi tiene la sezione, se chi guarda lo vede (F4). */
   droppedBy?: string | null;
+  /** Lo scarto ha lasciato la versione propria sotto il paragrafo («Mostra le due versioni»). */
+  droppedKept?: boolean;
   retry: () => void;
 }
 

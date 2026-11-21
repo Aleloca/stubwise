@@ -81,9 +81,10 @@ function PageBody({ page }: { page: ProductPageView }) {
       skipped: session.skipped,
       dropped: session.dropped,
       droppedBy: session.droppedBy,
+      droppedKept: session.droppedKept,
       retry: () => retry.current(),
     });
-  }, [editable, session.state, session.skipped, session.dropped, session.droppedBy, setEditorStatus]);
+  }, [editable, session.state, session.skipped, session.dropped, session.droppedBy, session.droppedKept, setEditorStatus]);
   useEffect(() => () => setEditorStatus(null), [setEditorStatus]);
 
   // Il permesso perso mentre si scrive (11b, Task 12): l'editor diventa la

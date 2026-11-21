@@ -13174,7 +13174,17 @@
         "dropped": "Couldn't save a change: the page had changed",
         "droppedForbidden": "Couldn't save a change: you can no longer edit this page",
         "droppedGone": "Couldn't save a change: the page was deleted",
-        "droppedBusy": "Couldn't save a change: {{name}} is writing in this section"
+        "droppedBusy": "Couldn't save a change: {{name}} is writing in this section",
+        "droppedKept": "Couldn't save a change: the page had changed. Your version is under the paragraph.",
+        "droppedBusyKept": "Couldn't save a change: {{name}} is writing in this section. Your version is under the paragraph."
+      },
+      "own": {
+        "label": "Your version, not saved",
+        "deleted": "the paragraph was deleted",
+        "useMine": "Use mine",
+        "discard": "Discard",
+        "back": "Your version is back in the paragraph",
+        "discarded": "Discarded your version"
       },
       "title": {
         "field": "Page title",

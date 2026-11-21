@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSaveProductBlocks, useSessionPersonId } from "../../../data/queries";
 import type { ProductBlock, ProductBlockOp, ProductPageView } from "../../../data/types";
-import { applyBlockOps } from "../../../domain/productDocs/blocks";
+import { applyBlockOps, isTextBlock } from "../../../domain/productDocs/blocks";
 import { pushEntry, stillAsLeft, undoEntryOf, type UndoEntry, type UndoStack } from "./undo";
 
 // La sessione dell'editor di una pagina (shape product-editor.md §3.12,
@@ -99,6 +99,35 @@ function touches(ops: readonly ProductBlockOp[], id: string): boolean {
  * server) si riprova con Retry.
  */
 export type DropReason = "changed" | "forbidden" | "gone" | "busy";
+
+/**
+ * «Mostra le due versioni» (21 nov 2026, maintainer; shape product-editor.md,
+ * emendamento omonimo): la versione propria di un blocco di testo che una
+ * scrittura scartata cambiava. `afterId` = il blocco che lo precedeva, dove
+ * rimetterlo se un altro l'ha tolto (`null`: in cima).
+ */
+export interface OwnVersion {
+  blockId: string;
+  own: ProductBlock;
+  afterId: string | null;
+}
+
+/**
+ * Le versioni proprie di una scrittura scartata: i blocchi di testo che
+ * scriveva. Solo una scrittura di testo (tutta `set`, le bozze dei blocchi):
+ * un gesto di struttura (dividere è un `set` più un `insert`, unire, spostare,
+ * togliere) non ha una versione da mostrare.
+ */
+function ownVersionsOf(ops: readonly ProductBlockOp[], view: readonly ProductBlock[]): OwnVersion[] {
+  if (ops.some((op) => op.op !== "set")) return [];
+  const out: OwnVersion[] = [];
+  for (const op of ops) {
+    if (op.op !== "set" || !isTextBlock(op.block)) continue;
+    const i = view.findIndex((b) => b.id === op.block.id);
+    out.push({ blockId: op.block.id, own: op.block, afterId: i > 0 ? view[i - 1]!.id : null });
+  }
+  return out;
+}
 const rejected = (error: unknown): DropReason | null => {
   if (!(error instanceof Error)) return null;
   if (error.message === "section_busy") return "busy";
@@ -156,6 +185,17 @@ export function useEditorSession(page: ProductPageView) {
   const [dropped, setDropped] = useState<DropReason | false>(false);
   /** Chi tiene la sezione di una scrittura scartata per `section_busy` (`null`: non si vede). */
   const [droppedBy, setDroppedBy] = useState<string | null>(null);
+  /** Le versioni proprie non salvate, una per blocco, finché non si riprendono o si scartano. */
+  const [owns, setOwns] = useState<OwnVersion[]>([]);
+  /** L'ultimo scarto ha lasciato una versione da riprendere (la barra dice dove guardare). */
+  const [droppedKept, setDroppedKept] = useState(false);
+  /** Tiene le versioni proprie: una nuova sullo stesso blocco sostituisce la vecchia. */
+  const keepOwn = useCallback((versions: readonly OwnVersion[]) => {
+    if (versions.length === 0) return false;
+    const ids = new Set(versions.map((v) => v.blockId));
+    setOwns((old) => [...old.filter((o) => !ids.has(o.blockId)), ...versions]);
+    return true;
+  }, []);
   const stackRef = useRef<UndoStack>({ undo: [], redo: [] });
   const [stack, setStackState] = useState<UndoStack>(stackRef.current);
   const setStack = (next: UndoStack) => {
@@ -235,6 +275,10 @@ export function useEditorSession(page: ProductPageView) {
       const reason = rejected(error);
       if (reason) {
         // Riprovare darebbe lo stesso rifiuto: la scrittura esce dalla fila.
+        // Il testo che cambiava resta da riprendere (pagina cambiata, sezione presa).
+        const kept =
+          (reason === "changed" || reason === "busy") && keepOwn(ownVersionsOf(batch.ops, current()));
+        setDroppedKept(kept);
         queue.current.shift();
         setPending(queue.current.map((b) => b.ops));
         setDropped(reason);
@@ -251,7 +295,7 @@ export function useEditorSession(page: ProductPageView) {
       setState("error");
       release();
     }
-  }, [client, me, sessionId, release]);
+  }, [client, me, sessionId, release, keepOwn]);
 
   const enqueue = useCallback(
     (batch: Batch) => {
@@ -267,6 +311,7 @@ export function useEditorSession(page: ProductPageView) {
     if (ops.length === 0) return;
     setSkipped(false);
     setDropped(false);
+    setDroppedKept(false);
     let entry: UndoEntry | null = null;
     try {
       entry = undoEntryOf(current(), ops);
@@ -341,6 +386,7 @@ export function useEditorSession(page: ProductPageView) {
   const touch = () => {
     setSkipped(false);
     setDropped(false);
+    setDroppedKept(false);
     setState((s) => (s === "saved" ? "idle" : s));
   };
 
@@ -361,6 +407,18 @@ export function useEditorSession(page: ProductPageView) {
     skipped,
     dropped,
     droppedBy,
+    droppedKept,
+    /** Le versioni proprie non salvate (shape, «Mostra le due versioni»). */
+    owns,
+    /** Una bozza che non ha più dove andare (il blocco tolto da altri): resta da riprendere. */
+    keepUnsaved: (versions: readonly OwnVersion[]) => {
+      if (!keepOwn(versions)) return;
+      setDropped("changed");
+      setDroppedBy(null);
+      setDroppedKept(true);
+    },
+    /** La versione propria ripresa o scartata. */
+    resolveOwn: (blockId: string) => setOwns((old) => old.filter((o) => o.blockId !== blockId)),
     touch,
     /** La pagina con le scritture in fila: quella vera, su cui si ragiona. */
     blocks: view,

@@ -13174,7 +13174,17 @@
         "dropped": "Modifica non salvata: la pagina era cambiata",
         "droppedForbidden": "Modifica non salvata: non puoi più modificare questa pagina",
         "droppedGone": "Modifica non salvata: la pagina è stata eliminata",
-        "droppedBusy": "Modifica non salvata: {{name}} sta scrivendo in questa sezione"
+        "droppedBusy": "Modifica non salvata: {{name}} sta scrivendo in questa sezione",
+        "droppedKept": "Modifica non salvata: la pagina era cambiata. La tua versione è sotto il paragrafo.",
+        "droppedBusyKept": "Modifica non salvata: {{name}} sta scrivendo in questa sezione. La tua versione è sotto il paragrafo."
+      },
+      "own": {
+        "label": "La tua versione, non salvata",
+        "deleted": "il paragrafo è stato eliminato",
+        "useMine": "Usa la mia",
+        "discard": "Scarta",
+        "back": "La tua versione è tornata nel paragrafo",
+        "discarded": "Scartata la tua versione"
       },
       "title": {
         "field": "Titolo della pagina",

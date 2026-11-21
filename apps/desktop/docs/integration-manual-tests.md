@@ -611,21 +611,35 @@ inglese; in italiano cambiano, il senso no.
   - **Blocchi diversi**: A e B scrivono in due paragrafi diversi quasi
     insieme → il salvataggio di A si riprova da solo sopra quello di B:
     «Saved», e ricaricando ci sono tutte e due le modifiche.
-  - **Lo stesso blocco**: serve che B tocchi lo stesso paragrafo mentre il
+  - **Lo stesso blocco** («Mostra le due versioni», decisione del
+    maintainer del 21 nov 2026): serve che B tocchi lo stesso paragrafo mentre il
     pezzo di A è in viaggio. Con la scrittura dal vivo accesa la sezione presa
     di solito lo impedisce, quindi conviene lasciarla libera: B scrive e
     manda la finestra in secondo piano, A cambia lo stesso paragrafo senza
     rileggere. Atteso:
-    - la barra di A dice «Couldn't save a change: the page had changed»,
-      senza «Retry»;
-    - il paragrafo torna alla versione del server, cioè con la modifica di
-      B. Il pezzo di A non salvato (quello che A ha scritto dall'ultima pausa
-      in quel paragrafo) sparisce dallo schermo e non si recupera: né ⌘Z né
-      la cronologia lo riportano. Niente sovrascrive B in silenzio;
+    - la barra di A dice «Couldn't save a change: the page had changed. Your
+      version is under the paragraph.», senza «Retry»;
+    - il paragrafo mostra la versione del server (quella di B) e, sotto, il
+      riquadro «Your version, not saved» col testo di A, con **Use mine** e
+      **Discard**. Il riquadro resta anche uscendo dal blocco e scrivendo
+      altrove;
+    - **Use mine** → una scrittura nuova: il paragrafo prende il testo di A,
+      il fuoco va alla fine, «Your version is back in the paragraph», e in
+      cronologia una revisione di A. Se B scrive ancora lì, il riquadro
+      torna con la frase «B is writing in this section. Your version is
+      under the paragraph.»;
+    - **Discard** → il riquadro se ne va e niente si scrive;
+    - B elimina il paragrafo mentre A lo scrive → il riquadro dice «· the
+      paragraph was deleted» e sta dove il paragrafo era; «Use mine» lo
+      rimette lì, come paragrafo nuovo;
+    - dividere o unire paragrafi rifiutati non ha un riquadro: solo la frase;
+    - chiudendo la pagina col riquadro aperto la versione di A si perde
+      (nessuna conferma: l'editor di Product non la chiede);
     - le modifiche dopo di A si salvano normalmente.
 - **Sezione occupata (`section_busy`)**: B scrive sotto un titolo; A prova a
   scrivere nella stessa sezione → «Couldn't save a change: B is writing in
-  this section», e il testo di B resta. Quando B smette (o la sua finestra va
+  this section. Your version is under the paragraph.»: il testo di B resta,
+  e quello di A è nel riquadro sotto, da riprendere o scartare (come sotto). Quando B smette (o la sua finestra va
   in secondo piano, sotto) A scrive.
 - **Immagini**: «/image» o trascina un PNG → «Drop to add the image», poi
   l'immagine con «Add a caption». Ricarica e da un'altra finestra: si vede.

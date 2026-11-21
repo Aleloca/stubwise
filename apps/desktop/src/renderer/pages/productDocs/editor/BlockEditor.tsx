@@ -43,6 +43,8 @@ import { RemoteCursors } from "../live/RemoteCursor";
 import { useSendPresence } from "../live/useSendPresence";
 import { BlockHandle } from "./BlockHandle";
 import { FLOATING_MAX, SLASH_MAX, dropAfter, floatingPlacement, insertCode } from "./blockOps";
+import { OwnVersionBox } from "./OwnVersion";
+import type { OwnVersion } from "./useEditorSession";
 import { BlockShell } from "./BlockShell";
 import { DecisionPicker } from "./DecisionPicker";
 import { DrivePicker } from "./DrivePicker";
@@ -246,6 +248,8 @@ function WritableBody({
   /** Un gesto che sposta il blocco col fuoco: il blur del DOM non è un'uscita. */
   const relocating = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Per ogni bozza, il blocco che la precedeva quando è stata scritta. */
+  const draftAfter = useRef(new Map<string, string | null>());
 
   const view = session.shown.map((b) => drafts.get(b.id) ?? b);
   const viewRef = useRef(view);
@@ -268,12 +272,20 @@ function WritableBody({
     setDraftsState(draftsRef.current);
     const live = new Map(sessionRef.current.blocks.map((b) => [b.id, b]));
     const ops: ProductBlockOp[] = [];
+    const orphans: OwnVersion[] = [];
     for (const [id, block] of pending) {
       const now = live.get(id);
-      // Un blocco tolto da altri nel frattempo: la bozza non ha più dove andare.
-      if (!now || JSON.stringify(now) === JSON.stringify(block)) continue;
+      // Un blocco tolto da altri nel frattempo: la bozza non ha più dove andare,
+      // ma non si perde in silenzio («Mostra le due versioni»): resta da riprendere.
+      if (!now) {
+        if (isTextBlock(block)) orphans.push({ blockId: id, own: block, afterId: draftAfter.current.get(id) ?? null });
+        continue;
+      }
+      if (JSON.stringify(now) === JSON.stringify(block)) continue;
       ops.push({ op: "set", block });
     }
+    draftAfter.current.clear();
+    if (orphans.length > 0) sessionRef.current.keepUnsaved(orphans);
     if (ops.length > 0) sessionRef.current.save(ops);
   }, []);
 
@@ -282,6 +294,50 @@ function WritableBody({
     flush();
     sessionRef.current.save(ops);
   };
+
+  // «Mostra le due versioni»: le versioni proprie da mostrare, cioè diverse
+  // dalla pagina. Un blocco che non c'è più ha la sua sotto il blocco prima
+  // (o in cima, se anche quello non c'è).
+  const liveIds = new Set(view.map((b) => b.id));
+  const owns = session.owns.filter((o) => {
+    const now = view.find((b) => b.id === o.blockId);
+    return !now || JSON.stringify(now) !== JSON.stringify(o.own);
+  });
+  const ownUnder = (id: string) => owns.filter((o) => o.blockId === id);
+  const ownWhereWas = (id: string | null) =>
+    owns.filter((o) => !liveIds.has(o.blockId) && (o.afterId !== null && liveIds.has(o.afterId) ? o.afterId : null) === id);
+  const textLength = (b: ProductBlock) => (isTextBlock(b) ? b.content.text.length : 0);
+  /** «Use mine»: una scrittura nuova sulla pagina di adesso, con le regole di sempre. */
+  const useOwn = (o: OwnVersion) => {
+    session.resolveOwn(o.blockId);
+    if (liveIds.has(o.blockId)) {
+      structure([{ op: "set", block: o.own }]);
+      caret(o.blockId, textLength(o.own));
+    } else {
+      const block = { ...o.own, id: makeBlockId() };
+      const afterId = o.afterId !== null && liveIds.has(o.afterId) ? o.afterId : null;
+      structure([{ op: "insert", afterId, block }]);
+      caret(block.id, textLength(block));
+    }
+    announce(t("productDocs.editor.own.back"));
+  };
+  /** «Discard»: niente si scrive; il fuoco al blocco (o a quello prima). */
+  const discardOwn = (o: OwnVersion) => {
+    session.resolveOwn(o.blockId);
+    const target = liveIds.has(o.blockId) ? o.blockId : o.afterId;
+    if (target) shells.current.get(target)?.focus();
+    announce(t("productDocs.editor.own.discarded"));
+  };
+  const ownBoxes = (list: readonly OwnVersion[]) =>
+    list.map((o) => (
+      <OwnVersionBox
+        key={`own-${o.blockId}`}
+        own={o.own}
+        deleted={!liveIds.has(o.blockId)}
+        onUse={() => useOwn(o)}
+        onDiscard={() => discardOwn(o)}
+      />
+    ));
 
   /** Il blocco intero al posto del suo id: la sua bozza se ne va (è dentro), le altre si salvano prima. */
   const replaceBlock = (block: ProductBlock) => {
@@ -294,6 +350,9 @@ function WritableBody({
   };
 
   const setDraft = (block: ProductBlock) => {
+    // Il blocco prima di questo: dove rimettere la bozza se un altro lo toglie intanto.
+    const at = indexOf(block.id);
+    draftAfter.current.set(block.id, at > 0 ? viewRef.current[at - 1]!.id : null);
     const next = new Map(draftsRef.current);
     next.set(block.id, block);
     setDrafts(next);
@@ -893,6 +952,7 @@ function WritableBody({
             const drawingAfter = !!sketching && "afterId" in sketching && sketching.afterId === block.id;
             return (
               <Fragment key={block.id}>
+                {i === 0 && ownBoxes(ownWhereWas(null))}
                 {i === 0 && sketching && "afterId" in sketching && sketching.afterId === null && (
                   <div className="py-3">
                     <SketchingPlaceholder focus={sketchFocus.current} />
@@ -900,11 +960,14 @@ function WritableBody({
                 )}
                 <BlockShell
                   after={
-                    refusal?.anchorId === block.id ? (
-                      <div ref={refusalRow} key={refusal.n}>
-                        <ImageRefusalRow reason={refusal.reason} onDismiss={dismissRefusal} />
-                      </div>
-                    ) : null
+                    <>
+                      {refusal?.anchorId === block.id ? (
+                        <div ref={refusalRow} key={refusal.n}>
+                          <ImageRefusalRow reason={refusal.reason} onDismiss={dismissRefusal} />
+                        </div>
+                      ) : null}
+                      {ownBoxes([...ownUnder(block.id), ...ownWhereWas(block.id)])}
+                    </>
                   }
                   dropNote={fileDrop === block.id ? t("productDocs.blocks.image.drop") : null}
                   id={block.id}
