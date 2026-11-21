@@ -235,6 +235,10 @@ function apply(page: PageLive, f: ProductLiveFrame): ProductPageEvent[] {
       return [];
     case "gone":
       return ["gone"];
+    // F6: una bozza di schermata cambia stato (disegnata, in disegno, non
+    // riuscita): la pagina si rilegge, e con lei la mappa degli SVG.
+    case "wireframe":
+      return ["blocks"];
     default:
       return [];
   }

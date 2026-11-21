@@ -125,6 +125,15 @@ describe("lo stream di una pagina", () => {
     expect(events).toEqual(["presence", "blocks", "blocks"]);
   });
 
+  it("F6: una bozza di schermata pronta, in disegno o non riuscita (`wireframe`): «blocks», la pagina si rilegge", () => {
+    const { send } = fakeTransport();
+    const events: string[] = [];
+    live.subscribeProductPage!(PAGE, (e) => events.push(e));
+    send("state", state);
+    send("wireframe", { wireframeId: "ffffffff-0000-4000-8000-000000000001", status: "ready" });
+    expect(events).toEqual(["presence", "blocks"]);
+  });
+
   it("la presenza arriva intera ogni volta; un cursore sposta chi c'è già", async () => {
     const { send } = fakeTransport();
     live.subscribeProductPage!(PAGE, () => undefined);

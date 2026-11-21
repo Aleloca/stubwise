@@ -313,6 +313,25 @@ describe("lo spazio Product dal server", () => {
     ]);
   });
 
+  it("F6: la pagina porta lo SVG di ogni variante pronta, per `<wireframeId>:<variant>` (come il prototipo)", async () => {
+    const WF = "ffffffff-0000-4000-8000-000000000001";
+    const SVG0 = '<svg viewBox="0 0 10 10"><rect width="10" height="10"/></svg>';
+    const SVG1 = '<svg viewBox="0 0 10 10"><circle r="5"/></svg>';
+    installFakeServer({
+      "GET /api/product-pages/by-code/AUD-D5": {
+        body: pageView({
+          blocks: [{ id: "blk-w", type: "wireframe", wireframeId: WF, variant: 1 }],
+          wireframes: [
+            { id: WF, status: "ready", variants: [{ svg: SVG0 }, { svg: SVG1 }], error: null },
+          ],
+        }),
+      },
+    });
+    const page = await docs.getProductPage!("AUD-D5");
+    expect(page!.wireframes).toEqual({ [`${WF}:0`]: SVG0, [`${WF}:1`]: SVG1 });
+    expect(page!.blocks).toEqual([{ id: "blk-w", type: "wireframe", wireframeId: WF, variant: 1 }]);
+  });
+
   it("Segui e smetti: PUT e DELETE", async () => {
     const { seen } = installFakeServer({
       [`PUT /api/product-pages/${PAGE}/follow`]: { status: 204 },

@@ -152,6 +152,13 @@ async function readPage(code: string): Promise<ProductPageView | null> {
     decisions: v.decisions,
     // Le radici non risolte, con l'ancora viva o no: le conta il server (F2).
     openComments: v.openComments,
+    // F6: lo SVG di ogni variante pronta, già ripulito dal server, per
+    // `<wireframeId>:<variant>` come il prototipo (`WireframeBlock`).
+    wireframes: Object.fromEntries(
+      (v.wireframes ?? []).flatMap((w) =>
+        w.variants.map((x, i) => [`${w.id}:${i}`, x.svg] as const),
+      ),
+    ),
   };
   lastRead.set(v.id, page);
   // La sezione del cursore nel battito (F4) si calcola sui blocchi di adesso.
