@@ -145,6 +145,23 @@ describe("la lettura, «Accept this page», «Stop»", () => {
   });
 });
 
+describe("i dubbi della prima versione", () => {
+  it("una domanda di Claude come quelle di F5: «Update it» scrive il dubbio al posto del ripiego, e la risposta è un tocco per «Undo»", async () => {
+    const s = await space();
+    const { groupId } = (await start(ada, s, [{ kind: "text", text: "n" }])).json() as { groupId: string };
+    const fallback = { id: "draft", type: "paragraph", content: { text: "The chosen sources don't say anything about this yet.", marks: [] } };
+    const draft = [{ title: "Overview", depth: 0, blocks: [fallback], questions: [{ blockIndex: 0, apply: { text: "Forse a 60 giorni.", marks: [] }, request: null }] }];
+    await t.db.update(productFirstVersions).set({ draft, plan: [{ title: "Overview", depth: 0 }] }).where(eq(productFirstVersions.id, groupId));
+    await writeFirstVersionPage(t.db, groupId, 0);
+    const [q] = (await inject(ada, "GET", `/api/me/product-questions`)).json() as { commentId: string; pageId: string; question: { reason: string; source: { kind: string }; options: string[] } }[];
+    expect(q).toMatchObject({ question: { reason: "vague", source: { kind: "first_version" } } });
+    expect((await inject(ada, "POST", `/api/product-comments/${q!.commentId}/answer`, { option: "apply" })).statusCode).toBe(200);
+    const [page] = await t.db.select().from(productPages).where(eq(productPages.id, q!.pageId));
+    expect(JSON.stringify(page!.blocks)).toContain("Forse a 60 giorni.");
+    expect((await view(bea, s))!.undo).toMatchObject({ enabled: false, reason: "changed_after", byId: ada.id });
+  });
+});
+
 describe("«Undo the first version»", () => {
   it("toglie tutte le sue pagine finché nessuno le ha toccate; poi è già annullata", async () => {
     const s = await space();

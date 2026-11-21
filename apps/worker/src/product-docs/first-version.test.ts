@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { emailProposals, productDocJobs, productFirstVersions, productPageRevisions, productPages, projectMembers, projects, roles, users } from "@stubwise/db";
+import { emailProposals, notifications, productComments, productDocJobs, productFirstVersions, productPageRevisions, productPages, projectMembers, projects, roles, users } from "@stubwise/db";
 import { seedEmailMessage, seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { ProductBlock } from "@stubwise/shared";
 import { asc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { AgentRunOptions, AgentRunResult, AgentRunner } from "../agent/runner.js";
-import { FIRST_VERSION_CITATION_PREFIX } from "./first-version.js";
+import { FIRST_VERSION_CITATION_PREFIX, FIRST_VERSION_FALLBACK } from "./first-version.js";
 import { claimProductDocJob, runProductDocJob } from "./job.js";
 
 /**
@@ -94,6 +94,34 @@ describe("la prima versione nel worker", () => {
     const [row] = await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.id, fv.id));
     expect(row).toMatchObject({ status: "done", interrupted: false, pastedText: null });
     expect(row!.written).toHaveLength(3);
+  });
+
+  it("un dubbio della bozza: la frase di ripiego nella pagina, con una domanda `vague` di Claude sopra, senza card", async () => {
+    const { projectId, fv } = await setup();
+    const draft = JSON.stringify({
+      pages: [{ title: "Overview", depth: 0, blocks: [p("Un negozio.")], doubts: [{ text: "Forse i pagamenti a 60 giorni.", request: { title: "Chiarire i pagamenti", description: "Il cliente non ha deciso" } }] }],
+    });
+    const job = (await claimProductDocJob(t.db))!;
+    expect(await runProductDocJob({ db: t.db, runner: fakeRunner(draft).runner, log }, job)).toBe("done");
+    const [page] = await pagesOf(projectId);
+    const blocks = page!.blocks as { id: string; content?: { text: string } }[];
+    const fallback = blocks.find((b) => b.content?.text === FIRST_VERSION_FALLBACK)!;
+    expect(fallback).toBeDefined();
+    // Il dubbio non è scritto come fatto nella pagina.
+    expect(JSON.stringify(blocks)).not.toContain("60 giorni");
+    const comments = await t.db.select().from(productComments).where(eq(productComments.pageId, page!.id));
+    expect(comments).toHaveLength(1);
+    expect(comments[0]).toMatchObject({ anchorId: fallback.id, body: "", quote: FIRST_VERSION_FALLBACK });
+    expect(comments[0]!.question).toMatchObject({
+      reason: "vague",
+      sourceRef: { kind: "first_version" },
+      apply: { text: "Forse i pagamenti a 60 giorni." },
+      request: { title: "Chiarire i pagamenti" },
+      recommended: "keep",
+    });
+    // Senza card: è un gesto di chi l'ha chiesta, che segue già le pagine.
+    expect(await t.db.select().from(notifications).where(eq(notifications.kind, "product_doc.question"))).toEqual([]);
+    void fv;
   });
 
   it("un lavoro ripreso non richiama il modello e riparte dalla pagina dopo", async () => {

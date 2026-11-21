@@ -1,5 +1,5 @@
-import { productFirstVersions, productPageBlockIds, productPageFollows, productPageRevisions, productPages, type Db } from "@stubwise/db";
-import { blockChanges, blockIdsOf, productSearchText, type ProductBlock } from "@stubwise/shared";
+import { productComments, productFirstVersions, productPageBlockIds, productPageFollows, productPageRevisions, productPages, type Db } from "@stubwise/db";
+import { blockChanges, blockIdsOf, cleanQuote, productSearchText, type ProductBlock, type ProductQuestion, type RichText } from "@stubwise/shared";
 import { and, eq, sql } from "drizzle-orm";
 import { agentUserId, freshIds } from "./product-docs-write.js";
 import { projectPermissionsByProject } from "./project-access.js";
@@ -28,6 +28,12 @@ export interface FirstVersionDraftPage {
   title: string;
   depth: number;
   blocks: ProductBlock[];
+  /**
+   * I dubbi della pagina: una domanda `vague` di Claude sul blocco
+   * `blockIndex` (la frase di ripiego), con «Update it» = `apply` e «Open a
+   * request» = `request`. Senza card (il prototipo: `notify: false`).
+   */
+  questions?: { blockIndex: number; apply: RichText; request: { title: string; description: string } | null }[];
 }
 
 export type FirstVersionStep = { kind: "written"; pageId: string; last: boolean } | { kind: "stopped" } | { kind: "gone" };
@@ -97,6 +103,24 @@ export async function writeFirstVersionPage(db: Db, firstVersionId: string, inde
       .returning({ id: productPageRevisions.id });
     // Chi l'ha chiesta segue le pagine (come chi crea una pagina).
     if (fv.startedBy) await tx.insert(productPageFollows).values({ pageId: created!.id, userId: fv.startedBy }).onConflictDoNothing();
+    // I dubbi: una domanda di Claude sulla frase di ripiego, nella stessa scrittura. Senza card.
+    const sourceIds = (fv.sources as { kind: string; id?: string; fileId?: string }[]).flatMap((s) => (s.id ? [s.id] : s.fileId ? [s.fileId] : []));
+    for (const [i, q] of (page.questions ?? []).entries()) {
+      const anchor = blocks[q.blockIndex];
+      if (!anchor || !("content" in anchor)) continue;
+      const question: ProductQuestion = {
+        sourceRef: { kind: "first_version", ids: sourceIds.slice(0, 50) },
+        factId: `fv-${index}-${i}`,
+        reason: "vague",
+        forId: null,
+        apply: q.apply,
+        built: null,
+        request: q.request,
+        recommended: "keep",
+        seq: 1,
+      };
+      await tx.insert(productComments).values({ pageId: created!.id, anchorId: anchor.id, quote: cleanQuote(anchor.content.text), body: "", authorId: agentId, question: question as unknown as Record<string, unknown> });
+    }
     const last = index === draft.length - 1;
     await tx
       .update(productFirstVersions)
