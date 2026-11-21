@@ -218,14 +218,14 @@ export async function runProductDocJob(deps: ProductDocJobDeps, job: JobRow): Pr
   // La prima versione e le bozze sono gesti di chi li ha chiesti: la pausa della coda non li ferma (P48 del prototipo).
   const gesture = job.sourceKind === "first_version" || job.sourceKind === "wireframe";
   if (p.pausedAt && !gesture) return hold(db, job.id, "paused").then(() => "held");
-  if ((await aiBudgetState(db, deps.monthlyCostUsdFn)).exhausted) return hold(db, job.id, "budget").then(() => "held");
+  // Una bozza non aspetta: col budget o la quota finiti è `failed` col motivo (lo guarda lei, `wireframe.ts`).
   if (job.sourceKind === "wireframe") {
     return runWireframeJob(deps, job, {
       finish: (status, error = null) => finish(db, job.id, status, error).then(() => undefined),
-      hold: (reason) => hold(db, job.id, reason).then(() => undefined),
       retryOrFail: (error) => retryOrFail(db, job, error),
     });
   }
+  if ((await aiBudgetState(db, deps.monthlyCostUsdFn)).exhausted) return hold(db, job.id, "budget").then(() => "held");
   if (job.sourceKind === "first_version") {
     return runFirstVersionJob(deps, job, {
       finish: (status, error = null) => finish(db, job.id, status, error).then(() => undefined),

@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { productDocJobs, productPageRevisions, productPages, productSectionHolds, productWireframes, type Db } from "@stubwise/db";
-import { agentUserId } from "@stubwise/notifications";
+import { agentUserId, aiBudgetState } from "@stubwise/notifications";
 import { anchorText, applyBlockOps, productBlockSchema, productSearchText, sanitizeWireframeSvg, sectionKeyOf, type ProductBlock, type ProductBlockOp } from "@stubwise/shared";
 import { and, eq, gt, ne, sql } from "drizzle-orm";
 import { NATIVE_TOOLS } from "../agent/native-tools.js";
@@ -24,7 +24,11 @@ import type { ProductDocJobDeps, ProductDocJobOutcome } from "./job.js";
  *   variante nuova e l'etichetta torna, con una revisione di Claude
  *   `via: "claude"` per conto di chi l'ha chiesto. Una sezione presa da una
  *   persona non si scrive: la variante resta da scegliere («Pick»);
- * - un lavoro ripreso dopo il salvataggio non ridisegna.
+ * - un lavoro ripreso dopo il salvataggio non ridisegna;
+ * - una bozza non aspetta in coda: col budget del mese finito o la quota
+ *   degli account esaurita è `failed` (`budget`, `limit`), come uno SVG che
+ *   non passa (`invalid_svg`) o un modello che non risponde (`no_answer`).
+ *   Si riprova con «Redraw». I quattro motivi sono il contratto col client.
  * - Il registro decisioni qui non si nomina.
  */
 
@@ -65,17 +69,29 @@ export function parseWireframeAnswer(text: string): string | null {
   return m ? sanitizeWireframeSvg(m[0]) : null;
 }
 
+/** I motivi di `failed` di una bozza: il contratto col client (`productWireframeViewSchema.error`). */
+export type WireframeFailure = "budget" | "limit" | "invalid_svg" | "no_answer";
+
 const notifyWireframe = (tx: Db, pageId: string, wireframeId: string, status: "ready" | "failed") =>
   tx.execute(sql`select pg_notify('product_page_events', ${JSON.stringify({ type: "wireframe", pageId, wireframeId, status })})`);
 
 export async function runWireframeJob(
   deps: ProductDocJobDeps,
   job: typeof productDocJobs.$inferSelect,
-  helpers: { finish: (status: "done" | "failed", error?: string | null) => Promise<void>; hold: (reason: "limit") => Promise<void>; retryOrFail: (error: string) => Promise<ProductDocJobOutcome> },
+  helpers: { finish: (status: "done" | "failed", error?: string | null) => Promise<void>; retryOrFail: (error: string) => Promise<ProductDocJobOutcome> },
 ): Promise<ProductDocJobOutcome> {
   const { db, log } = deps;
   const [row] = await db.select().from(productWireframes).where(eq(productWireframes.id, job.sourceId));
   if (!row || row.status !== "drawing") return helpers.finish("done", "wireframe_gone").then(() => "done");
+  const fail = async (error: WireframeFailure) => {
+    await db.transaction(async (txRaw) => {
+      const tx = txRaw as unknown as Db;
+      await tx.update(productWireframes).set({ status: "failed", error, updatedAt: new Date() }).where(and(eq(productWireframes.id, row.id), eq(productWireframes.status, "drawing")));
+      await notifyWireframe(tx, row.pageId, row.id, "failed");
+    });
+  };
+  const failNow = (error: WireframeFailure) => fail(error).then(() => helpers.finish("failed", error)).then(() => "failed" as const);
+  if ((await aiBudgetState(db, deps.monthlyCostUsdFn)).exhausted) return failNow("budget");
   const [page] = await db.select({ title: productPages.title, blocks: productPages.blocks }).from(productPages).where(eq(productPages.id, row.pageId));
   if (!page) return helpers.finish("done", "page_gone").then(() => "done");
   const blocks = readBlocks(page.blocks);
@@ -83,6 +99,7 @@ export async function runWireframeJob(
   const near = at > 0 ? (anchorText(blocks, blocks[at - 1]!.id) ?? "") : "";
   const cwd = await mkdtemp(join(tmpdir(), "stubwise-wireframe-"));
   let text: string | null = null;
+  let limited = false;
   try {
     const attempt = (provider: ResolvedProvider | undefined) =>
       deps.runner.run({
@@ -96,27 +113,21 @@ export async function runWireframeJob(
         maxTurns: 1,
         timeoutMs: 180_000,
       });
-    let result: AgentRunResult;
+    let result: AgentRunResult | null = null;
     if (deps.select) {
       const out = await runWithProviders(deps.select, { projectId: row.projectId, workClass: "background" }, attempt, limitTextOfRun);
-      if (out.kind === "legacy_limited" || out.kind === "unavailable") return helpers.hold("limit").then(() => "held");
-      result = out.value;
+      if (out.kind === "legacy_limited" || out.kind === "unavailable") limited = true;
+      else result = out.value;
     } else {
       result = await attempt(undefined);
     }
-    text = textFromRun(result);
+    if (result) text = textFromRun(result);
   } catch (error) {
     log.warn({ err: error, jobId: job.id }, "bozza di schermata: il modello non ha risposto");
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
-  const fail = async (error: string) => {
-    await db.transaction(async (txRaw) => {
-      const tx = txRaw as unknown as Db;
-      await tx.update(productWireframes).set({ status: "failed", error, updatedAt: new Date() }).where(and(eq(productWireframes.id, row.id), eq(productWireframes.status, "drawing")));
-      await notifyWireframe(tx, row.pageId, row.id, "failed");
-    });
-  };
+  if (limited) return failNow("limit");
   if (text === null) {
     const outcome = await helpers.retryOrFail("no_answer");
     if (outcome === "failed") await fail("no_answer");
@@ -125,8 +136,7 @@ export async function runWireframeJob(
   const svg = parseWireframeAnswer(text);
   if (!svg) {
     log.warn({ jobId: job.id }, "bozza di schermata: lo SVG non passa la pulizia");
-    await fail("invalid_svg");
-    return helpers.finish("failed", "invalid_svg").then(() => "failed");
+    return failNow("invalid_svg");
   }
   await db.transaction(async (txRaw) => {
     const tx = txRaw as unknown as Db;
