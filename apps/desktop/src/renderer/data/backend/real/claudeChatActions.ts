@@ -10,6 +10,7 @@ import { listPeople } from "./people";
 import { projectCodesById } from "./projects";
 import { alertTypeOf } from "../../../domain/alerts/catalog";
 import { ACTIONS } from "../../../domain/access/actions";
+import { lastReadProductPage } from "./productDocs";
 
 // Le proposte e le azioni di Claude nella chat della build app (chat, fetta 3,
 // F3.4; design `2026-11-10-integrazione-claude-chat-design.md`, «Proposte e
@@ -70,9 +71,17 @@ const PROJECT_FNS = new Set([
   "updateProjectGeneral",
   "setProjectAi",
   "saveProjectAutomations",
+  // Area 11, F6 (Task 4 di 72): la prima versione è dello spazio del progetto.
+  "writeFirstVersion",
+  "undoFirstVersion",
 ]);
 const projectIdOf = (fn: string, args: Record<string, unknown>): string | null =>
   PROJECT_FNS.has(fn) && typeof args["projectId"] === "string" ? (args["projectId"] as string) : null;
+
+/** Area 11, F6: le voci su una pagina di prodotto (il codice dal server, il titolo dall'ultima lettura). */
+const PAGE_FNS = new Set(["updateProductPage", "drawWireframe", "deleteWireframe"]);
+const pageIdOf = (fn: string, args: Record<string, unknown>): string | null =>
+  PAGE_FNS.has(fn) && typeof args["pageId"] === "string" ? (args["pageId"] as string) : null;
 
 /** Proposte, gruppi e codici delle task citate di una conversazione libera. */
 export async function readChatActions(conversationId: string): Promise<ChatActions> {
@@ -87,6 +96,8 @@ export async function readChatActions(conversationId: string): Promise<ChatActio
     for (const a of g.actions) {
       const ids = taskIdsOf(a.fn, a.args);
       if (ids[0] && a.codes[0]) codes.set(ids[0], a.codes[0]);
+      const pageId = pageIdOf(a.fn, a.args);
+      if (pageId && a.codes[0]) codes.set(pageId, a.codes[0]);
     }
   }
   const missing = [
@@ -200,6 +211,22 @@ export function summaryOf(
     case "updatePluginRef":
       params["ref"] = text("ref");
       break;
+    // Area 11, F6: la pagina col codice (del server) e il titolo, se chi guarda
+    // l'ha letta (le frasi del prototipo, `catalogProduct.ts`); senza, «a page».
+    case "updateProductPage":
+    case "drawWireframe":
+    case "deleteWireframe":
+    case "undoProductUpdate": {
+      const page = typeof args["pageId"] === "string" ? lastReadProductPage(args["pageId"] as string) : undefined;
+      const pageCode = code ?? page?.code ?? null;
+      params["page"] =
+        pageCode === null
+          ? i18n.t("claude.chatActions.aPage")
+          : page && page.code === pageCode
+            ? `${pageCode} ${page.title}`
+            : pageCode;
+      break;
+    }
     case "resetSubscription":
     case "setSubscription": {
       // L'etichetta del tipo dal catalogo condiviso; solo i canali presenti (un assente resta com'è).
@@ -225,7 +252,11 @@ export function summaryOf(
         ? args["enabled"] === true
           ? "setProviderEnabledOn"
           : "setProviderEnabledOff"
-        : fn;
+        : fn === "updateProductPage"
+          ? (args["source"] as { kind?: unknown } | undefined)?.kind === "meeting"
+            ? "updateProductPageMeeting"
+            : "updateProductPageEmail"
+          : fn;
   // `resetSubscription` (l'inverso, mai proposto): «back to the default», senza canali.
   const own = `claude.chatActions.summary.${phrase}${code === null && params["code"] === "" && needsCode(fn) ? "NoCode" : ""}`;
   // Un'azione che questa build non conosce (un server più nuovo: `fn` è `__unknown__`) ha la frase generica.
@@ -307,6 +338,13 @@ const WHO_ACTION: Partial<Record<string, string>> = {
   updateWebhook: "manageIntegrations",
   rerunSmoke: "managePlugins",
   removePlugin: "managePlugins",
+  // Area 11, F6: come il catalogo del prototipo (`catalogProduct.ts`).
+  writeFirstVersion: "editDocs",
+  undoFirstVersion: "editDocs",
+  updateProductPage: "editDocs",
+  undoProductUpdate: "editDocs",
+  drawWireframe: "editDocs",
+  deleteWireframe: "editDocs",
 };
 
 const reasonsOf = (p: ProposalView): ClassReason[] => [
@@ -354,7 +392,7 @@ function whoActionOf(permission: string | null, fn: string | undefined): string 
 }
 
 const codeOfAction = (a: { fn: string; args: Record<string, unknown> }, codes: Map<string, string>) =>
-  codes.get(taskIdsOf(a.fn, a.args)[0] ?? projectIdOf(a.fn, a.args) ?? "") ?? null;
+  codes.get(taskIdsOf(a.fn, a.args)[0] ?? projectIdOf(a.fn, a.args) ?? pageIdOf(a.fn, a.args) ?? "") ?? null;
 
 /**
  * L'autore di ogni conversazione libera letta (fetta 5): il richiedente delle

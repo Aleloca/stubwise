@@ -4982,7 +4982,14 @@
         "removeMember": "Togli {{name}} da {{code}}",
         "removeMemberNoCode": "Togli {{name}} da un progetto",
         "registerPlugin": "Registra il plugin {{url}}",
-        "updatePluginRef": "Porta un plugin a {{ref}}"
+        "updatePluginRef": "Porta un plugin a {{ref}}",
+        "writeFirstVersion": "Scrivere la prima versione della doc di {{code}}",
+        "undoFirstVersion": "Annullare la prima versione della doc di {{code}}",
+        "updateProductPageEmail": "Aggiornare {{page}} dall'email",
+        "updateProductPageMeeting": "Aggiornare {{page}} dalla riunione",
+        "undoProductUpdate": "Annullare l'aggiornamento di Claude di {{page}}",
+        "drawWireframe": "Disegnare una bozza di schermata in {{page}}",
+        "deleteWireframe": "Togliere la bozza di schermata da {{page}}"
       },
       "summaryHidden": {
         "createTask": "Crea una task",
@@ -5017,7 +5024,8 @@
           "on": "Telefono acceso",
           "off": "Telefono spento"
         }
-      }
+      },
+      "aPage": "una pagina"
     }
   },
   "chat": {

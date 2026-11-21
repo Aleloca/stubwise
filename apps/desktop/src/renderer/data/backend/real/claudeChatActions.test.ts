@@ -228,6 +228,25 @@ describe("proposte e azioni di Claude nella conversazione", () => {
     expect(card.actions[0]!.summary).toBe("Archive AUD");
   });
 
+  it("area 11, F6: una bozza di schermata disegnata dice la pagina col codice del server, e così una proposta nuova sulla stessa pagina", async () => {
+    const PAGE = "aaaaaaaa-0000-4000-8000-000000000001";
+    const draw = { fn: "drawWireframe", args: { pageId: PAGE, afterId: null } };
+    install({
+      [`GET /api/claude/conversations/${CONV}/proposals`]: {
+        body: [{ ...proposals[0], actions: [draw] }, { ...proposals[1], actions: [draw], reasons: [{ kind: "starts_work" }] }],
+      },
+      [`GET /api/claude/conversations/${CONV}/groups`]: {
+        body: [{ ...groups[0], actions: [{ ...draw, codes: ["AUD-D5"] }] }],
+      },
+    });
+    await getSessionPerson();
+    const detail = (await getConversation(CONV))!;
+    const row = detail.events.find((e) => e.type === "executed") as { actions: { summary: string }[] };
+    const card = detail.events.find((e) => e.type === "proposal") as { actions: { summary: string }[] };
+    expect(row.actions[0]!.summary).toBe("Draw a screen sketch in AUD-D5");
+    expect(card.actions[0]!.summary).toBe("Draw a screen sketch in AUD-D5");
+  });
+
   it("una B confermata: la scheda resta (confermata, col suo gruppo e i codici), nessuna riga in più", async () => {
     install({
       [`GET /api/agent-sessions/${CONV}/events`]: {
