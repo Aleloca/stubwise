@@ -1,4 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
+import { featureIntegrated } from "../../integration";
 import type { ProjectRequestSummary, ProjectRequestView, RequestJobView, RequestToConvertView } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { ProjectRequest, RequestLevel } from "../../types";
@@ -87,6 +88,11 @@ function fromView(v: ProjectRequestView): ProjectRequest {
     createdAt: v.createdAt,
     suggestions: v.suggestions ?? null,
     ...(v.webHref ? { webHref: v.webHref } : {}),
+    // F6: «From the doc», la pagina da cui nasce come la legge chi guarda (derivata
+    // dal server); solo coi gesti di Claude sulla doc accesi (`product-claude-actions`).
+    ...(v.productOrigin && featureIntegrated("product-claude-actions")
+      ? { productOrigin: { pageId: v.productOrigin.pageId, code: v.productOrigin.code, title: v.productOrigin.title } }
+      : {}),
     // Nata da una conversazione di Support (area 8, F3): il codice; l'id la build app non lo riceve.
     ...(v.origin?.kind === "support"
       ? { origin: { kind: "support", conversationId: null, conversationCode: v.origin.conversationCode } }

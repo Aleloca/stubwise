@@ -221,6 +221,23 @@ describe("le Requests dal server", () => {
     });
   });
 
+  it("F6: «From the doc» (`productOrigin`) arriva con la richiesta; assente senza", async () => {
+    const PAGE = "aaaaaaaa-0000-4000-8000-000000000001";
+    installFakeServer({
+      [`GET /api/requests/${ITEM}`]: { body: full({ productOrigin: { pageId: PAGE, code: "AUD-D5", title: "Sign-in" } }) },
+    });
+    expect((await getRequest(ITEM))?.productOrigin).toEqual({ pageId: PAGE, code: "AUD-D5", title: "Sign-in" });
+    installFakeServer({ [`GET /api/requests/${ITEM}`]: { body: full() } });
+    expect((await getRequest(ITEM))?.productOrigin).toBeUndefined();
+    // Nella build app, col cancello `product-claude-actions` spento, non si mostra.
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    installFakeServer({
+      [`GET /api/requests/${ITEM}`]: { body: full({ productOrigin: { pageId: PAGE, code: "AUD-D5", title: "Sign-in" } }) },
+    });
+    expect((await getRequest(ITEM))?.productOrigin).toBeUndefined();
+    vi.unstubAllEnvs();
+  });
+
   it("un intake fallito è un errore; una richiesta nuova non è «fusa»", async () => {
     installFakeServer({
       "POST /api/requests": { status: 202, body: { jobId: "job-2" } },

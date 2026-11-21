@@ -97,6 +97,11 @@ const codeOf = new Map<string, string>();
 /** L'ultima pagina letta: se la rilettura dopo una scrittura riuscita non riesce, si ricostruisce da qui. */
 const lastRead = new Map<string, ProductPageView>();
 
+/** L'ultima lettura di una pagina (il progetto, per le proposte di Claude di F6). */
+export function lastReadProductPage(pageId: string): ProductPageView | undefined {
+  return lastRead.get(pageId);
+}
+
 /** Al cambio di persona (`session.ts`) e nei test. */
 export function forgetProductDocs(): void {
   seqOf.clear();
