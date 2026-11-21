@@ -8,6 +8,7 @@ import {
   productPages,
   productSectionHolds,
   projects,
+  tickets,
   users,
   type Db,
 } from "@stubwise/db";
@@ -21,6 +22,8 @@ import {
   productBlockSchema,
   productBlockWriteSchema,
   productSearchText,
+  PRODUCT_BLOCKS_MAX,
+  PRODUCT_PAGE_BYTES_MAX,
   recommendedOf,
   sectionKeyOf,
   validProductBlock,
@@ -46,10 +49,20 @@ import { publishNotification } from "./publish.js";
  * Il modello propone (i fatti), la regola decide (`decideFact` di shared), lo
  * scrittore RICONTROLLA, nella transazione col lock della pagina:
  * - l'ancora c'è ancora, e il testo che il fatto si aspetta (`before`) c'è
- *   ancora; una persona che l'ha toccata dopo l'arrivo del fatto lo contraddice
- *   (`contradicts_person`);
+ *   ancora. `before` è OBBLIGATORIO per riscrivere una frase (`replace`,
+ *   `link_task`): senza, o diverso dalla frase di adesso, il fatto è una
+ *   domanda (`contradicts_person` se l'ultima mano è di una persona); il
+ *   server non si fida di ciò che il modello dichiara (revisione di F5, 5);
  * - il titolare della fonte ha `docs.edit` nel progetto (senza: una domanda
- *   `no_permission`); senza titolare (una decisione, un rilascio) agisce Claude;
+ *   `no_permission`). Il titolare è chi ha la casella (email, riunione), chi
+ *   ha registrato la decisione, chi ha CHIUSO la task, chi ha fatto il merge
+ *   del rilascio (decisione del maintainer, 21 nov 2026); non noto (una
+ *   chiusura di sistema) vale come senza permesso: una domanda;
+ * - il blocco che Claude scrive passa dalle regole delle persone: tutti gli id
+ *   li genera il server (righe e celle comprese), niente blocchi con un
+ *   riferimento (immagine, file, decisione, bozza), i tetti di blocchi e
+ *   byte della pagina, i segni validi; un link NUOVO nel testo fa del fatto
+ *   una domanda; `link_task` solo con una task vera del progetto;
  * - la sezione dell'ancora non è presa da una persona (F4): se lo è, NIENTE si
  *   scrive e il lavoro aspetta (`section_busy`);
  * - la pagina è del progetto della fonte (mai una pagina fuori dal progetto).
@@ -75,7 +88,7 @@ export interface ClaudeWriteInput {
   pageId: string;
   facts: readonly ProductFact[];
   source: { kind: ProductSourceKind; id: string };
-  /** Il titolare della fonte (per conto di chi Claude agisce); null = agisce Claude. */
+  /** Il titolare della fonte (per conto di chi Claude agisce); null = non noto: Claude non scrive da solo (`no_permission`). */
   ownerId: string | null;
   /** Il `rev_seq` della pagina quando il lavoro l'ha letta: il «dopo» di chi l'ha toccata. */
   arrivedSeq: number;
@@ -112,6 +125,41 @@ export function withAnchorText(block: ProductBlock, anchorId: string, text: Rich
   return null;
 }
 
+/** I blocchi che nominano un oggetto (un'immagine, un file, una decisione, una bozza): Claude non li scrive. */
+const REFERENCE_TYPES: ReadonlySet<string> = new Set(["image", "drive", "decision", "wireframe"]);
+
+/** La frase di un'ancora coi suoi segni (il blocco di testo, o la cella). */
+function anchorRich(block: ProductBlock, anchorId: string): RichText | null {
+  if (block.type === "table") return block.rows.flatMap((r) => r.cells).find((c) => c.id === anchorId)?.content ?? null;
+  return block.id === anchorId && "content" in block ? block.content : null;
+}
+
+/** Il blocco con id nuovi: il blocco, e per una tabella righe e celle. */
+export function freshIds(block: ProductBlock): ProductBlock {
+  const id = () => `blk-${randomUUID()}`;
+  if (block.type !== "table") return { ...block, id: id() } as ProductBlock;
+  return { ...block, id: id(), rows: block.rows.map((r) => ({ id: id(), cells: r.cells.map((c) => ({ ...c, id: id() })) })) };
+}
+
+/** Il testo del fatto porta un link che la frase di adesso non ha. */
+function newLinks(fact: ProductFact, blocks: readonly ProductBlock[]): boolean {
+  const text = fact.change.kind === "replace" ? fact.change.text : fact.change.kind === "insert_after" && "content" in fact.change.block ? (fact.change.block as { content: RichText }).content : null;
+  const hrefs = (t: RichText | null) => (t?.marks ?? []).flatMap((m) => (m.type === "link" ? [m.href] : []));
+  const added = hrefs(text);
+  if (added.length === 0) return false;
+  const holder = fact.anchorId === null ? undefined : blocks.find((b) => anchorIdsOf(b).includes(fact.anchorId!));
+  const known = new Set(holder && fact.anchorId ? hrefs(anchorRich(holder, fact.anchorId)) : []);
+  return added.some((h) => !known.has(h));
+}
+
+/** Una task vera del progetto, dal suo codice (`<PROGETTO>-<n>`). */
+async function taskOfProject(tx: Db, projectId: string, projectCode: string, code: string): Promise<boolean> {
+  const match = /^([A-Za-z][A-Za-z0-9]*)-(\d{1,9})$/.exec(code.trim());
+  if (!match || match[1]!.toUpperCase() !== projectCode.toUpperCase()) return false;
+  const [row] = await tx.select({ id: tickets.id }).from(tickets).where(and(eq(tickets.projectId, projectId), eq(tickets.number, Number(match[2]))));
+  return row !== undefined;
+}
+
 /** L'agente: l'utente con `is_agent` (uno solo per istanza). */
 export async function agentUserId(db: Pick<Db, "select">): Promise<string | null> {
   const [row] = await db.select({ id: users.id }).from(users).where(eq(users.isAgent, true));
@@ -133,16 +181,17 @@ export async function writeClaudeFacts(db: Db, input: ClaudeWriteInput): Promise
     let blocks = readBlocks(page.blocks);
     const anchorIds = new Set(blocks.flatMap(anchorIdsOf));
 
-    // Il titolare può scrivere la doc? Senza titolare agisce Claude.
-    const ownerCanEdit = input.ownerId === null ? true : (await projectPermissionsByProject(tx, input.ownerId, [input.projectId])).get(input.projectId)?.has("docs.edit") === true;
+    // Il titolare può scrivere la doc? Un titolare non noto vale come senza permesso.
+    const ownerCanEdit = input.ownerId === null ? false : (await projectPermissionsByProject(tx, input.ownerId, [input.projectId])).get(input.projectId)?.has("docs.edit") === true;
+    const [{ code: projectCode }] = (await tx.select({ code: projects.code }).from(projects).where(eq(projects.id, page.projectId))) as [{ code: string }];
 
     // Chi ha toccato per ultimo ogni ancora, e chi l'ha toccata dopo l'arrivo del fatto.
     const revisions = await tx
       .select({ actorId: productPageRevisions.actorId, kind: productPageRevisions.kind, lastSeq: productPageRevisions.lastSeq, changes: productPageRevisions.changes })
       .from(productPageRevisions)
       .where(eq(productPageRevisions.pageId, page.id))
-      .orderBy(desc(productPageRevisions.lastSeq))
-      .limit(500);
+      // Tutte: l'ultima mano su un'ancora può essere vecchia (revisione di F5).
+      .orderBy(desc(productPageRevisions.lastSeq));
     const isPerson = (r: (typeof revisions)[number]) => r.kind !== "claude" && r.actorId !== null && r.actorId !== agentId;
     const touches = (r: (typeof revisions)[number], anchorId: string) => (r.changes as ProductBlockChange[]).some((c) => c.anchors?.includes(anchorId) || c.blockId === anchorId);
 
@@ -162,15 +211,29 @@ export async function writeClaudeFacts(db: Db, input: ClaudeWriteInput): Promise
     const outcomes: ClaudeFactOutcome[] = [];
     const questions: { fact: ProductFact; reason: Extract<ProductFactDecision, { kind: "question" }>["reason"]; forId: string | null; current: string }[] = [];
 
-    for (const fact of input.facts) {
-      if (fact.pageId !== page.id) continue;
+    for (const raw of input.facts) {
+      if (raw.pageId !== page.id) continue;
+      const rewrites = raw.change.kind === "replace" || raw.change.kind === "link_task";
+      // Riscrivere una frase vuole la frase: senza ancora il fatto non ha dove andare (revisione di F5, 2).
+      if (rewrites && raw.anchorId === null) {
+        outcomes.push({ factId: raw.id, kind: "none", why: "no_anchor" });
+        continue;
+      }
+      // Un blocco nuovo di Claude non porta riferimenti: quelli li sceglie una persona, con la sua visibilità.
+      if (raw.change.kind === "insert_after" && REFERENCE_TYPES.has(raw.change.block.type)) {
+        outcomes.push({ factId: raw.id, kind: "none", why: "reference_block" });
+        continue;
+      }
+      // Un link che la frase non aveva non entra da solo (un indirizzo dentro una fonte non fidata).
+      const fact: ProductFact = newLinks(raw, blocks) ? { ...raw, clarity: "vague" } : raw;
       const anchorExists = fact.anchorId === null ? true : anchorIds.has(fact.anchorId);
       const current = fact.anchorId !== null ? anchorText(blocks, fact.anchorId) : null;
       const last = fact.anchorId !== null ? revisions.find((r) => touches(r, fact.anchorId!)) : undefined;
       const lastWriterIsPerson = last !== undefined && isPerson(last);
       const lastPerson = last && isPerson(last) ? last.actorId : null;
       // Il testo atteso non c'è più: chi l'ha cambiato lo contraddice (una persona → contradicts_person).
-      const beforeGone = fact.before !== undefined && current !== null && !sameRich(fact.before, { text: current, marks: [] });
+      // Senza `before` per una riscrittura il server non sa cosa il fatto contraddice: come cambiato (revisione di F5, 5).
+      const beforeGone = (rewrites && fact.before === undefined && current !== null) || (fact.before !== undefined && current !== null && !sameRich(fact.before, { text: current, marks: [] }));
       const personSince = fact.anchorId !== null && revisions.some((r) => r.lastSeq > input.arrivedSeq && isPerson(r) && touches(r, fact.anchorId!));
       const decision = decideFact(beforeGone && !lastWriterIsPerson ? { ...fact, contradicts: true } : fact, {
         lastWriterIsPerson,
@@ -190,14 +253,20 @@ export async function writeClaudeFacts(db: Db, input: ClaudeWriteInput): Promise
       const sectionId = fact.anchorId === null ? "top" : sectionKeyOf(blocks, fact.anchorId);
       if (held.has(sectionId)) return { kind: "section_busy", sectionId } as const;
       const change = fact.change;
+      if (change.kind === "link_task" && !(await taskOfProject(tx, page.projectId, projectCode, change.taskCode))) {
+        outcomes.push({ factId: fact.id, kind: "none", why: "task_unknown" });
+        continue;
+      }
       if (change.kind === "insert_after") {
-        // Id nuovi (mai quelli del modello): un id non si riusa.
-        const block = { ...change.block, id: `blk-${randomUUID()}` } as ProductBlock;
+        // Id nuovi (mai quelli del modello), righe e celle comprese: un id non si riusa, e nessuno si chiama `top`.
+        const block = freshIds(change.block as ProductBlock);
         const afterId = fact.anchorId === null ? null : (blocks.find((b) => anchorIdsOf(b).includes(fact.anchorId!))?.id ?? null);
         ops.push({ op: "insert", afterId, block } as ProductBlockOp);
       } else if (change.kind === "replace" || change.kind === "link_task") {
         const holder = blocks.find((b) => anchorIdsOf(b).includes(fact.anchorId!))!;
-        const text: RichText = change.kind === "replace" ? change.text : { text: `${(current ?? "").trimEnd()} ${change.taskCode}`, marks: "content" in holder ? holder.content.marks : [] };
+        // `link_task`: la frase di adesso coi SUOI segni (anche quelli di una cella), più il codice.
+        const own = anchorRich(holder, fact.anchorId!);
+        const text: RichText = change.kind === "replace" ? change.text : { text: `${(own?.text ?? current ?? "").trimEnd()} ${change.taskCode}`, marks: own?.marks ?? [] };
         const next = withAnchorText(holder, fact.anchorId!, text);
         if (!next) {
           outcomes.push({ factId: fact.id, kind: "none", why: "not_text" });
@@ -222,8 +291,10 @@ export async function writeClaudeFacts(db: Db, input: ClaudeWriteInput): Promise
         next = { blocks: before, changes: [] };
       }
       const valid = next.blocks.every((b) => productBlockWriteSchema.safeParse(b).success && validProductBlock(b));
-      if (!valid) {
-        for (const o of outcomes) if (o.kind === "edit") Object.assign(o, { kind: "none", why: "invalid_block" });
+      // I tetti della pagina, come per le persone (`saveProductBlocks`).
+      const tooLarge = next.blocks.length > PRODUCT_BLOCKS_MAX || Buffer.byteLength(JSON.stringify(next.blocks)) > PRODUCT_PAGE_BYTES_MAX;
+      if (!valid || tooLarge) {
+        for (const o of outcomes) if (o.kind === "edit") Object.assign(o, { kind: "none", why: tooLarge ? "page_too_large" : "invalid_block" });
       } else if (next.changes.length > 0) {
         const given = new Set((await tx.select({ id: productPageBlockIds.blockId }).from(productPageBlockIds).where(eq(productPageBlockIds.pageId, page.id))).map((r) => r.id));
         const fresh = next.blocks.flatMap(blockIdsOf).filter((id) => !given.has(id));
@@ -253,7 +324,8 @@ export async function writeClaudeFacts(db: Db, input: ClaudeWriteInput): Promise
     // Le domande: un commento di Claude con la sua parte di domanda (il corpo resta vuoto).
     const after = ops.length > 0 && revisionId ? readBlocks((await tx.select({ blocks: productPages.blocks }).from(productPages).where(eq(productPages.id, page.id)))[0]?.blocks) : readBlocks(page.blocks);
     for (const q of questions) {
-      const anchorId = q.fact.anchorId ?? after[0]?.id ?? "top";
+      // Senza ancora (o con l'ancora sparita), la prima ANCORA della pagina (una cella, per una tabella in cima).
+      const anchorId = (q.fact.anchorId !== null && anchorText(after, q.fact.anchorId) !== null ? q.fact.anchorId : null) ?? after.flatMap(anchorIdsOf)[0] ?? "top";
       const decision = { kind: "question", reason: q.reason } as const;
       const change = q.fact.change;
       const question: ProductQuestion = {
@@ -264,7 +336,8 @@ export async function writeClaudeFacts(db: Db, input: ClaudeWriteInput): Promise
         apply: q.fact.options?.apply ?? (change.kind === "replace" ? change.text : change.kind === "insert_after" && "content" in change.block ? (change.block as { content: RichText }).content : null),
         built: change.kind === "diverges" ? change.built : null,
         request: q.fact.options?.request ?? null,
-        ...(change.kind === "insert_after" && !q.fact.options?.apply ? { insert: { block: change.block, afterId: q.fact.anchorId } } : {}),
+        // Come il prototipo (`insertOf`): «Update it» inserisce solo un blocco di TESTO, senza `options.apply`.
+        ...(change.kind === "insert_after" && !q.fact.options?.apply && "content" in change.block ? { insert: { block: change.block, afterId: q.fact.anchorId } } : {}),
         recommended: recommendedOf(q.fact, decision),
         // Il «dopo» di «Update it»: le revisioni successive che toccano l'ancora la spengono.
         seq: seq ?? page.revSeq,

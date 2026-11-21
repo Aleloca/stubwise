@@ -3413,7 +3413,9 @@ async function runProductDoc(ctx: ScenarioContext, name: ProductDocObservation["
     const current = fact.anchorId !== null ? ctx.rt.anchorText(blocks, fact.anchorId) : null;
     // Lo scrittore (`writeClaudeFacts`): ogni frase l'ha scritta una persona.
     const lastWriterIsPerson = fact.anchorId !== null;
-    const beforeGone = fact.before !== undefined && current !== null && fact.before.text.trim() !== current.trim();
+    // Come lo scrittore (revisione di F5, 5): `before` è obbligatorio per riscrivere una frase.
+    const rewrites = fact.change.kind === "replace" || fact.change.kind === "link_task";
+    const beforeGone = (rewrites && fact.before === undefined && current !== null) || (fact.before !== undefined && current !== null && fact.before.text.trim() !== current.trim());
     return ctx.rt.decideFact(beforeGone && !lastWriterIsPerson ? { ...fact, contradicts: true } : fact, {
       lastWriterIsPerson,
       actorCanEdit: true,
