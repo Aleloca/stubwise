@@ -158,8 +158,15 @@ function mapClaudeError(error: unknown): never {
       });
     if (error.status === 409 && error.code === "changed_after")
       throw Object.assign(new Error("changed_after"), { byId });
-    if (error.status === 409 && error.code === "already_undone") throw new Error("already_undone");
-    if (error.status === 409 && error.code === "section_busy") throw new Error("section_busy");
+    if (error.status === 409 && error.code === "already_undone")
+      throw Object.assign(new Error("already_undone"), { byId });
+    // `section_busy` dice chi tiene la sezione in `by` (F4 di 72).
+    if (error.status === 409 && error.code === "section_busy") {
+      const by = (d as { by?: { id?: unknown } }).by;
+      throw Object.assign(new Error("section_busy"), {
+        byId: typeof by?.id === "string" ? by.id : null,
+      });
+    }
     if (error.status === 403) throw new Error("forbidden");
     if (error.status === 404) throw new Error("not_found");
     if (error.status === 422 || error.status === 400)
@@ -197,7 +204,8 @@ export async function productQuestionDecisions(): Promise<ProductQuestionDecisio
       projectId: q.projectId,
       projectCode: q.projectCode,
       at: q.createdAt,
-      quote: q.question.current?.text ?? "",
+      // La citazione del commento-domanda (`quote` di 72), anche per un inserimento.
+      quote: q.quote,
       link: `#/p/${q.projectCode}/docs/product/${q.pageCode}?comment=${q.commentId}`,
       reason: view.reason,
       forName: view.forName,
@@ -370,7 +378,8 @@ export const liveProductClaude: Partial<ProductDocs> = {
         pageId: q.pageId,
         pageCode: q.pageCode,
         pageTitle: q.pageTitle,
-        quote: q.question.current?.text ?? "",
+        // La citazione del commento-domanda (`quote` di 72), anche per un inserimento.
+        quote: q.quote,
       })),
     };
   },

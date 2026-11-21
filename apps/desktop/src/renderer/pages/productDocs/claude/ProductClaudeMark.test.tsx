@@ -34,6 +34,7 @@ const SEEDED = "blk-acq-signin-5";
 /** Un oggetto che non compare da nessun'altra parte (Review Focus 3). */
 const SUBJECT = "Quokka zephyr: login confirmation";
 
+const flat = (el: Element) => (el.textContent ?? "").replace(/\s+/g, " ");
 const plain = (text: string): RichText => ({ text, marks: [] });
 const pageOf = () => state.productPages.find((p) => p.id === PAGE)!;
 const textOf = (id: string) => {
@@ -431,5 +432,43 @@ describe("l'indirizzo", () => {
     await openPage(LAURA, `${SIGNIN}?mark=${SEEDED}`);
     await waitFor(() => expect(noteOf(SEEDED)).not.toBeNull());
     await waitFor(() => expect(noteOf(SEEDED)!.contains(document.activeElement)).toBe(true));
+  });
+});
+
+// Revisione di R11-5, 3: un rifiuto del livello dati (il server ha deciso)
+// è definitivo, con la frase del motivo e senza «Retry»; «Retry» resta per
+// un errore di rete, e rifà il gesto solo se il bottone è ancora acceso.
+describe("i rifiuti di «Undo» e «Looks good»", () => {
+  it("`section_busy`: «Marco Bellini is writing in this section», nessun «Retry»", async () => {
+    twoChanges();
+    const user = await openPage(LAURA);
+    const note = await openNote(user, HOW);
+    vi.spyOn(api.productDocs, "undoProductChange").mockRejectedValueOnce(
+      Object.assign(new Error("section_busy"), { byId: MARCO }),
+    );
+    await user.click(within(note).getByRole("button", { name: /^Undo$/ }));
+    await waitFor(() => expect(flat(noteOf(HOW)!)).toContain("Marco Bellini is writing in this section"));
+    expect(within(noteOf(HOW)!).queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
+  it("`changed_after` dal livello finto (`refused: …`): la frase del motivo, nessun «Retry»", async () => {
+    twoChanges();
+    const user = await openPage(LAURA);
+    const note = await openNote(user, HOW);
+    vi.spyOn(api.productDocs, "acceptProductMark").mockRejectedValueOnce(new Error("refused: changed_after"));
+    await user.click(within(note).getByRole("button", { name: "Looks good" }));
+    await waitFor(() => expect(flat(noteOf(HOW)!)).toContain("It was edited afterwards"));
+    expect(within(noteOf(HOW)!).queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
+  it("un errore di rete: «Undo failed · Retry», e «Retry» rifà il gesto", async () => {
+    twoChanges();
+    const user = await openPage(LAURA);
+    const note = await openNote(user, HOW);
+    const spy = vi.spyOn(api.productDocs, "undoProductChange").mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await user.click(within(note).getByRole("button", { name: /^Undo$/ }));
+    const retry = await within(noteOf(HOW)!).findByRole("button", { name: "Retry" });
+    await user.click(retry);
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
   });
 });

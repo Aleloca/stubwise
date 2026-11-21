@@ -205,6 +205,24 @@ describe("i segni di Claude", () => {
     await expect(claude.undoProductChange!(REV, "blk-1")).rejects.toThrow("not_found");
   });
 
+  it("`section_busy` porta chi tiene la sezione (`by` del server)", async () => {
+    installFakeServer({
+      [`POST /api/product-revisions/${REV}/undo-all`]: {
+        status: 409,
+        body: {
+          code: "section_busy",
+          message: "x",
+          sectionId: "blk-1",
+          by: { id: LAURA, name: "Laura Costa" },
+        },
+      },
+    });
+    await expect(claude.undoProductChange!(REV)).rejects.toMatchObject({
+      message: "section_busy",
+      byId: LAURA,
+    });
+  });
+
   it("un'ancora che non ha un segno letto: «not_found», senza chiamare", async () => {
     const { seen } = installFakeServer({});
     await expect(claude.acceptProductMark!(PAGE, "blk-9")).rejects.toThrow("not_found");
@@ -295,6 +313,9 @@ describe("le domande aperte (72, 4b: `openQuestions`)", () => {
     projectId: PROJECT,
     projectCode: "AUD",
     anchorId: "blk-1",
+    // La citazione del commento-domanda (`c.quote` del prototipo), diversa
+    // dal testo attuale apposta (revisione di R11-5, 9).
+    quote: "only with Google",
     createdAt: "2026-11-20T10:00:00.000Z",
     question: {
       reason: "vague",
@@ -336,7 +357,7 @@ describe("le domande aperte (72, 4b: `openQuestions`)", () => {
           pageId: PAGE,
           pageCode: "AUD-D5",
           pageTitle: "Sign-in",
-          quote: "Google only",
+          quote: "only with Google",
         },
       ],
     });
@@ -351,7 +372,7 @@ describe("le domande aperte (72, 4b: `openQuestions`)", () => {
       commentId: COMMENT,
       pageCode: "AUD-D5",
       projectCode: "AUD",
-      quote: "Google only",
+      quote: "only with Google",
       link: `#/p/AUD/docs/product/AUD-D5?comment=${COMMENT}`,
       reason: "vague",
       recommended: "keep",

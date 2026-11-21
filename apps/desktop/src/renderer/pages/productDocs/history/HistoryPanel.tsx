@@ -20,6 +20,7 @@ import type {
 import { formatDate } from "../../../notifications/time";
 import { CloseIcon } from "../../task/parts";
 import { GestureFailed, UndoReason } from "../claude/ProductClaudeMark";
+import { RefusalText, refusalOf, type GestureRefusal } from "../claude/gestureRefusal";
 import { SourceLine } from "../claude/SourceLine";
 import { blockLabel } from "../editor/BlockBody";
 import { RichView } from "../editor/RichView";
@@ -601,24 +602,40 @@ function useUndoOnce(onUndone: (focusKey: string, announce: string) => void) {
   const undo = useUndoProductChange();
   const inflight = useRef(false);
   const [failed, setFailed] = useState(false);
+  // Un rifiuto è definitivo, col motivo (revisione di R11-5, 3); un errore di rete si riprova.
+  const [refused, setRefused] = useState<GestureRefusal | null>(null);
   const run = (revisionId: string, anchorId: string | undefined, focusKey: string) => {
     if (inflight.current) return;
     inflight.current = true;
     setFailed(false);
+    setRefused(null);
     undo.mutateAsync({ revisionId, anchorId }).then(
       () => onUndone(focusKey, t("productDocs.mark.undone")),
-      () => {
+      (error: unknown) => {
         inflight.current = false;
-        setFailed(true);
+        const why = refusalOf(error);
+        if (why) setRefused(why);
+        else setFailed(true);
       },
     );
   };
-  return { run, pending: undo.isPending, failed };
+  return { run, pending: undo.isPending, failed, refused };
 }
 
-function UndoFailed({ onRetry }: { onRetry: () => void }) {
+/** Un «Undo» non riuscito: il rifiuto col suo motivo, o l'errore con «Retry» (solo se l'«Undo» è ancora acceso). */
+function UndoFailed({
+  once,
+  off,
+  onRetry,
+}: {
+  once: { failed: boolean; refused: GestureRefusal | null };
+  off: boolean;
+  onRetry: () => void;
+}) {
   const { t } = useTranslation();
-  return <GestureFailed text={t("productDocs.mark.undoFailed")} onRetry={onRetry} />;
+  if (once.refused) return <RefusalText refusal={once.refused} />;
+  if (!once.failed) return null;
+  return <GestureFailed text={t("productDocs.mark.undoFailed")} onRetry={() => !off && onRetry()} />;
 }
 
 /** «Undone», «Undone by …»: il testo nuovo della riga, dove resta il fuoco dopo un «Undo». */
@@ -674,9 +691,9 @@ function AnchorUndo({
           <UndoReason undo={off} id={reasonId} />
         </span>
       )}
-      {once.failed && (
+      {(once.failed || once.refused) && (
         <span className="basis-full">
-          <UndoFailed onRetry={() => once.run(revisionId, anchorId, key)} />
+          <UndoFailed once={once} off={!!off} onRetry={() => once.run(revisionId, anchorId, key)} />
         </span>
       )}
     </>
@@ -788,7 +805,8 @@ function RowExtras({
   }
   if (status) lines.push(<p key="status">{status}</p>);
   if (reason) lines.push(<p key="reason">{reason}</p>);
-  if (once.failed) lines.push(<UndoFailed key="failed" onRetry={() => once.run(r.id, undefined, r.id)} />);
+  if (once.failed || once.refused)
+    lines.push(<UndoFailed key="failed" once={once} off={r.undo?.enabled === false} onRetry={() => once.run(r.id, undefined, r.id)} />);
 
   if (r.kind === "undo" && r.undoOf) {
     const undone = all.find((x) => x.id === r.undoOf);
