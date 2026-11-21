@@ -275,6 +275,41 @@ describe("«Replace with an image»", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Only PNG, JPEG, GIF and WebP images");
     expect(blockOf(BILLS, id)).toMatchObject({ type: "wireframe" });
   });
+
+  it("il file passa da `storeProductImage`, come gli altri blocchi immagine (nella build app: `product-image:<id>`)", async () => {
+    vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
+    const store = vi.spyOn(api.productDocs, "storeProductImage").mockResolvedValue("data:image/png;base64,c3RvcmVk");
+    const id = drawnOnBills();
+    await open(BILLS);
+    const user = userEvent.setup();
+    await user.click(within(shellOf(id)).getByRole("button", { name: "Replace with an image" }));
+    const chooser = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    const file = new File([new Uint8Array(1024)], "bills.png", { type: "image/png" });
+    act(() => {
+      fireEvent.change(chooser, { target: { files: [file] } });
+    });
+    await waitFor(() =>
+      expect(blockOf(BILLS, id)).toMatchObject({ id, type: "image", src: "data:image/png;base64,c3RvcmVk", alt: "bills" }),
+    );
+    expect(store).toHaveBeenCalledWith(BILLS, file);
+  });
+
+  it("un caricamento rifiutato dal livello dati: la frase sotto il blocco, e la bozza resta", async () => {
+    vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
+    vi.spyOn(api.productDocs, "storeProductImage").mockRejectedValue(new Error("invalid: file_too_large"));
+    const id = drawnOnBills();
+    await open(BILLS);
+    const user = userEvent.setup();
+    await user.click(within(shellOf(id)).getByRole("button", { name: "Replace with an image" }));
+    const chooser = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    act(() => {
+      fireEvent.change(chooser, {
+        target: { files: [new File([new Uint8Array(1024)], "bills.png", { type: "image/png" })] },
+      });
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent(/5 MB/);
+    expect(blockOf(BILLS, id)).toMatchObject({ type: "wireframe" });
+  });
 });
 
 describe("la cronologia dice cosa è successo alla bozza", () => {

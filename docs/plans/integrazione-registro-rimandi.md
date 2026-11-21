@@ -1450,10 +1450,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `product-docs` (F5–F6: segni e domande di Claude, prima versione, attese,
   dalla doc al backlog, «Screen sketch», le voci di Claude del «⋯» e del
   titolo). Restano da fare dopo:
-  - **«Replace with an image» della bozza di schermata** *(S, F6)*: manda
-    ancora il `data:` URL del prototipo (`replaceWireframeWithImage`);
-    quando F6 la porta sul server va fatta passare da `storeProductImage`
-    come gli altri blocchi immagine.
+  - ~~**«Replace with an image» della bozza di schermata** *(S, F6)*~~
+    *(chiusa, 94, 21 nov 2026)*: il file passa da `storeProductImage` come
+    gli altri blocchi immagine (nella build app `product-image:<id>`, quello
+    che `POST …/wireframes/:blockId/replace-image` vuole); un caricamento
+    rifiutato dal server è la frase sotto il blocco, e la bozza resta.
   - **L'immagine sul desktop resta in cache per la sessione** *(XS,
     accettato da 46)*: letta una volta (`staleTime: Infinity`, l'immagine di
     un id non cambia). Il server dice `no-cache` per rivalidare chi la può

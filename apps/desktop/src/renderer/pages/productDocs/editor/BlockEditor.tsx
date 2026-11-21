@@ -53,7 +53,6 @@ import {
   PRODUCT_IMAGE_TYPES,
   checkImageFile,
   filesOf,
-  readImageFile,
   uploadRefusalOf,
   type ImageRefusal,
 } from "./images";
@@ -508,7 +507,18 @@ function WritableBody({
     fileInput.current?.click();
   };
   const placeSketchImage = (id: string, file: File) => {
-    void readImageFile(file).then((r) => {
+    // Come gli altri blocchi immagine: controllata, poi salvata dal livello
+    // dati (nella build app caricata sul server, `product-image:<id>`).
+    const stored = async (): Promise<{ ok: true; src: string; alt: string } | { ok: false; reason: ImageRefusal }> => {
+      const r = checkImageFile(file);
+      if (!r.ok) return r;
+      try {
+        return { ...r, src: await storeImage(page.id, file) };
+      } catch (error) {
+        return { ok: false, reason: uploadRefusalOf(error) };
+      }
+    };
+    void stored().then((r) => {
       if (!r.ok) {
         // Rifiutata: la frase sotto il blocco, la bozza resta.
         setRefusal({ anchorId: id, reason: r.reason, n: Date.now() });
