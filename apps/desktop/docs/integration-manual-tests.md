@@ -605,12 +605,24 @@ inglese; in italiano cambiano, il senso no.
 - Scrivi qualche paragrafo, un titolo, un elenco, un blocco di codice, una
   tabella → «Saving…» poi «Saved». Ricarica: tutto è com'era. ⌘Z dell'editor
   rimette un blocco tolto, coi commenti che aveva.
-- **Pagina cambiata intanto (`stale`)**: A e B sulla stessa pagina, con la
-  scrittura dal vivo spenta o in due sezioni diverse. B cambia un paragrafo,
-  A (senza rileggere) cambia lo stesso paragrafo → se la modifica di A non si
-  può più applicare, A vede «Couldn't save a change: the page had changed» e
-  la pagina con la modifica di B. **Da annotare**: cosa resta del testo di A.
-  Niente deve perdersi in silenzio.
+- **Pagina cambiata intanto (`stale`)**: l'editor salva a pezzi, dopo 0,8
+  secondi di pausa o uscendo dal blocco, e ogni pezzo parte dalla versione
+  della pagina che A aveva sotto gli occhi.
+  - **Blocchi diversi**: A e B scrivono in due paragrafi diversi quasi
+    insieme → il salvataggio di A si riprova da solo sopra quello di B:
+    «Saved», e ricaricando ci sono tutte e due le modifiche.
+  - **Lo stesso blocco**: serve che B tocchi lo stesso paragrafo mentre il
+    pezzo di A è in viaggio. Con la scrittura dal vivo accesa la sezione presa
+    di solito lo impedisce, quindi conviene lasciarla libera: B scrive e
+    manda la finestra in secondo piano, A cambia lo stesso paragrafo senza
+    rileggere. Atteso:
+    - la barra di A dice «Couldn't save a change: the page had changed»,
+      senza «Retry»;
+    - il paragrafo torna alla versione del server, cioè con la modifica di
+      B. Il pezzo di A non salvato (quello che A ha scritto dall'ultima pausa
+      in quel paragrafo) sparisce dallo schermo e non si recupera: né ⌘Z né
+      la cronologia lo riportano. Niente sovrascrive B in silenzio;
+    - le modifiche dopo di A si salvano normalmente.
 - **Sezione occupata (`section_busy`)**: B scrive sotto un titolo; A prova a
   scrivere nella stessa sezione → «Couldn't save a change: B is writing in
   this section», e il testo di B resta. Quando B smette (o la sua finestra va
