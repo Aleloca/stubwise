@@ -30,6 +30,7 @@ import type {
 import { appClient } from "./client";
 import {
   questionViewFrom,
+  rememberRevisionMarks,
   sourceViewFrom,
   undoViewFrom,
   type ServerSourceView,
@@ -275,6 +276,8 @@ function commentOf(c: Reader<ServerCommentView>): ProductCommentView {
 }
 
 function revisionOf(r: ServerRevisionView): ProductRevisionView {
+  // F5 (correzioni di 72): l'«Undo» dalla cronologia anche di un segno accettato.
+  if (r.markIdByAnchor) rememberRevisionMarks(r.id, r.markIdByAnchor);
   return {
     id: r.id,
     pageId: r.pageId,

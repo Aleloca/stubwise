@@ -2,6 +2,7 @@ import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClie
 import { useCallback, useEffect } from "react";
 import * as api from "@backend/api";
 import { PRODUCT_IMAGE_REF_PREFIX } from "@stubwise/shared";
+import { isAppBuild } from "../build";
 import { featureIntegrated } from "../integration";
 import { PROJECT_AREAS, REQUEST_AREAS, useInvalidate, useSessionPersonId, useWrite } from "../queries";
 import { useInstanceChanges } from "./instance";
@@ -411,6 +412,9 @@ export function useProductUpdatesWaiting(projectId: string) {
     queryKey: ["as", me, "instance", "product-updates-waiting", projectId] as const,
     queryFn: () => api.productDocs.productUpdatesWaiting(projectId),
     enabled: productLaterOn("claude"),
+    // Build app: nessun evento la rinfresca (una sezione che si libera, un
+    // lavoro che riparte), quindi si rilegge ogni 30 s. Il prototipo ha gli eventi.
+    refetchInterval: isAppBuild() ? 30_000 : false,
   });
 }
 

@@ -12915,6 +12915,8 @@
       "emailOf": "From an email of {{owner}} · {{date, datetime(month: short; day: numeric; timeZone: UTC)}}",
       "meeting": "From the meeting “{{title}}”",
       "meetingOf": "From a meeting of {{owner}} · {{date, datetime(month: short; day: numeric; timeZone: UTC)}}",
+      "emailOfNoDate": "From an email of {{owner}}",
+      "meetingOfNoDate": "From a meeting of {{owner}}",
       "decision": "From the decision “{{title}}”",
       "decisionHidden": "From a decision you can't see",
       "task": "From the task “{{title}}”",
@@ -13345,7 +13347,8 @@
       "option": {
         "apply": "Update it",
         "keep": "Leave it as is",
-        "request": "Open a request"
+        "request": "Open a request",
+        "other": "another answer"
       },
       "recommended": "Recommended",
       "threadLabel": "Claude's question on “{{quote}}”",

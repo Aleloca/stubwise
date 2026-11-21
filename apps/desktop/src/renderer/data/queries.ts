@@ -1701,7 +1701,7 @@ export function useClaudeDecisions() {
   useConversationChanges();
   // Le voci di Claude in «Da decidere» sono della 3b: niente lettura né ascolto.
   const on = featureIntegrated("claude-decisions");
-  // Le domande di Claude sulla doc di prodotto (area 11) non sono integrate nella build app.
+  // Le domande di Claude sulla doc di prodotto (area 11): nella build app con `product-docs` (F5).
   const productDocsOn = featureIntegrated("product-docs");
   // 11b: anche una domanda di Claude sulla doc di prodotto nata o chiusa,
   // da chiunque (il motore, un'altra persona).

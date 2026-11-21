@@ -53,7 +53,10 @@ export function questionSentence(t: T, q: QuestionWords): string {
 
 /** Il nome di una risposta: «Update it», «Leave it as is», «Open a request». */
 export function answerLabel(t: T, option: ProductAnswerChoice): string {
-  return t(`productDocs.question.option.${option}`);
+  // Un'opzione che il renderer non conosce (UNKNOWN): «another answer».
+  return (["apply", "keep", "request"] as readonly string[]).includes(option)
+    ? t(`productDocs.question.option.${option}`)
+    : t("productDocs.question.option.other");
 }
 
 /**

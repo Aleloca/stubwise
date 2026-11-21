@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setAppClientForTests } from "./client";
+import { liveProductClaude } from "./productClaude";
 import { installFakeServer, me, ME_ID, PROJECT_ID } from "./fakeServer";
 import { forgetProductDocs, liveProductDocs as docs, productHomeOf } from "./productDocs";
 import { getSessionPerson } from "./session";
@@ -295,6 +296,21 @@ describe("lo spazio Product dal server", () => {
       at: "2026-11-20T10:01:00.000Z",
       changes: [{ blockId: "blk-1", anchors: ["blk-1"], after: para("blk-1", "b") }],
     });
+  });
+
+  it("una revisione di Claude dalla cronologia porta gli id dei suoi segni: l'«Undo» di un segno accettato va al segno", async () => {
+    const MARK = "cccccccc-0000-4000-8000-000000000001";
+    const { seen } = installFakeServer({
+      [`GET /api/product-pages/${PAGE}/revisions`]: {
+        body: [revision(REV, { kind: "claude", markIdByAnchor: { "blk-1": MARK } })],
+      },
+      [`POST /api/product-marks/${MARK}/undo`]: { body: { seq: 10, revisionId: null } },
+    });
+    await docs.listProductRevisions!(PAGE);
+    await liveProductClaude.undoProductChange!(REV, "blk-1");
+    expect(seen.filter((r) => r.method === "POST").map((r) => r.path)).toEqual([
+      `/api/product-marks/${MARK}/undo`,
+    ]);
   });
 
   it("Segui e smetti: PUT e DELETE", async () => {

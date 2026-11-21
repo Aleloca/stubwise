@@ -3,6 +3,7 @@ import type { ProductQuestionView as SharedQuestionView, Reader } from "@stubwis
 import type * as Fake from "../../api";
 import i18n from "../../../i18n";
 import type {
+  ProductAnswerChoice,
   ProductMarkView,
   ProductQuestionDecision,
   ProductQuestionView,
@@ -69,10 +70,11 @@ export function sourceViewFrom(s: ServerSourceView): ProductSourceView {
     };
   const link =
     s.canOpen && s.thread ? `#/mail/${threadKey(s.thread.accountId, s.thread.threadId)}` : null;
-  const of = (key: string) => ({
-    key,
-    params: { owner: s.ownerName ?? someone(), date: s.at ? Date.parse(s.at) : 0 },
-  });
+  // Senza data, la frase senza la data (mai «Jan 1» dall'epoca).
+  const of = (key: string) =>
+    s.at
+      ? { key, params: { owner: s.ownerName ?? someone(), date: Date.parse(s.at) } }
+      : { key: `${key}NoDate`, params: { owner: s.ownerName ?? someone() } };
   const label = (() => {
     switch (s.kind) {
       case "email":
@@ -102,9 +104,26 @@ export function sourceViewFrom(s: ServerSourceView): ProductSourceView {
   return { ...base, label, link, gone: false } as ProductSourceView;
 }
 
-/** L'id del segno di ogni ancora, per pagina e per revisione, dall'ultima lettura dei segni. */
+/**
+ * L'id del segno di ogni ancora, per pagina (dall'ultima lettura dei segni
+ * aperti) e per revisione (anche dalla cronologia, `markIdByAnchor`: l'«Undo»
+ * di un segno già accettato). Ogni lettura sostituisce le voci del suo ambito.
+ */
 const markIds = new Map<string, string>();
 const markKey = (scope: string, anchorId: string) => `${scope}|${anchorId}`;
+function forgetScope(scope: string): void {
+  for (const key of [...markIds.keys()]) if (key.startsWith(`${scope}|`)) markIds.delete(key);
+}
+
+/** I segni di una revisione letta dalla cronologia (`markIdByAnchor` di 72): sostituiscono quelli di prima. */
+export function rememberRevisionMarks(
+  revisionId: string,
+  byAnchor: Readonly<Record<string, string>>,
+): void {
+  forgetScope(revisionId);
+  for (const [anchorId, id] of Object.entries(byAnchor))
+    markIds.set(markKey(revisionId, anchorId), id);
+}
 
 /** Solo nei test, e al cambio di persona. */
 export function forgetProductClaude(): void {
@@ -197,6 +216,20 @@ const ANSWERS = ["apply", "keep", "request"] as const;
 const isAnswer = (x: string): x is (typeof ANSWERS)[number] =>
   (ANSWERS as readonly string[]).includes(x);
 
+const REASONS = [
+  "vague",
+  "contradicts_person",
+  "contradicts",
+  "diverges",
+  "no_permission",
+] as const;
+/** Un motivo che il renderer non conosce si legge «vague»: la frase che non afferma niente. */
+export function reasonOf(reason: string): ProductQuestionView["reason"] {
+  return (REASONS as readonly string[]).includes(reason)
+    ? (reason as ProductQuestionView["reason"])
+    : "vague";
+}
+
 /** Il testo di una domanda del server (`RichTextView`) nella forma del prototipo. */
 const richOf = (r: { text: string; marks: readonly unknown[] } | null): RichText | null =>
   r ? ({ text: r.text, marks: [...r.marks] } as RichText) : null;
@@ -204,7 +237,7 @@ const richOf = (r: { text: string; marks: readonly unknown[] } | null): RichText
 /** La domanda di Claude del server nella forma del prototipo (enum aperti: un valore ignoto si scarta). */
 export function questionViewFrom(q: Reader<SharedQuestionView>): ProductQuestionView {
   return {
-    reason: q.reason as ProductQuestionView["reason"],
+    reason: reasonOf(q.reason),
     forId: q.forId,
     forName: q.forName,
     taskCode: q.taskCode,
@@ -219,16 +252,18 @@ export function questionViewFrom(q: Reader<SharedQuestionView>): ProductQuestion
     options: q.options.filter(isAnswer),
     canAnswer: q.canAnswer,
     applyBlocked: q.applyBlocked ? { byId: q.applyBlocked.byId } : null,
-    answer:
-      q.answer && isAnswer(q.answer.option)
-        ? {
-            byId: q.answer.byId,
-            byName: q.answer.byName,
-            option: q.answer.option,
-            revisionId: q.answer.revisionId,
-            requestCode: q.answer.requestCode,
-          }
-        : null,
+    // Una risposta con un'opzione ignota (UNKNOWN, un server più nuovo) resta
+    // una risposta: la domanda non riappare aperta, e l'etichetta è neutra
+    // (`answerLabel`, «another answer»).
+    answer: q.answer
+      ? {
+          byId: q.answer.byId,
+          byName: q.answer.byName,
+          option: q.answer.option as ProductAnswerChoice,
+          revisionId: q.answer.revisionId,
+          requestCode: q.answer.requestCode,
+        }
+      : null,
   };
 }
 
@@ -243,6 +278,7 @@ export const liveProductClaude: Partial<ProductDocs> = {
       if (error instanceof ApiError && error.status === 404) return [];
       return mapClaudeError(error);
     }
+    forgetScope(pageId);
     return rows.map((m): ProductMarkView => {
       markIds.set(markKey(pageId, m.anchorId), m.id);
       markIds.set(markKey(m.revisionId, m.anchorId), m.id);
@@ -281,7 +317,8 @@ export const liveProductClaude: Partial<ProductDocs> = {
       const out = id
         ? await appClient().productDocs.undoMark(id)
         : await appClient().productDocs.undoRevision(revisionId);
-      return { revisionId: out.revisionId ?? revisionId };
+      // Nessuna revisione d'annullamento scritta: null, mai quella di Claude.
+      return { revisionId: out.revisionId };
     } catch (error) {
       return mapClaudeError(error);
     }

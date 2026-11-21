@@ -2,11 +2,11 @@ import { ApiError } from "@stubwise/api-client";
 import type { InboxItem, SnoozeUntil } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import { featureIntegrated, isIntegrated } from "../../integration";
-import type { AppNotification, MandatoryReason } from "../../types";
+import type { AppNotification, MandatoryReason, ProductAnswerChoice } from "../../types";
 import { daysFromToday } from "./clock";
 import { appClient, session } from "./client";
 import { listPeople } from "./people";
-import { sourceViewFrom } from "./productClaude";
+import { reasonOf, sourceViewFrom } from "./productClaude";
 
 // Le notifiche della build app (integrazione area 2, fetta 1): la stessa
 // inbox del web vecchio e del mobile (`/api/inbox`), con lo stato «letta»
@@ -287,7 +287,15 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
         onBehalfOfName: c.onBehalfOfName,
         // I motivi dell'attesa nelle parole del prototipo (`AiBlock["reason"]`).
         waited: c.waited === "budget" ? "monthly_budget" : c.waited === "paused" ? "queue_paused" : null,
-        ...(c.question ? { question: c.question } : {}),
+        ...(c.question
+          ? {
+              question: {
+                ...c.question,
+                reason: reasonOf(c.question.reason),
+                answer: c.question.answer as ProductAnswerChoice | null,
+              },
+            }
+          : {}),
       },
       ...mandatoryOf(item, ctx),
       ...viaClaudeOf(item, ctx),

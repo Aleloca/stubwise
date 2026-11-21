@@ -5,6 +5,7 @@ import {
   forgetProductClaude,
   liveProductClaude as claude,
   productQuestionDecisions,
+  rememberRevisionMarks,
   sourceViewFrom,
   type ServerSourceView,
 } from "./productClaude";
@@ -181,6 +182,29 @@ describe("i segni di Claude", () => {
     });
   });
 
+  it("«Undo» dalla cronologia di un segno accettato: l'id viene dalla revisione (`markIdByAnchor`), non dai segni aperti", async () => {
+    const { seen } = installFakeServer({
+      [`POST /api/product-marks/${MARK}/undo`]: { body: { seq: 9, revisionId: null } },
+    });
+    rememberRevisionMarks(REV, { "blk-1": MARK });
+    // Il server non ha scritto una revisione d'annullamento: nessuna da restituire.
+    expect(await claude.undoProductChange!(REV, "blk-1")).toEqual({ revisionId: null });
+    expect(seen.map((r) => `${r.method} ${r.path}`)).toEqual([
+      `POST /api/product-marks/${MARK}/undo`,
+    ]);
+  });
+
+  it("i segni riletti senza un'ancora la tolgono dalla cache; una revisione riletta sostituisce le sue", async () => {
+    installFakeServer({ [`GET /api/product-pages/${PAGE}/marks`]: { body: [mark()] } });
+    await claude.listProductMarks!(PAGE);
+    installFakeServer({ [`GET /api/product-pages/${PAGE}/marks`]: { body: [] } });
+    await claude.listProductMarks!(PAGE);
+    await expect(claude.acceptProductMark!(PAGE, "blk-1")).rejects.toThrow("not_found");
+    rememberRevisionMarks(REV, { "blk-1": MARK });
+    rememberRevisionMarks(REV, {});
+    await expect(claude.undoProductChange!(REV, "blk-1")).rejects.toThrow("not_found");
+  });
+
   it("un'ancora che non ha un segno letto: «not_found», senza chiamare", async () => {
     const { seen } = installFakeServer({});
     await expect(claude.acceptProductMark!(PAGE, "blk-9")).rejects.toThrow("not_found");
@@ -344,6 +368,15 @@ describe("le domande aperte (72, 4b: `openQuestions`)", () => {
 });
 
 describe("«Decide» con `product-docs` acceso (F5)", () => {
+  it("un errore delle domande della doc (non 404) non svuota «Decide»: le voci delle conversazioni restano", async () => {
+    const { listClaudeDecisions } = await import("./claudeActions");
+    installFakeServer({
+      "GET /api/me/claude-decisions": { body: [] },
+      "GET /api/me/product-questions": { status: 500, body: { code: "internal", message: "x" } },
+    });
+    await expect(listClaudeDecisions()).resolves.toEqual([]);
+  });
+
   it("le domande della doc entrano in «Decide» insieme a quelle delle conversazioni", async () => {
     const { listClaudeDecisions } = await import("./claudeActions");
     const { seen } = installFakeServer({
@@ -377,5 +410,56 @@ describe("«Open a request» nella build app (la scheda B nel filo, decisione de
     } as never);
     expect(view.options).toEqual(["request", "keep", "apply"]);
     expect(view.recommended).toBe("request");
+  });
+});
+
+describe("una domanda con valori che il renderer non conosce (UNKNOWN)", () => {
+  it("un motivo ignoto si legge «vague» (la frase neutra); una risposta ignota resta una risposta", async () => {
+    const { questionViewFrom } = await import("./productClaude");
+    const view = questionViewFrom({
+      reason: "__unknown__",
+      forId: null,
+      forName: null,
+      taskCode: null,
+      source: source(),
+      applyMode: "insert",
+      current: null,
+      apply: { text: "x", marks: [] },
+      built: null,
+      request: null,
+      recommended: null,
+      options: [],
+      canAnswer: false,
+      applyBlocked: null,
+      answer: {
+        byId: LAURA,
+        byName: "Laura Costa",
+        option: "__unknown__",
+        revisionId: null,
+        requestCode: null,
+      },
+    } as never);
+    expect(view.reason).toBe("vague");
+    expect(view.answer).toMatchObject({ byName: "Laura Costa" });
+  });
+});
+
+describe("una fonte senza data (revisione di R11-5, 13)", () => {
+  it("l'email e la riunione che chi guarda non apre: il titolare, senza «Jan 1»", () => {
+    expect(
+      sourceViewFrom(
+        source({ kind: "email", canOpen: false, title: null, ownerName: "Laura Costa", at: null }),
+      ).label,
+    ).toEqual({
+      key: "productDocs.source.emailOfNoDate",
+      params: { owner: "Laura Costa" },
+    });
+    expect(
+      sourceViewFrom(
+        source({ kind: "meeting", canOpen: false, title: null, ownerName: null, at: null }),
+      ).label,
+    ).toMatchObject({
+      key: "productDocs.source.meetingOfNoDate",
+    });
   });
 });

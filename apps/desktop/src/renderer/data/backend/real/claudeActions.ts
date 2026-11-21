@@ -231,7 +231,10 @@ function toDecision(d: Reader<ClaudeDecisionView>): ClaudeDecision | null {
  */
 export const listClaudeDecisions: typeof Fake.listClaudeDecisions = async () => {
   // Area 11, F5: le domande di Claude sulla doc, con `product-docs` acceso (P17).
-  const product = featureIntegrated("product-docs") ? productQuestionDecisions() : Promise.resolve([]);
+  // Isolate: un loro errore toglie solo quelle voci, «Decide» mostra le altre.
+  const product = featureIntegrated("product-docs")
+    ? productQuestionDecisions().catch((): ClaudeDecision[] => [])
+    : Promise.resolve([]);
   let conversations: ClaudeDecision[];
   try {
     conversations = (await appClient().me.claudeDecisions()).flatMap((d) => toDecision(d) ?? []);

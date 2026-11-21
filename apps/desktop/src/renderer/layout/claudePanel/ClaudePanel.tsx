@@ -548,7 +548,7 @@ function PanelBody({
       </header>
       {back && <BackRow back={back} onBack={goBack} />}
       <ContextRow context={context} />
-      {/* Le domande della doc di prodotto (area 11): nella build app non integrate. */}
+      {/* Le domande della doc di prodotto (area 11): nella build app con `product-docs` (F5). */}
       {featureIntegrated("product-docs") && <QuestionsToClose context={context} />}
       <p role="status" aria-live="polite" className="sr-only" data-panel-announce>
         {announced}

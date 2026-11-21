@@ -97,6 +97,6 @@ export function undoProductChangeAs(me: string, revisionId: string, anchorId?: s
   return { revisionId: written.revisionId };
 }
 
-export async function undoProductChange(revisionId: string, anchorId?: string): Promise<{ revisionId: string }> {
+export async function undoProductChange(revisionId: string, anchorId?: string): Promise<{ revisionId: string | null }> {
   return undoProductChangeAs(await writer("productDocs.undoProductChange"), revisionId, anchorId);
 }
