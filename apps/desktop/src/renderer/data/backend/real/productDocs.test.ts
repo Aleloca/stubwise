@@ -360,6 +360,25 @@ describe("lo spazio Product dal server", () => {
     });
   });
 
+  it("F6: la cronologia dice il gesto della bozza (`wireframe`), per conto di chi; un gesto ignoto o assente non c'è", async () => {
+    const R = (n: number) => `eeeeeeee-0000-4000-8000-00000000000${n}`;
+    installFakeServer({
+      [`GET /api/product-pages/${PAGE}/revisions`]: {
+        body: [
+          revision(R(1), { wireframe: "kept", undo: { enabled: true } }),
+          revision(R(2), { wireframe: "redrew", via: "claude", onBehalfOfId: R(9), onBehalfOfName: "Laura" }),
+          revision(R(3), { wireframe: "UNKNOWN" }),
+          revision(R(4), { wireframe: null }),
+        ],
+      },
+    });
+    const rows = await docs.listProductRevisions!(PAGE);
+    expect(rows[0]).toMatchObject({ wireframe: "kept", undo: { enabled: true } });
+    expect(rows[1]).toMatchObject({ wireframe: "redrew", via: "claude", onBehalfOfId: R(9) });
+    expect(rows[2]).not.toHaveProperty("wireframe");
+    expect(rows[3]).not.toHaveProperty("wireframe");
+  });
+
   it("Segui e smetti: PUT e DELETE", async () => {
     const { seen } = installFakeServer({
       [`PUT /api/product-pages/${PAGE}/follow`]: { status: 204 },

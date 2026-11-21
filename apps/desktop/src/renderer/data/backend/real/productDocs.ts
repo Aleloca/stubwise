@@ -316,6 +316,10 @@ function commentOf(c: Reader<ServerCommentView>): ProductCommentView {
   };
 }
 
+const WIREFRAME_GESTURES = new Set<string>(["drew", "redrew", "kept", "replaced"]);
+const isWireframeGesture = (g: unknown): g is NonNullable<ProductRevisionView["wireframe"]> =>
+  typeof g === "string" && WIREFRAME_GESTURES.has(g);
+
 function revisionOf(r: ServerRevisionView): ProductRevisionView {
   // F5 (correzioni di 72): l'«Undo» dalla cronologia anche di un segno accettato.
   if (r.markIdByAnchor) rememberRevisionMarks(r.id, r.markIdByAnchor);
@@ -343,6 +347,8 @@ function revisionOf(r: ServerRevisionView): ProductRevisionView {
     ...(r.undoneCount ? { undoneCount: r.undoneCount } : {}),
     ...(r.undoneById ? { undoneById: r.undoneById } : {}),
     ...(r.answerOf ? { answerOf: r.answerOf } : {}),
+    // F6: il gesto su una bozza («Drew…», «Kept…»), derivato dal server come `wireframeGestureOf`; un ignoto non c'è.
+    ...(isWireframeGesture(r.wireframe) ? { wireframe: r.wireframe } : {}),
     changes: r.changes.flatMap((c): ProductBlockChange[] => {
       const x = c as {
         blockId?: unknown;
