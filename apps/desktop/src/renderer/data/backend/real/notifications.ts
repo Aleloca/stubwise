@@ -6,6 +6,7 @@ import type { AppNotification, MandatoryReason } from "../../types";
 import { daysFromToday } from "./clock";
 import { appClient, session } from "./client";
 import { listPeople } from "./people";
+import { sourceViewFrom } from "./productClaude";
 
 // Le notifiche della build app (integrazione area 2, fetta 1): la stessa
 // inbox del web vecchio e del mobile (`/api/inbox`), con lo stato «letta»
@@ -244,8 +245,54 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
   // Area 11, F2 (R11-2): la menzione in un commento della doc di prodotto, coi
   // valori che il server deriva a lettura (`item.productDoc`): il titolo di
   // adesso, chi ha scritto (`null` se chi guarda non lo vede), il filo da
-  // aprire. Le card di Claude sulla doc (updated, question) aspettano F5.
+  // aprire.
   const productDoc = (item as Partial<InboxItem>).productDoc;
+  // Area 11, F5 (Task 5 di 72): le card di Claude sulla doc, `updated` e
+  // `question`, da `productDoc.claude` (già vista per chi legge). `updated`
+  // porta al primo segno a vista (`?mark=`), altrimenti alla cronologia della
+  // revisione (`?history=`), come `updateLink` del prototipo; `question` alla
+  // pagina sul filo della domanda.
+  if ((item.kind === "product_doc.updated" || item.kind === "product_doc.question") && productDoc?.claude) {
+    const page = `#/p/${productDoc.projectCode}/docs/product/${productDoc.pageCode}`;
+    const c = productDoc.claude;
+    const link =
+      item.kind === "product_doc.question"
+        ? productDoc.threadRootId
+          ? `${page}?comment=${productDoc.threadRootId}`
+          : page
+        : c.markAnchorId
+          ? `${page}?mark=${encodeURIComponent(c.markAnchorId)}`
+          : c.revisionId
+            ? `${page}?history=${encodeURIComponent(c.revisionId)}`
+            : page;
+    return {
+      id: item.id,
+      kind: item.kind,
+      projectId: item.projectId,
+      objectCode: productDoc.pageCode,
+      departmentId: null,
+      recipientIds: [],
+      title: item.text,
+      body: "",
+      createdAt: item.createdAt,
+      read: item.readAt !== null,
+      archived: item.status === "handled",
+      snoozedUntil: item.status === "snoozed" ? item.snoozedUntil : null,
+      link,
+      productPageTitle: productDoc.pageTitle,
+      ...(item.kind === "product_doc.updated" ? { undoneByName: c.undoneByName } : {}),
+      productCard: {
+        sources: c.sources.map(sourceViewFrom),
+        changes: c.changes,
+        onBehalfOfName: c.onBehalfOfName,
+        // I motivi dell'attesa nelle parole del prototipo (`AiBlock["reason"]`).
+        waited: c.waited === "budget" ? "monthly_budget" : c.waited === "paused" ? "queue_paused" : null,
+        ...(c.question ? { question: c.question } : {}),
+      },
+      ...mandatoryOf(item, ctx),
+      ...viaClaudeOf(item, ctx),
+    };
+  }
   if (item.kind === "product_doc.mention" && productDoc) {
     const page = `#/p/${productDoc.projectCode}/docs/product/${productDoc.pageCode}`;
     return {

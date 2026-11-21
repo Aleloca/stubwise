@@ -114,3 +114,116 @@ describe("il testo della card della menzione (review di R11-2, 2)", () => {
     expect((await listNotifications())[0]!.body).toBe("");
   });
 });
+
+// Area 11, F5 (Task 5 di 72): le card di Claude sulla doc, `updated` e
+// `question`, coi valori che il server deriva a lettura (`productDoc.claude`).
+describe("le card di Claude sulla doc nell'inbox (F5)", () => {
+  const REVISION = "bbbbbbbb-0000-4000-8000-000000000001";
+  const QUESTION = "eeeeeeee-0000-4000-8000-000000000009";
+  const source = {
+    kind: "task",
+    canOpen: true,
+    id: "cccccccc-0000-4000-8000-000000000001",
+    title: "Bills in PDF",
+    code: "AUD-12",
+    ownerId: null,
+    ownerName: null,
+    at: null,
+    gone: false,
+    thread: null,
+  };
+  const claude = (over: Record<string, unknown> = {}) => ({
+    revisionId: REVISION,
+    sources: [source],
+    changes: 3,
+    onBehalfOfName: "Laura Costa",
+    undoneByName: null,
+    markAnchorId: "blk-7",
+    waited: null,
+    question: null,
+    ...over,
+  });
+  const updated = (over: Record<string, unknown> = {}) =>
+    card({
+      kind: "product_doc.updated",
+      text: "Claude updated AUD-D5",
+      productDoc: {
+        ...card().productDoc,
+        commentId: null,
+        threadRootId: null,
+        authorId: null,
+        authorName: null,
+        excerpt: null,
+        claude: claude(),
+      },
+      ...over,
+    });
+
+  it("«updated» porta al primo segno a vista (`?mark=`), con fonti, frasi, «per conto di»", async () => {
+    inbox([updated()]);
+    const [n] = await listNotifications();
+    expect(n).toMatchObject({
+      kind: "product_doc.updated",
+      objectCode: "AUD-D5",
+      productPageTitle: "Sign-in",
+      link: "#/p/AUD/docs/product/AUD-D5?mark=blk-7",
+      undoneByName: null,
+      productCard: { changes: 3, onBehalfOfName: "Laura Costa", waited: null },
+    });
+    expect(n!.productCard!.sources[0]).toMatchObject({ kind: "task", code: "AUD-12", gone: false });
+    expect(n!.productCard!.question).toBeUndefined();
+  });
+
+  it("«updated» senza segni a vista porta alla cronologia della revisione; tutte annullate: chi", async () => {
+    inbox([
+      updated({
+        productDoc: {
+          ...updated().productDoc,
+          claude: claude({ markAnchorId: null, undoneByName: "Marco Bellini" }),
+        },
+      }),
+    ]);
+    const [n] = await listNotifications();
+    expect(n!.link).toBe(`#/p/AUD/docs/product/AUD-D5?history=${REVISION}`);
+    expect(n!.undoneByName).toBe("Marco Bellini");
+  });
+
+  it("«question» apre la pagina sul filo della domanda, con la ragione e chi ha risposto", async () => {
+    const question = {
+      reason: "diverges",
+      forName: "Laura Costa",
+      taskCode: "AUD-12",
+      answer: "keep",
+      answeredByName: "Marco Bellini",
+      canRequest: true,
+    };
+    inbox([
+      card({
+        kind: "product_doc.question",
+        text: "Claude has a question in AUD-D5",
+        productDoc: {
+          ...card().productDoc,
+          commentId: QUESTION,
+          threadRootId: QUESTION,
+          authorId: null,
+          authorName: null,
+          excerpt: null,
+          claude: claude({
+            revisionId: null,
+            changes: 0,
+            onBehalfOfName: null,
+            markAnchorId: null,
+            question,
+          }),
+        },
+      }),
+    ]);
+    const [n] = await listNotifications();
+    expect(n).toMatchObject({
+      kind: "product_doc.question",
+      objectCode: "AUD-D5",
+      link: `#/p/AUD/docs/product/AUD-D5?comment=${QUESTION}`,
+      productCard: { changes: 0, question },
+    });
+  });
+});
