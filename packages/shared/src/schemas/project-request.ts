@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { backlogItemStatusSchema, backlogJobStatusSchema, backlogUrgencySchema } from "./backlog.js";
+import { productOriginSchema } from "./product-docs.js";
 import { taskSizeSchema } from "./task-view.js";
 
 /**
@@ -77,6 +78,8 @@ export const projectRequestViewSchema = z.object({
     })
     .nullable()
     .default(null),
+  /** Area 11, F6: la pagina da cui nasce (`productOriginSchema`), derivata a lettura; null a chi non la legge. Additivo. */
+  productOrigin: productOriginSchema.nullable().default(null),
   createdAt: z.iso.datetime(),
   /** Le proposte dell'intake ancora da decidere (testo dell'AI), o null. */
   suggestions: z
@@ -117,11 +120,14 @@ export type ProjectRequestSummary = z.infer<typeof projectRequestSummarySchema>;
  * la controlla PRIMA che la richiesta nasca (la pagina è del progetto, chi
  * chiede legge i Docs, la domanda è aperta, è di quella pagina, ha una
  * richiesta da proporre, e chi chiede può rispondere) e chiude la domanda
- * nella stessa scrittura. `questionId` obbligatorio fino a F6, che ci aggiunge
- * la proposta dalla pagina senza domanda.
+ * nella stessa scrittura. F6: senza `questionId` è una voce proposta dalla
+ * pagina («Turn into backlog items», la scheda B di `backlog-candidates`): la
+ * pagina è del progetto e chi chiede la legge; una frase già proposta (pagina
+ * e ancora) è 409 `already_proposed`; un'ancora che non c'è più lascia
+ * l'origine sulla pagina.
  */
 export const productDocOriginSchema = z
-  .object({ kind: z.literal("product_doc"), pageId: z.uuid(), anchorId: z.string().min(1).max(100), questionId: z.uuid() })
+  .object({ kind: z.literal("product_doc"), pageId: z.uuid(), anchorId: z.string().min(1).max(100), questionId: z.uuid().optional() })
   .strict();
 export type ProductDocOrigin = z.infer<typeof productDocOriginSchema>;
 

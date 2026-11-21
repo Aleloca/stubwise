@@ -7,6 +7,7 @@ import {
   productLiveReleaseSchema,
   productLiveRevisionSchema,
   productLiveStateSchema,
+  productLiveWireframeSchema,
 } from "../schemas/product-docs.js";
 import type { z } from "zod";
 
@@ -27,7 +28,8 @@ export type ProductLiveFrame =
   | Reader<z.infer<typeof productLiveCursorSchema>>
   | Reader<z.infer<typeof productLiveHoldSchema>>
   | Reader<z.infer<typeof productLiveReleaseSchema>>
-  | Reader<z.infer<typeof productLiveGoneSchema>>;
+  | Reader<z.infer<typeof productLiveGoneSchema>>
+  | Reader<z.infer<typeof productLiveWireframeSchema>>;
 
 const READERS: Record<string, { safeParse: (v: unknown) => { success: boolean; data?: unknown } }> = {
   state: readerSchema(productLiveStateSchema),
@@ -37,6 +39,7 @@ const READERS: Record<string, { safeParse: (v: unknown) => { success: boolean; d
   hold: readerSchema(productLiveHoldSchema),
   release: readerSchema(productLiveReleaseSchema),
   gone: readerSchema(productLiveGoneSchema),
+  wireframe: readerSchema(productLiveWireframeSchema),
 };
 
 /** I frame riconosciuti in un pezzo dello stream, nell'ordine; il resto si scarta. */

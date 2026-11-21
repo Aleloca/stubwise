@@ -78,6 +78,8 @@ export async function checkProductDocOrigin(tx: Db, viewer: Viewer, projectId: s
   const [page] = await tx.select({ id: productPages.id, projectId: productPages.projectId }).from(productPages).where(eq(productPages.id, origin.pageId)).for("no key update");
   const perms = page ? await projectPermissionsFor(tx, viewer, page.projectId) : null;
   if (!page || page.projectId !== projectId || !perms?.has("docs.view")) throw invalidOrigin();
+  // F6, Task 3: la voce proposta dalla pagina, senza domanda. Fino ad allora l'origine vuole la domanda.
+  if (origin.questionId === undefined) throw invalidOrigin();
   const [comment] = await tx.select().from(productComments).where(eq(productComments.id, origin.questionId)).for("update");
   const q = comment && comment.pageId === page.id && comment.replyToId === null && comment.deletedAt === null ? questionOf(comment) : null;
   if (!comment || !q) throw invalidOrigin();
@@ -89,6 +91,7 @@ export async function checkProductDocOrigin(tx: Db, viewer: Viewer, projectId: s
 
 /** Chiude con «Open a request» la domanda dell'origine (già controllata), nella transazione del job d'intake. */
 export async function closeQuestionWithRequest(tx: Db, viewer: Viewer, origin: ProductDocOrigin, requestJobId: string): Promise<void> {
+  if (origin.questionId === undefined) return;
   await close(tx, viewer, origin.questionId, { option: "request", revisionId: null, requestJobId });
 }
 

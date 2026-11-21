@@ -367,6 +367,8 @@ export async function loadTaskViews(
       type: uiTypeOf(t.type),
       priority: t.priority,
       requestId: requestOf.get(t.id) ?? null,
+      // F6: «From the doc», derivato col Task 3.
+      productOrigin: null,
       links: (linksOf.get(t.id) ?? []).map((l) => ({ kind: LINK_KIND[l.kind], taskId: l.targetTicketId })),
       attachments: (filesOf.get(t.id) ?? []).map((f) => ({ id: f.id, name: f.name, sizeBytes: f.sizeBytes })),
       manualStall:

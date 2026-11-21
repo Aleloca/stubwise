@@ -5,6 +5,10 @@ import {
   productExportSpaceSchema,
   productMarkViewSchema,
   productMentionCandidatesSchema,
+  productBacklogCandidatesSchema,
+  productFirstVersionSourcesSchema,
+  productFirstVersionViewSchema,
+  productLinkedRequestSchema,
   productOpenQuestionSchema,
   productPageViewSchema,
   productPresenceBeatResultSchema,
@@ -19,9 +23,15 @@ import type {
   ProductCommentsView,
   ProductExportPage,
   ProductExportSpace,
+  DrawWireframeInput,
   ProductAnswerChoice,
+  ProductBacklogCandidates,
+  ProductFirstVersionSources,
+  ProductFirstVersionView,
+  ProductLinkedRequest,
   ProductMarkView,
   ProductOpenQuestion,
+  StartFirstVersionInput,
   ProductPageView,
   ProductPresenceBeat,
   ProductPresenceBeatResult,
@@ -136,6 +146,80 @@ export function createProductDocsEndpoints(request: ApiRequest) {
     /** Le domande aperte a cui chi guarda può rispondere (Home «Decide»; `pageId` = il riquadro di una pagina). */
     openQuestions(pageId?: string): Promise<Reader<ProductOpenQuestion>[]> {
       return request("GET", `/api/me/product-questions${toQuery({ pageId })}`, undefined, z.array(productOpenQuestionSchema));
+    },
+    // --- F6: la prima versione ---
+    /** Le fonti fra cui chi chiede sceglie: solo ciò che vede nel progetto. */
+    firstVersionSources(projectId: string): Promise<Reader<ProductFirstVersionSources>> {
+      return request("GET", `/api/projects/${seg(projectId)}/product/first-version/sources`, undefined, productFirstVersionSourcesSchema);
+    },
+    /** L'ultima prima versione dello spazio, o null. Mentre `status` è `writing` si rilegge (ogni 2 s). */
+    firstVersion(projectId: string): Promise<Reader<ProductFirstVersionView> | null> {
+      return request("GET", `/api/projects/${seg(projectId)}/product/first-version`, undefined, productFirstVersionViewSchema.nullable());
+    },
+    /**
+     * «Write the first version» (`docs.edit`): parte e risponde 202 col gruppo.
+     * Errori: 404, 403, 422 `invalid_source` / `no_sources`, 409
+     * `space_not_empty` (una pagina c'è già, o una prima versione scrive),
+     * 409 `ai_blocked` (il budget del mese).
+     */
+    startFirstVersion(projectId: string, sources: StartFirstVersionInput["sources"]): Promise<{ groupId: string }> {
+      return request("POST", `/api/projects/${seg(projectId)}/product/first-version`, { sources }, z.object({ groupId: z.uuid() }));
+    },
+    /**
+     * «Undo the first version»: toglie le sue pagine. 409 in `ApiError.body`:
+     * `changed_after` (`byId`, `byName`, `pageId`, `pageTitle`, `touch`) o
+     * `already_undone`.
+     */
+    undoFirstVersion(projectId: string): Promise<void> {
+      return request("POST", `/api/projects/${seg(projectId)}/product/first-version/undo`);
+    },
+    /** «Stop»: si ferma dopo la pagina in corso (`interrupted`). Idempotente. */
+    stopFirstVersion(projectId: string): Promise<void> {
+      return request("POST", `/api/projects/${seg(projectId)}/product/first-version/stop`);
+    },
+    /** «Accept this page»: la riga in cima sparisce per tutti. 422 `invalid_page` se non è di una prima versione viva. */
+    acceptFirstVersionPage(pageId: string): Promise<void> {
+      return request("POST", `/api/product-pages/${seg(pageId)}/first-version/accept`);
+    },
+    // --- F6: le bozze di schermata ---
+    /**
+     * «Draw this screen» (dopo un blocco; `afterId: null` = in cima) o «/» →
+     * «Screen sketch» (`replaceId`: un paragrafo vuoto). Il blocco nasce
+     * subito (`drawing`); il disegno arriva col frame `wireframe` dello stream.
+     * Errori: 404, 403, 422 `invalid_replace`, 409 `ai_blocked`.
+     */
+    drawWireframe(pageId: string, at: DrawWireframeInput): Promise<{ blockId: string; wireframeId: string }> {
+      return request("POST", `/api/product-pages/${seg(pageId)}/wireframes`, at, z.object({ blockId: z.string(), wireframeId: z.uuid() }));
+    },
+    /** «Redraw»: una variante nuova, in arrivo come il disegno. `fromVariant`: la variante che si vedeva (il doppio clic non ne chiede due). */
+    redrawWireframe(pageId: string, blockId: string, fromVariant?: number): Promise<{ blockId: string }> {
+      return request("POST", `/api/product-pages/${seg(pageId)}/wireframes/${seg(blockId)}/redraw`, fromVariant === undefined ? {} : { fromVariant }, z.object({ blockId: z.string() }));
+    },
+    /** Una variante già disegnata (una revisione di chi sceglie). */
+    pickWireframe(pageId: string, blockId: string, variant: number): Promise<{ revisionId: string | null }> {
+      return request("POST", `/api/product-pages/${seg(pageId)}/wireframes/${seg(blockId)}/pick`, { variant }, z.object({ revisionId: z.uuid().nullable() }));
+    },
+    /** «Keep»: toglie l'etichetta «Claude's sketch». Già tenuta: `revisionId: null`. */
+    keepWireframe(pageId: string, blockId: string): Promise<{ revisionId: string | null }> {
+      return request("POST", `/api/product-pages/${seg(pageId)}/wireframes/${seg(blockId)}/keep`, undefined, z.object({ revisionId: z.uuid().nullable() }));
+    },
+    /** «Replace with an image»: un'immagine già caricata nella pagina (`product-image:<id>`) al posto della bozza, stesso id. */
+    replaceWireframeWithImage(pageId: string, blockId: string, image: { src: string; alt?: string }): Promise<{ revisionId: string | null }> {
+      return request("POST", `/api/product-pages/${seg(pageId)}/wireframes/${seg(blockId)}/replace-image`, image, z.object({ revisionId: z.uuid().nullable() }));
+    },
+    // --- F6: dalla doc al backlog ---
+    /**
+     * Le voci da proporre dalla pagina (o dalla sezione di un titolo): la
+     * scheda B la compone il client, una `requests.create` per voce con
+     * `origin` (pagina e ancora). 422 `invalid_anchor` se `fromAnchorId` non
+     * è un titolo della pagina; 403 senza `docs.edit`.
+     */
+    backlogCandidates(pageId: string, fromAnchorId?: string): Promise<Reader<ProductBacklogCandidates>> {
+      return request("GET", `/api/product-pages/${seg(pageId)}/backlog-candidates${toQuery({ fromAnchorId })}`, undefined, productBacklogCandidatesSchema);
+    },
+    /** «From this page»: le richieste nate dalla pagina che chi guarda vede. */
+    linkedRequests(pageId: string): Promise<Reader<ProductLinkedRequest>[]> {
+      return request("GET", `/api/product-pages/${seg(pageId)}/requests`, undefined, z.array(productLinkedRequestSchema));
     },
     // --- F4: la scrittura dal vivo ---
     /**

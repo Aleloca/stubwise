@@ -267,6 +267,8 @@ export async function productPageView(db: Db, viewer: Viewer, pageId: string, pe
     openComments,
     // F5: un lavoro fermo non si attribuisce a una pagina prima che il modello l'abbia letta: la riga sta sullo spazio.
     claudeHeld: null,
+    // F6: le bozze di schermata arrivano col Task 2.
+    wireframes: [],
   };
 }
 
