@@ -158,12 +158,34 @@ export async function createRequestWith(
   options?: Parameters<typeof Fake.createRequest>[1],
   chatMessageId?: string,
 ): ReturnType<typeof Fake.createRequest> {
-  const { jobId } = await appClient().requests.create({
-    projectId: input.projectId,
-    title: input.title,
-    description: input.description ?? "",
-    ...(chatMessageId ? { chatMessageId } : {}),
-  });
+  // Area 11, F5: da una domanda di Claude sulla doc, l'origine va al server,
+  // che controlla tutto e chiude la domanda nella stessa transazione.
+  const origin =
+    input.origin?.kind === "product_doc"
+      ? {
+          origin: {
+            kind: "product_doc" as const,
+            pageId: input.origin.pageId,
+            anchorId: input.origin.anchorId,
+            ...(input.origin.questionId ? { questionId: input.origin.questionId } : {}),
+          },
+        }
+      : {};
+  let jobId: string;
+  try {
+    ({ jobId } = await appClient().requests.create({
+      projectId: input.projectId,
+      title: input.title,
+      description: input.description ?? "",
+      ...(chatMessageId ? { chatMessageId } : {}),
+      ...origin,
+    } as Parameters<ReturnType<typeof appClient>["requests"]["create"]>[0]));
+  } catch (error) {
+    // I rifiuti dell'origine nelle parole del prototipo (`createRequestAs`).
+    if (error instanceof ApiError && error.code === "already_answered") throw new Error("already_answered");
+    if (error instanceof ApiError && error.code === "invalid_origin") throw new Error("invalid: origin");
+    throw error;
+  }
   const person = session.personId;
   const stopped = () => options?.signal?.aborted === true || session.personId !== person;
   let errors = 0;

@@ -178,6 +178,24 @@ describe("le Requests dal server", () => {
     expect(polls).toBe(2);
   });
 
+  it("da una domanda di Claude sulla doc (F5): l'origine `product_doc` va al server; i suoi rifiuti nelle parole del prototipo", async () => {
+    const PAGE = "aaaaaaaa-0000-4000-8000-000000000001";
+    const QUESTION = "eeeeeeee-0000-4000-8000-000000000001";
+    const origin = { kind: "product_doc" as const, pageId: PAGE, anchorId: "blk-1", questionId: QUESTION };
+    const { seen } = installFakeServer({
+      "POST /api/requests": { status: 202, body: { jobId: "job-9" } },
+      "GET /api/requests/jobs/job-9": { body: { status: "done", outcome: "created", request: full() } },
+    });
+    await createRequest({ projectId: PROJECT_ID, title: "PDF bills", description: "…", origin });
+    expect(seen[0]!.body).toEqual({ projectId: PROJECT_ID, title: "PDF bills", description: "…", origin });
+    installFakeServer({
+      "POST /api/requests": { status: 409, body: { code: "already_answered", message: "x", byId: null, byName: "Laura" } },
+    });
+    await expect(createRequest({ projectId: PROJECT_ID, title: "x", origin })).rejects.toThrow("already_answered");
+    installFakeServer({ "POST /api/requests": { status: 422, body: { code: "invalid_origin", message: "x" } } });
+    await expect(createRequest({ projectId: PROJECT_ID, title: "x", origin })).rejects.toThrow("invalid: origin");
+  });
+
   it("un intake fallito è un errore; una richiesta nuova non è «fusa»", async () => {
     installFakeServer({
       "POST /api/requests": { status: 202, body: { jobId: "job-2" } },

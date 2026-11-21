@@ -19,6 +19,8 @@ import { CommentComposer, type CommentComposerHandle } from "./CommentComposer";
 import { CommentThread } from "./CommentThread";
 import { openClaudePanel } from "../../../layout/claudePanel/panelEvents";
 import { QuestionThread, type FirstAnswer } from "./QuestionThread";
+import { RequestCard } from "./RequestCard";
+import { isAppBuild } from "../../../data/build";
 
 // La colonna dei commenti (shape product-comments-history.md §3.3, [PC 4],
 // [PC 5]): una `region` dopo il corpo nell'ordine di Tab. Testata 40 px
@@ -80,6 +82,8 @@ export function CommentsColumn({
   const answerQuestion = useAnswerProductQuestion();
   const me = useSessionPersonId();
   const preparing = useProductRequestsPreparing(page.id);
+  /** Build app: la domanda con la scheda «Open a request» aperta nel filo. */
+  const [requestOpen, setRequestOpen] = useState<string | null>(null);
   // Chi guarda è arrivato secondo (`already_answered`): il filo ricaricato lo dice.
   const [firstAnswers, setFirstAnswers] = useState<ReadonlyMap<string, FirstAnswer>>(new Map());
   // Il fuoco di una risposta: quando il filo lascia gli aperti, va qui.
@@ -333,15 +337,37 @@ export function CommentsColumn({
     canComment,
     active: active === th.root.id,
     resolved: isResolved,
-    preparing: preparing.data?.includes(th.root.id) ?? false,
+    preparing: (preparing.data?.includes(th.root.id) ?? false) || requestOpen === th.root.id,
     firstAnswer: firstAnswers.get(th.root.id) ?? null,
     onAnswer: doAnswer(th),
+    // La build app: la scheda B nel filo (decisione del maintainer, strada 1);
+    // il prototipo: nel riquadro, dal motore di intenti.
     onRequest: () =>
-      openClaudePanel({
-        draft: t("claude.answers.productDocs.ask.question", { id: th.root.id }),
-        fresh: true,
-        send: true,
-      }),
+      isAppBuild()
+        ? setRequestOpen(th.root.id)
+        : openClaudePanel({
+            draft: t("claude.answers.productDocs.ask.question", { id: th.root.id }),
+            fresh: true,
+            send: true,
+          }),
+    requestCard:
+      requestOpen === th.root.id && th.root.question?.request ? (
+        <RequestCard
+          projectId={project.id}
+          projectCode={project.code}
+          request={th.root.question.request}
+          origin={{ kind: "product_doc", pageId: th.root.pageId, anchorId: th.root.anchorId, questionId: th.root.id }}
+          onDone={() => {
+            setRequestOpen(null);
+            void comments.refetch();
+          }}
+          onCancel={() => setRequestOpen(null)}
+          onAlreadyAnswered={() => {
+            setRequestOpen(null);
+            void comments.refetch();
+          }}
+        />
+      ) : undefined,
     onAlreadyAnswered: alreadyAnswered(th.root.id),
     onStale: () => void comments.refetch(),
     onReply: reply(th.root.id, th.root.anchorId, th.root.quote),

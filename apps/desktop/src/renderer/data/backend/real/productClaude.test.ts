@@ -355,8 +355,8 @@ describe("«Decide» con `product-docs` acceso (F5)", () => {
   });
 });
 
-describe("«Open a request» fino a F6 (decisione di 46)", () => {
-  it("nella build app la scelta «request» non c'è, né come consiglio", async () => {
+describe("«Open a request» nella build app (la scheda B nel filo, decisione del maintainer)", () => {
+  it("la scelta «request» c'è, anche come consiglio", async () => {
     const { questionViewFrom } = await import("./productClaude");
     const view = questionViewFrom({
       reason: "diverges",
@@ -375,7 +375,7 @@ describe("«Open a request» fino a F6 (decisione di 46)", () => {
       applyBlocked: null,
       answer: null,
     } as never);
-    expect(view.options).toEqual(["keep", "apply"]);
-    expect(view.recommended).toBeNull();
+    expect(view.options).toEqual(["request", "keep", "apply"]);
+    expect(view.recommended).toBe("request");
   });
 });

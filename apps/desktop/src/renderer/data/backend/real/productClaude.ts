@@ -214,13 +214,9 @@ export function questionViewFrom(q: Reader<SharedQuestionView>): ProductQuestion
     apply: richOf(q.apply),
     built: q.built,
     request: q.request,
-    // «Open a request» torna con F6 (decisione di 46, registro dei rimandi):
-    // fino ad allora nella build app le scelte sono «Update it» e «Leave it as is».
-    recommended:
-      q.recommended !== null && isAnswer(q.recommended) && q.recommended !== "request"
-        ? q.recommended
-        : null,
-    options: q.options.filter(isAnswer).filter((o) => o !== "request"),
+    // «Open a request» c'è: la scheda B sta nel filo (decisione del maintainer).
+    recommended: q.recommended !== null && isAnswer(q.recommended) ? q.recommended : null,
+    options: q.options.filter(isAnswer),
     canAnswer: q.canAnswer,
     applyBlocked: q.applyBlocked ? { byId: q.applyBlocked.byId } : null,
     answer:

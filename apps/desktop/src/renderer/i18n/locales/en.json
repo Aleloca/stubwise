@@ -13366,6 +13366,12 @@
       "retry": "Retry",
       "readOnly": "Answering is for people with Edit docs in {{code}}",
       "preparing": "A request is being prepared in Claude's panel",
+      "requestCard": {
+        "label": "Open a request in {{code}}",
+        "create": "Create request",
+        "cancel": "Cancel",
+        "failed": "Couldn't create the request."
+      },
       "announceApply": "Answered · the sentence is updated",
       "announceKeep": "Answered"
     },

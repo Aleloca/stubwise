@@ -13366,6 +13366,12 @@
       "retry": "Riprova",
       "readOnly": "Rispondere è di chi ha Modifica Docs in {{code}}",
       "preparing": "Una richiesta è in preparazione nel riquadro di Claude",
+      "requestCard": {
+        "label": "Apri una richiesta in {{code}}",
+        "create": "Crea la richiesta",
+        "cancel": "Annulla",
+        "failed": "Impossibile creare la richiesta."
+      },
       "announceApply": "Risposto · la frase è aggiornata",
       "announceKeep": "Risposto"
     },

@@ -91,3 +91,10 @@ Design: `docs/plans/2026-11-20-integrazione-area11-design.md`; i piani
 | La sezione di una presa è `sectionOf` (il titolo più vicino sopra), come il prototipo | costruttore |
 | Le revisioni di un altro processo arrivano senza operazioni: il client rilegge la pagina | costruttore, d'accordo con 94 |
 | Un solo processo server: più processi dietro caddy romperebbero la presenza in memoria | piano, nella voce del deploy-log |
+
+## F5 — Claude sulla doc: le scelte del renderer (94)
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| «Open a request» nella build app: la scheda B sta nel filo, sotto la domanda (titolo e descrizione da `question.request`, «Create request» / «Cancel»), non nel riquadro. La conferma è `requests.create` con `origin.product_doc`, e il server chiude la domanda; annullata, la domanda resta aperta. «Una richiesta è in preparazione…» = la scheda aperta nel filo. Il prototipo resta col riquadro (motore di intenti, `productQuestionRequestDraft`) | maintainer, via 46 |
+| I gesti di Claude di F6 (prima versione, dalla doc al backlog, richieste nate dalla pagina, bozze di schermata) stanno su `product-claude-actions`, spento | 46 |

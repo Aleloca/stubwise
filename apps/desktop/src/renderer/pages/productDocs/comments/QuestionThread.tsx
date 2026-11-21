@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { forwardRef, useEffect, useId, useRef, useState, type KeyboardEvent , type ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { CodeLink } from "../../../components/CodeLink";
 import { SentenceWithWho } from "../../../components/WhoCanLink";
@@ -179,6 +179,8 @@ export const QuestionThread = forwardRef<
     onStale: () => void;
     onReply?: (body: string) => Promise<unknown>;
     onActive?: () => void;
+    /** Build app: la scheda «Open a request» nel filo, sotto la domanda (decisione del maintainer). */
+    requestCard?: ReactNode;
   }
 >(function QuestionThread(
   {
@@ -196,6 +198,7 @@ export const QuestionThread = forwardRef<
     onStale,
     onReply,
     onActive,
+    requestCard,
   },
   ref,
 ) {
@@ -341,6 +344,7 @@ export const QuestionThread = forwardRef<
             </p>
           )}
           {preparing && <p className="text-xs leading-4 text-ink-muted">{t("productDocs.question.preparing")}</p>}
+          {requestCard}
           {refusal?.kind === "forbidden" && (
             <p className="text-xs leading-4 text-ink-muted">
               <SentenceWithWho
