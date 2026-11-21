@@ -38,3 +38,7 @@ export async function notifyProductGone(tx: Pick<Db, "execute">, pageId: string)
   await tx.execute(sql`select pg_notify(${PRODUCT_LIVE_NOTIFY}, ${JSON.stringify({ type: "gone", pageId })})`);
 }
 
+/** F6: la NOTIFY di una bozza di schermata cambiata (nella transazione che la scrive). */
+export async function notifyProductWireframe(tx: Pick<Db, "execute">, event: { pageId: string; wireframeId: string; status: "drawing" | "ready" | "failed" }): Promise<void> {
+  await tx.execute(sql`select pg_notify(${PRODUCT_LIVE_NOTIFY}, ${JSON.stringify({ type: "wireframe", ...event })})`);
+}

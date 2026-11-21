@@ -378,6 +378,7 @@ describe("il registro decisioni non è mai scritto dall'AI — sul sorgente", ()
     "./product-claude-cards.ts",
     // Area 11, F6: la prima versione (il server la accoda e la legge; la scrittura delle pagine è del package).
     "./product-first-version.ts",
+    "./product-wireframes.ts",
     "../../../../packages/notifications/src/product-first-version.ts",
   ];
 

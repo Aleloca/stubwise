@@ -19,6 +19,10 @@ import {
   productOpenQuestionSchema,
   answerProductQuestionSchema,
   productFirstVersionSourcesSchema,
+  drawWireframeSchema,
+  redrawWireframeSchema,
+  pickWireframeSchema,
+  replaceWireframeWithImageSchema,
   productFirstVersionViewSchema,
   startFirstVersionSchema,
   PRODUCT_EXPORT_PAGES_MAX,
@@ -62,6 +66,7 @@ import { eq } from "drizzle-orm";
 import { exportProductPage, exportProductSpace, ProductExportTooLarge } from "../services/product-export.js";
 import { addProductComment, listProductComments, productMentionCandidates, setProductCommentResolved } from "../services/product-comments.js";
 import { ProductQuestionConflictError, answerProductQuestion, listOpenProductQuestions } from "../services/product-questions.js";
+import { drawWireframe, keepWireframe, pickWireframe, redrawWireframe, replaceWireframeWithImage } from "../services/product-wireframes.js";
 import { FirstVersionUndoBlockedError, acceptFirstVersionPage, firstVersionSources, firstVersionView, startFirstVersion, stopFirstVersion, undoFirstVersion } from "../services/product-first-version.js";
 import { StorageObjectNotFound } from "../storage/errors.js";
 import { removeOrRecordOrphan } from "../storage/orphans.js";
@@ -570,6 +575,47 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
         await acceptFirstVersionPage(app.db, request.user!, request.params.id);
         return reply.code(204).send(null);
       }),
+  );
+
+  // --- F6: le bozze di schermata (il disegno lo fa il worker) ---
+
+  const blockParams = z.object({ id: z.uuid(), blockId: z.string().min(1).max(100) });
+  const revisionResult = z.object({ revisionId: z.uuid().nullable() });
+  app.post(
+    "/product-pages/:id/wireframes",
+    {
+      config: { access: PAGE_EDIT },
+      schema: { params: pageParams, body: drawWireframeSchema, response: { 202: z.object({ blockId: z.string(), wireframeId: z.uuid() }), 404: errorSchema, 409: undoConflictSchema, 422: errorSchema, ...authErrorResponses } },
+    },
+    async (request, reply) =>
+      handleUndo(reply, async () => {
+        const drawn = await drawWireframe(app.db, request.user!, request.params.id, request.body);
+        return reply.code(202).send(drawn);
+      }),
+  );
+  app.post(
+    "/product-pages/:id/wireframes/:blockId/redraw",
+    { config: { access: PAGE_EDIT }, schema: { params: blockParams, body: redrawWireframeSchema, response: { 202: z.object({ blockId: z.string() }), 404: errorSchema, 409: undoConflictSchema, 422: errorSchema, ...authErrorResponses } } },
+    async (request, reply) =>
+      handleUndo(reply, async () => {
+        const out = await redrawWireframe(app.db, request.user!, request.params.id, request.params.blockId, request.body.fromVariant);
+        return reply.code(202).send(out);
+      }),
+  );
+  app.post(
+    "/product-pages/:id/wireframes/:blockId/pick",
+    { config: { access: PAGE_EDIT }, schema: { params: blockParams, body: pickWireframeSchema, response: { 200: revisionResult, 404: errorSchema, 409: undoConflictSchema, 422: errorSchema, ...authErrorResponses } } },
+    async (request, reply) => handleUndo(reply, () => pickWireframe(app.db, request.user!, request.params.id, request.params.blockId, request.body.variant)),
+  );
+  app.post(
+    "/product-pages/:id/wireframes/:blockId/keep",
+    { config: { access: PAGE_EDIT }, schema: { params: blockParams, response: { 200: revisionResult, 404: errorSchema, 409: undoConflictSchema, 422: errorSchema, ...authErrorResponses } } },
+    async (request, reply) => handleUndo(reply, () => keepWireframe(app.db, request.user!, request.params.id, request.params.blockId)),
+  );
+  app.post(
+    "/product-pages/:id/wireframes/:blockId/replace-image",
+    { config: { access: PAGE_EDIT }, schema: { params: blockParams, body: replaceWireframeWithImageSchema, response: { 200: revisionResult, 404: errorSchema, 409: undoConflictSchema, 422: errorSchema, ...authErrorResponses } } },
+    async (request, reply) => handleUndo(reply, () => replaceWireframeWithImage(app.db, request.user!, request.params.id, request.params.blockId, request.body)),
   );
 
   // --- F5: le domande di Claude (rispondere chiede `docs.edit`, una risposta sola) ---

@@ -1,4 +1,4 @@
-import { docPageCodes, productComments, productDocJobs, productPageBlockIds, productPageFollows, productPageImages, productPageRevisions, productPages, projectDecisions, projects, users, type Db } from "@stubwise/db";
+import { docPageCodes, productComments, productDocJobs, productPageBlockIds, productPageFollows, productPageImages, productPageRevisions, productPages, productWireframes, projectDecisions, projects, users, type Db } from "@stubwise/db";
 import {
   DOC_CODE_RE,
   PRODUCT_PAGES_MAX,
@@ -270,8 +270,9 @@ export async function productPageView(db: Db, viewer: Viewer, pageId: string, pe
     openComments,
     // F5: un lavoro fermo non si attribuisce a una pagina prima che il modello l'abbia letta: la riga sta sullo spazio.
     claudeHeld: null,
-    // F6: le bozze di schermata arrivano col Task 2.
-    wireframes: [],
+    // F6: le bozze di schermata della pagina (lo SVG già ripulito).
+    // (qui e non da `product-wireframes.ts`: quel modulo risale a questo, e il giro rompe il caricamento)
+    wireframes: (await db.select().from(productWireframes).where(eq(productWireframes.pageId, page.id))).map((w) => ({ id: w.id, status: w.status, variants: w.variants.map((v) => ({ svg: v.svg })), error: w.error })),
   };
 }
 

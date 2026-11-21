@@ -278,7 +278,7 @@ describe("il prompt e la risposta", () => {
 });
 
 describe("il registro decisioni non è mai scritto dal lavoro della doc", () => {
-  it.each(["./job.ts", "./prompt.ts", "./first-version.ts", "../../../../packages/notifications/src/product-docs-write.ts", "../../../../packages/notifications/src/product-first-version.ts"])("%s non scrive nel registro", async (relative) => {
+  it.each(["./job.ts", "./prompt.ts", "./first-version.ts", "./wireframe.ts", "../../../../packages/notifications/src/product-docs-write.ts", "../../../../packages/notifications/src/product-first-version.ts"])("%s non scrive nel registro", async (relative) => {
     const source = await readFile(fileURLToPath(new URL(relative, import.meta.url)), "utf8");
     expect(source).not.toMatch(/recordDecision|insert\(projectDecisions\)|update\(projectDecisions\)/);
   });
