@@ -304,6 +304,12 @@ export const productRevisionClaudeFields = {
   undoOf: z.uuid().nullable().default(null),
   /** Una modifica scritta da «Update it» su una domanda di Claude: il commento della domanda. */
   answerOf: z.uuid().nullable().default(null),
+  /**
+   * F6: il gesto su una bozza di schermata, derivato dai cambi (il prototipo:
+   * `wireframeGestureOf`). «Keep» e «Replace with an image» si annullano dalla
+   * cronologia (`undo`, come una modifica di Claude). Additivo.
+   */
+  wireframe: z.enum(["drew", "redrew", "kept", "replaced"]).nullable().default(null),
 };
 
 /**

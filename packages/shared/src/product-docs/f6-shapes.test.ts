@@ -46,6 +46,15 @@ describe("domande aperte: additivo", () => {
   });
 });
 
+describe("cronologia: il gesto sulla bozza, additivo", () => {
+  it("senza `wireframe` (un server di prima) si legge null; un gesto futuro è UNKNOWN", async () => {
+    const { productRevisionViewSchema } = await import("../schemas/product-docs.js");
+    const rev = { id: ID, pageId: ID, sessionId: null, seq: 1, lastSeq: 1, kind: "edit", actorId: null, actorName: null, changes: [], createdAt: "x", updatedAt: "x" };
+    expect(readerSchema(productRevisionViewSchema).parse(rev).wireframe).toBeNull();
+    expect(readerSchema(productRevisionViewSchema).parse({ ...rev, wireframe: "erased" }).wireframe).toBe(UNKNOWN);
+  });
+});
+
 describe("F6: le forme", () => {
   it("la prima versione: uno stato futuro è UNKNOWN; senza `permissions.stop` è false; l'«Undo» senza la pagina toccata", () => {
     const view = readerSchema(productFirstVersionViewSchema).parse({
