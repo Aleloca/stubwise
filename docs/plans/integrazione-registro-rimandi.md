@@ -1463,6 +1463,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     `POST /api/product-pages/:id/comments` non ha una chiave del client; se
     il commento è salvato ma la risposta si perde, «Retry» ne scrive un
     secondo. Si chiude con una chiave idempotente sulla rotta (72).
+  - **«Stop» della prima versione** *(renderer, 94)*: il server ha
+    `stopFirstVersion` (si ferma dopo la pagina in corso, `interrupted`) e
+    `permissions.stop` nella vista; il prototipo non ha un «Stop», quindi la
+    build app non lo mostra. Chi vuole fermarla aspetta la fine e usa «Undo
+    the first version». Va deciso nel prototipo prima di mostrarlo.
   - **I gesti di Claude sulla doc** *(F6)*: prima versione, dalla doc al
     backlog, richieste nate dalla pagina, bozze di schermata, il gruppo di
     Claude nel «⋯» e nel menu del titolo, «Screen sketch» in «/». Stanno

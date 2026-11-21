@@ -48,7 +48,16 @@ const someone = () => i18n.t("productDocs.history.someone");
 
 /** La fonte vista, con la frase composta qui (le chiavi del prototipo, `data/productDocs/sources.ts`). */
 export function sourceViewFrom(s: ServerSourceView): ProductSourceView {
-  const KINDS = ["email", "meeting", "decision", "task", "release", "first_version"] as const;
+  const KINDS = [
+    "email",
+    "meeting",
+    "decision",
+    "task",
+    "release",
+    "first_version",
+    "text",
+    "drive",
+  ] as const;
   const kind = (KINDS as readonly string[]).includes(s.kind)
     ? (s.kind as (typeof KINDS)[number])
     : ("first_version" as const);
@@ -97,6 +106,14 @@ export function sourceViewFrom(s: ServerSourceView): ProductSourceView {
         return s.title !== null
           ? { key: "productDocs.source.release", params: { title: s.title } }
           : { key: "productDocs.source.releaseHidden" };
+      // F6: le due fonti della sola prima versione. Il testo incollato non
+      // porta il corpo; il file del Drive ha il codice anche se non si vede.
+      case "text":
+        return { key: "productDocs.source.text" };
+      case "drive":
+        return s.canOpen && s.title !== null
+          ? { key: "productDocs.source.drive", params: { name: s.title } }
+          : { key: "productDocs.source.driveHidden" };
       default:
         return { key: "productDocs.source.firstVersion" };
     }

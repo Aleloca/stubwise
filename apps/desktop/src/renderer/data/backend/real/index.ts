@@ -19,6 +19,7 @@ import { liveMembers } from "./adminMembers";
 import { liveChangelog } from "./changelog";
 import { partialNamespace } from "./notIntegrated";
 import { liveProductDocs } from "./productDocs";
+import { liveProductFirstVersion } from "./productFirstVersion";
 import { liveProductClaude } from "./productClaude";
 import { liveProductPresence } from "./productLive";
 import { liveIntegration } from "./projectIntegration";
@@ -252,6 +253,8 @@ export const productDocs: typeof Fake.productDocs = partialNamespace<typeof Fake
   ...livePresence,
   // F5 (dietro `product-docs`): i segni, «Undo», le risposte alle domande.
   ...liveProductClaude,
+  // F6 (dietro `product-claude-actions`): la prima versione.
+  ...liveProductFirstVersion,
 });
 // Area 10, F7: la riga «Claude can help you…» e il suo «Not now», dal server.
 export { dismissClaudeSuggestion, getClaudeSuggestion } from "./claudeSuggestions";

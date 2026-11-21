@@ -1,5 +1,5 @@
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import * as api from "@backend/api";
 import { PRODUCT_IMAGE_REF_PREFIX } from "@stubwise/shared";
 import { isAppBuild } from "../build";
@@ -490,11 +490,28 @@ export function useProductFirstVersion(projectId: string, { enabled = true }: { 
         : undefined,
     [client, me, on, projectId],
   );
-  return useQuery({
+  const query = useQuery({
     queryKey: ["as", me, "productDocs", "firstVersion", projectId] as const,
     queryFn: () => api.productDocs.getProductFirstVersion(projectId),
     enabled: enabled && on,
+    // Build app (R11-6): nessun evento, quindi mentre scrive si rilegge ogni 2 s.
+    refetchInterval: (q) => (isAppBuild() && q.state.data?.status === "writing" ? 2_000 : false),
   });
+  // Build app: una pagina scritta, la fine o un «Undo» rileggono lo spazio di
+  // chi guarda (albero, riga in cima, domande), non la prima versione stessa.
+  const progress = query.data ? `${query.data.status}:${query.data.pagesDone}` : null;
+  const seen = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isAppBuild() || progress === null) return;
+    const before = seen.current;
+    seen.current = progress;
+    if (before === null || before === progress) return;
+    void client.invalidateQueries({
+      queryKey: ["as", me, "productDocs"],
+      predicate: (q) => q.queryKey[3] !== "firstVersion",
+    });
+  }, [client, me, progress]);
+  return query;
 }
 
 /** Le domande di Claude da chiudere nello spazio; si rilegge a ogni domanda nuova o risposta. */
