@@ -371,6 +371,11 @@ describe("il registro decisioni non è mai scritto dall'AI — sul sorgente", ()
     // registro, e non eseguono run.
     "./product-claude.ts",
     "./product-questions.ts",
+    // Revisione di F5: l'origine della richiesta da una domanda e le card di Claude. Il lavoro del
+    // worker (`product-docs/job.ts`) NON sta qui: esegue il modello per costruzione; che non scriva nel
+    // registro lo controlla sul sorgente `product-docs/job.test.ts` («non scrive nel registro»).
+    "./product-question-origin.ts",
+    "./product-claude-cards.ts",
   ];
 
   it.each(MODULES)("%s non nomina nessun esecutore di agenti", async (relative) => {

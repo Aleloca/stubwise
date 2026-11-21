@@ -294,6 +294,8 @@ export const productRevisionClaudeFields = {
   undo: productUndoViewSchema.nullable().default(null),
   /** Solo `claude`: lo stato di «Undo» per ogni ancora cambiata. */
   undoByAnchor: z.record(z.string(), productUndoViewSchema).default({}),
+  /** Solo `claude`: l'id del segno per ancora (anche accettato), per «Undo» dalla cronologia. Additivo. */
+  markIdByAnchor: z.record(z.string(), z.uuid()).default({}),
   /** Solo `claude`: quante ancore sono state annullate («1 di 3 annullate»). */
   undoneCount: z.object({ done: z.number().int(), count: z.number().int() }).nullable().default(null),
   undoneById: z.uuid().nullable().default(null),

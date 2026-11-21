@@ -5916,6 +5916,13 @@ deploy o di un rollback che la tocca.
   - Migrazione **0211** (`product_doc_operation`): l'operazione AI
     `product_doc_update` nei CHECK di `agent_runs` e `ai_model_settings`
     (modello di partenza `sonnet`), e la sosta `paused` della coda.
+  - Migrazione **0213** (`product_doc_jobs_review`, revisione di F5): la coda
+    ricorda il lavoro fatto. `facts` sono i fatti del modello, una volta sola;
+    `pages_done` le pagine già scritte; `not_before`, `answered_at` (il freno per
+    progetto) e `last_held_reason` (la riga «Claude riprende quando…»). Più
+    l'indice su `product_claude_marks(revision_id)`. Il trigger della posta
+    accoda anche al cambio di progetto della proposta e all'ammissione DOPO
+    del messaggio; una proposta scartata no.
   - Migrazione **0212** (`alert_type_underscore`): il CHECK del tipo di
     un'iscrizione (`alert_subscriptions_type_chk`, 0177) ammette il trattino
     basso nel primo segmento. Prima nessuna iscrizione `product_doc.*` si
@@ -5971,7 +5978,11 @@ deploy o di un rollback che la tocca.
     già `updated` e `question`.
   - Le migrazioni non si annullano. I trigger restano e continuano ad
     accodare: i lavori aspettano `queued` finché un worker F5 non torna. Per
-    fermarli senza risalire:
+    fermarli senza risalire, con un worker VECCHIO (che non li legge):
     `update product_doc_jobs set status = 'held', held_reason = 'paused' where status = 'queued';`
+    ⚠️ Con un worker F5 acceso questa query NON regge: il worker rimette in
+    coda un `paused` appena il progetto non è in pausa. Per fermare la doc di
+    un progetto con un worker F5 si mette in pausa la coda del progetto
+    (`projects.queue_paused_at`), che il claim salta.
     Le domande di Claude restano commenti col corpo vuoto, che un server
     vecchio mostra come fili vuoti.
