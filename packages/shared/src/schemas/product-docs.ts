@@ -395,6 +395,8 @@ export const productOpenQuestionSchema = z.object({
   projectId: z.uuid(),
   projectCode: z.string(),
   anchorId: z.string(),
+  /** La frase del commento-domanda (la citazione della radice), anche per una domanda che inserisce. Additivo. */
+  quote: z.string().default(""),
   question: productQuestionViewSchema,
   createdAt: z.string(),
 });

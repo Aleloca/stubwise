@@ -39,6 +39,13 @@ describe("F6: additivo", () => {
   });
 });
 
+describe("domande aperte: additivo", () => {
+  it("senza `quote` (un server di prima) si legge stringa vuota", async () => {
+    const { productOpenQuestionSchema } = await import("../schemas/product-docs.js");
+    expect(productOpenQuestionSchema.shape.quote.parse(undefined)).toBe("");
+  });
+});
+
 describe("F6: le forme", () => {
   it("la prima versione: uno stato futuro è UNKNOWN; senza `permissions.stop` è false; l'«Undo» senza la pagina toccata", () => {
     const view = readerSchema(productFirstVersionViewSchema).parse({

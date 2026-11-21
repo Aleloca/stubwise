@@ -352,6 +352,7 @@ export async function listOpenProductQuestions(db: Db, viewer: Viewer, pageId?: 
       projectId: r.projectId,
       projectCode: r.projectCode,
       anchorId: r.comment.anchorId,
+      quote: r.comment.quote,
       question,
       createdAt: r.comment.createdAt.toISOString(),
     });
