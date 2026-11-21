@@ -25,6 +25,9 @@ import {
   redrawWireframeSchema,
   pickWireframeSchema,
   replaceWireframeWithImageSchema,
+  undoDrawWireframeSchema,
+  updateProductPageFromSourceSchema,
+  productChangesSchema,
   productFirstVersionViewSchema,
   startFirstVersionSchema,
   PRODUCT_EXPORT_PAGES_MAX,
@@ -33,7 +36,8 @@ import {
 } from "@stubwise/shared";
 import { routePermissions, type RouteAccess } from "../auth/access.js";
 import { fromParam, fromProductComment, fromProductMark, fromProductPage, fromProductRevision } from "../auth/project-resolvers.js";
-import { ProductUndoBlockedError, acceptProductMark, listProductMarks, undoProductMark, undoProductRevision, withClaudeFields } from "../services/product-claude.js";
+import { ProductUndoBlockedError, acceptProductMark, listProductMarks, undoDrawnWireframe, undoProductMark, undoProductRevision, withClaudeFields } from "../services/product-claude.js";
+import { listProductChanges, requestProductPageUpdate } from "../services/product-claude-actions.js";
 import { apiError } from "../errors.js";
 import {
   ProductDocsError,
@@ -637,6 +641,45 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
     "/product-pages/:id/wireframes/:blockId/replace-image",
     { config: { access: PAGE_EDIT }, schema: { params: blockParams, body: replaceWireframeWithImageSchema, response: { 200: revisionResult, 404: errorSchema, 409: undoConflictSchema, 422: errorSchema, ...authErrorResponses } } },
     async (request, reply) => handleUndo(reply, () => replaceWireframeWithImage(app.db, request.user!, request.params.id, request.params.blockId, request.body)),
+  );
+  // F6, Task 4: togliere una bozza appena chiesta (la voce `deleteWireframe`, l'inverso di `drawWireframe`).
+  app.post(
+    "/product-pages/:id/wireframes/:blockId/undo-draw",
+    { config: { access: PAGE_EDIT }, schema: { params: blockParams, body: undoDrawWireframeSchema, response: { 200: undoResult, 404: errorSchema, 409: undoConflictSchema, ...authErrorResponses } } },
+    async (request, reply) => handleUndo(reply, () => undoDrawnWireframe(app.db, request.user!, request.params.id, request.params.blockId, request.body.revisionId)),
+  );
+
+  // --- F6, Task 4: Claude rilegge una fonte per una pagina, e i cambi recenti ---
+
+  app.post(
+    "/product-pages/:id/update-from-source",
+    {
+      config: { access: PAGE_EDIT },
+      schema: { params: pageParams, body: updateProductPageFromSourceSchema, response: { 202: z.object({ updateId: z.uuid() }), 404: errorSchema, 409: errorSchema, 422: errorSchema, ...authErrorResponses } },
+    },
+    async (request, reply) =>
+      handleUndo(reply, async () => {
+        const out = await requestProductPageUpdate(app.db, request.user!, request.params.id, request.body.source);
+        return reply.code(202).send(out);
+      }),
+  );
+  // I cambi della doc dei progetti in cui chi chiede legge i Docs (filtrati nella WHERE): `user`, come l'elenco delle task.
+  app.get(
+    "/product-changes",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        querystring: z.object({ projectId: z.uuid().optional(), since: z.iso.datetime({ offset: true }).or(z.iso.date()).optional() }),
+        response: { 200: productChangesSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) =>
+      handleUndo(reply, () =>
+        listProductChanges(app.db, request.user!, {
+          ...(request.query.projectId !== undefined ? { projectId: request.query.projectId } : {}),
+          since: request.query.since !== undefined ? new Date(request.query.since) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+        }),
+      ),
   );
 
   // --- F5: le domande di Claude (rispondere chiede `docs.edit`, una risposta sola) ---

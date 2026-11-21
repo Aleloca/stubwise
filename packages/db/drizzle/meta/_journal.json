@@ -1506,6 +1506,13 @@
       "when": 1803081600000,
       "tag": "0216_product_request_origins",
       "breakpoints": true
+    },
+    {
+      "idx": 217,
+      "version": "7",
+      "when": 1803168000000,
+      "tag": "0217_product_page_updates",
+      "breakpoints": true
     }
   ]
 }

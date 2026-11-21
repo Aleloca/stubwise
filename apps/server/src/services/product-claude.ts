@@ -6,6 +6,7 @@ import {
   productComments,
   productPageRevisions,
   productPages,
+  productWireframes,
   projectDecisions,
   projects,
   releases,
@@ -75,7 +76,7 @@ const readBlocks = (raw: unknown): ProductBlock[] =>
   });
 
 /** I nomi delle persone che chi guarda vede (R-G5). */
-async function namesFor(db: Db, viewer: Viewer, ids: readonly (string | null)[]): Promise<(id: string | null) => string | null> {
+export async function namesFor(db: Db, viewer: Viewer, ids: readonly (string | null)[]): Promise<(id: string | null) => string | null> {
   const wanted = [...new Set(ids.filter((x): x is string => x !== null))];
   if (wanted.length === 0) return () => null;
   const people = await visiblePersonIds(db, viewer);
@@ -411,6 +412,37 @@ async function undoWireframeGesture(db: Db, viewer: Viewer, pageId: string, revi
     const ops: ProductBlockOp[] = change.before && before.some((b) => b.id === change.blockId) ? [{ op: "set", block: change.before } as ProductBlockOp] : [];
     await holdTouchedSections(tx, viewer, pageId, before, ops);
     return writeUndo(tx, viewer, page, rev.id, applyBlockOps(before, ops));
+  });
+}
+
+/**
+ * F6, Task 4 — la voce `deleteWireframe` di Claude, l'inverso di
+ * `drawWireframe`: toglie la bozza appena chiesta (la revisione `drew`), come
+ * l'«Undo» di un gesto. Il blocco torna com'era (un paragrafo vuoto rimesso,
+ * o via); spento se qualcuno ha toccato il blocco dopo (anche un «Redraw») o
+ * se è già annullato. La riga della bozza se ne va: un disegno ancora in coda
+ * finisce senza modello (`wireframe_gone`).
+ */
+export async function undoDrawnWireframe(db: Db, viewer: Viewer, pageId: string, blockId: string, revisionId: string): Promise<ProductUndoResult> {
+  const { canEdit } = await pageAndPerms(db, viewer, pageId);
+  if (!canEdit) throw new ProductDocsError(403, "forbidden", "Forbidden");
+  return db.transaction(async (txRaw) => {
+    const tx = txRaw as unknown as Db;
+    const [page] = await tx.select().from(productPages).where(eq(productPages.id, pageId)).for("no key update");
+    if (!page) throw notFound();
+    const [rev] = await tx.select().from(productPageRevisions).where(and(eq(productPageRevisions.id, revisionId), eq(productPageRevisions.pageId, pageId)));
+    const change = rev ? (rev.changes as ProductBlockChange[])[0] : undefined;
+    if (!rev || wireframeGestureOf(rev) !== "drew" || change?.blockId !== blockId) throw notFound();
+    const later = await tx.select().from(productPageRevisions).where(and(eq(productPageRevisions.pageId, pageId), gt(productPageRevisions.lastSeq, rev.lastSeq))).orderBy(asc(productPageRevisions.lastSeq));
+    const state = gestureUndoStateOf(rev, later, true);
+    if (state.reason === "already_undone" || state.reason === "changed_after") throw new ProductUndoBlockedError(state.reason, { id: state.byId, name: (await namesFor(tx, viewer, [state.byId]))(state.byId) });
+    const before = readBlocks(page.blocks);
+    const ops: ProductBlockOp[] = !before.some((b) => b.id === blockId) ? [] : change.before ? [{ op: "set", block: change.before } as ProductBlockOp] : [{ op: "delete", blockId } as ProductBlockOp];
+    await holdTouchedSections(tx, viewer, pageId, before, ops);
+    const out = await writeUndo(tx, viewer, page, rev.id, applyBlockOps(before, ops));
+    const after = change.after as { type?: string; wireframeId?: string } | null;
+    if (after?.type === "wireframe" && after.wireframeId) await tx.delete(productWireframes).where(and(eq(productWireframes.id, after.wireframeId), eq(productWireframes.pageId, pageId)));
+    return out;
   });
 }
 

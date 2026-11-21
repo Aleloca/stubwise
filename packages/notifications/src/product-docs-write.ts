@@ -98,6 +98,12 @@ export interface ClaudeWriteInput {
    * riscrive (revisione di F5, 1).
    */
   onWritten?: (tx: Db) => Promise<void>;
+  /**
+   * Area 11, F6, Task 4: chi ha chiesto l'aggiornamento a mano (la voce
+   * `updateProductPage`). Una sezione presa da LUI non fa aspettare: ha
+   * chiesto lui, mentre scriveva (il prototipo: `sectionBusy(…, requesterId)`).
+   */
+  requesterId?: string | null;
 }
 
 export type ClaudeFactOutcome =
@@ -209,7 +215,7 @@ export async function writeClaudeFacts(db: Db, input: ClaudeWriteInput): Promise
           .from(productSectionHolds)
           .where(and(eq(productSectionHolds.pageId, page.id), gt(productSectionHolds.expiresAt, sql`now()`)))
       )
-        .filter((h) => h.userId !== agentId)
+        .filter((h) => h.userId !== agentId && (input.requesterId == null || h.userId !== input.requesterId))
         .map((h) => [h.sectionId, h.userId] as const),
     );
 

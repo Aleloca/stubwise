@@ -9,6 +9,7 @@ import {
   googleAccounts,
   meetingNotes,
   productDocJobs,
+  productPageUpdates,
   productPages,
   projectDecisions,
   projects,
@@ -101,6 +102,8 @@ export async function readProductSource(db: Db, job: Pick<JobRow, "projectId" | 
     // La prima versione e le bozze hanno il loro lavoro (`first-version.ts`, `wireframe.ts`): qui non arrivano.
     case "first_version":
     case "wireframe":
+    // Un aggiornamento chiesto a mano si legge dalla sua fonte vera (`runProductDocJob`).
+    case "page_update":
       return null;
     case "email": {
       // N-2 = a: solo un messaggio AMMESSO, con una proposta per QUESTO progetto. Il titolare è chi ha la casella.
@@ -212,11 +215,11 @@ export type ProductDocJobOutcome = "done" | "held" | "failed" | "retry";
 
 /** UN lavoro (già preso, `running`). */
 export async function runProductDocJob(deps: ProductDocJobDeps, job: JobRow): Promise<ProductDocJobOutcome> {
-  const { db, log } = deps;
+  const { db } = deps;
   const [p] = await db.select({ pausedAt: projects.queuePausedAt }).from(projects).where(eq(projects.id, job.projectId));
   if (!p) return finish(db, job.id, "done", "project_gone").then(() => "done");
-  // La prima versione e le bozze sono gesti di chi li ha chiesti: la pausa della coda non li ferma (P48 del prototipo).
-  const gesture = job.sourceKind === "first_version" || job.sourceKind === "wireframe";
+  // La prima versione, le bozze e un aggiornamento chiesto a mano sono gesti di chi li ha chiesti: la pausa della coda non li ferma (P41, P48 del prototipo).
+  const gesture = job.sourceKind === "first_version" || job.sourceKind === "wireframe" || job.sourceKind === "page_update";
   if (p.pausedAt && !gesture) return hold(db, job.id, "paused").then(() => "held");
   // Una bozza non aspetta: col budget o la quota finiti è `failed` col motivo (lo guarda lei, `wireframe.ts`).
   if (job.sourceKind === "wireframe") {
@@ -234,12 +237,36 @@ export async function runProductDocJob(deps: ProductDocJobDeps, job: JobRow): Pr
     });
   }
 
-  const source = await readProductSource(db, job);
+  // F6, Task 4: un aggiornamento chiesto a mano (`updateProductPage`) legge la
+  // SUA fonte per UNA pagina, e chi l'ha chiesto non si aspetta da sé.
+  if (job.sourceKind === "page_update") {
+    const [u] = await db.select().from(productPageUpdates).where(eq(productPageUpdates.id, job.sourceId));
+    if (!u) return finish(db, job.id, "done", "update_gone").then(() => "done");
+    const out = await runSourceJob(deps, job, { kind: u.sourceKind, id: u.sourceId }, u.pageId, u.requestedBy);
+    if (out === "done" || out === "failed") await db.update(productPageUpdates).set({ finishedAt: new Date() }).where(eq(productPageUpdates.id, u.id));
+    return out;
+  }
+  return runSourceJob(deps, job, { kind: job.sourceKind as SourceRef["kind"], id: job.sourceId }, null, null);
+}
+
+/** Una fonte che il modello legge (non la prima versione né una bozza, che hanno il loro lavoro). */
+type SourceRef = { kind: Exclude<JobRow["sourceKind"], "first_version" | "wireframe" | "page_update">; id: string };
+
+/** Il lavoro su UNA fonte (`ref`): tutte le pagine del progetto, o la sola `onlyPageId` (un aggiornamento chiesto a mano). */
+async function runSourceJob(
+  deps: ProductDocJobDeps,
+  job: JobRow,
+  ref: SourceRef,
+  onlyPageId: string | null,
+  requesterId: string | null,
+): Promise<ProductDocJobOutcome> {
+  const { db, log } = deps;
+  const source = await readProductSource(db, { projectId: job.projectId, sourceKind: ref.kind, sourceId: ref.id });
   if (!source) {
     log.warn({ jobId: job.id, source: job.sourceKind }, "doc di prodotto: la fonte non c'è più o non è leggibile per il progetto");
     return finish(db, job.id, "done", "source_unavailable").then(() => "done");
   }
-  const pages = await projectPages(db, job.projectId);
+  const pages = (await projectPages(db, job.projectId)).filter((pg) => onlyPageId === null || pg.id === onlyPageId);
   if (pages.length === 0) return finish(db, job.id, "done", "no_pages").then(() => "done");
 
   // I fatti: già calcolati (un lavoro ripreso), o dal modello UNA volta.
@@ -308,7 +335,7 @@ export async function runProductDocJob(deps: ProductDocJobDeps, job: JobRow): Pr
       await markDone(pageId)(db);
       continue;
     }
-    const written = await writeClaudeFacts(db, { projectId: job.projectId, pageId, facts: pageFacts, source: { kind: job.sourceKind, id: job.sourceId }, ownerId: source.ownerId, arrivedSeq: page.revSeq, onWritten: markDone(pageId) });
+    const written = await writeClaudeFacts(db, { projectId: job.projectId, pageId, facts: pageFacts, source: ref, ownerId: source.ownerId, arrivedSeq: page.revSeq, onWritten: markDone(pageId), requesterId });
     if (written.kind === "section_busy") {
       // Una persona scrive in quella sezione: il lavoro aspetta e riprova (come `productPending`), senza modello.
       log.info?.({ jobId: job.id, pageId, sectionId: written.sectionId }, "doc di prodotto: una sezione è presa da una persona, si riprova");
@@ -337,7 +364,7 @@ export async function claimProductDocJob(db: Db, exclude: readonly string[] = []
     const picked = await tx.execute<{ id: string }>(sql`
       select j.id from product_doc_jobs j
       join projects p on p.id = j.project_id
-      where j.status = 'queued' and (p.queue_paused_at is null or j.source_kind in ('first_version', 'wireframe'))
+      where j.status = 'queued' and (p.queue_paused_at is null or j.source_kind in ('first_version', 'wireframe', 'page_update'))
         and (j.not_before is null or j.not_before <= now())
         and (select count(*) from product_doc_jobs h where h.project_id = j.project_id and h.answered_at > now() - interval '1 hour') < ${PRODUCT_DOC_HOURLY_MAX}
         ${excluded}

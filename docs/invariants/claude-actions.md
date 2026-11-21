@@ -102,3 +102,24 @@ che non stanno in un'area sola. Il catalogo è
   non legge gli eventi `question`: senza la domanda nel testo, una risposta
   «Supporto» non direbbe a cosa risponde. È anche il segno che quel messaggio
   risponde a una domanda.
+
+## Le voci della doc di prodotto (area 11, F6, Task 4, 22 nov 2026)
+
+- Sei voci, tutte B (F6-1 = a): `writeFirstVersion`, `updateProductPage` e
+  `drawWireframe` fanno partire il modello (`starts_work`); `undoFirstVersion`,
+  `undoProductUpdate` e `deleteWireframe` sono gli inversi (P39). Il permesso è
+  `docs.edit` nel progetto, lo stesso delle rotte
+  (`claude-actions/catalog-product.ts`).
+- «Aggiorna <pagina> da questa email» è un lavoro della coda della doc con
+  `source_kind = 'page_update'` e `source_id` = la riga di
+  `product_page_updates` (0217): UNA fonte, UNA pagina, chi l'ha chiesto. La
+  fonte deve essere sua da APRIRE (`canOpen`, `mailbox_owner`) e del progetto;
+  la sezione presa da lui non lo fa aspettare (`requesterId` di
+  `writeClaudeFacts`); la pausa della coda no, il budget sì. Da qui non si
+  annulla: la revisione arriva dopo, dal worker, e si annulla con
+  `undoProductUpdate` o dalla cronologia.
+- Le letture `read_product_page` e `read_product_changes` sono contenuto NON
+  fidato (`CHAT_TOOL_UNTRUSTED_ROUTES`) e registrano i loro progetti.
+- La pulizia delle immagini della doc sta in `services/product-images-purge.ts`
+  e NON in `product-docs-ops.ts`: quel modulo lo raggiunge il catalogo, e lo
+  storage da lì è un'uscita (`claude-actions-effects.test.ts`).

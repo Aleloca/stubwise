@@ -16,6 +16,8 @@ let seeded: SeededUsers;
 let projectId: string;
 let workspaceId: string;
 type U = Awaited<ReturnType<typeof createUserWithSession>>;
+/** Area 11, F6, Task 4: le capacità della doc di prodotto, nell'ordine del prototipo. */
+const PRODUCT = ["productFirstVersion", "productUpdate", "productBacklog", "productWireframe", "productChanges"];
 
 beforeAll(async () => {
   t = await startTestDb();
@@ -57,14 +59,16 @@ describe("GET /api/claude/capabilities", () => {
   it("permessi diversi, elenchi diversi; ogni capacità ha il caso in cui manca", async () => {
     // Nessun progetto: resta il lavoro fermo (Claude legge ciò che la persona vede).
     expect((await capabilities((await person()).headers.cookie)).items).toEqual(["stalled"]);
-    // Contributor: niente spesa, niente scritture del catalogo.
-    expect((await capabilities((await person("contributor")).headers.cookie)).items).toEqual(["stalled"]);
-    // Viewer: la spesa del progetto (`project.usage.view`), nient'altro.
-    expect((await capabilities((await person("viewer")).headers.cookie)).items).toEqual(["stalled", "spend"]);
-    // Developer: `tickets.edit` (descrizione e note), senza automazioni, archivio e membri.
-    expect((await capabilities((await person("developer")).headers.cookie)).items).toEqual(["stalled", "spend", "releaseNotes", "taskDescription"]);
+    // Contributor: niente spesa né scritture del catalogo; le richieste dalla doc
+    // (`backlog.create`) e i cambi della doc (`docs.view`) sì, senza `docs.edit` niente
+    // prima versione, aggiornamenti né bozze (area 11, F6, Task 4).
+    expect((await capabilities((await person("contributor")).headers.cookie)).items).toEqual(["stalled", "productBacklog", "productChanges"]);
+    // Viewer: la spesa del progetto (`project.usage.view`) e i cambi della doc (`docs.view`).
+    expect((await capabilities((await person("viewer")).headers.cookie)).items).toEqual(["stalled", "spend", "productChanges"]);
+    // Developer: `tickets.edit` (descrizione e note) e la doc (`docs.edit`), senza automazioni, archivio e membri.
+    expect((await capabilities((await person("developer")).headers.cookie)).items).toEqual(["stalled", "spend", "releaseNotes", "taskDescription", ...PRODUCT]);
     // Project Lead: tutto ciò che è del progetto; la posta no (non ha una casella).
-    expect((await capabilities((await person("project_lead")).headers.cookie)).items).toEqual(["automation", "stalled", "spend", "archive", "addMember", "releaseNotes", "taskDescription"]);
+    expect((await capabilities((await person("project_lead")).headers.cookie)).items).toEqual(["automation", "stalled", "spend", "archive", "addMember", "releaseNotes", "taskDescription", ...PRODUCT]);
   });
 
   it("la posta: solo con una casella di chi chiede, viva e con gmail.modify", async () => {
@@ -81,10 +85,10 @@ describe("GET /api/claude/capabilities", () => {
 
   it("un full admin le riceve tutte (la posta con la sua casella); solo id, nessun dato di un progetto", async () => {
     const before = await capabilities(seeded.adminCookie);
-    expect(before.items).toEqual(["automation", "stalled", "spend", "archive", "addMember", "releaseNotes", "taskDescription"]);
+    expect(before.items).toEqual(["automation", "stalled", "spend", "archive", "addMember", "releaseNotes", "taskDescription", ...PRODUCT]);
     await mailbox(seeded.adminId);
     const after = await capabilities(seeded.adminCookie);
-    expect(after).toEqual({ items: ["automation", "stalled", "spend", "archive", "addMember", "releaseNotes", "mailBody", "taskDescription"] });
+    expect(after).toEqual({ items: ["automation", "stalled", "spend", "archive", "addMember", "releaseNotes", "mailBody", "taskDescription", ...PRODUCT] });
     expect(JSON.stringify(after)).not.toContain(projectId);
   });
 

@@ -38,6 +38,7 @@ import { createTask, planTask, updateTask } from "../services/task-writes.js";
 import { AREA9_ENTRIES } from "./catalog-area9.js";
 import { INSTANCE_ENTRIES } from "./catalog-instance.js";
 import { AUTOMATION_ENTRIES } from "./catalog-automations.js";
+import { PRODUCT_ENTRIES } from "./catalog-product.js";
 
 /**
  * Il catalogo delle azioni di Claude sul SERVER (chat, fetta 3): per ogni `fn`
@@ -554,7 +555,7 @@ const ENTRIES: CatalogEntry[] = [
 ];
 
 /** Le voci per `fn`. Una `fn` dell'elenco condiviso senza voce qui non si esegue (ancora). */
-export const SERVER_CATALOG: ReadonlyMap<ClaudeActionFn, CatalogEntry> = new Map([...ENTRIES, ...AREA9_ENTRIES, ...INSTANCE_ENTRIES, ...AUTOMATION_ENTRIES].map((e) => [e.fn, e]));
+export const SERVER_CATALOG: ReadonlyMap<ClaudeActionFn, CatalogEntry> = new Map([...ENTRIES, ...AREA9_ENTRIES, ...INSTANCE_ENTRIES, ...AUTOMATION_ENTRIES, ...PRODUCT_ENTRIES].map((e) => [e.fn, e]));
 
 export function declaredClassOf(fn: ClaudeActionFn): "A" | "B" | "C" {
   return CLAUDE_DECLARED_CLASS[fn];

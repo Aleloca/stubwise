@@ -86,3 +86,39 @@ describe("F6: le forme", () => {
     expect(newRequestBodySchema.safeParse({ ...base, origin: { kind: "support", pageId: ID, anchorId: "blk-1" } }).success).toBe(false);
   });
 });
+
+describe("F6, Task 4: le voci di Claude sulla doc e le sue letture", () => {
+  it("le sei voci: B, con gli argomenti del prototipo, e nelle firme del prompt", async () => {
+    const { CLAUDE_ACTION_ARGS, CLAUDE_DECLARED_CLASS, CLAUDE_PROPOSABLE_FNS, claudeActionSignatures } = await import("../schemas/claude-actions.js");
+    const fns = ["writeFirstVersion", "undoFirstVersion", "updateProductPage", "undoProductUpdate", "drawWireframe", "deleteWireframe"] as const;
+    for (const fn of fns) {
+      expect(CLAUDE_DECLARED_CLASS[fn]).toBe("B");
+      expect(CLAUDE_PROPOSABLE_FNS).toContain(fn);
+      expect(claudeActionSignatures()).toContain(`- ${fn}(`);
+    }
+    expect(CLAUDE_ACTION_ARGS.writeFirstVersion.safeParse({ projectId: ID, sources: [{ kind: "text", text: "note" }] }).success).toBe(true);
+    expect(CLAUDE_ACTION_ARGS.writeFirstVersion.safeParse({ projectId: ID, sources: [] }).success).toBe(false);
+    expect(CLAUDE_ACTION_ARGS.updateProductPage.safeParse({ pageId: ID, source: { kind: "meeting", id: ID } }).success).toBe(true);
+    // Solo un'email o una riunione: un file del Drive no.
+    expect(CLAUDE_ACTION_ARGS.updateProductPage.safeParse({ pageId: ID, source: { kind: "drive", fileId: ID } }).success).toBe(false);
+    expect(CLAUDE_ACTION_ARGS.drawWireframe.safeParse({ pageId: ID }).success).toBe(true);
+    expect(CLAUDE_ACTION_ARGS.drawWireframe.safeParse({ pageId: ID, afterId: null }).success).toBe(true);
+    expect(CLAUDE_ACTION_ARGS.drawWireframe.safeParse({ pageId: ID, afterId: "blk-1", replaceId: "blk-2" }).success).toBe(false);
+    expect(CLAUDE_ACTION_ARGS.deleteWireframe.safeParse({ pageId: ID, blockId: "blk-1", revisionId: ID, extra: 1 }).success).toBe(false);
+  });
+
+  it("i cambi della doc: senza `more`, `source` e i nomi (un server di prima) si leggono coi default", async () => {
+    const { productChangesSchema } = await import("../schemas/product-docs.js");
+    const item = { revisionId: ID, pageId: ID, pageCode: "PRO-D1", pageTitle: "T", projectId: ID, kind: "claude", at: "x" };
+    expect(readerSchema(productChangesSchema).parse({ items: [item] })).toMatchObject({ more: false, items: [{ via: null, actorName: null, onBehalfOfName: null, source: null }] });
+    expect(readerSchema(productChangesSchema).parse({ items: [{ ...item, kind: "brand_new" }] }).items[0]!.kind).toBe(UNKNOWN);
+  });
+
+  it("i tool della chat sulla doc: nell'elenco, con le rotte nell'allowlist", async () => {
+    const { CHAT_READ_TOOLS } = await import("../schemas/claude-conversation.js");
+    const { CHAT_TOOL_READ_ROUTES } = await import("../chat-tool-routes.js");
+    expect(CHAT_READ_TOOLS).toEqual(expect.arrayContaining(["read_product_page", "read_product_changes"]));
+    expect(CHAT_TOOL_READ_ROUTES.has("/api/product-pages/by-code/:code")).toBe(true);
+    expect(CHAT_TOOL_READ_ROUTES.has("/api/product-changes")).toBe(true);
+  });
+});

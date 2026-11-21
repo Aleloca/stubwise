@@ -100,7 +100,7 @@ import type { DriveGoogleClient } from "./drive/google.js";
 import { purgeDeletedDriveObjects } from "./drive/service.js";
 import { runStorageHygiene } from "./storage/hygiene.js";
 import { purgeStorageOrphans } from "./storage/orphans.js";
-import { purgeUnusedProductImages } from "./services/product-docs-ops.js";
+import { purgeUnusedProductImages } from "./services/product-images-purge.js";
 import { NOOP_CHAT_BUS, type ChatBus } from "./chat/bus.js";
 import { ProductLiveHub } from "./services/product-live.js";
 import { claudeConversationRoutes } from "./routes/claude-conversations.js";

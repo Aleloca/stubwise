@@ -11,6 +11,7 @@ import { languageSchema } from "./language.js";
 import { googleDomainsSchema } from "./google.js";
 import { updateAutomationSettingsSchema } from "../instance-admin.js";
 import { webhookFieldsSchema } from "../outgoing-webhooks.js";
+import { productPageUpdateSourceSchema, startFirstVersionSchema } from "./product-docs.js";
 
 /**
  * Il catalogo delle azioni di Claude (chat, fetta 3): l'elenco CHIUSO di ciò
@@ -85,6 +86,15 @@ export const CLAUDE_ACTION_FNS = [
   "createAutomation",
   "saveAutomationDraft",
   "deleteAutomationDraft",
+  // Area 11, F6, Task 4: la doc di prodotto (il prototipo: `catalogProduct.ts`).
+  // Tutte B (F6-1 = a): le tre che fanno partire il modello con `starts_work`,
+  // gli inversi perché non si annullano a loro volta (P39).
+  "writeFirstVersion",
+  "undoFirstVersion",
+  "updateProductPage",
+  "undoProductUpdate",
+  "drawWireframe",
+  "deleteWireframe",
 ] as const;
 export const claudeActionFnSchema = z.enum(CLAUDE_ACTION_FNS);
 export type ClaudeActionFn = z.infer<typeof claudeActionFnSchema>;
@@ -156,6 +166,14 @@ export const CLAUDE_DECLARED_CLASS: Record<ClaudeActionFn, "A" | "B" | "C"> = {
   createAutomation: "A",
   saveAutomationDraft: "A",
   deleteAutomationDraft: "B",
+  // Area 11, F6-1 = a (maintainer): fa partire il lavoro del modello, quindi chiede.
+  writeFirstVersion: "B",
+  undoFirstVersion: "B",
+  // Avvisa chi segue la pagina, e fa partire il modello: chiede.
+  updateProductPage: "B",
+  undoProductUpdate: "B",
+  drawWireframe: "B",
+  deleteWireframe: "B",
 };
 
 const id = z.uuid();
@@ -335,6 +353,20 @@ export const CLAUDE_ACTION_ARGS = {
     .object({ code: automationCodeSchema, flow: automationFlowArgSchema, expectedRev: z.number().int().nullable(), name: z.string().trim().min(1).max(200).optional(), description: z.string().max(2000).optional() })
     .strict(),
   deleteAutomationDraft: z.object({ code: automationCodeSchema, expectedRev: z.number().int() }).strict(),
+  // Area 11, F6, Task 4: le forme del prototipo (`catalogProduct.ts`), con gli
+  // schemi delle rotte. Le fonti della prima versione si leggono con la
+  // visibilità di chi conferma; l'aggiornamento solo da un'email o una
+  // riunione che chi conferma può aprire.
+  writeFirstVersion: z.object({ projectId: id, sources: startFirstVersionSchema.shape.sources }).strict(),
+  undoFirstVersion: z.object({ projectId: id }).strict(),
+  updateProductPage: z.object({ pageId: id, source: productPageUpdateSourceSchema }).strict(),
+  undoProductUpdate: z.object({ revisionId: id }).strict(),
+  // Dopo `afterId` (null = in cima) o al posto di un paragrafo vuoto (`replaceId`); senza nessuno dei due, in cima.
+  drawWireframe: z
+    .object({ pageId: id, afterId: z.string().min(1).max(100).nullable().optional(), replaceId: z.string().min(1).max(100).optional() })
+    .strict()
+    .refine((a) => a.afterId === undefined || a.replaceId === undefined, "afterId or replaceId"),
+  deleteWireframe: z.object({ pageId: id, blockId: z.string().min(1).max(100), revisionId: id }).strict(),
 } satisfies Record<ClaudeActionFn, z.ZodType>;
 
 export const claudeProposedActionSchema = z.object({

@@ -378,6 +378,8 @@ const BY_CODE_ROUTES = new Set([
   "/api/support/conversations/by-code/:code",
   "/api/chat/channels/:id",
   "/api/me/calendar/events/:id",
+  // Area 11, F6, Task 4: una pagina della doc di prodotto per codice.
+  "/api/product-pages/by-code/:code",
 ]);
 
 /**
@@ -402,6 +404,8 @@ async function projectsOfResponse(db: Db, route: string, params: Record<string, 
   const rows = Array.isArray(body) ? (body as Record<string, unknown>[]) : [];
   if (route === "/api/tasks/stalled") return uuids(rows.map((r) => (r["task"] as Record<string, unknown> | undefined)?.["projectId"]));
   if (route === "/api/projects/pulse") return uuids(rows.map((r) => r["projectId"]));
+  // Area 11, F6, Task 4: i cambi della doc, progetto per progetto.
+  if (route === "/api/product-changes") return uuids(Array.isArray(b["items"]) ? (b["items"] as Record<string, unknown>[]).map((r) => r["projectId"]) : []);
   if (route === "/api/me/follows") return uuids(Array.isArray(b["projectIds"]) ? (b["projectIds"] as unknown[]) : []);
   if (route === "/api/projects/archive-candidates") {
     const list = (k: string) => (Array.isArray(b[k]) ? (b[k] as Record<string, unknown>[]) : []);

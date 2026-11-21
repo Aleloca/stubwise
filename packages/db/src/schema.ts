@@ -2846,7 +2846,7 @@ export const productDocJobs = pgTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     /** F6 (0214): anche `first_version`, la prima versione di uno spazio (`source_id` = la sua riga). */
-    sourceKind: text("source_kind").$type<"email" | "meeting" | "decision" | "task" | "release" | "first_version" | "wireframe">().notNull(),
+    sourceKind: text("source_kind").$type<"email" | "meeting" | "decision" | "task" | "release" | "first_version" | "wireframe" | "page_update">().notNull(),
     sourceId: uuid("source_id").notNull(),
     status: text("status").$type<"queued" | "running" | "held" | "done" | "failed">().notNull().default("queued"),
     heldReason: text("held_reason").$type<"limit" | "budget" | "section_busy" | "paused">(),
@@ -2868,7 +2868,7 @@ export const productDocJobs = pgTable(
   (table) => [
     uniqueIndex("product_doc_jobs_source_unique").on(table.projectId, table.sourceKind, table.sourceId),
     index("product_doc_jobs_queued_idx").on(table.createdAt).where(sql`status = 'queued'`),
-    check("product_doc_jobs_source_kind_chk", sql`source_kind in ('email', 'meeting', 'decision', 'task', 'release', 'first_version', 'wireframe')`),
+    check("product_doc_jobs_source_kind_chk", sql`source_kind in ('email', 'meeting', 'decision', 'task', 'release', 'first_version', 'wireframe', 'page_update')`),
     check("product_doc_jobs_status_chk", sql`status in ('queued', 'running', 'held', 'done', 'failed')`),
     check("product_doc_jobs_held_chk", sql`(status = 'held') = (held_reason IS NOT NULL)`),
     check("product_doc_jobs_held_reason_chk", sql`held_reason IS NULL OR held_reason in ('limit', 'budget', 'section_busy', 'paused')`),
@@ -2964,6 +2964,33 @@ export const productRequestOrigins = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [unique("product_request_origins_job_key").on(table.intakeJobId), index("product_request_origins_page_anchor_idx").on(table.pageId, table.anchorId)],
+);
+
+/**
+ * Area 11, F6, Task 4 (0217): «aggiorna <pagina> da questa email», chiesto da
+ * una persona (la voce `updateProductPage`). Il lavoro della coda della doc è
+ * `page_update` con `source_id` = questa riga; una viva per pagina e fonte.
+ */
+export const productPageUpdates = pgTable(
+  "product_page_updates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => productPages.id, { onDelete: "cascade" }),
+    sourceKind: text("source_kind").$type<"email" | "meeting">().notNull(),
+    sourceId: uuid("source_id").notNull(),
+    requestedBy: uuid("requested_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("product_page_updates_live_key").on(table.pageId, table.sourceKind, table.sourceId).where(sql`finished_at IS NULL`),
+    check("product_page_updates_source_kind_chk", sql`source_kind in ('email', 'meeting')`),
+  ],
 );
 
 /** Area 11, F5 (0210): i segni di Claude, uno per ancora di una revisione `claude`. */

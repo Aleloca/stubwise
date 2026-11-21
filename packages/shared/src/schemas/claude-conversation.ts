@@ -230,6 +230,11 @@ export const CHAT_READ_TOOLS = [
   "show_capabilities",
   "read_followed_projects",
   "read_my_week",
+  // Area 11, F6, Task 4: la doc di prodotto — una pagina per codice e i cambi
+  // recenti. Il testo delle pagine è contenuto NON fidato (lo scrive chiunque
+  // abbia `docs.edit`, e Claude dalle fonti).
+  "read_product_page",
+  "read_product_changes",
 ] as const;
 /** Area 9, F7: le sezioni di `read_instance_settings`, una rotta ciascuna (coi suoi permessi). */
 export const CHAT_INSTANCE_SECTIONS = ["providers", "git_accounts", "google_apps", "webhooks", "plugins", "models", "automation", "instance"] as const;
