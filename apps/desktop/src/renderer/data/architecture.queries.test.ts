@@ -45,3 +45,28 @@ describe("queries importa l'api solo da @backend/api", () => {
     expect(QUERY_SOURCES["./queries.ts"]).toMatch(/import \* as api from "@backend\/api";/);
   });
 });
+
+// Il verso opposto: il livello dati vero (`data/backend/real/`) non importa
+// valori dalle query. Le query importano `@backend/api`, che nella build app È
+// l'indice del livello vero: un import dalle query lì dentro chiude un ciclo
+// che blocca il caricamento dei moduli (successo il 21 nov 2026 con
+// `productLaterOn` in `claudeCapabilities.ts`: i test delle pagine della
+// build app restavano fermi senza eseguire niente).
+const REAL_SOURCES = import.meta.glob(["./backend/real/**/*.ts", "!**/*.test.{ts,tsx}"], {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+
+describe("il livello dati vero non importa dalle query", () => {
+  it("trova i moduli del livello vero", () => {
+    expect(Object.keys(REAL_SOURCES).length).toBeGreaterThan(20);
+  });
+
+  it("nessun import di valori da data/queries (né dai suoi sotto-moduli)", () => {
+    const offenders = Object.entries(REAL_SOURCES)
+      .filter(([, source]) => /^\s*import\s+(?!type\b)[^;]*from\s+["'](\.\.\/)+queries(\/[^"']*)?["']/m.test(source))
+      .map(([path]) => path);
+    expect(offenders).toEqual([]);
+  });
+});
