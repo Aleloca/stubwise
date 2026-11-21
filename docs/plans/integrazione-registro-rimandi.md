@@ -1468,6 +1468,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     `permissions.stop` nella vista; il prototipo non ha un «Stop», quindi la
     build app non lo mostra. Chi vuole fermarla aspetta la fine e usa «Undo
     the first version». Va deciso nel prototipo prima di mostrarlo.
+  - **La versione propria si perde chiudendo la pagina** *(renderer, 94;
+    decisione del maintainer del 21 nov 2026)*: «Mostra le due versioni»
+    tiene sotto il paragrafo il testo rifiutato (`stale`, `section_busy`, il
+    paragrafo tolto da un altro) finché la pagina è aperta. Uscendo dalla
+    pagina, o cambiando persona, il riquadro si perde senza conferma: il
+    dialogo «Some changes aren't saved yet» · Stay · Leave without saving di
+    product-editor.md §3.12 non è mai stato costruito nel prototipo. Va
+    costruito prima lì, e poi copre anche le scritture ancora in fila.
   - **I gesti di Claude sulla doc** *(F6)*: prima versione, dalla doc al
     backlog, richieste nate dalla pagina, bozze di schermata, il gruppo di
     Claude nel «⋯» e nel menu del titolo, «Screen sketch» in «/». Stanno
