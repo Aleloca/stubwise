@@ -63,6 +63,9 @@ function hrefOf(j: Any): string | null {
     case "server_fix":
     case "server_analysis":
       return j.projectId ? `#/p/${j.projectCode}/servers/${code}` : `#/admin/servers/${code}`;
+    // Area 11, F6 (72, 136a81da2): la pagina c'è solo per chi legge i Docs del progetto.
+    case "product_doc_update":
+      return j.projectCode ? `#/p/${j.projectCode}/docs/product/${encodeURIComponent(code)}` : null;
     default:
       return null;
   }

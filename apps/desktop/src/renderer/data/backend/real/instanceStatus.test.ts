@@ -42,6 +42,9 @@ const status = () => ({
     }),
     job({ id: "j4", kind: "server_fix", code: "SRV-4", state: "failed" }),
     job({ id: "j5", kind: "pr_review", code: "#12" }),
+    // Area 11, F6 (72, 136a81da2): la pagina solo a chi legge i Docs del progetto.
+    job({ id: "j6", kind: "product_doc_update", code: "ACQ-D5", title: "Sign-in" }),
+    job({ id: "j7", kind: "product_doc_update", code: null, title: "" }),
   ],
   workers: [
     { id: "4821:0", jobId: null, hidden: false },
@@ -89,6 +92,8 @@ describe("lo Stato dell'istanza dal server (area 9, F4)", () => {
       "#/automations/ACQ-A2/runs/7",
       "#/admin/servers/SRV-3",
       "#/p/ACQ/servers/SRV-4",
+      null,
+      "#/p/ACQ/docs/product/ACQ-D5",
       null,
     ]);
     // L'errore porta dove porta il suo lavoro.

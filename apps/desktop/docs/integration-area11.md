@@ -121,5 +121,6 @@ dati (`data/backend/real/product*.ts`).
 | «Some changes aren't saved yet» · Stay · Leave without saving uscendo dalla pagina o cambiando persona con scritture in fila, ferme su un errore o riquadri aperti; la fila ha 1,5 s per svuotarsi prima di chiedere; chiudere la finestra non chiede | maintainer via 46 (21 nov 2026), i dettagli 94 |
 | Una bozza di schermata in disegno nasconde lo schizzo di prima; un disegno fallito lo dice sotto il blocco, col motivo | 46 |
 | «Replace with an image» carica il file come ogni blocco immagine (`product-image:<id>`) | costruttore |
+| Lo Stato dell'istanza: un aggiornamento della doc nomina la pagina (codice, titolo, link) solo a chi legge i Docs del progetto e solo se il lavoro è di UNA pagina (a mano o una bozza); una fonte automatica o la prima versione restano «Product doc update» | 72 (136a81da2) su richiesta di 94, come `readsPage` del prototipo |
 | «Pick» di una variante già disegnata (`POST …/wireframes/:blockId/pick`) c'è sul server ma non nel prototipo: il renderer non lo usa | costruttore |
 | «Stop» della prima versione (`stopFirstVersion`): non mostrato finché il prototipo non lo ha | in attesa del maintainer |
