@@ -41,3 +41,33 @@ describe("il catalogo di Claude: prototipo e server", () => {
     }
   });
 });
+
+// Area 11, F6 (piano, «Per 94»): le sei voci della doc di prodotto che il
+// server porta in F6, con le classi del prototipo e F6-1 = a («Write the
+// first version» e «Draw this screen» chiedono conferma col motivo
+// `startsWork`). Quando il server le aggiunge a `CLAUDE_PROPOSABLE_FNS`, il
+// primo test qui sopra le trova già nel prototipo.
+describe("il catalogo di Claude: le sei voci della doc di prodotto (F6)", () => {
+  const SIX = [
+    "writeFirstVersion",
+    "undoFirstVersion",
+    "updateProductPage",
+    "undoProductUpdate",
+    "drawWireframe",
+    "deleteWireframe",
+  ] as const;
+
+  it("ci sono tutte nel prototipo, nessuna è di classe A dichiarata", () => {
+    for (const fn of SIX) {
+      expect(isCatalogFn(fn), fn).toBe(true);
+      expect(CLAUDE_CATALOG[fn].baseClass, fn).not.toBe("A");
+    }
+  });
+
+  it("F6-1 = a: la prima versione e il disegno partono solo alla conferma (`startsWork`)", () => {
+    expect(SIX.filter((fn) => CLAUDE_CATALOG[fn].startsWork === true)).toEqual([
+      "writeFirstVersion",
+      "drawWireframe",
+    ]);
+  });
+});
