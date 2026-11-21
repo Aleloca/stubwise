@@ -197,6 +197,17 @@ describe("le Requests dal server", () => {
     await expect(createRequest({ projectId: PROJECT_ID, title: "x", origin })).rejects.toThrow("invalid: origin");
   });
 
+  it("F6, dalla doc al backlog: una frase già proposta (409 `already_proposed`) è `invalid: already_proposed`, come il prototipo", async () => {
+    const origin = { kind: "product_doc" as const, pageId: "aaaaaaaa-0000-4000-8000-000000000001", anchorId: "blk-1" };
+    const { seen } = installFakeServer({
+      "POST /api/requests": { status: 409, body: { code: "already_proposed", message: "x" } },
+    });
+    await expect(createRequest({ projectId: PROJECT_ID, title: "x", origin })).rejects.toThrow("invalid: already_proposed");
+    // Senza domanda l'origine va senza `questionId`.
+    expect(seen[0]!.body).toMatchObject({ origin: { kind: "product_doc", pageId: origin.pageId, anchorId: "blk-1" } });
+    expect((seen[0]!.body as { origin: object }).origin).not.toHaveProperty("questionId");
+  });
+
   it("«Create request» dalla scheda nel filo: l'esito è la risposta della POST (202), senza aspettare l'intake", async () => {
     const PAGE = "aaaaaaaa-0000-4000-8000-000000000001";
     const QUESTION = "eeeeeeee-0000-4000-8000-000000000001";

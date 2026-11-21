@@ -225,6 +225,8 @@ export async function createRequestWith(
     // I rifiuti dell'origine nelle parole del prototipo (`createRequestAs`).
     if (error instanceof ApiError && error.code === "already_answered") throw new Error("already_answered");
     if (error instanceof ApiError && error.code === "invalid_origin") throw new Error("invalid: origin");
+    // F6: la stessa frase della pagina già proposta (una scheda B confermata due volte).
+    if (error instanceof ApiError && error.code === "already_proposed") throw new Error("invalid: already_proposed");
     throw error;
   }
   const person = session.personId;
