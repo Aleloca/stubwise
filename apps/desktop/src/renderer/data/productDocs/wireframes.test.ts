@@ -10,6 +10,7 @@ import { subscribeProductPage } from "./events";
 import {
   drawWireframeAs,
   failNextSketch,
+  holdSketches,
   keepWireframeAs,
   pickWireframe,
   redrawWireframeAs,
@@ -441,6 +442,16 @@ describe("il disegno asincrono (F6)", () => {
     expect(sketch(BILLS, id).variant).toBe(0);
     expect(revisionsOf(BILLS)).toHaveLength(count);
     expect((await view()).wireframeStates).toEqual({ [id]: { status: "failed", reason: "no_answer", drawn: true } });
+  });
+
+  it("`holdSketches` (test): il disegno resta in corso oltre la pausa, finché non si rilascia", async () => {
+    const release = holdSketches();
+    const id = drawn();
+    await new Promise((r) => setTimeout(r, 120));
+    expect((await view()).wireframeStates).toEqual({ [id]: { status: "drawing" } });
+    release();
+    await whenSketchesIdle();
+    expect((await view()).wireframeStates).toEqual({});
   });
 
   it("l'esportazione non porta lo schizzo di una bozza mai disegnata (esce come uno schizzo che non c'è)", async () => {

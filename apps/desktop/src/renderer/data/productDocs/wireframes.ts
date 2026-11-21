@@ -39,9 +39,31 @@ type Wireframe = Extract<ProductBlock, { type: "wireframe" }>;
 const running = new Set<Promise<void>>();
 /** Il motivo per cui il prossimo disegno non riuscirà (`failNextSketch`, test). */
 let nextFailure: ProductWireframeFailReason | null = null;
+/** Il fermo dei test (`holdSketches`): finché c'è, i disegni restano in corso. */
+let held: { promise: Promise<void>; release: () => void } | null = null;
 onStoreReset(() => {
   nextFailure = null;
+  held?.release();
+  held = null;
 });
+
+/**
+ * Tiene in corso ogni disegno finché non si chiama la funzione restituita
+ * (test): lo stato «in disegno» senza contare su una pausa vera, che sotto
+ * carico finisce prima che la pagina si apra.
+ */
+export function holdSketches(): () => void {
+  let release = () => {};
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const hold = { promise, release };
+  held = hold;
+  return () => {
+    if (held === hold) held = null;
+    hold.release();
+  };
+}
 
 /** Il prossimo disegno (e solo quello) non riesce, con questo motivo (test). */
 export function failNextSketch(reason: ProductWireframeFailReason): void {
@@ -95,6 +117,7 @@ function startSketch(me: string, pageId: string, blockId: string, kind: ProductS
  */
 async function finishSketch(entry: ProductSketch, failure: ProductWireframeFailReason | null, at: number): Promise<void> {
   await sketchPause();
+  if (held) await held.promise;
   if (at !== storeGeneration() || !state.productSketches.includes(entry)) return;
   const page = state.productPages.find((p) => p.id === entry.pageId);
   const current = page?.blocks.find((b) => b.id === entry.blockId);

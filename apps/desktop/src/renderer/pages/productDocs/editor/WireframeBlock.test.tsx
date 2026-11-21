@@ -7,6 +7,7 @@ import { emitProductPage } from "../../../data/productDocs/events";
 import {
   drawWireframeAs,
   failNextSketch,
+  holdSketches,
   keepWireframeAs,
   redrawWireframeAs,
   whenSketchesIdle,
@@ -603,13 +604,15 @@ describe("fix round 1, M1: una scrittura fallita non blocca il disegno", () => {
 // screen…», Keep e Redraw spenti, Replace acceso. Non riuscita: una frase
 // per motivo, Redraw acceso.
 describe("F6: in disegno e non riuscita", () => {
-  // Una pausa vera (8 × 30 ms): con latenza 0 il disegno finirebbe prima della pagina.
+  // Una pausa vera (8 × 30 ms), e il fermo (`holdSketches`) dove serve vedere
+  // il disegno in corso: sotto carico la pausa finirebbe prima della pagina.
   beforeEach(() => setStreamLatency(30));
   afterEach(() => setStreamLatency(null));
 
   const actionsOf = (id: string) => within(shellOf(id)).getByRole("group", { name: "Sketch actions" });
 
   it("in disegno: «Claude is drawing this screen…» al posto dello schizzo, Keep e Redraw spenti, Replace acceso; poi lo schizzo", async () => {
+    const release = holdSketches();
     const id = drawnOnBills();
     await open(BILLS);
     const shell = shellOf(id);
@@ -621,6 +624,7 @@ describe("F6: in disegno e non riuscita", () => {
     expect(within(shell).getByRole("button", { name: "Replace with an image" })).not.toHaveAttribute("aria-disabled");
     // I bottoni si vedono finché dura, non solo al passaggio.
     expect(actionsOf(id).className).not.toContain("opacity-0");
+    release();
     await act(() => whenSketchesIdle());
     expect(await within(shellOf(id)).findByRole("img", { name: "Claude's draft: sketch of the bills screen" })).toBeInTheDocument();
     expect(within(shellOf(id)).queryByText("Claude is drawing this screen…")).toBeNull();
@@ -632,6 +636,7 @@ describe("F6: in disegno e non riuscita", () => {
     keepWireframeAs(LAURA, BILLS, id);
     await open(BILLS);
     expect(within(shellOf(id)).queryByText("Claude's draft")).toBeNull();
+    const release = holdSketches();
     const redraw = within(shellOf(id)).getByRole("button", { name: "Redraw" });
     act(() => redraw.focus());
     act(() => fireEvent.click(redraw));
@@ -641,6 +646,7 @@ describe("F6: in disegno e non riuscita", () => {
     expect(disabled).toHaveAttribute("aria-disabled", "true");
     expect(disabled).toHaveFocus();
     expect(announced()).not.toBe("New sketch");
+    release();
     await act(() => whenSketchesIdle());
     await waitFor(() => expect(announced()).toBe("New sketch"));
     expect((blockOf(BILLS, id) as Wireframe).variant).toBe(1);
@@ -702,6 +708,7 @@ describe("F6: in disegno e non riuscita", () => {
   });
 
   it("in italiano: «Claude sta disegnando questa schermata…» e le frasi del motivo", async () => {
+    const release = holdSketches();
     const drawing = drawnOnBills();
     failNextSketch("limit");
     const failed = drawWireframeAs(LAURA, BILLS, { afterId: null }).blockId;
@@ -709,6 +716,7 @@ describe("F6: in disegno e non riuscita", () => {
     act(() => setLanguage("it"));
     await act(() => new Promise((r) => setTimeout(r, 0)));
     expect(within(shellOf(drawing)).getByRole("status")).toHaveTextContent("Claude sta disegnando questa schermata…");
+    release();
     await act(() => whenSketchesIdle());
     await waitFor(() =>
       expect(flat(within(shellOf(failed)).getByRole("status"))).toBe(
@@ -721,6 +729,7 @@ describe("F6: in disegno e non riuscita", () => {
     failNextSketch("budget");
     const failed = drawnOnBills();
     await whenSketchesIdle();
+    const release = holdSketches();
     const drawing = drawWireframeAs(LAURA, BILLS, { afterId: null }).blockId;
     await open(BILLS, SARA);
     const block = (id: string) => document.querySelector<HTMLElement>(`[data-block-id="${id}"]`)!;
@@ -728,5 +737,6 @@ describe("F6: in disegno e non riuscita", () => {
     expect(flat(within(block(failed)).getByRole("status"))).toBe("Claude couldn't draw this screen The monthly AI budget is used up");
     expect(within(block(drawing)).queryAllByRole("button")).toHaveLength(0);
     expect(within(block(failed)).queryAllByRole("button")).toHaveLength(0);
+    release();
   });
 });
