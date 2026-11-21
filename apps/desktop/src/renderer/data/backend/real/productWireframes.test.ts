@@ -78,4 +78,26 @@ describe("le bozze di schermata nella build app", () => {
       ["replace-image", { src: "product-image:abc", alt: "Sketch" }],
     ]);
   });
+
+  it("i rifiuti dei gesti sulla bozza: 403 `forbidden`, 404 `not_found`, l'immagine non valida `invalid: image`", async () => {
+    installFakeServer({
+      [`POST /api/product-pages/${PAGE}/wireframes/blk-w/keep`]: {
+        status: 403,
+        body: { code: "forbidden", message: "x" },
+      },
+      [`POST /api/product-pages/${PAGE}/wireframes/blk-w/redraw`]: {
+        status: 404,
+        body: { code: "not_found", message: "x" },
+      },
+      [`POST /api/product-pages/${PAGE}/wireframes/blk-w/replace-image`]: {
+        status: 422,
+        body: { code: "invalid_image", message: "x" },
+      },
+    });
+    await expect(wf.keepWireframe!(PAGE, "blk-w")).rejects.toThrow(/^forbidden$/);
+    await expect(wf.redrawWireframe!(PAGE, "blk-w", 1)).rejects.toThrow(/^not_found$/);
+    await expect(
+      wf.replaceWireframeWithImage!(PAGE, "blk-w", { src: "product-image:x", alt: "" }),
+    ).rejects.toThrow(/^invalid: image$/);
+  });
 });

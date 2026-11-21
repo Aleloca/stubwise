@@ -98,3 +98,28 @@ Design: `docs/plans/2026-11-20-integrazione-area11-design.md`; i piani
 |---|---|
 | «Open a request» nella build app: la scheda B sta nel filo, sotto la domanda (titolo e descrizione da `question.request`, «Create request» / «Cancel»), non nel riquadro. La conferma è `requests.create` con `origin.product_doc`, e il server chiude la domanda; annullata, la domanda resta aperta. «Una richiesta è in preparazione…» = la scheda aperta nel filo. Da Home «Decide» «Open a request» porta al filo con la scheda aperta (`?comment=<domanda>&requestCard=1`), mai un messaggio al Claude del server. L'esito è la risposta della POST (`createRequestFromQuestion`), non l'intake. Il prototipo resta col riquadro (motore di intenti, `productQuestionRequestDraft`) | maintainer, via 46 |
 | I gesti di Claude di F6 (prima versione, dalla doc al backlog, richieste nate dalla pagina, bozze di schermata) stanno su `product-claude-actions`, spento | 46 |
+
+## Il renderer della build app (94)
+
+Ogni fetta si accende con la sua funzione (`PRODUCT_LATER` in
+`data/queries/productDocs.ts`, l'elenco in `data/integration.ts`); la
+pagina e i componenti sono quelli del prototipo, cambia solo il livello
+dati (`data/backend/real/product*.ts`).
+
+| Fetta | Funzione | Adattatore | Test dell'adattatore | Stato |
+|---|---|---|---|---|
+| F1 — lo spazio, l'editor, la cronologia, Segui, le immagini | `product-space` | `productDocs.ts` (`baseSeq` e un tentativo dopo `stale`, i blocchi letti uno per uno con `productBlockSchema`) | `productDocs.test.ts` | accesa |
+| F2 — fili, segni, «Comment», «@», le card della doc | `product-comments` | `productDocs.ts`, `notifications.ts` (`product_doc.*`) | `productDocs.test.ts`, `productDocNotifications.test.ts` | accesa |
+| F3 — «Search ⌘K», Export | `product-search`, `product-export` | `productDocs.ts` | `productDocsF3.test.ts` | accese |
+| F4 — presenza, cursori, sezioni prese, `section_busy` | `product-live` | `productLive.ts` (uno stream per pagina) | `productLive.test.ts` | accesa |
+| F5 — segni e domande di Claude, «Looks good», «Undo», «Undo all», le risposte, «Open a request» dal filo | `product-docs` | `productClaude.ts` | `productClaude.test.ts` | accesa |
+| F6 — prima versione, dalla doc al backlog, richieste nate dalla pagina, bozze di schermata | `product-claude-actions` | `productFirstVersion.ts`, `productBacklog.ts`, `productWireframes.ts`, gli stati del disegno in `productDocs.ts` (`wireframeStatesOf`) | `productFirstVersion.test.ts`, `productBacklog.test.ts`, `productWireframes.test.ts`, `productDocs.test.ts` | spenta: aspetta il catalogo di Claude (Task 4 di 72) |
+
+| Scelta o limite del renderer | Chi ha deciso |
+|---|---|
+| «Mostra le due versioni»: una scrittura di testo rifiutata (`stale`, `section_busy`, il paragrafo tolto da un altro) resta sotto il paragrafo, con «Use mine» e «Discard»; i gesti di struttura hanno solo la frase in barra | maintainer (21 nov 2026), la struttura 46 |
+| «Some changes aren't saved yet» · Stay · Leave without saving uscendo dalla pagina o cambiando persona con scritture in fila, ferme su un errore o riquadri aperti; la fila ha 1,5 s per svuotarsi prima di chiedere; chiudere la finestra non chiede | maintainer via 46 (21 nov 2026), i dettagli 94 |
+| Una bozza di schermata in disegno nasconde lo schizzo di prima; un disegno fallito lo dice sotto il blocco, col motivo | 46 |
+| «Replace with an image» carica il file come ogni blocco immagine (`product-image:<id>`) | costruttore |
+| «Pick» di una variante già disegnata (`POST …/wireframes/:blockId/pick`) c'è sul server ma non nel prototipo: il renderer non lo usa | costruttore |
+| «Stop» della prima versione (`stopFirstVersion`): non mostrato finché il prototipo non lo ha | in attesa del maintainer |
