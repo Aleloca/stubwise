@@ -26,6 +26,7 @@ import { textFromRun } from "../agent/text.js";
 import type { ProjectSerializer } from "../handler.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { limitTextOfRun, runWithProviders, type SelectDeps } from "../providers/select.js";
+import { runFirstVersionJob } from "./first-version.js";
 import { buildProductDocPrompt, parseProductFacts, type PromptPage, type PromptSource } from "./prompt.js";
 
 /**
@@ -96,6 +97,9 @@ const readBlocks = (raw: unknown): ProductBlock[] =>
 /** La fonte di un lavoro, letta dal DB, col suo titolare; null = non c'è più, o non è leggibile per questo progetto. */
 export async function readProductSource(db: Db, job: Pick<JobRow, "projectId" | "sourceKind" | "sourceId">): Promise<(PromptSource & { ownerId: string | null }) | null> {
   switch (job.sourceKind) {
+    // La prima versione ha il suo lavoro (`first-version.ts`): qui non arriva.
+    case "first_version":
+      return null;
     case "email": {
       // N-2 = a: solo un messaggio AMMESSO, con una proposta per QUESTO progetto. Il titolare è chi ha la casella.
       const [m] = await db
@@ -209,8 +213,16 @@ export async function runProductDocJob(deps: ProductDocJobDeps, job: JobRow): Pr
   const { db, log } = deps;
   const [p] = await db.select({ pausedAt: projects.queuePausedAt }).from(projects).where(eq(projects.id, job.projectId));
   if (!p) return finish(db, job.id, "done", "project_gone").then(() => "done");
-  if (p.pausedAt) return hold(db, job.id, "paused").then(() => "held");
+  // La prima versione è un gesto di chi l'ha chiesta: la pausa della coda non la ferma (P48 del prototipo).
+  if (p.pausedAt && job.sourceKind !== "first_version") return hold(db, job.id, "paused").then(() => "held");
   if ((await aiBudgetState(db, deps.monthlyCostUsdFn)).exhausted) return hold(db, job.id, "budget").then(() => "held");
+  if (job.sourceKind === "first_version") {
+    return runFirstVersionJob(deps, job, {
+      finish: (status, error = null) => finish(db, job.id, status, error).then(() => undefined),
+      hold: (reason) => hold(db, job.id, reason).then(() => undefined),
+      retryOrFail: (error) => retryOrFail(db, job, error),
+    });
+  }
 
   const source = await readProductSource(db, job);
   if (!source) {
@@ -315,7 +327,7 @@ export async function claimProductDocJob(db: Db, exclude: readonly string[] = []
     const picked = await tx.execute<{ id: string }>(sql`
       select j.id from product_doc_jobs j
       join projects p on p.id = j.project_id
-      where j.status = 'queued' and p.queue_paused_at is null
+      where j.status = 'queued' and (p.queue_paused_at is null or j.source_kind = 'first_version')
         and (j.not_before is null or j.not_before <= now())
         and (select count(*) from product_doc_jobs h where h.project_id = j.project_id and h.answered_at > now() - interval '1 hour') < ${PRODUCT_DOC_HOURLY_MAX}
         ${excluded}

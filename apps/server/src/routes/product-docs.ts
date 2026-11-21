@@ -18,6 +18,9 @@ import {
   productMarkViewSchema,
   productOpenQuestionSchema,
   answerProductQuestionSchema,
+  productFirstVersionSourcesSchema,
+  productFirstVersionViewSchema,
+  startFirstVersionSchema,
   PRODUCT_EXPORT_PAGES_MAX,
   productSpaceSchema,
   saveProductBlocksSchema,
@@ -59,6 +62,7 @@ import { eq } from "drizzle-orm";
 import { exportProductPage, exportProductSpace, ProductExportTooLarge } from "../services/product-export.js";
 import { addProductComment, listProductComments, productMentionCandidates, setProductCommentResolved } from "../services/product-comments.js";
 import { ProductQuestionConflictError, answerProductQuestion, listOpenProductQuestions } from "../services/product-questions.js";
+import { FirstVersionUndoBlockedError, acceptFirstVersionPage, firstVersionSources, firstVersionView, startFirstVersion, stopFirstVersion, undoFirstVersion } from "../services/product-first-version.js";
 import { StorageObjectNotFound } from "../storage/errors.js";
 import { removeOrRecordOrphan } from "../storage/orphans.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -501,6 +505,72 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
         }),
     );
   }
+
+  // --- F6: la prima versione (lo spazio vuoto; le pagine le scrive il worker) ---
+
+  app.get(
+    "/projects/:projectId/product/first-version/sources",
+    { config: { access: SPACE_VIEW }, schema: { params: projectParams, response: { 200: productFirstVersionSourcesSchema, 404: errorSchema, ...authErrorResponses } } },
+    async (request, reply) => handle(reply, () => firstVersionSources(app.db, request.user!, request.params.projectId)),
+  );
+
+  app.get(
+    "/projects/:projectId/product/first-version",
+    { config: { access: SPACE_VIEW }, schema: { params: projectParams, response: { 200: productFirstVersionViewSchema.nullable(), 404: errorSchema, ...authErrorResponses } } },
+    async (request, reply) => handle(reply, () => firstVersionView(app.db, request.user!, request.params.projectId)),
+  );
+
+  app.post(
+    "/projects/:projectId/product/first-version",
+    {
+      config: { access: SPACE_EDIT },
+      schema: { params: projectParams, body: startFirstVersionSchema, response: { 202: z.object({ groupId: z.uuid() }), 404: errorSchema, 409: errorSchema, 422: errorSchema, ...authErrorResponses } },
+    },
+    async (request, reply) =>
+      handle(reply, async () => {
+        const started = await startFirstVersion(app.db, request.user!, request.params.projectId, request.body.sources);
+        return reply.code(202).send(started);
+      }),
+  );
+
+  const firstVersionConflict = z.object({ code: z.string(), message: z.string(), byId: z.uuid().nullable().optional(), byName: z.string().nullable().optional(), pageId: z.uuid().nullable().optional(), pageTitle: z.string().nullable().optional(), touch: z.string().nullable().optional() });
+  app.post(
+    "/projects/:projectId/product/first-version/undo",
+    { config: { access: SPACE_EDIT }, schema: { params: projectParams, response: { 204: z.null(), 404: errorSchema, 409: firstVersionConflict, ...authErrorResponses } } },
+    async (request, reply) => {
+      try {
+        await undoFirstVersion(app.db, request.user!, request.params.projectId);
+        return reply.code(204).send(null);
+      } catch (error) {
+        if (error instanceof FirstVersionUndoBlockedError) {
+          const u = error.undo;
+          return reply.code(409).send({ code: error.code, message: error.message, byId: u.byId, byName: u.byName, pageId: u.pageId, pageTitle: u.pageTitle, touch: u.touch });
+        }
+        if (error instanceof ProductDocsError) return apiError(reply, error.status, error.code, error.message);
+        throw error;
+      }
+    },
+  );
+
+  app.post(
+    "/projects/:projectId/product/first-version/stop",
+    { config: { access: SPACE_EDIT }, schema: { params: projectParams, response: { 204: z.null(), 404: errorSchema, ...authErrorResponses } } },
+    async (request, reply) =>
+      handle(reply, async () => {
+        await stopFirstVersion(app.db, request.user!, request.params.projectId);
+        return reply.code(204).send(null);
+      }),
+  );
+
+  app.post(
+    "/product-pages/:id/first-version/accept",
+    { config: { access: PAGE_EDIT }, schema: { params: pageParams, response: { 204: z.null(), 404: errorSchema, 422: errorSchema, ...authErrorResponses } } },
+    async (request, reply) =>
+      handle(reply, async () => {
+        await acceptFirstVersionPage(app.db, request.user!, request.params.id);
+        return reply.code(204).send(null);
+      }),
+  );
 
   // --- F5: le domande di Claude (rispondere chiede `docs.edit`, una risposta sola) ---
 

@@ -376,6 +376,9 @@ describe("il registro decisioni non è mai scritto dall'AI — sul sorgente", ()
     // registro lo controlla sul sorgente `product-docs/job.test.ts` («non scrive nel registro»).
     "./product-question-origin.ts",
     "./product-claude-cards.ts",
+    // Area 11, F6: la prima versione (il server la accoda e la legge; la scrittura delle pagine è del package).
+    "./product-first-version.ts",
+    "../../../../packages/notifications/src/product-first-version.ts",
   ];
 
   it.each(MODULES)("%s non nomina nessun esecutore di agenti", async (relative) => {
