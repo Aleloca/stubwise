@@ -3,7 +3,7 @@ import { useCallback, useEffect } from "react";
 import * as api from "@backend/api";
 import { PRODUCT_IMAGE_REF_PREFIX } from "@stubwise/shared";
 import { featureIntegrated } from "../integration";
-import { PROJECT_AREAS, useInvalidate, useSessionPersonId, useWrite } from "../queries";
+import { PROJECT_AREAS, REQUEST_AREAS, useInvalidate, useSessionPersonId, useWrite } from "../queries";
 import { useInstanceChanges } from "./instance";
 import type { FirstVersionSource, ProductBlockOp, ProductRevisionView } from "../types";
 
@@ -535,6 +535,17 @@ export function useUndoFirstVersion() {
 }
 
 /** Risponde a una domanda di Claude, dal filo o da «Decide»: `apply` o `keep`. */
+/**
+ * «Create request» dalla scheda nel filo (build app, F5): l'esito è la
+ * risposta della POST; rilegge domande, «Decide», riquadro, card e richieste.
+ */
+export function useCreateRequestFromQuestion() {
+  return useWrite(
+    (input: Parameters<typeof api.createRequestFromQuestion>[0]) => api.createRequestFromQuestion(input),
+    [...ANSWER_AREAS, ...REQUEST_AREAS],
+  );
+}
+
 export function useAnswerProductQuestion() {
   return useWrite(
     ({ commentId, option }: { commentId: string; option: "apply" | "keep" }) =>

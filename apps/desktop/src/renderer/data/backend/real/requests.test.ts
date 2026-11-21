@@ -5,6 +5,7 @@ import {
   archiveRequest,
   convertRequest,
   createRequest,
+  createRequestFromQuestion,
   getRequest,
   getRequestByCode,
   listRequests,
@@ -194,6 +195,30 @@ describe("le Requests dal server", () => {
     await expect(createRequest({ projectId: PROJECT_ID, title: "x", origin })).rejects.toThrow("already_answered");
     installFakeServer({ "POST /api/requests": { status: 422, body: { code: "invalid_origin", message: "x" } } });
     await expect(createRequest({ projectId: PROJECT_ID, title: "x", origin })).rejects.toThrow("invalid: origin");
+  });
+
+  it("«Create request» dalla scheda nel filo: l'esito è la risposta della POST (202), senza aspettare l'intake", async () => {
+    const PAGE = "aaaaaaaa-0000-4000-8000-000000000001";
+    const QUESTION = "eeeeeeee-0000-4000-8000-000000000001";
+    const origin = { kind: "product_doc" as const, pageId: PAGE, anchorId: "blk-1", questionId: QUESTION };
+    const { seen } = installFakeServer({ "POST /api/requests": { status: 202, body: { jobId: "job-7" } } });
+    await expect(
+      createRequestFromQuestion({ projectId: PROJECT_ID, title: "PDF bills", description: "…", origin }),
+    ).resolves.toEqual({ code: null });
+    expect(seen.map((r) => `${r.method} ${r.path}`)).toEqual(["POST /api/requests"]);
+    expect(seen[0]!.body).toMatchObject({ origin });
+    // Arrivato secondo: chi ha risposto prima, e cosa.
+    installFakeServer({
+      "POST /api/requests": {
+        status: 409,
+        body: { code: "already_answered", message: "x", byId: "55555555-5555-4555-8555-555555555555", option: "keep" },
+      },
+    });
+    await expect(createRequestFromQuestion({ projectId: PROJECT_ID, title: "x", origin })).rejects.toMatchObject({
+      message: "already_answered",
+      byId: "55555555-5555-4555-8555-555555555555",
+      option: "keep",
+    });
   });
 
   it("un intake fallito è un errore; una richiesta nuova non è «fusa»", async () => {

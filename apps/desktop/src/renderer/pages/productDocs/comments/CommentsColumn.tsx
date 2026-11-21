@@ -60,6 +60,7 @@ export function CommentsColumn({
   onActive,
   onFocusThread,
   headingRef,
+  requestCardFor,
 }: {
   page: ProductPageView;
   project: Project;
@@ -72,6 +73,8 @@ export function CommentsColumn({
   onActive: (rootId: string | null) => void;
   onFocusThread: (rootId: string) => void;
   headingRef?: RefObject<HTMLDivElement | null>;
+  /** Build app: da Home «Decide», la domanda su cui aprire la scheda «Open a request» (`?requestCard=1`). */
+  requestCardFor?: string;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
@@ -84,6 +87,13 @@ export function CommentsColumn({
   const preparing = useProductRequestsPreparing(page.id);
   /** Build app: la domanda con la scheda «Open a request» aperta nel filo. */
   const [requestOpen, setRequestOpen] = useState<string | null>(null);
+  // Da Home «Decide» (build app): la scheda aperta sul filo, una volta per indirizzo.
+  const requestCardOpened = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isAppBuild() || !requestCardFor || requestCardOpened.current === requestCardFor) return;
+    requestCardOpened.current = requestCardFor;
+    setRequestOpen(requestCardFor);
+  }, [requestCardFor]);
   // Chi guarda è arrivato secondo (`already_answered`): il filo ricaricato lo dice.
   const [firstAnswers, setFirstAnswers] = useState<ReadonlyMap<string, FirstAnswer>>(new Map());
   // Il fuoco di una risposta: quando il filo lascia gli aperti, va qui.
@@ -357,14 +367,13 @@ export function CommentsColumn({
           projectCode={project.code}
           request={th.root.question.request}
           origin={{ kind: "product_doc", pageId: th.root.pageId, anchorId: th.root.anchorId, questionId: th.root.id }}
-          onDone={() => {
-            setRequestOpen(null);
-            void comments.refetch();
-          }}
+          // Le domande, «Decide», il riquadro e le richieste si rileggono con la
+          // scrittura (`useCreateRequestFromQuestion`).
+          onDone={() => setRequestOpen(null)}
           onCancel={() => setRequestOpen(null)}
-          onAlreadyAnswered={() => {
+          onAlreadyAnswered={(first) => {
             setRequestOpen(null);
-            void comments.refetch();
+            alreadyAnswered(th.root.id)(first);
           }}
         />
       ) : undefined,

@@ -212,6 +212,8 @@ export interface AppSearch {
   section?: string;
   /** Una pagina di prodotto (area 11a): il filo di un commento da aprire (l'id della radice). */
   comment?: string;
+  /** Area 11, F5 (build app): col filo di `comment`, la scheda «Open a request» aperta (`1`). */
+  requestCard?: string;
   /** 11b (P43): il segno di Claude da aprire (l'id d'ancora) e la riga della cronologia (la revisione). */
   mark?: string;
   history?: string;
@@ -247,6 +249,7 @@ export interface AppSearch {
 const SEARCH_KEYS = [
   "task",
   "comment",
+  "requestCard",
   "mark",
   "history",
   "newTask",
@@ -359,6 +362,7 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
             : key === "ask"
               ? value.trim().length > 0 && value.length <= ASK_MAX
               : key === "refine" ||
+                  key === "requestCard" ||
                   key === "recordDecision" ||
                   key === "settings" ||
                   key === "newMeeting" ||

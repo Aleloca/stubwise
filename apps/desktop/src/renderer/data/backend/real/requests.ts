@@ -152,6 +152,41 @@ function isTransient(error: unknown): boolean {
  */
 export const createRequest: typeof Fake.createRequest = (input, options) => createRequestWith(input, options);
 
+/**
+ * «Create request» dalla scheda nel filo di una domanda di Claude (area 11,
+ * F5): il server crea la richiesta e chiude la domanda alla POST (202), quindi
+ * l'esito è quella risposta. L'intake prosegue sul server e il codice arriva
+ * con la domanda riletta (`answer.requestCode`). `already_answered` porta chi
+ * ha risposto prima e cosa.
+ */
+export const createRequestFromQuestion: typeof Fake.createRequestFromQuestion = async (input) => {
+  try {
+    await appClient().requests.create({
+      projectId: input.projectId,
+      title: input.title,
+      description: input.description ?? "",
+      origin: {
+        kind: "product_doc",
+        pageId: input.origin.pageId,
+        anchorId: input.origin.anchorId,
+        questionId: input.origin.questionId,
+      },
+    } as Parameters<ReturnType<typeof appClient>["requests"]["create"]>[0]);
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "already_answered") {
+      const d = (error.details ?? {}) as { byId?: unknown; option?: unknown };
+      throw Object.assign(new Error("already_answered"), {
+        byId: typeof d.byId === "string" ? d.byId : null,
+        ...(typeof d.option === "string" ? { option: d.option } : {}),
+      });
+    }
+    if (error instanceof ApiError && error.code === "invalid_origin") throw new Error("invalid: origin");
+    if (error instanceof ApiError && error.status === 403) throw new Error("forbidden");
+    throw error;
+  }
+  return { code: null };
+};
+
 /** La creazione di una richiesta (con l'intake); con `chatMessageId` (area 4, fetta 2) nasce da un messaggio. */
 export async function createRequestWith(
   input: Parameters<typeof Fake.createRequest>[0],

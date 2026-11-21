@@ -14,6 +14,7 @@ import type {
   ProductQuestionDecision,
 } from "../../../data/types";
 import { questionSentence } from "../../../domain/productDocs/claudeText";
+import { isAppBuild } from "../../../data/build";
 import { openClaudePanel } from "../../../layout/claudePanel/panelEvents";
 import { relativeTime } from "../../../notifications/time";
 import { inputClass } from "../../../tasks-ui/Dialog";
@@ -513,12 +514,21 @@ function ProductQuestionItem({ decision }: { decision: ProductQuestionDecision }
               blocked={decision.applyBlocked !== null}
               blockedId={blockedId}
               onAnswer={answer}
+              // Build app: al filo della domanda con la scheda aperta (la
+              // scheda sta nel filo, decisione del maintainer), mai un
+              // messaggio al Claude del server. Prototipo: il riquadro.
               onRequest={() =>
-                openClaudePanel({
-                  draft: t("claude.answers.productDocs.ask.question", { id: decision.commentId }),
-                  fresh: true,
-                  send: true,
-                })
+                isAppBuild()
+                  ? void navigate({
+                      to: "/p/$code/docs/product/$page",
+                      params: { code: decision.projectCode, page: decision.pageCode },
+                      search: { comment: decision.commentId, requestCard: "1" } as never,
+                    })
+                  : openClaudePanel({
+                      draft: t("claude.answers.productDocs.ask.question", { id: decision.commentId }),
+                      fresh: true,
+                      send: true,
+                    })
               }
             />
             {decision.applyBlocked && (

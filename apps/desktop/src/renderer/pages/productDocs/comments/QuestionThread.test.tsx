@@ -1,5 +1,5 @@
 import * as React from "react";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../../../data/api";
@@ -45,6 +45,8 @@ beforeEach(() => {
   setMatchMedia(DOCKED_PANEL_QUERY, true);
 });
 afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
   act(() => setLanguage("en"));
 });
 
@@ -320,13 +322,12 @@ describe("«Open a request» nella build app: la scheda B nel filo (decisione de
     await waitFor(() => expect(card()).toBeNull());
     expect(flat(thread(BILLS_Q)!)).not.toContain("A request is being prepared");
     expect(state.productComments.find((c) => c.id === BILLS_Q)!.question!.answer).toBeNull();
-    vi.unstubAllEnvs();
   });
 
   it("«Create request» crea la richiesta con l'origine della domanda, e la domanda si chiude", async () => {
     vi.stubEnv("VITE_STUBWISE_BUILD", "app");
     setSessionPersonId(LAURA);
-    const create = vi.spyOn(api, "createRequest");
+    const create = vi.spyOn(api, "createRequestFromQuestion");
     const th = await questionThread(BILLS, BILLS_Q);
     const user = userEvent.setup();
     await user.click(within(th).getByRole("button", { name: "Open a request" }));
@@ -338,7 +339,43 @@ describe("«Open a request» nella build app: la scheda B nel filo (decisione de
       origin: { kind: "product_doc", pageId: root.pageId, anchorId: root.anchorId, questionId: BILLS_Q },
     });
     await waitFor(() => expect(root.question!.answer?.option).toBe("request"));
-    vi.unstubAllEnvs();
+    // Chiusa alla risposta, la domanda si rilegge: il filo è fra le risolte.
+    await waitFor(() => expect(card()).toBeNull());
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("un doppio clic su «Create request» crea una richiesta sola", async () => {
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    setSessionPersonId(LAURA);
+    setLatency(50);
+    const create = vi.spyOn(api, "createRequestFromQuestion");
+    const th = await questionThread(BILLS, BILLS_Q);
+    const user = userEvent.setup();
+    await user.click(within(th).getByRole("button", { name: "Open a request" }));
+    await waitFor(() => expect(card()).not.toBeNull());
+    const button = within(card()!).getByRole("button", { name: "Create request" });
+    // Due clic nello stesso giro, prima che il bottone si spenga.
+    act(() => {
+      fireEvent.click(button);
+      fireEvent.click(button);
+    });
+    await waitFor(() => expect(card()).toBeNull());
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("arrivata seconda: la scheda si chiude e il filo dice chi ha risposto prima", async () => {
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    setSessionPersonId(LAURA);
+    const th = await questionThread(BILLS, BILLS_Q);
+    const user = userEvent.setup();
+    await user.click(within(th).getByRole("button", { name: "Open a request" }));
+    await waitFor(() => expect(card()).not.toBeNull());
+    vi.spyOn(api, "createRequestFromQuestion").mockRejectedValueOnce(
+      Object.assign(new Error("already_answered"), { byId: MARCO, option: "keep" }),
+    );
+    await user.click(within(card()!).getByRole("button", { name: "Create request" }));
+    await waitFor(() => expect(card()).toBeNull());
+    await waitFor(() => expect(flat(document.body)).toContain("Marco Bellini"));
   });
 });
 

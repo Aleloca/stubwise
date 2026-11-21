@@ -150,7 +150,7 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
   const me = useSessionPersonId();
   const docked = useMediaQuery(DOCKED_PANEL_QUERY);
   const params = useParams({ strict: false }) as { page?: string };
-  const search = useSearch({ strict: false }) as { comment?: string; task?: string; mark?: string; history?: string };
+  const search = useSearch({ strict: false }) as { comment?: string; task?: string; mark?: string; history?: string; requestCard?: string };
   const pageCode = params.page ?? null;
   const [width, setWidth] = useState(TREE_DEFAULT);
   const [drawer, setDrawer] = useState(false);
@@ -429,6 +429,7 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
         onEndDraft={side.endDraft}
         onActive={side.setActive}
         onFocusThread={side.focusThread}
+        requestCardFor={search.requestCard === "1" ? search.comment : undefined}
       />
     ) : view && side.side === "history" ? (
       <HistoryPanel

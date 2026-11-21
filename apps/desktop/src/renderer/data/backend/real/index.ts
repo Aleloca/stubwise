@@ -159,6 +159,7 @@ export {
   archiveRequest,
   convertRequest,
   createRequest,
+  createRequestFromQuestion,
   getRequest,
   getRequestByCode,
   listRequests,

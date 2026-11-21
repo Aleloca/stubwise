@@ -1,18 +1,20 @@
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { useCreateRequest } from "../../../data/queries";
-import type { ProductDocOrigin } from "../../../data/types";
+import { useCreateRequestFromQuestion } from "../../../data/queries/productDocs";
+import type { ProductAnswerChoice, ProductDocOrigin } from "../../../data/types";
 import { useToast } from "../../../tasks-ui/Toast";
 import { secondaryButton } from "../../tasks/controls";
+import type { FirstAnswer } from "./QuestionThread";
 
 // «Open a request» da una domanda di Claude nella build app (area 11, F5;
 // decisione del maintainer, strada 1): la scheda B sta nel filo, sotto la
 // domanda, non nel riquadro (che nell'app è la conversazione del Claude del
 // server). Titolo e descrizione da `question.request`, come
-// `productQuestionRequestDraft` del prototipo; «Create request» la crea con
-// l'origine della domanda (il server chiude la domanda nella stessa
-// transazione), «Cancel» la chiude e la domanda resta aperta. Il prototipo
-// resta col riquadro (tabella di parità).
+// `productQuestionRequestDraft` del prototipo. «Create request» la crea con
+// l'origine della domanda: il server chiude la domanda alla POST, e quella
+// risposta è l'esito (l'intake prosegue sul server; il codice arriva con la
+// domanda riletta). «Cancel» la chiude e la domanda resta aperta. Il
+// prototipo resta col riquadro (tabella di parità).
 
 export function RequestCard({
   projectId,
@@ -29,25 +31,34 @@ export function RequestCard({
   origin: Required<ProductDocOrigin>;
   onDone: () => void;
   onCancel: () => void;
-  onAlreadyAnswered: () => void;
+  onAlreadyAnswered: (first: FirstAnswer) => void;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
-  const create = useCreateRequest();
+  const create = useCreateRequestFromQuestion();
   const card = useRef<HTMLDivElement>(null);
+  // Contro il doppio clic, prima che `isPending` spenga il bottone.
+  const inflight = useRef(false);
   // Aperta, il fuoco va alla scheda (come la scheda B nel riquadro).
   useEffect(() => card.current?.focus(), []);
 
-  const confirm = () =>
+  const confirm = () => {
+    if (inflight.current) return;
+    inflight.current = true;
     create
-      .mutateAsync({
-        input: { projectId, title: request.title, description: request.description, origin },
-      })
+      .mutateAsync({ projectId, title: request.title, description: request.description, origin })
       .then(onDone, (error: unknown) => {
-        const message = error instanceof Error ? error.message : "";
-        if (message === "already_answered") onAlreadyAnswered();
+        const e = error as
+          | (Error & { byId?: string | null; option?: ProductAnswerChoice })
+          | undefined;
+        if (e?.message === "already_answered")
+          onAlreadyAnswered({ byId: e.byId ?? null, option: e.option ?? "request" });
         else toast.error(t("productDocs.question.requestCard.failed"));
+      })
+      .finally(() => {
+        inflight.current = false;
       });
+  };
 
   return (
     <div
@@ -71,7 +82,7 @@ export function RequestCard({
         <button
           type="button"
           disabled={create.isPending}
-          onClick={() => void confirm()}
+          onClick={confirm}
           className="inline-flex h-7 items-center rounded-md bg-ink px-2.5 text-sm font-medium text-ground disabled:opacity-60"
         >
           {t("productDocs.question.requestCard.create")}

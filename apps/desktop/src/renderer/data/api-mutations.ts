@@ -976,6 +976,19 @@ export async function createRequest(
   return copy(createRequestAs(me, input));
 }
 
+/**
+ * «Create request» dalla scheda nel filo di una domanda di Claude (area 11,
+ * F5, build app; nel prototipo la scheda sta nel riquadro): crea la richiesta
+ * con l'origine della domanda, che si chiude. Nel prototipo l'intake è
+ * immediato e il codice c'è subito; sul server vero arriva con la domanda.
+ */
+export async function createRequestFromQuestion(
+  input: NewRequestInput & { origin: Required<ProductDocOrigin> },
+): Promise<{ code: string | null }> {
+  const me = await gate("createRequest");
+  return { code: createRequestAs(me, input).code };
+}
+
 /** Crea una richiesta a nome di `me` (anche «Create request» da un messaggio della Chat). */
 /** I controlli di una richiesta nuova, senza scrivere niente (vedi `checkNewTask`). */
 export function checkNewRequest(
