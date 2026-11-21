@@ -351,6 +351,13 @@ export class ProductLiveHub {
     }
     if (typeof msg.pageId !== "string") return;
     if (msg.type === "gone") return this.gone(msg.pageId);
+    // F6: una bozza di schermata è cambiata (disegnata, una variante nuova, fallita): il client rilegge la pagina.
+    if (msg.type === "wireframe") {
+      const w = msg as { wireframeId?: unknown; status?: unknown };
+      if (typeof w.wireframeId !== "string" || typeof w.status !== "string") return;
+      void this.broadcast(msg.pageId, () => ({ type: "wireframe", wireframeId: w.wireframeId as string, status: w.status as string }));
+      return;
+    }
     if (msg.type !== "revision") return;
     const event = msg as unknown as ProductRevisionEvent;
     // La rotta dello stesso processo arriva subito dopo il commit con le operazioni: le si dà un attimo.

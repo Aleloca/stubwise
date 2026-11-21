@@ -2757,7 +2757,7 @@ export const productPageRevisions = pgTable(
     seq: integer("seq").notNull(),
     lastSeq: integer("last_seq").notNull(),
     actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
-    kind: text("kind").$type<"create" | "edit" | "rename" | "move" | "undo" | "claude">().notNull().default("edit"),
+    kind: text("kind").$type<"create" | "edit" | "rename" | "move" | "undo" | "claude" | "first_version">().notNull().default("edit"),
     undoOf: uuid("undo_of").references((): AnyPgColumn => productPageRevisions.id, { onDelete: "set null" }),
     changes: jsonb("changes").$type<unknown[]>().notNull().default([]),
     title: jsonb("title").$type<{ before: string; after: string } | null>(),
@@ -2773,7 +2773,7 @@ export const productPageRevisions = pgTable(
   },
   (table) => [
     index("product_page_revisions_page_seq_idx").on(table.pageId, table.lastSeq),
-    check("product_page_revisions_kind_chk", sql`kind in ('create', 'edit', 'rename', 'move', 'undo', 'claude')`),
+    check("product_page_revisions_kind_chk", sql`kind in ('create', 'edit', 'rename', 'move', 'undo', 'claude', 'first_version')`),
     check("product_page_revisions_via_chk", sql`via IS NULL OR via = 'claude'`),
     check("product_page_revisions_claude_source_chk", sql`kind <> 'claude' OR (source_kind IS NOT NULL AND source_id IS NOT NULL AND via = 'claude')`),
   ],
@@ -2845,7 +2845,8 @@ export const productDocJobs = pgTable(
     projectId: uuid("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
-    sourceKind: text("source_kind").$type<"email" | "meeting" | "decision" | "task" | "release">().notNull(),
+    /** F6 (0214): anche `first_version`, la prima versione di uno spazio (`source_id` = la sua riga). */
+    sourceKind: text("source_kind").$type<"email" | "meeting" | "decision" | "task" | "release" | "first_version" | "wireframe">().notNull(),
     sourceId: uuid("source_id").notNull(),
     status: text("status").$type<"queued" | "running" | "held" | "done" | "failed">().notNull().default("queued"),
     heldReason: text("held_reason").$type<"limit" | "budget" | "section_busy" | "paused">(),
@@ -2867,12 +2868,76 @@ export const productDocJobs = pgTable(
   (table) => [
     uniqueIndex("product_doc_jobs_source_unique").on(table.projectId, table.sourceKind, table.sourceId),
     index("product_doc_jobs_queued_idx").on(table.createdAt).where(sql`status = 'queued'`),
-    check("product_doc_jobs_source_kind_chk", sql`source_kind in ('email', 'meeting', 'decision', 'task', 'release')`),
+    check("product_doc_jobs_source_kind_chk", sql`source_kind in ('email', 'meeting', 'decision', 'task', 'release', 'first_version', 'wireframe')`),
     check("product_doc_jobs_status_chk", sql`status in ('queued', 'running', 'held', 'done', 'failed')`),
     check("product_doc_jobs_held_chk", sql`(status = 'held') = (held_reason IS NOT NULL)`),
     check("product_doc_jobs_held_reason_chk", sql`held_reason IS NULL OR held_reason in ('limit', 'budget', 'section_busy', 'paused')`),
     check("product_doc_jobs_last_held_reason_chk", sql`last_held_reason IS NULL OR last_held_reason in ('limit', 'budget', 'section_busy', 'paused')`),
   ],
+);
+
+/**
+ * Area 11, F6 (0214): la prima versione di Claude in uno spazio Product vuoto,
+ * una viva (`writing`) per progetto. Le fonti sono riferimenti, lette con la
+ * visibilità di chi l'ha chiesta; il testo incollato sta in `pasted_text` solo
+ * finché il lavoro non l'ha letto. `plan` = le pagine (titolo, profondità),
+ * `draft` = i blocchi del modello, `written` = le pagine create con la loro
+ * revisione `first_version`, nell'ordine di `plan`.
+ */
+export const productFirstVersions = pgTable(
+  "product_first_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    startedBy: uuid("started_by").references(() => users.id, { onDelete: "set null" }),
+    sources: jsonb("sources").$type<unknown[]>().notNull(),
+    pastedText: text("pasted_text"),
+    status: text("status").$type<"writing" | "done" | "undone">().notNull().default("writing"),
+    interrupted: boolean("interrupted").notNull().default(false),
+    stopRequested: boolean("stop_requested").notNull().default(false),
+    plan: jsonb("plan").$type<{ title: string; depth: number }[]>().notNull().default(sql`'[]'::jsonb`),
+    draft: jsonb("draft").$type<unknown[]>(),
+    written: jsonb("written").$type<{ pageId: string; revisionId: string }[]>().notNull().default(sql`'[]'::jsonb`),
+    acceptedPageIds: uuid("accepted_page_ids").array().notNull().default(sql`'{}'::uuid[]`),
+    undoneBy: uuid("undone_by").references(() => users.id, { onDelete: "set null" }),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("product_first_versions_project_idx").on(table.projectId, table.createdAt),
+    uniqueIndex("product_first_versions_writing_unique").on(table.projectId).where(sql`status = 'writing'`),
+    check("product_first_versions_status_chk", sql`status in ('writing', 'done', 'undone')`),
+  ],
+);
+
+/**
+ * Area 11, F6 (0215): una bozza di schermata. Il blocco `wireframe` della
+ * pagina la nomina (`wireframeId`) e sceglie una variante (`variant`, indice
+ * in `variants`). Lo SVG è già RIPULITO (`sanitizeWireframeSvg`). `drawing` =
+ * il modello sta disegnando (la prima volta, o una variante nuova).
+ */
+export const productWireframes = pgTable(
+  "product_wireframes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => productPages.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    blockId: text("block_id").notNull(),
+    requestedBy: uuid("requested_by").references(() => users.id, { onDelete: "set null" }),
+    status: text("status").$type<"drawing" | "ready" | "failed">().notNull().default("drawing"),
+    variants: jsonb("variants").$type<{ svg: string }[]>().notNull().default(sql`'[]'::jsonb`),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("product_wireframes_page_idx").on(table.pageId), check("product_wireframes_status_chk", sql`status in ('drawing', 'ready', 'failed')`)],
 );
 
 /** Area 11, F5 (0210): i segni di Claude, uno per ancora di una revisione `claude`. */

@@ -337,7 +337,8 @@ describe("le domande aperte", () => {
     const otherId = await vagueQuestion(other);
     const mine = (await inject(bea, "GET", `/api/me/product-questions`)).json() as ProductOpenQuestion[];
     expect(mine.map((q) => q.commentId)).toEqual(expect.arrayContaining([id, otherId]));
-    expect(mine.find((q) => q.commentId === id)).toMatchObject({ pageId: p.id, pageCode: p.code, projectId, anchorId: p.ids.a1, question: { reason: "vague", canAnswer: true } });
+    // `quote`: la frase del commento-domanda (`c.quote` del prototipo), anche per una domanda che inserisce.
+    expect(mine.find((q) => q.commentId === id)).toMatchObject({ pageId: p.id, pageCode: p.code, projectId, anchorId: p.ids.a1, quote: "a uno", question: { reason: "vague", canAnswer: true } });
     expect((await inject(vic, "GET", `/api/me/product-questions`)).json()).toEqual([]);
     const onPage = (await inject(bea, "GET", `/api/me/product-questions?pageId=${p.id}`)).json() as ProductOpenQuestion[];
     expect(onPage.map((q) => q.commentId)).toEqual([id]);
