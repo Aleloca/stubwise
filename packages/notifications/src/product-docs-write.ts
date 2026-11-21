@@ -92,6 +92,12 @@ export interface ClaudeWriteInput {
   ownerId: string | null;
   /** Il `rev_seq` della pagina quando il lavoro l'ha letta: il «dopo» di chi l'ha toccata. */
   arrivedSeq: number;
+  /**
+   * Nella STESSA transazione, a scrittura riuscita (anche senza modifiche):
+   * il lavoro segna la pagina come fatta, così un lavoro ripreso non la
+   * riscrive (revisione di F5, 1).
+   */
+  onWritten?: (tx: Db) => Promise<void>;
 }
 
 export type ClaudeFactOutcome =
@@ -349,6 +355,7 @@ export async function writeClaudeFacts(db: Db, input: ClaudeWriteInput): Promise
       outcomes.push({ factId: q.fact.id, kind: "question", reason: q.reason, commentId: c!.id });
       await card.question(c!.id);
     }
+    await input.onWritten?.(tx);
     return { kind: "written", revisionId, seq, outcomes } as const;
   });
 }
