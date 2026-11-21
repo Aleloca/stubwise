@@ -62,7 +62,7 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
     },
     // Leggero: un estratto al posto di descrizione, design e piano (il dettaglio li porta interi).
     async (request) =>
-      loadRequestSummaries(app.db, [
+      loadRequestSummaries(app.db, request.user!, [
         eq(backlogItems.projectId, request.query.projectId),
         await requestVisibility(app.db, request.user!),
       ]),
@@ -83,7 +83,7 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
         .from(projects)
         .where(and(eq(projects.code, match[1]!.toUpperCase()), inProjects(projects.id, await visibleProjectIds(app.db, request.user!))));
       if (!project) return apiError(reply, 404, "not_found", "Request not found");
-      const [view] = await loadRequestViews(app.db, [
+      const [view] = await loadRequestViews(app.db, request.user!, [
         eq(backlogItems.projectId, project.id),
         eq(backlogItems.number, Number(match[2])),
         await requestVisibility(app.db, request.user!),

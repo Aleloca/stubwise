@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { backlogJobs, createRequestItem, productClaudeMarks, productComments, productDocJobs, productPageRevisions, productSectionHolds, projectDecisions } from "@stubwise/db";
+import { backlogJobs, createRequestItem, productClaudeMarks, productRequestOrigins, productComments, productDocJobs, productPageRevisions, productSectionHolds, projectDecisions } from "@stubwise/db";
 import { seedEmailMessage, seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { writeClaudeFacts } from "@stubwise/notifications";
 import type { ProductCommentsView, ProductFact, ProductOpenQuestion, ProductPageView, ProductQuestionView, ProductRevisionView } from "@stubwise/shared";
@@ -282,6 +282,9 @@ describe("«Open a request»: createRequest con l'origine della domanda", () => 
     await t.db.update(backlogJobs).set({ status: "done", resultItemId: itemId }).where(eq(backlogJobs.id, jobId));
     expect((await questionOf(bea, p, id)).answer).toMatchObject({ requestId: itemId, requestCode: expect.stringMatching(/-R\d+$/) });
     expect(await textOf(p, p.ids.a1)).toBe("a uno");
+    // F6: l'origine si salva con la domanda, e la richiesta dice da quale pagina nasce.
+    expect(await t.db.select().from(productRequestOrigins).where(eq(productRequestOrigins.intakeJobId, jobId))).toEqual([expect.objectContaining({ pageId: p.id, anchorId: p.ids.a1, questionId: id, createdBy: bea.id })]);
+    expect(((await inject(bea, "GET", `/api/requests/${itemId}`)).json() as { productOrigin: unknown }).productOrigin).toMatchObject({ pageId: p.id });
   });
 
   it("rifiutata PRIMA che la richiesta nasca: domanda già risposta (409 con chi), di un'altra pagina o di un altro progetto (422)", async () => {

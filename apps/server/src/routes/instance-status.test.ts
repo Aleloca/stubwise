@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { aiJobs, changeLog, instanceSettings, projectMembers, projects, roles, tickets, users, workerHeartbeats, type Db, agentRuns } from "@stubwise/db";
+import { aiJobs, changeLog, instanceSettings, productDocJobs, projectMembers, projects, roles, tickets, users, workerHeartbeats, type Db, agentRuns } from "@stubwise/db";
 import { seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { InstanceStatus } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
@@ -133,6 +133,31 @@ describe("lo Stato dell'istanza", () => {
     const ids = (await status()).body.jobs.map((j) => j.id);
     expect(ids).not.toContain(held.id);
     expect(ids).not.toContain(plan.id);
+  });
+
+  it("area 11, F6, Task 4: i lavori della doc in coda, in corso e fermi (budget, pausa) hanno la loro riga, senza titolo; i finiti no; R-G5", async () => {
+    const s = await seedTicket(db);
+    const other = await seedTicket(db);
+    const src = () => randomUUID();
+    const [running] = await db.insert(productDocJobs).values({ projectId: s.projectId, sourceKind: "email", sourceId: src(), status: "running", startedAt: minutesAgo(1) }).returning();
+    const [budget] = await db.insert(productDocJobs).values({ projectId: s.projectId, sourceKind: "meeting", sourceId: src(), status: "held", heldReason: "budget", lastHeldReason: "budget" }).returning();
+    const [paused] = await db.insert(productDocJobs).values({ projectId: s.projectId, sourceKind: "task", sourceId: src(), status: "held", heldReason: "paused", lastHeldReason: "paused" }).returning();
+    const [done] = await db.insert(productDocJobs).values({ projectId: s.projectId, sourceKind: "decision", sourceId: src(), status: "done" }).returning();
+    const [hidden] = await db.insert(productDocJobs).values({ projectId: other.projectId, sourceKind: "email", sourceId: src(), status: "queued" }).returning();
+    await db.update(projects).set({ queuePausedAt: new Date(), queuePausedByUserId: adminId }).where(eq(projects.id, s.projectId));
+    try {
+      const dev = await person([{ projectId: s.projectId, preset: "developer" }]);
+      const { body } = await status(dev.cookie);
+      const rows = body.jobs.filter((j) => j.kind === "product_doc_update");
+      expect(rows.find((j) => j.id === running!.id)).toMatchObject({ state: "running", waiting: null, title: "", code: null, projectCode: expect.any(String) });
+      expect(rows.find((j) => j.id === budget!.id)).toMatchObject({ state: "waiting", waiting: { reason: "monthly_budget" } });
+      expect(rows.find((j) => j.id === paused!.id)).toMatchObject({ state: "waiting", waiting: { reason: "queue_paused", byId: adminId } });
+      expect(rows.map((j) => j.id)).not.toContain(done!.id);
+      expect(JSON.stringify(body)).not.toContain(hidden!.id);
+    } finally {
+      await db.update(projects).set({ queuePausedAt: null, queuePausedByUserId: null }).where(eq(projects.id, s.projectId));
+      await db.delete(productDocJobs);
+    }
   });
 
   it("un ticket chiuso non si rilancia", async () => {

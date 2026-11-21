@@ -6,6 +6,7 @@ import type { SessionUser } from "../auth/session.js";
 import { personName } from "./people.js";
 import { visiblePersonIds } from "./people-visibility.js";
 import { ProductDocsError } from "./product-docs.js";
+import { checkPageProposal, recordProductOrigin } from "./product-origins.js";
 
 /**
  * Area 11, F5, Task 4 — la parte LEGGERA delle domande di Claude: leggere la
@@ -99,8 +100,8 @@ export async function checkProductDocOrigin(tx: Db, viewer: Viewer, projectId: s
   const [page] = await tx.select({ id: productPages.id, projectId: productPages.projectId }).from(productPages).where(eq(productPages.id, origin.pageId)).for("no key update");
   const perms = page ? await projectPermissionsFor(tx, viewer, page.projectId) : null;
   if (!page || page.projectId !== projectId || !perms?.has("docs.view")) throw invalidOrigin();
-  // F6, Task 3: la voce proposta dalla pagina, senza domanda. Fino ad allora l'origine vuole la domanda.
-  if (origin.questionId === undefined) throw invalidOrigin();
+  // F6: una voce proposta dalla pagina, senza domanda: la frase non dev'essere già proposta (409 `already_proposed`).
+  if (origin.questionId === undefined) return checkPageProposal(tx, page.id, origin.anchorId);
   const [comment] = await tx.select().from(productComments).where(eq(productComments.id, origin.questionId)).for("update");
   const q = comment && comment.pageId === page.id && comment.replyToId === null && comment.deletedAt === null ? questionOf(comment) : null;
   if (!comment || !q) throw invalidOrigin();
@@ -110,8 +111,13 @@ export async function checkProductDocOrigin(tx: Db, viewer: Viewer, projectId: s
   if (q.request === null) throw invalidOrigin();
 }
 
-/** Chiude con «Open a request» la domanda dell'origine (già controllata), nella transazione del job d'intake. */
+/**
+ * Dopo il job d'intake, nella sua transazione: salva l'origine (F6, la pagina
+ * da cui nasce la richiesta) e chiude con «Open a request» la domanda
+ * dell'origine, se c'è (già controllata).
+ */
 export async function closeQuestionWithRequest(tx: Db, viewer: Viewer, origin: ProductDocOrigin, requestJobId: string): Promise<void> {
+  await recordProductOrigin(tx, viewer, origin, requestJobId);
   if (origin.questionId === undefined) return;
   await close(tx, viewer, origin.questionId, { option: "request", revisionId: null, requestJobId });
 }

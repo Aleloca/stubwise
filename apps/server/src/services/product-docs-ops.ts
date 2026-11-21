@@ -37,8 +37,6 @@ import { projectPermissionsFor } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { personName } from "./people.js";
 import { visiblePersonIds } from "./people-visibility.js";
-import type { ObjectStorage } from "../storage/index.js";
-import { removeOrRecordOrphan } from "../storage/orphans.js";
 import { moveMergedAnchors, restoreMergedAnchors } from "./product-comments.js";
 import { PRODUCT_HOLD_TTL_MS, notifyProductRevision } from "./product-live-notify.js";
 import { ProductDocsError } from "./product-docs.js";
@@ -386,31 +384,3 @@ export async function productPageProject(db: Db, pageId: string): Promise<{ id: 
   return row ?? null;
 }
 
-/**
- * Review di F1 (I2): le immagini caricate che nessun blocco della loro pagina
- * nomina più da almeno `olderThanDays` giorni (una tolta resta qualche giorno:
- * ⌘Z e la cronologia la rimettono). Righe e oggetti vanno via insieme; uno
- * storage che rifiuta lascia la chiave in `storage_orphans`. Gira con la
- * pulizia oraria dello storage.
- */
-export async function purgeUnusedProductImages(db: Db, storage: ObjectStorage | null, log: (msg: string) => void, olderThanDays = 7, limit = 200): Promise<number> {
-  if (!storage) return 0;
-  const rows = await db
-    .select({ id: productPageImages.id, key: productPageImages.storageKey })
-    .from(productPageImages)
-    .innerJoin(productPages, eq(productPages.id, productPageImages.pageId))
-    .where(
-      and(
-        lt(productPageImages.createdAt, sql`now() - make_interval(days => ${olderThanDays}::int)`),
-        lt(productPages.updatedAt, sql`now() - make_interval(days => ${olderThanDays}::int)`),
-        sql`position(${PRODUCT_IMAGE_REF_PREFIX} || ${productPageImages.id}::text in ${productPages.blocks}::text) = 0`,
-      ),
-    )
-    .limit(limit);
-  for (const row of rows) {
-    await db.delete(productPageImages).where(eq(productPageImages.id, row.id));
-    await removeOrRecordOrphan(db, storage, row.key, "product image unused");
-  }
-  if (rows.length > 0) log(`[product] ${rows.length} immagini non più usate tolte`);
-  return rows.length;
-}

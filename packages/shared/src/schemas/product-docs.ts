@@ -528,6 +528,44 @@ export const pickWireframeSchema = z.object({ variant: z.number().int().min(0) }
 /** `POST /api/product-pages/:id/wireframes/:blockId/replace-image`: un'immagine già caricata nella pagina. */
 export const replaceWireframeWithImageSchema = z.object({ src: productImageRefSchema, alt: z.string().max(2000).default("") }).strict();
 
+// --- Area 11, F6, Task 4: le voci di Claude e le sue letture ---------------------
+
+/** La fonte di un aggiornamento chiesto a mano (il prototipo: `sourceOf`): solo un'email o una riunione (`meeting_notes.id`). */
+export const productPageUpdateSourceSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("email"), id: z.uuid() }).strict(),
+  z.object({ kind: z.literal("meeting"), id: z.uuid() }).strict(),
+]);
+export type ProductPageUpdateSource = z.infer<typeof productPageUpdateSourceSchema>;
+
+/** `POST /api/product-pages/:id/update-from-source`: Claude rilegge UNA fonte per UNA pagina (un lavoro della coda della doc). */
+export const updateProductPageFromSourceSchema = z.object({ source: productPageUpdateSourceSchema }).strict();
+
+/** `POST /api/product-pages/:id/wireframes/:blockId/undo-draw`: toglie una bozza appena chiesta (la revisione `drew`). */
+export const undoDrawWireframeSchema = z.object({ revisionId: z.uuid() }).strict();
+
+/**
+ * `GET /api/product-changes?projectId=&since=`: i cambi della doc di prodotto
+ * dei progetti in cui chi chiede legge i Docs, dal più recente (il tool
+ * `read_product_changes`). La fonte come la vede chi chiede; i nomi solo se
+ * li vede (R-G5).
+ */
+export const productChangeSchema = z.object({
+  revisionId: z.uuid(),
+  pageId: z.uuid(),
+  pageCode: z.string(),
+  pageTitle: z.string(),
+  projectId: z.uuid(),
+  kind: z.enum(["create", "edit", "rename", "move", "undo", "claude", "first_version"]),
+  via: z.string().nullable().default(null),
+  actorName: z.string().nullable().default(null),
+  onBehalfOfName: z.string().nullable().default(null),
+  source: productSourceViewSchema.nullable().default(null),
+  at: z.string(),
+});
+export type ProductChange = z.infer<typeof productChangeSchema>;
+export const productChangesSchema = z.object({ items: z.array(productChangeSchema), more: z.boolean().default(false) });
+export type ProductChanges = z.infer<typeof productChangesSchema>;
+
 /**
  * `GET /api/product-pages/:id/backlog-candidates?fromAnchorId=`: le voci di
  * backlog che chi guarda può proporre dalla pagina (o dalla sezione di un

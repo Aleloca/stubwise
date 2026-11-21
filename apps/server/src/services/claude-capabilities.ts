@@ -22,7 +22,11 @@ import { usageScope } from "./usage-summary.js";
  *   `putPrReleaseNotes`, F6-1 = a);
  * - `mailBody`: una casella Google di chi chiede, viva e con gmail.modify
  *   (la regola di `fillMailBody`);
- * - `taskDescription`: il permesso della voce `updateTask`.
+ * - `taskDescription`: il permesso della voce `updateTask`;
+ * - area 11, F6: `productFirstVersion`, `productUpdate`, `productWireframe`
+ *   coi permessi delle loro voci (`docs.edit`), `productBacklog` con quello di
+ *   `createRequest`, `productChanges` con `docs.view` (la regola di
+ *   `/api/product-changes`).
  * Solo id, nell'ordine del prototipo: nessun dato di un progetto.
  */
 export async function claudeCapabilitiesOf(db: Db, user: Pick<SessionUser, "id" | "instancePermissions">): Promise<ClaudeCapabilityId[]> {
@@ -30,7 +34,7 @@ export async function claudeCapabilitiesOf(db: Db, user: Pick<SessionUser, "id" 
     const scope = await projectIdsWithPermission(db, user, permission);
     return isAllProjects(scope) || scope.length > 0;
   };
-  const permissionOf = (fn: "archiveProject" | "addMember" | "updateTask"): ProjectPermission => {
+  const permissionOf = (fn: "archiveProject" | "addMember" | "updateTask" | "writeFirstVersion" | "updateProductPage" | "drawWireframe" | "createRequest"): ProjectPermission => {
     const access = SERVER_CATALOG.get(fn)!.access;
     if (access.kind !== "project" || access.permission === "member") throw new Error(`${fn}: un permesso di progetto atteso`);
     return access.permission;
@@ -50,12 +54,13 @@ export async function claudeCapabilitiesOf(db: Db, user: Pick<SessionUser, "id" 
     releaseNotes: (await anywhere("release.merge")) || (await anywhere("tickets.edit")),
     mailBody: mailbox !== undefined,
     taskDescription: await anywhere(permissionOf("updateTask")),
-    // Area 11, F6: le capacità della doc di prodotto si accendono con le loro voci (Task 4).
-    productFirstVersion: false,
-    productUpdate: false,
-    productBacklog: false,
-    productWireframe: false,
-    productChanges: false,
+    // Area 11, F6, Task 4: le capacità della doc di prodotto, dai permessi delle loro voci.
+    productFirstVersion: await anywhere(permissionOf("writeFirstVersion")),
+    productUpdate: await anywhere(permissionOf("updateProductPage")),
+    productBacklog: await anywhere(permissionOf("createRequest")),
+    productWireframe: await anywhere(permissionOf("drawWireframe")),
+    // Legge i cambi (`read_product_changes`): chi legge i Docs in un progetto.
+    productChanges: await anywhere("docs.view"),
   };
   return CLAUDE_CAPABILITY_IDS.filter((id) => has[id]);
 }

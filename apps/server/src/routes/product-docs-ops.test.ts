@@ -363,7 +363,7 @@ describe("la cronologia, Segui, le immagini", () => {
     const { sql: q } = await import("drizzle-orm");
     await t.db.update(productPageImages).set({ createdAt: q`now() - interval '8 days'` }).where(eq(productPageImages.pageId, p.id));
     await t.db.update(productPages).set({ updatedAt: q`now() - interval '8 days'` }).where(eq(productPages.id, p.id));
-    const { purgeUnusedProductImages } = await import("../services/product-docs-ops.js");
+    const { purgeUnusedProductImages } = await import("../services/product-images-purge.js");
     expect(await purgeUnusedProductImages(t.db, storage as unknown as ObjectStorage, () => undefined)).toBe(1);
     const left = await t.db.select({ id: productPageImages.id }).from(productPageImages).where(eq(productPageImages.pageId, p.id));
     expect(left.map((r) => r.id)).toEqual([used.id]);

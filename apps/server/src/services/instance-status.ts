@@ -6,6 +6,7 @@ import {
   automations,
   nightlyItems,
   prReviews,
+  productDocJobs,
   projects,
   repositories,
   serverFixes,
@@ -252,6 +253,28 @@ export async function instanceStatus(db: Db, viewer: Viewer, now = new Date()): 
     // `proposing` senza sessione = in coda (aspetta un worker, o la ripresa della coda).
     const queued = f.status === "proposing" && f.sessionId === null;
     raw.push({ id: f.id, kind: "server_fix", projectId: f.projectId, projectCode: codeOf(f.projectId), title: f.name, code: `SRV-${f.number}`, state: queued ? "waiting" : "running", waiting: queued ? pausedBlock(f.projectId) : null, since: f.updatedAt.toISOString(), href: null, summary: null, startFailed: false, superseded: false });
+  }
+
+  // 5. Area 11, F6, Task 4: i lavori della doc di prodotto in coda, in corso o
+  // fermi (budget, pausa, quota, una sezione presa). Niente titolo: la fonte
+  // (un'email, una riunione) non si nomina qui, e la riga la scrive il
+  // renderer dal `kind`. Un gesto di chi l'ha chiesto (prima versione, bozza,
+  // aggiornamento a mano) non si ferma sulla pausa.
+  const docJobs = await db
+    .select({ id: productDocJobs.id, projectId: productDocJobs.projectId, status: productDocJobs.status, heldReason: productDocJobs.heldReason, sourceKind: productDocJobs.sourceKind, createdAt: productDocJobs.createdAt, startedAt: productDocJobs.startedAt })
+    .from(productDocJobs)
+    .where(inArray(productDocJobs.status, ["queued", "running", "held"]));
+  for (const j of docJobs) {
+    const gesture = j.sourceKind === "first_version" || j.sourceKind === "wireframe" || j.sourceKind === "page_update";
+    const block: AiBlockView | null =
+      j.status === "running"
+        ? null
+        : j.heldReason === "budget" || (budgetReached && j.status === "queued")
+          ? { reason: "monthly_budget", byId: null, byName: "", since: null }
+          : !gesture && (j.heldReason === "paused" || j.status === "queued")
+            ? pausedBlock(j.projectId)
+            : null;
+    raw.push({ id: j.id, kind: "product_doc_update", projectId: j.projectId, projectCode: codeOf(j.projectId), title: "", code: null, state: j.status === "running" ? "running" : "waiting", waiting: block, since: (j.status === "running" ? (j.startedAt ?? j.createdAt) : j.createdAt).toISOString(), href: null, summary: null, startFailed: false, superseded: false });
   }
 
   // In corso e in attesa dal più vecchio, i falliti dal più recente.

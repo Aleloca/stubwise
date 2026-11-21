@@ -5986,3 +5986,97 @@ deploy o di un rollback che la tocca.
     (`projects.queue_paused_at`), che il claim salta.
     Le domande di Claude restano commenti col corpo vuoto, che un server
     vecchio mostra come fili vuoti.
+
+- **«Integrazione area 11, F6: prima versione, bozze di schermata, backlog,
+  il catalogo di Claude»** *(22 nov 2026)*: branch `feat/area11-f6` (da
+  `feat/area11-f5`), piano
+  `docs/plans/2026-11-20-integrazione-area11-f6-plan.md`.
+  - Migrazione **0214** (`product_first_versions`): la prima versione di
+    Claude in uno spazio vuoto, una viva per progetto. Il CHECK della coda
+    della doc ammette `first_version`, quello delle revisioni il kind
+    `first_version`.
+  - Migrazione **0215** (`product_wireframes`): le bozze di schermata (lo SVG
+    ripulito dal server prima di salvarlo). La coda ammette `wireframe`.
+  - Migrazione **0216** (`product_request_origins`): la pagina (e la frase)
+    da cui nasce una richiesta, una riga per lavoro d'intake. `productOrigin`
+    di richieste e task si DERIVA da qui a lettura.
+  - Migrazione **0217** (`product_page_updates`): «aggiorna <pagina> da
+    questa email», chiesto da una persona (la voce `updateProductPage`). La
+    coda ammette `page_update`.
+  - **Nessun `notification_kind` nuovo**, nessuna env, nessun permesso nuovo.
+  - Rotte nuove sotto `/api`:
+    - la prima versione (`/projects/:projectId/product/first-version`, con
+      `/sources`, `/undo`, `/stop`, e `POST /product-pages/:id/first-version/accept`);
+    - le bozze (`POST /product-pages/:id/wireframes`, e su
+      `/wireframes/:blockId` `redraw`, `pick`, `keep`, `replace-image`,
+      `undo-draw`);
+    - il backlog dalla pagina (`GET /product-pages/:id/backlog-candidates`,
+      `GET /product-pages/:id/requests`);
+    - `POST /product-pages/:id/update-from-source` e `GET /product-changes`.
+  - Il catalogo di Claude ha sei voci nuove, tutte B (`writeFirstVersion`,
+    `undoFirstVersion`, `updateProductPage`, `undoProductUpdate`,
+    `drawWireframe`, `deleteWireframe`). La chat ha due tool nuovi
+    (`read_product_page`, `read_product_changes`, contenuto NON fidato). Le
+    capacità `product*` sono accese, e lo Stato dell'istanza mostra i lavori
+    della doc (`product_doc_update`). Campi additivi: `productOrigin` su
+    richieste e task, `wireframes` sulla pagina, `wireframe` sulle
+    revisioni, il frame `wireframe` dello stream.
+  - **Costo nuovo**: la prima versione è una run per piano più una per
+    pagina, una bozza è una run, un aggiornamento chiesto a mano è una run.
+    Tutte `product_doc_update`, nel budget e nella quota (sfondo). Partono
+    solo dopo la conferma di una persona: da Claude con la scheda B
+    (`starts_work`), dalla pagina col bottone. Col budget finito non partono
+    (409 `ai_blocked`); una bozza a budget o quota finiti va `failed`
+    (`budget`, `limit`) e si riprova con «Redraw».
+  - Golden: `product-doc-first-version` e i quattro della chat sulla doc
+    (`chat-product-update`, `-backlog`, `-changes`, `-page-hostile`), da
+    lanciare al rilascio e a ogni aggiornamento del CLI o dei prompt
+    (`product-docs/first-version.ts`, `wireframe.ts`, i tool della chat). Le
+    bozze si provano a mano.
+
+  **ORDINE**: **server** (healthy, 0214–0217 applicate), poi **worker**
+  (legge le tabelle nuove e i tre `source_kind` nuovi; senza lavoro
+  dell'agente in corso, «Worker fail-on-restart», e senza lavori della doc
+  `running`, con la query di F5), poi **caddy** (il renderer di 94).
+
+  **Rollback**:
+  - Il **worker scende INSIEME al server**, come in F5.
+  - ⚠️ **NON sicuro sul server finché esistono revisioni `first_version`**:
+    la cronologia di quelle pagine va in 500 (il server F5 non conosce il
+    kind nella risposta). Prima di scendere:
+    `select count(*) from product_page_revisions where kind = 'first_version';`
+    — se non sono zero, la discesa va decisa sapendolo.
+  - Un server F5 non conosce il blocco `wireframe`: la pagina lo scarta in
+    lettura, e una scrittura della pagina da quel server lo perde. Prima di
+    scendere:
+    `select count(*) from product_pages where blocks @> '[{"type":"wireframe"}]';`
+  - I lavori `first_version`, `wireframe` e `page_update` in coda: un worker
+    F5 li chiude `done` senza fare niente (`source_unavailable`). Per non
+    perderli in silenzio, prima della discesa:
+    `select source_kind, count(*) from product_doc_jobs where source_kind in ('first_version','wireframe','page_update') and status in ('queued','running','held') group by source_kind;`
+  - Le voci nuove del catalogo un server vecchio le rifiuta (`invalid`): una
+    proposta aperta di quelle voci, confermata dopo la discesa, fallisce.
+  - Le migrazioni non si annullano: tabelle, colonne e CHECK più larghi
+    restano, e un server vecchio li ignora.
+
+- **«Integrazione area 11: l'area intera (F1–F6)»** *(22 nov 2026)*: la voce
+  per chi rilascia l'area in una volta sola. Le voci di fetta qui sopra
+  restano quelle da leggere per i dettagli.
+  - **Migrazioni, in ordine** (tutte nel batch del server, `when` crescente):
+    **0202** (F1, `product_pages` e i codici `-D`), **0203** (F2, i tre
+    `notification_kind` `product_doc.mention`, `.updated`, `.question`),
+    **0204–0205** (F2, i commenti), **0206–0208** (F3, ricerca e chat dei
+    Docs), **0209** (F4, le sezioni prese), **0210–0213** (F5, la coda della
+    doc coi suoi trigger, i segni, l'operazione `product_doc_update`, il CHECK
+    delle iscrizioni), **0214–0217** (F6). Nessuna env nuova.
+  - **ORDINE**: **server** (healthy, 0202–0217 applicate), poi **worker**
+    (senza lavoro dell'agente in corso, «Worker fail-on-restart»), poi
+    **caddy**. Il CLI del worker resta il 2.1.322 pinnato.
+  - **Rollback dell'area**: il server scende **insieme** al caddy e al
+    worker. ⚠️ **NON sicuro** finché esistono:
+    - card dei tre kind (`/api/inbox` va in 500): la query e la pulizia
+      della voce di F2;
+    - revisioni `first_version` e blocchi `wireframe` (le query di F6);
+    - lavori della doc vivi (la query di F6, più `status = 'queued'` per le
+      fonti di F5, che un worker vecchio non legge).
+    Tabelle, colonne e CHECK restano: un server vecchio li ignora.

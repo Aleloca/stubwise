@@ -32,6 +32,7 @@ import {
   type TicketType,
 } from "@stubwise/shared";
 import { supportCodesForTickets } from "./support-links.js";
+import { productOriginsForItems } from "./product-origins.js";
 import { and, asc, desc, eq, gte, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import {
   inProjects,
@@ -326,6 +327,8 @@ export async function loadTaskViews(
   const filesOf = group(files);
   const jobOf = new Map(jobs.map((j) => [j.ticketId, j.status]));
   const requestOf = new Map(requests.map((r) => [r.ticketId, r.itemId]));
+  // Area 11, F6: «From the doc», la pagina della richiesta d'origine (null a chi non la legge).
+  const productOriginOf = await productOriginsForItems(db, viewer, [...new Set(requests.map((r) => r.itemId))]);
 
   const canPlanOf = (task: { projectId: string; assigneeId: string | null; closedAt: Date | null }) => {
     const perms = new Set(permissionsByProject[task.projectId] ?? []);
@@ -367,8 +370,10 @@ export async function loadTaskViews(
       type: uiTypeOf(t.type),
       priority: t.priority,
       requestId: requestOf.get(t.id) ?? null,
-      // F6: «From the doc», derivato col Task 3.
-      productOrigin: null,
+      productOrigin: (() => {
+        const itemId = requestOf.get(t.id);
+        return itemId ? (productOriginOf.get(itemId) ?? null) : null;
+      })(),
       links: (linksOf.get(t.id) ?? []).map((l) => ({ kind: LINK_KIND[l.kind], taskId: l.targetTicketId })),
       attachments: (filesOf.get(t.id) ?? []).map((f) => ({ id: f.id, name: f.name, sizeBytes: f.sizeBytes })),
       manualStall:

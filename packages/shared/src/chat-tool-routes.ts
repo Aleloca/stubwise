@@ -118,6 +118,12 @@ export const CHAT_TOOL_READ_ROUTES: ReadonlySet<string> = new Set([
   // Solo il GET dell'elenco: `/api/decisions/:id/answer` è una scrittura e
   // NON sta qui.
   "/api/decisions",
+  // Area 11, F6, Task 4 (`read_product_page`, `read_product_changes`): una
+  // pagina della doc di prodotto per codice (403/404 come la rotta: `docs.view`
+  // nel progetto) e i cambi recenti dei progetti in cui chi chiede legge i
+  // Docs. Contenuto NON fidato: anche in `CHAT_TOOL_UNTRUSTED_ROUTES`.
+  "/api/product-pages/by-code/:code",
+  "/api/product-changes",
 ]);
 
 /**

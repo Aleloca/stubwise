@@ -11,6 +11,7 @@ import {
   productComments,
   productDocJobs,
   productPageRevisions,
+  productPageUpdates,
   productPages,
   productSectionHolds,
   projectMembers,
@@ -420,5 +421,61 @@ describe("revisione di F5: il lavoro ripreso, il titolare, la coda", () => {
     const { runner, calls } = fakeRunner(() => facts());
     expect(await runProductDocJob({ db: t.db, runner, log }, job)).toBe("done");
     expect(calls).toEqual([]);
+  });
+});
+
+describe("F6, Task 4: l'aggiornamento chiesto a mano (`page_update`, la voce `updateProductPage`)", () => {
+  /** La richiesta di `requesterId` per la pagina e l'email, col suo lavoro (quello automatico dell'email tolto). */
+  async function manual(pageId: string, mailId: string, requesterId: string) {
+    await t.db.delete(productDocJobs).where(eq(productDocJobs.sourceId, mailId));
+    const [u] = await t.db.insert(productPageUpdates).values({ projectId, pageId, sourceKind: "email", sourceId: mailId, requestedBy: requesterId }).returning();
+    await t.db.insert(productDocJobs).values({ projectId, sourceKind: "page_update", sourceId: u!.id });
+    const claimed = await claimProductDocJob(t.db);
+    expect(claimed?.sourceId).toBe(u!.id);
+    return { update: u!, job: claimed! };
+  }
+
+  it("legge la SUA fonte per UNA pagina: il prompt ha solo quella, la revisione nomina l'email vera; la richiesta si chiude", async () => {
+    const pg = await page();
+    const [other] = await t.db.insert(productPages).values({ projectId, title: "Altra pagina", blocks: blocks() as unknown[], revSeq: 1 }).returning();
+    const m = await mail();
+    const { update, job } = await manual(pg.id, m.id, personId);
+    const { runner, calls } = fakeRunner(() => facts(replaceP1(pg.id), replaceP1(other!.id, { id: "f2" })));
+    expect(await runProductDocJob({ db: t.db, runner, log }, job)).toBe("done");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.prompt).toContain("Visione");
+    expect(calls[0]!.prompt).not.toContain("Altra pagina");
+    expect(calls[0]!.prompt).toContain("60 giorni");
+    expect(await textOf(pg.id, P1)).toBe("Il cliente paga a 60 giorni.");
+    expect(await textOf(other!.id, P1)).toBe("Il cliente paga a 30 giorni.");
+    expect(await revisionsOf(pg.id)).toEqual([expect.objectContaining({ kind: "claude", sourceKind: "email", sourceId: m.id, onBehalfOf: ownerId })]);
+    expect((await t.db.select().from(productPageUpdates).where(eq(productPageUpdates.id, update.id)))[0]!.finishedAt).not.toBeNull();
+  });
+
+  it("la sezione presa da CHI HA CHIESTO non lo fa aspettare; presa da un altro sì, e la richiesta resta viva", async () => {
+    const pg = await page();
+    const m = await mail();
+    await t.db.insert(productSectionHolds).values({ pageId: pg.id, sectionId: H1, userId: personId, expiresAt: new Date(Date.now() + 60_000) });
+    const fact = { ...replaceP1(pg.id), anchorId: P2, before: { text: "Spediamo in 48 ore.", marks: [] }, change: { kind: "replace", text: { text: "Spediamo in 24 ore.", marks: [] } } };
+    const mine = await manual(pg.id, m.id, personId);
+    expect(await runProductDocJob({ db: t.db, runner: fakeRunner(() => facts(fact)).runner, log }, mine.job)).toBe("done");
+    expect(await textOf(pg.id, P2)).toBe("Spediamo in 24 ore.");
+
+    const pg2 = await page();
+    const m2 = await mail();
+    await t.db.insert(productSectionHolds).values({ pageId: pg2.id, sectionId: H1, userId: personId, expiresAt: new Date(Date.now() + 60_000) });
+    const theirs = await manual(pg2.id, m2.id, ownerId);
+    expect(await runProductDocJob({ db: t.db, runner: fakeRunner(() => facts({ ...fact, pageId: pg2.id })).runner, log }, theirs.job)).toBe("held");
+    expect(await jobRow(theirs.job.id)).toMatchObject({ status: "held", heldReason: "section_busy" });
+    expect((await t.db.select().from(productPageUpdates).where(eq(productPageUpdates.id, theirs.update.id)))[0]!.finishedAt).toBeNull();
+  });
+
+  it("la coda in pausa non lo ferma (è un gesto di chi l'ha chiesto, P41)", async () => {
+    const pg = await page();
+    const m = await mail();
+    await t.db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, projectId));
+    const { job } = await manual(pg.id, m.id, personId);
+    expect(await runProductDocJob({ db: t.db, runner: fakeRunner(() => facts(replaceP1(pg.id))).runner, log }, job)).toBe("done");
+    expect(await textOf(pg.id, P1)).toBe("Il cliente paga a 60 giorni.");
   });
 });

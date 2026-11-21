@@ -88,6 +88,7 @@ export * from "./product-docs/sections.js";
 export * from "./product-docs/live.js";
 export * from "./product-docs/claude-rule.js";
 export * from "./product-docs/sanitize-wireframe.js";
+export * from "./product-docs/backlog.js";
 export * from "./schemas/chat.js";
 export * from "./schemas/access-query.js";
 export * from "./change-log.js";
