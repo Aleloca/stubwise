@@ -3814,6 +3814,32 @@ export type ProductBlock =
   | { id: string; type: "decision"; decisionId: string }
   | { id: string; type: "wireframe"; wireframeId: string; variant: number; kept?: boolean };
 
+/**
+ * F6 (shape product-claude-backlog.md, «Emendamento F6»): perché un disegno
+ * di Claude non è riuscito. Un motivo ignoto del server si legge come
+ * `no_answer`.
+ */
+export type ProductWireframeFailReason = "budget" | "limit" | "invalid_svg" | "no_answer";
+
+/** Lo stato di una bozza che non è pronta: Claude la disegna, o non c'è riuscito. Assente = pronta. */
+export type ProductWireframeState =
+  | { status: "drawing" }
+  /** `drawn` = c'era già uno schizzo (un «Redraw» non riuscito): quello resta. */
+  | { status: "failed"; reason: ProductWireframeFailReason; drawn: boolean };
+
+/**
+ * Un disegno del prototipo in corso o non riuscito (F6): del BLOCCO, non del
+ * disegno del seme (due bozze dello stesso disegno hanno ciascuna il suo).
+ * `byId` = chi l'ha chiesto, per conto di cui Claude scrive la variante nuova.
+ */
+export interface ProductSketch {
+  pageId: string;
+  blockId: string;
+  byId: string;
+  kind: "draw" | "redraw";
+  state: ProductWireframeState;
+}
+
 export type ProductBlockType = ProductBlock["type"];
 
 /** Le operazioni con cui si scrive una pagina: ognuna nomina i blocchi per id. */
@@ -4447,6 +4473,11 @@ export interface ProductExportView {
 }
 
 export interface ProductPageView extends ProductPage {
+  /**
+   * F6: le bozze della pagina che non sono pronte, per id di blocco (Claude
+   * le disegna, o non c'è riuscito). Una bozza pronta non c'è.
+   */
+  wireframeStates?: Record<string, ProductWireframeState>;
   /**
    * L'ultima revisione della pagina com'è letta (build app; il prototipo non
    * la dà): una scrittura parte da qui (`baseSeq`, revisione di R11-4).

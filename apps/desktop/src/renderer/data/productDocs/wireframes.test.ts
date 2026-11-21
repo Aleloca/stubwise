@@ -3,15 +3,18 @@ import { productDocs, resetApi, setLatency } from "../api";
 import type { ProductBlock, RichText } from "../model";
 import { PRODUCT_WIREFRAMES } from "../seed/productDocs/wireframes";
 import { setSessionPersonId } from "../session";
-import { state } from "../store";
+import { setStreamLatency, state } from "../store";
 import { undoProductChangeAs } from "./markGestures";
 import { listProductMarksAs } from "./marks";
+import { subscribeProductPage } from "./events";
 import {
   drawWireframeAs,
+  failNextSketch,
   keepWireframeAs,
   pickWireframe,
   redrawWireframeAs,
   replaceWireframeWithImageAs,
+  whenSketchesIdle,
 } from "./wireframes";
 import { writeProductBlocksAs } from "./writes";
 
@@ -134,23 +137,32 @@ describe("disegnare", () => {
 });
 
 describe("«Rifai», «Tieni» e la cronologia", () => {
-  const drawn = () => drawWireframeAs(LAURA, BILLS, { afterId: page(BILLS).blocks[0]!.id }).blockId;
+  /** Una bozza disegnata e pronta (F6: il disegno finisce dopo la pausa). */
+  const drawn = async () => {
+    const { blockId } = drawWireframeAs(LAURA, BILLS, { afterId: page(BILLS).blocks[0]!.id });
+    await whenSketchesIdle();
+    return blockId;
+  };
 
-  it("«Rifai» dà la variante seguente (e poi ricomincia), sul posto, con una revisione di Claude per conto di chi chiede", () => {
-    const id = drawn();
+  it("«Rifai» dà la variante seguente (e poi ricomincia), sul posto, con una revisione di Claude per conto di chi chiede", async () => {
+    const id = await drawn();
     const variants = PRODUCT_WIREFRAMES.bills!.variants.length;
     const count = revisionsOf(BILLS).length;
     redrawWireframeAs(MARCO, BILLS, id);
+    await whenSketchesIdle();
     expect(sketch(BILLS, id).variant).toBe(1);
     expect(revisionsOf(BILLS)).toHaveLength(count + 1);
     expect(last(BILLS)).toMatchObject({ actorId: MARCO, via: "claude", kind: "edit" });
     expect(last(BILLS).changes[0]!.anchors).toEqual([id]);
-    for (let i = 1; i < variants; i++) redrawWireframeAs(MARCO, BILLS, id);
+    for (let i = 1; i < variants; i++) {
+      redrawWireframeAs(MARCO, BILLS, id);
+      await whenSketchesIdle();
+    }
     expect(sketch(BILLS, id).variant).toBe(0);
   });
 
-  it("«Tieni»: toglie l'etichetta (`kept: true`) con una revisione della persona; il secondo clic non scrive", () => {
-    const id = drawn();
+  it("«Tieni»: toglie l'etichetta (`kept: true`) con una revisione della persona; il secondo clic non scrive", async () => {
+    const id = await drawn();
     const { revisionId } = keepWireframeAs(LAURA, BILLS, id);
     expect(sketch(BILLS, id).kept).toBe(true);
     const r = state.productRevisions.find((x) => x.id === revisionId)!;
@@ -161,30 +173,32 @@ describe("«Rifai», «Tieni» e la cronologia", () => {
     expect(revisionsOf(BILLS)).toHaveLength(count);
   });
 
-  it("«Tieni» di Sara: `forbidden`, l'etichetta resta", () => {
-    const id = drawn();
+  it("«Tieni» di Sara: `forbidden`, l'etichetta resta", async () => {
+    const id = await drawn();
     expect(() => keepWireframeAs(SARA, BILLS, id)).toThrow("forbidden");
     expect(sketch(BILLS, id).kept).toBeUndefined();
   });
 
-  it("«Tieni» o «Rifai» su un blocco che non è una bozza: `invalid: wireframe`; su uno che non c'è: `not_found`", () => {
+  it("«Tieni» o «Rifai» su un blocco che non è una bozza: `invalid: wireframe`; su uno che non c'è: `not_found`", async () => {
     const text = page(BILLS).blocks[0]!.id;
     expect(() => keepWireframeAs(LAURA, BILLS, text)).toThrow("invalid: wireframe");
     expect(() => redrawWireframeAs(LAURA, BILLS, text)).toThrow("invalid: wireframe");
     expect(() => keepWireframeAs(LAURA, BILLS, "blk-nope")).toThrow("not_found");
   });
 
-  it("«Rifai» dopo «Tieni» rimette l'etichetta (`kept` assente)", () => {
-    const id = drawn();
+  it("«Rifai» dopo «Tieni» rimette l'etichetta (`kept` assente)", async () => {
+    const id = await drawn();
     keepWireframeAs(LAURA, BILLS, id);
     redrawWireframeAs(LAURA, BILLS, id);
+    await whenSketchesIdle();
     expect(sketch(BILLS, id)).not.toHaveProperty("kept");
     expect(sketch(BILLS, id).variant).toBe(1);
   });
 
   it("la cronologia dice «ha disegnato», «ha rifatto», «ha tenuto»; «Tieni» si annulla da lì e l'etichetta torna", async () => {
-    const id = drawn();
+    const id = await drawn();
     redrawWireframeAs(LAURA, BILLS, id);
+    await whenSketchesIdle();
     const { revisionId } = keepWireframeAs(LAURA, BILLS, id);
     const rows = await productDocs.listProductRevisions(BILLS);
     expect(rows.slice(0, 3).map((r) => r.wireframe)).toEqual(["kept", "redrew", "drew"]);
@@ -202,25 +216,27 @@ describe("«Rifai», «Tieni» e la cronologia", () => {
   });
 
   it("«Annulla» di «Tieni» è spento col nome di chi ha rifatto lo schizzo dopo", async () => {
-    const id = drawn();
+    const id = await drawn();
     const { revisionId } = keepWireframeAs(LAURA, BILLS, id);
     redrawWireframeAs(MARCO, BILLS, id);
+    await whenSketchesIdle();
     const rows = await productDocs.listProductRevisions(BILLS);
     const kept = rows.find((r) => r.id === revisionId)!;
     expect(kept.undo).toEqual({ enabled: false, reason: "changed_after", byId: MARCO });
     expect(() => undoProductChangeAs(LAURA, revisionId!)).toThrow("refused: changed_after");
   });
 
-  it("«Annulla» del disegno dalla cronologia toglie il blocco", () => {
-    const id = drawn();
+  it("«Annulla» del disegno dalla cronologia toglie il blocco", async () => {
+    const id = await drawn();
     const drew = last(BILLS);
     undoProductChangeAs(LAURA, drew.id);
     expect(blockOf(BILLS, id)).toBeUndefined();
   });
 
   it("dal cancello: `productDocs.redrawWireframe` e `productDocs.keepWireframe`", async () => {
-    const id = drawn();
+    const id = await drawn();
     await productDocs.redrawWireframe(BILLS, id);
+    await whenSketchesIdle();
     await productDocs.keepWireframe(BILLS, id);
     expect(sketch(BILLS, id)).toMatchObject({ variant: 1, kept: true });
   });
@@ -310,11 +326,14 @@ describe("«Sostituisci con un'immagine» (fix round 1)", () => {
 describe("i minori del fix round 1", () => {
   const drawn = () => drawWireframeAs(LAURA, BILLS, { afterId: page(BILLS).blocks[0]!.id }).blockId;
 
-  it("«Rifai» con la variante vista (`fromVariant`): il doppio clic avanza di una sola variante", () => {
+  it("«Rifai» con la variante vista (`fromVariant`): il doppio clic avanza di una sola variante", async () => {
     const id = drawn();
+    await whenSketchesIdle();
     const count = revisionsOf(BILLS).length;
     redrawWireframeAs(LAURA, BILLS, id, 0);
+    await whenSketchesIdle();
     redrawWireframeAs(LAURA, BILLS, id, 0);
+    await whenSketchesIdle();
     expect(sketch(BILLS, id).variant).toBe(1);
     expect(revisionsOf(BILLS)).toHaveLength(count + 1);
   });
@@ -337,5 +356,123 @@ describe("i minori del fix round 1", () => {
     const rows = await productDocs.listProductRevisions(BILLS);
     expect(rows[0]).not.toHaveProperty("wireframe");
     expect(rows[0]).not.toHaveProperty("undo");
+  });
+});
+
+// F6 (21 nov 2026, maintainer via orchestratrice; shape
+// product-claude-backlog.md, «Emendamento F6»): il disegno è asincrono come
+// sul server. Il blocco nasce subito, lo schizzo arriva dopo una pausa
+// finta, o non arriva: lo stato è del blocco (`wireframeStates`).
+describe("il disegno asincrono (F6)", () => {
+  // Una pausa vera (8 × 5 ms): con latenza 0 il disegno finirebbe prima della lettura.
+  beforeEach(() => setStreamLatency(5));
+  afterEach(() => setStreamLatency(null));
+  const view = async () => (await productDocs.getProductPage(page(BILLS).code))!;
+  const drawn = () => drawWireframeAs(LAURA, BILLS, { afterId: page(BILLS).blocks[0]!.id }).blockId;
+
+  it("«Disegna»: il blocco c'è da subito, `drawing`; finito, lo stato se ne va e la pagina lo sa", async () => {
+    const id = drawn();
+    expect((await view()).wireframeStates).toEqual({ [id]: { status: "drawing" } });
+    const events: string[] = [];
+    const off = subscribeProductPage(BILLS, (e) => events.push(e));
+    await whenSketchesIdle();
+    off();
+    expect((await view()).wireframeStates).toEqual({});
+    expect(events).toContain("blocks");
+  });
+
+  it("«Rifai»: la variante resta finché disegna, la revisione nasce alla fine; un secondo «Rifai» intanto non fa nulla", async () => {
+    const id = drawn();
+    await whenSketchesIdle();
+    const count = revisionsOf(BILLS).length;
+    redrawWireframeAs(MARCO, BILLS, id);
+    expect(sketch(BILLS, id).variant).toBe(0);
+    expect(revisionsOf(BILLS)).toHaveLength(count);
+    expect((await view()).wireframeStates).toEqual({ [id]: { status: "drawing" } });
+    // Il secondo clic (qui di Laura) non riparte: la variante resta di Marco.
+    redrawWireframeAs(LAURA, BILLS, id);
+    await whenSketchesIdle();
+    expect(sketch(BILLS, id).variant).toBe(1);
+    expect(revisionsOf(BILLS)).toHaveLength(count + 1);
+    expect(last(BILLS)).toMatchObject({ actorId: MARCO, via: "claude", kind: "edit" });
+  });
+
+  it("un disegno che non riesce lo dice col motivo; «Rifai» dopo ci riprova e lo stato torna pronto", async () => {
+    failNextSketch("invalid_svg");
+    const id = drawn();
+    await whenSketchesIdle();
+    expect((await view()).wireframeStates).toEqual({ [id]: { status: "failed", reason: "invalid_svg", drawn: false } });
+    redrawWireframeAs(LAURA, BILLS, id);
+    expect((await view()).wireframeStates).toEqual({ [id]: { status: "drawing" } });
+    await whenSketchesIdle();
+    expect((await view()).wireframeStates).toEqual({});
+    // Il primo schizzo che arriva è la variante 0, come sul server: prima non ce n'era nessuno.
+    expect(sketch(BILLS, id).variant).toBe(0);
+    expect((await view()).wireframes).toEqual({ "bills:0": PRODUCT_WIREFRAMES.bills!.variants[0] });
+  });
+
+  it("una bozza mai disegnata (in disegno o non riuscita) non ha schizzo, come sul server; le altre col suo disegno sì", async () => {
+    const ready = drawn();
+    await whenSketchesIdle();
+    failNextSketch("no_answer");
+    const failed = drawn();
+    expect(sketch(BILLS, failed).wireframeId).toBe(sketch(BILLS, ready).wireframeId);
+    expect((await view()).wireframes).toEqual({ "bills:0": PRODUCT_WIREFRAMES.bills!.variants[0] });
+    sketch(BILLS, ready).variant = 1;
+    expect((await view()).wireframes).toEqual({ "bills:1": PRODUCT_WIREFRAMES.bills!.variants[1] });
+    await whenSketchesIdle();
+    expect((await view()).wireframeStates).toEqual({ [failed]: { status: "failed", reason: "no_answer", drawn: false } });
+    expect((await view()).wireframes).toEqual({ "bills:1": PRODUCT_WIREFRAMES.bills!.variants[1] });
+    // Un «Rifai» che non riesce su una bozza mai disegnata: ancora nessuno schizzo.
+    failNextSketch("limit");
+    redrawWireframeAs(LAURA, BILLS, failed);
+    await whenSketchesIdle();
+    expect((await view()).wireframeStates?.[failed]).toEqual({ status: "failed", reason: "limit", drawn: false });
+    expect((await view()).wireframes).toEqual({ "bills:1": PRODUCT_WIREFRAMES.bills!.variants[1] });
+  });
+
+  it("un «Rifai» che non riesce non scrive: la variante di prima resta", async () => {
+    const id = drawn();
+    await whenSketchesIdle();
+    const count = revisionsOf(BILLS).length;
+    failNextSketch("no_answer");
+    redrawWireframeAs(LAURA, BILLS, id);
+    await whenSketchesIdle();
+    expect(sketch(BILLS, id).variant).toBe(0);
+    expect(revisionsOf(BILLS)).toHaveLength(count);
+    expect((await view()).wireframeStates).toEqual({ [id]: { status: "failed", reason: "no_answer", drawn: true } });
+  });
+
+  it("l'esportazione non porta lo schizzo di una bozza mai disegnata (esce come uno schizzo che non c'è)", async () => {
+    failNextSketch("invalid_svg");
+    drawn();
+    await whenSketchesIdle();
+    const read = (await productDocs.getProductExport(page(BILLS).projectId, { pageId: BILLS }))!;
+    expect(read.wireframes).toEqual({});
+  });
+
+  it("il budget del mese finito mentre disegna: `failed` con `budget`", async () => {
+    const id = drawn();
+    state.instance.simulate.budgetReached = true;
+    await whenSketchesIdle();
+    expect((await view()).wireframeStates).toEqual({ [id]: { status: "failed", reason: "budget", drawn: false } });
+  });
+
+  it("sostituita con un'immagine o annullata mentre disegna: il disegno in arrivo non scrive nulla", async () => {
+    const replaced = drawn();
+    replaceWireframeWithImageAs(LAURA, BILLS, replaced, { src: PNG, alt: "" });
+    const redrawn = drawn();
+    await whenSketchesIdle();
+    redrawWireframeAs(LAURA, BILLS, redrawn);
+    replaceWireframeWithImageAs(LAURA, BILLS, redrawn, { src: PNG, alt: "" });
+    const undone = drawn();
+    undoProductChangeAs(LAURA, last(BILLS).id);
+    const count = revisionsOf(BILLS).length;
+    await whenSketchesIdle();
+    expect(blockOf(BILLS, replaced)?.type).toBe("image");
+    expect(blockOf(BILLS, redrawn)?.type).toBe("image");
+    expect(blockOf(BILLS, undone)).toBeUndefined();
+    expect(revisionsOf(BILLS)).toHaveLength(count);
+    expect((await view()).wireframeStates).toEqual({});
   });
 });

@@ -332,6 +332,34 @@ describe("lo spazio Product dal server", () => {
     expect(page!.blocks).toEqual([{ id: "blk-w", type: "wireframe", wireframeId: WF, variant: 1 }]);
   });
 
+  it("F6: le bozze non pronte vanno in `wireframeStates` per id di blocco, col motivo; un motivo ignoto è `no_answer`", async () => {
+    const W = (n: number) => `ffffffff-0000-4000-8000-00000000000${n}`;
+    installFakeServer({
+      "GET /api/product-pages/by-code/AUD-D5": {
+        body: pageView({
+          blocks: [
+            { id: "blk-ready", type: "wireframe", wireframeId: W(1), variant: 0 },
+            { id: "blk-drawing", type: "wireframe", wireframeId: W(2), variant: 0 },
+            { id: "blk-budget", type: "wireframe", wireframeId: W(3), variant: 0 },
+            { id: "blk-odd", type: "wireframe", wireframeId: W(4), variant: 0 },
+          ],
+          wireframes: [
+            { id: W(1), status: "ready", variants: [{ svg: "<svg/>" }], error: null },
+            { id: W(2), status: "drawing", variants: [], error: null },
+            { id: W(3), status: "failed", variants: [{ svg: "<svg/>" }], error: "budget" },
+            { id: W(4), status: "failed", variants: [], error: "something_new" },
+          ],
+        }),
+      },
+    });
+    const page = await docs.getProductPage!("AUD-D5");
+    expect(page!.wireframeStates).toEqual({
+      "blk-drawing": { status: "drawing" },
+      "blk-budget": { status: "failed", reason: "budget", drawn: true },
+      "blk-odd": { status: "failed", reason: "no_answer", drawn: false },
+    });
+  });
+
   it("Segui e smetti: PUT e DELETE", async () => {
     const { seen } = installFakeServer({
       [`PUT /api/product-pages/${PAGE}/follow`]: { status: 204 },

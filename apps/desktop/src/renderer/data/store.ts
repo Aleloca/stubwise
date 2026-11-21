@@ -140,6 +140,7 @@ import type {
   ProductFollow,
   ProductPage,
   ProductFirstVersion,
+  ProductSketch,
   ProductMark,
   ProductPendingFact,
   ProductRevision,
@@ -1146,6 +1147,8 @@ interface State {
    * `projectId`, vanno via col progetto.
    */
   productFirstVersions: ProductFirstVersion[];
+  /** F6: le bozze di schermata che Claude sta disegnando, o che non è riuscito a disegnare. */
+  productSketches: ProductSketch[];
   /** Chi segue quale pagina: chi la crea e chi preme «Follow», mai da solo. */
   productFollows: ProductFollow[];
   /**
@@ -1436,6 +1439,7 @@ function freshState(): State {
     productSourcesSeen: new Set(PRODUCT_SOURCES_SEEN_11B),
     // VRD resta vuoto: la prima versione la lancia chi prova l'app (maintainer, Q2).
     productFirstVersions: [],
+    productSketches: [],
     productFollows: PRODUCT_FOLLOWS.map(copy),
     productBlockIds: productSeedBlockIds(),
     productSessionDeletes: new Map(),

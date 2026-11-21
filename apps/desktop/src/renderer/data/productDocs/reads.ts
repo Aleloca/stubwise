@@ -107,6 +107,17 @@ function decisionFor(me: string, decisionId: string): ProductPageView["decisions
  * progetto visibile senza `docs.view` è `forbidden` anche un codice che non
  * esiste: la risposta non dice se la pagina c'è.
  */
+/**
+ * L'SVG delle bozze della pagina, senza quelle mai disegnate (F6: il primo
+ * disegno in corso o non riuscito non ha schizzo, come sul server).
+ */
+function drawnWireframesOf(page: ProductPage): Record<string, string | null> {
+  const neverDrawn = new Set(
+    state.productSketches.filter((s) => s.pageId === page.id && s.kind === "draw").map((s) => s.blockId),
+  );
+  return wireframesOf(page.blocks.filter((b) => !neverDrawn.has(b.id)));
+}
+
 export async function getProductPage(code: string): Promise<ProductPageView | null> {
   const me = await gate("productDocs.getProductPage");
   const project = projectOfCode(code);
@@ -146,7 +157,14 @@ export async function getProductPage(code: string): Promise<ProductPageView | nu
     followers: followersVisibleTo(me, page),
     lastRevision: lastRevisionOf(page.id),
     // 11b: l'SVG delle bozze di schermata (le pagine non leggono il seme).
-    wireframes: wireframesOf(page.blocks),
+    // F6: una bozza mai disegnata (in disegno o non riuscita) non ha schizzo, come sul server.
+    wireframes: drawnWireframesOf(page),
+    // F6: le bozze che Claude sta disegnando, o che non è riuscito a disegnare.
+    wireframeStates: Object.fromEntries(
+      state.productSketches
+        .filter((s) => s.pageId === page.id && page.blocks.some((b) => b.id === s.blockId && b.type === "wireframe"))
+        .map((s) => [s.blockId, s.state] as const),
+    ),
   };
 }
 
@@ -192,7 +210,7 @@ export async function getProductExport(
   const decisions: ProductExportView["decisions"] = {};
   const wireframes: NonNullable<ProductExportView["wireframes"]> = {};
   for (const { page } of pages) {
-    Object.assign(wireframes, wireframesOf(page.blocks));
+    Object.assign(wireframes, drawnWireframesOf(page));
     for (const block of page.blocks) {
       if (block.type === "drive") {
         const file = driveFileFor(me, block.fileId);

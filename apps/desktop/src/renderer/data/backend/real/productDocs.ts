@@ -26,6 +26,8 @@ import type {
   ProductExportView,
   ProductRevisionView,
   ProductSearchHit,
+  ProductWireframeFailReason,
+  ProductWireframeState,
 } from "../../types";
 import { appClient } from "./client";
 import {
@@ -141,8 +143,9 @@ async function readPage(code: string): Promise<ProductPageView | null> {
   if (v.seq < known && newer) return newer;
   seqOf.set(v.id, Math.max(known, v.seq));
   codeOf.set(v.id, v.code);
+  const base = pageOf(v);
   const page: ProductPageView = {
-    ...pageOf(v),
+    ...base,
     seq: v.seq,
     breadcrumbs: v.breadcrumbs,
     permissions: {
@@ -164,11 +167,37 @@ async function readPage(code: string): Promise<ProductPageView | null> {
         w.variants.map((x, i) => [`${w.id}:${i}`, x.svg] as const),
       ),
     ),
+    wireframeStates: wireframeStatesOf(base.blocks, v.wireframes ?? []),
   };
   lastRead.set(v.id, page);
   // La sezione del cursore nel battito (F4) si calcola sui blocchi di adesso.
   liveProductPresence.rememberBlocks(v.id, page.blocks, v.seq);
   return page;
+}
+
+const FAIL_REASONS = new Set<string>(["budget", "limit", "invalid_svg", "no_answer"]);
+
+/**
+ * F6: le bozze non pronte della pagina, per id di BLOCCO come il prototipo
+ * (il server le tiene per disegno, `wireframeId`). Un motivo che il client
+ * non conosce si legge come `no_answer` (shape, «Emendamento F6»).
+ */
+function wireframeStatesOf(
+  blocks: readonly ProductBlock[],
+  wireframes: readonly { id: string; status: string; error: string | null; variants: readonly unknown[] }[],
+): Record<string, ProductWireframeState> {
+  const byId = new Map(wireframes.map((w) => [w.id, w]));
+  const out: Record<string, ProductWireframeState> = {};
+  for (const block of blocks) {
+    if (block.type !== "wireframe") continue;
+    const w = byId.get(block.wireframeId);
+    if (w?.status === "drawing") out[block.id] = { status: "drawing" };
+    else if (w?.status === "failed") {
+      const reason = w.error !== null && FAIL_REASONS.has(w.error) ? (w.error as ProductWireframeFailReason) : "no_answer";
+      out[block.id] = { status: "failed", reason, drawn: w.variants.length > 0 };
+    }
+  }
+  return out;
 }
 
 /** Il codice di una pagina già letta, o la rilettura dallo spazio non c'è: la pagina si rilegge per codice. */

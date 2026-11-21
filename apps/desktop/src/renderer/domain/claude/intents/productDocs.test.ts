@@ -6,6 +6,7 @@ import { executeGroup, undoViewOf } from "../../../data/claude/actions";
 import { classOfGroup } from "../../../data/claude/classes";
 import { whenFirstVersionIdle } from "../../../data/productDocs/firstVersion";
 import { whenProductClaudeIdle } from "../../../data/productDocs/claude";
+import { whenSketchesIdle } from "../../../data/productDocs/wireframes";
 import { writeProductBlocksAs } from "../../../data/productDocs/writes";
 import { ACQ_11B } from "../../../data/seed/productDocs/facts";
 import { withoutSeed11b } from "../../../data/seed/productDocs/without11b";
@@ -379,7 +380,10 @@ describe("disegna questa schermata (B, Claude si mette al lavoro; «Undo» dopo)
     const done = run(LAURA, proposalOf(steps)!.actions);
     if (!done.ok) throw new Error("not run");
     const block = pageBlocks(SCREENS).at(-1)!;
+    // F6: il disegno è asincrono; la variante di Marco arriva alla fine del suo «Rifai».
+    await whenSketchesIdle();
     api.productDocs.redrawWireframeAs(MARCO, SCREENS, block.id);
+    await whenSketchesIdle();
     expect(undoViewOf(LAURA, done.groupId)).toMatchObject({
       state: "changed_after",
       byName: "Marco Bellini",

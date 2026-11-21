@@ -13503,7 +13503,15 @@
       "gone": "Questo schizzo non è più disponibile",
       "exportLabel": "Bozza di Claude · Bozza di schermata",
       "budget": "Il budget mensile per l'AI è esaurito",
-      "exportMissing": "Bozza di schermata: non è stato possibile disegnarla nel file Word. Il PDF la contiene."
+      "exportMissing": "Bozza di schermata: non è stato possibile disegnarla nel file Word. Il PDF la contiene.",
+      "drawing": "Claude sta disegnando questa schermata…",
+      "failedDraw": "Claude non è riuscito a disegnare questa schermata",
+      "failedRedraw": "Claude non è riuscito a ridisegnare questa schermata",
+      "failedReason": {
+        "limit": "Claude ha raggiunto il limite d'uso. Riprova più tardi con Rifai.",
+        "invalid_svg": "Quello che è arrivato non era uno schizzo utilizzabile. Prova con Rifai.",
+        "no_answer": "Non è arrivata nessuna risposta. Prova con Rifai."
+      }
     },
     "backlog": {
       "group": "Claude",

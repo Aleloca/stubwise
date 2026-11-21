@@ -477,3 +477,69 @@ brief.
 - **«Undo the first version», in italiano**: il bottone che chiude è «Tieni
   la prima versione» (non «Annulla», che è il verbo del gesto) e il corpo
   finisce con «È definitivo».
+
+## Emendamento F6: il disegno asincrono (21 nov 2026, maintainer via orchestratrice)
+
+Sul server il disegno è un lavoro della coda: il blocco nasce subito e lo
+schizzo arriva dopo, o non arriva. Il prototipo (che resta la specifica)
+fa lo stesso, con una latenza finta come la prima versione. La bozza ha
+quindi tre stati: **pronta** (§3.5, com'era), **in disegno**, **non
+riuscita**. Lo stato è del blocco, non del disegno: due bozze dello stesso
+disegno hanno ciascuna il suo.
+
+- **In disegno** (`drawing`: «Draw this screen», «/» → «Screen sketch»,
+  «Redraw»):
+  - la testata c'è **sempre**, anche su una bozza già tenuta: l'anello
+    che pulsa è il segno di Claude al lavoro (fermo col movimento
+    ridotto, e la frase porta lo stato);
+  - al posto dello schizzo, dentro lo stesso bordo, un'area alta 160 con
+    al centro, 13px `ink-muted`, «Claude is drawing this screen…» /
+    «Claude sta disegnando questa schermata…» (`role="status"`). Vale
+    anche per «Redraw»: lo schizzo vecchio torna solo se il disegno nuovo
+    non riesce;
+  - **Keep** e **Redraw** ci sono e sono spenti (`aria-disabled`, il fuoco
+    resta sul bottone premuto); **Replace with an image** resta acceso:
+    l'immagine prende il posto del blocco e il disegno in arrivo non
+    scrive più nulla;
+  - i bottoni restano visibili finché dura, non solo al passaggio;
+  - finito: lo schizzo in dissolvenza 150ms e l'annuncio `polite` «New
+    sketch» / «Nuovo schizzo» (per chi scrive). La revisione di «Redraw»
+    nasce qui, non al clic; quella di «Draw this screen» al clic (il
+    blocco c'è da subito).
+- **Non riuscita** (`failed`), una frase per motivo, 12px `ink-muted`,
+  dopo la riga 13px `ink` «Claude couldn't draw this screen» / «Claude non
+  è riuscito a disegnare questa schermata» (o, se c'era già uno schizzo,
+  «Claude couldn't redraw this screen» / «Claude non è riuscito a
+  ridisegnare questa schermata»):
+
+  | Motivo | en | it |
+  |---|---|---|
+  | `budget` | The monthly AI budget is used up · Who? | Il budget mensile per l'AI è esaurito · Chi? |
+  | `limit` | Claude reached its usage limit. Try Redraw later. | Claude ha raggiunto il limite d'uso. Riprova più tardi con Rifai. |
+  | `invalid_svg` | What came back wasn't a usable sketch. Try Redraw. | Quello che è arrivato non era uno schizzo utilizzabile. Prova con Rifai. |
+  | `no_answer` | No answer came back. Try Redraw. | Non è arrivata nessuna risposta. Prova con Rifai. |
+
+  Un motivo che il client non conosce si legge come `no_answer`.
+  - **Senza schizzo** (il primo disegno): le due righe al centro dell'area
+    alta 160, al posto dello schizzo. **Con uno schizzo** (un «Redraw»
+    fallito): lo schizzo di prima resta, e le due righe vanno sotto, con
+    il filetto sopra, come la riga d'errore di §3.5.
+  - La testata c'è (anello fermo); **Redraw** è acceso (spento solo col
+    budget del mese finito, con la sua frase, come prima); **Keep** solo
+    se c'è uno schizzo da tenere; **Replace with an image** acceso.
+  - Le righe hanno `role="status"`: arrivano da sole, non da un clic.
+- **Chi legge soltanto** vede gli stessi riquadri e le stesse frasi, senza
+  bottoni e senza «Who?».
+- **Nel prototipo**: il disegno finisce dopo una pausa dello stream della
+  conversazione (circa 1 secondo; 0 nei test). Se nel frattempo il budget
+  del mese è finito, la bozza non riesce con `budget`. Gli altri tre motivi
+  non hanno un innesco nel prototipo: li provano i test
+  (`failNextSketch`).
+- **Esportazione**: una bozza mai disegnata (in disegno o non riuscita al
+  primo disegno) esce come uno schizzo che non c'è: «This sketch is no
+  longer available» / «Questo schizzo non è più disponibile» al suo posto,
+  con l'etichetta sotto se mai tenuta. Un «Redraw» in corso o non riuscito
+  esporta lo schizzo di prima.
+- **Fuori**: la scelta di una variante già disegnata («Pick», che il
+  server ha) e lo «Stop» della prima versione non entrano nella UI finché
+  il prototipo non li ha (registro dei rimandi).
