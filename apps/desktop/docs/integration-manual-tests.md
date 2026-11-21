@@ -633,8 +633,12 @@ inglese; in italiano cambiano, il senso no.
       paragraph was deleted» e sta dove il paragrafo era; «Use mine» lo
       rimette lì, come paragrafo nuovo;
     - dividere o unire paragrafi rifiutati non ha un riquadro: solo la frase;
-    - chiudendo la pagina col riquadro aperto la versione di A si perde
-      (nessuna conferma: l'editor di Product non la chiede);
+    - col riquadro aperto, A apre un'altra pagina (o un'altra sezione) →
+      «Some changes aren't saved yet» · Stay · Leave without saving; «Stay»
+      resta col riquadro, «Leave without saving» esce e la versione di A
+      si perde. Lo stesso con una scrittura ferma su «Couldn't save · Retry»
+      (A stacca la rete, scrive, esce); uscire subito dopo aver scritto,
+      con la rete, non chiede niente. Chiudere la finestra non chiede;
     - le modifiche dopo di A si salvano normalmente.
 - **Sezione occupata (`section_busy`)**: B scrive sotto un titolo; A prova a
   scrivere nella stessa sezione → «Couldn't save a change: B is writing in

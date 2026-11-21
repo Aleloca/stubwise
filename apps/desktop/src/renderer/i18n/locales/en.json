@@ -13194,6 +13194,11 @@
       "code": {
         "language": "Code language",
         "plain": "Plain text"
+      },
+      "leave": {
+        "title": "Some changes aren't saved yet",
+        "stay": "Stay",
+        "leave": "Leave without saving"
       }
     },
     "comments": {

@@ -312,7 +312,23 @@ blocchi scalano da h2 **[PE 3]**.
   `assertive` una volta. Retry rimanda **le stesse operazioni**; le
   modifiche successive restano in fila dietro. Uscire dalla pagina con
   scritture non salvate: dialogo «Some changes aren't saved yet» · Stay ·
-  Leave without saving *(scelta del costruttore)*.
+  Leave without saving *(scelta del costruttore; costruito il 21 nov 2026,
+  maintainer via orchestratrice)*:
+  - **Quando**: si va a un altro indirizzo (un'altra pagina, un'altra
+    sezione dell'app) o si cambia persona («View as», dal menu del profilo
+    o dalla palette). Cambiare solo la ricerca della pagina (un filo
+    aperto) non è uscire.
+  - **Cosa conta come non salvato**: una scrittura ancora in fila o ferma
+    su un errore («Couldn't save · Retry»), e i riquadri di «Mostra le due
+    versioni». All'uscita le bozze partono e la fila ha 1,5 s per
+    svuotarsi: se ci riesce si esce senza chiedere, così uscire subito dopo
+    aver scritto non chiede niente.
+  - **Il dialogo**: solo il titolo; «Leave without saving» (contorno) e
+    «Stay» (pieno, col fuoco). Esc e il clic fuori sono «Stay». «Stay»
+    lascia tutto com'era (anche i riquadri); «Leave without saving» va dove
+    si andava, e ciò che non era salvato si perde.
+  - Chiudere la finestra o ricaricare non chiede (nessun dialogo del
+    browser).
 
 ### 3.12b Annulla e rifà (⌘Z / ⇧⌘Z)
 
@@ -568,11 +584,10 @@ riprendere o da scartare.
   uscendo dal blocco e scrivendo altrove. Un rifiuto nuovo sullo stesso
   blocco sostituisce la versione con la più recente. Più blocchi rifiutati
   insieme hanno ciascuno il suo riquadro.
-- **Uscendo dalla pagina** (o cambiando persona) i riquadri si perdono: il
-  dialogo «Some changes aren't saved yet» di §3.12 non è mai stato
-  costruito nel prototipo, e la decisione dice di chiedere conferma solo se
-  il prototipo lo fa (registro dei rimandi). Lo stesso se la pagina torna
-  in sola lettura (il permesso perso): la barra dice «you can no longer
+- **Uscendo dalla pagina** (o cambiando persona) con un riquadro aperto,
+  il dialogo «Some changes aren't saved yet» di §3.12 chiede prima;
+  «Leave without saving» lo perde. Se la pagina torna in sola lettura (il
+  permesso perso) i riquadri se ne vanno: la barra dice «you can no longer
   edit this page».
 - **Tastiera**: Tab dal blocco arriva a «Use mine» e «Discard»; nessuna
   scorciatoia, Esc non scarta (scartare è definitivo).

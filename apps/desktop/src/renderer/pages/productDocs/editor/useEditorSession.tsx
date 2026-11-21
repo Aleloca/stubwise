@@ -186,7 +186,13 @@ export function useEditorSession(page: ProductPageView) {
   /** Chi tiene la sezione di una scrittura scartata per `section_busy` (`null`: non si vede). */
   const [droppedBy, setDroppedBy] = useState<string | null>(null);
   /** Le versioni proprie non salvate, una per blocco, finché non si riprendono o si scartano. */
-  const [owns, setOwns] = useState<OwnVersion[]>([]);
+  const [owns, setOwnsState] = useState<OwnVersion[]>([]);
+  // Letto all'uscita dalla pagina (`unsaved`), dopo un'attesa: non quello dell'ultimo disegno.
+  const ownsRef = useRef<OwnVersion[]>([]);
+  const setOwns = useCallback((next: (old: OwnVersion[]) => OwnVersion[]) => {
+    ownsRef.current = next(ownsRef.current);
+    setOwnsState(ownsRef.current);
+  }, []);
   /** L'ultimo scarto ha lasciato una versione da riprendere (la barra dice dove guardare). */
   const [droppedKept, setDroppedKept] = useState(false);
   /** Tiene le versioni proprie: una nuova sullo stesso blocco sostituisce la vecchia. */
@@ -195,7 +201,7 @@ export function useEditorSession(page: ProductPageView) {
     const ids = new Set(versions.map((v) => v.blockId));
     setOwns((old) => [...old.filter((o) => !ids.has(o.blockId)), ...versions]);
     return true;
-  }, []);
+  }, [setOwns]);
   const stackRef = useRef<UndoStack>({ undo: [], redo: [] });
   const [stack, setStackState] = useState<UndoStack>(stackRef.current);
   const setStack = (next: UndoStack) => {
@@ -429,6 +435,19 @@ export function useEditorSession(page: ProductPageView) {
     settled,
     /** Ci sono scritture non ancora confermate. */
     dirty: pending.length > 0,
+    /**
+     * Qualcosa non è salvato, adesso (product-editor.md §3.12, uscire dalla
+     * pagina): una scrittura in fila o ferma su un errore, o una versione
+     * propria che la pagina non ha già (come i riquadri dell'editor).
+     */
+    unsaved: () => {
+      if (queue.current.length > 0) return true;
+      const page = current();
+      return ownsRef.current.some((o) => {
+        const now = page.find((b) => b.id === o.blockId);
+        return !now || JSON.stringify(now) !== JSON.stringify(o.own);
+      });
+    },
   };
 }
 

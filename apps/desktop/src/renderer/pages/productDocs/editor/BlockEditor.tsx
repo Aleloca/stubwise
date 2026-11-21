@@ -92,6 +92,8 @@ import { SectionProposeItem } from "../claude/ClaudePageGestures";
 // `useSendPresence`. Le persone sono quelle di `getProductPresence`.
 
 const SAVE_AFTER_MS = 800;
+/** Quanto si aspetta la fila uscendo dalla pagina, prima di chiedere. */
+export const LEAVE_WAIT_MS = 1500;
 /** Il rifiuto di un'immagine resta 6 s, o fino a «Dismiss» (§3.6). */
 const REFUSAL_MS = 6000;
 
@@ -121,6 +123,12 @@ export interface BlockEditorHandle {
    * gesto mentre disegna non fa niente.
    */
   drawScreen(): void;
+  /**
+   * Uscendo dalla pagina (product-editor.md §3.12): le bozze partono, si
+   * aspetta la fila al più `LEAVE_WAIT_MS`, poi dice se resta qualcosa di non
+   * salvato (una scrittura in fila o ferma su un errore, una versione propria).
+   */
+  unsaved(): Promise<boolean>;
 }
 
 export function BlockEditor({
@@ -536,6 +544,18 @@ function WritableBody({
   };
 
   useImperativeHandle(handle, () => ({
+    unsaved: async () => {
+      flush();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        sessionRef.current.settled(),
+        new Promise<void>((done) => {
+          timer = setTimeout(done, LEAVE_WAIT_MS);
+        }),
+      ]);
+      clearTimeout(timer);
+      return sessionRef.current.unsaved();
+    },
     focusFirst: () => {
       const first = viewRef.current[0];
       if (first) focusBlock(first, "start");

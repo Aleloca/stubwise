@@ -3,6 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  askPersonaChange,
   useDepartments,
   useLogout,
   usePeople,
@@ -191,7 +192,8 @@ export function ProfileMenu() {
                     </>
                   ),
                 }))}
-                onChange={setPersona}
+                // Un editor con modifiche non salvate chiede prima (product-editor.md §3.12).
+                onChange={(id) => askPersonaChange(() => setPersona(id))}
               />
             </div>
           )}

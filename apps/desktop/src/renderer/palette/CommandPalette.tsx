@@ -53,7 +53,7 @@ import { openClaudePanel } from "../layout/claudePanel/panelEvents";
 import { shortcutLabel } from "../platform/platform";
 import { useTheme } from "../theme/ThemeProvider";
 import { canSeeAdminSection } from "../data/adminSections";
-import { ACTIONS, type AccessAction } from "../data/queries";
+import { ACTIONS, askPersonaChange, type AccessAction } from "../data/queries";
 import {
   matchCommands,
   matchWhoCanActions,
@@ -327,8 +327,10 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
           detail: t(p.descriptionKey),
           current: p.personId === viewer.personId,
           select: () => {
-            setPersona(p.personId);
+            // Prima si chiude la palette: un editor con modifiche non salvate
+            // può chiedere con un dialogo (product-editor.md §3.12).
             onClose();
+            askPersonaChange(() => setPersona(p.personId));
           },
         };
       });

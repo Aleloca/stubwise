@@ -62,3 +62,28 @@ export function onBeforePersonaChange(fn: () => void): () => void {
 export function runBeforePersonaChange(): void {
   for (const fn of beforeChange) fn();
 }
+
+const personaGuards = new Set<() => Promise<boolean>>();
+
+/**
+ * Chi può trattenere un cambio di persona chiedendo prima (l'editor di una
+ * pagina di prodotto con modifiche non salvate, product-editor.md §3.12):
+ * risponde `true` se si può cambiare. Restituisce la cancellazione.
+ */
+export function guardPersonaChange(fn: () => Promise<boolean>): () => void {
+  personaGuards.add(fn);
+  return () => personaGuards.delete(fn);
+}
+
+/**
+ * Il cambio di persona del «View as»: subito se nessuno lo trattiene,
+ * altrimenti quando tutti hanno detto sì (e mai, se uno dice di restare).
+ */
+export function askPersonaChange(proceed: () => void): void {
+  const guards = [...personaGuards];
+  if (guards.length === 0) return proceed();
+  void (async () => {
+    for (const guard of guards) if (!(await guard())) return;
+    proceed();
+  })();
+}

@@ -13194,6 +13194,11 @@
       "code": {
         "language": "Linguaggio del codice",
         "plain": "Testo semplice"
+      },
+      "leave": {
+        "title": "Alcune modifiche non sono ancora salvate",
+        "stay": "Resta",
+        "leave": "Esci senza salvare"
       }
     },
     "comments": {

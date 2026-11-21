@@ -4124,7 +4124,7 @@ export function saveAutomationDraftNow(
   return api.automations.saveDraft(id, flow, {}, { expected });
 }
 
-export { onBeforePersonaChange } from "./session";
+export { askPersonaChange, guardPersonaChange, onBeforePersonaChange } from "./session";
 export type {
   CustomerPreview,
   SupportConversationView,
