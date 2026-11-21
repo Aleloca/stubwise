@@ -5898,3 +5898,91 @@ deploy o di un rollback che la tocca.
   vecchio non manda gli eventi né il 409 `section_busy`, e ignora la tabella
   delle prese. Il renderer torna a «Saved» col 409 `stale` di F1. La 0209
   non si annulla: la tabella resta, e le prese scadono da sole.
+
+- **«Integrazione area 11, F5: Claude dalle fonti e le domande»** *(21 nov
+  2026)*: branch `feat/area11-f5` (da `feat/area11-f4`), piano
+  `docs/plans/2026-11-20-integrazione-area11-f5-plan.md`.
+  - Migrazione **0210** (`product_doc_jobs`):
+    - la coda del lavoro di Claude sulla doc (`product_doc_jobs`);
+    - i cinque TRIGGER che la riempiono nella transazione di chi scrive: task
+      chiusa, decisione registrata, rilascio, riunione col documento pronto,
+      proposta della posta di un messaggio ammesso con un progetto. Solo per
+      i progetti che hanno almeno una pagina di prodotto, e una fonte una
+      volta per progetto;
+    - i segni di Claude (`product_claude_marks`);
+    - le colonne di Claude sulle revisioni (`source_kind`, `source_id`,
+      `via`, `on_behalf_of`; kind `claude`);
+    - `question` e `answer` sui commenti.
+  - Migrazione **0211** (`product_doc_operation`): l'operazione AI
+    `product_doc_update` nei CHECK di `agent_runs` e `ai_model_settings`
+    (modello di partenza `sonnet`), e la sosta `paused` della coda.
+  - Migrazione **0213** (`product_doc_jobs_review`, revisione di F5): la coda
+    ricorda il lavoro fatto. `facts` sono i fatti del modello, una volta sola;
+    `pages_done` le pagine già scritte; `not_before`, `answered_at` (il freno per
+    progetto) e `last_held_reason` (la riga «Claude riprende quando…»). Più
+    l'indice su `product_claude_marks(revision_id)`. Il trigger della posta
+    accoda anche al cambio di progetto della proposta e all'ammissione DOPO
+    del messaggio; una proposta scartata no.
+  - Migrazione **0212** (`alert_type_underscore`): il CHECK del tipo di
+    un'iscrizione (`alert_subscriptions_type_chk`, 0177) ammette il trattino
+    basso nel primo segmento. Prima nessuna iscrizione `product_doc.*` si
+    poteva scrivere: le Preferenze non accendevano né spegnevano quelle
+    righe. La regola nuova è più larga, quindi le righe esistenti passano.
+  - **Nessun `notification_kind` nuovo**: `product_doc.updated` e
+    `product_doc.question` esistono dalla 0203 (F2). Con F5 diventano VIVI e
+    nascono le prime righe: le pubblica il **worker** (lo scrittore di Claude,
+    nella sua transazione), a chi segue la pagina sempre (motivo
+    `follower`) e a chi ha la riga accesa (di partenza `docs.edit`); mai
+    Claude, mai il titolare della fonte.
+  - Rotte nuove sotto `/api`:
+    - i segni (`GET /product-pages/:id/marks`, `POST
+      /product-marks/:id/looks-good|undo`, `POST
+      /product-revisions/:id/undo-all`);
+    - la risposta a una domanda (`POST /product-comments/:id/answer`, solo
+      `apply` e `keep`);
+    - le domande aperte (`GET /me/product-questions`).
+    `POST /requests` accetta `origin` (`kind: "product_doc"`, la domanda):
+    «Open a request» chiude la domanda col job d'intake. Campi additivi:
+    `question` sui commenti, i campi di Claude sulle revisioni,
+    `claudeHeld` sullo spazio, `productDoc.claude` sulle card d'inbox.
+  - Nessuna env nuova. **Costo nuovo**: ogni fonte dei progetti con una doc
+    di prodotto è UNA run di testo `product_doc_update` (un turno, nessuno
+    strumento, `sonnet`). Entra nel budget AI e nella quota degli account
+    (sfondo); a budget finito o a quota piena il lavoro si ferma `held` e
+    riparte da solo.
+  - Golden `product-doc-email`, `-vague`, `-contradicts`, `-hostile`
+    (`apps/worker/scripts/golden/README.md`): vanno lanciati al rilascio e a
+    ogni aggiornamento del CLI o del prompt (`product-docs/prompt.ts`).
+
+  **ORDINE**: **server** (healthy, 0210–0212 applicate), poi **worker**
+  (fa il lavoro e scrive le card, e vuole le tabelle e il CHECK della 0211;
+  senza lavoro dell'agente in corso, «Worker fail-on-restart»), poi **caddy**
+  (il renderer di 94). I trigger accodano dal momento della migrazione: fra
+  il server e il worker i lavori restano `queued`, e li prende il worker
+  nuovo. Un lavoro `running` interrotto da un riavvio torna in coda da solo
+  dopo 15 minuti.
+
+  Prima del worker, un controllo d'inattività in più:
+
+  ```sql
+  select id, project_id, started_at from product_doc_jobs where status = 'running';
+  ```
+
+  **Rollback**:
+  - Il **worker scende INSIEME al server**: un worker F5 con un server più
+    vecchio continuerebbe a scrivere modifiche, segni e card che quel server
+    non sa né mostrare né annullare.
+  - Fino a F4 (stesso branch d'integrazione) la discesa del server è
+    sicura: i tre kind e il kind `claude` delle revisioni li conosce già.
+    Più indietro di F2 vale la query di pulizia della voce di F2, che copre
+    già `updated` e `question`.
+  - Le migrazioni non si annullano. I trigger restano e continuano ad
+    accodare: i lavori aspettano `queued` finché un worker F5 non torna. Per
+    fermarli senza risalire, con un worker VECCHIO (che non li legge):
+    `update product_doc_jobs set status = 'held', held_reason = 'paused' where status = 'queued';`
+    ⚠️ Con un worker F5 acceso questa query NON regge: il worker rimette in
+    coda un `paused` appena il progetto non è in pausa. Per fermare la doc di
+    un progetto con un worker F5 si mette in pausa la coda del progetto
+    (`projects.queue_paused_at`), che il claim salta.
+    Le domande di Claude restano commenti col corpo vuoto, che un server
+    vecchio mostra come fili vuoti.

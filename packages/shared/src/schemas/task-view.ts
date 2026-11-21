@@ -4,6 +4,7 @@ import { TASK_SIZES } from "../tasks/sizes.js";
 import { UI_TASK_TYPES } from "../tasks/types.js";
 import { isIsoWeek } from "../tasks/weeks.js";
 import { viaClaudeShape } from "./actor.js";
+import { productOriginSchema } from "./product-docs.js";
 import { ticketPrioritySchema } from "./ticket.js";
 
 /**
@@ -165,6 +166,8 @@ export const taskViewSchema = z.object({
   type: uiTaskTypeSchema,
   priority: ticketPrioritySchema,
   requestId: z.string().uuid().nullable().default(null),
+  /** Area 11, F6: la pagina da cui nasce la sua richiesta («From the doc»), derivata a lettura; null a chi non la legge. Additivo. */
+  productOrigin: productOriginSchema.nullable().default(null),
   links: z.array(z.object({ kind: storedLinkKindSchema, taskId: z.string().uuid() })).default([]),
   attachments: z
     .array(z.object({ id: z.string().uuid(), name: z.string(), sizeBytes: z.number().int() }))

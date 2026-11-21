@@ -13,12 +13,13 @@ import {
   projectDecisions,
   projects,
   releases,
+  ticketEvents,
   tickets,
   type Db,
 } from "@stubwise/db";
 import { aiBudgetState, writeClaudeFacts } from "@stubwise/notifications";
-import { productBlockSchema, type ProductBlock, type ProductFact } from "@stubwise/shared";
-import { and, asc, eq, lt, sql } from "drizzle-orm";
+import { productBlockSchema, productFactSchema, productSearchText, type ProductBlock, type ProductFact } from "@stubwise/shared";
+import { and, asc, desc, eq, lt, ne, sql } from "drizzle-orm";
 import { NATIVE_TOOLS } from "../agent/native-tools.js";
 import type { AgentRunner, AgentRunResult } from "../agent/runner.js";
 import { textFromRun } from "../agent/text.js";
@@ -44,6 +45,19 @@ import { buildProductDocPrompt, parseProductFacts, type PromptPage, type PromptS
  *   presa da una persona fa aspettare il lavoro (`section_busy`).
  * - Fail-open e mai silenzioso: un fatto scartato, una pagina sparita o un
  *   fatto senza effetto finiscono nel log del lavoro.
+ * - Revisione di F5: un lavoro ripreso (una sosta, un errore, un worker
+ *   morto) NON richiama il modello: i fatti stanno sulla riga (`facts`), e le
+ *   pagine già scritte (`pages_done`, segnate nella transazione dello
+ *   scrittore) non si riscrivono. Il claim salta i progetti in pausa, i
+ *   lavori che aspettano (`not_before`) e i progetti che hanno già avuto
+ *   {@link PRODUCT_DOC_HOURLY_MAX} risposte nell'ultima ora (il freno alle
+ *   ondate); un giro prende più progetti senza aspettare un serializer
+ *   occupato. `attempts` conta solo gli errori. Il prompt porta al più le
+ *   pagine più vicine alla fonte ({@link selectPromptPages}).
+ * - Il titolare (per conto di chi Claude agisce) è chi ha la casella, chi ha
+ *   registrato la decisione, chi ha CHIUSO la task, chi ha fatto il merge del
+ *   rilascio (decisione del maintainer, 21 nov 2026); non noto vale come
+ *   senza permesso (lo scrittore fa una domanda).
  * - Questo modulo non nomina niente che scriva nel registro decisioni.
  */
 
@@ -63,6 +77,15 @@ type JobRow = typeof productDocJobs.$inferSelect;
 
 /** Quante volte un lavoro si riprova per un errore del modello prima di fallire. */
 export const PRODUCT_DOC_MAX_ATTEMPTS = 3;
+/** Il freno alle ondate: al più tante risposte del modello per progetto nell'ultima ora. */
+export const PRODUCT_DOC_HOURLY_MAX = 20;
+/** Quante pagine, e quanto testo, entrano al più nel prompt. */
+export const PROMPT_PAGES_MAX = 12;
+export const PROMPT_PAGES_CHARS = 48_000;
+/** Quanti progetti al più per giro. */
+const JOBS_PER_TICK = 3;
+/** L'attesa prima di riprovare dopo un errore. */
+const RETRY_DELAY_MS = 60_000;
 
 const readBlocks = (raw: unknown): ProductBlock[] =>
   (Array.isArray(raw) ? raw : []).flatMap((b) => {
@@ -79,7 +102,8 @@ export async function readProductSource(db: Db, job: Pick<JobRow, "projectId" | 
         .select({ subject: emailMessages.subject, excerpt: emailMessages.textExcerpt, receivedAt: emailMessages.receivedAt, admitted: emailMessages.admitted, ownerId: googleAccounts.userId, body: emailBodies.bodyText })
         .from(emailMessages)
         .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
-        .innerJoin(emailProposals, and(eq(emailProposals.emailMessageId, emailMessages.id), eq(emailProposals.projectId, job.projectId)))
+        // Una proposta scartata («Non fare nulla») non alimenta la doc.
+        .innerJoin(emailProposals, and(eq(emailProposals.emailMessageId, emailMessages.id), eq(emailProposals.projectId, job.projectId), ne(emailProposals.status, "ignored")))
         .leftJoin(emailBodies, eq(emailBodies.emailMessageId, emailMessages.id))
         .where(eq(emailMessages.id, job.sourceId));
       if (!m || !m.admitted) return null;
@@ -106,12 +130,20 @@ export async function readProductSource(db: Db, job: Pick<JobRow, "projectId" | 
     case "task": {
       const [t] = await db.select({ title: tickets.title, body: tickets.body, number: tickets.number, projectId: tickets.projectId, code: projects.code }).from(tickets).innerJoin(projects, eq(projects.id, tickets.projectId)).where(eq(tickets.id, job.sourceId));
       if (!t || t.projectId !== job.projectId) return null;
-      return { kind: "task", title: `${t.code}-${t.number} ${t.title}`, text: t.body ?? "", at: null, ownerId: null };
+      // Il titolare è chi l'ha CHIUSA: l'ultimo cambio di stato (null = di sistema, o una persona eliminata).
+      const [closed] = await db
+        .select({ actorId: ticketEvents.actorId })
+        .from(ticketEvents)
+        .where(and(eq(ticketEvents.ticketId, job.sourceId), eq(ticketEvents.kind, "status_changed")))
+        .orderBy(desc(ticketEvents.createdAt))
+        .limit(1);
+      return { kind: "task", title: `${t.code}-${t.number} ${t.title}`, text: t.body ?? "", at: null, ownerId: closed?.actorId ?? null };
     }
     case "release": {
-      const [r] = await db.select({ title: releases.title, code: releases.code, at: releases.mergedAt, projectId: releases.projectId }).from(releases).where(eq(releases.id, job.sourceId));
+      const [r] = await db.select({ title: releases.title, code: releases.code, at: releases.mergedAt, projectId: releases.projectId, by: releases.mergedBy }).from(releases).where(eq(releases.id, job.sourceId));
       if (!r || r.projectId !== job.projectId) return null;
-      return { kind: "release", title: `${r.code} ${r.title}`, text: r.title, at: r.at.toISOString(), ownerId: null };
+      // Il titolare è chi ha fatto il merge (null = da fuori Stubwise: senza permesso).
+      return { kind: "release", title: `${r.code} ${r.title}`, text: r.title, at: r.at.toISOString(), ownerId: r.by };
     }
   }
 }
@@ -129,9 +161,46 @@ async function projectPages(db: Db, projectId: string): Promise<(PromptPage & { 
 }
 
 const hold = (db: Db, id: string, reason: "limit" | "budget" | "section_busy" | "paused") =>
-  db.update(productDocJobs).set({ status: "held", heldReason: reason, finishedAt: new Date() }).where(eq(productDocJobs.id, id));
+  db.update(productDocJobs).set({ status: "held", heldReason: reason, lastHeldReason: reason, finishedAt: new Date() }).where(eq(productDocJobs.id, id));
 const finish = (db: Db, id: string, status: "done" | "failed", error: string | null = null) =>
-  db.update(productDocJobs).set({ status, heldReason: null, error, finishedAt: new Date() }).where(eq(productDocJobs.id, id));
+  db.update(productDocJobs).set({ status, heldReason: null, lastHeldReason: null, error, finishedAt: new Date() }).where(eq(productDocJobs.id, id));
+/** Un errore: un tentativo in più, e si riprova dopo un'attesa; al tetto, fallisce. */
+const retryOrFail = async (db: Db, job: Pick<JobRow, "id" | "attempts">, error: string): Promise<ProductDocJobOutcome> => {
+  if (job.attempts + 1 >= PRODUCT_DOC_MAX_ATTEMPTS) {
+    await db.update(productDocJobs).set({ attempts: job.attempts + 1 }).where(eq(productDocJobs.id, job.id));
+    await finish(db, job.id, "failed", error);
+    return "failed";
+  }
+  await db.update(productDocJobs).set({ status: "queued", attempts: job.attempts + 1, notBefore: new Date(Date.now() + RETRY_DELAY_MS) }).where(eq(productDocJobs.id, job.id));
+  return "retry";
+};
+
+const words = (text: string) => new Set(text.toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? []);
+
+/**
+ * Le pagine che entrano nel prompt (revisione di F5, 8): le più vicine alla
+ * fonte per parole in comune (titolo e testo), poi nell'ordine dell'albero,
+ * fino a {@link PROMPT_PAGES_MAX} pagine e {@link PROMPT_PAGES_CHARS} caratteri;
+ * almeno una. Un fatto su una pagina fuori da qui si scarta (`parseProductFacts`).
+ */
+export function selectPromptPages<P extends PromptPage>(source: PromptSource, pages: readonly P[]): P[] {
+  const wanted = words(`${source.title}\n${source.text}`);
+  const scored = pages.map((page, i) => {
+    const text = productSearchText(page.title, page.blocks);
+    let score = 0;
+    for (const w of words(text)) if (wanted.has(w)) score += 1;
+    return { page, i, score, size: Math.min(text.length, 8_000) + page.title.length };
+  });
+  scored.sort((a, b) => b.score - a.score || a.i - b.i);
+  const out: P[] = [];
+  let chars = 0;
+  for (const s of scored) {
+    if (out.length >= PROMPT_PAGES_MAX || (out.length > 0 && chars + s.size > PROMPT_PAGES_CHARS)) break;
+    out.push(s.page);
+    chars += s.size;
+  }
+  return out;
+}
 
 export type ProductDocJobOutcome = "done" | "held" | "failed" | "retry";
 
@@ -151,61 +220,81 @@ export async function runProductDocJob(deps: ProductDocJobDeps, job: JobRow): Pr
   const pages = await projectPages(db, job.projectId);
   if (pages.length === 0) return finish(db, job.id, "done", "no_pages").then(() => "done");
 
-  const prompt = buildProductDocPrompt(source, pages);
-  const cwd = await mkdtemp(join(tmpdir(), "stubwise-product-doc-"));
-  let text: string | null = null;
-  try {
-    const attempt = (provider: ResolvedProvider | undefined) =>
-      deps.runner.run({
-        cwd,
-        prompt,
-        usage: { operation: "product_doc_update", projectId: job.projectId },
-        ...(deps.model ? { model: deps.model } : {}),
-        ...(provider !== undefined ? { provider } : {}),
-        // Claude non esegue niente: nessuno strumento, un turno.
-        builtinTools: NATIVE_TOOLS.text,
-        permissionMode: "default",
-        maxTurns: 1,
-        timeoutMs: 180_000,
-      });
-    let result: AgentRunResult;
-    if (deps.select) {
-      const out = await runWithProviders(deps.select, { projectId: job.projectId, workClass: "background" }, attempt, limitTextOfRun);
-      if (out.kind === "legacy_limited" || out.kind === "unavailable") return hold(db, job.id, "limit").then(() => "held");
-      result = out.value;
-    } else {
-      result = await attempt(undefined);
+  // I fatti: già calcolati (un lavoro ripreso), o dal modello UNA volta.
+  let facts: ProductFact[];
+  if (Array.isArray(job.facts)) {
+    facts = job.facts.flatMap((raw) => {
+      const parsed = productFactSchema.safeParse(raw);
+      return parsed.success ? [parsed.data] : [];
+    });
+  } else {
+    const promptPages = selectPromptPages(source, pages);
+    const prompt = buildProductDocPrompt(source, promptPages);
+    const cwd = await mkdtemp(join(tmpdir(), "stubwise-product-doc-"));
+    let text: string | null = null;
+    try {
+      const attempt = (provider: ResolvedProvider | undefined) =>
+        deps.runner.run({
+          cwd,
+          prompt,
+          usage: { operation: "product_doc_update", projectId: job.projectId },
+          ...(deps.model ? { model: deps.model } : {}),
+          ...(provider !== undefined ? { provider } : {}),
+          // Claude non esegue niente: nessuno strumento, un turno.
+          builtinTools: NATIVE_TOOLS.text,
+          permissionMode: "default",
+          maxTurns: 1,
+          timeoutMs: 180_000,
+        });
+      let result: AgentRunResult;
+      if (deps.select) {
+        const out = await runWithProviders(deps.select, { projectId: job.projectId, workClass: "background" }, attempt, limitTextOfRun);
+        if (out.kind === "legacy_limited" || out.kind === "unavailable") return hold(db, job.id, "limit").then(() => "held");
+        result = out.value;
+      } else {
+        result = await attempt(undefined);
+      }
+      text = textFromRun(result);
+    } catch (error) {
+      log.warn({ err: error, jobId: job.id }, "doc di prodotto: il modello non ha risposto");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
     }
-    text = textFromRun(result);
-  } catch (error) {
-    log.warn({ err: error, jobId: job.id }, "doc di prodotto: il modello non ha risposto");
-  } finally {
-    await rm(cwd, { recursive: true, force: true });
+    if (text === null) return retryOrFail(db, job, "no_answer");
+    const parsed = parseProductFacts(text, new Set(promptPages.map((pg) => pg.id)));
+    if (parsed.invalid) {
+      log.warn({ jobId: job.id }, "doc di prodotto: la risposta non è un oggetto JSON con i fatti");
+      return finish(db, job.id, "failed", "invalid_answer").then(() => "failed");
+    }
+    if (parsed.discarded > 0) log.warn({ jobId: job.id, discarded: parsed.discarded }, "doc di prodotto: fatti fuori schema scartati");
+    facts = parsed.facts;
+    // Una volta sola: la ripresa riparte da qui, senza richiamare il modello.
+    await db.update(productDocJobs).set({ facts: facts as unknown[], answeredAt: new Date() }).where(eq(productDocJobs.id, job.id));
   }
-  if (text === null) {
-    if (job.attempts >= PRODUCT_DOC_MAX_ATTEMPTS) return finish(db, job.id, "failed", "no_answer").then(() => "failed");
-    await db.update(productDocJobs).set({ status: "queued" }).where(eq(productDocJobs.id, job.id));
-    return "retry";
-  }
-  const parsed = parseProductFacts(text, new Set(pages.map((pg) => pg.id)));
-  if (parsed.invalid) {
-    log.warn({ jobId: job.id }, "doc di prodotto: la risposta non è un oggetto JSON con i fatti");
-    return finish(db, job.id, "failed", "invalid_answer").then(() => "failed");
-  }
-  if (parsed.discarded > 0) log.warn({ jobId: job.id, discarded: parsed.discarded }, "doc di prodotto: fatti fuori schema scartati");
 
+  const done = new Set(job.pagesDone);
+  const markDone = (pageId: string) => (tx: Db) =>
+    tx.update(productDocJobs).set({ pagesDone: sql`array_append(${productDocJobs.pagesDone}, ${pageId}::uuid)` }).where(eq(productDocJobs.id, job.id)).then(() => undefined);
   const byPage = new Map<string, ProductFact[]>();
-  for (const f of parsed.facts) byPage.set(f.pageId, [...(byPage.get(f.pageId) ?? []), f]);
-  for (const [pageId, facts] of byPage) {
-    const page = pages.find((pg) => pg.id === pageId)!;
-    const written = await writeClaudeFacts(db, { projectId: job.projectId, pageId, facts, source: { kind: job.sourceKind, id: job.sourceId }, ownerId: source.ownerId, arrivedSeq: page.revSeq });
+  for (const f of facts) byPage.set(f.pageId, [...(byPage.get(f.pageId) ?? []), f]);
+  for (const [pageId, pageFacts] of byPage) {
+    // Già scritta da questo lavoro: non si riscrive (un insert duplicherebbe, un replace aprirebbe domande spurie).
+    if (done.has(pageId)) continue;
+    const page = pages.find((pg) => pg.id === pageId);
+    if (!page) {
+      log.warn({ jobId: job.id, pageId }, "doc di prodotto: la pagina non c'è più");
+      await markDone(pageId)(db);
+      continue;
+    }
+    const written = await writeClaudeFacts(db, { projectId: job.projectId, pageId, facts: pageFacts, source: { kind: job.sourceKind, id: job.sourceId }, ownerId: source.ownerId, arrivedSeq: page.revSeq, onWritten: markDone(pageId) });
     if (written.kind === "section_busy") {
-      // Una persona scrive in quella sezione: il lavoro aspetta e riprova (come `productPending`).
+      // Una persona scrive in quella sezione: il lavoro aspetta e riprova (come `productPending`), senza modello.
       log.info?.({ jobId: job.id, pageId, sectionId: written.sectionId }, "doc di prodotto: una sezione è presa da una persona, si riprova");
       return hold(db, job.id, "section_busy").then(() => "held");
     }
     if (written.kind === "page_gone") {
       log.warn({ jobId: job.id, pageId }, "doc di prodotto: la pagina non c'è più");
+      await markDone(pageId)(db);
       continue;
     }
     for (const o of written.outcomes) if (o.kind === "none") log.warn({ jobId: job.id, pageId, factId: o.factId, why: o.why }, "doc di prodotto: un fatto senza effetto");
@@ -213,16 +302,32 @@ export async function runProductDocJob(deps: ProductDocJobDeps, job: JobRow): Pr
   return finish(db, job.id, "done").then(() => "done");
 }
 
-/** Prende il lavoro più vecchio in coda (`FOR UPDATE SKIP LOCKED`). */
-export async function claimProductDocJob(db: Db): Promise<JobRow | null> {
+/**
+ * Prende il lavoro in coda più vecchio (`FOR UPDATE SKIP LOCKED`), saltando
+ * i progetti in pausa, quelli in `exclude` (un lavoro della doc già in corso),
+ * i lavori che aspettano (`not_before`) e i progetti col freno alle ondate.
+ * Il claim NON conta un tentativo (`attempts` conta solo gli errori).
+ */
+export async function claimProductDocJob(db: Db, exclude: readonly string[] = []): Promise<JobRow | null> {
   return db.transaction(async (txRaw) => {
     const tx = txRaw as unknown as Db;
-    const [row] = await tx.select().from(productDocJobs).where(eq(productDocJobs.status, "queued")).orderBy(asc(productDocJobs.createdAt)).limit(1).for("update", { skipLocked: true });
-    if (!row) return null;
+    const excluded = exclude.length > 0 ? sql`and not (j.project_id = any(${`{${exclude.join(",")}}`}::uuid[]))` : sql``;
+    const picked = await tx.execute<{ id: string }>(sql`
+      select j.id from product_doc_jobs j
+      join projects p on p.id = j.project_id
+      where j.status = 'queued' and p.queue_paused_at is null
+        and (j.not_before is null or j.not_before <= now())
+        and (select count(*) from product_doc_jobs h where h.project_id = j.project_id and h.answered_at > now() - interval '1 hour') < ${PRODUCT_DOC_HOURLY_MAX}
+        ${excluded}
+      order by j.created_at
+      limit 1
+      for update of j skip locked`);
+    const id = (picked as unknown as { id: string }[])[0]?.id;
+    if (!id) return null;
     const [claimed] = await tx
       .update(productDocJobs)
-      .set({ status: "running", attempts: sql`${productDocJobs.attempts} + 1`, startedAt: new Date(), heldReason: null })
-      .where(eq(productDocJobs.id, row.id))
+      .set({ status: "running", startedAt: new Date(), heldReason: null, notBefore: null })
+      .where(eq(productDocJobs.id, id))
       .returning();
     return claimed ?? null;
   });
@@ -230,9 +335,10 @@ export async function claimProductDocJob(db: Db): Promise<JobRow | null> {
 
 /**
  * I lavori fermi tornano in coda per riprovare: `section_busy` dopo 30 s (la
- * presa scade a 15 s), gli altri motivi dopo 5 minuti (al prossimo tentativo,
- * se il motivo c'è ancora, si fermano di nuovo). Un `running` di un worker
- * morto torna in coda dopo 15 minuti.
+ * presa scade a 15 s), `limit` e `budget` dopo 5 minuti (al prossimo
+ * tentativo, se il motivo c'è ancora, si fermano di nuovo), `paused` SOLO
+ * quando il progetto non è più in pausa. Un `running` di un worker morto
+ * torna in coda dopo 15 minuti.
  */
 export async function requeueProductDocJobs(db: Db, now = new Date()): Promise<void> {
   await db
@@ -240,7 +346,8 @@ export async function requeueProductDocJobs(db: Db, now = new Date()): Promise<v
     .set({ status: "queued", heldReason: null })
     .where(
       sql`(${productDocJobs.status} = 'held' and ${productDocJobs.heldReason} = 'section_busy' and ${productDocJobs.finishedAt} < ${new Date(now.getTime() - 30_000).toISOString()}::timestamptz)
-        or (${productDocJobs.status} = 'held' and ${productDocJobs.heldReason} <> 'section_busy' and ${productDocJobs.finishedAt} < ${new Date(now.getTime() - 300_000).toISOString()}::timestamptz)`,
+        or (${productDocJobs.status} = 'held' and ${productDocJobs.heldReason} in ('limit', 'budget') and ${productDocJobs.finishedAt} < ${new Date(now.getTime() - 300_000).toISOString()}::timestamptz)
+        or (${productDocJobs.status} = 'held' and ${productDocJobs.heldReason} = 'paused' and exists (select 1 from projects p where p.id = ${productDocJobs.projectId} and p.queue_paused_at is null))`,
     );
   await db
     .update(productDocJobs)
@@ -248,29 +355,46 @@ export async function requeueProductDocJobs(db: Db, now = new Date()): Promise<v
     .where(and(eq(productDocJobs.status, "running"), lt(productDocJobs.startedAt, new Date(now.getTime() - 15 * 60_000))));
 }
 
-/** Un giro: le soste da riprovare, poi un lavoro, sotto il serializer del suo progetto. */
-export async function pollProductDocsOnce(deps: ProductDocJobDeps & { serializer: ProjectSerializer }): Promise<ProductDocJobOutcome | null> {
+/**
+ * Un giro: le soste da riprovare, poi fino a {@link JOBS_PER_TICK} lavori di
+ * progetti DIVERSI, ognuno sotto il serializer del suo progetto. Non li
+ * aspetta: restituisce le loro promise (i test le aspettano). Un progetto in
+ * `inFlight` (un suo lavoro gira) si salta, così un fix lungo su un progetto
+ * non ferma la doc degli altri. Col budget del mese finito non prende niente.
+ */
+export async function pollProductDocsOnce(deps: ProductDocJobDeps & { serializer: ProjectSerializer; inFlight?: Set<string> }): Promise<Promise<ProductDocJobOutcome>[]> {
   await requeueProductDocJobs(deps.db);
-  const job = await claimProductDocJob(deps.db);
-  if (!job) return null;
-  try {
-    return await deps.serializer.run(job.projectId, () => runProductDocJob(deps, job));
-  } catch (error) {
-    deps.log.warn({ err: error, jobId: job.id }, "doc di prodotto: lavoro non riuscito");
-    // Un errore inatteso si riprova (fino al tetto dei tentativi), poi fallisce.
-    await (job.attempts >= PRODUCT_DOC_MAX_ATTEMPTS ? finish(deps.db, job.id, "failed", "error") : deps.db.update(productDocJobs).set({ status: "queued" }).where(eq(productDocJobs.id, job.id))).catch(() => undefined);
-    return "failed";
+  if ((await aiBudgetState(deps.db, deps.monthlyCostUsdFn)).exhausted) return [];
+  const inFlight = deps.inFlight ?? new Set<string>();
+  const started: Promise<ProductDocJobOutcome>[] = [];
+  for (let i = 0; i < JOBS_PER_TICK; i++) {
+    const job = await claimProductDocJob(deps.db, [...inFlight]);
+    if (!job) break;
+    inFlight.add(job.projectId);
+    started.push(
+      deps.serializer
+        .run(job.projectId, () => runProductDocJob(deps, job))
+        .catch(async (error: unknown) => {
+          deps.log.warn({ err: error, jobId: job.id }, "doc di prodotto: lavoro non riuscito");
+          // Un errore inatteso si riprova (fino al tetto dei tentativi), poi fallisce.
+          return retryOrFail(deps.db, job, "error").catch(() => "failed" as const);
+        })
+        .finally(() => inFlight.delete(job.projectId)),
+    );
   }
+  return started;
 }
 
 export function startProductDocsPoller(opts: ProductDocJobDeps & { serializer: ProjectSerializer; intervalSeconds: number; signal: AbortSignal }): () => void {
   if (opts.intervalSeconds <= 0) return () => {};
-  let running = false;
+  let claiming = false;
+  // I progetti con un lavoro della doc in corso: un giro non li riprende, e non li aspetta.
+  const inFlight = new Set<string>();
   const timer = setInterval(() => {
-    if (running) return;
-    running = true;
-    void pollProductDocsOnce(opts).finally(() => {
-      running = false;
+    if (claiming) return;
+    claiming = true;
+    void pollProductDocsOnce({ ...opts, inFlight }).finally(() => {
+      claiming = false;
     });
   }, opts.intervalSeconds * 1000);
   if (typeof timer.unref === "function") timer.unref();

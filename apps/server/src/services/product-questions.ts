@@ -1,5 +1,5 @@
 import { backlogItems, backlogJobs, docPageCodes, productComments, productPageBlockIds, productPageFollows, productPageRevisions, productPages, projects, tickets, type Db } from "@stubwise/db";
-import { resolveCatalogRecipients, withAnchorText } from "@stubwise/notifications";
+import { freshIds, resolveCatalogRecipients, withAnchorText } from "@stubwise/notifications";
 import {
   alertTypeOf,
   anchorIdsOf,
@@ -9,6 +9,8 @@ import {
   productBlockSchema,
   productBlockWriteSchema,
   productSearchText,
+  PRODUCT_BLOCKS_MAX,
+  PRODUCT_PAGE_BYTES_MAX,
   validProductBlock,
   type ProductAnswerChoice,
   type ProductBlock,
@@ -21,13 +23,12 @@ import {
   type ProductSourceView,
   type RichText,
 } from "@stubwise/shared";
-import { and, asc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
-import { randomUUID } from "node:crypto";
-import { inProjects, projectIdsWithPermission, projectPermissionsFor } from "../auth/access.js";
+import { and, asc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
+import { inProjects, projectIdsWithPermission, projectPermissionsFor, scopeProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { productSourceViews } from "./product-claude.js";
 import { ProductDocsError } from "./product-docs.js";
-import { ProductQuestionConflictError, answerOf, close, namesFor, questionOf } from "./product-question-origin.js";
+import { ProductQuestionConflictError, close, effectiveAnswer, failedIntakeJobs, namesFor, questionOf } from "./product-question-origin.js";
 
 export { ProductQuestionConflictError, checkProductDocOrigin, closeQuestionWithRequest } from "./product-question-origin.js";
 import { holdTouchedSections } from "./product-docs-ops.js";
@@ -116,16 +117,19 @@ interface PageCtx {
  * guarda. Un commento senza domanda (o con un jsonb che non passa lo schema)
  * non c'è nella mappa.
  */
-async function questionViews(db: Db, viewer: Viewer, page: PageCtx, rows: readonly CommentRow[]): Promise<Map<string, ProductQuestionView>> {
+async function questionViews(db: Db, viewer: Viewer, pagesById: ReadonlyMap<string, PageCtx>, rows: readonly CommentRow[]): Promise<Map<string, ProductQuestionView>> {
   const out = new Map<string, ProductQuestionView>();
+  const failed = await failedIntakeJobs(db, rows);
   const asked = rows.flatMap((r) => {
-    const q = r.replyToId === null && r.deletedAt === null ? questionOf(r) : null;
-    return q ? [{ row: r, q, answer: answerOf(r) }] : [];
+    const q = r.replyToId === null && r.deletedAt === null && pagesById.has(r.pageId) ? questionOf(r) : null;
+    return q ? [{ row: r, q, answer: effectiveAnswer(r, failed), page: pagesById.get(r.pageId)! }] : [];
   });
   if (asked.length === 0) return out;
   const open = asked.filter((a) => a.answer === null && (a.q.apply !== null || a.q.insert !== undefined));
-  const revisions = open.length > 0 ? await db.select().from(productPageRevisions).where(eq(productPageRevisions.pageId, page.id)).orderBy(asc(productPageRevisions.lastSeq)) : [];
-  const blockers = new Map(open.map((a) => [a.row.id, blockerOf(a.row, a.q, revisions)]));
+  // Le revisioni di TUTTE le pagine in una lettura (niente N+1).
+  const openPages = [...new Set(open.map((a) => a.row.pageId))];
+  const revisions = openPages.length > 0 ? await db.select().from(productPageRevisions).where(inArray(productPageRevisions.pageId, openPages)).orderBy(asc(productPageRevisions.lastSeq)) : [];
+  const blockers = new Map(open.map((a) => [a.row.id, blockerOf(a.row, a.q, revisions.filter((r) => r.pageId === a.row.pageId))]));
   const sources = await productSourceViews(db, viewer, asked.flatMap((a) => (a.q.sourceRef.kind === "first_version" ? [] : [a.q.sourceRef])));
   // La prima versione (F6) non è una fonte da aprire: solo il suo tipo.
   const sourceOf = (ref: ProductQuestion["sourceRef"]): ProductSourceView =>
@@ -149,8 +153,8 @@ async function questionViews(db: Db, viewer: Viewer, page: PageCtx, rows: readon
     taskIds.length > 0 ? (await db.select({ id: tickets.id, number: tickets.number, code: projects.code }).from(tickets).innerJoin(projects, eq(projects.id, tickets.projectId)).where(inArray(tickets.id, taskIds))).map((r) => [r.id, `${r.code}-${r.number}`]) : [],
   );
   const nameOf = await namesFor(db, viewer, asked.flatMap((a) => [a.q.forId, a.answer?.byId ?? null, blockers.get(a.row.id)?.actorId ?? null]));
-  const canEdit = page.perms?.has("docs.edit") === true;
-  for (const { row, q, answer } of asked) {
+  for (const { row, q, answer, page } of asked) {
+    const canEdit = page.perms?.has("docs.edit") === true;
     const blocker = blockers.get(row.id) ?? null;
     const forName = nameOf(q.forId);
     const byName = answer ? nameOf(answer.byId) : null;
@@ -185,6 +189,15 @@ async function questionViews(db: Db, viewer: Viewer, page: PageCtx, rows: readon
   return out;
 }
 
+/** Le pagine coi permessi di chi guarda, in una lettura (i permessi una volta per progetto). */
+async function pageCtxs(db: Db, viewer: Viewer, pageIds: readonly string[]): Promise<Map<string, PageCtx>> {
+  if (pageIds.length === 0) return new Map();
+  const rows = await db.select({ id: productPages.id, projectId: productPages.projectId, blocks: productPages.blocks }).from(productPages).where(inArray(productPages.id, [...new Set(pageIds)]));
+  const perms = new Map<string, ReadonlySet<string> | null>();
+  for (const r of rows) if (!perms.has(r.projectId)) perms.set(r.projectId, await projectPermissionsFor(db, viewer, r.projectId));
+  return new Map(rows.map((r) => [r.id, { id: r.id, projectId: r.projectId, blocks: readBlocks(r.blocks), perms: perms.get(r.projectId) ?? null }]));
+}
+
 async function pageCtx(db: Db, viewer: Viewer, pageId: string): Promise<PageCtx | null> {
   const [page] = await db.select({ id: productPages.id, projectId: productPages.projectId, blocks: productPages.blocks }).from(productPages).where(eq(productPages.id, pageId));
   if (!page) return null;
@@ -194,8 +207,7 @@ async function pageCtx(db: Db, viewer: Viewer, pageId: string): Promise<PageCtx 
 /** Le domande dei commenti di una pagina (per `listProductComments`). */
 export async function productQuestionViewsOf(db: Db, viewer: Viewer, pageId: string, rows: readonly CommentRow[]): Promise<Map<string, ProductQuestionView>> {
   if (!rows.some((r) => r.question !== null)) return new Map();
-  const page = await pageCtx(db, viewer, pageId);
-  return page ? questionViews(db, viewer, page, rows) : new Map();
+  return questionViews(db, viewer, await pageCtxs(db, viewer, [pageId]), rows);
 }
 
 export interface ProductAnswerResult {
@@ -224,7 +236,7 @@ export async function answerProductQuestion(db: Db, viewer: Viewer, commentId: s
     const [comment] = await tx.select().from(productComments).where(eq(productComments.id, commentId)).for("update");
     const q = comment && comment.replyToId === null && comment.deletedAt === null ? questionOf(comment) : null;
     if (!comment || !q) throw notFound();
-    const prior = answerOf(comment);
+    const prior = effectiveAnswer(comment, await failedIntakeJobs(tx, [comment]));
     if (prior) throw new ProductQuestionConflictError("already_answered", { id: prior.byId, name: (await namesFor(tx, viewer, [prior.byId]))(prior.byId) }, prior.option);
     if (!optionsOf(q).options.includes(option)) throw new ProductDocsError(422, "option_unavailable", "This answer is not available for this question");
 
@@ -246,6 +258,8 @@ export async function answerProductQuestion(db: Db, viewer: Viewer, commentId: s
         throw new ProductDocsError(422, "invalid_anchor", "The question's sentence isn't on the page");
       }
       if (!next.blocks.every((b) => productBlockWriteSchema.safeParse(b).success && validProductBlock(b))) throw new ProductDocsError(422, "invalid_block", "The answer's block is not valid");
+      // I tetti della pagina, come per ogni scrittura di una persona (revisione di F5, 3).
+      if (next.blocks.length > PRODUCT_BLOCKS_MAX || Buffer.byteLength(JSON.stringify(next.blocks)) > PRODUCT_PAGE_BYTES_MAX) throw new ProductDocsError(422, "page_too_large", "The page is too large");
       if (next.changes.length > 0) {
         const given = new Set((await tx.select({ id: productPageBlockIds.blockId }).from(productPageBlockIds).where(eq(productPageBlockIds.pageId, page.id))).map((r) => r.id));
         const fresh = next.blocks.flatMap(blockIdsOf).filter((id) => !given.has(id));
@@ -276,7 +290,7 @@ function applyOp(blocks: readonly ProductBlock[], anchorId: string, q: ProductQu
     const afterId = q.insert.afterId === null ? null : (blocks.find((b) => anchorIdsOf(b).includes(q.insert!.afterId!))?.id ?? undefined);
     if (afterId === undefined) return null;
     // Un id nuovo (mai quello del modello): un id non si riusa.
-    return { op: "insert", afterId, block: { ...q.insert.block, id: `blk-${randomUUID()}` } } as ProductBlockOp;
+    return { op: "insert", afterId, block: freshIds(q.insert.block as ProductBlock) } as ProductBlockOp;
   }
   const holder = blocks.find((b) => anchorIdsOf(b).includes(anchorId));
   const block = holder && q.apply ? withAnchorText(holder, anchorId, q.apply) : null;
@@ -293,7 +307,16 @@ function applyOp(blocks: readonly ProductBlock[], anchorId: string, q: ProductQu
  */
 export async function listOpenProductQuestions(db: Db, viewer: Viewer, pageId?: string): Promise<ProductOpenQuestion[]> {
   const editable = await projectIdsWithPermission(db, viewer, "docs.edit");
-  const scope = inProjects(productPages.projectId, editable);
+  // Revisione di F5: i destinatari si filtrano nella WHERE, PRIMA del limite. Chi riceve le domande
+  // di un progetto per la riga (iscrizione o default del catalogo) lo dice il catalogo, una volta per
+  // progetto; chi segue la pagina, una EXISTS.
+  const type = alertTypeOf("product_doc.question")!;
+  const rowOn: string[] = [];
+  for (const id of await scopeProjectIds(db, editable)) {
+    if ((await resolveCatalogRecipients(db, type, id, { projectId: id })).app.includes(viewer.id)) rowOn.push(id);
+  }
+  const follows = sql`exists (select 1 from ${productPageFollows} f where f.page_id = ${productComments.pageId} and f.user_id = ${viewer.id})`;
+  const receives = rowOn.length > 0 ? or(follows, inArray(productPages.projectId, rowOn)) : follows;
   const rows = await db
     .select({ comment: productComments, pageTitle: productPages.title, projectId: productPages.projectId, number: docPageCodes.number, projectCode: projects.code })
     .from(productComments)
@@ -303,44 +326,35 @@ export async function listOpenProductQuestions(db: Db, viewer: Viewer, pageId?: 
     .where(
       and(
         sql`${productComments.question} IS NOT NULL`,
-        // La risposta chiude la domanda (e la risolve nella stessa scrittura): conta lei.
-        isNull(productComments.answer),
+        // La risposta chiude la domanda; un «Open a request» col suo intake FALLITO la riapre (derivato).
+        or(isNull(productComments.answer), sql`(${productComments.answer}->>'requestJobId') in (select id::text from backlog_jobs where status = 'failed')`),
         isNull(productComments.deletedAt),
         isNull(productComments.replyToId),
         pageId ? eq(productComments.pageId, pageId) : undefined,
-        scope,
+        inProjects(productPages.projectId, editable),
+        receives,
       ),
     )
     .orderBy(asc(productComments.createdAt), asc(productComments.id))
     .limit(200);
+  const pages = await pageCtxs(db, viewer, rows.map((r) => r.comment.pageId));
+  const views = await questionViews(db, viewer, pages, rows.map((r) => r.comment));
   const out: ProductOpenQuestion[] = [];
-  const byPage = new Map<string, typeof rows>();
-  for (const r of rows) byPage.set(r.comment.pageId, [...(byPage.get(r.comment.pageId) ?? []), r]);
-  const type = alertTypeOf("product_doc.question")!;
-  for (const [id, group] of byPage) {
-    const ctx = await pageCtx(db, viewer, id);
-    if (!ctx) continue;
-    // Il prototipo (`productQuestionDecisions`): chi RICEVE la domanda — chi segue la pagina, chi ha la riga accesa —
-    // con la regola del catalogo, la stessa delle card (`resolveCatalogRecipients`).
-    const followers = (await db.select({ userId: productPageFollows.userId }).from(productPageFollows).where(eq(productPageFollows.pageId, id))).map((r) => r.userId);
-    const { app } = await resolveCatalogRecipients(db, type, ctx.projectId, { projectId: ctx.projectId, mandatory: followers.map((userId) => ({ userId, reason: "follower" as const })) });
-    if (!app.includes(viewer.id)) continue;
-    const views = await questionViews(db, viewer, ctx, group.map((g) => g.comment));
-    for (const g of group) {
-      const question = views.get(g.comment.id);
-      if (!question) continue;
-      out.push({
-        commentId: g.comment.id,
-        pageId: g.comment.pageId,
-        pageCode: `${g.projectCode}-D${g.number}`,
-        pageTitle: g.pageTitle,
-        projectId: g.projectId,
-        projectCode: g.projectCode,
-        anchorId: g.comment.anchorId,
-        question,
-        createdAt: g.comment.createdAt.toISOString(),
-      });
-    }
+  for (const r of rows) {
+    const question = views.get(r.comment.id);
+    // Mai al titolare della fonte (ha agito lui, per mano di Claude), come le card.
+    if (!question || (question.source.ownerId !== null && question.source.ownerId === viewer.id)) continue;
+    out.push({
+      commentId: r.comment.id,
+      pageId: r.comment.pageId,
+      pageCode: `${r.projectCode}-D${r.number}`,
+      pageTitle: r.pageTitle,
+      projectId: r.projectId,
+      projectCode: r.projectCode,
+      anchorId: r.comment.anchorId,
+      question,
+      createdAt: r.comment.createdAt.toISOString(),
+    });
   }
-  return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.commentId.localeCompare(b.commentId));
+  return out;
 }

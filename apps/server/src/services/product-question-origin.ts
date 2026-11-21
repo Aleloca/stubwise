@@ -1,6 +1,6 @@
-import { productComments, productPages, users, type Db } from "@stubwise/db";
+import { backlogJobs, productComments, productPages, users, type Db } from "@stubwise/db";
 import { productQuestionAnswerSchema, productQuestionSchema, type ProductAnswerChoice, type ProductDocOrigin, type ProductQuestion, type ProductQuestionAnswer } from "@stubwise/shared";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { projectPermissionsFor } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { personName } from "./people.js";
@@ -33,6 +33,27 @@ export class ProductQuestionConflictError extends ProductDocsError {
 export const questionOf = (row: Pick<CommentRow, "question">): ProductQuestion | null => {
   const parsed = row.question ? productQuestionSchema.safeParse(row.question) : null;
   return parsed?.success ? parsed.data : null;
+};
+
+/**
+ * I job d'intake FALLITI fra le risposte «Open a request» dei commenti: una
+ * domanda chiusa da una richiesta che non è nata torna aperta (DERIVATO a
+ * lettura, revisione di F5: nessun processo la riscrive).
+ */
+export async function failedIntakeJobs(db: Pick<Db, "select">, rows: readonly Pick<CommentRow, "answer">[]): Promise<ReadonlySet<string>> {
+  const ids = rows.flatMap((r) => {
+    const a = answerOf(r);
+    return a?.requestJobId ? [a.requestJobId] : [];
+  });
+  if (ids.length === 0) return new Set();
+  const failed = await db.select({ id: backlogJobs.id }).from(backlogJobs).where(and(inArray(backlogJobs.id, ids), eq(backlogJobs.status, "failed")));
+  return new Set(failed.map((j) => j.id));
+}
+
+/** La risposta che conta: null se non c'è, o se la richiesta che la chiudeva non è nata (intake fallito). */
+export const effectiveAnswer = (row: Pick<CommentRow, "answer">, failed: ReadonlySet<string>): ProductQuestionAnswer | null => {
+  const a = answerOf(row);
+  return a && !(a.requestJobId && failed.has(a.requestJobId)) ? a : null;
 };
 
 export const answerOf = (row: Pick<CommentRow, "answer">): ProductQuestionAnswer | null => {
@@ -78,17 +99,20 @@ export async function checkProductDocOrigin(tx: Db, viewer: Viewer, projectId: s
   const [page] = await tx.select({ id: productPages.id, projectId: productPages.projectId }).from(productPages).where(eq(productPages.id, origin.pageId)).for("no key update");
   const perms = page ? await projectPermissionsFor(tx, viewer, page.projectId) : null;
   if (!page || page.projectId !== projectId || !perms?.has("docs.view")) throw invalidOrigin();
+  // F6, Task 3: la voce proposta dalla pagina, senza domanda. Fino ad allora l'origine vuole la domanda.
+  if (origin.questionId === undefined) throw invalidOrigin();
   const [comment] = await tx.select().from(productComments).where(eq(productComments.id, origin.questionId)).for("update");
   const q = comment && comment.pageId === page.id && comment.replyToId === null && comment.deletedAt === null ? questionOf(comment) : null;
   if (!comment || !q) throw invalidOrigin();
   if (!perms.has("docs.edit")) throw new ProductDocsError(403, "forbidden", "Forbidden");
-  const prior = answerOf(comment);
+  const prior = effectiveAnswer(comment, await failedIntakeJobs(tx, [comment]));
   if (prior) throw new ProductQuestionConflictError("already_answered", { id: prior.byId, name: (await namesFor(tx, viewer, [prior.byId]))(prior.byId) }, prior.option);
   if (q.request === null) throw invalidOrigin();
 }
 
 /** Chiude con «Open a request» la domanda dell'origine (già controllata), nella transazione del job d'intake. */
 export async function closeQuestionWithRequest(tx: Db, viewer: Viewer, origin: ProductDocOrigin, requestJobId: string): Promise<void> {
+  if (origin.questionId === undefined) return;
   await close(tx, viewer, origin.questionId, { option: "request", revisionId: null, requestJobId });
 }
 

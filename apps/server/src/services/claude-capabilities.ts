@@ -50,6 +50,12 @@ export async function claudeCapabilitiesOf(db: Db, user: Pick<SessionUser, "id" 
     releaseNotes: (await anywhere("release.merge")) || (await anywhere("tickets.edit")),
     mailBody: mailbox !== undefined,
     taskDescription: await anywhere(permissionOf("updateTask")),
+    // Area 11, F6: le capacità della doc di prodotto si accendono con le loro voci (Task 4).
+    productFirstVersion: false,
+    productUpdate: false,
+    productBacklog: false,
+    productWireframe: false,
+    productChanges: false,
   };
   return CLAUDE_CAPABILITY_IDS.filter((id) => has[id]);
 }

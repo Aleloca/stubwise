@@ -118,9 +118,17 @@ export async function productSourceViews(db: Db, viewer: Viewer, refs: readonly 
     for (const r of rows) raw.push({ kind: "decision", id: r.id, title: r.title, code: null, ownerId: r.by, at: r.at, mailOwner: false, thread: null });
   }
   const taskIds = ids("task");
+  const hiddenTasks = new Set<string>();
   if (taskIds.length > 0) {
-    const rows = await db.select({ id: tickets.id, title: tickets.title, number: tickets.number, code: projects.code, at: tickets.updatedAt }).from(tickets).innerJoin(projects, eq(projects.id, tickets.projectId)).where(inArray(tickets.id, taskIds));
-    for (const r of rows) raw.push({ kind: "task", id: r.id, title: r.title, code: `${r.code}-${r.number}`, ownerId: null, at: r.at, mailOwner: false, thread: null });
+    const rows = await db.select({ id: tickets.id, title: tickets.title, number: tickets.number, code: projects.code, at: tickets.updatedAt, projectId: tickets.projectId, requester: tickets.requestedByUserId }).from(tickets).innerJoin(projects, eq(projects.id, tickets.projectId)).where(inArray(tickets.id, taskIds));
+    // La task la apre chi la VEDE (`canSeeTicket`: `tickets.view_all`, o chi l'ha chiesta); gli altri leggono solo il codice.
+    const permsOf = new Map<string, ReadonlySet<string> | null>();
+    for (const r of rows) {
+      if (!permsOf.has(r.projectId)) permsOf.set(r.projectId, await projectPermissionsFor(db, viewer, r.projectId));
+      const perms = permsOf.get(r.projectId);
+      if (!perms || !(perms.has("tickets.view_all") || r.requester === viewer.id)) hiddenTasks.add(r.id);
+      raw.push({ kind: "task", id: r.id, title: r.title, code: `${r.code}-${r.number}`, ownerId: null, at: r.at, mailOwner: false, thread: null });
+    }
   }
   const releaseIds = ids("release");
   if (releaseIds.length > 0) {
@@ -131,7 +139,7 @@ export async function productSourceViews(db: Db, viewer: Viewer, refs: readonly 
   const nameOf = await namesFor(db, viewer, owners);
   for (const r of raw) {
     // N-2 = a: la posta la apre SOLO chi ha la casella, mai un admin per il ruolo.
-    const canOpen = r.mailOwner ? r.ownerId === viewer.id : true;
+    const canOpen = r.mailOwner ? r.ownerId === viewer.id : !(r.kind === "task" && hiddenTasks.has(r.id));
     out.set(key(r.kind, r.id), {
       kind: r.kind,
       canOpen,
@@ -160,12 +168,22 @@ const changeOf = (rev: Pick<RevisionRow, "changes">, anchorId: string) => (rev.c
  * Lo stato di «Undo» di un segno, derivato: annullato, toccato dopo da
  * qualcuno (non dal suo stesso Undo), o senza permesso.
  */
-function undoStateOf(mark: Pick<MarkRow, "status" | "decidedBy" | "anchorId">, rev: Pick<RevisionRow, "id" | "lastSeq">, later: readonly RevisionRow[], canEdit: boolean): { reason: ProductUndoView["reason"]; byId: string | null } {
-  if (mark.status === "undone") return { reason: "already_undone", byId: mark.decidedBy };
-  // Un «Undo» di questo segno non conta: il segno è già `undone`, e lo dice la riga sopra.
-  const after = later.filter((r) => r.lastSeq > rev.lastSeq && touches(r, mark.anchorId));
-  if (after.length > 0) return { reason: "changed_after", byId: after[after.length - 1]!.actorId };
+function undoStateOf(mark: Pick<MarkRow, "status" | "decidedBy" | "anchorId">, rev: Pick<RevisionRow, "id" | "lastSeq" | "changes">, later: readonly RevisionRow[], canEdit: boolean): { reason: ProductUndoView["reason"]; byId: string | null } {
+  // Come il prototipo (`anchorUndo`, review di R11-5, B): il permesso prima di tutto.
   if (!canEdit) return { reason: "no_permission", byId: null };
+  // Un segno accettato («Looks good») si annulla lo stesso (review di R11-5, A); uno annullato no.
+  if (mark.status === "undone") return { reason: "already_undone", byId: mark.decidedBy };
+  const touchedAfter = (anchorId: string) => later.filter((r) => r.lastSeq > rev.lastSeq && touches(r, anchorId));
+  const own = touchedAfter(mark.anchorId);
+  if (own.length > 0) return { reason: "changed_after", byId: own[own.length - 1]!.actorId };
+  // Un blocco AGGIUNTO da Claude si annulla togliendolo tutto: una cella toccata da una persona spegne ogni cella.
+  const change = changeOf(rev, mark.anchorId);
+  if (change && change.before === null) {
+    for (const other of change.anchors) {
+      const after = touchedAfter(other);
+      if (after.length > 0) return { reason: "changed_after", byId: after[0]!.actorId };
+    }
+  }
   return { reason: null, byId: null };
 }
 
@@ -284,9 +302,16 @@ async function undoMarks(db: Db, viewer: Viewer, pageId: string, revisionId: str
     if (!rev || rev.kind !== "claude") throw notFound();
     const all = await tx.select().from(productClaudeMarks).where(eq(productClaudeMarks.revisionId, revisionId)).for("update");
     const targets = all.filter((m) => (only === null || m.id === only));
-    const open = targets.filter((m) => m.status === "open");
+    // Anche i segni accettati: «Looks good» non toglie «Undo» (review di R11-5, A).
+    const live = targets.filter((m) => m.status !== "undone");
+    // Un blocco aggiunto da Claude se ne va tutto: con lui i segni di tutte le sue celle.
+    const siblings = new Set(live.flatMap((m) => {
+      const change = changeOf(rev, m.anchorId);
+      return change && change.before === null ? change.anchors : [];
+    }));
+    const open = all.filter((m) => m.status !== "undone" && (live.includes(m) || siblings.has(m.anchorId)));
     const later = await tx.select().from(productPageRevisions).where(and(eq(productPageRevisions.pageId, pageId), gt(productPageRevisions.lastSeq, rev.lastSeq))).orderBy(asc(productPageRevisions.lastSeq));
-    if (open.length === 0) {
+    if (live.length === 0) {
       const undone = targets.find((m) => m.status === "undone");
       throw new ProductUndoBlockedError("already_undone", { id: undone?.decidedBy ?? null, name: (await namesFor(tx, viewer, [undone?.decidedBy ?? null]))(undone?.decidedBy ?? null) });
     }
@@ -375,13 +400,13 @@ export async function withClaudeFields(db: Db, viewer: Viewer, pageId: string, i
     viewer,
     claudeRevs.flatMap((r) => (r.sourceKind && r.sourceId ? [{ kind: r.sourceKind, id: r.sourceId }] : [])),
   );
-  const perRev = new Map<string, { byAnchor: Record<string, { reason: ProductUndoView["reason"]; byId: string | null }>; done: number; count: number; undoneBy: string | null }>();
+  const perRev = new Map<string, { byAnchor: Record<string, { reason: ProductUndoView["reason"]; byId: string | null }>; markIds: Record<string, string>; done: number; count: number; undoneBy: string | null }>();
   for (const r of claudeRevs) {
     const own = marks.filter((m) => m.revisionId === r.id);
     const byAnchor: Record<string, { reason: ProductUndoView["reason"]; byId: string | null }> = {};
     for (const m of own) byAnchor[m.anchorId] = undoStateOf(m, r, later, canEdit);
     const undone = own.filter((m) => m.status === "undone");
-    perRev.set(r.id, { byAnchor, done: undone.length, count: own.length, undoneBy: undone[undone.length - 1]?.decidedBy ?? null });
+    perRev.set(r.id, { byAnchor, markIds: Object.fromEntries(own.map((m) => [m.anchorId, m.id])), done: undone.length, count: own.length, undoneBy: undone[undone.length - 1]?.decidedBy ?? null });
   }
   const nameOf = await namesFor(db, viewer, [...claudeRevs.map((r) => r.onBehalfOf), ...[...perRev.values()].flatMap((p) => [p.undoneBy, ...Object.values(p.byAnchor).map((s) => s.byId)])]);
   return views.map((v) => {
@@ -403,6 +428,8 @@ export async function withClaudeFields(db: Db, viewer: Viewer, pageId: string, i
       source: r.sourceKind && r.sourceId ? (sources.get(key(r.sourceKind, r.sourceId)) ?? null) : null,
       undo: undoView(all, nameOf),
       undoByAnchor: Object.fromEntries(Object.entries(p.byAnchor).map(([a, s]) => [a, undoView(s, nameOf)])),
+      // L'id del segno per ancora (review di R11-5): «Undo» dalla cronologia anche di un segno accettato.
+      markIdByAnchor: p.markIds,
       undoneCount: { done: p.done, count: p.count },
       undoneById: p.undoneBy,
       undoneByName: nameOf(p.undoneBy),

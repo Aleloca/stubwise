@@ -8,7 +8,23 @@ import { z } from "zod";
  * gli id che non riceve (o che non conosce: `readerSchema` li legge
  * `UNKNOWN`).
  */
-export const CLAUDE_CAPABILITY_IDS = ["automation", "stalled", "spend", "archive", "addMember", "releaseNotes", "mailBody", "taskDescription"] as const;
+export const CLAUDE_CAPABILITY_IDS = [
+  "automation",
+  "stalled",
+  "spend",
+  "archive",
+  "addMember",
+  "releaseNotes",
+  "mailBody",
+  "taskDescription",
+  // Area 11, F6: la doc di prodotto. Le prime tre con `docs.edit` in almeno un
+  // progetto, `productBacklog` con `backlog.create`, `productChanges` con `docs.view`.
+  "productFirstVersion",
+  "productUpdate",
+  "productBacklog",
+  "productWireframe",
+  "productChanges",
+] as const;
 export const claudeCapabilityIdSchema = z.enum(CLAUDE_CAPABILITY_IDS);
 export type ClaudeCapabilityId = z.infer<typeof claudeCapabilityIdSchema>;
 

@@ -131,6 +131,8 @@ async function decorate<R extends CommonRow>(db: Db, rows: R[]): Promise<{ row: 
       deletedTaskCodes: deletedCodes.get(r.id) ?? [],
       // Area 8, F3 (S6): la conversazione di Support da cui è nata, derivata a lettura.
       origin: originOf.get(r.id) ?? null,
+      // F6: la pagina d'origine, derivata col Task 3.
+      productOrigin: null,
       createdAt: r.createdAt.toISOString(),
       suggestions: suggested
         ? {

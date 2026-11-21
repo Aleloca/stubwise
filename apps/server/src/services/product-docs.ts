@@ -144,11 +144,14 @@ const HELD_ORDER = ["budget", "paused", "limit", "section_busy"] as const;
 
 /** La riga «riprende quando…» di uno spazio: i lavori di Claude fermi nel progetto e il motivo più grave. */
 export async function productClaudeHeld(db: Pick<Db, "select">, projectId: string): Promise<ProductClaudeHeld> {
+  // Lo stato persistente (revisione di F5): un lavoro fermo che torna in coda per riprovare tiene la
+  // sua ultima sosta (`last_held_reason`) finché non finisce, così la riga non va e viene.
+  const reasonSql = sql<string | null>`coalesce(${productDocJobs.heldReason}, ${productDocJobs.lastHeldReason})`;
   const rows = await db
-    .select({ reason: productDocJobs.heldReason, n: sql<number>`count(*)::int` })
+    .select({ reason: reasonSql, n: sql<number>`count(*)::int` })
     .from(productDocJobs)
-    .where(and(eq(productDocJobs.projectId, projectId), eq(productDocJobs.status, "held")))
-    .groupBy(productDocJobs.heldReason);
+    .where(and(eq(productDocJobs.projectId, projectId), inArray(productDocJobs.status, ["held", "queued", "running"]), sql`${reasonSql} is not null`))
+    .groupBy(reasonSql);
   const count = rows.reduce((s, r) => s + r.n, 0);
   if (count === 0) return null;
   const reason = HELD_ORDER.find((r) => rows.some((x) => x.reason === r)) ?? "limit";
@@ -267,6 +270,8 @@ export async function productPageView(db: Db, viewer: Viewer, pageId: string, pe
     openComments,
     // F5: un lavoro fermo non si attribuisce a una pagina prima che il modello l'abbia letta: la riga sta sullo spazio.
     claudeHeld: null,
+    // F6: le bozze di schermata arrivano col Task 2.
+    wireframes: [],
   };
 }
 

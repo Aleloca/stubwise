@@ -84,8 +84,9 @@ const seqOf = async (p: Page) => ((await inject(bea, "GET", `/api/product-pages/
 
 /** Claude cambia a1 e a2 per conto di Ada (una revisione, due segni). */
 async function claudeEdits(p: Page, source: { kind: "decision" | "email"; id: string }) {
-  const fact = (id: string, anchorId: string, after: string): ProductFact => ({ id, pageId: p.id, anchorId, change: { kind: "replace", text: rich(after) }, clarity: "clear" });
-  const out = await writeClaudeFacts(t.db, { projectId, pageId: p.id, facts: [fact("f1", p.ids.a1, "a UNO"), fact("f2", p.ids.a2, "a DUE")], source, ownerId: ada.id, arrivedSeq: await seqOf(p) });
+  // `before`: la frase di adesso, obbligatoria per riscriverla (revisione di F5).
+  const fact = (id: string, anchorId: string, before: string, after: string): ProductFact => ({ id, pageId: p.id, anchorId, change: { kind: "replace", text: rich(after) }, clarity: "clear", before: rich(before) });
+  const out = await writeClaudeFacts(t.db, { projectId, pageId: p.id, facts: [fact("f1", p.ids.a1, "a uno", "a UNO"), fact("f2", p.ids.a2, "a due", "a DUE")], source, ownerId: ada.id, arrivedSeq: await seqOf(p) });
   expect(out.kind).toBe("written");
   return (out as { revisionId: string }).revisionId;
 }

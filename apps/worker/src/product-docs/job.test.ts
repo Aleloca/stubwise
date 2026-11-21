@@ -14,6 +14,10 @@ import {
   productPages,
   productSectionHolds,
   projectMembers,
+  releases,
+  repositories,
+  ticketEvents,
+  tickets,
   projects,
   roles,
   users,
@@ -23,7 +27,7 @@ import type { ProductBlock } from "@stubwise/shared";
 import { asc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { AgentRunOptions, AgentRunResult, AgentRunner } from "../agent/runner.js";
-import { claimProductDocJob, runProductDocJob } from "./job.js";
+import { PRODUCT_DOC_HOURLY_MAX, claimProductDocJob, pollProductDocsOnce, runProductDocJob, selectPromptPages } from "./job.js";
 import { buildProductDocPrompt, parseProductFacts } from "./prompt.js";
 
 /**
@@ -55,9 +59,9 @@ afterAll(async () => {
   await t?.stop();
 });
 
-async function member(name: string) {
+async function member(name: string, preset = "project_lead") {
   const [u] = await t.db.insert(users).values({ email: `${randomUUID()}@x.it`, passwordHash: "x", role: "member", displayName: name }).returning();
-  const [role] = await t.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "project_lead"));
+  const [role] = await t.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, preset));
   await t.db.insert(projectMembers).values({ projectId, userId: u!.id, roleId: role!.id });
   return u!.id;
 }
@@ -277,5 +281,144 @@ describe("il registro decisioni non è mai scritto dal lavoro della doc", () => 
   it.each(["./job.ts", "./prompt.ts", "../../../../packages/notifications/src/product-docs-write.ts"])("%s non scrive nel registro", async (relative) => {
     const source = await readFile(fileURLToPath(new URL(relative, import.meta.url)), "utf8");
     expect(source).not.toMatch(/recordDecision|insert\(projectDecisions\)|update\(projectDecisions\)/);
+  });
+});
+
+describe("revisione di F5: il lavoro ripreso, il titolare, la coda", () => {
+  it("1. più pagine, la seconda con una sezione presa: la prima si scrive UNA volta, e alla ripresa il modello non si richiama", async () => {
+    const a = await page();
+    const b = await page();
+    const m = await mail();
+    await t.db.insert(productSectionHolds).values({ pageId: b.id, sectionId: "top", userId: personId, expiresAt: new Date(Date.now() + 60_000) });
+    const job = await jobFor(m.id);
+    const { runner, calls } = fakeRunner(() => facts(replaceP1(a.id, { id: "fa" }), replaceP1(b.id, { id: "fb" })));
+    expect(await runProductDocJob({ db: t.db, runner, log }, job)).toBe("held");
+    expect(await textOf(a.id, P1)).toBe("Il cliente paga a 60 giorni.");
+    expect(await textOf(b.id, P1)).toBe("Il cliente paga a 30 giorni.");
+    expect(await jobRow(job.id)).toMatchObject({ status: "held", heldReason: "section_busy", lastHeldReason: "section_busy", pagesDone: [a.id] });
+    // La presa finisce, il lavoro riparte: niente modello, la prima pagina non si tocca.
+    await t.db.delete(productSectionHolds).where(eq(productSectionHolds.pageId, b.id));
+    await t.db.update(productDocJobs).set({ status: "queued", heldReason: null }).where(eq(productDocJobs.id, job.id));
+    const again = (await claimProductDocJob(t.db))!;
+    expect(await runProductDocJob({ db: t.db, runner, log }, again)).toBe("done");
+    expect(calls).toHaveLength(1);
+    expect(await revisionsOf(a.id)).toHaveLength(1);
+    // Nemmeno una domanda spuria sulla pagina già scritta (il suo fatto rispetto al testo nuovo «contraddirebbe»).
+    expect(await t.db.select().from(productComments).where(eq(productComments.pageId, a.id))).toEqual([]);
+    expect(await revisionsOf(b.id)).toHaveLength(1);
+    expect(await textOf(b.id, P1)).toBe("Il cliente paga a 60 giorni.");
+    expect(await jobRow(job.id)).toMatchObject({ status: "done", lastHeldReason: null });
+  });
+
+  async function closedTask(actorId: string | null) {
+    const [tk] = await t.db.insert(tickets).values({ projectId, number: Math.floor(Math.random() * 1e6) + 10, title: "Fatta", type: "bug", priority: "medium", source: "manual" }).returning();
+    await t.db.insert(ticketEvents).values({ ticketId: tk!.id, actorId, kind: "status_changed", payload: { to: "done" } });
+    await t.db.insert(productDocJobs).values({ projectId, sourceKind: "task", sourceId: tk!.id }).onConflictDoNothing();
+    return tk!;
+  }
+
+  it("4. la task: conta chi l'ha CHIUSA. Un Contributor senza docs.edit → domanda `no_permission` che lo nomina; una chiusura di sistema → domanda", async () => {
+    const pg = await page();
+    const contributor = await member("Carla", "contributor");
+    for (const [actor, forId] of [[contributor, contributor], [null, null]] as const) {
+      const tk = await closedTask(actor);
+      const job = (await claimProductDocJob(t.db))!;
+      expect(job.sourceId).toBe(tk.id);
+      const { runner } = fakeRunner(() => facts(replaceP1(pg.id)));
+      expect(await runProductDocJob({ db: t.db, runner, log }, job)).toBe("done");
+      expect(await textOf(pg.id, P1)).toBe("Il cliente paga a 30 giorni.");
+      const qs = (await t.db.select().from(productComments).where(eq(productComments.pageId, pg.id))).map((c) => c.question as { reason: string; forId: string | null; sourceRef: { id: string } });
+      expect(qs.find((q) => q.sourceRef.id === tk.id)).toMatchObject({ reason: "no_permission", forId });
+    }
+    // Chi ha docs.edit e l'ha chiusa: la modifica entra, per conto suo.
+    const tk = await closedTask(ownerId);
+    const job = (await claimProductDocJob(t.db))!;
+    expect(job.sourceId).toBe(tk.id);
+    expect(await runProductDocJob({ db: t.db, runner: fakeRunner(() => facts(replaceP1(pg.id))).runner, log }, job)).toBe("done");
+    expect((await revisionsOf(pg.id)).at(-1)).toMatchObject({ kind: "claude", onBehalfOf: ownerId, sourceKind: "task" });
+  });
+
+  it("4. il rilascio: conta chi ha fatto il merge; non noto → domanda", async () => {
+    const pg = await page();
+    const [repo] = await t.db.select({ id: repositories.id }).from(repositories).where(eq(repositories.projectId, projectId));
+    const [rel] = await t.db.insert(releases).values({ code: `R${randomUUID().slice(0, 4)}`, seq: 1, projectId, repositoryId: repo!.id, prUrl: "u", title: "Rilascio", mergeSha: "s", mergedAt: new Date(), mergedBy: null, viaStubwise: true } as typeof releases.$inferInsert).returning();
+    await t.db.insert(productDocJobs).values({ projectId, sourceKind: "release", sourceId: rel!.id }).onConflictDoNothing();
+    const job = (await claimProductDocJob(t.db))!;
+    expect(await runProductDocJob({ db: t.db, runner: fakeRunner(() => facts(replaceP1(pg.id))).runner, log }, job)).toBe("done");
+    const [q] = (await t.db.select().from(productComments).where(eq(productComments.pageId, pg.id))).map((c) => c.question as { reason: string });
+    expect(q).toMatchObject({ reason: "no_permission" });
+    // Chi ha fatto il merge, con docs.edit: la modifica entra per conto suo.
+    const [mine] = await t.db.insert(releases).values({ code: `R${randomUUID().slice(0, 4)}`, seq: 2, projectId, repositoryId: repo!.id, prUrl: "u", title: "Rilascio 2", mergeSha: "s2", mergedAt: new Date(), mergedBy: ownerId, viaStubwise: true } as typeof releases.$inferInsert).returning();
+    await t.db.insert(productDocJobs).values({ projectId, sourceKind: "release", sourceId: mine!.id }).onConflictDoNothing();
+    const job2 = (await claimProductDocJob(t.db))!;
+    expect(job2.sourceId).toBe(mine!.id);
+    expect(await runProductDocJob({ db: t.db, runner: fakeRunner(() => facts(replaceP1(pg.id))).runner, log }, job2)).toBe("done");
+    expect((await revisionsOf(pg.id)).at(-1)).toMatchObject({ kind: "claude", onBehalfOf: ownerId, sourceKind: "release" });
+  });
+
+  it("7. il claim: niente tentativi, salta i progetti in pausa e i lavori che aspettano (`not_before`)", async () => {
+    await page();
+    const m = await mail();
+    await t.db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, projectId));
+    expect(await claimProductDocJob(t.db)).toBeNull();
+    await t.db.update(projects).set({ queuePausedAt: null }).where(eq(projects.id, projectId));
+    await t.db.update(productDocJobs).set({ notBefore: new Date(Date.now() + 60_000) }).where(eq(productDocJobs.sourceId, m.id));
+    expect(await claimProductDocJob(t.db)).toBeNull();
+    await t.db.update(productDocJobs).set({ notBefore: null }).where(eq(productDocJobs.sourceId, m.id));
+    const claimed = await claimProductDocJob(t.db);
+    expect(claimed).toMatchObject({ sourceId: m.id, attempts: 0, status: "running" });
+  });
+
+  it("7. un errore del modello conta un tentativo, e il lavoro aspetta prima di riprovare", async () => {
+    const pg = await page();
+    void pg;
+    const m = await mail();
+    const job = await jobFor(m.id);
+    const runner = { run: async () => { throw new Error("giù"); } } as unknown as AgentRunner;
+    expect(await runProductDocJob({ db: t.db, runner, log }, job)).toBe("retry");
+    const row = await jobRow(job.id);
+    expect(row).toMatchObject({ status: "queued", attempts: 1 });
+    expect(row.notBefore!.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("8. il freno: un progetto con troppi lavori risposti nell'ultima ora non si prende", async () => {
+    await page();
+    const m = await mail();
+    await t.db.insert(productDocJobs).values(Array.from({ length: PRODUCT_DOC_HOURLY_MAX }, () => ({ projectId, sourceKind: "decision" as const, sourceId: randomUUID(), status: "done" as const, answeredAt: new Date() })));
+    expect(await claimProductDocJob(t.db)).toBeNull();
+    await t.db.update(productDocJobs).set({ answeredAt: new Date(Date.now() - 2 * 3600_000) }).where(eq(productDocJobs.status, "done"));
+    expect((await claimProductDocJob(t.db))?.sourceId).toBe(m.id);
+  });
+
+  it("8. il prompt porta al più le pagine più vicine alla fonte, entro un tetto", () => {
+    const many = Array.from({ length: 40 }, (_, i) => ({ id: randomUUID(), code: `P-D${i}`, title: i === 33 ? "Pagamenti e fatture" : `Pagina ${i}`, blocks: [para(`blk-${i}`, i === 33 ? "Le fatture si pagano a 30 giorni." : "x ".repeat(3000))] }));
+    const chosen = selectPromptPages({ kind: "email", title: "Pagamenti", text: "Le fatture ora si pagano a 60 giorni", at: null }, many);
+    expect(chosen.length).toBeLessThan(many.length);
+    expect(chosen[0]!.title).toBe("Pagamenti e fatture");
+  });
+
+  it("7. un giro non aspetta un progetto occupato: prende il lavoro di un altro progetto", async () => {
+    await page();
+    const m = await mail();
+    const { projectId: other } = await seedRepository(t.db);
+    const [otherJob] = await t.db.insert(productDocJobs).values({ projectId: other, sourceKind: "decision", sourceId: randomUUID() }).returning();
+    const serializer = { run: <T,>(_p: string, task: () => Promise<T>) => task() };
+    // Il progetto del lavoro dell'email ha già un lavoro della doc in corso.
+    const started = await pollProductDocsOnce({ db: t.db, runner: fakeRunner(() => facts()).runner, log, serializer, inFlight: new Set([projectId]) });
+    await Promise.all(started);
+    expect(await jobRow(otherJob!.id)).toMatchObject({ status: "done" });
+    expect((await t.db.select().from(productDocJobs).where(eq(productDocJobs.sourceId, m.id)))[0]).toMatchObject({ status: "queued" });
+    // Non lasciarlo in coda ai test dopo (prendono il più vecchio).
+    await t.db.delete(productDocJobs).where(eq(productDocJobs.sourceId, m.id));
+  });
+
+  it("una proposta scartata («Non fare nulla») non alimenta la doc", async () => {
+    await page();
+    const m = await mail();
+    await t.db.update(emailProposals).set({ status: "ignored" }).where(eq(emailProposals.emailMessageId, m.id));
+    const job = await jobFor(m.id);
+    const { runner, calls } = fakeRunner(() => facts());
+    expect(await runProductDocJob({ db: t.db, runner, log }, job)).toBe("done");
+    expect(calls).toEqual([]);
   });
 });

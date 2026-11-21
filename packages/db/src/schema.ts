@@ -2854,6 +2854,15 @@ export const productDocJobs = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
+    /** 0213 (revisione di F5): i fatti del modello, una volta sola; un lavoro ripreso non lo richiama. */
+    facts: jsonb("facts").$type<unknown[]>(),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    /** 0213: le pagine già scritte, nella transazione dello scrittore. */
+    pagesDone: uuid("pages_done").array().notNull().default(sql`'{}'::uuid[]`),
+    /** 0213: un lavoro rimesso in coda aspetta fino a qui. */
+    notBefore: timestamp("not_before", { withTimezone: true }),
+    /** 0213: l'ultima sosta, che resta finché il lavoro non finisce (la riga «Claude riprende quando…»). */
+    lastHeldReason: text("last_held_reason").$type<"limit" | "budget" | "section_busy" | "paused">(),
   },
   (table) => [
     uniqueIndex("product_doc_jobs_source_unique").on(table.projectId, table.sourceKind, table.sourceId),
@@ -2862,6 +2871,7 @@ export const productDocJobs = pgTable(
     check("product_doc_jobs_status_chk", sql`status in ('queued', 'running', 'held', 'done', 'failed')`),
     check("product_doc_jobs_held_chk", sql`(status = 'held') = (held_reason IS NOT NULL)`),
     check("product_doc_jobs_held_reason_chk", sql`held_reason IS NULL OR held_reason in ('limit', 'budget', 'section_busy', 'paused')`),
+    check("product_doc_jobs_last_held_reason_chk", sql`last_held_reason IS NULL OR last_held_reason in ('limit', 'budget', 'section_busy', 'paused')`),
   ],
 );
 
@@ -2884,7 +2894,7 @@ export const productClaudeMarks = pgTable(
     decidedAt: timestamp("decided_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index("product_claude_marks_page_idx").on(table.pageId), check("product_claude_marks_status_chk", sql`status in ('open', 'looks_good', 'undone')`)],
+  (table) => [index("product_claude_marks_page_idx").on(table.pageId), index("product_claude_marks_revision_idx").on(table.revisionId), check("product_claude_marks_status_chk", sql`status in ('open', 'looks_good', 'undone')`)],
 );
 
 /**

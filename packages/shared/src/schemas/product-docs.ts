@@ -233,7 +233,8 @@ export type ProductQuestionAnswer = z.infer<typeof productQuestionAnswerSchema>;
  * `title` e `thread` sono null: resta «da un'email di <ownerName> · <at>».
  */
 export const productSourceViewSchema = z.object({
-  kind: z.enum(["email", "meeting", "decision", "task", "release", "first_version"]),
+  /** F6: `drive` (un file del Drive) e `text` (le note incollate) sono le fonti di una prima versione. */
+  kind: z.enum(["email", "meeting", "decision", "task", "release", "first_version", "drive", "text"]),
   canOpen: z.boolean(),
   id: z.uuid().nullable(),
   title: z.string().nullable(),
@@ -293,6 +294,8 @@ export const productRevisionClaudeFields = {
   undo: productUndoViewSchema.nullable().default(null),
   /** Solo `claude`: lo stato di «Undo» per ogni ancora cambiata. */
   undoByAnchor: z.record(z.string(), productUndoViewSchema).default({}),
+  /** Solo `claude`: l'id del segno per ancora (anche accettato), per «Undo» dalla cronologia. Additivo. */
+  markIdByAnchor: z.record(z.string(), z.uuid()).default({}),
   /** Solo `claude`: quante ancore sono state annullate («1 di 3 annullate»). */
   undoneCount: z.object({ done: z.number().int(), count: z.number().int() }).nullable().default(null),
   undoneById: z.uuid().nullable().default(null),
@@ -401,6 +404,156 @@ export type ProductOpenQuestion = z.infer<typeof productOpenQuestionSchema>;
 export const productClaudeHeldSchema = z.object({ reason: z.enum(["budget", "limit", "section_busy", "paused"]), count: z.number().int() }).nullable().default(null);
 export type ProductClaudeHeld = z.infer<typeof productClaudeHeldSchema>;
 
+// --- Area 11, F6: prima versione, bozze di schermata, dalla doc al backlog ----------
+
+/**
+ * Una fonte della prima versione come la manda chi la chiede (il prototipo:
+ * `FirstVersionSource`). Il server la rilegge con la visibilità di chi chiede
+ * (un'email solo della sua casella, un file del Drive solo se lo vede); una
+ * che non vede è 422 `invalid_source`, come una che non c'è. Il testo
+ * incollato entra come fonte NON fidata e non resta salvato.
+ */
+export const firstVersionSourceSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("email"), id: z.uuid() }).strict(),
+  z.object({ kind: z.literal("meeting"), id: z.uuid() }).strict(),
+  z.object({ kind: z.literal("drive"), fileId: z.uuid() }).strict(),
+  z.object({ kind: z.literal("text"), text: z.string().max(50_000) }).strict(),
+]);
+export type FirstVersionSource = z.infer<typeof firstVersionSourceSchema>;
+
+/** `POST /api/projects/:projectId/product/first-version`. */
+export const startFirstVersionSchema = z.object({ sources: z.array(firstVersionSourceSchema).min(1).max(30) }).strict();
+export type StartFirstVersionInput = z.infer<typeof startFirstVersionSchema>;
+
+/**
+ * `GET /api/projects/:projectId/product/first-version/sources`: le fonti fra
+ * cui chi chiede sceglie, solo ciò che VEDE nel progetto (vuote per chi non
+ * legge i Docs). `meetings[].id` è il messaggio della riunione.
+ */
+export const productFirstVersionSourcesSchema = z.object({
+  emails: z.array(z.object({ id: z.uuid(), fromName: z.string(), subject: z.string(), at: z.string() })),
+  meetings: z.array(z.object({ id: z.uuid(), title: z.string(), at: z.string(), transcript: z.boolean() })),
+  files: z.array(z.object({ id: z.uuid(), code: z.string(), name: z.string(), type: z.string() })),
+});
+export type ProductFirstVersionSources = z.infer<typeof productFirstVersionSourcesSchema>;
+
+/**
+ * «Undo the first version» per chi guarda: lo stato di «Undo» delle modifiche
+ * di Claude più la pagina toccata per prima e COME (una modifica, un commento,
+ * una risposta, una pagina nuova nello spazio).
+ */
+export const productFirstVersionUndoSchema = productUndoViewSchema.extend({
+  pageId: z.uuid().nullable().default(null),
+  pageTitle: z.string().nullable().default(null),
+  touch: z.enum(["edit", "comment", "answer", "page"]).nullable().default(null),
+});
+export type ProductFirstVersionUndo = z.infer<typeof productFirstVersionUndoSchema>;
+
+/**
+ * `GET /api/projects/:projectId/product/first-version`: l'ultima prima
+ * versione dello spazio come la legge chi guarda, o `null` (nessuna, o chi
+ * non legge i Docs). Mentre `status` è `writing` il client la rilegge (ogni
+ * 2 s): le pagine nuove arrivano anche nello spazio. `interrupted`: si è
+ * fermata prima della fine («Stop», una pagina tolta, `docs.edit` perso, il
+ * budget).
+ */
+export const productFirstVersionViewSchema = z.object({
+  projectId: z.uuid(),
+  groupId: z.uuid(),
+  byId: z.uuid().nullable(),
+  /** Chi l'ha chiesta, se chi guarda la vede (R-G5). */
+  byName: z.string().nullable(),
+  status: z.enum(["writing", "done", "undone"]),
+  pagesDone: z.number().int(),
+  pagesTotal: z.number().int(),
+  interrupted: z.boolean(),
+  sources: z.array(productSourceViewSchema),
+  pages: z.array(
+    z.object({
+      title: z.string(),
+      depth: z.number().int(),
+      pageId: z.uuid().nullable(),
+      code: z.string().nullable(),
+      state: z.enum(["written", "writing", "waiting"]),
+    }),
+  ),
+  acceptedPageIds: z.array(z.uuid()),
+  /** Le pagine scritte che hanno ancora la riga «First version written by Claude…». */
+  bannerPageIds: z.array(z.uuid()),
+  undo: productFirstVersionUndoSchema,
+  permissions: z.object({ edit: z.boolean(), stop: z.boolean().default(false) }),
+});
+export type ProductFirstVersionView = z.infer<typeof productFirstVersionViewSchema>;
+
+/**
+ * Una bozza di schermata (`product_wireframes`), come la legge la pagina. Lo
+ * SVG lo disegna il modello e il server lo RIPULISCE prima di salvarlo
+ * (`sanitizeWireframeSvg`, allowlist chiusa): il client lo mostra così com'è.
+ * `drawing` = il modello ci sta lavorando (il blocco mostra l'attesa); una
+ * variante nuova («Redraw») si aggiunge in fondo, e il blocco ne nomina una
+ * per indice (`variant`).
+ */
+export const productWireframeViewSchema = z.object({
+  id: z.uuid(),
+  status: z.enum(["drawing", "ready", "failed"]),
+  variants: z.array(z.object({ svg: z.string() })),
+  /** Solo con `failed`: perché (`budget`, `limit`, `invalid_svg`, `no_answer`). */
+  error: z.string().nullable().default(null),
+});
+export type ProductWireframeView = z.infer<typeof productWireframeViewSchema>;
+
+/**
+ * `POST /api/product-pages/:id/wireframes` («Draw this screen», o «/» →
+ * «Screen sketch» al posto di un paragrafo vuoto): il blocco nasce subito,
+ * col disegno in arrivo.
+ */
+export const drawWireframeSchema = z.union([
+  z.object({ afterId: z.string().min(1).max(100).nullable() }).strict(),
+  z.object({ replaceId: z.string().min(1).max(100) }).strict(),
+]);
+export type DrawWireframeInput = z.infer<typeof drawWireframeSchema>;
+
+/** `POST /api/product-pages/:id/wireframes/:blockId/redraw`: `fromVariant` = la variante che chi preme vedeva (il doppio clic). */
+export const redrawWireframeSchema = z.object({ fromVariant: z.number().int().min(0).optional() }).strict();
+/** `POST /api/product-pages/:id/wireframes/:blockId/pick`: una variante già disegnata. */
+export const pickWireframeSchema = z.object({ variant: z.number().int().min(0) }).strict();
+/** `POST /api/product-pages/:id/wireframes/:blockId/replace-image`: un'immagine già caricata nella pagina. */
+export const replaceWireframeWithImageSchema = z.object({ src: productImageRefSchema, alt: z.string().max(2000).default("") }).strict();
+
+/**
+ * `GET /api/product-pages/:id/backlog-candidates?fromAnchorId=`: le voci di
+ * backlog che chi guarda può proporre dalla pagina (o dalla sezione di un
+ * titolo), DETERMINISTICHE (le frasi della pagina, il prototipo
+ * `backlogCandidatesOf`): la scheda B la compone il client, una
+ * `createRequest` per voce con `origin` (pagina e ancora). Le frasi già
+ * proposte non tornano: `alreadyProposed` coi codici che chi guarda vede e il
+ * numero degli altri.
+ */
+export const productBacklogCandidatesSchema = z.object({
+  candidates: z.array(z.object({ anchorId: z.string(), title: z.string(), description: z.string(), sentence: z.string() })),
+  alreadyProposed: z.object({ codes: z.array(z.string()), hidden: z.number().int() }),
+});
+export type ProductBacklogCandidates = z.infer<typeof productBacklogCandidatesSchema>;
+
+/**
+ * La pagina da cui nasce una richiesta (o la richiesta d'origine di una
+ * task), DERIVATA a lettura: il titolo di adesso; `null` se non nasce dalla
+ * doc o se chi guarda non legge la pagina. Mai la frase dell'ancora.
+ */
+export const productOriginSchema = z.object({ pageId: z.uuid(), code: z.string(), title: z.string() });
+export type ProductOrigin = z.infer<typeof productOriginSchema>;
+
+/** `GET /api/product-pages/:id/requests` («From this page»): le richieste nate dalla pagina che chi guarda vede. */
+export const productLinkedRequestSchema = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  title: z.string(),
+  status: z.string(),
+  /** Le task nate dalla richiesta che esistono ancora. */
+  taskCodes: z.array(z.string()),
+});
+export type ProductLinkedRequest = z.infer<typeof productLinkedRequestSchema>;
+
 /**
  * `GET /api/projects/:projectId/product`: lo spazio per chi guarda. Le pagine
  * IN FILA (`pages`), non l'albero: `readerSchema` non attraversa uno schema
@@ -463,6 +616,8 @@ export const productPageViewSchema = z.object({
   openComments: z.number().int().default(0),
   /** F5: il lavoro di Claude fermo che tocca questa pagina. Additivo. */
   claudeHeld: productClaudeHeldSchema,
+  /** F6: le bozze di schermata della pagina (il blocco `wireframe` le nomina per `wireframeId`). Additivo. */
+  wireframes: z.array(productWireframeViewSchema).default([]),
 });
 export type ProductPageView = z.infer<typeof productPageViewSchema>;
 
@@ -474,7 +629,7 @@ export const productRevisionViewSchema = z.object({
   seq: z.number().int(),
   lastSeq: z.number().int(),
   /** F5: anche `undo` (un «Undo» di un segno di Claude) e `claude` (una modifica di Claude da una fonte). Additivo: `readerSchema` apre l'enum. */
-  kind: z.enum(["create", "edit", "rename", "move", "undo", "claude"]),
+  kind: z.enum(["create", "edit", "rename", "move", "undo", "claude", "first_version"]),
   actorId: z.uuid().nullable(),
   /** Il nome di chi ha scritto, se chi guarda lo vede (R-G5). */
   actorName: z.string().nullable(),
@@ -664,7 +819,7 @@ export const productLiveStateSchema = z.object({
 export const productLiveRevisionSchema = z.object({
   type: z.literal("revision"),
   seq: z.number().int(),
-  kind: z.enum(["create", "edit", "rename", "move", "undo", "claude"]),
+  kind: z.enum(["create", "edit", "rename", "move", "undo", "claude", "first_version"]),
   actorId: z.uuid().nullable(),
   sessionId: z.string().nullable(),
   ops: z.array(z.record(z.string(), z.unknown())).default([]),
@@ -676,3 +831,5 @@ export const productLiveCursorSchema = z.object({ type: z.literal("cursor"), use
 export const productLiveHoldSchema = z.object({ type: z.literal("hold"), hold: productSectionHoldSchema });
 export const productLiveReleaseSchema = z.object({ type: z.literal("release"), sectionId: z.string() });
 export const productLiveGoneSchema = z.object({ type: z.literal("gone") });
+/** F6: una bozza di schermata della pagina è cambiata (disegnata, una variante nuova, fallita): il client rilegge la pagina. */
+export const productLiveWireframeSchema = z.object({ type: z.literal("wireframe"), wireframeId: z.uuid(), status: z.enum(["drawing", "ready", "failed"]) });

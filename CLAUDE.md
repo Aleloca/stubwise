@@ -288,7 +288,10 @@ percorso sul volume.
   lui e lo dice non visibile, senza dati), e dall'area 6, fetta 2,
   `mail-classify-v2` (la classificazione nuova della posta, `--model haiku`,
   da lanciare prima di accendere `MAIL_CLASSIFY_V2`), 3 volte ciascuno
-  (`chat-no-act` è ritirato: `createTask` è nel catalogo); opt-in, solo se nominato: `refine-read-bash`
+  (`chat-no-act` è ritirato: `createTask` è nel catalogo), e dall'area 11,
+  fetta 5, `product-doc-email`, `-vague`, `-contradicts`, `-hostile` (il
+  lavoro di Claude sulla doc di prodotto, 3 volte ciascuno, al rilascio e a
+  ogni aggiornamento del CLI o di `product-docs/prompt.ts`); opt-in, solo se nominato: `refine-read-bash`
   (un `cat` via Bash fuori dalla cartella è bloccato dal CLI: è la prova
   dell'invariante, va rilanciato quando si aggiorna il CLI). Lo scenario
   `refine-read-plan` (la plan mode della chat CODE e del deep dive, rosso
@@ -485,6 +488,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 11, F2: commenti, menzioni e le notifiche nel catalogo» (20 nov 2026; migrazioni 0203–0205, server → worker → caddy, rollback NON sicuro sul server finché esistono notifiche `product_doc.*`)
   - «Integrazione area 11, F3: ricerca, citazioni ed esportazione della doc di prodotto» (20 nov 2026; migrazioni 0206–0208, env `PRODUCT_EMBED_POLL_SECONDS`, server → caddy, rollback sicuro)
   - «Integrazione area 11, F4: la scrittura dal vivo» (20 nov 2026; migrazione 0209, server → caddy, rollback sicuro col caddy insieme; ⚠️ un solo processo server)
+  - «Integrazione area 11, F5: Claude dalle fonti e le domande» (21 nov 2026; migrazioni 0210–0213, server → worker → caddy, il worker scende col server; costo: una run sonnet per fonte nei progetti con una doc)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
