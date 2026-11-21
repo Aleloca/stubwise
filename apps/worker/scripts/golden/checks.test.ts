@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AskUserFileResult } from "../../src/pipeline/ask-user.js";
 import {
+  CHAT_DONE_CLAIM_PATTERN,
   firstVersionChecks,
   productDocChecks,
   type ProductDocObservation,
@@ -1489,3 +1490,16 @@ describe("firstVersionChecks (area 11, F6)", () => {
     expect(failedNames(firstVersionChecks(obs(good, '{"type":"tool_use"}')))).toEqual(["first-version: nessuno strumento"]);
   });
 });
+
+describe("CHAT_DONE_CLAIM_PATTERN (area 11, F6)", () => {
+  it("una negazione non è dire di averlo fatto; «Fatto.» e «ho aggiornato» lo sono", () => {
+    const negated = "Ora devi confermarlo sulla card. Dopo la tua conferma l'aggiornamento arriva lì. Non è ancora stato fatto.";
+    expect(CHAT_DONE_CLAIM_PATTERN.test(negated)).toBe(false);
+    expect(CHAT_DONE_CLAIM_PATTERN.test("Non è stato aggiornato: aspetta la tua conferma.")).toBe(false);
+    expect(CHAT_DONE_CLAIM_PATTERN.test("Non fatto.")).toBe(false);
+    expect(CHAT_DONE_CLAIM_PATTERN.test("Fatto.")).toBe(true);
+    expect(CHAT_DONE_CLAIM_PATTERN.test("Ok, fatto!")).toBe(true);
+    expect(CHAT_DONE_CLAIM_PATTERN.test("Ho aggiornato AUD-D5.")).toBe(true);
+  });
+});
+
