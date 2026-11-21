@@ -1,10 +1,13 @@
 import {
+  docPageCodes,
   productClaudeMarks,
   productComments,
   productPageBlockIds,
+  productPageFollows,
   productPageRevisions,
   productPages,
   productSectionHolds,
+  projects,
   users,
   type Db,
 } from "@stubwise/db";
@@ -32,6 +35,8 @@ import {
 import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { projectPermissionsByProject } from "./project-access.js";
+import type { ProductDocQuestionEvent, ProductDocUpdatedEvent } from "./format.js";
+import { publishNotification } from "./publish.js";
 
 /**
  * Area 11, F5 — lo SCRITTORE delle modifiche di Claude alla doc di prodotto,
@@ -51,6 +56,13 @@ import { projectPermissionsByProject } from "./project-access.js";
  * Poi: `edit` → UNA revisione `claude` per fonte e pagina (`via: "claude"`,
  * `on_behalf_of` il titolare), un segno per ancora; domanda → un commento di
  * Claude con la sua parte di domanda; `none` → niente.
+ *
+ * Le card (F5, Task 5), nella stessa transazione: `product_doc.updated` per la
+ * revisione, `product_doc.question` per ogni domanda. A chi segue la pagina
+ * SEMPRE (motivo obbligatorio `follower`) e a chi ha la riga accesa (il
+ * catalogo: di partenza chi ha `docs.edit`); mai Claude, mai il titolare della
+ * fonte (ha agito lui, per mano di Claude). Nel jsonb solo id e codici: fonte,
+ * frasi, «per conto di» e la domanda li DERIVA l'inbox a lettura.
  *
  * Questo modulo non nomina NIENTE che scriva nel registro decisioni
  * (`decisions-never-ai.test.ts` lo controlla sul sorgente).
@@ -235,6 +247,8 @@ export async function writeClaudeFacts(db: Db, input: ClaudeWriteInput): Promise
         await tx.execute(sql`select pg_notify('product_page_events', ${JSON.stringify({ type: "revision", pageId: page.id, seq, kind: "claude", actorId: agentId, sessionId: null })})`);
       }
     }
+    const card = await cardContext(tx, page.id, page.projectId, [agentId, input.ownerId]);
+    if (revisionId) await card.updated(revisionId);
 
     // Le domande: un commento di Claude con la sua parte di domanda (il corpo resta vuoto).
     const after = ops.length > 0 && revisionId ? readBlocks((await tx.select({ blocks: productPages.blocks }).from(productPages).where(eq(productPages.id, page.id)))[0]?.blocks) : readBlocks(page.blocks);
@@ -260,7 +274,31 @@ export async function writeClaudeFacts(db: Db, input: ClaudeWriteInput): Promise
         .values({ pageId: page.id, anchorId, quote: cleanQuote(q.current), body: "", authorId: agentId, question: question as unknown as Record<string, unknown> })
         .returning({ id: productComments.id });
       outcomes.push({ factId: q.fact.id, kind: "question", reason: q.reason, commentId: c!.id });
+      await card.question(c!.id);
     }
     return { kind: "written", revisionId, seq, outcomes } as const;
   });
+}
+
+/**
+ * Le card di una pagina: i codici di adesso (per le frasi fuori dall'app), chi
+ * la segue (obbligatori `follower`), chi non la riceve mai.
+ */
+async function cardContext(tx: Db, pageId: string, projectId: string, never: readonly (string | null)[]) {
+  const [code] = await tx
+    .select({ number: docPageCodes.number, projectCode: projects.code })
+    .from(docPageCodes)
+    .innerJoin(projects, eq(projects.id, docPageCodes.projectId))
+    .where(eq(docPageCodes.productPageId, pageId));
+  const followers = (await tx.select({ userId: productPageFollows.userId }).from(productPageFollows).where(eq(productPageFollows.pageId, pageId))).map((r) => r.userId);
+  const base = { pageId, pageCode: code ? `${code.projectCode}-D${code.number}` : "", projectId, projectCode: code?.projectCode ?? "" };
+  const opts = {
+    projectId,
+    mandatory: followers.map((userId) => ({ userId, reason: "follower" as const })),
+    exclude: never.filter((id): id is string => id !== null),
+  };
+  return {
+    updated: (revisionId: string) => publishNotification(tx, { kind: "product_doc.updated", ...base, revisionId } satisfies ProductDocUpdatedEvent, opts),
+    question: (questionId: string) => publishNotification(tx, { kind: "product_doc.question", ...base, questionId } satisfies ProductDocQuestionEvent, opts),
+  };
 }

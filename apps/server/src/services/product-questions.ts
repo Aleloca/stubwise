@@ -1,6 +1,7 @@
-import { backlogItems, backlogJobs, docPageCodes, productComments, productPageBlockIds, productPageRevisions, productPages, projects, tickets, type Db } from "@stubwise/db";
-import { withAnchorText } from "@stubwise/notifications";
+import { backlogItems, backlogJobs, docPageCodes, productComments, productPageBlockIds, productPageFollows, productPageRevisions, productPages, projects, tickets, type Db } from "@stubwise/db";
+import { resolveCatalogRecipients, withAnchorText } from "@stubwise/notifications";
 import {
+  alertTypeOf,
   anchorIdsOf,
   applyBlockOps,
   blockIdsOf,
@@ -284,9 +285,11 @@ function applyOp(blocks: readonly ProductBlock[], anchorId: string, q: ProductQu
 
 /**
  * Le domande APERTE a cui chi guarda può rispondere (Home «Decide», il
- * riquadro): radici di Claude senza risposta, non eliminate, nei
- * progetti dove ha `docs.edit` — il filtro nella WHERE. `pageId` restringe a
- * una pagina.
+ * riquadro): radici di Claude senza risposta, non eliminate, nei progetti
+ * dove ha `docs.edit` (il filtro nella WHERE), sulle pagine di cui RICEVE le
+ * domande (chi segue, o con la riga `product_doc.question` accesa: il
+ * catalogo). Chi segue senza `docs.edit` non le ha: non può rispondere.
+ * `pageId` restringe a una pagina.
  */
 export async function listOpenProductQuestions(db: Db, viewer: Viewer, pageId?: string): Promise<ProductOpenQuestion[]> {
   const editable = await projectIdsWithPermission(db, viewer, "docs.edit");
@@ -313,9 +316,15 @@ export async function listOpenProductQuestions(db: Db, viewer: Viewer, pageId?: 
   const out: ProductOpenQuestion[] = [];
   const byPage = new Map<string, typeof rows>();
   for (const r of rows) byPage.set(r.comment.pageId, [...(byPage.get(r.comment.pageId) ?? []), r]);
+  const type = alertTypeOf("product_doc.question")!;
   for (const [id, group] of byPage) {
     const ctx = await pageCtx(db, viewer, id);
     if (!ctx) continue;
+    // Il prototipo (`productQuestionDecisions`): chi RICEVE la domanda — chi segue la pagina, chi ha la riga accesa —
+    // con la regola del catalogo, la stessa delle card (`resolveCatalogRecipients`).
+    const followers = (await db.select({ userId: productPageFollows.userId }).from(productPageFollows).where(eq(productPageFollows.pageId, id))).map((r) => r.userId);
+    const { app } = await resolveCatalogRecipients(db, type, ctx.projectId, { projectId: ctx.projectId, mandatory: followers.map((userId) => ({ userId, reason: "follower" as const })) });
+    if (!app.includes(viewer.id)) continue;
     const views = await questionViews(db, viewer, ctx, group.map((g) => g.comment));
     for (const g of group) {
       const question = views.get(g.comment.id);

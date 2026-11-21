@@ -91,10 +91,10 @@ describe("area 11, F2: la doc di prodotto (N-1 = a)", () => {
     }
   });
 
-  it("la menzione è viva (il suo produttore è il commento); aggiornamento e domanda no (i produttori arrivano con F5)", () => {
+  it("tutti e tre vivi: la menzione (il commento), aggiornamento e domanda (lo scrittore di Claude, F5)", () => {
     expect(isLiveAlertType("product_doc.mention")).toBe(true);
-    expect(isLiveAlertType("product_doc.updated")).toBe(false);
-    expect(isLiveAlertType("product_doc.question")).toBe(false);
+    expect(isLiveAlertType("product_doc.updated")).toBe(true);
+    expect(isLiveAlertType("product_doc.question")).toBe(true);
   });
 });
 

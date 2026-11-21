@@ -7628,7 +7628,8 @@ export const alertSubscriptions = pgTable(
   (table) => [
     primaryKey({ name: "alert_subscriptions_pk", columns: [table.userId, table.projectId, table.alertType] }),
     index("alert_subscriptions_project_type_idx").on(table.projectId, table.alertType),
-    check("alert_subscriptions_type_chk", sql`${table.alertType} ~ '^[a-z]+(\\.[a-z_]+)+$'`),
+    // 0212: il trattino basso anche nel primo segmento (`product_doc.*`).
+    check("alert_subscriptions_type_chk", sql`${table.alertType} ~ '^[a-z][a-z_]*(\\.[a-z_]+)+$'`),
   ],
 );
 
