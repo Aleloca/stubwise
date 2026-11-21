@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { productDocJobs, productPageRevisions, productPages, productSectionHolds, productWireframes, projectMembers, roles, users } from "@stubwise/db";
+import { instanceSettings, productDocJobs, productPageRevisions, productPages, productSectionHolds, productWireframes, projectMembers, roles, users } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { ProductBlock } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { AgentRunOptions, AgentRunResult, AgentRunner } from "../agent/runner.js";
+import type { SelectDeps } from "../providers/select.js";
 import { claimProductDocJob, runProductDocJob } from "./job.js";
 
 /** Area 11, F6 — il disegno di una bozza di schermata, col runner finto. */
@@ -63,6 +64,30 @@ describe("il disegno di una bozza", () => {
     const job = (await claimProductDocJob(t.db))!;
     expect(await runProductDocJob({ db: t.db, runner: fakeRunner("<svg><g></svg>").runner, log }, job)).toBe("failed");
     expect(await rowOf(wireframeId)).toMatchObject({ status: "failed", error: "invalid_svg", variants: [] });
+  });
+
+  it("col budget del mese finito: nessuna chiamata, la bozza è `failed` con `budget` e il lavoro finisce (si riprova con «Redraw»)", async () => {
+    const { wireframeId } = await setup();
+    const job = (await claimProductDocJob(t.db))!;
+    await t.db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "1" }).onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "1" } });
+    try {
+      const { runner, calls } = fakeRunner(SVG);
+      expect(await runProductDocJob({ db: t.db, runner, log, monthlyCostUsdFn: async () => 5 }, job)).toBe("failed");
+      expect(calls).toEqual([]);
+    } finally {
+      await t.db.delete(instanceSettings);
+    }
+    expect(await rowOf(wireframeId)).toMatchObject({ status: "failed", error: "budget" });
+    expect((await t.db.select().from(productDocJobs).where(eq(productDocJobs.id, job.id)))[0]).toMatchObject({ status: "failed", error: "budget" });
+  });
+
+  it("con la quota degli account finita: la bozza è `failed` con `limit` e il lavoro finisce, non resta `drawing` in attesa", async () => {
+    const { wireframeId } = await setup();
+    const job = (await claimProductDocJob(t.db))!;
+    const select = { db: t.db, encryptionKey: Buffer.alloc(32), backgroundWeeklyThreshold: 0.9, selectProvidersFn: async () => ({ legacyAuth: false, candidates: [], emptyReason: "all_limited" }) } as unknown as SelectDeps;
+    expect(await runProductDocJob({ db: t.db, runner: fakeRunner(SVG).runner, log, select }, job)).toBe("failed");
+    expect(await rowOf(wireframeId)).toMatchObject({ status: "failed", error: "limit" });
+    expect((await t.db.select().from(productDocJobs).where(eq(productDocJobs.id, job.id)))[0]).toMatchObject({ status: "failed", error: "limit" });
   });
 
   it("«Redraw»: la variante nuova si aggiunge, il blocco la mostra e l'etichetta torna, con una revisione di Claude per conto di chi l'ha chiesto", async () => {

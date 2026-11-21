@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { productPages, productSectionHolds, projectMembers, projects, roles, users } from "@stubwise/db";
-import { PRODUCT_LIVE_NOTIFY } from "../services/product-live-notify.js";
+import { PRODUCT_LIVE_NOTIFY, notifyProductWireframe } from "../services/product-live-notify.js";
 import { saveProductBlocks } from "../services/product-docs-ops.js";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { parseProductLiveFrame, type ProductLiveFrame, type ProductPageView } from "@stubwise/shared";
@@ -273,6 +273,26 @@ describe("il canale dal vivo", () => {
     const saved = await saveProductBlocks(t.db, actorAs(editor.id, "member"), p.id, { sessionId: "srv", baseSeq: p.seq, ops: [{ op: "set", block: { id: p.first, type: "paragraph", content: { text: "Dal servizio", marks: [] } } }] });
     expect(await b.wait((f) => f.type === "revision")).toMatchObject({ seq: saved.seq, ops: [], sessionId: "srv" });
     b.close();
+  });
+
+  it("F6 (46 sul Task 3): il frame `wireframe` dalla NOTIFY vera, con il payload del worker; un'altra pagina non lo riceve", async () => {
+    const p = await page();
+    const other = await page();
+    const b = await stream(reader, p.id);
+    const o = await stream(reader, other.id);
+    await b.wait((f) => f.type === "state");
+    await o.wait((f) => f.type === "state");
+    const wireframeId = randomUUID();
+    // Lo stesso SQL del worker (`apps/worker/src/product-docs/wireframe.ts`, `notifyWireframe`), nel DB: nessuna chiamata a `handleNotify`.
+    await t.db.execute(sql`select pg_notify('product_page_events', ${JSON.stringify({ type: "wireframe", pageId: p.id, wireframeId, status: "ready" })})`);
+    expect(await b.wait((f) => f.type === "wireframe")).toEqual({ type: "wireframe", wireframeId, status: "ready" });
+    // E quello del server («Redraw» rimette `drawing`).
+    await notifyProductWireframe(t.db, { pageId: p.id, wireframeId, status: "drawing" });
+    expect(await b.wait((f) => f.type === "wireframe" && f.status === "drawing")).toEqual({ type: "wireframe", wireframeId, status: "drawing" });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(o.frames.filter((f) => f.type === "wireframe")).toEqual([]);
+    b.close();
+    o.close();
   });
 
   it("review di F4 (I4): il battito vuole una sezione VERA della pagina, e una persona tiene al più una sezione", async () => {

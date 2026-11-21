@@ -190,6 +190,41 @@ function undoStateOf(mark: Pick<MarkRow, "status" | "decidedBy" | "anchorId">, r
 const undoView = (state: { reason: ProductUndoView["reason"]; byId: string | null }, nameOf: (id: string | null) => string | null): ProductUndoView =>
   state.reason === null ? { enabled: true, reason: null, byId: null, byName: null } : { enabled: false, reason: state.reason, byId: state.reason === "no_permission" ? null : state.byId, byName: state.reason === "no_permission" ? null : nameOf(state.byId) };
 
+/**
+ * F6 — il gesto su una bozza di schermata di una revisione `edit` (il
+ * prototipo: `wireframeGestureOf`): «Draw» e «Redraw» sono di Claude per conto
+ * di chi chiede (`via`), «Keep» toglie l'etichetta, «Replace with an image»
+ * mette un'immagine allo stesso id. Derivato dai cambi.
+ */
+export function wireframeGestureOf(r: Pick<RevisionRow, "kind" | "via" | "changes">): "drew" | "redrew" | "kept" | "replaced" | null {
+  const changes = r.changes as ProductBlockChange[];
+  if (r.kind !== "edit" || changes.length !== 1) return null;
+  const { before, after } = changes[0]!;
+  if (r.via === null && before?.type === "wireframe" && after?.type === "image" && before.id === after.id) return "replaced";
+  if (after?.type !== "wireframe") return null;
+  if (r.via === "claude") return before?.type === "wireframe" ? "redrew" : "drew";
+  if (before?.type !== "wireframe" || before.kept === true || after.kept !== true) return null;
+  return before.id === after.id && before.wireframeId === after.wireframeId && before.variant === after.variant ? "kept" : null;
+}
+
+/** «Keep» e «Replace with an image» si annullano dalla cronologia (il prototipo: `isUndoableRevision`, maintainer del 6 nov 2026). */
+const undoableGesture = (r: Pick<RevisionRow, "kind" | "via" | "changes">): boolean => {
+  const g = wireframeGestureOf(r);
+  return g === "kept" || g === "replaced";
+};
+
+/** Lo stato di «Undo» di un gesto sulla bozza: il permesso, già annullato (chi), il blocco toccato dopo (chi). */
+function gestureUndoStateOf(rev: Pick<RevisionRow, "id" | "lastSeq" | "changes">, later: readonly RevisionRow[], canEdit: boolean): { reason: ProductUndoView["reason"]; byId: string | null } {
+  if (!canEdit) return { reason: "no_permission", byId: null };
+  const after = later.filter((r) => r.lastSeq > rev.lastSeq && r.id !== rev.id);
+  const undos = after.filter((r) => r.kind === "undo" && r.undoOf === rev.id);
+  if (undos.length > 0) return { reason: "already_undone", byId: undos[undos.length - 1]!.actorId };
+  const blockId = (rev.changes as ProductBlockChange[])[0]!.blockId;
+  const touched = after.filter((r) => touches(r, blockId));
+  if (touched.length > 0) return { reason: "changed_after", byId: touched[0]!.actorId };
+  return { reason: null, byId: null };
+}
+
 /** Dove sta un'ancora: il blocco, e per una cella la riga e la colonna (1 = la prima). */
 function locate(blocks: readonly ProductBlock[], anchorId: string): { blockId: string; cell: { row: number; col: number } | null } | null {
   for (const b of blocks) {
@@ -338,22 +373,44 @@ async function undoMarks(db: Db, viewer: Viewer, pageId: string, revisionId: str
         .update(productClaudeMarks)
         .set({ status: "undone", decidedBy: viewer.id, decidedAt: new Date() })
         .where(inArray(productClaudeMarks.id, open.map((m) => m.id)));
-    if (next.changes.length === 0) {
-      await close();
-      return { seq: page.revSeq, revisionId: null };
-    }
-    const [{ seq }] = (await tx
-      .update(productPages)
-      .set({ blocks: next.blocks, searchText: productSearchText(page.title, next.blocks), revSeq: sql`${productPages.revSeq} + 1`, updatedBy: viewer.id, updatedAt: new Date() })
-      .where(eq(productPages.id, pageId))
-      .returning({ seq: productPages.revSeq })) as [{ seq: number }];
-    const [undo] = await tx
-      .insert(productPageRevisions)
-      .values({ pageId, sessionId: null, seq, lastSeq: seq, actorId: viewer.id, kind: "undo", undoOf: rev.id, changes: next.changes as unknown[] })
-      .returning({ id: productPageRevisions.id });
+    const out = await writeUndo(tx, viewer, page, rev.id, next);
     await close();
-    await notifyProductRevision(tx, { pageId, seq, kind: "undo", actorId: viewer.id, sessionId: null });
-    return { seq, revisionId: undo!.id };
+    return out;
+  });
+}
+
+/** La revisione `undo` (con `undo_of`) e il corpo rimesso; nessuna se non c'era niente da rimettere. */
+async function writeUndo(tx: Db, viewer: Viewer, page: typeof productPages.$inferSelect, undoOf: string, next: { blocks: ProductBlock[]; changes: ProductBlockChange[] }): Promise<ProductUndoResult> {
+  if (next.changes.length === 0) return { seq: page.revSeq, revisionId: null };
+  const [{ seq }] = (await tx
+    .update(productPages)
+    .set({ blocks: next.blocks, searchText: productSearchText(page.title, next.blocks), revSeq: sql`${productPages.revSeq} + 1`, updatedBy: viewer.id, updatedAt: new Date() })
+    .where(eq(productPages.id, page.id))
+    .returning({ seq: productPages.revSeq })) as [{ seq: number }];
+  const [undo] = await tx
+    .insert(productPageRevisions)
+    .values({ pageId: page.id, sessionId: null, seq, lastSeq: seq, actorId: viewer.id, kind: "undo", undoOf, changes: next.changes as unknown[] })
+    .returning({ id: productPageRevisions.id });
+  await notifyProductRevision(tx, { pageId: page.id, seq, kind: "undo", actorId: viewer.id, sessionId: null });
+  return { seq, revisionId: undo!.id };
+}
+
+/** «Undo» dalla cronologia di «Keep» o «Replace with an image»: la bozza com'era prima del gesto. */
+async function undoWireframeGesture(db: Db, viewer: Viewer, pageId: string, revisionId: string): Promise<ProductUndoResult> {
+  return db.transaction(async (txRaw) => {
+    const tx = txRaw as unknown as Db;
+    const [page] = await tx.select().from(productPages).where(eq(productPages.id, pageId)).for("no key update");
+    if (!page) throw notFound();
+    const [rev] = await tx.select().from(productPageRevisions).where(and(eq(productPageRevisions.id, revisionId), eq(productPageRevisions.pageId, pageId)));
+    if (!rev || !undoableGesture(rev)) throw notFound();
+    const later = await tx.select().from(productPageRevisions).where(and(eq(productPageRevisions.pageId, pageId), gt(productPageRevisions.lastSeq, rev.lastSeq))).orderBy(asc(productPageRevisions.lastSeq));
+    const state = gestureUndoStateOf(rev, later, true);
+    if (state.reason === "already_undone" || state.reason === "changed_after") throw new ProductUndoBlockedError(state.reason, { id: state.byId, name: (await namesFor(tx, viewer, [state.byId]))(state.byId) });
+    const change = (rev.changes as ProductBlockChange[])[0]!;
+    const before = readBlocks(page.blocks);
+    const ops: ProductBlockOp[] = change.before && before.some((b) => b.id === change.blockId) ? [{ op: "set", block: change.before } as ProductBlockOp] : [];
+    await holdTouchedSections(tx, viewer, pageId, before, ops);
+    return writeUndo(tx, viewer, page, rev.id, applyBlockOps(before, ops));
   });
 }
 
@@ -363,10 +420,11 @@ export async function undoProductMark(db: Db, viewer: Viewer, markId: string): P
 }
 
 export async function undoProductRevision(db: Db, viewer: Viewer, revisionId: string): Promise<ProductUndoResult> {
-  const [rev] = await db.select({ pageId: productPageRevisions.pageId }).from(productPageRevisions).where(eq(productPageRevisions.id, revisionId));
+  const [rev] = await db.select({ pageId: productPageRevisions.pageId, kind: productPageRevisions.kind }).from(productPageRevisions).where(eq(productPageRevisions.id, revisionId));
   if (!rev) throw notFound();
   const { canEdit } = await pageAndPerms(db, viewer, rev.pageId);
   if (!canEdit) throw new ProductDocsError(403, "forbidden", "Forbidden");
+  if (rev.kind === "edit") return undoWireframeGesture(db, viewer, rev.pageId, revisionId);
   return undoMarks(db, viewer, rev.pageId, revisionId, null);
 }
 
@@ -386,13 +444,16 @@ export async function withClaudeFields(db: Db, viewer: Viewer, pageId: string, i
       : [];
   const answerOf = new Map(answered.map((a) => [a.revisionId, a.id]));
   const views = answerOf.size > 0 ? input.map((v) => (answerOf.has(v.id) ? { ...v, answerOf: answerOf.get(v.id)! } : v)) : input;
-  const claudeIds = views.filter((v) => v.kind === "claude" || v.kind === "undo").map((v) => v.id);
+  // F6: anche le `edit` (`via` di Claude e i gesti sulle bozze di schermata).
+  const claudeIds = views.filter((v) => v.kind === "claude" || v.kind === "undo" || v.kind === "edit").map((v) => v.id);
   if (claudeIds.length === 0) return views;
   const rows = new Map((await db.select().from(productPageRevisions).where(inArray(productPageRevisions.id, claudeIds))).map((r) => [r.id, r]));
   const claudeRevs = [...rows.values()].filter((r) => r.kind === "claude");
+  const gestureRevs = [...rows.values()].filter(undoableGesture);
   const marks = claudeRevs.length > 0 ? await db.select().from(productClaudeMarks).where(inArray(productClaudeMarks.revisionId, claudeRevs.map((r) => r.id))) : [];
-  const minSeq = claudeRevs.length > 0 ? Math.min(...claudeRevs.map((r) => r.lastSeq)) : 0;
-  const later = claudeRevs.length > 0 ? await db.select().from(productPageRevisions).where(and(eq(productPageRevisions.pageId, pageId), gt(productPageRevisions.lastSeq, minSeq))).orderBy(asc(productPageRevisions.lastSeq)) : [];
+  const undoable = [...claudeRevs, ...gestureRevs];
+  const minSeq = undoable.length > 0 ? Math.min(...undoable.map((r) => r.lastSeq)) : 0;
+  const later = undoable.length > 0 ? await db.select().from(productPageRevisions).where(and(eq(productPageRevisions.pageId, pageId), gt(productPageRevisions.lastSeq, minSeq))).orderBy(asc(productPageRevisions.lastSeq)) : [];
   const [page] = await db.select({ projectId: productPages.projectId }).from(productPages).where(eq(productPages.id, pageId));
   const canEdit = page ? (await projectPermissionsFor(db, viewer, page.projectId))?.has("docs.edit") === true : false;
   const sources = await productSourceViews(
@@ -408,12 +469,22 @@ export async function withClaudeFields(db: Db, viewer: Viewer, pageId: string, i
     const undone = own.filter((m) => m.status === "undone");
     perRev.set(r.id, { byAnchor, markIds: Object.fromEntries(own.map((m) => [m.anchorId, m.id])), done: undone.length, count: own.length, undoneBy: undone[undone.length - 1]?.decidedBy ?? null });
   }
-  const nameOf = await namesFor(db, viewer, [...claudeRevs.map((r) => r.onBehalfOf), ...[...perRev.values()].flatMap((p) => [p.undoneBy, ...Object.values(p.byAnchor).map((s) => s.byId)])]);
+  for (const r of gestureRevs) {
+    const state = gestureUndoStateOf(r, later, canEdit);
+    const blockId = (r.changes as ProductBlockChange[])[0]!.blockId;
+    const done = state.reason === "already_undone";
+    perRev.set(r.id, { byAnchor: { [blockId]: state }, markIds: {}, done: done ? 1 : 0, count: 1, undoneBy: done ? state.byId : null });
+  }
+  const edits = [...rows.values()].filter((r) => r.kind === "edit");
+  const nameOf = await namesFor(db, viewer, [...claudeRevs.map((r) => r.onBehalfOf), ...edits.map((r) => r.onBehalfOf), ...[...perRev.values()].flatMap((p) => [p.undoneBy, ...Object.values(p.byAnchor).map((s) => s.byId)])]);
   return views.map((v) => {
     const r = rows.get(v.id);
     if (!r) return v;
     if (r.kind === "undo") return { ...v, undoOf: r.undoOf };
-    const p = perRev.get(r.id)!;
+    const edit = r.kind === "edit" ? { ...v, via: r.via, onBehalfOfId: r.onBehalfOf, onBehalfOfName: nameOf(r.onBehalfOf), wireframe: wireframeGestureOf(r) } : null;
+    const p = perRev.get(r.id);
+    if (edit && !p) return edit;
+    if (!p) return v;
     const states = Object.values(p.byAnchor);
     // «Undo all»: acceso se c'è almeno un segno aperto e nessuno toccato dopo.
     const all =
@@ -421,7 +492,7 @@ export async function withClaudeFields(db: Db, viewer: Viewer, pageId: string, i
         ? { reason: "already_undone" as const, byId: p.undoneBy }
         : (states.find((s) => s.reason === "changed_after") ?? states.find((s) => s.reason === "no_permission") ?? { reason: null, byId: null });
     return {
-      ...v,
+      ...(edit ?? v),
       via: r.via,
       onBehalfOfId: r.onBehalfOf,
       onBehalfOfName: nameOf(r.onBehalfOf),

@@ -63,7 +63,7 @@ import { ProductDocsError } from "./product-docs.js";
 
 type Viewer = Pick<SessionUser, "id" | "instancePermissions">;
 /** I campi di Claude di una revisione che non è sua (F5): tutti vuoti. */
-const NO_CLAUDE_FIELDS = { via: null, onBehalfOfId: null, onBehalfOfName: null, source: null, undo: null, undoByAnchor: {}, markIdByAnchor: {}, undoneCount: null, undoneById: null, undoneByName: null, undoOf: null, answerOf: null } as const;
+const NO_CLAUDE_FIELDS = { via: null, onBehalfOfId: null, onBehalfOfName: null, source: null, undo: null, undoByAnchor: {}, markIdByAnchor: {}, undoneCount: null, undoneById: null, undoneByName: null, undoOf: null, answerOf: null, wireframe: null } as const;
 const invalid = (code: string, message: string) => new ProductDocsError(422, code, message);
 
 const productBlocksWriteSchema = z.array(productBlockWriteSchema);
