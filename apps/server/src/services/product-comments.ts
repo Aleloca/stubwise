@@ -169,6 +169,18 @@ export async function addProductComment(db: Db, viewer: Viewer, pageId: string, 
     const tx = txRaw as unknown as Db;
     const [page] = await tx.select({ id: productPages.id, projectId: productPages.projectId, blocks: productPages.blocks }).from(productPages).where(eq(productPages.id, pageId)).for("no key update");
     if (!page) throw notFound();
+    // La chiave del client (0218): un «Retry» dopo una risposta persa ridà lo
+    // STESSO commento, prima di rileggere ancora e frase (il blocco può essere
+    // cambiato nel frattempo), senza una seconda menzione.
+    const replay = async (): Promise<AddedProductComment | null> => {
+      if (input.clientId === undefined) return null;
+      const [prev] = await tx.select().from(productComments).where(and(eq(productComments.authorId, viewer.id), eq(productComments.clientId, input.clientId)));
+      if (!prev) return null;
+      if (prev.pageId !== page.id) throw new ProductDocsError(409, "client_id_reused", "This client id was used for a comment on another page");
+      return { view: (await viewsOf(tx, viewer, [prev])).get(prev.id)!, mentioned: [], projectId: page.projectId };
+    };
+    const again = await replay();
+    if (again) return again;
     let anchorId: string;
     let quote: string;
     let replyToId: string | null = null;
@@ -194,7 +206,13 @@ export async function addProductComment(db: Db, viewer: Viewer, pageId: string, 
       quote = given !== "" && oneLine.includes(given.endsWith("…") ? given.slice(0, -1) : given) ? given : whole;
     }
     const mentioned = mentionedIn(body, await productDocReaders(tx, page.projectId), viewer.id);
-    const [row] = await tx.insert(productComments).values({ pageId: page.id, anchorId, quote, replyToId, body, authorId: viewer.id, mentions: mentioned }).returning();
+    const [row] = await tx
+      .insert(productComments)
+      .values({ pageId: page.id, anchorId, quote, replyToId, body, authorId: viewer.id, mentions: mentioned, ...(input.clientId !== undefined ? { clientId: input.clientId } : {}) })
+      .onConflictDoNothing()
+      .returning();
+    // Due invii con la stessa chiave insieme: l'indice unico ne tiene uno, l'altro lo ridà.
+    if (!row) return (await replay())!;
     if (mentioned.length > 0) await publishMention(tx, viewer, page, row!.id, mentioned);
     const view = (await viewsOf(tx, viewer, [row!])).get(row!.id)!;
     return { view, mentioned, projectId: page.projectId };

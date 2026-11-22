@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { productComments, productPageFollows, projectMembers, roles, users } from "@stubwise/db";
+import { notifications, productComments, productPageFollows, projectMembers, roles, users } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { ProductCommentView, ProductCommentsView, ProductPageView } from "@stubwise/shared";
 import { buildApp } from "../app.js";
@@ -234,6 +234,55 @@ describe("review di F2: la frase citata è del blocco, e gli id di un'altra pagi
     await addMember(app, otherProject, foreign.id, "developer");
     expect((await inject(foreign, "POST", `/api/product-comments/${root.id}/resolve`)).statusCode).toBe(404);
     expect((await threads(editor, page.id)).open).toHaveLength(1);
+  });
+});
+
+describe("la chiave del client (registro dei rimandi, review di R11-2)", () => {
+  it("«Retry» dopo una risposta persa: stessa chiave e stesso autore danno lo STESSO commento, senza una seconda riga né una seconda menzione", async () => {
+    const page = await pageWith("Frase");
+    const clientId = randomUUID();
+    const payload = { anchorId: page.ids[0], quote: "", body: "@reader-c guarda qui", clientId };
+    const first = await comment(editor, page.id, payload);
+    expect(first.statusCode, first.body).toBe(201);
+    // La risposta si è persa: il client rimanda lo stesso corpo con la stessa chiave.
+    const retry = await comment(editor, page.id, payload);
+    expect(retry.statusCode, retry.body).toBe(201);
+    expect((retry.json() as ProductCommentView).id).toBe((first.json() as ProductCommentView).id);
+    expect(retry.json()).toEqual(first.json());
+    expect(await t.db.select({ id: productComments.id }).from(productComments).where(eq(productComments.pageId, page.id))).toHaveLength(1);
+    const mentions = await t.db.select({ id: notifications.id }).from(notifications).where(eq(notifications.kind, "product_doc.mention"));
+    const cards = mentions.length;
+    expect((await comment(editor, page.id, payload)).statusCode).toBe(201);
+    expect(await t.db.select({ id: notifications.id }).from(notifications).where(eq(notifications.kind, "product_doc.mention"))).toHaveLength(cards);
+  });
+
+  it("il «Retry» ridà il commento anche se intanto il suo blocco è stato tolto (non un 422 `invalid_anchor`)", async () => {
+    const page = await pageWith("Uno", "Due");
+    const payload = { anchorId: page.ids[1], quote: "", body: "sul secondo", clientId: randomUUID() };
+    const first = (await comment(editor, page.id, payload)).json() as ProductCommentView;
+    const del = await inject(editor, "POST", `/api/product-pages/${page.id}/ops`, { sessionId: page.sessionId, baseSeq: page.seq, ops: [{ op: "delete", blockId: page.ids[1] }] });
+    expect(del.statusCode, del.body).toBe(200);
+    const retry = await comment(editor, page.id, payload);
+    expect(retry.statusCode, retry.body).toBe(201);
+    expect((retry.json() as ProductCommentView).id).toBe(first.id);
+  });
+
+  it("la chiave è dell'autore: un altro con la stessa chiave scrive il suo; la stessa chiave su un'altra pagina è 409; senza chiave due invii sono due commenti", async () => {
+    const page = await pageWith("Frase");
+    const other = await pageWith("Altra");
+    const clientId = randomUUID();
+    const mine = (await comment(editor, page.id, { anchorId: page.ids[0], quote: "", body: "uno", clientId })).json() as ProductCommentView;
+    // Un secondo autore (che scrive i Docs) con la stessa chiave.
+    const second = await createUserWithSession(app, `editor2-${randomUUID().slice(0, 6)}@example.com`);
+    await addMember(app, projectId, second.id, "developer");
+    const theirs = await comment(second, page.id, { anchorId: page.ids[0], quote: "", body: "due", clientId });
+    expect(theirs.statusCode, theirs.body).toBe(201);
+    expect((theirs.json() as ProductCommentView).id).not.toBe(mine.id);
+    // Stessa chiave, stesso autore, altra pagina: non è un «Retry».
+    expect((await comment(editor, other.id, { anchorId: other.ids[0], quote: "", body: "uno", clientId })).json()).toMatchObject({ code: "client_id_reused" });
+    expect(await t.db.select({ id: productComments.id }).from(productComments).where(eq(productComments.pageId, other.id))).toEqual([]);
+    for (let i = 0; i < 2; i++) expect((await comment(editor, other.id, { anchorId: other.ids[0], quote: "", body: "senza chiave" })).statusCode).toBe(201);
+    expect(await t.db.select({ id: productComments.id }).from(productComments).where(eq(productComments.pageId, other.id))).toHaveLength(2);
   });
 });
 

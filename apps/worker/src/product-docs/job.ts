@@ -364,7 +364,18 @@ async function runSourceJob(
       await markDone(pageId)(db);
       continue;
     }
-    const written = await writeClaudeFacts(db, { projectId: job.projectId, pageId, facts: pageFacts, source: ref, ownerId: source.ownerId, arrivedSeq: page.revSeq, onWritten: markDone(pageId), requesterId });
+    const written = await writeClaudeFacts(db, {
+      projectId: job.projectId,
+      pageId,
+      facts: pageFacts,
+      source: ref,
+      ownerId: source.ownerId,
+      arrivedSeq: page.revSeq,
+      onWritten: markDone(pageId),
+      requesterId,
+      // L'ultima sosta del lavoro, se è una che la card dice (budget o pausa; il limite e la sezione presa no).
+      waited: job.lastHeldReason === "budget" || job.lastHeldReason === "paused" ? job.lastHeldReason : null,
+    });
     if (written.kind === "section_busy") {
       // Una persona scrive in quella sezione: il lavoro aspetta e riprova (come `productPending`), senza modello.
       log.info?.({ jobId: job.id, pageId, sectionId: written.sectionId }, "doc di prodotto: una sezione è presa da una persona, si riprova");
