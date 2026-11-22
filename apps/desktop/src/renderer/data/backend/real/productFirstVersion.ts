@@ -133,7 +133,9 @@ export const liveProductFirstVersion: Partial<ProductDocs> = {
       acceptedPageIds: v.acceptedPageIds,
       bannerPageIds: v.bannerPageIds,
       undo: firstVersionUndoFrom(v.undo),
-      permissions: { edit: v.permissions.edit },
+      // «Stop» nella build app: il passo dopo, su `stopFirstVersion`.
+      stopping: false,
+      permissions: { edit: v.permissions.edit, stop: false },
     };
     return view;
   },

@@ -11,6 +11,7 @@ import {
   openProductQuestions,
   productFirstVersionOf,
   startFirstVersionAs,
+  stopFirstVersionAs,
   whenFirstVersionIdle,
 } from "../../../data/productDocs/firstVersion";
 import { deleteProductPageAs, writeProductBlocksAs } from "../../../data/productDocs/writes";
@@ -786,5 +787,82 @@ describe("fix round 1 — l'avanzamento che cambia sotto il fuoco (M2, M4)", () 
     await waitFor(() => expect(firstWay()).toHaveFocus());
     body.stop();
     expect(body.hits).toEqual([]);
+  });
+});
+
+describe("«Stop» accanto all'avanzamento (decisione del maintainer, 22 nov 2026)", () => {
+  const stopButton = () => screen.queryByRole("button", { name: /^(Stop|Ferma)$/ });
+
+  it("Laura: «Stop», senza conferma; «Stopping after this page…» col fuoco sul titolo, mai sul body; poi «Claude stopped the first version», le pagine scritte restano", async () => {
+    // Una pagina ogni 300 ms: la frase «Stopping…» resta il tempo di leggerla.
+    setStreamLatency(300);
+    const user = userEvent.setup();
+    await openIndex();
+    act(() => void startFirstVersionAs(LAURA, VRD, [TEXT]));
+    const title = await screen.findByRole("heading", { name: "Claude is writing the first version" });
+    const stop = vi.spyOn(productDocs, "stopFirstVersion");
+    const body = watchBody();
+    await user.click(stopButton()!);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(stop).toHaveBeenCalledWith(VRD);
+    expect(await screen.findByText("Stopping after this page…")).toBeInTheDocument();
+    expect(stopButton()).toBeNull();
+    await waitFor(() => expect(title).toHaveFocus());
+    await act(() => whenFirstVersionIdle());
+    await screen.findByRole("heading", { name: "Claude stopped the first version" });
+    expect(screen.queryByText("Stopping after this page…")).toBeNull();
+    const view = productFirstVersionOf(LAURA, VRD)!;
+    expect(view.interrupted).toBe(true);
+    expect(view.pagesDone).toBeLessThan(VRD_FIRST_VERSION.length);
+    expect(vrdPages()).toHaveLength(view.pagesDone);
+    expect(screen.getByText(`${view.pagesDone} of ${VRD_FIRST_VERSION.length} pages written`)).toBeInTheDocument();
+    body.stop();
+    expect(body.hits).toEqual([]);
+  });
+
+  it("Sara (legge soltanto) non ha «Stop»; quando Laura la ferma legge «Stopping after this page…»", async () => {
+    setStreamLatency(300);
+    await openIndex(SARA);
+    act(() => void startFirstVersionAs(LAURA, VRD, [TEXT]));
+    await screen.findByRole("heading", { name: "Claude is writing the first version" });
+    expect(stopButton()).toBeNull();
+    act(() => stopFirstVersionAs(LAURA, VRD));
+    expect(await screen.findByText("Stopping after this page…")).toBeInTheDocument();
+  });
+
+  it("Marco (`docs.edit`, non l'ha chiesta) ha «Stop»; a fine stesura non c'è più", async () => {
+    setStreamLatency(25);
+    await openIndex(MARCO);
+    act(() => void startFirstVersionAs(LAURA, VRD, [TEXT]));
+    await screen.findByRole("heading", { name: "Claude is writing the first version" });
+    expect(stopButton()).toBeInTheDocument();
+    await act(() => whenFirstVersionIdle());
+    await screen.findByRole("heading", { name: "Claude wrote the first version" });
+    expect(stopButton()).toBeNull();
+  });
+
+  it("non riuscito: «Couldn't stop the first version. Try again.», e «Stop» resta", async () => {
+    setStreamLatency(25);
+    const user = userEvent.setup();
+    await openIndex();
+    act(() => void startFirstVersionAs(LAURA, VRD, [TEXT]));
+    await screen.findByRole("heading", { name: "Claude is writing the first version" });
+    failNext("productDocs.stopFirstVersion");
+    await user.click(stopButton()!);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't stop the first version. Try again.");
+    expect(stopButton()).toBeInTheDocument();
+    expect(productFirstVersionOf(LAURA, VRD)!.status).toBe("writing");
+  });
+
+  it("in italiano: «Ferma», poi «Si ferma dopo questa pagina…»", async () => {
+    act(() => setLanguage("it"));
+    setStreamLatency(300);
+    const user = userEvent.setup();
+    await openIndex();
+    act(() => void startFirstVersionAs(LAURA, VRD, [TEXT]));
+    await screen.findByRole("heading", { name: "Claude sta scrivendo la prima versione" });
+    await user.click(screen.getByRole("button", { name: "Ferma" }));
+    expect(await screen.findByText("Si ferma dopo questa pagina…")).toBeInTheDocument();
   });
 });

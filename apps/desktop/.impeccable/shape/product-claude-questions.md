@@ -357,8 +357,9 @@ e la Home, e la pagina non lo ricalcola **[PQ 12]**:
   pulsa · titolo · «writing…» / «sto scrivendo…» 12px; in attesa → titolo
   `ink-faint`. Le pagine scritte entrano anche nell'albero, una per una.
 - Lo vedono **tutti** quelli che leggono lo spazio (Sara compresa): è lo
-  stato dello spazio. Nessun bottone «Stop» *(scelta del costruttore: il
-  piano non lo prevede; si annulla tutto alla fine)*.
+  stato dello spazio. **Stop** / **Ferma** accanto al titolo, solo per chi
+  ha `docs.edit` (`permissions.stop`), senza conferma *(decisione del
+  maintainer, 22 nov 2026; vedi gli emendamenti in fondo)*.
 - **Fine**: titolo «Claude wrote the first version» / «Claude ha scritto la
   prima versione», riga «10 pages · 3 questions to close» / «10 pagine · 3
   domande da chiudere» e **Open the first page** / **Apri la prima
@@ -657,3 +658,23 @@ brief.
    il server la applica dopo, in un lavoro della coda, e al momento della
    conferma non esiste ancora una revisione da annullare. Nel prototipo la
    scrittura è sincrona e la riga ha «Undo».
+2. **«Stop» della prima versione** *(decisione del maintainer, 22 nov 2026:
+   «Sì, nella riga di stato»)*. Accanto a «Claude is writing the first
+   version» / «Claude sta scrivendo la prima versione», un bottone 28px a
+   contorno **Stop** / **Ferma**:
+   - c'è solo con `permissions.stop`: chi ha `docs.edit`, anche se non è
+     chi l'ha chiesta, mentre scrive e finché nessuno l'ha già premuto;
+   - nessuna conferma: Claude finisce la pagina in corso e si ferma, e le
+     pagine già scritte restano e si annullano come sempre («Undo the first
+     version»). Chiesto sull'ultima pagina, la prima versione finisce e non
+     è interrotta;
+   - dal clic all'arresto, al posto del bottone, 13px `ink-muted`
+     «Stopping after this page…» / «Si ferma dopo questa pagina…», per
+     tutti quelli che guardano (`stopping` nella vista). Il fuoco che era
+     sul bottone passa al titolo prima che il bottone se ne vada, mai sul
+     body;
+   - poi è la prima versione interrotta dell'emendamento 2 del Task 11
+     («Claude stopped the first version», «2 of 10 pages written»);
+   - non riuscito: il bottone torna e sotto il titolo, `role="alert"` 12px
+     `critical`, «Couldn't stop the first version. Try again.» /
+     «Impossibile fermare la prima versione. Riprova.».

@@ -35,7 +35,8 @@ const view = (over: Partial<ProductFirstVersionView>): ProductFirstVersionView =
   acceptedPageIds: [],
   bannerPageIds: [],
   undo: { enabled: true },
-  permissions: { edit: true },
+  stopping: false,
+  permissions: { edit: true, stop: false },
   ...over,
 });
 
