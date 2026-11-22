@@ -60,14 +60,13 @@ describe("le capacità `product*` (F6)", () => {
 
   afterEach(() => vi.unstubAllEnvs());
 
-  it("nella build app, col cancello spento, si saltano; le altre restano", async () => {
+  it("nella build app, col cancello acceso (22 nov 2026), passano insieme alle altre", async () => {
     vi.stubEnv("VITE_STUBWISE_BUILD", "app");
     const { featureIntegrated } = await import("../../integration");
-    expect(featureIntegrated("product-claude-actions")).toBe(false);
+    expect(featureIntegrated("product-claude-actions")).toBe(true);
     expect(capabilitiesEventsOf([raw("7", { items: ["spend", ...PRODUCT] })])).toMatchObject([
-      { items: ["spend"] },
+      { items: ["spend", ...PRODUCT] },
     ]);
-    expect(capabilitiesEventsOf([raw("8", { items: PRODUCT })])).toEqual([]);
   });
 
   it("nel prototipo (tutto acceso) passano", () => {

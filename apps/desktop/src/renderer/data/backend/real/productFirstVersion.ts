@@ -14,7 +14,7 @@ import { sourceViewFrom, undoViewFrom, type ServerSourceView } from "./productCl
 // - «Stop» (a7f558344): 204 anche se non c'è niente da fermare; `stopping`
 //   nella vista fra il clic e l'arresto.
 // Gli errori sono nelle parole del prototipo (`data/productDocs/firstVersion.ts`).
-// Dietro `product-claude-actions`, spento.
+// Dietro `product-claude-actions`, acceso il 22 nov 2026.
 
 type ProductDocs = typeof Fake.productDocs;
 

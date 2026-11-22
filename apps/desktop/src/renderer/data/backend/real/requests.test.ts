@@ -240,12 +240,12 @@ describe("le Requests dal server", () => {
     expect((await getRequest(ITEM))?.productOrigin).toEqual({ pageId: PAGE, code: "AUD-D5", title: "Sign-in" });
     installFakeServer({ [`GET /api/requests/${ITEM}`]: { body: full() } });
     expect((await getRequest(ITEM))?.productOrigin).toBeUndefined();
-    // Nella build app, col cancello `product-claude-actions` spento, non si mostra.
+    // Nella build app, col cancello `product-claude-actions` acceso (22 nov 2026), si mostra.
     vi.stubEnv("VITE_STUBWISE_BUILD", "app");
     installFakeServer({
       [`GET /api/requests/${ITEM}`]: { body: full({ productOrigin: { pageId: PAGE, code: "AUD-D5", title: "Sign-in" } }) },
     });
-    expect((await getRequest(ITEM))?.productOrigin).toBeUndefined();
+    expect((await getRequest(ITEM))?.productOrigin).toEqual({ pageId: PAGE, code: "AUD-D5", title: "Sign-in" });
     vi.unstubAllEnvs();
   });
 
