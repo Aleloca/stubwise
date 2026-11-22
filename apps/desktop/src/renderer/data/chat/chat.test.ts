@@ -15,6 +15,7 @@ import {
   whenIdle,
 } from "../api";
 import { queryKeys } from "../queries";
+import { PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import { familyOf, state, visibleProjectIds } from "../store";
 import type { ChannelRow, ChatMessageView } from "../types";
@@ -25,7 +26,7 @@ import {
   revokeInstancePermission,
   viewerFor,
 } from "../viewer";
-import { canReadChannel, canSeeChannel } from "./visibility";
+import { canReadChannel, canSeeChannel, notifyLevelOf } from "./visibility";
 
 const as = (personId: string) => setSessionPersonId(personId);
 const channel = (id: string) => state.channels.find((c) => c.id === id)!;
@@ -1047,6 +1048,81 @@ describe("chat: revisione finale dell'area", () => {
     expect((await chat.getChannel("ch-aud-pricing"))?.topic).toBe(
       "Resellers keep 15% until March",
     );
+  });
+
+  // Registro, A4 r.169 (decisione del maintainer, 23 nov 2026): @channel e
+  // @reparto AVVISANO. Ogni membro del canale (per @reparto, chi del reparto
+  // è nel canale), con le sue preferenze: la card arriva solo a chi ha il
+  // canale su «all» (la stessa regola per cui il gruppo conta fra le menzioni);
+  // «solo menzioni» e «silenziato» la spengono. L'autore mai, una card sola
+  // per persona e messaggio. Il motivo si legge dal messaggio: «mentioned
+  // @channel», «mentioned @Marketing».
+  describe("@channel e @reparto avvisano (r.169)", () => {
+    const cards = async (messageId: string) =>
+      (await listNotifications()).filter((n) => n.chatMessageId === messageId);
+
+    it("@channel: ogni membro su «all», non l'autore, col titolo del gruppo", async () => {
+      const ch = channel("ch-stw-desktop");
+      as("p-laura");
+      const sent = await chat.sendMessage("ch-stw-desktop", { text: "@channel demo moved" });
+      const others = ch.memberIds.filter((id) => id !== "p-laura" && notifyLevelOf(id, ch.id) === "all");
+      expect(others.length).toBeGreaterThan(0);
+      for (const id of others) {
+        as(id);
+        const mine = await cards(sent.id);
+        expect(mine, id).toHaveLength(1);
+        expect(mine[0]!.kind).toBe("chat.mention");
+        expect(mine[0]!.title).toMatch(/ mentioned @channel in /);
+      }
+      as("p-laura");
+      expect(await cards(sent.id)).toEqual([]);
+    });
+
+    it("@reparto: solo chi di quel reparto è nel canale", async () => {
+      const ch = channel("ch-stw-desktop");
+      const deptsOf = (id: string) => PEOPLE.find((p) => p.id === id)!.departmentIds;
+      const others = ch.memberIds.filter((id) => id !== "p-laura");
+      // Un reparto che alcuni membri hanno e altri no.
+      const dept = state.departments.find(
+        (d) => others.some((id) => deptsOf(id).includes(d.id)) && others.some((id) => !deptsOf(id).includes(d.id)),
+      )!;
+      expect(dept).toBeDefined();
+      as("p-laura");
+      const sent = await chat.sendMessage("ch-stw-desktop", { text: `@${dept.name} please look` });
+      let notified = 0;
+      for (const id of others) {
+        as(id);
+        const mine = await cards(sent.id);
+        if (deptsOf(id).includes(dept.id) && notifyLevelOf(id, ch.id) === "all") {
+          notified++;
+          expect(mine, id).toHaveLength(1);
+          expect(mine[0]!.title).toContain(` mentioned @${dept.name} in `);
+        } else {
+          expect(mine, id).toEqual([]);
+        }
+      }
+      expect(notified).toBeGreaterThan(0);
+    });
+
+    it("«silenziato» e «solo menzioni» spengono la card del gruppo, non quella a nome", async () => {
+      as("p-giulia");
+      await chat.setNotifyLevel("ch-chit-chat", "muted");
+      as("p-federico");
+      const group = await chat.sendMessage("ch-chit-chat", { text: "@channel pizza at one" });
+      const direct = await chat.sendMessage("ch-chit-chat", { text: "@Giulia Ferri you coming?" });
+      as("p-giulia");
+      expect(await cards(group.id)).toEqual([]);
+      expect(await cards(direct.id)).toHaveLength(1);
+    });
+
+    it("nominata a nome E col gruppo: una card sola, quella a nome", async () => {
+      as("p-chiara");
+      const sent = await chat.sendMessage("ch-mkx-grafica", { text: "@channel and @Giulia Ferri look" });
+      as("p-giulia");
+      const mine = await cards(sent.id);
+      expect(mine).toHaveLength(1);
+      expect(mine[0]!.title).toMatch(/ mentioned you in /);
+    });
   });
 
   it("una menzione diretta avvisa chi legge il canale anche se non ne è membro; @channel no (R-G6)", async () => {

@@ -58,7 +58,7 @@ import {
   scrubDeleted,
   seenChannel,
 } from "./reads";
-import { canReadChannel, channelPermissions, isHuman, membersOf } from "./visibility";
+import { canReadChannel, channelPermissions, isHuman, membersOf, notifyLevelOf } from "./visibility";
 import { CHAT_EVENT_KINDS, DM_MAX_PEOPLE } from "./constants";
 
 export { CHAT_EVENT_KINDS, DM_MAX_PEOPLE } from "./constants";
@@ -154,16 +154,20 @@ const view = (me: string, ch: Channel): ChannelView => channelView(me, ch);
  * direttamente (`@Nome Cognome`, o una domanda rivolta a lui) e legge il
  * canale, membro o no, a qualunque livello di notifica; un membro nominato
  * in un thread lo segue (con la sola risposta di adesso da leggere).
- * `@channel` e `@reparto` non avvisano mai nessuno, a nessun livello
- * (R-G6): contano solo nel conteggio delle menzioni del canale
- * (`channelCounts`).
+ * `@channel` e `@reparto` avvisano (registro, A4 r.169, decisione del
+ * maintainer del 23 nov 2026): ogni membro del canale (per `@reparto`, chi
+ * del reparto è nel canale) che ha il canale su «all», la stessa regola per
+ * cui il gruppo conta fra le menzioni (`channelCounts`); «solo menzioni» e
+ * «silenziato» la spengono. Chi è nominato anche a nome ha la card a nome,
+ * una sola. Il membro avvisato dal gruppo non segue il thread.
  */
 function deliverMentions(m: ChatMessage, ch: Channel): void {
   const members = membersOf(ch);
-  const candidates = new Set([...directMentionIds(m.text), ...m.asksReplyOf]);
+  const candidates = new Set([...directMentionIds(m.text), ...m.asksReplyOf, ...members]);
   for (const personId of candidates) {
     const kind = mentionKindFor(m, personId, members);
-    if (kind !== "direct" || !canReadChannel(personId, ch)) continue;
+    if (kind === null || !canReadChannel(personId, ch)) continue;
+    if (kind === "group" && notifyLevelOf(personId, ch.id) !== "all") continue;
     state.notifications.push({
       id: newId("n-chat"),
       // Una domanda solo a un membro: è lui che la trova in «Da decidere» e può
@@ -186,7 +190,7 @@ function deliverMentions(m: ChatMessage, ch: Channel): void {
       link: "",
       chatMessageId: m.id,
     });
-    if (m.threadOf !== null && members.includes(personId)) follow(personId, ch, m);
+    if (kind === "direct" && m.threadOf !== null && members.includes(personId)) follow(personId, ch, m);
   }
 }
 

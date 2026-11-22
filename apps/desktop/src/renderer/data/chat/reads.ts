@@ -22,7 +22,7 @@ import type {
   ThreadWithNews,
   Utterance,
 } from "../types";
-import { mentionKindFor } from "./mentions";
+import { mentionKindFor, mentionsName } from "./mentions";
 import {
   canReadChannel,
   canSeeChannel,
@@ -766,6 +766,16 @@ export async function searchChat(
   return out.sort((a, b) => b.message.createdAt.localeCompare(a.message.createdAt));
 }
 
+/** Il gruppo con cui il messaggio nomina la persona: `@channel`, o il suo reparto. */
+function groupNamed(m: ChatMessage, personId: string): string | null {
+  if (mentionsName(m.text, "channel")) return "@channel";
+  const person = PEOPLE.find((p) => p.id === personId);
+  const department = state.departments.find(
+    (d) => person?.departmentIds.includes(d.id) && mentionsName(m.text, d.name),
+  );
+  return department ? `@${department.name}` : null;
+}
+
 /**
  * Una notifica di menzione della Chat come la legge il destinatario: titolo
  * e testo dal messaggio di adesso. `null` se il messaggio è stato eliminato,
@@ -782,11 +792,17 @@ export function presentChatNotification(
   const label = channelLabel(data.ch, personId);
   const asked = message.asksReplyOf.includes(personId);
   const thread = message.threadOf;
+  // Registro, r.169: una card del gruppo dice quale (`@channel`, `@Marketing`),
+  // letto dal messaggio di adesso; nominata a nome resta «you».
+  const group =
+    mentionKindFor(message, personId, membersOf(data.ch)) === "group" ? groupNamed(message, personId) : null;
   return {
     ...copy(n),
     projectId: data.ch.projectId,
     objectCode: label,
-    title: asked ? `${author} asked you in ${label}` : `${author} mentioned you in ${label}`,
+    title: asked
+      ? `${author} asked you in ${label}`
+      : `${author} mentioned ${group ?? "you"} in ${label}`,
     body: message.text.length > 160 ? `${message.text.slice(0, 159)}…` : message.text,
     link: thread
       ? `#/chat/${data.ch.id}?thread=${thread}&message=${message.id}`

@@ -172,8 +172,13 @@ Fetta 4: renderer (sotto, «Chiuse»).
   Chiusa il 23 nov 2026 (rimandi, lotto 1): un invio fallito (un file o il
   messaggio rifiutati) toglie i file già caricati con
   `client.chat.attachments.remove`, al meglio (`real/chat.ts`, `dropPending`).
-- `@channel` e `@reparto` non avvisano nessuno (R-G6). È la regola della fetta
-  1, da riprendere se il maintainer vuole avvisi di gruppo.
+- ~~`@channel` e `@reparto` non avvisano nessuno (R-G6). È la regola della fetta
+  1, da riprendere se il maintainer vuole avvisi di gruppo.~~ Decisione del
+  maintainer (23 nov 2026): avvisano. Fatto nel prototipo (rimandi, lotto 2),
+  forma in `apps/desktop/.impeccable/shape/chat.md` («Avvisi di gruppo»):
+  membri su «all», l'autore escluso, una card a persona, `chat.mention` col
+  motivo derivato a lettura. **Aperta lato server** (72): la build app resta
+  com'è finché il server non c'è.
 - Limite accettato: modificare un messaggio avvisa solo chi viene nominato
   per la PRIMA volta. Chi era già nominato non riceve una seconda card, e chi
   viene tolto dal testo tiene la card che aveva (la sua domanda però esce da
