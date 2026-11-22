@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../../../data/api";
 import { listNotifications, productDocs, resetApi, setLatency } from "../../../data/api";
 import { setSessionPersonId } from "../../../data/session";
-import { state } from "../../../data/store";
+import { failNext, state } from "../../../data/store";
 import type { ProductBlock, RichText } from "../../../data/types";
 import { plain, toggleMark } from "../../../domain/productDocs/richText";
 import { setLanguage } from "../../../i18n";
@@ -130,7 +130,12 @@ describe("commentare una frase", () => {
       fireEvent.click(send2);
     });
     await waitFor(() => expect(add).toHaveBeenCalledTimes(1));
-    expect(add.mock.calls[0]![1]).toEqual({ anchorId: LOGIN_ID, quote: "only with Google", body: "@Marco Bellini is this right?" });
+    expect(add.mock.calls[0]![1]).toEqual({
+      anchorId: LOGIN_ID,
+      quote: "only with Google",
+      body: "@Marco Bellini is this right?",
+      clientId: expect.any(String),
+    });
 
     const thread = await within(col).findByRole("article", {
       name: "Comment by Laura Costa on “only with Google”",
@@ -219,6 +224,48 @@ describe("la colonna", () => {
     await user.keyboard("{Meta>}{Enter}{/Meta}");
     expect(await within(col).findByText("Out of scope, yes.")).toBeInTheDocument();
     expect(state.productComments.find((c) => c.body === "Out of scope, yes.")!.replyToId).toBe("pc-acq-phases-1");
+  });
+
+  it("la chiave del client (72, b3ef7fa53): una per commento, la stessa nel «Retry»; il testo cambiato o il commento dopo ne hanno una nuova", async () => {
+    await open(pageByTitle("Phases").code);
+    const col = await column();
+    const thread = await within(col).findByRole("article", {
+      name: "Comment by Laura Costa on “Phase 3: paper bills by post”",
+    });
+    const add = vi.spyOn(api.productDocs, "addProductComment");
+    const user = userEvent.setup();
+    const reply = within(thread).getByRole("combobox", { name: "Reply…" });
+    failNext("productDocs.addProductComment");
+    await user.type(reply, "Out of scope.");
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+    await within(thread).findByText("Couldn't post the comment");
+    await user.click(within(thread).getByRole("button", { name: "Retry" }));
+    expect(await within(col).findByText("Out of scope.")).toBeInTheDocument();
+    const keys = add.mock.calls.map((c) => c[1].clientId);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(keys[1]).toBe(keys[0]);
+    // Il commento dopo: una chiave nuova.
+    await user.type(reply, "And phase 4?");
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+    expect(await within(col).findByText("And phase 4?")).toBeInTheDocument();
+    expect(add.mock.calls[2]![1].clientId).not.toBe(keys[0]);
+    // Fallito e poi corretto: un commento diverso, una chiave nuova.
+    failNext("productDocs.addProductComment");
+    await user.type(reply, "Typo");
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+    await within(thread).findByText("Couldn't post the comment");
+    await user.type(reply, "s");
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+    expect(await within(col).findByText("Typos")).toBeInTheDocument();
+    expect(add.mock.calls[4]![1].clientId).not.toBe(add.mock.calls[3]![1].clientId);
+    // Lo stesso testo di nuovo, dopo che il primo è scritto: un commento nuovo, non lo stesso.
+    await user.type(reply, "+1");
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+    await waitFor(() => expect(state.productComments.filter((c) => c.body === "+1")).toHaveLength(1));
+    await user.type(reply, "+1");
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+    await waitFor(() => expect(state.productComments.filter((c) => c.body === "+1")).toHaveLength(2));
   });
 
   it("chi ha scritto e chi guarda non vede (R-G5, nome `null` come dal server): «Someone», mai il nome", async () => {

@@ -246,11 +246,21 @@ export function addProductCommentAs(
  * come `fixRelease`. Finita, lo stesso testo di nuovo è un commento nuovo.
  */
 const posting = new Map<string, Promise<ProductCommentView>>();
-onStoreReset(() => posting.clear());
+/**
+ * La chiave del client (come il server, 72 b3ef7fa53): `<persona>|<chiave>`
+ * → la pagina e il commento scritto. La stessa chiave dalla stessa persona
+ * dà lo stesso commento (nessuna riga né menzione in più); su un'altra
+ * pagina è `client_id_reused`. È dell'autore: un altro scrive il suo.
+ */
+const byClientId = new Map<string, { pageId: string; commentId: string }>();
+onStoreReset(() => {
+  posting.clear();
+  byClientId.clear();
+});
 
 export function addProductComment(
   pageId: string,
-  input: { anchorId: string; quote: string; body: string; replyToId?: string },
+  input: { anchorId: string; quote: string; body: string; replyToId?: string; clientId?: string },
 ): Promise<ProductCommentView> {
   const key = JSON.stringify([
     getSessionPersonId(),
@@ -263,7 +273,21 @@ export function addProductComment(
   const pending = posting.get(key);
   if (pending) return pending;
   const write = writer("productDocs.addProductComment")
-    .then((me) => viewOf(me, productPageById(pageId)!, addProductCommentAs(me, pageId, input)))
+    .then((me) => {
+      const ck = input.clientId === undefined ? null : `${me}|${input.clientId}`;
+      const known = ck === null ? undefined : byClientId.get(ck);
+      if (known && known.pageId !== pageId) throw new Error("client_id_reused");
+      const already = known && state.productComments.find((c) => c.id === known.commentId);
+      if (already) return viewOf(me, productPageById(pageId)!, already);
+      const made = addProductCommentAs(me, pageId, {
+        anchorId: input.anchorId,
+        quote: input.quote,
+        body: input.body,
+        ...(input.replyToId !== undefined ? { replyToId: input.replyToId } : {}),
+      });
+      if (ck !== null) byClientId.set(ck, { pageId, commentId: made.id });
+      return viewOf(me, productPageById(pageId)!, made);
+    })
     .finally(() => {
       if (posting.get(key) === write) posting.delete(key);
     });

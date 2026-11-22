@@ -133,6 +133,8 @@ export function ProductIndex() {
 
       {progress ? (
         <FirstVersionProgress
+          // Una prima versione nuova è un avanzamento nuovo: «Stopping…» non passa dall'una all'altra.
+          key={progress.groupId}
           view={progress}
           projectCode={project.code}
           focusRequest={focusProgress}

@@ -271,9 +271,9 @@ export function useProductComments(pageId: string, { enabled = true }: { enabled
 /**
  * Commenta o risponde. La pagina spegne «Comment» con `isPending`; nel
  * prototipo anche il livello dati dà a un doppio clic la stessa scrittura
- * (`addProductComment` tiene quelle in volo), il server no: un Retry dopo
- * un errore di rete con il commento già salvato ne scrive un secondo (nel
- * registro dei rimandi: la rotta non ha una chiave del client).
+ * (`addProductComment` tiene quelle in volo). `clientId` è la chiave del
+ * commento (72, b3ef7fa53): un «Retry» dopo un errore di rete col commento
+ * già salvato riceve lo stesso commento, non ne scrive un secondo.
  */
 export function useAddProductComment() {
   return useWrite(
@@ -286,6 +286,7 @@ export function useAddProductComment() {
       quote: string;
       body: string;
       replyToId?: string;
+      clientId?: string;
     }) => api.productDocs.addProductComment(pageId, input),
     COMMENT_AREAS,
   );

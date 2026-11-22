@@ -470,6 +470,9 @@ async function play(
     if (at !== storeGeneration() || fv.status !== "writing" || !state.productFirstVersions.includes(fv))
       return;
     if (fv.written.some((w) => !productPageById(w.pageId))) return interrupt(fv);
+    // «Stop» prima della prima pagina: Claude non comincia (come il server
+    // con la bozza ancora in coda); zero pagine scritte.
+    if (fv.stopRequested && i === 0) return interrupt(fv);
     try {
       writePage(fv, page, pageOfKey, source);
     } catch {

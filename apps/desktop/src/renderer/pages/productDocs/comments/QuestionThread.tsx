@@ -177,7 +177,7 @@ export const QuestionThread = forwardRef<
     onAlreadyAnswered: (first: FirstAnswer) => void;
     /** `changed_after` fra lettura e clic: si rilegge (il bottone si spegne con la sua frase). */
     onStale: () => void;
-    onReply?: (body: string) => Promise<unknown>;
+    onReply?: (body: string, clientId: string) => Promise<unknown>;
     onActive?: () => void;
     /** Build app: la scheda «Open a request» nel filo, sotto la domanda (decisione del maintainer). */
     requestCard?: ReactNode;

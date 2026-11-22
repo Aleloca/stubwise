@@ -91,7 +91,7 @@ export const CommentThread = forwardRef<
     style?: React.CSSProperties;
     onResolve?: () => void;
     onReopen?: () => void;
-    onReply?: (body: string) => Promise<unknown>;
+    onReply?: (body: string, clientId: string) => Promise<unknown>;
     onActive?: () => void;
     /** «Resolve» o «Reopen» del filo, per rimetterci il fuoco. */
     actionRef?: (el: HTMLButtonElement | null) => void;

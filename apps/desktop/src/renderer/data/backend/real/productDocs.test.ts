@@ -781,6 +781,17 @@ describe("i commenti dal server (area 11, F2; R11-2)", () => {
     ).rejects.toThrow("invalid: invalid_anchor");
   });
 
+  it("la chiave del client (72, b3ef7fa53): `clientId` nel corpo quando c'è, assente senza", async () => {
+    const { seen } = installFakeServer({
+      [`POST /api/product-pages/${PAGE}/comments`]: { status: 201, body: comment(ROOT) },
+    });
+    const KEY = "11111111-2222-4333-8444-555555555555";
+    await docs.addProductComment!(PAGE, { anchorId: "blk-1", quote: "q", body: "x", clientId: KEY });
+    await docs.addProductComment!(PAGE, { anchorId: "blk-1", quote: "q", body: "x" });
+    expect(seen.map((r) => (r.body as { clientId?: string }).clientId)).toEqual([KEY, undefined]);
+    expect(Object.keys(seen[1]!.body as object)).not.toContain("clientId");
+  });
+
   it("una risposta manda `replyToId`; «Resolve» e «Reopen» sulle rotte del commento", async () => {
     const { seen } = installFakeServer({
       [`POST /api/product-pages/${PAGE}/comments`]: {

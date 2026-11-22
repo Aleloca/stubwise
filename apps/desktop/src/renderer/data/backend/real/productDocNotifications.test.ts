@@ -174,6 +174,17 @@ describe("le card di Claude sulla doc nell'inbox (F5)", () => {
     expect(n!.productCard!.question).toBeUndefined();
   });
 
+  it("`waited` (72, b3ef7fa53): «budget» e «paused» nelle parole del prototipo; le card di prima restano null", async () => {
+    const withWaited = (waited: string | null) =>
+      updated({ productDoc: { ...updated().productDoc, claude: claude({ waited }) } });
+    inbox([withWaited("budget"), withWaited("paused"), withWaited(null)]);
+    expect((await listNotifications()).map((n) => n.productCard!.waited)).toEqual([
+      "monthly_budget",
+      "queue_paused",
+      null,
+    ]);
+  });
+
   it("«updated» senza segni a vista porta alla cronologia della revisione; tutte annullate: chi", async () => {
     inbox([
       updated({

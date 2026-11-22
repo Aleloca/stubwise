@@ -611,6 +611,9 @@ export const liveProductDocs: Partial<ProductDocs> = {
           quote: input.quote,
           body: input.body,
           ...(input.replyToId ? { replyToId: input.replyToId } : {}),
+          // La chiave del commento (72, b3ef7fa53): un server più vecchio la
+          // rifiuterebbe (corpo strict), ma caddy e server scendono insieme.
+          ...(input.clientId ? { clientId: input.clientId } : {}),
         }),
       );
     } catch (error) {

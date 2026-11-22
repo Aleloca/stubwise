@@ -1473,8 +1473,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     *Chiusa lato server il 22 nov 2026 (72, 0218).* `clientId` (uuid,
     opzionale) nel body: stessa chiave e stesso autore danno lo stesso
     commento, anche se intanto il blocco è stato tolto, e senza una seconda
-    menzione. Resta il renderer (94): generare la chiave una volta per
-    commento e rimandarla nel «Retry».
+    menzione. *Chiusa nel renderer il 22 nov 2026 (94)*: la casella genera
+    la chiave al primo invio di un testo, la rimanda identica nel «Retry»
+    dello stesso testo e la lascia quando il commento è scritto (lo stesso
+    testo dopo è un commento nuovo); il prototipo la tratta come il server.
 - *Revisione di R11-1 (46, 20 nov 2026), chiuse*: le immagini (la rotta dà
   i byte, 72 69b09a99d: sul web `<img src>` sulla rotta, sul desktop i byte
   da `api:request` come data URL); la cronologia a pagine di 100 con

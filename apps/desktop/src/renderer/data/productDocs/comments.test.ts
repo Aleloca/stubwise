@@ -616,3 +616,32 @@ describe("la vista del commento come la dà il server (area 11, F2)", () => {
     expect(root.mentionIds).toEqual([LAURA]);
   });
 });
+
+describe("la chiave del client (72, b3ef7fa53)", () => {
+  const signInId = () => state.productPages.find((p) => p.code === "ACQ-D5")!.id;
+  it("la stessa chiave dalla stessa persona: lo stesso commento, una riga sola, una menzione sola", async () => {
+    setSessionPersonId(LAURA);
+    const input = { anchorId: "blk-acq-signin-4", quote: "Google", body: "Hi @Marco Bellini", clientId: "k-1" };
+    const before = state.productComments.length;
+    const first = await productDocs.addProductComment(signInId(), input);
+    const again = await productDocs.addProductComment(signInId(), input);
+    expect(again.id).toBe(first.id);
+    expect(state.productComments.length).toBe(before + 1);
+    setSessionPersonId("p-marco");
+    const mentions = (await listNotifications()).filter((n) => n.link.endsWith(`?comment=${first.id}`));
+    expect(mentions).toHaveLength(1);
+  });
+
+  it("un'altra persona con la stessa chiave scrive il suo commento; senza chiave, due commenti", async () => {
+    setSessionPersonId(LAURA);
+    const input = { anchorId: "blk-acq-signin-4", quote: "Google", body: "Same", clientId: "k-2" };
+    const laura = await productDocs.addProductComment(signInId(), input);
+    setSessionPersonId("p-marco");
+    const marco = await productDocs.addProductComment(signInId(), input);
+    expect(marco.id).not.toBe(laura.id);
+    const plainInput = { anchorId: "blk-acq-signin-4", quote: "Google", body: "Twice" };
+    const a = await productDocs.addProductComment(signInId(), plainInput);
+    const b = await productDocs.addProductComment(signInId(), plainInput);
+    expect(b.id).not.toBe(a.id);
+  });
+});
