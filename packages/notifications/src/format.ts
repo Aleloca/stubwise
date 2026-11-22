@@ -991,6 +991,12 @@ export interface ProductDocUpdatedEvent {
   projectId: string;
   projectCode: string;
   revisionId: string | null;
+  /**
+   * La card arriva dopo un'attesa della coda (budget o pausa). Vero SOLO alla
+   * pubblicazione (la sosta del lavoro si azzera quando finisce): per questo
+   * sta nell'evento. Assente nelle card di prima = nessuna attesa.
+   */
+  waited?: "budget" | "paused" | null;
 }
 
 /** Area 11 (F5 lo produce): Claude chiede qualcosa su una pagina di prodotto. Solo id e codici. */

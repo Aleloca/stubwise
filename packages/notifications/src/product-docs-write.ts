@@ -104,6 +104,12 @@ export interface ClaudeWriteInput {
    * chiesto lui, mentre scriveva (il prototipo: `sectionBusy(…, requesterId)`).
    */
   requesterId?: string | null;
+  /**
+   * Registro dei rimandi: il lavoro arriva dopo un'attesa della coda (l'ultima
+   * sosta, `last_held_reason`). Va NELL'EVENTO della card `product_doc.updated`:
+   * a lavoro finito la colonna si azzera, e a lettura non si ricostruisce.
+   */
+  waited?: "budget" | "paused" | null;
 }
 
 export type ClaudeFactOutcome =
@@ -330,7 +336,7 @@ export async function writeClaudeFacts(db: Db, input: ClaudeWriteInput): Promise
         await tx.execute(sql`select pg_notify('product_page_events', ${JSON.stringify({ type: "revision", pageId: page.id, seq, kind: "claude", actorId: agentId, sessionId: null })})`);
       }
     }
-    const card = await cardContext(tx, page.id, page.projectId, [agentId, input.ownerId]);
+    const card = await cardContext(tx, page.id, page.projectId, [agentId, input.ownerId], input.waited ?? null);
     if (revisionId) await card.updated(revisionId);
 
     // Le domande: un commento di Claude con la sua parte di domanda (il corpo resta vuoto).
@@ -370,7 +376,7 @@ export async function writeClaudeFacts(db: Db, input: ClaudeWriteInput): Promise
  * Le card di una pagina: i codici di adesso (per le frasi fuori dall'app), chi
  * la segue (obbligatori `follower`), chi non la riceve mai.
  */
-async function cardContext(tx: Db, pageId: string, projectId: string, never: readonly (string | null)[]) {
+async function cardContext(tx: Db, pageId: string, projectId: string, never: readonly (string | null)[], waited: "budget" | "paused" | null) {
   const [code] = await tx
     .select({ number: docPageCodes.number, projectCode: projects.code })
     .from(docPageCodes)
@@ -384,7 +390,7 @@ async function cardContext(tx: Db, pageId: string, projectId: string, never: rea
     exclude: never.filter((id): id is string => id !== null),
   };
   return {
-    updated: (revisionId: string) => publishNotification(tx, { kind: "product_doc.updated", ...base, revisionId } satisfies ProductDocUpdatedEvent, opts),
+    updated: (revisionId: string) => publishNotification(tx, { kind: "product_doc.updated", ...base, revisionId, waited } satisfies ProductDocUpdatedEvent, opts),
     question: (questionId: string) => publishNotification(tx, { kind: "product_doc.question", ...base, questionId } satisfies ProductDocQuestionEvent, opts),
   };
 }

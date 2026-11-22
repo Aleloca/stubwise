@@ -372,7 +372,7 @@ export const productDocClaudeCardSchema = z.object({
   /** Tutte le frasi annullate: chi ha annullato per ultimo. */
   undoneByName: z.string().nullable(),
   markAnchorId: z.string().nullable(),
-  /** La card arriva dopo un'attesa della coda (budget o pausa); oggi sempre null (registro dei rimandi). */
+  /** La card arriva dopo un'attesa della coda (budget o pausa): l'ultima sosta del lavoro, scritta nell'evento alla pubblicazione; null senza attesa. */
   waited: z.enum(["budget", "paused"]).nullable().default(null),
   question: z
     .object({
@@ -706,6 +706,12 @@ export const addProductCommentSchema = z
     quote: z.string().max(2000),
     body: z.string().min(1).max(10_000),
     replyToId: z.uuid().optional(),
+    /**
+     * La chiave del client (registro dei rimandi, review di R11-2): un «Retry»
+     * dopo una risposta persa con la stessa chiave dà lo STESSO commento. È
+     * dell'autore; la stessa chiave su un'altra pagina è 409 `client_id_reused`.
+     */
+    clientId: z.uuid().optional(),
   })
   .strict();
 export type AddProductCommentInput = z.infer<typeof addProductCommentSchema>;

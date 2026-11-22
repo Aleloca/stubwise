@@ -497,7 +497,7 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
     "/product-pages/:id/comments",
     {
       config: { access: PAGE_EDIT },
-      schema: { params: pageParams, body: addProductCommentSchema, response: { 201: productCommentViewSchema, 404: errorSchema, 422: errorSchema, ...authErrorResponses } },
+      schema: { params: pageParams, body: addProductCommentSchema, response: { 201: productCommentViewSchema, 404: errorSchema, 409: errorSchema, 422: errorSchema, ...authErrorResponses } },
     },
     async (request, reply) =>
       handle(reply, async () => {
