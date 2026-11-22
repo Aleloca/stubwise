@@ -776,9 +776,11 @@ describe("«Stop» (decisione del maintainer, 22 nov 2026)", () => {
     expect(productFirstVersionOf(SARA, VRD)!.permissions.stop).toBe(false);
     expect(() => stopFirstVersionAs(SARA, VRD)).toThrow("forbidden");
     expect(productFirstVersionOf(MARCO, VRD)!.permissions.stop).toBe(true);
+    // Prima della prima pagina: Claude non comincia (seconda revisione, M2).
     stopFirstVersionAs(MARCO, VRD);
     await whenFirstVersionIdle();
-    expect(productFirstVersionOf(LAURA, VRD)!).toMatchObject({ pagesDone: 1, interrupted: true });
+    expect(productFirstVersionOf(LAURA, VRD)!).toMatchObject({ status: "done", pagesDone: 0, interrupted: true });
+    expect(pagesOf()).toEqual([]);
   });
 
   it("chi non legge i Docs del progetto: `not_found`; senza una prima versione che scrive non fa niente", async () => {

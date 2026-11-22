@@ -517,6 +517,8 @@ function WritableBody({
    * uscire dalla pagina chiede.
    */
   const uploadingRef = useRef(new Set<string>());
+  // «Leave without saving» la cambia: un caricamento partito prima non scrive più.
+  const uploadGeneration = useRef(0);
   const [uploading, setUploading] = useState<ReadonlySet<string>>(uploadingRef.current);
   const markUploading = (id: string, on: boolean) => {
     const next = new Set(uploadingRef.current);
@@ -534,6 +536,7 @@ function WritableBody({
   const placeSketchImage = (id: string, file: File) => {
     if (uploadingRef.current.has(id)) return;
     markUploading(id, true);
+    const at = uploadGeneration.current;
     // Come gli altri blocchi immagine: controllata, poi salvata dal livello
     // dati (nella build app caricata sul server, `product-image:<id>`).
     const stored = async (): Promise<{ ok: true; src: string; alt: string } | { ok: false; reason: ImageRefusal }> => {
@@ -546,6 +549,7 @@ function WritableBody({
       }
     };
     void stored().then((r) => {
+      if (at !== uploadGeneration.current) return;
       if (!r.ok) {
         markUploading(id, false);
         // Rifiutata: la frase sotto il blocco, la bozza resta.
@@ -591,8 +595,13 @@ function WritableBody({
       if (timer.current) clearTimeout(timer.current);
       timer.current = null;
       draftsRef.current = new Map();
+      setDraftsState(draftsRef.current);
       draftAfter.current.clear();
-      sessionRef.current.dispose();
+      // Un'immagine che sta caricando al posto di una bozza non arriva più (seconda revisione, I3).
+      uploadGeneration.current += 1;
+      uploadingRef.current = new Set();
+      setUploading(uploadingRef.current);
+      sessionRef.current.reset();
     },
     focusFirst: () => {
       const first = viewRef.current[0];

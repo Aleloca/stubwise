@@ -331,10 +331,13 @@ blocchi scalano da h2 **[PE 3]**.
   - **Il dialogo**: solo il titolo; «Leave without saving» (contorno) e
     «Stay» (pieno, col fuoco). Esc e il clic fuori sono «Stay». «Stay»
     lascia tutto com'era (anche i riquadri); «Leave without saving» va dove
-    si andava, e ciò che non era salvato si perde: la fila si svuota e
-    niente parte più (una scrittura già in viaggio arriva, nessuna dietro di
-    lei). Se la pagina se ne va mentre chiede (tolta da un altro), si va
-    dove si andava.
+    si andava, e ciò che non era salvato si perde: la fila si svuota, e
+    l'esito della scrittura già in viaggio non conta più (nessuna dietro di
+    lei); un'immagine che caricava non prende più il posto della bozza. Se
+    poi l'uscita non avviene (un «Sign out» rifiutato) si scrive come prima.
+    Se la pagina se ne va mentre chiede (tolta da un altro), si va dove si
+    andava. Una pagina che si smonta senza chiedere (una rilettura in
+    errore) non perde niente: le bozze partono e la fila arriva.
   - Chiudere la finestra o ricaricare non chiede (nessun dialogo del
     browser).
 

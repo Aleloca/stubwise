@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import * as api from "../../../data/api";
@@ -29,6 +29,9 @@ const LOGIN_ID = "blk-acq-signin-4";
 const LOGIN = "Login only with Google";
 
 const signIn = () => state.productPages.find((p) => p.code === SIGNIN)!;
+/** Il testo del paragrafo di Login com'è adesso nella pagina. */
+const textOfLogin = () =>
+  (signIn().blocks.find((b) => b.id === LOGIN_ID) as { content: { text: string } }).content.text;
 const billsCode = () => state.productPages.find((p) => p.id === "pp-acq-bills")!.code;
 
 function seedLogin() {
@@ -288,6 +291,45 @@ describe("uscire dalla pagina", () => {
     expect(await leaveDialog(LEAVE_WAIT_MS + 2000)).toBeInTheDocument();
   });
 
+  it("seconda revisione, I1: la pagina smontata senza passare dall'uscita (una rilettura in errore, la finestra chiusa): la bozza parte lo stesso", async () => {
+    await openSignIn();
+    await typeBang();
+    // Smontare tutto: le pulizie vanno dal padre al figlio, come con PageError al posto della pagina.
+    act(() => cleanup());
+    await waitFor(() => expect(saves).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(textOfLogin()).toBe(`${LOGIN}!`));
+  });
+
+  it("seconda revisione, I3: un'immagine che caricava non scrive dopo «Leave without saving»", async () => {
+    vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
+    let finish: () => void = () => undefined;
+    vi.spyOn(api.productDocs, "storeProductImage").mockImplementation(
+      () => new Promise<string>((done) => (finish = () => done("data:image/png;base64,c3RvcmVk"))),
+    );
+    const replace = vi.spyOn(api.productDocs, "replaceWireframeWithImage");
+    const sketch = api.productDocs.drawWireframeAs(LAURA, signIn().id, { afterId: LOGIN_ID }).blockId;
+    await openSignIn();
+    await userEvent.click(
+      within(body().querySelector<HTMLElement>(`[data-block-id="${sketch}"]`)!).getByRole("button", {
+        name: "Replace with an image",
+      }),
+    );
+    act(() => {
+      fireEvent.change(document.querySelector<HTMLInputElement>('input[type="file"]')!, {
+        target: { files: [new File([new Uint8Array(1024)], "s.png", { type: "image/png" })] },
+      });
+    });
+    goToBills();
+    const dialog = await leaveDialog(LEAVE_WAIT_MS + 2000);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Leave without saving" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Bills" })).toBeInTheDocument();
+    await act(async () => {
+      finish();
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
   it("niente in sospeso: si esce senza chiedere", async () => {
     await openSignIn();
     goToBills();
@@ -417,6 +459,24 @@ describe("uscire dall'account (revisione di R11-6, M2)", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Stay" }));
     expect(logout).not.toHaveBeenCalled();
     expect(ownBox()).not.toBeNull();
+  });
+
+  it("seconda revisione, I2: «Leave without saving», poi l'uscita rifiutata: si scrive ancora, e si salva", async () => {
+    vi.spyOn(api.auth, "logout").mockRejectedValue(new Error("network"));
+    await refused(new Error("invalid: stale"));
+    await waitFor(() => expect(ownBox()).not.toBeNull());
+    await userEvent.click(await screen.findByRole("button", { name: "Profile and settings" }));
+    const menu = await screen.findByRole("dialog", { name: "Profile and settings" });
+    await userEvent.click(within(menu).getByRole("button", { name: "Sign out" }));
+    await userEvent.click(within(await leaveDialog()).getByRole("button", { name: "Leave without saving" }));
+    // Fuori non si è usciti: la pagina resta, e la sessione scrive.
+    await waitFor(() => expect(ownBox()).toBeNull());
+    await userEvent.keyboard("{Escape}");
+    const el = await typeBang(textOfLogin(), "?");
+    act(() => el.blur());
+    await waitFor(() =>
+      expect(textOfLogin()).toMatch(/\?$/),
+    );
   });
 
   it("«Leave without saving»: esce", async () => {
