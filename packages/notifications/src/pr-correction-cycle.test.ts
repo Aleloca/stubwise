@@ -1973,6 +1973,19 @@ describe("area 8, F1, S8: le PR dei colleghi senza adozione — il cancello dell
     await db.update(repositories).set({ colleaguePrs: "off" }).where(eq(repositories.id, pr.repositoryId));
     expect(await enqueueCorrection(db, { ...pr, trigger: "review" })).toMatchObject({ ok: true });
   });
+
+  it("registro, area 8 (a): `canRequestCorrection` del ciclo dice lo stesso di `enqueueCorrection` per «Chiedi modifiche»", async () => {
+    const can = async (pr: SeededPr) => (await derivePrCycle(db, { ticketId: pr.ticketId, repositoryId: pr.repositoryId, viewerPermissions: LEAD }))?.canRequestCorrection;
+    // «solo analisi» sul repository: «Chiedi modifiche» parte, il bottone c'è.
+    expect(await can(await colleague("analyze_only"))).toBe(true);
+    // «Solo analisi» sulla PR e repository «spento»: 409 `colleague_analysis_only`, il bottone no.
+    expect(await can(await colleague("analyze_and_fix", { analysisOnly: true, explicit: true }))).toBe(false);
+    expect(await can(await colleague("off"))).toBe(false);
+    // Una PR di Stubwise non guarda l'impostazione.
+    const own = await seedPr();
+    await db.update(repositories).set({ colleaguePrs: "off" }).where(eq(repositories.id, own.repositoryId));
+    expect(await can(own)).toBe(true);
+  });
 });
 
 describe("adozione e chiusura della PR (6 ott 2026, fix di review)", () => {

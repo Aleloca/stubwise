@@ -1354,6 +1354,7 @@ export async function derivePrCycle(
       ticketNumber: tickets.number,
       adoptedAt: ticketRepositories.adoptedAt,
       adoptionReleasedAt: ticketRepositories.adoptionReleasedAt,
+      adoptedByUserId: ticketRepositories.adoptedByUserId,
       protectedBranches: repositories.protectedBranches,
     })
     .from(ticketRepositories)
@@ -1425,6 +1426,17 @@ export async function derivePrCycle(
   // qui si riusa, mai si ricopia.
   const jobBusy = await hasJobInFlight(db, input.ticketId);
   const round = await autoRoundsInCurrentSeries(db, pr);
+  // Le PR dei colleghi (registro, area 8): lo stesso cancello di
+  // `enqueueCorrection` per «Chiedi modifiche» (trigger `stubwise`), o il
+  // bottone c'è e la rotta risponde 409 `colleague_analysis_only`.
+  const colleagueAllows = await colleagueCorrectionPermitted(db, {
+    repositoryId: pr.repositoryId,
+    prNumber: pr.prNumber,
+    ticketNumber: tr.ticketNumber,
+    branch: tr.branch,
+    adoptedByUserId: tr.adoptedByUserId,
+    trigger: "stubwise",
+  });
 
   const isHuman = (t: PrCorrectionTrigger) => t === "stubwise" || t === "provider";
   const prOpen = tr.prState === "open";
@@ -1481,7 +1493,7 @@ export async function derivePrCycle(
     // rifiuterebbe: un bottone mostrato è un bottone che funziona. Una pending
     // (umana o automatica) non toglie il bottone: il click vi si fonde.
     canRequestCorrection:
-      prOpen && !queued && !jobBusy && !branchProtected && correctionActionAllowed(input.viewerPermissions, tr),
+      prOpen && !queued && !jobBusy && !branchProtected && colleagueAllows && correctionActionAllowed(input.viewerPermissions, tr),
     heldReason,
     canResume:
       !branchProtected &&
