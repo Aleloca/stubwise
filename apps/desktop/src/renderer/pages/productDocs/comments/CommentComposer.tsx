@@ -34,8 +34,12 @@ export const CommentComposer = forwardRef<
     /** La risposta: una riga che si allarga al fuoco, con l'invio solo quando serve. */
     compact?: boolean;
     autoFocus?: boolean;
-    /** Invia; la promessa dice com'è andata (il testo si svuota solo se è andata). */
-    onSubmit: (body: string) => Promise<unknown>;
+    /**
+     * Invia; la promessa dice com'è andata (il testo si svuota solo se è
+     * andata). `clientId`: la chiave del commento, una per commento, la
+     * stessa nel «Retry» dello stesso testo (72, b3ef7fa53).
+     */
+    onSubmit: (body: string, clientId: string) => Promise<unknown>;
     onCancel?: () => void;
   }
 >(function CommentComposer(
@@ -48,6 +52,9 @@ export const CommentComposer = forwardRef<
   const [failed, setFailed] = useState(false);
   const [focused, setFocused] = useState(autoFocus);
   const inFlight = useRef(false);
+  // La chiave del commento: nasce al primo invio di un testo, resta per il
+  // «Retry» dello stesso testo, e se ne va quando il commento è scritto.
+  const key = useRef<{ body: string; clientId: string } | null>(null);
   const composer = useComposerField({ text, onText: setText, maxLines: 8, allowSlash: false });
   const { field, trigger, tokens } = composer;
   const mentioning = composer.menuOpen && trigger?.char === "@";
@@ -95,9 +102,12 @@ export const CommentComposer = forwardRef<
     inFlight.current = true;
     setPending(true);
     setFailed(false);
-    onSubmit(text.trim()).then(
+    const body = text.trim();
+    if (key.current?.body !== body) key.current = { body, clientId: crypto.randomUUID() };
+    onSubmit(body, key.current.clientId).then(
       () => {
         inFlight.current = false;
+        key.current = null;
         setPending(false);
         composer.reset();
       },

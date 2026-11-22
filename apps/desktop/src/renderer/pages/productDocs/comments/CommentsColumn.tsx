@@ -230,15 +230,15 @@ export function CommentsColumn({
 
   // --- i gesti ------------------------------------------------------------------
 
-  const post = (anchorId: string, quote: string) => (body: string) =>
-    add.mutateAsync({ pageId: page.id, anchorId, quote, body }).then((made) => {
+  const post = (anchorId: string, quote: string) => (body: string, clientId: string) =>
+    add.mutateAsync({ pageId: page.id, anchorId, quote, body, clientId }).then((made) => {
       setAnnounce(t("productDocs.comments.posted"));
       onEndDraft();
       onFocusThread(made.id);
       return made;
     });
-  const reply = (rootId: string, anchorId: string, quote: string) => (body: string) =>
-    add.mutateAsync({ pageId: page.id, anchorId, quote, body, replyToId: rootId }).then(() =>
+  const reply = (rootId: string, anchorId: string, quote: string) => (body: string, clientId: string) =>
+    add.mutateAsync({ pageId: page.id, anchorId, quote, body, replyToId: rootId, clientId }).then(() =>
       setAnnounce(t("productDocs.comments.posted")),
     );
 
