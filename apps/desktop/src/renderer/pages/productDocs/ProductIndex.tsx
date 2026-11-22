@@ -51,8 +51,14 @@ export function ProductIndex() {
   const firstVersion = useProductFirstVersion(project.id).data ?? null;
   const [witnessed, setWitnessed] = useState(false);
   if (firstVersion?.status === "writing" && !witnessed) setWitnessed(true);
+  // Fermata prima della prima pagina: niente è scritto, lo spazio è di nuovo
+  // vuoto, con le sue strade (scelta del costruttore decisa da 46, 22 nov 2026).
+  const nothingWritten =
+    firstVersion?.status === "done" && firstVersion.interrupted && !firstVersion.pages.some((p) => p.state === "written");
   const progress =
-    firstVersion && (firstVersion.status === "writing" || (witnessed && firstVersion.status === "done"))
+    firstVersion &&
+    !nothingWritten &&
+    (firstVersion.status === "writing" || (witnessed && firstVersion.status === "done"))
       ? firstVersion
       : null;
   const [dialog, setDialog] = useState(false);

@@ -1477,6 +1477,16 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     la chiave al primo invio di un testo, la rimanda identica nel «Retry»
     dello stesso testo e la lascia quando il commento è scritto (lo stesso
     testo dopo è un commento nuovo); il prototipo la tratta come il server.
+  - **Una scrittura della pagina che fallisce dopo lo smontaggio** *(S,
+    accettato da 46, revisione di R11-6, 22 nov 2026)*: una pagina che si
+    smonta senza passare da «Some changes aren't saved yet» (una rilettura
+    in errore) manda le bozze e la fila; se una di quelle scritture è
+    rifiutata o fallisce, non c'è più nessun riquadro né «Retry» a dirlo, e
+    il testo si perde.
+  - **Una sessione smontata con la fila piena e una nuova sulla stessa
+    pagina** *(S, accettato da 46, stessa revisione)*: nel prototipo, per
+    meno di un secondo, le scritture della sessione smontata possono
+    arrivare dopo quelle della nuova e coprirle.
 - *Revisione di R11-1 (46, 20 nov 2026), chiuse*: le immagini (la rotta dà
   i byte, 72 69b09a99d: sul web `<img src>` sulla rotta, sul desktop i byte
   da `api:request` come data URL); la cronologia a pagine di 100 con

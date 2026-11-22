@@ -268,6 +268,27 @@ describe("la colonna", () => {
     await waitFor(() => expect(state.productComments.filter((c) => c.body === "+1")).toHaveLength(2));
   });
 
+  it("terza revisione, 7: salvato ma la risposta si perde; «Retry» ridà lo stesso commento, e se ne vede uno solo", async () => {
+    await open(pageByTitle("Phases").code);
+    const col = await column();
+    const thread = await within(col).findByRole("article", {
+      name: "Comment by Laura Costa on “Phase 3: paper bills by post”",
+    });
+    const real = api.productDocs.addProductComment.bind(api.productDocs);
+    vi.spyOn(api.productDocs, "addProductComment").mockImplementationOnce(async (...a) => {
+      await real(...a);
+      throw new Error("network");
+    });
+    const user = userEvent.setup();
+    await user.type(within(thread).getByRole("combobox", { name: "Reply…" }), "Saved, answer lost.");
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+    await within(thread).findByText("Couldn't post the comment");
+    await user.click(within(thread).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(within(thread).queryByText("Couldn't post the comment")).toBeNull());
+    expect(await within(col).findAllByText("Saved, answer lost.")).toHaveLength(1);
+    expect(state.productComments.filter((c) => c.body === "Saved, answer lost.")).toHaveLength(1);
+  });
+
   it("chi ha scritto e chi guarda non vede (R-G5, nome `null` come dal server): «Someone», mai il nome", async () => {
     const { visiblePeopleFor } = await import("../../../data/access/whoCan");
     const { CLAUDE_ID, PEOPLE } = await import("../../../data/seed/people");

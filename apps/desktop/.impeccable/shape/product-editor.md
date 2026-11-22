@@ -337,7 +337,9 @@ blocchi scalano da h2 **[PE 3]**.
     poi l'uscita non avviene (un «Sign out» rifiutato) si scrive come prima.
     Se la pagina se ne va mentre chiede (tolta da un altro), si va dove si
     andava. Una pagina che si smonta senza chiedere (una rilettura in
-    errore) non perde niente: le bozze partono e la fila arriva.
+    errore): le bozze partono e la fila va avanti, ma un loro rifiuto o
+    errore a pagina smontata non si vede più *(limite accettato, nel
+    registro dei rimandi)*.
   - Chiudere la finestra o ricaricare non chiede (nessun dialogo del
     browser).
 

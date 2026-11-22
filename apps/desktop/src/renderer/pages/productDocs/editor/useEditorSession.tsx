@@ -254,6 +254,12 @@ export function useEditorSession(page: ProductPageView) {
     busy.current = true;
     setState("saving");
     const at = generation.current;
+    // Una scrittura scartata da «Leave» finisce qui: la fila riparte solo
+    // ora, così due scritture non viaggiano mai insieme (terza revisione, 1).
+    const next = () => {
+      busy.current = false;
+      if (queue.current.length > 0) void pump();
+    };
     try {
       const result = await writeRef.current({
         pageId: pageRef.current.id,
@@ -262,7 +268,7 @@ export function useEditorSession(page: ProductPageView) {
         undoOf: batch.undoOf?.(),
         ...(batch.baseSeq !== undefined ? { baseSeq: batch.baseSeq } : {}),
       });
-      if (at !== generation.current) return;
+      if (at !== generation.current) return next();
       client.setQueryData(
         ["as", me, "productDocs", "page", pageRef.current.code],
         (old: ProductPageView | null | undefined) =>
@@ -286,7 +292,7 @@ export function useEditorSession(page: ProductPageView) {
         release();
       }
     } catch (error) {
-      if (at !== generation.current) return;
+      if (at !== generation.current) return next();
       busy.current = false;
       const reason = rejected(error);
       if (reason) {
@@ -316,7 +322,6 @@ export function useEditorSession(page: ProductPageView) {
   const reset = useCallback(() => {
     generation.current += 1;
     queue.current = [];
-    busy.current = false;
     failed.current = false;
     setPending([]);
     setOwns(() => []);
