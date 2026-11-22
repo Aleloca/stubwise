@@ -858,7 +858,7 @@ describe("«Stop» accanto all'avanzamento (decisione del maintainer, 22 nov 202
     expect(productFirstVersionOf(LAURA, VRD)!.status).toBe("writing");
   });
 
-  it("seconda revisione, M2: fermata prima della prima pagina, solo «Claude stopped the first version», senza «0 of N»", async () => {
+  it("terza revisione, 4: fermata prima della prima pagina, lo spazio è di nuovo vuoto, con «Write the first version with Claude»", async () => {
     setStreamLatency(300);
     await openIndex();
     act(() => {
@@ -866,9 +866,11 @@ describe("«Stop» accanto all'avanzamento (decisione del maintainer, 22 nov 202
       stopFirstVersionAs(LAURA, VRD);
     });
     await act(() => whenFirstVersionIdle());
-    await screen.findByRole("heading", { name: "Claude stopped the first version" });
-    expect(screen.queryByText(/pages? written/)).toBeNull();
-    expect(screen.queryByText(/^0 /)).toBeNull();
+    expect(await screen.findByRole("button", { name: /^Write the first version with Claude/ })).not.toHaveAttribute(
+      "aria-disabled",
+    );
+    expect(screen.queryByRole("heading", { name: "Claude stopped the first version" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "Pages of the first version" })).toBeNull();
   });
 
   it("seconda revisione, M1: una prima versione nuova senza smontare l'avanzamento ha di nuovo «Stop»", async () => {

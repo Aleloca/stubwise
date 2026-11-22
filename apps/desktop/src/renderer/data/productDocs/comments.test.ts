@@ -617,11 +617,14 @@ describe("la vista del commento come la dà il server (area 11, F2)", () => {
   });
 });
 
+const KEY1 = "11111111-1111-4111-8111-111111111111";
+const KEY2 = "22222222-2222-4222-8222-222222222222";
+
 describe("la chiave del client (72, b3ef7fa53)", () => {
   const signInId = () => state.productPages.find((p) => p.code === "ACQ-D5")!.id;
   it("la stessa chiave dalla stessa persona: lo stesso commento, una riga sola, una menzione sola", async () => {
     setSessionPersonId(LAURA);
-    const input = { anchorId: "blk-acq-signin-4", quote: "Google", body: "Hi @Marco Bellini", clientId: "k-1" };
+    const input = { anchorId: "blk-acq-signin-4", quote: "Google", body: "Hi @Marco Bellini", clientId: KEY1 };
     const before = state.productComments.length;
     const first = await productDocs.addProductComment(signInId(), input);
     const again = await productDocs.addProductComment(signInId(), input);
@@ -634,7 +637,7 @@ describe("la chiave del client (72, b3ef7fa53)", () => {
 
   it("un'altra persona con la stessa chiave scrive il suo commento; senza chiave, due commenti", async () => {
     setSessionPersonId(LAURA);
-    const input = { anchorId: "blk-acq-signin-4", quote: "Google", body: "Same", clientId: "k-2" };
+    const input = { anchorId: "blk-acq-signin-4", quote: "Google", body: "Same", clientId: KEY2 };
     const laura = await productDocs.addProductComment(signInId(), input);
     setSessionPersonId("p-marco");
     const marco = await productDocs.addProductComment(signInId(), input);
@@ -643,5 +646,25 @@ describe("la chiave del client (72, b3ef7fa53)", () => {
     const a = await productDocs.addProductComment(signInId(), plainInput);
     const b = await productDocs.addProductComment(signInId(), plainInput);
     expect(b.id).not.toBe(a.id);
+  });
+
+  it("terza revisione, 5: la pagina prima della chiave; il commento tolto ridà la sua riga; una chiave non uuid è rifiutata", async () => {
+    setSessionPersonId(LAURA);
+    const input = { anchorId: "blk-acq-signin-4", quote: "Google", body: "Kept", clientId: KEY1 };
+    const first = await productDocs.addProductComment(signInId(), input);
+    // Il commento non c'è più: la stessa chiave ridà la riga di allora, non ne scrive un'altra.
+    state.productComments = state.productComments.filter((c) => c.id !== first.id);
+    const replay = await productDocs.addProductComment(signInId(), input);
+    expect(replay.id).toBe(first.id);
+    expect(state.productComments.some((c) => c.body === "Kept")).toBe(false);
+    // Laura perde «Edit docs»: la stessa chiave non ridà niente, il rifiuto della pagina viene prima.
+    revokeProjectPermission(LAURA, "prj-acq", "docs.edit" as never);
+    await expect(productDocs.addProductComment(signInId(), input)).rejects.toThrow("forbidden");
+    resetApi();
+    setLatency(0);
+    setSessionPersonId(LAURA);
+    await expect(
+      productDocs.addProductComment(signInId(), { ...input, clientId: "not-a-uuid" }),
+    ).rejects.toThrow("invalid: client_id");
   });
 });

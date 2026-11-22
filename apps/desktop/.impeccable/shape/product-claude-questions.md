@@ -676,8 +676,9 @@ brief.
    - poi è la prima versione interrotta dell'emendamento 2 del Task 11
      («Claude stopped the first version», «2 of 10 pages written»).
      Fermata prima della prima pagina (Claude non comincia; nel prototipo
-     solo se «Stop» arriva prima che la prima pagina sia scritta), il solo
-     titolo, senza conteggio: mai «0 of 10» *(scelta del costruttore decisa
+     solo se «Stop» arriva prima che la prima pagina sia scritta): niente è
+     scritto, quindi l'avanzamento non resta e torna lo spazio vuoto con
+     «Write the first version with Claude» *(scelta del costruttore decisa
      dall'orchestratrice, 22 nov 2026)*;
    - una prima versione nuova è un avanzamento nuovo: chi aveva fermato la
      precedente ha di nuovo «Stop»;

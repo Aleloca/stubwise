@@ -133,15 +133,12 @@ export function FirstVersionProgress({
         t("productDocs.firstVersion.progress.count", { done: view.pagesDone, total: view.pagesTotal }),
         ...(view.byName ? [t("productDocs.firstVersion.progress.for", { name: view.byName })] : []),
       ]
-    : stopped && written === 0
-      ? // Fermata prima della prima pagina: il titolo basta, niente «0 of N» (scelta del costruttore, 46).
-        []
-      : [
-          stopped
-            ? t("productDocs.firstVersion.progress.stoppedCount", { done: written, total: view.pagesTotal })
-            : t("productDocs.firstVersion.progress.pages", { count: view.pagesTotal }),
-          ...(questions > 0 ? [t("productDocs.firstVersion.progress.questions", { count: questions })] : []),
-        ];
+    : [
+        stopped
+          ? t("productDocs.firstVersion.progress.stoppedCount", { done: written, total: view.pagesTotal })
+          : t("productDocs.firstVersion.progress.pages", { count: view.pagesTotal }),
+        ...(questions > 0 ? [t("productDocs.firstVersion.progress.questions", { count: questions })] : []),
+      ];
 
   return (
     <section ref={section} className="flex flex-col gap-2 pt-10">
@@ -171,7 +168,7 @@ export function FirstVersionProgress({
           {t("productDocs.firstVersion.progress.stopFailed")}
         </p>
       )}
-      {summary.length > 0 && <p className="num text-md text-ink-muted">{summary.join(" · ")}</p>}
+      <p className="num text-md text-ink-muted">{summary.join(" · ")}</p>
       {!writing && first?.code && (
         <div className="pt-2">
           <Link

@@ -479,6 +479,39 @@ describe("uscire dall'account (revisione di R11-6, M2)", () => {
     );
   });
 
+  it("terza revisione, 1: «Leave», l'uscita rifiutata, una scrittura scartata ancora in viaggio: la nuova parte dopo, e resta", async () => {
+    vi.spyOn(api.auth, "logout").mockRejectedValue(new Error("network"));
+    await openSignIn();
+    let release: () => void = () => undefined;
+    saves.mockImplementationOnce(
+      (...a) =>
+        new Promise((done, fail) => {
+          release = () => void realSave(...a).then(done, fail);
+        }),
+    );
+    const el = await typeBang();
+    act(() => el.blur());
+    await waitFor(() => expect(saves).toHaveBeenCalledTimes(1));
+    await userEvent.click(await screen.findByRole("button", { name: "Profile and settings" }));
+    const menu = await screen.findByRole("dialog", { name: "Profile and settings" });
+    await userEvent.click(within(menu).getByRole("button", { name: "Sign out" }));
+    await userEvent.click(
+      within(await leaveDialog(LEAVE_WAIT_MS + 2000)).getByRole("button", { name: "Leave without saving" }),
+    );
+    await userEvent.keyboard("{Escape}");
+    const again = await typeBang(textOfLogin(), "?");
+    act(() => again.blur());
+    // La scrittura nuova aspetta quella in viaggio: non viaggiano insieme.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(saves).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      release();
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    await waitFor(() => expect(saves).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(textOfLogin()).toBe(`${LOGIN}?`));
+  });
+
   it("«Leave without saving»: esce", async () => {
     const logout = vi.spyOn(api.auth, "logout");
     await refused(new Error("invalid: stale"));

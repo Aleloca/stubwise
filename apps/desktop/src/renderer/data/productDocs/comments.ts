@@ -252,7 +252,8 @@ const posting = new Map<string, Promise<ProductCommentView>>();
  * dà lo stesso commento (nessuna riga né menzione in più); su un'altra
  * pagina è `client_id_reused`. È dell'autore: un altro scrive il suo.
  */
-const byClientId = new Map<string, { pageId: string; commentId: string }>();
+const byClientId = new Map<string, { pageId: string; commentId: string; view: ProductCommentView }>();
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 onStoreReset(() => {
   posting.clear();
   byClientId.clear();
@@ -274,19 +275,26 @@ export function addProductComment(
   if (pending) return pending;
   const write = writer("productDocs.addProductComment")
     .then((me) => {
+      // Prima la pagina (chi non la scrive, una pagina che non c'è), poi la chiave (terza revisione, 5).
+      const page = editablePage(me, pageId);
+      if (input.clientId !== undefined && !UUID.test(input.clientId)) throw invalid("client_id");
       const ck = input.clientId === undefined ? null : `${me}|${input.clientId}`;
       const known = ck === null ? undefined : byClientId.get(ck);
       if (known && known.pageId !== pageId) throw new Error("client_id_reused");
-      const already = known && state.productComments.find((c) => c.id === known.commentId);
-      if (already) return viewOf(me, productPageById(pageId)!, already);
+      if (known) {
+        // Come il server: la stessa chiave ridà la riga, anche se intanto il commento non c'è più.
+        const now = state.productComments.find((c) => c.id === known.commentId);
+        return now ? viewOf(me, page, now) : known.view;
+      }
       const made = addProductCommentAs(me, pageId, {
         anchorId: input.anchorId,
         quote: input.quote,
         body: input.body,
         ...(input.replyToId !== undefined ? { replyToId: input.replyToId } : {}),
       });
-      if (ck !== null) byClientId.set(ck, { pageId, commentId: made.id });
-      return viewOf(me, productPageById(pageId)!, made);
+      const view = viewOf(me, page, made);
+      if (ck !== null) byClientId.set(ck, { pageId, commentId: made.id, view });
+      return view;
     })
     .finally(() => {
       if (posting.get(key) === write) posting.delete(key);
