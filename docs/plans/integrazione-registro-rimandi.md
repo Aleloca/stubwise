@@ -267,13 +267,17 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   il server tiene una casella per Workspace; il cassetto del desktop ne mostra
   una (quella da ricollegare, se c'è, altrimenti la prima). La Posta e il
   Calendario le mostrano tutte. Da riprendere con la F5 (Drive Google).
+  **Ancora aperta** (23 nov 2026, verificata nel codice): la F5 non l'ha toccata, `drawerAccount` di
+  `real/google.ts` sceglie ancora una casella sola.
 - Ritorno OAuth della casella all'app con `stubwise://` *(S, F1, decisione
   dell'orchestratrice)*: oggi il callback resta quello del web («puoi tornare
   all'app») e il desktop rilegge le caselle mentre «Collega» aspetta e al
   ritorno in primo piano.
-- I testi del cassetto Google col Drive *(S, F1 → F5)*: senza il Drive Google
+- ~~I testi del cassetto Google col Drive *(S, F1 → F5)*: senza il Drive Google
   il cassetto parla di Posta e Calendario (intro, scaduto, scollegare senza
-  cartelle); con la F5 tornano i testi del prototipo.
+  cartelle); con la F5 tornano i testi del prototipo.~~ Chiusa da 6e089e247
+  e b01485168 (F5b, `apps/desktop/docs/integration-area6-f5b.md`, riga «Il
+  cassetto Google»; 23 nov 2026, verificata nel codice).
 - Il Calendario in lettura *(F1)*: nella build app restano nascosti i gesti
   che scrivono su Google (nuova riunione, sposta e ridimensiona, modifica,
   elimina, rispondi, il progetto a mano: F4) e il riassunto e le task di una
@@ -629,10 +633,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   registro dell'esecuzione non sa di un indirizzo inesistente) e gli
   allegati delle email (F3/F4).
 
-- F3, la pausa d'istanza della coda AI *(S, 72, C-F3-3, 13 nov 2026)*: il
+- ~~F3, la pausa d'istanza della coda AI *(S, 72, C-F3-3, 13 nov 2026)*: il
   passo di Claude si ferma solo per il budget mensile; `queue_paused`
   (`aiHoldOf` del prototipo) arriva con l'area 9b, quando il backend avrà la
-  pausa della coda.
+  pausa della coda.~~ Chiusa da af17d96da e 5713037b2 (area 9, F4: il
+  worker scrive `aiWaiting: queue_paused`, il server lo legge in
+  `automations/runs.ts`, il desktop lo dice: `automationsF3Page.test.tsx`;
+  23 nov 2026, verificata nel codice).
 - Il piano della F4 (`docs/plans/2026-11-13-integrazione-area7-fetta4-plan.md`,
   13 nov 2026, le automazioni generali e il webhook in arrivo). F4-1 = a
   *(M)*: un webhook per automazione. F4-2 = c *(M)*, NON la consigliata: il
@@ -693,8 +700,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     repository nome del server, commit riportato e `releaseCode`,
     `canManage` e `onlyHere` per ambiente. Il tipo di un ambiente resta non
     modificabile nel PATCH (salvo decisione di 46): il form non lo offre;
-  - **«Spiega»** (`releases-explain`): si accende quando il tool `read_release`
-    della chat c'è e il golden della chat è verde *(scelta del maintainer)*;
+  - ~~**«Spiega»** (`releases-explain`): si accende quando il tool `read_release`
+    della chat c'è e il golden della chat è verde *(scelta del maintainer)*;~~
+    chiusa da d66e9546d (`releases-explain` acceso, tool `read_release` in
+    `chat-tool-routes.ts`; 23 nov 2026, verificata nel codice);
   - **la sezione «Repositories» intera**: nella build app è ridotta al
     blocco «Releases» *(O, 46)*; dettagli, account git, file d'ambiente,
     webhook e «nuovo repository» arrivano con l'area 9;
@@ -762,10 +771,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     progetto. Test nella F2.
 
 - F2, lato renderer (94, 14 nov 2026), ciò che resta fuori dalla build app:
-  - **le card degli avvisi dei server** (`monitor.*`, poi `server.*`) restano
+  - ~~**le card degli avvisi dei server** (`monitor.*`, poi `server.*`) restano
     «Open in web» finché la sezione Servers non è integrata (fetta Servers):
     `appLinkFor` (`apps/desktop/src/renderer/data/backend/real/notifications.ts`)
-    apre nell'app solo rilasci, pannello della PR e Docs;
+    apre nell'app solo rilasci, pannello della PR e Docs;~~ chiusa da
+    85e84fb97 (area 8, F4a, S12: `MONITOR_KINDS` e `server.diagnosis_ready`
+    aprono la pagina del server nell'app; 23 nov 2026, verificata nel codice);
   - **i permessi del catalogo condiviso** sono stringhe perché
     `servers.operate` vive ancora solo nel prototipo (`support.reply` è nel
     registro dalla F3): quando entra nel registro di `@stubwise/shared`, il
@@ -1052,8 +1063,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     nel testo della task, nessun controllo «progetto della task = progetto
     della correzione») restano com'erano *(O, 46)*.
 
-- Blocchi della Home «Rilasci» (anche l'extra di `resolveHome` per
-  `release.merge`) e «Clienti in attesa».
+- ~~Blocchi della Home «Rilasci» (anche l'extra di `resolveHome` per
+  `release.merge`) e «Clienti in attesa».~~ Chiusa da 58b6ddeee
+  (`releases`, la Home «Rilasci») e ee5c45c5a (`mail-waiting`, «Clienti in
+  attesa»); i due tipi sono in `KNOWN_KINDS` di `real/home.ts` (23 nov 2026, verificata nel codice).
 - «L'API per i siti» *(O, 72, review finale, 16 nov 2026)*, i minori
   rimandati. Branch `feat/area8-site-api`; l'Important (la catena delle
   conversazioni senza token) e quattro minori sono corretti nel giro della
@@ -1119,6 +1132,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - Registro delle modifiche dell'istanza vero (oggi i ruoli di reparto lasciano
   solo una riga di log).
 - Archiviati, interruttori di brief e report, pausa della coda e lavoro fermo.
+  Chiusi in parte (23 nov 2026, verificata nel codice): ~~archiviati~~ da 0e5d339c3 (area 9, F6,
+  `archive`), ~~pausa della coda~~ da 80461f5f4 (area 9, F4, `queue-pause`).
+  Restano aperti gli interruttori di brief e report (Settings → Automations
+  del progetto non è fra le `projectSettings` integrate) e il lavoro fermo.
 - Le altre impostazioni di progetto (AI, repository, membri, integrazione,
   widget, regole mail, server, ambienti, plugin, elimina).
 - Preferenze, persone e accessi, istanza (compresa la pagina Google, con
@@ -1228,9 +1245,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     non valida»; le credenziali salvate prima della 0190 non hanno le
     ultime 4 («••••»); la riga della quota la vede solo chi ha
     `usage.view` *(dichiarato; S per distinguere l'errore di rete)*;
-  - AI → Usage resta «Coming soon»: il server ha `/api/usage-costs` (del
+  - ~~AI → Usage resta «Coming soon»: il server ha `/api/usage-costs` (del
     web vecchio) ma non c'è nel client, e la forma non è quella della scheda
-    (gruppi, sotto-gruppi, giorni) *(M, non era nel piano di F3)*;
+    (gruppi, sotto-gruppi, giorni) *(M, non era nel piano di F3)*;~~ chiusa
+    da 701afd81a (area 9, F4: `ai-usage` acceso; 23 nov 2026, verificata nel codice);
   - Storage: il server non ha la prova dell'archiviazione né l'interruttore
     degli allegati (li deriva dalla configurazione), quindi nell'app quei due
     comandi non ci sono; niente ultime 4 della chiave («••••») *(S)*;
@@ -1381,10 +1399,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   senza `can()`; nella build app «Not now» va solo al server (niente
   `localStorage`, che resta del prototipo). La lista delle capacità è quella
   del prototipo, con gli id ignoti saltati.
-- Le capacità della doc di prodotto (`productFirstVersion`, `productUpdate`,
+- ~~Le capacità della doc di prodotto (`productFirstVersion`, `productUpdate`,
   `productBacklog`, `productWireframe`, `productChanges`) arrivano con
   l'area 11 (F7-1 = a, maintainer): il server non le manda, il renderer salta
-  ciò che non riceve.
+  ciò che non riceve.~~ Chiusa da b869a902c (area 11, F6 Task 4: il server
+  le manda da `services/claude-capabilities.ts`; 23 nov 2026, verificata nel codice).
 - La riga «write the reply» sulla conversazione di supporto resta fuori
   (premessa del maintainer del 14 nov 2026).
 
@@ -1417,12 +1436,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `authorId` e `resolved.byId` dei commenti, `productDoc.authorId` della card
   (F2). Coerente con il resto dell'app, dove gli id non sono un segreto; da
   rivedere insieme se R-G5 deve coprire anche gli id.
-- Origine di una richiesta dalla documentazione di prodotto. *(F5, 72)*: c'è
+- ~~Origine di una richiesta dalla documentazione di prodotto. *(F5, 72)*: c'è
   quella di una DOMANDA di Claude (`origin.product_doc` con `questionId`
   obbligatorio, su `POST /api/requests` e sulla voce `createRequest` del
   catalogo); in F6 la proposta dalla pagina senza domanda (`questionId`
   opzionale, e il «già proposta» su pagina e ancora del prototipo, che vuole
-  l'origine salvata sulla richiesta).
+  l'origine salvata sulla richiesta).~~ Chiusa da a2e2bd051 (area 11, F6
+  Task 1: `questionId` opzionale in `schemas/project-request.ts`; 23 nov 2026, verificata nel codice).
 - ~~**`waited` sulla card `product_doc.updated`** *(XS, F5, 72)*: il prototipo
   dice se la card arriva dopo un'attesa della coda (budget o pausa). Sul
   server non si può derivare: ripreso il lavoro, la riga di
@@ -1437,8 +1457,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   cancellano (revisione del 22 nov, M3). Fra budget e pausa vale l'ultima.
   Anche «una card per pagina con più fonti dopo un rilascio della coda» del
   prototipo non c'è: una card per fonte e pagina.
-- Le cinque capacità `product*` di Claude in S0 (dall'area 10, F7-1 = a).
-- Azioni di Claude dell'area 11.
+- ~~Le cinque capacità `product*` di Claude in S0 (dall'area 10, F7-1 = a).~~
+  Chiusa da b869a902c (23 nov 2026, verificata nel codice).
+- ~~Azioni di Claude dell'area 11.~~ Chiusa da b869a902c (le voci sul server)
+  e 51122c993 (`product-claude-actions` acceso nella build app; 23 nov 2026, verificata nel codice).
 - *Prototipo riallineato (94, 20 nov 2026), prima dell'integrazione*: le
   notifiche della doc nel catalogo con N-1 = a (`product_doc.mention` solo
   obbligatoria, motivo `mentioned`; `.updated` e `.question` con la riga del
