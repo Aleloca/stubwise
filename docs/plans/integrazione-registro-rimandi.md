@@ -1415,12 +1415,21 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   il worker e `@stubwise/notifications`: un lavoro della coda della doc già
   accodato e i destinatari dei suoi avvisi non guardano il modulo (nessuna
   rotta li fa partire col modulo spento).
-- L'«Undo» di una revisione dalla cronologia: nel prototipo c'è solo per le
+- ~~L'«Undo» di una revisione dalla cronologia: nel prototipo c'è solo per le
   modifiche di Claude, quindi arriva con F5. *(Review di F2)*: quel ripristino
   rimette blocchi tolti come il ⌘Z, e deve chiamare `restoreMergedAnchors`
   (`services/product-comments.ts`) come fa già `saveProductBlocks` con
   `undoOf`, o i fili spostati da un `merge` restano sul blocco che l'aveva
-  assorbito.
+  assorbito.~~
+  *Chiusa il 23 nov 2026 (72, con 46): non serve.* L'«Undo» arrivato con F5
+  e F6 (`writeUndo` in `services/product-claude.ts`) NON rimette blocchi
+  tolti: Claude scrive solo `insert` e `set`, e i suoi inversi sono solo
+  `delete` (un blocco che Claude aveva aggiunto) e `set` (un blocco che c'è
+  ancora: `restoreOp` dà null se il blocco non c'è più). Un filo spostato da
+  un `merge` ha `original_anchor_id` su un blocco ASSORBITO, cioè sparito, e
+  un `merge` dopo la revisione di Claude la blocca comunque
+  (`changed_after`). Se un giorno un inverso rimetterà un blocco tolto, la
+  chiamata va aggiunta lì.
 - **Gli id di chi ha scritto escono anche quando il nome è nascosto**
   *(S, review di F2, F1 e F2 insieme)*: con R-G5 il NOME di una persona che
   chi guarda non vede è null, ma il suo id no: `actorId` delle revisioni (F1),
