@@ -191,6 +191,19 @@ describe("i rilasci nella build app (area 8, F1, releases)", () => {
     expect(seen.some((r) => r.path.includes("/environments"))).toBe(false);
   });
 
+  // Registro, r.142: dal dettaglio del rilascio, il riquadro di Claude ha il
+  // chip del rilascio (il codice, riletto dal server).
+  it("⌘J dal dettaglio del rilascio: il chip «AUD-V3 · release»", async () => {
+    install({ routes: { "GET /api/releases/AUD-V3": { body: failedDetail() } } });
+    const user = userEvent.setup();
+    renderRoute("/p/AUD/releases/AUD-V3");
+    await screen.findByRole("region", { name: "Now" }, { timeout: 3000 });
+    await user.keyboard("{Control>}j{/Control}");
+    await waitFor(() =>
+      expect(document.querySelector("[data-claude-panel] [data-context-chip]")).toHaveTextContent("AUD-V3·release"),
+    );
+  });
+
   it("il dettaglio: il passo fallito, il link alla run, «Fai sistemare a Claude» → la nota e start", async () => {
     install({
       routes: {

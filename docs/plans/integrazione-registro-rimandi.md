@@ -139,7 +139,10 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
     (`mail: <casella>/<thread>`, il `ref` di `read_mail_thread`) e,
     dall'area 10 F6, per la PR aperta nel pannello (`pr:
     <repository>:<numero>`, solo una PR che chi guarda ha letto e che ha un
-    numero). I rilasci non danno ancora chip né contesto. Server, canali e appuntamenti non
+    numero). ~~I rilasci non danno ancora chip né contesto.~~ Chiusa il 23 nov
+    2026 (rimandi, lotto 1): il chip «release» e il contesto
+    `release: <codice>` (per `read_release`), riletti con
+    `GET /api/releases/:code` (`real/claudeChat.ts`). Server, canali e appuntamenti non
     hanno chip nemmeno nel prototipo: i tool di 72 li leggono quando il
     modello ne ha il codice. Le domande della doc di prodotto sotto il chip
     restano spente (`product-docs`, area 11).

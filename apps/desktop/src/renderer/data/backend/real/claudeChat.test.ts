@@ -35,6 +35,29 @@ const serverAutomationRow = () => ({
   permissions: { manage: true },
 });
 
+const R_ID = "99999999-9999-4999-8999-999999999991";
+const serverRelease = () => ({
+  id: R_ID,
+  code: "AUD-V3",
+  projectId: PROJECT_ID,
+  repositoryId: "99999999-9999-4999-8999-999999999992",
+  repositoryName: "audin/audin-app",
+  prNumber: 246,
+  prUrl: "https://github.com/audin/audin-app/pull/246",
+  title: "Checkout",
+  mergeSha: "4be1f0c27a9d",
+  mergedAt: "2026-11-13T09:00:00.000Z",
+  mergedById: ME_ID,
+  mergedGitName: null,
+  viaStubwise: true,
+  status: { kind: "failed", since: "2026-11-13T09:05:00.000Z" },
+  fixTask: null,
+  runs: [],
+  releaseNotes: "",
+  seenInProductionAt: null,
+  permissions: { fix: true },
+});
+
 const serverSupportConversation = () => ({
   id: S_ID,
   code: "AUD-S4",
@@ -106,13 +129,49 @@ describe("il contesto della chat nella build app", () => {
     expect(await serverContextOf({ kind: "task", taskId: "ffffffff-0000-4000-8000-000000000009" })).toBeNull();
   });
 
-  it("un rilascio, e una PR mai letta, non danno chip né contesto, senza chiamate", async () => {
+  it("una PR mai letta non dà contesto, senza chiamate", async () => {
     const { seen } = installFakeServer({});
-    expect(await contextIdOf("release", "AUD-V1")).toBeNull();
-    expect(await describeContext({ kind: "release", releaseId: "r1" })).toBeNull();
-    expect(await serverContextOf({ kind: "release", releaseId: "r1" })).toBeNull();
     expect(await serverContextOf({ kind: "pr", prId: "p1" })).toBeNull();
     expect(seen).toEqual([]);
+  });
+
+  // Registro, r.142: i rilasci danno chip e contesto, col CODICE che il tool
+  // `read_release` vuole (`release: AUD-V3`); visibilità dal server (404).
+  it("un rilascio dell'indirizzo: id, chip «release AUD-V3», e al server il codice", async () => {
+    installFakeServer({
+      "GET /api/projects": { body: [serverProject()] },
+      "GET /api/releases/AUD-V3": { body: serverRelease() },
+    });
+    expect(await contextIdOf("release", "AUD-V3")).toBe(R_ID);
+    expect(await describeContext({ kind: "release", releaseId: R_ID })).toEqual({
+      code: "AUD-V3",
+      labelKey: "claude.panel.chip.kind.release",
+      projectId: PROJECT_ID,
+    });
+    expect(await serverContextOf({ kind: "release", releaseId: R_ID })).toEqual({ kind: "release", id: "AUD-V3" });
+  });
+
+  it("un rilascio che non si vede (404): nessun id, nessun chip, nessun contesto", async () => {
+    installFakeServer({
+      "GET /api/projects": { body: [serverProject()] },
+      "GET /api/releases/AUD-V9": { status: 404, body: { code: "not_found", message: "x" } },
+    });
+    expect(await contextIdOf("release", "AUD-V9")).toBeNull();
+    expect(await describeContext({ kind: "release", releaseId: "ffffffff-0000-4000-8000-0000000000f9" })).toBeNull();
+    expect(await serverContextOf({ kind: "release", releaseId: "ffffffff-0000-4000-8000-0000000000f9" })).toBeNull();
+  });
+
+  it("un rilascio letto e poi sparito (404 alla rilettura): niente chip", async () => {
+    let gone = false;
+    installFakeServer({
+      "GET /api/projects": { body: [serverProject()] },
+      "GET /api/releases/AUD-V3": () =>
+        gone ? { status: 404, body: { code: "not_found", message: "x" } } : { body: serverRelease() },
+    });
+    expect(await contextIdOf("release", "AUD-V3")).toBe(R_ID);
+    gone = true;
+    expect(await describeContext({ kind: "release", releaseId: R_ID })).toBeNull();
+    expect(await serverContextOf({ kind: "release", releaseId: R_ID })).toBeNull();
   });
 
   // Area 10, F1 (piano di 72): i chip degli oggetti che Claude ora sa

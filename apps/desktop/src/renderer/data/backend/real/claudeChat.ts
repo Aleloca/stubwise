@@ -140,10 +140,24 @@ async function seenPr(prId: string) {
 }
 
 /**
+ * Registro, r.142: un rilascio che chi guarda vede ADESSO, riletto per codice
+ * (`GET /api/releases/:code`, 404 a chi non vede il progetto). L'id viene
+ * dall'indirizzo (`contextIdOf`), che si segna il codice. Importata a
+ * chiamata, come `seenPr`.
+ */
+async function seenRelease(releaseId: string) {
+  const code = codeOfObjectFor().get(releaseId);
+  if (!code || !featureIntegrated("releases")) return null;
+  const { liveReleases } = await import("./releasesLive");
+  const r = await liveReleases.getRelease!(code);
+  return r && r.id === releaseId ? r : null;
+}
+
+/**
  * Il contesto di una pagina come lo legge il server: `tipo: id`, dove l'id è
  * ciò con cui il modello lo rilegge coi suoi tool — il CODICE di una task o di
- * una richiesta (`read_task`, `read_request`), l'id di un progetto. I
- * rilasci non danno contesto.
+ * una richiesta (`read_task`, `read_request`), l'id di un progetto, il
+ * codice di un rilascio (`read_release`).
  */
 export async function serverContextOf(ref: ContextRef): Promise<ClaudeConversationContext | null> {
   switch (ref.kind) {
@@ -176,6 +190,10 @@ export async function serverContextOf(ref: ContextRef): Promise<ClaudeConversati
     case "pr": {
       const pr = await seenPr(ref.prId);
       return pr ? { kind: "pr", id: `${pr.repositoryId}:${pr.prNumber}` } : null;
+    }
+    case "release": {
+      const r = await seenRelease(ref.releaseId);
+      return r ? { kind: "release", id: r.code } : null;
     }
     default:
       return null;
@@ -236,15 +254,26 @@ export const describeContext: typeof Fake.describeContext = async (ref) => {
         ? { code, labelKey: `${K}.kind.pr`, projectId: pr.projectId, params: { number: pr.prNumber } }
         : null;
     }
+    case "release": {
+      const r = await seenRelease(ref.releaseId);
+      return r ? { code: r.code, labelKey: `${K}.kind.release`, projectId: r.projectId } : null;
+    }
     default:
-      // Le aree non integrate (rilasci): nessun chip.
       return null;
   }
 };
 
-/** L'id dell'oggetto che l'indirizzo nomina col codice: task, automazioni e supporto (area 10, F1). */
+/** L'id dell'oggetto che l'indirizzo nomina col codice: task, automazioni e supporto (area 10, F1), rilasci (r.142). */
 export const contextIdOf: typeof Fake.contextIdOf = async (kind, code) => {
   if (kind === "automation") return (await visibleAutomation({ code }))?.id ?? null;
+  if (kind === "release") {
+    if (!featureIntegrated("releases")) return null;
+    const { liveReleases } = await import("./releasesLive");
+    const r = await liveReleases.getRelease!(code);
+    if (!r) return null;
+    codeOfObjectFor().set(r.id, r.code);
+    return r.id;
+  }
   if (kind === "support") {
     const c = await visibleSupport(code);
     if (!c) return null;
