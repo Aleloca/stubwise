@@ -1423,12 +1423,18 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   catalogo); in F6 la proposta dalla pagina senza domanda (`questionId`
   opzionale, e il «già proposta» su pagina e ancora del prototipo, che vuole
   l'origine salvata sulla richiesta).
-- **`waited` sulla card `product_doc.updated`** *(XS, F5, 72)*: il prototipo
+- ~~**`waited` sulla card `product_doc.updated`** *(XS, F5, 72)*: il prototipo
   dice se la card arriva dopo un'attesa della coda (budget o pausa). Sul
   server non si può derivare: ripreso il lavoro, la riga di
   `product_doc_jobs` torna `queued` e perde il motivo (il CHECK lega
   `held_reason` allo stato `held`). Il campo c'è ed è sempre null; serve una
-  colonna (`last_held_reason`) scritta alla ripresa e passata allo scrittore.
+  colonna (`last_held_reason`) scritta alla ripresa e passata allo scrittore.~~
+  *Chiusa il 22 nov 2026 (72).* La colonna c'era già (0213) e resta fino alla
+  fine del lavoro. Il worker la passa allo scrittore, che la mette
+  NELL'EVENTO della card: a lavoro finito si azzera, quindi a lettura non
+  si ricostruisce. Le card di prima restano a null. Budget e pausa restano
+  fino alla fine del lavoro: un limite o una sezione presa dopo non li
+  cancellano (revisione del 22 nov, M3). Fra budget e pausa vale l'ultima.
   Anche «una card per pagina con più fonti dopo un rilascio della coda» del
   prototipo non c'è: una card per fonte e pagina.
 - Le cinque capacità `product*` di Claude in S0 (dall'area 10, F7-1 = a).
@@ -1460,10 +1466,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     un id non cambia). Il server dice `no-cache` per rivalidare chi la può
     vedere: sul desktop una visibilità tolta si vede alla rilettura della
     pagina, non dell'immagine.
-  - **Un commento doppio dopo un errore di rete** *(XS, review di R11-2, 7)*:
+  - ~~**Un commento doppio dopo un errore di rete** *(XS, review di R11-2, 7)*:
     `POST /api/product-pages/:id/comments` non ha una chiave del client; se
     il commento è salvato ma la risposta si perde, «Retry» ne scrive un
-    secondo. Si chiude con una chiave idempotente sulla rotta (72).
+    secondo. Si chiude con una chiave idempotente sulla rotta (72).~~
+    *Chiusa lato server il 22 nov 2026 (72, 0218).* `clientId` (uuid,
+    opzionale) nel body: stessa chiave e stesso autore danno lo stesso
+    commento, anche se intanto il blocco è stato tolto, e senza una seconda
+    menzione. Resta il renderer (94): generare la chiave una volta per
+    commento e rimandarla nel «Retry».
 - *Revisione di R11-1 (46, 20 nov 2026), chiuse*: le immagini (la rotta dà
   i byte, 72 69b09a99d: sul web `<img src>` sulla rotta, sul desktop i byte
   da `api:request` come data URL); la cronologia a pagine di 100 con

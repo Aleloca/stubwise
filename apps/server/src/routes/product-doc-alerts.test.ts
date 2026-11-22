@@ -83,10 +83,10 @@ async function decision() {
 const seqOf = async (p: Page) => ((await inject(bea, "GET", `/api/product-pages/by-code/${p.code}`)).json() as ProductPageView).seq;
 
 /** Claude cambia a1 e a2 per conto di Ada (una revisione, due segni). */
-async function claudeEdits(p: Page, source: { kind: "decision" | "email"; id: string }) {
+async function claudeEdits(p: Page, source: { kind: "decision" | "email"; id: string }, waited: "budget" | "paused" | null = null) {
   // `before`: la frase di adesso, obbligatoria per riscriverla (revisione di F5).
   const fact = (id: string, anchorId: string, before: string, after: string): ProductFact => ({ id, pageId: p.id, anchorId, change: { kind: "replace", text: rich(after) }, clarity: "clear", before: rich(before) });
-  const out = await writeClaudeFacts(t.db, { projectId, pageId: p.id, facts: [fact("f1", p.ids.a1, "a uno", "a UNO"), fact("f2", p.ids.a2, "a due", "a DUE")], source, ownerId: ada.id, arrivedSeq: await seqOf(p) });
+  const out = await writeClaudeFacts(t.db, { projectId, pageId: p.id, facts: [fact("f1", p.ids.a1, "a uno", "a UNO"), fact("f2", p.ids.a2, "a due", "a DUE")], source, ownerId: ada.id, arrivedSeq: await seqOf(p), waited });
   expect(out.kind).toBe("written");
   return (out as { revisionId: string }).revisionId;
 }
@@ -160,6 +160,24 @@ describe("la card come la legge chi la riceve", () => {
     });
     expect(card!.productDoc!.claude!.sources).toEqual([expect.objectContaining({ kind: "email", canOpen: false, id: null, title: null, ownerName: "ada-al" })]);
     expect(JSON.stringify(card)).not.toContain("Oggetto riservato");
+  });
+
+  it("`waited` (registro dei rimandi): dopo un'attesa per budget o per pausa la card lo dice; senza attesa, in una card di prima o con un valore ignoto è null", async () => {
+    const waitedOf = async (revisionId: string) => {
+      const [row] = (await rowsOf("product_doc.updated", "revisionId", revisionId)).filter((r) => r.userId === bea.id);
+      return (await cardOf(bea, row!.id))!.productDoc!.claude!.waited;
+    };
+    const d = async () => ({ kind: "decision" as const, id: (await decision()).id });
+    expect(await waitedOf(await claudeEdits(await page(), await d(), "budget"))).toBe("budget");
+    expect(await waitedOf(await claudeEdits(await page(), await d(), "paused"))).toBe("paused");
+    expect(await waitedOf(await claudeEdits(await page(), await d()))).toBeNull();
+    // Una card pubblicata prima (senza il campo) e una con un valore che il server non conosce.
+    const old = await claudeEdits(await page(), await d(), "budget");
+    await t.db.update(notifications).set({ event: sql`${notifications.event} - 'waited'` }).where(sql`${notifications.event}->>'revisionId' = ${old}`);
+    expect(await waitedOf(old)).toBeNull();
+    const odd = await claudeEdits(await page(), await d(), "budget");
+    await t.db.update(notifications).set({ event: sql`jsonb_set(${notifications.event}, '{waited}', '"limit"')` }).where(sql`${notifications.event}->>'revisionId' = ${odd}`);
+    expect(await waitedOf(odd)).toBeNull();
   });
 
   it("updated dopo «Undo all»: chi ha annullato, e nessun segno a cui portare", async () => {

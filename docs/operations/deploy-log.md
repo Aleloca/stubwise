@@ -6003,6 +6003,16 @@ deploy o di un rollback che la tocca.
   - Migrazione **0217** (`product_page_updates`): «aggiorna <pagina> da
     questa email», chiesto da una persona (la voce `updateProductPage`). La
     coda ammette `page_update`.
+  - Migrazione **0218** (`product_comments.client_id`, i rimandi server
+    dell'area): la chiave del client di `POST /product-pages/:id/comments`.
+    Un «Retry» con la stessa chiave dallo stesso autore ridà lo STESSO
+    commento; la stessa chiave su un'altra pagina è 409 `client_id_reused`.
+    Indice unico parziale `(author_id, client_id)`.
+  - La card `product_doc.updated` dice `waited` (`budget`, `paused`), scritto
+    NELL'EVENTO alla pubblicazione dall'ultima sosta del lavoro
+    (`last_held_reason`, già della 0213), che tiene budget e pausa fino
+    alla fine del lavoro anche se dopo arriva un limite o una sezione presa.
+    Le card di prima restano senza (null), e non c'è niente da riscrivere.
   - **Nessun `notification_kind` nuovo**, nessuna env, nessun permesso nuovo.
   - Rotte nuove sotto `/api`:
     - la prima versione (`/projects/:projectId/product/first-version`, con
@@ -6034,7 +6044,7 @@ deploy o di un rollback che la tocca.
     (`product-docs/first-version.ts`, `wireframe.ts`, i tool della chat). Le
     bozze si provano a mano.
 
-  **ORDINE**: **server** (healthy, 0214–0217 applicate), poi **worker**
+  **ORDINE**: **server** (healthy, 0214–0218 applicate), poi **worker**
   (legge le tabelle nuove e i tre `source_kind` nuovi; senza lavoro
   dell'agente in corso, «Worker fail-on-restart», e senza lavori della doc
   `running`, con la query di F5), poi **caddy** (il renderer di 94).
@@ -6056,6 +6066,10 @@ deploy o di un rollback che la tocca.
     `select source_kind, count(*) from product_doc_jobs where source_kind in ('first_version','wireframe','page_update') and status in ('queued','running','held') group by source_kind;`
   - Le voci nuove del catalogo un server vecchio le rifiuta (`invalid`): una
     proposta aperta di quelle voci, confermata dopo la discesa, fallisce.
+  - `clientId` del commento (0218): il body è `strict`, e un server di prima
+    risponde **400** a un renderer che lo manda. Per questo il **caddy
+    scende insieme al server**, come sempre. `waited` nell'evento un server
+    di prima lo ignora.
   - Le migrazioni non si annullano: tabelle, colonne e CHECK più larghi
     restano, e un server vecchio li ignora.
 
@@ -6068,8 +6082,9 @@ deploy o di un rollback che la tocca.
     **0204–0205** (F2, i commenti), **0206–0208** (F3, ricerca e chat dei
     Docs), **0209** (F4, le sezioni prese), **0210–0213** (F5, la coda della
     doc coi suoi trigger, i segni, l'operazione `product_doc_update`, il CHECK
-    delle iscrizioni), **0214–0217** (F6). Nessuna env nuova.
-  - **ORDINE**: **server** (healthy, 0202–0217 applicate), poi **worker**
+    delle iscrizioni), **0214–0218** (F6, e la chiave del client dei
+    commenti). Nessuna env nuova.
+  - **ORDINE**: **server** (healthy, 0202–0218 applicate), poi **worker**
     (senza lavoro dell'agente in corso, «Worker fail-on-restart»), poi
     **caddy**. Il CLI del worker resta il 2.1.322 pinnato.
   - **Rollback dell'area**: il server scende **insieme** al caddy e al

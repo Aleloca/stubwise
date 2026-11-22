@@ -32,8 +32,10 @@ const readBlocks = (raw: unknown): ProductBlock[] =>
 export async function productClaudeCardsFor(db: Db, viewerId: string, rows: readonly { id: string; kind: string; event: unknown }[]): Promise<Map<string, ProductDocClaudeCard | null>> {
   const out = new Map<string, ProductDocClaudeCard | null>();
   const updates = rows.flatMap((r) => {
-    const id = (r.event as { revisionId?: unknown } | null)?.revisionId;
-    return r.kind === "product_doc.updated" ? [{ card: r.id, revisionId: isId(id) ? id : null }] : [];
+    const e = r.event as { revisionId?: unknown; waited?: unknown } | null;
+    // `waited` è vero solo alla pubblicazione (registro dei rimandi): lo dice l'evento; una card di prima o un valore ignoto = null.
+    const waited: "budget" | "paused" | null = e?.waited === "budget" ? "budget" : e?.waited === "paused" ? "paused" : null;
+    return r.kind === "product_doc.updated" ? [{ card: r.id, revisionId: isId(e?.revisionId) ? (e.revisionId as string) : null, waited }] : [];
   });
   const questions = rows.flatMap((r) => {
     const id = (r.event as { questionId?: unknown } | null)?.questionId;
@@ -73,7 +75,7 @@ export async function productClaudeCardsFor(db: Db, viewerId: string, rows: read
       undoneByName: own.length > 0 && undone.length === own.length ? nameOf(undone[undone.length - 1]!.decidedBy) : null,
       // Dove porta la card: al primo segno (nell'ordine della pagina) ancora aperto e a vista; senza, alla cronologia.
       markAnchorId: (anchorsOn.get(rev.pageId) ?? []).find((a) => open.has(a)) ?? null,
-      waited: null,
+      waited: u.waited,
       question: null,
     });
   }

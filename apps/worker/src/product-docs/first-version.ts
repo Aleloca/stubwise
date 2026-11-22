@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { driveFiles, emailBodies, emailMessages, emailProposals, googleAccounts, meetingNotes, productDocJobs, productFirstVersions, projects, users, type Db } from "@stubwise/db";
-import { failFirstVersion, writeFirstVersionPage, type FirstVersionDraftPage } from "@stubwise/notifications";
+import { aiBudgetState, failFirstVersion, writeFirstVersionPage, type FirstVersionDraftPage } from "@stubwise/notifications";
 import { productBlockWriteSchema, type ProductBlock, type RichText } from "@stubwise/shared";
 import { and, eq, inArray, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
@@ -175,7 +175,7 @@ export function parseFirstVersionDraft(text: string, sources: readonly ReadSourc
 }
 
 /** Il lavoro di una prima versione (già preso, `running`). */
-export async function runFirstVersionJob(deps: ProductDocJobDeps, job: typeof productDocJobs.$inferSelect, helpers: { finish: (status: "done" | "failed", error?: string | null) => Promise<void>; hold: (reason: "limit") => Promise<void>; retryOrFail: (error: string) => Promise<ProductDocJobOutcome> }): Promise<ProductDocJobOutcome> {
+export async function runFirstVersionJob(deps: ProductDocJobDeps, job: typeof productDocJobs.$inferSelect, helpers: { finish: (status: "done" | "failed", error?: string | null) => Promise<void>; hold: (reason: "limit" | "budget") => Promise<void>; retryOrFail: (error: string) => Promise<ProductDocJobOutcome> }): Promise<ProductDocJobOutcome> {
   const { db, log } = deps;
   const [fv] = await db.select().from(productFirstVersions).where(eq(productFirstVersions.id, job.sourceId));
   if (!fv || fv.status !== "writing") return helpers.finish("done", "first_version_gone").then(() => "done");
@@ -186,6 +186,8 @@ export async function runFirstVersionJob(deps: ProductDocJobDeps, job: typeof pr
     return helpers.finish("done").then(() => "done");
   }
   if (!fv.draft) {
+    // Il budget del mese, solo qui: è l'unico punto che chiama il modello.
+    if ((await aiBudgetState(db, deps.monthlyCostUsdFn)).exhausted) return helpers.hold("budget").then(() => "held");
     const sources = await readFirstVersionSources(db, { projectId: fv.projectId, startedBy: fv.startedBy, sources: fv.sources as FirstVersionSourceRef[], pastedText: fv.pastedText });
     if (sources.length === 0) {
       await failFirstVersion(db, fv.id, "no_sources");

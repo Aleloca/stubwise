@@ -3098,10 +3098,13 @@ export const productComments = pgTable(
     /** F5 (0210): la parte di domanda di un commento di Claude (`productQuestionSchema`), e la sua risposta, una sola. */
     question: jsonb("question").$type<Record<string, unknown>>(),
     answer: jsonb("answer").$type<Record<string, unknown>>(),
+    /** 0218: la chiave del client (un «Retry» dopo una risposta persa dà lo stesso commento); una per autore. */
+    clientId: uuid("client_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("product_comments_page_idx").on(table.pageId, table.createdAt),
+    uniqueIndex("product_comments_client_id_idx").on(table.authorId, table.clientId).where(sql`${table.clientId} IS NOT NULL`),
     check("product_comments_answer_chk", sql`answer IS NULL OR question IS NOT NULL`),
     check("product_comments_deleted_body_empty_chk", sql`deleted_at IS NULL OR body = ''`),
   ],

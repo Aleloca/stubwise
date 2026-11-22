@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { emailProposals, notifications, productComments, productDocJobs, productFirstVersions, productPageRevisions, productPages, projectMembers, projects, roles, users } from "@stubwise/db";
+import { emailProposals, instanceSettings, notifications, productComments, productDocJobs, productFirstVersions, productPageRevisions, productPages, projectMembers, projects, roles, users } from "@stubwise/db";
 import { seedEmailMessage, seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { ProductBlock } from "@stubwise/shared";
 import { asc, eq } from "drizzle-orm";
@@ -155,6 +155,47 @@ describe("la prima versione nel worker", () => {
     expect(calls).toEqual([]);
     expect((await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.id, fv.id)))[0]).toMatchObject({ status: "done", interrupted: true, error: null, pastedText: null });
     expect(await pagesOf(projectId)).toEqual([]);
+  });
+
+  it("«Stop» col budget del mese finito (revisione, I1): la prima versione si chiude interrotta, non resta `stopping` fino al budget nuovo", async () => {
+    const { projectId, fv } = await setup();
+    await t.db.update(productFirstVersions).set({ stopRequested: true }).where(eq(productFirstVersions.id, fv.id));
+    await t.db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "1" }).onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "1" } });
+    try {
+      const job = (await claimProductDocJob(t.db))!;
+      const { runner, calls } = fakeRunner(DRAFT);
+      expect(await runProductDocJob({ db: t.db, runner, log, monthlyCostUsdFn: async () => 5 }, job)).toBe("done");
+      expect(calls).toEqual([]);
+      expect((await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.id, fv.id)))[0]).toMatchObject({ status: "done", interrupted: true });
+      expect(await pagesOf(projectId)).toEqual([]);
+    } finally {
+      await t.db.delete(instanceSettings);
+    }
+  });
+
+  it("col budget finito una bozza GIÀ pronta scrive le sue pagine (non chiamano il modello); senza bozza il lavoro aspetta col budget", async () => {
+    const ready = await setup();
+    const draft = [{ title: "Uno", depth: 0, blocks: [p("a")] }, { title: "Due", depth: 0, blocks: [p("b")] }];
+    await t.db.update(productFirstVersions).set({ draft, plan: draft.map((d) => ({ title: d.title, depth: d.depth })) }).where(eq(productFirstVersions.id, ready.fv.id));
+    await t.db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "1" }).onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "1" } });
+    try {
+      const job = (await claimProductDocJob(t.db))!;
+      expect(job.sourceId).toBe(ready.fv.id);
+      const { runner, calls } = fakeRunner(DRAFT);
+      expect(await runProductDocJob({ db: t.db, runner, log, monthlyCostUsdFn: async () => 5 }, job)).toBe("done");
+      expect(calls).toEqual([]);
+      expect((await pagesOf(ready.projectId)).map((x) => x.title)).toEqual(["Uno", "Due"]);
+      // Senza bozza: il modello servirebbe, quindi il lavoro aspetta.
+      const fresh = await setup();
+      const job2 = (await claimProductDocJob(t.db))!;
+      expect(job2.sourceId).toBe(fresh.fv.id);
+      const second = fakeRunner(DRAFT);
+      expect(await runProductDocJob({ db: t.db, runner: second.runner, log, monthlyCostUsdFn: async () => 5 }, job2)).toBe("held");
+      expect(second.calls).toEqual([]);
+      expect((await t.db.select().from(productDocJobs).where(eq(productDocJobs.id, job2.id)))[0]).toMatchObject({ status: "held", heldReason: "budget" });
+    } finally {
+      await t.db.delete(instanceSettings);
+    }
   });
 
   it("la pausa della coda non ferma la prima versione (è un gesto di chi l'ha chiesta)", async () => {

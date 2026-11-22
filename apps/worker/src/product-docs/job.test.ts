@@ -7,6 +7,7 @@ import {
   googleAccounts,
   googleWorkspaces,
   instanceSettings,
+  notifications,
   productClaudeMarks,
   productComments,
   productDocJobs,
@@ -25,7 +26,7 @@ import {
 } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { ProductBlock } from "@stubwise/shared";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { AgentRunOptions, AgentRunResult, AgentRunner } from "../agent/runner.js";
 import { PRODUCT_DOC_HOURLY_MAX, claimProductDocJob, pollProductDocsOnce, runProductDocJob, selectPromptPages } from "./job.js";
@@ -248,6 +249,62 @@ describe("il lavoro di Claude sulla doc di prodotto", () => {
     expect(await runProductDocJob({ db: t.db, runner, log, monthlyCostUsdFn: async () => 5 }, job)).toBe("held");
     expect(await jobRow(job.id)).toMatchObject({ status: "held", heldReason: "budget" });
     expect(calls).toEqual([]);
+  });
+
+  it("`waited` sulla card `product_doc.updated` (registro dei rimandi): dopo un'attesa per budget, dopo una per pausa; senza attesa null", async () => {
+    /** Il lavoro ripreso come lo riprende il poller: torna in coda col motivo dell'ultima sosta, e si riprende. */
+    const resume = async (id: string) => {
+      await t.db.update(productDocJobs).set({ status: "queued", heldReason: null }).where(eq(productDocJobs.id, id));
+      const again = await claimProductDocJob(t.db);
+      expect(again?.id).toBe(id);
+      return again!;
+    };
+    const waitedOn = async (pageId: string) => {
+      const rows = await t.db.select({ event: notifications.event }).from(notifications).where(and(eq(notifications.kind, "product_doc.updated"), sql`${notifications.event}->>'pageId' = ${pageId}`));
+      expect(rows.length).toBeGreaterThan(0);
+      return [...new Set(rows.map((r) => (r.event as { waited?: unknown }).waited ?? null))];
+    };
+    // Budget: il lavoro aspetta, poi riparte e scrive.
+    const a = await page();
+    const ma = await mail();
+    const ja = await jobFor(ma.id);
+    await t.db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "1" });
+    expect(await runProductDocJob({ db: t.db, runner: fakeRunner(() => facts()).runner, log, monthlyCostUsdFn: async () => 5 }, ja)).toBe("held");
+    await t.db.delete(instanceSettings);
+    expect(await runProductDocJob({ db: t.db, runner: fakeRunner(() => facts(replaceP1(a.id))).runner, log }, await resume(ja.id))).toBe("done");
+    expect(await waitedOn(a.id)).toEqual(["budget"]);
+    // Pausa.
+    const b = await page();
+    const mb = await mail();
+    const jb = await jobFor(mb.id);
+    await t.db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, projectId));
+    expect(await runProductDocJob({ db: t.db, runner: fakeRunner(() => facts()).runner, log }, jb)).toBe("held");
+    await t.db.update(projects).set({ queuePausedAt: null }).where(eq(projects.id, projectId));
+    expect(await runProductDocJob({ db: t.db, runner: fakeRunner(() => facts(replaceP1(b.id))).runner, log }, await resume(jb.id))).toBe("done");
+    expect(await waitedOn(b.id)).toEqual(["paused"]);
+    // Budget e poi una sezione presa (revisione, M3): la sosta più lieve non cancella quella che la card dice.
+    const d1 = await page();
+    const d2 = await page();
+    const md = await mail();
+    const jd = await jobFor(md.id);
+    await t.db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "1" });
+    expect(await runProductDocJob({ db: t.db, runner: fakeRunner(() => facts()).runner, log, monthlyCostUsdFn: async () => 5 }, jd)).toBe("held");
+    await t.db.delete(instanceSettings);
+    // Su d2 il fatto è nella sezione «Spedizioni» (sotto H1), che Piero sta scrivendo.
+    const onShipping = { ...replaceP1(d2.id, { id: "f2" }), anchorId: P2, before: { text: "Spediamo in 48 ore.", marks: [] }, change: { kind: "replace", text: { text: "Spediamo in 24 ore.", marks: [] } } };
+    const twoPages = () => facts(replaceP1(d1.id), onShipping);
+    await t.db.insert(productSectionHolds).values({ pageId: d2.id, sectionId: H1, userId: personId, expiresAt: new Date(Date.now() + 60_000) });
+    expect(await runProductDocJob({ db: t.db, runner: fakeRunner(twoPages).runner, log }, await resume(jd.id))).toBe("held");
+    expect(await jobRow(jd.id)).toMatchObject({ heldReason: "section_busy", lastHeldReason: "budget" });
+    await t.db.delete(productSectionHolds).where(eq(productSectionHolds.pageId, d2.id));
+    expect(await runProductDocJob({ db: t.db, runner: fakeRunner(twoPages).runner, log }, await resume(jd.id))).toBe("done");
+    expect(await waitedOn(d1.id)).toEqual(["budget"]);
+    expect(await waitedOn(d2.id)).toEqual(["budget"]);
+    // Senza attesa.
+    const c = await page();
+    const mc = await mail();
+    expect(await runProductDocJob({ db: t.db, runner: fakeRunner(() => facts(replaceP1(c.id))).runner, log }, await jobFor(mc.id))).toBe("done");
+    expect(await waitedOn(c.id)).toEqual([null]);
   });
 
   it("una risposta che non è JSON fa fallire il lavoro; un fatto fuori schema si scarta", async () => {

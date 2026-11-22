@@ -1513,6 +1513,13 @@
       "when": 1803168000000,
       "tag": "0217_product_page_updates",
       "breakpoints": true
+    },
+    {
+      "idx": 218,
+      "version": "7",
+      "when": 1803254400000,
+      "tag": "0218_product_comment_client_id",
+      "breakpoints": true
     }
   ]
 }
