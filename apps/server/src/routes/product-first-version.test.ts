@@ -57,6 +57,9 @@ const view = async (who: U, s: Space) => {
 };
 const start = (who: U, s: Space, sources: object[]) => inject(who, "POST", `/api/projects/${s.projectId}/product/first-version`, { sources });
 
+/** Il worker ha preso il lavoro della prima versione (come `claimProductDocJob`). */
+const runningJob = (groupId: string) => t.db.update(productDocJobs).set({ status: "running", startedAt: new Date() }).where(and(eq(productDocJobs.sourceKind, "first_version"), eq(productDocJobs.sourceId, groupId)));
+
 /** La bozza che il worker avrebbe salvato, e le sue pagine scritte. */
 async function draftAndWrite(groupId: string, pages = [{ title: "Overview", depth: 0 }, { title: "Pagamenti", depth: 1 }, { title: "Spedizioni", depth: 0 }], upTo = pages.length) {
   const draft = pages.map((p) => ({ ...p, blocks: [{ id: "draft", type: "paragraph", content: { text: `Su ${p.title}.`, marks: [] } }] }));
@@ -129,7 +132,8 @@ describe("la lettura, «Accept this page», «Stop»", () => {
     v = (await view(ada, s))!;
     expect(v.bannerPageIds).toEqual([v.pages[1]!.pageId]);
     expect(v.acceptedPageIds).toEqual([v.pages[0]!.pageId]);
-    // «Stop»: la pagina dopo non si scrive, la prima versione finisce interrotta.
+    // «Stop» mentre il worker scrive (il lavoro è `running`): la pagina dopo non si scrive, la prima versione finisce interrotta.
+    await runningJob(groupId);
     expect((await inject(ada, "POST", `/api/projects/${s.projectId}/product/first-version/stop`)).statusCode).toBe(204);
     expect(await writeFirstVersionPage(t.db, groupId, 2)).toEqual({ kind: "stopped" });
     expect(await view(ada, s)).toMatchObject({ status: "done", interrupted: true, pagesDone: 2, permissions: { stop: false } });
@@ -148,7 +152,8 @@ describe("la lettura, «Accept this page», «Stop»", () => {
     expect((await stop(vic)).statusCode).toBe(403);
     expect((await stop(out)).statusCode).toBe(404);
     expect((await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.id, groupId)))[0]!.stopRequested).toBe(false);
-    // Bea (developer) la ferma anche se l'ha chiesta Ada; il worker non è ancora passato.
+    // Bea (developer) la ferma anche se l'ha chiesta Ada; il worker l'ha presa e non è ancora passato.
+    await runningJob(groupId);
     expect((await stop(bea)).statusCode).toBe(204);
     expect(await view(ada, s)).toMatchObject({ status: "writing", stopping: true, interrupted: false, permissions: { stop: false } });
     expect((await stop(ada)).statusCode).toBe(204);
@@ -171,6 +176,24 @@ describe("la lettura, «Accept this page», «Stop»", () => {
     const undone = (await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.id, groupId)))[0]!;
     expect((await stop(ada)).statusCode).toBe(204);
     expect((await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.id, groupId)))[0]).toEqual(undone);
+  });
+
+  it("«Stop» su un lavoro in coda o fermo (revisione, M2): lo chiude il server, subito, senza aspettare il tetto orario né il serializer; le pagine già scritte restano", async () => {
+    for (const state of ["queued", "held"] as const) {
+      const s = await space();
+      const { groupId } = (await start(ada, s, [{ kind: "text", text: "n" }])).json() as { groupId: string };
+      await draftAndWrite(groupId, undefined, 1);
+      if (state === "held") await t.db.update(productDocJobs).set({ status: "held", heldReason: "limit", lastHeldReason: "limit" }).where(eq(productDocJobs.sourceId, groupId));
+      expect((await inject(ada, "POST", `/api/projects/${s.projectId}/product/first-version/stop`)).statusCode).toBe(204);
+      expect(await view(ada, s), state).toMatchObject({ status: "done", interrupted: true, stopping: false, pagesDone: 1, permissions: { stop: false } });
+      const [job] = await t.db.select().from(productDocJobs).where(eq(productDocJobs.sourceId, groupId));
+      expect(job, state).toMatchObject({ status: "done", error: "stopped", heldReason: null });
+      const [row] = await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.id, groupId));
+      expect(row, state).toMatchObject({ pastedText: null });
+      expect(row!.finishedAt, state).not.toBeNull();
+      // Il worker, se arrivasse dopo, non scrive niente.
+      expect(await writeFirstVersionPage(t.db, groupId, 1), state).toEqual({ kind: "gone" });
+    }
   });
 
   it("«Accept» di una pagina che non è della prima versione: 422", async () => {

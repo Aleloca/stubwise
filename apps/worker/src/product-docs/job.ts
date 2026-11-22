@@ -169,8 +169,24 @@ async function projectPages(db: Db, projectId: string): Promise<(PromptPage & { 
   return rows.map((r) => ({ id: r.id, code: r.number === null ? r.projectCode : `${r.projectCode}-D${r.number}`, title: r.title, blocks: readBlocks(r.blocks), revSeq: r.revSeq }));
 }
 
+/**
+ * Una sosta. `last_held_reason` tiene budget e pausa fino a `finish` (revisione,
+ * M3): sono le soste che la card dice (`waited`) e le più gravi della riga
+ * «riprende quando…»; un limite o una sezione presa dopo non le cancella.
+ */
 const hold = (db: Db, id: string, reason: "limit" | "budget" | "section_busy" | "paused") =>
-  db.update(productDocJobs).set({ status: "held", heldReason: reason, lastHeldReason: reason, finishedAt: new Date() }).where(eq(productDocJobs.id, id));
+  db
+    .update(productDocJobs)
+    .set({
+      status: "held",
+      heldReason: reason,
+      lastHeldReason:
+        reason === "limit" || reason === "section_busy"
+          ? sql`case when ${productDocJobs.lastHeldReason} in ('budget', 'paused') then ${productDocJobs.lastHeldReason} else ${reason} end`
+          : reason,
+      finishedAt: new Date(),
+    })
+    .where(eq(productDocJobs.id, id));
 const finish = (db: Db, id: string, status: "done" | "failed", error: string | null = null) =>
   db.update(productDocJobs).set({ status, heldReason: null, lastHeldReason: null, error, finishedAt: new Date() }).where(eq(productDocJobs.id, id));
 /** Un errore: un tentativo in più, e si riprova dopo un'attesa; al tetto, fallisce. */
@@ -228,7 +244,8 @@ export async function runProductDocJob(deps: ProductDocJobDeps, job: JobRow): Pr
       retryOrFail: (error) => retryOrFail(db, job, error),
     });
   }
-  if ((await aiBudgetState(db, deps.monthlyCostUsdFn)).exhausted) return hold(db, job.id, "budget").then(() => "held");
+  // La prima versione guarda il budget da sé, SOLO davanti al modello (revisione, I1): uno «Stop»
+  // e le pagine di una bozza già pronta non costano, e col budget finito non devono aspettare.
   if (job.sourceKind === "first_version") {
     return runFirstVersionJob(deps, job, {
       finish: (status, error = null) => finish(db, job.id, status, error).then(() => undefined),
@@ -236,6 +253,7 @@ export async function runProductDocJob(deps: ProductDocJobDeps, job: JobRow): Pr
       retryOrFail: (error) => retryOrFail(db, job, error),
     });
   }
+  if ((await aiBudgetState(db, deps.monthlyCostUsdFn)).exhausted) return hold(db, job.id, "budget").then(() => "held");
 
   // F6, Task 4: un aggiornamento chiesto a mano (`updateProductPage`) legge la
   // SUA fonte per UNA pagina, e chi l'ha chiesto non si aspetta da sé.

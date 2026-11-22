@@ -1432,7 +1432,9 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   *Chiusa il 22 nov 2026 (72).* La colonna c'era già (0213) e resta fino alla
   fine del lavoro. Il worker la passa allo scrittore, che la mette
   NELL'EVENTO della card: a lavoro finito si azzera, quindi a lettura non
-  si ricostruisce. Le card di prima restano a null.
+  si ricostruisce. Le card di prima restano a null. Budget e pausa restano
+  fino alla fine del lavoro: un limite o una sezione presa dopo non li
+  cancellano (revisione del 22 nov, M3). Fra budget e pausa vale l'ultima.
   Anche «una card per pagina con più fonti dopo un rilascio della coda» del
   prototipo non c'è: una card per fonte e pagina.
 - Le cinque capacità `product*` di Claude in S0 (dall'area 10, F7-1 = a).
