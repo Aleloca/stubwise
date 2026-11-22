@@ -1399,12 +1399,22 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 - **Chiusa con F1 (20 nov 2026)**: lo spazio Product e l'editor (pagine,
   albero, scrittura a operazioni, cronologia in lettura, Segui, immagini).
-- **Il modulo Docs spento non chiude le rotte** *(S, buco di prima, F1 e 46,
+- ~~**Il modulo Docs spento non chiude le rotte** *(S, buco di prima, F1 e 46,
   20 nov 2026)*: con `projects.modules` senza `docs` la sezione sparisce
   dall'interfaccia, ma le rotte dei Docs E dello spazio Product rispondono
   ancora a chi ha `docs.view`/`docs.edit` (il server non legge i moduli).
   Da chiudere per tutti e due insieme, con un controllo nel resolver di
-  progetto delle rotte `docs.*`.
+  progetto delle rotte `docs.*`.~~
+  *Chiusa il 23 nov 2026 (72).* `moduleOfPermission` (`auth/access.ts`): un
+  permesso `docs.*` vuole il modulo `docs`. `evaluateProjectAccess` risponde
+  404 `not_found` col modulo spento, come per un progetto invisibile, anche a
+  un full admin (vale per le rotte e per le azioni di Claude, che passano di
+  lì); `projectIdsWithPermission` toglie quei progetti dagli elenchi
+  d'istanza (hub dei Docs, cambi della doc, codici, domande aperte, ricerca);
+  la pagina per codice (rotta `user`) fa lo stesso controllo. Restano fuori
+  il worker e `@stubwise/notifications`: un lavoro della coda della doc già
+  accodato e i destinatari dei suoi avvisi non guardano il modulo (nessuna
+  rotta li fa partire col modulo spento).
 - L'«Undo» di una revisione dalla cronologia: nel prototipo c'è solo per le
   modifiche di Claude, quindi arriva con F5. *(Review di F2)*: quel ripristino
   rimette blocchi tolti come il ⌘Z, e deve chiamare `restoreMergedAnchors`

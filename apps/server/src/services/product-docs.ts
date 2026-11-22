@@ -15,7 +15,7 @@ import {
 } from "@stubwise/shared";
 import { and, asc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { projectPermissionsByProject } from "@stubwise/notifications";
-import { projectPermissionsFor } from "../auth/access.js";
+import { projectHasModule, projectPermissionsFor } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { personName } from "./people.js";
 import { notifyProductGone, notifyProductRevision } from "./product-live-notify.js";
@@ -171,6 +171,8 @@ export async function productPageByCode(db: Db, viewer: Viewer, code: string): P
   if (!project) throw notFound();
   const perms = await projectPermissionsFor(db, viewer, project.id);
   if (!perms) throw notFound();
+  // Il modulo Docs spento: come un progetto invisibile (registro, area 11).
+  if (!(await projectHasModule(db, project.id, "docs"))) throw notFound();
   if (!perms.has("docs.view")) throw new ProductDocsError(403, "forbidden", "Missing permission");
   const [hit] = await db
     .select({ pageId: docPageCodes.productPageId })
