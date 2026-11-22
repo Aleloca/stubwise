@@ -6095,3 +6095,29 @@ deploy o di un rollback che la tocca.
     - lavori della doc vivi (la query di F6, più `status = 'queued'` per le
       fonti di F5, che un worker vecchio non legge).
     Tabelle, colonne e CHECK restano: un server vecchio li ignora.
+- **«Rimandi: il modulo Docs spento chiude le rotte»** *(23 nov 2026)*: branch
+  `feat/rimandi-server`. Solo il server: nessuna migrazione, nessuna env.
+  Col modulo `docs` spento (`projects.modules`) le rotte dei Docs dei
+  repository e dello spazio Product rispondono 404, anche a un full admin, e
+  gli elenchi d'istanza non nominano il progetto (registro dei rimandi, area
+  11). Fino a qui il server non leggeva i moduli: un progetto col modulo
+  spento ma con dei dati li mostrava ancora a chi apriva un link.
+  - ⚠️ **PRIMA del deploy**, sul DB di produzione (in lettura): i progetti
+    senza `docs` che hanno dati dei Docs o del Product, per esempio quelli
+    nati dai modelli `marketing` o `empty`. Dopo il rilascio i loro dati
+    restano nel DB ma non si vedono più:
+    ```sql
+    select p.id, p.code, p.name, p.modules,
+      (select count(*) from product_pages pp where pp.project_id = p.id) as product_pages,
+      (select count(*) from doc_pages dp join repositories r on r.id = dp.repository_id where r.project_id = p.id) as doc_pages
+    from projects p
+    where not ('docs' = any(p.modules))
+      and (exists (select 1 from product_pages pp where pp.project_id = p.id)
+        or exists (select 1 from doc_pages dp join repositories r on r.id = dp.repository_id where r.project_id = p.id));
+    ```
+    Se la query restituisce righe: accendere il modulo su quei progetti
+    (Impostazioni del progetto → Docs, o
+    `update projects set modules = array_append(modules, 'docs') where id = …`
+    nell'ordine di `MODULE_ORDER`, meglio dalla UI), oppure avvisare il
+    maintainer prima di rilasciare. Vuota: niente da fare.
+  - **Rollback**: sicuro. Un server di prima ignora di nuovo i moduli.

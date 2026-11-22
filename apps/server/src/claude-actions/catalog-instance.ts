@@ -30,9 +30,9 @@ import type { ActionObject, CatalogEntry, CatalogRefusal } from "./catalog.js";
 
 const refused = (code: CatalogRefusal["code"], message: string) => ({ ok: false as const, refusal: { code, message } });
 
-/** L'istante della scrittura, ai microsecondi (come `catalog-area9.ts`). */
+/** L'istante a fine scrittura, ai microsecondi (come `catalog-area9.ts`). */
 async function txNow(tx: Db): Promise<string> {
-  const res = (await tx.execute(sql`select now()::text as at`)) as unknown as { rows?: { at: string }[] } & { at: string }[];
+  const res = (await tx.execute(sql`select to_char(clock_timestamp() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as at`)) as unknown as { rows?: { at: string }[] } & { at: string }[];
   return (res.rows ?? res)[0]!.at;
 }
 

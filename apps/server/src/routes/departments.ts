@@ -67,6 +67,9 @@ async function peopleParams(tx: DepartmentTx, added: string[], removed: string[]
 }
 import { authErrorResponses, errorSchema } from "./shared.js";
 
+/** La transazione del PATCH ha visto che la scrittura fa arrivare permessi: serve la riconferma. */
+class ReauthNeeded extends Error {}
+
 /**
  * Reparti (integrazione area 2, fetta 1): la pagina Reparti
  * dell'amministrazione del prototipo (`pages/admin/DepartmentsPage.tsx`):
@@ -569,20 +572,22 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
       const nextPerms =
         projectPermissions === undefined ? undefined : [...new Set(projectPermissions)].sort();
       // F8-3 = a, prima di ogni altro controllo che legge: arrivano permessi a qualcuno?
-      const saved = await savedDepartmentShape(app.db, id);
-      const permsAfter = nextPerms ?? saved.projectPermissions;
-      const addsPerm = permsAfter.some((p) => !saved.projectPermissions.includes(p));
-      const addsPerson = (next ?? saved.memberIds).some((u) => !saved.memberIds.includes(u));
-      if (
-        (addsPerm || (addsPerson && permsAfter.length > 0)) &&
-        !(await requireReauth(request, reply))
-      )
-        return reply;
-      try {
-        const updated = await app.db.transaction(async (tx) => {
+      const grants = (saved: { memberIds: readonly string[]; projectPermissions: readonly string[] }) => {
+        const permsAfter = nextPerms ?? saved.projectPermissions;
+        const addsPerm = permsAfter.some((p) => !saved.projectPermissions.includes(p));
+        const addsPerson = (next ?? saved.memberIds).some((u) => !saved.memberIds.includes(u));
+        return addsPerm || (addsPerson && permsAfter.length > 0);
+      };
+      // Prima una lettura fuori, per rispondere presto; il giudizio che conta è
+      // DENTRO, sul salvato bloccato (registro, area 9): una persona tolta nel
+      // frattempo e rimandata da una bozza vecchia senza `ifMatch` è aggiunta.
+      let reauthed = grants(await savedDepartmentShape(app.db, id));
+      if (reauthed && !(await requireReauth(request, reply))) return reply;
+      const write = () => app.db.transaction(async (tx) => {
           // Il reparto bloccato: il giudizio e la scrittura vedono lo stesso salvato.
           const [locked] = await tx.select().from(departments).where(eq(departments.id, id)).for("update");
           const before = await savedDepartmentShape(tx, id);
+          if (!reauthed && grants(before)) throw new ReauthNeeded();
           const ifMatch = request.body.ifMatch;
           if (ifMatch !== undefined && ifMatch !== departmentVersion(locked!, before)) {
             throw new RoleRuleError(409, "stale", "The department changed since you loaded it", { version: departmentVersion(locked!, before) });
@@ -641,6 +646,17 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
           });
           return { row, perms: draft.projectPermissions, version: departmentVersion(row, draft) };
         });
+      try {
+        let updated: Awaited<ReturnType<typeof write>>;
+        try {
+          updated = await write();
+        } catch (error) {
+          if (!(error instanceof ReauthNeeded)) throw error;
+          // La regola della riconferma è UNA (`requireReauth`): risponde lei se manca.
+          if (!(await requireReauth(request, reply))) return reply;
+          reauthed = true;
+          updated = await write();
+        }
         return toView(updated.row, updated.perms, updated.version);
       } catch (error) {
         if (error instanceof RoleRuleError && error.code === "last_manager")

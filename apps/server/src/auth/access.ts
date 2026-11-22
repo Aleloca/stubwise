@@ -23,6 +23,7 @@ import {
   effectiveProjectPermissions,
   INSTANCE_PERMISSIONS,
   type InstancePermission,
+  type ProjectModule,
   type ProjectPermission,
 } from "@stubwise/shared";
 import { projectPermissionsOfUser as notificationsProjectPermissionsOfUser } from "@stubwise/notifications";
@@ -231,6 +232,23 @@ export async function legacyScope(db: Pick<Db, "select">, scope: ProjectScope): 
 }
 
 /** Gli archiviati, per l'insieme di un full admin. */
+/**
+ * Il modulo di progetto che un permesso richiede (registro dei rimandi, area 11):
+ * i Docs dei repository e lo spazio Product stanno sotto `docs`. Col modulo
+ * spento (`projects.modules` senza) la sezione sparisce dall'interfaccia E le
+ * rotte rispondono 404 come un progetto invisibile; gli elenchi d'istanza non
+ * lo nominano ({@link projectIdsWithPermission}). `null` = nessun modulo.
+ */
+export function moduleOfPermission(permission: ProjectPermission | "member"): ProjectModule | null {
+  return permission.startsWith("docs.") ? "docs" : null;
+}
+
+/** Il progetto ha il modulo acceso? Un progetto che non c'è no. */
+export async function projectHasModule(db: Pick<Db, "select">, projectId: string, module: ProjectModule): Promise<boolean> {
+  const [row] = await db.select({ on: sql<boolean>`${module} = any(${projects.modules})` }).from(projects).where(eq(projects.id, projectId));
+  return row?.on === true;
+}
+
 async function allOpenProjects(db: Pick<Db, "select">): Promise<AllOpenProjects> {
   const rows = await db.select({ id: projects.id }).from(projects).where(isNotNull(projects.archivedAt));
   return { all: true, archived: rows.map((r) => r.id) };
@@ -247,7 +265,13 @@ export async function projectIdsWithPermission(
   user: Pick<SessionUser, "id" | "instancePermissions">,
   permission: ProjectPermission,
 ): Promise<ProjectScope> {
-  if (user.instancePermissions.has("instance.full_admin")) return allOpenProjects(db);
+  // Un permesso di un modulo spento non vale in quel progetto (registro, area 11): anche il full admin riceve l'elenco esplicito.
+  const module = moduleOfPermission(permission);
+  const moduleOn = module ? sql`${module} = any(${projects.modules})` : undefined;
+  if (user.instancePermissions.has("instance.full_admin")) {
+    if (!moduleOn) return allOpenProjects(db);
+    return (await db.select({ id: projects.id }).from(projects).where(and(isNull(projects.archivedAt), moduleOn))).map((r) => r.id);
+  }
   const rows = await db
     .select({ projectId: projectMembers.projectId })
     .from(projectMembers)
@@ -257,6 +281,7 @@ export async function projectIdsWithPermission(
       and(
         eq(projectMembers.userId, user.id),
         sql`${memberPermissionsSql(roles.permissions, projectMembers.projectId, projectMembers.userId)} @> array[${permission}]::text[]`,
+        moduleOn,
       ),
     );
   return rows.map((r) => r.projectId);
@@ -666,6 +691,9 @@ export async function evaluateProjectAccess(
     permissions = asArchived;
     archived = true;
   }
+  // Il modulo del permesso spento: come un progetto invisibile (registro, area 11).
+  const module = moduleOfPermission(access.permission);
+  if (module && !(await projectHasModule(db, projectId, module))) return { ok: false, error: "not_found" };
   if (access.resource && !(await access.resource(request, db, user, permissions))) {
     return { ok: false, error: "not_found" };
   }

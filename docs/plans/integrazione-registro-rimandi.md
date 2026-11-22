@@ -741,12 +741,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 - F1, S8 (le PR dei colleghi senza adozione), due rimandi *(O, 46, 13 nov
   2026)*:
-  - (a) `derivePrCycle.canRequestCorrection` (la riga del ciclo del web
+  - ~~(a) `derivePrCycle.canRequestCorrection` (la riga del ciclo del web
     vecchio e dell'app) non guarda ancora l'impostazione delle PR dei
     colleghi: con «Solo analisi» sulla PR o il repository «spento» il bottone
     «Chiedi modifiche» resta, e la rotta risponde 409
     `colleague_analysis_only`. `/pulls` (`permissions.requestCorrection`) lo
-    dice già giusto.
+    dice già giusto.~~ *Chiusa il 23 nov 2026 (72)*: `derivePrCycle` passa
+    da `colleagueCorrectionPermitted` col trigger `stubwise`, lo stesso
+    cancello di `enqueueCorrection`.
   - (b) Lo stato «scartata» di una correzione (push rifiutato perché l'autore
     ha spinto in parallelo) non si deriva: in `/pulls` compare come «fermata»
     (`prStateOf` lo leggerebbe, manca un esito distinto del job).
@@ -1310,11 +1312,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     riaprire arrivate (F7, Task 3)**; eliminare resta a mano (la rotta è
     solo dei full admin, col codice scritto: nessuna voce);
   - Permessi dei reparti, i Minor della review di F8 *(S ciascuno)*:
-    - la riconferma del `PATCH` si decide sul salvato letto FUORI dalla
+    - ~~la riconferma del `PATCH` si decide sul salvato letto FUORI dalla
       transazione. Un `memberIds` intero mandato da una bozza vecchia, senza
       `ifMatch`, può rimettere una persona tolta nel frattempo senza
       riconferma. Con `ifMatch` è un 409 `stale`. Va ricalcolata dentro la
-      transazione (`reauth_required`);
+      transazione (`reauth_required`);~~ *Chiusa il 23 nov 2026 (72)*: il
+      giudizio si rifà sul salvato bloccato; se ora serve e fuori non era
+      servita, la transazione si annulla, risponde `requireReauth` (la stessa
+      regola) e, se la riconferma c'è, si riscrive. Test della corsa in
+      `department-reauth-race.test.ts`;
     - il 403 `escalation` di chi entra in un progetto porta solo
       `permission`, non `missing` (il `PATCH` del reparto sì);
     - il costo sul ripiego (tutti): togliere un suo permesso blocca e conta i
@@ -1330,7 +1336,7 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     Claude non mostra la chiave d'accesso, e gli argomenti obbligatori
     l'avrebbero azzerata. Se servirà: una C, o una patch senza endpoint e
     bucket *(S, da decidere)*;
-  - Azioni di Claude, i Minor della review di F7 *(S ciascuno)*:
+  - ~~Azioni di Claude, i Minor della review di F7 *(S ciascuno)*:
     - `changed_after` dei tipi `member`/`project`/`setting` legge il
       registro senza un lock: un salvataggio a mano che fa commit fra la
       guardia di «Annulla» e l'inverso viene sovrascritto. Va bloccata la
@@ -1344,7 +1350,21 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
       e quell'«Annulla» finisce `invalid`;
     - un riordino a mano via `PATCH /api/ai-providers/:id { position }` non
       scrive `provider.reordered`, quindi l'«Annulla» di `moveProvider` non
-      lo vede;
+      lo vede;~~
+    *Chiuse il 23 nov 2026 (72)*, test in
+    `claude-actions-undo-minors.test.ts`:
+    - la guardia blocca FOR UPDATE le righe degli oggetti giudicati dal
+      registro (`lockLoggedSubjects` in `undo.ts`: progetto, membro,
+      `instance_settings` e la riga dell'impostazione) prima di leggerlo;
+    - `recordChange` scrive `at = clock_timestamp()` (l'istante
+      dell'inserimento) e lo `stamp` è il `clock_timestamp()` a fine
+      scrittura, in ISO UTC scritto a mano (niente `DateStyle`); le voci
+      delle altre azioni dello stesso gruppo non contano
+      (`via_claude_action_id`). Le voci di una stessa transazione non hanno
+      più lo stesso `at`: l'ordine del registro è quello d'inserimento;
+    - `updateProjectGeneral` senza massimi, come la rotta;
+    - `patchProvider` con `position` scrive `provider.reordered` (stessa
+      forma di `reorderProviders`) se l'ordine cambia;
   - Azioni di Claude (F7, Task 4): **`setAttachments`** non ha una voce,
     perché sul server gli allegati non hanno un interruttore: si accendono
     da soli con l'archiviazione configurata e valida (`attachmentsEnabled` è
@@ -1428,18 +1448,37 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 - **Chiusa con F1 (20 nov 2026)**: lo spazio Product e l'editor (pagine,
   albero, scrittura a operazioni, cronologia in lettura, Segui, immagini).
-- **Il modulo Docs spento non chiude le rotte** *(S, buco di prima, F1 e 46,
+- ~~**Il modulo Docs spento non chiude le rotte** *(S, buco di prima, F1 e 46,
   20 nov 2026)*: con `projects.modules` senza `docs` la sezione sparisce
   dall'interfaccia, ma le rotte dei Docs E dello spazio Product rispondono
   ancora a chi ha `docs.view`/`docs.edit` (il server non legge i moduli).
   Da chiudere per tutti e due insieme, con un controllo nel resolver di
-  progetto delle rotte `docs.*`.
-- L'«Undo» di una revisione dalla cronologia: nel prototipo c'è solo per le
+  progetto delle rotte `docs.*`.~~
+  *Chiusa il 23 nov 2026 (72).* `moduleOfPermission` (`auth/access.ts`): un
+  permesso `docs.*` vuole il modulo `docs`. `evaluateProjectAccess` risponde
+  404 `not_found` col modulo spento, come per un progetto invisibile, anche a
+  un full admin (vale per le rotte e per le azioni di Claude, che passano di
+  lì); `projectIdsWithPermission` toglie quei progetti dagli elenchi
+  d'istanza (hub dei Docs, cambi della doc, codici, domande aperte, ricerca);
+  la pagina per codice (rotta `user`) fa lo stesso controllo. Restano fuori
+  il worker e `@stubwise/notifications`: un lavoro della coda della doc già
+  accodato e i destinatari dei suoi avvisi non guardano il modulo (nessuna
+  rotta li fa partire col modulo spento).
+- ~~L'«Undo» di una revisione dalla cronologia: nel prototipo c'è solo per le
   modifiche di Claude, quindi arriva con F5. *(Review di F2)*: quel ripristino
   rimette blocchi tolti come il ⌘Z, e deve chiamare `restoreMergedAnchors`
   (`services/product-comments.ts`) come fa già `saveProductBlocks` con
   `undoOf`, o i fili spostati da un `merge` restano sul blocco che l'aveva
-  assorbito.
+  assorbito.~~
+  *Chiusa il 23 nov 2026 (72, con 46): non serve.* L'«Undo» arrivato con F5
+  e F6 (`writeUndo` in `services/product-claude.ts`) NON rimette blocchi
+  tolti: Claude scrive solo `insert` e `set`, e i suoi inversi sono solo
+  `delete` (un blocco che Claude aveva aggiunto) e `set` (un blocco che c'è
+  ancora: `restoreOp` dà null se il blocco non c'è più). Un filo spostato da
+  un `merge` ha `original_anchor_id` su un blocco ASSORBITO, cioè sparito, e
+  un `merge` dopo la revisione di Claude la blocca comunque
+  (`changed_after`). Se un giorno un inverso rimetterà un blocco tolto, la
+  chiamata va aggiunta lì.
 - **Gli id di chi ha scritto escono anche quando il nome è nascosto**
   *(S, review di F2, F1 e F2 insieme)*: con R-G5 il NOME di una persona che
   chi guarda non vede è null, ma il suo id no: `actorId` delle revisioni (F1),

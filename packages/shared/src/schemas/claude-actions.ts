@@ -299,7 +299,7 @@ export const CLAUDE_ACTION_ARGS = {
   archiveProject: z.object({ projectId: id }).strict(),
   reopenProject: z.object({ projectId: id }).strict(),
   updateProjectGeneral: z
-    .object({ projectId: id, name: z.string().min(1).max(200).optional(), description: z.string().min(1).max(2000).nullable().optional() })
+    .object({ projectId: id, name: z.string().min(1).optional(), description: z.string().min(1).nullable().optional() })
     .strict()
     .refine((a) => a.name !== undefined || a.description !== undefined, "name or description"),
   setProjectAi: z.object({ projectId: id, providerId: id.nullable(), exclusive: z.boolean() }).strict(),

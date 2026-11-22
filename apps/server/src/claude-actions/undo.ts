@@ -1,7 +1,15 @@
 import {
+  aiModelSettings,
+  aiProviders,
   automations,
   changeLog,
   alertSubscriptions,
+  gitAccounts,
+  googleWorkspaces,
+  instanceSettings,
+  outgoingWebhooks,
+  projectMembers,
+  projects,
   attachments,
   backlogItems,
   claudeActionGroups,
@@ -16,7 +24,8 @@ import {
 import { latestVersion } from "../automations/model.js";
 import { automationStamp } from "./catalog-automations.js";
 import type { ClaudeActionFn } from "@stubwise/shared";
-import { and, asc, desc, eq, gt, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, notInArray, or, sql, type SQL } from "drizzle-orm";
+import type { PgTable } from "drizzle-orm/pg-core";
 import type { SessionUser } from "../auth/session.js";
 import { declaredClassOf, type ActionObject } from "./catalog.js";
 import type { ActionEffects } from "./effects.js";
@@ -113,6 +122,8 @@ async function laterChangeOf(
           o.projectId ? eq(changeLog.projectId, o.projectId) : undefined,
           sql`${changeLog.at} > ${o.stamp}::timestamptz`,
           o.changeTypes ? inArray(changeLog.type, [...o.changeTypes]) : undefined,
+          // Le voci delle altre azioni del gruppo (stessa transazione, dopo lo `stamp` di questa) non contano.
+          actionIds.length > 0 ? or(isNull(changeLog.viaClaudeActionId), notInArray(changeLog.viaClaudeActionId, actionIds)) : undefined,
         ),
       )
       .limit(1);
@@ -167,6 +178,30 @@ async function laterChangeOf(
     if (row && row.at.toISOString() > o.stamp) return { byUserId: null };
   }
   return undefined;
+}
+
+/**
+ * Le righe degli oggetti che «Annulla» giudica dal registro, bloccate FOR
+ * UPDATE: il progetto, il membro, le impostazioni d'istanza (`instance_settings`
+ * e la riga dell'oggetto: modello, account AI, account git, Google, webhook).
+ * Un riordino degli account (`id` vuoto) li blocca tutti.
+ */
+async function lockLoggedSubjects(tx: Db, objects: readonly ActionObject[]): Promise<void> {
+  const lock = (table: PgTable, where: SQL | undefined) => tx.execute(sql`select 1 from ${table} where ${where ?? sql`true`} for update`);
+  for (const o of objects) {
+    if (o.kind === "project") await lock(projects, eq(projects.id, o.id));
+    else if (o.kind === "member" && o.projectId) {
+      await lock(projects, eq(projects.id, o.projectId));
+      await lock(projectMembers, and(eq(projectMembers.projectId, o.projectId), eq(projectMembers.userId, o.id)));
+    } else if (o.kind === "setting") {
+      await lock(instanceSettings, eq(instanceSettings.id, 1));
+      if (o.subjectKind === "ai_settings" && o.id && o.id !== "automation") await lock(aiModelSettings, sql`${aiModelSettings.operation} = ${o.id}`);
+      else if (o.subjectKind === "provider") await lock(aiProviders, o.id ? eq(aiProviders.id, o.id) : sql`true`);
+      else if (o.subjectKind === "git_account" && o.id) await lock(gitAccounts, eq(gitAccounts.id, o.id));
+      else if (o.subjectKind === "google_app" && o.id) await lock(googleWorkspaces, eq(googleWorkspaces.id, o.id));
+      else if (o.subjectKind === "webhook" && o.id) await lock(outgoingWebhooks, eq(outgoingWebhooks.id, o.id));
+    }
+  }
 }
 
 /** Lo stato di «Annulla» di un gruppo per chi guarda, coi dati di adesso. */
@@ -263,6 +298,11 @@ export async function undoGroup(
       if (automationIds.length > 0) {
         await tx.execute(sql`select id from ${automations} where ${inArray(automations.id, automationIds)} for update`);
       }
+      // Registro, area 9: gli oggetti senza `updated_at` (membri, progetti,
+      // impostazioni) si giudicano dal registro. Si blocca prima la loro riga:
+      // una scrittura a mano in corso finisce prima (e la sua voce si vede), una
+      // che arriva dopo aspetta l'inverso.
+      await lockLoggedSubjects(tx, all);
       const later = await laterChangeOf(tx, group!, objects.map((r) => r.id), all);
       return later ? { code: "conflict", index: 0, permission: null, projectId: null, message: CHANGED_AFTER } : null;
     },
