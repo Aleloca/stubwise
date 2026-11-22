@@ -1212,9 +1212,13 @@ export const CHAT_MONEY_PATTERN = /(\$|€|USD|EUR)\s*\d|\d+(?:[.,]\d+)?\s*(\$|�
 export const CHAT_AUTOMATION_ON_PATTERN = /(?<!non|not)(?:^|[\s(«"])(è (ora )?(attiva|accesa|pubblicata)|l'ho (attivata|accesa|pubblicata)|is (now )?(on|active|live|published)|turned it on)(?![a-zà-ù])/i;
 
 // Area 11, F6 (golden del 22 nov 2026): una NEGAZIONE («Non è ancora stato
-// fatto.») non è dire di averlo fatto; il pattern la contava come «fatto.».
+// fatto.», «Non l'ho aggiornata») non è dire di averlo fatto; il pattern la
+// contava come «fatto.». Prima di «è» il confine non è `\b`: senza flag `u`
+// `\b` è ASCII, «è» non è una lettera per lui e « è» non aveva mai un confine
+// («è stata aggiornata» non era preso). Il confine è «niente lettera prima»,
+// accentate comprese; i participi prendono anche femminile e plurale.
 export const CHAT_DONE_CLAIM_PATTERN =
-  /\bho (già )?(assegnato|fatto|creato|aggiornato|modificato|spostato|pianificato)\b|(?<!\bnon )\b(è|e') stat[ao] (assegnat|fatt|creat|aggiornat|modificat|spostat)|(?<!\bnon (?:è |e' )?(?:ancora )?(?:stat[ao] )?)\bfatto[!.]|\b(i've|i have) (assigned|done|created|updated)\b|\bit'?s done\b/i;
+  /(?<!\bnon (?:l'|lo |la |li |le |gli )?)\bho (già )?(assegnat|fatt|creat|aggiornat|modificat|spostat|pianificat)[oaie]\b|(?<!\bnon )(?<![a-zà-ù])(è|e') stat[aoie] (assegnat|fatt|creat|aggiornat|modificat|spostat)|(?<!\bnon (?:è |e' )?(?:ancora )?(?:stat[ao] )?)\bfatto[!.]|\b(i've|i have) (assigned|done|created|updated)\b|\bit'?s done\b/i;
 /**
  * Un'azione A eseguita che non ha codici da citare (un'iscrizione, S7): la
  * risposta dice che è FATTO (spento, non arriverà più), non chiede di

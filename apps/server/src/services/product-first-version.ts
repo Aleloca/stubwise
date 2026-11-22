@@ -272,6 +272,7 @@ export async function firstVersionView(db: Db, viewer: Viewer, projectId: string
     pagesDone: done,
     pagesTotal: fv.plan.length,
     interrupted: fv.interrupted,
+    stopping: fv.status === "writing" && fv.stopRequested,
     sources: await sourceViewsOf(db, viewer, fv),
     pages: fv.plan.map((p, i) => {
       const pageId = fv.written[i]?.pageId ?? null;
@@ -281,7 +282,7 @@ export async function firstVersionView(db: Db, viewer: Viewer, projectId: string
     acceptedPageIds: [...fv.acceptedPageIds],
     bannerPageIds: fv.status === "undone" ? [] : pageIds.filter((id) => alive.has(id) && !fv.acceptedPageIds.includes(id)),
     undo: await undoOf(db, viewer, fv, canEdit),
-    permissions: { edit: canEdit, stop: canEdit && fv.status === "writing" },
+    permissions: { edit: canEdit, stop: canEdit && fv.status === "writing" && !fv.stopRequested },
   };
 }
 

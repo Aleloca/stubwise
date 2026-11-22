@@ -65,7 +65,7 @@ export type ActionObject = {
    * della scrittura; «Annulla» guarda le voci del registro arrivate DOPO sullo
    * stesso soggetto (`changed_after`), solo dei tipi in `changeTypes` se c'è.
    */
-  kind: "task" | "request" | "milestone" | "filter" | "comment" | "subscription" | "member" | "project" | "setting" | "automation";
+  kind: "task" | "request" | "milestone" | "filter" | "comment" | "subscription" | "member" | "project" | "setting" | "automation" | "product_page";
   /**
    * Area 9, F7, Task 4: per `setting`, il `subject_kind` delle sue voci del
    * registro (`ai_settings`, `provider`, `webhook`…); `id` vuoto = qualunque

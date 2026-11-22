@@ -56,14 +56,14 @@ describe("cronologia: il gesto sulla bozza, additivo", () => {
 });
 
 describe("F6: le forme", () => {
-  it("la prima versione: uno stato futuro è UNKNOWN; senza `permissions.stop` è false; l'«Undo» senza la pagina toccata", () => {
+  it("la prima versione: uno stato futuro è UNKNOWN; senza `permissions.stop` e senza `stopping` sono false; l'«Undo» senza la pagina toccata", () => {
     const view = readerSchema(productFirstVersionViewSchema).parse({
       projectId: ID, groupId: ID, byId: null, byName: null, status: "brand_new", pagesDone: 1, pagesTotal: 3, interrupted: false,
       sources: [{ kind: "drive", canOpen: true, id: ID, title: "Spec", code: "PRO-F1", ownerId: null, ownerName: null, at: null, gone: false }],
       pages: [{ title: "Overview", depth: 0, pageId: ID, code: "PRO-D1", state: "written" }],
       acceptedPageIds: [], bannerPageIds: [ID], undo: { enabled: true }, permissions: { edit: true },
     });
-    expect(view).toMatchObject({ status: UNKNOWN, permissions: { stop: false }, undo: { pageId: null, touch: null }, sources: [{ kind: "drive" }] });
+    expect(view).toMatchObject({ status: UNKNOWN, stopping: false, permissions: { stop: false }, undo: { pageId: null, touch: null }, sources: [{ kind: "drive" }] });
   });
 
   it("una fonte di testo vuota passa lo schema (il server la salta); una fonte sconosciuta no", () => {

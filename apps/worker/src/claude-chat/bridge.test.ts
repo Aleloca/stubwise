@@ -324,18 +324,22 @@ describe("area 11, F6, Task 4: la doc di prodotto", () => {
     expect(JSON.stringify(result)).not.toContain("<svg");
   });
 
-  it("read_product_changes: progetto e `since` validati; i titoli di pagine e fonti dentro `untrusted_content`", () => {
+  it("read_product_changes: progetto e `since` validati; i titoli di pagine e fonti dentro `untrusted_content`, mai l'oggetto di un'email o di una riunione (review di F6, I1)", () => {
     expect(chatServerPaths("read_product_changes", {})).toEqual(["/api/product-changes"]);
     expect(chatServerPaths("read_product_changes", { projectId: P, since: "2026-11-14" })).toEqual([`/api/product-changes?projectId=${P}&since=2026-11-14`]);
     expect(() => chatServerPaths("read_product_changes", { since: "last week" })).toThrow(ChatToolArgError);
     expect(() => chatServerPaths("read_product_changes", { projectId: "x" })).toThrow(ChatToolArgError);
     const result = projectToolResult("read_product_changes", {
       more: false,
-      items: [{ revisionId: P, pageId: P, pageCode: "AUD-D5", pageTitle: "Pagamenti", projectId: P, kind: "claude", via: "claude", actorName: null, onBehalfOfName: "Ada", at: "2026-11-20T10:00:00.000Z", source: { kind: "email", canOpen: true, id: P, title: "Oggetto dell'email", code: null, ownerId: P, ownerName: "Ada", at: null, gone: false, thread: { threadId: "t", accountId: P } } }],
+      items: [{ revisionId: P, pageId: P, pageCode: "AUD-D5", pageTitle: "Pagamenti", projectId: P, kind: "claude", via: "claude", actorName: null, onBehalfOfName: "Ada", at: "2026-11-20T10:00:00.000Z", source: { kind: "email", canOpen: true, id: P, title: "Oggetto dell'email", code: null, ownerId: P, ownerName: "Ada", at: null, gone: false, thread: { threadId: "t", accountId: P } } },
+        { revisionId: "a1b2c3d4-0000-4000-8000-000000000001", pageId: P, pageCode: "AUD-D5", pageTitle: "Pagamenti", projectId: P, kind: "claude", via: "claude", actorName: null, onBehalfOfName: "Ada", at: "2026-11-20T09:00:00.000Z", source: { kind: "meeting", canOpen: true, id: P, title: "Riunione col cliente", code: null, ownerId: P, ownerName: "Ada", at: null, gone: false, thread: null } },
+        { revisionId: P.replace(/.$/, "9"), pageId: P, pageCode: "AUD-D5", pageTitle: "Pagamenti", projectId: P, kind: "claude", via: "claude", actorName: null, onBehalfOfName: "Ada", at: "2026-11-20T08:00:00.000Z", source: { kind: "decision", canOpen: true, id: P, title: "Pagamenti a 60 giorni", code: null, ownerId: null, ownerName: null, at: null, gone: false, thread: null } }],
     }, "/api/product-changes") as { changes: Record<string, unknown>[]; untrusted_content: { note: string; pageTitles: Record<string, string>; sourceTitles: Record<string, string> } };
-    expect(result.changes).toEqual([{ revisionId: P, pageCode: "AUD-D5", projectId: P, kind: "claude", byClaude: true, who: null, onBehalfOf: "Ada", at: "2026-11-20T10:00:00.000Z", source: { kind: "email", code: null, owner: "Ada", canOpen: true, gone: false } }]);
-    expect(result.untrusted_content).toEqual({ note: UNTRUSTED_PRODUCT_NOTE, pageTitles: { "AUD-D5": "Pagamenti" }, sourceTitles: { [P]: "Oggetto dell'email" } });
-    expect(JSON.stringify(result.changes)).not.toContain("Oggetto");
+    expect(result.changes[0]).toEqual({ revisionId: P, pageCode: "AUD-D5", projectId: P, kind: "claude", byClaude: true, who: null, onBehalfOf: "Ada", at: "2026-11-20T10:00:00.000Z", source: { kind: "email", code: null, owner: "Ada", canOpen: true, gone: false } });
+    // Anche se un server di prima lo mandasse, l'oggetto della posta non arriva al modello: solo la decisione.
+    expect(result.untrusted_content).toEqual({ note: UNTRUSTED_PRODUCT_NOTE, pageTitles: { "AUD-D5": "Pagamenti" }, sourceTitles: { [P.replace(/.$/, "9")]: "Pagamenti a 60 giorni" } });
+    expect(JSON.stringify(result)).not.toContain("Oggetto");
+    expect(JSON.stringify(result)).not.toContain("Riunione col cliente");
   });
 
   it("le descrizioni dei due tool lo dicono con le stesse parole della nota", () => {
