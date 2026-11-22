@@ -1306,7 +1306,7 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     Claude non mostra la chiave d'accesso, e gli argomenti obbligatori
     l'avrebbero azzerata. Se servirà: una C, o una patch senza endpoint e
     bucket *(S, da decidere)*;
-  - Azioni di Claude, i Minor della review di F7 *(S ciascuno)*:
+  - ~~Azioni di Claude, i Minor della review di F7 *(S ciascuno)*:
     - `changed_after` dei tipi `member`/`project`/`setting` legge il
       registro senza un lock: un salvataggio a mano che fa commit fra la
       guardia di «Annulla» e l'inverso viene sovrascritto. Va bloccata la
@@ -1320,7 +1320,21 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
       e quell'«Annulla» finisce `invalid`;
     - un riordino a mano via `PATCH /api/ai-providers/:id { position }` non
       scrive `provider.reordered`, quindi l'«Annulla» di `moveProvider` non
-      lo vede;
+      lo vede;~~
+    *Chiuse il 23 nov 2026 (72)*, test in
+    `claude-actions-undo-minors.test.ts`:
+    - la guardia blocca FOR UPDATE le righe degli oggetti giudicati dal
+      registro (`lockLoggedSubjects` in `undo.ts`: progetto, membro,
+      `instance_settings` e la riga dell'impostazione) prima di leggerlo;
+    - `recordChange` scrive `at = clock_timestamp()` (l'istante
+      dell'inserimento) e lo `stamp` è il `clock_timestamp()` a fine
+      scrittura, in ISO UTC scritto a mano (niente `DateStyle`); le voci
+      delle altre azioni dello stesso gruppo non contano
+      (`via_claude_action_id`). Le voci di una stessa transazione non hanno
+      più lo stesso `at`: l'ordine del registro è quello d'inserimento;
+    - `updateProjectGeneral` senza massimi, come la rotta;
+    - `patchProvider` con `position` scrive `provider.reordered` (stessa
+      forma di `reorderProviders`) se l'ordine cambia;
   - Azioni di Claude (F7, Task 4): **`setAttachments`** non ha una voce,
     perché sul server gli allegati non hanno un interruttore: si accendono
     da soli con l'archiviazione configurata e valida (`attachmentsEnabled` è

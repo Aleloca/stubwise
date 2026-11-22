@@ -1,4 +1,5 @@
 import { changeLog, type Db } from "@stubwise/db";
+import { sql } from "drizzle-orm";
 import { CHANGE_DATA_SCHEMAS, changeLogTypeOf, type ChangeData, type ChangeLogKind } from "@stubwise/shared";
 
 /**
@@ -37,6 +38,10 @@ export async function recordChange(tx: Tx | Db, entry: ChangeInput): Promise<str
   const data = CHANGE_DATA_SCHEMAS[entry.type]!.parse(entry.data);
   const actor = entry.actor;
   const [row] = await tx.insert(changeLog).values({
+    // L'istante dell'INSERIMENTO, non l'inizio della transazione (`now()`): una
+    // scrittura a mano iniziata prima di un'azione di Claude ma arrivata dopo
+    // ha così un `at` dopo il suo `stamp`, e «Annulla» la vede (registro, area 9).
+    at: sql`clock_timestamp()`,
     actorUserId: actor === "system" ? null : actor.id,
     actorEmail: actor === "system" ? "system" : actor.email,
     actorKind: actor === "system" ? "system" : actor.isAgent ? "agent" : "user",

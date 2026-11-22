@@ -33,14 +33,14 @@ function roleRefusal(error: unknown): { ok: false; refusal: CatalogRefusal } {
 }
 
 /**
- * L'istante della scrittura, nella sua transazione: le voci del registro della
- * scrittura hanno questo `at` (`now()` della transazione), e «Annulla» guarda
- * se sullo stesso soggetto ne è arrivata una DOPO (`changed_after`).
+ * L'istante a FINE scrittura (`clock_timestamp()`, non `now()`, che è l'inizio
+ * della transazione): le voci del registro hanno l'istante del loro
+ * inserimento, e «Annulla» guarda se sullo stesso soggetto ne è arrivata una
+ * DOPO (`changed_after`), che non sia delle azioni del gruppo. Ai microsecondi
+ * e in ISO UTC scritto qui, non col testo di `DateStyle` (registro, area 9).
  */
 async function txNow(tx: Db): Promise<string> {
-  // Come testo di Postgres, ai microsecondi: un ISO di JS ha i millisecondi, e
-  // le voci di QUESTA scrittura risulterebbero «dopo».
-  const res = (await tx.execute(sql`select now()::text as at`)) as unknown as { rows?: { at: string }[] } & { at: string }[];
+  const res = (await tx.execute(sql`select to_char(clock_timestamp() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as at`)) as unknown as { rows?: { at: string }[] } & { at: string }[];
   return (res.rows ?? res)[0]!.at;
 }
 

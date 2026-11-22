@@ -176,6 +176,9 @@ export async function patchProvider(
   const row = await db.transaction(async (tx) => {
     const [before] = await tx.select().from(aiProviders).where(eq(aiProviders.id, id)).for("update");
     if (!before || Object.keys(updates).length === 0) return before;
+    // Una posizione a mano è un riordino (registro, area 9): la stessa voce di `reorderProviders`.
+    const orderOf = () => tx.select().from(aiProviders).orderBy(asc(aiProviders.position), asc(aiProviders.createdAt));
+    const beforeOrder = position !== undefined ? await orderOf() : [];
     // Task 8c: l'ultimo account acceso non si spegne.
     if (before.enabled && updates.enabled === false && (await otherEnabled(tx, before.id)) === 0) throw new LastEnabledProvider();
     const [after] = await tx.update(aiProviders).set(updates).where(eq(aiProviders.id, id)).returning();
@@ -191,6 +194,12 @@ export async function patchProvider(
     }
     if (secret !== undefined) {
       await recordChange(tx, { type: "provider.credential_replaced", actor: actor, projectId: null, data: { object } });
+    }
+    if (position !== undefined) {
+      const afterOrder = await orderOf();
+      const moved = afterOrder.find((r, i) => beforeOrder[i]?.id !== r.id);
+      const chain = (list: AiProviderRow[]) => list.map((r) => r.label).join(", ");
+      if (moved) await recordChange(tx, { type: "provider.reordered", actor: actor, projectId: null, data: { object: providerObject(moved), before: chain(beforeOrder), after: chain(afterOrder) } });
     }
     return after;
   }).catch(lastEnabledOrThrow);
