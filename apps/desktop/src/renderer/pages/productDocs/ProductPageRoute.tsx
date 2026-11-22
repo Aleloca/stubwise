@@ -102,14 +102,37 @@ function PageBody({ page }: { page: ProductPageView }) {
   const [asking, setAsking] = useState<((leave: boolean) => void) | null>(null);
   const askingRef = useRef(asking);
   askingRef.current = asking;
+  // Smontata mentre chiede (la pagina tolta, `gone`): si va dove si andava,
+  // la navigazione e il cambio di persona non restano appesi (revisione di R11-6, M1).
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      const pending = askingRef.current;
+      askingRef.current = null;
+      pending?.(true);
+    };
+  }, []);
   const mayLeave = useCallback(async (): Promise<boolean> => {
     const handle = editor.current;
-    if (!handle || !(await handle.unsaved())) return true;
+    if (!handle) return true;
+    // Un campo che salva uscendone (il titolo, una didascalia): esce e salva,
+    // poi il fuoco torna dov'era (revisione di R11-6, M7).
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.matches("[data-save-on-blur]")) {
+      active.blur();
+      active.focus();
+    }
+    const unsaved = await handle.unsaved();
+    if (!mounted.current || !unsaved) return true;
     // Una seconda uscita mentre si chiede: la prima resta.
     askingRef.current?.(false);
     return new Promise<boolean>((resolve) => {
       const answer = (leave: boolean) => {
-        setAsking(null);
+        askingRef.current = null;
+        if (mounted.current) setAsking(null);
+        if (leave) handle.discard();
         resolve(leave);
       };
       askingRef.current = answer;

@@ -316,17 +316,25 @@ blocchi scalano da h2 **[PE 3]**.
   maintainer via orchestratrice)*:
   - **Quando**: si va a un altro indirizzo (un'altra pagina, un'altra
     sezione dell'app) o si cambia persona («View as», dal menu del profilo
-    o dalla palette). Cambiare solo la ricerca della pagina (un filo
-    aperto) non è uscire.
+    o dalla palette), o si esce dall'account («Sign out»: chiede prima di
+    uscire, *scelta del costruttore coerente con questa sezione, decisa
+    dall'orchestratrice il 22 nov 2026*). Cambiare solo la ricerca della
+    pagina (un filo aperto) non è uscire.
   - **Cosa conta come non salvato**: una scrittura ancora in fila o ferma
-    su un errore («Couldn't save · Retry»), e i riquadri di «Mostra le due
-    versioni». All'uscita le bozze partono e la fila ha 1,5 s per
-    svuotarsi: se ci riesce si esce senza chiedere, così uscire subito dopo
-    aver scritto non chiede niente.
+    su un errore («Couldn't save · Retry»), i riquadri di «Mostra le due
+    versioni» e un'immagine che sta caricando al posto di una bozza di
+    schermata («Replace with an image», spento finché carica). All'uscita
+    le bozze partono, e così il titolo o la didascalia che hanno il fuoco;
+    la fila ha 1,5 s per svuotarsi: se ci riesce si esce senza chiedere,
+    così uscire subito dopo aver scritto non chiede niente. Il testo
+    scritto durante quell'attesa parte anche lui, e conta.
   - **Il dialogo**: solo il titolo; «Leave without saving» (contorno) e
     «Stay» (pieno, col fuoco). Esc e il clic fuori sono «Stay». «Stay»
     lascia tutto com'era (anche i riquadri); «Leave without saving» va dove
-    si andava, e ciò che non era salvato si perde.
+    si andava, e ciò che non era salvato si perde: la fila si svuota e
+    niente parte più (una scrittura già in viaggio arriva, nessuna dietro di
+    lei). Se la pagina se ne va mentre chiede (tolta da un altro), si va
+    dove si andava.
   - Chiudere la finestra o ricaricare non chiede (nessun dialogo del
     browser).
 

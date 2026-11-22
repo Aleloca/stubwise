@@ -90,6 +90,27 @@ describe("le frasi delle voci della doc", () => {
     );
   });
 
+  it("revisione di R11-6, M5: una pagina riletta con 404 o 403 non dice più il titolo", async () => {
+    for (const status of [404, 403]) {
+      forgetProductDocs();
+      await readSignIn();
+      expect(said("drawWireframe", { pageId: PAGE, afterId: null }, null)).toBe(
+        "Draw a screen sketch in AUD-D5 Sign-in",
+      );
+      installFakeServer({
+        "GET /api/auth/me": { body: me() },
+        "GET /api/product-pages/by-code/AUD-D5": {
+          status,
+          body: { code: status === 404 ? "not_found" : "forbidden", message: "x" },
+        },
+      });
+      await docs.getProductPage!("AUD-D5").catch(() => undefined);
+      expect(said("drawWireframe", { pageId: PAGE, afterId: null }, null)).toBe(
+        "Draw a screen sketch in a page",
+      );
+    }
+  });
+
   it("«undo» di un aggiornamento: per revisione, la pagina se il server la dice", () => {
     expect(said("undoProductUpdate", { revisionId: REV }, "AUD-D5")).toBe(
       "Undo Claude's update of AUD-D5",

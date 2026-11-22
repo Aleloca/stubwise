@@ -647,3 +647,13 @@ brief.
 7. **L'avanzamento che se ne va col fuoco dentro** (la prima versione
    annullata da un altro mentre si guarda l'indice): il fuoco passa all'h1 e
    poi alla prima strada dell'indice vuoto, mai al body.
+
+## Emendamenti (integrazione area 11, F6: la build app, 22 nov 2026)
+
+1. **«Update it from this email/meeting» nel riquadro di Claude**
+   (`updateProductPage`) *(scelta del costruttore, approvata
+   dall'orchestratrice)*: nella build app la voce è `starts_work` e
+   `irreversible`, e la sua riga non ha «Undo». La ragione è l'asincronia:
+   il server la applica dopo, in un lavoro della coda, e al momento della
+   conferma non esiste ancora una revisione da annullare. Nel prototipo la
+   scrittura è sincrona e la riga ha «Undo».

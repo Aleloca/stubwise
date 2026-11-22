@@ -229,13 +229,17 @@ export function ProfileMenu() {
               className={`${linkClass} w-full text-left disabled:opacity-40`}
               disabled={logout.isPending}
               onClick={() =>
-                logout.mutate(undefined, {
-                  onSuccess: () => {
-                    setOpen(false);
-                    void navigate({ to: "/login", replace: true });
-                  },
-                  onError: () => toast.error(t("entry.menu.signOutFailed")),
-                })
+                // Come il cambio di persona: un editor con modifiche non
+                // salvate chiede prima (§3.12, revisione di R11-6, M2).
+                askPersonaChange(() =>
+                  logout.mutate(undefined, {
+                    onSuccess: () => {
+                      setOpen(false);
+                      void navigate({ to: "/login", replace: true });
+                    },
+                    onError: () => toast.error(t("entry.menu.signOutFailed")),
+                  }),
+                )
               }
             >
               {t("entry.menu.signOut")}

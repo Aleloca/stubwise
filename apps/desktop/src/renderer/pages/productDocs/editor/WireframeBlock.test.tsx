@@ -312,6 +312,68 @@ describe("«Replace with an image»", () => {
   });
 });
 
+describe("«Replace with an image» mentre carica (revisione di R11-6, M6)", () => {
+  /** Un caricamento che finisce quando lo dice il test. */
+  function heldUpload() {
+    let finish: () => void = () => undefined;
+    const store = vi.spyOn(api.productDocs, "storeProductImage").mockImplementation(
+      () =>
+        new Promise<string>((done) => {
+          finish = () => done("data:image/png;base64,c3RvcmVk");
+        }),
+    );
+    return { store, finish: () => finish() };
+  }
+  const pick = () => {
+    const chooser = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    act(() => {
+      fireEvent.change(chooser, {
+        target: { files: [new File([new Uint8Array(1024)], "bills.png", { type: "image/png" })] },
+      });
+    });
+  };
+
+  it("mentre carica il bottone è spento: un secondo caricamento non parte", async () => {
+    const clicks = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
+    const { store, finish } = heldUpload();
+    const id = drawnOnBills();
+    await open(BILLS);
+    const user = userEvent.setup();
+    const replace = () => within(shellOf(id)).getByRole("button", { name: "Replace with an image" });
+    await user.click(replace());
+    pick();
+    await waitFor(() => expect(store).toHaveBeenCalledTimes(1));
+    expect(replace()).toHaveAttribute("aria-disabled", "true");
+    await user.click(replace());
+    expect(clicks).toHaveBeenCalledTimes(1);
+    pick();
+    expect(store).toHaveBeenCalledTimes(1);
+    await act(async () => finish());
+    await waitFor(() => expect(blockOf(BILLS, id)).toMatchObject({ type: "image" }));
+  });
+
+  it("la bozza tolta da un altro mentre carica: niente prende il suo posto", async () => {
+    vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
+    const { finish } = heldUpload();
+    const replaceSketch = vi.spyOn(api.productDocs, "replaceWireframeWithImage");
+    const id = drawnOnBills();
+    await open(BILLS);
+    await userEvent.click(within(shellOf(id)).getByRole("button", { name: "Replace with an image" }));
+    pick();
+    act(() => {
+      api.productDocs.writeProductBlocksAs("p-marco", BILLS, [{ op: "delete", blockId: id }], {
+        sessionId: "script-marco",
+      });
+    });
+    // L'editor l'ha vista andare via; poi il caricamento finisce.
+    await waitFor(() => expect(body().querySelector(`[data-block-id="${id}"]`)).toBeNull());
+    await act(async () => finish());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(replaceSketch).not.toHaveBeenCalled();
+    expect(blockOf(BILLS, id)).toBeUndefined();
+  });
+});
+
 describe("la cronologia dice cosa è successo alla bozza", () => {
   it("«Drew a screen sketch», «Redrew the screen sketch», «Kept the screen sketch»", async () => {
     const id = drawnOnBills();

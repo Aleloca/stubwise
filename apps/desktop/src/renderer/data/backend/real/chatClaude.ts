@@ -91,8 +91,11 @@ function plainSummary(fn: string, key: string): ProposedAction {
 }
 
 function actionOf(a: ServerAction): ProposedAction {
-  // Una funzione che questo renderer non conosce: una frase tradotta, mai la chiave grezza.
-  if (!i18n.exists(`claude.chatActions.summary.${a.fn}`)) return plainSummary(a.fn, "claude.chatActions.summaryHidden.other");
+  // Una funzione che questo renderer non conosce: `summaryOf` dà la frase
+  // generica («A change»), mai la chiave grezza. La chiave non si controlla
+  // qui: per alcune funzioni la frase la sceglie dagli argomenti
+  // (`updateProductPage` → `…Email`/`…Meeting`, `fillField`,
+  // `setProviderEnabled`; revisione di R11-6, M3).
   if (Object.keys(a.args).length === 0 && HIDDEN_SUMMARY.has(a.fn)) {
     return plainSummary(a.fn, `claude.chatActions.summaryHidden.${a.fn}`);
   }

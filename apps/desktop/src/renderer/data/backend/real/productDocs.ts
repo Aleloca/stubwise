@@ -132,6 +132,10 @@ async function readPage(code: string): Promise<ProductPageView | null> {
   try {
     v = (await appClient().productDocs.page(code)) as ServerPageView;
   } catch (error) {
+    // Non c'è più, o chi guarda non la legge più: il suo titolo non resta
+    // nelle frasi di Claude (revisione di R11-6, M5).
+    if (error instanceof ApiError && (error.status === 404 || error.status === 403))
+      for (const [id, c] of codeOf) if (c === code) lastRead.delete(id);
     if (error instanceof ApiError && error.status === 404) return null;
     return mapError(error);
   }
