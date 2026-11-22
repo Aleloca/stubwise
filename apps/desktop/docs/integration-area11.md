@@ -126,4 +126,4 @@ dati (`data/backend/real/product*.ts`).
 | «Replace with an image» carica il file come ogni blocco immagine (`product-image:<id>`) | costruttore |
 | Lo Stato dell'istanza: un aggiornamento della doc nomina la pagina (codice, titolo, link) solo a chi legge i Docs del progetto e solo se il lavoro è di UNA pagina (a mano o una bozza); una fonte automatica o la prima versione restano «Product doc update» | 72 (136a81da2) su richiesta di 94, come `readsPage` del prototipo |
 | «Pick» di una variante già disegnata (`POST …/wireframes/:blockId/pick`) c'è sul server ma non nel prototipo: il renderer non lo usa | costruttore |
-| «Stop» della prima versione (`stopFirstVersion`): non mostrato finché il prototipo non lo ha | in attesa del maintainer |
+| «Stop» della prima versione accanto all'avanzamento, solo con `permissions.stop`, senza conferma; Claude finisce la pagina in corso; «Stopping after this page…» da `stopping` della vista (riletta ogni 2 s mentre scrive), prima nel prototipo e poi su `stopFirstVersion` (a7f558344) | maintainer via 46 (22 nov 2026) |

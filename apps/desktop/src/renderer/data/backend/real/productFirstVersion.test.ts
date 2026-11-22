@@ -208,6 +208,47 @@ describe("la prima versione nella build app", () => {
   });
 });
 
+describe("«Stop» nella build app (72, a7f558344)", () => {
+  it("la vista: `permissions.stop` e `stopping` dal server; un server senza `stopping` (più vecchio): falso", async () => {
+    installFakeServer({ [`GET /api/projects/${PROJECT}/product/first-version`]: { body: view() } });
+    expect(await fv.getProductFirstVersion!(PROJECT)).toMatchObject({
+      stopping: false,
+      permissions: { edit: true, stop: true },
+    });
+    installFakeServer({
+      [`GET /api/projects/${PROJECT}/product/first-version`]: {
+        body: view({ stopping: true, permissions: { edit: true, stop: false } }),
+      },
+    });
+    expect(await fv.getProductFirstVersion!(PROJECT)).toMatchObject({
+      stopping: true,
+      permissions: { edit: true, stop: false },
+    });
+  });
+
+  it("«Stop»: POST senza corpo; 403 `forbidden`, 404 `not_found`", async () => {
+    const { seen } = installFakeServer({
+      [`POST /api/projects/${PROJECT}/product/first-version/stop`]: { status: 204 },
+    });
+    await fv.stopFirstVersion!(PROJECT);
+    expect(seen.map((r) => [`${r.method} ${r.path}`, r.body])).toEqual([
+      [`POST /api/projects/${PROJECT}/product/first-version/stop`, undefined],
+    ]);
+    for (const [status, code] of [
+      [403, "forbidden"],
+      [404, "not_found"],
+    ] as const) {
+      installFakeServer({
+        [`POST /api/projects/${PROJECT}/product/first-version/stop`]: {
+          status,
+          body: { code, message: "x" },
+        },
+      });
+      await expect(fv.stopFirstVersion!(PROJECT)).rejects.toThrow(new RegExp(`^${code}$`));
+    }
+  });
+});
+
 describe("le fonti della prima versione (F6): file del Drive e testo incollato", () => {
   const drive = (over: Partial<ServerSourceView> = {}): ServerSourceView => ({
     kind: "drive",
