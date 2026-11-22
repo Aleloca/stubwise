@@ -493,8 +493,8 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 11, F3: ricerca, citazioni ed esportazione della doc di prodotto» (20 nov 2026; migrazioni 0206–0208, env `PRODUCT_EMBED_POLL_SECONDS`, server → caddy, rollback sicuro)
   - «Integrazione area 11, F4: la scrittura dal vivo» (20 nov 2026; migrazione 0209, server → caddy, rollback sicuro col caddy insieme; ⚠️ un solo processo server)
   - «Integrazione area 11, F5: Claude dalle fonti e le domande» (21 nov 2026; migrazioni 0210–0213, server → worker → caddy, il worker scende col server; costo: una run sonnet per fonte nei progetti con una doc)
-  - «Integrazione area 11, F6: prima versione, bozze di schermata, backlog, il catalogo di Claude» (22 nov 2026; migrazioni 0214–0217, server → worker → caddy, rollback NON sicuro finché esistono revisioni `first_version`, blocchi `wireframe` o lavori della doc `first_version`/`wireframe`/`page_update` vivi)
-  - «Integrazione area 11: l'area intera (F1–F6)» (22 nov 2026; migrazioni 0202–0217 in ordine, le discese non sicure)
+  - «Integrazione area 11, F6: prima versione, bozze di schermata, backlog, il catalogo di Claude» (22 nov 2026; migrazioni 0214–0218, server → worker → caddy, il caddy scende col server, rollback NON sicuro finché esistono revisioni `first_version`, blocchi `wireframe` o lavori della doc `first_version`/`wireframe`/`page_update` vivi)
+  - «Integrazione area 11: l'area intera (F1–F6)» (22 nov 2026; migrazioni 0202–0218 in ordine, le discese non sicure)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
