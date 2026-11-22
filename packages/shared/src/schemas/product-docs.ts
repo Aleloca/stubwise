@@ -463,7 +463,10 @@ export type ProductFirstVersionUndo = z.infer<typeof productFirstVersionUndoSche
  * non legge i Docs). Mentre `status` è `writing` il client la rilegge (ogni
  * 2 s): le pagine nuove arrivano anche nello spazio. `interrupted`: si è
  * fermata prima della fine («Stop», una pagina tolta, `docs.edit` perso, il
- * budget).
+ * budget). `stopping`: qualcuno ha premuto «Stop» e il worker non è ancora
+ * passato (si ferma dopo la pagina in corso, o prima della bozza); intanto
+ * `permissions.stop` è spento. A fermata avvenuta torna false e c'è
+ * `interrupted`.
  */
 export const productFirstVersionViewSchema = z.object({
   projectId: z.uuid(),
@@ -475,6 +478,7 @@ export const productFirstVersionViewSchema = z.object({
   pagesDone: z.number().int(),
   pagesTotal: z.number().int(),
   interrupted: z.boolean(),
+  stopping: z.boolean().default(false),
   sources: z.array(productSourceViewSchema),
   pages: z.array(
     z.object({

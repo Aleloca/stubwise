@@ -136,6 +136,43 @@ describe("la lettura, «Accept this page», «Stop»", () => {
     expect((await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.id, groupId)))[0]!.pastedText).toBeNull();
   });
 
+  it("«Stop» per il renderer: solo chi scrive i Docs (403 a chi legge, 404 a chi è fuori); `stopping` subito e `stop` spento; una seconda richiesta è 204; su una prima versione finita o annullata è 204 e non tocca niente", async () => {
+    const s = await space();
+    const out = await createUserWithSession(app, `out-fv-${randomUUID().slice(0, 6)}@example.com`);
+    const stop = (who: U) => inject(who, "POST", `/api/projects/${s.projectId}/product/first-version/stop`);
+    // Senza nessuna prima versione: niente da fermare, nessun errore.
+    expect((await stop(ada)).statusCode).toBe(204);
+    const { groupId } = (await start(ada, s, [{ kind: "text", text: "n" }])).json() as { groupId: string };
+    expect(await view(ada, s)).toMatchObject({ status: "writing", stopping: false, permissions: { stop: true } });
+    expect(await view(vic, s)).toMatchObject({ permissions: { stop: false } });
+    expect((await stop(vic)).statusCode).toBe(403);
+    expect((await stop(out)).statusCode).toBe(404);
+    expect((await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.id, groupId)))[0]!.stopRequested).toBe(false);
+    // Bea (developer) la ferma anche se l'ha chiesta Ada; il worker non è ancora passato.
+    expect((await stop(bea)).statusCode).toBe(204);
+    expect(await view(ada, s)).toMatchObject({ status: "writing", stopping: true, interrupted: false, permissions: { stop: false } });
+    expect((await stop(ada)).statusCode).toBe(204);
+    await draftAndWrite(groupId, undefined, 1);
+    const done = (await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.id, groupId)))[0]!;
+    expect(await view(ada, s)).toMatchObject({ status: "done", interrupted: true, stopping: false, pagesDone: 0, permissions: { stop: false } });
+    // Su una prima versione già finita: 204, la riga resta com'è.
+    expect((await stop(ada)).statusCode).toBe(204);
+    expect((await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.id, groupId)))[0]).toEqual(done);
+    // Su una finita da sola (senza «Stop»): la riga resta com'è, `stopRequested` compreso.
+    const s2 = await space();
+    const second = (await start(ada, s2, [{ kind: "text", text: "n" }])).json() as { groupId: string };
+    await draftAndWrite(second.groupId);
+    const finished = (await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.id, second.groupId)))[0]!;
+    expect(finished).toMatchObject({ status: "done", interrupted: false, stopRequested: false });
+    expect((await inject(ada, "POST", `/api/projects/${s2.projectId}/product/first-version/stop`)).statusCode).toBe(204);
+    expect((await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.id, second.groupId)))[0]).toEqual(finished);
+    // E su una annullata.
+    expect((await inject(ada, "POST", `/api/projects/${s.projectId}/product/first-version/undo`)).statusCode).toBe(204);
+    const undone = (await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.id, groupId)))[0]!;
+    expect((await stop(ada)).statusCode).toBe(204);
+    expect((await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.id, groupId)))[0]).toEqual(undone);
+  });
+
   it("«Accept» di una pagina che non è della prima versione: 422", async () => {
     const s = await space();
     const { groupId } = (await start(ada, s, [{ kind: "text", text: "n" }])).json() as { groupId: string };
