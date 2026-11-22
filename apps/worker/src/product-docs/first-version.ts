@@ -179,6 +179,12 @@ export async function runFirstVersionJob(deps: ProductDocJobDeps, job: typeof pr
   const { db, log } = deps;
   const [fv] = await db.select().from(productFirstVersions).where(eq(productFirstVersions.id, job.sourceId));
   if (!fv || fv.status !== "writing") return helpers.finish("done", "first_version_gone").then(() => "done");
+  // «Stop» prima della bozza (il lavoro era in coda o fermo per il limite): il
+  // modello non si chiama. Lo stop lo onora lo scrittore, come fra le pagine.
+  if (!fv.draft && fv.stopRequested) {
+    await writeFirstVersionPage(db, fv.id, 0);
+    return helpers.finish("done").then(() => "done");
+  }
   if (!fv.draft) {
     const sources = await readFirstVersionSources(db, { projectId: fv.projectId, startedBy: fv.startedBy, sources: fv.sources as FirstVersionSourceRef[], pastedText: fv.pastedText });
     if (sources.length === 0) {

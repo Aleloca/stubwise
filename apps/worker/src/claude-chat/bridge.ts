@@ -892,9 +892,11 @@ export function projectToolResult(tool: ChatReadToolName, json: unknown, path = 
       untrusted_content: {
         note: UNTRUSTED_PRODUCT_NOTE,
         pageTitles: Object.fromEntries(items.map((i) => [String(i["pageCode"]), i["pageTitle"]])),
+        // L'oggetto di un'email o il titolo di una riunione mai (review di F6, I1): la risposta può
+        // stare in una pubblica o in un canale. Il server col token non li manda; qui si scartano lo stesso.
         sourceTitles: Object.fromEntries(items.flatMap((i) => {
           const src = (i["source"] ?? null) as Record<string, unknown> | null;
-          return src && typeof src["title"] === "string" ? [[String(i["revisionId"]), src["title"]]] : [];
+          return src && typeof src["title"] === "string" && src["kind"] !== "email" && src["kind"] !== "meeting" ? [[String(i["revisionId"]), src["title"]]] : [];
         })),
       },
     };

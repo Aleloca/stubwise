@@ -18,7 +18,7 @@ import {
   tickets,
   type Db,
 } from "@stubwise/db";
-import { aiBudgetState, writeClaudeFacts } from "@stubwise/notifications";
+import { aiBudgetState, projectPermissionsByProject, writeClaudeFacts } from "@stubwise/notifications";
 import { productBlockSchema, productFactSchema, productSearchText, type ProductBlock, type ProductFact } from "@stubwise/shared";
 import { and, asc, desc, eq, lt, ne, sql } from "drizzle-orm";
 import { NATIVE_TOOLS } from "../agent/native-tools.js";
@@ -242,11 +242,40 @@ export async function runProductDocJob(deps: ProductDocJobDeps, job: JobRow): Pr
   if (job.sourceKind === "page_update") {
     const [u] = await db.select().from(productPageUpdates).where(eq(productPageUpdates.id, job.sourceId));
     if (!u) return finish(db, job.id, "done", "update_gone").then(() => "done");
+    // Chi ha chiesto si ricontrolla qui, a ogni partenza (review di F6, M4): un
+    // lavoro fermo può ripartire dopo ore, e la revoca vale a lettura.
+    const refusal = await requesterRefusal(db, job.projectId, u);
+    if (refusal !== null) {
+      await db.update(productPageUpdates).set({ finishedAt: new Date() }).where(eq(productPageUpdates.id, u.id));
+      return finish(db, job.id, "done", refusal).then(() => "done");
+    }
     const out = await runSourceJob(deps, job, { kind: u.sourceKind, id: u.sourceId }, u.pageId, u.requestedBy);
     if (out === "done" || out === "failed") await db.update(productPageUpdates).set({ finishedAt: new Date() }).where(eq(productPageUpdates.id, u.id));
     return out;
   }
   return runSourceJob(deps, job, { kind: job.sourceKind as SourceRef["kind"], id: job.sourceId }, null, null);
+}
+
+/**
+ * Perché chi ha chiesto un aggiornamento non può più (o null): `docs.edit` nel
+ * progetto, e la fonte sua da aprire (`mailbox_owner`: la casella è sua, per
+ * un'email o per la nota della riunione). Le stesse regole di
+ * `requestProductPageUpdate` del server, rilette quando il lavoro parte.
+ */
+async function requesterRefusal(db: Db, projectId: string, u: typeof productPageUpdates.$inferSelect): Promise<string | null> {
+  if (u.requestedBy === null) return "requester_gone";
+  const perms = (await projectPermissionsByProject(db, u.requestedBy, [projectId])).get(projectId);
+  if (perms?.has("docs.edit") !== true) return "requester_no_permission";
+  const [owner] =
+    u.sourceKind === "email"
+      ? await db.select({ userId: googleAccounts.userId }).from(emailMessages).innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId)).where(eq(emailMessages.id, u.sourceId))
+      : await db
+          .select({ userId: googleAccounts.userId })
+          .from(meetingNotes)
+          .innerJoin(emailMessages, eq(emailMessages.id, meetingNotes.sourceMessageId))
+          .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+          .where(eq(meetingNotes.id, u.sourceId));
+  return owner?.userId === u.requestedBy ? null : "requester_cannot_open_source";
 }
 
 /** Una fonte che il modello legge (non la prima versione né una bozza, che hanno il loro lavoro). */

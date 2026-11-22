@@ -92,15 +92,18 @@ async function proposeAndConfirm(who: U, actions: unknown[]) {
   return { view: view!, confirmed, groupId: (confirmed.json() as { groupId?: string }).groupId ?? null, sid };
 }
 const undo = (who: U, groupId: string) => inject(who, "POST", `/api/claude/groups/${groupId}/undo`);
+/** I codici che la vista del gruppo dà a ogni azione (la frase «fatto» li nomina). */
+const groupCodes = async (who: U, sid: string) => ((await inject(who, "GET", `/api/claude/conversations/${sid}/groups`)).json() as { actions: { codes: string[] }[] }[]).map((g) => g.actions.map((a) => a.codes));
 
 describe("drawWireframe e deleteWireframe", () => {
   it("B con `starts_work`: il blocco e il lavoro alla conferma (mai a secco); «Annulla» toglie la bozza e la sua riga", async () => {
     const s = await space();
     const p = await page(s);
-    const { view, confirmed, groupId } = await proposeAndConfirm(ada, [{ fn: "drawWireframe", args: { pageId: p.id, afterId: p.firstBlockId } }]);
+    const { view, confirmed, groupId, sid } = await proposeAndConfirm(ada, [{ fn: "drawWireframe", args: { pageId: p.id, afterId: p.firstBlockId } }]);
     expect(view.cls).toBe("B");
     expect(view.reasons.map((r) => r.kind)).toContain("starts_work");
     expect(confirmed.statusCode, confirmed.body).toBe(200);
+    expect(await groupCodes(ada, sid)).toEqual([[[p.code]]]);
     const [wf] = await t.db.select().from(productWireframes).where(eq(productWireframes.pageId, p.id));
     expect(wf).toMatchObject({ status: "drawing", requestedBy: ada.id });
     expect(await t.db.select().from(productDocJobs).where(eq(productDocJobs.sourceId, wf!.id))).toHaveLength(1);
@@ -116,7 +119,7 @@ describe("drawWireframe e deleteWireframe", () => {
   it("senza `docs.edit` (Viewer) è rifiutata, e non nasce niente; col budget finito pure", async () => {
     const s = await space();
     const p = await page(s);
-    expect((await propose(vic, [{ fn: "drawWireframe", args: { pageId: p.id } }])).body).toMatchObject({ status: "refused" });
+    expect((await propose(vic, [{ fn: "drawWireframe", args: { pageId: p.id } }])).body).toMatchObject({ status: "refused", reason: expect.stringContaining("missing docs.edit") });
     // La conversazione prima: col budget finito non se ne apre una nuova.
     const turn = await open(ada);
     await t.db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "0" }).onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "0" } });
@@ -153,9 +156,12 @@ describe("undoProductUpdate", () => {
     await t.db.delete(productSectionHolds).where(eq(productSectionHolds.pageId, p.id));
     const kept = (await inject(ada, "POST", `/api/product-pages/${p.id}/wireframes/${blockId}/keep`)).json() as { revisionId: string };
     await t.db.delete(productSectionHolds).where(eq(productSectionHolds.pageId, p.id));
-    const { view, confirmed } = await proposeAndConfirm(ada, [{ fn: "undoProductUpdate", args: { revisionId: kept.revisionId } }]);
+    const { view, confirmed, sid } = await proposeAndConfirm(ada, [{ fn: "undoProductUpdate", args: { revisionId: kept.revisionId } }]);
     expect(view.cls).toBe("B");
     expect(confirmed.statusCode, confirmed.body).toBe(200);
+    // Il gruppo dice la pagina (richiesta di 94): il codice risolto dalla revisione, come per `updateProductPage`.
+    const [group] = (await inject(ada, "GET", `/api/claude/conversations/${sid}/groups`)).json() as { actions: { codes: string[] }[] }[];
+    expect(group!.actions[0]!.codes).toEqual([p.code]);
     const after = (await inject(ada, "GET", `/api/product-pages/by-code/${p.code}`)).json() as ProductPageView;
     expect(after.blocks.find((b) => b.id === blockId)).not.toHaveProperty("kept");
   });
@@ -166,23 +172,24 @@ describe("updateProductPage", () => {
     const s = await space();
     const p = await page(s);
     const args = { pageId: p.id, source: { kind: "email", id: s.adaMail.messageId } };
-    const { view, confirmed } = await proposeAndConfirm(ada, [{ fn: "updateProductPage", args }]);
+    const { view, confirmed, sid } = await proposeAndConfirm(ada, [{ fn: "updateProductPage", args }]);
     expect(view.cls).toBe("B");
     expect(view.reasons.map((r) => r.kind)).toEqual(expect.arrayContaining(["starts_work", "irreversible"]));
     expect(confirmed.statusCode, confirmed.body).toBe(200);
+    expect(await groupCodes(ada, sid)).toEqual([[[p.code]]]);
     const [u] = await t.db.select().from(productPageUpdates).where(eq(productPageUpdates.pageId, p.id));
     expect(u).toMatchObject({ sourceKind: "email", sourceId: s.adaMail.messageId, requestedBy: ada.id, finishedAt: null });
     expect(await t.db.select().from(productDocJobs).where(eq(productDocJobs.sourceId, u!.id))).toEqual([expect.objectContaining({ sourceKind: "page_update", status: "queued" })]);
-    expect((await propose(ada, [{ fn: "updateProductPage", args }])).body).toMatchObject({ status: "refused" });
+    expect((await propose(ada, [{ fn: "updateProductPage", args }])).body).toMatchObject({ status: "refused", reason: expect.stringContaining("already_updating") });
   });
 
   it("la fonte deve essere di chi chiede da aprire (l'email di Bea per Ada è come se non ci fosse) e del progetto; senza `docs.edit` niente", async () => {
     const s = await space();
     const p = await page(s);
-    expect((await propose(ada, [{ fn: "updateProductPage", args: { pageId: p.id, source: { kind: "email", id: s.beaMail.messageId } } }])).body).toMatchObject({ status: "refused" });
+    expect((await propose(ada, [{ fn: "updateProductPage", args: { pageId: p.id, source: { kind: "email", id: s.beaMail.messageId } } }])).body).toMatchObject({ status: "refused", reason: expect.stringContaining("not found, or not visible") });
     const other = await seedEmailMessage(t.db, { userId: ada.id, subject: "Di un altro progetto" });
-    expect((await propose(ada, [{ fn: "updateProductPage", args: { pageId: p.id, source: { kind: "email", id: other.messageId } } }])).body).toMatchObject({ status: "refused" });
-    expect((await propose(vic, [{ fn: "updateProductPage", args: { pageId: p.id, source: { kind: "email", id: s.adaMail.messageId } } }])).body).toMatchObject({ status: "refused" });
+    expect((await propose(ada, [{ fn: "updateProductPage", args: { pageId: p.id, source: { kind: "email", id: other.messageId } } }])).body).toMatchObject({ status: "refused", reason: expect.stringContaining("invalid_source") });
+    expect((await propose(vic, [{ fn: "updateProductPage", args: { pageId: p.id, source: { kind: "email", id: s.adaMail.messageId } } }])).body).toMatchObject({ status: "refused", reason: expect.stringContaining("missing docs.edit") });
     expect(await t.db.select().from(productPageUpdates).where(eq(productPageUpdates.pageId, p.id))).toEqual([]);
   });
 });
@@ -203,7 +210,7 @@ describe("writeFirstVersion e undoFirstVersion", () => {
 
   it("senza `docs.edit` (Viewer) è rifiutata", async () => {
     const s = await space();
-    expect((await propose(vic, [{ fn: "writeFirstVersion", args: { projectId: s.projectId, sources: [{ kind: "text", text: "x" }] } }])).body).toMatchObject({ status: "refused" });
+    expect((await propose(vic, [{ fn: "writeFirstVersion", args: { projectId: s.projectId, sources: [{ kind: "text", text: "x" }] } }])).body).toMatchObject({ status: "refused", reason: expect.stringContaining("missing docs.edit") });
     expect(await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.projectId, s.projectId))).toEqual([]);
   });
 });

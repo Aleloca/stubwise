@@ -145,6 +145,18 @@ describe("la prima versione nel worker", () => {
     expect(await pagesOf(projectId)).toEqual([]);
   });
 
+  it("«Stop» prima della bozza (il lavoro in coda o fermo per il limite): il modello non si chiama, la prima versione finisce interrotta e senza pagine", async () => {
+    const { projectId, fv } = await setup();
+    await t.db.update(productFirstVersions).set({ stopRequested: true }).where(eq(productFirstVersions.id, fv.id));
+    const job = (await claimProductDocJob(t.db))!;
+    expect(job.sourceId).toBe(fv.id);
+    const { runner, calls } = fakeRunner(DRAFT);
+    expect(await runProductDocJob({ db: t.db, runner, log }, job)).toBe("done");
+    expect(calls).toEqual([]);
+    expect((await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.id, fv.id)))[0]).toMatchObject({ status: "done", interrupted: true, error: null, pastedText: null });
+    expect(await pagesOf(projectId)).toEqual([]);
+  });
+
   it("la pausa della coda non ferma la prima versione (è un gesto di chi l'ha chiesta)", async () => {
     const { projectId, fv } = await setup();
     await t.db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, projectId));
