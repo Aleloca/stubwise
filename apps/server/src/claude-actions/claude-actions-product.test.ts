@@ -116,7 +116,7 @@ describe("drawWireframe e deleteWireframe", () => {
   it("senza `docs.edit` (Viewer) è rifiutata, e non nasce niente; col budget finito pure", async () => {
     const s = await space();
     const p = await page(s);
-    expect((await propose(vic, [{ fn: "drawWireframe", args: { pageId: p.id } }])).body).toMatchObject({ status: "refused" });
+    expect((await propose(vic, [{ fn: "drawWireframe", args: { pageId: p.id } }])).body).toMatchObject({ status: "refused", reason: expect.stringContaining("missing docs.edit") });
     // La conversazione prima: col budget finito non se ne apre una nuova.
     const turn = await open(ada);
     await t.db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "0" }).onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "0" } });
@@ -173,16 +173,16 @@ describe("updateProductPage", () => {
     const [u] = await t.db.select().from(productPageUpdates).where(eq(productPageUpdates.pageId, p.id));
     expect(u).toMatchObject({ sourceKind: "email", sourceId: s.adaMail.messageId, requestedBy: ada.id, finishedAt: null });
     expect(await t.db.select().from(productDocJobs).where(eq(productDocJobs.sourceId, u!.id))).toEqual([expect.objectContaining({ sourceKind: "page_update", status: "queued" })]);
-    expect((await propose(ada, [{ fn: "updateProductPage", args }])).body).toMatchObject({ status: "refused" });
+    expect((await propose(ada, [{ fn: "updateProductPage", args }])).body).toMatchObject({ status: "refused", reason: expect.stringContaining("already_updating") });
   });
 
   it("la fonte deve essere di chi chiede da aprire (l'email di Bea per Ada è come se non ci fosse) e del progetto; senza `docs.edit` niente", async () => {
     const s = await space();
     const p = await page(s);
-    expect((await propose(ada, [{ fn: "updateProductPage", args: { pageId: p.id, source: { kind: "email", id: s.beaMail.messageId } } }])).body).toMatchObject({ status: "refused" });
+    expect((await propose(ada, [{ fn: "updateProductPage", args: { pageId: p.id, source: { kind: "email", id: s.beaMail.messageId } } }])).body).toMatchObject({ status: "refused", reason: expect.stringContaining("not found, or not visible") });
     const other = await seedEmailMessage(t.db, { userId: ada.id, subject: "Di un altro progetto" });
-    expect((await propose(ada, [{ fn: "updateProductPage", args: { pageId: p.id, source: { kind: "email", id: other.messageId } } }])).body).toMatchObject({ status: "refused" });
-    expect((await propose(vic, [{ fn: "updateProductPage", args: { pageId: p.id, source: { kind: "email", id: s.adaMail.messageId } } }])).body).toMatchObject({ status: "refused" });
+    expect((await propose(ada, [{ fn: "updateProductPage", args: { pageId: p.id, source: { kind: "email", id: other.messageId } } }])).body).toMatchObject({ status: "refused", reason: expect.stringContaining("invalid_source") });
+    expect((await propose(vic, [{ fn: "updateProductPage", args: { pageId: p.id, source: { kind: "email", id: s.adaMail.messageId } } }])).body).toMatchObject({ status: "refused", reason: expect.stringContaining("missing docs.edit") });
     expect(await t.db.select().from(productPageUpdates).where(eq(productPageUpdates.pageId, p.id))).toEqual([]);
   });
 });
@@ -203,7 +203,7 @@ describe("writeFirstVersion e undoFirstVersion", () => {
 
   it("senza `docs.edit` (Viewer) è rifiutata", async () => {
     const s = await space();
-    expect((await propose(vic, [{ fn: "writeFirstVersion", args: { projectId: s.projectId, sources: [{ kind: "text", text: "x" }] } }])).body).toMatchObject({ status: "refused" });
+    expect((await propose(vic, [{ fn: "writeFirstVersion", args: { projectId: s.projectId, sources: [{ kind: "text", text: "x" }] } }])).body).toMatchObject({ status: "refused", reason: expect.stringContaining("missing docs.edit") });
     expect(await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.projectId, s.projectId))).toEqual([]);
   });
 });

@@ -25,7 +25,7 @@ import {
 } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { ProductBlock } from "@stubwise/shared";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { AgentRunOptions, AgentRunResult, AgentRunner } from "../agent/runner.js";
 import { PRODUCT_DOC_HOURLY_MAX, claimProductDocJob, pollProductDocsOnce, runProductDocJob, selectPromptPages } from "./job.js";
@@ -439,7 +439,8 @@ describe("F6, Task 4: l'aggiornamento chiesto a mano (`page_update`, la voce `up
     const pg = await page();
     const [other] = await t.db.insert(productPages).values({ projectId, title: "Altra pagina", blocks: blocks() as unknown[], revSeq: 1 }).returning();
     const m = await mail();
-    const { update, job } = await manual(pg.id, m.id, personId);
+    // Chiede la titolare della casella: la fonte la deve poter aprire chi chiede (`mailbox_owner`).
+    const { update, job } = await manual(pg.id, m.id, ownerId);
     const { runner, calls } = fakeRunner(() => facts(replaceP1(pg.id), replaceP1(other!.id, { id: "f2" })));
     expect(await runProductDocJob({ db: t.db, runner, log }, job)).toBe("done");
     expect(calls).toHaveLength(1);
@@ -455,9 +456,9 @@ describe("F6, Task 4: l'aggiornamento chiesto a mano (`page_update`, la voce `up
   it("la sezione presa da CHI HA CHIESTO non lo fa aspettare; presa da un altro sì, e la richiesta resta viva", async () => {
     const pg = await page();
     const m = await mail();
-    await t.db.insert(productSectionHolds).values({ pageId: pg.id, sectionId: H1, userId: personId, expiresAt: new Date(Date.now() + 60_000) });
+    await t.db.insert(productSectionHolds).values({ pageId: pg.id, sectionId: H1, userId: ownerId, expiresAt: new Date(Date.now() + 60_000) });
     const fact = { ...replaceP1(pg.id), anchorId: P2, before: { text: "Spediamo in 48 ore.", marks: [] }, change: { kind: "replace", text: { text: "Spediamo in 24 ore.", marks: [] } } };
-    const mine = await manual(pg.id, m.id, personId);
+    const mine = await manual(pg.id, m.id, ownerId);
     expect(await runProductDocJob({ db: t.db, runner: fakeRunner(() => facts(fact)).runner, log }, mine.job)).toBe("done");
     expect(await textOf(pg.id, P2)).toBe("Spediamo in 24 ore.");
 
@@ -474,8 +475,32 @@ describe("F6, Task 4: l'aggiornamento chiesto a mano (`page_update`, la voce `up
     const pg = await page();
     const m = await mail();
     await t.db.update(projects).set({ queuePausedAt: new Date() }).where(eq(projects.id, projectId));
-    const { job } = await manual(pg.id, m.id, personId);
+    const { job } = await manual(pg.id, m.id, ownerId);
     expect(await runProductDocJob({ db: t.db, runner: fakeRunner(() => facts(replaceP1(pg.id))).runner, log }, job)).toBe("done");
     expect(await textOf(pg.id, P1)).toBe("Il cliente paga a 60 giorni.");
+  });
+
+  it("chi ha chiesto si ricontrolla quando il lavoro parte (review di F6, M4): `docs.edit` tolto mentre il lavoro era fermo chiude il lavoro, senza modello; una fonte che non può aprire pure", async () => {
+    const pg = await page();
+    const m = await mail();
+    const { update, job } = await manual(pg.id, m.id, ownerId);
+    // Il lavoro era fermo (sezione presa); intanto a Olga tolgono `docs.edit` (Viewer): la revoca vale a lettura.
+    const [viewer] = await t.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "viewer"));
+    await t.db.update(projectMembers).set({ roleId: viewer!.id }).where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, ownerId)));
+    const { runner, calls } = fakeRunner(() => facts(replaceP1(pg.id)));
+    expect(await runProductDocJob({ db: t.db, runner, log }, job)).toBe("done");
+    expect(calls).toEqual([]);
+    expect(await jobRow(job.id)).toMatchObject({ status: "done", error: "requester_no_permission" });
+    expect(await textOf(pg.id, P1)).toBe("Il cliente paga a 30 giorni.");
+    expect((await t.db.select().from(productPageUpdates).where(eq(productPageUpdates.id, update.id)))[0]!.finishedAt).not.toBeNull();
+
+    // Piero ha `docs.edit` ma la casella è di Olga: la fonte non è sua da aprire.
+    const pg2 = await page();
+    const m2 = await mail();
+    const theirs = await manual(pg2.id, m2.id, personId);
+    const second = fakeRunner(() => facts(replaceP1(pg2.id)));
+    expect(await runProductDocJob({ db: t.db, runner: second.runner, log }, theirs.job)).toBe("done");
+    expect(second.calls).toEqual([]);
+    expect(await jobRow(theirs.job.id)).toMatchObject({ status: "done", error: "requester_cannot_open_source" });
   });
 });

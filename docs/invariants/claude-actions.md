@@ -117,9 +117,23 @@ che non stanno in un'area sola. Il catalogo è
   la sezione presa da lui non lo fa aspettare (`requesterId` di
   `writeClaudeFacts`); la pausa della coda no, il budget sì. Da qui non si
   annulla: la revisione arriva dopo, dal worker, e si annulla con
-  `undoProductUpdate` o dalla cronologia.
+  `undoProductUpdate` o dalla cronologia. Il worker RICONTROLLA chi ha chiesto
+  a ogni partenza del lavoro (`docs.edit` nel progetto e la fonte sua da
+  aprire): un lavoro fermo può ripartire dopo ore, e la revoca vale a lettura.
+  Se manca, il lavoro si chiude con `requester_no_permission`,
+  `requester_cannot_open_source` o `requester_gone`, senza modello.
 - Le letture `read_product_page` e `read_product_changes` sono contenuto NON
   fidato (`CHAT_TOOL_UNTRUSTED_ROUTES`) e registrano i loro progetti.
+- Col token di una chat `GET /api/product-changes` non manda MAI l'oggetto né
+  il thread di una fonte `email` o `meeting`, nemmeno al titolare: restano
+  tipo, titolare e `canOpen`. La lettura non è privata (vale anche in una
+  pubblica e nei turni di @Claude nei canali, ospiti compresi), quindi la
+  posta non ci entra; il ponte scarta comunque quei titoli da
+  `sourceTitles`. La rotta letta dal desktop resta com'è.
+- Limite accettato: la capacità `productBacklog` si accende con
+  `backlog.create` in un progetto qualunque, ma il flusso «Turn into backlog
+  items» chiede anche `docs.view` nel progetto della pagina. Chi ha il primo
+  senza il secondo vede la capacità e riceve un rifiuto alla proposta.
 - La pulizia delle immagini della doc sta in `services/product-images-purge.ts`
   e NON in `product-docs-ops.ts`: quel modulo lo raggiunge il catalogo, e lo
   storage da lì è un'uscita (`claude-actions-effects.test.ts`).

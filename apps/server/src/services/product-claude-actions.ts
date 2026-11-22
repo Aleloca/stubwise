@@ -13,7 +13,7 @@ import {
 import { aiBudgetState } from "@stubwise/notifications";
 import type { ProductChange, ProductChanges, ProductPageUpdateSource } from "@stubwise/shared";
 import { and, desc, eq, gte, inArray, isNull, ne, notExists } from "drizzle-orm";
-import { isAllProjects, projectIdsWithPermission, projectPermissionsFor } from "../auth/access.js";
+import { inProjects, isAllProjects, projectIdsWithPermission, projectPermissionsFor, scopeIncludes } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { namesFor, productSourceViews } from "./product-claude.js";
 import { ProductDocsError } from "./product-docs.js";
@@ -29,7 +29,12 @@ import { ProductDocsError } from "./product-docs.js";
  *   con la revisione di Claude e il suo «Undo»;
  * - i cambi recenti (`read_product_changes`): le revisioni delle pagine dei
  *   progetti in cui chi chiede legge i Docs, filtrate nella WHERE, con la
- *   fonte come la vede lui e i nomi solo se li vede (R-G5).
+ *   fonte come la vede lui e i nomi solo se li vede (R-G5). Col token di una
+ *   chat (`forChat`) l'oggetto e il thread di un'email o di una riunione non
+ *   escono MAI, nemmeno al titolare (review di F6, I1): la risposta può stare
+ *   in una conversazione pubblica o in un canale con ospiti, e la posta non va
+ *   mai in un posto condiviso (`mail-calendar.md`). Restano tipo, titolare e
+ *   `canOpen`. La rotta letta dal desktop resta com'è.
  * Questo modulo non nomina niente che scriva nel registro decisioni.
  */
 
@@ -104,12 +109,15 @@ export async function requestProductPageUpdate(
  * progetti in cui chi chiede ha `docs.view` (o del solo `projectId`, 404 se
  * non lo legge).
  */
-export async function listProductChanges(db: Db, viewer: Viewer, input: { projectId?: string; since: Date }): Promise<ProductChanges> {
+export async function listProductChanges(db: Db, viewer: Viewer, input: { projectId?: string; since: Date; forChat?: boolean }): Promise<ProductChanges> {
   const scope = await projectIdsWithPermission(db, viewer, "docs.view");
-  const all = isAllProjects(scope);
-  if (input.projectId !== undefined && !all && !scope.includes(input.projectId)) throw notFound();
-  if (!all && scope.length === 0) return { items: [], more: false };
-  const projectFilter = input.projectId !== undefined ? eq(productPages.projectId, input.projectId) : all ? undefined : inArray(productPages.projectId, scope);
+  // Un progetto archiviato o che non c'è è 404, anche per un full admin (review di F6, M2).
+  if (input.projectId !== undefined) {
+    if (!scopeIncludes(scope, input.projectId)) throw notFound();
+    if ((await db.select({ id: projects.id }).from(projects).where(eq(projects.id, input.projectId))).length === 0) throw notFound();
+  }
+  if (!isAllProjects(scope) && scope.length === 0) return { items: [], more: false };
+  const projectFilter = input.projectId !== undefined ? eq(productPages.projectId, input.projectId) : inProjects(productPages.projectId, scope);
   const rows = await db
     .select({
       revisionId: productPageRevisions.id,
@@ -140,6 +148,11 @@ export async function listProductChanges(db: Db, viewer: Viewer, input: { projec
     viewer,
     page.flatMap((r) => (r.sourceKind && r.sourceId ? [{ kind: r.sourceKind, id: r.sourceId }] : [])),
   );
+  const sourceOf = (r: (typeof page)[number]): ProductChange["source"] => {
+    if (!r.sourceKind || !r.sourceId) return null;
+    const view = sources.get(`${r.sourceKind}:${r.sourceId}`) ?? null;
+    return view && input.forChat === true && (view.kind === "email" || view.kind === "meeting") ? { ...view, title: null, thread: null } : view;
+  };
   const items: ProductChange[] = page.map((r) => ({
     revisionId: r.revisionId,
     pageId: r.pageId,
@@ -150,7 +163,7 @@ export async function listProductChanges(db: Db, viewer: Viewer, input: { projec
     via: r.via,
     actorName: nameOf(r.actorId),
     onBehalfOfName: nameOf(r.onBehalfOf),
-    source: r.sourceKind && r.sourceId ? (sources.get(`${r.sourceKind}:${r.sourceId}`) ?? null) : null,
+    source: sourceOf(r),
     at: r.at.toISOString(),
   }));
   return { items, more: rows.length > PRODUCT_CHANGES_MAX };

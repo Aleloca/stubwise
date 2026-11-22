@@ -678,6 +678,8 @@ export async function productDocsRoutes(instance: FastifyInstance): Promise<void
         listProductChanges(app.db, request.user!, {
           ...(request.query.projectId !== undefined ? { projectId: request.query.projectId } : {}),
           since: request.query.since !== undefined ? new Date(request.query.since) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+          // Col token del turno l'oggetto della posta non esce (review di F6, I1).
+          forChat: request.user!.chatToolSessionId !== undefined,
         }),
       ),
   );
