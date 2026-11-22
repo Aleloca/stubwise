@@ -163,9 +163,12 @@ Fetta 4: renderer (sotto, «Chiuse»).
   scelta dell'orchestratrice dell'11 nov 2026). Un valore a sé vuole il CHECK
   della 0140 e il client: da riprendere col prossimo aggiornamento del pin del
   CLI.
-- Limite *(S, renderer della fetta 4)*: un invio con più file si ferma al primo
+- ~~Limite *(S, renderer della fetta 4)*: un invio con più file si ferma al primo
   file rifiutato; quelli già caricati restano «in sospeso» e il server li pota
-  dopo 24 ore (non li si toglie con `DELETE /api/chat/attachments/:id`).
+  dopo 24 ore (non li si toglie con `DELETE /api/chat/attachments/:id`).~~
+  Chiusa il 23 nov 2026 (rimandi, lotto 1): un invio fallito (un file o il
+  messaggio rifiutati) toglie i file già caricati con
+  `client.chat.attachments.remove`, al meglio (`real/chat.ts`, `dropPending`).
 - `@channel` e `@reparto` non avvisano nessuno (R-G6). È la regola della fetta
   1, da riprendere se il maintainer vuole avvisi di gruppo.
 - Limite accettato: modificare un messaggio avvisa solo chi viene nominato

@@ -145,6 +145,10 @@ describe("endpoints chat", () => {
     expect(((init?.body as FormData).get("file") as File).name).toBe("spec.pdf");
     expect(new Headers(init?.headers).get("content-type")).toBeNull();
     expect(up.c.chat.attachments.downloadPath(MSG)).toBe(`/api/chat/attachments/${MSG}/download`);
+    // Registro, A4 r.166: togliere un allegato in sospeso (204).
+    const drop = client(null, 204);
+    await drop.c.chat.attachments.remove(MSG);
+    expect(last(drop.fetchImpl)).toMatchObject({ url: `/api/chat/attachments/${MSG}`, method: "DELETE" });
     const one = client(channel);
     await one.c.chat.channels.setEvents(CH, ["task_closed", "pr_merged"]);
     expect(last(one.fetchImpl)).toEqual({ url: `/api/chat/channels/${CH}/events`, method: "PUT", body: { events: ["task_closed", "pr_merged"] } });

@@ -178,6 +178,10 @@ export function createChatEndpoints(request: ApiRequest) {
       downloadPath(id: string): string {
         return `/api/chat/attachments/${seg(id)}/download`;
       },
+      /** Togliere un allegato ancora in sospeso: solo chi l'ha caricato (404 agli altri e a uno già legato). */
+      remove(id: string): Promise<void> {
+        return request("DELETE", `/api/chat/attachments/${seg(id)}`);
+      },
     },
     /** Le domande rivolte a chi guarda, aperte («Da decidere»). */
     questions() {

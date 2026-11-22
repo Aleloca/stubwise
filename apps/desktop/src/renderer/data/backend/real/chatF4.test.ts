@@ -179,6 +179,79 @@ describe("gli allegati", () => {
     }
   });
 
+  // Registro, A4 r.166: un invio rifiutato a metà non lascia «in sospeso» i
+  // file già caricati (il server li poterebbe solo dopo 24 ore): si tolgono
+  // con DELETE /api/chat/attachments/:id, e l'errore resta quello dell'invio.
+  describe("un invio rifiutato a metà toglie i file già caricati", () => {
+    const drafts = [
+      { id: "draft-1", name: "mock.png", sizeBytes: 4, kind: "image" as const, file: new Blob(["png!"], { type: "image/png" }) },
+      { id: "draft-2", name: "tool.exe", sizeBytes: 4, kind: "file" as const, file: new Blob(["MZ"]) },
+    ];
+    const deleted = (seen: { method: string; path: string }[]) =>
+      seen.filter((r) => r.method === "DELETE").map((r) => r.path);
+
+    it("il secondo file rifiutato: il primo si toglie, l'errore è quello del file", async () => {
+      let n = 0;
+      const { seen } = install({
+        [`POST /api/chat/channels/${CH}/attachments`]: () => {
+          n += 1;
+          return n === 1
+            ? { status: 201, body: attachment(A1, "mock.png", "image/png") }
+            : { status: 400, body: { code: "unsupported_type", message: "x" } };
+        },
+        [`DELETE /api/chat/attachments/${A1}`]: { status: 204, body: null },
+      });
+      await getSessionPerson();
+      await expect(chat.sendMessage(CH, { text: "see", attachments: drafts })).rejects.toThrow("invalid: attachmentType");
+      expect(deleted(seen)).toEqual([`/api/chat/attachments/${A1}`]);
+      expect(seen.some((r) => r.path === `/api/chat/channels/${CH}/messages`)).toBe(false);
+    });
+
+    it("il messaggio rifiutato: si tolgono tutti i file caricati", async () => {
+      let n = 0;
+      const { seen } = install({
+        [`POST /api/chat/channels/${CH}/attachments`]: () => {
+          n += 1;
+          return { status: 201, body: n === 1 ? attachment(A1, "mock.png", "image/png") : attachment(A2, "spec.pdf", "application/pdf") };
+        },
+        [`POST /api/chat/channels/${CH}/messages`]: { status: 403, body: { code: "forbidden", message: "x" } },
+        [`DELETE /api/chat/attachments/${A1}`]: { status: 204, body: null },
+        [`DELETE /api/chat/attachments/${A2}`]: { status: 204, body: null },
+      });
+      await getSessionPerson();
+      await expect(chat.sendMessage(CH, { text: "see", attachments: drafts })).rejects.toThrow();
+      expect(deleted(seen).sort()).toEqual([`/api/chat/attachments/${A1}`, `/api/chat/attachments/${A2}`]);
+    });
+
+    it("una pulizia che non riesce non copre l'errore dell'invio", async () => {
+      let n = 0;
+      install({
+        [`POST /api/chat/channels/${CH}/attachments`]: () => {
+          n += 1;
+          return n === 1
+            ? { status: 201, body: attachment(A1, "mock.png", "image/png") }
+            : { status: 413, body: { code: "file_too_large", message: "x" } };
+        },
+        [`DELETE /api/chat/attachments/${A1}`]: { status: 500, body: { code: "internal", message: "x" } },
+      });
+      await getSessionPerson();
+      await expect(chat.sendMessage(CH, { text: "see", attachments: drafts })).rejects.toThrow("invalid: attachmentSize");
+    });
+
+    it("un invio riuscito non toglie niente", async () => {
+      const { seen } = install({
+        [`POST /api/chat/channels/${CH}/attachments`]: { status: 201, body: attachment(A1, "mock.png", "image/png") },
+        [`POST /api/chat/channels/${CH}/messages`]: {
+          status: 201,
+          body: message({ authorId: ME_ID, attachments: [attachment(A1, "mock.png", "image/png")] }),
+        },
+      });
+      await getSessionPerson();
+      await chat.sendMessage(CH, { text: "see", attachments: [drafts[0]!] });
+      expect(deleted(seen)).toEqual([]);
+    });
+  });
+
   it("la ricerca «con allegati»", async () => {
     const { seen } = install({ "GET /api/chat/search": { body: { items: [] } } });
     await getSessionPerson();

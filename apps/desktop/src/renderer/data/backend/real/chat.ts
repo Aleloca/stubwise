@@ -566,12 +566,36 @@ const citationsOf = (refs: readonly CitationRef[] | undefined) =>
   );
 
 /**
+ * Toglie i file caricati da un invio che non è andato in porto (registro, A4
+ * r.166): senza, restavano «in sospeso» finché il server non li potava, 24
+ * ore dopo. Al meglio: un file già legato o già tolto è un 404, e una pulizia
+ * che non riesce non deve coprire l'errore dell'invio.
+ */
+async function dropPending(ids: readonly string[]): Promise<void> {
+  await Promise.allSettled(ids.map((id) => appClient().chat.attachments.remove(id)));
+}
+
+/**
  * L'invio: prima ogni file della casella si carica nel canale (uno alla volta,
  * nell'ordine), poi il messaggio li lega con `attachmentIds`. Un file rifiutato
- * ferma l'invio prima del messaggio (`invalid: attachmentType|Size|sOff`).
+ * ferma l'invio prima del messaggio (`invalid: attachmentType|Size|sOff`); un
+ * invio fallito toglie i file che aveva già caricato.
  */
 const sendMessage: Chat["sendMessage"] = async (channelId, input) => {
   const attachmentIds: string[] = [];
+  try {
+    return await sendWith(channelId, input, attachmentIds);
+  } catch (error) {
+    await dropPending(attachmentIds);
+    throw error;
+  }
+};
+
+async function sendWith(
+  channelId: Parameters<Chat["sendMessage"]>[0],
+  input: Parameters<Chat["sendMessage"]>[1],
+  attachmentIds: string[],
+): ReturnType<Chat["sendMessage"]> {
   for (const a of input.attachments ?? []) {
     if (!a.file) continue;
     const file = a.file;
@@ -598,7 +622,7 @@ const sendMessage: Chat["sendMessage"] = async (channelId, input) => {
       }),
     ),
   );
-};
+}
 
 const editMessage: Chat["editMessage"] = async (id, text) =>
   toMessage(await call(() => appClient().chat.messages.edit(id, text)));
