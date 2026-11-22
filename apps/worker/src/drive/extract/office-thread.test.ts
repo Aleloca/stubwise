@@ -36,7 +36,16 @@ describe("extractOfficeInThread", () => {
   }, 30_000);
 
   it("oltre il tetto di memoria del thread: `limits`, il worker non muore", async () => {
-    const f = await file(zipSync({ "word/document.xml": strToU8(`<w:t>${"parola ".repeat(5_000_000)}</w:t>`), "pad.bin": [new Uint8Array(400_000), { level: 0 }] }));
-    expect((await extractOfficeInThread(f, { maxOldGenerationSizeMb: 8, timeoutMs: 20_000 })).kind).not.toBe("ok");
-  }, 30_000);
+    // Un milione di paragrafi con un'entità (circa 40 MB, sotto il tetto di 50 MB
+    // e, col riempitivo non compresso, sotto il rapporto 100): ogni testo si
+    // decodifica in una stringa NUOVA sullo heap e restano tutte vive insieme
+    // (l'elenco dei pezzi, poi le righe). Un testo solo e senza entità resterebbe
+    // invece fuori dallo heap (la stringa esterna del decoder e le sue fette), e
+    // il tetto scatterebbe o no a seconda del GC.
+    const xml = `<w:body>${"<w:p><w:t>parola &amp; altra</w:t></w:p>".repeat(1_000_000)}</w:body>`;
+    const f = await file(zipSync({ "word/document.xml": strToU8(xml), "pad.bin": [new Uint8Array(600_000), { level: 0 }] }));
+    // Lo stesso archivio, senza tetto stretto, si legge: è la memoria a fermarlo, non i limiti dello zip.
+    expect((await extractOfficeInThread(f, { timeoutMs: 20_000 })).kind).toBe("ok");
+    expect(await extractOfficeInThread(f, { maxOldGenerationSizeMb: 8, timeoutMs: 20_000 })).toEqual({ kind: "limits" });
+  }, 60_000);
 });
