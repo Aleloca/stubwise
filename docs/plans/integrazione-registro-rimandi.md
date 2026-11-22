@@ -1282,11 +1282,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     riaprire arrivate (F7, Task 3)**; eliminare resta a mano (la rotta è
     solo dei full admin, col codice scritto: nessuna voce);
   - Permessi dei reparti, i Minor della review di F8 *(S ciascuno)*:
-    - la riconferma del `PATCH` si decide sul salvato letto FUORI dalla
+    - ~~la riconferma del `PATCH` si decide sul salvato letto FUORI dalla
       transazione. Un `memberIds` intero mandato da una bozza vecchia, senza
       `ifMatch`, può rimettere una persona tolta nel frattempo senza
       riconferma. Con `ifMatch` è un 409 `stale`. Va ricalcolata dentro la
-      transazione (`reauth_required`);
+      transazione (`reauth_required`);~~ *Chiusa il 23 nov 2026 (72)*: il
+      giudizio si rifà sul salvato bloccato; se ora serve e fuori non era
+      servita, la transazione si annulla, risponde `requireReauth` (la stessa
+      regola) e, se la riconferma c'è, si riscrive. Test della corsa in
+      `department-reauth-race.test.ts`;
     - il 403 `escalation` di chi entra in un progetto porta solo
       `permission`, non `missing` (il `PATCH` del reparto sì);
     - il costo sul ripiego (tutti): togliere un suo permesso blocca e conta i
