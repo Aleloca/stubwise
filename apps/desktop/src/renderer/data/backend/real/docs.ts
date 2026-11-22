@@ -758,6 +758,34 @@ const askDocs: Docs["askDocs"] = async ({ projectId, repositoryId, question }) =
   };
 };
 
+/** Lo slug del repository (le rotte del repository vanno per slug), dagli spazi letti. */
+async function slugOfRepository(repositoryId: string): Promise<string | null> {
+  if (!spaceOf.get(repositoryId)?.slug) await projectOfRepository(repositoryId).catch(() => null);
+  const known = spaceOf.get(repositoryId)?.slug;
+  if (known) return known;
+  const spaces = (await readOrNone(() => appClient().docs.spaces())) ?? [];
+  return spaces.find((s) => s.repositoryId === repositoryId)?.slug ?? null;
+}
+
+/**
+ * «Genera» su un grafo spento lo accende, come nel prototipo (registro, A5
+ * r.209): il server risponde 412 `graph_disabled`, il desktop accende
+ * `graphEnabled` sul repository (PATCH, `repos.manage` deciso dal server: un
+ * 403 è `forbidden`) e genera di nuovo. Solo «Genera»: rigenerare o
+ * ricostruire un grafo spento resta un errore.
+ */
+async function generateEnabling(repositoryId: string) {
+  try {
+    return await appClient().graph.generate(repositoryId, {});
+  } catch (error) {
+    if (!(error instanceof ApiError && error.code === "graph_disabled")) throw error;
+    const slug = await slugOfRepository(repositoryId);
+    if (!slug) throw new Error("not_found");
+    await appClient().repositories.setGraphEnabled(slug, true);
+    return await appClient().graph.generate(repositoryId, {});
+  }
+}
+
 /**
  * Le azioni del grafo (`repos.manage`, lo dice la rotta): genera e rigenera
  * (lo stesso «costruisci»), ricostruisci da zero (`force`), la PR di setup.
@@ -767,7 +795,9 @@ const graphAction: Docs["graphAction"] = async (repositoryId, kind) => {
   await write(() =>
     kind === "setup_pr"
       ? appClient().graph.setupPr(repositoryId)
-      : appClient().graph.generate(repositoryId, kind === "rebuild" ? { force: true } : {}),
+      : kind === "generate"
+        ? generateEnabling(repositoryId)
+        : appClient().graph.generate(repositoryId, kind === "rebuild" ? { force: true } : {}),
   );
   return graphNow(repositoryId);
 };

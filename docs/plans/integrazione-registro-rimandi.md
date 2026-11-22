@@ -215,8 +215,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - Differenze dichiarate del renderer (fetta 1, *S*): le «pagine toccate» da
   una nota di rilascio (il server non le dà); l'estratto negli elenchi; lo
   slug di una manuale che non cambia; il riassunto e le vicine delle comunità
-  del grafo; «Abilita» il grafo dal desktop (impostazioni del repository non
-  integrate). Elenco completo in `apps/desktop/docs/integration-area5-f1.md`.
+  del grafo; ~~«Abilita» il grafo dal desktop (impostazioni del repository non
+  integrate)~~ (chiusa il 23 nov 2026, rimandi, lotto 1: «Genera» su un grafo
+  spento lo accende con PATCH `graphEnabled` e poi genera, `real/docs.ts`).
+  Elenco completo in `apps/desktop/docs/integration-area5-f1.md`.
 - Stato della PR di setup del grafo *(S, fetta 1, review del renderer)*: il
   server dà l'indirizzo della PR (`setupPrUrl`), non se è aperta, mergiata o
   chiusa; il desktop la mostra sempre aperta.

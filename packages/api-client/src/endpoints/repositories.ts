@@ -67,6 +67,13 @@ export function createRepositoriesEndpoints(request: ApiRequest) {
       return request("PATCH", `/api/repositories/${seg(slug)}`, patch, repositorySchema);
     },
     /**
+     * Registro, A5 r.209: accende o spegne il grafo del repository
+     * (`repos.manage`): solo `graphEnabled`, il resto resta invariato (patch).
+     */
+    setGraphEnabled(slug: string, enabled: boolean): Promise<Reader<Repository>> {
+      return request("PATCH", `/api/repositories/${seg(slug)}`, { graphEnabled: enabled }, repositorySchema);
+    },
+    /**
      * Area 9, F5: un segreto del webhook git nuovo (`repos.manage`,
      * riconferma). Il segreto si legge solo qui (`manual` e `platform`); con
      * `rollback` resta il vecchio. 422 `webhook_scope_missing`, 502

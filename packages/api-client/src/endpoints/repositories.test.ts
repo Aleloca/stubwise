@@ -43,6 +43,17 @@ describe("endpoints repositories", () => {
     expect(fetchImpl.mock.calls.at(-1)![1]?.method).toBe("GET");
   });
 
+  // Registro, A5 r.209: «Abilita» il grafo dal desktop, solo quel campo.
+  it("setGraphEnabled: PATCH per slug col solo `graphEnabled`", async () => {
+    const { client, fetchImpl } = clientConRepository();
+    const r = await client.repositories.setGraphEnabled("portale-b2b", true);
+    const [url, init] = fetchImpl.mock.calls.at(-1)!;
+    expect(String(url)).toBe("/api/repositories/portale-b2b");
+    expect(init?.method).toBe("PATCH");
+    expect(JSON.parse(String(init?.body))).toEqual({ graphEnabled: true });
+    expect(r.graphEnabled).toBe(true);
+  });
+
   it("uno slug con caratteri da codificare non esce dal path", async () => {
     const { client, fetchImpl } = clientConRepository();
     await client.repositories.get("a/b?c");

@@ -470,6 +470,68 @@ describe("il grafo del codice", () => {
       ["setup-pr", undefined],
     ]);
   });
+  // Registro, A5 r.209: «Genera» su un grafo spento lo accende dal desktop
+  // (PATCH del repository, `repos.manage` deciso dal server), poi lo genera.
+  it("«Genera» su un grafo spento (412 graph_disabled): lo accende per slug, poi genera", async () => {
+    let enabled = false;
+    const { seen } = install({
+      [`GET /api/repositories/${REPO}/graph`]: () => ({ body: enabled ? graph({ jobPending: true }) : graph({ enabled: false }) }),
+      [`POST /api/repositories/${REPO}/graph/generate`]: () =>
+        enabled
+          ? { status: 202, body: { queued: true } }
+          : { status: 412, body: { code: "graph_disabled", message: "x" } },
+      "PATCH /api/repositories/audin-app": () => {
+        enabled = true;
+        return {
+          body: {
+            id: REPO,
+            projectId: PROJECT_ID,
+            name: "audin-app",
+            slug: "audin-app",
+            provider: "github",
+            repoUrl: "https://github.com/acme/audin-app",
+            defaultBranch: "main",
+            testCommand: null,
+            installCommand: null,
+            webhookConfiguredAt: null,
+            graphEnabled: true,
+            createdAt: "2026-08-01T10:00:00.000Z",
+          },
+        };
+      },
+    });
+    await getSessionPerson();
+    await docs.listDocSpaces(PROJECT_ID);
+    expect(await docs.graphAction(REPO, "generate")).toMatchObject({ status: "queued" });
+    expect(seen.filter((r) => r.method !== "GET").map((r) => `${r.method} ${r.path}`)).toEqual([
+      `POST /api/repositories/${REPO}/graph/generate`,
+      "PATCH /api/repositories/audin-app",
+      `POST /api/repositories/${REPO}/graph/generate`,
+    ]);
+    expect(seen.find((r) => r.method === "PATCH")!.body).toEqual({ graphEnabled: true });
+  });
+
+  it("accenderlo senza repos.manage (403): forbidden, e non si genera", async () => {
+    const { seen } = install({
+      [`POST /api/repositories/${REPO}/graph/generate`]: { status: 412, body: { code: "graph_disabled", message: "x" } },
+      "PATCH /api/repositories/audin-app": { status: 403, body: { code: "forbidden", message: "x" } },
+    });
+    await getSessionPerson();
+    await docs.listDocSpaces(PROJECT_ID);
+    const error = await docs.graphAction(REPO, "generate").then(() => null, (e: Error) => e);
+    expect(error?.message).toBe("forbidden");
+    expect(seen.filter((r) => r.method === "POST")).toHaveLength(1);
+  });
+
+  it("rigenerare un grafo spento non lo accende: solo «Genera» lo fa", async () => {
+    const { seen } = install({
+      [`POST /api/repositories/${REPO}/graph/generate`]: { status: 412, body: { code: "graph_disabled", message: "x" } },
+    });
+    await getSessionPerson();
+    await docs.listDocSpaces(PROJECT_ID);
+    await docs.graphAction(REPO, "regenerate").catch(() => undefined);
+    expect(seen.some((r) => r.method === "PATCH")).toBe(false);
+  });
 });
 
 describe("lo stato della generazione col motivo (server dopo 1deba629)", () => {

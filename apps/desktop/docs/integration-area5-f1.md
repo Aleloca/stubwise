@@ -62,8 +62,9 @@ arrivano «come oggi» (maintainer): nessuna funzione oltre il prototipo.
 - **Brief**: i percorsi sono un titolo e un riassunto (un solo passo); le fonti
   sono percorsi.
 - **Grafo**: il resoconto non dà il riassunto delle comunità né le comunità
-  vicine; «Abilita» su un grafo spento non funziona dal desktop (si accende
-  nelle impostazioni del repository, non integrate) e dice l'errore;
+  vicine; «Abilita» su un grafo spento lo accende dal desktop (dal 23 nov
+  2026: al 412 `graph_disabled` di «Genera», PATCH del repository con
+  `graphEnabled: true`, `repos.manage` deciso dal server, poi «Genera»);
   `graph.json` scaricato è quello composto dallo stato, non il file del server.
 - **PR di setup del grafo**: il server dà solo l'indirizzo, non se è aperta,
   mergiata o chiusa; il renderer la mostra sempre «aperta» (`open: true`).
