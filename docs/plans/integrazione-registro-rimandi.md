@@ -280,8 +280,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   il server tiene una casella per Workspace; il cassetto del desktop ne mostra
   una (quella da ricollegare, se c'è, altrimenti la prima). La Posta e il
   Calendario le mostrano tutte. Da riprendere con la F5 (Drive Google).
-  **Ancora aperta** (23 nov 2026, verificata nel codice): la F5 non l'ha toccata, `drawerAccount` di
-  `real/google.ts` sceglie ancora una casella sola.
+  **Limite accettato** (decisione del maintainer, 23 nov 2026): «resta una
+  casella». Il cassetto mostra quella da ricollegare, altrimenti la prima; le
+  altre stanno in Posta e Calendario (`drawerAccount` di `real/google.ts`).
+  Il prototipo ha un account Google per persona: non c'è un cassetto a più
+  caselle da copiare.
 - Ritorno OAuth della casella all'app con `stubwise://` *(S, F1, decisione
   dell'orchestratrice)*: oggi il callback resta quello del web («puoi tornare
   all'app») e il desktop rilegge le caselle mentre «Collega» aspetta e al
