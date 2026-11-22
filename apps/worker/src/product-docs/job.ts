@@ -9,6 +9,7 @@ import {
   googleAccounts,
   meetingNotes,
   productDocJobs,
+  productFirstVersions,
   productPageUpdates,
   productPages,
   projectDecisions,
@@ -187,6 +188,23 @@ const hold = (db: Db, id: string, reason: "limit" | "budget" | "section_busy" | 
       finishedAt: new Date(),
     })
     .where(eq(productDocJobs.id, id));
+/**
+ * La sosta di una prima versione (revisione, M3): rilegge `stop_requested` con la
+ * riga bloccata, nello stesso giro della sosta. Uno «Stop» arrivato mentre il
+ * lavoro girava trova il lavoro `running` e segna solo lo stop: senza questa
+ * rilettura il lavoro andrebbe `held` e la prima versione resterebbe «Stopping…»
+ * fino al giro dopo. Stesso ordine dei lock di `stopFirstVersion` (prima la
+ * prima versione, poi il lavoro): o la sosta vede lo stop, o lo «Stop» vede il
+ * lavoro `held` e lo chiude da sé.
+ */
+const holdFirstVersion = (db: Db, id: string, firstVersionId: string, reason: "limit" | "budget"): Promise<"held" | "stopped"> =>
+  db.transaction(async (txRaw) => {
+    const tx = txRaw as unknown as Db;
+    const [fv] = await tx.select({ stopRequested: productFirstVersions.stopRequested }).from(productFirstVersions).where(eq(productFirstVersions.id, firstVersionId)).for("update");
+    if (fv?.stopRequested) return "stopped";
+    await hold(tx, id, reason);
+    return "held";
+  });
 const finish = (db: Db, id: string, status: "done" | "failed", error: string | null = null) =>
   db.update(productDocJobs).set({ status, heldReason: null, lastHeldReason: null, error, finishedAt: new Date() }).where(eq(productDocJobs.id, id));
 /** Un errore: un tentativo in più, e si riprova dopo un'attesa; al tetto, fallisce. */
@@ -249,7 +267,7 @@ export async function runProductDocJob(deps: ProductDocJobDeps, job: JobRow): Pr
   if (job.sourceKind === "first_version") {
     return runFirstVersionJob(deps, job, {
       finish: (status, error = null) => finish(db, job.id, status, error).then(() => undefined),
-      hold: (reason) => hold(db, job.id, reason).then(() => undefined),
+      hold: (reason) => holdFirstVersion(db, job.id, job.sourceId, reason),
       retryOrFail: (error) => retryOrFail(db, job, error),
     });
   }

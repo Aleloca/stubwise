@@ -175,8 +175,16 @@ export function parseFirstVersionDraft(text: string, sources: readonly ReadSourc
 }
 
 /** Il lavoro di una prima versione (già preso, `running`). */
-export async function runFirstVersionJob(deps: ProductDocJobDeps, job: typeof productDocJobs.$inferSelect, helpers: { finish: (status: "done" | "failed", error?: string | null) => Promise<void>; hold: (reason: "limit" | "budget") => Promise<void>; retryOrFail: (error: string) => Promise<ProductDocJobOutcome> }): Promise<ProductDocJobOutcome> {
+export async function runFirstVersionJob(deps: ProductDocJobDeps, job: typeof productDocJobs.$inferSelect, helpers: { finish: (status: "done" | "failed", error?: string | null) => Promise<void>; hold: (reason: "limit" | "budget") => Promise<"held" | "stopped">; retryOrFail: (error: string) => Promise<ProductDocJobOutcome> }): Promise<ProductDocJobOutcome> {
   const { db, log } = deps;
+  // La sosta rilegge lo «Stop» (revisione, M3): se è arrivato mentre il lavoro
+  // girava, la prima versione si chiude interrotta invece di aspettare.
+  const holdOrStop = async (reason: "limit" | "budget"): Promise<ProductDocJobOutcome> => {
+    if ((await helpers.hold(reason)) === "held") return "held";
+    await writeFirstVersionPage(db, job.sourceId, 0);
+    await helpers.finish("done");
+    return "done";
+  };
   const [fv] = await db.select().from(productFirstVersions).where(eq(productFirstVersions.id, job.sourceId));
   if (!fv || fv.status !== "writing") return helpers.finish("done", "first_version_gone").then(() => "done");
   // «Stop» prima della bozza (il lavoro era in coda o fermo per il limite): il
@@ -187,7 +195,7 @@ export async function runFirstVersionJob(deps: ProductDocJobDeps, job: typeof pr
   }
   if (!fv.draft) {
     // Il budget del mese, solo qui: è l'unico punto che chiama il modello.
-    if ((await aiBudgetState(db, deps.monthlyCostUsdFn)).exhausted) return helpers.hold("budget").then(() => "held");
+    if ((await aiBudgetState(db, deps.monthlyCostUsdFn)).exhausted) return holdOrStop("budget");
     const sources = await readFirstVersionSources(db, { projectId: fv.projectId, startedBy: fv.startedBy, sources: fv.sources as FirstVersionSourceRef[], pastedText: fv.pastedText });
     if (sources.length === 0) {
       await failFirstVersion(db, fv.id, "no_sources");
@@ -211,7 +219,7 @@ export async function runFirstVersionJob(deps: ProductDocJobDeps, job: typeof pr
       let result: AgentRunResult;
       if (deps.select) {
         const out = await runWithProviders(deps.select, { projectId: fv.projectId, workClass: "background" }, attempt, limitTextOfRun);
-        if (out.kind === "legacy_limited" || out.kind === "unavailable") return helpers.hold("limit").then(() => "held");
+        if (out.kind === "legacy_limited" || out.kind === "unavailable") return holdOrStop("limit");
         result = out.value;
       } else {
         result = await attempt(undefined);

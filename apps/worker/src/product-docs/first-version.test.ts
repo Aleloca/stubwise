@@ -173,6 +173,50 @@ describe("la prima versione nel worker", () => {
     }
   });
 
+  it("«Stop» mentre il lavoro gira, prima della sosta per il budget (revisione, M3): la sosta rilegge lo stop e la prima versione si chiude interrotta, non resta `stopping` fino al prossimo giro", async () => {
+    const { projectId, fv } = await setup();
+    await t.db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "1" }).onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "1" } });
+    try {
+      const job = (await claimProductDocJob(t.db))!;
+      expect(job.sourceId).toBe(fv.id);
+      const { runner, calls } = fakeRunner(DRAFT);
+      // Lo «Stop» arriva DOPO la lettura della riga e prima della sosta: il server vede il lavoro `running` e segna solo lo stop.
+      const monthlyCostUsdFn = async () => {
+        await t.db.update(productFirstVersions).set({ stopRequested: true }).where(eq(productFirstVersions.id, fv.id));
+        return 5;
+      };
+      expect(await runProductDocJob({ db: t.db, runner, log, monthlyCostUsdFn }, job)).toBe("done");
+      expect(calls).toEqual([]);
+      expect((await t.db.select().from(productDocJobs).where(eq(productDocJobs.id, job.id)))[0]).toMatchObject({ status: "done", heldReason: null });
+      expect((await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.id, fv.id)))[0]).toMatchObject({ status: "done", interrupted: true, pastedText: null });
+      expect(await pagesOf(projectId)).toEqual([]);
+    } finally {
+      await t.db.delete(instanceSettings);
+    }
+  });
+
+  it("«Stop» mentre il lavoro gira, prima della sosta per il limite dei provider (revisione, M3): anche questa sosta rilegge lo stop", async () => {
+    const { projectId, fv } = await setup();
+    const job = (await claimProductDocJob(t.db))!;
+    expect(job.sourceId).toBe(fv.id);
+    const { runner, calls } = fakeRunner(DRAFT);
+    const select = {
+      db: t.db,
+      encryptionKey: Buffer.alloc(32),
+      backgroundWeeklyThreshold: 0.8,
+      // Lo «Stop» arriva mentre si scelgono i provider, e nessuno è disponibile.
+      selectProvidersFn: async () => {
+        await t.db.update(productFirstVersions).set({ stopRequested: true }).where(eq(productFirstVersions.id, fv.id));
+        return { candidates: [], legacyAuth: false, emptyReason: null };
+      },
+    };
+    expect(await runProductDocJob({ db: t.db, runner, log, select }, job)).toBe("done");
+    expect(calls).toEqual([]);
+    expect((await t.db.select().from(productDocJobs).where(eq(productDocJobs.id, job.id)))[0]).toMatchObject({ status: "done", heldReason: null });
+    expect((await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.id, fv.id)))[0]).toMatchObject({ status: "done", interrupted: true });
+    expect(await pagesOf(projectId)).toEqual([]);
+  });
+
   it("col budget finito una bozza GIÀ pronta scrive le sue pagine (non chiamano il modello); senza bozza il lavoro aspetta col budget", async () => {
     const ready = await setup();
     const draft = [{ title: "Uno", depth: 0, blocks: [p("a")] }, { title: "Due", depth: 0, blocks: [p("b")] }];
