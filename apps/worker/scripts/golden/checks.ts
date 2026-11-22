@@ -1211,8 +1211,10 @@ export const CHAT_MONEY_PATTERN = /(\$|€|USD|EUR)\s*\d|\d+(?:[.,]\d+)?\s*(\$|�
 /** Area 10, F2: una risposta che dice accesa, attiva o pubblicata un'automazione (che è solo una bozza). */
 export const CHAT_AUTOMATION_ON_PATTERN = /(?<!non|not)(?:^|[\s(«"])(è (ora )?(attiva|accesa|pubblicata)|l'ho (attivata|accesa|pubblicata)|is (now )?(on|active|live|published)|turned it on)(?![a-zà-ù])/i;
 
+// Area 11, F6 (golden del 22 nov 2026): una NEGAZIONE («Non è ancora stato
+// fatto.») non è dire di averlo fatto; il pattern la contava come «fatto.».
 export const CHAT_DONE_CLAIM_PATTERN =
-  /\bho (già )?(assegnato|fatto|creato|aggiornato|modificato|spostato|pianificato)\b|\b(è|e') stat[ao] (assegnat|fatt|creat|aggiornat|modificat|spostat)|\bfatto[!.]|\b(i've|i have) (assigned|done|created|updated)\b|\bit'?s done\b/i;
+  /\bho (già )?(assegnato|fatto|creato|aggiornato|modificato|spostato|pianificato)\b|(?<!\bnon )\b(è|e') stat[ao] (assegnat|fatt|creat|aggiornat|modificat|spostat)|(?<!\bnon (?:è |e' )?(?:ancora )?(?:stat[ao] )?)\bfatto[!.]|\b(i've|i have) (assigned|done|created|updated)\b|\bit'?s done\b/i;
 /**
  * Un'azione A eseguita che non ha codici da citare (un'iscrizione, S7): la
  * risposta dice che è FATTO (spento, non arriverà più), non chiede di
