@@ -10,9 +10,11 @@ import { sourceViewFrom, undoViewFrom, type ServerSourceView } from "./productCl
 // - lo stato (`firstVersion`), che non ha un evento: lo rilegge
 //   `useProductFirstVersion` ogni 2 s mentre scrive, e con lui lo spazio;
 // - «Write the first version» (202 col gruppo), «Undo the first version»
-//   (409 con la pagina toccata e come), «Accept this page».
+//   (409 con la pagina toccata e come), «Accept this page»;
+// - «Stop» (a7f558344): 204 anche se non c'è niente da fermare; `stopping`
+//   nella vista fra il clic e l'arresto.
 // Gli errori sono nelle parole del prototipo (`data/productDocs/firstVersion.ts`).
-// Dietro `product-claude-actions`, spento.
+// Dietro `product-claude-actions`, acceso il 22 nov 2026.
 
 type ProductDocs = typeof Fake.productDocs;
 
@@ -133,7 +135,10 @@ export const liveProductFirstVersion: Partial<ProductDocs> = {
       acceptedPageIds: v.acceptedPageIds,
       bannerPageIds: v.bannerPageIds,
       undo: firstVersionUndoFrom(v.undo),
-      permissions: { edit: v.permissions.edit },
+      // «Stop» (72, a7f558344): `stopping` fra il clic e l'arresto; un
+      // server più vecchio non lo dà.
+      stopping: v.stopping ?? false,
+      permissions: { edit: v.permissions.edit, stop: v.permissions.stop ?? false },
     };
     return view;
   },
@@ -152,6 +157,14 @@ export const liveProductFirstVersion: Partial<ProductDocs> = {
   async undoFirstVersion(projectId) {
     try {
       await appClient().productDocs.undoFirstVersion(projectId);
+    } catch (error) {
+      mapFirstVersionError(error);
+    }
+  },
+
+  async stopFirstVersion(projectId) {
+    try {
+      await appClient().productDocs.stopFirstVersion(projectId);
     } catch (error) {
       mapFirstVersionError(error);
     }

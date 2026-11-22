@@ -145,6 +145,22 @@ const INTEGRATED_CALLS = new Set([
   "productDocs.listOpenProductQuestions",
   "productDocs.productUpdatesWaiting",
   "productDocs.onProductQuestionsChanged",
+  // Area 11, F6 (R11-6): i gesti di Claude sulla doc (la prima versione col
+  // suo «Stop», le bozze di schermata, dalla doc al backlog).
+  "productDocs.listFirstVersionSources",
+  "productDocs.getProductFirstVersion",
+  "productDocs.startFirstVersion",
+  "productDocs.undoFirstVersion",
+  "productDocs.stopFirstVersion",
+  "productDocs.acceptFirstVersionPage",
+  "productDocs.onProductFirstVersion",
+  "productDocs.drawWireframe",
+  "productDocs.redrawWireframe",
+  "productDocs.keepWireframe",
+  "productDocs.replaceWireframeWithImage",
+  "productDocs.proposeBacklogFromPage",
+  "productDocs.listProductRequestsPreparing",
+  "productDocs.listProductLinkedRequests",
   // Area 10, F7: la riga «Claude can help you…» e il suo «Not now», dal server.
   "suggestionKeyOf",
   "getClaudeSuggestion",
@@ -843,9 +859,9 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  // Area 11, F1 (R11-1): lo spazio Product c'è; commenti, ricerca ed
-  // esportazione, dal vivo e Claude (F2–F6) restano fuori e non si leggono.
-  it("lo spazio Product (/p/X/docs/product) e una sua pagina si aprono e leggono solo le chiamate di F1–F5", async () => {
+  // Area 11, F1 (R11-1): lo spazio Product c'è; con F2–F6 accesi le sue
+  // letture sono tutte integrate.
+  it("lo spazio Product (/p/X/docs/product) e una sua pagina si aprono e leggono solo le chiamate di F1–F6", async () => {
     // Marco legge i Docs di ACQ (la persona di partenza, Giulia, non è nel progetto).
     signedInAs("p-marco");
     renderRoute("/p/ACQ/docs/product");
@@ -876,6 +892,25 @@ describe("aree non integrate nella build app", () => {
     const body = document.querySelector<HTMLElement>("[data-editor-body]")!;
     const [block] = within(body).getAllByRole("textbox");
     await user.click(block!);
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 11, F6: i gesti di Claude sulla doc. Lo spazio vuoto di VRD ha la
+  // strada della prima versione, e la sua finestra legge solo chiamate integrate.
+  it("lo spazio vuoto: «Write the first version with Claude» e la finestra delle fonti leggono solo chiamate integrate (F6)", async () => {
+    signedInAs("p-laura");
+    renderRoute("/p/VRD/docs/product");
+    expect(await screen.findByRole("heading", { level: 1, name: "Product" })).toBeInTheDocument();
+    const way = await screen.findByRole("button", { name: /^Write the first version with Claude/ });
+    await settle();
+    expect(outside()).toEqual([]);
+    const user = userEvent.setup();
+    await user.click(way);
+    const dialog = await screen.findByRole("dialog");
+    const emails = await within(dialog).findByRole("group", { name: "Emails" });
+    // Le fonti vengono davvero dal livello dati: col cancello spento la finestra era vuota.
+    expect(await within(emails).findByRole("checkbox", { name: /Booking rules for the classes/ })).toBeInTheDocument();
     await settle();
     expect(outside()).toEqual([]);
   });

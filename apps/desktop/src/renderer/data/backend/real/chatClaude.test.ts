@@ -288,6 +288,43 @@ describe("la risposta di @Claude", () => {
     expect(p.actions.map((a) => a.summary)).toEqual(["Change this page", "A change"]);
   });
 
+  it("revisione di R11-6, M3: le funzioni con la frase scelta dagli argomenti hanno la loro frase, non «A change»", async () => {
+    install({
+      [`GET /api/chat/messages/${ROOT}/thread`]: {
+        body: {
+          root: root({ authorId: MARTA }),
+          replies: [
+            reply(
+              { calledById: MARTA },
+              {
+                state: "done",
+                sessionId: null,
+                question: null,
+                proposals: [
+                  {
+                    id: PROPOSAL,
+                    summary: "x",
+                    status: "open",
+                    actions: [
+                      { fn: "updateProductPage", args: { pageId: "pg-1", source: { kind: "meeting", id: "n1" } } },
+                      { fn: "setProviderEnabled", args: { enabled: false } },
+                      { fn: "fillField", args: { field: "release.notes", prNumber: 12 } },
+                    ],
+                  },
+                ],
+              },
+            ),
+          ],
+        },
+      },
+    });
+    await getSessionPerson();
+    const m = (await chat.listThread(ROOT))!.replies[0]!;
+    const p = m.claudeEvents!.find((e) => e.type === "proposal") as { actions: { summary: string }[] };
+    expect(p.actions.map((a) => a.summary)).not.toContain("A change");
+    expect(p.actions[0]!.summary).toBe("Update a page from the meeting");
+  });
+
   it("un codice di task che il server non dà (500) non si richiede a ogni lettura: si riprova dopo un po'", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {

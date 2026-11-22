@@ -129,6 +129,8 @@ export interface BlockEditorHandle {
    * salvato (una scrittura in fila o ferma su un errore, una versione propria).
    */
   unsaved(): Promise<boolean>;
+  /** «Leave without saving»: le bozze e la fila si scartano (revisione di R11-6, I2). */
+  discard(): void;
 }
 
 export function BlockEditor({
@@ -509,12 +511,29 @@ function WritableBody({
     selectShell(id);
     drawSketchAt({ replaceId: id });
   };
+  /**
+   * Le bozze con un'immagine che sta caricando al loro posto (revisione di
+   * R11-6, M6): il bottone è spento, un secondo caricamento non parte, e
+   * uscire dalla pagina chiede.
+   */
+  const uploadingRef = useRef(new Set<string>());
+  const [uploading, setUploading] = useState<ReadonlySet<string>>(uploadingRef.current);
+  const markUploading = (id: string, on: boolean) => {
+    const next = new Set(uploadingRef.current);
+    if (on) next.add(id);
+    else next.delete(id);
+    uploadingRef.current = next;
+    setUploading(next);
+  };
   /** «Replace with an image»: la scelta del file del sistema, per la bozza `id`. */
   const chooseSketchImage = (id: string) => {
+    if (uploadingRef.current.has(id)) return;
     imageTarget.current = { id, sketch: true };
     fileInput.current?.click();
   };
   const placeSketchImage = (id: string, file: File) => {
+    if (uploadingRef.current.has(id)) return;
+    markUploading(id, true);
     // Come gli altri blocchi immagine: controllata, poi salvata dal livello
     // dati (nella build app caricata sul server, `product-image:<id>`).
     const stored = async (): Promise<{ ok: true; src: string; alt: string } | { ok: false; reason: ImageRefusal }> => {
@@ -528,18 +547,27 @@ function WritableBody({
     };
     void stored().then((r) => {
       if (!r.ok) {
+        markUploading(id, false);
         // Rifiutata: la frase sotto il blocco, la bozza resta.
         setRefusal({ anchorId: id, reason: r.reason, n: Date.now() });
         return;
       }
       setRefusal(null);
+      // La bozza tolta (o cambiata) mentre caricava: l'immagine non ha più un posto.
+      if (blockOf(id)?.type !== "wireframe") {
+        markUploading(id, false);
+        return;
+      }
       // Il bottone se ne va con la bozza: prima il fuoco sul blocco, poi sulla didascalia.
       selectShell(id);
       pendingCaption.current = id;
-      replaceSketch.mutateAsync({ pageId: page.id, blockId: id, image: { src: r.src, alt: r.alt } }).catch(() => {
-        pendingCaption.current = null;
-        toast.error(t("productDocs.wireframe.replaceFailed"));
-      });
+      replaceSketch
+        .mutateAsync({ pageId: page.id, blockId: id, image: { src: r.src, alt: r.alt } })
+        .catch(() => {
+          pendingCaption.current = null;
+          toast.error(t("productDocs.wireframe.replaceFailed"));
+        })
+        .finally(() => markUploading(id, false));
     });
   };
 
@@ -554,7 +582,17 @@ function WritableBody({
         }),
       ]);
       clearTimeout(timer);
-      return sessionRef.current.unsaved();
+      // Il testo scritto durante l'attesa parte anche lui, e conta (revisione di R11-6, I1).
+      flush();
+      return sessionRef.current.unsaved() || uploadingRef.current.size > 0;
+    },
+    /** «Leave without saving»: le bozze e la fila si scartano, niente parte più (I2). */
+    discard: () => {
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = null;
+      draftsRef.current = new Map();
+      draftAfter.current.clear();
+      sessionRef.current.dispose();
     },
     focusFirst: () => {
       const first = viewRef.current[0];
@@ -1082,7 +1120,11 @@ function WritableBody({
                           table={block.type === "table" ? tableEditing(block.id) : undefined}
                           sketch={
                             block.type === "wireframe"
-                              ? { replace: () => chooseSketchImage(block.id), announce: (text) => announce(text) }
+                              ? {
+                                  replace: () => chooseSketchImage(block.id),
+                                  announce: (text) => announce(text),
+                                  uploading: uploading.has(block.id),
+                                }
                               : undefined
                           }
                         >

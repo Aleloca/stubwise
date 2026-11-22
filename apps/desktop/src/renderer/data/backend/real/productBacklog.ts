@@ -10,7 +10,7 @@ import { lastReadProductPage } from "./productDocs";
 // prototipo (`proposeBacklogFromPageAs`): una `createRequest` per voce, con
 // l'origine della pagina. La conferma passa dalla rotta delle richieste, che
 // rifiuta una frase già proposta (409 `already_proposed`). «From this page»
-// è `linkedRequests`. Dietro `product-claude-actions`, spento.
+// è `linkedRequests`. Dietro `product-claude-actions`, acceso il 22 nov 2026.
 
 type ProductDocs = typeof Fake.productDocs;
 

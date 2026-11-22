@@ -237,8 +237,13 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Area 11, F5 (R11-5): il segno di Claude, «Looks good», «Undo», «Undo
     // all», le domande con le loro scelte, Home «Decide», le domande da
     // chiudere nel riquadro e la riga «riprende quando…». «Open a request»
-    // torna con F6. I gesti di Claude (F6) restano su `product-claude-actions`.
+    // torna con F6.
     "product-docs",
+    // Area 11, F6 (R11-6): i gesti di Claude sulla doc — la prima versione
+    // col suo «Stop», dalla doc al backlog, le richieste nate dalla pagina, le
+    // bozze di schermata, il gruppo di Claude nel «⋯» e nel menu del titolo,
+    // «Screen sketch» in «/», le sei voci nel riquadro e nella chat.
+    "product-claude-actions",
     // Fetta 3.0 della chat: «Elimina task», a mano dal menu «⋯» della task.
     "task-delete",
     // Fetta 2 della chat, il riquadro (⌘J, ⌘K «Ask Claude…») col chip del contesto.

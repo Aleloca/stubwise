@@ -54,6 +54,7 @@ export const createMilestoneAs: typeof Fake.createMilestoneAs = notIntegratedSyn
 export const createProject: typeof Fake.createProject = notIntegrated("createProject") as never;
 export const createRequest: typeof Fake.createRequest = notIntegrated("createRequest") as never;
 export const createRequestAs: typeof Fake.createRequestAs = notIntegratedSync("createRequestAs") as never;
+export const createRequestFromQuestion: typeof Fake.createRequestFromQuestion = notIntegrated("createRequestFromQuestion") as never;
 export const createTask: typeof Fake.createTask = notIntegrated("createTask") as never;
 export const createTaskAs: typeof Fake.createTaskAs = notIntegratedSync("createTaskAs") as never;
 export const decidePlan: typeof Fake.decidePlan = notIntegrated("decidePlan") as never;

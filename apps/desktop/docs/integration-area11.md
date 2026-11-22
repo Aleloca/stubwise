@@ -97,7 +97,7 @@ Design: `docs/plans/2026-11-20-integrazione-area11-design.md`; i piani
 | Scelta o limite | Chi ha deciso |
 |---|---|
 | «Open a request» nella build app: la scheda B sta nel filo, sotto la domanda (titolo e descrizione da `question.request`, «Create request» / «Cancel»), non nel riquadro. La conferma è `requests.create` con `origin.product_doc`, e il server chiude la domanda; annullata, la domanda resta aperta. «Una richiesta è in preparazione…» = la scheda aperta nel filo. Da Home «Decide» «Open a request» porta al filo con la scheda aperta (`?comment=<domanda>&requestCard=1`), mai un messaggio al Claude del server. L'esito è la risposta della POST (`createRequestFromQuestion`), non l'intake. Il prototipo resta col riquadro (motore di intenti, `productQuestionRequestDraft`) | maintainer, via 46 |
-| I gesti di Claude di F6 (prima versione, dalla doc al backlog, richieste nate dalla pagina, bozze di schermata) stanno su `product-claude-actions`, spento | 46 |
+| I gesti di Claude di F6 (prima versione, dalla doc al backlog, richieste nate dalla pagina, bozze di schermata) stanno su `product-claude-actions`, acceso il 22 nov 2026 dopo lo «Stop» della prima versione | 46 |
 
 ## Il renderer della build app (94)
 
@@ -119,8 +119,11 @@ dati (`data/backend/real/product*.ts`).
 |---|---|
 | «Mostra le due versioni»: una scrittura di testo rifiutata (`stale`, `section_busy`, il paragrafo tolto da un altro) resta sotto il paragrafo, con «Use mine» e «Discard»; i gesti di struttura hanno solo la frase in barra | maintainer (21 nov 2026), la struttura 46 |
 | «Some changes aren't saved yet» · Stay · Leave without saving uscendo dalla pagina o cambiando persona con scritture in fila, ferme su un errore o riquadri aperti; la fila ha 1,5 s per svuotarsi prima di chiedere; chiudere la finestra non chiede | maintainer via 46 (21 nov 2026), i dettagli 94 |
+| Anche «Sign out» chiede prima, come il cambio di persona; «Leave without saving» svuota la fila (una scrittura già in viaggio arriva, nessuna dietro di lei); il testo scritto durante l'attesa di 1,5 s conta; il titolo e la didascalia col fuoco si salvano uscendo; un'immagine che carica al posto di una bozza conta come non salvata | 46 (revisione di R11-6, 22 nov 2026) |
+| La frase di una voce di Claude sulla doc dice la pagina col codice del server (`codes` del gruppo) e il titolo solo se chi guarda l'ha letta in questa sessione; senza una lettura: solo il codice, o «a page» senza nemmeno quello. Una pagina riletta con 404 o 403 non dice più il titolo | costruttore, 46 (revisione di R11-6, M4–M5) |
+| «Update it from this email/meeting» (`updateProductPage`) nella build app è `starts_work` e `irreversible`, e la riga non ha «Undo»: il server la applica dopo, in un lavoro della coda, quindi alla conferma non c'è ancora una revisione da annullare. Nel prototipo è sincrona e la riga ha «Undo». | costruttore, approvata da 46 (22 nov 2026) |
 | Una bozza di schermata in disegno nasconde lo schizzo di prima; un disegno fallito lo dice sotto il blocco, col motivo | 46 |
 | «Replace with an image» carica il file come ogni blocco immagine (`product-image:<id>`) | costruttore |
 | Lo Stato dell'istanza: un aggiornamento della doc nomina la pagina (codice, titolo, link) solo a chi legge i Docs del progetto e solo se il lavoro è di UNA pagina (a mano o una bozza); una fonte automatica o la prima versione restano «Product doc update» | 72 (136a81da2) su richiesta di 94, come `readsPage` del prototipo |
 | «Pick» di una variante già disegnata (`POST …/wireframes/:blockId/pick`) c'è sul server ma non nel prototipo: il renderer non lo usa | costruttore |
-| «Stop» della prima versione (`stopFirstVersion`): non mostrato finché il prototipo non lo ha | in attesa del maintainer |
+| «Stop» della prima versione accanto all'avanzamento, solo con `permissions.stop`, senza conferma; Claude finisce la pagina in corso; «Stopping after this page…» da `stopping` della vista (riletta ogni 2 s mentre scrive), prima nel prototipo e poi su `stopFirstVersion` (a7f558344) | maintainer via 46 (22 nov 2026) |

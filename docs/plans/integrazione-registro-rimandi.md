@@ -1473,15 +1473,6 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     commento, anche se intanto il blocco è stato tolto, e senza una seconda
     menzione. Resta il renderer (94): generare la chiave una volta per
     commento e rimandarla nel «Retry».
-  - **«Stop» della prima versione** *(renderer, 94)*: il server ha
-    `stopFirstVersion` (si ferma dopo la pagina in corso, `interrupted`) e
-    `permissions.stop` nella vista; il prototipo non ha un «Stop», quindi la
-    build app non lo mostra. Chi vuole fermarla aspetta la fine e usa «Undo
-    the first version». Va deciso nel prototipo prima di mostrarlo.
-  - **I gesti di Claude sulla doc** *(F6)*: prima versione, dalla doc al
-    backlog, richieste nate dalla pagina, bozze di schermata, il gruppo di
-    Claude nel «⋯» e nel menu del titolo, «Screen sketch» in «/». Stanno
-    dietro `product-claude-actions`, spento.
 - *Revisione di R11-1 (46, 20 nov 2026), chiuse*: le immagini (la rotta dà
   i byte, 72 69b09a99d: sul web `<img src>` sulla rotta, sul desktop i byte
   da `api:request` come data URL); la cronologia a pagine di 100 con

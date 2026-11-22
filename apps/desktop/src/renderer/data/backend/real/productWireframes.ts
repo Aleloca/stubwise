@@ -6,7 +6,7 @@ import { appClient } from "./client";
 // 72 (a2e2bd051, rotte 7388dc0cf). Il disegno è asincrono: il blocco nasce
 // subito e lo SVG (già ripulito dal server) arriva con la pagina riletta al
 // frame `wireframe` dello stream. Gli errori sono nelle parole del prototipo
-// (`data/productDocs/wireframes.ts`). Dietro `product-claude-actions`, spento.
+// (`data/productDocs/wireframes.ts`). Dietro `product-claude-actions`, acceso il 22 nov 2026.
 
 type ProductDocs = typeof Fake.productDocs;
 

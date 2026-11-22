@@ -36,6 +36,8 @@ export interface WireframeEditing {
   replace(): void;
   /** «New sketch», «Kept · …»: l'annuncio della pagina. */
   announce(text: string): void;
+  /** Un'immagine sta caricando al posto della bozza: «Replace with an image» spento (M6). */
+  uploading?: boolean;
 }
 
 /** I disegni del seme col loro nome tradotto; gli altri sono «uno schizzo di una schermata». */
@@ -220,7 +222,12 @@ export function WireframeBlock({
         </button>
       )}
       {!busy && (
-        <button type="button" onClick={() => editing.replace()} className={textButton}>
+        <button
+          type="button"
+          aria-disabled={editing.uploading ? true : undefined}
+          onClick={() => !editing.uploading && editing.replace()}
+          className={textButton}
+        >
           {t("productDocs.wireframe.replace")}
         </button>
       )}

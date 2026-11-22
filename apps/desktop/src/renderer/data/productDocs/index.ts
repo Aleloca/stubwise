@@ -65,6 +65,8 @@ export {
   productFirstVersionOf,
   startFirstVersion,
   startFirstVersionAs,
+  stopFirstVersion,
+  stopFirstVersionAs,
   undoFirstVersion,
   undoFirstVersionAs,
   whenFirstVersionIdle,

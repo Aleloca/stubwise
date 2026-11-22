@@ -550,6 +550,11 @@ export function useAcceptFirstVersionPage() {
   return useWrite((pageId: string) => api.productDocs.acceptFirstVersionPage(pageId), FOLLOW_AREAS);
 }
 
+/** «Stop» accanto all'avanzamento: Claude finisce la pagina in corso e si ferma. */
+export function useStopFirstVersion() {
+  return useWrite((projectId: string) => api.productDocs.stopFirstVersion(projectId), PRODUCT_AREAS);
+}
+
 /** «Undo the first version»: toglie tutte le sue pagine. */
 export function useUndoFirstVersion() {
   return useWrite((projectId: string) => api.productDocs.undoFirstVersion(projectId), PRODUCT_AREAS);

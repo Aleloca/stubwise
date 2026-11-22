@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import * as api from "../../../data/api";
@@ -11,6 +11,7 @@ import { setLanguage } from "../../../i18n";
 import { DOCKED_PANEL_QUERY } from "../../../layout/useDetailPanel";
 import { setMatchMedia } from "../../../test/setup";
 import { renderRoute } from "../../../test/renderRoute";
+import { LEAVE_WAIT_MS } from "./BlockEditor";
 import { placeCaret } from "./domRange";
 
 // «Some changes aren't saved yet» · Stay · Leave without saving (shape
@@ -65,21 +66,22 @@ const leaveDialog = (timeout?: number) =>
   );
 const noLeaveDialog = () => screen.queryByRole("dialog", { name: "Some changes aren't saved yet" });
 
-async function typeBang() {
-  const user = userEvent.setup();
-  await user.click(textbox(LOGIN));
-  await waitFor(() => expect(editing()).toHaveTextContent(LOGIN));
-  act(() => placeCaret(editing(), LOGIN.length));
+/** Un carattere in fondo al blocco che ha il fuoco. */
+function typeChar(data: string) {
+  const el = editing();
+  act(() => placeCaret(el, (el.textContent ?? "").length));
   act(() => {
-    editing().dispatchEvent(
-      new InputEvent("beforeinput", {
-        inputType: "insertText",
-        data: "!",
-        bubbles: true,
-        cancelable: true,
-      }),
+    el.dispatchEvent(
+      new InputEvent("beforeinput", { inputType: "insertText", data, bubbles: true, cancelable: true }),
     );
   });
+}
+
+async function typeBang(text = LOGIN, data = "!") {
+  const user = userEvent.setup();
+  await user.click(textbox(text));
+  await waitFor(() => expect(editing()).toHaveTextContent(text));
+  typeChar(data);
   return editing();
 }
 
@@ -92,12 +94,21 @@ async function refused(error: Error) {
 }
 
 let saves: MockInstance<typeof api.productDocs.saveProductBlocks>;
+let realSave: typeof api.productDocs.saveProductBlocks;
+/** La scrittura vera, che arriva dopo `ms`. */
+const slowSave =
+  (ms: number) =>
+  (...a: Parameters<typeof api.productDocs.saveProductBlocks>) =>
+    new Promise<Awaited<ReturnType<typeof api.productDocs.saveProductBlocks>>>((done, fail) => {
+      setTimeout(() => realSave(...a).then(done, fail), ms);
+    });
 
 beforeEach(() => {
   setLatency(0);
   resetApi();
   window.localStorage.clear();
   setMatchMedia(DOCKED_PANEL_QUERY, true);
+  realSave = api.productDocs.saveProductBlocks.bind(api.productDocs);
   saves = vi.spyOn(api.productDocs, "saveProductBlocks");
 });
 afterEach(() => {
@@ -151,7 +162,7 @@ describe("uscire dalla pagina", () => {
     const el = await typeBang();
     act(() => el.blur());
     goToBills();
-    expect(await leaveDialog(4000)).toBeInTheDocument();
+    expect(await leaveDialog(LEAVE_WAIT_MS + 2000)).toBeInTheDocument();
   });
 
   it("una bozza appena scritta (senza uscire dal blocco): parte, si salva, e si esce senza chiedere", async () => {
@@ -182,6 +193,99 @@ describe("uscire dalla pagina", () => {
     goToBills();
     // La bozza parte (o diventa subito la versione propria, se la pagina è già riletta): il dialogo c'è comunque.
     expect(await leaveDialog()).toBeInTheDocument();
+  });
+
+  it("una scrittura che arriva dentro l'attesa (300 ms): si esce senza chiedere", async () => {
+    await openSignIn();
+    saves.mockImplementationOnce(slowSave(300));
+    await typeBang();
+    goToBills();
+    expect(await screen.findByRole("heading", { level: 1, name: "Bills" })).toBeInTheDocument();
+    expect(noLeaveDialog()).toBeNull();
+    expect(saves).toHaveBeenCalledTimes(1);
+    expect(signIn().blocks.find((b) => b.id === LOGIN_ID)).toMatchObject({ content: { text: `${LOGIN}!` } });
+  });
+
+  it("revisione di R11-6, I1: il testo scritto durante l'attesa conta, e il dialogo lo dice", async () => {
+    await openSignIn();
+    saves.mockImplementationOnce(slowSave(300));
+    await typeBang();
+    goToBills();
+    // Mentre la prima scrittura è in viaggio, Laura scrive ancora.
+    await waitFor(() => expect(saves).toHaveBeenCalledTimes(1));
+    typeChar("?");
+    expect(await leaveDialog(LEAVE_WAIT_MS + 2000)).toBeInTheDocument();
+  });
+
+  it("revisione di R11-6, I2: dopo «Leave without saving» la fila non manda più niente", async () => {
+    await openSignIn();
+    let release: () => void = () => undefined;
+    saves.mockImplementationOnce(
+      (...a) =>
+        new Promise((done, fail) => {
+          release = () => void realSave(...a).then(done, fail);
+        }),
+    );
+    const el = await typeBang();
+    act(() => el.blur());
+    await waitFor(() => expect(saves).toHaveBeenCalledTimes(1));
+    // Una seconda scrittura, in fila dietro quella in viaggio.
+    const again = await typeBang(`${LOGIN}!`, "?");
+    act(() => again.blur());
+    goToBills();
+    const dialog = await leaveDialog(LEAVE_WAIT_MS + 2000);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Leave without saving" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Bills" })).toBeInTheDocument();
+    await act(async () => {
+      release();
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(saves).toHaveBeenCalledTimes(1);
+  });
+
+  it("revisione di R11-6, M7: il titolo scritto e non ancora uscito si salva uscendo", async () => {
+    const rename = vi.spyOn(api.productDocs, "renameProductPage");
+    await openSignIn();
+    const h1 = screen.getByRole("heading", { level: 1, name: "Sign-in" });
+    act(() => h1.focus());
+    act(() => {
+      h1.textContent = "Signing in";
+      fireEvent.input(h1);
+    });
+    goToBills();
+    expect(await screen.findByRole("heading", { level: 1, name: "Bills" })).toBeInTheDocument();
+    expect(rename).toHaveBeenCalledWith(signIn().id, "Signing in");
+  });
+
+  it("revisione di R11-6, M1: la pagina tolta mentre chiede: si va dove si andava", async () => {
+    await refused(new Error("invalid: stale"));
+    await waitFor(() => expect(ownBox()).not.toBeNull());
+    goToBills();
+    await leaveDialog();
+    act(() => {
+      api.productDocs.deleteProductPageAs(MARCO, signIn().id);
+    });
+    expect(await screen.findByRole("heading", { level: 1, name: "Bills" })).toBeInTheDocument();
+  });
+
+  it("revisione di R11-6, M6: un'immagine che sta caricando al posto di una bozza conta come non salvata", async () => {
+    vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
+    vi.spyOn(api.productDocs, "storeProductImage").mockImplementation(() => new Promise<string>(() => {}));
+    const sketch = api.productDocs.drawWireframeAs(LAURA, signIn().id, { afterId: LOGIN_ID }).blockId;
+    await openSignIn();
+    await userEvent.click(
+      within(body().querySelector<HTMLElement>(`[data-block-id="${sketch}"]`)!).getByRole("button", {
+        name: "Replace with an image",
+      }),
+    );
+    const chooser = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    act(() => {
+      fireEvent.change(chooser, {
+        target: { files: [new File([new Uint8Array(1024)], "s.png", { type: "image/png" })] },
+      });
+    });
+    goToBills();
+    expect(await leaveDialog(LEAVE_WAIT_MS + 2000)).toBeInTheDocument();
   });
 
   it("niente in sospeso: si esce senza chiedere", async () => {
@@ -246,10 +350,83 @@ describe("cambiare persona («View as»)", () => {
     await waitFor(() => expect(getSessionPersonId()).toBe(MARCO));
   });
 
+  it("revisione di R11-6, M8: dalla palette, lo stesso dialogo; «Stay» resta Laura", async () => {
+    await refused(new Error("invalid: stale"));
+    await waitFor(() => expect(ownBox()).not.toBeNull());
+    const user = userEvent.setup();
+    await user.keyboard("{Control>}k{/Control}");
+    const palette = await screen.findByRole("dialog", { name: "Search and commands" });
+    // Nel Prodotto la ricerca è dello spazio: Tab la allarga a tutto.
+    await user.keyboard("{Tab}");
+    await user.type(within(palette).getByRole("combobox"), "view as");
+    await within(palette).findByRole("option", { name: /View as…/, selected: true });
+    await user.keyboard("{Enter}");
+    await user.type(within(palette).getByRole("combobox"), "marco");
+    await within(palette).findByRole("option", { name: /Marco/, selected: true });
+    await user.keyboard("{Enter}");
+    const dialog = await leaveDialog();
+    await user.click(within(dialog).getByRole("button", { name: "Stay" }));
+    expect(getSessionPersonId()).toBe(LAURA);
+    expect(ownBox()).not.toBeNull();
+  });
+
+  it("revisione di R11-6, I2: dopo «Leave without saving» nessuna scrittura parte a nome di Marco", async () => {
+    await openSignIn();
+    let release: () => void = () => undefined;
+    saves.mockImplementationOnce(
+      (...a) =>
+        new Promise((done, fail) => {
+          release = () => void realSave(...a).then(done, fail);
+        }),
+    );
+    const el = await typeBang();
+    act(() => el.blur());
+    await waitFor(() => expect(saves).toHaveBeenCalledTimes(1));
+    const again = await typeBang(`${LOGIN}!`, "?");
+    act(() => again.blur());
+    await viewAsMarco();
+    await userEvent.click(
+      within(await leaveDialog(LEAVE_WAIT_MS + 2000)).getByRole("button", { name: "Leave without saving" }),
+    );
+    await waitFor(() => expect(getSessionPersonId()).toBe(MARCO));
+    await act(async () => {
+      release();
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(saves).toHaveBeenCalledTimes(1);
+  });
+
   it("niente in sospeso: la persona cambia subito", async () => {
     await openSignIn();
     await viewAsMarco();
     await waitFor(() => expect(getSessionPersonId()).toBe(MARCO));
     expect(noLeaveDialog()).toBeNull();
+  });
+});
+
+describe("uscire dall'account (revisione di R11-6, M2)", () => {
+  it("con il riquadro: «Sign out» chiede prima; «Stay» resta dentro", async () => {
+    const logout = vi.spyOn(api.auth, "logout");
+    await refused(new Error("invalid: stale"));
+    await waitFor(() => expect(ownBox()).not.toBeNull());
+    await userEvent.click(await screen.findByRole("button", { name: "Profile and settings" }));
+    const menu = await screen.findByRole("dialog", { name: "Profile and settings" });
+    await userEvent.click(within(menu).getByRole("button", { name: "Sign out" }));
+    const dialog = await leaveDialog();
+    expect(logout).not.toHaveBeenCalled();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Stay" }));
+    expect(logout).not.toHaveBeenCalled();
+    expect(ownBox()).not.toBeNull();
+  });
+
+  it("«Leave without saving»: esce", async () => {
+    const logout = vi.spyOn(api.auth, "logout");
+    await refused(new Error("invalid: stale"));
+    await waitFor(() => expect(ownBox()).not.toBeNull());
+    await userEvent.click(await screen.findByRole("button", { name: "Profile and settings" }));
+    const menu = await screen.findByRole("dialog", { name: "Profile and settings" });
+    await userEvent.click(within(menu).getByRole("button", { name: "Sign out" }));
+    await userEvent.click(within(await leaveDialog()).getByRole("button", { name: "Leave without saving" }));
+    await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
   });
 });

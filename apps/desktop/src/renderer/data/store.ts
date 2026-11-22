@@ -452,6 +452,7 @@ export type ApiFnName =
   | "productDocs.getProductFirstVersion"
   | "productDocs.acceptFirstVersionPage"
   | "productDocs.undoFirstVersion"
+  | "productDocs.stopFirstVersion"
   | "productDocs.listOpenProductQuestions"
   | "productDocs.listProductRequestsPreparing"
   | "productDocs.proposeBacklogFromPage"

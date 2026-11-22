@@ -4217,8 +4217,10 @@ export interface ProductFirstVersion {
   written: { pageId: string; revisionId: string }[];
   /** Chi l'ha annullata. */
   undoneById: string | null;
-  /** Il copione si è fermato prima della fine (una pagina tolta, `docs.edit` perso). */
+  /** Il copione si è fermato prima della fine (una pagina tolta, `docs.edit` perso, «Stop»). */
   interrupted: boolean;
+  /** «Stop» chiesto: Claude finisce la pagina in corso e si ferma. */
+  stopRequested?: boolean;
 }
 
 /**
@@ -4249,7 +4251,10 @@ export interface ProductFirstVersionView {
   /** Le pagine scritte che hanno ancora la riga «First version written by Claude…». */
   bannerPageIds: string[];
   undo: ProductUndoView;
-  permissions: { edit: boolean };
+  /** «Stop» chiesto, Claude finisce la pagina in corso: «Stopping after this page…» per tutti. */
+  stopping: boolean;
+  /** `stop`: «Stop» accanto all'avanzamento (`docs.edit`, mentre scrive, nessuno l'ha già chiesto). */
+  permissions: { edit: boolean; stop: boolean };
 }
 
 /** Una domanda di Claude ancora aperta nello spazio («N questions to close»). */

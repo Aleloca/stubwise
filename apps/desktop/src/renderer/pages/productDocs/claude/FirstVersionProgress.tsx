@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
-import { useOpenProductQuestions } from "../../../data/queries";
+import { useOpenProductQuestions, useStopFirstVersion } from "../../../data/queries";
 import type { ProductFirstVersionView } from "../../../data/types";
 import { DocCode } from "../../docs/parts";
 import { productPageLink } from "../parts";
@@ -17,6 +17,10 @@ import { productPageLink } from "../parts";
 // ferma dov'è e lo dice, senza errore: non è «finita». Ogni pagina scritta
 // e la fine si annunciano; il fuoco non si sposta da solo (solo all'avvio
 // dalla finestra, `focusRequest`). Lo stato lo dà tutto il livello dati.
+// «Stop» accanto al titolo (decisione del maintainer, 22 nov 2026): solo
+// con `permissions.stop`, senza conferma; Claude finisce la pagina in corso
+// e si ferma, e fino ad allora al posto del bottone c'è «Stopping after
+// this page…» (il fuoco passa al titolo prima che il bottone smonti).
 
 const MAX_INDENT = 4;
 
@@ -72,6 +76,24 @@ export function FirstVersionProgress({
   }, []);
   const writing = view.status === "writing";
   const stopped = !writing && view.interrupted;
+  const stop = useStopFirstVersion();
+  const stopInflight = useRef(false);
+  const [stopping, setStopping] = useState(false);
+  const [stopFailed, setStopFailed] = useState(false);
+  const stopButton = useRef<HTMLButtonElement>(null);
+  const askStop = () => {
+    if (stopInflight.current) return;
+    stopInflight.current = true;
+    setStopFailed(false);
+    // Subito, senza aspettare la rilettura: il fuoco al titolo prima che il bottone smonti.
+    if (stopButton.current && stopButton.current === document.activeElement) heading.current?.focus();
+    setStopping(true);
+    stop.mutateAsync(view.projectId).catch(() => {
+      stopInflight.current = false;
+      setStopping(false);
+      setStopFailed(true);
+    });
+  };
   const questions = useOpenProductQuestions(view.projectId, { enabled: !writing }).data?.count ?? 0;
 
   useLayoutEffect(() => {
@@ -128,7 +150,24 @@ export function FirstVersionProgress({
         <h2 ref={heading} tabIndex={-1} className="text-xl font-semibold text-ink outline-none">
           {t(titleKey)}
         </h2>
+        {writing && (stopping || view.stopping) ? (
+          <span className="ml-1 text-sm text-ink-muted">{t("productDocs.firstVersion.progress.stopping")}</span>
+        ) : writing && view.permissions.stop ? (
+          <button
+            ref={stopButton}
+            type="button"
+            onClick={askStop}
+            className="ml-1 inline-flex h-7 shrink-0 items-center rounded-md border border-rule-strong px-2 text-sm font-medium text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 active:bg-ink/10"
+          >
+            {t("productDocs.firstVersion.progress.stop")}
+          </button>
+        ) : null}
       </div>
+      {writing && stopFailed && (
+        <p role="alert" className="text-xs text-critical">
+          {t("productDocs.firstVersion.progress.stopFailed")}
+        </p>
+      )}
       <p className="num text-md text-ink-muted">{summary.join(" · ")}</p>
       {!writing && first?.code && (
         <div className="pt-2">

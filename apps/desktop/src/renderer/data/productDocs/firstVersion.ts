@@ -478,10 +478,34 @@ async function play(
       return interrupt(fv);
     }
     fv.pagesDone = i + 1;
+    // «Stop»: la pagina in corso è scritta, le altre no.
+    if (fv.stopRequested && i < draft.length - 1) return interrupt(fv);
     emitProductFirstVersion(fv.projectId);
   }
   fv.status = "done";
   emitProductFirstVersion(fv.projectId);
+}
+
+/**
+ * «Stop» (decisione del maintainer, 22 nov 2026): Claude finisce la pagina
+ * in corso e si ferma; le pagine scritte restano e si annullano come
+ * sempre. Chiede `docs.edit` (`not_found` a chi non legge i Docs, come il
+ * server); senza una prima versione che scrive, o già fermata, non fa
+ * niente (idempotente). Fra il clic e l'arresto la vista dice `stopping`
+ * a tutti e nessuno ha più «Stop» (la forma del server, a7f558344).
+ */
+export function stopFirstVersionAs(me: string, projectId: string): void {
+  const access = docsAccess(me, projectId);
+  if (access === "none") throw notFound();
+  if (access === "forbidden" || !can(viewerFor(me), "docs.edit", projectId)) throw forbidden();
+  const fv = latestOf(projectId);
+  if (fv?.status !== "writing" || fv.stopRequested) return;
+  fv.stopRequested = true;
+  emitProductFirstVersion(projectId);
+}
+
+export async function stopFirstVersion(projectId: string): Promise<void> {
+  stopFirstVersionAs(await writer("productDocs.stopFirstVersion"), projectId);
 }
 
 // --- «Annulla» e «Accetta» ---------------------------------------------------------
@@ -668,7 +692,11 @@ export function productFirstVersionOf(
         ? []
         : alive.filter((p) => !fv.acceptedPageIds.includes(p.id)).map((p) => p.id),
     undo: undoViewOf(me, fv),
-    permissions: { edit: canEdit(me, projectId) },
+    stopping: fv.status === "writing" && fv.stopRequested === true,
+    permissions: {
+      edit: canEdit(me, projectId),
+      stop: fv.status === "writing" && !fv.stopRequested && canEdit(me, projectId),
+    },
   };
 }
 

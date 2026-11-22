@@ -96,6 +96,8 @@ function CaptionField({
         focused.current = true;
       }}
       onChange={(e) => setValue(e.target.value)}
+      // Uscire dalla pagina la salva (§3.12, revisione di R11-6, M7).
+      data-save-on-blur=""
       onBlur={() => {
         focused.current = false;
         if (value === sent.current) return;

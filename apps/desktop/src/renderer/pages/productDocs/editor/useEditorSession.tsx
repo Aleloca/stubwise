@@ -237,8 +237,23 @@ export function useEditorSession(page: ProductPageView) {
     [],
   );
 
+  // «Leave without saving», o la pagina smontata (revisione di R11-6, I2): la
+  // fila si svuota e niente parte più. Una scrittura già in viaggio arriva,
+  // ma nessuna dietro di lei, e nessun esito tocca più lo stato.
+  const disposed = useRef(false);
+  const dispose = useCallback(() => {
+    disposed.current = true;
+    queue.current = [];
+    release();
+  }, [release]);
+  // Rimesso a posto al montaggio: StrictMode smonta e rimonta una volta.
+  useEffect(() => {
+    disposed.current = false;
+    return dispose;
+  }, [dispose]);
+
   const pump = useCallback(async () => {
-    if (busy.current || failed.current) return;
+    if (disposed.current || busy.current || failed.current) return;
     const batch = queue.current[0];
     if (!batch) {
       release();
@@ -254,6 +269,7 @@ export function useEditorSession(page: ProductPageView) {
         undoOf: batch.undoOf?.(),
         ...(batch.baseSeq !== undefined ? { baseSeq: batch.baseSeq } : {}),
       });
+      if (disposed.current) return;
       client.setQueryData(
         ["as", me, "productDocs", "page", pageRef.current.code],
         (old: ProductPageView | null | undefined) =>
@@ -271,13 +287,14 @@ export function useEditorSession(page: ProductPageView) {
       setPending(queue.current.map((b) => b.ops));
       batch.onDone?.(result.revisionId);
       busy.current = false;
-      if (queue.current.length > 0) void pump();
+      if (queue.current.length > 0 && !disposed.current) void pump();
       else {
         setState("saved");
         release();
       }
     } catch (error) {
       busy.current = false;
+      if (disposed.current) return;
       const reason = rejected(error);
       if (reason) {
         // Riprovare darebbe lo stesso rifiuto: la scrittura esce dalla fila.
@@ -290,7 +307,7 @@ export function useEditorSession(page: ProductPageView) {
         setDropped(reason);
         const by = (error as { by?: unknown }).by;
         setDroppedBy(reason === "busy" && typeof by === "string" ? by : null);
-        if (queue.current.length > 0) void pump();
+        if (queue.current.length > 0 && !disposed.current) void pump();
         else {
           setState("idle");
           release();
@@ -305,6 +322,7 @@ export function useEditorSession(page: ProductPageView) {
 
   const enqueue = useCallback(
     (batch: Batch) => {
+      if (disposed.current) return;
       queue.current.push(seqRef.current === undefined ? batch : { ...batch, baseSeq: seqRef.current });
       setPending(queue.current.map((b) => b.ops));
       void pump();
@@ -431,6 +449,8 @@ export function useEditorSession(page: ProductPageView) {
     /** La pagina da disegnare: come `blocks`, ma il blocco tenuto non cambia per mano d'altri ([PE 18]). */
     shown: shownView,
     hold,
+    /** «Leave without saving»: la fila si svuota e niente parte più (I2). */
+    dispose,
     /** Si risolve quando la fila è vuota (o ferma su un errore): un gesto fuori dalla fila arriva dopo. */
     settled,
     /** Ci sono scritture non ancora confermate. */
@@ -441,6 +461,7 @@ export function useEditorSession(page: ProductPageView) {
      * propria che la pagina non ha già (come i riquadri dell'editor).
      */
     unsaved: () => {
+      if (disposed.current) return false;
       if (queue.current.length > 0) return true;
       const page = current();
       return ownsRef.current.some((o) => {
