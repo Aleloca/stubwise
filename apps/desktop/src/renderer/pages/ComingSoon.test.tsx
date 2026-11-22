@@ -271,6 +271,9 @@ const INTEGRATED_CALLS = new Set([
   // Area 9, F4: AI → Budget & language.
   "instance.getBudget",
   "instance.saveBudget",
+  // Registro, A8 r.964: i tetti dell'analisi dei server, nella scheda Budget.
+  "instance.getServerAnalysisSettings",
+  "instance.saveServerAnalysisSettings",
   // Area 9, F3: AI → Models.
   "instance.listModels",
   "instance.setModel",
@@ -1095,6 +1098,17 @@ describe("aree non integrate nella build app", () => {
     await settle();
     expect(document.querySelector("[data-coming-soon]")).toBeNull();
     expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Registro, A8 r.964 (`servers-analysis-limits`): sotto il budget, i tetti
+  // dell'analisi dei server su `/api/settings/server-analysis`.
+  it("AI → Budget mostra i tetti dell'analisi dei server, con chiamate integrate", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/admin/ai?tab=budget");
+    await waitFor(() => expect(calls).toContain("instance.getServerAnalysisSettings"));
+    await settle();
+    expect(document.querySelector("[data-coming-soon]")).toBeNull();
     expect(outside()).toEqual([]);
   });
 

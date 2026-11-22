@@ -177,6 +177,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // `canStartAnalysis` del server; la frase «niente letture SSH» aspetta
     // l'SSH (`servers-ssh`).
     "servers-analysis",
+    // I tetti dell'analisi (R0-C), sotto Amministrazione → AI → Budget, su
+    // GET/PUT /api/settings/server-analysis (registro, A8 r.964).
+    "servers-analysis-limits",
     // Area 8, F4b: l'accesso SSH di sola lettura (`client.serverOps.ssh*`): lo
     // stato a chi vede il server (il riassunto del dettaglio), la vista intera
     // e le azioni a chi ha `servers.ssh.manage`, rigenerazione compresa (una

@@ -13,6 +13,7 @@ import { liveAutomation } from "./automation";
 import { liveBudget } from "./budget";
 import { liveWebhooks } from "./webhooks";
 import { liveInstanceRepositories } from "./instanceRepositories";
+import { liveServerAnalysis } from "./serverAnalysis";
 
 /**
  * L'istanza nella build app: il budget AI del mese che la chat con Claude
@@ -44,4 +45,6 @@ export const instance: typeof Fake.instance = partialNamespace<typeof Fake.insta
   ...liveUsage,
   // Area 9, F6: Repositories (collegati, staccati, collega, elimina).
   ...liveInstanceRepositories,
+  // Registro, A8 r.964: i tetti dell'analisi dei server (AI → Budget).
+  ...liveServerAnalysis,
 });

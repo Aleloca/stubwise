@@ -166,8 +166,9 @@ describe("isIntegrated", () => {
         "feature:servers-create-in-env",
         "feature:environments",
         // Area 8, F4b: le analisi lette sul server e i container degli ambienti;
-        // i tetti (Amministrazione → AI non è ancora integrata), l'SSH e la ricerca no.
+        // la ricerca no. I tetti dell'analisi dal registro (A8 r.964).
         "feature:servers-analysis",
+        "feature:servers-analysis-limits",
         "feature:servers-ssh",
         "feature:servers",
         "feature:environment-containers",

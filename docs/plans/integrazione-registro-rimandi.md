@@ -972,8 +972,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - **`done` del server** si mostra come «Diagnosis ready», o come diagnosi
     parziale con `endedBy: "time"`; «irraggiungibile» e «fermata» del
     prototipo il server non li distingue (resta così);
-  - **i tetti dell'analisi** (R0-C, `servers-analysis-limits`): restano
-    spenti finché Amministrazione → AI non è integrata (area 9).
+  - ~~**i tetti dell'analisi** (R0-C, `servers-analysis-limits`): restano
+    spenti finché Amministrazione → AI non è integrata (area 9).~~ Chiusa
+    il 23 nov 2026 (rimandi, lotto 1): accesi sotto AI → Budget, su
+    GET/PUT `/api/settings/server-analysis` (`real/serverAnalysis.ts`).
   - Divergenze del prototipo dal server, dichiarate: col budget esaurito o
     l'analisi spenta il prototipo rifiuta l'analisi a mano SUBITO
     (`invalid: monthly_budget` / `invalid: disabled`), il server la accoda
