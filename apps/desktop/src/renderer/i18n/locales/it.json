@@ -12740,7 +12740,8 @@
       "mark": "Fatta con Claude",
       "filter": "Fatte con Claude",
       "undid": "Ha annullato: {{sentence}}",
-      "filtersCleared": "Filtri tolti per mostrare la modifica."
+      "filtersCleared": "Filtri tolti per mostrare la modifica.",
+      "undoneGone": "Quella modifica non è più nel registro."
     }
   },
   "usage": {

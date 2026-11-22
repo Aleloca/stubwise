@@ -1280,9 +1280,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - AI → Automation: le regole di `feedback` e `review` non si modificano
     nell'app (la pagina ha le tre righe delle task) e si rimandano com'erano
     *(S, se servono due righe in più)*;
-  - «Load more» del registro e «Undid…» (area 10a, F7): la data della riga
+  - ~~«Load more» del registro e «Undid…» (area 10a, F7): la data della riga
     porta alla voce annullata solo se è fra le pagine già lette *(S, da
-    rivedere con F7)*.
+    rivedere con F7)*.~~ Chiusa il 23 nov 2026 (rimandi, lotto 2): la data
+    legge le pagine dopo finché trova la voce; lette tutte, dice «That change
+    isn't in the log anymore.» (`JournalList` di `ChangeLogPage.tsx`, prototipo
+    e app).
   - Progetto → Settings → Integration (F5): il server non manda la
     piattaforma dei webhook git (`gitWebhooks[].provider`), quindi nell'app
     il dialogo del segreto dice «la piattaforma git» e non «GitHub» o

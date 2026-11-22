@@ -12740,7 +12740,8 @@
       "mark": "Made with Claude",
       "filter": "Made with Claude",
       "undid": "Undid: {{sentence}}",
-      "filtersCleared": "Filters cleared to show the change."
+      "filtersCleared": "Filters cleared to show the change.",
+      "undoneGone": "That change isn't in the log anymore."
     }
   },
   "usage": {
