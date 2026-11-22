@@ -282,6 +282,24 @@ describe("il lavoro di Claude sulla doc di prodotto", () => {
     await t.db.update(projects).set({ queuePausedAt: null }).where(eq(projects.id, projectId));
     expect(await runProductDocJob({ db: t.db, runner: fakeRunner(() => facts(replaceP1(b.id))).runner, log }, await resume(jb.id))).toBe("done");
     expect(await waitedOn(b.id)).toEqual(["paused"]);
+    // Budget e poi una sezione presa (revisione, M3): la sosta più lieve non cancella quella che la card dice.
+    const d1 = await page();
+    const d2 = await page();
+    const md = await mail();
+    const jd = await jobFor(md.id);
+    await t.db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "1" });
+    expect(await runProductDocJob({ db: t.db, runner: fakeRunner(() => facts()).runner, log, monthlyCostUsdFn: async () => 5 }, jd)).toBe("held");
+    await t.db.delete(instanceSettings);
+    // Su d2 il fatto è nella sezione «Spedizioni» (sotto H1), che Piero sta scrivendo.
+    const onShipping = { ...replaceP1(d2.id, { id: "f2" }), anchorId: P2, before: { text: "Spediamo in 48 ore.", marks: [] }, change: { kind: "replace", text: { text: "Spediamo in 24 ore.", marks: [] } } };
+    const twoPages = () => facts(replaceP1(d1.id), onShipping);
+    await t.db.insert(productSectionHolds).values({ pageId: d2.id, sectionId: H1, userId: personId, expiresAt: new Date(Date.now() + 60_000) });
+    expect(await runProductDocJob({ db: t.db, runner: fakeRunner(twoPages).runner, log }, await resume(jd.id))).toBe("held");
+    expect(await jobRow(jd.id)).toMatchObject({ heldReason: "section_busy", lastHeldReason: "budget" });
+    await t.db.delete(productSectionHolds).where(eq(productSectionHolds.pageId, d2.id));
+    expect(await runProductDocJob({ db: t.db, runner: fakeRunner(twoPages).runner, log }, await resume(jd.id))).toBe("done");
+    expect(await waitedOn(d1.id)).toEqual(["budget"]);
+    expect(await waitedOn(d2.id)).toEqual(["budget"]);
     // Senza attesa.
     const c = await page();
     const mc = await mail();

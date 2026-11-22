@@ -1514,6 +1514,13 @@ describe("CHAT_DONE_CLAIM_PATTERN (area 11, F6)", () => {
     expect(CHAT_DONE_CLAIM_PATTERN.test("La pagina non è stata aggiornata: serve la tua conferma.")).toBe(false);
     expect(CHAT_DONE_CLAIM_PATTERN.test("Non l'ho aggiornata: confermi?")).toBe(false);
     expect(CHAT_DONE_CLAIM_PATTERN.test("Non ho aggiornato niente.")).toBe(false);
+    // Un clitico in più davanti a «l'» (revisione, M4).
+    expect(CHAT_DONE_CLAIM_PATTERN.test("Non te l'ho aggiornata.")).toBe(false);
+    expect(CHAT_DONE_CLAIM_PATTERN.test("Non ce l'ho fatta.")).toBe(false);
+    expect(CHAT_DONE_CLAIM_PATTERN.test("Non gliel'ho aggiornata.")).toBe(false);
+    // Senza «non» restano affermazioni.
+    expect(CHAT_DONE_CLAIM_PATTERN.test("Te l'ho aggiornata.")).toBe(true);
+    expect(CHAT_DONE_CLAIM_PATTERN.test("Gliel'ho aggiornata.")).toBe(true);
     // Una parola che CONTIENE «è» non è l'ausiliare.
     expect(CHAT_DONE_CLAIM_PATTERN.test("Perchè stato aggiornato?")).toBe(false);
   });

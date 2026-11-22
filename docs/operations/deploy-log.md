@@ -6010,8 +6010,9 @@ deploy o di un rollback che la tocca.
     Indice unico parziale `(author_id, client_id)`.
   - La card `product_doc.updated` dice `waited` (`budget`, `paused`), scritto
     NELL'EVENTO alla pubblicazione dall'ultima sosta del lavoro
-    (`last_held_reason`, già della 0213). Le card di prima restano senza
-    (null), e non c'è niente da riscrivere.
+    (`last_held_reason`, già della 0213), che tiene budget e pausa fino
+    alla fine del lavoro anche se dopo arriva un limite o una sezione presa.
+    Le card di prima restano senza (null), e non c'è niente da riscrivere.
   - **Nessun `notification_kind` nuovo**, nessuna env, nessun permesso nuovo.
   - Rotte nuove sotto `/api`:
     - la prima versione (`/projects/:projectId/product/first-version`, con

@@ -308,12 +308,37 @@ export async function undoFirstVersion(db: Db, viewer: Viewer, projectId: string
   }
 }
 
-/** «Stop»: la prima versione si ferma dopo la pagina in corso. Idempotente. */
+/**
+ * «Stop»: la prima versione si ferma dopo la pagina in corso. Idempotente.
+ * Se il worker non la sta scrivendo (il lavoro è in coda o fermo), non c'è una
+ * pagina in corso: la chiude il server SUBITO, interrotta, col suo lavoro
+ * (`stopped`), invece di aspettare che il lavoro passi il tetto orario o il
+ * serializer del progetto (revisione, M2). Il lock sulla riga del lavoro
+ * esclude la claim (`FOR UPDATE SKIP LOCKED`): un lavoro già preso resta del
+ * worker, che onora lo stop prima della pagina dopo.
+ */
 export async function stopFirstVersion(db: Db, viewer: Viewer, projectId: string): Promise<void> {
   const perms = await permsOf(db, viewer, projectId);
   if (!perms.has("docs.view")) throw notFound();
   if (!perms.has("docs.edit")) throw new ProductDocsError(403, "forbidden", "Forbidden");
-  await db.update(productFirstVersions).set({ stopRequested: true }).where(and(eq(productFirstVersions.projectId, projectId), eq(productFirstVersions.status, "writing")));
+  await db.transaction(async (txRaw) => {
+    const tx = txRaw as unknown as Db;
+    const [fv] = await tx
+      .update(productFirstVersions)
+      .set({ stopRequested: true })
+      .where(and(eq(productFirstVersions.projectId, projectId), eq(productFirstVersions.status, "writing")))
+      .returning({ id: productFirstVersions.id });
+    if (!fv) return;
+    const [idle] = await tx
+      .select({ id: productDocJobs.id })
+      .from(productDocJobs)
+      .where(and(eq(productDocJobs.sourceKind, "first_version"), eq(productDocJobs.sourceId, fv.id), inArray(productDocJobs.status, ["queued", "held"])))
+      .for("update");
+    if (!idle) return;
+    const now = new Date();
+    await tx.update(productDocJobs).set({ status: "done", heldReason: null, lastHeldReason: null, error: "stopped", finishedAt: now }).where(eq(productDocJobs.id, idle.id));
+    await tx.update(productFirstVersions).set({ status: "done", interrupted: true, pastedText: null, finishedAt: now }).where(eq(productFirstVersions.id, fv.id));
+  });
 }
 
 /** «Accept this page»: la riga in cima sparisce per tutti. Una pagina che non è di una prima versione viva è 422. */

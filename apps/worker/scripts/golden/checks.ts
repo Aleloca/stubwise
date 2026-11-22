@@ -1213,12 +1213,13 @@ export const CHAT_AUTOMATION_ON_PATTERN = /(?<!non|not)(?:^|[\s(«"])(è (ora )?
 
 // Area 11, F6 (golden del 22 nov 2026): una NEGAZIONE («Non è ancora stato
 // fatto.», «Non l'ho aggiornata») non è dire di averlo fatto; il pattern la
-// contava come «fatto.». Prima di «è» il confine non è `\b`: senza flag `u`
+// contava come «fatto.». Anche con un clitico davanti a «l'» («non te l'ho»,
+// «non ce l'ho fatta», «non gliel'ho»). Prima di «è» il confine non è `\b`: senza flag `u`
 // `\b` è ASCII, «è» non è una lettera per lui e « è» non aveva mai un confine
 // («è stata aggiornata» non era preso). Il confine è «niente lettera prima»,
 // accentate comprese; i participi prendono anche femminile e plurale.
 export const CHAT_DONE_CLAIM_PATTERN =
-  /(?<!\bnon (?:l'|lo |la |li |le |gli )?)\bho (già )?(assegnat|fatt|creat|aggiornat|modificat|spostat|pianificat)[oaie]\b|(?<!\bnon )(?<![a-zà-ù])(è|e') stat[aoie] (assegnat|fatt|creat|aggiornat|modificat|spostat)|(?<!\bnon (?:è |e' )?(?:ancora )?(?:stat[ao] )?)\bfatto[!.]|\b(i've|i have) (assigned|done|created|updated)\b|\bit'?s done\b/i;
+  /(?<!\bnon (?:(?:me |te |ce |ve |se )?l'|gliel'|lo |la |li |le |gli )?)\bho (già )?(assegnat|fatt|creat|aggiornat|modificat|spostat|pianificat)[oaie]\b|(?<!\bnon )(?<![a-zà-ù])(è|e') stat[aoie] (assegnat|fatt|creat|aggiornat|modificat|spostat)|(?<!\bnon (?:è |e' )?(?:ancora )?(?:stat[ao] )?)\bfatto[!.]|\b(i've|i have) (assigned|done|created|updated)\b|\bit'?s done\b/i;
 /**
  * Un'azione A eseguita che non ha codici da citare (un'iscrizione, S7): la
  * risposta dice che è FATTO (spento, non arriverà più), non chiede di
