@@ -1501,5 +1501,21 @@ describe("CHAT_DONE_CLAIM_PATTERN (area 11, F6)", () => {
     expect(CHAT_DONE_CLAIM_PATTERN.test("Ok, fatto!")).toBe(true);
     expect(CHAT_DONE_CLAIM_PATTERN.test("Ho aggiornato AUD-D5.")).toBe(true);
   });
+
+  it("le forme al femminile, con «l'ho» e con l'accento in testa: «è stata aggiornata», «l'ho aggiornata», «È stato fatto»", () => {
+    // `\b` senza flag `u` è ASCII: prima di «è» non c'è mai un confine dopo uno spazio.
+    expect(CHAT_DONE_CLAIM_PATTERN.test("La pagina AUD-D5 è stata aggiornata.")).toBe(true);
+    expect(CHAT_DONE_CLAIM_PATTERN.test("È stata aggiornata con l'email di Ada.")).toBe(true);
+    expect(CHAT_DONE_CLAIM_PATTERN.test("È stato fatto.")).toBe(true);
+    expect(CHAT_DONE_CLAIM_PATTERN.test("Ok, l'ho aggiornata.")).toBe(true);
+    expect(CHAT_DONE_CLAIM_PATTERN.test("Ho già creata la bozza.")).toBe(true);
+    expect(CHAT_DONE_CLAIM_PATTERN.test("Ho spostate le voci.")).toBe(true);
+    // Le negazioni restano negazioni anche in queste forme.
+    expect(CHAT_DONE_CLAIM_PATTERN.test("La pagina non è stata aggiornata: serve la tua conferma.")).toBe(false);
+    expect(CHAT_DONE_CLAIM_PATTERN.test("Non l'ho aggiornata: confermi?")).toBe(false);
+    expect(CHAT_DONE_CLAIM_PATTERN.test("Non ho aggiornato niente.")).toBe(false);
+    // Una parola che CONTIENE «è» non è l'ausiliare.
+    expect(CHAT_DONE_CLAIM_PATTERN.test("Perchè stato aggiornato?")).toBe(false);
+  });
 });
 
