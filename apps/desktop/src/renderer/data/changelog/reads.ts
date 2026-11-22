@@ -3,7 +3,7 @@ import { canSeeAdminSection, projectSettingsAccess } from "../adminSections";
 // Area 9c: solo i tipi di voce, mai `projectSettings/index.ts` (P6).
 import { SECTION_OF_KIND } from "../projectSettings/changeTypes";
 import type { AdminSection } from "../routes";
-import { visiblePeopleFor } from "../access/whoCan";
+import { knownNameOf, knownPeopleFor, visiblePeopleFor } from "../access/whoCan";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import {
   archivedProjectIdsFor,
@@ -412,6 +412,7 @@ function view(
   stored: ChangeEntry,
   people: Set<string>,
   visible: Set<string>,
+  known: Set<string>,
   nested = false,
 ): ChangeEntryView {
   const { entry, labelKey } = resolveDeleted(me, stored);
@@ -432,13 +433,14 @@ function view(
     after: entry.after,
     ...(entry.via ? { via: entry.via } : {}),
     undoOf,
-    ...(undone ? { undoneEntry: view(me, undone, people, visible, true) } : {}),
+    ...(undone ? { undoneEntry: view(me, undone, people, visible, known, true) } : {}),
     object: { ...entry.object },
     params: { ...entry.params },
     templateKey: type.templateKey,
     scope: type.scope,
     group: type.group,
-    actorName: nameOf(entry.actorId),
+    // R.1414: il nome solo a chi conosce la persona.
+    actorName: knownNameOf(me, entry.actorId, known),
     projectCode: entry.projectId ? (state.projectsById.get(entry.projectId)?.code ?? null) : null,
     objectDeleted: objectDeletedOf(entry),
     objectLink: objectLinkOf(me, entry, people),
@@ -460,9 +462,10 @@ function newestFirst(entries: ChangeEntry[]): ChangeEntry[] {
 function changesReadableBy(me: string, filter: ChangeFilter = {}): ChangeEntryView[] {
   const visible = readableProjectIds(me);
   const people = me === CLAUDE_ID ? new Set<string>() : visiblePeopleFor(me);
+  const known = me === CLAUDE_ID ? new Set<string>() : knownPeopleFor(me);
   return newestFirst(
     state.changelog.filter((e) => readable(me, e, visible) && matchesFilter(e, filter)),
-  ).map((e) => view(me, e, people, visible));
+  ).map((e) => view(me, e, people, visible, known));
 }
 
 /** Il registro in Amministrazione: le voci leggibili da chi guarda, più recenti prima. */

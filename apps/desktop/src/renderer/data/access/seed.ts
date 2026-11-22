@@ -258,6 +258,7 @@ export function seedAccessState(): AccessState {
     departments: seedDepartments(),
     people: seedPeople(),
     revocations: [],
+    formerMemberships: [],
   };
 }
 

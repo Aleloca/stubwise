@@ -64,9 +64,20 @@ export interface PersonalRevocation {
   permission: string;
 }
 
+/**
+ * Chi è uscito da un progetto (registro, A11 r.1414): lo scrive `writeAccess`
+ * a ogni uscita, in UN posto. Serve a `peopleKnownTo`: un ex membro di un
+ * progetto visibile resta una persona che chi guarda conosce.
+ */
+export interface FormerMembership {
+  projectId: string;
+  personId: string;
+}
+
 export interface AccessState {
   roles: RoleDef[];
   memberships: Membership[];
+  formerMemberships: FormerMembership[];
   grants: PersonalGrant[];
   departments: DepartmentAccess[];
   people: PersonAccess[];
@@ -101,6 +112,16 @@ export function registerMembershipSync(next: MembershipSync): void {
 
 const pairsOf = (s: AccessState) =>
   new Set(s.memberships.map((m) => `${m.projectId}\u0000${m.personId}`));
+
+/** Chi è uscito da un progetto fra due fotografie resta un ex membro (r.1414). */
+function rememberLeavers(before: Set<string>, after: Set<string>): void {
+  const known = new Set(current.formerMemberships.map((m) => `${m.projectId}\u0000${m.personId}`));
+  for (const key of before) {
+    if (after.has(key) || known.has(key)) continue;
+    const [projectId, personId] = key.split("\u0000") as [string, string];
+    current.formerMemberships.push({ projectId, personId });
+  }
+}
 
 /** Avvisa lo store di chi è entrato o uscito da un progetto, fra due fotografie. */
 function notify(before: Set<string>, after: Set<string>): void {
@@ -137,12 +158,16 @@ export function writeAccess(fn: (s: AccessState) => void): void {
   const before = pairsOf(current);
   fn(current);
   version += 1;
-  notify(before, pairsOf(current));
+  const after = pairsOf(current);
+  rememberLeavers(before, after);
+  notify(before, after);
   for (const listener of listeners) listener();
 }
 
 /** Riporta gli accessi al seme, sullo stesso oggetto (così `state.access` resta valido). */
 export function resetAccessState(): AccessState {
   writeAccess((s) => Object.assign(s, seedAccessState()));
+  // Il ripristino non è un'uscita: gli ex membri tornano quelli del seme.
+  current.formerMemberships = seedAccessState().formerMemberships;
   return current;
 }

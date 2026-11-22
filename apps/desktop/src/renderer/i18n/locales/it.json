@@ -12347,6 +12347,7 @@
     }
   },
   "changelog": {
+    "someone": "Qualcuno",
     "kinds": {
       "person": {
         "instance_role_changed": "<actor>{{actor}}</actor> ha cambiato il ruolo d'istanza di <object>{{object}}</object>.",

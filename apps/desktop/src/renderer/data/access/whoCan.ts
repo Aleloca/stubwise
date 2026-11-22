@@ -1,5 +1,5 @@
 import { actionById, groupPermissions } from "../../domain/access/actions";
-import { orderHolders, peopleVisibleTo } from "../../domain/access/whoCan";
+import { orderHolders, peopleKnownTo, peopleVisibleTo } from "../../domain/access/whoCan";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { archivedProjectIdsFor, visibleProjectIds } from "../store";
 import { can, viewerFor, type Permission } from "../viewer";
@@ -38,6 +38,30 @@ export type WhatCanResult =
 
 const nameOf = (personId: string): string =>
   PEOPLE.find((p) => p.id === personId)?.name ?? personId;
+
+/**
+ * Le persone che chi guarda conosce (registro, A11 r.1414): la regola dei nomi
+ * e degli id nelle viste, compresi disattivati ed ex membri dei progetti
+ * visibili. Claude non c'è (non è una persona da nascondere).
+ */
+export function knownPeopleFor(viewerId: string): Set<string> {
+  return peopleKnownTo({
+    state: accessState(),
+    viewerId,
+    visibleProjectIds: visibleProjectIds(viewerId),
+  });
+}
+
+/**
+ * Il nome di una persona per chi guarda: `null` se è una persona che non
+ * conosce; Claude, o un attore che non è una persona, col suo nome di sempre.
+ */
+export function knownNameOf(viewerId: string, personId: string, known?: Set<string>): string | null {
+  const person = PEOPLE.find((p) => p.id === personId);
+  if (!person) return personId;
+  if (personId === CLAUDE_ID) return person.name;
+  return (known ?? knownPeopleFor(viewerId)).has(personId) ? person.name : null;
+}
 
 /** Le persone che chi guarda vede (R-G5), Claude escluso. */
 export function visiblePeopleFor(viewerId: string): Set<string> {

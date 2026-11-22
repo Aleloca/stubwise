@@ -1,6 +1,6 @@
 import { blockChanges } from "../../domain/productDocs/blocks";
 import { docsAccess } from "../docs/reads";
-import { PEOPLE } from "../seed/people";
+import { knownNameOf, knownPeopleFor } from "../access/whoCan";
 import { copy, gate, newId, nextSeq, now, state } from "../store";
 import type {
   ProductBlock,
@@ -141,6 +141,7 @@ export async function listProductRevisions(
   const access = docsAccess(me, page.projectId);
   if (access === "forbidden") throw new Error("forbidden");
   if (access === "none") return [];
+  const known = knownPeopleFor(me);
   return state.productRevisions
     .filter((r) => r.pageId === pageId && (before === undefined || r.lastSeq < before))
     .sort((a, b) => b.lastSeq - a.lastSeq)
@@ -148,7 +149,8 @@ export async function listProductRevisions(
     .map((r) => {
       const row: ProductRevisionView = {
         ...copy(r),
-        actorName: PEOPLE.find((p) => p.id === r.actorId)?.name ?? r.actorId,
+        // R.1414: il nome solo a chi conosce la persona.
+        actorName: knownNameOf(me, r.actorId, known),
         // 11b: «per conto di», la fonte vista da chi guarda, «Annulla» e la domanda (marks.ts).
         ...claudeRevisionFields(me, r, page.projectId),
       };

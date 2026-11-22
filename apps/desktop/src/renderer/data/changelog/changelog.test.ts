@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { changelog, failNext, resetApi, setLatency } from "../api";
 import "../admin/changeTypes";
 import { accessState, isFullAdmin, roleIdOf, writeAccess } from "../access/index";
-import { visiblePeopleFor } from "../access/whoCan";
+import { knownPeopleFor, visiblePeopleFor } from "../access/whoCan";
 import { setSessionPersonId } from "../session";
 import { seedChangelog } from "../seed/changelog";
 import { PEOPLE } from "../seed/people";
@@ -316,6 +316,58 @@ describe("chi legge cosa", () => {
     });
     expect(await kinds()).not.toContain("test.member.added@AUD");
     expect(await message(changelog.listProjectChanges(AUD))).toBe("not_found");
+  });
+});
+
+// Registro, A11 r.1414 (decisione del maintainer, 23 nov 2026): il nome di
+// chi ha agito non esce a chi non lo vede. Restano visibili i disattivati e
+// gli ex membri di un progetto che chi guarda vede («Nome (deactivated)»).
+describe("il nome dell'autore della voce (r.1414)", () => {
+  /** Una persona che non è mai stata in ACQ e non è full admin. */
+  const outsider = () =>
+    PEOPLE.find(
+      (p) =>
+        p.id !== "p-claude" &&
+        !isFullAdmin(p.id) &&
+        !accessState().memberships.some((m) => m.personId === p.id && m.projectId === ACQ) &&
+        !knownPeopleFor("p-laura").has(p.id),
+    )!;
+
+  it("chi non vede l'autore legge la voce senza il suo nome", async () => {
+    const who = outsider();
+    expect(who).toBeDefined();
+    projectEntry(ACQ, who.id);
+    as("p-laura");
+    const [entry] = await changelog.listProjectChanges(ACQ);
+    expect(entry!.actorName).toBeNull();
+    expect(JSON.stringify(entry)).not.toContain(who.name);
+  });
+
+  it("un ex membro del progetto resta col suo nome", async () => {
+    const marco = PEOPLE.find((p) => p.id === "p-marco")!;
+    expect(accessState().memberships.some((m) => m.personId === marco.id && m.projectId === ACQ)).toBe(true);
+    projectEntry(ACQ, marco.id);
+    // Fuori da OGNI progetto: resta solo l'ex membro di ACQ (nient'altro lo fa conoscere).
+    writeAccess((s) => {
+      s.memberships = s.memberships.filter((m) => m.personId !== marco.id);
+    });
+    expect(isFullAdmin(marco.id)).toBe(false);
+    as("p-laura");
+    const [entry] = await changelog.listProjectChanges(ACQ);
+    expect(entry!.actorName).toBe(marco.name);
+  });
+
+  it("un membro disattivato resta col suo nome", async () => {
+    const marco = PEOPLE.find((p) => p.id === "p-marco")!;
+    projectEntry(ACQ, marco.id);
+    writeAccess((s) => {
+      const row = s.people.find((p) => p.personId === marco.id)!;
+      row.status = "deactivated";
+      row.deactivatedAt = "2026-11-20T10:00:00Z";
+    });
+    as("p-laura");
+    const [entry] = await changelog.listProjectChanges(ACQ);
+    expect(entry!.actorName).toBe(marco.name);
   });
 });
 

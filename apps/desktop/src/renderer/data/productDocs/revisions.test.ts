@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { plain, toggleMark } from "../../domain/productDocs/richText";
 import { productDocs, resetApi, setLatency } from "../api";
 import type { ProductBlock, ProductPage } from "../model";
+import { accessState, isFullAdmin, writeAccess } from "../access/index";
+import { knownPeopleFor } from "../access/whoCan";
+import { PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
 
@@ -229,5 +232,45 @@ describe("la cronologia a pagine (I2 della revisione, come il server)", () => {
     expect(second).toHaveLength(total - 100);
     expect(second.every((r) => r.lastSeq < before)).toBe(true);
     expect(new Set([...first, ...second].map((r) => r.id)).size).toBe(total);
+  });
+});
+
+// Registro, A11 r.1414: il nome di chi ha scritto non esce a chi non lo vede
+// (prima veniva dall'elenco intero delle persone). Ex membri e disattivati di
+// ACQ restano col loro nome.
+describe("il nome di chi ha scritto (r.1414)", () => {
+  const outsider = () =>
+    PEOPLE.find(
+      (p) =>
+        p.id !== "p-claude" &&
+        !isFullAdmin(p.id) &&
+        !accessState().memberships.some((m) => m.personId === p.id && m.projectId === ACQ) &&
+        !knownPeopleFor(LAURA).has(p.id),
+    )!;
+  const lastBy = async (pageId: string, actorId: string) => {
+    const rev = editsOf(pageId).at(-1)!;
+    rev.actorId = actorId;
+    as(LAURA);
+    return (await productDocs.listProductRevisions(pageId)).find((r) => r.id === rev.id)!;
+  };
+
+  it("chi non vede l'autore: nessun nome", async () => {
+    const { page: p } = await page();
+    const who = outsider();
+    expect(who).toBeDefined();
+    const row = await lastBy(p.id, who.id);
+    expect(row.actorName).toBeNull();
+    expect(JSON.stringify(row)).not.toContain(who.name);
+  });
+
+  it("un ex membro di ACQ: il nome resta", async () => {
+    const { page: p } = await page();
+    // Fuori da OGNI progetto: resta solo l'ex membro di ACQ.
+    writeAccess((s) => {
+      s.memberships = s.memberships.filter((m) => m.personId !== MARCO);
+    });
+    expect(isFullAdmin(MARCO)).toBe(false);
+    const row = await lastBy(p.id, MARCO);
+    expect(row.actorName).toBe(PEOPLE.find((x) => x.id === MARCO)!.name);
   });
 });

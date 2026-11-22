@@ -28,6 +28,31 @@ export function peopleVisibleTo(input: {
   return new Set(active.filter((id) => id === viewerId || isFullAdmin(id) || sharing.has(id)));
 }
 
+/**
+ * Le persone che chi guarda CONOSCE (registro, A11 r.1414, decisione del
+ * maintainer del 23 nov 2026): è la regola degli id e dei nomi che una vista
+ * può portare. Più larga di `peopleVisibleTo` (chi si sceglie, chi può fare):
+ * conta anche i disattivati e gli ex membri dei progetti visibili, che
+ * restano «Nome (deactivated)». Un full admin conosce tutti.
+ */
+export function peopleKnownTo(input: {
+  state: AccessState;
+  viewerId: string;
+  visibleProjectIds: ReadonlySet<string>;
+}): Set<string> {
+  const { state, viewerId, visibleProjectIds } = input;
+  const all = state.people.map((p) => p.personId);
+  if (isFullAdminIn(state, viewerId)) return new Set(all);
+  const sharing = new Set(
+    [...state.memberships, ...(state.formerMemberships ?? [])]
+      .filter((m) => visibleProjectIds.has(m.projectId))
+      .map((m) => m.personId),
+  );
+  return new Set(
+    all.filter((id) => id === viewerId || isFullAdminIn(state, id) || sharing.has(id)),
+  );
+}
+
 const SOURCE_RANK: Record<PermissionSource["kind"], number> = {
   role: 0,
   grant: 1,

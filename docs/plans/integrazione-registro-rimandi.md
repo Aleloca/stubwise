@@ -1457,6 +1457,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `authorId` e `resolved.byId` dei commenti, `productDoc.authorId` della card
   (F2). Coerente con il resto dell'app, dove gli id non sono un segreto; da
   rivedere insieme se R-G5 deve coprire anche gli id.
+  **Decisione del maintainer (23 nov 2026)**: chi non vede una persona o un
+  progetto non ne riceve nemmeno l'id: al suo posto un segnaposto opaco
+  (`hidden-<n>`, stabile nella stessa risposta). Disattivati ed ex membri dei
+  progetti visibili restano visibili («Nome (deactivated)»); la directory
+  admin resta fuori. Il predicato è `peopleKnownTo` (prototipo,
+  `domain/access/whoCan.ts`), con gli ex membri in `formerMemberships`.
+  In corso a lotti (rimandi, lotto 2): fatto il passo 1, le due fughe di
+  NOME (`actorName` delle revisioni della doc e del registro delle modifiche).
 - ~~Origine di una richiesta dalla documentazione di prodotto. *(F5, 72)*: c'è
   quella di una DOMANDA di Claude (`origin.product_doc` con `questionId`
   obbligatorio, su `POST /api/requests` e sulla voce `createRequest` del

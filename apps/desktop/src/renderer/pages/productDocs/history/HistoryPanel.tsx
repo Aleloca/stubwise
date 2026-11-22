@@ -175,12 +175,15 @@ function summaryOf(
 function useRowName() {
   const { t } = useTranslation();
   const nameOf = usePersonName();
-  return (r: ProductRevisionView): string =>
-    r.answerOf
-      ? t("productDocs.history.answerFrom", { name: r.actorName })
+  return (r: ProductRevisionView): string => {
+    // R.1414: chi non conosce la persona legge «Someone».
+    const actor = r.actorName ?? t("productDocs.history.someone");
+    return r.answerOf
+      ? t("productDocs.history.answerFrom", { name: actor })
       : r.via === "claude" && r.onBehalfOfId
         ? t("productDocs.history.onBehalfOf", { name: nameOf(r.onBehalfOfId) })
-        : r.actorName;
+        : actor;
+  };
 }
 
 /** L'anello «ritorna» di un annullamento: disegnato, non un glifo. */
@@ -392,7 +395,8 @@ export function HistoryPanel({
                                 : "border border-rule-strong text-ink-muted"
                             }`}
                           >
-                            {person?.initials ?? r.actorName.slice(0, 1)}
+                            {/* R.1414: di chi non si conosce, né nome né iniziali. */}
+                            {r.actorName === null ? "?" : (person?.initials ?? r.actorName.slice(0, 1))}
                           </span>
                           <span className="flex min-w-0 flex-1 flex-col">
                             <span data-row-name="" className="font-semibold text-ink [overflow-wrap:anywhere]">
