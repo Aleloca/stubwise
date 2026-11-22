@@ -9,7 +9,7 @@ import { ProductDocsError } from "../services/product-docs.js";
 import { ProductSectionBusyError } from "../services/product-docs-ops.js";
 import { FirstVersionUndoBlockedError, startFirstVersion, undoFirstVersion } from "../services/product-first-version.js";
 import { drawWireframe } from "../services/product-wireframes.js";
-import type { CatalogEntry, CatalogRefusal } from "./catalog.js";
+import type { ActionObject, CatalogEntry, CatalogRefusal } from "./catalog.js";
 
 /**
  * Area 11, F6, Task 4 — le sei voci della doc di prodotto (il prototipo:
@@ -49,6 +49,17 @@ function productRefusal(error: unknown): { ok: false; refusal: CatalogRefusal } 
     return refused("invalid", error.code);
   }
   throw error;
+}
+
+/**
+ * La pagina toccata, come oggetto col suo codice (AUD-D5): il codice si salva
+ * SUGLI oggetti (`persistCodes`), e senza oggetto la vista del gruppo lo
+ * perdeva («Undo Claude's update of a page», richiesta di 94). Senza `stamp`:
+ * `changed_after` non lo guarda.
+ */
+async function pageRef(tx: Db, pageId: string): Promise<{ objects: ActionObject[]; codes: string[] }> {
+  const codes = await pageCodes(tx, pageId);
+  return codes.length > 0 ? { objects: [{ kind: "product_page", id: pageId }], codes } : { objects: [], codes: [] };
 }
 
 /** Il codice della pagina (AUD-D5), per la riga «fatto» e il modello. */
@@ -114,7 +125,7 @@ export const PRODUCT_ENTRIES: CatalogEntry[] = [
       } catch (error) {
         return productRefusal(error);
       }
-      return { ok: true, result: { inverse: null, objects: [], codes: await pageCodes(tx, args["pageId"] as string), startsWork: true } };
+      return { ok: true, result: { inverse: null, ...(await pageRef(tx, args["pageId"] as string)), startsWork: true } };
     },
   },
   {
@@ -128,7 +139,9 @@ export const PRODUCT_ENTRIES: CatalogEntry[] = [
       } catch (error) {
         return productRefusal(error);
       }
-      return { ok: true, result: { inverse: null, objects: [], codes: [] } };
+      // La pagina della revisione (richiesta di 94): la frase dice quale pagina, come per `updateProductPage`.
+      const [rev] = await tx.select({ pageId: productPageRevisions.pageId }).from(productPageRevisions).where(eq(productPageRevisions.id, args["revisionId"] as string));
+      return { ok: true, result: { inverse: null, ...(rev ? await pageRef(tx, rev.pageId) : { objects: [], codes: [] }) } };
     },
   },
   {
@@ -148,7 +161,7 @@ export const PRODUCT_ENTRIES: CatalogEntry[] = [
       const revisionId = await drewRevisionOf(tx, pageId, blockId);
       return {
         ok: true,
-        result: { inverse: revisionId === null ? null : { fn: "deleteWireframe", args: { pageId, blockId, revisionId } }, objects: [], codes: await pageCodes(tx, pageId), startsWork: true },
+        result: { inverse: revisionId === null ? null : { fn: "deleteWireframe", args: { pageId, blockId, revisionId } }, ...(await pageRef(tx, pageId)), startsWork: true },
       };
     },
   },
@@ -163,7 +176,7 @@ export const PRODUCT_ENTRIES: CatalogEntry[] = [
       } catch (error) {
         return productRefusal(error);
       }
-      return { ok: true, result: { inverse: null, objects: [], codes: [] } };
+      return { ok: true, result: { inverse: null, ...(await pageRef(tx, args["pageId"] as string)) } };
     },
   },
 ];
