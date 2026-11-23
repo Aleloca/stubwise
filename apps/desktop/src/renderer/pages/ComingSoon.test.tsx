@@ -176,6 +176,12 @@ const INTEGRATED_CALLS = new Set([
   "me.getEmailChangeLink",
   "me.confirmEmailChange",
   "me.changePassword",
+  // Registro, A9 r.1200: le caselle Google in Account, sulle rotte del cassetto.
+  "me.listMyMailboxes",
+  "me.connectMailbox",
+  "me.reconnectMailbox",
+  "me.disconnectMailbox",
+  "me.setProposals",
   // Area 9, F1, R4b: Preferenze → Security.
   "me.getMySecurity",
   "me.endSession",
@@ -982,14 +988,15 @@ describe("aree non integrate nella build app", () => {
   });
 
   // Area 9, F1, R4a: Preferenze → Account è accesa (`prefs-account`): profilo,
-  // email e password dal server; le caselle Google stanno nel cassetto Google
-  // (`prefs-mailboxes` spenta), e il riquadro «Prototype only» non c'è.
-  it("aprire Preferenze → Account legge solo chiamate integrate, senza caselle né riquadro del prototipo", async () => {
+  // email e password dal server; dal 23 nov 2026 (registro, A9 r.1200, «Anche
+  // in Preferenze») anche le caselle Google (`prefs-mailboxes`), sulle rotte
+  // del cassetto. Il riquadro «Prototype only» non c'è.
+  it("aprire Preferenze → Account legge solo chiamate integrate, caselle comprese, senza riquadro del prototipo", async () => {
     renderRoute("/preferences/account");
     expect(await screen.findByRole("heading", { level: 1, name: "Account" })).toBeInTheDocument();
     await waitFor(() => expect(calls).toContain("me.getMyProfile"));
+    await waitFor(() => expect(calls).toContain("me.listMyMailboxes"));
     await settle();
-    expect(calls).not.toContain("me.listMyMailboxes");
     expect(document.querySelector("[data-prototype-only]")).toBeNull();
     expect(outside()).toEqual([]);
   });

@@ -21,6 +21,7 @@ import {
 import { Dialog } from "../../tasks-ui/Dialog";
 import { useReauth } from "../../layout/useReauth";
 import { featureIntegrated } from "../../data/integration";
+import { isAppBuild } from "../../data/build";
 import { useToast } from "../../tasks-ui/Toast";
 import { PrototypeBox } from "../automations/shared";
 import { BusyLabel, EntryField, ErrorLine } from "../entry/parts";
@@ -752,23 +753,26 @@ function ConnectDialog({
         <p className="text-md text-ink">{t("prefs.google.dialog.consent")}</p>
         {error && <ErrorLine>{error}</ErrorLine>}
       </div>
-      <PrototypeBox>
-        <fieldset className="flex flex-col gap-1">
-          <legend className="mb-1 text-sm text-ink-muted">{t("prefs.google.dialog.answer")}</legend>
-          {OUTCOMES.map((o) => (
-            <label key={o} className="flex items-center gap-2 text-sm text-ink">
-              <input
-                type="radio"
-                name={`${name}-outcome`}
-                checked={outcome === o}
-                onChange={() => setOutcome(o)}
-                className="size-3.5"
-              />
-              {t(`prefs.google.dialog.outcomes.${o}`)}
-            </label>
-          ))}
-        </fieldset>
-      </PrototypeBox>
+      {/* Nella build app l'esito lo dice Google, nel browser (registro, A9 r.1200). */}
+      {!isAppBuild() && (
+        <PrototypeBox>
+          <fieldset className="flex flex-col gap-1">
+            <legend className="mb-1 text-sm text-ink-muted">{t("prefs.google.dialog.answer")}</legend>
+            {OUTCOMES.map((o) => (
+              <label key={o} className="flex items-center gap-2 text-sm text-ink">
+                <input
+                  type="radio"
+                  name={`${name}-outcome`}
+                  checked={outcome === o}
+                  onChange={() => setOutcome(o)}
+                  className="size-3.5"
+                />
+                {t(`prefs.google.dialog.outcomes.${o}`)}
+              </label>
+            ))}
+          </fieldset>
+        </PrototypeBox>
+      )}
     </Dialog>
   );
 }

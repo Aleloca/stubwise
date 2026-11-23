@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { failNext, me, resetApi, setLatency } from "../../data/api";
 import { markReauthenticated } from "../../data/auth/reauth";
 import { state } from "../../data/store";
@@ -285,6 +285,27 @@ describe("Account", () => {
     const dialog = await screen.findByRole("dialog", { name: /^Reconnect / });
     await user.click(within(dialog).getByRole("button", { name: "Continue on Google" }));
     await waitFor(() => expect(screen.queryByText(/Needs reconnecting/)).toBeNull());
+  });
+
+  // Registro, A9 r.1200 (decisione del 23 nov 2026, «Anche in Preferenze»):
+  // nella build app le caselle ci sono, e l'esito del consenso lo dice Google
+  // nel browser: il dialogo non ha il riquadro «Prototype only».
+  it("build app: le caselle ci sono, e il dialogo di Reconnect non ha il riquadro del prototipo", async () => {
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    try {
+      // Nella build app la persona è quella della sessione (Giulia): la sua casella da ricollegare.
+      const account = state.googleAccounts.find((a) => a.personId === GIULIA)!;
+      account.status = "expired";
+      const user = userEvent.setup();
+      renderRoute("/preferences/account", GIULIA);
+      await user.click(await screen.findByRole("button", { name: "Reconnect" }));
+      const dialog = await screen.findByRole("dialog", { name: /^Reconnect / });
+      expect(within(dialog).getByRole("button", { name: "Continue on Google" })).toBeVisible();
+      expect(dialog.querySelector("[data-prototype-only]")).toBeNull();
+      expect(document.querySelector("[data-prototype-only]")).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 

@@ -150,8 +150,10 @@ describe("isIntegrated", () => {
         "feature:support-widgets",
         // API per i siti (S6): l'identità dei clienti del widget.
         "feature:support-identity",
-        // Area 9, F1, R4a: Preferenze → Account (le caselle Google no: stanno nel cassetto).
+        // Area 9, F1, R4a: Preferenze → Account.
         "feature:prefs-account",
+        // Registro, A9 r.1200: le caselle Google in Account (decisione del 23 nov 2026).
+        "feature:prefs-mailboxes",
         // Area 9, F1, R4b: Preferenze → Security.
         "feature:prefs-security",
         // Area 9, F1, R4c e R4d: Tokens, Claude Code, Language & theme.
