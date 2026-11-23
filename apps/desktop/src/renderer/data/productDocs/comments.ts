@@ -378,7 +378,8 @@ export function presentProductMention(me: string, out: AppNotification): void {
   out.objectCode = page.code;
   out.link = threadLink(page, root.id);
   out.productPageTitle = page.title;
-  const seen = visiblePeopleFor(me);
+  // R.1414: i nomi menzionati di chi guarda conosce.
+  const seen = knownPeopleFor(me);
   out.mentionNames = directMentionIds(out.body)
     .filter((id) => seen.has(id))
     .map(nameOf);

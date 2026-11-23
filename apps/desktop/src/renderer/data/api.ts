@@ -2,6 +2,7 @@ import { matches } from "../domain/filters";
 import { DEFAULT_CORRECTION_CAP } from "../domain/releases/prState";
 import type { Stall } from "../domain/stalled";
 import { accessState } from "./access/index";
+import { personMasker } from "./access/hidden";
 import { knownPeopleFor, visiblePeopleFor } from "./access/whoCan";
 import { pluginSkillCommand, STUBWISE_COMMANDS } from "./seed/commands";
 import { skillsForRun } from "./projectSettings/plugins";
@@ -735,6 +736,11 @@ export async function getLatestBrief(projectId: string): Promise<WeeklyBrief | n
  */
 export async function listNotifications(): Promise<AppNotification[]> {
   const me = await gate("listNotifications");
+  // Registro, A11 r.1414: i nomi seguono «chi si conosce», gli id di chi non
+  // si conosce diventano segnaposti, uno per la risposta intera.
+  const known = knownPeopleFor(me);
+  const mask = personMasker(me);
+  const nameIfKnown = (id: string) => (known.has(id) ? (PEOPLE.find((p) => p.id === id)?.name ?? null) : null);
   return state.notifications.flatMap((n) => {
     const delivered = deliveredTo(me, n);
     if (!delivered) return [];
@@ -749,19 +755,15 @@ export async function listNotifications(): Promise<AppNotification[]> {
       // Area 10a (I2): chi ha scritto, come nome per chi guarda (R-G5);
       // l'id resta nel livello dati.
       if (n.actorId !== undefined) {
-        out.actorName = visiblePeopleFor(me).has(n.actorId)
-          ? (PEOPLE.find((p) => p.id === n.actorId)?.name ?? null)
-          : null;
+        out.actorName = nameIfKnown(n.actorId);
         delete out.actorId;
       }
       // Area 10a: per chi l'ha fatta partire Claude, e chi l'ha annullata;
       // i nomi solo se chi guarda vede quelle persone (R-G5).
       if (n.viaClaude) {
-        const people = visiblePeopleFor(me);
-        out.viaClaudeName = people.has(n.viaClaude.personId)
-          ? (PEOPLE.find((p) => p.id === n.viaClaude!.personId)?.name ?? null)
-          : null;
-        out.undoneByName = undoneByNameOf(n.viaClaude.actionId, people);
+        out.viaClaudeName = nameIfKnown(n.viaClaude.personId);
+        out.undoneByName = undoneByNameOf(n.viaClaude.actionId, known);
+        out.viaClaude = { ...out.viaClaude!, personId: mask(n.viaClaude.personId) };
       }
       // Area 10b (D4): il nome di adesso del ruolo dato ([SC 15]: eliminato,
       // `null`), e il progetto che chi la riceve non vede più non si apre
@@ -771,10 +773,7 @@ export async function listNotifications(): Promise<AppNotification[]> {
       // `member.added` a chi gestisce i membri (19 nov 2026): chi è entrato,
       // per nome se chi guarda lo vede (R-G5); a chi è entrato niente.
       if (n.memberId !== undefined) {
-        if (n.memberId !== me)
-          out.memberName = visiblePeopleFor(me).has(n.memberId)
-            ? (PEOPLE.find((p) => p.id === n.memberId)?.name ?? null)
-            : null;
+        if (n.memberId !== me) out.memberName = nameIfKnown(n.memberId);
         delete out.memberId;
       }
       if (n.projectId && !visibleProjectIds(me).has(n.projectId)) out.notOpenable = true;
@@ -784,10 +783,11 @@ export async function listNotifications(): Promise<AppNotification[]> {
       // Area 11b: le card di Claude sulla doc di prodotto, lette per chi riceve.
       presentProductUpdate(me, out);
       presentProductQuestion(me, out);
+      out.recipientIds = out.recipientIds.map(mask);
       return [out];
     }
     const shown = presentChatNotification(me, delivered);
-    return shown ? [shown] : [];
+    return shown ? [{ ...shown, recipientIds: shown.recipientIds.map(mask) }] : [];
   });
 }
 

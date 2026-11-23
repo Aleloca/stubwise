@@ -1463,8 +1463,17 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   progetti visibili restano visibili («Nome (deactivated)»); la directory
   admin resta fuori. Il predicato è `peopleKnownTo` (prototipo,
   `domain/access/whoCan.ts`), con gli ex membri in `formerMemberships`.
-  In corso a lotti (rimandi, lotto 2): fatto il passo 1, le due fughe di
-  NOME (`actorName` delle revisioni della doc e del registro delle modifiche).
+  Seconda decisione (23 nov 2026): «chi scrive in un canale che vedo è
+  conosciuto» (membri e autori dei canali leggibili, `knownPeopleFor`).
+  In corso a lotti (rimandi, lotto 2), nel prototipo: fatti le due fughe di
+  NOME (`actorName` delle revisioni della doc e del registro), l'elenco
+  delle persone solo coi conosciuti, e il segnaposto (`personMasker`,
+  `data/access/hidden.ts`) in Chat, commenti e revisioni della doc,
+  registro delle modifiche e inbox. Restano, a lotti: tasks, attività,
+  decisioni, richieste, filtri, conversazioni con Claude, automazioni,
+  server, rilasci, supporto, calendario, posta, Drive, admin (inventario del
+  23 nov 2026), e i `params` con nomi congelati del registro. Lato server
+  (72): la proposta in `docs/invariants/permissions.md`.
 - ~~Origine di una richiesta dalla documentazione di prodotto. *(F5, 72)*: c'è
   quella di una DOMANDA di Claude (`origin.product_doc` con `questionId`
   obbligatorio, su `POST /api/requests` e sulla voce `createRequest` del
