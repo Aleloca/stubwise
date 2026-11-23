@@ -110,9 +110,9 @@ export interface CommitRun {
   /**
    * Chi l'ha prodotta (revisione del lotto 2, I6): una run più nuova col nome
    * uguale ne prende il posto SOLO nello stesso gruppo. GitHub: la check suite
-   * (`github:suite:<id>`, un workflow su quel commit: i rilanci ci restano);
-   * Bitbucket: la key dello status (`bitbucket:key:<key>`). `null` se il
-   * provider non lo dice.
+   * (`github:suite:<id>`, un workflow su quel commit: i rilanci ci restano).
+   * `null` su Bitbucket (nessun gruppo condiviso dai rilanci) e se il provider
+   * non lo dice: fa da jolly (`countedReleaseRuns`).
    */
   group?: string | null;
 }

@@ -373,7 +373,10 @@ export class BitbucketProvider implements GitProvider {
             failedStep: status === "failed" ? str(v.description) : null,
             startedAt: str(v.created_on),
             endedAt: status === "running" ? null : str(v.updated_on),
-            group: str(v.key) ? `bitbucket:key:${str(v.key)}` : null,
+            // Revisione 3bbe2ddc6..444b8b773, I-1: nessun gruppo. La key è già l'id
+            // (la chiave dell'upsert), e i rilanci hanno key diverse: col gruppo
+            // la regola del rilancio su Bitbucket non scatterebbe mai.
+            group: null,
           };
         });
       return { status: "ok", runs };

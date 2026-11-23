@@ -112,6 +112,24 @@ describe("pollReleasesOnce", () => {
     expect((await cardsOf(s2.leadId))[0]!.event).toMatchObject({ failedRun: "test" });
   });
 
+  it("revisione 3bbe2ddc6..444b8b773, I-1: due run senza gruppo (Bitbucket: key diverse) col nome uguale — la più nuova sostituisce, il rilascio è riuscito e nessun avviso", async () => {
+    const s = await setup();
+    const t0 = new Date(Date.now() - 120_000).toISOString();
+    const t1 = new Date().toISOString();
+    await poll(
+      fake({
+        status: "ok",
+        runs: [
+          { id: "pipe-1", name: "Pipeline", status: "failed", url: "h", failedStep: "rosso", startedAt: t0, endedAt: t0, group: null },
+          { id: "pipe-2", name: "Pipeline", status: "success", url: "h", failedStep: null, startedAt: t1, endedAt: t1, group: null },
+        ],
+      }),
+    );
+    expect(await cardsOf(s.leadId)).toEqual([]);
+    expect((await reload(s.release.id)).failedNotifiedAt).toBeNull();
+    expect((await reload(s.release.id)).runsSettledAt).not.toBeNull();
+  });
+
   it("registro, A8 r.744: una run rilanciata e verde dopo un `failed` si vede: il rilascio sistemato come fallito si riguarda (al più ogni RELEASE_FAILED_RECHECK_MINUTES) e diventa riuscito", async () => {
     const s = await setup();
     const t0 = new Date();
