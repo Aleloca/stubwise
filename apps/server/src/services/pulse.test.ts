@@ -5,6 +5,7 @@ import {
   aiJobs,
   backlogItems,
   backlogItemTickets,
+  instanceSettings,
   notificationDeliveries,
   notifications,
   projectDecisions,
@@ -244,6 +245,25 @@ describe("proceedWithProposal — guardie d'ingresso", () => {
     expect(after!.status).toBe("ready");
     // La riga resta aperta: una richiesta malformata non consuma il pulse.
     expect((await readNotifications(ids))[0]!.status).toBe("open");
+  });
+
+  it("rimandi, lotto 4 (D-7.1): budget del mese finito, chi non ha `plans.approve` riceve `budget_exhausted` e non succede NIENTE (voce, card e ticket); chi ce l'ha procede", async () => {
+    const item = await seedItem();
+    const { ids } = await seedPulse([operator, maintainer], [item]);
+    await db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "0" }).onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "0" } });
+    try {
+      const refused = await proceedWithProposal(db, { notificationId: ids[0]!, actor: operator, optionIndex: 0 });
+      expect(refused).toEqual({ ok: false, error: "budget_exhausted" });
+      const [after] = await db.select({ status: backlogItems.status }).from(backlogItems).where(eq(backlogItems.id, item.id));
+      expect(after!.status).toBe("ready");
+      expect((await readNotifications(ids)).map((n) => n.status)).toEqual(["open", "open"]);
+      expect(await db.select().from(backlogItemTickets).where(eq(backlogItemTickets.itemId, item.id))).toEqual([]);
+      // Chi scavalca il budget: la stessa card, la task e il run partono.
+      const proceeded = await proceedWithProposal(db, { notificationId: ids[1]!, actor: maintainer, optionIndex: 0 });
+      expect(proceeded.ok).toBe(true);
+    } finally {
+      await db.update(instanceSettings).set({ monthlyBudgetUsd: null }).where(eq(instanceSettings.id, 1));
+    }
   });
 
   it("indice assente (risposta a testo libero) → invalid_answer", async () => {
