@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { personRefSchema } from "./person-ref.js";
 import { agentSessionDetailSchema, agentSessionStateSchema } from "./agent-session.js";
 
 /**
@@ -31,7 +32,8 @@ export const claudeConversationProjectSchema = z.object({
 export type ClaudeConversationProject = z.infer<typeof claudeConversationProjectSchema>;
 
 /** Una persona come la nomina una conversazione (autore, chi l'ha resa pubblica). */
-export const claudeConversationPersonSchema = z.object({ id: z.uuid(), name: z.string() });
+/** Una persona di una conversazione: a chi non la conosce `hidden-<n>` col nome null (registro, A11 r.1414). */
+export const claudeConversationPersonSchema = z.object({ id: personRefSchema, name: z.string().nullable() });
 
 export const claudeConversationVisibilitySchema = z.enum(["private", "public"]);
 export type ClaudeConversationVisibility = z.infer<typeof claudeConversationVisibilitySchema>;

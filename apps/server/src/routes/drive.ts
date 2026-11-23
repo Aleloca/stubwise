@@ -1,3 +1,4 @@
+import { registerPersonMask } from "../services/people-known.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -68,6 +69,9 @@ function originOf(url: string | undefined): string | null {
 
 export async function driveRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+
+  // Registro, A11 r.1414: chi guarda non riceve l'id di chi non conosce.
+  registerPersonMask(app, new Set(["addedById", "linkedById", "personId"]));
   // La ricerca per contenuto (F3.4) usa l'embedder del server per la corsia semantica, fail-open.
   const searchOpts = (request: FastifyRequest) => ({ embeddings: app.embeddingClient, log: (m: string) => request.log.warn(m) });
 

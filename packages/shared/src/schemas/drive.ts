@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { personRefSchema } from "./person-ref.js";
 
 /**
  * Il Drive dei progetti (area 5, fetta 2; prototipo `data/drive/`, `data/model.ts`).
@@ -95,7 +96,7 @@ export const driveFileRowSchema = z.object({
   type: driveFileTypeSchema,
   /** Null per un riferimento Google nativo (un Doc non ha byte) — area 6, F5b. */
   sizeBytes: z.number().int().nullable(),
-  addedById: z.uuid().nullable(),
+  addedById: personRefSchema.nullable(),
   addedAt: z.iso.datetime(),
   /** Le aperture degli ultimi 90 giorni («Più usati»), di tutti. */
   opens90d: z.number().int().default(0),
@@ -124,7 +125,7 @@ export const driveFileRowSchema = z.object({
   /** La cartella collegata da cui viene, se viene da una cartella. */
   folder: z.object({ id: z.uuid(), name: z.string(), status: z.enum(["ok", "expired"]) }).nullable().default(null),
   hidden: z.boolean().default(false),
-  hiddenBy: z.object({ personId: z.uuid().nullable(), at: z.iso.datetime() }).nullable().default(null),
+  hiddenBy: z.object({ personId: personRefSchema.nullable(), at: z.iso.datetime() }).nullable().default(null),
   /**
    * `deleted`: sparito da Google (lo dice la sincronizzazione). `access_lost`:
    * la casella di chi ha collegato la cartella non legge più (si DERIVA).
@@ -140,7 +141,7 @@ export const driveFileDetailSchema = driveFileRowSchema.extend({
   /** Il riassunto AI intero (F3), solo nel dettaglio; l'elenco ha `summaryLine`. Narrativa generata. */
   summary: z.string().nullable().default(null),
   history: z
-    .array(z.object({ personId: z.uuid(), at: z.iso.datetime(), via: z.enum(["preview", "download", "google"]) }))
+    .array(z.object({ personId: personRefSchema, at: z.iso.datetime(), via: z.enum(["preview", "download", "google"]) }))
     .nullable()
     .default(null),
 });
@@ -226,7 +227,7 @@ export const driveFolderLinkSchema = z.object({
   projectId: z.uuid(),
   name: z.string(),
   googleFolderId: z.string(),
-  linkedById: z.uuid().nullable().default(null),
+  linkedById: personRefSchema.nullable().default(null),
   linkedAt: z.iso.datetime(),
   status: z.enum(["ok", "expired"]).default("ok"),
   expiredAt: z.iso.datetime().nullable().default(null),

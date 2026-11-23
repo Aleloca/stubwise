@@ -78,9 +78,9 @@ function objectsIn(root: z.ZodType): Record<string, z.ZodType>[] {
 const accepts = (s: z.ZodType, v: unknown) => s.safeParse(v).success;
 
 describe("le rotte mascherate serializzano il segnaposto", () => {
-  it("ci sono le rotte mascherate (task, richieste, filtri, server, automazioni, doc di prodotto)", () => {
+  it("ci sono le rotte mascherate (task, richieste, filtri, server, automazioni, doc di prodotto, decisioni, Drive, supporto, conversazioni e decisioni di Claude, rilasci)", () => {
     const urls = personMaskedRoutes().map((r) => r.url);
-    for (const prefix of ["/tasks", "/requests", "/filters", "/servers", "/automations", "/product"]) {
+    for (const prefix of ["/tasks", "/requests", "/filters", "/servers", "/automations", "/product", "/decisions", "/drive", "/support", "/claude/conversations", "/claude-decisions", "/releases"]) {
       expect(urls.some((u) => u.includes(prefix)), prefix).toBe(true);
     }
   });
