@@ -225,6 +225,18 @@ export function personMaskedRoutes(): PersonMaskedRoute[] {
 
 type RouteSeen = { method: string | string[]; url: string; schema?: { response?: Record<string, unknown> } };
 
+/**
+ * La stessa maschera di {@link registerPersonMask}, per una risposta scritta a
+ * mano (uno stream SSE, dove `preSerialization` non scatta). Ogni chiamata ha
+ * la sua numerazione, a meno che il chiamante non ripassi lo stesso `viewer`.
+ */
+export async function maskPeopleFor<T>(db: Db, viewer: Pick<SessionUser, "id" | "instancePermissions">, payload: T, keys: ReadonlySet<string>): Promise<T> {
+  const ids = personIdsIn(payload, keys);
+  ids.delete(viewer.id);
+  if (ids.size === 0) return payload;
+  return maskPeople(payload, await hiddenFor(db, viewer, ids), keys);
+}
+
 export function registerPersonMask(
   instance: {
     addHook(name: "preSerialization", fn: (request: { user?: SessionUser | null }, reply: unknown, payload: unknown) => Promise<unknown>): unknown;

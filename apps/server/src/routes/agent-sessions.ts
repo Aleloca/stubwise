@@ -17,6 +17,7 @@ import { sessionUserSelection, toSessionUser } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import { projectPermissionsFor } from "../auth/access.js";
 import { memoPermissions } from "../services/permissions-memo.js";
+import { maskPeopleFor, registerPersonMask } from "../services/people-known.js";
 import {
   getAgentSession,
   listAgentSessionEvents,
@@ -61,8 +62,12 @@ export async function refreshViewer(db: Db, userId: string): Promise<SessionView
   return row ? toSessionUser(row) : null;
 }
 
+/** Rimandi, lotto 4 (§7.1): le persone delle sessioni, mascherate per chi non le conosce (r.1414). */
+const SESSION_PERSON_KEYS: ReadonlySet<string> = new Set(["startedById", "answeredById"]);
+
 export async function agentSessionRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+  registerPersonMask(app, SESSION_PERSON_KEYS);
 
   app.get(
     "/",
@@ -254,7 +259,8 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
               close();
               return;
             }
-            send({ type: "session", detail });
+            // Lo stream è scritto a mano: la maschera delle persone qui, non in `preSerialization`.
+            send({ type: "session", detail: await maskPeopleFor(app.db, viewer, detail, SESSION_PERSON_KEYS) });
           } while (dirty && !closed);
         } catch (error) {
           request.log.warn({ err: error }, "agent session stream: lettura fallita");
@@ -264,7 +270,7 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
       };
 
       reply.raw.on("close", close);
-      send({ type: "session", detail: initial });
+      send({ type: "session", detail: await maskPeopleFor(app.db, viewer, initial, SESSION_PERSON_KEYS) });
       // Sottoscrizione PRIMA della prima lettura: una notifica che arriva
       // durante quella lettura alza il flag sporco invece di andare persa.
       unsubscribe = app.agentSessionBus.subscribe(id, (m) => {

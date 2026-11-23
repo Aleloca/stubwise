@@ -1,5 +1,6 @@
 import { and, desc, eq, gt, inArray, isNull, lt, not, or, sql, type SQL } from "drizzle-orm";
 import { canReadPublic, holdForOwnerMessage, readerCut } from "./claude-public.js";
+import { jobPlanView } from "./task-work.js";
 import { enrichAsides } from "./claude-asides.js";
 import { alias } from "drizzle-orm/pg-core";
 import {
@@ -563,6 +564,9 @@ function baseSelect(db: Db) {
         lastTool: lastToolEvent,
         aiJobId: agentSessions.aiJobId,
         backlogItemId: agentSessions.backlogItemId,
+        // Lotto 4 (§7.1): chi l'ha avviata, per i kind che lo sanno.
+        jobRequestedBy: aiJobs.requestedByUserId,
+        refineStartedBy: backlogRefineSessions.startedByUserId,
       })
       .from(agentSessions)
       .leftJoin(projects, eq(projects.id, agentSessions.projectId))
@@ -688,6 +692,10 @@ function toSummary(row: Row, lang: Language): AgentSessionSummary {
     lastActivity: input.live && row.lastTool ? describeAgentActivity(row.lastTool) : null,
     aiJobId: row.aiJobId ?? null,
     backlogItemId: row.backlogItemId ?? null,
+    // Rimandi, lotto 4 (§7.1): il richiedente del job (`ai_job`), chi ha avviato
+    // il refinement (`backlog_refine`); null per le sessioni automatiche e per
+    // un utente eliminato. Lo maschera la rotta (chi si conosce, r.1414).
+    startedById: row.kind === "ai_job" ? (row.jobRequestedBy ?? null) : row.kind === "backlog_refine" ? (row.refineStartedBy ?? null) : null,
     outcome: deriveAgentSessionOutcome(state, input),
     // Lo calcola `withWaitsOnViewer` per chi guarda (elenco e dettaglio).
     waitsOnViewer: false,
@@ -895,6 +903,9 @@ async function agentQuestionsOf(
     cancelled: q.cancelledAt !== null,
     ticketId: q.ticketId,
     answer: q.answeredAt !== null ? storedAnswerOf(q.answer) : null,
+    // Lotto 4 (§7.1): chi ha risposto e quando; null su un'aperta o annullata.
+    answeredById: q.answeredAt !== null ? (q.answeredByUserId ?? null) : null,
+    answeredAt: q.answeredAt?.toISOString() ?? null,
   }));
 }
 
@@ -993,6 +1004,8 @@ export async function loadAgentSession(
     permissions,
     detail: {
       ...summary,
+      // Lotto 4 (§7.2): il piano del job, con la regola di `/work`.
+      plan: row.kind === "ai_job" && row.aiJobId ? await jobPlanView(db, row.aiJobId) : null,
       ...(readerHeld ? { lastActivity: null, activeSegment: null, state: "idle" as const } : {}),
       canWrite: writable,
       canIntervene: intervenable,

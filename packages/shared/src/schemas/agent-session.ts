@@ -1,3 +1,4 @@
+import { personRefSchema } from "./person-ref.js";
 import { z } from "zod";
 import { agentQuestionAnswerSchema, agentQuestionOptionSchema } from "./notification.js";
 
@@ -271,6 +272,12 @@ export const agentSessionSummarySchema = z.object({
    * Calcolato dal server, mai dedotto dal client. Additivo.
    */
   waitsOnViewer: z.boolean().default(false),
+  /**
+   * Rimandi, lotto 4 (§7.1): chi ha avviato la sessione (il richiedente del
+   * job, chi ha avviato il refinement); null per le automatiche. Una persona
+   * che chi guarda non conosce arriva `hidden-<n>`. Additivo.
+   */
+  startedById: personRefSchema.nullable().default(null),
 });
 export type AgentSessionSummary = z.infer<typeof agentSessionSummarySchema>;
 
@@ -358,10 +365,30 @@ export const agentSessionQuestionSchema = z.object({
    * risposta. Additivo: un server più vecchio non lo manda.
    */
   cancelled: z.boolean().default(false),
+  /** Rimandi, lotto 4 (§7.1): chi ha risposto (`hidden-<n>` se sconosciuto) e quando; null su un'aperta o annullata. Additivi. */
+  answeredById: personRefSchema.nullable().default(null),
+  answeredAt: z.iso.datetime().nullable().default(null),
 });
 export type AgentSessionQuestion = z.infer<typeof agentSessionQuestionSchema>;
 
 export const agentSessionDetailSchema = agentSessionSummarySchema.extend({
+  /**
+   * Rimandi, lotto 4 (§7.2): il piano del job della sessione, con la stessa
+   * regola di `/work` (`runs[].plan`). ASSENTE = un server che non lo sa dare
+   * (il client torna a `/work`); null = nessun piano (un kind diverso da
+   * `ai_job`, o un job senza piano). Il digest va rimandato ad approve/reject.
+   */
+  plan: z
+    .object({
+      jobId: z.string().uuid(),
+      text: z.string(),
+      summary: z.string(),
+      status: z.enum(["pending", "approved", "rejected", "pre_approved", "undecided"]),
+      at: z.iso.datetime(),
+      digest: z.string().nullable().default(null),
+    })
+    .nullable()
+    .optional(),
   /** Calcolato dal server col ruolo di chi guarda: mai dedotto dal client. */
   canWrite: z.boolean().default(false),
   /**

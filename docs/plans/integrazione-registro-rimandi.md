@@ -30,16 +30,25 @@ Legenda: *(M)* decisione del maintainer, *(O)* scelta dell'orchestratrice,
   (limite dichiarato di `ticket-history`). Copiarla in `ticket_events` alla
   chiusura vorrebbe una migrazione: rimandato. Né `requeueStale` scrive il
   commento quando chiude uno stantio annullato.
-- Il dettaglio della sessione non porta il piano né il suo digest *(S)*: il
-  digest da rimandare ad approve/reject si legge da `/work` o da «Da decidere».
+- ~~Il dettaglio della sessione non porta il piano né il suo digest *(S)*: il
+  digest da rimandare ad approve/reject si legge da `/work` o da «Da decidere».~~
+  *Chiusa il 23 nov 2026 (72, lotto 4, §7.2)*: `plan` nel dettaglio (e nel
+  messaggio `session`), con la regola di `/work` (`planStatusOf`, condivisa).
+  Rimasto fuori *(O, 94)*: chi ha deciso il piano e le sue istruzioni non
+  arrivano da nessuna rotta («Approved by …» senza nome).
 - Abbinare un commit per **username** del provider *(S)*: nessuna tabella lega
   un utente al suo login GitHub, quindi lo username (letto dalle noreply) si
   mostra ma non abbina; si abbina per email (account o `git_identities`).
-- Chi ha avviato una sessione e chi ha risposto a una domanda (e quando) *(S)*:
-  oggi non arrivano.
+- ~~Chi ha avviato una sessione e chi ha risposto a una domanda (e quando) *(S)*:
+  oggi non arrivano.~~ *Chiusa il 23 nov 2026 (72, lotto 4, §7.1)*:
+  `startedById` sulla sessione (richiedente del job, chi ha avviato il
+  refinement; null per le automatiche) e `answeredById`/`answeredAt` sulle
+  domande, mascherati per chi non conosce la persona (anche nel messaggio
+  `session` dello stream). Rimasto fuori *(O, 94)*: `inputs[].authorName`
+  (chi scrive in una sessione) è l'email e non passa dalla maschera.
 - Consumi per task (`usage`) e blocco d'istanza (`blocked`) in `/work` *(S)*.
 - Allegati nei messaggi a una sessione *(S)*: il server non li accetta.
-- `generatedAt` dei report giornalieri *(S)*.
+- ~~`generatedAt` dei report giornalieri *(S)*.~~ *Chiusa il 23 nov 2026 (72, lotto 4, §7.4)*: in `GET /api/activity`, `finished_at` di un report `done`, altrimenti null.
 - Report giornaliero per progetto (oggi si rigenerano tutti i progetti del
   giorno) *(O, differenza dal prototipo)*.
 
