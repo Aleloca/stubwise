@@ -1,5 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
-import type { InboxItem, SnoozeUntil } from "@stubwise/shared";
+import { isPersonPlaceholder, type InboxItem, type SnoozeUntil } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import { featureIntegrated, isIntegrated } from "../../integration";
 import type { AppNotification, MandatoryReason, ProductAnswerChoice } from "../../types";
@@ -328,14 +328,17 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
       ...viaClaudeOf(item, ctx),
     };
   }
-  // Lotto 4, D-2.0 (decisione del maintainer): la card di una proposta
-  // CONDIVISA passata al progetto (`google.sourceProposalId`, derivato a
-  // lettura) si mostra come nel prototipo: apre la Home, dove la proposta è
-  // in «Da decidere», e una card chiusa (o con una decisione) lo dice. Il
-  // testo lo compone la card; l'evento non porta chi l'ha passata. Una card
-  // di PRIMA (una passata della casella) resta «Open in web».
+  // Lotto 4, §2 (D-2.0 del maintainer; 72, 83dff2dc7): la card di una
+  // proposta CONDIVISA passata al progetto (`google.sourceProposalId`) si
+  // mostra come nel prototipo: apre la Home, dove la proposta è in «Da
+  // decidere», col testo composto dalla card. Chi l'ha passata da
+  // `google.handedByUser` (il nome solo se chi guarda lo conosce: un
+  // segnaposto o un nome null è «Someone»); «Already decided» da
+  // `google.proposalDecided`, derivato dal server (una card archiviata a mano
+  // non è una decisione). Una card di PRIMA resta «Open in web».
   const handed = item.kind === "google.proposal_handed" ? (item as Partial<InboxItem>).google : undefined;
   if (handed?.sourceProposalId && isIntegrated({ kind: "destination", name: "mail" })) {
+    const by = handed.handedByUser ?? null;
     return {
       id: item.id,
       kind: item.kind,
@@ -350,7 +353,8 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
       archived: item.status === "handled",
       snoozedUntil: item.status === "snoozed" ? item.snoozedUntil : null,
       link: "#/home",
-      ...(item.status === "handled" || handed.decision ? { proposalDecided: true } : {}),
+      actorName: by && !isPersonPlaceholder(by.id) ? by.name : null,
+      ...(handed.proposalDecided === true ? { proposalDecided: true } : {}),
     };
   }
   // Area 7, F1: una card di un'automazione apre l'esecuzione (o l'automazione),

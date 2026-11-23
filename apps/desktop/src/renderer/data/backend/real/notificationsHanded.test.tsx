@@ -19,6 +19,15 @@ const ctx = {
   personName: () => null,
 };
 
+const google = () => ({
+  sourceProposalId: PROPOSAL,
+  decision: null,
+  blockedIndices: [],
+  handed: false,
+  handedByUser: null,
+  proposalDecided: false,
+});
+
 const item = (over: Record<string, unknown> = {}) =>
   ({
     id: "88888888-8888-4888-8888-888888888888",
@@ -31,7 +40,7 @@ const item = (over: Record<string, unknown> = {}) =>
     createdAt: "2026-11-23T10:00:00.000Z",
     readAt: null,
     url: "/inbox",
-    google: { sourceProposalId: PROPOSAL, decision: null, blockedIndices: [], handed: false },
+    google: google(),
     ...over,
   }) as never;
 
@@ -56,33 +65,43 @@ function cardText(n: ReturnType<typeof presentInboxItem>): string {
 }
 
 describe("la card di una proposta passata nella build app", () => {
-  it("apre la Home, senza «Open in web», col testo del prototipo", () => {
-    const n = presentInboxItem(item(), ctx);
+  it("apre la Home, senza «Open in web», col nome di chi l'ha passata (`handedByUser`)", () => {
+    const n = presentInboxItem(
+      item({
+        google: {
+          ...google(),
+          handedByUser: { id: "44444444-4444-4444-8444-444444444444", name: "Giulia Ferri" },
+        },
+      }),
+      ctx,
+    );
     expect(n).toMatchObject({ kind: "google.proposal_handed", objectCode: "AUD", link: "#/home" });
     expect(n.webHref).toBeUndefined();
     expect(n.proposalDecided).toBeUndefined();
     const text = cardText(n);
     expect(text).toContain("A mail proposal handed to AUD");
-    // L'evento non porta chi l'ha passata: «Someone», come per uno sconosciuto.
-    expect(text).toContain("Someone handed it to the project. Decide it in Home.");
+    expect(text).toContain("Giulia Ferri handed it to the project. Decide it in Home.");
   });
 
-  it("chiusa da una decisione (anche di un altro): «Already decided»", () => {
-    for (const over of [
-      { status: "handled" },
-      {
-        google: {
-          sourceProposalId: PROPOSAL,
-          decision: { status: "actioned", chosen: [], error: null },
-          blockedIndices: [],
-          handed: false,
-        },
-      },
+  it("chi l'ha passata e chi guarda non conosce (`hidden-n`, nome null), o un server senza il campo: «Someone»", () => {
+    for (const handedByUser of [
+      { id: "hidden-1", name: null },
+      { id: "hidden-1", name: "Giulia Ferri" },
+      null,
     ]) {
-      const n = presentInboxItem(item(over), ctx);
-      expect(n.proposalDecided).toBe(true);
-      expect(cardText(n)).toContain("Already decided: nothing left to do.");
+      const n = presentInboxItem(item({ google: { ...google(), handedByUser } }), ctx);
+      expect(cardText(n)).toContain("Someone handed it to the project. Decide it in Home.");
     }
+  });
+
+  it("`proposalDecided` dal server: «Already decided»; una card archiviata da chi la riceve no", () => {
+    const decided = presentInboxItem(item({ google: { ...google(), proposalDecided: true } }), ctx);
+    expect(decided.proposalDecided).toBe(true);
+    expect(cardText(decided)).toContain("Already decided: nothing left to do.");
+    // Archiviata a mano (`handled`), ma la proposta è ancora da decidere.
+    const archived = presentInboxItem(item({ status: "handled" }), ctx);
+    expect(archived.archived).toBe(true);
+    expect(archived.proposalDecided).toBeUndefined();
   });
 
   it("una card di prima (senza `sourceProposalId`): «Open in web», come oggi", () => {
