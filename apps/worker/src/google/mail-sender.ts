@@ -1,4 +1,4 @@
-import { googleAccounts, mailDrafts, mailOutgoing, type Db } from "@stubwise/db";
+import { googleAccounts, mailDrafts, mailOutgoing, queueDraftAttachmentObjects, type Db } from "@stubwise/db";
 import { buildMimeMessage, encodeRaw, GoogleApiError, refreshAccessToken, sendDraft, sendMessage } from "@stubwise/google";
 import { loadGoogleAccountCredentials, type GoogleAccountCredentials } from "@stubwise/google/credentials";
 import { MAIL_OUTGOING_CHANNEL } from "@stubwise/shared";
@@ -164,8 +164,12 @@ async function recordSent(db: Db, row: typeof mailOutgoing.$inferSelect, sent: {
           .update(mailOutgoing)
           .set({ state: "sent", gmailMessageId: sent.messageId, gmailThreadId: sent.threadId, sentAt: sql`now()`, error: null })
           .where(eq(mailOutgoing.id, row.id));
-        // La bozza è uscita da Gmail: anche da qui.
-        if (row.draftId) await tx.delete(mailDrafts).where(eq(mailDrafts.id, row.draftId));
+        // La bozza è uscita da Gmail: anche da qui. Gli oggetti dei suoi allegati
+        // vanno in coda per la pulizia del server (il worker lo storage non ce l'ha).
+        if (row.draftId) {
+          await queueDraftAttachmentObjects(tx, row.draftId, "mail_draft_sent");
+          await tx.delete(mailDrafts).where(eq(mailDrafts.id, row.draftId));
+        }
       });
       return true;
     } catch {

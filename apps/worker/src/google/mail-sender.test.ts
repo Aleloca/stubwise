@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { automationRuns, automations, googleAccounts, googleWorkspaces, mailDrafts, mailOutgoing, projects, users, type Db } from "@stubwise/db";
+import { automationRuns, automations, googleAccounts, googleWorkspaces, mailDraftAttachments, mailDrafts, mailOutgoing, projects, storageOrphans, users, type Db } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import { GoogleApiError } from "@stubwise/google";
 import { eq, sql } from "drizzle-orm";
@@ -114,6 +114,21 @@ describe("sendDueMail", () => {
     expect(sent).toEqual([draft.gmailDraftId]);
     expect(await reload(row.id)).toMatchObject({ state: "sent", gmailMessageId: `m-${draft.gmailDraftId}`, gmailThreadId: "t1" });
     expect(await db.select().from(mailDrafts).where(eq(mailDrafts.id, draft.id))).toEqual([]);
+  });
+
+  it("revisione del lotto 2 (orfani): la bozza mandata va via coi suoi allegati, e gli oggetti DELLA BOZZA vanno in coda per la pulizia del server; un file del Drive no", async () => {
+    const { draft } = await queued(-1000);
+    const key = `mail/${draft.id}/${randomUUID()}`;
+    await db.insert(mailDraftAttachments).values([
+      { draftId: draft.id, name: "a.txt", sizeBytes: 1, mimeType: "text/plain", storageKey: key },
+      { draftId: draft.id, name: "link", sizeBytes: 0, mimeType: "text/plain", storageKey: null, as: "link" },
+    ]);
+    const { c } = client();
+    expect(await sendDueMail(deps(c))).toEqual({ sent: 1, failed: 0 });
+    expect(await db.select().from(mailDraftAttachments).where(eq(mailDraftAttachments.draftId, draft.id))).toEqual([]);
+    const queuedKeys = (await db.select().from(storageOrphans)).map((o) => o.storageKey);
+    expect(queuedKeys).toContain(key);
+    expect((await db.select().from(storageOrphans).where(eq(storageOrphans.storageKey, key)))[0]!.reason).toBe("mail_draft_sent");
   });
 
   it("NIENTE prima dei 10 secondi, e niente di annullato", async () => {

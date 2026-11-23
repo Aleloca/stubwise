@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { driveFiles, emailMessages, encrypt, googleAccounts, googleWorkspaces, mailDraftAttachments, mailDrafts, projects, type Db } from "@stubwise/db";
+import { driveFiles, emailMessages, encrypt, googleAccounts, googleWorkspaces, mailDraftAttachments, mailDrafts, projects, storageOrphans, type Db } from "@stubwise/db";
+import { eq } from "drizzle-orm";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { GoogleApiError } from "@stubwise/google";
@@ -8,6 +9,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { buildApp } from "../app.js";
 import type { MailComposeClient } from "../services/mail-drafts.js";
 import type { ObjectStorage } from "../storage/index.js";
+import { purgeStorageOrphans } from "../storage/orphans.js";
 import { addMember, createUserWithSession } from "../test/fixtures.js";
 
 /**
@@ -255,6 +257,40 @@ describe("salvare ed eliminare una bozza (scritture verso Gmail)", () => {
     expect(calls.map((c) => c.fn)).toEqual(["delete"]);
     expect(await db.select().from(mailDrafts)).toEqual([]);
   });
+
+  it("revisione del lotto 2 (orfani): eliminare la bozza toglie dallo storage gli oggetti dei suoi allegati, e la coda resta vuota", async () => {
+    const { me, box } = await scenario();
+    const saved = (await save(me.headers, { accountId: box.id, threadId: null, mode: "new", subject: "x", body: "y" })).json() as { id: string };
+    const key = `mail/${saved.id}/own`;
+    objects.set(key, Buffer.from("o"));
+    await db.insert(mailDraftAttachments).values({ draftId: saved.id, name: "own.txt", sizeBytes: 1, mimeType: "text/plain", storageKey: key });
+    // Un allegato che porta un file del Drive: l'oggetto è del file, e resta.
+    const [project] = await db.insert(projects).values({ name: "P", slug: `p-${randomUUID()}`, ingestionKey: randomUUID() }).returning();
+    const driveKey = `drive/${project!.id}/x/spec.pdf`;
+    objects.set(driveKey, Buffer.from("d"));
+    const [file] = await db.insert(driveFiles).values({ projectId: project!.id, number: 1, name: "spec.pdf", mime: "application/pdf", type: "pdf", sizeBytes: 1, storageKey: driveKey }).returning();
+    await db.insert(mailDraftAttachments).values({ draftId: saved.id, name: "spec.pdf", sizeBytes: 1, mimeType: "application/pdf", storageKey: driveKey, driveFileId: file!.id });
+    expect((await app.inject({ method: "DELETE", url: `/api/me/mail/drafts/${saved.id}`, headers: me.headers })).statusCode).toBe(204);
+    expect(objects.has(key)).toBe(false);
+    expect(objects.has(driveKey)).toBe(true);
+    expect(await db.select().from(storageOrphans).where(eq(storageOrphans.storageKey, key))).toEqual([]);
+  });
+
+  it("revisione del lotto 2 (orfani): con lo storage che rifiuta, eliminare riesce lo stesso e la chiave resta in coda; il giro orario la toglie", async () => {
+    const { me, box } = await scenario();
+    const saved = (await save(me.headers, { accountId: box.id, threadId: null, mode: "new", subject: "x", body: "y" })).json() as { id: string };
+    const key = `mail/${saved.id}/stuck`;
+    objects.set(key, Buffer.from("o"));
+    await db.insert(mailDraftAttachments).values({ draftId: saved.id, name: "stuck.txt", sizeBytes: 1, mimeType: "text/plain", storageKey: key });
+    storage = { ...memoryStorage, deleteObject: async () => { throw new Error("storage giù"); } };
+    expect((await app.inject({ method: "DELETE", url: `/api/me/mail/drafts/${saved.id}`, headers: me.headers })).statusCode).toBe(204);
+    expect(await db.select().from(mailDrafts).where(eq(mailDrafts.id, saved.id))).toEqual([]);
+    expect(objects.has(key)).toBe(true);
+    expect((await db.select().from(storageOrphans).where(eq(storageOrphans.storageKey, key)))[0]).toMatchObject({ reason: "mail_draft_discarded" });
+    expect(await purgeStorageOrphans(db, memoryStorage, () => undefined)).toBeGreaterThanOrEqual(1);
+    expect(objects.has(key)).toBe(false);
+    expect(await db.select().from(storageOrphans).where(eq(storageOrphans.storageKey, key))).toEqual([]);
+  });
 });
 
 describe("Invia, Annulla, Riprova, Elimina (D6: il server trattiene 10 s)", () => {
@@ -370,6 +406,8 @@ describe("Invia, Annulla, Riprova, Elimina (D6: il server trattiene 10 s)", () =
     expect(out).toMatchObject({ droppedAttachments: ["back-lost"], gmailCopyKept: true, gmailOutdated: false });
     expect(calls.map((c) => c.fn)).not.toContain("delete");
     expect(objects.has("mail/back-lost")).toBe(false);
+    // Passata dalla coda, che è tornata vuota.
+    expect(await db.select().from(storageOrphans).where(eq(storageOrphans.storageKey, "mail/back-lost"))).toEqual([]);
     for (let i = 0; i < 10; i++) expect(objects.has(`mail/keep-${i}`)).toBe(true);
     await db.delete(mailDraftAttachments).where(eq(mailDraftAttachments.draftId, other.id));
   });

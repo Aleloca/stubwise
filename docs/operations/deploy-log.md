@@ -6138,3 +6138,14 @@ deploy o di un rollback che la tocca.
   poi worker, che scrive la colonna. Le run salvate prima restano `null` e
   valgono come prima. **Rollback**: sicuro; un server e un worker di prima
   ignorano la colonna, che resta.
+- **«Rimandi: gli oggetti degli allegati di una bozza che se ne va»**
+  *(23 nov 2026)*: branch `feat/rimandi-server` (revisione del lotto 2, dopo
+  l'I5). Nessuna migrazione: si usa la coda `storage_orphans` della 0144.
+  Una bozza che se ne va (eliminata, mandata dal worker, unita dopo
+  «Annulla») mette in coda, nella stessa transazione, le chiavi dei suoi
+  allegati (mai quelle di un file del Drive); il server le prova subito e la
+  pulizia oraria (`purgeStorageOrphans`, 200 per giro) ritenta quelle che lo
+  storage ha rifiutato. Nessuna env. Ordine: **server**, poi **worker** (che
+  da qui scrive in `storage_orphans` mandando una bozza). **Rollback**:
+  sicuro, nell'ordine inverso; un worker di prima torna a lasciare gli
+  oggetti orfani, e le righe già in coda le toglie comunque il server.

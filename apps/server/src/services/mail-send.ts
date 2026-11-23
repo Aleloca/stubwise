@@ -1,9 +1,10 @@
-import { driveFiles, googleAccounts, mailDraftAttachments, mailDrafts, mailOutgoing, type Db } from "@stubwise/db";
+import { driveFiles, googleAccounts, mailDraftAttachments, mailDrafts, mailOutgoing, queueDraftAttachmentObjects, type Db } from "@stubwise/db";
 import { GMAIL_MODIFY_SCOPE, missingGoogleScopes } from "@stubwise/google";
 import { MAIL_OUTGOING_CHANNEL, type MailDraft, type MailOutgoing } from "@stubwise/shared";
 import { projectPermissionsOfUser } from "@stubwise/notifications";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { ObjectStorage } from "../storage/index.js";
+import { purgeQueuedOrphans } from "../storage/orphans.js";
 import { DRAFT_MAX_ATTACHMENT_BYTES, DRAFT_MAX_ATTACHMENTS, listDrafts, syncMergedDraft, type MailComposeClient } from "./mail-drafts.js";
 
 /**
@@ -178,14 +179,10 @@ async function restoreDraft(tx: Parameters<Parameters<Db["transaction"]>[0]>[0],
     let files = kept.filter((a) => a.as !== "link").length;
     let bytes = kept.filter((a) => a.as !== "link").reduce((n, a) => n + a.sizeBytes, 0);
     const dropped: string[] = [];
-    // Revisione del lotto 2, I5: gli oggetti nello storage degli allegati persi,
-    // solo quelli della bozza (mai un file del Drive, che ha il suo).
-    const droppedKeys: string[] = [];
     for (const a of back) {
       if (a.as !== "link") {
         if (files + 1 > DRAFT_MAX_ATTACHMENTS || bytes + a.sizeBytes > DRAFT_MAX_ATTACHMENT_BYTES) {
           dropped.push(a.name);
-          if (a.storageKey && !a.driveFileId) droppedKeys.push(a.storageKey);
           continue;
         }
         files += 1;
@@ -194,7 +191,10 @@ async function restoreDraft(tx: Parameters<Parameters<Db["transaction"]>[0]>[0],
       await tx.update(mailDraftAttachments).set({ draftId: into!.id }).where(eq(mailDraftAttachments.id, a.id));
     }
     await tx.update(mailDrafts).set({ body: below(into!.body, draft.body), updatedAt: new Date() }).where(eq(mailDrafts.id, into!.id));
-    // Gli allegati rimasti (oltre i limiti) se ne vanno con lei.
+    // Gli allegati rimasti (oltre i limiti) se ne vanno con lei; i loro oggetti
+    // nello storage vanno in coda (revisione del lotto 2, I5: solo quelli della
+    // bozza, mai un file del Drive).
+    const droppedKeys = await queueDraftAttachmentObjects(tx, draftId, "mail_draft_merged");
     await tx.delete(mailDrafts).where(eq(mailDrafts.id, draftId));
     return { merged: { draftId: into!.id, dropped, droppedKeys, stale: { accountId: draft.accountId, gmailDraftId: draft.gmailDraftId } } };
   }
@@ -243,14 +243,8 @@ export async function undoSend(db: Db, userId: string, id: string, gmail: MergeG
 async function finished(db: Db, userId: string, out: { draftId: string | null; merged?: Merged }, gmail: MergeGmail): Promise<Restored> {
   if (out.merged) {
     const { synced, staleKept } = await syncMergedDraft(db, gmail.encryptionKey, gmail.client, gmail.storage, userId, out.merged.draftId, out.merged.stale, out.merged.dropped.length > 0);
-    // Le righe se ne sono andate con la bozza annullata: gli oggetti no (la copia di sicurezza su Gmail ha i suoi byte).
-    for (const key of out.merged.droppedKeys) {
-      try {
-        await gmail.storage?.deleteObject(key);
-      } catch {
-        // Uno storage che non risponde lascia un oggetto orfano, non un errore a chi annulla.
-      }
-    }
+    // Gli oggetti degli allegati persi (la copia di sicurezza su Gmail ha i suoi byte): subito, o al giro orario.
+    await purgeQueuedOrphans(db, gmail.storage, out.merged.droppedKeys);
     return { draft: await draftView(db, userId, out.merged.draftId), droppedAttachments: out.merged.dropped, unsaved: false, gmailOutdated: !synced, gmailCopyKept: staleKept };
   }
   return { draft: out.draftId ? await draftView(db, userId, out.draftId) : null, droppedAttachments: [], unsaved: false, gmailOutdated: false, gmailCopyKept: false };
