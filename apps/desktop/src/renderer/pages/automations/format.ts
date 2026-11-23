@@ -499,9 +499,9 @@ export function reasonWords(
   if (!why) return null;
   const params: Record<string, unknown> = { ...why.params };
   // R.1414 (revisione del lotto 2-3): il nome di chi chi guarda non conosce
-  // arriva vuoto; la frase dice «Someone».
+  // arriva vuoto (prototipo) o non arriva (server, 72); la frase dice «Someone».
   for (const key of PERSON_PARAMS[why.code] ?? ["owner"])
-    if (params[key] === "") params[key] = t("automations.someone");
+    if (params[key] === "" || params[key] === undefined) params[key] = t("automations.someone");
   if (typeof params.role === "string")
     params.role = t(`automations.roles.${params.role}`, { defaultValue: params.role });
   // Il codice del mittente della Posta (`emailFailed`, F2) si dice in parole.
