@@ -435,8 +435,10 @@ function view(
     // R.1414: chi non si conosce, segnaposto (uno per la risposta).
     actorId: mask(entry.actorId),
     projectId: entry.projectId,
-    before: entry.before,
-    after: entry.after,
+    // Revisione del lotto 2 (minor): di una persona nascosta nessun valore
+    // che la identifica (lo username git o Bitbucket, il ruolo di prima e dopo).
+    before: hiddenPerson ? null : entry.before,
+    after: hiddenPerson ? null : entry.after,
     ...(entry.via ? { via: entry.via } : {}),
     undoOf,
     ...(undone ? { undoneEntry: view(me, undone, people, visible, known, mask, true) } : {}),
@@ -457,7 +459,7 @@ function view(
       : entry.kind === "model.changed"
         ? `usage.operations.${entry.object.id}`
         : labelKey,
-    diff: diffOf(entry, people),
+    diff: hiddenPerson ? null : diffOf(entry, known),
   };
 }
 

@@ -379,6 +379,27 @@ describe("il nome dell'autore della voce (r.1414)", () => {
     expect(JSON.stringify(entry)).not.toContain(who.name);
   });
 
+  // Revisione del lotto 2 (minor): una voce su una persona nascosta non dice
+  // nel diff i valori che la identificano (lo username git, quello Bitbucket).
+  it("il diff di una persona nascosta: nessun valore che la identifica", async () => {
+    const who = outsider();
+    grantInstancePermission("p-laura", "users.manage");
+    for (const kind of ["person.git_identity_linked", "person.bitbucket_username_set"]) {
+      recordChange({
+        kind,
+        actorId: "p-laura",
+        projectId: null,
+        object: { type: "person", id: who.id, label: who.name },
+        before: null,
+        after: "kevin.secret",
+      });
+    }
+    as("p-laura");
+    const entries = (await changelog.listChanges()).filter((e) => e.kind.startsWith("person."));
+    expect(entries.length).toBeGreaterThanOrEqual(2);
+    expect(JSON.stringify(entries)).not.toContain("kevin.secret");
+  });
+
   it("un ex membro del progetto resta col suo nome", async () => {
     // Revisione del lotto 2 (I3): fuori dai canali leggibili, lo fa conoscere solo il progetto.
     withoutChannels("p-laura", ["p-marco"]);
@@ -513,17 +534,13 @@ describe("una voce non si tocca", () => {
 });
 
 const nameOf = (id: string) => PEOPLE.find((p) => p.id === id)!.name;
-const isActiveId = (id: string) =>
-  accessState().people.some((p) => p.personId === id && p.status === "active");
 
 describe("R-G5 nelle persone di una voce", () => {
   it("nel prima/dopo chi non si vede non c'è: né il nome né un conteggio", async () => {
-    // Un lettore che non è full admin, e una persona attiva che non vede.
-    const humans = PEOPLE.filter((p) => !p.isClaude).map((p) => p.id);
-    const unseenBy = (id: string) =>
-      humans.filter((x) => isActiveId(x) && !visiblePeopleFor(id).has(x));
-    const viewer = humans.find((id) => isActiveId(id) && !isFullAdmin(id) && unseenBy(id).length)!;
-    const hidden = unseenBy(viewer)[0]!;
+    // Un lettore che non è full admin e una persona che non conosce (r.1414:
+    // si costruisce, nel seme quasi tutti si conoscono), e una che conosce.
+    const viewer = "p-laura";
+    const hidden = strangersTo(viewer)[0]!;
     const seen = [...visiblePeopleFor(viewer)].find((x) => x !== viewer)!;
     grantInstancePermission(viewer, "changelog.view");
     recordChange({
