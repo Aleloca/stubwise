@@ -1454,14 +1454,23 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
       servita, la transazione si annulla, risponde `requireReauth` (la stessa
       regola) e, se la riconferma c'è, si riscrive. Test della corsa in
       `department-reauth-race.test.ts`;
-    - il 403 `escalation` di chi entra in un progetto porta solo
-      `permission`, non `missing` (il `PATCH` del reparto sì);
+    - ~~il 403 `escalation` di chi entra in un progetto porta solo
+      `permission`, non `missing` (il `PATCH` del reparto sì);~~ *Chiusa il
+      23 nov 2026 (72, lotto 4)*: `assertNoEscalation` porta sempre anche
+      `missing` (tutto ciò che manca), su ogni rotta che la usa;
     - il costo sul ripiego (tutti): togliere un suo permesso blocca e conta i
-      gestori di quasi ogni progetto. `judgeDepartmentDraft` filtra le
+      gestori di quasi ogni progetto. ~~`judgeDepartmentDraft` filtra le
       appartenenze per ogni utente (serve una `Map`). `whoCan` legge i
-      reparti di tutte le persone visibili, non dei soli membri;
-    - all'invito (`assertInviteGrants`, alla creazione) nessuno dice che il
-      ripiego porterà i suoi permessi: lo scarto avviene all'accettazione;
+      reparti di tutte le persone visibili, non dei soli membri;~~ *le due
+      letture chiuse il 23 nov 2026 (72, lotto 4)*: una `Map` per persona in
+      `judgeDepartmentDraft`; `whoCan` legge i reparti dei soli membri e
+      raggruppa per persona. Resta il blocco dei gestori sul ripiego;
+    - ~~all'invito (`assertInviteGrants`, alla creazione) nessuno dice che il
+      ripiego porterà i suoi permessi: lo scarto avviene all'accettazione;~~
+      *Chiusa il 23 nov 2026 (72, lotto 4)*: la creazione dell'invito risponde
+      `warnings` (`department_permissions_dropped`, coi `missing` per
+      progetto), con la regola dell'accettazione sui permessi di adesso. Non è
+      un rifiuto: il ripiego può cambiare prima dell'accettazione;
   - Azioni di Claude (review di F7): **`saveStorage`** non ha una voce.
     Endpoint e bucket decidono DOVE vanno e da dove si servono gli allegati,
     col secret salvato che resta in uso: è la ragione per cui l'url di un

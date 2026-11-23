@@ -18,7 +18,7 @@ import { departmentGrantsForEntering, departmentGrantsOf } from "./department-ac
  */
 import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Db } from "@stubwise/db";
-import { inviteProjects, memberPermissionsSql, projectMemberPermissions, projectMembers, projects, roles, users } from "@stubwise/db";
+import { departmentProjectPermissions, departments, inviteProjects, memberPermissionsSql, projectMemberPermissions, projectMembers, projects, roles, users } from "@stubwise/db";
 import {
   effectiveInstancePermissions,
   PROJECT_PERMISSIONS,
@@ -63,7 +63,8 @@ function isFullAdmin(actor: Actor): boolean {
 
 /**
  * 403 `escalation` se `permissions` non è incluso in `held` (default: i
- * permessi d'istanza di chi agisce), con la chiave mancante in `permission`.
+ * permessi d'istanza di chi agisce), con la prima chiave mancante in
+ * `permission` e tutte in `missing`.
  * Un codice suo, non `forbidden` (ruling R44): quello lo dà già la guardia
  * della rotta, e i client devono poter dire PERCHÉ. Un full admin passa sempre.
  */
@@ -72,9 +73,11 @@ export function assertNoEscalation(
   permissions: Iterable<string>,
   held: ReadonlySet<string> = actor.instancePermissions,
 ): void {
-  const [p] = missingToGrant(actor, permissions, held);
+  const missing = missingToGrant(actor, permissions, held);
+  const [p] = missing;
   if (p !== undefined) {
-    throw new RoleRuleError(403, "escalation", `You cannot grant a permission you do not have (${p})`, { permission: p });
+    // `missing` (rimandi, lotto 4): tutto ciò che manca, come il PATCH del reparto.
+    throw new RoleRuleError(403, "escalation", `You cannot grant a permission you do not have (${p})`, { permission: p, missing });
   }
 }
 
@@ -904,6 +907,40 @@ export async function assertInviteGrants(
   const role = await sharedRole(tx, roleId, "instance");
   assertNoEscalation(actor, effectiveInstancePermissions(role.permissions));
   return role.id;
+}
+
+/** Un progetto dell'invito che l'accettazione scarterà: il ripiego porta permessi che chi invita lì non ha. */
+export interface InviteWarning {
+  projectId: string;
+  code: "department_permissions_dropped";
+  missing: string[];
+}
+
+/**
+ * Rimandi, lotto 4 (A9): chi accetta un invito entra nel reparto di ripiego
+ * (il trigger della 0109) e ne porta i permessi di progetto; l'accettazione
+ * scarta un progetto dove chi ha invitato non li ha
+ * (`applyInviteGrants`, `inviter_lacks_department_permissions`). Qui lo si
+ * DICE già alla creazione, con la stessa regola sui permessi di adesso: non
+ * è un rifiuto, perché il ripiego può cambiare prima dell'accettazione.
+ */
+export async function inviteDepartmentWarnings(tx: Tx, actor: Actor, grants: readonly InviteProject[]): Promise<InviteWarning[]> {
+  if (grants.length === 0 || actor.instancePermissions.has("instance.full_admin")) return [];
+  const brought = (
+    await tx
+      .select({ permission: departmentProjectPermissions.permission })
+      .from(departmentProjectPermissions)
+      .innerJoin(departments, eq(departments.id, departmentProjectPermissions.departmentId))
+      .where(eq(departments.isDefault, true))
+  ).map((r) => r.permission);
+  if (brought.length === 0) return [];
+  const warnings: InviteWarning[] = [];
+  for (const grant of grants) {
+    const held = await projectPermissionsFor(tx, actor, grant.projectId);
+    const missing = [...new Set(brought.filter((p) => !held?.has(p as never)))].sort();
+    if (missing.length > 0) warnings.push({ projectId: grant.projectId, code: "department_permissions_dropped", missing });
+  }
+  return warnings;
 }
 
 /** Il preset d'istanza `User` (non eliminabile finché esiste `users.role`, ruling R9). */

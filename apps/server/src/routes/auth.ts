@@ -48,6 +48,8 @@ import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
 import {
   applyInviteGrants,
   assertInviteGrants,
+  inviteDepartmentWarnings,
+  type InviteWarning,
   inviteGrants,
   saveInviteGrants,
 } from "../services/roles.js";
@@ -601,7 +603,14 @@ export async function authRoutes(
         }),
         response: {
           // `id` (review di F1, I2): l'id OPACO dell'invito, quello delle viste.
-          201: z.object({ id: z.string(), token: z.string(), expiresAt: z.iso.datetime() }),
+          201: z.object({
+            id: z.string(),
+            token: z.string(),
+            expiresAt: z.iso.datetime(),
+            // Rimandi, lotto 4: i progetti che l'accettazione scarterà (il
+            // reparto di ripiego porta permessi che chi invita lì non ha).
+            warnings: z.array(z.object({ projectId: z.uuid(), code: z.literal("department_permissions_dropped"), missing: z.array(z.string()) })),
+          }),
           ...authErrorResponses,
           400: roleRuleErrorSchema,
           403: roleRuleErrorSchema,
@@ -633,6 +642,7 @@ export async function authRoutes(
       }
       const token = randomBytes(32).toString("base64url");
       const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
+      let warnings: InviteWarning[] = [];
       try {
         await app.db.transaction(async (tx) => {
           // Senza ruolo nell'invito si risolve e si verifica il preset
@@ -648,13 +658,14 @@ export async function authRoutes(
             invitedByUserId: request.user!.id,
           });
           await saveInviteGrants(tx, token, grants);
+          warnings = await inviteDepartmentWarnings(tx, request.user!, grants);
           // Area 9, F2: con l'id opaco e i nomi, mai il token.
           await recordChange(tx, { type: "invite.created", actor: request.user!, projectId: null, data: { object: inviteObject(token, email), params: await inviteParams(tx, roleId, grants) } });
         });
       } catch (error) {
         return sendRoleRuleError(reply, error);
       }
-      return reply.code(201).send({ id: inviteIdOf(token), token, expiresAt: expiresAt.toISOString() });
+      return reply.code(201).send({ id: inviteIdOf(token), token, expiresAt: expiresAt.toISOString(), warnings });
     },
   );
 

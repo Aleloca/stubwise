@@ -42,7 +42,15 @@ export async function judgeDepartmentDraft(db: Db, actor: Actor, saved: Departme
   const fullAdmin = actor.instancePermissions.has("instance.full_admin");
   const held = fullAdmin ? {} : await projectPermissionsMap(db, actor, { includeArchived: true });
   const memberships = await db.select({ userId: projectMembers.userId, projectId: projectMembers.projectId }).from(projectMembers);
-  const projectsOf = (userId: string) => memberships.filter((m) => m.userId === userId).map((m) => m.projectId);
+  // Una Map per persona (rimandi, lotto 4): prima ogni chiamata filtrava
+  // tutte le appartenenze, e `missingToAdd` la chiama per ogni persona.
+  const byUser = new Map<string, string[]>();
+  for (const m of memberships) {
+    const list = byUser.get(m.userId);
+    if (list) list.push(m.projectId);
+    else byUser.set(m.userId, [m.projectId]);
+  }
+  const projectsOf = (userId: string): readonly string[] => byUser.get(userId) ?? [];
   /** I permessi che chi agisce ha in ALMENO un progetto: il confronto per ciò che non arriva in nessuno. */
   const somewhere = new Set(Object.values(held).flat() as string[]);
   /**

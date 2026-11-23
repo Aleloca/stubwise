@@ -143,7 +143,8 @@ describe("area 9, F8: aggiungere a un progetto chi porta permessi dal suo repart
     const cookie = await fullSessionCookie(app, actorId);
     const res = await app.inject({ method: "PUT", url: `/api/projects/${p}/members/${outsider}`, headers: { cookie }, payload: { roleId: devRoleId } });
     expect(res.statusCode).toBe(403);
-    expect(res.json()).toMatchObject({ code: "escalation", permission: X });
+    // Rimandi, lotto 4: anche qui `missing` (tutto ciò che manca), come il PATCH del reparto.
+    expect(res.json()).toMatchObject({ code: "escalation", permission: X, missing: [X] });
     const plain = await person("plain-f8s@example.com");
     expect((await app.inject({ method: "PUT", url: `/api/projects/${p}/members/${plain}`, headers: { cookie }, payload: { roleId: devRoleId } })).statusCode).toBe(200);
   });
@@ -174,12 +175,20 @@ describe("area 9, F8 (review, I1): l'invito accettato entra nel reparto di ripie
       const dropped2: string[] = [];
       await t.db.transaction((tx) => applyInviteGrants(tx, second, [{ projectId: p, roleId: devRoleId }], inviter, (_g, reason) => dropped2.push(reason)));
       expect(dropped2).toEqual(["inviter_lacks_department_permissions"]);
+      // Rimandi, lotto 4 (A9): lo stesso scarto si DICE già alla creazione dell'invito.
+      const { inviteDepartmentWarnings } = await import("../services/roles.js");
+      const warn = (actor: { id: string; instancePermissions: ReadonlySet<string> }) =>
+        t.db.transaction((tx) => inviteDepartmentWarnings(tx, actor as never, [{ projectId: p, roleId: devRoleId }]));
+      expect(await warn({ id: inviter, instancePermissions: new Set() })).toEqual([{ projectId: p, code: "department_permissions_dropped", missing: [X] }]);
+      expect(await warn({ id: inviter, instancePermissions: new Set(["instance.full_admin"]) })).toEqual([]);
       expect(await t.db.select().from(projectMembers).where(eq(projectMembers.userId, second))).toEqual([]);
       // Un full admin ha tutto: la concessione passa.
       const [fa] = await t.db.select({ id: users.id }).from(users).innerJoin(roles, eq(roles.id, users.instanceRoleId)).where(eq(roles.presetKey, "admin"));
       const third = await person("inv3-f8s@example.com");
       await t.db.transaction((tx) => applyInviteGrants(tx, third, [{ projectId: p, roleId: devRoleId }], fa!.id));
       expect(await t.db.select().from(projectMembers).where(eq(projectMembers.userId, third))).toHaveLength(1);
+      // Chi ha X nel progetto (il terzo: membro, e X gli arriva dal ripiego): nessun avviso.
+      expect(await warn({ id: third, instancePermissions: new Set() })).toEqual([]);
     } finally {
       await t.db.delete(departmentProjectPermissions).where(eq(departmentProjectPermissions.departmentId, general!.id));
     }
