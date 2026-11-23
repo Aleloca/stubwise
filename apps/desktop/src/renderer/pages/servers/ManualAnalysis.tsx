@@ -37,7 +37,8 @@ function Line({ ring, text, extra }: { ring: boolean; text: string; extra?: Reac
 
 function AnalysisLine({ analysis }: { analysis: ServerAnalysisView }) {
   const { t } = useTranslation();
-  const name = analysis.startedBy?.name ?? "";
+  // R.1414: chi l'ha avviata e chi guarda non conosce: «Someone».
+  const name = analysis.startedBy ? analysis.startedBy.name || t("chat.message.someone") : "";
   const session =
     analysis.sessionId === null ? null : (
       <Link to="/claude/$id" params={{ id: analysis.sessionId }} className={linkClass}>

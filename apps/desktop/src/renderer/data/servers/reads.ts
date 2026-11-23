@@ -1,4 +1,5 @@
 import { serverCommandsOf, type ServerCommandRow } from "../../domain/servers/commands";
+import { personMasker } from "../access/hidden";
 import { planDigest, prunes } from "../../domain/servers/fixPlan";
 import { canStopServerFix } from "./fixPermissions";
 import {
@@ -374,6 +375,8 @@ function fixInfo(
   task: Task,
   code: string,
   run: Conversation | null,
+  // R.1414 (lotto 3): il masker della risposta (chi ha approvato, rifiutato, fermato).
+  mask: ReturnType<typeof personMasker> = personMasker(me),
 ): ServerFixInfo {
   const events = run ? eventsOf(run.id) : [];
   const fixRun = run ? { c: run, events } : null;
@@ -408,11 +411,11 @@ function fixInfo(
     steps,
     approval:
       plan?.status === "approved" && plan.decidedById
-        ? { byId: plan.decidedById, at: decidedAt("approved") }
+        ? { byId: mask(plan.decidedById), at: decidedAt("approved") }
         : null,
     rejection:
       plan?.status === "rejected" && plan.decidedById
-        ? { byId: plan.decidedById, at: decidedAt("rejected"), note: plan.instructions ?? "" }
+        ? { byId: mask(plan.decidedById), at: decidedAt("rejected"), note: plan.instructions ?? "" }
         : null,
     operationsOn: state.servers.find((x) => x.code === code)?.agentOperations ?? false,
     canRequestPlan: serverFixStartBlock(me, task) === null,
@@ -440,6 +443,7 @@ function fixInfo(
  */
 export async function getServerTaskInfo(taskId: string): Promise<ServerTaskInfo | null> {
   const me = await gate("servers.getServerTaskInfo");
+  const mask = personMasker(me);
   const task = state.tasksById.get(taskId);
   if (!task || !visibleProjectIds(me).has(task.projectId)) throw notFound();
   if (!task.serverRef) return null;
@@ -471,7 +475,7 @@ export async function getServerTaskInfo(taskId: string): Promise<ServerTaskInfo 
   const stop =
     taskState === "stopped" && run
       ? {
-          byId: lastPhase?.type === "phase" ? (lastPhase.stoppedById ?? null) : null,
+          byId: lastPhase?.type === "phase" ? mask(lastPhase.stoppedById ?? null) : null,
           reason:
             lastPhase?.type !== "phase"
               ? null
@@ -501,7 +505,7 @@ export async function getServerTaskInfo(taskId: string): Promise<ServerTaskInfo 
     episode,
     state: taskState,
     startBlock: serverFixStartBlock(me, task),
-    fix: s ? fixInfo(me, task, s.code, run ?? null) : null,
+    fix: s ? fixInfo(me, task, s.code, run ?? null, mask) : null,
     fixConversationId: run?.id ?? null,
     health: s ? serverHealth(s, state.serverEpisodes, now()) : null,
     analysis: analysis
