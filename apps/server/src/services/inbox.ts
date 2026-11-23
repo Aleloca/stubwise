@@ -19,6 +19,7 @@
  * (`src/actions.ts`, coi loro test) e questo modulo li ri-esporta: gli import
  * dei suoi consumatori (rotte, test) restano validi.
  */
+import { HiddenIds, peopleKnownTo } from "./people-known.js";
 import { chatMentionsFor } from "../chat/service.js";
 import {
   aiJobs,
@@ -1060,6 +1061,15 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     // Una domanda apre la pagina sul suo filo: il commento-domanda (una radice).
     const question = claude?.question ? (page.find((r) => r.id === id)?.event as { questionId?: string } | undefined)?.questionId ?? null : null;
     productDocCards.set(id, claude ? { ...card, claude, ...(question ? { commentId: question, threadRootId: question } : {}) } : null);
+  }
+
+  // Registro, A11 r.1414: chi ha scritto un commento della doc e chi legge non conosce → segnaposto.
+  // Il predicato solo se c'è un autore diverso da chi legge (le pagine senza card della doc non pagano niente).
+  if ([...productDocCards.values()].some((c) => c?.authorId && c.authorId !== userId)) {
+    const hidden = new HiddenIds(await peopleKnownTo(db, { id: userId, instancePermissions: await instancePermissionsOfUser(db, userId) }), userId);
+    for (const [id, card] of productDocCards) {
+      if (card?.authorId) productDocCards.set(id, { ...card, authorId: hidden.person(card.authorId) });
+    }
   }
 
   // Area 7: le card `automation.*` derivate a lettura (l'esecuzione com'è adesso, per chi legge).

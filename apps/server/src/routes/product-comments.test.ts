@@ -309,3 +309,22 @@ describe("le menzioni", () => {
     expect((await inject(noDocs, "GET", `/api/projects/${projectId}/product/mention-candidates`)).statusCode).toBe(403);
   });
 });
+
+describe("registro, A11 r.1414: nella doc chi non si conosce è un segnaposto", () => {
+  it("un commento di chi non ha mai condiviso un progetto con chi legge (né un canale): `authorId` `hidden-<n>`, nome null; la pagina dice chi l'ha creata se si conosce", async () => {
+    const p = await pageWith("Una frase da commentare.");
+    const [stranger] = await t.db.insert(users).values({ email: `stranger-pc-${randomUUID().slice(0, 6)}@x.it`, passwordHash: "x", role: "member", displayName: "Sconosciuto Vero" }).returning({ id: users.id });
+    // Due righe della stessa persona: lo stesso segnaposto nella risposta.
+    for (const body of ["primo", "secondo"]) await t.db.insert(productComments).values({ pageId: p.id, anchorId: p.ids[0]!, quote: "", body, authorId: stranger!.id });
+    const res = await inject(reader, "GET", `/api/product-pages/${p.id}/comments`);
+    expect(res.statusCode, res.body).toBe(200);
+    const view0 = res.json() as ProductCommentsView;
+    const mine = [...view0.open, ...view0.resolved].flatMap((th) => [th.root, ...th.replies]).filter((c) => c.body === "primo" || c.body === "secondo");
+    expect(mine.map((c) => [c.authorId, c.authorName])).toEqual([["hidden-1", null], ["hidden-1", null]]);
+    expect(res.body).not.toContain(stranger!.id);
+    expect(res.body).not.toContain("Sconosciuto Vero");
+    // Chi ha creato la pagina (un membro) resta conosciuto.
+    const view = (await inject(reader, "GET", `/api/product-pages/by-code/${p.code}`)).json() as ProductPageView;
+    expect(view.createdById).toBe(editor.id);
+  });
+});

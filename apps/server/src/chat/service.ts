@@ -75,22 +75,8 @@ import {
  */
 
 import { CHAT_CHANNEL_NOTIFY } from "./notify.js";
-import { HiddenIds, peopleKnownTo } from "../services/people-known.js";
-
-/**
- * Registro, A11 r.1414: i segnaposto di UNA risposta per chi guarda. Uno per
- * oggetto `viewer` (la sessione della richiesta), così una risposta che mette
- * insieme canale e messaggi numera le persone nascoste una volta sola.
- */
-const hiddenByViewer = new WeakMap<object, Promise<HiddenIds>>();
-function hiddenFor(db: Db, viewer: ChatViewer): Promise<HiddenIds> {
-  let out = hiddenByViewer.get(viewer);
-  if (!out) {
-    out = peopleKnownTo(db, viewer).then((known) => new HiddenIds(known, viewer.id));
-    hiddenByViewer.set(viewer, out);
-  }
-  return out;
-}
+// Registro, A11 r.1414: i segnaposto di UNA risposta per chi guarda (uno per richiesta).
+import { hiddenFor } from "../services/people-known.js";
 export { CHAT_CHANNEL_NOTIFY };
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 type MessageRow = typeof chatMessages.$inferSelect;

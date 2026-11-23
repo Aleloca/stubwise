@@ -102,3 +102,63 @@ export class HiddenIds {
     return out;
   }
 }
+
+/**
+ * I segnaposto di UNA risposta per chi guarda: uno per oggetto `viewer` (la
+ * sessione della richiesta), così una risposta che mette insieme più viste
+ * numera le persone nascoste una volta sola.
+ */
+const hiddenByViewer = new WeakMap<object, Promise<HiddenIds>>();
+export function hiddenFor(db: Db, viewer: Pick<SessionUser, "id" | "instancePermissions">): Promise<HiddenIds> {
+  let out = hiddenByViewer.get(viewer);
+  if (!out) {
+    out = peopleKnownTo(db, viewer).then((known) => new HiddenIds(known, viewer.id));
+    hiddenByViewer.set(viewer, out);
+  }
+  return out;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Sostituisce, in una risposta intera, gli id delle persone che chi guarda non
+ * conosce nelle chiavi date (a ogni profondità: un valore, o un elenco di
+ * valori). Per le superfici con molte viste dagli stessi nomi di campo (la doc
+ * di prodotto): UNA regola sul nome della chiave invece di una per vista. Le
+ * chiavi devono essere SOLO di persone.
+ */
+/** Gli id di persona che la risposta porta nelle chiavi date: senza, nessuna query. */
+export function personIdsIn(payload: unknown, keys: ReadonlySet<string>): Set<string> {
+  const out = new Set<string>();
+  const walk = (v: unknown): void => {
+    if (Array.isArray(v)) return v.forEach(walk);
+    if (v === null || typeof v !== "object") return;
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      if (keys.has(k) && typeof x === "string" && UUID.test(x)) out.add(x);
+      else if (keys.has(k) && Array.isArray(x)) {
+        for (const e of x) {
+          if (typeof e === "string" && UUID.test(e)) out.add(e);
+          else walk(e);
+        }
+      }
+      else walk(x);
+    }
+  };
+  walk(payload);
+  return out;
+}
+
+export function maskPeople<T>(payload: T, hidden: HiddenIds, keys: ReadonlySet<string>): T {
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (v === null || typeof v !== "object") return v;
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      if (keys.has(k) && typeof x === "string" && UUID.test(x)) out[k] = hidden.person(x);
+      else if (keys.has(k) && Array.isArray(x)) out[k] = x.map((e) => (typeof e === "string" && UUID.test(e) ? hidden.person(e) : walk(e)));
+      else out[k] = walk(x);
+    }
+    return out;
+  };
+  return walk(payload) as T;
+}

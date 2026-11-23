@@ -1,3 +1,4 @@
+import { personRefSchema } from "./person-ref.js";
 import { z } from "zod";
 
 /**
@@ -114,7 +115,7 @@ export const productPageRefSchema = z.object({
   title: z.string(),
   excerpt: z.string(),
   updatedAt: z.string(),
-  updatedById: z.uuid().nullable(),
+  updatedById: personRefSchema.nullable(),
 });
 export type ProductPageRef = z.infer<typeof productPageRefSchema>;
 
@@ -189,7 +190,7 @@ export const productQuestionSchema = z.object({
   factId: z.string(),
   reason: productQuestionReasonSchema,
   /** Chi la domanda nomina: chi ha scritto la frase (`contradicts_person`) o il titolare senza `docs.edit` (`no_permission`). */
-  forId: z.uuid().nullable(),
+  forId: personRefSchema.nullable(),
   /** La frase del fatto, parola per parola («Update it»); null = nessuna strada. */
   apply: richTextSchema.nullable(),
   /** Solo `diverges`: cosa è stato fatto. */
@@ -209,7 +210,7 @@ export type ProductQuestion = z.infer<typeof productQuestionSchema>;
 
 /** La risposta a una domanda di Claude, una sola (`product_comments.answer`). */
 export const productQuestionAnswerSchema = z.object({
-  byId: z.uuid(),
+  byId: personRefSchema,
   option: productAnswerChoiceSchema,
   at: z.string(),
   /** La revisione di «Update it». */
@@ -240,7 +241,7 @@ export const productSourceViewSchema = z.object({
   title: z.string().nullable(),
   /** Il codice di una task o di un rilascio (anche invisibile). */
   code: z.string().nullable(),
-  ownerId: z.uuid().nullable(),
+  ownerId: personRefSchema.nullable(),
   ownerName: z.string().nullable(),
   at: z.string().nullable(),
   /** La fonte non c'è più (email potata, riunione tolta). */
@@ -258,7 +259,7 @@ export type ProductSourceView = z.infer<typeof productSourceViewSchema>;
 export const productUndoViewSchema = z.object({
   enabled: z.boolean(),
   reason: z.enum(["changed_after", "no_permission", "already_undone"]).nullable().default(null),
-  byId: z.uuid().nullable().default(null),
+  byId: personRefSchema.nullable().default(null),
   byName: z.string().nullable().default(null),
 });
 export type ProductUndoView = z.infer<typeof productUndoViewSchema>;
@@ -274,8 +275,8 @@ export const productMarkViewSchema = z.object({
   revisionId: z.uuid(),
   /** Quante ancore ha cambiato la stessa revisione. */
   groupAnchors: z.number().int(),
-  actorId: z.uuid().nullable(),
-  onBehalfOfId: z.uuid().nullable(),
+  actorId: personRefSchema.nullable(),
+  onBehalfOfId: personRefSchema.nullable(),
   onBehalfOfName: z.string().nullable(),
   at: z.string(),
   source: productSourceViewSchema,
@@ -287,7 +288,7 @@ export type ProductMarkView = z.infer<typeof productMarkViewSchema>;
 /** I campi in più di una revisione di Claude o di un «Undo» (additivi su `productRevisionViewSchema`). */
 export const productRevisionClaudeFields = {
   via: z.enum(["claude"]).nullable().default(null),
-  onBehalfOfId: z.uuid().nullable().default(null),
+  onBehalfOfId: personRefSchema.nullable().default(null),
   onBehalfOfName: z.string().nullable().default(null),
   source: productSourceViewSchema.nullable().default(null),
   /** Solo `claude`: «Undo all». */
@@ -298,7 +299,7 @@ export const productRevisionClaudeFields = {
   markIdByAnchor: z.record(z.string(), z.uuid()).default({}),
   /** Solo `claude`: quante ancore sono state annullate («1 di 3 annullate»). */
   undoneCount: z.object({ done: z.number().int(), count: z.number().int() }).nullable().default(null),
-  undoneById: z.uuid().nullable().default(null),
+  undoneById: personRefSchema.nullable().default(null),
   undoneByName: z.string().nullable().default(null),
   /** Solo `undo`: la revisione di Claude annullata. */
   undoOf: z.uuid().nullable().default(null),
@@ -324,7 +325,7 @@ export type RichTextView = z.infer<typeof richTextViewSchema>;
 /** La parte di DOMANDA di un commento di Claude, come la legge chi guarda. */
 export const productQuestionViewSchema = z.object({
   reason: productQuestionReasonSchema,
-  forId: z.uuid().nullable(),
+  forId: personRefSchema.nullable(),
   forName: z.string().nullable(),
   /** Il codice della task di una divergenza. */
   taskCode: z.string().nullable(),
@@ -340,10 +341,10 @@ export const productQuestionViewSchema = z.object({
   options: z.array(productAnswerChoiceSchema),
   canAnswer: z.boolean(),
   /** «Update it» spento: la frase è cambiata dopo la domanda. */
-  applyBlocked: z.object({ byId: z.uuid().nullable(), byName: z.string().nullable() }).nullable(),
+  applyBlocked: z.object({ byId: personRefSchema.nullable(), byName: z.string().nullable() }).nullable(),
   answer: z
     .object({
-      byId: z.uuid().nullable(),
+      byId: personRefSchema.nullable(),
       byName: z.string().nullable(),
       option: productAnswerChoiceSchema,
       at: z.string(),
@@ -471,7 +472,7 @@ export type ProductFirstVersionUndo = z.infer<typeof productFirstVersionUndoSche
 export const productFirstVersionViewSchema = z.object({
   projectId: z.uuid(),
   groupId: z.uuid(),
-  byId: z.uuid().nullable(),
+  byId: personRefSchema.nullable(),
   /** Chi l'ha chiesta, se chi guarda la vede (R-G5). */
   byName: z.string().nullable(),
   status: z.enum(["writing", "done", "undone"]),
@@ -643,9 +644,9 @@ export const productPageViewSchema = z.object({
   blocks: z.array(z.record(z.string(), z.unknown())),
   /** L'ultima revisione della pagina (per `baseSeq`); 0 senza revisioni. */
   seq: z.number().int(),
-  createdById: z.uuid().nullable(),
+  createdById: personRefSchema.nullable(),
   createdAt: z.string(),
-  updatedById: z.uuid().nullable(),
+  updatedById: personRefSchema.nullable(),
   updatedAt: z.string(),
   breadcrumbs: z.array(productPageRefSchema),
   decisions: z.record(z.string(), productDecisionRefSchema).default({}),
@@ -680,7 +681,7 @@ export const productRevisionViewSchema = z.object({
   lastSeq: z.number().int(),
   /** F5: anche `undo` (un «Undo» di un segno di Claude) e `claude` (una modifica di Claude da una fonte). Additivo: `readerSchema` apre l'enum. */
   kind: z.enum(["create", "edit", "rename", "move", "undo", "claude", "first_version"]),
-  actorId: z.uuid().nullable(),
+  actorId: personRefSchema.nullable(),
   /** Il nome di chi ha scritto, se chi guarda lo vede (R-G5). */
   actorName: z.string().nullable(),
   changes: z.array(z.record(z.string(), z.unknown())),
@@ -722,15 +723,15 @@ export const productCommentViewSchema = z.object({
   pageId: z.uuid(),
   anchorId: z.string(),
   quote: z.string(),
-  authorId: z.uuid().nullable(),
+  authorId: personRefSchema.nullable(),
   authorName: z.string().nullable(),
   body: z.string(),
   createdAt: z.string(),
   replyToId: z.uuid().nullable(),
   /** Solo la radice. */
-  resolved: z.object({ byId: z.uuid().nullable(), byName: z.string().nullable(), at: z.string() }).nullable(),
+  resolved: z.object({ byId: personRefSchema.nullable(), byName: z.string().nullable(), at: z.string() }).nullable(),
   /** Le persone menzionate che chi guarda vede. */
-  mentionIds: z.array(z.uuid()).default([]),
+  mentionIds: z.array(personRefSchema).default([]),
   /** F5: la parte di domanda di un commento di Claude; null per i commenti delle persone. Additivo. */
   question: productQuestionViewSchema.nullable().default(null),
 });
@@ -876,7 +877,7 @@ export const productLiveRevisionSchema = z.object({
   type: z.literal("revision"),
   seq: z.number().int(),
   kind: z.enum(["create", "edit", "rename", "move", "undo", "claude", "first_version"]),
-  actorId: z.uuid().nullable(),
+  actorId: personRefSchema.nullable(),
   sessionId: z.string().nullable(),
   ops: z.array(z.record(z.string(), z.unknown())).default([]),
   title: z.string().nullable().default(null),

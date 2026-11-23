@@ -842,7 +842,7 @@ export const inboxItemSchema = z.object({
       projectCode: z.string(),
       commentId: z.uuid().nullable(),
       threadRootId: z.uuid().nullable(),
-      authorId: z.uuid().nullable(),
+      authorId: z.string().nullable(), // l'id, o `hidden-<n>` per chi chi guarda non conosce (r.1414)
       authorName: z.string().nullable(),
       /**
        * Solo per una menzione: il testo del commento di ADESSO, al più 200

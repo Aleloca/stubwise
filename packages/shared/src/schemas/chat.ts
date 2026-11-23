@@ -1,11 +1,7 @@
 import { z } from "zod";
+import { personRefSchema } from "./person-ref.js";
 
-/**
- * Registro, A11 r.1414: l'id di una persona in una RISPOSTA della Chat, oppure
- * il segnaposto `hidden-<n>` per chi chi guarda non conosce (stabile nella
- * risposta, mai da mandare indietro: le scritture vogliono un uuid).
- */
-export const personRefSchema = z.string().min(1);
+export { personRefSchema };
 
 /**
  * La Chat fra persone (integrazione area 4; design
