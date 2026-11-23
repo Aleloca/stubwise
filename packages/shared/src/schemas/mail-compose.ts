@@ -118,6 +118,13 @@ export const mailDraftRestoreSchema = z.object({
    * Stubwise è unita, Gmail no, finché non si salva. Additivo.
    */
   gmailOutdated: z.boolean().default(false),
+  /**
+   * Revisione del lotto 2, I5: dopo un'unione la bozza annullata si cancella
+   * da Gmail SOLO se nessun allegato è rimasto fuori e la riscrittura è
+   * riuscita. `true` = resta fra le bozze di Gmail come copia di sicurezza
+   * (con gli allegati di `droppedAttachments`). Additivo.
+   */
+  gmailCopyKept: z.boolean().default(false),
 });
 export type MailDraftRestore = z.infer<typeof mailDraftRestoreSchema>;
 
