@@ -1013,10 +1013,13 @@ async function processPushDelivery(
 
   let payload;
   try {
+    const pushGroup = (row.event as { pushGroup?: unknown } | null)?.pushGroup;
     payload = buildPushPayload(recipient.event as unknown as NotificationEvent, recipient.language, {
       notificationId: recipient.notificationId,
       unreadCount: badge,
       projectId: recipient.projectId,
+      // Registro, A4 r.169: il gruppo di una menzione di gruppo, scritto nella consegna all'invio.
+      ...(typeof pushGroup === "string" ? { group: pushGroup } : {}),
     });
   } catch (err) {
     // RECINTO attorno alla resa dal jsonb, cugino di quello di `renderSlack`:

@@ -59,6 +59,13 @@ export interface PublishOpts {
   exclude?: string[];
   /** Progetto dell'evento: instrada verso chi lo segue. */
   projectId?: string;
+  /**
+   * Registro, A4 r.169: il gruppo con cui una `chat.mention` avvisa
+   * («@channel», «@<Reparto>»), per il testo della PUSH. Vero all'invio, e la
+   * push nasce una volta sola: sta nella consegna push (`event`), non
+   * nell'evento della notifica (la card lo deriva a lettura).
+   */
+  pushGroup?: string;
   /** Ticket dell'evento: instrada verso l'assegnatario. */
   ticketId?: string;
   /** Job dell'evento: instrada verso l'operatore che l'ha lanciato. */
@@ -250,7 +257,7 @@ export async function publishNotification(
           .map((row) => ({ notificationId: row.id, channel }));
       const deliveries: (typeof notificationDeliveries.$inferInsert)[] = [
         ...perRecipient(slackReady, "slack_dm"),
-        ...perRecipient(pushReady, "push"),
+        ...perRecipient(pushReady, "push").map((d) => (opts.pushGroup ? { ...d, event: { pushGroup: opts.pushGroup } } : d)),
       ];
       for (const webhookId of webhookIds) {
         deliveries.push({

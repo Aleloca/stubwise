@@ -173,9 +173,9 @@ Fetta 4: renderer (sotto, «Chiuse»).
   del canale (per `@reparto` quelli del reparto) col canale su «all», alla
   creazione del messaggio, una card `chat.mention` per persona (vince quella a
   nome), senza seguire il thread. Il gruppo (`chat.group` della card) e la
-  frase si derivano a lettura. Limite accettato: la push di una card di gruppo
-  ha il testo della menzione a nome («mentioned you»), perché si costruisce
-  dall'evento all'invio.
+  frase si derivano a lettura. La push dice il gruppo («@channel was
+  mentioned in the chat», «Ada mentioned @channel in #general»): il gruppo è
+  noto all'invio e sta nella consegna push (`pushGroup`), non nell'evento.
 - Limite accettato: modificare un messaggio avvisa solo chi viene nominato
   per la PRIMA volta. Chi era già nominato non riceve una seconda card, e chi
   viene tolto dal testo tiene la card che aveva (la sua domanda però esce da

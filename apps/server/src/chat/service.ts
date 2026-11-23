@@ -152,22 +152,25 @@ async function groupNotified(
   authorId: string,
   members: ReadonlySet<string>,
   direct: readonly string[],
-): Promise<string[]> {
+): Promise<{ id: string; group: string }[]> {
   if (!text.includes("@") || members.size === 0) return [];
+  // Il gruppo di ciascuno, per il testo della push (all'invio): `@channel`, o il SUO reparto nominato.
+  const groupOf = new Map<string, string>();
   let targets: string[];
-  if (namesGroup(text, "channel")) targets = [...members];
-  else {
+  if (namesGroup(text, "channel")) {
+    targets = [...members];
+    for (const u of targets) groupOf.set(u, "@channel");
+  } else {
     const named = (await db.select({ id: departments.id, name: departments.name }).from(departments)).filter((d) => namesGroup(text, d.name));
     if (named.length === 0) return [];
-    const inNamed = new Set(
-      (
-        await db
-          .select({ userId: departmentMembers.userId })
-          .from(departmentMembers)
-          .where(inArray(departmentMembers.departmentId, named.map((d) => d.id)))
-      ).map((r) => r.userId),
-    );
-    targets = [...members].filter((u) => inNamed.has(u));
+    const nameOf = new Map(named.map((d) => [d.id, d.name]));
+    for (const r of await db
+      .select({ userId: departmentMembers.userId, departmentId: departmentMembers.departmentId })
+      .from(departmentMembers)
+      .where(inArray(departmentMembers.departmentId, named.map((d) => d.id)))) {
+      if (!groupOf.has(r.userId)) groupOf.set(r.userId, `@${nameOf.get(r.departmentId)!}`);
+    }
+    targets = [...members].filter((u) => groupOf.has(u));
   }
   targets = targets.filter((u) => u !== authorId && !direct.includes(u));
   if (targets.length === 0) return [];
@@ -180,7 +183,7 @@ async function groupNotified(
     ).map((r) => r.userId),
   );
   const people = new Set((await peopleOf(db, targets)).map((p) => p.id));
-  return targets.filter((u) => people.has(u) && !quiet.has(u));
+  return targets.filter((u) => people.has(u) && !quiet.has(u)).map((id) => ({ id, group: groupOf.get(id)! }));
 }
 
 /**
@@ -208,9 +211,12 @@ async function publishCards(
     to: readonly string[];
     asks: readonly string[];
     members: ReadonlySet<string>;
+    /** Chi è avvisato da un gruppo, e da quale: il testo della sua push. */
+    groups?: ReadonlyMap<string, string>;
   },
 ): Promise<void> {
   for (const userId of input.to) {
+    const pushGroup = input.groups?.get(userId);
     await publishNotification(
       tx,
       {
@@ -222,7 +228,7 @@ async function publishCards(
         authorUserId: input.authorId,
         authorName: input.authorName,
       },
-      { accountUserId: userId, ...(input.channel.projectId ? { projectId: input.channel.projectId } : {}) },
+      { accountUserId: userId, ...(input.channel.projectId ? { projectId: input.channel.projectId } : {}), ...(pushGroup ? { pushGroup } : {}) },
     );
   }
 }
@@ -1113,7 +1119,8 @@ export async function postMessage(
       messageId: row!.id,
       authorId: viewer.id,
       authorName: author?.name ?? "",
-      to: [...mentioned, ...grouped],
+      to: [...mentioned, ...grouped.map((g) => g.id)],
+      groups: new Map(grouped.map((g) => [g.id, g.group])),
       asks,
       members,
     });

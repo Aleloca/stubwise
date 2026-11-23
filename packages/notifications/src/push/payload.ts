@@ -197,6 +197,8 @@ export interface PushPayloadContext {
    * `PublishOpts`), ed è nullable — i kind senza progetto esistono davvero.
    */
   projectId?: string | null;
+  /** Registro, A4 r.169: il gruppo di una `chat.mention` di gruppo (dalla consegna), o assente. */
+  group?: string | null;
 }
 
 /**
@@ -242,9 +244,16 @@ export function buildPushPayload(
   lang: Language,
   ctx: PushPayloadContext,
 ): PushPayload {
+  // Una menzione di gruppo non dice «you» a chi non è nominato (registro, A4 r.169).
+  const group = event.kind === "chat.mention" && ctx.group ? ctx.group : null;
+  const title = group ? t(lang, "push.title.chat.mention.group", { group }) : t(lang, pushTitleKey(event), titleParams(event));
+  const body =
+    group && event.kind === "chat.mention"
+      ? t(lang, isDirectMessageEvent(event) ? "notify.chatMention.group.dm" : "notify.chatMention.group", { author: event.authorName, group, channel: event.channelName })
+      : formatNotificationText(event, lang);
   return {
-    title: truncate(t(lang, pushTitleKey(event), titleParams(event)), PUSH_TITLE_MAX_CHARS),
-    body: truncate(formatNotificationText(event, lang), PUSH_BODY_MAX_CHARS),
+    title: truncate(title, PUSH_TITLE_MAX_CHARS),
+    body: truncate(body, PUSH_BODY_MAX_CHARS),
     // Su iOS è la `UNNotificationCategory` (i bottoni d'azione rapida), su
     // Android il `channel_id`: in entrambi i casi è il kind.
     category: event.kind,

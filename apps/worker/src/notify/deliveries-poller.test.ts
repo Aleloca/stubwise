@@ -977,6 +977,8 @@ interface PushDeliveryOpts {
   attempts?: number;
   /** Se false il destinatario NON è membro del progetto (uscito dopo la publish). */
   member?: boolean;
+  /** Il `event` della CONSEGNA (registro, A4 r.169: il gruppo di una menzione di gruppo). */
+  deliveryEvent?: Record<string, unknown>;
 }
 
 interface PushDeliverySeed {
@@ -1052,6 +1054,7 @@ async function insertPushDelivery(opts: PushDeliveryOpts = {}): Promise<PushDeli
       channel: "push",
       notificationId: notification!.id,
       ...(opts.attempts ? { attempts: opts.attempts } : {}),
+      ...(opts.deliveryEvent ? { event: opts.deliveryEvent } : {}),
     })
     .returning({ id: notificationDeliveries.id });
   return {
@@ -1306,6 +1309,17 @@ describe("processDeliveriesOnce — canale push", () => {
     expect(row.status).toBe("failed");
     expect(row.error).toContain("fuori contratto");
     expect(row.attempts).toBe(1);
+  });
+
+  it("registro, A4 r.169: il gruppo scritto nella consegna arriva al testo della push; senza, la menzione resta a nome", async () => {
+    const mention = { kind: "chat.mention", chatMessageId: randomUUID(), channelId: randomUUID(), channelName: "general", projectId: null, authorUserId: null, authorName: "Ada" } as unknown as NotificationEvent;
+    await insertPushDelivery({ event: mention, language: "en", deliveryEvent: { pushGroup: "@channel" } });
+    const relay = fakeRelay();
+    await processDeliveriesOnce(pushDeps(relay));
+    expect(relay.calls[0]!.payload).toMatchObject({ title: "@channel was mentioned in the chat", body: "Ada mentioned @channel in #general" });
+    await insertPushDelivery({ event: mention, language: "en" });
+    await processDeliveriesOnce(pushDeps(relay));
+    expect(relay.calls[1]!.payload).toMatchObject({ title: "You were mentioned in the chat", body: "Ada mentioned you in #general" });
   });
 
   it("il badge è l'unread count del destinatario, non delle sue push", async () => {

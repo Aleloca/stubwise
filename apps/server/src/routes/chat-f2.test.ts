@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
-import { backlogJobs, chatChannels, chatMessages, chatThreadFollows, departmentMembers, departments, docPages, notifications, projectMembers, projects, roles } from "@stubwise/db";
+import { backlogJobs, chatChannels, chatMessages, chatThreadFollows, departmentMembers, departments, deviceTokens, docPages, notificationDeliveries, notifications, personalAccessTokens, projectMembers, projects, roles } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers, type SeededUsers } from "../test/fixtures.js";
@@ -436,6 +436,21 @@ describe("avvisi di gruppo: @channel e @reparto (registro, A4 r.169)", () => {
     // Il motivo NON sta nell'evento: si deriva dal messaggio di adesso.
     const [row] = await rowsOf(lead, msg);
     expect(JSON.stringify(row!.event)).not.toContain("@channel");
+  });
+
+  it("la push di una card di gruppo porta il gruppo (scritto nella consegna all'invio, non nell'evento); quella a nome no", async () => {
+    for (const u of [lead, dev2]) {
+      const [pat] = await t.db.insert(personalAccessTokens).values({ userId: u.id, name: "phone", tokenHash: crypto.randomUUID() }).returning({ id: personalAccessTokens.id });
+      await t.db.insert(deviceTokens).values({ userId: u.id, patId: pat!.id, platform: "ios", token: `dev-${crypto.randomUUID()}` });
+    }
+    const id = await channelWith([lead, dev2]);
+    const msg = idOf(await post(dev, id, "@channel e @lead-f2"));
+    const pushOf = async (u: Who) => {
+      const [row] = await rowsOf(u, msg);
+      return t.db.select().from(notificationDeliveries).where(and(eq(notificationDeliveries.notificationId, row!.id), eq(notificationDeliveries.channel, "push")));
+    };
+    expect(await pushOf(dev2)).toEqual([expect.objectContaining({ event: { pushGroup: "@channel" } })]);
+    expect(await pushOf(lead)).toEqual([expect.objectContaining({ event: null })]);
   });
 
   it("nominato a nome E col gruppo: una card sola, quella a nome", async () => {
