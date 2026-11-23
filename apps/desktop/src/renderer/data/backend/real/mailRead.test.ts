@@ -122,6 +122,25 @@ describe("la Posta in lettura: l'elenco per conversazione", () => {
     ]);
   });
 
+  // Lotto 4, §4 (72, dbc4f595b): il badge conta le proposte come la
+  // conversazione aperta, quelle di una riunione comprese (la conversazione
+  // dell'email di Gemini). Il numero è del server; un server di prima senza il
+  // campo: nessun badge.
+  it("il badge delle proposte: il numero del server, anche per la sola email di Gemini; senza il campo, zero", async () => {
+    installFakeServer({
+      ...common,
+      "GET /api/me/mail/threads": page([
+        thread({ threadId: "t-gemini", subject: "Notes: weekly review", lastFrom: "Gemini <gemini-notes@google.com>", openProposals: 2 }),
+        thread({ threadId: "t-old", openProposals: undefined }),
+      ]),
+    });
+    const rows = await mail.listMailThreads();
+    expect(rows.map((r) => [r.threadId, r.openProposals])).toEqual([
+      [`${ACC}_t-gemini`, 2],
+      [`${ACC}_t-old`, 0],
+    ]);
+  });
+
   it("lo stesso thread Gmail su due mie caselle: due conversazioni", async () => {
     installFakeServer({
       ...common,
