@@ -1,6 +1,7 @@
 import type { AiBlock, RunProvider } from "../model";
 import { PEOPLE } from "../seed/people";
 import { gate, now, state, visibleProjectIds } from "../store";
+import { can, viewerFor } from "../viewer";
 import type { AiProvider, QueuePause } from "./state";
 
 // Il modulo foglia dei blocchi d'istanza (area 9b): le domande che le altre
@@ -158,6 +159,22 @@ export function aiBlockFor(projectId: string | null): AiBlock | null {
 }
 
 /**
+ * D-7.1 (maintainer, 23 nov 2026, corretta): il blocco di un avvio A MANO per
+ * chi lo chiede. Col budget del mese esaurito l'avvio lo scavalca chi ha
+ * `plans.approve` nel progetto, come sul server; la pausa della coda vale
+ * comunque (fa aspettare). Senza un progetto (`null`: «Chiedi a Claude»,
+ * l'analisi a mano di un server) il budget ferma tutti (scelta (a) di 46).
+ */
+export function manualStartBlockFor(me: string, projectId: string | null): AiBlock | null {
+  const block = aiBlockFor(projectId);
+  if (block?.reason !== "monthly_budget" || projectId === null) return block;
+  if (!can(viewerFor(me), "plans.approve", projectId)) return block;
+  const pause = queuePauseOf(projectId);
+  if (!pause) return null;
+  return { reason: "queue_paused", byId: pause.byId, byName: pauserNameOf(pause.byId), since: pause.at };
+}
+
+/**
  * Il blocco di un lavoro nuovo come lo legge chi guarda (Task 6, ruling 6):
  * la testata del progetto, «Chiedi a Claude», le automazioni. R-G5: un
  * progetto che non vede risponde come uno senza pausa (il budget vale
@@ -166,7 +183,8 @@ export function aiBlockFor(projectId: string | null): AiBlock | null {
 export async function getAiBlock(projectId: string | null): Promise<AiBlock | null> {
   const me = await gate("instance.getAiBlock");
   const visible = projectId === null || visibleProjectIds(me).has(projectId);
-  return aiBlockFor(visible ? projectId : null);
+  // D-7.1: per chi guarda (chi ha `plans.approve` nel progetto scavalca il budget).
+  return manualStartBlockFor(me, visible ? projectId : null);
 }
 
 /**

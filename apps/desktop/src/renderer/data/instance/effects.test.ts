@@ -28,6 +28,7 @@ import { runScript, whenIdle } from "../stream";
 import type { AutomationFlow } from "../types";
 import {
   grantInstancePermission,
+  grantProjectRole,
   resetViewerGrants,
   type LocalInstancePermission,
 } from "../viewer";
@@ -65,8 +66,12 @@ beforeEach(() => {
 });
 afterEach(() => resetApi());
 
+// D-7.1 (maintainer, 23 nov 2026, corretta): col budget esaurito l'avvio a
+// mano lo scavalca chi ha `plans.approve` nel progetto (Laura, Project Lead in
+// ACQ e STW; Roberta, full admin); chi non ce l'ha (Marco, Developer) resta
+// fermo. Senza un progetto il budget ferma tutti.
 describe("budget del mese esaurito", () => {
-  it("«Start» rifiutato con monthly_budget e detto prima; il lavoro partito finisce; alzato, riparte", async () => {
+  it("«Start» rifiutato con monthly_budget e detto prima a chi non può scavalcarlo; il lavoro partito finisce; alzato, riparte", async () => {
     as(LAURA);
     const running = await startRun("t-acq-3");
     as(ROBERTA);
@@ -76,7 +81,7 @@ describe("budget del mese esaurito", () => {
     await settle(running.id);
     expect(conv(running.id).state).not.toBe("working");
 
-    as(LAURA);
+    as("p-marco");
     const work = await getTaskWork("t-acq-1");
     expect(work!.blocked).toEqual({ reason: "monthly_budget" });
     const before = state.conversations.length;
@@ -85,20 +90,37 @@ describe("budget del mese esaurito", () => {
 
     as(ROBERTA);
     await instance.simulateBudgetReached(false);
+    as("p-marco");
+    expect((await getTaskWork("t-acq-1"))!.blocked).toBeNull();
+    expect((await startRun("t-acq-1")).state).toBe("working");
+  });
+
+  it("chi ha `plans.approve` nel progetto lo scavalca: nessun blocco detto, e l'avvio parte", async () => {
+    await instance.simulateBudgetReached(true);
     as(LAURA);
     expect((await getTaskWork("t-acq-1"))!.blocked).toBeNull();
     expect((await startRun("t-acq-1")).state).toBe("working");
   });
 
+  it("scavalcato il budget, la coda in pausa fa ancora aspettare", async () => {
+    await instance.simulateBudgetReached(true);
+    as(LAURA);
+    // Nel seme la coda di STW è in pausa da Roberta.
+    expect((await getTaskWork("t-stw-1"))!.blocked).toMatchObject({ reason: "queue_paused" });
+  });
+
   it("anche Rilancia, Chiedi modifiche, Riprendi la correzione e la correzione di un server", async () => {
     state.instance.queuePauses = [];
     await instance.simulateBudgetReached(true);
-    as(LAURA);
-    await expect(relaunchWithInstructions("t-aud-4", "Go")).rejects.toThrow();
+    // Per questo caso Laura è Developer in STW: senza `plans.approve` il budget la ferma.
+    grantProjectRole(LAURA, STW, "developer");
     as("p-marco");
     await expect(relaunchWithInstructions("t-aud-4", "Go")).rejects.toThrow(
       "invalid: monthly_budget",
     );
+    // Laura è Project Lead in AUD: il budget non la ferma (D-7.1).
+    as(LAURA);
+    await expect(relaunchWithInstructions("t-aud-4", "Go")).resolves.toBeTruthy();
     as(LAURA);
     await runScript("cv-run-stw-3", [{ step: "state", state: "finished", outcome: "ok" }]);
     await expect(requestChanges("t-stw-3", "Rename it")).rejects.toThrow("invalid: monthly_budget");
@@ -113,14 +135,15 @@ describe("budget del mese esaurito", () => {
       outcome: "stopped",
     });
     await expect(resumeCorrection("t-stw-3")).rejects.toThrow("invalid: monthly_budget");
-    // La correzione di un server (ACQ-6, la diagnosi di SRV-1).
-    as(ROBERTA);
+    // La correzione di un server (ACQ-6, la diagnosi di SRV-1): Marco, Developer in ACQ.
+    grantProjectRole("p-marco", ACQ, "developer");
+    as("p-marco");
     const before = state.conversations.length;
     await expect(servers.startServerFix("t-acq-srv-1")).rejects.toThrow("invalid: monthly_budget");
     expect(state.conversations.length).toBe(before);
   });
 
-  it("«Chiedi a Claude» rifiuta il messaggio; la coda in pausa invece non la tocca", async () => {
+  it("«Chiedi a Claude» rifiuta il messaggio (senza progetto il budget ferma tutti, anche un full admin); la coda in pausa invece non la tocca", async () => {
     const c = await createConversation({ contextProjectId: STW });
     await sendMessage(c.id, { text: "What is STW about?" });
     await settle(c.id);
@@ -558,14 +581,21 @@ describe("revisione finale M4: l'avviso e il riquadro dicono perché Claude non 
 });
 
 describe("⚠️1: «Request changes» dai Rilasci col budget esaurito", () => {
-  it("risponde monthly_budget, e nessuna correzione nasce", async () => {
+  it("a chi non ha `plans.approve` nel progetto risponde monthly_budget, e nessuna correzione nasce", async () => {
     await instance.simulateBudgetReached(true);
+    grantProjectRole("p-marco", "prj-aud", "developer");
+    as("p-marco");
     const before = state.conversations.length;
     expect(await releases.requestPrCorrection("opr-aud-248", "Keep 30 days")).toEqual({
       ok: false,
       error: "monthly_budget",
     });
     expect(state.conversations.length).toBe(before);
+  });
+
+  it("chi ce l'ha (D-7.1, qui un full admin) la chiede lo stesso", async () => {
+    await instance.simulateBudgetReached(true);
+    expect(await releases.requestPrCorrection("opr-aud-248", "Keep 30 days")).toMatchObject({ ok: true });
   });
 });
 

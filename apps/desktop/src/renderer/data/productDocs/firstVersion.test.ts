@@ -8,7 +8,7 @@ import { CLAUDE_ID } from "../seed/people";
 import { done, ext, mail, person } from "../seed/mail/helpers";
 import { VRD_FIRST_VERSION, VRD_IDS } from "../seed/productDocs/vrdFirstVersion";
 import { now, state } from "../store";
-import { revokeProjectPermission } from "../viewer";
+import { resetViewerGrants, revokeProjectPermission } from "../viewer";
 import {
   acceptFirstVersionPageAs,
   FIRST_VERSION_CITATION_PREFIX,
@@ -538,14 +538,23 @@ describe("i rifiuti", () => {
     expect(state.productFirstVersions).toEqual([]);
   });
 
-  it("budget finito: `ai_blocked`, niente scritto; la coda in pausa non blocca il gesto (P48)", async () => {
+  it("budget finito: `ai_blocked` a chi non ha `plans.approve`, niente scritto; la coda in pausa non blocca il gesto (P48)", async () => {
     state.instance.simulate.budgetReached = true;
+    // D-7.1: Laura (Project Lead) lo scavalca; senza `plans.approve` no.
+    revokeProjectPermission(LAURA, VRD, "plans.approve");
     expect(() => startFirstVersionAs(LAURA, VRD, [TEXT])).toThrow("ai_blocked");
     expect(state.productFirstVersions).toEqual([]);
     expect(pagesOf()).toEqual([]);
+    resetViewerGrants();
 
     state.instance.simulate.budgetReached = false;
     state.instance.queuePauses.push({ projectId: VRD, byId: "p-roberta", at: now() });
+    await written([TEXT]);
+    expect(pagesOf()).toHaveLength(VRD_FIRST_VERSION.length);
+  });
+
+  it("budget finito: chi ha `plans.approve` nel progetto (D-7.1) la avvia lo stesso", async () => {
+    state.instance.simulate.budgetReached = true;
     await written([TEXT]);
     expect(pagesOf()).toHaveLength(VRD_FIRST_VERSION.length);
   });

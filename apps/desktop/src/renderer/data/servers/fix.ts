@@ -157,7 +157,7 @@ export async function startServerFix(
   const server = serverOf(task.serverRef!.serverCode);
   if (!server) throw invalid("server_gone");
   // Area 9b: col budget esaurito è rifiutata, con la coda in pausa aspetta.
-  const aiBlock = aiStartBlock(task.projectId);
+  const aiBlock = aiStartBlock(me, task.projectId);
   const c = openWorkConversationAs(me, {
     kind: "task_run",
     ...runIdentity("fix_plan", task.projectId),

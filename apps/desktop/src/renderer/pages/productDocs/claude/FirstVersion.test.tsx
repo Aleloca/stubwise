@@ -126,6 +126,8 @@ describe("lo spazio vuoto: le due strade", () => {
   });
 
   it("col budget del mese finito: spenta, con la frase del budget e «Who?»", async () => {
+    // D-7.1: a chi non ha `plans.approve` nel progetto.
+    revokeProjectPermission(LAURA, VRD, "plans.approve");
     state.instance.simulate.budgetReached = true;
     await openIndex();
     const row = firstWay();
@@ -216,6 +218,8 @@ describe("la finestra delle fonti", () => {
     await user.click(firstWay());
     const dialog = await screen.findByRole("dialog");
     await user.type(within(dialog).getByRole("textbox", { name: "Pasted text" }), "notes");
+    // D-7.1: il budget ferma chi non ha `plans.approve` nel progetto.
+    revokeProjectPermission(LAURA, VRD, "plans.approve");
     state.instance.simulate.budgetReached = true;
     await user.click(within(dialog).getByRole("button", { name: "Write the first version" }));
     const alert = await within(dialog).findByRole("alert");
@@ -593,6 +597,8 @@ describe("fix round 1 — a 1024 la nota e i rifiuti restano a vista (I1)", () =
     const privacy = dialog.querySelector("[data-first-version-privacy]")!;
     expect(body.contains(privacy)).toBe(false);
     await user.type(within(dialog).getByRole("textbox", { name: "Pasted text" }), "notes");
+    // D-7.1: il budget ferma chi non ha `plans.approve` nel progetto.
+    revokeProjectPermission(LAURA, VRD, "plans.approve");
     state.instance.simulate.budgetReached = true;
     await user.click(within(dialog).getByRole("button", { name: "Write the first version" }));
     const alert = await within(dialog).findByRole("alert");

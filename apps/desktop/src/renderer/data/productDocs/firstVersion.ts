@@ -2,7 +2,7 @@ import { buildProductTree, flattenTree } from "../../domain/productDocs/tree";
 import { visiblePeopleFor } from "../access/whoCan";
 import { docsAccess } from "../docs/reads";
 import { canSeeDriveFile } from "../drive/visibility";
-import { aiBlockFor } from "../instance/blocks";
+import { manualStartBlockFor } from "../instance/blocks";
 import { canSeeMessage, canSeeTranscript } from "../mail/visibility";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { VRD_FIRST_VERSION, VRD_IDS } from "../seed/productDocs/vrdFirstVersion";
@@ -351,7 +351,8 @@ export function startFirstVersionAs(
   if (refs.length === 0) throw new Error("no_sources");
   if (productPagesOf(projectId).length > 0 || latestOf(projectId)?.status === "writing")
     throw new Error("space_not_empty");
-  if (aiBlockFor(projectId)?.reason === "monthly_budget") throw new Error("ai_blocked");
+  // D-7.1: chi ha `plans.approve` nel progetto scavalca il budget.
+  if (manualStartBlockFor(me, projectId)?.reason === "monthly_budget") throw new Error("ai_blocked");
 
   const keys = new Set(refs.map(keyOf));
   const prepared = PREPARED[projectId];

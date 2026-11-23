@@ -36,7 +36,7 @@ import {
   productPageById,
   readableProductPages,
 } from "./productDocs/reads";
-import { aiBlockFor } from "./instance/blocks";
+import { manualStartBlockFor } from "./instance/blocks";
 import { waitingBlockIn } from "./instance/queue";
 import { assigneeStatusOf } from "./admin/people";
 import {
@@ -1268,8 +1268,9 @@ export async function getTaskWork(taskId: string): Promise<TaskWork | null> {
       : [],
     correctionCap: state.projectsById.get(task.projectId)?.correctionCap ?? DEFAULT_CORRECTION_CAP,
     usage: usageOfTask(taskId),
-    // Il progetto della task si vede (sopra): budget e pausa si leggono per intero.
-    blocked: aiBlockFor(task.projectId),
+    // Il progetto della task si vede (sopra): budget e pausa si leggono per
+    // intero, per chi guarda (D-7.1: chi ha `plans.approve` scavalca il budget).
+    blocked: manualStartBlockFor(me, task.projectId),
   };
 }
 

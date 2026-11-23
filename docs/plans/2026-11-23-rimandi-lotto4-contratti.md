@@ -39,10 +39,15 @@ Ogni sezione li argomenta; qui c'è solo la raccomandazione di 94.
   compresa) a chi riceve una proposta passata, che compare anche nel pannello
   del desktop e apre la Home; in «Da decidere» la proposta resta. Fatta prima
   nel prototipo (d3e1fe9fb); il §2 è aggiornato.
-- **D-7.1 = (b)**: a budget mensile finito si ferma anche l'avvio a mano (la
-  regola del prototipo); il server si allinea (`blocked.monthly_budget` in
-  `/work` e il rifiuto dell'avvio). Nel prototipo vale già in ogni punto di
-  avvio a mano: le sessioni delle task (`aiStartBlock`, sei chiamanti, e
+- **D-7.1, corretta dal maintainer**: a budget mensile finito chi ha
+  `plans.approve` nel progetto PUÒ ancora avviare a mano (come oggi sul
+  server); lo stop vale solo per chi non ce l'ha. Senza un progetto
+  («Chiedi a Claude», l'analisi a mano di un server) il budget ferma tutti
+  ((a) di 46). Per il server: `blocked` di `/work` porta `monthly_budget`
+  SOLO a chi non può scavalcarlo (a chi può, la pausa della coda se c'è,
+  altrimenti `null`), e l'avvio rifiuta solo lui. Il prototipo segue
+  (`manualStartBlockFor`, `data/instance/blocks.ts`) in ogni punto di avvio a
+  mano con un progetto; prima della correzione, la forma (b) valeva in: le sessioni delle task (`aiStartBlock`, sei chiamanti, e
   `servers/fix.ts`), «Chiedi a Claude» (`api-mutations.ts:2333`), «Chiedi
   modifiche» su una PR (`releases/writes.ts:362`), l'analisi a mano di un
   server (`servers/analysis.ts:416`), la prima versione e le bozze di
@@ -972,7 +977,7 @@ mascherato diventa `null`.
   usa `/api/tickets/:id/usage`.
 
 **Da decidere**
-- ✅ **Deciso (D-7.1, maintainer): (b)**, la regola del prototipo. Il testo sotto resta per la storia.
+- ✅ **Deciso (D-7.1, maintainer, corretta)**: chi ha `plans.approve` nel progetto scavalca il budget; `blocked.monthly_budget` solo a chi non può; senza progetto il budget ferma tutti. Il testo sotto resta per la storia.
 - `monthly_budget` in `blocked`: (a) il server non lo manda finché un avvio a mano scavalca il
   budget (la riga e il bottone spento direbbero una cosa falsa); (b) il server lo manda E `startRun`
   rifiuta con 409 `budget_exhausted` come il prototipo (e come dice

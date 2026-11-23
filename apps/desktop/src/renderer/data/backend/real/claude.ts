@@ -18,6 +18,7 @@ import {
 } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type {
+  AiBlock,
   ConversationActivity,
   ConversationDetail,
   ConversationEvent,
@@ -754,7 +755,19 @@ export const getTaskWork: typeof Fake.getTaskWork = async (taskId) => {
     correctionCap: work.correctionCap,
     // I consumi per task non li manda ancora `/work`.
     usage: [],
-    // Sul server vero un avvio a mano scavalca il budget: oggi sempre `null`.
-    blocked: null,
+    // D-7.1: perché un avvio a mano non partirebbe adesso per chi guarda; il
+    // server manda `monthly_budget` solo a chi non può scavalcarlo
+    // (`plans.approve` nel progetto). Chi ha messo la pausa, se mascherato,
+    // senza nome.
+    blocked: blockedOf((work as { blocked?: ServerBlock | null }).blocked ?? null),
   };
 };
+
+type ServerBlock = { reason: string; byId?: string; byName?: string | null; since?: string };
+
+function blockedOf(b: ServerBlock | null): AiBlock | null {
+  if (b?.reason === "monthly_budget") return { reason: "monthly_budget" };
+  if (b?.reason === "queue_paused")
+    return { reason: "queue_paused", byId: b.byId ?? "", byName: b.byName ?? "", since: b.since ?? "" };
+  return null;
+}
