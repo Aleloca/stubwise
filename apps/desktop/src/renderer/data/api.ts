@@ -43,6 +43,7 @@ import {
   chatKey,
   conversationPermissions,
   conversationRow,
+  projectMasker,
   copy,
   eventsOf,
   filterContext,
@@ -878,6 +879,8 @@ const FINISHED_WINDOW_DAYS = 14;
  */
 export async function listConversations(filter: ConversationFilter): Promise<ConversationRow[]> {
   const me = await gate("listConversations");
+  const mask = personMasker(me);
+  const maskProject = projectMasker(me);
   const since = daysFromToday(-FINISHED_WINDOW_DAYS);
   // Il filtro per progetto vale solo per un progetto che chi guarda vede: uno
   // invisibile non trova nulla, come uno che non esiste — altrimenti direbbe
@@ -916,7 +919,7 @@ export async function listConversations(filter: ConversationFilter): Promise<Con
         if (filter.requestId && c.requestId !== filter.requestId) return false;
         return true;
       })
-      .map((c) => withVisibleContext(me, conversationRow(me, c)))
+      .map((c) => withVisibleContext(me, conversationRow(me, c, mask, maskProject)))
       // Sulla data della riga come la vede chi guarda: il seguito privato di
       // una pubblica non la fa salire per gli altri.
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
@@ -931,9 +934,11 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
   const me = await gate("getConversation");
   const c = state.conversations.find((x) => x.id === id);
   if (!c || !canSeeConversation(me, c)) return null;
-  const events = readableEvents(me, c);
+  // R.1414 (lotto 3): un masker per la riga e il flusso.
+  const mask = personMasker(me);
+  const events = readableEvents(me, c).map((e) => (e.type === "user" ? { ...e, authorId: mask(e.authorId) } : e));
   return {
-    ...withVisibleContext(me, conversationRow(me, c)),
+    ...withVisibleContext(me, conversationRow(me, c, mask)),
     ...conversationPermissions(me, c),
     events,
     planPreApproved: state.preApprovedPlans.has(id),
