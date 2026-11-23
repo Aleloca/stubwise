@@ -1187,6 +1187,20 @@ describe("chat: revisione finale dell'area", () => {
       expect(await cards(direct.id)).toHaveLength(1);
     });
 
+    // Revisione del lotto 2 (minor): una modifica che toglie @channel non fa
+    // dire alla card «mentioned you»: resta il gruppo che c'era alla
+    // creazione, salvato nella card (vero solo in quel momento).
+    it("una modifica che toglie @channel: la card dice ancora il gruppo", async () => {
+      as("p-giulia");
+      await chat.setNotifyLevel("ch-mkx-grafica", "all");
+      as("p-chiara");
+      const sent = await chat.sendMessage("ch-mkx-grafica", { text: "@channel new palette" });
+      await chat.editMessage(sent.id, "new palette");
+      as("p-giulia");
+      const [card] = await cards(sent.id);
+      expect(card!.title).toMatch(/ mentioned @channel in /);
+    });
+
     it("nominata a nome E col gruppo: una card sola, quella a nome", async () => {
       as("p-chiara");
       const sent = await chat.sendMessage("ch-mkx-grafica", { text: "@channel and @Giulia Ferri look" });

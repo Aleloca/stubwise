@@ -147,6 +147,12 @@ export interface AppNotification {
    */
   chatMessageId?: string;
   /**
+   * Revisione del lotto 2 (r.169): il gruppo che ha avvisato alla creazione
+   * («@channel», «@<Reparto>»), vero solo in quel momento; la lettura lo usa
+   * se il messaggio di adesso non lo nomina più. Facoltativo: additivo.
+   */
+  chatGroup?: string;
+  /**
    * Solo un avviso di un server senza accesso di lettura usabile (area 8b):
    * dove si collega l'accesso SSH. Derivato a lettura per chi guarda (solo
    * con `servers.ssh.manage`), mai salvato qui.

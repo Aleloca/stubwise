@@ -823,7 +823,7 @@ export async function searchChat(
 }
 
 /** Il gruppo con cui il messaggio nomina la persona: `@channel`, o il suo reparto. */
-function groupNamed(m: ChatMessage, personId: string): string | null {
+export function groupNamed(m: ChatMessage, personId: string): string | null {
   if (mentionsName(m.text, "channel")) return "@channel";
   const person = PEOPLE.find((p) => p.id === personId);
   const department = state.departments.find(
@@ -850,8 +850,10 @@ export function presentChatNotification(
   const thread = message.threadOf;
   // Registro, r.169: una card del gruppo dice quale (`@channel`, `@Marketing`),
   // letto dal messaggio di adesso; nominata a nome resta «you».
+  const kindNow = mentionKindFor(message, personId, membersOf(data.ch));
+  // Il gruppo di adesso; tolto da una modifica, quello della creazione (lotto 2, minor).
   const group =
-    mentionKindFor(message, personId, membersOf(data.ch)) === "group" ? groupNamed(message, personId) : null;
+    kindNow === "group" ? groupNamed(message, personId) : kindNow === null ? (n.chatGroup ?? null) : null;
   return {
     ...copy(n),
     projectId: data.ch.projectId,

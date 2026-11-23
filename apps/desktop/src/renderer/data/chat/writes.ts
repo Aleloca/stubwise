@@ -51,6 +51,7 @@ import {
   channelFlow,
   channelView,
   chatQuestionsOf,
+  groupNamed,
   liveReplies,
   presentMessage,
   readStateOf,
@@ -190,6 +191,7 @@ function deliverMentions(m: ChatMessage, ch: Channel): void {
       snoozedUntil: null,
       link: "",
       chatMessageId: m.id,
+      ...(kind === "group" ? { chatGroup: groupNamed(m, personId) ?? undefined } : {}),
     });
     if (kind === "direct" && m.threadOf !== null && members.includes(personId)) follow(personId, ch, m);
   }
