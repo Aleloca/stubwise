@@ -8,7 +8,7 @@ import {
   siteRequestDetailSchema,
   siteRequestListSchema,
 } from "@stubwise/shared";
-import { and, asc, count, desc, eq, gte, isNotNull, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, isNotNull, isNull, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -18,6 +18,7 @@ import {
   widgetConversations,
   widgetMessages,
   widgets,
+  type Db,
 } from "@stubwise/db";
 import { keysMatch } from "../ingest/shared.js";
 import { verifyWidgetIdentity, type WidgetIdentity } from "../auth/widget-identity.js";
@@ -34,6 +35,42 @@ import { buildWidgetSystemPrompt, streamWidgetChatResponse } from "./widget-chat
 
 /** Registro, r.1061: le conversazioni verificate che un cliente (`sub`) apre in 24 ore. */
 export const WIDGET_VERIFIED_CONVERSATIONS_PER_DAY = 50;
+
+/**
+ * Apre una conversazione del widget. Registro, r.1061: un tetto alle
+ * conversazioni VERIFICATE aperte da un `sub` in 24 ore (le legge l'API per i
+ * siti, `listSiteRequests`, una per una: senza tetto un cliente col token
+ * renderebbe ogni lettura cara). Revisione del lotto 2, M6: conteggio e
+ * inserimento stanno in UNA transazione, sotto un lock per widget e `sub`,
+ * così due aperture insieme all'ultimo posto non passano entrambe.
+ * `afterCount` è un punto per i test (una pausa fra conteggio e inserimento).
+ */
+export async function openWidgetConversation(
+  db: Db,
+  row: typeof widgetConversations.$inferInsert,
+  opts: { afterCount?: () => Promise<void> } = {},
+): Promise<string | "too_many"> {
+  return db.transaction(async (tx) => {
+    if (row.identityVerified) {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`widget-conversations:${row.widgetId}:${row.externalUserId}`}))`);
+      const [opened] = await tx
+        .select({ n: count() })
+        .from(widgetConversations)
+        .where(
+          and(
+            eq(widgetConversations.widgetId, row.widgetId!),
+            eq(widgetConversations.externalUserId, row.externalUserId!),
+            eq(widgetConversations.identityVerified, true),
+            gte(widgetConversations.createdAt, new Date(Date.now() - 24 * 60 * 60 * 1000)),
+          ),
+        );
+      await opts.afterCount?.();
+      if ((opened?.n ?? 0) >= WIDGET_VERIFIED_CONVERSATIONS_PER_DAY) return "too_many" as const;
+    }
+    const [conversation] = await tx.insert(widgetConversations).values(row).returning({ id: widgetConversations.id });
+    return conversation!.id;
+  });
+}
 
 export interface WidgetRoutesOptions {
   /** Limite di richieste per chiave del progetto (default 300/min). */
@@ -372,38 +409,17 @@ export async function widgetRoutes(
       const customer = customerOf(request, user.id);
       if (customer === null) return apiError(reply, 401, "identity_mismatch", "The declared customer is not the signed one");
       const identity = request.widgetIdentity;
-      // Registro, r.1061: un tetto alle conversazioni VERIFICATE aperte da un
-      // `sub` in 24 ore. Le legge l'API per i siti (`listSiteRequests`, una per
-      // una): senza tetto un cliente col token renderebbe ogni lettura cara.
-      if (identity) {
-        const [opened] = await app.db
-          .select({ n: count() })
-          .from(widgetConversations)
-          .where(
-            and(
-              eq(widgetConversations.widgetId, widget.id),
-              eq(widgetConversations.externalUserId, customer),
-              eq(widgetConversations.identityVerified, true),
-              gte(widgetConversations.createdAt, new Date(Date.now() - 24 * 60 * 60 * 1000)),
-            ),
-          );
-        if ((opened?.n ?? 0) >= WIDGET_VERIFIED_CONVERSATIONS_PER_DAY) {
-          return apiError(reply, 429, "too_many_conversations", "Too many conversations today");
-        }
-      }
-      const [conversation] = await app.db
-        .insert(widgetConversations)
-        .values({
-          projectId: widget.projectId,
-          widgetId: widget.id,
-          externalUserId: customer,
-          // Col token, email e nome FIRMATI vincono su quelli dichiarati.
-          externalUserEmail: identity ? (identity.email ?? user.email ?? null) : (user.email ?? null),
-          externalUserName: identity ? (identity.name ?? user.name ?? null) : (user.name ?? null),
-          identityVerified: identity !== null,
-        })
-        .returning({ id: widgetConversations.id });
-      return { conversationId: conversation!.id };
+      const opened = await openWidgetConversation(app.db, {
+        projectId: widget.projectId,
+        widgetId: widget.id,
+        externalUserId: customer,
+        // Col token, email e nome FIRMATI vincono su quelli dichiarati.
+        externalUserEmail: identity ? (identity.email ?? user.email ?? null) : (user.email ?? null),
+        externalUserName: identity ? (identity.name ?? user.name ?? null) : (user.name ?? null),
+        identityVerified: identity !== null,
+      });
+      if (opened === "too_many") return apiError(reply, 429, "too_many_conversations", "Too many conversations today");
+      return { conversationId: opened };
     },
   );
 
