@@ -368,9 +368,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   HTML (mandiamo text/plain), nessuna firma per alias diversi
   dall'indirizzo della casella.
 - F3, rimandati e limiti accettati *(O)* (12 nov 2026):
-  (a) «Riprova» per un `fillMailBody` non salvato su Gmail: oggi la scheda
+  (a) ~~«Riprova» per un `fillMailBody` non salvato su Gmail: oggi la scheda
   lo dice (`effectFailure`) e offre il testo da copiare; il riprova vuole
-  una rotta che rilanci il seguito per quell'azione;
+  una rotta che rilanci il seguito per quell'azione;~~ *chiusa il 23 nov 2026
+  (72, lotto 4, §5)*: `POST /api/claude/groups/:id/actions/:index/retry` e
+  `canRetryEffect` nella vista (calcolato dal server); una bozza cambiata dopo
+  l'azione non si sovrascrive (`draft_changed`). Limite accettato: se nel
+  frattempo la mail è partita, il riprova crea una bozza nuova nel thread;
   (b) la bozza di Claude in json (`?stream=false`) per un client che non
   legge SSE (il mobile): oggi solo SSE;
   (c) ~~gli oggetti dello storage degli allegati restano orfani~~ CHIUSO
@@ -436,10 +440,16 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   precedente non si classifica mai e resta `new`; il calendario non ha
   taglio (propone solo appuntamenti futuri, come al primo collegamento).
   Invariante in `mail-calendar.md`, voce del deploy-log dell'area 6 F1.
-- Ritorno OAuth al desktop *(O)* (area 6, F1): nessun deep link, il callback
+- ~~Ritorno OAuth al desktop *(O)* (area 6, F1): nessun deep link, il callback
   resta quello del web e il renderer rilegge `accounts()` al ritorno in primo
   piano. Rimandato `stubwise://google?outcome=…` (come `stubwise://auth`),
-  che riporterebbe l'esito direttamente all'app.
+  che riporterebbe l'esito direttamente all'app.~~ *Chiusa il 23 nov 2026
+  (lotto 4, §6; il server di 72, il renderer e il main di 94)*:
+  `POST /connect` con `client: "desktop"` e `returnState` (sulla riga del
+  nonce, 0221), `returnTo` nella risposta, e il callback che torna a
+  `/app/#/desktop-google?outcome=…&state=…` con soli quei due parametri.
+  D-6.3 *(O, 94)*: le chiavi `settings:account.googleAccounts.outcome.*` del
+  web vecchio non servono al desktop, che dice l'esito nella pagina nuova.
 - F2, chi riceve la proposta condivisa *(M)* (12 nov 2026): A = (a) un
   destinatario membro senza casella collegata la riceve e la vede con
   l'estratto, il messaggio intero solo se è nella SUA casella; B = (b)

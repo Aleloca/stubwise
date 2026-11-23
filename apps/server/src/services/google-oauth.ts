@@ -177,7 +177,7 @@ export type BeginConnectResult =
  */
 export async function beginConnect(
   deps: GoogleOauthDeps,
-  input: { userId: string; workspaceId: string },
+  input: { userId: string; workspaceId: string; client?: "web" | "desktop"; returnState?: string },
 ): Promise<BeginConnectResult> {
   const nowMs = (deps.now ?? Date.now)();
   const [workspace] = await deps.db
@@ -205,6 +205,9 @@ export async function beginConnect(
     userId: input.userId,
     workspaceId: workspace.id,
     expiresAt: new Date(exp),
+    // Lotto 4 (§6): dove torna il callback, deciso QUI.
+    client: input.client === "desktop" ? "desktop" : null,
+    returnState: input.client === "desktop" ? (input.returnState ?? null) : null,
   });
 
   const state = signState(
@@ -223,6 +226,20 @@ export async function beginConnect(
       hd: workspace.domains[0] ?? null,
     }),
   };
+}
+
+/**
+ * Rimandi, lotto 4 (§6): dove torna il callback di questo `state`. Solo da uno
+ * state VERIFICATO (firma e scadenza) e dalla sua riga: la query del callback
+ * non decide mai il ritorno. null = il web di sempre (state non verificabile,
+ * riga assente, collegamento avviato dal web).
+ */
+export async function connectReturnOf(deps: Pick<GoogleOauthDeps, "db" | "encryptionKey" | "now">, state: string | undefined): Promise<{ returnState: string } | null> {
+  if (!state) return null;
+  const payload = verifyState(state, deps.encryptionKey, (deps.now ?? Date.now)());
+  if (!payload) return null;
+  const [row] = await deps.db.select({ client: oauthStates.client, returnState: oauthStates.returnState }).from(oauthStates).where(eq(oauthStates.nonce, payload.nonce));
+  return row?.client === "desktop" && row.returnState ? { returnState: row.returnState } : null;
 }
 
 /**

@@ -19,7 +19,7 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { apiError } from "../errors.js";
-import { beginConnect, completeCallback, type GoogleOauthDeps } from "../services/google-oauth.js";
+import { beginConnect, completeCallback, connectReturnOf, type GoogleOauthDeps } from "../services/google-oauth.js";
 import { authErrorResponses, errorSchema, type RateLimitConfig } from "./shared.js";
 
 /**
@@ -139,6 +139,17 @@ export async function meGoogleRoutes(
     ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
   });
 
+  /**
+   * Rimandi, lotto 4 (§6, D-6.1 = a): un collegamento avviato dall'app torna
+   * alla pagina dell'istanza `/app/#/desktop-google`, che dice l'esito e apre
+   * `stubwise://google`. SOLO l'esito e lo state dell'app: niente code, token,
+   * state firmato, email o id.
+   */
+  function redirectToDesktop(reply: FastifyReply, outcome: GoogleCallbackOutcome, returnState: string) {
+    const query = new URLSearchParams({ outcome, state: returnState });
+    return reply.redirect(`/app/#/desktop-google?${query.toString()}`, 302);
+  }
+
   /** Redirect alla pagina Account con l'esito nel query param. */
   function redirectWithOutcome(reply: FastifyReply, outcome: GoogleCallbackOutcome) {
     // Path RELATIVO e non `publicUrl` + path: la SPA è servita da caddy sullo
@@ -197,6 +208,7 @@ export async function meGoogleRoutes(
         body: googleConnectBodySchema,
         response: {
           200: googleConnectResponseSchema,
+          400: errorSchema,
           404: errorSchema,
           409: errorSchema,
           ...authErrorResponses,
@@ -204,9 +216,13 @@ export async function meGoogleRoutes(
       },
     },
     async (request, reply) => {
+      // Lotto 4 (§6): il ritorno all'app vuole lo state dell'app.
+      const desktop = request.body.client === "desktop";
+      if (desktop && !request.body.returnState) return apiError(reply, 400, "invalid_request", "returnState is required with client desktop");
       const result = await beginConnect(deps(), {
         userId: request.user!.id,
         workspaceId: request.body.workspaceId,
+        ...(desktop ? { client: "desktop" as const, returnState: request.body.returnState! } : {}),
       });
       if (result.status === "workspace_not_found") {
         return apiError(reply, 404, "google_workspace_not_found", "Google Workspace not found");
@@ -219,7 +235,7 @@ export async function meGoogleRoutes(
           "Google Workspace has no client secret configured",
         );
       }
-      return { authorizeUrl: result.authorizeUrl };
+      return { authorizeUrl: result.authorizeUrl, returnTo: desktop ? ("desktop" as const) : ("web" as const) };
     },
   );
 
@@ -238,11 +254,14 @@ export async function meGoogleRoutes(
     },
     async (request, reply) => {
       const { code, state, error } = request.query;
+      // Lotto 4 (§6): dove torna lo dice la riga dello state (verificato), mai la query.
+      const back = await connectReturnOf(deps(), state);
+      const finish = (outcome: GoogleCallbackOutcome) => (back ? redirectToDesktop(reply, outcome, back.returnState) : redirectWithOutcome(reply, outcome));
       // L'utente ha premuto "Annulla" sulla schermata di consenso: non è un
-      // errore nostro, ma non c'è nulla da collegare.
+      // errore nostro, ma non c'è nulla da collegare (D-6.2 = a: resta `error`).
       if (error) {
         request.log.info({ error }, "consenso Google rifiutato dall'utente");
-        return redirectWithOutcome(reply, "error");
+        return finish("error");
       }
       if (!code || !state) {
         return apiError(reply, 400, "invalid_callback", "Missing code or state");
@@ -261,7 +280,7 @@ export async function meGoogleRoutes(
           "collegamento della casella Google rifiutato",
         );
       }
-      return redirectWithOutcome(reply, result.status);
+      return finish(result.status);
     },
   );
 

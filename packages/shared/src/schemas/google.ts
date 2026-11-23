@@ -223,7 +223,16 @@ export const googleWorkspaceOptionSchema = z.object({
 export type GoogleWorkspaceOption = z.infer<typeof googleWorkspaceOptionSchema>;
 
 /** Avvio del flusso: quale Workspace fa da app OAuth per questa casella. */
-export const googleConnectBodySchema = z.object({ workspaceId: z.uuid() });
+export const googleConnectBodySchema = z.object({
+  workspaceId: z.uuid(),
+  /**
+   * Rimandi, lotto 4 (§6): `desktop` = il callback torna all'app
+   * (`/app/#/desktop-google` e poi `stubwise://google`) con `returnState`;
+   * assente = il web di sempre. Additivi: un server di prima li scarta.
+   */
+  client: z.enum(["web", "desktop"]).optional(),
+  returnState: z.string().regex(/^[A-Za-z0-9_-]{16,128}$/).optional(),
+});
 export type GoogleConnectBody = z.input<typeof googleConnectBodySchema>;
 
 /**
@@ -232,7 +241,11 @@ export type GoogleConnectBody = z.input<typeof googleConnectBodySchema>;
  * da `fetch` nella SPA, e un 302 su una richiesta XHR verrebbe seguito dal
  * browser verso `accounts.google.com` in background — cioè in nessun posto.
  */
-export const googleConnectResponseSchema = z.object({ authorizeUrl: z.string() });
+export const googleConnectResponseSchema = z.object({
+  authorizeUrl: z.string(),
+  /** Rimandi, lotto 4 (§6): `desktop` solo se il server ha legato il ritorno all'app; un server di prima: `web`. */
+  returnTo: z.enum(["web", "desktop"]).default("web"),
+});
 export type GoogleConnectResponse = z.infer<typeof googleConnectResponseSchema>;
 
 /** Modifica di una casella: l'unica cosa che l'utente può cambiare è il toggle. */

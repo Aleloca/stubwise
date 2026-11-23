@@ -990,3 +990,54 @@ describe("POST /api/me/google/accounts/:id/sync", () => {
     expect(res.statusCode).toBe(401);
   });
 });
+
+describe("rimandi, lotto 4, §6: il ritorno OAuth all'app desktop", () => {
+  const RETURN = "rS_" + "a".repeat(24);
+  const desktopConnect = (workspaceId: string, body: object = { client: "desktop", returnState: RETURN }) =>
+    app.inject({ method: "POST", url: "/api/me/google/connect", headers: { cookie: memberCookie }, payload: { workspaceId, ...body } });
+  const desktopState = async (workspaceId: string) => {
+    const res = await desktopConnect(workspaceId);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toMatchObject({ returnTo: "desktop" });
+    return new URL((res.json() as { authorizeUrl: string }).authorizeUrl).searchParams.get("state")!;
+  };
+  /** Il ritorno letto dal `Location`: la pagina dell'app e i suoi due parametri, e nient'altro. */
+  const desktopReturnOf = (res: { headers: Record<string, unknown> }) => {
+    const location = String(res.headers.location ?? "");
+    expect(location.startsWith("/app/#/desktop-google?")).toBe(true);
+    const query = new URLSearchParams(location.slice(location.indexOf("?") + 1));
+    expect([...query.keys()].sort()).toEqual(["outcome", "state"]);
+    return { outcome: query.get("outcome"), state: query.get("state") };
+  };
+
+  it("`client: \"desktop\"` senza `returnState` è 400 `invalid_request`; dal web `returnTo` è `web`", async () => {
+    const workspaceId = await createWorkspace();
+    const bad = await desktopConnect(workspaceId, { client: "desktop" });
+    expect([bad.statusCode, (bad.json() as { code: string }).code]).toEqual([400, "invalid_request"]);
+    expect((await connect(workspaceId)).json()).toMatchObject({ returnTo: "web" });
+  });
+
+  it("un collegamento avviato dall'app torna a `/app/#/desktop-google` con l'esito e lo state dell'app, anche su un rifiuto", async () => {
+    const workspaceId = await createWorkspace();
+    const ok = await callback(await desktopState(workspaceId));
+    expect(ok.statusCode).toBe(302);
+    expect(desktopReturnOf(ok)).toEqual({ outcome: "ok", state: RETURN });
+    // Nessun code, token o state firmato nel ritorno.
+    expect(String(ok.headers.location)).not.toContain("code-di-google");
+    userinfoResponse = { ...userinfoResponse, email: "mario@altro.example", hd: "altro.example" };
+    const other = await createWorkspace({ domains: ["acme.com"] });
+    expect(desktopReturnOf(await callback(await desktopState(other)))).toEqual({ outcome: "domain_mismatch", state: RETURN });
+  });
+
+  it("consenso annullato: con uno state verificabile dell'app torna all'app con `error`; dal web resta la pagina Account", async () => {
+    const workspaceId = await createWorkspace();
+    const state = await desktopState(workspaceId);
+    const res = await app.inject({ method: "GET", url: `/api/me/google/callback?error=access_denied&state=${encodeURIComponent(state)}` });
+    expect(desktopReturnOf(res)).toEqual({ outcome: "error", state: RETURN });
+    const web = await app.inject({ method: "GET", url: `/api/me/google/callback?error=access_denied&state=${encodeURIComponent(await stateFor(workspaceId))}` });
+    expect(String(web.headers.location)).toContain("?google=error");
+    // Uno state non verificabile: il web di sempre.
+    const forged = await app.inject({ method: "GET", url: "/api/me/google/callback?error=access_denied&state=finto" });
+    expect(String(forged.headers.location)).toContain("?google=error");
+  });
+});

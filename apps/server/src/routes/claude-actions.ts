@@ -1,11 +1,12 @@
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { claudeActionFailureSchema, claudeProposalViewSchema } from "@stubwise/shared";
+import { claudeActionFailureSchema, claudeActionGroupViewSchema, claudeProposalViewSchema } from "@stubwise/shared";
 import { requireReauth } from "../auth/access.js";
 import { apiError } from "../errors.js";
 import type { ActionEffects } from "../claude-actions/effects.js";
 import { cancelProposal, confirmProposal, requestUndo } from "../claude-actions/proposals.js";
+import { retryActionEffect } from "../claude-actions/retry-effect.js";
 import { publicUrlOrUndefined } from "../ingest/shared.js";
 import { fillDraftBody } from "../services/mail-drafts.js";
 import { claudeActions } from "@stubwise/db";
@@ -114,6 +115,32 @@ export async function claudeActionRoutes(instance: FastifyInstance): Promise<voi
       if (result.ok) return result.proposal;
       if (result.error === "not_found") return apiError(reply, 404, "not_found", "Proposal not found");
       return apiError(reply, 409, result.error, result.error);
+    },
+  );
+
+  // Rimandi, lotto 4 (§5): «Riprova» del seguito di un `fillMailBody` non
+  // salvato. Per indice nel gruppo (D-5.3 = a); il testo è quello salvato.
+  app.post(
+    "/groups/:id/actions/:index/retry",
+    {
+      config: { access: ACCESS },
+      schema: {
+        params: z.object({ id: z.uuid(), index: z.coerce.number().int().min(0).max(1000) }),
+        response: {
+          200: claudeActionGroupViewSchema,
+          404: errorSchema,
+          409: errorSchema.extend({ reason: z.string().optional() }),
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const out = await retryActionEffect(app.db, request.user!, request.params.id, request.params.index, async (userId, args) => {
+        const saved = await fillDraftBody(app.db, app.encryptionKey, app.mailComposeClient, await app.storage(), userId, args);
+        return "error" in saved ? { error: saved.error } : {};
+      });
+      if (out.ok) return out.group;
+      return reply.code(out.status).send({ code: out.code, message: out.code, ...(out.reason ? { reason: out.reason } : {}) });
     },
   );
 

@@ -23,9 +23,13 @@ export function createGoogleEndpoints(request: ApiRequest) {
     workspaces() {
       return request("GET", "/api/me/google/workspaces", undefined, z.array(googleWorkspaceOptionSchema));
     },
-    /** L'URL di consenso di Google per il Workspace scelto. */
-    connect(workspaceId: string) {
-      return request("POST", "/api/me/google/connect", { workspaceId }, googleConnectResponseSchema);
+    /**
+     * L'URL di consenso di Google per il Workspace scelto. Rimandi, lotto 4
+     * (§6): dall'app desktop `{ client: "desktop", returnState }`, e la
+     * risposta dice `returnTo` (un server di prima: `web`).
+     */
+    connect(workspaceId: string, opts: { client?: "web" | "desktop"; returnState?: string } = {}) {
+      return request("POST", "/api/me/google/connect", { workspaceId, ...opts }, googleConnectResponseSchema);
     },
     /** Le MIE caselle, con l'allineamento e `missingScopes`. */
     accounts() {

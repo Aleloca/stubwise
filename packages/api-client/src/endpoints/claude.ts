@@ -130,6 +130,15 @@ export function createClaudeEndpoints(request: ApiRequest) {
           z.object({ kind: z.enum(["undone", "needs_confirmation"]), proposal: claudeProposalViewSchema.optional() }),
         );
       },
+      /**
+       * Rimandi, lotto 4 (§5): «Riprova» del seguito non riuscito dell'azione
+       * `index` del gruppo (un `fillMailBody` non salvato su Gmail). 200 = il
+       * gruppo aggiornato; 409 `already_saved`, `draft_changed`, `mail_forbidden`,
+       * `mail_not_saved` (con `reason`)…
+       */
+      retryEffect(id: string, index: number): Promise<Reader<ClaudeActionGroupView>> {
+        return request("POST", `/api/claude/groups/${seg(id)}/actions/${index}/retry`, {}, claudeActionGroupViewSchema);
+      },
     },
   };
 }

@@ -5297,6 +5297,14 @@ export const oauthStates = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     /** Valorizzato alla prima verifica riuscita: un secondo callback è rifiutato. */
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    /**
+     * Rimandi, lotto 4 (§6, 0221): dove torna il callback. `desktop` = la pagina
+     * `/app/#/desktop-google` con `returnState` (lo state dell'app, non quello
+     * firmato); null = il web di sempre. Li decide `beginConnect`, MAI la query
+     * del callback.
+     */
+    client: text("client").$type<"web" | "desktop">(),
+    returnState: text("return_state"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
