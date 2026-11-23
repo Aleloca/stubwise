@@ -1,3 +1,4 @@
+import { registerPersonMask } from "../services/people-known.js";
 import {
   aiJobs,
   repositories,
@@ -100,8 +101,13 @@ function writeError(reply: FastifyReply, error: TaskWriteError, status: 400 | 40
 
 const bulkForbiddenSchema = z.object({ code: z.string(), message: z.string(), codes: z.array(z.string()) });
 
+/** Registro, A11 r.1414: le chiavi delle risposte delle task che portano una persona. */
+export const TASK_PERSON_KEYS: ReadonlySet<string> = new Set(["assigneeId", "createdById", "followerIds", "askedById", "askedOfId", "authorId", "ownerId", "byId", "decidedById"]);
+
 export async function taskRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+  // Registro, A11 r.1414: chi guarda non riceve l'id di chi non conosce.
+  registerPersonMask(app, TASK_PERSON_KEYS);
 
   // Rotte letterali PRIMA delle parametriche (trappola di routing in CLAUDE.md).
   app.get(

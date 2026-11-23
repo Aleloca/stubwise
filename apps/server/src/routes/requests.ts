@@ -1,3 +1,4 @@
+import { registerPersonMask } from "../services/people-known.js";
 import { backlogItemRequesters, backlogItems, projects } from "@stubwise/db";
 import { requestToConvertViewSchema, type RequestToConvertView } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
@@ -20,8 +21,13 @@ import { authErrorResponses } from "./shared.js";
 
 const LIMIT = 200;
 
+/** Registro, A11 r.1414: le chiavi delle risposte che portano una persona. */
+const REQUEST_PERSON_KEYS: ReadonlySet<string> = new Set(["requesterIds"]);
+
 export async function requestRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
+  // Registro, A11 r.1414: chi guarda non riceve l'id di chi non conosce.
+  registerPersonMask(app, REQUEST_PERSON_KEYS);
 
   app.get(
     "/requests/to-convert",

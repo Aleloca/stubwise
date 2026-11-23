@@ -1,4 +1,4 @@
-import { changeLog, chatChannelMembers, chatChannels, chatMessages, projectMembers, type Db } from "@stubwise/db";
+import { changeLog, chatChannelMembers, chatChannels, chatMessages, projectMembers, users, type Db } from "@stubwise/db";
 import { userIdsWithPermission } from "@stubwise/notifications";
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import type { SessionUser } from "../auth/session.js";
@@ -11,7 +11,7 @@ import { channelReadableSql } from "../chat/access.js";
  * (`visiblePersonIds`, gli assegnabili e «Who can?»): due domande diverse.
  *
  * - un full admin conosce tutti;
- * - sé stesso, i full admin;
+ * - sé stesso, i full admin, Claude (l'utente di sistema);
  * - chi è, o è STATO, membro di un progetto che chi guarda vede, archiviati
  *   compresi (le attive e le disattivate; gli ex membri dal registro,
  *   `member.removed`);
@@ -29,6 +29,8 @@ export async function peopleKnownTo(db: Db, viewer: Pick<SessionUser, "id" | "in
   // nov 2026: un archiviato si legge ancora, e chi c'era resta conosciuto).
   const visible = (await db.select({ id: projectMembers.projectId }).from(projectMembers).where(eq(projectMembers.userId, viewer.id))).map((r) => r.id);
   const known = new Set<string>([viewer.id, ...(await userIdsWithPermission(db, null, null))]);
+  // Claude (l'utente di sistema) lo conoscono tutti: si assegna, si chiama nella Chat.
+  for (const r of await db.select({ id: users.id }).from(users).where(eq(users.isAgent, true))) known.add(r.id);
   if (visible.length > 0) {
     for (const r of await db.selectDistinct({ id: projectMembers.userId }).from(projectMembers).where(inArray(projectMembers.projectId, visible))) known.add(r.id);
     // Gli ex membri: ogni uscita lascia una voce nel registro, sul membro.
@@ -156,6 +158,61 @@ export function maskPeople<T>(payload: T, hidden: HiddenIds, keys: ReadonlySet<s
     for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
       if (keys.has(k) && typeof x === "string" && UUID.test(x)) out[k] = hidden.person(x);
       else if (keys.has(k) && Array.isArray(x)) out[k] = x.map((e) => (typeof e === "string" && UUID.test(e) ? hidden.person(e) : walk(e)));
+      else out[k] = walk(x);
+    }
+    return out;
+  };
+  return walk(payload) as T;
+}
+
+/**
+ * Registra sul plugin di rotte il mascheramento delle risposte (registro, A11
+ * r.1414): `keys` portano l'id di una persona (un valore o un elenco),
+ * `objectKeys` un oggetto persona `{ id, name }` (l'id diventa il segnaposto e
+ * il nome null). Senza persone diverse da chi guarda, nessuna query.
+ */
+export function registerPersonMask(
+  instance: { addHook: (name: "preSerialization", fn: (request: { user?: SessionUser | null }, reply: unknown, payload: unknown) => Promise<unknown>) => unknown; db: Db },
+  keys: ReadonlySet<string>,
+  objectKeys: ReadonlySet<string> = new Set(),
+): void {
+  instance.addHook("preSerialization", async (request, _reply, payload) => {
+    const user = request.user;
+    if (!user || payload === null || typeof payload !== "object") return payload;
+    const ids = personIdsIn(payload, keys);
+    for (const id of personObjectIdsIn(payload, objectKeys)) ids.add(id);
+    ids.delete(user.id);
+    if (ids.size === 0) return payload;
+    const hidden = await hiddenFor(instance.db, user);
+    return maskPersonObjects(maskPeople(payload, hidden, keys), hidden, objectKeys);
+  });
+}
+
+function personObjectIdsIn(payload: unknown, keys: ReadonlySet<string>): Set<string> {
+  const out = new Set<string>();
+  if (keys.size === 0) return out;
+  const walk = (v: unknown): void => {
+    if (Array.isArray(v)) return v.forEach(walk);
+    if (v === null || typeof v !== "object") return;
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      const id = x && typeof x === "object" ? (x as { id?: unknown }).id : undefined;
+      if (keys.has(k) && typeof id === "string" && UUID.test(id)) out.add(id);
+      walk(x);
+    }
+  };
+  walk(payload);
+  return out;
+}
+
+function maskPersonObjects<T>(payload: T, hidden: HiddenIds, keys: ReadonlySet<string>): T {
+  if (keys.size === 0) return payload;
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (v === null || typeof v !== "object") return v;
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      const id = x && typeof x === "object" ? (x as { id?: unknown }).id : undefined;
+      if (keys.has(k) && typeof id === "string" && UUID.test(id) && !hidden.knows(id)) out[k] = { ...(x as object), id: hidden.person(id), name: null };
       else out[k] = walk(x);
     }
     return out;

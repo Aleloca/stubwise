@@ -1,3 +1,4 @@
+import { registerPersonMask } from "../services/people-known.js";
 import { backlogItems, backlogJobs, projects } from "@stubwise/db";
 import {
   acceptBacklogItemSuggested,
@@ -48,8 +49,13 @@ const OPEN = ["new", "refining", "ready"] as const;
 const idParams = z.object({ id: z.uuid() });
 const viewOr404 = { 200: projectRequestViewSchema, 404: errorSchema, 409: errorSchema, ...authErrorResponses };
 
+/** Registro, A11 r.1414: le chiavi delle risposte che portano una persona. */
+const REQUEST_PERSON_KEYS: ReadonlySet<string> = new Set(["requesterIds"]);
+
 export async function projectRequestRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
+  // Registro, A11 r.1414: chi guarda non riceve l'id di chi non conosce.
+  registerPersonMask(app, REQUEST_PERSON_KEYS);
 
   app.get(
     "/requests",

@@ -1,3 +1,4 @@
+import { personRefSchema } from "./person-ref.js";
 import { z } from "zod";
 import {
   periodFieldSchema,
@@ -93,7 +94,7 @@ export const taskGroupBySchema = z.enum(["none", "status", "assignee", "departme
 export const savedFilterViewSchema = z.object({
   id: z.uuid(),
   name: z.string(),
-  ownerId: z.uuid().nullable(),
+  ownerId: personRefSchema.nullable(),
   visibility: filterVisibilitySchema,
   /**
    * I criteri come li ha salvati il server (già passati da `parseCriteria`).
