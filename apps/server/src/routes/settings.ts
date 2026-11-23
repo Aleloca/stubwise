@@ -130,13 +130,10 @@ const testNotificationResponseSchema = z.object({
 
 
 /**
- * Legge la riga singleton delle impostazioni d'istanza. La migrazione seeda
- * id=1 con default 'en', ma per robustezza (DB ripristinato senza seed) si
- * ripiega sul default dell'enum.
- */
-/**
  * Lo storage è configurato E valido (gli allegati si possono caricare). La
  * stessa regola di `attachmentsEnabled` e di `GET /api/storage/uploads`.
+ * `s3ConfigFromSettings` può LANCIARE se la secret cifrata è corrotta o la
+ * chiave è errata: l'eccezione vale «non configurato/non valido» → false.
  */
 export function storageConfigured(row: typeof instanceSettings.$inferSelect | undefined, encryptionKey: Buffer): boolean {
   if (!row) return false;
@@ -147,14 +144,17 @@ export function storageConfigured(row: typeof instanceSettings.$inferSelect | un
   }
 }
 
+/**
+ * Legge la riga singleton delle impostazioni d'istanza. La migrazione seeda
+ * id=1 con default 'en', ma per robustezza (DB ripristinato senza seed) si
+ * ripiega sul default dell'enum.
+ */
 async function loadInstanceSettings(
   db: Db,
   encryptionKey: Buffer,
 ): Promise<z.infer<typeof instanceSettingsViewSchema>> {
   const [row] = await db.select().from(instanceSettings).limit(1);
-  // attachmentsEnabled = config S3 completa E valida. s3ConfigFromSettings può
-  // LANCIARE se la secret cifrata è corrotta o la chiave è errata: il try/catch
-  // tratta l'eccezione come "non configurato/non valido" → false.
+  // attachmentsEnabled = config S3 completa E valida (`storageConfigured`).
   const attachmentsEnabled = storageConfigured(row, encryptionKey);
   return {
     contentLanguage: row?.contentLanguage ?? "en",

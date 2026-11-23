@@ -458,6 +458,22 @@ punti lato server sta nell'inventario consegnato a 72 (sotto).
   23 nov 2026): chi ha solo il segnaposto dell'assegnatario sposta una task
   di settimana senza mandarlo (`POST /api/tasks/:id/plan` con la sola
   `week`), e non si offre un «Undo» verso un assegnatario segnaposto.
+- **Le eccezioni ai segnaposto nelle scritture e nei filtri** (revisione
+  3bbe2ddc6..444b8b773, I-6 e decisioni di 46): un segnaposto si RISOLVE solo
+  dove il server ha un'origine con gli id veri. Un filtro salvato
+  (`savedFilterId` su `GET /api/tasks` e sul POST di `/api/filters`, il
+  filtro stesso in PATCH) e il flusso di un'automazione (un posto vuoto `{}`
+  riprende la persona della versione di prima). Altrimenti 400 `invalid`.
+- **Filtrare per un uuid VERO fa da oracolo, ed è accettato** (revisione
+  3bbe2ddc6..444b8b773, M-5). Chi conosce già l'id di una persona (da un link
+  vecchio, da una risposta di prima) può chiedere `GET /api/tasks?assigneeIds=<id>`
+  o `GET /api/drive/files?addedById=<id>` e capire, dal risultato, se quella
+  persona ha task o file nei progetti che VEDE. Non impara niente oltre ciò
+  che già vede (le task e i file restano filtrati sui suoi progetti, e
+  l'assegnatario nella risposta resta mascherato); rifiutare un id
+  sconosciuto direbbe a sua volta chi è conosciuto. Lo stesso vale per i
+  progetti, gli stati e i traguardi di un filtro (M-1): i criteri non
+  nominano quelli di un progetto invisibile, ma l'esecuzione li usa.
 - **Chi guarda resta sé stesso**: il proprio id non diventa mai un
   segnaposto (servono i confronti «è mio»).
 - **Lato server** l'inventario dei punti (la colonna R/server: l'adattatore
