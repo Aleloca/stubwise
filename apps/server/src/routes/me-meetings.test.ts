@@ -293,3 +293,30 @@ describe("rimandi, lotto 4, §3: le richieste nate da una riunione", () => {
     expect((res.json() as { tasks: { id: string }[] }).tasks.map((t) => t.id)).toEqual([mine.item!.id, pendingMine.jobId]);
   });
 });
+
+describe("rimandi, lotto 4, §4: il numero di proposte nella riga della conversazione", () => {
+  const rowOf = async (headers: { cookie: string }, threadId: string) => {
+    const res = await get(headers, "/api/me/mail/threads?limit=100");
+    expect(res.statusCode, res.body).toBe(200);
+    return (res.json() as { items: { threadId: string; openProposals: number }[] }).items.find((r) => r.threadId === threadId);
+  };
+  const openInThread = async (headers: { cookie: string }, threadId: string, accountId: string) =>
+    ((await get(headers, `/api/me/mail/proposals?thread=${threadId}&account=${accountId}&status=open`)).json() as { items: unknown[] }).items.length;
+
+  it("una proposta di riunione conta per chi vede la riunione (come aprendo la conversazione); passata o su un progetto non più visibile no", async () => {
+    const s = await scenario();
+    // Ada è invitata (organizzatrice): conta, ed è lo stesso numero della conversazione aperta.
+    expect((await rowOf(s.ada.headers, s.adaCopy.threadId))!.openProposals).toBe(1);
+    expect(await openInThread(s.ada.headers, s.adaCopy.threadId, s.ada.accountId)).toBe(1);
+    // Carla ha l'email ma non è invitata: la riunione non la vede, non conta.
+    expect((await rowOf(s.carla.headers, s.carlaCopy.threadId))!.openProposals).toBe(0);
+    expect(await openInThread(s.carla.headers, s.carlaCopy.threadId, s.carla.accountId)).toBe(0);
+    // Passata: non conta.
+    await db.update(emailProposals).set({ handedAt: new Date() }).where(eq(emailProposals.id, s.proposal.id));
+    expect((await rowOf(s.ada.headers, s.adaCopy.threadId))!.openProposals).toBe(0);
+    // Progetto non più visibile: non conta.
+    await db.update(emailProposals).set({ handedAt: null }).where(eq(emailProposals.id, s.proposal.id));
+    await db.update(projects).set({ archivedAt: new Date() } as never).where(eq(projects.id, s.projectId));
+    expect((await rowOf(s.ada.headers, s.adaCopy.threadId))!.openProposals).toBe(0);
+  });
+});

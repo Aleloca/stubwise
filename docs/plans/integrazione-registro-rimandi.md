@@ -542,10 +542,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - F5a, le email di Gemini di PRIMA del deploy *(S)*: il riconoscimento è
   all'ingestione, quindi non diventano riunioni; un recupero vorrebbe
   rileggere le intestazioni da Gmail.
-- F5a, il badge delle proposte nell'ELENCO delle conversazioni *(S)*:
+- ~~F5a, il badge delle proposte nell'ELENCO delle conversazioni *(S)*:
   `me-mail.ts` conta le condivise `mail_recipients` per thread; quelle di una
   riunione compaiono aprendo la conversazione (filtro per messaggio e
-  thread) e in «Da decidere», non nel conteggio della riga.
+  thread) e in «Da decidere», non nel conteggio della riga.~~ *Chiusa il 23
+  nov 2026 (72, lotto 4, §4)*: `openSharedProposalsByThread` conta con la
+  regola della conversazione aperta (riunioni comprese, destinatario
+  derivato, progetto visibile ADESSO anche per `mail_recipients`). Rimasto
+  fuori *(O, 94)*: `/summary` (il badge di nav) conta le card
+  `google.proposal` aperte, non verificato per le riunioni.
 - F5a, con la classificazione di PRIMA *(S)*: il riconoscimento c'è anche
   senza `MAIL_CLASSIFY_V2`, ma dopo l'ammissione (un'email di Gemini
   respinta non entra), e la fase delle riunioni gira solo con la
