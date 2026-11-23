@@ -489,3 +489,27 @@ describe("avvisi di gruppo: @channel e @reparto (registro, A4 r.169)", () => {
     expect(await rowsOf(lead, plain)).toEqual([]);
   });
 });
+
+describe("registro, A11 r.1414: nella Chat chi non si conosce è un segnaposto", () => {
+  it("la reazione di chi è uscito dal canale senza scriverci (nessun progetto in comune): `hidden-<n>`, né id né nome; chi scrive resta conosciuto", async () => {
+    const stranger = await createUserWithSession(app, `stranger-f2-${crypto.randomUUID().slice(0, 6)}@example.com`);
+    const created = await as(dev, "POST", "/api/chat/channels", { name: `istanza-${++n}`, visibility: "open" });
+    expect(created.statusCode, created.body).toBe(201);
+    const id = idOf(created);
+    expect((await as(stranger, "POST", `/api/chat/channels/${id}/join`)).statusCode).toBeLessThan(300);
+    const msg = idOf(await post(dev, id, "una novità per tutti"));
+    expect((await as(stranger, "POST", `/api/chat/messages/${msg}/reactions/toggle`, { emoji: "👍" })).statusCode).toBeLessThan(300);
+    expect((await as(stranger, "DELETE", `/api/chat/channels/${id}/join`)).statusCode).toBeLessThan(300);
+    // Lead: progetto in comune con dev, niente con lo sconosciuto.
+    await as(lead, "POST", `/api/chat/channels/${id}/join`);
+    const res = await as(lead, "GET", `/api/chat/channels/${id}/messages?limit=50`);
+    expect(res.statusCode, res.body).toBe(200);
+    const view = (res.json() as { items: { id: string; authorId: string; reactions: { emoji: string; personIds: string[] }[] }[] }).items.find((m) => m.id === msg)!;
+    expect(view.authorId).toBe(dev.id);
+    expect(view.reactions).toEqual([{ emoji: "👍", personIds: ["hidden-1"] }]);
+    expect(res.body).not.toContain(stranger.id);
+    // Chi lo conosce (lo sconosciuto stesso) vede il proprio id.
+    const own = (await as(stranger, "GET", `/api/chat/messages/${msg}`));
+    if (own.statusCode === 200) expect(own.body).toContain(stranger.id);
+  });
+});
