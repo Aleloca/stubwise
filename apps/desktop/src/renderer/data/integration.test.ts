@@ -93,6 +93,7 @@ const ALL: IntegrationTarget[] = [
       "prefs-claude-code",
       "prefs-look",
       "prefs-mailboxes",
+      "instance",
       "notification-restore",
       "servers-monitor",
       "servers-write",
@@ -216,6 +217,8 @@ describe("isIntegrated", () => {
         "feature:ai-budget",
         "feature:ai-usage",
         "feature:queue-pause",
+        // Registro: i blocchi dell'istanza fuori dalla pausa (caricamenti compresi).
+        "feature:instance",
         "taskView:list",
         "taskView:board",
         "feature:notifications",

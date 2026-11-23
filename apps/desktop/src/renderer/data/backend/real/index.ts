@@ -81,6 +81,7 @@ import { claudeChatNamespace } from "./claudeChatActions";
 export const claude: typeof Fake.claude = partialNamespace<typeof Fake.claude>("claude", claudeChatNamespace);
 // Dell'istanza la chat legge solo il budget del mese (la casella si spegne con la sua frase).
 export { instance } from "./instanceChat";
+export { onInstanceChange } from "./instanceUploads";
 // Area 4, fetta 1: la Chat fra persone (canali di progetto, messaggi, menzioni,
 // lo stream); DM, privati, ricerca, domande, @Claude ed eventi restano «non integrati».
 // I Docs (area 5, fetta 1): le letture, poi le scritture e il grafo (`docs.ts`).

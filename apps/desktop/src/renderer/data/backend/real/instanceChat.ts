@@ -14,6 +14,7 @@ import { liveBudget } from "./budget";
 import { liveWebhooks } from "./webhooks";
 import { liveInstanceRepositories } from "./instanceRepositories";
 import { liveServerAnalysis } from "./serverAnalysis";
+import { getUploadsAllowed } from "./instanceUploads";
 
 /**
  * L'istanza nella build app: il budget AI del mese che la chat con Claude
@@ -22,6 +23,8 @@ import { liveServerAnalysis } from "./serverAnalysis";
  */
 export const instance: typeof Fake.instance = partialNamespace<typeof Fake.instance>("instance", {
   getAiBlock: chatAiBlock,
+  // Registro, «I blocchi dell'istanza fuori dalla pausa»: i caricamenti (72, 344fff90a).
+  getUploadsAllowed,
   ...liveWebhooks,
   // Area 9, F3: AI → Automation.
   ...liveAutomation,

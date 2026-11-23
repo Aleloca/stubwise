@@ -161,6 +161,10 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "ai-usage",
     // Area 9, F4: la pausa della coda nella colonna e in Tutti i progetti.
     "queue-pause",
+    // Registro, «I blocchi dell'istanza fuori dalla pausa»: i blocchi dal server
+    // (budget e pausa per progetto, i caricamenti da `GET /api/storage/uploads`);
+    // si rileggono alla lettura dopo, nessun evento quando cambiano.
+    "instance",
     "prefs-account",
     // Registro, A9 r.1200 (decisione del maintainer del 23 nov 2026, «Anche in
     // Preferenze»): le caselle Google in Account, sulle rotte del cassetto.

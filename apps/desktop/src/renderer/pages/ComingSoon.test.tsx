@@ -444,6 +444,9 @@ const INTEGRATED_CALLS = new Set([
   "resolveCodes",
   "resolveCitations",
   "instance.getAiBlock",
+  // Registro: i blocchi dell'istanza (i caricamenti; `onInstanceChange` non avvisa nella build app).
+  "instance.getUploadsAllowed",
+  "onInstanceChange",
   // F3.0 della chat: «Delete task…» (l'anteprima si legge all'apertura del menu).
   "getTaskDeletion",
   "deleteTask",
@@ -1594,6 +1597,8 @@ describe("aree non integrate nella build app", () => {
     expect(await screen.findByRole("heading", { level: 1, name: /Drive/ })).toBeInTheDocument();
     await waitFor(() => expect(calls).toContain("drive.listDriveFiles"));
     await waitFor(() => expect(calls).toContain("drive.listFolderLinks"));
+    // Registro: se si può caricare adesso lo dice il server (`instance` accesa).
+    await waitFor(() => expect(calls).toContain("instance.getUploadsAllowed"));
     await settle();
     expect(screen.queryByText("Coming soon")).toBeNull();
     expect(screen.getByRole("button", { name: "Add from Google Drive" })).toBeInTheDocument();

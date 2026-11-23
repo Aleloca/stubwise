@@ -1190,13 +1190,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   dell'agente fermo, `held`: lo coprono lo Stato dell'istanza con pausa,
   ripresa, rilancio e i fermi per budget, c2d57d441 e 80461f5f4 della F4, e
   le task ferme da `listStalled`, 2bfa57287).
-- **I blocchi dell'istanza fuori dalla pausa** *(S, 23 nov 2026)*: la
-  funzione `instance` resta spenta. Il budget per progetto c'è già
-  (`getAiBlock`, con `queue-pause`); manca «si possono caricare file
-  adesso» (`getUploadsAllowed`, Chat e conversazioni con Claude), perché
-  `GET /api/settings` è solo di `settings.manage`. Rotta accettata da 72 (`GET /api/storage/uploads`, `{ allowed }`), in coda;
-  `onInstanceChange` (rileggere i blocchi quando cambiano) resta del
-  prototipo: nella build app si rileggono alla prossima lettura.
+- ~~**I blocchi dell'istanza fuori dalla pausa** *(S, 23 nov 2026)*: la
+  funzione `instance` resta spenta.~~ **Chiuso (23 nov 2026)**: `instance`
+  accesa. «Si possono caricare file adesso» (`getUploadsAllowed`) viene da
+  `GET /api/storage/uploads` (72, 344fff90a), e un server senza la rotta
+  non blocca niente. `onInstanceChange` nella build app non avvisa mai: i
+  blocchi si rileggono alla lettura dopo (limite accettato, nessun evento
+  dal server).
 - Le altre impostazioni di progetto (AI, repository, membri, integrazione,
   widget, regole mail, server, ambienti, plugin, elimina).
 - Preferenze, persone e accessi, istanza (compresa la pagina Google, con

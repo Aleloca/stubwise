@@ -91,6 +91,8 @@ const groupA = (over: Record<string, unknown> = {}) => ({
 });
 
 const ALLOWED = [
+  // Registro: i blocchi dell'istanza accesi, il composer chiede se si può caricare.
+  /^GET \/api\/storage\/uploads$/,
   // Il punto della Chat sul binario (area 4, fetta 1).
   /^GET \/api\/chat\/(signal|channels)(\?|$)/,
   /^GET \/api\/auth\/me$/,
