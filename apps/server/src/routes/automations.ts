@@ -49,10 +49,22 @@ import {
 const ACCESS = { kind: "user" } as const;
 const codeParams = z.object({ code: z.string().min(1).max(40) });
 const runParams = codeParams.extend({ n: z.coerce.number().int().positive() });
-const flowSchema = z.custom<AutomationFlow>((v) => {
-  const f = v as { trigger?: unknown; steps?: unknown; titleTemplate?: unknown } | null;
-  return !!f && typeof f === "object" && !!f.trigger && typeof f.trigger === "object" && Array.isArray(f.steps) && typeof f.titleTemplate === "string";
-}, "A flow needs trigger, steps and titleTemplate");
+/**
+ * Registro, A11 r.1414 (revisione del lotto 2, I3): un segnaposto non è un id.
+ * Un flusso che porta un `hidden-*` in una persona (`personId` di un passo o di
+ * chi approva) è un 400, come per un id non valido; chi non conosce la persona
+ * di un passo lo lascia com'è non mandando il flusso.
+ */
+const carriesPlaceholder = (v: unknown): boolean =>
+  Array.isArray(v)
+    ? v.some(carriesPlaceholder)
+    : !!v && typeof v === "object" && Object.entries(v).some(([k, x]) => (k === "personId" && typeof x === "string" && x.startsWith("hidden-")) || carriesPlaceholder(x));
+const flowSchema = z
+  .custom<AutomationFlow>((v) => {
+    const f = v as { trigger?: unknown; steps?: unknown; titleTemplate?: unknown } | null;
+    return !!f && typeof f === "object" && !!f.trigger && typeof f.trigger === "object" && Array.isArray(f.steps) && typeof f.titleTemplate === "string";
+  }, "A flow needs trigger, steps and titleTemplate")
+  .refine((f) => !carriesPlaceholder(f), "A placeholder is not a person id");
 const statusSchema = z.enum(["draft", "active", "paused"]);
 const runStatusSchema = z.enum(["running", "waiting_approval", "waiting_event", "waiting_project", "suspended", "done", "failed", "cancelled"]);
 const expected = { expectedPath: z.string().min(1), expectedRound: z.number().int().min(0).optional() };
@@ -90,7 +102,7 @@ async function getAutomation(db: Db, viewer: Viewer, code: string): Promise<Auto
 }
 
 /** Registro, A11 r.1414: le chiavi delle risposte che portano una persona. */
-const AUTOMATION_PERSON_KEYS: ReadonlySet<string> = new Set(["ownerId", "createdById", "pausedById", "byId", "approverIds", "deciders"]);
+const AUTOMATION_PERSON_KEYS: ReadonlySet<string> = new Set(["ownerId", "createdById", "pausedById", "byId", "approverIds", "deciders", "personId"]);
 
 export async function automationRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();

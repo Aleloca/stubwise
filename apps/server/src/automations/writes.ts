@@ -1,3 +1,4 @@
+import { hiddenFor } from "../services/people-known.js";
 import {
   automationCodeSeqs,
   automationSources,
@@ -19,6 +20,7 @@ import {
   configErrorsOf,
   forbidden,
   GENERAL_PERMISSION,
+  keepHiddenPeople,
   keepHiddenProjects,
   managesGeneral,
   latestVersion,
@@ -177,6 +179,7 @@ export async function saveDraft(db: Db, viewer: Viewer, code: string, input: { f
   const a0 = await managedAutomation(db, viewer, code);
   if (input.name !== undefined && !input.name.trim()) throw badInput("name", "A name is required");
   const visible = await seen(db, viewer);
+  const hidden = await hiddenFor(db, viewer);
   await db.transaction(async (tx) => {
     const [a] = await tx.select().from(automations).where(eq(automations.id, a0.id)).for("update");
     const last = (await latestVersion(tx, a!.id))!;
@@ -187,6 +190,7 @@ export async function saveDraft(db: Db, viewer: Viewer, code: string, input: { f
     }
     const next = structuredClone(input.flow);
     keepHiddenProjects(visible, last.flow as AutomationFlow, next);
+    keepHiddenPeople((id) => hidden.knows(id), last.flow as AutomationFlow, next);
     const rev = (last.rev ?? 0) + 1;
     if (isDraft) {
       await tx.update(automationVersions).set({ flow: next, savedAt: sql`now()`, savedBy: viewer.id, rev }).where(eq(automationVersions.id, last.id));

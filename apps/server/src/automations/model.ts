@@ -197,6 +197,38 @@ export function keepHiddenProjects(visible: ReadonlySet<string>, prev: Automatio
   }
 }
 
+/**
+ * Registro, A11 r.1414 (revisione del lotto 2, I3; il prototipo, c48b3048c):
+ * il rovescio del segnaposto nel flusso. Chi non conosce la persona di un
+ * passo la legge `hidden-<n>` e il costruttore rimanda il posto VUOTO (`{}`):
+ * il posto riprende la persona della versione di prima, per id del passo,
+ * se chi salva non la conosce. Un `hidden-*` mandato è un 400 (la rotta).
+ * I posti: l'incaricato di `createTask`, `who` di `notify`, chi approva.
+ */
+export function keepHiddenPeople(knows: (personId: string) => boolean, prev: AutomationFlow, next: AutomationFlow): void {
+  type Slot = { name: string; holder: Record<string, unknown>; key: string };
+  const slotsOf = (s: Step): Slot[] => {
+    const out: Slot[] = [];
+    const step = s as unknown as Record<string, unknown>;
+    if (s.kind === "createTask") out.push({ name: "assignee", holder: step, key: "assignee" });
+    if (s.kind === "notify") out.push({ name: "who", holder: step, key: "who" });
+    if ("approval" in s && s.approval.mode === "ask") out.push({ name: "approval.who", holder: s.approval as unknown as Record<string, unknown>, key: "who" });
+    return out;
+  };
+  const before = new Map<string, unknown>();
+  visitSteps(prev.steps, (s) => {
+    for (const slot of slotsOf(s)) before.set(`${s.id}:${slot.name}`, slot.holder[slot.key]);
+  });
+  visitSteps(next.steps, (s) => {
+    for (const slot of slotsOf(s)) {
+      const v = slot.holder[slot.key];
+      if (!v || typeof v !== "object" || Object.keys(v).length > 0) continue;
+      const old = before.get(`${s.id}:${slot.name}`) as { personId?: unknown } | undefined;
+      if (old && typeof old.personId === "string" && !knows(old.personId)) slot.holder[slot.key] = { personId: old.personId };
+    }
+  });
+}
+
 /** Le persone, i reparti e i progetti che un flusso nomina (il mondo li carica). */
 export function namedBy(flow: AutomationFlow, projectId: string | null) {
   const projectIds = new Set<string>(projectId ? [projectId] : []);
