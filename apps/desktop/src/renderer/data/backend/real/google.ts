@@ -137,10 +137,10 @@ const connectGoogle: Drive["connectGoogle"] = async (options = {}) => {
     before = new Map((await myAccounts()).map((a) => [a.id, a]));
     const prepared = bridge ? await bridge.prepareConnect() : null;
     returnState = prepared?.ok ? prepared.state : null;
-    const res = await appClient().request<{ authorizeUrl: string; returnTo?: string }>(
-      "POST",
-      "/api/me/google/connect",
-      returnState ? { workspaceId, client: "desktop", returnState } : { workspaceId },
+    // Lotto 4, §6 (72, c75ad9138): `returnTo` è `web` da un server di prima.
+    const res = await appClient().google.connect(
+      workspaceId,
+      returnState ? { client: "desktop", returnState } : {},
     );
     authorizeUrl = res.authorizeUrl;
     desktop = returnState !== null && res.returnTo === "desktop";
