@@ -119,6 +119,8 @@ export type ExecuteActionError =
   | "invalid_action"
   | "already_handled"
   | "job_in_flight"
+  // Rimandi, lotto 4 (D-7.1): budget mensile finito per chi non ha `plans.approve`.
+  | "budget_exhausted"
   | "plan_not_pending"
   // Errori di `answerQuestion` che non hanno un gemello fra i precedenti: la
   // risposta non regge contro la domanda persistita, oppure non c'è (più) una
@@ -688,6 +690,7 @@ async function runDecision(
     // un'azione possibile, per nessuno, finché il branch resta protetto.
     if (result.error === "adopted_branch_protected") return { ok: false, error: "forbidden" };
     if (result.error === "colleague_analysis_only") return { ok: false, error: "forbidden" };
+    if (result.error === "budget_exhausted") return { ok: false, error: "budget_exhausted" };
     return result.error === "ticket_not_found"
       ? { ok: false, error: "not_found" }
       : {

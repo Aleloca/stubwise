@@ -211,6 +211,8 @@ export function inboxErrorText(
         : t(lang, "notify.inbox.errAlreadyHandledUnknown");
     case "job_in_flight":
       return t(lang, "notify.inbox.errJobInFlight", { status: result.jobStatus ?? "running" });
+    case "budget_exhausted":
+      return t(lang, "notify.inbox.errBudgetExhausted");
     case "plan_not_pending":
       return t(lang, "notify.inbox.errPlanNotPending");
     case "invalid_answer":

@@ -290,7 +290,7 @@ export const AREA9_ENTRIES: CatalogEntry[] = [
           await recordChange(inner, { type: "job.retried", actor: user, projectId: facts.projectId, data: { object: { type: "task", id: facts.ticketId, label: facts.code } } });
         },
       });
-      if (!result.ok) return refused(result.error === "forbidden" ? "forbidden" : "conflict", result.error);
+      if (!result.ok) return refused(result.error === "forbidden" ? "forbidden" : result.error === "budget_exhausted" ? "budget_exhausted" : "conflict", result.error);
       return { ok: true, result: { inverse: null, objects: [{ kind: "task", id: facts.ticketId, code: facts.code }], codes: [facts.code], startsWork: true } };
     },
   },

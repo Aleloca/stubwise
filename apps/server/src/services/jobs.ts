@@ -38,6 +38,7 @@ import {
   canResumeCorrection,
   colleagueCorrectionPermitted,
   correctionActionAllowed,
+  aiBudgetState,
   correctionManualTrigger,
   IN_FLIGHT_JOB_STATUSES,
   publishNotification,
@@ -107,6 +108,8 @@ export type StartRunResult =
   // maintainer scavalca il budget (E7), e la forzatura di un member tornerebbe
   // `held` al primo controllo del worker. Niente scritto.
   | { ok: false; error: "needs_maintainer" }
+  // Rimandi, lotto 4 (D-7.1): budget mensile finito e chi avvia non lo scavalca (senza `plans.approve`).
+  | { ok: false; error: "budget_exhausted"; jobStatus?: undefined }
   // «Riprendi» su una correzione che NON è più quella ferma che la schermata
   // mostrava (annullata con la PR mergiata, riconciliata, finita, o superata
   // da un job più recente): con `resumeCorrectionJobId` non si cade nel
@@ -238,6 +241,12 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
     .where(eq(tickets.id, ticketId));
   if (!ticket) return { ok: false, error: "ticket_not_found" };
   if (!actor.permissions.has("runs.start")) return { ok: false, error: "forbidden" };
+  // Rimandi, lotto 4 (D-7.1, il maintainer): a budget MENSILE finito un avvio a
+  // mano lo rifiuta subito chi non ha `plans.approve` nel progetto (prima la
+  // richiesta passava e il worker la fermava `held`). Chi ce l'ha lo scavalca
+  // come sempre (`manualTrigger`, «Il budget di una correzione lo scavalca solo
+  // chi ha plans.approve»). Niente scritto. docs/invariants/providers.md.
+  if (!actor.permissions.has("plans.approve") && (await aiBudgetState(db)).exhausted) return { ok: false, error: "budget_exhausted" };
 
   const useSavedPlan = ticket.implementationPlan !== null && input.mode !== "ai_plan";
   // resumeMode: "execute" col piano salvato; altrimenti "fix" se withInstructions

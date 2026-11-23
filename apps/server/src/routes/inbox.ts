@@ -166,6 +166,8 @@ function sendActionError(
         "job_in_flight",
         `A job for this ticket is already ${result.jobStatus ?? "running"}`,
       );
+    case "budget_exhausted":
+      return apiError(reply, 409, "budget_exhausted", "The monthly AI budget is used up");
     case "plan_not_pending":
       return apiError(reply, 409, "plan_not_pending", "No plan pending approval");
     case "invalid_answer":

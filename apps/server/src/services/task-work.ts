@@ -1,4 +1,6 @@
 import { queuedJobBlock, queuePauseOf } from "./instance-status.js";
+import { byCostDesc, ticketUsageByModel } from "./ticket-usage.js";
+import { planStatusOf } from "./plan-view.js";
 import {
   agentQuestions,
   agentSessions,
@@ -15,6 +17,7 @@ import {
 } from "@stubwise/db";
 import {
   actorAllows,
+  aiBudgetState,
   canResumeCorrection,
   correctionActionAllowed,
   derivePrCycle,
@@ -190,6 +193,8 @@ export async function loadTaskWorkExtras(
    * fallito prima di eseguire: nessuno l'ha deciso).
    */
   const planStatus = (j: (typeof jobs)[number]): NonNullable<Run["plan"]>["status"] => planStatusOf(j, approvedJobs, ticket?.planApprovedDigest ?? null);
+  // Lotto 4 (§7.3): la pausa della coda del progetto, UNA lettura per la vista.
+  const pause = ticket ? await queuePauseOf(db, ticket.projectId) : null;
   const canSeeRuns = permissions.has("repos.view");
   const runs: Run[] = canSeeRuns
     ? jobs.map((j) => ({
@@ -208,6 +213,8 @@ export async function loadTaskWorkExtras(
         failureSummary: j.failureSummary,
         heldReason: j.heldReason,
         cancelRequested: j.cancelRequestedAt !== null && (j.status === "triaging" || j.status === "fixing"),
+        // Lotto 4 (§7.3): il run in coda su una coda in pausa (`queuedJobBlock`, la regola dello Stato dell'istanza).
+        waiting: ((block) => (block ? blockView(block) : null))(queuedJobBlock(j.status, pause)),
         // Il piano vive col job (`plan_text`, azzerato al rifiuto); lo stato
         // lo dice `planStatus`, mai per esclusione.
         plan: j.planText
@@ -358,64 +365,21 @@ export async function loadTaskWorkExtras(
     requestChangesPerPr,
     // Area 9, F4 (J-6 = a): il job della task è in coda su una coda in pausa.
     // La regola è quella dello Stato dell'istanza (`queuedJobBlock`).
-    blocked: await (async () => {
-      const block = latest ? queuedJobBlock(latest.status, await queuePauseOf(db, ticket!.projectId)) : null;
-      // Lo schema della vista vuole `byId` assente, non null (persona eliminata).
-      if (!block) return null;
-      return { reason: block.reason, byName: block.byName, ...(block.since ? { since: block.since } : {}), ...(block.byId ? { byId: block.byId } : {}) };
-    })(),
+    // Rimandi, lotto 4 (§7.3): il blocco degli avvii NUOVI del progetto,
+    // indipendente dallo stato del lavoro; l'attesa di un run è su `runs[].waiting`.
+    // D-7.1 (il maintainer): il budget del mese finito vince, ma solo per chi
+    // non lo scavalca (senza `plans.approve`): il client lo legge, non lo deduce.
+    blocked:
+      !permissions.has("plans.approve") && (await aiBudgetState(db)).exhausted
+        ? { reason: "monthly_budget" as const }
+        : pause
+          ? blockView({ reason: "queue_paused", byId: pause.byId, byName: pause.byName, since: pause.since })
+          : null,
+    usage: byCostDesc(await ticketUsageByModel(db, ticketId)),
   };
 }
 
-type PlanStatus = NonNullable<TaskWorkView["runs"][number]["plan"]>["status"];
-
-/**
- * Lo stato del piano di un job (la regola di `/work`, rimandi lotto 4 §7.2:
- * la usa anche il dettaglio della sessione, così le due letture non
- * divergono). SOLO da un esito verificabile: in attesa sul gate → `pending`;
- * una decisione approvata per quel job nel registro, o un job che ha ESEGUITO
- * → `approved`; il digest della pre-approvazione uguale a quello del piano →
- * `pre_approved`; altrimenti `undecided`.
- */
-export function planStatusOf(j: { id: string; status: string; planText: string | null }, approvedJobs: ReadonlySet<string>, planApprovedDigest: string | null): PlanStatus {
-  if (j.status === "awaiting_plan_approval") return "pending";
-  if (approvedJobs.has(j.id)) return "approved";
-  if (j.status === "fixing" || j.status === "pr_opened" || j.status === "pr_merged" || j.status === "pr_closed") return "approved";
-  if (j.planText && planApprovedDigest && planApprovedDigest === planDigest(j.planText)) return "pre_approved";
-  return "undecided";
-}
-
-/**
- * Il piano di UN job, come `/work` lo mette sul suo run (rimandi lotto 4,
- * §7.2: il dettaglio della sessione). null senza `plan_text` (anche dopo un
- * rifiuto, che lo azzera).
- */
-export async function jobPlanView(db: Db, jobId: string): Promise<{ jobId: string; text: string; summary: string; status: PlanStatus; at: string; digest: string } | null> {
-  const [job] = await db
-    .select({ id: aiJobs.id, status: aiJobs.status, planText: aiJobs.planText, planSummary: aiJobs.planSummary, startedAt: aiJobs.startedAt, createdAt: aiJobs.createdAt, ticketId: aiJobs.ticketId })
-    .from(aiJobs)
-    .where(eq(aiJobs.id, jobId));
-  if (!job?.planText) return null;
-  const [ticket] = await db.select({ planApprovedDigest: tickets.planApprovedDigest }).from(tickets).where(eq(tickets.id, job.ticketId));
-  const approved = await db
-    .select({ id: projectDecisions.id })
-    .from(projectDecisions)
-    .where(
-      and(
-        eq(projectDecisions.ticketId, job.ticketId),
-        eq(projectDecisions.source, "plan_review"),
-        like(projectDecisions.sourceKey, "plan_review:%"),
-        sql`${projectDecisions.sourceRef}->>'jobId' = ${job.id}`,
-        sql`${projectDecisions.sourceRef}->>'mode' = 'execute'`,
-      ),
-    )
-    .limit(1);
-  return {
-    jobId: job.id,
-    text: job.planText,
-    summary: job.planSummary ?? "",
-    status: planStatusOf(job, new Set(approved.length > 0 ? [job.id] : []), ticket?.planApprovedDigest ?? null),
-    at: (job.startedAt ?? job.createdAt).toISOString(),
-    digest: planDigest(job.planText),
-  };
+/** Lo schema della vista vuole `byId` assente, non null (persona eliminata). */
+function blockView(block: { reason: "monthly_budget" | "queue_paused"; byId: string | null; byName: string; since: string | null }) {
+  return { reason: block.reason, byName: block.byName, ...(block.since ? { since: block.since } : {}), ...(block.byId ? { byId: block.byId } : {}) };
 }
