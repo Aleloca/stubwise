@@ -334,7 +334,27 @@ describe("il nome dell'autore della voce (r.1414)", () => {
     as("p-laura");
     const [entry] = await changelog.listProjectChanges(ACQ);
     expect(entry!.actorName).toBeNull();
+    expect(entry!.actorId).toMatch(/^hidden-\d+$/);
     expect(JSON.stringify(entry)).not.toContain(who.name);
+    expect(JSON.stringify(entry)).not.toContain(who.id);
+  });
+
+  it("una voce su una persona che chi guarda non conosce: né id né nome dell'oggetto", async () => {
+    const who = outsider();
+    recordChange({
+      kind: "test.member.added",
+      actorId: "p-laura",
+      projectId: ACQ,
+      object: { type: "person", id: who.id, label: who.name },
+      before: null,
+      after: "member",
+    });
+    as("p-laura");
+    const [entry] = await changelog.listProjectChanges(ACQ);
+    expect(entry!.object.id).toMatch(/^hidden-\d+$/);
+    expect(entry!.objectLink).toBeNull();
+    expect(JSON.stringify(entry)).not.toContain(who.name);
+    expect(JSON.stringify(entry)).not.toContain(who.id);
   });
 
   it("un ex membro del progetto resta col suo nome", async () => {
