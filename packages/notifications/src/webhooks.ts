@@ -22,6 +22,8 @@ export interface SendableWebhook {
   url: string;
   format: WebhookFormat;
   secret: string | null;
+  /** Gli eventi scelti ADESSO (rimandi, lotto 4): una consegna in coda per un evento tolto non parte. */
+  events: readonly string[];
 }
 
 /**
@@ -79,7 +81,12 @@ export async function sendableWebhook(db: DbOrTx, id: string, encryptionKey: Buf
     .from(outgoingWebhooks)
     .where(and(eq(outgoingWebhooks.id, id), ...(opts.includeDisabled ? [] : [eq(outgoingWebhooks.enabled, true)])));
   if (!row) return null;
-  return { id: row.id, url: row.url, format: row.format, secret: row.secretEncrypted ? decrypt(row.secretEncrypted, encryptionKey) : null };
+  return { id: row.id, url: row.url, format: row.format, secret: row.secretEncrypted ? decrypt(row.secretEncrypted, encryptionKey) : null, events: row.events };
+}
+
+/** Se il webhook ha ancora scelto un evento che copre `kind` (la stessa regola di {@link webhookIdsForKind}). */
+export function webhookWantsKind(webhook: Pick<SendableWebhook, "events">, kind: string): boolean {
+  return webhookEventsOfKind(kind).some((e) => webhook.events.includes(e));
 }
 
 /**
