@@ -816,6 +816,12 @@ export const inboxItemSchema = z.object({
       authorId: z.uuid().nullable(),
       authorName: z.string(),
       excerpt: z.string(),
+      /**
+       * Registro, A4 r.169: il gruppo che ha avvisato chi legge («@channel»,
+       * «@<Reparto>»), derivato a lettura dal messaggio di adesso; null se chi
+       * legge è nominato a nome. Additivo.
+       */
+      group: z.string().nullable().default(null),
     })
     .nullable()
     .default(null),

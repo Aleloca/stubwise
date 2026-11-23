@@ -376,6 +376,41 @@ describe("inboxItemSchema.undoneBy (area 10, F5) — additivo", () => {
   });
 });
 
+describe("inboxItemSchema.chat.group (registro, A4 r.169) — additivo", () => {
+  const chat = {
+    channelId: "1c9e4f70-5555-4666-8777-888899990011",
+    channelName: "general",
+    messageId: "1c9e4f70-5555-4666-8777-888899990012",
+    threadRootId: null,
+    authorId: null,
+    authorName: "Ada",
+    excerpt: "riunione @channel",
+  };
+  const item = {
+    id: "1c9e4f70-5555-4666-8777-888899990010",
+    kind: "chat.mention",
+    status: "open",
+    text: "Ada mentioned @channel in #general",
+    actions: ["open", "snooze", "handled"],
+    projectId: null,
+    ticketId: null,
+    jobId: null,
+    createdAt: "2026-11-23T08:14:00.000Z",
+    readAt: null,
+    snoozedUntil: null,
+    handledAt: null,
+    handledBy: null,
+  };
+
+  it("un server più vecchio non lo manda: null", () => {
+    expect(readerSchema(inboxItemSchema).parse({ ...item, chat }).chat?.group).toBeNull();
+  });
+
+  it("quando c'è, passa", () => {
+    expect(readerSchema(inboxItemSchema).parse({ ...item, chat: { ...chat, group: "@channel" } }).chat?.group).toBe("@channel");
+  });
+});
+
 describe("inboxItemSchema.productDoc (area 11, F2) — additivo", () => {
   const item = {
     id: "1c9e4f70-5555-4666-8777-888899990011",

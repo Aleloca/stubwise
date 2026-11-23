@@ -823,6 +823,7 @@ export interface InboxItem extends ViaClaudeFields {
     authorId: string | null;
     authorName: string;
     excerpt: string;
+    group: string | null;
   } | null;
   /** Area 7: solo `automation.*`, lo stato dell'esecuzione per chi legge (`automationCardsFor`). */
   automation?: InboxAutomation | null;
@@ -1126,6 +1127,10 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       ...(objectGone ? withoutUrl : rendered),
       // Area 11, F2: una pagina che chi legge non vede non dice né codice né chi ha scritto (R-G5).
       ...(objectGone && isProductDocKind(r.kind) ? { text: t(lang, "notify.productDocGone") } : {}),
+      // Registro, A4 r.169: una card del gruppo dice quale, letto dal messaggio di adesso.
+      ...(chat?.group
+        ? { text: t(lang, chat.channelName === "" ? "notify.chatMention.group.dm" : "notify.chatMention.group", { author: chat.authorName, group: chat.group, channel: chat.channelName }) }
+        : {}),
       objectGone,
       chat,
       ...(isProductDocKind(r.kind) ? { productDoc } : {}),
