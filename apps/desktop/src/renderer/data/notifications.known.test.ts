@@ -107,3 +107,29 @@ describe("il testo salvato col nome di chi ha agito (I6)", () => {
     expect(out.body).toContain(nameOf(who!));
   });
 });
+
+// Revisione del lotto 2 (minor): nella stessa card non due predicati. La card
+// di Claude sulla doc dice per chi ha agito con «chi si conosce»: un membro
+// disattivato di ACQ ha il suo nome (col predicato stretto era null).
+describe("la card di Claude sulla doc: per conto di un disattivato (r.1414)", () => {
+  it("«per conto di» Marco disattivato: il nome resta", async () => {
+    setSessionPersonId(LAURA);
+    const card = (await listNotifications()).find(
+      (n) => n.kind === "product_doc.updated" && n.productCard,
+    )!;
+    expect(card).toBeDefined();
+    const raw = state.notifications.find((n) => n.id === card.id)!;
+    for (const id of raw.productUpdate!.revisionIds) {
+      const r = state.productRevisions.find((x) => x.id === id);
+      if (r) r.actorId = "p-marco";
+    }
+    raw.productUpdate!.sources = raw.productUpdate!.sources.slice(0, 1);
+    writeAccess((s) => {
+      const row = s.people.find((p) => p.personId === "p-marco")!;
+      row.status = "deactivated";
+      row.deactivatedAt = "2026-11-20T10:00:00Z";
+    });
+    const out = (await listNotifications()).find((n) => n.id === card.id)!;
+    expect(out.productCard!.onBehalfOfName).toBe(nameOf("p-marco"));
+  });
+});

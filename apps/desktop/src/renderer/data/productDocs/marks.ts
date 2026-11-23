@@ -1,5 +1,6 @@
 import { anchorIdsOf, blockChanges } from "../../domain/productDocs/blocks";
-import { visiblePeopleFor } from "../access/whoCan";
+import { personMasker } from "../access/hidden";
+import { knownPeopleFor } from "../access/whoCan";
 import { docsAccess } from "../docs/reads";
 import { CLAUDE_ID } from "../seed/people";
 import { gate, newId, state } from "../store";
@@ -279,7 +280,7 @@ export function claudeRevisionFields(me: string, r: ProductRevision, projectId: 
   if (wireframe) out.wireframe = wireframe;
   if (!isUndoableRevision(r)) return out;
 
-  const people = visiblePeopleFor(me);
+  const people = knownPeopleFor(me);
   const anchors = anchorsOf(r);
   const byAnchor = Object.fromEntries(anchors.map((a) => [a, anchorUndo(me, r, a, projectId, people)]));
   const views = Object.values(byAnchor);
@@ -351,7 +352,8 @@ export function listProductMarksAs(me: string, pageId: string): ProductMarkView[
   const page = productPageById(pageId);
   if (!page || docsAccess(me, page.projectId) !== "read") return [];
   const canAccept = canEdit(me, page.projectId);
-  const people = visiblePeopleFor(me);
+  const people = knownPeopleFor(me);
+  const mask = personMasker(me);
   return liveMarks(page).map(({ mark, revision: r }) => {
     const block = blockWith(page.blocks, mark.anchorId)!;
     const cell = cellOf(block, mark.anchorId);
@@ -361,8 +363,9 @@ export function listProductMarksAs(me: string, pageId: string): ProductMarkView[
       ...(cell ? { cell } : {}),
       revisionId: r.id,
       groupId: r.groupId ?? r.id,
-      actorId: r.actorId,
-      onBehalfOfId: r.actorId === CLAUDE_ID ? null : r.actorId,
+      // Revisione del lotto 2 (minor, r.1414): chi non si conosce, segnaposto.
+      actorId: mask(r.actorId),
+      onBehalfOfId: r.actorId === CLAUDE_ID ? null : mask(r.actorId),
       at: r.at,
       groupAnchors: anchorsOf(r).length,
       source: sourceViewOf(me, r.source!, page.projectId),
