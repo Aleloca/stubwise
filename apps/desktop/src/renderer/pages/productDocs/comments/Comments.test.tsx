@@ -290,9 +290,10 @@ describe("la colonna", () => {
   });
 
   it("chi ha scritto e chi guarda non vede (R-G5, nome `null` come dal server): «Someone», mai il nome", async () => {
-    const { visiblePeopleFor } = await import("../../../data/access/whoCan");
-    const { CLAUDE_ID, PEOPLE } = await import("../../../data/seed/people");
-    const hidden = PEOPLE.find((p) => p.id !== CLAUDE_ID && p.id !== MARCO && !visiblePeopleFor(MARCO).has(p.id))!;
+    // R.1414: lo sconosciuto si costruisce (nel seme quasi tutti si conoscono).
+    const { strangersTo } = await import("../../../test/strangers");
+    const { PEOPLE } = await import("../../../data/seed/people");
+    const hidden = PEOPLE.find((p) => p.id === strangersTo(MARCO)[0])!;
     const root = state.productComments.find((c) => c.id === SIGNIN_ROOT)!;
     root.authorId = hidden.id;
     await open(SIGNIN, MARCO);

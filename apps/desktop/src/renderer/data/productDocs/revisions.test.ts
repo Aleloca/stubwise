@@ -254,7 +254,19 @@ describe("il nome di chi ha scritto (r.1414)", () => {
     expect(who).toBeDefined();
     const row = await lastBy(p.id, who.id);
     expect(row.actorName).toBeNull();
+    expect(row.actorId).toMatch(/^hidden-\d+$/);
     expect(JSON.stringify(row)).not.toContain(who.name);
+    expect(JSON.stringify(row)).not.toContain(who.id);
+  });
+
+  it("Claude per conto di uno sconosciuto: anche `onBehalfOfId` è il segnaposto", async () => {
+    const { page: p } = await page();
+    const who = outsider();
+    const rev = editsOf(p.id).at(-1)!;
+    rev.via = "claude";
+    const row = await lastBy(p.id, who.id);
+    expect(row.onBehalfOfId).toMatch(/^hidden-\d+$/);
+    expect(row.onBehalfOfId).toBe(row.actorId);
   });
 
   it("un ex membro di ACQ: il nome resta", async () => {
