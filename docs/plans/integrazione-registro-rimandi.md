@@ -784,10 +784,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - dalla review del renderer (46, 14 nov 2026): la bozza delle note della
     PR per il riquadro di Claude (`releaseNotesDraftFromServer`, dalla GET
     `…/release-notes`) è pronta ma non collegata al riquadro: entra con le
-    bozze di Claude nella build app; `canManage` delle impostazioni del
+    bozze di Claude nella build app; ~~`canManage` delle impostazioni del
     repository viene dai permessi di `/api/auth/me` (calcolati dal server):
     più pulito un `canManage` nella risposta del repository, cambio server
-    per dopo; la ricerca dei rilasci nella palette (`releases-search`)
+    per dopo;~~ *parte server chiusa il 23 nov 2026 (72, lotto 4)*: la
+    risposta del repository (elenco e dettaglio) porta `canManage`
+    (`repos.manage` di chi chiede, `.default(false)`); il renderer può
+    leggerlo al posto di `/api/auth/me`; la ricerca dei rilasci nella palette (`releases-search`)
     resta spenta finché il server non ha una ricerca dei rilasci;
   - fatti che il server non legge nella F1 e la pagina non inventa:
     `mergeable` (mai «conflitti» se non letto), il rischio di una PR esterna,
@@ -868,11 +871,16 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     apre nell'app solo rilasci, pannello della PR e Docs;~~ chiusa da
     85e84fb97 (area 8, F4a, S12: `MONITOR_KINDS` e `server.diagnosis_ready`
     aprono la pagina del server nell'app; 23 nov 2026, verificata nel codice);
-  - **i permessi del catalogo condiviso** sono stringhe perché
+  - ~~**i permessi del catalogo condiviso** sono stringhe perché
     `servers.operate` vive ancora solo nel prototipo (`support.reply` è nel
     registro dalla F3): quando entra nel registro di `@stubwise/shared`, il
     catalogo si può tipare sui permessi veri e il restringimento del
-    prototipo (`domain/alerts/catalog.ts`) sparisce;
+    prototipo (`domain/alerts/catalog.ts`) sparisce;~~ *Chiusa il 23 nov 2026
+    (72, lotto 4)*: `servers.operate` era già nel registro (F4b); il catalogo
+    condiviso è tipato su `AlertPermission` (progetto + istanza). Nel
+    prototipo il cast sparisce: `ruleApplies` legge il permesso della riga,
+    che lì resta del tipo più largo `Permission` perché `registerAlertTypes`
+    accetta anche righe coi permessi locali;
   - **«Annulla» contro un server senza `saved`** (un rollback, un'istanza
     non aggiornata): il campo manca, vale `false`, e l'«Annulla» chiede il
     ritorno al default (`DELETE`), che quel server non ha (404, «Undo» non
