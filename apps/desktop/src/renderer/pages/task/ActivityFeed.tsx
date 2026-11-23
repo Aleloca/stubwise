@@ -1,4 +1,5 @@
 import { useId, useState, type ReactNode } from "react";
+import { isHiddenId } from "../../data/access/hidden";
 import { useTranslation } from "react-i18next";
 import {
   useActivity,
@@ -185,7 +186,8 @@ function When({ at }: { at: string }) {
 const GONE_FIELDS = new Set(["assignee", "milestone", "department"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isGoneRef(field: string, value: string): boolean {
-  return GONE_FIELDS.has(field) && UUID.test(value);
+  // R.1414 (revisione del lotto 2-3): il segnaposto di chi chi guarda non conosce, come un id: «someone».
+  return GONE_FIELDS.has(field) && (UUID.test(value) || (field === "assignee" && isHiddenId(value)));
 }
 
 /** Il nome del campo come lo dice la cronologia (`status`, `due`…), tradotto se si conosce. */

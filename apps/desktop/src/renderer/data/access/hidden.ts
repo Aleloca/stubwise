@@ -1,4 +1,6 @@
+import type { Stall } from "../../domain/stalled";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
+import type { Task } from "../types";
 import { knownPeopleFor } from "./whoCan";
 
 // Il segnaposto delle persone che chi guarda non conosce (registro, A11
@@ -36,3 +38,34 @@ export function personMasker(
 /** Il campo è un segnaposto: non si risolve, non si clicca, non torna al server. */
 export const isHiddenId = (id: string | null | undefined): boolean =>
   typeof id === "string" && id.startsWith("hidden-");
+
+type Masker = ReturnType<typeof personMasker>;
+
+/**
+ * Una task come la legge chi guarda (r.1414): assegnatario, chi l'ha creata,
+ * chi la segue e chi l'ha fermata a mano passano dal masker della risposta.
+ */
+export function maskedTask(t: Task, mask: Masker): Task {
+  const out = structuredClone(t);
+  out.assigneeId = mask(t.assigneeId);
+  out.createdById = mask(t.createdById);
+  out.followerIds = t.followerIds.map(mask);
+  if (out.manualStall) out.manualStall = { ...out.manualStall, byId: mask(out.manualStall.byId) };
+  return out;
+}
+
+/** Una task ferma (revisione del lotto 2-3, 46): anche «ferma su chi» passa dal masker. */
+export function maskedStalled(
+  row: { task: Task; stall: Stall },
+  mask: Masker,
+): { task: Task; stall: Stall } {
+  const task = maskedTask(row.task, mask);
+  const reason = row.stall.reason;
+  return {
+    task,
+    stall:
+      reason.kind === "decision"
+        ? { ...row.stall, reason: { ...reason, personId: mask(reason.personId) } }
+        : row.stall,
+  };
+}

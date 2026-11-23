@@ -102,6 +102,14 @@ describe("il registro delle modifiche dal server (area 9, F2)", () => {
     });
   });
 
+  // R.1414 (72, 86a5a1a55): chi chi guarda non conosce arriva come
+  // `hidden-<n>` con il nome null; la pagina scrive «Someone».
+  it("un attore che chi guarda non conosce: il segnaposto, senza nome", async () => {
+    const { api } = withEntries(entry({ actor: { id: "hidden-1", name: null, kind: "user" } }));
+    const [v] = (await createRealChangelog(api).listChangesPage()).entries;
+    expect(v).toMatchObject({ actorId: "hidden-1", actorName: null });
+  });
+
   it("il link solo se l'oggetto c'è ancora e chi guarda lo gestisce", async () => {
     const deleted = await createRealChangelog(
       withEntries(entry({ objectDeleted: true })).api,

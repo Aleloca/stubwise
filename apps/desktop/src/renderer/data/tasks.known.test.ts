@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { strangersTo } from "../test/strangers";
 import { getTaskByCode, listActivity, listTasks, resetApi, setLatency } from "./api";
 import { planTask } from "./api-mutations";
+import { PEOPLE } from "./seed/people";
 import { setSessionPersonId } from "./session";
 import { state, visibleProjectIds } from "./store";
 
@@ -54,6 +55,29 @@ describe("task e attività senza id di chi non si conosce (r.1414)", () => {
     expect(out.authorId).toMatch(/^hidden-\d+$/);
     expect(out.deletedById).toBe(out.authorId);
     expect(JSON.stringify(await listActivity(task.id))).not.toContain(who!);
+  });
+
+  // Revisione del lotto 2-3 (46): un cambio d'assegnatario nella cronologia
+  // porta il NOME di chi è stato tolto o messo; per uno sconosciuto il suo
+  // segnaposto (la pagina scrive «someone»). I follower sono id: segnaposti.
+  it("assegnatario e follower cambiati: lo sconosciuto non c'è né per nome né per id", async () => {
+    const task = state.tasks.find((t) => visibleProjectIds(LAURA).has(t.projectId))!;
+    const [who] = strangersTo(LAURA);
+    const name = PEOPLE.find((p) => p.id === who)!.name;
+    const known = PEOPLE.find((p) => p.id === "p-giulia")!.name;
+    const base = { taskId: task.id, kind: "field_change" as const, authorId: "p-giulia", at: "2026-11-20T10:00:00Z" };
+    state.activity.push(
+      { ...base, id: "act-known-1", field: "assignee", from: known, to: name },
+      { ...base, id: "act-known-2", field: "followerIds", from: `${LAURA}`, to: `${LAURA}, ${who}` },
+    );
+    setSessionPersonId(LAURA);
+    const out = await listActivity(task.id);
+    const assignee = out.find((a) => a.id === "act-known-1")!;
+    expect(assignee.from).toBe(known);
+    expect(assignee.to).toBe("hidden-1");
+    expect(out.find((a) => a.id === "act-known-2")!.to).toBe(`${LAURA}, hidden-1`);
+    expect(JSON.stringify(out)).not.toContain(name);
+    expect(JSON.stringify(out)).not.toContain(who!);
   });
 });
 

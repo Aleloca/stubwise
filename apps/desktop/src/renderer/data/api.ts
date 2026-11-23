@@ -2,7 +2,7 @@ import { matches } from "../domain/filters";
 import { DEFAULT_CORRECTION_CAP } from "../domain/releases/prState";
 import type { Stall } from "../domain/stalled";
 import { accessState } from "./access/index";
-import { isHiddenId, personMasker } from "./access/hidden";
+import { isHiddenId, maskedStalled, maskedTask, personMasker } from "./access/hidden";
 import { invalid } from "./writer";
 import { knownPeopleFor, visiblePeopleFor } from "./access/whoCan";
 import { pluginSkillCommand, STUBWISE_COMMANDS } from "./seed/commands";
@@ -323,14 +323,7 @@ export function tasksTruncated(criteria?: FilterCriteria): boolean {
  * persone che non conosce (assegnatario, chi l'ha creata, chi la segue, chi
  * l'ha fermata a mano) sono segnaposti del `mask` della risposta.
  */
-function taskView(t: Task, mask: ReturnType<typeof personMasker>): Task {
-  const out = copy(t);
-  out.assigneeId = mask(t.assigneeId);
-  out.createdById = mask(t.createdById);
-  out.followerIds = t.followerIds.map(mask);
-  if (out.manualStall) out.manualStall = { ...out.manualStall, byId: mask(out.manualStall.byId) };
-  return out;
-}
+const taskView = maskedTask;
 
 /** Le task visibili, filtrate con i criteri (la visibilità viene prima di tutto). */
 export async function listTasks(criteria?: FilterCriteria): Promise<Task[]> {
@@ -365,6 +358,15 @@ export async function getTaskByCode(code: string): Promise<Task | null> {
   };
 }
 
+/** Un nome di persona salvato in una voce: il segnaposto, se è di chi chi guarda non conosce. */
+function maskedName<T extends string | null | undefined>(name: T, mask: ReturnType<typeof personMasker>): T | string {
+  if (!name) return name;
+  const person = PEOPLE.find((p) => p.name === name);
+  if (!person) return name;
+  const masked = mask(person.id);
+  return masked === person.id ? name : masked;
+}
+
 export async function listActivity(taskId: string): Promise<ActivityEntry[]> {
   const me = await gate("listActivity");
   const task = state.tasksById.get(taskId);
@@ -377,6 +379,18 @@ export async function listActivity(taskId: string): Promise<ActivityEntry[]> {
       const out = copy(a);
       out.authorId = mask(a.authorId);
       if (out.deletedById !== undefined) out.deletedById = mask(out.deletedById);
+      // Revisione del lotto 2-3 (46): l'assegnatario cambiato è salvato per
+      // NOME; uno sconosciuto diventa il suo segnaposto (la pagina: «someone»).
+      if (a.field === "assignee") {
+        out.from = maskedName(a.from, mask);
+        out.to = maskedName(a.to, mask);
+      }
+      // I follower sono id separati da virgole.
+      if (a.field === "followerIds") {
+        const ids = (v: string | null | undefined) => (v ? v.split(", ").map(mask).join(", ") : v);
+        out.from = ids(a.from);
+        out.to = ids(a.to);
+      }
       return out;
     });
 }
@@ -641,7 +655,9 @@ export async function listStalled(
   criteria?: FilterCriteria,
 ): Promise<{ task: Task; stall: Stall }[]> {
   const me = await gate("listStalled");
-  return stalledTasks(me, criteria);
+  // Revisione del lotto 2-3 (46): la task e «ferma su chi», col masker della risposta.
+  const mask = personMasker(me);
+  return stalledTasks(me, criteria && realCriteria(me, criteria)).map((r) => maskedStalled(r, mask));
 }
 
 /** Il polso di un progetto per chi guarda; `null` se il progetto non è visibile. */
