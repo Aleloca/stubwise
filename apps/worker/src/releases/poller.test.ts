@@ -21,7 +21,7 @@ import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { CommitRuns } from "@stubwise/git";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { pollReleasesOnce, RELEASE_WATCH_HOURS } from "./poller.js";
+import { pollReleasesOnce, RELEASE_FAILED_RECHECK_MINUTES, RELEASE_WATCH_HOURS } from "./poller.js";
 
 /**
  * Area 8, F1, S4: lo stato dopo il merge. Le run di CI del commit di merge
@@ -80,6 +80,34 @@ describe("pollReleasesOnce", () => {
     expect(cards).toHaveLength(1);
     expect(cards[0]!.event).toMatchObject({ releaseCode: s.release.code, failedRun: "test" });
     expect((await reload(s.release.id)).failedNotifiedAt).not.toBeNull();
+  });
+
+  it("registro, A8 r.744: una run rilanciata e verde dopo un `failed` si vede: il rilascio sistemato come fallito si riguarda (al più ogni RELEASE_FAILED_RECHECK_MINUTES) e diventa riuscito", async () => {
+    const s = await setup();
+    const t0 = new Date();
+    // Gli altri rilasci del file possono essere riguardati anch'essi: si guarda QUESTO (`last_polled_at`).
+    const polledAt = async () => (await reload(s.release.id)).lastPolledAt?.getTime() ?? null;
+    let out: CommitRuns = { status: "ok", runs: [{ id: "9", name: "test", status: "failed", url: "h", failedStep: "rosso", startedAt: t0.toISOString(), endedAt: t0.toISOString() }] };
+    const provider = { providerFor: () => ({ getCommitRuns: async () => out }) };
+    await poll({ ...provider, now: () => t0 });
+    const settled = await reload(s.release.id);
+    expect(settled.runsSettledAt).not.toBeNull();
+    expect(settled.failedNotifiedAt).not.toBeNull();
+    // La run rilanciata (un'altra id, stesso nome, dopo) è verde.
+    const later = new Date(t0.getTime() + 60_000);
+    out = { status: "ok", runs: [...(out.status === "ok" ? out.runs : []), { id: "10", name: "test", status: "success", url: "h", failedStep: null, startedAt: later.toISOString(), endedAt: later.toISOString() }] };
+    // Subito dopo: non ancora (il ritmo del riguardo).
+    await poll({ ...provider, now: () => new Date(t0.getTime() + 2 * 60_000) });
+    expect(await polledAt()).toBe(t0.getTime());
+    // Passati i minuti del riguardo: la rilegge e il rilascio è riuscito (l'avviso `release.succeeded`, una volta).
+    const recheck = new Date(t0.getTime() + (RELEASE_FAILED_RECHECK_MINUTES + 1) * 60_000);
+    await poll({ ...provider, now: () => recheck });
+    expect(await polledAt()).toBe(recheck.getTime());
+    expect((await reload(s.release.id)).succeededNotifiedAt).not.toBeNull();
+    expect(await t.db.select().from(releaseCiRuns).where(eq(releaseCiRuns.releaseId, s.release.id))).toHaveLength(2);
+    // Riuscito: non si riguarda più.
+    await poll({ ...provider, now: () => new Date(t0.getTime() + (2 * RELEASE_FAILED_RECHECK_MINUTES + 2) * 60_000) });
+    expect(await polledAt()).toBe(recheck.getTime());
   });
 
   it("una lettura illeggibile senza run già lette: niente «riuscito», niente avviso, il rilascio resta da guardare", async () => {

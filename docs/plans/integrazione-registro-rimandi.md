@@ -760,9 +760,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   analisi» e non è pronta.
 
 - F1, review del server, due rimandi *(O, 46, 14 nov 2026)*:
-  - Una run di CI **rilanciata** dopo che il rilascio si è sistemato come
+  - ~~Una run di CI **rilanciata** dopo che il rilascio si è sistemato come
     `failed` non si vede: il poller non riguarda i rilasci sistemati (la
-    run rilanciata e verde lascerebbe il rilascio «fallito»).
+    run rilanciata e verde lascerebbe il rilascio «fallito»).~~ *Chiusa il 23
+    nov 2026 (72)*: nella finestra delle 24 ore il poller riguarda anche i
+    rilasci sistemati come falliti (avvisati e mai riusciti), al più ogni
+    `RELEASE_FAILED_RECHECK_MINUTES` (10); e in `releaseStatusOf` (shared) una
+    run con lo stesso nome partita DOPO prende il posto di quella di prima (su
+    Bitbucket una pipeline rilanciata ha un altro id). Rilanciata e verde: il
+    rilascio è riuscito, con l'avviso `release.succeeded`.
   - `GET /api/me/releases` legge le PR aperte con `listOpenPulls` per OGNI
     progetto in cui chi guarda ha `release.merge` — per un full admin, tutti:
     una chiamata al provider per PR. Non c'è un ripiego economico (la
