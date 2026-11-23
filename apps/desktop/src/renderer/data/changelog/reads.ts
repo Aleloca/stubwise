@@ -496,7 +496,7 @@ function changesReadableBy(me: string, filter: ChangeFilter = {}): ChangeEntryVi
   const visible = readableProjectIds(me);
   const people = me === CLAUDE_ID ? new Set<string>() : visiblePeopleFor(me);
   const known = me === CLAUDE_ID ? new Set<string>() : knownPeopleFor(me);
-  const mask = personMasker(me);
+  const mask = personMasker(me, known);
   return newestFirst(
     state.changelog.filter((e) => readable(me, e, visible) && matchesFilter(e, filter)),
   ).map((e) => view(me, e, people, visible, known, mask));

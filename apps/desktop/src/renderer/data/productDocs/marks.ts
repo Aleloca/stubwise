@@ -353,7 +353,7 @@ export function listProductMarksAs(me: string, pageId: string): ProductMarkView[
   if (!page || docsAccess(me, page.projectId) !== "read") return [];
   const canAccept = canEdit(me, page.projectId);
   const people = knownPeopleFor(me);
-  const mask = personMasker(me);
+  const mask = personMasker(me, people);
   return liveMarks(page).map(({ mark, revision: r }) => {
     const block = blockWith(page.blocks, mark.anchorId)!;
     const cell = cellOf(block, mark.anchorId);

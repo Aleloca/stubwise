@@ -13,8 +13,12 @@ import { knownPeopleFor } from "./whoCan";
  * (un masker nuovo ricomincia da 1). Chi guarda, Claude, chi si conosce e un
  * id che non è una persona restano com'erano; `null` resta `null`.
  */
-export function personMasker(viewerId: string): <T extends string | null | undefined>(id: T) => T {
-  const known = knownPeopleFor(viewerId);
+export function personMasker(
+  viewerId: string,
+  // Revisione del lotto 2 (minor): chi ha già «chi si conosce» della risposta
+  // lo passa, così non si ricalcola (una volta per risposta).
+  known: ReadonlySet<string> = knownPeopleFor(viewerId),
+): <T extends string | null | undefined>(id: T) => T {
   const people = new Set(PEOPLE.map((p) => p.id));
   const hidden = new Map<string, string>();
   return <T extends string | null | undefined>(id: T): T => {

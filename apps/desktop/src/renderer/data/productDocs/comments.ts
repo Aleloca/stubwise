@@ -71,8 +71,8 @@ onAnchorsMerged((pageId, from, to) => {
  * (registro, A11 r.1414: anche disattivati ed ex membri dei progetti visibili
  * si conoscono). Chi guarda e Claude si vedono sempre.
  */
-const visibleNameOf = (me: string, personId: string): string | null =>
-  personId === me || personId === CLAUDE_ID || knownPeopleFor(me).has(personId) ? nameOf(personId) : null;
+const visibleNameOf = (me: string, personId: string, known: ReadonlySet<string>): string | null =>
+  personId === me || personId === CLAUDE_ID || known.has(personId) ? nameOf(personId) : null;
 
 /**
  * Il commento come lo legge chi guarda, nella forma del server (F2): senza
@@ -83,7 +83,8 @@ export function viewOf(
   me: string,
   page: ProductPage,
   c: ProductComment,
-  mask: ReturnType<typeof personMasker> = personMasker(me),
+  known: ReadonlySet<string> = knownPeopleFor(me),
+  mask: ReturnType<typeof personMasker> = personMasker(me, known),
 ): ProductCommentView {
   // La domanda grezza (fonte, fatto) non esce mai: la sua vista la sostituisce.
   const { question: _question, seq: _seq, ...rest } = copy(c);
@@ -92,11 +93,11 @@ export function viewOf(
     ...rest,
     authorId: mask(c.authorId),
     resolved: c.resolved
-      ? { ...c.resolved, byId: mask(c.resolved.byId), byName: visibleNameOf(me, c.resolved.byId) }
+      ? { ...c.resolved, byId: mask(c.resolved.byId), byName: visibleNameOf(me, c.resolved.byId, known) }
       : null,
-    authorName: visibleNameOf(me, c.authorId),
+    authorName: visibleNameOf(me, c.authorId, known),
     // Le menzionate che chi guarda vede, come il server (review di R11-2, 4).
-    mentionIds: c.mentionIds.filter((id) => visibleNameOf(me, id) !== null),
+    mentionIds: c.mentionIds.filter((id) => visibleNameOf(me, id, known) !== null),
     ...(c.question ? { question: questionViewOf(me, c, page) } : {}),
   };
 }
@@ -121,16 +122,17 @@ export async function listProductComments(
   const position = new Map(page.blocks.flatMap(anchorIdsOf).map((id, i) => [id, i]));
   const mine = state.productComments.filter((c) => c.pageId === pageId);
   const seqOf = new Map(mine.map((c) => [c.id, c.seq]));
-  const mask = personMasker(me);
+  const known = knownPeopleFor(me);
+  const mask = personMasker(me, known);
   const threads = mine
     .filter((c) => c.replyToId === null)
     .map(
       (root): ProductCommentThread => ({
-        root: viewOf(me, page, root, mask),
+        root: viewOf(me, page, root, known, mask),
         replies: mine
           .filter((c) => c.replyToId === root.id)
           .sort((a, b) => a.seq - b.seq)
-          .map((c) => viewOf(me, page, c, mask)),
+          .map((c) => viewOf(me, page, c, known, mask)),
         anchorGone: !position.has(root.anchorId),
       }),
     )

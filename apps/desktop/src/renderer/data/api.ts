@@ -763,7 +763,7 @@ export async function listNotifications(): Promise<AppNotification[]> {
   // Registro, A11 r.1414: i nomi seguono «chi si conosce», gli id di chi non
   // si conosce diventano segnaposti, uno per la risposta intera.
   const known = knownPeopleFor(me);
-  const mask = personMasker(me);
+  const mask = personMasker(me, known);
   const nameIfKnown = (id: string) => (known.has(id) ? (PEOPLE.find((p) => p.id === id)?.name ?? null) : null);
   return state.notifications.flatMap((n) => {
     const delivered = deliveredTo(me, n);
@@ -1538,7 +1538,7 @@ export async function resolveCitations(refs: CitationRef[]): Promise<CitationVie
   // Revisione del lotto 2, I5 (r.1414): una persona che non si conosce è
   // nascosta; l'assegnatario di una task citata passa dal masker.
   const known = knownPeopleFor(me);
-  const mask = personMasker(me);
+  const mask = personMasker(me, known);
   const hidden = (ref: CitationRef): CitationView => ({
     kind: ref.kind,
     id: ref.id,
