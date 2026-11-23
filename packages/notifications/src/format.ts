@@ -806,6 +806,13 @@ export interface GoogleProposalHandedEvent {
   sourceOptionIndices: number[];
   recommendedIndex?: number;
   allowFreeText: false;
+  /**
+   * Rimandi, lotto 4 (§2): la card di una proposta CONDIVISA passata, per chi
+   * la decide nel progetto. Chi decide non vede l'origine (il prototipo,
+   * `originFor`) e chi l'ha passata si maschera a lettura: `from`, `subject`
+   * e `handedBy` sono vuoti, e il testo non li nomina.
+   */
+  shared?: true;
 }
 
 /**
@@ -1590,6 +1597,7 @@ function templateKey(event: NotificationEvent): string {
     if (!keys) throw new Error(`soggetto di security.alert sconosciuto: ${String(event.subject)}`);
     return typeof event.actorEmail === "string" && event.actorEmail !== "" ? keys.withActor : keys.withoutActor;
   }
+  if (event.kind === "google.proposal_handed" && event.shared === true) return "notify.googleProposalHandedShared";
   if (event.kind === "server.diagnosis_ready" && event.outcome !== undefined && event.outcome !== "attributed") {
     return `notify.alert.serverAnalysis.${event.outcome}`;
   }
@@ -1712,6 +1720,8 @@ function textParams(
     }
     // La proposta passata nomina anche chi l'ha passata e il progetto.
     if (event.kind === "google.proposal_handed") {
+      // Una condivisa non nomina né l'origine né chi l'ha passata (lotto 4, §2).
+      if (event.shared === true) return { project: event.projectName };
       return { from: event.from, subject: event.subject, handedBy: event.handedBy, project: event.projectName };
     }
     // L'avviso di sicurezza nomina solo chi ha agito (se c'è): la frase la

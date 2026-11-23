@@ -282,6 +282,8 @@ export const en: Catalog = {
   // Fase permessi: a mailbox proposal HANDED to the project by its owner.
   "notify.googleProposalHanded":
     "{handedBy} handed {project} an email from {from} — {subject}. {link}",
+  // Rimandi, lotto 4: a SHARED mail proposal handed to the project (no sender, no subject, no name).
+  "notify.googleProposalHandedShared": "A mail proposal was handed to {project}: it needs a decision. {link}",
   // Secondo fattore: security alert to the account owner, one sentence per
   // subject, with and without the actor (`{actor}` = their email).
   // Integrazione area 2: decisions asked on a task and activity on a followed
@@ -664,6 +666,7 @@ export const en: Catalog = {
   // `{from}`/`{subject}` are NOT trusted.
   "google.proposal.question.handed":
     "{handedBy} can't act on this for {project}: {from} wrote about “{subject}”. How do we follow up?",
+  "google.proposal.question.handedShared": "A mail proposal handed to {project}. What do we do?",
   // Fase 6c (Task 5): the TRIAGE proposal's question — a real signal, but no
   // project was attributed. `{from}`/`{subject}` are NOT trusted (see above).
   "google.proposal.question.triage":
@@ -1008,6 +1011,7 @@ export const it: Catalog = {
   "notify.googleProposal": "Nuova proposta da {from} — {subject}. {link}",
   "notify.googleProposalHanded":
     "{handedBy} passa a {project} una email di {from} — {subject}. {link}",
+  "notify.googleProposalHandedShared": "Una proposta della posta è stata passata a {project}: va decisa. {link}",
   "notify.decisionRequested": "{ref}: ti chiedono una decisione — {question}",
   "notify.decisionAnswered": "{ref}: la tua domanda ha una risposta — {question} → {answer}",
   "notify.ticketActivity.status": "{ref}: stato cambiato in {summary}",
@@ -1285,6 +1289,7 @@ export const it: Catalog = {
   // `{from}`/`{subject}` NON fidati.
   "google.proposal.question.handed":
     "{handedBy} non può decidere su {project}: {from} scrive a proposito di «{subject}». Come diamo seguito?",
+  "google.proposal.question.handedShared": "Una proposta della posta passata a {project}. Come diamo seguito?",
   // Fase 6c (Task 5): la domanda della proposta di SMISTAMENTO — un segnale
   // reale, ma nessun progetto attribuito. `{from}`/`{subject}` NON fidati.
   "google.proposal.question.triage":

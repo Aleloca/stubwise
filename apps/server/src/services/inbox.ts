@@ -95,7 +95,7 @@ import { excerpt } from "./task-notify.js";
 import { loadViaClaude, type ViaClaudeFields } from "./via-claude.js";
 import { getContentLanguage } from "../settings.js";
 import { decidersOf as automationDecidersOf } from "../automations/runs.js";
-import { chooseMailProposalProject, confirmMailProposal, ignoreMailProposal, sharedProposalOfNotification } from "./mail-proposals-decide.js";
+import { chooseMailProposalProject, confirmMailProposal, handedSharedProposalsOf, ignoreMailProposal, sharedProposalOfNotification } from "./mail-proposals-decide.js";
 import { listMailProposals } from "./mail-proposals.js";
 
 // Catalogo delle azioni: implementazione in `@stubwise/notifications/actions`
@@ -1030,6 +1030,15 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     userId,
     page.filter((r) => r.kind === "google.proposal").map((r) => r.id),
   );
+  // Rimandi, lotto 4 (§2): la card di chi decide una condivisa passata porta la
+  // sua proposta, chi l'ha passata e se l'ha già decisa qualcuno (a lettura).
+  const handedShared = await handedSharedProposalsOf(
+    db,
+    userId,
+    page.filter((r) => r.kind === "google.proposal_handed").map((r) => r.id),
+  );
+  for (const [notificationId, proposalId] of handedShared) sourceProposalIds.set(notificationId, proposalId);
+  const handedFacts = await handedFactsOf(db, [...new Set(handedShared.values())]);
   // Solo per le proposte GESTITE: su un'aperta non c'è niente di deciso.
   const decisionRows = await decisionRowsByNotification(
     db,
@@ -1148,6 +1157,9 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
         : {}),
       objectGone,
       chat,
+      ...(rendered.google && handedShared.has(r.id)
+        ? { google: { ...rendered.google, ...(handedFacts.get(handedShared.get(r.id)!) ?? { handedByUser: null, proposalDecided: false }) } }
+        : {}),
       ...(isProductDocKind(r.kind) ? { productDoc } : {}),
       ...(isAutomationKind(r.kind) ? { automation } : {}),
       // Il riassunto NON passa dal jsonb dell'evento: viene dalle colonne
@@ -1210,7 +1222,7 @@ async function withoutStrangers(
 ): Promise<InboxItem[]> {
   const people = new Set<string>();
   for (const i of items) {
-    for (const id of [i.viaClaudeRequesterId, i.memberAdded?.addedUserId, i.undoneBy?.id, i.handledBy?.id]) if (id && id !== userId) people.add(id);
+    for (const id of [i.viaClaudeRequesterId, i.memberAdded?.addedUserId, i.undoneBy?.id, i.handledBy?.id, i.google?.handedByUser?.id]) if (id && id !== userId) people.add(id);
   }
   // I progetti delle card senza permessi di chi legge (già letti per le azioni): fra questi,
   // un archiviato di cui è membro si legge ancora; gli altri non li vede.
@@ -1234,6 +1246,8 @@ async function withoutStrangers(
         : i.memberAdded,
     undoneBy: i.undoneBy && !hidden.knows(i.undoneBy.id) ? { id: hidden.person(i.undoneBy.id), name: "" } : i.undoneBy,
     handledBy: i.handledBy && !hidden.knows(i.handledBy.id) ? { id: hidden.person(i.handledBy.id), email: "" } : i.handledBy,
+    // Lotto 4 (§2): chi ha passato la proposta, se chi legge non lo conosce.
+    ...(i.google?.handedByUser && !hidden.knows(i.google.handedByUser.id) ? { google: { ...i.google, handedByUser: { id: hidden.person(i.google.handedByUser.id), name: null } } } : {}),
     projectId: i.projectId ? hidden.project(i.projectId, sees(i.projectId)) : i.projectId,
   }));
 }
@@ -1852,6 +1866,28 @@ async function serverCodesByNotification(
   for (const [cardId, serverId] of idByCard) {
     const n = numberById.get(serverId);
     if (n !== undefined) out.set(cardId, `SRV-${n}`);
+  }
+  return out;
+}
+
+/**
+ * Rimandi, lotto 4 (§2): di una proposta condivisa passata, chi l'ha passata
+ * (nome vero: lo maschera `withoutStrangers`) e se non è più aperta. UNA query
+ * per pagina.
+ */
+async function handedFactsOf(db: Db, proposalIds: readonly string[]): Promise<Map<string, { handedByUser: { id: string; name: string | null } | null; proposalDecided: boolean }>> {
+  const out = new Map<string, { handedByUser: { id: string; name: string | null } | null; proposalDecided: boolean }>();
+  if (proposalIds.length === 0) return out;
+  const rows = await db
+    .select({ id: emailProposals.id, status: emailProposals.status, handedById: emailProposals.handedByUserId, displayName: users.displayName, email: users.email })
+    .from(emailProposals)
+    .leftJoin(users, eq(users.id, emailProposals.handedByUserId))
+    .where(inArray(emailProposals.id, [...proposalIds]));
+  for (const r of rows) {
+    out.set(r.id, {
+      handedByUser: r.handedById ? { id: r.handedById, name: r.displayName ?? r.email?.split("@")[0] ?? null } : null,
+      proposalDecided: r.status !== "classified" && r.status !== "proposed",
+    });
   }
   return out;
 }

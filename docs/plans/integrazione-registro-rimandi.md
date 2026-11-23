@@ -450,11 +450,21 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - F2, decidere una proposta condivisa, scelte *(O)* (12 nov 2026):
   «Passa al progetto» non crea una card nuova: la proposta passata la vede e
   la decide chi nel progetto ha i permessi di OGNI sua azione, in
-  `/proposals?status=handed` (rimandato: una card per loro); «Quale
+  `/proposals?status=handed` (~~rimandato: una card per loro~~ *chiusa il 23
+  nov 2026 (72, lotto 4, §2; D-2.0 del maintainer)*: al passaggio, una card
+  `google.proposal_handed` obbligatoria a ognuno di loro, tranne chi passa e
+  i destinatari, senza origine; dice chi l'ha passata (mascherato) e se è
+  già decisa; la decisione chiude le card di tutti); «Quale
   progetto?» scelto cancella la domanda e riclassifica l'email solo per quel
   progetto; i Contributor si aggiungono con `putProjectMember` (le regole di
   Membri) prima della conferma, e se ne vanno se la conferma non riesce
   (non sono nella stessa transazione delle azioni).
+- Lotto 4, §2, rimasti fuori *(O, 94, 23 nov 2026)*: dopo il passaggio la
+  card di chi passa (e degli altri destinatari che non possono confermare)
+  resta `open`, mentre il prototipo la toglie da «Da decidere»; chi ottiene i
+  permessi DOPO il passaggio non riceve la card (D-2.C, limite accettato: la
+  vede in «Da decidere»); nel worker non c'è un percorso che chiuda le card
+  delle proposte condivise quando il thread le supera.
 - F2, dopo che la classificazione nuova è accesa e stabile *(O)*: togliere
   le rotte `/api/projects/:id/email-routes`, `/email-labels`,
   `/api/settings/mail-admission` (PATCH), le colonne d'ammissione di

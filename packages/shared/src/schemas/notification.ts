@@ -537,6 +537,21 @@ export const inboxGoogleSchema = z.object({
    * `decision` come per ogni proposta. Derivato a lettura, `.default(false)`.
    */
   handed: z.boolean().default(false),
+  /**
+   * Rimandi, lotto 4 (§2): sulla card di chi DECIDE una proposta condivisa
+   * passata, chi l'ha passata. Derivato a lettura da `email_proposals`
+   * (`handed_by_user_id`), mai dall'evento; uno sconosciuto (r.1414) arriva
+   * `{ id: "hidden-<n>", name: null }`. null sulle altre card. Additivo.
+   * (Non `handedBy`: quel nome è già dell'evento delle passate di prima,
+   * l'email di chi passa.)
+   */
+  handedByUser: z.object({ id: personRefSchema, name: z.string().nullable() }).nullable().default(null),
+  /**
+   * Rimandi, lotto 4 (§2, il prototipo `proposalDecided`): sulla card di chi
+   * decide una passata, la proposta l'ha già decisa qualcuno (non è più
+   * aperta). Derivato a lettura. Additivo, `.default(false)`.
+   */
+  proposalDecided: z.boolean().default(false),
 });
 export type InboxGoogle = z.infer<typeof inboxGoogleSchema>;
 export type InboxGoogleDecision = NonNullable<InboxGoogle["decision"]>;

@@ -1,6 +1,7 @@
 import { mailProposalDecisionSchema, mailProposalListSchema, mailProposalSchema, mailProposalStatusSchema } from "@stubwise/shared";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { SessionUser } from "../auth/session.js";
+import { publicUrlOrUndefined } from "../ingest/shared.js";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { apiError } from "../errors.js";
@@ -156,7 +157,7 @@ export async function meMailProposalsRoutes(instance: FastifyInstance, opts: { m
   app.post(
     "/:id/hand",
     { config: { access: { kind: "user" } }, schema: { params: idParams, response: decideResponses } },
-    async (request, reply) => send(request, reply, await handMailProposal(app.db, request.user!, request.params.id)),
+    async (request, reply) => send(request, reply, await handMailProposal(app.db, request.user!, request.params.id, { publicUrl: publicUrlOrUndefined(app) ?? "" })),
   );
 
   /** «Sposta su un altro progetto». */

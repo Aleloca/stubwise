@@ -13,10 +13,20 @@ import {
   type Db,
 } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
-import { canSeeMeeting, permissionForMailAction, projectPermissionsOfUser, projectViewerIds } from "@stubwise/notifications";
+import {
+  canSeeMeeting,
+  ignoreProposalOption,
+  permissionForMailAction,
+  projectPermissionsOfUser,
+  projectViewerIds,
+  publishNotification,
+  sharedProposalOptions,
+  type GoogleProposalHandedEvent,
+} from "@stubwise/notifications";
 import { ticketPrioritySchema, ticketStatusSchema, type MailProposal, type ProjectPermission, type TicketPriority, type TicketStatus } from "@stubwise/shared";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { SessionUser } from "../auth/session.js";
+import { getContentLanguage } from "../settings.js";
 import { decideLegacy } from "./mail-proposals-legacy.js";
 import { memberObject, putProjectMember, RoleRuleError } from "./roles.js";
 import { recordChange } from "./change-log.js";
@@ -139,11 +149,17 @@ async function closeCards(tx: Parameters<Parameters<Db["transaction"]>[0]>[0], p
     .from(emailProposalRecipients)
     .where(eq(emailProposalRecipients.proposalId, proposalId));
   const ids = rows.map((r) => r.id).filter((id): id is string => id !== null);
-  if (ids.length === 0) return;
+  if (ids.length > 0) {
+    await tx
+      .update(notifications)
+      .set({ status: "handled", handledAt: new Date() })
+      .where(and(inArray(notifications.id, ids), eq(notifications.status, "open")));
+  }
+  // Lotto 4 (§2): anche le card dei decisori di una passata.
   await tx
     .update(notifications)
     .set({ status: "handled", handledAt: new Date() })
-    .where(and(inArray(notifications.id, ids), eq(notifications.status, "open")));
+    .where(and(eq(notifications.kind, "google.proposal_handed"), sql`${notifications.event}->>'proposalId' = ${proposalId}`, eq(notifications.status, "open")));
 }
 
 function validDate(value: unknown): boolean {
@@ -405,7 +421,33 @@ export async function sharedProposalOfNotification(db: Db, userId: string, notif
     .select({ proposalId: emailProposalRecipients.proposalId })
     .from(emailProposalRecipients)
     .where(and(eq(emailProposalRecipients.notificationId, notificationId), eq(emailProposalRecipients.userId, userId)));
-  return row?.proposalId ?? null;
+  if (row) return row.proposalId;
+  return (await handedSharedProposalsOf(db, userId, [notificationId])).get(notificationId) ?? null;
+}
+
+/**
+ * Rimandi, lotto 4 (§2, D-2.A = a): la card di chi decide una proposta
+ * CONDIVISA passata. Il legame è `event->>'proposalId'` (l'id della riga, vero
+ * alla pubblicazione) più l'audience della RIGA: una passata di PRIMA
+ * (`mailbox_owner`) resta all'esecutore di prima. Notifica → proposta.
+ */
+export async function handedSharedProposalsOf(db: Db, userId: string, notificationIds: readonly string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (notificationIds.length === 0) return out;
+  const rows = await db
+    .select({ notificationId: notifications.id, proposalId: emailProposals.id })
+    .from(notifications)
+    .innerJoin(emailProposals, sql`${emailProposals.id}::text = ${notifications.event}->>'proposalId'`)
+    .where(
+      and(
+        inArray(notifications.id, [...notificationIds]),
+        eq(notifications.userId, userId),
+        eq(notifications.kind, "google.proposal_handed"),
+        inArray(emailProposals.audience, ["mail_recipients", "meeting_invitees"]),
+      ),
+    );
+  for (const r of rows) out.set(r.notificationId, r.proposalId);
+  return out;
 }
 
 /** I tipi che si possono spostare su un altro progetto (il prototipo). */
@@ -414,10 +456,18 @@ const PORTABLE = new Set(["create_task", "create_backlog_item", "record_decision
 /**
  * «Passa al progetto»: chi NON può confermarla la passa a chi nel progetto ha
  * il permesso di ogni sua azione, che da lì la vede (con l'estratto, non il
- * messaggio) e la decide. Resta aperta; nessuna card nuova *(O)*: la si trova
- * in `/proposals?status=handed`.
+ * messaggio) e la decide. Resta aperta, e la trova in «Da decidere»
+ * (`/proposals?status=handed`).
+ *
+ * Rimandi, lotto 4 (§2, D-2.0 del maintainer): nella STESSA transazione del
+ * passaggio, una card `google.proposal_handed` a ognuno di quei decisori
+ * (membri del progetto, full admin compresi, col permesso di OGNI azione), né
+ * a chi passa né a chi è già destinatario (ha la sua card). La card non nomina
+ * l'origine né chi passa (`shared: true`); le sue opzioni sono le azioni
+ * nell'ordine più «Non fare nulla», come la card dei destinatari, così `/act`
+ * usa gli stessi indici. Nessun decisore: nessuna card, il passaggio riesce.
  */
-export async function handMailProposal(db: Db, viewer: Viewer, id: string): Promise<DecideResult> {
+export async function handMailProposal(db: Db, viewer: Viewer, id: string, opts: { publicUrl?: string } = {}): Promise<DecideResult> {
   const loaded = await loadDecidable(db, viewer, id);
   if (!loaded) return (await decideLegacy(db, viewer.id, id, { kind: "hand" })) ?? { ok: false, error: "not_found" };
   if (!loaded.isRecipient) return { ok: false, error: "not_found" };
@@ -425,15 +475,72 @@ export async function handMailProposal(db: Db, viewer: Viewer, id: string): Prom
   if (!OPEN.has(proposal.status) || proposal.handedAt) {
     return { ok: false, error: "already_handled", decidedBy: await decidedByOf(db, proposal.decidedByUserId ?? proposal.handedByUserId) };
   }
-  const stored = proposal.classification as { choose?: unknown };
+  const stored = proposal.classification as { choose?: unknown; actions?: StoredAction[] };
   if (stored.choose || coversAll(proposal, permissions)) return { ok: false, error: "invalid_selection" };
-  const [updated] = await db
-    .update(emailProposals)
-    .set({ handedAt: new Date(), handedByUserId: viewer.id })
-    .where(and(eq(emailProposals.id, id), inArray(emailProposals.status, ["classified", "proposed"]), isNull(emailProposals.handedAt)))
-    .returning({ id: emailProposals.id });
-  if (!updated) return { ok: false, error: "already_handled", decidedBy: null };
+  const lang = await getContentLanguage(db);
+  const handed = await db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(emailProposals)
+      .set({ handedAt: new Date(), handedByUserId: viewer.id })
+      .where(and(eq(emailProposals.id, id), inArray(emailProposals.status, ["classified", "proposed"]), isNull(emailProposals.handedAt)))
+      .returning({ id: emailProposals.id });
+    if (!updated) return false;
+    await publishHandedCards(tx, proposal, viewer.id, lang, opts.publicUrl ?? "");
+    return true;
+  });
+  if (!handed) return { ok: false, error: "already_handled", decidedBy: null };
   return { ok: true, status: "handed" };
+}
+
+/** Le card dei decisori di una proposta condivisa appena passata (lotto 4, §2). */
+async function publishHandedCards(
+  tx: Parameters<Parameters<Db["transaction"]>[0]>[0],
+  proposal: typeof emailProposals.$inferSelect,
+  handedBy: string,
+  lang: Language,
+  publicUrl: string,
+): Promise<void> {
+  const actions = (proposal.classification as { actions?: StoredAction[] }).actions ?? [];
+  const [project] = await tx.select({ id: projects.id, name: projects.name }).from(projects).where(eq(projects.id, proposal.projectId));
+  if (!project) return;
+  const options = sharedProposalOptions(lang, project.id, actions.map((a) => ({ type: a.type, args: (a.args ?? {}) as Record<string, unknown> })));
+  if (options.length === 0) return;
+  const recipients = new Set(
+    (await tx.select({ userId: emailProposalRecipients.userId }).from(emailProposalRecipients).where(eq(emailProposalRecipients.proposalId, proposal.id))).map((r) => r.userId),
+  );
+  const deciders: string[] = [];
+  for (const userId of await projectViewerIds(tx, project.id)) {
+    if (userId === handedBy || recipients.has(userId)) continue;
+    // Un invitato della riunione la vede già, e la decide dalla sua card.
+    if (proposal.audience === "meeting_invitees" && proposal.meetingNoteId && (await canSeeMeeting(tx, proposal.meetingNoteId, userId))) continue;
+    if (coversAll(proposal, (await projectPermissionsOfUser(tx, userId, project.id)) ?? new Set())) deciders.push(userId);
+  }
+  if (deciders.length === 0) return;
+  const ignore = ignoreProposalOption(lang);
+  const event: GoogleProposalHandedEvent = {
+    kind: "google.proposal_handed",
+    proposalId: proposal.id,
+    source: "email",
+    projectId: project.id,
+    projectName: project.name,
+    projectUrl: `${publicUrl.replace(/\/+$/, "")}/projects/${project.id}`,
+    handedBy: "",
+    signal: "request",
+    from: "",
+    subject: "",
+    question: t(lang, "google.proposal.question.handedShared", { project: project.name }),
+    options: [...options.map((o) => ({ label: o.label })), { label: ignore.label, consequence: ignore.consequence }],
+    actions: [...options.map((o) => o.action), ignore.action],
+    // VUOTO apposta (rollback): l'esecutore di PRIMA (`answerGoogleProposal`,
+    // per le passate `mailbox_owner`) esige un indice per opzione, quindi su
+    // un server più vecchio questa card risponde `proposal_stale` e non esegue
+    // niente. Il server di adesso la instrada sul servizio delle condivise.
+    sourceOptionIndices: [],
+    recommendedIndex: 0,
+    allowFreeText: false,
+    shared: true,
+  };
+  await publishNotification(tx, event, { projectId: project.id, onlyUserIds: deciders });
 }
 
 /**
