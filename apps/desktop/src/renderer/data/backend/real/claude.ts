@@ -705,7 +705,8 @@ export const getTaskWork: typeof Fake.getTaskWork = async (taskId) => {
         failureSummary: run.failureSummary,
         ...(run.cancelRequested ? { cancelRequested: true } : {}),
         model: null,
-        waiting: null,
+        // Lotto 4, §7.3: l'attesa di QUESTO run in coda (oggi la coda in pausa).
+        waiting: blockedOf((run as { waiting?: ServerBlock | null }).waiting ?? null),
         queued: null,
         executionModel: null,
         requiredProvider: null,
@@ -753,8 +754,14 @@ export const getTaskWork: typeof Fake.getTaskWork = async (taskId) => {
       queued: f.queued,
     })),
     correctionCap: work.correctionCap,
-    // I consumi per task non li manda ancora `/work`.
-    usage: [],
+    // Lotto 4, §7.3 (D-7.2 = a): i consumi della task per modello; un costo assente (un CLI vecchio) conta zero.
+    usage: ((work as { usage?: ServerUsage[] }).usage ?? []).map((u) => ({
+      model: u.model,
+      inputTokens: u.inputTokens,
+      outputTokens: u.outputTokens,
+      cacheReadTokens: u.cacheReadTokens,
+      costUsd: u.costUsd ?? 0,
+    })),
     // D-7.1: perché un avvio a mano non partirebbe adesso per chi guarda; il
     // server manda `monthly_budget` solo a chi non può scavalcarlo
     // (`plans.approve` nel progetto). Chi ha messo la pausa, se mascherato,
@@ -764,6 +771,7 @@ export const getTaskWork: typeof Fake.getTaskWork = async (taskId) => {
 };
 
 type ServerBlock = { reason: string; byId?: string; byName?: string | null; since?: string };
+type ServerUsage = { model: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; costUsd: number | null };
 
 function blockedOf(b: ServerBlock | null): AiBlock | null {
   if (b?.reason === "monthly_budget") return { reason: "monthly_budget" };

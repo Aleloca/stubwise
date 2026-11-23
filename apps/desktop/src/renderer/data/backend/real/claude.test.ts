@@ -297,6 +297,42 @@ describe("il lavoro di una task dal server", () => {
     }
   });
 
+  // Lotto 4, §7.3 (72, 42abe14be): i consumi della task per modello, e
+  // l'attesa di un run in coda (`runs[].waiting`, oggi la coda in pausa).
+  it("`usage` e `runs[].waiting` dal server; un costo assente conta zero", async () => {
+    installFakeServer({
+      [`GET /api/tasks/${TICKET_ID}/work`]: {
+        body: {
+          claude: "running",
+          webHref: "/tickets/x",
+          runs: [run({ state: "idle", outcome: null, waiting: { reason: "queue_paused", byId: "hidden-1", byName: null, since: "2026-11-23T08:00:00.000Z" } })],
+          prEvents: [],
+          prFacts: [],
+          planDecisions: [],
+          software: true,
+          openPr: false,
+          waitsOnViewer: false,
+          actions: { start: "unavailable", relaunch: "unavailable", resume: "unavailable", requestChanges: "unavailable" },
+          correctionCap: 2,
+          usage: [
+            { model: "claude-opus", inputTokens: 1200, outputTokens: 300, cacheReadTokens: 50, costUsd: 0.42 },
+            { model: "claude-haiku", inputTokens: 100, outputTokens: 20, cacheReadTokens: 0, costUsd: null },
+          ],
+        },
+      },
+      [`GET /api/agent-sessions/${SESSION_ID}`]: {
+        body: { ...serverSession({ state: "idle", outcome: null }), questions: [], inputs: [] },
+      },
+      [`GET /api/agent-sessions/${SESSION_ID}/events`]: { body: { events: [], before: null } },
+    });
+    const work = (await getTaskWork(TICKET_ID))!;
+    expect(work.usage).toEqual([
+      { model: "claude-opus", inputTokens: 1200, outputTokens: 300, cacheReadTokens: 50, costUsd: 0.42 },
+      { model: "claude-haiku", inputTokens: 100, outputTokens: 20, cacheReadTokens: 0, costUsd: 0 },
+    ]);
+    expect(work.runs[0]!.waiting).toEqual({ reason: "queue_paused", byId: "hidden-1", byName: "", since: "2026-11-23T08:00:00.000Z" });
+  });
+
   it("sessioni con i loro eventi (dalla sessione, non da /work), PR, decisioni e azioni del server", async () => {
     installFakeServer({
       [`GET /api/tasks/${TICKET_ID}/work`]: {
