@@ -1,11 +1,11 @@
-import { projectBriefs, projectDecisions, projects, tickets, type Db } from "@stubwise/db";
+import { deletedTickets, projectBriefs, projectDecisions, projects, tickets, users, type Db } from "@stubwise/db";
 import {
   briefHeadline,
   buildProjectTimeline,
   type TimelineViewer,
 } from "@stubwise/notifications";
 import type { ChronologyEvent, ChronologyPage, ProjectTimelineEntry, WeeklyBriefView } from "@stubwise/shared";
-import { and, desc, eq, inArray, min, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, min, sql } from "drizzle-orm";
 import { mapLimit } from "./map-limit.js";
 
 /**
@@ -94,6 +94,49 @@ async function withTaskCodes(db: Db, events: ChronologyEvent[]): Promise<Chronol
   });
 }
 
+/**
+ * Le task ELIMINATE nella finestra (rimandi, lotto 4; area 10a del
+ * prototipo): da `deleted_tickets`, perché la storia della task se ne va con
+ * lei. Codice e titolo di allora. La regola dei ticket della timeline, sulla
+ * sola cosa che di una task eliminata resta: con `tickets.view_all` tutte,
+ * senza solo quelle che chi guarda ha eliminato (chi l'aveva chiesta non si
+ * sa più). Chi l'ha eliminata lo maschera la rotta (r.1414).
+ */
+async function deletedEvents(db: Db, projectId: string, viewer: TimelineViewer, from: Date, before: Date): Promise<ChronologyEvent[]> {
+  const rows = await db
+    .select({
+      id: deletedTickets.id,
+      number: deletedTickets.number,
+      title: deletedTickets.title,
+      deletedAt: deletedTickets.deletedAt,
+      deletedBy: deletedTickets.deletedBy,
+      viaClaude: deletedTickets.viaClaudeActionId,
+      code: projects.code,
+      byDisplayName: users.displayName,
+      byEmail: users.email,
+    })
+    .from(deletedTickets)
+    .innerJoin(projects, eq(projects.id, deletedTickets.projectId))
+    .leftJoin(users, eq(users.id, deletedTickets.deletedBy))
+    .where(
+      and(
+        eq(deletedTickets.projectId, projectId),
+        gte(deletedTickets.deletedAt, from),
+        lt(deletedTickets.deletedAt, before),
+        viewer.permissions.has("tickets.view_all") ? undefined : eq(deletedTickets.deletedBy, viewer.userId),
+      ),
+    );
+  return rows.map((r) => ({
+    kind: "task_deleted" as const,
+    at: r.deletedAt.toISOString(),
+    taskId: r.id,
+    taskCode: `${r.code}-${r.number}`,
+    title: r.title,
+    ...(r.deletedBy ? { byId: r.deletedBy, byName: r.byDisplayName?.trim() || r.byEmail?.split("@")[0] || null } : {}),
+    ...(r.viaClaude ? { viaClaude: true } : {}),
+  }));
+}
+
 async function pageEvents(
   db: Db,
   projectId: string,
@@ -101,12 +144,16 @@ async function pageEvents(
   from: Date,
   before: Date,
 ): Promise<ChronologyEvent[]> {
-  const entries = await buildProjectTimeline(db, projectId, { from, to: before }, undefined, viewer);
+  const [entries, deleted] = await Promise.all([
+    buildProjectTimeline(db, projectId, { from, to: before }, undefined, viewer),
+    deletedEvents(db, projectId, viewer, from, before),
+  ]);
   const fromIso = from.toISOString();
   const beforeIso = before.toISOString();
-  return entries
-    .map(toChronologyEvent)
-    .filter((e): e is ChronologyEvent => e !== null && e.at >= fromIso && e.at < beforeIso);
+  return [
+    ...entries.map(toChronologyEvent).filter((e): e is ChronologyEvent => e !== null && e.at >= fromIso && e.at < beforeIso),
+    ...deleted,
+  ];
 }
 
 /** Una pagina della cronologia di un progetto. Senza `before`, la prima: fino a ora, più i traguardi futuri. */

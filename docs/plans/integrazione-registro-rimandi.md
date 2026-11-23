@@ -241,9 +241,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   integrate)~~ (chiusa il 23 nov 2026, rimandi, lotto 1: «Genera» su un grafo
   spento lo accende con PATCH `graphEnabled` e poi genera, `real/docs.ts`).
   Elenco completo in `apps/desktop/docs/integration-area5-f1.md`.
-- Stato della PR di setup del grafo *(S, fetta 1, review del renderer)*: il
+- ~~Stato della PR di setup del grafo *(S, fetta 1, review del renderer)*: il
   server dà l'indirizzo della PR (`setupPrUrl`), non se è aperta, mergiata o
-  chiusa; il desktop la mostra sempre aperta.
+  chiusa; il desktop la mostra sempre aperta.~~ *Parte server chiusa il 24
+  nov 2026 (72, lotto 4)*: `setupPrState` (`open`/`merged`/`closed_unmerged`,
+  null = non si sa), migrazione 0222, scritto dal worker all'apertura e dal
+  webhook alla chiusura o riapertura. Resta al renderer leggerlo invece di
+  mostrarla sempre aperta.
 - Chat dei Docs senza streaming *(S, fetta 1)*: se `CHAT_MAX_TOKENS` sale molto
   o arriva un modello lento, il primo a scattare è il timeout di 300 s del main
   (undici); la strada è lo streaming, non un timeout più alto.
@@ -1525,9 +1529,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   con `repos.view`, senza destinazione) (area 5, D6 = a): arrivano con un tool
   di Claude che legge il codice; oggi niente le produce.
 
-- Le task eliminate nella cronologia del progetto *(S)*: il server non ha una
+- ~~Le task eliminate nella cronologia del progetto *(S)*: il server non ha una
   cronologia di progetto che le nomini (la storia della task se ne va con
-  lei); lo standup e la richiesta d'origine sì. (Elimina task: chiusa, sotto.)
+  lei); lo standup e la richiesta d'origine sì. (Elimina task: chiusa, sotto.)~~
+  *Parte server chiusa il 24 nov 2026 (72, lotto 4)*: la cronologia e
+  l'attività del portafoglio portano `task_deleted` da `deleted_tickets`
+  (codice e titolo di allora, `byId`/`byName`, `viaClaude`). Con
+  `tickets.view_all` tutte, senza solo quelle eliminate da chi guarda; chi ha
+  eliminato è mascherato a chi non lo conosce (r.1414). Resta al renderer la
+  mappa nell'adattatore (`backend/real/overview.ts`, oggi le scarta).
 
 - **Chiuse con F2 (19 nov 2026)**: Claude fa domande a scelta anche nella
   conversazione libera (`ask_question`, una per risposta,

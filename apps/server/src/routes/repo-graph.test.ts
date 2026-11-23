@@ -118,6 +118,7 @@ describe("GET /api/repositories/:id/graph — metadati", () => {
       labeled: false,
       generatedAt: null,
       setupPrUrl: null,
+      setupPrState: null,
       error: null,
       jobPending: false,
       setupPrJobPending: false,
@@ -155,6 +156,8 @@ describe("GET /api/repositories/:id/graph — metadati", () => {
       communityCount: 263,
       labeled: true,
       setupPrUrl: "https://github.com/acme/repo/pull/7",
+      // Una PR aperta prima della 0222: lo stato non si sa, e non si dice «aperta».
+      setupPrState: null,
       generatedAt: generatedAt.toISOString(),
       jobPending: false,
     });

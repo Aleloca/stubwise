@@ -19,6 +19,7 @@ import {
   prReviews,
   projects,
   releases,
+  repoGraphs,
   repositories,
   ticketEvents,
   ticketRepositories,
@@ -2206,5 +2207,35 @@ describe("webhook PR Review (chiusura)", () => {
     const cmts = await ticketComments(ticketId);
     expect(cmts).toHaveLength(1);
     expect(cmts[0]!.authorType).toBe("system");
+  });
+});
+
+describe("rimandi, lotto 4: lo stato della PR di setup del grafo", () => {
+  it("il webhook della PR di setup ne scrive lo stato (merged, chiusa, riaperta); un'altra PR non lo tocca; la GET del grafo lo dice", async () => {
+    const project = await createProject({ name: "Webhook Setup Grafo", provider: "github", repoUrl: "https://github.com/acme/setup-grafo", credentials: { token: "tok" } });
+    const url = "https://github.com/acme/setup-grafo/pull/7";
+    await testDb.db.insert(repoGraphs).values({ repositoryId: project.id, setupPrUrl: url, setupPrState: "open" });
+    const post = (body: string) =>
+      app.inject({
+        method: "POST",
+        url: `/webhooks/git/${project.slug}`,
+        headers: { "content-type": "application/json", "x-github-event": "pull_request", "x-hub-signature-256": sign(project.webhookSecret, body) },
+        payload: body,
+      });
+    const state = async () => (await testDb.db.select({ s: repoGraphs.setupPrState }).from(repoGraphs).where(eq(repoGraphs.repositoryId, project.id)))[0]!.s;
+    const pr = (action: string, number: number, merged = false) =>
+      JSON.stringify({ action, pull_request: { number, merged, title: "graphify", body: "", head: { ref: "stubwise/graphify-setup", sha: "a".repeat(40) }, base: { ref: "main" }, html_url: `https://github.com/acme/setup-grafo/pull/${number}` } });
+
+    // Un'altra PR chiusa: lo stato della PR di setup non cambia.
+    expect((await post(pr("closed", 8))).statusCode).toBe(204);
+    expect(await state()).toBe("open");
+    expect((await post(pr("closed", 7))).statusCode).toBe(204);
+    expect(await state()).toBe("closed_unmerged");
+    await post(pr("reopened", 7));
+    expect(await state()).toBe("open");
+    await post(pr("closed", 7, true));
+    expect(await state()).toBe("merged");
+    const graph = await app.inject({ method: "GET", url: `/api/repositories/${project.id}/graph`, headers: { cookie: adminCookie } });
+    expect(graph.json()).toMatchObject({ setupPrUrl: url, setupPrState: "merged" });
   });
 });

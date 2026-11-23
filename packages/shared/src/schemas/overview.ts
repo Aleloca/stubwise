@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { personRefSchema } from "./person-ref.js";
 
 /**
  * L'Overview dell'app nuova (integrazione area 2, fetta 4): la cronologia di
@@ -16,8 +17,9 @@ import { z } from "zod";
  * task_closed, milestone_due → milestone (alla sua data, anche futura),
  * pr_opened/pr_merged/pr_closed → stessi kind, report_day → daily_report,
  * decision e brief → stessi kind. `milestone_closed` non ha un kind nel
- * prototipo (il traguardo si colloca alla sua data) e non esce; `task_deleted`
- * è dell'area 10a, non integrata.
+ * prototipo (il traguardo si colloca alla sua data) e non esce. `task_deleted`
+ * (area 10a, rimandi lotto 4) non viene dalla timeline del web vecchio: lo
+ * legge la cronologia da `deleted_tickets`, con codice e titolo di allora.
  */
 export const chronologyKindSchema = z.enum([
   "task_opened",
@@ -29,6 +31,7 @@ export const chronologyKindSchema = z.enum([
   "pr_opened",
   "pr_merged",
   "pr_closed",
+  "task_deleted",
 ]);
 export type ChronologyKind = z.infer<typeof chronologyKindSchema>;
 
@@ -57,6 +60,15 @@ export const chronologyEventSchema = z.object({
   prId: z.uuid().optional(),
   /** Il numero della pull request. */
   number: z.number().int().optional(),
+  /**
+   * `task_deleted`: chi l'ha eliminata (un segnaposto `hidden-<n>` per chi non
+   * lo conosce, r.1414) e il suo nome (null se mascherato o sparito). Il
+   * titolo di allora sta in `title`, il codice in `taskCode`.
+   */
+  byId: personRefSchema.optional(),
+  byName: z.string().nullable().optional(),
+  /** `task_deleted`: l'ha eliminata Claude, su conferma di `byId`. */
+  viaClaude: z.boolean().optional(),
 });
 export type ChronologyEvent = z.infer<typeof chronologyEventSchema>;
 

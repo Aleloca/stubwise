@@ -22,6 +22,7 @@ import {
   prReviews,
   projects,
   recordTicketStatusChange,
+  repoGraphs,
   repositories,
   ticketRepositories,
   tickets,
@@ -334,6 +335,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
         // riaperture) non deve riaprire una riga chiusa. Il ticket non si tocca.
         if (prEvent.reopened === true) {
           await reopenPrRows(instance.db, { repositoryId: context.repositoryId, prNumber: prEvent.prNumber });
+          await setSetupPrState(instance.db, context.repositoryId, prEvent.prNumber, "open");
         }
         // Area 8, F2 (S4): `pr.opened`, un fatto a sé (non dipende dalla PR
         // Review): una volta per PR, best-effort.
@@ -493,6 +495,8 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
         // `queued` orfana su una PR chiusa. Entrambe aprono la LORO
         // transazione su `instance.db`, prima e fuori da quelle qui sotto.
         const pr = { repositoryId: context.repositoryId, prNumber: event.prNumber };
+        // La PR di setup del grafo (rimandi, lotto 4): se è lei, il suo stato.
+        await setSetupPrState(instance.db, context.repositoryId, event.prNumber, event.kind === "merged" ? "merged" : "closed_unmerged");
         closedNowTicketIds = await markPrRowsClosed(
           instance.db,
           pr,
@@ -1002,4 +1006,15 @@ declare module "fastify" {
     /** Repository e provider autenticati dalla verifica della firma del webhook. */
     webhookContext?: { repositoryId: string; provider: "bitbucket" | "github" };
   }
+}
+
+/**
+ * Lo stato della PR di setup del grafo (rimandi, lotto 4, 0222): se la PR
+ * dell'evento è quella salvata su `repo_graphs` (stesso numero, letto
+ * dall'URL), se ne scrive lo stato. Nessuna riga o un'altra PR: niente.
+ */
+async function setSetupPrState(db: Db, repositoryId: string, prNumber: number, state: "open" | "merged" | "closed_unmerged"): Promise<void> {
+  const [graph] = await db.select({ url: repoGraphs.setupPrUrl }).from(repoGraphs).where(eq(repoGraphs.repositoryId, repositoryId));
+  if (!graph?.url || prNumberFromUrl(graph.url) !== prNumber) return;
+  await db.update(repoGraphs).set({ setupPrState: state, updatedAt: new Date() }).where(eq(repoGraphs.repositoryId, repositoryId));
 }

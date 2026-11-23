@@ -24,6 +24,12 @@ export const repoGraphStateSchema = z.object({
   labeled: z.boolean(),
   generatedAt: z.iso.datetime().nullable(),
   setupPrUrl: z.string().nullable(),
+  /**
+   * Lo stato della PR di setup (rimandi, lotto 4): `open` all'apertura, poi
+   * dal webhook. null = non si sa (aperta prima che il server lo seguisse, o
+   * un webhook mancato): il client non deve dedurne «aperta».
+   */
+  setupPrState: z.enum(["open", "merged", "closed_unmerged"]).nullable().default(null),
   error: z.string().nullable(),
   /** Esiste un job `build` queued/running (la UI fa polling finché è true). */
   jobPending: z.boolean(),

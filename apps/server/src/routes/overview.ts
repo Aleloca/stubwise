@@ -5,6 +5,7 @@ import { z } from "zod";
 import { projectPermissionsMap, routePermissions, type RouteAccess } from "../auth/access.js";
 import { fromParam } from "../auth/project-resolvers.js";
 import { latestWeeklyBrief, portfolioActivity, projectChronology } from "../services/chronology.js";
+import { registerPersonMask } from "../services/people-known.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -23,6 +24,9 @@ const beforeQuery = z.object({ before: z.iso.datetime().optional() });
 
 export async function overviewRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
+  // Chi ha eliminato una task (`task_deleted.byId`): un segnaposto, e il nome
+  // null, a chi non lo conosce (registro, A11 r.1414).
+  registerPersonMask(app, new Set(["byId"]));
 
   app.get(
     "/projects/:projectId/chronology",
