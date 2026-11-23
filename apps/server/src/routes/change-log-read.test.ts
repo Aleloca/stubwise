@@ -170,12 +170,60 @@ describe("leggere il registro", () => {
     expect(page.entries.some((e) => e.type === "member.removed" && e.data.object.id === gone.id)).toBe(true);
   });
 
-  it("review I4 (decisione b): l'attore si mostra per nome anche a chi non lo vede altrove", async () => {
+  it("review I4 (decisione b), superata dal registro A11 r.1414: l'attore si mostra per nome a chi lo CONOSCE (qui un ex membro di un progetto che chi guarda vede), non a chi non lo conosce", async () => {
     const [r] = await db.insert(roles).values({ name: `Att ${randomUUID().slice(0, 4)}`, scope: "instance", permissions: ["roles.manage"] }).returning({ id: roles.id });
     await db.update(users).set({ instanceRoleId: r!.id, displayName: "Fuori Vista" }).where(eq(users.id, cast.outsider.id));
     const role = { type: "role", id: randomUUID(), label: "Da fuori" };
     await db.transaction((tx) => recordChange(tx, { type: "role.created", actor: { id: cast.outsider.id, email: cast.outsider.email }, projectId: null, data: { object: role } }));
     const e = (await read(cast.rolesMgr.cookie, "?type=role.created&withinDays=1")).entries.find((x) => x.data.object.id === role.id)!;
-    expect(e.actor).toMatchObject({ id: cast.outsider.id, name: "Fuori Vista", kind: "user" });
+    // `rolesMgr` non ha progetti né canali in comune con `outsider`: niente id, niente nome.
+    expect(e.actor).toMatchObject({ id: expect.stringMatching(/^hidden-\d+$/), name: null, kind: "user" });
+    // Chi lo conosce (il full admin) lo legge per nome.
+    const seen = (await read(adminCookie, "?type=role.created&withinDays=1")).entries.find((x) => x.data.object.id === role.id)!;
+    expect(seen.actor).toMatchObject({ id: cast.outsider.id, name: "Fuori Vista", kind: "user" });
+  });
+});
+
+describe("registro, A11 r.1414: chi non si conosce non ha né id né nome", () => {
+  it("l'attore sconosciuto (nessun progetto in comune, nessun canale leggibile) esce come `hidden-<n>` senza nome; chi si conosce no", async () => {
+    const reader = await person("reader", ["changelog.view"]);
+    await addMember(app, projectA, reader.id, "viewer");
+    const stranger = await person("stranger", ["roles.manage"]);
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < 2; i++) await recordChange(tx, { type: "role.created", actor: stranger, projectId: null, data: { object: { type: "role", id: randomUUID(), label: `Da sconosciuto ${i}` } } });
+      await recordChange(tx, { type: "role.created", actor: cast.leadA, projectId: null, data: { object: { type: "role", id: randomUUID(), label: "Da Lead A" } } });
+    });
+    const res = await app.inject({ method: "GET", url: "/api/change-log?type=role.created", headers: { cookie: reader.cookie } });
+    expect(res.statusCode, res.body).toBe(200);
+    const page = res.json() as ChangeLogPage;
+    const byLabel = (label: string) => page.entries.find((e) => JSON.stringify(e.data).includes(label))!;
+    expect(byLabel("Da sconosciuto 0").actor).toEqual({ id: "hidden-1", name: null, kind: "user" });
+    // Lo stesso segnaposto per la stessa persona, in tutta la risposta.
+    expect(byLabel("Da sconosciuto 1").actor.id).toBe("hidden-1");
+    expect(byLabel("Da Lead A").actor).toMatchObject({ id: cast.leadA.id, name: expect.any(String) });
+    expect(res.body).not.toContain(stranger.id);
+    expect(res.body).not.toContain(stranger.email.split("@")[0]!);
+    // Chi ha tutti i progetti (full admin) conosce tutti.
+    const all = (await read(adminCookie, "?type=role.created")).entries;
+    expect(all.some((e) => e.actor.id === stranger.id)).toBe(true);
+  });
+
+  it("un ex membro di un progetto visibile resta conosciuto; chi scrive in un canale che chi guarda legge anche", async () => {
+    const reader = await person("reader2", ["changelog.view"]);
+    await addMember(app, projectA, reader.id, "viewer");
+    const former = await person("former", ["roles.manage"]);
+    const writer = await person("writer", ["roles.manage"]);
+    await db.transaction(async (tx) => {
+      await recordChange(tx, { type: "member.removed", actor: admin, projectId: projectA, data: { object: { type: "member", id: former.id, label: former.email } } });
+      await recordChange(tx, { type: "role.created", actor: former, projectId: null, data: { object: { type: "role", id: randomUUID(), label: "Da ex membro" } } });
+      await recordChange(tx, { type: "role.created", actor: writer, projectId: null, data: { object: { type: "role", id: randomUUID(), label: "Da chi scrive" } } });
+    });
+    const { chatChannels, chatMessages } = await import("@stubwise/db");
+    const [ch] = await db.insert(chatChannels).values({ kind: "general", visibility: "open", name: `tutti-${randomUUID().slice(0, 6)}` } as never).returning({ id: chatChannels.id });
+    await db.insert(chatMessages).values({ channelId: ch!.id, authorId: writer.id, kind: "person", body: "ciao a tutti", searchFolded: "ciao a tutti" } as never);
+    const entries = (await read(reader.cookie, "?type=role.created")).entries;
+    const byLabel = (label: string) => entries.find((e) => JSON.stringify(e.data).includes(label))!;
+    expect(byLabel("Da ex membro").actor.id).toBe(former.id);
+    expect(byLabel("Da chi scrive").actor.id).toBe(writer.id);
   });
 });

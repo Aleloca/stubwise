@@ -290,8 +290,13 @@ const changeEntryBaseSchema = z.object({
   type: z.enum(CHANGE_LOG_KINDS),
   at: z.iso.datetime(),
   actor: z.object({
-    id: z.uuid().nullable().default(null),
-    name: z.string(),
+    /**
+     * Registro, A11 r.1414: l'id, oppure `hidden-<n>` per chi chi guarda non
+     * conosce (un segnaposto della risposta, mai un id da mandare indietro).
+     */
+    id: z.string().nullable().default(null),
+    /** Null per chi chi guarda non conosce: la pagina scrive «Someone». */
+    name: z.string().nullable(),
     kind: z.enum(["user", "agent", "system"]),
   }),
   projectId: z.uuid().nullable().default(null),

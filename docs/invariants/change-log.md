@@ -18,10 +18,13 @@
   progetto o col `readPermission` lì; mai una voce che nomini un progetto
   invisibile. Le voci di un progetto ELIMINATO restano nella tabella e non le
   legge nessuno, come nel prototipo.
-- **L'attore di una voce si mostra per nome anche a chi non lo vede altrove;
-  l'oggetto e i `params` seguono R-G5** (decisione del maintainer, review di
-  F2, 18 nov 2026). Chi ha toccato qualcosa che gestisco non è un segreto: è
-  il comportamento del prototipo (`actorName` sempre). Ma una voce su una
+- **L'attore di una voce si mostra per nome a chi lo CONOSCE** (registro, A11
+  r.1414, decisione del maintainer del 23 nov 2026, che supera quella della
+  review di F2 del 18 nov, «per nome anche a chi non lo vede altrove»): chi
+  guarda non conosce l'attore (`peopleKnownTo`, `services/people-known.ts`:
+  nessun progetto visibile in comune, presente o passato, nessun canale
+  leggibile) → `actor.id` è il segnaposto `hidden-<n>` della risposta e
+  `actor.name` null («Someone»). L'oggetto e i `params` seguono R-G5. Ma una voce su una
   PERSONA che chi guarda non vede non esiste per lui (`person.*`), e dai
   `params` che elencano persone si tolgono quelle invisibili. Le voci di un
   progetto (`member.*`) le protegge la visibilità del progetto, così chi lo
