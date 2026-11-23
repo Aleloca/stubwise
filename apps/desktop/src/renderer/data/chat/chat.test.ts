@@ -15,6 +15,7 @@ import {
   whenIdle,
 } from "../api";
 import { queryKeys } from "../queries";
+import { resolveCitations } from "../api";
 import { strangersTo, viewerWithStrangers } from "../../test/strangers";
 import { PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
@@ -1086,6 +1087,21 @@ describe("chat: revisione finale dell'area", () => {
       const mine = page.messages.find((m) => m.id === sent.id)!;
       expect(mine.reactions[0]!.personIds).toEqual(["p-laura", "hidden-1"]);
       expect(JSON.stringify(page)).not.toContain(stranger!);
+    });
+
+    // Revisione del lotto 2, I5: le citazioni di tipo persona passano dal
+    // masker della risposta, e `resolveCitations` segue «chi si conosce».
+    it("una citazione di una persona che non si conosce: segnaposto, e la scheda è nascosta", async () => {
+      as("p-laura");
+      const sent = await chat.sendMessage("ch-announcements", { text: "Ask her" });
+      const [who] = strangersTo("p-laura");
+      state.chatMessages.find((m) => m.id === sent.id)!.citations = [{ kind: "person", id: who! }];
+      const page = (await chat.listMessages("ch-announcements"))!;
+      const mine = page.messages.find((m) => m.id === sent.id)!;
+      expect(mine.citations).toEqual([{ kind: "person", id: "hidden-1" }]);
+      expect(JSON.stringify(page)).not.toContain(who!);
+      const [view] = await resolveCitations([{ kind: "person", id: who! }]);
+      expect(view).toMatchObject({ visible: false, name: null, personId: null });
     });
 
     it("un segnaposto per persona, lo stesso in tutta la risposta (pagina e thread)", async () => {

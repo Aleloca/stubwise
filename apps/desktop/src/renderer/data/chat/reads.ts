@@ -206,6 +206,8 @@ export function presentMessage(
     authorId: mask(base.authorId),
     reactions: base.reactions.map((r) => ({ ...r, personIds: r.personIds.map(mask) })),
     asksReplyOf: base.asksReplyOf.map(mask),
+    // Revisione del lotto 2, I5: una citazione di una persona che non si conosce, segnaposto.
+    citations: base.citations.map((c) => (c.kind === "person" ? { ...c, id: mask(c.id) } : c)),
     deletedById: mask(base.deletedById),
     ...(base.calledById !== undefined ? { calledById: mask(base.calledById) } : {}),
     thread: last
@@ -354,10 +356,14 @@ export function channelLabel(ch: Channel, personId: string): string {
   ).label;
 }
 
-export function channelView(personId: string, ch: Channel): ChannelView {
+export function channelView(
+  personId: string,
+  ch: Channel,
+  // R.1414: il masker della risposta (un elenco di canali ne ha uno solo, I7).
+  mask: PersonMask = personMasker(personId),
+): ChannelView {
   const readable = canReadChannel(personId, ch);
   // R.1414: gli id di chi non si conosce, segnaposti (dopo i permessi, che li leggono veri).
-  const mask = personMasker(personId);
   const permissions = channelPermissions(personId, ch);
   return {
     ...copy(ch),
@@ -426,7 +432,12 @@ function countsOf(
   return { unread, mentions, toMe: mine };
 }
 
-function channelRow(personId: string, ch: Channel, messages: ChatMessage[]): ChannelRow {
+function channelRow(
+  personId: string,
+  ch: Channel,
+  messages: ChatMessage[],
+  mask: PersonMask,
+): ChannelRow {
   const data = channelData(ch, messages);
   const readable = canReadChannel(personId, ch);
   const live = readable
@@ -437,7 +448,7 @@ function channelRow(personId: string, ch: Channel, messages: ChatMessage[]): Cha
     null,
   );
   return {
-    ...channelView(personId, ch),
+    ...channelView(personId, ch, mask),
     ...channelCounts(personId, data),
     lastActivityAt: latest,
   };
@@ -531,12 +542,13 @@ export async function listChannels(
 ): Promise<ChannelRow[]> {
   const me = await gate("chat.listChannels");
   const byChannel = messagesByChannel();
+  const mask = personMasker(me);
   return state.channels
     .filter(
       (ch) =>
         canSeeChannel(me, ch) && (options.scope === "all" || ch.projectId === options.projectId),
     )
-    .map((ch) => channelRow(me, ch, byChannel.get(ch.id) ?? []));
+    .map((ch) => channelRow(me, ch, byChannel.get(ch.id) ?? [], mask));
 }
 
 /** Un canale con i permessi di chi guarda; `null` se non lo vede. */

@@ -354,3 +354,27 @@ describe("ChannelSettings: un membro che chi gestisce non conosce (r.1414)", () 
     expect(within(row).queryByRole("button", { name: /Remove/ })).toBeNull();
   });
 });
+
+// Revisione del lotto 2, I7: `listChannels` è UNA risposta, quindi la stessa
+// persona nascosta ha lo stesso segnaposto in tutte le righe.
+describe("listChannels: un segnaposto per persona in tutte le righe (r.1414)", () => {
+  it("due canali con gli stessi due sconosciuti, in ordine diverso: gli stessi segnaposti", async () => {
+    const { strangersTo, viewerWithStrangers } = await import("../../test/strangers");
+    const { visibleProjectIds } = await import("../../data/store");
+    const { grantProjectPermission } = await import("../../data/viewer");
+    const base = state.channels.find((c) => c.id === "ch-aud-pricing")!;
+    const viewer = viewerWithStrangers(2);
+    if (!visibleProjectIds(viewer).has("prj-aud")) return expect.fail(`${viewer} non vede AUD`);
+    const [a, b] = strangersTo(viewer, 2);
+    grantProjectPermission(viewer, "prj-aud", "chat.channels.manage");
+    base.memberIds = [...base.memberIds.filter((id) => id !== viewer), a!, b!];
+    state.channels.push({ ...structuredClone(base), id: "ch-aud-pricing-2", name: "pricing-2", memberIds: [b!, a!] });
+    setSessionPersonId(viewer);
+    const rows = await api.chat.listChannels();
+    const one = rows.find((r) => r.id === "ch-aud-pricing")!;
+    const two = rows.find((r) => r.id === "ch-aud-pricing-2")!;
+    const hiddenOf = (ids: string[]) => ids.filter((id) => id.startsWith("hidden-"));
+    expect(hiddenOf(one.memberIds)).toEqual(["hidden-1", "hidden-2"]);
+    expect(hiddenOf(two.memberIds)).toEqual(["hidden-2", "hidden-1"]);
+  });
+});

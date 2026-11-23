@@ -1535,6 +1535,10 @@ export async function resolveCitations(refs: CitationRef[]): Promise<CitationVie
   const me = await gate("resolveCitations");
   const visible = visibleProjectIds(me);
   const viewer = viewerFor(me);
+  // Revisione del lotto 2, I5 (r.1414): una persona che non si conosce è
+  // nascosta; l'assegnatario di una task citata passa dal masker.
+  const known = knownPeopleFor(me);
+  const mask = personMasker(me);
   const hidden = (ref: CitationRef): CitationView => ({
     kind: ref.kind,
     id: ref.id,
@@ -1561,7 +1565,7 @@ export async function resolveCitations(refs: CitationRef[]): Promise<CitationVie
           name: t.title,
           projectCode: project,
           status: state.statusById.get(t.statusId)?.name ?? null,
-          personId: t.assigneeId,
+          personId: mask(t.assigneeId),
           route: `#/p/${project}/tasks?task=${t.code}`,
         };
       }
@@ -1665,7 +1669,7 @@ export async function resolveCitations(refs: CitationRef[]): Promise<CitationVie
       }
       case "person": {
         const p = PEOPLE.find((x) => x.id === ref.id);
-        if (!p) return hidden(ref);
+        if (!p || (p.id !== me && p.id !== CLAUDE_ID && !known.has(p.id))) return hidden(ref);
         return { ...hidden(ref), visible: true, name: p.name, personId: p.id };
       }
       // Le schede degli eventi della Chat (area 4): visibili a chi vede il progetto.
