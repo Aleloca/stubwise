@@ -2806,6 +2806,13 @@ export interface MailDraftRestore {
    * prototipo non ha Gmail: mai vero.
    */
   gmailOutdated?: boolean;
+  /**
+   * Build app (revisione del lotto 2, I5): l'unione ha perso qualcosa
+   * (allegati fuori, o Gmail non riscritto), e la versione annullata resta
+   * fra le bozze di Gmail come copia di sicurezza. Il toast lo dice. Il
+   * prototipo non ha Gmail: mai vero.
+   */
+  gmailCopyKept?: boolean;
 }
 
 /** I filtri dell'elenco della Posta (tutti facoltativi). */
