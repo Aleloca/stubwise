@@ -9648,8 +9648,7 @@
       "privileged": "Accesso SSH spento: stubwise-read può fare più che leggere",
       "revoked": "Accesso SSH revocato",
       "verified": "Accesso SSH verificato",
-      "regenerating": "Nuove chiavi SSH in attesa del comando",
-      "cantLook": "{{access}}: Claude non può guardarci"
+      "regenerating": "Nuove chiavi SSH in attesa del comando"
     },
     "duration": {
       "lessThanMinute": "meno di un minuto",

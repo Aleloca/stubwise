@@ -83,10 +83,13 @@ describe("Servers — l'elenco", () => {
     ).toBeInTheDocument();
     // Il nome della riga dice anche la seconda riga: accesso, ambienti (T7 m1).
     expect(within(attention).getByRole("link", { name: /^SRV-2 / })).toHaveAccessibleName(
-      /No SSH access: Claude can't look into it\. .*STW/,
+      /No SSH access\. .*STW/,
     );
     expect(row("SRV-2")).toHaveTextContent("In trouble");
-    expect(row("SRV-2")).toHaveTextContent("No SSH access: Claude can't look into it");
+    // Senza SSH l'analisi parte lo stesso (decisione del 15 nov 2026): la riga
+    // dice l'accesso, non che Claude non può guardarci.
+    expect(row("SRV-2")).toHaveTextContent("No SSH access");
+    expect(row("SRV-2")).not.toHaveTextContent("can't look into it");
     // Il glifo colorato non parla da solo.
     for (const svg of row("SRV-2").querySelectorAll("svg")) {
       expect(svg).toHaveAttribute("aria-hidden", "true");

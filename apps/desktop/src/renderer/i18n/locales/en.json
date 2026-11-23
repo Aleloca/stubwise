@@ -9648,8 +9648,7 @@
       "privileged": "SSH access turned off: stubwise-read can do more than read",
       "revoked": "SSH access revoked",
       "verified": "SSH access verified",
-      "regenerating": "New SSH keys waiting for the command",
-      "cantLook": "{{access}}: Claude can't look into it"
+      "regenerating": "New SSH keys waiting for the command"
     },
     "duration": {
       "lessThanMinute": "less than a minute",

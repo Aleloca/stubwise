@@ -772,12 +772,12 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
     expect(prodOf(STW)[0]!.servers.map((s) => [s.repositoryId, s.serverCode])).toEqual([
       [null, "SRV-2"],
     ]);
-    expect(prodOf(AUD)[0]!.servers.map((s) => [repoOf(s.repositoryId!).name, s.serverCode])).toEqual(
-      [
-        ["audin-app", "SRV-3"],
-        ["audin-admin", "SRV-4"],
-      ],
-    );
+    expect(
+      prodOf(AUD)[0]!.servers.map((s) => [repoOf(s.repositoryId!).name, s.serverCode]),
+    ).toEqual([
+      ["audin-app", "SRV-3"],
+      ["audin-admin", "SRV-4"],
+    ]);
     // STW: la produzione riporta STW-V1 («in produzione»), non STW-V2 («non ancora»).
     const stwProd = prodOf(STW)[0]!.servers[0]!;
     const byCode = (c: string) => RELEASES.find((r) => r.code === c)!;
@@ -812,7 +812,11 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
       }
       if (c.continuedInId) {
         const next = SUPPORT_CONVERSATIONS.find((x) => x.id === c.continuedInId)!;
-        expect([next.projectId, next.channel, next.widgetId]).toEqual([c.projectId, c.channel, c.widgetId]);
+        expect([next.projectId, next.channel, next.widgetId]).toEqual([
+          c.projectId,
+          c.channel,
+          c.widgetId,
+        ]);
         expect(next.customer).toEqual(c.customer);
       }
       const ats = c.messages.map((m) => m.at);
@@ -820,7 +824,11 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
       if (c.requestId) {
         const request = requestsById.get(c.requestId)!;
         expect(request.projectId).toBe(c.projectId);
-        expect(request.origin).toEqual({ kind: "support", conversationId: c.id, conversationCode: c.code });
+        expect(request.origin).toEqual({
+          kind: "support",
+          conversationId: c.id,
+          conversationCode: c.code,
+        });
       }
     }
     const acq = SUPPORT_CONVERSATIONS.filter((c) => c.projectId === ACQ);
@@ -831,10 +839,12 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
     expect(closedThenContinued.map((c) => c.code)).toEqual(["ACQ-S2"]);
     // Non conclusa e risposta bastata (area 8, F3): il giudizio del controllo, nessuna richiesta.
     const judged = acq.filter((c) => c.triage);
-    expect(judged.map((c) => [c.code, c.triage!.outcome, c.triage!.byUserId, c.requestId])).toEqual([
-      ["ACQ-S3", "not_concluded", null, null],
-      ["ACQ-S8", "concluded", null, null],
-    ]);
+    expect(judged.map((c) => [c.code, c.triage!.outcome, c.triage!.byUserId, c.requestId])).toEqual(
+      [
+        ["ACQ-S3", "not_concluded", null, null],
+        ["ACQ-S8", "concluded", null, null],
+      ],
+    );
     // Dal server MCP, con la conversazione allegata alla richiesta.
     const mcp = acq.find((c) => c.channel === "mcp")!;
     expect(mcp.requestId).not.toBeNull();
@@ -845,7 +855,9 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
     for (const r of REQUESTS) {
       if (!r.origin || r.origin.kind === "product_doc") continue;
       expect(r.origin.kind).toBe("support");
-      const c = SUPPORT_CONVERSATIONS.find((x) => x.id === (r.origin as { conversationId: string }).conversationId)!;
+      const c = SUPPORT_CONVERSATIONS.find(
+        (x) => x.id === (r.origin as { conversationId: string }).conversationId,
+      )!;
       expect(c.requestId).toBe(r.id);
     }
     // Area 10b: più ACQ-S5 e ACQ-S6; poi ACQ-S7 (5 nov 2026).
@@ -971,7 +983,14 @@ describe("seed: conversazioni con Claude", () => {
         expect(c.publishedAt).toBeNull();
         // La posta resta del titolare; le altre sessioni seguono il progetto.
         expect(c.visibility).toBe(c.kind === "mail_classify" ? "private" : "project");
-        if (c.kind !== "mail_classify") expect(c.projectId).not.toBeNull();
+        // Un'analisi di un server con la causa non determinata resta senza
+        // progetto (F4b-4): la legge chi gestisce il monitor (SRV-2, scelta A2 di 46).
+        const undetermined =
+          c.kind === "server_analysis" &&
+          SERVER_ANALYSES.some(
+            (a) => a.conversationId === c.id && a.attribution?.kind === "undetermined",
+          );
+        if (c.kind !== "mail_classify" && !undetermined) expect(c.projectId).not.toBeNull();
       }
       if (c.kind === "task_run" || c.kind === "pr_review") expect(c.taskId).not.toBeNull();
       if (c.kind === "refine" || c.kind === "intake") expect(c.requestId).not.toBeNull();
@@ -2634,7 +2653,8 @@ describe("seed: server (area 8b)", () => {
   it("SRV-1: analisi conclusa in sola lettura, con la sessione server_analysis e l'ultimo uso", () => {
     const ep = episodesOf("SRV-1")[0]!;
     const an = SERVER_ANALYSES.find((x) => x.id === ep.analysisId)!;
-    expect(SERVER_ANALYSES).toEqual([an]);
+    // Due analisi nel seme: questa e quella di SRV-2 (senza SSH, sotto).
+    expect(SERVER_ANALYSES.filter((x) => x.serverCode === "SRV-1")).toEqual([an]);
     expect(an).toMatchObject({
       serverCode: "SRV-1",
       episodeId: ep.id,
@@ -2661,7 +2681,7 @@ describe("seed: server (area 8b)", () => {
     expect(an.endedAt! > an.startedAt).toBe(true);
     // La sessione: di Claude, del progetto, conclusa, solo comandi di lettura con le uscite.
     const c = CONVERSATIONS.find((x) => x.id === an.conversationId)!;
-    expect(SERVER_CONVERSATIONS.map((s) => s.conversation.id)).toEqual([c.id]);
+    expect(SERVER_CONVERSATIONS.map((s) => s.conversation.id)).toEqual([c.id, "cv-srv-2-analysis"]);
     expect(c).toMatchObject({
       kind: "server_analysis",
       ownerId: "p-claude",
@@ -2703,9 +2723,7 @@ describe("seed: server (area 8b)", () => {
     const later = new Set([...TASKS_10B, ...TASKS_11B].map((t) => t.id));
     const acqNumbers = TASKS.filter(
       (t) => t.projectId === ACQ && t.id !== an.taskId && !later.has(t.id),
-    ).map((t) =>
-      Number(t.code.split("-")[1]),
-    );
+    ).map((t) => Number(t.code.split("-")[1]));
     expect(SERVER_TASK_CODE).toBe(`ACQ-${Math.max(...acqNumbers) + 1}`);
     expect(SERVER_TASKS).toHaveLength(1);
     const task = TASKS.find((t) => t.id === an.taskId)!;
@@ -2734,23 +2752,51 @@ describe("seed: server (area 8b)", () => {
     expect(n.createdAt).toBe(an.endedAt);
   });
 
-  it("SRV-2 (STW): accesso non collegato, episodio disco aperto senza analisi, l'avviso lo dice", () => {
+  // Decisione del maintainer del 15 nov 2026, riconfermata il 23 nov: senza
+  // SSH l'analisi parte lo stesso, solo senza le letture SSH. Scelta A2 di 46:
+  // nel seme è già finita, con la causa non determinata e nessuna task.
+  it("SRV-2 (STW): accesso non collegato, episodio disco aperto, analisi senza SSH finita senza task; gli avvisi lo dicono", () => {
     expect(accessOf("SRV-2")).toBeUndefined();
     const open = episodesOf("SRV-2").filter((e) => e.recoveredAt === null);
     expect(open).toHaveLength(1);
     const ep = open[0]!;
     expect(ep.severity).toBe("trouble");
-    expect(ep.analysisId).toBeNull();
+    const an = SERVER_ANALYSES.find((a) => a.id === ep.analysisId)!;
+    expect(an).toMatchObject({
+      serverCode: "SRV-2",
+      episodeId: ep.id,
+      outcome: "diagnosed",
+      attribution: { kind: "undetermined" },
+      taskId: null,
+    });
+    expect(an.diagnosis).toMatch(/without SSH reads/);
+    // L'attribuzione è quella che la regola di shared dà sui dati del seme:
+    // SRV-2 lo usa solo STW, ma il container nominato l'agente non lo riporta.
+    expect(an.attribution).toEqual(
+      attributeServerCause({
+        serverProjects: serverProjectsOf("SRV-2", ENVIRONMENTS, (id) => projectsById.get(id)!.code),
+        seenContainers: server("SRV-2")
+          .services.filter((x) => x.source === "docker")
+          .map((x) => x.name),
+        cause: { projectCode: "STW", containers: ["stw-replica"] },
+      }),
+    );
     const down = SERVER_CHECKS.find((c) => c.status === "down")!;
     expect(ep.reasons).toEqual([
       { kind: "disk", valuePct: diskPctOf("SRV-2"), thresholdPct: 90 },
       { kind: "check", checkId: down.id },
     ]);
     expect(diskPctOf("SRV-2")).toBeGreaterThan(90);
-    expect(SERVER_ANALYSES.some((a) => a.serverCode === "SRV-2")).toBe(false);
+    expect(SERVER_ANALYSES.filter((a) => a.serverCode === "SRV-2")).toEqual([an]);
     const n = notification("server.trouble", "SRV-2");
     expect(n).toMatchObject({ projectId: STW, createdAt: ep.startedAt });
-    expect(n.body).toMatch(/no SSH access/);
+    expect(n.body).toMatch(/Claude is looking into it, without SSH reads\./);
+    const ready = notification("server.diagnosis_ready", "SRV-2");
+    expect(ready).toMatchObject({
+      projectId: STW,
+      title: "Cause not determined",
+      createdAt: an.endedAt,
+    });
   });
 
   it("SRV-3 (AUD, audin-app): in salute, accesso in attesa del comando (chiave generata, mai verificata)", () => {
@@ -2768,7 +2814,10 @@ describe("seed: server (area 8b)", () => {
     expect(ms(NOW) - ms(old!.recoveredAt!)).toBeGreaterThan(24 * 3600_000);
     expect(notification("server.down", "SRV-3").createdAt).toBe(old!.startedAt);
     expect(notification("server.recovered", "SRV-3").createdAt).toBe(old!.recoveredAt);
-    for (const n of [notification("server.down", "SRV-3"), notification("server.recovered", "SRV-3")])
+    for (const n of [
+      notification("server.down", "SRV-3"),
+      notification("server.recovered", "SRV-3"),
+    ])
       expect(n.projectId).toBe(AUD);
   });
 

@@ -3,7 +3,7 @@ import type { ServerAnalysis, ServerCommandMeta, Task } from "../../types";
 import { at, done, says, seeded, type Seeded } from "../conversations/helpers";
 import { PROJECTS } from "../projects";
 import { statusIdOf } from "../statuses";
-import { SRV1_MEMORY_EPISODE } from "./episodes";
+import { SRV1_MEMORY_EPISODE, SRV2_DISK_EPISODE } from "./episodes";
 
 // L'analisi dell'allarme di memoria di SRV-1: Claude guarda il server con
 // l'accesso di LETTURA e, con le operazioni dell'agente accese, legge il log
@@ -28,6 +28,19 @@ const TASK_LINK = `#/p/ACQ/tasks?task=${SERVER_TASK_CODE}`;
 const PROPOSAL =
   "Restart the `portale-import` container so the memory comes back now; then commit the readings in batches of 5,000 rows instead of all at the end, so an import can't starve the portal again.";
 
+// L'allarme di SRV-2 di stamattina: db-stw-01 non ha l'accesso SSH, e
+// l'analisi parte lo stesso, solo senza le letture SSH (decisione del
+// maintainer del 15 nov 2026, riconfermata il 23 nov). È già finita (scelta
+// A2 di 46): Claude ha guardato con ciò che riporta l'agente e non ha potuto
+// dire quale progetto è la causa (ha nominato un container che l'agente non
+// riporta), quindi nessuna task: la diagnosi resta sull'episodio.
+const SRV2_ANALYSIS_ID = SRV2_DISK_EPISODE.analysisId!;
+const SRV2_CONVERSATION_ID = "cv-srv-2-analysis";
+const SRV2_STARTED = at(0, "09:41");
+const SRV2_ENDED = at(0, "09:47");
+export const SRV2_UNDETERMINED_BODY =
+  "Claude looked into db-stw-01 with read-only access, but couldn't tell which project is causing it: it named a container the agent doesn't report on this server. No task was opened.";
+
 export const SERVER_ANALYSES: ServerAnalysis[] = [
   {
     id: ANALYSIS_ID,
@@ -44,6 +57,23 @@ export const SERVER_ANALYSES: ServerAnalysis[] = [
     endedAt: ENDED,
     // La stessa proposta della task (sotto, «**Proposal** —»).
     proposal: PROPOSAL,
+  },
+  {
+    id: SRV2_ANALYSIS_ID,
+    serverCode: "SRV-2",
+    episodeId: SRV2_DISK_EPISODE.id,
+    conversationId: SRV2_CONVERSATION_ID,
+    attribution: { kind: "undetermined", reason: "unknown_container" },
+    outcome: "diagnosed",
+    taskId: null,
+    startedAt: SRV2_STARTED,
+    endedAt: SRV2_ENDED,
+    proposal: null,
+    diagnosis: [
+      "**Diagnosis** — Disk on db-stw-01 (SRV-2) reached 93%, above the 90% alert, and the check “Replica port” is down. The agent reports the Postgres data directory growing by about 1.3% a day for a week, and the replica refusing connections on 10.0.4.12:5433.",
+      "",
+      "Claude looked without SSH reads (there is no read-only SSH access on db-stw-01): only what the agent reports. Nothing was changed on the server.",
+    ].join("\n"),
   },
 ];
 
@@ -149,7 +179,31 @@ const analysis = seeded(
   ],
 );
 
-export const SERVER_CONVERSATIONS: Seeded[] = [analysis];
+const srv2Analysis = seeded(
+  {
+    id: SRV2_CONVERSATION_ID,
+    kind: "server_analysis",
+    title: "SRV-2 db-stw-01 · disk above 90%, “Replica port” down",
+    serverAnalysis: { serverCode: "SRV-2" },
+    ownerId: "p-claude",
+    state: "finished",
+    outcome: "ok",
+  },
+  [
+    { at: SRV2_STARTED, type: "phase", phase: "analysis", outcome: null },
+    says(
+      SRV2_STARTED,
+      "Disk on db-stw-01 is at 93%, above the 90% alert, and the check “Replica port” is down. There is no read-only SSH access: looking into it with what the agent reports, without SSH reads.",
+    ),
+    says(
+      SRV2_ENDED,
+      "I couldn't tell which project is causing it (it named a container the agent doesn't report on this server), so I didn't open a task or propose a fix. The diagnosis stays with the alert on SRV-2.",
+    ),
+    { at: SRV2_ENDED, type: "phase", phase: "analysis", outcome: "ok" },
+  ],
+);
+
+export const SERVER_CONVERSATIONS: Seeded[] = [analysis, srv2Analysis];
 
 /**
  * La task della diagnosi: bug, senza incaricato, di Claude, legata al
