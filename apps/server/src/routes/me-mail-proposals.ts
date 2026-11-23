@@ -14,7 +14,7 @@ import {
 } from "../services/mail-proposals-decide.js";
 import type { RoleRuleError } from "../services/roles.js";
 import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
-import { listMailProposals } from "../services/mail-proposals.js";
+import { listMailProposals, maskMailDeciders } from "../services/mail-proposals.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -31,6 +31,8 @@ export async function meMailProposalsRoutes(instance: FastifyInstance, opts: { m
   // F3b: col flag della dottrina nuova anche le proposte del calendario.
   const includeCalendar = opts.mailClassifyV2 === true;
   const app = instance.withTypeProvider<ZodTypeProvider>();
+  // Registro, A11 r.1414: chi ha deciso o passato, se chi guarda non lo conosce, è un segnaposto.
+  app.addHook("preSerialization", async (request, _reply, payload) => (request.user ? maskMailDeciders(app.db, request.user, payload) : payload));
 
   app.get(
     "/",

@@ -431,6 +431,14 @@ punti lato server sta nell'inventario consegnato a 72 (sotto).
   account. Per ogni altra card il nome di chi ha agito non si scrive nel
   testo salvato, o non esce a chi non lo conosce: il testo si compone a
   lettura da `actorName` / `memberName` («Someone»).
+- **La posta e il calendario** (decisione di 46, 23 nov 2026): chi compare
+  nelle intestazioni di un'email ricevuta da chi guarda (mittente, to, cc) e
+  gli invitati di un evento del suo calendario sono conosciuti per QUELLA
+  proposta o quell'evento. Quindi `outsiders`, `sharedWith` e gli argomenti
+  delle azioni di una proposta restano veri; `decidedBy` e `handedBy` no (un
+  decisore che chi guarda non conosce e che non compare nella proposta è
+  `hidden-<n>` col nome vuoto, anche nel 409 `already_handled`:
+  `maskMailDeciders`, `services/mail-proposals.ts`).
 - **Il segnaposto**: al posto dell'id di una persona che chi guarda non
   conosce, `hidden-<n>`, dove `<n>` è un intero da 1 assegnato nell'ordine
   in cui le persone nascoste compaiono nella RISPOSTA. Stabile dentro la

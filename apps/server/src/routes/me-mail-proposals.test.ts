@@ -792,3 +792,58 @@ describe("F3b, task 7: le proposte del CALENDARIO in /proposals (col flag acceso
     expect(listOff.filter((i) => i.kind === "calendar")).toEqual([]);
   });
 });
+
+/**
+ * Registro, A11 r.1414, la posta (decisione di 46 del 23 nov 2026): chi
+ * compare nell'email ricevuta (mittente, to, cc) e gli invitati di un evento
+ * sono conosciuti per QUELLA proposta, quindi `outsiders`, `sharedWith` e gli
+ * argomenti delle azioni restano veri. Chi ha deciso o passato la proposta
+ * no: uno sconosciuto vero è un segnaposto (`hidden-<n>`, nome vuoto).
+ */
+describe("la posta senza gli sconosciuti", () => {
+  it("chi ha deciso e chi ha passato, sconosciuti: `hidden-<n>` col nome vuoto; l'esterno incaricato resta vero", async () => {
+    const { ada, outsider, proposal } = await seed();
+    const { eq } = await import("drizzle-orm");
+    const [stranger] = await db.insert(users).values({ email: `stranger-mp-${randomUUID().slice(0, 6)}@x.it`, passwordHash: "x", role: "member", displayName: "Zeta" }).returning({ id: users.id });
+    const [other] = await db.insert(users).values({ email: `other-mp-${randomUUID().slice(0, 6)}@x.it`, passwordHash: "x", role: "member", displayName: "Ypsilon" }).returning({ id: users.id });
+    await db
+      .update(emailProposals)
+      .set({ status: "actioned", decidedByUserId: stranger!.id, decidedAt: new Date(), handedAt: new Date(), handedByUserId: other!.id })
+      .where(eq(emailProposals.id, proposal.id));
+    const res = await get(ada.headers, `/api/me/mail/proposals/${proposal.id}`);
+    expect(res.statusCode, res.body).toBe(200);
+    const view = res.json() as { decidedBy: unknown; handedBy: unknown; outsiders: { userId: string }[]; actions: { args: { assigneeId?: string } }[] };
+    expect(view.decidedBy).toEqual({ userId: "hidden-1", name: "" });
+    expect(view.handedBy).toEqual({ userId: "hidden-2", name: "" });
+    expect(view.outsiders.map((o) => o.userId)).toEqual([outsider.id]);
+    expect(view.actions[0]!.args.assigneeId).toBe(outsider.id);
+    expect(res.body).not.toContain(stranger!.id);
+    expect(res.body).not.toContain(other!.id);
+    expect(res.body).not.toContain("Zeta");
+    // Nell'elenco, lo stesso.
+    const list = await get(ada.headers, "/api/me/mail/proposals");
+    expect(list.body).not.toContain(stranger!.id);
+    expect((list.json() as { items: { decidedBy: unknown }[] }).items[0]!.decidedBy).toEqual({ userId: "hidden-1", name: "" });
+  });
+
+  it("il 409 di chi arriva secondo: chi ha deciso, sconosciuto, è un segnaposto", async () => {
+    const { bruno, proposal } = await seed();
+    const { eq } = await import("drizzle-orm");
+    const [stranger] = await db.insert(users).values({ email: `stranger-mq-${randomUUID().slice(0, 6)}@x.it`, passwordHash: "x", role: "member", displayName: "Zeta" }).returning({ id: users.id });
+    await db.update(emailProposals).set({ status: "actioned", decidedByUserId: stranger!.id, decidedAt: new Date() }).where(eq(emailProposals.id, proposal.id));
+    const res = await app.inject({ method: "POST", url: `/api/me/mail/proposals/${proposal.id}/ignore`, headers: bruno.headers, payload: {} });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: "already_handled", decidedBy: { userId: "hidden-1", name: "" } });
+    expect(res.body).not.toContain(stranger!.id);
+  });
+});
+
+describe("la posta senza gli sconosciuti: chi compare nella proposta", () => {
+  it("un decisore che è fra gli incaricati della proposta (fuori dal progetto) resta vero: è conosciuto per quella proposta", async () => {
+    const { ada, outsider, proposal } = await seed();
+    const { eq } = await import("drizzle-orm");
+    await db.update(emailProposals).set({ status: "actioned", decidedByUserId: outsider.id, decidedAt: new Date() }).where(eq(emailProposals.id, proposal.id));
+    const view = (await get(ada.headers, `/api/me/mail/proposals/${proposal.id}`)).json() as { decidedBy: unknown };
+    expect(view.decidedBy).toEqual({ userId: outsider.id, name: "Dario" });
+  });
+});

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { personRefSchema } from "./person-ref.js";
 
 /**
  * LE PROPOSTE DELLA POSTA, CONDIVISE (area 6, fetta 2, D4): una proposta per
@@ -41,6 +42,13 @@ export type MailProposalAction = z.infer<typeof mailProposalActionSchema>;
 
 /** Una persona come la proposta la mostra (mai l'email). */
 export const mailProposalPersonSchema = z.object({ userId: z.uuid(), name: z.string() });
+/**
+ * Chi ha deciso o passato la proposta (registro, A11 r.1414): a chi non lo
+ * conosce arriva `hidden-<n>` col nome vuoto. Gli incaricati e i destinatari
+ * (`outsiders`, `sharedWith`) restano veri: chi compare nell'email è
+ * conosciuto per quella proposta (decisione di 46 del 23 nov 2026).
+ */
+export const mailProposalDeciderSchema = z.object({ userId: personRefSchema, name: z.string() });
 
 /** Cosa è nato da una conferma: una task, una richiesta, … col suo codice. */
 export const mailProposalResultSchema = z.object({
@@ -105,14 +113,14 @@ export const mailProposalSchema = z.object({
   blockedIndices: z.array(z.number().int()).default([]),
   /** Incaricati proposti che NON sono membri del progetto. */
   outsiders: z.array(mailProposalPersonSchema).default([]),
-  decidedBy: mailProposalPersonSchema.nullable().default(null),
+  decidedBy: mailProposalDeciderSchema.nullable().default(null),
   decidedAt: z.string().nullable().default(null),
   /** La conferma parziale: le azioni eseguite (vuoto = tutte o nessuna). */
   confirmedIndices: z.array(z.number().int()).default([]),
   results: z.array(mailProposalResultSchema).default([]),
   error: z.string().nullable().default(null),
   handedAt: z.string().nullable().default(null),
-  handedBy: mailProposalPersonSchema.nullable().default(null),
+  handedBy: mailProposalDeciderSchema.nullable().default(null),
   /** Gli ALTRI destinatari membri che la vedono (mai i ccn). */
   sharedWith: z.array(mailProposalPersonSchema).default([]),
   origin: mailProposalOriginSchema.nullable().default(null),
