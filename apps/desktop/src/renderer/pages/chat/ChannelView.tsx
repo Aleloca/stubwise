@@ -8,6 +8,7 @@ import {
   type DragEvent,
   type ReactNode,
 } from "react";
+import { nameOrSomeone } from "./someone";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { featureIntegrated } from "../../data/integration";
 import { useTranslation } from "react-i18next";
@@ -748,7 +749,7 @@ function ChannelBody({
                 <span>
                   {channel.archivedById && channel.archivedAt
                     ? t("chat.channel.archivedBandBy", {
-                        name: people?.find((p) => p.id === channel.archivedById)?.name ?? "",
+                        name: nameOrSomeone(people, channel.archivedById, t("chat.message.someone")),
                         date: formatDate(channel.archivedAt, i18n.language),
                       })
                     : t("chat.channel.archivedBand")}

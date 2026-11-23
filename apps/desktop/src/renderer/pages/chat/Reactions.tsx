@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { nameOrSomeone } from "./someone";
 import { useTranslation } from "react-i18next";
 import { usePeople } from "../../data/queries";
 import type { ChatMessage } from "../../data/types";
@@ -19,7 +20,7 @@ export function useReactionWho(): (
   const people = usePeople().data;
   return (emoji, personIds, me) => {
     const names = personIds.map((id) =>
-      id === me ? t("chat.reactions.you") : (people?.find((p) => p.id === id)?.name ?? ""),
+      id === me ? t("chat.reactions.you") : nameOrSomeone(people, id, t("chat.message.someone")),
     );
     const shown = names.slice(0, 2).join(", ");
     return names.length > 2

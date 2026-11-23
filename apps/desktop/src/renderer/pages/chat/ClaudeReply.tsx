@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useMemo, useState, type ReactNode } from "react";
+import { nameOrSomeone } from "./someone";
 import { useTranslation } from "react-i18next";
 import {
   useAnswerChatClaudeQuestion,
@@ -101,7 +102,7 @@ export function ClaudeReply({
   const toast = useToast();
   const people = usePeople().data;
   const claude = people?.find((p) => p.isClaude);
-  const callerName = people?.find((p) => p.id === m.calledById)?.name ?? "";
+  const callerName = nameOrSomeone(people, m.calledById, t("chat.message.someone"));
   const index = useCitationIndex();
   const stop = useStopClaudeReply();
   const retry = useRetryClaudeReply();

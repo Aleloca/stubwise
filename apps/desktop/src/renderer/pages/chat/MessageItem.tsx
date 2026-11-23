@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { nameOrSomeone } from "./someone";
 import { useTranslation } from "react-i18next";
 import { usePeople } from "../../data/queries";
 import type { ChatMessageView, Person } from "../../data/types";
@@ -432,7 +433,7 @@ function AsksLine({
   if (waiting.length === 1 && waiting[0] === viewerId) {
     return <p className="pt-0.5 text-xs font-semibold text-ink">{t("chat.message.asksYou")}</p>;
   }
-  const names = waiting.map((id) => people?.find((p) => p.id === id)?.name ?? "").join(", ");
+  const names = waiting.map((id) => nameOrSomeone(people, id, t("chat.message.someone"))).join(", ");
   return <p className="pt-0.5 text-xs text-ink-muted">{t("chat.message.asks", { names })}</p>;
 }
 
@@ -477,7 +478,7 @@ function ThreadLine({
       ) : (
         <span className="min-w-0 truncate text-ink-muted">
           {t("chat.message.lastReply", {
-            name: last?.name ?? "",
+            name: last?.name ?? nameOrSomeone(people, thread.lastReplyById, t("chat.message.someone")),
             time: relativeTime(thread.lastReplyAt, t, i18n.language),
           })}
         </span>
