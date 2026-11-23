@@ -451,7 +451,8 @@ export async function listDecisionRequests(filter: {
 export async function listRequests(projectId: string): Promise<ProjectRequest[]> {
   const me = await gate("listRequests");
   if (!visibleProjectIds(me).has(projectId)) return [];
-  return state.requests.filter((r) => r.projectId === projectId).map((r) => requestView(me, r));
+  const mask = personMasker(me);
+  return state.requests.filter((r) => r.projectId === projectId).map((r) => requestView(me, r, mask));
 }
 
 /**
@@ -459,8 +460,14 @@ export async function listRequests(projectId: string): Promise<ProjectRequest[]>
  * eliminate (area 10a), derivati da `state.deletedTasks` e mai salvati.
  * Senza task eliminate il campo non c'è.
  */
-function requestView(me: string, request: ProjectRequest): ProjectRequest {
+function requestView(
+  me: string,
+  request: ProjectRequest,
+  // R.1414 (lotto 3): il masker della risposta (un elenco ne ha uno solo).
+  mask: ReturnType<typeof personMasker> = personMasker(me),
+): ProjectRequest {
   const out = copy(request);
+  out.requesterIds = request.requesterIds.map(mask);
   // 11b (P38): «Dalla doc: <pagina>», solo se chi guarda legge la pagina;
   // altrimenti nemmeno l'origine grezza (l'id della pagina dice di cosa parla, R-G5).
   const origin = productOriginOf(me, request);
@@ -481,6 +488,7 @@ function requestView(me: string, request: ProjectRequest): ProjectRequest {
 export async function listRequestsToConvert(): Promise<ProjectRequest[]> {
   const me = await gate("listRequestsToConvert");
   const viewer = viewerFor(me);
+  const mask = personMasker(me);
   const visible = visibleProjectIds(me);
   return state.requests
     .filter(
@@ -491,7 +499,7 @@ export async function listRequestsToConvert(): Promise<ProjectRequest[]> {
         can(viewer, "tickets.create", r.projectId),
     )
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .map((r) => requestView(me, r));
+    .map((r) => requestView(me, r, mask));
 }
 
 export async function getRequest(id: string): Promise<ProjectRequest | null> {
@@ -523,14 +531,16 @@ const canSeeFilter = (f: SavedFilter, me: string) => f.visibility === "public" |
 /** I miei filtri e i pubblici. */
 export async function listSavedFilters(): Promise<SavedFilter[]> {
   const me = await gate("listSavedFilters");
-  return state.filters.filter((f) => canSeeFilter(f, me)).map(copy);
+  // R.1414 (lotto 3): il titolare di un filtro pubblico che chi guarda non conosce, segnaposto.
+  const mask = personMasker(me);
+  return state.filters.filter((f) => canSeeFilter(f, me)).map((f) => ({ ...copy(f), ownerId: mask(f.ownerId) }));
 }
 
 /** Un filtro privato di un altro risponde come uno che non esiste: `null`. */
 export async function getSavedFilter(id: string): Promise<SavedFilter | null> {
   const me = await gate("getSavedFilter");
   const filter = state.filters.find((f) => f.id === id);
-  return filter && canSeeFilter(filter, me) ? copy(filter) : null;
+  return filter && canSeeFilter(filter, me) ? { ...copy(filter), ownerId: personMasker(me)(filter.ownerId) } : null;
 }
 
 /** I filtri che chi guarda ha fissato (solo quelli che può ancora vedere), nell'ordine in cui li ha fissati. */
