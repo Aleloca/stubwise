@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  countedReleaseRuns,
   NO_PIPELINE_AFTER_MIN,
   releaseStatusOf,
   sameCommit,
@@ -71,6 +72,24 @@ describe("releaseStatusOf — run rilanciate (registro, A8 r.744)", () => {
     expect(releaseStatusOf(input({ runs: [failed, run({ status: "running", startedAt: later(10), endedAt: null })], now: later(15) })).kind).toBe("running");
     // Un nome diverso non sostituisce niente.
     expect(releaseStatusOf(input({ runs: [failed, run({ name: "lint", startedAt: later(10), endedAt: later(14) })], now: later(15) })).kind).toBe("failed");
+  });
+
+  it("revisione del lotto 2, I6: due job con lo stesso nome di workflow DIVERSI non si sostituiscono; nello stesso workflow il rilancio sì", () => {
+    const failedA = run({ name: "test", group: "github:suite:1", status: "failed", startedAt: later(1), endedAt: later(3) });
+    const okB = run({ name: "test", group: "github:suite:2", startedAt: later(10), endedAt: later(14) });
+    expect(releaseStatusOf(input({ runs: [failedA, okB], now: later(15) })).kind).toBe("failed");
+    const rerunA = run({ name: "test", group: "github:suite:1", startedAt: later(10), endedAt: later(14) });
+    expect(releaseStatusOf(input({ runs: [failedA, rerunA], now: later(15) }))).toEqual({ kind: "succeeded", since: later(14) });
+    // Una run con il gruppo e una senza (salvata prima che si leggesse) non sono la stessa.
+    expect(releaseStatusOf(input({ runs: [failedA, run({ name: "test", startedAt: later(10), endedAt: later(14) })], now: later(15) })).kind).toBe("failed");
+  });
+
+  it("revisione del lotto 2, I6: `countedReleaseRuns` dà le run che contano, quelle da cui si legge la run fallita", () => {
+    const failedOld = run({ name: "test", group: "g1", status: "failed", startedAt: later(1), endedAt: later(3) });
+    const rerun = run({ name: "test", group: "g1", startedAt: later(10), endedAt: later(14) });
+    const lint = run({ name: "lint", group: "g2", status: "failed", startedAt: later(2), endedAt: later(4) });
+    expect(countedReleaseRuns([failedOld, rerun, lint], { mode: "auto" }).filter((r) => r.status === "failed").map((r) => r.name)).toEqual(["lint"]);
+    expect(countedReleaseRuns([failedOld, rerun, lint], { mode: "named", names: ["test"] }).map((r) => r.name)).toEqual(["test"]);
   });
 });
 

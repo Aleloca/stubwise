@@ -48,8 +48,8 @@ describe("GitHub: il merge e le run di un commit", () => {
     const fetchImpl = vi.fn().mockResolvedValueOnce(
       json({
         check_runs: [
-          { id: 1, name: "build", status: "in_progress", conclusion: null, html_url: "h1", started_at: "s1" },
-          { id: 2, name: "test", status: "completed", conclusion: "success", html_url: "h2", started_at: "s2", completed_at: "e2" },
+          { id: 1, name: "build", status: "in_progress", conclusion: null, html_url: "h1", started_at: "s1", check_suite: { id: 77 } },
+          { id: 2, name: "test", status: "completed", conclusion: "success", html_url: "h2", started_at: "s2", completed_at: "e2", check_suite: { id: 78 } },
           { id: 3, name: "lint", status: "completed", conclusion: "failure", html_url: "h3", output: { title: "eslint: 3 errori" }, completed_at: "e3" },
         ],
       }),
@@ -59,9 +59,9 @@ describe("GitHub: il merge e le run di un commit", () => {
     expect(out).toEqual({
       status: "ok",
       runs: [
-        { id: "1", name: "build", status: "running", url: "h1", failedStep: null, startedAt: "s1", endedAt: null },
-        { id: "2", name: "test", status: "success", url: "h2", failedStep: null, startedAt: "s2", endedAt: "e2" },
-        { id: "3", name: "lint", status: "failed", url: "h3", failedStep: "eslint: 3 errori", startedAt: null, endedAt: "e3" },
+        { id: "1", name: "build", status: "running", url: "h1", failedStep: null, startedAt: "s1", endedAt: null, group: "github:suite:77" },
+        { id: "2", name: "test", status: "success", url: "h2", failedStep: null, startedAt: "s2", endedAt: "e2", group: "github:suite:78" },
+        { id: "3", name: "lint", status: "failed", url: "h3", failedStep: "eslint: 3 errori", startedAt: null, endedAt: "e3", group: null },
       ],
     });
   });
@@ -109,8 +109,8 @@ describe("Bitbucket: il merge e le run di un commit", () => {
     expect(out).toEqual({
       status: "ok",
       runs: [
-        { id: "pipe-1", name: "Pipeline #12", status: "failed", url: "u1", failedStep: "step test", startedAt: "c1", endedAt: "u1t" },
-        { id: "pipe-2", name: "Deploy check", status: "running", url: "u2", failedStep: null, startedAt: "c2", endedAt: null },
+        { id: "pipe-1", name: "Pipeline #12", status: "failed", url: "u1", failedStep: "step test", startedAt: "c1", endedAt: "u1t", group: "bitbucket:key:pipe-1" },
+        { id: "pipe-2", name: "Deploy check", status: "running", url: "u2", failedStep: null, startedAt: "c2", endedAt: null, group: "bitbucket:key:pipe-2" },
       ],
     });
     expect(await new BitbucketProvider({ fetchImpl: vi.fn().mockResolvedValueOnce(json({}, 401)) }).getCommitRuns(bb, "a")).toEqual({ status: "unknown" });

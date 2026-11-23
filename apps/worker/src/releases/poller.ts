@@ -1,7 +1,7 @@
 import { gitAccounts, releaseCiRuns, releases, repositories, ticketRepositories, tickets, type Db } from "@stubwise/db";
 import { getProvider, type CommitRuns, type ProjectGitConfig } from "@stubwise/git";
 import { decryptGitCredentials, productionForStatus, publishNotification, releaseProductionOf, type NotificationEvent } from "@stubwise/notifications";
-import { releaseStatusOf, sameCommit, type MandatoryReason, type ReleaseStatus } from "@stubwise/shared";
+import { countedReleaseRuns, releaseStatusOf, sameCommit, type MandatoryReason, type ReleaseStatus } from "@stubwise/shared";
 import { and, eq, gte, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
 
 /**
@@ -122,10 +122,11 @@ async function pollOne(deps: ReleasePollerDeps, row: Row, now: Date): Promise<vo
               failedStep: r.failedStep,
               startedAt: r.startedAt ? new Date(r.startedAt) : null,
               endedAt: r.endedAt ? new Date(r.endedAt) : null,
+              runGroup: r.group ?? null,
             })
             .onConflictDoUpdate({
               target: [releaseCiRuns.releaseId, releaseCiRuns.providerRunId],
-              set: { name: r.name, status: r.status, url: r.url, failedStep: r.failedStep, endedAt: r.endedAt ? new Date(r.endedAt) : null, updatedAt: now },
+              set: { name: r.name, status: r.status, url: r.url, failedStep: r.failedStep, endedAt: r.endedAt ? new Date(r.endedAt) : null, runGroup: r.group ?? null, updatedAt: now },
             });
         }
       }
@@ -145,18 +146,15 @@ async function pollOne(deps: ReleasePollerDeps, row: Row, now: Date): Promise<vo
 
   // 3) Lo stato derivato, dalle righe salvate (anche quelle di un giro prima) e dalla lettura di adesso.
   const saved = await deps.db.select().from(releaseCiRuns).where(eq(releaseCiRuns.releaseId, release.id));
+  const savedRuns = saved.map((r) => ({ name: r.name, status: r.status, startedAt: (r.startedAt ?? r.updatedAt).toISOString(), endedAt: r.endedAt?.toISOString() ?? null, group: r.runGroup }));
+  const pipeline = repository.ciProvider === null ? null : repository.releasePipeline;
   const status: ReleaseStatus = releaseStatusOf({
-    runs:
-      repository.ciProvider === null
-        ? []
-        : runsRead?.status === "unknown" && saved.length === 0
-          ? "unknown"
-          : saved.map((r) => ({ name: r.name, status: r.status, startedAt: (r.startedAt ?? r.updatedAt).toISOString(), endedAt: r.endedAt?.toISOString() ?? null })),
+    runs: repository.ciProvider === null ? [] : runsRead?.status === "unknown" && saved.length === 0 ? "unknown" : savedRuns,
     mergedAt: release.mergedAt.toISOString(),
     mergeSha: release.mergeSha,
     seenInProductionAt: seenInProductionAt?.toISOString() ?? null,
     now: now.toISOString(),
-    pipeline: repository.ciProvider === null ? null : repository.releasePipeline,
+    pipeline,
     production: productionForStatus(production),
   });
 
@@ -165,7 +163,8 @@ async function pollOne(deps: ReleasePollerDeps, row: Row, now: Date): Promise<vo
   //    ciascuno (il segno lo prende chi avvisa; se la pubblicazione non va a
   //    buon fine si toglie e il rilascio non si sistema: il giro dopo riprova).
   if (status.kind === "failed" && !release.failedNotifiedAt) {
-    const failedRun = saved.find((r) => r.status === "failed")?.name ?? null;
+    // Revisione del lotto 2, I6: la run fallita fra quelle che CONTANO (non una sostituita dal suo rilancio, né una fuori pipeline).
+    const failedRun = countedReleaseRuns(savedRuns, pipeline).find((r) => r.status === "failed")?.name ?? null;
     await notifyOnce(deps, release, now, "failed", (url) => ({
       kind: "release.failed",
       projectId: release.projectId,
