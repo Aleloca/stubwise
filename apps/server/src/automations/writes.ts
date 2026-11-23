@@ -180,6 +180,12 @@ export async function saveDraft(db: Db, viewer: Viewer, code: string, input: { f
   const a0 = await managedAutomation(db, viewer, code);
   if (input.name !== undefined && !input.name.trim()) throw badInput("name", "A name is required");
   const visible = await seen(db, viewer);
+  // Revisione 3bbe2ddc6..444b8b773, M-4: chi si conosce si verifica PRIMA della
+  // transazione (col pool, fuori dal lock). Una persona entrata nell'ultima
+  // versione nel frattempo resta non verificata, e `knows` dice no: il posto
+  // riprende la persona di prima, che è il verso sicuro.
+  const before = await latestVersion(db, a0.id);
+  const hidden = await hiddenFor(db, viewer, before ? namedBy(before.flow as AutomationFlow, a0.projectId).personIds : []);
   await db.transaction(async (tx) => {
     const [a] = await tx.select().from(automations).where(eq(automations.id, a0.id)).for("update");
     const last = (await latestVersion(tx, a!.id))!;
@@ -190,7 +196,6 @@ export async function saveDraft(db: Db, viewer: Viewer, code: string, input: { f
     }
     const next = structuredClone(input.flow);
     keepHiddenProjects(visible, last.flow as AutomationFlow, next);
-    const hidden = await hiddenFor(db, viewer, namedBy(last.flow as AutomationFlow, a!.projectId).personIds);
     keepHiddenPeople((id) => hidden.knows(id), last.flow as AutomationFlow, next);
     const rev = (last.rev ?? 0) + 1;
     if (isDraft) {
@@ -375,7 +380,17 @@ export async function deleteDraft(db: Db, viewer: Viewer, code: string, opts: { 
  */
 export async function checkFlow(db: Db, viewer: Viewer, code: string, flow: AutomationFlow) {
   const a = await managedAutomation(db, viewer, code);
-  return { issues: await configErrorsOf(db, a, flow, viewer.id) };
+  // Revisione 3bbe2ddc6..444b8b773, I-5 (il prototipo): si controlla il flusso
+  // COME LO SALVEREBBE `saveDraft`, cioè coi posti nascosti ripresi dall'ultima
+  // versione (il desktop rimanda vuoti un progetto che non vede e una persona
+  // che non conosce), su una copia. Il proprietario resta chi chiama (review
+  // F1, I3: pubblicando lo diventa), non `a.ownerId`.
+  const last = (await latestVersion(db, a.id))!;
+  const next = structuredClone(flow);
+  keepHiddenProjects(await seen(db, viewer), last.flow as AutomationFlow, next);
+  const hidden = await hiddenFor(db, viewer, namedBy(last.flow as AutomationFlow, a.projectId).personIds);
+  keepHiddenPeople((id) => hidden.knows(id), last.flow as AutomationFlow, next);
+  return { issues: await configErrorsOf(db, a, next, viewer.id) };
 }
 
 /** Il tetto di un evento dato a mano: un testo per campo, e l'evento intero. */
