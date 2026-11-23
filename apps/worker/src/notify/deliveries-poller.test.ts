@@ -526,6 +526,22 @@ describe("webhook in uscita (area 9, F3)", () => {
     await db.delete(outgoingWebhooks);
   });
 
+  it("rimandi, lotto 4: un webhook che nel frattempo ha TOLTO l'evento — la consegna già in coda si chiude `skipped` senza invio", async () => {
+    const id0 = await hook({ url: "https://changed.example.test/in" });
+    const id = await deliveryFor(id0);
+    await db.update(outgoingWebhooks).set({ events: ["job.failed"] }).where(eq(outgoingWebhooks.id, id0));
+    const fetcher = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetcher);
+    try {
+      await processDeliveriesOnce(deps(async () => {}));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(await readDelivery(id)).toMatchObject({ status: "skipped", error: "event_not_selected" });
+    await db.delete(outgoingWebhooks);
+  });
+
   it("un webhook spento nel frattempo: la consegna si chiude senza invio", async () => {
     const off = await hook({ url: "https://off.example.test/in", enabled: false });
     const id = await deliveryFor(off);

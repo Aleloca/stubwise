@@ -1771,11 +1771,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   la riconferma ma non scrive nessuna voce (il registro della 9b non ha un
   tipo per Slack, che esce dall'app nuova). Si chiude col ritiro di Slack dal
   server (la voce «Togliere Slack dal server»), non con un tipo nuovo.
-- **Una consegna già in coda parte anche se il webhook ha tolto l'evento**
+- ~~**Una consegna già in coda parte anche se il webhook ha tolto l'evento**
   *(S, review di F3, 18 nov 2026)*: il poller controlla solo che il webhook
   esista e sia acceso, non che abbia ancora scelto l'evento. Il danno è un
   invio residuo, quello già accodato. Da chiudere se qualcuno se ne lamenta:
-  ricontrollare `events` al momento dell'invio e chiudere `skipped`.
+  ricontrollare `events` al momento dell'invio e chiudere `skipped`.~~
+  *Chiusa il 24 nov 2026 (72, lotto 4)*: al momento dell'invio il poller
+  rilegge gli eventi del webhook (`webhookWantsKind`, la stessa regola di
+  `webhookIdsForKind`) e chiude `skipped` con `event_not_selected`.
 - **Togliere Slack dal server** *(M, maintainer via 46, 16 nov 2026)*: Slack
   è fuori dall'app nuova e va tolto dal server, INSIEME al ritiro del web
   vecchio: rotte `/api/slack/*` e `/slack/*`, collegamento delle identità
