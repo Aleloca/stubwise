@@ -20,7 +20,8 @@ const lastEnabledError = (reply: Parameters<typeof apiError>[0]) =>
 
 /** Gli ALTRI account accesi, bloccati per la transazione: due spegnimenti in corsa non lasciano zero accesi. */
 async function otherEnabled(tx: DbOrTx, id: string): Promise<number> {
-  const rows = await tx.select({ id: aiProviders.id }).from(aiProviders).where(and(eq(aiProviders.enabled, true), ne(aiProviders.id, id))).for("update");
+  // In ordine di id (revisione del lotto 1): chi blocca più account li prende sempre nello stesso ordine.
+  const rows = await tx.select({ id: aiProviders.id }).from(aiProviders).where(and(eq(aiProviders.enabled, true), ne(aiProviders.id, id))).orderBy(asc(aiProviders.id)).for("update");
   return rows.length;
 }
 import type { FastifyInstance } from "fastify";

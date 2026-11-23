@@ -200,7 +200,8 @@ async function lockLoggedSubjects(tx: Db, objects: readonly ActionObject[]): Pro
     } else if (o.kind === "setting") {
       await lock(instanceSettings, eq(instanceSettings.id, 1));
       if (o.subjectKind === "ai_settings" && o.id && o.id !== "automation") await lock(aiModelSettings, sql`${aiModelSettings.operation} = ${o.id}`);
-      else if (o.subjectKind === "provider") await lock(aiProviders, o.id ? eq(aiProviders.id, o.id) : sql`true`);
+      // Tutti gli account (un riordino): in ordine di id, come `otherEnabled` (revisione del lotto 1).
+      else if (o.subjectKind === "provider") await tx.execute(sql`select 1 from ${aiProviders} where ${o.id ? eq(aiProviders.id, o.id) : sql`true`} order by ${aiProviders.id} for update`);
       else if (o.subjectKind === "git_account" && o.id) await lock(gitAccounts, eq(gitAccounts.id, o.id));
       else if (o.subjectKind === "google_app" && o.id) await lock(googleWorkspaces, eq(googleWorkspaces.id, o.id));
       else if (o.subjectKind === "webhook" && o.id) await lock(outgoingWebhooks, eq(outgoingWebhooks.id, o.id));

@@ -231,7 +231,6 @@ export async function legacyScope(db: Pick<Db, "select">, scope: ProjectScope): 
   return scopeProjectIds(db, scope);
 }
 
-/** Gli archiviati, per l'insieme di un full admin. */
 /**
  * Il modulo di progetto che un permesso richiede (registro dei rimandi, area 11):
  * i Docs dei repository e lo spazio Product stanno sotto `docs`. Col modulo
@@ -276,6 +275,7 @@ export async function docsModuleOn(db: Pick<Db, "select">, projectIds: readonly 
   return new Set(rows.map((r) => r.id));
 }
 
+/** Gli archiviati, per l'insieme di un full admin. */
 async function allOpenProjects(db: Pick<Db, "select">): Promise<AllOpenProjects> {
   const rows = await db.select({ id: projects.id }).from(projects).where(isNotNull(projects.archivedAt));
   return { all: true, archived: rows.map((r) => r.id) };
