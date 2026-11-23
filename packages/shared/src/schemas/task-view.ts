@@ -174,7 +174,7 @@ export const taskViewSchema = z.object({
     .array(z.object({ id: z.string().uuid(), name: z.string(), sizeBytes: z.number().int() }))
     .default([]),
   manualStall: z
-    .object({ reason: z.string(), note: z.string(), since: z.string(), byId: z.string().uuid().nullable() })
+    .object({ reason: z.string(), note: z.string(), since: z.string(), byId: personRefSchema.nullable() })
     .nullable()
     .default(null),
   claude: claudeWorkStateSchema.default("none"),
@@ -260,7 +260,7 @@ export const decisionRequestViewSchema = z.object({
       optionIndex: z.number().int().nullable(),
       text: z.string().nullable(),
       at: z.string(),
-      byId: z.string().uuid().nullable(),
+      byId: personRefSchema.nullable(),
     })
     .nullable(),
 });
@@ -446,7 +446,7 @@ export const taskWorkViewSchema = z.object({
    * il campo c'è perché la forma è quella del prototipo.
    */
   blocked: z
-    .object({ reason: z.enum(["monthly_budget", "queue_paused"]), byId: z.string().optional(), byName: z.string().optional(), since: z.string().optional() })
+    .object({ reason: z.enum(["monthly_budget", "queue_paused"]), byId: z.string().optional(), byName: z.string().nullable().optional(), since: z.string().optional() })
     .nullable()
     .default(null),
 });

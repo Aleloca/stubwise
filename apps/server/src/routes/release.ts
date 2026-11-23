@@ -1,3 +1,4 @@
+import { registerPersonMask } from "../services/people-known.js";
 import { releaseQueueSchema, releaseResultSchema } from "@stubwise/shared";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -23,6 +24,9 @@ const releaseParamsSchema = z.object({ id: z.uuid(), repositoryId: z.uuid() });
  */
 export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+
+  // Registro, A11 r.1414: chi guarda non riceve l'id di chi non conosce.
+  registerPersonMask(app, new Set(["mergedById", "byId", "updatedById"]));
 
   // Area 8, F1 (S5): i rilasci. Leggere: chi vede il progetto (404 altrimenti,
   // nel servizio). «Fai sistemare a Claude»: `tickets.create`, nel servizio.

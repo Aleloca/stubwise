@@ -441,7 +441,7 @@ punti lato server sta nell'inventario consegnato a 72 (sotto).
   che rimandano quegli id. Chi ha deciso, passato o scelto il progetto della
   proposta (`decidedBy`, `handedBy`, il `byId` di `already_handled`) segue
   invece la regola: se non è fra quelle persone e chi guarda non lo conosce,
-  è il segnaposto, col nome vuoto («Someone»).
+  è il segnaposto, col nome vuoto («Someone»). Sul server: `maskMailDeciders` (`services/mail-proposals.ts`).
 - **Il registro e le persone che non si vedono** (scelta di 46, lotto 3):
   una voce d'istanza `person.*` su una persona che chi guarda non vede non
   esiste per lui; chi gestisce le persone (`users.manage`) le legge tutte

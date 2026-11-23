@@ -1,3 +1,4 @@
+import { registerPersonMask } from "../services/people-known.js";
 import { decisionRequestViewSchema } from "@stubwise/shared";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -31,6 +32,9 @@ function sendClose(reply: FastifyReply, result: CloseResult) {
 
 export async function decisionRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+
+  // Registro, A11 r.1414: chi guarda non riceve l'id di chi non conosce.
+  registerPersonMask(app, new Set(["askedById", "askedOfId", "byId"]));
 
   app.get(
     "/",

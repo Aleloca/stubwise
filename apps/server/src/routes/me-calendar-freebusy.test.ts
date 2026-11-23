@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { calendarEvents, googleAccounts, googleWorkspaces, type Db } from "@stubwise/db";
+import { calendarEvents, googleAccounts, googleWorkspaces, projects, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import type { CalendarWriteClient } from "../services/calendar-writes.js";
-import { createUserWithSession } from "../test/fixtures.js";
+import { addMember, createUserWithSession } from "../test/fixtures.js";
 
 /**
  * IL LIBERO/OCCUPATO DEI COLLEGHI (area 6, F4, task 5): un'ECCEZIONE
@@ -15,6 +15,10 @@ import { createUserWithSession } from "../test/fixtures.js";
  * guardano le chiavi esatte della risposta, e un evento privato con titolo e
  * luogo non lascia niente oltre le sue due date. Dalle righe salvate (Q3 =
  * a): nessuna chiamata a Google — il client delle scritture qui esplode.
+ *
+ * Registro, A11 r.1414 (revisione del lotto 2, I2): di chi guarda NON conosce
+ * si risponde come di chi non ha collegato il calendario. I colleghi qui
+ * stanno in un progetto comune; lo sconosciuto ha il suo test.
  */
 
 const explode = () => {
@@ -25,6 +29,7 @@ const noGoogle = new Proxy({}, { get: () => explode }) as CalendarWriteClient;
 let testDb: TestDb;
 let db: Db;
 let app: FastifyInstance;
+let projectId: string;
 const DAY = 24 * 3600_000;
 const at = (days: number, hour: number) => {
   const d = new Date(Date.now() + days * DAY);
@@ -36,6 +41,8 @@ beforeAll(async () => {
   testDb = await startTestDb();
   db = testDb.db;
   app = buildApp({ db, sessionSecret: "segreto-di-test-lungo-almeno-32-caratteri!!", encryptionKey: Buffer.alloc(32, 4).toString("base64"), calendarWriteClient: noGoogle });
+  const [project] = await db.insert(projects).values({ name: "Comune", slug: `comune-${randomUUID().slice(0, 6)}`, ingestionKey: randomUUID() }).returning();
+  projectId = project!.id;
 }, 120_000);
 afterEach(async () => {
   await db.delete(calendarEvents);
@@ -47,8 +54,9 @@ afterAll(async () => {
   await testDb.stop();
 });
 
-async function colleague(options: { disabled?: boolean; mailbox?: boolean } = {}) {
+async function colleague(options: { disabled?: boolean; mailbox?: boolean; stranger?: boolean } = {}) {
   const user = await createUserWithSession(app, `c-${randomUUID()}@acme.com`);
+  if (!options.stranger) await addMember(app, projectId, user.id, "developer");
   if (options.mailbox === false) return { user, accountId: null as string | null, email: "" };
   const [ws] = await db.insert(googleWorkspaces).values({ name: "A", domains: ["acme.com"], clientId: "c", clientSecretEncrypted: "x" }).returning();
   const email = `box-${randomUUID().slice(0, 6)}@acme.com`;
@@ -67,6 +75,15 @@ const get = (cookie: { cookie: string }, personIds: string[], from = at(1, 0), t
   app.inject({ method: "GET", url: `/api/me/calendar/freebusy?personIds=${personIds.join(",")}&from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`, headers: cookie });
 
 describe("GET /api/me/calendar/freebusy", () => {
+  it("registro, A11 r.1414: uno sconosciuto (nessun progetto in comune) col calendario collegato e occupato risponde come «non collegato»", async () => {
+    const me = await colleague();
+    const zed = await colleague({ stranger: true });
+    await busyRow(zed.accountId!, at(1, 9), at(1, 10));
+    const res = await get(me.user.headers, [zed.user.id]);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ items: [{ personId: zed.user.id, availability: "not_connected", busy: [] }] });
+  });
+
   it("SOLO intervalli: le chiavi esatte, e un evento privato con titolo e luogo non lascia nient'altro", async () => {
     const me = await colleague();
     const bob = await colleague();

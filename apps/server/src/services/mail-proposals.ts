@@ -16,6 +16,8 @@ import { coversAll } from "./mail-proposals-decide.js";
 import { listCalendarProposals } from "./mail-proposals-calendar.js";
 import { legacyRows, legacyView } from "./mail-proposals-legacy.js";
 import { meetingOriginFor } from "./meetings.js";
+import { hiddenFor } from "./people-known.js";
+import type { SessionUser } from "../auth/session.js";
 
 /**
  * LE PROPOSTE CONDIVISE DELLA POSTA, IN LETTURA (area 6, fetta 2, D4).
@@ -343,3 +345,36 @@ export async function proposalPermissionsOf(
   return null;
 }
 
+
+type Decider = { userId: string; name: string } | null | undefined;
+
+/**
+ * Registro, A11 r.1414, la posta: in una risposta di `/api/me/mail/proposals`
+ * (una proposta, un elenco, il 409 `already_handled`) chi ha deciso o passato
+ * la proposta e che chi guarda non conosce diventa `hidden-<n>` col nome
+ * vuoto. Chi compare nell'email (mittente, to, cc) o fra gli invitati è
+ * conosciuto per quella proposta (decisione di 46 del 23 nov 2026): gli
+ * altri destinatari (`sharedWith`) e gli incaricati (`outsiders`, gli
+ * argomenti delle azioni) restano veri, e chi è fra loro resta vero anche
+ * come `decidedBy`/`handedBy`. Senza decisori diversi da chi guarda, nessuna query.
+ */
+export async function maskMailDeciders<T>(db: Db, viewer: Pick<SessionUser, "id" | "instancePermissions">, payload: T): Promise<T> {
+  if (payload === null || typeof payload !== "object") return payload;
+  const list = (payload as { items?: unknown }).items;
+  const items: Record<string, unknown>[] = Array.isArray(list) ? (list as Record<string, unknown>[]) : [payload as Record<string, unknown>];
+  const deciders = (item: Record<string, unknown>) => [item.decidedBy as Decider, item.handedBy as Decider];
+  if (!items.some((i) => deciders(i).some((d) => d && d.userId !== viewer.id))) return payload;
+  const hidden = await hiddenFor(db, viewer);
+  const masked = items.map((item) => {
+    const inMail = new Set<string>();
+    for (const key of ["sharedWith", "outsiders"] as const) {
+      for (const p of (item[key] as { userId: string }[] | undefined) ?? []) inMail.add(p.userId);
+    }
+    const mask = (d: Decider): Decider => (d && !inMail.has(d.userId) && !hidden.knows(d.userId) ? { userId: hidden.person(d.userId), name: "" } : d);
+    const out = { ...item };
+    if ("decidedBy" in item) out.decidedBy = mask(item.decidedBy as Decider);
+    if ("handedBy" in item) out.handedBy = mask(item.handedBy as Decider);
+    return out;
+  });
+  return (Array.isArray(list) ? { ...payload, items: masked } : masked[0]) as T;
+}

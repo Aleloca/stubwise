@@ -1,3 +1,4 @@
+import { registerPersonMask } from "../services/people-known.js";
 import { SUPPORT_STATE_ORDER, supportOpenRequestBodySchema, supportReplyBodySchema } from "@stubwise/shared";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -15,6 +16,9 @@ import { markNotConcluded, openRequestFrom, replyToCollaborator } from "../servi
  */
 export async function supportRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+
+  // Registro, A11 r.1414: chi guarda non riceve l'id di chi non conosce.
+  registerPersonMask(app, new Set(["authorId", "byUserId"]));
   const handle = async <T>(reply: { code: (n: number) => { send: (b: unknown) => unknown } }, fn: () => Promise<T>) => {
     try {
       return await fn();

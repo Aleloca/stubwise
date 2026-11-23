@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { personRefSchema } from "./person-ref.js";
 
 /**
  * Una voce di Claude in «Da decidere» (integrazione area 3, fetta 3b), nella
@@ -20,7 +21,7 @@ export const claudeDecisionViewSchema = z.object({
   /** Il titolo della task. */
   title: z.string(),
   /** Chi ha avviato il lavoro; `null` se il sistema o un utente eliminato. */
-  ownerId: z.uuid().nullable().default(null),
+  ownerId: personRefSchema.nullable().default(null),
   projectId: z.uuid(),
   taskId: z.uuid(),
   requestId: z.uuid().nullable().default(null),

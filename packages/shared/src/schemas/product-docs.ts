@@ -823,7 +823,7 @@ export type ProductPresence = z.infer<typeof productPresenceSchema>;
 /** Una sezione presa: chi la tiene (il nome solo se chi guarda lo vede, R-G5) e fino a quando. */
 export const productSectionHoldSchema = z.object({
   sectionId: z.string(),
-  by: z.object({ id: z.uuid(), name: z.string().nullable() }),
+  by: z.object({ id: personRefSchema, name: z.string().nullable() }),
   expiresAt: z.string(),
 });
 export type ProductSectionHold = z.infer<typeof productSectionHoldSchema>;
@@ -833,7 +833,7 @@ export const productSectionBusySchema = z.object({
   code: z.literal("section_busy"),
   message: z.string(),
   sectionId: z.string(),
-  by: z.object({ id: z.uuid(), name: z.string().nullable() }),
+  by: z.object({ id: personRefSchema, name: z.string().nullable() }),
 });
 export type ProductSectionBusy = z.infer<typeof productSectionBusySchema>;
 

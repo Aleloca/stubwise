@@ -1,3 +1,4 @@
+import { hiddenFor } from "../services/people-known.js";
 import {
   calendarEvents,
   calendarSeries,
@@ -182,7 +183,13 @@ export async function meCalendarRoutes(instance: FastifyInstance, opts: { client
       const to = new Date(request.query.to);
       if (to <= from) return apiError(reply, 400, "invalid_range", "'to' must be after 'from'");
       if (to.getTime() - from.getTime() > FREEBUSY_MAX_DAYS * 24 * 3600_000) return apiError(reply, 400, "range_too_wide", "Range too wide");
-      return { items: await freeBusyOf(app.db, request.query.personIds, from, to) };
+      // Registro, A11 r.1414: di chi guarda non conosce non si dice nemmeno se ha il calendario collegato.
+      const hidden = await hiddenFor(app.db, request.user!);
+      const known = request.query.personIds.filter((id) => hidden.knows(id));
+      const byId = new Map((await freeBusyOf(app.db, known, from, to)).map((p) => [p.personId, p]));
+      return {
+        items: [...new Set(request.query.personIds)].map((personId) => byId.get(personId) ?? { personId, availability: "not_connected" as const, busy: [] }),
+      };
     },
   );
 

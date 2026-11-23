@@ -26,4 +26,9 @@ describe("HiddenIds e il mascheramento", () => {
     const out = maskPersonObjects({ startedBy: { id: A, name: "Anna" }, approval: { by: { id: KNOWN, name: "Kim" } } }, h, new Set(["startedBy", "by"]));
     expect(out).toEqual({ startedBy: { id: "hidden-1", name: null }, approval: { by: { id: KNOWN, name: "Kim" } } });
   });
+  it("revisione del lotto 2: il nome accanto a un id mascherato (`byId` → `byName`) è null; accanto a un id conosciuto resta", () => {
+    const h = new HiddenIds(new Set([KNOWN]), ME);
+    const out = maskPeople({ byId: A, byName: "Ada", list: [{ authorId: KNOWN, authorName: "Kim" }] }, h, new Set(["byId", "authorId"]));
+    expect(out).toEqual({ byId: "hidden-1", byName: null, list: [{ authorId: KNOWN, authorName: "Kim" }] });
+  });
 });

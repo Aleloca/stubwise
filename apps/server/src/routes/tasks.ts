@@ -102,7 +102,7 @@ function writeError(reply: FastifyReply, error: TaskWriteError, status: 400 | 40
 const bulkForbiddenSchema = z.object({ code: z.string(), message: z.string(), codes: z.array(z.string()) });
 
 /** Registro, A11 r.1414: le chiavi delle risposte delle task che portano una persona. */
-export const TASK_PERSON_KEYS: ReadonlySet<string> = new Set(["assigneeId", "createdById", "followerIds", "askedById", "askedOfId", "authorId", "ownerId", "byId", "decidedById"]);
+export const TASK_PERSON_KEYS: ReadonlySet<string> = new Set(["assigneeId", "createdById", "followerIds", "askedById", "askedOfId", "authorId", "ownerId", "byId", "decidedById", "deletedById", "viaClaudeRequesterId", "personId"]);
 
 export async function taskRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -450,7 +450,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
         response: { 200: z.array(taskActivityEntryViewSchema), 404: errorSchema, ...authErrorResponses },
       },
     },
-    async (request) => taskActivity(app.db, request.params.ticketId),
+    async (request) => taskActivity(app.db, request.params.ticketId, request.user!),
   );
 
   /** Il lavoro di Claude sulla task, per chi guarda: il riassunto della fetta 1 più l'area 3. */

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { personRefSchema } from "./person-ref.js";
 import { CUSTOMER_STATUSES } from "../support/customer-status.js";
 import { SUPPORT_STATE_ORDER } from "../support/state.js";
 import { backlogItemStatusSchema } from "./backlog.js";
@@ -24,7 +25,7 @@ export const supportMessageSchema = z.object({
   /** Il cliente, l'AI del widget (il triage) o una persona del team (solo canale `mcp`). */
   from: supportMessageFromSchema,
   /** Chi del team ha scritto (`team`), per chi vede il progetto; null per gli altri. */
-  authorId: z.uuid().nullable().default(null),
+  authorId: personRefSchema.nullable().default(null),
   body: z.string(),
   at: z.iso.datetime(),
 });
@@ -60,7 +61,7 @@ export const supportConversationSchema = z.object({
     .object({
       outcome: z.enum(["concluded", "not_concluded"]),
       at: z.iso.datetime(),
-      byUserId: z.uuid().nullable().default(null),
+      byUserId: personRefSchema.nullable().default(null),
     })
     .nullable()
     .default(null),

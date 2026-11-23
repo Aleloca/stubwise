@@ -1,3 +1,4 @@
+import { registerPersonMask } from "../services/people-known.js";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -45,6 +46,9 @@ const ACCESS = { kind: "user" } as const;
 
 export async function claudeConversationRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+
+  // Registro, A11 r.1414: chi guarda non riceve l'id di chi non conosce.
+  registerPersonMask(app, new Set<string>(), new Set(["author", "publishedBy", "by"]));
 
   // Letterale PRIMA di `/:id` (la trappola di routing del repo).
   app.get(
