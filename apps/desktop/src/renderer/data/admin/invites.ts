@@ -1,4 +1,6 @@
 import { accessState } from "../access/index";
+import { personMasker } from "../access/hidden";
+import { knownPeopleFor } from "../access/whoCan";
 import { recordChange } from "../changelog/index";
 import { gate, newId, now, state, visibleProjectIds } from "../store";
 import { writer } from "../writer";
@@ -36,6 +38,9 @@ export async function listInvites(): Promise<InviteView[]> {
   const me = await gate("admin.listInvites");
   if (!canI(me, USERS_INVITE)) throw new Error("forbidden");
   const visible = visibleProjectIds(me);
+  // R.1414 (lotto 3): chi ha invitato e chi guarda non conosce: segnaposto, senza nome.
+  const known = knownPeopleFor(me);
+  const mask = personMasker(me, known);
   return pendingInvites()
     .map((inv) => ({
       id: inv.id,
@@ -51,8 +56,8 @@ export async function listInvites(): Promise<InviteView[]> {
           roleId: p.roleId,
           roleName: roleById(p.roleId)?.name ?? "",
         })),
-      invitedById: inv.invitedById,
-      invitedByName: nameOf(inv.invitedById) ?? "",
+      invitedById: mask(inv.invitedById),
+      invitedByName: inv.invitedById === me || known.has(inv.invitedById) ? (nameOf(inv.invitedById) ?? "") : "",
       createdAt: inv.createdAt,
       expiresAt: inv.expiresAt,
       expired: isExpired(inv.expiresAt),

@@ -4,7 +4,7 @@ import { gate, state, visibleProjectIds } from "../store";
 import { ALL_PROJECT_PERMISSIONS } from "./seed";
 import { isMember, type PermissionSource } from "./effective";
 import { INSTANCE_SET, accessState } from "./state";
-import { visiblePeopleFor, whatCan as whatCanRaw, whoCan as whoCanRaw } from "./whoCan";
+import { knownPeopleFor, visiblePeopleFor, whatCan as whatCanRaw, whoCan as whoCanRaw } from "./whoCan";
 
 // «Chi può farlo?» come lo legge il client (`api.access`, area 9a, shape
 // admin-audit.md). Le risposte sono quelle di `whoCan`/`whatCan` — cioè di
@@ -72,7 +72,7 @@ export interface WhoCanChoices {
 
 const personOf = (id: string) => PEOPLE.find((p) => p.id === id);
 
-function reasonsOf(sources: readonly PermissionSource[]): WhoCanReason[] {
+function reasonsOf(sources: readonly PermissionSource[], knownBy: (id: string) => boolean): WhoCanReason[] {
   return sources.map((s): WhoCanReason => {
     switch (s.kind) {
       case "role":
@@ -83,7 +83,8 @@ function reasonsOf(sources: readonly PermissionSource[]): WhoCanReason[] {
       case "grant":
         return {
           kind: "grant",
-          byName: s.grantedById ? (personOf(s.grantedById)?.name ?? null) : null,
+          // R.1414 (lotto 3): il nome di chi ha dato il permesso solo a chi lo conosce.
+          byName: s.grantedById && knownBy(s.grantedById) ? (personOf(s.grantedById)?.name ?? null) : null,
           at: s.at,
         };
       case "department":
@@ -108,6 +109,8 @@ const codeOf = (projectId: string | null): string | null =>
  */
 export async function whoCan(actionId: string, projectId: string | null): Promise<WhoCanView> {
   const me = await gate("access.whoCan");
+  const known = knownPeopleFor(me);
+  const knownBy = (id: string) => id === me || known.has(id);
   // Claude, come sessione, non vede persone (come `whoCanChoices`).
   if (me === CLAUDE_ID) return { visible: false };
   const action = actionById(actionId);
@@ -127,7 +130,7 @@ export async function whoCan(actionId: string, projectId: string | null): Promis
         personId: p.personId,
         name: person?.name ?? p.personId,
         initials: person?.initials ?? "",
-        reasons: reasonsOf(p.sources),
+        reasons: reasonsOf(p.sources, knownBy),
       };
     }),
     agent: raw.agent,
@@ -143,6 +146,8 @@ export async function whoCan(actionId: string, projectId: string | null): Promis
  */
 export async function whatCan(personId: string, projectId: string | null): Promise<WhatCanView> {
   const me = await gate("access.whatCan");
+  const known = knownPeopleFor(me);
+  const knownBy = (id: string) => id === me || known.has(id);
   if (me === CLAUDE_ID) return { visible: false };
   const raw = whatCanRaw(me, personId, projectId);
   if (!raw.visible) return raw;
@@ -159,7 +164,7 @@ export async function whatCan(personId: string, projectId: string | null): Promi
           return {
             permission,
             held: !!h,
-            reasons: h ? reasonsOf(h.sources) : [],
+            reasons: h ? reasonsOf(h.sources, knownBy) : [],
           };
         }),
     }))
