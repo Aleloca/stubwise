@@ -110,6 +110,14 @@ export const mailDraftRestoreSchema = z.object({
    * Gmail (`droppedAttachments` ne dà i nomi).
    */
   unsaved: z.boolean().default(false),
+  /**
+   * Registro, A6 r.448: con un'altra bozza nello slot le due si UNISCONO (il
+   * testo tornato sotto, gli allegati oltre i limiti in `droppedAttachments`)
+   * e la bozza unita si riscrive su Gmail. `true` = la riscrittura non è
+   * riuscita (Gmail non risponde, o la bozza è cambiata da Gmail): la copia di
+   * Stubwise è unita, Gmail no, finché non si salva. Additivo.
+   */
+  gmailOutdated: z.boolean().default(false),
 });
 export type MailDraftRestore = z.infer<typeof mailDraftRestoreSchema>;
 
