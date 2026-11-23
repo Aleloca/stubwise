@@ -46,8 +46,13 @@ export function DeactivateDialog({
    */
   const [badTask, setBadTask] = useState<string | null>(null);
   const name = person.name;
+  // Revisione del lotto 2, I8: i nomi li dà il livello dati (la directory è
+  // fuori dalla regola di r.1414, `usePeople` no); `usePeople` per la build app.
+  const names = Object.assign({}, ...person.openTasks.map((task) => task.reassignNames ?? {})) as Record<string, string>;
   const nameOf = (id: string | null) =>
-    id === null ? t("admin.deactivate.leaveWith", { name }) : (people.find((p) => p.id === id)?.name ?? id);
+    id === null
+      ? t("admin.deactivate.leaveWith", { name })
+      : (names[id] ?? people.find((p) => p.id === id)?.name ?? id);
   // «Reassign all to…»: chi può prendere almeno una task, nell'ordine in cui compare.
   const everyone = [...new Set(person.openTasks.flatMap((task) => task.reassignTo))];
   const blocked =

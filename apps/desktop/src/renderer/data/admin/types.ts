@@ -275,6 +275,12 @@ export interface PersonDetail {
     title: string;
     projectId: string;
     reassignTo: string[];
+    /**
+     * Il nome di ognuno di `reassignTo` (revisione del lotto 2, I8): la
+     * directory è fuori dalla regola di r.1414, l'elenco delle persone no.
+     * Facoltativo: cambio additivo (la build app lo legge da `usePeople`).
+     */
+    reassignNames?: Record<string, string>;
   }[];
 }
 
