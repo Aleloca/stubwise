@@ -372,6 +372,23 @@ export const agentSessionQuestionSchema = z.object({
 export type AgentSessionQuestion = z.infer<typeof agentSessionQuestionSchema>;
 
 export const agentSessionDetailSchema = agentSessionSummarySchema.extend({
+  /**
+   * Rimandi, lotto 4 (§7.2): il piano del job della sessione, con la stessa
+   * regola di `/work` (`runs[].plan`). ASSENTE = un server che non lo sa dare
+   * (il client torna a `/work`); null = nessun piano (un kind diverso da
+   * `ai_job`, o un job senza piano). Il digest va rimandato ad approve/reject.
+   */
+  plan: z
+    .object({
+      jobId: z.string().uuid(),
+      text: z.string(),
+      summary: z.string(),
+      status: z.enum(["pending", "approved", "rejected", "pre_approved", "undecided"]),
+      at: z.iso.datetime(),
+      digest: z.string().nullable().default(null),
+    })
+    .nullable()
+    .optional(),
   /** Calcolato dal server col ruolo di chi guarda: mai dedotto dal client. */
   canWrite: z.boolean().default(false),
   /**

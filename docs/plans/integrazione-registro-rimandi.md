@@ -30,8 +30,12 @@ Legenda: *(M)* decisione del maintainer, *(O)* scelta dell'orchestratrice,
   (limite dichiarato di `ticket-history`). Copiarla in `ticket_events` alla
   chiusura vorrebbe una migrazione: rimandato. Né `requeueStale` scrive il
   commento quando chiude uno stantio annullato.
-- Il dettaglio della sessione non porta il piano né il suo digest *(S)*: il
-  digest da rimandare ad approve/reject si legge da `/work` o da «Da decidere».
+- ~~Il dettaglio della sessione non porta il piano né il suo digest *(S)*: il
+  digest da rimandare ad approve/reject si legge da `/work` o da «Da decidere».~~
+  *Chiusa il 23 nov 2026 (72, lotto 4, §7.2)*: `plan` nel dettaglio (e nel
+  messaggio `session`), con la regola di `/work` (`planStatusOf`, condivisa).
+  Rimasto fuori *(O, 94)*: chi ha deciso il piano e le sue istruzioni non
+  arrivano da nessuna rotta («Approved by …» senza nome).
 - Abbinare un commit per **username** del provider *(S)*: nessuna tabella lega
   un utente al suo login GitHub, quindi lo username (letto dalle noreply) si
   mostra ma non abbina; si abbina per email (account o `git_identities`).

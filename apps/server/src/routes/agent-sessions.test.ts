@@ -15,6 +15,7 @@ import {
   googleWorkspaces,
   instanceSettings,
   prReviews,
+  projectDecisions,
   projectMembers,
   roles,
   users,
@@ -1086,5 +1087,25 @@ describe("rimandi, lotto 4, §7.1: chi ha avviato e chi ha risposto", () => {
     // Una sessione automatica (nessun richiedente): null.
     await t.db.update(aiJobs).set({ requestedByUserId: null }).where(eq(aiJobs.id, job!.id));
     expect((await get(`/api/agent-sessions/${s!.id}`, u.adminCookie)).json().startedById).toBeNull();
+  });
+});
+
+describe("rimandi, lotto 4, §7.2: il piano nel dettaglio della sessione", () => {
+  it("lo stesso piano di `/work` (testo, stato, digest), anche dopo la decisione nel registro; null senza piano o per un altro kind", async () => {
+    const seeded = await seedTicket(t.db);
+    const [job] = await t.db.insert(aiJobs).values({ ticketId: seeded.ticketId, status: "awaiting_plan_approval", planText: "## Il piano\n- uno", planSummary: "Uno" }).returning();
+    const [s] = await t.db.insert(agentSessions).values({ ownerKey: `ai_job:${job!.id}`, kind: "ai_job", title: "#8", projectId: seeded.projectId, ticketId: seeded.ticketId, aiJobId: job!.id }).returning();
+    const detail = async () => (await get(`/api/agent-sessions/${s!.id}`, u.adminCookie)).json();
+    const work = async () => ((await get(`/api/tasks/${seeded.ticketId}/work`, u.adminCookie)).json() as { runs: { id: string; plan: Record<string, unknown> | null }[] }).runs.find((r) => r.id === job!.id)!.plan;
+    expect((await detail()).plan).toEqual({ jobId: job!.id, ...(await work()) });
+    expect((await detail()).plan).toMatchObject({ status: "pending", summary: "Uno", digest: expect.any(String) });
+    // Eseguito e poi fallito, con la decisione approvata nel registro: ancora la stessa risposta di `/work`.
+    await t.db.update(aiJobs).set({ status: "failed" }).where(eq(aiJobs.id, job!.id));
+    await t.db.insert(projectDecisions).values({ projectId: seeded.projectId, source: "plan_review", sourceKey: `plan_review:${job!.id}:1`, sourceRef: { jobId: job!.id, mode: "execute" }, ticketId: seeded.ticketId, title: "T", decision: "Approvato", decidedByUserId: u.adminId } as never);
+    expect((await detail()).plan).toMatchObject({ status: "approved" });
+    expect((await detail()).plan).toEqual({ jobId: job!.id, ...(await work()) });
+    // Rifiutato (il piano si azzera): null.
+    await t.db.update(aiJobs).set({ planText: null }).where(eq(aiJobs.id, job!.id));
+    expect((await detail()).plan).toBeNull();
   });
 });

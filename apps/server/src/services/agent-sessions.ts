@@ -1,5 +1,6 @@
 import { and, desc, eq, gt, inArray, isNull, lt, not, or, sql, type SQL } from "drizzle-orm";
 import { canReadPublic, holdForOwnerMessage, readerCut } from "./claude-public.js";
+import { jobPlanView } from "./task-work.js";
 import { enrichAsides } from "./claude-asides.js";
 import { alias } from "drizzle-orm/pg-core";
 import {
@@ -1003,6 +1004,8 @@ export async function loadAgentSession(
     permissions,
     detail: {
       ...summary,
+      // Lotto 4 (§7.2): il piano del job, con la regola di `/work`.
+      plan: row.kind === "ai_job" && row.aiJobId ? await jobPlanView(db, row.aiJobId) : null,
       ...(readerHeld ? { lastActivity: null, activeSegment: null, state: "idle" as const } : {}),
       canWrite: writable,
       canIntervene: intervenable,
