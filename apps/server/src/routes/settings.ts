@@ -134,6 +134,19 @@ const testNotificationResponseSchema = z.object({
  * id=1 con default 'en', ma per robustezza (DB ripristinato senza seed) si
  * ripiega sul default dell'enum.
  */
+/**
+ * Lo storage è configurato E valido (gli allegati si possono caricare). La
+ * stessa regola di `attachmentsEnabled` e di `GET /api/storage/uploads`.
+ */
+export function storageConfigured(row: typeof instanceSettings.$inferSelect | undefined, encryptionKey: Buffer): boolean {
+  if (!row) return false;
+  try {
+    return s3ConfigFromSettings(row, encryptionKey) !== null;
+  } catch {
+    return false;
+  }
+}
+
 async function loadInstanceSettings(
   db: Db,
   encryptionKey: Buffer,
@@ -142,14 +155,7 @@ async function loadInstanceSettings(
   // attachmentsEnabled = config S3 completa E valida. s3ConfigFromSettings può
   // LANCIARE se la secret cifrata è corrotta o la chiave è errata: il try/catch
   // tratta l'eccezione come "non configurato/non valido" → false.
-  let attachmentsEnabled = false;
-  if (row) {
-    try {
-      attachmentsEnabled = s3ConfigFromSettings(row, encryptionKey) !== null;
-    } catch {
-      attachmentsEnabled = false;
-    }
-  }
+  const attachmentsEnabled = storageConfigured(row, encryptionKey);
   return {
     contentLanguage: row?.contentLanguage ?? "en",
     // numeric → stringa lato driver: converto a number, null resta null.

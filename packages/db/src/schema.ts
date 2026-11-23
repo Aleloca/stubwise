@@ -7727,6 +7727,8 @@ export const releaseCiRuns = pgTable(
     failedStep: text("failed_step"),
     startedAt: timestamp("started_at", { withTimezone: true }),
     endedAt: timestamp("ended_at", { withTimezone: true }),
+    /** Revisione del lotto 2, I6 (0219): chi ha prodotto la run (`CommitRun.group`); null per quelle salvate prima. */
+    runGroup: text("run_group"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

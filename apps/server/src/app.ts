@@ -125,6 +125,7 @@ import { serverAnalysisRoutes } from "./routes/server-analyses.js";
 import { serverSshRoutes } from "./routes/server-ssh.js";
 import { serverFixRoutes } from "./routes/server-fixes.js";
 import { settingsRoutes } from "./routes/settings.js";
+import { storageUploadsRoutes } from "./routes/storage-uploads.js";
 import { modelSettingsRoutes } from "./routes/model-settings.js";
 import type { RateLimitConfig } from "./routes/shared.js";
 import { slackRoutes } from "./slack/routes.js";
@@ -863,6 +864,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(patRoutes, { prefix: "/api/pats" });
   // Impostazioni di automazione AI (regole per tipo): solo admin.
   void app.register(settingsRoutes, { prefix: "/api/settings", mailClassifyV2: opts.mailClassifyV2 ?? false });
+  // Registro, r.1121: se un caricamento passerebbe adesso, per chiunque sia autenticato.
+  void app.register(storageUploadsRoutes, { prefix: "/api/storage" });
   // Modello Anthropic per tipo di lavoro AI (solo admin): plugin a sé sotto /api/settings.
   void app.register(modelSettingsRoutes, { prefix: "/api/settings/models" });
   // Registro dei Google Workspace (fase 6): app OAuth interne con client secret

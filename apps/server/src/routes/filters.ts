@@ -15,6 +15,7 @@ import type { SessionUser } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import {
   createTaskFilter,
+  criteriaCarryPlaceholder,
   deleteTaskFilter,
   isFullAdmin,
   lockPerson,
@@ -62,7 +63,8 @@ const idParams = z.object({ id: z.uuid() });
 export { MAX_FILTERS_PER_PERSON };
 
 /** Registro, A11 r.1414: le chiavi delle risposte che portano una persona. */
-const FILTER_PERSON_KEYS: ReadonlySet<string> = new Set(["ownerId"]);
+// `assigneeIds` dei criteri (scelta A di 46): lo stesso masker di `ownerId`; `none` non è un id e resta.
+const FILTER_PERSON_KEYS: ReadonlySet<string> = new Set(["ownerId", "assigneeIds"]);
 
 export async function filterRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
@@ -103,10 +105,11 @@ export async function filterRoutes(fastify: FastifyInstance): Promise<void> {
     "/filters",
     {
       config: { access: { kind: "user" } },
-      schema: { body: newFilterBodySchema, response: { 201: savedFilterViewSchema, ...authErrorResponses } },
+      schema: { body: newFilterBodySchema, response: { 201: savedFilterViewSchema, 400: errorSchema, ...authErrorResponses } },
     },
     async (request, reply) => {
       const viewer = request.user!;
+      if (criteriaCarryPlaceholder(request.body.criteria)) return apiError(reply, 400, "invalid", "criteria: a placeholder is not a person id");
       const row = await createTaskFilter(app.db, viewer, request.body);
       if (!row) return apiError(reply, 400, "too_many_filters", `At most ${MAX_FILTERS_PER_PERSON} filters per person`);
       return reply.code(201).send(viewOf(row, viewer));
@@ -120,13 +123,15 @@ export async function filterRoutes(fastify: FastifyInstance): Promise<void> {
       schema: {
         params: idParams,
         body: filterPatchBodySchema,
-        response: { 200: savedFilterViewSchema, 404: errorSchema, ...authErrorResponses },
+        response: { 200: savedFilterViewSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
       const viewer = request.user!;
       const row = await visibleFilter(app.db, viewer, request.params.id);
       if (!row) return apiError(reply, 404, "not_found", "Filter not found");
+      // Una PATCH senza `criteria` li lascia invariati, con gli id veri.
+      if (criteriaCarryPlaceholder(request.body.criteria)) return apiError(reply, 400, "invalid", "criteria: a placeholder is not a person id");
       if (row.ownerId !== viewer.id && !isFullAdmin(viewer)) {
         return apiError(reply, 403, "forbidden", "Only the author or a full admin edits a filter");
       }

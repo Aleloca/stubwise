@@ -1520,6 +1520,13 @@
       "when": 1803254400000,
       "tag": "0218_product_comment_client_id",
       "breakpoints": true
+    },
+    {
+      "idx": 219,
+      "version": "7",
+      "when": 1803340800000,
+      "tag": "0219_release_ci_run_group",
+      "breakpoints": true
     }
   ]
 }

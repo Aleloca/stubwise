@@ -1,4 +1,4 @@
-import { personRefSchema } from "./person-ref.js";
+import { personPlaceholderSchema, personRefSchema } from "./person-ref.js";
 import { z } from "zod";
 import { STATUS_FAMILIES } from "../tasks/stall.js";
 import { TASK_SIZES } from "../tasks/sizes.js";
@@ -512,7 +512,11 @@ export const taskListQuerySchema = z.object({
   projectIds: csv(z.string().uuid()).optional(),
   departmentIds: csv(z.string().uuid()).optional(),
   // `me` (area 10, F8): chi chiede, risolto dal server (il token del turno di Claude non conosce il proprio id).
-  assigneeIds: csv(z.union([z.string().uuid(), z.literal("none"), z.literal("me")])).optional(),
+  // Revisione del lotto 2 (filtri salvati, scelta A): un segnaposto `hidden-<n>` passa la
+  // validazione e lo risolve il server SOLO con `savedFilterId`; senza è 400 `invalid`.
+  assigneeIds: csv(z.union([z.string().uuid(), z.literal("none"), z.literal("me"), personPlaceholderSchema])).optional(),
+  /** Il filtro salvato da cui vengono i criteri: i suoi id veri prendono il posto dei segnaposto. */
+  savedFilterId: z.uuid().optional(),
   families: csv(statusFamilySchema).optional(),
   statusIds: csv(z.string().uuid()).optional(),
   sizes: csv(z.union([taskSizeSchema, z.literal("none")])).optional(),

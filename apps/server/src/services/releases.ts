@@ -1,6 +1,7 @@
 import { comments, createTicket, prReleaseNotes, prReviews, projects, releaseCiRuns, releaseCodeSeqs, releases, repositories, servers, ticketRepositories, tickets, type Db } from "@stubwise/db";
 import { aiBudgetState, productionForStatus, publishNotification, releaseProductionOf } from "@stubwise/notifications";
 import {
+  countedReleaseRuns,
   releaseStatusOf,
   sameCommit,
   type ProjectPermission,
@@ -184,6 +185,14 @@ async function sees(db: Db, viewer: Viewer, projectId: string): Promise<boolean>
   return (await projectPermissionsFor(db, viewer, projectId)) !== null;
 }
 
+type RunRow = typeof releaseCiRuns.$inferSelect;
+const runLike = (r: RunRow) => ({ name: r.name, status: r.status, startedAt: (r.startedAt ?? r.updatedAt).toISOString(), endedAt: r.endedAt?.toISOString() ?? null, group: r.runGroup, row: r });
+
+/** Le righe delle run che contano per lo stato (`countedReleaseRuns`), nello stesso ordine. */
+function countedRunRows(runs: readonly RunRow[], pipeline: unknown): RunRow[] {
+  return countedReleaseRuns(runs.map(runLike), pipeline as ReleasePipeline).map((x) => x.row);
+}
+
 /** Lo stato derivato di un rilascio, dalle righe e dalla produzione di adesso. */
 async function statusOf(db: Db, release: ReleaseRecord, repo: { ciProvider: string | null; releasePipeline: unknown }, runs: (typeof releaseCiRuns.$inferSelect)[], now: Date): Promise<ReleaseStatus> {
   const production = await releaseProductionOf(db, release.projectId, release.repositoryId);
@@ -197,7 +206,7 @@ async function statusOf(db: Db, release: ReleaseRecord, repo: { ciProvider: stri
         ? []
         : runs.length === 0 && release.ciUnreadableAt !== null
           ? "unknown"
-          : runs.map((r) => ({ name: r.name, status: r.status, startedAt: (r.startedAt ?? r.updatedAt).toISOString(), endedAt: r.endedAt?.toISOString() ?? null })),
+          : runs.map(runLike),
     mergedAt: release.mergedAt.toISOString(),
     mergeSha: release.mergeSha,
     seenInProductionAt: seen?.toISOString() ?? null,
@@ -366,7 +375,9 @@ export async function fixRelease(db: Db, viewer: Viewer, code: string, opts: { n
         return { taskId: open.id, taskCode: `${p?.code ?? ""}-${open.number}`, existing: true, noteAdded };
       }
     }
-    const failed = runs.filter((x) => x.status === "failed");
+    // Revisione del lotto 2, I6: le run fallite fra quelle che CONTANO (non una sostituita dal suo rilancio, né una fuori pipeline).
+    const [repo] = await tx.select({ releasePipeline: repositories.releasePipeline }).from(repositories).where(eq(repositories.id, r!.repositoryId));
+    const failed = countedRunRows(runs, repo?.releasePipeline ?? null).filter((x) => x.status === "failed");
     const lines = [
       `${r!.code}: ${r!.title}`,
       `PR: ${r!.prUrl}`,

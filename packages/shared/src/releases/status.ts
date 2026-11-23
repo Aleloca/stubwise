@@ -36,6 +36,13 @@ export interface ReleaseRunLike {
   status: "running" | "success" | "failed";
   startedAt: string;
   endedAt: string | null;
+  /**
+   * Revisione del lotto 2, I6: CHI ha prodotto la run, per sapere se una più
+   * nuova col nome uguale ne è il rilancio. GitHub: la check suite (un
+   * workflow su quel commit; i rilanci restano nella stessa); Bitbucket: la
+   * `key` dello status. Assente (`null`) per le run salvate prima.
+   */
+  group?: string | null;
 }
 
 /** La pipeline del repository: tutte le run, o quelle coi nomi dati. */
@@ -85,15 +92,20 @@ export function sameCommit(a: string | null | undefined, b: string | null | unde
   return x.length <= y.length ? y.startsWith(x) : x.startsWith(y);
 }
 
-function countedRuns(
-  runs: readonly ReleaseRunLike[],
-  pipeline: ReleasePipeline,
-): readonly ReleaseRunLike[] {
+/**
+ * Le run che contano per lo stato: le più nuove di ogni run rilanciata, poi
+ * quelle della pipeline del repository. Esportata perché il worker legga la
+ * run fallita dello STESSO insieme (revisione del lotto 2, I6).
+ */
+export function countedReleaseRuns<R extends ReleaseRunLike>(runs: readonly R[], pipeline: ReleasePipeline): readonly R[] {
   // Registro, A8 r.744: una run con lo STESSO nome partita DOPO prende il posto
-  // di quella di prima (una run rilanciata: su Bitbucket una pipeline nuova, con
-  // un altro id), o il rilascio resterebbe «fallito» per sempre. A pari orario
-  // contano tutte (due run diverse col nome uguale).
-  const current = runs.filter((r) => !runs.some((o) => o.name === r.name && Date.parse(o.startedAt) > Date.parse(r.startedAt)));
+  // di quella di prima (una run rilanciata), o il rilascio resterebbe «fallito»
+  // per sempre. Revisione del lotto 2, I6: solo se è dello stesso produttore
+  // (`group`: la check suite di GitHub, la key di Bitbucket): due job col
+  // nome uguale di due workflow diversi sono due run, e contano entrambe. A
+  // pari orario contano tutte.
+  const sameProducer = (a: R, b: R) => (a.group ?? null) === (b.group ?? null);
+  const current = runs.filter((r) => !runs.some((o) => o.name === r.name && sameProducer(o, r) && Date.parse(o.startedAt) > Date.parse(r.startedAt)));
   if (pipeline?.mode !== "named") return current;
   const names = new Set(pipeline.names);
   return current.filter((r) => names.has(r.name));
@@ -117,7 +129,7 @@ export function releaseStatusOf(input: ReleaseStatusInput): ReleaseStatus {
     if (input.seenInProductionAt) return { kind: "in_production", since: input.seenInProductionAt };
     return onProductionServer(input) ?? { kind: "unknown", since: null };
   }
-  const runs = countedRuns(input.runs, input.pipeline);
+  const runs = countedReleaseRuns(input.runs, input.pipeline);
   if (runs.length > 0) {
     // Fallito se una fallisce (anche con altre ancora in corso), in corso
     // finché una gira, riuscito quando tutte sono riuscite.
