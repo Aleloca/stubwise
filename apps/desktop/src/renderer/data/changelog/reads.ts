@@ -100,10 +100,25 @@ const managesProject = (me: string, projectId: string): boolean =>
   MANAGE_PROJECT.some((p) => can(viewerFor(me), p, projectId));
 
 /** Se `me` legge la voce. */
-function readable(me: string, entry: ChangeEntry, visible: Set<string>): boolean {
+function readable(
+  me: string,
+  entry: ChangeEntry,
+  visible: Set<string>,
+  people?: ReadonlySet<string>,
+): boolean {
   const type = changeTypeOf(entry.kind);
   if (!type) return false;
   const viewer = viewerFor(me);
+  // Scelta di 46 (lotto 3), come sul server (`adminVisiblePersonIds`, area
+  // 9): una voce d'istanza su una persona (`person.*`) che chi guarda non vede
+  // non esiste per lui; chi gestisce le persone (`users.manage`) le legge tutte.
+  if (
+    entry.kind.startsWith("person.") &&
+    entry.object.type === "person" &&
+    !can(viewer, "users.manage") &&
+    !(people ?? visiblePeopleFor(me)).has(entry.object.id)
+  )
+    return false;
   if (entry.projectId === null)
     return can(viewer, "changelog.view") || can(viewer, type.readPermission as Permission);
   if (!visible.has(entry.projectId)) return false;
@@ -498,7 +513,7 @@ function changesReadableBy(me: string, filter: ChangeFilter = {}): ChangeEntryVi
   const known = me === CLAUDE_ID ? new Set<string>() : knownPeopleFor(me);
   const mask = personMasker(me, known);
   return newestFirst(
-    state.changelog.filter((e) => readable(me, e, visible) && matchesFilter(e, filter)),
+    state.changelog.filter((e) => readable(me, e, visible, people) && matchesFilter(e, filter)),
   ).map((e) => view(me, e, people, visible, known, mask));
 }
 
@@ -594,7 +609,7 @@ export async function listChangeFilterChoices(projectId?: string): Promise<Chang
       (e) =>
         e.via === "claude" &&
         (projectId === undefined || e.projectId === projectId) &&
-        readable(me, e, readableIds),
+        readable(me, e, readableIds, people),
     ),
   };
 }

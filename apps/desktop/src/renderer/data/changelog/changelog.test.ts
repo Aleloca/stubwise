@@ -372,7 +372,9 @@ describe("il nome dell'autore della voce (r.1414)", () => {
       params: { added: `p-marco,${who.id}`, removed: who.id },
     });
     as("p-laura");
-    const entry = (await changelog.listChanges()).find((e) => e.kind === "department.members_changed")!;
+    const entry = (await changelog.listChanges()).find(
+      (e) => e.kind === "department.members_changed",
+    )!;
     expect(entry.params.added).toBe("p-marco,hidden-1");
     expect(entry.params.removed).toBe("hidden-1");
     expect(JSON.stringify(entry)).not.toContain(who.id);
@@ -404,7 +406,9 @@ describe("il nome dell'autore della voce (r.1414)", () => {
     // Revisione del lotto 2 (I3): fuori dai canali leggibili, lo fa conoscere solo il progetto.
     withoutChannels("p-laura", ["p-marco"]);
     const marco = PEOPLE.find((p) => p.id === "p-marco")!;
-    expect(accessState().memberships.some((m) => m.personId === marco.id && m.projectId === ACQ)).toBe(true);
+    expect(
+      accessState().memberships.some((m) => m.personId === marco.id && m.projectId === ACQ),
+    ).toBe(true);
     projectEntry(ACQ, marco.id);
     // Fuori da OGNI progetto: resta solo l'ex membro di ACQ (nient'altro lo fa conoscere).
     writeAccess((s) => {
@@ -554,6 +558,51 @@ describe("R-G5 nelle persone di una voce", () => {
     const [entry] = await changelog.listChanges({ kind: "department.members_changed" });
     expect(entry!.diff).toEqual({ kind: "people", added: [nameOf(seen)], removed: [] });
     expect(JSON.stringify(entry!.diff)).not.toContain(nameOf(hidden));
+  });
+});
+
+// Scelta di 46 (lotto 3, forme del registro): come sul server
+// (`adminVisiblePersonIds`, area 9), una voce `person.*` su una persona che chi
+// guarda non vede non esiste per lui; chi gestisce le persone le legge tutte.
+describe("le voci su una persona che non si vede (r.1414)", () => {
+  const personEntry = (id: string) =>
+    recordChange({
+      kind: "person.git_identity_linked",
+      actorId: "p-roberta",
+      projectId: null,
+      object: { type: "person", id, label: nameOf(id) },
+      before: null,
+      after: "someone.git",
+    });
+
+  it("con changelog.view ma senza users.manage: la voce su chi non si vede non c'è", async () => {
+    const viewer = "p-laura";
+    const hidden = strangersTo(viewer)[0]!;
+    const seen = [...visiblePeopleFor(viewer)].find((x) => x !== viewer && x !== "p-claude")!;
+    grantInstancePermission(viewer, "changelog.view");
+    expect(can(viewerFor(viewer), "users.manage")).toBe(false);
+    personEntry(hidden);
+    personEntry(seen);
+    as(viewer);
+    const entries = await changelog.listChanges({ kind: "person.git_identity_linked" });
+    const objects = entries.map((e) => e.object.id);
+    expect(objects).toContain(seen);
+    expect(entries.filter((e) => e.object.id.startsWith("hidden-"))).toEqual([]);
+    expect(entries.length).toBe(
+      state.changelog.filter(
+        (e) => e.kind === "person.git_identity_linked" && e.object.id !== hidden,
+      ).length,
+    );
+  });
+
+  it("chi gestisce le persone le legge tutte", async () => {
+    const viewer = "p-laura";
+    const hidden = strangersTo(viewer)[0]!;
+    grantInstancePermission(viewer, "users.manage");
+    personEntry(hidden);
+    as(viewer);
+    const entries = await changelog.listChanges({ kind: "person.git_identity_linked" });
+    expect(entries.some((e) => e.object.id.startsWith("hidden-"))).toBe(true);
   });
 });
 
