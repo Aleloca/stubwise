@@ -231,7 +231,6 @@ export async function legacyScope(db: Pick<Db, "select">, scope: ProjectScope): 
   return scopeProjectIds(db, scope);
 }
 
-/** Gli archiviati, per l'insieme di un full admin. */
 /**
  * Il modulo di progetto che un permesso richiede (registro dei rimandi, area 11):
  * i Docs dei repository e lo spazio Product stanno sotto `docs`. Col modulo
@@ -249,6 +248,34 @@ export async function projectHasModule(db: Pick<Db, "select">, projectId: string
   return row?.on === true;
 }
 
+/**
+ * Chi ha questi permessi LEGGE i Docs del progetto: `docs.view` E il modulo
+ * `docs` acceso. LA regola per chi decide fuori da `config.access` (Slack, le
+ * card dell'inbox, il dal vivo, gli elenchi derivati): revisione del lotto 1.
+ */
+export async function readsDocs(
+  db: Pick<Db, "select">,
+  projectId: string,
+  permissions: ReadonlySet<string> | readonly string[] | null | undefined,
+  /** I progetti col modulo acceso, già letti per un lotto ({@link docsModuleOn}). */
+  docsOn?: ReadonlySet<string>,
+): Promise<boolean> {
+  const has = Array.isArray(permissions) ? permissions.includes("docs.view") : ((permissions as ReadonlySet<string> | null | undefined)?.has("docs.view") ?? false);
+  if (!has) return false;
+  return docsOn ? docsOn.has(projectId) : projectHasModule(db, projectId, "docs");
+}
+
+/** Di `projectIds`, quelli col modulo Docs acceso: UNA query per un lotto di {@link readsDocs}. */
+export async function docsModuleOn(db: Pick<Db, "select">, projectIds: readonly string[]): Promise<ReadonlySet<string>> {
+  if (projectIds.length === 0) return new Set();
+  const rows = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(and(inArray(projects.id, [...new Set(projectIds)]), sql`'docs' = any(${projects.modules})`));
+  return new Set(rows.map((r) => r.id));
+}
+
+/** Gli archiviati, per l'insieme di un full admin. */
 async function allOpenProjects(db: Pick<Db, "select">): Promise<AllOpenProjects> {
   const rows = await db.select({ id: projects.id }).from(projects).where(isNotNull(projects.archivedAt));
   return { all: true, archived: rows.map((r) => r.id) };

@@ -660,6 +660,21 @@ describe("POST /api/slack/commands — /docs", () => {
     expect(values).not.toContain(projHidden);
   });
 
+  it("revisione del lotto 1: un progetto col modulo Docs spento non compare nel selettore", async () => {
+    await testDb.db.update(users).set({ slackUserId: "Udocslinked" }).where(eq(users.id, reporterUserId));
+    const projOff = await createProjectGroup(`sel-off-${randomUUID().slice(0, 8)}`);
+    const repoOff = await createRepoInProject(projOff, `sel-off-repo-${randomUUID().slice(0, 8)}`);
+    await seedDocsForRepo(testDb.db, repoOff, { title: "Pagina spenta", slug: `sel-off-page-${randomUUID().slice(0, 8)}`, content: "Docs di un progetto col modulo spento." });
+    const values = async () => {
+      openView.mockClear();
+      await slackPost("/api/slack/commands", "command=%2Fdocs&trigger_id=TRIGOFF&user_id=Udocslinked&channel_id=C1&response_url=https%3A%2F%2Fhooks.slack.com%2Foff");
+      return selectOptionValues(openView.mock.calls[0]![1]);
+    };
+    expect(await values()).toContain(projOff);
+    await testDb.db.update(projects).set({ modules: ["releases"] }).where(eq(projects.id, projOff));
+    expect(await values()).not.toContain(projOff);
+  });
+
   it("utente risolto per email del profilo Slack (stessa regola del modal ticket) → apre il modale Docs", async () => {
     emailToReturn = "slack.reporter@example.com";
     const res = await slackPost(
@@ -1177,6 +1192,20 @@ describe("POST /api/slack/interactions — view_submission docs_query", () => {
     const p = payload as { response_type: string; text: string };
     expect(p.response_type).toBe("ephemeral");
     expect(p.text).toContain("non è disponibile");
+  });
+
+  it("revisione del lotto 1: il modulo Docs spento al submit → «Progetto non disponibile.», nessuna risposta dai Docs", async () => {
+    await linkSubmitter();
+    const projectId = await createProjectGroup(`ask-off-${randomUUID().slice(0, 8)}`);
+    const repositoryId = await createRepoInProject(projectId, `ask-off-repo-${randomUUID().slice(0, 8)}`);
+    await seedDocsForRepo(testDb.db, repositoryId, { title: "Spenta", slug: `ask-off-${randomUUID().slice(0, 8)}`, content: "Per configurare apri le impostazioni." });
+    await testDb.db.update(projects).set({ modules: [] }).where(eq(projects.id, projectId));
+    const body = docsSubmissionBody({ projectId, question: "Come si configura?", meta: { responseUrl: RESPONSE_URL, channelId: "C9", slackUserId: META_USER } });
+    expect((await slackPost("/api/slack/interactions", body)).statusCode).toBe(200);
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+    const [, payload] = postResponse.mock.calls[0]!;
+    expect(payload).toMatchObject({ response_type: "ephemeral", text: "Progetto non disponibile." });
+    expect(JSON.stringify(postResponse.mock.calls)).not.toContain("Risposta dai docs.");
   });
 
   it("answerProjectDocsQuestion che lancia → messaggio d'errore, nessun throw/5xx", async () => {

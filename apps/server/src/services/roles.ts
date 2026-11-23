@@ -596,8 +596,12 @@ export async function listProjectMembers(db: DbOrTx, projectId: string): Promise
   return membersWithPermissions(db, projectId);
 }
 
-/** Una chiave del lock advisory per i membri di UN progetto (la regola dell'ultimo gestore). */
-const membersLock = (projectId: string) => sql`select pg_advisory_xact_lock(hashtext(${`members:${projectId}`}))`;
+/**
+ * Una chiave del lock advisory per i membri di UN progetto (la regola dell'ultimo
+ * gestore). Chi blocca anche la riga di un membro prende PRIMA questa (la stessa
+ * fila di `setMemberRole` & co.), o due transazioni si aspettano a vicenda.
+ */
+export const membersLock = (projectId: string) => sql`select pg_advisory_xact_lock(hashtext(${`members:${projectId}`}))`;
 
 /** Quanti gestori dei membri (ruolo o personale) ha il progetto, fuori dai full admin. */
 async function managerCount(tx: DbOrTx, projectId: string, excludingUserId?: string): Promise<number> {

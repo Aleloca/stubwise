@@ -14,6 +14,7 @@ import {
   type ProductDocClaudeCard,
 } from "@stubwise/shared";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { docsModuleOn, readsDocs } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { personName } from "./people.js";
 import { visiblePersonIds } from "./people-visibility.js";
@@ -391,6 +392,8 @@ export async function productDocCardsFor(db: Db, viewerId: string, rows: readonl
       : [];
   const commentById = new Map(commentRows.map((c) => [c.id, c]));
   const perms = await projectPermissionsByProject(db, viewerId, pages.map((p) => p.projectId));
+  // Col modulo Docs spento la card è `objectGone`, come una pagina che non si legge più (revisione del lotto 1).
+  const docsOn = await docsModuleOn(db, pages.map((p) => p.projectId));
   const people = await visiblePersonIds(db, { id: viewerId, instancePermissions: await instancePermissionsOfUser(db, viewerId) });
   const authors = [...new Set(commentRows.flatMap((c) => (c.authorId && (people === "all" || people.includes(c.authorId)) ? [c.authorId] : [])))];
   const names = new Map(
@@ -399,7 +402,7 @@ export async function productDocCardsFor(db: Db, viewerId: string, rows: readonl
   for (const w of wanted) {
     const page = pageById.get(w.pageId);
     const comment = w.commentId ? commentById.get(w.commentId) : undefined;
-    const reads = page ? perms.get(page.projectId)?.has("docs.view") === true : false;
+    const reads = page ? await readsDocs(db, page.projectId, perms.get(page.projectId), docsOn) : false;
     if (!page || !reads || (w.commentId !== null && (!comment || comment.pageId !== page.id))) {
       out.set(w.id, null);
       continue;

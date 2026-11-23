@@ -23,7 +23,7 @@ import {
 import { aiBudgetState, CLOSED_TICKET_STATUSES } from "@stubwise/notifications";
 import { type AiBlockView, type InstanceJob, type InstanceStatus } from "@stubwise/shared";
 import { and, desc, eq, gte, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
-import { projectPermissionsMap } from "../auth/access.js";
+import { docsModuleOn, projectPermissionsMap, readsDocs } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 
 /**
@@ -287,9 +287,10 @@ export async function instanceStatus(db: Db, viewer: Viewer, now = new Date()): 
       : []
     ).map((p) => [p.id, p] as const),
   );
+  const docsOn = await docsModuleOn(db, docJobs.map((j) => j.projectId));
   for (const j of docJobs) {
     const page = pageOfSource.has(j.sourceId) ? pageById.get(pageOfSource.get(j.sourceId)!) : undefined;
-    const shownPage = page && page.projectId === j.projectId && permsOf(j.projectId)?.has("docs.view") ? page : null;
+    const shownPage = page && page.projectId === j.projectId && (await readsDocs(db, j.projectId, permsOf(j.projectId), docsOn)) ? page : null;
     const gesture = j.sourceKind === "first_version" || j.sourceKind === "wireframe" || j.sourceKind === "page_update";
     const block: AiBlockView | null =
       j.status === "running"

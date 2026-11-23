@@ -236,6 +236,21 @@ describe("il lavoro di Claude sulla doc di prodotto", () => {
     expect(await jobRow(job.id)).toMatchObject({ status: "done", error: "source_unavailable" });
   });
 
+  it("revisione del lotto 1: col modulo Docs spento il lavoro si chiude senza modello, col motivo; riacceso, il prossimo riprende", async () => {
+    await page();
+    const m = await mail();
+    const job = await jobFor(m.id);
+    const { runner, calls } = fakeRunner(() => facts());
+    await t.db.update(projects).set({ modules: ["releases"] }).where(eq(projects.id, projectId));
+    try {
+      expect(await runProductDocJob({ db: t.db, runner, log }, job)).toBe("done");
+      expect(await jobRow(job.id)).toMatchObject({ status: "done", error: "docs_module_off" });
+      expect(calls).toEqual([]);
+    } finally {
+      await t.db.update(projects).set({ modules: ["docs", "releases", "support", "servers"] }).where(eq(projects.id, projectId));
+    }
+  });
+
   it("la coda in pausa e il budget finito: nessuna chiamata, il lavoro aspetta col motivo", async () => {
     await page();
     const m = await mail();

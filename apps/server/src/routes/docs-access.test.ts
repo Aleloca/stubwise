@@ -10,6 +10,7 @@ import {
   docGenerations,
   docPages,
   projectEnvFiles,
+  projects,
   repoGraphs,
   repositories,
 } from "@stubwise/db";
@@ -389,6 +390,18 @@ describe("Repository: repos.view / docs.view, repos.manage, git_accounts.manage"
     const hidden = await call(viewer, "GET", `/api/repositories/${repoBSlug}`);
     expect(hidden.statusCode).toBe(404);
     expect(hidden.json()).toMatchObject({ code: "not_found" });
+  });
+
+  it("revisione del lotto 1: col modulo Docs spento chi ha solo `docs.view` non ha il repository né nell'elenco né nel dettaglio; con `repos.view` sì", async () => {
+    await testDb.db.update(projects).set({ modules: ["releases"] }).where(eq(projects.id, projectA));
+    try {
+      expect((await call(contrib, "GET", `/api/repositories/${repoASlug}`)).statusCode).toBe(403);
+      const listed = ((await call(contrib, "GET", `/api/repositories?projectId=${projectA}`)).json() as { id: string }[]).map((r) => r.id);
+      expect(listed).not.toContain(repoA);
+      expect((await call(dev, "GET", `/api/repositories/${repoASlug}`)).statusCode).toBe(200);
+    } finally {
+      await testDb.db.update(projects).set({ modules: ["docs", "releases", "support", "servers"] }).where(eq(projects.id, projectA));
+    }
   });
 
   it("webhook e modifica: Legacy Member 403 (nome invariato), Developer 200", async () => {

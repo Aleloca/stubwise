@@ -64,9 +64,14 @@ import {
  * chi gestisce lo decide `access.ts`; qui le scritture e le viste di chi
  * guarda. Regole del prototipo (`data/chat/*`): si modificano ed eliminano
  * solo i propri messaggi (D6); un eliminato non ha testo (CHECK); le menzioni
- * e le domande le ricava il server dal testo, sui nomi di chi legge il canale
- * (R-G6: `@channel` e `@reparto` non avvisano, contano solo fra le menzioni
- * del canale).
+ * e le domande le ricava il server dal testo, sui nomi di chi legge il canale.
+ * `@channel` e `@reparto` AVVISANO (registro, A4 r.169, decisione del
+ * maintainer del 23 nov 2026, supera la R-G6): ogni MEMBRO del canale (per
+ * `@reparto`, chi del reparto è nel canale) che ha il canale su «all» riceve
+ * una `chat.mention`, alla creazione del messaggio; «Mentions only» e «Muted»
+ * la spengono, l'autore mai, chi è nominato anche a nome ha solo quella a
+ * nome. Chi è avvisato dal gruppo non segue il thread. Il motivo («mentioned
+ * @channel» / «@<Reparto>») si deriva a lettura (`chatMentionsFor`).
  */
 
 import { CHAT_CHANNEL_NOTIFY } from "./notify.js";
@@ -127,6 +132,55 @@ async function mentionedIn(db: Db | Tx, channel: ChannelRow, text: string, autho
     if (p.id !== authorId) out.push(p.id);
   }
   return out;
+}
+
+/** Il testo nomina `@<name>` (lo stesso confine delle menzioni a nome). */
+const namesGroup = (text: string, name: string): boolean =>
+  new RegExp(`@${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}\\p{N}_])`, "u").test(text);
+
+/**
+ * Chi avvisa una menzione di gruppo (registro, A4 r.169; `deliverMentions` del
+ * prototipo): con `@channel` i membri del canale, con `@<Reparto>` i membri
+ * del canale che stanno in quel reparto. Solo chi ha il canale su «all» (la
+ * regola per cui il gruppo conta già fra le menzioni del canale); mai
+ * l'autore, mai chi è già nominato a nome (ha la sua card), mai Claude.
+ */
+async function groupNotified(
+  db: Db | Tx,
+  channelId: string,
+  text: string,
+  authorId: string,
+  members: ReadonlySet<string>,
+  direct: readonly string[],
+): Promise<string[]> {
+  if (!text.includes("@") || members.size === 0) return [];
+  let targets: string[];
+  if (namesGroup(text, "channel")) targets = [...members];
+  else {
+    const named = (await db.select({ id: departments.id, name: departments.name }).from(departments)).filter((d) => namesGroup(text, d.name));
+    if (named.length === 0) return [];
+    const inNamed = new Set(
+      (
+        await db
+          .select({ userId: departmentMembers.userId })
+          .from(departmentMembers)
+          .where(inArray(departmentMembers.departmentId, named.map((d) => d.id)))
+      ).map((r) => r.userId),
+    );
+    targets = [...members].filter((u) => inNamed.has(u));
+  }
+  targets = targets.filter((u) => u !== authorId && !direct.includes(u));
+  if (targets.length === 0) return [];
+  const quiet = new Set(
+    (
+      await db
+        .select({ userId: chatChannelPrefs.userId })
+        .from(chatChannelPrefs)
+        .where(and(eq(chatChannelPrefs.channelId, channelId), inArray(chatChannelPrefs.userId, targets), ne(chatChannelPrefs.level, "all")))
+    ).map((r) => r.userId),
+  );
+  const people = new Set((await peopleOf(db, targets)).map((p) => p.id));
+  return targets.filter((u) => people.has(u) && !quiet.has(u));
 }
 
 /**
@@ -1011,6 +1065,8 @@ export async function postMessage(
   const asks = questionTargets(input.text, mentioned, input.asksReply === true);
   const citations = await citationsToStore(db, viewer, input.text, input.citations ?? []);
   const members = new Set(await channelMemberIds(db, channel));
+  // `@channel` e `@reparto` (registro, A4 r.169): solo alla creazione, e senza seguire il thread.
+  const grouped = await groupNotified(db, channelId, input.text, viewer.id, members, mentioned);
   const [author] = await peopleOf(db, [viewer.id]);
   const id = await db.transaction(async (tx) => {
     const [row] = await tx
@@ -1050,13 +1106,14 @@ export async function postMessage(
       await follow(tx, [viewer.id, ...mentioned], row!.id);
     }
     // Le menzioni e le domande dirette: una card per persona (D4), con push.
-    // Il canale lo legge, l'ha controllato `mentionedIn` (chi legge il canale).
+    // Il canale lo legge, l'ha controllato `mentionedIn` (chi legge il canale);
+    // quelle di gruppo vanno a membri del canale, una card sola per persona.
     await publishCards(tx, {
       channel,
       messageId: row!.id,
       authorId: viewer.id,
       authorName: author?.name ?? "",
-      to: mentioned,
+      to: [...mentioned, ...grouped],
       asks,
       members,
     });
@@ -1813,6 +1870,20 @@ export async function chatMentionsFor(
   const byId = new Map(messages.map((m) => [m.id, m]));
   const channels = new Map<string, ChannelRow | null>();
   const names = new Map((await peopleOf(db, messages.flatMap((m) => (m.authorId ? [m.authorId] : [])))).map((p) => [p.id, p.name]));
+  // Il gruppo con cui il messaggio di adesso avvisa chi legge (registro, A4 r.169): `@channel`, o un suo reparto.
+  const ownDepartments = (
+    await db
+      .select({ name: departments.name })
+      .from(departmentMembers)
+      .innerJoin(departments, eq(departments.id, departmentMembers.departmentId))
+      .where(eq(departmentMembers.userId, userId))
+  ).map((r) => r.name);
+  const groupOf = (m: MessageRow): string | null => {
+    if (m.mentionedIds.includes(userId) || m.asksReplyOf.includes(userId)) return null;
+    if (namesGroup(m.body, "channel")) return "@channel";
+    const department = ownDepartments.find((d) => namesGroup(m.body, d));
+    return department ? `@${department}` : null;
+  };
   for (const w of wanted) {
     const m = byId.get(w.messageId);
     if (!m || m.deletedAt !== null || !viewer) {
@@ -1835,6 +1906,7 @@ export async function chatMentionsFor(
             authorId: m.authorId,
             authorName: m.authorId ? (names.get(m.authorId) ?? "") : "",
             excerpt: m.body.length > 200 ? `${m.body.slice(0, 199).trimEnd()}…` : m.body,
+            group: groupOf(m),
           }
         : null,
     );
@@ -1850,4 +1922,6 @@ export interface ChatMentionCard {
   authorId: string | null;
   authorName: string;
   excerpt: string;
+  /** Il gruppo che ha avvisato chi legge («@channel», «@<Reparto>»), o null se è nominato a nome. */
+  group: string | null;
 }

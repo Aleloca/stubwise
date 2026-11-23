@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
-import { backlogJobs, chatChannels, chatMessages, docPages, notifications, projectMembers, projects, roles } from "@stubwise/db";
+import { backlogJobs, chatChannels, chatMessages, chatThreadFollows, departmentMembers, departments, docPages, notifications, projectMembers, projects, roles } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers, type SeededUsers } from "../test/fixtures.js";
@@ -199,7 +199,7 @@ describe("messaggi", () => {
     expect((await post(dev, g, "radice", { alsoInChannel: true })).json()).toMatchObject({ code: "invalid_also_in_channel" });
   });
 
-  it("i non letti seguono il livello; @channel conta fra le menzioni (con «tutti») ma non dà card", async () => {
+  it("i non letti seguono il livello; @channel conta fra le menzioni (con «tutti») e, con «tutti», dà la card", async () => {
     const id = idOf(await as(dev, "POST", "/api/chat/channels", { projectId, name: "livelli" }));
     await as(lead, "POST", `/api/chat/channels/${id}/join`);
     await as(lead, "POST", `/api/chat/channels/${id}/read`, {});
@@ -212,8 +212,9 @@ describe("messaggi", () => {
     expect(await view()).toMatchObject({ unread: 1, mentions: 1 });
     await as(lead, "PUT", `/api/chat/channels/${id}/pref`, { level: "muted" });
     expect(await view()).toMatchObject({ unread: 0, mentions: 1 });
+    // Registro, A4 r.169: con «tutti» al momento del messaggio, anche `@channel` ha avvisato.
     const cards = await t.db.select().from(notifications).where(and(eq(notifications.userId, lead.id), eq(notifications.kind, "chat.mention")));
-    expect(cards).toHaveLength(1);
+    expect(cards).toHaveLength(2);
     const mentions = ((await as(lead, "GET", "/api/chat/mentions")).json() as { items: { text: string }[] }).items.map((m) => m.text);
     expect(mentions).toEqual(expect.arrayContaining(["attenzione @channel", "per te @lead-f2"]));
   });
@@ -408,5 +409,68 @@ describe("citazioni (F2.7, decisione del maintainer)", () => {
     expect((await citationsOf(lead, id)).map((c) => c.kind)).toEqual(["person"]);
     await as(dev, "DELETE", `/api/chat/messages/${id}`);
     expect(await citationsOf(lead, id)).toEqual([]);
+  });
+});
+
+describe("avvisi di gruppo: @channel e @reparto (registro, A4 r.169)", () => {
+  type Card = { kind: string; text: string; chat: { messageId: string; group: string | null } | null };
+  const cardsOf = async (u: Who, messageId: string) =>
+    ((await as(u, "GET", "/api/inbox")).json() as { items: Card[] }).items.filter((i) => i.chat?.messageId === messageId);
+  const rowsOf = async (u: Who, messageId: string) =>
+    (await t.db.select().from(notifications).where(eq(notifications.userId, u.id))).filter((r) => (r.event as { chatMessageId?: string }).chatMessageId === messageId);
+  async function channelWith(members: U[]) {
+    const id = idOf(await as(dev, "POST", "/api/chat/channels", { projectId, name: `gruppi ${++n}` }));
+    for (const m of members) expect((await as(m, "POST", `/api/chat/channels/${id}/join`)).statusCode).toBeLessThan(300);
+    return id;
+  }
+
+  it("@channel: i membri con «tutti» ricevono una chat.mention col gruppo; «solo menzioni», «silenziato», l'autore e chi non è membro no", async () => {
+    const id = await channelWith([lead, dev2, legacy]);
+    await as(dev2, "PUT", `/api/chat/channels/${id}/pref`, { level: "mentions" });
+    await as(legacy, "PUT", `/api/chat/channels/${id}/pref`, { level: "muted" });
+    const msg = idOf(await post(dev, id, "riunione alle 3 @channel"));
+    const [card] = await cardsOf(lead, msg);
+    expect(card).toMatchObject({ kind: "chat.mention", chat: { group: "@channel" } });
+    expect(card!.text).toBe(`dev-f2 mentioned @channel in #gruppi-${n}`);
+    for (const who of [dev2, legacy, dev, outsider, admin]) expect({ who: who.id, rows: (await rowsOf(who, msg)).length }).toEqual({ who: who.id, rows: 0 });
+    // Il motivo NON sta nell'evento: si deriva dal messaggio di adesso.
+    const [row] = await rowsOf(lead, msg);
+    expect(JSON.stringify(row!.event)).not.toContain("@channel");
+  });
+
+  it("nominato a nome E col gruppo: una card sola, quella a nome", async () => {
+    const id = await channelWith([lead, dev2]);
+    const msg = idOf(await post(dev, id, "@channel e soprattutto @lead-f2"));
+    expect(await rowsOf(lead, msg)).toHaveLength(1);
+    expect((await cardsOf(lead, msg))[0]).toMatchObject({ chat: { group: null } });
+    expect((await cardsOf(lead, msg))[0]!.text).toBe(`dev-f2 mentioned you in #gruppi-${n}`);
+    expect((await cardsOf(dev2, msg))[0]).toMatchObject({ chat: { group: "@channel" } });
+  });
+
+  it("@<Reparto>: i membri del canale in quel reparto; chi è nel reparto ma non nel canale no", async () => {
+    const [d] = await t.db.insert(departments).values({ name: "Marketing", colorToken: "--dept-3" }).returning();
+    for (const u of [dev2, legacy]) await t.db.insert(departmentMembers).values({ departmentId: d!.id, userId: u.id });
+    try {
+      const id = await channelWith([lead, dev2]);
+      const msg = idOf(await post(dev, id, "una cosa per @Marketing"));
+      expect((await cardsOf(dev2, msg))[0]).toMatchObject({ kind: "chat.mention", chat: { group: "@Marketing" } });
+      expect((await cardsOf(dev2, msg))[0]!.text).toBe(`dev-f2 mentioned @Marketing in #gruppi-${n}`);
+      expect(await rowsOf(lead, msg)).toEqual([]);
+      expect(await rowsOf(legacy, msg)).toEqual([]);
+    } finally {
+      await t.db.delete(departments).where(eq(departments.id, d!.id));
+    }
+  });
+
+  it("chi è avvisato dal gruppo non segue il thread; una modifica che aggiunge @channel non avvisa", async () => {
+    const id = await channelWith([lead]);
+    const root = idOf(await post(dev, id, "una radice"));
+    const reply = idOf(await post(dev, id, "nel thread, @channel", { threadRootId: root }));
+    expect(await rowsOf(lead, reply)).toHaveLength(1);
+    const follows = await t.db.select().from(chatThreadFollows).where(and(eq(chatThreadFollows.rootMessageId, root), eq(chatThreadFollows.userId, lead.id)));
+    expect(follows).toEqual([]);
+    const plain = idOf(await post(dev, id, "senza gruppo"));
+    expect((await as(dev, "PATCH", `/api/chat/messages/${plain}`, { text: "ora con @channel" })).statusCode).toBe(200);
+    expect(await rowsOf(lead, plain)).toEqual([]);
   });
 });

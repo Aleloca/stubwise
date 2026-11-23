@@ -607,6 +607,7 @@ describe("InboxCard", () => {
           authorId: "u-1",
           authorName: "Marta Rinaldi",
           excerpt: "Ciao @Luca, guardi tu?",
+          group: null,
         },
       });
       await renderCard(MENTION, client, { onOpenTicket });
@@ -633,6 +634,7 @@ describe("InboxCard", () => {
           authorId: "u-1",
           authorName: "Marta Rinaldi",
           excerpt: "@Luca ci sei domani?",
+          group: null,
         },
       });
       await renderCard(QUESTION, client);

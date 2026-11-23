@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { ticketTypeSchema, type ProjectPermission, type TicketType } from "@stubwise/shared";
 import { docPages, projects, repositories, users } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
+import { readsDocs } from "../auth/access.js";
 import type { EmbeddingClient } from "@stubwise/embeddings";
 import { t, type Language } from "@stubwise/i18n";
 import {
@@ -233,6 +234,8 @@ async function listProjectsWithDocs(
         ),
       ),
     )
+    // Col modulo Docs spento il progetto non c'è (revisione del lotto 1).
+    .where(sql`'docs' = any(${projects.modules})`)
     .groupBy(projects.id, projects.name, projects.slug)
     .orderBy(asc(projects.name));
   // Solo i progetti di cui l'utente collegato legge i Docs (`docs.view`).
@@ -762,7 +765,8 @@ export async function slackRoutes(
         // (R21, come le chat Docs della SPA). Un progetto che non vede ha la
         // stessa risposta di uno che non esiste: nessuna generazione.
         const docsPermissions = await projectPermissionsOfUser(instance.db, linked.id, docsProjectId!);
-        if (!docsPermissions?.has("docs.view")) {
+        // Col modulo Docs spento come un progetto che non vede (revisione del lotto 1).
+        if (!(await readsDocs(instance.db, docsProjectId!, docsPermissions))) {
           await postResponse(meta.responseUrl, {
             response_type: "ephemeral",
             text: "Progetto non disponibile.",
@@ -785,7 +789,7 @@ export async function slackRoutes(
             // Stesso runtime del grafo delle chat interne (fase 2b): il logger
             // è quello della richiesta — la generazione prosegue dopo l'ack, ma
             // il log resta correlato alla view_submission.
-            ...(docsPermissions.has("repos.view")
+            ...(docsPermissions?.has("repos.view")
               ? { graph: { ...instance.graphChat, logger: request.log } }
               : {}),
           },
