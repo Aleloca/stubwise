@@ -239,6 +239,10 @@
   Restano come prima, e sono già fermi per tutti a budget finito: la prima
   versione della doc di prodotto, le bozze di schermata, «aggiorna da fonte».
   Le automazioni non sono avvii a mano: restano in attesa (`held`).
+  Due porte che passano da `startRun` hanno una forma propria (46, sul
+  prototipo): il «Procedi» del pulse rifiuta PRIMA di creare la task (niente
+  a metà); l'assegnazione a Claude non fallisce mai per il budget, assegna e
+  non avvia (`refused:budget_exhausted`), e il blocco lo dice `/work`.
   Test: `apps/server/src/routes/budget-manual-starts.test.ts`, a due ruoli
   sugli stessi dati.
 - **Job e correzione si chiudono INSIEME.** `completeJob`/`failJob` e

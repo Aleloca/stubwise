@@ -44,7 +44,9 @@ export async function claudeAssignGuard(
  * Dopo la scrittura: per ogni task APPENA assegnata a Claude parte il run,
  * con le stesse regole di run-ai (`startRun`: precondizioni, gate del piano per
  * chi non ha `plans.approve`), a nome di chi l'ha assegnata. Un lavoro già in
- * corso non ne fa partire un altro (`job_in_flight`, ignorato). Fuori dalla
+ * corso non ne fa partire un altro (`job_in_flight`, ignorato), e col budget
+ * del mese finito chi non lo scavalca assegna senza avviare
+ * (`refused:budget_exhausted`, D-7.1: lo dice `/work.blocked`). Fuori dalla
  * transazione della scrittura, come la rotta run-ai: l'assegnazione resta
  * anche se l'avvio non parte.
  */
@@ -65,7 +67,9 @@ export async function startClaudeRuns(
         ...(options.publicUrl !== undefined ? { publicUrl: options.publicUrl } : {}),
       });
       outcomes.set(ticketId, result.ok ? "started" : `refused:${result.error}`);
-      if (!result.ok) options.log?.("Claude assegnato, il lavoro non parte", { ticketId, error: result.error });
+      // Il budget del mese finito (D-7.1) non è un guasto: l'assegnazione
+      // resta e la task dice il blocco (`/work.blocked`), niente avviso.
+      if (!result.ok && result.error !== "budget_exhausted") options.log?.("Claude assegnato, il lavoro non parte", { ticketId, error: result.error });
     } catch (error) {
       // L'assegnazione è scritta; il lavoro si avvia anche a mano.
       outcomes.set(ticketId, "refused:error");

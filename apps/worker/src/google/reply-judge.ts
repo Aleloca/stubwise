@@ -100,7 +100,15 @@ export async function judgeWaitingThreads(deps: ReplyJudgeDeps, accountId: strin
     const claimed = await db
       .update(emailMessages)
       .set({ replyJudgmentAttempts: sql`${emailMessages.replyJudgmentAttempts} + 1` })
-      .where(and(eq(emailMessages.id, c.lastMessageId), sql`${emailMessages.replyJudgment} is null`))
+      // Anche sotto il tetto (rimandi, lotto 4): un giro sovrapposto può aver
+      // consumato l'ultimo tentativo dopo la lettura dei candidati.
+      .where(
+        and(
+          eq(emailMessages.id, c.lastMessageId),
+          sql`${emailMessages.replyJudgment} is null`,
+          sql`${emailMessages.replyJudgmentAttempts} < ${REPLY_JUDGMENT_MAX_ATTEMPTS}`,
+        ),
+      )
       .returning({ attempts: emailMessages.replyJudgmentAttempts });
     if (claimed.length === 0) continue;
     const thread = (
@@ -146,7 +154,10 @@ export async function judgeWaitingThreads(deps: ReplyJudgeDeps, accountId: strin
       if (run.kind === "done") {
         const value = "value" in run ? run.value : undefined;
         const parsed = value ? parseAgentJson(replyJudgmentOutputSchema, textFromRun(value) ?? "") : null;
-        if (parsed) stored = { needsMyReply: parsed.needsMyReply, reason: parsed.reason, ...(deps.model ? { model: deps.model } : {}), at: now.toISOString() };
+        // Il modello USATO (risolto per operazione dal TrackingAgentRunner), col
+        // ripiego su quello passato a mano (rimandi, lotto 4).
+        const model = (value && "model" in value ? value.model : undefined) ?? deps.model;
+        if (parsed) stored = { needsMyReply: parsed.needsMyReply, reason: parsed.reason, ...(model ? { model } : {}), at: now.toISOString() };
       }
     } catch (error) {
       deps.log?.(`google: giudizio sulla risposta del thread ${c.threadId} fallito: ${error instanceof Error ? error.message : String(error)}`);

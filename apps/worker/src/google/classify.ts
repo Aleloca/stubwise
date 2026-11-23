@@ -649,7 +649,9 @@ export function buildEmailSignalsPrompt(lang: Language, input: EmailSignalsInput
   const lines: string[] = [
     t(lang, "email.signals.instructions"),
     "",
-    `OUTPUT (JSON only): ${OUTPUT_SHAPE}`,
+    // `reply` si chiede solo con la sua istruzione (rimandi, lotto 4): senza
+    // contesto il campo, se arrivasse, lo scarterebbe comunque lo schema.
+    `OUTPUT (JSON only): ${outputShape(input.reply !== undefined && input.reply !== null)}`,
     ...(input.reply ? ["", replyInstruction({ ...input.reply, language: lang === "it" ? "it" : "en" })] : []),
     ...projectBlocks,
     "",
@@ -706,9 +708,8 @@ const OUTPUT_SHAPE =
   '"proposals":[{"type":"create_backlog_item|create_milestone|update_ticket|comment_ticket|record_decision",' +
   '"projectId":"<id from the list>","title":"…","body":"…","name":"…","dueDate":"YYYY-MM-DD",' +
   '"ticketNumber":123,"status":"open|triaged|in_progress|in_review|done|closed",' +
-  '"priority":"low|medium|high|urgent","decision":"…","consequence":"…"}],"recommendedIndex":0,' +
-  REPLY_FIELD_SHAPE +
-  "}";
+  '"priority":"low|medium|high|urgent","decision":"…","consequence":"…"}],"recommendedIndex":0';
+const outputShape = (withReply: boolean) => `${OUTPUT_SHAPE}${withReply ? `,${REPLY_FIELD_SHAPE}` : ""}}`;
 
 /** Il contesto DI UN progetto: ticket aperti (per numero) e titoli di backlog. */
 interface ProjectContext {

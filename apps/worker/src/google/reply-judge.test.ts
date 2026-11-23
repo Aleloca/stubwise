@@ -161,6 +161,34 @@ describe("J2: privacy, tentativi, budget, un messaggio nuovo", () => {
     expect(runner.calls).toHaveLength(2);
   });
 
+  it("rimandi, lotto 4: il claim si ferma al tetto anche se un giro sovrapposto ha consumato l'ultimo tentativo DOPO la lettura dei candidati", async () => {
+    const box = await mailbox();
+    const { message } = await waitingThread(box.id, { replyJudgmentAttempts: 1 });
+    const runner = new FakeRunner([yes]);
+    // Il budget si legge fra la lista dei candidati e il claim: è lì che l'altro giro arriva.
+    const overlapping = async () => {
+      await db.update(emailMessages).set({ replyJudgmentAttempts: 2 }).where(eq(emailMessages.id, message.id));
+      return 0;
+    };
+    // Con un budget impostato (alto): senza, `aiBudgetState` non legge la spesa.
+    await db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "1000" }).onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "1000" } });
+    try {
+      await judgeWaitingThreads(deps(runner, { monthlyCostUsdFn: overlapping }), box.id);
+    } finally {
+      await db.update(instanceSettings).set({ monthlyBudgetUsd: null }).where(eq(instanceSettings.id, 1));
+    }
+    expect(runner.calls).toEqual([]);
+    expect((await judgmentOf(message.id)).replyJudgmentAttempts).toBe(2);
+  });
+
+  it("rimandi, lotto 4: il giudizio registra il modello che il run ha USATO (quello risolto per operazione), non solo quello passato a mano", async () => {
+    const box = await mailbox();
+    const { message } = await waitingThread(box.id);
+    const runner = new FakeRunner([{ output: yes, exitCode: 0, model: "claude-haiku-5-5" }]);
+    await judgeWaitingThreads(deps(runner), box.id);
+    expect((await judgmentOf(message.id)).replyJudgment).toMatchObject({ needsMyReply: true, model: "claude-haiku-5-5" });
+  });
+
   it("2 tentativi consumati e nessun giudizio (worker morto fra il tentativo e la scrittura): nessun altro run", async () => {
     const box = await mailbox();
     const { message } = await waitingThread(box.id);

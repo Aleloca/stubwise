@@ -315,6 +315,13 @@ export interface AgentRunResult {
    * (`record: false`) scrivono sulle proprie. Assente coi runner nudi.
    */
   runId?: string;
+  /**
+   * Il modello con cui il run è partito, come l'ha risolto `TrackingAgentRunner`
+   * (`ai_model_settings` → `opts.model`). Assente coi runner nudi o senza un
+   * modello esplicito. Serve a chi registra il modello accanto al risultato
+   * (il giudizio J2 sulla risposta, rimandi lotto 4).
+   */
+  model?: string;
 }
 
 export interface AgentRunner {

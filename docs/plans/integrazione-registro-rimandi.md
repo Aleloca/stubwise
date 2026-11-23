@@ -1211,19 +1211,27 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     non vede; si filtra solo il progetto. È la casella di chi guarda, quindi
     nessuna fuga: solo un'incoerenza. Va insieme al *ruling* del primo di
     `scope_project_ids`.
-  - **Claim del tentativo**: la WHERE è solo `reply_judgment is null`, senza
+  - ~~**Claim del tentativo**: la WHERE è solo `reply_judgment is null`, senza
     `attempts < 2`. Due tick sovrapposti sulla stessa casella potrebbero
-    giudicarla due volte. Oggi il claim per casella del poller li serializza.
+    giudicarla due volte. Oggi il claim per casella del poller li serializza.~~
+    *Chiusa il 23 nov 2026 (72, lotto 4)*: il claim guarda anche
+    `reply_judgment_attempts < REPLY_JUDGMENT_MAX_ATTEMPTS`. Test:
+    `reply-judge.test.ts`, un giro sovrapposto che consuma l'ultimo tentativo
+    fra la lettura e il claim.
   - **Piccole**:
     - ~~la rotta salta una riga il cui progetto manca, ma `total` la conta
       ancora;~~ *Chiusa il 23 nov 2026 (72, lotto 4)*: il taglio
       (`waitingCandidatesPage`) scarta un progetto che non c'è più (il
       perimetro `scope_project_ids` non ha chiave esterna), quindi né riga né
       `total`; il salto nella rotta resta come difesa;
-    - J2 non scrive `model` nel giudizio, perché il modello lo risolve il
-      `TrackingAgentRunner` per operazione;
-    - `OUTPUT_SHAPE` di J1 chiede `reply` anche quando `replyContext` è null
-      (innocuo: senza istruzione il campo, se arriva, si scarta per schema).
+    - ~~J2 non scrive `model` nel giudizio, perché il modello lo risolve il
+      `TrackingAgentRunner` per operazione;~~ *Chiusa il 23 nov 2026 (72, lotto
+      4)*: il risultato del `TrackingAgentRunner` dice il modello risolto
+      (`AgentRunResult.model`), e J2 lo scrive;
+    - ~~`OUTPUT_SHAPE` di J1 chiede `reply` anche quando `replyContext` è null
+      (innocuo: senza istruzione il campo, se arriva, si scarta per schema).~~
+      *Chiusa il 23 nov 2026 (72, lotto 4)*: `reply` si chiede solo insieme
+      alla sua istruzione.
 - Origine di una richiesta da Support; «View conversation» delle task del widget.
 - Adozione delle PR e rilascio (merge) — confine di prodotto invariato.
 - Azioni di Claude: bozze di risposta di supporto e delle note di rilascio

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { aiJobs, notifications, personalAccessTokens, projectMembers, roles, ticketFollowers, tickets, users } from "@stubwise/db";
+import { aiJobs, instanceSettings, notifications, personalAccessTokens, projectMembers, roles, ticketFollowers, tickets, users } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { personViewSchema } from "@stubwise/shared";
@@ -171,6 +171,26 @@ describe("l'esito dell'avvio arriva nella risposta (claudeRun)", () => {
     expect(viaPlan.json()).toMatchObject({ claudeRun: "started" });
     const created = await req("POST", "/api/tasks", developer, { projectId, title: "Nuova", type: "bug", assigneeId: claudeId });
     expect(created.json()).toMatchObject({ claudeRun: "started" });
+  });
+});
+
+describe("rimandi, lotto 4 (D-7.1): assegnare Claude col budget del mese finito", () => {
+  it("chi non scavalca il budget: l'assegnazione RIESCE (200, nessun errore), il lavoro non parte, e la task dice il blocco in /work", async () => {
+    await testDb.db.insert(instanceSettings).values({ id: 1, monthlyBudgetUsd: "0" }).onConflictDoUpdate({ target: instanceSettings.id, set: { monthlyBudgetUsd: "0" } });
+    try {
+      const t = await task();
+      const res = await req("PATCH", `/api/tasks/${t}`, developer, { assigneeId: claudeId });
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json()).toMatchObject({ assigneeId: claudeId, claudeRun: "refused:budget_exhausted" });
+      expect(await jobsOf(t)).toEqual([]);
+      const work = await req("GET", `/api/tasks/${t}/work`, developer);
+      expect((work.json() as { blocked: unknown }).blocked).toEqual({ reason: "monthly_budget" });
+      // La porta vecchia: stesso esito, nessun errore.
+      const old = await req("PATCH", `/api/tickets/${await task()}`, developer, { assigneeId: claudeId });
+      expect(old.statusCode, old.body).toBe(200);
+    } finally {
+      await testDb.db.update(instanceSettings).set({ monthlyBudgetUsd: null }).where(eq(instanceSettings.id, 1));
+    }
   });
 });
 

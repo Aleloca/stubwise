@@ -6199,7 +6199,8 @@ deploy o di un rollback che la tocca.
   Nessuna migrazione, nessuna env. Ordine: **server**, poi **caddy** (il
   renderer che legge `blocked`). **Rollback**: sicuro; un server di prima torna
   ad accettare le richieste e a lasciare il fermo al worker.
-  ⚠️ Due avvii che, rifiutati, lasciano qualcosa a metà (voluto, ma da
-  sapere): il «Procedi» di una proposta del pulse crea la task e poi non parte
-  (la card dice «solo la task»); l'assegnazione a Claude assegna e poi non
-  parte (il lavoro si avvia a mano quando il budget torna).
+  Due casi decisi apposta (46, sul prototipo): il «Procedi» di una proposta
+  del pulse si rifiuta con `budget_exhausted` PRIMA di creare la task, quindi
+  non fa niente e la card resta aperta; l'assegnazione a Claude riesce sempre,
+  senza errori, il lavoro non parte (`claudeRun: "refused:budget_exhausted"`)
+  e la task mostra il blocco in `/work.blocked`.
