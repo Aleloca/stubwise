@@ -253,7 +253,7 @@ export async function runRowOf(db: Db, viewer: Viewer, r: RunRecord, a: Automati
   // Registro, A11 r.1414 (revisione del lotto 2, I3): il nome del proprietario
   // nei motivi («Permesso perso: il proprietario (Ada) …») non esce a chi non lo conosce.
   const named = run.log.filter((e) => e.why?.params && "owner" in e.why.params);
-  if (named.length > 0 && a.ownerId && a.ownerId !== viewer.id && !(await hiddenFor(db, viewer)).knows(a.ownerId)) {
+  if (named.length > 0 && a.ownerId && a.ownerId !== viewer.id && !(await hiddenFor(db, viewer, [a.ownerId])).knows(a.ownerId)) {
     for (const e of named) {
       const { owner, ...params } = e.why!.params!;
       e.why = { ...e.why!, params };

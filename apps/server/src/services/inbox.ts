@@ -19,7 +19,8 @@
  * (`src/actions.ts`, coi loro test) e questo modulo li ri-esporta: gli import
  * dei suoi consumatori (rotte, test) restano validi.
  */
-import { HiddenIds, peopleKnownTo } from "./people-known.js";
+import { hiddenFor } from "./people-known.js";
+import type { SessionUser } from "../auth/session.js";
 import { chatMentionsFor } from "../chat/service.js";
 import {
   aiJobs,
@@ -902,6 +903,10 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
   }
 
   await reopenExpiredSnoozes(db, userId);
+  // Registro, A11 r.1414 (revisione del lotto 2, M1): UNA numerazione dei segnaposto per pagina.
+  // `hiddenFor` ne tiene una per oggetto «chi guarda»: lo stesso per tutta la pagina.
+  let pageViewer: Promise<Pick<SessionUser, "id" | "instancePermissions">> | null = null;
+  const viewerOfPage = () => (pageViewer ??= instancePermissionsOfUser(db, userId).then((instancePermissions) => ({ id: userId, instancePermissions })));
 
 
   const conditions = [
@@ -1066,7 +1071,7 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
   // Registro, A11 r.1414: chi ha scritto un commento della doc e chi legge non conosce → segnaposto.
   // Il predicato solo se c'è un autore diverso da chi legge (le pagine senza card della doc non pagano niente).
   if ([...productDocCards.values()].some((c) => c?.authorId && c.authorId !== userId)) {
-    const hidden = new HiddenIds(await peopleKnownTo(db, { id: userId, instancePermissions: await instancePermissionsOfUser(db, userId) }), userId);
+    const hidden = await hiddenFor(db, await viewerOfPage(), [...productDocCards.values()].map((c) => c?.authorId));
     for (const [id, card] of productDocCards) {
       if (card?.authorId) productDocCards.set(id, { ...card, authorId: hidden.person(card.authorId) });
     }
@@ -1185,7 +1190,7 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     };
   });
 
-  return { items: await withoutStrangers(db, userId, items, permissionsByCard), nextCursor, total };
+  return { items: await withoutStrangers(db, userId, viewerOfPage, items, permissionsByCard), nextCursor, total };
 }
 
 /**
@@ -1199,6 +1204,7 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
 async function withoutStrangers(
   db: Db,
   userId: string,
+  viewerOfPage: () => Promise<Pick<SessionUser, "id" | "instancePermissions">>,
   items: InboxItem[],
   permissionsByCard: ReadonlyMap<string, ReadonlySet<string> | null>,
 ): Promise<InboxItem[]> {
@@ -1216,14 +1222,17 @@ async function withoutStrangers(
   );
   const invisible = new Set(unseen.filter((p) => !stillMember.has(p)));
   if (people.size === 0 && invisible.size === 0) return items;
-  const viewer = { id: userId, instancePermissions: await instancePermissionsOfUser(db, userId) };
   const sees = (projectId: string) => !invisible.has(projectId);
-  const hidden = new HiddenIds(people.size > 0 ? await peopleKnownTo(db, viewer) : "all", userId);
+  const hidden = await hiddenFor(db, await viewerOfPage(), people);
+  // M2: il nome accanto a un id mascherato non esce nemmeno lui.
   return items.map((i) => ({
     ...i,
     viaClaudeRequesterId: hidden.person(i.viaClaudeRequesterId ?? null),
-    memberAdded: i.memberAdded ? { ...i.memberAdded, addedUserId: hidden.person(i.memberAdded.addedUserId) } : i.memberAdded,
-    undoneBy: i.undoneBy ? { ...i.undoneBy, id: hidden.person(i.undoneBy.id) } : i.undoneBy,
+    memberAdded:
+      i.memberAdded && !hidden.knows(i.memberAdded.addedUserId)
+        ? { ...i.memberAdded, addedUserId: hidden.person(i.memberAdded.addedUserId), addedName: null }
+        : i.memberAdded,
+    undoneBy: i.undoneBy && !hidden.knows(i.undoneBy.id) ? { id: hidden.person(i.undoneBy.id), name: "" } : i.undoneBy,
     handledBy: i.handledBy && !hidden.knows(i.handledBy.id) ? { id: hidden.person(i.handledBy.id), email: "" } : i.handledBy,
     projectId: i.projectId ? hidden.project(i.projectId, sees(i.projectId)) : i.projectId,
   }));

@@ -184,7 +184,7 @@ export async function meCalendarRoutes(instance: FastifyInstance, opts: { client
       if (to <= from) return apiError(reply, 400, "invalid_range", "'to' must be after 'from'");
       if (to.getTime() - from.getTime() > FREEBUSY_MAX_DAYS * 24 * 3600_000) return apiError(reply, 400, "range_too_wide", "Range too wide");
       // Registro, A11 r.1414: di chi guarda non conosce non si dice nemmeno se ha il calendario collegato.
-      const hidden = await hiddenFor(app.db, request.user!);
+      const hidden = await hiddenFor(app.db, request.user!, request.query.personIds);
       const known = request.query.personIds.filter((id) => hidden.knows(id));
       const byId = new Map((await freeBusyOf(app.db, known, from, to)).map((p) => [p.personId, p]));
       return {

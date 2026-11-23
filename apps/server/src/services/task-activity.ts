@@ -118,7 +118,7 @@ export async function taskActivity(
       : [],
   ]);
   const userName = new Map(userRows.map((u) => [u.id, personName(u)]));
-  const hidden = viewer && assigneeIds.some((id) => id !== viewer.id) ? await hiddenFor(db, viewer) : null;
+  const hidden = viewer && assigneeIds.some((id) => id !== viewer.id) ? await hiddenFor(db, viewer, assigneeIds) : null;
   // «via Claude» (chat, fetta 3): derivato dalle colonne, UNA query per registro.
   const via = await loadViaClaude(db, [
     ...commentRows.map((c) => c.viaClaudeActionId),
