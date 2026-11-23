@@ -1,4 +1,5 @@
 import type { CustomerStatus } from "../../domain/releases/customerStatus";
+import { personMasker } from "../access/hidden";
 import { SUPPORT_STATE_ORDER, supportState, type SupportState } from "../../domain/support/state";
 import { fold } from "../../domain/textSearch";
 import { gate, state } from "../store";
@@ -38,11 +39,12 @@ export async function listSupportConversations(
 ): Promise<SupportConversationView[]> {
   const me = await gate("support.listSupportConversations");
   if (!sees(me, projectId)) return [];
+  const mask = personMasker(me);
   return state.supportConversations
     .filter((c) => c.projectId === projectId)
     .filter((c) => !filter.state || supportState(c) === filter.state)
     .sort(byGroup)
-    .map((c) => conversationView(me, c));
+    .map((c) => conversationView(me, c, mask));
 }
 
 /** Il dettaglio di una conversazione (`ACQ-S2`); `null` se nascosta o inesistente. */
