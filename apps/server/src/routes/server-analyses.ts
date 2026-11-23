@@ -1,3 +1,4 @@
+import { registerPersonMask } from "../services/people-known.js";
 import { environmentServers, projectEnvironments, projects, serverAnalyses, serverCommands, serverFixes, serverOperationApprovals, servers, tickets, users } from "@stubwise/db";
 import { serverAnalysisViewSchema, serverCommandViewSchema, type ServerAnalysisView, type ServerCommandView } from "@stubwise/shared";
 import { and, desc, eq, inArray, lt, or, sql, type SQL } from "drizzle-orm";
@@ -57,8 +58,13 @@ export async function operatorAccess(
 
 const listQuerySchema = z.object({ before: z.iso.datetime().optional(), limit: z.coerce.number().int().min(1).max(200).default(50) });
 
+/** Registro, A11 r.1414: le chiavi delle risposte che portano una persona. */
+const SERVER_PERSON_KEYS: ReadonlySet<string> = new Set([]);
+
 export async function serverAnalysisRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+  // Registro, A11 r.1414: chi guarda non riceve l'id di chi non conosce.
+  registerPersonMask(app, SERVER_PERSON_KEYS, new Set(["startedBy", "requestedBy", "by"]));
 
   app.post(
     "/:id/analyses",

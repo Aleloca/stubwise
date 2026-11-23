@@ -3,7 +3,8 @@ import { GMAIL_MODIFY_SCOPE, missingGoogleScopes } from "@stubwise/google";
 import { MAIL_OUTGOING_CHANNEL, type MailDraft, type MailOutgoing } from "@stubwise/shared";
 import { projectPermissionsOfUser } from "@stubwise/notifications";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
-import { listDrafts, unsavedViewOf } from "./mail-drafts.js";
+import type { ObjectStorage } from "../storage/index.js";
+import { DRAFT_MAX_ATTACHMENT_BYTES, DRAFT_MAX_ATTACHMENTS, listDrafts, syncMergedDraft, type MailComposeClient } from "./mail-drafts.js";
 
 /**
  * L'INVIO TRATTENUTO DAL SERVER (area 6, fetta 3, D6: 10 secondi).
@@ -141,7 +142,17 @@ export async function getOutgoing(db: Db, userId: string, id: string): Promise<M
   return row ? toView(row) : null;
 }
 
-/** Riporta la bozza fra le attive; se lo slot è di un'altra bozza, ne restituisce il contenuto NON salvato (Annulla ferma comunque l'invio). */
+/** Il testo tornato SOTTO quello che c'è (`placeDraft` «below» del prototipo). */
+const below = (body: string, back: string) => (body.trim() === "" ? back : `${body.replace(/\s+$/, "")}\n\n${back}`);
+
+/**
+ * Riporta la bozza fra le attive. Se lo slot è di un'altra bozza ci si UNISCE
+ * (registro, A6 r.448; `restoreDraft` del prototipo): il testo tornato sotto
+ * il suo, i suoi destinatari e oggetto restano, gli allegati tornati si
+ * spostano finché stanno nei limiti di Gmail (i link non contano) e quelli in
+ * più si elencano. La copia annullata se ne va; la bozza unita si riscrive su
+ * Gmail DOPO la transazione (`syncMergedDraft`). Annulla ferma comunque l'invio.
+ */
 async function restoreDraft(tx: Parameters<Parameters<Db["transaction"]>[0]>[0], userId: string, draftId: string | null) {
   if (!draftId) return null;
   const [draft] = await tx.select().from(mailDrafts).where(and(eq(mailDrafts.id, draftId), eq(mailDrafts.userId, userId)));
@@ -161,27 +172,49 @@ async function restoreDraft(tx: Parameters<Parameters<Db["transaction"]>[0]>[0],
       ),
     );
   if (taken) {
-    // Lo slot è di un'altra bozza: il contenuto torna NON salvato (la persona
-    // lo salva o lo scarta), e la copia di Stubwise se ne va per non occupare
-    // lo slot. La bozza su Gmail resta fra le bozze di Gmail, con gli allegati:
-    // è la copia di sicurezza (correzione di 46: Annulla ferma SEMPRE l'invio).
-    const unsaved = await unsavedViewOf(tx as unknown as Db, draft);
+    const [into] = await tx.select().from(mailDrafts).where(eq(mailDrafts.id, taken.id)).for("update");
+    const kept = await tx.select().from(mailDraftAttachments).where(eq(mailDraftAttachments.draftId, into!.id));
+    const back = await tx.select().from(mailDraftAttachments).where(eq(mailDraftAttachments.draftId, draft.id)).orderBy(mailDraftAttachments.createdAt);
+    let files = kept.filter((a) => a.as !== "link").length;
+    let bytes = kept.filter((a) => a.as !== "link").reduce((n, a) => n + a.sizeBytes, 0);
+    const dropped: string[] = [];
+    for (const a of back) {
+      if (a.as !== "link") {
+        if (files + 1 > DRAFT_MAX_ATTACHMENTS || bytes + a.sizeBytes > DRAFT_MAX_ATTACHMENT_BYTES) {
+          dropped.push(a.name);
+          continue;
+        }
+        files += 1;
+        bytes += a.sizeBytes;
+      }
+      await tx.update(mailDraftAttachments).set({ draftId: into!.id }).where(eq(mailDraftAttachments.id, a.id));
+    }
+    await tx.update(mailDrafts).set({ body: below(into!.body, draft.body), updatedAt: new Date() }).where(eq(mailDrafts.id, into!.id));
+    // Gli allegati rimasti (oltre i limiti) se ne vanno con lei.
     await tx.delete(mailDrafts).where(eq(mailDrafts.id, draftId));
-    return { unsaved };
+    return { merged: { draftId: into!.id, dropped, stale: { accountId: draft.accountId, gmailDraftId: draft.gmailDraftId } } };
   }
   const [restored] = await tx.update(mailDrafts).set({ state: "active" }).where(eq(mailDrafts.id, draftId)).returning();
   return restored ?? null;
 }
 
-type Restored = { draft: MailDraft | null; droppedAttachments: string[]; unsaved: boolean };
+type Restored = { draft: MailDraft | null; droppedAttachments: string[]; unsaved: boolean; gmailOutdated: boolean };
+
+/** Per riscrivere su Gmail la bozza unita (`syncMergedDraft`). */
+export interface MergeGmail {
+  encryptionKey: Buffer;
+  client: MailComposeClient;
+  storage: ObjectStorage | null;
+}
+type Merged = { draftId: string; dropped: string[]; stale: { accountId: string; gmailDraftId: string } };
 
 async function draftView(db: Db, userId: string, draftId: string): Promise<MailDraft | null> {
   return (await listDrafts(db, userId)).find((d) => d.id === draftId) ?? null;
 }
 
 /** Annulla l'invio, prima che scadano i 10 s: la bozza torna. Dopo, `too_late`. */
-export async function undoSend(db: Db, userId: string, id: string): Promise<Restored | SendError> {
-  const out = await db.transaction(async (tx): Promise<SendError | { draftId: string | null; unsaved?: { draft: MailDraft; attachmentNames: string[] } }> => {
+export async function undoSend(db: Db, userId: string, id: string, gmail: MergeGmail): Promise<Restored | SendError> {
+  const out = await db.transaction(async (tx): Promise<SendError | { draftId: string | null; merged?: Merged }> => {
     const [row] = await tx.select().from(mailOutgoing).where(and(eq(mailOutgoing.id, id), eq(mailOutgoing.userId, userId))).for("update");
     if (!row) return { error: "not_found" as const };
     // Area 7, F2 (C-F2-1): un'email di un'automazione non ha una bozza da
@@ -196,16 +229,19 @@ export async function undoSend(db: Db, userId: string, id: string): Promise<Rest
     // lo lascia partire (correzione di 46, D6).
     await tx.update(mailOutgoing).set({ state: "cancelled" }).where(eq(mailOutgoing.id, id));
     const restored = await restoreDraft(tx, userId, row.draftId);
-    if (restored && "unsaved" in restored) return { draftId: null, unsaved: restored.unsaved };
+    if (restored && "merged" in restored) return { draftId: null, merged: restored.merged };
     return { draftId: row.draftId };
   });
   if ("error" in out) return out;
-  return finished(db, userId, out);
+  return finished(db, userId, out, gmail);
 }
 
-async function finished(db: Db, userId: string, out: { draftId: string | null; unsaved?: { draft: MailDraft; attachmentNames: string[] } }): Promise<Restored> {
-  if (out.unsaved) return { draft: out.unsaved.draft, droppedAttachments: out.unsaved.attachmentNames, unsaved: true };
-  return { draft: out.draftId ? await draftView(db, userId, out.draftId) : null, droppedAttachments: [], unsaved: false };
+async function finished(db: Db, userId: string, out: { draftId: string | null; merged?: Merged }, gmail: MergeGmail): Promise<Restored> {
+  if (out.merged) {
+    const synced = await syncMergedDraft(db, gmail.encryptionKey, gmail.client, gmail.storage, userId, out.merged.draftId, out.merged.stale);
+    return { draft: await draftView(db, userId, out.merged.draftId), droppedAttachments: out.merged.dropped, unsaved: false, gmailOutdated: !synced };
+  }
+  return { draft: out.draftId ? await draftView(db, userId, out.draftId) : null, droppedAttachments: [], unsaved: false, gmailOutdated: false };
 }
 
 /** Riprova un invio FALLITO: un gesto della persona, mai il worker da solo. Parte subito. */
@@ -237,8 +273,8 @@ export async function retrySend(db: Db, userId: string, id: string): Promise<Mai
 }
 
 /** Elimina un invio FALLITO: la bozza torna, per correggerla. */
-export async function discardFailedSend(db: Db, userId: string, id: string): Promise<Restored | SendError> {
-  const out = await db.transaction(async (tx): Promise<SendError | { draftId: string | null; unsaved?: { draft: MailDraft; attachmentNames: string[] } }> => {
+export async function discardFailedSend(db: Db, userId: string, id: string, gmail: MergeGmail): Promise<Restored | SendError> {
+  const out = await db.transaction(async (tx): Promise<SendError | { draftId: string | null; merged?: Merged }> => {
     const [row] = await tx.select().from(mailOutgoing).where(and(eq(mailOutgoing.id, id), eq(mailOutgoing.userId, userId))).for("update");
     if (!row) return { error: "not_found" as const };
     // Area 7, F2 (C-F2-1): un'email di un'automazione non ha una bozza da
@@ -249,9 +285,9 @@ export async function discardFailedSend(db: Db, userId: string, id: string): Pro
     if (row.error === "sent_unrecorded") return { error: "sent_unrecorded" as const };
     await tx.update(mailOutgoing).set({ state: "cancelled" }).where(eq(mailOutgoing.id, id));
     const restored = await restoreDraft(tx, userId, row.draftId);
-    if (restored && "unsaved" in restored) return { draftId: null, unsaved: restored.unsaved };
+    if (restored && "merged" in restored) return { draftId: null, merged: restored.merged };
     return { draftId: row.draftId };
   });
   if ("error" in out) return out;
-  return finished(db, userId, out);
+  return finished(db, userId, out, gmail);
 }

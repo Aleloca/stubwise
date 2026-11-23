@@ -2,7 +2,7 @@ import { gitAccounts, releaseCiRuns, releases, repositories, ticketRepositories,
 import { getProvider, type CommitRuns, type ProjectGitConfig } from "@stubwise/git";
 import { decryptGitCredentials, productionForStatus, publishNotification, releaseProductionOf, type NotificationEvent } from "@stubwise/notifications";
 import { releaseStatusOf, sameCommit, type MandatoryReason, type ReleaseStatus } from "@stubwise/shared";
-import { and, eq, gte, isNull, lt, ne, sql } from "drizzle-orm";
+import { and, eq, gte, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
 
 /**
  * LO STATO DI UN RILASCIO DOPO IL MERGE (area 8, F1, S4). Un giro rilegge i
@@ -31,6 +31,12 @@ import { and, eq, gte, isNull, lt, ne, sql } from "drizzle-orm";
  */
 
 export const RELEASE_WATCH_HOURS = 24;
+/**
+ * Registro, A8 r.744: un rilascio sistemato come FALLITO si riguarda ancora,
+ * nella finestra, al più ogni tanto: una run di CI rilanciata e verde lo fa
+ * diventare riuscito (prima restava «fallito» per sempre).
+ */
+export const RELEASE_FAILED_RECHECK_MINUTES = 10;
 const BATCH = 50;
 
 export interface ReleasePollerDeps {
@@ -52,7 +58,20 @@ export async function pollReleasesOnce(deps: ReleasePollerDeps): Promise<number>
     .from(releases)
     .innerJoin(repositories, eq(repositories.id, releases.repositoryId))
     .innerJoin(gitAccounts, eq(gitAccounts.id, repositories.gitAccountId))
-    .where(and(isNull(releases.runsSettledAt), gte(releases.mergedAt, new Date(now.getTime() - RELEASE_WATCH_HOURS * 3_600_000))))
+    .where(
+      and(
+        gte(releases.mergedAt, new Date(now.getTime() - RELEASE_WATCH_HOURS * 3_600_000)),
+        or(
+          isNull(releases.runsSettledAt),
+          // Sistemato come fallito (avvisato, mai riuscito): riguardato ogni RELEASE_FAILED_RECHECK_MINUTES.
+          and(
+            isNotNull(releases.failedNotifiedAt),
+            isNull(releases.succeededNotifiedAt),
+            or(isNull(releases.lastPolledAt), lt(releases.lastPolledAt, new Date(now.getTime() - RELEASE_FAILED_RECHECK_MINUTES * 60_000))),
+          ),
+        ),
+      ),
+    )
     // A turno (review F1): prima i mai guardati, poi i guardati da più tempo.
     // Con più di BATCH rilasci aperti nessuno resta indietro per sempre.
     .orderBy(sql`${releases.lastPolledAt} asc nulls first`, releases.mergedAt)

@@ -437,6 +437,34 @@ export async function saveDraft(
   }
 }
 
+/**
+ * Dopo l'unione di «Annulla l'invio» (registro, A6 r.448): la bozza unita si
+ * riscrive su Gmail (le regole di Salva, `draft_changed` compreso: un cambio
+ * fatto da Gmail non si sovrascrive), e la bozza Gmail di quella annullata se
+ * ne va (best-effort: è già unita qui). `false` = Gmail non è aggiornata, la
+ * copia di Stubwise sì; il prossimo Salva la riscrive.
+ */
+export async function syncMergedDraft(
+  db: Db,
+  encryptionKey: Buffer,
+  client: MailComposeClient,
+  storage: ObjectStorage | null,
+  userId: string,
+  mergedDraftId: string,
+  stale: { accountId: string; gmailDraftId: string },
+): Promise<boolean> {
+  const [row] = await db.select().from(mailDrafts).where(and(eq(mailDrafts.id, mergedDraftId), eq(mailDrafts.userId, userId)));
+  if (!row) return false;
+  const out = await rewrite(db, encryptionKey, client, storage, userId, row);
+  try {
+    const accessToken = await accessTokenFor(db, encryptionKey, client, stale.accountId);
+    if (accessToken) await client.deleteDraft({ accessToken, id: stale.gmailDraftId });
+  } catch {
+    // Già sparita, o Gmail non risponde: resta fra le bozze di Gmail, e niente si perde.
+  }
+  return !("error" in out);
+}
+
 /** Elimina la bozza, su Gmail e qui. Una bozza già sparita da Gmail si toglie e basta. */
 export async function discardDraft(db: Db, encryptionKey: Buffer, client: MailComposeClient, userId: string, id: string): Promise<{ ok: true } | DraftError> {
   const [row] = await db.select().from(mailDrafts).where(and(eq(mailDrafts.id, id), eq(mailDrafts.userId, userId), eq(mailDrafts.state, "active")));

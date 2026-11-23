@@ -268,8 +268,10 @@ export async function meMailDraftsRoutes(instance: FastifyInstance, opts: { clie
 }
 
 /** Gli invii (area 6, F3, D6), sotto `/api/me/mail/outgoing`: solo di chi scrive. */
-export async function meMailOutgoingRoutes(instance: FastifyInstance): Promise<void> {
+export async function meMailOutgoingRoutes(instance: FastifyInstance, opts: { client?: MailComposeClient }): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+  // Per riscrivere su Gmail la bozza unita da Annulla (registro, A6 r.448).
+  const client = opts.client ?? realMailComposeClient;
   const params = z.object({ id: z.uuid() });
   const errors = { 404: errorSchema, 409: errorSchema, ...authErrorResponses };
   function sendError(reply: FastifyReply, err: SendError) {
@@ -287,7 +289,7 @@ export async function meMailOutgoingRoutes(instance: FastifyInstance): Promise<v
     "/:id/undo",
     { config: { access: { kind: "user" } }, schema: { params, response: { 200: mailDraftRestoreSchema, ...errors } } },
     async (request, reply) => {
-      const out = await undoSend(app.db, request.user!.id, request.params.id);
+      const out = await undoSend(app.db, request.user!.id, request.params.id, { encryptionKey: app.encryptionKey, client, storage: await app.storage() });
       return "error" in out ? sendError(reply, out) : out;
     },
   );
@@ -305,7 +307,7 @@ export async function meMailOutgoingRoutes(instance: FastifyInstance): Promise<v
     "/:id/discard",
     { config: { access: { kind: "user" } }, schema: { params, response: { 200: mailDraftRestoreSchema, ...errors } } },
     async (request, reply) => {
-      const out = await discardFailedSend(app.db, request.user!.id, request.params.id);
+      const out = await discardFailedSend(app.db, request.user!.id, request.params.id, { encryptionKey: app.encryptionKey, client, storage: await app.storage() });
       return "error" in out ? sendError(reply, out) : out;
     },
   );

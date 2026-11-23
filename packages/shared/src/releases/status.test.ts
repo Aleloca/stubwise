@@ -63,6 +63,17 @@ describe("releaseStatusOf — run lette", () => {
   });
 });
 
+describe("releaseStatusOf — run rilanciate (registro, A8 r.744)", () => {
+  it("una run con lo stesso nome partita DOPO sostituisce quella di prima: rilanciata e verde → succeeded", () => {
+    const failed = run({ status: "failed", startedAt: later(1), endedAt: later(3) });
+    const rerun = run({ startedAt: later(10), endedAt: later(14) });
+    expect(releaseStatusOf(input({ runs: [failed, rerun], now: later(15) }))).toEqual({ kind: "succeeded", since: later(14) });
+    expect(releaseStatusOf(input({ runs: [failed, run({ status: "running", startedAt: later(10), endedAt: null })], now: later(15) })).kind).toBe("running");
+    // Un nome diverso non sostituisce niente.
+    expect(releaseStatusOf(input({ runs: [failed, run({ name: "lint", startedAt: later(10), endedAt: later(14) })], now: later(15) })).kind).toBe("failed");
+  });
+});
+
 describe("releaseStatusOf — lettura illeggibile (`unknown`, mai «riuscito»)", () => {
   it("senza altri fatti lo stato è `unknown`, anche oltre la soglia", () => {
     expect(releaseStatusOf(input({ runs: "unknown" }))).toEqual({ kind: "unknown", since: null });

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
-import { backlogJobs, chatChannels, chatMessages, chatThreadFollows, departmentMembers, departments, docPages, notifications, projectMembers, projects, roles } from "@stubwise/db";
+import { backlogJobs, chatChannels, chatMessages, chatThreadFollows, departmentMembers, departments, deviceTokens, docPages, notificationDeliveries, notifications, personalAccessTokens, projectMembers, projects, roles } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers, type SeededUsers } from "../test/fixtures.js";
@@ -438,6 +438,21 @@ describe("avvisi di gruppo: @channel e @reparto (registro, A4 r.169)", () => {
     expect(JSON.stringify(row!.event)).not.toContain("@channel");
   });
 
+  it("la push di una card di gruppo porta il gruppo (scritto nella consegna all'invio, non nell'evento); quella a nome no", async () => {
+    for (const u of [lead, dev2]) {
+      const [pat] = await t.db.insert(personalAccessTokens).values({ userId: u.id, name: "phone", tokenHash: crypto.randomUUID() }).returning({ id: personalAccessTokens.id });
+      await t.db.insert(deviceTokens).values({ userId: u.id, patId: pat!.id, platform: "ios", token: `dev-${crypto.randomUUID()}` });
+    }
+    const id = await channelWith([lead, dev2]);
+    const msg = idOf(await post(dev, id, "@channel e @lead-f2"));
+    const pushOf = async (u: Who) => {
+      const [row] = await rowsOf(u, msg);
+      return t.db.select().from(notificationDeliveries).where(and(eq(notificationDeliveries.notificationId, row!.id), eq(notificationDeliveries.channel, "push")));
+    };
+    expect(await pushOf(dev2)).toEqual([expect.objectContaining({ event: { pushGroup: "@channel" } })]);
+    expect(await pushOf(lead)).toEqual([expect.objectContaining({ event: null })]);
+  });
+
   it("nominato a nome E col gruppo: una card sola, quella a nome", async () => {
     const id = await channelWith([lead, dev2]);
     const msg = idOf(await post(dev, id, "@channel e soprattutto @lead-f2"));
@@ -472,5 +487,29 @@ describe("avvisi di gruppo: @channel e @reparto (registro, A4 r.169)", () => {
     const plain = idOf(await post(dev, id, "senza gruppo"));
     expect((await as(dev, "PATCH", `/api/chat/messages/${plain}`, { text: "ora con @channel" })).statusCode).toBe(200);
     expect(await rowsOf(lead, plain)).toEqual([]);
+  });
+});
+
+describe("registro, A11 r.1414: nella Chat chi non si conosce è un segnaposto", () => {
+  it("la reazione di chi è uscito dal canale senza scriverci (nessun progetto in comune): `hidden-<n>`, né id né nome; chi scrive resta conosciuto", async () => {
+    const stranger = await createUserWithSession(app, `stranger-f2-${crypto.randomUUID().slice(0, 6)}@example.com`);
+    const created = await as(dev, "POST", "/api/chat/channels", { name: `istanza-${++n}`, visibility: "open" });
+    expect(created.statusCode, created.body).toBe(201);
+    const id = idOf(created);
+    expect((await as(stranger, "POST", `/api/chat/channels/${id}/join`)).statusCode).toBeLessThan(300);
+    const msg = idOf(await post(dev, id, "una novità per tutti"));
+    expect((await as(stranger, "POST", `/api/chat/messages/${msg}/reactions/toggle`, { emoji: "👍" })).statusCode).toBeLessThan(300);
+    expect((await as(stranger, "DELETE", `/api/chat/channels/${id}/join`)).statusCode).toBeLessThan(300);
+    // Lead: progetto in comune con dev, niente con lo sconosciuto.
+    await as(lead, "POST", `/api/chat/channels/${id}/join`);
+    const res = await as(lead, "GET", `/api/chat/channels/${id}/messages?limit=50`);
+    expect(res.statusCode, res.body).toBe(200);
+    const view = (res.json() as { items: { id: string; authorId: string; reactions: { emoji: string; personIds: string[] }[] }[] }).items.find((m) => m.id === msg)!;
+    expect(view.authorId).toBe(dev.id);
+    expect(view.reactions).toEqual([{ emoji: "👍", personIds: ["hidden-1"] }]);
+    expect(res.body).not.toContain(stranger.id);
+    // Chi lo conosce (lo sconosciuto stesso) vede il proprio id.
+    const own = (await as(stranger, "GET", `/api/chat/messages/${msg}`));
+    if (own.statusCode === 200) expect(own.body).toContain(stranger.id);
   });
 });

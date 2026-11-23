@@ -307,31 +307,69 @@ describe("Invia, Annulla, Riprova, Elimina (D6: il server trattiene 10 s)", () =
     expect(still!.state).toBe("sending");
   });
 
-  it("Annulla a 9 s con un'altra bozza nello stesso slot: l'invio si FERMA comunque, e il contenuto torna NON salvato (correzione di 46)", async () => {
-    const { me, box, message, draftId } = await savedDraft();
-    const sent = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string };
+  /** Invia la bozza salvata, poi un'altra bozza nello stesso slot (scritta nei 10 s). */
+  async function sentAndAnother() {
+    const s = await savedDraft();
+    const sent = (await post(s.me.headers, `/api/me/mail/drafts/${s.draftId}/send`)).json() as { messageId: string };
     current = null;
-    const other = (await save(me.headers, { accountId: box.id, threadId: "t1", mode: "reply", replyToMessageId: message.id, subject: "Re: Export", body: "Un'altra." })).json() as { id: string };
+    const other = (await save(s.me.headers, { accountId: s.box.id, threadId: "t1", mode: "reply", replyToMessageId: s.message.id, to: [{ email: "altro@x.it" }], subject: "Re: Export (2)", body: "Un'altra." })).json() as { id: string };
+    return { ...s, sent, other };
+  }
+  type Restore = { unsaved: boolean; gmailOutdated: boolean; droppedAttachments: string[]; draft: { id: string | null; body: string; subject: string; to: { email: string }[]; attachments: { name: string }[] } };
+
+  it("registro, A6 r.448: Annulla con un'altra bozza nello slot le UNISCE, il testo tornato sotto; la bozza unita si riscrive su Gmail e quella annullata se ne va", async () => {
+    const { me, sent, other, draftId } = await sentAndAnother();
     const { mailOutgoing } = await import("@stubwise/db");
-    const { eq, sql } = await import("drizzle-orm");
-    // 9 s dopo Invia: manca un secondo.
-    await db.update(mailOutgoing).set({ sendAt: sql`now() + interval '1 second'` }).where(eq(mailOutgoing.id, sent.messageId));
+    const { eq } = await import("drizzle-orm");
     calls.length = 0;
     const undo = await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/undo`);
-    expect(undo.statusCode).toBe(200);
-    const out = undo.json() as { unsaved: boolean; draft: { id: string | null; body: string; to: { email: string }[]; subject: string; mode: string; threadId: string } };
-    expect(out.unsaved).toBe(true);
-    expect(out.draft).toMatchObject({ id: null, body: "Fatto.", subject: "Re: Export", mode: "reply", threadId: "t1" });
-    expect(out.draft.to.map((a) => a.email)).toEqual(["cliente@x.it"]);
-    // Nessuna email: l'invio è annullato, e il worker prende solo le righe `queued`.
+    expect(undo.statusCode, undo.body).toBe(200);
+    const out = undo.json() as Restore;
+    expect(out).toMatchObject({ unsaved: false, gmailOutdated: false, droppedAttachments: [] });
+    // Destinatari e oggetto restano quelli della bozza che c'era; il testo tornato va sotto.
+    expect(out.draft).toMatchObject({ id: other.id, body: "Un'altra.\n\nFatto.", subject: "Re: Export (2)" });
+    expect(out.draft.to.map((a) => a.email)).toEqual(["altro@x.it"]);
     const [row] = await db.select().from(mailOutgoing).where(eq(mailOutgoing.id, sent.messageId));
     expect(row!.state).toBe("cancelled");
-    // L'altra bozza resta nello slot, intatta; nessuna scrittura su Gmail.
-    const drafts = ((await app.inject({ method: "GET", url: "/api/me/mail/drafts", headers: me.headers })).json() as { items: { id: string; body: string }[] }).items;
-    expect(drafts).toEqual([expect.objectContaining({ id: other.id, body: "Un'altra." })]);
-    expect(calls).toEqual([]);
-    // La copia annullata non resta in Stubwise (su Gmail sì, fra le bozze).
+    // Una bozza sola nello slot, riscritta su Gmail; la copia annullata via, anche da Gmail.
+    const drafts = ((await app.inject({ method: "GET", url: "/api/me/mail/drafts", headers: me.headers })).json() as { items: { id: string }[] }).items;
+    expect(drafts.map((d) => d.id)).toEqual([other.id]);
     expect(await db.select().from(mailDrafts).where(eq(mailDrafts.id, draftId))).toEqual([]);
+    expect(calls.map((c) => c.fn)).toEqual(expect.arrayContaining(["update", "delete"]));
+    const [merged] = await db.select().from(mailDrafts).where(eq(mailDrafts.id, other.id));
+    expect(merged!.body).toBe("Un'altra.\n\nFatto.");
+  });
+
+  it("registro, A6 r.448: nell'unione gli allegati tornati stanno nei limiti di Gmail; quelli in più si elencano", async () => {
+    const { me, sent, other, draftId } = await sentAndAnother();
+    const { eq } = await import("drizzle-orm");
+    for (let i = 0; i < 9; i++) objects.set(`mail/keep-${i}`, Buffer.from("k"));
+    objects.set("mail/back-a", Buffer.from("a"));
+    objects.set("mail/back-b", Buffer.from("b"));
+    await db.insert(mailDraftAttachments).values(Array.from({ length: 9 }, (_, i) => ({ draftId: other.id, name: `keep-${i}`, sizeBytes: 1, mimeType: "text/plain", storageKey: `mail/keep-${i}` })));
+    await db.insert(mailDraftAttachments).values([
+      { draftId, name: "back-a", sizeBytes: 1, mimeType: "text/plain", storageKey: "mail/back-a" },
+      { draftId, name: "back-b", sizeBytes: 1, mimeType: "text/plain", storageKey: "mail/back-b" },
+    ]);
+    const out = (await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/undo`)).json() as Restore;
+    expect(out.droppedAttachments).toEqual(["back-b"]);
+    expect(out.draft.attachments.map((a) => a.name).sort()).toEqual([...Array.from({ length: 9 }, (_, i) => `keep-${i}`), "back-a"].sort());
+    expect(await db.select().from(mailDraftAttachments).where(eq(mailDraftAttachments.draftId, draftId))).toEqual([]);
+    await db.delete(mailDraftAttachments).where(eq(mailDraftAttachments.draftId, other.id));
+  });
+
+  it("registro, A6 r.448: se Gmail non riscrive la bozza unita, l'unione resta in Stubwise e la risposta lo dice (`gmailOutdated`)", async () => {
+    const { me, sent, other } = await sentAndAnother();
+    const { eq } = await import("drizzle-orm");
+    getError = new Error("Gmail giù");
+    try {
+      const out = (await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/undo`)).json() as Restore;
+      expect(out).toMatchObject({ gmailOutdated: true, draft: { id: other.id, body: "Un'altra.\n\nFatto." } });
+      const [merged] = await db.select().from(mailDrafts).where(eq(mailDrafts.id, other.id));
+      expect(merged!.body).toBe("Un'altra.\n\nFatto.");
+    } finally {
+      getError = null;
+    }
   });
 
   it("area 7, F2 (C-F2-1): un'email d'automazione non si annulla, riprova né elimina dalla Posta (409 automation_email): la riprova solo il passo", async () => {

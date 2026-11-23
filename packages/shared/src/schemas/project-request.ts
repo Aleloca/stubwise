@@ -1,3 +1,4 @@
+import { personRefSchema } from "./person-ref.js";
 import { z } from "zod";
 import { backlogItemStatusSchema, backlogJobStatusSchema, backlogUrgencySchema } from "./backlog.js";
 import { productOriginSchema } from "./product-docs.js";
@@ -18,7 +19,7 @@ export const requestToConvertViewSchema = z.object({
   status: backlogItemStatusSchema,
   /** La scala dei ticket (low/medium/high/urgent); null se non stimata. */
   urgency: backlogUrgencySchema.nullable(),
-  requesterIds: z.array(z.uuid()).default([]),
+  requesterIds: z.array(personRefSchema).default([]),
   requestCount: z.number().int().default(1),
   createdAt: z.iso.datetime(),
   /** La voce nel web vecchio. */
@@ -42,7 +43,7 @@ export const projectRequestViewSchema = z.object({
   projectId: z.uuid(),
   title: z.string(),
   description: z.string(),
-  requesterIds: z.array(z.uuid()).default([]),
+  requesterIds: z.array(personRefSchema).default([]),
   status: backlogItemStatusSchema,
   /** null: non stimata (il prototipo la mostra «medium»). */
   urgency: requestLevelSchema.nullable(),

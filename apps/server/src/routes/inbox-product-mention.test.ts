@@ -196,3 +196,18 @@ describe("review di F2, riscritta con F5: `updated` e `question` senza revisione
     }
   });
 });
+
+describe("registro, A11 r.1414: la card della doc", () => {
+  it("chi ha scritto e chi legge non conosce: `productDoc.authorId` è un segnaposto, il nome null", async () => {
+    const { users } = await import("@stubwise/db");
+    const { comment } = await mention("@reader-m una per te");
+    const [stranger] = await t.db.insert(users).values({ email: `stranger-ipm-${randomUUID().slice(0, 6)}@x.it`, passwordHash: "x", role: "member", displayName: "Mai Visto" }).returning({ id: users.id });
+    await t.db.update(productComments).set({ authorId: stranger!.id }).where(eq(productComments.id, comment.id));
+    const res = await inject(reader, "GET", "/api/inbox");
+    expect(res.statusCode, res.body).toBe(200);
+    const [card] = await cardsOf(reader, comment.id);
+    expect(card!.productDoc).toMatchObject({ authorId: "hidden-1", authorName: null });
+    expect(res.body).not.toContain(stranger!.id);
+    expect(res.body).not.toContain("Mai Visto");
+  });
+});

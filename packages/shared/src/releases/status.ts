@@ -89,9 +89,14 @@ function countedRuns(
   runs: readonly ReleaseRunLike[],
   pipeline: ReleasePipeline,
 ): readonly ReleaseRunLike[] {
-  if (pipeline?.mode !== "named") return runs;
+  // Registro, A8 r.744: una run con lo STESSO nome partita DOPO prende il posto
+  // di quella di prima (una run rilanciata: su Bitbucket una pipeline nuova, con
+  // un altro id), o il rilascio resterebbe «fallito» per sempre. A pari orario
+  // contano tutte (due run diverse col nome uguale).
+  const current = runs.filter((r) => !runs.some((o) => o.name === r.name && Date.parse(o.startedAt) > Date.parse(r.startedAt)));
+  if (pipeline?.mode !== "named") return current;
   const names = new Set(pipeline.names);
-  return runs.filter((r) => names.has(r.name));
+  return current.filter((r) => names.has(r.name));
 }
 
 const earliest = (xs: string[]) => [...xs].sort()[0] ?? null;

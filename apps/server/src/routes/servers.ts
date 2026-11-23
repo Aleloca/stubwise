@@ -1,3 +1,4 @@
+import { registerPersonMask } from "../services/people-known.js";
 import {
   computeServerStatus,
   createServerSchema,
@@ -223,8 +224,13 @@ async function loadAggregates(
  * rigenerazione chiave ed eliminazione con `monitor.manage`. La chiave dell'agente (`sk_…`) si mostra in chiaro SOLO alla
  * creazione e alla rigenerazione: in DB vive solo l'hash (sha256).
  */
+/** Registro, A11 r.1414: le chiavi delle risposte che portano una persona. */
+const SERVER_PERSON_KEYS: ReadonlySet<string> = new Set([]);
+
 export async function serverRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+  // Registro, A11 r.1414: chi guarda non riceve l'id di chi non conosce.
+  registerPersonMask(app, SERVER_PERSON_KEYS, new Set(["startedBy", "requestedBy", "by"]));
 
   /** L'URL dell'istanza per il comando d'installazione (`agentInstallCommand`); null senza PUBLIC_URL. */
   const ingestUrlOf = (): string | null => {

@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { personRefSchema } from "./person-ref.js";
+
+export { personRefSchema };
 
 /**
  * La Chat fra persone (integrazione area 4; design
@@ -60,11 +63,11 @@ export const chatChannelSchema = z.object({
   isGeneral: z.boolean().default(false),
   archived: z.boolean().default(false),
   archivedAt: z.iso.datetime().nullable().default(null),
-  archivedBy: z.uuid().nullable().default(null),
-  createdBy: z.uuid().nullable().default(null),
+  archivedBy: personRefSchema.nullable().default(null),
+  createdBy: personRefSchema.nullable().default(null),
   createdAt: z.iso.datetime(),
   /** I membri (nel «general»: quelli del progetto, derivati). */
-  memberIds: z.array(z.uuid()).default([]),
+  memberIds: z.array(personRefSchema).default([]),
   isMember: z.boolean().default(false),
   /** Scrivere: membro, e canale non archiviato. */
   canWrite: z.boolean().default(false),
@@ -222,7 +225,7 @@ export type ChatClaudeReplyView = z.infer<typeof chatClaudeReplySchema>;
 
 export const chatReactionSchema = z.object({
   emoji: z.string(),
-  personIds: z.array(z.uuid()),
+  personIds: z.array(personRefSchema),
 });
 
 /** Un messaggio come lo vede chi guarda. Eliminato: niente testo (`text` vuoto, `deleted`). */
@@ -362,33 +365,33 @@ export const chatMessageSchema = z.object({
   channelId: z.uuid(),
   /** La radice del thread; null per un messaggio del canale. */
   threadRootId: z.uuid().nullable().default(null),
-  authorId: z.uuid().nullable(),
+  authorId: personRefSchema.nullable(),
   kind: z.enum(["person", "system", "claude"]).default("person"),
-  calledById: z.uuid().nullable().default(null),
+  calledById: personRefSchema.nullable().default(null),
   text: z.string(),
   createdAt: z.iso.datetime(),
   editedAt: z.iso.datetime().nullable().default(null),
   deleted: z.boolean().default(false),
   deletedAt: z.iso.datetime().nullable().default(null),
-  deletedBy: z.uuid().nullable().default(null),
+  deletedBy: personRefSchema.nullable().default(null),
   reactions: z.array(chatReactionSchema).default([]),
   /** Solo su una radice: le risposte e l'ultima. */
   replyCount: z.number().int().default(0),
   lastReplyAt: z.iso.datetime().nullable().default(null),
-  lastReplyById: z.uuid().nullable().default(null),
+  lastReplyById: personRefSchema.nullable().default(null),
   /** Solo su una radice: chi ha risposto (persone, senza ripetizioni, in ordine di prima risposta). */
-  replyParticipantIds: z.array(z.uuid()).default([]),
+  replyParticipantIds: z.array(personRefSchema).default([]),
   /** Chi guarda segue il thread di questa radice. */
   following: z.boolean().default(false),
   /** Le persone nominate direttamente (`@Nome`), le ricava il server. */
-  mentionedIds: z.array(z.uuid()).default([]),
+  mentionedIds: z.array(personRefSchema).default([]),
   canEdit: z.boolean().default(false),
   canDelete: z.boolean().default(false),
   viaClaude: z.boolean().default(false),
   /** Una risposta mandata «anche nel canale»: compare anche nel flusso del canale. */
   alsoInChannel: z.boolean().default(false),
   /** Le persone a cui il messaggio chiede una risposta (le ricava il server). */
-  asksReplyOf: z.array(z.uuid()).default([]),
+  asksReplyOf: z.array(personRefSchema).default([]),
   /**
    * Le task e le richieste nate dal messaggio («→ AUD-14»): solo quelle che
    * chi guarda vede, derivate a lettura. `linkedCodes` sono i loro codici.
@@ -486,7 +489,7 @@ export const chatQuestionSchema = z.object({
   messageId: z.uuid(),
   /** Dove rispondere: la radice del thread (il messaggio stesso se è nel canale). */
   rootId: z.uuid(),
-  askedById: z.uuid().nullable(),
+  askedById: personRefSchema.nullable(),
   text: z.string(),
   createdAt: z.iso.datetime(),
 });

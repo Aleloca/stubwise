@@ -1026,7 +1026,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(meMailProposalsRoutes, { prefix: "/api/me/mail/proposals", mailClassifyV2: opts.mailClassifyV2 ?? false });
   // Area 6, F3: le bozze, anch'esse prima di `meMailRoutes`.
   void app.register(meMailDraftsRoutes, { prefix: "/api/me/mail/drafts", ...(opts.mailComposeClient ? { client: opts.mailComposeClient } : {}) });
-  void app.register(meMailOutgoingRoutes, { prefix: "/api/me/mail/outgoing" });
+  void app.register(meMailOutgoingRoutes, { prefix: "/api/me/mail/outgoing", ...(opts.mailComposeClient ? { client: opts.mailComposeClient } : {}) });
   void app.register(meMailRecipientsRoutes, { prefix: "/api/me/mail/recipients" });
   void app.register(meMailRoutes, {
     prefix: "/api/me/mail",

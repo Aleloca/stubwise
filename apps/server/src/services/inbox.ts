@@ -19,6 +19,7 @@
  * (`src/actions.ts`, coi loro test) e questo modulo li ri-esporta: gli import
  * dei suoi consumatori (rotte, test) restano validi.
  */
+import { HiddenIds, peopleKnownTo } from "./people-known.js";
 import { chatMentionsFor } from "../chat/service.js";
 import {
   aiJobs,
@@ -1062,6 +1063,15 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     productDocCards.set(id, claude ? { ...card, claude, ...(question ? { commentId: question, threadRootId: question } : {}) } : null);
   }
 
+  // Registro, A11 r.1414: chi ha scritto un commento della doc e chi legge non conosce → segnaposto.
+  // Il predicato solo se c'è un autore diverso da chi legge (le pagine senza card della doc non pagano niente).
+  if ([...productDocCards.values()].some((c) => c?.authorId && c.authorId !== userId)) {
+    const hidden = new HiddenIds(await peopleKnownTo(db, { id: userId, instancePermissions: await instancePermissionsOfUser(db, userId) }), userId);
+    for (const [id, card] of productDocCards) {
+      if (card?.authorId) productDocCards.set(id, { ...card, authorId: hidden.person(card.authorId) });
+    }
+  }
+
   // Area 7: le card `automation.*` derivate a lettura (l'esecuzione com'è adesso, per chi legge).
   const automationCards = await automationCardsFor(db, userId, page.filter((r) => isAutomationKind(r.kind)));
 
@@ -1175,7 +1185,48 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     };
   });
 
-  return { items, nextCursor, total };
+  return { items: await withoutStrangers(db, userId, items, permissionsByCard), nextCursor, total };
+}
+
+/**
+ * Registro, A11 r.1414: nelle card, chi legge non riceve l'id di chi non
+ * conosce né di un progetto che non vede: per conto di chi ha agito Claude, chi
+ * è entrato, chi ha annullato, chi ha gestito la card (anche l'email), e il
+ * progetto di una card che non si apre più. Segnaposto `hidden-<n>` /
+ * `hidden-project-<n>`, stabili nella pagina; nessuna query se la pagina non
+ * ha niente da guardare.
+ */
+async function withoutStrangers(
+  db: Db,
+  userId: string,
+  items: InboxItem[],
+  permissionsByCard: ReadonlyMap<string, ReadonlySet<string> | null>,
+): Promise<InboxItem[]> {
+  const people = new Set<string>();
+  for (const i of items) {
+    for (const id of [i.viaClaudeRequesterId, i.memberAdded?.addedUserId, i.undoneBy?.id, i.handledBy?.id]) if (id && id !== userId) people.add(id);
+  }
+  // I progetti delle card senza permessi di chi legge (già letti per le azioni): fra questi,
+  // un archiviato di cui è membro si legge ancora; gli altri non li vede.
+  const unseen = [...new Set(items.flatMap((i) => (i.projectId && !permissionsByCard.get(i.id) ? [i.projectId] : [])))];
+  const stillMember = new Set(
+    unseen.length > 0
+      ? (await db.select({ id: projectMembers.projectId }).from(projectMembers).where(and(eq(projectMembers.userId, userId), inArray(projectMembers.projectId, unseen)))).map((r) => r.id)
+      : [],
+  );
+  const invisible = new Set(unseen.filter((p) => !stillMember.has(p)));
+  if (people.size === 0 && invisible.size === 0) return items;
+  const viewer = { id: userId, instancePermissions: await instancePermissionsOfUser(db, userId) };
+  const sees = (projectId: string) => !invisible.has(projectId);
+  const hidden = new HiddenIds(people.size > 0 ? await peopleKnownTo(db, viewer) : "all", userId);
+  return items.map((i) => ({
+    ...i,
+    viaClaudeRequesterId: hidden.person(i.viaClaudeRequesterId ?? null),
+    memberAdded: i.memberAdded ? { ...i.memberAdded, addedUserId: hidden.person(i.memberAdded.addedUserId) } : i.memberAdded,
+    undoneBy: i.undoneBy ? { ...i.undoneBy, id: hidden.person(i.undoneBy.id) } : i.undoneBy,
+    handledBy: i.handledBy && !hidden.knows(i.handledBy.id) ? { id: hidden.person(i.handledBy.id), email: "" } : i.handledBy,
+    projectId: i.projectId ? hidden.project(i.projectId, sees(i.projectId)) : i.projectId,
+  }));
 }
 
 /** Le task eliminate fra questi id, col loro codice (la lapide). UNA query. */

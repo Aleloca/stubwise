@@ -1,3 +1,4 @@
+import { registerPersonMask } from "../services/people-known.js";
 import { pinnedTaskFilters, taskFilters } from "@stubwise/db";
 import {
   filterPatchBodySchema,
@@ -60,8 +61,13 @@ const idParams = z.object({ id: z.uuid() });
 // Il tetto e il lock stanno nel servizio (li usa anche l'esecutore delle azioni di Claude).
 export { MAX_FILTERS_PER_PERSON };
 
+/** Registro, A11 r.1414: le chiavi delle risposte che portano una persona. */
+const FILTER_PERSON_KEYS: ReadonlySet<string> = new Set(["ownerId"]);
+
 export async function filterRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
+  // Registro, A11 r.1414: chi guarda non riceve l'id di chi non conosce.
+  registerPersonMask(app, FILTER_PERSON_KEYS);
 
   app.get(
     "/filters",

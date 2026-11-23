@@ -96,6 +96,16 @@ describe("buildPushPayload", () => {
     expect(build(pulse, "en").title).toContain("negozio-web");
   });
 
+  it("registro, A4 r.169: una menzione di gruppo dice il gruppo, non «you», in titolo e corpo; senza gruppo resta a nome", () => {
+    const mention: NotificationEvent = { kind: "chat.mention", chatMessageId: NOTIFICATION_ID, channelId: NOTIFICATION_ID, channelName: "general", projectId: null, authorUserId: null, authorName: "Ada" };
+    expect(build(mention, "en", { group: "@channel" })).toMatchObject({ title: "@channel was mentioned in the chat", body: "Ada mentioned @channel in #general" });
+    expect(build(mention, "it", { group: "@Marketing" })).toMatchObject({ title: "Hanno nominato @Marketing nella chat", body: "Ada ha nominato @Marketing in #general" });
+    expect(build({ ...mention, channelName: "" }, "en", { group: "@channel" }).body).toBe("Ada mentioned @channel in a direct message");
+    expect(build(mention, "en")).toMatchObject({ title: "You were mentioned in the chat", body: "Ada mentioned you in #general" });
+    // Una domanda resta delle sole persone nominate: il gruppo non la tocca.
+    expect(build({ ...mention, kind: "chat.question" } as NotificationEvent, "en", { group: "@channel" }).body).not.toContain("@channel");
+  });
+
   it("threadId è il progetto, e manca quando la notifica non ne ha uno", () => {
     const event = EVENTS[0]!;
     expect(build(event, "it", { projectId: PROJECT_ID }).threadId).toBe(PROJECT_ID);

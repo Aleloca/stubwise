@@ -1,3 +1,4 @@
+import { personRefSchema } from "./person-ref.js";
 import { z } from "zod";
 import { STATUS_FAMILIES } from "../tasks/stall.js";
 import { TASK_SIZES } from "../tasks/sizes.js";
@@ -151,10 +152,10 @@ export const taskViewSchema = z.object({
   statusId: z.string().uuid(),
   departmentId: z.string().uuid(),
   /** Mai Claude in questa fetta. */
-  assigneeId: z.string().uuid().nullable(),
+  assigneeId: personRefSchema.nullable(),
   /** Chi l'ha creata; null per una task senza autore umano (SDK, posta…) o un utente eliminato. */
-  createdById: z.string().uuid().nullable(),
-  followerIds: z.array(z.string().uuid()).default([]),
+  createdById: personRefSchema.nullable(),
+  followerIds: z.array(personRefSchema).default([]),
   size: taskSizeSchema.nullable(),
   dueDate: z.string().nullable().default(null),
   /** Fetta 2. */
@@ -248,8 +249,8 @@ export const decisionRequestViewSchema = z.object({
   /** Area 10, F8: il codice della task (`AUD-12`), derivato a lettura nell'elenco. `.optional()`: un server più vecchio non lo manda. */
   taskCode: z.string().optional(),
   /** null se chi ha chiesto non c'è più. */
-  askedById: z.string().uuid().nullable(),
-  askedOfId: z.string().uuid(),
+  askedById: personRefSchema.nullable(),
+  askedOfId: personRefSchema,
   question: z.string(),
   options: z.array(z.string()),
   createdAt: z.string(),
@@ -269,7 +270,7 @@ export const taskActivityEntryViewSchema = z.object({
   id: z.string(),
   taskId: z.string().uuid(),
   kind: z.enum(["comment", "field_change", "decision"]),
-  authorId: z.string().uuid().nullable(),
+  authorId: personRefSchema.nullable(),
   at: z.string(),
   body: z.string().optional(),
   replyToId: z.string().optional(),
@@ -299,7 +300,7 @@ export const taskWorkRunSchema = z.object({
   /** La sessione dell'agente del job, se è nata (un job in coda non ce l'ha ancora). */
   sessionId: z.uuid().nullable().default(null),
   /** Chi l'ha avviata; `null` se il sistema o un utente eliminato. */
-  ownerId: z.uuid().nullable().default(null),
+  ownerId: personRefSchema.nullable().default(null),
   createdAt: z.iso.datetime(),
   /** Lo stato del prototipo (`held` → `idle`, con `heldReason`). «In pausa» per uno «Ferma» lo dice il dettaglio della sessione (`paused`). */
   state: z.enum(["working", "awaiting_answer", "awaiting_approval", "paused", "idle", "finished"]),
@@ -357,7 +358,7 @@ export const taskPrFactSchema = z.object({
     .object({
       verdict: z.enum(["pending", "approved", "changes_requested"]),
       at: z.iso.datetime(),
-      byId: z.uuid().nullable().default(null),
+      byId: personRefSchema.nullable().default(null),
       on: z.enum(["stubwise", "platform"]).nullable().default(null),
     })
     .nullable()
@@ -368,7 +369,7 @@ export const taskPrFactSchema = z.object({
 });
 
 export const taskPlanDecisionSchema = z.object({
-  decidedById: z.uuid().nullable(),
+  decidedById: personRefSchema.nullable(),
   decidedAt: z.iso.datetime(),
   decision: z.string(),
   status: z.enum(["approved", "rejected"]),

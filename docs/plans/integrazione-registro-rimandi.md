@@ -179,9 +179,9 @@ Fetta 4: renderer (sotto, «Chiuse»).
   del canale (per `@reparto` quelli del reparto) col canale su «all», alla
   creazione del messaggio, una card `chat.mention` per persona (vince quella a
   nome), senza seguire il thread. Il gruppo (`chat.group` della card) e la
-  frase si derivano a lettura. Limite accettato: la push di una card di gruppo
-  ha il testo della menzione a nome («mentioned you»), perché si costruisce
-  dall'evento all'invio.
+  frase si derivano a lettura. La push dice il gruppo («@channel was
+  mentioned in the chat», «Ada mentioned @channel in #general»): il gruppo è
+  noto all'invio e sta nella consegna push (`pushGroup`), non nell'evento.
 - Limite accettato: modificare un messaggio avvisa solo chi viene nominato
   per la PRIMA volta. Chi era già nominato non riceve una seconda card, e chi
   viene tolto dal testo tiene la card che aveva (la sua domanda però esce da
@@ -468,10 +468,18 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `/proposals?status=handed`, senza una card in inbox.
 - F2, lo smistamento di prima (`email_triage`) resta solo sull'inbox, non in
   Posta *(O)*.
-- F3, Annulla l'invio con un'altra bozza nello stesso slot *(O)*: oggi 409
+- ~~F3, Annulla l'invio con un'altra bozza nello stesso slot *(O)*: oggi 409
   `draft_slot_taken` (l'invio resta in coda); il prototipo unisce le due bozze
   (il testo tornato sotto, gli allegati oltre i limiti elencati). Rimandato:
-  l'unione chiede di riscrivere la bozza su Gmail.
+  l'unione chiede di riscrivere la bozza su Gmail.~~ *Chiusa il 23 nov 2026
+  (72)*: Annulla (e «Elimina» di un invio fallito) unisce come il prototipo,
+  nella transazione che ferma l'invio: il testo tornato sotto, destinatari e
+  oggetto della bozza che c'era, gli allegati spostati finché stanno nei limiti
+  di Gmail (i link non contano) e gli altri in `droppedAttachments`. Dopo, la
+  bozza unita si riscrive su Gmail e quella annullata se ne va da Gmail
+  (`syncMergedDraft`); se Gmail non riscrive, `gmailOutdated: true` (additivo)
+  e l'unione resta in Stubwise fino al prossimo Salva. `unsaved` non torna più
+  vero (resta nello schema).
 - F1.3 letto / non letto, limite *(S)*: dopo un resync per query (primo
   giro, history scaduta) i messaggi GIÀ ingeriti non rileggono `UNREAD`
   finché non cambia di nuovo su Gmail; le righe di prima della 0149 sono
@@ -772,9 +780,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   analisi» e non è pronta.
 
 - F1, review del server, due rimandi *(O, 46, 14 nov 2026)*:
-  - Una run di CI **rilanciata** dopo che il rilascio si è sistemato come
+  - ~~Una run di CI **rilanciata** dopo che il rilascio si è sistemato come
     `failed` non si vede: il poller non riguarda i rilasci sistemati (la
-    run rilanciata e verde lascerebbe il rilascio «fallito»).
+    run rilanciata e verde lascerebbe il rilascio «fallito»).~~ *Chiusa il 23
+    nov 2026 (72)*: nella finestra delle 24 ore il poller riguarda anche i
+    rilasci sistemati come falliti (avvisati e mai riusciti), al più ogni
+    `RELEASE_FAILED_RECHECK_MINUTES` (10); e in `releaseStatusOf` (shared) una
+    run con lo stesso nome partita DOPO prende il posto di quella di prima (su
+    Bitbucket una pipeline rilanciata ha un altro id). Rilanciata e verde: il
+    rilascio è riuscito, con l'avviso `release.succeeded`.
   - `GET /api/me/releases` legge le PR aperte con `listOpenPulls` per OGNI
     progetto in cui chi guarda ha `release.merge` — per un full admin, tutti:
     una chiamata al provider per PR. Non c'è un ripiego economico (la
@@ -1094,7 +1108,7 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   rimandati. Branch `feat/area8-site-api`; l'Important (la catena delle
   conversazioni senza token) e quattro minori sono corretti nel giro della
   review.
-  - **Costo dell'elenco**: `listSiteRequests`
+  - ~~**Costo dell'elenco**: `listSiteRequests`
     (`apps/server/src/services/site-requests.ts`) legge TUTTE le conversazioni
     verificate del `sub` e per ognuna calcola l'esito (fusioni, task,
     rilasci); il tetto di 50 viene dopo. Un cliente col token può aprire
@@ -1106,7 +1120,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     verifica). Header inventati aprono bucket nuovi, e ognuno costa una
     decifratura e un HMAC prima del 401. Lo stesso vale già oggi per
     `X-Stubwise-Key` inventate sul limitatore per chiave. La correzione vera è
-    un limitatore DOPO `identify`, per `sub` verificato.
+    un limitatore DOPO `identify`, per `sub` verificato.~~ *Chiuse il 23 nov
+    2026 (72)*, in `routes/widget.ts`: al più
+    `WIDGET_VERIFIED_CONVERSATIONS_PER_DAY` (50) conversazioni verificate per
+    `sub` in 24 ore (429 `too_many_conversations`); le letture del cliente
+    hanno un limitatore per `sub` verificato in preHandler, dopo `identify`
+    (`createRateLimit`: il plugin ne fa girare uno per richiesta), e il bucket
+    per chiave della rotta (onRequest, dieci volte quello di un cliente) conta
+    gli header inventati prima della decifratura.
 - «Clienti in attesa» *(O, 72, review finale, 15 nov 2026)*, i minori
   rimandati. Branch `feat/area8-waiting`; gli Important sono corretti in
   8c51606b8.

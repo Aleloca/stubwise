@@ -250,7 +250,11 @@ describe("la cronologia, Segui, le immagini", () => {
     const { and: andOp } = await import("drizzle-orm");
     await t.db.delete(projectMembers).where(andOp(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, stranger.id)));
     const revs = (await as(reader, "GET", `/api/product-pages/${p.id}/revisions`)).json() as ProductRevisionView[];
-    expect(revs.find((r) => r.actorId === stranger.id)!.actorName).toBeNull();
+    // Uscito senza la voce del registro (tolto a mano): non è più conosciuto, quindi
+    // anche l'id è un segnaposto (registro, A11 r.1414), e il nome resta null.
+    const theirs = revs.find((r) => r.actorId?.startsWith("hidden-"))!;
+    expect(theirs.actorName).toBeNull();
+    expect(JSON.stringify(revs)).not.toContain(stranger.id);
   });
 
   it("review di F1 (M12): scrivere su un progetto archiviato è 409", async () => {

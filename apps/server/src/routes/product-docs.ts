@@ -1,3 +1,4 @@
+import { hiddenFor, maskPeople, personIdsIn } from "../services/people-known.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -121,8 +122,27 @@ async function handle<T>(reply: FastifyReply, fn: () => Promise<T>): Promise<T |
 /** Un id di blocco nuovo, come il prototipo (`makeBlockId`). */
 const newBlockId = () => `blk-${randomUUID()}`;
 
+/**
+ * Registro, A11 r.1414: le chiavi che nelle risposte della doc di prodotto
+ * portano l'id di una PERSONA (pagine, commenti, cronologia, segni e domande di
+ * Claude, prima versione, fonti). Chi guarda non conosce la persona → il
+ * segnaposto `hidden-<n>` (`maskPeople`), in UN posto per tutte le rotte qui;
+ * i nomi li toglie già R-G5. Una chiave nuova che porta una persona va qui.
+ */
+export const PRODUCT_PERSON_KEYS: ReadonlySet<string> = new Set([
+  "createdById", "updatedById", "authorId", "byId", "actorId", "onBehalfOfId", "ownerId", "forId", "undoneById", "mentionIds",
+]);
+
 export async function productDocsRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+  app.addHook("preSerialization", async (request, _reply, payload) => {
+    if (!request.user || payload === null || typeof payload !== "object") return payload;
+    // Senza persone diverse da chi guarda nella risposta, nessuna query.
+    const ids = personIdsIn(payload, PRODUCT_PERSON_KEYS);
+    ids.delete(request.user.id);
+    if (ids.size === 0) return payload;
+    return maskPeople(payload, await hiddenFor(app.db, request.user), PRODUCT_PERSON_KEYS);
+  });
 
   app.get(
     "/projects/:projectId/product",

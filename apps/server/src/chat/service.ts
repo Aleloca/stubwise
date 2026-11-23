@@ -75,6 +75,8 @@ import {
  */
 
 import { CHAT_CHANNEL_NOTIFY } from "./notify.js";
+// Registro, A11 r.1414: i segnaposto di UNA risposta per chi guarda (uno per richiesta).
+import { hiddenFor } from "../services/people-known.js";
 export { CHAT_CHANNEL_NOTIFY };
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 type MessageRow = typeof chatMessages.$inferSelect;
@@ -152,22 +154,25 @@ async function groupNotified(
   authorId: string,
   members: ReadonlySet<string>,
   direct: readonly string[],
-): Promise<string[]> {
+): Promise<{ id: string; group: string }[]> {
   if (!text.includes("@") || members.size === 0) return [];
+  // Il gruppo di ciascuno, per il testo della push (all'invio): `@channel`, o il SUO reparto nominato.
+  const groupOf = new Map<string, string>();
   let targets: string[];
-  if (namesGroup(text, "channel")) targets = [...members];
-  else {
+  if (namesGroup(text, "channel")) {
+    targets = [...members];
+    for (const u of targets) groupOf.set(u, "@channel");
+  } else {
     const named = (await db.select({ id: departments.id, name: departments.name }).from(departments)).filter((d) => namesGroup(text, d.name));
     if (named.length === 0) return [];
-    const inNamed = new Set(
-      (
-        await db
-          .select({ userId: departmentMembers.userId })
-          .from(departmentMembers)
-          .where(inArray(departmentMembers.departmentId, named.map((d) => d.id)))
-      ).map((r) => r.userId),
-    );
-    targets = [...members].filter((u) => inNamed.has(u));
+    const nameOf = new Map(named.map((d) => [d.id, d.name]));
+    for (const r of await db
+      .select({ userId: departmentMembers.userId, departmentId: departmentMembers.departmentId })
+      .from(departmentMembers)
+      .where(inArray(departmentMembers.departmentId, named.map((d) => d.id)))) {
+      if (!groupOf.has(r.userId)) groupOf.set(r.userId, `@${nameOf.get(r.departmentId)!}`);
+    }
+    targets = [...members].filter((u) => groupOf.has(u));
   }
   targets = targets.filter((u) => u !== authorId && !direct.includes(u));
   if (targets.length === 0) return [];
@@ -180,7 +185,7 @@ async function groupNotified(
     ).map((r) => r.userId),
   );
   const people = new Set((await peopleOf(db, targets)).map((p) => p.id));
-  return targets.filter((u) => people.has(u) && !quiet.has(u));
+  return targets.filter((u) => people.has(u) && !quiet.has(u)).map((id) => ({ id, group: groupOf.get(id)! }));
 }
 
 /**
@@ -208,9 +213,12 @@ async function publishCards(
     to: readonly string[];
     asks: readonly string[];
     members: ReadonlySet<string>;
+    /** Chi è avvisato da un gruppo, e da quale: il testo della sua push. */
+    groups?: ReadonlyMap<string, string>;
   },
 ): Promise<void> {
   for (const userId of input.to) {
+    const pushGroup = input.groups?.get(userId);
     await publishNotification(
       tx,
       {
@@ -222,7 +230,7 @@ async function publishCards(
         authorUserId: input.authorId,
         authorName: input.authorName,
       },
-      { accountUserId: userId, ...(input.channel.projectId ? { projectId: input.channel.projectId } : {}) },
+      { accountUserId: userId, ...(input.channel.projectId ? { projectId: input.channel.projectId } : {}), ...(pushGroup ? { pushGroup } : {}) },
     );
   }
 }
@@ -366,6 +374,7 @@ async function channelViewsBatch(
     .groupBy(chatMessages.channelId);
   const counts = new Map(countRows.map((r) => [r.channelId, r]));
 
+  const hidden = await hiddenFor(db, viewer);
   return channels.map((channel) => {
     const rows = membersOf.get(channel.id) ?? [];
     const permissions = new Set<ProjectPermission>(
@@ -393,10 +402,10 @@ async function channelViewsBatch(
       isGeneral: channel.isGeneral,
       archived: channel.archivedAt !== null,
       archivedAt: channel.archivedAt?.toISOString() ?? null,
-      archivedBy: channel.archivedBy,
-      createdBy: channel.createdBy,
+      archivedBy: hidden.person(channel.archivedBy),
+      createdBy: hidden.person(channel.createdBy),
       createdAt: channel.createdAt.toISOString(),
-      memberIds: members,
+      memberIds: members.map((id) => hidden.person(id)),
       isMember: access.isMember,
       canWrite: access.canWrite,
       canJoin: access.canJoin,
@@ -540,6 +549,7 @@ async function messageViews(db: Db, viewer: ChatViewer, rows: readonly MessageRo
   const replying = await rootsWithClaudeWorking(db, rows.filter((r) => r.threadRootId === null).map((r) => r.id));
   const events = await eventViews(db, viewer, rows);
   const attachments = await chatAttachmentViews(db, live);
+  const hidden = await hiddenFor(db, viewer);
   return rows.map((m) => {
     const own = m.authorId === viewer.id && m.kind === "person";
     const deleted = m.deletedAt !== null;
@@ -550,24 +560,24 @@ async function messageViews(db: Db, viewer: ChatViewer, rows: readonly MessageRo
       id: m.id,
       channelId: m.channelId,
       threadRootId: m.threadRootId,
-      authorId: m.authorId,
+      authorId: hidden.person(m.authorId),
       kind: m.kind,
-      calledById: m.calledById,
+      calledById: hidden.person(m.calledById),
       text: deleted ? "" : m.body,
       createdAt: m.createdAt.toISOString(),
       editedAt: m.editedAt?.toISOString() ?? null,
       deleted,
       deletedAt: m.deletedAt?.toISOString() ?? null,
-      deletedBy: m.deletedBy,
+      deletedBy: hidden.person(m.deletedBy),
       reactions: deleted
         ? []
-        : [...(byMessage.get(m.id) ?? new Map()).entries()].map(([emoji, personIds]) => ({ emoji, personIds })),
+        : [...(byMessage.get(m.id) ?? new Map<string, string[]>()).entries()].map(([emoji, personIds]) => ({ emoji, personIds: personIds.map((id) => hidden.person(id)) })),
       replyCount: reply?.n ?? 0,
       lastReplyAt: reply?.last?.toISOString() ?? null,
-      lastReplyById: reply?.lastBy ?? null,
-      replyParticipantIds: reply?.participants ?? [],
+      lastReplyById: hidden.person(reply?.lastBy ?? null),
+      replyParticipantIds: (reply?.participants ?? []).map((id) => hidden.person(id)),
       following: followOf.get(m.id) === true,
-      mentionedIds: deleted ? [] : m.mentionedIds,
+      mentionedIds: deleted ? [] : m.mentionedIds.map((id) => hidden.person(id)),
       // Le condizioni delle scritture (review del renderer della fetta 3): si
       // modifica da membro di un canale non archiviato (`canWrite`), si elimina
       // in un canale non archiviato (`ownMessage`).
@@ -576,7 +586,7 @@ async function messageViews(db: Db, viewer: ChatViewer, rows: readonly MessageRo
       canDelete: (own || (m.kind === "claude" && m.calledById === viewer.id)) && !deleted && !placeOf(m.channelId).archived,
       viaClaude: m.viaClaudeActionId !== null,
       alsoInChannel: m.alsoInChannel,
-      asksReplyOf: deleted ? [] : m.asksReplyOf,
+      asksReplyOf: deleted ? [] : m.asksReplyOf.map((id) => hidden.person(id)),
       linked,
       linkedCodes: linked.map((l) => l.code),
       citations: deleted ? [] : (citations.get(m.id) ?? []),
@@ -1113,7 +1123,8 @@ export async function postMessage(
       messageId: row!.id,
       authorId: viewer.id,
       authorName: author?.name ?? "",
-      to: [...mentioned, ...grouped],
+      to: [...mentioned, ...grouped.map((g) => g.id)],
+      groups: new Map(grouped.map((g) => [g.id, g.group])),
       asks,
       members,
     });
@@ -1722,13 +1733,14 @@ export async function questionsOf(db: Db, viewer: ChatViewer): Promise<ChatQuest
     .orderBy(desc(chatMessages.createdAt))
     .limit(200);
   const out: ChatQuestionItem[] = [];
+  const hidden = await hiddenFor(db, viewer);
   for (const { message: m } of rows) {
     out.push({
       id: `chat:${m.id}`,
       channelId: m.channelId,
       messageId: m.id,
       rootId: m.threadRootId ?? m.id,
-      askedById: m.authorId,
+      askedById: hidden.person(m.authorId),
       text: m.body,
       createdAt: m.createdAt.toISOString(),
     });
