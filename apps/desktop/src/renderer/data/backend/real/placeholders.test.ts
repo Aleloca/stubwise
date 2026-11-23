@@ -75,6 +75,41 @@ describe("i segnaposto nella build app", () => {
     expect(await errorOf(updateFilter(FILTER, { criteria }))).toBe("invalid: criteria");
   });
 
+  // Revisione I-6 (72, f0d312736): «Salva come» manda il filtro d'origine a parte, non nei criteri.
+  it("«Salva come» manda l'origine (`savedFilterId`), e i criteri senza", async () => {
+    const { seen } = installFakeServer({
+      "POST /api/filters": {
+        body: {
+          id: "99999999-9999-4999-8999-999999999999",
+          name: "Loro",
+          ownerId: null,
+          visibility: "private",
+          criteria: { assigneeIds: ["hidden-1"] },
+          view: "list",
+          groupBy: "none",
+          canEdit: true,
+          createdAt: "2026-11-23T10:00:00.000Z",
+          updatedAt: "2026-11-23T10:00:00.000Z",
+        },
+      },
+    });
+    await saveFilter({
+      name: "Loro",
+      visibility: "private",
+      criteria: { assigneeIds: ["hidden-1"] },
+      view: "list",
+      groupBy: "none",
+      savedFilterId: FILTER,
+    });
+    expect(seen.find((r) => r.method === "POST")!.body).toMatchObject({
+      savedFilterId: FILTER,
+      criteria: { assigneeIds: ["hidden-1"] },
+    });
+    expect((seen.find((r) => r.method === "POST")!.body as { criteria: object }).criteria).not.toHaveProperty(
+      "savedFilterId",
+    );
+  });
+
   it("il Drive filtrato per un segnaposto: `invalid: addedById`, su tutt'e due gli elenchi", async () => {
     installFakeServer({
       [`GET /api/projects/${PROJECT_ID}/drive/files`]: invalid("addedById"),

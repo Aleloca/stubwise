@@ -64,6 +64,8 @@ export const saveFilter: typeof Fake.saveFilter = async (input) =>
         criteria: input.criteria,
         view: input.view,
         groupBy: input.groupBy,
+        // Revisione I-6 (72, f0d312736): l'origine di un «Salva come», per i segnaposto.
+        ...(input.savedFilterId ? { savedFilterId: input.savedFilterId } : {}),
       } as never),
     )) as SavedFilterView,
   );

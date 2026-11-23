@@ -47,6 +47,18 @@ function Choice({
 }
 
 /**
+ * Il motivo di un salvataggio non riuscito, nelle parole del dialogo: il
+ * tetto dei 200 filtri, un segnaposto «Someone» che non si risolve (r.1414,
+ * I-6: l'origine non si vede più), o l'errore generico.
+ */
+export function saveFilterErrorKey(error: unknown): string {
+  if ((error as { code?: unknown } | null)?.code === "too_many_filters") return "filter.dialog.tooMany";
+  if ((error as { message?: unknown } | null)?.message === "invalid: criteria")
+    return "filter.dialog.someone";
+  return "filter.dialog.failed";
+}
+
+/**
  * «Save as filter» e «Edit filter». Un filtro è privato o pubblico, nient'altro
  * (spec §4): il dialogo spiega che un pubblico lo apre chiunque e che
  * ognuno ci trova solo le task che vede già.
@@ -113,6 +125,8 @@ export function SaveFilterDialog({
     const trimmed = name.trim();
     if (!trimmed) return;
     setError(null);
+    // I-6: l'id del filtro da cui vengono i criteri non è un criterio: va a parte, come origine.
+    const { savedFilterId, ...plain } = criteria;
     try {
       if (filter) {
         const saved = await update.mutateAsync({
@@ -120,14 +134,21 @@ export function SaveFilterDialog({
           patch: {
             name: trimmed,
             visibility,
-            ...(changed && withCurrent ? { criteria, view, groupBy } : {}),
+            ...(changed && withCurrent ? { criteria: plain, view, groupBy } : {}),
           },
         });
         onSaved?.(saved);
         onClose();
         return;
       }
-      const saved = await save.mutateAsync({ name: trimmed, visibility, criteria, view, groupBy });
+      const saved = await save.mutateAsync({
+        name: trimmed,
+        visibility,
+        criteria: plain,
+        view,
+        groupBy,
+        ...(savedFilterId ? { savedFilterId } : {}),
+      });
       // Fissarlo è un di più: se non riesce, il filtro resta salvato.
       if (pinned) pin.mutate({ filterId: saved.id, pinned: true });
       toast.show(t("filter.dialog.saved", { name: saved.name }), {
@@ -140,8 +161,7 @@ export function SaveFilterDialog({
       onClose();
     } catch (error) {
       // Il server tiene al massimo 200 filtri per persona: lo si dice, riprovare non serve.
-      const code = (error as { code?: unknown } | null)?.code;
-      setError(t(code === "too_many_filters" ? "filter.dialog.tooMany" : "filter.dialog.failed"));
+      setError(t(saveFilterErrorKey(error), { someone: t("taskUi.someone") }));
     }
   }
 

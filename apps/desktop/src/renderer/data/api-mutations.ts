@@ -1,4 +1,4 @@
-import { isHiddenId } from "./access/hidden";
+import { isHiddenId, personMasker } from "./access/hidden";
 import { wouldCycle } from "../domain/decisionLog";
 import { planRecipientsOf as sharedPlanRecipientsOf } from "@stubwise/shared";
 import { findSimilarRequest } from "../domain/requests";
@@ -139,6 +139,7 @@ import type {
   RequestLevel,
   RequestPatch,
   SavedFilter,
+  FilterCriteria,
   PrRef,
   ScriptStep,
   SetVisibilityResult,
@@ -1271,10 +1272,62 @@ export function convertRequestAs(
 // --- filtri salvati -----------------------------------------------------------
 
 export async function saveFilter(
-  input: Pick<SavedFilter, "name" | "visibility" | "criteria" | "view" | "groupBy">,
+  input: Pick<SavedFilter, "name" | "visibility" | "criteria" | "view" | "groupBy"> & {
+    /** L'origine di un «Salva come» (I-6): i suoi sconosciuti prendono il posto dei segnaposto. */
+    savedFilterId?: string;
+  },
 ): Promise<SavedFilter> {
   const me = await gate("saveFilter");
-  return copy(saveFilterAs(me, input));
+  const { savedFilterId, ...rest } = input;
+  const origin = savedFilterId ? visibleFilterOrNull(me, savedFilterId) : null;
+  return maskedFilter(me, saveFilterAs(me, rest, origin));
+}
+
+const visibleFilterOrNull = (me: string, id: string): SavedFilter | null => {
+  try {
+    return filterFor(me, id);
+  } catch {
+    return null;
+  }
+};
+
+/** Un filtro come lo legge chi l'ha appena salvato: chi non conosce, segnaposto (r.1414). */
+function maskedFilter(me: string, f: SavedFilter): SavedFilter {
+  const mask = personMasker(me);
+  const out = { ...copy(f), ownerId: mask(f.ownerId) };
+  if (f.criteria.assigneeIds)
+    out.criteria = {
+      ...out.criteria,
+      assigneeIds: f.criteria.assigneeIds.map((id) => (id === "none" ? id : mask(id))),
+    };
+  return out;
+}
+
+/**
+ * Revisione I-6 (la forma di 72, f0d312736): i segnaposto `hidden-*` di
+ * `assigneeIds` diventano gli assegnatari di `origin` che chi salva non
+ * conosce. Prendono il posto del PRIMO segnaposto, gli altri spariscono; gli
+ * id veri mandati restano, nell'ordine. Senza un'origine, `invalid`.
+ * `savedFilterId` non è un criterio: non si salva.
+ */
+function criteriaToStore(me: string, criteria: FilterCriteria, origin: SavedFilter | null): FilterCriteria {
+  const { savedFilterId: _from, ...plain } = criteria;
+  void _from;
+  const ids = plain.assigneeIds;
+  if (!ids?.some(isHiddenId)) return plain;
+  if (!origin) throw invalid("criteria");
+  const mask = personMasker(me);
+  const strangers = (origin.criteria.assigneeIds ?? []).filter((id) => id !== "none" && mask(id) !== id);
+  const out: string[] = [];
+  let placed = false;
+  for (const id of ids) {
+    if (!isHiddenId(id)) out.push(id);
+    else if (!placed) {
+      placed = true;
+      out.push(...strangers);
+    }
+  }
+  return { ...plain, assigneeIds: out };
 }
 
 /**
@@ -1285,12 +1338,14 @@ export async function saveFilter(
 export function saveFilterAs(
   me: string,
   input: Pick<SavedFilter, "name" | "visibility" | "criteria" | "view" | "groupBy">,
+  origin: SavedFilter | null = null,
 ): SavedFilter {
   if (!input.name.trim()) throw invalid("name");
-  // R.1414 (scelta A di 46): un segnaposto non si salva.
-  if (input.criteria.assigneeIds?.some(isHiddenId)) throw invalid("criteria");
+  // R.1414: un segnaposto si salva solo con l'origine (I-6); Claude non ne ha, e lo rifiuta.
+  const criteria = criteriaToStore(me, input.criteria, origin);
   const filter: SavedFilter = {
     ...copy(input),
+    criteria,
     name: input.name.trim(),
     id: newId("flt"),
     ownerId: me,
@@ -1313,12 +1368,13 @@ export async function updateFilter(
   const me = await gate("updateFilter");
   const filter = ownedFilter(me, id);
   if (patch.name !== undefined && !patch.name.trim()) throw invalid("name");
-  // R.1414 (scelta A di 46): un segnaposto non si salva; senza `criteria` restano quelli veri.
-  if (patch.criteria?.assigneeIds?.some(isHiddenId)) throw invalid("criteria");
-  Object.assign(filter, copy(patch));
+  // R.1414 (I-6): i segnaposto tornano gli sconosciuti del filtro stesso; senza `criteria` restano quelli veri.
+  const next = copy(patch);
+  if (patch.criteria) next.criteria = criteriaToStore(me, patch.criteria, filter);
+  Object.assign(filter, next);
   if (patch.name !== undefined) filter.name = patch.name.trim();
   noteWrite("filter", id, me, currentVia()?.actionId);
-  return copy(filter);
+  return maskedFilter(me, filter);
 }
 
 export async function deleteFilter(id: string): Promise<void> {

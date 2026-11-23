@@ -75,26 +75,77 @@ describe("i filtri salvati senza id di chi non si conosce (r.1414, scelta A)", (
     expect(await errorOf(listTasks({ assigneeIds: ["hidden-1"] }))).toBe("invalid: criteria");
   });
 
-  it("salvare o cambiare i criteri con un segnaposto: invalid; senza criteri restano veri", async () => {
+  const input = {
+    name: "Mine",
+    visibility: "private" as const,
+    view: "list" as const,
+    groupBy: "none" as const,
+  };
+
+  it("salvare un segnaposto senza l'origine: invalid; senza criteri restano veri", async () => {
     const { who } = strangerFilter();
     setSessionPersonId(LAURA);
-    const input = {
-      name: "Mine",
-      visibility: "private" as const,
-      view: "list" as const,
-      groupBy: "none" as const,
-    };
     expect(await errorOf(saveFilter({ ...input, criteria: { assigneeIds: ["hidden-1"] } }))).toBe(
       "invalid: criteria",
     );
     setSessionPersonId("p-giulia");
-    expect(
-      await errorOf(updateFilter("flt-known-1", { criteria: { assigneeIds: ["hidden-1"] } })),
-    ).toBe("invalid: criteria");
     await updateFilter("flt-known-1", { name: "Renamed" });
     expect(state.filters.find((f) => f.id === "flt-known-1")!.criteria.assigneeIds).toEqual([
       who,
       LAURA,
     ]);
+  });
+
+  // Revisione di 3bbe2ddc6..444b8b773, I-6 (la forma di 72, f0d312736): il
+  // segnaposto si rimette con gli assegnatari del filtro d'origine che chi
+  // salva non conosce. I veri prendono il posto del PRIMO segnaposto, gli
+  // altri spariscono; gli id veri mandati restano, nell'ordine.
+  it("«Salva come» da un filtro che vedo: i segnaposto diventano gli sconosciuti dell'origine", async () => {
+    const { who } = strangerFilter();
+    setSessionPersonId(LAURA);
+    const saved = await saveFilter({
+      ...input,
+      criteria: { assigneeIds: ["hidden-1", LAURA, "hidden-2"] },
+      savedFilterId: "flt-known-1",
+    });
+    const stored = state.filters.find((f) => f.id === saved.id)!;
+    expect(stored.criteria).toEqual({ assigneeIds: [who, LAURA] });
+    // Nella risposta a Laura, lo sconosciuto resta un segnaposto.
+    expect(JSON.stringify(saved)).not.toContain(who);
+  });
+
+  it("«Salva come» da un filtro che non vedo, o che non c'è: invalid", async () => {
+    strangerFilter();
+    state.filters.find((f) => f.id === "flt-known-1")!.visibility = "private";
+    setSessionPersonId(LAURA);
+    const criteria = { assigneeIds: ["hidden-1"] };
+    expect(await errorOf(saveFilter({ ...input, criteria, savedFilterId: "flt-known-1" }))).toBe(
+      "invalid: criteria",
+    );
+    expect(await errorOf(saveFilter({ ...input, criteria, savedFilterId: "flt-nope" }))).toBe(
+      "invalid: criteria",
+    );
+  });
+
+  it("modificare il proprio filtro: i segnaposto tornano gli sconosciuti del filtro stesso", async () => {
+    const { who } = strangerFilter();
+    const mine: SavedFilter = {
+      id: "flt-known-mine",
+      name: "Theirs, mine",
+      ownerId: LAURA,
+      visibility: "private",
+      criteria: { assigneeIds: [who] },
+      view: "list",
+      groupBy: "none",
+    };
+    state.filters.push(mine);
+    setSessionPersonId(LAURA);
+    await updateFilter("flt-known-mine", {
+      criteria: { assigneeIds: ["hidden-1"], families: ["todo"] },
+    });
+    expect(state.filters.find((f) => f.id === "flt-known-mine")!.criteria).toEqual({
+      assigneeIds: [who],
+      families: ["todo"],
+    });
   });
 });

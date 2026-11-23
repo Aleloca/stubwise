@@ -844,7 +844,8 @@
       "saved": "{{name}} salvato.",
       "open": "Apri",
       "failed": "Non è stato possibile salvare il filtro. Riprova.",
-      "tooMany": "Hai già 200 filtri salvati. Eliminane uno per salvarne un altro."
+      "tooMany": "Hai già 200 filtri salvati. Eliminane uno per salvarne un altro.",
+      "someone": "Questo filtro nomina qualcuno che non vedi, quindi non si può salvare così. Togli «{{someone}}» dagli assegnatari e riprova."
     }
   },
   "tasks": {
