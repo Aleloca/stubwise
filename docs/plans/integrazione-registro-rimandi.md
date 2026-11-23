@@ -768,9 +768,18 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     dice già giusto.~~ *Chiusa il 23 nov 2026 (72)*: `derivePrCycle` passa
     da `colleagueCorrectionPermitted` col trigger `stubwise`, lo stesso
     cancello di `enqueueCorrection`.
-  - (b) Lo stato «scartata» di una correzione (push rifiutato perché l'autore
+  - ~~(b) Lo stato «scartata» di una correzione (push rifiutato perché l'autore
     ha spinto in parallelo) non si deriva: in `/pulls` compare come «fermata»
-    (`prStateOf` lo leggerebbe, manca un esito distinto del job).
+    (`prStateOf` lo leggerebbe, manca un esito distinto del job).~~ *Chiusa il
+    23 nov 2026 (72, lotto 4, §1 dei contratti di 94)*: `pr_corrections.outcome`
+    (0220, con backfill), scritto dal worker insieme alla chiusura; `/pulls`
+    la mostra `discarded` senza motivo, e (D-1.2, 46) non conta nel tetto dei
+    giri automatici.
+  - Rimasti fuori dal §1 *(O, 94, lotto 4)*: una scartata manda ancora
+    `job.failed` (il prototipo non avvisa nessuno: è una scelta di notifiche,
+    D-1.3); una correzione `stopped` conta nel tetto vero mentre il
+    prototipo dice «doesn't count» (la stessa divergenza della scartata, non
+    toccata).
 
 - F1, S10, ruling di 72 approvato con una precisazione *(O, 46, 13 nov
   2026)*: con la review automatica dell'istanza SPENTA una PR senza analisi
@@ -1143,10 +1152,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     al resync. È stantio il commento in `poller.ts` («il resync per query la
     esclude già con -from:me»). La correzione vera è leggere gli alias
     (`users.settings.sendAs`, uno scope in più).
-  - **Colleghi disattivati**: il CTE `instance` del taglio
+  - ~~**Colleghi disattivati**: il CTE `instance` del taglio
     (`packages/notifications/src/waiting-customers.ts`) prende anche le caselle
     disattivate, `replyContext` no. L'indirizzo di un collega con la casella
-    spenta è «non esterno» nel taglio, ma il prompt non lo nomina come collega.
+    spenta è «non esterno» nel taglio, ma il prompt non lo nomina come collega.~~
+    *Chiusa il 23 nov 2026 (72, lotto 4)*: `replyContext` nomina anche le
+    caselle disattivate, come il taglio (un collega resta un collega).
+    Test: `reply-judge.test.ts`, la casella disattivata nell'elenco del prompt.
   - **Campi della riga e visibilità**: oggetto, stato e importanza vengono
     dall'ultimo messaggio ammesso, anche se è di un progetto che chi guarda
     non vede; si filtra solo il progetto. È la casella di chi guarda, quindi
@@ -1156,8 +1168,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     `attempts < 2`. Due tick sovrapposti sulla stessa casella potrebbero
     giudicarla due volte. Oggi il claim per casella del poller li serializza.
   - **Piccole**:
-    - la rotta salta una riga il cui progetto manca, ma `total` la conta
-      ancora;
+    - ~~la rotta salta una riga il cui progetto manca, ma `total` la conta
+      ancora;~~ *Chiusa il 23 nov 2026 (72, lotto 4)*: il taglio
+      (`waitingCandidatesPage`) scarta un progetto che non c'è più (il
+      perimetro `scope_project_ids` non ha chiave esterna), quindi né riga né
+      `total`; il salto nella rotta resta come difesa;
     - J2 non scrive `model` nel giudizio, perché il modello lo risolve il
       `TrackingAgentRunner` per operazione;
     - `OUTPUT_SHAPE` di J1 chiede `reply` anche quando `replyContext` è null

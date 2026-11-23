@@ -287,6 +287,7 @@ export {
   type ActorPermissions,
   type EnqueueCorrectionInput,
   type EnqueueCorrectionResult,
+  type PrCorrectionOutcome,
   type PrCycleFacts,
   type PrRef,
 } from "./pr-correction-cycle.js";

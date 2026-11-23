@@ -101,6 +101,9 @@ export async function autoRoundsInCurrentSeries(db: DbOrTx, pr: PrRef): Promise<
         onPr(pr),
         eq(prCorrections.trigger, "review"),
         ne(prCorrections.status, "cancelled"),
+        // Lotto 4, D-1.2 (decisione di 46): una scartata (qualcuno ha pushato
+        // prima) non conta nel tetto, come nel prototipo («doesn't count»).
+        sql`${prCorrections.outcome} is distinct from 'discarded'`,
         sql`${prCorrections.createdAt} > coalesce((${lastHumanAt}), '-infinity'::timestamptz)`,
       ),
     );
@@ -720,10 +723,15 @@ export async function enqueueCorrection(
  * `queued` esiste, nessuna `pending` può partire. `false` = non era più
  * `queued` (es. annullata alla chiusura della PR): niente da fare.
  */
-export async function completeCorrection(db: DbOrTx, correctionId: string): Promise<boolean> {
+/** Come si è chiusa una correzione `done` (0220). */
+export type PrCorrectionOutcome = "pushed" | "discarded" | "stopped";
+
+export async function completeCorrection(db: DbOrTx, correctionId: string, outcome: PrCorrectionOutcome = "stopped"): Promise<boolean> {
   const rows = await db
     .update(prCorrections)
-    .set({ status: "done" })
+    // L'esito nello STESSO update guardato che la chiude (lotto 4): job e
+    // correzione si chiudono insieme, e l'esito con loro.
+    .set({ status: "done", outcome })
     .where(and(eq(prCorrections.id, correctionId), eq(prCorrections.status, "queued")))
     .returning({ id: prCorrections.id });
   return rows.length > 0;
@@ -1144,7 +1152,7 @@ export async function reconcileOrphanCorrections(
         if (job && !(TERMINAL_JOB_STATUSES as readonly string[]).includes(job.status)) return false;
         const [row] = await tx
           .update(prCorrections)
-          .set({ status: "done" })
+          .set({ status: "done", outcome: "stopped" })
           .where(and(eq(prCorrections.id, id), eq(prCorrections.status, "queued")))
           .returning({ id: prCorrections.id });
         if (!row) return false;

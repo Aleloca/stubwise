@@ -120,6 +120,20 @@ describe("J2: cosa si giudica", () => {
     const prompt = runner.calls.map((c) => c.prompt).find((p) => p.includes("Te lo mando io domani"))!;
     expect(prompt).toContain(colleague.email);
   });
+
+  it("registro, A8 «Clienti in attesa»: un collega con la casella DISATTIVATA resta un collega nel prompt, come nel taglio (che lo conta «non esterno»)", async () => {
+    const box = await mailbox();
+    const colleague = await mailbox();
+    await db.update(googleAccounts).set({ disabledAt: new Date() }).where(eq(googleAccounts.id, colleague.id));
+    const t = await waitingThread(box.id);
+    await msg(box.id, t.threadId, { fromAddress: colleague.email, receivedAt: new Date(OLD.getTime() + 60_000), admitted: false, status: "new", textExcerpt: "Ci penso io, sono fuori." });
+    const runner = new FakeRunner([JSON.stringify({ needsMyReply: false, reason: "Ha risposto il collega." })]);
+    expect(await judgeWaitingThreads(deps(runner), box.id)).toBe(1);
+    const prompt = runner.calls.map((c) => c.prompt).find((p) => p.includes("Ci penso io"))!;
+    // Nell'elenco dei colleghi, non solo come mittente.
+    const listed = /or a colleague \(([^)]*)\) already answered/.exec(prompt)?.[1] ?? "";
+    expect(listed.split(", ")).toContain(colleague.email);
+  });
 });
 
 describe("J2: privacy, tentativi, budget, un messaggio nuovo", () => {

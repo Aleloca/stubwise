@@ -8,6 +8,15 @@ import { listReleaseQueue } from "./release.js";
 import { ReleaseError } from "./releases.js";
 
 /**
+ * Lo stato di una correzione `done` (lotto 4, A8): l'esito scritto dal worker
+ * (0220), o per le righe di prima la derivazione dal job (`pr_opened` = ha
+ * pushato, altro = fermata). `discarded` = qualcuno ha pushato prima.
+ */
+function doneState(c: { outcome: "pushed" | "discarded" | "stopped" | null; jobStatus: string | null }): "pushed" | "discarded" | "stopped" {
+  return c.outcome ?? (c.jobStatus === "pr_opened" ? "pushed" : "stopped");
+}
+
+/**
  * L'ELENCO DELLE PR APERTE DI UN PROGETTO (area 8, F1, S5b): a CHIUNQUE veda
  * il progetto (404 altrimenti) — a differenza della coda, che resta di chi ha
  * `release.merge` e dice `canMerge`. Riusa la lettura della coda (la stessa
@@ -64,6 +73,7 @@ export async function listOpenPulls(db: Db, encryptionKey: Buffer, viewer: Pick<
       repositoryId: prCorrections.repositoryId,
       prNumber: prCorrections.prNumber,
       status: prCorrections.status,
+      outcome: prCorrections.outcome,
       trigger: prCorrections.trigger,
       requestedByUserId: prCorrections.requestedByUserId,
       createdAt: prCorrections.createdAt,
@@ -120,7 +130,7 @@ export async function listOpenPulls(db: Db, encryptionKey: Buffer, viewer: Pick<
       const trigger = c.trigger === "review" ? "auto" : "person";
       if (c.status === "pending") return [];
       if (c.status === "queued") return [{ trigger, state: "running" }];
-      return [{ trigger, state: c.jobStatus === "pr_opened" ? "pushed" : "stopped" }];
+      return [{ trigger, state: doneState(c) }];
     });
     const inFlight = review !== undefined && review.status !== "completed" && review.status !== "failed";
     const issues =
@@ -195,7 +205,7 @@ export async function listOpenPulls(db: Db, encryptionKey: Buffer, viewer: Pick<
       colleaguePrs: repo?.colleaguePrs ?? "analyze_only",
       issues,
       correctionHistory: [...mine].reverse().map((c) => {
-        const state = c.status === "pending" || c.status === "queued" ? "running" : c.jobStatus === "pr_opened" ? "pushed" : "stopped";
+        const state = c.status === "pending" || c.status === "queued" ? "running" : doneState(c);
         return {
           id: c.id,
           trigger: c.trigger === "review" ? ("auto" as const) : ("person" as const),

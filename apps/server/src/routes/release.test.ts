@@ -1485,6 +1485,23 @@ describe("area 8, F1, S5b: le PR aperte del progetto, a chi lo vede", () => {
     expect((pull as { correctionHistory: unknown[] }).correctionHistory).toHaveLength(3);
   });
 
+  it("lotto 4 (A8): una correzione SCARTATA (push rifiutato, esito della 0220) esce `discarded` senza motivo; una di prima della 0220 resta `stopped`", async () => {
+    const { projectId, ticketId, repositoryId } = await seedOpenPr();
+    vi.stubGlobal("fetch", greenFetch());
+    const t0 = Date.now() - 3_600_000;
+    const [legacy] = await testDb.db.insert(prCorrections).values({ ticketId, repositoryId, prNumber: 42, trigger: "review", status: "done", createdAt: new Date(t0) }).returning();
+    await testDb.db.insert(aiJobs).values({ ticketId, correctionId: legacy!.id, status: "failed", error: "push rifiutato: qualcuno ha pushato sul branch x durante la correzione" });
+    const [discarded] = await testDb.db.insert(prCorrections).values({ ticketId, repositoryId, prNumber: 42, trigger: "review", status: "done", outcome: "discarded", createdAt: new Date(t0 + 1000) }).returning();
+    await testDb.db.insert(aiJobs).values({ ticketId, correctionId: discarded!.id, status: "failed", error: "push rifiutato: qualcuno ha pushato sul branch x durante la correzione" });
+    const [pull] = ((await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls`, headers: { cookie: adminCookie } })).json() as { items: Record<string, unknown>[] }).items;
+    expect(pull).toMatchObject({
+      correctionHistory: [
+        { id: legacy!.id, state: "stopped", why: "push rifiutato: qualcuno ha pushato sul branch x durante la correzione" },
+        { id: discarded!.id, state: "discarded", why: null, commitSha: null },
+      ],
+    });
+  });
+
   it("un Viewer vede la PR ma nessun permesso", async () => {
     const { projectId } = await seedOpenPr();
     vi.stubGlobal("fetch", greenFetch());

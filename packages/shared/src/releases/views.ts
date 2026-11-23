@@ -138,8 +138,9 @@ export interface OpenPull {
   /**
    * La storia delle correzioni della PR, dalla più vecchia (le annullate no):
    * `pushed` = il suo job ha pushato, `running` = in coda o in corso,
-   * `stopped` = finita senza push (`why`: l'errore del job). `commitSha` non
-   * si legge nella F1 (null); `discarded` non si deriva ancora (registro).
+   * `stopped` = finita senza push (`why`: l'errore del job), `discarded` =
+   * scartata perché qualcuno ha pushato prima (`why` null; non conta nel
+   * tetto; dalla 0220, lotto 4). `commitSha` non si legge nella F1 (null).
    */
   correctionHistory?: {
     id: string;

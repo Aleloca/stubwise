@@ -1,4 +1,4 @@
-import { and, eq, isNull, ne } from "drizzle-orm";
+import { eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { googleAccounts, type Db } from "@stubwise/db";
 
@@ -59,9 +59,12 @@ export function storedJudgmentFrom(raw: unknown, model: string | undefined, now:
 }
 
 /**
- * La casella giudicata e quelle ATTIVE dei colleghi dell'istanza (i loro
- * INDIRIZZI soltanto: nessuna lettura delle loro caselle). Un messaggio da
- * lì, nella MIA casella, è una risposta di un collega.
+ * La casella giudicata e quelle dei colleghi dell'istanza (i loro INDIRIZZI
+ * soltanto: nessuna lettura delle loro caselle). Un messaggio da lì, nella MIA
+ * casella, è una risposta di un collega. Anche una casella DISATTIVATA
+ * (registro, A8 «Clienti in attesa»): il taglio (`instance` in
+ * `packages/notifications/src/waiting-customers.ts`) la conta «non esterna»,
+ * e il prompt deve dire la stessa cosa.
  */
 export async function replyContext(db: Db, accountId: string): Promise<{ mailbox: string; colleagues: string[] } | null> {
   const [mine] = await db.select({ email: googleAccounts.email }).from(googleAccounts).where(eq(googleAccounts.id, accountId));
@@ -69,6 +72,6 @@ export async function replyContext(db: Db, accountId: string): Promise<{ mailbox
   const others = await db
     .select({ email: googleAccounts.email })
     .from(googleAccounts)
-    .where(and(ne(googleAccounts.id, accountId), isNull(googleAccounts.disabledAt)));
+    .where(ne(googleAccounts.id, accountId));
   return { mailbox: mine.email, colleagues: others.map((o) => o.email).sort() };
 }
