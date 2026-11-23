@@ -130,6 +130,10 @@ const providerObject = (row: { id: string; label: string }) => ({ type: "provide
 export async function reorderProviders(db: Db, actor: { id: string; email: string }, orderedIds: string[]): Promise<AiProviderRow[] | null> {
   const unique = new Set(orderedIds);
   const rows = await db.transaction(async (tx) => {
+    // Revisione del lotto 2, M5: le righe si bloccano PRIMA di leggerle, in
+    // ordine di id (lo stesso per tutti, niente deadlock): due riordini insieme
+    // si mettono in fila, e il «prima» del secondo è il «dopo» del primo.
+    await tx.select({ id: aiProviders.id }).from(aiProviders).orderBy(asc(aiProviders.id)).for("update");
     const beforeRows = await tx.select().from(aiProviders).orderBy(asc(aiProviders.position), asc(aiProviders.createdAt));
     const existing = beforeRows.map((r) => ({ id: r.id }));
     const existingIds = new Set(existing.map((r) => r.id));

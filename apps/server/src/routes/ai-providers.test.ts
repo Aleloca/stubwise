@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { aiProviders, aiUsageSnapshots, decrypt, projects } from "@stubwise/db";
+import { aiProviders, aiUsageSnapshots, changeLog, decrypt, projects } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
@@ -456,6 +456,25 @@ describe("POST /api/ai-providers/reorder", () => {
       payload: { orderedIds: [id] },
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  it("revisione del lotto 2, M5: due riordini insieme si mettono in fila (lock sulle righe): nel registro il «prima» del secondo è il «dopo» del primo", async () => {
+    const reorder = (orderedIds: string[]) => app.inject({ method: "POST", url: "/api/ai-providers/reorder", headers: { cookie: adminCookie }, payload: { orderedIds } });
+    for (let i = 0; i < 3; i++) await createProvider({ ...basePayload, label: `Fila ${i}` });
+    const current = ((await app.inject({ method: "GET", url: "/api/ai-providers", headers: { cookie: adminCookie } })).json() as { id: string }[]).map((p) => p.id);
+    for (let round = 0; round < 5; round++) {
+      const a = [...current].reverse();
+      const b = [current[1]!, current[0]!, ...current.slice(2)];
+      // Ognuno dei due cambia l'ordine di adesso, qualunque sia.
+      await reorder(current);
+      const [ra, rb] = await Promise.all([reorder(a), reorder(b)]);
+      expect([ra.statusCode, rb.statusCode], ra.body + rb.body).toEqual([200, 200]);
+      const entries = await testDb.db.select().from(changeLog).where(eq(changeLog.type, "provider.reordered")).orderBy(changeLog.at);
+      // `at` può essere l'inizio della transazione (chi ha aspettato è partito prima):
+      // l'ordine vero è quello della catena, in un verso o nell'altro.
+      const [x, y] = entries.slice(-2).map((e) => e.data as { before: string; after: string });
+      expect(y!.before === x!.after || x!.before === y!.after, JSON.stringify([x, y])).toBe(true);
+    }
   });
 
   it("un member non può riordinare: 403", async () => {
