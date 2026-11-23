@@ -1016,10 +1016,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     (`invalid: monthly_budget` / `invalid: disabled`), il server la accoda
     e la segna `blocked`; un «Cause not determined» su un server di solo
     staging non arriva a nessuno (gli avvisi vanno alle produzioni).
-  - **Da decidere (46)**: l'analisi AUTOMATICA senza l'accesso SSH. Il
+  - ~~**Da decidere (46)**: l'analisi AUTOMATICA senza l'accesso SSH. Il
     worker la fa partire comunque (con stato, metriche, controlli, episodi
     e ambienti); il prototipo no («Claude can't look into it: no SSH
-    access»).
+    access»).~~ Già allineati: la decisione del 15 nov (l'analisi automatica
+    parte anche senza SSH, solo senza le letture) è stata confermata dal
+    maintainer il 23 nov 2026. Il testo del seme del prototipo lo corregge
+    il renderer.
 - **L'API per i siti** *(M, 14 nov 2026; fetta a sé DOPO la F3)*: il cliente
   segue sul sito che ospita il widget le sue richieste e i suoi ticket.
   Note di 72 per il design:
