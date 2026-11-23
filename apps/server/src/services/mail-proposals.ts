@@ -358,7 +358,24 @@ type Decider = { userId: string; name: string } | null | undefined;
  * argomenti delle azioni) restano veri, e chi è fra loro resta vero anche
  * come `decidedBy`/`handedBy`. Senza decisori diversi da chi guarda, nessuna query.
  */
-export async function maskMailDeciders<T>(db: Db, viewer: Pick<SessionUser, "id" | "instancePermissions">, payload: T): Promise<T> {
+/** Le risposte già mascherate (il 409 `already_handled`, M-2): l'hook della rotta non le rifà. */
+const masked_ = new WeakSet<object>();
+export const alreadyMasked = (payload: unknown): boolean => typeof payload === "object" && payload !== null && masked_.has(payload);
+
+/**
+ * Revisione 3bbe2ddc6..444b8b773, M-2: chi la mail di una proposta nomina (gli
+ * altri destinatari, gli incaricati fuori dal progetto). È ciò che nella vista
+ * sta in `sharedWith` e `outsiders`, per il 409 `already_handled`, che non li porta.
+ */
+export async function mailParticipantIds(db: Db, proposalId: string): Promise<string[]> {
+  const [row] = await db.select({ projectId: emailProposals.projectId, classification: emailProposals.classification }).from(emailProposals).where(eq(emailProposals.id, proposalId));
+  if (!row) return [];
+  const recipients = await db.select({ userId: emailProposalRecipients.userId }).from(emailProposalRecipients).where(eq(emailProposalRecipients.proposalId, proposalId));
+  const outside = row.projectId ? await outsiderIdsOf(db, row.projectId, (row.classification as StoredV2 | null)?.actions ?? []) : [];
+  return [...recipients.map((r) => r.userId), ...outside];
+}
+
+export async function maskMailDeciders<T>(db: Db, viewer: Pick<SessionUser, "id" | "instancePermissions">, payload: T, opts?: { inMail: readonly string[] }): Promise<T> {
   if (payload === null || typeof payload !== "object") return payload;
   const list = (payload as { items?: unknown }).items;
   const items: Record<string, unknown>[] = Array.isArray(list) ? (list as Record<string, unknown>[]) : [payload as Record<string, unknown>];
@@ -366,7 +383,7 @@ export async function maskMailDeciders<T>(db: Db, viewer: Pick<SessionUser, "id"
   if (!items.some((i) => deciders(i).some((d) => d && d.userId !== viewer.id))) return payload;
   const hidden = await hiddenFor(db, viewer, items.flatMap((i) => deciders(i).map((d) => d?.userId)));
   const masked = items.map((item) => {
-    const inMail = new Set<string>();
+    const inMail = new Set<string>(opts?.inMail ?? []);
     for (const key of ["sharedWith", "outsiders"] as const) {
       for (const p of (item[key] as { userId: string }[] | undefined) ?? []) inMail.add(p.userId);
     }
@@ -376,5 +393,7 @@ export async function maskMailDeciders<T>(db: Db, viewer: Pick<SessionUser, "id"
     if ("handedBy" in item) out.handedBy = mask(item.handedBy as Decider);
     return out;
   });
-  return (Array.isArray(list) ? { ...payload, items: masked } : masked[0]) as T;
+  const out = (Array.isArray(list) ? { ...payload, items: masked } : masked[0]) as T;
+  if (opts && out && typeof out === "object") masked_.add(out);
+  return out;
 }

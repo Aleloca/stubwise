@@ -1,5 +1,5 @@
 import { registerPersonMask } from "../services/people-known.js";
-import { pinnedTaskFilters, taskFilters } from "@stubwise/db";
+import { pinnedTaskFilters, taskFilters, type Db } from "@stubwise/db";
 import {
   filterPatchBodySchema,
   newFilterRequestSchema,
@@ -19,8 +19,11 @@ import {
   isFullAdmin,
   lockPerson,
   MAX_FILTERS_PER_PERSON,
+  hiddenScopes,
   resolveCriteriaPlaceholders,
   visibleFilter,
+  withHiddenScope,
+  withoutHiddenScope,
   visibleTo,
 } from "../services/task-filters.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -41,14 +44,21 @@ import { authErrorResponses, errorSchema } from "./shared.js";
 type Viewer = Pick<SessionUser, "id" | "instancePermissions">;
 
 
-function viewOf(row: typeof taskFilters.$inferSelect, viewer: Viewer): SavedFilterView {
+/** Le viste di una pagina di filtri (M-1: senza le restrizioni su ciò che chi guarda non vede). */
+async function viewsOf(db: Db, rows: readonly (typeof taskFilters.$inferSelect)[], viewer: Viewer): Promise<SavedFilterView[]> {
+  // Criteri scritti da una versione vecchia si leggono lo stesso: si tiene ciò che ha la forma giusta.
+  const criteria = rows.map((r) => parseCriteria(r.criteria) ?? {});
+  const hidden = await hiddenScopes(db, viewer, criteria);
+  return rows.map((r, i) => viewOf(r, viewer, withoutHiddenScope(criteria[i]!, hidden(criteria[i]!))));
+}
+
+function viewOf(row: typeof taskFilters.$inferSelect, viewer: Viewer, criteria: Record<string, unknown>): SavedFilterView {
   return {
     id: row.id,
     name: row.name,
     ownerId: row.ownerId,
     visibility: row.visibility,
-    // Criteri scritti da una versione vecchia si leggono lo stesso: si tiene ciò che ha la forma giusta.
-    criteria: parseCriteria(row.criteria) ?? {},
+    criteria,
     view: row.view,
     groupBy: row.groupBy,
     canEdit: row.ownerId === viewer.id || isFullAdmin(viewer),
@@ -65,6 +75,12 @@ export { MAX_FILTERS_PER_PERSON };
 /** Registro, A11 r.1414: le chiavi delle risposte che portano una persona. */
 // `assigneeIds` dei criteri (scelta A di 46): lo stesso masker di `ownerId`; `none` non è un id e resta.
 const FILTER_PERSON_KEYS: ReadonlySet<string> = new Set(["ownerId", "assigneeIds"]);
+
+/** I criteri di un salvataggio con le restrizioni di `source` che chi salva non vede. */
+async function keepHiddenScopeOf<C extends Record<string, unknown>>(db: Db, viewer: Viewer, source: typeof taskFilters.$inferSelect, criteria: C): Promise<C> {
+  const before = parseCriteria(source.criteria) ?? {};
+  return withHiddenScope(criteria, (await hiddenScopes(db, viewer, [before]))(before));
+}
 
 /** Un segnaposto nei criteri che non si risolve col filtro d'origine (registro, A11 r.1414). */
 const PLACEHOLDER_CRITERIA = "criteria: a placeholder needs the saved filter it comes from";
@@ -87,7 +103,7 @@ export async function filterRoutes(fastify: FastifyInstance): Promise<void> {
         .from(taskFilters)
         .where(visibleTo(viewer))
         .orderBy(asc(taskFilters.createdAt), asc(taskFilters.name), asc(taskFilters.id));
-      return rows.map((r) => viewOf(r, viewer));
+      return viewsOf(app.db, rows, viewer);
     },
   );
 
@@ -100,7 +116,7 @@ export async function filterRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const row = await visibleFilter(app.db, request.user!, request.params.id);
       if (!row) return apiError(reply, 404, "not_found", "Filter not found");
-      return viewOf(row, request.user!);
+      return (await viewsOf(app.db, [row], request.user!))[0]!;
     },
   );
 
@@ -114,11 +130,13 @@ export async function filterRoutes(fastify: FastifyInstance): Promise<void> {
       const viewer = request.user!;
       const { savedFilterId, ...body } = request.body;
       const source = savedFilterId ? await visibleFilter(app.db, viewer, savedFilterId) : null;
-      const criteria = await resolveCriteriaPlaceholders(app.db, viewer, body.criteria, source);
-      if (criteria === "invalid") return apiError(reply, 400, "invalid", PLACEHOLDER_CRITERIA);
+      const resolved = await resolveCriteriaPlaceholders(app.db, viewer, body.criteria, source);
+      if (resolved === "invalid") return apiError(reply, 400, "invalid", PLACEHOLDER_CRITERIA);
+      // M-1: un «salva come» tiene le restrizioni dell'origine che chi salva non vede.
+      const criteria = source ? await keepHiddenScopeOf(app.db, viewer, source, resolved) : resolved;
       const row = await createTaskFilter(app.db, viewer, { ...body, criteria });
       if (!row) return apiError(reply, 400, "too_many_filters", `At most ${MAX_FILTERS_PER_PERSON} filters per person`);
-      return reply.code(201).send(viewOf(row, viewer));
+      return reply.code(201).send((await viewsOf(app.db, [row], viewer))[0]!);
     },
   );
 
@@ -141,15 +159,17 @@ export async function filterRoutes(fastify: FastifyInstance): Promise<void> {
       }
       // Una PATCH senza `criteria` li lascia invariati, con gli id veri; con
       // dei segnaposto, tornano gli id del filtro stesso (I-6).
-      const criteria = request.body.criteria === undefined ? undefined : await resolveCriteriaPlaceholders(app.db, viewer, request.body.criteria, row);
-      if (criteria === "invalid") return apiError(reply, 400, "invalid", PLACEHOLDER_CRITERIA);
+      const resolved = request.body.criteria === undefined ? undefined : await resolveCriteriaPlaceholders(app.db, viewer, request.body.criteria, row);
+      if (resolved === "invalid") return apiError(reply, 400, "invalid", PLACEHOLDER_CRITERIA);
+      // M-1: le restrizioni che chi salva non vede (non le ha lette) restano.
+      const criteria = resolved === undefined ? undefined : await keepHiddenScopeOf(app.db, viewer, row, resolved);
       const patch = Object.fromEntries(Object.entries({ ...request.body, criteria }).filter(([, v]) => v !== undefined));
       const [updated] = await app.db
         .update(taskFilters)
         .set({ ...patch, updatedAt: sql`now()` })
         .where(eq(taskFilters.id, row.id))
         .returning();
-      return viewOf(updated!, viewer);
+      return (await viewsOf(app.db, [updated!], viewer))[0]!;
     },
   );
 

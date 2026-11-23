@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { taskFilters, tickets, users } from "@stubwise/db";
+import { milestones, projectStatuses, taskFilters, tickets, users } from "@stubwise/db";
 import { seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
@@ -127,5 +127,54 @@ describe("i filtri salvati senza gli sconosciuti", () => {
       const res = await get(s.reader, url);
       expect([res.statusCode, (res.json() as { code: string }).code], url).toEqual([400, "invalid"]);
     }
+  });
+});
+
+describe("i filtri pubblici senza i progetti che chi guarda non vede (revisione 3bbe2ddc6..444b8b773, M-1)", () => {
+  /** Un filtro pubblico di un collega che nomina il progetto di chi legge (P1) e uno che chi legge non vede (P2). */
+  async function scope() {
+    const s = await scene();
+    const { projectId: p2 } = await seedTicket(t.db);
+    await addMember(app, p2, s.colleague.id, "developer");
+    const statusOf = async (projectId: string) => (await t.db.select({ id: projectStatuses.id }).from(projectStatuses).where(eq(projectStatuses.projectId, projectId)).limit(1))[0]!.id;
+    const [s1, s2] = [await statusOf(s.projectId), await statusOf(p2)];
+    const [m2] = await t.db.insert(milestones).values({ projectId: p2, name: "Lancio" } as never).returning({ id: milestones.id });
+    const [pub] = await t.db
+      .insert(taskFilters)
+      .values({ name: "Pubblico", ownerId: s.colleague.id, visibility: "public", criteria: { projectIds: [s.projectId, p2], statusIds: [s1, s2], milestoneIds: [m2!.id] }, view: "list", groupBy: "none" } as never)
+      .returning({ id: taskFilters.id });
+    return { ...s, p2, s1, s2, m2: m2!.id, publicId: pub!.id };
+  }
+
+  it("lettura: i progetti, gli stati e i traguardi di un progetto che chi legge non vede non escono", async () => {
+    const s = await scope();
+    const res = await get(s.reader, `/api/filters/${s.publicId}`);
+    expect(res.statusCode, res.body).toBe(200);
+    expect((res.json() as { criteria: Record<string, unknown> }).criteria).toEqual({ projectIds: [s.projectId], statusIds: [s.s1] });
+    for (const leak of [s.p2, s.s2, s.m2]) expect(res.body).not.toContain(leak);
+    expect((await get(s.reader, "/api/filters")).body).not.toContain(s.p2);
+    // Chi li vede li riceve.
+    expect((await get(s.colleague, `/api/filters/${s.publicId}`)).json()).toMatchObject({ criteria: { projectIds: [s.projectId, s.p2], milestoneIds: [s.m2] } });
+  });
+
+  it("esecuzione: con `savedFilterId` le restrizioni nascoste tornano, e un filtro solo su un progetto invisibile non trova niente (mai tutte le task)", async () => {
+    const s = await scope();
+    await t.db.update(taskFilters).set({ criteria: { projectIds: [s.p2] } } as never).where(eq(taskFilters.id, s.publicId));
+    // Il client manda i criteri che ha letto: nessun progetto.
+    expect(((await get(s.reader, `/api/tasks`)).json() as { items: unknown[] }).items.length).toBeGreaterThan(0);
+    const res = await get(s.reader, `/api/tasks?savedFilterId=${s.publicId}`);
+    expect(res.statusCode, res.body).toBe(200);
+    expect((res.json() as { items: unknown[] }).items).toEqual([]);
+  });
+
+  it("salvataggio: una PATCH coi criteri cambiati tiene le restrizioni che chi salva non vede", async () => {
+    const s = await scope();
+    // Il filtro di chi legge nomina P2 (per esempio, un accesso perso dopo averlo salvato).
+    await t.db.update(taskFilters).set({ criteria: { assigneeIds: [s.reader.id], projectIds: [s.projectId, s.p2], milestoneIds: [s.m2] } } as never).where(eq(taskFilters.id, s.filterId));
+    const res = await send(s.reader, "PATCH", `/api/filters/${s.filterId}`, { criteria: { projectIds: [s.projectId], stalled: true } });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.body).not.toContain(s.p2);
+    const [row] = await t.db.select().from(taskFilters).where(eq(taskFilters.id, s.filterId));
+    expect(row!.criteria).toEqual({ projectIds: [s.projectId, s.p2], milestoneIds: [s.m2], stalled: true });
   });
 });

@@ -1,6 +1,7 @@
-import { taskFilters, type Db } from "@stubwise/db";
+import { milestones, projectStatuses, taskFilters, type Db } from "@stubwise/db";
 import { isPersonPlaceholder, parseCriteria, type NewFilterBody, type TaskListQuery } from "@stubwise/shared";
-import { and, eq, or, sql } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { isAllProjects, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { peopleKnownTo } from "./people-known.js";
 
@@ -100,10 +101,17 @@ function withReal(asked: readonly string[], unknown: readonly string[]): string[
   return [...new Set(out)];
 }
 
-export async function resolveSavedFilterPlaceholders(db: Db, viewer: Viewer, query: TaskListQuery): Promise<TaskListQuery | "invalid"> {
+export async function resolveSavedFilterPlaceholders(db: Db, viewer: Viewer, query0: TaskListQuery): Promise<TaskListQuery | "invalid"> {
+  const filter = query0.savedFilterId ? await visibleFilter(db, viewer, query0.savedFilterId) : null;
+  // M-1: le restrizioni del filtro su ciò che chi guarda non vede tornano (le
+  // ha lette senza): un filtro solo su un progetto invisibile non trova niente.
+  let query = query0;
+  if (filter) {
+    const criteria = parseCriteria(filter.criteria) ?? {};
+    query = withHiddenScope(query, (await hiddenScopes(db, viewer, [criteria]))(criteria));
+  }
   const asked = query.assigneeIds ?? [];
   if (!asked.some(isPersonPlaceholder)) return query;
-  const filter = query.savedFilterId ? await visibleFilter(db, viewer, query.savedFilterId) : null;
   if (!filter) return "invalid";
   const resolved = withReal(asked, await unknownAssigneesOf(db, viewer, filter));
   // Un elenco vuoto vorrebbe dire «nessun filtro» (tutte le task): qui vuol dire
@@ -129,4 +137,66 @@ export async function resolveCriteriaPlaceholders<C extends { assigneeIds?: stri
   const unknown = await unknownAssigneesOf(db, viewer, source);
   if (unknown.length === 0) return "invalid";
   return { ...criteria, assigneeIds: withReal(criteria.assigneeIds ?? [], unknown) };
+}
+
+/** Le restrizioni dei criteri su ciò che chi guarda non vede (M-1): un progetto, e gli stati e i traguardi di un progetto. */
+export interface HiddenScope {
+  projectIds: string[];
+  statusIds: string[];
+  milestoneIds: string[];
+}
+type ScopeCriteria = { projectIds?: string[]; statusIds?: string[]; milestoneIds?: string[] };
+const SCOPE_KEYS = ["projectIds", "statusIds", "milestoneIds"] as const;
+
+/**
+ * Revisione 3bbe2ddc6..444b8b773, M-1: per un elenco di criteri (una pagina di
+ * filtri), quali restrizioni nominano un progetto che chi guarda non vede. Tre
+ * query in tutto: i progetti visibili, il progetto degli stati e dei traguardi
+ * nominati. Un id che non esiste più non nomina niente e resta.
+ */
+export async function hiddenScopes(db: Db, viewer: Viewer, list: readonly ScopeCriteria[]): Promise<(c: ScopeCriteria) => HiddenScope> {
+  const visible = await visibleProjectIds(db, viewer);
+  const sees = (projectId: string) => (isAllProjects(visible) ? !visible.archived.includes(projectId) : visible.includes(projectId));
+  const statusIds = [...new Set(list.flatMap((c) => c.statusIds ?? []))].filter(isUuid);
+  const milestoneIds = [...new Set(list.flatMap((c) => c.milestoneIds ?? []))].filter(isUuid);
+  const statusProject = new Map(
+    statusIds.length ? (await db.select({ id: projectStatuses.id, projectId: projectStatuses.projectId }).from(projectStatuses).where(inArray(projectStatuses.id, statusIds))).map((r) => [r.id, r.projectId]) : [],
+  );
+  const milestoneProject = new Map(
+    milestoneIds.length ? (await db.select({ id: milestones.id, projectId: milestones.projectId }).from(milestones).where(inArray(milestones.id, milestoneIds))).map((r) => [r.id, r.projectId]) : [],
+  );
+  const hiddenBy = (owner: Map<string, string>) => (id: string) => {
+    const projectId = owner.get(id);
+    return projectId !== undefined && !sees(projectId);
+  };
+  return (c) => ({
+    projectIds: (c.projectIds ?? []).filter((id) => isUuid(id) && !sees(id)),
+    statusIds: (c.statusIds ?? []).filter(hiddenBy(statusProject)),
+    milestoneIds: (c.milestoneIds ?? []).filter(hiddenBy(milestoneProject)),
+  });
+}
+
+const isUuid = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
+/** I criteri senza le restrizioni nascoste; un elenco rimasto vuoto si toglie. */
+export function withoutHiddenScope<C extends ScopeCriteria>(c: C, hidden: HiddenScope): C {
+  const out: Record<string, unknown> = { ...c };
+  for (const key of SCOPE_KEYS) {
+    const list = c[key];
+    if (!list) continue;
+    const kept = list.filter((id) => !hidden[key].includes(id));
+    if (kept.length) out[key] = kept;
+    else delete out[key];
+  }
+  return out as C;
+}
+
+/** I criteri con le restrizioni nascoste rimesse (in coda): chi salva o esegue non le ha viste, quindi non le ha tolte. */
+export function withHiddenScope<C extends ScopeCriteria>(c: C, hidden: HiddenScope): C {
+  const out: Record<string, unknown> = { ...c };
+  for (const key of SCOPE_KEYS) {
+    if (hidden[key].length === 0) continue;
+    out[key] = [...new Set([...(c[key] ?? []), ...hidden[key]])];
+  }
+  return out as C;
 }

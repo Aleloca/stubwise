@@ -344,6 +344,9 @@ export async function listRuns(
     .orderBy(desc(automationRuns.startedAt), desc(automationRuns.id))
     .limit(limit + 1);
   const page = rows.slice(0, limit);
+  // Revisione 3bbe2ddc6..444b8b773, M-3: chi si conosce fra i proprietari della
+  // pagina, in UNA verifica; `runRowOf` lo ritrova nella cache di `hiddenFor`.
+  await hiddenFor(db, viewer, page.flatMap((r) => (r.automation.ownerId ? [r.automation.ownerId] : [])));
   const items = [];
   for (const r of page) items.push(await runRowOf(db, viewer, r.run, r.automation, visible, { withLog: q.log !== "none" }));
   const last = page.at(-1);

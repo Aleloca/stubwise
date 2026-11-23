@@ -2,7 +2,7 @@ import { createHmac, randomUUID } from "node:crypto";
 import { backlogItems, comments, decrypt, encrypt, projects, tickets, widgetConversations, widgetMessages, widgets, type Db } from "@stubwise/db";
 import { seedBacklogItem, seedRepository, seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { siteRequestDetailSchema, siteRequestListSchema } from "@stubwise/shared";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
@@ -263,6 +263,39 @@ describe("registro, r.1061: i tetti per cliente verificato", () => {
     const s = await limitedSite();
     for (let i = 0; i < 30; i++) expect((await s.read(`Bearer inventato-${i}`)).statusCode).toBe(401);
     expect((await s.read(`Bearer inventato-31`)).statusCode).toBe(429);
+  });
+
+  // Dalla rotta le richieste si servono una dopo l'altra (`inject`): questo caso fissa i codici;
+  // quello sotto, con la pausa fra conteggio e inserimento, è la prova del lock.
+  it("revisione del lotto 2, M6: aperture CONCORRENTI dello stesso `sub` all'ultimo posto: ne passa una sola, le altre 429", async () => {
+    const s = await site();
+    const { WIDGET_VERIFIED_CONVERSATIONS_PER_DAY } = await import("./widget.js");
+    await db.insert(widgetConversations).values(
+      Array.from({ length: WIDGET_VERIFIED_CONVERSATIONS_PER_DAY - 1 }, () => ({ projectId: s.projectId, widgetId: s.widget.id, externalUserId: "carla", identityVerified: true })),
+    );
+    const [{ slug }] = (await db.select({ slug: projects.slug }).from(projects).where(eq(projects.id, s.projectId))) as [{ slug: string }];
+    const secret = await widgetSecret(s.widget.id);
+    const now = Math.floor(Date.now() / 1000);
+    const auth = `Bearer ${sign(secret, { sub: "carla", aud: s.widget.id, iat: now - 5, exp: now + 600 })}`;
+    const res = await Promise.all(
+      Array.from({ length: 6 }, () => app.inject({ method: "POST", url: `/widget/${slug}/conversations`, headers: { "x-stubwise-key": s.widget.key, authorization: auth }, payload: { user: { id: "carla" } } })),
+    );
+    expect(res.map((r) => r.statusCode).sort()).toEqual([200, 429, 429, 429, 429, 429]);
+    const opened = await db.select().from(widgetConversations).where(and(eq(widgetConversations.widgetId, s.widget.id), eq(widgetConversations.externalUserId, "carla")));
+    expect(opened).toHaveLength(WIDGET_VERIFIED_CONVERSATIONS_PER_DAY);
+  });
+
+  it("revisione del lotto 2, M6: il conteggio e l'apertura stanno sotto un lock per widget e `sub` — anche con una pausa fra i due, all'ultimo posto ne passa una sola", async () => {
+    const s = await site();
+    const { WIDGET_VERIFIED_CONVERSATIONS_PER_DAY, openWidgetConversation } = await import("./widget.js");
+    await db.insert(widgetConversations).values(
+      Array.from({ length: WIDGET_VERIFIED_CONVERSATIONS_PER_DAY - 1 }, () => ({ projectId: s.projectId, widgetId: s.widget.id, externalUserId: "dora", identityVerified: true })),
+    );
+    const row = { projectId: s.projectId, widgetId: s.widget.id, externalUserId: "dora", identityVerified: true };
+    const pause = () => new Promise<void>((r) => setTimeout(r, 50));
+    const out = await Promise.all(Array.from({ length: 6 }, () => openWidgetConversation(db, row, { afterCount: pause })));
+    expect(out.filter((o) => o === "too_many")).toHaveLength(5);
+    expect(await db.select().from(widgetConversations).where(and(eq(widgetConversations.widgetId, s.widget.id), eq(widgetConversations.externalUserId, "dora")))).toHaveLength(WIDGET_VERIFIED_CONVERSATIONS_PER_DAY);
   });
 
   it("al più WIDGET_VERIFIED_CONVERSATIONS_PER_DAY conversazioni verificate al giorno per `sub`; senza token il tetto non c'entra", async () => {
