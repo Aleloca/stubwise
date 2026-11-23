@@ -67,6 +67,10 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "integration",
     "plugins",
     "archive",
+    // Registro, area 9 r.1121: gli interruttori del progetto (Docs notturni,
+    // report, discovery, pulse coi giorni, brief) e il tetto delle correzioni,
+    // sulla lettura e la PATCH del progetto.
+    "automations",
   ]),
   // Area 9, F1, R9: «Who can?» sulle rotte del server.
   // Area 9, F1, R7: People e Roles sulle letture calcolate del server.
@@ -95,6 +99,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   ]),
   taskView: new Set(["list", "board", "timeline"]),
   feature: new Set([
+    // Registro, area 9 r.1121: le frasi «spento» di brief, Docs notturni,
+    // pulse e report (panoramica, Docs, Activity), dagli interruttori veri.
+    "project-switches",
     // Area 9, F6: archiviare, riaprire ed eliminare un progetto (la scheda
     // Archived di All projects, la pagina dell'archiviato, Delete).
     "archive",
@@ -146,7 +153,6 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // verificati» nei widget, «verificato» / «dichiarato» nel dettaglio.
     "support-identity",
     // Area 9, F1, R4a: Preferenze → Account (profilo, foto, email, password).
-    // Le caselle Google (`prefs-mailboxes`) restano nel cassetto Google.
     // Area 9, F3: le schede della voce AI accese (`AiPage`).
     "ai-automation",
     "ai-providers",
@@ -156,6 +162,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Area 9, F4: la pausa della coda nella colonna e in Tutti i progetti.
     "queue-pause",
     "prefs-account",
+    // Registro, A9 r.1200 (decisione del maintainer del 23 nov 2026, «Anche in
+    // Preferenze»): le caselle Google in Account, sulle rotte del cassetto.
+    "prefs-mailboxes",
     // Area 9, F1, R4b: Preferenze → Security (sul desktop le passkey restano del browser).
     "prefs-security",
     // Area 9, F1, R4c e R4d: Tokens e Claude Code (`/api/pats`), Language &

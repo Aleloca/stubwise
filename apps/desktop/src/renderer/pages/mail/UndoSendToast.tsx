@@ -82,14 +82,16 @@ const namesOf = (list: readonly MailDraftAttachment[]) => list.map((a) => a.name
 /**
  * Gli allegati rimasti fuori da una bozza tornata (R-I9): si dicono. E, nella
  * build app (registro, A6 r.448), una bozza unita a quella che c'era ma non
- * riscritta su Gmail (`gmailOutdated`): la riscrive il prossimo Salva.
+ * riscritta su Gmail (`gmailOutdated`): la riscrive il prossimo Salva. E la
+ * versione annullata rimasta fra le bozze di Gmail (`gmailCopyKept`, I5).
  */
 export function useDroppedNotice() {
   const { t } = useTranslation();
   const toast = useToast();
   return useCallback(
-    ({ droppedAttachments, gmailOutdated }: MailDraftRestore) => {
+    ({ droppedAttachments, gmailOutdated, gmailCopyKept }: MailDraftRestore) => {
       if (gmailOutdated) toast.show(t("mail.compose.gmailOutdated"));
+      if (gmailCopyKept) toast.show(t("mail.compose.gmailCopyKept"));
       if (droppedAttachments.length === 0) return;
       toast.show(
         t("mail.compose.dropped", {

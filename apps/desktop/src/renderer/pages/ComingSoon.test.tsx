@@ -23,32 +23,35 @@ const { FUTURE_NAMESPACES, calls, truncated, intake, refusal } = vi.hoisted(() =
     "admin",
     "me",
     "projectSettings",
-  "chat",
-  "docs",
-  "productDocs",
-  "drive",
-  "mail",
-  "calendar",
-  "automations",
-  "alerts",
-  "releases",
-  "support",
-  "servers",
-  "changelog",
-  "access",
-  "claude",
-  "instance",
+    "chat",
+    "docs",
+    "productDocs",
+    "drive",
+    "mail",
+    "calendar",
+    "automations",
+    "alerts",
+    "releases",
+    "support",
+    "servers",
+    "changelog",
+    "access",
+    "claude",
+    "instance",
   ] as const,
 }));
 
 vi.mock("@backend/api", async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
-  const record = (name: string, fn: (...a: unknown[]) => unknown) =>
+  const record =
+    (name: string, fn: (...a: unknown[]) => unknown) =>
     (...args: unknown[]) => {
       calls.push(name);
       if (refusal.fn === name) {
         refusal.fn = null;
-        return Promise.reject(Object.assign(new Error("Refused by the server"), { code: refusal.code }));
+        return Promise.reject(
+          Object.assign(new Error("Refused by the server"), { code: refusal.code }),
+        );
       }
       return fn(...args);
     };
@@ -173,6 +176,12 @@ const INTEGRATED_CALLS = new Set([
   "me.getEmailChangeLink",
   "me.confirmEmailChange",
   "me.changePassword",
+  // Registro, A9 r.1200: le caselle Google in Account, sulle rotte del cassetto.
+  "me.listMyMailboxes",
+  "me.connectMailbox",
+  "me.reconnectMailbox",
+  "me.disconnectMailbox",
+  "me.setProposals",
   // Area 9, F1, R4b: Preferenze → Security.
   "me.getMySecurity",
   "me.endSession",
@@ -257,6 +266,10 @@ const INTEGRATED_CALLS = new Set([
   "projectSettings.getArchivedProject",
   "projectSettings.getDeletionPreview",
   "projectSettings.deleteProject",
+  // Registro, area 9 r.1121: Settings → Automations e le frasi «spento».
+  "projectSettings.getProjectSettings",
+  "projectSettings.getProjectSwitches",
+  "projectSettings.saveProjectAutomations",
   "instance.listAllRepositories",
   "instance.listDetachedRepositories",
   "instance.linkRepository",
@@ -741,7 +754,9 @@ describe("aree non integrate nella build app", () => {
   // leggono dal server, senza «Coming soon».
   it("aprire le Automations legge solo ciò che è integrato", async () => {
     renderRoute("/automations");
-    expect(await screen.findByRole("heading", { level: 1, name: "Automations" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Automations" }),
+    ).toBeInTheDocument();
     await waitFor(() => expect(calls).toContain("automations.listAutomations"));
     await settle();
     expect(screen.queryByText("Coming soon")).toBeNull();
@@ -757,9 +772,9 @@ describe("aree non integrate nella build app", () => {
     first.focus();
     await userEvent.keyboard("a");
     const menu = await screen.findByRole("dialog", { name: "Add a step" });
-    expect(within(menu).getByRole("option", { name: /Claude reads and decides/ })).not.toHaveAttribute(
-      "aria-disabled",
-    );
+    expect(
+      within(menu).getByRole("option", { name: /Claude reads and decides/ }),
+    ).not.toHaveAttribute("aria-disabled");
     expect(
       within(menu).getByRole("option", { name: /Start another automation/ }),
     ).not.toHaveAttribute("aria-disabled");
@@ -913,7 +928,9 @@ describe("aree non integrate nella build app", () => {
     const dialog = await screen.findByRole("dialog");
     const emails = await within(dialog).findByRole("group", { name: "Emails" });
     // Le fonti vengono davvero dal livello dati: col cancello spento la finestra era vuota.
-    expect(await within(emails).findByRole("checkbox", { name: /Booking rules for the classes/ })).toBeInTheDocument();
+    expect(
+      await within(emails).findByRole("checkbox", { name: /Booking rules for the classes/ }),
+    ).toBeInTheDocument();
     await settle();
     expect(outside()).toEqual([]);
   });
@@ -971,14 +988,15 @@ describe("aree non integrate nella build app", () => {
   });
 
   // Area 9, F1, R4a: Preferenze → Account è accesa (`prefs-account`): profilo,
-  // email e password dal server; le caselle Google stanno nel cassetto Google
-  // (`prefs-mailboxes` spenta), e il riquadro «Prototype only» non c'è.
-  it("aprire Preferenze → Account legge solo chiamate integrate, senza caselle né riquadro del prototipo", async () => {
+  // email e password dal server; dal 23 nov 2026 (registro, A9 r.1200, «Anche
+  // in Preferenze») anche le caselle Google (`prefs-mailboxes`), sulle rotte
+  // del cassetto. Il riquadro «Prototype only» non c'è.
+  it("aprire Preferenze → Account legge solo chiamate integrate, caselle comprese, senza riquadro del prototipo", async () => {
     renderRoute("/preferences/account");
     expect(await screen.findByRole("heading", { level: 1, name: "Account" })).toBeInTheDocument();
     await waitFor(() => expect(calls).toContain("me.getMyProfile"));
+    await waitFor(() => expect(calls).toContain("me.listMyMailboxes"));
     await settle();
-    expect(calls).not.toContain("me.listMyMailboxes");
     expect(document.querySelector("[data-prototype-only]")).toBeNull();
     expect(outside()).toEqual([]);
   });
@@ -1053,15 +1071,18 @@ describe("aree non integrate nella build app", () => {
   it.each([
     ["/admin/plugins", "instance.listPlugins"],
     ["/admin/plugins/plg-superpowers", "instance.getPlugin"],
-  ])("aprire %s legge solo chiamate integrate, senza riquadro del prototipo", async (path, call) => {
-    signedInAs("p-roberta");
-    renderRoute(path);
-    await waitFor(() => expect(calls).toContain(call));
-    await settle();
-    expect(document.querySelector("[data-coming-soon]")).toBeNull();
-    expect(document.querySelector("[data-prototype-only]")).toBeNull();
-    expect(outside()).toEqual([]);
-  });
+  ])(
+    "aprire %s legge solo chiamate integrate, senza riquadro del prototipo",
+    async (path, call) => {
+      signedInAs("p-roberta");
+      renderRoute(path);
+      await waitFor(() => expect(calls).toContain(call));
+      await settle();
+      expect(document.querySelector("[data-coming-soon]")).toBeNull();
+      expect(document.querySelector("[data-prototype-only]")).toBeNull();
+      expect(outside()).toEqual([]);
+    },
+  );
 
   // Area 9, F3: Amministrazione → Git accounts, su `/api/git-accounts`.
   it("aprire Git accounts legge solo chiamate integrate, senza riquadro del prototipo", async () => {
@@ -1081,7 +1102,9 @@ describe("aree non integrate nella build app", () => {
     await waitFor(() => expect(calls).toContain("instance.listGoogleApps"));
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Add an app" }));
-    await user.click(await screen.findByRole("button", { name: "How to set it up in Google Cloud" }));
+    await user.click(
+      await screen.findByRole("button", { name: "How to set it up in Google Cloud" }),
+    );
     await waitFor(() => expect(calls).toContain("instance.getGoogleRedirectUri"));
     await settle();
     expect(document.querySelector("[data-coming-soon]")).toBeNull();
@@ -1171,15 +1194,18 @@ describe("aree non integrate nella build app", () => {
   it.each([
     ["/admin/webhooks", "Outgoing webhooks"],
     ["/admin/webhooks/wh-seed", "Webhook"],
-  ])("aprire %s legge solo chiamate integrate, senza riquadro del prototipo", async (path, title) => {
-    signedInAs("p-roberta");
-    renderRoute(path);
-    expect(await screen.findByRole("heading", { level: 1, name: title })).toBeInTheDocument();
-    await settle();
-    expect(screen.queryByText(/Coming soon/)).toBeNull();
-    expect(document.querySelector("[data-prototype-only]")).toBeNull();
-    expect(outside()).toEqual([]);
-  });
+  ])(
+    "aprire %s legge solo chiamate integrate, senza riquadro del prototipo",
+    async (path, title) => {
+      signedInAs("p-roberta");
+      renderRoute(path);
+      expect(await screen.findByRole("heading", { level: 1, name: title })).toBeInTheDocument();
+      await settle();
+      expect(screen.queryByText(/Coming soon/)).toBeNull();
+      expect(document.querySelector("[data-prototype-only]")).toBeNull();
+      expect(outside()).toEqual([]);
+    },
+  );
 
   // Area 9, F2: il registro delle modifiche, in Amministrazione e nel progetto.
   it("aprire Amministrazione → Change log legge solo chiamate integrate", async () => {
@@ -1205,6 +1231,16 @@ describe("aree non integrate nella build app", () => {
     signedInAs("p-laura");
     renderRoute("/p/ACQ/settings/integration");
     await waitFor(() => expect(calls).toContain("projectSettings.getIntegration"));
+    await settle();
+    expect(screen.queryByText(/Coming soon/)).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  // Registro, area 9 r.1121: Progetto → Settings → Automations accesa.
+  it("aprire Automations di un progetto legge solo chiamate integrate", async () => {
+    signedInAs("p-laura");
+    renderRoute("/p/ACQ/settings/automations");
+    await waitFor(() => expect(calls).toContain("projectSettings.getProjectSettings"));
     await settle();
     expect(screen.queryByText(/Coming soon/)).toBeNull();
     expect(outside()).toEqual([]);
@@ -1374,7 +1410,11 @@ describe("aree non integrate nella build app", () => {
   it("i widget di Support (area 8, F3, support-widgets): elenco e pannello sulle chiamate integrate, coi siti ammessi", async () => {
     signedInAs("p-matteo");
     renderRoute("/p/ACQ/support?view=widgets&widget=wdg-acq-portal");
-    const panel = await screen.findByRole("complementary", { name: "Edit Customer portal help" }, { timeout: 3000 });
+    const panel = await screen.findByRole(
+      "complementary",
+      { name: "Edit Customer portal help" },
+      { timeout: 3000 },
+    );
     await waitFor(() => expect(calls).toContain("support.listWidgets"));
     // I siti ammessi (`origins` del server): il campo c'è anche nella build app.
     expect(within(panel).getByLabelText(/^Sites/)).toBeInTheDocument();
@@ -1400,7 +1440,11 @@ describe("aree non integrate nella build app", () => {
     // Roberta ha `monitor.manage`: le scritture ci sono, la F4b no.
     signedInAs("p-roberta");
     renderRoute("/p/ACQ/servers/SRV-1");
-    const index = await screen.findByRole("navigation", { name: "Parts of SRV-1" }, { timeout: 3000 });
+    const index = await screen.findByRole(
+      "navigation",
+      { name: "Parts of SRV-1" },
+      { timeout: 3000 },
+    );
     await waitFor(() => expect(calls).toContain("servers.getServer"));
     await waitFor(() => expect(calls).toContain("servers.getServerMetrics"));
     // F4b: l'accesso SSH di sola lettura c'è.
@@ -1579,7 +1623,9 @@ describe("aree non integrate nella build app", () => {
     expect(calls).not.toContain("drive.listMyFolderLinks");
     await user.click(within(dialog).getByRole("button", { name: "Disconnect" }));
     await waitFor(() => expect(calls).toContain("drive.listMyFolderLinks"));
-    expect(await within(dialog).findByText(/folder you linked will stop updating/)).toBeInTheDocument();
+    expect(
+      await within(dialog).findByText(/folder you linked will stop updating/),
+    ).toBeInTheDocument();
     expect(outside()).toEqual([]);
     act(() => closeGoogleAccount());
   });
@@ -1590,7 +1636,9 @@ describe("aree non integrate nella build app", () => {
     await settle();
     expect(screen.queryByText("Coming soon")).toBeNull();
     // Le righe dei riferimenti Google ci sono, col loro segno (review F5b, 9).
-    expect((await screen.findAllByTitle("Google file, opens in Google Drive")).length).toBeGreaterThan(0);
+    expect(
+      (await screen.findAllByTitle("Google file, opens in Google Drive")).length,
+    ).toBeGreaterThan(0);
     expect(outside()).toEqual([]);
   });
 
@@ -1658,7 +1706,10 @@ describe("le superfici della fetta 2 nella build app", () => {
     expect(await screen.findByRole("grid")).toBeInTheDocument();
     const head = await screen.findByRole("rowheader", { name: /Claude/ });
     expect(head).toHaveAttribute("data-readonly", "true");
-    expect(head).toHaveAttribute("title", "Only someone who can start Claude's work plans for Claude");
+    expect(head).toHaveAttribute(
+      "title",
+      "Only someone who can start Claude's work plans for Claude",
+    );
   });
 
   it("il menu «Plan» propone Claude dove si assegna", async () => {
@@ -1670,7 +1721,9 @@ describe("le superfici della fetta 2 nella build app", () => {
     chip.focus();
     await userEvent.keyboard("p");
     const menu = await screen.findByRole("menu", { name: /^Plan / });
-    const names = within(menu).getAllByRole("menuitemradio").map((i) => i.textContent ?? "");
+    const names = within(menu)
+      .getAllByRole("menuitemradio")
+      .map((i) => i.textContent ?? "");
     expect(names.length).toBeGreaterThan(0);
     // AUD (software): Claude ne è membro, quindi si assegna, ed è l'ultima voce.
     expect(names.at(-1)).toMatch(/Claude/);
@@ -1787,7 +1840,9 @@ describe("le superfici della fetta 3 nella build app", () => {
   it("«Da decidere» legge Claude (dalla 3b), le domande della Chat (area 4, fetta 2) le proposte della Posta (area 6, fetta 1) e le approvazioni delle automazioni (area 7, F1), e non resta in caricamento", async () => {
     renderRoute("/home");
     const decide = await screen.findByRole("region", { name: /^Decide/ });
-    await waitFor(() => expect(decide.querySelector("[data-skeleton], [aria-busy='true']")).toBeNull());
+    await waitFor(() =>
+      expect(decide.querySelector("[data-skeleton], [aria-busy='true']")).toBeNull(),
+    );
     await settle();
     expect(outside()).toEqual([]);
     expect(calls).toContain("listClaudeDecisions");
@@ -1797,11 +1852,15 @@ describe("le superfici della fetta 3 nella build app", () => {
 
   it("i filtri salvati: tutti i filtri e la pagina di un filtro", async () => {
     renderRoute("/filters");
-    expect(await screen.findByRole("heading", { level: 1, name: "All filters" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "All filters" }),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Coming soon")).toBeNull();
     cleanup();
     renderRoute("/filters/flt-unassigned");
-    expect(await screen.findByRole("heading", { level: 1, name: /Unassigned/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: /Unassigned/ }),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Coming soon")).toBeNull();
     await settle();
     expect(outside()).toEqual([]);
@@ -1846,7 +1905,9 @@ describe("le superfici della fetta 4 nella build app", () => {
   it("Tutti i progetti è disponibile", async () => {
     signedInAs("p-laura");
     renderRoute("/projects");
-    expect(await screen.findByRole("heading", { level: 1, name: "All projects" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "All projects" }),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Coming soon")).toBeNull();
     await settle();
     expect(outside()).toEqual([]);
@@ -1857,12 +1918,19 @@ describe("le superfici della fetta 4 nella build app", () => {
     intake.mergeInto = "STW-R4";
     const router = renderRoute("/p/STW/requests?newRequest=STW");
     const dialog = await screen.findByRole("dialog", { name: "New request" });
-    await userEvent.type(within(dialog).getByLabelText("What do you need?"), "Mute notifications at night");
+    await userEvent.type(
+      within(dialog).getByLabelText("What do you need?"),
+      "Mute notifications at night",
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: "Send request" }));
     expect(
-      await screen.findByText("Merged into STW-R4: someone had already asked for this, and now you follow it."),
+      await screen.findByText(
+        "Merged into STW-R4: someone had already asked for this, and now you follow it.",
+      ),
     ).toBeInTheDocument();
-    await waitFor(() => expect(router.state.location.search).toMatchObject({ request: "req-stw-4" }));
+    await waitFor(() =>
+      expect(router.state.location.search).toMatchObject({ request: "req-stw-4" }),
+    );
   });
 
   it("una richiesta accodata senza esito: «la stiamo registrando», il dialogo si chiude e niente «Riprova»", async () => {
@@ -1870,13 +1938,20 @@ describe("le superfici della fetta 4 nella build app", () => {
     intake.pending = true;
     renderRoute("/p/STW/requests?newRequest=STW");
     const dialog = await screen.findByRole("dialog", { name: "New request" });
-    await userEvent.type(within(dialog).getByLabelText("What do you need?"), "Mute notifications at night");
+    await userEvent.type(
+      within(dialog).getByLabelText("What do you need?"),
+      "Mute notifications at night",
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: "Send request" }));
     expect(
       await screen.findByText("Received: we're still registering it. You'll find it in Requests."),
     ).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "New request" })).not.toBeInTheDocument());
-    expect(screen.queryByText("Couldn't send the request. Nothing was sent; try again.")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "New request" })).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText("Couldn't send the request. Nothing was sent; try again."),
+    ).not.toBeInTheDocument();
     expect(calls.filter((c) => c === "createRequest")).toHaveLength(1);
   });
 
@@ -1887,17 +1962,29 @@ describe("le superfici della fetta 4 nella build app", () => {
     await userEvent.click(await within(panel).findByRole("button", { name: "More actions" }));
     await userEvent.click(await screen.findByRole("menuitem", { name: "Merge into…" }));
     const dialog = await screen.findByRole("dialog", { name: "Merge into another request" });
-    await userEvent.click(await within(dialog).findByRole("radio", { name: /Quiet hours for notifications/ }));
+    await userEvent.click(
+      await within(dialog).findByRole("radio", { name: /Quiet hours for notifications/ }),
+    );
     failNext("mergeRequest");
     setLatency(300);
     await userEvent.click(within(dialog).getByRole("button", { name: "Merge" }));
     expect(
-      await within(dialog).findByText("Merging into STW-R4: Claude is rewriting it. This can take a moment."),
+      await within(dialog).findByText(
+        "Merging into STW-R4: Claude is rewriting it. This can take a moment.",
+      ),
     ).toBeInTheDocument();
-    expect(await within(dialog).findByText("Couldn't merge the requests. Nothing changed.", {}, { timeout: 2000 })).toBeInTheDocument();
+    expect(
+      await within(dialog).findByText(
+        "Couldn't merge the requests. Nothing changed.",
+        {},
+        { timeout: 2000 },
+      ),
+    ).toBeInTheDocument();
     setLatency(0);
     await userEvent.click(within(dialog).getByRole("button", { name: "Try again" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Merge into another request" })).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Merge into another request" })).toBeNull(),
+    );
   });
 
   it("oltre i 200 filtri il salvataggio lo dice con la sua frase", async () => {
@@ -1909,7 +1996,9 @@ describe("le superfici della fetta 4 nella build app", () => {
     refusal.code = "too_many_filters";
     await userEvent.click(within(dialog).getByRole("button", { name: "Save filter" }));
     expect(
-      await within(dialog).findByText("You already have 200 saved filters. Delete one to save another."),
+      await within(dialog).findByText(
+        "You already have 200 saved filters. Delete one to save another.",
+      ),
     ).toBeInTheDocument();
   });
 
@@ -1922,7 +2011,9 @@ describe("le superfici della fetta 4 nella build app", () => {
     refusal.code = "suggestions_kept";
     await userEvent.click(within(box).getByRole("button", { name: "Dismiss" }));
     expect(
-      await screen.findByText("Your changes were saved, but the suggestions are still open. Dismiss them again."),
+      await screen.findByText(
+        "Your changes were saved, but the suggestions are still open. Dismiss them again.",
+      ),
     ).toBeInTheDocument();
   });
 
@@ -1950,7 +2041,9 @@ describe("le superfici della fetta 4 nella build app", () => {
     refusal.code = "request_not_found";
     await userEvent.click(within(dialog).getByRole("button", { name: /Create task/ }));
     expect(
-      await within(dialog).findByText("This request is no longer available: it may have been converted, archived or hidden."),
+      await within(dialog).findByText(
+        "This request is no longer available: it may have been converted, archived or hidden.",
+      ),
     ).toBeInTheDocument();
   });
 });
@@ -1961,7 +2054,9 @@ describe("le superfici della fetta 3a nella build app (area 3)", () => {
   it("/claude atterra su «New conversation», con «Mine» e le sessioni dal vivo nella colonna", async () => {
     signedInAs("p-laura");
     renderRoute("/claude");
-    expect(await screen.findByRole("heading", { level: 1, name: "New conversation" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "New conversation" }),
+    ).toBeInTheDocument();
     const column = screen.getByRole("navigation", { name: "Claude views" });
     expect(within(column).getByText("New conversation")).toBeInTheDocument();
     expect(within(column).getByText("Mine")).toBeInTheDocument();
@@ -1995,4 +2090,3 @@ describe("le superfici della fetta 3a nella build app (area 3)", () => {
     expect(calls).toContain("subscribe");
   });
 });
-

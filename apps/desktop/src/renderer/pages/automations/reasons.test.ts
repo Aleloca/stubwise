@@ -93,6 +93,12 @@ describe("una persona che chi guarda non conosce, nei motivi", () => {
     expect(text).toBe("Permission lost: the owner (Someone) can't manage “Weekly”.");
   });
 
+  // Il server (72) non manda proprio `owner` a chi non conosce il proprietario.
+  it("il proprietario assente è «Someone», non «{{owner}}»", () => {
+    const text = reasonWords({ code: "cantManage", params: { name: "Weekly" } }, i18n.t);
+    expect(text).toBe("Permission lost: the owner (Someone) can't manage “Weekly”.");
+  });
+
   it("un incaricato disattivato vuoto è «Someone»; il nome di un'automazione no", () => {
     expect(reasonWords({ code: "assigneeDeactivated", params: { name: "" } }, i18n.t)).toContain(
       "Someone",

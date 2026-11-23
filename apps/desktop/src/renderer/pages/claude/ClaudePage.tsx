@@ -510,7 +510,9 @@ function PageHeader({
 
   const title = detail.title || t("claude.destination.page.untitled");
   const projectCode = (id: string | null) => projects?.find((p) => p.id === id)?.code ?? null;
-  const nameOf = (id: string | null) => people?.find((p) => p.id === id)?.name ?? "";
+  // R.1414: un id che l'elenco delle persone non ha è di chi guarda non conosce: «Someone».
+  const nameOf = (id: string | null) =>
+    id ? (people?.find((p) => p.id === id)?.name ?? t("claude.someone")) : "";
   const free = detail.kind === "free";
   const isPublic = free && detail.visibility === "public";
   const state = rowStateOf(detail);
@@ -694,7 +696,7 @@ function PageHeader({
           isPublic ? (
             <span data-public-line>
               {t("claude.destination.page.publicBy", {
-                name: detail.publishedByName ?? nameOf(detail.publishedById),
+                name: detail.publishedByName || nameOf(detail.publishedById),
                 date: detail.publishedAt ? formatDate(detail.publishedAt, i18n.language) : "",
               })}
             </span>

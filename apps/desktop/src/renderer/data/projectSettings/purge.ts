@@ -251,6 +251,12 @@ export function purgeProject(project: Project, me: string): number {
     a.grants = a.grants.filter((g) => g.projectId !== id);
     a.revocations = a.revocations.filter((r) => r.projectId !== id);
   });
+  // E gli ex membri del progetto (r.1414, lotto 2): la scrittura qui sopra li
+  // ricorda come usciti (`rememberLeavers`), ma di un progetto che non c'è
+  // più non resta nessuna riga. In una seconda scrittura, a membri già tolti.
+  writeAccess((a) => {
+    a.formerMemberships = a.formerMemberships.filter((m) => m.projectId !== id);
+  });
   state.projects = state.projects.filter((p) => p.id !== id);
   reindex();
   return repos.length;

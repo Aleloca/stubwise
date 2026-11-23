@@ -28,6 +28,7 @@ import { liveMeAccount } from "./meAccount";
 import { liveMeSecurity } from "./meSecurity";
 import { liveMeTokens } from "./meTokens";
 import { liveEntry } from "./entry";
+import { liveMeMailboxes } from "./meMailboxes";
 
 // La sessione della build app (integrazione area 2, fetta 1): chi è dentro e
 // cosa può fare lo dice il server (`GET /api/auth/me`), mai il client. Sul
@@ -329,6 +330,8 @@ export const me: Me = partialNamespace<Me>("me", {
   getEmailChangeLink: liveMeAccount.getEmailChangeLink,
   confirmEmailChange: liveMeAccount.confirmEmailChange,
   changePassword: liveMeAccount.changePassword,
+  // Registro, A9 r.1200: le caselle Google in Account, sulle rotte del cassetto.
+  ...liveMeMailboxes,
   // Area 9, F1, R4b: Preferenze → Security.
   endSession: liveMeSecurity.endSession,
   startTotpSetup: liveMeSecurity.startTotpSetup,

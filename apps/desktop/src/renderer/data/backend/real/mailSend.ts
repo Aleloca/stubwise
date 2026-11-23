@@ -118,6 +118,7 @@ async function restoreOf(r: {
   droppedAttachments: readonly string[];
   unsaved?: boolean;
   gmailOutdated?: boolean;
+  gmailCopyKept?: boolean;
 }): Promise<MailDraftRestore> {
   if (!r.draft) throw new Error("not_found");
   const { mine } = await myMailboxes();
@@ -142,6 +143,8 @@ async function restoreOf(r: {
     droppedAttachments: dropped,
     unsaved: false,
     gmailOutdated: r.gmailOutdated === true,
+    // I5 (72, 5c8747ef2): l'unione ha perso qualcosa, la versione annullata resta fra le bozze di Gmail.
+    gmailCopyKept: r.gmailCopyKept === true,
   };
 }
 
