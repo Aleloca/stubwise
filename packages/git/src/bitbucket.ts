@@ -373,6 +373,7 @@ export class BitbucketProvider implements GitProvider {
             failedStep: status === "failed" ? str(v.description) : null,
             startedAt: str(v.created_on),
             endedAt: status === "running" ? null : str(v.updated_on),
+            group: str(v.key) ? `bitbucket:key:${str(v.key)}` : null,
           };
         });
       return { status: "ok", runs };

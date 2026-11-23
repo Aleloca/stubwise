@@ -364,7 +364,7 @@ export async function maskMailDeciders<T>(db: Db, viewer: Pick<SessionUser, "id"
   const items: Record<string, unknown>[] = Array.isArray(list) ? (list as Record<string, unknown>[]) : [payload as Record<string, unknown>];
   const deciders = (item: Record<string, unknown>) => [item.decidedBy as Decider, item.handedBy as Decider];
   if (!items.some((i) => deciders(i).some((d) => d && d.userId !== viewer.id))) return payload;
-  const hidden = await hiddenFor(db, viewer);
+  const hidden = await hiddenFor(db, viewer, items.flatMap((i) => deciders(i).map((d) => d?.userId)));
   const masked = items.map((item) => {
     const inMail = new Set<string>();
     for (const key of ["sharedWith", "outsiders"] as const) {

@@ -210,4 +210,29 @@ describe("registro, A11 r.1414: la card della doc", () => {
     expect(res.body).not.toContain(stranger!.id);
     expect(res.body).not.toContain("Mai Visto");
   });
+
+  it("revisione del lotto 2, M1: UNA numerazione per pagina — l'autore della doc e la persona aggiunta di un'altra card, due sconosciuti diversi, sono due segnaposto diversi", async () => {
+    const { users } = await import("@stubwise/db");
+    const { comment } = await mention("@reader-m un'altra per te");
+    const stranger = async (tag: string) =>
+      (await t.db.insert(users).values({ email: `stranger-${tag}-${randomUUID().slice(0, 6)}@x.it`, passwordHash: "x", role: "member" }).returning({ id: users.id }))[0]!.id;
+    const author = await stranger("m1a");
+    const added = await stranger("m1b");
+    await t.db.update(productComments).set({ authorId: author }).where(eq(productComments.id, comment.id));
+    const [memberCard] = await t.db
+      .insert(notifications)
+      .values({ userId: reader.id, projectId, kind: "member.added", status: "open", event: { kind: "member.added", projectId, projectCode: "X", projectName: "X", addedUserId: added, addedName: "A", roleName: "Developer", actorUserId: editor.id, actorName: "E", viaClaude: false, alertMandatory: "added" } } as never)
+      .returning({ id: notifications.id });
+    const res = await inject(reader, "GET", "/api/inbox");
+    expect(res.statusCode, res.body).toBe(200);
+    const items = (res.json() as { items: InboxItem[] }).items;
+    const [card] = await cardsOf(reader, comment.id);
+    const member = items.find((i) => i.id === memberCard!.id)!;
+    expect(card!.productDoc!.authorId).toMatch(/^hidden-\d+$/);
+    expect(member.memberAdded!.addedUserId).toMatch(/^hidden-\d+$/);
+    expect(member.memberAdded!.addedUserId).not.toBe(card!.productDoc!.authorId);
+    expect(member.memberAdded!.addedName).toBeNull();
+    expect(res.body).not.toContain(author);
+    expect(res.body).not.toContain(added);
+  });
 });

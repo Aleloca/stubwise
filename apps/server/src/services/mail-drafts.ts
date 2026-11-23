@@ -452,17 +452,26 @@ export async function syncMergedDraft(
   userId: string,
   mergedDraftId: string,
   stale: { accountId: string; gmailDraftId: string },
-): Promise<boolean> {
+  /** Allegati rimasti fuori dall'unione: la copia annullata su Gmail li ha ancora. */
+  keepStale: boolean,
+): Promise<{ synced: boolean; staleKept: boolean }> {
   const [row] = await db.select().from(mailDrafts).where(and(eq(mailDrafts.id, mergedDraftId), eq(mailDrafts.userId, userId)));
-  if (!row) return false;
+  if (!row) return { synced: false, staleKept: true };
   const out = await rewrite(db, encryptionKey, client, storage, userId, row);
+  const synced = !("error" in out);
+  // Revisione del lotto 2, I5: la copia annullata si cancella da Gmail SOLO se
+  // l'unione non ha perso niente e la bozza unita è stata riscritta; altrimenti
+  // resta lì come copia di sicurezza, e la risposta lo dice.
+  if (keepStale || !synced) return { synced, staleKept: true };
   try {
     const accessToken = await accessTokenFor(db, encryptionKey, client, stale.accountId);
-    if (accessToken) await client.deleteDraft({ accessToken, id: stale.gmailDraftId });
-  } catch {
-    // Già sparita, o Gmail non risponde: resta fra le bozze di Gmail, e niente si perde.
+    if (!accessToken) return { synced, staleKept: true };
+    await client.deleteDraft({ accessToken, id: stale.gmailDraftId });
+  } catch (err) {
+    // Già sparita: niente da tenere. Gmail non risponde: resta fra le bozze, e niente si perde.
+    if (!(err instanceof GoogleApiError && err.status === 404)) return { synced, staleKept: true };
   }
-  return !("error" in out);
+  return { synced, staleKept: false };
 }
 
 /** Elimina la bozza, su Gmail e qui. Una bozza già sparita da Gmail si toglie e basta. */

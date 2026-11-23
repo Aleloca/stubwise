@@ -374,7 +374,11 @@ async function channelViewsBatch(
     .groupBy(chatMessages.channelId);
   const counts = new Map(countRows.map((r) => [r.channelId, r]));
 
-  const hidden = await hiddenFor(db, viewer);
+  const hidden = await hiddenFor(db, viewer, [
+    ...channels.flatMap((c) => [c.archivedBy, c.createdBy]),
+    ...[...membersOf.values()].flat(),
+    ...[...viewersOf.values()].flatMap((v) => [...v]),
+  ]);
   return channels.map((channel) => {
     const rows = membersOf.get(channel.id) ?? [];
     const permissions = new Set<ProjectPermission>(
@@ -549,7 +553,11 @@ async function messageViews(db: Db, viewer: ChatViewer, rows: readonly MessageRo
   const replying = await rootsWithClaudeWorking(db, rows.filter((r) => r.threadRootId === null).map((r) => r.id));
   const events = await eventViews(db, viewer, rows);
   const attachments = await chatAttachmentViews(db, live);
-  const hidden = await hiddenFor(db, viewer);
+  const hidden = await hiddenFor(db, viewer, [
+    ...rows.flatMap((m) => [m.authorId, m.calledById, m.deletedBy, ...m.mentionedIds, ...m.asksReplyOf]),
+    ...[...replies.values()].flatMap((r) => [r.lastBy, ...r.participants]),
+    ...[...byMessage.values()].flatMap((byEmoji) => [...byEmoji.values()].flat()),
+  ]);
   return rows.map((m) => {
     const own = m.authorId === viewer.id && m.kind === "person";
     const deleted = m.deletedAt !== null;
@@ -1733,7 +1741,7 @@ export async function questionsOf(db: Db, viewer: ChatViewer): Promise<ChatQuest
     .orderBy(desc(chatMessages.createdAt))
     .limit(200);
   const out: ChatQuestionItem[] = [];
-  const hidden = await hiddenFor(db, viewer);
+  const hidden = await hiddenFor(db, viewer, rows.map(({ message: m }) => m.authorId));
   for (const { message: m } of rows) {
     out.push({
       id: `chat:${m.id}`,

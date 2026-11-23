@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { personRefSchema } from "./person-ref.js";
+import { personPlaceholderSchema, personRefSchema } from "./person-ref.js";
 
 /**
  * Il Drive dei progetti (area 5, fetta 2; prototipo `data/drive/`, `data/model.ts`).
@@ -165,7 +165,8 @@ export type DriveUploadResult = z.infer<typeof driveUploadResultSchema>;
 export const driveListQuerySchema = z.object({
   projectId: z.uuid().optional(),
   type: driveFileTypeSchema.optional(),
-  addedById: z.uuid().optional(),
+  // Un segnaposto `hidden-<n>` passa la validazione per rispondere 400 `invalid` (non si filtra per uno sconosciuto).
+  addedById: z.union([z.uuid(), personPlaceholderSchema]).optional(),
   q: z.string().trim().max(200).optional(),
   sort: z.enum(["most_used", "recent", "name"]).default("most_used"),
   limit: z.coerce.number().int().min(1).max(500).optional(),

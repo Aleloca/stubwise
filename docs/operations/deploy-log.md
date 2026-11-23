@@ -6130,3 +6130,11 @@ deploy o di un rollback che la tocca.
     solo. Anche lo /docs di Slack non elenca né risponde.
   - **Rollback**: sicuro. Un server e un worker di prima ignorano di nuovo i
     moduli.
+- **«Rimandi: una run rilanciata sostituisce solo quella del suo workflow»**
+  *(23 nov 2026)*: branch `feat/rimandi-server` (revisione del lotto 2, I6).
+  Migrazione **0219** (`release_ci_runs.run_group`, text, nullable,
+  additiva): chi ha prodotto una run di CI (GitHub la check suite,
+  Bitbucket la key). Nessuna env. Ordine: server (healthy, 0219 applicata),
+  poi worker, che scrive la colonna. Le run salvate prima restano `null` e
+  valgono come prima. **Rollback**: sicuro; un server e un worker di prima
+  ignorano la colonna, che resta.

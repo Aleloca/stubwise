@@ -346,6 +346,7 @@ export class GitHubProvider implements GitProvider {
           started_at?: unknown;
           completed_at?: unknown;
           output?: { title?: unknown } | null;
+          check_suite?: { id?: unknown } | null;
         }[];
       };
       if (!Array.isArray(data.check_runs)) return { status: "unknown" };
@@ -361,6 +362,7 @@ export class GitHubProvider implements GitProvider {
           failedStep: status === "failed" ? str(run.output?.title) : null,
           startedAt: str(run.started_at),
           endedAt: str(run.completed_at),
+          group: typeof run.check_suite?.id === "number" || typeof run.check_suite?.id === "string" ? `github:suite:${run.check_suite.id}` : null,
         };
       });
       return { status: "ok", runs };

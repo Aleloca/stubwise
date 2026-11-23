@@ -7,3 +7,7 @@ import { z } from "zod";
  * la usano più schemi (Chat, doc di prodotto, …).
  */
 export const personRefSchema = z.string().min(1);
+
+/** Il segnaposto di una persona sconosciuta (`hidden-<n>`). */
+export const personPlaceholderSchema = z.string().regex(/^hidden-\d{1,6}$/);
+export const isPersonPlaceholder = (v: unknown): v is string => typeof v === "string" && /^hidden-\d{1,6}$/.test(v);

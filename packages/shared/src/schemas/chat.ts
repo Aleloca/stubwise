@@ -2,6 +2,7 @@ import { z } from "zod";
 import { personRefSchema } from "./person-ref.js";
 
 export { personRefSchema };
+export { isPersonPlaceholder, personPlaceholderSchema } from "./person-ref.js";
 
 /**
  * La Chat fra persone (integrazione area 4; design

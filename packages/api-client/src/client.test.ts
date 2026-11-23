@@ -267,6 +267,13 @@ describe("gruppi dell'integrazione area 2 (task, decisioni, reparti, persone, st
     expect(init!.method).toBe("GET");
   });
 
+  it("tasks.list: `savedFilterId` va nella query accanto ai segnaposto (registro, A11 r.1414)", async () => {
+    const fetchImpl = mockFetch(async () => jsonResponse(200, { items: [], truncated: false }));
+    await clientWith(fetchImpl).tasks.list({ assigneeIds: ["hidden-1", "none"], savedFilterId: "f1" });
+    const parsed = new URL(fetchImpl.mock.calls[0]![0] as string);
+    expect(Object.fromEntries(parsed.searchParams)).toEqual({ assigneeIds: "hidden-1,none", savedFilterId: "f1" });
+  });
+
   it("tasks.bulkUpdate: PATCH /api/tasks/bulk con ids e patch nel corpo", async () => {
     const fetchImpl = mockFetch(async () => jsonResponse(200, [VIEW]));
     const client = clientWith(fetchImpl);

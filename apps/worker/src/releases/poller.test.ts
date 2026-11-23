@@ -82,6 +82,36 @@ describe("pollReleasesOnce", () => {
     expect((await reload(s.release.id)).failedNotifiedAt).not.toBeNull();
   });
 
+  it("revisione del lotto 2, I6: l'avviso nomina la run fallita fra quelle che CONTANO, non una sostituita dal suo rilancio; due job omonimi di workflow diversi restano due", async () => {
+    const s = await setup();
+    const t0 = new Date(Date.now() - 120_000).toISOString();
+    const t1 = new Date().toISOString();
+    await poll(
+      fake({
+        status: "ok",
+        runs: [
+          { id: "1", name: "test", status: "failed", url: "h", failedStep: "rosso", startedAt: t0, endedAt: t0, group: "github:suite:1" },
+          { id: "2", name: "test", status: "success", url: "h", failedStep: null, startedAt: t1, endedAt: t1, group: "github:suite:1" },
+          { id: "3", name: "lint", status: "failed", url: "h", failedStep: "eslint", startedAt: t0, endedAt: t0, group: "github:suite:2" },
+        ],
+      }),
+    );
+    expect((await cardsOf(s.leadId))[0]!.event).toMatchObject({ failedRun: "lint" });
+    expect((await t.db.select().from(releaseCiRuns).where(eq(releaseCiRuns.providerRunId, "1")).then((r) => r.filter((x) => x.releaseId === s.release.id)))[0]!.runGroup).toBe("github:suite:1");
+    // Un job omonimo di un ALTRO workflow, verde dopo, non salva il fallito.
+    const s2 = await setup();
+    await poll(
+      fake({
+        status: "ok",
+        runs: [
+          { id: "1", name: "test", status: "failed", url: "h", failedStep: "rosso", startedAt: t0, endedAt: t0, group: "github:suite:1" },
+          { id: "2", name: "test", status: "success", url: "h", failedStep: null, startedAt: t1, endedAt: t1, group: "github:suite:9" },
+        ],
+      }),
+    );
+    expect((await cardsOf(s2.leadId))[0]!.event).toMatchObject({ failedRun: "test" });
+  });
+
   it("registro, A8 r.744: una run rilanciata e verde dopo un `failed` si vede: il rilascio sistemato come fallito si riguarda (al più ogni RELEASE_FAILED_RECHECK_MINUTES) e diventa riuscito", async () => {
     const s = await setup();
     const t0 = new Date();

@@ -11,7 +11,7 @@ import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, or, sql, type
 import { projectPermissionsFor, projectPermissionsMap } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { adminVisiblePersonIds } from "./admin-people.js";
-import { HiddenIds, peopleKnownTo } from "./people-known.js";
+import { hiddenFor } from "./people-known.js";
 import { RoleRuleError } from "./roles.js";
 
 /**
@@ -186,7 +186,7 @@ export async function listChanges(db: Db, viewer: Viewer, filter: ChangeLogFilte
   );
   const allProjectsVisible = viewer.instancePermissions.has("instance.full_admin");
   // Registro, A11 r.1414: chi ha agito e chi guarda non conosce non ha né id né nome (R-G5).
-  const hidden = new HiddenIds(await peopleKnownTo(db, viewer), viewer.id);
+  const hidden = await hiddenFor(db, viewer, [...page, ...[...undone.values()].filter((u) => u !== undefined)].map((r) => r.actorUserId));
   const toEntry = (r: (typeof page)[number]): Omit<ChangeEntry, "undoneEntry"> => {
     const type = changeLogTypeOf(r.type)!;
     const data = r.data as ChangeEntry["data"];

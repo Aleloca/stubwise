@@ -1,13 +1,16 @@
 import { changeLog, chatChannelMembers, chatChannels, chatMessages, projectMembers, users, type Db } from "@stubwise/db";
 import { userIdsWithPermission } from "@stubwise/notifications";
-import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import type { SessionUser } from "../auth/session.js";
 import { channelReadableSql } from "../chat/access.js";
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * CHI SI CONOSCE (registro, A11 r.1414; docs/invariants/permissions.md, «chi
- * non vede una persona o un progetto non ne riceve nemmeno l'id»): le persone
- * di cui chi guarda riceve id e nome. È più largo di chi si vede per scegliere
+ * non vede una persona o un progetto non ne riceve nemmeno l'id»): FRA I
+ * CANDIDATI (le persone che una risposta nomina), quelle di cui chi guarda
+ * riceve id e nome; "all" per un full admin. È più largo di chi si vede per scegliere
  * (`visiblePersonIds`, gli assegnabili e «Who can?»): due domande diverse.
  *
  * - un full admin conosce tutti;
@@ -23,39 +26,41 @@ import { channelReadableSql } from "../chat/access.js";
  * vede tutti per costruzione). Il prototipo: `peopleKnownTo`
  * (`domain/access/whoCan.ts`) e `knownPeopleFor` (`data/access/whoCan.ts`).
  */
-export async function peopleKnownTo(db: Db, viewer: Pick<SessionUser, "id" | "instancePermissions">): Promise<"all" | ReadonlySet<string>> {
+export async function peopleKnownTo(
+  db: Db,
+  viewer: Pick<SessionUser, "id" | "instancePermissions">,
+  candidates: Iterable<string>,
+): Promise<"all" | ReadonlySet<string>> {
   if (viewer.instancePermissions.has("instance.full_admin")) return "all";
+  // Revisione del lotto 2, I4: solo le persone che la risposta nomina, con
+  // EXISTS filtrati per id (mai una scansione dei messaggi o dei membri di tutti).
+  const ids = [...new Set(candidates)].filter((id) => id !== viewer.id && UUID.test(id));
+  const known = new Set<string>([viewer.id]);
+  if (ids.length === 0) return known;
+  for (const id of await userIdsWithPermission(db, null, null)) if (ids.includes(id)) known.add(id);
+  const readable = await channelReadableSql(db, viewer);
   // I progetti che chi guarda legge, ARCHIVIATI compresi (decisione di 46, 23
   // nov 2026: un archiviato si legge ancora, e chi c'era resta conosciuto).
-  const visible = (await db.select({ id: projectMembers.projectId }).from(projectMembers).where(eq(projectMembers.userId, viewer.id))).map((r) => r.id);
-  const known = new Set<string>([viewer.id, ...(await userIdsWithPermission(db, null, null))]);
-  // Claude (l'utente di sistema) lo conoscono tutti: si assegna, si chiama nella Chat.
-  for (const r of await db.select({ id: users.id }).from(users).where(eq(users.isAgent, true))) known.add(r.id);
-  if (visible.length > 0) {
-    for (const r of await db.selectDistinct({ id: projectMembers.userId }).from(projectMembers).where(inArray(projectMembers.projectId, visible))) known.add(r.id);
-    // Gli ex membri: ogni uscita lascia una voce nel registro, sul membro.
-    for (const r of await db
-      .selectDistinct({ id: changeLog.subjectId })
-      .from(changeLog)
-      .where(and(eq(changeLog.type, "member.removed"), inArray(changeLog.projectId, visible)))) {
-      known.add(r.id);
-    }
-  }
-  const readable = await channelReadableSql(db, viewer);
-  for (const r of await db
-    .selectDistinct({ id: chatChannelMembers.userId })
-    .from(chatChannelMembers)
-    .innerJoin(chatChannels, eq(chatChannels.id, chatChannelMembers.channelId))
-    .where(readable)) {
-    known.add(r.id);
-  }
-  for (const r of await db
-    .selectDistinct({ id: chatMessages.authorId })
-    .from(chatMessages)
-    .innerJoin(chatChannels, eq(chatChannels.id, chatMessages.channelId))
-    .where(and(readable, isNotNull(chatMessages.authorId)))) {
-    if (r.id) known.add(r.id);
-  }
+  const mine = sql`(select me.project_id from ${projectMembers} me where me.user_id = ${viewer.id})`;
+  const rows = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(
+      and(
+        inArray(users.id, ids),
+        or(
+          // Claude (l'utente di sistema) lo conoscono tutti: si assegna, si chiama nella Chat.
+          eq(users.isAgent, true),
+          sql`exists (select 1 from ${projectMembers} pm where pm.user_id = ${users.id} and pm.project_id in ${mine})`,
+          // Gli ex membri: ogni uscita lascia una voce nel registro, sul membro.
+          sql`exists (select 1 from ${changeLog} cl where cl.type = 'member.removed' and cl.subject_id = ${users.id}::text and cl.project_id in ${mine})`,
+          // I membri e gli autori dei canali che chi guarda legge (la regola di `channelReadableSql`).
+          sql`exists (select 1 from ${chatChannelMembers} join ${chatChannels} on ${chatChannels.id} = ${chatChannelMembers.channelId} where ${chatChannelMembers.userId} = ${users.id} and ${readable})`,
+          sql`exists (select 1 from ${chatMessages} join ${chatChannels} on ${chatChannels.id} = ${chatMessages.channelId} where ${chatMessages.authorId} = ${users.id} and ${readable})`,
+        ),
+      ),
+    );
+  for (const r of rows) known.add(r.id);
   return known;
 }
 
@@ -70,11 +75,31 @@ export async function peopleKnownTo(db: Db, viewer: Pick<SessionUser, "id" | "in
 export class HiddenIds {
   private readonly people = new Map<string, string>();
   private readonly projects = new Map<string, string>();
+  private known: "all" | Set<string>;
+  /** Le persone già verificate (conosciute o no): `knows` di una mai verificata dice no. */
+  private readonly checked = new Set<string>();
 
   constructor(
-    private readonly known: "all" | ReadonlySet<string>,
+    known: "all" | ReadonlySet<string>,
     private readonly selfId: string,
-  ) {}
+  ) {
+    this.known = known === "all" ? "all" : new Set(known);
+  }
+
+  /** Le persone di `candidates` ancora da verificare. */
+  unchecked(candidates: Iterable<string>): string[] {
+    const known = this.known;
+    if (known === "all") return [];
+    return [...new Set(candidates)].filter((id) => id !== this.selfId && !this.checked.has(id) && !known.has(id));
+  }
+
+  /** Aggiunge l'esito di una verifica (`peopleKnownTo` sui candidati). */
+  learn(candidates: Iterable<string>, known: "all" | ReadonlySet<string>): void {
+    if (known === "all") this.known = "all";
+    if (this.known === "all") return;
+    for (const id of candidates) this.checked.add(id);
+    for (const id of known as ReadonlySet<string>) this.known.add(id);
+  }
 
   /** La persona è conosciuta da chi guarda (id e nome escono così come sono). */
   knows(personId: string): boolean {
@@ -110,17 +135,26 @@ export class HiddenIds {
  * sessione della richiesta), così una risposta che mette insieme più viste
  * numera le persone nascoste una volta sola.
  */
-const hiddenByViewer = new WeakMap<object, Promise<HiddenIds>>();
-export function hiddenFor(db: Db, viewer: Pick<SessionUser, "id" | "instancePermissions">): Promise<HiddenIds> {
-  let out = hiddenByViewer.get(viewer);
-  if (!out) {
-    out = peopleKnownTo(db, viewer).then((known) => new HiddenIds(known, viewer.id));
-    hiddenByViewer.set(viewer, out);
+const hiddenByViewer = new WeakMap<object, { hidden: HiddenIds; pending: Promise<void> }>();
+export async function hiddenFor(db: Db, viewer: Pick<SessionUser, "id" | "instancePermissions">, candidates: Iterable<string | null | undefined>): Promise<HiddenIds> {
+  let entry = hiddenByViewer.get(viewer);
+  if (!entry) {
+    entry = { hidden: new HiddenIds(viewer.instancePermissions.has("instance.full_admin") ? "all" : new Set(), viewer.id), pending: Promise.resolve() };
+    hiddenByViewer.set(viewer, entry);
   }
-  return out;
+  const ids = [...candidates].filter((id): id is string => typeof id === "string");
+  // In fila: due viste della stessa risposta non verificano due volte la stessa persona.
+  const e = entry;
+  const run = e.pending.then(async () => {
+    const todo = e.hidden.unchecked(ids);
+    if (todo.length > 0) e.hidden.learn(todo, await peopleKnownTo(db, viewer, todo));
+  });
+  // Un errore lo riceve chi ha chiesto, non le richieste dopo.
+  e.pending = run.catch(() => undefined);
+  await run;
+  return e.hidden;
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Sostituisce, in una risposta intera, gli id delle persone che chi guarda non
@@ -214,7 +248,7 @@ export function registerPersonMask(
     for (const id of personObjectIdsIn(payload, objectKeys)) ids.add(id);
     ids.delete(user.id);
     if (ids.size === 0) return payload;
-    const hidden = await hiddenFor(instance.db, user);
+    const hidden = await hiddenFor(instance.db, user, ids);
     return maskPersonObjects(maskPeople(payload, hidden, keys), hidden, objectKeys);
   });
 }

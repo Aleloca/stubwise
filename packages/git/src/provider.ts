@@ -107,6 +107,14 @@ export interface CommitRun {
   failedStep: string | null;
   startedAt: string | null;
   endedAt: string | null;
+  /**
+   * Chi l'ha prodotta (revisione del lotto 2, I6): una run più nuova col nome
+   * uguale ne prende il posto SOLO nello stesso gruppo. GitHub: la check suite
+   * (`github:suite:<id>`, un workflow su quel commit: i rilanci ci restano);
+   * Bitbucket: la key dello status (`bitbucket:key:<key>`). `null` se il
+   * provider non lo dice.
+   */
+  group?: string | null;
 }
 
 /**

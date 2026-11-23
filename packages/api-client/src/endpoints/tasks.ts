@@ -50,6 +50,12 @@ export interface TaskListFilters {
     | { kind: "relative"; preset: "last7" | "last30" | "thisWeek" | "nextWeek" | "thisMonth" | "lastMonth" }
     | { kind: "absolute"; from: string; to: string }
   );
+  /**
+   * Il filtro salvato da cui vengono i criteri (registro, A11 r.1414): con un
+   * segnaposto `hidden-<n>` in `assigneeIds` il server ci mette gli id veri
+   * del filtro; senza, un segnaposto è 400 `invalid`.
+   */
+  savedFilterId?: string;
 }
 
 export type TaskBulkPatch = Pick<
@@ -76,6 +82,7 @@ export function taskListQuery(f: TaskListFilters = {}): string {
     periodPreset: f.period?.kind === "relative" ? f.period.preset : undefined,
     periodFrom: f.period?.kind === "absolute" ? f.period.from : undefined,
     periodTo: f.period?.kind === "absolute" ? f.period.to : undefined,
+    savedFilterId: f.savedFilterId,
   });
 }
 

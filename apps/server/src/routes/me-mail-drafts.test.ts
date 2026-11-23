@@ -358,13 +358,41 @@ describe("Invia, Annulla, Riprova, Elimina (D6: il server trattiene 10 s)", () =
     await db.delete(mailDraftAttachments).where(eq(mailDraftAttachments.draftId, other.id));
   });
 
+  it("revisione del lotto 2, I5: con allegati rimasti fuori la bozza annullata RESTA su Gmail come copia di sicurezza, la risposta lo dice; nello storage se ne va solo l'oggetto dell'allegato perso", async () => {
+    const { me, sent, other, draftId } = await sentAndAnother();
+    const { eq } = await import("drizzle-orm");
+    for (let i = 0; i < 10; i++) objects.set(`mail/keep-${i}`, Buffer.from("k"));
+    objects.set("mail/back-lost", Buffer.from("l"));
+    await db.insert(mailDraftAttachments).values(Array.from({ length: 10 }, (_, i) => ({ draftId: other.id, name: `keep-${i}`, sizeBytes: 1, mimeType: "text/plain", storageKey: `mail/keep-${i}` })));
+    await db.insert(mailDraftAttachments).values({ draftId, name: "back-lost", sizeBytes: 1, mimeType: "text/plain", storageKey: "mail/back-lost" });
+    calls.length = 0;
+    const out = (await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/undo`)).json() as Restore & { gmailCopyKept: boolean };
+    expect(out).toMatchObject({ droppedAttachments: ["back-lost"], gmailCopyKept: true, gmailOutdated: false });
+    expect(calls.map((c) => c.fn)).not.toContain("delete");
+    expect(objects.has("mail/back-lost")).toBe(false);
+    for (let i = 0; i < 10; i++) expect(objects.has(`mail/keep-${i}`)).toBe(true);
+    await db.delete(mailDraftAttachments).where(eq(mailDraftAttachments.draftId, other.id));
+  });
+
+  it("revisione del lotto 2, I5: un'unione pulita cancella la copia annullata da Gmail (`gmailCopyKept` false); un testo tornato vuoto non lascia righe vuote in coda", async () => {
+    const { me, sent, other, draftId } = await sentAndAnother();
+    const { eq } = await import("drizzle-orm");
+    await db.update(mailDrafts).set({ body: "" }).where(eq(mailDrafts.id, draftId));
+    calls.length = 0;
+    const out = (await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/undo`)).json() as Restore & { gmailCopyKept: boolean };
+    expect(out).toMatchObject({ gmailCopyKept: false, draft: { id: other.id, body: "Un'altra." } });
+    expect(calls.map((c) => c.fn)).toContain("delete");
+  });
+
   it("registro, A6 r.448: se Gmail non riscrive la bozza unita, l'unione resta in Stubwise e la risposta lo dice (`gmailOutdated`)", async () => {
     const { me, sent, other } = await sentAndAnother();
     const { eq } = await import("drizzle-orm");
     getError = new Error("Gmail giù");
     try {
       const out = (await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/undo`)).json() as Restore;
-      expect(out).toMatchObject({ gmailOutdated: true, draft: { id: other.id, body: "Un'altra.\n\nFatto." } });
+      expect(out).toMatchObject({ gmailOutdated: true, gmailCopyKept: true, draft: { id: other.id, body: "Un'altra.\n\nFatto." } });
+      // Revisione del lotto 2, I5: la riscrittura non è riuscita, la copia annullata resta su Gmail.
+      expect(calls.map((c) => c.fn)).not.toContain("delete");
       const [merged] = await db.select().from(mailDrafts).where(eq(mailDrafts.id, other.id));
       expect(merged!.body).toBe("Un'altra.\n\nFatto.");
     } finally {

@@ -95,6 +95,19 @@ describe("i rilasci", () => {
     expect(detail.permissions.fix).toBe(false);
   });
 
+  it("revisione del lotto 2, I6: la task di riparazione elenca solo le run fallite che CONTANO, non una già rilanciata e verde", async () => {
+    const s = await setup("failed");
+    const t0 = new Date(Date.now() - 120_000);
+    await db.insert(releaseCiRuns).values([
+      { releaseId: s.release.id, providerRunId: "b1", name: "build", status: "failed", failedStep: "build rosso", startedAt: t0, endedAt: t0, runGroup: "github:suite:5" },
+      { releaseId: s.release.id, providerRunId: "b2", name: "build", status: "success", failedStep: null, startedAt: new Date(), endedAt: new Date(), runGroup: "github:suite:5" },
+    ]);
+    const out = (await call(s.lead.headers, "POST", `/releases/${s.release.code}/fix`, {})).json() as { taskId: string };
+    const [task] = await db.select().from(tickets).where(eq(tickets.id, out.taskId));
+    expect(task!.body).toContain("3 test rossi");
+    expect(task!.body).not.toContain("build rosso");
+  });
+
   it("chiusa la task di riparazione, il rilascio ancora fallito ne fa nascere una nuova", async () => {
     const s = await setup("failed");
     const first = (await call(s.lead.headers, "POST", `/releases/${s.release.code}/fix`, {})).json() as { taskId: string };

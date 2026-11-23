@@ -12,3 +12,13 @@ describe("mailDraftRestoreSchema.gmailOutdated (registro, A6 r.448) — additivo
     expect(readerSchema(mailDraftRestoreSchema).parse({ draft: null, gmailOutdated: true }).gmailOutdated).toBe(true);
   });
 });
+
+describe("mailDraftRestoreSchema.gmailCopyKept (revisione del lotto 2, I5) — additivo", () => {
+  it("un server più vecchio non lo manda: false", () => {
+    expect(readerSchema(mailDraftRestoreSchema).parse({ draft: null, gmailOutdated: false }).gmailCopyKept).toBe(false);
+  });
+
+  it("quando c'è, passa", () => {
+    expect(readerSchema(mailDraftRestoreSchema).parse({ draft: null, gmailCopyKept: true }).gmailCopyKept).toBe(true);
+  });
+});

@@ -143,7 +143,7 @@ export async function getOutgoing(db: Db, userId: string, id: string): Promise<M
 }
 
 /** Il testo tornato SOTTO quello che c'è (`placeDraft` «below» del prototipo). */
-const below = (body: string, back: string) => (body.trim() === "" ? back : `${body.replace(/\s+$/, "")}\n\n${back}`);
+const below = (body: string, back: string) => (back.trim() === "" ? body : body.trim() === "" ? back : `${body.replace(/\s+$/, "")}\n\n${back}`);
 
 /**
  * Riporta la bozza fra le attive. Se lo slot è di un'altra bozza ci si UNISCE
@@ -178,10 +178,14 @@ async function restoreDraft(tx: Parameters<Parameters<Db["transaction"]>[0]>[0],
     let files = kept.filter((a) => a.as !== "link").length;
     let bytes = kept.filter((a) => a.as !== "link").reduce((n, a) => n + a.sizeBytes, 0);
     const dropped: string[] = [];
+    // Revisione del lotto 2, I5: gli oggetti nello storage degli allegati persi,
+    // solo quelli della bozza (mai un file del Drive, che ha il suo).
+    const droppedKeys: string[] = [];
     for (const a of back) {
       if (a.as !== "link") {
         if (files + 1 > DRAFT_MAX_ATTACHMENTS || bytes + a.sizeBytes > DRAFT_MAX_ATTACHMENT_BYTES) {
           dropped.push(a.name);
+          if (a.storageKey && !a.driveFileId) droppedKeys.push(a.storageKey);
           continue;
         }
         files += 1;
@@ -192,13 +196,13 @@ async function restoreDraft(tx: Parameters<Parameters<Db["transaction"]>[0]>[0],
     await tx.update(mailDrafts).set({ body: below(into!.body, draft.body), updatedAt: new Date() }).where(eq(mailDrafts.id, into!.id));
     // Gli allegati rimasti (oltre i limiti) se ne vanno con lei.
     await tx.delete(mailDrafts).where(eq(mailDrafts.id, draftId));
-    return { merged: { draftId: into!.id, dropped, stale: { accountId: draft.accountId, gmailDraftId: draft.gmailDraftId } } };
+    return { merged: { draftId: into!.id, dropped, droppedKeys, stale: { accountId: draft.accountId, gmailDraftId: draft.gmailDraftId } } };
   }
   const [restored] = await tx.update(mailDrafts).set({ state: "active" }).where(eq(mailDrafts.id, draftId)).returning();
   return restored ?? null;
 }
 
-type Restored = { draft: MailDraft | null; droppedAttachments: string[]; unsaved: boolean; gmailOutdated: boolean };
+type Restored = { draft: MailDraft | null; droppedAttachments: string[]; unsaved: boolean; gmailOutdated: boolean; gmailCopyKept: boolean };
 
 /** Per riscrivere su Gmail la bozza unita (`syncMergedDraft`). */
 export interface MergeGmail {
@@ -206,7 +210,7 @@ export interface MergeGmail {
   client: MailComposeClient;
   storage: ObjectStorage | null;
 }
-type Merged = { draftId: string; dropped: string[]; stale: { accountId: string; gmailDraftId: string } };
+type Merged = { draftId: string; dropped: string[]; droppedKeys: string[]; stale: { accountId: string; gmailDraftId: string } };
 
 async function draftView(db: Db, userId: string, draftId: string): Promise<MailDraft | null> {
   return (await listDrafts(db, userId)).find((d) => d.id === draftId) ?? null;
@@ -238,10 +242,18 @@ export async function undoSend(db: Db, userId: string, id: string, gmail: MergeG
 
 async function finished(db: Db, userId: string, out: { draftId: string | null; merged?: Merged }, gmail: MergeGmail): Promise<Restored> {
   if (out.merged) {
-    const synced = await syncMergedDraft(db, gmail.encryptionKey, gmail.client, gmail.storage, userId, out.merged.draftId, out.merged.stale);
-    return { draft: await draftView(db, userId, out.merged.draftId), droppedAttachments: out.merged.dropped, unsaved: false, gmailOutdated: !synced };
+    const { synced, staleKept } = await syncMergedDraft(db, gmail.encryptionKey, gmail.client, gmail.storage, userId, out.merged.draftId, out.merged.stale, out.merged.dropped.length > 0);
+    // Le righe se ne sono andate con la bozza annullata: gli oggetti no (la copia di sicurezza su Gmail ha i suoi byte).
+    for (const key of out.merged.droppedKeys) {
+      try {
+        await gmail.storage?.deleteObject(key);
+      } catch {
+        // Uno storage che non risponde lascia un oggetto orfano, non un errore a chi annulla.
+      }
+    }
+    return { draft: await draftView(db, userId, out.merged.draftId), droppedAttachments: out.merged.dropped, unsaved: false, gmailOutdated: !synced, gmailCopyKept: staleKept };
   }
-  return { draft: out.draftId ? await draftView(db, userId, out.draftId) : null, droppedAttachments: [], unsaved: false, gmailOutdated: false };
+  return { draft: out.draftId ? await draftView(db, userId, out.draftId) : null, droppedAttachments: [], unsaved: false, gmailOutdated: false, gmailCopyKept: false };
 }
 
 /** Riprova un invio FALLITO: un gesto della persona, mai il worker da solo. Parte subito. */
