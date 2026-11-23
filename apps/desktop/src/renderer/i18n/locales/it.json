@@ -1853,6 +1853,7 @@
     "short": "S{{n}}"
   },
   "planning": {
+    "someone": "Qualcuno",
     "title": "Pianificazione",
     "loadTruncated": "Alcune task mancano dal carico.",
     "poolTruncated": "Alcune task mancano da «Da pianificare».",

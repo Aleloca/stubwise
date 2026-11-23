@@ -1,3 +1,4 @@
+import { isHiddenId } from "./access/hidden";
 import { wouldCycle } from "../domain/decisionLog";
 import { planRecipientsOf as sharedPlanRecipientsOf } from "@stubwise/shared";
 import { findSimilarRequest } from "../domain/requests";
@@ -708,7 +709,7 @@ export async function bulkUpdateTasks(ids: string[], patch: TaskPatch): Promise<
  */
 export async function planTask(
   id: string,
-  plan: { assigneeId: string | null; week: string | null },
+  plan: { assigneeId?: string | null; week: string | null },
 ): Promise<Task> {
   const me = await gate("planTask");
   return copy(planTaskAs(me, id, plan));
@@ -718,9 +719,17 @@ export async function planTask(
 export function planTaskAs(
   me: string,
   id: string,
-  plan: { assigneeId: string | null; week: string | null },
+  input: { assigneeId?: string | null; week: string | null },
 ): Task {
   const task = taskFor(me, id);
+  // Registro, A11 r.1414 (scelta A di 46, 23 nov 2026): un `assigneeId`
+  // omesso vuol dire «invariato» (chi guarda può avere solo il segnaposto
+  // dell'assegnatario); un segnaposto non si scrive mai.
+  if (isHiddenId(input.assigneeId)) throw invalid("assignee");
+  const plan = {
+    assigneeId: input.assigneeId === undefined ? task.assigneeId : input.assigneeId,
+    week: input.week,
+  };
   const forOthers = can(viewerFor(me), "planning.others", task.projectId);
   const members = state.projectsById.get(task.projectId)!.memberIds;
   if (forOthers) {

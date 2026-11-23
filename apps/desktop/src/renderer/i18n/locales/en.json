@@ -1853,6 +1853,7 @@
     "short": "W{{n}}"
   },
   "planning": {
+    "someone": "Someone",
     "title": "Planning",
     "loadTruncated": "Some tasks are missing from the load.",
     "poolTruncated": "Some tasks are missing from To plan.",

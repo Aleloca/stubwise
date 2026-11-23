@@ -316,13 +316,28 @@ export function tasksTruncated(criteria?: FilterCriteria): boolean {
   return false;
 }
 
+/**
+ * Una task come la legge chi guarda (registro, A11 r.1414): gli id delle
+ * persone che non conosce (assegnatario, chi l'ha creata, chi la segue, chi
+ * l'ha fermata a mano) sono segnaposti del `mask` della risposta.
+ */
+function taskView(t: Task, mask: ReturnType<typeof personMasker>): Task {
+  const out = copy(t);
+  out.assigneeId = mask(t.assigneeId);
+  out.createdById = mask(t.createdById);
+  out.followerIds = t.followerIds.map(mask);
+  if (out.manualStall) out.manualStall = { ...out.manualStall, byId: mask(out.manualStall.byId) };
+  return out;
+}
+
 /** Le task visibili, filtrate con i criteri (la visibilità viene prima di tutto). */
 export async function listTasks(criteria?: FilterCriteria): Promise<Task[]> {
   const me = await gate("listTasks");
   const tasks = visibleTasks(me);
-  if (!criteria) return tasks.map(copy);
+  const mask = personMasker(me);
+  if (!criteria) return tasks.map((t) => taskView(t, mask));
   const ctx = filterContext(me);
-  return tasks.filter((t) => matches(t, criteria, ctx)).map(copy);
+  return tasks.filter((t) => matches(t, criteria, ctx)).map((t) => taskView(t, mask));
 }
 
 /**
@@ -341,7 +356,7 @@ export async function getTaskByCode(code: string): Promise<Task | null> {
   // Aperta dal widget (area 8, F3, S-9): la conversazione da cui è nata, derivata a lettura.
   const conversation = state.supportConversations.find((c) => c.taskId === task.id);
   return {
-    ...copy(task),
+    ...taskView(task, personMasker(me)),
     assigneeStatus: assigneeStatusOf(task.assigneeId),
     supportConversationCode: conversation?.code ?? null,
   };
@@ -351,7 +366,16 @@ export async function listActivity(taskId: string): Promise<ActivityEntry[]> {
   const me = await gate("listActivity");
   const task = state.tasksById.get(taskId);
   if (!task || !visibleProjectIds(me).has(task.projectId)) return [];
-  return state.activity.filter((a) => a.taskId === taskId).map(copy);
+  // R.1414: chi ha scritto o eliminato, se chi guarda non lo conosce, segnaposto.
+  const mask = personMasker(me);
+  return state.activity
+    .filter((a) => a.taskId === taskId)
+    .map((a) => {
+      const out = copy(a);
+      out.authorId = mask(a.authorId);
+      if (out.deletedById !== undefined) out.deletedById = mask(out.deletedById);
+      return out;
+    });
 }
 
 /**

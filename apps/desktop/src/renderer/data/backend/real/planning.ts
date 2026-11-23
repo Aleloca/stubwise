@@ -10,8 +10,15 @@ import { assigneeOf, toTask } from "./tasks";
 // arriva così com'è, e l'ottimistico di `usePlanTask`/`useSetDay` torna indietro.
 // Eventi e avvisi (`planning.changed`, `task.assigned`) li scrive il server.
 
-export const planTask: typeof Fake.planTask = async (id, plan) =>
-  toTask((await appClient().tasks.plan(id, plan)) as TaskViewData);
+export const planTask: typeof Fake.planTask = async (id, plan) => {
+  // Registro, A11 r.1414: un `assigneeId` omesso vuol dire «invariato» (la
+  // pagina lo omette quando ha solo il segnaposto): il server lo accetta così
+  // (regola in docs/invariants/permissions.md, da 72).
+  const body = plan.assigneeId === undefined ? { week: plan.week } : plan;
+  return toTask(
+    (await appClient().tasks.plan(id, body as { assigneeId: string | null; week: string | null })) as TaskViewData,
+  );
+};
 
 /**
  * Solo l'assegnatario sistema i giorni (come il finto): una task che so non

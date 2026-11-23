@@ -1252,11 +1252,19 @@ export function useBulkUpdateTasks() {
 
 export function usePlanTask() {
   return useOptimistic(
-    ({ id, ...plan }: { id: string; assigneeId: string | null; week: string | null }) =>
+    // R.1414: `assigneeId` omesso = l'assegnatario resta (la pagina lo omette col segnaposto).
+    ({ id, ...plan }: { id: string; assigneeId?: string | null; week: string | null }) =>
       api.planTask(id, plan),
     ["tasks", "task"],
     (vars, area, old) =>
-      patchTasks([vars.id], { assigneeId: vars.assigneeId, plannedWeek: vars.week }, area, old),
+      patchTasks(
+        [vars.id],
+        vars.assigneeId === undefined
+          ? { plannedWeek: vars.week }
+          : { assigneeId: vars.assigneeId, plannedWeek: vars.week },
+        area,
+        old,
+      ),
     TASK_AREAS,
   );
 }

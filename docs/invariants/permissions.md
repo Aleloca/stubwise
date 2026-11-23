@@ -435,9 +435,12 @@ punti lato server sta nell'inventario consegnato a 72 (sotto).
 - **Come si mostra**: un segnaposto non si risolve con l'elenco delle
   persone; il nome è `null` e la pagina scrive «Someone» / «Qualcuno»
   (avatar senza iniziali, «?»). Un segnaposto non è mai cliccabile.
-- **Un client non manda mai un segnaposto al server.** Una scrittura che
-  riceve un `hidden-…` dove si aspetta un id risponde 400 come per un id
-  non valido; il client non costruisce scritture da quei campi.
+- **Un client non manda mai un segnaposto al server.** NESSUNA scrittura
+  accetta un `hidden-…`: risponde 400 come per un id non valido. E un campo
+  persona OMESSO in una scrittura parziale resta INVARIATO (scelta A di 46,
+  23 nov 2026): chi ha solo il segnaposto dell'assegnatario sposta una task
+  di settimana senza mandarlo (`POST /api/tasks/:id/plan` con la sola
+  `week`), e non si offre un «Undo» verso un assegnatario segnaposto.
 - **Chi guarda resta sé stesso**: il proprio id non diventa mai un
   segnaposto (servono i confronti «è mio»).
 - **Lato server** l'inventario dei punti (la colonna R/server: l'adattatore

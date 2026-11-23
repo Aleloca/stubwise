@@ -281,3 +281,28 @@ describe("PlanningPage trasversale", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/home"));
   });
 });
+
+// Registro, A11 r.1414 (scelta A di 46, 23 nov 2026): una task con
+// l'assegnatario segnaposto si sposta senza rimandare il segnaposto al
+// server; l'assegnatario resta quello che è.
+describe("Planning con l'assegnatario segnaposto (r.1414)", () => {
+  it("una slittata di uno sconosciuto: niente «Back to To plan»; data a Paolo, niente «Undo» verso il segnaposto", async () => {
+    const { strangersTo } = await import("../../test/strangers");
+    // Matteo pianifica MKX e ha persone che non conosce (Giulia vede tutto).
+    const [who] = strangersTo("p-matteo");
+    taskOf("MKX-5").assigneeId = who!;
+    renderRoute("/p/MKX/planning", "p-matteo");
+    const copy = await chip("MKX-5");
+    copy.focus();
+    fireEvent.keyDown(copy, { key: "p" });
+    const menu = await screen.findByRole("menu", { name: "Plan MKX-5" });
+    // L'assegnatario non è fra i membri: la fila non si offre (e nulla parte col segnaposto).
+    expect(within(menu).queryByRole("menuitem", { name: /Back to To plan/ })).toBeNull();
+    fireEvent.click(within(menu).getByRole("menuitemradio", { name: /Paolo Gatti/ }));
+    const weeks = await screen.findByRole("menu", { name: "Plan MKX-5 for Paolo Gatti" });
+    fireEvent.click(within(weeks).getByRole("menuitemradio", { name: /^W43 / }));
+    await waitFor(() => expect(taskOf("MKX-5").assigneeId).toBe("p-paolo"));
+    expect(await screen.findByText(/^MKX-5 planned for Paolo Gatti/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+  });
+});
