@@ -256,7 +256,7 @@ export async function checkDraft(id: string, flow: AutomationFlow): Promise<Flow
   // Come al salvataggio: i progetti fissi che non vedo restano quelli della versione (R-G5).
   const next = copy(flow);
   keepHiddenProjects(me, latest(a).flow, next);
-  keepHiddenPeople(latest(a).flow, next);
+  keepHiddenPeople(me, latest(a).flow, next);
   return configErrorsOf(a, next, a.ownerId ?? me);
 }
 

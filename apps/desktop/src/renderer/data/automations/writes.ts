@@ -212,7 +212,7 @@ export function saveDraftAs(
   // Il flusso si legge senza i progetti che non vedo (R-G5): salvarlo non li perde.
   keepHiddenProjects(me, last.flow, next);
   // E le persone che non conosco (r.1414): un segnaposto no, una omessa resta.
-  keepHiddenPeople(last.flow, next);
+  keepHiddenPeople(me, last.flow, next);
   if (isDraft) Object.assign(last, { flow: next }, saved);
   else
     a.versions.push({

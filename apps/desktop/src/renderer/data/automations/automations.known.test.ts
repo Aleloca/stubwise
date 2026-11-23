@@ -124,6 +124,33 @@ describe("il flusso delle automazioni senza chi non si conosce (r.1414)", () => 
     });
   });
 
+  // Revisione di 3bbe2ddc6..444b8b773, M-7: come il server, un posto
+  // rimandato vuoto riprende la persona di prima SOLO se chi salva non la
+  // conosce; una persona che conosce, svuotata apposta, resta svuotata.
+  it("un posto svuotato apposta su una persona che chi salva conosce resta vuoto", async () => {
+    const { a } = await withStrangerSteps();
+    const flow = state.automations.find((x) => x.id === a.id)!.versions.at(-1)!.flow;
+    flow.steps.push({
+      id: "s-known-mine",
+      kind: "notify",
+      who: { personId: "p-laura" },
+      text: "Me",
+      approval: { mode: "auto" },
+    });
+    const read = (await automations.getAutomation(a.id))!.automation.versions.at(-1)!.flow;
+    const emptied = structuredClone(read);
+    for (const step of emptied.steps) {
+      if (step.id === "s-known-mine") (step as { who: object }).who = {};
+      if (step.id === "s-known-notify") (step as { who: object }).who = {};
+      if (step.id === "s-known-ask") (step as { approval: { who: object } }).approval.who = {};
+    }
+    await automations.saveDraft(a.id, emptied);
+    const stored = state.automations.find((x) => x.id === a.id)!.versions.at(-1)!.flow;
+    expect((stored.steps.find((x) => x.id === "s-known-mine") as { who: object }).who).toEqual({});
+    // Lo sconosciuto, invece, resta quello di prima.
+    expect((stored.steps.find((x) => x.id === "s-known-notify") as { who: { personId?: string } }).who.personId).toBeDefined();
+  });
+
   it("un problema col nome di uno sconosciuto: né nei parametri né nel motivo", async () => {
     setSessionPersonId("p-laura");
     const visible = await automations.listAutomations();

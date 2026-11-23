@@ -4,6 +4,7 @@ import type { ApprovalWho } from "@stubwise/shared";
 import { stepAt, visitSteps } from "@stubwise/shared";
 import { PEOPLE } from "../seed/people";
 import { isHiddenId, personMasker } from "../access/hidden";
+import { knownPeopleFor } from "../access/whoCan";
 import { invalid } from "../writer";
 import { copy, state, visibleProjectIds } from "../store";
 import type { Automation, AutomationFlow, AutomationRun, ProjectTarget, Step } from "../types";
@@ -245,9 +246,13 @@ function personSlots(step: Step): Record<"assignee" | "who" | "approver", Slot> 
  * Il rovescio di `flowFor` per le persone (r.1414, revisione del lotto 2-3):
  * un segnaposto non si salva (`invalid: flow`); un posto che torna vuoto (la
  * persona omessa, `{}`) riprende quella della versione di prima, per id del
- * passo. Lo stesso contratto del server (72).
+ * passo, se chi salva non la conosce (revisione M-7). Lo stesso contratto
+ * del server (72).
  */
-export function keepHiddenPeople(prev: AutomationFlow, next: AutomationFlow): void {
+export function keepHiddenPeople(me: string, prev: AutomationFlow, next: AutomationFlow): void {
+  // Revisione M-7, come il server: la persona di prima torna solo se chi salva
+  // non la conosce; una che conosce, svuotata apposta, resta svuotata.
+  const known = knownPeopleFor(me);
   const before = new Map<string, ReturnType<typeof personSlots>>();
   visitSteps(prev.steps, (s) => before.set(s.id, personSlots(s)));
   visitSteps(next.steps, (s) => {
@@ -256,7 +261,12 @@ export function keepHiddenPeople(prev: AutomationFlow, next: AutomationFlow): vo
       if (!slot) continue;
       if (isHiddenId(slot.personId as string | undefined)) throw invalid("flow");
       const old = before.get(s.id)?.[name];
-      if (Object.keys(slot).length === 0 && old && typeof old.personId === "string")
+      if (
+        Object.keys(slot).length === 0 &&
+        old &&
+        typeof old.personId === "string" &&
+        !known.has(old.personId)
+      )
         slot.personId = old.personId;
     }
   });
