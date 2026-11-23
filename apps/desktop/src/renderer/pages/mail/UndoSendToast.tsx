@@ -79,12 +79,17 @@ function armUndoKey(run: () => void, toastId: number, windowMs: number) {
 /** Il nome dei file rimasti fuori, per l'avviso. */
 const namesOf = (list: readonly MailDraftAttachment[]) => list.map((a) => a.name).join(", ");
 
-/** Gli allegati rimasti fuori da una bozza tornata (R-I9): si dicono. */
+/**
+ * Gli allegati rimasti fuori da una bozza tornata (R-I9): si dicono. E, nella
+ * build app (registro, A6 r.448), una bozza unita a quella che c'era ma non
+ * riscritta su Gmail (`gmailOutdated`): la riscrive il prossimo Salva.
+ */
 export function useDroppedNotice() {
   const { t } = useTranslation();
   const toast = useToast();
   return useCallback(
-    ({ droppedAttachments }: MailDraftRestore) => {
+    ({ droppedAttachments, gmailOutdated }: MailDraftRestore) => {
+      if (gmailOutdated) toast.show(t("mail.compose.gmailOutdated"));
       if (droppedAttachments.length === 0) return;
       toast.show(
         t("mail.compose.dropped", {

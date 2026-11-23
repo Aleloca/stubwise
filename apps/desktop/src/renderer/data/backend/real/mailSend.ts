@@ -84,7 +84,8 @@ const sendDraft: Mail["sendDraft"] = async (id) => {
     if (accountId) sendAccounts().set(o.messageId, accountId);
     // Il suo ultimo invio era fallito: il server ridà quello, senza un secondo
     // invio. Non è riuscito, e non deve sembrarlo (`already_failed`, col messaggio).
-    if (o.state === "failed") throw Object.assign(new Error("already_failed"), { messageId: o.messageId });
+    if (o.state === "failed")
+      throw Object.assign(new Error("already_failed"), { messageId: o.messageId });
     return resultOf(o, accountId);
   } catch (error) {
     throw sendError(error);
@@ -116,11 +117,17 @@ async function restoreOf(r: {
   draft: ServerDraft | null;
   droppedAttachments: readonly string[];
   unsaved?: boolean;
+  gmailOutdated?: boolean;
 }): Promise<MailDraftRestore> {
   if (!r.draft) throw new Error("not_found");
   const { mine } = await myMailboxes();
   if (r.unsaved === true) {
-    return { draft: draftOf(r.draft, mine), droppedAttachments: [], unsaved: true, leftInGmail: [...r.droppedAttachments] };
+    return {
+      draft: draftOf(r.draft, mine),
+      droppedAttachments: [],
+      unsaved: true,
+      leftInGmail: [...r.droppedAttachments],
+    };
   }
   const dropped = r.droppedAttachments.map<MailDraftAttachment>((name, i) => ({
     id: `dropped-${i}`,
@@ -129,7 +136,13 @@ async function restoreOf(r: {
     driveFileId: null,
     as: "copy",
   }));
-  return { draft: draftOf(r.draft, mine), droppedAttachments: dropped, unsaved: false };
+  // A6 r.448 (72): unita alla bozza che c'era, ma Gmail non riscritto finché non si salva.
+  return {
+    draft: draftOf(r.draft, mine),
+    droppedAttachments: dropped,
+    unsaved: false,
+    gmailOutdated: r.gmailOutdated === true,
+  };
 }
 
 /** «Annulla» entro i 10 s: l'invio si ferma SEMPRE e la bozza torna (non salvata se lo slot è occupato). Dopo, `too_late`. */

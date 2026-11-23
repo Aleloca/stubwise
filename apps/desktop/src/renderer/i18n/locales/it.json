@@ -6568,7 +6568,8 @@
       "keepMine": "Tieni la mia",
       "openGmail": "Apri su Gmail",
       "signature": "La tua firma di Gmail",
-      "noSignature": "Questa email parte senza la tua firma di Gmail: ricollega l'account Google per aggiungerla."
+      "noSignature": "Questa email parte senza la tua firma di Gmail: ricollega l'account Google per aggiungerla.",
+      "gmailOutdated": "Unita alla bozza che c'era già. Su Gmail c'è ancora quella vecchia: salvando si aggiorna."
     },
     "readState": {
       "reconnect": "Ricollega l'account Google per tenere letto e non letto allineati con Gmail.",

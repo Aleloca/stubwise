@@ -192,6 +192,25 @@ describe("Annulla, Riprova, Elimina", () => {
     expect((await mail.deleteFailedSend(O1)).unsaved).toBe(true);
   });
 
+  // Registro, A6 r.448 (72, 735aa4d44): il server unisce le due bozze dello
+  // slot come il prototipo; se Gmail non si riscrive lo dice `gmailOutdated`.
+  it("«Annulla» con le bozze unite ma Gmail non riscritto: `gmailOutdated`", async () => {
+    installFakeServer({
+      ...base,
+      [`POST /api/me/mail/outgoing/${O1}/undo`]: {
+        body: { draft: draft(), droppedAttachments: [], gmailOutdated: true },
+      },
+    });
+    const r = await mail.undoSend(O1);
+    expect(r.unsaved).toBe(false);
+    expect(r.gmailOutdated).toBe(true);
+  });
+
+  it("un server senza `gmailOutdated`: Gmail è aggiornato", async () => {
+    installFakeServer({ ...base, [`POST /api/me/mail/outgoing/${O1}/undo`]: { body: { draft: draft(), droppedAttachments: [] } } });
+    expect((await mail.undoSend(O1)).gmailOutdated).toBe(false);
+  });
+
   it("un server di prima (senza `unsaved`): la bozza tornata è salvata", async () => {
     installFakeServer({ ...base, [`POST /api/me/mail/outgoing/${O1}/undo`]: { body: { draft: draft(), droppedAttachments: [] } } });
     expect((await mail.undoSend(O1)).unsaved).toBe(false);

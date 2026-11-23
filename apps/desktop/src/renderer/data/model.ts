@@ -2800,6 +2800,12 @@ export interface MailDraftRestore {
   unsaved?: boolean;
   /** Con `unsaved`: i nomi degli allegati rimasti nella bozza su Gmail. */
   leftInGmail?: string[];
+  /**
+   * Build app (registro, A6 r.448): le due bozze si sono unite in Stubwise,
+   * ma la bozza su Gmail non si è riscritta; lo farà il prossimo Salva. Il
+   * prototipo non ha Gmail: mai vero.
+   */
+  gmailOutdated?: boolean;
 }
 
 /** I filtri dell'elenco della Posta (tutti facoltativi). */
