@@ -23,6 +23,7 @@ import { appClient } from "./client";
 import { downloadByPath } from "./download";
 import { googleDriveFunctions } from "./google";
 import { partialNamespace } from "./notIntegrated";
+import { placeholderError } from "./placeholderErrors";
 
 // Il Drive nella build app (area 5, fette 2 e 3): i file CARICATI «come oggi»,
 // col loro contenuto (stato, riassunto, OCR, passaggio della ricerca: F3).
@@ -142,7 +143,8 @@ async function orNone<T>(run: () => Promise<T>, fallback: T): Promise<T> {
   } catch (error) {
     if (error instanceof ApiError && (error.status === 404 || error.status === 403))
       return fallback;
-    throw error;
+    // A11 r.1414: un segnaposto come filtro (`addedById`) è `invalid: addedById`.
+    throw placeholderError(error);
   }
 }
 

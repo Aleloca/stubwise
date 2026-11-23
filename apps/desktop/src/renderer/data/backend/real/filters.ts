@@ -3,6 +3,7 @@ import { parseCriteria, type SavedFilterView } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { SavedFilter } from "../../types";
 import { appClient } from "./client";
+import { withPlaceholderErrors } from "./placeholderErrors";
 
 // I filtri salvati della build app (integrazione area 2, fetta 3): i miei e i
 // pubblici, dal server. I criteri arrivano larghi e si normalizzano con
@@ -56,13 +57,15 @@ export const listPinnedFilterIds: typeof Fake.listPinnedFilterIds = () => appCli
 
 export const saveFilter: typeof Fake.saveFilter = async (input) =>
   toFilter(
-    (await appClient().filters.create({
-      name: input.name,
-      visibility: input.visibility,
-      criteria: input.criteria,
-      view: input.view,
-      groupBy: input.groupBy,
-    } as never)) as SavedFilterView,
+    (await withPlaceholderErrors(() =>
+      appClient().filters.create({
+        name: input.name,
+        visibility: input.visibility,
+        criteria: input.criteria,
+        view: input.view,
+        groupBy: input.groupBy,
+      } as never),
+    )) as SavedFilterView,
   );
 
 export const updateFilter: typeof Fake.updateFilter = async (id, patch) => {
@@ -70,7 +73,9 @@ export const updateFilter: typeof Fake.updateFilter = async (id, patch) => {
     patch.criteria !== undefined
       ? { ...patch, criteria: { ...(droppedCriteria.get(id) ?? {}), ...patch.criteria } }
       : patch;
-  return toFilter((await appClient().filters.update(id, body as never)) as SavedFilterView);
+  return toFilter(
+    (await withPlaceholderErrors(() => appClient().filters.update(id, body as never))) as SavedFilterView,
+  );
 };
 
 /** Lo toglie anche dai fissati di tutti; nelle Home resta un blocco «non disponibile». */

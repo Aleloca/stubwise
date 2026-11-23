@@ -4,6 +4,7 @@ import type * as Fake from "../../api";
 import type { FilterCriteria, Task, TaskPatch } from "../../types";
 import { isIntegrated } from "../../integration";
 import { appClient } from "./client";
+import { withPlaceholderErrors } from "./placeholderErrors";
 import { NotIntegratedError } from "./notIntegrated";
 
 // Le task della build app (integrazione area 2, fetta 1), da `/api/tasks`:
@@ -104,16 +105,18 @@ export const filtersOf = (criteria?: FilterCriteria): TaskListFilters =>
 
 /** Il numero, senza le viste: oltre le 2000 righe il server dice `truncated`. */
 export const countTasks: typeof Fake.countTasks = async (criteria) => {
-  const page = await appClient().request<{ items: unknown[]; truncated?: boolean }>(
-    "GET",
-    `/api/tasks${taskListQuery(filtersOf(criteria))}`,
+  const page = await withPlaceholderErrors(() =>
+    appClient().request<{ items: unknown[]; truncated?: boolean }>(
+      "GET",
+      `/api/tasks${taskListQuery(filtersOf(criteria))}`,
+    ),
   );
   return { count: page.items.length, truncated: page.truncated === true };
 };
 
 export const listTasks: typeof Fake.listTasks = async (criteria) => {
   const filters = filtersOf(criteria);
-  const page = await appClient().tasks.list(filters);
+  const page = await withPlaceholderErrors(() => appClient().tasks.list(filters));
   truncatedByQuery.set(taskListQuery(filters), page.truncated === true);
   return page.items.map((v) => toTask(v as TaskViewData));
 };
@@ -160,7 +163,7 @@ export function toStallReason(wide: {
 }
 
 export const listStalled: typeof Fake.listStalled = async (criteria) => {
-  const rows = await appClient().tasks.stalled(filtersOf(criteria));
+  const rows = await withPlaceholderErrors(() => appClient().tasks.stalled(filtersOf(criteria)));
   return rows.flatMap((row) => {
     const reason = toStallReason(row.stall.reason as Parameters<typeof toStallReason>[0]);
     if (!reason) return [];
