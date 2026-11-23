@@ -33,6 +33,15 @@ describe("endpoints claude", () => {
     expect(undone.fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/claude/groups/${ID}/undo`);
   });
 
+  it("lotto 4, §5: «Riprova» del seguito: POST per indice; un server di prima senza `canRetryEffect` vale false", async () => {
+    const group = { id: ID, sessionId: null, proposalId: null, actions: [{ fn: "fillMailBody", args: { text: "x" }, codes: [], effectFailure: null }], executedAt: "2026-11-23T10:00:00.000Z", undo: "not_undoable", changedBy: null, undoneAt: null, undoReauth: false };
+    const { c, fetchImpl } = client(group);
+    const out = await c.claude.groups.retryEffect(ID, 2);
+    const [url, init] = fetchImpl.mock.calls.at(-1)!;
+    expect([url, init!.method]).toEqual([`/api/claude/groups/${ID}/actions/2/retry`, "POST"]);
+    expect(out.actions[0]!.canRetryEffect).toBe(false);
+  });
+
 
   it("area 10, F2: le domande (percorso e parse, anche senza `answer` da un server che non lo manda) e la risposta col corpo", async () => {
     const q = { id: ID, text: "Quale reparto?", options: [{ label: "Vendite" }, { label: "Supporto", description: "Il team" }] };

@@ -146,3 +146,58 @@ describe("fillMailBody", () => {
   });
 });
 
+
+describe("rimandi, lotto 4, §5: «Riprova» per un fillMailBody non salvato", () => {
+  type Group = { id: string; actions: { fn: string; effectFailure: string | null; canRetryEffect: boolean }[] };
+  /** Una conferma con Gmail giù: il gruppo, con la sua azione non salvata. */
+  async function failed() {
+    const s = await scenario();
+    const res = await propose(s.sessionId, s.tok, [{ fn: "fillMailBody", args: { accountId: s.box.id, threadId: s.threadId, mode: "reply", text: "Ciao, arriva lunedì." } }]);
+    const proposalId = (res.json() as { proposalId: string }).proposalId;
+    createError = new Error("gmail giù");
+    await app.inject({ method: "POST", url: `/api/claude/proposals/${proposalId}/confirm`, headers: { cookie: s.me.headers.cookie }, payload: {} });
+    const groups = (await app.inject({ method: "GET", url: `/api/claude/conversations/${s.sessionId}/groups`, headers: { cookie: s.me.headers.cookie } })).json() as Group[];
+    return { ...s, group: groups[0]! };
+  }
+  const retry = (cookie: string, groupId: string, index: number) => app.inject({ method: "POST", url: `/api/claude/groups/${groupId}/actions/${index}/retry`, headers: { cookie }, payload: {} });
+
+  it("la vista dice chi può riprovare (`canRetryEffect`, calcolato dal server); con Gmail ancora giù 409 `mail_not_saved` col motivo, e l'esito resta", async () => {
+    const s = await failed();
+    expect(s.group.actions[0]).toMatchObject({ effectFailure: "mail_not_saved", canRetryEffect: true });
+    const res = await retry(s.me.headers.cookie, s.group.id, 0);
+    expect(res.statusCode, res.body).toBe(409);
+    expect(res.json()).toMatchObject({ code: "mail_not_saved", reason: expect.any(String) });
+    expect(await t.db.select().from(mailDrafts).where(eq(mailDrafts.userId, s.me.id))).toEqual([]);
+  });
+
+  it("con Gmail di nuovo su: 200 col gruppo aggiornato (`effectFailure` null), il testo SALVATO negli argomenti è nella bozza; un secondo riprova 409 `already_saved`", async () => {
+    const s = await failed();
+    createError = null;
+    const res = await retry(s.me.headers.cookie, s.group.id, 0);
+    expect(res.statusCode, res.body).toBe(200);
+    expect((res.json() as Group).actions[0]).toMatchObject({ effectFailure: null, canRetryEffect: false });
+    const [draft] = await t.db.select().from(mailDrafts).where(eq(mailDrafts.userId, s.me.id));
+    expect(draft!.body).toBe("Ciao, arriva lunedì.");
+    expect((await retry(s.me.headers.cookie, s.group.id, 0)).json()).toMatchObject({ code: "already_saved" });
+  });
+
+  it("404 a chi non è chi ha confermato e per un indice fuori dal gruppo; 409 `mail_forbidden` con la casella disabilitata", async () => {
+    const s = await failed();
+    createError = null;
+    expect((await retry(s.other.headers.cookie, s.group.id, 0)).statusCode).toBe(404);
+    expect((await retry(s.me.headers.cookie, s.group.id, 3)).statusCode).toBe(404);
+    expect((await retry(s.me.headers.cookie, randomUUID(), 0)).statusCode).toBe(404);
+    await t.db.update(googleAccounts).set({ disabledAt: new Date() }).where(eq(googleAccounts.id, s.box.id));
+    expect((await retry(s.me.headers.cookie, s.group.id, 0)).json()).toMatchObject({ code: "mail_forbidden" });
+  });
+
+  it("D-5.2: una bozza della stessa conversazione cambiata DOPO l'azione non si sovrascrive: 409 `draft_changed`, e il testo resta da copiare", async () => {
+    const s = await failed();
+    createError = null;
+    await t.db.insert(mailDrafts).values({ userId: s.me.id, accountId: s.box.id, gmailDraftId: `gd-${randomUUID()}`, threadId: s.threadId, mode: "reply", body: "Scritto da me", updatedAt: new Date(Date.now() + 1000) } as never);
+    const res = await retry(s.me.headers.cookie, s.group.id, 0);
+    expect(res.json()).toMatchObject({ code: "draft_changed" });
+    const [draft] = await t.db.select().from(mailDrafts).where(eq(mailDrafts.userId, s.me.id));
+    expect(draft!.body).toBe("Scritto da me");
+  });
+});

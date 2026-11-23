@@ -368,9 +368,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   HTML (mandiamo text/plain), nessuna firma per alias diversi
   dall'indirizzo della casella.
 - F3, rimandati e limiti accettati *(O)* (12 nov 2026):
-  (a) «Riprova» per un `fillMailBody` non salvato su Gmail: oggi la scheda
+  (a) ~~«Riprova» per un `fillMailBody` non salvato su Gmail: oggi la scheda
   lo dice (`effectFailure`) e offre il testo da copiare; il riprova vuole
-  una rotta che rilanci il seguito per quell'azione;
+  una rotta che rilanci il seguito per quell'azione;~~ *chiusa il 23 nov 2026
+  (72, lotto 4, §5)*: `POST /api/claude/groups/:id/actions/:index/retry` e
+  `canRetryEffect` nella vista (calcolato dal server); una bozza cambiata dopo
+  l'azione non si sovrascrive (`draft_changed`). Limite accettato: se nel
+  frattempo la mail è partita, il riprova crea una bozza nuova nel thread;
   (b) la bozza di Claude in json (`?stream=false`) per un client che non
   legge SSE (il mobile): oggi solo SSE;
   (c) ~~gli oggetti dello storage degli allegati restano orfani~~ CHIUSO

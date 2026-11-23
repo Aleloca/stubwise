@@ -458,6 +458,13 @@ export const claudeActionGroupViewSchema = z.object({
        * il testo NON è nella bozza di Gmail; è in `args.text`, da copiare).
        */
       effectFailure: z.string().nullable().default(null),
+      /**
+       * Rimandi, lotto 4 (§5): chi guarda può riprovare il seguito non riuscito
+       * (`POST /api/claude/groups/:id/actions/:index/retry`). Vero solo per un
+       * `fillMailBody` con `effectFailure`, e solo per chi ha confermato:
+       * calcolato dal server, il client non lo deduce. Additivo.
+       */
+      canRetryEffect: z.boolean().default(false),
     }),
   ),
   executedAt: z.iso.datetime(),

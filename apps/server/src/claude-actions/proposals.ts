@@ -429,10 +429,16 @@ export async function listGroups(db: Db, user: SessionUser, sessionId: string): 
     )
     .orderBy(desc(claudeActionGroups.executedAt));
   const out: ClaudeActionGroupView[] = [];
-  for (const g of groups) {
+  for (const g of groups) out.push(await groupViewOf(db, user, g, sessionId));
+  return out;
+}
+
+/** La vista di UN gruppo eseguito, per chi guarda (anche la risposta di «Riprova», lotto 4 §5). */
+export async function groupViewOf(db: Db, user: SessionUser, g: typeof claudeActionGroups.$inferSelect, sessionId: string | null): Promise<ClaudeActionGroupView> {
+  {
     const actions = await db.select().from(claudeActions).where(eq(claudeActions.groupId, g.id)).orderBy(asc(claudeActions.seq));
-    const undo = (await isChatMention(db, sessionId)) ? { state: "not_undoable" as const } : await undoStateOf(db, user.id, g.id);
-    out.push({
+    const undo = sessionId && (await isChatMention(db, sessionId)) ? { state: "not_undoable" as const } : await undoStateOf(db, user.id, g.id);
+    return {
       id: g.id,
       sessionId: g.sessionId,
       proposalId: g.proposalId,
@@ -441,6 +447,7 @@ export async function listGroups(db: Db, user: SessionUser, sessionId: string): 
         args: a.args,
         codes: (a.objects as { code?: string }[]).flatMap((o) => (o.code ? [o.code] : [])),
         effectFailure: a.effectFailure,
+        canRetryEffect: a.fn === "fillMailBody" && a.effectFailure !== null && g.requesterId === user.id,
       })),
       executedAt: g.executedAt.toISOString(),
       undo:
@@ -450,9 +457,8 @@ export async function listGroups(db: Db, user: SessionUser, sessionId: string): 
       changedBy: undo.state === "changed_after" ? undo.byUserId : null,
       undoneAt: g.undoneAt?.toISOString() ?? null,
       undoReauth: undo.state === "available" && undo.inverses.some((a) => declaredClassOf(a.fn) === "C"),
-    });
+    };
   }
-  return out;
 }
 
 /** La conversazione è dell'autore e non archiviata (le scritture la richiedono viva). */
