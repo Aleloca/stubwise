@@ -1616,6 +1616,17 @@ describe("D4b — canResume: chi guarda può riprendere la correzione ferma (col
     expect(prCycleSchema.parse(admin)).toEqual(admin);
   });
 
+  it("revisione del lotto 1: su una PR di un collega «Riprendi» segue l'impostazione, come «Chiedi modifiche»", async () => {
+    const pr = await seedPr({ branch: "feature/login", adopted: true });
+    const id = await seedCorrection(pr, { trigger: "stubwise", status: "queued", jobStatus: "queued" });
+    await db.update(aiJobs).set({ status: "held", heldReason: "limit" }).where(eq(aiJobs.correctionId, id));
+    const can = async () => (await derivePrCycle(db, { ...pr, viewerPermissions: LEAD }))?.canResume;
+    await db.update(repositories).set({ colleaguePrs: "analyze_only" }).where(eq(repositories.id, pr.repositoryId));
+    expect(await can()).toBe(true);
+    await db.update(repositories).set({ colleaguePrs: "off" }).where(eq(repositories.id, pr.repositoryId));
+    expect(await can()).toBe(false);
+  });
+
   it("stessi dati, due ruoli: ferma per LIMITE → entrambi la riprendono", async () => {
     const pr = await heldCorrection("limit");
     expect((await derivePrCycle(db, { ...pr, viewerPermissions: LEAD }))?.canResume).toBe(true);

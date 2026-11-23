@@ -1497,6 +1497,8 @@ export async function derivePrCycle(
     heldReason,
     canResume:
       !branchProtected &&
+      // La stessa impostazione delle PR dei colleghi di «Chiedi modifiche» (revisione del lotto 1).
+      colleagueAllows &&
       canResumeCorrection(heldReason, input.viewerPermissions) &&
       correctionActionAllowed(input.viewerPermissions, tr),
     // Insieme a `heldReason`: l'id che «Riprendi» rimanda a run-ai
