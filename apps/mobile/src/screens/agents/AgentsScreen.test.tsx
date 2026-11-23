@@ -29,6 +29,7 @@ function session(overrides: Partial<AgentSessionSummary> = {}): AgentSessionSumm
     backlogItemId: null,
     outcome: null,
     waitsOnViewer: false,
+    startedById: null,
     ...overrides,
   };
 }

@@ -34,6 +34,8 @@ const question = (over: Partial<AgentSessionQuestion> = {}): AgentSessionQuestio
   ticketId: null,
   answer: null,
   cancelled: false,
+  answeredById: null,
+  answeredAt: null,
   ...over,
 });
 const base = { partials: {}, inputs: [] as AgentSessionInput[], questions: [] as AgentSessionQuestion[], live: false };

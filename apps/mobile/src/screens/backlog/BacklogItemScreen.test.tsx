@@ -65,6 +65,7 @@ function sessionDetail(overrides: Partial<AgentSessionDetail> = {}): AgentSessio
     paused: false,
     questions: [],
     inputs: [],
+    startedById: null,
     ...overrides,
   };
 }
