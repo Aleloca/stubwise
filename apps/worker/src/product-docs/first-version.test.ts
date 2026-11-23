@@ -157,6 +157,18 @@ describe("la prima versione nel worker", () => {
     expect(await pagesOf(projectId)).toEqual([]);
   });
 
+  it("revisione del lotto 1: col modulo Docs spento la prima versione finisce interrotta col motivo, senza modello né pagine", async () => {
+    const { projectId, fv } = await setup();
+    const job = (await claimProductDocJob(t.db))!;
+    expect(job.sourceId).toBe(fv.id);
+    await t.db.update(projects).set({ modules: ["releases"] }).where(eq(projects.id, projectId));
+    const { runner, calls } = fakeRunner(DRAFT);
+    expect(await runProductDocJob({ db: t.db, runner, log }, job)).toBe("done");
+    expect(calls).toEqual([]);
+    expect((await t.db.select().from(productFirstVersions).where(eq(productFirstVersions.id, fv.id)))[0]).toMatchObject({ status: "done", interrupted: true, error: "docs_module_off" });
+    expect(await pagesOf(projectId)).toEqual([]);
+  });
+
   it("«Stop» col budget del mese finito (revisione, I1): la prima versione si chiude interrotta, non resta `stopping` fino al budget nuovo", async () => {
     const { projectId, fv } = await setup();
     await t.db.update(productFirstVersions).set({ stopRequested: true }).where(eq(productFirstVersions.id, fv.id));

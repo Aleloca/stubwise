@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { instanceSettings, productDocJobs, productPageRevisions, productPages, productSectionHolds, productWireframes, projectMembers, roles, users } from "@stubwise/db";
+import { instanceSettings, productDocJobs, productPageRevisions, productPages, productSectionHolds, productWireframes, projectMembers, projects, roles, users } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { ProductBlock } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
@@ -64,6 +64,18 @@ describe("il disegno di una bozza", () => {
     const job = (await claimProductDocJob(t.db))!;
     expect(await runProductDocJob({ db: t.db, runner: fakeRunner("<svg><g></svg>").runner, log }, job)).toBe("failed");
     expect(await rowOf(wireframeId)).toMatchObject({ status: "failed", error: "invalid_svg", variants: [] });
+  });
+
+  it("revisione del lotto 1: col modulo Docs spento nessuna chiamata, la bozza è `failed` con `docs_module_off`", async () => {
+    const { wireframeId, projectId } = await setup();
+    const job = (await claimProductDocJob(t.db))!;
+    expect(job.sourceId).toBe(wireframeId);
+    await t.db.update(projects).set({ modules: [] }).where(eq(projects.id, projectId));
+    const { runner, calls } = fakeRunner(SVG);
+    expect(await runProductDocJob({ db: t.db, runner, log }, job)).toBe("done");
+    expect(calls).toEqual([]);
+    expect(await rowOf(wireframeId)).toMatchObject({ status: "failed", error: "docs_module_off" });
+    expect((await t.db.select().from(productDocJobs).where(eq(productDocJobs.id, job.id)))[0]).toMatchObject({ status: "done", error: "docs_module_off" });
   });
 
   it("col budget del mese finito: nessuna chiamata, la bozza è `failed` con `budget` e il lavoro finisce (si riprova con «Redraw»)", async () => {

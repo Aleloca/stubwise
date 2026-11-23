@@ -12,6 +12,7 @@ import {
   productFirstVersions,
   productPageUpdates,
   productPages,
+  productWireframes,
   projectDecisions,
   projects,
   releases,
@@ -19,7 +20,7 @@ import {
   tickets,
   type Db,
 } from "@stubwise/db";
-import { aiBudgetState, projectPermissionsByProject, writeClaudeFacts } from "@stubwise/notifications";
+import { aiBudgetState, failFirstVersion, projectPermissionsByProject, writeClaudeFacts } from "@stubwise/notifications";
 import { productBlockSchema, productFactSchema, productSearchText, type ProductBlock, type ProductFact } from "@stubwise/shared";
 import { and, asc, desc, eq, lt, ne, sql } from "drizzle-orm";
 import { NATIVE_TOOLS } from "../agent/native-tools.js";
@@ -29,7 +30,7 @@ import type { ProjectSerializer } from "../handler.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { limitTextOfRun, runWithProviders, type SelectDeps } from "../providers/select.js";
 import { runFirstVersionJob } from "./first-version.js";
-import { runWireframeJob } from "./wireframe.js";
+import { notifyWireframe, runWireframeJob } from "./wireframe.js";
 import { buildProductDocPrompt, parseProductFacts, type PromptPage, type PromptSource } from "./prompt.js";
 
 /**
@@ -247,11 +248,34 @@ export function selectPromptPages<P extends PromptPage>(source: PromptSource, pa
 
 export type ProductDocJobOutcome = "done" | "held" | "failed" | "retry";
 
+/** Il motivo di un lavoro della doc chiuso perché il progetto ha il modulo Docs spento. */
+export const DOCS_MODULE_OFF = "docs_module_off";
+
 /** UN lavoro (già preso, `running`). */
 export async function runProductDocJob(deps: ProductDocJobDeps, job: JobRow): Promise<ProductDocJobOutcome> {
   const { db } = deps;
-  const [p] = await db.select({ pausedAt: projects.queuePausedAt }).from(projects).where(eq(projects.id, job.projectId));
+  const [p] = await db
+    .select({ pausedAt: projects.queuePausedAt, docsOn: sql<boolean>`'docs' = any(${projects.modules})` })
+    .from(projects)
+    .where(eq(projects.id, job.projectId));
   if (!p) return finish(db, job.id, "done", "project_gone").then(() => "done");
+  // Il modulo Docs spento (revisione del lotto 1): il lavoro si chiude senza modello, col motivo. Una
+  // prima versione finisce interrotta, una bozza di schermata fallita; `doc_auto_update` non si tocca.
+  if (!p.docsOn) {
+    if (job.sourceKind === "first_version") await failFirstVersion(db, job.sourceId, DOCS_MODULE_OFF);
+    if (job.sourceKind === "wireframe") {
+      await db.transaction(async (txRaw) => {
+        const tx = txRaw as unknown as Db;
+        const [w] = await tx
+          .update(productWireframes)
+          .set({ status: "failed", error: DOCS_MODULE_OFF, updatedAt: new Date() })
+          .where(and(eq(productWireframes.id, job.sourceId), eq(productWireframes.status, "drawing")))
+          .returning({ id: productWireframes.id, pageId: productWireframes.pageId });
+        if (w) await notifyWireframe(tx, w.pageId, w.id, "failed");
+      });
+    }
+    return finish(db, job.id, "done", DOCS_MODULE_OFF).then(() => "done");
+  }
   // La prima versione, le bozze e un aggiornamento chiesto a mano sono gesti di chi li ha chiesti: la pausa della coda non li ferma (P41, P48 del prototipo).
   const gesture = job.sourceKind === "first_version" || job.sourceKind === "wireframe" || job.sourceKind === "page_update";
   if (p.pausedAt && !gesture) return hold(db, job.id, "paused").then(() => "held");

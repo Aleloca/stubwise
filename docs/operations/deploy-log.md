@@ -6096,7 +6096,9 @@ deploy o di un rollback che la tocca.
       fonti di F5, che un worker vecchio non legge).
     Tabelle, colonne e CHECK restano: un server vecchio li ignora.
 - **«Rimandi: il modulo Docs spento chiude le rotte»** *(23 nov 2026)*: branch
-  `feat/rimandi-server`. Solo il server: nessuna migrazione, nessuna env.
+  `feat/rimandi-server`. Server e worker (revisione del lotto 1): nessuna
+  migrazione, nessuna env. Ordine: server, poi worker (senza lavoro
+  dell'agente in corso).
   Col modulo `docs` spento (`projects.modules`) le rotte dei Docs dei
   repository e dello spazio Product rispondono 404, anche a un full admin, e
   gli elenchi d'istanza non nominano il progetto (registro dei rimandi, area
@@ -6120,4 +6122,11 @@ deploy o di un rollback che la tocca.
     `update projects set modules = array_append(modules, 'docs') where id = …`
     nell'ordine di `MODULE_ORDER`, meglio dalla UI), oppure avvisare il
     maintainer prima di rilasciare. Vuota: niente da fare.
-  - **Rollback**: sicuro. Un server di prima ignora di nuovo i moduli.
+  - **Worker**: col modulo spento il giro notturno non scrive più pagine né
+    nota di rilascio (il report giornaliero sì) e gli elementi dei Docs
+    restano in coda; un lavoro della coda della doc si chiude senza modello
+    con `docs_module_off` (la prima versione interrotta, la bozza di schermata
+    `failed`). `doc_auto_update` non cambia: col modulo riacceso riprende da
+    solo. Anche lo /docs di Slack non elenca né risponde.
+  - **Rollback**: sicuro. Un server e un worker di prima ignorano di nuovo i
+    moduli.

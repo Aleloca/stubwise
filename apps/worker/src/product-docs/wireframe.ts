@@ -72,7 +72,7 @@ export function parseWireframeAnswer(text: string): string | null {
 /** I motivi di `failed` di una bozza: il contratto col client (`productWireframeViewSchema.error`). */
 export type WireframeFailure = "budget" | "limit" | "invalid_svg" | "no_answer";
 
-const notifyWireframe = (tx: Db, pageId: string, wireframeId: string, status: "ready" | "failed") =>
+export const notifyWireframe = (tx: Db, pageId: string, wireframeId: string, status: "ready" | "failed") =>
   tx.execute(sql`select pg_notify('product_page_events', ${JSON.stringify({ type: "wireframe", pageId, wireframeId, status })})`);
 
 export async function runWireframeJob(

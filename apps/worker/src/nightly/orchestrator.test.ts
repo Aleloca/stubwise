@@ -537,6 +537,33 @@ describe("runNight: Docs", () => {
     expect(g!.commitSha).toBe(HEAD);
   });
 
+  it("revisione del lotto 1: col modulo Docs spento il report sì, i Docs no; `doc_auto_update` resta acceso e gli elementi dei Docs non fanno ripartire il giro", async () => {
+    const a = await seedNightRepo("alpha", { docs: true, dailyReport: true });
+    const gen = await seedCurrentGeneration(db, a.repositoryId, BOOKMARK);
+    await seedGenerationPage(db, a.repositoryId, gen, { slug: "app", sourcePath: "src" });
+    await db.update(projects).set({ modules: ["releases"] }).where(eq(projects.id, a.projectId));
+    const listDefault = vi.fn(async () => ({ commits: [sha("1")], headSha: HEAD, fallback: false }));
+    const openWorktreeAtSha = vi.fn(async () => ({ dir: "/srv/none/wt", remove: vi.fn(async () => undefined) }));
+    const h = harness({
+      commitsByUrl: { [a.url]: [commit("1", "a1")] },
+      run: docsRunner(),
+      mirrors: { listDefaultBranchCommitsSince: listDefault, listAncestorsSince: vi.fn(async () => []), openWorktreeAtSha } as never,
+    });
+    await runNight(h.deps, NOW);
+    expect(await itemsOf(a.repositoryId, "summary")).toEqual([expect.objectContaining({ status: "done" })]);
+    expect(await itemsOf(a.repositoryId, "release")).toEqual([]);
+    expect(await itemsOf(a.repositoryId, "page_update")).toEqual([]);
+    expect(listDefault).not.toHaveBeenCalled();
+    expect(openWorktreeAtSha).not.toHaveBeenCalled();
+    const [p] = await db.select({ docAutoUpdate: projects.docAutoUpdate }).from(projects).where(eq(projects.id, a.projectId));
+    expect(p!.docAutoUpdate).toBe(true);
+    // Un elemento dei Docs rimasto in coda (scritto prima dello spegnimento) non fa ripartire il giro.
+    await db.insert(nightlyItems).values({ projectId: a.projectId, repositoryId: a.repositoryId, phase: "page_update", key: "app", payload: {}, night: NIGHT } as never);
+    expect(await hasPendingNightWork({ db }, NIGHT)).toBe(false);
+    await db.update(projects).set({ modules: ["docs", "releases"] }).where(eq(projects.id, a.projectId));
+    expect(await hasPendingNightWork({ db }, NIGHT)).toBe(true);
+  });
+
   it("generazione completa in corso → riassunti sì, Docs no (generation_running)", async () => {
     const a = await seedNightRepo("alpha", { docs: true });
     await seedCurrentGeneration(db, a.repositoryId, BOOKMARK);
