@@ -1,5 +1,6 @@
 import { mailProposalDecisionSchema, mailProposalListSchema, mailProposalSchema, mailProposalStatusSchema } from "@stubwise/shared";
 import type { FastifyInstance, FastifyReply } from "fastify";
+import type { SessionUser } from "../auth/session.js";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { apiError } from "../errors.js";
@@ -14,7 +15,7 @@ import {
 } from "../services/mail-proposals-decide.js";
 import type { RoleRuleError } from "../services/roles.js";
 import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
-import { listMailProposals, maskMailDeciders } from "../services/mail-proposals.js";
+import { alreadyMasked, listMailProposals, mailParticipantIds, maskMailDeciders } from "../services/mail-proposals.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -32,7 +33,7 @@ export async function meMailProposalsRoutes(instance: FastifyInstance, opts: { m
   const includeCalendar = opts.mailClassifyV2 === true;
   const app = instance.withTypeProvider<ZodTypeProvider>();
   // Registro, A11 r.1414: chi ha deciso o passato, se chi guarda non lo conosce, è un segnaposto.
-  app.addHook("preSerialization", async (request, _reply, payload) => (request.user ? maskMailDeciders(app.db, request.user, payload) : payload));
+  app.addHook("preSerialization", async (request, _reply, payload) => (request.user && !alreadyMasked(payload) ? maskMailDeciders(app.db, request.user, payload) : payload));
 
   app.get(
     "/",
@@ -88,7 +89,7 @@ export async function meMailProposalsRoutes(instance: FastifyInstance, opts: { m
   };
 
   /** L'esito di una decisione, con i codici d'errore del contratto (piano F2, §4). */
-  function send(reply: FastifyReply, result: DecideResult | { ok: false; error: "rule"; rule: RoleRuleError }) {
+  async function send(request: { user?: SessionUser | null; params: { id: string } }, reply: FastifyReply, result: DecideResult | { ok: false; error: "rule"; rule: RoleRuleError }) {
     if (result.ok) {
       switch (result.status) {
         case "confirmed":
@@ -106,7 +107,15 @@ export async function meMailProposalsRoutes(instance: FastifyInstance, opts: { m
       case "not_found":
         return apiError(reply, 404, "not_found", "Mail proposal not found");
       case "already_handled":
-        return reply.code(409).send({ code: "already_handled", message: "Someone already decided this proposal", decidedBy: result.decidedBy ?? null });
+        // M-2: chi ha deciso resta vero se la mail lo nomina, come nella vista (qui `sharedWith` non c'è).
+        return reply.code(409).send(
+          await maskMailDeciders(
+            app.db,
+            request.user!,
+            { code: "already_handled", message: "Someone already decided this proposal", decidedBy: result.decidedBy ?? null },
+            { inMail: await mailParticipantIds(app.db, request.params.id) },
+          ),
+        );
       case "forbidden":
         return apiError(reply, 403, "forbidden", "Missing a permission for one of the chosen actions");
       default:
@@ -133,21 +142,21 @@ export async function meMailProposalsRoutes(instance: FastifyInstance, opts: { m
       },
     },
     async (request, reply) =>
-      send(reply, await confirmMailProposal(app.db, request.user!, request.params.id, request.body, request.user!.language)),
+      send(request, reply, await confirmMailProposal(app.db, request.user!, request.params.id, request.body, request.user!.language)),
   );
 
   /** «Ignora»: la chiude per tutti i destinatari. */
   app.post(
     "/:id/ignore",
     { config: { access: { kind: "user" } }, schema: { params: idParams, response: decideResponses } },
-    async (request, reply) => send(reply, await ignoreMailProposal(app.db, request.user!, request.params.id)),
+    async (request, reply) => send(request, reply, await ignoreMailProposal(app.db, request.user!, request.params.id)),
   );
 
   /** «Passa al progetto»: chi non può confermarla la passa a chi può. */
   app.post(
     "/:id/hand",
     { config: { access: { kind: "user" } }, schema: { params: idParams, response: decideResponses } },
-    async (request, reply) => send(reply, await handMailProposal(app.db, request.user!, request.params.id)),
+    async (request, reply) => send(request, reply, await handMailProposal(app.db, request.user!, request.params.id)),
   );
 
   /** «Sposta su un altro progetto». */
@@ -158,7 +167,7 @@ export async function meMailProposalsRoutes(instance: FastifyInstance, opts: { m
       schema: { params: idParams, body: z.object({ projectId: z.uuid() }), response: decideResponses },
     },
     async (request, reply) =>
-      send(reply, await reassignMailProposal(app.db, request.user!, request.params.id, request.body.projectId)),
+      send(request, reply, await reassignMailProposal(app.db, request.user!, request.params.id, request.body.projectId)),
   );
 
   /** «Quale progetto?»: l'email si riclassifica per il progetto scelto. */
@@ -169,7 +178,7 @@ export async function meMailProposalsRoutes(instance: FastifyInstance, opts: { m
       schema: { params: idParams, body: z.object({ projectId: z.uuid() }), response: decideResponses },
     },
     async (request, reply) =>
-      send(reply, await chooseMailProposalProject(app.db, request.user!, request.params.id, request.body.projectId)),
+      send(request, reply, await chooseMailProposalProject(app.db, request.user!, request.params.id, request.body.projectId)),
   );
 
   /**
@@ -193,6 +202,7 @@ export async function meMailProposalsRoutes(instance: FastifyInstance, opts: { m
     },
     async (request, reply) =>
       send(
+        request,
         reply,
         await confirmMailProposalWithMembers(app.db, request.user!, request.params.id, request.body, request.user!.language, (line, fields) =>
           request.log.info(fields, line),

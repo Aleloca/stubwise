@@ -836,6 +836,19 @@ describe("la posta senza gli sconosciuti", () => {
     expect(res.json()).toMatchObject({ code: "already_handled", decidedBy: { userId: "hidden-1", name: "" } });
     expect(res.body).not.toContain(stranger!.id);
   });
+
+  it("revisione 3bbe2ddc6..444b8b773, M-2: nel 409 chi ha deciso resta vero se la mail lo nomina (un altro destinatario), anche se chi arriva secondo non lo conosce", async () => {
+    const { bruno, proposal } = await seed();
+    const { eq } = await import("drizzle-orm");
+    const [inMail] = await db.insert(users).values({ email: `inmail-mq-${randomUUID().slice(0, 6)}@x.it`, passwordHash: "x", role: "member", displayName: "Ugo" }).returning({ id: users.id });
+    await db.insert(emailProposalRecipients).values({ proposalId: proposal.id, userId: inMail!.id });
+    await db.update(emailProposals).set({ status: "actioned", decidedByUserId: inMail!.id, decidedAt: new Date() }).where(eq(emailProposals.id, proposal.id));
+    // Nella vista lo stesso destinatario resta vero (la regola della posta).
+    expect(((await get(bruno.headers, `/api/me/mail/proposals/${proposal.id}`)).json() as { decidedBy: unknown }).decidedBy).toEqual({ userId: inMail!.id, name: "Ugo" });
+    const res = await app.inject({ method: "POST", url: `/api/me/mail/proposals/${proposal.id}/ignore`, headers: bruno.headers, payload: {} });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: "already_handled", decidedBy: { userId: inMail!.id, name: "Ugo" } });
+  });
 });
 
 describe("la posta senza gli sconosciuti: chi compare nella proposta", () => {
