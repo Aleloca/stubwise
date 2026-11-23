@@ -1,7 +1,12 @@
-import { calendarEvents, emailMessages, emailProposalRecipients, emailProposals, googleAccounts, meetingNotes, projects, tickets, type Db } from "@stubwise/db";
+import { backlogItems, backlogItemTickets, backlogJobs, calendarEvents, emailMessages, emailProposalRecipients, emailProposals, googleAccounts, meetingNotes, projects, tickets, type Db } from "@stubwise/db";
 import { canSeeMeeting, projectPermissionsOfUser } from "@stubwise/notifications";
 import type { MeetingNote, MeetingSummary, MeetingTask, MeetingTasks } from "@stubwise/shared";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import type { SessionUser } from "../auth/session.js";
+import { requestVisibility } from "./project-requests.js";
+import { visibleTasksCondition } from "./task-view.js";
+
+type Viewer = Pick<SessionUser, "id" | "instancePermissions">;
 
 /**
  * LE RIUNIONI REGISTRATE, IN LETTURA (area 6, F5a, task 4). Chi vede cosa lo
@@ -109,65 +114,151 @@ export async function noteForEventRow(db: Db, viewerId: string, rowId: string): 
 /**
  * «Task da questa riunione» (R-I21): solo ai MEMBRI del progetto della
  * riunione; `null` a chi non lo è (anche se ha il riassunto) e a una riunione
- * senza progetto. Le task nate dalle proposte già confermate, per data della
- * decisione e senza doppi; quante task propongono quelle ancora aperte che
- * chi guarda riceve (o che gli sono state passate).
+ * senza progetto. Le task e le RICHIESTE nate dalle proposte già confermate,
+ * per data della decisione e nell'ordine dei loro esiti, senza doppi; quante
+ * task propongono quelle ancora aperte che chi guarda riceve (o che gli sono
+ * state passate).
+ *
+ * Rimandi, lotto 4 (§3, la specifica è `bornFrom` del prototipo). Una
+ * richiesta si risolve A LETTURA dal suo job d'intake (`results[].id` è l'id
+ * del job; `backlog_jobs.result_item_id` la voce): aperta → la voce; convertita
+ * → al suo posto le sue task (`converted_to`); fusa a mano → la sorgente,
+ * «done»; ancora in intake → `pending` senza codice; fallita o senza voce →
+ * niente. Tutto dal SOLO progetto della riunione, e coi filtri di
+ * visibilità degli elenchi nella WHERE (`requestVisibility`,
+ * `visibleTasksCondition`): una riga visibile non apre mai un 404.
  */
-async function tasksOf(db: Db, viewerId: string, noteId: string | null, projectId: string | null, today: string): Promise<MeetingTasks> {
-  if (!projectId || !(await projectPermissionsOfUser(db, viewerId, projectId))) return null;
+async function tasksOf(db: Db, viewer: Viewer, noteId: string | null, projectId: string | null, today: string): Promise<MeetingTasks> {
+  const permissions = projectId ? await projectPermissionsOfUser(db, viewer.id, projectId) : null;
+  if (!projectId || !permissions) return null;
   if (!noteId) return { tasks: [], proposedTasks: 0 };
   const proposals = await db
     .select({ proposal: emailProposals, recipient: emailProposalRecipients.userId })
     .from(emailProposals)
-    .leftJoin(emailProposalRecipients, and(eq(emailProposalRecipients.proposalId, emailProposals.id), eq(emailProposalRecipients.userId, viewerId)))
+    .leftJoin(emailProposalRecipients, and(eq(emailProposalRecipients.proposalId, emailProposals.id), eq(emailProposalRecipients.userId, viewer.id)))
     .where(and(eq(emailProposals.meetingNoteId, noteId), eq(emailProposals.projectId, projectId)));
-  const ids = new Set<string>();
+  const sequence: { kind: "task" | "request"; id: string }[] = [];
   let proposedTasks = 0;
   for (const { proposal, recipient } of proposals.sort((a, b) => (a.proposal.decidedAt?.getTime() ?? 0) - (b.proposal.decidedAt?.getTime() ?? 0))) {
-    for (const r of proposal.results ?? []) if (r.kind === "task" && r.id) ids.add(r.id);
+    for (const r of proposal.results ?? []) if ((r.kind === "task" || r.kind === "request") && r.id) sequence.push({ kind: r.kind, id: r.id });
     const open = proposal.status === "classified" || proposal.status === "proposed";
     if (open && (recipient || proposal.handedAt)) {
       const actions = (proposal.classification as { actions?: { type: string }[] }).actions ?? [];
       proposedTasks += actions.filter((a) => a.type === "create_task").length;
     }
   }
-  if (ids.size === 0) return { tasks: [], proposedTasks };
-  const rows = await db
-    .select({ id: tickets.id, number: tickets.number, title: tickets.title, status: tickets.status, dueDate: tickets.dueDate, departmentId: tickets.departmentId, code: projects.code })
-    .from(tickets)
-    .innerJoin(projects, eq(projects.id, tickets.projectId))
-    .where(and(inArray(tickets.id, [...ids]), eq(tickets.projectId, projectId)));
-  const order = [...ids];
-  const tasks: MeetingTask[] = rows
-    .sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
-    .map((t) => {
-      const done = t.status === "done" || t.status === "closed";
-      return {
-        kind: "task" as const,
-        id: t.id,
-        code: t.code ? `${t.code}-${t.number}` : null,
-        title: t.title,
-        status: done ? ("done" as const) : t.dueDate && t.dueDate < today ? ("late" as const) : ("open" as const),
-        inProgress: t.status === "in_progress",
-        dueDate: t.dueDate,
-        departmentId: t.departmentId,
-      };
+  if (sequence.length === 0) return { tasks: [], proposedTasks };
+  const [project] = await db.select({ code: projects.code }).from(projects).where(eq(projects.id, projectId));
+  const projectCode = project?.code ?? null;
+
+  // Le richieste: i job del progetto, poi le voci visibili, poi le task delle convertite.
+  const jobIds = sequence.filter((e) => e.kind === "request").map((e) => e.id);
+  const jobs = jobIds.length
+    ? await db
+        .select({ id: backlogJobs.id, status: backlogJobs.status, itemId: backlogJobs.resultItemId, payload: backlogJobs.payload })
+        .from(backlogJobs)
+        .where(and(inArray(backlogJobs.id, jobIds), eq(backlogJobs.projectId, projectId)))
+    : [];
+  const jobById = new Map(jobs.map((j) => [j.id, j]));
+  const itemIds = [...new Set(jobs.flatMap((j) => (j.status === "done" && j.itemId ? [j.itemId] : [])))];
+  const items = itemIds.length
+    ? await db
+        .select({ id: backlogItems.id, number: backlogItems.number, title: backlogItems.title, status: backlogItems.status })
+        .from(backlogItems)
+        .where(and(inArray(backlogItems.id, itemIds), eq(backlogItems.projectId, projectId), await requestVisibility(db, viewer)))
+    : [];
+  const itemById = new Map(items.map((i) => [i.id, i]));
+  const convertedIds = items.filter((i) => i.status === "converted").map((i) => i.id);
+  const conversions = convertedIds.length
+    ? await db
+        .select({ itemId: backlogItemTickets.itemId, ticketId: backlogItemTickets.ticketId })
+        .from(backlogItemTickets)
+        .where(and(inArray(backlogItemTickets.itemId, convertedIds), eq(backlogItemTickets.role, "converted_to")))
+        .orderBy(asc(backlogItemTickets.createdAt))
+    : [];
+  const ticketIds = [...new Set([...sequence.filter((e) => e.kind === "task").map((e) => e.id), ...conversions.map((c) => c.ticketId)])];
+  const rows = ticketIds.length
+    ? await db
+        .select({ id: tickets.id, number: tickets.number, title: tickets.title, status: tickets.status, dueDate: tickets.dueDate, departmentId: tickets.departmentId, code: projects.code })
+        .from(tickets)
+        .innerJoin(projects, eq(projects.id, tickets.projectId))
+        .where(and(inArray(tickets.id, ticketIds), eq(tickets.projectId, projectId), await visibleTasksCondition(db, viewer)))
+    : [];
+  const ticketById = new Map(rows.map((t) => [t.id, t]));
+  const taskRow = (id: string): MeetingTask | null => {
+    const t = ticketById.get(id);
+    if (!t) return null;
+    const done = t.status === "done" || t.status === "closed";
+    return {
+      kind: "task",
+      id: t.id,
+      code: t.code ? `${t.code}-${t.number}` : null,
+      title: t.title,
+      status: done ? "done" : t.dueDate && t.dueDate < today ? "late" : "open",
+      inProgress: t.status === "in_progress",
+      dueDate: t.dueDate,
+      departmentId: t.departmentId,
+      projectCode,
+      pending: false,
+    };
+  };
+  const viewsAllRequests = permissions.has("backlog.view_all");
+  const out: MeetingTask[] = [];
+  const seen = new Set<string>();
+  const push = (row: MeetingTask | null) => {
+    if (!row || seen.has(`${row.kind}:${row.id}`)) return;
+    seen.add(`${row.kind}:${row.id}`);
+    out.push(row);
+  };
+  for (const entry of sequence) {
+    if (entry.kind === "task") {
+      push(taskRow(entry.id));
+      continue;
+    }
+    const job = jobById.get(entry.id);
+    if (!job) continue;
+    if (job.status === "queued" || job.status === "running") {
+      // D-3.1 = b: ancora in intake. La vede chi vedrà la voce: chi ha
+      // `backlog.view_all`, o chi l'ha chiesta.
+      const payload = job.payload as { title?: unknown; requestedByUserId?: unknown };
+      if (!viewsAllRequests && payload.requestedByUserId !== viewer.id) continue;
+      push({ kind: "request", id: job.id, code: null, title: typeof payload.title === "string" ? payload.title : "", status: "open", inProgress: false, dueDate: null, departmentId: null, projectCode, pending: true });
+      continue;
+    }
+    const item = job.status === "done" && job.itemId ? itemById.get(job.itemId) : undefined;
+    if (!item) continue;
+    if (item.status === "converted") {
+      for (const c of conversions) if (c.itemId === item.id) push(taskRow(c.ticketId));
+      continue;
+    }
+    push({
+      kind: "request",
+      id: item.id,
+      code: projectCode ? `${projectCode}-R${item.number}` : null,
+      title: item.title,
+      status: item.status === "archived" ? "done" : "open",
+      inProgress: false,
+      dueDate: null,
+      departmentId: null,
+      projectCode,
+      pending: false,
     });
-  return { tasks, proposedTasks };
+  }
+  return { tasks: out, proposedTasks };
 }
 
 /** Le task di una riga del calendario di chi guarda; `undefined` = la riga non è sua (404). */
-export async function meetingTasksFor(db: Db, viewerId: string, rowId: string, today: string): Promise<MeetingTasks | undefined> {
-  const found = await noteForEventRow(db, viewerId, rowId);
+export async function meetingTasksFor(db: Db, viewer: Viewer, rowId: string, today: string): Promise<MeetingTasks | undefined> {
+  const found = await noteForEventRow(db, viewer.id, rowId);
   if (!found) return undefined;
-  return tasksOf(db, viewerId, found.noteId, found.row.projectId, today);
+  return tasksOf(db, viewer, found.noteId, found.row.projectId, today);
 }
 
 /** Le task di una riunione per id (l'invitato senza l'evento); `undefined` = non è fra chi la vede (404). */
-export async function meetingTasksByNote(db: Db, viewerId: string, noteId: string, today: string): Promise<MeetingTasks | undefined> {
+export async function meetingTasksByNote(db: Db, viewer: Viewer, noteId: string, today: string): Promise<MeetingTasks | undefined> {
   const note = await noteById(db, noteId);
-  if (!note || !(await canSeeMeeting(db, note.id, viewerId))) return undefined;
-  return tasksOf(db, viewerId, note.id, note.projectId, today);
+  if (!note || !(await canSeeMeeting(db, note.id, viewer.id))) return undefined;
+  return tasksOf(db, viewer, note.id, note.projectId, today);
 }
 
 /** L'origine di una proposta di riunione, per chi guarda. */
