@@ -172,6 +172,16 @@ describe("GET /api/me/waiting-customers", () => {
     expect(times[0]).toBeLessThan(ago(50).getTime());
   });
 
+  it("registro, A8 «Clienti in attesa»: una riga il cui progetto non c'è più si salta, e `total` non la conta", async () => {
+    const adminBox = await box(adminId);
+    const before = await read({ cookie: adminCookie });
+    // Un progetto del perimetro che non esiste più (`scope_project_ids` non ha chiave esterna).
+    await waiting(adminBox.id, null as never, { projectId: null, scopeProjectIds: [randomUUID()] } as never);
+    const after = await read({ cookie: adminCookie });
+    expect(after.items).toHaveLength(before.items.length);
+    expect(after.total).toBe(before.total);
+  });
+
   it("senza sessione: 401", async () => {
     const res = await app.inject({ method: "GET", url: "/api/me/waiting-customers" });
     expect(res.statusCode).toBe(401);

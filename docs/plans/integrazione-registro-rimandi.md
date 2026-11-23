@@ -1159,8 +1159,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
     `attempts < 2`. Due tick sovrapposti sulla stessa casella potrebbero
     giudicarla due volte. Oggi il claim per casella del poller li serializza.
   - **Piccole**:
-    - la rotta salta una riga il cui progetto manca, ma `total` la conta
-      ancora;
+    - ~~la rotta salta una riga il cui progetto manca, ma `total` la conta
+      ancora;~~ *Chiusa il 23 nov 2026 (72, lotto 4)*: il taglio
+      (`waitingCandidatesPage`) scarta un progetto che non c'è più (il
+      perimetro `scope_project_ids` non ha chiave esterna), quindi né riga né
+      `total`; il salto nella rotta resta come difesa;
     - J2 non scrive `model` nel giudizio, perché il modello lo risolve il
       `TrackingAgentRunner` per operazione;
     - `OUTPUT_SHAPE` di J1 chiede `reply` anche quando `replyContext` è null

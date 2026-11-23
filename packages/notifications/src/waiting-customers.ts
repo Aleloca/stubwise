@@ -130,7 +130,10 @@ export async function waitingCandidatesPage(db: Db, input: WaitingCandidatesInpu
     adm as (
       select account_id, thread_id,
         (array_agg(coalesce(project_id, scope_project_ids[1]) order by received_at desc, id desc)
-          filter (where admitted and coalesce(project_id, scope_project_ids[1]) is not null and ${visibleProject}))[1] as project_id,
+          filter (where admitted and coalesce(project_id, scope_project_ids[1]) is not null and ${visibleProject}
+            -- Registro, A8 «Clienti in attesa»: un progetto che non c'è più (il perimetro
+            -- scope_project_ids non ha chiave esterna) non fa una riga, né conta in total.
+            and exists (select 1 from projects pr where pr.id = coalesce(project_id, scope_project_ids[1]))))[1] as project_id,
         (array_agg(status order by received_at desc, id desc) filter (where admitted))[1] as status,
         (array_agg(importance order by received_at desc, id desc) filter (where admitted))[1] as importance,
         (array_agg(subject order by received_at desc, id desc) filter (where admitted))[1] as subject
