@@ -1,7 +1,7 @@
 import { aiProviderViewSchema, createAiProviderSchema, updateAiProviderSchema } from "@stubwise/shared";
 import { recordChange } from "../services/change-log.js";
 import { aiProviders, aiUsageSnapshots, encrypt, projects, type Db } from "@stubwise/db";
-import { and, asc, count, desc, eq, ne, sql } from "drizzle-orm";
+import { asc, count, desc, eq, or, sql } from "drizzle-orm";
 
 type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
 
@@ -18,11 +18,24 @@ const lastEnabledOrThrow = (error: unknown): typeof LAST_ENABLED => {
 const lastEnabledError = (reply: Parameters<typeof apiError>[0]) =>
   apiError(reply, 409, "last_enabled_provider", "This is the only enabled AI account: enable another one first");
 
-/** Gli ALTRI account accesi, bloccati per la transazione: due spegnimenti in corsa non lasciano zero accesi. */
-async function otherEnabled(tx: DbOrTx, id: string): Promise<number> {
-  // In ordine di id (revisione del lotto 1): chi blocca più account li prende sempre nello stesso ordine.
-  const rows = await tx.select({ id: aiProviders.id }).from(aiProviders).where(and(eq(aiProviders.enabled, true), ne(aiProviders.id, id))).orderBy(asc(aiProviders.id)).for("update");
-  return rows.length;
+/**
+ * L'account `id` e tutti quelli accesi, bloccati in UNA query in ordine di id:
+ * due spegnimenti in corsa non lasciano zero accesi, e chi blocca più account
+ * (questa regola, il riordino dell'«Annulla» di Claude che li blocca tutti per
+ * id) li prende nello stesso ordine. Prima si bloccava la riga dell'account e
+ * POI gli altri: contro un riordino in corso le due transazioni potevano
+ * aspettarsi a vicenda (revisione del lotto 1). Nessun test deterministico:
+ * l'ordine dei lock di due transazioni non si riproduce a comando, ed è
+ * l'unica query che conta.
+ */
+async function lockForEnabledRule(tx: DbOrTx, id: string): Promise<{ target: AiProviderRow | undefined; othersEnabled: number }> {
+  const rows = await tx
+    .select()
+    .from(aiProviders)
+    .where(or(eq(aiProviders.id, id), eq(aiProviders.enabled, true)))
+    .orderBy(asc(aiProviders.id))
+    .for("update");
+  return { target: rows.find((r) => r.id === id), othersEnabled: rows.filter((r) => r.id !== id && r.enabled).length };
 }
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -175,13 +188,13 @@ export async function patchProvider(
 
   // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una lettura.
   const row = await db.transaction(async (tx) => {
-    const [before] = await tx.select().from(aiProviders).where(eq(aiProviders.id, id)).for("update");
+    const { target: before, othersEnabled } = await lockForEnabledRule(tx, id);
     if (!before || Object.keys(updates).length === 0) return before;
     // Una posizione a mano è un riordino (registro, area 9): la stessa voce di `reorderProviders`.
     const orderOf = () => tx.select().from(aiProviders).orderBy(asc(aiProviders.position), asc(aiProviders.createdAt));
     const beforeOrder = position !== undefined ? await orderOf() : [];
     // Task 8c: l'ultimo account acceso non si spegne.
-    if (before.enabled && updates.enabled === false && (await otherEnabled(tx, before.id)) === 0) throw new LastEnabledProvider();
+    if (before.enabled && updates.enabled === false && othersEnabled === 0) throw new LastEnabledProvider();
     const [after] = await tx.update(aiProviders).set(updates).where(eq(aiProviders.id, id)).returning();
     const object = providerObject(after!);
     // Area 9, F3: le voci del prototipo. L'interruttore con on/off; la
@@ -366,8 +379,8 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
       // qui, nella stessa transazione e PRIMA della cancellazione.
       const deleted = await app.db.transaction(async (tx) => {
         // Task 8c: l'ultimo account acceso non si elimina.
-        const [target] = await tx.select({ enabled: aiProviders.enabled }).from(aiProviders).where(eq(aiProviders.id, request.params.id)).for("update");
-        if (target?.enabled && (await otherEnabled(tx, request.params.id)) === 0) throw new LastEnabledProvider();
+        const { target, othersEnabled } = await lockForEnabledRule(tx, request.params.id);
+        if (target?.enabled && othersEnabled === 0) throw new LastEnabledProvider();
         await tx
           .update(projects)
           .set({ aiProviderExclusive: false })
