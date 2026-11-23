@@ -414,12 +414,19 @@ export const isConversationOwner = (conversationId: string): boolean =>
  * copiare. Un server di prima non manda il campo: `?? null`, cioè riuscita
  * (il web e l'app leggono senza parse, quindi la difesa sta qui).
  */
-function mailNotSavedOf(group: GroupView | undefined): { text: string } | undefined {
-  const failed = group?.actions.find(
-    (a) => a.fn === "fillMailBody" && ((a as { effectFailure?: string | null }).effectFailure ?? null) === "mail_not_saved",
-  );
-  if (!failed) return undefined;
-  return { text: typeof failed.args["text"] === "string" ? (failed.args["text"] as string) : "" };
+function mailNotSavedOf(
+  group: GroupView | undefined,
+): { text: string; retry?: { groupId: string; index: number } } | undefined {
+  const index =
+    group?.actions.findIndex(
+      (a) => a.fn === "fillMailBody" && ((a as { effectFailure?: string | null }).effectFailure ?? null) === "mail_not_saved",
+    ) ?? -1;
+  if (!group || index < 0) return undefined;
+  const failed = group.actions[index]!;
+  const text = typeof failed.args["text"] === "string" ? (failed.args["text"] as string) : "";
+  // Lotto 4, §5: «Retry» solo se il server lo permette (chi ha confermato); un server di prima non lo dice.
+  const canRetry = (failed as { canRetryEffect?: boolean }).canRetryEffect === true;
+  return canRetry ? { text, retry: { groupId: group.id, index } } : { text };
 }
 
 function proposalEvent(p: ProposalView, at: string, actions: ChatActions): ConversationEvent {
@@ -824,5 +831,30 @@ function refusedUndo(details: unknown): Awaited<ReturnType<Fake["claude"]["undoC
   return { ok: false, error: "not_undoable" };
 }
 
-/** Il namespace `claude` della build app: solo «Undo» (il resto è del prototipo). */
-export const claudeChatNamespace = { undoClaudeActions };
+/**
+ * Lotto 4, §5 (72, f7859ebf3): «Retry» del salvataggio di un `fillMailBody`
+ * che Gmail non ha preso, col testo salvato dal server. `already_saved` è un
+ * successo (la scheda rilegge e dice «Done»).
+ */
+async function retryClaudeEffect(
+  _conversationId: string,
+  groupId: string,
+  index: number,
+): ReturnType<Fake["claude"]["retryClaudeEffect"]> {
+  try {
+    await appClient().claude.groups.retryEffect(groupId, index);
+    return { ok: true };
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    if (error.code === "already_saved") return { ok: true };
+    if (error.status === 404) return { ok: false, error: "not_found" };
+    const known = ["not_retryable", "mail_not_found", "mail_forbidden", "draft_changed", "mail_not_saved"] as const;
+    const code = known.find((k) => k === error.code);
+    if (!code) throw error;
+    const reason = (error.details as { reason?: unknown } | undefined)?.reason;
+    return { ok: false, error: code, ...(typeof reason === "string" ? { reason } : {}) };
+  }
+}
+
+/** Il namespace `claude` della build app: «Undo» e «Retry» (il resto è del prototipo). */
+export const claudeChatNamespace = { undoClaudeActions, retryClaudeEffect };

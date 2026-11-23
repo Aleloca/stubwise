@@ -4171,6 +4171,13 @@
         "done": "Fatto",
         "doneEdited": "Fatto (modificata)",
         "mailNotSaved": "Non salvato su Gmail: il testo non è nella tua bozza.",
+        "retrySave": "Riprova",
+        "retryFailed": {
+          "reconnect": "Gmail non l'ha salvata: ricollega la casella nelle Preferenze, poi riprova.",
+          "changed": "La bozza è cambiata dopo che Claude l'ha scritta: copia il testo.",
+          "gone": "La casella o la conversazione non ci sono più: copia il testo.",
+          "generic": "Ancora non salvata su Gmail. Riprova più tardi, o copia il testo."
+        },
         "copyText": "Copia il testo",
         "copied": "Copiato",
         "partial_one": "{{done}} di {{count}} modifica",

@@ -1448,7 +1448,7 @@ export type ConversationEvent =
        * server). La scheda non dice «Done»: dice che non è nella bozza e dà
        * il testo da copiare.
        */
-      mailNotSaved?: { text: string };
+      mailNotSaved?: { text: string; retry?: { groupId: string; index: number } };
       /**
        * Area 10a (I1 della revisione finale): la scheda di un «Annulla» il cui
        * inverso avviserebbe qualcuno o farebbe partire un'automazione. È il

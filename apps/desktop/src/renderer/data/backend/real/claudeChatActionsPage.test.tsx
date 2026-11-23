@@ -91,6 +91,8 @@ const groupA = (over: Record<string, unknown> = {}) => ({
 });
 
 const ALLOWED = [
+  // Lotto 4, §5: «Retry» di un fillMailBody non salvato.
+  /^POST \/api\/claude\/groups\/[^/]+\/actions\/\d+\/retry$/,
   // Registro: i blocchi dell'istanza accesi, il composer chiede se si può caricare.
   /^GET \/api\/storage\/uploads$/,
   // Il punto della Chat sul binario (area 4, fetta 1).
@@ -237,6 +239,71 @@ describe("le azioni di Claude nella pagina della conversazione", () => {
       await ue.click(within(proposal).getByRole("button", { name: "Copy the text" }));
       expect(await navigator.clipboard.readText()).toBe("Ciao Bob, arriva lunedì.");
       expect(await within(proposal).findByText("Copied")).toBeInTheDocument();
+    });
+
+    // Lotto 4, §5 (72, f7859ebf3): «Retry» rilancia il salvataggio sul server
+    // (`POST /api/claude/groups/:id/actions/:index/retry`), solo se il server
+    // lo permette (`canRetryEffect`, a chi ha confermato).
+    describe("«Retry» (lotto 4, §5)", () => {
+      const routesWith = (retry: unknown, after: () => unknown[]) => ({
+        [`POST /api/claude/groups/${GROUP_A}/actions/0/retry`]: retry,
+        [`GET /api/claude/conversations/${CONV}/groups`]: () => ({ body: after() }),
+      });
+
+      it("riuscito: la scheda torna «Done»", async () => {
+        let saved = false;
+        install({
+          proposals: [cardB({ actions: [fill], reasons: [], status: "confirmed", canConfirm: false, canCancel: false, groupId: GROUP_A })],
+          groups: [groupA({ proposalId: PROPOSAL, actions: [{ ...fill, codes: [], effectFailure: "mail_not_saved", canRetryEffect: true }] })],
+          routes: routesWith(
+            () => {
+              saved = true;
+              return { body: groupA({ proposalId: PROPOSAL, actions: [{ ...fill, codes: [], effectFailure: null, canRetryEffect: false }] }) };
+            },
+            () => [groupA({ proposalId: PROPOSAL, actions: [{ ...fill, codes: [], effectFailure: saved ? null : "mail_not_saved", canRetryEffect: !saved }] })],
+          ),
+        });
+        renderRoute(`/claude/${CONV}`);
+        const proposal = await card();
+        await userEvent.click(await within(proposal).findByRole("button", { name: "Retry" }));
+        await waitFor(() => expect(proposal).toHaveTextContent("Done"));
+        expect(seen.some((r) => r.method === "POST" && r.path === `/api/claude/groups/${GROUP_A}/actions/0/retry`)).toBe(true);
+      });
+
+      it("la casella da ricollegare: lo dice, e «Copy the text» resta", async () => {
+        install({
+          proposals: [cardB({ actions: [fill], reasons: [], status: "confirmed", canConfirm: false, canCancel: false, groupId: GROUP_A })],
+          groups: [groupA({ proposalId: PROPOSAL, actions: [{ ...fill, codes: [], effectFailure: "mail_not_saved", canRetryEffect: true }] })],
+          routes: routesWith(
+            { status: 409, body: { code: "mail_not_saved", message: "x", reason: "token_expired" } },
+            () => [groupA({ proposalId: PROPOSAL, actions: [{ ...fill, codes: [], effectFailure: "mail_not_saved", canRetryEffect: true }] })],
+          ),
+        });
+        renderRoute(`/claude/${CONV}`);
+        const proposal = await card();
+        await userEvent.click(await within(proposal).findByRole("button", { name: "Retry" }));
+        expect(
+          await within(proposal).findByText("Gmail didn't save it: reconnect the mailbox in Preferences, then retry."),
+        ).toBeInTheDocument();
+        expect(within(proposal).getByRole("button", { name: "Copy the text" })).toBeInTheDocument();
+      });
+
+      it("la bozza cambiata nel frattempo: non si sovrascrive, lo dice", async () => {
+        install({
+          proposals: [cardB({ actions: [fill], reasons: [], status: "confirmed", canConfirm: false, canCancel: false, groupId: GROUP_A })],
+          groups: [groupA({ proposalId: PROPOSAL, actions: [{ ...fill, codes: [], effectFailure: "mail_not_saved", canRetryEffect: true }] })],
+          routes: routesWith(
+            { status: 409, body: { code: "draft_changed", message: "x" } },
+            () => [groupA({ proposalId: PROPOSAL, actions: [{ ...fill, codes: [], effectFailure: "mail_not_saved", canRetryEffect: true }] })],
+          ),
+        });
+        renderRoute(`/claude/${CONV}`);
+        const proposal = await card();
+        await userEvent.click(await within(proposal).findByRole("button", { name: "Retry" }));
+        expect(
+          await within(proposal).findByText("The draft changed after Claude wrote it: copy the text instead."),
+        ).toBeInTheDocument();
+      });
     });
 
     it("un server di prima, senza `effectFailure` nel gruppo: «Done» come ogni scheda confermata", async () => {

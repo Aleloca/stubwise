@@ -7,8 +7,10 @@ import {
   useEditProposal,
   usePeople,
   useProjects,
+  useRetryClaudeEffect,
   useRoles,
 } from "../../../data/queries";
+import type { RetryEffectResult } from "../../../data/claude";
 import type {
   ClassReason,
   NewTaskInput,
@@ -144,6 +146,7 @@ export function ProposalCard({
     <ProposalCardView
       event={event}
       viewerId={viewerId}
+      conversationId={conversationId}
       after={
         event.status === "confirmed" && event.groupId ? (
           <UndoControl
@@ -274,10 +277,13 @@ export function ProposalCardView({
   cantActNote,
   refusalText,
   after,
+  conversationId,
 }: {
   event: Ev<"proposal">;
   viewerId: string;
   ops: ProposalOps;
+  /** Lotto 4, §5: la conversazione della scheda, per «Retry» di un seguito non riuscito. */
+  conversationId?: string;
   renderText?: (text: string) => ReactNode;
   renderCode?: (code: string) => ReactNode;
   /** Sotto l'esito di una scheda confermata («Undo» del gruppo, area 10a). */
@@ -407,7 +413,14 @@ export function ProposalCardView({
     switch (event.status) {
       case "confirmed": {
         // Build app: confermata, ma Gmail non ha salvato il corpo: mai «Done».
-        if (event.mailNotSaved) return <MailNotSaved text={event.mailNotSaved.text} />;
+        if (event.mailNotSaved)
+          return (
+            <MailNotSaved
+              text={event.mailNotSaved.text}
+              retry={conversationId ? event.mailNotSaved.retry : undefined}
+              conversationId={conversationId ?? ""}
+            />
+          );
         const codes = event.resultCodes ?? [];
         const partial = event.confirmedActions
           ? t("claude.conversation.proposal.partial", {
@@ -987,16 +1000,64 @@ function ReasonRows({ reasons }: { reasons: readonly ClassReason[] }) {
   );
 }
 
+/** I motivi di un «Retry» non riuscito che vogliono una frase loro (lotto 4, §5). */
+const RECONNECT = new Set(["mail_forbidden", "token_expired", "google_scope_missing", "account_disabled"]);
+
+function retryFailureKey(r: Exclude<RetryEffectResult, { ok: true }>): string {
+  const words = "claude.conversation.proposal.retryFailed";
+  if (r.error === "mail_forbidden" || (r.error === "mail_not_saved" && r.reason && RECONNECT.has(r.reason)))
+    return `${words}.reconnect`;
+  if (r.error === "draft_changed") return `${words}.changed`;
+  if (r.error === "mail_not_found" || r.error === "not_found") return `${words}.gone`;
+  return `${words}.generic`;
+}
+
 /**
  * `fillMailBody` confermata ma non salvata su Gmail (area 6, F3): lo dice, e
- * dà il testo da copiare. «Retry» non c'è in questa fetta (registro).
+ * dà il testo da copiare. Lotto 4, §5: «Retry» rilancia il salvataggio sul
+ * server, solo se il server lo permette (`retry`); un rifiuto dice perché, e
+ * il testo resta da copiare.
  */
-function MailNotSaved({ text }: { text: string }) {
+function MailNotSaved({
+  text,
+  retry,
+  conversationId,
+}: {
+  text: string;
+  retry?: { groupId: string; index: number };
+  conversationId: string;
+}) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
+  const retrying = useRetryClaudeEffect();
+  const [failed, setFailed] = useState<string | null>(null);
+  const doRetry = () => {
+    if (!retry || retrying.isPending) return;
+    setFailed(null);
+    retrying.mutate(
+      { id: conversationId, groupId: retry.groupId, index: retry.index },
+      {
+        onSuccess: (r) => {
+          if (!r.ok) setFailed(retryFailureKey(r));
+        },
+        onError: () => setFailed("claude.conversation.proposal.retryFailed.generic"),
+      },
+    );
+  };
   return (
     <p className="flex flex-wrap items-baseline gap-x-1 text-sm text-critical">
       <span className="font-semibold">{t("claude.conversation.proposal.mailNotSaved")}</span>
+      {retry && (
+        <button
+          type="button"
+          className="rounded-sm font-medium text-ink underline underline-offset-2"
+          aria-busy={retrying.isPending}
+          disabled={retrying.isPending}
+          onClick={doRetry}
+        >
+          {t("claude.conversation.proposal.retrySave")}
+        </button>
+      )}
       <button
         type="button"
         className="rounded-sm font-medium text-ink underline underline-offset-2"
@@ -1010,6 +1071,11 @@ function MailNotSaved({ text }: { text: string }) {
         {t("claude.conversation.proposal.copyText")}
       </button>
       {copied && <span role="status" className="text-ink-muted">{t("claude.conversation.proposal.copied")}</span>}
+      {failed && (
+        <span role="alert" className="basis-full text-ink-muted">
+          {t(failed)}
+        </span>
+      )}
     </p>
   );
 }

@@ -758,3 +758,34 @@ function refusalOf(me: string, failure: GroupFailure, reversed: ClaudeActionReco
       return { ok: false, error: "not_undoable" };
   }
 }
+
+/**
+ * Lotto 4, §5: «Retry» del seguito di un'azione confermata che non è
+ * riuscito (oggi solo `fillMailBody` nella build app, che il prototipo non
+ * ha: la Posta lo scrive da sé). Nel prototipo nessun seguito si rilancia.
+ */
+export type RetryEffectResult =
+  | { ok: true }
+  | {
+      ok: false;
+      error:
+        | "not_found"
+        | "not_retryable"
+        | "mail_not_found"
+        | "mail_forbidden"
+        | "draft_changed"
+        | "mail_not_saved";
+      reason?: string;
+    };
+
+export async function retryClaudeEffect(
+  conversationId: string,
+  groupId: string,
+  index: number,
+): Promise<RetryEffectResult> {
+  await gate("claude.retryEffect");
+  void conversationId;
+  void groupId;
+  void index;
+  return { ok: false, error: "not_retryable" };
+}

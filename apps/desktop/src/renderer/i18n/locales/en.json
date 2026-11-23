@@ -4171,6 +4171,13 @@
         "done": "Done",
         "doneEdited": "Done (edited)",
         "mailNotSaved": "Not saved to Gmail: the text isn't in your draft.",
+        "retrySave": "Retry",
+        "retryFailed": {
+          "reconnect": "Gmail didn't save it: reconnect the mailbox in Preferences, then retry.",
+          "changed": "The draft changed after Claude wrote it: copy the text instead.",
+          "gone": "The mailbox or the conversation is no longer there: copy the text instead.",
+          "generic": "Still not saved to Gmail. Try again later, or copy the text."
+        },
         "copyText": "Copy the text",
         "copied": "Copied",
         "partial_one": "{{done}} of {{count}} change",

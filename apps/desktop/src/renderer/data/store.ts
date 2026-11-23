@@ -279,6 +279,7 @@ export type ApiFnName =
   | "getTaskDeletion"
   // «Annulla» di un gruppo di azioni di Claude (area 10a, Task 5)
   | "claude.undo"
+  | "claude.retryEffect"
   | "updateTask"
   | "bulkUpdateTasks"
   | "planTask"

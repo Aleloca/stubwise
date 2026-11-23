@@ -1827,6 +1827,15 @@ export function useUndoClaudeActions() {
   );
 }
 
+/** Lotto 4, §5: «Retry» del seguito non riuscito di un'azione (il corpo dell'email su Gmail). */
+export function useRetryClaudeEffect() {
+  return useWrite(
+    ({ id, groupId, index }: { id: string; groupId: string; index: number }) =>
+      api.claude.retryClaudeEffect(id, groupId, index),
+    PROPOSAL_AREAS,
+  );
+}
+
 /** «Modifica» salvata dal dialogo: la proposta si chiude «Done (edited)» con i codici nati. */
 export function useCompleteEditedProposal() {
   return useWrite(
