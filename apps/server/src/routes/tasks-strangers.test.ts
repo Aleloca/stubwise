@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { automations, backlogItemRequesters, projects, tickets, users } from "@stubwise/db";
+import { automations, backlogItemRequesters, claudeActionGroups, claudeActions, comments, decisionRequests, projects, ticketEvents, tickets, users } from "@stubwise/db";
 import { seedBacklogItem, seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
@@ -54,6 +54,41 @@ describe("le task senza gli sconosciuti", () => {
     expect(res.body).not.toContain(stranger!.id);
     const items = (res.json() as { items: { id: string; manualStall: { byId: string | null } | null }[] }).items;
     expect(items.find((i) => i.manualStall)?.manualStall?.byId).toBe("hidden-1");
+  });
+
+  it("revisione del lotto 2, I1: nel registro della task un cambio d'assegnatario da uno sconosciuto ha `from` null (né nome né id), e chi ha cancellato un commento è `hidden-<n>`", async () => {
+    const { projectId, ticketId } = await seedTicket(t.db);
+    const reader = await createUserWithSession(app, `reader-ac-${randomUUID().slice(0, 6)}@example.com`);
+    await addMember(app, projectId, reader.id, "developer");
+    const [stranger] = await t.db.insert(users).values({ email: `stranger-ac-${randomUUID().slice(0, 6)}@x.it`, passwordHash: "x", role: "member", displayName: "Zeta" }).returning({ id: users.id });
+    await t.db.insert(ticketEvents).values({ ticketId, actorId: reader.id, kind: "assignee_changed", payload: { from: stranger!.id, to: reader.id } } as never);
+    await t.db.insert(comments).values({ ticketId, authorType: "user", authorId: reader.id, body: "", deletedAt: new Date(), deletedByUserId: stranger!.id } as never);
+    // Un commento «via Claude» chiesto dallo sconosciuto: `viaClaudeRequesterId` è il segnaposto.
+    const [group] = await t.db.insert(claudeActionGroups).values({ requesterId: stranger!.id }).returning({ id: claudeActionGroups.id });
+    const [action] = await t.db.insert(claudeActions).values({ groupId: group!.id, seq: 1, fn: "commentTask", args: {}, cls: "A" } as never).returning({ id: claudeActions.id });
+    await t.db.insert(comments).values({ ticketId, authorType: "user", authorId: reader.id, body: "via Claude", viaClaudeActionId: action!.id } as never);
+    const res = await app.inject({ method: "GET", url: `/api/tasks/${ticketId}/activity`, headers: { cookie: reader.headers.cookie } });
+    expect(res.statusCode, res.body).toBe(200);
+    const entries = res.json() as { kind: string; from?: string | null; to?: string | null; deletedById?: string; viaClaude?: boolean; viaClaudeRequesterId?: string | null }[];
+    const change = entries.find((e) => e.kind === "field_change")!;
+    expect(change.from).toBeNull();
+    expect(change.to).not.toBeNull();
+    expect(entries.find((e) => e.kind === "comment" && e.deletedById)!.deletedById).toBe("hidden-1");
+    expect(entries.find((e) => e.viaClaude)!.viaClaudeRequesterId).toBe("hidden-1");
+    expect(res.body).not.toContain(stranger!.id);
+    expect(res.body).not.toContain("Zeta");
+  });
+
+  it("revisione del lotto 2, I1: una task ferma per una decisione chiesta a uno sconosciuto — `stall.reason.personId` è `hidden-<n>`", async () => {
+    const { projectId, ticketId } = await seedTicket(t.db);
+    const reader = await createUserWithSession(app, `reader-sd-${randomUUID().slice(0, 6)}@example.com`);
+    await addMember(app, projectId, reader.id, "developer");
+    const [stranger] = await t.db.insert(users).values({ email: `stranger-sd-${randomUUID().slice(0, 6)}@x.it`, passwordHash: "x", role: "member" }).returning({ id: users.id });
+    await t.db.insert(decisionRequests).values({ ticketId, askedByUserId: reader.id, askedOfUserId: stranger!.id, question: "Sì?", options: [] } as never);
+    const res = await app.inject({ method: "GET", url: `/api/tasks/stalled?projectId=${projectId}`, headers: { cookie: reader.headers.cookie } });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.body).not.toContain(stranger!.id);
+    expect(res.body).toContain('"personId":"hidden-');
   });
 
   it("una richiesta di uno sconosciuto: `requesterIds` porta `hidden-<n>`, il suo id non esce", async () => {

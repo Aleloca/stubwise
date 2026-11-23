@@ -1,3 +1,5 @@
+import type { SessionUser } from "../auth/session.js";
+import { hiddenFor } from "./people-known.js";
 import { comments, decisionRequests, departments, milestones, projectStatuses, ticketEvents, tickets, users, type Db } from "@stubwise/db";
 import { sizeFromEffort, type TaskActivityEntryView } from "@stubwise/shared";
 import { asc, eq, inArray } from "drizzle-orm";
@@ -35,7 +37,11 @@ function eventValue(value: unknown): string | null {
  * cambi di campo e richieste di decisione, in ordine di tempo. Estratto dalla
  * rotta (chat, fetta 3) per derivarci a lettura il segno «via Claude».
  */
-export async function taskActivity(db: Db, ticketId: string): Promise<TaskActivityEntryView[]> {
+export async function taskActivity(
+  db: Db,
+  ticketId: string,
+  viewer?: Pick<SessionUser, "id" | "instancePermissions">,
+): Promise<TaskActivityEntryView[]> {
   // I nomi degli stati del progetto: un cambio di stato si legge col nome.
   const statusRows = await db
     .select({ id: projectStatuses.id, name: projectStatuses.name, legacy: projectStatuses.legacyStatus })
@@ -66,7 +72,8 @@ export async function taskActivity(db: Db, ticketId: string): Promise<TaskActivi
     const raw = payload[side];
     if (kind === "status_changed") return statusName(payload[side === "from" ? "fromStatusId" : "toStatusId"], raw);
     if (kind === "department_changed") return typeof raw === "string" ? (departmentName.get(raw) ?? raw) : null;
-    if (kind === "assignee_changed") return typeof raw === "string" ? (userName.get(raw) ?? raw) : null;
+    // Registro, A11 r.1414: un assegnatario che chi guarda non conosce non esce, né per nome né per id.
+    if (kind === "assignee_changed") return typeof raw === "string" && (!hidden || hidden.knows(raw)) ? (userName.get(raw) ?? raw) : null;
     if (kind === "milestone_changed") return typeof raw === "string" ? (milestoneName.get(raw) ?? raw) : null;
     if (kind === "effort_changed") return typeof raw === "number" ? sizeFromEffort(raw) : null;
     return eventValue(raw);
@@ -110,6 +117,7 @@ export async function taskActivity(db: Db, ticketId: string): Promise<TaskActivi
       : [],
   ]);
   const userName = new Map(userRows.map((u) => [u.id, personName(u)]));
+  const hidden = viewer && assigneeIds.some((id) => id !== viewer.id) ? await hiddenFor(db, viewer) : null;
   // «via Claude» (chat, fetta 3): derivato dalle colonne, UNA query per registro.
   const via = await loadViaClaude(db, [
     ...commentRows.map((c) => c.viaClaudeActionId),
