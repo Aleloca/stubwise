@@ -211,6 +211,27 @@ describe("Annulla, Riprova, Elimina", () => {
     expect((await mail.undoSend(O1)).gmailOutdated).toBe(false);
   });
 
+  // Revisione del lotto 2, I5 (72, 5c8747ef2): l'unione ha perso qualcosa e
+  // la versione annullata resta fra le bozze di Gmail (`gmailCopyKept`).
+  it("«Annulla» ed «Elimina» con la copia tenuta su Gmail: `gmailCopyKept`", async () => {
+    installFakeServer({
+      ...base,
+      [`POST /api/me/mail/outgoing/${O1}/undo`]: {
+        body: { draft: draft(), droppedAttachments: ["listino.pdf"], gmailCopyKept: true },
+      },
+      [`POST /api/me/mail/outgoing/${O1}/discard`]: {
+        body: { draft: draft(), droppedAttachments: [], gmailOutdated: true, gmailCopyKept: true },
+      },
+    });
+    expect(await mail.undoSend(O1)).toMatchObject({ gmailCopyKept: true, gmailOutdated: false });
+    expect(await mail.deleteFailedSend(O1)).toMatchObject({ gmailCopyKept: true, gmailOutdated: true });
+  });
+
+  it("un server senza `gmailCopyKept`: nessuna copia tenuta", async () => {
+    installFakeServer({ ...base, [`POST /api/me/mail/outgoing/${O1}/undo`]: { body: { draft: draft(), droppedAttachments: [] } } });
+    expect((await mail.undoSend(O1)).gmailCopyKept).toBe(false);
+  });
+
   it("un server di prima (senza `unsaved`): la bozza tornata è salvata", async () => {
     installFakeServer({ ...base, [`POST /api/me/mail/outgoing/${O1}/undo`]: { body: { draft: draft(), droppedAttachments: [] } } });
     expect((await mail.undoSend(O1)).unsaved).toBe(false);
